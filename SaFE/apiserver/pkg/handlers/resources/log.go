@@ -32,7 +32,7 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/timeutil"
 )
 
-// GetWorkloadLog retrieves logs for a workload from OpenSearch or similar logging service.
+// GetWorkloadLog retrieves logs for a workload from OpenSearch
 func (h *Handler) GetWorkloadLog(c *gin.Context) {
 	handle(c, h.getWorkloadLog)
 }
@@ -40,6 +40,11 @@ func (h *Handler) GetWorkloadLog(c *gin.Context) {
 // GetServiceLog retrieves service logs from the logging backend.
 func (h *Handler) GetServiceLog(c *gin.Context) {
 	handle(c, h.getServiceLog)
+}
+
+// GetWorkloadEvent retrieves events for a workload from OpenSearch
+func (h *Handler) GetWorkloadEvent(c *gin.Context) {
+	handle(c, h.getWorkloadEvent)
 }
 
 // GetWorkloadLogContext retrieves contextual log information for a workload.
@@ -82,7 +87,7 @@ func (h *Handler) getWorkloadLog(c *gin.Context) (interface{}, error) {
 		return nil, commonerrors.NewInternalError("There is no OpenSearch in cluster " + clusterId)
 	}
 	return opensearchClient.SearchByTimeRange(query.SinceTime, query.UntilTime,
-		"/_search", buildSearchBody(query, name))
+		"", "/_search", buildSearchBody(query, name))
 }
 
 // getServiceLog retrieves logs for a specific service from OpenSearch.
@@ -107,7 +112,43 @@ func (h *Handler) getServiceLog(c *gin.Context) (interface{}, error) {
 		return nil, commonerrors.NewInternalError("There is no OpenSearch in cluster " + "")
 	}
 	return opensearchClient.SearchByTimeRange(query.SinceTime, query.UntilTime,
-		"/_search", buildSearchBody(query, ""))
+		"", "/_search", buildSearchBody(query, ""))
+}
+
+// getWorkloadEvent retrieves events for a specific workload from OpenSearch.
+func (h *Handler) getWorkloadEvent(c *gin.Context) (interface{}, error) {
+	if !commonconfig.IsOpenSearchEnable() {
+		return nil, commonerrors.NewInternalError("The logging function is not enabled")
+	}
+	name := c.GetString(common.Name)
+	if name == "" {
+		return nil, commonerrors.NewBadRequest("the workloadId is empty")
+	}
+	workload, err := h.getWorkloadForAuth(c.Request.Context(), name)
+	if err != nil {
+		return nil, err
+	}
+
+	if err = h.accessController.Authorize(authority.AccessInput{
+		Context:    c.Request.Context(),
+		Resource:   workload,
+		Verb:       v1.GetVerb,
+		Workspaces: []string{workload.Spec.Workspace},
+		UserId:     c.GetString(common.UserId),
+	}); err != nil {
+		return nil, err
+	}
+	clusterId := v1.GetClusterId(workload)
+	query, err := parseEventLogQuery(c, workload)
+	if err != nil {
+		return nil, err
+	}
+	opensearchClient := commonsearch.GetOpensearchClient(clusterId)
+	if opensearchClient == nil {
+		return nil, commonerrors.NewInternalError("There is no OpenSearch in cluster " + clusterId)
+	}
+	return opensearchClient.SearchByTimeRange(query.SinceTime, query.UntilTime,
+		"k8s-event-", "/_search", buildSearchBody(query, name))
 }
 
 // getWorkloadLogContext retrieves contextual logs for a specific workload from OpenSearch.
@@ -145,7 +186,7 @@ func (h *Handler) getWorkloadLogContext(c *gin.Context) (interface{}, error) {
 // searchContextLog performs concurrent OpenSearch queries to retrieve contextual logs for a workload.
 // It executes two parallel searches (before and after the target log) using the provided queries
 // Returns the combined search results or an error if any search fails.
-func (h *Handler) searchContextLog(queries []view.ListContextLogRequest, workloadId string) (*commonsearch.OpenSearchResponse, error) {
+func (h *Handler) searchContextLog(queries []view.ListContextLogRequest, workloadId string) (*commonsearch.OpenSearchLogResponse, error) {
 	startTime := time.Now().UTC()
 	const count = 2
 	ch := make(chan view.ListContextLogRequest, count)
@@ -162,12 +203,12 @@ func (h *Handler) searchContextLog(queries []view.ListContextLogRequest, workloa
 	if opensearchClient == nil {
 		return nil, commonerrors.NewInternalError("There is no OpenSearch in cluster " + clusterId)
 	}
-	var response [count]commonsearch.OpenSearchResponse
+	var response [count]commonsearch.OpenSearchLogResponse
 	_, err = concurrent.Exec(count, func() error {
 		wrapper := <-ch
 		query := wrapper.Query
 		resp, err := opensearchClient.SearchByTimeRange(query.SinceTime, query.UntilTime,
-			"/_search", buildSearchBody(query, workloadId))
+			"", "/_search", buildSearchBody(query, workloadId))
 		if err != nil {
 			return err
 		}
@@ -180,7 +221,7 @@ func (h *Handler) searchContextLog(queries []view.ListContextLogRequest, workloa
 		return nil, err
 	}
 
-	result := &commonsearch.OpenSearchResponse{}
+	result := &commonsearch.OpenSearchLogResponse{}
 	if err = addContextDoc(result, queries[0], &response[0], true); err != nil {
 		return nil, err
 	}
@@ -199,13 +240,12 @@ func buildSearchBody(query *view.ListLogRequest, workloadId string) []byte {
 	req := &commonsearch.OpenSearchRequest{
 		From: query.Offset,
 		Size: query.Limit,
-		Sort: []commonsearch.OpenSearchField{{
-			commonsearch.TimeField: map[string]interface{}{
-				"order": query.Order,
-			}},
-		},
 	}
-
+	req.Sort = []commonsearch.OpenSearchField{{
+		commonsearch.TimeField: map[string]interface{}{
+			"order": query.Order,
+		}},
+	}
 	req.Query.Bool.Must = []commonsearch.OpenSearchField{{
 		"range": map[string]interface{}{
 			commonsearch.TimeField: map[string]string{
@@ -214,7 +254,6 @@ func buildSearchBody(query *view.ListLogRequest, workloadId string) []byte {
 			},
 		},
 	}}
-
 	buildFilter(req, query)
 	buildKeywords(req, query)
 	buildOutput(req, query, workloadId)
@@ -222,7 +261,8 @@ func buildSearchBody(query *view.ListLogRequest, workloadId string) []byte {
 }
 
 func buildFilter(req *commonsearch.OpenSearchRequest, query *view.ListLogRequest) {
-	buildLabelFilter(req, query.Filters)
+	buildSingleTermFilter(req, query.TermFilters, !query.IsEventRequest, false)
+	buildSingleTermFilter(req, query.PrefixFilters, !query.IsEventRequest, true)
 	if query.PodNames != "" {
 		buildMultiTermsFilter(req, "pod_name", query.PodNames)
 	} else if query.NodeNames != "" {
@@ -230,17 +270,25 @@ func buildFilter(req *commonsearch.OpenSearchRequest, query *view.ListLogRequest
 	}
 }
 
-func buildLabelFilter(req *commonsearch.OpenSearchRequest, labelFilters map[string]string) {
-	// including workload id/service name/dispatch count
-	for key, val := range labelFilters {
+func buildSingleTermFilter(req *commonsearch.OpenSearchRequest, filters map[string]string, isK8sLabel, isPrefixMatch bool) {
+	for key, val := range filters {
 		if key == "" || val == "" {
 			continue
 		}
-		// Use the same punctuation handling rules as OpenSearch.
-		key = strings.ReplaceAll(key, ".", "_")
+		if isK8sLabel {
+			// Use the same punctuation handling rules as OpenSearch.
+			key = strings.ReplaceAll(key, ".", "_")
+			key = "kubernetes.labels." + key
+		}
+		filterType := ""
+		if isPrefixMatch {
+			filterType = "prefix"
+		} else {
+			filterType = "term"
+		}
 		req.Query.Bool.Filter = append(req.Query.Bool.Filter, commonsearch.OpenSearchField{
-			"term": map[string]interface{}{
-				"kubernetes.labels." + key + ".keyword": val,
+			filterType: map[string]interface{}{
+				key + ".keyword": val,
 			},
 		})
 	}
@@ -252,11 +300,10 @@ func buildMultiTermsFilter(req *commonsearch.OpenSearchRequest, key, values stri
 		return
 	}
 	var queries []map[string]interface{}
+	termKey := fmt.Sprintf("kubernetes.%s.keyword", key)
 	for _, val := range valueList {
 		queries = append(queries, map[string]interface{}{
-			"term": map[string]string{
-				fmt.Sprintf("kubernetes.%s.keyword", key): val,
-			},
+			"term": map[string]string{termKey: val},
 		})
 	}
 	req.Query.Bool.Must = append(req.Query.Bool.Must, commonsearch.OpenSearchField{
@@ -306,6 +353,9 @@ func normalize(str string) string {
 }
 
 func buildOutput(req *commonsearch.OpenSearchRequest, query *view.ListLogRequest, workloadId string) {
+	if query.IsEventRequest {
+		return
+	}
 	req.Source = []string{
 		commonsearch.TimeField, commonsearch.MessageField, "kubernetes.host",
 	}
@@ -325,11 +375,11 @@ func parseWorkloadLogQuery(c *gin.Context, workload *v1.Workload) (*view.ListLog
 		klog.ErrorS(err, "failed to parse log query")
 		return nil, err
 	}
-	query.Filters = map[string]string{
+	query.TermFilters = map[string]string{
 		v1.WorkloadIdLabel: workload.Name,
 	}
 	if query.DispatchCount > 0 {
-		query.Filters[v1.WorkloadDispatchCntLabel] = strconv.Itoa(query.DispatchCount)
+		query.TermFilters[v1.WorkloadDispatchCntLabel] = strconv.Itoa(query.DispatchCount)
 	}
 	return query, nil
 }
@@ -344,10 +394,29 @@ func parseServiceLogQuery(c *gin.Context) (*view.ListLogRequest, error) {
 	if err != nil {
 		return nil, err
 	}
-	query.DispatchCount = 0
-	query.Filters = map[string]string{
+	query.TermFilters = map[string]string{
 		"app": name,
 	}
+	return query, nil
+}
+
+func parseEventLogQuery(c *gin.Context, workload *v1.Workload) (*view.ListLogRequest, error) {
+	query, err := parseLogQuery(c.Request, workload.CreationTimestamp.Time, workload.EndTime())
+	if err != nil {
+		klog.ErrorS(err, "failed to parse log query")
+		return nil, err
+	}
+	query.TermFilters = map[string]string{
+		"involvedObject.namespace": workload.Spec.Workspace,
+	}
+	query.PrefixFilters = map[string]string{
+		"involvedObject.name": workload.Name,
+	}
+	query.IsEventRequest = true
+	query.Limit = 200
+	// node or pod filtering is not supported
+	query.NodeNames = ""
+	query.PodNames = ""
 	return query, nil
 }
 
@@ -471,8 +540,8 @@ func parseLogQuery(req *http.Request, beginTime, endTime time.Time) (*view.ListL
 // that document (based on isAsc flag) up to the specified limit. Each log entry is assigned
 // a line number for context (positive for forward context, negative for backward context).
 // The function updates the result response with the extracted documents and total count.
-func addContextDoc(result *commonsearch.OpenSearchResponse,
-	query view.ListContextLogRequest, response *commonsearch.OpenSearchResponse, isAsc bool) error {
+func addContextDoc(result *commonsearch.OpenSearchLogResponse,
+	query view.ListContextLogRequest, response *commonsearch.OpenSearchLogResponse, isAsc bool) error {
 	id := -1
 	for i := range response.Hits.Hits {
 		if response.Hits.Hits[i].Id == query.DocId {

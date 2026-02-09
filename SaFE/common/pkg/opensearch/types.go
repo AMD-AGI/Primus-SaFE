@@ -30,7 +30,7 @@ type OpenSearchQuery struct {
 
 type OpenSearchRequest struct {
 	// Specify the fields to return
-	Source []string          `json:"_source"`
+	Source []string          `json:"_source,omitempty"`
 	Query  OpenSearchQuery   `json:"query"`
 	Sort   []OpenSearchField `json:"sort,omitempty"`
 	From   int               `json:"from"`
@@ -42,7 +42,7 @@ type OpenSearchScrollRequest struct {
 	ScrollId string `json:"scroll_id,omitempty"`
 }
 
-type OpenSearchDoc struct {
+type OpenSearchLogDoc struct {
 	// unique document id
 	Id     string `json:"_id"`
 	Source struct {
@@ -66,17 +66,48 @@ type OpenSearchDoc struct {
 	} `json:"_source"`
 }
 
-type OpenSearchHits struct {
+type OpenSearchLogHits struct {
 	Total struct {
 		Value int `json:"value"`
 	} `json:"total"`
-	Hits []OpenSearchDoc `json:"hits"`
+	Hits []OpenSearchLogDoc `json:"hits"`
 }
 
-type OpenSearchResponse struct {
+type OpenSearchLogResponse struct {
 	// Query duration, in milliseconds
 	Took int64 `json:"took,omitempty"`
 	// Total number of returned documents
-	Hits     OpenSearchHits `json:"hits"`
-	ScrollId string         `json:"_scroll_id,omitempty"`
+	Hits     OpenSearchLogHits `json:"hits"`
+	ScrollId string            `json:"_scroll_id,omitempty"`
+}
+
+type OpenSearchEventDoc struct {
+	// unique document id
+	Id     string `json:"_id"`
+	Source struct {
+		Timestamp          string `json:"@timestamp"`
+		Reason             string `json:"reason,omitempty"`
+		Type               string `json:"type,omitempty"`
+		Message            string `json:"message,omitempty"`
+		ReportingComponent string `json:"reportingComponent,omitempty"`
+		InvolvedObject     struct {
+			Kind      string `json:"kind"`
+			Name      string `json:"name"`
+			Namespace string `json:"namespace"`
+		} `json:"involvedObject"`
+	} `json:"_source"`
+}
+
+type OpenSearchEventHits struct {
+	Total struct {
+		Value int `json:"value"`
+	} `json:"total"`
+	Hits []OpenSearchEventDoc `json:"hits"`
+}
+
+type OpenSearchEventResponse struct {
+	// Query duration, in milliseconds
+	Took int64 `json:"took,omitempty"`
+	// Total number of returned documents
+	Hits OpenSearchEventHits `json:"hits"`
 }

@@ -1274,7 +1274,7 @@ func (h *Handler) cvtDBWorkloadToGetResponse(ctx context.Context,
 	if str := dbutils.ParseNullString(dbWorkload.Pods); str != "" {
 		json.Unmarshal([]byte(str), &result.Pods)
 		for i, p := range result.Pods {
-			result.Pods[i].SSHCommand = h.buildSSHAddress(ctx,
+			result.Pods[i].SSHCommand = h.buildSSHCommand(ctx,
 				&p.WorkloadPod, user.Name, result.WorkspaceId, result.GroupVersionKind)
 		}
 	}
@@ -1351,9 +1351,8 @@ func parseCustomerLabels(labels map[string]string) (map[string]string, []string,
 	return customerLabels, specifiedNodes, excludedNodes
 }
 
-// buildSSHAddress constructs the SSH address for accessing a workload pod.
-// Generates the appropriate SSH command based on system configuration and pod status.
-func (h *Handler) buildSSHAddress(ctx context.Context, pod *v1.WorkloadPod, userId, workspace string, gvk v1.GroupVersionKind) string {
+// buildSSHCommand constructs the SSH command for accessing a workload pod.
+func (h *Handler) buildSSHCommand(ctx context.Context, pod *v1.WorkloadPod, userId, workspace string, gvk v1.GroupVersionKind) string {
 	if !commonconfig.IsSSHEnable() || pod.Phase != corev1.PodRunning {
 		return ""
 	}
