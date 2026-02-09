@@ -869,8 +869,10 @@ func (f *GithubWorkflowRunFacade) ListAllWithConfigName(ctx context.Context, fil
 				q = q.Where("r.runner_set_id IN (SELECT id FROM github_runner_sets WHERE github_repo = ?)", filter.Repo)
 			}
 			if filter.PodCondition == "error" {
+				// Only return active error pods (pods that haven't completed yet)
 				q = q.Where("(r.pod_condition IN (?, ?, ?) OR r.status = ?)",
 					PodConditionImagePullBackOff, PodConditionCrashLoopBackOff, PodConditionOOMKilled, WorkflowRunStatusError)
+				q = q.Where("r.workload_completed_at = ?", time.Time{})
 			} else if filter.PodCondition != "" {
 				q = q.Where("r.pod_condition = ?", filter.PodCondition)
 			}
