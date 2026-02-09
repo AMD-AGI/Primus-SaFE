@@ -354,8 +354,8 @@ func (p *RunnerStateProcessor) handleRunSummary(
 		p.triggerGraphFetch(ctx, summary, runnerSet)
 	}
 
-	// Trigger code analysis on first job of this run
-	if !summary.CodeAnalysisTriggered {
+	// Trigger code analysis on first job of this run (only when head_sha is available)
+	if !summary.CodeAnalysisTriggered && summary.HeadSha != "" {
 		p.triggerCodeAnalysis(ctx, summary, runnerSet)
 	}
 
