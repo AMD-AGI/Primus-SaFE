@@ -359,10 +359,10 @@ func (s *ToolService) UploadIcon(ctx context.Context, userID, filename string, f
 		return "", ErrNotConfigured
 	}
 
-	// Generate unique S3 key: tools/icons/{userID}/{timestamp}.{ext}
+	// Generate unique S3 key: icons/{userID}/{timestamp}.{ext}
 	timestamp := time.Now().Unix()
 	ext := filepath.Ext(filename)
-	key := fmt.Sprintf("tools/icons/%s/%d%s", userID, timestamp, ext)
+	key := fmt.Sprintf("icons/%s/%d%s", userID, timestamp, ext)
 
 	// Upload to S3
 	if err := s.storage.Upload(ctx, key, file); err != nil {

@@ -19,6 +19,7 @@ import (
 type S3Storage struct {
 	client    *s3.Client
 	bucket    string
+	endpoint  string
 	presigner *s3.PresignClient
 	urlExpiry time.Duration
 }
@@ -75,32 +76,58 @@ func NewS3Storage(cfg S3Config) (*S3Storage, error) {
 	return &S3Storage{
 		client:    client,
 		bucket:    cfg.Bucket,
+		endpoint:  cfg.Endpoint,
 		presigner: s3.NewPresignClient(client),
 		urlExpiry: urlExpiry,
 	}, nil
 }
 
-// ensureBucketExists creates the bucket if it doesn't exist
+// ensureBucketExists creates the bucket if it doesn't exist and sets it to public read
 func ensureBucketExists(ctx context.Context, client *s3.Client, bucket string) error {
 	// Check if bucket exists
 	_, err := client.HeadBucket(ctx, &s3.HeadBucketInput{
 		Bucket: aws.String(bucket),
 	})
 	if err == nil {
-		// Bucket already exists
-		return nil
+		// Bucket already exists, ensure public read policy is set
+		return setBucketPublicReadPolicy(ctx, client, bucket)
 	}
 
-	// Try to create the bucket (private by default, no public access)
+	// Try to create the bucket
 	_, err = client.CreateBucket(ctx, &s3.CreateBucketInput{
 		Bucket: aws.String(bucket),
 	})
 	if err != nil {
 		// Ignore "bucket already exists" errors
 		// Different S3 implementations return different error types
-		return err
+		return nil
 	}
 
+	// Set bucket policy to allow public read
+	return setBucketPublicReadPolicy(ctx, client, bucket)
+}
+
+// setBucketPublicReadPolicy sets the bucket policy to allow public read access
+func setBucketPublicReadPolicy(ctx context.Context, client *s3.Client, bucket string) error {
+	policy := `{
+		"Version": "2012-10-17",
+		"Statement": [
+			{
+				"Effect": "Allow",
+				"Principal": "*",
+				"Action": "s3:GetObject",
+				"Resource": "arn:aws:s3:::` + bucket + `/*"
+			}
+		]
+	}`
+
+	_, _ = client.PutBucketPolicy(ctx, &s3.PutBucketPolicyInput{
+		Bucket: aws.String(bucket),
+		Policy: aws.String(policy),
+	})
+
+	// Ignore errors - some S3 implementations may not support bucket policies
+	// The bucket will still work, just won't be publicly readable
 	return nil
 }
 
@@ -162,16 +189,12 @@ func (s *S3Storage) Exists(ctx context.Context, key string) (bool, error) {
 	return true, nil
 }
 
-// GetURL returns a presigned URL for the file
+// GetURL returns a public URL for the file (no signature, permanent access)
 func (s *S3Storage) GetURL(ctx context.Context, key string) (string, error) {
-	presignResult, err := s.presigner.PresignGetObject(ctx, &s3.GetObjectInput{
-		Bucket: aws.String(s.bucket),
-		Key:    aws.String(key),
-	}, s3.WithPresignExpires(s.urlExpiry))
-	if err != nil {
-		return "", err
-	}
-	return presignResult.URL, nil
+	// Return direct URL without presigning (bucket is public read)
+	// Path-style URL: http://endpoint/bucket/key
+	url := s.endpoint + "/" + s.bucket + "/" + key
+	return url, nil
 }
 
 // ListObjects lists all objects with the given prefix
