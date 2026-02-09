@@ -472,6 +472,10 @@ data:
         file_count INT DEFAULT 0,
         message TEXT,
         local_paths JSONB DEFAULT '[]',                 -- Per-workspace download status
+        tried_workspaces TEXT DEFAULT '{}',             -- JSON map for failover tracking: {"path": ["ws1","ws2"]}
+        source VARCHAR(50) DEFAULT 'upload',           -- Dataset source: 'upload' or 'huggingface'
+        source_url TEXT DEFAULT '',                     -- HuggingFace URL (if source=huggingface)
+        hf_job_name VARCHAR(255) DEFAULT '',            -- HF download job name (for tracking)
         workspace VARCHAR(64) DEFAULT '',               -- Workspace ID for access control, empty means public
         user_id VARCHAR(64) NOT NULL,
         user_name VARCHAR(128),
@@ -486,6 +490,13 @@ data:
     create index if not exists T_DATASET_TYPE_INDEX on dataset (dataset_type);
     create index if not exists T_DATASET_IS_DELETED_INDEX on dataset (is_deleted);
     create index if not exists T_DATASET_WORKSPACE_INDEX on dataset (workspace);
+
+    -- Backward compatibility: add new columns for existing installations
+    ALTER TABLE dataset ADD COLUMN IF NOT EXISTS tried_workspaces TEXT DEFAULT '{}';
+    ALTER TABLE dataset ADD COLUMN IF NOT EXISTS source VARCHAR(50) DEFAULT 'upload';
+    ALTER TABLE dataset ADD COLUMN IF NOT EXISTS source_url TEXT DEFAULT '';
+    ALTER TABLE dataset ADD COLUMN IF NOT EXISTS hf_job_name VARCHAR(255) DEFAULT '';
+    CREATE INDEX IF NOT EXISTS idx_dataset_source ON dataset(source);
 
     alter table dataset owner to "primus-safe";
 

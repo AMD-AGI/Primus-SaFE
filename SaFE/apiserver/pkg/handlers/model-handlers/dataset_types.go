@@ -119,3 +119,29 @@ type PreviewDatasetFileResponse struct {
 	MaxPreviewSize int64  `json:"maxPreviewSize,omitempty"`
 }
 
+// ============================================================================
+// HuggingFace Import Types
+// ============================================================================
+
+// CreateDatasetFromHFRequest represents the request for importing a dataset from HuggingFace
+type CreateDatasetFromHFRequest struct {
+	URL         string `json:"url" binding:"required"`         // Required: HF dataset URL or repo ID
+	DatasetType string `json:"datasetType" binding:"required"` // Required: sft/dpo/pretrain/rlhf/inference/evaluation/other
+	Workspace   string `json:"workspace"`                      // Optional: empty = public
+	Token       string `json:"token,omitempty"`                // Optional: for private datasets
+}
+
+// DatasetSource represents the source type of a dataset
+type DatasetSource string
+
+const (
+	DatasetSourceUpload      DatasetSource = "upload"      // File upload
+	DatasetSourceHuggingFace DatasetSource = "huggingface" // HuggingFace import
+)
+
+// HF Dataset Job labels for identifying HF download Jobs
+const (
+	HFDatasetJobLabel = "hf-dataset-job"
+	HFDatasetIdLabel  = "hf-dataset-id"
+)
+
