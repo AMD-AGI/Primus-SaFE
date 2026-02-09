@@ -237,6 +237,7 @@ func (h *Handler) searchContextLog(queries []view.ListContextLogRequest, workloa
 // time range filtering, label filters, keyword searches, and output fields.
 // Returns the serialized JSON byte array of the search request.
 func buildSearchBody(query *view.ListLogRequest, workloadId string) []byte {
+	klog.Infof("buildSearchBody: Offset=%d, Limit=%d", query.Offset, query.Limit)
 	req := &commonsearch.OpenSearchRequest{
 		From: query.Offset,
 		Size: query.Limit,
