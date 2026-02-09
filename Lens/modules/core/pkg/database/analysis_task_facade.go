@@ -37,8 +37,24 @@ type AnalysisTask struct {
 	RepoName     string                 `json:"repo_name,omitempty"`
 	WorkflowName string                 `json:"workflow_name,omitempty"`
 	Branch       string                 `json:"branch,omitempty"`
+	// GithubToken is only populated for internal API consumers (pollers).
+	// Frontend-facing endpoints must call StripSensitiveFields before returning.
+	GithubToken  string                 `json:"github_token,omitempty"`
 	Result       *AnalysisResult        `json:"result,omitempty"`
 	Error        *AnalysisError         `json:"error,omitempty"`
+}
+
+// StripSensitiveFields removes sensitive fields (e.g. tokens) from the task.
+// Must be called before returning tasks to frontend / public consumers.
+func (t *AnalysisTask) StripSensitiveFields() {
+	t.GithubToken = ""
+}
+
+// StripSensitiveFieldsFromTasks strips sensitive fields from a slice of tasks.
+func StripSensitiveFieldsFromTasks(tasks []*AnalysisTask) {
+	for _, t := range tasks {
+		t.StripSensitiveFields()
+	}
 }
 
 // AnalysisResult represents the result of an analysis task
@@ -422,6 +438,9 @@ func (f *AnalysisTaskFacade) convertTask(task *model.WorkloadTaskState) *Analysi
 			at.Branch = v
 		} else if v, ok := task.Ext["head_branch"].(string); ok {
 			at.Branch = v
+		}
+		if v, ok := task.Ext["github_token"].(string); ok {
+			at.GithubToken = v
 		}
 		
 		// Timing info

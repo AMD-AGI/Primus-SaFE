@@ -72,6 +72,9 @@ func GetAnalysisTasksByRunID(ctx *gin.Context) {
 		return
 	}
 
+	// Strip sensitive fields before returning to frontend
+	database.StripSensitiveFieldsFromTasks(tasks)
+
 	// Get workflow info from the first task if available
 	response := &AnalysisTasksResponse{
 		RunID:   runID,
@@ -121,6 +124,9 @@ func GetAnalysisTasksByRunSummaryID(ctx *gin.Context) {
 		ctx.JSON(http.StatusInternalServerError, rest.ErrorResp(ctx.Request.Context(), http.StatusInternalServerError, err.Error(), nil))
 		return
 	}
+
+	// Strip sensitive fields before returning to frontend
+	database.StripSensitiveFieldsFromTasks(tasks)
 
 	response := &AnalysisTasksResponse{
 		RunID:   summaryID,

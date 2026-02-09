@@ -113,6 +113,12 @@ func (m *ClientManager) getTokenFromSecret(ctx context.Context, namespace, secre
 	return "", fmt.Errorf("no GitHub token found in secret %s/%s", namespace, secretName)
 }
 
+// GetTokenForSecret returns the GitHub token from a Kubernetes secret.
+// This is useful when external components need the raw token (e.g. for git clone).
+func (m *ClientManager) GetTokenForSecret(ctx context.Context, namespace, secretName string) (string, error) {
+	return m.getTokenFromSecret(ctx, namespace, secretName)
+}
+
 // InvalidateCache removes a client from the cache
 func (m *ClientManager) InvalidateCache(namespace, secretName string) {
 	key := fmt.Sprintf("%s/%s", namespace, secretName)
