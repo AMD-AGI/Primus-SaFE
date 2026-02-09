@@ -18,6 +18,7 @@ import (
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/constant"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database/model"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/github"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/workflow"
 )
@@ -664,26 +665,45 @@ func (p *RunnerStateProcessor) triggerCodeAnalysis(ctx context.Context, summary 
 		return
 	}
 
+	// Resolve GitHub token from the runner set secret so that downstream
+	// consumers (lens-workflow-analysis, ai-me) can clone private repos.
+	var githubToken string
+	if runnerSet.GithubConfigSecret != "" && runnerSet.Namespace != "" {
+		if mgr := github.GetGlobalManager(); mgr != nil {
+			token, err := mgr.GetTokenForSecret(ctx, runnerSet.Namespace, runnerSet.GithubConfigSecret)
+			if err != nil {
+				log.Warnf("RunnerStateProcessor: failed to resolve github token for summary %d: %v", summary.ID, err)
+			} else {
+				githubToken = token
+			}
+		}
+	}
+
 	taskFacade := database.NewWorkloadTaskFacade()
 
 	// Use stable UID for idempotency
 	taskUID := fmt.Sprintf("code-analysis-%d", summary.GithubRunID)
 
+	ext := model.ExtType{
+		"run_summary_id": summary.ID,
+		"github_run_id":  summary.GithubRunID,
+		"owner":          summary.Owner,
+		"repo":           summary.Repo,
+		"head_sha":       summary.HeadSha,
+		"head_branch":    summary.HeadBranch,
+		"workflow_name":  summary.WorkflowName,
+		"repo_name":      summary.Owner + "/" + summary.Repo,
+		"analysis_type":  "code",
+	}
+	if githubToken != "" {
+		ext["github_token"] = githubToken
+	}
+
 	analysisTask := &model.WorkloadTaskState{
 		WorkloadUID: taskUID,
 		TaskType:    constant.TaskTypeGithubCodeIndexing,
 		Status:      constant.TaskStatusPending,
-		Ext: model.ExtType{
-			"run_summary_id": summary.ID,
-			"github_run_id":  summary.GithubRunID,
-			"owner":          summary.Owner,
-			"repo":           summary.Repo,
-			"head_sha":       summary.HeadSha,
-			"head_branch":    summary.HeadBranch,
-			"workflow_name":  summary.WorkflowName,
-			"repo_name":      summary.Owner + "/" + summary.Repo,
-			"analysis_type":  "code",
-		},
+		Ext:         ext,
 	}
 
 	if err := taskFacade.UpsertTask(ctx, analysisTask); err != nil {
