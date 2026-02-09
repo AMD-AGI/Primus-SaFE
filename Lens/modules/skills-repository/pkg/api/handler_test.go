@@ -537,3 +537,7 @@ func ptrBool(v bool) *bool {
 func ptrString(v string) *string {
 	return &v
 }
+
+// Note: Handler tests for UploadIcon and GetToolContent are skipped here
+// as they require integration with real service layer.
+// See tool_service_test.go for comprehensive service-level tests.
