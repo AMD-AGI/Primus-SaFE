@@ -251,6 +251,7 @@ type ToolGetRequest struct {
 
 type ToolUpdateRequest struct {
 	ID          string   `json:"id" param:"id" mcp:"description=Tool ID,required"`
+	Name        string   `json:"name" mcp:"description=Tool name"`
 	DisplayName string   `json:"display_name" mcp:"description=Display name"`
 	Description string   `json:"description" mcp:"description=Description"`
 	Tags        []string `json:"tags" mcp:"description=Tags"`

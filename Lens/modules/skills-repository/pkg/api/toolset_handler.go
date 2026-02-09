@@ -4,6 +4,7 @@
 package api
 
 import (
+	"log"
 	"net/http"
 	"strconv"
 
@@ -94,6 +95,8 @@ func (h *Handler) CreateToolset(c *gin.Context) {
 	}
 
 	userInfo := GetUserInfo(c)
+	log.Printf("[CreateToolset] user=%s name=%s", userInfo.UserID, req.Name)
+
 	toolset, err := h.toolsetService.Create(c.Request.Context(), service.CreateToolsetInput{
 		Name:        req.Name,
 		DisplayName: req.DisplayName,
@@ -106,10 +109,12 @@ func (h *Handler) CreateToolset(c *gin.Context) {
 		Username:    userInfo.Username,
 	})
 	if err != nil {
+		log.Printf("[CreateToolset] user=%s name=%s error=%v", userInfo.UserID, req.Name, err)
 		handleServiceError(c, err)
 		return
 	}
 
+	log.Printf("[CreateToolset] user=%s name=%s toolset_id=%d success", userInfo.UserID, req.Name, toolset.ID)
 	c.JSON(http.StatusCreated, toolset)
 }
 
@@ -128,6 +133,8 @@ func (h *Handler) UpdateToolset(c *gin.Context) {
 	}
 
 	userInfo := GetUserInfo(c)
+	log.Printf("[UpdateToolset] user=%s toolset_id=%d", userInfo.UserID, id)
+
 	toolset, err := h.toolsetService.UpdateToolset(c.Request.Context(), id, service.UpdateToolsetInput{
 		DisplayName: req.DisplayName,
 		Description: req.Description,
@@ -136,10 +143,12 @@ func (h *Handler) UpdateToolset(c *gin.Context) {
 		IsPublic:    req.IsPublic,
 	}, userInfo.UserID)
 	if err != nil {
+		log.Printf("[UpdateToolset] user=%s toolset_id=%d error=%v", userInfo.UserID, id, err)
 		handleServiceError(c, err)
 		return
 	}
 
+	log.Printf("[UpdateToolset] user=%s toolset_id=%d success", userInfo.UserID, id)
 	c.JSON(http.StatusOK, toolset)
 }
 
@@ -152,11 +161,15 @@ func (h *Handler) DeleteToolset(c *gin.Context) {
 	}
 
 	userInfo := GetUserInfo(c)
+	log.Printf("[DeleteToolset] user=%s toolset_id=%d", userInfo.UserID, id)
+
 	if err := h.toolsetService.DeleteToolset(c.Request.Context(), id, userInfo.UserID); err != nil {
+		log.Printf("[DeleteToolset] user=%s toolset_id=%d error=%v", userInfo.UserID, id, err)
 		handleServiceError(c, err)
 		return
 	}
 
+	log.Printf("[DeleteToolset] user=%s toolset_id=%d success", userInfo.UserID, id)
 	c.JSON(http.StatusOK, gin.H{"message": "toolset deleted successfully"})
 }
 
@@ -175,14 +188,18 @@ func (h *Handler) AddToolsToToolset(c *gin.Context) {
 	}
 
 	userInfo := GetUserInfo(c)
+	log.Printf("[AddToolsToToolset] user=%s toolset_id=%d tool_ids=%v", userInfo.UserID, id, req.ToolIDs)
+
 	added, err := h.toolsetService.AddTools(c.Request.Context(), id, service.AddToolsInput{
 		ToolIDs: req.ToolIDs,
 	}, userInfo.UserID)
 	if err != nil {
+		log.Printf("[AddToolsToToolset] user=%s toolset_id=%d error=%v", userInfo.UserID, id, err)
 		handleServiceError(c, err)
 		return
 	}
 
+	log.Printf("[AddToolsToToolset] user=%s toolset_id=%d added=%d success", userInfo.UserID, id, added)
 	c.JSON(http.StatusOK, gin.H{
 		"message": "tools added successfully",
 		"added":   added,
@@ -204,11 +221,15 @@ func (h *Handler) RemoveToolFromToolset(c *gin.Context) {
 	}
 
 	userInfo := GetUserInfo(c)
+	log.Printf("[RemoveToolFromToolset] user=%s toolset_id=%d tool_id=%d", userInfo.UserID, toolsetID, toolID)
+
 	if err := h.toolsetService.RemoveTool(c.Request.Context(), toolsetID, toolID, userInfo.UserID); err != nil {
+		log.Printf("[RemoveToolFromToolset] user=%s toolset_id=%d tool_id=%d error=%v", userInfo.UserID, toolsetID, toolID, err)
 		handleServiceError(c, err)
 		return
 	}
 
+	log.Printf("[RemoveToolFromToolset] user=%s toolset_id=%d tool_id=%d success", userInfo.UserID, toolsetID, toolID)
 	c.JSON(http.StatusOK, gin.H{"message": "tool removed from toolset"})
 }
 
