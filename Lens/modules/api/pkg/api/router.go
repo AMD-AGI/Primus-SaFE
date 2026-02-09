@@ -568,8 +568,6 @@ func RegisterRouter(group *gin.RouterGroup) error {
 		// Like/Unlike tool
 		toolsGroup.POST("/:id/like", getUnifiedHandlerWithMethod("/tools/:id/like", "POST"))
 		toolsGroup.DELETE("/:id/like", getUnifiedHandlerWithMethod("/tools/:id/like", "DELETE"))
-		// Clone tool
-		toolsGroup.POST("/:id/clone", getUnifiedHandler("/tools/:id/clone"))
 	}
 
 	// Toolsets routes - Proxy to skills-repository service
