@@ -150,6 +150,16 @@ func init() {
 		Handler:     handleToolUnlike,
 	})
 
+	// Clone endpoint
+	unified.Register(&unified.EndpointDef[ToolCloneRequest, ToolCloneResponse]{
+		Name:        "tools_clone",
+		Description: "Clone a tool to create a copy owned by current user",
+		HTTPMethod:  "POST",
+		HTTPPath:    "/tools/:id/clone",
+		MCPToolName: "lens_tools_clone",
+		Handler:     handleToolClone,
+	})
+
 	// Toolset endpoints
 	unified.Register(&unified.EndpointDef[ToolsetListRequest, ToolsetListResponse]{
 		Name:        "toolsets_list",
@@ -385,6 +395,15 @@ type ToolsImportCommitResult struct {
 type ToolLikeResponse struct {
 	Message   string `json:"message"`
 	LikeCount int    `json:"like_count"`
+}
+
+type ToolCloneRequest struct {
+	ID string `json:"id" param:"id" mcp:"description=Tool ID to clone,required"`
+}
+
+type ToolCloneResponse struct {
+	Message string   `json:"message"`
+	Tool    ToolData `json:"tool"`
 }
 
 // ======================== Handlers ========================
@@ -694,6 +713,24 @@ func handleToolUnlike(ctx context.Context, req *ToolLikeRequest) (*ToolLikeRespo
 	var result ToolLikeResponse
 	if err := json.Unmarshal(resp, &result); err != nil {
 		return nil, errors.WrapError(err, "failed to parse unlike response", errors.InternalError)
+	}
+	return &result, nil
+}
+
+func handleToolClone(ctx context.Context, req *ToolCloneRequest) (*ToolCloneResponse, error) {
+	if req.ID == "" {
+		return nil, errors.NewError().WithCode(errors.RequestParameterInvalid).WithMessage("tool id is required")
+	}
+
+	reqURL := toolsRepositoryURL + "/api/v1/tools/" + req.ID + "/clone"
+	resp, err := toolsProxyPost(ctx, reqURL, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var result ToolCloneResponse
+	if err := json.Unmarshal(resp, &result); err != nil {
+		return nil, errors.WrapError(err, "failed to parse clone response", errors.InternalError)
 	}
 	return &result, nil
 }

@@ -565,6 +565,11 @@ func RegisterRouter(group *gin.RouterGroup) error {
 		toolsGroup.DELETE("/:id", getUnifiedHandlerWithMethod("/tools/:id", "DELETE"))
 		// Download tool (binary content, direct proxy)
 		toolsGroup.GET("/:id/download", ToolsDownloadProxyHandler())
+		// Like/Unlike tool
+		toolsGroup.POST("/:id/like", getUnifiedHandlerWithMethod("/tools/:id/like", "POST"))
+		toolsGroup.DELETE("/:id/like", getUnifiedHandlerWithMethod("/tools/:id/like", "DELETE"))
+		// Clone tool
+		toolsGroup.POST("/:id/clone", getUnifiedHandler("/tools/:id/clone"))
 	}
 
 	// Toolsets routes - Proxy to skills-repository service

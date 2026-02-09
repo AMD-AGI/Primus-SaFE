@@ -38,6 +38,12 @@ type Storage interface {
 
 	// ListObjects lists all objects with the given prefix
 	ListObjects(ctx context.Context, prefix string) ([]ObjectInfo, error)
+
+	// Copy copies a file from srcKey to dstKey
+	Copy(ctx context.Context, srcKey, dstKey string) error
+
+	// CopyPrefix copies all files under srcPrefix to dstPrefix
+	CopyPrefix(ctx context.Context, srcPrefix, dstPrefix string) error
 }
 
 // ObjectInfo represents information about a stored object
