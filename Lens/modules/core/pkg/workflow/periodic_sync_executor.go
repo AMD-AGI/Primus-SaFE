@@ -204,8 +204,15 @@ func (e *PeriodicSyncExecutor) Execute(ctx context.Context, execCtx *task.Execut
 		log.Warnf("PeriodicSyncExecutor: failed to update run summary %d: %v", runSummaryID, err)
 	}
 
-	// Trigger code analysis once we have the commit SHA
-	e.triggerCodeAnalysis(ctx, summary, runSummaryFacade)
+	// Trigger code analysis once we have the commit SHA.
+	// Resolve the GitHub token so downstream consumers can clone private repos.
+	var ghToken string
+	if githubManager != nil && runnerSet.GithubConfigSecret != "" && runnerSet.Namespace != "" {
+		if t, tokenErr := githubManager.GetTokenForSecret(ctx, runnerSet.Namespace, runnerSet.GithubConfigSecret); tokenErr == nil {
+			ghToken = t
+		}
+	}
+	e.triggerCodeAnalysis(ctx, summary, runSummaryFacade, ghToken)
 
 	// Fetch jobs and update job stats in summary
 	ghJobs, jobsErr := client.GetWorkflowRunJobs(ctx, summary.Owner, summary.Repo, summary.GithubRunID)
@@ -369,10 +376,13 @@ func (e *PeriodicSyncExecutor) triggerFailureAnalysis(
 // triggerCodeAnalysis creates a proactive code-analysis task the first time we
 // see a valid HeadSha on a run summary.  The task indexes the repository code
 // associated with this workflow run so that the AI assistant can reference it.
+// githubToken is resolved from the runner set secret by the caller and stored
+// in the task ext so that downstream consumers can clone private repos.
 func (e *PeriodicSyncExecutor) triggerCodeAnalysis(
 	ctx context.Context,
 	summary *model.GithubWorkflowRunSummaries,
 	runSummaryFacade *database.GithubWorkflowRunSummaryFacade,
+	githubToken string,
 ) {
 	if summary.CodeAnalysisTriggered || summary.HeadSha == "" {
 		return
@@ -387,21 +397,26 @@ func (e *PeriodicSyncExecutor) triggerCodeAnalysis(
 	taskFacade := database.NewWorkloadTaskFacade()
 	taskUID := fmt.Sprintf("code-analysis-%d-%d", summary.GithubRunID, time.Now().Unix())
 
+	ext := model.ExtType{
+		"run_summary_id": summary.ID,
+		"github_run_id":  summary.GithubRunID,
+		"owner":          summary.Owner,
+		"repo":           summary.Repo,
+		"analysis_type":  "code",
+		"head_sha":       summary.HeadSha,
+		"head_branch":    summary.HeadBranch,
+		"workflow_name":  summary.WorkflowName,
+		"repo_name":      summary.Owner + "/" + summary.Repo,
+	}
+	if githubToken != "" {
+		ext["github_token"] = githubToken
+	}
+
 	analysisTask := &model.WorkloadTaskState{
 		WorkloadUID: taskUID,
 		TaskType:    constant.TaskTypeGithubCodeIndexing,
 		Status:      constant.TaskStatusPending,
-		Ext: model.ExtType{
-			"run_summary_id": summary.ID,
-			"github_run_id":  summary.GithubRunID,
-			"owner":          summary.Owner,
-			"repo":           summary.Repo,
-			"analysis_type":  "code",
-			"head_sha":       summary.HeadSha,
-			"head_branch":    summary.HeadBranch,
-			"workflow_name":  summary.WorkflowName,
-			"repo_name":      summary.Owner + "/" + summary.Repo,
-		},
+		Ext:         ext,
 	}
 
 	if err := taskFacade.UpsertTask(ctx, analysisTask); err != nil {
