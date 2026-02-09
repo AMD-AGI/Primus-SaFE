@@ -230,6 +230,9 @@ func ListAnalysisTasks(ctx *gin.Context) {
 		return
 	}
 
+	// Strip sensitive fields before returning to frontend
+	database.StripSensitiveFieldsFromTasks(tasks)
+
 	response := &AnalysisTaskListResponse{
 		Tasks:  tasks,
 		Total:  total,
