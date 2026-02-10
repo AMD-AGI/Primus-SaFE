@@ -230,8 +230,12 @@ func ListAnalysisTasks(ctx *gin.Context) {
 		return
 	}
 
-	// Strip sensitive fields before returning to frontend
-	database.StripSensitiveFieldsFromTasks(tasks)
+	// Strip sensitive fields unless the caller explicitly requests them.
+	// Internal services (e.g. lens-workflow-analysis) set include_token=true
+	// so they can forward the GitHub token to downstream cloners.
+	if ctx.Query("include_token") != "true" {
+		database.StripSensitiveFieldsFromTasks(tasks)
+	}
 
 	response := &AnalysisTaskListResponse{
 		Tasks:  tasks,
