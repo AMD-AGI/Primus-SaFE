@@ -535,6 +535,11 @@ func ListAllGithubWorkflowRuns(ctx *gin.Context) {
 	if podCondition := ctx.Query("pod_condition"); podCondition != "" {
 		filter.PodCondition = podCondition
 	}
+	if githubRunIDStr := ctx.Query("github_run_id"); githubRunIDStr != "" {
+		if githubRunID, err := strconv.ParseInt(githubRunIDStr, 10, 64); err == nil {
+			filter.GithubRunID = githubRunID
+		}
+	}
 	if startDateStr := ctx.Query("start_date"); startDateStr != "" {
 		if t, err := time.Parse(time.RFC3339, startDateStr); err == nil {
 			filter.Since = &t
