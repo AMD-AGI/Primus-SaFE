@@ -370,7 +370,8 @@ func buildOutput(req *commonsearch.OpenSearchRequest, query *view.ListLogRequest
 }
 
 func parseWorkloadLogQuery(c *gin.Context, workload *v1.Workload) (*view.ListLogRequest, error) {
-	query, err := parseLogQuery(c.Request, workload.CreationTimestamp.Time, workload.EndTime())
+	startTime := getLogQueryStartTime(workload)
+	query, err := parseLogQuery(c.Request, startTime, workload.EndTime())
 	if err != nil {
 		klog.ErrorS(err, "failed to parse log query")
 		return nil, err
@@ -413,7 +414,6 @@ func parseEventLogQuery(c *gin.Context, workload *v1.Workload) (*view.ListLogReq
 		"involvedObject.name": workload.Name,
 	}
 	query.IsEventRequest = true
-	query.Limit = 200
 	// node or pod filtering is not supported
 	query.NodeNames = ""
 	query.PodNames = ""
@@ -569,4 +569,17 @@ func addContextDoc(result *commonsearch.OpenSearchLogResponse,
 	}
 	result.Hits.Total.Value += count
 	return nil
+}
+
+// getLogQueryStartTime calculates the adjusted start time for log queries.
+// It ensures the returned time is not earlier than the workload's creation time.
+func getLogQueryStartTime(workload *v1.Workload) time.Time {
+	startTime := workload.CreationTimestamp.Time
+	if workload.Status.StartTime != nil && !workload.Status.StartTime.IsZero() {
+		startTime = workload.Status.StartTime.Time.Add(-time.Hour)
+		if startTime.Before(workload.CreationTimestamp.Time) {
+			startTime = workload.CreationTimestamp.Time
+		}
+	}
+	return startTime
 }
