@@ -413,7 +413,6 @@ func parseEventLogQuery(c *gin.Context, workload *v1.Workload) (*view.ListLogReq
 		"involvedObject.name": workload.Name,
 	}
 	query.IsEventRequest = true
-	query.Limit = 200
 	// node or pod filtering is not supported
 	query.NodeNames = ""
 	query.PodNames = ""
