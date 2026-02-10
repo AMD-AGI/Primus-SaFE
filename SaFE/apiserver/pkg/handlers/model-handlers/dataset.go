@@ -805,7 +805,7 @@ func (h *Handler) createHFDatasetDownloadJob(ctx context.Context, dataset *dbcli
 		mkdir -p /tmp/dataset
 		huggingface-cli download %s --repo-type dataset --local-dir /tmp/dataset || exit 1
 		echo "Uploading dataset to S3: %s"
-		aws s3 sync /tmp/dataset %s --endpoint-url %s || exit 1
+		aws s3 cp /tmp/dataset %s --recursive --endpoint-url %s --exclude ".cache/*" || exit 1
 		echo "Dataset download completed successfully"
 	`, repoID, repoID, s3Path, s3Path, s3Endpoint)}
 
@@ -888,4 +888,3 @@ func (h *Handler) checkDatasetURLExists(ctx context.Context, sourceURL string) (
 	}
 	return count > 0, nil
 }
-
