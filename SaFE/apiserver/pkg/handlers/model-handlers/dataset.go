@@ -507,11 +507,17 @@ func getDatasetContentType(filePath string) string {
 
 // convertToDatasetResponse converts a database dataset to response format.
 func convertToDatasetResponse(ds *dbclient.Dataset) DatasetResponse {
+	source := ds.Source
+	if source == "" {
+		source = string(DatasetSourceUpload) // Default for old records
+	}
 	resp := DatasetResponse{
 		DatasetId:    ds.DatasetId,
 		DisplayName:  ds.DisplayName,
 		Description:  ds.Description,
 		DatasetType:  ds.DatasetType,
+		Source:       source,
+		SourceURL:    ds.SourceURL,
 		Status:       ds.Status,
 		S3Path:       ds.S3Path,
 		TotalSize:    ds.TotalSize,

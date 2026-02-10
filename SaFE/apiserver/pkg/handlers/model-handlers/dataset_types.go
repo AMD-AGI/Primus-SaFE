@@ -42,6 +42,8 @@ type DatasetResponse struct {
 	DisplayName   string                   `json:"displayName"`
 	Description   string                   `json:"description"`
 	DatasetType   string                   `json:"datasetType"`
+	Source        string                   `json:"source"`                  // "upload" or "huggingface"
+	SourceURL     string                   `json:"sourceUrl,omitempty"`     // HuggingFace URL (if source=huggingface)
 	Status        dbclient.DatasetStatus   `json:"status"`                  // Pending/Downloading/Ready/Failed
 	StatusMessage string                   `json:"statusMessage,omitempty"` // e.g., "2/3 workspaces completed"
 	S3Path        string                   `json:"s3Path"`
@@ -144,4 +146,3 @@ const (
 	HFDatasetJobLabel = "hf-dataset-job"
 	HFDatasetIdLabel  = "hf-dataset-id"
 )
-
