@@ -715,6 +715,10 @@ func (h *Handler) getWorkloadForAuth(ctx context.Context, workloadId string) (*v
 	if !endTime.IsZero() {
 		adminWorkload.Status.EndTime = &metav1.Time{Time: endTime}
 	}
+	startTime := dbutils.ParseNullTime(dbWorkload.StartTime)
+	if !startTime.IsZero() {
+		adminWorkload.Status.StartTime = &metav1.Time{Time: startTime}
+	}
 	return adminWorkload, nil
 }
 
