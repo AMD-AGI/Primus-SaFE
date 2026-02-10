@@ -59,19 +59,28 @@ func StripSensitiveFieldsFromTasks(tasks []*AnalysisTask) {
 
 // AnalysisResult represents the result of an analysis task
 type AnalysisResult struct {
-	Summary       string           `json:"summary"`
-	RiskLevel     string           `json:"risk_level,omitempty"`
-	FindingsCount int              `json:"findings_count,omitempty"`
-	Categories    []string         `json:"categories,omitempty"`
-	ReportURL     string           `json:"report_url,omitempty"`
-	Details       []AnalysisFinding `json:"details,omitempty"`
+	Summary       string              `json:"summary"`
+	RiskLevel     string              `json:"risk_level,omitempty"`
+	FindingsCount int                 `json:"findings_count,omitempty"`
+	Categories    []string            `json:"categories,omitempty"`
+	ReportURL     string              `json:"report_url,omitempty"`
+	Details       []AnalysisFinding   `json:"details,omitempty"`
+	FileAnalyses  []FileAnalysis      `json:"file_analyses,omitempty"`
 }
 
 // AnalysisFinding represents a single finding in the analysis
 type AnalysisFinding struct {
-	File   string `json:"file"`
-	Risk   string `json:"risk"`
-	Reason string `json:"reason"`
+	File         string   `json:"file"`
+	RelatedFiles []string `json:"related_files,omitempty"`
+	Risk         string   `json:"risk"`
+	Reason       string   `json:"reason"`
+}
+
+// FileAnalysis holds the per-file LLM analysis text
+type FileAnalysis struct {
+	File     string `json:"file"`
+	Status   string `json:"status,omitempty"`
+	Analysis string `json:"analysis"`
 }
 
 // AnalysisError represents an error that occurred during analysis
