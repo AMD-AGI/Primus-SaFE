@@ -384,7 +384,7 @@ func (r *SchedulerReconciler) canScheduleWorkload(ctx context.Context, requestWo
 	hasEnoughQuota, key := quantity.IsSubResource(requestResources, leftResources)
 	isPreemptable := false
 	if !hasEnoughQuota {
-		reason = fmt.Sprintf("Insufficient total %s resources", formatResourceName(key))
+		reason = fmt.Sprintf("In queue - insufficient %s resources", formatResourceName(key))
 		isPreemptable, err = r.preempt(ctx, requestWorkload, scheduledWorkloads, leftResources)
 	}
 	if !hasEnoughQuota && !isPreemptable {
@@ -589,7 +589,7 @@ func (r *SchedulerReconciler) updateUnScheduled(ctx context.Context,
 		}
 		reason, _ := unScheduledReasons[w.Name]
 		if reason == "" && position > 1 {
-			reason = "There are high priority or pre-created tasks that have not been scheduled yet"
+			reason = "In queue - waiting for earlier or higher priority workloads"
 		}
 		if reason != workloads[i].Status.Message {
 			workloads[i].Status.Message = reason
