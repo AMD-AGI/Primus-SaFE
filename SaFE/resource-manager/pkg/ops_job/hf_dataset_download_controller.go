@@ -27,6 +27,7 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
+	commons3 "github.com/AMD-AIG-AIMA/SAFE/common/pkg/s3"
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 	commonworkspace "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workspace"
 )
@@ -148,6 +149,9 @@ func (r *HFDatasetDownloadController) Reconcile(ctx context.Context, req ctrlrun
 func (r *HFDatasetDownloadController) handleJobSucceeded(ctx context.Context, dataset *dbclient.Dataset, job *batchv1.Job) (ctrlruntime.Result, error) {
 	klog.InfoS("HF dataset download Job succeeded", "datasetId", dataset.DatasetId, "jobName", job.Name)
 
+	// Get file info from S3 (totalSize, fileCount)
+	totalSize, fileCount := r.getS3FileInfo(ctx, dataset.S3Path)
+
 	// Initialize local paths based on workspace configuration
 	localPaths, downloadTargets, err := r.initializeLocalPaths(ctx, dataset)
 	if err != nil {
@@ -158,6 +162,8 @@ func (r *HFDatasetDownloadController) handleJobSucceeded(ctx context.Context, da
 	dataset.Status = dbclient.DatasetStatusDownloading
 	dataset.Message = "HF download completed, starting local download"
 	dataset.LocalPaths = localPaths
+	dataset.TotalSize = totalSize
+	dataset.FileCount = fileCount
 	if err := r.dbClient.UpsertDataset(ctx, dataset); err != nil {
 		klog.ErrorS(err, "Failed to update dataset status", "datasetId", dataset.DatasetId)
 		return ctrlruntime.Result{Requeue: true}, nil
@@ -321,6 +327,40 @@ func (r *HFDatasetDownloadController) createLocalDownloadOpsJobs(ctx context.Con
 	return nil
 }
 
+// getS3FileInfo retrieves file count and total size from S3 for the given path prefix.
+// Returns (totalSize, fileCount). On error, returns (0, 0) with a warning log.
+func (r *HFDatasetDownloadController) getS3FileInfo(ctx context.Context, s3Path string) (int64, int) {
+	if !commonconfig.IsS3Enable() {
+		return 0, 0
+	}
+
+	s3Client, err := commons3.NewClient(ctx, commons3.Option{})
+	if err != nil {
+		klog.ErrorS(err, "Failed to create S3 client for file info", "s3Path", s3Path)
+		return 0, 0
+	}
+
+	files, err := s3Client.ListObjectsWithSize(ctx, s3Path)
+	if err != nil {
+		klog.ErrorS(err, "Failed to list S3 objects for file info", "s3Path", s3Path)
+		return 0, 0
+	}
+
+	var totalSize int64
+	fileCount := 0
+	for _, f := range files {
+		// Skip cache files (huggingface download cache)
+		if strings.Contains(f.Key, ".cache/") {
+			continue
+		}
+		totalSize += f.Size
+		fileCount++
+	}
+
+	klog.InfoS("Got S3 file info for dataset", "s3Path", s3Path, "totalSize", totalSize, "fileCount", fileCount)
+	return totalSize, fileCount
+}
+
 // extractHFJobFailureReason extracts failure message from a batchv1.Job.
 func extractHFJobFailureReason(job *batchv1.Job) string {
 	for _, cond := range job.Status.Conditions {
@@ -337,4 +377,3 @@ func extractHFJobFailureReason(job *batchv1.Job) string {
 
 	return "Unknown error during download"
 }
-
