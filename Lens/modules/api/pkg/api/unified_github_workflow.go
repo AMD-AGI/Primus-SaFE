@@ -387,6 +387,7 @@ type GithubWorkflowAllRunsRequest struct {
 	Owner        string `json:"owner" query:"owner" mcp:"description=Filter by GitHub owner"`
 	Repo         string `json:"repo" query:"repo" mcp:"description=Filter by GitHub repo"`
 	PodCondition string `json:"pod_condition" query:"pod_condition" mcp:"description=Filter by pod condition (use 'error' for all error conditions)"`
+	GithubRunID  int64  `json:"github_run_id" query:"github_run_id" mcp:"description=Filter by GitHub run ID"`
 	Offset       int    `json:"offset" query:"offset" mcp:"description=Pagination offset"`
 	Limit        int    `json:"limit" query:"limit" mcp:"description=Pagination limit"`
 }
@@ -1270,6 +1271,7 @@ func handleGithubWorkflowAllRuns(ctx context.Context, req *GithubWorkflowAllRuns
 		Owner:        req.Owner,
 		Repo:         req.Repo,
 		PodCondition: req.PodCondition,
+		GithubRunID:  req.GithubRunID,
 		Offset:       offset,
 		Limit:        limit,
 	})
