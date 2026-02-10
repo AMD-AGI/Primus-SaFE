@@ -26,6 +26,7 @@ import (
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
+	commonworkspace "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workspace"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
 )
 
@@ -739,11 +740,29 @@ func (h *Handler) getWorkloadConfig(c *gin.Context) (interface{}, error) {
 	}
 
 	// Get the local path for the specified workspace
+	// Priority: 1. Exact workspace match, 2. Path-accessible match (shared storage)
 	var modelPath string
 	for _, lp := range k8sModel.Status.LocalPaths {
-		if lp.Workspace == workspace && lp.Status == v1.LocalPathStatusReady {
+		if lp.Status != v1.LocalPathStatusReady {
+			continue
+		}
+		// 1. Exact workspace match
+		if lp.Workspace == workspace {
 			modelPath = lp.Path
 			break
+		}
+		// 2. Path-accessible match: check if the requested workspace can access
+		//    this path (shared storage scenario, e.g., workspace A, B, C share /wekafs)
+		if modelPath == "" {
+			if accessible, _ := commonworkspace.IsPathAccessibleFromWorkspace(h.k8sClient, lp.Path, workspace); accessible {
+				modelPath = lp.Path
+				klog.InfoS("Model path matched via shared storage",
+					"model", modelId,
+					"requestedWorkspace", workspace,
+					"recordedWorkspace", lp.Workspace,
+					"path", lp.Path)
+				// Don't break - continue to check for exact match
+			}
 		}
 	}
 
