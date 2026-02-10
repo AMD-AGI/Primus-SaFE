@@ -365,24 +365,28 @@ type DatasetLocalPathDB struct {
 
 // Dataset represents a dataset record in the database.
 type Dataset struct {
-	Id           int64         `db:"id"`
-	DatasetId    string        `db:"dataset_id"`
-	DisplayName  string        `db:"display_name"`
-	Description  string        `db:"description"`
-	DatasetType  string        `db:"dataset_type"`
-	Status       DatasetStatus `db:"status"`
-	S3Path       string        `db:"s3_path"`
-	TotalSize    int64         `db:"total_size"`
-	FileCount    int           `db:"file_count"`
-	Message      string        `db:"message"`
-	LocalPaths   string        `db:"local_paths"` // JSON array of DatasetLocalPathDB
-	Workspace    string        `db:"workspace"`   // Workspace ID for access control, empty means public
-	UserId       string        `db:"user_id"`
-	UserName     string        `db:"user_name"`
-	CreationTime pq.NullTime   `db:"creation_time"`
-	UpdateTime   pq.NullTime   `db:"update_time"`
-	DeletionTime pq.NullTime   `db:"deletion_time"`
-	IsDeleted    bool          `db:"is_deleted"`
+	Id              int64         `db:"id"`
+	DatasetId       string        `db:"dataset_id"`
+	DisplayName     string        `db:"display_name"`
+	Description     string        `db:"description"`
+	DatasetType     string        `db:"dataset_type"`
+	Status          DatasetStatus `db:"status"`
+	S3Path          string        `db:"s3_path"`
+	TotalSize       int64         `db:"total_size"`
+	FileCount       int           `db:"file_count"`
+	Message         string        `db:"message"`
+	LocalPaths      string        `db:"local_paths"`      // JSON array of DatasetLocalPathDB
+	TriedWorkspaces string        `db:"tried_workspaces"` // JSON map: {"path": ["ws1","ws2"]} for failover tracking
+	Source          string        `db:"source"`           // "upload" or "huggingface"
+	SourceURL       string        `db:"source_url"`       // HuggingFace URL (if source=huggingface)
+	HFJobName       string        `db:"hf_job_name"`      // HF download job name (for tracking)
+	Workspace       string        `db:"workspace"`        // Workspace ID for access control, empty means public
+	UserId          string        `db:"user_id"`
+	UserName        string        `db:"user_name"`
+	CreationTime    pq.NullTime   `db:"creation_time"`
+	UpdateTime      pq.NullTime   `db:"update_time"`
+	DeletionTime    pq.NullTime   `db:"deletion_time"`
+	IsDeleted       bool          `db:"is_deleted"`
 }
 
 // GetDatasetFieldTags returns the DatasetFieldTags value.
