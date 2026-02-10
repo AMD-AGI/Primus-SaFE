@@ -402,8 +402,7 @@ func parseServiceLogQuery(c *gin.Context) (*view.ListLogRequest, error) {
 }
 
 func parseEventLogQuery(c *gin.Context, workload *v1.Workload) (*view.ListLogRequest, error) {
-	startTime := getLogQueryStartTime(workload)
-	query, err := parseLogQuery(c.Request, startTime, workload.EndTime())
+	query, err := parseLogQuery(c.Request, workload.CreationTimestamp.Time, workload.EndTime())
 	if err != nil {
 		klog.ErrorS(err, "failed to parse log query")
 		return nil, err
@@ -573,12 +572,14 @@ func addContextDoc(result *commonsearch.OpenSearchLogResponse,
 }
 
 // getLogQueryStartTime calculates the adjusted start time for log queries.
-// It uses the workload's creation timestamp or start time (if available),
-// and subtracts one hour to ensure earlier logs are included.
+// It ensures the returned time is not earlier than the workload's creation time.
 func getLogQueryStartTime(workload *v1.Workload) time.Time {
 	startTime := workload.CreationTimestamp.Time
 	if workload.Status.StartTime != nil && !workload.Status.StartTime.IsZero() {
-		startTime = workload.Status.StartTime.Time
+		startTime = workload.Status.StartTime.Time.Add(-time.Hour)
+		if startTime.Before(workload.CreationTimestamp.Time) {
+			startTime = workload.CreationTimestamp.Time
+		}
 	}
-	return startTime.Add(-time.Hour)
+	return startTime
 }
