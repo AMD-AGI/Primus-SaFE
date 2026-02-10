@@ -250,6 +250,11 @@ func (h *Handler) listDatasets(c *gin.Context) (interface{}, error) {
 		conditions = append(conditions, sqrl.Eq{dbclient.GetFieldTag(dbTags, "DatasetType"): req.DatasetType})
 	}
 
+	// Filter by source (upload / huggingface)
+	if req.Source != "" {
+		conditions = append(conditions, sqrl.Eq{dbclient.GetFieldTag(dbTags, "Source"): req.Source})
+	}
+
 	// Filter by workspace
 	// If workspace is specified, return datasets belonging to that workspace OR public datasets (empty workspace)
 	if req.Workspace != "" {

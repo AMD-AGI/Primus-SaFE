@@ -64,6 +64,7 @@ type DatasetResponse struct {
 // ListDatasetsRequest represents the request parameters for listing datasets
 type ListDatasetsRequest struct {
 	DatasetType string `form:"datasetType"`
+	Source      string `form:"source"`    // Filter by source: "upload" or "huggingface"
 	Workspace   string `form:"workspace"` // Filter by workspace ID, empty returns all accessible datasets
 	Search      string `form:"search"`
 	PageNum     int    `form:"pageNum,default=1"`
