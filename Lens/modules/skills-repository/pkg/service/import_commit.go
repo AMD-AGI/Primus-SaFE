@@ -8,6 +8,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log"
 	"path"
 	"strings"
 	"time"
@@ -145,9 +146,13 @@ func (s *ImportService) importOneWithoutEmbedding(
 
 	// Upload additional files
 	isPrefix := len(additionalFiles) > 0
+	log.Printf("[Import Commit] skill=%q additionalFiles=%d skillDir=%q", skillName, len(additionalFiles), skillDir)
 	for _, af := range additionalFiles {
 		afKey := s3KeyBase + "/" + af.name
-		_ = s.storage.UploadBytes(ctx, afKey, af.data)
+		log.Printf("[Import Commit] uploading additional file: %s", afKey)
+		if err := s.storage.UploadBytes(ctx, afKey, af.data); err != nil {
+			log.Printf("[Import Commit] failed to upload %s: %v", afKey, err)
+		}
 	}
 
 	// Create or update tool record
