@@ -407,7 +407,14 @@ func (s *ToolService) GetToolContent(ctx context.Context, toolID int64, userID s
 		return "", ErrNotConfigured
 	}
 
-	content, err := s.storage.DownloadBytes(ctx, s3Key)
+	// New imports with is_prefix=true store the directory prefix (e.g. "skills/name/123/").
+	// In that case, append "SKILL.md" to get the actual file path.
+	downloadKey := s3Key
+	if strings.HasSuffix(s3Key, "/") {
+		downloadKey = s3Key + "SKILL.md"
+	}
+
+	content, err := s.storage.DownloadBytes(ctx, downloadKey)
 	if err != nil {
 		return "", fmt.Errorf("failed to download skill content: %w", err)
 	}
