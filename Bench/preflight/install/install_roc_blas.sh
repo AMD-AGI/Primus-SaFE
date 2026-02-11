@@ -35,23 +35,4 @@ if [ -z "$GPU_ARCHS" ]; then
 fi
 
 echo "Building rocBLAS clients for GPU_ARCHS=$GPU_ARCHS, ROCM_VERSION=$ROCM_VERSION"
-
-# Diagnostics: verify key paths and tools
-echo "cmake version: $(cmake --version | head -1)"
-echo "rocm path contents:"
-ls /opt/rocm/lib/librocblas* 2>/dev/null || echo "  Warning: librocblas not found in /opt/rocm/lib/"
-ls /opt/rocm/lib/libhipblaslt* 2>/dev/null || echo "  Warning: libhipblaslt not found in /opt/rocm/lib/"
-ls -ld /opt/rocm-* 2>/dev/null || echo "  Warning: no /opt/rocm-* directories found"
-
-chmod +x ./install.sh
-./install.sh --clients-only --clients_no_fortran --library-path /opt/rocm --architecture "$GPU_ARCHS" 2>&1 || {
-  echo "==== rocBLAS build FAILED - dumping cmake error logs ===="
-  for log in /opt/rocBLAS/build/release/CMakeFiles/CMakeError.log \
-             /opt/rocBLAS/build/release/CMakeFiles/CMakeOutput.log; do
-    if [ -f "$log" ]; then
-      echo "==== $(basename "$log") (last 80 lines) ===="
-      tail -80 "$log"
-    fi
-  done
-  exit 1
-}
+chmod +x ./install.sh && ./install.sh --clients-only --clients_no_fortran --library-path /opt/rocm --architecture "$GPU_ARCHS" >/dev/null
