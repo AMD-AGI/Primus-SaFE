@@ -655,13 +655,19 @@ func RegisterRouter(group *gin.RouterGroup) error {
 		codeSnapshotGroup.GET(":workload_uid", getUnifiedHandler("/code-snapshot/:workload_uid"))
 	}
 
-	// Flywheel: Intent Rule Management API - Query / promote / retire / backtest rules
+	// Flywheel: Intent Rule Management API - CRUD + promote / retire / backtest
 	intentRuleGroup := group.Group("/intent-rule")
 	{
+		// Create a new rule
+		intentRuleGroup.POST("", getUnifiedHandler("/intent-rule"))
 		// List rules with filtering
 		intentRuleGroup.GET("", getUnifiedHandler("/intent-rule"))
 		// Get single rule by ID
 		intentRuleGroup.GET(":rule_id", getUnifiedHandler("/intent-rule/:rule_id"))
+		// Update a rule
+		intentRuleGroup.PUT(":rule_id", getUnifiedHandler("/intent-rule/:rule_id"))
+		// Delete a rule
+		intentRuleGroup.DELETE(":rule_id", getUnifiedHandler("/intent-rule/:rule_id"))
 		// Force promote a rule
 		intentRuleGroup.POST(":rule_id/promote", getUnifiedHandler("/intent-rule/:rule_id/promote"))
 		// Force retire a rule
