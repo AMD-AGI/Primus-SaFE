@@ -194,7 +194,7 @@ def create_workload(s: requests.Session, base_url: str, payload: Dict[str, Any])
 
 
 def get_workload_phase(s: requests.Session, base_url: str, workload_id: str) -> str:
-    url = f"{base_url}/api/v1/workloads/{workload_id}"
+    url = f"{base_url}/api/v1/workloads/{workload_id}?src=unified-job-proxy"
     resp = s.get(url, timeout=30)
     if resp.status_code >= 300:
         raise RuntimeError(f"GetWorkload failed: HTTP {resp.status_code} {resp.text}")
