@@ -122,9 +122,11 @@ func (s *ImportService) Discover(ctx context.Context, input *DiscoverInput) (*Di
 	var filename string
 	var err error
 
+	var subDir string // subdirectory within repo (GitHub URL only)
+
 	if input.GitHubURL != "" {
 		// Download from GitHub
-		zipData, err = downloadGitHubZip(ctx, input.GitHubURL)
+		zipData, subDir, err = downloadGitHubZip(ctx, input.GitHubURL)
 		if err != nil {
 			return nil, fmt.Errorf("failed to download from GitHub: %w", err)
 		}
@@ -159,6 +161,19 @@ func (s *ImportService) Discover(ctx context.Context, input *DiscoverInput) (*Di
 	candidates, err := scanCandidates(zipData)
 	if err != nil {
 		return nil, fmt.Errorf("failed to scan archive: %w", err)
+	}
+
+	// When the GitHub URL points to a subdirectory, filter candidates to only
+	// those within that subdirectory.
+	if subDir != "" {
+		var filtered []DiscoverCandidate
+		for _, c := range candidates {
+			// Match: candidate is exactly the subDir, or is nested inside it
+			if c.RelativePath == subDir || strings.HasPrefix(c.RelativePath, subDir+"/") {
+				filtered = append(filtered, c)
+			}
+		}
+		candidates = filtered
 	}
 
 	if len(candidates) == 0 {
