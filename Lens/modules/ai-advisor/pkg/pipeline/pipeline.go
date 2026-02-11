@@ -468,9 +468,13 @@ func (p *WorkloadAnalysisPipeline) handleConfirmed(
 
 	updates["confirmed_completed_at"] = time.Now().Format(time.RFC3339)
 
-	// For long-running workloads, transition to MONITORING; otherwise COMPLETED
+	// For long-running production workloads, transition to MONITORING; otherwise COMPLETED
+	// Interactive development, CI/CD, and benchmark workloads always go to COMPLETED
 	category := p.GetExtString(task, "eval_category")
-	if category == string(intent.CategoryPreTraining) || category == string(intent.CategoryServing) {
+	if (category == string(intent.CategoryPreTraining) || category == string(intent.CategoryServing)) &&
+		category != string(intent.CategoryInteractiveDevelopment) &&
+		category != string(intent.CategoryCICD) &&
+		category != string(intent.CategoryBenchmark) {
 		updates["monitor_interval"] = DefaultMonitorInterval.String()
 		updates["next_monitor_at"] = time.Now().Add(DefaultMonitorInterval).Format(time.RFC3339)
 		return constant.PipelineStateMonitoring, nil

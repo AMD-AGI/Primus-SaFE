@@ -242,10 +242,24 @@ func (e *EvidenceEvaluator) matchHeuristics(evidence *intent.IntentEvidence) []e
 		signals = append(signals, registrySignals...)
 	}
 
+	// Workload name / kind / namespace based heuristics
+	nameSignals := e.matchWorkloadNamePatterns(evidence)
+	signals = append(signals, nameSignals...)
+
 	// Detection system signals (already confirmed by DetectionCoordinator)
+	// Only add if no higher-priority name-based signals were found
 	if evidence.DetectedFramework != "" && evidence.DetectedWorkloadType != "" {
-		detSignals := e.mapDetectionSignals(evidence.DetectedFramework, evidence.DetectedWorkloadType)
-		signals = append(signals, detSignals...)
+		hasNameSignal := false
+		for _, sig := range nameSignals {
+			if sig.weight >= 0.8 {
+				hasNameSignal = true
+				break
+			}
+		}
+		if !hasNameSignal {
+			detSignals := e.mapDetectionSignals(evidence.DetectedFramework, evidence.DetectedWorkloadType)
+			signals = append(signals, detSignals...)
+		}
 	}
 
 	return signals
@@ -291,6 +305,83 @@ func (e *EvidenceEvaluator) analyzePipFreeze(pipFreeze string) []evaluationSigna
 				source:   "pip",
 			})
 		}
+	}
+
+	return signals
+}
+
+// matchWorkloadNamePatterns detects interactive development, CI/CD, and benchmark
+// workloads based on the workload name, kind, and namespace patterns. These signals
+// carry high weight because name/namespace patterns are strong indicators of intent
+// that override cmdline-based heuristics.
+func (e *EvidenceEvaluator) matchWorkloadNamePatterns(evidence *intent.IntentEvidence) []evaluationSignal {
+	var signals []evaluationSignal
+
+	name := strings.ToLower(evidence.WorkloadName)
+	ns := strings.ToLower(evidence.WorkloadNamespace)
+	kind := strings.ToLower(evidence.WorkloadKind)
+
+	if name == "" {
+		return signals
+	}
+
+	// Interactive development: "dev-*" prefix with kind=Workload in poc/dev namespaces
+	if strings.HasPrefix(name, "dev-") && kind == "workload" {
+		signals = append(signals, evaluationSignal{
+			category: intent.CategoryInteractiveDevelopment,
+			field:    "category",
+			value:    string(intent.CategoryInteractiveDevelopment),
+			weight:   0.9,
+			source:   "workload_name",
+		})
+		return signals
+	}
+
+	// CI/CD testing: "*-drswb-*" pattern in cicd namespace, or "rocm-unified-*"
+	if strings.Contains(name, "-drswb-") || (strings.HasPrefix(name, "rocm-unified-") && strings.Contains(ns, "cicd")) {
+		signals = append(signals, evaluationSignal{
+			category: intent.CategoryCICD,
+			field:    "category",
+			value:    string(intent.CategoryCICD),
+			weight:   0.85,
+			source:   "workload_name",
+		})
+		return signals
+	}
+
+	// Profiler collection test workloads
+	if strings.HasPrefix(name, "profiler-collection-test") {
+		signals = append(signals, evaluationSignal{
+			category: intent.CategoryInteractiveDevelopment,
+			field:    "category",
+			value:    string(intent.CategoryInteractiveDevelopment),
+			weight:   0.8,
+			source:   "workload_name",
+		})
+		return signals
+	}
+
+	// Benchmark workloads: "*bench*", "nccl-test-*", "test-bench-*"
+	if strings.Contains(name, "bench") || strings.HasPrefix(name, "nccl-test") {
+		signals = append(signals, evaluationSignal{
+			category: intent.CategoryBenchmark,
+			field:    "category",
+			value:    string(intent.CategoryBenchmark),
+			weight:   0.8,
+			source:   "workload_name",
+		})
+		return signals
+	}
+
+	// Generic test workloads in test namespaces: "test-*" in non-production namespaces
+	if strings.HasPrefix(name, "test-") && (strings.Contains(ns, "cicd") || strings.Contains(ns, "poc") || strings.Contains(ns, "test")) {
+		signals = append(signals, evaluationSignal{
+			category: intent.CategoryCICD,
+			field:    "category",
+			value:    string(intent.CategoryCICD),
+			weight:   0.7,
+			source:   "workload_name",
+		})
 	}
 
 	return signals
@@ -468,9 +559,13 @@ func (e *EvidenceEvaluator) aggregateSignals(
 		result.ExpectedBehavior = intent.BehaviorBatch
 	case intent.CategoryInference, intent.CategoryServing:
 		result.ExpectedBehavior = intent.BehaviorLongRunning
-	case intent.CategoryEvaluation:
+	case intent.CategoryEvaluation, intent.CategoryBenchmark:
 		result.ExpectedBehavior = intent.BehaviorBatch
 	case intent.CategoryDataProcessing:
+		result.ExpectedBehavior = intent.BehaviorBatch
+	case intent.CategoryInteractiveDevelopment:
+		result.ExpectedBehavior = intent.BehaviorLongRunning
+	case intent.CategoryCICD:
 		result.ExpectedBehavior = intent.BehaviorBatch
 	}
 }

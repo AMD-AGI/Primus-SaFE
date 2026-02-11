@@ -37,9 +37,12 @@ const (
 	CategoryFineTuning     Category = "fine_tuning"
 	CategoryInference      Category = "inference"
 	CategoryEvaluation     Category = "evaluation"
-	CategoryDataProcessing Category = "data_processing"
-	CategoryServing        Category = "serving"
-	CategoryProfiling      Category = "profiling"
+	CategoryDataProcessing          Category = "data_processing"
+	CategoryServing                 Category = "serving"
+	CategoryProfiling               Category = "profiling"
+	CategoryInteractiveDevelopment  Category = "interactive_development"
+	CategoryBenchmark               Category = "benchmark"
+	CategoryCICD                    Category = "ci_cd"
 )
 
 // ExpectedBehavior represents the expected runtime behavior pattern
@@ -166,6 +169,11 @@ type IntentEvidence struct {
 	Labels    map[string]string `json:"labels,omitempty"`
 	GVK       string            `json:"gvk,omitempty"`       // GroupVersionKind
 	Replicas  int               `json:"replicas,omitempty"`
+
+	// From workload spec (name, kind, namespace)
+	WorkloadName      string `json:"workload_name,omitempty"`
+	WorkloadKind      string `json:"workload_kind,omitempty"`
+	WorkloadNamespace string `json:"workload_namespace,omitempty"`
 
 	// From detection system (already confirmed by DetectionCoordinator)
 	DetectedFramework    string `json:"detected_framework,omitempty"`

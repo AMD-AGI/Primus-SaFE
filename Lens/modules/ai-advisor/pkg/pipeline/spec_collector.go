@@ -62,6 +62,9 @@ func (c *SpecCollector) Collect(ctx context.Context, workloadUID string) (*inten
 	if workload != nil {
 		evidence.GVK = buildGVK(workload)
 		evidence.Labels = extractStringMap(workload.Labels)
+		evidence.WorkloadName = workload.Name
+		evidence.WorkloadKind = workload.Kind
+		evidence.WorkloadNamespace = workload.Namespace
 
 		// Extract replicas hint from annotations if available
 		if annotations := extractStringMap(workload.Annotations); annotations != nil {
