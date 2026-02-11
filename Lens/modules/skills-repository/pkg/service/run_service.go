@@ -153,8 +153,19 @@ func (s *RunService) downloadSkillAsZip(ctx context.Context, tool *model.Tool) (
 	zipWriter := zip.NewWriter(buf)
 
 	if isPrefix {
+		// Determine the directory prefix for listing all skill files.
+		// New imports store the directory prefix directly (e.g. "skills/name/123/").
+		// Old imports stored the SKILL.md path (e.g. "skills/name/123/SKILL.md"),
+		// so we derive the directory prefix by stripping the filename.
+		dirPrefix := s3Key
+		if !strings.HasSuffix(dirPrefix, "/") {
+			if idx := strings.LastIndex(s3Key, "/"); idx >= 0 {
+				dirPrefix = s3Key[:idx+1]
+			}
+		}
+
 		// List and download all files in the skill directory
-		objects, err := s.storage.ListObjects(ctx, s3Key)
+		objects, err := s.storage.ListObjects(ctx, dirPrefix)
 		if err != nil {
 			return nil, fmt.Errorf("failed to list skill files: %w", err)
 		}
@@ -164,8 +175,7 @@ func (s *RunService) downloadSkillAsZip(ctx context.Context, tool *model.Tool) (
 			if err != nil {
 				continue
 			}
-			relPath := strings.TrimPrefix(obj.Key, s3Key)
-			relPath = strings.TrimPrefix(relPath, "/")
+			relPath := strings.TrimPrefix(obj.Key, dirPrefix)
 			if relPath == "" {
 				relPath = filepath.Base(obj.Key)
 			}
