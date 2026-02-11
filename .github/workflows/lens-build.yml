@@ -6,6 +6,10 @@ on:
     tags:
       - '**'
 
+permissions:
+  contents: read
+  packages: write  # Required for ghcr.io push
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: false
@@ -17,7 +21,6 @@ jobs:
       matrix: ${{ steps.generate-matrix.outputs.matrix }}
       image_version: ${{ steps.get-image-version.outputs.image_version }}
       date_time: ${{ steps.get-current-time.outputs.date_time }}
-      installer_changed: ${{ steps.detect-changes.outputs.installer_changed }}
       tracelens_changed: ${{ steps.detect-changes.outputs.tracelens_changed }}
       perfetto_changed: ${{ steps.detect-changes.outputs.perfetto_changed }}
       github_runner_changed: ${{ steps.detect-changes.outputs.github_runner_changed }}
@@ -175,12 +178,21 @@ jobs:
           echo "storage_exporter_changed=false" >> $GITHUB_OUTPUT
         fi
         
-        # installer: Lens/bootstrap/installer/** or Lens/charts/**
-        if echo "$CHANGED_FILES" | grep -qE '^Lens/bootstrap/installer/|^Lens/charts/'; then
+        # installer: Lens/modules/installer/** or Lens/modules/core/** or Lens/charts/**
+        # Charts are bundled into installer image, so chart changes should trigger rebuild
+        if echo "$CHANGED_FILES" | grep -qE '^Lens/modules/installer/|^Lens/modules/core/|^Lens/charts/'; then
           echo "installer_changed=true" >> $GITHUB_OUTPUT
         else
           echo "installer_changed=false" >> $GITHUB_OUTPUT
         fi
+        
+        # control_plane_controller: Lens/modules/control-plane-controller/** or Lens/modules/core/** or Lens/modules/jobs/**
+        if echo "$CHANGED_FILES" | grep -qE '^Lens/modules/control-plane-controller/|^Lens/modules/core/|^Lens/modules/jobs/'; then
+          echo "control_plane_controller_changed=true" >> $GITHUB_OUTPUT
+        else
+          echo "control_plane_controller_changed=false" >> $GITHUB_OUTPUT
+        fi
+        
         
         # tracelens: Lens/docker/tracelens/**
         if echo "$CHANGED_FILES" | grep -qE '^Lens/docker/tracelens/'; then
@@ -252,6 +264,12 @@ jobs:
           if [[ "${{ steps.detect-changes.outputs.storage_exporter_changed }}" == "true" ]]; then
             MATRIX+='{"name":"storage-exporter","buildpath":"cmd/storage-exporter","basepath":"Lens/modules/exporters/storage-exporter/"},'
           fi
+          if [[ "${{ steps.detect-changes.outputs.installer_changed }}" == "true" ]]; then
+            MATRIX+='{"name":"primus-lens-installer","buildpath":"cmd","basepath":"Lens/modules/installer/"},'
+          fi
+          if [[ "${{ steps.detect-changes.outputs.control_plane_controller_changed }}" == "true" ]]; then
+            MATRIX+='{"name":"control-plane-controller","buildpath":"cmd/control-plane-controller","basepath":"Lens/modules/control-plane-controller/"},'
+          fi
           MATRIX=${MATRIX%,} # remove trailing comma
           MATRIX+=']}'
           echo "Generated matrix: $MATRIX"
@@ -270,25 +288,31 @@ jobs:
   
   build:
     needs: detect-changes
-    runs-on: primus-safe-builder
-    timeout-minutes: 7200
+    runs-on: primus-safe-tw-proj2
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix: ${{ fromJson(needs.detect-changes.outputs.matrix) }}
     if: ${{ needs.detect-changes.outputs.matrix != '' && needs.detect-changes.outputs.matrix != '{"include":[]}' }}
     env:
       GO_VERSION: "1.24.7"  # Centralized Go version management
+      REGISTRY: "${{ secrets.PROJ2_HARBOR_HOST }}/primussafe/"
     steps:
       - uses: actions/checkout@v4
+
       - name: Login registries
         run: |
-          buildah login -u "${{ secrets.DOCKER_USERNAME }}" -p "${{ secrets.DOCKER_PASSWORD }}" docker.io
-          buildah login --tls-verify=false -u "${{ secrets.HARBOR_USERNAME }}" -p "${{ secrets.HARBOR_PASSWORD }}" "${{ secrets.HARBOR_HOST }}"
+          set -x
+          echo "🔐 Logging in to Docker Hub..."
+          buildah login -u "${{ secrets.DOCKER_USERNAME }}" -p "${{ secrets.DOCKER_PASSWORD }}" docker.io && echo "✅ Docker Hub login successful" || echo "❌ Docker Hub login failed"
+          
+          echo "🔐 Logging in to GitHub Container Registry..."
+          buildah login -u "${{ github.actor }}" -p "${{ secrets.GITHUB_TOKEN }}" ghcr.io && echo "✅ GHCR login successful" || echo "❌ GHCR login failed"
 
       - name: Build and push with Buildah
         env:
           DOCKERIO_REPOSITORY: docker.io/primussafe
-          HARBOR_REPOSITORY: ${{ secrets.HARBOR_HOST }}/primussafe
+          GHCR_REPOSITORY: ghcr.io/amd-agi/primussafe
           IMAGE_VERSION: ${{ needs.detect-changes.outputs.image_version }}
           DATE_TIME: ${{ needs.detect-changes.outputs.date_time }}
         run: |
@@ -296,22 +320,29 @@ jobs:
           echo "🚧 Building ${{ matrix.name }}..."
 
           # Determine which Dockerfile to use
-          # First check if module has its own Dockerfile in installer directory
-          MODULE_DOCKERFILE="${{ matrix.basepath }}installer/Dockerfile"
+          # Check in order: basepath/Dockerfile, basepath/installer/Dockerfile, fallback
+          MODULE_DOCKERFILE="${{ matrix.basepath }}Dockerfile"
+          INSTALLER_DOCKERFILE="${{ matrix.basepath }}installer/Dockerfile"
           FALLBACK_DOCKERFILE="Lens/ci/Dockerfile"
           
           if [[ -f "$MODULE_DOCKERFILE" ]]; then
             DOCKERFILE="$MODULE_DOCKERFILE"
-            echo "📄 Using module-specific Dockerfile: $DOCKERFILE"
+            echo "📄 Using module Dockerfile: $DOCKERFILE"
+          elif [[ -f "$INSTALLER_DOCKERFILE" ]]; then
+            DOCKERFILE="$INSTALLER_DOCKERFILE"
+            echo "📄 Using module-specific installer Dockerfile: $DOCKERFILE"
           else
             DOCKERFILE="$FALLBACK_DOCKERFILE"
             echo "📄 Using fallback Dockerfile: $DOCKERFILE"
           fi
 
+          # Build with buildah
           buildah bud \
             --layers \
+            --tls-verify=false \
+            --build-arg REGISTRY=${{ env.REGISTRY }} \
             --build-arg GO_VERSION=${{ env.GO_VERSION }} \
-            --build-arg GOPROXY=${{ secrets.GOPROXY }},direct \
+            --build-arg GOPROXY=https://proxy.golang.org,direct \
             --build-arg BUILDPATH=${{ matrix.buildpath }} \
             --build-arg BASEPATH=${{ matrix.basepath }} \
             --build-arg APPNAME=${{ matrix.name }} \
@@ -319,17 +350,22 @@ jobs:
             -t ${{ matrix.name }}:${IMAGE_VERSION} \
             -t ${{ matrix.name }}:${DATE_TIME} \
             -f ${DOCKERFILE} .
-          
 
-          for repo in ${DOCKERIO_REPOSITORY} ${HARBOR_REPOSITORY}; do
-            echo "🚀 Pushing ${{ matrix.name }} to $repo..."
-            buildah tag ${{ matrix.name }}:${IMAGE_VERSION} ${repo}/${{ matrix.name }}:${IMAGE_VERSION}
-            buildah tag ${{ matrix.name }}:${DATE_TIME} ${repo}/${{ matrix.name }}:${DATE_TIME}
-            echo "Pushing tags: ${repo}/${{ matrix.name }}:${IMAGE_VERSION}"
-            buildah push --tls-verify=false ${repo}/${{ matrix.name }}:${IMAGE_VERSION}
-            echo "Pushing tags: ${repo}/${{ matrix.name }}:${DATE_TIME}"
-            buildah push --tls-verify=false ${repo}/${{ matrix.name }}:${DATE_TIME}
-          done
+          # Push to Docker Hub
+          echo "🚀 Pushing ${{ matrix.name }} to Docker Hub..."
+          buildah tag ${{ matrix.name }}:${IMAGE_VERSION} ${DOCKERIO_REPOSITORY}/${{ matrix.name }}:${IMAGE_VERSION}
+          buildah tag ${{ matrix.name }}:${DATE_TIME} ${DOCKERIO_REPOSITORY}/${{ matrix.name }}:${DATE_TIME}
+          buildah push --tls-verify=false ${DOCKERIO_REPOSITORY}/${{ matrix.name }}:${IMAGE_VERSION}
+          buildah push --tls-verify=false ${DOCKERIO_REPOSITORY}/${{ matrix.name }}:${DATE_TIME}
+
+          # Push to GHCR
+          echo "🚀 Pushing ${{ matrix.name }} to GHCR..."
+          buildah tag ${{ matrix.name }}:${IMAGE_VERSION} ${GHCR_REPOSITORY}/${{ matrix.name }}:${IMAGE_VERSION}
+          buildah tag ${{ matrix.name }}:${DATE_TIME} ${GHCR_REPOSITORY}/${{ matrix.name }}:${DATE_TIME}
+          buildah push --tls-verify=false ${GHCR_REPOSITORY}/${{ matrix.name }}:${IMAGE_VERSION}
+          buildah push --tls-verify=false ${GHCR_REPOSITORY}/${{ matrix.name }}:${DATE_TIME}
+          
+          echo "✅ ${{ matrix.name }} build and push completed!"
 
       - name: Save build info
         env:
@@ -344,6 +380,7 @@ jobs:
             "date_time": "${DATE_TIME}",
             "docker_hub": "docker.io/primussafe/${{ matrix.name }}:${IMAGE_VERSION}",
             "docker_hub_datetime": "docker.io/primussafe/${{ matrix.name }}:${DATE_TIME}",
+            "ghcr": "ghcr.io/amd-agi/primussafe/${{ matrix.name }}:${IMAGE_VERSION}",
             "build_time": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")",
             "commit_sha": "${{ github.sha }}",
             "ref": "${{ github.ref }}"
@@ -357,121 +394,36 @@ jobs:
           path: build-info/${{ matrix.name }}.json
           retention-days: 90
 
-  # Special build job for primus-lens-installer
-  # This requires bundling all Helm charts into the image
-  build-installer:
-    needs: detect-changes
-    runs-on: primus-safe-builder
-    timeout-minutes: 30
-    if: ${{ needs.detect-changes.outputs.installer_changed == 'true' }}
-    steps:
-      - uses: actions/checkout@v4
-      
-      - name: Login registries
-        run: |
-          buildah login -u "${{ secrets.DOCKER_USERNAME }}" -p "${{ secrets.DOCKER_PASSWORD }}" docker.io
-          buildah login --tls-verify=false -u "${{ secrets.HARBOR_USERNAME }}" -p "${{ secrets.HARBOR_PASSWORD }}" "${{ secrets.HARBOR_HOST }}"
-
-      - name: Build and push installer
-        env:
-          DOCKERIO_REPOSITORY: docker.io/primussafe
-          HARBOR_REPOSITORY: ${{ secrets.HARBOR_HOST }}/primussafe
-          IMAGE_VERSION: ${{ needs.detect-changes.outputs.image_version }}
-          DATE_TIME: ${{ needs.detect-changes.outputs.date_time }}
-        run: |
-          set -e
-          echo "🚧 Building primus-lens-installer..."
-          
-          INSTALLER_DIR="Lens/bootstrap/installer"
-          CHARTS_DIR="Lens/charts"
-          BUILD_CONTEXT="$INSTALLER_DIR/build-context"
-          
-          # Create build context with installer source and all charts
-          rm -rf "$BUILD_CONTEXT"
-          mkdir -p "$BUILD_CONTEXT"
-          
-          # Copy installer source files
-          cp "$INSTALLER_DIR/go.mod" "$INSTALLER_DIR/go.sum" "$BUILD_CONTEXT/"
-          cp -r "$INSTALLER_DIR/cmd" "$BUILD_CONTEXT/"
-          cp -r "$INSTALLER_DIR/pkg" "$BUILD_CONTEXT/"
-          cp -r "$INSTALLER_DIR/internal" "$BUILD_CONTEXT/"
-          
-          # Copy all Helm charts
-          cp -r "$CHARTS_DIR" "$BUILD_CONTEXT/charts"
-          
-          # Copy Dockerfile
-          cp "$INSTALLER_DIR/Dockerfile" "$BUILD_CONTEXT/"
-          
-          echo "📄 Build context created at $BUILD_CONTEXT"
-          ls -la "$BUILD_CONTEXT"
-          
-          # Build the image
-          buildah bud \
-            --layers \
-            -t primus-lens-installer:${IMAGE_VERSION} \
-            -t primus-lens-installer:${DATE_TIME} \
-            -f "$BUILD_CONTEXT/Dockerfile" \
-            "$BUILD_CONTEXT"
-          
-          # Push to registries
-          for repo in ${DOCKERIO_REPOSITORY} ${HARBOR_REPOSITORY}; do
-            echo "🚀 Pushing primus-lens-installer to $repo..."
-            buildah tag primus-lens-installer:${IMAGE_VERSION} ${repo}/primus-lens-installer:${IMAGE_VERSION}
-            buildah tag primus-lens-installer:${DATE_TIME} ${repo}/primus-lens-installer:${DATE_TIME}
-            buildah push --tls-verify=false ${repo}/primus-lens-installer:${IMAGE_VERSION}
-            buildah push --tls-verify=false ${repo}/primus-lens-installer:${DATE_TIME}
-          done
-          
-          # Cleanup
-          rm -rf "$BUILD_CONTEXT"
-          
-          echo "✅ primus-lens-installer build and push completed!"
-
-      - name: Save build info
-        env:
-          IMAGE_VERSION: ${{ needs.detect-changes.outputs.image_version }}
-          DATE_TIME: ${{ needs.detect-changes.outputs.date_time }}
-        run: |
-          mkdir -p build-info
-          cat > build-info/primus-lens-installer.json << EOF
-          {
-            "name": "primus-lens-installer",
-            "image_version": "${IMAGE_VERSION}",
-            "date_time": "${DATE_TIME}",
-            "docker_hub": "docker.io/primussafe/primus-lens-installer:${IMAGE_VERSION}",
-            "docker_hub_datetime": "docker.io/primussafe/primus-lens-installer:${DATE_TIME}",
-            "build_time": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")",
-            "commit_sha": "${{ github.sha }}",
-            "ref": "${{ github.ref }}"
-          }
-          EOF
-
-      - name: Upload build info artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: build-info-primus-lens-installer
-          path: build-info/primus-lens-installer.json
-          retention-days: 90
-
   # TraceLens image build job
   # Python-based Streamlit application for trace analysis
   build-tracelens:
     needs: detect-changes
-    runs-on: primus-safe-builder
+    runs-on: ubuntu-latest
     timeout-minutes: 30
     if: ${{ needs.detect-changes.outputs.tracelens_changed == 'true' }}
     steps:
       - uses: actions/checkout@v4
-      
-      - name: Login registries
-        run: |
-          buildah login -u "${{ secrets.DOCKER_USERNAME }}" -p "${{ secrets.DOCKER_PASSWORD }}" docker.io
-          buildah login --tls-verify=false -u "${{ secrets.HARBOR_USERNAME }}" -p "${{ secrets.HARBOR_PASSWORD }}" "${{ secrets.HARBOR_HOST }}"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and push TraceLens
         env:
           DOCKERIO_REPOSITORY: docker.io/primussafe
-          HARBOR_REPOSITORY: ${{ secrets.HARBOR_HOST }}/primussafe
+          GHCR_REPOSITORY: ghcr.io/amd-agi/primussafe
           IMAGE_VERSION: ${{ needs.detect-changes.outputs.image_version }}
           DATE_TIME: ${{ needs.detect-changes.outputs.date_time }}
         run: |
@@ -480,22 +432,16 @@ jobs:
           
           TRACELENS_DIR="Lens/docker/tracelens"
           
-          # Build the image
-          buildah bud \
-            --layers \
-            -t tracelens:${IMAGE_VERSION} \
-            -t tracelens:${DATE_TIME} \
+          # Build and push the image
+          docker buildx build \
+            --platform linux/amd64 \
+            -t ${DOCKERIO_REPOSITORY}/tracelens:${IMAGE_VERSION} \
+            -t ${DOCKERIO_REPOSITORY}/tracelens:${DATE_TIME} \
+            -t ${GHCR_REPOSITORY}/tracelens:${IMAGE_VERSION} \
+            -t ${GHCR_REPOSITORY}/tracelens:${DATE_TIME} \
             -f "${TRACELENS_DIR}/Dockerfile" \
+            --push \
             "${TRACELENS_DIR}"
-          
-          # Push to registries
-          for repo in ${DOCKERIO_REPOSITORY} ${HARBOR_REPOSITORY}; do
-            echo "🚀 Pushing tracelens to $repo..."
-            buildah tag tracelens:${IMAGE_VERSION} ${repo}/tracelens:${IMAGE_VERSION}
-            buildah tag tracelens:${DATE_TIME} ${repo}/tracelens:${DATE_TIME}
-            buildah push --tls-verify=false ${repo}/tracelens:${IMAGE_VERSION}
-            buildah push --tls-verify=false ${repo}/tracelens:${DATE_TIME}
-          done
           
           echo "✅ tracelens build and push completed!"
 
@@ -512,6 +458,7 @@ jobs:
             "date_time": "${DATE_TIME}",
             "docker_hub": "docker.io/primussafe/tracelens:${IMAGE_VERSION}",
             "docker_hub_datetime": "docker.io/primussafe/tracelens:${DATE_TIME}",
+            "ghcr": "ghcr.io/amd-agi/primussafe/tracelens:${IMAGE_VERSION}",
             "build_time": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")",
             "commit_sha": "${{ github.sha }}",
             "ref": "${{ github.ref }}"
@@ -529,21 +476,32 @@ jobs:
   # Nginx-based container for Perfetto trace visualization
   build-perfetto:
     needs: detect-changes
-    runs-on: primus-safe-builder
-    timeout-minutes: 30
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
     if: ${{ needs.detect-changes.outputs.perfetto_changed == 'true' }}
     steps:
       - uses: actions/checkout@v4
-      
-      - name: Login registries
-        run: |
-          buildah login -u "${{ secrets.DOCKER_USERNAME }}" -p "${{ secrets.DOCKER_PASSWORD }}" docker.io
-          buildah login --tls-verify=false -u "${{ secrets.HARBOR_USERNAME }}" -p "${{ secrets.HARBOR_PASSWORD }}" "${{ secrets.HARBOR_HOST }}"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and push Perfetto Viewer
         env:
           DOCKERIO_REPOSITORY: docker.io/primussafe
-          HARBOR_REPOSITORY: ${{ secrets.HARBOR_HOST }}/primussafe
+          GHCR_REPOSITORY: ghcr.io/amd-agi/primussafe
           IMAGE_VERSION: ${{ needs.detect-changes.outputs.image_version }}
           DATE_TIME: ${{ needs.detect-changes.outputs.date_time }}
         run: |
@@ -552,22 +510,16 @@ jobs:
           
           PERFETTO_DIR="Lens/docker/perfetto"
           
-          # Build the image
-          buildah bud \
-            --layers \
-            -t perfetto-viewer:${IMAGE_VERSION} \
-            -t perfetto-viewer:${DATE_TIME} \
+          # Build and push the image
+          docker buildx build \
+            --platform linux/amd64 \
+            -t ${DOCKERIO_REPOSITORY}/perfetto-viewer:${IMAGE_VERSION} \
+            -t ${DOCKERIO_REPOSITORY}/perfetto-viewer:${DATE_TIME} \
+            -t ${GHCR_REPOSITORY}/perfetto-viewer:${IMAGE_VERSION} \
+            -t ${GHCR_REPOSITORY}/perfetto-viewer:${DATE_TIME} \
             -f "${PERFETTO_DIR}/Dockerfile" \
+            --push \
             "${PERFETTO_DIR}"
-          
-          # Push to registries
-          for repo in ${DOCKERIO_REPOSITORY} ${HARBOR_REPOSITORY}; do
-            echo "🚀 Pushing perfetto-viewer to $repo..."
-            buildah tag perfetto-viewer:${IMAGE_VERSION} ${repo}/perfetto-viewer:${IMAGE_VERSION}
-            buildah tag perfetto-viewer:${DATE_TIME} ${repo}/perfetto-viewer:${DATE_TIME}
-            buildah push --tls-verify=false ${repo}/perfetto-viewer:${IMAGE_VERSION}
-            buildah push --tls-verify=false ${repo}/perfetto-viewer:${DATE_TIME}
-          done
           
           echo "✅ perfetto-viewer build and push completed!"
 
@@ -584,6 +536,7 @@ jobs:
             "date_time": "${DATE_TIME}",
             "docker_hub": "docker.io/primussafe/perfetto-viewer:${IMAGE_VERSION}",
             "docker_hub_datetime": "docker.io/primussafe/perfetto-viewer:${DATE_TIME}",
+            "ghcr": "ghcr.io/amd-agi/primussafe/perfetto-viewer:${IMAGE_VERSION}",
             "build_time": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")",
             "commit_sha": "${{ github.sha }}",
             "ref": "${{ github.ref }}"
@@ -598,11 +551,11 @@ jobs:
           retention-days: 90
 
   # GitHub Runner image build job
-  # Based on buildah-runner with configurable GitHub Actions Runner version
+  # Based on ubuntu with GitHub Actions Runner
   build-github-runner:
     needs: detect-changes
-    runs-on: primus-safe-builder
-    timeout-minutes: 30
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
     if: ${{ needs.detect-changes.outputs.github_runner_changed == 'true' }}
     steps:
       - uses: actions/checkout@v4
@@ -613,47 +566,51 @@ jobs:
           source Lens/docker/github-runner/version.env
           echo "runner_version=${RUNNER_VERSION}" >> $GITHUB_OUTPUT
           echo "📦 GitHub Actions Runner Version: ${RUNNER_VERSION}"
-      
-      - name: Login registries
-        run: |
-          buildah login -u "${{ secrets.DOCKER_USERNAME }}" -p "${{ secrets.DOCKER_PASSWORD }}" docker.io
-          buildah login --tls-verify=false -u "${{ secrets.HARBOR_USERNAME }}" -p "${{ secrets.HARBOR_PASSWORD }}" "${{ secrets.HARBOR_HOST }}"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and push GitHub Runner
         env:
           DOCKERIO_REPOSITORY: docker.io/primussafe
-          HARBOR_REPOSITORY: ${{ secrets.HARBOR_HOST }}/primussafe
+          GHCR_REPOSITORY: ghcr.io/amd-agi/primussafe
           IMAGE_VERSION: ${{ needs.detect-changes.outputs.image_version }}
           DATE_TIME: ${{ needs.detect-changes.outputs.date_time }}
           RUNNER_VERSION: ${{ steps.read-version.outputs.runner_version }}
         run: |
           set -e
-          echo "🚧 Building buildah-runner with GitHub Actions Runner v${RUNNER_VERSION}..."
+          echo "🚧 Building github-runner with GitHub Actions Runner v${RUNNER_VERSION}..."
           
           GITHUB_RUNNER_DIR="Lens/docker/github-runner"
           
-          # Build the image
-          buildah bud \
-            --layers \
+          # Build and push the image
+          docker buildx build \
+            --platform linux/amd64 \
             --build-arg RUNNER_VERSION=${RUNNER_VERSION} \
-            -t buildah-runner:${IMAGE_VERSION} \
-            -t buildah-runner:${DATE_TIME} \
-            -t buildah-runner:v${RUNNER_VERSION} \
+            -t ${DOCKERIO_REPOSITORY}/github-runner:${IMAGE_VERSION} \
+            -t ${DOCKERIO_REPOSITORY}/github-runner:${DATE_TIME} \
+            -t ${DOCKERIO_REPOSITORY}/github-runner:v${RUNNER_VERSION} \
+            -t ${GHCR_REPOSITORY}/github-runner:${IMAGE_VERSION} \
+            -t ${GHCR_REPOSITORY}/github-runner:${DATE_TIME} \
+            -t ${GHCR_REPOSITORY}/github-runner:v${RUNNER_VERSION} \
             -f "${GITHUB_RUNNER_DIR}/Dockerfile" \
+            --push \
             "${GITHUB_RUNNER_DIR}"
           
-          # Push to registries
-          for repo in ${DOCKERIO_REPOSITORY} ${HARBOR_REPOSITORY}; do
-            echo "🚀 Pushing buildah-runner to $repo..."
-            buildah tag buildah-runner:${IMAGE_VERSION} ${repo}/buildah-runner:${IMAGE_VERSION}
-            buildah tag buildah-runner:${DATE_TIME} ${repo}/buildah-runner:${DATE_TIME}
-            buildah tag buildah-runner:v${RUNNER_VERSION} ${repo}/buildah-runner:v${RUNNER_VERSION}
-            buildah push --tls-verify=false ${repo}/buildah-runner:${IMAGE_VERSION}
-            buildah push --tls-verify=false ${repo}/buildah-runner:${DATE_TIME}
-            buildah push --tls-verify=false ${repo}/buildah-runner:v${RUNNER_VERSION}
-          done
-          
-          echo "✅ buildah-runner build and push completed!"
+          echo "✅ github-runner build and push completed!"
 
       - name: Save build info
         env:
@@ -662,15 +619,16 @@ jobs:
           RUNNER_VERSION: ${{ steps.read-version.outputs.runner_version }}
         run: |
           mkdir -p build-info
-          cat > build-info/buildah-runner.json << EOF
+          cat > build-info/github-runner.json << EOF
           {
-            "name": "buildah-runner",
+            "name": "github-runner",
             "image_version": "${IMAGE_VERSION}",
             "date_time": "${DATE_TIME}",
             "runner_version": "v${RUNNER_VERSION}",
-            "docker_hub": "docker.io/primussafe/buildah-runner:${IMAGE_VERSION}",
-            "docker_hub_datetime": "docker.io/primussafe/buildah-runner:${DATE_TIME}",
-            "docker_hub_runner_version": "docker.io/primussafe/buildah-runner:v${RUNNER_VERSION}",
+            "docker_hub": "docker.io/primussafe/github-runner:${IMAGE_VERSION}",
+            "docker_hub_datetime": "docker.io/primussafe/github-runner:${DATE_TIME}",
+            "docker_hub_runner_version": "docker.io/primussafe/github-runner:v${RUNNER_VERSION}",
+            "ghcr": "ghcr.io/amd-agi/primussafe/github-runner:${IMAGE_VERSION}",
             "build_time": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")",
             "commit_sha": "${{ github.sha }}",
             "ref": "${{ github.ref }}"
@@ -680,13 +638,13 @@ jobs:
       - name: Upload build info artifact
         uses: actions/upload-artifact@v4
         with:
-          name: build-info-buildah-runner
-          path: build-info/buildah-runner.json
+          name: build-info-github-runner
+          path: build-info/github-runner.json
           retention-days: 90
 
   # Summarize all build results into a single manifest artifact
   summarize-build:
-    needs: [detect-changes, build, build-installer, build-tracelens, build-perfetto, build-github-runner]
+    needs: [detect-changes, build, build-tracelens, build-perfetto, build-github-runner]
     runs-on: ubuntu-latest
     if: always()
     steps:
@@ -780,6 +738,7 @@ jobs:
           
           echo "" >> build-versions.txt
           echo "Docker Hub Registry: docker.io/primussafe/" >> build-versions.txt
+          echo "GHCR Registry: ghcr.io/amd-agi/primussafe/" >> build-versions.txt
           echo "================================================" >> build-versions.txt
           
           echo ""
@@ -794,4 +753,3 @@ jobs:
             build-manifest.json
             build-versions.txt
           retention-days: 90
-

@@ -15,6 +15,7 @@ data:
     multiCluster: true
     loadK8SClient: true
     loadStorageClient: true
+    isControlPlane: true
     controller:
       namespace: {{ .Values.global.namespace }}
       leaderElectionId: {{ .Values.apps.primusSafeAdapter.config.controller.leaderElectionId | default "primus-safe-adapter" }}

@@ -847,9 +847,7 @@ func applyMetricAlertAdvice(ctx *gin.Context, advice *dbmodel.AlertRuleAdvices, 
 
 	// Build and create metric alert rule using existing logic
 	// This is a simplified version - you may need to adapt based on your existing implementation
-	var groupsExt dbmodel.ExtType
-	groupsBytes2, _ := json.Marshal(metricReq.Groups)
-	json.Unmarshal(groupsBytes2, &groupsExt)
+	groupsJSON, _ := json.Marshal(metricReq.Groups)
 
 	var labelsExt dbmodel.ExtType
 	if metricReq.Labels != nil {
@@ -861,7 +859,7 @@ func applyMetricAlertAdvice(ctx *gin.Context, advice *dbmodel.AlertRuleAdvices, 
 		Name:        metricReq.Name,
 		ClusterName: metricReq.ClusterName,
 		Enabled:     metricReq.Enabled,
-		Groups:      groupsExt,
+		Groups:      groupsJSON,
 		Description: metricReq.Description,
 		Labels:      labelsExt,
 		SyncStatus:  "pending",

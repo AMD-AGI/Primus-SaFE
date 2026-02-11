@@ -1,0 +1,143 @@
+{{/*
+Skills Repository Service Deployment
+*/}}
+{{- if .Values.apps.skillsRepository.enabled }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "lens.fullname" . }}-skills-repository-config
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "lens.labels" . | nindent 4 }}
+    app: {{ include "lens.fullname" . }}-skills-repository
+data:
+  config.yaml: |
+    server:
+      port: {{ .Values.apps.skillsRepository.httpPort | default 8092 }}
+    database:
+      host: {{ .Values.apps.skillsRepository.config.db.host | default (printf "%s-primary.%s.svc" (include "lens.fullname" .) .Values.global.namespace) }}
+      port: {{ .Values.apps.skillsRepository.config.db.port | default 5432 }}
+      user: {{ .Values.apps.skillsRepository.config.db.userName | default "primus-lens-control-plane" }}
+      db_name: {{ .Values.apps.skillsRepository.config.db.dbName | default "primus-lens-control-plane" }}
+      ssl_mode: {{ .Values.apps.skillsRepository.config.db.sslMode | default "require" }}
+    embedding:
+      provider: {{ .Values.apps.skillsRepository.config.embedding.provider | default "openai" }}
+      model: {{ .Values.apps.skillsRepository.config.embedding.model | default "BAAI/bge-m3" }}
+      dimension: {{ .Values.apps.skillsRepository.config.embedding.dimension | default 1024 }}
+      base_url: {{ .Values.apps.skillsRepository.config.embedding.baseURL | default "" | quote }}
+    discovery:
+      sync_interval: {{ .Values.apps.skillsRepository.config.discovery.syncInterval | default "5m" }}
+      watch_enabled: {{ .Values.apps.skillsRepository.config.discovery.watchEnabled | default false }}
+      {{- if .Values.apps.skillsRepository.config.discovery.sources }}
+      sources:
+        {{- toYaml .Values.apps.skillsRepository.config.discovery.sources | nindent 8 }}
+      {{- end }}
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "lens.fullname" . }}-skills-repository
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "lens.labels" . | nindent 4 }}
+    app: {{ include "lens.fullname" . }}-skills-repository
+spec:
+  replicas: {{ .Values.apps.skillsRepository.replicas | default 1 }}
+  selector:
+    matchLabels:
+      app: {{ include "lens.fullname" . }}-skills-repository
+  template:
+    metadata:
+      labels:
+        app: {{ include "lens.fullname" . }}-skills-repository
+        {{- include "lens.selectorLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "lens.serviceAccountName" . }}
+      {{- if .Values.global.imageRegistry.pullSecret }}
+      imagePullSecrets:
+        - name: {{ .Values.global.imageRegistry.pullSecret }}
+      {{- end }}
+      {{- if .Values.infrastructure.waitForPostgres }}
+      initContainers:
+      {{- include "lens.waitForPostgres" . | nindent 6 }}
+      {{- end }}
+      containers:
+      - name: app
+        image: "{{ .Values.global.imageRegistry.url }}/{{ .Values.apps.skillsRepository.image }}"
+        imagePullPolicy: {{ .Values.global.imageRegistry.pullPolicy | default "IfNotPresent" }}
+        ports:
+        - containerPort: {{ .Values.apps.skillsRepository.httpPort | default 8092 }}
+          protocol: TCP
+        env:
+        - name: CONFIG_PATH
+          value: /etc/skills-repository/config.yaml
+        - name: DB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: {{ include "lens.fullname" . }}-pguser-{{ .Values.apps.skillsRepository.config.db.userName | default "primus-lens-control-plane" }}
+              key: password
+        {{- if .Values.apps.skillsRepository.config.embedding.apiKeySecret }}
+        - name: OPENAI_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: {{ .Values.apps.skillsRepository.config.embedding.apiKeySecret.name }}
+              key: {{ .Values.apps.skillsRepository.config.embedding.apiKeySecret.key | default "api-key" }}
+        {{- end }}
+        {{- if .Values.global.tracing.enabled }}
+        - name: OTEL_EXPORTER_OTLP_ENDPOINT
+          value: "{{ .Values.global.tracing.endpoint }}"
+        - name: OTEL_TRACES_SAMPLER
+          value: {{ .Values.global.tracing.sampler | default "traceidratio" }}
+        - name: OTEL_TRACES_SAMPLER_ARG
+          value: "{{ .Values.global.tracing.samplerArg | default "1.0" }}"
+        {{- end }}
+        volumeMounts:
+        - name: config-volume
+          mountPath: /etc/skills-repository/config.yaml
+          subPath: config.yaml
+        {{- if .Values.apps.skillsRepository.resources }}
+        resources:
+          {{- toYaml .Values.apps.skillsRepository.resources | nindent 10 }}
+        {{- end }}
+        livenessProbe:
+          httpGet:
+            path: /api/v1/health
+            port: {{ .Values.apps.skillsRepository.httpPort | default 8092 }}
+          initialDelaySeconds: 10
+          periodSeconds: 30
+        readinessProbe:
+          httpGet:
+            path: /api/v1/health
+            port: {{ .Values.apps.skillsRepository.httpPort | default 8092 }}
+          initialDelaySeconds: 5
+          periodSeconds: 10
+      volumes:
+      - name: config-volume
+        configMap:
+          name: {{ include "lens.fullname" . }}-skills-repository-config
+          items:
+          - key: config.yaml
+            path: config.yaml
+      restartPolicy: Always
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "lens.fullname" . }}-skills-repository
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "lens.labels" . | nindent 4 }}
+    app: {{ include "lens.fullname" . }}-skills-repository
+spec:
+  type: ClusterIP
+  ports:
+  - name: http
+    port: {{ .Values.apps.skillsRepository.httpPort | default 8092 }}
+    targetPort: {{ .Values.apps.skillsRepository.httpPort | default 8092 }}
+    protocol: TCP
+  selector:
+    app: {{ include "lens.fullname" . }}-skills-repository
+{{- end }}

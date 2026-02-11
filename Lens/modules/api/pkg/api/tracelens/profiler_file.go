@@ -33,6 +33,17 @@ type ProfilerFileListItem struct {
 	CreatedAt   string `gorm:"column:created_at" json:"created_at"`
 }
 
+// ListProfilerFilesForWorkload is a route alias for /workloads/:uid/profiler-files
+// It extracts workload_uid from the URL path param and delegates to ListProfilerFiles.
+// GET /v1/workloads/:uid/profiler-files?cluster={cluster}
+func ListProfilerFilesForWorkload(c *gin.Context) {
+	uid := c.Param("uid")
+	if uid != "" {
+		c.Request.URL.RawQuery = "workload_uid=" + uid + "&" + c.Request.URL.RawQuery
+	}
+	ListProfilerFiles(c)
+}
+
 // ListProfilerFiles returns a list of profiler files for a workload
 // GET /v1/profiler/files?workload_uid={workload_uid}&cluster={cluster}
 func ListProfilerFiles(c *gin.Context) {

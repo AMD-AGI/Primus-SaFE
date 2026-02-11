@@ -148,10 +148,13 @@ func (f *GpuAggregationFacade) BatchSaveClusterHourlyStats(ctx context.Context, 
 func (f *GpuAggregationFacade) GetClusterHourlyStats(ctx context.Context, startTime, endTime time.Time) ([]*dbmodel.ClusterGpuHourlyStats, error) {
 	q := f.getDAL().ClusterGpuHourlyStats
 
-	result, err := q.WithContext(ctx).
+	query := q.WithContext(ctx).
 		Where(q.StatHour.Gte(startTime)).
-		Where(q.StatHour.Lte(endTime)).
-		Order(q.StatHour.Asc()).
+		Where(q.StatHour.Lte(endTime))
+
+
+
+	result, err := query.Order(q.StatHour.Asc()).
 		Find()
 
 	if err != nil {
@@ -211,11 +214,14 @@ func (f *GpuAggregationFacade) BatchSaveNamespaceHourlyStats(ctx context.Context
 func (f *GpuAggregationFacade) GetNamespaceHourlyStats(ctx context.Context, namespace string, startTime, endTime time.Time) ([]*dbmodel.NamespaceGpuHourlyStats, error) {
 	q := f.getDAL().NamespaceGpuHourlyStats
 
-	result, err := q.WithContext(ctx).
+	query := q.WithContext(ctx).
 		Where(q.Namespace.Eq(namespace)).
 		Where(q.StatHour.Gte(startTime)).
-		Where(q.StatHour.Lte(endTime)).
-		Order(q.StatHour.Asc()).
+		Where(q.StatHour.Lte(endTime))
+
+
+
+	result, err := query.Order(q.StatHour.Asc()).
 		Find()
 
 	if err != nil {
@@ -232,10 +238,13 @@ func (f *GpuAggregationFacade) GetNamespaceHourlyStats(ctx context.Context, name
 func (f *GpuAggregationFacade) ListNamespaceHourlyStats(ctx context.Context, startTime, endTime time.Time) ([]*dbmodel.NamespaceGpuHourlyStats, error) {
 	q := f.getDAL().NamespaceGpuHourlyStats
 
-	result, err := q.WithContext(ctx).
+	query := q.WithContext(ctx).
 		Where(q.StatHour.Gte(startTime)).
-		Where(q.StatHour.Lte(endTime)).
-		Order(q.Namespace.Asc()).
+		Where(q.StatHour.Lte(endTime))
+
+
+
+	result, err := query.Order(q.Namespace.Asc()).
 		Order(q.StatHour.Asc()).
 		Find()
 
@@ -298,13 +307,16 @@ func (f *GpuAggregationFacade) BatchSaveLabelHourlyStats(ctx context.Context, st
 func (f *GpuAggregationFacade) GetLabelHourlyStats(ctx context.Context, dimensionType, dimensionKey, dimensionValue string, startTime, endTime time.Time) ([]*dbmodel.LabelGpuHourlyStats, error) {
 	q := f.getDAL().LabelGpuHourlyStats
 
-	result, err := q.WithContext(ctx).
+	query := q.WithContext(ctx).
 		Where(q.DimensionType.Eq(dimensionType)).
 		Where(q.DimensionKey.Eq(dimensionKey)).
 		Where(q.DimensionValue.Eq(dimensionValue)).
 		Where(q.StatHour.Gte(startTime)).
-		Where(q.StatHour.Lte(endTime)).
-		Order(q.StatHour.Asc()).
+		Where(q.StatHour.Lte(endTime))
+
+
+
+	result, err := query.Order(q.StatHour.Asc()).
 		Find()
 
 	if err != nil {
@@ -321,12 +333,15 @@ func (f *GpuAggregationFacade) GetLabelHourlyStats(ctx context.Context, dimensio
 func (f *GpuAggregationFacade) ListLabelHourlyStatsByKey(ctx context.Context, dimensionType, dimensionKey string, startTime, endTime time.Time) ([]*dbmodel.LabelGpuHourlyStats, error) {
 	q := f.getDAL().LabelGpuHourlyStats
 
-	result, err := q.WithContext(ctx).
+	query := q.WithContext(ctx).
 		Where(q.DimensionType.Eq(dimensionType)).
 		Where(q.DimensionKey.Eq(dimensionKey)).
 		Where(q.StatHour.Gte(startTime)).
-		Where(q.StatHour.Lte(endTime)).
-		Order(q.DimensionValue.Asc()).
+		Where(q.StatHour.Lte(endTime))
+
+
+
+	result, err := query.Order(q.DimensionValue.Asc()).
 		Order(q.StatHour.Asc()).
 		Find()
 
@@ -371,8 +386,11 @@ func (f *GpuAggregationFacade) SaveSnapshot(ctx context.Context, snapshot *dbmod
 func (f *GpuAggregationFacade) GetLatestSnapshot(ctx context.Context) (*dbmodel.GpuAllocationSnapshots, error) {
 	q := f.getDAL().GpuAllocationSnapshots
 
-	result, err := q.WithContext(ctx).
-		Order(q.SnapshotTime.Desc()).
+	query := q.WithContext(ctx)
+
+
+
+	result, err := query.Order(q.SnapshotTime.Desc()).
 		First()
 
 	if err != nil {
@@ -393,10 +411,13 @@ func (f *GpuAggregationFacade) GetLatestSnapshot(ctx context.Context) (*dbmodel.
 func (f *GpuAggregationFacade) ListSnapshots(ctx context.Context, startTime, endTime time.Time) ([]*dbmodel.GpuAllocationSnapshots, error) {
 	q := f.getDAL().GpuAllocationSnapshots
 
-	result, err := q.WithContext(ctx).
+	query := q.WithContext(ctx).
 		Where(q.SnapshotTime.Gte(startTime)).
-		Where(q.SnapshotTime.Lte(endTime)).
-		Order(q.SnapshotTime.Asc()).
+		Where(q.SnapshotTime.Lte(endTime))
+
+
+
+	result, err := query.Order(q.SnapshotTime.Asc()).
 		Find()
 
 	if err != nil {
@@ -469,11 +490,15 @@ func (f *GpuAggregationFacade) CleanupOldHourlyStats(ctx context.Context, before
 func (f *GpuAggregationFacade) GetDistinctNamespaces(ctx context.Context, startTime, endTime time.Time) ([]string, error) {
 	q := f.getDAL().NamespaceGpuHourlyStats
 
-	var namespaces []string
-	err := q.WithContext(ctx).
+	query := q.WithContext(ctx).
 		Where(q.StatHour.Gte(startTime)).
-		Where(q.StatHour.Lte(endTime)).
-		Distinct(q.Namespace).
+		Where(q.StatHour.Lte(endTime))
+
+	// Filter by cluster name to avoid returning namespaces from all clusters
+
+
+	var namespaces []string
+	err := query.Distinct(q.Namespace).
 		Pluck(q.Namespace, &namespaces)
 
 	if err != nil {
@@ -493,6 +518,9 @@ func (f *GpuAggregationFacade) GetDistinctNamespacesWithExclusion(ctx context.Co
 	query := q.WithContext(ctx).
 		Where(q.StatHour.Gte(startTime)).
 		Where(q.StatHour.Lte(endTime))
+
+	// Filter by cluster name to avoid returning namespaces from all clusters
+
 
 	// Add exclusion condition if excludeNamespaces is not empty
 	if len(excludeNamespaces) > 0 {
@@ -516,12 +544,16 @@ func (f *GpuAggregationFacade) GetDistinctNamespacesWithExclusion(ctx context.Co
 func (f *GpuAggregationFacade) GetDistinctDimensionKeys(ctx context.Context, dimensionType string, startTime, endTime time.Time) ([]string, error) {
 	q := f.getDAL().LabelGpuHourlyStats
 
-	var keys []string
-	err := q.WithContext(ctx).
+	query := q.WithContext(ctx).
 		Where(q.DimensionType.Eq(dimensionType)).
 		Where(q.StatHour.Gte(startTime)).
-		Where(q.StatHour.Lte(endTime)).
-		Distinct(q.DimensionKey).
+		Where(q.StatHour.Lte(endTime))
+
+	// Filter by cluster name to avoid returning keys from all clusters
+
+
+	var keys []string
+	err := query.Distinct(q.DimensionKey).
 		Pluck(q.DimensionKey, &keys)
 
 	if err != nil {
@@ -538,13 +570,17 @@ func (f *GpuAggregationFacade) GetDistinctDimensionKeys(ctx context.Context, dim
 func (f *GpuAggregationFacade) GetDistinctDimensionValues(ctx context.Context, dimensionType, dimensionKey string, startTime, endTime time.Time) ([]string, error) {
 	q := f.getDAL().LabelGpuHourlyStats
 
-	var values []string
-	err := q.WithContext(ctx).
+	query := q.WithContext(ctx).
 		Where(q.DimensionType.Eq(dimensionType)).
 		Where(q.DimensionKey.Eq(dimensionKey)).
 		Where(q.StatHour.Gte(startTime)).
-		Where(q.StatHour.Lte(endTime)).
-		Distinct(q.DimensionValue).
+		Where(q.StatHour.Lte(endTime))
+
+	// Filter by cluster name to avoid returning values from all clusters
+
+
+	var values []string
+	err := query.Distinct(q.DimensionValue).
 		Pluck(q.DimensionValue, &values)
 
 	if err != nil {
@@ -584,11 +620,15 @@ func calculatePagination(page, pageSize int, total int64) (offset int, limit int
 func (f *GpuAggregationFacade) GetClusterHourlyStatsPaginated(ctx context.Context, startTime, endTime time.Time, opts PaginationOptions) (*PaginatedResult, error) {
 	q := f.getDAL().ClusterGpuHourlyStats
 
-	// Query total count
-	total, err := q.WithContext(ctx).
+	// Build base condition
+	countQuery := q.WithContext(ctx).
 		Where(q.StatHour.Gte(startTime)).
-		Where(q.StatHour.Lte(endTime)).
-		Count()
+		Where(q.StatHour.Lte(endTime))
+
+
+
+	// Query total count
+	total, err := countQuery.Count()
 	if err != nil {
 		return nil, err
 	}
@@ -602,6 +642,8 @@ func (f *GpuAggregationFacade) GetClusterHourlyStatsPaginated(ctx context.Contex
 		Where(q.StatHour.Lte(endTime)).
 		Offset(offset).
 		Limit(limit)
+
+
 
 	// Apply sorting
 	var result []*dbmodel.ClusterGpuHourlyStats
@@ -641,12 +683,16 @@ func (f *GpuAggregationFacade) GetClusterHourlyStatsPaginated(ctx context.Contex
 func (f *GpuAggregationFacade) GetNamespaceHourlyStatsPaginated(ctx context.Context, namespace string, startTime, endTime time.Time, opts PaginationOptions) (*PaginatedResult, error) {
 	q := f.getDAL().NamespaceGpuHourlyStats
 
-	// Query total count
-	total, err := q.WithContext(ctx).
+	// Build base condition
+	countQuery := q.WithContext(ctx).
 		Where(q.Namespace.Eq(namespace)).
 		Where(q.StatHour.Gte(startTime)).
-		Where(q.StatHour.Lte(endTime)).
-		Count()
+		Where(q.StatHour.Lte(endTime))
+
+
+
+	// Query total count
+	total, err := countQuery.Count()
 	if err != nil {
 		return nil, err
 	}
@@ -661,6 +707,8 @@ func (f *GpuAggregationFacade) GetNamespaceHourlyStatsPaginated(ctx context.Cont
 		Where(q.StatHour.Lte(endTime)).
 		Offset(offset).
 		Limit(limit)
+
+
 
 	// Apply sorting
 	var result []*dbmodel.NamespaceGpuHourlyStats
@@ -700,11 +748,15 @@ func (f *GpuAggregationFacade) GetNamespaceHourlyStatsPaginated(ctx context.Cont
 func (f *GpuAggregationFacade) ListNamespaceHourlyStatsPaginated(ctx context.Context, startTime, endTime time.Time, opts PaginationOptions) (*PaginatedResult, error) {
 	q := f.getDAL().NamespaceGpuHourlyStats
 
-	// Query total count
-	total, err := q.WithContext(ctx).
+	// Build base condition
+	countQuery := q.WithContext(ctx).
 		Where(q.StatHour.Gte(startTime)).
-		Where(q.StatHour.Lte(endTime)).
-		Count()
+		Where(q.StatHour.Lte(endTime))
+
+
+
+	// Query total count
+	total, err := countQuery.Count()
 	if err != nil {
 		return nil, err
 	}
@@ -718,6 +770,8 @@ func (f *GpuAggregationFacade) ListNamespaceHourlyStatsPaginated(ctx context.Con
 		Where(q.StatHour.Lte(endTime)).
 		Offset(offset).
 		Limit(limit)
+
+
 
 	// Apply sorting
 	var result []*dbmodel.NamespaceGpuHourlyStats
@@ -762,6 +816,8 @@ func (f *GpuAggregationFacade) ListNamespaceHourlyStatsPaginatedWithExclusion(ct
 		Where(q.StatHour.Gte(startTime)).
 		Where(q.StatHour.Lte(endTime))
 
+
+
 	// Add exclusion condition if excludeNamespaces is not empty
 	if len(excludeNamespaces) > 0 {
 		baseQuery = baseQuery.Where(q.Namespace.NotIn(excludeNamespaces...))
@@ -782,6 +838,8 @@ func (f *GpuAggregationFacade) ListNamespaceHourlyStatsPaginatedWithExclusion(ct
 		Where(q.StatHour.Lte(endTime)).
 		Offset(offset).
 		Limit(limit)
+
+
 
 	// Add exclusion condition
 	if len(excludeNamespaces) > 0 {
@@ -826,14 +884,18 @@ func (f *GpuAggregationFacade) ListNamespaceHourlyStatsPaginatedWithExclusion(ct
 func (f *GpuAggregationFacade) GetLabelHourlyStatsPaginated(ctx context.Context, dimensionType, dimensionKey, dimensionValue string, startTime, endTime time.Time, opts PaginationOptions) (*PaginatedResult, error) {
 	q := f.getDAL().LabelGpuHourlyStats
 
-	// Query total count
-	total, err := q.WithContext(ctx).
+	// Build base condition
+	countQuery := q.WithContext(ctx).
 		Where(q.DimensionType.Eq(dimensionType)).
 		Where(q.DimensionKey.Eq(dimensionKey)).
 		Where(q.DimensionValue.Eq(dimensionValue)).
 		Where(q.StatHour.Gte(startTime)).
-		Where(q.StatHour.Lte(endTime)).
-		Count()
+		Where(q.StatHour.Lte(endTime))
+
+
+
+	// Query total count
+	total, err := countQuery.Count()
 	if err != nil {
 		return nil, err
 	}
@@ -850,6 +912,8 @@ func (f *GpuAggregationFacade) GetLabelHourlyStatsPaginated(ctx context.Context,
 		Where(q.StatHour.Lte(endTime)).
 		Offset(offset).
 		Limit(limit)
+
+
 
 	// Apply sorting
 	var result []*dbmodel.LabelGpuHourlyStats
@@ -895,13 +959,17 @@ func (f *GpuAggregationFacade) GetLabelHourlyStatsPaginated(ctx context.Context,
 func (f *GpuAggregationFacade) ListLabelHourlyStatsByKeyPaginated(ctx context.Context, dimensionType, dimensionKey string, startTime, endTime time.Time, opts PaginationOptions) (*PaginatedResult, error) {
 	q := f.getDAL().LabelGpuHourlyStats
 
-	// Query total count
-	total, err := q.WithContext(ctx).
+	// Build base condition
+	countQuery := q.WithContext(ctx).
 		Where(q.DimensionType.Eq(dimensionType)).
 		Where(q.DimensionKey.Eq(dimensionKey)).
 		Where(q.StatHour.Gte(startTime)).
-		Where(q.StatHour.Lte(endTime)).
-		Count()
+		Where(q.StatHour.Lte(endTime))
+
+
+
+	// Query total count
+	total, err := countQuery.Count()
 	if err != nil {
 		return nil, err
 	}
@@ -917,6 +985,8 @@ func (f *GpuAggregationFacade) ListLabelHourlyStatsByKeyPaginated(ctx context.Co
 		Where(q.StatHour.Lte(endTime)).
 		Offset(offset).
 		Limit(limit)
+
+
 
 	// Apply sorting
 	var result []*dbmodel.LabelGpuHourlyStats
@@ -1007,12 +1077,15 @@ func (f *GpuAggregationFacade) BatchSaveWorkloadHourlyStats(ctx context.Context,
 func (f *GpuAggregationFacade) GetWorkloadHourlyStats(ctx context.Context, namespace, workloadName string, startTime, endTime time.Time) ([]*dbmodel.WorkloadGpuHourlyStats, error) {
 	q := f.getDAL().WorkloadGpuHourlyStats
 
-	result, err := q.WithContext(ctx).
+	query := q.WithContext(ctx).
 		Where(q.Namespace.Eq(namespace)).
 		Where(q.WorkloadName.Eq(workloadName)).
 		Where(q.StatHour.Gte(startTime)).
-		Where(q.StatHour.Lte(endTime)).
-		Order(q.StatHour.Asc()).
+		Where(q.StatHour.Lte(endTime))
+
+
+
+	result, err := query.Order(q.StatHour.Asc()).
 		Find()
 
 	if err != nil {
@@ -1029,10 +1102,13 @@ func (f *GpuAggregationFacade) GetWorkloadHourlyStats(ctx context.Context, names
 func (f *GpuAggregationFacade) ListWorkloadHourlyStats(ctx context.Context, startTime, endTime time.Time) ([]*dbmodel.WorkloadGpuHourlyStats, error) {
 	q := f.getDAL().WorkloadGpuHourlyStats
 
-	result, err := q.WithContext(ctx).
+	query := q.WithContext(ctx).
 		Where(q.StatHour.Gte(startTime)).
-		Where(q.StatHour.Lte(endTime)).
-		Order(q.StatHour.Asc()).
+		Where(q.StatHour.Lte(endTime))
+
+
+
+	result, err := query.Order(q.StatHour.Asc()).
 		Find()
 
 	if err != nil {
@@ -1049,11 +1125,14 @@ func (f *GpuAggregationFacade) ListWorkloadHourlyStats(ctx context.Context, star
 func (f *GpuAggregationFacade) ListWorkloadHourlyStatsByNamespace(ctx context.Context, namespace string, startTime, endTime time.Time) ([]*dbmodel.WorkloadGpuHourlyStats, error) {
 	q := f.getDAL().WorkloadGpuHourlyStats
 
-	result, err := q.WithContext(ctx).
+	query := q.WithContext(ctx).
 		Where(q.Namespace.Eq(namespace)).
 		Where(q.StatHour.Gte(startTime)).
-		Where(q.StatHour.Lte(endTime)).
-		Order(q.StatHour.Asc()).
+		Where(q.StatHour.Lte(endTime))
+
+
+
+	result, err := query.Order(q.StatHour.Asc()).
 		Find()
 
 	if err != nil {
@@ -1074,6 +1153,8 @@ func (f *GpuAggregationFacade) GetWorkloadHourlyStatsPaginated(ctx context.Conte
 	query := q.WithContext(ctx).
 		Where(q.StatHour.Gte(startTime)).
 		Where(q.StatHour.Lte(endTime))
+
+
 
 	if namespace != "" {
 		query = query.Where(q.Namespace.Eq(namespace))
@@ -1145,6 +1226,8 @@ func (f *GpuAggregationFacade) GetWorkloadHourlyStatsPaginatedWithExclusion(ctx 
 	query := q.WithContext(ctx).
 		Where(q.StatHour.Gte(startTime)).
 		Where(q.StatHour.Lte(endTime))
+
+
 
 	if namespace != "" {
 		query = query.Where(q.Namespace.Eq(namespace))

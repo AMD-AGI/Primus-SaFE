@@ -19,6 +19,7 @@ import (
 type WorkloadFacadeInterface interface {
 	// GpuWorkload operations
 	GetGpuWorkloadByUid(ctx context.Context, uid string) (*model.GpuWorkload, error)
+	GetGpuWorkloadByName(ctx context.Context, name string) (*model.GpuWorkload, error)
 	CreateGpuWorkload(ctx context.Context, gpuWorkload *model.GpuWorkload) error
 	UpdateGpuWorkload(ctx context.Context, gpuWorkload *model.GpuWorkload) error
 	QueryWorkload(ctx context.Context, f *filter.WorkloadFilter) ([]*model.GpuWorkload, int, error)
@@ -99,6 +100,34 @@ func (f *WorkloadFacade) GetGpuWorkloadByUid(ctx context.Context, uid string) (*
 		return nil, nil
 	}
 	return result, nil
+}
+
+func (f *WorkloadFacade) GetGpuWorkloadByName(ctx context.Context, name string) (*model.GpuWorkload, error) {
+	db := f.getDB()
+	if db == nil {
+		return nil, nil
+	}
+	var result model.GpuWorkload
+	// When multiple gpu_workload records share the same name (e.g. a UnifiedJob
+	// parent and its PyTorchJob child), use a multi-level priority:
+	// 1. Prefer top-level workloads (parent_uid = '') over children
+	// 2. Prefer active workloads (end_at is null or zero) over completed ones
+	// 3. Among completed ones, prefer the most recently ended
+	// 4. Final tiebreaker: most recently created
+	err := db.WithContext(ctx).
+		Where("name = ?", name).
+		Order("CASE WHEN parent_uid = '' THEN 0 ELSE 1 END ASC, CASE WHEN end_at IS NULL OR end_at = '0001-01-01 00:00:00+00' THEN 0 ELSE 1 END ASC, end_at DESC, created_at DESC").
+		First(&result).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	if result.ID == 0 {
+		return nil, nil
+	}
+	return &result, nil
 }
 
 func (f *WorkloadFacade) CreateGpuWorkload(ctx context.Context, gpuWorkload *model.GpuWorkload) error {
@@ -365,7 +394,7 @@ func (f *WorkloadFacade) ListActiveTopLevelWorkloads(ctx context.Context, startT
 		Where("parent_uid = ?", "").                                                    // Top-level workloads only
 		Where("created_at <= ?", endTime).                                              // Created before or at end time
 		Where("(end_at IS NULL OR end_at = ? OR end_at >= ?)", time.Time{}, startTime). // Still active or ended after start time
-		Where("(deleted_at IS NULL OR deleted_at > ?)", endTime)                        // Not deleted before end time
+		Where("(deleted_at IS NULL OR deleted_at >= ?)", endTime)                       // Not deleted before or at end time (use >= to include boundary case)
 
 	if namespace != "" {
 		query = query.Where("namespace = ?", namespace)

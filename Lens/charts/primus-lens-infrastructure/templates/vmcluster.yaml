@@ -35,7 +35,7 @@ spec:
             - {{ include "primus-lens-infra.accessMode" . }}
           resources:
             requests:
-              storage: {{ $profile.victoriametrics.vmstorage.size }}
+              storage: {{ include "primus-lens-infra.vmStorageSize" . }}
           storageClassName: {{ include "primus-lens-infra.storageClass" . }}
     
     # Anti-affinity for high availability

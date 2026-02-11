@@ -12,8 +12,6 @@
 --   5. Performance metrics tracking
 --   6. Reuse effectiveness evaluation
 
-BEGIN;
-
 -- ============================================================================
 -- Section 1: AI Workload Metadata Indexes
 -- ============================================================================
@@ -281,8 +279,6 @@ INSERT INTO detection_source_priority (source_name, display_name, priority, base
 ('image', 'Image Inference', 40, 0.60, 1.0, 'Inferred from image name only'),
 ('default', 'Default Inference', 20, 0.30, 1.0, 'Default or unknown case')
 ON CONFLICT (source_name) DO NOTHING;
-
-COMMIT;
 
 -- ============================================================================
 -- Migration Notes

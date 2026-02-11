@@ -60,14 +60,14 @@ type githubWorkflowMetricSchemas struct {
 
 	ALL                  field.Asterisk
 	ID                   field.Int64
-	ConfigID             field.Int64  // Associated configuration ID
-	Name                 field.String // Schema name
-	Version              field.Int32  // Schema version number
-	Fields               field.Field  // JSON array of field definitions with name, type, unit, description
-	DimensionFields      field.Field  // JSON array of field names used as dimensions (for grouping)
-	MetricFields         field.Field  // JSON array of field names used as metrics (numeric values)
-	IsActive             field.Bool   // Whether this schema version is currently active
-	GeneratedBy          field.String // How schema was generated: ai, user, system
+	ConfigID             field.Int64
+	Name                 field.String
+	Version              field.Int32
+	Fields               field.Field
+	DimensionFields      field.Field
+	MetricFields         field.Field
+	IsActive             field.Bool
+	GeneratedBy          field.String
 	GenerationSampleFile field.String
 	CreatedAt            field.Time
 	UpdatedAt            field.Time
