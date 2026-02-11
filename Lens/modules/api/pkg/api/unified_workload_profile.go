@@ -5,6 +5,7 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/clientsets"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database"
@@ -142,8 +143,7 @@ func handleWorkloadProfileGet(ctx context.Context, req *WorkloadProfileGetReques
 			WithMessage("workload_uid is required")
 	}
 
-	cm := clientsets.GetClusterManager()
-	clusterName, err := resolveWorkloadCluster(cm, req.WorkloadUID, req.Cluster)
+	clusterName, err := resolveWorkloadCluster(ctx, req.WorkloadUID, req.Cluster)
 	if err != nil {
 		return nil, err
 	}
@@ -170,6 +170,7 @@ func handleWorkloadProfileList(ctx context.Context, req *WorkloadProfileListRequ
 	if err != nil {
 		return nil, err
 	}
+	clusterName := clients.ClusterName
 
 	pageNum := req.PageNum
 	pageSize := req.PageSize
@@ -183,20 +184,23 @@ func handleWorkloadProfileList(ctx context.Context, req *WorkloadProfileListRequ
 		pageSize = 100
 	}
 
-	facade := database.GetFacadeForCluster(clients.ClusterName)
+	facade := database.GetFacadeForCluster(clusterName)
 
 	limit := pageSize
 	offset := (pageNum - 1) * pageSize
 
-	detections, total, err := facade.GetWorkloadDetection().ListByFilters(ctx,
-		req.Category,
-		req.ModelFamily,
-		req.Framework,
-		req.IntentState,
-		req.MinConfidence,
-		limit,
-		offset,
-	)
+	var detections []*dbModel.WorkloadDetection
+	var total int64
+
+	// Use available facade methods based on filter priority
+	if req.Category != "" {
+		detections, total, err = facade.GetWorkloadDetection().ListByCategory(ctx, req.Category, limit, offset)
+	} else if req.IntentState != "" {
+		detections, total, err = facade.GetWorkloadDetection().ListByIntentState(ctx, req.IntentState, limit, offset)
+	} else {
+		// Default: list all detections that have been analyzed
+		detections, total, err = facade.GetWorkloadDetection().ListByIntentState(ctx, "completed", limit, offset)
+	}
 	if err != nil {
 		return nil, errors.NewError().
 			WithCode(errors.InternalError).
@@ -221,16 +225,14 @@ func handleWorkloadProfileAnalyze(ctx context.Context, req *WorkloadProfileAnaly
 			WithMessage("workload_uid is required")
 	}
 
-	cm := clientsets.GetClusterManager()
-	clusterName, err := resolveWorkloadCluster(cm, req.WorkloadUID, req.Cluster)
+	clusterName, err := resolveWorkloadCluster(ctx, req.WorkloadUID, req.Cluster)
 	if err != nil {
 		return nil, err
 	}
 
 	// Reset intent_state to "pending" to trigger re-analysis
 	facade := database.GetFacadeForCluster(clusterName)
-	pending := "pending"
-	err = facade.GetWorkloadDetection().UpdateIntentState(ctx, req.WorkloadUID, &pending)
+	err = facade.GetWorkloadDetection().UpdateIntentState(ctx, req.WorkloadUID, "pending")
 	if err != nil {
 		return nil, errors.NewError().
 			WithCode(errors.InternalError).
@@ -249,8 +251,7 @@ func handleWorkloadProfileEvidence(ctx context.Context, req *WorkloadProfileEvid
 			WithMessage("workload_uid is required")
 	}
 
-	cm := clientsets.GetClusterManager()
-	clusterName, err := resolveWorkloadCluster(cm, req.WorkloadUID, req.Cluster)
+	clusterName, err := resolveWorkloadCluster(ctx, req.WorkloadUID, req.Cluster)
 	if err != nil {
 		return nil, err
 	}
@@ -261,7 +262,7 @@ func handleWorkloadProfileEvidence(ctx context.Context, req *WorkloadProfileEvid
 	evidence := make(map[string]interface{})
 
 	// Detection evidence records
-	evidenceRecords, err := facade.GetWorkloadDetectionEvidence().ListByWorkloadUID(ctx, req.WorkloadUID)
+	evidenceRecords, err := facade.GetWorkloadDetectionEvidence().ListEvidenceByWorkload(ctx, req.WorkloadUID)
 	if err == nil && len(evidenceRecords) > 0 {
 		evidence["detection_evidence"] = evidenceRecords
 	}
@@ -285,25 +286,24 @@ func convertDetectionToProfile(det *dbModel.WorkloadDetection) *WorkloadProfileG
 		WorkloadUID: det.WorkloadUID,
 	}
 
-	// Phase 1 fields
-	if det.Framework != nil {
-		resp.Framework = *det.Framework
-	}
+	// Phase 1 fields (non-pointer types in model)
+	resp.Framework = det.Framework
 	if det.Frameworks != nil {
-		resp.Frameworks = *det.Frameworks
+		// ExtJSON -> comma-separated string for display
+		var fws []string
+		if json.Unmarshal(det.Frameworks, &fws) == nil {
+			for i, fw := range fws {
+				if i > 0 {
+					resp.Frameworks += ","
+				}
+				resp.Frameworks += fw
+			}
+		}
 	}
-	if det.WorkloadType != nil {
-		resp.WorkloadType = *det.WorkloadType
-	}
-	if det.WrapperFramework != nil {
-		resp.WrapperFramework = *det.WrapperFramework
-	}
-	if det.BaseFramework != nil {
-		resp.BaseFramework = *det.BaseFramework
-	}
-	if det.Confidence != nil {
-		resp.Confidence = *det.Confidence
-	}
+	resp.WorkloadType = det.WorkloadType
+	resp.WrapperFramework = det.WrapperFramework
+	resp.BaseFramework = det.BaseFramework
+	resp.Confidence = det.Confidence
 
 	// Phase 2: Intent fields
 	if det.Category != nil {

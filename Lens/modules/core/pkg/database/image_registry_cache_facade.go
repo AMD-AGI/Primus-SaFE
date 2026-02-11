@@ -39,6 +39,9 @@ type ImageRegistryCacheFacadeInterface interface {
 	// DeleteOrphaned deletes cache entries older than the given time that have no workload references
 	DeleteOrphaned(ctx context.Context, olderThan time.Time) (int64, error)
 
+	// List retrieves cached images with optional registry/repository filtering and pagination
+	List(ctx context.Context, registry, repository string, limit, offset int) ([]*model.ImageRegistryCache, int64, error)
+
 	// WithCluster returns a new facade instance for the specified cluster
 	WithCluster(clusterName string) ImageRegistryCacheFacadeInterface
 }
@@ -135,6 +138,26 @@ func (f *ImageRegistryCacheFacade) UpdateExpiresAt(ctx context.Context, id int64
 		Table(model.TableNameImageRegistryCache).
 		Where("id = ?", id).
 		UpdateColumn("expires_at", expiresAt).Error
+}
+
+func (f *ImageRegistryCacheFacade) List(ctx context.Context, registry, repository string, limit, offset int) ([]*model.ImageRegistryCache, int64, error) {
+	db := f.getDB().WithContext(ctx).Model(&model.ImageRegistryCache{})
+
+	if registry != "" {
+		db = db.Where("registry = ?", registry)
+	}
+	if repository != "" {
+		db = db.Where("repository LIKE ?", "%"+repository+"%")
+	}
+
+	var total int64
+	if err := db.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+
+	var results []*model.ImageRegistryCache
+	err := db.Order("cached_at DESC").Limit(limit).Offset(offset).Find(&results).Error
+	return results, total, err
 }
 
 func (f *ImageRegistryCacheFacade) DeleteOrphaned(ctx context.Context, olderThan time.Time) (int64, error) {
