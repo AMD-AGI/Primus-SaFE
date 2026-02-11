@@ -4,6 +4,8 @@
 package service
 
 import (
+	"archive/zip"
+	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -45,14 +47,41 @@ func parseGitHubURL(githubURL string) (owner, repo string, refAndPath []string, 
 // downloadFunc is a function type for downloading a URL. Used for testing.
 type downloadFunc func(ctx context.Context, url string) ([]byte, error)
 
+// verifyZipBranch checks whether the downloaded ZIP archive is actually for the
+// given candidate branch. GitHub's archive endpoint does prefix matching on refs:
+// requesting "refs/heads/feature/foo/bar.zip" may return the archive for branch
+// "feature/foo" if "feature/foo/bar" doesn't exist.
+//
+// GitHub archive ZIPs have a single root directory named
+// "{repo}-{branch_sanitized}-{short_sha}" where slashes in the branch name are
+// replaced with hyphens. We verify by checking this root directory name.
+func verifyZipBranch(zipData []byte, repo, candidateBranch string) bool {
+	zr, err := zip.NewReader(bytes.NewReader(zipData), int64(len(zipData)))
+	if err != nil || len(zr.File) == 0 {
+		return false
+	}
+
+	// Extract root directory from the first ZIP entry
+	firstEntry := zr.File[0].Name
+	rootDir := strings.SplitN(firstEntry, "/", 2)[0]
+
+	// Expected root prefix: "{repo}-{branch_with_slashes_to_hyphens}-"
+	// The trailing hyphen separates the branch name from the commit SHA.
+	expectedPrefix := repo + "-" + strings.ReplaceAll(candidateBranch, "/", "-") + "-"
+	return strings.HasPrefix(rootDir, expectedPrefix)
+}
+
 // resolveAndDownload tries candidate branch names (longest first) against
 // archiveBaseURL and returns the ZIP data along with the remaining subdirectory
 // path. Branch names with slashes (e.g. "feature/foo/bar") are resolved by
-// trying progressively shorter segments until an archive download succeeds.
+// trying progressively shorter segments until an archive download succeeds AND
+// the ZIP root directory confirms the branch name matches (to defeat GitHub's
+// prefix matching on refs).
 func resolveAndDownload(ctx context.Context, owner, repo string, refAndPath []string, dl downloadFunc) ([]byte, string, error) {
 	archiveBase := fmt.Sprintf("https://github.com/%s/%s/archive/refs/heads", owner, repo)
 
 	var lastErr error
+	var cachedData []byte // reuse data when GitHub prefix-matched to a shorter branch
 
 	// Try progressively shorter ref names (longest match first).
 	// For segments [feature, foo, bar, some, dir] we try:
@@ -60,22 +89,47 @@ func resolveAndDownload(ctx context.Context, owner, repo string, refAndPath []st
 	//   2. branch = "feature/foo/bar/some",     subDir = "dir"
 	//   3. branch = "feature/foo/bar",           subDir = "some/dir"
 	//   ...
+	// Each candidate is verified against the ZIP root directory to detect
+	// GitHub's prefix matching (where a request for branch A/B/C may return
+	// the archive for branch A/B if A/B/C doesn't exist).
 	if len(refAndPath) > 0 {
 		for i := len(refAndPath); i >= 1; i-- {
 			candidateBranch := strings.Join(refAndPath[:i], "/")
 			downloadURL := fmt.Sprintf("%s/%s.zip", archiveBase, candidateBranch)
 			log.Printf("[GitHub Import] trying branch=%q url=%s", candidateBranch, downloadURL)
-			data, err := dl(ctx, downloadURL)
-			if err == nil {
-				subDir := ""
-				if i < len(refAndPath) {
-					subDir = strings.Join(refAndPath[i:], "/")
-				}
-				log.Printf("[GitHub Import] resolved branch=%q subDir=%q zipSize=%d", candidateBranch, subDir, len(data))
-				return data, subDir, nil
+
+			var data []byte
+			var err error
+			if cachedData != nil {
+				// Reuse previously downloaded data (GitHub prefix-matched, so
+				// the archive is the same for shorter branch candidates).
+				data = cachedData
+				err = nil
+				log.Printf("[GitHub Import] reusing cached archive for branch=%q", candidateBranch)
+			} else {
+				data, err = dl(ctx, downloadURL)
 			}
-			log.Printf("[GitHub Import] branch=%q failed: %v", candidateBranch, err)
-			lastErr = err
+
+			if err != nil {
+				log.Printf("[GitHub Import] branch=%q failed: %v", candidateBranch, err)
+				lastErr = err
+				continue
+			}
+
+			// Verify the ZIP is actually for this branch (not a prefix match)
+			if !verifyZipBranch(data, repo, candidateBranch) {
+				log.Printf("[GitHub Import] branch=%q download OK but ZIP root mismatch (GitHub prefix-matched to shorter branch), skipping", candidateBranch)
+				cachedData = data // cache for next shorter candidate
+				lastErr = fmt.Errorf("branch %q resolved to different ref via prefix match", candidateBranch)
+				continue
+			}
+
+			subDir := ""
+			if i < len(refAndPath) {
+				subDir = strings.Join(refAndPath[i:], "/")
+			}
+			log.Printf("[GitHub Import] verified branch=%q subDir=%q zipSize=%d", candidateBranch, subDir, len(data))
+			return data, subDir, nil
 		}
 	}
 
