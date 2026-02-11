@@ -33,6 +33,11 @@ const (
 	TopicGithubDashboardRegressionAnalyze = "github.dashboard.regression.analyze"
 	TopicGithubDashboardCommitImpact      = "github.dashboard.commit.impact"
 	TopicGithubDashboardInsightsGenerate  = "github.dashboard.insights.generate"
+
+	// Intent Analysis Topics
+	TopicIntentAnalyzeWorkload = "intent.analyze.workload"
+	TopicIntentAnalyzeLogs     = "intent.analyze.logs"
+	TopicIntentAnalyzeCode     = "intent.analyze.code"
 )
 
 // API Version
@@ -44,6 +49,7 @@ var TopicDomains = []string{
 	"report",
 	"scan",
 	"github",
+	"intent",
 }
 
 // IsValidTopic checks if a topic string is a known topic
@@ -63,7 +69,10 @@ func IsValidTopic(topic string) bool {
 		TopicGithubSchemaAnalyze,
 		TopicGithubDashboardRegressionAnalyze,
 		TopicGithubDashboardCommitImpact,
-		TopicGithubDashboardInsightsGenerate:
+		TopicGithubDashboardInsightsGenerate,
+		TopicIntentAnalyzeWorkload,
+		TopicIntentAnalyzeLogs,
+		TopicIntentAnalyzeCode:
 		return true
 	default:
 		return false

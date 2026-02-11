@@ -17,6 +17,7 @@ import (
 
 	advisorClient "github.com/AMD-AGI/Primus-SaFE/Lens/ai-advisor/pkg/client"
 	advisorCommon "github.com/AMD-AGI/Primus-SaFE/Lens/ai-advisor/pkg/common"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/ahocorasick"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/constant"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database"
 	dbModel "github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database/model"
@@ -32,6 +33,7 @@ var (
 	aiAdvisorClient *advisorClient.Client      // AI Advisor client for framework detection
 	configManager   *FrameworkConfigManager    // For local log pattern matching
 	patternMatchers map[string]*PatternMatcher // For local log parsing
+	globalExtractor *UniversalExtractor         // Framework-agnostic AC automaton extractor
 
 	// ANSI escape code regex for cleaning logs
 	// Matches: \x1b[...m (standard ANSI), [...m (simplified format), [...][ (any bracket sequences)
@@ -84,6 +86,12 @@ func InitializeWandBHandlerAndLogProcessing(aiAdvisorURL string, systemConfigMgr
 
 	logrus.Infof("Framework pattern matchers initialized with %d frameworks", len(patternMatchers))
 
+	// 3.5. Initialize universal extractor (AC automaton for intent analysis)
+	globalExtractor = NewUniversalExtractor()
+	// Patterns will be loaded periodically from the DB by a background goroutine
+	go startExtractorPatternRefresh(context.Background())
+	logrus.Info("Universal extractor initialized (patterns loaded in background)")
+
 	// 4. Initialize WandB log/metrics processor (local processing)
 	metricsStorage := NewInMemoryMetricsStorage(10000) // Max 10000 metrics per workload
 	wandbLogProcessor := NewWandBLogProcessor(metricsStorage)
@@ -98,6 +106,69 @@ func InitializeWandBHandlerAndLogProcessing(aiAdvisorURL string, systemConfigMgr
 // GetAIAdvisorClient returns the AI Advisor client
 func GetAIAdvisorClient() *advisorClient.Client {
 	return aiAdvisorClient
+}
+
+// GetUniversalExtractor returns the global universal extractor instance
+func GetUniversalExtractor() *UniversalExtractor {
+	return globalExtractor
+}
+
+// startExtractorPatternRefresh periodically loads promoted intent rules from DB
+func startExtractorPatternRefresh(ctx context.Context) {
+	ticker := time.NewTicker(5 * time.Minute)
+	defer ticker.Stop()
+
+	// Initial load after short delay
+	time.Sleep(10 * time.Second)
+	refreshExtractorPatterns(ctx)
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			refreshExtractorPatterns(ctx)
+		}
+	}
+}
+
+// refreshExtractorPatterns loads promoted rules from the intent_rule table
+func refreshExtractorPatterns(ctx context.Context) {
+	if globalExtractor == nil {
+		return
+	}
+
+	ruleFacade := database.NewIntentRuleFacade()
+	rules, err := ruleFacade.GetPromotedRules(ctx)
+	if err != nil {
+		logrus.Warnf("Failed to load promoted rules for extractor: %v", err)
+		return
+	}
+
+	if len(rules) == 0 {
+		return
+	}
+
+	var patterns []*ahocorasick.Pattern
+	for _, rule := range rules {
+		// Only use literal patterns (not regex) for AC automaton
+		// Regex rules are handled by the evaluator, not the AC automaton
+		if strings.ContainsAny(rule.Pattern, `.*+?[](){}^$|\`) {
+			continue
+		}
+		patterns = append(patterns, &ahocorasick.Pattern{
+			Keyword:    rule.Pattern,
+			ID:         rule.ID,
+			Field:      rule.DetectsField,
+			Value:      rule.DetectsValue,
+			Confidence: rule.Confidence,
+		})
+	}
+
+	if len(patterns) > 0 {
+		globalExtractor.LoadPatterns(patterns)
+		logrus.Infof("Extractor patterns refreshed: %d literal patterns from %d rules", len(patterns), len(rules))
+	}
 }
 
 // stripAnsiCodes removes ANSI escape codes from log messages

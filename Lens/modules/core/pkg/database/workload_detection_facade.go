@@ -71,6 +71,18 @@ type WorkloadDetectionFacadeInterface interface {
 	// MarkAsConfirmed marks a detection as confirmed with timestamp
 	MarkAsConfirmed(ctx context.Context, workloadUID string, framework string, confidence float64) error
 
+	// UpdateIntentResult updates only the intent analysis fields without touching detection fields
+	UpdateIntentResult(ctx context.Context, workloadUID string, updates map[string]interface{}) error
+
+	// UpdateIntentState updates the intent analysis lifecycle state
+	UpdateIntentState(ctx context.Context, workloadUID string, intentState string) error
+
+	// ListByIntentState lists detections by intent analysis state
+	ListByIntentState(ctx context.Context, intentState string, limit int, offset int) ([]*model.WorkloadDetection, int64, error)
+
+	// ListByCategory lists detections by intent category
+	ListByCategory(ctx context.Context, category string, limit int, offset int) ([]*model.WorkloadDetection, int64, error)
+
 	// WithCluster returns a new facade instance for the specified cluster
 	WithCluster(clusterName string) WorkloadDetectionFacadeInterface
 }
@@ -376,5 +388,104 @@ func (f *WorkloadDetectionFacade) MarkAsConfirmed(ctx context.Context, workloadU
 			"confirmed_at":    now,
 			"updated_at":      now,
 		}).Error
+}
+
+// UpdateIntentResult updates only the intent analysis fields without touching detection fields.
+// The updates map should use column names as keys (e.g., "category", "model_family", "intent_detail").
+// Allowed intent fields: category, expected_behavior, model_path, model_family, model_scale,
+// model_variant, runtime_framework, intent_detail, intent_confidence, intent_source,
+// intent_reasoning, intent_field_sources, intent_analysis_mode, intent_matched_rules,
+// intent_state, intent_analyzed_at.
+func (f *WorkloadDetectionFacade) UpdateIntentResult(ctx context.Context, workloadUID string, updates map[string]interface{}) error {
+	if len(updates) == 0 {
+		return nil
+	}
+
+	// Whitelist of allowed intent fields to prevent accidental detection field overwrites
+	allowedFields := map[string]bool{
+		"category": true, "expected_behavior": true,
+		"model_path": true, "model_family": true, "model_scale": true, "model_variant": true,
+		"runtime_framework": true, "intent_detail": true,
+		"intent_confidence": true, "intent_source": true, "intent_reasoning": true,
+		"intent_field_sources": true, "intent_analysis_mode": true, "intent_matched_rules": true,
+		"intent_state": true, "intent_analyzed_at": true,
+	}
+
+	filtered := make(map[string]interface{})
+	for k, v := range updates {
+		if allowedFields[k] {
+			filtered[k] = v
+		}
+	}
+	if len(filtered) == 0 {
+		return nil
+	}
+
+	filtered["updated_at"] = time.Now()
+
+	db := f.getDB()
+	return db.WithContext(ctx).
+		Table(model.TableNameWorkloadDetection).
+		Where("workload_uid = ?", workloadUID).
+		Updates(filtered).Error
+}
+
+// UpdateIntentState updates the intent analysis lifecycle state
+func (f *WorkloadDetectionFacade) UpdateIntentState(ctx context.Context, workloadUID string, intentState string) error {
+	db := f.getDB()
+	now := time.Now()
+
+	updates := map[string]interface{}{
+		"intent_state": intentState,
+		"updated_at":   now,
+	}
+	if intentState == "completed" {
+		updates["intent_analyzed_at"] = now
+	}
+
+	return db.WithContext(ctx).
+		Table(model.TableNameWorkloadDetection).
+		Where("workload_uid = ?", workloadUID).
+		Updates(updates).Error
+}
+
+// ListByIntentState lists detections by intent analysis state
+func (f *WorkloadDetectionFacade) ListByIntentState(ctx context.Context, intentState string, limit int, offset int) ([]*model.WorkloadDetection, int64, error) {
+	db := f.getDB()
+	var results []*model.WorkloadDetection
+	var total int64
+
+	query := db.WithContext(ctx).
+		Table(model.TableNameWorkloadDetection).
+		Where("intent_state = ?", intentState)
+
+	if err := query.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+
+	if err := query.Order("updated_at DESC").Limit(limit).Offset(offset).Find(&results).Error; err != nil {
+		return nil, 0, err
+	}
+	return results, total, nil
+}
+
+// ListByCategory lists detections by intent category
+func (f *WorkloadDetectionFacade) ListByCategory(ctx context.Context, category string, limit int, offset int) ([]*model.WorkloadDetection, int64, error) {
+	db := f.getDB()
+	var results []*model.WorkloadDetection
+	var total int64
+
+	query := db.WithContext(ctx).
+		Table(model.TableNameWorkloadDetection).
+		Where("category = ?", category)
+
+	if err := query.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+
+	if err := query.Order("updated_at DESC").Limit(limit).Offset(offset).Find(&results).Error; err != nil {
+		return nil, 0, err
+	}
+	return results, total, nil
 }
 
