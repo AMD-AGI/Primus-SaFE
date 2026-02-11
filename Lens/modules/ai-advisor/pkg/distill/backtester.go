@@ -189,10 +189,10 @@ func (b *Backtester) getMatchValue(ctx context.Context, det *model.WorkloadDetec
 	// Concatenate all evidence data for the matching dimension
 	var parts []string
 	for _, ev := range evidences {
-		if ev.RawData == nil {
+		if ev.Evidence == nil {
 			continue
 		}
-		rawJSON, _ := json.Marshal(ev.RawData)
+		rawJSON, _ := json.Marshal(ev.Evidence)
 		var raw map[string]interface{}
 		if json.Unmarshal(rawJSON, &raw) != nil {
 			continue

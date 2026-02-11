@@ -6,6 +6,7 @@ package distill
 import (
 	"context"
 	"encoding/json"
+	"time"
 
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database/model"

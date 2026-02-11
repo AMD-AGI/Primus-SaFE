@@ -311,10 +311,16 @@ func (c *CodeSnapshotCollector) storeSnapshot(
 	}
 
 	if snapshot.EntryScript != nil {
-		record.EntryScript = snapshot.EntryScript.Content
+		// EntryScript is ExtType (map[string]interface{})
+		record.EntryScript = model.ExtType{
+			"path":    snapshot.EntryScript.Path,
+			"content": snapshot.EntryScript.Content,
+			"hash":    snapshot.EntryScript.Hash,
+			"size":    snapshot.EntryScript.Size,
+		}
 	}
 
-	// Serialize config files and import graph as JSON
+	// ConfigFiles is ExtJSON (json.RawMessage)
 	if len(snapshot.ConfigFiles) > 0 {
 		configData := make([]map[string]string, 0, len(snapshot.ConfigFiles))
 		for _, cf := range snapshot.ConfigFiles {
@@ -324,14 +330,12 @@ func (c *CodeSnapshotCollector) storeSnapshot(
 				"hash":    cf.Hash,
 			})
 		}
-		// Store as JSON string (ConfigFiles is a text field in the DB)
-		configJSON := marshalJSON(configData)
-		record.ConfigFiles = configJSON
+		configJSON, _ := json.Marshal(configData)
+		record.ConfigFiles = model.ExtJSON(configJSON)
 	}
 
 	if snapshot.ImportGraph != nil {
-		graphJSON := marshalJSON(snapshot.ImportGraph)
-		record.ImportGraph = graphJSON
+		record.ImportGraph = model.ExtType(snapshot.ImportGraph)
 	}
 
 	// Upsert: if fingerprint exists, skip; if workload_uid exists, update
@@ -345,9 +349,16 @@ func (c *CodeSnapshotCollector) toEvidence(record *model.WorkloadCodeSnapshot) *
 		Fingerprint: record.Fingerprint,
 	}
 
-	if record.EntryScript != "" {
-		evidence.EntryScript = &intent.FileContent{
-			Content: record.EntryScript,
+	if record.EntryScript != nil {
+		evidence.EntryScript = &intent.FileContent{}
+		if path, ok := record.EntryScript["path"].(string); ok {
+			evidence.EntryScript.Path = path
+		}
+		if content, ok := record.EntryScript["content"].(string); ok {
+			evidence.EntryScript.Content = content
+		}
+		if hash, ok := record.EntryScript["hash"].(string); ok {
+			evidence.EntryScript.Hash = hash
 		}
 	}
 
@@ -359,10 +370,3 @@ func hashContent(content string) string {
 	return hex.EncodeToString(h[:])[:16]
 }
 
-func marshalJSON(v interface{}) string {
-	data, err := json.Marshal(v)
-	if err != nil {
-		return "{}"
-	}
-	return string(data)
-}

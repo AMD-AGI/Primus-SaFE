@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"strconv"
 
-	"github.com/AMD-AGI/Primus-SaFE/Lens/ai-advisor/pkg/distill"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database"
 	dbModel "github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database/model"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/errors"
@@ -238,8 +237,8 @@ func handleIntentRulePromote(ctx context.Context, req IntentRulePromoteRequest) 
 		return nil, errors.NewBadRequestError("invalid rule_id")
 	}
 
-	promoter := distill.NewPromoter()
-	if err := promoter.ForcePromote(ctx, ruleID); err != nil {
+	facade := database.NewIntentRuleFacade()
+	if err := facade.UpdateStatus(ctx, ruleID, "promoted"); err != nil {
 		return nil, errors.NewInternalError("failed to promote rule: " + err.Error())
 	}
 
@@ -256,8 +255,8 @@ func handleIntentRuleRetire(ctx context.Context, req IntentRuleRetireRequest) (*
 		return nil, errors.NewBadRequestError("invalid rule_id")
 	}
 
-	promoter := distill.NewPromoter()
-	if err := promoter.ForceRetire(ctx, ruleID); err != nil {
+	facade := database.NewIntentRuleFacade()
+	if err := facade.UpdateStatus(ctx, ruleID, "retired"); err != nil {
 		return nil, errors.NewInternalError("failed to retire rule: " + err.Error())
 	}
 
@@ -324,9 +323,6 @@ func handleIntentRuleBacktest(ctx context.Context, req IntentRuleBacktestRequest
 		return nil, errors.NewBadRequestError("invalid rule_id")
 	}
 
-	backtester := distill.NewBacktester()
-
-	// Get the rule
 	facade := database.NewIntentRuleFacade()
 	rule, err := facade.GetRule(ctx, ruleID)
 	if err != nil {
@@ -336,22 +332,17 @@ func handleIntentRuleBacktest(ctx context.Context, req IntentRuleBacktestRequest
 		return nil, errors.NewNotFoundError("rule not found")
 	}
 
-	// Run backtest
-	result, err := backtester.BacktestRule(ctx, rule)
-	if err != nil {
-		return nil, errors.NewInternalError("backtest failed: " + err.Error())
-	}
-
-	// Also update the rule in DB
-	if err := backtester.BacktestAndUpdate(ctx, ruleID); err != nil {
-		return nil, errors.NewInternalError("failed to update rule with backtest results: " + err.Error())
+	// Set status to "testing" so the daily backtester picks it up for evaluation.
+	// The actual backtest computation runs in ai-advisor's scheduled flywheel job.
+	if err := facade.UpdateStatus(ctx, ruleID, "testing"); err != nil {
+		return nil, errors.NewInternalError("failed to queue backtest: " + err.Error())
 	}
 
 	return &IntentRuleBacktestResponse{
 		RuleID:         ruleID,
-		BacktestResult: result,
-		Status:         rule.Status,
-		Message:        "Backtest completed",
+		BacktestResult: rule.BacktestResult,
+		Status:         "testing",
+		Message:        "Rule queued for backtesting (will be processed by the daily flywheel job)",
 	}, nil
 }
 

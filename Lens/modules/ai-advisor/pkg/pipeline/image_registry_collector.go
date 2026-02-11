@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/AMD-AGI/Primus-SaFE/Lens/ai-advisor/pkg/intent"
@@ -75,8 +76,9 @@ func (c *ImageRegistryCollector) Enrich(
 
 	imageRef := evidence.Image
 
-	// Check cache first
-	cached, err := c.cacheFacade.GetByTag(ctx, imageRef)
+	// Check cache first - parse image ref into components for lookup
+	regHost, repo, tag := parseImageRef(imageRef)
+	cached, err := c.cacheFacade.GetByTagRef(ctx, regHost, repo, tag)
 	if err == nil && cached != nil && !c.isCacheExpired(cached) {
 		log.Debugf("ImageRegistryCollector: cache hit for %s", imageRef)
 		c.applyCache(cached, evidence)
@@ -99,7 +101,7 @@ func (c *ImageRegistryCollector) Enrich(
 	cacheRecord := c.buildCacheRecord(imageRef, digest, analysis)
 
 	// Store in cache (upsert)
-	if err := c.cacheFacade.UpsertByDigest(ctx, cacheRecord); err != nil {
+	if err := c.cacheFacade.Upsert(ctx, cacheRecord); err != nil {
 		log.Warnf("ImageRegistryCollector: failed to cache %s: %v", imageRef, err)
 	}
 
@@ -113,28 +115,31 @@ func (c *ImageRegistryCollector) buildCacheRecord(
 	digest string,
 	analysis *registry.AnalysisResult,
 ) *model.ImageRegistryCache {
+	regHost, repo, tag := parseImageRef(imageRef)
 	record := &model.ImageRegistryCache{
-		Tag:       imageRef,
-		Digest:    digest,
-		BaseImage: analysis.BaseImage,
+		ImageRef:   imageRef,
+		Registry:   regHost,
+		Repository: repo,
+		Tag:        tag,
+		Digest:     digest,
+		BaseImage:  analysis.BaseImage,
 	}
 
-	// Serialize layer history
+	// Serialize layer history (ExtJSON = json.RawMessage)
 	if len(analysis.LayerHistory) > 0 {
 		historyJSON, _ := json.Marshal(analysis.LayerHistory)
-		record.LayerHistory = string(historyJSON)
+		record.LayerHistory = model.ExtJSON(historyJSON)
 	}
 
-	// Serialize installed packages
+	// Serialize installed packages (ExtJSON)
 	if len(analysis.InstalledPackages) > 0 {
 		pkgJSON, _ := json.Marshal(analysis.InstalledPackages)
-		record.InstalledPackages = string(pkgJSON)
+		record.InstalledPackages = model.ExtJSON(pkgJSON)
 	}
 
-	// Serialize framework hints
+	// Serialize framework hints (ExtType = map[string]interface{})
 	if len(analysis.FrameworkHints) > 0 {
-		hintsJSON, _ := json.Marshal(analysis.FrameworkHints)
-		record.FrameworkHints = string(hintsJSON)
+		record.FrameworkHints = model.ExtType(analysis.FrameworkHints)
 	}
 
 	// Set expiration
@@ -175,28 +180,25 @@ func (c *ImageRegistryCollector) applyCache(
 		BaseImage: cached.BaseImage,
 	}
 
-	// Parse layer history
-	if cached.LayerHistory != "" {
+	// Parse layer history (ExtJSON = json.RawMessage)
+	if len(cached.LayerHistory) > 0 {
 		var layers []intent.LayerInfo
 		if json.Unmarshal([]byte(cached.LayerHistory), &layers) == nil {
 			evidence.ImageRegistry.LayerHistory = layers
 		}
 	}
 
-	// Parse installed packages
-	if cached.InstalledPackages != "" {
+	// Parse installed packages (ExtJSON)
+	if len(cached.InstalledPackages) > 0 {
 		var pkgs []intent.PackageInfo
 		if json.Unmarshal([]byte(cached.InstalledPackages), &pkgs) == nil {
 			evidence.ImageRegistry.InstalledPackages = pkgs
 		}
 	}
 
-	// Parse framework hints
-	if cached.FrameworkHints != "" {
-		var hints map[string]interface{}
-		if json.Unmarshal([]byte(cached.FrameworkHints), &hints) == nil {
-			evidence.ImageRegistry.FrameworkHints = hints
-		}
+	// Parse framework hints (ExtType = map[string]interface{})
+	if cached.FrameworkHints != nil {
+		evidence.ImageRegistry.FrameworkHints = map[string]interface{}(cached.FrameworkHints)
 	}
 }
 
@@ -206,4 +208,30 @@ func (c *ImageRegistryCollector) isCacheExpired(cached *model.ImageRegistryCache
 		return false
 	}
 	return time.Now().After(*cached.ExpiresAt)
+}
+
+// parseImageRef splits "registry.example.com/repo/name:tag" into components
+func parseImageRef(imageRef string) (registry, repository, tag string) {
+	// Split off tag
+	tag = "latest"
+	ref := imageRef
+	if idx := strings.LastIndex(ref, ":"); idx > 0 {
+		// Make sure it's not part of the registry (e.g. localhost:5000)
+		afterColon := ref[idx+1:]
+		if !strings.Contains(afterColon, "/") {
+			tag = afterColon
+			ref = ref[:idx]
+		}
+	}
+
+	// Split registry from repository
+	parts := strings.SplitN(ref, "/", 2)
+	if len(parts) == 2 && (strings.Contains(parts[0], ".") || strings.Contains(parts[0], ":")) {
+		registry = parts[0]
+		repository = parts[1]
+	} else {
+		registry = ""
+		repository = ref
+	}
+	return
 }
