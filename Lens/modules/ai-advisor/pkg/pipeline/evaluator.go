@@ -15,43 +15,16 @@ import (
 
 // EvidenceEvaluator performs deterministic intent analysis from collected evidence.
 // It runs two stages:
-//  1. Rule matching: match against promoted IntentRules from the DB
-//  2. Heuristic scoring: pattern-based scoring on command lines, images, environment, etc.
+//  1. Rule matching: match against promoted IntentRules from the DB (image, cmdline, env, pip patterns)
+//  2. Structural heuristics: detection-system signals, image-registry analysis, no-cmdline fallback
 //
+// All regex-based detection patterns are stored in the intent_rule table, NOT hardcoded.
 // The combined result is returned with a confidence score.
-type EvidenceEvaluator struct {
-	// Pre-compiled regex patterns for common framework indicators
-	imagePatterns   []imagePattern
-	cmdlinePatterns []cmdlinePattern
-	envPatterns     []envPattern
-}
+type EvidenceEvaluator struct{}
 
-type imagePattern struct {
-	re       *regexp.Regexp
-	category intent.Category
-	detail   string
-	weight   float64
-}
-
-type cmdlinePattern struct {
-	re       *regexp.Regexp
-	category intent.Category
-	detail   string
-	weight   float64
-}
-
-type envPattern struct {
-	key    string // exact match on env key
-	re     *regexp.Regexp
-	detail string
-	weight float64
-}
-
-// NewEvidenceEvaluator creates an evaluator with pre-compiled heuristic patterns
+// NewEvidenceEvaluator creates a new evaluator instance
 func NewEvidenceEvaluator() *EvidenceEvaluator {
-	e := &EvidenceEvaluator{}
-	e.initPatterns()
-	return e
+	return &EvidenceEvaluator{}
 }
 
 // Evaluate runs deterministic analysis on the provided evidence
@@ -70,9 +43,9 @@ func (e *EvidenceEvaluator) Evaluate(
 	ruleSignals := e.matchRules(evidence, promotedRules)
 	signals = append(signals, ruleSignals...)
 
-	// Stage 2: heuristic patterns
-	heuristicSignals := e.matchHeuristics(evidence)
-	signals = append(signals, heuristicSignals...)
+	// Stage 2: structural heuristics (detection signals, image registry, no-cmdline fallback)
+	structuralSignals := e.matchStructuralHeuristics(evidence)
+	signals = append(signals, structuralSignals...)
 
 	if len(signals) == 0 {
 		result.Confidence = 0
@@ -169,74 +142,18 @@ func (e *EvidenceEvaluator) matchRules(
 }
 
 // ---------------------------------------------------------------------------
-// Stage 2: Heuristic patterns
+// Stage 2: Structural heuristics (non-regex logic)
 // ---------------------------------------------------------------------------
 
-func (e *EvidenceEvaluator) matchHeuristics(evidence *intent.IntentEvidence) []evaluationSignal {
+// matchStructuralHeuristics produces signals that cannot be expressed as simple
+// regex rules in the intent_rule table. These include:
+//   - Detection-system mapping (framework + workload_type -> category)
+//   - Image-registry package analysis (structured data, not raw text)
+//   - No-cmdline fallback (absence of evidence)
+func (e *EvidenceEvaluator) matchStructuralHeuristics(evidence *intent.IntentEvidence) []evaluationSignal {
 	var signals []evaluationSignal
 
-	// Image-based heuristics
-	if evidence.Image != "" {
-		for _, p := range e.imagePatterns {
-			if p.re.MatchString(evidence.Image) {
-				signals = append(signals, evaluationSignal{
-					category: p.category,
-					field:    "category",
-					value:    string(p.category),
-					weight:   p.weight,
-					source:   "image",
-				})
-			}
-		}
-	}
-
-	// Command-line heuristics
-	fullCmd := evidence.Command + " " + strings.Join(evidence.Args, " ")
-	if fullCmd != " " {
-		for _, p := range e.cmdlinePatterns {
-			if p.re.MatchString(fullCmd) {
-				signals = append(signals, evaluationSignal{
-					category: p.category,
-					field:    "category",
-					value:    string(p.category),
-					weight:   p.weight,
-					source:   "cmdline",
-				})
-			}
-		}
-	}
-
-	// Environment variable heuristics
-	for k, v := range evidence.Env {
-		for _, p := range e.envPatterns {
-			if p.key != "" && k == p.key {
-				signals = append(signals, evaluationSignal{
-					category: "",
-					field:    p.detail,
-					value:    v,
-					weight:   p.weight,
-					source:   "env",
-				})
-			}
-			if p.re != nil && p.re.MatchString(k+"="+v) {
-				signals = append(signals, evaluationSignal{
-					category: "",
-					field:    p.detail,
-					value:    v,
-					weight:   p.weight,
-					source:   "env",
-				})
-			}
-		}
-	}
-
-	// Pip freeze heuristics (from code snapshot)
-	if evidence.CodeSnapshot != nil && evidence.CodeSnapshot.PipFreeze != "" {
-		pipSignals := e.analyzePipFreeze(evidence.CodeSnapshot.PipFreeze)
-		signals = append(signals, pipSignals...)
-	}
-
-	// Image registry heuristics
+	// Image registry heuristics (structured data from registry inspection)
 	if evidence.ImageRegistry != nil {
 		registrySignals := e.analyzeImageRegistry(evidence.ImageRegistry)
 		signals = append(signals, registrySignals...)
@@ -259,51 +176,6 @@ func (e *EvidenceEvaluator) matchHeuristics(evidence *intent.IntentEvidence) []e
 			weight:   0.5,
 			source:   "no_cmdline",
 		})
-	}
-
-	return signals
-}
-
-// analyzePipFreeze extracts framework information from pip freeze output
-func (e *EvidenceEvaluator) analyzePipFreeze(pipFreeze string) []evaluationSignal {
-	var signals []evaluationSignal
-
-	pipLines := strings.Split(pipFreeze, "\n")
-
-	frameworkPackages := map[string]struct {
-		category intent.Category
-		weight   float64
-	}{
-		"transformers":  {intent.CategoryFineTuning, 0.3},
-		"trl":           {intent.CategoryFineTuning, 0.6},
-		"peft":          {intent.CategoryFineTuning, 0.5},
-		"vllm":          {intent.CategoryInference, 0.7},
-		"text-generation-inference": {intent.CategoryInference, 0.7},
-		"sglang":        {intent.CategoryInference, 0.6},
-		"triton":        {intent.CategoryInference, 0.4},
-		"deepspeed":     {intent.CategoryPreTraining, 0.4},
-		"megatron-core": {intent.CategoryPreTraining, 0.6},
-		"lightning":     {intent.CategoryFineTuning, 0.3},
-		"evaluate":      {intent.CategoryEvaluation, 0.3},
-		"lm-eval-harness": {intent.CategoryEvaluation, 0.6},
-	}
-
-	for _, line := range pipLines {
-		line = strings.TrimSpace(line)
-		parts := strings.SplitN(line, "==", 2)
-		if len(parts) == 0 {
-			continue
-		}
-		pkgName := strings.TrimSpace(parts[0])
-		if info, ok := frameworkPackages[pkgName]; ok {
-			signals = append(signals, evaluationSignal{
-				category: info.category,
-				field:    "category",
-				value:    string(info.category),
-				weight:   info.weight,
-				source:   "pip",
-			})
-		}
 	}
 
 	return signals
@@ -455,20 +327,15 @@ func (e *EvidenceEvaluator) aggregateSignals(
 
 	// Determine analysis mode based on what matched
 	hasRuleMatch := false
-	hasCmdlineMatch := false
 	for _, sig := range signals {
 		if sig.source == "rule" {
 			hasRuleMatch = true
-		}
-		if sig.source == "cmdline" {
-			hasCmdlineMatch = true
+			break
 		}
 	}
 	if hasRuleMatch {
 		result.AnalysisMode = intent.AnalysisModeCmdlineRich
 		result.Source = intent.IntentSourceRule
-	} else if hasCmdlineMatch {
-		result.AnalysisMode = intent.AnalysisModeCmdlineRich
 	} else {
 		result.AnalysisMode = intent.AnalysisModeConfigBased
 	}
@@ -502,84 +369,3 @@ func clamp(v, min, max float64) float64 {
 	return v
 }
 
-// ---------------------------------------------------------------------------
-// Pattern initialization
-// ---------------------------------------------------------------------------
-
-func (e *EvidenceEvaluator) initPatterns() {
-	// Image patterns
-	e.imagePatterns = []imagePattern{
-		// Inference / serving
-		{re: regexp.MustCompile(`(?i)vllm`), category: intent.CategoryInference, detail: "vllm", weight: 0.7},
-		{re: regexp.MustCompile(`(?i)text-generation-inference|tgi`), category: intent.CategoryInference, detail: "tgi", weight: 0.7},
-		{re: regexp.MustCompile(`(?i)sglang`), category: intent.CategoryInference, detail: "sglang", weight: 0.6},
-		{re: regexp.MustCompile(`(?i)triton.?server`), category: intent.CategoryInference, detail: "triton", weight: 0.6},
-		{re: regexp.MustCompile(`(?i)torchserve`), category: intent.CategoryServing, detail: "torchserve", weight: 0.5},
-
-		// Training
-		{re: regexp.MustCompile(`(?i)megatron`), category: intent.CategoryPreTraining, detail: "megatron", weight: 0.6},
-		{re: regexp.MustCompile(`(?i)nemo.*training`), category: intent.CategoryPreTraining, detail: "nemo", weight: 0.5},
-		{re: regexp.MustCompile(`(?i)deepspeed`), category: intent.CategoryPreTraining, detail: "deepspeed", weight: 0.4},
-
-		// Evaluation
-		{re: regexp.MustCompile(`(?i)lm.?eval`), category: intent.CategoryEvaluation, detail: "lm_eval", weight: 0.7},
-	}
-
-	// Command-line patterns
-	e.cmdlinePatterns = []cmdlinePattern{
-		// Serving frameworks
-		{re: regexp.MustCompile(`(?i)vllm\.entrypoints|python\s+-m\s+vllm`), category: intent.CategoryInference, weight: 0.8},
-		{re: regexp.MustCompile(`(?i)text-generation-launcher`), category: intent.CategoryInference, weight: 0.8},
-		{re: regexp.MustCompile(`(?i)sglang\.launch_server`), category: intent.CategoryInference, weight: 0.7},
-
-		// Training frameworks
-		{re: regexp.MustCompile(`(?i)torchrun|torch\.distributed\.launch`), category: intent.CategoryPreTraining, weight: 0.4},
-		{re: regexp.MustCompile(`(?i)deepspeed\s`), category: intent.CategoryPreTraining, weight: 0.5},
-		{re: regexp.MustCompile(`(?i)accelerate\s+launch`), category: intent.CategoryFineTuning, weight: 0.4},
-		{re: regexp.MustCompile(`(?i)--do_train|--training_args`), category: intent.CategoryFineTuning, weight: 0.6},
-		{re: regexp.MustCompile(`(?i)--do_eval\b`), category: intent.CategoryEvaluation, weight: 0.5},
-
-		// Megatron-style commands (megatron pt, megatron sft, etc.)
-		{re: regexp.MustCompile(`(?i)\bmegatron\s+(pt|pretrain|sft|finetune|train)\b`), category: intent.CategoryPreTraining, weight: 0.7},
-		{re: regexp.MustCompile(`(?i)megatron.*--model\b`), category: intent.CategoryPreTraining, weight: 0.5},
-
-		// Primus CLI (primus/cli/main.py train pretrain, etc.)
-		{re: regexp.MustCompile(`(?i)primus/cli/main\.py\s+train\s+pretrain`), category: intent.CategoryPreTraining, weight: 0.7},
-		{re: regexp.MustCompile(`(?i)primus/cli/main\.py\s+train\s+sft`), category: intent.CategoryFineTuning, weight: 0.7},
-		{re: regexp.MustCompile(`(?i)primus/cli/main\.py\s+train`), category: intent.CategoryFineTuning, weight: 0.5},
-
-		// ms-swift (swift sft, swift pt, swift infer, etc.)
-		{re: regexp.MustCompile(`(?i)\bswift\s+(sft|pt|pretrain|finetune)\b`), category: intent.CategoryFineTuning, weight: 0.6},
-		{re: regexp.MustCompile(`(?i)\bswift\s+infer\b`), category: intent.CategoryInference, weight: 0.6},
-
-		// Fine-tuning indicators
-		{re: regexp.MustCompile(`(?i)--lora_r|--use_peft|--peft_type`), category: intent.CategoryFineTuning, weight: 0.7},
-		{re: regexp.MustCompile(`(?i)sft_trainer|dpo_trainer|rlhf`), category: intent.CategoryFineTuning, weight: 0.7},
-
-		// HuggingFace training arguments
-		{re: regexp.MustCompile(`(?i)--num_train_epochs|--per_device_train_batch_size`), category: intent.CategoryFineTuning, weight: 0.5},
-		{re: regexp.MustCompile(`(?i)--gradient_accumulation_steps|--warmup_steps`), category: intent.CategoryFineTuning, weight: 0.4},
-
-		// Evaluation
-		{re: regexp.MustCompile(`(?i)lm_eval|lm-eval|evaluate\s+--model`), category: intent.CategoryEvaluation, weight: 0.7},
-
-		// Data processing
-		{re: regexp.MustCompile(`(?i)tokenize|preprocess.*dataset|data.*pipeline`), category: intent.CategoryDataProcessing, weight: 0.4},
-
-		// Benchmark / profiling / stress-testing
-		{re: regexp.MustCompile(`(?i)test_internode\.py|test_intranode\.py`), category: intent.CategoryBenchmark, weight: 0.8},
-		{re: regexp.MustCompile(`(?i)pressure.?test.?mode`), category: intent.CategoryBenchmark, weight: 0.8},
-		{re: regexp.MustCompile(`(?i)ansible-playbook.*primusbench|ansible-playbook.*bench`), category: intent.CategoryBenchmark, weight: 0.8},
-		{re: regexp.MustCompile(`(?i)nccl.?test|rccl.?test|all_reduce_perf`), category: intent.CategoryBenchmark, weight: 0.8},
-		{re: regexp.MustCompile(`(?i)superbench|gpu.?burn|cuda.?memcheck`), category: intent.CategoryBenchmark, weight: 0.7},
-		{re: regexp.MustCompile(`(?i)\bbenchmark\b|node_check\.yaml`), category: intent.CategoryBenchmark, weight: 0.6},
-	}
-
-	// Environment variable patterns
-	e.envPatterns = []envPattern{
-		{key: "MASTER_ADDR", detail: "parallelism", weight: 0.3},
-		{key: "WORLD_SIZE", detail: "parallelism", weight: 0.3},
-		{key: "NCCL_DEBUG", detail: "nccl", weight: 0.2},
-		{key: "DEEPSPEED_ZERO_STAGE", detail: "deepspeed_zero", weight: 0.5},
-	}
-}
