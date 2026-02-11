@@ -2,8 +2,6 @@
 -- This script initializes the default Primus framework log patterns configuration
 -- Version: 1.0.0
 
-BEGIN;
-
 -- Insert Primus framework patterns configuration into system_config
 INSERT INTO system_config (key, value, description, created_at, updated_at) VALUES
 ('training.log.parser.framework.primus', '{
@@ -97,5 +95,3 @@ DO UPDATE SET
   value = EXCLUDED.value,
   updated_at = NOW(),
   description = EXCLUDED.description;
-
-COMMIT;

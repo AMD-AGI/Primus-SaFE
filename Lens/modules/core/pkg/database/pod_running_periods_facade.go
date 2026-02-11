@@ -21,7 +21,7 @@ type PodRunningPeriodsFacadeInterface interface {
 	// GetCurrentRunningPeriod returns the current running period (end_at is NULL) for a pod
 	GetCurrentRunningPeriod(ctx context.Context, podUID string) (*model.PodRunningPeriods, error)
 	// ListRunningPeriodsInTimeRange returns all running periods that overlap with the given time range
-	// A period overlaps if: start_at < endTime AND (end_at IS NULL OR end_at > startTime)
+	// A period overlaps if: start_at < endTime AND (end_at IS NULL OR end_at > startTime OR end_at = '0001-01-01' zero value)
 	ListRunningPeriodsInTimeRange(ctx context.Context, startTime, endTime time.Time) ([]*model.PodRunningPeriods, error)
 	// ListRunningPeriodsInTimeRangeByNamespace returns running periods for a specific namespace
 	ListRunningPeriodsInTimeRangeByNamespace(ctx context.Context, namespace string, startTime, endTime time.Time) ([]*model.PodRunningPeriods, error)
@@ -54,54 +54,58 @@ func (f *PodRunningPeriodsFacade) CreateRunningPeriod(ctx context.Context, perio
 
 // EndRunningPeriod sets end_at for the current running period
 func (f *PodRunningPeriodsFacade) EndRunningPeriod(ctx context.Context, podUID string, endAt time.Time) error {
-	q := f.getDAL().PodRunningPeriods
-	// Use Update instead of First+Save to avoid creating empty records
-	// This only updates existing records with matching conditions
-	result, err := q.WithContext(ctx).
-		Where(q.PodUID.Eq(podUID)).
-		Where(q.EndAt.IsNull()).
+	db := f.getDB()
+	// Use raw SQL to handle both NULL and zero time (0001-01-01) as "not ended"
+	// Go's zero time value is stored as '0001-01-01 00:00:00+00' in PostgreSQL
+	result := db.WithContext(ctx).
+		Model(&model.PodRunningPeriods{}).
+		Where("pod_uid = ?", podUID).
+		Where("end_at IS NULL OR end_at = '0001-01-01 00:00:00+00'").
 		Updates(map[string]interface{}{
 			"end_at":     endAt,
 			"updated_at": time.Now(),
 		})
-	if err != nil {
-		return err
+	if result.Error != nil {
+		return result.Error
 	}
 
 	// RowsAffected will be 0 if no matching record was found, which is expected
-	_ = result
 	return nil
 }
 
-// GetCurrentRunningPeriod returns the current running period (end_at is NULL)
+// GetCurrentRunningPeriod returns the current running period (end_at is NULL or zero time)
 func (f *PodRunningPeriodsFacade) GetCurrentRunningPeriod(ctx context.Context, podUID string) (*model.PodRunningPeriods, error) {
-	q := f.getDAL().PodRunningPeriods
-	result, err := q.WithContext(ctx).
-		Where(q.PodUID.Eq(podUID)).
-		Where(q.EndAt.IsNull()).
-		First()
+	db := f.getDB()
+	var result model.PodRunningPeriods
+	// Handle both NULL and zero time (0001-01-01) as "not ended"
+	err := db.WithContext(ctx).
+		Model(&model.PodRunningPeriods{}).
+		Where("pod_uid = ?", podUID).
+		Where("end_at IS NULL OR end_at = '0001-01-01 00:00:00+00'").
+		First(&result).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, nil
 		}
 		return nil, err
 	}
-	// Check if record was actually found (GORM gen may return empty object instead of error)
-	if result == nil || result.ID == 0 {
+	// Check if record was actually found
+	if result.ID == 0 {
 		return nil, nil
 	}
-	return result, nil
+	return &result, nil
 }
 
 // ListRunningPeriodsInTimeRange returns all running periods that overlap with the time range
 func (f *PodRunningPeriodsFacade) ListRunningPeriodsInTimeRange(ctx context.Context, startTime, endTime time.Time) ([]*model.PodRunningPeriods, error) {
 	db := f.getDB()
 	var results []*model.PodRunningPeriods
-	// Overlap condition: start_at < endTime AND (end_at IS NULL OR end_at > startTime)
+	// Overlap condition: start_at < endTime AND (end_at IS NULL OR end_at > startTime OR end_at is zero value)
+	// Note: Go's zero time (0001-01-01) is used to indicate "not ended yet"
 	err := db.WithContext(ctx).
 		Model(&model.PodRunningPeriods{}).
 		Where("start_at < ?", endTime).
-		Where("end_at IS NULL OR end_at > ?", startTime).
+		Where("end_at IS NULL OR end_at > ? OR end_at = '0001-01-01 00:00:00+00'", startTime).
 		Find(&results).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -116,12 +120,13 @@ func (f *PodRunningPeriodsFacade) ListRunningPeriodsInTimeRange(ctx context.Cont
 func (f *PodRunningPeriodsFacade) ListRunningPeriodsInTimeRangeByNamespace(ctx context.Context, namespace string, startTime, endTime time.Time) ([]*model.PodRunningPeriods, error) {
 	db := f.getDB()
 	var results []*model.PodRunningPeriods
-	// Overlap condition: namespace = ? AND start_at < endTime AND (end_at IS NULL OR end_at > startTime)
+	// Overlap condition: namespace = ? AND start_at < endTime AND (end_at IS NULL OR end_at > startTime OR end_at is zero value)
+	// Note: Go's zero time (0001-01-01) is used to indicate "not ended yet"
 	err := db.WithContext(ctx).
 		Model(&model.PodRunningPeriods{}).
 		Where("namespace = ?", namespace).
 		Where("start_at < ?", endTime).
-		Where("end_at IS NULL OR end_at > ?", startTime).
+		Where("end_at IS NULL OR end_at > ? OR end_at = '0001-01-01 00:00:00+00'", startTime).
 		Find(&results).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -140,12 +145,13 @@ func (f *PodRunningPeriodsFacade) ListRunningPeriodsInTimeRangeByPodUIDs(ctx con
 
 	db := f.getDB()
 	var results []*model.PodRunningPeriods
-	// Overlap condition: pod_uid IN (?) AND start_at < endTime AND (end_at IS NULL OR end_at > startTime)
+	// Overlap condition: pod_uid IN (?) AND start_at < endTime AND (end_at IS NULL OR end_at > startTime OR end_at is zero value)
+	// Note: Go's zero time (0001-01-01) is used to indicate "not ended yet"
 	err := db.WithContext(ctx).
 		Model(&model.PodRunningPeriods{}).
 		Where("pod_uid IN ?", podUIDs).
 		Where("start_at < ?", endTime).
-		Where("end_at IS NULL OR end_at > ?", startTime).
+		Where("end_at IS NULL OR end_at > ? OR end_at = '0001-01-01 00:00:00+00'", startTime).
 		Find(&results).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {

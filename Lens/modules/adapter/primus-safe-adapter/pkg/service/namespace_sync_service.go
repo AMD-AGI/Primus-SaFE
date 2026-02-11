@@ -11,6 +11,7 @@ import (
 
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/clientsets"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database/filter"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database/model"
@@ -159,6 +160,17 @@ func (s *NamespaceSyncService) Run(ctx context.Context) error {
 	deletedCount := 0
 
 	for clusterID, workspaceMap := range clusterWorkspaces {
+		// Check if cluster exists in ClusterManager before proceeding
+		// This prevents panic when multi-cluster storage clients are not yet initialized
+		cm := clientsets.GetClusterManager()
+		if cm != nil {
+			_, err := cm.GetClientSetByClusterName(clusterID)
+			if err != nil {
+				log.Warnf("Cluster %s not found in ClusterManager, skipping until next sync cycle: %v", clusterID, err)
+				continue
+			}
+		}
+
 		facade := s.getFacade(clusterID)
 
 		// 3.1 Get all namespace_info records for this cluster (including soft deleted)
@@ -389,6 +401,16 @@ func (s *NamespaceSyncService) syncNodeNamespaceMappings(ctx context.Context, wo
 
 	// Process each cluster separately
 	for clusterID, workspaceMap := range clusterWorkspaces {
+		// Check if cluster exists in ClusterManager before proceeding
+		cm := clientsets.GetClusterManager()
+		if cm != nil {
+			_, err := cm.GetClientSetByClusterName(clusterID)
+			if err != nil {
+				log.Warnf("Cluster %s not found in ClusterManager for node mapping sync, skipping: %v", clusterID, err)
+				continue
+			}
+		}
+
 		facade := s.getFacade(clusterID)
 
 		// Get all Ready nodes from database for this cluster

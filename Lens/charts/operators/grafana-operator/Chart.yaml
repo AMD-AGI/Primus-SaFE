@@ -1,0 +1,11 @@
+apiVersion: v2
+name: primus-lens-grafana-operator
+description: Grafana Operator wrapper chart
+type: application
+version: 1.0.0
+appVersion: "5.15.1"
+
+dependencies:
+  - name: grafana-operator
+    version: "v5.15.1"
+    repository: https://grafana.github.io/helm-charts

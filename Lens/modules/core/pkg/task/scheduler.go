@@ -62,6 +62,11 @@ type SchedulerConfig struct {
 
 	// Whether to auto start
 	AutoStart bool
+
+	// ConsumeTaskTypes specifies which task types this scheduler instance should consume.
+	// If empty, the scheduler will consume all task types that have registered executors.
+	// If not empty, only tasks with types in this list will be consumed (executor must also be registered).
+	ConsumeTaskTypes []string
 }
 
 // DefaultSchedulerConfig default configuration
@@ -224,8 +229,15 @@ func (s *TaskScheduler) scanAndExecuteTasks() {
 		return
 	}
 
-	// Query pending tasks
-	tasks, err := s.taskFacade.ListTasksByStatus(s.ctx, constant.TaskStatusPending)
+	// Get task types this scheduler should consume
+	consumeTypes := s.getConsumeTaskTypes()
+	if len(consumeTypes) == 0 {
+		log.Debugf("No task types to consume (no executors registered or configured)")
+		return
+	}
+
+	// Query pending tasks filtered by type
+	tasks, err := s.taskFacade.ListTasksByStatusAndTypes(s.ctx, constant.TaskStatusPending, consumeTypes)
 	if err != nil {
 		log.Errorf("Failed to list pending tasks: %v", err)
 		return
@@ -547,4 +559,39 @@ func (s *TaskScheduler) GetRegisteredExecutors() []string {
 		types = append(types, taskType)
 	}
 	return types
+}
+
+// getConsumeTaskTypes returns the task types this scheduler should consume.
+// If ConsumeTaskTypes is configured, only those types are consumed (filtered by registered executors).
+// If ConsumeTaskTypes is empty, all registered executor types are consumed.
+func (s *TaskScheduler) getConsumeTaskTypes() []string {
+	registeredTypes := s.GetRegisteredExecutors()
+
+	// If no specific types configured, consume all registered types
+	if len(s.config.ConsumeTaskTypes) == 0 {
+		return registeredTypes
+	}
+
+	// Filter configured types by registered executors
+	// Only consume types that are both configured AND have a registered executor
+	registeredSet := make(map[string]bool, len(registeredTypes))
+	for _, t := range registeredTypes {
+		registeredSet[t] = true
+	}
+
+	result := make([]string, 0, len(s.config.ConsumeTaskTypes))
+	for _, t := range s.config.ConsumeTaskTypes {
+		if registeredSet[t] {
+			result = append(result, t)
+		} else {
+			log.Warnf("Configured task type %q has no registered executor, will be ignored", t)
+		}
+	}
+
+	return result
+}
+
+// GetConsumeTaskTypes returns the effective task types this scheduler consumes (public accessor)
+func (s *TaskScheduler) GetConsumeTaskTypes() []string {
+	return s.getConsumeTaskTypes()
 }

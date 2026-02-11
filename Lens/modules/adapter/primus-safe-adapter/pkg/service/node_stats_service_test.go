@@ -36,7 +36,12 @@ func TestNodeStatsService_Run_Context(t *testing.T) {
 	// We disable both K8S and Storage client loading since we're just testing
 	// that the service can handle no clusters scenario
 	ctx := context.Background()
-	err := clientsets.InitClusterManager(ctx, false, false, false)
+	decl := clientsets.ComponentDeclaration{
+		Type:           clientsets.ComponentTypeDataPlane,
+		RequireK8S:     false,
+		RequireStorage: false,
+	}
+	err := clientsets.InitClusterManager(ctx, decl)
 	if err != nil {
 		t.Fatalf("Failed to initialize cluster manager: %v", err)
 	}

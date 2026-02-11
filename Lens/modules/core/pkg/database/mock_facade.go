@@ -88,6 +88,10 @@ func (m *MockFacade) WithCluster(clusterName string) FacadeInterface {
 	return m
 }
 
+func (m *MockFacade) GetGithubWorkflowRunSummary() *GithubWorkflowRunSummaryFacade {
+	return nil
+}
+
 // MockGpuUsageWeeklyReportFacade is a mock implementation for testing
 type MockGpuUsageWeeklyReportFacade struct {
 	// Store mock data

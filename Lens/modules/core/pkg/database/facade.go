@@ -77,6 +77,8 @@ type FacadeInterface interface {
 	GetGithubWorkflowCommit() GithubWorkflowCommitFacadeInterface
 	// GetGithubWorkflowRunDetails returns the GithubWorkflowRunDetails Facade interface
 	GetGithubWorkflowRunDetails() GithubWorkflowRunDetailsFacadeInterface
+	// GetGithubWorkflowRunSummary returns the GithubWorkflowRunSummary Facade interface
+	GetGithubWorkflowRunSummary() *GithubWorkflowRunSummaryFacade
 	// GetDashboardSummary returns the DashboardSummary Facade interface
 	GetDashboardSummary() DashboardSummaryFacadeInterface
 	// GetMetricBaseline returns the MetricBaseline Facade interface
@@ -129,6 +131,7 @@ type Facade struct {
 	GithubRunnerSet           GithubRunnerSetFacadeInterface
 	GithubWorkflowCommit      GithubWorkflowCommitFacadeInterface
 	GithubWorkflowRunDetails  GithubWorkflowRunDetailsFacadeInterface
+	GithubWorkflowRunSummary  *GithubWorkflowRunSummaryFacade
 	DashboardSummary          DashboardSummaryFacadeInterface
 	MetricBaseline            MetricBaselineFacadeInterface
 	CommitImpactAnalysis      CommitImpactAnalysisFacadeInterface
@@ -175,6 +178,7 @@ func NewFacade() *Facade {
 		GithubRunnerSet:           NewGithubRunnerSetFacade(),
 		GithubWorkflowCommit:      NewGithubWorkflowCommitFacade(),
 		GithubWorkflowRunDetails:  NewGithubWorkflowRunDetailsFacade(),
+		GithubWorkflowRunSummary:  NewGithubWorkflowRunSummaryFacade(),
 		DashboardSummary:          NewDashboardSummaryFacade(),
 		MetricBaseline:            NewMetricBaselineFacade(),
 		CommitImpactAnalysis:      NewCommitImpactAnalysisFacade(),
@@ -363,6 +367,11 @@ func (f *Facade) GetGithubWorkflowRunDetails() GithubWorkflowRunDetailsFacadeInt
 	return f.GithubWorkflowRunDetails
 }
 
+// GetGithubWorkflowRunSummary returns the GithubWorkflowRunSummary Facade interface
+func (f *Facade) GetGithubWorkflowRunSummary() *GithubWorkflowRunSummaryFacade {
+	return f.GithubWorkflowRunSummary
+}
+
 // GetDashboardSummary returns the DashboardSummary Facade interface
 func (f *Facade) GetDashboardSummary() DashboardSummaryFacadeInterface {
 	return f.DashboardSummary
@@ -427,6 +436,7 @@ func (f *Facade) WithCluster(clusterName string) FacadeInterface {
 		GithubRunnerSet:           f.GithubRunnerSet.WithCluster(clusterName),
 		GithubWorkflowCommit:      f.GithubWorkflowCommit.WithCluster(clusterName),
 		GithubWorkflowRunDetails:  f.GithubWorkflowRunDetails.WithCluster(clusterName),
+		GithubWorkflowRunSummary:  f.GithubWorkflowRunSummary.WithCluster(clusterName),
 		DashboardSummary:          f.DashboardSummary.WithCluster(clusterName),
 		MetricBaseline:            f.MetricBaseline.WithCluster(clusterName),
 		CommitImpactAnalysis:      f.CommitImpactAnalysis.WithCluster(clusterName),

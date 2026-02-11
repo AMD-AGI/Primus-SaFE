@@ -4,22 +4,36 @@
 package api
 
 import (
+	"github.com/AMD-AGI/Primus-SaFE/Lens/api/pkg/api/cluster"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/api/pkg/api/cpconfig"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/api/pkg/api/perfetto"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/api/pkg/api/pyspy"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/api/pkg/api/registry"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/api/pkg/api/release"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/api/pkg/api/sysconfig"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/api/pkg/api/tracelens"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/mcp/unified"
 	"github.com/gin-gonic/gin"
 )
 
-// getUnifiedHandler returns the unified handler for a given path, or nil if not found.
+// getUnifiedHandler returns a gin handler that dispatches to the unified endpoint
+// matching both the request's HTTP method and the given path at request time.
+// This correctly handles cases where multiple endpoints share the same path
+// but differ by HTTP method (e.g., GET /alert-silences vs POST /alert-silences).
 func getUnifiedHandler(path string) gin.HandlerFunc {
-	ep := unified.GetRegistry().GetEndpointByPath(path)
-	if ep != nil {
-		return ep.GetGinHandler()
+	return func(c *gin.Context) {
+		ep := unified.GetRegistry().GetEndpointByMethodAndPath(c.Request.Method, path)
+		if ep == nil {
+			c.JSON(404, map[string]string{"error": "endpoint not found: " + c.Request.Method + " " + path})
+			return
+		}
+		handler := ep.GetGinHandler()
+		if handler == nil {
+			c.JSON(404, map[string]string{"error": "no handler for endpoint: " + c.Request.Method + " " + path})
+			return
+		}
+		handler(c)
 	}
-	return nil
 }
 
 func RegisterRouter(group *gin.RouterGroup) error {
@@ -82,12 +96,33 @@ func RegisterRouter(group *gin.RouterGroup) error {
 		workloadGroup.GET(":uid/metrics/iteration-times", getUnifiedHandler("/workloads/:uid/metrics/iteration-times"))
 		// Process tree API for py-spy profiling
 		workloadGroup.POST(":uid/process-tree", pyspy.GetProcessTree)
+		// Profiler files alias: /workloads/:uid/profiler-files -> /profiler/files?workload_uid=:uid
+		workloadGroup.GET(":uid/profiler-files", tracelens.ListProfilerFilesForWorkload)
 	}
 	// Phase 6 Unified: Workload metadata
 	group.GET("workloadMetadata", getUnifiedHandler("/workloadMetadata"))
+
+	// Training Metrics endpoints - Unified (HTTP + MCP)
+	trainingMetricsGroup := group.Group("/training-metrics")
+	{
+		trainingMetricsGroup.GET("", getUnifiedHandler("/training-metrics"))
+		trainingMetricsGroup.GET("/data", getUnifiedHandler("/training-metrics/data"))
+	}
 	storageGroup := group.Group("/storage")
 	{
 		storageGroup.GET("stat", getUnifiedHandler("/storage/stat"))
+	}
+
+	// Alert Silence management routes - Unified (HTTP + MCP)
+	alertSilenceGroup := group.Group("/alert-silences")
+	{
+		alertSilenceGroup.POST("", getUnifiedHandler("/alert-silences"))
+		alertSilenceGroup.GET("", getUnifiedHandler("/alert-silences"))
+		alertSilenceGroup.GET("/silenced-alerts", getUnifiedHandler("/alert-silences/silenced-alerts"))
+		alertSilenceGroup.GET("/:id", getUnifiedHandler("/alert-silences/:id"))
+		alertSilenceGroup.PUT("/:id", getUnifiedHandler("/alert-silences/:id"))
+		alertSilenceGroup.DELETE("/:id", getUnifiedHandler("/alert-silences/:id"))
+		alertSilenceGroup.PATCH("/:id/disable", getUnifiedHandler("/alert-silences/:id/disable"))
 	}
 
 	// Phase 7 Unified: Alert Event routes - Alert events query and analysis
@@ -495,12 +530,37 @@ func RegisterRouter(group *gin.RouterGroup) error {
 			// Commit and details from V2 group
 			runsGroup.GET("/:id/commit", getUnifiedHandler("/github-workflow-metrics/runs/:id/commit"))
 			runsGroup.GET("/:id/details", getUnifiedHandler("/github-workflow-metrics/runs/:id/details"))
+			// Real-time workflow state sync APIs
+			runsGroup.GET("/:id/state", GetRunLiveState)
+			runsGroup.GET("/:id/live", HandleLiveWorkflowState)
+			runsGroup.GET("/:id/jobs", GetRunJobs)
+			runsGroup.POST("/:id/sync/start", StartRunSync)
+			runsGroup.POST("/:id/sync/stop", StopRunSync)
+			// Manual sync (event-driven sync, replaces high-frequency polling)
+			runsGroup.POST("/:id/sync", ManualSyncRun)
+			// Job and step logs APIs
+			runsGroup.GET("/:id/jobs/:job_id/logs", GetJobLogs)
+			runsGroup.GET("/:id/jobs/:job_id/steps/:step_number/logs", GetStepLogs)
+			// Analysis tasks by run ID
+			runsGroup.GET("/:id/analysis-tasks", GetAnalysisTasksByRunID)
 		}
 		// Schema details
 		schemasGroup := githubWorkflowMetricsGroup.Group("/schemas")
 		{
 			schemasGroup.GET("/:id", getUnifiedHandler("/github-workflow-metrics/schemas/:id"))
 			schemasGroup.POST("/:id/activate", SetGithubWorkflowSchemaActive)
+		}
+		// Analysis tasks - AI workflow analysis tasks
+		analysisTasksGroup := githubWorkflowMetricsGroup.Group("/analysis-tasks")
+		{
+			// List all analysis tasks with optional filters
+			analysisTasksGroup.GET("", ListAnalysisTasks)
+			// Get a specific analysis task
+			analysisTasksGroup.GET("/:task_id", GetAnalysisTaskByID)
+			// Update an analysis task (status and ext fields)
+			analysisTasksGroup.PUT("/:task_id", UpdateAnalysisTask)
+			// Retry a failed analysis task
+			analysisTasksGroup.POST("/:task_id/retry", RetryAnalysisTask)
 		}
 	}
 
@@ -525,10 +585,136 @@ func RegisterRouter(group *gin.RouterGroup) error {
 			// Create config for a runner set - POST not migrated
 			runnerSetsGroup.POST("/by-id/:id/config", CreateConfigForRunnerSet)
 		}
+
+		// Repositories - aggregated view by repository
+		repositoriesGroup := githubRunnersGroup.Group("/repositories")
+		{
+			// List all repositories with aggregated runner set statistics
+			repositoriesGroup.GET("", getUnifiedHandler("/github-runners/repositories"))
+			// Get repository details with aggregated statistics
+			repositoriesGroup.GET("/:owner/:repo", getUnifiedHandler("/github-runners/repositories/:owner/:repo"))
+			// List runner sets for a specific repository
+			repositoriesGroup.GET("/:owner/:repo/runner-sets", getUnifiedHandler("/github-runners/repositories/:owner/:repo/runner-sets"))
+			// Get metrics metadata for all configs in a repository
+			repositoriesGroup.GET("/:owner/:repo/metrics/metadata", getUnifiedHandler("/github-runners/repositories/:owner/:repo/metrics/metadata"))
+			// Query metrics trends across all configs in a repository
+			repositoriesGroup.POST("/:owner/:repo/metrics/trends", getUnifiedHandler("/github-runners/repositories/:owner/:repo/metrics/trends"))
+			// List run summaries for a repository
+			repositoriesGroup.GET("/:owner/:repo/run-summaries", getUnifiedHandler("/github-runners/repositories/:owner/:repo/run-summaries"))
+			// List distinct workflow names (pipelines) for a repository
+			repositoriesGroup.GET("/:owner/:repo/workflow-names", getUnifiedHandler("/github-runners/repositories/:owner/:repo/workflow-names"))
+		}
+
+		// Run Summaries - workflow run level aggregation
+		runSummariesGroup := githubRunnersGroup.Group("/run-summaries")
+		{
+			// Get run summary by ID
+			runSummariesGroup.GET("/:id", getUnifiedHandler("/github-runners/run-summaries/:id"))
+			// Get jobs for a run summary
+			runSummariesGroup.GET("/:id/jobs", getUnifiedHandler("/github-runners/run-summaries/:id/jobs"))
+			// Get workflow graph for a run summary
+			runSummariesGroup.GET("/:id/graph", getUnifiedHandler("/github-runners/run-summaries/:id/graph"))
+			// Manual sync (event-driven sync, replaces high-frequency polling)
+			runSummariesGroup.POST("/:id/sync", ManualSyncRunSummary)
+			// AI analysis tasks for a run summary
+			runSummariesGroup.GET("/:id/analysis-tasks", GetAnalysisTasksByRunSummaryID)
+		}
 	}
 
 	// Note: V2 group endpoints (analytics, history, commit, details) are now merged 
 	// into the main github-workflow-metrics group above using unified handlers
+
+	// Skills Repository routes - Proxy to skills-repository service
+	skillsGroup := group.Group("/skills")
+	{
+		// List all skills - supports pagination and filtering
+		skillsGroup.GET("", getUnifiedHandler("/skills"))
+		// Semantic search - must be defined before /:name
+		skillsGroup.POST("/search", getUnifiedHandler("/skills/search"))
+		// Import skills from GitHub
+		skillsGroup.POST("/import/github", getUnifiedHandler("/skills/import/github"))
+		// Get skill by name
+		skillsGroup.GET("/:name", getUnifiedHandler("/skills/:name"))
+		// Get skill content (SKILL.md)
+		skillsGroup.GET("/:name/content", getUnifiedHandler("/skills/:name/content"))
+		// Create a new skill
+		skillsGroup.POST("", getUnifiedHandler("/skills"))
+		// Update a skill
+		skillsGroup.PUT("/:name", getUnifiedHandler("/skills/:name"))
+		// Delete a skill
+		skillsGroup.DELETE("/:name", getUnifiedHandler("/skills/:name"))
+	}
+
+	// Release Management routes (Control Plane only)
+	releaseGroup := group.Group("/releases")
+	{
+		// Release Versions
+		versionsGroup := releaseGroup.Group("/versions")
+		{
+			versionsGroup.GET("", release.ListReleaseVersions)
+			versionsGroup.POST("", release.CreateReleaseVersion)
+			versionsGroup.GET("/:id", release.GetReleaseVersion)
+			versionsGroup.PUT("/:id", release.UpdateReleaseVersion)
+			versionsGroup.DELETE("/:id", release.DeleteReleaseVersion)
+			versionsGroup.PATCH("/:id/status", release.UpdateReleaseVersionStatus)
+		}
+
+		// Cluster Release Configs
+		clustersGroup := releaseGroup.Group("/clusters")
+		{
+			clustersGroup.GET("", release.ListClusterReleaseConfigs)
+			clustersGroup.GET("/default", release.GetDefaultCluster)
+			clustersGroup.PUT("/default", release.SetDefaultCluster)
+			clustersGroup.DELETE("/default", release.ClearDefaultCluster)
+			clustersGroup.GET("/:cluster_name", release.GetClusterReleaseConfig)
+			clustersGroup.PUT("/:cluster_name/version", release.UpdateClusterVersion)
+			clustersGroup.PUT("/:cluster_name/values", release.UpdateClusterValuesOverride)
+			clustersGroup.GET("/:cluster_name/history", release.ListReleaseHistory)
+			clustersGroup.POST("/:cluster_name/deploy", release.TriggerDeploy)
+			clustersGroup.POST("/:cluster_name/rollback", release.TriggerRollback)
+		}
+
+		// Release History
+		historyGroup := releaseGroup.Group("/history")
+		{
+			historyGroup.GET("/:id", release.GetReleaseHistoryByID)
+		}
+	}
+
+	// Cluster Management routes (Control Plane only)
+	managementGroup := group.Group("/management")
+	{
+		clusterMgmtGroup := managementGroup.Group("/clusters")
+		{
+			clusterMgmtGroup.GET("", cluster.ListClusters)
+			clusterMgmtGroup.POST("", cluster.CreateCluster)
+			clusterMgmtGroup.GET("/:cluster_name", cluster.GetCluster)
+			clusterMgmtGroup.PUT("/:cluster_name", cluster.UpdateCluster)
+			clusterMgmtGroup.DELETE("/:cluster_name", cluster.DeleteCluster)
+			clusterMgmtGroup.PUT("/:cluster_name/default", cluster.SetDefaultCluster)
+			clusterMgmtGroup.POST("/:cluster_name/test", cluster.TestClusterConnection)
+
+			// Infrastructure initialization
+			clusterMgmtGroup.POST("/:cluster_name/initialize", cluster.InitializeInfrastructure)
+			clusterMgmtGroup.GET("/:cluster_name/infrastructure/status", cluster.GetInfrastructureStatus)
+
+			// Task management
+			clusterMgmtGroup.GET("/:cluster_name/tasks", cluster.ListTasks)
+			clusterMgmtGroup.GET("/:cluster_name/tasks/active", cluster.GetActiveTask)
+			clusterMgmtGroup.GET("/:cluster_name/tasks/:task_id", cluster.GetTask)
+			clusterMgmtGroup.GET("/:cluster_name/tasks/:task_id/logs", cluster.GetTaskLogs)
+		}
+
+		// Control plane configuration routes
+		configGroup := managementGroup.Group("/config")
+		{
+			configGroup.GET("", cpconfig.ListConfigs)
+			configGroup.GET("/installer", cpconfig.GetInstallerConfig)
+			configGroup.GET("/:key", cpconfig.GetConfig)
+			configGroup.PUT("/:key", cpconfig.SetConfig)
+			configGroup.DELETE("/:key", cpconfig.DeleteConfig)
+		}
+	}
 
 	return nil
 }
