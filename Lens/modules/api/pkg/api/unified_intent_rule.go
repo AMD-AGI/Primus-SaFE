@@ -6,6 +6,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"regexp"
 	"strconv"
 
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database"
@@ -15,6 +16,24 @@ import (
 )
 
 // ===== Request / Response types =====
+
+// IntentRuleCreateRequest - create a new intent rule
+type IntentRuleCreateRequest struct {
+	DetectsField string  `json:"detects_field" mcp:"detects_field,description=Detection target dimension: category or model_family or training_method,required"`
+	DetectsValue string  `json:"detects_value" mcp:"detects_value,description=Detection target value (e.g. inference or pre_training or fine_tuning or benchmark),required"`
+	Dimension    string  `json:"dimension" mcp:"dimension,description=Matching dimension: image or cmdline or env_key or env_value or pip or code,required"`
+	Pattern      string  `json:"pattern" mcp:"pattern,description=Regular expression pattern for matching,required"`
+	Confidence   float64 `json:"confidence" mcp:"confidence,description=Confidence score when this rule matches [0.0-1.0],required"`
+	Reasoning    string  `json:"reasoning" mcp:"reasoning,description=Explanation of why this rule works"`
+	Status       string  `json:"status" mcp:"status,description=Initial status (default: proposed)"`
+}
+
+// IntentRuleCreateResponse - created rule
+type IntentRuleCreateResponse struct {
+	ID      int64  `json:"id"`
+	Status  string `json:"status"`
+	Message string `json:"message"`
+}
 
 // IntentRuleGetRequest - get a single rule by ID
 type IntentRuleGetRequest struct {
@@ -41,10 +60,41 @@ type IntentRuleGetResponse struct {
 	UpdatedAt          string      `json:"updated_at"`
 }
 
+// IntentRuleUpdateRequest - full update of a rule
+type IntentRuleUpdateRequest struct {
+	RuleID       string  `json:"rule_id" param:"rule_id" mcp:"rule_id,description=Intent rule ID to update,required"`
+	DetectsField string  `json:"detects_field" mcp:"detects_field,description=Detection target dimension"`
+	DetectsValue string  `json:"detects_value" mcp:"detects_value,description=Detection target value"`
+	Dimension    string  `json:"dimension" mcp:"dimension,description=Matching dimension"`
+	Pattern      string  `json:"pattern" mcp:"pattern,description=Regular expression pattern"`
+	Confidence   float64 `json:"confidence" mcp:"confidence,description=Confidence score [0.0-1.0]"`
+	Reasoning    string  `json:"reasoning" mcp:"reasoning,description=Explanation of why this rule works"`
+	Status       string  `json:"status" mcp:"status,description=Lifecycle status"`
+}
+
+// IntentRuleUpdateResponse - update result
+type IntentRuleUpdateResponse struct {
+	ID      int64  `json:"id"`
+	Status  string `json:"status"`
+	Message string `json:"message"`
+}
+
+// IntentRuleDeleteRequest - delete a rule by ID
+type IntentRuleDeleteRequest struct {
+	RuleID string `json:"rule_id" param:"rule_id" mcp:"rule_id,description=Intent rule ID to delete,required"`
+}
+
+// IntentRuleDeleteResponse - delete result
+type IntentRuleDeleteResponse struct {
+	ID      int64  `json:"id"`
+	Message string `json:"message"`
+}
+
 // IntentRuleListRequest - list rules with filtering
 type IntentRuleListRequest struct {
-	Status       string `json:"status" query:"status" mcp:"status,description=Filter by status (proposed/testing/validated/promoted/retired/rejected)"`
+	Status       string `json:"status" query:"status" mcp:"status,description=Filter by status (proposed/testing/validated/promoted/retired/rejected). Use 'all' to list all rules"`
 	DetectsField string `json:"detects_field" query:"detects_field" mcp:"detects_field,description=Filter by detects_field (category/model_family/training_method)"`
+	Dimension    string `json:"dimension" query:"dimension" mcp:"dimension,description=Filter by dimension (image/cmdline/env_key/env_value/pip/code)"`
 	Limit        int    `json:"limit" query:"limit" mcp:"limit,description=Max results (default 50)"`
 	Offset       int    `json:"offset" query:"offset" mcp:"offset,description=Offset for pagination"`
 }
@@ -110,6 +160,16 @@ type IntentRuleBacktestResponse struct {
 // ===== Registration =====
 
 func init() {
+	// CRUD endpoints
+	unified.Register(&unified.EndpointDef[IntentRuleCreateRequest, IntentRuleCreateResponse]{
+		Name:        "intent_rule_create",
+		Description: "Create a new intent detection rule",
+		HTTPMethod:  "POST",
+		HTTPPath:    "/intent-rule",
+		MCPToolName: "lens_intent_rule_create",
+		Handler:     handleIntentRuleCreate,
+	})
+
 	unified.Register(&unified.EndpointDef[IntentRuleGetRequest, IntentRuleGetResponse]{
 		Name:        "intent_rule_get",
 		Description: "Get a single intent rule by ID with full details including backtest results",
@@ -119,15 +179,34 @@ func init() {
 		Handler:     handleIntentRuleGet,
 	})
 
+	unified.Register(&unified.EndpointDef[IntentRuleUpdateRequest, IntentRuleUpdateResponse]{
+		Name:        "intent_rule_update",
+		Description: "Update an existing intent rule (pattern, confidence, dimension, etc.)",
+		HTTPMethod:  "PUT",
+		HTTPPath:    "/intent-rule/:rule_id",
+		MCPToolName: "lens_intent_rule_update",
+		Handler:     handleIntentRuleUpdate,
+	})
+
+	unified.Register(&unified.EndpointDef[IntentRuleDeleteRequest, IntentRuleDeleteResponse]{
+		Name:        "intent_rule_delete",
+		Description: "Delete an intent rule by ID",
+		HTTPMethod:  "DELETE",
+		HTTPPath:    "/intent-rule/:rule_id",
+		MCPToolName: "lens_intent_rule_delete",
+		Handler:     handleIntentRuleDelete,
+	})
+
 	unified.Register(&unified.EndpointDef[IntentRuleListRequest, IntentRuleListResponse]{
 		Name:        "intent_rule_list",
-		Description: "List intent rules with optional filtering by status and detects_field",
+		Description: "List intent rules with optional filtering by status, dimension, and detects_field. Defaults to all rules.",
 		HTTPMethod:  "GET",
 		HTTPPath:    "/intent-rule",
 		MCPToolName: "lens_intent_rule_list",
 		Handler:     handleIntentRuleList,
 	})
 
+	// Action endpoints
 	unified.Register(&unified.EndpointDef[IntentRulePromoteRequest, IntentRulePromoteResponse]{
 		Name:        "intent_rule_promote",
 		Description: "Force promote a validated rule to production (admin action)",
@@ -167,6 +246,59 @@ func init() {
 
 // ===== Handlers =====
 
+// valid dimension values for input validation
+var validDimensions = map[string]bool{
+	"image": true, "cmdline": true, "env_key": true,
+	"env_value": true, "pip": true, "code": true, "process": true, "config": true,
+}
+
+func handleIntentRuleCreate(ctx context.Context, req *IntentRuleCreateRequest) (*IntentRuleCreateResponse, error) {
+	if req.DetectsField == "" || req.DetectsValue == "" || req.Dimension == "" || req.Pattern == "" {
+		return nil, errors.NewError().WithCode(errors.RequestParameterInvalid).
+			WithMessage("detects_field, detects_value, dimension and pattern are required")
+	}
+	if !validDimensions[req.Dimension] {
+		return nil, errors.NewError().WithCode(errors.RequestParameterInvalid).
+			WithMessage("invalid dimension, must be one of: image, cmdline, env_key, env_value, pip, code, process, config")
+	}
+	if req.Confidence < 0 || req.Confidence > 1.0 {
+		return nil, errors.NewError().WithCode(errors.RequestParameterInvalid).
+			WithMessage("confidence must be between 0.0 and 1.0")
+	}
+
+	// Validate regex
+	if _, err := regexp.Compile(req.Pattern); err != nil {
+		return nil, errors.NewError().WithCode(errors.RequestParameterInvalid).
+			WithMessage("invalid regex pattern: " + err.Error())
+	}
+
+	status := req.Status
+	if status == "" {
+		status = "proposed"
+	}
+
+	rule := &dbModel.IntentRule{
+		DetectsField: req.DetectsField,
+		DetectsValue: req.DetectsValue,
+		Dimension:    req.Dimension,
+		Pattern:      req.Pattern,
+		Confidence:   req.Confidence,
+		Reasoning:    req.Reasoning,
+		Status:       status,
+	}
+
+	facade := database.NewIntentRuleFacade()
+	if err := facade.CreateRule(ctx, rule); err != nil {
+		return nil, errors.NewError().WithCode(errors.InternalError).WithMessage("failed to create rule: " + err.Error())
+	}
+
+	return &IntentRuleCreateResponse{
+		ID:      rule.ID,
+		Status:  rule.Status,
+		Message: "Rule created successfully",
+	}, nil
+}
+
 func handleIntentRuleGet(ctx context.Context, req *IntentRuleGetRequest) (*IntentRuleGetResponse, error) {
 	ruleID, err := strconv.ParseInt(req.RuleID, 10, 64)
 	if err != nil {
@@ -191,13 +323,15 @@ func handleIntentRuleList(ctx context.Context, req *IntentRuleListRequest) (*Int
 	var rules []*dbModel.IntentRule
 	var err error
 
-	if req.Status != "" {
+	switch {
+	case req.Status != "" && req.Status != "all":
 		rules, err = facade.ListByStatus(ctx, req.Status)
-	} else if req.DetectsField != "" {
+	case req.Dimension != "":
+		rules, err = facade.ListByDimension(ctx, req.Dimension)
+	case req.DetectsField != "":
 		rules, err = facade.GetByDetectsField(ctx, req.DetectsField)
-	} else {
-		// Get all promoted rules as default view
-		rules, err = facade.GetPromotedRules(ctx)
+	default:
+		rules, err = facade.ListAll(ctx)
 	}
 
 	if err != nil {
@@ -228,6 +362,94 @@ func handleIntentRuleList(ctx context.Context, req *IntentRuleListRequest) (*Int
 	return &IntentRuleListResponse{
 		Rules: responses,
 		Total: total,
+	}, nil
+}
+
+func handleIntentRuleUpdate(ctx context.Context, req *IntentRuleUpdateRequest) (*IntentRuleUpdateResponse, error) {
+	ruleID, err := strconv.ParseInt(req.RuleID, 10, 64)
+	if err != nil {
+		return nil, errors.NewError().WithCode(errors.RequestParameterInvalid).WithMessage("invalid rule_id")
+	}
+
+	facade := database.NewIntentRuleFacade()
+	rule, err := facade.GetRule(ctx, ruleID)
+	if err != nil {
+		return nil, errors.NewError().WithCode(errors.InternalError).WithMessage("failed to get rule: " + err.Error())
+	}
+	if rule == nil {
+		return nil, errors.NewError().WithCode(errors.RequestDataNotExisted).WithMessage("rule not found")
+	}
+
+	// Apply partial updates
+	if req.DetectsField != "" {
+		rule.DetectsField = req.DetectsField
+	}
+	if req.DetectsValue != "" {
+		rule.DetectsValue = req.DetectsValue
+	}
+	if req.Dimension != "" {
+		if !validDimensions[req.Dimension] {
+			return nil, errors.NewError().WithCode(errors.RequestParameterInvalid).
+				WithMessage("invalid dimension")
+		}
+		rule.Dimension = req.Dimension
+	}
+	if req.Pattern != "" {
+		if _, err := regexp.Compile(req.Pattern); err != nil {
+			return nil, errors.NewError().WithCode(errors.RequestParameterInvalid).
+				WithMessage("invalid regex pattern: " + err.Error())
+		}
+		rule.Pattern = req.Pattern
+	}
+	if req.Confidence > 0 {
+		if req.Confidence > 1.0 {
+			return nil, errors.NewError().WithCode(errors.RequestParameterInvalid).
+				WithMessage("confidence must be between 0.0 and 1.0")
+		}
+		rule.Confidence = req.Confidence
+	}
+	if req.Reasoning != "" {
+		rule.Reasoning = req.Reasoning
+	}
+	if req.Status != "" {
+		rule.Status = req.Status
+	}
+
+	if err := facade.UpdateRule(ctx, rule); err != nil {
+		return nil, errors.NewError().WithCode(errors.InternalError).WithMessage("failed to update rule: " + err.Error())
+	}
+
+	return &IntentRuleUpdateResponse{
+		ID:      ruleID,
+		Status:  rule.Status,
+		Message: "Rule updated successfully",
+	}, nil
+}
+
+func handleIntentRuleDelete(ctx context.Context, req *IntentRuleDeleteRequest) (*IntentRuleDeleteResponse, error) {
+	ruleID, err := strconv.ParseInt(req.RuleID, 10, 64)
+	if err != nil {
+		return nil, errors.NewError().WithCode(errors.RequestParameterInvalid).WithMessage("invalid rule_id")
+	}
+
+	facade := database.NewIntentRuleFacade()
+
+	// Check existence first
+	rule, err := facade.GetRule(ctx, ruleID)
+	if err != nil {
+		return nil, errors.NewError().WithCode(errors.InternalError).WithMessage("failed to get rule: " + err.Error())
+	}
+	if rule == nil {
+		return nil, errors.NewError().WithCode(errors.RequestDataNotExisted).WithMessage("rule not found")
+	}
+
+	if err := facade.DeleteRule(ctx, ruleID); err != nil {
+		return nil, errors.NewError().WithCode(errors.InternalError).WithMessage("failed to delete rule: " + err.Error())
+	}
+
+	return &IntentRuleDeleteResponse{
+		ID:      ruleID,
+		Message: "Rule deleted successfully",
 	}, nil
 }
 

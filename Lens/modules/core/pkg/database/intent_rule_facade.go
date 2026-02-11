@@ -35,6 +35,12 @@ type IntentRuleFacadeInterface interface {
 	// GetByDetectsField lists rules by detection target field
 	GetByDetectsField(ctx context.Context, detectsField string) ([]*model.IntentRule, error)
 
+	// ListByDimension lists rules by matching dimension (image, cmdline, env_key, pip, etc.)
+	ListByDimension(ctx context.Context, dimension string) ([]*model.IntentRule, error)
+
+	// ListAll lists all rules ordered by updated_at desc
+	ListAll(ctx context.Context) ([]*model.IntentRule, error)
+
 	// UpdateStatus updates the lifecycle status of a rule
 	UpdateStatus(ctx context.Context, id int64, status string) error
 
@@ -126,6 +132,23 @@ func (f *IntentRuleFacade) GetByDetectsField(ctx context.Context, detectsField s
 	err := f.getDB().WithContext(ctx).
 		Where("detects_field = ?", detectsField).
 		Order("confidence DESC").
+		Find(&results).Error
+	return results, err
+}
+
+func (f *IntentRuleFacade) ListByDimension(ctx context.Context, dimension string) ([]*model.IntentRule, error) {
+	var results []*model.IntentRule
+	err := f.getDB().WithContext(ctx).
+		Where("dimension = ?", dimension).
+		Order("updated_at DESC").
+		Find(&results).Error
+	return results, err
+}
+
+func (f *IntentRuleFacade) ListAll(ctx context.Context) ([]*model.IntentRule, error) {
+	var results []*model.IntentRule
+	err := f.getDB().WithContext(ctx).
+		Order("updated_at DESC").
 		Find(&results).Error
 	return results, err
 }
