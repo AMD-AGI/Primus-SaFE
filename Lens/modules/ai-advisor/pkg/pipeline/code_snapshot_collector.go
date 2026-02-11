@@ -335,7 +335,11 @@ func (c *CodeSnapshotCollector) storeSnapshot(
 	}
 
 	if snapshot.ImportGraph != nil {
-		record.ImportGraph = model.ExtType(snapshot.ImportGraph)
+		graphMap := make(model.ExtType, len(snapshot.ImportGraph))
+		for k, v := range snapshot.ImportGraph {
+			graphMap[k] = v
+		}
+		record.ImportGraph = graphMap
 	}
 
 	// Upsert: if fingerprint exists, skip; if workload_uid exists, update

@@ -6,7 +6,6 @@ package api
 import (
 	"context"
 
-	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/clientsets"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database"
 	dbModel "github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database/model"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/errors"
@@ -112,8 +111,7 @@ func handleCodeSnapshotGet(ctx context.Context, req *CodeSnapshotGetRequest) (*C
 			WithMessage("workload_uid is required")
 	}
 
-	cm := clientsets.GetClusterManager()
-	clusterName, err := resolveWorkloadCluster(cm, req.WorkloadUID, req.Cluster)
+	clusterName, err := resolveWorkloadCluster(ctx, req.WorkloadUID, req.Cluster)
 	if err != nil {
 		return nil, err
 	}
@@ -141,13 +139,12 @@ func handleCodeSnapshotDiff(ctx context.Context, req *CodeSnapshotDiffRequest) (
 			WithMessage("both workload_uid_1 and workload_uid_2 are required")
 	}
 
-	cm := clientsets.GetClusterManager()
-	clients, err := cm.GetClusterClientsOrDefault(req.Cluster)
+	clusterName, err := resolveWorkloadCluster(ctx, req.WorkloadUID1, req.Cluster)
 	if err != nil {
 		return nil, err
 	}
 
-	facade := database.GetFacadeForCluster(clients.ClusterName)
+	facade := database.GetFacadeForCluster(clusterName)
 
 	snapshot1, err := facade.GetWorkloadCodeSnapshot().GetByWorkloadUID(ctx, req.WorkloadUID1)
 	if err != nil {

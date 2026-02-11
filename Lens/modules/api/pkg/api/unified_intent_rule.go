@@ -167,25 +167,25 @@ func init() {
 
 // ===== Handlers =====
 
-func handleIntentRuleGet(ctx context.Context, req IntentRuleGetRequest) (*IntentRuleGetResponse, error) {
+func handleIntentRuleGet(ctx context.Context, req *IntentRuleGetRequest) (*IntentRuleGetResponse, error) {
 	ruleID, err := strconv.ParseInt(req.RuleID, 10, 64)
 	if err != nil {
-		return nil, errors.NewBadRequestError("invalid rule_id")
+		return nil, errors.NewError().WithCode(errors.RequestParameterInvalid).WithMessage("invalid rule_id")
 	}
 
 	facade := database.NewIntentRuleFacade()
 	rule, err := facade.GetRule(ctx, ruleID)
 	if err != nil {
-		return nil, errors.NewInternalError("failed to get rule: " + err.Error())
+		return nil, errors.NewError().WithCode(errors.InternalError).WithMessage("failed to get rule: " + err.Error())
 	}
 	if rule == nil {
-		return nil, errors.NewNotFoundError("rule not found")
+		return nil, errors.NewError().WithCode(errors.RequestDataNotExisted).WithMessage("rule not found")
 	}
 
 	return convertRuleToResponse(rule), nil
 }
 
-func handleIntentRuleList(ctx context.Context, req IntentRuleListRequest) (*IntentRuleListResponse, error) {
+func handleIntentRuleList(ctx context.Context, req *IntentRuleListRequest) (*IntentRuleListResponse, error) {
 	facade := database.NewIntentRuleFacade()
 
 	var rules []*dbModel.IntentRule
@@ -201,7 +201,7 @@ func handleIntentRuleList(ctx context.Context, req IntentRuleListRequest) (*Inte
 	}
 
 	if err != nil {
-		return nil, errors.NewInternalError("failed to list rules: " + err.Error())
+		return nil, errors.NewError().WithCode(errors.InternalError).WithMessage("failed to list rules: " + err.Error())
 	}
 
 	// Apply pagination
@@ -231,15 +231,15 @@ func handleIntentRuleList(ctx context.Context, req IntentRuleListRequest) (*Inte
 	}, nil
 }
 
-func handleIntentRulePromote(ctx context.Context, req IntentRulePromoteRequest) (*IntentRulePromoteResponse, error) {
+func handleIntentRulePromote(ctx context.Context, req *IntentRulePromoteRequest) (*IntentRulePromoteResponse, error) {
 	ruleID, err := strconv.ParseInt(req.RuleID, 10, 64)
 	if err != nil {
-		return nil, errors.NewBadRequestError("invalid rule_id")
+		return nil, errors.NewError().WithCode(errors.RequestParameterInvalid).WithMessage("invalid rule_id")
 	}
 
 	facade := database.NewIntentRuleFacade()
 	if err := facade.UpdateStatus(ctx, ruleID, "promoted"); err != nil {
-		return nil, errors.NewInternalError("failed to promote rule: " + err.Error())
+		return nil, errors.NewError().WithCode(errors.InternalError).WithMessage("failed to promote rule: " + err.Error())
 	}
 
 	return &IntentRulePromoteResponse{
@@ -249,15 +249,15 @@ func handleIntentRulePromote(ctx context.Context, req IntentRulePromoteRequest) 
 	}, nil
 }
 
-func handleIntentRuleRetire(ctx context.Context, req IntentRuleRetireRequest) (*IntentRuleRetireResponse, error) {
+func handleIntentRuleRetire(ctx context.Context, req *IntentRuleRetireRequest) (*IntentRuleRetireResponse, error) {
 	ruleID, err := strconv.ParseInt(req.RuleID, 10, 64)
 	if err != nil {
-		return nil, errors.NewBadRequestError("invalid rule_id")
+		return nil, errors.NewError().WithCode(errors.RequestParameterInvalid).WithMessage("invalid rule_id")
 	}
 
 	facade := database.NewIntentRuleFacade()
 	if err := facade.UpdateStatus(ctx, ruleID, "retired"); err != nil {
-		return nil, errors.NewInternalError("failed to retire rule: " + err.Error())
+		return nil, errors.NewError().WithCode(errors.InternalError).WithMessage("failed to retire rule: " + err.Error())
 	}
 
 	return &IntentRuleRetireResponse{
@@ -267,10 +267,10 @@ func handleIntentRuleRetire(ctx context.Context, req IntentRuleRetireRequest) (*
 	}, nil
 }
 
-func handleIntentRuleLabel(ctx context.Context, req IntentRuleLabelRequest) (*IntentRuleLabelResponse, error) {
+func handleIntentRuleLabel(ctx context.Context, req *IntentRuleLabelRequest) (*IntentRuleLabelResponse, error) {
 	ruleID, err := strconv.ParseInt(req.RuleID, 10, 64)
 	if err != nil {
-		return nil, errors.NewBadRequestError("invalid rule_id")
+		return nil, errors.NewError().WithCode(errors.RequestParameterInvalid).WithMessage("invalid rule_id")
 	}
 
 	facade := database.NewIntentRuleFacade()
@@ -278,30 +278,30 @@ func handleIntentRuleLabel(ctx context.Context, req IntentRuleLabelRequest) (*In
 	// Get current rule
 	rule, err := facade.GetRule(ctx, ruleID)
 	if err != nil {
-		return nil, errors.NewInternalError("failed to get rule: " + err.Error())
+		return nil, errors.NewError().WithCode(errors.InternalError).WithMessage("failed to get rule: " + err.Error())
 	}
 	if rule == nil {
-		return nil, errors.NewNotFoundError("rule not found")
+		return nil, errors.NewError().WithCode(errors.RequestDataNotExisted).WithMessage("rule not found")
 	}
 
 	// Apply updates
 	if req.Status != "" {
 		if err := facade.UpdateStatus(ctx, ruleID, req.Status); err != nil {
-			return nil, errors.NewInternalError("failed to update status: " + err.Error())
+			return nil, errors.NewError().WithCode(errors.InternalError).WithMessage("failed to update status: " + err.Error())
 		}
 	}
 
 	if req.Confidence > 0 {
 		rule.Confidence = req.Confidence
 		if err := facade.UpdateRule(ctx, rule); err != nil {
-			return nil, errors.NewInternalError("failed to update confidence: " + err.Error())
+			return nil, errors.NewError().WithCode(errors.InternalError).WithMessage("failed to update confidence: " + err.Error())
 		}
 	}
 
 	if req.Reasoning != "" {
 		rule.Reasoning = req.Reasoning
 		if err := facade.UpdateRule(ctx, rule); err != nil {
-			return nil, errors.NewInternalError("failed to update reasoning: " + err.Error())
+			return nil, errors.NewError().WithCode(errors.InternalError).WithMessage("failed to update reasoning: " + err.Error())
 		}
 	}
 
@@ -317,25 +317,25 @@ func handleIntentRuleLabel(ctx context.Context, req IntentRuleLabelRequest) (*In
 	}, nil
 }
 
-func handleIntentRuleBacktest(ctx context.Context, req IntentRuleBacktestRequest) (*IntentRuleBacktestResponse, error) {
+func handleIntentRuleBacktest(ctx context.Context, req *IntentRuleBacktestRequest) (*IntentRuleBacktestResponse, error) {
 	ruleID, err := strconv.ParseInt(req.RuleID, 10, 64)
 	if err != nil {
-		return nil, errors.NewBadRequestError("invalid rule_id")
+		return nil, errors.NewError().WithCode(errors.RequestParameterInvalid).WithMessage("invalid rule_id")
 	}
 
 	facade := database.NewIntentRuleFacade()
 	rule, err := facade.GetRule(ctx, ruleID)
 	if err != nil {
-		return nil, errors.NewInternalError("failed to get rule: " + err.Error())
+		return nil, errors.NewError().WithCode(errors.InternalError).WithMessage("failed to get rule: " + err.Error())
 	}
 	if rule == nil {
-		return nil, errors.NewNotFoundError("rule not found")
+		return nil, errors.NewError().WithCode(errors.RequestDataNotExisted).WithMessage("rule not found")
 	}
 
 	// Set status to "testing" so the daily backtester picks it up for evaluation.
 	// The actual backtest computation runs in ai-advisor's scheduled flywheel job.
 	if err := facade.UpdateStatus(ctx, ruleID, "testing"); err != nil {
-		return nil, errors.NewInternalError("failed to queue backtest: " + err.Error())
+		return nil, errors.NewError().WithCode(errors.InternalError).WithMessage("failed to queue backtest: " + err.Error())
 	}
 
 	return &IntentRuleBacktestResponse{

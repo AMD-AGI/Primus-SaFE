@@ -586,10 +586,18 @@ func (p *WorkloadAnalysisPipeline) gatherEvidence(
 			PipFreeze:   snapshot.PipFreeze,
 			Fingerprint: snapshot.Fingerprint,
 		}
-		if snapshot.EntryScript != "" {
-			evidence.CodeSnapshot.EntryScript = &intent.FileContent{
-				Content: snapshot.EntryScript,
+		if len(snapshot.EntryScript) > 0 {
+			fc := &intent.FileContent{}
+			if path, ok := snapshot.EntryScript["path"].(string); ok {
+				fc.Path = path
 			}
+			if content, ok := snapshot.EntryScript["content"].(string); ok {
+				fc.Content = content
+			}
+			if hash, ok := snapshot.EntryScript["hash"].(string); ok {
+				fc.Hash = hash
+			}
+			evidence.CodeSnapshot.EntryScript = fc
 		}
 	}
 
@@ -658,12 +666,16 @@ func (p *WorkloadAnalysisPipeline) scheduleSubTask(
 	workloadUID string,
 	plan *CollectorPlan,
 ) error {
+	ext := plan.Params
+	if ext == nil {
+		ext = map[string]interface{}{}
+	}
+	ext["priority"] = plan.Priority
 	subTask := &model.WorkloadTaskState{
 		WorkloadUID: workloadUID,
 		TaskType:    plan.TaskType,
 		Status:      constant.TaskStatusPending,
-		Priority:    plan.Priority,
-		Ext:         plan.Params,
+		Ext:         model.ExtType(ext),
 	}
 	return p.taskFacade.UpsertTask(ctx, subTask)
 }
@@ -677,14 +689,13 @@ func (p *WorkloadAnalysisPipeline) areSubTasksComplete(ctx context.Context, work
 	}
 
 	for _, taskType := range subTaskTypes {
-		tasks, err := p.taskFacade.GetTasksByWorkloadAndType(ctx, workloadUID, taskType)
+		t, err := p.taskFacade.GetTask(ctx, workloadUID, taskType)
 		if err != nil {
-			return false, err
+			// Task not found means it was never created, consider it complete
+			continue
 		}
-		for _, t := range tasks {
-			if t.Status == constant.TaskStatusPending || t.Status == constant.TaskStatusRunning {
-				return false, nil
-			}
+		if t != nil && (t.Status == constant.TaskStatusPending || t.Status == constant.TaskStatusRunning) {
+			return false, nil
 		}
 	}
 
@@ -811,8 +822,7 @@ func (p *WorkloadAnalysisPipeline) createFollowUpTasks(
 			WorkloadUID: workloadUID,
 			TaskType:    constant.TaskTypeMetadataCollection,
 			Status:      constant.TaskStatusPending,
-			Priority:    50,
-			Ext:         map[string]interface{}{"trigger": "intent_pipeline"},
+			Ext:         model.ExtType{"trigger": "intent_pipeline", "priority": 50},
 		}
 		if err := p.taskFacade.UpsertTask(ctx, metaTask); err != nil {
 			log.Warnf("Failed to create metadata collection task: %v", err)
@@ -825,10 +835,10 @@ func (p *WorkloadAnalysisPipeline) createFollowUpTasks(
 			WorkloadUID: workloadUID,
 			TaskType:    constant.TaskTypeLogAnalysis,
 			Status:      constant.TaskStatusPending,
-			Priority:    30,
-			Ext: map[string]interface{}{
+			Ext: model.ExtType{
 				"trigger":  "intent_pipeline",
 				"category": category,
+				"priority": 30,
 			},
 		}
 		if err := p.taskFacade.UpsertTask(ctx, logTask); err != nil {
@@ -843,8 +853,7 @@ func (p *WorkloadAnalysisPipeline) createFollowUpTasks(
 			WorkloadUID: workloadUID,
 			TaskType:    constant.TaskTypeMetricCollection,
 			Status:      constant.TaskStatusPending,
-			Priority:    50,
-			Ext:         map[string]interface{}{"trigger": "intent_pipeline"},
+			Ext:         model.ExtType{"trigger": "intent_pipeline", "priority": 50},
 		}
 		if err := p.taskFacade.UpsertTask(ctx, metricTask); err != nil {
 			log.Warnf("Failed to create metric collection task: %v", err)
