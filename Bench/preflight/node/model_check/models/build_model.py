@@ -84,6 +84,22 @@ def build_model(config, hf_config):
     }
     model_backend = backend_map.get(backend, backend)
     
+    # Qwen2/Qwen3: use transformers built-in from_config (no custom registry)
+    if model_type in ("qwen2", "qwen3"):
+        try:
+            from transformers import AutoModelForCausalLM
+        except ImportError as e:
+            logger.error(f"Qwen model requires transformers: {e}")
+            raise
+        logger.info(f"Building Qwen model from config ({model_type}, {model_backend})")
+        model = AutoModelForCausalLM.from_config(hf_config)
+        logger.info(f"Model created successfully: {model.__class__.__name__}")
+        total_params = sum(p.numel() for p in model.parameters())
+        trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+        logger.info(f"Model parameters: {total_params:,} total, {trainable_params:,} trainable")
+        logger.info(f"Model size: {total_params * 4 / 1e9:.2f} GB (fp32)")
+        return model
+    
     # Look up model in registry
     key = (model_type, model_backend)
     if key not in MODEL_REGISTRY:
