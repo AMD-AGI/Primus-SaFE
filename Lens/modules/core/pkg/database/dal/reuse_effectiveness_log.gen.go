@@ -50,17 +50,17 @@ type reuseEffectivenessLog struct {
 
 	ALL               field.Asterisk
 	ID                field.Int64
-	WorkloadUID       field.String
-	ReusedFrom        field.String
-	SimilarityScore   field.Float64
-	ReusedFramework   field.String
-	ReusedConfidence  field.Float64
-	VerifiedBy        field.String
-	VerifiedFramework field.String
-	VerifiedAt        field.Time
-	IsCorrect         field.Bool
-	TimeSavedMs       field.Int32
-	CreatedAt         field.Time
+	WorkloadUID       field.String  // UID of the workload that used reused metadata
+	ReusedFrom        field.String  // UID of the workload that metadata was reused from
+	SimilarityScore   field.Float64 // Calculated similarity score (0.000-1.000)
+	ReusedFramework   field.String  // Framework from reused metadata
+	ReusedConfidence  field.Float64 // Confidence from reused metadata (0.00-1.00)
+	VerifiedBy        field.String  // Source that verified the reuse (component, log, user)
+	VerifiedFramework field.String  // Framework detected by verification source
+	VerifiedAt        field.Time    // Timestamp when the reuse was verified
+	IsCorrect         field.Bool    // Whether the reused framework matched verification (true/false)
+	TimeSavedMs       field.Int32   // Time saved by skipping detection in milliseconds
+	CreatedAt         field.Time    // Timestamp when the reuse occurred
 
 	fieldMap map[string]field.Expr
 }

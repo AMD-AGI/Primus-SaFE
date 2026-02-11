@@ -5,6 +5,7 @@ package model
 
 // GithubRunnerSets status constants
 const (
-	RunnerSetStatusActive  = "active"
-	RunnerSetStatusDeleted = "deleted"
+	RunnerSetStatusActive   = "active"
+	RunnerSetStatusInactive = "inactive"
+	RunnerSetStatusDeleted  = "deleted"
 )

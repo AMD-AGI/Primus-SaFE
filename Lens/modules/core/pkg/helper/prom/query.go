@@ -38,6 +38,9 @@ func QueryInstant(ctx context.Context, clientSets *clientsets.StorageClientSet, 
 }
 
 func getPromApi(clientSets *clientsets.StorageClientSet) (v1.API, error) {
+	if clientSets == nil {
+		return nil, fmt.Errorf("StorageClientSet is nil - cluster may not have storage configuration")
+	}
 	promClient := clientSets.PrometheusRead
 	if promClient == nil {
 		return nil, fmt.Errorf("Prometheus client is not initialized")

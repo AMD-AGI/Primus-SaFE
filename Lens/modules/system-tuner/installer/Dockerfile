@@ -1,6 +1,7 @@
 # Dockerfile for system-tuner
 # Standard lightweight build
 
+ARG REGISTRY=""
 ARG GO_VERSION=1.24.7
 ARG BUILDPATH
 ARG APPNAME
@@ -8,7 +9,7 @@ ARG BASEPATH
 ARG GOPROXY=https://proxy.golang.org,direct
 
 # Stage 1: Build stage
-FROM golang:${GO_VERSION} AS builder
+FROM ${REGISTRY}golang:${GO_VERSION} AS builder
 WORKDIR /app
 
 ARG GITHUB_TOKEN
@@ -36,10 +37,18 @@ RUN echo "BUILDPATH: $BUILDPATH" && \
 
 COPY . .
 
-RUN cd $BASEPATH && CGO_ENABLED=0 go build -tags nosqlite -a -installsuffix cgo -o $APPNAME $BUILDPATH/main.go
+RUN cd Lens/modules/core && go mod tidy
+RUN cd $BASEPATH && go mod tidy && CGO_ENABLED=0 go build -tags nosqlite -a -installsuffix cgo -o $APPNAME $BUILDPATH/main.go
 
 # Stage 2: Runtime stage - lightweight
-FROM --platform=linux/amd64 docker.io/primussafe/ubuntu-rdma-base:0.0.1
+ARG REGISTRY=""
+FROM ${REGISTRY}ubuntu:22.04
+
+# Install common runtime dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
 
 ARG APPNAME
 ARG BASEPATH

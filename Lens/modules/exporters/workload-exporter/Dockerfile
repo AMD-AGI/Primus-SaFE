@@ -1,4 +1,5 @@
-FROM rocm/megatron-lm:v25.5_py310
+ARG REGISTRY=""
+FROM ${REGISTRY}rocm/megatron-lm:v25.5_py310
 
 RUN apt-get update && apt-get install -y \
     curl \

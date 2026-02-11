@@ -11,6 +11,9 @@ global:
   clusterName: "my-cluster"
   namespace: "primus-lens"
 
+# Create namespace (set to false if namespace already exists or managed externally)
+createNamespace: false
+
 # ============================================================================
 # Component Enable Flags
 # ============================================================================

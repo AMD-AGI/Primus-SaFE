@@ -153,3 +153,9 @@ COMMENT ON COLUMN label_gpu_hourly_stats.dimension_key IS 'Key of label or annot
 COMMENT ON COLUMN gpu_allocation_snapshots.dimension_type IS 'Dimension type: cluster/namespace/label/annotation';
 COMMENT ON COLUMN gpu_allocation_snapshots.allocation_details IS 'Detailed allocation information stored in JSON format, including workload and other detailed data';
 
+-- Fix: Add missing allocation_rate column to namespace_gpu_hourly_stats table
+-- This column was missing in the original CREATE TABLE statement but is required by the Go model
+ALTER TABLE namespace_gpu_hourly_stats 
+ADD COLUMN IF NOT EXISTS allocation_rate DOUBLE PRECISION NOT NULL DEFAULT 0;
+
+COMMENT ON COLUMN namespace_gpu_hourly_stats.allocation_rate IS 'GPU allocation rate (0-100)';

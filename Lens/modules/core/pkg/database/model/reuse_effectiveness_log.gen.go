@@ -13,17 +13,17 @@ const TableNameReuseEffectivenessLog = "reuse_effectiveness_log"
 // ReuseEffectivenessLog mapped from table <reuse_effectiveness_log>
 type ReuseEffectivenessLog struct {
 	ID                int64     `gorm:"column:id;primaryKey;autoIncrement:true" json:"id"`
-	WorkloadUID       string    `gorm:"column:workload_uid;not null" json:"workload_uid"`
-	ReusedFrom        string    `gorm:"column:reused_from;not null" json:"reused_from"`
-	SimilarityScore   float64   `gorm:"column:similarity_score;not null" json:"similarity_score"`
-	ReusedFramework   string    `gorm:"column:reused_framework;not null" json:"reused_framework"`
-	ReusedConfidence  float64   `gorm:"column:reused_confidence;not null" json:"reused_confidence"`
-	VerifiedBy        string    `gorm:"column:verified_by" json:"verified_by"`
-	VerifiedFramework string    `gorm:"column:verified_framework" json:"verified_framework"`
-	VerifiedAt        time.Time `gorm:"column:verified_at" json:"verified_at"`
-	IsCorrect         bool      `gorm:"column:is_correct" json:"is_correct"`
-	TimeSavedMs       int32     `gorm:"column:time_saved_ms" json:"time_saved_ms"`
-	CreatedAt         time.Time `gorm:"column:created_at;not null;default:CURRENT_TIMESTAMP" json:"created_at"`
+	WorkloadUID       string    `gorm:"column:workload_uid;not null;comment:UID of the workload that used reused metadata" json:"workload_uid"`           // UID of the workload that used reused metadata
+	ReusedFrom        string    `gorm:"column:reused_from;not null;comment:UID of the workload that metadata was reused from" json:"reused_from"`         // UID of the workload that metadata was reused from
+	SimilarityScore   float64   `gorm:"column:similarity_score;not null;comment:Calculated similarity score (0.000-1.000)" json:"similarity_score"`       // Calculated similarity score (0.000-1.000)
+	ReusedFramework   string    `gorm:"column:reused_framework;not null;comment:Framework from reused metadata" json:"reused_framework"`                  // Framework from reused metadata
+	ReusedConfidence  float64   `gorm:"column:reused_confidence;not null;comment:Confidence from reused metadata (0.00-1.00)" json:"reused_confidence"`   // Confidence from reused metadata (0.00-1.00)
+	VerifiedBy        string    `gorm:"column:verified_by;comment:Source that verified the reuse (component, log, user)" json:"verified_by"`              // Source that verified the reuse (component, log, user)
+	VerifiedFramework string    `gorm:"column:verified_framework;comment:Framework detected by verification source" json:"verified_framework"`            // Framework detected by verification source
+	VerifiedAt        time.Time `gorm:"column:verified_at;comment:Timestamp when the reuse was verified" json:"verified_at"`                              // Timestamp when the reuse was verified
+	IsCorrect         bool      `gorm:"column:is_correct;comment:Whether the reused framework matched verification (true/false)" json:"is_correct"`       // Whether the reused framework matched verification (true/false)
+	TimeSavedMs       int32     `gorm:"column:time_saved_ms;comment:Time saved by skipping detection in milliseconds" json:"time_saved_ms"`               // Time saved by skipping detection in milliseconds
+	CreatedAt         time.Time `gorm:"column:created_at;not null;default:CURRENT_TIMESTAMP;comment:Timestamp when the reuse occurred" json:"created_at"` // Timestamp when the reuse occurred
 }
 
 // TableName ReuseEffectivenessLog's table name
