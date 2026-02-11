@@ -223,8 +223,8 @@ func TestUploadIcon(t *testing.T) {
 			fileContent: []byte("fake png content"),
 			wantErr:     false,
 			checkResult: func(t *testing.T, url string, storage *MockStorage) {
-				if !strings.HasPrefix(url, "http://storage.test/tools/icons/user-123/") {
-					t.Errorf("URL = %s, want prefix http://storage.test/tools/icons/user-123/", url)
+				if !strings.HasPrefix(url, "http://storage.test/icons/user-123/") {
+					t.Errorf("URL = %s, want prefix http://storage.test/icons/user-123/", url)
 				}
 				if !strings.HasSuffix(url, ".png") {
 					t.Errorf("URL = %s, want suffix .png", url)
