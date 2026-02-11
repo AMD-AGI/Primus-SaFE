@@ -242,24 +242,23 @@ func (e *EvidenceEvaluator) matchHeuristics(evidence *intent.IntentEvidence) []e
 		signals = append(signals, registrySignals...)
 	}
 
-	// Workload name / kind / namespace based heuristics
-	nameSignals := e.matchWorkloadNamePatterns(evidence)
-	signals = append(signals, nameSignals...)
-
 	// Detection system signals (already confirmed by DetectionCoordinator)
-	// Only add if no higher-priority name-based signals were found
 	if evidence.DetectedFramework != "" && evidence.DetectedWorkloadType != "" {
-		hasNameSignal := false
-		for _, sig := range nameSignals {
-			if sig.weight >= 0.8 {
-				hasNameSignal = true
-				break
-			}
-		}
-		if !hasNameSignal {
-			detSignals := e.mapDetectionSignals(evidence.DetectedFramework, evidence.DetectedWorkloadType)
-			signals = append(signals, detSignals...)
-		}
+		detSignals := e.mapDetectionSignals(evidence.DetectedFramework, evidence.DetectedWorkloadType)
+		signals = append(signals, detSignals...)
+	}
+
+	// If no meaningful cmdline was found (empty Command after spec + process collection),
+	// the workload is likely idle / interactive development: someone requested GPU resources
+	// but is running ad-hoc commands manually rather than a structured job.
+	if evidence.Command == "" && evidence.DetectedFramework != "" {
+		signals = append(signals, evaluationSignal{
+			category: intent.CategoryInteractiveDevelopment,
+			field:    "category",
+			value:    string(intent.CategoryInteractiveDevelopment),
+			weight:   0.5,
+			source:   "no_cmdline",
+		})
 	}
 
 	return signals
@@ -305,83 +304,6 @@ func (e *EvidenceEvaluator) analyzePipFreeze(pipFreeze string) []evaluationSigna
 				source:   "pip",
 			})
 		}
-	}
-
-	return signals
-}
-
-// matchWorkloadNamePatterns detects interactive development, CI/CD, and benchmark
-// workloads based on the workload name, kind, and namespace patterns. These signals
-// carry high weight because name/namespace patterns are strong indicators of intent
-// that override cmdline-based heuristics.
-func (e *EvidenceEvaluator) matchWorkloadNamePatterns(evidence *intent.IntentEvidence) []evaluationSignal {
-	var signals []evaluationSignal
-
-	name := strings.ToLower(evidence.WorkloadName)
-	ns := strings.ToLower(evidence.WorkloadNamespace)
-	kind := strings.ToLower(evidence.WorkloadKind)
-
-	if name == "" {
-		return signals
-	}
-
-	// Interactive development: "dev-*" prefix with kind=Workload in poc/dev namespaces
-	if strings.HasPrefix(name, "dev-") && kind == "workload" {
-		signals = append(signals, evaluationSignal{
-			category: intent.CategoryInteractiveDevelopment,
-			field:    "category",
-			value:    string(intent.CategoryInteractiveDevelopment),
-			weight:   0.9,
-			source:   "workload_name",
-		})
-		return signals
-	}
-
-	// CI/CD testing: "*-drswb-*" pattern in cicd namespace, or "rocm-unified-*"
-	if strings.Contains(name, "-drswb-") || (strings.HasPrefix(name, "rocm-unified-") && strings.Contains(ns, "cicd")) {
-		signals = append(signals, evaluationSignal{
-			category: intent.CategoryCICD,
-			field:    "category",
-			value:    string(intent.CategoryCICD),
-			weight:   0.85,
-			source:   "workload_name",
-		})
-		return signals
-	}
-
-	// Profiler collection test workloads
-	if strings.HasPrefix(name, "profiler-collection-test") {
-		signals = append(signals, evaluationSignal{
-			category: intent.CategoryInteractiveDevelopment,
-			field:    "category",
-			value:    string(intent.CategoryInteractiveDevelopment),
-			weight:   0.8,
-			source:   "workload_name",
-		})
-		return signals
-	}
-
-	// Benchmark workloads: "*bench*", "nccl-test-*", "test-bench-*"
-	if strings.Contains(name, "bench") || strings.HasPrefix(name, "nccl-test") {
-		signals = append(signals, evaluationSignal{
-			category: intent.CategoryBenchmark,
-			field:    "category",
-			value:    string(intent.CategoryBenchmark),
-			weight:   0.8,
-			source:   "workload_name",
-		})
-		return signals
-	}
-
-	// Generic test workloads in test namespaces: "test-*" in non-production namespaces
-	if strings.HasPrefix(name, "test-") && (strings.Contains(ns, "cicd") || strings.Contains(ns, "poc") || strings.Contains(ns, "test")) {
-		signals = append(signals, evaluationSignal{
-			category: intent.CategoryCICD,
-			field:    "category",
-			value:    string(intent.CategoryCICD),
-			weight:   0.7,
-			source:   "workload_name",
-		})
 	}
 
 	return signals
@@ -644,9 +566,13 @@ func (e *EvidenceEvaluator) initPatterns() {
 		// Data processing
 		{re: regexp.MustCompile(`(?i)tokenize|preprocess.*dataset|data.*pipeline`), category: intent.CategoryDataProcessing, weight: 0.4},
 
-		// Benchmark / profiling
-		{re: regexp.MustCompile(`(?i)\bbench\b.*test|benchmark|superbench`), category: intent.CategoryEvaluation, weight: 0.4},
-		{re: regexp.MustCompile(`(?i)primusbench|nccl.?test`), category: intent.CategoryEvaluation, weight: 0.5},
+		// Benchmark / profiling / stress-testing
+		{re: regexp.MustCompile(`(?i)test_internode\.py|test_intranode\.py`), category: intent.CategoryBenchmark, weight: 0.8},
+		{re: regexp.MustCompile(`(?i)pressure.?test.?mode`), category: intent.CategoryBenchmark, weight: 0.8},
+		{re: regexp.MustCompile(`(?i)ansible-playbook.*primusbench|ansible-playbook.*bench`), category: intent.CategoryBenchmark, weight: 0.8},
+		{re: regexp.MustCompile(`(?i)nccl.?test|rccl.?test|all_reduce_perf`), category: intent.CategoryBenchmark, weight: 0.8},
+		{re: regexp.MustCompile(`(?i)superbench|gpu.?burn|cuda.?memcheck`), category: intent.CategoryBenchmark, weight: 0.7},
+		{re: regexp.MustCompile(`(?i)\bbenchmark\b|node_check\.yaml`), category: intent.CategoryBenchmark, weight: 0.6},
 	}
 
 	// Environment variable patterns
