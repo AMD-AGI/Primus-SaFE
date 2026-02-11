@@ -193,12 +193,6 @@ jobs:
           echo "control_plane_controller_changed=false" >> $GITHUB_OUTPUT
         fi
         
-        # skills_repository: Lens/modules/skills-repository/** or Lens/modules/core/**
-        if echo "$CHANGED_FILES" | grep -qE '^Lens/modules/skills-repository/|^Lens/modules/core/'; then
-          echo "skills_repository_changed=true" >> $GITHUB_OUTPUT
-        else
-          echo "skills_repository_changed=false" >> $GITHUB_OUTPUT
-        fi
         
         # tracelens: Lens/docker/tracelens/**
         if echo "$CHANGED_FILES" | grep -qE '^Lens/docker/tracelens/'; then
@@ -275,9 +269,6 @@ jobs:
           fi
           if [[ "${{ steps.detect-changes.outputs.control_plane_controller_changed }}" == "true" ]]; then
             MATRIX+='{"name":"control-plane-controller","buildpath":"cmd/control-plane-controller","basepath":"Lens/modules/control-plane-controller/"},'
-          fi
-          if [[ "${{ steps.detect-changes.outputs.skills_repository_changed }}" == "true" ]]; then
-            MATRIX+='{"name":"skills-repository","buildpath":"cmd/skills-repository","basepath":"Lens/modules/skills-repository/"},'
           fi
           MATRIX=${MATRIX%,} # remove trailing comma
           MATRIX+=']}'
