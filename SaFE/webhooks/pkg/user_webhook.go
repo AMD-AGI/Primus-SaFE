@@ -75,7 +75,6 @@ func (m *UserMutator) Handle(ctx context.Context, req admission.Request) admissi
 func (m *UserMutator) mutateOnCreation(ctx context.Context, user *v1.User) {
 	m.mutateMetadata(user)
 	m.mutateCommon(ctx, user)
-	m.mutateDefaultWorkspace(ctx, user)
 	m.mutateManagedWorkspaces(ctx, user, true)
 }
 
@@ -147,9 +146,9 @@ func (m *UserMutator) mutateRoles(user *v1.User) {
 // It ensures that each workspace appears only once and that all workspaces actually exist.
 func (m *UserMutator) mutateWorkspace(ctx context.Context, user *v1.User) {
 	workspaceSet := sets.NewSet()
-	allWorkspaces := commonuser.GetWorkspace(user)
+	currentWorkspaces := commonuser.GetWorkspace(user)
 	var workspaces []string
-	for _, w := range allWorkspaces {
+	for _, w := range currentWorkspaces {
 		if workspaceSet.Has(w) {
 			continue
 		}
@@ -158,30 +157,25 @@ func (m *UserMutator) mutateWorkspace(ctx context.Context, user *v1.User) {
 			workspaces = append(workspaces, w)
 		}
 	}
-	if len(allWorkspaces) != len(workspaces) {
-		commonuser.AssignWorkspace(user, workspaces...)
-	}
-}
 
-// mutateDefaultWorkspace adds default workspaces to users' workspace lists.
-// It ensures all users have access to workspaces marked as default (IsDefault=true).
-func (m *UserMutator) mutateDefaultWorkspace(ctx context.Context, user *v1.User) {
+	// adds default workspaces to users' workspace lists.
 	workspaceList := &v1.WorkspaceList{}
 	err := m.List(ctx, workspaceList)
 	if err != nil {
 		return
 	}
-	userWorkspaces := commonuser.GetWorkspace(user)
 	for _, w := range workspaceList.Items {
 		if !w.Spec.IsDefault {
 			continue
 		}
-		if sliceutil.Contains(userWorkspaces, w.Name) {
+		if sliceutil.Contains(workspaces, w.Name) {
 			continue
 		}
-		userWorkspaces = append(userWorkspaces, w.Name)
+		workspaces = append(workspaces, w.Name)
 	}
-	commonuser.AssignWorkspace(user, userWorkspaces...)
+	if len(currentWorkspaces) != len(workspaces) {
+		commonuser.AssignWorkspace(user, workspaces...)
+	}
 }
 
 // mutateManagedWorkspaces filters and validates managed workspaces for a user.
