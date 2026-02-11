@@ -9,6 +9,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log"
 	"strings"
 	"sync"
 	"time"
@@ -163,6 +164,11 @@ func (s *ImportService) Discover(ctx context.Context, input *DiscoverInput) (*Di
 		return nil, fmt.Errorf("failed to scan archive: %w", err)
 	}
 
+	log.Printf("[GitHub Import] scanned %d candidates, subDir=%q", len(candidates), subDir)
+	for i, c := range candidates {
+		log.Printf("[GitHub Import]   candidate[%d]: path=%q name=%q", i, c.RelativePath, c.SkillName)
+	}
+
 	// When the GitHub URL points to a subdirectory, filter candidates to only
 	// those within that subdirectory.
 	if subDir != "" {
@@ -173,6 +179,7 @@ func (s *ImportService) Discover(ctx context.Context, input *DiscoverInput) (*Di
 				filtered = append(filtered, c)
 			}
 		}
+		log.Printf("[GitHub Import] after subDir filter: %d -> %d candidates", len(candidates), len(filtered))
 		candidates = filtered
 	}
 
