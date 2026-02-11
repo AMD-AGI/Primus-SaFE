@@ -149,8 +149,8 @@ def main():
     parser.add_argument(
         "--model-path",
         type=str,
-        default="meta-llama/Llama-3.1-8B-Instruct",
-        help="HuggingFace model path"
+        default="Qwen/Qwen3-8B",
+        help="HuggingFace model path (e.g. Qwen/Qwen3-8B, openlm-research/open_llama_7b)"
     )
     parser.add_argument(
         "--debug",
