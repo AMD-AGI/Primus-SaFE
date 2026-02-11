@@ -7,16 +7,25 @@ echo "============== begin to install rocm-$ROCM_VERSION =============="
 set -e
 
 # Set the download URL and filename based on ROCM_VERSION
+tag="$ROCM_VERSION"
 if [ "$ROCM_VERSION" = "6.4.3" ]; then
   AMDGPU_INSTALL_FILE="amdgpu-install_6.4.60403-1_all.deb"
 elif [ "$ROCM_VERSION" = "7.0.3" ]; then
   AMDGPU_INSTALL_FILE="amdgpu-install_7.0.3.70003-1_all.deb"
+elif [ "$ROCM_VERSION" = "7.2.0" ]; then
+  tag="7.2"
+  AMDGPU_INSTALL_FILE="amdgpu-install_7.2.70200-1_all.deb"
 else
-  echo "Error: Unsupported ROCM_VERSION '$ROCM_VERSION'. Only 6.4.3 and 7.0.3 are supported."
+  echo "Error: Unsupported ROCM_VERSION '$ROCM_VERSION'. Only 6.4.3, 7.0.3 and 7.2.0 are supported."
   exit 1
 fi
 
-AMDGPU_INSTALL_URL="https://repo.radeon.com/amdgpu-install/$ROCM_VERSION/ubuntu/jammy/$AMDGPU_INSTALL_FILE"
+UBUNTU_CODENAME="jammy"
+if [ "$OS_VERSION" = "24.04" ]; then
+  UBUNTU_CODENAME="noble"
+fi
+
+AMDGPU_INSTALL_URL="https://repo.radeon.com/amdgpu-install/$tag/ubuntu/$UBUNTU_CODENAME/$AMDGPU_INSTALL_FILE"
 
 echo "Downloading $AMDGPU_INSTALL_FILE..."
 wget -q $AMDGPU_INSTALL_URL
