@@ -406,10 +406,17 @@ func (p *WorkloadAnalysisPipeline) handleMergingResult(
 ) (string, error) {
 	workloadUID := task.WorkloadUID
 
-	// Reconstruct deterministic result from ext
+	// Reconstruct deterministic result from ext.
+	// eval_result is stored as json.RawMessage which becomes map[string]interface{}
+	// after JSONB round-trip, so GetExtString won't work; use GetExtMap instead.
 	var evalResult intent.IntentResult
-	evalJSON := p.GetExtString(task, "eval_result")
-	if evalJSON != "" {
+	if evalMap := p.GetExtMap(task, "eval_result"); evalMap != nil {
+		evalBytes, err := json.Marshal(evalMap)
+		if err == nil {
+			_ = json.Unmarshal(evalBytes, &evalResult)
+		}
+	} else if evalJSON := p.GetExtString(task, "eval_result"); evalJSON != "" {
+		// Fallback: in case ext was somehow stored as a string
 		_ = json.Unmarshal([]byte(evalJSON), &evalResult)
 	}
 
@@ -420,10 +427,14 @@ func (p *WorkloadAnalysisPipeline) handleMergingResult(
 		return p.persistIntentResult(ctx, workloadUID, &evalResult, updates)
 	}
 
-	// Parse LLM result
+	// Parse LLM result (same JSONB round-trip handling as eval_result)
 	var llmResult intent.IntentResult
-	llmJSON := p.GetExtString(task, "llm_result")
-	if llmJSON != "" {
+	if llmMap := p.GetExtMap(task, "llm_result"); llmMap != nil {
+		llmBytes, err := json.Marshal(llmMap)
+		if err == nil {
+			_ = json.Unmarshal(llmBytes, &llmResult)
+		}
+	} else if llmJSON := p.GetExtString(task, "llm_result"); llmJSON != "" {
 		_ = json.Unmarshal([]byte(llmJSON), &llmResult)
 	}
 
@@ -529,18 +540,28 @@ func (p *WorkloadAnalysisPipeline) persistIntentResult(
 		intentUpdates["expected_behavior"] = string(result.ExpectedBehavior)
 	}
 	if result.AnalysisMode != "" {
-		intentUpdates["analysis_mode"] = string(result.AnalysisMode)
+		intentUpdates["intent_analysis_mode"] = string(result.AnalysisMode)
 	}
 	if result.Source != "" {
 		intentUpdates["intent_source"] = string(result.Source)
 	}
 	if result.Model != nil {
-		intentUpdates["model_path"] = result.Model.Path
-		intentUpdates["model_family"] = result.Model.Family
+		if result.Model.Path != "" {
+			intentUpdates["model_path"] = result.Model.Path
+		}
+		if result.Model.Family != "" {
+			intentUpdates["model_family"] = result.Model.Family
+		}
+		if result.Model.Scale != "" {
+			intentUpdates["model_scale"] = result.Model.Scale
+		}
+		if result.Model.Variant != "" {
+			intentUpdates["model_variant"] = result.Model.Variant
+		}
 	}
 	if result.FrameworkStack != nil {
 		stackJSON, _ := json.Marshal(result.FrameworkStack)
-		intentUpdates["framework_stack"] = string(stackJSON)
+		intentUpdates["runtime_framework"] = string(stackJSON)
 	}
 
 	// Store full detail JSON
@@ -550,7 +571,18 @@ func (p *WorkloadAnalysisPipeline) persistIntentResult(
 	// Field sources
 	if result.FieldSources != nil {
 		sourcesJSON, _ := json.Marshal(result.FieldSources)
-		intentUpdates["field_sources"] = string(sourcesJSON)
+		intentUpdates["intent_field_sources"] = string(sourcesJSON)
+	}
+
+	// Matched rules
+	if len(result.MatchedRules) > 0 {
+		rulesJSON, _ := json.Marshal(result.MatchedRules)
+		intentUpdates["intent_matched_rules"] = string(rulesJSON)
+	}
+
+	// Reasoning
+	if result.Reasoning != "" {
+		intentUpdates["intent_reasoning"] = result.Reasoning
 	}
 
 	if err := p.detectionFacade.UpdateIntentResult(ctx, workloadUID, intentUpdates); err != nil {

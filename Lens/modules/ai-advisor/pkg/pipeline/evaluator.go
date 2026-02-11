@@ -242,6 +242,12 @@ func (e *EvidenceEvaluator) matchHeuristics(evidence *intent.IntentEvidence) []e
 		signals = append(signals, registrySignals...)
 	}
 
+	// Detection system signals (already confirmed by DetectionCoordinator)
+	if evidence.DetectedFramework != "" && evidence.DetectedWorkloadType != "" {
+		detSignals := e.mapDetectionSignals(evidence.DetectedFramework, evidence.DetectedWorkloadType)
+		signals = append(signals, detSignals...)
+	}
+
 	return signals
 }
 
@@ -285,6 +291,49 @@ func (e *EvidenceEvaluator) analyzePipFreeze(pipFreeze string) []evaluationSigna
 				source:   "pip",
 			})
 		}
+	}
+
+	return signals
+}
+
+// mapDetectionSignals converts already-confirmed framework/workload_type from the
+// detection system into evaluation signals. These carry moderate weight because
+// the detection coordinator has already validated them with process probes and log
+// analysis, but they don't provide fine-grained intent (category/model) details.
+func (e *EvidenceEvaluator) mapDetectionSignals(framework, workloadType string) []evaluationSignal {
+	var signals []evaluationSignal
+
+	fw := strings.ToLower(framework)
+	wt := strings.ToLower(workloadType)
+
+	// Map framework + workload_type to category
+	var cat intent.Category
+	switch {
+	case (fw == "vllm" || fw == "sglang" || fw == "tgi") && wt == "inference":
+		cat = intent.CategoryInference
+	case fw == "megatron" && wt == "training":
+		cat = intent.CategoryPreTraining
+	case fw == "deepspeed" && wt == "training":
+		cat = intent.CategoryPreTraining
+	case (fw == "primus" || fw == "pytorch" || fw == "lightning") && wt == "training":
+		// Could be pre-training or fine-tuning; need more evidence to distinguish
+		cat = intent.CategoryFineTuning
+	default:
+		if wt == "training" {
+			cat = intent.CategoryFineTuning
+		} else if wt == "inference" {
+			cat = intent.CategoryInference
+		}
+	}
+
+	if cat != "" {
+		signals = append(signals, evaluationSignal{
+			category: cat,
+			field:    "category",
+			value:    string(cat),
+			weight:   0.6,
+			source:   "detection",
+		})
 	}
 
 	return signals
@@ -473,15 +522,36 @@ func (e *EvidenceEvaluator) initPatterns() {
 		{re: regexp.MustCompile(`(?i)--do_train|--training_args`), category: intent.CategoryFineTuning, weight: 0.6},
 		{re: regexp.MustCompile(`(?i)--do_eval\b`), category: intent.CategoryEvaluation, weight: 0.5},
 
+		// Megatron-style commands (megatron pt, megatron sft, etc.)
+		{re: regexp.MustCompile(`(?i)\bmegatron\s+(pt|pretrain|sft|finetune|train)\b`), category: intent.CategoryPreTraining, weight: 0.7},
+		{re: regexp.MustCompile(`(?i)megatron.*--model\b`), category: intent.CategoryPreTraining, weight: 0.5},
+
+		// Primus CLI (primus/cli/main.py train pretrain, etc.)
+		{re: regexp.MustCompile(`(?i)primus/cli/main\.py\s+train\s+pretrain`), category: intent.CategoryPreTraining, weight: 0.7},
+		{re: regexp.MustCompile(`(?i)primus/cli/main\.py\s+train\s+sft`), category: intent.CategoryFineTuning, weight: 0.7},
+		{re: regexp.MustCompile(`(?i)primus/cli/main\.py\s+train`), category: intent.CategoryFineTuning, weight: 0.5},
+
+		// ms-swift (swift sft, swift pt, swift infer, etc.)
+		{re: regexp.MustCompile(`(?i)\bswift\s+(sft|pt|pretrain|finetune)\b`), category: intent.CategoryFineTuning, weight: 0.6},
+		{re: regexp.MustCompile(`(?i)\bswift\s+infer\b`), category: intent.CategoryInference, weight: 0.6},
+
 		// Fine-tuning indicators
 		{re: regexp.MustCompile(`(?i)--lora_r|--use_peft|--peft_type`), category: intent.CategoryFineTuning, weight: 0.7},
 		{re: regexp.MustCompile(`(?i)sft_trainer|dpo_trainer|rlhf`), category: intent.CategoryFineTuning, weight: 0.7},
+
+		// HuggingFace training arguments
+		{re: regexp.MustCompile(`(?i)--num_train_epochs|--per_device_train_batch_size`), category: intent.CategoryFineTuning, weight: 0.5},
+		{re: regexp.MustCompile(`(?i)--gradient_accumulation_steps|--warmup_steps`), category: intent.CategoryFineTuning, weight: 0.4},
 
 		// Evaluation
 		{re: regexp.MustCompile(`(?i)lm_eval|lm-eval|evaluate\s+--model`), category: intent.CategoryEvaluation, weight: 0.7},
 
 		// Data processing
 		{re: regexp.MustCompile(`(?i)tokenize|preprocess.*dataset|data.*pipeline`), category: intent.CategoryDataProcessing, weight: 0.4},
+
+		// Benchmark / profiling
+		{re: regexp.MustCompile(`(?i)\bbench\b.*test|benchmark|superbench`), category: intent.CategoryEvaluation, weight: 0.4},
+		{re: regexp.MustCompile(`(?i)primusbench|nccl.?test`), category: intent.CategoryEvaluation, weight: 0.5},
 	}
 
 	// Environment variable patterns

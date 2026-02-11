@@ -5,6 +5,7 @@ package pipeline
 
 import (
 	"context"
+	"fmt"
 	"strings"
 
 	"github.com/AMD-AGI/Primus-SaFE/Lens/ai-advisor/pkg/intent"
@@ -14,21 +15,24 @@ import (
 )
 
 // SpecCollector extracts intent evidence from the workload spec.
-// It reads from gpu_workload (labels, annotations, GVK) and ai_workload_metadata
-// (container image, command line, environment) without needing a running pod.
+// It reads from gpu_workload (labels, annotations, GVK), ai_workload_metadata,
+// and workload_detection (already-confirmed framework/type from detection system)
+// without needing a running pod.
 //
 // This is a passive collector: it only uses data already stored in the database,
 // making it fast and available even when the pod is not yet running.
 type SpecCollector struct {
-	workloadFacade database.WorkloadFacadeInterface
-	metadataFacade database.AiWorkloadMetadataFacadeInterface
+	workloadFacade  database.WorkloadFacadeInterface
+	metadataFacade  database.AiWorkloadMetadataFacadeInterface
+	detectionFacade database.WorkloadDetectionFacadeInterface
 }
 
 // NewSpecCollector creates a new SpecCollector
 func NewSpecCollector() *SpecCollector {
 	return &SpecCollector{
-		workloadFacade: database.GetFacade().GetWorkload(),
-		metadataFacade: database.NewAiWorkloadMetadataFacade(),
+		workloadFacade:  database.GetFacade().GetWorkload(),
+		metadataFacade:  database.NewAiWorkloadMetadataFacade(),
+		detectionFacade: database.NewWorkloadDetectionFacade(),
 	}
 }
 
@@ -36,10 +40,12 @@ func NewSpecCollector() *SpecCollector {
 func NewSpecCollectorWithDeps(
 	workloadFacade database.WorkloadFacadeInterface,
 	metadataFacade database.AiWorkloadMetadataFacadeInterface,
+	detectionFacade database.WorkloadDetectionFacadeInterface,
 ) *SpecCollector {
 	return &SpecCollector{
-		workloadFacade: workloadFacade,
-		metadataFacade: metadataFacade,
+		workloadFacade:  workloadFacade,
+		metadataFacade:  metadataFacade,
+		detectionFacade: detectionFacade,
 	}
 }
 
@@ -60,7 +66,6 @@ func (c *SpecCollector) Collect(ctx context.Context, workloadUID string) (*inten
 		// Extract replicas hint from annotations if available
 		if annotations := extractStringMap(workload.Annotations); annotations != nil {
 			if replicas, ok := annotations["replicas"]; ok {
-				// Parse replicas if possible
 				if r := parseIntSafe(replicas); r > 0 {
 					evidence.Replicas = r
 				}
@@ -68,7 +73,18 @@ func (c *SpecCollector) Collect(ctx context.Context, workloadUID string) (*inten
 		}
 	}
 
-	// 2. Gather from ai_workload_metadata: image, command, env
+	// 2. Gather from workload_detection: already-detected framework and workload_type.
+	// This leverages signals from the detection_coordinator (process probe, log pattern, etc.)
+	det, err := c.detectionFacade.GetDetection(ctx, workloadUID)
+	if err != nil {
+		log.Debugf("SpecCollector: no detection for workload %s: %v", workloadUID, err)
+	}
+	if det != nil {
+		evidence.DetectedFramework = det.Framework
+		evidence.DetectedWorkloadType = det.WorkloadType
+	}
+
+	// 3. Gather from ai_workload_metadata
 	metadata, err := c.metadataFacade.GetAiWorkloadMetadata(ctx, workloadUID)
 	if err != nil {
 		log.Debugf("SpecCollector: no metadata for workload %s: %v", workloadUID, err)
@@ -81,11 +97,13 @@ func (c *SpecCollector) Collect(ctx context.Context, workloadUID string) (*inten
 	return evidence, nil
 }
 
-// extractFromMetadata extracts evidence fields from the metadata JSON
+// extractFromMetadata extracts evidence fields from the metadata JSON.
+// It supports both the legacy workload_signature format and the
+// current framework_detection format used by the detection system.
 func (c *SpecCollector) extractFromMetadata(metadata *model.AiWorkloadMetadata, evidence *intent.IntentEvidence) {
 	md := metadata.Metadata
 
-	// Extract image from workload_signature or container_image
+	// Try workload_signature format (newer format, if present)
 	if signatureData, ok := md["workload_signature"].(map[string]interface{}); ok {
 		if imageName, ok := signatureData["image"].(string); ok && imageName != "" {
 			evidence.Image = imageName
@@ -102,6 +120,11 @@ func (c *SpecCollector) extractFromMetadata(metadata *model.AiWorkloadMetadata, 
 		}
 	}
 
+	// Try framework_detection format (current format in production)
+	if fwDet, ok := md["framework_detection"].(map[string]interface{}); ok {
+		c.extractFromFrameworkDetection(fwDet, evidence)
+	}
+
 	// Fallback: container_image field
 	if evidence.Image == "" {
 		if imageName, ok := md["container_image"].(string); ok && imageName != "" {
@@ -116,24 +139,54 @@ func (c *SpecCollector) extractFromMetadata(metadata *model.AiWorkloadMetadata, 
 		}
 	}
 
-	// Extract environment variables from container_env
-	if envData, ok := md["container_env"].(map[string]interface{}); ok {
-		evidence.Env = make(map[string]string)
-		for k, v := range envData {
-			if s, ok := v.(string); ok {
-				evidence.Env[k] = s
+	// Extract environment variables from container_env or env_vars
+	c.extractEnvVars(md, evidence)
+}
+
+// extractFromFrameworkDetection reads the framework_detection metadata format
+// that the detection system produces, extracting useful signals for intent analysis.
+func (c *SpecCollector) extractFromFrameworkDetection(fwDet map[string]interface{}, evidence *intent.IntentEvidence) {
+	// Extract detected framework and type as fallback signals
+	if fw, ok := fwDet["framework"].(string); ok && fw != "" && evidence.DetectedFramework == "" {
+		evidence.DetectedFramework = fw
+	}
+	if wlType, ok := fwDet["type"].(string); ok && wlType != "" && evidence.DetectedWorkloadType == "" {
+		evidence.DetectedWorkloadType = wlType
+	}
+
+	// Extract evidence details from sources array
+	if sources, ok := fwDet["sources"].([]interface{}); ok {
+		for _, srcRaw := range sources {
+			src, ok := srcRaw.(map[string]interface{})
+			if !ok {
+				continue
+			}
+
+			// If source has evidence with cmdline, use it
+			if evData, ok := src["evidence"].(map[string]interface{}); ok {
+				if cmdline, ok := evData["cmdline"].(string); ok && cmdline != "" && evidence.Command == "" {
+					evidence.Command = cmdline
+				}
+				// Extract image if present
+				if img, ok := evData["image"].(string); ok && img != "" && evidence.Image == "" {
+					evidence.Image = img
+				}
 			}
 		}
 	}
+}
 
-	// Extract environment from env_vars (alternative field)
-	if evidence.Env == nil || len(evidence.Env) == 0 {
-		if envData, ok := md["env_vars"].(map[string]interface{}); ok {
+// extractEnvVars reads environment variables from metadata using various field names
+func (c *SpecCollector) extractEnvVars(md model.ExtType, evidence *intent.IntentEvidence) {
+	envFields := []string{"container_env", "env_vars"}
+	for _, field := range envFields {
+		if evidence.Env != nil && len(evidence.Env) > 0 {
+			break
+		}
+		if envData, ok := md[field].(map[string]interface{}); ok {
 			evidence.Env = make(map[string]string)
 			for k, v := range envData {
-				if s, ok := v.(string); ok {
-					evidence.Env[k] = s
-				}
+				evidence.Env[k] = fmt.Sprint(v)
 			}
 		}
 	}

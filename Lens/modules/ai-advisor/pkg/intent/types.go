@@ -167,6 +167,10 @@ type IntentEvidence struct {
 	GVK       string            `json:"gvk,omitempty"`       // GroupVersionKind
 	Replicas  int               `json:"replicas,omitempty"`
 
+	// From detection system (already confirmed by DetectionCoordinator)
+	DetectedFramework    string `json:"detected_framework,omitempty"`
+	DetectedWorkloadType string `json:"detected_workload_type,omitempty"`
+
 	// From code snapshot (requires running pod)
 	CodeSnapshot *CodeSnapshotEvidence `json:"code_snapshot,omitempty"`
 
