@@ -29,7 +29,7 @@ SCALE_RUNNER_SET_ENV = "SCALE_RUNNER_SET_ID"
 # Optional overrides
 GVK_KIND_ENV = "GVK_KIND"        # default: Deployment
 GVK_VERSION_ENV = "GVK_VERSION"  # default: v1
-POLL_INTERVAL_SECS = 5
+POLL_INTERVAL_SECS = 20
 DEFAULT_POLL_TIMEOUT_SECS = 604800
 
 
@@ -179,7 +179,11 @@ def build_session() -> Tuple[requests.Session, str]:
 
 def create_workload(s: requests.Session, base_url: str, payload: Dict[str, Any]) -> str:
     url = f"{base_url}/api/v1/workloads"
-    resp = s.post(url, data=json.dumps(payload, ensure_ascii=False), timeout=30)
+    body = json.dumps(payload, ensure_ascii=False)
+    print(f"[debug] POST {url}", flush=True)
+    print(f"[debug] headers: {dict(s.headers)}", flush=True)
+    print(f"[debug] body: {body}", flush=True)
+    resp = s.post(url, data=body, timeout=30)
     if resp.status_code >= 300:
         raise RuntimeError(f"CreateWorkload failed: HTTP {resp.status_code} {resp.text}")
     data = resp.json()
