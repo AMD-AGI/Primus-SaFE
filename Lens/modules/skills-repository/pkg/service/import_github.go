@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"strings"
@@ -63,14 +64,17 @@ func resolveAndDownload(ctx context.Context, owner, repo string, refAndPath []st
 		for i := len(refAndPath); i >= 1; i-- {
 			candidateBranch := strings.Join(refAndPath[:i], "/")
 			downloadURL := fmt.Sprintf("%s/%s.zip", archiveBase, candidateBranch)
+			log.Printf("[GitHub Import] trying branch=%q url=%s", candidateBranch, downloadURL)
 			data, err := dl(ctx, downloadURL)
 			if err == nil {
 				subDir := ""
 				if i < len(refAndPath) {
 					subDir = strings.Join(refAndPath[i:], "/")
 				}
+				log.Printf("[GitHub Import] resolved branch=%q subDir=%q zipSize=%d", candidateBranch, subDir, len(data))
 				return data, subDir, nil
 			}
+			log.Printf("[GitHub Import] branch=%q failed: %v", candidateBranch, err)
 			lastErr = err
 		}
 	}
@@ -78,10 +82,13 @@ func resolveAndDownload(ctx context.Context, owner, repo string, refAndPath []st
 	// Fallback: try default branches
 	for _, b := range []string{"main", "master"} {
 		downloadURL := fmt.Sprintf("%s/%s.zip", archiveBase, b)
+		log.Printf("[GitHub Import] fallback trying branch=%q url=%s", b, downloadURL)
 		data, err := dl(ctx, downloadURL)
 		if err == nil {
+			log.Printf("[GitHub Import] fallback resolved branch=%q zipSize=%d", b, len(data))
 			return data, "", nil
 		}
+		log.Printf("[GitHub Import] fallback branch=%q failed: %v", b, err)
 		lastErr = err
 	}
 
