@@ -132,9 +132,9 @@ func (s *ImportService) importOneWithoutEmbedding(
 	// Upload to permanent storage
 	timestamp := time.Now().UnixNano()
 	s3KeyBase := fmt.Sprintf("skills/%s/%d", skillName, timestamp)
-	s3Key := s3KeyBase + "/SKILL.md"
+	s3KeyFile := s3KeyBase + "/SKILL.md"
 
-	if err := s.storage.UploadBytes(ctx, s3Key, skillContent); err != nil {
+	if err := s.storage.UploadBytes(ctx, s3KeyFile, skillContent); err != nil {
 		return CommitResultItem{
 			RelativePath: sel.RelativePath,
 			SkillName:    skillName,
@@ -151,6 +151,12 @@ func (s *ImportService) importOneWithoutEmbedding(
 	}
 
 	// Create or update tool record
+	// When is_prefix=true, s3_key is the directory prefix (for ListObjects);
+	// when is_prefix=false, s3_key is the full path to SKILL.md.
+	s3Key := s3KeyFile
+	if isPrefix {
+		s3Key = s3KeyBase + "/"
+	}
 	config := model.AppConfig{
 		"s3_key":    s3Key,
 		"is_prefix": isPrefix,
