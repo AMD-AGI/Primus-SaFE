@@ -82,8 +82,8 @@ func (s *ImportService) importOneWithoutEmbedding(
 		// Check if file belongs to this skill
 		var inSkillDir bool
 		if skillDir == "" {
-			// Root level skill
-			inSkillDir = !strings.Contains(relPath, "/")
+			// Root level skill: include all files (including subdirectories like scripts/)
+			inSkillDir = true
 		} else {
 			inSkillDir = strings.HasPrefix(relPath, skillDir+"/") || relPath == skillDir
 		}
