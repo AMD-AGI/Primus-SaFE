@@ -4,10 +4,25 @@
 package service
 
 import (
+	"archive/zip"
+	"bytes"
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 )
+
+// makeTestZip creates a minimal ZIP archive with the expected GitHub root
+// directory naming convention: "{repo}-{branch_sanitized}-{sha}/".
+func makeTestZip(repo, branch string) []byte {
+	var buf bytes.Buffer
+	zw := zip.NewWriter(&buf)
+	rootDir := repo + "-" + strings.ReplaceAll(branch, "/", "-") + "-abc1234"
+	w, _ := zw.Create(rootDir + "/dummy.txt")
+	w.Write([]byte("test"))
+	zw.Close()
+	return buf.Bytes()
+}
 
 func TestParseGitHubURL(t *testing.T) {
 	tests := []struct {
@@ -64,10 +79,10 @@ func TestParseGitHubURL(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name:      "www.github.com",
-			url:       "https://www.github.com/owner/repo/tree/dev",
-			wantOwner: "owner",
-			wantRepo:  "repo",
+			name:        "www.github.com",
+			url:         "https://www.github.com/owner/repo/tree/dev",
+			wantOwner:   "owner",
+			wantRepo:    "repo",
 			wantRefPath: []string{"dev"},
 		},
 	}
@@ -99,22 +114,87 @@ func TestParseGitHubURL(t *testing.T) {
 	}
 }
 
+func TestVerifyZipBranch(t *testing.T) {
+	tests := []struct {
+		name            string
+		repo            string
+		candidateBranch string
+		actualBranch    string // branch used to generate ZIP root
+		want            bool
+	}{
+		{
+			name:            "exact match",
+			repo:            "GEAK",
+			candidateBranch: "feature/xiaofei/geak-online",
+			actualBranch:    "feature/xiaofei/geak-online",
+			want:            true,
+		},
+		{
+			name:            "prefix match detected - candidate too long",
+			repo:            "GEAK",
+			candidateBranch: "feature/xiaofei/geak-online/server",
+			actualBranch:    "feature/xiaofei/geak-online",
+			want:            false,
+		},
+		{
+			name:            "simple branch match",
+			repo:            "repo",
+			candidateBranch: "main",
+			actualBranch:    "main",
+			want:            true,
+		},
+		{
+			name:            "simple branch mismatch",
+			repo:            "repo",
+			candidateBranch: "develop",
+			actualBranch:    "main",
+			want:            false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			zipData := makeTestZip(tt.repo, tt.actualBranch)
+			got := verifyZipBranch(zipData, tt.repo, tt.candidateBranch)
+			if got != tt.want {
+				t.Errorf("verifyZipBranch() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestResolveAndDownload(t *testing.T) {
-	// mockDownloader returns a download function that succeeds only for URLs
-	// whose branch component is in the validBranches set.
+	const repo = "repo"
+
+	// mockDownloader simulates GitHub's archive endpoint behavior:
+	// - Returns ZIP for exact branch matches
+	// - Simulates GitHub's prefix matching: if candidate doesn't exist but a
+	//   shorter prefix does, returns that shorter branch's archive (like GitHub does)
 	mockDownloader := func(validBranches map[string]bool) downloadFunc {
 		return func(ctx context.Context, url string) ([]byte, error) {
-			// Extract branch from URL pattern:
-			// https://github.com/{owner}/{repo}/archive/refs/heads/{branch}.zip
 			const prefix = "https://github.com/owner/repo/archive/refs/heads/"
 			const suffix = ".zip"
 			if len(url) <= len(prefix)+len(suffix) {
 				return nil, fmt.Errorf("HTTP 404")
 			}
-			branch := url[len(prefix) : len(url)-len(suffix)]
-			if validBranches[branch] {
-				return []byte("fake-zip-data"), nil
+			candidate := url[len(prefix) : len(url)-len(suffix)]
+
+			// Exact match
+			if validBranches[candidate] {
+				return makeTestZip(repo, candidate), nil
 			}
+
+			// Simulate GitHub prefix matching: try progressively shorter
+			// prefixes at "/" boundaries (this is what GitHub actually does)
+			parts := strings.Split(candidate, "/")
+			for i := len(parts) - 1; i >= 1; i-- {
+				shorter := strings.Join(parts[:i], "/")
+				if validBranches[shorter] {
+					// Return archive for the shorter branch (prefix match)
+					return makeTestZip(repo, shorter), nil
+				}
+			}
+
 			return nil, fmt.Errorf("HTTP 404")
 		}
 	}
@@ -145,16 +225,16 @@ func TestResolveAndDownload(t *testing.T) {
 			wantSubDir:    "",
 		},
 		{
-			name:          "slashed branch with subdir",
+			name:          "slashed branch with subdir - defeats prefix matching",
 			refAndPath:    []string{"feature", "xiaofei", "geak-online", "server", "geak-optimize"},
 			validBranches: map[string]bool{"feature/xiaofei/geak-online": true},
 			wantSubDir:    "server/geak-optimize",
 		},
 		{
-			name:          "longest branch wins over shorter",
+			name:          "longest exact branch wins over shorter",
 			refAndPath:    []string{"feature", "sub", "dir"},
 			validBranches: map[string]bool{"feature": true, "feature/sub": true, "feature/sub/dir": true},
-			wantSubDir:    "", // longest match: "feature/sub/dir" is tried first
+			wantSubDir:    "", // longest match: "feature/sub/dir" exists and is tried first
 		},
 		{
 			name:          "fallback to default branch when no segments",
@@ -180,12 +260,18 @@ func TestResolveAndDownload(t *testing.T) {
 			validBranches: map[string]bool{},
 			wantErr:       true,
 		},
+		{
+			name:          "prefix match skipped - finds correct shorter branch",
+			refAndPath:    []string{"feature", "branch", "sub", "path"},
+			validBranches: map[string]bool{"feature/branch": true},
+			wantSubDir:    "sub/path",
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			dl := mockDownloader(tt.validBranches)
-			data, subDir, err := resolveAndDownload(context.Background(), "owner", "repo", tt.refAndPath, dl)
+			data, subDir, err := resolveAndDownload(context.Background(), "owner", repo, tt.refAndPath, dl)
 			if (err != nil) != tt.wantErr {
 				t.Fatalf("resolveAndDownload() error = %v, wantErr %v", err, tt.wantErr)
 			}
