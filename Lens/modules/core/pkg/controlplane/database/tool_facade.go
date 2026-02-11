@@ -23,15 +23,22 @@ func NewToolFacade(db *gorm.DB) *ToolFacade {
 
 // Create creates a new tool
 func (f *ToolFacade) Create(tool *model.Tool) error {
-	// 预检查是否已存在同类型同名的工具
+	// Check if an active (non-deleted) tool with the same type+name already exists
 	_, err := f.GetByTypeAndName(tool.Type, tool.Name)
 	if err == nil {
 		return fmt.Errorf("tool %s/%s already exists", tool.Type, tool.Name)
 	}
-	// 只有当错误是"记录不存在"时才继续创建
+	// Only proceed if the error is "record not found"
 	if !errors.Is(err, gorm.ErrRecordNotFound) {
 		return fmt.Errorf("failed to check existing tool: %w", err)
 	}
+
+	// Hard-delete any soft-deleted record with the same type+name to avoid
+	// UNIQUE(type, name) constraint violation. Soft-deleted rows still occupy
+	// the unique index, so we must remove them before inserting a new row.
+	f.db.Unscoped().
+		Where("type = ? AND name = ? AND deleted_at IS NOT NULL", tool.Type, tool.Name).
+		Delete(&model.Tool{})
 
 	// Omit embedding field to avoid pgvector empty vector error
 	// Embedding will be updated asynchronously via UpdateEmbedding
