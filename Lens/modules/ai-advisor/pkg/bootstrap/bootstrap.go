@@ -26,6 +26,7 @@ import (
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/router"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/router/middleware"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/server"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/snapshot"
 	coreTask "github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/task"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/trace"
 	"github.com/gin-gonic/gin"
@@ -193,7 +194,22 @@ func Bootstrap(ctx context.Context) error {
 			conductorURL = "http://primus-conductor:8080"
 		}
 		podProber := common.NewPodProber(metadata.GetCollector())
-		analysisPipeline := pipeline.NewWorkloadAnalysisPipeline(conductorURL, instanceID, podProber)
+
+		// Initialize snapshot store for code snapshots (S3 / local / inline-DB)
+		var snapshotStore snapshot.Store
+		if cfg.SnapshotStore != nil && cfg.SnapshotStore.Enabled {
+			snapCfg := cfg.SnapshotStore.ToSnapshotConfig()
+			store, storeErr := snapshot.New(snapCfg)
+			if storeErr != nil {
+				log.Errorf("Failed to initialize snapshot store (%s): %v", snapCfg.Type, storeErr)
+				log.Warn("Code snapshots will fall back to inline database storage")
+			} else {
+				snapshotStore = store
+				log.Infof("Snapshot store initialized: type=%s", store.Type())
+			}
+		}
+
+		analysisPipeline := pipeline.NewWorkloadAnalysisPipeline(conductorURL, instanceID, podProber, snapshotStore)
 		if err := taskScheduler.RegisterExecutor(analysisPipeline); err != nil {
 			log.Errorf("Failed to register analysis pipeline executor: %v", err)
 		} else {

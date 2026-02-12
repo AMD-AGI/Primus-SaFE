@@ -14,9 +14,9 @@ const TableNameWorkloadCodeSnapshot = "workload_code_snapshot"
 type WorkloadCodeSnapshot struct {
 	ID             int64      `gorm:"column:id;primaryKey;autoIncrement:true" json:"id"`
 	WorkloadUID    string     `gorm:"column:workload_uid;not null;comment:Workload unique identifier (unique index)" json:"workload_uid"`
-	EntryScript    ExtType    `gorm:"column:entry_script;default:{};comment:Main entry script: {path, content, hash, size} (JSONB)" json:"entry_script"`
-	ConfigFiles    ExtJSON    `gorm:"column:config_files;default:[];comment:Configuration files list (JSONB array)" json:"config_files"`
-	LocalModules   ExtJSON    `gorm:"column:local_modules;default:[];comment:Local Python modules list (JSONB array)" json:"local_modules"`
+	EntryScript    ExtType    `gorm:"column:entry_script;default:{};comment:Main entry script metadata (JSONB). Content may be external." json:"entry_script"`
+	ConfigFiles    ExtJSON    `gorm:"column:config_files;default:[];comment:Configuration files metadata (JSONB array)" json:"config_files"`
+	LocalModules   ExtJSON    `gorm:"column:local_modules;default:[];comment:Local Python modules metadata (JSONB array)" json:"local_modules"`
 	ImportGraph    ExtType    `gorm:"column:import_graph;default:{};comment:Python import dependency graph (JSONB)" json:"import_graph"`
 	PipFreeze      string     `gorm:"column:pip_freeze;comment:Complete pip freeze output" json:"pip_freeze"`
 	WorkingDirTree string     `gorm:"column:working_dir_tree;comment:Working directory file listing" json:"working_dir_tree"`
@@ -25,6 +25,11 @@ type WorkloadCodeSnapshot struct {
 	FileCount      int32      `gorm:"column:file_count;not null;default:0;comment:Number of files in snapshot" json:"file_count"`
 	CapturedAt     *time.Time `gorm:"column:captured_at;comment:Timestamp when snapshot was captured from container" json:"captured_at"`
 	CreatedAt      time.Time  `gorm:"column:created_at;not null;default:now()" json:"created_at"`
+	// StorageKey is the external storage reference (e.g. "{workload_uid}/{fingerprint}").
+	// When non-empty, file contents are stored externally and JSONB columns hold only metadata.
+	StorageKey  *string `gorm:"column:storage_key;comment:External storage key for file contents" json:"storage_key"`
+	// StorageType indicates the backend: "s3" or "local". NULL means inline JSONB.
+	StorageType *string `gorm:"column:storage_type;comment:Storage backend type (s3/local)" json:"storage_type"`
 }
 
 // TableName WorkloadCodeSnapshot's table name

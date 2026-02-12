@@ -20,6 +20,7 @@ import (
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database/model"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/snapshot"
 )
 
 const (
@@ -215,19 +216,25 @@ func (p *CmdlineParser) ParseConfigPaths(cmdline string) []string {
 
 // CodeSnapshotCollector collects code snapshots from running containers.
 // It scans the working directory recursively to collect all project source files,
-// then stores the snapshot in the workload_code_snapshot table.
+// then stores the snapshot.  File contents go to an external Store (S3 or local FS)
+// when one is configured; otherwise they fall back to inline JSONB in the database.
 type CodeSnapshotCollector struct {
 	podProber      *common.PodProber
 	cmdParser      *CmdlineParser
 	snapshotFacade database.WorkloadCodeSnapshotFacadeInterface
+	// snapshotStore is the optional external file store (S3 / local).
+	// When nil, file contents are stored inline in the database JSONB columns.
+	snapshotStore snapshot.Store
 }
 
-// NewCodeSnapshotCollector creates a new collector
-func NewCodeSnapshotCollector(podProber *common.PodProber) *CodeSnapshotCollector {
+// NewCodeSnapshotCollector creates a new collector.
+// store may be nil, in which case file contents are stored inline in the DB.
+func NewCodeSnapshotCollector(podProber *common.PodProber, store snapshot.Store) *CodeSnapshotCollector {
 	return &CodeSnapshotCollector{
 		podProber:      podProber,
 		cmdParser:      NewCmdlineParser(),
 		snapshotFacade: database.NewWorkloadCodeSnapshotFacade(),
+		snapshotStore:  store,
 	}
 }
 
@@ -650,88 +657,274 @@ func (c *CodeSnapshotCollector) computeFingerprint(snapshot *intent.CodeSnapshot
 	return hex.EncodeToString(h.Sum(nil))[:16]
 }
 
-// storeSnapshot persists the code snapshot to the database
+// storeSnapshot persists the code snapshot.
+// When an external store (S3/local) is configured, file contents are uploaded there
+// and only metadata (path, hash, size) is saved in the DB JSONB columns.
+// When no external store is configured, the full content is inlined in the DB.
 func (c *CodeSnapshotCollector) storeSnapshot(
 	ctx context.Context,
 	workloadUID string,
-	snapshot *intent.CodeSnapshotEvidence,
+	snap *intent.CodeSnapshotEvidence,
 	workingDirTree string,
 	totalSize int,
 ) error {
 	now := time.Now()
 	record := &model.WorkloadCodeSnapshot{
 		WorkloadUID:    workloadUID,
-		Fingerprint:    snapshot.Fingerprint,
-		PipFreeze:      snapshot.PipFreeze,
+		Fingerprint:    snap.Fingerprint,
+		PipFreeze:      snap.PipFreeze,
 		WorkingDirTree: workingDirTree,
 		TotalSize:      int32(totalSize),
 		CapturedAt:     &now,
 		CreatedAt:      now,
 	}
 
-	if snapshot.EntryScript != nil {
-		record.EntryScript = model.ExtType{
-			"path":    snapshot.EntryScript.Path,
-			"content": snapshot.EntryScript.Content,
-			"hash":    snapshot.EntryScript.Hash,
-			"size":    snapshot.EntryScript.Size,
+	useExternalStore := c.snapshotStore != nil
+
+	// --- Upload to external store if configured ---
+	if useExternalStore {
+		storageKey := snapshot.StorageKeyFor(workloadUID, snap.Fingerprint)
+		storeType := string(c.snapshotStore.Type())
+		record.StorageKey = &storageKey
+		record.StorageType = &storeType
+
+		var files []snapshot.FileEntry
+
+		if snap.EntryScript != nil && snap.EntryScript.Content != "" {
+			files = append(files, snapshot.FileEntry{
+				RelPath: "entry/" + filepath.Base(snap.EntryScript.Path),
+				Content: []byte(snap.EntryScript.Content),
+			})
+		}
+		for i, mod := range snap.LocalModules {
+			if mod.Content == "" {
+				continue
+			}
+			relPath := fmt.Sprintf("modules/%04d_%s", i, filepath.Base(mod.Path))
+			files = append(files, snapshot.FileEntry{
+				RelPath: relPath,
+				Content: []byte(mod.Content),
+			})
+		}
+		for i, cfg := range snap.ConfigFiles {
+			if cfg.Content == "" {
+				continue
+			}
+			relPath := fmt.Sprintf("config/%04d_%s", i, filepath.Base(cfg.Path))
+			files = append(files, snapshot.FileEntry{
+				RelPath: relPath,
+				Content: []byte(cfg.Content),
+			})
+		}
+		if snap.PipFreeze != "" {
+			files = append(files, snapshot.FileEntry{
+				RelPath: "meta/pip_freeze.txt",
+				Content: []byte(snap.PipFreeze),
+			})
+		}
+
+		if len(files) > 0 {
+			if err := c.snapshotStore.Save(ctx, storageKey, files); err != nil {
+				log.Warnf("CodeSnapshotCollector: failed to save to external store, falling back to inline: %v", err)
+				// Fall back to inline storage
+				useExternalStore = false
+				record.StorageKey = nil
+				record.StorageType = nil
+			} else {
+				log.Infof("CodeSnapshotCollector: saved %d files to %s store key=%s",
+					len(files), storeType, storageKey)
+			}
 		}
 	}
 
-	// ConfigFiles -> ExtJSON
-	if len(snapshot.ConfigFiles) > 0 {
-		configData := make([]map[string]interface{}, 0, len(snapshot.ConfigFiles))
-		for _, cf := range snapshot.ConfigFiles {
-			configData = append(configData, map[string]interface{}{
+	// --- Build DB record JSONB columns ---
+	if snap.EntryScript != nil {
+		entry := model.ExtType{
+			"path": snap.EntryScript.Path,
+			"hash": snap.EntryScript.Hash,
+			"size": snap.EntryScript.Size,
+		}
+		// Include content only when NOT using external store
+		if !useExternalStore {
+			entry["content"] = snap.EntryScript.Content
+		}
+		record.EntryScript = entry
+	}
+
+	if len(snap.ConfigFiles) > 0 {
+		configData := make([]map[string]interface{}, 0, len(snap.ConfigFiles))
+		for _, cf := range snap.ConfigFiles {
+			item := map[string]interface{}{
 				"path":      cf.Path,
-				"content":   cf.Content,
 				"hash":      cf.Hash,
 				"size":      cf.Size,
 				"truncated": cf.Truncated,
-			})
+			}
+			if !useExternalStore {
+				item["content"] = cf.Content
+			}
+			configData = append(configData, item)
 		}
 		configJSON, _ := json.Marshal(configData)
 		record.ConfigFiles = model.ExtJSON(configJSON)
 	}
 
-	// LocalModules -> ExtJSON
-	if len(snapshot.LocalModules) > 0 {
-		modData := make([]map[string]interface{}, 0, len(snapshot.LocalModules))
-		for _, mod := range snapshot.LocalModules {
-			modData = append(modData, map[string]interface{}{
+	if len(snap.LocalModules) > 0 {
+		modData := make([]map[string]interface{}, 0, len(snap.LocalModules))
+		for _, mod := range snap.LocalModules {
+			item := map[string]interface{}{
 				"path":      mod.Path,
-				"content":   mod.Content,
 				"hash":      mod.Hash,
 				"size":      mod.Size,
 				"truncated": mod.Truncated,
-			})
+			}
+			if !useExternalStore {
+				item["content"] = mod.Content
+			}
+			modData = append(modData, item)
 		}
 		modJSON, _ := json.Marshal(modData)
 		record.LocalModules = model.ExtJSON(modJSON)
 	}
 
-	if snapshot.ImportGraph != nil {
-		graphMap := make(model.ExtType, len(snapshot.ImportGraph))
-		for k, v := range snapshot.ImportGraph {
+	if snap.ImportGraph != nil {
+		graphMap := make(model.ExtType, len(snap.ImportGraph))
+		for k, v := range snap.ImportGraph {
 			graphMap[k] = v
 		}
 		record.ImportGraph = graphMap
 	}
 
 	// Count total files
-	fileCount := boolToInt(snapshot.EntryScript != nil) + len(snapshot.LocalModules) + len(snapshot.ConfigFiles)
+	fileCount := boolToInt(snap.EntryScript != nil) + len(snap.LocalModules) + len(snap.ConfigFiles)
 	record.FileCount = int32(fileCount)
 
 	return c.snapshotFacade.Create(ctx, record)
 }
 
-// toEvidence converts a DB model to CodeSnapshotEvidence
+// toEvidence converts a DB model to CodeSnapshotEvidence.
+// When a record has an external storage key, file contents are loaded from the store.
 func (c *CodeSnapshotCollector) toEvidence(record *model.WorkloadCodeSnapshot) *intent.CodeSnapshotEvidence {
 	evidence := &intent.CodeSnapshotEvidence{
 		PipFreeze:   record.PipFreeze,
 		Fingerprint: record.Fingerprint,
 	}
 
+	// If content lives in an external store, load it
+	if record.StorageKey != nil && *record.StorageKey != "" && c.snapshotStore != nil {
+		return c.loadEvidenceFromStore(record, evidence)
+	}
+
+	// Legacy path: read content from inline JSONB
+	return c.loadEvidenceInline(record, evidence)
+}
+
+// loadEvidenceFromStore loads file contents from S3/local store and merges with DB metadata.
+func (c *CodeSnapshotCollector) loadEvidenceFromStore(
+	record *model.WorkloadCodeSnapshot,
+	evidence *intent.CodeSnapshotEvidence,
+) *intent.CodeSnapshotEvidence {
+	ctx := context.Background()
+	storageKey := *record.StorageKey
+
+	files, err := c.snapshotStore.Load(ctx, storageKey)
+	if err != nil {
+		log.Warnf("CodeSnapshotCollector: failed to load from store key=%s, falling back to inline: %v", storageKey, err)
+		return c.loadEvidenceInline(record, evidence)
+	}
+
+	// Index loaded files by relPath prefix
+	fileIndex := make(map[string]string, len(files))
+	for _, f := range files {
+		fileIndex[f.RelPath] = string(f.Content)
+	}
+
+	// Populate entry script
+	if record.EntryScript != nil {
+		fc := &intent.FileContent{}
+		if p, ok := record.EntryScript["path"].(string); ok {
+			fc.Path = p
+		}
+		if h, ok := record.EntryScript["hash"].(string); ok {
+			fc.Hash = h
+		}
+		if s, ok := record.EntryScript["size"].(float64); ok {
+			fc.Size = int(s)
+		}
+		// Find content from store by "entry/" prefix
+		for relPath, content := range fileIndex {
+			if strings.HasPrefix(relPath, "entry/") {
+				fc.Content = content
+				break
+			}
+		}
+		evidence.EntryScript = fc
+	}
+
+	// Populate local modules
+	if len(record.LocalModules) > 0 {
+		var modules []map[string]interface{}
+		if err := json.Unmarshal(record.LocalModules, &modules); err == nil {
+			for i, m := range modules {
+				fc := &intent.FileContent{}
+				if p, ok := m["path"].(string); ok {
+					fc.Path = p
+				}
+				if h, ok := m["hash"].(string); ok {
+					fc.Hash = h
+				}
+				if s, ok := m["size"].(float64); ok {
+					fc.Size = int(s)
+				}
+				// Look up content by index-based key
+				relKey := fmt.Sprintf("modules/%04d_%s", i, filepath.Base(fc.Path))
+				if content, found := fileIndex[relKey]; found {
+					fc.Content = content
+				}
+				evidence.LocalModules = append(evidence.LocalModules, fc)
+			}
+		}
+	}
+
+	// Populate config files
+	if len(record.ConfigFiles) > 0 {
+		var configs []map[string]interface{}
+		if err := json.Unmarshal(record.ConfigFiles, &configs); err == nil {
+			for i, m := range configs {
+				fc := &intent.FileContent{}
+				if p, ok := m["path"].(string); ok {
+					fc.Path = p
+				}
+				if h, ok := m["hash"].(string); ok {
+					fc.Hash = h
+				}
+				if s, ok := m["size"].(float64); ok {
+					fc.Size = int(s)
+				}
+				relKey := fmt.Sprintf("config/%04d_%s", i, filepath.Base(fc.Path))
+				if content, found := fileIndex[relKey]; found {
+					fc.Content = content
+				}
+				evidence.ConfigFiles = append(evidence.ConfigFiles, fc)
+			}
+		}
+	}
+
+	// Load pip freeze from store if not in DB
+	if evidence.PipFreeze == "" {
+		if content, found := fileIndex["meta/pip_freeze.txt"]; found {
+			evidence.PipFreeze = content
+		}
+	}
+
+	return evidence
+}
+
+// loadEvidenceInline loads file contents from inline JSONB columns (legacy / fallback).
+func (c *CodeSnapshotCollector) loadEvidenceInline(
+	record *model.WorkloadCodeSnapshot,
+	evidence *intent.CodeSnapshotEvidence,
+) *intent.CodeSnapshotEvidence {
 	if record.EntryScript != nil {
 		evidence.EntryScript = &intent.FileContent{}
 		if path, ok := record.EntryScript["path"].(string); ok {

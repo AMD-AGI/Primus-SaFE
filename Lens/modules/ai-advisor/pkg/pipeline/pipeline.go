@@ -19,6 +19,7 @@ import (
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database/model"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/snapshot"
 	coreTask "github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/task"
 )
 
@@ -65,13 +66,15 @@ type WorkloadAnalysisPipeline struct {
 	processCollector       *ProcessEvidenceCollector
 	imageRegCollector      *ImageRegistryCollector
 	codeSnapshotCollector  *CodeSnapshotCollector
+	snapshotStore          snapshot.Store
 	conductorURL           string
 	instanceID             string
 }
 
 // NewWorkloadAnalysisPipeline creates a new pipeline executor.
 // podProber may be nil; code snapshot collection will be skipped if so.
-func NewWorkloadAnalysisPipeline(conductorURL string, instanceID string, podProber *common.PodProber) *WorkloadAnalysisPipeline {
+// snapshotStore may be nil; file contents will then be stored inline in the DB.
+func NewWorkloadAnalysisPipeline(conductorURL string, instanceID string, podProber *common.PodProber, snapshotStore snapshot.Store) *WorkloadAnalysisPipeline {
 	p := &WorkloadAnalysisPipeline{
 		detectionFacade:  database.NewWorkloadDetectionFacade(),
 		coverageFacade:   database.NewDetectionCoverageFacade(),
@@ -87,8 +90,9 @@ func NewWorkloadAnalysisPipeline(conductorURL string, instanceID string, podProb
 		conductorURL:        conductorURL,
 		instanceID:          instanceID,
 	}
+	p.snapshotStore = snapshotStore
 	if podProber != nil {
-		p.codeSnapshotCollector = NewCodeSnapshotCollector(podProber)
+		p.codeSnapshotCollector = NewCodeSnapshotCollector(podProber, snapshotStore)
 	}
 	return p
 }
@@ -632,27 +636,12 @@ func (p *WorkloadAnalysisPipeline) gatherEvidence(
 			evidence.CodeSnapshot = snapEvidence
 		}
 	}
-	// Fallback: read previously stored snapshot from DB if collector did not populate it
+	// Fallback: read previously stored snapshot from DB if collector did not populate it.
+	// When the record has an external storage key, load file contents from the store.
 	if evidence.CodeSnapshot == nil {
-		snapshot, dbErr := p.snapshotFacade.GetByWorkloadUID(ctx, workloadUID)
-		if dbErr == nil && snapshot != nil {
-			evidence.CodeSnapshot = &intent.CodeSnapshotEvidence{
-				PipFreeze:   snapshot.PipFreeze,
-				Fingerprint: snapshot.Fingerprint,
-			}
-			if len(snapshot.EntryScript) > 0 {
-				fc := &intent.FileContent{}
-				if path, ok := snapshot.EntryScript["path"].(string); ok {
-					fc.Path = path
-				}
-				if content, ok := snapshot.EntryScript["content"].(string); ok {
-					fc.Content = content
-				}
-				if hash, ok := snapshot.EntryScript["hash"].(string); ok {
-					fc.Hash = hash
-				}
-				evidence.CodeSnapshot.EntryScript = fc
-			}
+		dbSnap, dbErr := p.snapshotFacade.GetByWorkloadUID(ctx, workloadUID)
+		if dbErr == nil && dbSnap != nil {
+			evidence.CodeSnapshot = loadSnapshotEvidence(ctx, dbSnap, p.snapshotStore)
 		}
 	}
 
@@ -916,4 +905,63 @@ func (p *WorkloadAnalysisPipeline) createFollowUpTasks(
 			updates["metric_task_created"] = true
 		}
 	}
+}
+
+// loadSnapshotEvidence converts a DB record to CodeSnapshotEvidence,
+// loading file contents from the external store when available.
+func loadSnapshotEvidence(ctx context.Context, record *model.WorkloadCodeSnapshot, store snapshot.Store) *intent.CodeSnapshotEvidence {
+	evidence := &intent.CodeSnapshotEvidence{
+		PipFreeze:   record.PipFreeze,
+		Fingerprint: record.Fingerprint,
+	}
+
+	// External store path
+	if record.StorageKey != nil && *record.StorageKey != "" && store != nil {
+		files, err := store.Load(ctx, *record.StorageKey)
+		if err == nil && len(files) > 0 {
+			fileIndex := make(map[string]string, len(files))
+			for _, f := range files {
+				fileIndex[f.RelPath] = string(f.Content)
+			}
+
+			if len(record.EntryScript) > 0 {
+				fc := &intent.FileContent{}
+				if p, ok := record.EntryScript["path"].(string); ok {
+					fc.Path = p
+				}
+				if h, ok := record.EntryScript["hash"].(string); ok {
+					fc.Hash = h
+				}
+				for relPath, content := range fileIndex {
+					if len(relPath) > 6 && relPath[:6] == "entry/" {
+						fc.Content = content
+						break
+					}
+				}
+				evidence.EntryScript = fc
+			}
+			if content, found := fileIndex["meta/pip_freeze.txt"]; found && evidence.PipFreeze == "" {
+				evidence.PipFreeze = content
+			}
+			return evidence
+		}
+		log.Warnf("loadSnapshotEvidence: failed to load from store key=%s: %v, trying inline", *record.StorageKey, err)
+	}
+
+	// Inline JSONB path (legacy or fallback)
+	if len(record.EntryScript) > 0 {
+		fc := &intent.FileContent{}
+		if p, ok := record.EntryScript["path"].(string); ok {
+			fc.Path = p
+		}
+		if c, ok := record.EntryScript["content"].(string); ok {
+			fc.Content = c
+		}
+		if h, ok := record.EntryScript["hash"].(string); ok {
+			fc.Hash = h
+		}
+		evidence.EntryScript = fc
+	}
+
+	return evidence
 }
