@@ -16,6 +16,8 @@ type Config struct {
 	MultiCluster      bool                `json:"multiCluster" yaml:"multiCluster"`
 	LoadK8SClient     bool                `json:"loadK8SClient" yaml:"loadK8SClient"`
 	LoadStorageClient bool                `json:"loadStorageClient" yaml:"loadStorageClient"`
+	IsControlPlane    bool                `json:"isControlPlane" yaml:"isControlPlane"`
+	ControlPlane      *ControlPlaneConfig `json:"controlPlane" yaml:"controlPlane"`
 	Controller        ControllerConfig    `yaml:"controller"`
 	HttpPort          int                 `json:"httpPort" yaml:"httpPort"`
 	NodeExporter      *NodeExporterConfig `json:"nodeExporter" yaml:"nodeExporter"`
@@ -262,6 +264,73 @@ type AIGatewayConfig struct {
 	HealthCheckInterval int `json:"healthCheckInterval" yaml:"healthCheckInterval"`
 	// UnhealthyThreshold is the number of failed health checks before marking agent unhealthy
 	UnhealthyThreshold int `json:"unhealthyThreshold" yaml:"unhealthyThreshold"`
+}
+
+// ControlPlaneConfig contains control plane configuration
+type ControlPlaneConfig struct {
+	// SecretName is the name of the secret containing control plane DB config
+	// Default: "lens-controlplane-db" or env CONTROLPLANE_DB_SECRET_NAME
+	SecretName string `json:"secretName" yaml:"secretName"`
+	// SecretNamespace is the namespace of the secret
+	// Default: current namespace or env CONTROLPLANE_DB_SECRET_NAMESPACE
+	SecretNamespace string `json:"secretNamespace" yaml:"secretNamespace"`
+	// PrimusSafeSync configuration for syncing clusters from primus-safe
+	PrimusSafeSync *PrimusSafeSyncConfig `json:"primusSafeSync" yaml:"primusSafeSync"`
+}
+
+// GetSecretName returns the secret name for control plane DB
+func (c *ControlPlaneConfig) GetSecretName() string {
+	if c != nil && c.SecretName != "" {
+		return c.SecretName
+	}
+	if envName := os.Getenv("CONTROLPLANE_DB_SECRET_NAME"); envName != "" {
+		return envName
+	}
+	// Default: PostgresCluster operator auto-created secret
+	return "primus-lens-control-plane-pguser-primus-lens-control-plane"
+}
+
+// GetSecretNamespace returns the secret namespace for control plane DB
+func (c *ControlPlaneConfig) GetSecretNamespace() string {
+	if c != nil && c.SecretNamespace != "" {
+		return c.SecretNamespace
+	}
+	if envNs := os.Getenv("CONTROLPLANE_DB_SECRET_NAMESPACE"); envNs != "" {
+		return envNs
+	}
+	// Default to current namespace from downward API
+	if ns := os.Getenv("POD_NAMESPACE"); ns != "" {
+		return ns
+	}
+	return "primus-lens"
+}
+
+// PrimusSafeSyncConfig contains configuration for syncing clusters from primus-safe
+type PrimusSafeSyncConfig struct {
+	// Enabled controls whether primus-safe sync is enabled
+	Enabled bool `json:"enabled" yaml:"enabled"`
+	// SyncInterval is the interval for syncing clusters (default: 60s)
+	SyncIntervalSeconds int `json:"syncIntervalSeconds" yaml:"syncIntervalSeconds"`
+	// AutoInstall controls whether to auto-install dataplane for new clusters
+	AutoInstall bool `json:"autoInstall" yaml:"autoInstall"`
+	// DefaultProfile is the default install profile (minimal, standard, full)
+	DefaultProfile string `json:"defaultProfile" yaml:"defaultProfile"`
+}
+
+// GetSyncInterval returns the sync interval duration
+func (c *PrimusSafeSyncConfig) GetSyncInterval() time.Duration {
+	if c.SyncIntervalSeconds <= 0 {
+		return 60 * time.Second
+	}
+	return time.Duration(c.SyncIntervalSeconds) * time.Second
+}
+
+// GetDefaultProfile returns the default install profile
+func (c *PrimusSafeSyncConfig) GetDefaultProfile() string {
+	if c.DefaultProfile == "" {
+		return "minimal"
+	}
+	return c.DefaultProfile
 }
 
 type NetFlow struct {

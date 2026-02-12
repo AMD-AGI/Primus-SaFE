@@ -780,6 +780,156 @@ func truncate(text string, length int) string {
 	return text[:length] + "..."
 }
 
+// ============================================================================
+// HuggingFace Dataset API Types and Functions
+// ============================================================================
+
+// HFDatasetMetadata represents the JSON response from HuggingFace Datasets API
+type HFDatasetMetadata struct {
+	ID           string         `json:"id"`
+	Author       string         `json:"author"`
+	Tags         []string       `json:"tags"`
+	Downloads    int            `json:"downloads"`
+	Likes        int            `json:"likes"`
+	Private      bool           `json:"private"`
+	CardData     *HFDatasetCard `json:"cardData"`
+	LastModified string         `json:"lastModified"`
+	CreatedAt    string         `json:"createdAt"`
+}
+
+// HFDatasetCard represents the cardData field from HuggingFace Datasets API
+type HFDatasetCard struct {
+	TaskCategories []string        `json:"task_categories"`
+	Size           json.RawMessage `json:"size_categories"` // string or []string
+	License        json.RawMessage `json:"license"`         // string or []string
+	Language       json.RawMessage `json:"language"`        // string or []string
+}
+
+// HFDatasetInfo contains processed dataset information
+type HFDatasetInfo struct {
+	DisplayName    string   // Dataset name (repo ID, e.g., "openai/gsm8k")
+	Description    string   // Extracted from README first paragraph
+	Author         string   // Author/organization
+	Tags           []string // Raw tags
+	TaskCategories []string // Task types (text-generation, etc.)
+	Languages      []string // Languages
+	Licenses       []string // Licenses
+	Size           string   // Dataset size category
+	Downloads      int      // Download count
+	Likes          int      // Like count
+	Private        bool     // Is private
+}
+
+// GetHFDatasetInfo fetches dataset metadata from HuggingFace.
+// displayName: from API "id" field (e.g., input "gsm8k" returns "openai/gsm8k")
+// description: extracted from README.md first paragraph, reusing extractDescription()
+func GetHFDatasetInfo(urlOrID string) (*HFDatasetInfo, error) {
+	// 1. Clean repo ID (supports full URL or repo ID)
+	repoID := cleanDatasetRepoID(urlOrID)
+	if repoID == "" {
+		return nil, fmt.Errorf("invalid huggingface dataset url or repo id")
+	}
+
+	info := &HFDatasetInfo{}
+
+	// 2. Fetch metadata from API
+	// GET https://huggingface.co/api/datasets/{repoID}
+	metaURL := fmt.Sprintf("https://huggingface.co/api/datasets/%s", repoID)
+	client := createHTTPClient()
+	resp, err := client.Get(metaURL)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch dataset metadata: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("HuggingFace API returned status %d for dataset %s", resp.StatusCode, repoID)
+	}
+
+	var meta HFDatasetMetadata
+	if err := json.NewDecoder(resp.Body).Decode(&meta); err != nil {
+		return nil, fmt.Errorf("failed to parse dataset metadata: %w", err)
+	}
+
+	info.DisplayName = meta.ID // API returns full ID like "openai/gsm8k"
+	info.Author = meta.Author
+	info.Tags = meta.Tags
+	info.Downloads = meta.Downloads
+	info.Likes = meta.Likes
+	info.Private = meta.Private
+
+	// Parse cardData fields (license/language/size can be string or []string)
+	if meta.CardData != nil {
+		info.TaskCategories = meta.CardData.TaskCategories
+		sizes := parseStringOrArray(meta.CardData.Size)
+		if len(sizes) > 0 {
+			info.Size = sizes[0]
+		}
+		info.Licenses = parseStringOrArray(meta.CardData.License)
+		info.Languages = parseStringOrArray(meta.CardData.Language)
+	}
+
+	// 3. Fetch description from README.md
+	// GET https://huggingface.co/datasets/{repoID}/resolve/main/README.md
+	readmeURL := fmt.Sprintf("https://huggingface.co/datasets/%s/resolve/main/README.md", repoID)
+	if readmeContent, err := fetchText(readmeURL); err == nil {
+		info.Description = extractDescription(readmeContent)
+	} else {
+		klog.InfoS("Could not fetch dataset README", "repoID", repoID, "error", err)
+	}
+
+	// Fallback for DisplayName
+	if info.DisplayName == "" {
+		info.DisplayName = repoID
+	}
+
+	return info, nil
+}
+
+// cleanDatasetRepoID extracts dataset repo ID from a URL or returns the ID as-is
+func cleanDatasetRepoID(input string) string {
+	input = strings.TrimSpace(input)
+	input = strings.TrimSuffix(input, "/")
+
+	// Remove protocol and domain
+	input = strings.TrimPrefix(input, "https://")
+	input = strings.TrimPrefix(input, "http://")
+	input = strings.TrimPrefix(input, "huggingface.co/")
+
+	// Remove /datasets/ prefix if present (from full URL)
+	input = strings.TrimPrefix(input, "datasets/")
+
+	// Handle API URL format
+	input = strings.TrimPrefix(input, "api/datasets/")
+
+	return input
+}
+
+// parseStringOrArray handles JSON fields that can be either a string or an array of strings.
+// Used for HuggingFace cardData fields like license and language.
+func parseStringOrArray(raw json.RawMessage) []string {
+	if len(raw) == 0 {
+		return nil
+	}
+
+	// Try as string first
+	var s string
+	if err := json.Unmarshal(raw, &s); err == nil {
+		if s != "" {
+			return []string{s}
+		}
+		return nil
+	}
+
+	// Try as array
+	var arr []string
+	if err := json.Unmarshal(raw, &arr); err == nil {
+		return arr
+	}
+
+	return nil
+}
+
 // extractIconFromPage parses the model page HTML to find the author avatar
 func extractIconFromPage(html string) string {
 	// Target: <img alt="" class="size-3.5 rounded-sm flex-none select-none" src="...">
