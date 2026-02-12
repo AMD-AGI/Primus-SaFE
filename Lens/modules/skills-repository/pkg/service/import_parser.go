@@ -100,6 +100,11 @@ func parseSkillMD(f *zip.File) (name, description string) {
 
 	text := string(content)
 
+	// Strip UTF-8 BOM if present
+	text = strings.TrimPrefix(text, "\xEF\xBB\xBF")
+	// Strip leading whitespace/newlines before frontmatter
+	text = strings.TrimLeft(text, " \t\r\n")
+
 	// Try to parse YAML frontmatter: ---\nname: xxx\ndescription: xxx\n---
 	if strings.HasPrefix(text, "---") {
 		parts := strings.SplitN(text, "---", 3)

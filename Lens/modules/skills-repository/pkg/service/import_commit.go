@@ -26,6 +26,7 @@ func (s *ImportService) importOneWithoutEmbedding(
 	sel Selection,
 	userID string,
 	author string,
+	isAdmin bool,
 ) (CommitResultItem, importToolInfo) {
 	candidate, ok := candidateByPath[sel.RelativePath]
 	if !ok {
@@ -170,7 +171,17 @@ func (s *ImportService) importOneWithoutEmbedding(
 	// Check if skill already exists
 	existing, err := s.facade.GetByTypeAndName(model.AppTypeSkill, skillName)
 	if err == nil && existing != nil {
-		// Update existing
+		// Only the owner or admin can overwrite an existing skill
+		if !isAdmin && existing.OwnerUserID != userID {
+			return CommitResultItem{
+				RelativePath: sel.RelativePath,
+				SkillName:    skillName,
+				Status:       "failed",
+				Error:        fmt.Sprintf("skill %q already exists and is owned by another user", skillName),
+			}, importToolInfo{}
+		}
+
+		// Update existing (same owner)
 		existing.Config = config
 		existing.SkillSource = model.SkillSourceZIP
 		existing.Description = skillDescription

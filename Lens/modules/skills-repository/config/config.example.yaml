@@ -51,3 +51,11 @@ embedding:
   provider: "local"
   model: "bge-m3"
   dimension: 1024
+
+# SaFE API server configuration
+# Used to query user information (roles, admin status) from the SaFE platform.
+# If not configured, admin features will be disabled (is_admin always false).
+safe_api:
+  # Base URL of the SaFE API server
+  # Can also be set via SAFE_API_URL environment variable
+  base_url: "http://apiserver:8080"
