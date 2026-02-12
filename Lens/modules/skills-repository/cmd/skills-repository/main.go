@@ -21,7 +21,7 @@ func main() {
 
 	log.Info("Starting Skills Repository Service...")
 
-	// Create and start server
+	// Create and begin server
 	server, err := bootstrap.NewServer()
 	if err != nil {
 		log.Fatalf("Failed to create server: %v", err)
