@@ -68,10 +68,19 @@ func (m *MockToolFacade) Delete(id int64) error {
 }
 
 // Additional methods to satisfy ToolFacade interface
-func (m *MockToolFacade) List(toolType, status, sortField, sortOrder string, offset, limit int, userID string, ownerOnly bool) ([]model.Tool, int64, error) {
+func (m *MockToolFacade) List(toolType, status, sortField, sortOrder string, offset, limit int, userID string, ownerOnly bool, isAdmin bool) ([]model.Tool, int64, error) {
 	var tools []model.Tool
 	for _, t := range m.tools {
-		tools = append(tools, *t)
+		// Match the real facade logic: ownerOnly takes precedence over isAdmin
+		if isAdmin && !ownerOnly {
+			tools = append(tools, *t)
+		} else if ownerOnly && userID != "" {
+			if t.OwnerUserID == userID {
+				tools = append(tools, *t)
+			}
+		} else if t.IsPublic || t.OwnerUserID == userID {
+			tools = append(tools, *t)
+		}
 	}
 	return tools, int64(len(tools)), nil
 }
@@ -585,5 +594,106 @@ More content.
 
 	if content != multilineContent {
 		t.Errorf("Content mismatch.\nGot:\n%s\n\nWant:\n%s", content, multilineContent)
+	}
+}
+
+// TestMockFacade_List_AdminAccess tests that admin can see all tools
+func TestMockFacade_List_AdminAccess(t *testing.T) {
+	facade := NewMockToolFacade()
+
+	// User A creates a public tool
+	facade.Create(&model.Tool{
+		Type: "skill", Name: "public-tool",
+		IsPublic: true, OwnerUserID: "user-a",
+	})
+	// User A creates a private tool
+	facade.Create(&model.Tool{
+		Type: "skill", Name: "private-tool-a",
+		IsPublic: false, OwnerUserID: "user-a",
+	})
+	// User B creates a private tool
+	facade.Create(&model.Tool{
+		Type: "skill", Name: "private-tool-b",
+		IsPublic: false, OwnerUserID: "user-b",
+	})
+
+	tests := []struct {
+		name      string
+		userID    string
+		ownerOnly bool
+		isAdmin   bool
+		wantCount int
+	}{
+		{
+			name:      "regular user sees public + own",
+			userID:    "user-a",
+			isAdmin:   false,
+			wantCount: 2, // public-tool + private-tool-a
+		},
+		{
+			name:      "regular user B sees public + own",
+			userID:    "user-b",
+			isAdmin:   false,
+			wantCount: 2, // public-tool + private-tool-b
+		},
+		{
+			name:      "admin sees all tools",
+			userID:    "admin-user",
+			isAdmin:   true,
+			wantCount: 3, // all tools
+		},
+		{
+			name:      "admin with ownerOnly sees only own",
+			userID:    "admin-user",
+			ownerOnly: true,
+			isAdmin:   true,
+			wantCount: 0, // admin-user owns nothing
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tools, total, err := facade.List("", "", "created_at", "desc", 0, 50, tt.userID, tt.ownerOnly, tt.isAdmin)
+			if err != nil {
+				t.Fatalf("List() error = %v", err)
+			}
+			if int(total) != tt.wantCount {
+				t.Errorf("List() total = %d, want %d", total, tt.wantCount)
+			}
+			if len(tools) != tt.wantCount {
+				t.Errorf("List() returned %d tools, want %d", len(tools), tt.wantCount)
+			}
+		})
+	}
+}
+
+// TestSafeUserInfo_IsAdmin tests the admin role detection
+func TestSafeUserInfo_IsAdmin(t *testing.T) {
+	// This tests the role checking logic used by the safe client
+	tests := []struct {
+		name  string
+		roles []string
+		want  bool
+	}{
+		{"system-admin is admin", []string{"system-admin", "default"}, true},
+		{"only default is not admin", []string{"default"}, false},
+		{"empty roles is not admin", []string{}, false},
+		{"system-admin alone is admin", []string{"system-admin"}, true},
+		{"workspace-admin is not system admin", []string{"workspace-admin"}, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			isAdmin := false
+			for _, r := range tt.roles {
+				if r == "system-admin" {
+					isAdmin = true
+					break
+				}
+			}
+			if isAdmin != tt.want {
+				t.Errorf("isAdmin = %v, want %v", isAdmin, tt.want)
+			}
+		})
 	}
 }

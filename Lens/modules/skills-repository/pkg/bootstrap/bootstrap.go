@@ -14,6 +14,7 @@ import (
 	"github.com/AMD-AGI/Primus-SaFE/Lens/skills-repository/pkg/config"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/skills-repository/pkg/embedding"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/skills-repository/pkg/runner"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/skills-repository/pkg/safe"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/skills-repository/pkg/service"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/skills-repository/pkg/storage"
 	"github.com/gin-gonic/gin"
@@ -106,8 +107,14 @@ func (s *Server) Start() error {
 	runSvc := service.NewRunService(s.facade, s.runner, s.storage)
 	toolsetSvc := service.NewToolsetService(s.toolsetFacade, s.facade, s.embedding, s.config.Search.ScoreThreshold)
 
+	// Create SaFE API client for user role resolution (nil if not configured)
+	safeClient := safe.NewUserClient(s.config.SafeAPI.BaseURL)
+	if safeClient != nil {
+		fmt.Printf("SaFE API client enabled: %s\n", s.config.SafeAPI.BaseURL)
+	}
+
 	// Create handler and register routes
-	handler := api.NewHandler(toolSvc, searchSvc, importSvc, runSvc, toolsetSvc)
+	handler := api.NewHandler(toolSvc, searchSvc, importSvc, runSvc, toolsetSvc, safeClient)
 	api.RegisterRoutes(router, handler)
 
 	s.httpServer = &http.Server{
