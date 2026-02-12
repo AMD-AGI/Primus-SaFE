@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/AMD-AGI/Primus-SaFE/Lens/ai-advisor/pkg/common"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/ai-advisor/pkg/intent"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/constant"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database"
@@ -59,17 +60,19 @@ type WorkloadAnalysisPipeline struct {
 	imageCacheFacade database.ImageRegistryCacheFacadeInterface
 	ruleFacade       database.IntentRuleFacadeInterface
 
-	evaluator           *EvidenceEvaluator
-	specCollector       *SpecCollector
-	processCollector    *ProcessEvidenceCollector
-	imageRegCollector   *ImageRegistryCollector
-	conductorURL        string
-	instanceID          string
+	evaluator              *EvidenceEvaluator
+	specCollector          *SpecCollector
+	processCollector       *ProcessEvidenceCollector
+	imageRegCollector      *ImageRegistryCollector
+	codeSnapshotCollector  *CodeSnapshotCollector
+	conductorURL           string
+	instanceID             string
 }
 
-// NewWorkloadAnalysisPipeline creates a new pipeline executor
-func NewWorkloadAnalysisPipeline(conductorURL string, instanceID string) *WorkloadAnalysisPipeline {
-	return &WorkloadAnalysisPipeline{
+// NewWorkloadAnalysisPipeline creates a new pipeline executor.
+// podProber may be nil; code snapshot collection will be skipped if so.
+func NewWorkloadAnalysisPipeline(conductorURL string, instanceID string, podProber *common.PodProber) *WorkloadAnalysisPipeline {
+	p := &WorkloadAnalysisPipeline{
 		detectionFacade:  database.NewWorkloadDetectionFacade(),
 		coverageFacade:   database.NewDetectionCoverageFacade(),
 		taskFacade:       database.NewWorkloadTaskFacade(),
@@ -84,6 +87,10 @@ func NewWorkloadAnalysisPipeline(conductorURL string, instanceID string) *Worklo
 		conductorURL:        conductorURL,
 		instanceID:          instanceID,
 	}
+	if podProber != nil {
+		p.codeSnapshotCollector = NewCodeSnapshotCollector(podProber)
+	}
+	return p
 }
 
 // GetTaskType implements coreTask.TaskExecutor
@@ -615,25 +622,37 @@ func (p *WorkloadAnalysisPipeline) gatherEvidence(
 	// Enrich with process probe evidence (cmdlines, env vars from running process)
 	p.processCollector.Enrich(ctx, workloadUID, evidence)
 
-	// Enrich with code snapshot (if available)
-	snapshot, err := p.snapshotFacade.GetByWorkloadUID(ctx, workloadUID)
-	if err == nil && snapshot != nil {
-		evidence.CodeSnapshot = &intent.CodeSnapshotEvidence{
-			PipFreeze:   snapshot.PipFreeze,
-			Fingerprint: snapshot.Fingerprint,
+	// Collect code snapshot from running container (or read from DB cache)
+	if p.codeSnapshotCollector != nil {
+		snapEvidence, snapErr := p.codeSnapshotCollector.Collect(ctx, workloadUID, evidence.Command)
+		if snapErr != nil {
+			log.Debugf("CodeSnapshotCollector failed for %s (will try DB fallback): %v", workloadUID, snapErr)
 		}
-		if len(snapshot.EntryScript) > 0 {
-			fc := &intent.FileContent{}
-			if path, ok := snapshot.EntryScript["path"].(string); ok {
-				fc.Path = path
+		if snapEvidence != nil {
+			evidence.CodeSnapshot = snapEvidence
+		}
+	}
+	// Fallback: read previously stored snapshot from DB if collector did not populate it
+	if evidence.CodeSnapshot == nil {
+		snapshot, dbErr := p.snapshotFacade.GetByWorkloadUID(ctx, workloadUID)
+		if dbErr == nil && snapshot != nil {
+			evidence.CodeSnapshot = &intent.CodeSnapshotEvidence{
+				PipFreeze:   snapshot.PipFreeze,
+				Fingerprint: snapshot.Fingerprint,
 			}
-			if content, ok := snapshot.EntryScript["content"].(string); ok {
-				fc.Content = content
+			if len(snapshot.EntryScript) > 0 {
+				fc := &intent.FileContent{}
+				if path, ok := snapshot.EntryScript["path"].(string); ok {
+					fc.Path = path
+				}
+				if content, ok := snapshot.EntryScript["content"].(string); ok {
+					fc.Content = content
+				}
+				if hash, ok := snapshot.EntryScript["hash"].(string); ok {
+					fc.Hash = hash
+				}
+				evidence.CodeSnapshot.EntryScript = fc
 			}
-			if hash, ok := snapshot.EntryScript["hash"].(string); ok {
-				fc.Hash = hash
-			}
-			evidence.CodeSnapshot.EntryScript = fc
 		}
 	}
 

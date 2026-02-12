@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/AMD-AGI/Primus-SaFE/Lens/ai-advisor/pkg/api/handlers"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/ai-advisor/pkg/common"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/ai-advisor/pkg/detection"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/ai-advisor/pkg/distill"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/ai-advisor/pkg/metadata"
@@ -191,7 +192,8 @@ func Bootstrap(ctx context.Context) error {
 		if conductorURL == "" {
 			conductorURL = "http://primus-conductor:8080"
 		}
-		analysisPipeline := pipeline.NewWorkloadAnalysisPipeline(conductorURL, instanceID)
+		podProber := common.NewPodProber(metadata.GetCollector())
+		analysisPipeline := pipeline.NewWorkloadAnalysisPipeline(conductorURL, instanceID, podProber)
 		if err := taskScheduler.RegisterExecutor(analysisPipeline); err != nil {
 			log.Errorf("Failed to register analysis pipeline executor: %v", err)
 		} else {
