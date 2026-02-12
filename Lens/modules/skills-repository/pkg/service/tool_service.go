@@ -290,7 +290,26 @@ func (s *ToolService) DeleteTool(ctx context.Context, id int64, userID string, i
 	// Delete S3 content for skill
 	if tool.Type == model.AppTypeSkill && s.storage != nil {
 		if s3Key := tool.GetSkillS3Key(); s3Key != "" {
-			_ = s.storage.Delete(ctx, s3Key)
+			isPrefix := false
+			if v, ok := tool.Config["is_prefix"].(bool); ok {
+				isPrefix = v
+			}
+			if isPrefix {
+				// Multi-file skill: list and delete all files under the prefix
+				dirPrefix := s3Key
+				if !strings.HasSuffix(dirPrefix, "/") {
+					if idx := strings.LastIndex(s3Key, "/"); idx >= 0 {
+						dirPrefix = s3Key[:idx+1]
+					}
+				}
+				if objects, err := s.storage.ListObjects(ctx, dirPrefix); err == nil {
+					for _, obj := range objects {
+						_ = s.storage.Delete(ctx, obj.Key)
+					}
+				}
+			} else {
+				_ = s.storage.Delete(ctx, s3Key)
+			}
 		}
 	}
 
