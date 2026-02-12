@@ -7,10 +7,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database/filter"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database/model"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 // NodeFacadeInterface defines the database operation interface for Node
@@ -18,6 +20,7 @@ type NodeFacadeInterface interface {
 	// Node operations
 	CreateNode(ctx context.Context, node *model.Node) error
 	UpdateNode(ctx context.Context, node *model.Node) error
+	UpdateNodeSelectedFields(ctx context.Context, id int32, fields map[string]interface{}) error
 	GetNodeByName(ctx context.Context, name string) (*model.Node, error)
 	SearchNode(ctx context.Context, f filter.NodeFilter) ([]*model.Node, int, error)
 	ListGpuNodes(ctx context.Context) ([]*model.Node, error)
@@ -26,6 +29,8 @@ type NodeFacadeInterface interface {
 	GetGpuDeviceByNodeAndGpuId(ctx context.Context, nodeId int32, gpuId int) (*model.GpuDevice, error)
 	CreateGpuDevice(ctx context.Context, device *model.GpuDevice) error
 	UpdateGpuDevice(ctx context.Context, device *model.GpuDevice) error
+	UpsertGpuDevice(ctx context.Context, device *model.GpuDevice) error
+	UpdateGpuDeviceMetrics(ctx context.Context, id int32, utilization, temperature, power float64) error
 	ListGpuDeviceByNodeId(ctx context.Context, nodeId int32) ([]*model.GpuDevice, error)
 	DeleteGpuDeviceById(ctx context.Context, id int32) error
 
@@ -65,6 +70,11 @@ func (f *NodeFacade) CreateNode(ctx context.Context, node *model.Node) error {
 
 func (f *NodeFacade) UpdateNode(ctx context.Context, node *model.Node) error {
 	return f.getDAL().Node.WithContext(ctx).Save(node)
+}
+
+func (f *NodeFacade) UpdateNodeSelectedFields(ctx context.Context, id int32, fields map[string]interface{}) error {
+	fields["updated_at"] = time.Now()
+	return f.getDB().WithContext(ctx).Model(&model.Node{}).Where("id = ?", id).Updates(fields).Error
 }
 
 func (f *NodeFacade) GetNodeByName(ctx context.Context, name string) (*model.Node, error) {
@@ -189,6 +199,30 @@ func (f *NodeFacade) CreateGpuDevice(ctx context.Context, device *model.GpuDevic
 
 func (f *NodeFacade) UpdateGpuDevice(ctx context.Context, device *model.GpuDevice) error {
 	return f.getDAL().GpuDevice.WithContext(ctx).Save(device)
+}
+
+func (f *NodeFacade) UpsertGpuDevice(ctx context.Context, device *model.GpuDevice) error {
+	return f.getDB().WithContext(ctx).
+		Clauses(clause.OnConflict{
+			Columns: []clause.Column{{Name: "node_id"}, {Name: "gpu_id"}},
+			DoUpdates: clause.AssignmentColumns([]string{
+				"gpu_model", "memory", "utilization", "temperature", "power",
+				"serial", "rdma_device_name", "rdma_guid", "rdma_lid",
+				"numa_node", "numa_affinity", "updated_at",
+			}),
+		}).Create(device).Error
+}
+
+func (f *NodeFacade) UpdateGpuDeviceMetrics(ctx context.Context, id int32, utilization, temperature, power float64) error {
+	return f.getDB().WithContext(ctx).
+		Model(&model.GpuDevice{}).
+		Where("id = ?", id).
+		Updates(map[string]interface{}{
+			"utilization": utilization,
+			"temperature": temperature,
+			"power":       power,
+			"updated_at":  time.Now(),
+		}).Error
 }
 
 func (f *NodeFacade) ListGpuDeviceByNodeId(ctx context.Context, nodeId int32) ([]*model.GpuDevice, error) {

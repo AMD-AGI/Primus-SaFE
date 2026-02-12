@@ -10,6 +10,7 @@ import (
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database/model"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 // ContainerFacadeInterface defines the database operation interface for Container
@@ -17,6 +18,7 @@ type ContainerFacadeInterface interface {
 	// NodeContainer operations
 	CreateNodeContainer(ctx context.Context, nodeContainer *model.NodeContainer) error
 	UpdateNodeContainer(ctx context.Context, nodeContainer *model.NodeContainer) error
+	UpsertNodeContainer(ctx context.Context, nodeContainer *model.NodeContainer) error
 	GetNodeContainerByContainerId(ctx context.Context, containerId string) (*model.NodeContainer, error)
 	ListRunningContainersByPodUid(ctx context.Context, podUid string) ([]*model.NodeContainer, error)
 
@@ -61,6 +63,16 @@ func (f *ContainerFacade) CreateNodeContainer(ctx context.Context, nodeContainer
 
 func (f *ContainerFacade) UpdateNodeContainer(ctx context.Context, nodeContainer *model.NodeContainer) error {
 	return f.getDAL().NodeContainer.WithContext(ctx).Save(nodeContainer)
+}
+
+func (f *ContainerFacade) UpsertNodeContainer(ctx context.Context, nodeContainer *model.NodeContainer) error {
+	return f.getDB().WithContext(ctx).
+		Clauses(clause.OnConflict{
+			Columns: []clause.Column{{Name: "container_id"}},
+			DoUpdates: clause.AssignmentColumns([]string{
+				"status", "updated_at",
+			}),
+		}).Create(nodeContainer).Error
 }
 
 func (f *ContainerFacade) GetNodeContainerByContainerId(ctx context.Context, containerId string) (*model.NodeContainer, error) {

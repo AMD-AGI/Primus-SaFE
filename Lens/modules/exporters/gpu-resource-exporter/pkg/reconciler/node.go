@@ -280,22 +280,6 @@ func (n *NodeReconciler) reconcileNodeInfo(ctx context.Context, k8sNode *corev1.
 		}
 	}
 
-	// Determine if this is a create or update
-	isCreate := false
-	if existDBNode == nil {
-		existDBNode = newDBNode
-		isCreate = true
-	} else {
-		// Skip update if last update was less than 10 seconds ago
-		if time.Now().Before(existDBNode.UpdatedAt.Add(10 * time.Second)) {
-			return nil
-		}
-		newDBNode.ID = existDBNode.ID
-		newDBNode.CreatedAt = existDBNode.CreatedAt
-		newDBNode.UpdatedAt = time.Now()
-		existDBNode = newDBNode
-	}
-
 	// Get GPU allocation information
 	clusterName := clientsets.GetClusterManager().GetCurrentClusterName()
 	allocatable, capacity, err := gpu.GetNodeGpuAllocation(ctx, n.clientSets, k8sNode.Name, clusterName, defaultGPUVendor)
@@ -303,34 +287,73 @@ func (n *NodeReconciler) reconcileNodeInfo(ctx context.Context, k8sNode *corev1.
 		log.Errorf("Failed to get node GPU allocation for %s: %v", k8sNode.Name, err)
 		return err
 	}
-	existDBNode.GpuCount = int32(capacity)
-	existDBNode.GpuAllocation = int32(allocatable)
+	newDBNode.GpuCount = int32(capacity)
+	newDBNode.GpuAllocation = int32(allocatable)
 
 	// Get GPU utilization
 	usage, err := gpu.CalculateNodeGpuUsage(ctx, k8sNode.Name, n.storageClientSet, defaultGPUVendor)
 	if err == nil {
-		existDBNode.GpuUtilization = usage
+		newDBNode.GpuUtilization = usage
 	} else {
 		log.Warnf("Failed to get GPU utilization for %s: %v", k8sNode.Name, err)
+		if existDBNode != nil {
+			newDBNode.GpuUtilization = existDBNode.GpuUtilization
+		}
 	}
 
-	// Save to database
-	if existDBNode.ID == 0 {
-		err = database.GetFacade().GetNode().CreateNode(ctx, existDBNode)
+	// Determine if this is a create or update
+	if existDBNode == nil {
+		// New node: full create
+		err = database.GetFacade().GetNode().CreateNode(ctx, newDBNode)
 		if err != nil {
 			log.Errorf("Failed to create node %s in database: %v", k8sNode.Name, err)
 			return err
 		}
-		if isCreate {
-			log.Infof("Created node %s in database", k8sNode.Name)
-		}
+		log.Infof("Created node %s in database", k8sNode.Name)
 	} else {
-		err = database.GetFacade().GetNode().UpdateNode(ctx, existDBNode)
-		if err != nil {
-			log.Errorf("Failed to update node %s in database: %v", k8sNode.Name, err)
-			return err
+		// Skip update if last update was less than 10 seconds ago
+		if time.Now().Before(existDBNode.UpdatedAt.Add(10 * time.Second)) {
+			return nil
 		}
-		log.Debugf("Updated node %s in database", k8sNode.Name)
+
+		// Existing node: check if only dynamic fields changed (gpu_utilization, gpu_allocation, status)
+		// If static fields (name, address, gpu_name, labels, etc.) are the same, use selective update
+		onlyDynamicFieldsChanged := existDBNode.Address == newDBNode.Address &&
+			existDBNode.GpuName == newDBNode.GpuName &&
+			existDBNode.CPUCount == newDBNode.CPUCount &&
+			existDBNode.Memory == newDBNode.Memory &&
+			existDBNode.Os == newDBNode.Os &&
+			existDBNode.KubeletVersion == newDBNode.KubeletVersion &&
+			existDBNode.ContainerdVersion == newDBNode.ContainerdVersion &&
+			existDBNode.DriverVersion == newDBNode.DriverVersion
+
+		if onlyDynamicFieldsChanged {
+			// Only update frequently changing fields to reduce write amplification
+			fields := map[string]interface{}{
+				"status":          newDBNode.Status,
+				"k8s_status":      newDBNode.K8sStatus,
+				"gpu_allocation":  newDBNode.GpuAllocation,
+				"gpu_count":       newDBNode.GpuCount,
+				"gpu_utilization": newDBNode.GpuUtilization,
+			}
+			err = database.GetFacade().GetNode().UpdateNodeSelectedFields(ctx, existDBNode.ID, fields)
+			if err != nil {
+				log.Errorf("Failed to update node %s dynamic fields: %v", k8sNode.Name, err)
+				return err
+			}
+			log.Debugf("Updated node %s dynamic fields in database", k8sNode.Name)
+		} else {
+			// Static fields changed: do a full update
+			newDBNode.ID = existDBNode.ID
+			newDBNode.CreatedAt = existDBNode.CreatedAt
+			newDBNode.UpdatedAt = time.Now()
+			err = database.GetFacade().GetNode().UpdateNode(ctx, newDBNode)
+			if err != nil {
+				log.Errorf("Failed to update node %s in database: %v", k8sNode.Name, err)
+				return err
+			}
+			log.Debugf("Updated node %s (full) in database", k8sNode.Name)
+		}
 	}
 
 	return nil

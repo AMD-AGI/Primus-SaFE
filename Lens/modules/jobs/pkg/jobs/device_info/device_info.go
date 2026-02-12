@@ -392,47 +392,50 @@ func (d *DeviceInfoJob) getGPUDeviceInfo(ctx context.Context, nodeExporterClient
 	for i := range gpus {
 		info := gpus[i]
 		cardMetric := cardMetricsMaps[i]
-		newGpuInfo := &model.GpuDevice{
-			NodeID:         dbNode.ID,
-			GpuID:          int32(info.GPU),
-			GpuModel:       info.Asic.MarketName,
-			Memory:         info.VRAM.GetVramSizeMegaBytes(),
-			Utilization:    cardMetric.GPUUsePercent,
-			Temperature:    cardMetric.TemperatureJunction,
-			Power:          cardMetric.SocketGraphicsPowerWatts,
-			Serial:         info.Asic.AsicSerial,
-			RdmaDeviceName: "",
-			RdmaGUID:       "",
-			RdmaLid:        "",
-			CreatedAt:      time.Now(),
-			UpdatedAt:      time.Now(),
-			NumaAffinity:   int32(info.NUMA.Affinity),
-			NumaNode:       int32(info.NUMA.Node),
-		}
+
+		// Check if the device already exists
 		existInfo, err := database.GetFacade().GetNode().GetGpuDeviceByNodeAndGpuId(ctx, dbNode.ID, info.GPU)
 		if err != nil {
 			return err
 		}
-		if existInfo == nil {
-			existInfo = newGpuInfo
-		} else {
-			newGpuInfo.ID = existInfo.ID
-			newGpuInfo.CreatedAt = existInfo.CreatedAt
-			existInfo = newGpuInfo
-		}
-		if existInfo.ID == 0 {
-			created = append(created, *existInfo)
-			err = database.GetFacade().GetNode().CreateGpuDevice(ctx, existInfo)
-			if err != nil {
-				return err
-			}
-			atomic.AddInt64(&stats.ItemsCreated, 1)
-		} else {
-			err = database.GetFacade().GetNode().UpdateGpuDevice(ctx, existInfo)
+
+		if existInfo != nil && existInfo.ID != 0 {
+			// Device exists: only update metrics fields to reduce write amplification
+			err = database.GetFacade().GetNode().UpdateGpuDeviceMetrics(
+				ctx, existInfo.ID,
+				cardMetric.GPUUsePercent,
+				cardMetric.TemperatureJunction,
+				cardMetric.SocketGraphicsPowerWatts,
+			)
 			if err != nil {
 				return err
 			}
 			atomic.AddInt64(&stats.ItemsUpdated, 1)
+		} else {
+			// Device does not exist: use upsert to avoid race condition duplicates
+			newGpuInfo := &model.GpuDevice{
+				NodeID:         dbNode.ID,
+				GpuID:          int32(info.GPU),
+				GpuModel:       info.Asic.MarketName,
+				Memory:         info.VRAM.GetVramSizeMegaBytes(),
+				Utilization:    cardMetric.GPUUsePercent,
+				Temperature:    cardMetric.TemperatureJunction,
+				Power:          cardMetric.SocketGraphicsPowerWatts,
+				Serial:         info.Asic.AsicSerial,
+				RdmaDeviceName: "",
+				RdmaGUID:       "",
+				RdmaLid:        "",
+				CreatedAt:      time.Now(),
+				UpdatedAt:      time.Now(),
+				NumaAffinity:   int32(info.NUMA.Affinity),
+				NumaNode:       int32(info.NUMA.Node),
+			}
+			err = database.GetFacade().GetNode().UpsertGpuDevice(ctx, newGpuInfo)
+			if err != nil {
+				return err
+			}
+			created = append(created, *newGpuInfo)
+			atomic.AddInt64(&stats.ItemsCreated, 1)
 		}
 	}
 	nodeDevices, err := database.GetFacade().GetNode().ListGpuDeviceByNodeId(ctx, dbNode.ID)

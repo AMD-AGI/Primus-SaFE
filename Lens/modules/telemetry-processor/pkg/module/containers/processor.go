@@ -63,47 +63,26 @@ func processK8sContainerEvent(ctx context.Context, req *ContainerEventRequest) e
 		}
 	}
 
-	// Check if container exists
-	existContainer, err := database.GetFacade().GetContainer().GetNodeContainerByContainerId(ctx, req.ContainerID)
+	// Use upsert to atomically create or update the container record
+	// This avoids race conditions that cause duplicate rows
+	container := &dbModel.NodeContainer{
+		ContainerID:   req.ContainerID,
+		ContainerName: containerData.ID,
+		PodUID:        containerData.PodUUID,
+		PodName:       containerData.PodName,
+		PodNamespace:  containerData.PodNamespace,
+		CreatedAt:     time.Unix(0, containerData.CreatedAt),
+		UpdatedAt:     time.Now(),
+		NodeName:      req.Node,
+		Source:        constant.ContainerSourceK8S,
+		Status:        containerData.Status,
+	}
+
+	err = database.GetFacade().GetContainer().UpsertNodeContainer(ctx, container)
 	if err != nil {
-		log.Errorf("Failed to get container by id %s: %v", req.ContainerID, err)
-		containerEventErrorCnt.WithLabelValues(req.Source, req.Node, "db_query_error").Inc()
-		return errors.NewError().WithCode(errors.CodeDatabaseError).WithMessagef("failed to get container by id %s", req.ContainerID)
-	}
-
-	// Create or update container record
-	// If container doesn't exist (nil) or ID is 0 (empty object), need to set all fields
-	if existContainer == nil || existContainer.ID == 0 {
-		// If nil, create new object; if ID=0, reset all fields
-		if existContainer == nil {
-			existContainer = &dbModel.NodeContainer{}
-		}
-
-		existContainer.ContainerID = req.ContainerID
-		existContainer.ContainerName = containerData.ID
-		existContainer.PodUID = containerData.PodUUID
-		existContainer.PodName = containerData.PodName
-		existContainer.PodNamespace = containerData.PodNamespace
-		existContainer.CreatedAt = time.Unix(0, containerData.CreatedAt)
-		existContainer.UpdatedAt = time.Now()
-		existContainer.NodeName = req.Node
-		existContainer.Source = constant.ContainerSourceK8S
-		existContainer.Status = containerData.Status
-	} else {
-		existContainer.Status = containerData.Status
-		existContainer.UpdatedAt = time.Now()
-	}
-
-	// Save container
-	if existContainer.ID == 0 {
-		err = database.GetFacade().GetContainer().CreateNodeContainer(ctx, existContainer)
-	} else {
-		err = database.GetFacade().GetContainer().UpdateNodeContainer(ctx, existContainer)
-	}
-	if err != nil {
-		log.Errorf("Failed to save container %s: %v", req.ContainerID, err)
+		log.Errorf("Failed to upsert container %s: %v", req.ContainerID, err)
 		containerEventErrorCnt.WithLabelValues(req.Source, req.Node, "db_save_error").Inc()
-		return errors.NewError().WithCode(errors.CodeDatabaseError).WithMessagef("failed to save container %s", req.ContainerID)
+		return errors.NewError().WithCode(errors.CodeDatabaseError).WithMessagef("failed to upsert container %s", req.ContainerID)
 	}
 
 	// Save device associations (with timeout protection)
@@ -166,43 +145,25 @@ func processDockerContainerEvent(ctx context.Context, req *ContainerEventRequest
 		return errors.NewError().WithCode(errors.CodeInvalidArgument).WithMessagef("failed to unmarshal data: %v", err)
 	}
 
-	// Check if container exists
-	existContainer, err := database.GetFacade().GetContainer().GetNodeContainerByContainerId(ctx, req.ContainerID)
-	if err != nil {
-		log.Errorf("Failed to get container by id %s: %v", req.ContainerID, err)
-		containerEventErrorCnt.WithLabelValues(req.Source, req.Node, "db_query_error").Inc()
-		return errors.NewError().WithCode(errors.CodeDatabaseError).WithMessagef("failed to get container by id %s", req.ContainerID)
+	// Use upsert to atomically create or update the container record
+	container := &dbModel.NodeContainer{
+		ContainerID:   containerData.ID,
+		ContainerName: containerData.Name,
+		PodUID:        "",
+		PodName:       "",
+		PodNamespace:  "",
+		CreatedAt:     containerData.StartAt,
+		UpdatedAt:     time.Now(),
+		NodeName:      req.Node,
+		Source:        constant.ContainerSourceDocker,
+		Status:        containerData.Status,
 	}
 
-	// Create or update container record
-	if existContainer == nil {
-		existContainer = &dbModel.NodeContainer{
-			ContainerID:   containerData.ID,
-			ContainerName: containerData.Name,
-			PodUID:        "",
-			PodName:       "",
-			PodNamespace:  "",
-			CreatedAt:     containerData.StartAt,
-			UpdatedAt:     time.Now(),
-			NodeName:      req.Node,
-			Source:        constant.ContainerSourceDocker,
-			Status:        containerData.Status,
-		}
-	} else {
-		existContainer.Status = containerData.Status
-		existContainer.UpdatedAt = time.Now()
-	}
-
-	// Save container
-	if existContainer.ID == 0 {
-		err = database.GetFacade().GetContainer().CreateNodeContainer(ctx, existContainer)
-	} else {
-		err = database.GetFacade().GetContainer().UpdateNodeContainer(ctx, existContainer)
-	}
+	err = database.GetFacade().GetContainer().UpsertNodeContainer(ctx, container)
 	if err != nil {
-		log.Errorf("Failed to save container %s: %v", req.ContainerID, err)
+		log.Errorf("Failed to upsert container %s: %v", req.ContainerID, err)
 		containerEventErrorCnt.WithLabelValues(req.Source, req.Node, "db_save_error").Inc()
-		return errors.NewError().WithCode(errors.CodeDatabaseError).WithMessagef("failed to save container %s", req.ContainerID)
+		return errors.NewError().WithCode(errors.CodeDatabaseError).WithMessagef("failed to upsert container %s", req.ContainerID)
 	}
 
 	// Save device associations (with timeout protection)

@@ -74,6 +74,9 @@ create table gpu_device
 
 alter table gpu_device owner to "primus-lens";
 
+create unique index idx_gpu_device_node_gpu_unique on gpu_device (node_id, gpu_id);
+create index idx_gpu_device_node_id on gpu_device (node_id);
+
 create table gpu_pods
 (
     id            serial constraint gpu_pods_pk primary key,
@@ -227,6 +230,9 @@ create table node_container
 );
 
 alter table node_container owner to "primus-lens";
+
+create unique index idx_node_container_container_id_unique on node_container (container_id);
+create index idx_node_container_pod_uid on node_container (pod_uid);
 
 create table node_container_devices
 (
