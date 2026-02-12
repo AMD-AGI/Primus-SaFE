@@ -57,7 +57,11 @@ func (f *WorkloadStatisticFacade) GetDB() *gorm.DB {
 	return f.getDB()
 }
 
-// GetOrCreate gets or creates a statistic record for the workload
+// GetOrCreate gets or creates a statistic record for the workload.
+// The lookup uses only (uid, cluster_name) — NOT workload_status — so that
+// once a record exists for a workload it is always found and updated in-place,
+// regardless of status transitions (Running -> Done/Failed/etc.).
+// This prevents the creation of duplicate rows when a workload's status changes.
 func (f *WorkloadStatisticFacade) GetOrCreate(ctx context.Context, clusterName string, workload *model.GpuWorkload) (*model.WorkloadStatistic, bool, error) {
 	db := f.getDB()
 	q := dal.Use(db).WorkloadStatistic
@@ -66,14 +70,12 @@ func (f *WorkloadStatisticFacade) GetOrCreate(ctx context.Context, clusterName s
 	// Each workload (including child workloads) has its own independent statistic record
 	workloadUID := workload.UID
 
-	// Try to query existing record
-	// Use Take() instead of First() to avoid ORDER BY id which prevents using uid index
+	// Try to query existing record by (uid, cluster_name) only.
+	// Do NOT filter by workload_status to avoid creating duplicates when status changes.
+	// Use Take() instead of First() to avoid ORDER BY id which prevents using uid index.
 	record, err := q.WithContext(ctx).Where(
-		q.ClusterName.Eq(clusterName),
-		q.Namespace.Eq(workload.Namespace),
-		q.WorkloadName.Eq(workload.Name),
 		q.UID.Eq(workloadUID),
-		q.WorkloadStatus.In("Running", "Pending"),
+		q.ClusterName.Eq(clusterName),
 	).Take()
 
 	// If found existing record, return it
@@ -179,12 +181,10 @@ func (f *WorkloadStatisticFacade) Update(ctx context.Context, record *model.Work
 	// try to find the existing record and update it
 	if strings.Contains(err.Error(), "duplicate key") || strings.Contains(err.Error(), "unique constraint") {
 		// Use Take() instead of First() to avoid ORDER BY id which prevents using uid index
+		// Look up by (uid, cluster_name) only — do NOT filter by workload_status
 		existingRecord, findErr := q.WithContext(ctx).Where(
-			q.ClusterName.Eq(record.ClusterName),
-			q.Namespace.Eq(record.Namespace),
-			q.WorkloadName.Eq(record.WorkloadName),
 			q.UID.Eq(record.UID),
-			q.WorkloadStatus.In("Running", "Pending"),
+			q.ClusterName.Eq(record.ClusterName),
 		).Take()
 
 		if findErr == nil && existingRecord.ID > 0 {
