@@ -23,6 +23,8 @@ data:
       model: BAAI/bge-m3
       dimension: 1024
       base_url: "http://bge-m3-embedding:8000/v1"
+    safe_api:
+      base_url: "http://primus-safe-apiserver.primus-safe.svc:8088"
     discovery:
       sync_interval: 5m
       watch_enabled: false
@@ -72,6 +74,9 @@ spec:
             secretKeyRef:
               key: password
               name: primus-lens-control-plane-pguser-primus-lens-control-plane
+        # SaFE API server for user role resolution (admin detection)
+        - name: SAFE_API_URL
+          value: "http://primus-safe-apiserver.primus-safe.svc:8088"
         # BGE-M3 embedding service configuration
         - name: OPENAI_BASE_URL
           value: "http://bge-m3-embedding:8000/v1"

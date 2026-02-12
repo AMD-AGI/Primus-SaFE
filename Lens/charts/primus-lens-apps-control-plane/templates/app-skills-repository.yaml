@@ -33,6 +33,8 @@ data:
       sources:
         {{- toYaml .Values.apps.skillsRepository.config.discovery.sources | nindent 8 }}
       {{- end }}
+    safe_api:
+      base_url: {{ .Values.apps.skillsRepository.config.safeAPI.baseURL | default "" | quote }}
     runner:
       enabled: {{ .Values.apps.skillsRepository.config.runner.enabled | default false }}
       base_url: {{ .Values.apps.skillsRepository.config.runner.baseURL | default "" | quote }}
@@ -104,6 +106,9 @@ spec:
               key: {{ .Values.apps.skillsRepository.config.embedding.apiKeySecret.key | default "api-key" }}
         {{- end }}
         {{- end }}
+        # SaFE API server for user role resolution (admin detection)
+        - name: SAFE_API_URL
+          value: {{ .Values.apps.skillsRepository.config.safeAPI.baseURL | default "" | quote }}
         # Runner configuration
         - name: RUNNER_ENABLED
           value: {{ .Values.apps.skillsRepository.config.runner.enabled | default false | quote }}

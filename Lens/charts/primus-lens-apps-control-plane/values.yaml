@@ -129,6 +129,11 @@ apps:
         syncInterval: "5m"
         watchEnabled: false
         sources: []
+      # SaFE API server configuration for user role resolution
+      safeAPI:
+        # Base URL of the SaFE API server (for admin detection)
+        # Default assumes SaFE apiserver is in the primus-safe namespace
+        baseURL: "http://primus-safe-apiserver.primus-safe.svc:8088"
       # Runner backend configuration
       runner:
         enabled: false
