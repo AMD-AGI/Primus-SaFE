@@ -61,8 +61,9 @@ type DownloadResult struct {
 
 // --- Service Methods ---
 
-// RunTools runs multiple tools via the execution backend
-func (s *RunService) RunTools(ctx context.Context, refs []ToolRef) (*RunResult, error) {
+// RunTools runs multiple tools via the execution backend.
+// Admins can run any tool; regular users can only run public tools or their own.
+func (s *RunService) RunTools(ctx context.Context, refs []ToolRef, userID string, isAdmin bool) (*RunResult, error) {
 	if s.runner == nil {
 		return nil, fmt.Errorf("%w: runner", ErrNotConfigured)
 	}
@@ -86,6 +87,11 @@ func (s *RunService) RunTools(ctx context.Context, refs []ToolRef) (*RunResult, 
 			return nil, fmt.Errorf("each tool must have either 'id' or 'type'+'name'")
 		}
 
+		// Access control: only admin or owner can run private tools
+		if !isAdmin && !tool.IsPublic && tool.OwnerUserID != userID {
+			return nil, fmt.Errorf("%w: no access to tool %q", ErrAccessDenied, tool.Name)
+		}
+
 		tools = append(tools, tool)
 	}
 
@@ -105,14 +111,15 @@ func (s *RunService) RunTools(ctx context.Context, refs []ToolRef) (*RunResult, 
 	}, nil
 }
 
-// DownloadTool prepares a downloadable file for a tool
-func (s *RunService) DownloadTool(ctx context.Context, id int64, userID string) (*DownloadResult, error) {
+// DownloadTool prepares a downloadable file for a tool.
+// Admins can download any tool; regular users can only download public or their own.
+func (s *RunService) DownloadTool(ctx context.Context, id int64, userID string, isAdmin bool) (*DownloadResult, error) {
 	tool, err := s.facade.GetByID(id)
 	if err != nil {
 		return nil, fmt.Errorf("tool %w", ErrNotFound)
 	}
 
-	if !tool.IsPublic && tool.OwnerUserID != userID {
+	if !isAdmin && !tool.IsPublic && tool.OwnerUserID != userID {
 		return nil, ErrAccessDenied
 	}
 

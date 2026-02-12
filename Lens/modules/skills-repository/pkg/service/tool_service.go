@@ -140,14 +140,15 @@ func (s *ToolService) List(ctx context.Context, input ListInput) (*ListResult, e
 	}, nil
 }
 
-// GetTool retrieves a tool by ID with access control and like status
-func (s *ToolService) GetTool(ctx context.Context, id int64, userID string) (*ToolWithLikeStatus, error) {
+// GetTool retrieves a tool by ID with access control and like status.
+// Admins can view any tool; regular users can only view public tools or their own.
+func (s *ToolService) GetTool(ctx context.Context, id int64, userID string, isAdmin bool) (*ToolWithLikeStatus, error) {
 	tool, err := s.facade.GetByID(id)
 	if err != nil {
 		return nil, fmt.Errorf("tool %w", ErrNotFound)
 	}
 
-	if !tool.IsPublic && tool.OwnerUserID != userID {
+	if !isAdmin && !tool.IsPublic && tool.OwnerUserID != userID {
 		return nil, ErrAccessDenied
 	}
 
@@ -381,8 +382,9 @@ func (s *ToolService) UploadIcon(ctx context.Context, userID, filename string, f
 	return url, nil
 }
 
-// GetToolContent retrieves the raw SKILL.md content for a skill
-func (s *ToolService) GetToolContent(ctx context.Context, toolID int64, userID string) (string, error) {
+// GetToolContent retrieves the raw SKILL.md content for a skill.
+// Admins can view any tool's content; regular users can only view public or their own.
+func (s *ToolService) GetToolContent(ctx context.Context, toolID int64, userID string, isAdmin bool) (string, error) {
 	// Get tool and check access
 	tool, err := s.facade.GetByID(toolID)
 	if err != nil {
@@ -390,7 +392,7 @@ func (s *ToolService) GetToolContent(ctx context.Context, toolID int64, userID s
 	}
 
 	// Access control
-	if !tool.IsPublic && tool.OwnerUserID != userID {
+	if !isAdmin && !tool.IsPublic && tool.OwnerUserID != userID {
 		return "", ErrAccessDenied
 	}
 

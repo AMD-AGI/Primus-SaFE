@@ -38,8 +38,9 @@ type SearchResult struct {
 	Mode  string
 }
 
-// Search searches tools by query with different modes (keyword, semantic, hybrid)
-func (s *SearchService) Search(ctx context.Context, query, toolType, mode string, limit int) (*SearchResult, error) {
+// Search searches tools by query with different modes (keyword, semantic, hybrid).
+// Admins can search all tools; regular users can only search public + their own.
+func (s *SearchService) Search(ctx context.Context, query, toolType, mode string, limit int, userID string, isAdmin bool) (*SearchResult, error) {
 	switch mode {
 	case "semantic":
 		if s.embedding == nil || !s.embedding.IsEnabled() {
@@ -49,7 +50,7 @@ func (s *SearchService) Search(ctx context.Context, query, toolType, mode string
 		if err != nil {
 			return nil, fmt.Errorf("failed to generate embedding: %w", err)
 		}
-		results, err := s.facade.SemanticSearch(emb, toolType, limit, s.scoreThreshold)
+		results, err := s.facade.SemanticSearch(emb, toolType, limit, s.scoreThreshold, userID, isAdmin)
 		if err != nil {
 			return nil, err
 		}
@@ -57,8 +58,7 @@ func (s *SearchService) Search(ctx context.Context, query, toolType, mode string
 
 	case "hybrid":
 		if s.embedding == nil || !s.embedding.IsEnabled() {
-			// Fallback to keyword search
-			tools, err := s.facade.Search(query, toolType, limit)
+			tools, err := s.facade.Search(query, toolType, limit, userID, isAdmin)
 			if err != nil {
 				return nil, err
 			}
@@ -66,21 +66,20 @@ func (s *SearchService) Search(ctx context.Context, query, toolType, mode string
 		}
 		emb, err := s.embedding.Generate(ctx, query)
 		if err != nil {
-			// Fallback to keyword search
-			tools, err := s.facade.Search(query, toolType, limit)
+			tools, err := s.facade.Search(query, toolType, limit, userID, isAdmin)
 			if err != nil {
 				return nil, err
 			}
 			return &SearchResult{Tools: tools, Total: len(tools), Mode: "keyword"}, nil
 		}
-		results, err := s.facade.HybridSearch(query, emb, toolType, limit, s.scoreThreshold)
+		results, err := s.facade.HybridSearch(query, emb, toolType, limit, s.scoreThreshold, userID, isAdmin)
 		if err != nil {
 			return nil, err
 		}
 		return &SearchResult{Tools: results, Total: len(results), Mode: "hybrid"}, nil
 
 	default: // keyword
-		tools, err := s.facade.Search(query, toolType, limit)
+		tools, err := s.facade.Search(query, toolType, limit, userID, isAdmin)
 		if err != nil {
 			return nil, err
 		}

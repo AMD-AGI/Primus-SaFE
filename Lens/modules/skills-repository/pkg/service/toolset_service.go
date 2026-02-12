@@ -68,6 +68,7 @@ type ToolsetListInput struct {
 	Offset    int
 	Limit     int
 	UserID    string
+	IsAdmin   bool
 }
 
 // ToolsetListResult represents the result of listing toolsets
@@ -156,7 +157,7 @@ func (s *ToolsetService) List(ctx context.Context, input ToolsetListInput) (*Too
 	}
 
 	ownerOnly := input.Owner == "me"
-	toolsets, total, err := s.facade.List(input.SortField, input.SortOrder, input.Offset, input.Limit, input.UserID, ownerOnly)
+	toolsets, total, err := s.facade.List(input.SortField, input.SortOrder, input.Offset, input.Limit, input.UserID, ownerOnly, input.IsAdmin)
 	if err != nil {
 		return nil, err
 	}
@@ -169,14 +170,15 @@ func (s *ToolsetService) List(ctx context.Context, input ToolsetListInput) (*Too
 	}, nil
 }
 
-// GetToolset retrieves a toolset by ID with its tools
-func (s *ToolsetService) GetToolset(ctx context.Context, id int64, userID string) (*ToolsetDetail, error) {
+// GetToolset retrieves a toolset by ID with its tools.
+// Admins can view any toolset; regular users can only view public or their own.
+func (s *ToolsetService) GetToolset(ctx context.Context, id int64, userID string, isAdmin bool) (*ToolsetDetail, error) {
 	toolset, err := s.facade.GetByID(id)
 	if err != nil {
 		return nil, fmt.Errorf("toolset %w", ErrNotFound)
 	}
 
-	if !toolset.IsPublic && toolset.OwnerUserID != userID {
+	if !isAdmin && !toolset.IsPublic && toolset.OwnerUserID != userID {
 		return nil, ErrAccessDenied
 	}
 
@@ -192,15 +194,16 @@ func (s *ToolsetService) GetToolset(ctx context.Context, id int64, userID string
 	}, nil
 }
 
-// UpdateToolset updates a toolset with access control
-func (s *ToolsetService) UpdateToolset(ctx context.Context, id int64, input UpdateToolsetInput, userID string) (*model.Toolset, error) {
+// UpdateToolset updates a toolset with access control.
+// Admins can update any toolset; regular users can only update their own.
+func (s *ToolsetService) UpdateToolset(ctx context.Context, id int64, input UpdateToolsetInput, userID string, isAdmin bool) (*model.Toolset, error) {
 	toolset, err := s.facade.GetByID(id)
 	if err != nil {
 		return nil, fmt.Errorf("toolset %w", ErrNotFound)
 	}
 
-	if toolset.OwnerUserID != userID {
-		return nil, fmt.Errorf("%w: only owner can update", ErrAccessDenied)
+	if !isAdmin && toolset.OwnerUserID != userID {
+		return nil, fmt.Errorf("%w: only owner or admin can update", ErrAccessDenied)
 	}
 
 	needReEmbed := false
@@ -238,29 +241,31 @@ func (s *ToolsetService) UpdateToolset(ctx context.Context, id int64, input Upda
 	return toolset, nil
 }
 
-// DeleteToolset deletes a toolset with access control
-func (s *ToolsetService) DeleteToolset(ctx context.Context, id int64, userID string) error {
+// DeleteToolset deletes a toolset with access control.
+// Admins can delete any toolset; regular users can only delete their own.
+func (s *ToolsetService) DeleteToolset(ctx context.Context, id int64, userID string, isAdmin bool) error {
 	toolset, err := s.facade.GetByID(id)
 	if err != nil {
 		return fmt.Errorf("toolset %w", ErrNotFound)
 	}
 
-	if toolset.OwnerUserID != userID {
-		return fmt.Errorf("%w: only owner can delete", ErrAccessDenied)
+	if !isAdmin && toolset.OwnerUserID != userID {
+		return fmt.Errorf("%w: only owner or admin can delete", ErrAccessDenied)
 	}
 
 	return s.facade.Delete(id)
 }
 
-// AddTools adds tools to a toolset
-func (s *ToolsetService) AddTools(ctx context.Context, toolsetID int64, input AddToolsInput, userID string) (int, error) {
+// AddTools adds tools to a toolset.
+// Admins can modify any toolset; regular users can only modify their own.
+func (s *ToolsetService) AddTools(ctx context.Context, toolsetID int64, input AddToolsInput, userID string, isAdmin bool) (int, error) {
 	toolset, err := s.facade.GetByID(toolsetID)
 	if err != nil {
 		return 0, fmt.Errorf("toolset %w", ErrNotFound)
 	}
 
-	if toolset.OwnerUserID != userID {
-		return 0, fmt.Errorf("%w: only owner can modify toolset", ErrAccessDenied)
+	if !isAdmin && toolset.OwnerUserID != userID {
+		return 0, fmt.Errorf("%w: only owner or admin can modify toolset", ErrAccessDenied)
 	}
 
 	// Validate that all tool IDs exist
@@ -273,22 +278,24 @@ func (s *ToolsetService) AddTools(ctx context.Context, toolsetID int64, input Ad
 	return s.facade.AddTools(toolsetID, input.ToolIDs)
 }
 
-// RemoveTool removes a tool from a toolset
-func (s *ToolsetService) RemoveTool(ctx context.Context, toolsetID, toolID int64, userID string) error {
+// RemoveTool removes a tool from a toolset.
+// Admins can modify any toolset; regular users can only modify their own.
+func (s *ToolsetService) RemoveTool(ctx context.Context, toolsetID, toolID int64, userID string, isAdmin bool) error {
 	toolset, err := s.facade.GetByID(toolsetID)
 	if err != nil {
 		return fmt.Errorf("toolset %w", ErrNotFound)
 	}
 
-	if toolset.OwnerUserID != userID {
-		return fmt.Errorf("%w: only owner can modify toolset", ErrAccessDenied)
+	if !isAdmin && toolset.OwnerUserID != userID {
+		return fmt.Errorf("%w: only owner or admin can modify toolset", ErrAccessDenied)
 	}
 
 	return s.facade.RemoveTool(toolsetID, toolID)
 }
 
-// Search searches toolsets by query
-func (s *ToolsetService) Search(ctx context.Context, query, mode string, limit int, userID string) (*ToolsetSearchResult, error) {
+// Search searches toolsets by query.
+// Admins can search all toolsets; regular users can only search public + their own.
+func (s *ToolsetService) Search(ctx context.Context, query, mode string, limit int, userID string, isAdmin bool) (*ToolsetSearchResult, error) {
 	switch mode {
 	case "semantic":
 		if s.embedding == nil || !s.embedding.IsEnabled() {
@@ -298,14 +305,14 @@ func (s *ToolsetService) Search(ctx context.Context, query, mode string, limit i
 		if err != nil {
 			return nil, fmt.Errorf("failed to generate embedding: %w", err)
 		}
-		results, err := s.facade.SemanticSearch(emb, limit, s.scoreThreshold, userID)
+		results, err := s.facade.SemanticSearch(emb, limit, s.scoreThreshold, userID, isAdmin)
 		if err != nil {
 			return nil, err
 		}
 		return &ToolsetSearchResult{Toolsets: results, Total: len(results), Mode: "semantic"}, nil
 
 	default: // keyword
-		toolsets, err := s.facade.Search(query, limit, userID)
+		toolsets, err := s.facade.Search(query, limit, userID, isAdmin)
 		if err != nil {
 			return nil, err
 		}
