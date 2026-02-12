@@ -5,6 +5,7 @@ package analyzer
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -29,11 +30,19 @@ type OCIClient struct {
 	authResolver *AuthResolver
 }
 
-// NewOCIClient creates a new OCI Distribution API client
+// NewOCIClient creates a new OCI Distribution API client.
+// It uses a custom TLS transport that skips certificate verification
+// to support internal registries with self-signed certificates.
 func NewOCIClient(authResolver *AuthResolver) *OCIClient {
+	transport := &http.Transport{
+		TLSClientConfig: &tls.Config{
+			InsecureSkipVerify: true, //nolint:gosec // Internal registries may use self-signed certs
+		},
+	}
 	return &OCIClient{
 		httpClient: &http.Client{
-			Timeout: ociClientTimeout,
+			Timeout:   ociClientTimeout,
+			Transport: transport,
 		},
 		authResolver: authResolver,
 	}
@@ -216,6 +225,11 @@ func (c *OCIClient) StreamLayerBlob(ctx context.Context, ref ImageRef, layerDige
 	// Use a separate client with no timeout for streaming large blobs
 	streamClient := &http.Client{
 		Timeout: 0, // No timeout for streaming
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{
+				InsecureSkipVerify: true, //nolint:gosec // Internal registries may use self-signed certs
+			},
+		},
 	}
 
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
