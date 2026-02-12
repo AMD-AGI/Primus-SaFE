@@ -21,7 +21,7 @@ fi
 nsenter --target 1 --mount --uts --ipc --net --pid -- /usr/bin/rocm-smi > /tmp/rocm-smi.tmp
 ret=$?
 if [ $ret -ne 0 ]; then
-  echo "failed to execute rocm-smi. $ret"
+  echo "Error: failed to execute rocm-smi. $ret"
   rm -f /tmp/rocm-smi.tmp
   exit 1
 fi

@@ -9,6 +9,7 @@ metadata:
   name: {{ .Release.Name }}-resource-manager
   namespace: {{ .Release.Namespace }}
   labels:
+    primus-safe-app-name: resource-manager
     app: {{ .Release.Name }}-resource-manager
     app.kubernetes.io/managed-by: Helm
   annotations:

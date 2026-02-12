@@ -7,6 +7,7 @@ package resource
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -35,6 +36,12 @@ const (
 	CleanupJobPrefix = "cleanup-"
 	// DownloadJobPrefix is the prefix for download job names
 	DownloadJobPrefix = "download-"
+
+	// MaxFailoverAttempts is the maximum number of workspace failover attempts per path
+	MaxFailoverAttempts = 3
+	// FailoverTriedAnnotation stores tried workspaces per path for failover tracking
+	// Value format: JSON map[string][]string where key is base PFS path and value is list of tried workspace names
+	FailoverTriedAnnotation = "model.amd.com/failover-tried"
 )
 
 // ModelReconciler reconciles a Model object
@@ -465,13 +472,25 @@ func (r *ModelReconciler) handleDownloading(ctx context.Context, model *v1.Model
 					klog.ErrorS(err, "Failed to delete completed OpsJob", "job", jobName)
 				}
 			} else if opsJob.Status.Phase == v1.OpsJobFailed {
-				lp.Status = v1.LocalPathStatusFailed
-				lp.Message = r.extractOpsJobFailureReason(opsJob)
-				klog.ErrorS(nil, "Local download failed", "model", model.Name, "workspace", lp.Workspace)
+				failureReason := r.extractOpsJobFailureReason(opsJob)
+				klog.ErrorS(nil, "Local download failed", "model", model.Name, "workspace", lp.Workspace, "reason", failureReason)
 
-				// Delete failed OpsJob
+				// Delete failed OpsJob first
 				if err := r.Delete(ctx, opsJob); err != nil && !errors.IsNotFound(err) {
 					klog.ErrorS(err, "Failed to delete failed OpsJob", "job", jobName)
+				}
+
+				// Attempt failover to another workspace sharing the same storage path
+				if r.tryFailover(ctx, model, lp) {
+					klog.InfoS("Failover initiated for local download",
+						"model", model.Name,
+						"failedWorkspace", lp.Workspace,
+						"path", lp.Path)
+					// lp.Workspace and lp.Status are updated by tryFailover
+				} else {
+					// No failover possible, mark as final failure
+					lp.Status = v1.LocalPathStatusFailed
+					lp.Message = failureReason
 				}
 			}
 		}
@@ -871,6 +890,159 @@ func (r *ModelReconciler) constructDownloadJob(model *v1.Model) (*batchv1.Job, e
 	}
 
 	return job, nil
+}
+
+// tryFailover attempts to switch the localPath to another workspace sharing the same storage path.
+// Returns true if failover was initiated (lp.Workspace and lp.Status are updated).
+// Returns false if no failover is possible (caller should mark as final failure).
+func (r *ModelReconciler) tryFailover(ctx context.Context, model *v1.Model, lp *v1.ModelLocalPath) bool {
+	failedWorkspace := lp.Workspace
+
+	// Extract the base PFS path (e.g., "/wekafs" from "/wekafs/models/xxx")
+	basePath := r.extractBasePath(lp.Path)
+	if basePath == "" {
+		klog.InfoS("Cannot determine base path for failover", "model", model.Name, "path", lp.Path)
+		return false
+	}
+
+	// Get and update tried workspaces from annotation
+	triedWorkspaces := r.getTriedWorkspaces(model, basePath)
+	triedWorkspaces = appendUnique(triedWorkspaces, failedWorkspace)
+
+	// Check max failover attempts
+	if len(triedWorkspaces) > MaxFailoverAttempts {
+		klog.InfoS("Exceeded max failover attempts",
+			"model", model.Name, "basePath", basePath,
+			"attempts", len(triedWorkspaces), "max", MaxFailoverAttempts)
+		r.setTriedWorkspaces(model, basePath, triedWorkspaces)
+		return false
+	}
+
+	// Find all workspaces sharing the same base path
+	allWorkspaces, err := commonworkspace.GetWorkspacesWithSamePath(r.Client, basePath)
+	if err != nil {
+		klog.ErrorS(err, "Failed to get workspaces with same path", "model", model.Name, "basePath", basePath)
+		r.setTriedWorkspaces(model, basePath, triedWorkspaces)
+		return false
+	}
+
+	// Filter out already tried workspaces
+	var candidates []string
+	for _, ws := range allWorkspaces {
+		if !containsString(triedWorkspaces, ws) {
+			candidates = append(candidates, ws)
+		}
+	}
+
+	if len(candidates) == 0 {
+		klog.InfoS("No more workspaces available for failover",
+			"model", model.Name, "basePath", basePath,
+			"triedWorkspaces", triedWorkspaces)
+		r.setTriedWorkspaces(model, basePath, triedWorkspaces)
+		return false
+	}
+
+	// Pick the next candidate
+	nextWorkspace := candidates[0]
+	klog.InfoS("Failover to another workspace",
+		"model", model.Name,
+		"failedWorkspace", failedWorkspace,
+		"nextWorkspace", nextWorkspace,
+		"triedWorkspaces", triedWorkspaces,
+		"remainingCandidates", candidates)
+
+	// Update the localPath to use the new workspace, keep the same path
+	lp.Workspace = nextWorkspace
+	lp.Status = v1.LocalPathStatusPending
+	lp.Message = fmt.Sprintf("Failover: %s → %s (attempt %d/%d)",
+		failedWorkspace, nextWorkspace, len(triedWorkspaces), MaxFailoverAttempts)
+
+	// Save tried workspaces in annotation
+	r.setTriedWorkspaces(model, basePath, triedWorkspaces)
+
+	return true
+}
+
+// extractBasePath extracts the base PFS path from a full model path.
+// e.g., "/wekafs/models/llama-2-7b" -> "/wekafs"
+func (r *ModelReconciler) extractBasePath(fullPath string) string {
+	// Look for /models/ in the path to find the base
+	idx := strings.Index(fullPath, "/models/")
+	if idx > 0 {
+		return fullPath[:idx]
+	}
+	// Fallback: find all workspaces and match against the path prefix
+	return ""
+}
+
+// getTriedWorkspaces retrieves the list of tried workspaces for a specific base path from model annotations.
+func (r *ModelReconciler) getTriedWorkspaces(model *v1.Model, basePath string) []string {
+	annotations := model.GetAnnotations()
+	if annotations == nil {
+		return nil
+	}
+
+	data, ok := annotations[FailoverTriedAnnotation]
+	if !ok || data == "" {
+		return nil
+	}
+
+	var triedMap map[string][]string
+	if err := json.Unmarshal([]byte(data), &triedMap); err != nil {
+		klog.ErrorS(err, "Failed to parse failover tried annotation", "model", model.Name)
+		return nil
+	}
+
+	return triedMap[basePath]
+}
+
+// setTriedWorkspaces stores the list of tried workspaces for a specific base path in model annotations.
+func (r *ModelReconciler) setTriedWorkspaces(model *v1.Model, basePath string, workspaces []string) {
+	annotations := model.GetAnnotations()
+	if annotations == nil {
+		annotations = make(map[string]string)
+	}
+
+	// Read existing map
+	var triedMap map[string][]string
+	if data, ok := annotations[FailoverTriedAnnotation]; ok && data != "" {
+		if err := json.Unmarshal([]byte(data), &triedMap); err != nil {
+			triedMap = make(map[string][]string)
+		}
+	} else {
+		triedMap = make(map[string][]string)
+	}
+
+	triedMap[basePath] = workspaces
+
+	jsonBytes, err := json.Marshal(triedMap)
+	if err != nil {
+		klog.ErrorS(err, "Failed to marshal failover tried annotation", "model", model.Name)
+		return
+	}
+
+	annotations[FailoverTriedAnnotation] = string(jsonBytes)
+	model.SetAnnotations(annotations)
+}
+
+// appendUnique appends an item to a string slice if it's not already present.
+func appendUnique(slice []string, item string) []string {
+	for _, s := range slice {
+		if s == item {
+			return slice
+		}
+	}
+	return append(slice, item)
+}
+
+// containsString checks if a string slice contains a specific item.
+func containsString(slice []string, item string) bool {
+	for _, s := range slice {
+		if s == item {
+			return true
+		}
+	}
+	return false
 }
 
 // extractHFRepoId extracts the repository ID from a HuggingFace URL.

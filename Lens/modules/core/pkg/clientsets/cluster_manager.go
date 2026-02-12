@@ -11,6 +11,7 @@ import (
 
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/errors"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
+	"k8s.io/client-go/tools/clientcmd"
 )
 
 // ClusterClientSet contains all clients for a single cluster
@@ -31,8 +32,8 @@ type ClusterManager struct {
 	// In multi-cluster mode, this includes the current cluster and all remote clusters
 	clusters map[string]*ClusterClientSet
 
-	// Whether in multi-cluster mode
-	multiCluster bool
+	// Component type (control plane or data plane)
+	componentType ComponentType
 
 	// Whether to load K8S client
 	loadK8SClient bool
@@ -49,16 +50,16 @@ var (
 	clusterManagerOnce   sync.Once
 )
 
-// InitClusterManager initializes the cluster manager and all client sets
+// InitClusterManager initializes the cluster manager with a component declaration
 // This is the main entry point for initializing all clients
-func InitClusterManager(ctx context.Context, multiCluster bool, loadK8SClient bool, loadStorageClient bool) error {
+func InitClusterManager(ctx context.Context, decl ComponentDeclaration) error {
 	var initErr error
 	clusterManagerOnce.Do(func() {
 		globalClusterManager = &ClusterManager{
 			clusters:          make(map[string]*ClusterClientSet),
-			multiCluster:      multiCluster,
-			loadK8SClient:     loadK8SClient,
-			loadStorageClient: loadStorageClient,
+			componentType:     decl.Type,
+			loadK8SClient:     decl.RequireK8S,
+			loadStorageClient: decl.RequireStorage,
 		}
 		initErr = globalClusterManager.initialize(ctx)
 	})
@@ -82,9 +83,15 @@ func GetClusterManager() *ClusterManager {
 //
 // Note: This method can only be called once. Subsequent calls will be ignored.
 func InitClusterManagerWithClientSet(clientSet *ClusterClientSet) {
+	InitClusterManagerWithClientSetV2(clientSet, ComponentTypeDataPlane)
+}
+
+// InitClusterManagerWithClientSetV2 initializes the cluster manager with a pre-configured ClusterClientSet
+// and a specific component type.
+func InitClusterManagerWithClientSetV2(clientSet *ClusterClientSet, componentType ComponentType) {
 	clusterManagerOnce.Do(func() {
 		if clientSet == nil {
-			log.Warn("InitClusterManagerWithClientSet called with nil clientSet, creating empty manager")
+			log.Warn("InitClusterManagerWithClientSetV2 called with nil clientSet, creating empty manager")
 			clientSet = &ClusterClientSet{
 				ClusterName: "default",
 			}
@@ -92,7 +99,7 @@ func InitClusterManagerWithClientSet(clientSet *ClusterClientSet) {
 
 		globalClusterManager = &ClusterManager{
 			clusters:           make(map[string]*ClusterClientSet),
-			multiCluster:       false,
+			componentType:      componentType,
 			loadK8SClient:      clientSet.K8SClientSet != nil,
 			loadStorageClient:  clientSet.StorageClientSet != nil,
 			currentCluster:     clientSet,
@@ -102,10 +109,11 @@ func InitClusterManagerWithClientSet(clientSet *ClusterClientSet) {
 		// Add current cluster to clusters map
 		globalClusterManager.clusters[clientSet.ClusterName] = clientSet
 
-		log.Infof("Cluster manager initialized with pre-configured client set: %s (K8S: %v, Storage: %v)",
+		log.Infof("Cluster manager initialized with pre-configured client set: %s (K8S: %v, Storage: %v, Type: %s)",
 			clientSet.ClusterName,
 			clientSet.K8SClientSet != nil,
-			clientSet.StorageClientSet != nil)
+			clientSet.StorageClientSet != nil,
+			componentType.String())
 	})
 }
 
@@ -119,120 +127,33 @@ func NewStorageClientSetWithDB(db interface{}) *StorageClientSet {
 	}
 }
 
-// initialize initializes the cluster manager
+// initialize initializes the cluster manager based on component type
 func (cm *ClusterManager) initialize(ctx context.Context) error {
-	// Initialize K8S client sets first if enabled
-	if cm.loadK8SClient {
-		if err := cm.initializeK8SClients(ctx); err != nil {
-			return err
-		}
-	} else {
-		log.Info("K8S client loading is disabled")
-	}
+	log.Infof("Initializing cluster manager as %s component...", cm.componentType.String())
 
-	// Initialize Storage client sets if enabled
-	if cm.loadStorageClient {
-		if err := cm.initializeStorageClients(ctx); err != nil {
-			return err
-		}
-	} else {
-		log.Info("Storage client loading is disabled")
-	}
-
-	// Initialize current cluster only if at least one client is enabled
-	if cm.loadK8SClient || cm.loadStorageClient {
-		if err := cm.initializeCurrentCluster(); err != nil {
-			return err
-		}
-
-		// If in multi-cluster mode, initialize all clusters
-		if cm.multiCluster {
-			if err := cm.loadAllClusters(ctx); err != nil {
-				log.Warnf("Failed to load multi-cluster clients: %v", err)
-				// Don't return error as multi-cluster config may not be ready yet
-			}
-
-			// Start periodic sync
-			go cm.startPeriodicSync(ctx)
-		}
-	} else {
+	if !cm.loadK8SClient && !cm.loadStorageClient {
 		log.Warn("Both K8S and Storage client loading are disabled, skipping cluster initialization")
+		return nil
 	}
 
-	log.Info("Cluster manager initialized successfully")
-	return nil
-}
-
-// initializeK8SClients initializes K8S clients for current and multi-cluster
-func (cm *ClusterManager) initializeK8SClients(ctx context.Context) error {
-	// Initialize current cluster K8S client
-	if err := initCurrentClusterK8SClientSet(ctx); err != nil {
-		return err
-	}
-
-	// If in multi-cluster mode, initialize multi-cluster K8S clients
-	if cm.multiCluster {
-		if err := loadMultiClusterK8SClientSet(ctx); err != nil {
-			log.Warnf("Failed to load multi-cluster K8S clients: %v", err)
-			// Don't return error as multi-cluster config may not be ready yet
-		}
-		// Start periodic sync for K8S clients
-		go doLoadMultiClusterK8SClientSet(ctx)
-	} else {
-		log.Info("Not in multi-cluster mode, skipping multi-cluster K8S client loading")
-	}
-
-	log.Info("K8S clients initialized successfully")
-	return nil
-}
-
-// initializeStorageClients initializes Storage clients for current and multi-cluster
-func (cm *ClusterManager) initializeStorageClients(ctx context.Context) error {
 	var err error
-	if !cm.multiCluster {
-		err = loadCurrentClusterStorageClients(ctx)
-		if err == nil {
-			log.Info("Current cluster storage clients loaded successfully")
-		}
-	} else {
-		// In multi-cluster mode, first initialize current cluster storage clients
-		err = loadCurrentClusterStorageClients(ctx)
-		if err != nil {
-			log.Warnf("Failed to load current cluster storage clients: %v", err)
-			// Don't return error as storage config may not be ready yet
-			err = nil
-		}
-
-		// Then load multi-cluster storage clients
-		err = loadMultiClusterStorageClients(ctx)
-		if err != nil {
-			log.Warnf("Failed to load multi-cluster storage clients: %v", err)
-			// Don't return error as multi-cluster config may not be ready yet
-			err = nil
-		}
-		// Start periodic sync for storage clients
-		go func() {
-			ticker := time.NewTicker(30 * time.Second)
-			defer ticker.Stop()
-			for {
-				select {
-				case <-ticker.C:
-					if err := loadMultiClusterStorageClients(ctx); err != nil {
-						log.Errorf("Failed to reload multi-cluster storage clients: %v", err)
-					}
-				case <-ctx.Done():
-					return
-				}
-			}
-		}()
-		log.Info("Multi-cluster storage clients loading initiated")
+	switch cm.componentType {
+	case ComponentTypeControlPlane:
+		err = cm.initControlPlane(ctx)
+	case ComponentTypeDataPlane:
+		err = cm.initDataPlane(ctx)
+	default:
+		// Fallback to data plane behavior
+		log.Warnf("Unknown component type %d, falling back to DataPlane", cm.componentType)
+		cm.componentType = ComponentTypeDataPlane
+		err = cm.initDataPlane(ctx)
 	}
 
 	if err != nil {
 		return err
 	}
 
-	log.Info("Storage clients initialized successfully")
+	log.Infof("Cluster manager initialized successfully as %s", cm.componentType.String())
 	return nil
 }
 
@@ -259,8 +180,13 @@ func (cm *ClusterManager) initializeCurrentCluster() error {
 		StorageClientSet: storageClient,
 	}
 
-	// Also add current cluster to clusters map
-	cm.clusters[clusterName] = cm.currentCluster
+	// For data plane components, add current cluster to clusters map
+	// (data plane only has access to its own cluster)
+	// For control plane components, current cluster stays separate from multi-cluster map
+	// (control plane's own cluster clients are accessed via GetCurrentClusterClients())
+	if cm.componentType.IsDataPlane() {
+		cm.clusters[clusterName] = cm.currentCluster
+	}
 
 	// Initialize default cluster name from environment variable
 	cm.defaultClusterName = getDefaultClusterName()
@@ -274,34 +200,30 @@ func (cm *ClusterManager) initializeCurrentCluster() error {
 }
 
 // loadAllClusters loads clients for all clusters (multi-cluster mode)
+// For control plane: loads only remote clusters from cluster_config (current cluster stays separate)
+// For data plane: this function should not be called (data plane only has current cluster)
 func (cm *ClusterManager) loadAllClusters(ctx context.Context) error {
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
 
-	// Create new cluster map
+	// Create new cluster map for remote clusters only
 	newClusters := make(map[string]*ClusterClientSet)
 
-	// Keep current cluster
-	if cm.currentCluster != nil {
-		newClusters[cm.currentCluster.ClusterName] = cm.currentCluster
-	}
-
-	// Get all K8S clients if K8S client loading is enabled
+	// Get all K8S clients
+	// For control plane, always load multi-cluster clients regardless of config
 	var k8sClients map[string]*K8SClientSet
-	if cm.loadK8SClient {
+	if cm.componentType.IsControlPlane() || cm.loadK8SClient {
 		k8sClients = getAllClusterK8SClients()
 	}
 
 	// Create ClusterClientSet for each remote cluster
+	// Note: Current cluster (control plane's own cluster) is NOT included here
+	// It's accessed separately via GetCurrentClusterClients()
 	for clusterName, k8sClient := range k8sClients {
-		// Skip if it's the current cluster (already added)
-		if clusterName == cm.currentCluster.ClusterName {
-			continue
-		}
-
 		var storageClient *StorageClientSet
-		// Try to get storage client for this cluster if storage client loading is enabled
-		if cm.loadStorageClient {
+		// Try to get storage client for this cluster
+		// For control plane, always load multi-cluster clients regardless of config
+		if cm.componentType.IsControlPlane() || cm.loadStorageClient {
 			var err error
 			storageClient, err = getStorageClientSetByClusterName(clusterName)
 			if err != nil {
@@ -327,6 +249,7 @@ func (cm *ClusterManager) loadAllClusters(ctx context.Context) error {
 }
 
 // startPeriodicSync starts periodic synchronization (multi-cluster mode)
+// This syncs K8S clients, Storage clients, and then loads all clusters into the cluster map
 func (cm *ClusterManager) startPeriodicSync(ctx context.Context) {
 	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
@@ -334,11 +257,31 @@ func (cm *ClusterManager) startPeriodicSync(ctx context.Context) {
 	for {
 		select {
 		case <-ticker.C:
+			// Sync K8S clients first (updates multiClusterK8S)
+			// For control plane, always load multi-cluster clients regardless of config
+			if cm.componentType.IsControlPlane() || cm.loadK8SClient {
+				if err := loadMultiClusterK8SClientSet(ctx); err != nil {
+					log.Warnf("Failed to reload multi-cluster K8S clients: %v", err)
+				}
+			}
+
+			// Then sync Storage clients (updates multiClusterStorage)
+			// For control plane, always load multi-cluster clients regardless of config
+			if cm.componentType.IsControlPlane() || cm.loadStorageClient {
+				if err := loadMultiClusterStorageClients(ctx); err != nil {
+					log.Warnf("Failed to reload multi-cluster storage clients: %v", err)
+				}
+			}
+
+			// Finally load all clusters into the cluster map
 			if err := cm.loadAllClusters(ctx); err != nil {
 				log.Errorf("Failed to sync clusters: %v", err)
 			} else {
 				log.Debug("Clusters synced successfully")
 			}
+
+			// Also refresh default cluster from database
+			cm.loadDefaultClusterFromDB(ctx)
 		case <-ctx.Done():
 			log.Info("Stopping cluster manager periodic sync")
 			return
@@ -347,15 +290,29 @@ func (cm *ClusterManager) startPeriodicSync(ctx context.Context) {
 }
 
 // GetCurrentClusterClients returns the current cluster's clients (commonly used in data plane)
+// Returns nil if current cluster is not initialized (e.g., during initial setup with no clusters)
 func (cm *ClusterManager) GetCurrentClusterClients() *ClusterClientSet {
-	if cm.currentCluster == nil {
-		panic("current cluster not initialized")
-	}
 	return cm.currentCluster
 }
 
+// HasCurrentCluster returns true if the current cluster is initialized
+func (cm *ClusterManager) HasCurrentCluster() bool {
+	return cm.currentCluster != nil
+}
+
 // GetClientSetByClusterName returns clients for a specific cluster by name (commonly used in control plane)
+// For data plane components, this will only return the current cluster if the name matches
 func (cm *ClusterManager) GetClientSetByClusterName(clusterName string) (*ClusterClientSet, error) {
+	// For data plane components, only allow access to current cluster
+	if cm.componentType.IsDataPlane() {
+		if cm.currentCluster != nil && cm.currentCluster.ClusterName == clusterName {
+			return cm.currentCluster, nil
+		}
+		return nil, errors.NewError().
+			WithCode(errors.RequestDataNotExisted).
+			WithMessagef("DataPlane component can only access current cluster, requested: %s", clusterName)
+	}
+
 	cm.mu.RLock()
 	defer cm.mu.RUnlock()
 
@@ -370,7 +327,19 @@ func (cm *ClusterManager) GetClientSetByClusterName(clusterName string) (*Cluste
 }
 
 // ListAllClientSets returns all cluster clients (commonly used in control plane)
+// For data plane components, this will only return the current cluster
 func (cm *ClusterManager) ListAllClientSets() map[string]*ClusterClientSet {
+	// For data plane components, only return current cluster
+	if cm.componentType.IsDataPlane() {
+		log.Debug("DataPlane component called ListAllClientSets, returning only current cluster")
+		if cm.currentCluster != nil {
+			return map[string]*ClusterClientSet{
+				cm.currentCluster.ClusterName: cm.currentCluster,
+			}
+		}
+		return make(map[string]*ClusterClientSet)
+	}
+
 	cm.mu.RLock()
 	defer cm.mu.RUnlock()
 
@@ -384,7 +353,16 @@ func (cm *ClusterManager) ListAllClientSets() map[string]*ClusterClientSet {
 }
 
 // GetClusterNames returns a list of all cluster names
+// For data plane components, this returns only the current cluster name
 func (cm *ClusterManager) GetClusterNames() []string {
+	// For data plane components, only return current cluster
+	if cm.componentType.IsDataPlane() {
+		if cm.currentCluster != nil {
+			return []string{cm.currentCluster.ClusterName}
+		}
+		return []string{}
+	}
+
 	cm.mu.RLock()
 	defer cm.mu.RUnlock()
 
@@ -397,7 +375,16 @@ func (cm *ClusterManager) GetClusterNames() []string {
 }
 
 // GetClusterCount returns the number of clusters
+// For data plane components, this always returns 1 (current cluster only)
 func (cm *ClusterManager) GetClusterCount() int {
+	// For data plane components, only current cluster is available
+	if cm.componentType.IsDataPlane() {
+		if cm.currentCluster != nil {
+			return 1
+		}
+		return 0
+	}
+
 	cm.mu.RLock()
 	defer cm.mu.RUnlock()
 
@@ -405,8 +392,14 @@ func (cm *ClusterManager) GetClusterCount() int {
 }
 
 // IsMultiCluster returns whether in multi-cluster mode
+// Deprecated: Use GetComponentType().IsControlPlane() instead
 func (cm *ClusterManager) IsMultiCluster() bool {
-	return cm.multiCluster
+	return cm.componentType.IsControlPlane()
+}
+
+// GetComponentType returns the component type of this cluster manager
+func (cm *ClusterManager) GetComponentType() ComponentType {
+	return cm.componentType
 }
 
 // GetCurrentClusterName returns the current cluster name
@@ -433,11 +426,40 @@ func getCurrentClusterName() string {
 		return name
 	}
 
-	// Try to get from K8S config
-	// This can be extended based on actual requirements
+	// Try to get from kubeconfig current-context
+	if name := getClusterNameFromKubeconfig(); name != "" {
+		log.Infof("Cluster name detected from kubeconfig: %s", name)
+		return name
+	}
 
-	// Default value
+	// Default value - use "default" to be consistent with sql.GetDefaultDB()
+	log.Warn("CLUSTER_NAME environment variable not set, using 'default' as cluster name")
 	return "default"
+}
+
+// getClusterNameFromKubeconfig attempts to get the cluster name from kubeconfig
+func getClusterNameFromKubeconfig() string {
+	// Try to load kubeconfig rules
+	loadingRules := clientcmd.NewDefaultClientConfigLoadingRules()
+	configOverrides := &clientcmd.ConfigOverrides{}
+	kubeConfig := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(loadingRules, configOverrides)
+
+	// Get raw config
+	rawConfig, err := kubeConfig.RawConfig()
+	if err != nil {
+		log.Debugf("Failed to load kubeconfig: %v", err)
+		return ""
+	}
+
+	// Get current context
+	currentContext := rawConfig.CurrentContext
+	if currentContext == "" {
+		return ""
+	}
+
+	// Return the context name as cluster name
+	// Context name typically represents the cluster identity
+	return currentContext
 }
 
 // getDefaultClusterName gets the default cluster name from environment variables
@@ -461,7 +483,18 @@ func (cm *ClusterManager) SetDefaultClusterName(clusterName string) {
 // 1. If clusterName is provided and not empty, use that cluster
 // 2. If no clusterName provided but default cluster is configured, use default cluster
 // 3. Otherwise, use current cluster
+// For data plane components, this always returns the current cluster (ignoring clusterName parameter)
 func (cm *ClusterManager) GetClusterClientsOrDefault(clusterName string) (*ClusterClientSet, error) {
+	// For data plane components, always return current cluster
+	if cm.componentType.IsDataPlane() {
+		if clusterName != "" && clusterName != cm.currentCluster.ClusterName {
+			log.Debugf("DataPlane component requested cluster '%s', returning current cluster '%s' instead",
+				clusterName, cm.currentCluster.ClusterName)
+		}
+		return cm.GetCurrentClusterClients(), nil
+	}
+
+	// Control plane logic: support multi-cluster
 	// If cluster name is explicitly provided, use it
 	if clusterName != "" {
 		return cm.GetClientSetByClusterName(clusterName)

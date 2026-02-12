@@ -48,9 +48,9 @@ type notificationChannels struct {
 	ALL         field.Asterisk
 	ID          field.Int64
 	Name        field.String
-	Type        field.String
+	Type        field.String // Channel type: email, webhook, dingtalk, wechat, slack, alertmanager
 	Enabled     field.Bool
-	Config      field.Field
+	Config      field.Field // Channel-specific configuration (SMTP settings, webhook URL, etc.)
 	Description field.String
 	CreatedAt   field.Time
 	UpdatedAt   field.Time

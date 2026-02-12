@@ -13,6 +13,19 @@ import (
 	"strings"
 	"time"
 
+	sqrl "github.com/Masterminds/squirrel"
+	"github.com/gin-gonic/gin"
+	"github.com/gin-gonic/gin/binding"
+	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
+	apitypes "k8s.io/apimachinery/pkg/types"
+	"k8s.io/klog/v2"
+	"k8s.io/utils/pointer"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/resources/view"
@@ -29,22 +42,9 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/concurrent"
 	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
 	maputil "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/maps"
-	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/netutil"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/sets"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/timeutil"
-	sqrl "github.com/Masterminds/squirrel"
-	"github.com/gin-gonic/gin"
-	"github.com/gin-gonic/gin/binding"
-	corev1 "k8s.io/api/core/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/api/meta"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/labels"
-	apitypes "k8s.io/apimachinery/pkg/types"
-	"k8s.io/klog/v2"
-	"k8s.io/utils/pointer"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 type WorkloadBatchAction string
@@ -715,6 +715,10 @@ func (h *Handler) getWorkloadForAuth(ctx context.Context, workloadId string) (*v
 	if !endTime.IsZero() {
 		adminWorkload.Status.EndTime = &metav1.Time{Time: endTime}
 	}
+	startTime := dbutils.ParseNullTime(dbWorkload.StartTime)
+	if !startTime.IsZero() {
+		adminWorkload.Status.StartTime = &metav1.Time{Time: startTime}
+	}
 	return adminWorkload, nil
 }
 
@@ -1274,7 +1278,8 @@ func (h *Handler) cvtDBWorkloadToGetResponse(ctx context.Context,
 	if str := dbutils.ParseNullString(dbWorkload.Pods); str != "" {
 		json.Unmarshal([]byte(str), &result.Pods)
 		for i, p := range result.Pods {
-			result.Pods[i].SSHAddr = h.buildSSHAddress(ctx, &p.WorkloadPod, result.UserId, result.WorkspaceId)
+			result.Pods[i].SSHCommand = h.buildSSHCommand(ctx,
+				&p.WorkloadPod, user.Name, result.WorkspaceId, result.GroupVersionKind)
 		}
 	}
 	if str := dbutils.ParseNullString(dbWorkload.Nodes); str != "" {
@@ -1350,48 +1355,24 @@ func parseCustomerLabels(labels map[string]string) (map[string]string, []string,
 	return customerLabels, specifiedNodes, excludedNodes
 }
 
-// buildSSHAddress constructs the SSH address for accessing a workload pod.
-// Generates the appropriate SSH command based on system configuration and pod status.
-func (h *Handler) buildSSHAddress(ctx context.Context, pod *v1.WorkloadPod, userId, workspace string) string {
+// buildSSHCommand constructs the SSH command for accessing a workload pod.
+func (h *Handler) buildSSHCommand(ctx context.Context, pod *v1.WorkloadPod, userId, workspace string, gvk v1.GroupVersionKind) string {
 	if !commonconfig.IsSSHEnable() || pod.Phase != corev1.PodRunning {
 		return ""
 	}
 	if userId == "" {
 		userId = "none"
 	}
-	ep, err := h.clientSet.CoreV1().Endpoints(common.HigressNamespace).Get(ctx, common.HigressGateway, metav1.GetOptions{})
+
+	template, err := commonworkload.GetWorkloadTemplate(ctx, h.Client, gvk.ToSchemaGVK())
 	if err != nil {
-		klog.ErrorS(err, "Failed to get higress gateway")
+		klog.ErrorS(err, "Failed to get workload template")
 		return ""
 	}
-
-	gatewayIp := ""
-	for _, sub := range ep.Subsets {
-		isMatch := false
-		for _, p := range sub.Ports {
-			if p.Port == common.HigressSSHPort && p.Protocol == corev1.ProtocolTCP {
-				isMatch = true
-				break
-			}
-		}
-		if !isMatch {
-			continue
-		}
-		if len(sub.Addresses) > 0 {
-			gatewayIp = sub.Addresses[0].IP
-			break
-		}
-	}
-	if gatewayIp != "" {
-		return fmt.Sprintf("ssh %s.%s.%s@%s", userId, pod.PodId, workspace, gatewayIp)
-	}
-
-	localIp, _ := netutil.GetLocalIp()
-	if localIp == "" {
-		return ""
-	}
-	return fmt.Sprintf("ssh -p %d %s.%s.%s@%s",
-		commonconfig.GetSSHServerPort(), userId, pod.PodId, workspace, localIp)
+	// pattern: {userId}.{podId}.{container}.sh.{workspace}@{host}
+	// e.g. ssh -o ServerAliveInterval=60 7fda556669b09dcec5d779438e7432c5.verl40-fpg88-master-0.pytorch.sh.x-flannel-prod@tw325.primus-safe.amd.com -p 2222
+	return fmt.Sprintf("ssh -o ServerAliveInterval=60 %s.%s.%s.sh.%s@%s -p %d", userId, pod.PodId,
+		v1.GetMainContainer(template), workspace, commonconfig.GetSystemHost(), commonconfig.GetSSHServerPort())
 }
 
 // generateWorkloadForAuth creates a minimal workload object for authorization checks.

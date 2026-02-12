@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/aiclient"
@@ -20,6 +21,7 @@ import (
 	dbmodel "github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database/model"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/model/rest"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/workflow"
 	"github.com/gin-gonic/gin"
 )
 
@@ -454,7 +456,8 @@ func GetGithubWorkflowRun(ctx *gin.Context) {
 		return
 	}
 
-	facade := database.GetFacadeForCluster(clusterName).GetGithubWorkflowRun()
+	clusterFacade := database.GetFacadeForCluster(clusterName)
+	facade := clusterFacade.GetGithubWorkflowRun()
 	run, err := facade.GetByID(ctx.Request.Context(), id)
 	if err != nil {
 		log.GlobalLogger().WithContext(ctx).Errorf("Failed to get github workflow run: %v", err)
@@ -466,7 +469,34 @@ func GetGithubWorkflowRun(ctx *gin.Context) {
 		return
 	}
 
-	ctx.JSON(http.StatusOK, rest.SuccessResp(ctx.Request.Context(), run))
+	// Resolve SaFE UnifiedJob UID from gpu_workload table for Grafana dashboard
+	type runWithSafeUID struct {
+		*dbmodel.GithubWorkflowRuns
+		SafeWorkloadUID string `json:"safeWorkloadUid,omitempty"`
+	}
+	result := runWithSafeUID{GithubWorkflowRuns: run}
+
+	// Try this run's safe_workload_id first; if empty, check sibling runs under the same summary
+	safeWorkloadID := run.SafeWorkloadID
+	if safeWorkloadID == "" && run.RunSummaryID > 0 {
+		siblings, listErr := facade.ListByRunSummaryID(ctx.Request.Context(), run.RunSummaryID)
+		if listErr == nil {
+			for _, sibling := range siblings {
+				if sibling.SafeWorkloadID != "" {
+					safeWorkloadID = sibling.SafeWorkloadID
+					break
+				}
+			}
+		}
+	}
+	if safeWorkloadID != "" {
+		workloadFacade := clusterFacade.GetWorkload()
+		if gpuWorkload, err := workloadFacade.GetGpuWorkloadByName(ctx.Request.Context(), safeWorkloadID); err == nil && gpuWorkload != nil {
+			result.SafeWorkloadUID = gpuWorkload.UID
+		}
+	}
+
+	ctx.JSON(http.StatusOK, rest.SuccessResp(ctx.Request.Context(), result))
 }
 
 // ListAllGithubWorkflowRuns handles GET /v1/github-workflow-metrics/runs
@@ -495,6 +525,20 @@ func ListAllGithubWorkflowRuns(ctx *gin.Context) {
 	}
 	if runnerSet := ctx.Query("runner_set"); runnerSet != "" {
 		filter.RunnerSetName = runnerSet
+	}
+	if owner := ctx.Query("owner"); owner != "" {
+		filter.Owner = owner
+	}
+	if repo := ctx.Query("repo"); repo != "" {
+		filter.Repo = repo
+	}
+	if podCondition := ctx.Query("pod_condition"); podCondition != "" {
+		filter.PodCondition = podCondition
+	}
+	if githubRunIDStr := ctx.Query("github_run_id"); githubRunIDStr != "" {
+		if githubRunID, err := strconv.ParseInt(githubRunIDStr, 10, 64); err == nil {
+			filter.GithubRunID = githubRunID
+		}
 	}
 	if startDateStr := ctx.Query("start_date"); startDateStr != "" {
 		if t, err := time.Parse(time.RFC3339, startDateStr); err == nil {
@@ -2253,3 +2297,532 @@ func trimSpace(s string) string {
 	return s[start:end]
 }
 
+// ========== Real-time Workflow State Handlers ==========
+
+// GetRunLiveState returns the current workflow state (non-streaming)
+// @Summary Get current workflow state
+// @Description Returns the current state of a workflow run without streaming
+// @Tags github-workflow-metrics
+// @Produce json
+// @Param id path int true "Workflow Run ID"
+// @Success 200 {object} workflow.WorkflowLiveState
+// @Router /v1/github-workflow-metrics/runs/{id}/state [get]
+func GetRunLiveState(ctx *gin.Context) {
+	liveHandler := workflow.NewLiveHandler()
+	liveHandler.GetCurrentState(ctx)
+}
+
+// HandleLiveWorkflowState handles SSE streaming for real-time workflow updates
+// @Summary Stream workflow run state updates
+// @Description Streams real-time updates for a workflow run using Server-Sent Events (SSE)
+// @Tags github-workflow-metrics
+// @Produce text/event-stream
+// @Param id path int true "Workflow Run ID"
+// @Success 200 {object} workflow.WorkflowLiveState
+// @Router /v1/github-workflow-metrics/runs/{id}/live [get]
+func HandleLiveWorkflowState(ctx *gin.Context) {
+	liveHandler := workflow.NewLiveHandler()
+	liveHandler.HandleLiveStream(ctx)
+}
+
+// GetRunJobs returns jobs for a workflow run.
+//
+// For runner-based runs (github_job_id > 0), only the single GitHub job
+// executed by this K8s runner is returned.  For legacy metrics-collection
+// runs (github_job_id == 0), all jobs stored under this run_id are returned.
+//
+// @Summary Get workflow run jobs
+// @Description Returns jobs and steps for a workflow run
+// @Tags github-workflow-metrics
+// @Produce json
+// @Param id path int true "Workflow Run ID"
+// @Success 200 {object} map[string]interface{}
+// @Router /v1/github-workflow-metrics/runs/{id}/jobs [get]
+func GetRunJobs(ctx *gin.Context) {
+	runID, err := strconv.ParseInt(ctx.Param("id"), 10, 64)
+	if err != nil {
+		ctx.JSON(http.StatusBadRequest, rest.ErrorResp(ctx.Request.Context(), http.StatusBadRequest, "invalid run_id", nil))
+		return
+	}
+
+	clusterName, err := getClusterNameForGithubWorkflow(ctx)
+	if err != nil {
+		_ = ctx.Error(err)
+		return
+	}
+
+	jobFacade := database.NewGithubWorkflowJobFacade().WithCluster(clusterName)
+
+	// Check if this runner has a specific github_job_id.
+	// If so, return only that single job (runner-based model).
+	runFacade := database.GetFacadeForCluster(clusterName).GetGithubWorkflowRun()
+	run, runErr := runFacade.GetByID(ctx.Request.Context(), runID)
+	if runErr == nil && run != nil && run.GithubJobID != 0 {
+		jobWithSteps, err := jobFacade.FindByGithubJobIDWithSteps(ctx.Request.Context(), run.GithubJobID)
+		if err != nil {
+			log.GlobalLogger().WithContext(ctx).Errorf("Failed to get job for run %d (github_job_id %d): %v", runID, run.GithubJobID, err)
+			ctx.JSON(http.StatusInternalServerError, rest.ErrorResp(ctx.Request.Context(), http.StatusInternalServerError, err.Error(), nil))
+			return
+		}
+		jobs := []*database.JobWithSteps{}
+		if jobWithSteps != nil {
+			jobs = append(jobs, jobWithSteps)
+		}
+		ctx.JSON(http.StatusOK, gin.H{
+			"jobs":  jobs,
+			"total": len(jobs),
+		})
+		return
+	}
+
+	// Fallback: legacy metrics-collection runs or github_job_id not yet backfilled
+	jobs, err := jobFacade.ListByRunIDWithSteps(ctx.Request.Context(), runID)
+	if err != nil {
+		log.GlobalLogger().WithContext(ctx).Errorf("Failed to get jobs for run %d: %v", runID, err)
+		ctx.JSON(http.StatusInternalServerError, rest.ErrorResp(ctx.Request.Context(), http.StatusInternalServerError, err.Error(), nil))
+		return
+	}
+
+	ctx.JSON(http.StatusOK, gin.H{
+		"jobs":  jobs,
+		"total": len(jobs),
+	})
+}
+
+// StartRunSync starts synchronization for a workflow run
+// @Summary Start sync for workflow run
+// @Description Starts real-time synchronization for a workflow run
+// @Tags github-workflow-metrics
+// @Produce json
+// @Param id path int true "Workflow Run ID"
+// @Success 200 {object} map[string]interface{}
+// @Router /v1/github-workflow-metrics/runs/{id}/sync/start [post]
+func StartRunSync(ctx *gin.Context) {
+	liveHandler := workflow.NewLiveHandler()
+	liveHandler.StartSync(ctx)
+}
+
+// StopRunSync stops synchronization for a workflow run
+// @Summary Stop sync for workflow run
+// @Description Stops real-time synchronization for a workflow run
+// @Tags github-workflow-metrics
+// @Produce json
+// @Param id path int true "Workflow Run ID"
+// @Success 200 {object} map[string]interface{}
+// @Router /v1/github-workflow-metrics/runs/{id}/sync/stop [post]
+func StopRunSync(ctx *gin.Context) {
+	liveHandler := workflow.NewLiveHandler()
+	liveHandler.StopSync(ctx)
+}
+
+// GetJobLogs returns logs for a specific job within a workflow run
+// @Summary Get job logs
+// @Description Fetches logs for a specific job from local database (logs are collected by exporter)
+// @Tags github-workflow-metrics
+// @Produce json
+// @Param id path int true "Workflow Run ID"
+// @Param job_id path int true "GitHub Job ID"
+// @Success 200 {object} map[string]interface{}
+// @Router /v1/github-workflow-metrics/runs/{id}/jobs/{job_id}/logs [get]
+func GetJobLogs(ctx *gin.Context) {
+	runID, err := strconv.ParseInt(ctx.Param("id"), 10, 64)
+	if err != nil {
+		ctx.JSON(http.StatusBadRequest, rest.ErrorResp(ctx.Request.Context(), http.StatusBadRequest, "invalid run_id", nil))
+		return
+	}
+
+	jobID, err := strconv.ParseInt(ctx.Param("job_id"), 10, 64)
+	if err != nil {
+		ctx.JSON(http.StatusBadRequest, rest.ErrorResp(ctx.Request.Context(), http.StatusBadRequest, "invalid job_id", nil))
+		return
+	}
+
+	clusterName, _ := getClusterNameForGithubWorkflow(ctx)
+
+	// Get logs from local database (logs are collected by exporter's LogFetchExecutor)
+	logsFacade := database.NewGithubWorkflowJobLogsFacade().WithCluster(clusterName)
+	cachedLog, err := logsFacade.GetByJobID(ctx.Request.Context(), runID, jobID)
+	
+	if err != nil {
+		log.GlobalLogger().WithContext(ctx).Errorf("Failed to query logs for job %d: %v", jobID, err)
+		ctx.JSON(http.StatusInternalServerError, rest.ErrorResp(ctx.Request.Context(), http.StatusInternalServerError, "failed to query logs", nil))
+		return
+	}
+
+	// Check if logs exist and have been fetched
+	if cachedLog == nil {
+		ctx.JSON(http.StatusOK, gin.H{
+			"run_id":  runID,
+			"job_id":  jobID,
+			"logs":    "",
+			"status":  "not_collected",
+			"message": "Logs have not been collected yet. Logs are collected when workflow completes.",
+		})
+		return
+	}
+
+	switch cachedLog.FetchStatus {
+	case "fetched":
+		ctx.JSON(http.StatusOK, gin.H{
+			"run_id":     runID,
+			"job_id":     jobID,
+			"job_name":   cachedLog.JobName,
+			"logs":       cachedLog.Logs,
+			"status":     "available",
+			"fetched_at": cachedLog.FetchedAt,
+		})
+	case "pending":
+		ctx.JSON(http.StatusOK, gin.H{
+			"run_id":  runID,
+			"job_id":  jobID,
+			"logs":    "",
+			"status":  "pending",
+			"message": "Logs collection is in progress. Please try again in a few seconds.",
+		})
+	case "failed":
+		ctx.JSON(http.StatusOK, gin.H{
+			"run_id":  runID,
+			"job_id":  jobID,
+			"logs":    "",
+			"status":  "failed",
+			"message": fmt.Sprintf("Failed to fetch logs: %s", cachedLog.FetchError),
+		})
+	default:
+		ctx.JSON(http.StatusOK, gin.H{
+			"run_id":  runID,
+			"job_id":  jobID,
+			"logs":    cachedLog.Logs,
+			"status":  cachedLog.FetchStatus,
+		})
+	}
+}
+
+// GetStepLogs returns logs for a specific step within a job
+// Note: Step logs are parsed from job logs stored in database (collected by exporter)
+// @Summary Get step logs
+// @Description Fetches logs for a specific step from local database
+// @Tags github-workflow-metrics
+// @Produce json
+// @Param id path int true "Workflow Run ID"
+// @Param job_id path int true "GitHub Job ID"
+// @Param step_number path int true "Step Number"
+// @Success 200 {object} map[string]interface{}
+// @Router /v1/github-workflow-metrics/runs/{id}/jobs/{job_id}/steps/{step_number}/logs [get]
+func GetStepLogs(ctx *gin.Context) {
+	runID, err := strconv.ParseInt(ctx.Param("id"), 10, 64)
+	if err != nil {
+		ctx.JSON(http.StatusBadRequest, rest.ErrorResp(ctx.Request.Context(), http.StatusBadRequest, "invalid run_id", nil))
+		return
+	}
+
+	jobID, err := strconv.ParseInt(ctx.Param("job_id"), 10, 64)
+	if err != nil {
+		ctx.JSON(http.StatusBadRequest, rest.ErrorResp(ctx.Request.Context(), http.StatusBadRequest, "invalid job_id", nil))
+		return
+	}
+
+	stepNumber, err := strconv.Atoi(ctx.Param("step_number"))
+	if err != nil {
+		ctx.JSON(http.StatusBadRequest, rest.ErrorResp(ctx.Request.Context(), http.StatusBadRequest, "invalid step_number", nil))
+		return
+	}
+
+	clusterName, _ := getClusterNameForGithubWorkflow(ctx)
+
+	// Get logs from local database (logs are collected by exporter's LogFetchExecutor)
+	logsFacade := database.NewGithubWorkflowJobLogsFacade().WithCluster(clusterName)
+	cachedLog, err := logsFacade.GetByJobID(ctx.Request.Context(), runID, jobID)
+	
+	if err != nil {
+		log.GlobalLogger().WithContext(ctx).Errorf("Failed to query logs for job %d: %v", jobID, err)
+		ctx.JSON(http.StatusInternalServerError, rest.ErrorResp(ctx.Request.Context(), http.StatusInternalServerError, "failed to query logs", nil))
+		return
+	}
+
+	// Check if logs exist and have been fetched
+	if cachedLog == nil {
+		ctx.JSON(http.StatusOK, gin.H{
+			"run_id":      runID,
+			"job_id":      jobID,
+			"step_number": stepNumber,
+			"logs":        "",
+			"status":      "not_collected",
+			"message":     "Logs have not been collected yet. Logs are collected when workflow completes.",
+		})
+		return
+	}
+
+	switch cachedLog.FetchStatus {
+	case "fetched":
+		stepLogs := parseStepLogs(cachedLog.Logs, stepNumber)
+		ctx.JSON(http.StatusOK, gin.H{
+			"run_id":      runID,
+			"job_id":      jobID,
+			"step_number": stepNumber,
+			"logs":        stepLogs,
+			"status":      "available",
+			"fetched_at":  cachedLog.FetchedAt,
+		})
+	case "pending":
+		ctx.JSON(http.StatusOK, gin.H{
+			"run_id":      runID,
+			"job_id":      jobID,
+			"step_number": stepNumber,
+			"logs":        "",
+			"status":      "pending",
+			"message":     "Logs collection is in progress. Please try again in a few seconds.",
+		})
+	case "failed":
+		ctx.JSON(http.StatusOK, gin.H{
+			"run_id":      runID,
+			"job_id":      jobID,
+			"step_number": stepNumber,
+			"logs":        "",
+			"status":      "failed",
+			"message":     fmt.Sprintf("Failed to fetch logs: %s", cachedLog.FetchError),
+		})
+	default:
+		ctx.JSON(http.StatusOK, gin.H{
+			"run_id":      runID,
+			"job_id":      jobID,
+			"step_number": stepNumber,
+			"logs":        "",
+			"status":      cachedLog.FetchStatus,
+		})
+	}
+}
+
+// parseStepLogs extracts logs for a specific step from job logs
+func parseStepLogs(jobLogs string, stepNumber int) string {
+	lines := strings.Split(jobLogs, "\n")
+	var stepLogs strings.Builder
+	inStep := false
+	currentStep := 0
+
+	for _, line := range lines {
+		// Check for step group markers
+		// Format: "##[group]Step Name" or timestamp prefix followed by group marker
+		if strings.Contains(line, "##[group]") {
+			currentStep++
+			if currentStep == stepNumber {
+				inStep = true
+				// Extract step name from group marker
+				groupIdx := strings.Index(line, "##[group]")
+				if groupIdx >= 0 {
+					stepName := strings.TrimSpace(line[groupIdx+9:])
+					stepLogs.WriteString(fmt.Sprintf("=== Step %d: %s ===\n", stepNumber, stepName))
+				}
+			}
+			continue
+		}
+
+		if strings.Contains(line, "##[endgroup]") {
+			if inStep {
+				inStep = false
+				break // We found our step, no need to continue
+			}
+			continue
+		}
+
+		if inStep {
+			// Clean up timestamp prefix if present (format: 2024-01-27T10:30:45.1234567Z)
+			cleanLine := line
+			if len(line) > 28 && line[0] >= '0' && line[0] <= '9' {
+				// Check if line starts with timestamp
+				if len(line) > 27 && line[4] == '-' && line[7] == '-' && line[10] == 'T' {
+					// Find the end of timestamp (after 'Z')
+					for i := 20; i < len(line) && i < 35; i++ {
+						if line[i] == 'Z' || line[i] == ' ' {
+							cleanLine = strings.TrimSpace(line[i+1:])
+							break
+						}
+					}
+				}
+			}
+			stepLogs.WriteString(cleanLine)
+			stepLogs.WriteString("\n")
+		}
+	}
+
+	result := stepLogs.String()
+	if result == "" {
+		return fmt.Sprintf("No logs found for step %d. The step may not have produced any output.", stepNumber)
+	}
+	return result
+}
+
+// ========== Manual Sync APIs (Event-Driven Sync) ==========
+
+// ManualSyncRequest represents the request for manual sync
+type ManualSyncRequest struct {
+	// RunSummaryID is the ID of the workflow run summary to sync
+	RunSummaryID int64 `json:"run_summary_id,omitempty"`
+	// RunID is the ID of a single workflow run to sync (alternative to RunSummaryID)
+	RunID int64 `json:"run_id,omitempty"`
+}
+
+// ManualSyncResponse represents the response for manual sync
+type ManualSyncResponse struct {
+	Success      bool   `json:"success"`
+	Message      string `json:"message"`
+	TaskID       string `json:"task_id,omitempty"`
+	CooldownSecs int    `json:"cooldown_secs,omitempty"`
+}
+
+// ManualSyncRunSummary handles POST /v1/github-workflow-metrics/run-summaries/:id/sync
+// Triggers manual sync for a workflow run summary (entire workflow run)
+// @Summary Manually sync workflow run summary
+// @Description Triggers a manual sync for a workflow run summary. Has a 30-second cooldown.
+// @Tags github-workflow-metrics
+// @Accept json
+// @Produce json
+// @Param id path int true "Run Summary ID"
+// @Success 200 {object} ManualSyncResponse
+// @Router /v1/github-workflow-metrics/run-summaries/{id}/sync [post]
+func ManualSyncRunSummary(ctx *gin.Context) {
+	idStr := ctx.Param("id")
+	runSummaryID, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		ctx.JSON(http.StatusBadRequest, rest.ErrorResp(ctx.Request.Context(), http.StatusBadRequest, "invalid run_summary_id", nil))
+		return
+	}
+
+	clusterName, err := getClusterNameForGithubWorkflow(ctx)
+	if err != nil {
+		_ = ctx.Error(err)
+		return
+	}
+
+	// Get run summary
+	runSummaryFacade := database.GetFacadeForCluster(clusterName).GetGithubWorkflowRunSummary()
+	summary, err := runSummaryFacade.GetByID(ctx.Request.Context(), runSummaryID)
+	if err != nil {
+		log.GlobalLogger().WithContext(ctx).Errorf("Failed to get run summary %d: %v", runSummaryID, err)
+		ctx.JSON(http.StatusInternalServerError, rest.ErrorResp(ctx.Request.Context(), http.StatusInternalServerError, "failed to get run summary", err))
+		return
+	}
+	if summary == nil {
+		ctx.JSON(http.StatusNotFound, rest.ErrorResp(ctx.Request.Context(), http.StatusNotFound, "run summary not found", nil))
+		return
+	}
+
+	// Check cooldown (30 seconds)
+	cooldownSecs := 30
+	if !summary.LastSyncedAt.IsZero() {
+		elapsed := time.Since(summary.LastSyncedAt)
+		if elapsed < time.Duration(cooldownSecs)*time.Second {
+			remaining := cooldownSecs - int(elapsed.Seconds())
+			ctx.JSON(http.StatusOK, ManualSyncResponse{
+				Success:      false,
+				Message:      fmt.Sprintf("Please wait %d seconds before syncing again", remaining),
+				CooldownSecs: remaining,
+			})
+			return
+		}
+	}
+
+	// Create manual sync task (pass cluster name so the task is created in the correct cluster DB)
+	if err := workflow.CreateManualSyncTask(ctx.Request.Context(), runSummaryID, clusterName); err != nil {
+		log.GlobalLogger().WithContext(ctx).Errorf("Failed to create manual sync task for run summary %d: %v", runSummaryID, err)
+		ctx.JSON(http.StatusInternalServerError, rest.ErrorResp(ctx.Request.Context(), http.StatusInternalServerError, "failed to create sync task", err))
+		return
+	}
+
+	log.GlobalLogger().WithContext(ctx).Infof("Created manual sync task for run summary %d", runSummaryID)
+
+	ctx.JSON(http.StatusOK, ManualSyncResponse{
+		Success:      true,
+		Message:      "Sync task created successfully. Status will be updated shortly.",
+		CooldownSecs: cooldownSecs,
+	})
+}
+
+// ManualSyncRun handles POST /v1/github-workflow-metrics/runs/:id/sync
+// Triggers manual sync for a single workflow run (job)
+// @Summary Manually sync workflow run
+// @Description Triggers a manual sync for a single workflow run. Has a 30-second cooldown.
+// @Tags github-workflow-metrics
+// @Accept json
+// @Produce json
+// @Param id path int true "Workflow Run ID"
+// @Success 200 {object} ManualSyncResponse
+// @Router /v1/github-workflow-metrics/runs/{id}/sync [post]
+func ManualSyncRun(ctx *gin.Context) {
+	idStr := ctx.Param("id")
+	runID, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		ctx.JSON(http.StatusBadRequest, rest.ErrorResp(ctx.Request.Context(), http.StatusBadRequest, "invalid run_id", nil))
+		return
+	}
+
+	clusterName, err := getClusterNameForGithubWorkflow(ctx)
+	if err != nil {
+		_ = ctx.Error(err)
+		return
+	}
+
+	// Get run
+	runFacade := database.GetFacadeForCluster(clusterName).GetGithubWorkflowRun()
+	run, err := runFacade.GetByID(ctx.Request.Context(), runID)
+	if err != nil {
+		log.GlobalLogger().WithContext(ctx).Errorf("Failed to get run %d: %v", runID, err)
+		ctx.JSON(http.StatusInternalServerError, rest.ErrorResp(ctx.Request.Context(), http.StatusInternalServerError, "failed to get run", err))
+		return
+	}
+	if run == nil {
+		ctx.JSON(http.StatusNotFound, rest.ErrorResp(ctx.Request.Context(), http.StatusNotFound, "run not found", nil))
+		return
+	}
+
+	// Check cooldown (30 seconds)
+	cooldownSecs := 30
+	if !run.LastSyncedAt.IsZero() {
+		elapsed := time.Since(run.LastSyncedAt)
+		if elapsed < time.Duration(cooldownSecs)*time.Second {
+			remaining := cooldownSecs - int(elapsed.Seconds())
+			ctx.JSON(http.StatusOK, ManualSyncResponse{
+				Success:      false,
+				Message:      fmt.Sprintf("Please wait %d seconds before syncing again", remaining),
+				CooldownSecs: remaining,
+			})
+			return
+		}
+	}
+
+	// If run has a run_summary_id, sync the entire summary instead
+	if run.RunSummaryID > 0 {
+		if err := workflow.CreateManualSyncTask(ctx.Request.Context(), run.RunSummaryID, clusterName); err != nil {
+			log.GlobalLogger().WithContext(ctx).Errorf("Failed to create manual sync task for run summary %d: %v", run.RunSummaryID, err)
+			ctx.JSON(http.StatusInternalServerError, rest.ErrorResp(ctx.Request.Context(), http.StatusInternalServerError, "failed to create sync task", err))
+			return
+		}
+		log.GlobalLogger().WithContext(ctx).Infof("Created manual sync task for run summary %d (via run %d)", run.RunSummaryID, runID)
+	} else {
+		// Create manual sync task for single run
+		taskFacade := database.NewWorkloadTaskFacadeForCluster(clusterName)
+		taskUID := fmt.Sprintf("manual-sync-run-%d-%d", runID, time.Now().Unix())
+		
+		syncTask := &dbmodel.WorkloadTaskState{
+			WorkloadUID: taskUID,
+			TaskType:    "github_manual_sync",
+			Status:      "pending",
+			Ext: dbmodel.ExtType{
+				"run_id":    runID,
+				"sync_type": "manual",
+			},
+		}
+		
+		if err := taskFacade.UpsertTask(ctx.Request.Context(), syncTask); err != nil {
+			log.GlobalLogger().WithContext(ctx).Errorf("Failed to create manual sync task for run %d: %v", runID, err)
+			ctx.JSON(http.StatusInternalServerError, rest.ErrorResp(ctx.Request.Context(), http.StatusInternalServerError, "failed to create sync task", err))
+			return
+		}
+		log.GlobalLogger().WithContext(ctx).Infof("Created manual sync task for run %d", runID)
+	}
+
+	ctx.JSON(http.StatusOK, ManualSyncResponse{
+		Success:      true,
+		Message:      "Sync task created successfully. Status will be updated shortly.",
+		CooldownSecs: cooldownSecs,
+	})
+}

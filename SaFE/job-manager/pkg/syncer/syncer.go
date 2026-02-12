@@ -177,8 +177,6 @@ func (r *SyncerReconciler) Do(ctx context.Context, message *resourceMessage) (ct
 		result, err = r.handleJob(ctx, message, clientSets)
 	case common.PodKind:
 		result, err = r.handlePod(ctx, message, clientSets)
-	case common.EventKind:
-		result, err = r.handleEvent(ctx, message, clientSets)
 	}
 	if jobutils.IsUnrecoverableError(err) {
 		err = nil
