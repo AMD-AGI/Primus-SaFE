@@ -1,0 +1,87 @@
+# BGE-M3 Embedding Service using HuggingFace Text Embeddings Inference
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: bge-m3-embedding
+  namespace: primus-lens
+  labels:
+    app: bge-m3-embedding
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: bge-m3-embedding
+  template:
+    metadata:
+      labels:
+        app: bge-m3-embedding
+    spec:
+      containers:
+      - name: tei
+        image: ghcr.io/huggingface/text-embeddings-inference:cpu-1.8
+        args:
+          - --model-id
+          - BAAI/bge-m3
+          - --port
+          - "8000"
+          - --max-client-batch-size
+          - "64"
+          - --max-batch-tokens
+          - "32768"
+        ports:
+        - containerPort: 8000
+          name: http
+          protocol: TCP
+        resources:
+          requests:
+            cpu: "8"
+            memory: "32Gi"
+          limits:
+            cpu: "16"
+            memory: "48Gi"
+        volumeMounts:
+        - name: model-cache
+          mountPath: /data
+        env:
+        - name: HF_HOME
+          value: /data
+        - name: HUGGINGFACE_HUB_CACHE
+          value: /data/hub
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 300
+          periodSeconds: 30
+          timeoutSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 120
+          periodSeconds: 10
+          timeoutSeconds: 5
+      volumes:
+      - name: model-cache
+        emptyDir:
+          sizeLimit: 20Gi
+      restartPolicy: Always
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: bge-m3-embedding
+  namespace: primus-lens
+  labels:
+    app: bge-m3-embedding
+spec:
+  type: ClusterIP
+  ports:
+  - name: http
+    port: 8000
+    targetPort: 8000
+    protocol: TCP
+  selector:
+    app: bge-m3-embedding
