@@ -68,7 +68,7 @@ func (f *ToolFacade) GetByTypeAndName(toolType, name string) (*model.Tool, error
 // List retrieves tools with optional filters and sorting
 // userID is used for access control: returns public tools + tools owned by the user
 // ownerOnly: if true, only returns tools owned by the user (for "My Tools" view)
-func (f *ToolFacade) List(toolType, status, sortField, sortOrder string, offset, limit int, userID string, ownerOnly bool) ([]model.Tool, int64, error) {
+func (f *ToolFacade) List(toolType, status, sortField, sortOrder string, offset, limit int, userID string, ownerOnly bool, isAdmin bool) ([]model.Tool, int64, error) {
 	var tools []model.Tool
 	var total int64
 
@@ -82,7 +82,9 @@ func (f *ToolFacade) List(toolType, status, sortField, sortOrder string, offset,
 	}
 
 	// Access control
-	if ownerOnly && userID != "" {
+	if isAdmin && !ownerOnly {
+		// Admins can see all tools (no access control filter)
+	} else if ownerOnly && userID != "" {
 		// Only return tools owned by the user
 		query = query.Where("owner_user_id = ?", userID)
 	} else if userID != "" {

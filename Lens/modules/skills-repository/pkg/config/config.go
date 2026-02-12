@@ -24,6 +24,14 @@ type Config struct {
 	Runner    RunnerConfig    `yaml:"runner"`
 	Storage   StorageConfig   `yaml:"storage"`
 	Search    SearchConfig    `yaml:"search"`
+	SafeAPI   SafeAPIConfig   `yaml:"safe_api"`
+}
+
+// SafeAPIConfig represents the SaFE API server configuration
+// Used to query user information (roles, admin status) from the SaFE platform
+type SafeAPIConfig struct {
+	// Base URL of the SaFE API server (e.g. "http://apiserver:8080")
+	BaseURL string `yaml:"base_url"`
 }
 
 // SearchConfig represents search configuration
@@ -135,6 +143,9 @@ func Load() (*Config, error) {
 		},
 		Search: SearchConfig{
 			ScoreThreshold: getEnvFloat("SEARCH_SCORE_THRESHOLD", DefaultSearchScoreThreshold),
+		},
+		SafeAPI: SafeAPIConfig{
+			BaseURL: getEnv("SAFE_API_URL", ""),
 		},
 	}
 

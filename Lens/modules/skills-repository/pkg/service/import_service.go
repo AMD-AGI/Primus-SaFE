@@ -73,6 +73,7 @@ type DiscoverCandidate struct {
 	SkillDescription string `json:"skill_description"`
 	RequiresName     bool   `json:"requires_name"`
 	WillOverwrite    bool   `json:"will_overwrite"`
+	OwnedByOther     bool   `json:"owned_by_other"` // true if a same-name skill exists but belongs to another user
 }
 
 // CommitInput represents input for committing selected skills
@@ -81,6 +82,7 @@ type CommitInput struct {
 	Username   string
 	ArchiveKey string
 	Selections []Selection
+	IsAdmin    bool
 }
 
 // CommitResult represents the result of committing skills
@@ -187,12 +189,15 @@ func (s *ImportService) Discover(ctx context.Context, input *DiscoverInput) (*Di
 		return nil, fmt.Errorf("no SKILL.md found in the archive")
 	}
 
-	// Check for existing skills
+	// Check for existing skills and ownership
 	for idx := range candidates {
 		if candidates[idx].SkillName != "" {
-			_, err := s.facade.GetByTypeAndName(model.AppTypeSkill, candidates[idx].SkillName)
+			existing, err := s.facade.GetByTypeAndName(model.AppTypeSkill, candidates[idx].SkillName)
 			if err == nil {
 				candidates[idx].WillOverwrite = true
+				if existing.OwnerUserID != input.UserID {
+					candidates[idx].OwnedByOther = true
+				}
 			}
 		}
 	}
@@ -287,7 +292,7 @@ func (s *ImportService) Commit(ctx context.Context, input *CommitInput) (*Commit
 			semaphore <- struct{}{}        // Acquire
 			defer func() { <-semaphore }() // Release
 
-			item, info := s.importOneWithoutEmbedding(ctx, zipReader, commonRoot, candidateByPath, sel, userID, input.Username)
+			item, info := s.importOneWithoutEmbedding(ctx, zipReader, commonRoot, candidateByPath, sel, userID, input.Username, input.IsAdmin)
 			mu.Lock()
 			items[idx] = item
 			if item.Status == "success" && info.ID > 0 {

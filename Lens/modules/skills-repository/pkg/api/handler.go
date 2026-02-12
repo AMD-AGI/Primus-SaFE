@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"strconv"
 
+	"github.com/AMD-AGI/Primus-SaFE/Lens/skills-repository/pkg/safe"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/skills-repository/pkg/service"
 	"github.com/gin-gonic/gin"
 )
@@ -20,6 +21,7 @@ type Handler struct {
 	importService  *service.ImportService
 	runService     *service.RunService
 	toolsetService *service.ToolsetService
+	safeClient     *safe.UserClient
 }
 
 // NewHandler creates a new Handler
@@ -29,6 +31,7 @@ func NewHandler(
 	importSvc *service.ImportService,
 	runSvc *service.RunService,
 	toolsetSvc *service.ToolsetService,
+	safeClient *safe.UserClient,
 ) *Handler {
 	return &Handler{
 		toolService:    toolSvc,
@@ -36,6 +39,7 @@ func NewHandler(
 		importService:  importSvc,
 		runService:     runSvc,
 		toolsetService: toolsetSvc,
+		safeClient:     safeClient,
 	}
 }
 
@@ -49,8 +53,11 @@ func RegisterRoutes(router *gin.Engine, h *Handler) {
 
 	// Routes that require authentication
 	auth := v1.Group("")
-	auth.Use(AuthMiddleware(true))
+	auth.Use(AuthMiddleware(true, h.safeClient))
 	{
+		// Current user info
+		auth.GET("/tools/me", h.GetCurrentUser)
+
 		// Tools list and get
 		auth.GET("/tools", h.ListTools)
 		auth.GET("/tools/:id", h.GetTool)
@@ -155,6 +162,16 @@ func (h *Handler) Health(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"status": "healthy"})
 }
 
+// GetCurrentUser returns the current user's information including admin status
+func (h *Handler) GetCurrentUser(c *gin.Context) {
+	userInfo := GetUserInfo(c)
+	c.JSON(http.StatusOK, gin.H{
+		"user_id":  userInfo.UserID,
+		"username": userInfo.Username,
+		"is_admin": userInfo.IsAdmin,
+	})
+}
+
 // ListTools lists all tools with pagination and sorting
 func (h *Handler) ListTools(c *gin.Context) {
 	offset, _ := strconv.Atoi(c.DefaultQuery("offset", "0"))
@@ -170,6 +187,7 @@ func (h *Handler) ListTools(c *gin.Context) {
 		Offset:    offset,
 		Limit:     limit,
 		UserID:    userInfo.UserID,
+		IsAdmin:   userInfo.IsAdmin,
 	})
 	if err != nil {
 		respondServiceError(c, err)
@@ -261,7 +279,7 @@ func (h *Handler) UpdateTool(c *gin.Context) {
 		Config:      req.Config,
 		IsPublic:    req.IsPublic,
 		Status:      req.Status,
-	}, userInfo.UserID)
+	}, userInfo.UserID, userInfo.IsAdmin)
 	if err != nil {
 		log.Printf("[UpdateTool] user=%s tool_id=%d error=%v", userInfo.UserID, id, err)
 		respondServiceError(c, err)
@@ -283,7 +301,7 @@ func (h *Handler) DeleteTool(c *gin.Context) {
 	userInfo := GetUserInfo(c)
 	log.Printf("[DeleteTool] user=%s tool_id=%d", userInfo.UserID, id)
 
-	if err := h.toolService.DeleteTool(c.Request.Context(), id, userInfo.UserID); err != nil {
+	if err := h.toolService.DeleteTool(c.Request.Context(), id, userInfo.UserID, userInfo.IsAdmin); err != nil {
 		log.Printf("[DeleteTool] user=%s tool_id=%d error=%v", userInfo.UserID, id, err)
 		respondServiceError(c, err)
 		return
@@ -446,6 +464,7 @@ func (h *Handler) ImportCommit(c *gin.Context) {
 		Username:   userInfo.Username,
 		ArchiveKey: req.ArchiveKey,
 		Selections: req.Selections,
+		IsAdmin:    userInfo.IsAdmin,
 	})
 	if err != nil {
 		log.Printf("[ImportCommit] user=%s error=%v", userInfo.UserID, err)
