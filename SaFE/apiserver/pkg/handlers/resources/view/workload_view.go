@@ -191,6 +191,8 @@ type GetWorkloadResponse struct {
 	Secrets []v1.SecretEntity `json:"secrets,omitempty"`
 	// When enabled, the workload will try to use the same nodes during retries/failovers.
 	StickyNodes bool `json:"stickyNodes,omitempty"`
+	// Whether to run the workload in privileged mode, only accessible to administrators
+	Privileged bool `json:"privileged,omitempty"`
 }
 
 type WorkloadPodWrapper struct {
