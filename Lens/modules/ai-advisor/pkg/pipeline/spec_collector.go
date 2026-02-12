@@ -110,19 +110,36 @@ func (c *SpecCollector) Collect(ctx context.Context, workloadUID string) (*inten
 }
 
 // extractImageFromPods looks up running pods owned by this workload and extracts
-// the container image. This is the last-resort fallback when ai_workload_metadata
-// does not contain an image reference.
+// the container image. It tries owner_uid first, then falls back to namespace+name
+// prefix matching (required for clusters where owner_uid is not populated).
 func (c *SpecCollector) extractImageFromPods(ctx context.Context, workloadUID string, evidence *intent.IntentEvidence) {
+	// Strategy 1: lookup by owner_uid
 	pods, err := c.podFacade.GetRunningPodsByOwnerUID(ctx, workloadUID)
 	if err != nil {
-		log.Debugf("SpecCollector: failed to get pods for workload %s: %v", workloadUID, err)
-		return
+		log.Debugf("SpecCollector: failed to get pods by owner_uid for workload %s: %v", workloadUID, err)
 	}
 	for _, pod := range pods {
 		if pod.ContainerImage != "" {
 			evidence.Image = pod.ContainerImage
-			log.Debugf("SpecCollector: resolved image from gpu_pods for workload %s: %s", workloadUID, pod.ContainerImage)
+			log.Debugf("SpecCollector: resolved image from gpu_pods (owner_uid) for workload %s: %s", workloadUID, pod.ContainerImage)
 			return
+		}
+	}
+
+	// Strategy 2: lookup by namespace + workload name prefix
+	// Pod names follow the pattern: {workload_name}-master-0 or {workload_name}-{hash}-{hash}
+	if evidence.WorkloadName != "" && evidence.WorkloadNamespace != "" {
+		pods, err = c.podFacade.GetRunningPodsByNamePrefix(ctx, evidence.WorkloadNamespace, evidence.WorkloadName)
+		if err != nil {
+			log.Debugf("SpecCollector: failed to get pods by name prefix for workload %s: %v", workloadUID, err)
+			return
+		}
+		for _, pod := range pods {
+			if pod.ContainerImage != "" {
+				evidence.Image = pod.ContainerImage
+				log.Debugf("SpecCollector: resolved image from gpu_pods (name prefix) for workload %s: %s", workloadUID, pod.ContainerImage)
+				return
+			}
 		}
 	}
 }

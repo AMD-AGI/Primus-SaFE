@@ -30,6 +30,8 @@ type PodFacadeInterface interface {
 	ListRunningGpuPods(ctx context.Context) ([]*model.GpuPods, error)
 	// GetRunningPodsByOwnerUID returns running pods for a given owner (workload) UID
 	GetRunningPodsByOwnerUID(ctx context.Context, ownerUID string) ([]*model.GpuPods, error)
+	// GetRunningPodsByNamePrefix returns running pods matching namespace and name prefix
+	GetRunningPodsByNamePrefix(ctx context.Context, namespace, namePrefix string) ([]*model.GpuPods, error)
 	// ListPodsActiveInTimeRange returns pods that were active during the specified time range
 	// A pod is considered active in the time range if:
 	// - created_at <= endTime AND
@@ -190,6 +192,27 @@ func (f *PodFacade) GetRunningPodsByOwnerUID(ctx context.Context, ownerUID strin
 		Where(q.OwnerUID.Eq(ownerUID)).
 		Where(q.Running.Is(true)).
 		Where(q.Deleted.Is(false)).
+		Find()
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return result, nil
+}
+
+// GetRunningPodsByNamePrefix returns running, non-deleted pods matching a namespace and name prefix.
+// This is used as a fallback when owner_uid is not populated (e.g. on x-flannel).
+// Pod naming convention: {workload_name}-master-0, {workload_name}-{hash}-{hash}
+func (f *PodFacade) GetRunningPodsByNamePrefix(ctx context.Context, namespace, namePrefix string) ([]*model.GpuPods, error) {
+	q := f.getDAL().GpuPods
+	result, err := q.WithContext(ctx).
+		Where(q.Namespace.Eq(namespace)).
+		Where(q.Name.Like(namePrefix+"%")).
+		Where(q.Running.Is(true)).
+		Where(q.Deleted.Is(false)).
+		Limit(5).
 		Find()
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
