@@ -55,6 +55,7 @@ type ListInput struct {
 	Offset    int
 	Limit     int
 	UserID    string
+	IsAdmin   bool
 }
 
 // ListResult represents the result of listing tools
@@ -108,7 +109,7 @@ func (s *ToolService) List(ctx context.Context, input ListInput) (*ListResult, e
 	}
 
 	ownerOnly := input.Owner == "me"
-	tools, total, err := s.facade.List(input.Type, input.Status, input.SortField, input.SortOrder, input.Offset, input.Limit, input.UserID, ownerOnly)
+	tools, total, err := s.facade.List(input.Type, input.Status, input.SortField, input.SortOrder, input.Offset, input.Limit, input.UserID, ownerOnly, input.IsAdmin)
 	if err != nil {
 		return nil, err
 	}
@@ -199,15 +200,16 @@ func (s *ToolService) CreateMCP(ctx context.Context, input CreateMCPInput) (*mod
 	return tool, nil
 }
 
-// UpdateTool updates an existing tool with access control
-func (s *ToolService) UpdateTool(ctx context.Context, id int64, input UpdateToolInput, userID string) (*model.Tool, error) {
+// UpdateTool updates an existing tool with access control.
+// Admins can update any tool; regular users can only update their own.
+func (s *ToolService) UpdateTool(ctx context.Context, id int64, input UpdateToolInput, userID string, isAdmin bool) (*model.Tool, error) {
 	tool, err := s.facade.GetByID(id)
 	if err != nil {
 		return nil, fmt.Errorf("tool %w", ErrNotFound)
 	}
 
-	if tool.OwnerUserID != userID {
-		return nil, fmt.Errorf("%w: only owner can update", ErrAccessDenied)
+	if !isAdmin && tool.OwnerUserID != userID {
+		return nil, fmt.Errorf("%w: only owner or admin can update", ErrAccessDenied)
 	}
 
 	// Update fields if provided
@@ -272,15 +274,16 @@ func (s *ToolService) UpdateTool(ctx context.Context, id int64, input UpdateTool
 	return tool, nil
 }
 
-// DeleteTool deletes a tool with access control
-func (s *ToolService) DeleteTool(ctx context.Context, id int64, userID string) error {
+// DeleteTool deletes a tool with access control.
+// Admins can delete any tool; regular users can only delete their own.
+func (s *ToolService) DeleteTool(ctx context.Context, id int64, userID string, isAdmin bool) error {
 	tool, err := s.facade.GetByID(id)
 	if err != nil {
 		return fmt.Errorf("tool %w", ErrNotFound)
 	}
 
-	if tool.OwnerUserID != userID {
-		return fmt.Errorf("%w: only owner can delete", ErrAccessDenied)
+	if !isAdmin && tool.OwnerUserID != userID {
+		return fmt.Errorf("%w: only owner or admin can delete", ErrAccessDenied)
 	}
 
 	// Delete S3 content for skill
