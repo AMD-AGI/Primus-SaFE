@@ -32,6 +32,7 @@ RUN echo "BUILDPATH: $BUILDPATH" && \
 
 COPY . .
 
+# Force fresh build of core + image-analyzer modules (no cache)
 RUN cd Lens/modules/core && go mod tidy
 RUN cd $BASEPATH && go mod tidy && CGO_ENABLED=0 go build -tags nosqlite -a -installsuffix cgo -o $APPNAME $BUILDPATH/main.go
 
