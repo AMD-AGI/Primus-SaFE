@@ -1,17 +1,26 @@
 ARG ROCM_VERSION=6.4.3
 ARG GPU_ARCHS=gfx942
-FROM primussafe/pytorch:rocm${ROCM_VERSION}_${GPU_ARCHS}_ubuntu22.04_py3.10
+ARG OS_VERSION=22.04
+ARG PY_VERSION=3.10
+FROM primussafe/pytorch:rocm${ROCM_VERSION}_${GPU_ARCHS}_ubuntu${OS_VERSION}_py${PY_VERSION}
 
 LABEL maintainer="PrimusBench"
 
 ARG ROCM_VERSION=6.4.3
 ARG GPU_ARCHS=gfx942
+ARG OS_VERSION=22.04
+ARG PY_VERSION=3.10
 ARG AINIC_BUNDLE_FILENAME=""
 ENV DEBIAN_FRONTEND=noninteractive
 ENV ROCM_VERSION=${ROCM_VERSION}
 ENV GPU_ARCHS=${GPU_ARCHS}
+ENV OS_VERSION=${OS_VERSION}
 
-RUN apt-get update && \
+RUN LIBTINFO_PKG="libtinfo5" && \
+    if [ "${OS_VERSION}" = "24.04" ]; then \
+        LIBTINFO_PKG="libtinfo6"; \
+    fi && \
+    apt-get update && \
     apt-get -q install -y --no-install-recommends  \
     curl bc \
     dmidecode \
@@ -21,7 +30,7 @@ RUN apt-get update && \
     libboost-all-dev \
     libcap2 \
     libcurl4-openssl-dev \
-    libtinfo5 \
+    ${LIBTINFO_PKG} \
     lshw \
     net-tools \
     openssh-client openssh-server \
@@ -34,14 +43,13 @@ RUN apt-get update && \
     vim \
     dnsutils \
     rocm-cmake \
-    net-tools \
+    dkms \
     perftest libgtest-dev \
-    gfortran libgfortran-12-dev python3-yaml \
+    python3-yaml \
     libyaml-cpp-dev \
     initramfs-tools \
     && \
     rm -rf /tmp/*
-
 
 ARG WORKSPACE=/opt/primusbench
 
@@ -56,17 +64,20 @@ RUN cd ${WORKSPACE} && git clone --depth=1 https://github.com/axboe/fio.git && c
     && ./configure --prefix="/opt" && make && make install
 
 
-RUN python3 -m pip install --upgrade pip wheel setuptools==65.7 ansible
+RUN if [ "${OS_VERSION}" = "24.04" ]; then \
+        pip3 install --upgrade pip --break-system-packages --ignore-installed && \
+        pip3 install --upgrade wheel setuptools==65.7 ansible --break-system-packages --ignore-installed; \
+    else \
+        python3 -m pip install --upgrade pip wheel setuptools==65.7 ansible; \
+    fi
 
 ARG PREFLIGHT_HOME=${WORKSPACE}/preflight
 RUN mkdir -p ${PREFLIGHT_HOME}
-RUN mkdir -p ${PREFLIGHT_HOME}/ssh
-RUN mkdir -p ${PREFLIGHT_HOME}/network
-RUN mkdir -p ${PREFLIGHT_HOME}/node
+RUN mkdir -p ${PREFLIGHT_HOME}/{ssh,network,node,install}
 RUN mkdir -p ${PREFLIGHT_HOME}/node/config_check
 RUN mkdir -p ${PREFLIGHT_HOME}/node/node_check
 RUN mkdir -p ${PREFLIGHT_HOME}/node/model_check
-RUN mkdir -p ${PREFLIGHT_HOME}/install
+
 
 COPY ./preflight/ssh/* ${PREFLIGHT_HOME}/ssh/
 COPY ./preflight/network/*.py ${PREFLIGHT_HOME}/network/
@@ -83,8 +94,6 @@ RUN if [ -n "${AINIC_BUNDLE_FILENAME}" ]; then \
       echo "AINIC bundle path: ${AINIC_BUNDLE_PATH}"; \
     fi && \
     bash ${PREFLIGHT_HOME}/install/install.sh && rm -rf ${PREFLIGHT_HOME}/install
-
-ARG NUM_MAKE_JOBS=64
 
 ENV ROCM_PATH=/opt/rocm
 
