@@ -54,6 +54,7 @@ func (h *Handler) ListToolsets(c *gin.Context) {
 		Offset:    offset,
 		Limit:     limit,
 		UserID:    userInfo.UserID,
+		IsAdmin:   userInfo.IsAdmin,
 	})
 	if err != nil {
 		respondServiceError(c, err)
@@ -77,7 +78,7 @@ func (h *Handler) GetToolset(c *gin.Context) {
 	}
 
 	userInfo := GetUserInfo(c)
-	result, err := h.toolsetService.GetToolset(c.Request.Context(), id, userInfo.UserID)
+	result, err := h.toolsetService.GetToolset(c.Request.Context(), id, userInfo.UserID, userInfo.IsAdmin)
 	if err != nil {
 		respondServiceError(c, err)
 		return
@@ -139,9 +140,10 @@ func (h *Handler) UpdateToolset(c *gin.Context) {
 		DisplayName: req.DisplayName,
 		Description: req.Description,
 		Tags:        req.Tags,
+
 		IconURL:     req.IconURL,
 		IsPublic:    req.IsPublic,
-	}, userInfo.UserID)
+	}, userInfo.UserID, userInfo.IsAdmin)
 	if err != nil {
 		log.Printf("[UpdateToolset] user=%s toolset_id=%d error=%v", userInfo.UserID, id, err)
 		respondServiceError(c, err)
@@ -163,7 +165,7 @@ func (h *Handler) DeleteToolset(c *gin.Context) {
 	userInfo := GetUserInfo(c)
 	log.Printf("[DeleteToolset] user=%s toolset_id=%d", userInfo.UserID, id)
 
-	if err := h.toolsetService.DeleteToolset(c.Request.Context(), id, userInfo.UserID); err != nil {
+	if err := h.toolsetService.DeleteToolset(c.Request.Context(), id, userInfo.UserID, userInfo.IsAdmin); err != nil {
 		log.Printf("[DeleteToolset] user=%s toolset_id=%d error=%v", userInfo.UserID, id, err)
 		respondServiceError(c, err)
 		return
@@ -192,7 +194,7 @@ func (h *Handler) AddToolsToToolset(c *gin.Context) {
 
 	added, err := h.toolsetService.AddTools(c.Request.Context(), id, service.AddToolsInput{
 		ToolIDs: req.ToolIDs,
-	}, userInfo.UserID)
+	}, userInfo.UserID, userInfo.IsAdmin)
 	if err != nil {
 		log.Printf("[AddToolsToToolset] user=%s toolset_id=%d error=%v", userInfo.UserID, id, err)
 		respondServiceError(c, err)
@@ -223,7 +225,7 @@ func (h *Handler) RemoveToolFromToolset(c *gin.Context) {
 	userInfo := GetUserInfo(c)
 	log.Printf("[RemoveToolFromToolset] user=%s toolset_id=%d tool_id=%d", userInfo.UserID, toolsetID, toolID)
 
-	if err := h.toolsetService.RemoveTool(c.Request.Context(), toolsetID, toolID, userInfo.UserID); err != nil {
+	if err := h.toolsetService.RemoveTool(c.Request.Context(), toolsetID, toolID, userInfo.UserID, userInfo.IsAdmin); err != nil {
 		log.Printf("[RemoveToolFromToolset] user=%s toolset_id=%d tool_id=%d error=%v", userInfo.UserID, toolsetID, toolID, err)
 		respondServiceError(c, err)
 		return
@@ -245,7 +247,7 @@ func (h *Handler) SearchToolsets(c *gin.Context) {
 	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "20"))
 	userInfo := GetUserInfo(c)
 
-	result, err := h.toolsetService.Search(c.Request.Context(), query, mode, limit, userInfo.UserID)
+	result, err := h.toolsetService.Search(c.Request.Context(), query, mode, limit, userInfo.UserID, userInfo.IsAdmin)
 	if err != nil {
 		respondServiceError(c, err)
 		return
