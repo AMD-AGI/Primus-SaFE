@@ -107,7 +107,7 @@ func respondServiceError(c *gin.Context, err error) {
 	case service.ErrAccessDenied:
 		respondWithError(c, http.StatusForbidden, ErrCodeAccessDenied, "Access denied")
 	case service.ErrNotConfigured:
-		respondWithError(c, http.StatusServiceUnavailable, ErrCodeNotConfigured, "Service not configured")
+		respondWithError(c, http.StatusServiceUnavailable, ErrCodeNotConfigured, "Service does not configured")
 	case service.ErrAlreadyLiked:
 		respondWithError(c, http.StatusConflict, ErrCodeToolAlreadyLiked, "Tool already liked")
 	default:
