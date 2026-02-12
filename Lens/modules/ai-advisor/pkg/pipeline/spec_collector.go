@@ -16,8 +16,8 @@ import (
 
 // SpecCollector extracts intent evidence from the workload spec.
 // It reads from gpu_workload (labels, annotations, GVK), ai_workload_metadata,
-// and workload_detection (already-confirmed framework/type from detection system)
-// without needing a running pod.
+// gpu_pods (container image), and workload_detection (already-confirmed
+// framework/type from detection system) without needing a running pod.
 //
 // This is a passive collector: it only uses data already stored in the database,
 // making it fast and available even when the pod is not yet running.
@@ -25,6 +25,7 @@ type SpecCollector struct {
 	workloadFacade  database.WorkloadFacadeInterface
 	metadataFacade  database.AiWorkloadMetadataFacadeInterface
 	detectionFacade database.WorkloadDetectionFacadeInterface
+	podFacade       database.PodFacadeInterface
 }
 
 // NewSpecCollector creates a new SpecCollector
@@ -33,6 +34,7 @@ func NewSpecCollector() *SpecCollector {
 		workloadFacade:  database.GetFacade().GetWorkload(),
 		metadataFacade:  database.NewAiWorkloadMetadataFacade(),
 		detectionFacade: database.NewWorkloadDetectionFacade(),
+		podFacade:       database.NewPodFacade(),
 	}
 }
 
@@ -41,11 +43,13 @@ func NewSpecCollectorWithDeps(
 	workloadFacade database.WorkloadFacadeInterface,
 	metadataFacade database.AiWorkloadMetadataFacadeInterface,
 	detectionFacade database.WorkloadDetectionFacadeInterface,
+	podFacade database.PodFacadeInterface,
 ) *SpecCollector {
 	return &SpecCollector{
 		workloadFacade:  workloadFacade,
 		metadataFacade:  metadataFacade,
 		detectionFacade: detectionFacade,
+		podFacade:       podFacade,
 	}
 }
 
@@ -97,7 +101,30 @@ func (c *SpecCollector) Collect(ctx context.Context, workloadUID string) (*inten
 		c.extractFromMetadata(metadata, evidence)
 	}
 
+	// 4. Fallback: if image is still empty, try gpu_pods.container_image
+	if evidence.Image == "" {
+		c.extractImageFromPods(ctx, workloadUID, evidence)
+	}
+
 	return evidence, nil
+}
+
+// extractImageFromPods looks up running pods owned by this workload and extracts
+// the container image. This is the last-resort fallback when ai_workload_metadata
+// does not contain an image reference.
+func (c *SpecCollector) extractImageFromPods(ctx context.Context, workloadUID string, evidence *intent.IntentEvidence) {
+	pods, err := c.podFacade.GetRunningPodsByOwnerUID(ctx, workloadUID)
+	if err != nil {
+		log.Debugf("SpecCollector: failed to get pods for workload %s: %v", workloadUID, err)
+		return
+	}
+	for _, pod := range pods {
+		if pod.ContainerImage != "" {
+			evidence.Image = pod.ContainerImage
+			log.Debugf("SpecCollector: resolved image from gpu_pods for workload %s: %s", workloadUID, pod.ContainerImage)
+			return
+		}
+	}
 }
 
 // extractFromMetadata extracts evidence fields from the metadata JSON.
