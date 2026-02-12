@@ -33,8 +33,7 @@ COPY . .
 RUN cd Lens/modules/core && go mod tidy
 RUN cd $BASEPATH && go mod tidy && CGO_ENABLED=0 go build -tags nosqlite -a -installsuffix cgo -o $APPNAME $BUILDPATH/main.go
 
-ARG REGISTRY
-FROM --platform=linux/amd64 ${REGISTRY}/primussafe/ubuntu-rdma-base:0.0.1
+FROM --platform=linux/amd64 docker.io/primussafe/ubuntu-rdma-base:0.0.1
 
 ARG APPNAME=skills-repository
 ARG BASEPATH=Lens/modules/skills-repository/
