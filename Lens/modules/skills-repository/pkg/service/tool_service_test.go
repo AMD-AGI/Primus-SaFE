@@ -493,7 +493,7 @@ func TestGetToolContent(t *testing.T) {
 
 			svc := newTestToolService(mockFacade, mockStorage)
 
-			content, err := svc.GetToolContent(context.Background(), tt.toolID, tt.userID)
+			content, err := svc.GetToolContent(context.Background(), tt.toolID, tt.userID, false)
 
 			if (err != nil) != tt.wantErr {
 				t.Errorf("GetToolContent() error = %v, wantErr %v", err, tt.wantErr)
@@ -539,7 +539,7 @@ func TestGetToolContent_NoStorage(t *testing.T) {
 		embedding: nil,
 	}
 
-	_, err := svc.GetToolContent(context.Background(), 1, "user-123")
+	_, err := svc.GetToolContent(context.Background(), 1, "user-123", false)
 
 	if err != ErrNotConfigured {
 		t.Errorf("Expected ErrNotConfigured, got %v", err)
@@ -586,7 +586,7 @@ More content.
 
 	svc := newTestToolService(mockFacade, mockStorage)
 
-	content, err := svc.GetToolContent(context.Background(), 1, "user-123")
+	content, err := svc.GetToolContent(context.Background(), 1, "user-123", false)
 
 	if err != nil {
 		t.Fatalf("GetToolContent() error = %v", err)
