@@ -54,6 +54,9 @@ type ImageRegistryCacheFacadeInterface interface {
 	// UpsertPending creates a pending analysis request or returns existing entry
 	UpsertPending(ctx context.Context, imageRef, namespace string) (*model.ImageRegistryCache, error)
 
+	// UpdateAnalysisResult updates an existing record by ID with analysis results
+	UpdateAnalysisResult(ctx context.Context, entry *model.ImageRegistryCache) error
+
 	// WithCluster returns a new facade instance for the specified cluster
 	WithCluster(clusterName string) ImageRegistryCacheFacadeInterface
 }
@@ -252,6 +255,29 @@ func (f *ImageRegistryCacheFacade) UpsertPending(ctx context.Context, imageRef, 
 		return nil, err
 	}
 	return entry, nil
+}
+
+func (f *ImageRegistryCacheFacade) UpdateAnalysisResult(ctx context.Context, entry *model.ImageRegistryCache) error {
+	now := time.Now()
+	return f.getDB().WithContext(ctx).
+		Table(model.TableNameImageRegistryCache).
+		Where("id = ?", entry.ID).
+		Updates(map[string]interface{}{
+			"digest":             entry.Digest,
+			"base_image":         entry.BaseImage,
+			"layer_count":        entry.LayerCount,
+			"layer_history":      entry.LayerHistory,
+			"image_labels":       entry.ImageLabels,
+			"image_env":          entry.ImageEnv,
+			"image_entrypoint":   entry.ImageEntrypoint,
+			"installed_packages": entry.InstalledPackages,
+			"framework_hints":    entry.FrameworkHints,
+			"total_size":         entry.TotalSize,
+			"image_created_at":   entry.ImageCreatedAt,
+			"expires_at":         entry.ExpiresAt,
+			"status":             "completed",
+			"analyzed_at":        now,
+		}).Error
 }
 
 // splitImageRef splits "registry.example.com/repo/name:tag" into [registry, repository, tag]

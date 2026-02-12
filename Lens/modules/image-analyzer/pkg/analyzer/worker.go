@@ -351,15 +351,14 @@ func (w *Worker) updateCacheRecord(ctx context.Context, entry *model.ImageRegist
 		entry.ImageLabels = labelMap
 	}
 
-	// Save the updated record
-	if err := w.cacheFacade.Upsert(ctx, entry); err != nil {
+	// Save the updated record by ID (not Upsert, which conflicts on digest)
+	if err := w.cacheFacade.UpdateAnalysisResult(ctx, entry); err != nil {
 		log.Errorf("Worker: failed to update cache record for %s: %v", entry.ImageRef, err)
-		_ = w.cacheFacade.UpdateStatus(ctx, entry.ID, "failed", fmt.Sprintf("upsert failed: %v", err))
+		_ = w.cacheFacade.UpdateStatus(ctx, entry.ID, "failed", fmt.Sprintf("update failed: %v", err))
 		return
 	}
 
-	// Explicitly mark as completed (Upsert may not update status)
-	_ = w.cacheFacade.UpdateStatus(ctx, entry.ID, "completed", "")
+	log.Infof("Worker: analysis completed for %s (digest=%s, layers=%d)", entry.ImageRef, entry.Digest[:min(12, len(entry.Digest))], entry.LayerCount)
 }
 
 // extractBaseImageFromHistory extracts the base image from the first history entry
