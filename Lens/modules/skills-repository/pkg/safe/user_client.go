@@ -106,18 +106,18 @@ func (c *UserClient) GetUserInfo(ctx context.Context, userID string) (*UserInfo,
 		return nil, fmt.Errorf("SaFE API returned HTTP %d", resp.StatusCode)
 	}
 
-	// Parse response: {"data": {"id": "...", "name": "...", "roles": [...]}}
-	var apiResp struct {
-		Data UserInfo `json:"data"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&apiResp); err != nil {
+	// Parse response: {"id": "...", "name": "...", "roles": ["system-admin", ...], ...}
+	// SaFE API returns the user object directly (no wrapper)
+	info := &UserInfo{}
+	if err := json.NewDecoder(resp.Body).Decode(info); err != nil {
 		return nil, fmt.Errorf("failed to decode SaFE API response: %w", err)
 	}
 
-	info := &apiResp.Data
 	if info.ID == "" {
 		info.ID = userID
 	}
+
+	log.Printf("[SafeAPI] user=%s name=%s roles=%v isAdmin=%v", info.ID, info.Name, info.Roles, info.IsAdmin())
 
 	// Update cache
 	c.mu.Lock()
