@@ -12,7 +12,8 @@ import (
 )
 
 // Init is the pre-init function for the image-analyzer service.
-// It starts the background worker that processes pending image analysis requests.
+// It starts the background worker that polls image_registry_cache for pending
+// requests and performs OCI layer-level analysis with digest deduplication.
 func Init(ctx context.Context, cfg *config.Config) error {
 	log.Info("Initializing Image Analyzer service...")
 
