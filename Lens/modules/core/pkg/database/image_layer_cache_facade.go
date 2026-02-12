@@ -5,10 +5,8 @@ package database
 
 import (
 	"context"
-	"errors"
 
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database/model"
-	"gorm.io/gorm"
 )
 
 // ImageLayerCacheFacadeInterface defines the database operation interface for image layer cache
@@ -50,17 +48,22 @@ func (f *ImageLayerCacheFacade) Create(ctx context.Context, entry *model.ImageLa
 }
 
 func (f *ImageLayerCacheFacade) GetByDigest(ctx context.Context, digest string) (*model.ImageLayerCache, error) {
-	var result model.ImageLayerCache
+	// Use Find + Limit instead of First to avoid ErrRecordNotFound being
+	// silently swallowed by the global ErrorWithStack callback, which would
+	// cause us to return a non-nil zero-valued struct and mistake it for an
+	// existing record.
+	var results []*model.ImageLayerCache
 	err := f.getDB().WithContext(ctx).
 		Where("layer_digest = ?", digest).
-		First(&result).Error
+		Limit(1).
+		Find(&results).Error
 	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, nil
-		}
 		return nil, err
 	}
-	return &result, nil
+	if len(results) == 0 {
+		return nil, nil
+	}
+	return results[0], nil
 }
 
 func (f *ImageLayerCacheFacade) GetByDigests(ctx context.Context, digests []string) ([]*model.ImageLayerCache, error) {

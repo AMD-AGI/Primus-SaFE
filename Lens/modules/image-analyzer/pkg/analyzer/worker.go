@@ -219,6 +219,9 @@ func (w *Worker) downloadAndAnalyzeLayer(ctx context.Context, ref ImageRef, laye
 
 // storeLayerCache stores a layer analysis result in the image_layer_cache table.
 func (w *Worker) storeLayerCache(ctx context.Context, layer OCIDescriptor, result *LayerResult) {
+	log.Infof("Worker: storeLayerCache called for %s (files=%d, packages=%d)",
+		layer.Digest[:16], result.FileCount, len(result.Packages))
+
 	pkgJSON, _ := json.Marshal(result.Packages)
 	pathsJSON, _ := json.Marshal(result.NotablePaths)
 
@@ -236,6 +239,8 @@ func (w *Worker) storeLayerCache(ctx context.Context, layer OCIDescriptor, resul
 
 	if err := w.layerFacade.Upsert(ctx, entry); err != nil {
 		log.Warnf("Worker: failed to cache layer %s: %v", layer.Digest[:16], err)
+	} else {
+		log.Infof("Worker: storeLayerCache succeeded for %s (id=%d)", layer.Digest[:16], entry.ID)
 	}
 }
 
