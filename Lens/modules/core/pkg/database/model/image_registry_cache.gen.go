@@ -30,6 +30,10 @@ type ImageRegistryCache struct {
 	ImageCreatedAt    *time.Time `gorm:"column:image_created_at;comment:Image build timestamp" json:"image_created_at"`
 	CachedAt          time.Time  `gorm:"column:cached_at;not null;default:now();comment:Cache entry creation time" json:"cached_at"`
 	ExpiresAt         *time.Time `gorm:"column:expires_at;comment:Cache expiration time for tag-based lookups" json:"expires_at"`
+	Status            string     `gorm:"column:status;default:completed;comment:Analysis status: pending, processing, completed, failed" json:"status"`
+	ErrorMessage      string     `gorm:"column:error_message;comment:Error details when status=failed" json:"error_message"`
+	AnalyzedAt        *time.Time `gorm:"column:analyzed_at;comment:Timestamp when analysis completed" json:"analyzed_at"`
+	Namespace         string     `gorm:"column:namespace;comment:Workload namespace for imagePullSecrets lookup" json:"namespace"`
 }
 
 // TableName ImageRegistryCache's table name

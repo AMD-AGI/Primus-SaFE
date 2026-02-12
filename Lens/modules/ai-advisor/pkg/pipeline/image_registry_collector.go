@@ -6,66 +6,52 @@ package pipeline
 import (
 	"context"
 	"encoding/json"
-	"os"
 	"strings"
 	"time"
 
 	"github.com/AMD-AGI/Primus-SaFE/Lens/ai-advisor/pkg/intent"
-	"github.com/AMD-AGI/Primus-SaFE/Lens/ai-advisor/pkg/registry"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database/model"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
 )
 
 const (
-	defaultCacheTTL = 7 * 24 * time.Hour // 7 days
+	// hybridWaitTimeout is how long Enrich() will poll for the image-analyzer to complete
+	hybridWaitTimeout = 30 * time.Second
+	// hybridPollInterval is the interval between cache checks during hybrid wait
+	hybridPollInterval = 2 * time.Second
 )
 
-// ImageRegistryCollector fetches image metadata from Harbor and caches it in
-// the image_registry_cache table. On subsequent calls for the same image, it
-// reads from cache instead of querying the registry again.
+// ImageRegistryCollector enriches IntentEvidence with image registry metadata.
+//
+// It operates in hybrid async mode:
+//  1. Check cache for completed result -> apply and return
+//  2. If no result, write a pending request for the image-analyzer service
+//  3. Poll cache for up to 30s waiting for completion
+//  4. If timeout, return without image evidence (will be picked up in monitoring cycle)
 type ImageRegistryCollector struct {
-	harborClient   *registry.HarborClient
-	layerAnalyzer  *registry.LayerAnalyzer
-	cacheFacade    database.ImageRegistryCacheFacadeInterface
+	cacheFacade database.ImageRegistryCacheFacadeInterface
 }
 
 // NewImageRegistryCollector creates a new collector with default configuration.
-// Harbor URL and credentials are read from environment variables.
 func NewImageRegistryCollector() *ImageRegistryCollector {
-	harborURL := os.Getenv("HARBOR_URL")
-	if harborURL == "" {
-		harborURL = "https://harbor.primus-safe.amd.com"
-	}
-
-	client := registry.NewHarborClient(&registry.HarborClientConfig{
-		BaseURL:  harborURL,
-		Username: os.Getenv("HARBOR_USERNAME"),
-		Password: os.Getenv("HARBOR_PASSWORD"),
-	})
-
 	return &ImageRegistryCollector{
-		harborClient:  client,
-		layerAnalyzer: registry.NewLayerAnalyzer(),
-		cacheFacade:   database.NewImageRegistryCacheFacade(),
+		cacheFacade: database.NewImageRegistryCacheFacade(),
 	}
 }
 
 // NewImageRegistryCollectorWithDeps creates a collector with injected dependencies
 func NewImageRegistryCollectorWithDeps(
-	client *registry.HarborClient,
-	analyzer *registry.LayerAnalyzer,
 	cacheFacade database.ImageRegistryCacheFacadeInterface,
 ) *ImageRegistryCollector {
 	return &ImageRegistryCollector{
-		harborClient:  client,
-		layerAnalyzer: analyzer,
-		cacheFacade:   cacheFacade,
+		cacheFacade: cacheFacade,
 	}
 }
 
-// Enrich fetches image metadata and enriches the IntentEvidence with registry data.
-// It uses the cache when available to avoid redundant registry queries.
+// Enrich checks the image registry cache for completed analysis results.
+// If not available, it writes a pending request for the image-analyzer service
+// and waits briefly for completion (hybrid async mode).
 func (c *ImageRegistryCollector) Enrich(
 	ctx context.Context,
 	evidence *intent.IntentEvidence,
@@ -76,98 +62,63 @@ func (c *ImageRegistryCollector) Enrich(
 
 	imageRef := evidence.Image
 
-	// Check cache first - parse image ref into components for lookup
+	// 1. Check cache for completed result
 	regHost, repo, tag := parseImageRef(imageRef)
 	cached, err := c.cacheFacade.GetByTagRef(ctx, regHost, repo, tag)
-	if err == nil && cached != nil && !c.isCacheExpired(cached) {
-		log.Debugf("ImageRegistryCollector: cache hit for %s", imageRef)
+	if err == nil && cached != nil && cached.Status == "completed" && !c.isCacheExpired(cached) {
+		log.Debugf("ImageRegistryCollector: cache hit for %s (completed)", imageRef)
 		c.applyCache(cached, evidence)
 		return
 	}
 
-	// Cache miss or expired: fetch from registry
-	log.Infof("ImageRegistryCollector: fetching metadata for %s", imageRef)
-
-	config, digest, err := c.harborClient.FetchImageMetadata(ctx, imageRef)
-	if err != nil {
-		log.Warnf("ImageRegistryCollector: failed to fetch %s: %v", imageRef, err)
-		return
+	// 2. Write a pending request if no entry or previously failed
+	if cached == nil || cached.Status == "failed" || cached.Status == "" {
+		namespace := evidence.WorkloadNamespace
+		if namespace == "" {
+			namespace = "primus-lens"
+		}
+		log.Infof("ImageRegistryCollector: writing pending request for %s (namespace=%s)", imageRef, namespace)
+		_, err := c.cacheFacade.UpsertPending(ctx, imageRef, namespace)
+		if err != nil {
+			log.Warnf("ImageRegistryCollector: failed to write pending request for %s: %v", imageRef, err)
+			return
+		}
 	}
 
-	// Analyze layers
-	analysis := c.layerAnalyzer.Analyze(config)
-
-	// Build cache record
-	cacheRecord := c.buildCacheRecord(imageRef, digest, analysis)
-
-	// Store in cache (upsert)
-	if err := c.cacheFacade.Upsert(ctx, cacheRecord); err != nil {
-		log.Warnf("ImageRegistryCollector: failed to cache %s: %v", imageRef, err)
+	// If already processing, just wait
+	if cached != nil && cached.Status == "processing" {
+		log.Debugf("ImageRegistryCollector: %s is being processed, waiting...", imageRef)
 	}
 
-	// Apply to evidence
-	c.applyAnalysis(analysis, digest, evidence)
-}
+	// 3. Hybrid wait: poll cache for up to hybridWaitTimeout
+	deadline := time.After(hybridWaitTimeout)
+	ticker := time.NewTicker(hybridPollInterval)
+	defer ticker.Stop()
 
-// buildCacheRecord creates an image_registry_cache record from the analysis
-func (c *ImageRegistryCollector) buildCacheRecord(
-	imageRef string,
-	digest string,
-	analysis *registry.AnalysisResult,
-) *model.ImageRegistryCache {
-	regHost, repo, tag := parseImageRef(imageRef)
-	record := &model.ImageRegistryCache{
-		ImageRef:   imageRef,
-		Registry:   regHost,
-		Repository: repo,
-		Tag:        tag,
-		Digest:     digest,
-		BaseImage:  analysis.BaseImage,
+	for {
+		select {
+		case <-ctx.Done():
+			log.Debugf("ImageRegistryCollector: context cancelled while waiting for %s", imageRef)
+			return
+		case <-deadline:
+			log.Debugf("ImageRegistryCollector: timeout waiting for %s, will retry in monitoring cycle", imageRef)
+			return
+		case <-ticker.C:
+			cached, err = c.cacheFacade.GetByTagRef(ctx, regHost, repo, tag)
+			if err != nil {
+				continue
+			}
+			if cached != nil && cached.Status == "completed" {
+				log.Infof("ImageRegistryCollector: analysis completed for %s during wait", imageRef)
+				c.applyCache(cached, evidence)
+				return
+			}
+			if cached != nil && cached.Status == "failed" {
+				log.Warnf("ImageRegistryCollector: analysis failed for %s: %s", imageRef, cached.ErrorMessage)
+				return
+			}
+		}
 	}
-
-	// Serialize layer history (ExtJSON = json.RawMessage)
-	if len(analysis.LayerHistory) > 0 {
-		historyJSON, _ := json.Marshal(analysis.LayerHistory)
-		record.LayerHistory = model.ExtJSON(historyJSON)
-	}
-
-	// Serialize installed packages (ExtJSON)
-	if len(analysis.InstalledPackages) > 0 {
-		pkgJSON, _ := json.Marshal(analysis.InstalledPackages)
-		record.InstalledPackages = model.ExtJSON(pkgJSON)
-	}
-
-	// Serialize framework hints (ExtType = map[string]interface{})
-	if len(analysis.FrameworkHints) > 0 {
-		record.FrameworkHints = model.ExtType(analysis.FrameworkHints)
-	}
-
-	// Set expiration
-	expiresAt := time.Now().Add(defaultCacheTTL)
-	record.ExpiresAt = &expiresAt
-
-	return record
-}
-
-// applyAnalysis applies fresh analysis results to the evidence
-func (c *ImageRegistryCollector) applyAnalysis(
-	analysis *registry.AnalysisResult,
-	digest string,
-	evidence *intent.IntentEvidence,
-) {
-	evidence.ImageRegistry = &intent.ImageRegistryEvidence{
-		Digest:    digest,
-		BaseImage: analysis.BaseImage,
-	}
-
-	// Convert layer history
-	evidence.ImageRegistry.LayerHistory = analysis.LayerHistory
-
-	// Convert installed packages
-	evidence.ImageRegistry.InstalledPackages = analysis.InstalledPackages
-
-	// Copy framework hints
-	evidence.ImageRegistry.FrameworkHints = analysis.FrameworkHints
 }
 
 // applyCache applies cached data to the evidence
