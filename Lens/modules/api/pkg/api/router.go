@@ -39,7 +39,7 @@ func getUnifiedHandler(path string) gin.HandlerFunc {
 // getUnifiedHandlerWithMethod returns the unified handler for a given path and HTTP method.
 // Use this when the same path has multiple HTTP methods (e.g., GET and POST on /skills).
 func getUnifiedHandlerWithMethod(path string, method string) gin.HandlerFunc {
-	ep := unified.GetRegistry().GetEndpointByPathAndMethod(path, method)
+	ep := unified.GetRegistry().GetEndpointByMethodAndPath(method, path)
 	if ep != nil {
 		return ep.GetGinHandler()
 	}
@@ -692,6 +692,7 @@ func RegisterRouter(group *gin.RouterGroup) error {
 		toolsetsGroup.POST("/:id/tools", getUnifiedHandler("/toolsets/:id/tools"))
 		// Remove tool from toolset
 		toolsetsGroup.DELETE("/:id/tools/:toolId", getUnifiedHandler("/toolsets/:id/tools/:toolId"))
+	}
 
 	// Release Management routes (Control Plane only)
 	releaseGroup := group.Group("/releases")
