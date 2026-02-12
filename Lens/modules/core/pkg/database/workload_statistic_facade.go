@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database/dal"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database/model"
@@ -21,6 +22,14 @@ type WorkloadStatisticFacadeInterface interface {
 	GetOrCreate(ctx context.Context, clusterName string, workload *model.GpuWorkload) (*model.WorkloadStatistic, bool, error)
 	// Update updates or creates a statistic record
 	Update(ctx context.Context, record *model.WorkloadStatistic) error
+	// UpdateInstantOnly updates only the instant utilization and timestamp fields.
+	// This avoids rewriting the entire row (including large JSONB fields like histogram)
+	// when no new sample data is available, significantly reducing dead tuple generation.
+	UpdateInstantOnly(ctx context.Context, id int32, instantUtilization float64, lastQueryTime, statEndTime time.Time) error
+	// UpdateStatistics updates only the statistics-related columns.
+	// This avoids rewriting immutable columns (uid, cluster_name, namespace, labels, annotations)
+	// to reduce row size and dead tuple generation.
+	UpdateStatistics(ctx context.Context, record *model.WorkloadStatistic) error
 	// GetByUID gets a workload statistic by UID
 	GetByUID(ctx context.Context, uid string) (*model.WorkloadStatistic, error)
 	// List lists workload statistics with optional filters
@@ -102,6 +111,51 @@ func (f *WorkloadStatisticFacade) GetOrCreate(ctx context.Context, clusterName s
 	}
 
 	return newRecord, true, nil
+}
+
+// UpdateInstantOnly updates only the instant utilization and timestamp fields.
+// This is used when no new sample data is available from Prometheus,
+// avoiding the need to rewrite large JSONB columns (histogram, labels, annotations).
+func (f *WorkloadStatisticFacade) UpdateInstantOnly(ctx context.Context, id int32, instantUtilization float64, lastQueryTime, statEndTime time.Time) error {
+	db := f.getDB()
+	return db.WithContext(ctx).
+		Model(&model.WorkloadStatistic{}).
+		Where("id = ?", id).
+		Updates(map[string]interface{}{
+			"instant_gpu_utilization": instantUtilization,
+			"last_query_time":         lastQueryTime,
+			"stat_end_time":           statEndTime,
+			"updated_at":              time.Now(),
+		}).Error
+}
+
+// UpdateStatistics updates only the statistics-related columns, avoiding immutable
+// columns like uid, cluster_name, namespace, labels, and annotations.
+// This significantly reduces the amount of data written per UPDATE and helps
+// control dead tuple growth.
+func (f *WorkloadStatisticFacade) UpdateStatistics(ctx context.Context, record *model.WorkloadStatistic) error {
+	db := f.getDB()
+	return db.WithContext(ctx).
+		Model(&model.WorkloadStatistic{}).
+		Where("id = ?", record.ID).
+		Updates(map[string]interface{}{
+			"instant_gpu_utilization": record.InstantGpuUtilization,
+			"avg_gpu_utilization":     record.AvgGpuUtilization,
+			"p50_gpu_utilization":     record.P50GpuUtilization,
+			"p90_gpu_utilization":     record.P90GpuUtilization,
+			"p95_gpu_utilization":     record.P95GpuUtilization,
+			"max_gpu_utilization":     record.MaxGpuUtilization,
+			"min_gpu_utilization":     record.MinGpuUtilization,
+			"sample_count":            record.SampleCount,
+			"total_sum":               record.TotalSum,
+			"histogram":               record.Histogram,
+			"stat_start_time":         record.StatStartTime,
+			"stat_end_time":           record.StatEndTime,
+			"last_query_time":         record.LastQueryTime,
+			"workload_status":         record.WorkloadStatus,
+			"allocated_gpu_count":     record.AllocatedGpuCount,
+			"updated_at":              time.Now(),
+		}).Error
 }
 
 // Update updates or creates a statistic record
