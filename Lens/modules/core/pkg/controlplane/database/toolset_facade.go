@@ -42,14 +42,16 @@ func (f *ToolsetFacade) GetByID(id int64) (*model.Toolset, error) {
 }
 
 // List retrieves toolsets with optional filters and sorting
-func (f *ToolsetFacade) List(sortField, sortOrder string, offset, limit int, userID string, ownerOnly bool) ([]model.Toolset, int64, error) {
+func (f *ToolsetFacade) List(sortField, sortOrder string, offset, limit int, userID string, ownerOnly bool, isAdmin bool) ([]model.Toolset, int64, error) {
 	var toolsets []model.Toolset
 	var total int64
 
 	query := f.db.Model(&model.Toolset{})
 
 	// Access control (same pattern as ToolFacade)
-	if ownerOnly && userID != "" {
+	if isAdmin && !ownerOnly {
+		// Admins can see all toolsets
+	} else if ownerOnly && userID != "" {
 		query = query.Where("owner_user_id = ?", userID)
 	} else if userID != "" {
 		query = query.Where("is_public = ? OR owner_user_id = ?", true, userID)
@@ -157,27 +159,34 @@ func (f *ToolsetFacade) GetTools(toolsetID int64) ([]model.Tool, error) {
 	return tools, err
 }
 
+// applyAccessControl adds access control filters to a toolset query.
+// Admins see all toolsets; regular users see public + their own.
+func (f *ToolsetFacade) applyAccessControl(query *gorm.DB, userID string, isAdmin bool) *gorm.DB {
+	if isAdmin {
+		return query
+	}
+	if userID != "" {
+		return query.Where("is_public = ? OR owner_user_id = ?", true, userID)
+	}
+	return query.Where("is_public = ?", true)
+}
+
 // Search performs a keyword search on toolsets
-func (f *ToolsetFacade) Search(query string, limit int, userID string) ([]model.Toolset, error) {
+func (f *ToolsetFacade) Search(query string, limit int, userID string, isAdmin bool) ([]model.Toolset, error) {
 	var toolsets []model.Toolset
 
 	dbQuery := f.db.Model(&model.Toolset{}).
 		Where("name ILIKE ? OR description ILIKE ? OR display_name ILIKE ?",
 			"%"+query+"%", "%"+query+"%", "%"+query+"%")
 
-	// Access control
-	if userID != "" {
-		dbQuery = dbQuery.Where("is_public = ? OR owner_user_id = ?", true, userID)
-	} else {
-		dbQuery = dbQuery.Where("is_public = ?", true)
-	}
+	dbQuery = f.applyAccessControl(dbQuery, userID, isAdmin)
 
 	err := dbQuery.Order("tool_count DESC").Limit(limit).Find(&toolsets).Error
 	return toolsets, err
 }
 
 // SemanticSearch performs a vector similarity search on toolsets
-func (f *ToolsetFacade) SemanticSearch(embedding []float32, limit int, scoreThreshold float64, userID string) ([]ToolsetWithScore, error) {
+func (f *ToolsetFacade) SemanticSearch(embedding []float32, limit int, scoreThreshold float64, userID string, isAdmin bool) ([]ToolsetWithScore, error) {
 	var results []ToolsetWithScore
 
 	embStr := "["
@@ -193,12 +202,7 @@ func (f *ToolsetFacade) SemanticSearch(embedding []float32, limit int, scoreThre
 		Select("*, 1 - (embedding <=> ?) as score", embStr).
 		Where("embedding IS NOT NULL")
 
-	// Access control
-	if userID != "" {
-		query = query.Where("is_public = ? OR owner_user_id = ?", true, userID)
-	} else {
-		query = query.Where("is_public = ?", true)
-	}
+	query = f.applyAccessControl(query, userID, isAdmin)
 
 	if scoreThreshold > 0 {
 		query = query.Where("1 - (embedding <=> ?) > ?", embStr, scoreThreshold)

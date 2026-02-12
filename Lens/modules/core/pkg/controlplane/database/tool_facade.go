@@ -134,8 +134,20 @@ func (f *ToolFacade) IncrementDownloadCount(id int64) error {
 		Update("download_count", gorm.Expr("download_count + 1")).Error
 }
 
+// applyAccessControl adds access control filters to a query.
+// Admins see all tools; regular users see public + their own.
+func (f *ToolFacade) applyAccessControl(query *gorm.DB, userID string, isAdmin bool) *gorm.DB {
+	if isAdmin {
+		return query
+	}
+	if userID != "" {
+		return query.Where("is_public = ? OR owner_user_id = ?", true, userID)
+	}
+	return query.Where("is_public = ?", true)
+}
+
 // Search performs a text search on tools (keyword mode)
-func (f *ToolFacade) Search(query string, toolType string, limit int) ([]model.Tool, error) {
+func (f *ToolFacade) Search(query string, toolType string, limit int, userID string, isAdmin bool) ([]model.Tool, error) {
 	var tools []model.Tool
 
 	dbQuery := f.db.Model(&model.Tool{}).
@@ -146,6 +158,8 @@ func (f *ToolFacade) Search(query string, toolType string, limit int) ([]model.T
 	if toolType != "" {
 		dbQuery = dbQuery.Where("type = ?", toolType)
 	}
+
+	dbQuery = f.applyAccessControl(dbQuery, userID, isAdmin)
 
 	err := dbQuery.Order("run_count DESC").Limit(limit).Find(&tools).Error
 	return tools, err
@@ -160,7 +174,7 @@ type ToolWithScore struct {
 // SemanticSearch performs a vector similarity search on tools
 // scoreThreshold: minimum similarity score (0-1), results below this threshold are filtered out.
 // Pass 0 to disable threshold filtering.
-func (f *ToolFacade) SemanticSearch(embedding []float32, toolType string, limit int, scoreThreshold float64) ([]ToolWithScore, error) {
+func (f *ToolFacade) SemanticSearch(embedding []float32, toolType string, limit int, scoreThreshold float64, userID string, isAdmin bool) ([]ToolWithScore, error) {
 	var results []ToolWithScore
 
 	// Build embedding string for pgvector
@@ -182,6 +196,8 @@ func (f *ToolFacade) SemanticSearch(embedding []float32, toolType string, limit 
 		query = query.Where("type = ?", toolType)
 	}
 
+	query = f.applyAccessControl(query, userID, isAdmin)
+
 	// Apply score threshold filter
 	if scoreThreshold > 0 {
 		query = query.Where("1 - (embedding <=> ?) > ?", embStr, scoreThreshold)
@@ -192,15 +208,15 @@ func (f *ToolFacade) SemanticSearch(embedding []float32, toolType string, limit 
 }
 
 // HybridSearch combines keyword and semantic search
-func (f *ToolFacade) HybridSearch(keyword string, embedding []float32, toolType string, limit int, scoreThreshold float64) ([]ToolWithScore, error) {
+func (f *ToolFacade) HybridSearch(keyword string, embedding []float32, toolType string, limit int, scoreThreshold float64, userID string, isAdmin bool) ([]ToolWithScore, error) {
 	// Get keyword results
-	keywordTools, err := f.Search(keyword, toolType, limit*2)
+	keywordTools, err := f.Search(keyword, toolType, limit*2, userID, isAdmin)
 	if err != nil {
 		return nil, err
 	}
 
 	// Get semantic results (with score threshold)
-	semanticResults, err := f.SemanticSearch(embedding, toolType, limit*2, scoreThreshold)
+	semanticResults, err := f.SemanticSearch(embedding, toolType, limit*2, scoreThreshold, userID, isAdmin)
 	if err != nil {
 		return nil, err
 	}

@@ -211,7 +211,7 @@ func (h *Handler) GetTool(c *gin.Context) {
 	}
 
 	userInfo := GetUserInfo(c)
-	result, err := h.toolService.GetTool(c.Request.Context(), id, userInfo.UserID)
+	result, err := h.toolService.GetTool(c.Request.Context(), id, userInfo.UserID, userInfo.IsAdmin)
 	if err != nil {
 		respondServiceError(c, err)
 		return
@@ -322,8 +322,9 @@ func (h *Handler) SearchTools(c *gin.Context) {
 	toolType := c.Query("type")
 	mode := c.DefaultQuery("mode", "semantic")
 	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "20"))
+	userInfo := GetUserInfo(c)
 
-	result, err := h.searchService.Search(c.Request.Context(), query, toolType, mode, limit)
+	result, err := h.searchService.Search(c.Request.Context(), query, toolType, mode, limit, userInfo.UserID, userInfo.IsAdmin)
 	if err != nil {
 		// "semantic search not configured" should be 400 (client requested unsupported mode)
 		if errors.Is(err, service.ErrNotConfigured) {
@@ -355,7 +356,8 @@ func (h *Handler) RunTools(c *gin.Context) {
 		refs[i] = service.ToolRef{ID: t.ID, Type: t.Type, Name: t.Name}
 	}
 
-	result, err := h.runService.RunTools(c.Request.Context(), refs)
+	userInfo := GetUserInfo(c)
+	result, err := h.runService.RunTools(c.Request.Context(), refs, userInfo.UserID, userInfo.IsAdmin)
 	if err != nil {
 		respondServiceError(c, err)
 		return
@@ -376,7 +378,7 @@ func (h *Handler) DownloadTool(c *gin.Context) {
 	}
 
 	userInfo := GetUserInfo(c)
-	result, err := h.runService.DownloadTool(c.Request.Context(), id, userInfo.UserID)
+	result, err := h.runService.DownloadTool(c.Request.Context(), id, userInfo.UserID, userInfo.IsAdmin)
 	if err != nil {
 		respondServiceError(c, err)
 		return
@@ -594,7 +596,7 @@ func (h *Handler) GetToolContent(c *gin.Context) {
 	}
 
 	userInfo := GetUserInfo(c)
-	content, err := h.toolService.GetToolContent(c.Request.Context(), id, userInfo.UserID)
+	content, err := h.toolService.GetToolContent(c.Request.Context(), id, userInfo.UserID, userInfo.IsAdmin)
 	if err != nil {
 		respondServiceError(c, err)
 		return
