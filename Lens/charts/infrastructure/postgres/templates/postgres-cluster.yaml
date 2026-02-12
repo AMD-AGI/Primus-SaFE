@@ -1,0 +1,84 @@
+{{- if .Values.postgres.enabled }}
+apiVersion: postgres-operator.crunchydata.com/v1beta1
+kind: PostgresCluster
+metadata:
+  name: {{ .Values.postgres.name }}
+  namespace: {{ include "postgres.namespace" . }}
+  labels:
+    {{- include "postgres.labels" . | nindent 4 }}
+spec:
+  postgresVersion: {{ .Values.postgres.version }}
+  
+  instances:
+    - name: instance1
+      replicas: {{ .Values.postgres.replicas }}
+      dataVolumeClaimSpec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: {{ .Values.postgres.dataSize }}
+        storageClassName: {{ include "postgres.storageClass" . }}
+      resources:
+        {{- toYaml .Values.postgres.resources | nindent 8 }}
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                topologyKey: kubernetes.io/hostname
+                labelSelector:
+                  matchLabels:
+                    postgres-operator.crunchydata.com/cluster: {{ .Values.postgres.name }}
+  
+  backups:
+    pgbackrest:
+      global:
+        repo1-retention-full: "14"
+        repo1-retention-full-type: time
+      repos:
+        - name: repo1
+          schedules:
+            full: "0 2 * * 0"
+            differential: "0 2 * * 1-6"
+          volume:
+            volumeClaimSpec:
+              accessModes:
+                - ReadWriteOnce
+              resources:
+                requests:
+                  storage: {{ .Values.postgres.backupSize }}
+              storageClassName: {{ include "postgres.storageClass" . }}
+  
+  patroni:
+    dynamicConfiguration:
+      postgresql:
+        parameters:
+          max_connections: "200"
+          shared_buffers: "256MB"
+          effective_cache_size: "1GB"
+  
+  monitoring:
+    pgmonitor:
+      exporter:
+        image: registry.developers.crunchydata.com/crunchydata/crunchy-postgres-exporter:ubi8-5.7.0-0
+        resources:
+          requests:
+            cpu: 50m
+            memory: 64Mi
+          limits:
+            cpu: 200m
+            memory: 256Mi
+  
+  users:
+    {{- range .Values.postgres.users }}
+    - name: {{ .name }}
+      databases:
+        {{- range .databases }}
+        - {{ . }}
+        {{- end }}
+      {{- if .options }}
+      options: {{ .options | quote }}
+      {{- end }}
+    {{- end }}
+{{- end }}

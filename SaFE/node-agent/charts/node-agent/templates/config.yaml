@@ -38,7 +38,7 @@ data:
   gpu_xgmi_link_010: '{"script":"gpu_xgmi_link_010.sh","id":"010","cronjob":"@every 30s","timeoutSecond":25,"chip":"amd","toggle":"on"}'
   gpu_rocm_version_011: '{"script":"gpu_rocm_version_011.sh","id":"011","cronjob":"@every 600s","timeoutSecond":100,"chip":"amd","toggle":"on","arguments":["{{ .Values.monitor.rocm_version }}"]}'
   gpu_ipc_012: '{"script":"gpu_ipc_012.sh","id":"012","cronjob":"@every 300s","timeoutSecond":250,"chip":"amd","toggle":"on"}'
-  gpu_rocminfo_013: '{"script":"gpu_rocminfo_013.sh","id":"013","cronjob":"@every 600s","timeoutSecond":300,"chip":"amd","toggle":"on"}'
+  gpu_rocm_cgroup_013: '{"script":"gpu_rocm_cgroup_013.sh","id":"013","cronjob":"@every 600s","timeoutSecond":300,"chip":"amd","toggle":"on"}'
   # Network: 2XX
   net_ib_status_201: '{"script":"net_ib_status_201.sh","id":"201","cronjob":"@every 30s","timeoutSecond":25,"chip":"amd","toggle":"on","arguments":["{{ .Values.monitor.nccl_ib_hca }}"]}'
   net_ethtool_202: '{"script":"net_ethtool_202.sh","id":"202","cronjob":"@every 300s","timeoutSecond":250,"chip":"amd","toggle":"on"}'

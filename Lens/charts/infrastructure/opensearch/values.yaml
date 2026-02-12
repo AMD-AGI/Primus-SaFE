@@ -1,0 +1,39 @@
+# OpenSearch Cluster Configuration
+global:
+  namespace: "primus-lens"
+  storageClass: "local-path"
+
+opensearch:
+  enabled: true
+  # Cluster name
+  name: "primus-lens-logs"
+  # OpenSearch version
+  version: "2.11.0"
+  # HTTP port
+  httpPort: 9200
+  
+  # Dashboard configuration
+  dashboards:
+    enabled: false
+    replicas: 1
+  
+  # Admin password secret name (auto-generated if not exists)
+  adminSecretName: ""
+  
+  # Node pool configuration
+  nodePools:
+    - name: "nodes"
+      replicas: 1
+      roles:
+        - master
+        - data
+        - ingest
+      diskSize: "10Gi"
+      jvm: "-Xms1g -Xmx1g"
+      resources:
+        requests:
+          cpu: "500m"
+          memory: "2Gi"
+        limits:
+          cpu: "2000m"
+          memory: "4Gi"

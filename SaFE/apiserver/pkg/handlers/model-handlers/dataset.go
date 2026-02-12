@@ -19,6 +19,8 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/lib/pq"
+	batchv1 "k8s.io/api/batch/v1"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/pointer"
@@ -246,6 +248,11 @@ func (h *Handler) listDatasets(c *gin.Context) (interface{}, error) {
 	// Filter by dataset type
 	if req.DatasetType != "" {
 		conditions = append(conditions, sqrl.Eq{dbclient.GetFieldTag(dbTags, "DatasetType"): req.DatasetType})
+	}
+
+	// Filter by source (upload / huggingface)
+	if req.Source != "" {
+		conditions = append(conditions, sqrl.Eq{dbclient.GetFieldTag(dbTags, "Source"): req.Source})
 	}
 
 	// Filter by workspace
@@ -505,11 +512,17 @@ func getDatasetContentType(filePath string) string {
 
 // convertToDatasetResponse converts a database dataset to response format.
 func convertToDatasetResponse(ds *dbclient.Dataset) DatasetResponse {
+	source := ds.Source
+	if source == "" {
+		source = string(DatasetSourceUpload) // Default for old records
+	}
 	resp := DatasetResponse{
 		DatasetId:    ds.DatasetId,
 		DisplayName:  ds.DisplayName,
 		Description:  ds.Description,
 		DatasetType:  ds.DatasetType,
+		Source:       source,
+		SourceURL:    ds.SourceURL,
 		Status:       ds.Status,
 		S3Path:       ds.S3Path,
 		TotalSize:    ds.TotalSize,
@@ -668,3 +681,221 @@ func (h *Handler) createDatasetDownloadOpsJobs(ctx context.Context, dataset *dbc
 	return downloadJobs, nil
 }
 
+// ImportDatasetFromHF handles importing a dataset from HuggingFace.
+// POST /api/v1/datasets/import-hf
+func (h *Handler) ImportDatasetFromHF(c *gin.Context) {
+	handleDataset(c, h.importDatasetFromHF)
+}
+
+// importDatasetFromHF implements the HuggingFace dataset import logic.
+func (h *Handler) importDatasetFromHF(c *gin.Context) (interface{}, error) {
+	ctx := c.Request.Context()
+
+	// 1. Parse request
+	var req CreateDatasetFromHFRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		return nil, commonerrors.NewBadRequest(fmt.Sprintf("invalid request: %v", err))
+	}
+
+	// 2. Validate dataset type
+	if !IsValidDatasetType(req.DatasetType) {
+		return nil, commonerrors.NewBadRequest(fmt.Sprintf("invalid dataset type: %s", req.DatasetType))
+	}
+
+	// 3. Normalize URL
+	normalizedURL := normalizeHFDatasetURL(req.URL)
+
+	// 4. Check if dataset from this URL already exists
+	exists, err := h.checkDatasetURLExists(ctx, normalizedURL)
+	if err != nil {
+		return nil, err
+	}
+	if exists {
+		return nil, commonerrors.NewBadRequest("dataset from this URL already exists")
+	}
+
+	// 5. Fetch HuggingFace metadata (displayName, description)
+	hfInfo, err := GetHFDatasetInfo(req.URL)
+	if err != nil {
+		return nil, commonerrors.NewBadRequest(fmt.Sprintf("failed to fetch HF dataset info: %v", err))
+	}
+
+	// 6. Get user info
+	userId := c.GetString(common.UserId)
+	userName := c.GetString(common.UserName)
+
+	// 7. Generate dataset ID and S3 path
+	datasetId := fmt.Sprintf("dataset-%s", uuid.New().String()[:8])
+	s3Path := fmt.Sprintf("%s/%s/", DatasetS3Prefix, datasetId)
+
+	// 8. Create database record (status=Pending)
+	now := pq.NullTime{Time: time.Now().UTC(), Valid: true}
+	dataset := &dbclient.Dataset{
+		DatasetId:    datasetId,
+		DisplayName:  hfInfo.DisplayName,
+		Description:  hfInfo.Description,
+		DatasetType:  req.DatasetType,
+		Status:       dbclient.DatasetStatusPending,
+		S3Path:       s3Path,
+		LocalPaths:   "[]",
+		Source:       string(DatasetSourceHuggingFace),
+		SourceURL:    normalizedURL,
+		Workspace:    req.Workspace,
+		UserId:       userId,
+		UserName:     userName,
+		CreationTime: now,
+		UpdateTime:   now,
+		IsDeleted:    false,
+	}
+
+	if err := h.dbClient.UpsertDataset(ctx, dataset); err != nil {
+		klog.ErrorS(err, "failed to create dataset record", "datasetId", datasetId)
+		return nil, commonerrors.NewInternalError(fmt.Sprintf("failed to create dataset: %v", err))
+	}
+
+	klog.InfoS("Created HF dataset record", "datasetId", datasetId, "displayName", hfInfo.DisplayName, "url", normalizedURL)
+
+	// 9. Create HF → S3 download Job
+	job, err := h.createHFDatasetDownloadJob(ctx, dataset, req.Token)
+	if err != nil {
+		// Update status to Failed
+		if updateErr := h.dbClient.UpdateDatasetStatus(ctx, datasetId, dbclient.DatasetStatusFailed, err.Error()); updateErr != nil {
+			klog.ErrorS(updateErr, "failed to update dataset status to Failed", "datasetId", datasetId)
+		}
+		return nil, commonerrors.NewInternalError(fmt.Sprintf("failed to create download job: %v", err))
+	}
+
+	// 10. Update database with Job name and status
+	dataset.HFJobName = job.Name
+	dataset.Status = dbclient.DatasetStatusUploading
+	dataset.Message = fmt.Sprintf("HF download job created: %s", job.Name)
+	dataset.UpdateTime = pq.NullTime{Time: time.Now().UTC(), Valid: true}
+
+	if err := h.dbClient.UpsertDataset(ctx, dataset); err != nil {
+		klog.ErrorS(err, "failed to update dataset with job info", "datasetId", datasetId)
+	}
+
+	return convertToDatasetResponse(dataset), nil
+}
+
+// createHFDatasetDownloadJob creates a K8s Job to download dataset from HuggingFace to S3.
+func (h *Handler) createHFDatasetDownloadJob(ctx context.Context, dataset *dbclient.Dataset, hfToken string) (*batchv1.Job, error) {
+	// Get S3 configuration
+	if !commonconfig.IsS3Enable() {
+		return nil, fmt.Errorf("S3 storage is not enabled")
+	}
+	s3Endpoint := commonconfig.GetS3Endpoint()
+	s3AccessKey := commonconfig.GetS3AccessKey()
+	s3SecretKey := commonconfig.GetS3SecretKey()
+	s3Bucket := commonconfig.GetS3Bucket()
+	if s3Endpoint == "" || s3AccessKey == "" || s3SecretKey == "" || s3Bucket == "" {
+		return nil, fmt.Errorf("S3 configuration is incomplete")
+	}
+
+	repoID := cleanDatasetRepoID(dataset.SourceURL)
+	s3Path := fmt.Sprintf("s3://%s/%s", s3Bucket, dataset.S3Path)
+
+	var envs []corev1.EnvVar
+
+	// HF Token (optional, for private datasets)
+	if hfToken != "" {
+		envs = append(envs, corev1.EnvVar{Name: "HF_TOKEN", Value: hfToken})
+	}
+
+	// S3 credentials
+	envs = append(envs,
+		corev1.EnvVar{Name: "AWS_ACCESS_KEY_ID", Value: s3AccessKey},
+		corev1.EnvVar{Name: "AWS_SECRET_ACCESS_KEY", Value: s3SecretKey},
+		corev1.EnvVar{Name: "AWS_DEFAULT_REGION", Value: "us-east-1"},
+		corev1.EnvVar{Name: "S3_ENDPOINT", Value: s3Endpoint},
+	)
+
+	cmd := []string{"/bin/sh", "-c", fmt.Sprintf(`
+		set -e
+		echo "Downloading dataset from HuggingFace: %s"
+		mkdir -p /tmp/dataset
+		huggingface-cli download %s --repo-type dataset --local-dir /tmp/dataset || exit 1
+		echo "Uploading dataset to S3: %s"
+		aws s3 cp /tmp/dataset %s --recursive --endpoint-url %s --exclude ".cache/*" || exit 1
+		echo "Dataset download completed successfully"
+	`, repoID, repoID, s3Path, s3Path, s3Endpoint)}
+
+	image := commonconfig.GetModelDownloaderImage()
+	jobName := commonutils.GenerateName(fmt.Sprintf("hf-dataset-%s", dataset.DatasetId))
+	backoffLimit := int32(3)
+	ttlSeconds := int32(300)
+
+	job := &batchv1.Job{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      jobName,
+			Namespace: common.PrimusSafeNamespace,
+			Labels: map[string]string{
+				HFDatasetJobLabel: "true",
+				HFDatasetIdLabel:  dataset.DatasetId,
+			},
+		},
+		Spec: batchv1.JobSpec{
+			BackoffLimit:            &backoffLimit,
+			TTLSecondsAfterFinished: &ttlSeconds,
+			Template: corev1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{
+					Labels: map[string]string{
+						HFDatasetJobLabel: "true",
+						HFDatasetIdLabel:  dataset.DatasetId,
+					},
+				},
+				Spec: corev1.PodSpec{
+					RestartPolicy: corev1.RestartPolicyOnFailure,
+					Containers: []corev1.Container{{
+						Name:            "downloader",
+						Image:           image,
+						ImagePullPolicy: corev1.PullIfNotPresent,
+						Command:         cmd,
+						Env:             envs,
+					}},
+				},
+			},
+		},
+	}
+
+	if err := h.k8sClient.Create(ctx, job); err != nil {
+		return nil, fmt.Errorf("failed to create K8s Job: %w", err)
+	}
+
+	klog.InfoS("Created HF dataset download job",
+		"datasetId", dataset.DatasetId,
+		"jobName", jobName,
+		"repoID", repoID,
+		"s3Path", s3Path)
+
+	return job, nil
+}
+
+// normalizeHFDatasetURL normalizes a HuggingFace dataset URL.
+func normalizeHFDatasetURL(urlOrID string) string {
+	urlOrID = strings.TrimSpace(urlOrID)
+	urlOrID = strings.TrimSuffix(urlOrID, "/")
+
+	// If it's already a full URL, return as-is
+	if strings.HasPrefix(urlOrID, "https://huggingface.co/") {
+		return urlOrID
+	}
+
+	// If it's a repo ID, construct the full URL
+	repoID := cleanDatasetRepoID(urlOrID)
+	return fmt.Sprintf("https://huggingface.co/datasets/%s", repoID)
+}
+
+// checkDatasetURLExists checks if a dataset with the given source URL already exists.
+func (h *Handler) checkDatasetURLExists(ctx context.Context, sourceURL string) (bool, error) {
+	dbTags := dbclient.GetDatasetFieldTags()
+	conditions := sqrl.And{
+		sqrl.Eq{dbclient.GetFieldTag(dbTags, "IsDeleted"): false},
+		sqrl.Eq{dbclient.GetFieldTag(dbTags, "SourceURL"): sourceURL},
+	}
+	count, err := h.dbClient.CountDatasets(ctx, conditions)
+	if err != nil {
+		return false, commonerrors.NewInternalError(fmt.Sprintf("failed to check dataset URL: %v", err))
+	}
+	return count > 0, nil
+}

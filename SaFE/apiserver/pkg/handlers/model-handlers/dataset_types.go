@@ -42,6 +42,8 @@ type DatasetResponse struct {
 	DisplayName   string                   `json:"displayName"`
 	Description   string                   `json:"description"`
 	DatasetType   string                   `json:"datasetType"`
+	Source        string                   `json:"source"`                  // "upload" or "huggingface"
+	SourceURL     string                   `json:"sourceUrl,omitempty"`     // HuggingFace URL (if source=huggingface)
 	Status        dbclient.DatasetStatus   `json:"status"`                  // Pending/Downloading/Ready/Failed
 	StatusMessage string                   `json:"statusMessage,omitempty"` // e.g., "2/3 workspaces completed"
 	S3Path        string                   `json:"s3Path"`
@@ -62,6 +64,7 @@ type DatasetResponse struct {
 // ListDatasetsRequest represents the request parameters for listing datasets
 type ListDatasetsRequest struct {
 	DatasetType string `form:"datasetType"`
+	Source      string `form:"source"`    // Filter by source: "upload" or "huggingface"
 	Workspace   string `form:"workspace"` // Filter by workspace ID, empty returns all accessible datasets
 	Search      string `form:"search"`
 	PageNum     int    `form:"pageNum,default=1"`
@@ -119,3 +122,28 @@ type PreviewDatasetFileResponse struct {
 	MaxPreviewSize int64  `json:"maxPreviewSize,omitempty"`
 }
 
+// ============================================================================
+// HuggingFace Import Types
+// ============================================================================
+
+// CreateDatasetFromHFRequest represents the request for importing a dataset from HuggingFace
+type CreateDatasetFromHFRequest struct {
+	URL         string `json:"url" binding:"required"`         // Required: HF dataset URL or repo ID
+	DatasetType string `json:"datasetType" binding:"required"` // Required: sft/dpo/pretrain/rlhf/inference/evaluation/other
+	Workspace   string `json:"workspace"`                      // Optional: empty = public
+	Token       string `json:"token,omitempty"`                // Optional: for private datasets
+}
+
+// DatasetSource represents the source type of a dataset
+type DatasetSource string
+
+const (
+	DatasetSourceUpload      DatasetSource = "upload"      // File upload
+	DatasetSourceHuggingFace DatasetSource = "huggingface" // HuggingFace import
+)
+
+// HF Dataset Job labels for identifying HF download Jobs
+const (
+	HFDatasetJobLabel = "hf-dataset-job"
+	HFDatasetIdLabel  = "hf-dataset-id"
+)

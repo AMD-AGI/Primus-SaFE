@@ -1,6 +1,7 @@
 # Build stage
+ARG REGISTRY=""
 ARG GO_VERSION=1.24.7
-FROM golang:${GO_VERSION}-alpine AS builder
+FROM ${REGISTRY}golang:${GO_VERSION}-alpine AS builder
 
 # Install git and ca-certificates
 RUN apk add --no-cache git ca-certificates tzdata
@@ -32,7 +33,8 @@ RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
     ./cmd/ai-gateway
 
 # Final stage
-FROM alpine:3.19
+ARG REGISTRY=""
+FROM ${REGISTRY}alpine:3.19
 
 # Install ca-certificates and timezone data
 RUN apk add --no-cache ca-certificates tzdata

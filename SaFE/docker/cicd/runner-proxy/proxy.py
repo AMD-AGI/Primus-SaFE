@@ -285,6 +285,7 @@ def create_workload(s: requests.Session, base_url: str, payload: Dict[str, Any])
     url = f"{base_url}/api/v1/workloads"
     body = json.dumps(payload, ensure_ascii=False)
     print(f"[debug] POST {url}", flush=True)
+    print(f"[debug] headers: {dict(s.headers)}", flush=True)
     print(f"[debug] body: {body}", flush=True)
     resp = s.post(url, data=body, timeout=30)
     if resp.status_code >= 300:
@@ -297,7 +298,7 @@ def create_workload(s: requests.Session, base_url: str, payload: Dict[str, Any])
 
 
 def get_workload_phase(s: requests.Session, base_url: str, workload_id: str) -> str:
-    url = f"{base_url}/api/v1/workloads/{workload_id}"
+    url = f"{base_url}/api/v1/workloads/{workload_id}?src=runner-proxy"
     resp = s.get(url, timeout=30)
     if resp.status_code >= 300:
         raise RuntimeError(f"GetWorkload failed: HTTP {resp.status_code} {resp.text}")
@@ -408,7 +409,7 @@ def main() -> int:
         if timeout_secs > 0 and (time.time() - start_time) >= timeout_secs:
             print(f"[error] polling timed out after {timeout_secs}s", file=sys.stderr)
             return 4
-        time.sleep(5)
+        time.sleep(20)
 
 
 if __name__ == "__main__":

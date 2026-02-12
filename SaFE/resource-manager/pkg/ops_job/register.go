@@ -44,6 +44,9 @@ func SetupOpsJobs(ctx context.Context, mgr manager.Manager) error {
 	if err := SetupDatasetDownloadController(ctx, mgr); err != nil {
 		return fmt.Errorf("dataset-download controller: %v", err)
 	}
+	if err := SetupHFDatasetDownloadController(ctx, mgr); err != nil {
+		return fmt.Errorf("hf-dataset-download controller: %v", err)
+	}
 	if err := SetupEvaluationJobController(ctx, mgr); err != nil {
 		return fmt.Errorf("evaluation-job controller: %v", err)
 	}

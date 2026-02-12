@@ -19,10 +19,7 @@ func Use(db *gorm.DB, opts ...gen.DOOption) *Query {
 	return &Query{
 		db:                          db,
 		ActionTasks:                 newActionTasks(db, opts...),
-		AiAgentRegistrations:        newAiAgentRegistrations(db, opts...),
-		AiTasks:                     newAiTasks(db, opts...),
 		AiWorkloadMetadata:          newAiWorkloadMetadata(db, opts...),
-		AlertCategoryDefinitions:    newAlertCategoryDefinitions(db, opts...),
 		AlertCorrelations:           newAlertCorrelations(db, opts...),
 		AlertEvents:                 newAlertEvents(db, opts...),
 		AlertNotifications:          newAlertNotifications(db, opts...),
@@ -33,13 +30,9 @@ func Use(db *gorm.DB, opts ...gen.DOOption) *Query {
 		AlertStatistics:             newAlertStatistics(db, opts...),
 		CheckpointEvent:             newCheckpointEvent(db, opts...),
 		ClusterGpuHourlyStats:       newClusterGpuHourlyStats(db, opts...),
-		ClusterInspections:          newClusterInspections(db, opts...),
 		ClusterOverviewCache:        newClusterOverviewCache(db, opts...),
-		ComponentGroupMembers:       newComponentGroupMembers(db, opts...),
-		ComponentGroups:             newComponentGroups(db, opts...),
-		ComponentRegistry:           newComponentRegistry(db, opts...),
-		ComponentScanWorkloads:      newComponentScanWorkloads(db, opts...),
-		ComponentScans:              newComponentScans(db, opts...),
+		CommitImpactAnalysis:        newCommitImpactAnalysis(db, opts...),
+		DashboardSummaries:          newDashboardSummaries(db, opts...),
 		DetectionConflictLog:        newDetectionConflictLog(db, opts...),
 		DetectionCoverage:           newDetectionCoverage(db, opts...),
 		DetectionSourcePriority:     newDetectionSourcePriority(db, opts...),
@@ -61,16 +54,16 @@ func Use(db *gorm.DB, opts ...gen.DOOption) *Query {
 		GpuUsageWeeklyReports:       newGpuUsageWeeklyReports(db, opts...),
 		GpuWorkload:                 newGpuWorkload(db, opts...),
 		GpuWorkloadSnapshot:         newGpuWorkloadSnapshot(db, opts...),
-		InspectionAnomalies:         newInspectionAnomalies(db, opts...),
-		InvestigationResults:        newInvestigationResults(db, opts...),
 		JobExecutionHistory:         newJobExecutionHistory(db, opts...),
 		K8sServices:                 newK8sServices(db, opts...),
 		LabelGpuHourlyStats:         newLabelGpuHourlyStats(db, opts...),
+		LensSystemConfigs:           newLensSystemConfigs(db, opts...),
 		LogAlertRuleStatistics:      newLogAlertRuleStatistics(db, opts...),
 		LogAlertRuleTemplates:       newLogAlertRuleTemplates(db, opts...),
 		LogAlertRuleVersions:        newLogAlertRuleVersions(db, opts...),
 		LogAlertRules:               newLogAlertRules(db, opts...),
 		MetricAlertRules:            newMetricAlertRules(db, opts...),
+		MetricBaselines:             newMetricBaselines(db, opts...),
 		NamespaceGpuHourlyStats:     newNamespaceGpuHourlyStats(db, opts...),
 		NamespaceInfo:               newNamespaceInfo(db, opts...),
 		Node:                        newNode(db, opts...),
@@ -112,10 +105,7 @@ type Query struct {
 	db *gorm.DB
 
 	ActionTasks                 actionTasks
-	AiAgentRegistrations        aiAgentRegistrations
-	AiTasks                     aiTasks
 	AiWorkloadMetadata          aiWorkloadMetadata
-	AlertCategoryDefinitions    alertCategoryDefinitions
 	AlertCorrelations           alertCorrelations
 	AlertEvents                 alertEvents
 	AlertNotifications          alertNotifications
@@ -126,13 +116,9 @@ type Query struct {
 	AlertStatistics             alertStatistics
 	CheckpointEvent             checkpointEvent
 	ClusterGpuHourlyStats       clusterGpuHourlyStats
-	ClusterInspections          clusterInspections
 	ClusterOverviewCache        clusterOverviewCache
-	ComponentGroupMembers       componentGroupMembers
-	ComponentGroups             componentGroups
-	ComponentRegistry           componentRegistry
-	ComponentScanWorkloads      componentScanWorkloads
-	ComponentScans              componentScans
+	CommitImpactAnalysis        commitImpactAnalysis
+	DashboardSummaries          dashboardSummaries
 	DetectionConflictLog        detectionConflictLog
 	DetectionCoverage           detectionCoverage
 	DetectionSourcePriority     detectionSourcePriority
@@ -154,16 +140,16 @@ type Query struct {
 	GpuUsageWeeklyReports       gpuUsageWeeklyReports
 	GpuWorkload                 gpuWorkload
 	GpuWorkloadSnapshot         gpuWorkloadSnapshot
-	InspectionAnomalies         inspectionAnomalies
-	InvestigationResults        investigationResults
 	JobExecutionHistory         jobExecutionHistory
 	K8sServices                 k8sServices
 	LabelGpuHourlyStats         labelGpuHourlyStats
+	LensSystemConfigs           lensSystemConfigs
 	LogAlertRuleStatistics      logAlertRuleStatistics
 	LogAlertRuleTemplates       logAlertRuleTemplates
 	LogAlertRuleVersions        logAlertRuleVersions
 	LogAlertRules               logAlertRules
 	MetricAlertRules            metricAlertRules
+	MetricBaselines             metricBaselines
 	NamespaceGpuHourlyStats     namespaceGpuHourlyStats
 	NamespaceInfo               namespaceInfo
 	Node                        node
@@ -206,10 +192,7 @@ func (q *Query) clone(db *gorm.DB) *Query {
 	return &Query{
 		db:                          db,
 		ActionTasks:                 q.ActionTasks.clone(db),
-		AiAgentRegistrations:        q.AiAgentRegistrations.clone(db),
-		AiTasks:                     q.AiTasks.clone(db),
 		AiWorkloadMetadata:          q.AiWorkloadMetadata.clone(db),
-		AlertCategoryDefinitions:    q.AlertCategoryDefinitions.clone(db),
 		AlertCorrelations:           q.AlertCorrelations.clone(db),
 		AlertEvents:                 q.AlertEvents.clone(db),
 		AlertNotifications:          q.AlertNotifications.clone(db),
@@ -220,13 +203,9 @@ func (q *Query) clone(db *gorm.DB) *Query {
 		AlertStatistics:             q.AlertStatistics.clone(db),
 		CheckpointEvent:             q.CheckpointEvent.clone(db),
 		ClusterGpuHourlyStats:       q.ClusterGpuHourlyStats.clone(db),
-		ClusterInspections:          q.ClusterInspections.clone(db),
 		ClusterOverviewCache:        q.ClusterOverviewCache.clone(db),
-		ComponentGroupMembers:       q.ComponentGroupMembers.clone(db),
-		ComponentGroups:             q.ComponentGroups.clone(db),
-		ComponentRegistry:           q.ComponentRegistry.clone(db),
-		ComponentScanWorkloads:      q.ComponentScanWorkloads.clone(db),
-		ComponentScans:              q.ComponentScans.clone(db),
+		CommitImpactAnalysis:        q.CommitImpactAnalysis.clone(db),
+		DashboardSummaries:          q.DashboardSummaries.clone(db),
 		DetectionConflictLog:        q.DetectionConflictLog.clone(db),
 		DetectionCoverage:           q.DetectionCoverage.clone(db),
 		DetectionSourcePriority:     q.DetectionSourcePriority.clone(db),
@@ -248,16 +227,16 @@ func (q *Query) clone(db *gorm.DB) *Query {
 		GpuUsageWeeklyReports:       q.GpuUsageWeeklyReports.clone(db),
 		GpuWorkload:                 q.GpuWorkload.clone(db),
 		GpuWorkloadSnapshot:         q.GpuWorkloadSnapshot.clone(db),
-		InspectionAnomalies:         q.InspectionAnomalies.clone(db),
-		InvestigationResults:        q.InvestigationResults.clone(db),
 		JobExecutionHistory:         q.JobExecutionHistory.clone(db),
 		K8sServices:                 q.K8sServices.clone(db),
 		LabelGpuHourlyStats:         q.LabelGpuHourlyStats.clone(db),
+		LensSystemConfigs:           q.LensSystemConfigs.clone(db),
 		LogAlertRuleStatistics:      q.LogAlertRuleStatistics.clone(db),
 		LogAlertRuleTemplates:       q.LogAlertRuleTemplates.clone(db),
 		LogAlertRuleVersions:        q.LogAlertRuleVersions.clone(db),
 		LogAlertRules:               q.LogAlertRules.clone(db),
 		MetricAlertRules:            q.MetricAlertRules.clone(db),
+		MetricBaselines:             q.MetricBaselines.clone(db),
 		NamespaceGpuHourlyStats:     q.NamespaceGpuHourlyStats.clone(db),
 		NamespaceInfo:               q.NamespaceInfo.clone(db),
 		Node:                        q.Node.clone(db),
@@ -307,10 +286,7 @@ func (q *Query) ReplaceDB(db *gorm.DB) *Query {
 	return &Query{
 		db:                          db,
 		ActionTasks:                 q.ActionTasks.replaceDB(db),
-		AiAgentRegistrations:        q.AiAgentRegistrations.replaceDB(db),
-		AiTasks:                     q.AiTasks.replaceDB(db),
 		AiWorkloadMetadata:          q.AiWorkloadMetadata.replaceDB(db),
-		AlertCategoryDefinitions:    q.AlertCategoryDefinitions.replaceDB(db),
 		AlertCorrelations:           q.AlertCorrelations.replaceDB(db),
 		AlertEvents:                 q.AlertEvents.replaceDB(db),
 		AlertNotifications:          q.AlertNotifications.replaceDB(db),
@@ -321,13 +297,9 @@ func (q *Query) ReplaceDB(db *gorm.DB) *Query {
 		AlertStatistics:             q.AlertStatistics.replaceDB(db),
 		CheckpointEvent:             q.CheckpointEvent.replaceDB(db),
 		ClusterGpuHourlyStats:       q.ClusterGpuHourlyStats.replaceDB(db),
-		ClusterInspections:          q.ClusterInspections.replaceDB(db),
 		ClusterOverviewCache:        q.ClusterOverviewCache.replaceDB(db),
-		ComponentGroupMembers:       q.ComponentGroupMembers.replaceDB(db),
-		ComponentGroups:             q.ComponentGroups.replaceDB(db),
-		ComponentRegistry:           q.ComponentRegistry.replaceDB(db),
-		ComponentScanWorkloads:      q.ComponentScanWorkloads.replaceDB(db),
-		ComponentScans:              q.ComponentScans.replaceDB(db),
+		CommitImpactAnalysis:        q.CommitImpactAnalysis.replaceDB(db),
+		DashboardSummaries:          q.DashboardSummaries.replaceDB(db),
 		DetectionConflictLog:        q.DetectionConflictLog.replaceDB(db),
 		DetectionCoverage:           q.DetectionCoverage.replaceDB(db),
 		DetectionSourcePriority:     q.DetectionSourcePriority.replaceDB(db),
@@ -349,16 +321,16 @@ func (q *Query) ReplaceDB(db *gorm.DB) *Query {
 		GpuUsageWeeklyReports:       q.GpuUsageWeeklyReports.replaceDB(db),
 		GpuWorkload:                 q.GpuWorkload.replaceDB(db),
 		GpuWorkloadSnapshot:         q.GpuWorkloadSnapshot.replaceDB(db),
-		InspectionAnomalies:         q.InspectionAnomalies.replaceDB(db),
-		InvestigationResults:        q.InvestigationResults.replaceDB(db),
 		JobExecutionHistory:         q.JobExecutionHistory.replaceDB(db),
 		K8sServices:                 q.K8sServices.replaceDB(db),
 		LabelGpuHourlyStats:         q.LabelGpuHourlyStats.replaceDB(db),
+		LensSystemConfigs:           q.LensSystemConfigs.replaceDB(db),
 		LogAlertRuleStatistics:      q.LogAlertRuleStatistics.replaceDB(db),
 		LogAlertRuleTemplates:       q.LogAlertRuleTemplates.replaceDB(db),
 		LogAlertRuleVersions:        q.LogAlertRuleVersions.replaceDB(db),
 		LogAlertRules:               q.LogAlertRules.replaceDB(db),
 		MetricAlertRules:            q.MetricAlertRules.replaceDB(db),
+		MetricBaselines:             q.MetricBaselines.replaceDB(db),
 		NamespaceGpuHourlyStats:     q.NamespaceGpuHourlyStats.replaceDB(db),
 		NamespaceInfo:               q.NamespaceInfo.replaceDB(db),
 		Node:                        q.Node.replaceDB(db),
@@ -398,10 +370,7 @@ func (q *Query) ReplaceDB(db *gorm.DB) *Query {
 
 type queryCtx struct {
 	ActionTasks                 *actionTasksDo
-	AiAgentRegistrations        *aiAgentRegistrationsDo
-	AiTasks                     *aiTasksDo
 	AiWorkloadMetadata          *aiWorkloadMetadataDo
-	AlertCategoryDefinitions    *alertCategoryDefinitionsDo
 	AlertCorrelations           *alertCorrelationsDo
 	AlertEvents                 *alertEventsDo
 	AlertNotifications          *alertNotificationsDo
@@ -412,13 +381,9 @@ type queryCtx struct {
 	AlertStatistics             *alertStatisticsDo
 	CheckpointEvent             *checkpointEventDo
 	ClusterGpuHourlyStats       *clusterGpuHourlyStatsDo
-	ClusterInspections          *clusterInspectionsDo
 	ClusterOverviewCache        *clusterOverviewCacheDo
-	ComponentGroupMembers       *componentGroupMembersDo
-	ComponentGroups             *componentGroupsDo
-	ComponentRegistry           *componentRegistryDo
-	ComponentScanWorkloads      *componentScanWorkloadsDo
-	ComponentScans              *componentScansDo
+	CommitImpactAnalysis        *commitImpactAnalysisDo
+	DashboardSummaries          *dashboardSummariesDo
 	DetectionConflictLog        *detectionConflictLogDo
 	DetectionCoverage           *detectionCoverageDo
 	DetectionSourcePriority     *detectionSourcePriorityDo
@@ -440,16 +405,16 @@ type queryCtx struct {
 	GpuUsageWeeklyReports       *gpuUsageWeeklyReportsDo
 	GpuWorkload                 *gpuWorkloadDo
 	GpuWorkloadSnapshot         *gpuWorkloadSnapshotDo
-	InspectionAnomalies         *inspectionAnomaliesDo
-	InvestigationResults        *investigationResultsDo
 	JobExecutionHistory         *jobExecutionHistoryDo
 	K8sServices                 *k8sServicesDo
 	LabelGpuHourlyStats         *labelGpuHourlyStatsDo
+	LensSystemConfigs           *lensSystemConfigsDo
 	LogAlertRuleStatistics      *logAlertRuleStatisticsDo
 	LogAlertRuleTemplates       *logAlertRuleTemplatesDo
 	LogAlertRuleVersions        *logAlertRuleVersionsDo
 	LogAlertRules               *logAlertRulesDo
 	MetricAlertRules            *metricAlertRulesDo
+	MetricBaselines             *metricBaselinesDo
 	NamespaceGpuHourlyStats     *namespaceGpuHourlyStatsDo
 	NamespaceInfo               *namespaceInfoDo
 	Node                        *nodeDo
@@ -489,10 +454,7 @@ type queryCtx struct {
 func (q *Query) WithContext(ctx context.Context) *queryCtx {
 	return &queryCtx{
 		ActionTasks:                 q.ActionTasks.WithContext(ctx),
-		AiAgentRegistrations:        q.AiAgentRegistrations.WithContext(ctx),
-		AiTasks:                     q.AiTasks.WithContext(ctx),
 		AiWorkloadMetadata:          q.AiWorkloadMetadata.WithContext(ctx),
-		AlertCategoryDefinitions:    q.AlertCategoryDefinitions.WithContext(ctx),
 		AlertCorrelations:           q.AlertCorrelations.WithContext(ctx),
 		AlertEvents:                 q.AlertEvents.WithContext(ctx),
 		AlertNotifications:          q.AlertNotifications.WithContext(ctx),
@@ -503,13 +465,9 @@ func (q *Query) WithContext(ctx context.Context) *queryCtx {
 		AlertStatistics:             q.AlertStatistics.WithContext(ctx),
 		CheckpointEvent:             q.CheckpointEvent.WithContext(ctx),
 		ClusterGpuHourlyStats:       q.ClusterGpuHourlyStats.WithContext(ctx),
-		ClusterInspections:          q.ClusterInspections.WithContext(ctx),
 		ClusterOverviewCache:        q.ClusterOverviewCache.WithContext(ctx),
-		ComponentGroupMembers:       q.ComponentGroupMembers.WithContext(ctx),
-		ComponentGroups:             q.ComponentGroups.WithContext(ctx),
-		ComponentRegistry:           q.ComponentRegistry.WithContext(ctx),
-		ComponentScanWorkloads:      q.ComponentScanWorkloads.WithContext(ctx),
-		ComponentScans:              q.ComponentScans.WithContext(ctx),
+		CommitImpactAnalysis:        q.CommitImpactAnalysis.WithContext(ctx),
+		DashboardSummaries:          q.DashboardSummaries.WithContext(ctx),
 		DetectionConflictLog:        q.DetectionConflictLog.WithContext(ctx),
 		DetectionCoverage:           q.DetectionCoverage.WithContext(ctx),
 		DetectionSourcePriority:     q.DetectionSourcePriority.WithContext(ctx),
@@ -531,16 +489,16 @@ func (q *Query) WithContext(ctx context.Context) *queryCtx {
 		GpuUsageWeeklyReports:       q.GpuUsageWeeklyReports.WithContext(ctx),
 		GpuWorkload:                 q.GpuWorkload.WithContext(ctx),
 		GpuWorkloadSnapshot:         q.GpuWorkloadSnapshot.WithContext(ctx),
-		InspectionAnomalies:         q.InspectionAnomalies.WithContext(ctx),
-		InvestigationResults:        q.InvestigationResults.WithContext(ctx),
 		JobExecutionHistory:         q.JobExecutionHistory.WithContext(ctx),
 		K8sServices:                 q.K8sServices.WithContext(ctx),
 		LabelGpuHourlyStats:         q.LabelGpuHourlyStats.WithContext(ctx),
+		LensSystemConfigs:           q.LensSystemConfigs.WithContext(ctx),
 		LogAlertRuleStatistics:      q.LogAlertRuleStatistics.WithContext(ctx),
 		LogAlertRuleTemplates:       q.LogAlertRuleTemplates.WithContext(ctx),
 		LogAlertRuleVersions:        q.LogAlertRuleVersions.WithContext(ctx),
 		LogAlertRules:               q.LogAlertRules.WithContext(ctx),
 		MetricAlertRules:            q.MetricAlertRules.WithContext(ctx),
+		MetricBaselines:             q.MetricBaselines.WithContext(ctx),
 		NamespaceGpuHourlyStats:     q.NamespaceGpuHourlyStats.WithContext(ctx),
 		NamespaceInfo:               q.NamespaceInfo.WithContext(ctx),
 		Node:                        q.Node.WithContext(ctx),

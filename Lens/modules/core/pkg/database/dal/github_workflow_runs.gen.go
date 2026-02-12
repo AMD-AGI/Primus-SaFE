@@ -54,6 +54,13 @@ func newGithubWorkflowRuns(db *gorm.DB, opts ...gen.DOOption) githubWorkflowRuns
 	_githubWorkflowRuns.RunnerSetID = field.NewInt64(tableName, "runner_set_id")
 	_githubWorkflowRuns.RunnerSetName = field.NewString(tableName, "runner_set_name")
 	_githubWorkflowRuns.RunnerSetNamespace = field.NewString(tableName, "runner_set_namespace")
+	_githubWorkflowRuns.WorkflowStatus = field.NewString(tableName, "workflow_status")
+	_githubWorkflowRuns.WorkflowConclusion = field.NewString(tableName, "workflow_conclusion")
+	_githubWorkflowRuns.CollectionStatus = field.NewString(tableName, "collection_status")
+	_githubWorkflowRuns.CurrentJobName = field.NewString(tableName, "current_job_name")
+	_githubWorkflowRuns.CurrentStepName = field.NewString(tableName, "current_step_name")
+	_githubWorkflowRuns.ProgressPercent = field.NewInt32(tableName, "progress_percent")
+	_githubWorkflowRuns.LastSyncedAt = field.NewTime(tableName, "last_synced_at")
 
 	_githubWorkflowRuns.fillFieldMap()
 
@@ -65,21 +72,21 @@ type githubWorkflowRuns struct {
 
 	ALL                   field.Asterisk
 	ID                    field.Int64
-	ConfigID              field.Int64  // Associated configuration ID
-	WorkloadUID           field.String // Lens workload UID (from gpu_workloads table)
-	WorkloadName          field.String // Workload name
-	WorkloadNamespace     field.String // Workload namespace
-	GithubRunID           field.Int64  // GitHub workflow run ID (from annotations)
+	ConfigID              field.Int64
+	WorkloadUID           field.String
+	WorkloadName          field.String
+	WorkloadNamespace     field.String
+	GithubRunID           field.Int64
 	GithubRunNumber       field.Int32
-	GithubJobID           field.Int64 // GitHub job ID (from annotations)
+	GithubJobID           field.Int64
 	HeadSha               field.String
 	HeadBranch            field.String
 	WorkflowName          field.String
-	Status                field.String // Processing status: pending, collecting, extracting, completed, failed, skipped
-	TriggerSource         field.String // How this run was triggered: realtime, backfill, manual
-	FilesFound            field.Int32  // Number of files matching patterns
-	FilesProcessed        field.Int32  // Number of files successfully processed
-	MetricsCount          field.Int32  // Number of metric records extracted
+	Status                field.String
+	TriggerSource         field.String
+	FilesFound            field.Int32
+	FilesProcessed        field.Int32
+	MetricsCount          field.Int32
 	WorkloadStartedAt     field.Time
 	WorkloadCompletedAt   field.Time
 	CollectionStartedAt   field.Time
@@ -88,9 +95,16 @@ type githubWorkflowRuns struct {
 	RetryCount            field.Int32
 	CreatedAt             field.Time
 	UpdatedAt             field.Time
-	RunnerSetID           field.Int64  // Direct reference to github_runner_sets.id
-	RunnerSetName         field.String // Denormalized runner set name for efficient querying
-	RunnerSetNamespace    field.String // Denormalized runner set namespace for efficient querying
+	RunnerSetID           field.Int64
+	RunnerSetName         field.String
+	RunnerSetNamespace    field.String
+	WorkflowStatus        field.String // GitHub workflow execution status: queued, in_progress, completed, waiting, pending, requested
+	WorkflowConclusion    field.String // GitHub workflow conclusion: success, failure, cancelled, skipped, neutral, timed_out, action_required
+	CollectionStatus      field.String // Internal metrics collection status: pending, collecting, completed, failed, skipped
+	CurrentJobName        field.String // Currently running job name from GitHub
+	CurrentStepName       field.String // Currently running step name from GitHub
+	ProgressPercent       field.Int32  // Overall workflow progress percentage (0-100)
+	LastSyncedAt          field.Time   // Last time state was synced from GitHub API
 
 	fieldMap map[string]field.Expr
 }
@@ -134,6 +148,13 @@ func (g *githubWorkflowRuns) updateTableName(table string) *githubWorkflowRuns {
 	g.RunnerSetID = field.NewInt64(table, "runner_set_id")
 	g.RunnerSetName = field.NewString(table, "runner_set_name")
 	g.RunnerSetNamespace = field.NewString(table, "runner_set_namespace")
+	g.WorkflowStatus = field.NewString(table, "workflow_status")
+	g.WorkflowConclusion = field.NewString(table, "workflow_conclusion")
+	g.CollectionStatus = field.NewString(table, "collection_status")
+	g.CurrentJobName = field.NewString(table, "current_job_name")
+	g.CurrentStepName = field.NewString(table, "current_step_name")
+	g.ProgressPercent = field.NewInt32(table, "progress_percent")
+	g.LastSyncedAt = field.NewTime(table, "last_synced_at")
 
 	g.fillFieldMap()
 
@@ -162,7 +183,7 @@ func (g *githubWorkflowRuns) GetFieldByName(fieldName string) (field.OrderExpr, 
 }
 
 func (g *githubWorkflowRuns) fillFieldMap() {
-	g.fieldMap = make(map[string]field.Expr, 27)
+	g.fieldMap = make(map[string]field.Expr, 34)
 	g.fieldMap["id"] = g.ID
 	g.fieldMap["config_id"] = g.ConfigID
 	g.fieldMap["workload_uid"] = g.WorkloadUID
@@ -190,6 +211,13 @@ func (g *githubWorkflowRuns) fillFieldMap() {
 	g.fieldMap["runner_set_id"] = g.RunnerSetID
 	g.fieldMap["runner_set_name"] = g.RunnerSetName
 	g.fieldMap["runner_set_namespace"] = g.RunnerSetNamespace
+	g.fieldMap["workflow_status"] = g.WorkflowStatus
+	g.fieldMap["workflow_conclusion"] = g.WorkflowConclusion
+	g.fieldMap["collection_status"] = g.CollectionStatus
+	g.fieldMap["current_job_name"] = g.CurrentJobName
+	g.fieldMap["current_step_name"] = g.CurrentStepName
+	g.fieldMap["progress_percent"] = g.ProgressPercent
+	g.fieldMap["last_synced_at"] = g.LastSyncedAt
 }
 
 func (g githubWorkflowRuns) clone(db *gorm.DB) githubWorkflowRuns {

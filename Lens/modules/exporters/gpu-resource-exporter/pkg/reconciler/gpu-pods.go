@@ -73,6 +73,11 @@ func (g *GpuPodsReconciler) Reconcile(ctx context.Context, req reconcile.Request
 	err := g.clientSets.ControllerRuntimeClient.Get(ctx, req.NamespacedName, pod)
 	if err != nil {
 		if client.IgnoreNotFound(err) == nil {
+			// Pod was deleted - close any open running periods for this pod
+			// We need to find the pod UID from the database since we can't get it from the deleted pod
+			if err := g.handleDeletedPod(ctx, req.Namespace, req.Name); err != nil {
+				log.Warnf("Failed to handle deleted pod %s/%s: %v", req.Namespace, req.Name, err)
+			}
 			return reconcile.Result{}, nil
 		}
 		log.Error(err, "Error getting pod")
@@ -465,5 +470,33 @@ func (g *GpuPodsReconciler) addListener(
 		return fmt.Errorf("failed to register listener for %s %s %s %s: %v", apiVersion, kind, namespace, name, err)
 	}
 	log.Infof("Added listener for %s/%s (%s)", namespace, name, uid)
+	return nil
+}
+
+// handleDeletedPod closes running periods for pods that have been deleted from the cluster
+func (g *GpuPodsReconciler) handleDeletedPod(ctx context.Context, namespace, name string) error {
+	// Find the pod by namespace and name in our database
+	gpuPod, err := database.GetFacade().GetPod().GetGpuPodsByNamespaceName(ctx, namespace, name)
+	if err != nil {
+		return fmt.Errorf("failed to get pod from database: %w", err)
+	}
+	if gpuPod == nil {
+		// Pod not found in database, nothing to do
+		return nil
+	}
+
+	// Update the pod status in database
+	gpuPod.Deleted = true
+	gpuPod.Running = false
+	gpuPod.UpdatedAt = time.Now()
+	if err := database.GetFacade().GetPod().UpdateGpuPods(ctx, gpuPod); err != nil {
+		log.Warnf("Failed to update deleted status for pod %s/%s: %v", namespace, name, err)
+	}
+
+	// End any open running periods for this pod
+	if err := database.GetFacade().GetPodRunningPeriods().EndRunningPeriod(ctx, gpuPod.UID, time.Now()); err != nil {
+		return fmt.Errorf("failed to end running period: %w", err)
+	}
+	log.Infof("Closed running period for deleted pod %s/%s (uid=%s)", namespace, name, gpuPod.UID)
 	return nil
 }

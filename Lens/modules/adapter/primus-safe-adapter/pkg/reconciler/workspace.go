@@ -131,6 +131,16 @@ func (r *WorkspaceReconciler) saveWorkspaceToDB(ctx context.Context, workspace *
 	// Get the appropriate facade based on cluster ID
 	var facade database.FacadeInterface
 	if clusterID != "" {
+		// Check if cluster exists in ClusterManager before proceeding
+		cm := clientsets.GetClusterManager()
+		if cm != nil {
+			_, err := cm.GetClientSetByClusterName(clusterID)
+			if err != nil {
+				log.Warnf("Cluster %s not found in ClusterManager, skipping workspace %s until next reconcile: %v",
+					clusterID, workspace.Name, err)
+				return nil
+			}
+		}
 		facade = database.GetFacadeForCluster(clusterID)
 		log.Debugf("Using facade for cluster: %s", clusterID)
 	} else {
@@ -199,6 +209,16 @@ func (r *WorkspaceReconciler) deleteNamespaceInfo(ctx context.Context, workspace
 	// Get the appropriate facade based on cluster ID
 	var facade database.FacadeInterface
 	if clusterID != "" {
+		// Check if cluster exists in ClusterManager before proceeding
+		cm := clientsets.GetClusterManager()
+		if cm != nil {
+			_, err := cm.GetClientSetByClusterName(clusterID)
+			if err != nil {
+				log.Warnf("Cluster %s not found in ClusterManager, skipping delete for workspace %s: %v",
+					clusterID, workspace.Name, err)
+				return nil
+			}
+		}
 		facade = database.GetFacadeForCluster(clusterID)
 		log.Debugf("Using facade for cluster: %s", clusterID)
 	} else {

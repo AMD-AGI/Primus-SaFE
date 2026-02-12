@@ -11,7 +11,6 @@ import (
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/klog/v2"
@@ -167,54 +166,11 @@ func syncOpensearchService(ctx context.Context, clusterName string, clusterClien
 	if cfg == nil {
 		return nil, nil
 	}
-
-	/**
-	syncedService := &corev1.Service{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      getServiceNameForClusterOpensearch(clusterName),
-			Namespace: opensearchConfigNamespace,
-		},
-		Spec: corev1.ServiceSpec{
-			Ports: []corev1.ServicePort{
-				{
-					Name:     cfg.Scheme,
-					Protocol: corev1.ProtocolTCP,
-					Port:     9200,
-					TargetPort: intstr.IntOrString{
-						IntVal: cfg.NodePort,
-					},
-				},
-			},
-			Type: corev1.ServiceTypeClusterIP,
-		},
-	}
-	err = controlPlaneClient.Create(ctx, syncedService)
-	if client.IgnoreAlreadyExists(err) != nil {
-		return nil, err
-	}
-	endpoints, err := desireEndpoint(ctx, clusterName, clusterClient, cfg)
-	if err != nil {
-		return nil, err
-	}
-	if endpoints == nil {
-		return nil, nil
-	}
-	err = controlPlaneClient.Create(ctx, endpoints)
-	if err != nil {
-		if client.IgnoreAlreadyExists(err) != nil {
-			return nil, err
-		}
-		err = controlPlaneClient.Update(ctx, endpoints)
-		if err != nil {
-			return nil, err
-		}
-	}
-		**/
 	result := &SearchClientConfig{
-		Username: cfg.Username,
-		Password: cfg.Password,
-		Endpoint: fmt.Sprintf(opensearchEndpointTemplate, cfg.Scheme, getServiceNameForClusterOpensearch(clusterName), opensearchConfigNamespace),
-		Prefix:   cfg.Prefix,
+		Username:     cfg.Username,
+		Password:     cfg.Password,
+		Endpoint:     fmt.Sprintf(opensearchEndpointTemplate, cfg.Scheme, getServiceNameForClusterOpensearch(clusterName), opensearchConfigNamespace),
+		DefaultIndex: cfg.Prefix,
 	}
 	return result, nil
 }
@@ -233,42 +189,6 @@ func getControlPlaneNode(ctx context.Context, c client.Client) ([]*corev1.Node, 
 	}
 	return controlPlaneNodes, nil
 }
-
-func desireEndpoint(ctx context.Context, clusterName string, client client.Client, cfg *opensearchSecretData) (*corev1.Endpoints, error) {
-	masterNodes, err := getControlPlaneNode(ctx, client)
-	if err != nil {
-		return nil, err
-	}
-	ep := &corev1.Endpoints{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      getServiceNameForClusterOpensearch(clusterName),
-			Namespace: opensearchConfigNamespace,
-		},
-		Subsets: []corev1.EndpointSubset{},
-	}
-	ss := corev1.EndpointSubset{
-		Addresses: []corev1.EndpointAddress{},
-		Ports: []corev1.EndpointPort{
-			{
-				Name:     cfg.Scheme,
-				Protocol: corev1.ProtocolTCP,
-				Port:     cfg.NodePort,
-			},
-		},
-	}
-	for _, node := range masterNodes {
-		ss.Addresses = append(ss.Addresses, corev1.EndpointAddress{
-			IP: node.Status.Addresses[0].Address,
-			TargetRef: &corev1.ObjectReference{
-				Kind: "Node",
-				UID:  node.UID,
-			},
-		})
-	}
-	ep.Subsets = append(ep.Subsets, ss)
-	return ep, nil
-}
-
 func getServiceNameForClusterOpensearch(clusterName string) string {
 	return fmt.Sprintf("primus-safe-opensearch-%s", clusterName)
 }

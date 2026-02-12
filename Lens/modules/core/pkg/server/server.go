@@ -27,10 +27,40 @@ func InitServerWithPreInitFunc(ctx context.Context, preInit func(ctx context.Con
 	if err != nil {
 		return err
 	}
-	err = clientsets.InitClientSets(ctx, cfg.MultiCluster, cfg.LoadK8SClient, cfg.LoadStorageClient)
+
+	// Build component declaration based on config
+	decl := clientsets.ComponentDeclaration{
+		RequireK8S:     cfg.LoadK8SClient,
+		RequireStorage: cfg.LoadStorageClient,
+	}
+
+	// Determine component type from config
+	if cfg.IsControlPlane {
+		decl.Type = clientsets.ComponentTypeControlPlane
+		log.Info("Initializing as ControlPlane component")
+	} else {
+		decl.Type = clientsets.ComponentTypeDataPlane
+		log.Info("Initializing as DataPlane component")
+	}
+
+	// Initialize cluster manager with declaration
+	err = clientsets.InitClusterManager(ctx, decl)
 	if err != nil {
 		return err
 	}
+
+	// Initialize control plane client after cluster manager is ready (needs K8S to read secret)
+	if cfg.IsControlPlane {
+		log.Info("Control plane mode enabled, initializing control plane database...")
+		if err := clientsets.InitControlPlaneClient(ctx, cfg); err != nil {
+			return errors.NewError().
+				WithCode(errors.CodeInitializeError).
+				WithMessage("failed to initialize control plane client").
+				WithError(err)
+		}
+		log.Info("Control plane database initialized successfully")
+	}
+
 	if preInit != nil {
 		err := preInit(ctx, cfg)
 		if err != nil {

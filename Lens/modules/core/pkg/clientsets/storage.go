@@ -73,7 +73,15 @@ func loadCurrentClusterStorageClients(ctx context.Context) error {
 }
 
 func loadMultiClusterStorageClients(ctx context.Context) error {
-	cfg, err := loadMultiClusterStorageConfig(ctx)
+	var cfg PrimusLensMultiClusterClientConfig
+	var err error
+
+	// In control plane mode, load from DB; otherwise load from secret
+	if IsControlPlaneMode() {
+		cfg, err = loadMultiClusterStorageConfigFromDB(ctx)
+	} else {
+		cfg, err = loadMultiClusterStorageConfig(ctx)
+	}
 	if err != nil {
 		return err
 	}
@@ -84,25 +92,59 @@ func loadMultiClusterStorageClients(ctx context.Context) error {
 			WithMessage("Failed to marshal storage config to json").
 			WithError(err)
 	}
-	if multiClusterStorageConfigJsonBytes != nil {
-		if string(cfgJsonBytes) == string(multiClusterStorageConfigJsonBytes) {
+
+	configChanged := multiClusterStorageConfigJsonBytes == nil || string(cfgJsonBytes) != string(multiClusterStorageConfigJsonBytes)
+
+	// If config hasn't changed, check if all expected clusters have storage clients.
+	// If some clusters failed to initialize previously, we need to retry them.
+	if !configChanged {
+		allClustersReady := true
+		for clusterName := range cfg {
+			if _, exists := multiClusterStorageClientSet[clusterName]; !exists {
+				allClustersReady = false
+				break
+			}
+		}
+		if allClustersReady {
 			return nil
 		}
+		log.Infof("Config unchanged but some clusters have missing storage clients, retrying initialization")
 	}
+
 	multiClusterStorageConfigJsonBytes = cfgJsonBytes
-	newMultiClusterStorageClientSet := map[string]*StorageClientSet{}
-	for clusterName, singleCLusterConfig := range cfg {
-		storageClientSet, err := initStorageClients(ctx, clusterName, singleCLusterConfig)
-		if err != nil {
-			log.Errorf("Failed to initialize storage clients for cluster %s: %v", clusterName, err)
-			continue
+
+	if configChanged {
+		// Config changed: reinitialize all clusters from scratch
+		newMultiClusterStorageClientSet := map[string]*StorageClientSet{}
+		for clusterName, singleCLusterConfig := range cfg {
+			storageClientSet, err := initStorageClients(ctx, clusterName, singleCLusterConfig)
+			if err != nil {
+				log.Errorf("Failed to initialize storage clients for cluster %s: %v", clusterName, err)
+				continue
+			}
+			newMultiClusterStorageClientSet[clusterName] = storageClientSet
+			log.Infof("Initialized storage clients for cluster %s successfully", clusterName)
 		}
-		newMultiClusterStorageClientSet[clusterName] = storageClientSet
-		log.Infof("Initialized storage clients for cluster %s successfully", clusterName)
+		multiClusterStorageClientSet = newMultiClusterStorageClientSet
+	} else {
+		// Config unchanged: only retry clusters that are missing storage clients
+		for clusterName, singleCLusterConfig := range cfg {
+			if _, exists := multiClusterStorageClientSet[clusterName]; exists {
+				continue
+			}
+			log.Infof("Retrying storage client initialization for cluster %s", clusterName)
+			storageClientSet, err := initStorageClients(ctx, clusterName, singleCLusterConfig)
+			if err != nil {
+				log.Errorf("Failed to initialize storage clients for cluster %s: %v", clusterName, err)
+				continue
+			}
+			multiClusterStorageClientSet[clusterName] = storageClientSet
+			log.Infof("Initialized storage clients for cluster %s successfully", clusterName)
+		}
 	}
-	multiClusterStorageClientSet = newMultiClusterStorageClientSet
-	log.Info("Initialized multi-cluster storage clients successfully")
-	return errors.NewError().WithCode(errors.CodeInitializeError).WithMessage("Failed to initialize storage clients for some clusters").WithError(err)
+
+	log.Infof("Multi-cluster storage clients initialized: %d/%d clusters ready", len(multiClusterStorageClientSet), len(cfg))
+	return nil
 }
 
 func loadSingleClusterStorageConfig(ctx context.Context, k8sClient *K8SClientSet) (*PrimusLensClientConfig, error) {
@@ -130,6 +172,19 @@ func LoadSingleClusterStorageConfig(ctx context.Context, k8sClient *K8SClientSet
 }
 
 func loadMultiClusterStorageConfig(ctx context.Context) (PrimusLensMultiClusterClientConfig, error) {
+	// Check if this is a control plane component
+	if globalClusterManager != nil && globalClusterManager.componentType.IsControlPlane() {
+		// Control plane: load from database if available
+		if controlPlaneClientSet != nil && controlPlaneClientSet.Facade != nil {
+			return loadMultiClusterStorageConfigFromDB(ctx)
+		}
+		// Control plane DB not ready yet, return empty config
+		// Will be populated later by periodic sync
+		log.Debug("Control plane database not ready, returning empty multi-cluster storage config")
+		return PrimusLensMultiClusterClientConfig{}, nil
+	}
+
+	// Data plane: load from secret (for backward compatibility)
 	secret, err := getCurrentClusterK8SClientSet().Clientsets.CoreV1().Secrets(StorageConfigSecretNamespace).Get(ctx, MultiStorageConfigSecretName, metav1.GetOptions{})
 	if err != nil {
 		return nil, errors.NewError().
@@ -145,6 +200,93 @@ func loadMultiClusterStorageConfig(ctx context.Context) (PrimusLensMultiClusterC
 			WithMessage("Failed to load multi-cluster storage config from secret").
 			WithError(err)
 	}
+	return cfg, nil
+}
+
+// loadMultiClusterStorageConfigFromDB loads storage config from control plane database
+func loadMultiClusterStorageConfigFromDB(ctx context.Context) (PrimusLensMultiClusterClientConfig, error) {
+	cpClientSet := GetControlPlaneClientSet()
+	if cpClientSet == nil || cpClientSet.Facade == nil {
+		return nil, errors.NewError().
+			WithCode(errors.CodeInitializeError).
+			WithMessage("Control plane client not initialized")
+	}
+
+	// Get all active clusters from DB (List returns only active clusters)
+	clusters, err := cpClientSet.Facade.ClusterConfig.List(ctx)
+	if err != nil {
+		return nil, errors.NewError().
+			WithCode(errors.CodeInitializeError).
+			WithMessage("Failed to list clusters from control plane DB").
+			WithError(err)
+	}
+
+	cfg := PrimusLensMultiClusterClientConfig{}
+	currentClusterName := getCurrentClusterName()
+
+	for _, cluster := range clusters {
+		// Skip current cluster - control plane's own cluster should not be in multi-cluster map
+		if cluster.ClusterName == currentClusterName {
+			log.Debugf("Skipping current cluster '%s' from multi-cluster storage config", cluster.ClusterName)
+			continue
+		}
+		// Skip clusters without storage config
+		if cluster.PostgresHost == "" && cluster.PrometheusReadHost == "" {
+			log.Debugf("Skipping cluster %s: no storage config in DB", cluster.ClusterName)
+			continue
+		}
+
+		clusterCfg := PrimusLensClientConfig{}
+
+		// Postgres config
+		if cluster.PostgresHost != "" {
+			sslMode := cluster.PostgresSSLMode
+			if sslMode == "" {
+				sslMode = "require" // default to require for security
+			}
+			clusterCfg.Postgres = &PrimusLensClientConfigPostgres{
+				Service:   cluster.PostgresHost,
+				Namespace: StorageConfigSecretNamespace,
+				Port:      int32(cluster.PostgresPort),
+				Username:  cluster.PostgresUsername,
+				Password:  cluster.PostgresPassword,
+				DBName:    cluster.PostgresDBName,
+				SSLMode:   sslMode,
+			}
+		}
+
+		// OpenSearch config
+		if cluster.OpensearchHost != "" {
+			scheme := cluster.OpensearchScheme
+			if scheme == "" {
+				scheme = "https" // default to https
+			}
+			clusterCfg.Opensearch = &PrimusLensClientConfigOpensearch{
+				Service:   cluster.OpensearchHost,
+				Namespace: StorageConfigSecretNamespace,
+				Port:      int32(cluster.OpensearchPort),
+				Username:  cluster.OpensearchUsername,
+				Password:  cluster.OpensearchPassword,
+				Scheme:    scheme,
+			}
+		}
+
+		// Prometheus config
+		if cluster.PrometheusReadHost != "" || cluster.PrometheusWriteHost != "" {
+			clusterCfg.Prometheus = &PrimusLensClientConfigPrometheus{
+				ReadService:  cluster.PrometheusReadHost,
+				ReadPort:     int32(cluster.PrometheusReadPort),
+				WriteService: cluster.PrometheusWriteHost,
+				WritePort:    int32(cluster.PrometheusWritePort),
+				Namespace:    StorageConfigSecretNamespace,
+			}
+		}
+
+		cfg[cluster.ClusterName] = clusterCfg
+		log.Debugf("Loaded storage config for cluster %s from DB", cluster.ClusterName)
+	}
+
+	log.Infof("Loaded storage config for %d clusters from control plane DB", len(cfg))
 	return cfg, nil
 }
 
