@@ -73,7 +73,8 @@ Create a new workload.
     "description": "Training job for model v2"
   },
   "preheat": true,
-  "stickyNodes": true
+  "stickyNodes": true,
+  "privileged": false
 }
 ```
 
@@ -307,7 +308,7 @@ TorchFT is a fault-tolerant distributed training framework that supports elastic
 | workloadId                   | string   | NO       | If a workload ID is specified, use that ID directly instead of generating one from the display name.                                                                                                       |
 | userEntry.id                 | string   | NO       | The workload will be created using that specific user ID. This field is only accessible to administrators.                                                                                                 |
 | userEntry.name               | string   | NO       | The workload will be created using that specific user name. This field is only accessible to administrators.                                                                                               |
-
+| privileged                   | bool     | No       | Whether to run the workload in privileged mode, only accessible to administrators                                                                                                                          |
 **Replica Rules when `specifiedNodes` is provided**:
 
 | Kind | resources[0].replica | resources[1].replica |
@@ -536,7 +537,8 @@ Get detailed information about a specific workload.
     }
   ],
   "workloadUid": "a8e357ad-f73d-43ac-99fe-118886d5e193",
-  "stickyNodes": true
+  "stickyNodes": true,
+  "privileged": false
 }
 ```
 
@@ -583,7 +585,7 @@ Only fields not already covered by "List Workloads" are listed below. Other fiel
 | secrets                         | object     | Refer to the CreateWorkload parameter                                                                                                   |
 | workloadUid                     | string     | UID of the workload                                                                                                                     |
 | stickyNodes                     | bool       | When enabled, the workload will try to use the same nodes during retries/failovers.                                                     |
-
+| privileged                      | bool       | Whether to run the workload in privileged mode.                                                                                         |
 > Other fields not listed here are identical to those in the "List Workloads" Field Description.
 
 ---

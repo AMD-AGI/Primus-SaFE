@@ -340,7 +340,6 @@ func IsRequireNodeSpread(obj metav1.Object) bool {
 func IsPrivileged(obj metav1.Object) bool {
 	return GetAnnotation(obj, WorkloadPrivilegedAnnotation) == TrueStr
 }
-
 func GetRootWorkloadId(obj metav1.Object) string {
 	return GetLabel(obj, RootWorkloadIdLabel)
 }
