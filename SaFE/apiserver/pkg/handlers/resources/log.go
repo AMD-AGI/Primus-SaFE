@@ -6,14 +6,10 @@
 package resources
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
-	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -59,10 +55,21 @@ func (h *Handler) GetWorkloadLogContext(c *gin.Context) {
 	handle(c, h.getWorkloadLogContext)
 }
 
-// DownloadWorkloadLog handles the request to download workload logs to a local path.
-// It creates a DumpLog job, waits for completion, and downloads the result from S3.
+// DownloadWorkloadLog handles the request to download workload logs.
+// It creates a DumpLog job, waits for completion, and redirects to the S3 presigned URL.
+// Using HTTP 302 redirect is the recommended approach for large file downloads as it:
+// - Avoids loading the entire file into API server memory
+// - Allows direct client-to-S3 transfer for better performance
+// - Reduces API server load
+// Note: Clients should use "curl -L" to follow the redirect automatically.
 func (h *Handler) DownloadWorkloadLog(c *gin.Context) {
-	handle(c, h.downloadWorkloadLog)
+	resp, err := h.downloadWorkloadLog(c)
+	if err != nil {
+		apiutils.AbortWithApiError(c, err)
+		return
+	}
+	// Redirect to S3 presigned URL for direct download
+	c.Redirect(http.StatusFound, resp.DownloadURL)
 }
 
 // getWorkloadLog retrieves logs for a specific workload from OpenSearch.
@@ -597,8 +604,9 @@ func getLogQueryStartTime(workload *v1.Workload) time.Time {
 	return startTime
 }
 
-// downloadWorkloadLog implements the logic for downloading workload logs.
-func (h *Handler) downloadWorkloadLog(c *gin.Context) (interface{}, error) {
+// downloadWorkloadLog implements the logic for getting workload log download URL.
+// It creates a DumpLog job, waits for completion, and returns the S3 presigned URL.
+func (h *Handler) downloadWorkloadLog(c *gin.Context) (*view.DownloadWorkloadLogResponse, error) {
 	if !commonconfig.IsOpenSearchEnable() {
 		return nil, commonerrors.NewInternalError("the logging function is not enabled")
 	}
@@ -643,19 +651,14 @@ func (h *Handler) downloadWorkloadLog(c *gin.Context) (interface{}, error) {
 	}
 	klog.Infof("DumpLog job created: %s for workload: %s", job.Name, workload.Name)
 
-	// Step 3: Wait for job completion
-	endpoint, err := h.waitForDumpLogJobCompletion(ctx, job.Name, req.TimeoutSecond)
+	// Step 3: Wait for job completion and get presigned URL
+	downloadURL, err := h.waitForDumpLogJobCompletion(ctx, job.Name, req.TimeoutSecond)
 	if err != nil {
 		return nil, fmt.Errorf("failed to wait for dumplog job completion: %w", err)
 	}
+	klog.Infof("DumpLog job completed, download URL generated for workload: %s", workload.Name)
 
-	// Step 4: Download from S3 presigned URL
-	localFilePath, err := h.downloadFromPresignedURL(endpoint, req.LocalPath, workload.Name)
-	if err != nil {
-		return nil, fmt.Errorf("failed to download log file: %w", err)
-	}
-	klog.Infof("Log file downloaded to: %s", localFilePath)
-	return nil, nil
+	return &view.DownloadWorkloadLogResponse{DownloadURL: downloadURL}, nil
 }
 
 // createDumpLogJobInternal creates a DumpLog OpsJob for the specified workload.
@@ -732,56 +735,4 @@ func (h *Handler) waitForDumpLogJobCompletion(ctx context.Context, jobName strin
 			// continue polling
 		}
 	}
-}
-
-// downloadFromPresignedURL downloads a file from an S3 presigned URL to the local path.
-func (h *Handler) downloadFromPresignedURL(workloadId, presignedURL, localPath string) (string, error) {
-	resp, err := h.httpClient.Get(presignedURL)
-	if err != nil {
-		return "", fmt.Errorf("failed to download file: %w", err)
-	}
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("failed to download file with status: %d", resp.StatusCode)
-	}
-	// Ensure directory exists
-	if err = ensureDir(localPath); err != nil {
-		return "", fmt.Errorf("failed to create directory: %w", err)
-	}
-	localFilePath := localPath
-	if isDirectory(localPath) {
-		localFilePath = filepath.Join(localPath, workloadId)
-	}
-
-	// Create local file
-	file, err := os.Create(localFilePath)
-	if err != nil {
-		return "", fmt.Errorf("failed to create file: %w", err)
-	}
-	defer file.Close()
-
-	// Copy content
-	if _, err = io.Copy(file, bytes.NewReader(resp.Body)); err != nil {
-		return "", fmt.Errorf("failed to write file: %w", err)
-	}
-
-	return localFilePath, nil
-}
-
-// ensureDir ensures the directory for the given path exists.
-func ensureDir(path string) error {
-	dir := filepath.Dir(path)
-	if isDirectory(path) {
-		dir = path
-	}
-	return os.MkdirAll(dir, 0755)
-}
-
-// isDirectory checks if the given path is a directory or looks like a directory path.
-func isDirectory(path string) bool {
-	info, err := os.Stat(path)
-	if err == nil {
-		return info.IsDir()
-	}
-	// If path doesn't exist, check if it looks like a directory (ends with separator or no extension)
-	return strings.HasSuffix(path, string(filepath.Separator)) || filepath.Ext(path) == ""
 }

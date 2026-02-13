@@ -62,10 +62,14 @@ type ListContextLogRequest struct {
 	DocId string
 }
 
-// DownloadWorkloadLogRequest is the request for downloading workload logs to a local path.
+// DownloadWorkloadLogRequest is the request for getting workload log download URL.
 type DownloadWorkloadLogRequest struct {
-	// The local path to save the log file (required)
-	LocalPath string `json:"localPath" binding:"required"`
 	// Timeout in seconds for waiting job completion, default 900 (15 minutes)
 	TimeoutSecond int `json:"timeoutSecond,omitempty"`
+}
+
+// DownloadWorkloadLogResponse is the response containing the S3 presigned URL for downloading logs.
+type DownloadWorkloadLogResponse struct {
+	// The S3 presigned URL to download the log file
+	DownloadURL string `json:"downloadUrl"`
 }

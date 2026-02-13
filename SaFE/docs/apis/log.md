@@ -221,7 +221,7 @@ Query aggregated workload events (based on OpenSearch).
 
 ### 5. Download Workload Log
 
-Download workload logs to a local path
+Download workload logs directly. This API creates a DumpLog job internally, waits for job completion, and redirects (HTTP 302) to the S3 presigned URL for direct download.
 
 **Endpoint**: `POST /api/v1/workloads/{WorkloadId}/logs/download`
 
@@ -237,34 +237,45 @@ Download workload logs to a local path
 
 | Field | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
-| localPath | string | Yes | - | The local directory or file path to save the log file |
 | timeoutSecond | int | No | 900 | Timeout in seconds for waiting job completion (15 minutes by default) |
 
 **Request Example**:
 ```json
 {
-    "localPath": "/tmp/logs/",
     "timeoutSecond": 900
 }
 ```
 
+Or with empty body (uses default timeout):
+```json
+{}
+```
+
 **Response**:
-- HTTP 2xx status code indicates success (no response body)
-- The log file will be saved to the specified `localPath`
+- HTTP 302 redirect to S3 presigned URL
+- Client follows redirect to download the file directly
 
 **Error Codes**:
 
 | Code | Description |
 |------|-------------|
-| 400 | Bad Request - localPath is required |
 | 404 | Workload not found |
 | 500 | Internal error - logging or S3 function not enabled, or job failed |
 | 504 | Timeout waiting for DumpLog job completion |
 
+**curl Example** (use `-L` to follow redirect):
+```bash
+curl -L -o workload-log.tar.gz \
+  -X POST "https://<api-server>/api/v1/workloads/{WorkloadId}/logs/download" \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer <token>" \
+  -d '{}'
+```
+
 **Notes**:
 - Requires both OpenSearch and S3 to be enabled
-- The download operation is synchronous and may take several minutes depending on log size
-- If `localPath` is a directory, the filename will be WorkloadId
+- The operation is synchronous and may take several minutes depending on log size
+- Use `-L` flag with curl to automatically follow the redirect
 
 ## Query Description
 
