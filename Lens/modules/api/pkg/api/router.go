@@ -629,7 +629,9 @@ func RegisterRouter(group *gin.RouterGroup) error {
 	{
 		// List workload profiles with filtering
 		workloadProfileGroup.GET("", getUnifiedHandler("/workload-profile"))
-		// Get single workload profile (must be after diff to avoid conflict)
+		// Seed detection records for undetected workloads (must be before :workload_uid)
+		workloadProfileGroup.POST("seed", getUnifiedHandler("/workload-profile/seed"))
+		// Get single workload profile (must be after seed to avoid conflict)
 		workloadProfileGroup.GET(":workload_uid", getUnifiedHandler("/workload-profile/:workload_uid"))
 		// Trigger manual intent analysis
 		workloadProfileGroup.POST(":workload_uid/analyze", getUnifiedHandler("/workload-profile/:workload_uid/analyze"))

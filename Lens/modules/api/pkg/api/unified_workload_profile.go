@@ -195,11 +195,11 @@ func handleWorkloadProfileList(ctx context.Context, req *WorkloadProfileListRequ
 	// Use available facade methods based on filter priority
 	if req.Category != "" {
 		detections, total, err = facade.GetWorkloadDetection().ListByCategory(ctx, req.Category, limit, offset)
-	} else if req.IntentState != "" {
+	} else if req.IntentState != "" && req.IntentState != "all" {
 		detections, total, err = facade.GetWorkloadDetection().ListByIntentState(ctx, req.IntentState, limit, offset)
 	} else {
-		// Default: list all detections that have been analyzed
-		detections, total, err = facade.GetWorkloadDetection().ListByIntentState(ctx, "completed", limit, offset)
+		// Default: list all detections regardless of intent_state
+		detections, total, err = facade.GetWorkloadDetection().ListDetectionsByStatus(ctx, "", limit, offset)
 	}
 	if err != nil {
 		return nil, errors.NewError().
