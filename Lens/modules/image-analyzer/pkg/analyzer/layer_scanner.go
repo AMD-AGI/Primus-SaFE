@@ -121,9 +121,9 @@ func (s *LayerScanner) scanTar(reader io.Reader, result *LayerResult) (*LayerRes
 
 // isNotablePath checks if the file path is interesting for intent analysis
 func (s *LayerScanner) isNotablePath(name string) bool {
-	// Python site-packages
-	if strings.Contains(name, "site-packages/") {
-		return false // too many to list individually
+	// Python package directories - too many to list individually
+	if strings.Contains(name, "site-packages/") || strings.Contains(name, "dist-packages/") {
+		return false
 	}
 
 	notable := []string{
@@ -149,9 +149,10 @@ func (s *LayerScanner) isNotablePath(name string) bool {
 	return false
 }
 
-// isPipMetadata checks if this is a pip METADATA file
+// isPipMetadata checks if this is a pip METADATA file.
+// Matches both site-packages (standard Python) and dist-packages (Debian/Ubuntu).
 func (s *LayerScanner) isPipMetadata(name string) bool {
-	return strings.Contains(name, "site-packages/") &&
+	return (strings.Contains(name, "site-packages/") || strings.Contains(name, "dist-packages/")) &&
 		(strings.HasSuffix(name, "/METADATA") || strings.HasSuffix(name, "/PKG-INFO"))
 }
 
