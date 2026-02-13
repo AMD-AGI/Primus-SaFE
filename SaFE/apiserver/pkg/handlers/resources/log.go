@@ -705,9 +705,10 @@ func (h *Handler) waitForDumpLogJobCompletion(ctx context.Context, jobName strin
 
 		switch job.Status.Phase {
 		case v1.OpsJobSucceeded:
-			output := job.GetParameter(v1.ParameterEndpoint)
-			if output != nil {
-				return output.Value, nil
+			for _, p := range job.Status.Outputs {
+				if p.Name == v1.ParameterEndpoint {
+					return p.Value, nil
+				}
 			}
 			return "", fmt.Errorf("job succeeded but no endpoint found in outputs")
 		case v1.OpsJobFailed:
