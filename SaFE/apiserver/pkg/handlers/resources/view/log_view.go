@@ -61,3 +61,11 @@ type ListContextLogRequest struct {
 	// Input the specified document ID to retrieve the log context of that document.
 	DocId string
 }
+
+// DownloadWorkloadLogRequest is the request for downloading workload logs to a local path.
+type DownloadWorkloadLogRequest struct {
+	// The local path to save the log file (required)
+	LocalPath string `json:"localPath" binding:"required"`
+	// Timeout in seconds for waiting job completion, default 900 (15 minutes)
+	TimeoutSecond int `json:"timeoutSecond,omitempty"`
+}

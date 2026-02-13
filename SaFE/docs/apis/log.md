@@ -217,6 +217,55 @@ Query aggregated workload events (based on OpenSearch).
 }
 ```
 
+---
+
+### 5. Download Workload Log
+
+Download workload logs to a local path
+
+**Endpoint**: `POST /api/v1/workloads/{WorkloadId}/logs/download`
+
+**Authentication Required**: Yes
+
+**Path Parameters**:
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| WorkloadId | string | Yes | The workload ID to download logs for |
+
+**Request Body**:
+
+| Field | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| localPath | string | Yes | - | The local directory or file path to save the log file |
+| timeoutSecond | int | No | 900 | Timeout in seconds for waiting job completion (15 minutes by default) |
+
+**Request Example**:
+```json
+{
+    "localPath": "/tmp/logs/",
+    "timeoutSecond": 900
+}
+```
+
+**Response**:
+- HTTP 2xx status code indicates success (no response body)
+- The log file will be saved to the specified `localPath`
+
+**Error Codes**:
+
+| Code | Description |
+|------|-------------|
+| 400 | Bad Request - localPath is required |
+| 404 | Workload not found |
+| 500 | Internal error - logging or S3 function not enabled, or job failed |
+| 504 | Timeout waiting for DumpLog job completion |
+
+**Notes**:
+- Requires both OpenSearch and S3 to be enabled
+- The download operation is synchronous and may take several minutes depending on log size
+- If `localPath` is a directory, the filename will be WorkloadId
+
 ## Query Description
 
 ### Keyword Search
