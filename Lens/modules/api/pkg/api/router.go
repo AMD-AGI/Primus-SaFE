@@ -639,6 +639,9 @@ func RegisterRouter(group *gin.RouterGroup) error {
 		workloadProfileGroup.GET(":workload_uid/evidence", getUnifiedHandler("/workload-profile/:workload_uid/evidence"))
 	}
 
+	// Intent Analysis: Workload Task API - Detection/analysis task state
+	group.GET("/workload-task", getUnifiedHandler("/workload-task"))
+
 	// Intent Analysis: Image Registry API - Cached image analysis results
 	imageRegistryGroup := group.Group("/image-registry")
 	{
