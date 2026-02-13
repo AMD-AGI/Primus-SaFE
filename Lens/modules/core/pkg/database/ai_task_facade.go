@@ -97,16 +97,16 @@ func (f *AITaskFacade) Create(ctx context.Context, task *model.AITask) error {
 // Get retrieves a task by ID
 func (f *AITaskFacade) Get(ctx context.Context, id string) (*model.AITask, error) {
 	db := f.getDB().WithContext(ctx)
-	var task model.AITask
-	err := db.Where("id = ?", id).First(&task).Error
+	var tasks []model.AITask
+	err := db.Where("id = ?", id).Limit(1).Find(&tasks).Error
 	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, nil
-		}
 		return nil, err
 	}
-	deserializeTask(&task)
-	return &task, nil
+	if len(tasks) == 0 {
+		return nil, nil
+	}
+	deserializeTask(&tasks[0])
+	return &tasks[0], nil
 }
 
 // ClaimTask claims a pending task for processing using SELECT FOR UPDATE SKIP LOCKED
