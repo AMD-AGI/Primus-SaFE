@@ -17,10 +17,10 @@ import (
 	"github.com/AMD-AGI/Primus-SaFE/Lens/ai-advisor/pkg/metadata"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/ai-advisor/pkg/pipeline"
 	advisorTask "github.com/AMD-AGI/Primus-SaFE/Lens/ai-advisor/pkg/task"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/aigateway"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/config"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/controller"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database"
-	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database/model"
 	configHelper "github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/helper/config"
 	log "github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/router"
@@ -193,6 +193,10 @@ func Bootstrap(ctx context.Context) error {
 		if conductorURL == "" {
 			conductorURL = "http://primus-conductor:8080"
 		}
+		aiGatewayURL := os.Getenv("AI_GATEWAY_URL")
+		if aiGatewayURL == "" {
+			aiGatewayURL = "http://primus-lens-ai-gateway:8080/api/v1"
+		}
 		podProber := common.NewPodProber(metadata.GetCollector())
 
 		// Initialize snapshot store for code snapshots (S3 / local / inline-DB)
@@ -209,15 +213,15 @@ func Bootstrap(ctx context.Context) error {
 			}
 		}
 
-		analysisPipeline := pipeline.NewWorkloadAnalysisPipeline(conductorURL, instanceID, podProber, snapshotStore)
+		analysisPipeline := pipeline.NewWorkloadAnalysisPipeline(conductorURL, aiGatewayURL, instanceID, podProber, snapshotStore)
 		if err := taskScheduler.RegisterExecutor(analysisPipeline); err != nil {
 			log.Errorf("Failed to register analysis pipeline executor: %v", err)
 		} else {
 			log.Info("Analysis pipeline executor registered")
 		}
 
-		// Register intent-analyzer agent with ai-gateway
-		go registerIntentAnalyzerAgent(ctx, instanceID)
+		// Register intent-analyzer agent with ai-gateway via HTTP API
+		go registerIntentAnalyzerAgent(ctx, aiGatewayURL, instanceID)
 
 		// Initialize profiler services (includes ProfilerCollectionExecutor registration)
 		// Pass metadata collector for node-exporter client access
@@ -246,9 +250,10 @@ func Bootstrap(ctx context.Context) error {
 			log.Info("Periodic intent analysis scan started (interval: 2 minutes)")
 		}
 
-		// Start daily flywheel jobs (backtesting + promotion + distillation trigger)
-		go startDailyFlywheelJobs(ctx, conductorURL)
-		log.Info("Daily flywheel jobs started (backtest + promote + distill, interval: 24h)")
+		// Start daily flywheel jobs (backtesting + promotion + distillation via ai-gateway)
+		flywheelGWClient := aigateway.NewClient(aiGatewayURL)
+		go startDailyFlywheelJobs(ctx, flywheelGWClient)
+		log.Info("Daily flywheel jobs started (backtest + promote + distill via ai-gateway, interval: 24h)")
 
 		// Register cleanup for task scheduler
 		go func() {
@@ -436,53 +441,64 @@ func initRouter(group *gin.RouterGroup) error {
 	return nil
 }
 
-// registerIntentAnalyzerAgent registers the intent-analyzer agent with ai-gateway
-func registerIntentAnalyzerAgent(ctx context.Context, instanceID string) {
+// registerIntentAnalyzerAgent registers the intent-analyzer agent via ai-gateway HTTP API.
+// It retries periodically so that the advisor can start even if the gateway is not yet ready.
+func registerIntentAnalyzerAgent(ctx context.Context, aiGatewayURL string, instanceID string) {
 	// Wait for the server to be ready
 	time.Sleep(5 * time.Second)
 
-	agentRegFacade := database.NewAIAgentRegistrationFacade()
-	if agentRegFacade == nil {
-		log.Warn("AIAgentRegistration facade not available, skipping agent registration")
+	if aiGatewayURL == "" {
+		log.Warn("AI_GATEWAY_URL not set, skipping agent registration")
 		return
 	}
 
-	// Build agent endpoint from pod service name
+	gwClient := aigateway.NewClient(aiGatewayURL)
+
 	endpoint := os.Getenv("AI_ADVISOR_ENDPOINT")
 	if endpoint == "" {
 		endpoint = "http://primus-lens-ai-advisor:8080"
 	}
 
-	agent := &model.AIAgentRegistration{
-		Name:            "intent-analyzer",
-		Endpoint:        endpoint,
-		Topics:          []string{"intent.analyze.workload", "intent.analyze.logs", "intent.analyze.code"},
-		HealthCheckPath: "/health",
-		TimeoutSecs:     120,
-		Metadata: map[string]string{
-			"instance_id": instanceID,
-			"version":     "1.0.0",
-			"description": "Workload intent analyzer - determines what GPU workloads are doing",
+	reg := &aigateway.AgentRegistration{
+		Name:        "intent-analyzer",
+		Version:     "1.0.0",
+		Description: "Workload intent analyzer - determines what GPU workloads are doing",
+		Endpoint:    endpoint,
+		Topics: []string{
+			"intent.analyze.workload",
+			"intent.analyze.logs",
+			"intent.analyze.code",
 		},
+		Tags: []string{"instance:" + instanceID},
 	}
 
-	if err := agentRegFacade.Register(ctx, agent); err != nil {
-		log.Warnf("Failed to register intent-analyzer agent: %v", err)
-	} else {
-		log.Info("Intent-analyzer agent registered with ai-gateway")
+	// Retry registration up to 5 times with backoff
+	for attempt := 1; attempt <= 5; attempt++ {
+		if err := gwClient.RegisterAgent(ctx, reg); err != nil {
+			log.Warnf("Failed to register intent-analyzer agent (attempt %d/5): %v", attempt, err)
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(time.Duration(attempt*5) * time.Second):
+				continue
+			}
+		}
+		log.Info("Intent-analyzer agent registered with ai-gateway via HTTP API")
+		return
 	}
+	log.Error("Exhausted retries for intent-analyzer agent registration")
 }
 
 // startDailyFlywheelJobs runs the flywheel cycle:
 // 1. Backtest all candidate rules (proposed/testing status)
 // 2. Promote validated rules, retire underperforming ones
-// 3. Trigger distillation for new confirmed intents via Conductor
-func startDailyFlywheelJobs(ctx context.Context, conductorURL string) {
+// 3. Trigger distillation for new confirmed intents via ai-gateway
+func startDailyFlywheelJobs(ctx context.Context, gwClient *aigateway.Client) {
 	// Wait for initial data to accumulate
 	time.Sleep(5 * time.Minute)
 
 	// Run immediately on first start, then every 24 hours
-	runFlywheelCycle(ctx, conductorURL)
+	runFlywheelCycle(ctx, gwClient)
 
 	ticker := time.NewTicker(24 * time.Hour)
 	defer ticker.Stop()
@@ -493,12 +509,12 @@ func startDailyFlywheelJobs(ctx context.Context, conductorURL string) {
 			log.Info("Stopping daily flywheel jobs")
 			return
 		case <-ticker.C:
-			runFlywheelCycle(ctx, conductorURL)
+			runFlywheelCycle(ctx, gwClient)
 		}
 	}
 }
 
-func runFlywheelCycle(ctx context.Context, conductorURL string) {
+func runFlywheelCycle(ctx context.Context, gwClient *aigateway.Client) {
 	log.Info("Flywheel: starting daily cycle")
 
 	// Step 1: Backtest all candidate rules
@@ -516,20 +532,19 @@ func runFlywheelCycle(ctx context.Context, conductorURL string) {
 		log.Errorf("Flywheel: promotion cycle failed: %v", err)
 	}
 
-	// Step 3: Trigger distillation via Conductor
-	if conductorURL != "" {
-		triggerDistillation(ctx, conductorURL)
+	// Step 3: Trigger distillation via ai-gateway (Conductor bridge picks it up)
+	if gwClient != nil {
+		triggerDistillation(ctx, gwClient)
 	}
 
 	log.Info("Flywheel: daily cycle complete")
 }
 
 // triggerDistillation collects confirmed intents grouped by category
-// and sends them to Conductor for LLM-powered rule distillation
-func triggerDistillation(ctx context.Context, conductorURL string) {
+// and publishes distill tasks to ai-gateway
+func triggerDistillation(ctx context.Context, gwClient *aigateway.Client) {
 	facade := database.NewWorkloadDetectionFacade()
 
-	// Get confirmed intents grouped by category
 	categories := []string{
 		"training", "fine_tuning", "inference", "evaluation",
 		"data_processing", "benchmark",
@@ -537,9 +552,7 @@ func triggerDistillation(ctx context.Context, conductorURL string) {
 
 	for _, category := range categories {
 		detections, _, err := facade.ListByCategory(ctx,
-			category, // category filter
-			50,       // max 50 samples
-			0,        // offset
+			category, 50, 0,
 		)
 		if err != nil {
 			log.Errorf("Flywheel: failed to fetch detections for category %s: %v", category, err)
@@ -547,12 +560,11 @@ func triggerDistillation(ctx context.Context, conductorURL string) {
 		}
 
 		if len(detections) < 5 {
-			continue // Not enough samples for distillation
+			continue
 		}
 
 		log.Infof("Flywheel: triggering distillation for category=%s with %d samples", category, len(detections))
 
-		// Call Conductor distill endpoint
-		distill.TriggerConductorDistillation(ctx, conductorURL, category, detections)
+		distill.TriggerConductorDistillation(ctx, gwClient, category, detections)
 	}
 }

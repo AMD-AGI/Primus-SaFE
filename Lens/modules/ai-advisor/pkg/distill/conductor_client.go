@@ -4,41 +4,53 @@
 package distill
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
-	"net/http"
 	"time"
 
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/aigateway"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database/model"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
 )
 
+const (
+	topicIntentDistill = "intent.distill"
+	topicIntentAudit   = "intent.audit"
+
+	// distillTaskTimeoutSec is the timeout for a distill task (LLM can be slow)
+	distillTaskTimeoutSec = 300
+
+	// auditPollInterval is how often we poll for audit results
+	auditPollInterval = 3 * time.Second
+
+	// auditPollTimeout is the max time to wait for audit results
+	auditPollTimeout = 180 * time.Second
+)
+
 // distillRequest is the request payload for the Conductor distill endpoint
 type distillRequest struct {
-	TargetField string            `json:"target_field"`
-	TargetValue string            `json:"target_value"`
-	MinSamples  int               `json:"min_samples"`
-	Samples     []distillSample   `json:"samples"`
+	TargetField string          `json:"target_field"`
+	TargetValue string          `json:"target_value"`
+	MinSamples  int             `json:"min_samples"`
+	Samples     []distillSample `json:"samples"`
 }
 
 type distillSample struct {
-	WorkloadUID      string                 `json:"workload_uid"`
-	Category         string                 `json:"category"`
-	IntentDetail     map[string]interface{} `json:"intent_detail"`
-	Evidence         map[string]interface{} `json:"evidence"`
-	IntentFieldSources map[string]string    `json:"intent_field_sources"`
+	WorkloadUID        string                 `json:"workload_uid"`
+	Category           string                 `json:"category"`
+	IntentDetail       map[string]interface{} `json:"intent_detail"`
+	Evidence           map[string]interface{} `json:"evidence"`
+	IntentFieldSources map[string]string      `json:"intent_field_sources"`
 }
 
 type distillResponse struct {
-	TargetField    string           `json:"target_field"`
-	TargetValue    string           `json:"target_value"`
-	SampleCount    int              `json:"sample_count"`
-	CandidateRules []candidateRule  `json:"candidate_rules"`
-	Reasoning      string           `json:"reasoning"`
+	TargetField    string          `json:"target_field"`
+	TargetValue    string          `json:"target_value"`
+	SampleCount    int             `json:"sample_count"`
+	CandidateRules []candidateRule `json:"candidate_rules"`
+	Reasoning      string          `json:"reasoning"`
 }
 
 type candidateRule struct {
@@ -52,18 +64,20 @@ type candidateRule struct {
 	MatchCountInBatch int      `json:"match_count_in_batch"`
 }
 
-var httpClient = &http.Client{
-	Timeout: 120 * time.Second,
-}
-
-// TriggerConductorDistillation sends a batch of same-category detections
-// to Conductor for LLM distillation and stores the resulting candidate rules.
+// TriggerConductorDistillation publishes a distill task to ai-gateway.
+// The Conductor bridge agent will pick it up, forward to Conductor,
+// and the result is stored asynchronously.
 func TriggerConductorDistillation(
 	ctx context.Context,
-	conductorURL string,
+	gwClient *aigateway.Client,
 	category string,
 	detections []*model.WorkloadDetection,
 ) {
+	if gwClient == nil {
+		log.Warn("Flywheel: ai-gateway client not available, skipping distillation")
+		return
+	}
+
 	// Build samples
 	samples := make([]distillSample, 0, len(detections))
 	for _, det := range detections {
@@ -80,7 +94,6 @@ func TriggerConductorDistillation(
 				sample.IntentDetail = detail
 			}
 		}
-		// Build evidence from available detection fields
 		evidence := map[string]interface{}{}
 		if det.Framework != "" {
 			evidence["framework"] = det.Framework
@@ -89,7 +102,6 @@ func TriggerConductorDistillation(
 			evidence["workload_type"] = det.WorkloadType
 		}
 		sample.Evidence = evidence
-
 		samples = append(samples, sample)
 	}
 
@@ -100,44 +112,67 @@ func TriggerConductorDistillation(
 		Samples:     samples,
 	}
 
-	body, err := json.Marshal(req)
+	payload, err := json.Marshal(req)
 	if err != nil {
 		log.Errorf("Flywheel: failed to marshal distill request: %v", err)
 		return
 	}
 
-	url := fmt.Sprintf("%s/api/v1/intent/distill", conductorURL)
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
+	taskInfo, err := gwClient.Publish(ctx, &aigateway.PublishRequest{
+		Topic:      topicIntentDistill,
+		Payload:    payload,
+		Priority:   5,
+		TimeoutSec: distillTaskTimeoutSec,
+	})
 	if err != nil {
-		log.Errorf("Flywheel: failed to create distill request: %v", err)
-		return
-	}
-	httpReq.Header.Set("Content-Type", "application/json")
-
-	resp, err := httpClient.Do(httpReq)
-	if err != nil {
-		log.Errorf("Flywheel: distill request failed: %v", err)
-		return
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		respBody, _ := io.ReadAll(resp.Body)
-		log.Errorf("Flywheel: distill request returned %d: %s", resp.StatusCode, string(respBody))
+		log.Errorf("Flywheel: failed to publish distill task: %v", err)
 		return
 	}
 
-	var distillResp distillResponse
-	if err := json.NewDecoder(resp.Body).Decode(&distillResp); err != nil {
-		log.Errorf("Flywheel: failed to decode distill response: %v", err)
-		return
+	log.Infof("Flywheel: distill task published (id=%s, category=%s, samples=%d)",
+		taskInfo.ID, category, len(samples))
+
+	// Poll for result (best-effort; if timeout, rules get stored next cycle)
+	pollDistillResult(ctx, gwClient, taskInfo.ID, category)
+}
+
+// pollDistillResult polls for the distill task result and stores candidate rules.
+func pollDistillResult(ctx context.Context, gwClient *aigateway.Client, taskID string, category string) {
+	deadline := time.After(auditPollTimeout)
+	ticker := time.NewTicker(auditPollInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-deadline:
+			log.Warnf("Flywheel: distill task %s timed out waiting for result", taskID)
+			return
+		case <-ticker.C:
+			result, err := gwClient.GetResult(ctx, taskID)
+			if err != nil {
+				log.Warnf("Flywheel: error polling distill task %s: %v", taskID, err)
+				return
+			}
+			if result == nil {
+				continue // Still processing
+			}
+
+			// Parse response
+			var distillResp distillResponse
+			if err := json.Unmarshal(result.Result, &distillResp); err != nil {
+				log.Errorf("Flywheel: failed to decode distill response for task %s: %v", taskID, err)
+				return
+			}
+
+			log.Infof("Flywheel: distillation for %s returned %d candidate rules",
+				category, len(distillResp.CandidateRules))
+
+			storeCandidateRules(ctx, distillResp.CandidateRules)
+			return
+		}
 	}
-
-	log.Infof("Flywheel: distillation for %s=%s returned %d candidate rules",
-		category, category, len(distillResp.CandidateRules))
-
-	// Store candidate rules in DB
-	storeCandidateRules(ctx, distillResp.CandidateRules)
 }
 
 // storeCandidateRules persists new candidate rules to the intent_rule table
@@ -145,7 +180,6 @@ func storeCandidateRules(ctx context.Context, rules []candidateRule) {
 	ruleFacade := database.NewIntentRuleFacade()
 
 	for _, cr := range rules {
-		// Check if a similar rule already exists
 		exists, err := ruleFacade.ExistsByPatternAndValue(ctx, cr.Pattern, cr.DetectsValue)
 		if err != nil {
 			log.Errorf("Flywheel: failed to check rule existence: %v", err)
@@ -179,68 +213,88 @@ func storeCandidateRules(ctx context.Context, rules []candidateRule) {
 	}
 }
 
-// TriggerConductorAudit sends a batch of rule-matched workloads
-// to Conductor for LLM-powered audit verification.
+// TriggerConductorAudit publishes an audit task to ai-gateway and polls for results.
 func TriggerConductorAudit(
 	ctx context.Context,
-	conductorURL string,
-	samples []auditSamplePayload,
-) (*auditResponsePayload, error) {
-	body, err := json.Marshal(map[string]interface{}{
+	gwClient *aigateway.Client,
+	samples []AuditSamplePayload,
+) (*AuditResponsePayload, error) {
+	if gwClient == nil {
+		return nil, fmt.Errorf("ai-gateway client not available")
+	}
+
+	payload, err := json.Marshal(map[string]interface{}{
 		"samples": samples,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("failed to marshal audit request: %w", err)
+		return nil, fmt.Errorf("marshal audit request: %w", err)
 	}
 
-	url := fmt.Sprintf("%s/api/v1/intent/audit", conductorURL)
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
+	taskInfo, err := gwClient.Publish(ctx, &aigateway.PublishRequest{
+		Topic:      topicIntentAudit,
+		Payload:    payload,
+		Priority:   5,
+		TimeoutSec: distillTaskTimeoutSec,
+	})
 	if err != nil {
-		return nil, fmt.Errorf("failed to create audit request: %w", err)
-	}
-	httpReq.Header.Set("Content-Type", "application/json")
-
-	resp, err := httpClient.Do(httpReq)
-	if err != nil {
-		return nil, fmt.Errorf("audit request failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		respBody, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("audit returned %d: %s", resp.StatusCode, string(respBody))
+		return nil, fmt.Errorf("publish audit task: %w", err)
 	}
 
-	var auditResp auditResponsePayload
-	if err := json.NewDecoder(resp.Body).Decode(&auditResp); err != nil {
-		return nil, fmt.Errorf("failed to decode audit response: %w", err)
-	}
+	log.Infof("Flywheel: audit task published (id=%s, samples=%d)", taskInfo.ID, len(samples))
 
-	return &auditResp, nil
+	// Poll for result synchronously (audit needs results for rule promotion)
+	deadline := time.After(auditPollTimeout)
+	ticker := time.NewTicker(auditPollInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-deadline:
+			return nil, fmt.Errorf("audit task %s timed out", taskInfo.ID)
+		case <-ticker.C:
+			result, err := gwClient.GetResult(ctx, taskInfo.ID)
+			if err != nil {
+				return nil, fmt.Errorf("poll audit task %s: %w", taskInfo.ID, err)
+			}
+			if result == nil {
+				continue
+			}
+
+			var auditResp AuditResponsePayload
+			if err := json.Unmarshal(result.Result, &auditResp); err != nil {
+				return nil, fmt.Errorf("decode audit response: %w", err)
+			}
+
+			return &auditResp, nil
+		}
+	}
 }
 
-// auditSamplePayload matches the Conductor AuditSample schema
-type auditSamplePayload struct {
-	WorkloadUID      string                 `json:"workload_uid"`
-	RuleID           int64                  `json:"rule_id"`
-	RulePattern      string                 `json:"rule_pattern"`
-	RuleDimension    string                 `json:"rule_dimension"`
-	RuleDetectsField string                 `json:"rule_detects_field"`
-	RuleDetectsValue string                 `json:"rule_detects_value"`
-	CurrentCategory  string                 `json:"current_category"`
+// AuditSamplePayload matches the Conductor AuditSample schema
+type AuditSamplePayload struct {
+	WorkloadUID        string                 `json:"workload_uid"`
+	RuleID             int64                  `json:"rule_id"`
+	RulePattern        string                 `json:"rule_pattern"`
+	RuleDimension      string                 `json:"rule_dimension"`
+	RuleDetectsField   string                 `json:"rule_detects_field"`
+	RuleDetectsValue   string                 `json:"rule_detects_value"`
+	CurrentCategory    string                 `json:"current_category"`
 	CurrentIntentDetail map[string]interface{} `json:"current_intent_detail"`
-	Evidence         map[string]interface{} `json:"evidence"`
+	Evidence           map[string]interface{} `json:"evidence"`
 }
 
-// auditResponsePayload matches the Conductor AuditResponse schema
-type auditResponsePayload struct {
-	TotalAudited      int              `json:"total_audited"`
-	ConsistentCount   int              `json:"consistent_count"`
-	InconsistentCount int              `json:"inconsistent_count"`
-	Verdicts          []auditVerdict   `json:"verdicts"`
+// AuditResponsePayload matches the Conductor AuditResponse schema
+type AuditResponsePayload struct {
+	TotalAudited      int            `json:"total_audited"`
+	ConsistentCount   int            `json:"consistent_count"`
+	InconsistentCount int            `json:"inconsistent_count"`
+	Verdicts          []AuditVerdict `json:"verdicts"`
 }
 
-type auditVerdict struct {
+// AuditVerdict represents a single audit verdict from Conductor
+type AuditVerdict struct {
 	WorkloadUID       string                 `json:"workload_uid"`
 	RuleID            int64                  `json:"rule_id"`
 	Consistent        bool                   `json:"consistent"`

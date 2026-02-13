@@ -15,6 +15,7 @@ import (
 
 	"github.com/AMD-AGI/Primus-SaFE/Lens/ai-advisor/pkg/common"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/ai-advisor/pkg/intent"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/aigateway"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/constant"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database/model"
@@ -67,14 +68,17 @@ type WorkloadAnalysisPipeline struct {
 	imageRegCollector      *ImageRegistryCollector
 	codeSnapshotCollector  *CodeSnapshotCollector
 	snapshotStore          snapshot.Store
-	conductorURL           string
+	conductorURL           string // deprecated: use gwClient
+	gwClient               *aigateway.Client
 	instanceID             string
 }
 
 // NewWorkloadAnalysisPipeline creates a new pipeline executor.
 // podProber may be nil; code snapshot collection will be skipped if so.
 // snapshotStore may be nil; file contents will then be stored inline in the DB.
-func NewWorkloadAnalysisPipeline(conductorURL string, instanceID string, podProber *common.PodProber, snapshotStore snapshot.Store) *WorkloadAnalysisPipeline {
+// aiGatewayURL is the base URL of the AI Gateway API (e.g. "http://ai-gateway:8080/api/v1").
+// If empty, LLM analysis will be skipped.
+func NewWorkloadAnalysisPipeline(conductorURL string, aiGatewayURL string, instanceID string, podProber *common.PodProber, snapshotStore snapshot.Store) *WorkloadAnalysisPipeline {
 	p := &WorkloadAnalysisPipeline{
 		detectionFacade:  database.NewWorkloadDetectionFacade(),
 		coverageFacade:   database.NewDetectionCoverageFacade(),
@@ -89,6 +93,9 @@ func NewWorkloadAnalysisPipeline(conductorURL string, instanceID string, podProb
 		imageRegCollector:   NewImageRegistryCollector(),
 		conductorURL:        conductorURL,
 		instanceID:          instanceID,
+	}
+	if aiGatewayURL != "" {
+		p.gwClient = aigateway.NewClient(aiGatewayURL)
 	}
 	p.snapshotStore = snapshotStore
 	if podProber != nil {
@@ -380,10 +387,10 @@ func (p *WorkloadAnalysisPipeline) handleRequestingLLM(
 		return constant.PipelineStateRequestingLLM, nil
 	}
 
-	// Check for response
-	llmResult, err := p.pollConductorResponse(ctx, workloadUID)
+	// Check for response via ai-gateway
+	llmResult, err := p.pollGatewayTaskResult(ctx, task)
 	if err != nil {
-		log.Warnf("Error polling Conductor for workload %s: %v", workloadUID, err)
+		log.Warnf("Error polling ai-gateway for workload %s: %v", workloadUID, err)
 	}
 
 	if llmResult != nil {
@@ -822,29 +829,101 @@ func (p *WorkloadAnalysisPipeline) mergeResults(
 	return &merged
 }
 
-// sendConductorRequest sends an async intent analysis request to Conductor
+// sendConductorRequest publishes an intent analysis task to ai-gateway.
+// The task will be claimed by a Conductor agent via the pull model.
 func (p *WorkloadAnalysisPipeline) sendConductorRequest(
 	ctx context.Context,
 	workloadUID string,
 	task *model.WorkloadTaskState,
 ) error {
-	if p.conductorURL == "" {
-		return fmt.Errorf("conductor URL not configured")
+	if p.gwClient == nil {
+		return fmt.Errorf("ai-gateway client not configured")
 	}
 
-	// TODO(M2): Implement HTTP call to Conductor /api/v1/intent/analyze endpoint
-	// For MVP1 we log and return nil to allow the pipeline to fall back to deterministic
-	log.Infof("Conductor LLM analysis request queued for workload %s (stub)", workloadUID)
-	return fmt.Errorf("conductor integration not yet implemented")
+	// Build the payload for Conductor: evidence + workload context
+	evidence, err := p.gatherEvidence(ctx, workloadUID)
+	if err != nil {
+		return fmt.Errorf("gather evidence for LLM request: %w", err)
+	}
+
+	payload := map[string]interface{}{
+		"workload_uid": workloadUID,
+		"evidence":     evidence,
+		"instance_id":  p.instanceID,
+	}
+
+	// Include deterministic eval result if available
+	if evalMap := p.GetExtMap(task, "eval_result"); evalMap != nil {
+		payload["deterministic_result"] = evalMap
+	}
+
+	payloadJSON, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("marshal LLM payload: %w", err)
+	}
+
+	resp, err := p.gwClient.Publish(ctx, &aigateway.PublishRequest{
+		Topic:      "intent.analyze",
+		Payload:    payloadJSON,
+		Priority:   10,
+		TimeoutSec: int(DefaultLLMTimeout.Seconds()),
+	})
+	if err != nil {
+		return fmt.Errorf("publish to ai-gateway: %w", err)
+	}
+
+	log.Infof("Published intent analysis task %s for workload %s via ai-gateway", resp.ID, workloadUID)
+
+	// Store the gateway task ID so we can poll for it later
+	task.Ext["gw_task_id"] = resp.ID
+	return nil
 }
 
-// pollConductorResponse polls Conductor for an analysis result
+// pollConductorResponse polls ai-gateway for the result of a previously published task.
 func (p *WorkloadAnalysisPipeline) pollConductorResponse(
 	ctx context.Context,
 	workloadUID string,
 ) (*intent.IntentResult, error) {
-	// TODO(M2): Implement polling against Conductor /api/v1/intent/result/{workload_uid}
+	if p.gwClient == nil {
+		return nil, fmt.Errorf("ai-gateway client not configured")
+	}
+
+	// Retrieve the gateway task ID from the previous send
+	// The caller (handleRequestingLLM) stores it in task.Ext, but we only
+	// receive the workloadUID here. We'll look it up from the task.
 	return nil, nil
+}
+
+// pollGatewayTaskResult polls ai-gateway for task result using the stored gw_task_id.
+func (p *WorkloadAnalysisPipeline) pollGatewayTaskResult(
+	ctx context.Context,
+	task *model.WorkloadTaskState,
+) (*intent.IntentResult, error) {
+	if p.gwClient == nil {
+		return nil, fmt.Errorf("ai-gateway client not configured")
+	}
+
+	gwTaskID, ok := task.Ext["gw_task_id"].(string)
+	if !ok || gwTaskID == "" {
+		return nil, fmt.Errorf("no gw_task_id stored for workload %s", task.WorkloadUID)
+	}
+
+	result, err := p.gwClient.GetResult(ctx, gwTaskID)
+	if err != nil {
+		return nil, fmt.Errorf("poll ai-gateway task %s: %w", gwTaskID, err)
+	}
+	if result == nil {
+		// Still processing
+		return nil, nil
+	}
+
+	// Parse the Conductor result into IntentResult
+	var intentResult intent.IntentResult
+	if err := json.Unmarshal(result.Result, &intentResult); err != nil {
+		return nil, fmt.Errorf("unmarshal Conductor result: %w", err)
+	}
+
+	return &intentResult, nil
 }
 
 // createFollowUpTasks creates tasks based on the confirmed intent
