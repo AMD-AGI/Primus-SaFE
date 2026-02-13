@@ -113,9 +113,11 @@ func (f *AITaskFacade) Get(ctx context.Context, id string) (*model.AITask, error
 func (f *AITaskFacade) ClaimTask(ctx context.Context, topics []string, agentID string) (*model.AITask, error) {
 	db := f.getDB().WithContext(ctx)
 	var task model.AITask
+	found := false
 
 	err := db.Transaction(func(tx *gorm.DB) error {
-		// Find and lock a pending task
+		// Find and lock a pending task (use Find+Limit instead of First to avoid ErrRecordNotFound being swallowed)
+		var tasks []model.AITask
 		query := tx.Clauses(clause.Locking{
 			Strength: "UPDATE",
 			Options:  "SKIP LOCKED",
@@ -125,10 +127,17 @@ func (f *AITaskFacade) ClaimTask(ctx context.Context, topics []string, agentID s
 			query = query.Where("topic IN ?", topics)
 		}
 
-		result := query.Order("priority DESC, created_at ASC").First(&task)
+		result := query.Order("priority DESC, created_at ASC").Limit(1).Find(&tasks)
 		if result.Error != nil {
 			return result.Error
 		}
+
+		if len(tasks) == 0 {
+			return nil // No pending tasks
+		}
+
+		task = tasks[0]
+		found = true
 
 		// Update task status
 		now := time.Now()
@@ -140,10 +149,11 @@ func (f *AITaskFacade) ClaimTask(ctx context.Context, topics []string, agentID s
 	})
 
 	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, nil // No pending tasks
-		}
 		return nil, err
+	}
+
+	if !found {
+		return nil, nil
 	}
 
 	deserializeTask(&task)
