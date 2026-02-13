@@ -700,7 +700,8 @@ func (h *Handler) waitForDumpLogJobCompletion(ctx context.Context, jobName strin
 
 		job := &v1.OpsJob{}
 		if err := h.Get(ctx, client.ObjectKey{Name: jobName}, job); err != nil {
-			return "", fmt.Errorf("failed to get job status: %w", err)
+			time.Sleep(pollInterval)
+			continue
 		}
 
 		switch job.Status.Phase {
