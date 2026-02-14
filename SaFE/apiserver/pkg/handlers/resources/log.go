@@ -669,14 +669,18 @@ func (h *Handler) downloadWorkloadLog(c *gin.Context) (*view.DownloadWorkloadLog
 // createDumpLogJobInternal creates a DumpLog OpsJob for the specified workload.
 func (h *Handler) createDumpLogJobInternal(ctx context.Context,
 	workload *v1.Workload, requestUser *v1.User, req *view.DownloadWorkloadLogRequest) (*v1.OpsJob, error) {
+	jobId := "down-" + workload.Name
+	if len(jobId) > commonutils.MaxNameLength {
+		jobId = jobId[:commonutils.MaxNameLength]
+	}
 	job := &v1.OpsJob{}
-	if h.Get(ctx, client.ObjectKey{Name: workload.Name}, job) == nil {
+	if h.Get(ctx, client.ObjectKey{Name: jobId}, job) == nil {
 		return job, nil
 	}
 	// Build the OpsJob
 	job = &v1.OpsJob{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: workload.Name, // Use workloadId as job name
+			Name: jobId,
 			Labels: map[string]string{
 				v1.DisplayNameLabel: commonutils.GetBaseFromName(workload.Name),
 				v1.WorkspaceIdLabel: workload.Spec.Workspace,
