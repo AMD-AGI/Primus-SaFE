@@ -252,8 +252,8 @@ Or with empty body (uses default timeout):
 ```
 
 **Response**:
-- HTTP 302 redirect to S3 presigned URL
-- Client follows redirect to download the file directly
+- HTTP 303 (See Other) redirect to S3 presigned URL
+- Client follows redirect with GET method to download the file directly
 
 **Error Codes**:
 

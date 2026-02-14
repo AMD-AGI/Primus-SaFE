@@ -57,7 +57,9 @@ func (h *Handler) GetWorkloadLogContext(c *gin.Context) {
 
 // DownloadWorkloadLog handles the request to download workload logs.
 // It creates a DumpLog job, waits for completion, and redirects to the S3 presigned URL.
-// Using HTTP 302 redirect is the recommended approach for large file downloads as it:
+// Using HTTP 303 (See Other) redirect ensures clients use GET method for the S3 URL,
+// which is required for S3 presigned download URLs.
+// Benefits of redirect approach:
 // - Avoids loading the entire file into API server memory
 // - Allows direct client-to-S3 transfer for better performance
 // - Reduces API server load
@@ -69,7 +71,8 @@ func (h *Handler) DownloadWorkloadLog(c *gin.Context) {
 		return
 	}
 	// Redirect to S3 presigned URL for direct download
-	c.Redirect(http.StatusFound, resp.DownloadURL)
+	// Use 303 See Other to ensure client uses GET method for S3 URL
+	c.Redirect(http.StatusSeeOther, resp.DownloadURL)
 }
 
 // getWorkloadLog retrieves logs for a specific workload from OpenSearch.
