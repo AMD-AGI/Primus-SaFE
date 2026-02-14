@@ -191,8 +191,8 @@ func (e *CmdlineExtractor) extractFromScriptName(cmd string, result *CmdlineExtr
 	if result.Category == "" {
 		sftOverridePatterns := []struct {
 			re       *regexp.Regexp
-			category string
-			method   string
+			category Category
+			method   TrainingMethod
 			label    string
 		}{
 			{re: regexp.MustCompile(`(?i)[\-_/]sft[\-_/.]`), category: CategoryFineTuning, method: MethodSFT, label: "sft_in_args"},
