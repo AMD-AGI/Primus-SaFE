@@ -669,8 +669,12 @@ func (h *Handler) downloadWorkloadLog(c *gin.Context) (*view.DownloadWorkloadLog
 // createDumpLogJobInternal creates a DumpLog OpsJob for the specified workload.
 func (h *Handler) createDumpLogJobInternal(ctx context.Context,
 	workload *v1.Workload, requestUser *v1.User, req *view.DownloadWorkloadLogRequest) (*v1.OpsJob, error) {
+	job := &v1.OpsJob{}
+	if h.Get(ctx, client.ObjectKey{Name: workload.Name}, job) == nil {
+		return job, nil
+	}
 	// Build the OpsJob
-	job := &v1.OpsJob{
+	job = &v1.OpsJob{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: workload.Name, // Use workloadId as job name
 			Labels: map[string]string{
@@ -687,7 +691,6 @@ func (h *Handler) createDumpLogJobInternal(ctx context.Context,
 			TimeoutSecond: req.TimeoutSecond,
 		},
 	}
-
 	if err := h.Create(ctx, job); err != nil {
 		return nil, err
 	}
