@@ -165,6 +165,45 @@ func (e *EvidenceEvaluator) matchStructuralHeuristics(evidence *intent.IntentEvi
 		signals = append(signals, detSignals...)
 	}
 
+	// Cmdline-based fine-tuning override: check if the full command line (including
+	// config file paths and arguments) contains explicit fine-tuning indicators.
+	// This overrides framework-level heuristics (e.g. megatron -> pre_training)
+	// because config/arg hints like "_sft_" in a YAML path are more reliable
+	// signals of actual intent than the framework used.
+	// Weight 0.8 is higher than detection signals (0.6) to ensure the override works.
+	if evidence.Command != "" || len(evidence.Args) > 0 {
+		fullCmd := evidence.Command + " " + strings.Join(evidence.Args, " ")
+		ftOverrides := []struct {
+			pattern  string
+			category intent.Category
+			method   string
+			label    string
+		}{
+			{`(?i)[\-_/]sft[\-_/.]`, intent.CategoryFineTuning, "sft", "sft_in_args"},
+			{`(?i)[\-_/]dpo[\-_/.]`, intent.CategoryFineTuning, "dpo", "dpo_in_args"},
+			{`(?i)[\-_/]rlhf[\-_/.]`, intent.CategoryFineTuning, "rlhf", "rlhf_in_args"},
+			{`(?i)[\-_/]lora[\-_/.]|[\-_/]qlora[\-_/.]`, intent.CategoryFineTuning, "lora", "lora_in_args"},
+			{`(?i)supervised.?fine.?tun`, intent.CategoryFineTuning, "sft", "sft_explicit"},
+		}
+		for _, ov := range ftOverrides {
+			re, err := regexp.Compile(ov.pattern)
+			if err != nil {
+				continue
+			}
+			if re.MatchString(fullCmd) {
+				log.Infof("Fine-tuning override from cmdline args: %s (pattern: %s)", ov.label, ov.method)
+				signals = append(signals, evaluationSignal{
+					category: ov.category,
+					field:    "category",
+					value:    string(ov.category),
+					weight:   0.8,
+					source:   "cmdline_args_hint:" + ov.label,
+				})
+				break // first match wins
+			}
+		}
+	}
+
 	// If no meaningful cmdline was found (empty Command after spec + process collection),
 	// the workload is likely idle / interactive development: someone requested GPU resources
 	// but is running ad-hoc commands manually rather than a structured job.
