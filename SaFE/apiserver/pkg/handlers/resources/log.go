@@ -15,7 +15,9 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/klog/v2"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
@@ -26,6 +28,7 @@ import (
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	commonsearch "github.com/AMD-AIG-AIMA/SAFE/common/pkg/opensearch"
+	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/concurrent"
 	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
@@ -50,6 +53,28 @@ func (h *Handler) GetWorkloadEvent(c *gin.Context) {
 // GetWorkloadLogContext retrieves contextual log information for a workload.
 func (h *Handler) GetWorkloadLogContext(c *gin.Context) {
 	handle(c, h.getWorkloadLogContext)
+}
+
+// DownloadWorkloadLog handles the request to download workload logs.
+// It creates a DumpLog job, waits for completion, and redirects to the S3 presigned URL.
+// Using HTTP 303 (See Other) redirect ensures clients use GET method for the S3 URL,
+// which is required for S3 presigned download URLs.
+// Benefits of redirect approach:
+// - Avoids loading the entire file into API server memory
+// - Allows direct client-to-S3 transfer for better performance
+// - Reduces API server load
+// Note: Clients should use "curl -L" to follow the redirect automatically.
+func (h *Handler) DownloadWorkloadLog(c *gin.Context) {
+	resp, err := h.downloadWorkloadLog(c)
+	if err != nil {
+		apiutils.AbortWithApiError(c, err)
+		return
+	}
+	// Ensure HTTPS for external access (S3 internal URL may use HTTP)
+	downloadURL := strings.Replace(resp.DownloadURL, "http://", "https://", 1)
+	// Redirect to S3 presigned URL for direct download
+	// Use 303 See Other to ensure client uses GET method for S3 URL
+	c.Redirect(http.StatusSeeOther, downloadURL)
 }
 
 // getWorkloadLog retrieves logs for a specific workload from OpenSearch.
@@ -582,4 +607,137 @@ func getLogQueryStartTime(workload *v1.Workload) time.Time {
 		}
 	}
 	return startTime
+}
+
+// downloadWorkloadLog implements the logic for getting workload log download URL.
+// It creates a DumpLog job, waits for completion, and returns the S3 presigned URL.
+func (h *Handler) downloadWorkloadLog(c *gin.Context) (*view.DownloadWorkloadLogResponse, error) {
+	if !commonconfig.IsOpenSearchEnable() {
+		return nil, commonerrors.NewInternalError("the logging function is not enabled")
+	}
+	if !commonconfig.IsS3Enable() {
+		return nil, commonerrors.NewInternalError("the S3 function is not enabled")
+	}
+
+	req := &view.DownloadWorkloadLogRequest{}
+	if _, err := apiutils.ParseRequestBody(c.Request, req); err != nil {
+		return nil, err
+	}
+	// Set default values
+	if req.TimeoutSecond <= 0 {
+		req.TimeoutSecond = 900 // 15 minutes
+	}
+
+	ctx := c.Request.Context()
+	requestUser, err := h.getAndSetUsername(c)
+	if err != nil {
+		return nil, err
+	}
+
+	// Step 1: Verify workload exists and authorize
+	workload, err := h.getWorkloadForAuth(ctx, c.GetString(common.Name))
+	if err != nil {
+		return nil, err
+	}
+	if err = h.accessController.Authorize(authority.AccessInput{
+		Context:    ctx,
+		Resource:   workload,
+		Verb:       v1.GetVerb,
+		Workspaces: []string{workload.Spec.Workspace},
+		User:       requestUser,
+	}); err != nil {
+		return nil, err
+	}
+
+	// Step 2: Create DumpLog job
+	job, err := h.createDumpLogJobInternal(ctx, workload, requestUser, req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create dumplog job: %w", err)
+	}
+	klog.Infof("DumpLog job created: %s for workload: %s", job.Name, workload.Name)
+
+	// Step 3: Wait for job completion and get presigned URL
+	downloadURL, err := h.waitForDumpLogJobCompletion(ctx, job.Name, req.TimeoutSecond)
+	if err != nil {
+		return nil, fmt.Errorf("failed to wait for dumplog job completion: %w", err)
+	}
+	klog.Infof("DumpLog job completed, download URL generated for workload: %s", workload.Name)
+
+	return &view.DownloadWorkloadLogResponse{DownloadURL: downloadURL}, nil
+}
+
+// createDumpLogJobInternal creates a DumpLog OpsJob for the specified workload.
+func (h *Handler) createDumpLogJobInternal(ctx context.Context,
+	workload *v1.Workload, requestUser *v1.User, req *view.DownloadWorkloadLogRequest) (*v1.OpsJob, error) {
+	// Build the OpsJob
+	job := &v1.OpsJob{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: workload.Name, // Use workloadId as job name
+			Labels: map[string]string{
+				v1.DisplayNameLabel: commonutils.GetBaseFromName(workload.Name),
+				v1.WorkspaceIdLabel: workload.Spec.Workspace,
+				v1.UserIdLabel:      requestUser.Name,
+			},
+		},
+		Spec: v1.OpsJobSpec{
+			Type: v1.OpsJobDumpLogType,
+			Inputs: []v1.Parameter{
+				{Name: v1.ParameterWorkload, Value: workload.Name},
+			},
+			TimeoutSecond: req.TimeoutSecond,
+		},
+	}
+
+	if err := h.Create(ctx, job); err != nil {
+		return nil, err
+	}
+	return job, nil
+}
+
+// waitForDumpLogJobCompletion polls the job status until it completes or times out.
+// Returns the S3 endpoint URL on success.
+func (h *Handler) waitForDumpLogJobCompletion(ctx context.Context, jobName string, timeoutSecond int) (string, error) {
+	timeout := time.Duration(timeoutSecond) * time.Second
+	pollInterval := 5 * time.Second
+	deadline := time.Now().Add(timeout)
+
+	for {
+		if time.Now().After(deadline) {
+			return "", fmt.Errorf("timeout waiting for dumplog job completion after %d seconds", timeoutSecond)
+		}
+
+		job := &v1.OpsJob{}
+		if err := h.Get(ctx, client.ObjectKey{Name: jobName}, job); err != nil {
+			time.Sleep(pollInterval)
+			continue
+		}
+
+		switch job.Status.Phase {
+		case v1.OpsJobSucceeded:
+			for _, p := range job.Status.Outputs {
+				if p.Name == v1.ParameterEndpoint {
+					return p.Value, nil
+				}
+			}
+			return "", fmt.Errorf("job succeeded but no endpoint found in outputs")
+		case v1.OpsJobFailed:
+			message := "unknown error"
+			// Get error message from conditions
+			for _, cond := range job.Status.Conditions {
+				if cond.Status == metav1.ConditionFalse && cond.Message != "" {
+					message = cond.Message
+					break
+				}
+			}
+			return "", fmt.Errorf("dumplog job failed: %s", message)
+		}
+
+		// Job still running, wait and poll again
+		select {
+		case <-ctx.Done():
+			return "", ctx.Err()
+		case <-time.After(pollInterval):
+			// continue polling
+		}
+	}
 }
