@@ -55,6 +55,29 @@ func (e *EvidenceEvaluator) Evaluate(
 	// Aggregate signals into final result
 	e.aggregateSignals(signals, result)
 
+	// Post-aggregation override: if the cmdline contains explicit fine-tuning
+	// indicators (SFT/DPO/RLHF/LoRA in config paths or arguments), this is a
+	// definitive signal that should override any aggregated category.
+	// This is necessary because frameworks like Megatron use the same pretrain.py
+	// for both pre-training and SFT, and multiple generic rules (image name,
+	// torchrun, detection framework) can pile up for pre_training, drowning out
+	// the fine-tuning signal.
+	for _, sig := range signals {
+		if strings.HasPrefix(sig.source, "cmdline_args_hint:") && sig.category == intent.CategoryFineTuning {
+			if result.Category != intent.CategoryFineTuning {
+				log.Infof("Post-aggregation override: %s -> fine_tuning (source: %s)", result.Category, sig.source)
+				result.Category = intent.CategoryFineTuning
+				result.FieldSources["category"] = sig.source
+				result.ExpectedBehavior = intent.BehaviorBatch
+				// Boost confidence since we have an explicit cmdline indicator
+				if result.Confidence < 0.75 {
+					result.Confidence = 0.75
+				}
+			}
+			break
+		}
+	}
+
 	return result
 }
 
