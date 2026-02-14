@@ -102,6 +102,26 @@ func TriggerConductorDistillation(
 			evidence["workload_type"] = det.WorkloadType
 		}
 		sample.Evidence = evidence
+
+		// Populate IntentFieldSources from detection record, ensuring it is never nil/null
+		// (Conductor's Pydantic model requires a dict, not null)
+		if det.IntentFieldSources != nil {
+			fsJSON, _ := json.Marshal(det.IntentFieldSources)
+			var fs map[string]string
+			if json.Unmarshal(fsJSON, &fs) == nil && fs != nil {
+				sample.IntentFieldSources = fs
+			}
+		}
+		if sample.IntentFieldSources == nil {
+			sample.IntentFieldSources = map[string]string{}
+		}
+		if sample.IntentDetail == nil {
+			sample.IntentDetail = map[string]interface{}{}
+		}
+		if sample.Evidence == nil {
+			sample.Evidence = map[string]interface{}{}
+		}
+
 		samples = append(samples, sample)
 	}
 

@@ -27,7 +27,7 @@ import (
 const (
 	// Configuration defaults
 	DefaultCollectTimeout   = 120 * time.Second
-	DefaultLLMTimeout       = 60 * time.Second
+	DefaultLLMTimeout       = 10 * time.Minute
 	DefaultEvalInterval     = 5 * time.Minute
 	DefaultMonitorInterval  = 30 * time.Minute
 	DefaultConfidenceGate   = 0.75
@@ -377,10 +377,19 @@ func (p *WorkloadAnalysisPipeline) handleRequestingLLM(
 		// Send async request to Conductor
 		if err := p.sendConductorRequest(ctx, workloadUID, task); err != nil {
 			log.Warnf("Failed to send Conductor request for workload %s: %v", workloadUID, err)
-			// Fallback: use deterministic result
-			updates["llm_error"] = err.Error()
-			updates["skip_llm"] = true
-			return constant.PipelineStateMergingResult, nil
+
+			// Retry up to 3 times before falling back to deterministic result
+			retryCount := p.GetExtInt(task, "llm_send_retry_count")
+			if retryCount >= 3 {
+				log.Warnf("LLM request failed after %d retries for workload %s, falling back to deterministic",
+					retryCount, workloadUID)
+				updates["llm_error"] = err.Error()
+				updates["skip_llm"] = true
+				return constant.PipelineStateMergingResult, nil
+			}
+			updates["llm_send_retry_count"] = retryCount + 1
+			updates["llm_last_error"] = err.Error()
+			return constant.PipelineStateRequestingLLM, nil
 		}
 		updates["llm_request_sent"] = true
 		updates["llm_request_at"] = time.Now().Format(time.RFC3339)
@@ -541,16 +550,31 @@ func (p *WorkloadAnalysisPipeline) handleMonitoring(
 // Helper methods
 // ---------------------------------------------------------------------------
 
-// persistIntentResult writes the IntentResult to workload_detection and transitions to CONFIRMED
+// persistIntentResult writes the IntentResult to workload_detection.
+// For high-confidence results, transitions to CONFIRMED. For low-confidence
+// config_based results (no cmdline evidence), transitions to ANALYZING to allow
+// future evidence collection to improve the result.
 func (p *WorkloadAnalysisPipeline) persistIntentResult(
 	ctx context.Context,
 	workloadUID string,
 	result *intent.IntentResult,
 	updates map[string]interface{},
 ) (string, error) {
+	// Determine intent state: config_based with low confidence stays as "analyzing"
+	// to indicate the result is provisional and may be improved with more evidence.
+	const lowConfidenceThreshold = 0.6
+	intentState := constant.IntentStateConfirmed
+	pipelineNextState := constant.PipelineStateConfirmed
+	if result.AnalysisMode == intent.AnalysisModeConfigBased && result.Confidence < lowConfidenceThreshold {
+		intentState = constant.IntentStateAnalyzing
+		pipelineNextState = constant.PipelineStateMonitoring
+		log.Infof("Low-confidence config_based result for workload %s (%.2f < %.2f), staying in analyzing state",
+			workloadUID, result.Confidence, lowConfidenceThreshold)
+	}
+
 	// Build update map for detection facade
 	intentUpdates := map[string]interface{}{
-		"intent_state":      constant.IntentStateConfirmed,
+		"intent_state":      intentState,
 		"intent_confidence": result.Confidence,
 		"intent_analyzed_at": time.Now(),
 	}
@@ -612,10 +636,10 @@ func (p *WorkloadAnalysisPipeline) persistIntentResult(
 		return constant.PipelineStateEvaluating, err
 	}
 
-	log.Infof("Intent result persisted for workload %s: category=%s confidence=%.2f",
-		workloadUID, result.Category, result.Confidence)
+	log.Infof("Intent result persisted for workload %s: category=%s confidence=%.2f state=%s",
+		workloadUID, result.Category, result.Confidence, intentState)
 
-	return constant.PipelineStateConfirmed, nil
+	return pipelineNextState, nil
 }
 
 // gatherEvidence collects all available evidence for a workload from multiple sources

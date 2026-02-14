@@ -184,6 +184,37 @@ func (e *CmdlineExtractor) extractTrainingMethod(cmd string, result *CmdlineExtr
 }
 
 func (e *CmdlineExtractor) extractFromScriptName(cmd string, result *CmdlineExtractionResult) {
+	// Phase 1: Check full command line (including args, config paths) for fine-tuning
+	// indicators that should override script-name heuristics. This handles the common
+	// case where Megatron uses pretrain.py for both pre-training AND SFT, with the
+	// actual intent determined by config file names or arguments.
+	if result.Category == "" {
+		sftOverridePatterns := []struct {
+			re       *regexp.Regexp
+			category string
+			method   string
+			label    string
+		}{
+			{re: regexp.MustCompile(`(?i)[\-_/]sft[\-_/.]`), category: CategoryFineTuning, method: MethodSFT, label: "sft_in_args"},
+			{re: regexp.MustCompile(`(?i)[\-_/]dpo[\-_/.]`), category: CategoryFineTuning, method: MethodDPO, label: "dpo_in_args"},
+			{re: regexp.MustCompile(`(?i)[\-_/]rlhf[\-_/.]`), category: CategoryFineTuning, method: MethodRLHF, label: "rlhf_in_args"},
+			{re: regexp.MustCompile(`(?i)[\-_/]lora[\-_/.]|[\-_/]qlora[\-_/.]`), category: CategoryFineTuning, method: MethodLoRA, label: "lora_in_args"},
+			{re: regexp.MustCompile(`(?i)supervised.?fine.?tun`), category: CategoryFineTuning, method: MethodSFT, label: "sft_in_args"},
+		}
+		for _, p := range sftOverridePatterns {
+			if p.re.MatchString(cmd) {
+				result.Category = p.category
+				result.FieldSources["category"] = "cmdline:L1:args_hint:" + p.label
+				if result.Method == "" && p.method != "" {
+					result.Method = p.method
+					result.FieldSources["training_method"] = "cmdline:L1:args_hint:" + p.label
+				}
+				return
+			}
+		}
+	}
+
+	// Phase 2: Fall back to script name rules
 	for _, rule := range e.scriptNameRules {
 		if rule.re.MatchString(cmd) {
 			if result.Category == "" {
@@ -368,6 +399,9 @@ func (e *CmdlineExtractor) initPatterns() {
 
 	// Training method detection (ordered by specificity)
 	e.trainingPatterns = []trainingMethodPattern{
+		// RL training frameworks (verl/GRPO/PPO - must be before inference patterns)
+		{re: regexp.MustCompile(`(?i)verl\.trainer|main_ppo|main_grpo`), method: MethodRLHF},
+
 		// LoRA / QLoRA (most specific first)
 		{re: regexp.MustCompile(`(?i)--use_qlora|--qlora|--bits\s+4`), method: MethodQLoRA},
 		{re: regexp.MustCompile(`(?i)--lora_r\s+\d+|--use_lora|--use_peft|--peft_type`), method: MethodLoRA},
