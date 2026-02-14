@@ -753,13 +753,28 @@ func (p *WorkloadAnalysisPipeline) areSubTasksComplete(ctx context.Context, work
 	return true, nil
 }
 
-// isWorkloadTerminated checks if a workload is no longer running
+// isWorkloadTerminated checks if a workload is no longer running.
+// It checks the actual gpu_workload status (the source of truth), not just the detection record.
 func (p *WorkloadAnalysisPipeline) isWorkloadTerminated(ctx context.Context, workloadUID string) bool {
-	det, err := p.detectionFacade.GetDetection(ctx, workloadUID)
-	if err != nil || det == nil {
-		return false
+	workloadFacade := database.GetFacade().GetWorkload()
+	workload, err := workloadFacade.GetGpuWorkloadByUid(ctx, workloadUID)
+	if err != nil || workload == nil {
+		return true // Assume terminated if can't find
 	}
-	return det.Status == "terminated" || det.Status == "deleted"
+
+	// Check all terminal states including SaFE "Done" and "Deleted"
+	terminatedStatuses := map[string]bool{
+		"Completed": true,
+		"Failed":    true,
+		"Succeeded": true,
+		"Stopped":   true,
+		"Done":      true,
+		"Deleted":   true,
+	}
+
+	isDeleted := workload.DeletedAt.Valid
+
+	return isDeleted || terminatedStatuses[string(workload.Status)]
 }
 
 // getConfidenceGate returns the minimum confidence to skip LLM analysis
