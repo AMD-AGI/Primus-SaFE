@@ -70,9 +70,11 @@ func (h *Handler) DownloadWorkloadLog(c *gin.Context) {
 		apiutils.AbortWithApiError(c, err)
 		return
 	}
+	// Ensure HTTPS for external access (S3 internal URL may use HTTP)
+	downloadURL := strings.Replace(resp.DownloadURL, "http://", "https://", 1)
 	// Redirect to S3 presigned URL for direct download
 	// Use 303 See Other to ensure client uses GET method for S3 URL
-	c.Redirect(http.StatusSeeOther, resp.DownloadURL)
+	c.Redirect(http.StatusSeeOther, downloadURL)
 }
 
 // getWorkloadLog retrieves logs for a specific workload from OpenSearch.
