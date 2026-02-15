@@ -84,6 +84,7 @@ func (m *Manager) Start(ctx context.Context) {
 		go m.cleanupJob.Run(ctx)
 		log.Infof("Cleanup job started (interval: %v, retention: %v)", m.config.CleanupInterval, m.config.RetentionPeriod)
 	}
+
 }
 
 // Stop stops all background jobs

@@ -40,6 +40,7 @@ func newGpuPods(db *gorm.DB, opts ...gen.DOOption) gpuPods {
 	_gpuPods.OwnerUID = field.NewString(tableName, "owner_uid")
 	_gpuPods.Running = field.NewBool(tableName, "running")
 	_gpuPods.IP = field.NewString(tableName, "ip")
+	_gpuPods.ContainerImage = field.NewString(tableName, "container_image")
 
 	_gpuPods.fillFieldMap()
 
@@ -60,9 +61,10 @@ type gpuPods struct {
 	Deleted      field.Bool
 	CreatedAt    field.Time
 	UpdatedAt    field.Time
-	OwnerUID     field.String
-	Running      field.Bool
-	IP           field.String
+	OwnerUID       field.String
+	Running        field.Bool
+	IP             field.String
+	ContainerImage field.String
 
 	fieldMap map[string]field.Expr
 }
@@ -92,6 +94,7 @@ func (g *gpuPods) updateTableName(table string) *gpuPods {
 	g.OwnerUID = field.NewString(table, "owner_uid")
 	g.Running = field.NewBool(table, "running")
 	g.IP = field.NewString(table, "ip")
+	g.ContainerImage = field.NewString(table, "container_image")
 
 	g.fillFieldMap()
 
@@ -116,7 +119,7 @@ func (g *gpuPods) GetFieldByName(fieldName string) (field.OrderExpr, bool) {
 }
 
 func (g *gpuPods) fillFieldMap() {
-	g.fieldMap = make(map[string]field.Expr, 13)
+	g.fieldMap = make(map[string]field.Expr, 14)
 	g.fieldMap["id"] = g.ID
 	g.fieldMap["namespace"] = g.Namespace
 	g.fieldMap["name"] = g.Name
@@ -130,6 +133,7 @@ func (g *gpuPods) fillFieldMap() {
 	g.fieldMap["owner_uid"] = g.OwnerUID
 	g.fieldMap["running"] = g.Running
 	g.fieldMap["ip"] = g.IP
+	g.fieldMap["container_image"] = g.ContainerImage
 }
 
 func (g gpuPods) clone(db *gorm.DB) gpuPods {

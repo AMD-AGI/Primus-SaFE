@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/errors"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/snapshot"
 	"gopkg.in/yaml.v2"
 )
 
@@ -26,6 +27,7 @@ type Config struct {
 	Middleware        MiddlewareConfig    `json:"middleware" yaml:"middleware"`
 	AIGateway         *AIGatewayConfig    `json:"aiGateway" yaml:"aiGateway"`
 	MCP               *MCPConfig          `json:"mcp" yaml:"mcp"`
+	SnapshotStore     *SnapshotStoreConfig `json:"snapshotStore" yaml:"snapshotStore"`
 }
 
 // MCPConfig contains MCP (Model Context Protocol) server configuration
@@ -467,4 +469,92 @@ func (a *AuthConfig) IsPathExcluded(path string) bool {
 		}
 	}
 	return false
+}
+
+// SnapshotStoreConfig configures external storage for code snapshots.
+// When Enabled is false (default), snapshots are stored inline in the database.
+type SnapshotStoreConfig struct {
+	Enabled bool   `json:"enabled" yaml:"enabled"`
+	Type    string `json:"type" yaml:"type"` // "s3" or "local"
+
+	// S3 backend settings
+	S3Endpoint   string `json:"s3Endpoint" yaml:"s3Endpoint"`
+	S3Bucket     string `json:"s3Bucket" yaml:"s3Bucket"`
+	S3AccessKey  string `json:"s3AccessKey" yaml:"s3AccessKey"`
+	S3SecretKey  string `json:"s3SecretKey" yaml:"s3SecretKey"`
+	S3Secure     bool   `json:"s3Secure" yaml:"s3Secure"`
+	S3PathPrefix string `json:"s3PathPrefix" yaml:"s3PathPrefix"`
+
+	// Environment variable names for S3 credentials (override file-based values)
+	S3AccessKeyEnv string `json:"s3AccessKeyEnv" yaml:"s3AccessKeyEnv"`
+	S3SecretKeyEnv string `json:"s3SecretKeyEnv" yaml:"s3SecretKeyEnv"`
+
+	// Secret file path (Kubernetes secret mount) for S3 credentials
+	S3SecretPath string `json:"s3SecretPath" yaml:"s3SecretPath"`
+
+	// Local backend settings
+	LocalRootDir string `json:"localRootDir" yaml:"localRootDir"`
+}
+
+// ToSnapshotConfig converts SnapshotStoreConfig to snapshot.Config.
+// It resolves credentials from env vars / secret files when specified.
+func (c *SnapshotStoreConfig) ToSnapshotConfig() snapshot.Config {
+	if c == nil || !c.Enabled {
+		return snapshot.Config{}
+	}
+
+	cfg := snapshot.Config{
+		Type: snapshot.StoreType(c.Type),
+	}
+
+	switch cfg.Type {
+	case snapshot.StoreTypeS3:
+		accessKey := c.S3AccessKey
+		secretKey := c.S3SecretKey
+		// Override from env vars
+		if c.S3AccessKeyEnv != "" {
+			if v := os.Getenv(c.S3AccessKeyEnv); v != "" {
+				accessKey = v
+			}
+		}
+		if c.S3SecretKeyEnv != "" {
+			if v := os.Getenv(c.S3SecretKeyEnv); v != "" {
+				secretKey = v
+			}
+		}
+		// Override from secret file (Kubernetes secret mount)
+		if c.S3SecretPath != "" {
+			if data, err := os.ReadFile(c.S3SecretPath + "/access_key"); err == nil {
+				accessKey = string(data)
+			}
+			if data, err := os.ReadFile(c.S3SecretPath + "/secret_key"); err == nil {
+				secretKey = string(data)
+			}
+			// Also try endpoint/bucket from secret
+			if data, err := os.ReadFile(c.S3SecretPath + "/endpoint"); err == nil && c.S3Endpoint == "" {
+				c.S3Endpoint = string(data)
+			}
+			if data, err := os.ReadFile(c.S3SecretPath + "/bucket"); err == nil && c.S3Bucket == "" {
+				c.S3Bucket = string(data)
+			}
+		}
+		cfg.S3 = snapshot.S3Config{
+			Endpoint:   c.S3Endpoint,
+			Bucket:     c.S3Bucket,
+			AccessKey:  accessKey,
+			SecretKey:  secretKey,
+			Secure:     c.S3Secure,
+			PathPrefix: c.S3PathPrefix,
+		}
+	case snapshot.StoreTypeLocal:
+		rootDir := c.LocalRootDir
+		if rootDir == "" {
+			rootDir = "/var/lib/lens/code-snapshots"
+		}
+		cfg.Local = snapshot.LocalConfig{
+			RootDir: rootDir,
+		}
+	}
+
+	return cfg
 }
