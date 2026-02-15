@@ -11,6 +11,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/aigateway"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/aitopics"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/clientsets"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/constant"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database"
@@ -29,6 +31,15 @@ const (
 
 	// Max unmatched samples to keep per workload
 	maxUnmatchedSamples = 50
+
+	// Max samples to send to LLM per task (control cost)
+	maxLLMSamples = 20
+
+	// Max poll attempts for LLM result before giving up
+	maxLLMPollAttempts = 10
+
+	// LLM task timeout in seconds
+	llmTaskTimeoutSec = 120
 
 	// OpenSearch index patterns (FluentBit writes with Logstash_Format)
 	// Bootstrap uses "node-*", chart uses "primus-lens-*"
@@ -71,17 +82,28 @@ type LogAnalysisExecutor struct {
 
 	// Pre-compiled keyword patterns
 	keywords []trainingKeyword
+
+	// AI Gateway client for LLM-powered pattern generation (optional)
+	gwClient *aigateway.Client
 }
 
-// NewLogAnalysisExecutor creates a new log analysis executor
-func NewLogAnalysisExecutor() *LogAnalysisExecutor {
-	return &LogAnalysisExecutor{
+// NewLogAnalysisExecutor creates a new log analysis executor.
+// If aiGatewayURL is non-empty, LLM fallback is enabled via ai-gateway.
+func NewLogAnalysisExecutor(aiGatewayURL string) *LogAnalysisExecutor {
+	e := &LogAnalysisExecutor{
 		trainingFacade:  database.NewTrainingFacade(),
 		workloadFacade:  database.NewWorkloadFacade(),
 		patternFacade:   database.NewTrainingLogPatternFacade(),
 		detectionFacade: database.NewWorkloadDetectionFacade(),
 		keywords:        initKeywords(),
 	}
+	if aiGatewayURL != "" {
+		e.gwClient = aigateway.NewClient(aiGatewayURL)
+		log.Infof("LogAnalysis: LLM fallback enabled via ai-gateway at %s", aiGatewayURL)
+	} else {
+		log.Info("LogAnalysis: LLM fallback disabled (AI_GATEWAY_URL not set)")
+	}
+	return e
 }
 
 // GetTaskType returns the task type this executor handles
@@ -110,6 +132,11 @@ func (e *LogAnalysisExecutor) Execute(
 	task := execCtx.Task
 	workloadUID := task.WorkloadUID
 	updates := make(map[string]interface{})
+
+	// Step 0: Check for pending LLM task result before anything else
+	if gwTaskID := e.GetExtString(task, "llm_gw_task_id"); gwTaskID != "" {
+		e.pollLLMResult(ctx, task, updates)
+	}
 
 	// Throttle: only run every defaultCheckInterval
 	lastCheck := e.GetExtString(task, "last_check_at")
@@ -180,45 +207,48 @@ func (e *LogAnalysisExecutor) Execute(
 		return coreTask.RescheduleResult(updates), nil
 	}
 
-	// Step 3: If we have keyword lines but no metrics captured, analyze the gap
+	// Step 3: Analyze lines - heuristic first, collect LLM candidates
+	var linesToAnalyze []unmatchedLine
 	if !hasRecentMetrics && len(keywordLines) > 0 {
 		log.Infof("LogAnalysis: workload %s has %d keyword lines but no training_performance, analyzing gap",
 			workloadUID, len(keywordLines))
-
-		proposals := e.analyzeUnmatchedLines(keywordLines, framework, workloadUID)
 		updates["gap_detected"] = true
-		updates["proposals_generated"] = len(proposals)
+		linesToAnalyze = keywordLines
+	} else if hasRecentMetrics && len(keywordLines) > 0 {
+		log.Debugf("LogAnalysis: workload %s has both metrics and keyword lines, checking coverage", workloadUID)
+		updates["gap_detected"] = false
+		linesToAnalyze = e.findUncoveredLines(ctx, keywordLines, framework)
+		updates["uncovered_line_count"] = len(linesToAnalyze)
+	}
 
-		// Store proposals in system_config
-		for _, p := range proposals {
+	if len(linesToAnalyze) > 0 {
+		result := e.analyzeUnmatchedLines(linesToAnalyze, framework, workloadUID)
+		updates["proposals_generated"] = len(result.Proposals)
+		updates["llm_candidates"] = len(result.LLMCandidates)
+
+		// Store heuristic proposals immediately
+		for _, p := range result.Proposals {
 			if err := e.storePatternProposal(ctx, p); err != nil {
 				log.Warnf("LogAnalysis: failed to store pattern proposal: %v", err)
 			}
 		}
 
-		// Store sample unmatched lines in task ext for debugging
-		samples := keywordLines
-		if len(samples) > maxUnmatchedSamples {
-			samples = samples[:maxUnmatchedSamples]
-		}
-		updates["unmatched_samples"] = samples
-	} else if hasRecentMetrics && len(keywordLines) > 0 {
-		// Metrics are being captured. Check if there are lines with keywords
-		// that are NOT being captured (partial coverage).
-		log.Debugf("LogAnalysis: workload %s has both metrics and keyword lines, checking coverage", workloadUID)
-		updates["gap_detected"] = false
-
-		// Try to detect uncovered patterns by comparing keyword lines with known patterns
-		uncovered := e.findUncoveredLines(ctx, keywordLines, framework)
-		if len(uncovered) > 0 {
-			updates["uncovered_line_count"] = len(uncovered)
-			proposals := e.analyzeUnmatchedLines(uncovered, framework, workloadUID)
-			updates["proposals_generated"] = len(proposals)
-			for _, p := range proposals {
-				if err := e.storePatternProposal(ctx, p); err != nil {
-					log.Warnf("LogAnalysis: failed to store pattern proposal: %v", err)
-				}
+		// Publish LLM candidates to ai-gateway (if available and no pending task)
+		if len(result.LLMCandidates) > 0 && e.gwClient != nil {
+			if e.GetExtString(task, "llm_gw_task_id") == "" {
+				e.publishLLMAnalysis(ctx, task, result.LLMCandidates, framework, workloadUID, updates)
+			} else {
+				log.Debugf("LogAnalysis: LLM task already pending for workload %s, skipping publish", workloadUID)
 			}
+		}
+
+		// Store sample unmatched lines in task ext for debugging
+		if !hasRecentMetrics {
+			samples := keywordLines
+			if len(samples) > maxUnmatchedSamples {
+				samples = samples[:maxUnmatchedSamples]
+			}
+			updates["unmatched_samples"] = samples
 		}
 	}
 
@@ -437,18 +467,59 @@ type patternProposal struct {
 	SampleLine  string   `json:"sample_line"`
 	Keywords    []string `json:"keywords"`
 	CreatedAt   string   `json:"created_at"`
+	Source      string   `json:"source"`     // "autodiscovered" or "llm"
+	Confidence  float64  `json:"confidence"` // 0.0-1.0
+}
+
+// analysisResult holds heuristic proposals and LLM candidate lines
+type analysisResult struct {
+	Proposals     []patternProposal
+	LLMCandidates []unmatchedLine
+}
+
+// --- LLM request/response types ---
+
+// llmPatternRequest is the payload sent to ai-gateway for LLM analysis
+type llmPatternRequest struct {
+	WorkloadUID string           `json:"workload_uid"`
+	Framework   string           `json:"framework"`
+	Samples     []llmSampleLine  `json:"samples"`
+}
+
+// llmSampleLine is a single log line sample for LLM analysis
+type llmSampleLine struct {
+	Line     string   `json:"line"`
+	Keywords []string `json:"keywords"`
+}
+
+// llmPatternResponse is the response from LLM pattern analysis
+type llmPatternResponse struct {
+	Results []llmPatternResult `json:"results"`
+}
+
+// llmPatternResult is a single result from LLM analysis
+type llmPatternResult struct {
+	Line              string   `json:"line"`
+	IsTrainingMetric  bool     `json:"is_training_metric"`
+	PatternType       string   `json:"pattern_type"` // "performance" or "blacklist"
+	Regex             string   `json:"regex"`
+	FieldCount        int      `json:"field_count"`
+	Fields            []string `json:"fields"`
+	Validated         bool     `json:"validated"`
+	Confidence        float64  `json:"confidence"`
 }
 
 // analyzeUnmatchedLines examines lines with training keywords and determines
 // if they contain extractable performance metrics or should be blacklisted.
+// Lines where heuristic cannot generate a regex are returned as LLM candidates.
 func (e *LogAnalysisExecutor) analyzeUnmatchedLines(
 	lines []unmatchedLine,
 	framework string,
 	workloadUID string,
-) []patternProposal {
+) analysisResult {
 	// Group lines by their structural signature to avoid duplicate proposals
 	seen := make(map[string]bool)
-	var proposals []patternProposal
+	var result analysisResult
 
 	for _, line := range lines {
 		sig := e.computeLineSignature(line.Line)
@@ -465,10 +536,12 @@ func (e *LogAnalysisExecutor) analyzeUnmatchedLines(
 
 		pattern := e.generateRegexForLine(line.Line, isMetric)
 		if pattern == "" {
+			// Heuristic failed - this line is a candidate for LLM analysis
+			result.LLMCandidates = append(result.LLMCandidates, line)
 			continue
 		}
 
-		proposals = append(proposals, patternProposal{
+		result.Proposals = append(result.Proposals, patternProposal{
 			Framework:   framework,
 			WorkloadUID: workloadUID,
 			Pattern:     pattern,
@@ -476,10 +549,12 @@ func (e *LogAnalysisExecutor) analyzeUnmatchedLines(
 			SampleLine:  truncateLine(line.Line, 300),
 			Keywords:    line.Keywords,
 			CreatedAt:   time.Now().Format(time.RFC3339),
+			Source:      "autodiscovered",
+			Confidence:  0.6,
 		})
 	}
 
-	return proposals
+	return result
 }
 
 // isLikelyPerformanceLine determines if a log line is a genuine training
@@ -733,35 +808,212 @@ func (e *LogAnalysisExecutor) loadAllPatterns(ctx context.Context) []*regexp.Reg
 
 // storePatternProposal saves a discovered pattern to the training_log_pattern table.
 // Uses Upsert so duplicate patterns (same pattern_type + md5(pattern)) are idempotent.
-// Auto-discovered patterns are inserted as enabled=true so telemetry-processor picks them
+// Patterns are inserted as enabled=true so telemetry-processor picks them
 // up on the next reload cycle (every 60s).
 func (e *LogAnalysisExecutor) storePatternProposal(ctx context.Context, p patternProposal) error {
 	fw := p.Framework
-	name := fmt.Sprintf("autodiscovered-%s-%s", p.Type, strings.ToLower(fw))
-	desc := fmt.Sprintf("Auto-discovered from workload %s", p.WorkloadUID)
+	source := p.Source
+	if source == "" {
+		source = "autodiscovered"
+	}
+	confidence := p.Confidence
+	if confidence <= 0 {
+		confidence = 0.6
+	}
+	priority := 40
+	if source == "llm" {
+		priority = 45 // between autodiscovered (40) and manual/migration (50+)
+	}
+
+	name := fmt.Sprintf("%s-%s-%s", source, p.Type, strings.ToLower(fw))
+	desc := fmt.Sprintf("Generated by %s from workload %s", source, p.WorkloadUID)
 	wUID := p.WorkloadUID
 	sampleLine := p.SampleLine
 
 	record := &model.TrainingLogPattern{
 		Pattern:           p.Pattern,
 		PatternType:       p.Type,
-		Source:            "autodiscovered",
+		Source:            source,
 		SourceWorkloadUID: &wUID,
 		Framework:         &fw,
 		Name:              &name,
 		Description:       &desc,
 		SampleLine:        &sampleLine,
-		Enabled:           true, // immediately active
-		Priority:          40,   // lower than manual/migration patterns (50-80)
-		Confidence:        0.6,
+		Enabled:           true,
+		Priority:          priority,
+		Confidence:        confidence,
 	}
 
 	if err := e.patternFacade.Upsert(ctx, record); err != nil {
 		return fmt.Errorf("upsert pattern: %w", err)
 	}
 
-	log.Infof("LogAnalysis: stored %s pattern for framework %s from workload %s", p.Type, fw, p.WorkloadUID)
+	log.Infof("LogAnalysis: stored %s pattern (source=%s) for framework %s from workload %s",
+		p.Type, source, fw, p.WorkloadUID)
 	return nil
+}
+
+// --- LLM integration methods ---
+
+// publishLLMAnalysis sends unmatched lines to ai-gateway for LLM-powered pattern generation.
+// Stores the gateway task ID in the task ext so the next Execute() cycle can poll for results.
+func (e *LogAnalysisExecutor) publishLLMAnalysis(
+	ctx context.Context,
+	task *model.WorkloadTaskState,
+	candidates []unmatchedLine,
+	framework string,
+	workloadUID string,
+	updates map[string]interface{},
+) {
+	if e.gwClient == nil {
+		return
+	}
+
+	// Limit samples to control LLM cost
+	samples := candidates
+	if len(samples) > maxLLMSamples {
+		samples = samples[:maxLLMSamples]
+	}
+
+	// Build request payload
+	llmSamples := make([]llmSampleLine, 0, len(samples))
+	for _, s := range samples {
+		llmSamples = append(llmSamples, llmSampleLine{
+			Line:     s.Line,
+			Keywords: s.Keywords,
+		})
+	}
+	reqPayload := llmPatternRequest{
+		WorkloadUID: workloadUID,
+		Framework:   framework,
+		Samples:     llmSamples,
+	}
+
+	payloadJSON, err := json.Marshal(reqPayload)
+	if err != nil {
+		log.Warnf("LogAnalysis: failed to marshal LLM payload: %v", err)
+		return
+	}
+
+	resp, err := e.gwClient.Publish(ctx, &aigateway.PublishRequest{
+		Topic:      aitopics.TopicLogPatternGenerate,
+		Payload:    payloadJSON,
+		Priority:   5,
+		TimeoutSec: llmTaskTimeoutSec,
+	})
+	if err != nil {
+		log.Warnf("LogAnalysis: failed to publish LLM task for workload %s: %v", workloadUID, err)
+		updates["llm_publish_error"] = err.Error()
+		return
+	}
+
+	log.Infof("LogAnalysis: published LLM pattern task %s for workload %s (%d samples)",
+		resp.ID, workloadUID, len(llmSamples))
+	updates["llm_gw_task_id"] = resp.ID
+	updates["llm_poll_count"] = 0
+	updates["llm_published_at"] = time.Now().Format(time.RFC3339)
+}
+
+// pollLLMResult checks for a pending LLM task result and processes it.
+// If the result is available, it parses the LLM response, converts each
+// validated result into a patternProposal, and stores it.
+// If the task is still in progress, it increments the poll count.
+// If max poll attempts are reached, it clears the task ID.
+func (e *LogAnalysisExecutor) pollLLMResult(
+	ctx context.Context,
+	task *model.WorkloadTaskState,
+	updates map[string]interface{},
+) {
+	gwTaskID := e.GetExtString(task, "llm_gw_task_id")
+	if gwTaskID == "" || e.gwClient == nil {
+		return
+	}
+
+	pollCount := e.GetExtInt(task, "llm_poll_count")
+	workloadUID := task.WorkloadUID
+	framework := e.GetExtString(task, "framework")
+	if framework == "" {
+		framework = "unknown"
+	}
+
+	// Check if we've exceeded max poll attempts
+	if pollCount >= maxLLMPollAttempts {
+		log.Warnf("LogAnalysis: LLM task %s for workload %s exceeded max poll attempts (%d), giving up",
+			gwTaskID, workloadUID, maxLLMPollAttempts)
+		updates["llm_gw_task_id"] = nil
+		updates["llm_poll_count"] = nil
+		updates["llm_timeout"] = true
+		return
+	}
+
+	result, err := e.gwClient.GetResult(ctx, gwTaskID)
+	if err != nil {
+		log.Warnf("LogAnalysis: failed to poll LLM task %s: %v", gwTaskID, err)
+		updates["llm_poll_count"] = pollCount + 1
+		return
+	}
+
+	if result == nil {
+		// Still in progress
+		log.Debugf("LogAnalysis: LLM task %s still processing (poll %d/%d)",
+			gwTaskID, pollCount+1, maxLLMPollAttempts)
+		updates["llm_poll_count"] = pollCount + 1
+		return
+	}
+
+	// Result available - parse it
+	log.Infof("LogAnalysis: LLM task %s completed for workload %s", gwTaskID, workloadUID)
+
+	var llmResp llmPatternResponse
+	if err := json.Unmarshal(result.Result, &llmResp); err != nil {
+		log.Warnf("LogAnalysis: failed to unmarshal LLM result for task %s: %v", gwTaskID, err)
+		updates["llm_gw_task_id"] = nil
+		updates["llm_poll_count"] = nil
+		updates["llm_parse_error"] = err.Error()
+		return
+	}
+
+	// Process each LLM result
+	storedCount := 0
+	for _, r := range llmResp.Results {
+		if r.Regex == "" || !r.Validated {
+			log.Debugf("LogAnalysis: skipping LLM result (regex=%q, validated=%v)", r.Regex, r.Validated)
+			continue
+		}
+
+		// Verify that the regex compiles in Go
+		if _, compileErr := regexp.Compile(r.Regex); compileErr != nil {
+			log.Warnf("LogAnalysis: LLM-generated regex does not compile in Go: %v (pattern: %s)",
+				compileErr, r.Regex)
+			continue
+		}
+
+		proposal := patternProposal{
+			Framework:   framework,
+			WorkloadUID: workloadUID,
+			Pattern:     r.Regex,
+			Type:        r.PatternType,
+			SampleLine:  truncateLine(r.Line, 300),
+			CreatedAt:   time.Now().Format(time.RFC3339),
+			Source:      "llm",
+			Confidence:  r.Confidence,
+		}
+
+		if err := e.storePatternProposal(ctx, proposal); err != nil {
+			log.Warnf("LogAnalysis: failed to store LLM pattern: %v", err)
+		} else {
+			storedCount++
+		}
+	}
+
+	log.Infof("LogAnalysis: stored %d LLM-generated patterns for workload %s (from %d results)",
+		storedCount, workloadUID, len(llmResp.Results))
+
+	// Clear LLM task state
+	updates["llm_gw_task_id"] = nil
+	updates["llm_poll_count"] = nil
+	updates["llm_patterns_stored"] = storedCount
+	updates["llm_results_total"] = len(llmResp.Results)
 }
 
 // isWorkloadTerminated checks if the workload has finished running

@@ -225,7 +225,7 @@ func Bootstrap(ctx context.Context) error {
 		go registerIntentAnalyzerAgent(ctx, aiGatewayURL, instanceID)
 
 		// Register log analysis executor (training metric gap detection)
-		logAnalysisExecutor := loganalysis.NewLogAnalysisExecutor()
+		logAnalysisExecutor := loganalysis.NewLogAnalysisExecutor(aiGatewayURL)
 		if err := taskScheduler.RegisterExecutor(logAnalysisExecutor); err != nil {
 			log.Errorf("Failed to register log analysis executor: %v", err)
 		} else {

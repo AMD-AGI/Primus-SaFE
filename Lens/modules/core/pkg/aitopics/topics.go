@@ -38,6 +38,9 @@ const (
 	TopicIntentAnalyzeWorkload = "intent.analyze.workload"
 	TopicIntentAnalyzeLogs     = "intent.analyze.logs"
 	TopicIntentAnalyzeCode     = "intent.analyze.code"
+
+	// Log Pattern Topics
+	TopicLogPatternGenerate = "log.pattern.generate"
 )
 
 // API Version
@@ -50,6 +53,7 @@ var TopicDomains = []string{
 	"scan",
 	"github",
 	"intent",
+	"log",
 }
 
 // IsValidTopic checks if a topic string is a known topic
@@ -72,7 +76,8 @@ func IsValidTopic(topic string) bool {
 		TopicGithubDashboardInsightsGenerate,
 		TopicIntentAnalyzeWorkload,
 		TopicIntentAnalyzeLogs,
-		TopicIntentAnalyzeCode:
+		TopicIntentAnalyzeCode,
+		TopicLogPatternGenerate:
 		return true
 	default:
 		return false
