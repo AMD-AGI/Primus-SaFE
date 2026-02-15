@@ -291,8 +291,10 @@ func (e *LogAnalysisExecutor) scanPodLogs(
 	defer resp.Body.Close()
 
 	if resp.IsError() {
-		return nil, 0, fmt.Errorf("opensearch error: %s", resp.String())
+		return nil, 0, fmt.Errorf("opensearch error (status %d): %s", resp.StatusCode, resp.String())
 	}
+
+	log.Infof("LogAnalysis: OpenSearch query for pod %s returned status %d", pod.Name, resp.StatusCode)
 
 	// Parse OpenSearch response
 	var result opensearchResponse
@@ -390,8 +392,13 @@ func (e *LogAnalysisExecutor) findWorkloadPods(
 	workloadUID string,
 ) ([]*model.GpuPods, error) {
 	refs, err := e.workloadFacade.ListWorkloadPodReferenceByWorkloadUid(ctx, workloadUID)
-	if err != nil || len(refs) == 0 {
+	if err != nil {
+		log.Warnf("LogAnalysis: failed to list pod references for %s: %v", workloadUID, err)
 		return nil, err
+	}
+	if len(refs) == 0 {
+		log.Infof("LogAnalysis: no pod references found for workload %s", workloadUID)
+		return nil, nil
 	}
 
 	podUIDs := make([]string, 0, len(refs))
@@ -402,8 +409,10 @@ func (e *LogAnalysisExecutor) findWorkloadPods(
 	podFacade := database.GetFacade().GetPod()
 	pods, err := podFacade.ListPodsByUids(ctx, podUIDs)
 	if err != nil {
+		log.Warnf("LogAnalysis: failed to list pods by UIDs for %s: %v", workloadUID, err)
 		return nil, err
 	}
+	log.Infof("LogAnalysis: found %d pod refs -> %d pods for workload %s", len(refs), len(pods), workloadUID)
 	return pods, nil
 }
 
