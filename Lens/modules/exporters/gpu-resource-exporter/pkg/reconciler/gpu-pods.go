@@ -359,6 +359,7 @@ func (g *GpuPodsReconciler) saveGpuPodsStatus(ctx context.Context, pod *corev1.P
 		Name:           pod.Name,
 		NodeName:       pod.Spec.NodeName,
 		UID:            string(pod.UID),
+		OwnerUID:       extractOwnerUID(pod),
 		IP:             pod.Status.PodIP, // Added: sync Pod IP to database
 		GpuAllocated:   int32(k8sUtil.GetGpuAllocated(pod, metadata.GetResourceName(metadata.GpuVendorAMD))),
 		Phase:          string(pod.Status.Phase),
@@ -500,6 +501,25 @@ func (g *GpuPodsReconciler) handleDeletedPod(ctx context.Context, namespace, nam
 	}
 	log.Infof("Closed running period for deleted pod %s/%s (uid=%s)", namespace, name, gpuPod.UID)
 	return nil
+}
+
+// extractOwnerUID returns the UID of the pod's controller owner.
+// For training pods (PyTorchJob, MPIJob, etc.) this is the workload UID
+// that matches gpu_workload.uid, enabling SpecCollector to look up pods by workload.
+func extractOwnerUID(pod *corev1.Pod) string {
+	if pod == nil {
+		return ""
+	}
+	for _, ref := range pod.OwnerReferences {
+		if ref.Controller != nil && *ref.Controller {
+			return string(ref.UID)
+		}
+	}
+	// Fallback: use first owner reference if no controller is marked
+	if len(pod.OwnerReferences) > 0 {
+		return string(pod.OwnerReferences[0].UID)
+	}
+	return ""
 }
 
 // extractPrimaryContainerImage returns the image of the primary (GPU-using) container.
