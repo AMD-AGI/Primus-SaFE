@@ -243,6 +243,8 @@ func (e *LogAnalysisExecutor) scanPodLogs(
 
 	// Pick one representative pod (prefer master-0)
 	pod := e.selectRepresentativePod(pods)
+	log.Debugf("LogAnalysis: scanning OpenSearch for pod %s/%s (workload %s, %d pods total)",
+		pod.Namespace, pod.Name, workloadUID, len(pods))
 
 	// Get OpenSearch client from StorageClientSet
 	clusterClients := clientsets.GetClusterManager().GetCurrentClusterClients()
@@ -381,13 +383,40 @@ func (e *LogAnalysisExecutor) matchKeywords(line string) []string {
 	return matched
 }
 
-// findWorkloadPods finds running pods for a workload
+// findWorkloadPods finds pods for a workload.
+// It first tries to find running pods by owner_uid. If none found,
+// it falls back to workload_pod_reference to find associated pods
+// (even deleted ones, since OpenSearch retains historical logs).
 func (e *LogAnalysisExecutor) findWorkloadPods(
 	ctx context.Context,
 	workloadUID string,
 ) ([]*model.GpuPods, error) {
 	podFacade := database.GetFacade().GetPod()
+
+	// Try direct owner_uid lookup first (fast path)
 	pods, err := podFacade.GetRunningPodsByOwnerUID(ctx, workloadUID)
+	if err != nil {
+		return nil, err
+	}
+	if len(pods) > 0 {
+		return pods, nil
+	}
+
+	// Fallback: use workload_pod_reference to find pods
+	// This covers workloads whose pods are linked via workload_pod_reference
+	// rather than gpu_pods.owner_uid. We include deleted pods since
+	// OpenSearch retains historical logs from those pods.
+	refs, err := e.workloadFacade.ListWorkloadPodReferenceByWorkloadUid(ctx, workloadUID)
+	if err != nil || len(refs) == 0 {
+		return nil, err
+	}
+
+	podUIDs := make([]string, 0, len(refs))
+	for _, ref := range refs {
+		podUIDs = append(podUIDs, ref.PodUID)
+	}
+
+	pods, err = podFacade.ListPodsByUids(ctx, podUIDs)
 	if err != nil {
 		return nil, err
 	}
