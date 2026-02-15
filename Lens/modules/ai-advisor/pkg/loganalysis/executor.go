@@ -30,9 +30,6 @@ const (
 	// Max unmatched samples to keep per workload
 	maxUnmatchedSamples = 50
 
-	// Config key prefix for auto-discovered patterns
-	configKeyPrefix = "training.log.parser.autodiscovered."
-
 	// OpenSearch index patterns (FluentBit writes with Logstash_Format)
 	// Bootstrap uses "node-*", chart uses "primus-lens-*"
 	opensearchIndexPattern = "node-*,primus-lens-*"
@@ -63,13 +60,13 @@ type unmatchedLine struct {
 //   - Performance lines -> generates a new regex pattern proposal
 //   - Non-performance lines -> generates a blacklist regex
 //
-// 5. Stores proposals in system_config for review or auto-application
+// 5. Stores proposals in training_log_pattern table (auto-reloaded by telemetry-processor)
 type LogAnalysisExecutor struct {
 	coreTask.BaseExecutor
 
 	trainingFacade  database.TrainingFacadeInterface
 	workloadFacade  database.WorkloadFacadeInterface
-	sysConfigFacade database.SystemConfigFacadeInterface
+	patternFacade   database.TrainingLogPatternFacadeInterface
 	detectionFacade database.WorkloadDetectionFacadeInterface
 
 	// Pre-compiled keyword patterns
@@ -81,7 +78,7 @@ func NewLogAnalysisExecutor() *LogAnalysisExecutor {
 	return &LogAnalysisExecutor{
 		trainingFacade:  database.NewTrainingFacade(),
 		workloadFacade:  database.NewWorkloadFacade(),
-		sysConfigFacade: database.NewSystemConfigFacade(),
+		patternFacade:   database.NewTrainingLogPatternFacade(),
 		detectionFacade: database.NewWorkloadDetectionFacade(),
 		keywords:        initKeywords(),
 	}
@@ -140,13 +137,18 @@ func (e *LogAnalysisExecutor) Execute(
 		return coreTask.RescheduleResult(updates), nil
 	}
 
-	// Check if framework is known
+	// Determine framework label: use Framework, fall back to ModelFamily, then Category
 	framework := det.Framework
-	if framework == "" {
-		log.Debugf("LogAnalysis: framework unknown for workload %s, rescheduling", workloadUID)
-		updates["skip_reason"] = "framework_unknown"
-		return coreTask.RescheduleResult(updates), nil
+	if framework == "" && det.ModelFamily != nil && *det.ModelFamily != "" {
+		framework = *det.ModelFamily
 	}
+	if framework == "" && det.Category != nil && *det.Category != "" {
+		framework = *det.Category
+	}
+	if framework == "" {
+		framework = "unknown"
+	}
+	updates["framework"] = framework
 
 	// Step 1: Check if training_performance records exist recently
 	since := time.Now().Add(-10 * time.Minute)
@@ -489,8 +491,8 @@ func (e *LogAnalysisExecutor) analyzeUnmatchedLines(
 // - Has multiple key=value or key: value pairs
 // - Contains separator patterns like |, comma, or tab between fields
 func (e *LogAnalysisExecutor) isLikelyPerformanceLine(line string, keywords []string) bool {
-	// Count numeric key-value pairs
-	kvPattern := regexp.MustCompile(`(?i)(epoch|step|iteration|loss|lr|learning.?rate|grad.?norm|throughput|samples?.?per|tokens?.?per|tflops|mfu|batch.?size)\s*[=:]\s*[\d.eE+-]+`)
+	// Count numeric key-value pairs (use .? to match both _ and space in compound keywords)
+	kvPattern := regexp.MustCompile(`(?i)(epoch|step|iteration|loss|lr|learning.?rate|grad.?norm|throughput|samples?.?per|tokens?.?per|tflops|mfu|(?:global.?)?batch.?size|consumed.?samples)\s*[=:]\s*[\d.eE+-]+`)
 	kvMatches := kvPattern.FindAllString(line, -1)
 
 	// If we have 3+ key-value pairs with numeric values, it's almost certainly a metric line
@@ -548,10 +550,12 @@ func (e *LogAnalysisExecutor) generatePerformanceRegex(line string) string {
 		"mfu":               "Mfu",
 		"batch_size":        "GlobalBatchSize",
 		"global_batch_size": "GlobalBatchSize",
+		"consumed_samples":  "ConsumedSamples",
 	}
 
 	// Try to find key=value or key: value patterns and build a regex
-	kvRe := regexp.MustCompile(`(?i)(epoch|total_epochs|step|iteration|iter|(?:total_|lm_)?loss|lr|learning[_\s]rate|grad[_\s]norm|throughput|samples_per_second|tokens_per_second|tflops|mfu|(?:global_)?batch_size)\s*[=:]\s*([\d.eE+-]+)`)
+	// Use [_\s] to handle both "batch_size" and "batch size" style keys
+	kvRe := regexp.MustCompile(`(?i)(epoch|total[_\s]epochs|step|iteration|iter|(?:total[_\s]|lm[_\s])?loss|lr|learning[_\s]rate|grad[_\s]norm|throughput|samples[_\s]per[_\s]second|tokens[_\s]per[_\s]second|tflops|mfu|(?:global[_\s])?batch[_\s]size|consumed[_\s]samples)\s*[=:]\s*([\d.eE+-]+)`)
 
 	matches := kvRe.FindAllStringSubmatchIndex(line, -1)
 	if len(matches) < 2 {
@@ -566,17 +570,26 @@ func (e *LogAnalysisExecutor) generatePerformanceRegex(line string) string {
 		origValue  string
 	}
 	var replacements []replacement
+	usedGroups := make(map[string]bool)
 
 	for _, match := range matches {
 		keyStart, keyEnd := match[2], match[3]
 		valStart, valEnd := match[4], match[5]
 		key := strings.ToLower(line[keyStart:keyEnd])
+		// Normalize whitespace variants to underscore for fieldMap lookup
 		key = strings.ReplaceAll(key, " ", "_")
+		key = regexp.MustCompile(`_+`).ReplaceAllString(key, "_")
 
 		groupName, ok := fieldMap[key]
 		if !ok {
 			continue
 		}
+
+		// Skip duplicate named groups (regex requires unique names)
+		if usedGroups[groupName] {
+			continue
+		}
+		usedGroups[groupName] = true
 
 		replacements = append(replacements, replacement{
 			start:     valStart,
@@ -657,16 +670,14 @@ func (e *LogAnalysisExecutor) computeLineSignature(line string) string {
 }
 
 // findUncoveredLines filters keyword lines to find those not matching existing patterns.
-// It loads the framework's performance patterns from system_config and tests each line.
+// Loads all enabled patterns (performance + blacklist) from training_log_pattern table.
 func (e *LogAnalysisExecutor) findUncoveredLines(
 	ctx context.Context,
 	lines []unmatchedLine,
-	framework string,
+	_ string, // framework parameter kept for interface compat, but we load all patterns globally
 ) []unmatchedLine {
-	// Load existing performance patterns for this framework
-	patterns := e.loadFrameworkPatterns(ctx, framework)
+	patterns := e.loadAllPatterns(ctx)
 	if len(patterns) == 0 {
-		// No patterns loaded = all lines are uncovered
 		return lines
 	}
 
@@ -686,141 +697,71 @@ func (e *LogAnalysisExecutor) findUncoveredLines(
 	return uncovered
 }
 
-// loadFrameworkPatterns loads compiled performance regex patterns for a framework
-func (e *LogAnalysisExecutor) loadFrameworkPatterns(ctx context.Context, framework string) []*regexp.Regexp {
-	configKey := "training.log.parser.framework." + strings.ToLower(framework)
-	config, err := e.sysConfigFacade.GetByKey(ctx, configKey)
-	if err != nil || config == nil {
-		return nil
-	}
-
-	// Parse the FrameworkLogPatterns structure from JSONB
-	perfPatterns, ok := config.Value["performance_patterns"]
-	if !ok {
-		return nil
-	}
-
-	patternsSlice, ok := perfPatterns.([]interface{})
-	if !ok {
-		return nil
-	}
-
+// loadAllPatterns loads all enabled performance + blacklist patterns from training_log_pattern
+func (e *LogAnalysisExecutor) loadAllPatterns(ctx context.Context) []*regexp.Regexp {
 	var compiled []*regexp.Regexp
-	for _, p := range patternsSlice {
-		pm, ok := p.(map[string]interface{})
-		if !ok {
-			continue
-		}
-		patStr, ok := pm["pattern"].(string)
-		if !ok || patStr == "" {
-			continue
-		}
-		enabled, _ := pm["enabled"].(bool)
-		if !enabled {
-			continue
-		}
-		re, err := regexp.Compile(patStr)
+
+	// Load performance patterns
+	perfPatterns, err := e.patternFacade.ListEnabledByType(ctx, "performance")
+	if err != nil {
+		log.Warnf("LogAnalysis: failed to load performance patterns: %v", err)
+	}
+	for _, p := range perfPatterns {
+		re, err := regexp.Compile(p.Pattern)
 		if err != nil {
-			log.Debugf("LogAnalysis: failed to compile pattern %q: %v", patStr, err)
+			log.Debugf("LogAnalysis: failed to compile pattern id=%d: %v", p.ID, err)
 			continue
 		}
 		compiled = append(compiled, re)
 	}
 
-	// Also load blacklist patterns (to exclude known non-metric lines)
-	blacklistKey := configKeyPrefix + "blacklist." + strings.ToLower(framework)
-	blacklistConfig, err := e.sysConfigFacade.GetByKey(ctx, blacklistKey)
-	if err == nil && blacklistConfig != nil {
-		if blPatterns, ok := blacklistConfig.Value["patterns"].([]interface{}); ok {
-			for _, bp := range blPatterns {
-				if bpm, ok := bp.(map[string]interface{}); ok {
-					if pat, ok := bpm["pattern"].(string); ok {
-						if re, err := regexp.Compile(pat); err == nil {
-							compiled = append(compiled, re)
-						}
-					}
-				}
-			}
+	// Load blacklist patterns
+	blPatterns, err := e.patternFacade.ListEnabledByType(ctx, "blacklist")
+	if err != nil {
+		log.Warnf("LogAnalysis: failed to load blacklist patterns: %v", err)
+	}
+	for _, p := range blPatterns {
+		re, err := regexp.Compile(p.Pattern)
+		if err != nil {
+			continue
 		}
+		compiled = append(compiled, re)
 	}
 
 	return compiled
 }
 
-// storePatternProposal saves a discovered pattern proposal to system_config
+// storePatternProposal saves a discovered pattern to the training_log_pattern table.
+// Uses Upsert so duplicate patterns (same pattern_type + md5(pattern)) are idempotent.
+// Auto-discovered patterns are inserted as enabled=true so telemetry-processor picks them
+// up on the next reload cycle (every 60s).
 func (e *LogAnalysisExecutor) storePatternProposal(ctx context.Context, p patternProposal) error {
-	var configKey string
-	if p.Type == "performance" {
-		configKey = configKeyPrefix + "proposals." + strings.ToLower(p.Framework)
-	} else {
-		configKey = configKeyPrefix + "blacklist." + strings.ToLower(p.Framework)
+	fw := p.Framework
+	name := fmt.Sprintf("autodiscovered-%s-%s", p.Type, strings.ToLower(fw))
+	desc := fmt.Sprintf("Auto-discovered from workload %s", p.WorkloadUID)
+	wUID := p.WorkloadUID
+	sampleLine := p.SampleLine
+
+	record := &model.TrainingLogPattern{
+		Pattern:           p.Pattern,
+		PatternType:       p.Type,
+		Source:            "autodiscovered",
+		SourceWorkloadUID: &wUID,
+		Framework:         &fw,
+		Name:              &name,
+		Description:       &desc,
+		SampleLine:        &sampleLine,
+		Enabled:           true, // immediately active
+		Priority:          40,   // lower than manual/migration patterns (50-80)
+		Confidence:        0.6,
 	}
 
-	// Load existing config or create new
-	existing, err := e.sysConfigFacade.GetByKey(ctx, configKey)
-	if err != nil {
-		return fmt.Errorf("load existing config: %w", err)
+	if err := e.patternFacade.Upsert(ctx, record); err != nil {
+		return fmt.Errorf("upsert pattern: %w", err)
 	}
 
-	var patterns []interface{}
-	if existing != nil {
-		if pp, ok := existing.Value["patterns"].([]interface{}); ok {
-			patterns = pp
-		}
-	}
-
-	// Check for duplicates (by pattern string)
-	for _, ep := range patterns {
-		if epm, ok := ep.(map[string]interface{}); ok {
-			if existPat, ok := epm["pattern"].(string); ok && existPat == p.Pattern {
-				// Already exists
-				return nil
-			}
-		}
-	}
-
-	// Add the new proposal
-	entry := map[string]interface{}{
-		"pattern":      p.Pattern,
-		"sample_line":  p.SampleLine,
-		"keywords":     p.Keywords,
-		"workload_uid": p.WorkloadUID,
-		"created_at":   p.CreatedAt,
-		"status":       "proposed", // proposed -> validated -> promoted
-		"enabled":      false,      // not enabled until reviewed
-	}
-	patterns = append(patterns, entry)
-
-	// Cap the number of proposals
-	if len(patterns) > 100 {
-		patterns = patterns[len(patterns)-100:]
-	}
-
-	value := model.ExtType{
-		"framework": p.Framework,
-		"type":      p.Type,
-		"patterns":  patterns,
-	}
-
-	if existing != nil {
-		return e.sysConfigFacade.Update(ctx, existing, map[string]interface{}{
-			"value":      value,
-			"updated_at": time.Now(),
-		})
-	}
-
-	description := fmt.Sprintf("Auto-discovered %s patterns for framework %s", p.Type, p.Framework)
-	if p.Type == "blacklist" {
-		description = fmt.Sprintf("Blacklisted non-metric patterns for framework %s", p.Framework)
-	}
-
-	newConfig := &model.SystemConfig{
-		Key:         configKey,
-		Value:       value,
-		Description: description,
-		Category:    "training.log.parser",
-	}
-	return e.sysConfigFacade.Create(ctx, newConfig)
+	log.Infof("LogAnalysis: stored %s pattern for framework %s from workload %s", p.Type, fw, p.WorkloadUID)
+	return nil
 }
 
 // isWorkloadTerminated checks if the workload has finished running

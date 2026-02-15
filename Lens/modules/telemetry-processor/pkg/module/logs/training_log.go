@@ -16,7 +16,6 @@ import (
 	"github.com/sirupsen/logrus"
 
 	advisorClient "github.com/AMD-AGI/Primus-SaFE/Lens/ai-advisor/pkg/client"
-	advisorCommon "github.com/AMD-AGI/Primus-SaFE/Lens/ai-advisor/pkg/common"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/ahocorasick"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/constant"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database"
@@ -30,10 +29,9 @@ import (
 
 var (
 	// Global singletons (initialized at startup)
-	aiAdvisorClient *advisorClient.Client      // AI Advisor client for framework detection
-	configManager   *FrameworkConfigManager    // For local log pattern matching
-	patternMatchers map[string]*PatternMatcher // For local log parsing
-	globalExtractor *UniversalExtractor         // Framework-agnostic AC automaton extractor
+	aiAdvisorClient *advisorClient.Client  // AI Advisor client (used by WandB handler, etc.)
+	globalExtractor *UniversalExtractor    // Framework-agnostic AC automaton extractor
+	globalRegistry  *GlobalPatternRegistry // Global pattern registry (loads from training_log_pattern table)
 
 	// ANSI escape code regex for cleaning logs
 	// Matches: \x1b[...m (standard ANSI), [...m (simplified format), [...][ (any bracket sequences)
@@ -42,7 +40,7 @@ var (
 
 // InitializeWandBHandlerAndLogProcessing initializes WandB handler with AI Advisor client
 // and local log processing components
-func InitializeWandBHandlerAndLogProcessing(aiAdvisorURL string, systemConfigMgr *config.Manager) error {
+func InitializeWandBHandlerAndLogProcessing(aiAdvisorURL string, _ *config.Manager) error {
 	// 1. Create AI Advisor client
 	if aiAdvisorURL == "" {
 		aiAdvisorURL = os.Getenv("AI_ADVISOR_URL")
@@ -57,36 +55,16 @@ func InitializeWandBHandlerAndLogProcessing(aiAdvisorURL string, systemConfigMgr
 
 	logrus.Infof("AI Advisor client initialized: %s", aiAdvisorURL)
 
-	// 2. Initialize config manager (for local log pattern matching)
-	configManager = NewFrameworkConfigManager(systemConfigMgr)
-
-	// Load all framework configurations
+	// 2. Initialize GlobalPatternRegistry (loads from training_log_pattern table)
 	ctx := context.Background()
-	if err := configManager.LoadAllFrameworks(ctx); err != nil {
-		logrus.Warnf("Failed to load some framework configs: %v", err)
+	globalRegistry = NewGlobalPatternRegistry()
+	if err := globalRegistry.Load(ctx); err != nil {
+		logrus.Warnf("Failed to load global pattern registry: %v (will retry in background)", err)
 	}
+	go globalRegistry.StartAutoReload(context.Background())
+	logrus.Infof("Global pattern registry initialized with %d patterns", globalRegistry.PatternCount())
 
-	// 3. Initialize pattern matchers (for local log parsing)
-	patternMatchers = make(map[string]*PatternMatcher)
-	for _, frameworkName := range configManager.ListFrameworks() {
-		patterns := configManager.GetFramework(frameworkName)
-		if patterns == nil {
-			continue
-		}
-
-		matcher, err := NewPatternMatcher(patterns)
-		if err != nil {
-			logrus.Warnf("Failed to create matcher for %s: %v", frameworkName, err)
-			continue
-		}
-
-		patternMatchers[frameworkName] = matcher
-		logrus.Infof("Initialized pattern matcher for framework: %s", frameworkName)
-	}
-
-	logrus.Infof("Framework pattern matchers initialized with %d frameworks", len(patternMatchers))
-
-	// 3.5. Initialize universal extractor (AC automaton for intent analysis)
+	// 3. Initialize universal extractor (AC automaton for intent analysis)
 	globalExtractor = NewUniversalExtractor()
 	// Patterns will be loaded periodically from the DB by a background goroutine
 	go startExtractorPatternRefresh(context.Background())
@@ -181,7 +159,6 @@ func WorkloadLog(ctx context.Context, podUid string, msg string, logTime time.Ti
 	log.Tracef("before consume workload log , pod uid %s", podUid)
 
 	// Clean ANSI escape codes from log message (color codes, etc.)
-	// This ensures pattern matching works correctly for logs with terminal formatting
 	cleanMsg := stripAnsiCodes(msg)
 
 	// Get workload information from cache
@@ -190,98 +167,90 @@ func WorkloadLog(ctx context.Context, podUid string, msg string, logTime time.Ti
 		return nil
 	}
 
-	// Check if pattern matchers are initialized (for local log parsing)
-	if len(patternMatchers) == 0 {
-		logrus.Tracef("Pattern matchers not initialized - skipping framework-specific log processing for pod %s", podUid)
-		// Continue processing without framework detection
-	}
-
-	// workloadRefs is [][]string, each element is []string{workloadName, workloadUID}
-	// Since detection manager automatically handles workload hierarchy,
-	// we only need to detect framework once (using first workload)
 	firstWorkloadUID := workloadRefs[0][1]
 
-	// Get or detect framework
-	var frameworkName string
-	needsDetection := false
-
-	// Try to query existing detection from ai-advisor
-	if aiAdvisorClient != nil {
-		detection, err := aiAdvisorClient.GetDetection(firstWorkloadUID)
-		if err != nil {
-			logrus.Debugf("Failed to query detection from AI Advisor: %v", err)
-		} else if detection != nil && detection.Confidence >= 0.5 {
-			// Use existing detection (shared across workload hierarchy)
-			// Priority: WrapperFramework > BaseFramework > Frameworks[0]
-			// This prevents issues if Frameworks array order changes
-			if detection.WrapperFramework != "" {
-				frameworkName = detection.WrapperFramework
-				IncFrameworkUsageCount(frameworkName, "wrapper")
-			} else if detection.BaseFramework != "" {
-				frameworkName = detection.BaseFramework
-				IncFrameworkUsageCount(frameworkName, "base")
-			} else if len(detection.Frameworks) > 0 {
-				frameworkName = detection.Frameworks[0]
-				IncFrameworkUsageCount(frameworkName, "primary")
-			}
-
+	// Global pattern matching: all enabled patterns from training_log_pattern table
+	// are tried against every log line, regardless of framework.
+	if globalRegistry != nil {
+		if err := processLogWithGlobalRegistry(ctx, podUid, firstWorkloadUID, cleanMsg, logTime); err != nil {
+			// No pattern matched - this is normal for most log lines
+			logrus.Tracef("No global pattern matched for pod %s: %v", podUid, err)
 		}
-	}
-
-	// If no framework detected yet, try to detect from log
-	if frameworkName == "" && len(patternMatchers) > 0 {
-		detectedFramework, err := detectFrameworkFromLog(ctx, firstWorkloadUID, cleanMsg)
-		if err != nil {
-			// Framework not detected from this log - this is OK
-			logrus.Tracef("Framework not detected from log: %v - skipping framework-specific processing", err)
-			// No framework detected, keep frameworkName empty
-		} else {
-			// Successfully detected framework from log
-			frameworkName = detectedFramework
-			needsDetection = true
-		}
-	}
-
-	// Report detection to AI Advisor if we detected something new
-	if needsDetection && frameworkName != "" && aiAdvisorClient != nil {
-		confidence := calculateDetectionConfidence(frameworkName, cleanMsg)
-
-		// Report to AI Advisor
-		_, err := aiAdvisorClient.ReportDetection(&advisorCommon.DetectionRequest{
-			WorkloadUID: firstWorkloadUID,
-			Source:      "log",
-			Frameworks:  []string{frameworkName},
-			Type:        "training",
-			Confidence:  confidence,
-			Evidence: map[string]interface{}{
-				"method":     "log_pattern_match",
-				"sample_log": truncateLog(cleanMsg, 200),
-			},
-		})
-		if err != nil {
-			logrus.Errorf("Failed to report log detection to AI Advisor: %v", err)
-			IncFrameworkDetectionErrors("log", "report_failed")
-		} else {
-			logrus.Infof("✓ Reported log detection to AI Advisor: workload=%s, framework=%s, confidence=%.2f",
-				firstWorkloadUID, frameworkName, confidence)
-			// Record detection metrics
-			IncFrameworkDetectionCount(frameworkName, "log_pattern", "log")
-			ObserveFrameworkDetectionConfidence(frameworkName, "log_pattern", confidence)
-		}
-	}
-
-	// Process log with framework-specific parser (only once)
-	// Skip if framework is unknown - we don't want to force processing with a default framework
-	if frameworkName != "" {
-		if err := processLogWithFramework(ctx, podUid, firstWorkloadUID, cleanMsg, logTime, frameworkName); err != nil {
-			logrus.Debugf("Failed to process log with framework %s: %v", frameworkName, err)
-		}
-	} else {
-		logrus.Tracef("Skipping framework-specific log processing - framework not yet determined")
 	}
 
 	log.Tracef("workload log consume success")
 	return nil
+}
+
+// processLogWithGlobalRegistry processes a log line using the global pattern registry.
+// Returns nil if a pattern matched (even if processing had errors), or an error to signal fallback.
+func processLogWithGlobalRegistry(
+	ctx context.Context,
+	podUid, workloadUID, msg string,
+	logTime time.Time,
+) error {
+	// Skip blacklisted lines early
+	if globalRegistry.IsBlacklisted(msg) {
+		return nil
+	}
+
+	// Try performance patterns (most common match)
+	if result := globalRegistry.MatchPerformance(msg); result.Matched {
+		fw := result.Framework
+		if fw == "" {
+			fw = "global"
+		}
+		IncLogPatternMatchCount(fw, "performance", result.Pattern)
+		err := handlePerformanceLog(ctx, workloadUID, podUid, result.Groups, logTime, fw)
+		if err != nil {
+			IncLogPatternMatchErrors(fw, "performance", "processing_failed")
+		}
+		return nil // matched, do not fall back
+	}
+
+	// Try training events
+	if subtype, result := globalRegistry.MatchTrainingEvent(msg); result.Matched {
+		fw := result.Framework
+		if fw == "" {
+			fw = "global"
+		}
+		IncLogPatternMatchCount(fw, "training_event", result.Pattern)
+		eventType := mapEventSubtype(subtype)
+		if eventType != "" {
+			_ = handleTrainingEvent(ctx, workloadUID, podUid, eventType, logTime)
+		}
+		return nil
+	}
+
+	// Try checkpoint events
+	if subtype, result := globalRegistry.MatchCheckpointEvent(msg); result.Matched {
+		fw := result.Framework
+		if fw == "" {
+			fw = "global"
+		}
+		IncLogPatternMatchCount(fw, "checkpoint_event", result.Pattern)
+		IncCheckpointEventCount(subtype, fw)
+		err := handleCheckpointEvent(ctx, workloadUID, podUid, subtype, result.Groups, logTime)
+		if err != nil {
+			IncCheckpointEventErrors(subtype, fw, "processing_failed")
+		}
+		return nil
+	}
+
+	// No match in global registry - return error to allow legacy fallback
+	return fmt.Errorf("no global pattern matched")
+}
+
+// mapEventSubtype maps event_subtype string to the internal event type
+func mapEventSubtype(subtype string) string {
+	switch subtype {
+	case "start_training":
+		return "StartTrain"
+	case "end_training":
+		return "EndTrain"
+	default:
+		return ""
+	}
 }
 
 // groupsToPerformance converts regex captured groups to TrainingPerformance model using reflection
@@ -521,113 +490,6 @@ func saveStartTrainForSingleWorkload(ctx context.Context, podId, workloadId, nea
 	return nil
 }
 
-// detectFrameworkFromLog detects framework from log content
-func detectFrameworkFromLog(ctx context.Context, workloadUID, logLine string) (string, error) {
-	// Try each framework's pattern matcher
-	bestMatch := ""
-	bestConfidence := 0.0
-
-	for frameworkName, matcher := range patternMatchers {
-		result := matcher.MatchIdentify(logLine)
-		if result.Matched && result.Confidence > bestConfidence {
-			bestMatch = frameworkName
-			bestConfidence = result.Confidence
-		}
-	}
-
-	if bestMatch != "" {
-		logrus.Infof("Detected framework %s from log with confidence %.2f", bestMatch, bestConfidence)
-		// Record pattern match success (pattern name not available in this context)
-		IncLogPatternMatchCount(bestMatch, "identify", "")
-		return bestMatch, nil
-	}
-
-	// Record detection failure
-	IncFrameworkDetectionErrors("log", "no_match")
-	return "", fmt.Errorf("no framework detected")
-}
-
-// calculateDetectionConfidence calculates confidence for log-based detection
-func calculateDetectionConfidence(frameworkName, logLine string) float64 {
-	matcher, ok := patternMatchers[frameworkName]
-	if !ok {
-		return 0.5 // Default confidence
-	}
-
-	result := matcher.MatchIdentify(logLine)
-	if result.Matched {
-		return result.Confidence
-	}
-
-	return 0.5
-}
-
-// processLogWithFramework processes log using framework-specific logic
-func processLogWithFramework(
-	ctx context.Context,
-	podUid, workloadUID, msg string,
-	logTime time.Time,
-	frameworkName string,
-) error {
-	matcher, ok := patternMatchers[frameworkName]
-	if !ok {
-		logrus.Warnf("No pattern matcher for framework: %s - skipping log processing", frameworkName)
-		return fmt.Errorf("no pattern matcher for framework: %s", frameworkName)
-	}
-
-	// Try performance pattern
-	if result := matcher.MatchPerformance(msg); result.Matched {
-		IncLogPatternMatchCount(frameworkName, "performance", result.Pattern)
-		err := handlePerformanceLog(ctx, workloadUID, podUid, result.Groups, logTime, frameworkName)
-		if err != nil {
-			IncLogPatternMatchErrors(frameworkName, "performance", "processing_failed")
-		}
-		return err
-	}
-
-	// Try training events
-	if result := matcher.MatchTrainingEvent(msg, "start_training"); result.Matched {
-		IncLogPatternMatchCount(frameworkName, "training_event", result.Pattern)
-		return handleTrainingEvent(ctx, workloadUID, podUid, "StartTrain", logTime)
-	}
-	if result := matcher.MatchTrainingEvent(msg, "end_training"); result.Matched {
-		IncLogPatternMatchCount(frameworkName, "training_event", result.Pattern)
-		return handleTrainingEvent(ctx, workloadUID, podUid, "EndTrain", logTime)
-	}
-
-	// Try checkpoint events
-	if result := matcher.MatchCheckpointEvent(msg, "start_saving"); result.Matched {
-		IncLogPatternMatchCount(frameworkName, "checkpoint_event", result.Pattern)
-		IncCheckpointEventCount("start_saving", frameworkName)
-		err := handleCheckpointEvent(ctx, workloadUID, podUid, "start_saving", result.Groups, logTime)
-		if err != nil {
-			IncCheckpointEventErrors("start_saving", frameworkName, "processing_failed")
-		}
-		return err
-	}
-	if result := matcher.MatchCheckpointEvent(msg, "end_saving"); result.Matched {
-		IncLogPatternMatchCount(frameworkName, "checkpoint_event", result.Pattern)
-		IncCheckpointEventCount("end_saving", frameworkName)
-		err := handleCheckpointEvent(ctx, workloadUID, podUid, "end_saving", result.Groups, logTime)
-		if err != nil {
-			IncCheckpointEventErrors("end_saving", frameworkName, "processing_failed")
-		}
-		return err
-	}
-	if result := matcher.MatchCheckpointEvent(msg, "loading"); result.Matched {
-		IncLogPatternMatchCount(frameworkName, "checkpoint_event", result.Pattern)
-		IncCheckpointEventCount("loading", frameworkName)
-		err := handleCheckpointEvent(ctx, workloadUID, podUid, "loading", result.Groups, logTime)
-		if err != nil {
-			IncCheckpointEventErrors("loading", frameworkName, "processing_failed")
-		}
-		return err
-	}
-
-	// No pattern matched - this is normal for most logs
-	logrus.Tracef("No pattern matched for log from pod %s, workload %s", podUid, workloadUID)
-	return nil
-}
 
 // ConvertGroupsToPerformance converts regex groups to TrainingPerformance (pure function for testing)
 // This is a public wrapper around groupsToPerformance for use in tests and debug APIs
@@ -719,90 +581,12 @@ func truncateLog(log string, maxLen int) string {
 	return log[:maxLen] + "..."
 }
 
-// PatternMatcherInfo represents debug information for a pattern matcher
-type PatternMatcherInfo struct {
-	Framework           string              `json:"framework"`
-	IdentifyPatterns    []PatternDebugInfo  `json:"identify_patterns"`
-	PerformancePatterns []PatternDebugInfo  `json:"performance_patterns"`
-	TrainingEvents      map[string][]string `json:"training_events"`
-	CheckpointEvents    map[string][]string `json:"checkpoint_events"`
-	TotalPatterns       int                 `json:"total_patterns"`
-}
-
-// PatternDebugInfo represents debug info for a single pattern
-type PatternDebugInfo struct {
-	Name       string   `json:"name"`
-	Pattern    string   `json:"pattern"`
-	Confidence float64  `json:"confidence"`
-	Tags       []string `json:"tags,omitempty"`
-}
-
-// GetPatternMatchersInfo returns debug information about all pattern matchers
-func GetPatternMatchersInfo() map[string]*PatternMatcherInfo {
-	result := make(map[string]*PatternMatcherInfo)
-
-	for frameworkName, matcher := range patternMatchers {
-		info := &PatternMatcherInfo{
-			Framework:        frameworkName,
-			TrainingEvents:   make(map[string][]string),
-			CheckpointEvents: make(map[string][]string),
+// GetGlobalRegistryDebugInfo returns debug info about the global pattern registry
+func GetGlobalRegistryDebugInfo() map[string]interface{} {
+	if globalRegistry == nil {
+		return map[string]interface{}{
+			"status": "not_initialized",
 		}
-
-		// Get identify patterns
-		matcher.mu.RLock()
-		for _, cp := range matcher.identifyRegexps {
-			info.IdentifyPatterns = append(info.IdentifyPatterns, PatternDebugInfo{
-				Name:       cp.Name,
-				Pattern:    cp.Pattern.String(),
-				Confidence: cp.Confidence,
-				Tags:       cp.Tags,
-			})
-			info.TotalPatterns++
-		}
-
-		// Get performance patterns
-		for _, cp := range matcher.performanceRegexps {
-			info.PerformancePatterns = append(info.PerformancePatterns, PatternDebugInfo{
-				Name:       cp.Name,
-				Pattern:    cp.Pattern.String(),
-				Confidence: cp.Confidence,
-				Tags:       cp.Tags,
-			})
-			info.TotalPatterns++
-		}
-
-		// Get training event patterns
-		for eventType, patterns := range matcher.trainingEventRegexps {
-			patternNames := make([]string, 0, len(patterns))
-			for _, cp := range patterns {
-				patternNames = append(patternNames, cp.Name)
-				info.TotalPatterns++
-			}
-			info.TrainingEvents[eventType] = patternNames
-		}
-
-		// Get checkpoint event patterns
-		for eventType, patterns := range matcher.checkpointRegexps {
-			patternNames := make([]string, 0, len(patterns))
-			for _, cp := range patterns {
-				patternNames = append(patternNames, cp.Name)
-				info.TotalPatterns++
-			}
-			info.CheckpointEvents[eventType] = patternNames
-		}
-		matcher.mu.RUnlock()
-
-		result[frameworkName] = info
 	}
-
-	return result
-}
-
-// GetFrameworkList returns the list of available frameworks
-func GetFrameworkList() []string {
-	frameworks := make([]string, 0, len(patternMatchers))
-	for frameworkName := range patternMatchers {
-		frameworks = append(frameworks, frameworkName)
-	}
-	return frameworks
+	return globalRegistry.GetDebugInfo()
 }
