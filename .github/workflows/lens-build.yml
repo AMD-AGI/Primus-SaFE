@@ -157,6 +157,13 @@ jobs:
           echo "inference_metrics_exporter_changed=false" >> $GITHUB_OUTPUT
         fi
         
+        # image_analyzer: Lens/modules/image-analyzer/** or Lens/modules/core/**
+        if echo "$CHANGED_FILES" | grep -qE '^Lens/modules/image-analyzer/|^Lens/modules/core/'; then
+          echo "image_analyzer_changed=true" >> $GITHUB_OUTPUT
+        else
+          echo "image_analyzer_changed=false" >> $GITHUB_OUTPUT
+        fi
+        
         # ai_gateway: Lens/modules/ai-gateway/** or Lens/modules/core/**
         if echo "$CHANGED_FILES" | grep -qE '^Lens/modules/ai-gateway/|^Lens/modules/core/'; then
           echo "ai_gateway_changed=true" >> $GITHUB_OUTPUT
@@ -248,6 +255,9 @@ jobs:
           fi
           if [[ "${{ steps.detect-changes.outputs.ai_advisor_changed }}" == "true" ]]; then
             MATRIX+='{"name":"ai-advisor","buildpath":"cmd/ai-advisor","basepath":"Lens/modules/ai-advisor/"},'
+          fi
+          if [[ "${{ steps.detect-changes.outputs.image_analyzer_changed }}" == "true" ]]; then
+            MATRIX+='{"name":"image-analyzer","buildpath":"cmd/image-analyzer","basepath":"Lens/modules/image-analyzer/"},'
           fi
           if [[ "${{ steps.detect-changes.outputs.gateway_exporter_changed }}" == "true" ]]; then
             MATRIX+='{"name":"gateway-exporter","buildpath":"cmd/gateway-exporter","basepath":"Lens/modules/exporters/gateway-exporter/"},'

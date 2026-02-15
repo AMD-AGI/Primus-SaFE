@@ -97,25 +97,27 @@ func (f *AITaskFacade) Create(ctx context.Context, task *model.AITask) error {
 // Get retrieves a task by ID
 func (f *AITaskFacade) Get(ctx context.Context, id string) (*model.AITask, error) {
 	db := f.getDB().WithContext(ctx)
-	var task model.AITask
-	err := db.Where("id = ?", id).First(&task).Error
+	var tasks []model.AITask
+	err := db.Where("id = ?", id).Limit(1).Find(&tasks).Error
 	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, nil
-		}
 		return nil, err
 	}
-	deserializeTask(&task)
-	return &task, nil
+	if len(tasks) == 0 {
+		return nil, nil
+	}
+	deserializeTask(&tasks[0])
+	return &tasks[0], nil
 }
 
 // ClaimTask claims a pending task for processing using SELECT FOR UPDATE SKIP LOCKED
 func (f *AITaskFacade) ClaimTask(ctx context.Context, topics []string, agentID string) (*model.AITask, error) {
 	db := f.getDB().WithContext(ctx)
 	var task model.AITask
+	found := false
 
 	err := db.Transaction(func(tx *gorm.DB) error {
-		// Find and lock a pending task
+		// Find and lock a pending task (use Find+Limit instead of First to avoid ErrRecordNotFound being swallowed)
+		var tasks []model.AITask
 		query := tx.Clauses(clause.Locking{
 			Strength: "UPDATE",
 			Options:  "SKIP LOCKED",
@@ -125,10 +127,17 @@ func (f *AITaskFacade) ClaimTask(ctx context.Context, topics []string, agentID s
 			query = query.Where("topic IN ?", topics)
 		}
 
-		result := query.Order("priority DESC, created_at ASC").First(&task)
+		result := query.Order("priority DESC, created_at ASC").Limit(1).Find(&tasks)
 		if result.Error != nil {
 			return result.Error
 		}
+
+		if len(tasks) == 0 {
+			return nil // No pending tasks
+		}
+
+		task = tasks[0]
+		found = true
 
 		// Update task status
 		now := time.Now()
@@ -140,10 +149,11 @@ func (f *AITaskFacade) ClaimTask(ctx context.Context, topics []string, agentID s
 	})
 
 	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, nil // No pending tasks
-		}
 		return nil, err
+	}
+
+	if !found {
+		return nil, nil
 	}
 
 	deserializeTask(&task)

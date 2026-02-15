@@ -355,16 +355,18 @@ func (g *GpuPodsReconciler) savePodSnapshot(ctx context.Context, pod *corev1.Pod
 
 func (g *GpuPodsReconciler) saveGpuPodsStatus(ctx context.Context, pod *corev1.Pod) error {
 	gpuPods := &model.GpuPods{
-		Namespace:    pod.Namespace,
-		Name:         pod.Name,
-		NodeName:     pod.Spec.NodeName,
-		UID:          string(pod.UID),
-		IP:           pod.Status.PodIP, // Added: sync Pod IP to database
-		GpuAllocated: int32(k8sUtil.GetGpuAllocated(pod, metadata.GetResourceName(metadata.GpuVendorAMD))),
-		Phase:        string(pod.Status.Phase),
-		Deleted:      pod.DeletionTimestamp != nil,
-		CreatedAt:    time.Now(),
-		UpdatedAt:    time.Now(),
+		Namespace:      pod.Namespace,
+		Name:           pod.Name,
+		NodeName:       pod.Spec.NodeName,
+		UID:            string(pod.UID),
+		OwnerUID:       extractOwnerUID(pod),
+		IP:             pod.Status.PodIP, // Added: sync Pod IP to database
+		GpuAllocated:   int32(k8sUtil.GetGpuAllocated(pod, metadata.GetResourceName(metadata.GpuVendorAMD))),
+		Phase:          string(pod.Status.Phase),
+		Deleted:        pod.DeletionTimestamp != nil,
+		ContainerImage: extractPrimaryContainerImage(pod),
+		CreatedAt:      time.Now(),
+		UpdatedAt:      time.Now(),
 	}
 	isRunning := !gpuPods.Deleted && slices.Contains([]string{
 		string(corev1.PodRunning),
@@ -499,4 +501,45 @@ func (g *GpuPodsReconciler) handleDeletedPod(ctx context.Context, namespace, nam
 	}
 	log.Infof("Closed running period for deleted pod %s/%s (uid=%s)", namespace, name, gpuPod.UID)
 	return nil
+}
+
+// extractOwnerUID returns the UID of the pod's controller owner.
+// For training pods (PyTorchJob, MPIJob, etc.) this is the workload UID
+// that matches gpu_workload.uid, enabling SpecCollector to look up pods by workload.
+func extractOwnerUID(pod *corev1.Pod) string {
+	if pod == nil {
+		return ""
+	}
+	for _, ref := range pod.OwnerReferences {
+		if ref.Controller != nil && *ref.Controller {
+			return string(ref.UID)
+		}
+	}
+	// Fallback: use first owner reference if no controller is marked
+	if len(pod.OwnerReferences) > 0 {
+		return string(pod.OwnerReferences[0].UID)
+	}
+	return ""
+}
+
+// extractPrimaryContainerImage returns the image of the primary (GPU-using) container.
+// It prefers the container that requests GPU resources; falls back to the first container.
+func extractPrimaryContainerImage(pod *corev1.Pod) string {
+	if pod == nil || len(pod.Spec.Containers) == 0 {
+		return ""
+	}
+
+	// Prefer a container that explicitly requests GPU resources
+	gpuResourceName := metadata.GetResourceName(metadata.GpuVendorAMD)
+	for _, c := range pod.Spec.Containers {
+		if q, ok := c.Resources.Limits[corev1.ResourceName(gpuResourceName)]; ok && !q.IsZero() {
+			return c.Image
+		}
+		if q, ok := c.Resources.Requests[corev1.ResourceName(gpuResourceName)]; ok && !q.IsZero() {
+			return c.Image
+		}
+	}
+
+	// Fallback: first container
+	return pod.Spec.Containers[0].Image
 }

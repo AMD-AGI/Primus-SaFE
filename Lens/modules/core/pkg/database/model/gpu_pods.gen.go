@@ -22,9 +22,10 @@ type GpuPods struct {
 	Deleted      bool      `gorm:"column:deleted" json:"deleted"`
 	CreatedAt    time.Time `gorm:"column:created_at" json:"created_at"`
 	UpdatedAt    time.Time `gorm:"column:updated_at" json:"updated_at"`
-	OwnerUID     string    `gorm:"column:owner_uid" json:"owner_uid"`
-	Running      bool      `gorm:"column:running" json:"running"`
-	IP           string    `gorm:"column:ip" json:"ip"`
+	OwnerUID       string    `gorm:"column:owner_uid" json:"owner_uid"`
+	Running        bool      `gorm:"column:running" json:"running"`
+	IP             string    `gorm:"column:ip" json:"ip"`
+	ContainerImage string    `gorm:"column:container_image" json:"container_image"`
 }
 
 // TableName GpuPods's table name

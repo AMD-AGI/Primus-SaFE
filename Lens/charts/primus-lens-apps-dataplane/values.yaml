@@ -130,6 +130,21 @@ apps:
       middleware:
         enableLogging: false
 
+  imageAnalyzer:
+    enabled: true
+    image: "primussafe/image-analyzer:latest"
+    replicas: 1
+    httpPort: 8092
+    healthPort: 8093
+    logLevel: "info"
+    resources:
+      requests:
+        cpu: "500m"
+        memory: "512Mi"
+      limits:
+        cpu: "1000m"
+        memory: "1Gi"
+
 # ============================================================================
 # Service Account Configuration
 # ============================================================================

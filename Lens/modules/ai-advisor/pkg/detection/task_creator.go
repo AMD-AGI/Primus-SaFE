@@ -712,6 +712,7 @@ func (tc *TaskCreator) ScanForUndetectedWorkloads(ctx context.Context) error {
 	// Query recent ROOT workloads that don't have detection coordinator tasks
 	// Only root workloads (parent_uid IS NULL or empty) need detection coordination
 	// Child workloads inherit detection from their root workload
+	// Include "Done" status to catch short-lived workloads that completed before being scanned
 	var workloadUIDs []string
 	err := db.WithContext(ctx).
 		Table("gpu_workload").
@@ -719,10 +720,10 @@ func (tc *TaskCreator) ScanForUndetectedWorkloads(ctx context.Context) error {
 		Joins("LEFT JOIN workload_task_state ON gpu_workload.uid = workload_task_state.workload_uid AND workload_task_state.task_type = ?", constant.TaskTypeDetectionCoordinator).
 		Joins("LEFT JOIN workload_detection ON gpu_workload.uid = workload_detection.workload_uid").
 		Where("gpu_workload.deleted_at IS NULL").
-		Where("gpu_workload.status IN ?", []string{"Running", "Pending"}).
+		Where("gpu_workload.status IN ?", []string{"Running", "Pending", "Done"}).
 		Where("gpu_workload.parent_uid = ''"). // Only root workloads (parent_uid is empty string for roots)
 		Where("workload_task_state.id IS NULL"). // No detection coordinator task
-		Where("workload_detection.id IS NULL OR workload_detection.status = ?", "unknown"). // No detection record or unknown
+		Where("workload_detection.id IS NULL OR workload_detection.status IN ?", []string{"unknown", "pending"}). // No detection record, unknown, or pending
 		Limit(100).
 		Pluck("uid", &workloadUIDs).Error
 
@@ -763,6 +764,94 @@ func (tc *TaskCreator) ScanForUndetectedWorkloads(ctx context.Context) error {
 	log.Infof("Detection coordinator scan result: created=%d, skipped_detection=%d, skipped_error=%d",
 		created, skippedDueToDetection, skippedDueToError)
 
+	return nil
+}
+
+// CreateAnalysisPipelineTask creates an analysis pipeline task for a workload.
+// This is the intent-aware replacement for the detection coordinator, handling
+// evidence collection, deterministic evaluation, and optionally LLM analysis.
+func (tc *TaskCreator) CreateAnalysisPipelineTask(
+	ctx context.Context,
+	workloadUID string,
+) error {
+	if !tc.autoCreateTask {
+		return nil
+	}
+
+	// Check if a pipeline task already exists
+	existingTask, err := tc.taskFacade.GetTask(ctx, workloadUID, constant.TaskTypeAnalysisPipeline)
+	if err == nil && existingTask != nil {
+		if existingTask.Status == constant.TaskStatusRunning ||
+			existingTask.Status == constant.TaskStatusPending {
+			log.Debugf("Analysis pipeline task already exists for workload %s (status: %s)",
+				workloadUID, existingTask.Status)
+			return nil
+		}
+	}
+
+	task := &model.WorkloadTaskState{
+		WorkloadUID: workloadUID,
+		TaskType:    constant.TaskTypeAnalysisPipeline,
+		Status:      constant.TaskStatusPending,
+		Ext: model.ExtType{
+			"pipeline_state":  "init",
+			"analysis_mode":   "full",
+			"confidence_gate": 0.75,
+			"collect_cycle":   0,
+			"created_by":      "workload_discovery",
+			"created_at":      time.Now().Format(time.RFC3339),
+		},
+	}
+
+	if err := tc.taskFacade.UpsertTask(ctx, task); err != nil {
+		return fmt.Errorf("failed to create analysis pipeline task: %w", err)
+	}
+
+	log.Infof("Analysis pipeline task created for workload %s", workloadUID)
+	return nil
+}
+
+// ScanForWorkloadsNeedingIntent finds workloads that have been detected (framework known)
+// but have not yet had intent analysis performed. This creates analysis_pipeline tasks
+// for workloads where intent_state is NULL or 'pending'.
+func (tc *TaskCreator) ScanForWorkloadsNeedingIntent(ctx context.Context) error {
+	if !tc.autoCreateTask {
+		return nil
+	}
+
+	db := database.GetFacade().GetSystemConfig().GetDB()
+
+	var workloadUIDs []string
+	err := db.WithContext(ctx).
+		Table("workload_detection").
+		Select("DISTINCT workload_detection.workload_uid").
+		Joins("LEFT JOIN workload_task_state ON workload_detection.workload_uid = workload_task_state.workload_uid AND workload_task_state.task_type = ?", constant.TaskTypeAnalysisPipeline).
+		Where("workload_detection.status != ?", "unknown").
+		Where("workload_detection.intent_state IS NULL OR workload_detection.intent_state = ?", "pending").
+		Where("workload_task_state.id IS NULL").
+		Limit(50).
+		Pluck("workload_uid", &workloadUIDs).Error
+
+	if err != nil {
+		return fmt.Errorf("failed to scan for workloads needing intent: %w", err)
+	}
+
+	if len(workloadUIDs) == 0 {
+		return nil
+	}
+
+	log.Infof("Found %d workloads needing intent analysis", len(workloadUIDs))
+
+	var created int
+	for _, uid := range workloadUIDs {
+		if err := tc.CreateAnalysisPipelineTask(ctx, uid); err != nil {
+			log.Warnf("Failed to create analysis pipeline task for workload %s: %v", uid, err)
+			continue
+		}
+		created++
+	}
+
+	log.Infof("Intent analysis scan result: created=%d out of %d", created, len(workloadUIDs))
 	return nil
 }
 
