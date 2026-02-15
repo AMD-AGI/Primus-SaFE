@@ -102,6 +102,11 @@ func (m *MockWorkloadTaskFacade) ReleaseStaleLocks(ctx context.Context) (int64, 
 	return args.Get(0).(int64), args.Error(1)
 }
 
+func (m *MockWorkloadTaskFacade) TrimCompletedTaskExt(ctx context.Context, workloadUID, taskType string) error {
+	args := m.Called(ctx, workloadUID, taskType)
+	return args.Error(0)
+}
+
 func (m *MockWorkloadTaskFacade) CleanupOldTasks(ctx context.Context, retentionDays int) (int64, error) {
 	args := m.Called(ctx, retentionDays)
 	return args.Get(0).(int64), args.Error(1)
@@ -160,8 +165,15 @@ func createTestScheduler(facade *MockWorkloadTaskFacade) *TaskScheduler {
 		HeartbeatInterval:        10 * time.Second, // Long interval to avoid heartbeat during tests
 		MaxConcurrentTasks:       5,
 		StaleLockCleanupInterval: 200 * time.Millisecond,
+		OldTaskCleanupInterval:   1 * time.Hour,
+		OldTaskRetentionDays:     7,
 		AutoStart:                false,
 	}
+
+	// Set up a default Maybe() expectation for TrimCompletedTaskExt so tests
+	// that trigger task completion don't need to set it up individually.
+	facade.On("TrimCompletedTaskExt", mock.Anything, mock.Anything, mock.Anything).
+		Return(nil).Maybe()
 
 	ctx, cancel := context.WithCancel(context.Background())
 	scheduler := &TaskScheduler{

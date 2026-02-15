@@ -87,6 +87,16 @@ func (e *ProfilerCollectionExecutor) Execute(
 	}
 
 	if gpuPod == nil {
+		// Before retrying, check if the workload is already terminated.
+		// If so, there will never be a pod to find - complete the task.
+		if !e.shouldContinue(ctx, taskState, 0) {
+			log.Infof("No pod found and workload %s is terminated, completing profiler collection", workloadUID)
+			return coreTask.SuccessResult(map[string]interface{}{
+				"terminated_reason": "workload_terminated_no_pod",
+				"completed_at":     time.Now().Format(time.RFC3339),
+			}), nil
+		}
+
 		log.Debugf("No pod found for workload %s yet, will retry later", workloadUID)
 		// No pod yet, keep task pending for retry
 		return &coreTask.ExecutionResult{
