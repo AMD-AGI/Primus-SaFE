@@ -227,19 +227,48 @@ func (f *ImageRegistryCacheFacade) UpdateStatus(ctx context.Context, id int64, s
 }
 
 func (f *ImageRegistryCacheFacade) UpsertPending(ctx context.Context, imageRef, namespace string) (*model.ImageRegistryCache, error) {
-	// Check if there is already a non-failed entry for this image
+	// Check if there is already an entry for this image
 	existing, err := f.GetByImageRef(ctx, imageRef)
 	if err != nil {
 		return nil, err
 	}
-	if existing != nil && existing.Status != "failed" {
+
+	if existing != nil {
+		if existing.Status != "failed" {
+			// Already pending / processing / completed – return as-is
+			return existing, nil
+		}
+		// Reset a previously-failed entry back to pending for retry
+		// (avoids creating a new row that would conflict on the digest unique index)
+		existing.Status = "pending"
+		existing.ErrorMessage = ""
+		existing.AnalyzedAt = nil
+		existing.Namespace = namespace
+		existing.CachedAt = time.Now()
+		if err := f.getDB().WithContext(ctx).
+			Table(model.TableNameImageRegistryCache).
+			Where("id = ?", existing.ID).
+			Updates(map[string]interface{}{
+				"status":        "pending",
+				"error_message": "",
+				"analyzed_at":   nil,
+				"namespace":     namespace,
+				"cached_at":     time.Now(),
+			}).Error; err != nil {
+			return nil, err
+		}
 		return existing, nil
 	}
 
+	// Create a new entry with a placeholder digest.
+	// The digest column has a UNIQUE INDEX. Using "pending:<imageRef>" as
+	// a placeholder ensures each pending image has a distinct value and
+	// avoids the unique-constraint violation that an empty string would cause
+	// when multiple images are pending simultaneously.
 	now := time.Now()
 	entry := &model.ImageRegistryCache{
 		ImageRef:  imageRef,
-		Digest:    "",
+		Digest:    "pending:" + imageRef,
 		Status:    "pending",
 		Namespace: namespace,
 		CachedAt:  now,
