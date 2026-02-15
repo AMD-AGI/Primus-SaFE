@@ -55,28 +55,32 @@ func (e *EvidenceEvaluator) Evaluate(
 	// Aggregate signals into final result
 	e.aggregateSignals(signals, result)
 
-	// Post-aggregation override: if the cmdline contains explicit fine-tuning
-	// indicators (SFT/DPO/RLHF/LoRA in config paths or arguments), this is a
-	// definitive signal that should override any aggregated category.
-	// This is necessary because frameworks like Megatron use the same pretrain.py
-	// for both pre-training and SFT, and multiple generic rules (image name,
-	// torchrun, detection framework) can pile up for pre_training, drowning out
-	// the fine-tuning signal.
-	for _, sig := range signals {
-		if strings.HasPrefix(sig.source, "cmdline_args_hint:") && sig.category == intent.CategoryFineTuning {
-			if result.Category != intent.CategoryFineTuning {
-				log.Infof("Post-aggregation override: %s -> fine_tuning (source: %s)", result.Category, sig.source)
-				result.Category = intent.CategoryFineTuning
-				result.FieldSources["category"] = sig.source
-				result.ExpectedBehavior = intent.BehaviorBatch
-				// Boost confidence since we have an explicit cmdline indicator
-				if result.Confidence < 0.75 {
-					result.Confidence = 0.75
-				}
+	// Post-aggregation override: if any matched DB rule has priority > 0
+	// (stored in backtest_result.priority), it overrides the aggregated category.
+	// This handles cases where explicit cmdline indicators (e.g. "_sft_" in config
+	// paths) should win over multiple generic rules that pile up for a different
+	// category. Rules with higher priority take precedence.
+	var bestOverride *evaluationSignal
+	for i := range signals {
+		if signals[i].priority > 0 {
+			if bestOverride == nil || signals[i].priority > bestOverride.priority {
+				bestOverride = &signals[i]
 			}
-			break
 		}
 	}
+	if bestOverride != nil && result.Category != bestOverride.category {
+		log.Infof("DB rule priority override: %s -> %s (rule_id=%d, priority=%d, source=%s)",
+			result.Category, bestOverride.category, bestOverride.ruleID, bestOverride.priority, bestOverride.source)
+		result.Category = bestOverride.category
+		result.FieldSources["category"] = fmt.Sprintf("rule:%d:priority_override", bestOverride.ruleID)
+		// Boost confidence for explicit override
+		if result.Confidence < 0.75 {
+			result.Confidence = 0.75
+		}
+	}
+
+	// Infer expected behavior from final category
+	result.ExpectedBehavior = inferExpectedBehavior(result.Category)
 
 	return result
 }
@@ -89,6 +93,7 @@ type evaluationSignal struct {
 	weight   float64
 	source   string // provenance: "rule", "image", "cmdline", "env", "code", "pip"
 	ruleID   int64  // if matched from a DB rule
+	priority int    // >0 means this signal overrides aggregation
 }
 
 // ---------------------------------------------------------------------------
@@ -157,6 +162,7 @@ func (e *EvidenceEvaluator) matchRules(
 				weight:   rule.Confidence,
 				source:   "rule",
 				ruleID:   rule.ID,
+				priority: rule.Priority(),
 			})
 		}
 	}
@@ -188,44 +194,9 @@ func (e *EvidenceEvaluator) matchStructuralHeuristics(evidence *intent.IntentEvi
 		signals = append(signals, detSignals...)
 	}
 
-	// Cmdline-based fine-tuning override: check if the full command line (including
-	// config file paths and arguments) contains explicit fine-tuning indicators.
-	// This overrides framework-level heuristics (e.g. megatron -> pre_training)
-	// because config/arg hints like "_sft_" in a YAML path are more reliable
-	// signals of actual intent than the framework used.
-	// Weight 0.8 is higher than detection signals (0.6) to ensure the override works.
-	if evidence.Command != "" || len(evidence.Args) > 0 {
-		fullCmd := evidence.Command + " " + strings.Join(evidence.Args, " ")
-		ftOverrides := []struct {
-			pattern  string
-			category intent.Category
-			method   string
-			label    string
-		}{
-			{`(?i)[\-_/]sft[\-_/.]`, intent.CategoryFineTuning, "sft", "sft_in_args"},
-			{`(?i)[\-_/]dpo[\-_/.]`, intent.CategoryFineTuning, "dpo", "dpo_in_args"},
-			{`(?i)[\-_/]rlhf[\-_/.]`, intent.CategoryFineTuning, "rlhf", "rlhf_in_args"},
-			{`(?i)[\-_/]lora[\-_/.]|[\-_/]qlora[\-_/.]`, intent.CategoryFineTuning, "lora", "lora_in_args"},
-			{`(?i)supervised.?fine.?tun`, intent.CategoryFineTuning, "sft", "sft_explicit"},
-		}
-		for _, ov := range ftOverrides {
-			re, err := regexp.Compile(ov.pattern)
-			if err != nil {
-				continue
-			}
-			if re.MatchString(fullCmd) {
-				log.Infof("Fine-tuning override from cmdline args: %s (pattern: %s)", ov.label, ov.method)
-				signals = append(signals, evaluationSignal{
-					category: ov.category,
-					field:    "category",
-					value:    string(ov.category),
-					weight:   0.8,
-					source:   "cmdline_args_hint:" + ov.label,
-				})
-				break // first match wins
-			}
-		}
-	}
+	// NOTE: Fine-tuning override patterns (SFT/DPO/RLHF/LoRA in cmdline args)
+	// are now stored as DB rules with priority > 0 in the intent_rule table.
+	// The post-aggregation step in Evaluate() handles these via the priority field.
 
 	// If no meaningful cmdline was found (empty Command after spec + process collection),
 	// the workload is likely idle / interactive development: someone requested GPU resources
@@ -402,22 +373,27 @@ func (e *EvidenceEvaluator) aggregateSignals(
 		result.AnalysisMode = intent.AnalysisModeConfigBased
 	}
 
-	// Infer expected behavior from category
-	switch bestCategory {
+	// Expected behavior is set later in Evaluate() after potential priority override
+}
+
+func inferExpectedBehavior(cat intent.Category) intent.ExpectedBehavior {
+	switch cat {
 	case intent.CategoryPreTraining:
-		result.ExpectedBehavior = intent.BehaviorLongRunning
+		return intent.BehaviorLongRunning
 	case intent.CategoryFineTuning:
-		result.ExpectedBehavior = intent.BehaviorBatch
+		return intent.BehaviorBatch
 	case intent.CategoryInference, intent.CategoryServing:
-		result.ExpectedBehavior = intent.BehaviorLongRunning
+		return intent.BehaviorLongRunning
 	case intent.CategoryEvaluation, intent.CategoryBenchmark:
-		result.ExpectedBehavior = intent.BehaviorBatch
+		return intent.BehaviorBatch
 	case intent.CategoryDataProcessing:
-		result.ExpectedBehavior = intent.BehaviorBatch
+		return intent.BehaviorBatch
 	case intent.CategoryInteractiveDevelopment:
-		result.ExpectedBehavior = intent.BehaviorLongRunning
+		return intent.BehaviorLongRunning
 	case intent.CategoryCICD:
-		result.ExpectedBehavior = intent.BehaviorBatch
+		return intent.BehaviorBatch
+	default:
+		return intent.ExpectedBehavior("")
 	}
 }
 

@@ -21,7 +21,7 @@ type IntentRule struct {
 	Reasoning          string    `gorm:"column:reasoning;comment:LLM reasoning when this rule was distilled" json:"reasoning"`
 	DerivedFrom        ExtJSON   `gorm:"column:derived_from;default:[];comment:Workload UIDs used to distill this rule (JSON array)" json:"derived_from"`
 	Status             string    `gorm:"column:status;not null;default:proposed;comment:Lifecycle: proposed, testing, validated, promoted, retired, rejected" json:"status"`
-	BacktestResult     ExtType   `gorm:"column:backtest_result;default:{};comment:Backtest metrics: precision, recall, f1, tp, fp, fn, sample_count (JSONB)" json:"backtest_result"`
+	BacktestResult     ExtType   `gorm:"column:backtest_result;default:{};comment:Backtest metrics + override config. priority>0 means rule overrides aggregation (JSONB)" json:"backtest_result"`
 	LastBacktestedAt   *time.Time `gorm:"column:last_backtested_at;comment:Timestamp of last backtest run" json:"last_backtested_at"`
 	MatchCount         int32     `gorm:"column:match_count;not null;default:0;comment:Production match count" json:"match_count"`
 	CorrectCount       int32     `gorm:"column:correct_count;not null;default:0;comment:Audit-confirmed correct count" json:"correct_count"`
@@ -33,4 +33,26 @@ type IntentRule struct {
 // TableName IntentRule's table name
 func (*IntentRule) TableName() string {
 	return TableNameIntentRule
+}
+
+// Priority returns the override priority from backtest_result.
+// 0 = normal (participates in weighted aggregation).
+// >0 = override (highest-priority matched rule wins regardless of aggregation).
+func (r *IntentRule) Priority() int {
+	if r.BacktestResult == nil {
+		return 0
+	}
+	raw, ok := r.BacktestResult["priority"]
+	if !ok {
+		return 0
+	}
+	switch v := raw.(type) {
+	case float64:
+		return int(v)
+	case int:
+		return v
+	case int64:
+		return int(v)
+	}
+	return 0
 }
