@@ -642,11 +642,15 @@ func (p *WorkloadAnalysisPipeline) persistIntentResult(
 	return pipelineNextState, nil
 }
 
-// gatherEvidence collects all available evidence for a workload from multiple sources
+// gatherEvidence collects all available evidence for a workload from multiple sources.
+// For terminated workloads, it skips collectors that require a running pod to avoid
+// network hangs (code snapshot from container, image registry hybrid wait).
 func (p *WorkloadAnalysisPipeline) gatherEvidence(
 	ctx context.Context,
 	workloadUID string,
 ) (*intent.IntentEvidence, error) {
+	terminated := p.isWorkloadTerminated(ctx, workloadUID)
+
 	// Start with spec-level evidence (always available, no running pod needed)
 	evidence, err := p.specCollector.Collect(ctx, workloadUID)
 	if err != nil {
@@ -654,11 +658,13 @@ func (p *WorkloadAnalysisPipeline) gatherEvidence(
 		evidence = &intent.IntentEvidence{}
 	}
 
-	// Enrich with process probe evidence (cmdlines, env vars from running process)
+	// Enrich with process probe evidence (reads from DB, does not contact pod directly)
 	p.processCollector.Enrich(ctx, workloadUID, evidence)
 
-	// Collect code snapshot from running container (or read from DB cache)
-	if p.codeSnapshotCollector != nil {
+	// Collect code snapshot: for terminated workloads, skip the live container
+	// collection (which would hang trying to reach a dead pod) and go straight
+	// to the DB cache fallback.
+	if p.codeSnapshotCollector != nil && !terminated {
 		snapEvidence, snapErr := p.codeSnapshotCollector.Collect(ctx, workloadUID, evidence.Command)
 		if snapErr != nil {
 			log.Debugf("CodeSnapshotCollector failed for %s (will try DB fallback): %v", workloadUID, snapErr)
@@ -666,7 +672,10 @@ func (p *WorkloadAnalysisPipeline) gatherEvidence(
 		if snapEvidence != nil {
 			evidence.CodeSnapshot = snapEvidence
 		}
+	} else if terminated {
+		log.Debugf("Skipping live code snapshot for terminated workload %s", workloadUID)
 	}
+
 	// Fallback: read previously stored snapshot from DB if collector did not populate it.
 	// When the record has an external storage key, load file contents from the store.
 	if evidence.CodeSnapshot == nil {
@@ -676,10 +685,36 @@ func (p *WorkloadAnalysisPipeline) gatherEvidence(
 		}
 	}
 
-	// Enrich with image registry metadata (fetches from Harbor or cache)
-	p.imageRegCollector.Enrich(ctx, evidence)
+	// Enrich with image registry metadata.
+	// For terminated workloads, only check the cache (no hybrid wait / polling)
+	// to avoid a 30s timeout for images that were never analyzed.
+	if terminated {
+		p.enrichImageFromCacheOnly(ctx, evidence)
+	} else {
+		p.imageRegCollector.Enrich(ctx, evidence)
+	}
 
 	return evidence, nil
+}
+
+// enrichImageFromCacheOnly checks the image registry cache without triggering
+// a new analysis request or waiting. This avoids the 30s hybrid wait timeout
+// for terminated workloads whose image analysis may never complete.
+func (p *WorkloadAnalysisPipeline) enrichImageFromCacheOnly(
+	ctx context.Context,
+	evidence *intent.IntentEvidence,
+) {
+	if evidence.Image == "" {
+		return
+	}
+	regHost, repo, tag := parseImageRef(evidence.Image)
+	cached, err := p.imageRegCollector.cacheFacade.GetByTagRef(ctx, regHost, repo, tag)
+	if err == nil && cached != nil && cached.Status == "completed" {
+		log.Debugf("enrichImageFromCacheOnly: cache hit for %s (completed)", evidence.Image)
+		p.imageRegCollector.applyCache(cached, evidence)
+	} else {
+		log.Debugf("enrichImageFromCacheOnly: no cache hit for terminated workload image %s", evidence.Image)
+	}
 }
 
 // planCollectors generates collection plans for the current workload
@@ -992,36 +1027,13 @@ func (p *WorkloadAnalysisPipeline) createFollowUpTasks(
 			updates["metadata_task_created"] = true
 		}
 
-		// Create log analysis task (offline, Conductor)
-		logTask := &model.WorkloadTaskState{
-			WorkloadUID: workloadUID,
-			TaskType:    constant.TaskTypeLogAnalysis,
-			Status:      constant.TaskStatusPending,
-			Ext: model.ExtType{
-				"trigger":  "intent_pipeline",
-				"category": category,
-				"priority": 30,
-			},
-		}
-		if err := p.taskFacade.UpsertTask(ctx, logTask); err != nil {
-			log.Warnf("Failed to create log analysis task: %v", err)
-		} else {
-			updates["log_analysis_task_created"] = true
-		}
-
-	case intent.CategoryInference, intent.CategoryServing:
-		// Create metric scraping task for inference endpoints
-		metricTask := &model.WorkloadTaskState{
-			WorkloadUID: workloadUID,
-			TaskType:    constant.TaskTypeMetricCollection,
-			Status:      constant.TaskStatusPending,
-			Ext:         model.ExtType{"trigger": "intent_pipeline", "priority": 50},
-		}
-		if err := p.taskFacade.UpsertTask(ctx, metricTask); err != nil {
-			log.Warnf("Failed to create metric collection task: %v", err)
-		} else {
-			updates["metric_task_created"] = true
-		}
+		// NOTE: log_analysis and metric_collection tasks are intentionally NOT
+		// created here. These task types have no registered executor in ai-advisor
+		// and would remain permanently pending. When executors are implemented in
+		// the future, re-enable the task creation below.
+		//
+		// logTask: constant.TaskTypeLogAnalysis (offline log analysis via Conductor)
+		// metricTask: constant.TaskTypeMetricCollection (inference endpoint metrics)
 	}
 }
 
