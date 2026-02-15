@@ -1,3 +1,4 @@
+// build trigger
 module github.com/AMD-AIG-AIMA/SAFE/common
 
 go 1.24.7
