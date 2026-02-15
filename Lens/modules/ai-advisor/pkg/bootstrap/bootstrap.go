@@ -14,6 +14,7 @@ import (
 	"github.com/AMD-AGI/Primus-SaFE/Lens/ai-advisor/pkg/common"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/ai-advisor/pkg/detection"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/ai-advisor/pkg/distill"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/ai-advisor/pkg/loganalysis"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/ai-advisor/pkg/metadata"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/ai-advisor/pkg/pipeline"
 	advisorTask "github.com/AMD-AGI/Primus-SaFE/Lens/ai-advisor/pkg/task"
@@ -222,6 +223,14 @@ func Bootstrap(ctx context.Context) error {
 
 		// Register intent-analyzer agent with ai-gateway via HTTP API
 		go registerIntentAnalyzerAgent(ctx, aiGatewayURL, instanceID)
+
+		// Register log analysis executor (training metric gap detection)
+		logAnalysisExecutor := loganalysis.NewLogAnalysisExecutor()
+		if err := taskScheduler.RegisterExecutor(logAnalysisExecutor); err != nil {
+			log.Errorf("Failed to register log analysis executor: %v", err)
+		} else {
+			log.Info("Log analysis executor registered")
+		}
 
 		// Initialize profiler services (includes ProfilerCollectionExecutor registration)
 		// Pass metadata collector for node-exporter client access

@@ -1027,13 +1027,18 @@ func (p *WorkloadAnalysisPipeline) createFollowUpTasks(
 			updates["metadata_task_created"] = true
 		}
 
-		// NOTE: log_analysis and metric_collection tasks are intentionally NOT
-		// created here. These task types have no registered executor in ai-advisor
-		// and would remain permanently pending. When executors are implemented in
-		// the future, re-enable the task creation below.
-		//
-		// logTask: constant.TaskTypeLogAnalysis (offline log analysis via Conductor)
-		// metricTask: constant.TaskTypeMetricCollection (inference endpoint metrics)
+		// Create log analysis task for training workloads to detect unmatched metric lines
+		logTask := &model.WorkloadTaskState{
+			WorkloadUID: workloadUID,
+			TaskType:    constant.TaskTypeLogAnalysis,
+			Status:      constant.TaskStatusPending,
+			Ext:         model.ExtType{"trigger": "intent_pipeline", "auto_restart": true},
+		}
+		if err := p.taskFacade.UpsertTask(ctx, logTask); err != nil {
+			log.Warnf("Failed to create log analysis task: %v", err)
+		} else {
+			updates["log_analysis_task_created"] = true
+		}
 	}
 }
 

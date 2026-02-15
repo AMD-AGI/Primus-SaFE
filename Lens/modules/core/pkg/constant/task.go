@@ -19,8 +19,7 @@ const (
 	TaskTypeActiveDetection    = "active_detection"
 	TaskTypeMetadataCollection = "metadata_collection"
 	TaskTypeTensorBoardStream  = "tensorboard_stream"
-	TaskTypeMetricCollection   = "metric_collection"
-	TaskTypeLogCollection      = "log_collection"
+	TaskTypeLogCollection = "log_collection"
 	TaskTypeCheckpointMonitor  = "checkpoint_monitor"
 	TaskTypeProfilerCollection = "profiler_collection"
 
@@ -50,7 +49,7 @@ const (
 
 	// Workload Analysis Pipeline (replaces DetectionCoordinator for new workloads)
 	TaskTypeAnalysisPipeline = "analysis_pipeline"
-	TaskTypeLogAnalysis      = "log_analysis" // Offline log analysis (async, triggered after pipeline completes)
+	TaskTypeLogAnalysis      = "log_analysis" // Training log gap analysis (periodic, detects unmatched metric lines)
 )
 
 // Detection coverage source constants
