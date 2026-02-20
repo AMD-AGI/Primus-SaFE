@@ -375,7 +375,8 @@ func (p *WorkloadAnalysisPipeline) handleRequestingLLM(
 	requestSent := p.GetExtBool(task, "llm_request_sent")
 	if !requestSent {
 		// Send async request to Conductor
-		if err := p.sendConductorRequest(ctx, workloadUID, task); err != nil {
+		gwTaskID, err := p.sendConductorRequest(ctx, workloadUID, task)
+		if err != nil {
 			log.Warnf("Failed to send Conductor request for workload %s: %v", workloadUID, err)
 
 			// Retry up to 3 times before falling back to deterministic result
@@ -393,6 +394,21 @@ func (p *WorkloadAnalysisPipeline) handleRequestingLLM(
 		}
 		updates["llm_request_sent"] = true
 		updates["llm_request_at"] = time.Now().Format(time.RFC3339)
+		updates["gw_task_id"] = gwTaskID
+		// Remove the bulky evidence blob stored by handleEvaluating; it was
+		// re-gathered inside sendConductorRequest and is no longer needed.
+		updates["llm_evidence"] = nil
+		return constant.PipelineStateRequestingLLM, nil
+	}
+
+	// If gw_task_id was lost (e.g. due to a previous bug where it was only stored
+	// in memory), re-send the request rather than polling forever.
+	gwTaskID := p.GetExtString(task, "gw_task_id")
+	if gwTaskID == "" {
+		log.Warnf("gw_task_id missing for workload %s despite llm_request_sent=true, re-sending request",
+			workloadUID)
+		updates["llm_request_sent"] = false
+		updates["llm_resend_reason"] = "gw_task_id_lost"
 		return constant.PipelineStateRequestingLLM, nil
 	}
 
@@ -905,19 +921,20 @@ func (p *WorkloadAnalysisPipeline) mergeResults(
 
 // sendConductorRequest publishes an intent analysis task to ai-gateway.
 // The task will be claimed by a Conductor agent via the pull model.
+// Returns the gateway task ID on success so the caller can persist it.
 func (p *WorkloadAnalysisPipeline) sendConductorRequest(
 	ctx context.Context,
 	workloadUID string,
 	task *model.WorkloadTaskState,
-) error {
+) (string, error) {
 	if p.gwClient == nil {
-		return fmt.Errorf("ai-gateway client not configured")
+		return "", fmt.Errorf("ai-gateway client not configured")
 	}
 
 	// Build the payload for Conductor: evidence + workload context
 	evidence, err := p.gatherEvidence(ctx, workloadUID)
 	if err != nil {
-		return fmt.Errorf("gather evidence for LLM request: %w", err)
+		return "", fmt.Errorf("gather evidence for LLM request: %w", err)
 	}
 
 	payload := map[string]interface{}{
@@ -933,7 +950,7 @@ func (p *WorkloadAnalysisPipeline) sendConductorRequest(
 
 	payloadJSON, err := json.Marshal(payload)
 	if err != nil {
-		return fmt.Errorf("marshal LLM payload: %w", err)
+		return "", fmt.Errorf("marshal LLM payload: %w", err)
 	}
 
 	resp, err := p.gwClient.Publish(ctx, &aigateway.PublishRequest{
@@ -943,29 +960,12 @@ func (p *WorkloadAnalysisPipeline) sendConductorRequest(
 		TimeoutSec: int(DefaultLLMTimeout.Seconds()),
 	})
 	if err != nil {
-		return fmt.Errorf("publish to ai-gateway: %w", err)
+		return "", fmt.Errorf("publish to ai-gateway: %w", err)
 	}
 
 	log.Infof("Published intent analysis task %s for workload %s via ai-gateway", resp.ID, workloadUID)
 
-	// Store the gateway task ID so we can poll for it later
-	task.Ext["gw_task_id"] = resp.ID
-	return nil
-}
-
-// pollConductorResponse polls ai-gateway for the result of a previously published task.
-func (p *WorkloadAnalysisPipeline) pollConductorResponse(
-	ctx context.Context,
-	workloadUID string,
-) (*intent.IntentResult, error) {
-	if p.gwClient == nil {
-		return nil, fmt.Errorf("ai-gateway client not configured")
-	}
-
-	// Retrieve the gateway task ID from the previous send
-	// The caller (handleRequestingLLM) stores it in task.Ext, but we only
-	// receive the workloadUID here. We'll look it up from the task.
-	return nil, nil
+	return resp.ID, nil
 }
 
 // pollGatewayTaskResult polls ai-gateway for task result using the stored gw_task_id.
