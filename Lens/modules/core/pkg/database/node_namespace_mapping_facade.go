@@ -25,6 +25,9 @@ type NodeNamespaceMappingFacadeInterface interface {
 	ListActiveByNamespaceName(ctx context.Context, namespaceName string) ([]*model.NodeNamespaceMapping, error)
 	SoftDelete(ctx context.Context, id int32) error
 
+	// GPU capacity calculation
+	GetNamespaceGpuCapacityMap(ctx context.Context) (map[string]int32, error)
+
 	// NodeNamespaceMappingHistory operations
 	CreateHistory(ctx context.Context, history *model.NodeNamespaceMappingHistory) error
 	GetLatestHistoryByNodeAndNamespace(ctx context.Context, nodeID int32, namespaceID int64) (*model.NodeNamespaceMappingHistory, error)
@@ -146,6 +149,33 @@ func (f *NodeNamespaceMappingFacade) ListActiveByNamespaceName(ctx context.Conte
 		return nil, err
 	}
 	return results, nil
+}
+
+// GetNamespaceGpuCapacityMap returns a map of namespace_name -> total GPU count
+// calculated from active node_namespace_mapping joined with node.gpu_count
+func (f *NodeNamespaceMappingFacade) GetNamespaceGpuCapacityMap(ctx context.Context) (map[string]int32, error) {
+	type nsCapacity struct {
+		NamespaceName string `gorm:"column:namespace_name"`
+		TotalGpu      int32  `gorm:"column:total_gpu"`
+	}
+
+	var results []nsCapacity
+	err := f.getDB().WithContext(ctx).Raw(`
+		SELECT nnm.namespace_name, COALESCE(SUM(n.gpu_count), 0)::int AS total_gpu
+		FROM node_namespace_mapping nnm
+		JOIN node n ON n.id = nnm.node_id
+		WHERE nnm.deleted_at IS NULL
+		GROUP BY nnm.namespace_name
+	`).Scan(&results).Error
+	if err != nil {
+		return nil, err
+	}
+
+	capacityMap := make(map[string]int32, len(results))
+	for _, r := range results {
+		capacityMap[r.NamespaceName] = r.TotalGpu
+	}
+	return capacityMap, nil
 }
 
 // SoftDelete soft deletes a node-namespace mapping

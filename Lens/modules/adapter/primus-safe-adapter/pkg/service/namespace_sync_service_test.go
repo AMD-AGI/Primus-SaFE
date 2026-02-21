@@ -205,6 +205,7 @@ func (m *MockNodeNamespaceMappingFacade) GetByNamespaceName(ctx context.Context,
 func (m *MockNodeNamespaceMappingFacade) ListActiveByNamespaceID(ctx context.Context, namespaceID int64) ([]*model.NodeNamespaceMapping, error) { return nil, nil }
 func (m *MockNodeNamespaceMappingFacade) ListHistoryByNamespaceAtTime(ctx context.Context, namespaceID int64, atTime time.Time) ([]*model.NodeNamespaceMappingHistory, error) { return nil, nil }
 func (m *MockNodeNamespaceMappingFacade) ListHistoryByNamespaceNameAtTime(ctx context.Context, namespaceName string, atTime time.Time) ([]*model.NodeNamespaceMappingHistory, error) { return nil, nil }
+func (m *MockNodeNamespaceMappingFacade) GetNamespaceGpuCapacityMap(ctx context.Context) (map[string]int32, error) { return nil, nil }
 
 // MockWorkspaceLister implements WorkspaceLister
 type MockWorkspaceLister struct {

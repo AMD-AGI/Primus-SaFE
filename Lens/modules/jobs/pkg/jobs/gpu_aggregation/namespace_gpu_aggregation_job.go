@@ -308,12 +308,20 @@ func (j *NamespaceGpuAggregationJob) aggregateNamespaceStats(
 		return 0, fmt.Errorf("failed to list namespace info: %w", err)
 	}
 
-	// Build namespace list with quotas
-	namespaceQuotas := make(map[string]int32)
+	// Build namespace list
 	namespaces := make([]string, 0, len(namespaceInfoList))
 	for _, nsInfo := range namespaceInfoList {
 		if !ShouldExcludeNamespace(nsInfo.Name, j.config.ExcludeNamespaces, j.config.IncludeSystemNamespaces) {
 			namespaces = append(namespaces, nsInfo.Name)
+		}
+	}
+
+	// Calculate GPU capacity per namespace from active node_namespace_mapping + node.gpu_count
+	namespaceQuotas, err := j.facadeGetter(clusterName).GetNodeNamespaceMapping().GetNamespaceGpuCapacityMap(ctx)
+	if err != nil {
+		log.Warnf("Failed to get namespace GPU capacity from node mappings, falling back to namespace_info: %v", err)
+		namespaceQuotas = make(map[string]int32)
+		for _, nsInfo := range namespaceInfoList {
 			namespaceQuotas[nsInfo.Name] = nsInfo.GpuResource
 		}
 	}

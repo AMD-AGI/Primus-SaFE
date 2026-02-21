@@ -496,18 +496,22 @@ func CreateZeroNamespaceStats(
 }
 
 // getNamespaceGpuQuotas gets the GPU quotas for all namespaces
+// calculated from active node_namespace_mapping + node.gpu_count
 func (j *NamespaceGpuAggregationBackfillJob) getNamespaceGpuQuotas(ctx context.Context, clusterName string) (map[string]int32, error) {
-	namespaceInfoList, err := j.facadeGetter(clusterName).GetNamespaceInfo().List(ctx)
+	capacityMap, err := j.facadeGetter(clusterName).GetNodeNamespaceMapping().GetNamespaceGpuCapacityMap(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("failed to list namespace info: %w", err)
+		log.Warnf("Failed to get namespace GPU capacity from node mappings, falling back to namespace_info: %v", err)
+		namespaceInfoList, err := j.facadeGetter(clusterName).GetNamespaceInfo().List(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("failed to list namespace info: %w", err)
+		}
+		quotas := make(map[string]int32)
+		for _, nsInfo := range namespaceInfoList {
+			quotas[nsInfo.Name] = nsInfo.GpuResource
+		}
+		return quotas, nil
 	}
-
-	quotas := make(map[string]int32)
-	for _, nsInfo := range namespaceInfoList {
-		quotas[nsInfo.Name] = nsInfo.GpuResource
-	}
-
-	return quotas, nil
+	return capacityMap, nil
 }
 
 // Schedule returns the job's scheduling expression

@@ -22,10 +22,11 @@ import (
 
 // BackfillMockFacade implements database.FacadeInterface for testing
 type BackfillMockFacade struct {
-	nodeFacade           database.NodeFacadeInterface
-	gpuAggregationFacade database.GpuAggregationFacadeInterface
-	namespaceInfoFacade  database.NamespaceInfoFacadeInterface
-	systemConfigFacade   database.SystemConfigFacadeInterface
+	nodeFacade                  database.NodeFacadeInterface
+	gpuAggregationFacade        database.GpuAggregationFacadeInterface
+	namespaceInfoFacade         database.NamespaceInfoFacadeInterface
+	systemConfigFacade          database.SystemConfigFacadeInterface
+	nodeNamespaceMappingFacade  database.NodeNamespaceMappingFacadeInterface
 }
 
 func (m *BackfillMockFacade) GetNode() database.NodeFacadeInterface              { return m.nodeFacade }
@@ -49,7 +50,12 @@ func (m *BackfillMockFacade) GetAiWorkloadMetadata() database.AiWorkloadMetadata
 func (m *BackfillMockFacade) GetCheckpointEvent() database.CheckpointEventFacadeInterface         { return nil }
 func (m *BackfillMockFacade) GetDetectionConflictLog() database.DetectionConflictLogFacadeInterface { return nil }
 func (m *BackfillMockFacade) GetGpuUsageWeeklyReport() database.GpuUsageWeeklyReportFacadeInterface { return nil }
-func (m *BackfillMockFacade) GetNodeNamespaceMapping() database.NodeNamespaceMappingFacadeInterface { return nil }
+func (m *BackfillMockFacade) GetNodeNamespaceMapping() database.NodeNamespaceMappingFacadeInterface {
+	if m.nodeNamespaceMappingFacade != nil {
+		return m.nodeNamespaceMappingFacade
+	}
+	return &BackfillMockNodeNamespaceMappingFacade{}
+}
 func (m *BackfillMockFacade) GetTraceLensSession() database.TraceLensSessionFacadeInterface { return nil }
 func (m *BackfillMockFacade) GetK8sService() database.K8sServiceFacadeInterface             { return nil }
 func (m *BackfillMockFacade) GetWorkloadDetection() database.WorkloadDetectionFacadeInterface { return nil }
@@ -216,6 +222,33 @@ func (m *BackfillMockNamespaceInfoFacade) GetByNameIncludingDeleted(ctx context.
 func (m *BackfillMockNamespaceInfoFacade) Update(ctx context.Context, info *dbmodel.NamespaceInfo) error { return nil }
 func (m *BackfillMockNamespaceInfoFacade) ListAllIncludingDeleted(ctx context.Context) ([]*dbmodel.NamespaceInfo, error) { return nil, nil }
 func (m *BackfillMockNamespaceInfoFacade) Recover(ctx context.Context, name string, gpuModel string, gpuResource int32) error { return nil }
+
+// BackfillMockNodeNamespaceMappingFacade implements database.NodeNamespaceMappingFacadeInterface
+type BackfillMockNodeNamespaceMappingFacade struct {
+	GetNamespaceGpuCapacityMapFunc func(ctx context.Context) (map[string]int32, error)
+}
+
+func (m *BackfillMockNodeNamespaceMappingFacade) GetNamespaceGpuCapacityMap(ctx context.Context) (map[string]int32, error) {
+	if m.GetNamespaceGpuCapacityMapFunc != nil {
+		return m.GetNamespaceGpuCapacityMapFunc(ctx)
+	}
+	return map[string]int32{}, nil
+}
+func (m *BackfillMockNodeNamespaceMappingFacade) Create(ctx context.Context, mapping *dbmodel.NodeNamespaceMapping) error { return nil }
+func (m *BackfillMockNodeNamespaceMappingFacade) Update(ctx context.Context, mapping *dbmodel.NodeNamespaceMapping) error { return nil }
+func (m *BackfillMockNodeNamespaceMappingFacade) Delete(ctx context.Context, id int32) error { return nil }
+func (m *BackfillMockNodeNamespaceMappingFacade) GetByNodeAndNamespace(ctx context.Context, nodeID int32, namespaceID int64) (*dbmodel.NodeNamespaceMapping, error) { return nil, nil }
+func (m *BackfillMockNodeNamespaceMappingFacade) GetByNodeName(ctx context.Context, nodeName string) ([]*dbmodel.NodeNamespaceMapping, error) { return nil, nil }
+func (m *BackfillMockNodeNamespaceMappingFacade) GetByNamespaceName(ctx context.Context, namespaceName string) ([]*dbmodel.NodeNamespaceMapping, error) { return nil, nil }
+func (m *BackfillMockNodeNamespaceMappingFacade) ListActiveByNamespaceID(ctx context.Context, namespaceID int64) ([]*dbmodel.NodeNamespaceMapping, error) { return nil, nil }
+func (m *BackfillMockNodeNamespaceMappingFacade) ListActiveByNamespaceName(ctx context.Context, namespaceName string) ([]*dbmodel.NodeNamespaceMapping, error) { return nil, nil }
+func (m *BackfillMockNodeNamespaceMappingFacade) SoftDelete(ctx context.Context, id int32) error { return nil }
+func (m *BackfillMockNodeNamespaceMappingFacade) CreateHistory(ctx context.Context, history *dbmodel.NodeNamespaceMappingHistory) error { return nil }
+func (m *BackfillMockNodeNamespaceMappingFacade) GetLatestHistoryByNodeAndNamespace(ctx context.Context, nodeID int32, namespaceID int64) (*dbmodel.NodeNamespaceMappingHistory, error) { return nil, nil }
+func (m *BackfillMockNodeNamespaceMappingFacade) UpdateHistoryRecordEnd(ctx context.Context, historyID int32, recordEnd time.Time) error { return nil }
+func (m *BackfillMockNodeNamespaceMappingFacade) ListHistoryByNamespaceAtTime(ctx context.Context, namespaceID int64, atTime time.Time) ([]*dbmodel.NodeNamespaceMappingHistory, error) { return nil, nil }
+func (m *BackfillMockNodeNamespaceMappingFacade) ListHistoryByNamespaceNameAtTime(ctx context.Context, namespaceName string, atTime time.Time) ([]*dbmodel.NodeNamespaceMappingHistory, error) { return nil, nil }
+func (m *BackfillMockNodeNamespaceMappingFacade) WithCluster(clusterName string) database.NodeNamespaceMappingFacadeInterface { return m }
 
 // BackfillMockAllocationCalculator implements ClusterBackfillAllocationCalculatorInterface
 type BackfillMockAllocationCalculator struct {
