@@ -244,11 +244,14 @@ func (c *GpuAllocationCalculator) calculateGpuAllocationFromRunningPeriods(
 		return &GpuAllocationResult{}, nil
 	}
 
-	// 4. Get top-level workloads
-	workloads, err := c.workloadFacade.ListTopLevelWorkloadByUids(ctx, workloadUIDs)
+	// 4. Get all workloads and resolve effective top-level ones
+	// (handles circular parent references where Workload <-> PyTorchJob point to each other)
+	allWorkloads, err := c.workloadFacade.ListWorkloadsByUids(ctx, workloadUIDs)
 	if err != nil {
 		return nil, err
 	}
+
+	workloads := resolveEffectiveTopLevelWorkloads(allWorkloads)
 
 	// Filter by namespace if specified
 	if namespace != "" {
@@ -265,7 +268,8 @@ func (c *GpuAllocationCalculator) calculateGpuAllocationFromRunningPeriods(
 		return &GpuAllocationResult{}, nil
 	}
 
-	// 5. Get pod references for these workloads
+	// 5. Get pod references for effective top-level workloads
+	// Include refs from all workloads in each top-level's subtree
 	workloadUIDList := make([]string, 0, len(workloads))
 	for _, w := range workloads {
 		workloadUIDList = append(workloadUIDList, w.UID)
@@ -274,6 +278,21 @@ func (c *GpuAllocationCalculator) calculateGpuAllocationFromRunningPeriods(
 	podRefs, err := c.getTopLevelWorkloadPodReferences(ctx, workloadUIDList)
 	if err != nil {
 		return nil, err
+	}
+
+	// Also collect pod refs from child workloads that belong to top-level ones
+	childToTopLevel := buildChildToTopLevelMap(allWorkloads, workloads)
+	for childUID, topLevelUID := range childToTopLevel {
+		childRefs, childErr := c.workloadFacade.ListWorkloadPodReferenceByWorkloadUid(ctx, childUID)
+		if childErr != nil {
+			log.Warnf("Failed to get pod references for child workload %s: %v", childUID, childErr)
+			continue
+		}
+		for _, ref := range childRefs {
+			if _, exists := podRefs[ref.PodUID]; !exists {
+				podRefs[ref.PodUID] = topLevelUID
+			}
+		}
 	}
 
 	// 6. Calculate time-weighted GPU allocation for each top-level workload
@@ -417,6 +436,114 @@ func (c *GpuAllocationCalculator) calculatePodAllocationFromPeriods(
 		StartTime:      earliestStart,
 		EndTime:        latestEnd,
 	}
+}
+
+// resolveEffectiveTopLevelWorkloads finds the effective top-level workloads from a list.
+// A workload is effective top-level if:
+// 1. It has ParentUID == "" (standard top-level), OR
+// 2. It is part of a circular reference chain (e.g. Workload <-> PyTorchJob) where
+//    no workload in the chain has ParentUID == ""
+// For circular references, the workload with Kind == "Workload" is preferred as the representative.
+func resolveEffectiveTopLevelWorkloads(workloads []*model.GpuWorkload) []*model.GpuWorkload {
+	workloadMap := make(map[string]*model.GpuWorkload, len(workloads))
+	for _, w := range workloads {
+		workloadMap[w.UID] = w
+	}
+
+	topLevel := make([]*model.GpuWorkload, 0)
+	visited := make(map[string]bool)
+
+	for _, w := range workloads {
+		if visited[w.UID] {
+			continue
+		}
+
+		if w.ParentUID == "" {
+			topLevel = append(topLevel, w)
+			visited[w.UID] = true
+			continue
+		}
+
+		// Walk up the parent chain to find the root or detect a cycle
+		chain := []string{w.UID}
+		chainSet := map[string]bool{w.UID: true}
+		current := w
+
+		for {
+			parent, exists := workloadMap[current.ParentUID]
+			if !exists || parent.ParentUID == "" {
+				// Parent is outside the set or is top-level - not a circular reference
+				break
+			}
+			if chainSet[parent.UID] {
+				// Circular reference detected - pick the "Workload" kind as representative
+				var representative *model.GpuWorkload
+				for _, uid := range chain {
+					candidate := workloadMap[uid]
+					if candidate.Kind == "Workload" {
+						representative = candidate
+						break
+					}
+				}
+				if representative == nil {
+					representative = workloadMap[chain[0]]
+				}
+				if !visited[representative.UID] {
+					topLevel = append(topLevel, representative)
+				}
+				for _, uid := range chain {
+					visited[uid] = true
+				}
+				break
+			}
+			chain = append(chain, parent.UID)
+			chainSet[parent.UID] = true
+			current = parent
+		}
+	}
+
+	return topLevel
+}
+
+// buildChildToTopLevelMap builds a mapping from child workload UIDs to their effective top-level workload UID
+func buildChildToTopLevelMap(allWorkloads []*model.GpuWorkload, topLevelWorkloads []*model.GpuWorkload) map[string]string {
+	topLevelSet := make(map[string]bool, len(topLevelWorkloads))
+	for _, w := range topLevelWorkloads {
+		topLevelSet[w.UID] = true
+	}
+
+	workloadMap := make(map[string]*model.GpuWorkload, len(allWorkloads))
+	for _, w := range allWorkloads {
+		workloadMap[w.UID] = w
+	}
+
+	result := make(map[string]string)
+	for _, w := range allWorkloads {
+		if topLevelSet[w.UID] {
+			continue
+		}
+		// Walk up to find the top-level ancestor
+		current := w
+		seen := map[string]bool{w.UID: true}
+		for {
+			if topLevelSet[current.ParentUID] {
+				result[w.UID] = current.ParentUID
+				break
+			}
+			parent, exists := workloadMap[current.ParentUID]
+			if !exists || seen[parent.UID] {
+				// Parent is a top-level from resolveEffectiveTopLevelWorkloads (circular ref case)
+				// or parent not in our set
+				if topLevelSet[current.UID] {
+					result[w.UID] = current.UID
+				}
+				break
+			}
+			seen[parent.UID] = true
+			current = parent
+		}
+	}
+	return result
 }
 
 // getTopLevelWorkloadPodReferences gets pod references for top-level workloads only
