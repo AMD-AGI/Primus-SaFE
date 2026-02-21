@@ -244,6 +244,11 @@ func (w *WorkloadMatcher) scanCluster(ctx context.Context, clusterName string) e
 	}
 
 	for i := range workloads {
+		if workloads[i].Kind != "Workload" {
+			log.Warnf("WorkloadMatcher: skipping non-Workload record kind=%s name=%s uid=%s in cluster %s",
+				workloads[i].Kind, workloads[i].Name, workloads[i].UID, clusterName)
+			continue
+		}
 		err := w.scanForSingleWorkload(ctx, workloads[i], clusterName)
 		if err != nil {
 			log.Errorf("failed to scan workload %s/%s in cluster %s: %v",

@@ -216,8 +216,10 @@ func (f *WorkloadFacade) GetWorkloadKindList(ctx context.Context) ([]string, err
 }
 
 func (f *WorkloadFacade) GetWorkloadNotEnd(ctx context.Context) ([]*model.GpuWorkload, error) {
-	q := f.getDAL().GpuWorkload
-	result, err := q.WithContext(ctx).Where(q.EndAt.IsNull()).Or(q.EndAt.Eq(time.Time{})).Find()
+	var result []*model.GpuWorkload
+	err := f.getDB().WithContext(ctx).
+		Where("end_at IS NULL OR end_at = ?", time.Time{}).
+		Find(&result).Error
 	if err != nil {
 		return nil, err
 	}
@@ -302,12 +304,10 @@ func (f *WorkloadFacade) ListWorkloadByLabelValue(ctx context.Context, labelKey,
 }
 
 func (f *WorkloadFacade) ListWorkloadNotEndByKind(ctx context.Context, kind string) ([]*model.GpuWorkload, error) {
-	q := f.getDAL().GpuWorkload
-	results, err := q.WithContext(ctx).
-		Where(q.Kind.Eq(kind)).
-		Where(q.EndAt.IsNull()).
-		Or(q.EndAt.Eq(time.Time{})).
-		Find()
+	var results []*model.GpuWorkload
+	err := f.getDB().WithContext(ctx).
+		Where("kind = ? AND (end_at IS NULL OR end_at = ?)", kind, time.Time{}).
+		Find(&results).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, nil
