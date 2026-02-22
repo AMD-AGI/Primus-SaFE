@@ -11,6 +11,9 @@ if [ -z "$AMD_ANP_VERSION" ]; then
   exit 0
 fi
 
+
+echo "============== begin to install AMD AINIC Network Plugin (amd-anp) ${AMD_ANP_VERSION} =============="
+
 ANP_REPO="https://github.com/rocm/amd-anp.git"
 ANP_DIR="amd-anp"
 WORKDIR="/opt"
