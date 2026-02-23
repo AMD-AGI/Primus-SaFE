@@ -509,8 +509,8 @@ func (r *SchedulerReconciler) getLeftTotalResources(ctx context.Context,
 	}
 	totalResource := quantity.GetAvailableResource(workspace.Status.TotalResources)
 	leftTotalResource := quantity.SubResource(totalResource, usedTotalResource)
-	klog.Infof("total resource: %v, total used: %v, total avail: %v, left total: %v, left avail: %v",
-		totalResource, usedTotalResource, usedAvailableResource, leftTotalResource, leftAvailResource)
+	klog.Infof("workspace: %s, total resource: %v, total used: %v, total avail: %v, left total: %v, left avail: %v",
+		workspace.Name, totalResource, usedTotalResource, usedAvailableResource, leftTotalResource, leftAvailResource)
 	return leftAvailResource, leftTotalResource, nil
 }
 
