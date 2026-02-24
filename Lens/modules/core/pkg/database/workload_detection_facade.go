@@ -6,6 +6,7 @@ package database
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database/model"
@@ -424,16 +425,47 @@ func (f *WorkloadDetectionFacade) UpdateIntentResult(ctx context.Context, worklo
 	filtered["updated_at"] = time.Now()
 
 	db := f.getDB()
+
+	// Ensure the workload_detection row exists before updating. The
+	// detection_coordinator may not have created one if it couldn't find
+	// pods (e.g. Workload/PyTorchJob UID mismatch).
+	existing, _ := f.GetDetection(ctx, workloadUID)
+	if existing == nil {
+		now := time.Now()
+		seed := &model.WorkloadDetection{
+			WorkloadUID: workloadUID,
+			Status:      "unknown",
+			CreatedAt:   now,
+			UpdatedAt:   now,
+		}
+		if err := f.getDAL().WorkloadDetection.WithContext(ctx).Create(seed); err != nil {
+			return fmt.Errorf("failed to create detection record for intent result: %w", err)
+		}
+	}
+
 	return db.WithContext(ctx).
 		Table(model.TableNameWorkloadDetection).
 		Where("workload_uid = ?", workloadUID).
 		Updates(filtered).Error
 }
 
-// UpdateIntentState updates the intent analysis lifecycle state
+// UpdateIntentState updates the intent analysis lifecycle state.
+// Creates the workload_detection row if it does not exist yet.
 func (f *WorkloadDetectionFacade) UpdateIntentState(ctx context.Context, workloadUID string, intentState string) error {
 	db := f.getDB()
 	now := time.Now()
+
+	existing, _ := f.GetDetection(ctx, workloadUID)
+	if existing == nil {
+		seed := &model.WorkloadDetection{
+			WorkloadUID: workloadUID,
+			Status:      "unknown",
+			IntentState: &intentState,
+			CreatedAt:   now,
+			UpdatedAt:   now,
+		}
+		return f.getDAL().WorkloadDetection.WithContext(ctx).Create(seed)
+	}
 
 	updates := map[string]interface{}{
 		"intent_state": intentState,
