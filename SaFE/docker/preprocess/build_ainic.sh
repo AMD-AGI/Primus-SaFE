@@ -12,9 +12,9 @@ echo "============== begin to install AMD AINIC Driver =============="
 set -e
 
 . /shared-data/utils.sh
-install_if_not_exists libibverbs-dev ibverbs-utils infiniband-diags rdma-core librdmacm-dev libibverbs-dev libibumad-dev
-export AMD_ANP_VERSION=$AMD_ANP_VERSION
-bash /shared-data/build_anp.sh
+# install_if_not_exists libibverbs-dev ibverbs-utils infiniband-diags rdma-core librdmacm-dev libibverbs-dev libibumad-dev
+#export AMD_ANP_VERSION=$AMD_ANP_VERSION
+#bash /shared-data/build_anp.sh
 
 WORKDIR="/opt"
 cd ${WORKDIR}
