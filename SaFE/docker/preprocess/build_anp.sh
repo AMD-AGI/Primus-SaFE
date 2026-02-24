@@ -20,8 +20,8 @@ WORKDIR="/opt"
 
 # Check if amd-anp directory already exists
 if [ -d "${WORKDIR}/${ANP_DIR}" ]; then
-  echo "AMD ANP directory already exists at ${WORKDIR}/${ANP_DIR}. Skipping build."
-  exit 0
+  echo "AMD ANP directory already exists at ${WORKDIR}/${ANP_DIR}. re-build."
+  rm -rf "${WORKDIR}/${ANP_DIR}"
 fi
 
 cd ${WORKDIR}
