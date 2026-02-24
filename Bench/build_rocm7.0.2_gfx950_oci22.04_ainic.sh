@@ -26,8 +26,8 @@ AINIC_BUNDLE_PATH=$(get_input_with_default "Enter ainic package path (empty to s
 GPU_ARCHS=gfx950
 ROCM_VERSION=7.0.3
 OS_VERSION=22.04
-OS_NAME=ubuntu
 PY_VERSION=3.10
+OS_NAME=oci
 
 # Copy AINIC bundle to build context if provided
 AINIC_FILENAME=""

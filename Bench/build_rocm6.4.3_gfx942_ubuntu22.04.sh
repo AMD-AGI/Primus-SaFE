@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
+# Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
 # See LICENSE for license information.
 #
 
@@ -25,10 +25,12 @@ GPU_ARCHS=gfx942
 ROCM_VERSION=6.4.3
 OS_VERSION=22.04
 PY_VERSION=3.10
+OS_NAME=ubuntu
 
 docker buildx build . -f ./Dockerfile \
   --build-arg ROCM_VERSION=${ROCM_VERSION} \
   --build-arg GPU_ARCHS="${GPU_ARCHS}" \
   --build-arg OS_VERSION="${OS_VERSION}" \
+  --build-arg OS_NAME="${OS_NAME}" \
   --build-arg PY_VERSION="${PY_VERSION}" \
-  -t primussafe/primusbench:rocm${ROCM_VERSION}_${GPU_ARCHS}_ubuntu${OS_VERSION}_${IMAGE_VERSION} 2>&1 | tee build.log
+  -t primussafe/primusbench:rocm${ROCM_VERSION}_${GPU_ARCHS}_${OS_NAME}${OS_VERSION}_${IMAGE_VERSION} 2>&1 | tee build.log
