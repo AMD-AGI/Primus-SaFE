@@ -1,3 +1,5 @@
+#!/bin/sh
+
 #
 # Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
 # See LICENSE for license information.
@@ -16,19 +18,20 @@ set -e
 # Version mapping: AINIC_DRIVER_VERSION -> (AMD_ANP_VERSION, ROCM_VERSION)
 # ---------------------------------------------------------------------------
 set_versions_from_driver() {
-  local driver_version="$1"
-  case "${driver_version}" in
+  _driver_version="$1"
+  case "${_driver_version}" in
     1.117.5-a-56)
       AMD_ANP_VERSION="v1.3.0"
       ROCM_VERSION="7.1.0"
       LIBIONIC_VERSION="54.0-184"
       ;;
     *)
-      echo "Error: Unknown AINIC driver version ${driver_version}."
+      echo "Error: Unknown AINIC driver version ${_driver_version}."
       echo "Please add version mapping in build_ainic.sh"
       exit 1
       ;;
   esac
+  unset _driver_version
 }
 
 set_versions_from_driver "${AINIC_DRIVER_VERSION}"
@@ -59,7 +62,7 @@ export AMD_ANP_VERSION=${AMD_ANP_VERSION}
 export ROCM_VERSION=${ROCM_VERSION}
 export AINIC_DRIVER_VERSION=${AINIC_DRIVER_VERSION}
 export LIBIONIC_VERSION=${LIBIONIC_VERSION}
-bash /shared-data/build_anp.sh
+/bin/sh /shared-data/build_anp.sh
 
 WORKDIR="/opt"
 cd ${WORKDIR}

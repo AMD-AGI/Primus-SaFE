@@ -1,3 +1,5 @@
+#!/bin/sh
+
 #
 # Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
 # See LICENSE for license information.
@@ -131,3 +133,5 @@ if [ ! -f "${ANP_BUILD_DIR}/librccl-anp.so" ] && [ -f "${ANP_BUILD_DIR}/librccl-
     echo "Warning: Failed to create symlink."
   fi
 fi
+
+echo "============== install AMD AINIC Network Plugin (amd-anp) ${AMD_ANP_VERSION} successfully =============="

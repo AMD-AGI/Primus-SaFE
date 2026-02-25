@@ -9,19 +9,19 @@ input="$1"
 
 export NODE_RANK="${PET_NODE_RANK:-${NODE_RANK}}"
 export NNODES="${PET_NNODES:-${NNODES}}"
-export PATH_TO_BNXT_TAR_PACKAGE=$PATH_TO_BNXT_TAR_PACKAGE
-export PATH_TO_AINIC_TAR_PACKAGE=$PATH_TO_AINIC_TAR_PACKAGE
-export AMD_ANP_VERSION=$AMD_ANP_VERSION
 export WORKLOAD_KIND=$WORKLOAD_KIND
 
-if [ -f "${PATH_TO_AINIC_TAR_PACKAGE}" ]; then
-  export ENABLE_AINIC=true
-  /bin/sh /shared-data/build_ainic.sh
-else
-  /bin/sh /shared-data/build_bnxt.sh
-fi
+# Export variables for build scripts
+# AINIC driver: AINIC_DRIVER_VERSION (e.g., 1.117.5-a-56)
+export AINIC_DRIVER_VERSION=${AINIC_DRIVER_VERSION}
+# BNXT driver: BNXT_DRIVER_VERSION or PATH_TO_BNXT_TAR_PACKAGE
+export BNXT_DRIVER_VERSION=${BNXT_DRIVER_VERSION}
+export PATH_TO_BNXT_TAR_PACKAGE=${PATH_TO_BNXT_TAR_PACKAGE}
 
+/bin/sh /shared-data/build_ainic.sh
+/bin/sh /shared-data/build_bnxt.sh
 /bin/sh /shared-data/build_ssh.sh
+
 echo "$input" |base64 -d > ".run.sh"
 chmod +x ".run.sh"
 if [ -x /usr/bin/bash ]; then
