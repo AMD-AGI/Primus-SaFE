@@ -83,6 +83,8 @@ type EndpointRegistration interface {
 	GetGinHandler() gin.HandlerFunc
 	// GetMCPTool returns an MCPTool for MCP registration, or nil if HTTP-only.
 	GetMCPTool() *MCPTool
+	// GetGroup returns the tool group name for MCP server isolation.
+	GetGroup() string
 }
 
 // Implement EndpointRegistration interface for EndpointDef
