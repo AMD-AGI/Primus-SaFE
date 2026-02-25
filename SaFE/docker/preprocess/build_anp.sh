@@ -99,14 +99,40 @@ if ! git checkout -q tags/${AMD_ANP_VERSION}; then
 fi
 
 sed -i '5a CFLAGS += --offload-arch=gfx950' ./Makefile
-echo "Building AMD ANP driver..."
+
+# Get container CPU limit (cgroups v1/v2) or fall back to nproc
+get_cpu_count() {
+  # Try cgroups v2 first
+  if [ -f /sys/fs/cgroup/cpu.max ]; then
+    cpu_quota=$(cut -d' ' -f1 /sys/fs/cgroup/cpu.max)
+    cpu_period=$(cut -d' ' -f2 /sys/fs/cgroup/cpu.max)
+    if [ "$cpu_quota" != "max" ] && [ -n "$cpu_period" ]; then
+      echo $(( cpu_quota / cpu_period ))
+      return
+    fi
+  fi
+  # Try cgroups v1
+  if [ -f /sys/fs/cgroup/cpu/cpu.cfs_quota_us ] && [ -f /sys/fs/cgroup/cpu/cpu.cfs_period_us ]; then
+    cpu_quota=$(cat /sys/fs/cgroup/cpu/cpu.cfs_quota_us)
+    cpu_period=$(cat /sys/fs/cgroup/cpu/cpu.cfs_period_us)
+    if [ "$cpu_quota" -gt 0 ] && [ -n "$cpu_period" ]; then
+      echo $(( cpu_quota / cpu_period ))
+      return
+    fi
+  fi
+  # Fall back to nproc or default
+  nproc 2>/dev/null || echo 16
+}
+NPROC=$(get_cpu_count)
+echo "Building AMD ANP driver with ${NPROC} parallel jobs..."
+
 if [ -d "/opt/openmpi" ]; then
-  make -j 16 MPI_INCLUDE=/opt/openmpi/include/ \
-             MPI_LIB_PATH=/opt/openmpi/lib/ \
-             ROCM_PATH=/opt/rocm \
-             RCCL_HOME=${RCCL_HOME} >/dev/null 2>&1
+  make -j ${NPROC} MPI_INCLUDE=/opt/openmpi/include/ \
+                   MPI_LIB_PATH=/opt/openmpi/lib/ \
+                   ROCM_PATH=/opt/rocm \
+                   RCCL_HOME=${RCCL_HOME} >/dev/null 2>&1
 else
-  make -j 16 ROCM_PATH=/opt/rocm RCCL_HOME=${RCCL_HOME} >/dev/null 2>&1
+  make -j ${NPROC} ROCM_PATH=/opt/rocm RCCL_HOME=${RCCL_HOME} >/dev/null 2>&1
 fi
 if [ $? -ne 0 ]; then
   echo "Error: Failed to build AMD ANP driver."
