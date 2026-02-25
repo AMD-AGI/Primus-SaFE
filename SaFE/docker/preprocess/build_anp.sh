@@ -30,8 +30,6 @@ if [ -z "${LIBIONIC_VERSION}" ]; then
   exit 1
 fi
 
-echo "Using ROCM version: ${ROCM_VERSION}, libionic version: ${LIBIONIC_VERSION}"
-
 WORKDIR="/opt"
 
 # ---------------------------------------------------------------------------
@@ -49,6 +47,7 @@ if [ ! -d "${WORKDIR}/rccl" ]; then
   fi
 fi
 export RCCL_HOME=${WORKDIR}/rccl
+echo "install RCCL successfully, RCCL_HOME: ${RCCL_HOME}"
 
 
 # ---------------------------------------------------------------------------
