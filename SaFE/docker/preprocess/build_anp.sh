@@ -47,7 +47,7 @@ if [ ! -d "${WORKDIR}/rccl" ]; then
   fi
 fi
 export RCCL_HOME=${WORKDIR}/rccl
-echo "install RCCL successfully, RCCL_HOME: ${RCCL_HOME}"
+echo "install RCCL(rocm-${ROCM_VERSION}) successfully, RCCL_HOME: ${RCCL_HOME}"
 
 
 # ---------------------------------------------------------------------------
