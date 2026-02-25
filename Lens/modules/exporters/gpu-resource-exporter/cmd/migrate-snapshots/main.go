@@ -119,9 +119,9 @@ func migratePodSnapshots(ctx context.Context, db *sql.DB, osClient *opensearch.C
 					"pod_uid":          podUID,
 					"pod_name":         podName,
 					"namespace":        namespace,
-					"spec":             json.RawMessage(spec),
-					"metadata":         json.RawMessage(metadata),
-					"status":           json.RawMessage(status),
+					"spec":             string(spec),
+					"metadata":         string(metadata),
+					"status":           string(status),
 					"resource_version": resourceVersion,
 					"@timestamp":       createdAt.Format(time.RFC3339),
 				},
@@ -185,10 +185,10 @@ func migrateWorkloadSnapshots(ctx context.Context, db *sql.DB, osClient *opensea
 				"@timestamp":       createdAt.Format(time.RFC3339),
 			}
 			if len(metadataBytes) > 0 {
-				doc["metadata"] = json.RawMessage(metadataBytes)
+				doc["metadata"] = string(metadataBytes)
 			}
 			if len(detailBytes) > 0 {
-				doc["detail"] = json.RawMessage(detailBytes)
+				doc["detail"] = string(detailBytes)
 			}
 			items = append(items, bulkDoc{IndexPrefix: "workload-snapshot", Fields: doc})
 		}

@@ -8,6 +8,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"sync"
 	"time"
 
@@ -135,6 +136,40 @@ func (w *SnapshotWriter) flush() {
 	if res.IsError() {
 		log.Errorf("OpenSearch bulk request returned error: %s", res.String())
 		writeErrors.Add(float64(len(items)))
+		return
+	}
+
+	// Parse the response body to detect per-document errors that the HTTP
+	// status code alone does not reveal.
+	resBody, _ := io.ReadAll(res.Body)
+	var bulkResp struct {
+		Errors bool `json:"errors"`
+		Items  []struct {
+			Index struct {
+				Status int `json:"status"`
+				Error  struct {
+					Type   string `json:"type"`
+					Reason string `json:"reason"`
+				} `json:"error"`
+			} `json:"index"`
+		} `json:"items"`
+	}
+	if err := json.Unmarshal(resBody, &bulkResp); err != nil {
+		log.Warnf("Failed to parse bulk response body: %v", err)
+	}
+
+	if bulkResp.Errors {
+		var failCount int
+		for _, item := range bulkResp.Items {
+			if item.Index.Status >= 400 {
+				failCount++
+				log.Errorf("OpenSearch bulk item error [%d]: %s - %s",
+					item.Index.Status, item.Index.Error.Type, item.Index.Error.Reason)
+			}
+		}
+		writeErrors.Add(float64(failCount))
+		writeTotal.Add(float64(len(items) - failCount))
+		log.Warnf("Flushed %d snapshot documents to OpenSearch (%d failed)", len(items), failCount)
 		return
 	}
 

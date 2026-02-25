@@ -5,6 +5,7 @@ package reconciler
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"reflect"
 	"strconv"
@@ -138,13 +139,14 @@ func (g *GpuPodsReconciler) tracePodOwners(ctx context.Context, pod *corev1.Pod)
 
 		// Write workload snapshot to OpenSearch (replaces PG gpu_workload_snapshot INSERT)
 		now := time.Now()
+		detailJSON, _ := json.Marshal(ownerObj.Object)
 		oswriter.GetWriter().Append("workload-snapshot", map[string]interface{}{
 			"uid":              string(ownerObj.GetUID()),
 			"group_version":    ownerObj.GetAPIVersion(),
 			"kind":             ownerObj.GetKind(),
 			"name":             ownerObj.GetName(),
 			"namespace":        ownerObj.GetNamespace(),
-			"detail":           ownerObj.Object,
+			"detail":           string(detailJSON),
 			"resource_version": resourceVersion,
 			"@timestamp":       now.Format(time.RFC3339),
 		})
