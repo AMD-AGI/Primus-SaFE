@@ -555,8 +555,8 @@ func triggerDistillation(ctx context.Context, gwClient *aigateway.Client) {
 	facade := database.NewWorkloadDetectionFacade()
 
 	categories := []string{
-		"training", "fine_tuning", "inference", "evaluation",
-		"data_processing", "benchmark",
+		"pre_training", "fine_tuning", "inference", "evaluation",
+		"data_processing", "benchmark", "serving", "interactive_development",
 	}
 
 	for _, category := range categories {

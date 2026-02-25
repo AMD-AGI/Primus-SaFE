@@ -13,6 +13,7 @@ import (
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database/model"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/sql"
 )
 
 const (
@@ -78,7 +79,11 @@ func TriggerConductorDistillation(
 		return
 	}
 
-	// Build samples
+	// Build samples with enriched evidence from multiple sources
+	evidenceFacade := database.NewWorkloadDetectionEvidenceFacade()
+	snapshotFacade := database.NewWorkloadCodeSnapshotFacade()
+	db := sql.GetDefaultDB()
+
 	samples := make([]distillSample, 0, len(detections))
 	for _, det := range detections {
 		sample := distillSample{
@@ -94,6 +99,7 @@ func TriggerConductorDistillation(
 				sample.IntentDetail = detail
 			}
 		}
+
 		evidence := map[string]interface{}{}
 		if det.Framework != "" {
 			evidence["framework"] = det.Framework
@@ -101,10 +107,76 @@ func TriggerConductorDistillation(
 		if det.WorkloadType != "" {
 			evidence["workload_type"] = det.WorkloadType
 		}
+
+		// Enrich: cmdline and image from workload_detection_evidence
+		evList, _ := evidenceFacade.ListEvidenceByWorkload(ctx, det.WorkloadUID)
+		for _, ev := range evList {
+			if ev.Evidence == nil {
+				continue
+			}
+			rawJSON, _ := json.Marshal(ev.Evidence)
+			var raw map[string]interface{}
+			if json.Unmarshal(rawJSON, &raw) != nil {
+				continue
+			}
+			if cmd, ok := raw["cmdline"].(string); ok && cmd != "" {
+				evidence["cmdline"] = cmd
+			}
+			if img, ok := raw["image_name"].(string); ok && img != "" {
+				tag, _ := raw["image_tag"].(string)
+				if tag != "" {
+					evidence["image"] = img + ":" + tag
+				} else {
+					evidence["image"] = img
+				}
+			}
+		}
+
+		// Enrich: container image from gpu_pods
+		if _, hasImg := evidence["image"]; !hasImg && db != nil {
+			var image string
+			_ = db.WithContext(ctx).
+				Raw(`SELECT DISTINCT gp.container_image FROM workload_pod_reference wpr
+					JOIN gpu_pods gp ON gp.uid = wpr.pod_uid
+					WHERE wpr.workload_uid = ? AND gp.container_image IS NOT NULL LIMIT 1`,
+					det.WorkloadUID).Scan(&image).Error
+			if image != "" {
+				evidence["image"] = image
+			}
+		}
+
+		// Enrich: pip_freeze from workload_code_snapshot
+		snap, _ := snapshotFacade.GetByWorkloadUID(ctx, det.WorkloadUID)
+		if snap != nil && snap.PipFreeze != "" {
+			const maxPipLen = 2000
+			pip := snap.PipFreeze
+			if len(pip) > maxPipLen {
+				pip = pip[:maxPipLen]
+			}
+			evidence["pip_freeze"] = pip
+		}
+
+		// Enrich: env keys from pod_snapshot
+		if db != nil {
+			var envJSON string
+			_ = db.WithContext(ctx).
+				Raw(`SELECT jsonb_agg(e->'name')::text
+					FROM workload_pod_reference wpr
+					JOIN pod_snapshot ps ON ps.pod_uid = wpr.pod_uid
+					CROSS JOIN LATERAL jsonb_array_elements(ps.spec->'containers') c
+					CROSS JOIN LATERAL jsonb_array_elements(c->'env') e
+					WHERE wpr.workload_uid = ?
+					LIMIT 200`, det.WorkloadUID).Scan(&envJSON).Error
+			if envJSON != "" && envJSON != "null" {
+				var keys []string
+				if json.Unmarshal([]byte(envJSON), &keys) == nil && len(keys) > 0 {
+					evidence["env_keys"] = keys
+				}
+			}
+		}
+
 		sample.Evidence = evidence
 
-		// Populate IntentFieldSources from detection record, ensuring it is never nil/null
-		// (Conductor's Pydantic model requires a dict, not null)
 		if det.IntentFieldSources != nil {
 			fsJSON, _ := json.Marshal(det.IntentFieldSources)
 			var fs map[string]string

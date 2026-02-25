@@ -652,8 +652,15 @@ func (p *WorkloadAnalysisPipeline) persistIntentResult(
 		return constant.PipelineStateEvaluating, err
 	}
 
-	log.Infof("Intent result persisted for workload %s: category=%s confidence=%.2f state=%s",
-		workloadUID, result.Category, result.Confidence, intentState)
+	// Increment match_count for each rule that contributed to this result
+	for _, ruleID := range result.MatchedRules {
+		if err := p.ruleFacade.IncrementMatchCount(ctx, ruleID); err != nil {
+			log.Warnf("Failed to increment match_count for rule %d: %v", ruleID, err)
+		}
+	}
+
+	log.Infof("Intent result persisted for workload %s: category=%s confidence=%.2f state=%s matched_rules=%v",
+		workloadUID, result.Category, result.Confidence, intentState, result.MatchedRules)
 
 	return pipelineNextState, nil
 }
