@@ -35,6 +35,7 @@ type EndpointDef[Req, Resp any] struct {
 	// Common fields
 	Name        string // Unique identifier for the endpoint
 	Description string // Human-readable description for documentation
+	Group       string // Tool group for MCP server isolation (e.g. "diagnostic")
 
 	// Handler options (use ONE of these, priority: RawHTTPHandler > Handler for HTTP)
 	Handler        Handler[Req, Resp] // Standard handler - works for both HTTP and MCP
@@ -122,4 +123,9 @@ func (def *EndpointDef[Req, Resp]) IsHTTPOnly() bool {
 // IsMCPOnly returns true if the endpoint should only be registered for MCP.
 func (def *EndpointDef[Req, Resp]) IsMCPOnly() bool {
 	return def.MCPOnly
+}
+
+// GetGroup returns the tool group name.
+func (def *EndpointDef[Req, Resp]) GetGroup() string {
+	return def.Group
 }

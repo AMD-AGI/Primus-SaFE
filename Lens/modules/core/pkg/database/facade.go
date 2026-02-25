@@ -95,6 +95,10 @@ type FacadeInterface interface {
 	GetImageRegistryCache() ImageRegistryCacheFacadeInterface
 	// GetIntentRule returns the IntentRule Facade interface
 	GetIntentRule() IntentRuleFacadeInterface
+	// GetWorkloadResource returns the WorkloadResource Facade interface
+	GetWorkloadResource() WorkloadResourceFacadeInterface
+	// GetProfilerFile returns the ProfilerFile Facade interface
+	GetProfilerFile() ProfilerFileFacadeInterface
 	// WithCluster returns a new Facade instance using the specified cluster
 	WithCluster(clusterName string) FacadeInterface
 }
@@ -472,6 +476,8 @@ func (f *Facade) WithCluster(clusterName string) FacadeInterface {
 		WorkloadCodeSnapshot:     f.WorkloadCodeSnapshot.WithCluster(clusterName),
 		ImageRegistryCache:       f.ImageRegistryCache.WithCluster(clusterName),
 		IntentRule:               f.IntentRule.WithCluster(clusterName),
+		WorkloadResource:         f.WorkloadResource.WithCluster(clusterName),
+		ProfilerFile:             f.ProfilerFile.WithCluster(clusterName),
 	}
 }
 
