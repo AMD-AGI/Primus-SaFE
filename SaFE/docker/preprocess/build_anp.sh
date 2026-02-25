@@ -30,7 +30,6 @@ if [ -z "${LIBIONIC_VERSION}" ]; then
   exit 1
 fi
 
-echo "============== begin to install AMD AINIC Network Plugin (amd-anp) ${AMD_ANP_VERSION} =============="
 echo "Using ROCM version: ${ROCM_VERSION}, libionic version: ${LIBIONIC_VERSION}"
 
 WORKDIR="/opt"
@@ -93,7 +92,7 @@ fi
 
 cd amd-anp
 # Checkout specific version or branch
-echo "Checking out version ${AMD_ANP_VERSION}..."
+echo "Checking out version amd-anp-${AMD_ANP_VERSION}..."
 if ! git checkout -q tags/${AMD_ANP_VERSION}; then
   echo "Error: Failed to checkout tag ${AMD_ANP_VERSION}."
   exit 1
