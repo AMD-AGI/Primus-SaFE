@@ -21,8 +21,11 @@ export PATH_TO_BNXT_TAR_PACKAGE=${PATH_TO_BNXT_TAR_PACKAGE}
 # Build AINIC driver and set NCCL env if successful
 /bin/sh /shared-data/build_ainic.sh
 ainic_exit_code=$?
-if [ -n "${AINIC_DRIVER_VERSION}" ] && [ ${ainic_exit_code} -eq 0 ] && [ -z "${NCCL_IB_GID_INDEX}" ]; then
-  export NCCL_IB_GID_INDEX=1
+if [ -n "${AINIC_DRIVER_VERSION}" ] && [ ${ainic_exit_code} -eq 0 ]; then
+  export USING_AINIC=1
+  if [ -z "${AINIC_IB_GID_INDEX}" ]; then
+    export AINIC_IB_GID_INDEX=1
+  fi
 fi
 
 /bin/sh /shared-data/build_bnxt.sh
