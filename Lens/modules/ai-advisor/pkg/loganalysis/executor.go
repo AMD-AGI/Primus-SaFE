@@ -578,7 +578,7 @@ func (e *LogAnalysisExecutor) analyzeUnmatchedLines(
 // - Contains separator patterns like |, comma, or tab between fields
 func (e *LogAnalysisExecutor) isLikelyPerformanceLine(line string, keywords []string) bool {
 	// Count numeric key-value pairs (use .? to match both _ and space in compound keywords)
-	kvPattern := regexp.MustCompile(`(?i)(epoch|step|iteration|loss|lr|learning.?rate|grad.?norm|throughput|samples?.?per|tokens?.?per|tflops|mfu|(?:global.?)?batch.?size|consumed.?samples)\s*[=:]\s*[\d.eE+-]+`)
+	kvPattern := regexp.MustCompile(`(?i)(epoch|step|iteration|loss|lr|learning.?rate|grad.?norm|throughput|samples?.?per|tokens?.?per|tflops|mfu|(?:global.?)?batch.?size|consumed.?samples|elapsed.?time|avg.?loss|time|batch(?:es)?)\s*[=:]\s*[\d.eE+-]+`)
 	kvMatches := kvPattern.FindAllString(line, -1)
 
 	// If we have 3+ key-value pairs with numeric values, it's almost certainly a metric line
@@ -593,7 +593,8 @@ func (e *LogAnalysisExecutor) isLikelyPerformanceLine(line string, keywords []st
 	}
 
 	// Check for structured iteration output like "iteration 500/10000 | loss: 0.5"
-	iterPattern := regexp.MustCompile(`(?i)(?:iter(?:ation)?|step|epoch)\s*(?:\d+\s*/\s*\d+|\d+)`)
+	// Also handles bracket notation like "Epoch [500/10000]"
+	iterPattern := regexp.MustCompile(`(?i)(?:iter(?:ation)?|step|epoch)\s*\[?\s*\d+\s*/\s*\d+\s*\]?`)
 	if iterPattern.MatchString(line) && len(kvMatches) >= 1 {
 		return true
 	}
@@ -616,32 +617,36 @@ func (e *LogAnalysisExecutor) generateRegexForLine(line string, isMetric bool) s
 func (e *LogAnalysisExecutor) generatePerformanceRegex(line string) string {
 	// Map of keyword -> named group
 	fieldMap := map[string]string{
-		"epoch":             "Epoch",
-		"total_epochs":      "TotalEpochs",
-		"step":              "CurrentIteration",
-		"iteration":         "CurrentIteration",
-		"iter":              "CurrentIteration",
-		"loss":              "LmLoss",
-		"total_loss":        "TotalLoss",
-		"lm_loss":           "LmLoss",
-		"lr":                "LearningRate",
-		"learning_rate":     "LearningRate",
-		"learning rate":     "LearningRate",
-		"grad_norm":         "GradNorm",
-		"grad norm":         "GradNorm",
-		"throughput":        "SamplesPerSecond",
+		"epoch":              "Epoch",
+		"total_epochs":       "TotalEpochs",
+		"step":               "CurrentIteration",
+		"iteration":          "CurrentIteration",
+		"iter":               "CurrentIteration",
+		"loss":               "LmLoss",
+		"avg_loss":           "LmLoss",
+		"total_loss":         "TotalLoss",
+		"lm_loss":            "LmLoss",
+		"lr":                 "LearningRate",
+		"learning_rate":      "LearningRate",
+		"learning rate":      "LearningRate",
+		"grad_norm":          "GradNorm",
+		"grad norm":          "GradNorm",
+		"throughput":         "SamplesPerSecond",
 		"samples_per_second": "SamplesPerSecond",
 		"tokens_per_second":  "TokensPerSecond",
-		"tflops":            "TFLOPS",
-		"mfu":               "Mfu",
-		"batch_size":        "GlobalBatchSize",
-		"global_batch_size": "GlobalBatchSize",
-		"consumed_samples":  "ConsumedSamples",
+		"tflops":             "TFLOPS",
+		"mfu":                "Mfu",
+		"batch_size":         "GlobalBatchSize",
+		"global_batch_size":  "GlobalBatchSize",
+		"batches":            "GlobalBatchSize",
+		"consumed_samples":   "ConsumedSamples",
+		"elapsed_time":       "ElapsedTimePerIterationMS",
+		"time":               "ElapsedTimePerIterationMS",
 	}
 
 	// Try to find key=value or key: value patterns and build a regex
 	// Use [_\s] to handle both "batch_size" and "batch size" style keys
-	kvRe := regexp.MustCompile(`(?i)(epoch|total[_\s]epochs|step|iteration|iter|(?:total[_\s]|lm[_\s])?loss|lr|learning[_\s]rate|grad[_\s]norm|throughput|samples[_\s]per[_\s]second|tokens[_\s]per[_\s]second|tflops|mfu|(?:global[_\s])?batch[_\s]size|consumed[_\s]samples)\s*[=:]\s*([\d.eE+-]+)`)
+	kvRe := regexp.MustCompile(`(?i)(epoch|total[_\s]epochs|step|iteration|iter|(?:total[_\s]|lm[_\s]|avg[_\s])?loss|lr|learning[_\s]rate|grad[_\s]norm|throughput|samples[_\s]per[_\s]second|tokens[_\s]per[_\s]second|tflops|mfu|(?:global[_\s])?batch[_\s]size|batches|consumed[_\s]samples|elapsed[_\s]time|time)\s*[=:]\s*([\d.eE+-]+)`)
 
 	matches := kvRe.FindAllStringSubmatchIndex(line, -1)
 	if len(matches) < 2 {
