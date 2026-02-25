@@ -20,6 +20,7 @@ import (
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/utils/goroutineUtil"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/utils/k8sUtil"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/utils/mapUtil"
+	oswriter "github.com/AMD-AGI/Primus-SaFE/Lens/gpu-resource-exporter/pkg/opensearch"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/gpu-resource-exporter/pkg/listener"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -73,8 +74,6 @@ func (g *GpuPodsReconciler) Reconcile(ctx context.Context, req reconcile.Request
 	err := g.clientSets.ControllerRuntimeClient.Get(ctx, req.NamespacedName, pod)
 	if err != nil {
 		if client.IgnoreNotFound(err) == nil {
-			// Pod was deleted - close any open running periods for this pod
-			// We need to find the pod UID from the database since we can't get it from the deleted pod
 			if err := g.handleDeletedPod(ctx, req.Namespace, req.Name); err != nil {
 				log.Warnf("Failed to handle deleted pod %s/%s: %v", req.Namespace, req.Name, err)
 			}
@@ -83,7 +82,7 @@ func (g *GpuPodsReconciler) Reconcile(ctx context.Context, req reconcile.Request
 		log.Error(err, "Error getting pod")
 		return reconcile.Result{}, err
 	}
-	currentSnapshot, err := g.savePodSnapshot(ctx, pod)
+	currentSnapshot, formerSnapshot, err := g.savePodSnapshot(ctx, pod)
 	if err != nil {
 		log.Error(err, "Error getting current snapshot")
 		return reconcile.Result{}, err
@@ -98,7 +97,7 @@ func (g *GpuPodsReconciler) Reconcile(ctx context.Context, req reconcile.Request
 		log.Error(err, "Error getting gpu pod resource")
 		return reconcile.Result{}, err
 	}
-	err = g.saveGpuPodEvent(ctx, pod, currentSnapshot)
+	err = g.saveGpuPodEvent(ctx, pod, currentSnapshot, formerSnapshot)
 	if err != nil {
 		return reconcile.Result{}, err
 	}
@@ -136,25 +135,23 @@ func (g *GpuPodsReconciler) tracePodOwners(ctx context.Context, pod *corev1.Pod)
 			resourceVersion = 0
 		}
 		_ = g.saveWorkloadPodReference(ctx, string(ownerObj.GetUID()), string(pod.UID))
-		snapshot := &model.GpuWorkloadSnapshot{
-			UID:             string(ownerObj.GetUID()),
-			GroupVersion:    ownerObj.GetAPIVersion(),
-			Kind:            ownerObj.GetKind(),
-			Name:            ownerObj.GetName(),
-			Namespace:       ownerObj.GetNamespace(),
-			Metadata:        nil,
-			Detail:          ownerObj.Object,
-			ResourceVersion: int32(resourceVersion),
-			CreatedAt:       time.Now(),
-		}
-		err = database.GetFacade().GetWorkload().CreateGpuWorkloadSnapshot(ctx, snapshot)
-		if err != nil {
-			log.Errorf("Failed to create gpu workload snapshot %v: %v", snapshot, err)
-			continue
-		}
+
+		// Write workload snapshot to OpenSearch (replaces PG gpu_workload_snapshot INSERT)
+		now := time.Now()
+		oswriter.GetWriter().Append("workload-snapshot", map[string]interface{}{
+			"uid":              string(ownerObj.GetUID()),
+			"group_version":    ownerObj.GetAPIVersion(),
+			"kind":             ownerObj.GetKind(),
+			"name":             ownerObj.GetName(),
+			"namespace":        ownerObj.GetNamespace(),
+			"detail":           ownerObj.Object,
+			"resource_version": resourceVersion,
+			"@timestamp":       now.Format(time.RFC3339),
+		})
+
 		err = g.saveGpuWorkload(ctx, ownerObj)
 		if err != nil {
-			log.Errorf("Failed to save gpu workload %v: %v", snapshot, err)
+			log.Errorf("Failed to save gpu workload: %v", err)
 		}
 		if len(ownerObj.GetOwnerReferences()) == 0 {
 			break
@@ -258,11 +255,7 @@ func (g *GpuPodsReconciler) saveGpuPodResource(ctx context.Context, pod *corev1.
 
 }
 
-func (g *GpuPodsReconciler) saveGpuPodEvent(ctx context.Context, pod *corev1.Pod, currentSnapshot *model.PodSnapshot) error {
-	formerSnapshot, err := database.GetFacade().GetPod().GetLastPodSnapshot(ctx, currentSnapshot.PodUID, int(currentSnapshot.ResourceVersion))
-	if err != nil {
-		return err
-	}
+func (g *GpuPodsReconciler) saveGpuPodEvent(ctx context.Context, pod *corev1.Pod, currentSnapshot, formerSnapshot *model.PodSnapshot) error {
 	events, err := g.compareSnapshotAndGetNewEvent(ctx, pod, formerSnapshot, currentSnapshot)
 	if err != nil {
 		return err
@@ -302,7 +295,7 @@ func (g *GpuPodsReconciler) compareSnapshotAndGetNewEvent(ctx context.Context, p
 				PodUUID:      string(pod.GetUID()),
 				PodPhase:     string(pod.Status.Phase),
 				EventType:    string(currCond.Type),
-				CreatedAt:    time.Time{},
+				CreatedAt:    currCond.LastTransitionTime.Time,
 				RestartCount: restartCount,
 			})
 		}
@@ -322,18 +315,18 @@ func getConditionFromSnapshot(snapshot *model.PodSnapshot) []corev1.PodCondition
 	return podStatus.Conditions
 }
 
-func (g *GpuPodsReconciler) savePodSnapshot(ctx context.Context, pod *corev1.Pod) (*model.PodSnapshot, error) {
+func (g *GpuPodsReconciler) savePodSnapshot(ctx context.Context, pod *corev1.Pod) (*model.PodSnapshot, *model.PodSnapshot, error) {
 	specMap, err := mapUtil.ConvertInterfaceToExt(pod.Spec)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	statusMap, err := mapUtil.ConvertInterfaceToExt(pod.Status)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	metadataMap, err := mapUtil.ConvertInterfaceToExt(pod.ObjectMeta)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	resourceVersion, _ := strconv.Atoi(pod.ResourceVersion)
 	currentSnapshot := &model.PodSnapshot{
@@ -346,11 +339,32 @@ func (g *GpuPodsReconciler) savePodSnapshot(ctx context.Context, pod *corev1.Pod
 		CreatedAt:       time.Now(),
 		ResourceVersion: int32(resourceVersion),
 	}
-	err = database.GetFacade().GetPod().CreatePodSnapshot(ctx, currentSnapshot)
+
+	// Read previous snapshot before upsert overwrites it (needed for event diff)
+	formerSnapshot, err := database.GetFacade().GetPod().GetLastPodSnapshot(ctx, currentSnapshot.PodUID, int(currentSnapshot.ResourceVersion))
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return currentSnapshot, nil
+
+	// PG: upsert latest (1 row per pod_uid in pod_snapshot_latest)
+	err = database.GetFacade().GetPod().UpsertLatestPodSnapshot(ctx, currentSnapshot)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// OpenSearch: append full history (async, non-blocking)
+	oswriter.GetWriter().Append("pod-snapshot", map[string]interface{}{
+		"pod_uid":          currentSnapshot.PodUID,
+		"pod_name":         currentSnapshot.PodName,
+		"namespace":        currentSnapshot.Namespace,
+		"resource_version": currentSnapshot.ResourceVersion,
+		"spec":             currentSnapshot.Spec,
+		"metadata":         currentSnapshot.Metadata,
+		"status":           currentSnapshot.Status,
+		"@timestamp":       currentSnapshot.CreatedAt.Format(time.RFC3339),
+	})
+
+	return currentSnapshot, formerSnapshot, nil
 }
 
 func (g *GpuPodsReconciler) saveGpuPodsStatus(ctx context.Context, pod *corev1.Pod) error {
@@ -360,7 +374,7 @@ func (g *GpuPodsReconciler) saveGpuPodsStatus(ctx context.Context, pod *corev1.P
 		NodeName:       pod.Spec.NodeName,
 		UID:            string(pod.UID),
 		OwnerUID:       extractOwnerUID(pod),
-		IP:             pod.Status.PodIP, // Added: sync Pod IP to database
+		IP:             pod.Status.PodIP,
 		GpuAllocated:   int32(k8sUtil.GetGpuAllocated(pod, metadata.GetResourceName(metadata.GpuVendorAMD))),
 		Phase:          string(pod.Status.Phase),
 		Deleted:        pod.DeletionTimestamp != nil,
@@ -380,7 +394,6 @@ func (g *GpuPodsReconciler) saveGpuPodsStatus(ctx context.Context, pod *corev1.P
 		return err
 	}
 
-	// Track running period transitions
 	wasRunning := existGpuPodsRecord != nil && existGpuPodsRecord.Running
 
 	if existGpuPodsRecord == nil {
@@ -402,23 +415,18 @@ func (g *GpuPodsReconciler) saveGpuPodsStatus(ctx context.Context, pod *corev1.P
 		}
 	}
 
-	// Handle running period tracking
 	if err := g.trackRunningPeriod(ctx, pod, wasRunning, isRunning); err != nil {
 		log.Warnf("Failed to track running period for pod %s/%s: %v", pod.Namespace, pod.Name, err)
-		// Don't fail the entire reconcile for running period tracking errors
 	}
 
 	return nil
 }
 
-// trackRunningPeriod tracks pod running state transitions
 func (g *GpuPodsReconciler) trackRunningPeriod(ctx context.Context, pod *corev1.Pod, wasRunning, isRunning bool) error {
 	podUID := string(pod.UID)
 	now := time.Now()
 
-	// Case 1: Pod just entered Running state
 	if !wasRunning && isRunning {
-		// Check if there's already an active running period (shouldn't happen, but be defensive)
 		existingPeriod, err := database.GetFacade().GetPodRunningPeriods().GetCurrentRunningPeriod(ctx, podUID)
 		if err != nil {
 			return fmt.Errorf("failed to check existing running period: %w", err)
@@ -428,7 +436,6 @@ func (g *GpuPodsReconciler) trackRunningPeriod(ctx context.Context, pod *corev1.
 			return nil
 		}
 
-		// Create new running period
 		period := &model.PodRunningPeriods{
 			PodUID:       podUID,
 			Namespace:    pod.Namespace,
@@ -445,7 +452,6 @@ func (g *GpuPodsReconciler) trackRunningPeriod(ctx context.Context, pod *corev1.
 		return nil
 	}
 
-	// Case 2: Pod just left Running state (or was deleted)
 	if wasRunning && !isRunning {
 		if err := database.GetFacade().GetPodRunningPeriods().EndRunningPeriod(ctx, podUID, now); err != nil {
 			return fmt.Errorf("failed to end running period: %w", err)
@@ -454,7 +460,6 @@ func (g *GpuPodsReconciler) trackRunningPeriod(ctx context.Context, pod *corev1.
 		return nil
 	}
 
-	// Case 3: No transition, nothing to do
 	return nil
 }
 
@@ -475,19 +480,15 @@ func (g *GpuPodsReconciler) addListener(
 	return nil
 }
 
-// handleDeletedPod closes running periods for pods that have been deleted from the cluster
 func (g *GpuPodsReconciler) handleDeletedPod(ctx context.Context, namespace, name string) error {
-	// Find the pod by namespace and name in our database
 	gpuPod, err := database.GetFacade().GetPod().GetGpuPodsByNamespaceName(ctx, namespace, name)
 	if err != nil {
 		return fmt.Errorf("failed to get pod from database: %w", err)
 	}
 	if gpuPod == nil {
-		// Pod not found in database, nothing to do
 		return nil
 	}
 
-	// Update the pod status in database
 	gpuPod.Deleted = true
 	gpuPod.Running = false
 	gpuPod.UpdatedAt = time.Now()
@@ -495,7 +496,6 @@ func (g *GpuPodsReconciler) handleDeletedPod(ctx context.Context, namespace, nam
 		log.Warnf("Failed to update deleted status for pod %s/%s: %v", namespace, name, err)
 	}
 
-	// End any open running periods for this pod
 	if err := database.GetFacade().GetPodRunningPeriods().EndRunningPeriod(ctx, gpuPod.UID, time.Now()); err != nil {
 		return fmt.Errorf("failed to end running period: %w", err)
 	}
@@ -503,9 +503,6 @@ func (g *GpuPodsReconciler) handleDeletedPod(ctx context.Context, namespace, nam
 	return nil
 }
 
-// extractOwnerUID returns the UID of the pod's controller owner.
-// For training pods (PyTorchJob, MPIJob, etc.) this is the workload UID
-// that matches gpu_workload.uid, enabling SpecCollector to look up pods by workload.
 func extractOwnerUID(pod *corev1.Pod) string {
 	if pod == nil {
 		return ""
@@ -515,21 +512,17 @@ func extractOwnerUID(pod *corev1.Pod) string {
 			return string(ref.UID)
 		}
 	}
-	// Fallback: use first owner reference if no controller is marked
 	if len(pod.OwnerReferences) > 0 {
 		return string(pod.OwnerReferences[0].UID)
 	}
 	return ""
 }
 
-// extractPrimaryContainerImage returns the image of the primary (GPU-using) container.
-// It prefers the container that requests GPU resources; falls back to the first container.
 func extractPrimaryContainerImage(pod *corev1.Pod) string {
 	if pod == nil || len(pod.Spec.Containers) == 0 {
 		return ""
 	}
 
-	// Prefer a container that explicitly requests GPU resources
 	gpuResourceName := metadata.GetResourceName(metadata.GpuVendorAMD)
 	for _, c := range pod.Spec.Containers {
 		if q, ok := c.Resources.Limits[corev1.ResourceName(gpuResourceName)]; ok && !q.IsZero() {
@@ -540,6 +533,5 @@ func extractPrimaryContainerImage(pod *corev1.Pod) string {
 		}
 	}
 
-	// Fallback: first container
 	return pod.Spec.Containers[0].Image
 }
