@@ -11,7 +11,20 @@ ANP_VERSION="v1.3.0"
 LIBIONIC_VERSION="54.0-184"
 WORKDIR="/opt"
 
+# Get AINIC_DRIVER_VERSION from environment or extract from AINIC_BUNDLE_PATH
+if [ -z "${AINIC_DRIVER_VERSION}" ] && [ -n "${AINIC_BUNDLE_PATH}" ]; then
+  # Extract version from filename like ainic_bundle_1.117.5-a-56.tar.gz -> 1.117.5-a-56
+  AINIC_BUNDLE_FILENAME=$(basename "${AINIC_BUNDLE_PATH}")
+  AINIC_DRIVER_VERSION=$(echo "${AINIC_BUNDLE_FILENAME}" | sed -n 's/ainic_bundle_\(.*\)\.tar\.gz/\1/p')
+fi
+
+if [ -z "${AINIC_DRIVER_VERSION}" ]; then
+  echo "Error: AINIC_DRIVER_VERSION not specified and could not be extracted from AINIC_BUNDLE_PATH"
+  exit 1
+fi
+
 echo "============== begin to install AMD AINIC Network Plugin (amd-anp) ${ANP_VERSION} =============="
+echo "AINIC Driver Version: ${AINIC_DRIVER_VERSION}"
 
 cd ${WORKDIR}
 
