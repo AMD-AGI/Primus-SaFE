@@ -202,6 +202,8 @@ func NewFacade() *Facade {
 		WorkloadCodeSnapshot:     NewWorkloadCodeSnapshotFacade(),
 		ImageRegistryCache:       NewImageRegistryCacheFacade(),
 		IntentRule:               NewIntentRuleFacade(),
+		WorkloadResource:         NewWorkloadResourceFacade(),
+		ProfilerFile:             NewProfilerFileFacade(),
 	}
 }
 
