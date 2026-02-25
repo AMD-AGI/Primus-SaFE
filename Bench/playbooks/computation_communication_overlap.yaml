@@ -25,7 +25,7 @@
               'RANK': nodes.index(inventory_hostname),
               'LOCAL_RANK': nodes.index(inventory_hostname),
               'NODE_RANK': nodes.index(inventory_hostname),
-              'MASTER_ADDR': nodes|first,
+              'MASTER_ADDR': hostvars[nodes|first]['ansible_host'] | default(nodes|first),
               'MASTER_PORT': master_port
             })
           }}
