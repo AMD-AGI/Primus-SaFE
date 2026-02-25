@@ -150,6 +150,8 @@ type Facade struct {
 	WorkloadCodeSnapshot     WorkloadCodeSnapshotFacadeInterface
 	ImageRegistryCache       ImageRegistryCacheFacadeInterface
 	IntentRule               IntentRuleFacadeInterface
+	WorkloadResource         WorkloadResourceFacadeInterface
+	ProfilerFile             ProfilerFileFacadeInterface
 }
 
 // NewFacade creates a new Facade instance
@@ -426,6 +428,16 @@ func (f *Facade) GetImageRegistryCache() ImageRegistryCacheFacadeInterface {
 // GetIntentRule returns the IntentRule Facade interface
 func (f *Facade) GetIntentRule() IntentRuleFacadeInterface {
 	return f.IntentRule
+}
+
+// GetWorkloadResource returns the WorkloadResource Facade interface
+func (f *Facade) GetWorkloadResource() WorkloadResourceFacadeInterface {
+	return f.WorkloadResource
+}
+
+// GetProfilerFile returns the ProfilerFile Facade interface
+func (f *Facade) GetProfilerFile() ProfilerFileFacadeInterface {
+	return f.ProfilerFile
 }
 
 // WithCluster returns a new Facade instance, all sub-Facades use the specified cluster
