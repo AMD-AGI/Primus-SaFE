@@ -41,10 +41,10 @@ WORKDIR="/opt"
 cd ${WORKDIR}
 if [ ! -d "${WORKDIR}/rccl" ]; then
   echo "Cloning and building RCCL (rocm-${ROCM_VERSION})..."
-  git clone https://github.com/ROCm/rccl.git
+  git clone -q https://github.com/ROCm/rccl.git
   cd rccl
-  git checkout rocm-${ROCM_VERSION}
-  if ! ./install.sh -l --prefix build/ --disable-msccl-kernel --amdgpu_targets="gfx950" 2>&1; then
+  git checkout -q rocm-${ROCM_VERSION}
+  if ! ./install.sh -l --prefix build/ --disable-msccl-kernel --amdgpu_targets="gfx950" >/dev/null 2>&1; then
     echo "Error: Failed to build RCCL."
     exit 1
   fi
@@ -71,20 +71,21 @@ echo "Adding AMD AINIC pensando repository for driver version ${AINIC_DRIVER_VER
 echo "deb [arch=amd64 trusted=yes] https://repo.radeon.com/amdainic/pensando/ubuntu/${AINIC_DRIVER_VERSION} jammy main" \
     > /etc/apt/sources.list.d/amdainic-pensando.list
 
-apt-get update
+apt-get update >/dev/null 2>&1
 if [ $? -ne 0 ]; then
   echo "Warning: apt-get update had issues, continuing anyway..."
 fi
 
 echo "Installing libionic-dev=${LIBIONIC_VERSION}..."
-apt-get install -y --allow-unauthenticated libionic-dev=${LIBIONIC_VERSION}
+apt-get install -y --allow-unauthenticated libionic-dev=${LIBIONIC_VERSION} >/dev/null 2>&1
 if [ $? -ne 0 ]; then
   echo "Error: Failed to install libionic-dev=${LIBIONIC_VERSION}."
   exit 1
 fi
 
 # Clone AMD ANP repository
-git clone https://github.com/rocm/amd-anp.git
+echo "Cloning AMD ANP repository..."
+git clone -q https://github.com/rocm/amd-anp.git
 if [ $? -ne 0 ]; then
   echo "Error: Failed to clone AMD ANP repository."
   exit 1
@@ -92,8 +93,8 @@ fi
 
 cd amd-anp
 # Checkout specific version or branch
-echo "Checking out version amd-anp-${AMD_ANP_VERSION}..."
-if ! git checkout tags/${AMD_ANP_VERSION}; then
+echo "Checking out version ${AMD_ANP_VERSION}..."
+if ! git checkout -q tags/${AMD_ANP_VERSION}; then
   echo "Error: Failed to checkout tag ${AMD_ANP_VERSION}."
   exit 1
 fi
@@ -104,9 +105,9 @@ if [ -d "/opt/openmpi" ]; then
   make -j 16 MPI_INCLUDE=/opt/openmpi/include/ \
              MPI_LIB_PATH=/opt/openmpi/lib/ \
              ROCM_PATH=/opt/rocm \
-             RCCL_HOME=${RCCL_HOME}
+             RCCL_HOME=${RCCL_HOME} >/dev/null 2>&1
 else
-  make -j 16 ROCM_PATH=/opt/rocm RCCL_HOME=${RCCL_HOME}
+  make -j 16 ROCM_PATH=/opt/rocm RCCL_HOME=${RCCL_HOME} >/dev/null 2>&1
 fi
 if [ $? -ne 0 ]; then
   echo "Error: Failed to build AMD ANP driver."

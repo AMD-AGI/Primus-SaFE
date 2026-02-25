@@ -6,6 +6,7 @@
 #
 
 # Check if AINIC_DRIVER_VERSION is specified
+# You can use 'ibv_devinfo' on the host node to check the driver version. like 1.117.5-a-56
 if [ -z "${AINIC_DRIVER_VERSION}" ]; then
   echo "AINIC_DRIVER_VERSION not specified, skipping AINIC installation."
   exit 0
