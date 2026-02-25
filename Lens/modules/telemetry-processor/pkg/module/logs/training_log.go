@@ -150,8 +150,9 @@ func refreshExtractorPatterns(ctx context.Context) {
 	}
 }
 
-// stripAnsiCodes removes ANSI escape codes from log messages
-// This handles color codes like [[32m, [0m, etc. that appear in terminal output
+// stripAnsiCodes removes ANSI escape codes from log messages.
+// Handles standard ESC[...m, simplified [NNm, and control sequences like [NNA.
+// Does NOT strip bracket-number sequences like [9074/...] used in training logs.
 func stripAnsiCodes(msg string) string {
 	return ansiEscapeRegex.ReplaceAllString(msg, "")
 }
