@@ -167,7 +167,7 @@ func init() {
 	})
 }
 
-// ======================== Common ========================
+// ======================== Helpers ========================
 
 type diagBaseRequest struct {
 	UID     string `json:"uid" param:"uid" mcp:"uid,description=Workload UID,required"`
