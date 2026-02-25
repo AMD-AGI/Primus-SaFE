@@ -186,6 +186,9 @@ func (m *WorkloadMutator) mutateMeta(ctx context.Context, workload *v1.Workload,
 }
 
 func (m *WorkloadMutator) mutateOwnerReference(ctx context.Context, workload *v1.Workload, workspace *v1.Workspace) {
+	if v1.HasLabel(workload, v1.OwnerLabel) {
+		return
+	}
 	var err error
 	switch workload.SpecKind() {
 	case common.CICDEphemeralRunnerKind:
