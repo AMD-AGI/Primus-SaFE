@@ -354,15 +354,20 @@ func (g *GpuPodsReconciler) savePodSnapshot(ctx context.Context, pod *corev1.Pod
 		return nil, nil, err
 	}
 
-	// OpenSearch: append full history (async, non-blocking)
+	// OpenSearch: append full history (async, non-blocking).
+	// Serialize nested K8s objects as JSON strings to avoid dynamic mapping
+	// explosion in OpenSearch.
+	specJSON, _ := json.Marshal(currentSnapshot.Spec)
+	metadataJSON, _ := json.Marshal(currentSnapshot.Metadata)
+	statusJSON, _ := json.Marshal(currentSnapshot.Status)
 	oswriter.GetWriter().Append("pod-snapshot", map[string]interface{}{
 		"pod_uid":          currentSnapshot.PodUID,
 		"pod_name":         currentSnapshot.PodName,
 		"namespace":        currentSnapshot.Namespace,
 		"resource_version": currentSnapshot.ResourceVersion,
-		"spec":             currentSnapshot.Spec,
-		"metadata":         currentSnapshot.Metadata,
-		"status":           currentSnapshot.Status,
+		"spec":             string(specJSON),
+		"metadata":         string(metadataJSON),
+		"status":           string(statusJSON),
 		"@timestamp":       currentSnapshot.CreatedAt.Format(time.RFC3339),
 	})
 
