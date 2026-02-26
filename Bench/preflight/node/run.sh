@@ -38,6 +38,14 @@ export TEST_LEVEL=${TEST_LEVEL:-"BASIC"}
 export GPU_PRODUCT=${GPU_PRODUCT:-"MI300X"}
 export ENABLE_AINIC=${ENABLE_AINIC:-"false"}
 
+echo "================================================"
+echo "${LOG_HEADER} RANK: $RANK"
+echo "${LOG_HEADER} NCCL_SOCKET_IFNAME: $NCCL_SOCKET_IFNAME"
+echo "${LOG_HEADER} NCCL_IB_HCA: $NCCL_IB_HCA"
+echo "${LOG_HEADER} TEST_LEVEL: $TEST_LEVEL"
+echo "${LOG_HEADER} GPU_PRODUCT: $GPU_PRODUCT"
+echo "${LOG_HEADER} ENABLE_AINIC: $ENABLE_AINIC"
+echo "================================================"
 # ============================================================================
 # Helper function to run check scripts
 # ============================================================================
