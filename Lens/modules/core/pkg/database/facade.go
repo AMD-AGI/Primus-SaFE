@@ -95,6 +95,10 @@ type FacadeInterface interface {
 	GetImageRegistryCache() ImageRegistryCacheFacadeInterface
 	// GetIntentRule returns the IntentRule Facade interface
 	GetIntentRule() IntentRuleFacadeInterface
+	// GetWorkloadResource returns the WorkloadResource Facade interface
+	GetWorkloadResource() WorkloadResourceFacadeInterface
+	// GetProfilerFile returns the ProfilerFile Facade interface
+	GetProfilerFile() ProfilerFileFacadeInterface
 	// WithCluster returns a new Facade instance using the specified cluster
 	WithCluster(clusterName string) FacadeInterface
 }
@@ -146,6 +150,8 @@ type Facade struct {
 	WorkloadCodeSnapshot     WorkloadCodeSnapshotFacadeInterface
 	ImageRegistryCache       ImageRegistryCacheFacadeInterface
 	IntentRule               IntentRuleFacadeInterface
+	WorkloadResource         WorkloadResourceFacadeInterface
+	ProfilerFile             ProfilerFileFacadeInterface
 }
 
 // NewFacade creates a new Facade instance
@@ -196,6 +202,8 @@ func NewFacade() *Facade {
 		WorkloadCodeSnapshot:     NewWorkloadCodeSnapshotFacade(),
 		ImageRegistryCache:       NewImageRegistryCacheFacade(),
 		IntentRule:               NewIntentRuleFacade(),
+		WorkloadResource:         NewWorkloadResourceFacade(),
+		ProfilerFile:             NewProfilerFileFacade(),
 	}
 }
 
@@ -424,6 +432,16 @@ func (f *Facade) GetIntentRule() IntentRuleFacadeInterface {
 	return f.IntentRule
 }
 
+// GetWorkloadResource returns the WorkloadResource Facade interface
+func (f *Facade) GetWorkloadResource() WorkloadResourceFacadeInterface {
+	return f.WorkloadResource
+}
+
+// GetProfilerFile returns the ProfilerFile Facade interface
+func (f *Facade) GetProfilerFile() ProfilerFileFacadeInterface {
+	return f.ProfilerFile
+}
+
 // WithCluster returns a new Facade instance, all sub-Facades use the specified cluster
 func (f *Facade) WithCluster(clusterName string) FacadeInterface {
 	return &Facade{
@@ -472,6 +490,8 @@ func (f *Facade) WithCluster(clusterName string) FacadeInterface {
 		WorkloadCodeSnapshot:     f.WorkloadCodeSnapshot.WithCluster(clusterName),
 		ImageRegistryCache:       f.ImageRegistryCache.WithCluster(clusterName),
 		IntentRule:               f.IntentRule.WithCluster(clusterName),
+		WorkloadResource:         f.WorkloadResource.WithCluster(clusterName),
+		ProfilerFile:             f.ProfilerFile.WithCluster(clusterName),
 	}
 }
 

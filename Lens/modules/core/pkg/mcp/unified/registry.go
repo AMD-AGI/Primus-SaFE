@@ -117,6 +117,22 @@ func (r *Registry) GetMCPTools() []*MCPTool {
 	return tools
 }
 
+// GetMCPToolsByGroup returns MCP tools filtered by group name.
+func (r *Registry) GetMCPToolsByGroup(group string) []*MCPTool {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	var filtered []*MCPTool
+	for _, ep := range r.endpoints {
+		if ep.GetGroup() == group {
+			if tool := ep.GetMCPTool(); tool != nil {
+				filtered = append(filtered, tool)
+			}
+		}
+	}
+	return filtered
+}
+
 // GetEndpoints returns all registered endpoints.
 func (r *Registry) GetEndpoints() []EndpointRegistration {
 	r.mu.RLock()

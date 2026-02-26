@@ -84,6 +84,11 @@ func InitServerWithPreInitFunc(ctx context.Context, preInit func(ctx context.Con
 		initMCPRoutes(ginEngine, cfg)
 	}
 
+	// Initialize diagnostic MCP server routes under /mcp-diag path if enabled
+	if cfg.IsDiagnosticMCPEnabled() {
+		initDiagnosticMCPRoutes(ginEngine, cfg)
+	}
+
 	err = controller.InitControllers(ctx, *cfg)
 	if err != nil {
 		return err
@@ -172,4 +177,58 @@ func initMCPRoutes(engine *gin.Engine, cfg *config.Config) {
 	log.Infof("MCP Server: Routes registered under %s", basePath)
 	log.Infof("MCP Server: SSE endpoint: %s/sse", basePath)
 	log.Infof("MCP Server: RPC endpoint: %s/rpc (for testing)", basePath)
+}
+
+// initDiagnosticMCPRoutes initializes a dedicated MCP server for workload diagnostic tools
+func initDiagnosticMCPRoutes(engine *gin.Engine, cfg *config.Config) {
+	server := mcpserver.New()
+
+	tools := unified.GetRegistry().GetMCPToolsByGroup("diagnostic")
+	server.RegisterTools(tools)
+	log.Infof("Diagnostic MCP Server: Registered %d tools", len(tools))
+
+	if instructions := cfg.GetDiagnosticMCPInstructions(); instructions != "" {
+		server.SetInstructions(instructions)
+	} else {
+		server.SetInstructions("Workload Diagnostic Tools - GPU workload performance diagnostics via MCP. All tools are scoped by workload_uid.")
+	}
+
+	sseTransport := mcpserver.NewSSETransport(server)
+	streamableTransport := mcpserver.NewStreamableHTTPTransport(server)
+
+	basePath := cfg.GetDiagnosticMCPBasePath()
+	mcpGroup := engine.Group(basePath)
+	{
+		mcpGroup.GET("/sse", gin.WrapH(sseTransport.Handler()))
+		mcpGroup.POST("/message", gin.WrapH(sseTransport.Handler()))
+		mcpGroup.POST("/rpc", gin.WrapH(streamableTransport.Handler()))
+
+		mcpGroup.GET("/health", func(c *gin.Context) {
+			currentTools := unified.GetRegistry().GetMCPToolsByGroup("diagnostic")
+			c.JSON(200, gin.H{
+				"status": "ok",
+				"server": "Lens Diagnostic MCP Server",
+				"tools":  len(currentTools),
+			})
+		})
+
+		mcpGroup.GET("/", func(c *gin.Context) {
+			currentTools := unified.GetRegistry().GetMCPToolsByGroup("diagnostic")
+			toolList := make([]gin.H, 0, len(currentTools))
+			for _, tool := range currentTools {
+				toolList = append(toolList, gin.H{
+					"name":        tool.Name,
+					"description": tool.Description,
+				})
+			}
+			c.JSON(200, gin.H{
+				"server":       "Lens Diagnostic MCP Server",
+				"sse_endpoint": basePath + "/sse",
+				"rpc_endpoint": basePath + "/rpc",
+				"tools":        toolList,
+			})
+		})
+	}
+
+	log.Infof("Diagnostic MCP Server: Routes registered under %s", basePath)
 }

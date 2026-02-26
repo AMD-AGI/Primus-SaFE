@@ -109,37 +109,39 @@ func (c *SpecCollector) Collect(ctx context.Context, workloadUID string) (*inten
 	return evidence, nil
 }
 
-// extractImageFromPods looks up running pods owned by this workload and extracts
-// the container image. It tries owner_uid first, then falls back to namespace+name
-// prefix matching (required for clusters where owner_uid is not populated).
+// extractImageFromPods looks up pods for this workload via workload_pod_reference
+// and extracts the container image. workload_pod_reference is the authoritative
+// source for workload-to-pod mapping and handles the Workload/PyTorchJob UID
+// mismatch correctly (gpu_pods.owner_uid only points to the direct parent, which
+// may differ from the gpu_workload UID for Kueue Workload entries).
 func (c *SpecCollector) extractImageFromPods(ctx context.Context, workloadUID string, evidence *intent.IntentEvidence) {
-	// Strategy 1: lookup by owner_uid
-	pods, err := c.podFacade.GetRunningPodsByOwnerUID(ctx, workloadUID)
+	podRefs, err := c.workloadFacade.ListWorkloadPodReferenceByWorkloadUid(ctx, workloadUID)
 	if err != nil {
-		log.Debugf("SpecCollector: failed to get pods by owner_uid for workload %s: %v", workloadUID, err)
+		log.Debugf("SpecCollector: failed to get pod references for workload %s: %v", workloadUID, err)
+		return
 	}
+
+	if len(podRefs) == 0 {
+		log.Debugf("SpecCollector: no pod references found for workload %s", workloadUID)
+		return
+	}
+
+	podUIDs := make([]string, 0, len(podRefs))
+	for _, ref := range podRefs {
+		podUIDs = append(podUIDs, ref.PodUID)
+	}
+
+	pods, err := c.podFacade.ListActivePodsByUids(ctx, podUIDs)
+	if err != nil {
+		log.Debugf("SpecCollector: failed to get pods by UIDs for workload %s: %v", workloadUID, err)
+		return
+	}
+
 	for _, pod := range pods {
 		if pod.ContainerImage != "" {
 			evidence.Image = pod.ContainerImage
-			log.Debugf("SpecCollector: resolved image from gpu_pods (owner_uid) for workload %s: %s", workloadUID, pod.ContainerImage)
+			log.Debugf("SpecCollector: resolved image via workload_pod_reference for workload %s: %s", workloadUID, pod.ContainerImage)
 			return
-		}
-	}
-
-	// Strategy 2: lookup by namespace + workload name prefix
-	// Pod names follow the pattern: {workload_name}-master-0 or {workload_name}-{hash}-{hash}
-	if evidence.WorkloadName != "" && evidence.WorkloadNamespace != "" {
-		pods, err = c.podFacade.GetRunningPodsByNamePrefix(ctx, evidence.WorkloadNamespace, evidence.WorkloadName)
-		if err != nil {
-			log.Debugf("SpecCollector: failed to get pods by name prefix for workload %s: %v", workloadUID, err)
-			return
-		}
-		for _, pod := range pods {
-			if pod.ContainerImage != "" {
-				evidence.Image = pod.ContainerImage
-				log.Debugf("SpecCollector: resolved image from gpu_pods (name prefix) for workload %s: %s", workloadUID, pod.ContainerImage)
-				return
-			}
 		}
 	}
 }
