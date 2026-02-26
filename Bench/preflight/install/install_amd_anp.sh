@@ -87,11 +87,10 @@ fi
 echo "Building AMD ANP driver..."
 export RCCL_HOME=/opt/rccl 
 # RCCL_BUILD points to where RCCL is installed (with lib/ and include/ subdirectories)
-make -j 16 MPI_INCLUDE=/opt/mpich/include/ \
+if ! make -j 16 MPI_INCLUDE=/opt/mpich/include/ \
            MPI_LIB_PATH=/opt/mpich/lib/ \
            ROCM_PATH=/opt/rocm \
-           RCCL_HOME=/opt/rccl >/dev/null 2>&1
-if [ $? -ne 0 ]; then
+           RCCL_HOME=/opt/rccl; then
   echo "Error: Failed to build AMD ANP driver."
   exit 1
 fi
