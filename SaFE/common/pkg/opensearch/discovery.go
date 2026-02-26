@@ -50,6 +50,15 @@ func GetOpensearchClient(clusterName string) *SearchClient {
 	return nil
 }
 
+// GetAnyOpensearchClient returns any available OpenSearch client.
+// Useful for querying logs from control plane pods that don't belong to a specific cluster.
+func GetAnyOpensearchClient() *SearchClient {
+	for _, searchClient := range multiClusterClients {
+		return searchClient
+	}
+	return nil
+}
+
 type opensearchSecretData struct {
 	NodePort int32  `json:"nodePort"`
 	Scheme   string `json:"scheme"`
