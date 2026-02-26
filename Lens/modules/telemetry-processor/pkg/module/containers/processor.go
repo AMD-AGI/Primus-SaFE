@@ -4,17 +4,23 @@
 package containers
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"time"
 
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/clientsets"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/constant"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database"
 	dbModel "github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database/model"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/errors"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/model"
+	"github.com/opensearch-project/opensearch-go/opensearchapi"
 )
+
+const indexDateFormat = "2006.01.02"
 
 // ProcessContainerEvent processes a single container event
 func ProcessContainerEvent(ctx context.Context, req *ContainerEventRequest) error {
@@ -117,7 +123,6 @@ func processK8sContainerEvent(ctx context.Context, req *ContainerEventRequest) e
 			if err := saveContainerDevice(deviceCtx, req.ContainerID, req.Node, gpu.Name, int32(gpu.Id), gpu.Serial, constant.DeviceTypeGPU); err != nil {
 				log.Warnf("Failed to save GPU device for container %s (device=%s): %v - continuing anyway", req.ContainerID, gpu.Name, err)
 				containerEventErrorCnt.WithLabelValues(req.Source, req.Node, "device_save_error").Inc()
-				// Continue processing other devices - don't fail the entire event
 			}
 		}
 
@@ -126,22 +131,26 @@ func processK8sContainerEvent(ctx context.Context, req *ContainerEventRequest) e
 			if err := saveContainerDevice(deviceCtx, req.ContainerID, req.Node, ib.Name, int32(ib.Id), ib.Serial, constant.DeviceTypeIB); err != nil {
 				log.Warnf("Failed to save IB device for container %s (device=%s): %v - continuing anyway", req.ContainerID, ib.Name, err)
 				containerEventErrorCnt.WithLabelValues(req.Source, req.Node, "device_save_error").Inc()
-				// Continue processing other devices - don't fail the entire event
 			}
 		}
 	}
 
-	// Save container event (except for snapshots)
+	// Write container event to OpenSearch (replaces PG node_container_event INSERT).
+	// Enriched with pod context that was not available in the old PG schema.
 	if req.Type != model.ContainerEventTypeSnapshot {
-		event := &dbModel.NodeContainerEvent{
-			ContainerID: req.ContainerID,
-			EventType:   req.Type,
-			CreatedAt:   time.Now(),
+		now := time.Now()
+		doc := map[string]interface{}{
+			"container_id": req.ContainerID,
+			"event_type":   req.Type,
+			"node":         req.Node,
+			"pod_uid":      containerData.PodUUID,
+			"pod_name":     containerData.PodName,
+			"namespace":    containerData.PodNamespace,
+			"@timestamp":   now.Format(time.RFC3339),
 		}
-		if err := database.GetFacade().GetContainer().CreateNodeContainerEvent(ctx, event); err != nil {
-			log.Errorf("Failed to create container event for %s: %v", req.ContainerID, err)
+		if err := indexContainerEvent(ctx, doc); err != nil {
+			log.Errorf("Failed to write container event to OpenSearch for %s: %v", req.ContainerID, err)
 			containerEventErrorCnt.WithLabelValues(req.Source, req.Node, "event_save_error").Inc()
-			// Non-critical error, continue
 		}
 	}
 
@@ -217,7 +226,6 @@ func processDockerContainerEvent(ctx context.Context, req *ContainerEventRequest
 		if err := saveContainerDevice(deviceCtx, req.ContainerID, req.Node, device.DeviceName, int32(device.DeviceId), device.DeviceSerial, deviceType); err != nil {
 			log.Warnf("Failed to save device for container %s (device=%s): %v - continuing anyway", req.ContainerID, device.DeviceName, err)
 			containerEventErrorCnt.WithLabelValues(req.Source, req.Node, "device_save_error").Inc()
-			// Continue processing other devices - don't fail the entire event
 		}
 	}
 
@@ -250,5 +258,38 @@ func saveContainerDevice(ctx context.Context, containerID, node, deviceName stri
 		}
 	}
 
+	return nil
+}
+
+// indexContainerEvent writes a single container event document to OpenSearch.
+// Index name follows the pattern: container-event-YYYY.MM.DD
+func indexContainerEvent(ctx context.Context, doc map[string]interface{}) error {
+	osClient := clientsets.GetClusterManager().GetCurrentClusterClients().StorageClientSet.OpenSearch
+
+	body, err := json.Marshal(doc)
+	if err != nil {
+		return fmt.Errorf("marshal doc: %w", err)
+	}
+
+	ts, _ := doc["@timestamp"].(string)
+	t, parseErr := time.Parse(time.RFC3339, ts)
+	if parseErr != nil {
+		t = time.Now()
+	}
+	indexName := fmt.Sprintf("container-event-%s", t.Format(indexDateFormat))
+
+	req := opensearchapi.IndexRequest{
+		Index: indexName,
+		Body:  bytes.NewReader(body),
+	}
+	res, err := req.Do(ctx, osClient)
+	if err != nil {
+		return fmt.Errorf("index request: %w", err)
+	}
+	defer res.Body.Close()
+
+	if res.IsError() {
+		return fmt.Errorf("index response error: %s", res.String())
+	}
 	return nil
 }
