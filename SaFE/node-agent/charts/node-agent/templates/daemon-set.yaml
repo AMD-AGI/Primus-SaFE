@@ -207,5 +207,5 @@ spec:
           name: device-plugin
   updateStrategy:
     rollingUpdate:
-      maxUnavailable: 20
+      maxUnavailable: 50
     type: RollingUpdate
