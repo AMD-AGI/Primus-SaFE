@@ -8,8 +8,8 @@ package daemon
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 
-	"github.com/opencontainers/runtime-tools/filepath"
 	apiserver "k8s.io/apiserver/pkg/server"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
