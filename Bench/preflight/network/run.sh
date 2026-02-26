@@ -55,6 +55,12 @@ export TORCH_DISTRIBUTED_DEFAULT_TIMEOUT=$NCCL_TIMEOUT
 export GLOO_TIMEOUT=$NCCL_TIMEOUT
 export WAIT=${WAIT:-true}
 
+echo "================================================"
+echo "${LOG_HEADER} RANK: $RANK"
+echo "${LOG_HEADER} NCCL_SOCKET_IFNAME: $NCCL_SOCKET_IFNAME"
+echo "${LOG_HEADER} NCCL_IB_HCA: $NCCL_IB_HCA"
+echo "${LOG_HEADER} ENABLE_AINIC: $ENABLE_AINIC"
+echo "================================================"
 # ======================================================
 # Phase 1: Check the node list file or set up SSH access
 # ======================================================
