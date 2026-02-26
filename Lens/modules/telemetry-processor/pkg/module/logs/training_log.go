@@ -34,8 +34,9 @@ var (
 	globalRegistry  *GlobalPatternRegistry // Global pattern registry (loads from training_log_pattern table)
 
 	// ANSI escape code regex for cleaning logs
-	// Matches: \x1b[...m (standard ANSI), [...m (simplified format), [...][ (any bracket sequences)
-	ansiEscapeRegex = regexp.MustCompile(`\x1b\[[0-9;]*[a-zA-Z]|\[[0-9;]*m|\[[\d;]+\w`)
+	// Matches: \x1b[...X (standard ANSI), [...m (simplified color), [...X (control sequences ending in letter)
+	// The third pattern requires a letter suffix to avoid stripping legitimate bracket-number like [9074/...]
+	ansiEscapeRegex = regexp.MustCompile(`\x1b\[[0-9;]*[a-zA-Z]|\[[0-9;]*m|\[[\d;]+[a-zA-Z]`)
 )
 
 // InitializeWandBHandlerAndLogProcessing initializes WandB handler with AI Advisor client
@@ -149,8 +150,9 @@ func refreshExtractorPatterns(ctx context.Context) {
 	}
 }
 
-// stripAnsiCodes removes ANSI escape codes from log messages
-// This handles color codes like [[32m, [0m, etc. that appear in terminal output
+// stripAnsiCodes removes ANSI escape codes from log messages.
+// Handles standard ESC[...m, simplified [NNm, and control sequences like [NNA.
+// Does NOT strip bracket-number sequences like [9074/...] used in training logs.
 func stripAnsiCodes(msg string) string {
 	return ansiEscapeRegex.ReplaceAllString(msg, "")
 }

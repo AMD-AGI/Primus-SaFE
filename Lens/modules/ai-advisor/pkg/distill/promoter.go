@@ -6,6 +6,7 @@ package distill
 import (
 	"context"
 	"encoding/json"
+	"regexp"
 	"time"
 
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database"
@@ -18,7 +19,7 @@ const (
 	PromotionPrecisionThreshold = 0.90
 
 	// PromotionRecallThreshold is the minimum recall to promote a rule
-	PromotionRecallThreshold = 0.30
+	PromotionRecallThreshold = 0.10
 
 	// PromotionMinSamples is the minimum backtest sample count to promote
 	PromotionMinSamples = 20
@@ -43,25 +44,44 @@ func NewPromoter() *Promoter {
 	}
 }
 
-// PromoteValidatedRules promotes all validated rules that meet criteria
+// PromoteValidatedRules promotes all validated rules that meet criteria,
+// skipping rules that are semantically redundant with already-promoted ones.
 func (p *Promoter) PromoteValidatedRules(ctx context.Context) (int, error) {
 	rules, err := p.ruleFacade.ListByStatus(ctx, "validated")
 	if err != nil {
 		return 0, err
 	}
 
-	promoted := 0
-	for _, rule := range rules {
-		if p.shouldPromote(rule) {
-			if err := p.promote(ctx, rule); err != nil {
-				log.Errorf("Promoter: failed to promote rule %d: %v", rule.ID, err)
-				continue
-			}
-			promoted++
-		}
+	existingPromoted, err := p.ruleFacade.ListByStatus(ctx, "promoted")
+	if err != nil {
+		existingPromoted = nil
 	}
 
-	log.Infof("Promoter: promoted %d rules out of %d validated", promoted, len(rules))
+	promoted := 0
+	skippedDup := 0
+	for _, rule := range rules {
+		if !p.shouldPromote(rule) {
+			continue
+		}
+
+		if p.isDuplicateOfExisting(rule, existingPromoted) {
+			log.Infof("Promoter: skipping duplicate rule %d (%s/%s pattern=%q), already covered by promoted rules",
+				rule.ID, rule.DetectsValue, rule.Dimension, rule.Pattern)
+			_ = p.ruleFacade.UpdateStatus(ctx, rule.ID, "rejected")
+			skippedDup++
+			continue
+		}
+
+		if err := p.promote(ctx, rule); err != nil {
+			log.Errorf("Promoter: failed to promote rule %d: %v", rule.ID, err)
+			continue
+		}
+		existingPromoted = append(existingPromoted, rule)
+		promoted++
+	}
+
+	log.Infof("Promoter: promoted %d rules, skipped %d duplicates, out of %d validated",
+		promoted, skippedDup, len(rules))
 	return promoted, nil
 }
 
@@ -197,6 +217,79 @@ func (p *Promoter) retire(ctx context.Context, rule *model.IntentRule) error {
 		rule.FalsePositiveCount, rule.CorrectCount)
 
 	return p.ruleFacade.UpdateStatus(ctx, rule.ID, "retired")
+}
+
+// isDuplicateOfExisting checks if a candidate rule is semantically redundant
+// with an already-promoted rule (same detects_value + dimension and overlapping
+// regex pattern that would match the same inputs).
+func (p *Promoter) isDuplicateOfExisting(candidate *model.IntentRule, promoted []*model.IntentRule) bool {
+	candidateRe, err := regexp.Compile(candidate.Pattern)
+	if err != nil {
+		return false
+	}
+
+	for _, existing := range promoted {
+		if existing.DetectsValue != candidate.DetectsValue || existing.Dimension != candidate.Dimension {
+			continue
+		}
+
+		existingRe, err := regexp.Compile(existing.Pattern)
+		if err != nil {
+			continue
+		}
+
+		// Check mutual subsumption using the candidate's own derived_from workload UIDs
+		// as test corpus: if the existing rule matches everything the candidate matches,
+		// the candidate is redundant.
+		testStrings := extractPatternAlternatives(candidate.Pattern)
+		testStrings = append(testStrings, extractPatternAlternatives(existing.Pattern)...)
+
+		if len(testStrings) == 0 {
+			// Fallback: exact pattern match
+			if candidate.Pattern == existing.Pattern {
+				return true
+			}
+			continue
+		}
+
+		candidateMatches := 0
+		existingAlsoMatches := 0
+		for _, ts := range testStrings {
+			if candidateRe.MatchString(ts) {
+				candidateMatches++
+				if existingRe.MatchString(ts) {
+					existingAlsoMatches++
+				}
+			}
+		}
+
+		// If existing rule covers >=80% of what candidate matches, it's redundant
+		if candidateMatches > 0 && float64(existingAlsoMatches)/float64(candidateMatches) >= 0.8 {
+			return true
+		}
+	}
+	return false
+}
+
+// extractPatternAlternatives extracts literal alternatives from a regex pattern
+// e.g. `\b(foo|bar|baz)\b` -> ["foo", "bar", "baz"]
+func extractPatternAlternatives(pattern string) []string {
+	altRe := regexp.MustCompile(`\(([^()]+)\)`)
+	matches := altRe.FindAllStringSubmatch(pattern, -1)
+	var results []string
+	for _, m := range matches {
+		if len(m) > 1 {
+			parts := regexp.MustCompile(`\|`).Split(m[1], -1)
+			for _, part := range parts {
+				cleaned := regexp.MustCompile(`\\[bBwWdDsS]|[?+*^$\[\]]|\\.`).ReplaceAllString(part, "")
+				cleaned = regexp.MustCompile(`\[[-\]\\]+\]`).ReplaceAllString(cleaned, "-")
+				if len(cleaned) >= 3 {
+					results = append(results, cleaned)
+				}
+			}
+		}
+	}
+	return results
 }
 
 func (p *Promoter) parseBacktestResult(rule *model.IntentRule) *BacktestResult {

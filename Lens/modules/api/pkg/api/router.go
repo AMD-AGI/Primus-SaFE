@@ -775,5 +775,23 @@ func RegisterRouter(group *gin.RouterGroup) error {
 		}
 	}
 
+	// Workload Diagnostic endpoints - Unified (HTTP + MCP)
+	diagGroup := group.Group("/workload-diag")
+	{
+		diagGroup.GET("/:uid/profile", getUnifiedHandler("/workload-diag/:uid/profile"))
+		diagGroup.GET("/:uid/pods", getUnifiedHandler("/workload-diag/:uid/pods"))
+		diagGroup.GET("/:uid/pod-events", getUnifiedHandler("/workload-diag/:uid/pod-events"))
+		diagGroup.GET("/:uid/k8s-events", getUnifiedHandler("/workload-diag/:uid/k8s-events"))
+		diagGroup.GET("/:uid/gpu-utilization", getUnifiedHandler("/workload-diag/:uid/gpu-utilization"))
+		diagGroup.GET("/:uid/compute-metrics", getUnifiedHandler("/workload-diag/:uid/compute-metrics"))
+		diagGroup.GET("/:uid/network-metrics", getUnifiedHandler("/workload-diag/:uid/network-metrics"))
+		diagGroup.GET("/:uid/training-progress", getUnifiedHandler("/workload-diag/:uid/training-progress"))
+		diagGroup.GET("/:uid/code-snapshot", getUnifiedHandler("/workload-diag/:uid/code-snapshot"))
+		diagGroup.GET("/:uid/image-analysis", getUnifiedHandler("/workload-diag/:uid/image-analysis"))
+		diagGroup.GET("/:uid/evidence", getUnifiedHandler("/workload-diag/:uid/evidence"))
+		diagGroup.GET("/:uid/profiler-files", getUnifiedHandler("/workload-diag/:uid/profiler-files"))
+		diagGroup.GET("/:uid/k8s-spec", getUnifiedHandler("/workload-diag/:uid/k8s-spec"))
+	}
+
 	return nil
 }

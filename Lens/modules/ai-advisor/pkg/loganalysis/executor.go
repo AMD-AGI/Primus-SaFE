@@ -26,7 +26,7 @@ const (
 	// Check interval between executions (enforced via ext field)
 	defaultCheckInterval = 2 * time.Minute
 
-	// Maximum log lines to retrieve from OpenSearch per pod per execution
+	// Maximum log lines to retrieve from OpenSearch per workload per execution
 	maxLogLines = 3000
 
 	// Max unmatched samples to keep per workload
@@ -258,13 +258,25 @@ func (e *LogAnalysisExecutor) Execute(
 	return coreTask.RescheduleResult(updates), nil
 }
 
-// scanPodLogs reads recent logs from OpenSearch for the workload's pods
-// and returns lines containing training-metric keywords.
+// opensearchKeywords are the terms used in the OpenSearch query to pre-filter
+// log lines that are likely training metrics. OpenSearch handles the broad
+// filtering across ALL pods; the Go-side matchKeywords() then applies the
+// stricter 2-keyword requirement.
+var opensearchKeywords = []string{
+	"epoch", "iteration", "loss", "learning rate", "learning_rate",
+	"grad norm", "grad_norm", "throughput", "tflops",
+	"consumed samples", "consumed_samples", "tokens/s", "samples/s",
+}
+
+// scanPodLogs queries OpenSearch for recent logs across ALL pods of a workload,
+// using keyword-level filtering in the query itself so that OpenSearch returns
+// only lines likely to contain training metrics. This avoids the need to pick
+// a single "representative" pod and ensures metrics are found regardless of
+// which rank/pod outputs them.
 func (e *LogAnalysisExecutor) scanPodLogs(
 	ctx context.Context,
 	workloadUID string,
 ) ([]unmatchedLine, int, error) {
-	// Find pods for this workload (to get pod names for OpenSearch query)
 	pods, err := e.findWorkloadPods(ctx, workloadUID)
 	if err != nil {
 		return nil, 0, fmt.Errorf("find pods: %w", err)
@@ -273,37 +285,49 @@ func (e *LogAnalysisExecutor) scanPodLogs(
 		return nil, 0, nil
 	}
 
-	// Pick one representative pod (prefer master-0)
-	pod := e.selectRepresentativePod(pods)
-	log.Debugf("LogAnalysis: scanning OpenSearch for pod %s/%s (workload %s, %d pods total)",
-		pod.Namespace, pod.Name, workloadUID, len(pods))
+	podNames := make([]interface{}, 0, len(pods))
+	for _, p := range pods {
+		podNames = append(podNames, p.Name)
+	}
 
-	// Get OpenSearch client from StorageClientSet
+	log.Debugf("LogAnalysis: querying OpenSearch for workload %s across %d pods", workloadUID, len(podNames))
+
 	clusterClients := clientsets.GetClusterManager().GetCurrentClusterClients()
 	if clusterClients == nil || clusterClients.StorageClientSet == nil || clusterClients.StorageClientSet.OpenSearch == nil {
 		return nil, 0, fmt.Errorf("opensearch client not available")
 	}
 	osClient := clusterClients.StorageClientSet.OpenSearch
 
-	// Build OpenSearch query: filter by pod name, last 10 minutes, sorted by timestamp
+	// Build keyword should-clauses: a line must match at least one keyword
+	keywordClauses := make([]map[string]interface{}, 0, len(opensearchKeywords))
+	for _, kw := range opensearchKeywords {
+		keywordClauses = append(keywordClauses, map[string]interface{}{
+			"match_phrase": map[string]interface{}{"message": kw},
+		})
+	}
+
 	query := map[string]interface{}{
 		"query": map[string]interface{}{
 			"bool": map[string]interface{}{
-				"must": []map[string]interface{}{
-					{"match_phrase": map[string]interface{}{"kubernetes.pod_name": pod.Name}},
+				"filter": []map[string]interface{}{
+					{"terms": map[string]interface{}{"kubernetes.pod_name.keyword": podNames}},
 					{"range": map[string]interface{}{
-						"@timestamp": map[string]interface{}{
-							"gte": "now-10m",
-						},
+						"@timestamp": map[string]interface{}{"gte": "now-10m"},
+					}},
+				},
+				"must": []map[string]interface{}{
+					{"bool": map[string]interface{}{
+						"should":               keywordClauses,
+						"minimum_should_match": 1,
 					}},
 				},
 			},
 		},
 		"size": maxLogLines,
 		"sort": []map[string]interface{}{
-			{"@timestamp": map[string]interface{}{"order": "asc"}},
+			{"@timestamp": map[string]interface{}{"order": "desc"}},
 		},
-		"_source": []string{"log", "message", "log_processed"},
+		"_source": []string{"log", "message", "log_processed", "kubernetes.pod_name"},
 	}
 
 	queryJSON, err := json.Marshal(query)
@@ -326,25 +350,22 @@ func (e *LogAnalysisExecutor) scanPodLogs(
 		return nil, 0, fmt.Errorf("opensearch error (status %d): %s", resp.StatusCode, resp.String())
 	}
 
-	log.Infof("LogAnalysis: OpenSearch query for pod %s returned status %d", pod.Name, resp.StatusCode)
-
-	// Parse OpenSearch response
 	var result opensearchResponse
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return nil, 0, fmt.Errorf("decode opensearch response: %w", err)
 	}
 
-	totalScanned := len(result.Hits.Hits)
-	var keywordLines []unmatchedLine
+	totalHits := result.Hits.Total.Value
+	log.Infof("LogAnalysis: OpenSearch returned %d hits (total=%d) for workload %s (%d pods)",
+		len(result.Hits.Hits), totalHits, workloadUID, len(podNames))
 
+	var keywordLines []unmatchedLine
 	for _, hit := range result.Hits.Hits {
-		// Extract the log message from the hit
 		logMsg := e.extractLogMessage(hit.Source)
 		if logMsg == "" || len(logMsg) < 10 {
 			continue
 		}
 
-		// Check for training keyword matches
 		matchedKW := e.matchKeywords(logMsg)
 		if len(matchedKW) > 0 {
 			keywordLines = append(keywordLines, unmatchedLine{
@@ -355,7 +376,7 @@ func (e *LogAnalysisExecutor) scanPodLogs(
 		}
 	}
 
-	return keywordLines, totalScanned, nil
+	return keywordLines, len(result.Hits.Hits), nil
 }
 
 // opensearchResponse represents the search response from OpenSearch
@@ -446,16 +467,6 @@ func (e *LogAnalysisExecutor) findWorkloadPods(
 	}
 	log.Infof("LogAnalysis: found %d pod refs -> %d pods for workload %s", len(refs), len(pods), workloadUID)
 	return pods, nil
-}
-
-// selectRepresentativePod picks the best pod for log scanning (prefer master-0)
-func (e *LogAnalysisExecutor) selectRepresentativePod(pods []*model.GpuPods) *model.GpuPods {
-	for _, p := range pods {
-		if strings.HasSuffix(p.Name, "master-0") || strings.HasSuffix(p.Name, "-0") {
-			return p
-		}
-	}
-	return pods[0]
 }
 
 // patternProposal represents a proposed regex pattern for telemetry-processor
@@ -567,7 +578,7 @@ func (e *LogAnalysisExecutor) analyzeUnmatchedLines(
 // - Contains separator patterns like |, comma, or tab between fields
 func (e *LogAnalysisExecutor) isLikelyPerformanceLine(line string, keywords []string) bool {
 	// Count numeric key-value pairs (use .? to match both _ and space in compound keywords)
-	kvPattern := regexp.MustCompile(`(?i)(epoch|step|iteration|loss|lr|learning.?rate|grad.?norm|throughput|samples?.?per|tokens?.?per|tflops|mfu|(?:global.?)?batch.?size|consumed.?samples)\s*[=:]\s*[\d.eE+-]+`)
+	kvPattern := regexp.MustCompile(`(?i)(epoch|step|iteration|loss|lr|learning.?rate|grad.?norm|throughput|samples?.?per|tokens?.?per|tflops|mfu|(?:global.?)?batch.?size|consumed.?samples|elapsed.?time|avg.?loss|time|batch(?:es)?)\s*[=:]\s*[\d.eE+-]+`)
 	kvMatches := kvPattern.FindAllString(line, -1)
 
 	// If we have 3+ key-value pairs with numeric values, it's almost certainly a metric line
@@ -582,7 +593,8 @@ func (e *LogAnalysisExecutor) isLikelyPerformanceLine(line string, keywords []st
 	}
 
 	// Check for structured iteration output like "iteration 500/10000 | loss: 0.5"
-	iterPattern := regexp.MustCompile(`(?i)(?:iter(?:ation)?|step|epoch)\s*(?:\d+\s*/\s*\d+|\d+)`)
+	// Also handles bracket notation like "Epoch [500/10000]"
+	iterPattern := regexp.MustCompile(`(?i)(?:iter(?:ation)?|step|epoch)\s*\[?\s*\d+\s*/\s*\d+\s*\]?`)
 	if iterPattern.MatchString(line) && len(kvMatches) >= 1 {
 		return true
 	}
@@ -605,32 +617,36 @@ func (e *LogAnalysisExecutor) generateRegexForLine(line string, isMetric bool) s
 func (e *LogAnalysisExecutor) generatePerformanceRegex(line string) string {
 	// Map of keyword -> named group
 	fieldMap := map[string]string{
-		"epoch":             "Epoch",
-		"total_epochs":      "TotalEpochs",
-		"step":              "CurrentIteration",
-		"iteration":         "CurrentIteration",
-		"iter":              "CurrentIteration",
-		"loss":              "LmLoss",
-		"total_loss":        "TotalLoss",
-		"lm_loss":           "LmLoss",
-		"lr":                "LearningRate",
-		"learning_rate":     "LearningRate",
-		"learning rate":     "LearningRate",
-		"grad_norm":         "GradNorm",
-		"grad norm":         "GradNorm",
-		"throughput":        "SamplesPerSecond",
+		"epoch":              "Epoch",
+		"total_epochs":       "TotalEpochs",
+		"step":               "CurrentIteration",
+		"iteration":          "CurrentIteration",
+		"iter":               "CurrentIteration",
+		"loss":               "LmLoss",
+		"avg_loss":           "LmLoss",
+		"total_loss":         "TotalLoss",
+		"lm_loss":            "LmLoss",
+		"lr":                 "LearningRate",
+		"learning_rate":      "LearningRate",
+		"learning rate":      "LearningRate",
+		"grad_norm":          "GradNorm",
+		"grad norm":          "GradNorm",
+		"throughput":         "SamplesPerSecond",
 		"samples_per_second": "SamplesPerSecond",
 		"tokens_per_second":  "TokensPerSecond",
-		"tflops":            "TFLOPS",
-		"mfu":               "Mfu",
-		"batch_size":        "GlobalBatchSize",
-		"global_batch_size": "GlobalBatchSize",
-		"consumed_samples":  "ConsumedSamples",
+		"tflops":             "TFLOPS",
+		"mfu":                "Mfu",
+		"batch_size":         "GlobalBatchSize",
+		"global_batch_size":  "GlobalBatchSize",
+		"batches":            "GlobalBatchSize",
+		"consumed_samples":   "ConsumedSamples",
+		"elapsed_time":       "ElapsedTimePerIterationMS",
+		"time":               "ElapsedTimePerIterationMS",
 	}
 
 	// Try to find key=value or key: value patterns and build a regex
 	// Use [_\s] to handle both "batch_size" and "batch size" style keys
-	kvRe := regexp.MustCompile(`(?i)(epoch|total[_\s]epochs|step|iteration|iter|(?:total[_\s]|lm[_\s])?loss|lr|learning[_\s]rate|grad[_\s]norm|throughput|samples[_\s]per[_\s]second|tokens[_\s]per[_\s]second|tflops|mfu|(?:global[_\s])?batch[_\s]size|consumed[_\s]samples)\s*[=:]\s*([\d.eE+-]+)`)
+	kvRe := regexp.MustCompile(`(?i)(epoch|total[_\s]epochs|step|iteration|iter|(?:total[_\s]|lm[_\s]|avg[_\s])?loss|lr|learning[_\s]rate|grad[_\s]norm|throughput|samples[_\s]per[_\s]second|tokens[_\s]per[_\s]second|tflops|mfu|(?:global[_\s])?batch[_\s]size|batches|consumed[_\s]samples|elapsed[_\s]time|time)\s*[=:]\s*([\d.eE+-]+)`)
 
 	matches := kvRe.FindAllStringSubmatchIndex(line, -1)
 	if len(matches) < 2 {
