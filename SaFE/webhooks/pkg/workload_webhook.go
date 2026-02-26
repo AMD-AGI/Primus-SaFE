@@ -117,7 +117,7 @@ func (m *WorkloadMutator) mutateOnCreation(ctx context.Context, workload *v1.Wor
 	m.mutateMeta(ctx, workload, workspace)
 	m.mutateTTLSeconds(workload)
 	m.mutateCommon(ctx, nil, workload, workspace)
-	m.mutateWorkloadTimeout(workload, workspace)
+	m.mutateTimeout(workload, workspace)
 	return true
 }
 
@@ -588,7 +588,7 @@ func (m *WorkloadMutator) mutateStickNodes(ctx context.Context, workload *v1.Wor
 	}
 }
 
-func (m *WorkloadMutator) mutateWorkloadTimeout(workload *v1.Workload, workspace *v1.Workspace) bool {
+func (m *WorkloadMutator) mutateTimeout(workload *v1.Workload, workspace *v1.Workspace) bool {
 	if workspace == nil {
 		return false
 	}
