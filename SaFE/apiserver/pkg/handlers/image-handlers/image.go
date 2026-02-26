@@ -427,7 +427,7 @@ func (h *ImageHandler) getImportingLogs(c *gin.Context) (interface{}, error) {
 	}
 
 	// Query OpenSearch for logs by pod name prefix (job pod name = jobName + "-xxxxx")
-	opensearchClient := commonsearch.GetOpensearchClient("")
+	opensearchClient := commonsearch.GetAnyOpensearchClient()
 	if opensearchClient == nil {
 		return nil, commonerrors.NewInternalError("OpenSearch client is not available")
 	}
