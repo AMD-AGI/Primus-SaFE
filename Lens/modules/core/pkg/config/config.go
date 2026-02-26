@@ -26,7 +26,8 @@ type Config struct {
 	Netflow           *NetFlow            `json:"netflow" yaml:"netflow"`
 	Middleware        MiddlewareConfig    `json:"middleware" yaml:"middleware"`
 	AIGateway         *AIGatewayConfig    `json:"aiGateway" yaml:"aiGateway"`
-	MCP               *MCPConfig          `json:"mcp" yaml:"mcp"`
+	MCP               *MCPConfig           `json:"mcp" yaml:"mcp"`
+	DiagnosticMCP     *MCPConfig           `json:"diagnosticMcp" yaml:"diagnosticMcp"`
 	SnapshotStore     *SnapshotStoreConfig `json:"snapshotStore" yaml:"snapshotStore"`
 }
 
@@ -59,6 +60,27 @@ func (c *Config) GetMCPInstructions() string {
 		return ""
 	}
 	return c.MCP.Instructions
+}
+
+// IsDiagnosticMCPEnabled returns whether diagnostic MCP server is enabled
+func (c *Config) IsDiagnosticMCPEnabled() bool {
+	return c.DiagnosticMCP != nil && c.DiagnosticMCP.Enabled
+}
+
+// GetDiagnosticMCPBasePath returns the diagnostic MCP server base path, defaults to "/mcp-diag"
+func (c *Config) GetDiagnosticMCPBasePath() string {
+	if c.DiagnosticMCP == nil || c.DiagnosticMCP.BasePath == "" {
+		return "/mcp-diag"
+	}
+	return c.DiagnosticMCP.BasePath
+}
+
+// GetDiagnosticMCPInstructions returns the diagnostic MCP server instructions
+func (c *Config) GetDiagnosticMCPInstructions() string {
+	if c.DiagnosticMCP == nil {
+		return ""
+	}
+	return c.DiagnosticMCP.Instructions
 }
 
 type ControllerConfig struct {

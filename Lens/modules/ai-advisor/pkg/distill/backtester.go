@@ -11,6 +11,7 @@ import (
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database/model"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/sql"
 )
 
 // BacktestResult contains metrics from backtesting a candidate rule
@@ -32,6 +33,7 @@ type Backtester struct {
 	detectionFacade database.WorkloadDetectionFacadeInterface
 	evidenceFacade  database.WorkloadDetectionEvidenceFacadeInterface
 	ruleFacade      database.IntentRuleFacadeInterface
+	snapshotFacade  database.WorkloadCodeSnapshotFacadeInterface
 }
 
 // NewBacktester creates a new Backtester
@@ -40,6 +42,7 @@ func NewBacktester() *Backtester {
 		detectionFacade: database.NewWorkloadDetectionFacade(),
 		evidenceFacade:  database.NewWorkloadDetectionEvidenceFacade(),
 		ruleFacade:      database.NewIntentRuleFacade(),
+		snapshotFacade:  database.NewWorkloadCodeSnapshotFacade(),
 	}
 }
 
@@ -137,14 +140,16 @@ func (b *Backtester) BacktestAndUpdate(ctx context.Context, ruleID int64) error 
 
 	// Transition status based on results
 	if rule.Status == "proposed" && result.SampleCount >= 10 {
-		if result.Precision >= 0.90 && result.Recall >= 0.30 {
+		hasMatches := result.TP+result.FP > 0
+		if hasMatches && result.Precision >= 0.90 && result.Recall >= 0.10 {
 			log.Infof("Backtester: rule %d validated (P=%.2f, R=%.2f, F1=%.2f)",
 				ruleID, result.Precision, result.Recall, result.F1)
 			return b.ruleFacade.UpdateStatus(ctx, ruleID, "validated")
-		} else if result.Precision < 0.50 {
+		} else if hasMatches && result.Precision < 0.50 {
 			log.Infof("Backtester: rule %d rejected (P=%.2f too low)", ruleID, result.Precision)
 			return b.ruleFacade.UpdateStatus(ctx, ruleID, "rejected")
 		} else {
+			// No matches yet (evidence not found) or moderate precision -> keep testing
 			return b.ruleFacade.UpdateStatus(ctx, ruleID, "testing")
 		}
 	}
@@ -179,14 +184,14 @@ func (b *Backtester) BacktestAll(ctx context.Context) (int, error) {
 }
 
 // getMatchValue extracts the value to match against based on the rule dimension.
-// It queries detection evidence for the workload and concatenates relevant data.
+// It queries detection evidence and supplementary tables (gpu_pods, workload_code_snapshot)
+// to build a comprehensive match target for backtesting.
 func (b *Backtester) getMatchValue(ctx context.Context, det *model.WorkloadDetection, dimension string) string {
 	evidences, err := b.evidenceFacade.ListEvidenceByWorkload(ctx, det.WorkloadUID)
-	if err != nil || len(evidences) == 0 {
-		return ""
+	if err != nil {
+		evidences = nil
 	}
 
-	// Concatenate all evidence data for the matching dimension
 	var parts []string
 	for _, ev := range evidences {
 		if ev.Evidence == nil {
@@ -214,10 +219,25 @@ func (b *Backtester) getMatchValue(ctx context.Context, det *model.WorkloadDetec
 			if img, ok := raw["image"].(string); ok {
 				parts = append(parts, img)
 			}
+			if img, ok := raw["image_name"].(string); ok {
+				tag, _ := raw["image_tag"].(string)
+				if tag != "" {
+					parts = append(parts, img+":"+tag)
+				} else {
+					parts = append(parts, img)
+				}
+			}
 		case "env_key":
 			if envMap, ok := raw["env"].(map[string]interface{}); ok {
 				for k := range envMap {
 					parts = append(parts, k)
+				}
+			}
+			if envKeys, ok := raw["env_keys"].([]interface{}); ok {
+				for _, k := range envKeys {
+					if s, ok := k.(string); ok {
+						parts = append(parts, s)
+					}
 				}
 			}
 		case "env_value":
@@ -249,10 +269,25 @@ func (b *Backtester) getMatchValue(ctx context.Context, det *model.WorkloadDetec
 		}
 	}
 
+	// Enrich from supplementary tables when evidence records are sparse
+	switch dimension {
+	case "image":
+		if img := b.getWorkloadImage(ctx, det.WorkloadUID); img != "" {
+			parts = append(parts, img)
+		}
+	case "pip":
+		if pip := b.getWorkloadPipFreeze(ctx, det.WorkloadUID); pip != "" {
+			parts = append(parts, pip)
+		}
+	case "env_key", "env_value":
+		if envParts := b.getWorkloadEnv(ctx, det.WorkloadUID, dimension); len(envParts) > 0 {
+			parts = append(parts, envParts...)
+		}
+	}
+
 	if len(parts) == 0 {
 		return ""
 	}
-	// Join all parts with newline for regex matching
 	result := ""
 	for i, p := range parts {
 		if i > 0 {
@@ -261,6 +296,76 @@ func (b *Backtester) getMatchValue(ctx context.Context, det *model.WorkloadDetec
 		result += p
 	}
 	return result
+}
+
+// getWorkloadImage fetches the container image from gpu_pods via workload_pod_reference
+func (b *Backtester) getWorkloadImage(ctx context.Context, workloadUID string) string {
+	db := sql.GetDefaultDB()
+	if db == nil {
+		return ""
+	}
+	var image string
+	err := db.WithContext(ctx).
+		Raw(`SELECT DISTINCT gp.container_image
+			FROM workload_pod_reference wpr
+			JOIN gpu_pods gp ON gp.uid = wpr.pod_uid
+			WHERE wpr.workload_uid = ? AND gp.container_image IS NOT NULL AND gp.container_image != ''
+			LIMIT 1`, workloadUID).
+		Scan(&image).Error
+	if err != nil || image == "" {
+		return ""
+	}
+	return image
+}
+
+// getWorkloadPipFreeze fetches pip_freeze from workload_code_snapshot
+func (b *Backtester) getWorkloadPipFreeze(ctx context.Context, workloadUID string) string {
+	snap, err := b.snapshotFacade.GetByWorkloadUID(ctx, workloadUID)
+	if err != nil || snap == nil {
+		return ""
+	}
+	return snap.PipFreeze
+}
+
+// getWorkloadEnv fetches env variables from pod_snapshot spec JSONB
+func (b *Backtester) getWorkloadEnv(ctx context.Context, workloadUID string, dimension string) []string {
+	db := sql.GetDefaultDB()
+	if db == nil {
+		return nil
+	}
+
+	// Extract env from pod_snapshot.spec -> containers[*].env[*]
+	var envJSON string
+	err := db.WithContext(ctx).
+		Raw(`SELECT jsonb_agg(e)::text
+			FROM workload_pod_reference wpr
+			JOIN pod_snapshot ps ON ps.pod_uid = wpr.pod_uid
+			CROSS JOIN LATERAL jsonb_array_elements(ps.spec->'containers') c
+			CROSS JOIN LATERAL jsonb_array_elements(c->'env') e
+			WHERE wpr.workload_uid = ?
+			LIMIT 200`, workloadUID).
+		Scan(&envJSON).Error
+	if err != nil || envJSON == "" || envJSON == "null" {
+		return nil
+	}
+
+	var envEntries []struct {
+		Name  string `json:"name"`
+		Value string `json:"value"`
+	}
+	if json.Unmarshal([]byte(envJSON), &envEntries) != nil {
+		return nil
+	}
+
+	var parts []string
+	for _, e := range envEntries {
+		if dimension == "env_key" {
+			parts = append(parts, e.Name)
+		} else {
+			parts = append(parts, e.Value)
+		}
+	}
+	return parts
 }
 
 // getGroundTruth extracts the confirmed ground truth for a field

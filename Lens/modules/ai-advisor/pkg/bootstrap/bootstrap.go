@@ -196,7 +196,7 @@ func Bootstrap(ctx context.Context) error {
 		}
 		aiGatewayURL := os.Getenv("AI_GATEWAY_URL")
 		if aiGatewayURL == "" {
-			aiGatewayURL = "http://primus-lens-ai-gateway:8080/api/v1"
+			aiGatewayURL = "http://ai-gateway:8003/v1"
 		}
 		podProber := common.NewPodProber(metadata.GetCollector())
 
@@ -465,7 +465,7 @@ func registerIntentAnalyzerAgent(ctx context.Context, aiGatewayURL string, insta
 
 	endpoint := os.Getenv("AI_ADVISOR_ENDPOINT")
 	if endpoint == "" {
-		endpoint = "http://primus-lens-ai-advisor:8080"
+		endpoint = "http://ai-advisor:8080"
 	}
 
 	reg := &aigateway.AgentRegistration{
@@ -555,8 +555,8 @@ func triggerDistillation(ctx context.Context, gwClient *aigateway.Client) {
 	facade := database.NewWorkloadDetectionFacade()
 
 	categories := []string{
-		"training", "fine_tuning", "inference", "evaluation",
-		"data_processing", "benchmark",
+		"pre_training", "fine_tuning", "inference", "evaluation",
+		"data_processing", "benchmark", "serving", "interactive_development",
 	}
 
 	for _, category := range categories {
