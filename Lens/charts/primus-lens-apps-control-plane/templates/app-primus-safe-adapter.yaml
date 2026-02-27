@@ -67,6 +67,7 @@ spec:
     metadata:
       labels:
         app: primus-safe-adapter
+        primus-safe-app-name: primus-safe-adapter
         {{- include "lens.selectorLabels" . | nindent 8 }}
     spec:
       serviceAccountName: {{ include "lens.serviceAccountName" . }}
