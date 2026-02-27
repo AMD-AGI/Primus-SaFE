@@ -42,7 +42,8 @@ type WorkloadTaskFacadeInterface interface {
 	ReleaseLock(ctx context.Context, workloadUID, taskType, lockOwner string) error
 	ReleaseStaleLocks(ctx context.Context) (int64, error)
 	
-	// Cleanup
+	// Maintenance
+	TrimCompletedTaskExt(ctx context.Context, workloadUID, taskType string) error
 	CleanupOldTasks(ctx context.Context, retentionDays int) (int64, error)
 }
 
@@ -302,6 +303,37 @@ func (f *WorkloadTaskFacade) CleanupOldTasks(ctx context.Context, retentionDays 
 		Delete(&model.WorkloadTaskState{})
 	
 	return result.RowsAffected, result.Error
+}
+
+// TrimCompletedTaskExt trims large intermediate data from ext for completed tasks.
+// This removes bulky fields (like LLM results, eval results, error traces) that are
+// no longer needed after task completion, reducing row size and dead tuple pressure.
+// Only the essential summary fields are preserved.
+func (f *WorkloadTaskFacade) TrimCompletedTaskExt(ctx context.Context, workloadUID, taskType string) error {
+	// Fields to remove from ext after completion.
+	// These are large intermediate data that bloat the JSONB column.
+	fieldsToRemove := []string{
+		"llm_result",
+		"eval_result",
+		"raw_evidence",
+		"unmatched_samples",
+		"detection_frameworks",
+		"error",
+		"stack_trace",
+	}
+
+	// Build JSONB removal expression: ext - 'key1' - 'key2' - ...
+	expr := "ext"
+	args := make([]interface{}, 0, len(fieldsToRemove))
+	for _, field := range fieldsToRemove {
+		expr += " - ?"
+		args = append(args, field)
+	}
+
+	return f.getDB().WithContext(ctx).
+		Model(&model.WorkloadTaskState{}).
+		Where("workload_uid = ? AND task_type = ?", workloadUID, taskType).
+		Update("ext", gorm.Expr(expr, args...)).Error
 }
 
 // ============================================================================

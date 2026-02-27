@@ -89,6 +89,16 @@ type FacadeInterface interface {
 	GetNotificationChannel() NotificationChannelFacadeInterface
 	// GetPodRunningPeriods returns the PodRunningPeriods Facade interface
 	GetPodRunningPeriods() PodRunningPeriodsFacadeInterface
+	// GetWorkloadCodeSnapshot returns the WorkloadCodeSnapshot Facade interface
+	GetWorkloadCodeSnapshot() WorkloadCodeSnapshotFacadeInterface
+	// GetImageRegistryCache returns the ImageRegistryCache Facade interface
+	GetImageRegistryCache() ImageRegistryCacheFacadeInterface
+	// GetIntentRule returns the IntentRule Facade interface
+	GetIntentRule() IntentRuleFacadeInterface
+	// GetWorkloadResource returns the WorkloadResource Facade interface
+	GetWorkloadResource() WorkloadResourceFacadeInterface
+	// GetProfilerFile returns the ProfilerFile Facade interface
+	GetProfilerFile() ProfilerFileFacadeInterface
 	// WithCluster returns a new Facade instance using the specified cluster
 	WithCluster(clusterName string) FacadeInterface
 }
@@ -137,6 +147,11 @@ type Facade struct {
 	CommitImpactAnalysis      CommitImpactAnalysisFacadeInterface
 	NotificationChannel       NotificationChannelFacadeInterface
 	PodRunningPeriods         PodRunningPeriodsFacadeInterface
+	WorkloadCodeSnapshot     WorkloadCodeSnapshotFacadeInterface
+	ImageRegistryCache       ImageRegistryCacheFacadeInterface
+	IntentRule               IntentRuleFacadeInterface
+	WorkloadResource         WorkloadResourceFacadeInterface
+	ProfilerFile             ProfilerFileFacadeInterface
 }
 
 // NewFacade creates a new Facade instance
@@ -184,6 +199,11 @@ func NewFacade() *Facade {
 		CommitImpactAnalysis:      NewCommitImpactAnalysisFacade(),
 		NotificationChannel:       NewNotificationChannelFacade(),
 		PodRunningPeriods:         NewPodRunningPeriodsFacade(),
+		WorkloadCodeSnapshot:     NewWorkloadCodeSnapshotFacade(),
+		ImageRegistryCache:       NewImageRegistryCacheFacade(),
+		IntentRule:               NewIntentRuleFacade(),
+		WorkloadResource:         NewWorkloadResourceFacade(),
+		ProfilerFile:             NewProfilerFileFacade(),
 	}
 }
 
@@ -397,6 +417,31 @@ func (f *Facade) GetPodRunningPeriods() PodRunningPeriodsFacadeInterface {
 	return f.PodRunningPeriods
 }
 
+// GetWorkloadCodeSnapshot returns the WorkloadCodeSnapshot Facade interface
+func (f *Facade) GetWorkloadCodeSnapshot() WorkloadCodeSnapshotFacadeInterface {
+	return f.WorkloadCodeSnapshot
+}
+
+// GetImageRegistryCache returns the ImageRegistryCache Facade interface
+func (f *Facade) GetImageRegistryCache() ImageRegistryCacheFacadeInterface {
+	return f.ImageRegistryCache
+}
+
+// GetIntentRule returns the IntentRule Facade interface
+func (f *Facade) GetIntentRule() IntentRuleFacadeInterface {
+	return f.IntentRule
+}
+
+// GetWorkloadResource returns the WorkloadResource Facade interface
+func (f *Facade) GetWorkloadResource() WorkloadResourceFacadeInterface {
+	return f.WorkloadResource
+}
+
+// GetProfilerFile returns the ProfilerFile Facade interface
+func (f *Facade) GetProfilerFile() ProfilerFileFacadeInterface {
+	return f.ProfilerFile
+}
+
 // WithCluster returns a new Facade instance, all sub-Facades use the specified cluster
 func (f *Facade) WithCluster(clusterName string) FacadeInterface {
 	return &Facade{
@@ -442,6 +487,11 @@ func (f *Facade) WithCluster(clusterName string) FacadeInterface {
 		CommitImpactAnalysis:      f.CommitImpactAnalysis.WithCluster(clusterName),
 		NotificationChannel:       f.NotificationChannel.WithCluster(clusterName),
 		PodRunningPeriods:         f.PodRunningPeriods.WithCluster(clusterName),
+		WorkloadCodeSnapshot:     f.WorkloadCodeSnapshot.WithCluster(clusterName),
+		ImageRegistryCache:       f.ImageRegistryCache.WithCluster(clusterName),
+		IntentRule:               f.IntentRule.WithCluster(clusterName),
+		WorkloadResource:         f.WorkloadResource.WithCluster(clusterName),
+		ProfilerFile:             f.ProfilerFile.WithCluster(clusterName),
 	}
 }
 

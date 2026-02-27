@@ -61,3 +61,15 @@ type ListContextLogRequest struct {
 	// Input the specified document ID to retrieve the log context of that document.
 	DocId string
 }
+
+// DownloadWorkloadLogRequest is the request for getting workload log download URL.
+type DownloadWorkloadLogRequest struct {
+	// Timeout in seconds for waiting job completion, default 900 (15 minutes)
+	TimeoutSecond int `json:"timeoutSecond,omitempty"`
+}
+
+// DownloadWorkloadLogResponse is the response containing the S3 presigned URL for downloading logs.
+type DownloadWorkloadLogResponse struct {
+	// The S3 presigned URL to download the log file
+	DownloadURL string `json:"downloadUrl"`
+}

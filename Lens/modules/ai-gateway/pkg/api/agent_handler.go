@@ -26,7 +26,7 @@ func NewAgentHandler(registry airegistry.Registry) *AgentHandler {
 // RegisterRequest represents the agent registration request
 type RegisterRequest struct {
 	Name            string            `json:"name" binding:"required"`
-	Endpoint        string            `json:"endpoint" binding:"required"`
+	Endpoint        string            `json:"endpoint"`
 	Topics          []string          `json:"topics" binding:"required"`
 	HealthCheckPath string            `json:"health_check_path"`
 	TimeoutSecs     int               `json:"timeout_secs"`

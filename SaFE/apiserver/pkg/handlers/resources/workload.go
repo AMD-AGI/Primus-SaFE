@@ -1263,6 +1263,7 @@ func (h *Handler) cvtDBWorkloadToGetResponse(ctx context.Context,
 		WorkloadResponseItem: h.cvtDBWorkloadToResponseItem(ctx, dbWorkload),
 		IsSupervised:         dbWorkload.IsSupervised,
 		StickyNodes:          dbWorkload.IsStickyNodes,
+		Privileged:           dbWorkload.IsPrivileged,
 	}
 	result.Images = cvtToWorkloadImages(dbWorkload, len(result.Resources))
 	if result.GroupVersionKind.Kind != common.AuthoringKind {
@@ -1426,6 +1427,9 @@ func cvtDBWorkloadToAdminWorkload(dbWorkload *dbclient.Workload) *v1.Workload {
 	result.Spec.EntryPoints = cvtToWorkloadEntryPoints(dbWorkload, len(result.Spec.Resources))
 	if dbWorkload.IsStickyNodes {
 		v1.SetAnnotation(result, v1.WorkloadStickyNodesAnnotation, v1.TrueStr)
+	}
+	if dbWorkload.IsPrivileged {
+		v1.SetAnnotation(result, v1.WorkloadPrivilegedAnnotation, v1.TrueStr)
 	}
 
 	if str := dbutils.ParseNullString(dbWorkload.Env); str != "" {

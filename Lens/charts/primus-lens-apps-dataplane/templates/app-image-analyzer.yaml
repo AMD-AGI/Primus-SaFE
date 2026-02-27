@@ -1,0 +1,104 @@
+{{- if .Values.apps.imageAnalyzer.enabled }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "lens.fullname" . }}-image-analyzer-config
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "lens.labels" . | nindent 4 }}
+    app: image-analyzer
+    component: ai-services
+data:
+  config.yaml: |
+    httpPort: {{ .Values.apps.imageAnalyzer.httpPort | default 8092 }}
+    multiCluster: false
+    loadK8SClient: true
+    loadStorageClient: true
+    middleware:
+      enableLogging: false
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "lens.fullname" . }}-image-analyzer
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "lens.labels" . | nindent 4 }}
+    app: image-analyzer
+    component: ai-services
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: {{ .Values.apps.imageAnalyzer.httpPort | default 8092 }}
+      targetPort: {{ .Values.apps.imageAnalyzer.httpPort | default 8092 }}
+      protocol: TCP
+    - name: health
+      port: {{ .Values.apps.imageAnalyzer.healthPort | default 8093 }}
+      targetPort: {{ .Values.apps.imageAnalyzer.healthPort | default 8093 }}
+      protocol: TCP
+  selector:
+    {{- include "lens.selectorLabels" . | nindent 4 }}
+    app: image-analyzer
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "lens.fullname" . }}-image-analyzer
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "lens.labels" . | nindent 4 }}
+    app: image-analyzer
+    component: ai-services
+spec:
+  replicas: {{ .Values.apps.imageAnalyzer.replicas | default 1 }}
+  selector:
+    matchLabels:
+      {{- include "lens.selectorLabels" . | nindent 6 }}
+      app: image-analyzer
+  template:
+    metadata:
+      labels:
+        {{- include "lens.selectorLabels" . | nindent 8 }}
+        app: image-analyzer
+        component: ai-services
+    spec:
+      serviceAccountName: {{ include "lens.serviceAccountName" . }}
+      {{- if .Values.global.imageRegistry.pullSecret }}
+      imagePullSecrets:
+        - name: {{ .Values.global.imageRegistry.pullSecret }}
+      {{- end }}
+      containers:
+        - name: image-analyzer
+          image: "{{ .Values.global.imageRegistry.url }}/{{ .Values.apps.imageAnalyzer.image }}"
+          imagePullPolicy: {{ .Values.global.imageRegistry.pullPolicy | default "IfNotPresent" }}
+          env:
+            - name: CONFIG_PATH
+              value: /etc/image-analyzer/config.yaml
+            - name: LOG_LEVEL
+              value: {{ .Values.apps.imageAnalyzer.logLevel | default "info" }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.apps.imageAnalyzer.httpPort | default 8092 }}
+              protocol: TCP
+            - name: health
+              containerPort: {{ .Values.apps.imageAnalyzer.healthPort | default 8093 }}
+              protocol: TCP
+          volumeMounts:
+            - name: config-volume
+              mountPath: /etc/image-analyzer/config.yaml
+              subPath: config.yaml
+          resources:
+            {{- toYaml .Values.apps.imageAnalyzer.resources | nindent 12 }}
+      volumes:
+        - name: config-volume
+          configMap:
+            name: {{ include "lens.fullname" . }}-image-analyzer-config
+            items:
+              - key: config.yaml
+                path: config.yaml
+      restartPolicy: Always
+{{- end }}
