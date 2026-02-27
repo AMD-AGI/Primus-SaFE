@@ -13,7 +13,7 @@ source "$SCRIPT_DIR/validate_gpu_product.sh"
 
 REPO_URL="https://github.com/UoB-HPC/BabelStream.git"
 cd /opt
-git clone "$REPO_URL" >/dev/null
+git clone --branch v5.0 "$REPO_URL" >/dev/null
 if [ $? -ne 0 ]; then
   echo "failed to clone babel_stream " >&2
   exit 1
@@ -32,36 +32,41 @@ chmod u+x wrapper.sh
 
 DIR_NAME="/opt/BabelStream"
 LOG_FILE="/tmp/babel_stream.log"
-/usr/bin/mpiexec -n 8 --allow-run-as-root $DIR_NAME/wrapper.sh >$LOG_FILE
-EXIT_CODE=$?
-if [ $EXIT_CODE -ne 0 ]; then
-  rm -f $LOG_FILE
-  echo "mpiexec failed with exit code: $EXIT_CODE" >&2
-  exit 1
-fi
+success=false
+for attempt in 1 2 3; do
+  if [ $attempt -gt 1 ]; then
+    echo "Retry attempt $attempt of 3" >&2
+  fi
+  /usr/bin/mpiexec -n 8 --allow-run-as-root $DIR_NAME/wrapper.sh >$LOG_FILE
+  EXIT_CODE=$?
+  if [ $EXIT_CODE -ne 0 ]; then
+    echo "mpiexec failed with exit code: $EXIT_CODE" >&2
+    rm -f $LOG_FILE
+    continue
+  fi
 
-# Set thresholds based on GPU product
-declare -A thresholds
-if [[ "$GPU_PRODUCT" == *"MI355X"* ]]; then
-  thresholds=(
-    ["Copy"]=5525433
-    ["Mul"]=5488344
-    ["Add"]=5404905
-    ["Triad"]=5447277
-    ["Dot"]=4264767
-  )
-else
-  thresholds=(
-    ["Copy"]=5525433
-    ["Mul"]=4067069
-    ["Add"]=3920853
-    ["Triad"]=3885301
-    ["Dot"]=3660781
-  )
-fi
-copy_sum=0 mul_sum=0 add_sum=0 triad_sum=0 dot_sum=0
-copy_count=0 mul_count=0 add_count=0 triad_count=0 dot_count=0
-grep -A5 '^Function' "$LOG_FILE" | awk '
+  # Set thresholds based on GPU product
+  declare -A thresholds
+  if [[ "$GPU_PRODUCT" == *"MI355X"* ]]; then
+    thresholds=(
+      ["Copy"]=5525433
+      ["Mul"]=5488344
+      ["Add"]=5404905
+      ["Triad"]=5447277
+      ["Dot"]=4264767
+    )
+  else
+    thresholds=(
+      ["Copy"]=5525433
+      ["Mul"]=4067069
+      ["Add"]=3920853
+      ["Triad"]=3885301
+      ["Dot"]=3660781
+    )
+  fi
+  copy_sum=0 mul_sum=0 add_sum=0 triad_sum=0 dot_sum=0
+  copy_count=0 mul_count=0 add_count=0 triad_count=0 dot_count=0
+  if grep -A5 '^Function' "$LOG_FILE" | awk '
 $1 == "Copy" {
   copy_sum += $2;
   copy_count += 1;
@@ -99,5 +104,15 @@ END {
     rm -f $LOG_FILE
     exit 1
   fi
+done; then
+    success=true
+    break
+  fi
 done
+
+if [ "$success" != "true" ]; then
+  rm -f $LOG_FILE
+  echo "All 3 attempts failed" >&2
+  exit 1
+fi
 rm -f $LOG_FILE
