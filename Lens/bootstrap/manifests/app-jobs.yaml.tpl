@@ -44,6 +44,7 @@ spec:
         prometheus.io/path: "/metrics"
       labels:
         app: primus-lens-jobs
+        primus-lens-app-name: jobs
     spec:
       containers:
         - name: app

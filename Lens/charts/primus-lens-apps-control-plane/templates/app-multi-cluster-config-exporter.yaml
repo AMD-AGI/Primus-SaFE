@@ -39,6 +39,7 @@ spec:
         prometheus.io/path: "/metrics"
       labels:
         app: {{ include "lens.fullname" . }}-multi-cluster-config-exporter
+        primus-lens-app-name: multi-cluster-config-exporter
         {{- include "lens.selectorLabels" . | nindent 8 }}
     spec:
       serviceAccountName: {{ include "lens.serviceAccountName" . }}

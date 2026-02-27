@@ -43,6 +43,7 @@ spec:
         prometheus.io/path: "/metrics"
       labels:
         app: {{ include "lens.fullname" . }}-telemetry-processor
+        primus-lens-app-name: telemetry-processor
         {{- include "lens.selectorLabels" . | nindent 8 }}
     spec:
       serviceAccountName: {{ include "lens.serviceAccountName" . }}

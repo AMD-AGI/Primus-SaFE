@@ -36,6 +36,7 @@ spec:
         prometheus.io/path: "/metrics"
       labels:
         app: primus-lens-telemetry-processor
+        primus-lens-app-name: telemetry-processor
     spec:
       containers:
         - name: app

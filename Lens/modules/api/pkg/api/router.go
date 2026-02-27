@@ -113,6 +113,9 @@ func RegisterRouter(group *gin.RouterGroup) error {
 		storageGroup.GET("stat", getUnifiedHandler("/storage/stat"))
 	}
 
+	// Components probe (kube-system + Primus-SaFE + Primus-Lens) for external agents
+	group.GET("components/probe", getUnifiedHandler("/components/probe"))
+
 	// Alert Silence management routes - Unified (HTTP + MCP)
 	alertSilenceGroup := group.Group("/alert-silences")
 	{

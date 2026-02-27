@@ -5,6 +5,8 @@ package api
 
 import (
 	"testing"
+
+	dbModel "github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database/model"
 )
 
 // TestWorkloadProfileEndpoints validates the full intent analysis flow
@@ -34,12 +36,12 @@ func TestConvertDetectionToProfile_FullFields(t *testing.T) {
 
 	det := &dbModel.WorkloadDetection{
 		WorkloadUID:        "test-uid-001",
-		Framework:          &framework,
-		Frameworks:         &frameworks,
-		WorkloadType:       &workloadType,
-		WrapperFramework:   &wrapperFW,
-		BaseFramework:      &baseFW,
-		Confidence:         &confidence,
+		Framework:          framework,
+		Frameworks:         dbModel.ExtJSON([]byte(frameworks)),
+		WorkloadType:       workloadType,
+		WrapperFramework:   wrapperFW,
+		BaseFramework:      baseFW,
+		Confidence:         confidence,
 		Category:           &category,
 		ExpectedBehavior:   &expectedBehavior,
 		ModelPath:          &modelPath,
@@ -104,7 +106,7 @@ func TestConvertDetectionToProfile_MinimalFields(t *testing.T) {
 
 	det := &dbModel.WorkloadDetection{
 		WorkloadUID: "test-uid-002",
-		Framework:   &framework,
+		Framework:   framework,
 		IntentState: &intentState,
 	}
 
@@ -148,9 +150,9 @@ func TestConvertDetectionToProfile_InferenceWorkload(t *testing.T) {
 
 	det := &dbModel.WorkloadDetection{
 		WorkloadUID:        "test-uid-003",
-		Framework:          &framework,
-		WorkloadType:       &workloadType,
-		Confidence:         &confidence,
+		Framework:          framework,
+		WorkloadType:       workloadType,
+		Confidence:         confidence,
 		Category:           &category,
 		ModelPath:          &modelPath,
 		ModelFamily:        &modelFamily,

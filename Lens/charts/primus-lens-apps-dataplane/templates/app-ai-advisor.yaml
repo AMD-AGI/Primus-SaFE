@@ -64,6 +64,7 @@ spec:
       labels:
         {{- include "lens.selectorLabels" . | nindent 8 }}
         app: ai-advisor
+        primus-lens-app-name: ai-advisor
         component: ai-services
       annotations:
         prometheus.io/scrape: "true"
