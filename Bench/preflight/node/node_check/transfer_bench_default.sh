@@ -105,7 +105,7 @@ for attempt in $(seq 1 $max_retries); do
     THRESH_2=54.9
     THRESH_3_GPU00=36.9
     THRESH_3_GPU01=44.8
-    THRESH_4=1459
+    THRESH_4=1220
     THRESH_5=10
     THRESH_6=55.8
   else
