@@ -57,6 +57,7 @@ spec:
         prometheus.io/path: "/v1/metrics"
       labels:
         app: {{ include "lens.fullname" . }}-node-exporter
+        primus-lens-app-name: node-exporter
         {{- include "lens.selectorLabels" . | nindent 8 }}
     spec:
       serviceAccountName: {{ include "lens.serviceAccountName" . }}
