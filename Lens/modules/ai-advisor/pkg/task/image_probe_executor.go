@@ -148,12 +148,25 @@ func (e *ImageProbeExecutor) getImageInfo(ctx context.Context, workloadUID strin
 		}
 	}
 
-	// Try 2: Get from pod info via pod prober
+	// Try 2: Get from pod info via pod prober (reads GpuPods.ContainerImage)
 	pod, err := e.podProber.SelectTargetPod(ctx, workloadUID)
-	if err == nil && pod != nil {
-		// GpuPods might have image info in ext or other fields
-		// For now, return empty as GpuPods model doesn't have direct image field
-		// In production, this would query container info from K8s API
+	if err == nil && pod != nil && pod.ContainerImage != "" {
+		log.Infof("Image probe: found container image from pod %s for workload %s: %s",
+			pod.Name, workloadUID, pod.ContainerImage)
+		return e.parseImageNameAndTag(pod.ContainerImage)
+	}
+
+	// Try 3: Query gpu_pods directly for all pods of this workload
+	podFacade := database.GetFacade().GetPod()
+	pods, podErr := podFacade.GetRunningPodsByOwnerUID(ctx, workloadUID)
+	if podErr == nil {
+		for _, p := range pods {
+			if p.ContainerImage != "" {
+				log.Infof("Image probe: found container image from gpu_pods for workload %s: %s",
+					workloadUID, p.ContainerImage)
+				return e.parseImageNameAndTag(p.ContainerImage)
+			}
+		}
 	}
 
 	return "", ""

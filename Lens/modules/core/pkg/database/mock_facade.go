@@ -74,7 +74,12 @@ func (m *MockFacade) GetCommitImpactAnalysis() CommitImpactAnalysisFacadeInterfa
 	return nil
 }
 func (m *MockFacade) GetNotificationChannel() NotificationChannelFacadeInterface { return nil }
-func (m *MockFacade) GetPodRunningPeriods() PodRunningPeriodsFacadeInterface     { return nil }
+func (m *MockFacade) GetPodRunningPeriods() PodRunningPeriodsFacadeInterface         { return nil }
+func (m *MockFacade) GetWorkloadCodeSnapshot() WorkloadCodeSnapshotFacadeInterface  { return nil }
+func (m *MockFacade) GetImageRegistryCache() ImageRegistryCacheFacadeInterface      { return nil }
+func (m *MockFacade) GetIntentRule() IntentRuleFacadeInterface                      { return nil }
+func (m *MockFacade) GetWorkloadResource() WorkloadResourceFacadeInterface          { return nil }
+func (m *MockFacade) GetProfilerFile() ProfilerFileFacadeInterface                  { return nil }
 
 func (m *MockFacade) GetGpuUsageWeeklyReport() GpuUsageWeeklyReportFacadeInterface {
 	return m.GpuUsageWeeklyReportMock

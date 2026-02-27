@@ -74,6 +74,7 @@ data:
     alter table workload add column if not exists images TEXT;
     alter table workload add column if not exists entrypoints TEXT;
     alter table workload add column if not exists is_sticky_nodes boolean default false;
+    alter table workload add column if not exists is_privileged boolean default false;
 
     create table if not exists fault
     (
