@@ -67,4 +67,4 @@ data:
   config.yaml: |
     net:
       # RDMA device name
-      rdma_name: {{ .Values.node_agent.rdma_name | quote }}
+      rdma_name: {{ .Values.node_agent.rdma_name }}
