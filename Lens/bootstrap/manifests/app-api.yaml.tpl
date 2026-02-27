@@ -40,10 +40,6 @@ spec:
       labels:
         app: primus-lens-api
         primus-lens-app-name: api
-      annotations:
-        prometheus.io/scrape: "true"
-        prometheus.io/port: "8989"
-        prometheus.io/path: "/metrics"
     spec:
       containers:
         - name: app

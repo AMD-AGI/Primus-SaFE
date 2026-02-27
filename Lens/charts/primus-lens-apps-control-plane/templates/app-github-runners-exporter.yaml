@@ -40,6 +40,7 @@ spec:
         prometheus.io/path: "/metrics"
       labels:
         app: {{ include "lens.fullname" . }}-github-runners-exporter
+        primus-lens-app-name: github-runners-exporter
         {{- include "lens.selectorLabels" . | nindent 8 }}
     spec:
       serviceAccountName: {{ include "lens.serviceAccountName" . }}

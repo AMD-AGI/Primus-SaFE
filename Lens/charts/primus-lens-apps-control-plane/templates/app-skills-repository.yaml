@@ -52,6 +52,7 @@ spec:
     metadata:
       labels:
         app: {{ include "lens.fullname" . }}-skills-repository
+        primus-lens-app-name: skills-repository
         {{- include "lens.selectorLabels" . | nindent 8 }}
     spec:
       serviceAccountName: {{ include "lens.serviceAccountName" . }}
