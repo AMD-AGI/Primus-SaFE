@@ -13,6 +13,11 @@ import (
 
 // ControlPlaneFacade is the unified entry point for control plane database operations
 type ControlPlaneFacade struct {
+
+	// Tools (unified skills + mcp)
+	Tool *ToolFacade
+	// Toolsets (collections of tools)
+	Toolset                  *ToolsetFacade
 	ClusterConfig            ClusterConfigFacadeInterface
 	ClusterDeploymentHistory ClusterDeploymentHistoryFacadeInterface
 	DataplaneInstallTask     DataplaneInstallTaskFacadeInterface
@@ -22,21 +27,15 @@ type ControlPlaneFacade struct {
 	GpuUsageWeeklyReport     GpuUsageWeeklyReportFacadeInterface
 	TraceLensSession         TraceLensSessionFacadeInterface
 	ControlPlaneConfig       ControlPlaneConfigFacadeInterface
-	// Skills Repository
-	Skill             SkillFacadeInterface
-	SkillVersion      SkillVersionFacadeInterface
-	SkillEmbedding    SkillEmbeddingFacadeInterface
-	SkillExecution    SkillExecutionFacadeInterface
-	SkillFeedback     SkillFeedbackFacadeInterface
-	SkillQualityStats SkillQualityStatsFacadeInterface
-	// Skillset
-	Skillset      SkillsetFacadeInterface
-	SkillsetSkill SkillsetSkillFacadeInterface
 }
 
 // NewControlPlaneFacade creates a new ControlPlaneFacade instance
 func NewControlPlaneFacade(db *gorm.DB) *ControlPlaneFacade {
 	return &ControlPlaneFacade{
+		// Tools (unified skills + mcp)
+		Tool: NewToolFacade(db),
+		// Toolsets (collections of tools)
+		Toolset:                  NewToolsetFacade(db),
 		ClusterConfig:            NewClusterConfigFacade(db),
 		ClusterDeploymentHistory: NewClusterDeploymentHistoryFacade(db),
 		DataplaneInstallTask:     NewDataplaneInstallTaskFacade(db),
@@ -46,17 +45,17 @@ func NewControlPlaneFacade(db *gorm.DB) *ControlPlaneFacade {
 		GpuUsageWeeklyReport:     NewGpuUsageWeeklyReportFacade(db),
 		TraceLensSession:         NewTraceLensSessionFacade(db),
 		ControlPlaneConfig:       NewControlPlaneConfigFacade(db),
-		// Skills Repository
-		Skill:             NewSkillFacade(db),
-		SkillVersion:      NewSkillVersionFacade(db),
-		SkillEmbedding:    NewSkillEmbeddingFacade(db),
-		SkillExecution:    NewSkillExecutionFacade(db),
-		SkillFeedback:     NewSkillFeedbackFacade(db),
-		SkillQualityStats: NewSkillQualityStatsFacade(db),
-		// Skillset
-		Skillset:      NewSkillsetFacade(db),
-		SkillsetSkill: NewSkillsetSkillFacade(db),
 	}
+}
+
+// GetTool returns the Tool Facade
+func (f *ControlPlaneFacade) GetTool() *ToolFacade {
+	return f.Tool
+}
+
+// GetToolset returns the Toolset Facade
+func (f *ControlPlaneFacade) GetToolset() *ToolsetFacade {
+	return f.Toolset
 }
 
 // GetClusterConfig returns the ClusterConfig Facade interface
@@ -102,46 +101,6 @@ func (f *ControlPlaneFacade) GetTraceLensSession() TraceLensSessionFacadeInterfa
 // GetControlPlaneConfig returns the ControlPlaneConfig Facade interface
 func (f *ControlPlaneFacade) GetControlPlaneConfig() ControlPlaneConfigFacadeInterface {
 	return f.ControlPlaneConfig
-}
-
-// GetSkill returns the Skill Facade interface
-func (f *ControlPlaneFacade) GetSkill() SkillFacadeInterface {
-	return f.Skill
-}
-
-// GetSkillVersion returns the SkillVersion Facade interface
-func (f *ControlPlaneFacade) GetSkillVersion() SkillVersionFacadeInterface {
-	return f.SkillVersion
-}
-
-// GetSkillEmbedding returns the SkillEmbedding Facade interface
-func (f *ControlPlaneFacade) GetSkillEmbedding() SkillEmbeddingFacadeInterface {
-	return f.SkillEmbedding
-}
-
-// GetSkillExecution returns the SkillExecution Facade interface
-func (f *ControlPlaneFacade) GetSkillExecution() SkillExecutionFacadeInterface {
-	return f.SkillExecution
-}
-
-// GetSkillFeedback returns the SkillFeedback Facade interface
-func (f *ControlPlaneFacade) GetSkillFeedback() SkillFeedbackFacadeInterface {
-	return f.SkillFeedback
-}
-
-// GetSkillQualityStats returns the SkillQualityStats Facade interface
-func (f *ControlPlaneFacade) GetSkillQualityStats() SkillQualityStatsFacadeInterface {
-	return f.SkillQualityStats
-}
-
-// GetSkillset returns the Skillset Facade interface
-func (f *ControlPlaneFacade) GetSkillset() SkillsetFacadeInterface {
-	return f.Skillset
-}
-
-// GetSkillsetSkill returns the SkillsetSkill Facade interface
-func (f *ControlPlaneFacade) GetSkillsetSkill() SkillsetSkillFacadeInterface {
-	return f.SkillsetSkill
 }
 
 // Global control plane facade instance
