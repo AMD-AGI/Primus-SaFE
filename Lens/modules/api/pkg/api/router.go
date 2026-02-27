@@ -634,6 +634,65 @@ func RegisterRouter(group *gin.RouterGroup) error {
 	// Note: V2 group endpoints (analytics, history, commit, details) are now merged
 	// into the main github-workflow-metrics group above using unified handlers
 
+	// Intent Analysis: Workload Profile API - Full workload profile including detection + intent
+	workloadProfileGroup := group.Group("/workload-profile")
+	{
+		// List workload profiles with filtering
+		workloadProfileGroup.GET("", getUnifiedHandler("/workload-profile"))
+		// Seed detection records for undetected workloads (must be before :workload_uid)
+		workloadProfileGroup.POST("seed", getUnifiedHandler("/workload-profile/seed"))
+		// Get single workload profile (must be after seed to avoid conflict)
+		workloadProfileGroup.GET(":workload_uid", getUnifiedHandler("/workload-profile/:workload_uid"))
+		// Trigger manual intent analysis
+		workloadProfileGroup.POST(":workload_uid/analyze", getUnifiedHandler("/workload-profile/:workload_uid/analyze"))
+		// Get analysis evidence
+		workloadProfileGroup.GET(":workload_uid/evidence", getUnifiedHandler("/workload-profile/:workload_uid/evidence"))
+	}
+
+	// Intent Analysis: Workload Task API - Detection/analysis task state
+	group.GET("/workload-task", getUnifiedHandler("/workload-task"))
+
+	// Intent Analysis: Image Registry API - Cached image analysis results
+	imageRegistryGroup := group.Group("/image-registry")
+	{
+		// List cached images
+		imageRegistryGroup.GET("", getUnifiedHandler("/image-registry"))
+		// Get image analysis by digest
+		imageRegistryGroup.GET(":digest", getUnifiedHandler("/image-registry/:digest"))
+	}
+
+	// Intent Analysis: Code Snapshot API - Workload code snapshots and diff
+	codeSnapshotGroup := group.Group("/code-snapshot")
+	{
+		// Diff two snapshots (must be before :workload_uid to avoid conflict)
+		codeSnapshotGroup.GET("diff", getUnifiedHandler("/code-snapshot/diff"))
+		// Get snapshot by workload UID
+		codeSnapshotGroup.GET(":workload_uid", getUnifiedHandler("/code-snapshot/:workload_uid"))
+	}
+
+	// Flywheel: Intent Rule Management API - CRUD + promote / retire / backtest
+	intentRuleGroup := group.Group("/intent-rule")
+	{
+		// Create a new rule
+		intentRuleGroup.POST("", getUnifiedHandler("/intent-rule"))
+		// List rules with filtering
+		intentRuleGroup.GET("", getUnifiedHandler("/intent-rule"))
+		// Get single rule by ID
+		intentRuleGroup.GET(":rule_id", getUnifiedHandler("/intent-rule/:rule_id"))
+		// Update a rule
+		intentRuleGroup.PUT(":rule_id", getUnifiedHandler("/intent-rule/:rule_id"))
+		// Delete a rule
+		intentRuleGroup.DELETE(":rule_id", getUnifiedHandler("/intent-rule/:rule_id"))
+		// Force promote a rule
+		intentRuleGroup.POST(":rule_id/promote", getUnifiedHandler("/intent-rule/:rule_id/promote"))
+		// Force retire a rule
+		intentRuleGroup.POST(":rule_id/retire", getUnifiedHandler("/intent-rule/:rule_id/retire"))
+		// Manual label / update
+		intentRuleGroup.PUT(":rule_id/label", getUnifiedHandler("/intent-rule/:rule_id/label"))
+		// Trigger backtest
+		intentRuleGroup.POST(":rule_id/backtest", getUnifiedHandler("/intent-rule/:rule_id/backtest"))
+	}
+
 	// Tools Marketplace routes - Proxy to skills-repository service
 	toolsGroup := group.Group("/tools")
 	{
@@ -763,6 +822,24 @@ func RegisterRouter(group *gin.RouterGroup) error {
 			configGroup.PUT("/:key", cpconfig.SetConfig)
 			configGroup.DELETE("/:key", cpconfig.DeleteConfig)
 		}
+	}
+
+	// Workload Diagnostic endpoints - Unified (HTTP + MCP)
+	diagGroup := group.Group("/workload-diag")
+	{
+		diagGroup.GET("/:uid/profile", getUnifiedHandler("/workload-diag/:uid/profile"))
+		diagGroup.GET("/:uid/pods", getUnifiedHandler("/workload-diag/:uid/pods"))
+		diagGroup.GET("/:uid/pod-events", getUnifiedHandler("/workload-diag/:uid/pod-events"))
+		diagGroup.GET("/:uid/k8s-events", getUnifiedHandler("/workload-diag/:uid/k8s-events"))
+		diagGroup.GET("/:uid/gpu-utilization", getUnifiedHandler("/workload-diag/:uid/gpu-utilization"))
+		diagGroup.GET("/:uid/compute-metrics", getUnifiedHandler("/workload-diag/:uid/compute-metrics"))
+		diagGroup.GET("/:uid/network-metrics", getUnifiedHandler("/workload-diag/:uid/network-metrics"))
+		diagGroup.GET("/:uid/training-progress", getUnifiedHandler("/workload-diag/:uid/training-progress"))
+		diagGroup.GET("/:uid/code-snapshot", getUnifiedHandler("/workload-diag/:uid/code-snapshot"))
+		diagGroup.GET("/:uid/image-analysis", getUnifiedHandler("/workload-diag/:uid/image-analysis"))
+		diagGroup.GET("/:uid/evidence", getUnifiedHandler("/workload-diag/:uid/evidence"))
+		diagGroup.GET("/:uid/profiler-files", getUnifiedHandler("/workload-diag/:uid/profiler-files"))
+		diagGroup.GET("/:uid/k8s-spec", getUnifiedHandler("/workload-diag/:uid/k8s-spec"))
 	}
 
 	return nil

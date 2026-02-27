@@ -19,8 +19,7 @@ const (
 	TaskTypeActiveDetection    = "active_detection"
 	TaskTypeMetadataCollection = "metadata_collection"
 	TaskTypeTensorBoardStream  = "tensorboard_stream"
-	TaskTypeMetricCollection   = "metric_collection"
-	TaskTypeLogCollection      = "log_collection"
+	TaskTypeLogCollection = "log_collection"
 	TaskTypeCheckpointMonitor  = "checkpoint_monitor"
 	TaskTypeProfilerCollection = "profiler_collection"
 
@@ -47,6 +46,10 @@ const (
 	TaskTypeGithubCompletionSync = "github_completion_sync" // One-shot sync on runner completion
 	TaskTypeGithubPeriodicSync   = "github_periodic_sync"   // Periodic sync every 5 minutes until workflow completes
 	TaskTypeGithubManualSync     = "github_manual_sync"     // Manual sync triggered by user
+
+	// Workload Analysis Pipeline (replaces DetectionCoordinator for new workloads)
+	TaskTypeAnalysisPipeline = "analysis_pipeline"
+	TaskTypeLogAnalysis      = "log_analysis" // Training log gap analysis (periodic, detects unmatched metric lines)
 )
 
 // Detection coverage source constants
@@ -76,6 +79,33 @@ const (
 	CoordinatorStateAnalyzing = "analyzing"
 	CoordinatorStateConfirmed = "confirmed"
 	CoordinatorStateCompleted = "completed"
+)
+
+// Analysis Pipeline state constants
+const (
+	PipelineStateInit              = "init"              // Initialize coverage records
+	PipelineStateCollecting        = "collecting"        // Collecting evidence from all sources
+	PipelineStateEvaluating        = "evaluating"        // Running EvidenceEvaluator
+	PipelineStateRequestingLLM     = "requesting_llm"    // Awaiting Conductor LLM analysis
+	PipelineStateMergingResult     = "merging_result"     // Merging deterministic + LLM results
+	PipelineStateConfirmed         = "confirmed"          // Intent confirmed, trigger side-effects
+	PipelineStateMonitoring        = "monitoring"         // Continuous re-evaluation (long-running workloads)
+	PipelineStateCompleted         = "completed"          // Terminal state
+)
+
+// Analysis mode constants
+const (
+	AnalysisModeLocal = "local" // Deterministic-only (no LLM)
+	AnalysisModeFull  = "full"  // Deterministic + LLM (via Conductor)
+)
+
+// Intent state constants (for workload_detection.intent_state)
+const (
+	IntentStatePending     = "pending"
+	IntentStateCollecting  = "collecting"
+	IntentStateAnalyzing   = "analyzing"
+	IntentStateConfirmed   = "confirmed"
+	IntentStateFailed      = "failed"
 )
 
 // AnalysisTaskTypes defines all task types related to analysis

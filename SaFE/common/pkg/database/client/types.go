@@ -45,6 +45,7 @@ type Workload struct {
 	IsTolerateAll  bool           `db:"is_tolerate_all"`
 	IsDeleted      bool           `db:"is_deleted"`
 	IsStickyNodes  bool           `db:"is_sticky_nodes"`
+	IsPrivileged   bool           `db:"is_privileged"`
 	Priority       int            `db:"priority"`
 	MaxRetry       int            `db:"max_retry"`
 	QueuePosition  int            `db:"queue_position"`

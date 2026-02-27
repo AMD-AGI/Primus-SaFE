@@ -6,13 +6,17 @@
 echo "==============  begin to install rccl for ROCm $ROCM_VERSION =============="
 set -e
 
+FLAGS="--disable-mscclpp --disable-msccl-kernel"
 # Set the RCCL tag based on ROCM_VERSION
 if [ "$ROCM_VERSION" = "6.4.3" ]; then
   RCCL_TAG="rocm-6.4.3"
 elif [ "$ROCM_VERSION" = "7.0.3" ]; then
   RCCL_TAG="drop/2025-08"
+elif [ "$ROCM_VERSION" = "7.2.0" ]; then
+  RCCL_TAG="rocm-7.2.0"
+  FLAGS=""
 else
-  echo "Error: Unsupported ROCM_VERSION '$ROCM_VERSION'. Only 6.4.3 and 7.0.3 are supported."
+  echo "Error: Unsupported ROCM_VERSION '$ROCM_VERSION'. Only 6.4.3, 7.0.3 and 7.2.0 are supported."
   exit 1
 fi
 
@@ -32,7 +36,7 @@ if [ -z "$GPU_ARCHS" ]; then
   exit 1
 fi
 
-bash ./install.sh --disable-mscclpp --disable-msccl-kernel --prefix=/opt/rccl/build --amdgpu_targets="$GPU_ARCHS"
+bash ./install.sh $FLAGS --prefix=/opt/rccl/build --amdgpu_targets="$GPU_ARCHS"
 if [ $? -ne 0 ]; then
   echo "Error: Failed to build and install RCCL"
   exit 1

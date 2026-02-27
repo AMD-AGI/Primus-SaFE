@@ -283,30 +283,38 @@ func (j *WorkloadStatisticJob) processWorkload(ctx context.Context, clusterName 
 	historySpan.SetStatus(codes.Ok, "")
 	trace.FinishSpan(historySpan)
 
-	// If no new data, only update instant utilization
+	// If no new data, only update instant utilization using lightweight column-only update
+	// This avoids rewriting the entire row (including large JSONB fields) to reduce dead tuples
 	if len(newValues) == 0 {
 		log.Debugf("No new data for workload %s/%s, only updating instant utilization", workload.Namespace, workload.Name)
 
-		// Query and update instant utilization
+		// Query instant utilization
 		instantUtilization, _ := j.queryWorkloadInstantUtilization(ctx, workload, storageClientSet)
-		record.InstantGpuUtilization = instantUtilization
-		record.LastQueryTime = endTime
-		record.StatEndTime = endTime
 
-		// Ensure ExtJSON/ExtType fields are not nil before update
-		if len(record.Histogram) == 0 {
-			record.Histogram = dbModel.ExtJSON(`{"buckets": []}`)
-		}
-		if record.Labels == nil {
-			record.Labels = dbModel.ExtType{}
-		}
-		if record.Annotations == nil {
-			record.Annotations = dbModel.ExtType{}
-		}
-
-		updateFacade := database.GetFacadeForCluster(clusterName).GetWorkloadStatistic()
-		if err := updateFacade.Update(ctx, record); err != nil {
-			return fmt.Errorf("failed to update record: %w", err)
+		// For existing records, use lightweight column-only update
+		if record.ID > 0 {
+			updateFacade := database.GetFacadeForCluster(clusterName).GetWorkloadStatistic()
+			if err := updateFacade.UpdateInstantOnly(ctx, record.ID, instantUtilization, endTime, endTime); err != nil {
+				return fmt.Errorf("failed to update instant utilization: %w", err)
+			}
+		} else {
+			// New record: need full create
+			record.InstantGpuUtilization = instantUtilization
+			record.LastQueryTime = endTime
+			record.StatEndTime = endTime
+			if len(record.Histogram) == 0 {
+				record.Histogram = dbModel.ExtJSON(`{"buckets": []}`)
+			}
+			if record.Labels == nil {
+				record.Labels = dbModel.ExtType{}
+			}
+			if record.Annotations == nil {
+				record.Annotations = dbModel.ExtType{}
+			}
+			updateFacade := database.GetFacadeForCluster(clusterName).GetWorkloadStatistic()
+			if err := updateFacade.Update(ctx, record); err != nil {
+				return fmt.Errorf("failed to create record: %w", err)
+			}
 		}
 
 		span.SetStatus(codes.Ok, "No new data")
@@ -347,17 +355,27 @@ func (j *WorkloadStatisticJob) processWorkload(ctx context.Context, clusterName 
 	if len(record.Histogram) == 0 {
 		record.Histogram = dbModel.ExtJSON(`{"buckets": []}`)
 	}
-	if record.Labels == nil {
-		record.Labels = dbModel.ExtType{}
-	}
-	if record.Annotations == nil {
-		record.Annotations = dbModel.ExtType{}
-	}
 
 	// 7. Save to database
+	// For existing records, use UpdateStatistics which only updates changed columns
+	// (skipping immutable fields like uid, cluster_name, labels, annotations).
+	// This reduces dead tuple size and improves autovacuum efficiency.
 	saveSpan, saveCtx := trace.StartSpanFromContext(ctx, "saveToDatabase")
 	saveFacade := database.GetFacadeForCluster(clusterName).GetWorkloadStatistic()
-	err = saveFacade.Update(saveCtx, record)
+
+	if record.ID > 0 {
+		err = saveFacade.UpdateStatistics(saveCtx, record)
+	} else {
+		// New record: need full create with all fields
+		if record.Labels == nil {
+			record.Labels = dbModel.ExtType{}
+		}
+		if record.Annotations == nil {
+			record.Annotations = dbModel.ExtType{}
+		}
+		err = saveFacade.Update(saveCtx, record)
+	}
+
 	if err != nil {
 		saveSpan.RecordError(err)
 		saveSpan.SetStatus(codes.Error, err.Error())
@@ -552,7 +570,8 @@ type StatisticData struct {
 }
 
 // Schedule returns the job schedule expression
-// Runs every 5 minutes
+// Runs every 60 seconds (reduced from 30s to lower dead tuple generation).
+// 60s still provides timely GPU utilization updates while halving the DB write pressure.
 func (j *WorkloadStatisticJob) Schedule() string {
-	return "@every 30s"
+	return "@every 60s"
 }

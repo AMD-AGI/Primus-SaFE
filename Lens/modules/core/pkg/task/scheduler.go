@@ -60,6 +60,12 @@ type SchedulerConfig struct {
 	// Stale lock cleanup interval
 	StaleLockCleanupInterval time.Duration
 
+	// Old task cleanup interval (how often to run CleanupOldTasks)
+	OldTaskCleanupInterval time.Duration
+
+	// Old task retention days (how many days to keep completed/cancelled tasks)
+	OldTaskRetentionDays int
+
 	// Whether to auto start
 	AutoStart bool
 
@@ -77,6 +83,8 @@ func DefaultSchedulerConfig() *SchedulerConfig {
 		HeartbeatInterval:        30 * time.Second,
 		MaxConcurrentTasks:       20, // Increased from 10 to support more parallel task execution
 		StaleLockCleanupInterval: 1 * time.Minute,
+		OldTaskCleanupInterval:   1 * time.Hour,
+		OldTaskRetentionDays:     7,
 		AutoStart:                true,
 	}
 }
@@ -146,6 +154,10 @@ func (s *TaskScheduler) Start() error {
 	s.wg.Add(1)
 	go s.staleLockCleanupLoop()
 
+	// 5. Start old task cleanup loop
+	s.wg.Add(1)
+	go s.oldTaskCleanupLoop()
+
 	log.Info("Task scheduler started successfully")
 	return nil
 }
@@ -206,6 +218,39 @@ func (s *TaskScheduler) staleLockCleanupLoop() {
 		case <-ticker.C:
 			if err := s.cleanupStaleLocks(); err != nil {
 				log.Errorf("Failed to cleanup stale locks: %v", err)
+			}
+		}
+	}
+}
+
+// oldTaskCleanupLoop periodically removes old completed/cancelled tasks
+// to prevent unbounded growth of the workload_task_state table.
+func (s *TaskScheduler) oldTaskCleanupLoop() {
+	defer s.wg.Done()
+
+	// Use a longer initial delay to avoid cleanup during startup.
+	// Use select to respect context cancellation during the delay.
+	initialDelay := time.NewTimer(5 * time.Minute)
+	defer initialDelay.Stop()
+	select {
+	case <-s.ctx.Done():
+		return
+	case <-initialDelay.C:
+	}
+
+	ticker := time.NewTicker(s.config.OldTaskCleanupInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-s.ctx.Done():
+			return
+		case <-ticker.C:
+			removed, err := s.taskFacade.CleanupOldTasks(s.ctx, s.config.OldTaskRetentionDays)
+			if err != nil {
+				log.Errorf("Failed to cleanup old tasks: %v", err)
+			} else if removed > 0 {
+				log.Infof("Cleaned up %d old tasks (retention: %d days)", removed, s.config.OldTaskRetentionDays)
 			}
 		}
 	}
@@ -459,6 +504,15 @@ func (s *TaskScheduler) handleTaskResult(ctx context.Context, task *model.Worklo
 		}
 		if err := s.taskFacade.UpdateTaskExt(ctx, task.WorkloadUID, task.TaskType, model.ExtType(result.UpdateExt)); err != nil {
 			log.Errorf("Failed to update task ext: %v", err)
+		}
+	}
+
+	// Trim large intermediate data from ext for completed tasks to prevent bloat.
+	// This runs asynchronously after the status/ext updates above.
+	if result.NewStatus == constant.TaskStatusCompleted {
+		if err := s.taskFacade.TrimCompletedTaskExt(ctx, task.WorkloadUID, task.TaskType); err != nil {
+			log.Warnf("Failed to trim ext for completed task %s/%s: %v",
+				task.WorkloadUID, task.TaskType, err)
 		}
 	}
 }

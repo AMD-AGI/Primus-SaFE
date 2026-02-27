@@ -11,6 +11,7 @@ import (
 
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database/model"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 	corev1 "k8s.io/api/core/v1"
 )
 
@@ -28,6 +29,10 @@ type PodFacadeInterface interface {
 	ListActiveGpuPods(ctx context.Context) ([]*model.GpuPods, error)
 	// ListRunningGpuPods returns pods with phase = 'Running' (used by stale pod cleanup job)
 	ListRunningGpuPods(ctx context.Context) ([]*model.GpuPods, error)
+	// GetRunningPodsByOwnerUID returns running pods for a given owner (workload) UID
+	GetRunningPodsByOwnerUID(ctx context.Context, ownerUID string) ([]*model.GpuPods, error)
+	// GetRunningPodsByNamePrefix returns running pods matching namespace and name prefix
+	GetRunningPodsByNamePrefix(ctx context.Context, namespace, namePrefix string) ([]*model.GpuPods, error)
 	// ListPodsActiveInTimeRange returns pods that were active during the specified time range
 	// A pod is considered active in the time range if:
 	// - created_at <= endTime AND
@@ -42,6 +47,9 @@ type PodFacadeInterface interface {
 	CreatePodSnapshot(ctx context.Context, podSnapshot *model.PodSnapshot) error
 	UpdatePodSnapshot(ctx context.Context, podSnapshot *model.PodSnapshot) error
 	GetLastPodSnapshot(ctx context.Context, podUid string, resourceVersion int) (*model.PodSnapshot, error)
+	// UpsertLatestPodSnapshot inserts or updates the single row in pod_snapshot_latest for a given pod_uid.
+	// Historical snapshots are written to OpenSearch by the caller.
+	UpsertLatestPodSnapshot(ctx context.Context, snapshot *model.PodSnapshot) error
 
 	// PodResource operations
 	GetPodResourceByUid(ctx context.Context, uid string) (*model.PodResource, error)
@@ -180,6 +188,45 @@ func (f *PodFacade) ListActiveGpuPods(ctx context.Context) ([]*model.GpuPods, er
 	return result, nil
 }
 
+// GetRunningPodsByOwnerUID returns running, non-deleted pods for a given owner (workload) UID.
+// Used by SpecCollector to look up container images for a workload.
+func (f *PodFacade) GetRunningPodsByOwnerUID(ctx context.Context, ownerUID string) ([]*model.GpuPods, error) {
+	q := f.getDAL().GpuPods
+	result, err := q.WithContext(ctx).
+		Where(q.OwnerUID.Eq(ownerUID)).
+		Where(q.Running.Is(true)).
+		Where(q.Deleted.Is(false)).
+		Find()
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return result, nil
+}
+
+// GetRunningPodsByNamePrefix returns running, non-deleted pods matching a namespace and name prefix.
+// This is used as a fallback when owner_uid is not populated (e.g. on x-flannel).
+// Pod naming convention: {workload_name}-master-0, {workload_name}-{hash}-{hash}
+func (f *PodFacade) GetRunningPodsByNamePrefix(ctx context.Context, namespace, namePrefix string) ([]*model.GpuPods, error) {
+	q := f.getDAL().GpuPods
+	result, err := q.WithContext(ctx).
+		Where(q.Namespace.Eq(namespace)).
+		Where(q.Name.Like(namePrefix+"%")).
+		Where(q.Running.Is(true)).
+		Where(q.Deleted.Is(false)).
+		Limit(5).
+		Find()
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return result, nil
+}
+
 // ListRunningGpuPods returns pods with phase = 'Running' and not deleted
 // This is used by the stale pod cleanup job to find pods that need to be checked
 func (f *PodFacade) ListRunningGpuPods(ctx context.Context) ([]*model.GpuPods, error) {
@@ -198,28 +245,15 @@ func (f *PodFacade) ListRunningGpuPods(ctx context.Context) ([]*model.GpuPods, e
 }
 
 // ListPodsActiveInTimeRange returns pods that were active (running) during the specified time range
-// A pod is considered active if:
-// - created_at <= endTime AND
-// - (phase = 'Running' AND deleted = false) (currently running, not deleted) OR
-// - (phase IN ('Succeeded', 'Failed') AND updated_at >= startTime) (finished during the time range)
-// Note: Pending pods and deleted "Running" pods are explicitly excluded
-// This is used for time-based aggregation calculations
 func (f *PodFacade) ListPodsActiveInTimeRange(ctx context.Context, startTime, endTime time.Time) ([]*model.GpuPods, error) {
 	db := f.getDB()
 	if db == nil {
 		return nil, nil
 	}
-	// Pod was created before or during the time range
-	// AND (
-	//   (pod is currently running AND not deleted) OR
-	//   pod finished (Succeeded/Failed) during or after the time range
-	// )
-	// Explicitly exclude Pending pods and deleted "Running" pods (zombie pods)
 	var result []*model.GpuPods
 	err := db.WithContext(ctx).
 		Where("created_at <= ?", endTime).
 		Where(
-			// (Running AND not deleted) OR (Succeeded/Failed AND updated_at >= startTime)
 			db.Where("phase = ? AND deleted = ?", string(corev1.PodRunning), false).
 				Or("phase IN ? AND updated_at >= ?", []string{string(corev1.PodSucceeded), string(corev1.PodFailed)}, startTime),
 		).
@@ -251,15 +285,18 @@ func (f *PodFacade) UpdatePodSnapshot(ctx context.Context, podSnapshot *model.Po
 	return f.getDAL().PodSnapshot.WithContext(ctx).Save(podSnapshot)
 }
 
+// GetLastPodSnapshot reads the latest snapshot for a pod from pod_snapshot_latest.
+// Returns nil if no snapshot exists or the stored version >= resourceVersion.
 func (f *PodFacade) GetLastPodSnapshot(ctx context.Context, podUid string, resourceVersion int) (*model.PodSnapshot, error) {
-	q := f.getDAL().PodSnapshot
-	result, err := f.getDAL().
-		PodSnapshot.
-		WithContext(ctx).
-		Where(q.PodUID.Eq(podUid)).
-		Where(q.ResourceVersion.Lt(int32(resourceVersion))).
-		Order(q.ResourceVersion.Desc()).
-		First()
+	db := f.getDB()
+	if db == nil {
+		return nil, nil
+	}
+	var result model.PodSnapshot
+	err := db.WithContext(ctx).
+		Table("pod_snapshot_latest").
+		Where("pod_uid = ?", podUid).
+		First(&result).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, nil
@@ -269,7 +306,24 @@ func (f *PodFacade) GetLastPodSnapshot(ctx context.Context, podUid string, resou
 	if result.ID == 0 {
 		return nil, nil
 	}
-	return result, nil
+	if int(result.ResourceVersion) >= resourceVersion {
+		return nil, nil
+	}
+	return &result, nil
+}
+
+func (f *PodFacade) UpsertLatestPodSnapshot(ctx context.Context, snapshot *model.PodSnapshot) error {
+	db := f.getDB()
+	if db == nil {
+		return fmt.Errorf("database not initialized")
+	}
+	return db.WithContext(ctx).
+		Table("pod_snapshot_latest").
+		Clauses(clause.OnConflict{
+			Columns:   []clause.Column{{Name: "pod_uid"}},
+			DoUpdates: clause.AssignmentColumns([]string{"pod_name", "namespace", "spec", "metadata", "status", "resource_version", "created_at"}),
+		}).
+		Create(snapshot).Error
 }
 
 // PodResource operation implementations
@@ -321,7 +375,6 @@ func (f *PodFacade) ListPodResourcesByUids(ctx context.Context, uids []string) (
 func (f *PodFacade) QueryPodsWithFilters(ctx context.Context, namespace, podName, startTime, endTime string, page, pageSize int) ([]*model.GpuPods, int64, error) {
 	q := f.getDAL().GpuPods.WithContext(ctx)
 	
-	// Apply filters
 	if namespace != "" {
 		q = q.Where(f.getDAL().GpuPods.Namespace.Eq(namespace))
 	}
@@ -330,7 +383,6 @@ func (f *PodFacade) QueryPodsWithFilters(ctx context.Context, namespace, podName
 		q = q.Where(f.getDAL().GpuPods.Name.Like("%" + podName + "%"))
 	}
 	
-	// Time range filter
 	if startTime != "" {
 		parsedStartTime, err := time.Parse(time.RFC3339, startTime)
 		if err != nil {
@@ -347,13 +399,11 @@ func (f *PodFacade) QueryPodsWithFilters(ctx context.Context, namespace, podName
 		q = q.Where(f.getDAL().GpuPods.CreatedAt.Lte(parsedEndTime))
 	}
 
-	// Get total count
 	total, err := q.Count()
 	if err != nil {
 		return nil, 0, err
 	}
 
-	// Get paginated results
 	offset := (page - 1) * pageSize
 	pods, err := q.Order(f.getDAL().GpuPods.CreatedAt.Desc()).
 		Offset(offset).
@@ -368,7 +418,6 @@ func (f *PodFacade) QueryPodsWithFilters(ctx context.Context, namespace, podName
 
 // GetAverageGPUUtilizationByNode gets average GPU utilization for a node
 func (f *PodFacade) GetAverageGPUUtilizationByNode(ctx context.Context, nodeName string) (float64, error) {
-	// First get node ID
 	nodeQ := f.getDAL().Node
 	node, err := nodeQ.WithContext(ctx).Where(nodeQ.Name.Eq(nodeName)).First()
 	if err != nil {
@@ -378,7 +427,6 @@ func (f *PodFacade) GetAverageGPUUtilizationByNode(ctx context.Context, nodeName
 		return 0.0, err
 	}
 
-	// Query average GPU utilization
 	type Result struct {
 		AvgUtilization float64
 	}
@@ -399,7 +447,6 @@ func (f *PodFacade) GetAverageGPUUtilizationByNode(ctx context.Context, nodeName
 
 // GetLatestGPUMetricsByNode gets the latest GPU metrics for a node
 func (f *PodFacade) GetLatestGPUMetricsByNode(ctx context.Context, nodeName string) (*model.GpuDevice, error) {
-	// First get node ID
 	nodeQ := f.getDAL().Node
 	node, err := nodeQ.WithContext(ctx).Where(nodeQ.Name.Eq(nodeName)).First()
 	if err != nil {
@@ -409,7 +456,6 @@ func (f *PodFacade) GetLatestGPUMetricsByNode(ctx context.Context, nodeName stri
 		return nil, err
 	}
 
-	// Query latest GPU device metrics
 	gpuDeviceQ := f.getDAL().GpuDevice
 	device, err := gpuDeviceQ.WithContext(ctx).
 		Where(gpuDeviceQ.NodeID.Eq(node.ID)).
@@ -428,7 +474,6 @@ func (f *PodFacade) GetLatestGPUMetricsByNode(ctx context.Context, nodeName stri
 
 // QueryGPUHistoryByNode queries GPU history for a node in a time range
 func (f *PodFacade) QueryGPUHistoryByNode(ctx context.Context, nodeName string, startTime, endTime time.Time) ([]*model.GpuDevice, error) {
-	// First get node ID
 	nodeQ := f.getDAL().Node
 	node, err := nodeQ.WithContext(ctx).Where(nodeQ.Name.Eq(nodeName)).First()
 	if err != nil {
@@ -438,7 +483,6 @@ func (f *PodFacade) QueryGPUHistoryByNode(ctx context.Context, nodeName string, 
 		return nil, err
 	}
 
-	// Query GPU device history
 	gpuDeviceQ := f.getDAL().GpuDevice
 	devices, err := gpuDeviceQ.WithContext(ctx).
 		Where(gpuDeviceQ.NodeID.Eq(node.ID)).

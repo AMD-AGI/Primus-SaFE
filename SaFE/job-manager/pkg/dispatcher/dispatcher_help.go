@@ -32,6 +32,7 @@ import (
 
 const (
 	SharedMemoryVolume = "shared-memory"
+	DockerSock         = "docker-sock"
 	Launcher           = "chmod +x /shared-data/launcher.sh; /bin/sh /shared-data/launcher.sh"
 )
 
@@ -291,6 +292,10 @@ func modifyVolumeMounts(container map[string]interface{}, workload *v1.Workload,
 		volumeMounts = volumeMountObjs.([]interface{})
 	}
 	volumeMounts = append(volumeMounts, buildVolumeMount(SharedMemoryVolume, "/dev/shm", "", false))
+	if v1.IsPrivileged(workload) {
+		volumeMounts = append(volumeMounts, buildVolumeMount(DockerSock, "/var/run/docker.sock", "", false))
+	}
+
 	maxId := 0
 	if workspace != nil {
 		for _, vol := range workspace.Spec.Volumes {
@@ -337,7 +342,7 @@ func modifyVolumes(obj *unstructured.Unstructured, workload *v1.Workload, worksp
 			volumeName := vol.GenFullVolumeId()
 			var volume interface{}
 			if vol.Type == v1.HOSTPATH {
-				volume = buildHostPathVolume(volumeName, vol.HostPath)
+				volume = buildHostPathVolume(volumeName, vol.HostPath, "Directory")
 			} else {
 				volume = buildPvcVolume(volumeName)
 			}
@@ -348,7 +353,7 @@ func modifyVolumes(obj *unstructured.Unstructured, workload *v1.Workload, worksp
 	for _, hostpath := range workload.Spec.Hostpath {
 		maxId++
 		volumeName := v1.GenFullVolumeId(v1.HOSTPATH, maxId)
-		volumes = append(volumes, buildHostPathVolume(volumeName, hostpath))
+		volumes = append(volumes, buildHostPathVolume(volumeName, hostpath, "Directory"))
 		hasNewVolume = true
 	}
 	for _, secret := range workload.Spec.Secrets {
@@ -356,6 +361,10 @@ func modifyVolumes(obj *unstructured.Unstructured, workload *v1.Workload, worksp
 			volumes = append(volumes, buildSecretVolume(secret.Id))
 			hasNewVolume = true
 		}
+	}
+	if v1.IsPrivileged(workload) {
+		volumes = append(volumes, buildHostPathVolume(DockerSock, "/var/run/docker.sock", "Socket"))
+		hasNewVolume = true
 	}
 	if !hasNewVolume {
 		return nil
@@ -665,11 +674,11 @@ func buildVolumeMount(name, mountPath, subPath string, readOnly bool) interface{
 }
 
 // buildHostPathVolume creates a host path volume definition.
-func buildHostPathVolume(volumeName, hostPath string) interface{} {
+func buildHostPathVolume(volumeName, hostPath, hostPathType string) interface{} {
 	return map[string]interface{}{
 		"hostPath": map[string]interface{}{
 			"path": hostPath,
-			"type": "Directory",
+			"type": hostPathType,
 		},
 		"name": volumeName,
 	}
