@@ -1,0 +1,96 @@
+{{/*
+Primus Lens Component Health Exporter Deployment
+Probes workload controllers (Deployment/DaemonSet/StatefulSet) and exposes primus_component_* metrics.
+*/}}
+{{- if .Values.apps.componentHealthExporter.enabled }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "lens.fullname" . }}-component-health-exporter-config
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "lens.labels" . | nindent 4 }}
+    app: {{ include "lens.fullname" . }}-component-health-exporter
+data:
+  config.yaml: |
+    loadK8SClient: true
+    httpPort: {{ .Values.apps.componentHealthExporter.httpPort | default 8995 }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "lens.fullname" . }}-component-health-exporter
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "lens.labels" . | nindent 4 }}
+    app: {{ include "lens.fullname" . }}-component-health-exporter
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: {{ include "lens.fullname" . }}-component-health-exporter
+  template:
+    metadata:
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "{{ add (.Values.apps.componentHealthExporter.httpPort | default 8995) 1 }}"
+        prometheus.io/path: "/metrics"
+      labels:
+        app: {{ include "lens.fullname" . }}-component-health-exporter
+        primus-lens-app-name: component-health-exporter
+        {{- include "lens.selectorLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "lens.serviceAccountName" . }}
+      {{- if .Values.global.imageRegistry.pullSecret }}
+      imagePullSecrets:
+        - name: {{ .Values.global.imageRegistry.pullSecret }}
+      {{- end }}
+      containers:
+      - name: app
+        image: "{{ .Values.global.imageRegistry.url }}/{{ .Values.apps.componentHealthExporter.image }}"
+        imagePullPolicy: {{ .Values.global.imageRegistry.pullPolicy | default "IfNotPresent" }}
+        env:
+        - name: CONFIG_PATH
+          value: /etc/primus-lens-component-health-exporter/config.yaml
+        - name: CLUSTER_NAME
+          value: {{ .Values.global.clusterName | default "default" | quote }}
+        ports:
+        - containerPort: {{ .Values.apps.componentHealthExporter.httpPort | default 8995 }}
+          protocol: TCP
+        volumeMounts:
+        - name: config-volume
+          mountPath: /etc/primus-lens-component-health-exporter/config.yaml
+          subPath: config.yaml
+        {{- if .Values.apps.componentHealthExporter.resources }}
+        resources:
+          {{- toYaml .Values.apps.componentHealthExporter.resources | nindent 10 }}
+        {{- end }}
+      volumes:
+      - name: config-volume
+        configMap:
+          name: {{ include "lens.fullname" . }}-component-health-exporter-config
+          items:
+          - key: config.yaml
+            path: config.yaml
+      restartPolicy: Always
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "lens.fullname" . }}-component-health-exporter
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "lens.labels" . | nindent 4 }}
+    app: {{ include "lens.fullname" . }}-component-health-exporter
+spec:
+  type: ClusterIP
+  ports:
+  - name: http
+    port: {{ .Values.apps.componentHealthExporter.httpPort | default 8995 }}
+    targetPort: {{ .Values.apps.componentHealthExporter.httpPort | default 8995 }}
+    protocol: TCP
+  selector:
+    app: {{ include "lens.fullname" . }}-component-health-exporter
+{{- end }}

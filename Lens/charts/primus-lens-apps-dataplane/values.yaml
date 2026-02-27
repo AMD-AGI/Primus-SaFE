@@ -81,6 +81,12 @@ apps:
       defaultDuration: 30
       defaultRate: 100
   
+  componentHealthExporter:
+    enabled: true
+    image: "primussafe/primus-lens-component-health-exporter:latest"
+    httpPort: 8995
+    resources: {}
+
   gpuResourceExporter:
     enabled: true
     image: "primussafe/gpu-resource-exporter:202512101526"

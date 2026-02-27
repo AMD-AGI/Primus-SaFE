@@ -13,11 +13,17 @@ spec:
       interval: 30s
       rules:
         - alert: ComponentUnhealthy
-          expr: primus_lens_component_healthy == 0
+          expr: primus_component_healthy == 0
           for: 2m
           labels:
             severity: warning
             category: component
           annotations:
-            summary: "Component is unhealthy"
-            description: "cluster={{ $labels.cluster }} platform={{ $labels.platform }} category={{ $labels.category }} component={{ $labels.component }} app_name={{ $labels.app_name }} namespace={{ $labels.namespace }} has been unhealthy for 2m"
+            summary: "Component {{ $labels.app_name }} is unhealthy"
+            description: >-
+              cluster={{ $labels.cluster }}
+              platform={{ $labels.platform }}
+              app_name={{ $labels.app_name }}
+              namespace={{ $labels.namespace }}
+              kind={{ $labels.kind }}
+              has been unhealthy for 2m
