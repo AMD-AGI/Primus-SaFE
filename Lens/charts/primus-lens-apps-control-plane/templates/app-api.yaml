@@ -42,7 +42,12 @@ spec:
     metadata:
       labels:
         app: {{ include "lens.fullname" . }}-api
+        primus-lens-app-name: api
         {{- include "lens.selectorLabels" . | nindent 8 }}
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "{{ .Values.apps.api.httpPort | default 8989 }}"
+        prometheus.io/path: "/metrics"
     spec:
       serviceAccountName: {{ include "lens.serviceAccountName" . }}
       {{- if .Values.global.imageRegistry.pullSecret }}
