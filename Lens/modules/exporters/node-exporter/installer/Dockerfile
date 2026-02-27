@@ -70,6 +70,7 @@ RUN set -eux; \
     && chmod +x /usr/local/bin/py-spy \
     && py-spy --version \
     && rm -f /tmp/py_spy.whl \
+    && apt-get install -y --no-install-recommends rdma-core iproute2 \
     && apt-get purge -y unzip \
     && apt-get autoremove -y \
     && apt-get clean \
