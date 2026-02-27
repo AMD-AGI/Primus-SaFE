@@ -1,0 +1,23 @@
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMRule
+metadata:
+  name: primus-lens-component-health-alerts
+  namespace: primus-lens
+  labels:
+    app: primus-lens
+    component: alerts
+    category: component
+spec:
+  groups:
+    - name: component_health_alerts
+      interval: 30s
+      rules:
+        - alert: ComponentUnhealthy
+          expr: primus_lens_component_healthy == 0
+          for: 2m
+          labels:
+            severity: warning
+            category: component
+          annotations:
+            summary: "Component is unhealthy"
+            description: "cluster={{ $labels.cluster }} platform={{ $labels.platform }} category={{ $labels.category }} component={{ $labels.component }} app_name={{ $labels.app_name }} namespace={{ $labels.namespace }} has been unhealthy for 2m"
