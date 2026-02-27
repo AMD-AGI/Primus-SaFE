@@ -17,6 +17,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
 	apitypes "k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes"
@@ -383,7 +384,7 @@ func (r *NodeReconciler) updateK8sNode(ctx context.Context, adminNode *v1.Node, 
 			return ctrlruntime.Result{}, err
 		}
 	}
-	if err = clearConditions(ctx, k8sClients.ClientSet(), k8sNode); err != nil {
+	if err = r.clearConditions(ctx, adminNode, k8sClients.ClientSet(), k8sNode); err != nil {
 		klog.ErrorS(err, "failed to remove taint conditions")
 		return ctrlruntime.Result{}, err
 	}
@@ -415,13 +416,16 @@ func (r *NodeReconciler) updateK8sNodeTaints(adminNode *v1.Node, k8sNode *corev1
 	return true
 }
 
-// clearConditions removes node conditions that correspond to removed taints.
-func clearConditions(ctx context.Context, k8sClient kubernetes.Interface, k8sNode *corev1.Node) error {
-	specTaintsSet := sets.NewSet()
-	for _, t := range k8sNode.Spec.Taints {
-		specTaintsSet.Insert(t.Key)
-	}
+// clearConditions removes node conditions that correspond to removed faults.
+func (r *NodeReconciler) clearConditions(ctx context.Context,
+	adminNode *v1.Node, k8sClient kubernetes.Interface, k8sNode *corev1.Node) error {
+	labelSelector := labels.SelectorFromSet(map[string]string{v1.NodeIdLabel: adminNode.Name})
+	faultList, _ := listFaults(ctx, r.Client, labelSelector)
 
+	specMonitorId := sets.NewSet()
+	for _, f := range faultList {
+		specMonitorId.Insert(f.Spec.MonitorId)
+	}
 	shouldUpdate := false
 	var reservedConditions []corev1.NodeCondition
 	for i, cond := range k8sNode.Status.Conditions {
@@ -429,8 +433,8 @@ func clearConditions(ctx context.Context, k8sClient kubernetes.Interface, k8sNod
 			reservedConditions = append(reservedConditions, k8sNode.Status.Conditions[i])
 			continue
 		}
-		key := string(cond.Type)
-		if specTaintsSet.Has(key) {
+		monitorId := v1.GetIdByTaintKey(string(cond.Type))
+		if specMonitorId.Has(monitorId) {
 			reservedConditions = append(reservedConditions, k8sNode.Status.Conditions[i])
 			continue
 		}
