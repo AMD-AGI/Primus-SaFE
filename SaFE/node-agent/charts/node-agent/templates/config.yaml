@@ -61,7 +61,8 @@ data:
   sys_pcie_link_308: '{"script":"sys_pcie_link_308.sh","id":"308","cronjob":"@every 300s","timeoutSecond":250,"chip":"amd","toggle":"on"}'
   sys_csi_wekafs_309: '{"script":"sys_csi_wekafs_309.sh","id":"309","cronjob":"@every 300s","timeoutSecond":250,"chip":"amd","toggle":"off"}'
   # Disk: 4XX
-  nfs_check_401: '{"script":"nfs_check_401.sh","id":"401","cronjob":"@every 60s","timeoutSecond":50,"toggle":"on","arguments":["{{ .Values.monitor.nfs_server }}","{{ .Values.monitor.nfs_path }}","{{ .Values.monitor.nfs_mount }}"]}'
+  nfs_check_401: '{"script":"nfs_check_401.sh","id":"401","cronjob":"@every 300s","timeoutSecond":250,"toggle":"on","arguments":["{{ .Values.monitor.nfs_server }}","{{ .Values.monitor.nfs_path }}","{{ .Values.monitor.nfs_mount }}"]}'
+  resolv_conf_check_402: '{"script":"resolv_conf_check_402.sh","id":"402","cronjob":"@every 300s","timeoutSecond":250,"toggle":"on"}'
   # Main configuration as YAML string
   config.yaml: |
     net:

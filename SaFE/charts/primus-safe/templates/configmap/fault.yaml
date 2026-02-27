@@ -49,6 +49,7 @@ data:
   sys_csi_wekafs_309: '{"id":"309","action":"taint","toggle":"on"}'
   # Disk: 4XX
   nfs_check_401: '{"id":"401","action":"taint","toggle":"on"}'
+  resolv_conf_check_402: '{"id":"402","toggle":"on"}'
   # primus system: 5XX, System reserved
   addon: '{"id": "501","action":"taint","toggle":"on"}'
   sticky_nodes: '{"id": "502","action":"taint","toggle":"on"}'
