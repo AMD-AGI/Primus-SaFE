@@ -1,0 +1,61 @@
+# Skills Repository Configuration Example
+
+server:
+  port: 8080
+  host: "0.0.0.0"
+
+database:
+  host: "localhost"
+  port: 5432
+  user: "postgres"
+  password: "postgres"
+  dbname: "skills_repository"
+  sslmode: "disable"
+
+# Runner configuration (execution backend)
+runner:
+  # Enable execution backend
+  enabled: true
+  # Backend URL for app execution
+  base_url: "http://localhost:8000"
+  # Request timeout in seconds
+  timeout: 30
+
+# Storage configuration
+storage:
+  # Storage type: "s3" or "local"
+  type: "local"
+  
+  # Local storage configuration
+  local:
+    base_path: "./data/storage"
+    base_url: "http://localhost:8080/files"
+  
+  # S3/MinIO configuration
+  s3:
+    # Internal endpoint for API operations
+    endpoint: "http://localhost:9000"
+    # Public URL for file access (optional, defaults to endpoint/bucket)
+    # e.g., "http://test.primus-safe.amd.com/minio/skills-repository"
+    public_url: ""
+    region: "us-east-1"
+    bucket: "skills-repository"
+    access_key_id: "minioadmin"
+    secret_access_key: "minioadmin"
+    use_path_style: true
+    url_expiry: "1h"
+
+# Embedding configuration
+embedding:
+  # Embedding provider: "openai" or "local"
+  provider: "local"
+  model: "bge-m3"
+  dimension: 1024
+
+# SaFE API server configuration
+# Used to query user information (roles, admin status) from the SaFE platform.
+# If not configured, admin features will be disabled (is_admin always false).
+safe_api:
+  # Base URL of the SaFE API server
+  # Can also be set via SAFE_API_URL environment variable
+  base_url: "http://apiserver:8080"
