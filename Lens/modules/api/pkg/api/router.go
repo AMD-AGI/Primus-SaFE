@@ -36,6 +36,16 @@ func getUnifiedHandler(path string) gin.HandlerFunc {
 	}
 }
 
+// getUnifiedHandlerWithMethod returns the unified handler for a given path and HTTP method.
+// Use this when the same path has multiple HTTP methods (e.g., GET and POST on /skills).
+func getUnifiedHandlerWithMethod(path string, method string) gin.HandlerFunc {
+	ep := unified.GetRegistry().GetEndpointByMethodAndPath(method, path)
+	if ep != nil {
+		return ep.GetGinHandler()
+	}
+	return nil
+}
+
 func RegisterRouter(group *gin.RouterGroup) error {
 	nodeGroup := group.Group("/nodes")
 	{
@@ -411,7 +421,7 @@ func RegisterRouter(group *gin.RouterGroup) error {
 		realtimeGroup.GET("/status", getUnifiedHandler("/realtime/status"))
 		realtimeGroup.GET("/running-tasks", getUnifiedHandler("/realtime/running-tasks"))
 	}
-  
+
 	// Phase 8 Unified (GET only): Detection Status routes - Framework detection status and task progress
 	detectionStatusGroup := group.Group("/detection-status")
 	{
@@ -621,7 +631,7 @@ func RegisterRouter(group *gin.RouterGroup) error {
 		}
 	}
 
-	// Note: V2 group endpoints (analytics, history, commit, details) are now merged 
+	// Note: V2 group endpoints (analytics, history, commit, details) are now merged
 	// into the main github-workflow-metrics group above using unified handlers
 
 	// Intent Analysis: Workload Profile API - Full workload profile including detection + intent
@@ -683,25 +693,64 @@ func RegisterRouter(group *gin.RouterGroup) error {
 		intentRuleGroup.POST(":rule_id/backtest", getUnifiedHandler("/intent-rule/:rule_id/backtest"))
 	}
 
-	// Skills Repository routes - Proxy to skills-repository service
-	skillsGroup := group.Group("/skills")
+	// Tools Marketplace routes - Proxy to skills-repository service
+	toolsGroup := group.Group("/tools")
 	{
-		// List all skills - supports pagination and filtering
-		skillsGroup.GET("", getUnifiedHandler("/skills"))
-		// Semantic search - must be defined before /:name
-		skillsGroup.POST("/search", getUnifiedHandler("/skills/search"))
-		// Import skills from GitHub
-		skillsGroup.POST("/import/github", getUnifiedHandler("/skills/import/github"))
-		// Get skill by name
-		skillsGroup.GET("/:name", getUnifiedHandler("/skills/:name"))
-		// Get skill content (SKILL.md)
-		skillsGroup.GET("/:name/content", getUnifiedHandler("/skills/:name/content"))
-		// Create a new skill
-		skillsGroup.POST("", getUnifiedHandler("/skills"))
-		// Update a skill
-		skillsGroup.PUT("/:name", getUnifiedHandler("/skills/:name"))
-		// Delete a skill
-		skillsGroup.DELETE("/:name", getUnifiedHandler("/skills/:name"))
+		// List tools with pagination, filtering and sorting
+		toolsGroup.GET("", getUnifiedHandlerWithMethod("/tools", "GET"))
+		// Search tools (keyword, semantic, hybrid)
+		toolsGroup.GET("/search", getUnifiedHandler("/tools/search"))
+		// Health check
+		toolsGroup.GET("/health", getUnifiedHandler("/tools/health"))
+		// Create MCP Server
+		toolsGroup.POST("/mcp", getUnifiedHandler("/tools/mcp"))
+		// Run tools (returns redirect URL)
+		toolsGroup.POST("/run", getUnifiedHandler("/tools/run"))
+		// Import skills - discover candidates (multipart/form-data, direct proxy)
+		toolsGroup.POST("/import/discover", ToolsImportDiscoverProxyHandler())
+		// Import skills - commit selected
+		toolsGroup.POST("/import/commit", getUnifiedHandler("/tools/import/commit"))
+		// Get tool by ID
+		toolsGroup.GET("/:id", getUnifiedHandlerWithMethod("/tools/:id", "GET"))
+		// Update tool
+		toolsGroup.PUT("/:id", getUnifiedHandlerWithMethod("/tools/:id", "PUT"))
+		// Delete tool
+		toolsGroup.DELETE("/:id", getUnifiedHandlerWithMethod("/tools/:id", "DELETE"))
+		// Download tool (binary content, direct proxy)
+		toolsGroup.GET("/:id/download", ToolsDownloadProxyHandler())
+		// Like/Unlike tool
+		toolsGroup.POST("/:id/like", getUnifiedHandlerWithMethod("/tools/:id/like", "POST"))
+		toolsGroup.DELETE("/:id/like", getUnifiedHandlerWithMethod("/tools/:id/like", "DELETE"))
+		// Icon upload (multipart/form-data, direct proxy)
+		toolsGroup.POST("/icon", func(c *gin.Context) {
+			toolsProxyRaw(c, "/api/v1/tools/icon")
+		})
+		// Get tool content (SKILL.md for skills, direct proxy)
+		toolsGroup.GET("/:id/content", func(c *gin.Context) {
+			id := c.Param("id")
+			toolsProxyRaw(c, "/api/v1/tools/"+id+"/content")
+		})
+	}
+
+	// Toolsets routes - Proxy to skills-repository service
+	toolsetsGroup := group.Group("/toolsets")
+	{
+		// List toolsets
+		toolsetsGroup.GET("", getUnifiedHandlerWithMethod("/toolsets", "GET"))
+		// Create toolset
+		toolsetsGroup.POST("", getUnifiedHandlerWithMethod("/toolsets", "POST"))
+		// Search toolsets
+		toolsetsGroup.GET("/search", getUnifiedHandler("/toolsets/search"))
+		// Get toolset by ID
+		toolsetsGroup.GET("/:id", getUnifiedHandlerWithMethod("/toolsets/:id", "GET"))
+		// Update toolset
+		toolsetsGroup.PUT("/:id", getUnifiedHandlerWithMethod("/toolsets/:id", "PUT"))
+		// Delete toolset
+		toolsetsGroup.DELETE("/:id", getUnifiedHandlerWithMethod("/toolsets/:id", "DELETE"))
+		// Add tools to toolset
+		toolsetsGroup.POST("/:id/tools", getUnifiedHandler("/toolsets/:id/tools"))
+		// Remove tool from toolset
+		toolsetsGroup.DELETE("/:id/tools/:toolId", getUnifiedHandler("/toolsets/:id/tools/:toolId"))
 	}
 
 	// Release Management routes (Control Plane only)

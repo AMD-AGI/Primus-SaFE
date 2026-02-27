@@ -116,18 +116,44 @@ apps:
         dbName: "primus-lens-control-plane"
         sslMode: "require"
       embedding:
+        enabled: false  # Enable semantic search
         provider: "openai"
         model: "BAAI/bge-m3"
         dimension: 1024
         baseURL: ""
-        # Secret containing OpenAI API key
+        # Secret containing API key
         apiKeySecret:
-          name: "openai-api-key"
+          name: "embedding-api-key"
           key: "api-key"
       discovery:
         syncInterval: "5m"
         watchEnabled: false
         sources: []
+      # SaFE API server configuration for user role resolution
+      safeAPI:
+        # Base URL of the SaFE API server (for admin detection)
+        # Default assumes SaFE apiserver is in the primus-safe namespace
+        baseURL: "http://primus-safe-apiserver.primus-safe.svc:8088"
+      # Runner backend configuration
+      runner:
+        enabled: false
+        baseURL: "http://localhost:8000"
+        timeout: 30
+      # Storage configuration for skills and uploaded files
+      storage:
+        provider: "local"  # local or s3
+        bucket: "skills-repository"
+        # S3/MinIO configuration (when provider is s3)
+        s3:
+          endpoint: ""
+          region: "us-east-1"
+          useSSL: true
+          # Secret containing S3 credentials
+          credentialsSecret:
+            name: ""
+            accessKeyField: "access-key"
+            secretKeyField: "secret-key"
+
 
 # ============================================================================
 # Service Account Configuration
