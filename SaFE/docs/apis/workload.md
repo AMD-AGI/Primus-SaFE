@@ -216,6 +216,66 @@ Create a new workload.
 }
 ```
 
+***RayJob Request Example***:
+```json
+{
+    "displayName": "my-ray",
+    "groupVersionKind": {
+        "kind": "RayJob",
+        "version": "v1"
+    },
+    "priority": 1,
+    "preheat": false,
+    "resources": [
+        {
+            "cpu": "64",
+            "gpu": "8",
+            "memory": "1024Gi",
+            "ephemeralStorage": "1024Gi",
+            "replica": 1
+        },
+        {
+            "cpu": "64",
+            "gpu": "8",
+            "memory": "1024Gi",
+            "ephemeralStorage": "1024Gi",
+            "replica": 2
+        }
+    ],
+    "workspace": "my-workspace",
+    "env": {
+        "key1": "value1",
+        "key2": "value2"
+    },
+    "entryPoints": [
+        "YmFzaCBydW4uc2g=",
+        "YmFzaCBydW4uc2g="
+    ],
+    "images": [
+        "harbor.example.com/sync/rocm/primus:v26.1",
+        "harbor.example.com/sync/rocm/primus:v26.1"
+    ],
+    "excludedNodes": [
+        "tus1-p3-g3"
+    ]
+}
+```
+
+**Notes for RayJob**:
+
+For RayJob workloads, the `resources`, `entryPoints`, and `images` arrays must have a one-to-one correspondence:
+
+| Array Index | Role | Description |
+|-------------|------|-------------|
+| 0 | Head | The first element configures the Ray head node |
+| 1 | Worker | The second element configures the first worker group |
+| 2 | Worker | The third element configures the second worker group (optional) |
+
+- Each index position across all three arrays (`resources[i]`, `entryPoints[i]`, `images[i]`) defines a single node role
+- Currently supports **at most 2 worker groups** (i.e., array length <= 3)
+- The `replica` field in `resources` specifies the number of pods for that role
+- **Head node replica should be 1** (`resources[0].replica = 1`)
+
 **Notes for TorchFT**:
 
 TorchFT is a fault-tolerant distributed training framework that supports elastic scaling of replica groups. The following environment variables are **required** for TorchFT workloads:
