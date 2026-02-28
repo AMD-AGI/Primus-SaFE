@@ -30,7 +30,7 @@ SCALE_RUNNER_SET_ENV = "SCALE_RUNNER_SET_ID"
 GVK_KIND_ENV = "GVK_KIND"        # default: Deployment
 GVK_VERSION_ENV = "GVK_VERSION"  # default: v1
 POLL_INTERVAL_SECS = 20
-DEFAULT_POLL_TIMEOUT_SECS = 604800
+DEFAULT_POLL_TIMEOUT_SECS = 259200
 
 
 def getenv_str(name: str, default: Optional[str] = None) -> Optional[str]:

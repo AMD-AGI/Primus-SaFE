@@ -948,7 +948,7 @@ func (r *NodeReconciler) resetNode(ctx context.Context, node *v1.Node) error {
 	}
 	defer sshClient.Close()
 
-	// Clean up CNI interfaces and state when resetting node
+	// Clean up CNI interfaces and state
 	cleanCNICmd := `systemctl stop kubelet 2>/dev/null || true; \
 for nic in flannel.1 cni0 cilium_vxlan cilium_host cilium_net; do ip link delete $nic 2>/dev/null || true; done; \
 rm -rf /var/lib/cni/networks/* /var/lib/cni/flannel/* /run/flannel/subnet.env /etc/cni/ 2>/dev/null || true; \
@@ -958,6 +958,7 @@ systemctl start kubelet 2>/dev/null || true`
 		klog.Warningf("failed to clean CNI interfaces on node %s: %v", node.Name, err)
 	}
 
+	// cleanup kubernetes files
 	resetNodeCmd := "kubeadm reset -f || true; rm -rf /etc/kubernetes/ ~/.kube || true"
 	if err = r.executeSSHCommand(sshClient, resetNodeCmd); err != nil {
 		return fmt.Errorf("failed to kubeadm reset node: %w", err)
