@@ -1,0 +1,20 @@
+#
+# Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
+# See LICENSE for license information.
+#
+
+apiVersion: amd.com/v1
+kind: AddonTemplate
+metadata:
+  name: set-gpu-passthrough
+  labels:
+    primus-safe.display.name: "set-gpu-passthrough"
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    meta.helm.sh/release-name: {{ .Release.Name }}
+    meta.helm.sh/release-namespace: {{ .Release.Namespace }}
+spec:
+  category: System
+  required: false
+  description: Configures kernel parameters to optimize the host for GPU passthrough and high-performance AI workloads. Using flags like "pci=realloc=off". Manual reboot required to apply changes
+  action: Y3AgL2V0Yy9kZWZhdWx0L2dydWIgL2V0Yy9kZWZhdWx0L2dydWIuYmFrCnNlZCAtaSAncy9eR1JVQl9DTURMSU5FX0xJTlVYPS4qL0dSVUJfQ01ETElORV9MSU5VWD0icGNpPXJlYWxsb2M9b2ZmIHBjaT1iZnNvcnQgaW9tbXU9cHQgbnVtYV9iYWxhbmNpbmc9ZGlzYWJsZSBtb2Rwcm9iZS5ibGFja2xpc3Q9YW1kZ3B1Ii8nIC9ldGMvZGVmYXVsdC9ncnViCmdyZXAgLXEgJ15HUlVCX0NNRExJTkVfTElOVVg9JyAvZXRjL2RlZmF1bHQvZ3J1YiB8fCBlY2hvICdHUlVCX0NNRExJTkVfTElOVVg9InBjaT1yZWFsbG9jPW9mZiBwY2k9YmZzb3J0IGlvbW11PXB0IG51bWFfYmFsYW5jaW5nPWRpc2FibGUgbW9kcHJvYmUuYmxhY2tsaXN0PWFtZGdwdSInIHwgc3VkbyB0ZWUgLWEgL2V0Yy9kZWZhdWx0L2dydWIKdXBkYXRlLWdydWIK
