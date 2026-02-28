@@ -94,6 +94,13 @@ jobs:
           echo "node_exporter_changed=false" >> $GITHUB_OUTPUT
         fi
         
+        # component_health_exporter: Lens/modules/exporters/component-health-exporter/** or Lens/modules/core/**
+        if echo "$CHANGED_FILES" | grep -qE '^Lens/modules/exporters/component-health-exporter/|^Lens/modules/core/'; then
+          echo "component_health_exporter_changed=true" >> $GITHUB_OUTPUT
+        else
+          echo "component_health_exporter_changed=false" >> $GITHUB_OUTPUT
+        fi
+        
         # telemetry_processor: Lens/modules/telemetry-processor/** or Lens/modules/core/**
         if echo "$CHANGED_FILES" | grep -qE '^Lens/modules/telemetry-processor/|^Lens/modules/core/'; then
           echo "telemetry_processor_changed=true" >> $GITHUB_OUTPUT
@@ -234,6 +241,9 @@ jobs:
           fi
           if [[ "${{ steps.detect-changes.outputs.node_exporter_changed }}" == "true" ]]; then
             MATRIX+='{"name":"primus-lens-node-exporter","buildpath":"cmd/node-exporter","basepath":"Lens/modules/exporters/node-exporter/"},'
+          fi
+          if [[ "${{ steps.detect-changes.outputs.component_health_exporter_changed }}" == "true" ]]; then
+            MATRIX+='{"name":"component-health-exporter","buildpath":"cmd/component-health-exporter","basepath":"Lens/modules/exporters/component-health-exporter/"},'
           fi
           if [[ "${{ steps.detect-changes.outputs.telemetry_processor_changed }}" == "true" ]]; then
             MATRIX+='{"name":"telemetry-processor","buildpath":"cmd/telemetry-processor","basepath":"Lens/modules/telemetry-processor/"},'
