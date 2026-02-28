@@ -80,35 +80,31 @@ fi
 
 # Results: host,script,status
 declare -a RESULTS
+FAIL_COUNT=0
 
 for host in "${NODES[@]}"; do
+    echo ""
+    echo "=== $host ==="
+    node_ok=0
+    node_fail=0
     for script_path in "${SCRIPTS[@]}"; do
         script_name="$(basename "$script_path")"
         if ssh "${SSH_OPTS[@]}" "$host" "bash -s" < "$script_path" 2>/dev/null; then
             RESULTS+=("${host}|${script_name}|OK")
+            echo "  $script_name: OK"
+            ((node_ok++)) || true
         else
             RESULTS+=("${host}|${script_name}|FAIL")
+            echo "  $script_name: FAIL"
+            ((node_fail++)) || true
+            ((FAIL_COUNT++)) || true
         fi
     done
+    echo "  -> $node_ok ok, $node_fail failed"
 done
 
-# Output summary
+# Final summary
 echo ""
-echo "========== Execution Summary =========="
-printf "%-40s %-40s %s\n" "NODE" "SCRIPT" "STATUS"
-echo "----------------------------------------"
-
-for r in "${RESULTS[@]}"; do
-    IFS='|' read -r node script status <<< "$r"
-    printf "%-40s %-40s %s\n" "$node" "$script" "$status"
-done
-
-# Count failures
-FAIL_COUNT=0
-for r in "${RESULTS[@]}"; do
-    [[ "$r" == *"|FAIL" ]] && ((FAIL_COUNT++)) || true
-done
-
-echo "----------------------------------------"
+echo "========== Summary =========="
 echo "Total: ${#RESULTS[@]} executions, $FAIL_COUNT failed"
 [ "$FAIL_COUNT" -gt 0 ] && exit 1 || exit 0
