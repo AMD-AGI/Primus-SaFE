@@ -17,6 +17,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
 	apitypes "k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes"
@@ -383,7 +384,7 @@ func (r *NodeReconciler) updateK8sNode(ctx context.Context, adminNode *v1.Node, 
 			return ctrlruntime.Result{}, err
 		}
 	}
-	if err = clearConditions(ctx, k8sClients.ClientSet(), k8sNode); err != nil {
+	if err = r.clearConditions(ctx, adminNode, k8sClients.ClientSet(), k8sNode); err != nil {
 		klog.ErrorS(err, "failed to remove taint conditions")
 		return ctrlruntime.Result{}, err
 	}
@@ -415,13 +416,16 @@ func (r *NodeReconciler) updateK8sNodeTaints(adminNode *v1.Node, k8sNode *corev1
 	return true
 }
 
-// clearConditions removes node conditions that correspond to removed taints.
-func clearConditions(ctx context.Context, k8sClient kubernetes.Interface, k8sNode *corev1.Node) error {
-	specTaintsSet := sets.NewSet()
-	for _, t := range k8sNode.Spec.Taints {
-		specTaintsSet.Insert(t.Key)
-	}
+// clearConditions removes node conditions that correspond to removed faults.
+func (r *NodeReconciler) clearConditions(ctx context.Context,
+	adminNode *v1.Node, k8sClient kubernetes.Interface, k8sNode *corev1.Node) error {
+	labelSelector := labels.SelectorFromSet(map[string]string{v1.NodeIdLabel: adminNode.Name})
+	faultList, _ := listFaults(ctx, r.Client, labelSelector)
 
+	specMonitorId := sets.NewSet()
+	for _, f := range faultList {
+		specMonitorId.Insert(f.Spec.MonitorId)
+	}
 	shouldUpdate := false
 	var reservedConditions []corev1.NodeCondition
 	for i, cond := range k8sNode.Status.Conditions {
@@ -429,8 +433,8 @@ func clearConditions(ctx context.Context, k8sClient kubernetes.Interface, k8sNod
 			reservedConditions = append(reservedConditions, k8sNode.Status.Conditions[i])
 			continue
 		}
-		key := string(cond.Type)
-		if specTaintsSet.Has(key) {
+		monitorId := v1.GetIdByTaintKey(string(cond.Type))
+		if specMonitorId.Has(monitorId) {
 			reservedConditions = append(reservedConditions, k8sNode.Status.Conditions[i])
 			continue
 		}
@@ -816,6 +820,7 @@ func (r *NodeReconciler) syncOrCreateScaleUpPod(ctx context.Context, adminNode *
 	}
 	if len(pods) == 0 {
 		if err = r.resetNode(ctx, adminNode); err != nil {
+			klog.ErrorS(err, "failed to reset node", "node", adminNode.Name)
 			return ctrlruntime.Result{}, err
 		}
 
@@ -887,7 +892,9 @@ func (r *NodeReconciler) unmanage(ctx context.Context, adminNode *v1.Node, k8sNo
 			},
 		}
 		klog.Infof("node %s is unmanaged", adminNode.Name)
-		r.resetNode(ctx, adminNode)
+		if err := r.resetNode(ctx, adminNode); err != nil {
+			klog.ErrorS(err, "failed to reset node", "node", adminNode.Name)
+		}
 
 		if stringutil.StrCaseEqual(v1.GetLabel(adminNode, v1.NodeUnmanageNoRebootLabel), v1.TrueStr) {
 			return ctrlruntime.Result{}, nil
@@ -941,9 +948,20 @@ func (r *NodeReconciler) resetNode(ctx context.Context, node *v1.Node) error {
 	}
 	defer sshClient.Close()
 
-	resetNodeCmd := "kubeadm reset -f; rm -rf /etc/cni/ /etc/kubernetes/ ~/.kube"
+	// Clean up CNI interfaces and state
+	cleanCNICmd := `systemctl stop kubelet 2>/dev/null || true; \
+for nic in flannel.1 cni0 cilium_vxlan cilium_host cilium_net; do ip link delete $nic 2>/dev/null || true; done; \
+rm -rf /var/lib/cni/networks/* /var/lib/cni/flannel/* /run/flannel/subnet.env /etc/cni/ 2>/dev/null || true; \
+systemctl restart containerd 2>/dev/null || true; \
+systemctl start kubelet 2>/dev/null || true`
+	if err = r.executeSSHCommand(sshClient, cleanCNICmd); err != nil {
+		klog.Warningf("failed to clean CNI interfaces on node %s: %v", node.Name, err)
+	}
+
+	// cleanup kubernetes files
+	resetNodeCmd := "kubeadm reset -f || true; rm -rf /etc/kubernetes/ ~/.kube || true"
 	if err = r.executeSSHCommand(sshClient, resetNodeCmd); err != nil {
-		return err
+		return fmt.Errorf("failed to kubeadm reset node: %w", err)
 	}
 	return nil
 }

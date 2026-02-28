@@ -243,7 +243,9 @@ func getWorkloadCompletionMessage(workload *v1.Workload) string {
 			}
 		}
 	}
-
+	if workload.Status.Phase == v1.WorkloadSucceeded {
+		return ""
+	}
 	// Default message for unknown cases
 	return "unknown"
 }

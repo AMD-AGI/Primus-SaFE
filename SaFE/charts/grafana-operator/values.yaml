@@ -162,7 +162,16 @@ nodeSelector: {}
 tolerations: []
 
 # -- pod affinity
-affinity: {}
+affinity:
+  nodeAffinity:
+    preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 100
+        preference:
+          matchExpressions:
+            - key: feature.node.kubernetes.io/amd-gpu
+              operator: NotIn
+              values:
+                - "true"
 
 serviceMonitor:
   # -- Whether to create a ServiceMonitor

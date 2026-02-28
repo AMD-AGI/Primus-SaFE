@@ -30,39 +30,21 @@ else
   exit 0
 fi
 
-PCI_OUTPUT=`nsenter --target 1 --mount --uts --ipc --net --pid -- lspci -d $model -vvv | grep -e DevSta -e LnkS`
+PCI_OUTPUT=`nsenter --target 1 --mount --uts --ipc --net --pid -- lspci -d $model -vvv | grep "LnkSta:"`
 if [ $? -ne 0 ]; then
   echo "failed to get PCI info"
   exit 1
 fi
-FATAL_ERR_FOUND=0
-LINK_BAD=0
 
 echo "$PCI_OUTPUT" | awk -v speed="$EXPECTED_SPEED" -v width="$EXPECTED_WIDTH" '
-BEGIN {
-    in_section = 0
-}
-
-/DevSta:/ {
-    devsta = $0
-    split(devsta, fields, ",")
-    fatal_found = 0
-    for (i in fields) {
-        if (index(fields[i], "FatalErr+") != 0) {
-            print "FatalErr+ found in DevSta"
-            exit 1
-        }
-    }
-}
-
 /LnkSta:/ {
     line = $0
-    if (line !~ ("Speed " speed)) {
-        print "Expected Speed: " speed ", got different value"
+    if (line !~ ("Speed " speed " \\(ok\\)")) {
+        print "Expected Speed: " speed " (ok), got different value"
         exit 1
     }
-    if (line !~ ("Width " width)) {
-        print "Expected Width: " width ", got different value"
+    if (line !~ ("Width " width " \\(ok\\)")) {
+        print "Expected Width: " width " (ok), got different value"
         exit 1
     }
 }

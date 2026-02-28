@@ -333,7 +333,7 @@ func (mgr *MonitorManager) getMonitorConfigs(configPath string) ([]*MonitorConfi
 		return nil, err
 	}
 	for _, f := range files {
-		if strings.HasPrefix(f.Name(), ".") {
+		if strings.HasPrefix(f.Name(), ".") || f.Name() == types.AppConfig {
 			continue
 		}
 		path := filepath.Join(configPath, f.Name())

@@ -26,7 +26,7 @@ _cleanup_context: Dict[str, Any] = {
     "lock": threading.Lock(),
 }
 
-timeout_secs = 604800
+timeout_secs = 259200
 
 def _do_cleanup() -> None:
     """
