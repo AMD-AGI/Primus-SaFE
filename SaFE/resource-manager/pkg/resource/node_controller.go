@@ -948,13 +948,17 @@ func (r *NodeReconciler) resetNode(ctx context.Context, node *v1.Node) error {
 	}
 	defer sshClient.Close()
 
-	// Delete all flannel interfaces before reset
-	deleteFlannelCmd := "for iface in $(ip link | grep flannel | awk -F': ' '{print $2}'); do ip link delete $iface 2>/dev/null || true; done"
-	if err = r.executeSSHCommand(sshClient, deleteFlannelCmd); err != nil {
-		return fmt.Errorf("failed to delete flannel interfaces: %w", err)
+	// Clean up CNI interfaces and state before reset
+	cleanCNICmd := `systemctl stop kubelet 2>/dev/null || true; \
+for nic in flannel.1 cni0 cilium_vxlan cilium_host cilium_net; do ip link delete $nic 2>/dev/null || true; done; \
+rm -rf /var/lib/cni/networks/* /var/lib/cni/flannel/* /run/flannel/subnet.env /etc/cni/ 2>/dev/null || true; \
+systemctl restart containerd 2>/dev/null || true; \
+systemctl start kubelet 2>/dev/null || true`
+	if err = r.executeSSHCommand(sshClient, cleanCNICmd); err != nil {
+		klog.Warningf("failed to clean CNI interfaces on node %s: %v", node.Name, err)
 	}
 
-	resetNodeCmd := "kubeadm reset -f; rm -rf /etc/cni/ /etc/kubernetes/ ~/.kube"
+	resetNodeCmd := "kubeadm reset -f || true; rm -rf /etc/kubernetes/ ~/.kube || true"
 	if err = r.executeSSHCommand(sshClient, resetNodeCmd); err != nil {
 		return fmt.Errorf("failed to kubeadm reset node: %w", err)
 	}
