@@ -205,17 +205,33 @@ func (r *FaultReconciler) Reconcile(ctx context.Context, req ctrlruntime.Request
 }
 
 // delete handles fault deletion by removing node taints and finalizers.
+//
+// Phase C Migration: removeNodeTaint is skipped because fault-manager handles
+// untaint via its Action Engine recovery logic. We only remove the finalizer
+// so the Fault CRD can be garbage collected.
+//
+// To revert: uncomment the removeNodeTaint() call below.
 func (r *FaultReconciler) delete(ctx context.Context, fault *v1.Fault) (ctrlruntime.Result, error) {
-	err := r.removeNodeTaint(ctx, fault)
-	if err != nil && !utils.IsNonRetryableError(err) {
-		if result, err := r.retry(ctx, fault); err != nil || result.RequeueAfter > 0 {
-			return result, err
-		}
-	}
+	// Phase C: Skip removeNodeTaint — fault-manager handles untaint on recovery.
+	// To rollback: uncomment the block below.
+	// err := r.removeNodeTaint(ctx, fault)
+	// if err != nil && !utils.IsNonRetryableError(err) {
+	// 	if result, err := r.retry(ctx, fault); err != nil || result.RequeueAfter > 0 {
+	// 		return result, err
+	// 	}
+	// }
+	klog.V(2).Infof("[Phase C] Skipping removeNodeTaint for fault %s (handled by fault-manager)", fault.Name)
 	return ctrlruntime.Result{}, utils.RemoveFinalizer(ctx, r.Client, fault, v1.FaultFinalizer)
 }
 
 // processFault processes a fault by adding or removing node taints based on fault action.
+//
+// Phase C Migration: Taint operations are now handled exclusively by fault-manager
+// (Robust platform). This reconciler only creates/manages Fault CRDs for job-manager
+// Failover compatibility. The taint action is skipped to avoid conflicts with
+// fault-manager's Action Engine which is the single source of truth for node isolation.
+//
+// To revert (rollback to pre-Phase C behavior), uncomment the taintNode() call below.
 func (r *FaultReconciler) processFault(ctx context.Context, fault *v1.Fault) (ctrlruntime.Result, error) {
 	var err error
 	if fault.Spec.Action == "" {
@@ -225,7 +241,13 @@ func (r *FaultReconciler) processFault(ctx context.Context, fault *v1.Fault) (ct
 		for _, action := range actions {
 			switch action {
 			case common.TaintAction:
-				err = r.taintNode(ctx, fault)
+				// Phase C: Skip taint — fault-manager is the sole executor of node isolation.
+				// fault-manager Action Engine handles taint/untaint via its FaultOperator.
+				// This Fault CRD is still created for job-manager FailoverReconciler compatibility.
+				klog.V(2).Infof("[Phase C] Skipping taint action for fault %s on node %s (handled by fault-manager)",
+					fault.Name, fault.Spec.Node.AdminName)
+				// To rollback: uncomment the line below and remove the klog line above.
+				// err = r.taintNode(ctx, fault)
 			default:
 			}
 			if err != nil {
