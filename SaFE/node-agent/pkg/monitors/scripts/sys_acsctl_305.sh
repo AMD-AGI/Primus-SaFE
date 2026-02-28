@@ -5,8 +5,6 @@
 # See LICENSE for license information.
 #
 
-set -o pipefail
-
 count=`nsenter --target 1 --mount --uts --ipc --net --pid --  /usr/bin/lspci -vvv |grep ACSCtl |grep "SrcValid+" |wc -l`
 if [ $? -ne 0 ]; then
   echo "Error: failed to execute lspci"
