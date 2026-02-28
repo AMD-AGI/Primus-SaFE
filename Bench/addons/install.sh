@@ -53,14 +53,14 @@ if [ ! -d "$SCRIPTS_DIR" ]; then
     exit 1
 fi
 
-# Get sorted list of executable scripts (all executable files in scripts_dir)
+# Get sorted list of scripts (executable files or .sh files; executed via bash -s)
 SCRIPTS=()
 while IFS= read -r -d '' f; do
     SCRIPTS+=("$f")
-done < <(find "$SCRIPTS_DIR" -maxdepth 1 -type f -executable -print0 2>/dev/null | sort -z)
+done < <(find "$SCRIPTS_DIR" -maxdepth 1 -type f \( -executable -o -name "*.sh" \) -print0 2>/dev/null | sort -z)
 
 if [ ${#SCRIPTS[@]} -eq 0 ]; then
-    echo "Error: no executable scripts found in $SCRIPTS_DIR" >&2
+    echo "Error: no scripts found in $SCRIPTS_DIR (need executable or .sh files)" >&2
     exit 1
 fi
 

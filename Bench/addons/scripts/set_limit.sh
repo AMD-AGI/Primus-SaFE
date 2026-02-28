@@ -1,6 +1,6 @@
 #!/bin/bash
 
-grep -q ^"* hard nofile 65535" "/etc/security/limits.conf"
+grep -qF '* hard nofile 65535' /etc/security/limits.conf
 if [ $? -eq 0 ]; then
   exit 0
 fi
