@@ -820,6 +820,7 @@ func (r *NodeReconciler) syncOrCreateScaleUpPod(ctx context.Context, adminNode *
 	}
 	if len(pods) == 0 {
 		if err = r.resetNode(ctx, adminNode); err != nil {
+			klog.ErrorS(err, "failed to reset node", "node", adminNode.Name)
 			return ctrlruntime.Result{}, err
 		}
 
@@ -891,7 +892,9 @@ func (r *NodeReconciler) unmanage(ctx context.Context, adminNode *v1.Node, k8sNo
 			},
 		}
 		klog.Infof("node %s is unmanaged", adminNode.Name)
-		r.resetNode(ctx, adminNode)
+		if err := r.resetNode(ctx, adminNode); err != nil {
+			klog.ErrorS(err, "failed to reset node", "node", adminNode.Name)
+		}
 
 		if stringutil.StrCaseEqual(v1.GetLabel(adminNode, v1.NodeUnmanageNoRebootLabel), v1.TrueStr) {
 			return ctrlruntime.Result{}, nil
@@ -945,9 +948,15 @@ func (r *NodeReconciler) resetNode(ctx context.Context, node *v1.Node) error {
 	}
 	defer sshClient.Close()
 
+	// Delete all flannel interfaces before reset
+	deleteFlannelCmd := "for iface in $(ip link | grep flannel | awk -F': ' '{print $2}'); do ip link delete $iface 2>/dev/null || true; done"
+	if err = r.executeSSHCommand(sshClient, deleteFlannelCmd); err != nil {
+		return fmt.Errorf("failed to delete flannel interfaces: %w", err)
+	}
+
 	resetNodeCmd := "kubeadm reset -f; rm -rf /etc/cni/ /etc/kubernetes/ ~/.kube"
 	if err = r.executeSSHCommand(sshClient, resetNodeCmd); err != nil {
-		return err
+		return fmt.Errorf("failed to kubeadm reset node: %w", err)
 	}
 	return nil
 }
