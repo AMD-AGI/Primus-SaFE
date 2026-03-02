@@ -278,9 +278,6 @@ def build_env_vars() -> Dict[str, str]:
             "NCCL_IB_QPS_PER_CONNECTION": "1",
             "UCX_NET_DEVICES": RCCL_SOCKET_IFNAME
         })
-        log(f"[DEBUG] build_env_vars: NCCL_IB_TC={env['NCCL_IB_TC']}, NCCL_IB_FIFO_TC={env['NCCL_IB_FIFO_TC']} "
-            f"(from env: NCCL_IB_TC={os.environ.get('NCCL_IB_TC', '<unset>')}, "
-            f"NCCL_IB_FIFO_TC={os.environ.get('NCCL_IB_FIFO_TC', '<unset>')})")
 
     else:
         # Standard mode: use default library paths
