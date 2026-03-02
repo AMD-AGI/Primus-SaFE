@@ -16,5 +16,3 @@ func main() {
 		panic(err)
 	}
 }
-
-// ci trigger: 2026-02-28 component-health-exporter build trigger, delete this later
