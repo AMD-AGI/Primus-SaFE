@@ -390,6 +390,9 @@ func GetSpecReplica(unstructuredObj *unstructured.Unstructured, rt *v1.ResourceT
 	for _, t := range rt.Spec.ResourceSpecs {
 		l := len(t.ReplicasPaths)
 		if l == 0 {
+			if t.DefaultReplica > 0 {
+				replica += t.DefaultReplica
+			}
 			continue
 		}
 		prePaths := slice.Copy(t.PrePaths, len(t.PrePaths))
@@ -397,10 +400,9 @@ func GetSpecReplica(unstructuredObj *unstructured.Unstructured, rt *v1.ResourceT
 			prePaths = append(prePaths, t.ReplicasPaths[:l]...)
 		}
 		n, err := getReplica(unstructuredObj, prePaths, t.ReplicasPaths[l-1])
-		if err != nil {
-			return 0, err
+		if err == nil {
+			replica += n
 		}
-		replica += n
 	}
 	return replica, nil
 }
