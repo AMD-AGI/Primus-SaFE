@@ -280,7 +280,8 @@ func (r *DispatcherReconciler) processWorkload(ctx context.Context, adminWorkloa
 		if err = r.markAsDispatched(ctx, adminWorkload); err != nil {
 			return ctrlruntime.Result{}, err
 		}
-		if commonworkload.IsApplication(adminWorkload) || commonworkload.IsCICDScalingRunnerSet(adminWorkload) {
+		if commonworkload.IsApplication(adminWorkload) ||
+			commonworkload.IsCICDScalingRunnerSet(adminWorkload) || commonworkload.IsRayJob(adminWorkload) {
 			// update the workload which is already dispatched
 			if err = r.syncWorkloadToObject(ctx, adminWorkload, clientSets, obj); err != nil {
 				return ctrlruntime.Result{}, err
