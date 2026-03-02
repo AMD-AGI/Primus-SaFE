@@ -23,8 +23,10 @@ export PATH_TO_BNXT_TAR_PACKAGE=${PATH_TO_BNXT_TAR_PACKAGE}
 ainic_exit_code=$?
 if [ -n "${AINIC_DRIVER_VERSION}" ] && [ ${ainic_exit_code} -eq 0 ]; then
   export USING_AINIC=1
+  echo "INFO: AINIC support enabled (USING_AINIC=1)"
   if [ -z "${NCCL_IB_GID_INDEX}" ]; then
     export NCCL_IB_GID_INDEX=1
+    echo "INFO: NCCL_IB_GID_INDEX not set, defaulting to 1 for AINIC co"
   fi
 fi
 
