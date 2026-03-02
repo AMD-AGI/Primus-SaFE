@@ -363,11 +363,20 @@ func (s *ConfigSyncer) createProxyServicesForCluster(ctx context.Context, cluste
 				log.Warnf("Failed to create vmselect read service for current cluster %s: %v", clusterName, err)
 			}
 		} else if config.Prometheus.ReadNodePort > 0 {
-			serviceName, port, err := s.createProxyServiceAndEndpoint(ctx, clusterName, "prometheus-read", nodeIPs, config.Prometheus.ReadNodePort, 9090)
-			if err == nil {
-				config.Prometheus.ReadService = serviceName
-				config.Prometheus.ReadPort = port
+			// Do not overwrite if this cluster's prometheus-read Service already uses vmselect (e.g. was set when currentClusterName was set)
+			readSvcName := fmt.Sprintf("primus-lens-prometheus-read-%s", clusterName)
+			if s.prometheusReadServiceHasVMSelectSelector(ctx, readSvcName) {
+				config.Prometheus.ReadService = readSvcName
+				config.Prometheus.ReadPort = 9090
 				count++
+				log.Debugf("Skipping NodePort proxy for %s: prometheus-read already uses vmselect", clusterName)
+			} else {
+				serviceName, port, err := s.createProxyServiceAndEndpoint(ctx, clusterName, "prometheus-read", nodeIPs, config.Prometheus.ReadNodePort, 9090)
+				if err == nil {
+					config.Prometheus.ReadService = serviceName
+					config.Prometheus.ReadPort = port
+					count++
+				}
 			}
 		}
 	}
@@ -512,6 +521,15 @@ func (s *ConfigSyncer) createVMSelectReadService(ctx context.Context, clusterNam
 
 	log.Infof("Created/updated vmselect read service %s for cluster %s", serviceName, clusterName)
 	return serviceName, servicePort, nil
+}
+
+// prometheusReadServiceHasVMSelectSelector returns true if the named Service exists and selects vmselect (so we must not overwrite it with NodePort proxy).
+func (s *ConfigSyncer) prometheusReadServiceHasVMSelectSelector(ctx context.Context, serviceName string) bool {
+	svc, err := s.currentK8sClient.CoreV1().Services(s.namespace).Get(ctx, serviceName, metav1.GetOptions{})
+	if err != nil || svc == nil {
+		return false
+	}
+	return svc.Spec.Selector != nil && svc.Spec.Selector["app.kubernetes.io/name"] == "vmselect"
 }
 
 // updateMultiStorageConfigSecret updates the multi-storage-config secret
