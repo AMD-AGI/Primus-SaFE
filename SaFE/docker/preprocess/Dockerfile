@@ -20,7 +20,7 @@ COPY ./SaFE/docker/preprocess/scripts/*.sh ${APP_HOME}/scripts/
 
 # Copy bnxt driver if path is specified
 # Use shell with heredoc to handle conditional copy
-RUN --mount=type=bind,target=/build_context \
+RUN --mount=type=bind,source=.,target=/build_context \
     if [ -n "${BNXT_DRIVER_PATH}" ] && [ -f "/build_context/${BNXT_DRIVER_PATH}" ]; then \
         cp "/build_context/${BNXT_DRIVER_PATH}" "${APP_HOME}/drivers/" && \
         echo "Copied bnxt driver from ${BNXT_DRIVER_PATH} to ${APP_HOME}/drivers/"; \
@@ -29,7 +29,7 @@ RUN --mount=type=bind,target=/build_context \
     fi
 
 # Copy ainic driver if path is specified
-RUN --mount=type=bind,target=/build_context \
+RUN --mount=type=bind,source=.,target=/build_context \
     if [ -n "${AINIC_DRIVER_PATH}" ] && [ -f "/build_context/${AINIC_DRIVER_PATH}" ]; then \
         cp "/build_context/${AINIC_DRIVER_PATH}" "${APP_HOME}/drivers/" && \
         echo "Copied ainic driver from ${AINIC_DRIVER_PATH} to ${APP_HOME}/drivers/"; \

@@ -25,9 +25,15 @@ echo "INFO: AINIC driver version ${AINIC_DRIVER_VERSION}, build exit code ${aini
 if [ -n "${AINIC_DRIVER_VERSION}" ] && [ ${ainic_exit_code} -eq 0 ]; then
   export USING_AINIC=1
   echo "INFO: AINIC support enabled (USING_AINIC=1)"
-  if [ -z "${NCCL_IB_GID_INDEX}" ]; then
+fi
+
+if [ -z "${NCCL_IB_GID_INDEX}" ]; then
+  if [ "${USING_AINIC}" = "1" ]; then
     export NCCL_IB_GID_INDEX=1
-    echo "INFO: NCCL_IB_GID_INDEX not set, defaulting to 1 for AINIC co"
+    echo "INFO: NCCL_IB_GID_INDEX not set, defaulting to 1 for AINIC mode"
+  else
+    export NCCL_IB_GID_INDEX=3
+    echo "INFO: NCCL_IB_GID_INDEX not set, defaulting to 3"
   fi
 fi
 
