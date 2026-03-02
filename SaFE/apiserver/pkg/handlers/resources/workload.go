@@ -25,6 +25,7 @@ import (
 	"k8s.io/klog/v2"
 	"k8s.io/utils/pointer"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
@@ -170,6 +171,23 @@ func (h *Handler) createWorkload(c *gin.Context) (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	// Update preheat workloads' OwnerReferences to point to mainWorkload
+	// This must be done after mainWorkload is created since we need its UID
+	if req.Preheat && len(preheatWorkloads) > 0 {
+		for _, preheatWorkload := range preheatWorkloads {
+			if err = controllerutil.SetControllerReference(mainWorkload, preheatWorkload, h.Client.Scheme()); err != nil {
+				klog.ErrorS(err, "failed to set controller reference",
+					"preheatWorkload", preheatWorkload.Name, "mainWorkload", mainWorkload.Name)
+				continue
+			}
+			if err = h.Update(c.Request.Context(), preheatWorkload); err != nil {
+				klog.ErrorS(err, "failed to update preheat workload owner reference",
+					"preheatWorkload", preheatWorkload.Name, "mainWorkload", mainWorkload.Name)
+			}
+		}
+	}
+
 	isSucceed = true
 	return resp, nil
 }
@@ -396,6 +414,7 @@ func (h *Handler) deleteAdminWorkload(ctx context.Context, adminWorkload *v1.Wor
 	if err := h.Delete(ctx, adminWorkload); err != nil {
 		return err
 	}
+
 	return nil
 }
 
@@ -865,6 +884,7 @@ func (h *Handler) createPreheatWorkload(c *gin.Context, mainWorkload *v1.Workloa
 			Name: commonutils.GenerateName(displayName),
 			Labels: map[string]string{
 				v1.DisplayNameLabel: displayName,
+				v1.OwnerLabel:       mainWorkload.Name,
 			},
 			Annotations: map[string]string{
 				v1.DescriptionAnnotation:       v1.OpsJobKind,

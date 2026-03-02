@@ -35,20 +35,6 @@ spec:
                     operator: NotIn
                     values:
                       - "true"
-        podAntiAffinity:
-          preferredDuringSchedulingIgnoredDuringExecution:
-            - weight: 80
-              podAffinityTerm:
-                labelSelector:
-                  matchExpressions:
-                    - key: app
-                      operator: In
-                      values:
-                        - {{ .Release.Name }}-webhooks
-                        - {{ .Release.Name }}-resource-manager
-                        - {{ .Release.Name }}-apiserver
-                        - {{ .Release.Name }}-web
-                topologyKey: kubernetes.io/hostname
       serviceAccountName: {{ .Release.Name }}
       containers:
         - name: {{ .Release.Name }}-job-manager

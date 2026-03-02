@@ -73,6 +73,16 @@ spec:
       labels:
         app: primus-safe-nginx
     spec:
+      affinity:
+        nodeAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              preference:
+                matchExpressions:
+                  - key: feature.node.kubernetes.io/amd-gpu
+                    operator: NotIn
+                    values:
+                      - "true"
       containers:
         - name: nginx
           image: {{ .Values.global.image_registry }}/library/nginx:latest

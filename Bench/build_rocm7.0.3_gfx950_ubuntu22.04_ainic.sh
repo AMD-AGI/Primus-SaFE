@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
+# Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
 # See LICENSE for license information.
 #
 
@@ -26,6 +26,7 @@ AINIC_BUNDLE_PATH=$(get_input_with_default "Enter ainic package path (empty to s
 GPU_ARCHS=gfx950
 ROCM_VERSION=7.0.3
 OS_VERSION=22.04
+OS_NAME=ubuntu
 PY_VERSION=3.10
 
 # Copy AINIC bundle to build context if provided
@@ -43,8 +44,9 @@ docker buildx build . -f ./Dockerfile \
   --build-arg GPU_ARCHS="${GPU_ARCHS}" \
   --build-arg AINIC_BUNDLE_FILENAME="${AINIC_FILENAME}" \
   --build-arg OS_VERSION="${OS_VERSION}" \
+  --build-arg OS_NAME="${OS_NAME}" \
   --build-arg PY_VERSION="${PY_VERSION}" \
-  -t primussafe/primusbench:rocm${ROCM_VERSION}_${GPU_ARCHS}_ubuntu${OS_VERSION}_ainic_${IMAGE_VERSION} 2>&1 | tee build.log
+  -t primussafe/primusbench:rocm${ROCM_VERSION}_${GPU_ARCHS}_${OS_NAME}${OS_VERSION}_ainic_${IMAGE_VERSION} 2>&1 | tee build.log
 
 # Cleanup: remove copied AINIC file after build
 if [ -n "${AINIC_FILENAME}" ] && [ -f "./preflight/install/${AINIC_FILENAME}" ]; then

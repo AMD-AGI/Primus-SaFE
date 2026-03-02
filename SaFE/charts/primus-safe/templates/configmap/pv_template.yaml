@@ -14,7 +14,7 @@ metadata:
     primus-safe.display.name: "wekafs"
   annotations:
     # When set to true, automatically creates PV based on the template below when creating a workspace
-    primus-safe.workspace.auto-create-pv: "true"
+    primus-safe.workspace.auto-create-pv: "false"
     meta.helm.sh/release-name: {{ .Release.Name }}
     meta.helm.sh/release-namespace: {{ .Release.Namespace }}
 data:

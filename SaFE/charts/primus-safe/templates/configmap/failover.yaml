@@ -20,7 +20,6 @@ data:
   gpu_card_check_004: '{"id":"004"}'
   gpu_link_009: '{"id":"009"}'
   gpu_ipc_012: '{"id":"012"}'
-  net_ib_devices_206: '{"id":"206"}'
   not_ready: '{"id":"NotReady"}'
 
 

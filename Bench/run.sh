@@ -1,9 +1,8 @@
 #!/bin/bash
-###############################################################################
-# Copyright (c) 2025, Advanced Micro Devices, Inc. All rights reserved.
 #
+# Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
 # See LICENSE for license information.
-###############################################################################
+#
 
 # Source unified configuration
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -143,13 +142,19 @@ if [[ "$RANK" == "0" ]]; then
         if [[ -n "${node_ip_map[$node]}" ]]; then
             continue
         fi
-        ip_addr=$(getent hosts "$node" | awk '{print $1; exit}')
+        ip_addr=$(nsenter --target 1 --mount --uts --ipc --net --pid -- getent hosts "$node" | awk '{print $1; exit}')
 
         if [[ "$ip_addr" == 127.* ]]; then
-          ip_addr=$(ip route get 8.8.8.8 | awk '{print $7}')
+            ip_addr=$(ip route get 8.8.8.8 | awk '{print $7}')
         fi
-        node_ip_map[$node]="$ip_addr"
-        ip_node_map[$ip_addr]="$node"
+        if [[ -n "$ip_addr" ]] && [[ "$ip_addr" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            node_ip_map[$node]="$ip_addr"
+            ip_node_map[$ip_addr]="$node"
+        else
+            echo "Warning: Invalid IP address '$ip_addr' for node $node, skipping..." >&2
+            continue
+        fi
+
         all_nodes+=("$node")
         if $status; then
             successed_nodes+=("$node")
