@@ -82,6 +82,22 @@ if [ "$NODE_RANK" = "0" ]; then
     echo "docker: $PREFLIGHT_NODE_IMAGE"
 fi
 
+# Pensando AINIC QoS auto-detection (NCCL_IB_TC, NCCL_IB_FIFO_TC)
+NCCL_IB_TC=""
+NCCL_IB_FIFO_TC=""
+if [[ "${ENABLE_AINIC:-false}" == "true" ]]; then
+    source "$SCRIPT_DIR/../../utils/detect_ainic_nccl_ib_tc.sh"
+    if is_pensando; then
+        _tc=$(detect_pensando_tc)
+        NCCL_IB_TC=$(echo "$_tc" | awk '{print $1}')
+        NCCL_IB_FIFO_TC=$(echo "$_tc" | awk '{print $2}')
+        echo "[INFO] $HOSTNAME: Pensando AINIC detected: NCCL_IB_TC=$NCCL_IB_TC NCCL_IB_FIFO_TC=$NCCL_IB_FIFO_TC"
+        unset _tc
+    else
+        echo "[WARN] $HOSTNAME: ENABLE_AINIC=true but no Pensando hardware found, using defaults"
+    fi
+fi
+
 docker ps -aq | xargs -r docker rm -f
 echo "Node-${NODE_RANK} $(hostname): Clean docker containers..."
 
@@ -134,12 +150,15 @@ docker_podman_proxy run --rm \
     --env NCCL_NET_GDR_LEVEL=2 \
     --env NCCL_IB_HCA=$NCCL_IB_HCA \
     --env NCCL_IB_GID_INDEX=$NCCL_IB_GID_INDEX \
+    ${NCCL_IB_TC:+--env NCCL_IB_TC=$NCCL_IB_TC} \
+    ${NCCL_IB_FIFO_TC:+--env NCCL_IB_FIFO_TC=$NCCL_IB_FIFO_TC} \
     --env NCCL_CROSS_NIC=$NCCL_CROSS_NIC \
     --env HSA_ENABLE_SDMA=$HSA_ENABLE_SDMA \
     --env NCCL_SOCKET_IFNAME=$NCCL_SOCKET_IFNAME \
     --env GLOO_SOCKET_IFNAME=$GLOO_SOCKET_IFNAME \
     --env CUDA_DEVICE_MAX_CONNECTIONS=$CUDA_DEVICE_MAX_CONNECTIONS \
     --env RCCL_MSCCL_ENABLE=$RCCL_MSCCL_ENABLE \
+    --env ENABLE_AINIC=${ENABLE_AINIC:-false} \
     --env ADD_LOG_HEADER=true \
     --env BNIC=50 \
     --env BXGMI=315 \
