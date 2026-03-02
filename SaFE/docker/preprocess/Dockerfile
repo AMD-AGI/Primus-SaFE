@@ -28,7 +28,7 @@ RUN --mount=type=bind,source=.,target=/build_context \
         echo "BNXT_DRIVER_PATH not specified or file not found, skipping."; \
     fi
 
-#  Copy ainic driver if path is specified
+# Copy ainic driver if path is specified
 RUN --mount=type=bind,source=.,target=/build_context \
     if [ -n "${AINIC_DRIVER_PATH}" ] && [ -f "/build_context/${AINIC_DRIVER_PATH}" ]; then \
         cp "/build_context/${AINIC_DRIVER_PATH}" "${APP_HOME}/drivers/" && \
