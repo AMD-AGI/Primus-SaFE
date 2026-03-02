@@ -10,9 +10,11 @@ import (
 	"time"
 
 	"github.com/robfig/cron/v3"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/klog/v2"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	"github.com/AMD-AIG-AIMA/SAFE/node-agent/pkg/node"
 	"github.com/AMD-AIG-AIMA/SAFE/node-agent/pkg/types"
 	"github.com/AMD-AIG-AIMA/SAFE/node-agent/pkg/utils"
@@ -44,12 +46,14 @@ type Monitor struct {
 type NodeInfo struct {
 	// Expected GPU count on each node
 	ExpectedGpuCount int `json:"expectedGpuCount"`
-	// The gpu count observed by the k8s device plugin
+	// The gpu count observed by the k8s node
 	ObservedGpuCount int `json:"observedGpuCount"`
 	// The name of the node
 	NodeName string `json:"nodeName"`
 	// The workspace bound to the node
 	WorkspaceId string `json:"workspaceId"`
+	// The rdma count observed by the k8s node
+	ObserveRdmaCount int `json:"observeRdmaCount"`
 }
 
 // NewMonitor creates a new Monitor instance with the given configuration.
@@ -177,6 +181,13 @@ func (m *Monitor) generateNodeInfo() *NodeInfo {
 	if !gpuQuantity.IsZero() {
 		info.ObservedGpuCount = int(gpuQuantity.Value())
 	}
+	if commonconfig.GetRdmaName() != "" {
+		q, ok := m.node.GetK8sNode().Status.Allocatable[corev1.ResourceName(commonconfig.GetRdmaName())]
+		if ok {
+			info.ObserveRdmaCount = int(q.Value())
+		}
+	}
+
 	return info
 }
 
