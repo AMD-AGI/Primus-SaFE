@@ -21,6 +21,7 @@ export PATH_TO_BNXT_TAR_PACKAGE=${PATH_TO_BNXT_TAR_PACKAGE}
 # Build AINIC driver and set NCCL env if successful
 /bin/sh /shared-data/build_ainic.sh
 ainic_exit_code=$?
+echo "INFO: AINIC driver version ${AINIC_DRIVER_VERSION}, build exit code ${ainic_exit_code}"
 if [ -n "${AINIC_DRIVER_VERSION}" ] && [ ${ainic_exit_code} -eq 0 ]; then
   export USING_AINIC=1
   echo "INFO: AINIC support enabled (USING_AINIC=1)"
