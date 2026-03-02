@@ -5,6 +5,16 @@ on:
       - '**'
     tags:
       - '**'
+  workflow_dispatch:
+    inputs:
+      bnxt_driver_path:
+        description: 'BNXT driver path (e.g. ./drivers/bnxt_driver.tar.gz)'
+        type: string
+        default: ''
+      ainic_driver_path:
+        description: 'AINIC driver path (e.g. ./drivers/ainic_bundle.tar.gz)'
+        type: string
+        default: ''
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
@@ -89,7 +99,10 @@ jobs:
         fi
         
         # preprocess: SaFE/docker/preprocess/**
+        # Also force build when triggered manually with driver paths
         if echo "$CHANGED_FILES" | grep -qE '^SaFE/docker/preprocess/'; then
+          echo "preprocess_changed=true" >> $GITHUB_OUTPUT
+        elif [[ -n "${{ inputs.bnxt_driver_path }}" ]] || [[ -n "${{ inputs.ainic_driver_path }}" ]]; then
           echo "preprocess_changed=true" >> $GITHUB_OUTPUT
         else
           echo "preprocess_changed=false" >> $GITHUB_OUTPUT
@@ -234,6 +247,19 @@ jobs:
           set -e
           echo "🚧 Building ${{ matrix.name }}..."
 
+          # Build extra args for preprocess driver paths
+          EXTRA_ARGS=""
+          if [[ "${{ matrix.name }}" == "preprocess" ]]; then
+            if [[ -n "${{ inputs.bnxt_driver_path }}" ]]; then
+              EXTRA_ARGS+=" --build-arg BNXT_DRIVER_PATH=${{ inputs.bnxt_driver_path }}"
+              echo "📦 Adding BNXT driver: ${{ inputs.bnxt_driver_path }}"
+            fi
+            if [[ -n "${{ inputs.ainic_driver_path }}" ]]; then
+              EXTRA_ARGS+=" --build-arg AINIC_DRIVER_PATH=${{ inputs.ainic_driver_path }}"
+              echo "📦 Adding AINIC driver: ${{ inputs.ainic_driver_path }}"
+            fi
+          fi
+
           buildah bud \
             --layers \
             --tls-verify=false \
@@ -243,6 +269,7 @@ jobs:
             --build-arg APPNAME=${{ matrix.name }} \
             --build-arg GITHUB_TOKEN=${{ secrets.GITHUB_TOKEN }} \
             --build-arg REGISTRY=${{ secrets.REGISTRY }} \
+            $EXTRA_ARGS \
             -t ${{ matrix.name }}:${IMAGE_VERSION} \
             -t ${{ matrix.name }}:${DATE_TIME} \
             -f ${{ matrix.dockerfile_path }} .
