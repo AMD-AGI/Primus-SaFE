@@ -327,7 +327,7 @@ if [ ! -f "$src_values_yaml" ]; then
 fi
 
 install_or_upgrade_helm_chart "primus-safe-cr" "$values_yaml"
-
+cd ..
 
 if [[ "$install_node_agent" == "y" ]]; then
   echo
@@ -335,7 +335,7 @@ if [[ "$install_node_agent" == "y" ]]; then
   echo "🔧 Step 6: install primus-safe data plane"
   echo "========================================="
 
-  cd ../node-agent/charts/
+  cd ./node-agent/charts/
   src_values_yaml="node-agent/values.yaml"
   if [ ! -f "$src_values_yaml" ]; then
     echo "Error: $src_values_yaml does not exist"
@@ -350,6 +350,7 @@ if [[ "$install_node_agent" == "y" ]]; then
 
   install_or_upgrade_helm_chart "node-agent" "$values_yaml"
   rm -f "$values_yaml"
+  cd ../../
 fi
 
 echo
@@ -357,7 +358,7 @@ echo "========================================="
 echo "🔧 Step 7: All completed!"
 echo "========================================="
 
-cd ../../bootstrap
+cd ./bootstrap
 cat > .env <<EOF
 ethernet_nic=$ethernet_nic
 rdma_nic=$rdma_nic

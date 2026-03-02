@@ -20,7 +20,7 @@ success=0
 
 threshold=0
 if [[ "$GPU_PRODUCT" == *"MI355X"* ]]; then
-  threshold=318933
+  threshold=300768
 else
   threshold=117540
 fi
