@@ -72,8 +72,8 @@ if [ ! -d "${WORKDIR}/rccl" ]; then
     git tag -l 'rocm-*' 2>/dev/null | tail -20 || true
     exit 1
   fi
-  if ! ./install.sh -j ${NPROC} -l --prefix build/ --disable-msccl-kernel --amdgpu_targets="gfx950" >/dev/null 2>&1; then
-    echo "Error: Failed to build RCCL."
+  if ! ./install.sh -j ${NPROC} -l --prefix build/ --disable-msccl-kernel --amdgpu_targets="gfx950"; then
+    echo "Error: Failed to build RCCL. See output above for details."
     exit 1
   fi
 fi
