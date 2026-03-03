@@ -115,7 +115,15 @@ data:
                     - name: NCCL_IB_QPS_PER_CONNECTION
                       value: "4"
                     - name: NCCL_IB_TC
-                      value: "41"
+                      value: "104"
+                    - name: NCCL_IB_FIFO_TC
+                      value: "192"
+                    - name: NCCL_CROSS_NIC
+                      value: "0"
+                    - name: NCCL_CHECKS_DISABLE
+                      value: "1"
+                    - name: HSA_ENABLE_SDMA
+                      value: "1"
                     - name: MAIN_CONTAINER_NAME
                       value: "pytorch"
                     - name: POD_NAME
@@ -237,7 +245,15 @@ data:
                     - name: NCCL_IB_QPS_PER_CONNECTION
                       value: "4"
                     - name: NCCL_IB_TC
-                      value: "41"
+                      value: "104"
+                    - name: NCCL_IB_FIFO_TC
+                      value: "192"
+                    - name: NCCL_CROSS_NIC
+                      value: "0"
+                    - name: NCCL_CHECKS_DISABLE
+                      value: "1"
+                    - name: HSA_ENABLE_SDMA
+                      value: "1"
                     - name: MAIN_CONTAINER_NAME
                       value: "pytorch"
                     - name: POD_NAME

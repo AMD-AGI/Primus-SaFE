@@ -58,7 +58,11 @@ data:
                - name: NCCL_IB_QPS_PER_CONNECTION
                  value: "4"
                - name: NCCL_IB_TC
-                 value: "41"
+                 value: "104"
+               - name: NCCL_CROSS_NIC
+                 value: "0"
+               - name: NCCL_CHECKS_DISABLE
+                 value: "1"
                - name: MAIN_CONTAINER_NAME
                  value: "main"
                - name: POD_IP
