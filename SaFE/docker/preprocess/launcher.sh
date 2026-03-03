@@ -50,6 +50,7 @@ if [ "${USING_AINIC}" = "1" ]; then
   export_var_default NCCL_GDR_FLUSH_DISABLE 1
   export_var_default NCCL_DMABUF_ENABLE 0
   export_var_default NCCL_IGNORE_CPU_AFFINITY 1
+  export LD_LIBRARY_PATH=/opt/amd-anp/build:/opt/rccl/build/release:/opt/rocm/lib:{LD_LIBRARY_PATH}
 else
   export_var_default NCCL_IB_GID_INDEX 3
 fi

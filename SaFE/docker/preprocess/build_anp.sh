@@ -66,7 +66,12 @@ if [ ! -d "${WORKDIR}/rccl" ]; then
   echo "Cloning and building RCCL (rocm-${ROCM_VERSION})..."
   git clone -q https://github.com/ROCm/rccl.git
   cd rccl
-  git checkout -q rocm-${ROCM_VERSION}
+  if ! git checkout -q rocm-${ROCM_VERSION} 2>/dev/null; then
+    echo "Error: ROCm version rocm-${ROCM_VERSION} not found in RCCL repository."
+    echo "Available ROCm tags:"
+    git tag -l 'rocm-*' 2>/dev/null | tail -20 || true
+    exit 1
+  fi
   if ! ./install.sh -j ${NPROC} -l --prefix build/ --disable-msccl-kernel --amdgpu_targets="gfx950" >/dev/null 2>&1; then
     echo "Error: Failed to build RCCL."
     exit 1
