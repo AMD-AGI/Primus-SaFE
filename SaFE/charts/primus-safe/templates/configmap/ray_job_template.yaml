@@ -106,9 +106,6 @@ data:
                   - name: podinfo
                     mountPath: /etc/podinfo
                     readOnly: true
-                securityContext:
-                  privileged: true
-                  runAsUser: 0
               schedulerName: kube-scheduler-plugins
               volumes:
                 - name: shared-data
