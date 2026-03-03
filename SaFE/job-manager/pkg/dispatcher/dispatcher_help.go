@@ -518,6 +518,9 @@ func modifyTolerations(obj *unstructured.Unstructured, workload *v1.Workload, pa
 
 // buildCommands constructs the command array for executing the workload entry point.
 func buildCommands(workload *v1.Workload, id int) []interface{} {
+	if commonworkload.IsRayJob(workload) {
+		return []interface{}{buildEntryPoint(workload, id)}
+	}
 	return []interface{}{"/bin/sh", "-c", buildEntryPoint(workload, id)}
 }
 
