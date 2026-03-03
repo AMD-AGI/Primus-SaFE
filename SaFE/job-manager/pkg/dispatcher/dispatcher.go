@@ -648,38 +648,42 @@ func isGithubSecretChanged(adminWorkload *v1.Workload, obj *unstructured.Unstruc
 // network settings, containers, and volumes based on the workload specification.
 func applyWorkloadSpecToObject(ctx context.Context, clientSets *syncer.ClusterClientSets,
 	obj *unstructured.Unstructured, adminWorkload *v1.Workload, workspace *v1.Workspace, rt *v1.ResourceTemplate) error {
-	if commonworkload.IsCICDScalingRunnerSet(adminWorkload) {
-		if err := updateCICDScaleSet(obj, adminWorkload, workspace, rt); err != nil {
-			return err
-		}
-	} else if commonworkload.IsCICDEphemeralRunner(adminWorkload) {
-		if err := updateCICDEphemeralRunner(ctx, clientSets, obj, adminWorkload, rt); err != nil {
-			return err
-		}
+
+	var err error
+	switch {
+	case commonworkload.IsCICDScalingRunnerSet(adminWorkload):
+		err = updateCICDScaleSet(obj, adminWorkload, workspace, rt)
+	case commonworkload.IsCICDEphemeralRunner(adminWorkload):
+		err = updateCICDEphemeralRunner(ctx, clientSets, obj, adminWorkload, rt)
+	case commonworkload.IsRayJob(adminWorkload):
+		err = updateRayJob(obj, adminWorkload)
+	}
+	if err != nil {
+		return err
 	}
 	for i, t := range rt.Spec.ResourceSpecs {
 		if i >= len(adminWorkload.Spec.Resources) {
-			if err := jobutils.RemoveNestedField(obj.Object, t.PrePaths); err != nil {
+			if err = jobutils.RemoveNestedField(obj.Object, t.PrePaths); err != nil {
 				return err
 			}
 			continue
 		}
-		if err := updateHostNetwork(adminWorkload, obj, t, i); err != nil {
+		if err = updateHostNetwork(adminWorkload, obj, t, i); err != nil {
 			return fmt.Errorf("failed to update host network: %v", err.Error())
 		}
-		if err := updateReplica(adminWorkload, obj, t, i); err != nil {
+		if err = updateReplica(adminWorkload, obj, t, i); err != nil {
 			return fmt.Errorf("failed to update replica: %v", err.Error())
 		}
-		if err := updateMetadata(adminWorkload, obj, t, i); err != nil {
+		if err = updateMetadata(adminWorkload, obj, t, i); err != nil {
 			return fmt.Errorf("failed to update metadata: %v", err.Error())
 		}
-		if err := updateContainers(adminWorkload, obj, t, i); err != nil {
+		if err = updateContainers(adminWorkload, obj, t, i); err != nil {
 			return fmt.Errorf("failed to update main container: %v", err.Error())
 		}
-		if err := updateSharedMemory(adminWorkload, obj, t, i); err != nil {
+		if err = updateSharedMemory(adminWorkload, obj, t, i); err != nil {
 			return fmt.Errorf("failed to update shared memory: %v", err.Error())
 		}
-		if err := updatePriorityClass(adminWorkload, obj, t); err != nil {
+		if err = updatePriorityClass(adminWorkload, obj, t); err != nil {
 			return fmt.Errorf("failed to update priority: %v", err.Error())
 		}
 	}

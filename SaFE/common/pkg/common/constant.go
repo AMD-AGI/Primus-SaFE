@@ -41,6 +41,7 @@ const (
 	MaxReplicaGroup   = "MAX_REPLICA_GROUP"
 	MinReplicaGroup   = "MIN_REPLICA_GROUP"
 	TorchFTLightHouse = "TORCHFT_LIGHTHOUSE"
+	RayJobEntrypoint  = "RAY_JOB_ENTRYPOINT"
 	// for preflight job
 	GPU_PRODUCT = "GPU_PRODUCT"
 

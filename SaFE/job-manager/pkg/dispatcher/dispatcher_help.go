@@ -225,7 +225,12 @@ func modifyContainers(obj *unstructured.Unstructured,
 
 		name := jobutils.NestedStringSilently(container, []string{"name"})
 		if name == mainContainerName {
-			container["ports"] = buildPorts(workload)
+			newPorts := buildPorts(workload)
+			if existingPorts, ok := container["ports"].([]interface{}); ok {
+				container["ports"] = append(existingPorts, newPorts...)
+			} else {
+				container["ports"] = newPorts
+			}
 			if healthz := buildHealthCheck(workload.Spec.Liveness); healthz != nil {
 				container["livenessProbe"] = healthz
 			}
@@ -979,6 +984,27 @@ func updateCICDScaleSetEnvs(obj *unstructured.Unstructured,
 			}
 		}
 		return fmt.Errorf("no main container found")
+	}
+	return nil
+}
+
+// updateRayJob updates the rayjob configuration
+func updateRayJob(obj *unstructured.Unstructured, adminWorkload *v1.Workload) error {
+	jobEntryPoint := adminWorkload.GetEnv(common.RayJobEntrypoint)
+	if jobEntryPoint == "" {
+		return fmt.Errorf("rayjob entrypoint is not set")
+	}
+
+	specObject, ok, err := jobutils.NestedMap(obj.Object, []string{"spec"})
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return fmt.Errorf("failed to find object with path: [spec]")
+	}
+	specObject["entrypoint"] = jobEntryPoint
+	if err = jobutils.SetNestedField(obj.Object, specObject, []string{"spec"}); err != nil {
+		return err
 	}
 	return nil
 }

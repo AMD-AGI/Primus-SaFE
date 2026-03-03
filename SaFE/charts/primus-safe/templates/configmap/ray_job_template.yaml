@@ -24,6 +24,7 @@ data:
     spec:
       shutdownAfterJobFinishes: true
       ttlSecondsAfterFinished: 10
+      backoffLimit: 0
       rayClusterSpec:
         headGroupSpec:
           rayStartParams:
@@ -94,10 +95,10 @@ data:
                 ports:
                 - containerPort: 6379
                   name: gcs-server
-                - containerPort: 8265 # Ray dashboard
+                  protocol: TCP
+                - containerPort: 8265
                   name: dashboard
-                - containerPort: 10001
-                  name: client
+                  protocol: TCP
                 imagePullPolicy: IfNotPresent
                 volumeMounts:
                   - name: shared-data

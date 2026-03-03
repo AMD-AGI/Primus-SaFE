@@ -834,6 +834,12 @@ func (v *WorkloadValidator) validateRayJob(newWorkload, _ *v1.Workload) error {
 		return fmt.Errorf("Expected at most 3 resource configurations (header and worker groups), "+
 			"got %d, resources: %v", len(newWorkload.Spec.Resources), newWorkload.Spec.Resources)
 	}
+	keys := []string{common.RayJobEntrypoint}
+	for _, key := range keys {
+		if val, ok := newWorkload.Spec.Env[key]; !ok || val == "" {
+			return fmt.Errorf("the %s of workload environment variables is empty", key)
+		}
+	}
 	return nil
 }
 
