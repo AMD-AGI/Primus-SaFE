@@ -69,5 +69,5 @@ const (
 )
 
 const (
-	SyncerImage = "docker.io/primussafe/image-sync:202510131759"
+	SyncerImage = "docker.io/primussafe/image-sync:202603031148"
 )
