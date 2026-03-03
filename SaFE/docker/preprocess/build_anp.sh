@@ -61,6 +61,9 @@ WORKDIR="/opt"
 # ---------------------------------------------------------------------------
 # Build rccl
 # ---------------------------------------------------------------------------
+# Increase git buffer for submodule clone (avoids "RPC failed; curl 56" / "early EOF")
+git config --global http.postBuffer 524288000
+
 cd ${WORKDIR}
 if [ ! -d "${WORKDIR}/rccl" ]; then
   echo "Cloning and building RCCL (rocm-${ROCM_VERSION})..."
@@ -72,10 +75,25 @@ if [ ! -d "${WORKDIR}/rccl" ]; then
     git tag -l 'rocm-*' 2>/dev/null | tail -20 || true
     exit 1
   fi
-  if ! ./install.sh -j ${NPROC} -l --prefix build/ --disable-msccl-kernel --amdgpu_targets="gfx950"; then
-    echo "Error: Failed to build RCCL. See output above for details."
-    exit 1
-  fi
+  # Fix CMake compatibility with mscclpp_nccl (cmake_minimum_required < 3.5)
+  export CMAKE_POLICY_VERSION_MINIMUM=3.5
+
+  # Retry install (submodule clone can fail due to transient network issues)
+  _retries=3
+  _attempt=1
+  while [ $_attempt -le $_retries ]; do
+    echo "RCCL build attempt $_attempt/$_retries..."
+    if ./install.sh -j ${NPROC} -l --prefix build/ --disable-msccl-kernel --amdgpu_targets="gfx950"; then
+      break
+    fi
+    if [ $_attempt -eq $_retries ]; then
+      echo "Error: Failed to build RCCL after $_retries attempts. See output above for details."
+      exit 1
+    fi
+    echo "Retrying in 5 seconds..."
+    sleep 5
+    _attempt=$((_attempt + 1))
+  done
 fi
 export RCCL_HOME=${WORKDIR}/rccl
 echo "Install RCCL (rocm-${ROCM_VERSION}) successfully, RCCL_HOME: ${RCCL_HOME}"
