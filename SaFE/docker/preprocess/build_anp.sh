@@ -61,20 +61,25 @@ WORKDIR="/opt"
 # ---------------------------------------------------------------------------
 # Build rccl
 # ---------------------------------------------------------------------------
+# RCCL build flags by ROCm version (aligned with Bench/pytorch/install_rccl.sh)
+RCCL_FLAGS="--disable-mscclpp --disable-msccl-kernel"
+case "${ROCM_VERSION}" in
+  7.0.0|7.0.2|7.0.3|7.1.0)
+    RCCL_FLAGS="--disable-msccl-kernel"
+    ;;
+  7.2.0)
+    RCCL_FLAGS=""
+    ;;
+esac
+
 # Increase git buffer for submodule clone (avoids "RPC failed; curl 56" / "early EOF")
 git config --global http.postBuffer 524288000
 
 cd ${WORKDIR}
 if [ ! -d "${WORKDIR}/rccl" ]; then
   echo "Cloning and building RCCL (rocm-${ROCM_VERSION})..."
-  git clone -q https://github.com/ROCm/rccl.git
+  git clone -q --branch "rocm-${ROCM_VERSION}" --depth 1 https://github.com/ROCm/rccl.git
   cd rccl
-  if ! git checkout -q rocm-${ROCM_VERSION} 2>/dev/null; then
-    echo "Error: ROCm version rocm-${ROCM_VERSION} not found in RCCL repository."
-    echo "Available ROCm tags:"
-    git tag -l 'rocm-*' 2>/dev/null | tail -20 || true
-    exit 1
-  fi
   # Fix CMake compatibility with mscclpp_nccl (cmake_minimum_required < 3.5)
   export CMAKE_POLICY_VERSION_MINIMUM=3.5
 
@@ -83,7 +88,7 @@ if [ ! -d "${WORKDIR}/rccl" ]; then
   _attempt=1
   while [ $_attempt -le $_retries ]; do
     echo "RCCL build attempt $_attempt/$_retries..."
-    if ./install.sh -j ${NPROC} -l --prefix build/ --disable-msccl-kernel --amdgpu_targets="gfx950"; then
+    if ./install.sh -j ${NPROC} -l --prefix build/ ${RCCL_FLAGS} --amdgpu_targets="gfx950"; then
       break
     fi
     if [ $_attempt -eq $_retries ]; then
