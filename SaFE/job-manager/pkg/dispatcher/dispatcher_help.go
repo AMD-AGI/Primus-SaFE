@@ -524,6 +524,9 @@ func buildCommands(workload *v1.Workload, id int) []interface{} {
 // buildEntryPoint constructs the command entry point for a workload.
 func buildEntryPoint(workload *v1.Workload, id int) string {
 	if workload.Spec.EntryPoints[id] == "" {
+		if commonworkload.IsRayJob(workload) {
+			return Launcher
+		}
 		return ""
 	}
 	result := ""

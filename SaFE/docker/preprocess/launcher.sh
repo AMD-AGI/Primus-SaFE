@@ -57,6 +57,10 @@ fi
 /bin/sh /shared-data/build_bnxt.sh
 /bin/sh /shared-data/build_ssh.sh
 
+if [ -z "$input" ]; then
+    exit 0
+fi
+
 echo "$input" |base64 -d > ".run.sh"
 chmod +x ".run.sh"
 if [ -x /usr/bin/bash ]; then
