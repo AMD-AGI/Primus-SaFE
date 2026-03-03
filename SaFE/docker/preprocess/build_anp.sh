@@ -61,14 +61,23 @@ WORKDIR="/opt"
 # ---------------------------------------------------------------------------
 # Build rccl
 # ---------------------------------------------------------------------------
-# RCCL build flags by ROCm version (aligned with Bench/pytorch/install_rccl.sh)
+# RCCL tag and build flags by ROCm version (aligned with Bench/pytorch/install_rccl.sh)
 RCCL_FLAGS="--disable-mscclpp --disable-msccl-kernel"
 case "${ROCM_VERSION}" in
-  7.0.0|7.0.2|7.0.3|7.1.0)
+  6.4.3)
+    RCCL_TAG="rocm-6.4.3"
+    ;;
+  7.0.0|7.0.1|7.0.2|7.1.0|7.1.1)
+    RCCL_TAG="rocm-7.1.0"
     RCCL_FLAGS="--disable-msccl-kernel"
     ;;
   7.2.0)
+    RCCL_TAG="rocm-7.2.0"
     RCCL_FLAGS=""
+    ;;
+  *)
+    echo "Error: Unsupported ROCM_VERSION '${ROCM_VERSION}'. Supported: 6.4.3, 7.0.0, 7.0.1, 7.0.2, 7.1.0, 7.1.1, 7.2.0"
+    exit 1
     ;;
 esac
 
@@ -77,8 +86,8 @@ git config --global http.postBuffer 524288000
 
 cd ${WORKDIR}
 if [ ! -d "${WORKDIR}/rccl" ]; then
-  echo "Cloning and building RCCL (rocm-${ROCM_VERSION})..."
-  git clone -q --branch "rocm-${ROCM_VERSION}" --depth 1 https://github.com/ROCm/rccl.git
+  echo "Cloning and building RCCL (${RCCL_TAG})..."
+  git clone -q --branch "${RCCL_TAG}" --depth 1 https://github.com/ROCm/rccl.git
   cd rccl
   # Fix CMake compatibility with mscclpp_nccl (cmake_minimum_required < 3.5)
   export CMAKE_POLICY_VERSION_MINIMUM=3.5
@@ -88,11 +97,11 @@ if [ ! -d "${WORKDIR}/rccl" ]; then
   _attempt=1
   while [ $_attempt -le $_retries ]; do
     echo "RCCL build attempt $_attempt/$_retries..."
-    if ./install.sh -j ${NPROC} -l --prefix build/ ${RCCL_FLAGS} --amdgpu_targets="gfx950"; then
+    if ./install.sh -j ${NPROC} -l --prefix build/ ${RCCL_FLAGS} --amdgpu_targets="gfx950" >/dev/null 2>&1; then
       break
     fi
     if [ $_attempt -eq $_retries ]; then
-      echo "Error: Failed to build RCCL after $_retries attempts. See output above for details."
+      echo "Error: Failed to build RCCL after $_retries attempts."
       exit 1
     fi
     echo "Retrying in 5 seconds..."
@@ -101,7 +110,7 @@ if [ ! -d "${WORKDIR}/rccl" ]; then
   done
 fi
 export RCCL_HOME=${WORKDIR}/rccl
-echo "Install RCCL (rocm-${ROCM_VERSION}) successfully, RCCL_HOME: ${RCCL_HOME}"
+echo "Install RCCL (${RCCL_TAG}) successfully, RCCL_HOME: ${RCCL_HOME}"
 
 
 # ---------------------------------------------------------------------------
@@ -154,14 +163,7 @@ fi
 sed -i '5a CFLAGS += --offload-arch=gfx950' ./Makefile
 echo "Building AMD ANP driver..."
 
-if [ -d "/opt/openmpi" ]; then
-  make -j ${NPROC} MPI_INCLUDE=/opt/openmpi/include/ \
-                   MPI_LIB_PATH=/opt/openmpi/lib/ \
-                   ROCM_PATH=/opt/rocm \
-                   RCCL_HOME=${RCCL_HOME} >/dev/null 2>&1
-else
-  make -j ${NPROC} ROCM_PATH=/opt/rocm RCCL_HOME=${RCCL_HOME} >/dev/null 2>&1
-fi
+make -j ${NPROC} ROCM_PATH=/opt/rocm RCCL_HOME=${RCCL_HOME} >/dev/null 2>&1
 if [ $? -ne 0 ]; then
   echo "Error: Failed to build AMD ANP driver."
   exit 1
@@ -169,15 +171,13 @@ fi
 
 # Create symlink librccl-anp.so -> librccl-net.so if needed (RCCL looks for librccl-anp.so)
 ANP_BUILD_DIR="${WORKDIR}/${ANP_DIR}/build"
-if [ ! -f "${ANP_BUILD_DIR}/librccl-anp.so" ] && [ -f "${ANP_BUILD_DIR}/librccl-net.so" ]; then
+cd ${ANP_BUILD_DIR}
+if [ -f "librccl-anp.so" ] && [ ! -f "librccl-net.so" ]; then
+  echo "Creating symlink: librccl-net.so -> librccl-anp.so"
+  ln -sf librccl-anp.so librccl-net.so
+elif [ -f "librccl-net.so" ] && [ ! -f "librccl-anp.so" ]; then
   echo "Creating symlink: librccl-anp.so -> librccl-net.so"
-  cd ${ANP_BUILD_DIR}
   ln -sf librccl-net.so librccl-anp.so
-  if [ $? -eq 0 ]; then
-    echo "Symlink created successfully."
-  else
-    echo "Warning: Failed to create symlink."
-  fi
 fi
 
 echo "============== install AMD AINIC Network Plugin (amd-anp) ${AMD_ANP_VERSION} successfully =============="
