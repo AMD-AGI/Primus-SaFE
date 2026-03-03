@@ -523,12 +523,13 @@ func buildCommands(workload *v1.Workload, id int) []interface{} {
 
 // buildEntryPoint constructs the command entry point for a workload.
 func buildEntryPoint(workload *v1.Workload, id int) string {
-	if workload.Spec.EntryPoints[id] == "" {
+	if len(workload.Spec.EntryPoints) <= id || workload.Spec.EntryPoints[id] == "" {
 		if commonworkload.IsRayJob(workload) {
 			return Launcher
 		}
 		return ""
 	}
+
 	result := ""
 	switch workload.SpecKind() {
 	case common.CICDScaleRunnerSetKind:
@@ -1067,9 +1068,7 @@ func updateContainers(adminWorkload *v1.Workload,
 			if len(adminWorkload.Spec.Images) > id && adminWorkload.Spec.Images[id] != "" {
 				container["image"] = adminWorkload.Spec.Images[id]
 			}
-			if len(adminWorkload.Spec.EntryPoints) > id && adminWorkload.Spec.EntryPoints[id] != "" {
-				container["command"] = buildCommands(adminWorkload, id)
-			}
+			container["command"] = buildCommands(adminWorkload, id)
 		}
 	}
 	if err = jobutils.SetNestedField(obj.Object, containers, path); err != nil {

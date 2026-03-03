@@ -27,8 +27,6 @@ data:
       backoffLimit: 0
       rayClusterSpec:
         headGroupSpec:
-          rayStartParams:
-            ray-client-server-port: "8000"
           template:
             spec:
               dnsPolicy: ClusterFirstWithHostNet
