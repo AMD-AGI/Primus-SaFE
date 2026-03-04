@@ -3,8 +3,6 @@
 
 package installer
 
-import "context"
-
 // InstallConfig contains all installation parameters
 type InstallConfig struct {
 	ClusterName   string
@@ -72,13 +70,6 @@ type ExternalStorageConfig struct {
 	PrometheusReadPort  int
 	PrometheusWriteHost string
 	PrometheusWritePort int
-}
-
-// Stage interface for each installation stage
-type Stage interface {
-	Name() string
-	Execute(ctx context.Context, helm *HelmClient, config *InstallConfig) error
-	IsIdempotent() bool
 }
 
 // StorageConfig for storage secret
