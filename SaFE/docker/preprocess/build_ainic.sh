@@ -104,8 +104,12 @@ fi
 
 # Run installation script
 cd host_sw_pkg
+_start=$(date +%s)
 ./install.sh --domain=user -y
-if [ $? -ne 0 ]; then
+_exit=$?
+_end=$(date +%s)
+echo "AINIC install.sh completed in $((_end - _start)) seconds"
+if [ $_exit -ne 0 ]; then
   echo "Error: Failed to install AINIC driver."
   exit 1
 fi

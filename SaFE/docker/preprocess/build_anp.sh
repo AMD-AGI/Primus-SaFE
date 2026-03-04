@@ -113,21 +113,13 @@ if [ ! -d "${WORKDIR}/rccl" ]; then
   # Build RCCL
   cd ${WORKDIR}/rccl
   export CMAKE_POLICY_VERSION_MINIMUM=3.5
-  _retries=3
-  _attempt=1
-  while [ $_attempt -le $_retries ]; do
-    echo "RCCL build attempt $_attempt/$_retries..."
-    if ./install.sh -j ${NPROC} -l --prefix build/ ${RCCL_FLAGS} --amdgpu_targets="gfx950" >/dev/null 2>&1; then
-      break
-    fi
-    if [ $_attempt -eq $_retries ]; then
-      echo "Error: Failed to build RCCL after $_retries attempts."
-      exit 1
-    fi
-    echo "Retrying in 5 seconds..."
-    sleep 5
-    _attempt=$((_attempt + 1))
-  done
+  _start=$(date +%s)
+  if ! ./install.sh -j ${NPROC} -l --prefix build/ ${RCCL_FLAGS} --amdgpu_targets="gfx950" >/dev/null 2>&1; then
+    echo "Error: Failed to build RCCL."
+    exit 1
+  fi
+  _end=$(date +%s)
+  echo "RCCL install.sh completed in $((_end - _start)) seconds"
 fi
 export RCCL_HOME=${WORKDIR}/rccl
 echo "Install RCCL (${RCCL_TAG}) successfully, RCCL_HOME: ${RCCL_HOME}"
@@ -198,9 +190,12 @@ fi
 cd amd-anp
 sed -i '5a CFLAGS += --offload-arch=gfx950' ./Makefile
 echo "Building AMD ANP driver..."
-
+_start=$(date +%s)
 make -j ${NPROC} ROCM_PATH=/opt/rocm RCCL_HOME=${RCCL_HOME} >/dev/null 2>&1
-if [ $? -ne 0 ]; then
+_exit=$?
+_end=$(date +%s)
+echo "AMD ANP make completed in $((_end - _start)) seconds"
+if [ $_exit -ne 0 ]; then
   echo "Error: Failed to build AMD ANP driver."
   exit 1
 fi
