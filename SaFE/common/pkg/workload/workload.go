@@ -14,6 +14,7 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/sets"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/selection"
@@ -140,6 +141,20 @@ func GetRayJobSubmitterResource() corev1.ResourceList {
 		corev1.ResourceCPU:    cpuQuantity,
 		corev1.ResourceMemory: memQuantity,
 	}
+}
+
+func GetMainContainer(obj metav1.Object, kind, podName string) string {
+	var mainContainerName string
+	if kind == common.RayJobKind && podName != "" {
+		if strings.Contains(podName, "-head-") || strings.Contains(podName, "-worker-") {
+			mainContainerName = v1.GetMainContainer(obj)
+		} else {
+			mainContainerName = common.RayJobSubmitterName
+		}
+	} else {
+		mainContainerName = v1.GetMainContainer(obj)
+	}
+	return mainContainerName
 }
 
 // GetWorkloadResourceUsage retrieves active resources based on the input workload.

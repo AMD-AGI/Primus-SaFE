@@ -484,7 +484,7 @@ func getMainContainerName(adminWorkload *v1.Workload, pod *corev1.Pod) string {
 	mainContainerName := v1.GetMainContainer(pod)
 	if mainContainerName == "" {
 		// TODO: Keep old logic for compatibility; remove it later.
-		mainContainerName = v1.GetMainContainer(adminWorkload)
+		mainContainerName = commonworkload.GetMainContainer(adminWorkload, adminWorkload.SpecKind(), pod.Name)
 	}
 	return mainContainerName
 }

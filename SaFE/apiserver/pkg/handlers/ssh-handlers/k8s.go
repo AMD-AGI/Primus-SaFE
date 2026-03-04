@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
 	"golang.org/x/crypto/ssh"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -167,7 +168,7 @@ func (h *SshHandler) handleSftp(s Session) {
 		Namespace(userInfo.Namespace).
 		SubResource("exec").
 		VersionedParams(&corev1.PodExecOptions{
-			Container: v1.GetMainContainer(workload),
+			Container: commonworkload.GetMainContainer(workload, workload.SpecKind(), userInfo.Pod),
 			Command:   []string{"/usr/lib/openssh/sftp-server"},
 			Stdin:     true,
 			Stdout:    true,
