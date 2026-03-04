@@ -185,10 +185,13 @@ func convertUnstructuredToString(obj map[string]interface{}, paths []string) str
 
 // GetResources Retrieve the replica count and the resource specifications of the main container.
 func GetResources(unstructuredObj *unstructured.Unstructured,
-	rt *v1.ResourceTemplate, mainContainer, gpuName string) ([]int64, []corev1.ResourceList, error) {
+	rt *v1.ResourceTemplate, mainContainer, gpuName string, maxResource int) ([]int64, []corev1.ResourceList, error) {
 	var replicaList []int64
 	var resourceList []corev1.ResourceList
-	for _, t := range rt.Spec.ResourceSpecs {
+	for i, t := range rt.Spec.ResourceSpecs {
+		if i >= maxResource {
+			break
+		}
 		if len(t.ReplicasPaths) > 0 {
 			path := t.PrePaths
 			path = append(path, t.ReplicasPaths...)
@@ -246,9 +249,12 @@ func GetResources(unstructuredObj *unstructured.Unstructured,
 
 // GetCommands Retrieve the command of the main container.
 func GetCommands(unstructuredObj *unstructured.Unstructured,
-	rt *v1.ResourceTemplate, mainContainer string) ([][]string, error) {
+	rt *v1.ResourceTemplate, mainContainer string, maxResource int) ([][]string, error) {
 	result := make([][]string, 0, len(rt.Spec.ResourceSpecs))
-	for _, t := range rt.Spec.ResourceSpecs {
+	for i, t := range rt.Spec.ResourceSpecs {
+		if i >= maxResource {
+			break
+		}
 		path := t.PrePaths
 		path = append(path, t.TemplatePaths...)
 		path = append(path, "spec", "containers")
@@ -292,9 +298,12 @@ func GetCommands(unstructuredObj *unstructured.Unstructured,
 
 // GetImages Retrieve all the image address of the main container.
 func GetImages(unstructuredObj *unstructured.Unstructured,
-	rt *v1.ResourceTemplate, mainContainer string) ([]string, error) {
+	rt *v1.ResourceTemplate, mainContainer string, maxResource int) ([]string, error) {
 	result := make([]string, 0, len(rt.Spec.ResourceSpecs))
-	for _, t := range rt.Spec.ResourceSpecs {
+	for i, t := range rt.Spec.ResourceSpecs {
+		if i >= maxResource {
+			break
+		}
 		path := t.PrePaths
 		path = append(path, t.TemplatePaths...)
 		path = append(path, "spec", "containers")
@@ -332,9 +341,12 @@ func GetImages(unstructuredObj *unstructured.Unstructured,
 }
 
 // GetMemoryStorageSize retrieves the memory storage size from volume specifications.
-func GetMemoryStorageSize(unstructuredObj *unstructured.Unstructured, rt *v1.ResourceTemplate) ([]string, error) {
+func GetMemoryStorageSize(unstructuredObj *unstructured.Unstructured, rt *v1.ResourceTemplate, maxResource int) ([]string, error) {
 	var result []string
-	for _, t := range rt.Spec.ResourceSpecs {
+	for i, t := range rt.Spec.ResourceSpecs {
+		if i >= maxResource {
+			break
+		}
 		path := t.PrePaths
 		path = append(path, t.TemplatePaths...)
 		path = append(path, "spec", "volumes")
@@ -416,8 +428,11 @@ func GetActiveReplica(unstructuredObj *unstructured.Unstructured, rt *v1.Resourc
 }
 
 // GetPriorityClassName retrieves the priorityClassName from the unstructured object.
-func GetPriorityClassName(unstructuredObj *unstructured.Unstructured, rt *v1.ResourceTemplate) (string, error) {
-	for _, t := range rt.Spec.ResourceSpecs {
+func GetPriorityClassName(unstructuredObj *unstructured.Unstructured, rt *v1.ResourceTemplate, maxResource int) (string, error) {
+	for i, t := range rt.Spec.ResourceSpecs {
+		if i >= maxResource {
+			break
+		}
 		path := t.PrePaths
 		path = append(path, t.TemplatePaths...)
 		path = append(path, "spec", "priorityClassName")
@@ -532,8 +547,11 @@ func GetSelectorLabels(unstructuredObj *unstructured.Unstructured) (map[string]i
 
 // GetEnv Retrieve the environment value of the main container.
 func GetEnv(unstructuredObj *unstructured.Unstructured,
-	rt *v1.ResourceTemplate, mainContainer string) ([]interface{}, error) {
-	for _, t := range rt.Spec.ResourceSpecs {
+	rt *v1.ResourceTemplate, mainContainer string, maxResource int) ([]interface{}, error) {
+	for i, t := range rt.Spec.ResourceSpecs {
+		if i >= maxResource {
+			break
+		}
 		templatePath := t.GetTemplatePath()
 		path := append(templatePath, "spec", "containers")
 		containers, found, err := NestedSlice(unstructuredObj.Object, path)

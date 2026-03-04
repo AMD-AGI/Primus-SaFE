@@ -205,7 +205,7 @@ func TestUpdateDeployment(t *testing.T) {
 	cmd := buildEntryPoint(adminWorkload, 0)
 	assert.Equal(t, deployment.Spec.Template.Spec.Containers[0].Command[2], cmd)
 
-	shareMemorySizes, err := jobutils.GetMemoryStorageSize(workloadObj, jobutils.TestDeploymentResourceTemplate)
+	shareMemorySizes, err := jobutils.GetMemoryStorageSize(workloadObj, jobutils.TestDeploymentResourceTemplate, 1)
 	assert.NilError(t, err)
 	assert.Equal(t, len(shareMemorySizes), 1)
 	assert.Equal(t, shareMemorySizes[0], "32Gi")
@@ -302,10 +302,12 @@ func TestIsImageChanged(t *testing.T) {
 	metav1.SetMetaDataAnnotation(&adminWorkload.ObjectMeta, v1.MainContainerAnnotation, "pytorch")
 
 	adminWorkload.Spec.Images = []string{"test-image:0.0.1", "docker.io/test-image:0.0.1"}
+	adminWorkload.Spec.Resources = append(adminWorkload.Spec.Resources, adminWorkload.Spec.Resources[0])
 	ok := isImagesChanged(adminWorkload, workloadObj, jobutils.TestPytorchResourceTemplate)
 	assert.Equal(t, ok, false)
 
 	adminWorkload.Spec.Images[0] = "docker.io/test-image:0.0.1"
+	adminWorkload.Spec.Resources = adminWorkload.Spec.Resources[0:1]
 	ok = isImagesChanged(adminWorkload, workloadObj, jobutils.TestPytorchResourceTemplate)
 	assert.Equal(t, ok, true)
 }
@@ -414,7 +416,7 @@ func TestUpdateDeploymentEnv(t *testing.T) {
 
 	err = applyWorkloadSpecToObject(context.Background(), nil, workloadObj, adminWorkload, nil, jobutils.TestDeploymentResourceTemplate)
 	assert.NilError(t, err)
-	envs, err := jobutils.GetEnv(workloadObj, jobutils.TestDeploymentResourceTemplate, "test")
+	envs, err := jobutils.GetEnv(workloadObj, jobutils.TestDeploymentResourceTemplate, "test", 1)
 	assert.NilError(t, err)
 	assert.Equal(t, len(envs), 3)
 	env, ok := envs[0].(map[string]interface{})
@@ -436,7 +438,7 @@ func TestUpdateDeploymentEnv(t *testing.T) {
 	}
 	err = applyWorkloadSpecToObject(context.Background(), nil, workloadObj, adminWorkload, nil, jobutils.TestDeploymentResourceTemplate)
 	assert.NilError(t, err)
-	envs, err = jobutils.GetEnv(workloadObj, jobutils.TestDeploymentResourceTemplate, "test")
+	envs, err = jobutils.GetEnv(workloadObj, jobutils.TestDeploymentResourceTemplate, "test", 1)
 	assert.NilError(t, err)
 	assert.Equal(t, len(envs), 3)
 	env, ok = envs[0].(map[string]interface{})
@@ -458,7 +460,7 @@ func TestUpdateDeploymentEnv(t *testing.T) {
 	v1.SetAnnotation(adminWorkload, v1.EnvToBeRemovedAnnotation, string(jsonutils.MarshalSilently([]string{"key"})))
 	err = applyWorkloadSpecToObject(context.Background(), nil, workloadObj, adminWorkload, nil, jobutils.TestDeploymentResourceTemplate)
 	assert.NilError(t, err)
-	envs, err = jobutils.GetEnv(workloadObj, jobutils.TestDeploymentResourceTemplate, "test")
+	envs, err = jobutils.GetEnv(workloadObj, jobutils.TestDeploymentResourceTemplate, "test", 1)
 	assert.NilError(t, err)
 	assert.Equal(t, len(envs), 2)
 	env, ok = envs[0].(map[string]interface{})

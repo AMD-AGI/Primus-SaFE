@@ -535,7 +535,8 @@ func isResourceChanged(adminWorkload *v1.Workload, obj *unstructured.Unstructure
 		}
 	}
 
-	replicaList, resourceList, err := jobutils.GetResources(obj, rt, v1.GetMainContainer(adminWorkload), gpuName)
+	replicaList, resourceList, err := jobutils.GetResources(obj, rt,
+		v1.GetMainContainer(adminWorkload), gpuName, len(adminWorkload.Spec.Resources))
 	if err != nil {
 		klog.ErrorS(err, "failed to get resource", "rt", rt.Name, "obj", obj.GetName())
 		return false
@@ -565,7 +566,7 @@ func isResourceChanged(adminWorkload *v1.Workload, obj *unstructured.Unstructure
 
 // isImagesChanged checks if the container image of the workload has changed.
 func isImagesChanged(adminWorkload *v1.Workload, obj *unstructured.Unstructured, rt *v1.ResourceTemplate) bool {
-	images, err := jobutils.GetImages(obj, rt, v1.GetMainContainer(adminWorkload))
+	images, err := jobutils.GetImages(obj, rt, v1.GetMainContainer(adminWorkload), len(adminWorkload.Spec.Resources))
 	if err != nil {
 		klog.ErrorS(err, "failed to get image", "obj", obj.GetName())
 		return false
@@ -575,7 +576,7 @@ func isImagesChanged(adminWorkload *v1.Workload, obj *unstructured.Unstructured,
 
 // isEntrypointChanged checks if the entry point/command of the workload has changed.
 func isEntrypointChanged(adminWorkload *v1.Workload, obj *unstructured.Unstructured, rt *v1.ResourceTemplate) bool {
-	commands, err := jobutils.GetCommands(obj, rt, v1.GetMainContainer(adminWorkload))
+	commands, err := jobutils.GetCommands(obj, rt, v1.GetMainContainer(adminWorkload), len(adminWorkload.Spec.Resources))
 	if err != nil {
 		klog.ErrorS(err, "failed to get command", "obj", obj.GetName())
 		return false
@@ -605,7 +606,7 @@ func isEnvChanged(adminWorkload *v1.Workload, obj *unstructured.Unstructured, rt
 		return true
 	}
 	mainContainerName := v1.GetMainContainer(adminWorkload)
-	currentEnvs, err := jobutils.GetEnv(obj, rt, mainContainerName)
+	currentEnvs, err := jobutils.GetEnv(obj, rt, mainContainerName, len(adminWorkload.Spec.Resources))
 	if err != nil {
 		klog.ErrorS(err, "failed to get env", "obj", obj.GetName())
 		return false
@@ -616,7 +617,7 @@ func isEnvChanged(adminWorkload *v1.Workload, obj *unstructured.Unstructured, rt
 
 // isSharedMemoryChanged checks if the shared memory configuration of the workload has changed.
 func isSharedMemoryChanged(adminWorkload *v1.Workload, obj *unstructured.Unstructured, rt *v1.ResourceTemplate) bool {
-	memoryStorageSizes, err := jobutils.GetMemoryStorageSize(obj, rt)
+	memoryStorageSizes, err := jobutils.GetMemoryStorageSize(obj, rt, len(adminWorkload.Spec.Resources))
 	if err != nil {
 		return true
 	}
@@ -633,7 +634,7 @@ func isSharedMemoryChanged(adminWorkload *v1.Workload, obj *unstructured.Unstruc
 
 // isPriorityClassChanged checks if the priority of the workload has changed.
 func isPriorityClassChanged(adminWorkload *v1.Workload, obj *unstructured.Unstructured, rt *v1.ResourceTemplate) bool {
-	priorityClassName, err := jobutils.GetPriorityClassName(obj, rt)
+	priorityClassName, err := jobutils.GetPriorityClassName(obj, rt, len(adminWorkload.Spec.Resources))
 	if err != nil {
 		return true
 	}
