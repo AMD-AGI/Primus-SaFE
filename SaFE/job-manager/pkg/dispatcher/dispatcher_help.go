@@ -543,45 +543,60 @@ func buildEntryPoint(workload *v1.Workload, id int) string {
 	return result
 }
 
-// syncRayJobSubmitterPodMetadata syncs the RayJob's labels and annotations to
-// spec.submitterPodTemplate.metadata so that the submitter pod (K8s Job) inherits them.
-// KubeRay does not propagate RayJob metadata to the submitter Job by default.
-// If submitterPodTemplate already has metadata, existing fields are preserved; only
-// fields with the same name as obj's labels/annotations are replaced.
-func syncRayJobSubmitterPodMetadata(obj *unstructured.Unstructured, adminWorkload *v1.Workload) error {
+// buildRayJobSubmitterTemplate builds a complete submitter pod template per KubeRay's GetSubmitterTemplate.
+// It uses the image from the Ray head container and applies our labels/annotations.
+func buildRayJobSubmitterTemplate(adminWorkload *v1.Workload) (map[string]interface{}, error) {
+	if len(adminWorkload.Spec.Images) == 0 {
+		return nil, fmt.Errorf("cannot get head container image from RayJob rayClusterSpec")
+	}
+	headImage := adminWorkload.Spec.Images[0]
 	labels := buildPodLabels(adminWorkload)
 	annotations := buildObjectAnnotations(adminWorkload)
-	annotations[v1.MainContainerAnnotation] = "ray-job-submitter"
-	basePath := []string{"spec", "submitterPodTemplate", "metadata"}
-	if len(labels) > 0 {
-		existingLabels, _, _ := jobutils.NestedMap(obj.Object, append(basePath, "labels"))
-		labelsMap := make(map[string]interface{}, len(existingLabels)+len(labels))
-		for k, v := range existingLabels {
-			if s, ok := v.(string); ok {
-				labelsMap[k] = s
-			}
-		}
-		for k, v := range labels {
-			labelsMap[k] = v
-		}
-		if err := jobutils.SetNestedField(obj.Object, labelsMap, append(basePath, "labels")); err != nil {
-			return fmt.Errorf("failed to set submitterPodTemplate labels: %w", err)
-		}
+	annotations[v1.MainContainerAnnotation] = common.RayJobSubmitterName
+	labelsMap := make(map[string]interface{}, len(labels))
+	for k, v := range labels {
+		labelsMap[k] = v
 	}
-	if len(annotations) > 0 {
-		existingAnnotations, _, _ := jobutils.NestedMap(obj.Object, append(basePath, "annotations"))
-		annotationsMap := make(map[string]interface{}, len(existingAnnotations)+len(annotations))
-		for k, v := range existingAnnotations {
-			if s, ok := v.(string); ok {
-				annotationsMap[k] = s
-			}
-		}
-		for k, v := range annotations {
-			annotationsMap[k] = v
-		}
-		if err := jobutils.SetNestedField(obj.Object, annotationsMap, append(basePath, "annotations")); err != nil {
-			return fmt.Errorf("failed to set submitterPodTemplate annotations: %w", err)
-		}
+	annotationsMap := make(map[string]interface{}, len(annotations))
+	for k, v := range annotations {
+		annotationsMap[k] = v
+	}
+	submitterContainer := map[string]interface{}{
+		"name":  common.RayJobSubmitterName,
+		"image": headImage,
+		"resources": map[string]interface{}{
+			"limits": map[string]interface{}{
+				"cpu":    common.RayJobSubmitterCpu,
+				"memory": common.RayJobSubmitterMemory,
+			},
+			"requests": map[string]interface{}{
+				"cpu":    common.RayJobSubmitterCpu,
+				"memory": common.RayJobSubmitterMemory,
+			},
+		},
+	}
+	return map[string]interface{}{
+		"metadata": map[string]interface{}{
+			"labels":      labelsMap,
+			"annotations": annotationsMap,
+		},
+		"spec": map[string]interface{}{
+			"containers":    []interface{}{submitterContainer},
+			"restartPolicy": "Never",
+		},
+	}, nil
+}
+
+// syncRayJobSubmitterPodMetadata sets spec.submitterPodTemplate to a complete template matching
+// KubeRay's GetSubmitterTemplate default, with our labels and annotations applied.
+// KubeRay requires a full PodTemplateSpec when SubmitterPodTemplate is set
+func syncRayJobSubmitterPodMetadata(obj *unstructured.Unstructured, adminWorkload *v1.Workload) error {
+	template, err := buildRayJobSubmitterTemplate(adminWorkload)
+	if err != nil {
+		return err
+	}
+	if err = jobutils.SetNestedField(obj.Object, template, []string{"spec", "submitterPodTemplate"}); err != nil {
+		return fmt.Errorf("failed to set submitterPodTemplate: %w", err)
 	}
 	return nil
 }

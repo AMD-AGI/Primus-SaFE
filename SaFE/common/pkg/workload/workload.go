@@ -134,8 +134,8 @@ func GetResourcesPerNode(workload *v1.Workload, adminNodeName string) (map[strin
 }
 
 func GetRayJobSubmitterResource() corev1.ResourceList {
-	cpuQuantity, _ := resource.ParseQuantity("1")
-	memQuantity, _ := resource.ParseQuantity("1Gi")
+	cpuQuantity, _ := resource.ParseQuantity(common.RayJobSubmitterCpu)
+	memQuantity, _ := resource.ParseQuantity(common.RayJobSubmitterMemory)
 	return corev1.ResourceList{
 		corev1.ResourceCPU:    cpuQuantity,
 		corev1.ResourceMemory: memQuantity,
