@@ -13,6 +13,7 @@ import (
 
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/sets"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/selection"
@@ -105,20 +106,40 @@ func GetResourcesPerNode(workload *v1.Workload, adminNodeName string) (map[strin
 
 	result := map[string]corev1.ResourceList{}
 	for _, pod := range workload.Status.Pods {
-		if !v1.IsPodRunning(&pod) {
+		if !v1.IsPodRunning(&pod) || pod.ResourceId >= len(allPodResources) {
 			continue
 		}
 		if adminNodeName != "" && adminNodeName != pod.AdminNodeName {
 			continue
 		}
+		var podResources corev1.ResourceList
+		if IsRayJob(workload) {
+			if pod.ResourceId < 0 {
+				podResources = GetRayJobSubmitterResource()
+			} else {
+				podResources = allPodResources[pod.ResourceId]
+			}
+		} else if pod.ResourceId >= 0 {
+			podResources = allPodResources[pod.ResourceId]
+		}
+
 		resList, ok := result[pod.AdminNodeName]
 		if ok {
-			result[pod.AdminNodeName] = quantity.AddResource(resList, allPodResources[pod.ResourceId])
+			result[pod.AdminNodeName] = quantity.AddResource(resList, podResources)
 		} else {
-			result[pod.AdminNodeName] = allPodResources[pod.ResourceId]
+			result[pod.AdminNodeName] = podResources
 		}
 	}
 	return result, nil
+}
+
+func GetRayJobSubmitterResource() corev1.ResourceList {
+	cpuQuantity, _ := resource.ParseQuantity("1")
+	memQuantity, _ := resource.ParseQuantity("1Gi")
+	return corev1.ResourceList{
+		corev1.ResourceCPU:    cpuQuantity,
+		corev1.ResourceMemory: memQuantity,
+	}
 }
 
 // GetWorkloadResourceUsage retrieves active resources based on the input workload.
@@ -175,9 +196,19 @@ func GetWorkloadResourceUsage(workload *v1.Workload, filterNode func(nodeName st
 		if outputs[i].isTerminated || resourceId >= len(allPodResources) {
 			continue
 		}
-		totalResource = quantity.AddResource(totalResource, allPodResources[resourceId])
+		var podResource corev1.ResourceList
+		if IsRayJob(workload) {
+			if resourceId < 0 {
+				podResource = GetRayJobSubmitterResource()
+			} else {
+				podResource = allPodResources[resourceId]
+			}
+		} else if resourceId >= 0 {
+			podResource = allPodResources[resourceId]
+		}
+		totalResource = quantity.AddResource(totalResource, podResource)
 		if !outputs[i].isFiltered {
-			availableResource = quantity.AddResource(availableResource, allPodResources[resourceId])
+			availableResource = quantity.AddResource(availableResource, podResource)
 			availableNodes = append(availableNodes, workload.Status.Pods[i].AdminNodeName)
 		}
 	}

@@ -144,7 +144,11 @@ func (r *SyncerReconciler) updateWorkloadPod(ctx context.Context, obj *unstructu
 		}
 	}
 
-	resourceId, _ := v1.GetResourceId(pod)
+	resourceId, existed := v1.GetResourceId(pod)
+	if !existed && commonworkload.IsRayJob(adminWorkload) {
+		// For RayJob, the ray-job-submitter pod is automatically created as the management pod
+		resourceId = -1
+	}
 	groupId := -1
 	if groupIdStr := v1.GetGroupId(pod); groupIdStr != "" {
 		if groupId, err = strconv.Atoi(groupIdStr); err != nil {
@@ -487,7 +491,12 @@ func getMainContainerName(adminWorkload *v1.Workload, pod *corev1.Pod) string {
 
 // isAllPodsAssigned checks if all pods in the workload are in Running or Termination phase
 func isAllPodsAssigned(workload *v1.Workload) bool {
-	if len(workload.Status.Pods) != commonworkload.GetTotalReplica(workload) {
+	if commonworkload.IsRayJob(workload) {
+		// For RayJob, the ray-job-submitter pod is automatically created as the management pod
+		if len(workload.Status.Pods) != commonworkload.GetTotalReplica(workload)+1 {
+			return false
+		}
+	} else if len(workload.Status.Pods) != commonworkload.GetTotalReplica(workload) {
 		return false
 	}
 	for _, p := range workload.Status.Pods {

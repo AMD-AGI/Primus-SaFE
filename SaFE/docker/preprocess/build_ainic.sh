@@ -64,7 +64,11 @@ fi
 echo "Found AINIC driver tarball: ${PATH_TO_AINIC_TAR_PACKAGE}"
 
 . /shared-data/utils.sh
+_start=$(date +%s)
+echo "Installing dependencies ..."
 install_if_not_exists dpkg-dev kmod xz-utils libfmt-dev libboost-all-dev libibverbs-dev ibverbs-utils infiniband-diags jq initramfs-tools
+_end=$(date +%s)
+echo "Dependencies installed in $((_end - _start)) seconds"
 
 # Call build_anp.sh with required parameters
 export AMD_ANP_VERSION=${AMD_ANP_VERSION}

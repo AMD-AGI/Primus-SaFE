@@ -314,7 +314,7 @@ spec:
       - command:
         - /bin/sh
         - -c
-        - chmod +x /shared-data/launcher.sh; /bin/sh /shared-data/launcher.sh 'abcd'
+        - /bin/sh /shared-data/launcher.sh 'abcd'
         env:
         - name: NCCL_SOCKET_IFNAME
           value: eth0

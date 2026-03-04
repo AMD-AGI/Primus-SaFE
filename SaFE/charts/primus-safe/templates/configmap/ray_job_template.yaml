@@ -25,6 +25,10 @@ data:
       shutdownAfterJobFinishes: true
       ttlSecondsAfterFinished: 10
       backoffLimit: 0
+      submitterPodTemplate:
+        metadata:
+          labels: {}
+          annotations: {}
       rayClusterSpec:
         headGroupSpec:
           template:

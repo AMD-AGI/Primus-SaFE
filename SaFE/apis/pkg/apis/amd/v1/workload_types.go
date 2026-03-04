@@ -210,7 +210,9 @@ type WorkloadStatus struct {
 type WorkloadPod struct {
 	// The podId
 	PodId string `json:"podId"`
-	// The id of workload resources that the pod is bound to
+	// The id of workload resources that the pod is bound to.
+	// If the value is less than 0, it means the pod does not belong to any resource.
+	// Currently, RayJob's submitter pod uses this scenario.
 	ResourceId int `json:"resourceId,omitempty"`
 	// The Kubernetes node that the Pod is scheduled on
 	K8sNodeName string `json:"k8sNodeName,omitempty"`

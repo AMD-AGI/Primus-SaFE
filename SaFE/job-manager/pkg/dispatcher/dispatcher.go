@@ -412,6 +412,11 @@ func setK8sObjectMeta(result *unstructured.Unstructured, adminWorkload *v1.Workl
 		}
 	}
 	result.SetAnnotations(targetAnnotations)
+	if commonworkload.IsRayJob(adminWorkload) {
+		if err := syncRayJobSubmitterPodMetadata(result, adminWorkload); err != nil {
+			klog.ErrorS(err, "Failed to sync RayJob submitter pod metadata")
+		}
+	}
 }
 
 // getWorkloadTemplate retrieves the workload template configuration based on its version and kind.
@@ -503,7 +508,11 @@ func (r *DispatcherReconciler) syncWorkloadToObject(ctx context.Context, adminWo
 	if err = applyWorkloadSpecToObject(ctx, clientSets, obj, adminWorkload, workspace, rt); err != nil {
 		return commonerrors.NewBadRequest(err.Error())
 	}
-
+	if commonworkload.IsRayJob(adminWorkload) {
+		if err = syncRayJobSubmitterPodMetadata(obj, adminWorkload); err != nil {
+			klog.ErrorS(err, "Failed to sync RayJob submitter pod metadata")
+		}
+	}
 	if err = jobutils.UpdateObject(ctx, clientSets.ClientFactory(), obj); err != nil {
 		klog.ErrorS(err, "failed to update k8s unstructured object")
 		return err

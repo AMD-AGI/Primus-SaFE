@@ -543,6 +543,49 @@ func buildEntryPoint(workload *v1.Workload, id int) string {
 	return result
 }
 
+// syncRayJobSubmitterPodMetadata syncs the RayJob's labels and annotations to
+// spec.submitterPodTemplate.metadata so that the submitter pod (K8s Job) inherits them.
+// KubeRay does not propagate RayJob metadata to the submitter Job by default.
+// If submitterPodTemplate already has metadata, existing fields are preserved; only
+// fields with the same name as obj's labels/annotations are replaced.
+func syncRayJobSubmitterPodMetadata(obj *unstructured.Unstructured, adminWorkload *v1.Workload) error {
+	labels := buildPodLabels(adminWorkload)
+	annotations := buildObjectAnnotations(adminWorkload)
+	annotations[v1.MainContainerAnnotation] = "ray-job-submitter"
+	basePath := []string{"spec", "submitterPodTemplate", "metadata"}
+	if len(labels) > 0 {
+		existingLabels, _, _ := jobutils.NestedMap(obj.Object, append(basePath, "labels"))
+		labelsMap := make(map[string]interface{}, len(existingLabels)+len(labels))
+		for k, v := range existingLabels {
+			if s, ok := v.(string); ok {
+				labelsMap[k] = s
+			}
+		}
+		for k, v := range labels {
+			labelsMap[k] = v
+		}
+		if err := jobutils.SetNestedField(obj.Object, labelsMap, append(basePath, "labels")); err != nil {
+			return fmt.Errorf("failed to set submitterPodTemplate labels: %w", err)
+		}
+	}
+	if len(annotations) > 0 {
+		existingAnnotations, _, _ := jobutils.NestedMap(obj.Object, append(basePath, "annotations"))
+		annotationsMap := make(map[string]interface{}, len(existingAnnotations)+len(annotations))
+		for k, v := range existingAnnotations {
+			if s, ok := v.(string); ok {
+				annotationsMap[k] = s
+			}
+		}
+		for k, v := range annotations {
+			annotationsMap[k] = v
+		}
+		if err := jobutils.SetNestedField(obj.Object, annotationsMap, append(basePath, "annotations")); err != nil {
+			return fmt.Errorf("failed to set submitterPodTemplate annotations: %w", err)
+		}
+	}
+	return nil
+}
+
 // buildObjectLabels creates a map of labels for object tracking.
 func buildObjectLabels(workload *v1.Workload) map[string]interface{} {
 	result := map[string]interface{}{

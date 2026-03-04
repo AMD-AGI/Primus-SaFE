@@ -190,12 +190,8 @@ fi
 cd amd-anp
 sed -i '5a CFLAGS += --offload-arch=gfx950' ./Makefile
 echo "Building AMD ANP driver..."
-_start=$(date +%s)
 make -j ${NPROC} ROCM_PATH=/opt/rocm RCCL_HOME=${RCCL_HOME} >/dev/null 2>&1
-_exit=$?
-_end=$(date +%s)
-echo "AMD ANP make completed in $((_end - _start)) seconds"
-if [ $_exit -ne 0 ]; then
+if [ $? -ne 0 ]; then
   echo "Error: Failed to build AMD ANP driver."
   exit 1
 fi
