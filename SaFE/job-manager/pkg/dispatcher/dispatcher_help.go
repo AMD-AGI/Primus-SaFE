@@ -33,7 +33,7 @@ import (
 const (
 	SharedMemoryVolume = "shared-memory"
 	DockerSock         = "docker-sock"
-	Launcher           = "chmod +x /shared-data/launcher.sh; /bin/sh /shared-data/launcher.sh"
+	Launcher           = "/bin/sh /shared-data/launcher.sh"
 )
 
 // initializeObject modifies various aspects of a Kubernetes object during workload creation.

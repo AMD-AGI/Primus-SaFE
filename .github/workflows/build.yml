@@ -239,11 +239,14 @@ jobs:
           EXTRA_ARGS=""
           if [[ "${{ matrix.name }}" == "preprocess" ]]; then
             # Copy drivers from shared storage to build context
-            mkdir -p ./drivers
+            mkdir -p ./drivers ./apps
             cp /wekafs/primussafe/libbnxt_re-234.0.154.0.tar.gz ./drivers/ 2>/dev/null && echo "📦 Copied BNXT driver" || echo "⚠️ BNXT driver not found, skipping"
             cp /wekafs/primussafe/ainic_bundle_1.117.5-a-56.tar.gz ./drivers/ 2>/dev/null && echo "📦 Copied AINIC driver" || echo "⚠️ AINIC driver not found, skipping"
+            cp -r /wekafs/primussafe/apps/* ./apps/ 2>/dev/null && echo "📦 Copied Apps" || echo "⚠️ Apps not found, skipping"
             EXTRA_ARGS+=" --build-arg BNXT_DRIVER_PATH=./drivers/libbnxt_re-234.0.154.0.tar.gz"
             EXTRA_ARGS+=" --build-arg AINIC_DRIVER_PATH=./drivers/ainic_bundle_1.117.5-a-56.tar.gz"
+            EXTRA_ARGS+=" --build-arg RCCL_PATH=./apps/rccl"
+            EXTRA_ARGS+=" --build-arg AMD_ANP_PATH=./apps/amd-anp"
           fi
 
           buildah bud \

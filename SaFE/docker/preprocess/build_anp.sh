@@ -86,13 +86,33 @@ git config --global http.postBuffer 524288000
 
 cd ${WORKDIR}
 if [ ! -d "${WORKDIR}/rccl" ]; then
-  echo "Cloning and building RCCL (${RCCL_TAG})..."
-  git clone -q --branch "${RCCL_TAG}" --depth 1 https://github.com/ROCm/rccl.git
-  cd rccl
-  # Fix CMake compatibility with mscclpp_nccl (cmake_minimum_required < 3.5)
-  export CMAKE_POLICY_VERSION_MINIMUM=3.5
+  # Use RCCL source from /shared-data/apps/rccl if available (skip clone only, still need to build)
+  if [ -d "/shared-data/apps/rccl/${RCCL_TAG}" ]; then
+    echo "Using RCCL source (${RCCL_TAG}) from /shared-data/apps/rccl, building..."
+    cp -r "/shared-data/apps/rccl/${RCCL_TAG}" "${WORKDIR}/rccl"
+  else
+    echo "Cloning RCCL (${RCCL_TAG})..."
+    git config --global advice.detachedHead false
+    _clone_retries=3
+    _clone_attempt=1
+    while [ $_clone_attempt -le $_clone_retries ]; do
+      if git clone -q --branch "${RCCL_TAG}" --depth 1 https://github.com/ROCm/rccl.git; then
+        break
+      fi
+      rm -rf rccl
+      if [ $_clone_attempt -eq $_clone_retries ]; then
+        echo "Error: Failed to clone RCCL after $_clone_retries attempts."
+        exit 1
+      fi
+      echo "Retrying in 5 seconds..."
+      sleep 5
+      _clone_attempt=$((_clone_attempt + 1))
+    done
+  fi
 
-  # Retry install (submodule clone can fail due to transient network issues)
+  # Build RCCL
+  cd ${WORKDIR}/rccl
+  export CMAKE_POLICY_VERSION_MINIMUM=3.5
   _retries=3
   _attempt=1
   while [ $_attempt -le $_retries ]; do
@@ -144,22 +164,38 @@ if [ $? -ne 0 ]; then
   exit 1
 fi
 
-# Clone AMD ANP repository
-echo "Cloning AMD ANP repository..."
-git clone -q https://github.com/rocm/amd-anp.git
-if [ $? -ne 0 ]; then
-  echo "Error: Failed to clone AMD ANP repository."
-  exit 1
+# Get AMD ANP source: use prebuilt from /shared-data/apps/amd-anp/${AMD_ANP_VERSION} or clone
+if [ -d "/shared-data/apps/amd-anp/${AMD_ANP_VERSION}" ]; then
+  echo "Using AMD ANP source (${AMD_ANP_VERSION}) from /shared-data/apps/amd-anp"
+  cp -r "/shared-data/apps/amd-anp/${AMD_ANP_VERSION}" "${WORKDIR}/amd-anp"
+else
+  echo "Cloning AMD ANP repository..."
+  _anp_retries=3
+  _anp_attempt=1
+  while [ $_anp_attempt -le $_anp_retries ]; do
+    if git clone -q https://github.com/rocm/amd-anp.git; then
+      break
+    fi
+    rm -rf amd-anp
+    if [ $_anp_attempt -eq $_anp_retries ]; then
+      echo "Error: Failed to clone AMD ANP repository after $_anp_retries attempts."
+      exit 1
+    fi
+    echo "Retrying in 5 seconds..."
+    sleep 5
+    _anp_attempt=$((_anp_attempt + 1))
+  done
+
+  cd amd-anp
+  echo "Checking out version amd-anp-${AMD_ANP_VERSION}..."
+  if ! git checkout -q tags/${AMD_ANP_VERSION}; then
+    echo "Error: Failed to checkout tag ${AMD_ANP_VERSION}."
+    exit 1
+  fi
+  cd ${WORKDIR}
 fi
 
 cd amd-anp
-# Checkout specific version or branch
-echo "Checking out version amd-anp-${AMD_ANP_VERSION}..."
-if ! git checkout -q tags/${AMD_ANP_VERSION}; then
-  echo "Error: Failed to checkout tag ${AMD_ANP_VERSION}."
-  exit 1
-fi
-
 sed -i '5a CFLAGS += --offload-arch=gfx950' ./Makefile
 echo "Building AMD ANP driver..."
 

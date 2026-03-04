@@ -37,7 +37,7 @@ data:
       nodePublishSecretRef:
         name: csi-wekafs-api-secret
         namespace: kube-system
-      volumeHandle: dir/v1/amdprj2-k8s/csi-volumes/public
+      volumeHandle: dir/v1/{{ .Values.global.csi_volume_handle }}/csi-volumes/public
     mountOptions:
       - rw
       - relatime
