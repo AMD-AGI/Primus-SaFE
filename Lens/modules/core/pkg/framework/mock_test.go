@@ -76,6 +76,14 @@ func (m *MockWorkloadFacade) GetGpuWorkloadByUid(ctx context.Context, uid string
 	return args.Get(0).(*model.GpuWorkload), args.Error(1)
 }
 
+func (m *MockWorkloadFacade) GetGpuWorkloadByName(ctx context.Context, name string) (*model.GpuWorkload, error) {
+	args := m.Called(ctx, name)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*model.GpuWorkload), args.Error(1)
+}
+
 // Implement other required methods as no-op for now
 func (m *MockWorkloadFacade) CreateGpuWorkload(ctx context.Context, gpuWorkload *model.GpuWorkload) error {
 	args := m.Called(ctx, gpuWorkload)
@@ -180,6 +188,10 @@ func (m *MockWorkloadFacade) ListActiveTopLevelWorkloads(ctx context.Context, st
 }
 
 func (m *MockWorkloadFacade) GetAllWorkloadPodReferences(ctx context.Context) ([]*model.WorkloadPodReference, error) {
+	return nil, nil
+}
+
+func (m *MockWorkloadFacade) ListWorkloadUidsByPodUids(ctx context.Context, podUids []string) ([]string, error) {
 	return nil, nil
 }
 
