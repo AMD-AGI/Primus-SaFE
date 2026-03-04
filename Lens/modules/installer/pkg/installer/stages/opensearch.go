@@ -57,6 +57,9 @@ func (s *OpenSearchStage) CheckPrerequisites(ctx context.Context, client *instal
 }
 
 func (s *OpenSearchStage) ShouldRun(ctx context.Context, client *installer.ClusterClient, config *installer.InstallConfig) (bool, string, error) {
+	if config.StorageMode == installer.StorageModeExternal {
+		return false, "External storage mode, skipping in-cluster OpenSearch", nil
+	}
 	// Check if OpenSearch is enabled
 	if config.ManagedStorage != nil && !config.ManagedStorage.OpensearchEnabled {
 		return false, "OpenSearch disabled in config", nil
