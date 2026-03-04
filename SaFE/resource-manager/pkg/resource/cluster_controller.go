@@ -220,6 +220,10 @@ func (r *ClusterReconciler) Reconcile(ctx context.Context, req ctrlruntime.Reque
 		klog.ErrorS(err, "failed to guarantee cicd cluster role binding", "cluster", cluster.Name)
 		return ctrlruntime.Result{}, err
 	}
+	if err = r.guaranteeService(ctx, cluster); err != nil {
+		klog.ErrorS(err, "failed to guarantee cluster service/endpoints", "cluster", cluster.Name)
+		return ctrlruntime.Result{}, err
+	}
 	if err = r.guaranteeForwardIngress(ctx, cluster); err != nil {
 		klog.ErrorS(err, "failed to guarantee ingress", "cluster", cluster.Name)
 		return ctrlruntime.Result{}, err
@@ -786,16 +790,17 @@ func (r *ClusterReconciler) guaranteeForwardEndpoints(ctx context.Context, clust
 				existing.Subsets[0].Ports = desiredPorts
 				isChanged = true
 			}
-			ipset := sets.NewSet()
+			currentIPs := sets.NewSet()
 			for _, a := range cur.Addresses {
-				ipset.Insert(a.IP)
+				currentIPs.Insert(a.IP)
 			}
+			desiredIPs := sets.NewSet()
 			for _, addr := range addresses {
-				if !ipset.Has(addr.IP) {
-					existing.Subsets[0].Addresses = addresses
-					isChanged = true
-					break
-				}
+				desiredIPs.Insert(addr.IP)
+			}
+			if !currentIPs.Equal(desiredIPs) {
+				existing.Subsets[0].Addresses = addresses
+				isChanged = true
 			}
 		}
 		if isChanged {
@@ -830,21 +835,38 @@ func (r *ClusterReconciler) guaranteeForwardEndpoints(ctx context.Context, clust
 }
 
 // getClusterEndpoint retrieves the endpoint addresses for a cluster by its name.
-// It fetches the Endpoints resource and extracts all available addresses from its subsets
+// It fetches the Endpoints resource and filters addresses by node health status.
 func (r *ClusterReconciler) getClusterEndpoint(ctx context.Context, cluster *v1.Cluster) ([]corev1.EndpointAddress, error) {
 	name := cluster.Name
 	srcEp, err := r.clientSet.CoreV1().Endpoints(common.PrimusSafeNamespace).Get(ctx, name, metav1.GetOptions{})
 	if err != nil {
 		return nil, err
 	}
+
+	hasHealthInfo := false
+	healthyIPs := sets.NewSet()
+	nodes, err := r.getControllerPlaneNodes(ctx, cluster)
+	if err != nil {
+		klog.Warningf("failed to get control plane nodes for cluster %s, skipping health filter: %v", name, err)
+	} else {
+		hasHealthInfo = true
+		for _, node := range nodes {
+			if node.IsMachineReady() {
+				healthyIPs.Insert(node.Spec.PrivateIP)
+			}
+		}
+	}
+
 	var addresses []corev1.EndpointAddress
 	for _, ss := range srcEp.Subsets {
-		if len(ss.Addresses) > 0 {
-			addresses = append(addresses, ss.Addresses...)
+		for _, addr := range ss.Addresses {
+			if !hasHealthInfo || healthyIPs.Has(addr.IP) {
+				addresses = append(addresses, addr)
+			}
 		}
 	}
 	if len(addresses) == 0 {
-		return nil, fmt.Errorf("no endpoint addresses found for cluster %s", name)
+		return nil, fmt.Errorf("no healthy endpoint addresses found for cluster %s", name)
 	}
 	return addresses, nil
 }
