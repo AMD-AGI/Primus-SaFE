@@ -16,6 +16,7 @@ import (
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/modules/installer/pkg/config"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/modules/installer/pkg/installer"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/modules/installer/pkg/installer/stages"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
@@ -97,9 +98,10 @@ func main() {
 		log.Warnf("Failed to update cluster status: %v", err)
 	}
 
-	// Create installer and execute
+	// Create installer and execute (new pipeline: stages package provides stage list)
 	log.Info("Starting dataplane installation...")
 	dpInstaller := installer.NewDataplaneInstaller(facade)
+	dpInstaller.SetStageListProvider(stages.NewStageListProvider(dpInstaller.GetHelmClient()))
 
 	installErr := dpInstaller.Execute(ctx, task, clusterConfig)
 
@@ -221,17 +223,32 @@ func updateClusterStatusOnFailure(ctx context.Context, clusterFacade cpdb.Cluste
 	}
 }
 
-// isInfrastructureStage checks if the given stage is an infrastructure stage
+// isInfrastructureStage checks if the given stage is an infrastructure stage (used for cluster status on failure).
+// Includes both old and new pipeline stage names for backward compatibility.
 func isInfrastructureStage(stage string) bool {
 	infrastructureStages := map[string]bool{
+		// Old pipeline names
 		"pending":             true,
 		"operators":           true,
 		"wait_operators":      true,
 		"infrastructure":      true,
 		"wait_infrastructure": true,
 		"init":                true,
-		"database_migration":  true,
-		"storage_secret":      true,
+		"database_migration": true,
+		"storage_secret":     true,
+		// New pipeline names
+		"operator-pgo":          true,
+		"operator-victoriametrics": true,
+		"operator-opensearch":   true,
+		"operator-grafana":      true,
+		"operator-fluent":       true,
+		"operator-ksm":          true,
+		"infra-postgres":        true,
+		"infra-victoriametrics": true,
+		"infra-opensearch":      true,
+		"database-init":         true,
+		"database-migration":    true,
+		"storage-secret":        true,
 	}
 	return infrastructureStages[stage]
 }

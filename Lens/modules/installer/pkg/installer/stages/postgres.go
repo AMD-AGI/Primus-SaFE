@@ -66,6 +66,9 @@ func (s *PostgresStage) CheckPrerequisites(ctx context.Context, client *installe
 }
 
 func (s *PostgresStage) ShouldRun(ctx context.Context, client *installer.ClusterClient, config *installer.InstallConfig) (bool, string, error) {
+	if config.StorageMode == installer.StorageModeExternal {
+		return false, "External storage mode, skipping in-cluster Postgres", nil
+	}
 	// Check if PostgreSQL is enabled
 	if config.ManagedStorage != nil && !config.ManagedStorage.PostgresEnabled {
 		return false, "PostgreSQL disabled in config", nil

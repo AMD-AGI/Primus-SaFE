@@ -14,9 +14,37 @@ import (
 
 // DataplaneInstaller handles dataplane installation with real-time status updates
 type DataplaneInstaller struct {
-	facade     *cpdb.ControlPlaneFacade
-	helmClient *HelmClient
-	stages     map[string]Stage
+	facade            *cpdb.ControlPlaneFacade
+	helmClient        *HelmClient
+	stageListProvider StageListProvider
+}
+
+// installerStageReporter implements StageReporter to persist stage progress to the control plane DB
+type installerStageReporter struct {
+	d      *DataplaneInstaller
+	taskID int32
+}
+
+func (r *installerStageReporter) OnStageStart(ctx context.Context, stageName string) {
+	if err := r.d.updateStage(ctx, r.taskID, stageName, ""); err != nil {
+		log.Warnf("Failed to update stage in DB: %v", err)
+	}
+}
+
+func (r *installerStageReporter) OnStageEnd(ctx context.Context, stageName string, result StageResult) {
+	if result.Status != StageStatusFailed || result.Error == nil {
+		return
+	}
+	if err := r.d.updateStage(ctx, r.taskID, stageName, result.Error.Error()); err != nil {
+		log.Warnf("Failed to update stage error in DB: %v", err)
+	}
+}
+
+// StageListProvider returns the list of stages for the new pipeline (implemented by the stages package to avoid import cycle).
+type StageListProvider interface {
+	GetStagesByScope(scope string) []StageV2
+	GetAppsStages() []StageV2
+	GetMappedStageName(currentStage string) string
 }
 
 // NewDataplaneInstaller creates a new DataplaneInstaller with control plane DB connection
@@ -24,8 +52,21 @@ func NewDataplaneInstaller(facade *cpdb.ControlPlaneFacade) *DataplaneInstaller 
 	return &DataplaneInstaller{
 		facade:     facade,
 		helmClient: NewHelmClient(),
-		stages:     GetAllStages(),
 	}
+}
+
+// GetHelmClient returns the Helm client for use by StageListProvider (e.g. in cmd when building stage list).
+func (d *DataplaneInstaller) GetHelmClient() *HelmClient {
+	return d.helmClient
+}
+
+// SetStageListProvider sets the provider for the new pipeline (must be set by cmd using stages package).
+func (d *DataplaneInstaller) SetStageListProvider(p StageListProvider) {
+	d.stageListProvider = p
+}
+
+func (d *DataplaneInstaller) getStageListProvider() StageListProvider {
+	return d.stageListProvider
 }
 
 // ExecuteTask runs the installation/upgrade/rollback for a task
@@ -72,131 +113,67 @@ func (d *DataplaneInstaller) ExecuteTask(ctx context.Context, task *model.Datapl
 		return fmt.Errorf("failed to build install config: %w", err)
 	}
 
-	// Execute based on task type
-	var stagesCompleted []string
-	var executeErr error
-
-	switch task.TaskType {
-	case model.TaskTypeInstall:
-		stagesCompleted, executeErr = d.executeInstall(ctx, task, config)
-	case model.TaskTypeUpgrade:
-		stagesCompleted, executeErr = d.executeUpgrade(ctx, task, config)
-	case model.TaskTypeRollback:
-		stagesCompleted, executeErr = d.executeRollback(ctx, task, config)
-	default:
-		// Default to install for backward compatibility
-		stagesCompleted, executeErr = d.executeInstall(ctx, task, config)
+	// Get stage list and run via Executor (new pipeline). StageListProvider is passed from cmd (stages package).
+	provider := d.getStageListProvider()
+	if provider == nil {
+		return fmt.Errorf("StageListProvider not set; install pipeline requires provider from stages package")
+	}
+	var stageList []StageV2
+	if task.TaskType == model.TaskTypeUpgrade || task.TaskType == model.TaskTypeRollback {
+		config.IsUpgrade = true
+		stageList = provider.GetAppsStages()
+	} else {
+		stageList = provider.GetStagesByScope(task.InstallScope)
 	}
 
-	// Update release history if present
-	if releaseHistory != nil {
-		if executeErr != nil {
+	exec, err := NewExecutor(config.Kubeconfig, config)
+	if err != nil {
+		return fmt.Errorf("failed to create executor: %w", err)
+	}
+	exec.SetReporter(&installerStageReporter{d: d, taskID: task.ID})
+
+	startStage := provider.GetMappedStageName(task.CurrentStage)
+	var results []StageResult
+	var executeErr error
+	if startStage != "" {
+		results, executeErr = exec.ExecuteWithResume(ctx, stageList, startStage)
+	} else {
+		results, executeErr = exec.ExecuteStages(ctx, stageList)
+	}
+
+	stagesCompleted := make([]string, 0, len(results))
+	for _, r := range results {
+		if r.Status == StageStatusCompleted {
+			stagesCompleted = append(stagesCompleted, r.Stage)
+		}
+	}
+	if executeErr != nil {
+		if releaseHistory != nil {
 			if err := d.facade.GetReleaseHistory().MarkFailed(ctx, releaseHistory.ID, executeErr.Error(), stagesCompleted); err != nil {
 				log.Errorf("Failed to mark release history as failed: %v", err)
 			}
-		} else {
-			if err := d.facade.GetReleaseHistory().MarkCompleted(ctx, releaseHistory.ID, stagesCompleted); err != nil {
-				log.Errorf("Failed to mark release history as completed: %v", err)
-			}
+		}
+		return executeErr
+	}
 
-			// Update cluster release config with deployed version
-			if releaseVersion != nil {
-				if err := d.facade.GetClusterReleaseConfig().MarkDeployed(ctx, task.ClusterName, releaseVersion.ID, mergedValues); err != nil {
-					log.Errorf("Failed to update cluster release config: %v", err)
-				}
+	// Update release history on success
+	if releaseHistory != nil {
+		if err := d.facade.GetReleaseHistory().MarkCompleted(ctx, releaseHistory.ID, stagesCompleted); err != nil {
+			log.Errorf("Failed to mark release history as completed: %v", err)
+		}
+		if releaseVersion != nil {
+			if err := d.facade.GetClusterReleaseConfig().MarkDeployed(ctx, task.ClusterName, releaseVersion.ID, mergedValues); err != nil {
+				log.Errorf("Failed to update cluster release config: %v", err)
 			}
 		}
 	}
 
-	return executeErr
+	return nil
 }
 
 // Execute runs the full installation process for a task (legacy method for backward compatibility)
 func (d *DataplaneInstaller) Execute(ctx context.Context, task *model.DataplaneInstallTask, clusterConfig *model.ClusterConfig) error {
 	return d.ExecuteTask(ctx, task, clusterConfig)
-}
-
-// executeInstall performs a fresh installation
-func (d *DataplaneInstaller) executeInstall(ctx context.Context, task *model.DataplaneInstallTask, config *InstallConfig) ([]string, error) {
-	log.Infof("Executing INSTALL for cluster '%s'", task.ClusterName)
-	return d.executeStages(ctx, task, config, false)
-}
-
-// executeUpgrade performs an upgrade
-func (d *DataplaneInstaller) executeUpgrade(ctx context.Context, task *model.DataplaneInstallTask, config *InstallConfig) ([]string, error) {
-	log.Infof("Executing UPGRADE for cluster '%s'", task.ClusterName)
-	// For upgrade, we use the same stages but the Helm client will do upgrade instead of install
-	config.IsUpgrade = true
-	return d.executeStages(ctx, task, config, true)
-}
-
-// executeRollback performs a rollback
-func (d *DataplaneInstaller) executeRollback(ctx context.Context, task *model.DataplaneInstallTask, config *InstallConfig) ([]string, error) {
-	log.Infof("Executing ROLLBACK for cluster '%s'", task.ClusterName)
-	// For rollback, we use upgrade with the previous values
-	config.IsUpgrade = true
-	return d.executeStages(ctx, task, config, true)
-}
-
-// executeStages runs the installation stages
-func (d *DataplaneInstaller) executeStages(ctx context.Context, task *model.DataplaneInstallTask, config *InstallConfig, upgradeOnly bool) ([]string, error) {
-	var stagesCompleted []string
-
-	// Get stage sequence based on install scope
-	var stageSequence []string
-	if upgradeOnly {
-		// For upgrade/rollback, skip infrastructure setup stages
-		stageSequence = GetUpgradeStageSequence()
-	} else if task.InstallScope != "" && task.InstallScope != model.InstallScopeFull {
-		// Use scope-based stage sequence
-		stageSequence = GetStageSequenceByScope(task.InstallScope, task.StorageMode)
-	} else {
-		// Default: full installation (backward compatible)
-		stageSequence = GetStageSequence(task.StorageMode)
-	}
-
-	// Find the starting point (support resume from failed stage)
-	startIndex := 0
-	if task.CurrentStage != "" && task.CurrentStage != StagePending {
-		for i, stage := range stageSequence {
-			if stage == task.CurrentStage {
-				startIndex = i
-				break
-			}
-		}
-	}
-
-	log.Infof("Starting from stage '%s' (index %d), total stages: %d",
-		stageSequence[startIndex], startIndex, len(stageSequence))
-
-	// Execute stages
-	for i := startIndex; i < len(stageSequence); i++ {
-		stageName := stageSequence[i]
-
-		stage, ok := d.stages[stageName]
-		if !ok {
-			return stagesCompleted, fmt.Errorf("unknown stage: %s", stageName)
-		}
-
-		// Update current stage in DB before execution
-		log.Infof("Starting stage: %s", stageName)
-		if err := d.updateStage(ctx, task.ID, stageName, ""); err != nil {
-			log.Warnf("Failed to update stage in DB: %v", err)
-		}
-
-		// Execute stage
-		if err := stage.Execute(ctx, d.helmClient, config); err != nil {
-			// Update error in DB
-			errMsg := fmt.Sprintf("Stage '%s' failed: %v", stageName, err)
-			d.updateStage(ctx, task.ID, stageName, errMsg)
-			return stagesCompleted, fmt.Errorf("stage '%s' failed: %w", stageName, err)
-		}
-
-		stagesCompleted = append(stagesCompleted, stageName)
-		log.Infof("Completed stage: %s", stageName)
-	}
-
-	return stagesCompleted, nil
 }
 
 // buildInstallConfig builds InstallConfig from task, cluster config, and optional release version
