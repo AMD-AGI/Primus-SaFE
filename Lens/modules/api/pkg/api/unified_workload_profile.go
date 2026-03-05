@@ -143,7 +143,7 @@ func handleWorkloadProfileGet(ctx context.Context, req *WorkloadProfileGetReques
 			WithMessage("workload_uid is required")
 	}
 
-	clusterName, err := resolveWorkloadCluster(ctx, req.WorkloadUID, req.Cluster)
+	clusterName, err := ResolveWorkloadCluster(ctx, req.WorkloadUID, req.Cluster)
 	if err != nil {
 		return nil, err
 	}
@@ -225,7 +225,7 @@ func handleWorkloadProfileAnalyze(ctx context.Context, req *WorkloadProfileAnaly
 			WithMessage("workload_uid is required")
 	}
 
-	clusterName, err := resolveWorkloadCluster(ctx, req.WorkloadUID, req.Cluster)
+	clusterName, err := ResolveWorkloadCluster(ctx, req.WorkloadUID, req.Cluster)
 	if err != nil {
 		return nil, err
 	}
@@ -251,7 +251,7 @@ func handleWorkloadProfileEvidence(ctx context.Context, req *WorkloadProfileEvid
 			WithMessage("workload_uid is required")
 	}
 
-	clusterName, err := resolveWorkloadCluster(ctx, req.WorkloadUID, req.Cluster)
+	clusterName, err := ResolveWorkloadCluster(ctx, req.WorkloadUID, req.Cluster)
 	if err != nil {
 		return nil, err
 	}
