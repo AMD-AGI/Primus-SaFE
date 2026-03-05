@@ -1,6 +1,7 @@
 // Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
 // See LICENSE for license information.
 
+// Package clientsets provides cluster client management for multi-cluster environments.
 package clientsets
 
 import (
