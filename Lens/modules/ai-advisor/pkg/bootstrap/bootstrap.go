@@ -469,10 +469,11 @@ func registerIntentAnalyzerAgent(ctx context.Context, aiGatewayURL string, insta
 	}
 
 	reg := &aigateway.AgentRegistration{
-		Name:        "intent-analyzer",
-		Version:     "1.0.0",
-		Description: "Workload intent analyzer - determines what GPU workloads are doing",
-		Endpoint:    endpoint,
+		Name:            "intent-analyzer",
+		Version:         "1.0.0",
+		Description:     "Workload intent analyzer - determines what GPU workloads are doing",
+		Endpoint:        endpoint,
+		HealthCheckPath: "/v1/health",
 		Topics: []string{
 			"intent.analyze.workload",
 			"intent.analyze.logs",
