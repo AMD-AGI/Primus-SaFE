@@ -38,7 +38,7 @@ set_versions_from_driver() {
 set_versions_from_driver "${AINIC_DRIVER_VERSION}"
 
 # Get ROCm version from container
-ROCM_VERSION=$(cat /opt/rocm/.info/version 2>/dev/null | tr -d '[:space:]')
+ROCM_VERSION=$(cat /opt/rocm/.info/version 2>/dev/null | tr -d '[:space:]' | cut -d'-' -f1)
 if [ -z "${ROCM_VERSION}" ]; then
   echo "Error: ROCm not found. Cannot read /opt/rocm/.info/version"
   exit 1

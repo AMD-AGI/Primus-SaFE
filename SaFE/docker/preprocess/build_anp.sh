@@ -54,6 +54,9 @@ get_cpu_count() {
   nproc 2>/dev/null || echo 16
 }
 NPROC=$(get_cpu_count)
+if [ "${NPROC}" -gt 16 ] 2>/dev/null; then
+  NPROC=16
+fi
 echo "Using ${NPROC} parallel jobs for compilation"
 
 # Get GPU architecture (gfx942, gfx950, etc.) via rocm-smi or rocminfo. Exits with error if not found.
@@ -80,7 +83,7 @@ WORKDIR="/opt"
 # RCCL tag and build flags by ROCm version (aligned with Bench/pytorch/install_rccl.sh)
 RCCL_FLAGS="--disable-mscclpp --disable-msccl-kernel"
 case "${ROCM_VERSION}" in
-  6.4.3)
+  6.4.2|6.4.3|6.4.4)
     RCCL_TAG="rocm-6.4.3"
     ;;
   7.0.0|7.0.1|7.0.2|7.1.0|7.1.1)
