@@ -447,6 +447,7 @@ func getPodLog(ctx context.Context, clientSet kubernetes.Interface, pod *corev1.
 
 // sortWorkloadPods sorts workload pods by host IP and pod ID to maintain consistent ordering.
 // For TorchFT workloads, pods are first sorted by GroupId, then by host IP and pod ID within the same group.
+// For RayJob workloads, pods are sorted by role: submitter (no -head-/-worker-) first, then head, then worker (by name).
 // For regular workloads, pods are sorted directly by host IP and pod ID.
 // This ensures consistent ordering of pods for node assignment tracking.
 func sortWorkloadPods(adminWorkload *v1.Workload) {
@@ -460,12 +461,33 @@ func sortWorkloadPods(adminWorkload *v1.Workload) {
 			}
 			return pods[i].GroupId < pods[j].GroupId
 		})
+	} else if commonworkload.IsRayJob(adminWorkload) {
+		// For RayJob: submitter first, then head, then worker (by name)
+		sort.Slice(pods, func(i, j int) bool {
+			tierI := getRayJobPodTier(pods[i].PodId)
+			tierJ := getRayJobPodTier(pods[j].PodId)
+			if tierI != tierJ {
+				return tierI < tierJ
+			}
+			return pods[i].PodId < pods[j].PodId
+		})
 	} else {
 		// For regular workloads, sort directly by host IP and pod ID
 		sort.Slice(pods, func(i, j int) bool {
 			return comparePodsByIPAndID(pods[i], pods[j])
 		})
 	}
+}
+
+// getRayJobPodTier returns sort tier for RayJob pods: 0=submitter, 1=head, 2=worker
+func getRayJobPodTier(podId string) int {
+	if strings.Contains(podId, "-head-") {
+		return 1
+	}
+	if strings.Contains(podId, "-worker-") {
+		return 2
+	}
+	return 0 // submitter or other
 }
 
 // comparePodsByIPAndID sort by hostIp and podId
