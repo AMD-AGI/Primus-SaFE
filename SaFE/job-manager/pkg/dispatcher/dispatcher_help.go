@@ -671,7 +671,6 @@ func buildEnvironment(workload *v1.Workload, resourceId int) []interface{} {
 		result = addEnvVar(result, workload, "NCCL_IB_USE_INLINE", "1")
 		result = addEnvVar(result, workload, "RCCL_GDR_FLUSH_GPU_MEM_NO_RELAXED_ORDERING", "0")
 		result = addEnvVar(result, workload, "NCCL_GDR_FLUSH_DISABLE", "1")
-		result = addEnvVar(result, workload, "NCCL_DMABUF_ENABLE", "0")
 		result = addEnvVar(result, workload, "NCCL_IGNORE_CPU_AFFINITY", "1")
 		result = addEnvVar(result, workload, "LD_LIBRARY_PATH", "/opt/amd-anp/build:/opt/rccl/build/release:/opt/rocm/lib")
 	} else {
