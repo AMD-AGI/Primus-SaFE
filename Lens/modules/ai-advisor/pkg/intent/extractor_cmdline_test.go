@@ -34,7 +34,7 @@ func TestExtract_ServingFrameworks(t *testing.T) {
 				"--quantization", "awq",
 			},
 			wantFW:    "vllm",
-			wantCat:   CategoryInference,
+			wantCat:   CategoryServing,
 			wantModel: "/models/meta-llama/Llama-3-70B-Instruct",
 		},
 		// --- Workload #2: vLLM with Qwen ---
@@ -46,7 +46,7 @@ func TestExtract_ServingFrameworks(t *testing.T) {
 				"--tp", "4",
 			},
 			wantFW:    "vllm",
-			wantCat:   CategoryInference,
+			wantCat:   CategoryServing,
 			wantModel: "Qwen/Qwen2-72B-Instruct",
 		},
 		// --- Workload #3: TGI with Mixtral ---
