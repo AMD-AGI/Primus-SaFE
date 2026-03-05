@@ -56,6 +56,22 @@ get_cpu_count() {
 NPROC=$(get_cpu_count)
 echo "Using ${NPROC} parallel jobs for compilation"
 
+# Get GPU architecture (gfx942, gfx950, etc.) via rocm-smi or rocminfo. Exits with error if not found.
+get_gfx_arch() {
+  _arch=""
+  if rocm-smi --showhw 2>/dev/null | grep -qE 'gfx[0-9]{3,4}'; then
+    _arch=$(rocm-smi --showhw 2>/dev/null | grep -oE 'gfx[0-9]{3,4}' | head -1)
+  fi
+  if [ -z "${_arch}" ] && rocminfo 2>/dev/null | grep -qE 'gfx[0-9]{3,4}'; then
+    _arch=$(rocminfo 2>/dev/null | grep -oE 'gfx[0-9]{3,4}' | head -1)
+  fi
+  if [ -z "${_arch}" ]; then
+    echo "Error: Could not detect GPU arch via rocm-smi or rocminfo." >&2
+    exit 1
+  fi
+  echo "${_arch}"
+}
+
 WORKDIR="/opt"
 
 # ---------------------------------------------------------------------------
@@ -86,10 +102,15 @@ git config --global http.postBuffer 524288000
 
 cd ${WORKDIR}
 if [ ! -d "${WORKDIR}/rccl" ]; then
-  # Use RCCL source from /shared-data/apps/rccl if available (skip clone only, still need to build)
+  # Use RCCL from /shared-data: /shared-data/apps/rccl/${RCCL_TAG} (e.g. rocm-7.1.0)
+  RCCL_SRC=""
   if [ -d "/shared-data/apps/rccl/${RCCL_TAG}" ]; then
-    echo "Using RCCL source (${RCCL_TAG}) from /shared-data/apps/rccl, building..."
-    cp -r "/shared-data/apps/rccl/${RCCL_TAG}" "${WORKDIR}/rccl"
+    RCCL_SRC="/shared-data/apps/rccl/${RCCL_TAG}"
+  fi
+
+  if [ -n "${RCCL_SRC}" ]; then
+    echo "Using RCCL from /shared-data/apps/rccl"
+    cp -r "${RCCL_SRC}" "${WORKDIR}/rccl"
   else
     echo "Cloning RCCL (${RCCL_TAG})..."
     git config --global advice.detachedHead false
@@ -110,16 +131,25 @@ if [ ! -d "${WORKDIR}/rccl" ]; then
     done
   fi
 
-  # Build RCCL
+  # Build RCCL (skip only if build/release exists and GPU_TARGETS matches current GPU arch)
   cd ${WORKDIR}/rccl
-  export CMAKE_POLICY_VERSION_MINIMUM=3.5
-  _start=$(date +%s)
-  if ! ./install.sh -j ${NPROC} -l --prefix build/ ${RCCL_FLAGS} --amdgpu_targets="gfx950" >/dev/null 2>&1; then
-    echo "Error: Failed to build RCCL."
-    exit 1
+  GFX_ARCH=$(get_gfx_arch)
+  echo "Detected GPU arch: ${GFX_ARCH}"
+
+  RCCL_BUILD_DIR="${WORKDIR}/rccl/build/release"
+  CMAKE_CACHE="${RCCL_BUILD_DIR}/CMakeCache.txt"
+  if [ -d "${RCCL_BUILD_DIR}" ] && [ -f "${CMAKE_CACHE}" ] && grep -q "GPU_TARGETS.*${GFX_ARCH}" "${CMAKE_CACHE}" 2>/dev/null; then
+    echo "RCCL build/release exists and GPU_TARGETS matches ${GFX_ARCH}, skipping build."
+  else
+    export CMAKE_POLICY_VERSION_MINIMUM=3.5
+    _start=$(date +%s)
+    if ! ./install.sh -j ${NPROC} -l --prefix build/ ${RCCL_FLAGS} --amdgpu_targets="${GFX_ARCH}" >/dev/null 2>&1; then
+      echo "Error: Failed to build RCCL."
+      exit 1
+    fi
+    _end=$(date +%s)
+    echo "RCCL install.sh completed in $((_end - _start)) seconds"
   fi
-  _end=$(date +%s)
-  echo "RCCL install.sh completed in $((_end - _start)) seconds"
 fi
 export RCCL_HOME=${WORKDIR}/rccl
 echo "Install RCCL (${RCCL_TAG}) successfully, RCCL_HOME: ${RCCL_HOME}"
@@ -156,10 +186,15 @@ if [ $? -ne 0 ]; then
   exit 1
 fi
 
-# Get AMD ANP source: use prebuilt from /shared-data/apps/amd-anp/${AMD_ANP_VERSION} or clone
+# Get AMD ANP from /shared-data: /shared-data/apps/amd-anp/${AMD_ANP_VERSION} (e.g. v1.3.0)
+ANP_SRC=""
 if [ -d "/shared-data/apps/amd-anp/${AMD_ANP_VERSION}" ]; then
-  echo "Using AMD ANP source (${AMD_ANP_VERSION}) from /shared-data/apps/amd-anp"
-  cp -r "/shared-data/apps/amd-anp/${AMD_ANP_VERSION}" "${WORKDIR}/amd-anp"
+  ANP_SRC="/shared-data/apps/amd-anp/${AMD_ANP_VERSION}"
+fi
+
+if [ -n "${ANP_SRC}" ]; then
+  echo "Using AMD ANP from /shared-data/apps/amd-anp"
+  cp -r "${ANP_SRC}" "${WORKDIR}/amd-anp"
 else
   echo "Cloning AMD ANP repository..."
   _anp_retries=3
@@ -188,12 +223,19 @@ else
 fi
 
 cd amd-anp
-sed -i '5a CFLAGS += --offload-arch=gfx950' ./Makefile
-echo "Building AMD ANP driver..."
-make -j ${NPROC} ROCM_PATH=/opt/rocm RCCL_HOME=${RCCL_HOME} >/dev/null 2>&1
-if [ $? -ne 0 ]; then
-  echo "Error: Failed to build AMD ANP driver."
-  exit 1
+# Prebuilt: has build/librccl-anp.so or build/librccl-net.so (skip build when no GPU)
+if [ -f "./build/librccl-anp.so" ] || [ -f "./build/librccl-net.so" ]; then
+  echo "AMD ANP prebuilt found in shared-data, skipping build."
+else
+  GFX_ARCH=$(get_gfx_arch)
+  if ! grep -q "offload-arch=${GFX_ARCH}" ./Makefile 2>/dev/null; then
+    sed -i "5a CFLAGS += --offload-arch=${GFX_ARCH}" ./Makefile
+  fi
+  echo "Building AMD ANP driver..."
+  if ! make -j ${NPROC} ROCM_PATH=/opt/rocm RCCL_HOME=${RCCL_HOME} >/dev/null 2>&1; then
+    echo "Error: Failed to build AMD ANP driver."
+    exit 1
+  fi
 fi
 
 # Create symlink librccl-anp.so -> librccl-net.so if needed (RCCL looks for librccl-anp.so)
@@ -206,5 +248,3 @@ elif [ -f "librccl-net.so" ] && [ ! -f "librccl-anp.so" ]; then
   echo "Creating symlink: librccl-anp.so -> librccl-net.so"
   ln -sf librccl-net.so librccl-anp.so
 fi
-
-echo "============== install AMD AINIC Network Plugin (amd-anp) ${AMD_ANP_VERSION} successfully =============="
