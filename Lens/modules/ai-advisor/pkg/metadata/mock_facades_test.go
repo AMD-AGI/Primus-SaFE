@@ -80,6 +80,31 @@ func (m *MockPodFacade) GetGpuPodsByPodUid(ctx context.Context, podUID string) (
 	return pod, nil
 }
 
+// GetGpuPodsByNamespaceName retrieves GPU pod by namespace and name
+func (m *MockPodFacade) GetGpuPodsByNamespaceName(ctx context.Context, namespace, name string) (*model.GpuPods, error) {
+	return nil, nil
+}
+
+// GetRunningPodsByNamePrefix returns running pods matching namespace and name prefix
+func (m *MockPodFacade) GetRunningPodsByNamePrefix(ctx context.Context, namespace, namePrefix string) ([]*model.GpuPods, error) {
+	return nil, nil
+}
+
+// GetRunningPodsByOwnerUID returns running pods for a given owner (workload) UID
+func (m *MockPodFacade) GetRunningPodsByOwnerUID(ctx context.Context, ownerUID string) ([]*model.GpuPods, error) {
+	return nil, nil
+}
+
+// ListPodsActiveInTimeRange returns pods active in the given time range
+func (m *MockPodFacade) ListPodsActiveInTimeRange(ctx context.Context, startTime, endTime time.Time) ([]*model.GpuPods, error) {
+	return nil, nil
+}
+
+// ListRunningGpuPods returns pods with phase = 'Running'
+func (m *MockPodFacade) ListRunningGpuPods(ctx context.Context) ([]*model.GpuPods, error) {
+	return nil, nil
+}
+
 // AddGpuPod adds a GPU pod to the mock
 func (m *MockPodFacade) AddGpuPod(podUID, nodeName string) {
 	m.GpuPods[podUID] = &model.GpuPods{
@@ -102,6 +127,7 @@ func (m *MockPodFacade) UpdateGpuPodsEvent(ctx context.Context, gpuPods *model.G
 func (m *MockPodFacade) CreatePodSnapshot(ctx context.Context, podSnapshot *model.PodSnapshot) error { return nil }
 func (m *MockPodFacade) UpdatePodSnapshot(ctx context.Context, podSnapshot *model.PodSnapshot) error { return nil }
 func (m *MockPodFacade) GetLastPodSnapshot(ctx context.Context, podUid string, resourceVersion int) (*model.PodSnapshot, error) { return nil, nil }
+func (m *MockPodFacade) UpsertLatestPodSnapshot(ctx context.Context, snapshot *model.PodSnapshot) error { return nil }
 func (m *MockPodFacade) GetPodResourceByUid(ctx context.Context, uid string) (*model.PodResource, error) { return nil, nil }
 func (m *MockPodFacade) CreatePodResource(ctx context.Context, podResource *model.PodResource) error { return nil }
 func (m *MockPodFacade) UpdatePodResource(ctx context.Context, podResource *model.PodResource) error { return nil }

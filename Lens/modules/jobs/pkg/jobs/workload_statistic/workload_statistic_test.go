@@ -20,7 +20,7 @@ func histogramToExtJSON(hist *Histogram) dbModel.ExtJSON {
 func TestSchedule(t *testing.T) {
 	job := NewWorkloadStatisticJob()
 	schedule := job.Schedule()
-	assert.Equal(t, "@every 30s", schedule, "Schedule should be every 30 seconds")
+	assert.Equal(t, "@every 60s", schedule, "Schedule should be every 60 seconds")
 }
 
 func TestCalculateIncrementalStartTime(t *testing.T) {

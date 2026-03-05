@@ -95,6 +95,9 @@ func (m *MockFacade) GetGithubWorkflowCommit() database.GithubWorkflowCommitFaca
 func (m *MockFacade) GetGithubWorkflowRunDetails() database.GithubWorkflowRunDetailsFacadeInterface {
 	return nil
 }
+func (m *MockFacade) GetGithubWorkflowRunSummary() *database.GithubWorkflowRunSummaryFacade {
+	return nil
+}
 func (m *MockFacade) GetDashboardSummary() database.DashboardSummaryFacadeInterface {
 	return nil
 }
@@ -105,6 +108,24 @@ func (m *MockFacade) GetCommitImpactAnalysis() database.CommitImpactAnalysisFaca
 	return nil
 }
 func (m *MockFacade) GetNotificationChannel() database.NotificationChannelFacadeInterface {
+	return nil
+}
+func (m *MockFacade) GetPodRunningPeriods() database.PodRunningPeriodsFacadeInterface {
+	return nil
+}
+func (m *MockFacade) GetWorkloadCodeSnapshot() database.WorkloadCodeSnapshotFacadeInterface {
+	return nil
+}
+func (m *MockFacade) GetImageRegistryCache() database.ImageRegistryCacheFacadeInterface {
+	return nil
+}
+func (m *MockFacade) GetIntentRule() database.IntentRuleFacadeInterface {
+	return nil
+}
+func (m *MockFacade) GetWorkloadResource() database.WorkloadResourceFacadeInterface {
+	return nil
+}
+func (m *MockFacade) GetProfilerFile() database.ProfilerFileFacadeInterface {
 	return nil
 }
 func (m *MockFacade) WithCluster(clusterName string) database.FacadeInterface { return m }
@@ -134,6 +155,9 @@ func (m *MockWorkloadFacade) WithCluster(clusterName string) database.WorkloadFa
 	return m
 }
 func (m *MockWorkloadFacade) GetGpuWorkloadByUid(ctx context.Context, uid string) (*dbmodel.GpuWorkload, error) {
+	return nil, nil
+}
+func (m *MockWorkloadFacade) GetGpuWorkloadByName(ctx context.Context, name string) (*dbmodel.GpuWorkload, error) {
 	return nil, nil
 }
 func (m *MockWorkloadFacade) CreateGpuWorkload(ctx context.Context, gpuWorkload *dbmodel.GpuWorkload) error {
@@ -208,6 +232,9 @@ func (m *MockWorkloadFacade) GetLatestOtherWorkloadEvent(ctx context.Context, wo
 func (m *MockWorkloadFacade) GetAllWorkloadPodReferences(ctx context.Context) ([]*dbmodel.WorkloadPodReference, error) {
 	return nil, nil
 }
+func (m *MockWorkloadFacade) ListWorkloadUidsByPodUids(ctx context.Context, podUids []string) ([]string, error) {
+	return nil, nil
+}
 func (m *MockWorkloadFacade) ListCompletedWorkloadsByKindAndParent(ctx context.Context, kind, parentUID string, since time.Time, limit int) ([]*dbmodel.GpuWorkload, error) {
 	return nil, nil
 }
@@ -238,6 +265,21 @@ func (m *MockPodFacade) UpdateGpuPods(ctx context.Context, gpuPods *dbmodel.GpuP
 func (m *MockPodFacade) GetGpuPodsByPodUid(ctx context.Context, podUid string) (*dbmodel.GpuPods, error) {
 	return nil, nil
 }
+func (m *MockPodFacade) GetGpuPodsByNamespaceName(ctx context.Context, namespace, name string) (*dbmodel.GpuPods, error) {
+	return nil, nil
+}
+func (m *MockPodFacade) GetRunningPodsByNamePrefix(ctx context.Context, namespace, namePrefix string) ([]*dbmodel.GpuPods, error) {
+	return nil, nil
+}
+func (m *MockPodFacade) GetRunningPodsByOwnerUID(ctx context.Context, ownerUID string) ([]*dbmodel.GpuPods, error) {
+	return nil, nil
+}
+func (m *MockPodFacade) ListPodsActiveInTimeRange(ctx context.Context, startTime, endTime time.Time) ([]*dbmodel.GpuPods, error) {
+	return nil, nil
+}
+func (m *MockPodFacade) ListRunningGpuPods(ctx context.Context) ([]*dbmodel.GpuPods, error) {
+	return nil, nil
+}
 func (m *MockPodFacade) GetActiveGpuPodByNodeName(ctx context.Context, nodeName string) ([]*dbmodel.GpuPods, error) {
 	return nil, nil
 }
@@ -264,6 +306,9 @@ func (m *MockPodFacade) UpdatePodSnapshot(ctx context.Context, podSnapshot *dbmo
 }
 func (m *MockPodFacade) GetLastPodSnapshot(ctx context.Context, podUid string, resourceVersion int) (*dbmodel.PodSnapshot, error) {
 	return nil, nil
+}
+func (m *MockPodFacade) UpsertLatestPodSnapshot(ctx context.Context, snapshot *dbmodel.PodSnapshot) error {
+	return nil
 }
 func (m *MockPodFacade) GetPodResourceByUid(ctx context.Context, uid string) (*dbmodel.PodResource, error) {
 	return nil, nil

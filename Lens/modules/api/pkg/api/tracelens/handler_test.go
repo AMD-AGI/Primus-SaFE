@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database/model"
+	cpmodel "github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/controlplane/database/model"
 	tlconst "github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/tracelens"
 	"github.com/stretchr/testify/assert"
 )
@@ -78,15 +78,16 @@ func TestToSessionResponse(t *testing.T) {
 
 	tests := []struct {
 		name     string
-		session  *model.TracelensSessions
+		session  *cpmodel.TracelensSessions
 		checkUI  bool
 		checkEst bool
 	}{
 		{
 			name: "ready session with all fields",
-			session: &model.TracelensSessions{
+			session: &cpmodel.TracelensSessions{
 				ID:              1,
 				SessionID:       "tls-test-123",
+				ClusterName:     "test-cluster",
 				WorkloadUID:     "workload-456",
 				ProfilerFileID:  789,
 				Status:          tlconst.StatusReady,
@@ -104,9 +105,10 @@ func TestToSessionResponse(t *testing.T) {
 		},
 		{
 			name: "pending session",
-			session: &model.TracelensSessions{
+			session: &cpmodel.TracelensSessions{
 				ID:              2,
 				SessionID:       "tls-pending-456",
+				ClusterName:     "test-cluster",
 				WorkloadUID:     "workload-789",
 				ProfilerFileID:  123,
 				Status:          tlconst.StatusPending,
@@ -119,9 +121,10 @@ func TestToSessionResponse(t *testing.T) {
 		},
 		{
 			name: "creating session",
-			session: &model.TracelensSessions{
+			session: &cpmodel.TracelensSessions{
 				ID:              3,
 				SessionID:       "tls-creating-789",
+				ClusterName:     "test-cluster",
 				WorkloadUID:     "workload-abc",
 				ProfilerFileID:  456,
 				Status:          tlconst.StatusCreating,
@@ -134,9 +137,10 @@ func TestToSessionResponse(t *testing.T) {
 		},
 		{
 			name: "failed session",
-			session: &model.TracelensSessions{
+			session: &cpmodel.TracelensSessions{
 				ID:              4,
 				SessionID:       "tls-failed-000",
+				ClusterName:     "test-cluster",
 				WorkloadUID:     "workload-xyz",
 				ProfilerFileID:  999,
 				Status:          tlconst.StatusFailed,
@@ -199,9 +203,10 @@ func TestToSessionResponse(t *testing.T) {
 }
 
 func TestToSessionResponseUIPath(t *testing.T) {
-	session := &model.TracelensSessions{
-		SessionID: "tls-session-abc",
-		Status:    tlconst.StatusReady,
+	session := &cpmodel.TracelensSessions{
+		SessionID:   "tls-session-abc",
+		ClusterName: "test-cluster",
+		Status:      tlconst.StatusReady,
 	}
 
 	resp := toSessionResponse(session)
@@ -211,9 +216,10 @@ func TestToSessionResponseUIPath(t *testing.T) {
 }
 
 func TestToSessionResponseZeroReadyAt(t *testing.T) {
-	session := &model.TracelensSessions{
-		SessionID: "tls-test",
-		Status:    tlconst.StatusPending,
+	session := &cpmodel.TracelensSessions{
+		SessionID:   "tls-test",
+		ClusterName: "test-cluster",
+		Status:      tlconst.StatusPending,
 		// ReadyAt is zero value
 	}
 
@@ -223,9 +229,10 @@ func TestToSessionResponseZeroReadyAt(t *testing.T) {
 }
 
 func TestToSessionResponseZeroLastAccessed(t *testing.T) {
-	session := &model.TracelensSessions{
-		SessionID: "tls-test",
-		Status:    tlconst.StatusReady,
+	session := &cpmodel.TracelensSessions{
+		SessionID:   "tls-test",
+		ClusterName: "test-cluster",
+		Status:      tlconst.StatusReady,
 		// LastAccessedAt is zero value
 	}
 
@@ -431,9 +438,10 @@ func TestSessionStatusTransitions(t *testing.T) {
 func TestListSessionsResponse(t *testing.T) {
 	now := time.Now()
 
-	sessions := []*model.TracelensSessions{
+	sessions := []*cpmodel.TracelensSessions{
 		{
 			SessionID:      "tls-1",
+			ClusterName:    "test-cluster",
 			WorkloadUID:    "workload-1",
 			ProfilerFileID: 1,
 			Status:         tlconst.StatusReady,
@@ -442,6 +450,7 @@ func TestListSessionsResponse(t *testing.T) {
 		},
 		{
 			SessionID:      "tls-2",
+			ClusterName:    "test-cluster",
 			WorkloadUID:    "workload-2",
 			ProfilerFileID: 2,
 			Status:         tlconst.StatusPending,
