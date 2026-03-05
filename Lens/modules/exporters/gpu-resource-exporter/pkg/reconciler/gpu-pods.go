@@ -117,6 +117,7 @@ func (g *GpuPodsReconciler) tracePodOwners(ctx context.Context, pod *corev1.Pod)
 	if len(pod.OwnerReferences) == 0 {
 		return nil
 	}
+	tracedUIDs := map[string]struct{}{}
 	ownerReference = &pod.OwnerReferences[0]
 	for {
 		log.Infof("tracePodOwners: namespace: %s, ownerReference: %v", namespace, *ownerReference)
@@ -135,7 +136,9 @@ func (g *GpuPodsReconciler) tracePodOwners(ctx context.Context, pod *corev1.Pod)
 		if err != nil {
 			resourceVersion = 0
 		}
-		_ = g.saveWorkloadPodReference(ctx, string(ownerObj.GetUID()), string(pod.UID))
+		ownerUID := string(ownerObj.GetUID())
+		tracedUIDs[ownerUID] = struct{}{}
+		_ = g.saveWorkloadPodReference(ctx, ownerUID, string(pod.UID))
 
 		// Write workload snapshot to OpenSearch (replaces PG gpu_workload_snapshot INSERT)
 		now := time.Now()
@@ -164,7 +167,53 @@ func (g *GpuPodsReconciler) tracePodOwners(ctx context.Context, pod *corev1.Pod)
 		_ = g.addListener(ctx, ownerObj)
 		ownerReference = &ownerObj.GetOwnerReferences()[0]
 	}
+
+	g.propagateRefsToAncestors(ctx, string(pod.UID), tracedUIDs)
+
 	return nil
+}
+
+// propagateRefsToAncestors walks up the parent_uid chain in gpu_workload
+// for every workload discovered via the ownerReference chain, and creates
+// workload_pod_reference entries for all ancestor workloads.
+// This complements the top-down copy done by primus-safe-adapter's
+// copyChildPodReferencesToParent, so that regardless of reconciliation
+// ordering, the pod reference eventually reaches every ancestor.
+func (g *GpuPodsReconciler) propagateRefsToAncestors(ctx context.Context, podUID string, tracedUIDs map[string]struct{}) {
+	visited := make(map[string]struct{}, len(tracedUIDs))
+	for uid := range tracedUIDs {
+		visited[uid] = struct{}{}
+	}
+
+	queue := make([]string, 0, len(tracedUIDs))
+	for uid := range tracedUIDs {
+		queue = append(queue, uid)
+	}
+
+	const maxDepth = 10
+	steps := 0
+	for len(queue) > 0 && steps < maxDepth {
+		current := queue[0]
+		queue = queue[1:]
+		steps++
+
+		wl, err := database.GetFacade().GetWorkload().GetGpuWorkloadByUid(ctx, current)
+		if err != nil || wl == nil || wl.ParentUID == "" {
+			continue
+		}
+
+		if _, seen := visited[wl.ParentUID]; seen {
+			continue
+		}
+		visited[wl.ParentUID] = struct{}{}
+
+		if err := g.saveWorkloadPodReference(ctx, wl.ParentUID, podUID); err != nil {
+			log.Warnf("propagateRefsToAncestors: failed to save reference workload=%s pod=%s: %v", wl.ParentUID, podUID, err)
+			continue
+		}
+		log.Debugf("propagateRefsToAncestors: linked pod %s to ancestor workload %s (parent of %s)", podUID, wl.ParentUID, current)
+		queue = append(queue, wl.ParentUID)
+	}
 }
 
 func (g *GpuPodsReconciler) saveWorkloadPodReference(ctx context.Context, workloadUid, podUid string) error {
