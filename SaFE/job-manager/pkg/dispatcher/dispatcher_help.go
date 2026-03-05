@@ -661,6 +661,24 @@ func buildResources(resourceList corev1.ResourceList) map[string]interface{} {
 // buildEnvironment creates environment variables for the workload container.
 func buildEnvironment(workload *v1.Workload, resourceId int) []interface{} {
 	var result []interface{}
+	if workload.GetEnv("AINIC_DRIVER_VERSION") != "" {
+		result = addEnvVar(result, workload, "NCCL_IB_GID_INDEX", "1")
+		result = addEnvVar(result, workload, "NCCL_IB_TC", "104")
+		result = addEnvVar(result, workload, "NCCL_IB_FIFO_TC", "192")
+		result = addEnvVar(result, workload, "NCCL_DMABUF_ENABLE", "0")
+		result = addEnvVar(result, workload, "NCCL_MAX_P2P_CHANNELS", "56")
+		result = addEnvVar(result, workload, "NET_OPTIONAL_RECV_COMPLETION", "1")
+		result = addEnvVar(result, workload, "NCCL_IB_USE_INLINE", "1")
+		result = addEnvVar(result, workload, "RCCL_GDR_FLUSH_GPU_MEM_NO_RELAXED_ORDERING", "0")
+		result = addEnvVar(result, workload, "NCCL_GDR_FLUSH_DISABLE", "1")
+		result = addEnvVar(result, workload, "NCCL_DMABUF_ENABLE", "0")
+		result = addEnvVar(result, workload, "NCCL_IGNORE_CPU_AFFINITY", "1")
+		result = addEnvVar(result, workload, "LD_LIBRARY_PATH", "/opt/amd-anp/build:/opt/rccl/build/release:/opt/rocm/lib")
+	} else {
+		result = addEnvVar(result, workload, "NCCL_IB_GID_INDEX", "3")
+		result = addEnvVar(result, workload, "NCCL_IB_TC", "41")
+	}
+
 	if workload.Spec.IsSupervised {
 		result = addEnvVar(result, workload, "ENABLE_SUPERVISE", v1.TrueStr)
 		if commonconfig.GetWorkloadHangCheckInterval() > 0 {

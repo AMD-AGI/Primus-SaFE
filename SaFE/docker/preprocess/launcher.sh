@@ -18,43 +18,15 @@ export AINIC_DRIVER_VERSION=${AINIC_DRIVER_VERSION}
 export BNXT_DRIVER_VERSION=${BNXT_DRIVER_VERSION}
 export PATH_TO_BNXT_TAR_PACKAGE=${PATH_TO_BNXT_TAR_PACKAGE}
 
-# Build AINIC driver and set NCCL env if successful
-/bin/sh /shared-data/build_ainic.sh
-ainic_exit_code=$?
-echo "INFO: AINIC driver version ${AINIC_DRIVER_VERSION}, build exit code ${ainic_exit_code}"
-if [ -n "${AINIC_DRIVER_VERSION}" ] && [ ${ainic_exit_code} -eq 0 ]; then
+# Build AINIC driver
+if [ -n "${AINIC_DRIVER_VERSION}" ]; then
+  /bin/sh /shared-data/build_ainic.sh
+  if [ $? -ne 0 ]; then
+    echo "ERROR: Failed to build AINIC with driver version ${AINIC_DRIVER_VERSION}. Please check input or remove installation"
+    exit 1
+  fi
   export USING_AINIC=1
   echo "INFO: AINIC support enabled (USING_AINIC=1)"
-fi
-
-# Export variable with default if not set
-# Usage: export_var_default VAR_NAME DEFAULT_VALUE
-export_var_default() {
-  var_name="$1"
-  default_val="$2"
-  eval "current_val=\${$var_name}"
-  if [ -z "$current_val" ]; then
-    eval "export $var_name=$default_val"
-    echo "INFO: $var_name default value: $default_val"
-  fi
-}
-
-if [ "${USING_AINIC}" = "1" ]; then
-  export_var_default NCCL_IB_TC 104
-  export_var_default NCCL_IB_FIFO_TC 192
-  export_var_default NCCL_IB_GID_INDEX 1
-  export_var_default NCCL_DMABUF_ENABLE 0
-  export_var_default NCCL_MAX_P2P_CHANNELS 56
-  export_var_default NET_OPTIONAL_RECV_COMPLETION 1
-  export_var_default NCCL_IB_USE_INLINE 1
-  export_var_default RCCL_GDR_FLUSH_GPU_MEM_NO_RELAXED_ORDERING 0
-  export_var_default NCCL_GDR_FLUSH_DISABLE 1
-  export_var_default NCCL_DMABUF_ENABLE 0
-  export_var_default NCCL_IGNORE_CPU_AFFINITY 1
-  export LD_LIBRARY_PATH="/opt/amd-anp/build:/opt/rccl/build/release:/opt/rocm/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
-  echo "INFO: LD_LIBRARY_PATH=${LD_LIBRARY_PATH}"
-else
-  export_var_default NCCL_IB_GID_INDEX 3
 fi
 
 /bin/sh /shared-data/build_bnxt.sh
