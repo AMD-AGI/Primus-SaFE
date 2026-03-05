@@ -118,32 +118,44 @@ func (r *OpsJobBaseReconciler) setJobCompleted(ctx context.Context,
 	if job.Status.Phase == phase {
 		return nil
 	}
-	job.Status.FinishedAt = &metav1.Time{Time: time.Now().UTC()}
-	if job.Status.StartedAt == nil {
-		job.Status.StartedAt = job.Status.FinishedAt
-	}
-	job.Status.Phase = phase
-	job.Status.Outputs = outputs
 
-	condition := metav1.Condition{
-		Type:    JobCompletedType,
-		Message: message,
-	}
-	if phase == v1.OpsJobFailed {
-		condition.Reason = "JobFailed"
-		condition.Status = metav1.ConditionFalse
-	} else {
-		condition.Reason = "JobSucceeded"
-		condition.Status = metav1.ConditionTrue
-	}
-	meta.SetStatusCondition(&job.Status.Conditions, condition)
+	return backoff.Retry(func() error {
+		latest := &v1.OpsJob{}
+		if err := r.Get(ctx, client.ObjectKeyFromObject(job), latest); err != nil {
+			return err
+		}
+		if latest.Status.Phase == phase {
+			return nil
+		}
 
-	if err := r.Status().Update(ctx, job); err != nil {
-		klog.ErrorS(err, "failed to patch job status", "name", job.Name)
-		return err
-	}
-	klog.Infof("The job is completed. name: %s, phase: %s, message: %s", job.Name, phase, message)
-	return nil
+		latest.Status.FinishedAt = &metav1.Time{Time: time.Now().UTC()}
+		if latest.Status.StartedAt == nil {
+			latest.Status.StartedAt = latest.Status.FinishedAt
+		}
+		latest.Status.Phase = phase
+		latest.Status.Outputs = outputs
+
+		condition := metav1.Condition{
+			Type:    JobCompletedType,
+			Message: message,
+		}
+		if phase == v1.OpsJobFailed {
+			condition.Reason = "JobFailed"
+			condition.Status = metav1.ConditionFalse
+		} else {
+			condition.Reason = "JobSucceeded"
+			condition.Status = metav1.ConditionTrue
+		}
+		meta.SetStatusCondition(&latest.Status.Conditions, condition)
+
+		if err := r.Status().Update(ctx, latest); err != nil {
+			klog.ErrorS(err, "failed to patch job status", "name", latest.Name)
+			return err
+		}
+		klog.Infof("The job is completed. name: %s, phase: %s, message: %s", latest.Name, phase, message)
+		job.Status.Phase = phase
+		return nil
+	}, 5*time.Second, 500*time.Millisecond)
 }
 
 // setJobPhase updates the job phase and start time if not already set.
