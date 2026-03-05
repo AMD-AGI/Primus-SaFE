@@ -526,7 +526,7 @@ func (h *Handler) patchWorkload(c *gin.Context) (interface{}, error) {
 		klog.ErrorS(err, "failed to update workload", "name", adminWorkload.Name)
 		return nil, err
 	}
-	klog.Infof("update workload, name: %s, request: %s, requset.user: %s",
+	klog.Infof("update workload, name: %s, request: %s, request.user: %s",
 		name, string(jsonutils.MarshalSilently(*req)), c.GetString(common.UserId))
 	return nil, nil
 }
