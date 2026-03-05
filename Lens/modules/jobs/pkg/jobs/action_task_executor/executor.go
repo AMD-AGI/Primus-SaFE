@@ -34,9 +34,9 @@ const (
 // Parameters contains the action parameters, returns result data and error
 type ActionHandler func(ctx context.Context, task *model.ActionTasks, k8sClient *clientsets.K8SClientSet) (interface{}, error)
 
-// ActionTaskExecutor polls and executes action tasks from the database
+// ActionTaskExecutor polls and executes action tasks from the database.
+// Each data plane has its own dedicated database, so no cluster name filter is needed.
 type ActionTaskExecutor struct {
-	clusterName  string
 	pollInterval time.Duration
 	batchSize    int
 	handlers     map[string]ActionHandler
@@ -45,14 +45,10 @@ type ActionTaskExecutor struct {
 }
 
 // NewActionTaskExecutor creates a new ActionTaskExecutor
-func NewActionTaskExecutor(clusterName string) *ActionTaskExecutor {
-	// In data plane (jobs service), always use default facade since
-	// the database is local. The clusterName is only used to filter
-	// tasks from the action_tasks table, not for DB connection.
+func NewActionTaskExecutor() *ActionTaskExecutor {
 	facade := database.NewActionTaskFacade()
 
 	return &ActionTaskExecutor{
-		clusterName:  clusterName,
 		pollInterval: DefaultPollInterval,
 		batchSize:    DefaultBatchSize,
 		handlers:     make(map[string]ActionHandler),
@@ -101,8 +97,7 @@ func (e *ActionTaskExecutor) Run(
 ) (*common.ExecutionStats, error) {
 	stats := &common.ExecutionStats{}
 
-	// Fetch pending tasks for this cluster
-	tasks, err := e.facade.GetPendingTasks(ctx, e.clusterName, e.batchSize)
+	tasks, err := e.facade.GetPendingTasks(ctx, e.batchSize)
 	if err != nil {
 		log.Errorf("Failed to fetch pending action tasks: %v", err)
 		return stats, err
@@ -112,7 +107,7 @@ func (e *ActionTaskExecutor) Run(
 		return stats, nil
 	}
 
-	log.Debugf("Found %d pending action tasks for cluster %s", len(tasks), e.clusterName)
+	log.Debugf("Found %d pending action tasks", len(tasks))
 
 	var processedCount, failedCount int64
 
