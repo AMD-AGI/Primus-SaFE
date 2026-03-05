@@ -111,7 +111,7 @@ func handleCodeSnapshotGet(ctx context.Context, req *CodeSnapshotGetRequest) (*C
 			WithMessage("workload_uid is required")
 	}
 
-	clusterName, err := resolveWorkloadCluster(ctx, req.WorkloadUID, req.Cluster)
+	clusterName, err := ResolveWorkloadCluster(ctx, req.WorkloadUID, req.Cluster)
 	if err != nil {
 		return nil, err
 	}
@@ -139,7 +139,7 @@ func handleCodeSnapshotDiff(ctx context.Context, req *CodeSnapshotDiffRequest) (
 			WithMessage("both workload_uid_1 and workload_uid_2 are required")
 	}
 
-	clusterName, err := resolveWorkloadCluster(ctx, req.WorkloadUID1, req.Cluster)
+	clusterName, err := ResolveWorkloadCluster(ctx, req.WorkloadUID1, req.Cluster)
 	if err != nil {
 		return nil, err
 	}

@@ -313,6 +313,13 @@ func (cm *ClusterManager) GetClientSetByClusterName(clusterName string) (*Cluste
 			WithMessagef("DataPlane component can only access current cluster, requested: %s", clusterName)
 	}
 
+	// For control plane, check current cluster first before looking up remote clusters.
+	// This handles the case where the resolved cluster name matches the current cluster
+	// (e.g., when the current cluster also serves as a data plane).
+	if cm.currentCluster != nil && cm.currentCluster.ClusterName == clusterName {
+		return cm.currentCluster, nil
+	}
+
 	cm.mu.RLock()
 	defer cm.mu.RUnlock()
 

@@ -24,54 +24,15 @@ import (
 
 // ===== Helper Functions =====
 
-// resolveWorkloadCluster finds the cluster where a workload exists.
-// It searches in the following order:
-// 1. If cluster is explicitly specified, use it directly
-// 2. Try the default cluster first (most common case)
-// 3. Search all other clusters if not found in default
-// Returns the cluster name where the workload was found, or error if not found anywhere.
-func resolveWorkloadCluster(ctx context.Context, uid string, requestedCluster string) (string, error) {
-	cm := clientsets.GetClusterManager()
-
-	// 1. If cluster is explicitly specified, use it directly
-	if requestedCluster != "" {
-		return requestedCluster, nil
-	}
-
-	// 2. Try the default cluster first (most common case)
-	defaultCluster := cm.GetDefaultClusterName()
-	if defaultCluster != "" {
-		workload, err := database.GetFacadeForCluster(defaultCluster).GetWorkload().GetGpuWorkloadByUid(ctx, uid)
-		if err == nil && workload != nil {
-			log.Debugf("[resolveWorkloadCluster] Workload %s found in default cluster %s", uid, defaultCluster)
-			return defaultCluster, nil
-		}
-	}
-
-	// 3. Search all other clusters if not found in default
-	allClients := cm.ListAllClientSets()
-	for clusterName := range allClients {
-		if clusterName == defaultCluster {
-			continue // Already checked
-		}
-		workload, err := database.GetFacadeForCluster(clusterName).GetWorkload().GetGpuWorkloadByUid(ctx, uid)
-		if err == nil && workload != nil {
-			log.Infof("[resolveWorkloadCluster] Workload %s found in cluster %s (not in default cluster %s)",
-				uid, clusterName, defaultCluster)
-			return clusterName, nil
-		}
-	}
-
-	// Not found in any cluster
-	return "", errors.NewError().
-		WithCode(errors.RequestDataNotExisted).
-		WithMessagef("workload %s not found in any cluster", uid)
+// ResolveWorkloadCluster delegates to workload.ResolveWorkloadCluster in core module.
+func ResolveWorkloadCluster(ctx context.Context, uid string, requestedCluster string) (string, error) {
+	return workload.ResolveWorkloadCluster(ctx, uid, requestedCluster)
 }
 
 // getClusterClientsForWorkload resolves the cluster and returns the client set.
-// This is a convenience wrapper that combines resolveWorkloadCluster and GetClientSetByClusterName.
+// This is a convenience wrapper that combines ResolveWorkloadCluster and GetClientSetByClusterName.
 func getClusterClientsForWorkload(ctx context.Context, uid string, requestedCluster string) (*clientsets.ClusterClientSet, error) {
-	clusterName, err := resolveWorkloadCluster(ctx, uid, requestedCluster)
+	clusterName, err := ResolveWorkloadCluster(ctx, uid, requestedCluster)
 	if err != nil {
 		return nil, err
 	}
