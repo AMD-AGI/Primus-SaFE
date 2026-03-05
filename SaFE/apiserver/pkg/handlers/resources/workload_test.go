@@ -1895,7 +1895,7 @@ func Test_buildSSHCommand(t *testing.T) {
 				Phase: corev1.PodRunning,
 			},
 			gvk:            v1.GroupVersionKind{Group: "kubeflow.org", Version: "v1", Kind: "PyTorchJob"},
-			expectedResult: "ssh -o ServerAliveInterval=60 test-user.workload-abc123-master-0.pytorch.sh.test-workspace@ssh.example.com -p 2222",
+			expectedResult: "ssh -o ServerAliveInterval=60 test-user.workload-abc123-master-0.pytorch.bash.test-workspace@ssh.example.com -p 2222",
 		},
 	}
 
