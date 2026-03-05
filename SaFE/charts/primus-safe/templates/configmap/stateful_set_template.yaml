@@ -56,9 +56,9 @@ data:
                - name: NCCL_IB_RETRY_CNT
                  value: "11"
                - name: NCCL_IB_QPS_PER_CONNECTION
-                 value: "4"
+                 value: "1"
                - name: NCCL_IB_TC
-                 value: "104"
+                 value: "41"
                - name: NCCL_CROSS_NIC
                  value: "0"
                - name: NCCL_CHECKS_DISABLE

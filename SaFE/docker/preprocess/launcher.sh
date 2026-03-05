@@ -40,8 +40,9 @@ export_var_default() {
 }
 
 if [ "${USING_AINIC}" = "1" ]; then
+  export_var_default NCCL_IB_TC 104
+  export_var_default NCCL_IB_FIFO_TC 192
   export_var_default NCCL_IB_GID_INDEX 1
-  export_var_default NCCL_GDR_FLUSH_DISABLE 1
   export_var_default NCCL_DMABUF_ENABLE 0
   export_var_default NCCL_MAX_P2P_CHANNELS 56
   export_var_default NET_OPTIONAL_RECV_COMPLETION 1
