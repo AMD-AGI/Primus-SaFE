@@ -241,7 +241,7 @@ else
   fi
 fi
 
-# Create symlink librccl-anp.so -> librccl-net.so if needed (RCCL looks for librccl-anp.so)
+# Create symlink librccl-anp.so <-> librccl-net.so if needed (RCCL looks for librccl-anp.so)
 ANP_BUILD_DIR="${WORKDIR}/${ANP_DIR}/build"
 cd ${ANP_BUILD_DIR}
 if [ -f "librccl-anp.so" ] && [ ! -f "librccl-net.so" ]; then
@@ -250,4 +250,9 @@ if [ -f "librccl-anp.so" ] && [ ! -f "librccl-net.so" ]; then
 elif [ -f "librccl-net.so" ] && [ ! -f "librccl-anp.so" ]; then
   echo "Creating symlink: librccl-anp.so -> librccl-net.so"
   ln -sf librccl-net.so librccl-anp.so
+fi
+# Create symlink libnccl-net.so -> librccl-net.so for NCCL-compatible plugin lookup
+if [ -f "librccl-net.so" ] && [ ! -f "libnccl-net.so" ]; then
+  echo "Creating symlink: libnccl-net.so -> librccl-net.so"
+  ln -sf librccl-net.so libnccl-net.so
 fi
