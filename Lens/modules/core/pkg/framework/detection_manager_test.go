@@ -12,13 +12,14 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database/model"
 	coreModel "github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/model"
 )
 
-func setupTestManager(t *testing.T) (*FrameworkDetectionManager, *MockAiWorkloadMetadataFacade, *MockWorkloadFacade) {
+func setupTestManager(t *testing.T) (*FrameworkDetectionManager, *MockAiWorkloadMetadataFacade, *database.MockWorkloadFacade) {
 	mockMetadataFacade := new(MockAiWorkloadMetadataFacade)
-	mockWorkloadFacade := new(MockWorkloadFacade)
+	mockWorkloadFacade := database.NewMockWorkloadFacade()
 	config := DefaultDetectionConfig()
 	config.EnableCache = false // Disable cache for testing
 
@@ -67,11 +68,9 @@ func TestScenario1_LogFirst_ThenComponent(t *testing.T) {
 	workloadUID := "test-workload-1"
 
 	// Setup: Mock workload hierarchy (no parent)
-	mockWorkloadFacade.On("GetGpuWorkloadByUid", ctx, workloadUID).
-		Return(&model.GpuWorkload{
-			UID:       workloadUID,
-			ParentUID: "", // No parent, this is root
-		}, nil)
+	mockWorkloadFacade.GetGpuWorkloadByUidFunc = func(ctx context.Context, uid string) (*model.GpuWorkload, error) {
+		return &model.GpuWorkload{UID: workloadUID, ParentUID: ""}, nil
+	}
 
 	// Setup: No existing metadata
 	// First call: loadDetection
@@ -92,7 +91,6 @@ func TestScenario1_LogFirst_ThenComponent(t *testing.T) {
 
 	// Verify first report
 	mockMetadataFacade.AssertExpectations(t)
-	mockWorkloadFacade.AssertExpectations(t)
 
 	// Setup for second report: return existing metadata with V2 format
 	sources := []map[string]interface{}{
@@ -114,12 +112,7 @@ func TestScenario1_LogFirst_ThenComponent(t *testing.T) {
 		},
 	}
 
-	// Mock workload hierarchy again for second call
-	mockWorkloadFacade.On("GetGpuWorkloadByUid", ctx, workloadUID).
-		Return(&model.GpuWorkload{
-			UID:       workloadUID,
-			ParentUID: "", // No parent, this is root
-		}, nil)
+	// Mock workload hierarchy again for second call (callback already set above)
 
 	// First call: loadDetection
 	mockMetadataFacade.On("GetAiWorkloadMetadata", ctx, workloadUID).
@@ -138,7 +131,6 @@ func TestScenario1_LogFirst_ThenComponent(t *testing.T) {
 	require.NoError(t, err)
 
 	mockMetadataFacade.AssertExpectations(t)
-	mockWorkloadFacade.AssertExpectations(t)
 }
 
 // TestScenario2_ConflictResolution tests conflict resolution by priority
@@ -148,11 +140,9 @@ func TestScenario2_ConflictResolution(t *testing.T) {
 	workloadUID := "test-workload-2"
 
 	// Setup: Mock workload hierarchy (no parent)
-	mockWorkloadFacade.On("GetGpuWorkloadByUid", ctx, workloadUID).
-		Return(&model.GpuWorkload{
-			UID:       workloadUID,
-			ParentUID: "",
-		}, nil)
+	mockWorkloadFacade.GetGpuWorkloadByUidFunc = func(ctx context.Context, uid string) (*model.GpuWorkload, error) {
+		return &model.GpuWorkload{UID: workloadUID, ParentUID: ""}, nil
+	}
 
 	// Setup: No existing metadata (return nil, nil means not found)
 	// First call: loadDetection
@@ -189,13 +179,6 @@ func TestScenario2_ConflictResolution(t *testing.T) {
 		},
 	}
 
-	// Mock workload hierarchy for second call
-	mockWorkloadFacade.On("GetGpuWorkloadByUid", ctx, workloadUID).
-		Return(&model.GpuWorkload{
-			UID:       workloadUID,
-			ParentUID: "",
-		}, nil)
-
 	// First call: loadDetection
 	mockMetadataFacade.On("GetAiWorkloadMetadata", ctx, workloadUID).
 		Return(existingMetadata, nil).Once()
@@ -211,7 +194,6 @@ func TestScenario2_ConflictResolution(t *testing.T) {
 	require.NoError(t, err)
 
 	mockMetadataFacade.AssertExpectations(t)
-	mockWorkloadFacade.AssertExpectations(t)
 }
 
 // TestScenario3_ReuseWithVerification tests reuse followed by verification
@@ -221,11 +203,9 @@ func TestScenario3_ReuseWithVerification(t *testing.T) {
 	workloadUID := "test-workload-3"
 
 	// Setup: Mock workload hierarchy (no parent)
-	mockWorkloadFacade.On("GetGpuWorkloadByUid", ctx, workloadUID).
-		Return(&model.GpuWorkload{
-			UID:       workloadUID,
-			ParentUID: "",
-		}, nil)
+	mockWorkloadFacade.GetGpuWorkloadByUidFunc = func(ctx context.Context, uid string) (*model.GpuWorkload, error) {
+		return &model.GpuWorkload{UID: workloadUID, ParentUID: ""}, nil
+	}
 
 	// Setup: No existing metadata (return nil, nil means not found)
 	// First call: loadDetection
@@ -264,13 +244,6 @@ func TestScenario3_ReuseWithVerification(t *testing.T) {
 		},
 	}
 
-	// Mock workload hierarchy for second call
-	mockWorkloadFacade.On("GetGpuWorkloadByUid", ctx, workloadUID).
-		Return(&model.GpuWorkload{
-			UID:       workloadUID,
-			ParentUID: "",
-		}, nil)
-
 	// First call: loadDetection
 	mockMetadataFacade.On("GetAiWorkloadMetadata", ctx, workloadUID).
 		Return(existingMetadata, nil).Once()
@@ -286,7 +259,6 @@ func TestScenario3_ReuseWithVerification(t *testing.T) {
 	require.NoError(t, err)
 
 	mockMetadataFacade.AssertExpectations(t)
-	mockWorkloadFacade.AssertExpectations(t)
 }
 
 // TestScenario4_UserOverride tests user manual correction
@@ -296,11 +268,9 @@ func TestScenario4_UserOverride(t *testing.T) {
 	workloadUID := "test-workload-4"
 
 	// Setup: Mock workload hierarchy (no parent)
-	mockWorkloadFacade.On("GetGpuWorkloadByUid", ctx, workloadUID).
-		Return(&model.GpuWorkload{
-			UID:       workloadUID,
-			ParentUID: "",
-		}, nil)
+	mockWorkloadFacade.GetGpuWorkloadByUidFunc = func(ctx context.Context, uid string) (*model.GpuWorkload, error) {
+		return &model.GpuWorkload{UID: workloadUID, ParentUID: ""}, nil
+	}
 
 	// Setup: No existing metadata (return nil, nil means not found)
 	// First call: loadDetection
@@ -337,13 +307,6 @@ func TestScenario4_UserOverride(t *testing.T) {
 		},
 	}
 
-	// Mock workload hierarchy for second call
-	mockWorkloadFacade.On("GetGpuWorkloadByUid", ctx, workloadUID).
-		Return(&model.GpuWorkload{
-			UID:       workloadUID,
-			ParentUID: "",
-		}, nil)
-
 	// First call: loadDetection
 	mockMetadataFacade.On("GetAiWorkloadMetadata", ctx, workloadUID).
 		Return(existingMetadata, nil).Once()
@@ -361,7 +324,6 @@ func TestScenario4_UserOverride(t *testing.T) {
 	require.NoError(t, err)
 
 	mockMetadataFacade.AssertExpectations(t)
-	mockWorkloadFacade.AssertExpectations(t)
 }
 
 // TestValidateInput tests input validation
