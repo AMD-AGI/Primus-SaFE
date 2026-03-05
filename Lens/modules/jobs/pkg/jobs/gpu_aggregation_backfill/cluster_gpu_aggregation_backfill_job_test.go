@@ -89,7 +89,28 @@ func (m *MockBackfillFacade) GetGithubWorkflowCommit() database.GithubWorkflowCo
 func (m *MockBackfillFacade) GetGithubWorkflowRunDetails() database.GithubWorkflowRunDetailsFacadeInterface {
 	return nil
 }
+func (m *MockBackfillFacade) GetGithubWorkflowRunSummary() *database.GithubWorkflowRunSummaryFacade {
+	return nil
+}
 func (m *MockBackfillFacade) GetDashboardSummary() database.DashboardSummaryFacadeInterface {
+	return nil
+}
+func (m *MockBackfillFacade) GetPodRunningPeriods() database.PodRunningPeriodsFacadeInterface {
+	return nil
+}
+func (m *MockBackfillFacade) GetWorkloadCodeSnapshot() database.WorkloadCodeSnapshotFacadeInterface {
+	return nil
+}
+func (m *MockBackfillFacade) GetImageRegistryCache() database.ImageRegistryCacheFacadeInterface {
+	return nil
+}
+func (m *MockBackfillFacade) GetIntentRule() database.IntentRuleFacadeInterface {
+	return nil
+}
+func (m *MockBackfillFacade) GetWorkloadResource() database.WorkloadResourceFacadeInterface {
+	return nil
+}
+func (m *MockBackfillFacade) GetProfilerFile() database.ProfilerFileFacadeInterface {
 	return nil
 }
 func (m *MockBackfillFacade) GetMetricBaseline() database.MetricBaselineFacadeInterface {

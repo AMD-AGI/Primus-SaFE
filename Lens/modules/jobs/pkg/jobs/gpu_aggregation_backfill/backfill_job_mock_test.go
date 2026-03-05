@@ -78,6 +78,9 @@ func (m *BackfillMockFacade) GetGithubWorkflowCommit() database.GithubWorkflowCo
 func (m *BackfillMockFacade) GetGithubWorkflowRunDetails() database.GithubWorkflowRunDetailsFacadeInterface {
 	return nil
 }
+func (m *BackfillMockFacade) GetGithubWorkflowRunSummary() *database.GithubWorkflowRunSummaryFacade {
+	return nil
+}
 func (m *BackfillMockFacade) GetDashboardSummary() database.DashboardSummaryFacadeInterface {
 	return nil
 }
@@ -88,6 +91,24 @@ func (m *BackfillMockFacade) GetCommitImpactAnalysis() database.CommitImpactAnal
 	return nil
 }
 func (m *BackfillMockFacade) GetNotificationChannel() database.NotificationChannelFacadeInterface {
+	return nil
+}
+func (m *BackfillMockFacade) GetPodRunningPeriods() database.PodRunningPeriodsFacadeInterface {
+	return nil
+}
+func (m *BackfillMockFacade) GetWorkloadCodeSnapshot() database.WorkloadCodeSnapshotFacadeInterface {
+	return nil
+}
+func (m *BackfillMockFacade) GetImageRegistryCache() database.ImageRegistryCacheFacadeInterface {
+	return nil
+}
+func (m *BackfillMockFacade) GetIntentRule() database.IntentRuleFacadeInterface {
+	return nil
+}
+func (m *BackfillMockFacade) GetWorkloadResource() database.WorkloadResourceFacadeInterface {
+	return nil
+}
+func (m *BackfillMockFacade) GetProfilerFile() database.ProfilerFileFacadeInterface {
 	return nil
 }
 func (m *BackfillMockFacade) WithCluster(clusterName string) database.FacadeInterface { return m }
