@@ -691,9 +691,6 @@ func buildEnvironment(workload *v1.Workload, resourceId int) []interface{} {
 	result = addEnvVar(result, workload, "WORKLOAD_ID", getRootWorkloadId(workload))
 	result = addEnvVar(result, workload, "WORKLOAD_KIND", workload.SpecKind())
 	result = addEnvVar(result, workload, "DISPATCH_COUNT", strconv.Itoa(v1.GetWorkloadDispatchCnt(workload)+1))
-	if workload.Spec.SSHPort > 0 {
-		result = addEnvVar(result, workload, "SSH_PORT", strconv.Itoa(workload.Spec.SSHPort))
-	}
 	if commonworkload.IsAuthoring(workload) {
 		result = addEnvVar(result, workload, jobutils.AdminControlPlaneEnv, v1.GetAdminControlPlane(workload))
 	}
@@ -723,12 +720,7 @@ func buildPorts(workload *v1.Workload) []interface{} {
 		kind == common.UnifiedJobKind || kind == common.TorchFTKind {
 		jobPort["name"] = common.PytorchJobPortName
 	}
-	sshPort := map[string]interface{}{
-		"containerPort": int64(workload.Spec.SSHPort),
-		"protocol":      "TCP",
-		"name":          common.SSHPortName,
-	}
-	return []interface{}{jobPort, sshPort}
+	return []interface{}{jobPort}
 }
 
 // buildHealthCheck creates a health check probe configuration.

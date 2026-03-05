@@ -976,7 +976,6 @@ var (
 			MaxRetry:  2,
 			Priority:  2,
 			JobPort:   12345,
-			SSHPort:   23456,
 			GroupVersionKind: v1.GroupVersionKind{
 				Version: "v1",
 				Kind:    "PyTorchJob",

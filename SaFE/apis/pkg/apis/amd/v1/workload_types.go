@@ -132,10 +132,8 @@ type WorkloadSpec struct {
 	// Workload startup command, required in base64 encoding
 	// It must match the length of resources.
 	EntryPoints []string `json:"entryPoints,omitempty"`
-	// The port for pytorch-job, This field is set internally
+	// The container port for workload, This field is set internally
 	JobPort int `json:"jobPort,omitempty"`
-	// The port for ssh, This field is set internally
-	SSHPort int `json:"sshPort,omitempty"`
 	// Environment variable for workload
 	Env map[string]string `json:"env,omitempty"`
 	// Supervision flag for the workload. When enabled, it performs operations like hang detection
@@ -432,6 +430,16 @@ func (w *Workload) GetEnv(name string) string {
 		}
 	}
 	return ""
+}
+
+// EnableHostNetwork checks if the workload uses hostNetwork.
+func (w *Workload) EnableHostNetwork() bool {
+	for _, res := range w.Spec.Resources {
+		if res.RdmaResource != "" {
+			return true
+		}
+	}
+	return false
 }
 
 // IsWorkloadPhaseEnded checks if the given workload phase indicates the workload has ended.

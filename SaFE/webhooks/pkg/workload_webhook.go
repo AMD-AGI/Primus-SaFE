@@ -693,7 +693,7 @@ func (v *WorkloadValidator) validateCommon(ctx context.Context, newWorkload, old
 	if err = v.validateWorkspace(ctx, newWorkload); err != nil {
 		return err
 	}
-	if err = v.validateService(newWorkload); err != nil {
+	if err = v.validateService(ctx, newWorkload); err != nil {
 		return err
 	}
 	if err = v.validateHealthCheck(newWorkload); err != nil {
@@ -867,7 +867,7 @@ func (v *WorkloadValidator) validateResource(resource *v1.WorkloadResource) erro
 }
 
 // validateService validates service ports, protocol and type configuration.
-func (v *WorkloadValidator) validateService(workload *v1.Workload) error {
+func (v *WorkloadValidator) validateService(ctx context.Context, workload *v1.Workload) error {
 	if workload.Spec.Service == nil {
 		return nil
 	}
@@ -880,6 +880,11 @@ func (v *WorkloadValidator) validateService(workload *v1.Workload) error {
 	if workload.Spec.Service.NodePort > 0 {
 		if err := validatePort("service/node", workload.Spec.Service.NodePort); err != nil {
 			return err
+		}
+		currentPorts := commonworkload.GetUsedHostPorts(ctx, v.Client, v1.GetClusterId(workload))
+		_, existed := currentPorts[workload.Spec.Service.NodePort]
+		if existed {
+			return fmt.Errorf("the nodePort %d is already used", workload.Spec.Service.NodePort)
 		}
 	}
 	if workload.Spec.Service.Protocol != corev1.ProtocolTCP && workload.Spec.Service.Protocol != corev1.ProtocolUDP {

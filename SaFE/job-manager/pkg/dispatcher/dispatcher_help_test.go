@@ -88,7 +88,6 @@ func checkPorts(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workl
 		portName = common.PytorchJobPortName
 	}
 	findPort(t, ports, portName, int64(workload.Spec.JobPort))
-	findPort(t, ports, common.SSHPortName, int64(workload.Spec.SSHPort))
 
 	if commonworkload.IsRayJob(workload) && id == 0 {
 		findPort(t, ports, "gcs-server", 6379)

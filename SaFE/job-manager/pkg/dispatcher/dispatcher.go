@@ -19,7 +19,6 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	apitypes "k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
@@ -150,7 +149,7 @@ func (r *DispatcherReconciler) Reconcile(ctx context.Context, req ctrlruntime.Re
 		return ctrlruntime.Result{}, nil
 	}
 	// To prevent port conflicts when retrying, the port must be regenerated each time
-	if err = r.generateUniquePorts(ctx, workload); err != nil {
+	if err = r.generateJobPort(ctx, workload); err != nil {
 		return ctrlruntime.Result{}, err
 	}
 
@@ -320,32 +319,27 @@ func (r *DispatcherReconciler) dispatch(ctx context.Context,
 	return r.createIngress(ctx, adminWorkload, clientSets, k8sObject)
 }
 
-// generateUniquePorts generates unique job and SSH ports for the workload to avoid conflicts.
-func (r *DispatcherReconciler) generateUniquePorts(ctx context.Context, workload *v1.Workload) error {
+// generateJobPort generates job port for the workload to avoid conflicts.
+func (r *DispatcherReconciler) generateJobPort(ctx context.Context, workload *v1.Workload) error {
 	if v1.IsWorkloadDispatched(workload) {
 		return nil
 	}
-	rand.Seed(time.Now().UnixNano())
-	ports := make(map[int]bool)
 
-	workloadList := &v1.WorkloadList{}
-	labelSelector := labels.SelectorFromSet(map[string]string{v1.ClusterIdLabel: v1.GetClusterId(workload)})
-	// Record currently in-use ports to avoid reuse
-	if r.List(ctx, workloadList, &client.ListOptions{LabelSelector: labelSelector}) == nil {
-		for _, item := range workloadList.Items {
-			ports[item.Spec.JobPort] = true
-			ports[item.Spec.SSHPort] = true
-		}
-	}
 	patch := client.MergeFrom(workload.DeepCopy())
 	if workload.Spec.Service != nil {
 		workload.Spec.JobPort = workload.Spec.Service.TargetPort
 	} else {
+		var ports map[int]struct{}
+		if !workload.EnableHostNetwork() {
+			ports = make(map[int]struct{})
+		} else {
+			// In hostNetwork mode, ensure port uniqueness to avoid conflicts with previous tasks that may not have successfully released the port.
+			ports = commonworkload.GetUsedHostPorts(ctx, r.Client, v1.GetClusterId(workload))
+		}
 		workload.Spec.JobPort = generateRandomPort(ports)
 	}
-	workload.Spec.SSHPort = generateRandomPort(ports)
-	if workload.Spec.JobPort == 0 || workload.Spec.SSHPort == 0 {
-		return commonerrors.NewInternalError("failed to generate job or SSH port")
+	if workload.Spec.JobPort == 0 {
+		return commonerrors.NewInternalError("failed to generate job port")
 	}
 	if err := r.Patch(ctx, workload, patch); err != nil {
 		return err
@@ -943,13 +937,14 @@ func (r *DispatcherReconciler) getWorkspace(ctx context.Context, adminWorkload *
 
 // generateRandomPort generates a random port number within the specified range.
 // with a maximum of 200 retry attempts to avoid infinite loops.
-func generateRandomPort(ports map[int]bool) int {
+func generateRandomPort(ports map[int]struct{}) int {
 	maxRetries := 200
+	rand.Seed(time.Now().UnixNano())
 	for i := 0; i < maxRetries; i++ {
 		port := rand.Intn(10000) + 20000
 		_, ok := ports[port]
 		if !ok {
-			ports[port] = true
+			ports[port] = struct{}{}
 			return port
 		}
 	}

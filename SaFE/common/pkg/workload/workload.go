@@ -504,3 +504,29 @@ func GetWorkloadMainContainer(ctx context.Context, cli client.Client, workload *
 	}
 	return true
 }
+
+// GetUsedHostPorts returns a set of all host ports currently in use by workloads in the specified cluster.
+// It collects: (1) JobPort and SSHPort from RDMA workloads (hostNetwork pods); (2) Service.NodePort. (3) GcsServer and Dashboard Port for RayJob.
+// The returned map acts as a set where keys are port numbers and values are empty structs.
+func GetUsedHostPorts(ctx context.Context, cli client.Client, clusterId string) map[int]struct{} {
+	ports := make(map[int]struct{})
+	workloadList := &v1.WorkloadList{}
+	labelSelector := labels.SelectorFromSet(map[string]string{v1.ClusterIdLabel: clusterId})
+	if cli.List(ctx, workloadList, &client.ListOptions{LabelSelector: labelSelector}) == nil {
+		for _, item := range workloadList.Items {
+			if item.EnableHostNetwork() {
+				if item.Spec.JobPort > 0 {
+					ports[item.Spec.JobPort] = struct{}{}
+				}
+				if IsRayJob(&item) {
+					ports[common.RayJobDashboard] = struct{}{}
+					ports[common.RayJobDashboard] = struct{}{}
+				}
+			}
+			if item.Spec.Service != nil && item.Spec.Service.NodePort > 0 {
+				ports[item.Spec.Service.NodePort] = struct{}{}
+			}
+		}
+	}
+	return ports
+}
