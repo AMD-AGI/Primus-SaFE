@@ -132,7 +132,7 @@ type WorkloadSpec struct {
 	// Workload startup command, required in base64 encoding
 	// It must match the length of resources.
 	EntryPoints []string `json:"entryPoints,omitempty"`
-	// The container port for workload, This field is set internally
+	// The container port for workload(only for pytorch-job), This field is set internally
 	JobPort int `json:"jobPort,omitempty"`
 	// Environment variable for workload
 	Env map[string]string `json:"env,omitempty"`
@@ -432,8 +432,9 @@ func (w *Workload) GetEnv(name string) string {
 	return ""
 }
 
-// EnableHostNetwork checks if the workload uses hostNetwork.
-func (w *Workload) EnableHostNetwork() bool {
+// HasHostNetwork checks if the workload uses hostNetwork.
+// Note: Setting hostNetwork at the Workload level does not mean all Pods inherit it; network mode is defined per Pod
+func (w *Workload) HasHostNetwork() bool {
 	for _, res := range w.Spec.Resources {
 		if res.RdmaResource != "" {
 			return true

@@ -324,13 +324,19 @@ func (r *DispatcherReconciler) generateJobPort(ctx context.Context, workload *v1
 	if v1.IsWorkloadDispatched(workload) {
 		return nil
 	}
+	kind := workload.SpecKind()
+	// only for workload using pytorch job
+	if kind != common.PytorchJobKind && kind != common.AuthoringKind &&
+		kind != common.UnifiedJobKind && kind != common.TorchFTKind {
+		return nil
+	}
 
 	patch := client.MergeFrom(workload.DeepCopy())
 	if workload.Spec.Service != nil {
 		workload.Spec.JobPort = workload.Spec.Service.TargetPort
 	} else {
 		var ports map[int]struct{}
-		if !workload.EnableHostNetwork() {
+		if !workload.HasHostNetwork() {
 			ports = make(map[int]struct{})
 		} else {
 			// In hostNetwork mode, ensure port uniqueness to avoid conflicts with previous tasks that may not have successfully released the port.
@@ -339,7 +345,7 @@ func (r *DispatcherReconciler) generateJobPort(ctx context.Context, workload *v1
 		workload.Spec.JobPort = generateRandomPort(ports)
 	}
 	if workload.Spec.JobPort == 0 {
-		return commonerrors.NewInternalError("failed to generate job port")
+		return commonerrors.NewInternalError(fmt.Sprintf("failed to generate %s", common.PytorchJobPortName))
 	}
 	if err := r.Patch(ctx, workload, patch); err != nil {
 		return err

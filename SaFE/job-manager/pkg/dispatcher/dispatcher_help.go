@@ -225,11 +225,13 @@ func modifyContainers(obj *unstructured.Unstructured,
 
 		name := jobutils.NestedStringSilently(container, []string{"name"})
 		if name == mainContainerName {
-			newPorts := buildPorts(workload)
-			if existingPorts, ok := container["ports"].([]interface{}); ok {
-				container["ports"] = append(existingPorts, newPorts...)
-			} else {
-				container["ports"] = newPorts
+			if workload.Spec.JobPort > 0 {
+				newPorts := buildPorts(workload)
+				if existingPorts, ok := container["ports"].([]interface{}); ok {
+					container["ports"] = append(existingPorts, newPorts...)
+				} else {
+					container["ports"] = newPorts
+				}
 			}
 			if healthz := buildHealthCheck(workload.Spec.Liveness); healthz != nil {
 				container["livenessProbe"] = healthz
@@ -709,16 +711,12 @@ func addEnvVar(result []interface{}, workload *v1.Workload, name, value string) 
 	})
 }
 
-// buildPorts constructs port definitions for the workload container.
+// buildPorts constructs port definitions for the pytorch-job container.
 func buildPorts(workload *v1.Workload) []interface{} {
 	jobPort := map[string]interface{}{
 		"containerPort": int64(workload.Spec.JobPort),
 		"protocol":      "TCP",
-	}
-	kind := workload.SpecKind()
-	if kind == common.PytorchJobKind || kind == common.AuthoringKind ||
-		kind == common.UnifiedJobKind || kind == common.TorchFTKind {
-		jobPort["name"] = common.PytorchJobPortName
+		"name":          common.PytorchJobPortName,
 	}
 	return []interface{}{jobPort}
 }

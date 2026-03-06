@@ -24,7 +24,7 @@ data:
     spec:
       shutdownAfterJobFinishes: true
       ttlSecondsAfterFinished: 10
-      backoffLimit: 0
+      backoffLimit: 3
       rayClusterSpec:
         headGroupSpec:
           template:
@@ -60,7 +60,6 @@ data:
                   value: "11"
                 - name: NCCL_IB_QPS_PER_CONNECTION
                   value: "1"
-
                 - name: NCCL_CROSS_NIC
                   value: "0"
                 - name: NCCL_CHECKS_DISABLE
@@ -111,7 +110,7 @@ data:
                     - path: "labels"
                       fieldRef:
                         fieldPath: metadata.labels
-              terminationGracePeriodSeconds: 5
+              terminationGracePeriodSeconds: 15
         workerGroupSpecs:
         - groupName: "1"
           template:
@@ -190,7 +189,7 @@ data:
                     - path: "labels"
                       fieldRef:
                         fieldPath: metadata.labels
-              terminationGracePeriodSeconds: 5
+              terminationGracePeriodSeconds: 10
         - groupName: "2"
           template:
             spec:
@@ -268,4 +267,4 @@ data:
                     - path: "labels"
                       fieldRef:
                         fieldPath: metadata.labels
-              terminationGracePeriodSeconds: 5
+              terminationGracePeriodSeconds: 10

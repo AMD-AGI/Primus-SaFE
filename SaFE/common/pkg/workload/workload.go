@@ -514,7 +514,7 @@ func GetUsedHostPorts(ctx context.Context, cli client.Client, clusterId string) 
 	labelSelector := labels.SelectorFromSet(map[string]string{v1.ClusterIdLabel: clusterId})
 	if cli.List(ctx, workloadList, &client.ListOptions{LabelSelector: labelSelector}) == nil {
 		for _, item := range workloadList.Items {
-			if item.EnableHostNetwork() {
+			if item.HasHostNetwork() {
 				if item.Spec.JobPort > 0 {
 					ports[item.Spec.JobPort] = struct{}{}
 				}

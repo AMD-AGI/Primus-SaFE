@@ -802,6 +802,8 @@ func (r *ClusterReconciler) guaranteeForwardEndpoints(ctx context.Context, clust
 				existing.Subsets[0].Addresses = addresses
 				isChanged = true
 			}
+			klog.Infof("current forward addresses: %v, cluster addresses: %v, changed: %t",
+				cur.Addresses, addresses, isChanged)
 		}
 		if isChanged {
 			if _, e := r.clientSet.CoreV1().Endpoints(common.PrimusSafeNamespace).Update(ctx, existing, metav1.UpdateOptions{}); e != nil {
