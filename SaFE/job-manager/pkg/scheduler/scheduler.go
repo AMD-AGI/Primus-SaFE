@@ -12,6 +12,7 @@ import (
 	"sort"
 	"time"
 
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/k8sclient"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -219,6 +220,10 @@ func (r *SchedulerReconciler) delete(ctx context.Context, adminWorkload *v1.Work
 		if err = r.deleteRelatedSecrets(ctx, adminWorkload); err != nil {
 			return ctrlruntime.Result{}, err
 		}
+	} else if commonworkload.IsCICDEphemeralRunner(adminWorkload) {
+		if err = r.deleteRelatedEphemeralRunner(ctx, adminWorkload, clientSets.ClientFactory()); err != nil {
+			return ctrlruntime.Result{}, err
+		}
 	}
 
 	if controllerutil.RemoveFinalizer(adminWorkload, v1.WorkloadFinalizer) {
@@ -250,6 +255,30 @@ func (r *SchedulerReconciler) deleteRelatedSecrets(ctx context.Context, adminWor
 			return delErr
 		}
 		klog.Infof("deleted cicd token secret %s for workload %s", sec.Name, adminWorkload.Name)
+	}
+	return nil
+}
+
+// deleteRelatedEphemeralRunner deletes the associated ephemeral runner object for a CICD workload
+func (r *SchedulerReconciler) deleteRelatedEphemeralRunner(ctx context.Context,
+	adminWorkload *v1.Workload, k8sClientFactory *k8sclient.ClientFactory) error {
+	scaleRunnerId := v1.GetLabel(adminWorkload, v1.CICDScaleRunnerIdLabel)
+	if scaleRunnerId == "" {
+		return nil
+	}
+
+	rt, err := commonworkload.GetResourceTemplate(ctx, r.Client, adminWorkload)
+	if err != nil {
+		klog.Error(err.Error())
+		return client.IgnoreNotFound(err)
+	}
+	runnerObj, err := jobutils.GetObject(ctx,
+		k8sClientFactory, scaleRunnerId, adminWorkload.Spec.Workspace, rt.ToSchemaGVK())
+	if err != nil {
+		return client.IgnoreNotFound(err)
+	}
+	if err = jobutils.DeleteObject(ctx, k8sClientFactory, runnerObj); err != nil {
+		return err
 	}
 	return nil
 }
@@ -509,8 +538,8 @@ func (r *SchedulerReconciler) getLeftTotalResources(ctx context.Context,
 	}
 	totalResource := quantity.GetAvailableResource(workspace.Status.TotalResources)
 	leftTotalResource := quantity.SubResource(totalResource, usedTotalResource)
-	klog.Infof("total resource: %v, total used: %v, total avail: %v, left total: %v, left avail: %v",
-		totalResource, usedTotalResource, usedAvailableResource, leftTotalResource, leftAvailResource)
+	klog.Infof("workspace: %s, total resource: %v, total used: %v, total avail: %v, left total: %v, left avail: %v",
+		workspace.Name, totalResource, usedTotalResource, usedAvailableResource, leftTotalResource, leftAvailResource)
 	return leftAvailResource, leftTotalResource, nil
 }
 

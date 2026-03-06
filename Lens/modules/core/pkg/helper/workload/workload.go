@@ -11,7 +11,9 @@ import (
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/clientsets"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database"
 	dbModel "github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database/model"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/errors"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/helper/prom"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/model"
 )
 
@@ -130,4 +132,44 @@ func GetWorkloadGpuAllocatedCount(ctx context.Context, clusterName string, workl
 		totalAllocated += int(podResource.GpuAllocated)
 	}
 	return totalAllocated, nil
+}
+
+// ResolveWorkloadCluster finds the cluster where a workload exists.
+// It searches in the following order:
+// 1. If cluster is explicitly specified, use it directly
+// 2. Try the default cluster first (most common case)
+// 3. Search all other clusters if not found in default
+// Returns the cluster name where the workload was found, or error if not found anywhere.
+func ResolveWorkloadCluster(ctx context.Context, uid string, requestedCluster string) (string, error) {
+	cm := clientsets.GetClusterManager()
+
+	if requestedCluster != "" {
+		return requestedCluster, nil
+	}
+
+	defaultCluster := cm.GetDefaultClusterName()
+	if defaultCluster != "" {
+		w, err := database.GetFacadeForCluster(defaultCluster).GetWorkload().GetGpuWorkloadByUid(ctx, uid)
+		if err == nil && w != nil {
+			log.Debugf("[ResolveWorkloadCluster] Workload %s found in default cluster %s", uid, defaultCluster)
+			return defaultCluster, nil
+		}
+	}
+
+	allClients := cm.ListAllClientSets()
+	for clusterName := range allClients {
+		if clusterName == defaultCluster {
+			continue
+		}
+		w, err := database.GetFacadeForCluster(clusterName).GetWorkload().GetGpuWorkloadByUid(ctx, uid)
+		if err == nil && w != nil {
+			log.Infof("[ResolveWorkloadCluster] Workload %s found in cluster %s (not in default cluster %s)",
+				uid, clusterName, defaultCluster)
+			return clusterName, nil
+		}
+	}
+
+	return "", errors.NewError().
+		WithCode(errors.RequestDataNotExisted).
+		WithMessagef("workload %s not found in any cluster", uid)
 }

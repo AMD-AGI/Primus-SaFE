@@ -14,6 +14,8 @@ const (
 	StatusError   = 1
 	StatusUnknown = 2
 	StatusDisable = 127
+
+	AppConfig = "config.yaml"
 )
 
 type MonitorQueue workqueue.TypedRateLimitingInterface[*MonitorMessage]

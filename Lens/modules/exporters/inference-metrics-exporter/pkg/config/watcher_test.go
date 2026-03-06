@@ -4,11 +4,18 @@
 package config
 
 import (
+	"os"
 	"testing"
 	"time"
 
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/clientsets"
 	"github.com/stretchr/testify/assert"
 )
+
+func TestMain(m *testing.M) {
+	clientsets.InitClusterManagerWithClientSet(&clientsets.ClusterClientSet{ClusterName: ""})
+	os.Exit(m.Run())
+}
 
 func TestExtractFrameworkFromKey(t *testing.T) {
 	tests := []struct {

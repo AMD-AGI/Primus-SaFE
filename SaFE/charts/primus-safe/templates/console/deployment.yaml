@@ -35,20 +35,6 @@ spec:
                     operator: NotIn
                     values:
                       - "true"
-        podAntiAffinity:
-          preferredDuringSchedulingIgnoredDuringExecution:
-            - weight: 80
-              podAffinityTerm:
-                labelSelector:
-                  matchExpressions:
-                    - key: app
-                      operator: In
-                      values:
-                        - {{ .Release.Name }}-job-manager
-                        - {{ .Release.Name }}-webhooks
-                        - {{ .Release.Name }}-resource-manager
-                        - {{ .Release.Name }}-apiserver
-                topologyKey: kubernetes.io/hostname
       containers:
         - name: app
           image: {{ .Values.global.image_registry }}/primussafe/{{ .Values.web.image }}

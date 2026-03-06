@@ -8,9 +8,11 @@ package service
 import (
 	"context"
 	"errors"
+	"os"
 	"testing"
 	"time"
 
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/clientsets"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database/filter"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database/model"
@@ -21,6 +23,15 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
+
+// ==================== Test Setup ====================
+
+func TestMain(m *testing.M) {
+	// InitClusterManager so Run() tests don't panic on GetClusterManager().
+	// Workspaces with no cluster label get GetClusterId() == "".
+	clientsets.InitClusterManagerWithClientSet(&clientsets.ClusterClientSet{ClusterName: ""})
+	os.Exit(m.Run())
+}
 
 // ==================== Mock Implementations ====================
 
@@ -67,10 +78,17 @@ func (m *MockFacade) GetGithubWorkflowMetrics() database.GithubWorkflowMetricsFa
 func (m *MockFacade) GetGithubRunnerSet() database.GithubRunnerSetFacadeInterface           { return nil }
 func (m *MockFacade) GetGithubWorkflowCommit() database.GithubWorkflowCommitFacadeInterface { return nil }
 func (m *MockFacade) GetGithubWorkflowRunDetails() database.GithubWorkflowRunDetailsFacadeInterface { return nil }
+func (m *MockFacade) GetGithubWorkflowRunSummary() *database.GithubWorkflowRunSummaryFacade         { return nil }
 func (m *MockFacade) GetDashboardSummary() database.DashboardSummaryFacadeInterface         { return nil }
 func (m *MockFacade) GetMetricBaseline() database.MetricBaselineFacadeInterface             { return nil }
 func (m *MockFacade) GetCommitImpactAnalysis() database.CommitImpactAnalysisFacadeInterface { return nil }
 func (m *MockFacade) GetNotificationChannel() database.NotificationChannelFacadeInterface   { return nil }
+func (m *MockFacade) GetPodRunningPeriods() database.PodRunningPeriodsFacadeInterface       { return nil }
+func (m *MockFacade) GetWorkloadCodeSnapshot() database.WorkloadCodeSnapshotFacadeInterface { return nil }
+func (m *MockFacade) GetImageRegistryCache() database.ImageRegistryCacheFacadeInterface      { return nil }
+func (m *MockFacade) GetIntentRule() database.IntentRuleFacadeInterface                     { return nil }
+func (m *MockFacade) GetWorkloadResource() database.WorkloadResourceFacadeInterface          { return nil }
+func (m *MockFacade) GetProfilerFile() database.ProfilerFileFacadeInterface                  { return nil }
 func (m *MockFacade) WithCluster(clusterName string) database.FacadeInterface               { return m }
 
 // MockNamespaceInfoFacade implements database.NamespaceInfoFacadeInterface
@@ -205,6 +223,9 @@ func (m *MockNodeNamespaceMappingFacade) GetByNamespaceName(ctx context.Context,
 func (m *MockNodeNamespaceMappingFacade) ListActiveByNamespaceID(ctx context.Context, namespaceID int64) ([]*model.NodeNamespaceMapping, error) { return nil, nil }
 func (m *MockNodeNamespaceMappingFacade) ListHistoryByNamespaceAtTime(ctx context.Context, namespaceID int64, atTime time.Time) ([]*model.NodeNamespaceMappingHistory, error) { return nil, nil }
 func (m *MockNodeNamespaceMappingFacade) ListHistoryByNamespaceNameAtTime(ctx context.Context, namespaceName string, atTime time.Time) ([]*model.NodeNamespaceMappingHistory, error) { return nil, nil }
+func (m *MockNodeNamespaceMappingFacade) ListHistoryByNamespaceNameInTimeRange(ctx context.Context, namespaceName string, startTime, endTime time.Time) ([]*model.NodeNamespaceMappingHistory, error) {
+	return nil, nil
+}
 
 // MockWorkspaceLister implements WorkspaceLister
 type MockWorkspaceLister struct {

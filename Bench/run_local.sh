@@ -141,6 +141,22 @@ fi
 HIP_VISIBLE_DEVICES=$(seq -s, 0 $((GPUS_PER_NODE - 1)))
 export HIP_VISIBLE_DEVICES
 
+# Pensando AINIC QoS auto-detection (NCCL_IB_TC, NCCL_IB_FIFO_TC)
+NCCL_IB_TC=""
+NCCL_IB_FIFO_TC=""
+if [[ "${ENABLE_AINIC:-false}" == "true" ]]; then
+    source "${SCRIPT_DIR}/preflight/utils/detect_ainic_nccl_ib_tc.sh"
+    if is_pensando; then
+        _tc=$(detect_pensando_tc)
+        NCCL_IB_TC=$(echo "$_tc" | awk '{print $1}')
+        NCCL_IB_FIFO_TC=$(echo "$_tc" | awk '{print $2}')
+        echo "[INFO] $HOSTNAME: Pensando AINIC detected: NCCL_IB_TC=$NCCL_IB_TC NCCL_IB_FIFO_TC=$NCCL_IB_FIFO_TC"
+        unset _tc
+    else
+        echo "[WARN] $HOSTNAME: ENABLE_AINIC=true but no Pensando hardware found, using defaults"
+    fi
+fi
+
 docker_podman_proxy run \
     --env MASTER_ADDR=${MASTER_ADDR} \
     --env MASTER_PORT=${MASTER_PORT} \
@@ -165,6 +181,9 @@ docker_podman_proxy run \
     --env GLOO_SOCKET_IFNAME=${GLOO_SOCKET_IFNAME} \
     --env CUDA_DEVICE_MAX_CONNECTIONS=${CUDA_DEVICE_MAX_CONNECTIONS} \
     --env RCCL_MSCCL_ENABLE=${RCCL_MSCCL_ENABLE} \
+    --env ENABLE_AINIC=${ENABLE_AINIC:-false} \
+    ${NCCL_IB_TC:+--env NCCL_IB_TC=$NCCL_IB_TC} \
+    ${NCCL_IB_FIFO_TC:+--env NCCL_IB_FIFO_TC=$NCCL_IB_FIFO_TC} \
     --env SSH_PORT=${SSH_PORT} \
     --env ADD_LOG_HEADER=${ADD_LOG_HEADER} \
     --env BNIC=${BNIC} \
