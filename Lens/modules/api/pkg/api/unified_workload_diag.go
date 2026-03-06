@@ -178,7 +178,7 @@ func diagResolveFacade(ctx context.Context, uid string, cluster string) (databas
 	if uid == "" {
 		return nil, "", errors.NewError().WithCode(errors.RequestParameterInvalid).WithMessage("uid is required")
 	}
-	clusterName, err := resolveWorkloadCluster(ctx, uid, cluster)
+	clusterName, err := ResolveWorkloadCluster(ctx, uid, cluster)
 	if err != nil {
 		return nil, "", err
 	}
