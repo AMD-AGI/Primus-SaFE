@@ -314,7 +314,7 @@ spec:
       - command:
         - /bin/sh
         - -c
-        - chmod +x /shared-data/launcher.sh; /bin/sh /shared-data/launcher.sh 'abcd'
+        - /bin/sh /shared-data/launcher.sh 'abcd'
         env:
         - name: NCCL_SOCKET_IFNAME
           value: eth0
@@ -976,7 +976,6 @@ var (
 			MaxRetry:  2,
 			Priority:  2,
 			JobPort:   12345,
-			SSHPort:   23456,
 			GroupVersionKind: v1.GroupVersionKind{
 				Version: "v1",
 				Kind:    "PyTorchJob",

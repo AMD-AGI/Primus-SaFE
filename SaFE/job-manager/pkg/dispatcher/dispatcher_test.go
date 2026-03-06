@@ -95,7 +95,7 @@ func TestCreatePytorchJob(t *testing.T) {
 	templates := jobutils.TestPytorchResourceTemplate.Spec.ResourceSpecs
 
 	checkResources(t, obj, workload, &templates[0], 1, 0)
-	checkPorts(t, obj, workload, &templates[0])
+	checkPorts(t, obj, workload, &templates[0], 0)
 	checkEnvs(t, obj, workload, &templates[0], 0)
 	checkVolumeMounts(t, obj, &templates[0])
 	checkVolumes(t, obj, workload, &templates[0], 0)
@@ -120,7 +120,7 @@ func TestCreatePytorchJob(t *testing.T) {
 	assert.NilError(t, err)
 	checkResources(t, obj, workload, &templates[1], 2, 1)
 	checkEnvs(t, obj, workload, &templates[1], 1)
-	checkPorts(t, obj, workload, &templates[1])
+	checkPorts(t, obj, workload, &templates[1], 1)
 	checkVolumeMounts(t, obj, &templates[1])
 	checkVolumes(t, obj, workload, &templates[1], 1)
 	checkRequiredNodeSelectorTerms(t, obj, workload, &templates[1])
@@ -166,7 +166,7 @@ func TestCreateDeployment(t *testing.T) {
 	templates := jobutils.TestDeploymentResourceTemplate.Spec.ResourceSpecs
 
 	checkResources(t, obj, workload, &templates[0], 1, 0)
-	checkPorts(t, obj, workload, &templates[0])
+	checkPorts(t, obj, workload, &templates[0], 0)
 	checkEnvs(t, obj, workload, &templates[0], 0)
 	checkVolumeMounts(t, obj, &templates[0])
 	checkVolumes(t, obj, workload, &templates[0], 0)
@@ -205,7 +205,7 @@ func TestUpdateDeployment(t *testing.T) {
 	cmd := buildEntryPoint(adminWorkload, 0)
 	assert.Equal(t, deployment.Spec.Template.Spec.Containers[0].Command[2], cmd)
 
-	shareMemorySizes, err := jobutils.GetMemoryStorageSize(workloadObj, jobutils.TestDeploymentResourceTemplate)
+	shareMemorySizes, err := jobutils.GetMemoryStorageSize(workloadObj, jobutils.TestDeploymentResourceTemplate, 1)
 	assert.NilError(t, err)
 	assert.Equal(t, len(shareMemorySizes), 1)
 	assert.Equal(t, shareMemorySizes[0], "32Gi")
@@ -302,10 +302,12 @@ func TestIsImageChanged(t *testing.T) {
 	metav1.SetMetaDataAnnotation(&adminWorkload.ObjectMeta, v1.MainContainerAnnotation, "pytorch")
 
 	adminWorkload.Spec.Images = []string{"test-image:0.0.1", "docker.io/test-image:0.0.1"}
+	adminWorkload.Spec.Resources = append(adminWorkload.Spec.Resources, adminWorkload.Spec.Resources[0])
 	ok := isImagesChanged(adminWorkload, workloadObj, jobutils.TestPytorchResourceTemplate)
 	assert.Equal(t, ok, false)
 
 	adminWorkload.Spec.Images[0] = "docker.io/test-image:0.0.1"
+	adminWorkload.Spec.Resources = adminWorkload.Spec.Resources[0:1]
 	ok = isImagesChanged(adminWorkload, workloadObj, jobutils.TestPytorchResourceTemplate)
 	assert.Equal(t, ok, true)
 }
@@ -414,7 +416,7 @@ func TestUpdateDeploymentEnv(t *testing.T) {
 
 	err = applyWorkloadSpecToObject(context.Background(), nil, workloadObj, adminWorkload, nil, jobutils.TestDeploymentResourceTemplate)
 	assert.NilError(t, err)
-	envs, err := jobutils.GetEnv(workloadObj, jobutils.TestDeploymentResourceTemplate, "test")
+	envs, err := jobutils.GetEnv(workloadObj, jobutils.TestDeploymentResourceTemplate, "test", 1)
 	assert.NilError(t, err)
 	assert.Equal(t, len(envs), 3)
 	env, ok := envs[0].(map[string]interface{})
@@ -436,7 +438,7 @@ func TestUpdateDeploymentEnv(t *testing.T) {
 	}
 	err = applyWorkloadSpecToObject(context.Background(), nil, workloadObj, adminWorkload, nil, jobutils.TestDeploymentResourceTemplate)
 	assert.NilError(t, err)
-	envs, err = jobutils.GetEnv(workloadObj, jobutils.TestDeploymentResourceTemplate, "test")
+	envs, err = jobutils.GetEnv(workloadObj, jobutils.TestDeploymentResourceTemplate, "test", 1)
 	assert.NilError(t, err)
 	assert.Equal(t, len(envs), 3)
 	env, ok = envs[0].(map[string]interface{})
@@ -458,7 +460,7 @@ func TestUpdateDeploymentEnv(t *testing.T) {
 	v1.SetAnnotation(adminWorkload, v1.EnvToBeRemovedAnnotation, string(jsonutils.MarshalSilently([]string{"key"})))
 	err = applyWorkloadSpecToObject(context.Background(), nil, workloadObj, adminWorkload, nil, jobutils.TestDeploymentResourceTemplate)
 	assert.NilError(t, err)
-	envs, err = jobutils.GetEnv(workloadObj, jobutils.TestDeploymentResourceTemplate, "test")
+	envs, err = jobutils.GetEnv(workloadObj, jobutils.TestDeploymentResourceTemplate, "test", 1)
 	assert.NilError(t, err)
 	assert.Equal(t, len(envs), 2)
 	env, ok = envs[0].(map[string]interface{})
@@ -504,7 +506,7 @@ func TestCreatePreflightJob(t *testing.T) {
 
 	templates := jobutils.TestJobResourceTemplate.Spec.ResourceSpecs
 	checkResources(t, obj, workload, &templates[0], workload.Spec.Resources[0].Replica, 0)
-	checkPorts(t, obj, workload, &templates[0])
+	checkPorts(t, obj, workload, &templates[0], 0)
 	checkRequiredNodeSelectorTerms(t, obj, workload, &templates[0])
 	checkPodAntiAffinity(t, obj, workload, &templates[0])
 	checkEnvs(t, obj, workload, &templates[0], 0)
@@ -963,6 +965,8 @@ func TestCreateRayJob(t *testing.T) {
 		Id:   workspace.Spec.ImageSecrets[0].Name,
 		Type: v1.SecretImage,
 	}}
+	jobEntrypoint := "tail -f /dev/null"
+	workload.Spec.Env[common.RayJobEntrypoint] = jobEntrypoint
 	workload.Spec.Workspace = workspace.Name
 
 	configmap, err := parseConfigmap(TestRayJobTemplateConfig)
@@ -975,10 +979,14 @@ func TestCreateRayJob(t *testing.T) {
 	r := DispatcherReconciler{Client: adminClient}
 	obj, err := r.generateK8sObject(context.Background(), workload, nil)
 	assert.NilError(t, err)
+	val, found, err := jobutils.NestedString(obj.Object, []string{"spec", "entrypoint"})
+	assert.NilError(t, err)
+	assert.Equal(t, found, true)
+	assert.Equal(t, val, jobEntrypoint)
 
 	templates := jobutils.TestRayJobResourceTemplate.Spec.ResourceSpecs
 	checkResources(t, obj, workload, &templates[0], 0, 0)
-	checkPorts(t, obj, workload, &templates[0])
+	checkPorts(t, obj, workload, &templates[0], 0)
 	checkEnvs(t, obj, workload, &templates[0], 0)
 	checkVolumeMounts(t, obj, &templates[0])
 	checkVolumes(t, obj, workload, &templates[0], 0)
@@ -989,7 +997,7 @@ func TestCreateRayJob(t *testing.T) {
 	checkTolerations(t, obj, workload, &templates[0])
 	checkPriorityClass(t, obj, workload, &templates[0])
 	checkImageSecrets(t, obj, &templates[0])
-	_, found, err := jobutils.NestedSlice(obj.Object, templates[1].PrePaths)
+	_, found, err = jobutils.NestedSlice(obj.Object, templates[1].PrePaths)
 	assert.Equal(t, err != nil, true)
 	assert.Equal(t, found, false)
 
@@ -1010,7 +1018,7 @@ func TestCreateRayJob(t *testing.T) {
 
 	checkResources(t, obj, workload, &templates[1], 2, 1)
 	checkEnvs(t, obj, workload, &templates[1], 1)
-	checkPorts(t, obj, workload, &templates[1])
+	checkPorts(t, obj, workload, &templates[1], 1)
 	checkVolumeMounts(t, obj, &templates[1])
 	checkVolumes(t, obj, workload, &templates[1], 1)
 	checkRequiredNodeSelectorTerms(t, obj, workload, &templates[1])

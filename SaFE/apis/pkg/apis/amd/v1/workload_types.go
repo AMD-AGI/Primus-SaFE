@@ -132,10 +132,8 @@ type WorkloadSpec struct {
 	// Workload startup command, required in base64 encoding
 	// It must match the length of resources.
 	EntryPoints []string `json:"entryPoints,omitempty"`
-	// The port for pytorch-job, This field is set internally
+	// The container port for workload(only for pytorch-job), This field is set internally
 	JobPort int `json:"jobPort,omitempty"`
-	// The port for ssh, This field is set internally
-	SSHPort int `json:"sshPort,omitempty"`
 	// Environment variable for workload
 	Env map[string]string `json:"env,omitempty"`
 	// Supervision flag for the workload. When enabled, it performs operations like hang detection
@@ -210,7 +208,9 @@ type WorkloadStatus struct {
 type WorkloadPod struct {
 	// The podId
 	PodId string `json:"podId"`
-	// The id of workload resources that the pod is bound to
+	// The id of workload resources that the pod is bound to.
+	// If the value is less than 0, it means the pod does not belong to any resource.
+	// Currently, RayJob's submitter pod uses this scenario.
 	ResourceId int `json:"resourceId,omitempty"`
 	// The Kubernetes node that the Pod is scheduled on
 	K8sNodeName string `json:"k8sNodeName,omitempty"`
@@ -430,6 +430,17 @@ func (w *Workload) GetEnv(name string) string {
 		}
 	}
 	return ""
+}
+
+// HasHostNetwork checks if the workload uses hostNetwork.
+// Note: Setting hostNetwork at the Workload level does not mean all Pods inherit it; network mode is defined per Pod
+func (w *Workload) HasHostNetwork() bool {
+	for _, res := range w.Spec.Resources {
+		if res.RdmaResource != "" {
+			return true
+		}
+	}
+	return false
 }
 
 // IsWorkloadPhaseEnded checks if the given workload phase indicates the workload has ended.

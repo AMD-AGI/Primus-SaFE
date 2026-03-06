@@ -526,7 +526,8 @@ func (h *Handler) patchWorkload(c *gin.Context) (interface{}, error) {
 		klog.ErrorS(err, "failed to update workload", "name", adminWorkload.Name)
 		return nil, err
 	}
-	klog.Infof("update workload, name: %s, request: %s", name, string(jsonutils.MarshalSilently(*req)))
+	klog.Infof("update workload, name: %s, request: %s, request.user: %s",
+		name, string(jsonutils.MarshalSilently(*req)), c.GetString(common.UserId))
 	return nil, nil
 }
 
@@ -642,8 +643,9 @@ func (h *Handler) getWorkloadPodLog(c *gin.Context) (interface{}, error) {
 		return nil, err
 	}
 	podName := strings.TrimSpace(c.Param(common.PodId))
+	mainContainerName := commonworkload.GetMainContainer(workload, workload.SpecKind(), podName)
 	podLogs, err := h.getPodLog(c, k8sClients.ClientSet(),
-		workload.Spec.Workspace, podName, v1.GetMainContainer(workload))
+		workload.Spec.Workspace, podName, mainContainerName)
 	if err != nil {
 		return nil, err
 	}
@@ -1391,9 +1393,9 @@ func (h *Handler) buildSSHCommand(ctx context.Context, pod *v1.WorkloadPod, user
 		return ""
 	}
 	// pattern: {userId}.{podId}.{container}.sh.{workspace}@{host}
-	// e.g. ssh -o ServerAliveInterval=60 7fda556669b09dcec5d779438e7432c5.verl40-fpg88-master-0.pytorch.sh.x-flannel-prod@tw325.primus-safe.amd.com -p 2222
-	return fmt.Sprintf("ssh -o ServerAliveInterval=60 %s.%s.%s.sh.%s@%s -p %d", userId, pod.PodId,
-		v1.GetMainContainer(template), workspace, commonconfig.GetSystemHost(), commonconfig.GetSSHServerPort())
+	// e.g. ssh -o ServerAliveInterval=60 7fda556669b09dcec5d779438e7432c5.verl40-fpg88-master-0.pytorch.bash.x-flannel-prod@tw325.primus-safe.amd.com -p 2222
+	return fmt.Sprintf("ssh -o ServerAliveInterval=60 %s.%s.%s.bash.%s@%s -p %d", userId, pod.PodId,
+		commonworkload.GetMainContainer(template, gvk.Kind, pod.PodId), workspace, commonconfig.GetSystemHost(), commonconfig.GetSSHServerPort())
 }
 
 // generateWorkloadForAuth creates a minimal workload object for authorization checks.

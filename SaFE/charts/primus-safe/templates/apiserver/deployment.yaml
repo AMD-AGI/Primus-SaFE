@@ -31,6 +31,11 @@ spec:
             - weight: 100
               preference:
                 matchExpressions:
+                  - key: primus-safe.workspace.id
+                    operator: DoesNotExist
+            - weight: 80
+              preference:
+                matchExpressions:
                   - key: feature.node.kubernetes.io/amd-gpu
                     operator: NotIn
                     values:
