@@ -8,9 +8,9 @@ package resource
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
-	commonfaults "github.com/AMD-AIG-AIMA/SAFE/common/pkg/faults"
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
@@ -30,11 +30,13 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	commoncluster "github.com/AMD-AIG-AIMA/SAFE/common/pkg/cluster"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
+	commonfaults "github.com/AMD-AIG-AIMA/SAFE/common/pkg/faults"
 	commonclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/k8sclient"
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 	"github.com/AMD-AIG-AIMA/SAFE/resource-manager/pkg/utils"
@@ -69,6 +71,7 @@ func SetupClusterController(mgr manager.Manager) error {
 		For(&v1.Cluster{}, builder.WithPredicates(predicate.Or(
 			predicate.ResourceVersionChangedPredicate{}, r.relevantChangePredicate()))).
 		Watches(&corev1.Pod{}, r.handlePodEvent()).
+		Watches(&corev1.Endpoints{}, r.handleEndpointsEvent(), builder.WithPredicates(r.endpointsPredicate())).
 		Watches(&v1.Node{}, r.handleNodeEvent()).
 		Complete(r)
 	if err != nil {
@@ -136,6 +139,98 @@ func (r *ClusterReconciler) handleNodeEvent() handler.EventHandler {
 		},
 		GenericFunc: nil,
 	}
+}
+
+// endpointsPredicate filters Endpoints to only cluster source EPs (not forward EPs),
+// and for Update only triggers when Subsets (addresses/ports) actually changed.
+func (r *ClusterReconciler) endpointsPredicate() predicate.Predicate {
+	return predicate.Funcs{
+		CreateFunc: func(e event.CreateEvent) bool {
+			return r.isClusterSourceEndpoints(e.Object)
+		},
+		UpdateFunc: func(e event.UpdateEvent) bool {
+			if !r.isClusterSourceEndpoints(e.ObjectNew) {
+				return false
+			}
+			oldEp, ok1 := e.ObjectOld.(*corev1.Endpoints)
+			newEp, ok2 := e.ObjectNew.(*corev1.Endpoints)
+			if !ok1 || !ok2 {
+				return true
+			}
+			return endpointsSubsetsChanged(oldEp.Subsets, newEp.Subsets)
+		},
+		DeleteFunc: func(e event.DeleteEvent) bool {
+			return r.isClusterSourceEndpoints(e.Object)
+		},
+		GenericFunc: nil,
+	}
+}
+
+func (r *ClusterReconciler) isClusterSourceEndpoints(obj client.Object) bool {
+	ep, ok := obj.(*corev1.Endpoints)
+	if !ok {
+		return false
+	}
+	if ep.Namespace != common.PrimusSafeNamespace {
+		return false
+	}
+	// Forward EP name is clusterName+"-forward"; only react to source cluster EP changes
+	if strings.HasSuffix(ep.Name, "-forward") {
+		return false
+	}
+	return true
+}
+
+// endpointsSubsetsChanged returns true if the Endpoints Subsets (addresses/ports) changed.
+func endpointsSubsetsChanged(old, new []corev1.EndpointSubset) bool {
+	if len(old) != len(new) {
+		return true
+	}
+	for i := range old {
+		if !endpointSubsetEqual(old[i], new[i]) {
+			return true
+		}
+	}
+	return false
+}
+
+func endpointSubsetEqual(a, b corev1.EndpointSubset) bool {
+	if len(a.Addresses) != len(b.Addresses) || len(a.Ports) != len(b.Ports) {
+		return false
+	}
+	addrMap := make(map[string]bool)
+	for _, addr := range a.Addresses {
+		addrMap[addr.IP] = true
+	}
+	for _, addr := range b.Addresses {
+		if !addrMap[addr.IP] {
+			return false
+		}
+	}
+	portMap := make(map[int32]bool)
+	for _, p := range a.Ports {
+		portMap[p.Port] = true
+	}
+	for _, p := range b.Ports {
+		if !portMap[p.Port] {
+			return false
+		}
+	}
+	return true
+}
+
+// handleEndpointsEvent enqueues the Cluster when its source Endpoints changes.
+// Cluster EP name equals cluster.Name, so we enqueue cluster with that name.
+func (r *ClusterReconciler) handleEndpointsEvent() handler.EventHandler {
+	return handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, obj client.Object) []reconcile.Request {
+		if !r.isClusterSourceEndpoints(obj) {
+			return nil
+		}
+		ep := obj.(*corev1.Endpoints)
+		return []reconcile.Request{{
+			NamespacedName: types.NamespacedName{Name: ep.Name},
+		}}
+	})
 }
 
 // handlePodEvent handles pod events that may affect cluster reconciliation.
@@ -790,15 +885,8 @@ func (r *ClusterReconciler) guaranteeForwardEndpoints(ctx context.Context, clust
 				existing.Subsets[0].Ports = desiredPorts
 				isChanged = true
 			}
-			currentIPs := sets.NewSet()
-			for _, a := range cur.Addresses {
-				currentIPs.Insert(a.IP)
-			}
-			desiredIPs := sets.NewSet()
-			for _, addr := range addresses {
-				desiredIPs.Insert(addr.IP)
-			}
-			if !currentIPs.Equal(desiredIPs) {
+			desiredSubset := corev1.EndpointSubset{Addresses: addresses, Ports: desiredPorts}
+			if !endpointSubsetEqual(cur, desiredSubset) {
 				existing.Subsets[0].Addresses = addresses
 				isChanged = true
 			}
