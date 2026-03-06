@@ -591,13 +591,19 @@ func (r *ClusterReconciler) guaranteeService(ctx context.Context, cluster *v1.Cl
 }
 
 // guaranteeEndpoints creates or updates the endpoints resource for the cluster.
-// Only IPs from healthy (MachineReady) nodes are included.
+// Only IPs from healthy (MachineReady) and reachable nodes are included.
 func (r *ClusterReconciler) guaranteeEndpoints(ctx context.Context, cluster *v1.Cluster, nodes []*v1.Node) error {
 	address := make([]corev1.EndpointAddress, 0, len(nodes))
 	for _, node := range nodes {
-		if node.IsMachineReady() {
-			address = append(address, corev1.EndpointAddress{IP: node.Spec.PrivateIP})
+		if !node.IsMachineReady() {
+			continue
 		}
+		target := fmt.Sprintf("%s:%d", node.Spec.PrivateIP, DefaultApiserverPort)
+		if !r.endpointProber(target, probeTimeout) {
+			klog.Warningf("control plane node %s (%s) probe failed, excluding from endpoints", node.Name, target)
+			continue
+		}
+		address = append(address, corev1.EndpointAddress{IP: node.Spec.PrivateIP})
 	}
 
 	desiredPorts := []corev1.EndpointPort{{
