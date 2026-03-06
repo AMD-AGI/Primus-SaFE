@@ -1,4 +1,3 @@
-// build trigger: quay.io registry support
 module github.com/AMD-AGI/Primus-SaFE/Lens/core
 
 go 1.24.7
