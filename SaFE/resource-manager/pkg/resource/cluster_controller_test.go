@@ -7,7 +7,9 @@ package resource
 
 import (
 	"context"
+	"strings"
 	"testing"
+	"time"
 
 	"gotest.tools/assert"
 	corev1 "k8s.io/api/core/v1"
@@ -20,9 +22,11 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 )
 
+func alwaysReachable(_ string, _ time.Duration) bool { return true }
+
 func newTestClusterReconciler(clusters []*v1.Cluster, nodes []*v1.Node, endpoints []*corev1.Endpoints) *ClusterReconciler {
 	scheme, _ := genMockScheme()
-	clientBuilder := fake.NewClientBuilder().WithScheme(scheme)
+	clientBuilder := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(&v1.Cluster{})
 
 	for _, c := range clusters {
 		clientBuilder = clientBuilder.WithObjects(c)
@@ -50,6 +54,7 @@ func newTestClusterReconciler(clusters []*v1.Cluster, nodes []*v1.Node, endpoint
 			Client:    adminClient,
 			clientSet: fakeClientSet,
 		},
+		endpointProber: alwaysReachable,
 	}
 }
 
@@ -94,6 +99,12 @@ func makeCluster(name string, nodeNames []string) *v1.Cluster {
 	}
 }
 
+func makeClusterWithStatusEndpoints(name string, nodeNames []string, statusEndpoints []string) *v1.Cluster {
+	c := makeCluster(name, nodeNames)
+	c.Status.ControlPlaneStatus.Endpoints = statusEndpoints
+	return c
+}
+
 func makeEndpoints(name string, ips []string) *corev1.Endpoints {
 	addresses := make([]corev1.EndpointAddress, len(ips))
 	for i, ip := range ips {
@@ -122,7 +133,7 @@ func TestGuaranteeEndpoints_UpdatesOnNodeHealthChange(t *testing.T) {
 	clusterName := "test-cluster"
 
 	node1 := makeNode("node1", "10.0.0.1", v1.NodeReady, v1.NodeManaged)
-	node2 := makeNode("node2", "10.0.0.2", v1.NodeSSHFailed, v1.NodeManaged) // unhealthy
+	node2 := makeNode("node2", "10.0.0.2", v1.NodeSSHFailed, v1.NodeManaged)
 	node3 := makeNode("node3", "10.0.0.3", v1.NodeReady, v1.NodeManaged)
 	cluster := makeCluster(clusterName, []string{"node1", "node2", "node3"})
 
@@ -149,6 +160,45 @@ func TestGuaranteeEndpoints_UpdatesOnNodeHealthChange(t *testing.T) {
 	assert.Assert(t, ips["10.0.0.1"], "healthy node1 should be present")
 	assert.Assert(t, !ips["10.0.0.2"], "unhealthy node2 should be removed")
 	assert.Assert(t, ips["10.0.0.3"], "healthy node3 should be present")
+}
+
+// TestGuaranteeEndpoints_ProbeFiltersUnreachable verifies that nodes passing
+// IsMachineReady but failing TCP probe are excluded from Endpoints.
+func TestGuaranteeEndpoints_ProbeFiltersUnreachable(t *testing.T) {
+	ctx := context.Background()
+	clusterName := "test-cluster"
+
+	node1 := makeNode("node1", "10.0.0.1", v1.NodeReady, v1.NodeManaged)
+	node2 := makeNode("node2", "10.0.0.2", v1.NodeReady, v1.NodeManaged) // Ready but unreachable
+	node3 := makeNode("node3", "10.0.0.3", v1.NodeReady, v1.NodeManaged)
+	cluster := makeCluster(clusterName, []string{"node1", "node2", "node3"})
+
+	existingEp := makeEndpoints(clusterName, []string{"10.0.0.1", "10.0.0.2", "10.0.0.3"})
+
+	nodes := []*v1.Node{node1, node2, node3}
+	r := newTestClusterReconciler(
+		[]*v1.Cluster{cluster}, nodes, []*corev1.Endpoints{existingEp},
+	)
+	// Simulate node2 being unreachable via probe
+	r.endpointProber = func(addr string, _ time.Duration) bool {
+		return !strings.HasPrefix(addr, "10.0.0.2:")
+	}
+
+	err := r.guaranteeEndpoints(ctx, cluster, nodes)
+	assert.NilError(t, err)
+
+	updated := new(corev1.Endpoints)
+	err = r.Get(ctx, types.NamespacedName{Name: clusterName, Namespace: common.PrimusSafeNamespace}, updated)
+	assert.NilError(t, err)
+	assert.Equal(t, len(updated.Subsets[0].Addresses), 2)
+
+	ips := map[string]bool{}
+	for _, a := range updated.Subsets[0].Addresses {
+		ips[a.IP] = true
+	}
+	assert.Assert(t, ips["10.0.0.1"])
+	assert.Assert(t, !ips["10.0.0.2"], "probe-failed node2 should be excluded")
+	assert.Assert(t, ips["10.0.0.3"])
 }
 
 // TestGuaranteeEndpoints_NoUpdateWhenUnchanged verifies that guaranteeEndpoints
@@ -214,7 +264,6 @@ func TestGetClusterEndpoint_FiltersUnhealthyNodes(t *testing.T) {
 	node3 := makeNode("node3", "10.0.0.3", v1.NodeReady, v1.NodeManaged)
 	cluster := makeCluster(clusterName, []string{"node1", "node2", "node3"})
 
-	// Source Endpoints still has all 3 IPs (stale)
 	srcEp := makeEndpoints(clusterName, []string{"10.0.0.1", "10.0.0.2", "10.0.0.3"})
 
 	r := newTestClusterReconciler(
@@ -247,10 +296,8 @@ func TestGuaranteeForwardEndpoints_RemovesAddress(t *testing.T) {
 	node3 := makeNode("node3", "10.0.0.3", v1.NodeReady, v1.NodeManaged)
 	cluster := makeCluster(clusterName, []string{"node1", "node2", "node3"})
 
-	// Source Endpoints has only healthy IPs (already fixed by guaranteeEndpoints)
 	srcEp := makeEndpoints(clusterName, []string{"10.0.0.1", "10.0.0.3"})
 
-	// Forward Endpoints still has all 3 IPs (stale)
 	forwardName := generateForwardName(clusterName)
 	forwardEp := &corev1.Endpoints{
 		ObjectMeta: metav1.ObjectMeta{
@@ -276,7 +323,6 @@ func TestGuaranteeForwardEndpoints_RemovesAddress(t *testing.T) {
 	err := r.guaranteeForwardEndpoints(ctx, cluster)
 	assert.NilError(t, err)
 
-	// Verify the forward Endpoints was updated to remove the unhealthy address
 	updated, err := r.clientSet.CoreV1().Endpoints(common.PrimusSafeNamespace).Get(ctx, forwardName, metav1.GetOptions{})
 	assert.NilError(t, err)
 	assert.Equal(t, len(updated.Subsets), 1)
@@ -289,4 +335,124 @@ func TestGuaranteeForwardEndpoints_RemovesAddress(t *testing.T) {
 	assert.Assert(t, ips["10.0.0.1"], "healthy node1 should remain")
 	assert.Assert(t, !ips["10.0.0.2"], "unhealthy node2 should be removed from forward")
 	assert.Assert(t, ips["10.0.0.3"], "healthy node3 should remain")
+}
+
+// TestGuaranteeForwardEndpoints_ProbeFiltersUnreachablePort80 verifies that
+// addresses failing the port 80 probe are excluded from forward Endpoints.
+func TestGuaranteeForwardEndpoints_ProbeFiltersUnreachablePort80(t *testing.T) {
+	ctx := context.Background()
+	clusterName := "test-cluster"
+
+	node1 := makeNode("node1", "10.0.0.1", v1.NodeReady, v1.NodeManaged)
+	node2 := makeNode("node2", "10.0.0.2", v1.NodeReady, v1.NodeManaged)
+	cluster := makeCluster(clusterName, []string{"node1", "node2"})
+
+	srcEp := makeEndpoints(clusterName, []string{"10.0.0.1", "10.0.0.2"})
+
+	forwardName := generateForwardName(clusterName)
+	forwardEp := &corev1.Endpoints{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      forwardName,
+			Namespace: common.PrimusSafeNamespace,
+		},
+		Subsets: []corev1.EndpointSubset{{
+			Addresses: []corev1.EndpointAddress{
+				{IP: "10.0.0.1"}, {IP: "10.0.0.2"},
+			},
+			Ports: []corev1.EndpointPort{{
+				Name: "http", Port: 80, Protocol: corev1.ProtocolTCP,
+			}},
+		}},
+	}
+
+	r := newTestClusterReconciler(
+		[]*v1.Cluster{cluster},
+		[]*v1.Node{node1, node2},
+		[]*corev1.Endpoints{srcEp, forwardEp},
+	)
+	// node2 port 80 unreachable
+	r.endpointProber = func(addr string, _ time.Duration) bool {
+		return !strings.HasPrefix(addr, "10.0.0.2:")
+	}
+
+	err := r.guaranteeForwardEndpoints(ctx, cluster)
+	assert.NilError(t, err)
+
+	updated, err := r.clientSet.CoreV1().Endpoints(common.PrimusSafeNamespace).Get(ctx, forwardName, metav1.GetOptions{})
+	assert.NilError(t, err)
+	assert.Equal(t, len(updated.Subsets[0].Addresses), 1)
+	assert.Equal(t, updated.Subsets[0].Addresses[0].IP, "10.0.0.1")
+}
+
+// TestSyncClusterStatusEndpoints verifies that cluster status endpoints
+// are synced with the source Endpoints resource.
+func TestSyncClusterStatusEndpoints(t *testing.T) {
+	ctx := context.Background()
+	clusterName := "test-cluster"
+
+	node1 := makeNode("node1", "10.0.0.1", v1.NodeReady, v1.NodeManaged)
+	node2 := makeNode("node2", "10.0.0.2", v1.NodeReady, v1.NodeManaged)
+
+	// Cluster status has stale 3 endpoints
+	cluster := makeClusterWithStatusEndpoints(clusterName,
+		[]string{"node1", "node2"},
+		[]string{"https://10.0.0.1:6443", "https://10.0.0.2:6443", "https://10.0.0.3:6443"},
+	)
+
+	// Source Endpoints already updated to 2 IPs (by guaranteeEndpoints)
+	srcEp := makeEndpoints(clusterName, []string{"10.0.0.1", "10.0.0.2"})
+
+	r := newTestClusterReconciler(
+		[]*v1.Cluster{cluster},
+		[]*v1.Node{node1, node2},
+		[]*corev1.Endpoints{srcEp},
+	)
+
+	err := r.syncClusterStatusEndpoints(ctx, cluster)
+	assert.NilError(t, err)
+
+	// Re-read the cluster to verify status was patched
+	updated := new(v1.Cluster)
+	err = r.Get(ctx, types.NamespacedName{Name: clusterName}, updated)
+	assert.NilError(t, err)
+	assert.Equal(t, len(updated.Status.ControlPlaneStatus.Endpoints), 2)
+
+	epSet := map[string]bool{}
+	for _, ep := range updated.Status.ControlPlaneStatus.Endpoints {
+		epSet[ep] = true
+	}
+	assert.Assert(t, epSet["https://10.0.0.1:6443"])
+	assert.Assert(t, epSet["https://10.0.0.2:6443"])
+	assert.Assert(t, !epSet["https://10.0.0.3:6443"], "removed node should not be in status")
+}
+
+// TestSyncClusterStatusEndpoints_NoUpdateWhenInSync verifies no patch
+// is issued when status endpoints are already in sync.
+func TestSyncClusterStatusEndpoints_NoUpdateWhenInSync(t *testing.T) {
+	ctx := context.Background()
+	clusterName := "test-cluster"
+
+	node1 := makeNode("node1", "10.0.0.1", v1.NodeReady, v1.NodeManaged)
+
+	cluster := makeClusterWithStatusEndpoints(clusterName,
+		[]string{"node1"},
+		[]string{"https://10.0.0.1:6443"},
+	)
+
+	srcEp := makeEndpoints(clusterName, []string{"10.0.0.1"})
+
+	r := newTestClusterReconciler(
+		[]*v1.Cluster{cluster},
+		[]*v1.Node{node1},
+		[]*corev1.Endpoints{srcEp},
+	)
+
+	err := r.syncClusterStatusEndpoints(ctx, cluster)
+	assert.NilError(t, err)
+
+	updated := new(v1.Cluster)
+	err = r.Get(ctx, types.NamespacedName{Name: clusterName}, updated)
+	assert.NilError(t, err)
+	assert.Equal(t, len(updated.Status.ControlPlaneStatus.Endpoints), 1)
+	assert.Equal(t, updated.Status.ControlPlaneStatus.Endpoints[0], "https://10.0.0.1:6443")
 }

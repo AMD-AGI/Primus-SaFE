@@ -8,6 +8,7 @@ package resource
 import (
 	"context"
 	"fmt"
+	"net"
 	"time"
 
 	commonfaults "github.com/AMD-AIG-AIMA/SAFE/common/pkg/faults"
@@ -43,12 +44,23 @@ import (
 
 const (
 	CICDClusterRoleBindingLabel = "app.kubernetes.io/role-ref"
+	probeTimeout                = 3 * time.Second
 )
+
+func defaultProbeEndpoint(addr string, timeout time.Duration) bool {
+	conn, err := net.DialTimeout("tcp", addr, timeout)
+	if err != nil {
+		return false
+	}
+	conn.Close()
+	return true
+}
 
 // ClusterReconciler reconciles Cluster resources and manages their lifecycle.
 type ClusterReconciler struct {
 	*ClusterBaseReconciler
-	clientManager *commonutils.ObjectManager
+	clientManager  *commonutils.ObjectManager
+	endpointProber func(addr string, timeout time.Duration) bool
 }
 
 // SetupClusterController initializes and registers the ClusterReconciler with the controller manager.
@@ -60,6 +72,7 @@ func SetupClusterController(mgr manager.Manager) error {
 	r := &ClusterReconciler{
 		ClusterBaseReconciler: baseReconciler,
 		clientManager:         commonutils.NewObjectManagerSingleton(),
+		endpointProber:        defaultProbeEndpoint,
 	}
 
 	if r.clientManager == nil {
@@ -222,6 +235,10 @@ func (r *ClusterReconciler) Reconcile(ctx context.Context, req ctrlruntime.Reque
 	}
 	if err = r.guaranteeService(ctx, cluster); err != nil {
 		klog.ErrorS(err, "failed to guarantee cluster service/endpoints", "cluster", cluster.Name)
+		return ctrlruntime.Result{}, err
+	}
+	if err = r.syncClusterStatusEndpoints(ctx, cluster); err != nil {
+		klog.ErrorS(err, "failed to sync cluster status endpoints", "cluster", cluster.Name)
 		return ctrlruntime.Result{}, err
 	}
 	if err = r.guaranteeForwardIngress(ctx, cluster); err != nil {
@@ -771,6 +788,20 @@ func (r *ClusterReconciler) guaranteeForwardEndpoints(ctx context.Context, clust
 		return err
 	}
 
+	var reachable []corev1.EndpointAddress
+	for _, addr := range addresses {
+		target := fmt.Sprintf("%s:80", addr.IP)
+		if r.endpointProber(target, probeTimeout) {
+			reachable = append(reachable, addr)
+		} else {
+			klog.Warningf("forward endpoint %s unreachable for cluster %s, excluding", target, cluster.Name)
+		}
+	}
+	if len(reachable) == 0 {
+		return fmt.Errorf("no reachable forward endpoints for cluster %s", cluster.Name)
+	}
+	addresses = reachable
+
 	name := generateForwardName(cluster.Name)
 	existing, err := r.clientSet.CoreV1().Endpoints(common.PrimusSafeNamespace).Get(ctx, name, metav1.GetOptions{})
 
@@ -869,6 +900,41 @@ func (r *ClusterReconciler) getClusterEndpoint(ctx context.Context, cluster *v1.
 		return nil, fmt.Errorf("no healthy endpoint addresses found for cluster %s", name)
 	}
 	return addresses, nil
+}
+
+// syncClusterStatusEndpoints syncs the Cluster CR's status.controlPlaneStatus.endpoints
+// with the current healthy addresses from the source Endpoints resource.
+func (r *ClusterReconciler) syncClusterStatusEndpoints(ctx context.Context, cluster *v1.Cluster) error {
+	if !cluster.IsReady() {
+		return nil
+	}
+
+	ep := new(corev1.Endpoints)
+	if err := r.Get(ctx, types.NamespacedName{Name: cluster.Name, Namespace: common.PrimusSafeNamespace}, ep); err != nil {
+		return client.IgnoreNotFound(err)
+	}
+
+	var healthyEndpoints []string
+	for _, ss := range ep.Subsets {
+		for _, addr := range ss.Addresses {
+			healthyEndpoints = append(healthyEndpoints, fmt.Sprintf("https://%s:%d", addr.IP, DefaultApiserverPort))
+		}
+	}
+	if len(healthyEndpoints) == 0 {
+		return nil
+	}
+
+	currentSet := sets.NewSetByKeys(cluster.Status.ControlPlaneStatus.Endpoints...)
+	desiredSet := sets.NewSetByKeys(healthyEndpoints...)
+	if currentSet.Equal(desiredSet) {
+		return nil
+	}
+
+	klog.Infof("syncing cluster %s status endpoints: %v -> %v",
+		cluster.Name, cluster.Status.ControlPlaneStatus.Endpoints, healthyEndpoints)
+	original := client.MergeFrom(cluster.DeepCopy())
+	cluster.Status.ControlPlaneStatus.Endpoints = healthyEndpoints
+	return r.Status().Patch(ctx, cluster, original)
 }
 
 // generateForwardName generates the name for forward resources by appending "-forward" to the cluster name.
