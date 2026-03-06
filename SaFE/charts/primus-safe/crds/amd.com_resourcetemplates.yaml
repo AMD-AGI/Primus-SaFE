@@ -70,6 +70,10 @@ spec:
                   object
                 items:
                   properties:
+                    defaultReplica:
+                      description: Fits scenarios without a defined replica path but
+                        with actual replica values, such as ray-job.
+                      type: integer
                     maxReplicasPaths:
                       description: The relative path of pod max-replica(only for ray-job),
                         Commonly used for elasticity.
