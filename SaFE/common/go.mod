@@ -1,4 +1,4 @@
-// build trigger: quay.io registry support
+// build trigger: quay.io registry support v2
 module github.com/AMD-AIG-AIMA/SAFE/common
 
 go 1.24.7
