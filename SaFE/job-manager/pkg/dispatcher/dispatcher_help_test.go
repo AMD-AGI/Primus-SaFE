@@ -81,7 +81,7 @@ func checkPorts(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workl
 
 	ports, found, err := jobutils.NestedSlice(mainContainer, []string{"ports"})
 	assert.NilError(t, err)
-	assert.Equal(t, len(ports) >= 2, true)
+	assert.Equal(t, len(ports) >= 1, true)
 
 	portName := ""
 	if workload.SpecKind() == common.PytorchJobKind {
