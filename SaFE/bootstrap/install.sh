@@ -123,6 +123,7 @@ if [[ "$sso_enable" == "true" ]]; then
   sso_redirect_uri=$(get_input_with_default "Enter SSO redirect uri(empty to disable SSO): " "")
 fi
 
+csi_volume_handle=$(get_input_with_default "Enter csi volume handle? (empty to disable pfs for workspace): " "")
 install_node_agent=$(get_input_with_default "install node-agent ? (y/n): " "n")
 
 echo "✅ Ethernet nic: \"$ethernet_nic\""
@@ -151,6 +152,7 @@ if [[ "$sso_enable" == "true" ]]; then
   echo "✅ SSO Client Secret: \"$sso_client_secret\""
   echo "✅ SSO Redirect URI: \"$sso_redirect_uri\""
 fi
+echo "✅ CSI Volume Handle: \"$csi_volume_handle\""
 
 replicas=1
 cpu=2000m
@@ -259,6 +261,7 @@ fi
 values_yaml="primus-safe/.values.yaml"
 cp "$src_values_yaml" "${values_yaml}"
 
+sed -i "s/csi_volume_handle: \".*\"/csi_volume_handle: \"$csi_volume_handle\"/" "$values_yaml"
 sed -i "s/nccl_socket_ifname: \".*\"/nccl_socket_ifname: \"$ethernet_nic\"/" "$values_yaml"
 sed -i "s/nccl_ib_hca: \".*\"/nccl_ib_hca: \"$rdma_nic\"/" "$values_yaml"
 sed -i "s/replicas: [0-9]*/replicas: $replicas/" "$values_yaml"
@@ -370,4 +373,5 @@ sso_enable=$sso_enable
 ingress=$ingress
 sub_domain=$sub_domain
 install_node_agent=$install_node_agent
+csi_volume_handle=$csi_volume_handle
 EOF

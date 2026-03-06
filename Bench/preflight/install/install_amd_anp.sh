@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
+# Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
 # See LICENSE for license information.
 #
 
@@ -95,16 +95,20 @@ if ! make -j 16 MPI_INCLUDE=/opt/mpich/include/ \
   exit 1
 fi
 
+# Create symlink librccl-anp.so <-> librccl-net.so if needed (RCCL looks for librccl-anp.so)
 ANP_BUILD_DIR="${WORKDIR}/${ANP_DIR}/build"
-if [ ! -f "${ANP_BUILD_DIR}/librccl-anp.so" ] && [ -f "${ANP_BUILD_DIR}/librccl-net.so" ]; then
+cd ${ANP_BUILD_DIR}
+if [ -f "librccl-anp.so" ] && [ ! -f "librccl-net.so" ]; then
+  echo "Creating symlink: librccl-net.so -> librccl-anp.so"
+  ln -sf librccl-anp.so librccl-net.so
+elif [ -f "librccl-net.so" ] && [ ! -f "librccl-anp.so" ]; then
   echo "Creating symlink: librccl-anp.so -> librccl-net.so"
-  cd ${ANP_BUILD_DIR}
   ln -sf librccl-net.so librccl-anp.so
-  if [ $? -eq 0 ]; then
-    echo "Symlink created successfully."
-  else
-    echo "Warning: Failed to create symlink."
-  fi
+fi
+# Create symlink libnccl-net.so -> librccl-net.so for NCCL-compatible plugin lookup
+if [ -f "librccl-net.so" ] && [ ! -f "libnccl-net.so" ]; then
+  echo "Creating symlink: libnccl-net.so -> librccl-net.so"
+  ln -sf librccl-net.so libnccl-net.so
 fi
 
 echo "============== install  AMD AINIC Network Plugin (amd-anp) ${ANP_VERSION} successfully =============="

@@ -18,18 +18,23 @@ export AINIC_DRIVER_VERSION=${AINIC_DRIVER_VERSION}
 export BNXT_DRIVER_VERSION=${BNXT_DRIVER_VERSION}
 export PATH_TO_BNXT_TAR_PACKAGE=${PATH_TO_BNXT_TAR_PACKAGE}
 
-# Build AINIC driver and set NCCL env if successful
-/bin/sh /shared-data/build_ainic.sh
-ainic_exit_code=$?
-if [ -n "${AINIC_DRIVER_VERSION}" ] && [ ${ainic_exit_code} -eq 0 ]; then
-  export USING_AINIC=1
-  if [ -z "${AINIC_IB_GID_INDEX}" ]; then
-    export AINIC_IB_GID_INDEX=1
+# Build AINIC driver
+if [ -n "${AINIC_DRIVER_VERSION}" ]; then
+  /bin/sh /shared-data/build_ainic.sh
+  if [ $? -ne 0 ]; then
+    echo "ERROR: Failed to build AINIC with driver version ${AINIC_DRIVER_VERSION}. Please check input or remove installation"
+    exit 1
   fi
+  export USING_AINIC=1
+  echo "INFO: AINIC support enabled (USING_AINIC=1)"
 fi
 
 /bin/sh /shared-data/build_bnxt.sh
 /bin/sh /shared-data/build_ssh.sh
+
+if [ -z "$input" ]; then
+    exit 0
+fi
 
 echo "$input" |base64 -d > ".run.sh"
 chmod +x ".run.sh"

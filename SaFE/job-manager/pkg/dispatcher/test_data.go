@@ -469,10 +469,10 @@ data:
                 ports:
                 - containerPort: 6379
                   name: gcs-server
+                  protocol: TCP
                 - containerPort: 8265 # Ray dashboard
                   name: dashboard
-                - containerPort: 10001
-                  name: client
+                  protocol: TCP
                 imagePullPolicy: IfNotPresent
                 volumeMounts:
                   - name: shared-data

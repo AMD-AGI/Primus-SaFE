@@ -12,6 +12,8 @@ global:
   image_pull_secret: "primus-safe-image"
   # Kubernetes storage class for persistent storage
   storage_class: "local-path"
+  # csi volume handle
+  csi_volume_handle: ""
 net:
   # Network interface for NCCL socket communication
   nccl_socket_ifname: "eno0"
