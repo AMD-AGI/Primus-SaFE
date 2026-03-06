@@ -520,7 +520,7 @@ func GetUsedHostPorts(ctx context.Context, cli client.Client, clusterId string) 
 				}
 				if IsRayJob(&item) {
 					ports[common.RayJobDashboard] = struct{}{}
-					ports[common.RayJobDashboard] = struct{}{}
+					ports[common.RayJobGcsServerPort] = struct{}{}
 				}
 			}
 			if item.Spec.Service != nil && item.Spec.Service.NodePort > 0 {
