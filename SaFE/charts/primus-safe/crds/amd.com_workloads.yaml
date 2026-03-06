@@ -131,7 +131,8 @@ spec:
                 description: Indicates whether the workload tolerates node taints
                 type: boolean
               jobPort:
-                description: The container port for workload, This field is set internally
+                description: The container port for workload(only for pytorch-job),
+                  This field is set internally
                 type: integer
               liveness:
                 description: K8s liveness check. used for deployment/statefulSet
