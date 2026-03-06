@@ -34,7 +34,6 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	"github.com/AMD-AIG-AIMA/SAFE/resource-manager/pkg/utils"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/secure"
-	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/sets"
 )
 
 const (
@@ -590,22 +589,8 @@ func (r *ClusterReconciler) guaranteeService(ctx context.Context, cluster *v1.Cl
 	return r.guaranteeServiceResource(ctx, cluster)
 }
 
-// guaranteeEndpoints creates or updates the endpoints resource for the cluster.
-// Only IPs from healthy (MachineReady) nodes are included.
+// guaranteeEndpoints creates the endpoints resource for the cluster.
 func (r *ClusterReconciler) guaranteeEndpoints(ctx context.Context, cluster *v1.Cluster, nodes []*v1.Node) error {
-	address := make([]corev1.EndpointAddress, 0, len(nodes))
-	for _, node := range nodes {
-		if node.IsMachineReady() {
-			address = append(address, corev1.EndpointAddress{IP: node.Spec.PrivateIP})
-		}
-	}
-
-	desiredPorts := []corev1.EndpointPort{{
-		Name:     "https",
-		Port:     DefaultApiserverPort,
-		Protocol: "TCP",
-	}}
-
 	endpoint := new(corev1.Endpoints)
 	err := r.Get(ctx, types.NamespacedName{Name: cluster.Name, Namespace: common.PrimusSafeNamespace}, endpoint)
 
@@ -614,33 +599,12 @@ func (r *ClusterReconciler) guaranteeEndpoints(ctx context.Context, cluster *v1.
 	}
 
 	if err == nil {
-		if len(address) == 0 {
-			klog.Warningf("no healthy control plane nodes for cluster %s, skipping endpoints update", cluster.Name)
-			return nil
-		}
-		desiredIPs := sets.NewSet()
-		for _, a := range address {
-			desiredIPs.Insert(a.IP)
-		}
-		currentIPs := sets.NewSet()
-		if len(endpoint.Subsets) > 0 {
-			for _, a := range endpoint.Subsets[0].Addresses {
-				currentIPs.Insert(a.IP)
-			}
-		}
-		if desiredIPs.Equal(currentIPs) {
-			return nil
-		}
-		klog.Infof("updating cluster endpoints %s: %v -> %v", cluster.Name, currentIPs.UnsortedList(), desiredIPs.UnsortedList())
-		endpoint.Subsets = []corev1.EndpointSubset{{
-			Addresses: address,
-			Ports:     desiredPorts,
-		}}
-		return r.Update(ctx, endpoint)
+		return nil
 	}
 
-	if len(address) == 0 {
-		return nil
+	address := make([]corev1.EndpointAddress, 0, len(nodes))
+	for _, node := range nodes {
+		address = append(address, corev1.EndpointAddress{IP: node.Spec.PrivateIP})
 	}
 
 	endpoint = &corev1.Endpoints{
@@ -649,10 +613,18 @@ func (r *ClusterReconciler) guaranteeEndpoints(ctx context.Context, cluster *v1.
 			Namespace:       common.PrimusSafeNamespace,
 			OwnerReferences: []metav1.OwnerReference{createKubernetesClusterOwnerReference(cluster)},
 		},
-		Subsets: []corev1.EndpointSubset{{
-			Addresses: address,
-			Ports:     desiredPorts,
-		}},
+		Subsets: []corev1.EndpointSubset{
+			{
+				Addresses: address,
+				Ports: []corev1.EndpointPort{
+					{
+						Name:     "https",
+						Port:     DefaultApiserverPort,
+						Protocol: "TCP",
+					},
+				},
+			},
+		},
 	}
 
 	err = r.Create(ctx, endpoint)

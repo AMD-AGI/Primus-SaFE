@@ -24,6 +24,5 @@ func Init(logfilePath string, logFileSize int) error {
 		flag.Set("log_file_max_size", strconv.Itoa(logFileSize))
 	}
 	flag.Parse()
-
 	return nil
 }
