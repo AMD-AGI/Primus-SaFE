@@ -16,14 +16,14 @@ echo "============== begin to install AMD AINIC (version: ${AINIC_DRIVER_VERSION
 set -e
 
 # ---------------------------------------------------------------------------
-# Version mapping: AINIC_DRIVER_VERSION -> (AMD_ANP_VERSION, ROCM_VERSION)
+# Version mapping: AINIC_DRIVER_VERSION -> (AMD_ANP_VERSION, LIBIONIC_VERSION)
+# ROCM_VERSION is read from /opt/rocm/.info/version
 # ---------------------------------------------------------------------------
 set_versions_from_driver() {
   _driver_version="$1"
   case "${_driver_version}" in
     1.117.5-a-56)
       AMD_ANP_VERSION="v1.3.0"
-      ROCM_VERSION="7.1.0"
       LIBIONIC_VERSION="54.0-184"
       ;;
     *)
@@ -36,6 +36,14 @@ set_versions_from_driver() {
 }
 
 set_versions_from_driver "${AINIC_DRIVER_VERSION}"
+
+# Get ROCm version from container
+ROCM_VERSION=$(cat /opt/rocm/.info/version 2>/dev/null | tr -d '[:space:]' | cut -d'-' -f1)
+if [ -z "${ROCM_VERSION}" ]; then
+  echo "Error: ROCm not found. Cannot read /opt/rocm/.info/version"
+  exit 1
+fi
+
 echo "Mapped AINIC driver version ${AINIC_DRIVER_VERSION} -> ANP: ${AMD_ANP_VERSION}, ROCM: ${ROCM_VERSION}, LIBIONIC: ${LIBIONIC_VERSION}"
 
 # Search for matching driver file in /shared-data/drivers/
@@ -56,14 +64,21 @@ fi
 echo "Found AINIC driver tarball: ${PATH_TO_AINIC_TAR_PACKAGE}"
 
 . /shared-data/utils.sh
-install_if_not_exists dpkg-dev kmod xz-utils libfmt-dev libboost-all-dev libibverbs-dev ibverbs-utils infiniband-diags
+_start=$(date +%s)
+echo "Installing dependencies ..."
+install_if_not_exists dpkg-dev kmod xz-utils libfmt-dev libboost-all-dev libibverbs-dev ibverbs-utils infiniband-diags jq initramfs-tools
+_end=$(date +%s)
+echo "Dependencies installed in $((_end - _start)) seconds"
 
 # Call build_anp.sh with required parameters
 export AMD_ANP_VERSION=${AMD_ANP_VERSION}
 export ROCM_VERSION=${ROCM_VERSION}
 export AINIC_DRIVER_VERSION=${AINIC_DRIVER_VERSION}
 export LIBIONIC_VERSION=${LIBIONIC_VERSION}
+_start=$(date +%s)
 /bin/sh /shared-data/build_anp.sh
+_end=$(date +%s)
+echo "ANP install.sh completed in $((_end - _start)) seconds"
 
 WORKDIR="/opt"
 cd ${WORKDIR}
@@ -84,9 +99,14 @@ if [ $? -ne 0 ]; then
   echo "Error: Failed to extract ${AINIC_TARBALL}"
   exit 1
 fi
+rm -f ${AINIC_TARBALL}
 
 # Extract host software package
 cd ${AINIC_DIR}
+if [ ! -f "host_sw_pkg.tar.gz" ]; then
+  echo "Error: host_sw_pkg.tar.gz not found in ${AINIC_DIR}"
+  exit 1
+fi
 tar zxf host_sw_pkg.tar.gz
 if [ $? -ne 0 ]; then
   echo "Error: Failed to extract host_sw_pkg.tar.gz"
@@ -95,8 +115,16 @@ fi
 
 # Run installation script
 cd host_sw_pkg
+if [ ! -f "./install.sh" ]; then
+  echo "Error: install.sh not found in host_sw_pkg"
+  exit 1
+fi
+_start=$(date +%s)
 ./install.sh --domain=user -y
-if [ $? -ne 0 ]; then
+_exit=$?
+_end=$(date +%s)
+echo "AINIC driver install.sh completed in $((_end - _start)) seconds"
+if [ $_exit -ne 0 ]; then
   echo "Error: Failed to install AINIC driver."
   exit 1
 fi
@@ -104,7 +132,6 @@ fi
 # Cleanup
 echo "Cleaning up temporary files..."
 cd ${WORKDIR}
-rm -f ${AINIC_TARBALL}
 rm -rf ${AINIC_DIR}
 
 echo "============== install AMD AINIC ${AINIC_DRIVER_VERSION} successfully =============="

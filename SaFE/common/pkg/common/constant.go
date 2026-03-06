@@ -41,6 +41,7 @@ const (
 	MaxReplicaGroup   = "MAX_REPLICA_GROUP"
 	MinReplicaGroup   = "MIN_REPLICA_GROUP"
 	TorchFTLightHouse = "TORCHFT_LIGHTHOUSE"
+	RayJobEntrypoint  = "RAY_JOB_ENTRYPOINT"
 	// for preflight job
 	GPU_PRODUCT = "GPU_PRODUCT"
 
@@ -54,12 +55,17 @@ const (
 	KubePublicNamespace    = "kube-public"
 	PytorchJobPortName     = "pytorchjob-port"
 	PfsSelectorKey         = "pfs-name"
-	SSHPortName            = "ssh-port"
 	JsonContentType        = "application/json; charset=utf-8"
 	KubernetesControlPlane = "node-role.kubernetes.io/control-plane"
 	ExcludedNodes          = "excluded-nodes"
 	TaintAction            = "taint"
 	CICDArcNamespace       = "arc-systems"
+
+	RayJobSubmitterName   = "ray-job-submitter"
+	RayJobSubmitterCpu    = "1"
+	RayJobSubmitterMemory = "1Gi"
+	RayJobGcsServerPort   = 6379
+	RayJobDashboard       = 8265
 
 	DefaultBurst          = 1000
 	DefaultQPS            = 1000

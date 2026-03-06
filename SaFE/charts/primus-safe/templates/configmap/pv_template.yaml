@@ -2,7 +2,7 @@
 # Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
 # See LICENSE for license information.
 #
-
+{{- if .Values.global.csi_volume_handle }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -14,7 +14,7 @@ metadata:
     primus-safe.display.name: "wekafs"
   annotations:
     # When set to true, automatically creates PV based on the template below when creating a workspace
-    primus-safe.workspace.auto-create-pv: "false"
+    primus-safe.workspace.auto-create-pv: "true"
     meta.helm.sh/release-name: {{ .Release.Name }}
     meta.helm.sh/release-namespace: {{ .Release.Namespace }}
 data:
@@ -37,7 +37,7 @@ data:
       nodePublishSecretRef:
         name: csi-wekafs-api-secret
         namespace: kube-system
-      volumeHandle: dir/v1/amdprj2-k8s/csi-volumes/public
+      volumeHandle: dir/v1/{{ .Values.global.csi_volume_handle }}/csi-volumes/public
     mountOptions:
       - rw
       - relatime
@@ -48,3 +48,4 @@ data:
       - dentry_max_age_negative=0
     persistentVolumeReclaimPolicy: Retain
     volumeMode: Filesystem
+{{- end }}

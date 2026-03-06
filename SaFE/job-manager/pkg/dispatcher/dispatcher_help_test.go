@@ -68,7 +68,7 @@ func checkResources(t *testing.T, obj *unstructured.Unstructured, workload *v1.W
 	}
 }
 
-func checkPorts(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workload, template *v1.ResourceSpec) {
+func checkPorts(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workload, template *v1.ResourceSpec, id int) {
 	containerPath := append(template.PrePaths, template.TemplatePaths...)
 	containerPath = append(containerPath, "spec", "containers")
 
@@ -81,24 +81,36 @@ func checkPorts(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workl
 
 	ports, found, err := jobutils.NestedSlice(mainContainer, []string{"ports"})
 	assert.NilError(t, err)
-	assert.Equal(t, len(ports), 2)
+	assert.Equal(t, len(ports) >= 2, true)
 
-	port := ports[0].(map[string]interface{})
-	name, ok := port["name"]
+	portName := ""
 	if workload.SpecKind() == common.PytorchJobKind {
-		assert.Equal(t, ok, true)
-		assert.Equal(t, name, common.PytorchJobPortName)
+		portName = common.PytorchJobPortName
 	}
-	val, ok := port["containerPort"]
-	assert.Equal(t, ok, true)
-	assert.Equal(t, val, int64(workload.Spec.JobPort))
+	findPort(t, ports, portName, int64(workload.Spec.JobPort))
 
-	port = ports[1].(map[string]interface{})
-	name, ok = port["name"]
-	assert.Equal(t, name, common.SSHPortName)
-	val, ok = port["containerPort"]
-	assert.Equal(t, ok, true)
-	assert.Equal(t, val, int64(workload.Spec.SSHPort))
+	if commonworkload.IsRayJob(workload) && id == 0 {
+		findPort(t, ports, "gcs-server", 6379)
+		findPort(t, ports, "dashboard", 8265)
+	}
+}
+
+func findPort(t *testing.T, ports []interface{}, portName string, portValue int64) {
+	hasFound := false
+	for _, p := range ports {
+		port := p.(map[string]interface{})
+		val, ok := port["containerPort"]
+		assert.Equal(t, ok, true)
+		if val == portValue {
+			hasFound = true
+			name, ok := port["name"]
+			if ok && portName != "" {
+				assert.Equal(t, name, portName)
+			}
+			break
+		}
+	}
+	assert.Equal(t, hasFound, true)
 }
 
 func checkEnvs(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workload, resourceSpec *v1.ResourceSpec, id int) {

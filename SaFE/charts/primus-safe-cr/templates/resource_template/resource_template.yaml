@@ -370,6 +370,7 @@ spec:
         - spec
         - rayClusterSpec
         - headGroupSpec
+      defaultReplica: 1
       templatePaths:
         - template
     - prePaths:
