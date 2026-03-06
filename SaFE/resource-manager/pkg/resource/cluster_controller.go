@@ -40,7 +40,6 @@ import (
 	commonclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/k8sclient"
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 	"github.com/AMD-AIG-AIMA/SAFE/resource-manager/pkg/utils"
-	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/sets"
 )
 
 const (
