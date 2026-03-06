@@ -329,9 +329,17 @@ jobs:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
 
+      - name: Login to Quay.io
+        uses: docker/login-action@v3
+        with:
+          registry: quay.io
+          username: ${{ secrets.QUAY_USERNAME }}
+          password: ${{ secrets.QUAY_PASSWORD }}
+
       - name: Build and push
         env:
           DOCKERIO_REPOSITORY: docker.io/primussafe
+          QUAYIO_REPOSITORY: quay.io/primussafe
           IMAGE_VERSION: ${{ needs.detect-changes.outputs.image_version }}
           DATE_TIME: ${{ needs.detect-changes.outputs.date_time }}
         run: |
@@ -361,6 +369,8 @@ jobs:
             --build-arg GITHUB_TOKEN=${{ secrets.GITHUB_TOKEN }} \
             -t ${DOCKERIO_REPOSITORY}/${{ matrix.name }}:${IMAGE_VERSION} \
             -t ${DOCKERIO_REPOSITORY}/${{ matrix.name }}:${DATE_TIME} \
+            -t ${QUAYIO_REPOSITORY}/${{ matrix.name }}:${IMAGE_VERSION} \
+            -t ${QUAYIO_REPOSITORY}/${{ matrix.name }}:${DATE_TIME} \
             -f ${DOCKERFILE} \
             --push .
           
@@ -392,10 +402,18 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Login to Quay.io
+        uses: docker/login-action@v3
+        with:
+          registry: quay.io
+          username: ${{ secrets.QUAY_USERNAME }}
+          password: ${{ secrets.QUAY_PASSWORD }}
+
       - name: Build and push TraceLens
         env:
           DOCKERIO_REPOSITORY: docker.io/primussafe
           GHCR_REPOSITORY: ghcr.io/amd-agi/primussafe
+          QUAYIO_REPOSITORY: quay.io/primussafe
           IMAGE_VERSION: ${{ needs.detect-changes.outputs.image_version }}
           DATE_TIME: ${{ needs.detect-changes.outputs.date_time }}
         run: |
@@ -411,6 +429,8 @@ jobs:
             -t ${DOCKERIO_REPOSITORY}/tracelens:${DATE_TIME} \
             -t ${GHCR_REPOSITORY}/tracelens:${IMAGE_VERSION} \
             -t ${GHCR_REPOSITORY}/tracelens:${DATE_TIME} \
+            -t ${QUAYIO_REPOSITORY}/tracelens:${IMAGE_VERSION} \
+            -t ${QUAYIO_REPOSITORY}/tracelens:${DATE_TIME} \
             -f "${TRACELENS_DIR}/Dockerfile" \
             --push \
             "${TRACELENS_DIR}"
@@ -431,6 +451,7 @@ jobs:
             "docker_hub": "docker.io/primussafe/tracelens:${IMAGE_VERSION}",
             "docker_hub_datetime": "docker.io/primussafe/tracelens:${DATE_TIME}",
             "ghcr": "ghcr.io/amd-agi/primussafe/tracelens:${IMAGE_VERSION}",
+            "quay": "quay.io/primussafe/tracelens:${IMAGE_VERSION}",
             "build_time": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")",
             "commit_sha": "${{ github.sha }}",
             "ref": "${{ github.ref }}"
@@ -470,10 +491,18 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Login to Quay.io
+        uses: docker/login-action@v3
+        with:
+          registry: quay.io
+          username: ${{ secrets.QUAY_USERNAME }}
+          password: ${{ secrets.QUAY_PASSWORD }}
+
       - name: Build and push Perfetto Viewer
         env:
           DOCKERIO_REPOSITORY: docker.io/primussafe
           GHCR_REPOSITORY: ghcr.io/amd-agi/primussafe
+          QUAYIO_REPOSITORY: quay.io/primussafe
           IMAGE_VERSION: ${{ needs.detect-changes.outputs.image_version }}
           DATE_TIME: ${{ needs.detect-changes.outputs.date_time }}
         run: |
@@ -489,6 +518,8 @@ jobs:
             -t ${DOCKERIO_REPOSITORY}/perfetto-viewer:${DATE_TIME} \
             -t ${GHCR_REPOSITORY}/perfetto-viewer:${IMAGE_VERSION} \
             -t ${GHCR_REPOSITORY}/perfetto-viewer:${DATE_TIME} \
+            -t ${QUAYIO_REPOSITORY}/perfetto-viewer:${IMAGE_VERSION} \
+            -t ${QUAYIO_REPOSITORY}/perfetto-viewer:${DATE_TIME} \
             -f "${PERFETTO_DIR}/Dockerfile" \
             --push \
             "${PERFETTO_DIR}"
@@ -509,6 +540,7 @@ jobs:
             "docker_hub": "docker.io/primussafe/perfetto-viewer:${IMAGE_VERSION}",
             "docker_hub_datetime": "docker.io/primussafe/perfetto-viewer:${DATE_TIME}",
             "ghcr": "ghcr.io/amd-agi/primussafe/perfetto-viewer:${IMAGE_VERSION}",
+            "quay": "quay.io/primussafe/perfetto-viewer:${IMAGE_VERSION}",
             "build_time": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")",
             "commit_sha": "${{ github.sha }}",
             "ref": "${{ github.ref }}"
@@ -555,10 +587,18 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Login to Quay.io
+        uses: docker/login-action@v3
+        with:
+          registry: quay.io
+          username: ${{ secrets.QUAY_USERNAME }}
+          password: ${{ secrets.QUAY_PASSWORD }}
+
       - name: Build and push GitHub Runner
         env:
           DOCKERIO_REPOSITORY: docker.io/primussafe
           GHCR_REPOSITORY: ghcr.io/amd-agi/primussafe
+          QUAYIO_REPOSITORY: quay.io/primussafe
           IMAGE_VERSION: ${{ needs.detect-changes.outputs.image_version }}
           DATE_TIME: ${{ needs.detect-changes.outputs.date_time }}
           RUNNER_VERSION: ${{ steps.read-version.outputs.runner_version }}
@@ -578,6 +618,9 @@ jobs:
             -t ${GHCR_REPOSITORY}/github-runner:${IMAGE_VERSION} \
             -t ${GHCR_REPOSITORY}/github-runner:${DATE_TIME} \
             -t ${GHCR_REPOSITORY}/github-runner:v${RUNNER_VERSION} \
+            -t ${QUAYIO_REPOSITORY}/github-runner:${IMAGE_VERSION} \
+            -t ${QUAYIO_REPOSITORY}/github-runner:${DATE_TIME} \
+            -t ${QUAYIO_REPOSITORY}/github-runner:v${RUNNER_VERSION} \
             -f "${GITHUB_RUNNER_DIR}/Dockerfile" \
             --push \
             "${GITHUB_RUNNER_DIR}"
@@ -601,6 +644,7 @@ jobs:
             "docker_hub_datetime": "docker.io/primussafe/github-runner:${DATE_TIME}",
             "docker_hub_runner_version": "docker.io/primussafe/github-runner:v${RUNNER_VERSION}",
             "ghcr": "ghcr.io/amd-agi/primussafe/github-runner:${IMAGE_VERSION}",
+            "quay": "quay.io/primussafe/github-runner:${IMAGE_VERSION}",
             "build_time": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")",
             "commit_sha": "${{ github.sha }}",
             "ref": "${{ github.ref }}"
@@ -711,6 +755,7 @@ jobs:
           echo "" >> build-versions.txt
           echo "Docker Hub Registry: docker.io/primussafe/" >> build-versions.txt
           echo "GHCR Registry: ghcr.io/amd-agi/primussafe/" >> build-versions.txt
+          echo "Quay.io Registry: quay.io/primussafe/" >> build-versions.txt
           echo "================================================" >> build-versions.txt
           
           echo ""
