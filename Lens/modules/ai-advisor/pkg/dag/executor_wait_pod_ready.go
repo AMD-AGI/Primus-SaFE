@@ -40,10 +40,10 @@ func (e *WaitPodReadyExecutor) Execute(ctx context.Context, master *MasterTask, 
 	for _, pod := range pods {
 		if e.podProber.IsPodReady(ctx, pod) {
 			sub.Result = map[string]interface{}{
-				"ready_pod_uid": pod.PodUID,
-				"pod_name":      pod.PodName,
+				"ready_pod_uid": pod.UID,
+				"pod_name":      pod.Name,
 			}
-			log.Debugf("WaitPodReadyExecutor: pod %s is ready for workload %s", pod.PodName, master.WorkloadUID)
+			log.Debugf("WaitPodReadyExecutor: pod %s is ready for workload %s", pod.Name, master.WorkloadUID)
 			return nil
 		}
 	}
