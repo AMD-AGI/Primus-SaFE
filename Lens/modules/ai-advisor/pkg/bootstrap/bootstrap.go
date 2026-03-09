@@ -190,10 +190,6 @@ func Bootstrap(ctx context.Context) error {
 		}
 
 		// Register Analysis Pipeline executor (intent-aware replacement for coordinator)
-		conductorURL := os.Getenv("CONDUCTOR_URL")
-		if conductorURL == "" {
-			conductorURL = "http://primus-conductor:8080"
-		}
 		aiGatewayURL := os.Getenv("AI_GATEWAY_URL")
 		if aiGatewayURL == "" {
 			aiGatewayURL = "http://ai-gateway:8003/v1"
@@ -214,7 +210,7 @@ func Bootstrap(ctx context.Context) error {
 			}
 		}
 
-		analysisPipeline := pipeline.NewWorkloadAnalysisPipeline(conductorURL, aiGatewayURL, instanceID, podProber, snapshotStore)
+		analysisPipeline := pipeline.NewWorkloadAnalysisPipeline(podProber, snapshotStore)
 		if err := taskScheduler.RegisterExecutor(analysisPipeline); err != nil {
 			log.Errorf("Failed to register analysis pipeline executor: %v", err)
 		} else {
