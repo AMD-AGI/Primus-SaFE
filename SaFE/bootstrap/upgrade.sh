@@ -59,6 +59,9 @@ echo "✅ Helm Registry: \"$helm_registry\""
 echo "✅ CD Require Approval: \"$cd_require_approval\""
 echo "✅ Install Node Agent: \"${install_node_agent:-y}\""
 echo "✅ CSI Volume Handle: \"$csi_volume_handle\""
+echo "✅ Node Agent GPU Driver: \"${node_agent_gpu_driver:-6.12.12}\""
+echo "✅ Node Agent ROCm Version: \"${node_agent_rocm_version:-6.4}\""
+echo "✅ Node Agent Toggles: net_bnxt_load_204=${node_agent_toggle_net_bnxt_load_204:-off}, net_ainic_load_205=${node_agent_toggle_net_ainic_load_205:-off}, net_ainic_devices_208=${node_agent_toggle_net_ainic_devices_208:-off}, sys_csi_wekafs_309=${node_agent_toggle_sys_csi_wekafs_309:-off}"
 
 echo
 
@@ -199,10 +202,15 @@ else
   cp "$src_values_yaml" "${values_yaml}"
 
   sed -i '/node_agent:/,/^[a-z]/ s/image_registry: .*/image_registry: "'"$safe_image"'"/' "$values_yaml"
-
   sed -i "s/nccl_socket_ifname: \".*\"/nccl_socket_ifname: \"$ethernet_nic\"/" "$values_yaml"
   sed -i "s/nccl_ib_hca: \".*\"/nccl_ib_hca: \"$rdma_nic\"/" "$values_yaml"
   sed -i "s/image_pull_secret: \".*\"/image_pull_secret: \"$IMAGE_PULL_SECRET\"/" "$values_yaml"
+  sed -i "s/gpu_driver: \".*\"/gpu_driver: \"${node_agent_gpu_driver:-6.12.12}\"/" "$values_yaml"
+  sed -i "s/rocm_version: \".*\"/rocm_version: \"${node_agent_rocm_version:-6.4}\"/" "$values_yaml"
+  sed -i "s/net_bnxt_load_204: \".*\"/net_bnxt_load_204: \"${node_agent_toggle_net_bnxt_load_204:-off}\"/" "$values_yaml"
+  sed -i "s/net_ainic_load_205: \".*\"/net_ainic_load_205: \"${node_agent_toggle_net_ainic_load_205:-off}\"/" "$values_yaml"
+  sed -i "s/net_ainic_devices_208: \".*\"/net_ainic_devices_208: \"${node_agent_toggle_net_ainic_devices_208:-off}\"/" "$values_yaml"
+  sed -i "s/sys_csi_wekafs_309: \".*\"/sys_csi_wekafs_309: \"${node_agent_toggle_sys_csi_wekafs_309:-off}\"/" "$values_yaml"
 
   install_or_upgrade_helm_chart "node-agent" "$values_yaml"
   rm -f "$values_yaml"

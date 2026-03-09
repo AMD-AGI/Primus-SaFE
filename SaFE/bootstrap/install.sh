@@ -374,4 +374,10 @@ ingress=$ingress
 sub_domain=$sub_domain
 install_node_agent=$install_node_agent
 csi_volume_handle=$csi_volume_handle
+node_agent_gpu_driver=6.12.12
+node_agent_rocm_version=6.4
+node_agent_toggle_net_bnxt_load_204=off
+node_agent_toggle_net_ainic_load_205=off
+node_agent_toggle_net_ainic_devices_208=off
+node_agent_toggle_sys_csi_wekafs_309=off
 EOF
