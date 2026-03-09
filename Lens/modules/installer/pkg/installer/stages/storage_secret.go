@@ -127,7 +127,7 @@ func (s *StorageSecretStage) buildPostgresConfig(ctx context.Context, client *in
 	}
 
 	return installer.PostgresConfig{
-		Service:   fmt.Sprintf("primus-lens-primary.%s.svc.cluster.local", config.Namespace),
+		Service:   "primus-lens-primary",
 		Port:      5432,
 		Namespace: config.Namespace,
 		Username:  "primus-lens",
@@ -144,7 +144,7 @@ func (s *StorageSecretStage) buildOpenSearchConfig(ctx context.Context, client *
 	}
 
 	return installer.OpenSearchConfig{
-		Service:     fmt.Sprintf("primus-lens-logs-nodes.%s.svc.cluster.local", config.Namespace),
+		Service:     "primus-lens-logs-nodes",
 		Port:        9200,
 		Namespace:   config.Namespace,
 		Username:    string(secret.Data["username"]),
@@ -159,13 +159,26 @@ func (s *StorageSecretStage) buildPrometheusConfig(config *installer.InstallConf
 	return installer.PrometheusConfig{
 		ReadEndpoint:  fmt.Sprintf("http://vmselect-primus-lens-vmcluster.%s.svc.cluster.local:8481/select/0/prometheus", config.Namespace),
 		WriteEndpoint: fmt.Sprintf("http://vminsert-primus-lens-vmcluster.%s.svc.cluster.local:8480/insert/0/prometheus", config.Namespace),
+		ReadService:   "vmselect-primus-lens-vmcluster",
+		WriteService:  "vminsert-primus-lens-vmcluster",
+		ReadPort:      8481,
+		WritePort:     8480,
+		Namespace:     config.Namespace,
 	}
 }
 
 func (s *StorageSecretStage) generateSecretYAML(namespace string, storageConfig installer.StorageConfig) ([]byte, error) {
-	configJSON, err := json.Marshal(storageConfig)
+	pgJSON, err := json.Marshal(storageConfig.Postgres)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to marshal postgres config: %w", err)
+	}
+	osJSON, err := json.Marshal(storageConfig.OpenSearch)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal opensearch config: %w", err)
+	}
+	promJSON, err := json.Marshal(storageConfig.Prometheus)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal prometheus config: %w", err)
 	}
 
 	yaml := fmt.Sprintf(`apiVersion: v1
@@ -175,9 +188,13 @@ metadata:
   namespace: %s
 type: Opaque
 stringData:
-  config.json: |
+  postgres: |
     %s
-`, namespace, string(configJSON))
+  opensearch: |
+    %s
+  prometheus: |
+    %s
+`, namespace, string(pgJSON), string(osJSON), string(promJSON))
 
 	return []byte(yaml), nil
 }
