@@ -12,6 +12,7 @@ import (
 
 	"github.com/AMD-AGI/Primus-SaFE/Lens/ai-advisor/pkg/api/handlers"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/ai-advisor/pkg/common"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/ai-advisor/pkg/dag"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/ai-advisor/pkg/detection"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/ai-advisor/pkg/distill"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/ai-advisor/pkg/loganalysis"
@@ -248,15 +249,19 @@ func Bootstrap(ctx context.Context) error {
 			log.Infof("Task scheduler started (instance: %s)", instanceID)
 		}
 
+		// Start DAG scheduler for intent analysis
+		dagScheduler := startDAGScheduler(ctx, podProber)
+		if dagScheduler != nil {
+			dagHandler := dag.NewWorkloadEventHandler(dagScheduler, database.NewWorkloadDetectionFacade())
+			go startPeriodicDAGScan(ctx, dagHandler)
+			log.Info("DAG scheduler started for intent analysis")
+		}
+
 		// Start periodic scan for undetected workloads
 		taskCreator := detection.GetTaskCreator()
 		if taskCreator != nil {
 			go startPeriodicWorkloadScan(ctx, taskCreator)
 			log.Info("Periodic workload scan started (interval: 1 minute)")
-
-			// Start periodic scan for workloads needing intent analysis
-			go startPeriodicIntentScan(ctx, taskCreator)
-			log.Info("Periodic intent analysis scan started (interval: 2 minutes)")
 		}
 
 		// Start daily flywheel jobs (backtesting + promotion + distillation via ai-gateway)
@@ -320,29 +325,42 @@ func startPeriodicWorkloadScan(ctx context.Context, taskCreator *detection.TaskC
 	}
 }
 
-// startPeriodicIntentScan starts a goroutine that periodically scans for
-// workloads that have been detected but need intent analysis
-func startPeriodicIntentScan(ctx context.Context, taskCreator *detection.TaskCreator) {
-	ticker := time.NewTicker(2 * time.Minute)
+func startPeriodicDAGScan(ctx context.Context, handler *dag.WorkloadEventHandler) {
+	ticker := time.NewTicker(10 * time.Second)
 	defer ticker.Stop()
-
-	// Initial delay to let detection coordinator populate workload_detection first
-	time.Sleep(30 * time.Second)
-	if err := taskCreator.ScanForWorkloadsNeedingIntent(ctx); err != nil {
-		log.Errorf("Initial intent scan failed: %v", err)
-	}
-
+	time.Sleep(5 * time.Second)
+	handler.ScanAndTrigger(ctx)
 	for {
 		select {
 		case <-ctx.Done():
-			log.Info("Stopping periodic intent scan")
+			log.Info("Stopping periodic DAG scan")
 			return
 		case <-ticker.C:
-			if err := taskCreator.ScanForWorkloadsNeedingIntent(ctx); err != nil {
-				log.Errorf("Periodic intent scan failed: %v", err)
-			}
+			handler.ScanAndTrigger(ctx)
 		}
 	}
+}
+
+func startDAGScheduler(ctx context.Context, podProber *common.PodProber) *dag.DAGScheduler {
+	clusterID := os.Getenv("CLUSTER_ID")
+	if clusterID == "" {
+		clusterID = "default"
+	}
+	scheduler := dag.NewDAGScheduler(clusterID)
+
+	detectionFacade := database.NewWorkloadDetectionFacade()
+	evidenceFacade := database.NewWorkloadDetectionEvidenceFacade()
+	imageCacheFacade := database.NewImageRegistryCacheFacade()
+
+	scheduler.RegisterExecutor(dag.TaskTypeImageAnalysis, dag.NewImageAnalysisExecutor(detectionFacade, imageCacheFacade))
+	scheduler.RegisterExecutor(dag.TaskTypeLabelEnvCollection, dag.NewLabelEnvExecutor(detectionFacade))
+	scheduler.RegisterExecutor(dag.TaskTypeWaitPodReady, dag.NewWaitPodReadyExecutor(podProber))
+	scheduler.RegisterExecutor(dag.TaskTypeProcessCollection, dag.NewProcessCollectionExecutor(evidenceFacade))
+	scheduler.RegisterExecutor(dag.TaskTypeAssembleSubmit, dag.NewAssembleSubmitExecutor(detectionFacade, evidenceFacade, imageCacheFacade))
+	scheduler.RegisterExecutor(dag.TaskTypeWaitClassification, dag.NewWaitClassificationExecutor(detectionFacade))
+
+	scheduler.Start(ctx)
+	return scheduler
 }
 
 func initRouter(group *gin.RouterGroup) error {
