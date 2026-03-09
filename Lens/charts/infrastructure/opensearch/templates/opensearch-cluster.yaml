@@ -10,6 +10,7 @@ spec:
   bootstrap:
     additionalConfig:
       cluster.routing.allocation.disk.threshold_enabled: "false"
+      plugins.security.allow_default_init_securityindex: "true"
   general:
     serviceName: {{ .Values.opensearch.name }}
     version: {{ .Values.opensearch.version | quote }}
@@ -17,6 +18,7 @@ spec:
     setVMMaxMapCount: true
     additionalConfig:
       cluster.routing.allocation.disk.threshold_enabled: "false"
+      plugins.security.allow_default_init_securityindex: "true"
   
   dashboards:
     enable: {{ .Values.opensearch.dashboards.enabled }}
