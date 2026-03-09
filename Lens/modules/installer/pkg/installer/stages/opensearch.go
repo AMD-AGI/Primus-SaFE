@@ -33,7 +33,7 @@ func (s *OpenSearchStage) CheckPrerequisites(ctx context.Context, client *instal
 	var missing []string
 
 	// Check OpenSearch operator is deployed
-	exists, err := client.ClusterRoleExists(ctx, "opensearch-operator-manager-role")
+	exists, err := client.ClusterRoleExists(ctx, "opensearch-operator-opensearch-operator-manager-role")
 	if err != nil {
 		return nil, fmt.Errorf("failed to check OpenSearch operator: %w", err)
 	}
@@ -136,7 +136,7 @@ func (s *OpenSearchStage) Execute(ctx context.Context, client *installer.Cluster
 func (s *OpenSearchStage) WaitForReady(ctx context.Context, client *installer.ClusterClient, config *installer.InstallConfig, timeout time.Duration) error {
 	log.Info("Waiting for OpenSearch pods to be ready...")
 
-	label := "opensearch.cluster.opensearch.org/cluster-name=primus-lens-logs"
+	label := "opster.io/opensearch-cluster=primus-lens-logs"
 	if err := client.WaitForPodsWithRetry(ctx, config.Namespace, label, timeout); err != nil {
 		return fmt.Errorf("failed waiting for OpenSearch pods: %w", err)
 	}

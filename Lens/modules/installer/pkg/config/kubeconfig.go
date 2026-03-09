@@ -6,9 +6,12 @@ package config
 import (
 	"encoding/base64"
 	"fmt"
+	"os"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 	"k8s.io/client-go/rest"
+	"k8s.io/client-go/tools/clientcmd"
 )
 
 // kubeConfigV1 is a minimal kubeconfig structure for serialization.
@@ -94,4 +97,21 @@ func BuildInClusterKubeconfig() ([]byte, error) {
 		return nil, fmt.Errorf("failed to marshal kubeconfig: %w", err)
 	}
 	return out, nil
+}
+
+// LoadLocalKubeconfig reads kubeconfig from default locations (KUBECONFIG or ~/.kube/config).
+// Use when running outside the cluster (e.g. local dev). Returns raw kubeconfig bytes.
+func LoadLocalKubeconfig() ([]byte, error) {
+	path := ""
+	if k := os.Getenv("KUBECONFIG"); k != "" {
+		path = strings.Split(k, string(os.PathListSeparator))[0]
+	}
+	if path == "" {
+		path = clientcmd.RecommendedHomeFile
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read kubeconfig from %s: %w", path, err)
+	}
+	return data, nil
 }
