@@ -1,0 +1,48 @@
+{{- if .Values.opensearch.enabled }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ .Values.opensearch.name }}-security-init
+  namespace: {{ include "opensearch.namespace" . }}
+  labels:
+    {{- include "opensearch.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": post-install
+    "helm.sh/hook-weight": "10"
+    "helm.sh/hook-delete-policy": before-hook-creation
+spec:
+  backoffLimit: 30
+  activeDeadlineSeconds: 900
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: security-init
+          image: docker.io/opensearchproject/opensearch:{{ .Values.opensearch.version }}
+          command:
+            - /bin/bash
+            - -c
+            - |
+              echo "Waiting for OpenSearch to be reachable..."
+              until curl -sk https://{{ .Values.opensearch.name }}.{{ include "opensearch.namespace" . }}.svc.cluster.local:9200; do
+                echo "Waiting..."; sleep 10
+              done
+              echo "Running securityadmin with --accept-red-cluster..."
+              /usr/share/opensearch/plugins/opensearch-security/tools/securityadmin.sh \
+                -cd /usr/share/opensearch/config/opensearch-security/ \
+                -icl -nhnv \
+                --accept-red-cluster \
+                -cacert /certs/ca.crt \
+                -cert /certs/tls.crt \
+                -key /certs/tls.key \
+                -h {{ .Values.opensearch.name }}.{{ include "opensearch.namespace" . }}.svc.cluster.local \
+                -p 9200
+          volumeMounts:
+            - name: admin-cert
+              mountPath: /certs
+              readOnly: true
+      volumes:
+        - name: admin-cert
+          secret:
+            secretName: {{ .Values.opensearch.name }}-admin-cert
+{{- end }}
