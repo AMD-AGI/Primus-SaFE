@@ -49,7 +49,10 @@ global:
   accessMode: "ReadWriteOnce"
   
   # Image registry settings
-  imageRegistry: "harbor.tw325.primus-safe.amd.com"
+  imageRegistry:
+    url: "docker.io"
+    pullPolicy: "IfNotPresent"
+    pullSecret: ""
   
   # Access type for services: "ssh-tunnel" or "ingress"
   accessType: "ssh-tunnel"

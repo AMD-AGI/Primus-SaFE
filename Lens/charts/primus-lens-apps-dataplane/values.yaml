@@ -155,6 +155,6 @@ apps:
 # Service Account Configuration
 # ============================================================================
 serviceAccount:
-  create: false
+  create: true
   name: "primus-lens-app"
 

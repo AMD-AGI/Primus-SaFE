@@ -153,7 +153,14 @@ func (s *DatabaseMigrationStage) CheckPrerequisites(ctx context.Context, client 
 }
 
 func (s *DatabaseMigrationStage) ShouldRun(ctx context.Context, client *installer.ClusterClient, config *installer.InstallConfig) (bool, string, error) {
-	// Always run migrations to ensure schema is up to date
+	// Skip if migrations directory doesn't exist (e.g. standalone/local mode without bundled migrations)
+	migrationsPath := installer.DefaultMigrationsPath
+	if envPath := os.Getenv("MIGRATIONS_PATH"); envPath != "" {
+		migrationsPath = envPath
+	}
+	if _, err := os.Stat(migrationsPath); os.IsNotExist(err) {
+		return false, fmt.Sprintf("Migrations directory '%s' not found, skipping", migrationsPath), nil
+	}
 	return true, "Will run database migrations", nil
 }
 
