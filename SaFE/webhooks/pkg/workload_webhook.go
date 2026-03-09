@@ -773,6 +773,9 @@ func (v *WorkloadValidator) validateCICDScalingRunnerSet(workload *v1.Workload) 
 	if err = v.validateResource(workloadResource); err != nil {
 		return err
 	}
+	if !v1.IsEnableWorkspaceStorage(workload) && workload.GetEnv(common.UnifiedJobEnable) == v1.TrueStr {
+		return fmt.Errorf("unified job must use workspace storage")
+	}
 	return nil
 }
 

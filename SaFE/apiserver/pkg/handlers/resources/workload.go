@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -849,6 +850,11 @@ func (h *Handler) generateWorkload(ctx context.Context,
 	if req.StickyNodes {
 		v1.SetAnnotation(workload, v1.WorkloadStickyNodesAnnotation, v1.TrueStr)
 	}
+	if req.UseWorkspaceStorage != nil {
+		v1.SetAnnotation(workload, v1.UseWorkspaceStorageAnnotation, strconv.FormatBool(*req.UseWorkspaceStorage))
+	} else {
+		v1.SetAnnotation(workload, v1.UseWorkspaceStorageAnnotation, v1.TrueStr)
+	}
 	return workload, nil
 }
 
@@ -1286,6 +1292,7 @@ func (h *Handler) cvtDBWorkloadToGetResponse(ctx context.Context,
 		IsSupervised:         dbWorkload.IsSupervised,
 		StickyNodes:          dbWorkload.IsStickyNodes,
 		Privileged:           dbWorkload.IsPrivileged,
+		UseWorkspaceStorage:  dbWorkload.UseWorkspaceStorage,
 	}
 	result.Images = cvtToWorkloadImages(dbWorkload, len(result.Resources))
 	if result.GroupVersionKind.Kind != common.AuthoringKind {
@@ -1431,8 +1438,9 @@ func cvtDBWorkloadToAdminWorkload(dbWorkload *dbclient.Workload) *v1.Workload {
 				v1.UserIdLabel:      dbutils.ParseNullString(dbWorkload.UserId),
 			},
 			Annotations: map[string]string{
-				v1.DescriptionAnnotation: dbutils.ParseNullString(dbWorkload.Description),
-				v1.UserNameAnnotation:    dbutils.ParseNullString(dbWorkload.UserName),
+				v1.DescriptionAnnotation:         dbutils.ParseNullString(dbWorkload.Description),
+				v1.UserNameAnnotation:            dbutils.ParseNullString(dbWorkload.UserName),
+				v1.UseWorkspaceStorageAnnotation: strconv.FormatBool(dbWorkload.UseWorkspaceStorage),
 			},
 		},
 		Spec: v1.WorkloadSpec{
