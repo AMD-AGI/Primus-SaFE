@@ -134,9 +134,10 @@ func (s *ApplicationsStage) Execute(ctx context.Context, client *installer.Clust
 func (s *ApplicationsStage) WaitForReady(ctx context.Context, client *installer.ClusterClient, config *installer.InstallConfig, timeout time.Duration) error {
 	log.Info("Waiting for applications to be ready...")
 
-	// Wait for key application pods
+	// Wait for key dataplane application pods
 	appLabels := []string{
-		"app.kubernetes.io/name=primus-lens-api",
+		"app=telemetry-processor",
+		"app=jobs",
 	}
 
 	for _, label := range appLabels {
