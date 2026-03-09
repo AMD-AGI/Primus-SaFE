@@ -329,8 +329,6 @@ func (p *WorkloadAnalysisPipeline) handleEvaluating(
 		return constant.PipelineStateEvaluating, fmt.Errorf("write workload JSON: %w", err)
 	}
 
-	intentWorkloadsDispatched.Inc()
-
 	log.Infof("Dispatched workload %s to intent-service (WorkloadJSON written, intent_state=pending)",
 		workloadUID)
 

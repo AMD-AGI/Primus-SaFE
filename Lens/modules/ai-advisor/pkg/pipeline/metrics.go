@@ -9,13 +9,6 @@ import (
 )
 
 var (
-	intentWorkloadsDispatched = promauto.NewCounter(
-		prometheus.CounterOpts{
-			Name: "intent_workloads_dispatched_total",
-			Help: "Total number of workloads dispatched to Python intent-service via WorkloadJSON",
-		},
-	)
-
 	intentEvidenceGatherDuration = promauto.NewHistogram(
 		prometheus.HistogramOpts{
 			Name:    "intent_evidence_gather_duration_seconds",
