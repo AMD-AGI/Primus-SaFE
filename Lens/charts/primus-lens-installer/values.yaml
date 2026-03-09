@@ -43,7 +43,7 @@ global:
   namespace: "primus-lens"
   
   # Storage class for persistent volumes
-  storageClass: "local-path"
+  storageClass: "rbd"
   
   # Access mode for persistent volumes
   accessMode: "ReadWriteOnce"

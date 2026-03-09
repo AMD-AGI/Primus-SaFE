@@ -14,4 +14,8 @@ ALTER TABLE github_workflow_runs
 
 -- Step 2: Update comments
 COMMENT ON TABLE github_workflow_runs IS 'Workflow runner execution records, one record per runner pod';
-COMMENT ON COLUMN github_workflow_runs.run_summary_id IS 'Logical reference to parent run summary (github_workflow_run_summaries.id)';
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='github_workflow_runs' AND column_name='run_summary_id') THEN
+    COMMENT ON COLUMN github_workflow_runs.run_summary_id IS 'Logical reference to parent run summary (github_workflow_run_summaries.id)';
+  END IF;
+END $$;

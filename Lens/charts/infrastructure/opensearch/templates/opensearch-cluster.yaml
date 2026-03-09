@@ -68,6 +68,6 @@ metadata:
 type: Opaque
 stringData:
   username: admin
-  password: {{ randAlphaNum 32 | quote }}
+  password: admin
 {{- end }}
 {{- end }}
