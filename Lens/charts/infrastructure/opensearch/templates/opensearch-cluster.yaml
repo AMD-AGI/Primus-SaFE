@@ -12,13 +12,13 @@ spec:
     version: {{ .Values.opensearch.version | quote }}
     httpPort: {{ .Values.opensearch.httpPort }}
     setVMMaxMapCount: true
+    additionalConfig:
+      cluster.routing.allocation.disk.threshold_enabled: "false"
   
   dashboards:
     enable: {{ .Values.opensearch.dashboards.enabled }}
-    {{- if .Values.opensearch.dashboards.enabled }}
-    replicas: {{ .Values.opensearch.dashboards.replicas }}
+    replicas: {{ .Values.opensearch.dashboards.replicas | default 1 }}
     version: {{ .Values.opensearch.version | quote }}
-    {{- end }}
   
   security:
     config:
@@ -36,7 +36,11 @@ spec:
       replicas: {{ .replicas }}
       diskSize: {{ .diskSize | quote }}
       persistence:
-        storageClass: {{ include "opensearch.storageClass" $ }}
+        pvc:
+          storageAmount: {{ .diskSize | quote }}
+          accessModes:
+            - ReadWriteOnce
+          storageClass: {{ include "opensearch.storageClass" $ }}
       resources:
         {{- toYaml .resources | nindent 8 }}
       roles:
