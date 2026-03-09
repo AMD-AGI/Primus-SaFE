@@ -6,15 +6,18 @@ package collector
 import (
 	"context"
 	"encoding/json"
+	"strings"
+	"time"
+
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/constant"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/model"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/node-exporter/pkg/collector/containerd"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/node-exporter/pkg/collector/report"
 	"github.com/containerd/containerd/api/events"
+	containerdEvents "github.com/containerd/containerd/events"
 	"github.com/containerd/containerd/namespaces"
 	"github.com/containerd/typeurl/v2"
-	"strings"
 )
 
 func GetContainerInfo(ctx context.Context) ([]model.Container, error) {
@@ -24,6 +27,29 @@ func GetContainerInfo(ctx context.Context) ([]model.Container, error) {
 func runEventListener(ctx context.Context) {
 	_ = reportSnapshot(ctx)
 	startContainerdWatcher(ctx)
+	startPeriodicSnapshot(ctx)
+}
+
+const snapshotInterval = 5 * time.Minute
+
+func startPeriodicSnapshot(ctx context.Context) {
+	go func() {
+		ticker := time.NewTicker(snapshotInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				log.Infof("periodic snapshot stopped")
+				return
+			case <-ticker.C:
+				if err := reportSnapshot(ctx); err != nil {
+					log.Errorf("periodic snapshot failed: %v", err)
+				} else {
+					log.Infof("periodic snapshot completed")
+				}
+			}
+		}
+	}()
 }
 
 func reportSnapshot(ctx context.Context) error {
@@ -119,99 +145,135 @@ func readContainerInfoFromContainerd(ctx context.Context, containerId string) (*
 }
 
 func startContainerdWatcher(ctx context.Context) {
-	ctx = namespaces.WithNamespace(ctx, "k8s.io")
-	ch, errCh := containerd.EventService().Subscribe(ctx)
-
 	go func() {
+		const (
+			minBackoff = 2 * time.Second
+			maxBackoff = 60 * time.Second
+		)
+		backoff := minBackoff
+
 		for {
 			select {
-			case evt := <-ch:
-				ev, err := typeurl.UnmarshalAny(evt.Event)
-				if err != nil {
-					log.Errorf("unmarshal error: %v", err)
-					continue
-				}
-				switch e := ev.(type) {
-				case *events.ContainerCreate:
-					_, err = getAndReportContainerInfo(ctx, e.ID, func(container *model.Container) {
-						container.Status = constant.ContainerStatusCreated
-					})
-					if err != nil {
-						log.Errorf("Failed to get and report container info for %s: %v", e.ID, err)
-					} else {
-						log.Infof("Container %s created and reported", e.ID)
-					}
-				case *events.ContainerDelete:
-					_, err = getAndReportContainerInfo(ctx, e.ID, func(container *model.Container) {
-						container.Status = constant.ContainerStatusDeleted
-					})
-					if err != nil {
-						log.Errorf("Failed to get and report container info for %s: %v", e.ID, err)
-					} else {
-						log.Infof("Container %s created and reported", e.ID)
-					}
-
-				case *events.TaskCreate:
-					_, err = getAndReportContainerInfo(ctx, e.ContainerID, func(container *model.Container) {
-						container.Status = constant.ContainerStatusCreated
-					})
-					if err != nil {
-						log.Errorf("Failed to get and report container info for %s: %v", e.ContainerID, err)
-					} else {
-						log.Infof("Container %s created and reported", e.ContainerID)
-					}
-
-				case *events.TaskStart:
-					_, err = getAndReportContainerInfo(ctx, e.ContainerID, func(container *model.Container) {
-						container.Status = constant.ContainerStatusRunning
-					})
-					if err != nil {
-						log.Errorf("Failed to get and report container info for %s: %v", e.ContainerID, err)
-					} else {
-						log.Infof("Container %s created and reported", e.ContainerID)
-					}
-
-				case *events.TaskExit:
-					_, err = getAndReportContainerInfo(ctx, e.ContainerID, func(container *model.Container) {
-						container.Status = constant.ContainerStatusExit
-						container.ExitCode = int32(e.ExitStatus)
-						container.ExitTime = e.ExitedAt.AsTime()
-					})
-					if err != nil {
-						log.Errorf("Failed to get and report container info for %s: %v", e.ContainerID, err)
-					} else {
-						log.Infof("Container %s created and reported", e.ContainerID)
-					}
-				case *events.TaskDelete:
-					_, err = getAndReportContainerInfo(ctx, e.ContainerID, func(container *model.Container) {
-						container.Status = constant.ContainerStatusDeleted
-						container.ExitCode = int32(e.ExitStatus)
-						container.ExitTime = e.ExitedAt.AsTime()
-					})
-					if err != nil {
-						log.Errorf("Failed to get and report container info for %s: %v", e.ContainerID, err)
-					} else {
-						log.Infof("Container %s created and reported", e.ContainerID)
-					}
-				case *events.TaskOOM:
-					_, err = getAndReportContainerInfo(ctx, e.ContainerID, func(container *model.Container) {
-						container.Status = constant.ContainerStatusOOMKilled
-						container.OOMKilled = true
-					})
-					if err != nil {
-						log.Errorf("Failed to get and report container info for %s: %v", e.ContainerID, err)
-					} else {
-						log.Infof("Container %s created and reported", e.ContainerID)
-					}
-				default:
-				}
-
-			case err := <-errCh:
-				log.Errorf("event stream error: %v", err)
+			case <-ctx.Done():
+				log.Infof("containerd watcher stopped: context cancelled")
 				return
+			default:
+			}
+
+			nsCtx := namespaces.WithNamespace(ctx, "k8s.io")
+			ch, errCh := containerd.EventService().Subscribe(nsCtx)
+			log.Infof("containerd event watcher (re)started")
+			backoff = minBackoff
+
+			if err := watchContainerdEvents(nsCtx, ch, errCh); err != nil {
+				log.Errorf("containerd event stream error: %v, reconnecting in %v", err, backoff)
+			}
+
+			_ = reportSnapshot(ctx)
+
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(backoff):
+			}
+			backoff *= 2
+			if backoff > maxBackoff {
+				backoff = maxBackoff
 			}
 		}
 	}()
+}
+
+func watchContainerdEvents(ctx context.Context, ch <-chan *containerdEvents.Envelope, errCh <-chan error) error {
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case err := <-errCh:
+			return err
+		case evt := <-ch:
+			ev, err := typeurl.UnmarshalAny(evt.Event)
+			if err != nil {
+				log.Errorf("unmarshal error: %v", err)
+				continue
+			}
+			handleContainerdEvent(ctx, ev)
+		}
+	}
+}
+
+func handleContainerdEvent(ctx context.Context, ev interface{}) {
+	switch e := ev.(type) {
+	case *events.ContainerCreate:
+		_, err := getAndReportContainerInfo(ctx, e.ID, func(container *model.Container) {
+			container.Status = constant.ContainerStatusCreated
+		})
+		if err != nil {
+			log.Errorf("Failed to get and report container info for %s: %v", e.ID, err)
+		} else {
+			log.Infof("Container %s created and reported", e.ID)
+		}
+	case *events.ContainerDelete:
+		_, err := getAndReportContainerInfo(ctx, e.ID, func(container *model.Container) {
+			container.Status = constant.ContainerStatusDeleted
+		})
+		if err != nil {
+			log.Errorf("Failed to get and report container info for %s: %v", e.ID, err)
+		} else {
+			log.Infof("Container %s deleted and reported", e.ID)
+		}
+	case *events.TaskCreate:
+		_, err := getAndReportContainerInfo(ctx, e.ContainerID, func(container *model.Container) {
+			container.Status = constant.ContainerStatusCreated
+		})
+		if err != nil {
+			log.Errorf("Failed to get and report container info for %s: %v", e.ContainerID, err)
+		} else {
+			log.Infof("Container %s task created and reported", e.ContainerID)
+		}
+	case *events.TaskStart:
+		_, err := getAndReportContainerInfo(ctx, e.ContainerID, func(container *model.Container) {
+			container.Status = constant.ContainerStatusRunning
+		})
+		if err != nil {
+			log.Errorf("Failed to get and report container info for %s: %v", e.ContainerID, err)
+		} else {
+			log.Infof("Container %s task started and reported", e.ContainerID)
+		}
+	case *events.TaskExit:
+		_, err := getAndReportContainerInfo(ctx, e.ContainerID, func(container *model.Container) {
+			container.Status = constant.ContainerStatusExit
+			container.ExitCode = int32(e.ExitStatus)
+			container.ExitTime = e.ExitedAt.AsTime()
+		})
+		if err != nil {
+			log.Errorf("Failed to get and report container info for %s: %v", e.ContainerID, err)
+		} else {
+			log.Infof("Container %s task exited and reported", e.ContainerID)
+		}
+	case *events.TaskDelete:
+		_, err := getAndReportContainerInfo(ctx, e.ContainerID, func(container *model.Container) {
+			container.Status = constant.ContainerStatusDeleted
+			container.ExitCode = int32(e.ExitStatus)
+			container.ExitTime = e.ExitedAt.AsTime()
+		})
+		if err != nil {
+			log.Errorf("Failed to get and report container info for %s: %v", e.ContainerID, err)
+		} else {
+			log.Infof("Container %s task deleted and reported", e.ContainerID)
+		}
+	case *events.TaskOOM:
+		_, err := getAndReportContainerInfo(ctx, e.ContainerID, func(container *model.Container) {
+			container.Status = constant.ContainerStatusOOMKilled
+			container.OOMKilled = true
+		})
+		if err != nil {
+			log.Errorf("Failed to get and report container info for %s: %v", e.ContainerID, err)
+		} else {
+			log.Infof("Container %s OOM killed and reported", e.ContainerID)
+		}
+	default:
+	}
 }
 
 func getAndReportContainerInfo(ctx context.Context, containerId string, updateHook func(container *model.Container)) (*model.Container, error) {

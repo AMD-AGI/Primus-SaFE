@@ -58,6 +58,7 @@ echo "✅ Image Registry: \"$proxy_image_registry\""
 echo "✅ Helm Registry: \"$helm_registry\""
 echo "✅ CD Require Approval: \"$cd_require_approval\""
 echo "✅ Install Node Agent: \"${install_node_agent:-y}\""
+echo "✅ CSI Volume Handle: \"$csi_volume_handle\""
 
 echo
 
@@ -93,6 +94,7 @@ cp "$src_values_yaml" "${values_yaml}"
 
 safe_image=$(printf '%s\n' "$proxy_image_registry" | sed 's/[&/\]/\\&/g')
 sed -i '/global:/,/^[a-z]/ s/image_registry: .*/image_registry: "'"$safe_image"'"/' "$values_yaml"
+sed -i "s/csi_volume_handle: \".*\"/csi_volume_handle: \"$csi_volume_handle\"/" "$values_yaml"
 
 sed -i "s/nccl_socket_ifname: \".*\"/nccl_socket_ifname: \"$ethernet_nic\"/" "$values_yaml"
 sed -i "s/nccl_ib_hca: \".*\"/nccl_ib_hca: \"$rdma_nic\"/" "$values_yaml"

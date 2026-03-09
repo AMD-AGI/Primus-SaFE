@@ -54,7 +54,7 @@ func main() {
 	config, err := parseTemplateConfig()
 	if err != nil {
 		fmt.Printf("error parse template config, %v", err)
-		return
+		os.Exit(1)
 	}
 
 	if config.Global.Debug {
@@ -70,7 +70,7 @@ func main() {
 
 	if err := config.run([]string{SrcImage, DestImage}, os.Stdout); err != nil {
 		logrus.Errorf("error exec sync %s to %s, %v ", SrcImage, DestImage, err)
-		return
+		os.Exit(1)
 	}
 	logrus.Infof("sync %s to %s successfully", SrcImage, DestImage)
 }

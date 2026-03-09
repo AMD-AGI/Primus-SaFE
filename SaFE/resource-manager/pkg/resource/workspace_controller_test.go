@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	"gotest.tools/assert"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -22,7 +23,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
-	"github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/apis/pkg/client/clientset/versioned/scheme"
 	commonclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/k8sclient"
 	commonquantity "github.com/AMD-AIG-AIMA/SAFE/common/pkg/quantity"
@@ -122,7 +123,7 @@ func TestReconcile(t *testing.T) {
 
 	testScheme := scheme.Scheme
 	_ = corev1.AddToScheme(testScheme)
-	adminClient := fake.NewClientBuilder().WithObjects(adminNode1, adminNode2, workspace, cluster).
+	adminClient := fake.NewClientBuilder().WithObjects(adminNode1, adminNode2, workspace, cluster, nodeFlavor).
 		WithStatusSubresource(workspace).WithScheme(testScheme).Build()
 	r := newMockWorkspaceReconciler(adminClient)
 	ns := &corev1.Namespace{
@@ -253,7 +254,7 @@ func TestSyncWorkspace(t *testing.T) {
 	adminNode2.Status.Unschedulable = true
 	metav1.SetMetaDataLabel(&adminNode2.ObjectMeta, v1.WorkspaceIdLabel, workspace.Name)
 
-	adminClient := fake.NewClientBuilder().WithObjects(adminNode1, adminNode2, workspace).
+	adminClient := fake.NewClientBuilder().WithObjects(adminNode1, adminNode2, workspace, nodeFlavor).
 		WithStatusSubresource(workspace).WithScheme(scheme.Scheme).Build()
 	r := newMockWorkspaceReconciler(adminClient)
 
@@ -267,9 +268,13 @@ func TestSyncWorkspace(t *testing.T) {
 		corev1.ResourceCPU:    resource.MustParse("8"),
 		corev1.ResourceMemory: resource.MustParse("16Gi"),
 	}), true)
+
+	// TotalResources = AvailableResources + AbnormalResources
+	// AbnormalResources uses NodeFlavor's resources (CPU: 256, Memory: 1024Gi), not node's Status.Resources
 	assert.Equal(t, commonquantity.Equal(workspace.Status.TotalResources, corev1.ResourceList{
-		corev1.ResourceCPU:    resource.MustParse("12"),
-		corev1.ResourceMemory: resource.MustParse("24Gi"),
+		common.AmdGpu:         resource.MustParse("8"),
+		corev1.ResourceCPU:    resource.MustParse("264"),
+		corev1.ResourceMemory: resource.MustParse("1040Gi"),
 	}), true)
 }
 

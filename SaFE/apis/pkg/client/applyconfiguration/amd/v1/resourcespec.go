@@ -12,6 +12,7 @@ type ResourceSpecApplyConfiguration struct {
 	PrePaths         []string `json:"prePaths,omitempty"`
 	TemplatePaths    []string `json:"templatePaths,omitempty"`
 	ReplicasPaths    []string `json:"replicasPaths,omitempty"`
+	DefaultReplica   *int     `json:"defaultReplica,omitempty"`
 	MaxReplicasPaths []string `json:"maxReplicasPaths,omitempty"`
 	MinReplicasPaths []string `json:"minReplicasPaths,omitempty"`
 }
@@ -49,6 +50,14 @@ func (b *ResourceSpecApplyConfiguration) WithReplicasPaths(values ...string) *Re
 	for i := range values {
 		b.ReplicasPaths = append(b.ReplicasPaths, values[i])
 	}
+	return b
+}
+
+// WithDefaultReplica sets the DefaultReplica field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the DefaultReplica field is set to the value of the last call.
+func (b *ResourceSpecApplyConfiguration) WithDefaultReplica(value int) *ResourceSpecApplyConfiguration {
+	b.DefaultReplica = &value
 	return b
 }
 

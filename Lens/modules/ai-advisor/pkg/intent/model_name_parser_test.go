@@ -49,7 +49,7 @@ func TestModelNameParser(t *testing.T) {
 			name:       "Phi3_Mini",
 			path:       "microsoft/Phi-3-mini-4k-instruct",
 			wantFamily: "phi",
-			wantScale:  "",
+			wantScale:  "4K",
 			wantVar:    "instruct",
 		},
 		{

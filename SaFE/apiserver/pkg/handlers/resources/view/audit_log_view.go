@@ -27,6 +27,11 @@ type ListAuditLogRequest struct {
 	HttpMethod string `form:"httpMethod" binding:"omitempty"`
 	// RequestPath is the optional filter by request path (partial match)
 	RequestPath string `form:"requestPath" binding:"omitempty"`
+	// Keyword is a general search parameter that matches against both user_name and
+	// request_path (OR logic). Intended for the frontend single search box use case:
+	// e.g., ?keyword=deepseek-lite matches any log whose user name OR request path
+	// contains that string. Takes precedence over userName and requestPath when set.
+	Keyword string `form:"keyword" binding:"omitempty"`
 	// StartTime is the optional start time filter (RFC3339 format)
 	StartTime string `form:"startTime" binding:"omitempty"`
 	// EndTime is the optional end time filter (RFC3339 format)

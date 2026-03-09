@@ -36,6 +36,7 @@ data:
   net_ib_devices_206: '{"id":"206","action":"taint","toggle":"on"}'
   net_ib_gid_207: '{"id":"207","action":"taint","toggle":"on"}'
   net_sys_resolved_209: '{"id":"209","action":"taint","toggle":"on"}'
+  net_rdma_count_210: '{"id":"210","action":"taint","toggle":"on"}'
   # System: 3XX
   sys_timezone_301: '{"id":"301","toggle":"on"}'
   sys_hostname_302: '{"id":"302","action":"taint","toggle":"on"}'
@@ -48,6 +49,7 @@ data:
   sys_csi_wekafs_309: '{"id":"309","action":"taint","toggle":"on"}'
   # Disk: 4XX
   nfs_check_401: '{"id":"401","action":"taint","toggle":"on"}'
+  resolv_conf_check_402: '{"id":"402","toggle":"on"}'
   # primus system: 5XX, System reserved
   addon: '{"id": "501","action":"taint","toggle":"on"}'
   sticky_nodes: '{"id": "502","action":"taint","toggle":"on"}'

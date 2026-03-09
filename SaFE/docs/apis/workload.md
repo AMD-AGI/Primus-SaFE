@@ -216,6 +216,73 @@ Create a new workload.
 }
 ```
 
+***RayJob Request Example***:
+```json
+{
+    "displayName": "verl-sgalng-qwen3-8b",
+    "groupVersionKind": {
+        "kind": "RayJob",
+        "version": "v1"
+    },
+    "resources": [
+        {
+            "cpu": "96",
+            "gpu": "8",
+            "memory": "2049Gi",
+            "ephemeralStorage": "100Gi",
+            "replica": 1
+        },
+        {
+            "cpu": "96",
+            "gpu": "8",
+            "memory": "2049Gi",
+            "ephemeralStorage": "100Gi",
+            "replica": 1
+        }
+    ],
+    "workspace": "my-workspace",
+    "env": {
+        "AINIC_DRIVER_VERSION": "1.117.5-a-56",
+        "RAY_JOB_ENTRYPOINT": "bash my-train-job.sh"
+    },
+    "images": [
+        "docker.io/sglang:202603021059",
+        "docker.io/sglang:202603021059"
+    ],
+    "entryPoints": [
+        "init-head.sh",
+        "init-worker.sh"
+    ],
+    "excludedNodes": [
+        "node-1"
+    ]
+}
+```
+
+**Notes for RayJob**:
+
+RayJob uses two distinct entry point concepts:
+
+| Concept | Location | Purpose |
+|---------|----------|---------|
+| **Training entry point** | `env.RAY_JOB_ENTRYPOINT` | The main training command that Ray executes (e.g. `bash my-train-job.sh`). This is the actual job entrypoint submitted to the Ray cluster. |
+| **Node initialization** | `entryPoints[i]` | Startup commands/scripts for head and worker containers of ray-cluster. These run when each pod starts to initialize the environment (e.g. `init-head.sh`, `init-worker.sh`) before the Ray job is submitted. |
+
+For RayJob workloads, the `resources`, `entryPoints`, and `images` arrays must have a one-to-one correspondence:
+
+| Array Index | Role | Description |
+|-------------|------|-------------|
+| 0 | Head | The first element configures the Ray head node |
+| 1 | Worker | The second element configures the first worker group |
+| 2 | Worker | The third element configures the second worker group (optional) |
+
+- Each index position across all three arrays (`resources[i]`, `entryPoints[i]`, `images[i]`) defines a single node role
+- `entryPoints[i]` configures the **initialization** entry for that role (head or worker)
+- **Required env**: `RAY_JOB_ENTRYPOINT` must be set to the main training command
+- Currently supports **at most 2 worker groups** (i.e., array length <= 3)
+- The `replica` field in `resources` specifies the number of pods for that role
+- **Head node replica should be 1** (`resources[0].replica = 1`)
+
 **Notes for TorchFT**:
 
 TorchFT is a fault-tolerant distributed training framework that supports elastic scaling of replica groups. The following environment variables are **required** for TorchFT workloads:
@@ -315,6 +382,7 @@ TorchFT is a fault-tolerant distributed training framework that supports elastic
 |------|---------------------|---------------------|
 | PyTorchJob | Fixed to `1` (master) | `len(specifiedNodes) - 1` (workers) |
 | TorchFT | Fixed to `1` (lighthouse) | `len(specifiedNodes)` (workers) |
+| RayJob | Fixed to `1` (head) | `len(specifiedNodes) - 1` (workers) |
 | Other types | `len(specifiedNodes)` | N/A |
 
 **Response Example**:

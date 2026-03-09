@@ -163,7 +163,7 @@ func TestGetDeploymentResources(t *testing.T) {
 	assert.NilError(t, err)
 	rt := TestDeploymentResourceTemplate.DeepCopy()
 
-	replicaList, resourceList, err := GetResources(deploy, rt, "test", common.AmdGpu)
+	replicaList, resourceList, err := GetResources(deploy, rt, "test", common.AmdGpu, 1)
 	assert.NilError(t, err)
 	assert.Equal(t, len(resourceList), 1)
 	rl := resourceList[0]
@@ -182,7 +182,7 @@ func TestGetDeploymentImage(t *testing.T) {
 	assert.NilError(t, err)
 	rt := TestDeploymentResourceTemplate.DeepCopy()
 
-	images, err := GetImages(deploy, rt, "test")
+	images, err := GetImages(deploy, rt, "test", 1)
 	assert.NilError(t, err)
 	assert.Equal(t, len(images), 1)
 	assert.Equal(t, images[0], "test-image:latest")
@@ -193,7 +193,7 @@ func TestGetDeploymentCommand(t *testing.T) {
 	assert.NilError(t, err)
 	rt := TestDeploymentResourceTemplate.DeepCopy()
 
-	commands, err := GetCommands(deploy, rt, "test")
+	commands, err := GetCommands(deploy, rt, "test", 1)
 	assert.NilError(t, err)
 	assert.Equal(t, len(commands), 1)
 	assert.Equal(t, len(commands[0]), 3)
@@ -207,7 +207,7 @@ func TestGetPytorchJobCommands(t *testing.T) {
 	assert.NilError(t, err)
 	rt := TestPytorchResourceTemplate.DeepCopy()
 
-	commands, err := GetCommands(deploy, rt, "pytorch")
+	commands, err := GetCommands(deploy, rt, "pytorch", 2)
 	assert.NilError(t, err)
 	assert.Equal(t, len(commands), 2)
 	assert.Equal(t, len(commands[0]), 3)
@@ -226,7 +226,7 @@ func TestGetDeploymentShareMemorySize(t *testing.T) {
 	assert.NilError(t, err)
 	rt := TestDeploymentResourceTemplate.DeepCopy()
 
-	memoryStorageSizes, err := GetMemoryStorageSize(deploy, rt)
+	memoryStorageSizes, err := GetMemoryStorageSize(deploy, rt, 1)
 	assert.NilError(t, err)
 	assert.Equal(t, len(memoryStorageSizes), 1)
 	assert.Equal(t, memoryStorageSizes[0], "20Gi")
@@ -237,7 +237,7 @@ func TestGetPytorchJobResources(t *testing.T) {
 	assert.NilError(t, err)
 	rt := TestPytorchResourceTemplate.DeepCopy()
 
-	replicaList, resourceList, err := GetResources(job, rt, "pytorch", common.AmdGpu)
+	replicaList, resourceList, err := GetResources(job, rt, "pytorch", common.AmdGpu, 2)
 	assert.NilError(t, err)
 	assert.Equal(t, len(replicaList), 2)
 	assert.Equal(t, len(resourceList), 2)
@@ -266,7 +266,7 @@ func TestGetPytorchJobMasterResource(t *testing.T) {
 	assert.NilError(t, err)
 	rt := TestPytorchResourceTemplate.DeepCopy()
 
-	replicaList, resourceList, err := GetResources(job, rt, "pytorch", common.AmdGpu)
+	replicaList, resourceList, err := GetResources(job, rt, "pytorch", common.AmdGpu, 1)
 	assert.NilError(t, err)
 	assert.Equal(t, len(replicaList), 1)
 	assert.Equal(t, len(resourceList), 1)
@@ -308,7 +308,7 @@ func TestGetDeploymentEnv(t *testing.T) {
 	assert.NilError(t, err)
 	rt := TestDeploymentResourceTemplate.DeepCopy()
 
-	envs, err := GetEnv(deploy, rt, "test")
+	envs, err := GetEnv(deploy, rt, "test", 1)
 	assert.NilError(t, err)
 	assert.Equal(t, len(envs), 2)
 	env, ok := envs[0].(map[string]interface{})
@@ -327,7 +327,7 @@ func TestGetPytorchJobPriorityClass(t *testing.T) {
 	assert.NilError(t, err)
 	rt := TestPytorchResourceTemplate.DeepCopy()
 
-	name, err := GetPriorityClassName(pytorchJob, rt)
+	name, err := GetPriorityClassName(pytorchJob, rt, 2)
 	assert.NilError(t, err)
 	assert.Equal(t, name, "test-med-priority")
 }

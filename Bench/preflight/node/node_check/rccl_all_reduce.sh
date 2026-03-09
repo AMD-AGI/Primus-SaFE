@@ -1,7 +1,7 @@
 #!/bin/bash
 
 #
-# Copyright (c) 2025, Advanced Micro Devices, Inc. All rights reserved.
+# Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
 # See LICENSE for license information.
 #
 
@@ -17,7 +17,7 @@ LOG_FILE="/tmp/all_reduce_perf.log"
 export LD_LIBRARY_PATH="/opt/rocm/lib:/opt/mpich/lib:/usr/local/lib:$LD_LIBRARY_PATH"
 
 # Use AMD ANP plugin for RCCL communication over AINIC devices if enabled
-if [ "$ENABLE_ANP" = "true" ]; then
+if [[ "$ENABLE_AINIC" == "true" ]]; then
   echo "ANP enabled, using NCCL_NET_PLUGIN=anp"
   export NCCL_NET_PLUGIN=anp
   export UCX_TLS=tcp,self,sm

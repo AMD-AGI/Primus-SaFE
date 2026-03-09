@@ -12,10 +12,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
-	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
-	commonworkspace "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workspace"
-	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -27,6 +23,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
+	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
+	commonworkspace "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workspace"
+	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
 )
 
 const (
