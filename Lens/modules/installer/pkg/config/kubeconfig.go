@@ -58,6 +58,21 @@ func BuildInClusterKubeconfig() ([]byte, error) {
 	caData := ""
 	if len(cfg.CAData) > 0 {
 		caData = base64.StdEncoding.EncodeToString(cfg.CAData)
+	} else if cfg.CAFile != "" {
+		raw, err := os.ReadFile(cfg.CAFile)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read CA file %s: %w", cfg.CAFile, err)
+		}
+		caData = base64.StdEncoding.EncodeToString(raw)
+	}
+
+	token := cfg.BearerToken
+	if token == "" && cfg.BearerTokenFile != "" {
+		raw, err := os.ReadFile(cfg.BearerTokenFile)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read token file %s: %w", cfg.BearerTokenFile, err)
+		}
+		token = strings.TrimSpace(string(raw))
 	}
 
 	kc := kubeConfigV1{
@@ -77,7 +92,7 @@ func BuildInClusterKubeconfig() ([]byte, error) {
 			Name: "in-cluster",
 			User: struct {
 				Token string `yaml:"token"`
-			}{Token: cfg.BearerToken},
+			}{Token: token},
 		}},
 		Contexts: []kubeConfigNamedContext{{
 			Name: "in-cluster",
