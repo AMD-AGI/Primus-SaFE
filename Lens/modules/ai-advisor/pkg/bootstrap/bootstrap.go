@@ -247,7 +247,7 @@ func Bootstrap(ctx context.Context) error {
 		// Start DAG scheduler for intent analysis
 		dagScheduler := startDAGScheduler(ctx, podProber)
 		if dagScheduler != nil {
-			dagHandler := dag.NewWorkloadEventHandler(dagScheduler, database.NewWorkloadDetectionFacade())
+			dagHandler := dag.NewWorkloadEventHandler(dagScheduler)
 			go startPeriodicDAGScan(ctx, dagHandler)
 			log.Info("DAG scheduler started for intent analysis")
 		}
@@ -338,16 +338,12 @@ func startDAGScheduler(ctx context.Context, podProber *common.PodProber) *dag.DA
 	}
 	scheduler := dag.NewDAGScheduler(clusterID)
 
-	detectionFacade := database.NewWorkloadDetectionFacade()
-	evidenceFacade := database.NewWorkloadDetectionEvidenceFacade()
-	imageCacheFacade := database.NewImageRegistryCacheFacade()
-
-	scheduler.RegisterExecutor(dag.TaskTypeImageAnalysis, dag.NewImageAnalysisExecutor(detectionFacade, imageCacheFacade))
-	scheduler.RegisterExecutor(dag.TaskTypeLabelEnvCollection, dag.NewLabelEnvExecutor(detectionFacade))
+	scheduler.RegisterExecutor(dag.TaskTypeImageAnalysis, dag.NewImageAnalysisExecutor())
+	scheduler.RegisterExecutor(dag.TaskTypeLabelEnvCollection, dag.NewLabelEnvExecutor())
 	scheduler.RegisterExecutor(dag.TaskTypeWaitPodReady, dag.NewWaitPodReadyExecutor(podProber))
-	scheduler.RegisterExecutor(dag.TaskTypeProcessCollection, dag.NewProcessCollectionExecutor(evidenceFacade))
-	scheduler.RegisterExecutor(dag.TaskTypeAssembleSubmit, dag.NewAssembleSubmitExecutor(detectionFacade, evidenceFacade, imageCacheFacade))
-	scheduler.RegisterExecutor(dag.TaskTypeWaitClassification, dag.NewWaitClassificationExecutor(detectionFacade))
+	scheduler.RegisterExecutor(dag.TaskTypeProcessCollection, dag.NewProcessCollectionExecutor())
+	scheduler.RegisterExecutor(dag.TaskTypeAssembleSubmit, dag.NewAssembleSubmitExecutor())
+	scheduler.RegisterExecutor(dag.TaskTypeWaitClassification, dag.NewWaitClassificationExecutor())
 
 	scheduler.Start(ctx)
 	return scheduler
