@@ -16,3 +16,10 @@ monitor:
   nfs_server: ""
   nfs_path: ""
   nfs_mount: ""
+  # Toggle switches for monitor scripts. Key matches config entry name (e.g., gpu_module_001).
+  # Value: "on" or "off". Omitted keys use default (see config.yaml).
+  toggles:
+    net_bnxt_load_204: "off"
+    net_ainic_load_205: "off"
+    net_ainic_devices_208: "off"
+    sys_csi_wekafs_309: "off"
