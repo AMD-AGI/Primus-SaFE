@@ -14,7 +14,6 @@ import (
 	"github.com/AMD-AGI/Primus-SaFE/Lens/ai-advisor/pkg/common"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/ai-advisor/pkg/dag"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/ai-advisor/pkg/detection"
-	"github.com/AMD-AGI/Primus-SaFE/Lens/ai-advisor/pkg/distill"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/ai-advisor/pkg/loganalysis"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/ai-advisor/pkg/metadata"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/ai-advisor/pkg/pipeline"
@@ -264,11 +263,6 @@ func Bootstrap(ctx context.Context) error {
 			log.Info("Periodic workload scan started (interval: 1 minute)")
 		}
 
-		// Start daily flywheel jobs (backtesting + promotion + distillation via ai-gateway)
-		flywheelGWClient := aigateway.NewClient(aiGatewayURL)
-		go startDailyFlywheelJobs(ctx, flywheelGWClient)
-		log.Info("Daily flywheel jobs started (backtest + promote + distill via ai-gateway, interval: 24h)")
-
 		// Register cleanup for task scheduler
 		go func() {
 			<-ctx.Done()
@@ -516,82 +510,3 @@ func registerIntentAnalyzerAgent(ctx context.Context, aiGatewayURL string, insta
 	log.Error("Exhausted retries for intent-analyzer agent registration")
 }
 
-// startDailyFlywheelJobs runs the flywheel cycle:
-// 1. Backtest all candidate rules (proposed/testing status)
-// 2. Promote validated rules, retire underperforming ones
-// 3. Trigger distillation for new confirmed intents via ai-gateway
-func startDailyFlywheelJobs(ctx context.Context, gwClient *aigateway.Client) {
-	// Wait for initial data to accumulate
-	time.Sleep(5 * time.Minute)
-
-	// Run immediately on first start, then every 24 hours
-	runFlywheelCycle(ctx, gwClient)
-
-	ticker := time.NewTicker(24 * time.Hour)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			log.Info("Stopping daily flywheel jobs")
-			return
-		case <-ticker.C:
-			runFlywheelCycle(ctx, gwClient)
-		}
-	}
-}
-
-func runFlywheelCycle(ctx context.Context, gwClient *aigateway.Client) {
-	log.Info("Flywheel: starting daily cycle")
-
-	// Step 1: Backtest all candidate rules
-	backtester := distill.NewBacktester()
-	backtested, err := backtester.BacktestAll(ctx)
-	if err != nil {
-		log.Errorf("Flywheel: backtesting failed: %v", err)
-	} else {
-		log.Infof("Flywheel: backtested %d rules", backtested)
-	}
-
-	// Step 2: Promote validated rules, retire underperforming
-	promoter := distill.NewPromoter()
-	if err := promoter.RunPromotionCycle(ctx); err != nil {
-		log.Errorf("Flywheel: promotion cycle failed: %v", err)
-	}
-
-	// Step 3: Trigger distillation via ai-gateway (Conductor bridge picks it up)
-	if gwClient != nil {
-		triggerDistillation(ctx, gwClient)
-	}
-
-	log.Info("Flywheel: daily cycle complete")
-}
-
-// triggerDistillation collects confirmed intents grouped by category
-// and publishes distill tasks to ai-gateway
-func triggerDistillation(ctx context.Context, gwClient *aigateway.Client) {
-	facade := database.NewWorkloadDetectionFacade()
-
-	categories := []string{
-		"pre_training", "fine_tuning", "inference", "evaluation",
-		"data_processing", "benchmark", "serving", "interactive_development",
-	}
-
-	for _, category := range categories {
-		detections, _, err := facade.ListByCategory(ctx,
-			category, 50, 0,
-		)
-		if err != nil {
-			log.Errorf("Flywheel: failed to fetch detections for category %s: %v", category, err)
-			continue
-		}
-
-		if len(detections) < 5 {
-			continue
-		}
-
-		log.Infof("Flywheel: triggering distillation for category=%s with %d samples", category, len(detections))
-
-		distill.TriggerConductorDistillation(ctx, gwClient, category, detections)
-	}
-}
