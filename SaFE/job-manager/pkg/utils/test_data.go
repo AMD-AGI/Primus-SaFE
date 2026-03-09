@@ -966,8 +966,9 @@ var (
 				v1.DisplayNameLabel: "test-workload",
 			},
 			Annotations: map[string]string{
-				v1.UserNameAnnotation: "test-user",
-				"key":                 "val",
+				v1.UserNameAnnotation:            "test-user",
+				v1.UseWorkspaceStorageAnnotation: v1.TrueStr,
+				"key":                            "val",
 			},
 			CreationTimestamp: metav1.NewTime(time.Now()),
 		},
