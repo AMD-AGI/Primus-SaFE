@@ -23,12 +23,12 @@ data:
       pyspy:
         enabled: {{ .Values.apps.nodeExporter.pyspy.enabled | default true }}
         storage_path: /var/lib/lens/pyspy
-        max_storage_size: {{ .Values.apps.nodeExporter.pyspy.maxStorageSize | default "10GB" }}
+        binary_path: /usr/local/bin/py-spy
+        max_storage_size_mb: {{ .Values.apps.nodeExporter.pyspy.maxStorageSizeMB | default 10240 }}
         file_retention_days: {{ .Values.apps.nodeExporter.pyspy.fileRetentionDays | default 7 }}
         max_concurrent_jobs: {{ .Values.apps.nodeExporter.pyspy.maxConcurrentJobs | default 5 }}
         default_duration: {{ .Values.apps.nodeExporter.pyspy.defaultDuration | default 30 }}
         default_rate: {{ .Values.apps.nodeExporter.pyspy.defaultRate | default 100 }}
-        binary_path: /usr/local/bin/py-spy
 
 ---
 apiVersion: apps/v1
