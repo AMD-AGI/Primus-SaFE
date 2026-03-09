@@ -179,7 +179,7 @@ type WorkloadSpec struct {
 }
 
 type WorkloadStatus struct {
-	// Workload start time
+	// Workload start time. calculated from when the workload begins running.
 	StartTime *metav1.Time `json:"startTime,omitempty"`
 	// Workload end time
 	EndTime *metav1.Time `json:"endTime,omitempty"`

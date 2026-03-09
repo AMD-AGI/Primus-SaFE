@@ -304,7 +304,7 @@ func modifyVolumeMounts(container map[string]interface{}, workload *v1.Workload,
 	}
 
 	maxId := 0
-	if workspace != nil {
+	if workspace != nil && v1.IsEnableWorkspaceStorage(workload) {
 		for _, vol := range workspace.Spec.Volumes {
 			if vol.Id > maxId {
 				maxId = vol.Id
@@ -341,7 +341,7 @@ func modifyVolumes(obj *unstructured.Unstructured, workload *v1.Workload, worksp
 
 	maxId := 0
 	hasNewVolume := false
-	if workspace != nil {
+	if workspace != nil && v1.IsEnableWorkspaceStorage(workload) {
 		for _, vol := range workspace.Spec.Volumes {
 			if vol.Id > maxId {
 				maxId = vol.Id
@@ -1027,7 +1027,7 @@ func updateCICDScaleSetEnvs(obj *unstructured.Unstructured,
 		val, _ = adminWorkload.Spec.Env[common.UnifiedJobEnable]
 	}
 	if val == v1.TrueStr {
-		pfsPath := getNfsPathFromWorkspace(workspace)
+		pfsPath := getNfsPathFromWorkspace(adminWorkload, workspace)
 		if pfsPath == "" {
 			return fmt.Errorf("failed to get NFS path from workspace")
 		}
@@ -1271,7 +1271,10 @@ func getContainers(obj *unstructured.Unstructured, resourceSpec v1.ResourceSpec)
 
 // getNfsPathFromWorkspace retrieves the NFS path from the workspace's volumes.
 // It prioritizes PFS type volumes, otherwise falls back to the first available volume's mount path.
-func getNfsPathFromWorkspace(workspace *v1.Workspace) string {
+func getNfsPathFromWorkspace(workload *v1.Workload, workspace *v1.Workspace) string {
+	if !v1.IsEnableWorkspaceStorage(workload) {
+		return ""
+	}
 	result := ""
 	for _, vol := range workspace.Spec.Volumes {
 		if vol.Type == v1.PFS {
