@@ -163,7 +163,12 @@ func runStandalone(configPath string) {
 
 	kubeconfig, err := config.BuildInClusterKubeconfig()
 	if err != nil {
-		log.Fatalf("Failed to build in-cluster kubeconfig: %v", err)
+		log.Warnf("Not in cluster (%v), falling back to local kubeconfig", err)
+		kubeconfig, err = config.LoadLocalKubeconfig()
+		if err != nil {
+			log.Fatalf("Failed to load local kubeconfig: %v", err)
+		}
+		log.Info("Using kubeconfig from KUBECONFIG or ~/.kube/config")
 	}
 
 	// Prefer local charts when CHARTS_DIR is set (e.g. by the Helm job)
