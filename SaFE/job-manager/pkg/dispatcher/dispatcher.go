@@ -19,7 +19,6 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	apitypes "k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
@@ -150,7 +149,7 @@ func (r *DispatcherReconciler) Reconcile(ctx context.Context, req ctrlruntime.Re
 		return ctrlruntime.Result{}, nil
 	}
 	// To prevent port conflicts when retrying, the port must be regenerated each time
-	if err = r.generateUniquePorts(ctx, workload); err != nil {
+	if err = r.generateJobPort(ctx, workload); err != nil {
 		return ctrlruntime.Result{}, err
 	}
 
@@ -280,7 +279,8 @@ func (r *DispatcherReconciler) processWorkload(ctx context.Context, adminWorkloa
 		if err = r.markAsDispatched(ctx, adminWorkload); err != nil {
 			return ctrlruntime.Result{}, err
 		}
-		if commonworkload.IsApplication(adminWorkload) || commonworkload.IsCICDScalingRunnerSet(adminWorkload) {
+		if commonworkload.IsApplication(adminWorkload) ||
+			commonworkload.IsCICDScalingRunnerSet(adminWorkload) || commonworkload.IsRayJob(adminWorkload) {
 			// update the workload which is already dispatched
 			if err = r.syncWorkloadToObject(ctx, adminWorkload, clientSets, obj); err != nil {
 				return ctrlruntime.Result{}, err
@@ -319,32 +319,33 @@ func (r *DispatcherReconciler) dispatch(ctx context.Context,
 	return r.createIngress(ctx, adminWorkload, clientSets, k8sObject)
 }
 
-// generateUniquePorts generates unique job and SSH ports for the workload to avoid conflicts.
-func (r *DispatcherReconciler) generateUniquePorts(ctx context.Context, workload *v1.Workload) error {
+// generateJobPort generates job port for the workload to avoid conflicts.
+func (r *DispatcherReconciler) generateJobPort(ctx context.Context, workload *v1.Workload) error {
 	if v1.IsWorkloadDispatched(workload) {
 		return nil
 	}
-	rand.Seed(time.Now().UnixNano())
-	ports := make(map[int]bool)
-
-	workloadList := &v1.WorkloadList{}
-	labelSelector := labels.SelectorFromSet(map[string]string{v1.ClusterIdLabel: v1.GetClusterId(workload)})
-	// Record currently in-use ports to avoid reuse
-	if r.List(ctx, workloadList, &client.ListOptions{LabelSelector: labelSelector}) == nil {
-		for _, item := range workloadList.Items {
-			ports[item.Spec.JobPort] = true
-			ports[item.Spec.SSHPort] = true
-		}
+	kind := workload.SpecKind()
+	// only for workload using pytorch job
+	if kind != common.PytorchJobKind && kind != common.AuthoringKind &&
+		kind != common.UnifiedJobKind && kind != common.TorchFTKind {
+		return nil
 	}
+
 	patch := client.MergeFrom(workload.DeepCopy())
 	if workload.Spec.Service != nil {
 		workload.Spec.JobPort = workload.Spec.Service.TargetPort
 	} else {
+		var ports map[int]struct{}
+		if !workload.HasHostNetwork() {
+			ports = make(map[int]struct{})
+		} else {
+			// In hostNetwork mode, ensure port uniqueness to avoid conflicts with previous tasks that may not have successfully released the port.
+			ports = commonworkload.GetUsedHostPorts(ctx, r.Client, v1.GetClusterId(workload))
+		}
 		workload.Spec.JobPort = generateRandomPort(ports)
 	}
-	workload.Spec.SSHPort = generateRandomPort(ports)
-	if workload.Spec.JobPort == 0 || workload.Spec.SSHPort == 0 {
-		return commonerrors.NewInternalError("failed to generate job or SSH port")
+	if workload.Spec.JobPort == 0 {
+		return commonerrors.NewInternalError(fmt.Sprintf("failed to generate %s", common.PytorchJobPortName))
 	}
 	if err := r.Patch(ctx, workload, patch); err != nil {
 		return err
@@ -411,6 +412,11 @@ func setK8sObjectMeta(result *unstructured.Unstructured, adminWorkload *v1.Workl
 		}
 	}
 	result.SetAnnotations(targetAnnotations)
+	if commonworkload.IsRayJob(adminWorkload) {
+		if err := syncRayJobSubmitterPodMetadata(result, adminWorkload); err != nil {
+			klog.ErrorS(err, "Failed to sync RayJob submitter pod metadata")
+		}
+	}
 }
 
 // getWorkloadTemplate retrieves the workload template configuration based on its version and kind.
@@ -502,7 +508,6 @@ func (r *DispatcherReconciler) syncWorkloadToObject(ctx context.Context, adminWo
 	if err = applyWorkloadSpecToObject(ctx, clientSets, obj, adminWorkload, workspace, rt); err != nil {
 		return commonerrors.NewBadRequest(err.Error())
 	}
-
 	if err = jobutils.UpdateObject(ctx, clientSets.ClientFactory(), obj); err != nil {
 		klog.ErrorS(err, "failed to update k8s unstructured object")
 		return err
@@ -525,7 +530,8 @@ func isResourceChanged(adminWorkload *v1.Workload, obj *unstructured.Unstructure
 		}
 	}
 
-	replicaList, resourceList, err := jobutils.GetResources(obj, rt, v1.GetMainContainer(adminWorkload), gpuName)
+	replicaList, resourceList, err := jobutils.GetResources(obj, rt,
+		v1.GetMainContainer(adminWorkload), gpuName, len(adminWorkload.Spec.Resources))
 	if err != nil {
 		klog.ErrorS(err, "failed to get resource", "rt", rt.Name, "obj", obj.GetName())
 		return false
@@ -555,7 +561,7 @@ func isResourceChanged(adminWorkload *v1.Workload, obj *unstructured.Unstructure
 
 // isImagesChanged checks if the container image of the workload has changed.
 func isImagesChanged(adminWorkload *v1.Workload, obj *unstructured.Unstructured, rt *v1.ResourceTemplate) bool {
-	images, err := jobutils.GetImages(obj, rt, v1.GetMainContainer(adminWorkload))
+	images, err := jobutils.GetImages(obj, rt, v1.GetMainContainer(adminWorkload), len(adminWorkload.Spec.Resources))
 	if err != nil {
 		klog.ErrorS(err, "failed to get image", "obj", obj.GetName())
 		return false
@@ -565,7 +571,7 @@ func isImagesChanged(adminWorkload *v1.Workload, obj *unstructured.Unstructured,
 
 // isEntrypointChanged checks if the entry point/command of the workload has changed.
 func isEntrypointChanged(adminWorkload *v1.Workload, obj *unstructured.Unstructured, rt *v1.ResourceTemplate) bool {
-	commands, err := jobutils.GetCommands(obj, rt, v1.GetMainContainer(adminWorkload))
+	commands, err := jobutils.GetCommands(obj, rt, v1.GetMainContainer(adminWorkload), len(adminWorkload.Spec.Resources))
 	if err != nil {
 		klog.ErrorS(err, "failed to get command", "obj", obj.GetName())
 		return false
@@ -595,7 +601,7 @@ func isEnvChanged(adminWorkload *v1.Workload, obj *unstructured.Unstructured, rt
 		return true
 	}
 	mainContainerName := v1.GetMainContainer(adminWorkload)
-	currentEnvs, err := jobutils.GetEnv(obj, rt, mainContainerName)
+	currentEnvs, err := jobutils.GetEnv(obj, rt, mainContainerName, len(adminWorkload.Spec.Resources))
 	if err != nil {
 		klog.ErrorS(err, "failed to get env", "obj", obj.GetName())
 		return false
@@ -606,7 +612,7 @@ func isEnvChanged(adminWorkload *v1.Workload, obj *unstructured.Unstructured, rt
 
 // isSharedMemoryChanged checks if the shared memory configuration of the workload has changed.
 func isSharedMemoryChanged(adminWorkload *v1.Workload, obj *unstructured.Unstructured, rt *v1.ResourceTemplate) bool {
-	memoryStorageSizes, err := jobutils.GetMemoryStorageSize(obj, rt)
+	memoryStorageSizes, err := jobutils.GetMemoryStorageSize(obj, rt, len(adminWorkload.Spec.Resources))
 	if err != nil {
 		return true
 	}
@@ -623,7 +629,7 @@ func isSharedMemoryChanged(adminWorkload *v1.Workload, obj *unstructured.Unstruc
 
 // isPriorityClassChanged checks if the priority of the workload has changed.
 func isPriorityClassChanged(adminWorkload *v1.Workload, obj *unstructured.Unstructured, rt *v1.ResourceTemplate) bool {
-	priorityClassName, err := jobutils.GetPriorityClassName(obj, rt)
+	priorityClassName, err := jobutils.GetPriorityClassName(obj, rt, len(adminWorkload.Spec.Resources))
 	if err != nil {
 		return true
 	}
@@ -647,38 +653,42 @@ func isGithubSecretChanged(adminWorkload *v1.Workload, obj *unstructured.Unstruc
 // network settings, containers, and volumes based on the workload specification.
 func applyWorkloadSpecToObject(ctx context.Context, clientSets *syncer.ClusterClientSets,
 	obj *unstructured.Unstructured, adminWorkload *v1.Workload, workspace *v1.Workspace, rt *v1.ResourceTemplate) error {
-	if commonworkload.IsCICDScalingRunnerSet(adminWorkload) {
-		if err := updateCICDScaleSet(obj, adminWorkload, workspace, rt); err != nil {
-			return err
-		}
-	} else if commonworkload.IsCICDEphemeralRunner(adminWorkload) {
-		if err := updateCICDEphemeralRunner(ctx, clientSets, obj, adminWorkload, rt); err != nil {
-			return err
-		}
+
+	var err error
+	switch {
+	case commonworkload.IsCICDScalingRunnerSet(adminWorkload):
+		err = updateCICDScaleSet(obj, adminWorkload, workspace, rt)
+	case commonworkload.IsCICDEphemeralRunner(adminWorkload):
+		err = updateCICDEphemeralRunner(ctx, clientSets, obj, adminWorkload, rt)
+	case commonworkload.IsRayJob(adminWorkload):
+		err = updateRayJob(obj, adminWorkload)
+	}
+	if err != nil {
+		return err
 	}
 	for i, t := range rt.Spec.ResourceSpecs {
 		if i >= len(adminWorkload.Spec.Resources) {
-			if err := jobutils.RemoveNestedField(obj.Object, t.PrePaths); err != nil {
+			if err = jobutils.RemoveNestedField(obj.Object, t.PrePaths); err != nil {
 				return err
 			}
 			continue
 		}
-		if err := updateHostNetwork(adminWorkload, obj, t, i); err != nil {
+		if err = updateHostNetwork(adminWorkload, obj, t, i); err != nil {
 			return fmt.Errorf("failed to update host network: %v", err.Error())
 		}
-		if err := updateReplica(adminWorkload, obj, t, i); err != nil {
+		if err = updateReplica(adminWorkload, obj, t, i); err != nil {
 			return fmt.Errorf("failed to update replica: %v", err.Error())
 		}
-		if err := updateMetadata(adminWorkload, obj, t, i); err != nil {
+		if err = updateMetadata(adminWorkload, obj, t, i); err != nil {
 			return fmt.Errorf("failed to update metadata: %v", err.Error())
 		}
-		if err := updateContainers(adminWorkload, obj, t, i); err != nil {
+		if err = updateContainers(adminWorkload, obj, t, i); err != nil {
 			return fmt.Errorf("failed to update main container: %v", err.Error())
 		}
-		if err := updateSharedMemory(adminWorkload, obj, t, i); err != nil {
+		if err = updateSharedMemory(adminWorkload, obj, t, i); err != nil {
 			return fmt.Errorf("failed to update shared memory: %v", err.Error())
 		}
-		if err := updatePriorityClass(adminWorkload, obj, t); err != nil {
+		if err = updatePriorityClass(adminWorkload, obj, t); err != nil {
 			return fmt.Errorf("failed to update priority: %v", err.Error())
 		}
 	}
@@ -933,13 +943,14 @@ func (r *DispatcherReconciler) getWorkspace(ctx context.Context, adminWorkload *
 
 // generateRandomPort generates a random port number within the specified range.
 // with a maximum of 200 retry attempts to avoid infinite loops.
-func generateRandomPort(ports map[int]bool) int {
+func generateRandomPort(ports map[int]struct{}) int {
 	maxRetries := 200
+	rand.Seed(time.Now().UnixNano())
 	for i := 0; i < maxRetries; i++ {
 		port := rand.Intn(10000) + 20000
 		_, ok := ports[port]
 		if !ok {
-			ports[port] = true
+			ports[port] = struct{}{}
 			return port
 		}
 	}

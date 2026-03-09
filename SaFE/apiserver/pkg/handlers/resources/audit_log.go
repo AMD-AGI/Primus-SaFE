@@ -61,11 +61,21 @@ func (h *Handler) listAuditLog(c *gin.Context) (interface{}, error) {
 	tags := dbclient.GetAuditLogFieldTags()
 	var conditions sqrl.And
 
+	// keyword: OR search across user_name and request_path (used by the frontend single search box).
+	// When set, userName and requestPath individual filters are ignored for these two fields.
+	if req.Keyword != "" {
+		kw := "%" + req.Keyword + "%"
+		conditions = append(conditions, sqrl.Or{
+			sqrl.ILike{dbclient.GetFieldTag(tags, "UserName"): kw},
+			sqrl.ILike{dbclient.GetFieldTag(tags, "RequestPath"): kw},
+		})
+	}
+
 	// Filter by user info
 	if req.UserId != "" {
 		conditions = append(conditions, sqrl.Eq{dbclient.GetFieldTag(tags, "UserId"): req.UserId})
 	}
-	if req.UserName != "" {
+	if req.Keyword == "" && req.UserName != "" {
 		// Use partial match (ILIKE) for userName to support fuzzy search
 		conditions = append(conditions, sqrl.ILike{dbclient.GetFieldTag(tags, "UserName"): "%" + req.UserName + "%"})
 	}
@@ -98,7 +108,7 @@ func (h *Handler) listAuditLog(c *gin.Context) (interface{}, error) {
 			conditions = append(conditions, sqrl.Eq{dbclient.GetFieldTag(tags, "HttpMethod"): httpMethods})
 		}
 	}
-	if req.RequestPath != "" {
+	if req.Keyword == "" && req.RequestPath != "" {
 		conditions = append(conditions, sqrl.ILike{dbclient.GetFieldTag(tags, "RequestPath"): "%" + req.RequestPath + "%"})
 	}
 	if req.ResponseStatus != nil {

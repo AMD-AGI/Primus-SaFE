@@ -33,6 +33,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	commonclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/k8sclient"
 	commonnodes "github.com/AMD-AIG-AIMA/SAFE/common/pkg/nodes"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/quantity"
@@ -510,6 +511,11 @@ func (r *WorkspaceReconciler) syncWorkspace(ctx context.Context, workspace *v1.W
 		}
 		return nil
 	}
+	nf := &v1.NodeFlavor{}
+	err := r.Get(ctx, client.ObjectKey{Name: workspace.Spec.NodeFlavor}, nf)
+	if err != nil {
+		return err
+	}
 
 	nodes, err := commonnodes.GetNodesOfWorkspaces(ctx, r.Client, []string{workspace.Name}, commonnodes.FilterDeletingNode)
 	if err != nil {
@@ -525,11 +531,11 @@ func (r *WorkspaceReconciler) syncWorkspace(ctx context.Context, workspace *v1.W
 			availResources = quantity.AddResource(availResources, node.Status.Resources)
 			availReplica++
 		} else {
-			abnormalResources = quantity.AddResource(abnormalResources, node.Status.Resources)
+			abnormalResources = quantity.AddResource(abnormalResources, nf.ToResourceList(commonconfig.GetRdmaName()))
 			abnormalReplica++
 		}
-		totalResources = quantity.AddResource(totalResources, node.Status.Resources)
 	}
+	totalResources = quantity.AddResource(availResources, abnormalResources)
 	availResources = quantity.GetAvailableResource(availResources)
 	isChanged := false
 	if !quantity.Equal(totalResources, workspace.Status.TotalResources) {

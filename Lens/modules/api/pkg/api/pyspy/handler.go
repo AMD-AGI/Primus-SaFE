@@ -12,6 +12,7 @@ import (
 
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/clientsets"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/constant"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/helper/workload"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database/model"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
@@ -566,9 +567,10 @@ func listTasksWithFilters(ctx interface{ Done() <-chan struct{} }, req *ListTask
 	return tasks, total, err
 }
 
-// GetProcessTree retrieves the process tree for a pod
-// For same-cluster requests: directly proxies to node-exporter
-// For cross-cluster requests: uses action_tasks queue for async execution
+// GetProcessTree retrieves the process tree for a pod.
+// It auto-resolves the cluster by searching all clusters for the workload UID.
+// Control plane always uses action_tasks queue (node-exporter is on data plane, not directly reachable).
+// Data plane calls node-exporter directly (same cluster).
 // POST /api/v1/workloads/:uid/process-tree
 func GetProcessTree(c *gin.Context) {
 	var req ProcessTreeRequest
@@ -577,23 +579,23 @@ func GetProcessTree(c *gin.Context) {
 		return
 	}
 
-	// Resolve cluster name
-	clusterName, err := getClusterName(c, req.Cluster)
+	workloadUID := c.Param("uid")
+	clusterName, err := workload.ResolveWorkloadCluster(c.Request.Context(), workloadUID, req.Cluster)
 	if err != nil {
-		log.Errorf("Failed to resolve cluster: %v", err)
-		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("invalid cluster: %v", err)})
+		log.Errorf("Failed to resolve cluster for workload %s: %v", workloadUID, err)
+		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("failed to resolve cluster: %v", err)})
 		return
 	}
 
-	// Check if this is a cross-cluster request
-	if clientsets.IsRemoteCluster(clusterName) {
-		// Cross-cluster: use action_tasks queue
-		log.Infof("Cross-cluster request detected for pod %s in cluster %s, using action queue", req.PodUID, clusterName)
+	log.Debugf("Resolved workload %s to cluster %s", workloadUID, clusterName)
+
+	cm := clientsets.GetClusterManager()
+	if cm.GetComponentType().IsControlPlane() {
+		log.Infof("Control plane dispatching process-tree task to cluster %s for pod %s", clusterName, req.PodUID)
 		getProcessTreeViaActionQueue(c, &req, clusterName)
 		return
 	}
 
-	// Same-cluster: call node-exporter directly
 	getProcessTreeDirect(c, &req, clusterName)
 }
 

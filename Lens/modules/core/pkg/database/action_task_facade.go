@@ -23,7 +23,7 @@ const (
 type ActionTaskFacadeInterface interface {
 	Create(ctx context.Context, task *model.ActionTasks) error
 	GetByID(ctx context.Context, id int64) (*model.ActionTasks, error)
-	GetPendingTasks(ctx context.Context, clusterName string, limit int) ([]*model.ActionTasks, error)
+	GetPendingTasks(ctx context.Context, limit int) ([]*model.ActionTasks, error)
 	UpdateStatus(ctx context.Context, id int64, status string) error
 	MarkRunning(ctx context.Context, id int64) error
 	MarkCompleted(ctx context.Context, id int64, result model.ExtType) error
@@ -68,11 +68,12 @@ func (f *ActionTaskFacade) GetByID(ctx context.Context, id int64) (*model.Action
 	return q.WithContext(ctx).Where(q.ID.Eq(id)).First()
 }
 
-// GetPendingTasks retrieves pending tasks for a specific cluster
-func (f *ActionTaskFacade) GetPendingTasks(ctx context.Context, clusterName string, limit int) ([]*model.ActionTasks, error) {
+// GetPendingTasks retrieves pending tasks from the local database.
+// No cluster_name filter is needed because each data plane has its own dedicated database.
+// The control plane writes tasks to the target cluster's DB, so all tasks here belong to this cluster.
+func (f *ActionTaskFacade) GetPendingTasks(ctx context.Context, limit int) ([]*model.ActionTasks, error) {
 	q := f.getDAL().ActionTasks
 	return q.WithContext(ctx).
-		Where(q.ClusterName.Eq(clusterName)).
 		Where(q.Status.Eq(ActionTaskStatusPending)).
 		Order(q.CreatedAt).
 		Limit(limit).

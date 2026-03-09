@@ -8,12 +8,14 @@ package daemon
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 
 	apiserver "k8s.io/apiserver/pkg/server"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
 
-	commonklog "github.com/AMD-AIG-AIMA/SAFE/common/pkg/klog"
+	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
+	commonlog "github.com/AMD-AIG-AIMA/SAFE/common/pkg/klog"
 	"github.com/AMD-AIG-AIMA/SAFE/node-agent/pkg/exporters"
 	"github.com/AMD-AIG-AIMA/SAFE/node-agent/pkg/monitors"
 	"github.com/AMD-AIG-AIMA/SAFE/node-agent/pkg/node"
@@ -53,11 +55,14 @@ func NewDaemon() (*Daemon, error) {
 	if err = d.opts.Init(); err != nil {
 		return nil, fmt.Errorf("failed to parse options, err: %s", err.Error())
 	}
-	if err = commonklog.Init(d.opts.LogfilePath, d.opts.LogFileSize); err != nil {
+	if err = commonlog.Init(d.opts.LogfilePath, d.opts.LogFileSize); err != nil {
 		return nil, fmt.Errorf("failed to init logs. %s", err.Error())
 	}
 	if d.node, err = node.NewNode(d.ctx, d.opts); err != nil {
 		return nil, fmt.Errorf("failed to init node. %s", err.Error())
+	}
+	if err = d.initConfig(d.opts.ConfigMapPath); err != nil {
+		return nil, fmt.Errorf("failed to init config. %s", err.Error())
 	}
 	d.monitors = monitors.NewMonitorManager(&d.queue, d.opts, d.node)
 	d.exporters = exporters.NewExporterManager(&d.queue, d.node)
@@ -100,4 +105,14 @@ func (d *Daemon) Stop() {
 	}
 	klog.Infof("node-agent daemon stopped")
 	klog.Flush()
+}
+
+// initConfig loads the server configuration from the specified config file path.
+func (d *Daemon) initConfig(configPath string) error {
+	fullPath := filepath.Join(configPath, types.AppConfig)
+	if err := commonconfig.LoadConfig(fullPath); err != nil {
+		return fmt.Errorf("config path: %s, err: %v", fullPath, err)
+	}
+	klog.Infof("config loaded from %s", fullPath)
+	return nil
 }

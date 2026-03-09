@@ -13,6 +13,8 @@ import (
 
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/sets"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/selection"
@@ -105,20 +107,54 @@ func GetResourcesPerNode(workload *v1.Workload, adminNodeName string) (map[strin
 
 	result := map[string]corev1.ResourceList{}
 	for _, pod := range workload.Status.Pods {
-		if !v1.IsPodRunning(&pod) {
+		if !v1.IsPodRunning(&pod) || pod.ResourceId >= len(allPodResources) {
 			continue
 		}
 		if adminNodeName != "" && adminNodeName != pod.AdminNodeName {
 			continue
 		}
+		var podResources corev1.ResourceList
+		if IsRayJob(workload) {
+			if pod.ResourceId < 0 {
+				podResources = GetRayJobSubmitterResource()
+			} else {
+				podResources = allPodResources[pod.ResourceId]
+			}
+		} else if pod.ResourceId >= 0 {
+			podResources = allPodResources[pod.ResourceId]
+		}
+
 		resList, ok := result[pod.AdminNodeName]
 		if ok {
-			result[pod.AdminNodeName] = quantity.AddResource(resList, allPodResources[pod.ResourceId])
+			result[pod.AdminNodeName] = quantity.AddResource(resList, podResources)
 		} else {
-			result[pod.AdminNodeName] = allPodResources[pod.ResourceId]
+			result[pod.AdminNodeName] = podResources
 		}
 	}
 	return result, nil
+}
+
+func GetRayJobSubmitterResource() corev1.ResourceList {
+	cpuQuantity, _ := resource.ParseQuantity(common.RayJobSubmitterCpu)
+	memQuantity, _ := resource.ParseQuantity(common.RayJobSubmitterMemory)
+	return corev1.ResourceList{
+		corev1.ResourceCPU:    cpuQuantity,
+		corev1.ResourceMemory: memQuantity,
+	}
+}
+
+func GetMainContainer(obj metav1.Object, kind, podName string) string {
+	var mainContainerName string
+	if kind == common.RayJobKind && podName != "" {
+		if strings.Contains(podName, "-head-") || strings.Contains(podName, "-worker-") {
+			mainContainerName = v1.GetMainContainer(obj)
+		} else {
+			mainContainerName = common.RayJobSubmitterName
+		}
+	} else {
+		mainContainerName = v1.GetMainContainer(obj)
+	}
+	return mainContainerName
 }
 
 // GetWorkloadResourceUsage retrieves active resources based on the input workload.
@@ -175,9 +211,19 @@ func GetWorkloadResourceUsage(workload *v1.Workload, filterNode func(nodeName st
 		if outputs[i].isTerminated || resourceId >= len(allPodResources) {
 			continue
 		}
-		totalResource = quantity.AddResource(totalResource, allPodResources[resourceId])
+		var podResource corev1.ResourceList
+		if IsRayJob(workload) {
+			if resourceId < 0 {
+				podResource = GetRayJobSubmitterResource()
+			} else {
+				podResource = allPodResources[resourceId]
+			}
+		} else if resourceId >= 0 {
+			podResource = allPodResources[resourceId]
+		}
+		totalResource = quantity.AddResource(totalResource, podResource)
 		if !outputs[i].isFiltered {
-			availableResource = quantity.AddResource(availableResource, allPodResources[resourceId])
+			availableResource = quantity.AddResource(availableResource, podResource)
 			availableNodes = append(availableNodes, workload.Status.Pods[i].AdminNodeName)
 		}
 	}
@@ -457,4 +503,30 @@ func GetWorkloadMainContainer(ctx context.Context, cli client.Client, workload *
 		v1.SetAnnotation(workload, v1.MainContainerAnnotation, v1.GetMainContainer(cm))
 	}
 	return true
+}
+
+// GetUsedHostPorts returns a set of all host ports currently in use by workloads in the specified cluster.
+// It collects: (1) JobPort and SSHPort from RDMA workloads (hostNetwork pods); (2) Service.NodePort. (3) GcsServer and Dashboard Port for RayJob.
+// The returned map acts as a set where keys are port numbers and values are empty structs.
+func GetUsedHostPorts(ctx context.Context, cli client.Client, clusterId string) map[int]struct{} {
+	ports := make(map[int]struct{})
+	workloadList := &v1.WorkloadList{}
+	labelSelector := labels.SelectorFromSet(map[string]string{v1.ClusterIdLabel: clusterId})
+	if cli.List(ctx, workloadList, &client.ListOptions{LabelSelector: labelSelector}) == nil {
+		for _, item := range workloadList.Items {
+			if item.HasHostNetwork() {
+				if item.Spec.JobPort > 0 {
+					ports[item.Spec.JobPort] = struct{}{}
+				}
+				if IsRayJob(&item) {
+					ports[common.RayJobDashboard] = struct{}{}
+					ports[common.RayJobGcsServerPort] = struct{}{}
+				}
+			}
+			if item.Spec.Service != nil && item.Spec.Service.NodePort > 0 {
+				ports[item.Spec.Service.NodePort] = struct{}{}
+			}
+		}
+	}
+	return ports
 }

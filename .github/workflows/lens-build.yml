@@ -309,111 +309,72 @@ jobs:
   
   build:
     needs: detect-changes
-    runs-on: primus-safe-tw-proj2
+    runs-on: ubuntu-latest
     timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix: ${{ fromJson(needs.detect-changes.outputs.matrix) }}
     if: ${{ needs.detect-changes.outputs.matrix != '' && needs.detect-changes.outputs.matrix != '{"include":[]}' }}
     env:
-      GO_VERSION: "1.24.7"  # Centralized Go version management
-      REGISTRY: "${{ secrets.PROJ2_HARBOR_HOST }}/primussafe/"
+      GO_VERSION: "1.24.7"
     steps:
       - uses: actions/checkout@v4
 
-      - name: Login registries
-        run: |
-          set -x
-          echo "🔐 Logging in to Docker Hub..."
-          buildah login -u "${{ secrets.DOCKER_USERNAME }}" -p "${{ secrets.DOCKER_PASSWORD }}" docker.io && echo "✅ Docker Hub login successful" || echo "❌ Docker Hub login failed"
-          
-          echo "🔐 Logging in to GitHub Container Registry..."
-          buildah login -u "${{ github.actor }}" -p "${{ secrets.GITHUB_TOKEN }}" ghcr.io && echo "✅ GHCR login successful" || echo "❌ GHCR login failed"
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
 
-      - name: Build and push with Buildah
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Login to Quay.io
+        uses: docker/login-action@v3
+        with:
+          registry: quay.io
+          username: ${{ secrets.QUAY_USERNAME }}
+          password: ${{ secrets.QUAY_PASSWORD }}
+
+      - name: Build and push
         env:
           DOCKERIO_REPOSITORY: docker.io/primussafe
-          GHCR_REPOSITORY: ghcr.io/amd-agi/primussafe
+          QUAYIO_REPOSITORY: quay.io/primussafe
           IMAGE_VERSION: ${{ needs.detect-changes.outputs.image_version }}
           DATE_TIME: ${{ needs.detect-changes.outputs.date_time }}
         run: |
           set -e
-          echo "🚧 Building ${{ matrix.name }}..."
+          echo "Building ${{ matrix.name }}..."
 
-          # Determine which Dockerfile to use
-          # Check in order: basepath/Dockerfile, basepath/installer/Dockerfile, fallback
           MODULE_DOCKERFILE="${{ matrix.basepath }}Dockerfile"
           INSTALLER_DOCKERFILE="${{ matrix.basepath }}installer/Dockerfile"
           FALLBACK_DOCKERFILE="Lens/ci/Dockerfile"
           
           if [[ -f "$MODULE_DOCKERFILE" ]]; then
             DOCKERFILE="$MODULE_DOCKERFILE"
-            echo "📄 Using module Dockerfile: $DOCKERFILE"
           elif [[ -f "$INSTALLER_DOCKERFILE" ]]; then
             DOCKERFILE="$INSTALLER_DOCKERFILE"
-            echo "📄 Using module-specific installer Dockerfile: $DOCKERFILE"
           else
             DOCKERFILE="$FALLBACK_DOCKERFILE"
-            echo "📄 Using fallback Dockerfile: $DOCKERFILE"
           fi
 
-          # Build with buildah
-          buildah bud \
-            --layers \
-            --tls-verify=false \
-            --build-arg REGISTRY=${{ env.REGISTRY }} \
+          echo "Using Dockerfile: $DOCKERFILE"
+
+          docker buildx build \
             --build-arg GO_VERSION=${{ env.GO_VERSION }} \
             --build-arg GOPROXY=https://proxy.golang.org,direct \
             --build-arg BUILDPATH=${{ matrix.buildpath }} \
             --build-arg BASEPATH=${{ matrix.basepath }} \
             --build-arg APPNAME=${{ matrix.name }} \
             --build-arg GITHUB_TOKEN=${{ secrets.GITHUB_TOKEN }} \
-            -t ${{ matrix.name }}:${IMAGE_VERSION} \
-            -t ${{ matrix.name }}:${DATE_TIME} \
-            -f ${DOCKERFILE} .
-
-          # Push to Docker Hub
-          echo "🚀 Pushing ${{ matrix.name }} to Docker Hub..."
-          buildah tag ${{ matrix.name }}:${IMAGE_VERSION} ${DOCKERIO_REPOSITORY}/${{ matrix.name }}:${IMAGE_VERSION}
-          buildah tag ${{ matrix.name }}:${DATE_TIME} ${DOCKERIO_REPOSITORY}/${{ matrix.name }}:${DATE_TIME}
-          buildah push --tls-verify=false ${DOCKERIO_REPOSITORY}/${{ matrix.name }}:${IMAGE_VERSION}
-          buildah push --tls-verify=false ${DOCKERIO_REPOSITORY}/${{ matrix.name }}:${DATE_TIME}
-
-          # Push to GHCR
-          echo "🚀 Pushing ${{ matrix.name }} to GHCR..."
-          buildah tag ${{ matrix.name }}:${IMAGE_VERSION} ${GHCR_REPOSITORY}/${{ matrix.name }}:${IMAGE_VERSION}
-          buildah tag ${{ matrix.name }}:${DATE_TIME} ${GHCR_REPOSITORY}/${{ matrix.name }}:${DATE_TIME}
-          buildah push --tls-verify=false ${GHCR_REPOSITORY}/${{ matrix.name }}:${IMAGE_VERSION}
-          buildah push --tls-verify=false ${GHCR_REPOSITORY}/${{ matrix.name }}:${DATE_TIME}
+            -t ${DOCKERIO_REPOSITORY}/${{ matrix.name }}:${IMAGE_VERSION} \
+            -t ${DOCKERIO_REPOSITORY}/${{ matrix.name }}:${DATE_TIME} \
+            -t ${QUAYIO_REPOSITORY}/${{ matrix.name }}:${IMAGE_VERSION} \
+            -t ${QUAYIO_REPOSITORY}/${{ matrix.name }}:${DATE_TIME} \
+            -f ${DOCKERFILE} \
+            --push .
           
-          echo "✅ ${{ matrix.name }} build and push completed!"
-
-      - name: Save build info
-        env:
-          IMAGE_VERSION: ${{ needs.detect-changes.outputs.image_version }}
-          DATE_TIME: ${{ needs.detect-changes.outputs.date_time }}
-        run: |
-          mkdir -p build-info
-          cat > build-info/${{ matrix.name }}.json << EOF
-          {
-            "name": "${{ matrix.name }}",
-            "image_version": "${IMAGE_VERSION}",
-            "date_time": "${DATE_TIME}",
-            "docker_hub": "docker.io/primussafe/${{ matrix.name }}:${IMAGE_VERSION}",
-            "docker_hub_datetime": "docker.io/primussafe/${{ matrix.name }}:${DATE_TIME}",
-            "ghcr": "ghcr.io/amd-agi/primussafe/${{ matrix.name }}:${IMAGE_VERSION}",
-            "build_time": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")",
-            "commit_sha": "${{ github.sha }}",
-            "ref": "${{ github.ref }}"
-          }
-          EOF
-
-      - name: Upload build info artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: build-info-${{ matrix.name }}
-          path: build-info/${{ matrix.name }}.json
-          retention-days: 90
+          echo "${{ matrix.name }} build and push completed!"
 
   # TraceLens image build job
   # Python-based Streamlit application for trace analysis
@@ -441,10 +402,18 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Login to Quay.io
+        uses: docker/login-action@v3
+        with:
+          registry: quay.io
+          username: ${{ secrets.QUAY_USERNAME }}
+          password: ${{ secrets.QUAY_PASSWORD }}
+
       - name: Build and push TraceLens
         env:
           DOCKERIO_REPOSITORY: docker.io/primussafe
           GHCR_REPOSITORY: ghcr.io/amd-agi/primussafe
+          QUAYIO_REPOSITORY: quay.io/primussafe
           IMAGE_VERSION: ${{ needs.detect-changes.outputs.image_version }}
           DATE_TIME: ${{ needs.detect-changes.outputs.date_time }}
         run: |
@@ -460,6 +429,8 @@ jobs:
             -t ${DOCKERIO_REPOSITORY}/tracelens:${DATE_TIME} \
             -t ${GHCR_REPOSITORY}/tracelens:${IMAGE_VERSION} \
             -t ${GHCR_REPOSITORY}/tracelens:${DATE_TIME} \
+            -t ${QUAYIO_REPOSITORY}/tracelens:${IMAGE_VERSION} \
+            -t ${QUAYIO_REPOSITORY}/tracelens:${DATE_TIME} \
             -f "${TRACELENS_DIR}/Dockerfile" \
             --push \
             "${TRACELENS_DIR}"
@@ -480,6 +451,7 @@ jobs:
             "docker_hub": "docker.io/primussafe/tracelens:${IMAGE_VERSION}",
             "docker_hub_datetime": "docker.io/primussafe/tracelens:${DATE_TIME}",
             "ghcr": "ghcr.io/amd-agi/primussafe/tracelens:${IMAGE_VERSION}",
+            "quay": "quay.io/primussafe/tracelens:${IMAGE_VERSION}",
             "build_time": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")",
             "commit_sha": "${{ github.sha }}",
             "ref": "${{ github.ref }}"
@@ -519,10 +491,18 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Login to Quay.io
+        uses: docker/login-action@v3
+        with:
+          registry: quay.io
+          username: ${{ secrets.QUAY_USERNAME }}
+          password: ${{ secrets.QUAY_PASSWORD }}
+
       - name: Build and push Perfetto Viewer
         env:
           DOCKERIO_REPOSITORY: docker.io/primussafe
           GHCR_REPOSITORY: ghcr.io/amd-agi/primussafe
+          QUAYIO_REPOSITORY: quay.io/primussafe
           IMAGE_VERSION: ${{ needs.detect-changes.outputs.image_version }}
           DATE_TIME: ${{ needs.detect-changes.outputs.date_time }}
         run: |
@@ -538,6 +518,8 @@ jobs:
             -t ${DOCKERIO_REPOSITORY}/perfetto-viewer:${DATE_TIME} \
             -t ${GHCR_REPOSITORY}/perfetto-viewer:${IMAGE_VERSION} \
             -t ${GHCR_REPOSITORY}/perfetto-viewer:${DATE_TIME} \
+            -t ${QUAYIO_REPOSITORY}/perfetto-viewer:${IMAGE_VERSION} \
+            -t ${QUAYIO_REPOSITORY}/perfetto-viewer:${DATE_TIME} \
             -f "${PERFETTO_DIR}/Dockerfile" \
             --push \
             "${PERFETTO_DIR}"
@@ -558,6 +540,7 @@ jobs:
             "docker_hub": "docker.io/primussafe/perfetto-viewer:${IMAGE_VERSION}",
             "docker_hub_datetime": "docker.io/primussafe/perfetto-viewer:${DATE_TIME}",
             "ghcr": "ghcr.io/amd-agi/primussafe/perfetto-viewer:${IMAGE_VERSION}",
+            "quay": "quay.io/primussafe/perfetto-viewer:${IMAGE_VERSION}",
             "build_time": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")",
             "commit_sha": "${{ github.sha }}",
             "ref": "${{ github.ref }}"
@@ -604,10 +587,18 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Login to Quay.io
+        uses: docker/login-action@v3
+        with:
+          registry: quay.io
+          username: ${{ secrets.QUAY_USERNAME }}
+          password: ${{ secrets.QUAY_PASSWORD }}
+
       - name: Build and push GitHub Runner
         env:
           DOCKERIO_REPOSITORY: docker.io/primussafe
           GHCR_REPOSITORY: ghcr.io/amd-agi/primussafe
+          QUAYIO_REPOSITORY: quay.io/primussafe
           IMAGE_VERSION: ${{ needs.detect-changes.outputs.image_version }}
           DATE_TIME: ${{ needs.detect-changes.outputs.date_time }}
           RUNNER_VERSION: ${{ steps.read-version.outputs.runner_version }}
@@ -627,6 +618,9 @@ jobs:
             -t ${GHCR_REPOSITORY}/github-runner:${IMAGE_VERSION} \
             -t ${GHCR_REPOSITORY}/github-runner:${DATE_TIME} \
             -t ${GHCR_REPOSITORY}/github-runner:v${RUNNER_VERSION} \
+            -t ${QUAYIO_REPOSITORY}/github-runner:${IMAGE_VERSION} \
+            -t ${QUAYIO_REPOSITORY}/github-runner:${DATE_TIME} \
+            -t ${QUAYIO_REPOSITORY}/github-runner:v${RUNNER_VERSION} \
             -f "${GITHUB_RUNNER_DIR}/Dockerfile" \
             --push \
             "${GITHUB_RUNNER_DIR}"
@@ -650,6 +644,7 @@ jobs:
             "docker_hub_datetime": "docker.io/primussafe/github-runner:${DATE_TIME}",
             "docker_hub_runner_version": "docker.io/primussafe/github-runner:v${RUNNER_VERSION}",
             "ghcr": "ghcr.io/amd-agi/primussafe/github-runner:${IMAGE_VERSION}",
+            "quay": "quay.io/primussafe/github-runner:${IMAGE_VERSION}",
             "build_time": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")",
             "commit_sha": "${{ github.sha }}",
             "ref": "${{ github.ref }}"
@@ -760,6 +755,7 @@ jobs:
           echo "" >> build-versions.txt
           echo "Docker Hub Registry: docker.io/primussafe/" >> build-versions.txt
           echo "GHCR Registry: ghcr.io/amd-agi/primussafe/" >> build-versions.txt
+          echo "Quay.io Registry: quay.io/primussafe/" >> build-versions.txt
           echo "================================================" >> build-versions.txt
           
           echo ""

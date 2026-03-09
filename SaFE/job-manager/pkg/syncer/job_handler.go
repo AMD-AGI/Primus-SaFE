@@ -264,10 +264,10 @@ func (r *SyncerReconciler) updateAdminWorkloadStatus(ctx context.Context, origin
 		return originalWorkload, nil
 	}
 	adminWorkload := originalWorkload.DeepCopy()
-	if adminWorkload.Status.StartTime == nil {
-		adminWorkload.Status.StartTime = &metav1.Time{Time: time.Now().UTC()}
-	}
 	if commonworkload.IsCICDScalingRunnerSet(adminWorkload) && status.RunnerScaleSetId != "" {
+		if adminWorkload.Status.StartTime == nil {
+			adminWorkload.Status.StartTime = &metav1.Time{Time: time.Now().UTC()}
+		}
 		if adminWorkload.Status.RunnerScaleSetId != status.RunnerScaleSetId {
 			patch := client.MergeFrom(originalWorkload)
 			adminWorkload.Status.RunnerScaleSetId = status.RunnerScaleSetId
@@ -285,6 +285,9 @@ func (r *SyncerReconciler) updateAdminWorkloadStatus(ctx context.Context, origin
 				commonworkload.GenerateDispatchReason(message.dispatchCount))
 			updateWorkloadCondition(adminWorkload, cond)
 		}
+	}
+	if !adminWorkload.IsPending() && adminWorkload.Status.StartTime == nil {
+		adminWorkload.Status.StartTime = &metav1.Time{Time: time.Now().UTC()}
 	}
 	if adminWorkload.IsEnd() && adminWorkload.Status.EndTime == nil {
 		adminWorkload.Status.EndTime = &metav1.Time{Time: time.Now().UTC()}
