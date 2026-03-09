@@ -58,6 +58,8 @@ type ResourceSpec struct {
 	TemplatePaths []string `json:"templatePaths,omitempty"`
 	// The relative path of pod replica
 	ReplicasPaths []string `json:"replicasPaths,omitempty"`
+	// Fits scenarios without a defined replica path but with actual replica values, such as ray-job.
+	DefaultReplica int `json:"defaultReplica,omitempty"`
 	// The relative path of pod max-replica(only for ray-job), Commonly used for elasticity.
 	MaxReplicasPaths []string `json:"maxReplicasPaths,omitempty"`
 	// The relative path of pod min-replica(only for job and ray-job). for job, it's the pod completions

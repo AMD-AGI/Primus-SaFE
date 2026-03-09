@@ -43,12 +43,13 @@ data:
   net_ib_status_201: '{"script":"net_ib_status_201.sh","id":"201","cronjob":"@every 30s","timeoutSecond":25,"chip":"amd","toggle":"on","arguments":["{{ .Values.monitor.nccl_ib_hca }}"]}'
   net_ethtool_202: '{"script":"net_ethtool_202.sh","id":"202","cronjob":"@every 300s","timeoutSecond":250,"chip":"amd","toggle":"on"}'
   net_ethernet_id_203: '{"script":"net_ethernet_id_203.sh","id":"203","cronjob":"@every 600s","timeoutSecond":300,"chip":"amd","toggle":"on","arguments":["{{ .Values.monitor.nccl_socket_ifname }}"]}'
-  net_bnxt_load_204: '{"script":"net_bnxt_load_204.sh","id":"204","cronjob":"@every 600s","timeoutSecond":300,"chip":"amd","toggle":"on"}'
+  net_bnxt_load_204: '{"script":"net_bnxt_load_204.sh","id":"204","cronjob":"@every 600s","timeoutSecond":300,"chip":"amd","toggle":"off"}'
   net_ainic_load_205: '{"script":"net_ainic_load_205.sh","id":"205","cronjob":"@every 600s","timeoutSecond":300,"chip":"amd","toggle":"off"}'
   net_ib_devices_206: '{"script":"net_ib_devices_206.sh","id":"206","cronjob":"@every 300s","timeoutSecond":250,"chip":"amd","toggle":"on","arguments":["{{ .Values.monitor.nccl_ib_hca }}"]}'
   net_ib_gid_207: '{"script":"net_ib_gid_207.sh","id":"207","cronjob":"@every 300s","timeoutSecond":250,"chip":"amd","toggle":"on"}'
   net_ainic_devices_208: '{"script":"net_ainic_devices_208.sh","id":"208","cronjob":"@every 300s","timeoutSecond":250,"chip":"amd","toggle":"off","arguments":["{{ .Values.monitor.nccl_ib_hca }}"]}'
   net_sys_resolved_209: '{"script":"net_sys_resolved_209.sh","id":"209","cronjob":"@every 300s","timeoutSecond":250,"toggle":"on"}'
+  net_rdma_count_210: '{"script":"net_rdma_count_210.sh","id":"210","cronjob":"@every 300s","timeoutSecond":250,"toggle":"on","chip":"amd","arguments":["$Node"]}'
   # System: 3XX
   sys_timezone_301: '{"script":"sys_timezone_301.sh","id":"301","cronjob":"@every 30s","timeoutSecond":25,"toggle":"on"}'
   sys_hostname_302: '{"script":"sys_hostname_302.sh","id":"302","cronjob":"@every 30s","timeoutSecond":25,"toggle":"on"}'
@@ -56,8 +57,14 @@ data:
   sys_kernel_lock_304: '{"script":"sys_kernel_lock_304.sh","id":"304","cronjob":"@every 30s","timeoutSecond":25,"toggle":"on"}'
   sys_acsctl_305: '{"script":"sys_acsctl_305.sh","id":"305","cronjob":"@every 600s","timeoutSecond":300,"toggle":"on"}'
   sys_boot_args_306: '{"script":"sys_boot_arguments_306.sh","id":"306","cronjob":"@every 600s","timeoutSecond":300,"chip":"amd","toggle":"on"}'
-  sys_docker_307: '{"script":"sys_docker_307.sh","id":"307","cronjob":"@every 60s","timeoutSecond":50,"toggle":"on","arguments":["$Node","x-flannel-prod"]}'
+  sys_docker_307: '{"script":"sys_docker_307.sh","id":"307","cronjob":"@every 60s","timeoutSecond":50,"toggle":"off","arguments":["$Node","x-flannel-prod"]}'
   sys_pcie_link_308: '{"script":"sys_pcie_link_308.sh","id":"308","cronjob":"@every 300s","timeoutSecond":250,"chip":"amd","toggle":"on"}'
-  sys_csi_wekafs_309: '{"script":"sys_csi_wekafs_309.sh","id":"309","cronjob":"@every 300s","timeoutSecond":250,"chip":"amd","toggle":"on"}'
+  sys_csi_wekafs_309: '{"script":"sys_csi_wekafs_309.sh","id":"309","cronjob":"@every 300s","timeoutSecond":250,"chip":"amd","toggle":"off"}'
   # Disk: 4XX
-  nfs_check_401: '{"script":"nfs_check_401.sh","id":"401","cronjob":"@every 60s","timeoutSecond":50,"toggle":"on","arguments":["{{ .Values.monitor.nfs_server }}","{{ .Values.monitor.nfs_path }}","{{ .Values.monitor.nfs_mount }}"]}'
+  nfs_check_401: '{"script":"nfs_check_401.sh","id":"401","cronjob":"@every 300s","timeoutSecond":250,"toggle":"on","arguments":["{{ .Values.monitor.nfs_server }}","{{ .Values.monitor.nfs_path }}","{{ .Values.monitor.nfs_mount }}"]}'
+  resolv_conf_check_402: '{"script":"resolv_conf_check_402.sh","id":"402","cronjob":"@every 300s","timeoutSecond":250,"toggle":"on"}'
+  # Main configuration as YAML string
+  config.yaml: |
+    net:
+      # RDMA device name
+      rdma_name: {{ .Values.node_agent.rdma_name }}

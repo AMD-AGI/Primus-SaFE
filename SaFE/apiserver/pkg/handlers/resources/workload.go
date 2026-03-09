@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -25,6 +26,7 @@ import (
 	"k8s.io/klog/v2"
 	"k8s.io/utils/pointer"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
@@ -170,6 +172,23 @@ func (h *Handler) createWorkload(c *gin.Context) (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	// Update preheat workloads' OwnerReferences to point to mainWorkload
+	// This must be done after mainWorkload is created since we need its UID
+	if req.Preheat && len(preheatWorkloads) > 0 {
+		for _, preheatWorkload := range preheatWorkloads {
+			if err = controllerutil.SetControllerReference(mainWorkload, preheatWorkload, h.Client.Scheme()); err != nil {
+				klog.ErrorS(err, "failed to set controller reference",
+					"preheatWorkload", preheatWorkload.Name, "mainWorkload", mainWorkload.Name)
+				continue
+			}
+			if err = h.Update(c.Request.Context(), preheatWorkload); err != nil {
+				klog.ErrorS(err, "failed to update preheat workload owner reference",
+					"preheatWorkload", preheatWorkload.Name, "mainWorkload", mainWorkload.Name)
+			}
+		}
+	}
+
 	isSucceed = true
 	return resp, nil
 }
@@ -396,6 +415,7 @@ func (h *Handler) deleteAdminWorkload(ctx context.Context, adminWorkload *v1.Wor
 	if err := h.Delete(ctx, adminWorkload); err != nil {
 		return err
 	}
+
 	return nil
 }
 
@@ -507,7 +527,8 @@ func (h *Handler) patchWorkload(c *gin.Context) (interface{}, error) {
 		klog.ErrorS(err, "failed to update workload", "name", adminWorkload.Name)
 		return nil, err
 	}
-	klog.Infof("update workload, name: %s, request: %s", name, string(jsonutils.MarshalSilently(*req)))
+	klog.Infof("update workload, name: %s, request: %s, request.user: %s",
+		name, string(jsonutils.MarshalSilently(*req)), c.GetString(common.UserId))
 	return nil, nil
 }
 
@@ -623,8 +644,9 @@ func (h *Handler) getWorkloadPodLog(c *gin.Context) (interface{}, error) {
 		return nil, err
 	}
 	podName := strings.TrimSpace(c.Param(common.PodId))
+	mainContainerName := commonworkload.GetMainContainer(workload, workload.SpecKind(), podName)
 	podLogs, err := h.getPodLog(c, k8sClients.ClientSet(),
-		workload.Spec.Workspace, podName, v1.GetMainContainer(workload))
+		workload.Spec.Workspace, podName, mainContainerName)
 	if err != nil {
 		return nil, err
 	}
@@ -828,6 +850,11 @@ func (h *Handler) generateWorkload(ctx context.Context,
 	if req.StickyNodes {
 		v1.SetAnnotation(workload, v1.WorkloadStickyNodesAnnotation, v1.TrueStr)
 	}
+	if req.UseWorkspaceStorage != nil {
+		v1.SetAnnotation(workload, v1.UseWorkspaceStorageAnnotation, strconv.FormatBool(*req.UseWorkspaceStorage))
+	} else {
+		v1.SetAnnotation(workload, v1.UseWorkspaceStorageAnnotation, v1.TrueStr)
+	}
 	return workload, nil
 }
 
@@ -865,6 +892,7 @@ func (h *Handler) createPreheatWorkload(c *gin.Context, mainWorkload *v1.Workloa
 			Name: commonutils.GenerateName(displayName),
 			Labels: map[string]string{
 				v1.DisplayNameLabel: displayName,
+				v1.OwnerLabel:       mainWorkload.Name,
 			},
 			Annotations: map[string]string{
 				v1.DescriptionAnnotation:       v1.OpsJobKind,
@@ -1264,6 +1292,7 @@ func (h *Handler) cvtDBWorkloadToGetResponse(ctx context.Context,
 		IsSupervised:         dbWorkload.IsSupervised,
 		StickyNodes:          dbWorkload.IsStickyNodes,
 		Privileged:           dbWorkload.IsPrivileged,
+		UseWorkspaceStorage:  dbWorkload.UseWorkspaceStorage,
 	}
 	result.Images = cvtToWorkloadImages(dbWorkload, len(result.Resources))
 	if result.GroupVersionKind.Kind != common.AuthoringKind {
@@ -1371,9 +1400,9 @@ func (h *Handler) buildSSHCommand(ctx context.Context, pod *v1.WorkloadPod, user
 		return ""
 	}
 	// pattern: {userId}.{podId}.{container}.sh.{workspace}@{host}
-	// e.g. ssh -o ServerAliveInterval=60 7fda556669b09dcec5d779438e7432c5.verl40-fpg88-master-0.pytorch.sh.x-flannel-prod@tw325.primus-safe.amd.com -p 2222
-	return fmt.Sprintf("ssh -o ServerAliveInterval=60 %s.%s.%s.sh.%s@%s -p %d", userId, pod.PodId,
-		v1.GetMainContainer(template), workspace, commonconfig.GetSystemHost(), commonconfig.GetSSHServerPort())
+	// e.g. ssh -o ServerAliveInterval=60 7fda556669b09dcec5d779438e7432c5.verl40-fpg88-master-0.pytorch.bash.x-flannel-prod@tw325.primus-safe.amd.com -p 2222
+	return fmt.Sprintf("ssh -o ServerAliveInterval=60 %s.%s.%s.bash.%s@%s -p %d", userId, pod.PodId,
+		commonworkload.GetMainContainer(template, gvk.Kind, pod.PodId), workspace, commonconfig.GetSystemHost(), commonconfig.GetSSHServerPort())
 }
 
 // generateWorkloadForAuth creates a minimal workload object for authorization checks.
@@ -1409,8 +1438,9 @@ func cvtDBWorkloadToAdminWorkload(dbWorkload *dbclient.Workload) *v1.Workload {
 				v1.UserIdLabel:      dbutils.ParseNullString(dbWorkload.UserId),
 			},
 			Annotations: map[string]string{
-				v1.DescriptionAnnotation: dbutils.ParseNullString(dbWorkload.Description),
-				v1.UserNameAnnotation:    dbutils.ParseNullString(dbWorkload.UserName),
+				v1.DescriptionAnnotation:         dbutils.ParseNullString(dbWorkload.Description),
+				v1.UserNameAnnotation:            dbutils.ParseNullString(dbWorkload.UserName),
+				v1.UseWorkspaceStorageAnnotation: strconv.FormatBool(dbWorkload.UseWorkspaceStorage),
 			},
 		},
 		Spec: v1.WorkloadSpec{

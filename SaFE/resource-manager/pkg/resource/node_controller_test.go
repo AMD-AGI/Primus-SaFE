@@ -382,40 +382,67 @@ func TestUpdateK8sWorkspace(t *testing.T) {
 }
 
 func TestClearConditions(t *testing.T) {
-	taintKey := commonfaults.GenerateTaintKey("001")
+	monitorId001 := "001"
+	monitorId002 := "002"
+	taintKey001 := commonfaults.GenerateTaintKey(monitorId001)
+	taintKey002 := commonfaults.GenerateTaintKey(monitorId002)
+	nodeName := "node1"
+
+	adminNode := &v1.Node{
+		ObjectMeta: metav1.ObjectMeta{Name: nodeName},
+	}
+
 	k8sNode := &corev1.Node{
-		ObjectMeta: metav1.ObjectMeta{Name: "node1"},
-		Spec: corev1.NodeSpec{
-			Taints: []corev1.Taint{{Key: taintKey, Effect: corev1.TaintEffectNoSchedule}},
-		},
+		ObjectMeta: metav1.ObjectMeta{Name: nodeName},
 		Status: corev1.NodeStatus{
-			Conditions: []corev1.NodeCondition{{
-				Type:   corev1.NodeConditionType(taintKey),
-				Status: corev1.ConditionTrue,
-			}, {
-				Type:   corev1.NodeConditionType(commonfaults.GenerateTaintKey("002")),
-				Status: corev1.ConditionTrue,
-			}, {
-				Type:   corev1.NodeConditionType("Ready"),
-				Status: corev1.ConditionTrue,
-			}, {
-				Type:   corev1.NodeConditionType(v1.OpsJobKind),
-				Status: corev1.ConditionTrue,
-				Reason: "test-ops-job",
-			}},
+			Conditions: []corev1.NodeCondition{
+				{
+					Type:   corev1.NodeConditionType(taintKey001),
+					Status: corev1.ConditionTrue,
+				},
+				{
+					Type:   corev1.NodeConditionType(taintKey002),
+					Status: corev1.ConditionTrue,
+				},
+				{
+					Type:   corev1.NodeConditionType("Ready"),
+					Status: corev1.ConditionTrue,
+				},
+			},
 		},
 	}
+
+	fault001 := &v1.Fault{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: commonfaults.GenerateFaultId(nodeName, monitorId001),
+			Labels: map[string]string{
+				v1.NodeIdLabel: nodeName,
+			},
+		},
+		Spec: v1.FaultSpec{
+			MonitorId: monitorId001,
+		},
+	}
+
+	mockScheme, err := genMockScheme()
+	assert.NilError(t, err)
+	adminClient := fake.NewClientBuilder().WithScheme(mockScheme).WithObjects(fault001).Build()
+	reconciler := newMockNodeReconciler(adminClient)
+
 	k8sClient := k8sfake.NewClientset(k8sNode)
-	err := clearConditions(context.Background(), k8sClient, k8sNode)
+	err = reconciler.clearConditions(context.Background(), adminNode, k8sClient, k8sNode)
 	assert.NilError(t, err)
 
 	k8sNode2, err := k8sClient.CoreV1().Nodes().Get(context.Background(), k8sNode.Name, metav1.GetOptions{})
 	assert.NilError(t, err)
-	// Should keep 3 conditions: taintKey (Primus + in Spec.Taints), Ready (non-Primus), OpsJob (non-Primus)
-	assert.Equal(t, len(k8sNode2.Status.Conditions), 3)
-	assert.Equal(t, k8sNode2.Status.Conditions[0].Type, corev1.NodeConditionType(taintKey))
+	// Should keep 2 conditions:
+	// - taintKey001 (Primus condition with existing fault)
+	// - Ready (non-Primus condition)
+	// Should remove:
+	// - taintKey002 (Primus condition without fault)
+	assert.Equal(t, len(k8sNode2.Status.Conditions), 2)
+	assert.Equal(t, k8sNode2.Status.Conditions[0].Type, corev1.NodeConditionType(taintKey001))
 	assert.Equal(t, k8sNode2.Status.Conditions[1].Type, corev1.NodeConditionType("Ready"))
-	assert.Equal(t, k8sNode2.Status.Conditions[2].Type, corev1.NodeConditionType(v1.OpsJobKind))
 }
 
 func TestManageNodeSuccessfully(t *testing.T) {

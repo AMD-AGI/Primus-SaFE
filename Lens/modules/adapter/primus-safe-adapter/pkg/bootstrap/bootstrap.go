@@ -177,10 +177,14 @@ func initScheduledTasks(ctx context.Context, cfg *config.Config) error {
 	// Add namespace sync task (runs every 60 seconds)
 	globalScheduler.AddTask(namespaceSyncService, 60*time.Second)
 
+	// Add workload children linker task (runs every 30 seconds)
+	workloadLinkService := service.NewWorkloadLinkService(k8sClient)
+	globalScheduler.AddTask(workloadLinkService, 30*time.Second)
+
 	// Start scheduler in background
 	go globalScheduler.Start(ctx)
 
-	log.Info("Scheduler started with workload stats (30s), node stats (60s), and namespace sync (60s) tasks")
+	log.Info("Scheduler started with workload stats (30s), node stats (60s), namespace sync (60s), and workload linker (30s) tasks")
 	return nil
 }
 

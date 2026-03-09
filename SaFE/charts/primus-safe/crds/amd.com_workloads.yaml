@@ -131,7 +131,8 @@ spec:
                 description: Indicates whether the workload tolerates node taints
                 type: boolean
               jobPort:
-                description: The port for pytorch-job, This field is set internally
+                description: The container port for workload(only for pytorch-job),
+                  This field is set internally
                 type: integer
               liveness:
                 description: K8s liveness check. used for deployment/statefulSet
@@ -302,9 +303,6 @@ spec:
                 - serviceType
                 - targetPort
                 type: object
-              sshPort:
-                description: The port for ssh, This field is set internally
-                type: integer
               timeout:
                 description: |-
                   Workload timeout in seconds. default 0 (no timeout).
@@ -468,8 +466,10 @@ spec:
                       description: The rank of pod, only for pytorch-job
                       type: string
                     resourceId:
-                      description: The id of workload resources that the pod is bound
-                        to
+                      description: |-
+                        The id of workload resources that the pod is bound to.
+                        If the value is less than 0, it means the pod does not belong to any resource.
+                        Currently, RayJob's submitter pod uses this scenario.
                       type: integer
                     startTime:
                       description: Pod start time
