@@ -75,6 +75,7 @@ data:
     alter table workload add column if not exists entrypoints TEXT;
     alter table workload add column if not exists is_sticky_nodes boolean default false;
     alter table workload add column if not exists is_privileged boolean default false;
+    alter table workload add column if not exists use_workspace_storage boolean default true;
 
     create table if not exists fault
     (

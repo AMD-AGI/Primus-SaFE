@@ -39,6 +39,8 @@ type CreateWorkloadRequest struct {
 	StickyNodes bool `json:"stickyNodes,omitempty"`
 	// The workload will be created using that specific user ID and name. This field is only accessible to administrators.
 	UserEntity *UserEntity `json:"userEntity,omitempty"`
+	// UseWorkspaceStorage indicates whether to use the workspace storage for workload. default true
+	UseWorkspaceStorage *bool `json:"useWorkspaceStorage,omitempty"`
 }
 
 type CreateWorkloadResponse struct {
@@ -193,6 +195,8 @@ type GetWorkloadResponse struct {
 	StickyNodes bool `json:"stickyNodes,omitempty"`
 	// Whether to run the workload in privileged mode, only accessible to administrators
 	Privileged bool `json:"privileged,omitempty"`
+	// UseWorkspaceStorage indicates whether to use the workspace storage
+	UseWorkspaceStorage bool `json:"useWorkspaceStorage,omitempty"`
 }
 
 type WorkloadPodWrapper struct {
