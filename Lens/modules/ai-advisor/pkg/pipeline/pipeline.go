@@ -295,7 +295,9 @@ func (p *WorkloadAnalysisPipeline) handleEvaluating(
 
 	_ = p.detectionFacade.UpdateIntentState(ctx, workloadUID, constant.IntentStateAnalyzing)
 
+	gatherStart := time.Now()
 	evidence, err := p.gatherEvidence(ctx, workloadUID)
+	intentEvidenceGatherDuration.Observe(time.Since(gatherStart).Seconds())
 	if err != nil {
 		return constant.PipelineStateCollecting, fmt.Errorf("failed to gather evidence: %w", err)
 	}
@@ -326,6 +328,8 @@ func (p *WorkloadAnalysisPipeline) handleEvaluating(
 	}); err != nil {
 		return constant.PipelineStateEvaluating, fmt.Errorf("write workload JSON: %w", err)
 	}
+
+	intentWorkloadsDispatched.Inc()
 
 	log.Infof("Dispatched workload %s to intent-service (WorkloadJSON written, intent_state=pending)",
 		workloadUID)

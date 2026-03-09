@@ -33,11 +33,15 @@ func NewWorkloadEventHandler(scheduler *DAGScheduler) *WorkloadEventHandler {
 // yet and creates analysis_pipeline tasks so the TaskScheduler drives
 // handleEvaluating to assemble WorkloadJSON.
 func (h *WorkloadEventHandler) ScanAndTrigger(ctx context.Context) {
+	intentInformerScansTotal.Inc()
+
 	detections, err := h.detectionFacade.ListNeedingIntentAnalysis(ctx, 50)
 	if err != nil {
 		log.Warnf("WorkloadEventHandler: query failed: %v", err)
 		return
 	}
+
+	intentWorkloadsDiscovered.Add(float64(len(detections)))
 
 	created := 0
 	for _, d := range detections {
@@ -47,6 +51,7 @@ func (h *WorkloadEventHandler) ScanAndTrigger(ctx context.Context) {
 	}
 
 	if created > 0 {
+		intentPipelineTasksCreated.Add(float64(created))
 		log.Infof("WorkloadEventHandler: created %d analysis_pipeline tasks", created)
 	}
 }
