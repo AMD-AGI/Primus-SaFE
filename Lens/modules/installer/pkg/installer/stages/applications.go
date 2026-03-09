@@ -136,8 +136,8 @@ func (s *ApplicationsStage) WaitForReady(ctx context.Context, client *installer.
 
 	// Wait for key dataplane application pods
 	appLabels := []string{
-		"app=telemetry-processor",
-		"app=jobs",
+		"app=primus-lens-telemetry-processor",
+		"app=primus-lens-jobs",
 	}
 
 	for _, label := range appLabels {
