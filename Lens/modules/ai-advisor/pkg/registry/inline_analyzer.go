@@ -212,7 +212,8 @@ func (a *InlineImageAnalyzer) downloadAndScanLayer(ctx context.Context, ref Imag
 func (a *InlineImageAnalyzer) storeLayerCache(ctx context.Context, layer OCIDescriptor, lr *OCILayerResult) {
 	pkgJSON, _ := json.Marshal(lr.Packages)
 	pathsJSON, _ := json.Marshal(lr.NotablePaths)
-	hintsJSON, _ := json.Marshal(lr.FrameworkHints)
+
+	hintsMap := model.ExtType(lr.FrameworkHints)
 
 	entry := &model.ImageLayerCache{
 		LayerDigest:    layer.Digest,
@@ -220,7 +221,7 @@ func (a *InlineImageAnalyzer) storeLayerCache(ctx context.Context, layer OCIDesc
 		MediaType:      layer.MediaType,
 		FileCount:      lr.FileCount,
 		Packages:       model.ExtJSON(pkgJSON),
-		FrameworkHints: model.ExtType(hintsJSON),
+		FrameworkHints: hintsMap,
 		NotablePaths:   model.ExtJSON(pathsJSON),
 		AnalyzedAt:     time.Now(),
 		CreatedAt:      time.Now(),
@@ -235,11 +236,17 @@ func (a *InlineImageAnalyzer) storeLayerCache(ctx context.Context, layer OCIDesc
 func (a *InlineImageAnalyzer) writeCacheRecord(ctx context.Context, imageRef string, ref ImageRef, result *InlineAnalysisResult) {
 	historyJSON, _ := json.Marshal(result.LayerHistory)
 	pkgJSON, _ := json.Marshal(result.InstalledPackages)
-	hintsJSON, _ := json.Marshal(result.FrameworkHints)
-	labelsJSON, _ := json.Marshal(result.ImageLabels)
-	envJSON, _ := json.Marshal(result.ImageEnv)
 
-	var totalSize int64
+	labelsMap := make(model.ExtType)
+	for k, v := range result.ImageLabels {
+		labelsMap[k] = v
+	}
+	envMap := make(model.ExtType)
+	for k, v := range result.ImageEnv {
+		envMap[k] = v
+	}
+	hintsMap := model.ExtType(result.FrameworkHints)
+
 	now := time.Now()
 
 	entry := &model.ImageRegistryCache{
@@ -251,12 +258,12 @@ func (a *InlineImageAnalyzer) writeCacheRecord(ctx context.Context, imageRef str
 		BaseImage:         result.BaseImage,
 		LayerCount:        int32(result.LayerCount),
 		LayerHistory:      model.ExtJSON(historyJSON),
-		ImageLabels:       model.ExtType(labelsJSON),
-		ImageEnv:          model.ExtType(envJSON),
+		ImageLabels:       labelsMap,
+		ImageEnv:          envMap,
 		ImageEntrypoint:   result.ImageEntrypoint,
 		InstalledPackages: model.ExtJSON(pkgJSON),
-		FrameworkHints:    model.ExtType(hintsJSON),
-		TotalSize:         totalSize,
+		FrameworkHints:    hintsMap,
+		TotalSize:         0,
 		Status:            "completed",
 		CachedAt:          now,
 	}
@@ -278,7 +285,9 @@ func mergeLayerFromCache(cached *model.ImageLayerCache) *OCILayerResult {
 		_ = json.Unmarshal([]byte(cached.Packages), &result.Packages)
 	}
 	if len(cached.FrameworkHints) > 0 {
-		_ = json.Unmarshal([]byte(cached.FrameworkHints), &result.FrameworkHints)
+		for k, v := range cached.FrameworkHints {
+			result.FrameworkHints[k] = v
+		}
 	}
 	if len(cached.NotablePaths) > 0 {
 		_ = json.Unmarshal([]byte(cached.NotablePaths), &result.NotablePaths)
@@ -313,14 +322,18 @@ func buildResultFromCache(cached *model.ImageRegistryCache) *InlineAnalysisResul
 	if len(cached.InstalledPackages) > 0 {
 		_ = json.Unmarshal([]byte(cached.InstalledPackages), &result.InstalledPackages)
 	}
-	if len(cached.FrameworkHints) > 0 {
-		_ = json.Unmarshal([]byte(cached.FrameworkHints), &result.FrameworkHints)
+	for k, v := range cached.FrameworkHints {
+		result.FrameworkHints[k] = v
 	}
-	if len(cached.ImageEnv) > 0 {
-		_ = json.Unmarshal([]byte(cached.ImageEnv), &result.ImageEnv)
+	for k, v := range cached.ImageEnv {
+		if s, ok := v.(string); ok {
+			result.ImageEnv[k] = s
+		}
 	}
-	if len(cached.ImageLabels) > 0 {
-		_ = json.Unmarshal([]byte(cached.ImageLabels), &result.ImageLabels)
+	for k, v := range cached.ImageLabels {
+		if s, ok := v.(string); ok {
+			result.ImageLabels[k] = s
+		}
 	}
 
 	return result
