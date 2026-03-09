@@ -68,7 +68,7 @@ func (h *WorkloadEventHandler) ensurePipelineTask(ctx context.Context, workloadU
 		TaskType:    constant.TaskTypeAnalysisPipeline,
 		Status:      constant.TaskStatusPending,
 		Ext: model.ExtType{
-			"pipeline_state": constant.PipelineStateEvaluating,
+			"pipeline_state": constant.PipelineStateInit,
 			"analysis_mode":  "full",
 		},
 	}
