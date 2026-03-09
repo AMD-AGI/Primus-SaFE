@@ -409,10 +409,12 @@ func (f *WorkloadDetectionFacade) UpdateIntentResult(ctx context.Context, worklo
 	allowedFields := map[string]bool{
 		"category": true, "expected_behavior": true,
 		"model_path": true, "model_family": true, "model_scale": true, "model_variant": true,
-		"runtime_framework": true, "intent_detail": true,
+		"runtime_framework": true, "intent_detail": true, "framework": true,
 		"intent_confidence": true, "intent_source": true, "intent_reasoning": true,
 		"intent_field_sources": true, "intent_analysis_mode": true, "intent_matched_rules": true,
 		"intent_state": true, "intent_analyzed_at": true,
+		"intent_workload_json": true, "intent_processing_started_at": true,
+		"intent_classified_at": true, "intent_script_name": true,
 	}
 
 	filtered := make(map[string]interface{})
