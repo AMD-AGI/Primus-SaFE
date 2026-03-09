@@ -40,11 +40,12 @@ infrastructure:
 
 # ============================================================================
 # Data Plane Components
+# Image tags: use "latest" or set via CI; align with current module builds.
 # ============================================================================
 apps:
   telemetryCollector:
     enabled: true
-    image: "primussafe/telemetry-processor:202512101641"
+    image: "primussafe/telemetry-processor:latest"
     replicas: 1
     httpPort: 8989
     prometheusPort: 8990
@@ -52,30 +53,35 @@ apps:
   
   jobs:
     enabled: true
-    image: "primussafe/primus-lens-jobs:202512101526"
+    image: "primussafe/primus-lens-jobs:latest"
     replicas: 1
     httpPort: 8989
     grpcPort: 8991
     resources: {}
     config:
       environment: "production"
+      defaultClusterName: ""  # default: global.clusterName
       prometheusPort: 8990
       controller:
         leaderElectionId: "primus-lens-core"
         metricsPort: 19193
         healthzPort: 19194
         pprofPort: 19195
+      # ai_agent optional; omit or set endpoint to enable
+      # ai_agent:
+      #   name: "lens-agent-api"
+      #   endpoint: "http://lens-agent-api:8000"
   
   nodeExporter:
     enabled: true
-    image: "primussafe/primus-lens-node-exporter:202512101526"
+    image: "primussafe/primus-lens-node-exporter:latest"
     httpPort: 8989
     maxUnavailable: 10
     resources: {}
-    # Py-Spy Python profiling configuration
+    # PySpyConfig: max_storage_size_mb (int), default 10240 = ~10GB
     pyspy:
       enabled: true
-      maxStorageSize: "10GB"
+      maxStorageSizeMB: 10240
       fileRetentionDays: 7
       maxConcurrentJobs: 5
       defaultDuration: 30
@@ -83,7 +89,7 @@ apps:
   
   gpuResourceExporter:
     enabled: true
-    image: "primussafe/gpu-resource-exporter:202512101526"
+    image: "primussafe/gpu-resource-exporter:latest"
     replicas: 1
     httpPort: 8989
     grpcPort: 8991
@@ -100,7 +106,7 @@ apps:
   
   systemTuner:
     enabled: true
-    image: "primussafe/system-tuner:202512101526"
+    image: "primussafe/system-tuner:latest"
     resources:
       requests:
         cpu: "100m"
@@ -114,7 +120,7 @@ apps:
   
   aiAdvisor:
     enabled: true
-    image: "primussafe/ai-advisor:202512101630"
+    image: "primussafe/ai-advisor:latest"
     replicas: 1
     httpPort: 8080
     healthPort: 8081
