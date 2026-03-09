@@ -84,6 +84,9 @@ type WorkloadDetectionFacadeInterface interface {
 	// ListByCategory lists detections by intent category
 	ListByCategory(ctx context.Context, category string, limit int, offset int) ([]*model.WorkloadDetection, int64, error)
 
+	// ListNeedingIntentAnalysis finds confirmed workloads that need intent dispatch
+	ListNeedingIntentAnalysis(ctx context.Context, limit int) ([]*model.WorkloadDetection, error)
+
 	// WithCluster returns a new facade instance for the specified cluster
 	WithCluster(clusterName string) WorkloadDetectionFacadeInterface
 }
@@ -521,3 +524,23 @@ func (f *WorkloadDetectionFacade) ListByCategory(ctx context.Context, category s
 	return results, total, nil
 }
 
+
+// ListNeedingIntentAnalysis finds workloads with confirmed/verified detection
+// and known framework that have not yet been dispatched to the intent-service
+// (intent_workload_json is NULL).
+func (f *WorkloadDetectionFacade) ListNeedingIntentAnalysis(ctx context.Context, limit int) ([]*model.WorkloadDetection, error) {
+	db := f.getDB()
+	var results []*model.WorkloadDetection
+
+	err := db.WithContext(ctx).
+		Table(model.TableNameWorkloadDetection).
+		Where("status IN ('confirmed', 'verified')").
+		Where("framework IS NOT NULL AND framework != ''").
+		Where("intent_workload_json IS NULL").
+		Where("intent_state IS NULL OR intent_state IN ('pending', '')").
+		Order("created_at ASC").
+		Limit(limit).
+		Find(&results).Error
+
+	return results, err
+}
