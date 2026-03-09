@@ -106,6 +106,11 @@ type OpenSearchConfig struct {
 type PrometheusConfig struct {
 	ReadEndpoint  string `json:"read_endpoint"`
 	WriteEndpoint string `json:"write_endpoint"`
+	ReadService   string `json:"read_service,omitempty"`
+	WriteService  string `json:"write_service,omitempty"`
+	ReadPort      int32  `json:"read_port,omitempty"`
+	WritePort     int32  `json:"write_port,omitempty"`
+	Namespace     string `json:"namespace,omitempty"`
 }
 
 // Default values
