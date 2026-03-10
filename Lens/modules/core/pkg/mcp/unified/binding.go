@@ -58,16 +58,18 @@ func BindGinRequest[Req any](c *gin.Context, req *Req) error {
 		field := t.Field(i)
 		fieldValue := v.Field(i)
 
-		if !fieldValue.CanSet() {
+		// Handle embedded structs before CanSet check: we bind the inner
+		// fields, not the composite value itself, so the embed's own
+		// settability is irrelevant (exported inner fields are settable
+		// even when the anonymous field name is unexported).
+		if field.Anonymous && field.Type.Kind() == reflect.Struct {
+			if err := bindStructFields(c, v, i); err != nil {
+				return err
+			}
 			continue
 		}
 
-		// Handle embedded structs
-		if field.Anonymous && field.Type.Kind() == reflect.Struct {
-			embeddedReq := fieldValue.Addr().Interface()
-			if err := bindStructFields(c, embeddedReq); err != nil {
-				return err
-			}
+		if !fieldValue.CanSet() {
 			continue
 		}
 
@@ -105,20 +107,20 @@ func BindGinRequest[Req any](c *gin.Context, req *Req) error {
 	return nil
 }
 
-// bindStructFields is a helper to bind fields for embedded structs
-func bindStructFields(c *gin.Context, req any) error {
-	v := reflect.ValueOf(req)
-	if v.Kind() == reflect.Ptr {
-		v = v.Elem()
-	}
-	if v.Kind() != reflect.Struct {
+// bindStructFields binds query/param/header tags for an embedded struct.
+// It receives the parent struct value and the field index of the anonymous
+// field so it can access exported inner fields directly, bypassing the
+// reflect settability restriction on unexported anonymous field names.
+func bindStructFields(c *gin.Context, parent reflect.Value, embeddedIdx int) error {
+	embedded := parent.Field(embeddedIdx)
+	if embedded.Kind() != reflect.Struct {
 		return nil
 	}
 
-	t := v.Type()
+	t := embedded.Type()
 	for i := 0; i < t.NumField(); i++ {
 		field := t.Field(i)
-		fieldValue := v.Field(i)
+		fieldValue := embedded.Field(i)
 
 		if !fieldValue.CanSet() {
 			continue
