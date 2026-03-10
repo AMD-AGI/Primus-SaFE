@@ -1,7 +1,7 @@
 // Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
 // See LICENSE for license information.
 
-// Build trigger: 2026-01-28 multi-cluster storage fix
+// Build trigger: 2026-03-10 component health probe API
 
 package main
 
