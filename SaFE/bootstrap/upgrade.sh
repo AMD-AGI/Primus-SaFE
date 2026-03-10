@@ -184,39 +184,6 @@ rm -f "$values_yaml"
 
 
 echo
-echo "========================================="
-echo "🔧 Step 4: upgrade primus-safe data plane"
-echo "========================================="
-
-# Check if node-agent installation is enabled (default: y)
-if [[ "${install_node_agent:-y}" == "n" ]]; then
-  echo "⏭️  Skipping node-agent upgrade (install_node_agent=n)"
-else
-  cd ../node-agent/charts/
-  src_values_yaml="node-agent/values.yaml"
-  if [ ! -f "$src_values_yaml" ]; then
-    echo "Error: $src_values_yaml does not exist"
-    exit 1
-  fi
-  values_yaml="node-agent/.values.yaml"
-  cp "$src_values_yaml" "${values_yaml}"
-
-  sed -i '/node_agent:/,/^[a-z]/ s/image_registry: .*/image_registry: "'"$safe_image"'"/' "$values_yaml"
-  sed -i "s/nccl_socket_ifname: \".*\"/nccl_socket_ifname: \"$ethernet_nic\"/" "$values_yaml"
-  sed -i "s/nccl_ib_hca: \".*\"/nccl_ib_hca: \"$rdma_nic\"/" "$values_yaml"
-  sed -i "s/image_pull_secret: \".*\"/image_pull_secret: \"$IMAGE_PULL_SECRET\"/" "$values_yaml"
-  sed -i "s/gpu_driver: \".*\"/gpu_driver: \"${node_agent_gpu_driver:-6.12.12}\"/" "$values_yaml"
-  sed -i "s/rocm_version: \".*\"/rocm_version: \"${node_agent_rocm_version:-6.4}\"/" "$values_yaml"
-  sed -i "s/net_bnxt_load_204: \".*\"/net_bnxt_load_204: \"${node_agent_toggle_net_bnxt_load_204:-off}\"/" "$values_yaml"
-  sed -i "s/net_ainic_load_205: \".*\"/net_ainic_load_205: \"${node_agent_toggle_net_ainic_load_205:-off}\"/" "$values_yaml"
-  sed -i "s/net_ainic_devices_208: \".*\"/net_ainic_devices_208: \"${node_agent_toggle_net_ainic_devices_208:-off}\"/" "$values_yaml"
-  sed -i "s/sys_csi_wekafs_309: \".*\"/sys_csi_wekafs_309: \"${node_agent_toggle_sys_csi_wekafs_309:-off}\"/" "$values_yaml"
-
-  install_or_upgrade_helm_chart "node-agent" "$values_yaml"
-  rm -f "$values_yaml"
-fi
-
-echo
 echo "==============================="
-echo "🔧 Step 5: All completed!"
+echo "🔧 Step 4: All completed!"
 echo "==============================="
