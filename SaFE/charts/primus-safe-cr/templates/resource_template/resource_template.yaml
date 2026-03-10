@@ -424,6 +424,9 @@ spec:
           jobStatus: 'RUNNING'
           jobDeploymentStatus: 'Running'
         phase: K8sRunning
+      - matchExpressions:
+          jobStatus: 'STOPPED'
+        phase: AdminStopped
   activeReplica:
     prePaths:
       - status
