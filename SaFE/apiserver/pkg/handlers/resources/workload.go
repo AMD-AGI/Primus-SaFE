@@ -855,6 +855,9 @@ func (h *Handler) generateWorkload(ctx context.Context,
 	} else {
 		v1.SetAnnotation(workload, v1.UseWorkspaceStorageAnnotation, v1.TrueStr)
 	}
+	if req.ForceHostNetwork != nil {
+		v1.SetAnnotation(workload, v1.ForceHostNetworkAnnotation, strconv.FormatBool(*req.ForceHostNetwork))
+	}
 	return workload, nil
 }
 
@@ -1293,6 +1296,7 @@ func (h *Handler) cvtDBWorkloadToGetResponse(ctx context.Context,
 		StickyNodes:          dbWorkload.IsStickyNodes,
 		Privileged:           dbWorkload.IsPrivileged,
 		UseWorkspaceStorage:  dbWorkload.UseWorkspaceStorage,
+		ForceHostNetwork:     dbWorkload.ForceHostNetwork,
 	}
 	result.Images = cvtToWorkloadImages(dbWorkload, len(result.Resources))
 	if result.GroupVersionKind.Kind != common.AuthoringKind {
@@ -1441,6 +1445,7 @@ func cvtDBWorkloadToAdminWorkload(dbWorkload *dbclient.Workload) *v1.Workload {
 				v1.DescriptionAnnotation:         dbutils.ParseNullString(dbWorkload.Description),
 				v1.UserNameAnnotation:            dbutils.ParseNullString(dbWorkload.UserName),
 				v1.UseWorkspaceStorageAnnotation: strconv.FormatBool(dbWorkload.UseWorkspaceStorage),
+				v1.ForceHostNetworkAnnotation:    strconv.FormatBool(dbWorkload.ForceHostNetwork),
 			},
 		},
 		Spec: v1.WorkloadSpec{
