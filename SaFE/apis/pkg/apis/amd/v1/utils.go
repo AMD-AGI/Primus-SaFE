@@ -374,6 +374,10 @@ func IsEnableWorkspaceStorage(obj metav1.Object) bool {
 	return GetAnnotation(obj, UseWorkspaceStorageAnnotation) == TrueStr
 }
 
+func IsForceHostNetwork(obj metav1.Object) bool {
+	return GetAnnotation(obj, ForceHostNetworkAnnotation) == TrueStr
+}
+
 // atoi converts a string to an integer, returning 0 if conversion fails.
 func atoi(str string) int {
 	if str == "" {

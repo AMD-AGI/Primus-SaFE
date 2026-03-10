@@ -39,8 +39,11 @@ type CreateWorkloadRequest struct {
 	StickyNodes bool `json:"stickyNodes,omitempty"`
 	// The workload will be created using that specific user ID and name. This field is only accessible to administrators.
 	UserEntity *UserEntity `json:"userEntity,omitempty"`
-	// UseWorkspaceStorage indicates whether to use the workspace storage for workload. default true
+	// Whether to use the workspace storage for workload. default true
 	UseWorkspaceStorage *bool `json:"useWorkspaceStorage,omitempty"`
+	// Whether to use host network forcibly.
+	// Default logic relies on task size: it triggers only for multi-node tasks using full GPU count
+	ForceHostNetwork *bool `json:"forceHostNetwork,omitempty"`
 }
 
 type CreateWorkloadResponse struct {
@@ -194,9 +197,11 @@ type GetWorkloadResponse struct {
 	// When enabled, the workload will try to use the same nodes during retries/failovers.
 	StickyNodes bool `json:"stickyNodes,omitempty"`
 	// Whether to run the workload in privileged mode, only accessible to administrators
-	Privileged bool `json:"privileged,omitempty"`
-	// UseWorkspaceStorage indicates whether to use the workspace storage
-	UseWorkspaceStorage bool `json:"useWorkspaceStorage,omitempty"`
+	Privileged bool `json:"privileged"`
+	// Whether to use the workspace storage
+	UseWorkspaceStorage bool `json:"useWorkspaceStorage"`
+	// Whether to use host network forcibly.
+	ForceHostNetwork bool `json:"forceHostNetwork"`
 }
 
 type WorkloadPodWrapper struct {
