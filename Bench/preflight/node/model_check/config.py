@@ -39,8 +39,8 @@ class DebugConfig:
 @dataclass
 class ModelConfig:
     """Model architecture configuration"""
-    model_type: str = "llama"
-    model_path: str = "meta-llama/Llama-3.1-8B-Instruct"
+    model_type: str = "qwen3"
+    model_path: str = "Qwen/Qwen3-8B"
     
     # Architecture parameters
     num_layers: int = 4  # Using only 4 layers for testing
