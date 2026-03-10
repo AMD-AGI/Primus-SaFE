@@ -10,6 +10,7 @@ spec:
     metadata:
       labels:
         app: system-tuner
+        primus-lens-app-name: system-tuner
     spec:
       securityContext:
         runAsUser: 0

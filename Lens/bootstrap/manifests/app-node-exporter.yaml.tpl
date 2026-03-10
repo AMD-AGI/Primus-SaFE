@@ -24,6 +24,7 @@ spec:
     metadata:
       labels:
         app: primus-lens-node-exporter
+        primus-lens-app-name: node-exporter
       annotations:
         prometheus.io/scrape: "true"
         prometheus.io/port: "8989"
