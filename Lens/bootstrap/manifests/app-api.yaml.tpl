@@ -39,6 +39,7 @@ spec:
     metadata:
       labels:
         app: primus-lens-api
+        primus-lens-app-name: api
     spec:
       containers:
         - name: app
