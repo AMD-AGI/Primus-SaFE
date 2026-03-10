@@ -1405,8 +1405,9 @@ func (h *Handler) buildSSHCommand(ctx context.Context, pod *v1.WorkloadPod, user
 	}
 	// pattern: {userId}.{podId}.{container}.sh.{workspace}@{host}
 	// e.g. ssh -o ServerAliveInterval=60 7fda556669b09dcec5d779438e7432c5.verl40-fpg88-master-0.pytorch.bash.x-flannel-prod@tw325.primus-safe.amd.com -p 2222
-	return fmt.Sprintf("ssh -o ServerAliveInterval=60 %s.%s.%s.bash.%s@%s -p %d", userId, pod.PodId,
-		commonworkload.GetMainContainer(template, gvk.Kind, pod.PodId), workspace, commonconfig.GetSystemHost(), commonconfig.GetSSHServerPort())
+	return fmt.Sprintf("ssh -o ServerAliveInterval=60 %s.%s.%s.bash.%s@%s -p %d",
+		userId, pod.PodId, commonworkload.GetMainContainer(template, gvk.Kind, pod.PodId),
+		workspace, commonconfig.GetSystemHost(), commonconfig.GetSSHServerPort())
 }
 
 // generateWorkloadForAuth creates a minimal workload object for authorization checks.
