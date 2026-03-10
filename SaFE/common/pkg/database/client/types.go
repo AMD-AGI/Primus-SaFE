@@ -47,6 +47,7 @@ type Workload struct {
 	IsStickyNodes       bool           `db:"is_sticky_nodes"`
 	IsPrivileged        bool           `db:"is_privileged"`
 	UseWorkspaceStorage bool           `db:"use_workspace_storage"`
+	ForceHostNetwork    bool           `db:"force_host_network"`
 	Priority            int            `db:"priority"`
 	MaxRetry            int            `db:"max_retry"`
 	QueuePosition       int            `db:"queue_position"`

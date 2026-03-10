@@ -90,6 +90,7 @@ func workloadMapper(obj *unstructured.Unstructured) *dbclient.Workload {
 		UserId:              dbutils.NullString(v1.GetUserId(workload)),
 		WorkloadUId:         dbutils.NullString(string(workload.UID)),
 		UseWorkspaceStorage: v1.IsEnableWorkspaceStorage(workload),
+		ForceHostNetwork:    v1.IsForceHostNetwork(workload),
 	}
 	if workload.Spec.TTLSecondsAfterFinished != nil {
 		result.TTLSecond = *workload.Spec.TTLSecondsAfterFinished

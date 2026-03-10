@@ -146,7 +146,7 @@ func (m *WorkloadMutator) mutateCommon(ctx context.Context, oldWorkload, newWork
 	m.mutateEntryPoints(newWorkload)
 	m.mutateEnv(oldWorkload, newWorkload)
 	m.mutateMaxRetry(newWorkload)
-	m.mutateHostNetwork(ctx, newWorkload)
+	m.mutateRdmaResource(ctx, newWorkload)
 	m.mutateCustomerLabels(newWorkload)
 	m.mutateCronJobs(newWorkload)
 	m.mutateHealthCheck(newWorkload)
@@ -179,6 +179,9 @@ func (m *WorkloadMutator) mutateMeta(ctx context.Context, workload *v1.Workload,
 	v1.SetLabel(workload, v1.WorkloadIdLabel, workload.Name)
 	if v1.GetUserName(workload) == "" {
 		v1.SetAnnotation(workload, v1.UserNameAnnotation, v1.GetUserId(workload))
+	}
+	if !v1.HasAnnotation(workload, v1.UseWorkspaceStorageAnnotation) {
+		v1.SetAnnotation(workload, v1.UseWorkspaceStorageAnnotation, v1.TrueStr)
 	}
 	v1.SetLabel(workload, v1.UserNameMd5Label, stringutil.MD5(v1.GetUserName(workload)))
 	commonworkload.GetWorkloadMainContainer(ctx, m.Client, workload)
@@ -474,9 +477,9 @@ func (m *WorkloadMutator) mutateEntryPoints(workload *v1.Workload) {
 	}
 }
 
-// mutateHostNetwork enables hostNetwork when replica equals per-node GPU count.
-// Also sets RDMA resources if enabled and flavor defines RDMA capacity.
-func (m *WorkloadMutator) mutateHostNetwork(ctx context.Context, workload *v1.Workload) {
+// mutateRdmaResource configures RDMA resources when hostNetwork is enabled.
+// If the NodeFlavor specifies RDMA capacity, it uses that value; otherwise defaults to "1".
+func (m *WorkloadMutator) mutateRdmaResource(ctx context.Context, workload *v1.Workload) {
 	flavorId := v1.GetNodeFlavorId(workload)
 	if flavorId == "" {
 		return
@@ -485,7 +488,6 @@ func (m *WorkloadMutator) mutateHostNetwork(ctx context.Context, workload *v1.Wo
 	if nf == nil {
 		return
 	}
-
 	rdmaName := commonconfig.GetRdmaName()
 	for i := range workload.Spec.Resources {
 		isEnableHostNetWork := isHostNetworkEnabled(workload, i, nf)
@@ -1097,13 +1099,12 @@ func (v *WorkloadValidator) validateCronJobs(workload *v1.Workload) error {
 }
 
 // isHostNetworkEnabled checks if host network should be enabled for a specific resource in the workload
-// Returns true when the resource has GPU requirements that match the node flavor's GPU count
-// and the workload has more than one replica and is not an authoring workload
+// Returns true when the workload uses multi-node with full GPU count
 func isHostNetworkEnabled(workload *v1.Workload, id int, nf *v1.NodeFlavor) bool {
-	if workload == nil || nf == nil {
-		return false
+	if v1.IsForceHostNetwork(workload) {
+		return true
 	}
-	if commonworkload.IsAuthoring(workload) {
+	if workload == nil || nf == nil {
 		return false
 	}
 	if commonworkload.GetTotalReplica(workload) <= 1 {

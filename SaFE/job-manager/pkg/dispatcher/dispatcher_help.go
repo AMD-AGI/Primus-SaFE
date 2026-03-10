@@ -438,7 +438,7 @@ func modifyServiceAccountName(obj *unstructured.Unstructured, workload *v1.Workl
 	return nil
 }
 
-// modifyHostNetwork enables or disables host networking based on workload annotations.
+// modifyHostNetwork enables or disables host networking based on workload rdma-resource.
 func modifyHostNetwork(obj *unstructured.Unstructured, workload *v1.Workload, path []string, resourceId int) error {
 	isEnableHostNetwork := workload.Spec.Resources[resourceId].RdmaResource != ""
 	if err := jobutils.SetNestedField(obj.Object, isEnableHostNetwork, path); err != nil {

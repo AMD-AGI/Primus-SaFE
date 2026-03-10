@@ -855,6 +855,9 @@ func (h *Handler) generateWorkload(ctx context.Context,
 	} else {
 		v1.SetAnnotation(workload, v1.UseWorkspaceStorageAnnotation, v1.TrueStr)
 	}
+	if req.ForceHostNetwork != nil {
+		v1.SetAnnotation(workload, v1.ForceHostNetworkAnnotation, strconv.FormatBool(*req.ForceHostNetwork))
+	}
 	return workload, nil
 }
 
@@ -1293,6 +1296,7 @@ func (h *Handler) cvtDBWorkloadToGetResponse(ctx context.Context,
 		StickyNodes:          dbWorkload.IsStickyNodes,
 		Privileged:           dbWorkload.IsPrivileged,
 		UseWorkspaceStorage:  dbWorkload.UseWorkspaceStorage,
+		ForceHostNetwork:     dbWorkload.ForceHostNetwork,
 	}
 	result.Images = cvtToWorkloadImages(dbWorkload, len(result.Resources))
 	if result.GroupVersionKind.Kind != common.AuthoringKind {
@@ -1401,8 +1405,9 @@ func (h *Handler) buildSSHCommand(ctx context.Context, pod *v1.WorkloadPod, user
 	}
 	// pattern: {userId}.{podId}.{container}.sh.{workspace}@{host}
 	// e.g. ssh -o ServerAliveInterval=60 7fda556669b09dcec5d779438e7432c5.verl40-fpg88-master-0.pytorch.bash.x-flannel-prod@tw325.primus-safe.amd.com -p 2222
-	return fmt.Sprintf("ssh -o ServerAliveInterval=60 %s.%s.%s.bash.%s@%s -p %d", userId, pod.PodId,
-		commonworkload.GetMainContainer(template, gvk.Kind, pod.PodId), workspace, commonconfig.GetSystemHost(), commonconfig.GetSSHServerPort())
+	return fmt.Sprintf("ssh -o ServerAliveInterval=60 %s.%s.%s.bash.%s@%s -p %d",
+		userId, pod.PodId, commonworkload.GetMainContainer(template, gvk.Kind, pod.PodId),
+		workspace, commonconfig.GetSystemHost(), commonconfig.GetSSHServerPort())
 }
 
 // generateWorkloadForAuth creates a minimal workload object for authorization checks.
@@ -1441,6 +1446,7 @@ func cvtDBWorkloadToAdminWorkload(dbWorkload *dbclient.Workload) *v1.Workload {
 				v1.DescriptionAnnotation:         dbutils.ParseNullString(dbWorkload.Description),
 				v1.UserNameAnnotation:            dbutils.ParseNullString(dbWorkload.UserName),
 				v1.UseWorkspaceStorageAnnotation: strconv.FormatBool(dbWorkload.UseWorkspaceStorage),
+				v1.ForceHostNetworkAnnotation:    strconv.FormatBool(dbWorkload.ForceHostNetwork),
 			},
 		},
 		Spec: v1.WorkloadSpec{
