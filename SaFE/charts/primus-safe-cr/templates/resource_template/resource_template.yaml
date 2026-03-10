@@ -409,13 +409,24 @@ spec:
     phases:
       - matchExpressions:
           jobStatus: 'SUCCEEDED'
+          jobDeploymentStatus: 'Complete'
         phase: K8sSucceeded
       - matchExpressions:
           jobStatus: 'FAILED'
         phase: K8sFailed
       - matchExpressions:
+          jobDeploymentStatus: 'Failed'
+        phase: K8sFailed
+      - matchExpressions:
+          jobDeploymentStatus: 'ValidationFailed'
+        phase: K8sFailed
+      - matchExpressions:
           jobStatus: 'RUNNING'
+          jobDeploymentStatus: 'Running'
         phase: K8sRunning
+      - matchExpressions:
+          jobStatus: 'STOPPED'
+        phase: AdminStopped
   activeReplica:
     prePaths:
       - status

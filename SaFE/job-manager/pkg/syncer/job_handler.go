@@ -353,6 +353,9 @@ func (r *SyncerReconciler) updateAdminWorkloadPhase(adminWorkload *v1.Workload,
 	case v1.K8sUpdating:
 		// only for deployment/statefulSet
 		adminWorkload.Status.Phase = v1.WorkloadUpdating
+	case v1.AdminStopped:
+		// available for Rayjob
+		adminWorkload.Status.Phase = v1.WorkloadStopped
 	}
 }
 
