@@ -361,9 +361,11 @@ jobs:
 
           echo "Using Dockerfile: $DOCKERFILE"
 
-          # Step 1: Build and push to Quay.io (primary, no Docker Hub pull needed for push)
+          # Step 1: Build and push to Quay.io (primary)
+          # Use quay.io/primussafe/build/ as base image registry to avoid Docker Hub rate limits
           docker buildx build \
             --build-arg GO_VERSION=${{ env.GO_VERSION }} \
+            --build-arg REGISTRY=quay.io/primussafe/build/ \
             --build-arg GOPROXY=https://proxy.golang.org,direct \
             --build-arg BUILDPATH=${{ matrix.buildpath }} \
             --build-arg BASEPATH=${{ matrix.basepath }} \
@@ -381,6 +383,7 @@ jobs:
           # Step 2: Push to Docker Hub (best-effort, may fail due to rate limit)
           docker buildx build \
             --build-arg GO_VERSION=${{ env.GO_VERSION }} \
+            --build-arg REGISTRY=quay.io/primussafe/build/ \
             --build-arg GOPROXY=https://proxy.golang.org,direct \
             --build-arg BUILDPATH=${{ matrix.buildpath }} \
             --build-arg BASEPATH=${{ matrix.basepath }} \
