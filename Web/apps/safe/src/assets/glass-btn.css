@@ -1,0 +1,161 @@
+/* ① 基础：把玻璃效果应用到带这些类名的 el-button 上 */
+.el-button.btn-primary-plain,
+.el-button.btn-danger-plain,
+.el-button.btn-success-plain,
+.el-button.btn-neutral-plain {
+  /* 主题色：各变体会覆盖它 */
+  --btn-accent: var(--el-color-primary);
+
+  position: relative;
+  overflow: hidden; /* ✅ 裁剪扫光，防止“飞出去” */
+  border: 0;
+  border-radius: inherit;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.18), rgba(255, 255, 255, 0.06)),
+    color-mix(in oklab, var(--el-bg-color) 72%, transparent 28%);
+  color: var(--el-text-color-primary) !important;
+  backdrop-filter: blur(10px) saturate(160%);
+  -webkit-backdrop-filter: blur(10px) saturate(160%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.35),
+    0 8px 22px -10px rgba(0, 0, 0, 0.5);
+  transition:
+    transform 0.18s ease,
+    box-shadow 0.18s ease,
+    background 0.18s ease;
+}
+
+/* ② 不同语义的强调色（按需保留） */
+.el-button.btn-primary-plain {
+  --btn-accent: var(--el-color-primary);
+}
+.el-button.btn-danger-plain {
+  --btn-accent: var(--el-color-danger);
+}
+.el-button.btn-success-plain {
+  --btn-accent: var(--el-color-success);
+}
+.el-button.btn-neutral-plain {
+  --btn-accent: color-mix(
+    in oklab,
+    var(--el-text-color-secondary) 60%,
+    var(--el-color-primary) 40%
+  );
+}
+
+/* ③ 渐变描边（只在边缘发光，不覆盖内容） */
+.el-button.btn-primary-plain::before,
+.el-button.btn-danger-plain::before,
+.el-button.btn-success-plain::before,
+.el-button.btn-neutral-plain::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1px;
+  background: conic-gradient(
+    from 210deg,
+    color-mix(in oklab, var(--btn-accent) 85%, white 15%),
+    color-mix(in oklab, var(--btn-accent) 20%, transparent 80%),
+    color-mix(in oklab, var(--btn-accent) 85%, white 15%)
+  );
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0) border-box;
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+/* ④ 内部扫光（使用 background-position，且被 overflow 裁剪） */
+.el-button.btn-primary-plain::after,
+.el-button.btn-danger-plain::after,
+.el-button.btn-success-plain::after,
+.el-button.btn-neutral-plain::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: linear-gradient(
+    75deg,
+    transparent 44%,
+    rgba(255, 255, 255, 0.2) 50%,
+    transparent 56%
+  );
+  background-size: 220% 220%;
+  background-position: -120% 0%;
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    background-position 0.8s ease,
+    opacity 0.25s ease;
+}
+.el-button.btn-primary-plain:hover,
+.el-button.btn-danger-plain:hover,
+.el-button.btn-success-plain:hover,
+.el-button.btn-neutral-plain:hover {
+  transform: translateY(-1px);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.45),
+    0 12px 28px -12px color-mix(in oklab, var(--btn-accent) 40%, black 60%);
+}
+.el-button.btn-primary-plain:hover::after,
+.el-button.btn-danger-plain:hover::after,
+.el-button.btn-success-plain:hover::after,
+.el-button.btn-neutral-plain:hover::after {
+  opacity: 0.3;
+  background-position: 120% 0%;
+}
+
+/* ⑤ 焦点与禁用 */
+.el-button.btn-primary-plain:focus-visible,
+.el-button.btn-danger-plain:focus-visible,
+.el-button.btn-success-plain:focus-visible,
+.el-button.btn-neutral-plain:focus-visible {
+  outline: 2px solid color-mix(in oklab, var(--btn-accent) 70%, white 30%);
+  outline-offset: 2px;
+}
+.el-button.is-disabled.btn-primary-plain,
+.el-button.is-disabled.btn-danger-plain,
+.el-button.is-disabled.btn-success-plain,
+.el-button.is-disabled.btn-neutral-plain {
+  opacity: 0.6;
+  transform: none;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.2);
+}
+
+/* ⑥ 文字 / 图标层级，避免被扫光遮住 */
+.el-button.btn-primary-plain .el-icon,
+.el-button.btn-danger-plain .el-icon,
+.el-button.btn-success-plain .el-icon,
+.el-button.btn-neutral-plain .el-icon,
+.el-button.btn-primary-plain span,
+.el-button.btn-danger-plain span,
+.el-button.btn-success-plain span,
+.el-button.btn-neutral-plain span {
+  position: relative;
+  z-index: 1;
+}
+
+/* ⑦ 暗色下稍加深底色 */
+html.dark .el-button.btn-primary-plain,
+html.dark .el-button.btn-danger-plain,
+html.dark .el-button.btn-success-plain,
+html.dark .el-button.btn-neutral-plain {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.14), rgba(255, 255, 255, 0.05)),
+    color-mix(in oklab, var(--el-bg-color) 45%, transparent 55%);
+}
+
+/* ⑧ 降动效（尊重系统设置） */
+@media (prefers-reduced-motion: reduce) {
+  .el-button.btn-primary-plain::after,
+  .el-button.btn-danger-plain::after,
+  .el-button.btn-success-plain::after,
+  .el-button.btn-neutral-plain::after {
+    transition: none;
+    background-position: 0 0;
+    opacity: 0.2;
+  }
+}
