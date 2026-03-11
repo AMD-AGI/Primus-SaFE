@@ -62,7 +62,7 @@ func NewOpenSearchOperatorStage(helmClient *installer.HelmClient) *OperatorStage
 		ChartName:            ChartOpenSearchOp,
 		ReleaseName:          "opensearch-operator",
 		Namespace:            "opensearch-operator",
-		DetectionClusterRole: "opensearch-operator-manager-role",
+		DetectionClusterRole: "opensearch-operator-opensearch-operator-manager-role",
 		DeploymentName:       "opensearch-operator-controller-manager",
 		Values:               map[string]interface{}{},
 		Required:             false, // OpenSearch is optional

@@ -1,0 +1,45 @@
+{{- if .Values.serviceAccount.create -}}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "lens.serviceAccountName" . }}
+  labels:
+    {{- include "lens.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "nodes", "services", "endpoints", "configmaps", "secrets", "namespaces"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["apps"]
+    resources: ["deployments", "statefulsets", "daemonsets", "replicasets"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["batch"]
+    resources: ["jobs", "cronjobs"]
+    verbs: ["get", "list", "watch", "create", "update", "delete"]
+  - apiGroups: ["metrics.k8s.io"]
+    resources: ["pods", "nodes"]
+    verbs: ["get", "list"]
+  - apiGroups: ["postgres-operator.crunchydata.com"]
+    resources: ["postgresclusters"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["opensearch.opster.io"]
+    resources: ["opensearchclusters"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["operator.victoriametrics.com"]
+    resources: ["vmclusters", "vmagents"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "lens.serviceAccountName" . }}
+  labels:
+    {{- include "lens.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "lens.serviceAccountName" . }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "lens.serviceAccountName" . }}
+    namespace: {{ include "lens.namespace" . }}
+{{- end }}

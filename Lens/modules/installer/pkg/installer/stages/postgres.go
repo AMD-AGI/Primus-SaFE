@@ -66,6 +66,9 @@ func (s *PostgresStage) CheckPrerequisites(ctx context.Context, client *installe
 }
 
 func (s *PostgresStage) ShouldRun(ctx context.Context, client *installer.ClusterClient, config *installer.InstallConfig) (bool, string, error) {
+	if config.StorageMode == installer.StorageModeExternal {
+		return false, "External storage mode, skipping in-cluster Postgres", nil
+	}
 	// Check if PostgreSQL is enabled
 	if config.ManagedStorage != nil && !config.ManagedStorage.PostgresEnabled {
 		return false, "PostgreSQL disabled in config", nil
@@ -154,19 +157,20 @@ func (s *PostgresStage) WaitForReady(ctx context.Context, client *installer.Clus
 	secretName := "primus-lens-pguser-primus-lens"
 
 	for time.Now().Before(deadline) {
-		// Check PostgresCluster status
-		status, err := client.GetCustomResourceStatus(ctx, "postgrescluster", config.Namespace, "primus-lens", "{.status.state}")
+		// PGO v5 PostgresCluster has no .status.state; check readyReplicas instead.
+		readyStr, err := client.GetCustomResourceStatus(ctx, "postgrescluster", config.Namespace, "primus-lens", "{.status.instances[0].readyReplicas}")
 		if err != nil {
 			log.Infof("PostgresCluster not found yet, waiting...")
 			time.Sleep(10 * time.Second)
 			continue
 		}
 
-		if status != "healthy" {
-			log.Infof("PostgresCluster status: %s, waiting...", status)
+		if readyStr == "" || readyStr == "0" {
+			log.Infof("PostgresCluster readyReplicas: %s, waiting...", readyStr)
 			time.Sleep(10 * time.Second)
 			continue
 		}
+		log.Infof("PostgresCluster readyReplicas: %s", readyStr)
 
 		// Check if user secret exists (final confirmation)
 		exists, err := client.SecretExists(ctx, config.Namespace, secretName)
