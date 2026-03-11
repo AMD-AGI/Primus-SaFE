@@ -3,8 +3,6 @@
 
 package installer
 
-import "context"
-
 // InstallConfig contains all installation parameters
 type InstallConfig struct {
 	ClusterName   string
@@ -74,13 +72,6 @@ type ExternalStorageConfig struct {
 	PrometheusWritePort int
 }
 
-// Stage interface for each installation stage
-type Stage interface {
-	Name() string
-	Execute(ctx context.Context, helm *HelmClient, config *InstallConfig) error
-	IsIdempotent() bool
-}
-
 // StorageConfig for storage secret
 type StorageConfig struct {
 	Postgres   PostgresConfig   `json:"postgres"`
@@ -115,6 +106,11 @@ type OpenSearchConfig struct {
 type PrometheusConfig struct {
 	ReadEndpoint  string `json:"read_endpoint"`
 	WriteEndpoint string `json:"write_endpoint"`
+	ReadService   string `json:"read_service,omitempty"`
+	WriteService  string `json:"write_service,omitempty"`
+	ReadPort      int32  `json:"read_port,omitempty"`
+	WritePort     int32  `json:"write_port,omitempty"`
+	Namespace     string `json:"namespace,omitempty"`
 }
 
 // Default values

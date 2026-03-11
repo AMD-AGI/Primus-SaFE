@@ -95,24 +95,43 @@ func (h *HelmClient) resolveChartPath(chartName string) (string, error) {
 		return "", fmt.Errorf("failed to read local charts directory %s: %w", searchDir, err)
 	}
 
-	// Look for matching chart file
-	// Try multiple naming patterns:
-	// 1. Exact match: pgo-1.0.0.tgz
-	// 2. Prefixed: primus-lens-pgo-1.0.0.tgz
+	// Prefer unpacked chart directory: searchDir/baseChartName/ with Chart.yaml
+	dirPath := fmt.Sprintf("%s/%s", searchDir, baseChartName)
+	if st, err := os.Stat(dirPath); err == nil && st.IsDir() {
+		chartYaml := fmt.Sprintf("%s/Chart.yaml", dirPath)
+		if _, err := os.Stat(chartYaml); err == nil {
+			log.Infof("Using local chart directory: %s", dirPath)
+			return dirPath, nil
+		}
+	}
+
+	// Chart directory names may differ from Chart.yaml name (used in tgz filenames).
+	// Map directory-style names to the Chart.yaml name prefix for tgz lookup.
+	tgzAliases := map[string]string{
+		"victoria-metrics-operator": "vm-operator",
+	}
+
+	lookupNames := []string{baseChartName}
+	if alias, ok := tgzAliases[baseChartName]; ok {
+		lookupNames = append(lookupNames, alias)
+	}
+
+	// Look for matching .tgz file
 	for _, entry := range entries {
 		if entry.IsDir() {
 			continue
 		}
 		name := entry.Name()
+		if !strings.HasSuffix(name, ".tgz") {
+			continue
+		}
 
-		// Match patterns:
-		// - baseChartName-version.tgz (e.g., pgo-1.0.0.tgz)
-		// - primus-lens-baseChartName-version.tgz (e.g., primus-lens-pgo-1.0.0.tgz)
-		if (strings.HasPrefix(name, baseChartName+"-") || strings.HasPrefix(name, "primus-lens-"+baseChartName+"-")) &&
-			strings.HasSuffix(name, ".tgz") {
-			chartPath := fmt.Sprintf("%s/%s", searchDir, name)
-			log.Infof("Using local chart: %s", chartPath)
-			return chartPath, nil
+		for _, lookup := range lookupNames {
+			if strings.HasPrefix(name, lookup+"-") || strings.HasPrefix(name, "primus-lens-"+lookup+"-") {
+				chartPath := fmt.Sprintf("%s/%s", searchDir, name)
+				log.Infof("Using local chart: %s", chartPath)
+				return chartPath, nil
+			}
 		}
 	}
 

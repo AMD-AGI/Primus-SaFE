@@ -97,3 +97,25 @@ func FindStageIndex(stages []installer.StageV2, stageName string) int {
 	}
 	return -1
 }
+
+// stageListProvider implements installer.StageListProvider to break the import cycle (installer -> cmd -> stages -> installer).
+type stageListProvider struct {
+	helmClient *installer.HelmClient
+}
+
+// NewStageListProvider returns a StageListProvider for use with DataplaneInstaller (set via SetStageListProvider from cmd).
+func NewStageListProvider(helmClient *installer.HelmClient) installer.StageListProvider {
+	return &stageListProvider{helmClient: helmClient}
+}
+
+func (p *stageListProvider) GetStagesByScope(scope string) []installer.StageV2 {
+	return GetStagesByScope(scope, p.helmClient)
+}
+
+func (p *stageListProvider) GetAppsStages() []installer.StageV2 {
+	return GetAppsStages(p.helmClient)
+}
+
+func (p *stageListProvider) GetMappedStageName(currentStage string) string {
+	return GetMappedStageName(currentStage)
+}
