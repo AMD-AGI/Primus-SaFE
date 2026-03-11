@@ -2,6 +2,7 @@
   <WorkloadHeader
     v-if="preflightDetail"
     :detail-data="preflightDetail"
+    :hide-edit="true"
     @clone="addVisible = true"
     @delete="onDelete"
     @stop="onStop"
