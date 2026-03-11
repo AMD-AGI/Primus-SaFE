@@ -17,7 +17,7 @@
       >
         Create Bench
       </el-button>
-      <DateRangeFilter @change="onDateFilterChange" />
+      <DateRangeFilter ref="dateRangeFilterRef" @change="onDateFilterChange" />
     </div>
   </div>
   <el-card class="mt-6 safe-card" shadow="never">
@@ -116,7 +116,7 @@
     :jobid="curJobId"
     :action="curAction"
     :config="preflightConfig.config.value"
-    @success="fetchData"
+    @success="onSuccess"
   />
 </template>
 <script lang="ts" setup>
@@ -141,6 +141,7 @@ const router = useRouter()
 // Use system mode configuration
 const preflightConfig = usePreflightConfig('system')
 
+const dateRangeFilterRef = ref()
 const addVisible = ref(false)
 const curJobId = ref()
 const curAction = ref<'Create' | 'Edit' | 'Clone'>('Create')
@@ -160,6 +161,10 @@ const tableData = ref([])
 
 const jumpToDetail = (id: string) => {
   router.push({ path: '/preflight/detail', query: { id } })
+}
+
+const onSuccess = () => {
+  dateRangeFilterRef.value?.refresh()
 }
 
 const onDateFilterChange = (val: { since: string; until: string }) => {
