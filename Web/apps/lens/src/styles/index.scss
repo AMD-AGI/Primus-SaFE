@@ -1,0 +1,359 @@
+// import dark theme
+@use 'element-plus/theme-chalk/src/dark/css-vars.scss' as *;
+
+body {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue', 'PingFang SC', 
+    'Hiragino Sans GB', 'Microsoft YaHei', '微软雅黑', Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  margin: 0;
+  line-height: 1.6;
+}
+
+a {
+  color: var(--ep-color-primary);
+  text-decoration: none;
+  transition: all 0.2s ease;
+  
+  &:hover {
+    opacity: 0.8;
+  }
+}
+
+// Professional title styles
+.large-title {
+  font-size: 28px;
+  font-weight: 700;
+  margin-bottom: 24px;
+  color: var(--el-text-color-primary);
+  letter-spacing: -0.5px;
+  
+  @media (min-width: 1920px) {
+    font-size: 32px;
+    margin-bottom: 28px;
+  }
+}
+
+.default-title {
+  font-size: 20px;
+  font-weight: 600;
+  margin: 32px 0 20px 0;
+  color: var(--el-text-color-primary);
+  
+  @media (min-width: 1920px) {
+    font-size: 22px;
+    margin: 36px 0 24px 0;
+  }
+}
+
+// Info text
+.default-info {
+  font-size: 14px;
+  font-weight: 400;
+  color: var(--el-text-color-secondary);
+  line-height: 1.6;
+  
+  @media (min-width: 1920px) {
+    font-size: 15px;
+  }
+}
+
+.container-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 24px;
+  padding: 16px 0;
+}
+
+// Professional color scheme
+:root {
+  --progress-bar-color: #1f2937;
+  --border-color: rgba(31, 41, 55, 0.1);
+  --safe-muted: #6b7280;
+  --safe-border: #e5e7eb;
+  --safe-card: #f3f5fade;
+  --transition-base: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.05);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.08);
+  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.12);
+  --shadow-xl: 0 12px 32px rgba(0, 0, 0, 0.15);
+}
+
+.dark {
+  --progress-bar-color: #ffffff;
+  --border-color: rgba(255, 255, 255, 0.15);
+  --safe-muted: #9aa7bd;
+  --safe-border: #2a323d;
+  --safe-card: #121517;
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.2);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.25);
+  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.3);
+  --shadow-xl: 0 12px 32px rgba(0, 0, 0, 0.35);
+}
+
+// Global card styling enhancements
+.el-card {
+  transition: var(--transition-base);
+  
+  &:not(.no-hover):hover {
+    box-shadow: var(--shadow-lg);
+  }
+}
+
+// Global table enhancements
+.el-table {
+  --el-table-border-color: var(--el-border-color-lighter);
+  
+  th {
+    font-weight: 600;
+    letter-spacing: 0.3px;
+  }
+  
+  &.el-table--striped .el-table__body tr.el-table__row--striped td {
+    background-color: var(--el-fill-color-lighter);
+  }
+}
+
+// Button enhancements
+.el-button {
+  font-weight: 500;
+  transition: var(--transition-base);
+  
+  &:hover {
+    transform: translateY(-1px);
+  }
+  
+  &:active {
+    transform: translateY(0);
+  }
+}
+
+// Input enhancements
+.el-input__inner,
+.el-textarea__inner {
+  transition: var(--transition-base);
+  
+  &:focus {
+    box-shadow: 0 0 0 3px rgba(64, 158, 255, 0.1);
+  }
+}
+
+// Dialog/Modal glassmorphism
+.el-dialog {
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  background: rgba(255, 255, 255, 0.95) !important;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  box-shadow: 0 24px 48px rgba(0, 0, 0, 0.15) !important;
+  border-radius: 16px;
+  overflow: hidden;
+  
+  .el-dialog__header {
+    backdrop-filter: blur(10px);
+    background: rgba(255, 255, 255, 0.8);
+    border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+  }
+}
+
+.dark .el-dialog {
+  background: rgba(30, 30, 30, 0.95) !important;
+  border-color: rgba(255, 255, 255, 0.1);
+  
+  .el-dialog__header {
+    background: rgba(30, 30, 30, 0.9);
+    border-bottom-color: rgba(255, 255, 255, 0.1);
+  }
+}
+
+// Dropdown glassmorphism
+.el-dropdown-menu,
+.el-select-dropdown,
+.el-picker-panel {
+  backdrop-filter: blur(16px) saturate(180%);
+  -webkit-backdrop-filter: blur(16px) saturate(180%);
+  background: rgba(255, 255, 255, 0.95) !important;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.12) !important;
+}
+
+.dark {
+  .el-dropdown-menu,
+  .el-select-dropdown,
+  .el-picker-panel {
+    background: rgba(30, 30, 30, 0.95) !important;
+    border-color: rgba(255, 255, 255, 0.1);
+  }
+}
+
+// Card glassmorphism option
+.glass-card {
+  backdrop-filter: blur(16px) saturate(180%);
+  -webkit-backdrop-filter: blur(16px) saturate(180%);
+  background: rgba(255, 255, 255, 0.75) !important;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  
+  &:hover {
+    background: rgba(255, 255, 255, 0.9) !important;
+    backdrop-filter: blur(20px) saturate(180%);
+    -webkit-backdrop-filter: blur(20px) saturate(180%);
+  }
+}
+
+.dark .glass-card {
+  background: rgba(30, 30, 30, 0.75) !important;
+  border-color: rgba(255, 255, 255, 0.1);
+  
+  &:hover {
+    background: rgba(30, 30, 30, 0.9) !important;
+  }
+}
+
+// Date picker OK button styling
+.el-picker-panel {
+  .el-picker-panel__footer {
+    .el-picker-panel__link-btn:last-child {
+      // OK button
+      background: var(--el-color-primary) !important;
+      color: white !important;
+      border: none !important;
+      padding: 5px 15px !important;
+      border-radius: 4px !important;
+      font-weight: 500 !important;
+      
+      &:hover {
+        background: var(--el-color-primary-light-3) !important;
+        color: white !important;
+      }
+      
+      &:active {
+        background: var(--el-color-primary-dark-2) !important;
+      }
+    }
+  }
+}
+
+// Alternative selector for date-time range picker
+.el-date-range-picker {
+  .el-picker-panel__footer {
+    .el-button--default,
+    .el-button--small {
+      &:last-child {
+        background: var(--el-color-primary) !important;
+        color: white !important;
+        border-color: var(--el-color-primary) !important;
+        
+        &:hover {
+          background: var(--el-color-primary-light-3) !important;
+          border-color: var(--el-color-primary-light-3) !important;
+          color: white !important;
+        }
+      }
+    }
+  }
+}
+
+// Custom date picker with blue OK button
+.custom-date-picker {
+  .el-picker-panel__footer {
+    .el-picker-panel__link-btn {
+      &:last-child {
+        background-color: var(--el-color-primary) !important;
+        color: #fff !important;
+        padding: 4px 15px !important;
+        border-radius: 4px !important;
+        text-decoration: none !important;
+        
+        &:hover {
+          background-color: var(--el-color-primary-light-3) !important;
+        }
+      }
+    }
+  }
+}
+
+// Dark mode transition optimization
+html {
+  // Disable all transitions by default during theme switch
+  &.dark-switching,
+  &.dark-switching * {
+    transition: none !important;
+  }
+}
+
+// Only allow specific transitions for smooth changes
+.theme-toggle-btn .theme-icon {
+  transition: transform 0.3s ease, color 0.3s ease !important;
+}
+
+// Optimize performance for large components
+.el-table,
+.el-table__body-wrapper,
+.chart-container,
+.el-card {
+  // These shouldn't transition during theme switch
+  transition: none !important;
+}
+
+// Responsive design for small screens
+@media (max-width: 768px) {
+  // Filter sections
+  .filter-header {
+    flex-wrap: wrap !important;
+    gap: 12px !important;
+    
+    .el-form {
+      width: 100%;
+      
+      .el-form-item {
+        margin-bottom: 12px !important;
+        
+        &:last-child {
+          margin-bottom: 0 !important;
+        }
+      }
+      
+      .el-input, .el-select, .el-date-editor {
+        width: 100% !important;
+      }
+    }
+  }
+  
+  // Stats cards
+  .stats-cards {
+    grid-template-columns: 1fr !important;
+    gap: 12px !important;
+  }
+  
+  // Tables - enable horizontal scroll
+  .table-card {
+    overflow-x: auto;
+    
+    .el-table {
+      min-width: 600px; // Ensure minimum width for readability
+      font-size: 12px;
+      
+      .cell {
+        padding-left: 8px !important;
+        padding-right: 8px !important;
+      }
+      
+      th, td {
+        padding: 10px 0 !important;
+      }
+    }
+  }
+  
+  // Card text sizes
+  .el-card {
+    .card-value {
+      font-size: 1.5rem !important;
+    }
+    
+    .card-label {
+      font-size: 0.875rem !important;
+    }
+  }
+}

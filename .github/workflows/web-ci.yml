@@ -1,0 +1,38 @@
+name: web-ci
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'Web/**'
+  pull_request:
+    paths:
+      - 'Web/**'
+
+defaults:
+  run:
+    working-directory: Web
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Enable Corepack (pnpm)
+        run: corepack enable
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Test (all workspaces)
+        run: pnpm -r test
+
+      - name: Build (all workspaces)
+        run: pnpm -r build

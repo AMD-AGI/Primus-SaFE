@@ -1,0 +1,350 @@
+/* ---------- 主题主色（青色） ---------- */
+:root {
+  --safe-primary: #0d9488; /* 主色：深青绿色（Light模式友好） */
+  --safe-primary-contrast: #ffffff; /* 主色前景（白色文字） */
+  --safe-menu-hover-bg: color-mix(in oklab, var(--safe-card) 86%, var(--safe-primary) 14%);
+
+  /* 亮色模式（Light） */
+  --safe-bg: #f6f8fb; /* 页面背景 */
+  --safe-card: #ffffff; /* 卡片背景 */
+  --safe-card-2: #f1f4f9; /* 次级卡片 / 表头 */
+  --safe-border: #e5e7eb; /* 分隔/边框 */
+  --safe-muted: #6b7280; /* 次要文字 */
+  --safe-text: #0f172a; /* 正文文字 */
+  --safe-green: #22c55e;
+  --safe-red: #ef4444;
+
+  --safe-radius-xl: 16px;
+
+  --log-time-color: #666; /* log-time-默认浅灰 */
+  --log-message-color: #333; /* log-默认深灰，light 模式 */
+
+  --button-bg-color: rgba(255, 255, 255, 0.65);
+
+  /* Element Plus 主色同步（用 color-mix 自动生成阶梯色） */
+  --el-color-primary: var(--safe-primary);
+  --el-color-primary-dark-2: color-mix(in oklab, var(--safe-primary) 80%, black);
+  --el-color-primary-light-3: color-mix(in oklab, var(--safe-primary) 70%, white);
+  --el-color-primary-light-5: color-mix(in oklab, var(--safe-primary) 50%, white);
+  --el-color-primary-light-7: color-mix(in oklab, var(--safe-primary) 30%, white);
+  --el-color-primary-light-8: color-mix(in oklab, var(--safe-primary) 20%, white);
+  --el-color-primary-light-9: color-mix(in oklab, var(--safe-primary) 10%, white);
+
+  /* 供按钮 plain 专用的颜色变量（不影响其他组件） */
+  --safe-primary-plain-bg: color-mix(in oklab, var(--safe-card) 84%, var(--safe-primary) 16%);
+  --safe-primary-plain-bg-hover: color-mix(in oklab, var(--safe-card) 78%, var(--safe-primary) 22%);
+  --safe-primary-plain-bg-active: color-mix(
+    in oklab,
+    var(--safe-card) 72%,
+    var(--safe-primary) 28%
+  );
+  --safe-primary-plain-border: color-mix(in oklab, var(--safe-card) 64%, var(--safe-primary) 36%);
+  --safe-primary-plain-text: color-mix(in oklab, var(--safe-primary) 55%, var(--safe-text) 45%);
+  /* —— 新增禁用态变量 —— */
+  --safe-primary-plain-bg-disabled: color-mix(
+    in oklab,
+    var(--safe-card) 94%,
+    var(--safe-primary) 6%
+  );
+  --safe-primary-plain-border-disabled: color-mix(
+    in oklab,
+    var(--safe-card) 86%,
+    var(--safe-primary) 14%
+  );
+  --safe-primary-plain-text-disabled: color-mix(
+    in oklab,
+    var(--safe-muted) 80%,
+    var(--safe-primary) 20%
+  );
+}
+
+/* ---------- 暗色模式（Dark） ---------- */
+html.dark {
+  --safe-primary: #00e5e5; /* Dark模式用更浅的青绿色（teal-400） */
+  --safe-menu-hover-bg: color-mix(in oklab, var(--safe-card) 84%, var(--safe-primary) 16%);
+
+  --safe-bg: #0b0f14;
+  --safe-card: #161a20;
+  --safe-card-2: #1c222b;
+  --safe-border: #2a323d;
+  --safe-muted: #9aa7bd;
+  --safe-text: #e7e7e7;
+
+  --log-time-color: #888;
+  --log-message-color: #ddd;
+
+  --button-bg-color: rgba(255, 255, 255, 0.06);
+
+  /* 暗色下 EL 主色阶梯也做一版，避免太亮/太灰 */
+  --el-color-primary: var(--safe-primary);
+  --el-color-primary-dark-2: color-mix(in oklab, var(--safe-primary) 85%, black);
+  --el-color-primary-light-3: color-mix(in oklab, var(--safe-primary) 75%, white);
+  --el-color-primary-light-5: color-mix(in oklab, var(--safe-primary) 60%, white);
+  --el-color-primary-light-7: color-mix(in oklab, var(--safe-primary) 45%, white);
+  --el-color-primary-light-8: color-mix(in oklab, var(--safe-primary) 35%, white);
+  --el-color-primary-light-9: color-mix(in oklab, var(--safe-primary) 25%, white);
+
+  --safe-primary-plain-bg: color-mix(in oklab, var(--safe-card) 90%, var(--safe-primary) 10%);
+  --safe-primary-plain-bg-hover: color-mix(in oklab, var(--safe-card) 86%, var(--safe-primary) 14%);
+  --safe-primary-plain-bg-active: color-mix(
+    in oklab,
+    var(--safe-card) 82%,
+    var(--safe-primary) 18%
+  );
+  --safe-primary-plain-border: color-mix(in oklab, var(--safe-card) 74%, var(--safe-primary) 26%);
+  --safe-primary-plain-text: color-mix(in oklab, var(--safe-primary) 65%, var(--safe-text) 35%);
+
+  --safe-primary-plain-bg-disabled: color-mix(
+    in oklab,
+    var(--safe-card) 96%,
+    var(--safe-primary) 4%
+  );
+  --safe-primary-plain-border-disabled: color-mix(
+    in oklab,
+    var(--safe-card) 90%,
+    var(--safe-primary) 10%
+  );
+  --safe-primary-plain-text-disabled: color-mix(
+    in oklab,
+    var(--safe-muted) 85%,
+    var(--safe-primary) 15%
+  );
+}
+
+/* ---------- 基础：让所有“用色场景”自适应明暗 ---------- */
+body {
+  background: var(--safe-bg);
+  color: var(--safe-text);
+}
+
+/* 链接/可点击文本：跟随主色，悬停稍亮 */
+a {
+  color: var(--safe-primary);
+}
+a:hover {
+  color: var(--el-color-primary-light-3);
+}
+
+/* 卡片质感 - 透玻璃效果（性能优化版） */
+.safe-card.el-card {
+  background: rgba(255, 255, 255, 0.6);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-radius: var(--safe-radius-xl);
+  box-shadow:
+    0 4px 16px rgba(0, 0, 0, 0.06),
+    0 0 0 1px rgba(255, 255, 255, 0.5) inset;
+  transition:
+    transform 0.2s ease,
+    box-shadow 0.2s ease;
+  /* backdrop-filter 本身会创建层叠上下文，但不设置 z-index，避免困住子元素 */
+  /* 子元素（如下拉框）的 z-index 可以正常工作 */
+}
+.safe-card.el-card:hover {
+  box-shadow:
+    0 8px 24px rgba(0, 0, 0, 0.1),
+    0 0 0 1px rgba(255, 255, 255, 0.6) inset;
+  transform: translateY(-2px);
+}
+.dark .safe-card.el-card {
+  background: rgba(22, 26, 32, 0.4);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow:
+    0 4px 16px rgba(0, 0, 0, 0.4),
+    0 0 0 1px rgba(255, 255, 255, 0.05) inset;
+}
+.dark .safe-card.el-card:hover {
+  box-shadow:
+    0 8px 24px rgba(0, 0, 0, 0.5),
+    0 0 0 1px rgba(255, 255, 255, 0.08) inset;
+  transform: translateY(-2px);
+}
+.safe-card .el-card__header {
+  background: rgba(255, 255, 255, 0.4);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+  padding: 12px 16px;
+}
+.dark .safe-card .el-card__header {
+  background: rgba(28, 34, 43, 0.6);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+/* 搜索输入：圆角胶囊 */
+.safe-input :deep(.el-input__wrapper) {
+  background: var(--safe-card-2);
+  border: 1px solid var(--safe-border);
+  box-shadow: none;
+  border-radius: 14px;
+}
+.safe-input :deep(.is-focus .el-input__wrapper),
+.safe-input :deep(.el-input__wrapper.is-focus) {
+  border-color: var(--safe-primary);
+}
+
+/* 透玻璃表格（性能优化版） */
+.safe-table :deep(.el-table__inner-wrapper)::before {
+  display: none;
+}
+.safe-table :deep(.el-table) {
+  background: transparent;
+}
+.safe-table :deep(.el-table__header-wrapper th) {
+  background: rgba(255, 255, 255, 0.5);
+  color: var(--safe-muted);
+  font-weight: 600;
+  border-left: none !important;
+  border-right: none !important;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.25);
+}
+.safe-table :deep(.el-table__row > td) {
+  background: rgba(255, 255, 255, 0.35);
+  border-left: none !important;
+  border-right: none !important;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.15);
+  transition: background 0.15s ease;
+}
+.safe-table :deep(.el-table__row:hover > td) {
+  background: rgba(255, 255, 255, 0.5);
+}
+.dark .safe-table :deep(.el-table__header-wrapper th) {
+  background: rgba(28, 34, 43, 0.6);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+.dark .safe-table :deep(.el-table__row > td) {
+  background: rgba(22, 26, 32, 0.4);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+.dark .safe-table :deep(.el-table__row:hover > td) {
+  background: rgba(28, 34, 43, 0.6);
+}
+
+/* 原生 el-table 透玻璃效果（性能优化版） */
+.el-table__inner-wrapper::before {
+  display: none;
+}
+.el-table {
+  background: transparent !important;
+  --el-table-bg-color: transparent;
+  --el-table-tr-bg-color: transparent;
+}
+.el-table__header-wrapper th.el-table__cell {
+  background: rgba(255, 255, 255, 0.9) !important;
+  color: var(--safe-muted);
+  font-weight: 600;
+  border-left: none !important;
+  border-right: none !important;
+  border-top: none !important;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.3) !important;
+}
+.el-table__row > td.el-table__cell {
+  background: rgba(255, 255, 255, 0.82) !important;
+  border-left: none !important;
+  border-right: none !important;
+  border-top: none !important;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.2) !important;
+  transition: background 0.15s ease;
+}
+.el-table__row:hover > td.el-table__cell {
+  background: rgba(255, 255, 255, 0.95) !important;
+}
+.dark .el-table__header-wrapper th.el-table__cell {
+  background: rgba(28, 34, 43, 0.95) !important;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.12) !important;
+}
+.dark .el-table__row > td.el-table__cell {
+  background: rgba(22, 26, 32, 0.88) !important;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08) !important;
+}
+.dark .el-table__row:hover > td.el-table__cell {
+  background: rgba(28, 34, 43, 0.98) !important;
+}
+
+/* 次要文字/计数胶囊 */
+.safe-muted {
+  color: var(--safe-muted);
+}
+.safe-count {
+  font-size: 12px;
+  line-height: 1;
+  background: var(--safe-card-2);
+  border: 1px solid var(--safe-border);
+  border-radius: 999px;
+  padding: 6px 8px;
+  color: var(--safe-muted);
+}
+
+/* primary button */
+.el-menu {
+  --el-menu-hover-bg-color: var(--safe-menu-hover-bg);
+  --el-menu-active-color: var(--safe-primary);
+  --el-menu-text-color: var(--safe-text);
+  --el-menu-bg-color: transparent;
+}
+
+.el-button--primary.is-plain {
+  background-color: var(--safe-primary-plain-bg) !important;
+  border-color: var(--safe-primary-plain-border) !important;
+  color: var(--safe-primary-plain-text) !important;
+  box-shadow: none;
+}
+
+.el-button--primary.is-plain:hover,
+.el-button--primary.is-plain:focus {
+  background-color: var(--safe-primary-plain-bg-hover) !important;
+  border-color: color-mix(
+    in oklab,
+    var(--safe-primary-plain-border) 70%,
+    var(--safe-primary) 30%
+  ) !important;
+  color: var(--safe-primary) !important;
+}
+
+.el-button--primary.is-plain:active {
+  background-color: var(--safe-primary-plain-bg-active) !important;
+  border-color: color-mix(
+    in oklab,
+    var(--safe-primary-plain-border) 50%,
+    var(--safe-primary) 50%
+  ) !important;
+  color: var(--safe-primary-contrast) !important;
+}
+.el-button--primary.is-plain.is-disabled,
+.el-button--primary.is-plain.is-disabled:hover,
+.el-button--primary.is-plain.is-disabled:focus,
+.el-button--primary.is-plain.is-disabled:active {
+  background-color: var(--safe-primary-plain-bg-disabled) !important;
+  border-color: var(--safe-primary-plain-border-disabled) !important;
+  color: var(--safe-primary-plain-text-disabled) !important;
+  box-shadow: none !important;
+  opacity: 1;
+  cursor: not-allowed;
+}
+
+/* 原生 el-descriptions 透玻璃效果 */
+.el-descriptions {
+  --el-descriptions-table-border: 1px solid rgba(255, 255, 255, 0.15);
+}
+.el-descriptions__header {
+  background: rgba(255, 255, 255, 0.5) !important;
+}
+.el-descriptions__label {
+  background: rgba(255, 255, 255, 0.5) !important;
+  color: var(--safe-muted);
+  font-weight: 600;
+}
+.el-descriptions__content {
+  background: rgba(255, 255, 255, 0.35) !important;
+}
+.dark .el-descriptions {
+  --el-descriptions-table-border: 1px solid rgba(255, 255, 255, 0.06);
+}
+.dark .el-descriptions__header {
+  background: rgba(28, 34, 43, 0.6) !important;
+}
+.dark .el-descriptions__label {
+  background: rgba(28, 34, 43, 0.6) !important;
+}
+.dark .el-descriptions__content {
+  background: rgba(22, 26, 32, 0.4) !important;
+}
