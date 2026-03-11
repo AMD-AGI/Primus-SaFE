@@ -6,8 +6,10 @@
 #
 
 set -o pipefail
+export PATH="/usr/bin:/bin:${PATH:-}"
+[ -d /tmp ] || mkdir -p /tmp 2>/dev/null || true
 
-nsenter --target 1 --mount --uts --ipc --net --pid -- lsmod |grep 'amdgpu ' > /dev/null
+nsenter --target 1 --mount --uts --ipc --net --pid -- lsmod | grep 'amdgpu ' > /dev/null
 if [ $? -ne 0 ]; then
   echo "Error: unable to find amdgpu module"
   exit 1
@@ -21,7 +23,7 @@ fi
 nsenter --target 1 --mount --uts --ipc --net --pid -- /usr/bin/rocm-smi > /tmp/rocm-smi.tmp
 ret=$?
 if [ $ret -ne 0 ]; then
-  echo "Error: failed to execute rocm-smi. $ret"
+  echo "Error: failed to execute rocm-smi. ret=$ret"
   rm -f /tmp/rocm-smi.tmp
   exit 1
 fi
