@@ -367,6 +367,8 @@ jobs:
             --build-arg BASEPATH=${{ matrix.basepath }} \
             --build-arg APPNAME=${{ matrix.name }} \
             --build-arg GITHUB_TOKEN=${{ secrets.GITHUB_TOKEN }} \
+            --cache-from type=registry,ref=${QUAYIO_REPOSITORY}/${{ matrix.name }}:buildcache \
+            --cache-to type=registry,ref=${QUAYIO_REPOSITORY}/${{ matrix.name }}:buildcache,mode=max \
             -t ${DOCKERIO_REPOSITORY}/${{ matrix.name }}:${IMAGE_VERSION} \
             -t ${DOCKERIO_REPOSITORY}/${{ matrix.name }}:${DATE_TIME} \
             -t ${QUAYIO_REPOSITORY}/${{ matrix.name }}:${IMAGE_VERSION} \
