@@ -34,29 +34,16 @@ if [ $? -ne 0 ]; then
 fi
 
 if echo "$content" | grep -q "nameserver 127.0.0.53"; then
-  # Check if already immutable
+  # Check if already immutable (chattr +i)
   attrs=$(${NSENTER} lsattr ${TARGET_FILE} 2>/dev/null)
-  if echo "$attrs" | grep -q "^....i"; then
+  if [ -n "$attrs" ] && echo "$attrs" | grep -qE '^[ -]{4}i'; then
     exit 0
   fi
 
-  # Check if already read-only (444)
-  perms=$(${NSENTER} stat -c "%a" ${TARGET_FILE} 2>/dev/null)
-  if [ "$perms" = "444" ]; then
-    exit 0
-  fi
-
-  # Try to set immutable first
   ${NSENTER} chattr +i ${TARGET_FILE} 2>/dev/null
   if [ $? -eq 0 ]; then
-    echo "Set ${TARGET_FILE} to immutable (contains nameserver 127.0.0.53)"
+    echo "Set ${TARGET_FILE} immutable (contains nameserver 127.0.0.53)"
   else
-    ${NSENTER} chmod 444 ${TARGET_FILE}
-    if [ $? -eq 0 ]; then
-      echo "Set ${TARGET_FILE} to read-only (contains nameserver 127.0.0.53)"
-    else
-      echo "Error: failed to set ${TARGET_FILE} to read-only"
-      exit 1
-    fi
+    echo "failed to chattr +i ${TARGET_FILE}"
   fi
 fi
