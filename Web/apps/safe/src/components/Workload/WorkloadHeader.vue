@@ -82,7 +82,7 @@
         <slot name="extra-actions"></slot>
 
         <template v-if="!hideActions">
-          <el-tooltip :content="editDisabled ? 'Not editable in current phase' : 'Edit'" placement="top">
+          <el-tooltip v-if="!hideEdit" :content="editDisabled ? 'Not editable in current phase' : 'Edit'" placement="top">
             <el-button
               circle
               class="glass-btn glass-btn--edit"
@@ -221,12 +221,14 @@ const props = withDefaults(
     detailData: WorkloadDetailData
     showBackButton?: boolean
     hideActions?: boolean
+    hideEdit?: boolean
     fallbackPath?: string
     editDisabled?: boolean
   }>(),
   {
     showBackButton: true,
     hideActions: false,
+    hideEdit: false,
     editDisabled: false,
   },
 )
