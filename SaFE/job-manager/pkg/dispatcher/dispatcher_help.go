@@ -32,7 +32,6 @@ import (
 
 const (
 	SharedMemoryVolume = "shared-memory"
-	DockerSock         = "docker-sock"
 	Launcher           = "/bin/sh /shared-data/launcher.sh"
 )
 
@@ -299,9 +298,6 @@ func modifyVolumeMounts(container map[string]interface{}, workload *v1.Workload,
 		volumeMounts = volumeMountObjs.([]interface{})
 	}
 	volumeMounts = append(volumeMounts, buildVolumeMount(SharedMemoryVolume, "/dev/shm", "", false))
-	if v1.IsPrivileged(workload) {
-		volumeMounts = append(volumeMounts, buildVolumeMount(DockerSock, "/var/run/docker.sock", "", false))
-	}
 
 	maxId := 0
 	if workspace != nil && v1.IsEnableWorkspaceStorage(workload) {
@@ -368,10 +364,6 @@ func modifyVolumes(obj *unstructured.Unstructured, workload *v1.Workload, worksp
 			volumes = append(volumes, buildSecretVolume(secret.Id))
 			hasNewVolume = true
 		}
-	}
-	if v1.IsPrivileged(workload) {
-		volumes = append(volumes, buildHostPathVolume(DockerSock, "/var/run/docker.sock", "Socket"))
-		hasNewVolume = true
 	}
 	if !hasNewVolume {
 		return nil
