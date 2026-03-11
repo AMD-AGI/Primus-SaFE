@@ -24,6 +24,7 @@ const preflightConfig = usePreflightConfig('workspace')
 const loading = ref(false)
 const tableData = ref([])
 
+const dateRangeFilterRef = ref()
 const addVisible = ref(false)
 const curJobId = ref('')
 const curAction = ref('Create')
@@ -61,7 +62,7 @@ const fetchData = async () => {
 }
 
 const onSuccess = () => {
-  fetchData()
+  dateRangeFilterRef.value?.refresh()
 }
 
 const onDelete = (jobId: string) => {
@@ -148,7 +149,7 @@ watch(
       >
         Create Bench
       </el-button>
-      <DateRangeFilter @change="onDateFilterChange" />
+      <DateRangeFilter ref="dateRangeFilterRef" @change="onDateFilterChange" />
     </div>
   </div>
   <el-card class="mt-6 safe-card" shadow="never">
