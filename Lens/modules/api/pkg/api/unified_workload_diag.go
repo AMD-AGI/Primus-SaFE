@@ -169,7 +169,7 @@ func init() {
 
 // ======================== Helpers ========================
 
-type diagBaseRequest struct {
+type DiagBaseRequest struct {
 	UID     string `json:"uid" param:"uid" mcp:"uid,description=Workload UID,required"`
 	Cluster string `json:"cluster" query:"cluster" mcp:"cluster,description=Target cluster name (optional)"`
 }
@@ -230,7 +230,7 @@ func parseDiagStep(stepStr string) int {
 // ======================== 1. Workload Profile ========================
 
 type DiagProfileRequest struct {
-	diagBaseRequest
+	DiagBaseRequest
 }
 
 type DiagProfileResponse struct {
@@ -421,7 +421,7 @@ func handleDiagProfile(ctx context.Context, req *DiagProfileRequest) (*DiagProfi
 // ======================== 2. Pod List ========================
 
 type DiagPodsRequest struct {
-	diagBaseRequest
+	DiagBaseRequest
 }
 
 type DiagPodsResponse struct {
@@ -524,7 +524,7 @@ func handleDiagPods(ctx context.Context, req *DiagPodsRequest) (*DiagPodsRespons
 // ======================== 3. Pod Events & Restarts ========================
 
 type DiagPodEventsRequest struct {
-	diagBaseRequest
+	DiagBaseRequest
 	Since string `json:"since" query:"since" mcp:"since,description=Start time (RFC3339) defaults to 7 days ago"`
 }
 
@@ -628,7 +628,7 @@ func handleDiagPodEvents(ctx context.Context, req *DiagPodEventsRequest) (*DiagP
 // ======================== 4. K8s Events (OpenSearch) ========================
 
 type DiagK8sEventsRequest struct {
-	diagBaseRequest
+	DiagBaseRequest
 	Type  string `json:"type" query:"type" mcp:"type,description=Filter: Normal or Warning"`
 	Since string `json:"since" query:"since" mcp:"since,description=Start time (RFC3339)"`
 }
@@ -784,7 +784,7 @@ func handleDiagK8sEvents(ctx context.Context, req *DiagK8sEventsRequest) (*DiagK
 // ======================== 5. GPU Utilization ========================
 
 type DiagGPUUtilRequest struct {
-	diagBaseRequest
+	DiagBaseRequest
 	Start string `json:"start" query:"start" mcp:"start,description=Time range start (RFC3339)"`
 	End   string `json:"end" query:"end" mcp:"end,description=Time range end (RFC3339)"`
 	Step  string `json:"step" query:"step" mcp:"step,description=Step interval in seconds (default 60)"`
@@ -867,7 +867,7 @@ func handleDiagGPUUtil(ctx context.Context, req *DiagGPUUtilRequest) (*DiagGPUUt
 // ======================== 6. Compute Metrics ========================
 
 type DiagComputeMetricsRequest struct {
-	diagBaseRequest
+	DiagBaseRequest
 	Start string `json:"start" query:"start" mcp:"start,description=Time range start (RFC3339),required"`
 	End   string `json:"end" query:"end" mcp:"end,description=Time range end (RFC3339),required"`
 	Step  string `json:"step" query:"step" mcp:"step,description=Step interval in seconds (default 60)"`
@@ -910,7 +910,7 @@ func handleDiagComputeMetrics(ctx context.Context, req *DiagComputeMetricsReques
 // ======================== 7. Network Metrics ========================
 
 type DiagNetworkMetricsRequest struct {
-	diagBaseRequest
+	DiagBaseRequest
 	Start string `json:"start" query:"start" mcp:"start,description=Time range start (RFC3339),required"`
 	End   string `json:"end" query:"end" mcp:"end,description=Time range end (RFC3339),required"`
 	Step  string `json:"step" query:"step" mcp:"step,description=Step interval in seconds (default 60)"`
@@ -992,7 +992,7 @@ func handleDiagNetworkMetrics(ctx context.Context, req *DiagNetworkMetricsReques
 // ======================== 8. Training Progress ========================
 
 type DiagTrainingProgressRequest struct {
-	diagBaseRequest
+	DiagBaseRequest
 	Start      string `json:"start" query:"start" mcp:"start,description=Time range start (RFC3339)"`
 	End        string `json:"end" query:"end" mcp:"end,description=Time range end (RFC3339)"`
 	DataSource string `json:"data_source" query:"data_source" mcp:"data_source,description=Filter: log or wandb or tensorflow"`
@@ -1151,7 +1151,7 @@ func computeIterationCadence(perfs []*dbmodel.TrainingPerformance) *DiagIteratio
 // ======================== 9. Code Snapshot ========================
 
 type DiagCodeSnapshotRequest struct {
-	diagBaseRequest
+	DiagBaseRequest
 	IncludeContent string `json:"include_content" query:"include_content" mcp:"include_content,description=Include file content (default true)"`
 }
 
@@ -1160,6 +1160,7 @@ type DiagCodeSnapshotResponse struct {
 	Fingerprint    string      `json:"fingerprint"`
 	FileCount      int         `json:"file_count"`
 	TotalSize      int         `json:"total_size"`
+	DownloadURL    string      `json:"download_url,omitempty" mcp:"download_url,description=Relative URL to download source files as tar.gz"`
 	EntryScript    interface{} `json:"entry_script,omitempty"`
 	ConfigFiles    interface{} `json:"config_files,omitempty"`
 	LocalModules   interface{} `json:"local_modules,omitempty"`
@@ -1189,6 +1190,9 @@ func handleDiagCodeSnapshot(ctx context.Context, req *DiagCodeSnapshotRequest) (
 	if snapshot.CapturedAt != nil {
 		resp.CapturedAt = snapshot.CapturedAt.Format(time.RFC3339)
 	}
+	if snapshot.StorageKey != nil && *snapshot.StorageKey != "" {
+		resp.DownloadURL = fmt.Sprintf("/v1/workload-diag/%s/code-snapshot-download", req.UID)
+	}
 
 	includeContent := req.IncludeContent != "false"
 	if includeContent {
@@ -1205,7 +1209,7 @@ func handleDiagCodeSnapshot(ctx context.Context, req *DiagCodeSnapshotRequest) (
 // ======================== 10. Image Analysis ========================
 
 type DiagImageAnalysisRequest struct {
-	diagBaseRequest
+	DiagBaseRequest
 }
 
 type DiagImageAnalysisResponse struct {
@@ -1274,7 +1278,7 @@ func handleDiagImageAnalysis(ctx context.Context, req *DiagImageAnalysisRequest)
 // ======================== 11. Detection Evidence ========================
 
 type DiagEvidenceRequest struct {
-	diagBaseRequest
+	DiagBaseRequest
 	Source string `json:"source" query:"source" mcp:"source,description=Filter by source: process/env/image/log/label/active_detection"`
 }
 
@@ -1339,7 +1343,7 @@ func handleDiagEvidence(ctx context.Context, req *DiagEvidenceRequest) (*DiagEvi
 // ======================== 12. Profiler Files ========================
 
 type DiagProfilerFilesRequest struct {
-	diagBaseRequest
+	DiagBaseRequest
 }
 
 type DiagProfilerFilesResponse struct {
@@ -1388,7 +1392,7 @@ func handleDiagProfilerFiles(ctx context.Context, req *DiagProfilerFilesRequest)
 // ======================== 13. K8s Spec ========================
 
 type DiagK8sSpecRequest struct {
-	diagBaseRequest
+	DiagBaseRequest
 }
 
 type DiagK8sSpecResponse struct {

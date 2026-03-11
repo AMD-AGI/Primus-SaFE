@@ -64,6 +64,7 @@ spec:
       labels:
         {{- include "lens.selectorLabels" . | nindent 8 }}
         app: image-analyzer
+        primus-lens-app-name: image-analyzer
         component: ai-services
     spec:
       serviceAccountName: {{ include "lens.serviceAccountName" . }}

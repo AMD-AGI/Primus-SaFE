@@ -56,6 +56,15 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end -}}
 
 {{/*
+Pod labels including primus-lens-app-name for component health discovery.
+Usage: include "lens.podLabels" (dict "appName" "jobs" "root" .)
+*/}}
+{{- define "lens.podLabels" -}}
+primus-lens-app-name: {{ .appName }}
+{{ include "lens.selectorLabels" .root | nindent 0 }}
+{{- end -}}
+
+{{/*
 Get the namespace
 */}}
 {{- define "lens.namespace" -}}

@@ -51,12 +51,13 @@ func (s *ApplicationsStage) ShouldRun(ctx context.Context, client *installer.Clu
 		return true, "Cannot check applications release status, will install", nil
 	}
 
-	if exists && healthy {
+	// For upgrade mode we always run; otherwise skip if already healthy
+	if exists && healthy && !config.IsUpgrade {
 		return false, "Applications already installed and healthy", nil
 	}
 
 	if exists {
-		return true, "Applications release exists but not healthy, will upgrade", nil
+		return true, "Applications release exists but not healthy or upgrade requested, will upgrade", nil
 	}
 
 	return true, "Applications not installed, will install", nil
@@ -65,51 +66,78 @@ func (s *ApplicationsStage) ShouldRun(ctx context.Context, client *installer.Clu
 func (s *ApplicationsStage) Execute(ctx context.Context, client *installer.ClusterClient, config *installer.InstallConfig) error {
 	log.Info("Deploying Primus-Lens applications...")
 
-	values := map[string]interface{}{
-		"global": map[string]interface{}{
-			"namespace":    config.Namespace,
-			"storageClass": s.getStorageClass(config),
-		},
-		"api": map[string]interface{}{
-			"enabled":  true,
-			"replicas": 2,
-		},
-		"jobs": map[string]interface{}{
-			"enabled": true,
-		},
-		"grafana": map[string]interface{}{
-			"enabled": true,
-		},
-	}
-
-	// Merge with config's merged values if available
-	if config.MergedValues != nil {
-		for k, v := range config.MergedValues {
-			values[k] = v
+	var values map[string]interface{}
+	if len(config.MergedValues) > 0 {
+		log.Infof("Using merged values from release management")
+		values = config.MergedValues
+		// Ensure global settings are set
+		if globalVals, ok := values["global"].(map[string]interface{}); ok {
+			globalVals["clusterName"] = config.ClusterName
+			globalVals["namespace"] = config.Namespace
+			if _, hasRegistry := globalVals["imageRegistry"]; !hasRegistry {
+				globalVals["imageRegistry"] = map[string]interface{}{
+					"url":        config.ImageRegistry,
+					"pullPolicy": "IfNotPresent",
+					"pullSecret": "",
+				}
+			}
+		} else {
+			values["global"] = map[string]interface{}{
+				"clusterName": config.ClusterName,
+				"namespace":   config.Namespace,
+				"imageRegistry": map[string]interface{}{
+					"url":        config.ImageRegistry,
+					"pullPolicy": "IfNotPresent",
+					"pullSecret": "",
+				},
+			}
+		}
+	} else {
+		values = map[string]interface{}{
+			"global": map[string]interface{}{
+				"clusterName":   config.ClusterName,
+				"namespace":     config.Namespace,
+				"storageClass":  s.getStorageClass(config),
+				"imageRegistry": map[string]interface{}{
+					"url":        config.ImageRegistry,
+					"pullPolicy": "IfNotPresent",
+					"pullSecret": "",
+				},
+			},
+			"telemetryCollector":  map[string]interface{}{"enabled": true},
+			"jobs":                map[string]interface{}{"enabled": true},
+			"nodeExporter":        map[string]interface{}{"enabled": true},
+			"gpuResourceExporter": map[string]interface{}{"enabled": true},
+			"systemTuner":         map[string]interface{}{"enabled": true},
+			"aiAdvisor":           map[string]interface{}{"enabled": true},
 		}
 	}
 
-	// Check if release exists
+	chartName := installer.ChartApplications
+	if config.ChartVersion != "" {
+		log.Infof("Using chart version: %s", config.ChartVersion)
+	}
+
 	exists, _, err := s.helmClient.ReleaseStatus(ctx, client.GetKubeconfig(), config.Namespace, installer.ReleaseApplications)
 	if err != nil {
 		return err
 	}
 
-	if exists {
-		log.Info("Upgrading applications release...")
-		return s.helmClient.Upgrade(ctx, client.GetKubeconfig(), config.Namespace, installer.ReleaseApplications, installer.ChartApplications, values)
+	if exists || config.IsUpgrade {
+		log.Infof("Upgrading applications release")
+		return s.helmClient.Upgrade(ctx, client.GetKubeconfig(), config.Namespace, installer.ReleaseApplications, chartName, values)
 	}
-
-	log.Info("Installing applications release...")
-	return s.helmClient.Install(ctx, client.GetKubeconfig(), config.Namespace, installer.ReleaseApplications, installer.ChartApplications, values)
+	log.Infof("Installing applications release")
+	return s.helmClient.Install(ctx, client.GetKubeconfig(), config.Namespace, installer.ReleaseApplications, chartName, values)
 }
 
 func (s *ApplicationsStage) WaitForReady(ctx context.Context, client *installer.ClusterClient, config *installer.InstallConfig, timeout time.Duration) error {
 	log.Info("Waiting for applications to be ready...")
 
-	// Wait for key application pods
+	// Wait for key dataplane application pods
 	appLabels := []string{
-		"app.kubernetes.io/name=primus-lens-api",
+		"app=primus-lens-telemetry-processor",
+		"app=primus-lens-jobs",
 	}
 
 	for _, label := range appLabels {

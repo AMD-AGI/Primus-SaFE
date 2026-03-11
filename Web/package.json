@@ -1,0 +1,15 @@
+{
+  "name": "primus-frontend",
+  "private": true,
+  "packageManager": "pnpm@8.15.6",
+  "scripts": {
+    "dev:safe": "pnpm --filter ./apps/safe dev",
+    "build:safe": "pnpm --filter ./apps/safe build",
+    "dev:lens": "pnpm --filter ./apps/lens dev",
+    "build:lens": "pnpm --filter ./apps/lens build",
+    "lint": "pnpm -r lint",
+    "test": "pnpm -r test",
+    "test:safe": "pnpm --filter ./apps/safe test",
+    "test:lens": "pnpm --filter ./apps/lens test"
+  }
+}

@@ -42,6 +42,7 @@ spec:
         prometheus.io/path: "/metrics"
       labels:
         app: primus-lens-gpu-resource-exporter
+        primus-lens-app-name: gpu-resource-exporter
     spec:
       containers:
         - name: app

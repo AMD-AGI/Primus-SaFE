@@ -42,6 +42,7 @@ spec:
     metadata:
       labels:
         app: {{ include "lens.fullname" . }}-api
+        primus-lens-app-name: api
         {{- include "lens.selectorLabels" . | nindent 8 }}
     spec:
       serviceAccountName: {{ include "lens.serviceAccountName" . }}

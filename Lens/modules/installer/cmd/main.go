@@ -16,6 +16,7 @@ import (
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/modules/installer/pkg/config"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/modules/installer/pkg/installer"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/modules/installer/pkg/installer/stages"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
@@ -23,6 +24,13 @@ import (
 
 func main() {
 	log.Info("=== Primus-Lens Dataplane Installer ===")
+
+	// Standalone mode: install dataplane --config <path> [--verbose]
+	// Uses in-cluster kubeconfig and runs full stages without control plane DB.
+	if configPath := parseStandaloneConfigPath(); configPath != "" {
+		runStandalone(configPath)
+		return
+	}
 
 	// Load configuration from environment
 	cfg, err := config.LoadFromEnv()
@@ -97,9 +105,10 @@ func main() {
 		log.Warnf("Failed to update cluster status: %v", err)
 	}
 
-	// Create installer and execute
+	// Create installer and execute (new pipeline: stages package provides stage list)
 	log.Info("Starting dataplane installation...")
 	dpInstaller := installer.NewDataplaneInstaller(facade)
+	dpInstaller.SetStageListProvider(stages.NewStageListProvider(dpInstaller.GetHelmClient()))
 
 	installErr := dpInstaller.Execute(ctx, task, clusterConfig)
 
@@ -127,6 +136,98 @@ func main() {
 	updateClusterStatusOnSuccess(ctx, clusterFacade, task)
 
 	log.Info("=== Dataplane Installer Completed ===")
+}
+
+// parseStandaloneConfigPath returns the config file path if args look like:
+// install dataplane --config /path/to/values.yaml [--verbose]
+// Otherwise returns "".
+func parseStandaloneConfigPath() string {
+	args := os.Args[1:]
+	for i := 0; i < len(args); i++ {
+		if args[i] == "install" && i+3 < len(args) && args[i+1] == "dataplane" && args[i+2] == "--config" {
+			return args[i+3]
+		}
+	}
+	return ""
+}
+
+// runStandalone runs the dataplane installer in standalone mode: load config from file,
+// build in-cluster kubeconfig, run all stages (no control plane DB).
+func runStandalone(configPath string) {
+	log.Infof("Standalone mode: config=%s", configPath)
+
+	sc, err := config.LoadFromFile(configPath)
+	if err != nil {
+		log.Fatalf("Failed to load config from file: %v", err)
+	}
+
+	kubeconfig, err := config.BuildInClusterKubeconfig()
+	if err != nil {
+		log.Warnf("Not in cluster (%v), falling back to local kubeconfig", err)
+		kubeconfig, err = config.LoadLocalKubeconfig()
+		if err != nil {
+			log.Fatalf("Failed to load local kubeconfig: %v", err)
+		}
+		log.Info("Using kubeconfig from KUBECONFIG or ~/.kube/config")
+	}
+
+	// Prefer local charts when CHARTS_DIR is set (e.g. by the Helm job)
+	if chartsDir := os.Getenv("CHARTS_DIR"); chartsDir != "" {
+		_ = os.Setenv("HELM_USE_LOCAL_CHARTS", "true")
+		_ = os.Setenv("HELM_LOCAL_CHARTS_PATH", chartsDir)
+	}
+
+	installConfig := &installer.InstallConfig{
+		ClusterName:   sc.ClusterName,
+		Kubeconfig:    kubeconfig,
+		Namespace:     sc.Namespace,
+		StorageClass:   sc.StorageClass,
+		StorageMode:    installer.StorageModeLensManaged,
+		ImageRegistry: sc.ImageRegistry,
+		MergedValues:  sc.MergedValues,
+		IsUpgrade:     false,
+	}
+	// Default managed storage for lens-managed mode (stages read sizes from MergedValues or defaults)
+	installConfig.ManagedStorage = &installer.ManagedStorageConfig{
+		StorageClass:           sc.StorageClass,
+		PostgresEnabled:        true,
+		PostgresSize:           installer.DefaultPostgresSize,
+		OpensearchEnabled:      true,
+		OpensearchSize:         installer.DefaultOSSize,
+		OpensearchReplicas:     installer.DefaultOSReplicas,
+		VictoriametricsEnabled: true,
+		VictoriametricsSize:    installer.DefaultVMSize,
+	}
+
+	helmClient := installer.NewHelmClient()
+	stageList := stages.GetFullStages(helmClient)
+	exec, err := installer.NewExecutor(kubeconfig, installConfig)
+	if err != nil {
+		log.Fatalf("Failed to create executor: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+	go func() {
+		sig := <-sigChan
+		log.Warnf("Received signal %v, shutting down...", sig)
+		cancel()
+	}()
+
+	log.Info("Starting dataplane installation (standalone)...")
+	results, err := exec.ExecuteStages(ctx, stageList)
+	if err != nil {
+		log.Errorf("Installation failed: %v", err)
+		for _, r := range results {
+			if r.Error != nil {
+				log.Errorf("  [%s] %v", r.Stage, r.Error)
+			}
+		}
+		os.Exit(1)
+	}
+	log.Info("=== Dataplane Installer (standalone) Completed ===")
 }
 
 // connectDB connects to PostgreSQL database
@@ -221,17 +322,32 @@ func updateClusterStatusOnFailure(ctx context.Context, clusterFacade cpdb.Cluste
 	}
 }
 
-// isInfrastructureStage checks if the given stage is an infrastructure stage
+// isInfrastructureStage checks if the given stage is an infrastructure stage (used for cluster status on failure).
+// Includes both old and new pipeline stage names for backward compatibility.
 func isInfrastructureStage(stage string) bool {
 	infrastructureStages := map[string]bool{
+		// Old pipeline names
 		"pending":             true,
 		"operators":           true,
 		"wait_operators":      true,
 		"infrastructure":      true,
 		"wait_infrastructure": true,
 		"init":                true,
-		"database_migration":  true,
-		"storage_secret":      true,
+		"database_migration": true,
+		"storage_secret":     true,
+		// New pipeline names
+		"operator-pgo":          true,
+		"operator-victoriametrics": true,
+		"operator-opensearch":   true,
+		"operator-grafana":      true,
+		"operator-fluent":       true,
+		"operator-ksm":          true,
+		"infra-postgres":        true,
+		"infra-victoriametrics": true,
+		"infra-opensearch":      true,
+		"database-init":         true,
+		"database-migration":    true,
+		"storage-secret":        true,
 	}
 	return infrastructureStages[stage]
 }

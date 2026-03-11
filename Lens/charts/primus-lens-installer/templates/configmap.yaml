@@ -21,7 +21,8 @@ data:
       namespace: {{ include "installer.namespace" . | quote }}
       storageClass: {{ .Values.global.storageClass | quote }}
       accessMode: {{ .Values.global.accessMode | quote }}
-      imageRegistry: {{ .Values.global.imageRegistry | quote }}
+      imageRegistry:
+        {{- toYaml .Values.global.imageRegistry | nindent 8 }}
       accessType: {{ .Values.global.accessType | quote }}
       domain: {{ .Values.global.domain | quote }}
     

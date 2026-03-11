@@ -149,7 +149,7 @@ def main():
     parser.add_argument(
         "--model-path",
         type=str,
-        default="meta-llama/Llama-3.1-8B-Instruct",
+        default="Qwen/Qwen3-8B",
         help="HuggingFace model path"
     )
     parser.add_argument(

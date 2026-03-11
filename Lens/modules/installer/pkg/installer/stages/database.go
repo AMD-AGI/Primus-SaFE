@@ -6,6 +6,7 @@ package stages
 import (
 	"context"
 	"fmt"
+	"os"
 	"time"
 
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
@@ -152,7 +153,14 @@ func (s *DatabaseMigrationStage) CheckPrerequisites(ctx context.Context, client 
 }
 
 func (s *DatabaseMigrationStage) ShouldRun(ctx context.Context, client *installer.ClusterClient, config *installer.InstallConfig) (bool, string, error) {
-	// Always run migrations to ensure schema is up to date
+	// Skip if migrations directory doesn't exist (e.g. standalone/local mode without bundled migrations)
+	migrationsPath := installer.DefaultMigrationsPath
+	if envPath := os.Getenv("MIGRATIONS_PATH"); envPath != "" {
+		migrationsPath = envPath
+	}
+	if _, err := os.Stat(migrationsPath); os.IsNotExist(err) {
+		return false, fmt.Sprintf("Migrations directory '%s' not found, skipping", migrationsPath), nil
+	}
 	return true, "Will run database migrations", nil
 }
 
@@ -186,16 +194,24 @@ func (s *DatabaseMigrationStage) Execute(ctx context.Context, client *installer.
 		return fmt.Errorf("no storage configuration available")
 	}
 
-	// Run migrations using migrate CLI
-	// This is typically done via a Job or direct execution
+	if port == 0 {
+		port = 5432
+	}
+	if sslMode == "" {
+		sslMode = "require"
+	}
+
+	migrationsPath := installer.DefaultMigrationsPath
+	if envPath := os.Getenv("MIGRATIONS_PATH"); envPath != "" {
+		migrationsPath = envPath
+	}
 	log.Infof("Database migration config: host=%s, port=%d, user=%s, db=%s", host, port, user, dbName)
 
-	// For now, we'll skip actual migration execution as it requires the migrate binary
-	// In production, this would run the actual migrations
-	_ = sslMode
-	_ = password
+	if err := installer.ConnectAndMigrate(ctx, host, port, user, password, dbName, sslMode, migrationsPath); err != nil {
+		return fmt.Errorf("database migration failed: %w", err)
+	}
 
-	log.Info("Database migrations completed (placeholder)")
+	log.Info("Database migrations completed successfully")
 	return nil
 }
 

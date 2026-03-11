@@ -350,13 +350,34 @@ func (s *ConfigSyncer) createProxyServicesForCluster(ctx context.Context, cluste
 		}
 	}
 
-	// Prometheus read
-	if config.Prometheus != nil && config.Prometheus.ReadNodePort > 0 {
-		serviceName, port, err := s.createProxyServiceAndEndpoint(ctx, clusterName, "prometheus-read", nodeIPs, config.Prometheus.ReadNodePort, 9090)
-		if err == nil {
-			config.Prometheus.ReadService = serviceName
-			config.Prometheus.ReadPort = port
-			count++
+	// Prometheus read: for current cluster use vmselect (8481) so /select/0/prometheus works; others use NodePort proxy
+	currentClusterName := clientsets.GetClusterManager().GetCurrentClusterName()
+	if config.Prometheus != nil {
+		if currentClusterName != "" && clusterName == currentClusterName {
+			serviceName, port, err := s.createVMSelectReadService(ctx, clusterName)
+			if err == nil {
+				config.Prometheus.ReadService = serviceName
+				config.Prometheus.ReadPort = port
+				count++
+			} else {
+				log.Warnf("Failed to create vmselect read service for current cluster %s: %v", clusterName, err)
+			}
+		} else if config.Prometheus.ReadNodePort > 0 {
+			// Do not overwrite if this cluster's prometheus-read Service already uses vmselect (e.g. was set when currentClusterName was set)
+			readSvcName := fmt.Sprintf("primus-lens-prometheus-read-%s", clusterName)
+			if s.prometheusReadServiceHasVMSelectSelector(ctx, readSvcName) {
+				config.Prometheus.ReadService = readSvcName
+				config.Prometheus.ReadPort = 9090
+				count++
+				log.Debugf("Skipping NodePort proxy for %s: prometheus-read already uses vmselect", clusterName)
+			} else {
+				serviceName, port, err := s.createProxyServiceAndEndpoint(ctx, clusterName, "prometheus-read", nodeIPs, config.Prometheus.ReadNodePort, 9090)
+				if err == nil {
+					config.Prometheus.ReadService = serviceName
+					config.Prometheus.ReadPort = port
+					count++
+				}
+			}
 		}
 	}
 
@@ -451,6 +472,64 @@ func (s *ConfigSyncer) createProxyServiceAndEndpoint(ctx context.Context, cluste
 
 	log.Infof("Created proxy service %s for cluster %s", serviceName, clusterName)
 	return serviceName, servicePort, nil
+}
+
+// createVMSelectReadService creates or updates a Service that selects vmselect pods (port 9090 -> 8481).
+// Used for the current cluster so the API can reach VictoriaMetrics at /select/0/prometheus.
+func (s *ConfigSyncer) createVMSelectReadService(ctx context.Context, clusterName string) (string, int32, error) {
+	serviceName := fmt.Sprintf("primus-lens-prometheus-read-%s", clusterName)
+	servicePort := int32(9090)
+	vmselectPort := int32(8481)
+
+	service := &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      serviceName,
+			Namespace: s.namespace,
+			Labels: map[string]string{
+				"app":       "primus-lens",
+				"component": "prometheus-read",
+				"cluster":   clusterName,
+			},
+		},
+		Spec: corev1.ServiceSpec{
+			Type: corev1.ServiceTypeClusterIP,
+			Selector: map[string]string{
+				"app.kubernetes.io/name": "vmselect",
+			},
+			Ports: []corev1.ServicePort{
+				{
+					Name:       "prometheus-read",
+					Protocol:   corev1.ProtocolTCP,
+					Port:       servicePort,
+					TargetPort: intstr.FromInt(int(vmselectPort)),
+				},
+			},
+		},
+	}
+
+	_, err := s.currentK8sClient.CoreV1().Services(s.namespace).Create(ctx, service, metav1.CreateOptions{})
+	if err != nil {
+		if errors.IsAlreadyExists(err) {
+			_, err = s.currentK8sClient.CoreV1().Services(s.namespace).Update(ctx, service, metav1.UpdateOptions{})
+			if err != nil {
+				return "", 0, fmt.Errorf("failed to update vmselect read service: %w", err)
+			}
+		} else {
+			return "", 0, fmt.Errorf("failed to create vmselect read service: %w", err)
+		}
+	}
+
+	log.Infof("Created/updated vmselect read service %s for cluster %s", serviceName, clusterName)
+	return serviceName, servicePort, nil
+}
+
+// prometheusReadServiceHasVMSelectSelector returns true if the named Service exists and selects vmselect (so we must not overwrite it with NodePort proxy).
+func (s *ConfigSyncer) prometheusReadServiceHasVMSelectSelector(ctx context.Context, serviceName string) bool {
+	svc, err := s.currentK8sClient.CoreV1().Services(s.namespace).Get(ctx, serviceName, metav1.GetOptions{})
+	if err != nil || svc == nil {
+		return false
+	}
+	return svc.Spec.Selector != nil && svc.Spec.Selector["app.kubernetes.io/name"] == "vmselect"
 }
 
 // updateMultiStorageConfigSecret updates the multi-storage-config secret

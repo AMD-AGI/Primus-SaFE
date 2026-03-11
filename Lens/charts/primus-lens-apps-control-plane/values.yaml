@@ -37,6 +37,12 @@ infrastructure:
 # Control Plane Components
 # ============================================================================
 apps:
+  componentHealthExporter:
+    enabled: true
+    image: "primussafe/primus-lens-component-health-exporter:latest"
+    httpPort: 8995
+    resources: {}
+
   api:
     enabled: true
     image: "primussafe/primus-lens-api:202602031846"
