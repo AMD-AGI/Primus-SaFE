@@ -42,10 +42,18 @@ const onDateRangeChange = () => {
   }
 }
 
+const refresh = () => {
+  const current = dateRange.value
+  dateRange.value = [current ? current[0] : getDefaultRange()[0], new Date()]
+  emitChange()
+}
+
 onMounted(() => {
   dateRange.value = getDefaultRange()
   emitChange()
 })
+
+defineExpose({ refresh })
 </script>
 
 <style scoped>
