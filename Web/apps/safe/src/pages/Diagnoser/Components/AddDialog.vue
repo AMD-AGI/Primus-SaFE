@@ -224,11 +224,22 @@
         >
         </el-select>
       </el-form-item>
+
+      <el-form-item label="Workspace" v-if="props.action === 'Clone'">
+        <el-select v-model="targetWorkspaceId" class="w-[200px]" @change="onWorkspaceChange">
+          <el-option
+            v-for="ws in wsStore.items"
+            :key="ws.workspaceId"
+            :label="ws.workspaceName"
+            :value="ws.workspaceId"
+          />
+        </el-select>
+      </el-form-item>
     </el-form>
 
     <template #footer>
       <div class="dialog-footer">
-        <el-button @click="emit('update:visible', false)">Cancel</el-button>
+        <el-button @click="onCancel">Cancel</el-button>
         <el-button type="primary" @click="onSubmit(ruleFormRef)"> Confirm </el-button>
       </div>
     </template>
@@ -274,6 +285,15 @@ import { useSelectPaste } from '@/composables'
 
 const clusterStore = useClusterStore()
 const wsStore = useWorkspaceStore()
+
+const pendingWorkspaceId = ref<string>('')
+const targetWorkspaceId = computed<string>({
+  get: () => pendingWorkspaceId.value || wsStore.currentWorkspaceId || wsStore.firstWorkspace || '',
+  set: (val: string) => {
+    pendingWorkspaceId.value = val
+  },
+})
+const fetchWorkspaceOption = () => wsStore.fetchWorkspace(true)
 
 const TOLERATE_INFO = 'If enabled, opsjobs can be scheduled to nodes with taints'
 
@@ -520,6 +540,7 @@ const rules = reactive<FormRules>({
 async function onTypeChange() {
   // Clear current selection value
   form.inputsValue = undefined
+  ruleFormRef.value?.clearValidate('inputsValue')
 
   switch (form.inputsName) {
     case 'cluster':
@@ -527,7 +548,10 @@ async function onTypeChange() {
       await fetchAllNodes({ clusterId: clusterStore.currentClusterId }, 'both')
       break
     case 'workspace':
-      if (props.config.fixedWorkspace) {
+      if (props.action === 'Clone' && pendingWorkspaceId.value) {
+        form.inputsValue = pendingWorkspaceId.value
+        await fetchAllNodes({ workspaceId: pendingWorkspaceId.value }, 'both')
+      } else if (props.config.fixedWorkspace) {
         form.inputsValue = props.config.workspaceId
         await fetchAllNodes({ workspaceId: props.config.workspaceId }, 'both')
       }
@@ -614,6 +638,22 @@ const options = computed<Option[]>(() => {
   }
 })
 
+const onCancel = () => {
+  ruleFormRef.value?.clearValidate()
+  emit('update:visible', false)
+}
+
+const onWorkspaceChange = (newWsId: string) => {
+  if (form.inputsName === 'workspace') {
+    form.inputsValue = newWsId
+  } else if (form.inputsName === 'node' || form.inputsName === 'workload') {
+    form.inputsValue = form.inputsName === 'node' ? [] : undefined
+    form.excludedNodes = []
+  }
+  ruleFormRef.value?.clearValidate('inputsValue')
+  fetchAllNodes({ workspaceId: newWsId }, 'both')
+}
+
 const onSubmit = async (formEl: FormInstance | undefined) => {
   if (!formEl) return
   try {
@@ -655,23 +695,36 @@ const onSubmit = async (formEl: FormInstance | undefined) => {
       return arr.length ? arr : undefined
     })()
 
+    const resolveWorkspaceId = () => {
+      if (props.action === 'Clone' && pendingWorkspaceId.value) {
+        return pendingWorkspaceId.value
+      }
+      if (props.config.fixedWorkspace && props.config.workspaceId) {
+        return props.config.workspaceId
+      }
+      return undefined
+    }
+
+    const workspaceId = resolveWorkspaceId()
+
     const payload = {
       ...rest,
       ...(inputsArr.length ? { inputs: inputsArr } : {}),
       ...(resourcePayload ? { resource: resourcePayload } : {}),
       ...(excludedNodesPayload ? { excludedNodes: excludedNodesPayload } : {}),
       ...(rest.hostpath?.length ? { hostpath: rest.hostpath } : {}),
-      // In workspace mode, always pass workspaceId
-      ...(props.config.fixedWorkspace && props.config.workspaceId
-        ? { workspaceId: props.config.workspaceId }
-        : {}),
+      ...(workspaceId ? { workspaceId } : {}),
       env: convertListToKeyValueMap(envList),
       entryPoint: encodeToBase64String(entryPoint),
     }
 
-    // Create new
     await addOpsjobs(payload)
     ElMessage.success('Create successful')
+
+    if (props.action === 'Clone' && pendingWorkspaceId.value && pendingWorkspaceId.value !== wsStore.currentWorkspaceId) {
+      wsStore.setCurrentWorkspace(pendingWorkspaceId.value)
+      await wsStore.fetchWorkspace(true)
+    }
 
     emit('update:visible', false)
     emit('success')
@@ -734,11 +787,16 @@ const setInitialFormValues = async () => {
   }
 
   form.envList = convertKeyValueMapToList(res.env ?? [])
+
+  if (props.action === 'Clone') {
+    fetchWorkspaceOption()
+  }
 }
 
 const filterImageOptions = debounce((query: string) => fetchImage(query || undefined), 300)
 
 const onOpen = async () => {
+  pendingWorkspaceId.value = wsStore.currentWorkspaceId ?? wsStore.firstWorkspace ?? ''
   // Load all node data
   fetchAllNodes()
 
@@ -756,6 +814,16 @@ const onOpen = async () => {
   }
   await nextTick()
 }
+
+watch(
+  () => wsStore.currentWorkspaceId,
+  (cur) => {
+    if (!pendingWorkspaceId.value || pendingWorkspaceId.value === cur) {
+      pendingWorkspaceId.value = cur ?? ''
+    }
+  },
+  { immediate: true },
+)
 
 watch(
   () => wsStore.currentNodeFlavor,
