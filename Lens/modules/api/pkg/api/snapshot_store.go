@@ -46,7 +46,7 @@ func InitSnapshotStore(cfg *config.Config) {
 func init() {
 	unified.Register(&unified.EndpointDef[struct{}, struct{}]{
 		Name:           "workload_diag_code_snapshot_download",
-		Description:    "Download code snapshot source files as a tar.gz archive",
+		Description:    "Download workload code snapshot source files as a tar.gz archive",
 		Group:          "diagnostic",
 		HTTPMethod:     "GET",
 		HTTPPath:       "/workload-diag/:uid/code-snapshot-download",
