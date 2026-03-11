@@ -135,3 +135,4 @@ func (h *WorkloadEventHandler) ensurePipelineTask(ctx context.Context, workloadU
 		workloadUID)
 	return true
 }
+
