@@ -52,6 +52,8 @@ type NodeInfo struct {
 	NodeName string `json:"nodeName"`
 	// The workspace bound to the node
 	WorkspaceId string `json:"workspaceId"`
+	// The cluster bound to the node
+	ClusterId string `json:"clusterId"`
 	// The rdma count observed by the k8s node
 	ObserveRdmaCount int `json:"observeRdmaCount"`
 }
@@ -175,6 +177,7 @@ func (m *Monitor) generateNodeInfo() *NodeInfo {
 	info := &NodeInfo{
 		NodeName:         m.node.GetK8sNode().Name,
 		WorkspaceId:      v1.GetWorkspaceId(m.node.GetK8sNode()),
+		ClusterId:        v1.GetClusterId(m.node.GetK8sNode()),
 		ExpectedGpuCount: v1.GetNodeGpuCount(m.node.GetK8sNode()),
 	}
 	gpuQuantity := m.node.GetGpuQuantity()
