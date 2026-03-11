@@ -6,34 +6,36 @@ package pipeline
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/AMD-AGI/Primus-SaFE/Lens/ai-advisor/pkg/intent"
 )
 
 // WorkloadJSON is the unified evidence document sent to the Python intent-service.
 type WorkloadJSON struct {
-	WorkloadUID  string                 `json:"workload_uid"`
-	ClusterID    string                 `json:"cluster_id,omitempty"`
-	Namespace    string                 `json:"namespace,omitempty"`
-	WorkloadName string                 `json:"workload_name,omitempty"`
-	WorkloadKind string                 `json:"workload_kind,omitempty"`
-	GPUCount     int                    `json:"gpu_count,omitempty"`
-	NodeCount    int                    `json:"node_count,omitempty"`
-	Labels       map[string]string      `json:"labels,omitempty"`
-	Annotations  map[string]string      `json:"annotations,omitempty"`
-	Containers   []ContainerJSON        `json:"containers,omitempty"`
-	Processes    []ProcessJSON          `json:"processes,omitempty"`
+	WorkloadUID       string                 `json:"workload_uid"`
+	ClusterID         string                 `json:"cluster_id,omitempty"`
+	Namespace         string                 `json:"namespace,omitempty"`
+	WorkloadName      string                 `json:"workload_name,omitempty"`
+	WorkloadKind      string                 `json:"workload_kind,omitempty"`
+	GPUCount          int                    `json:"gpu_count,omitempty"`
+	NodeCount         int                    `json:"node_count,omitempty"`
+	Labels            map[string]string      `json:"labels,omitempty"`
+	Annotations       map[string]string      `json:"annotations,omitempty"`
+	Containers        []ContainerJSON        `json:"containers,omitempty"`
+	Processes         []ProcessJSON          `json:"processes,omitempty"`
+	CodeSnapshot      *CodeSnapshotJSON      `json:"code_snapshot,omitempty"`
 	FrameworkEvidence map[string]interface{} `json:"framework_evidence,omitempty"`
 }
 
 // ContainerJSON holds container info for WorkloadJSON.
 type ContainerJSON struct {
-	Name      string            `json:"name,omitempty"`
-	Image     string            `json:"image,omitempty"`
-	ImageInfo *ImageInfoJSON    `json:"image_info,omitempty"`
-	Command   []string          `json:"command,omitempty"`
-	Args      []string          `json:"args,omitempty"`
-	Env       map[string]string `json:"env,omitempty"`
+	Name      string                 `json:"name,omitempty"`
+	Image     string                 `json:"image,omitempty"`
+	ImageInfo *ImageInfoJSON         `json:"image_info,omitempty"`
+	Command   []string               `json:"command,omitempty"`
+	Args      []string               `json:"args,omitempty"`
+	Env       map[string]string      `json:"env,omitempty"`
 	Resources map[string]interface{} `json:"resources,omitempty"`
 }
 
@@ -56,11 +58,11 @@ type ImageInfoJSON struct {
 
 // LayerHistoryJSON is a single layer history entry.
 type LayerHistoryJSON struct {
-	Command    string   `json:"command,omitempty"`
-	SizeBytes  int64    `json:"size_bytes,omitempty"`
-	Packages   []string `json:"packages,omitempty"`
-	PipPackages []string `json:"pip_packages,omitempty"`
-	EnvVars    map[string]string `json:"env_vars,omitempty"`
+	Command     string            `json:"command,omitempty"`
+	SizeBytes   int64             `json:"size_bytes,omitempty"`
+	Packages    []string          `json:"packages,omitempty"`
+	PipPackages []string          `json:"pip_packages,omitempty"`
+	EnvVars     map[string]string `json:"env_vars,omitempty"`
 }
 
 // ProcessJSON holds process info for WorkloadJSON.
@@ -68,6 +70,24 @@ type ProcessJSON struct {
 	PID     int    `json:"pid,omitempty"`
 	Cmdline string `json:"cmdline,omitempty"`
 	Cwd     string `json:"cwd,omitempty"`
+}
+
+// CodeSnapshotJSON holds code snapshot data for WorkloadJSON.
+type CodeSnapshotJSON struct {
+	Fingerprint  string            `json:"fingerprint,omitempty"`
+	EntryScript  *FileContentJSON  `json:"entry_script,omitempty"`
+	ConfigFiles  []FileContentJSON `json:"config_files,omitempty"`
+	LocalModules []FileContentJSON `json:"local_modules,omitempty"`
+	PipFreeze    string            `json:"pip_freeze,omitempty"`
+	ImportGraph  map[string][]string `json:"import_graph,omitempty"`
+}
+
+// FileContentJSON is a single collected file.
+type FileContentJSON struct {
+	Path    string `json:"path,omitempty"`
+	Content string `json:"content,omitempty"`
+	Hash    string `json:"hash,omitempty"`
+	Size    int    `json:"size,omitempty"`
 }
 
 // BuildWorkloadJSON constructs a WorkloadJSON from IntentEvidence.
@@ -100,28 +120,7 @@ func BuildWorkloadJSON(
 	}
 
 	if evidence.ImageRegistry != nil {
-		reg := evidence.ImageRegistry
-		imgInfo := &ImageInfoJSON{
-			FullRef:        evidence.Image,
-			Digest:         reg.Digest,
-			BaseImage:      reg.BaseImage,
-			FrameworkHints: reg.FrameworkHints,
-			ImageEnv:       make(map[string]string),
-			ImageLabels:    make(map[string]string),
-		}
-
-		for _, layer := range reg.LayerHistory {
-			imgInfo.LayerHistory = append(imgInfo.LayerHistory, LayerHistoryJSON{
-				Command: layer.CreatedBy,
-			})
-		}
-
-		for _, pkg := range reg.InstalledPackages {
-			imgInfo.InstalledPackages = append(imgInfo.InstalledPackages,
-				pkg.Name+"=="+pkg.Version)
-		}
-
-		container.ImageInfo = imgInfo
+		container.ImageInfo = buildImageInfo(evidence.Image, evidence.ImageRegistry)
 	}
 
 	wj.Containers = []ContainerJSON{container}
@@ -130,7 +129,102 @@ func BuildWorkloadJSON(
 		wj.Processes = []ProcessJSON{{Cmdline: evidence.Command}}
 	}
 
+	if evidence.CodeSnapshot != nil {
+		wj.CodeSnapshot = buildCodeSnapshot(evidence.CodeSnapshot)
+	}
+
 	return wj, nil
+}
+
+func buildImageInfo(imageRef string, reg *intent.ImageRegistryEvidence) *ImageInfoJSON {
+	registry, repository, tag := splitImageRef(imageRef)
+
+	imgInfo := &ImageInfoJSON{
+		FullRef:        imageRef,
+		Registry:       registry,
+		Repository:     repository,
+		Tag:            tag,
+		Digest:         reg.Digest,
+		BaseImage:      reg.BaseImage,
+		FrameworkHints: reg.FrameworkHints,
+		LayerCount:     len(reg.LayerHistory),
+	}
+
+	for _, layer := range reg.LayerHistory {
+		lh := LayerHistoryJSON{
+			Command:   layer.CreatedBy,
+			SizeBytes: layer.Size,
+		}
+		imgInfo.LayerHistory = append(imgInfo.LayerHistory, lh)
+	}
+
+	for _, pkg := range reg.InstalledPackages {
+		entry := pkg.Name
+		if pkg.Version != "" {
+			entry += "==" + pkg.Version
+		}
+		imgInfo.InstalledPackages = append(imgInfo.InstalledPackages, entry)
+	}
+
+	return imgInfo
+}
+
+func buildCodeSnapshot(snap *intent.CodeSnapshotEvidence) *CodeSnapshotJSON {
+	cs := &CodeSnapshotJSON{
+		Fingerprint: snap.Fingerprint,
+		PipFreeze:   snap.PipFreeze,
+		ImportGraph: snap.ImportGraph,
+	}
+
+	if snap.EntryScript != nil {
+		cs.EntryScript = &FileContentJSON{
+			Path:    snap.EntryScript.Path,
+			Content: snap.EntryScript.Content,
+			Hash:    snap.EntryScript.Hash,
+			Size:    snap.EntryScript.Size,
+		}
+	}
+
+	for _, cf := range snap.ConfigFiles {
+		cs.ConfigFiles = append(cs.ConfigFiles, FileContentJSON{
+			Path:    cf.Path,
+			Content: cf.Content,
+			Hash:    cf.Hash,
+			Size:    cf.Size,
+		})
+	}
+
+	for _, lm := range snap.LocalModules {
+		cs.LocalModules = append(cs.LocalModules, FileContentJSON{
+			Path:    lm.Path,
+			Content: lm.Content,
+			Hash:    lm.Hash,
+			Size:    lm.Size,
+		})
+	}
+
+	return cs
+}
+
+// splitImageRef splits "registry.example.com/repo/name:tag" into components.
+func splitImageRef(imageRef string) (registry, repository, tag string) {
+	tag = "latest"
+	ref := imageRef
+	if idx := strings.LastIndex(ref, ":"); idx > 0 {
+		afterColon := ref[idx+1:]
+		if !strings.Contains(afterColon, "/") {
+			tag = afterColon
+			ref = ref[:idx]
+		}
+	}
+	parts := strings.SplitN(ref, "/", 2)
+	if len(parts) == 2 && (strings.Contains(parts[0], ".") || strings.Contains(parts[0], ":")) {
+		registry = parts[0]
+		repository = parts[1]
+	} else {
+		repository = ref
+	}
+	return
 }
 
 // MarshalWorkloadJSON serializes a WorkloadJSON to JSON bytes.
