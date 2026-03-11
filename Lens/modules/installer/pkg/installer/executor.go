@@ -11,12 +11,21 @@ import (
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
 )
 
+// StageReporter is an optional hook for the caller to persist stage progress (e.g. update task.CurrentStage in DB).
+// OnStageStart is called when a stage is about to execute (after prerequisites and ShouldRun pass).
+// OnStageEnd is called when a stage fails so the caller can persist the error (e.g. UpdateStageWithError).
+type StageReporter interface {
+	OnStageStart(ctx context.Context, stageName string)
+	OnStageEnd(ctx context.Context, stageName string, result StageResult)
+}
+
 // Executor manages the execution of installation stages with proper lifecycle.
 // It handles prerequisite checking, idempotency, and wait logic.
 type Executor struct {
 	client     *ClusterClient
 	helmClient *HelmClient
 	config     *InstallConfig
+	reporter   StageReporter
 }
 
 // NewExecutor creates a new Executor
@@ -31,6 +40,11 @@ func NewExecutor(kubeconfig []byte, config *InstallConfig) (*Executor, error) {
 		helmClient: NewHelmClient(),
 		config:     config,
 	}, nil
+}
+
+// SetReporter sets the optional StageReporter for DB progress updates
+func (e *Executor) SetReporter(r StageReporter) {
+	e.reporter = r
 }
 
 // ExecuteStages executes a sequence of stages with proper lifecycle management.
@@ -65,6 +79,9 @@ func (e *Executor) executeStage(ctx context.Context, stage StageV2) StageResult 
 		result.Error = fmt.Errorf("prerequisites check failed: %w", err)
 		result.Duration = time.Since(startTime)
 		log.Errorf("[%s] Prerequisites check error: %v", stage.Name(), err)
+		if e.reporter != nil {
+			e.reporter.OnStageEnd(ctx, stage.Name(), result)
+		}
 		return result
 	}
 	if len(missing) > 0 {
@@ -72,6 +89,9 @@ func (e *Executor) executeStage(ctx context.Context, stage StageV2) StageResult 
 		result.Error = fmt.Errorf("missing prerequisites: %v", missing)
 		result.Duration = time.Since(startTime)
 		log.Errorf("[%s] Missing prerequisites: %v", stage.Name(), missing)
+		if e.reporter != nil {
+			e.reporter.OnStageEnd(ctx, stage.Name(), result)
+		}
 		return result
 	}
 	log.Infof("[%s] Prerequisites check passed", stage.Name())
@@ -84,6 +104,9 @@ func (e *Executor) executeStage(ctx context.Context, stage StageV2) StageResult 
 		result.Error = fmt.Errorf("should run check failed: %w", err)
 		result.Duration = time.Since(startTime)
 		log.Errorf("[%s] ShouldRun check error: %v", stage.Name(), err)
+		if e.reporter != nil {
+			e.reporter.OnStageEnd(ctx, stage.Name(), result)
+		}
 		return result
 	}
 	if !shouldRun {
@@ -95,6 +118,10 @@ func (e *Executor) executeStage(ctx context.Context, stage StageV2) StageResult 
 	}
 	log.Infof("[%s] Will execute: %s", stage.Name(), reason)
 
+	if e.reporter != nil {
+		e.reporter.OnStageStart(ctx, stage.Name())
+	}
+
 	// 3. Execute
 	log.Infof("[%s] Executing...", stage.Name())
 	if err := stage.Execute(ctx, e.client, e.config); err != nil {
@@ -102,7 +129,9 @@ func (e *Executor) executeStage(ctx context.Context, stage StageV2) StageResult 
 		result.Error = fmt.Errorf("execution failed: %w", err)
 		result.Duration = time.Since(startTime)
 		log.Errorf("[%s] Execution failed: %v", stage.Name(), err)
-
+		if e.reporter != nil {
+			e.reporter.OnStageEnd(ctx, stage.Name(), result)
+		}
 		// Attempt rollback for non-required stages
 		if !stage.IsRequired() {
 			log.Infof("[%s] Attempting rollback...", stage.Name())
@@ -110,7 +139,6 @@ func (e *Executor) executeStage(ctx context.Context, stage StageV2) StageResult 
 				log.Warnf("[%s] Rollback failed: %v", stage.Name(), rbErr)
 			}
 		}
-
 		return result
 	}
 	log.Infof("[%s] Execution completed", stage.Name())
@@ -123,7 +151,9 @@ func (e *Executor) executeStage(ctx context.Context, stage StageV2) StageResult 
 		result.Error = fmt.Errorf("wait for ready failed: %w", err)
 		result.Duration = time.Since(startTime)
 		log.Errorf("[%s] Wait for ready failed: %v", stage.Name(), err)
-
+		if e.reporter != nil {
+			e.reporter.OnStageEnd(ctx, stage.Name(), result)
+		}
 		// Attempt rollback for non-required stages
 		if !stage.IsRequired() {
 			log.Infof("[%s] Attempting rollback...", stage.Name())
@@ -131,7 +161,6 @@ func (e *Executor) executeStage(ctx context.Context, stage StageV2) StageResult 
 				log.Warnf("[%s] Rollback failed: %v", stage.Name(), rbErr)
 			}
 		}
-
 		return result
 	}
 

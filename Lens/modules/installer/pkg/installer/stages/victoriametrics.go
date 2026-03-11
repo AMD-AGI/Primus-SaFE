@@ -57,6 +57,9 @@ func (s *VictoriaMetricsStage) CheckPrerequisites(ctx context.Context, client *i
 }
 
 func (s *VictoriaMetricsStage) ShouldRun(ctx context.Context, client *installer.ClusterClient, config *installer.InstallConfig) (bool, string, error) {
+	if config.StorageMode == installer.StorageModeExternal {
+		return false, "External storage mode, skipping in-cluster VictoriaMetrics", nil
+	}
 	// Check if VM is enabled
 	if config.ManagedStorage != nil && !config.ManagedStorage.VictoriametricsEnabled {
 		return false, "VictoriaMetrics disabled in config", nil

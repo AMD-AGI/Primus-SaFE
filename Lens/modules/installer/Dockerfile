@@ -1,6 +1,9 @@
 # Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
 # See LICENSE for license information.
-
+#
+# Build context MUST be the repository root (e.g. docker build -f Lens/modules/installer/Dockerfile .)
+# so that COPY Lens/... paths and migrations/charts are available.
+#
 # Installer image - bundles Helm charts and runs dataplane installation
 # Rebuild trigger: 202601301940
 # Build stage
