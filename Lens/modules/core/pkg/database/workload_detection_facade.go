@@ -569,7 +569,6 @@ func (f *WorkloadDetectionFacade) ListStaleUndetectedWorkloads(ctx context.Conte
 		Select("DISTINCT workload_task_state.workload_uid").
 		Joins("LEFT JOIN workload_detection ON workload_detection.workload_uid = workload_task_state.workload_uid").
 		Where("workload_task_state.task_type = 'detection_coordinator'").
-		Where("workload_task_state.status IN ('pending', 'running')").
 		Where("workload_task_state.created_at < NOW() - INTERVAL '5 minutes'").
 		Where("workload_detection.workload_uid IS NULL").
 		Limit(limit).
