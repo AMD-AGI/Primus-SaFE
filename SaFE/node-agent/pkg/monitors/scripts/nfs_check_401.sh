@@ -25,7 +25,7 @@ if [ $? -eq 0 ]; then
   exit 0
 fi
 
-nsenter --target 1 --mount --uts --ipc --net --pid -- mkdir -p "$MOUNT_POINT"
+nsenter --target 1 --mount --uts --ipc --net --pid -- /usr/bin/mkdir -p "$MOUNT_POINT"
 if [ $? -ne 0 ]; then
   echo "Failed to create directory: $MOUNT_POINT"
   exit 1
