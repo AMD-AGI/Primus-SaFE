@@ -84,11 +84,12 @@ func (h *WorkloadEventHandler) bootstrapUndetectedWorkload(ctx context.Context, 
 		return false
 	}
 
+	pending := "pending"
 	det := &model.WorkloadDetection{
 		WorkloadUID:    workloadUID,
 		Status:         "unknown",
 		DetectionState: "completed",
-		IntentState:    ptrStr("pending"),
+		IntentState:    &pending,
 	}
 
 	if err := h.detectionFacade.CreateDetection(ctx, det); err != nil {
@@ -102,8 +103,6 @@ func (h *WorkloadEventHandler) bootstrapUndetectedWorkload(ctx context.Context, 
 	}
 	return false
 }
-
-func ptrStr(s string) *string { return &s }
 
 // ensurePipelineTask creates an analysis_pipeline task if one doesn't
 // already exist in a running/pending state. Sets initial pipeline_state
