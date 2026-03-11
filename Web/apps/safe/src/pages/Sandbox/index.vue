@@ -44,41 +44,59 @@
       v-loading="templateLoading"
       :element-loading-text="$loadingText"
     >
-      <el-table-column label="Name" prop="metadata.name" min-width="180" show-overflow-tooltip fixed="left" />
+      <el-table-column label="Name" min-width="180" show-overflow-tooltip fixed="left">
+        <template #default="{ row }">
+          <el-link type="primary" :underline="false" @click="showTemplateDetail(row)">
+            {{ row.metadata?.name }}
+          </el-link>
+        </template>
+      </el-table-column>
       <el-table-column label="Namespace" prop="metadata.namespace" min-width="120" />
-      <el-table-column label="Image" min-width="220" show-overflow-tooltip>
+      <el-table-column label="Status" width="100" header-align="center">
         <template #default="{ row }">
-          {{ row.spec?.template?.fromImage || '-' }}
+          <div class="text-center">
+            <el-tag :type="row.status?.ready ? 'success' : 'danger'" size="small" effect="light">
+              {{ row.status?.ready ? 'Ready' : 'NotReady' }}
+            </el-tag>
+          </div>
         </template>
       </el-table-column>
-      <el-table-column label="Resources" min-width="180">
+      <el-table-column label="Image" min-width="240" show-overflow-tooltip>
         <template #default="{ row }">
-          <span v-if="row.spec?.template?.resources?.limits">
-            CPU: {{ row.spec.template.resources.limits.cpu || '-' }},
-            Mem: {{ row.spec.template.resources.limits.memory || '-' }}
-          </span>
-          <span v-else>-</span>
+          <el-text class="font-mono text-xs" type="info">
+            {{ row.spec?.template?.fromImage || '-' }}
+          </el-text>
         </template>
       </el-table-column>
-      <el-table-column label="GPU" min-width="140">
+      <el-table-column label="Resources" min-width="200">
         <template #default="{ row }">
-          <span v-if="row.spec?.gpu">
-            {{ row.spec.gpu.product }} x{{ row.spec.gpu.count }}
-          </span>
-          <span v-else>-</span>
-        </template>
-      </el-table-column>
-      <el-table-column label="Warm Pool" prop="spec.warmPoolSize" width="110" />
-      <el-table-column label="Session Timeout" min-width="130">
-        <template #default="{ row }">
-          {{ row.spec?.sessionTimeout || '-' }}
-        </template>
-      </el-table-column>
-      <el-table-column label="Ready" width="90">
-        <template #default="{ row }">
-          <el-tag :type="row.status?.ready ? 'success' : 'danger'" size="small">
-            {{ row.status?.ready ? 'Yes' : 'No' }}
-          </el-tag>
+          <div class="flex flex-wrap gap-1">
+            <el-tag
+              v-if="row.spec?.gpu?.product"
+              size="small"
+              type="warning"
+              effect="light"
+            >
+              GPU: {{ row.spec.gpu.product }} × {{ row.spec.gpu.count }}
+            </el-tag>
+            <el-tag
+              v-if="row.spec?.warmPoolSize"
+              size="small"
+              type="info"
+              effect="light"
+            >
+              Pool: {{ row.spec.warmPoolSize }}
+            </el-tag>
+            <el-tag
+              v-if="row.spec?.sessionTimeout"
+              size="small"
+              type="info"
+              effect="plain"
+            >
+              Timeout: {{ row.spec.sessionTimeout }}
+            </el-tag>
+            <span v-if="!row.spec?.gpu?.product && !row.spec?.warmPoolSize && !row.spec?.sessionTimeout">-</span>
+          </div>
         </template>
       </el-table-column>
       <el-table-column label="Creator" min-width="140" show-overflow-tooltip>
@@ -114,13 +132,13 @@
       v-loading="sessionLoading"
       :element-loading-text="$loadingText"
     >
-      <el-table-column
-        label="Session ID"
-        prop="sessionId"
-        min-width="280"
-        show-overflow-tooltip
-        fixed="left"
-      />
+      <el-table-column label="Session ID" min-width="280" show-overflow-tooltip fixed="left">
+        <template #default="{ row }">
+          <el-link type="primary" :underline="false" @click="showSessionDetail(row)">
+            {{ row.sessionId }}
+          </el-link>
+        </template>
+      </el-table-column>
       <el-table-column label="Sandbox Name" prop="sandboxName" min-width="220" show-overflow-tooltip />
       <el-table-column label="Namespace" prop="namespace" min-width="120" />
       <el-table-column label="Status" width="110">
@@ -140,16 +158,6 @@
           {{ formatTimeStr(row.createdAt) }}
         </template>
       </el-table-column>
-      <el-table-column label="Last Activity" min-width="170">
-        <template #default="{ row }">
-          {{ formatTimeStr(row.lastActivity) }}
-        </template>
-      </el-table-column>
-      <el-table-column label="Expires" min-width="170">
-        <template #default="{ row }">
-          {{ formatTimeStr(row.expiresAt) }}
-        </template>
-      </el-table-column>
     </el-table>
 
     <el-pagination
@@ -163,20 +171,127 @@
       @current-change="fetchSessions"
     />
   </el-card>
+
+  <!-- Template Detail Dialog -->
+  <el-dialog
+    v-model="templateDetailVisible"
+    :title="'Template: ' + (currentTemplate?.metadata?.name || '')"
+    width="720px"
+    destroy-on-close
+  >
+    <el-descriptions :column="2" border>
+      <el-descriptions-item label="Name">{{ currentTemplate?.metadata?.name }}</el-descriptions-item>
+      <el-descriptions-item label="Namespace">{{ currentTemplate?.metadata?.namespace }}</el-descriptions-item>
+      <el-descriptions-item label="Status">
+        <el-tag
+          :type="currentTemplate?.status?.ready ? 'success' : 'danger'"
+          size="small"
+          effect="light"
+        >
+          {{ currentTemplate?.status?.ready ? 'Ready' : 'NotReady' }}
+        </el-tag>
+      </el-descriptions-item>
+      <el-descriptions-item label="Auth Mode">{{ currentTemplate?.spec?.authMode || '-' }}</el-descriptions-item>
+      <el-descriptions-item label="Image" :span="2">
+        <el-text class="font-mono text-xs">{{ currentTemplate?.spec?.template?.fromImage || '-' }}</el-text>
+      </el-descriptions-item>
+      <el-descriptions-item label="GPU" v-if="currentTemplate?.spec?.gpu?.product">
+        {{ currentTemplate.spec.gpu.product }} × {{ currentTemplate.spec.gpu.count }}
+      </el-descriptions-item>
+      <el-descriptions-item label="Warm Pool Size">{{ currentTemplate?.spec?.warmPoolSize ?? '-' }}</el-descriptions-item>
+      <el-descriptions-item label="Session Timeout">{{ currentTemplate?.spec?.sessionTimeout || '-' }}</el-descriptions-item>
+      <el-descriptions-item label="Max Duration">{{ currentTemplate?.spec?.maxSessionDuration || '-' }}</el-descriptions-item>
+      <el-descriptions-item label="Creator" :span="2">
+        {{ currentTemplate?.metadata?.annotations?.['runtime.agent-sandbox.io/user.name'] || '-' }}
+      </el-descriptions-item>
+      <el-descriptions-item label="Created" :span="2">
+        {{ formatTimeStr(currentTemplate?.metadata?.creationTimestamp) }}
+      </el-descriptions-item>
+    </el-descriptions>
+
+    <el-divider content-position="left">JSON</el-divider>
+    <el-input
+      type="textarea"
+      :model-value="templateDetailJson"
+      readonly
+      :autosize="{ minRows: 6, maxRows: 20 }"
+      class="font-mono"
+    />
+    <template #footer>
+      <el-button @click="copyJson(templateDetailJson)">Copy JSON</el-button>
+      <el-button @click="templateDetailVisible = false">Close</el-button>
+    </template>
+  </el-dialog>
+
+  <!-- Session Detail Dialog -->
+  <el-dialog
+    v-model="sessionDetailVisible"
+    :title="'Session: ' + (currentSession?.sessionId || '')"
+    width="720px"
+    destroy-on-close
+  >
+    <el-descriptions :column="2" border>
+      <el-descriptions-item label="Session ID" :span="2">
+        <el-text class="font-mono text-xs">{{ currentSession?.sessionId }}</el-text>
+      </el-descriptions-item>
+      <el-descriptions-item label="Sandbox Name">{{ currentSession?.sandboxName }}</el-descriptions-item>
+      <el-descriptions-item label="Namespace">{{ currentSession?.namespace }}</el-descriptions-item>
+      <el-descriptions-item label="Status">
+        <el-tag
+          :type="currentSession?.status === 'running' ? 'success' : 'info'"
+          size="small"
+        >
+          {{ currentSession?.status || 'Unknown' }}
+        </el-tag>
+      </el-descriptions-item>
+      <el-descriptions-item label="Pod IP">{{ currentSession?.podIp || '-' }}</el-descriptions-item>
+      <el-descriptions-item label="User">{{ currentSession?.userName || '-' }}</el-descriptions-item>
+      <el-descriptions-item label="User ID">{{ currentSession?.userId || '-' }}</el-descriptions-item>
+      <el-descriptions-item label="Created">{{ formatTimeStr(currentSession?.createdAt) }}</el-descriptions-item>
+      <el-descriptions-item label="Last Activity">{{ formatTimeStr(currentSession?.lastActivity) }}</el-descriptions-item>
+      <el-descriptions-item label="Expires At" :span="2">{{ formatTimeStr(currentSession?.expiresAt) }}</el-descriptions-item>
+      <el-descriptions-item v-if="currentSession?.entryPoints" label="Entry Points" :span="2">
+        <div class="flex flex-wrap gap-1">
+          <el-tag
+            v-for="(url, key) in currentSession.entryPoints"
+            :key="key"
+            size="small"
+            effect="plain"
+          >
+            {{ key }}
+          </el-tag>
+        </div>
+      </el-descriptions-item>
+    </el-descriptions>
+
+    <el-divider content-position="left">JSON</el-divider>
+    <el-input
+      type="textarea"
+      :model-value="sessionDetailJson"
+      readonly
+      :autosize="{ minRows: 6, maxRows: 20 }"
+      class="font-mono"
+    />
+    <template #footer>
+      <el-button @click="copyJson(sessionDetailJson)">Copy JSON</el-button>
+      <el-button @click="sessionDetailVisible = false">Close</el-button>
+    </template>
+  </el-dialog>
 </template>
 
 <script lang="ts" setup>
-import { ref, reactive, onMounted, watch } from 'vue'
+import { ref, reactive, computed, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { Search } from '@element-plus/icons-vue'
-import { useDebounceFn } from '@vueuse/core'
+import { useDebounceFn, useClipboard } from '@vueuse/core'
 import { getSandboxTemplates, getSandboxSessions } from '@/services/sandbox'
 import { formatTimeStr } from '@/utils'
 import type { SandboxTemplate, SandboxSession } from '@/services/sandbox/type'
 
 const route = useRoute()
 const router = useRouter()
+const { copy } = useClipboard()
 
 const activeTab = ref((route.query.tab as string) || 'templates')
 
@@ -229,6 +344,18 @@ const handleTemplateSearchDebounced = useDebounceFn(() => {
   fetchTemplates()
 }, 500)
 
+// ========== Template Detail ==========
+const templateDetailVisible = ref(false)
+const currentTemplate = ref<SandboxTemplate | null>(null)
+const templateDetailJson = computed(() =>
+  currentTemplate.value ? JSON.stringify(currentTemplate.value, null, 2) : '',
+)
+
+const showTemplateDetail = (row: SandboxTemplate) => {
+  currentTemplate.value = row
+  templateDetailVisible.value = true
+}
+
 // ========== Sandboxes ==========
 const sessionLoading = ref(false)
 const sessionSearch = ref('')
@@ -265,6 +392,28 @@ const handleSessionSearchDebounced = useDebounceFn(() => {
   sessionState.page = 1
   fetchSessions()
 }, 500)
+
+// ========== Session Detail ==========
+const sessionDetailVisible = ref(false)
+const currentSession = ref<SandboxSession | null>(null)
+const sessionDetailJson = computed(() =>
+  currentSession.value ? JSON.stringify(currentSession.value, null, 2) : '',
+)
+
+const showSessionDetail = (row: SandboxSession) => {
+  currentSession.value = row
+  sessionDetailVisible.value = true
+}
+
+// ========== Shared ==========
+const copyJson = async (json: string) => {
+  try {
+    await copy(json)
+    ElMessage.success('Copied to clipboard')
+  } catch {
+    ElMessage.error('Failed to copy')
+  }
+}
 
 onMounted(() => {
   fetchTemplates()
