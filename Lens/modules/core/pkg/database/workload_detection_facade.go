@@ -532,9 +532,8 @@ func (f *WorkloadDetectionFacade) ListByCategory(ctx context.Context, category s
 
 // ListNeedingIntentAnalysis finds workloads that have not yet been dispatched
 // to the intent-service (intent_workload_json is NULL). This includes:
-//   - Confirmed/verified workloads with a known framework (normal path)
-//   - Any workload with detection_state=completed whose detection coordinator
-//     finished but failed to identify a framework (needs LLM exploration)
+//   - Confirmed/verified workloads with a known framework (any pod state)
+//   - Bootstrapped unknown workloads only if they have a running pod
 func (f *WorkloadDetectionFacade) ListNeedingIntentAnalysis(ctx context.Context, limit int) ([]*model.WorkloadDetection, error) {
 	db := f.getDB()
 	var results []*model.WorkloadDetection
@@ -546,7 +545,8 @@ func (f *WorkloadDetectionFacade) ListNeedingIntentAnalysis(ctx context.Context,
 		Where(`(
 			(status IN ('confirmed', 'verified') AND framework IS NOT NULL AND framework != '')
 			OR
-			(detection_state = 'completed')
+			(status = 'unknown' AND detection_state = 'completed'
+			 AND EXISTS (SELECT 1 FROM gpu_pods WHERE gpu_pods.owner_uid = workload_detection.workload_uid AND gpu_pods.running = true AND gpu_pods.deleted = false))
 		)`).
 		Order("created_at ASC").
 		Limit(limit).
@@ -555,11 +555,10 @@ func (f *WorkloadDetectionFacade) ListNeedingIntentAnalysis(ctx context.Context,
 	return results, err
 }
 
-// ListStaleUndetectedWorkloads finds workloads in gpu_workload that have a
-// detection_coordinator task stuck in waiting state for longer than the given
-// duration, but no workload_detection record yet. These are workloads where
-// the probes ran but couldn't identify a framework, and the coordinator is
-// just retrying endlessly.
+// ListStaleUndetectedWorkloads finds workloads that have a detection_coordinator
+// task older than 5 minutes, no workload_detection record, AND at least one
+// running pod. This ensures we only bootstrap workloads that are still alive
+// and can be explored by the LLM agent.
 func (f *WorkloadDetectionFacade) ListStaleUndetectedWorkloads(ctx context.Context, limit int) ([]string, error) {
 	db := f.getDB()
 	var uids []string
@@ -568,6 +567,7 @@ func (f *WorkloadDetectionFacade) ListStaleUndetectedWorkloads(ctx context.Conte
 		Table("workload_task_state").
 		Select("DISTINCT workload_task_state.workload_uid").
 		Joins("LEFT JOIN workload_detection ON workload_detection.workload_uid = workload_task_state.workload_uid").
+		Joins("INNER JOIN gpu_pods ON gpu_pods.owner_uid = workload_task_state.workload_uid AND gpu_pods.running = true AND gpu_pods.deleted = false").
 		Where("workload_task_state.task_type = 'detection_coordinator'").
 		Where("workload_task_state.created_at < NOW() - INTERVAL '5 minutes'").
 		Where("workload_detection.workload_uid IS NULL").
