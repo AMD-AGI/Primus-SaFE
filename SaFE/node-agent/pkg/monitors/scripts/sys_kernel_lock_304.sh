@@ -30,21 +30,21 @@ nsenter --target 1 --mount --uts --ipc --net --pid -- /usr/bin/journalctl --sinc
 ret=$?
 if [ $ret -ne 0 ]; then
   echo "Error: failed to exec journalctl, since=$since, ret=$ret"
-  rm -f $tmpfile
+  /usr/bin/rm -f $tmpfile
   exit 2
 fi
 
 msg=`grep -i "bug: soft lockup" $tmpfile`
 if [ $? -eq 0 ]; then
   echo "$msg"
-  rm -f $tmpfile
+  /usr/bin/rm -f $tmpfile
   exit 1
 fi
 
 msg=`grep -i "bug: hard lockup" $tmpfile`
 if [ $? -eq 0 ]; then
   echo "$msg"
-  rm -f $tmpfile
+  /usr/bin/rm -f $tmpfile
   exit 1
 fi
-rm -f $tmpfile
+/usr/bin/rm -f $tmpfile
