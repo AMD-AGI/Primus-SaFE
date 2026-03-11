@@ -87,8 +87,8 @@ type WorkloadDetectionFacadeInterface interface {
 	// ListNeedingIntentAnalysis finds workloads that need intent dispatch (confirmed + undetected)
 	ListNeedingIntentAnalysis(ctx context.Context, limit int) ([]*model.WorkloadDetection, error)
 
-	// ListStaleUndetectedWorkloads finds workloads stuck in detection with no result
-	ListStaleUndetectedWorkloads(ctx context.Context, staleDuration string, limit int) ([]string, error)
+	// ListStaleUndetectedWorkloads finds workloads stuck in detection >5min with no result
+	ListStaleUndetectedWorkloads(ctx context.Context, limit int) ([]string, error)
 
 	// WithCluster returns a new facade instance for the specified cluster
 	WithCluster(clusterName string) WorkloadDetectionFacadeInterface
@@ -560,7 +560,7 @@ func (f *WorkloadDetectionFacade) ListNeedingIntentAnalysis(ctx context.Context,
 // duration, but no workload_detection record yet. These are workloads where
 // the probes ran but couldn't identify a framework, and the coordinator is
 // just retrying endlessly.
-func (f *WorkloadDetectionFacade) ListStaleUndetectedWorkloads(ctx context.Context, staleDuration string, limit int) ([]string, error) {
+func (f *WorkloadDetectionFacade) ListStaleUndetectedWorkloads(ctx context.Context, limit int) ([]string, error) {
 	db := f.getDB()
 	var uids []string
 
@@ -570,7 +570,7 @@ func (f *WorkloadDetectionFacade) ListStaleUndetectedWorkloads(ctx context.Conte
 		Joins("LEFT JOIN workload_detection ON workload_detection.workload_uid = workload_task_state.workload_uid").
 		Where("workload_task_state.task_type = 'detection_coordinator'").
 		Where("workload_task_state.status IN ('pending', 'running')").
-		Where("workload_task_state.created_at < NOW() - INTERVAL ?", staleDuration).
+		Where("workload_task_state.created_at < NOW() - INTERVAL '5 minutes'").
 		Where("workload_detection.workload_uid IS NULL").
 		Limit(limit).
 		Pluck("workload_task_state.workload_uid", &uids).Error

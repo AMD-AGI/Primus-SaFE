@@ -58,7 +58,7 @@ func (h *WorkloadEventHandler) ScanAndTrigger(ctx context.Context) {
 	// Case 2: workloads stuck in detection coordinator for >5 minutes
 	// with no workload_detection record. Bootstrap a detection record
 	// so they can enter the intent analysis pipeline.
-	staleUIDs, err := h.detectionFacade.ListStaleUndetectedWorkloads(ctx, "5 minutes", 20)
+	staleUIDs, err := h.detectionFacade.ListStaleUndetectedWorkloads(ctx, 20)
 	if err != nil {
 		log.Warnf("WorkloadEventHandler: ListStaleUndetectedWorkloads failed: %v", err)
 		return
