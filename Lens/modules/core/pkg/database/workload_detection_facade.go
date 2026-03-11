@@ -581,3 +581,4 @@ func (f *WorkloadDetectionFacade) ListStaleUndetectedWorkloads(ctx context.Conte
 
 	return uids, err
 }
+// build trigger
