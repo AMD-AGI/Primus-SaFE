@@ -84,8 +84,11 @@ type WorkloadDetectionFacadeInterface interface {
 	// ListByCategory lists detections by intent category
 	ListByCategory(ctx context.Context, category string, limit int, offset int) ([]*model.WorkloadDetection, int64, error)
 
-	// ListNeedingIntentAnalysis finds confirmed workloads that need intent dispatch
+	// ListNeedingIntentAnalysis finds workloads that need intent dispatch (confirmed + undetected)
 	ListNeedingIntentAnalysis(ctx context.Context, limit int) ([]*model.WorkloadDetection, error)
+
+	// ListStaleUndetectedWorkloads finds workloads stuck in detection with no result
+	ListStaleUndetectedWorkloads(ctx context.Context, staleDuration string, limit int) ([]string, error)
 
 	// WithCluster returns a new facade instance for the specified cluster
 	WithCluster(clusterName string) WorkloadDetectionFacadeInterface
@@ -527,22 +530,50 @@ func (f *WorkloadDetectionFacade) ListByCategory(ctx context.Context, category s
 }
 
 
-// ListNeedingIntentAnalysis finds workloads with confirmed/verified detection
-// and known framework that have not yet been dispatched to the intent-service
-// (intent_workload_json is NULL).
+// ListNeedingIntentAnalysis finds workloads that have not yet been dispatched
+// to the intent-service (intent_workload_json is NULL). This includes:
+//   - Confirmed/verified workloads with a known framework (normal path)
+//   - Any workload with detection_state=completed whose detection coordinator
+//     finished but failed to identify a framework (needs LLM exploration)
 func (f *WorkloadDetectionFacade) ListNeedingIntentAnalysis(ctx context.Context, limit int) ([]*model.WorkloadDetection, error) {
 	db := f.getDB()
 	var results []*model.WorkloadDetection
 
 	err := db.WithContext(ctx).
 		Table(model.TableNameWorkloadDetection).
-		Where("status IN ('confirmed', 'verified')").
-		Where("framework IS NOT NULL AND framework != ''").
 		Where("intent_workload_json IS NULL").
 		Where("intent_state IS NULL OR intent_state IN ('pending', '')").
+		Where(`(
+			(status IN ('confirmed', 'verified') AND framework IS NOT NULL AND framework != '')
+			OR
+			(detection_state = 'completed')
+		)`).
 		Order("created_at ASC").
 		Limit(limit).
 		Find(&results).Error
 
 	return results, err
+}
+
+// ListStaleUndetectedWorkloads finds workloads in gpu_workload that have a
+// detection_coordinator task stuck in waiting state for longer than the given
+// duration, but no workload_detection record yet. These are workloads where
+// the probes ran but couldn't identify a framework, and the coordinator is
+// just retrying endlessly.
+func (f *WorkloadDetectionFacade) ListStaleUndetectedWorkloads(ctx context.Context, staleDuration string, limit int) ([]string, error) {
+	db := f.getDB()
+	var uids []string
+
+	err := db.WithContext(ctx).
+		Table("workload_task_state").
+		Select("DISTINCT workload_task_state.workload_uid").
+		Joins("LEFT JOIN workload_detection ON workload_detection.workload_uid = workload_task_state.workload_uid").
+		Where("workload_task_state.task_type = 'detection_coordinator'").
+		Where("workload_task_state.status IN ('pending', 'running')").
+		Where("workload_task_state.created_at < NOW() - INTERVAL ?", staleDuration).
+		Where("workload_detection.workload_uid IS NULL").
+		Limit(limit).
+		Pluck("workload_task_state.workload_uid", &uids).Error
+
+	return uids, err
 }

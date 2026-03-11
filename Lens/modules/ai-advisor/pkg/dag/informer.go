@@ -29,32 +29,81 @@ func NewWorkloadEventHandler(scheduler *DAGScheduler) *WorkloadEventHandler {
 	}
 }
 
-// ScanAndTrigger finds confirmed workloads that have no intent_workload_json
-// yet and creates analysis_pipeline tasks so the TaskScheduler drives
-// handleEvaluating to assemble WorkloadJSON.
+// ScanAndTrigger finds workloads that need intent analysis and creates
+// analysis_pipeline tasks for them. This covers two cases:
+//  1. Confirmed workloads with known framework (normal path)
+//  2. Workloads stuck in detection with no framework identified after 5 minutes
+//     (creates a detection record to bootstrap intent analysis with LLM exploration)
 func (h *WorkloadEventHandler) ScanAndTrigger(ctx context.Context) {
 	intentInformerScansTotal.Inc()
 
+	// Case 1: workloads with detection records needing intent analysis
 	detections, err := h.detectionFacade.ListNeedingIntentAnalysis(ctx, 50)
 	if err != nil {
-		log.Warnf("WorkloadEventHandler: query failed: %v", err)
-		return
-	}
-
-	intentWorkloadsDiscovered.Add(float64(len(detections)))
-
-	created := 0
-	for _, d := range detections {
-		if h.ensurePipelineTask(ctx, d.WorkloadUID) {
-			created++
+		log.Warnf("WorkloadEventHandler: ListNeedingIntentAnalysis failed: %v", err)
+	} else {
+		intentWorkloadsDiscovered.Add(float64(len(detections)))
+		created := 0
+		for _, d := range detections {
+			if h.ensurePipelineTask(ctx, d.WorkloadUID) {
+				created++
+			}
+		}
+		if created > 0 {
+			intentPipelineTasksCreated.Add(float64(created))
+			log.Infof("WorkloadEventHandler: created %d pipeline tasks for detected workloads", created)
 		}
 	}
 
-	if created > 0 {
-		intentPipelineTasksCreated.Add(float64(created))
-		log.Infof("WorkloadEventHandler: created %d analysis_pipeline tasks", created)
+	// Case 2: workloads stuck in detection coordinator for >5 minutes
+	// with no workload_detection record. Bootstrap a detection record
+	// so they can enter the intent analysis pipeline.
+	staleUIDs, err := h.detectionFacade.ListStaleUndetectedWorkloads(ctx, "5 minutes", 20)
+	if err != nil {
+		log.Warnf("WorkloadEventHandler: ListStaleUndetectedWorkloads failed: %v", err)
+		return
+	}
+
+	bootstrapped := 0
+	for _, uid := range staleUIDs {
+		if h.bootstrapUndetectedWorkload(ctx, uid) {
+			bootstrapped++
+		}
+	}
+	if bootstrapped > 0 {
+		log.Infof("WorkloadEventHandler: bootstrapped %d undetected workloads into intent analysis", bootstrapped)
 	}
 }
+
+// bootstrapUndetectedWorkload creates a minimal workload_detection record
+// for a workload that the detection coordinator could not identify, so it
+// can enter the intent analysis pipeline for LLM exploration.
+func (h *WorkloadEventHandler) bootstrapUndetectedWorkload(ctx context.Context, workloadUID string) bool {
+	existing, _ := h.detectionFacade.GetDetection(ctx, workloadUID)
+	if existing != nil {
+		return false
+	}
+
+	det := &model.WorkloadDetection{
+		WorkloadUID:    workloadUID,
+		Status:         "unknown",
+		DetectionState: "completed",
+		IntentState:    ptrStr("pending"),
+	}
+
+	if err := h.detectionFacade.CreateDetection(ctx, det); err != nil {
+		log.Warnf("WorkloadEventHandler: failed to bootstrap detection for %s: %v", workloadUID, err)
+		return false
+	}
+
+	if h.ensurePipelineTask(ctx, workloadUID) {
+		log.Infof("WorkloadEventHandler: bootstrapped undetected workload %s into intent pipeline", workloadUID)
+		return true
+	}
+	return false
+}
+
+func ptrStr(s string) *string { return &s }
 
 // ensurePipelineTask creates an analysis_pipeline task if one doesn't
 // already exist in a running/pending state. Sets initial pipeline_state
