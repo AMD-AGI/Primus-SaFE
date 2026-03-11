@@ -1160,6 +1160,7 @@ type DiagCodeSnapshotResponse struct {
 	Fingerprint    string      `json:"fingerprint"`
 	FileCount      int         `json:"file_count"`
 	TotalSize      int         `json:"total_size"`
+	DownloadURL    string      `json:"download_url,omitempty" mcp:"download_url,description=Relative URL to download source files as tar.gz"`
 	EntryScript    interface{} `json:"entry_script,omitempty"`
 	ConfigFiles    interface{} `json:"config_files,omitempty"`
 	LocalModules   interface{} `json:"local_modules,omitempty"`
@@ -1188,6 +1189,9 @@ func handleDiagCodeSnapshot(ctx context.Context, req *DiagCodeSnapshotRequest) (
 	}
 	if snapshot.CapturedAt != nil {
 		resp.CapturedAt = snapshot.CapturedAt.Format(time.RFC3339)
+	}
+	if snapshot.StorageKey != nil && *snapshot.StorageKey != "" {
+		resp.DownloadURL = fmt.Sprintf("/v1/workload-diag/%s/code-snapshot-download", req.UID)
 	}
 
 	includeContent := req.IncludeContent != "false"
