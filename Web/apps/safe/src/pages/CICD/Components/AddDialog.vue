@@ -209,6 +209,18 @@
                     </el-select>
                   </el-form-item>
                 </el-col>
+                <el-col :span="12" v-if="props.action === 'Clone'">
+                  <el-form-item label="Workspace">
+                    <el-select v-model="targetWorkspaceId" class="w-[200px]">
+                      <el-option
+                        v-for="ws in store.items"
+                        :key="ws.workspaceId"
+                        :label="ws.workspaceName"
+                        :value="ws.workspaceId"
+                      />
+                    </el-select>
+                  </el-form-item>
+                </el-col>
 
               </el-row>
 
@@ -313,8 +325,17 @@ const excludedNodesSelectRef = ref()
 // Use composable to fetch secrets
 const { secretOptions, fetchSecrets } = useSecrets('image')
 
+const pendingWorkspaceId = ref<string>('')
+const targetWorkspaceId = computed<string>({
+  get: () => pendingWorkspaceId.value || store.currentWorkspaceId || store.firstWorkspace || '',
+  set: (val: string) => {
+    pendingWorkspaceId.value = val
+  },
+})
+
 const showAdvanced = ref(false)
 const advancedOpen = ref(false)
+const fetchWorkspaceOption = () => store.fetchWorkspace(true)
 
 const initialForm = () => ({
   displayName: '',
@@ -450,7 +471,7 @@ const onSubmit = async (formEl: FormInstance | undefined) => {
       const payload: any = {
         ...addPayload,
         resources: [fixedResource],
-        workspace: store.currentWorkspaceId!,
+        workspace: props.action === 'Clone' ? pendingWorkspaceId.value : store.currentWorkspaceId!,
         env: envMap,
         ...(excludedNodesPayload ? { excludedNodes: excludedNodesPayload } : {}),
         ...(secrets.length > 0 ? { secrets: secrets } : {}),
@@ -507,6 +528,11 @@ const onSubmit = async (formEl: FormInstance | undefined) => {
       await editWorkload(props.wlid, editData)
       ElMessage({ message: 'Edit successful', type: 'success' })
     }
+    if (props.action === 'Clone' && pendingWorkspaceId.value !== store.currentWorkspaceId) {
+      store.setCurrentWorkspace(pendingWorkspaceId.value)
+      await store.fetchWorkspace(true)
+    }
+
     emit('update:visible', false)
     emit('success')
   } catch (err) {
@@ -544,6 +570,16 @@ function createBetweenRule(min: number, max: number, unit?: string): FormItemRul
     trigger: 'blur',
   }
 }
+watch(
+  () => store.currentWorkspaceId,
+  (cur) => {
+    if (!pendingWorkspaceId.value || pendingWorkspaceId.value === cur) {
+      pendingWorkspaceId.value = cur ?? ''
+    }
+  },
+  { immediate: true },
+)
+
 watch(
   () => store.currentNodeFlavor,
   async (flavorId) => {
@@ -646,6 +682,10 @@ const setInitialFormValues = async () => {
     form.secretIds = []
     form.githubPAT = ''
   }
+
+  if (props.action === 'Clone') {
+    fetchWorkspaceOption()
+  }
 }
 
 const fetchNodes = async () => {
@@ -708,6 +748,7 @@ const filterImageOptions = debounce(async (query: string) => {
 const onOpen = async () => {
   showAdvanced.value = false
   cachedUseWorkspaceStorage.value = undefined
+  pendingWorkspaceId.value = store.currentWorkspaceId ?? store.firstWorkspace ?? ''
   fetchImage()
   fetchNodes()
   fetchSecrets()
