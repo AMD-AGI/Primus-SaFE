@@ -546,7 +546,11 @@ func (f *WorkloadDetectionFacade) ListNeedingIntentAnalysis(ctx context.Context,
 			(status IN ('confirmed', 'verified') AND framework IS NOT NULL AND framework != '')
 			OR
 			(status = 'unknown' AND detection_state = 'completed'
-			 AND EXISTS (SELECT 1 FROM gpu_pods WHERE gpu_pods.owner_uid = workload_detection.workload_uid AND gpu_pods.running = true AND gpu_pods.deleted = false))
+			 AND EXISTS (
+			   SELECT 1 FROM workload_pod_reference wpr
+			   JOIN gpu_pods gp ON gp.uid = wpr.pod_uid AND gp.running = true AND gp.deleted = false
+			   WHERE wpr.workload_uid = workload_detection.workload_uid
+			 ))
 		)`).
 		Order("created_at ASC").
 		Limit(limit).
@@ -567,7 +571,8 @@ func (f *WorkloadDetectionFacade) ListStaleUndetectedWorkloads(ctx context.Conte
 		Table("workload_task_state").
 		Select("DISTINCT workload_task_state.workload_uid").
 		Joins("LEFT JOIN workload_detection ON workload_detection.workload_uid = workload_task_state.workload_uid").
-		Joins("INNER JOIN gpu_pods ON gpu_pods.owner_uid = workload_task_state.workload_uid AND gpu_pods.running = true AND gpu_pods.deleted = false").
+		Joins("INNER JOIN workload_pod_reference wpr ON wpr.workload_uid = workload_task_state.workload_uid").
+		Joins("INNER JOIN gpu_pods ON gpu_pods.uid = wpr.pod_uid AND gpu_pods.running = true AND gpu_pods.deleted = false").
 		Where("workload_task_state.task_type = 'detection_coordinator'").
 		Where("workload_task_state.created_at < NOW() - INTERVAL '5 minutes'").
 		Where("workload_detection.workload_uid IS NULL").
