@@ -1,0 +1,219 @@
+// TraceLens Loading Animation Shared Styles
+// 共享的加载动画样式，减少重复代码
+
+// 加载内容容器
+.tracelens-loading-content {
+  text-align: center;
+  padding: 20px;
+  width: 100%;
+  max-width: 600px;
+  margin: 0 auto;
+  
+  // 加载动画
+  .loading-animation {
+    margin-bottom: 24px;
+    
+    .loading-spinner {
+      animation: rotate 2s linear infinite;
+      color: var(--el-color-primary);
+    }
+  }
+  
+  // 标题
+  .loading-title {
+    margin: 0 0 12px 0;
+    font-size: 24px;
+    font-weight: 500;
+    color: #303133;
+  }
+  
+  // 消息
+  .loading-message {
+    margin: 0 0 8px 0;
+    font-size: 16px;
+    color: #606266;
+  }
+  
+  // 预估时间
+  .loading-estimate {
+    margin: 0 0 32px 0;
+    font-size: 14px;
+    color: #909399;
+  }
+  
+  // State进度条
+  .status-progress {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    margin-bottom: 32px;
+    position: relative;
+    
+    // Connect线
+    &::before {
+      content: '';
+      position: absolute;
+      top: 20px;
+      left: 25%;
+      right: 25%;
+      height: 2px;
+      background: #e4e7ed;
+      z-index: 0;
+    }
+    
+    // State步骤
+    .status-step {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      position: relative;
+      z-index: 1;
+      
+      // 步骤图标
+      .step-icon {
+        width: 40px;
+        height: 40px;
+        border-radius: 50%;
+        background: #f5f7fa;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        margin-bottom: 8px;
+        transition: all 0.3s;
+        
+        .el-icon {
+          font-size: 20px;
+          color: #c0c4cc;
+        }
+        
+        .empty-circle {
+          display: inline-block;
+          width: 20px;
+          height: 20px;
+          border: 2px solid #c0c4cc;
+          border-radius: 50%;
+        }
+      }
+      
+      // 步骤标签
+      .step-label {
+        font-size: 13px;
+        color: #909399;
+        transition: all 0.3s;
+      }
+      
+      // CompletedState
+      &.is-completed {
+        .step-icon {
+          background: var(--el-color-success);
+          
+          .el-icon {
+            color: #fff;
+          }
+        }
+        
+        .step-label {
+          color: var(--el-color-success);
+        }
+      }
+      
+      // 进行中State
+      &.is-active {
+        .step-icon {
+          background: var(--el-color-primary);
+          
+          .el-icon {
+            color: #fff;
+            animation: rotate 2s linear infinite;
+          }
+        }
+        
+        .step-label {
+          color: var(--el-color-primary);
+          font-weight: 500;
+        }
+      }
+    }
+  }
+  
+  // Session 信息区域
+  .session-loading-info {
+    background: #f5f7fa;
+    border-radius: 8px;
+    padding: 12px 16px;
+    margin-bottom: 24px;
+    text-align: left;
+    
+    .info-item {
+      display: flex;
+      align-items: center;
+      margin-bottom: 4px;
+      
+      &:last-child {
+        margin-bottom: 0;
+      }
+      
+      label {
+        width: 70px;
+        color: #606266;
+        font-size: 14px;
+      }
+      
+      span {
+        flex: 1;
+        color: #303133;
+        font-size: 14px;
+      }
+      
+      .file-name,
+      .session-id {
+        font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, 'Courier New', monospace;
+        font-size: 13px;
+        word-break: break-all;
+      }
+    }
+  }
+  
+  // 操作按钮区域
+  .loading-actions {
+    margin-top: 24px;
+  }
+}
+
+// 旋转动画
+@keyframes rotate {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+// 深色主题支持
+.dark {
+  .tracelens-loading-content {
+    .loading-title {
+      color: var(--el-text-color-primary);
+    }
+    
+    .loading-message {
+      color: var(--el-text-color-regular);
+    }
+    
+    .session-loading-info {
+      background: var(--el-bg-color-page);
+      
+      .info-item {
+        label {
+          color: var(--el-text-color-regular);
+        }
+        
+        span {
+          color: var(--el-text-color-primary);
+        }
+      }
+    }
+  }
+}
