@@ -162,21 +162,8 @@
                     </el-form-item>
                   </el-col>
 
-                  <el-col :span="12">
-                    <el-form-item :label="`replica`" :prop="`workers.${idx}.replica`">
-                      <el-input-number
-                        v-model="w.replica"
-                        :min="1"
-                        :step="1"
-                        controls-position="right"
-                        :disabled="isEdit"
-                        style="width: 100%"
-                      />
-                    </el-form-item>
-                  </el-col>
-                  <el-col :span="12">
 
-                  </el-col>
+
                   <el-col :span="12">
                     <el-form-item :label="`cpu`" :prop="`workers.${idx}.cpu`">
                       <el-input v-model="w.cpu" :placeholder="placeholders.cpu" />
@@ -202,6 +189,18 @@
                       >
                         <template #append>Gi</template>
                       </el-input>
+                    </el-form-item>
+                  </el-col>
+                  <el-col :span="12">
+                    <el-form-item :label="`replica`" :prop="`workers.${idx}.replica`">
+                      <el-input-number
+                        v-model="w.replica"
+                        :min="1"
+                        :step="1"
+                        controls-position="right"
+                        :disabled="isEdit"
+                        style="width: 100%"
+                      />
                     </el-form-item>
                   </el-col>
                 </el-row>
