@@ -190,12 +190,12 @@ func (g *GpuPodsReconciler) propagateRefsToAncestors(ctx context.Context, podUID
 		queue = append(queue, uid)
 	}
 
-	const maxDepth = 10
-	steps := 0
-	for len(queue) > 0 && steps < maxDepth {
+	const maxIterations = 10
+	iterations := 0
+	for len(queue) > 0 && iterations < maxIterations {
 		current := queue[0]
 		queue = queue[1:]
-		steps++
+		iterations++
 
 		wl, err := database.GetFacade().GetWorkload().GetGpuWorkloadByUid(ctx, current)
 		if err != nil || wl == nil || wl.ParentUID == "" {
