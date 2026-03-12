@@ -102,6 +102,11 @@ func (f *GpuAggregationFacade) WithCluster(clusterName string) GpuAggregationFac
 	}
 }
 
+// GetDB exposes the underlying *gorm.DB for custom aggregation queries.
+func (f *GpuAggregationFacade) GetDB() *gorm.DB {
+	return f.getDB()
+}
+
 // ==================== ClusterGpuHourlyStats operations implementation ====================
 
 // SaveClusterHourlyStats saves cluster hourly statistics (using ON CONFLICT update)

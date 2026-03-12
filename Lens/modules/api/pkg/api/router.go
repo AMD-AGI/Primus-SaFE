@@ -244,6 +244,10 @@ func RegisterRouter(group *gin.RouterGroup) error {
 		// Workload-level hourly stats
 		gpuAggregationGroup.GET("/workloads/hourly-stats", getUnifiedHandler("/gpu-aggregation/workloads/hourly-stats"))
 
+		// Workload summary & distribution
+		gpuAggregationGroup.GET("/workloads/stats", getUnifiedHandler("/gpu-aggregation/workloads/stats"))
+		gpuAggregationGroup.GET("/workloads/type-distribution", getUnifiedHandler("/gpu-aggregation/workloads/type-distribution"))
+
 		// Snapshot queries
 		gpuAggregationGroup.GET("/snapshots/latest", getUnifiedHandler("/gpu-aggregation/snapshots/latest"))
 		gpuAggregationGroup.GET("/snapshots", getUnifiedHandler("/gpu-aggregation/snapshots"))

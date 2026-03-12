@@ -5,6 +5,7 @@ package api
 
 import (
 	"context"
+	"math"
 	"time"
 
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/clientsets"
@@ -88,6 +89,25 @@ func init() {
 		HTTPPath:    "/gpu-aggregation/workloads/hourly-stats",
 		MCPToolName: "lens_gpu_agg_workload_stats",
 		Handler:     handleGpuAggWorkloadHourlyStats,
+	})
+
+	// GPU Aggregation: Workload summary & distribution
+	unified.Register(&unified.EndpointDef[GpuAggWorkloadSummaryRequest, GpuAggWorkloadSummaryResponse]{
+		Name:        "gpu_agg_workload_summary",
+		Description: "Get aggregated summary statistics for workloads (avg/max utilization, total GPU hours). Groups hourly data by workload.",
+		HTTPMethod:  "GET",
+		HTTPPath:    "/gpu-aggregation/workloads/stats",
+		MCPToolName: "lens_gpu_agg_workload_summary",
+		Handler:     handleGpuAggWorkloadSummary,
+	})
+
+	unified.Register(&unified.EndpointDef[GpuAggWorkloadTypeDistRequest, GpuAggWorkloadTypeDistResponse]{
+		Name:        "gpu_agg_workload_type_dist",
+		Description: "Get GPU usage distribution grouped by workload type (Job, Deployment, StatefulSet, etc.)",
+		HTTPMethod:  "GET",
+		HTTPPath:    "/gpu-aggregation/workloads/type-distribution",
+		MCPToolName: "lens_gpu_agg_workload_type_dist",
+		Handler:     handleGpuAggWorkloadTypeDist,
 	})
 
 	// GPU Aggregation: Snapshots
@@ -182,6 +202,24 @@ type GpuAggWorkloadHourlyStatsRequest struct {
 	OrderDirection string `json:"order_direction" query:"order_direction" mcp:"description=Sort direction: asc or desc"`
 }
 
+type GpuAggWorkloadSummaryRequest struct {
+	Cluster        string `json:"cluster" query:"cluster" mcp:"description=Cluster name,required"`
+	Namespace      string `json:"namespace" query:"namespace" mcp:"description=Namespace filter (optional)"`
+	WorkloadType   string `json:"workload_type" query:"workload_type" mcp:"description=Workload type filter (optional)"`
+	StartTime      string `json:"start_time" query:"start_time" mcp:"description=Start time (RFC3339 format),required"`
+	EndTime        string `json:"end_time" query:"end_time" mcp:"description=End time (RFC3339 format),required"`
+	OrderBy        string `json:"order_by" query:"order_by" mcp:"description=Sort field: avg_utilization allocated_gpu_count or gpu_hours"`
+	OrderDirection string `json:"order_direction" query:"order_direction" mcp:"description=Sort direction: asc or desc"`
+	TopN           int    `json:"top_n" query:"top_n" mcp:"description=Limit number of results (default 50)"`
+}
+
+type GpuAggWorkloadTypeDistRequest struct {
+	Cluster   string `json:"cluster" query:"cluster" mcp:"description=Cluster name,required"`
+	Namespace string `json:"namespace" query:"namespace" mcp:"description=Namespace filter (optional)"`
+	StartTime string `json:"start_time" query:"start_time" mcp:"description=Start time (RFC3339 format),required"`
+	EndTime   string `json:"end_time" query:"end_time" mcp:"description=End time (RFC3339 format),required"`
+}
+
 type GpuAggSnapshotRequest struct {
 	Cluster string `json:"cluster" query:"cluster" mcp:"description=Cluster name"`
 }
@@ -197,6 +235,35 @@ type GpuAggSnapshotsListRequest struct {
 type GpuAggClustersResponse []string
 
 type GpuAggNamespacesResponse []string
+
+type WorkloadSummaryItem struct {
+	Namespace         string  `json:"namespace"`
+	WorkloadName      string  `json:"workload_name"`
+	WorkloadType      string  `json:"workload_type"`
+	AvgUtilization    float64 `json:"avg_utilization"`
+	MaxUtilization    float64 `json:"max_utilization"`
+	AvgAllocatedGpus  float64 `json:"avg_allocated_gpus"`
+	TotalGpuHours     float64 `json:"total_gpu_hours"`
+	AvgGpuMemoryUsed  float64 `json:"avg_gpu_memory_used"`
+	HoursActive       int     `json:"hours_active"`
+}
+
+type GpuAggWorkloadSummaryResponse struct {
+	Workloads []WorkloadSummaryItem `json:"workloads"`
+	Count     int                   `json:"count"`
+}
+
+type WorkloadTypeDistItem struct {
+	WorkloadType      string  `json:"workload_type"`
+	WorkloadCount     int     `json:"workload_count"`
+	TotalGpuHours     float64 `json:"total_gpu_hours"`
+	AvgUtilization    float64 `json:"avg_utilization"`
+	AvgAllocatedGpus  float64 `json:"avg_allocated_gpus"`
+}
+
+type GpuAggWorkloadTypeDistResponse struct {
+	Distribution []WorkloadTypeDistItem `json:"distribution"`
+}
 
 type GpuAggDimensionKeysResponse []string
 
@@ -552,4 +619,179 @@ func handleGpuAggSnapshots(ctx context.Context, req *GpuAggSnapshotsListRequest)
 	}
 
 	return &snapshots, nil
+}
+
+func handleGpuAggWorkloadSummary(ctx context.Context, req *GpuAggWorkloadSummaryRequest) (*GpuAggWorkloadSummaryResponse, error) {
+	startTime, err := time.Parse(time.RFC3339, req.StartTime)
+	if err != nil {
+		return nil, errors.WrapError(err, "Invalid start_time format", errors.RequestParameterInvalid)
+	}
+
+	endTime, err := time.Parse(time.RFC3339, req.EndTime)
+	if err != nil {
+		return nil, errors.WrapError(err, "Invalid end_time format", errors.RequestParameterInvalid)
+	}
+
+	cm := clientsets.GetClusterManager()
+	clients, err := cm.GetClusterClientsOrDefault(req.Cluster)
+	if err != nil {
+		return nil, err
+	}
+
+	topN := req.TopN
+	if topN <= 0 {
+		topN = 50
+	}
+	if topN > 200 {
+		topN = 200
+	}
+
+	orderCol := "total_gpu_hours"
+	switch req.OrderBy {
+	case "avg_utilization":
+		orderCol = "avg_util"
+	case "allocated_gpu_count":
+		orderCol = "avg_alloc"
+	}
+	orderDir := "DESC"
+	if req.OrderDirection == "asc" {
+		orderDir = "ASC"
+	}
+
+	cfg, _ := getGpuAggregationConfig(ctx, clients.ClusterName)
+	excludeNamespaces := getExcludeNamespacesList(cfg)
+
+	db := database.GetFacadeForCluster(clients.ClusterName).GetGpuAggregation().(*database.GpuAggregationFacade)
+	rawDB := db.GetDB()
+
+	query := rawDB.Table("workload_gpu_hourly_stats").
+		Select(`namespace,
+			workload_name,
+			workload_type,
+			AVG(avg_utilization) as avg_util,
+			MAX(max_utilization) as max_util,
+			AVG(allocated_gpu_count) as avg_alloc,
+			SUM(allocated_gpu_count) as total_gpu_hours,
+			AVG(avg_gpu_memory_used) as avg_mem,
+			COUNT(*) as hours_active`).
+		Where("stat_hour >= ? AND stat_hour <= ?", startTime, endTime).
+		Group("namespace, workload_name, workload_type")
+
+	if req.Namespace != "" {
+		query = query.Where("namespace = ?", req.Namespace)
+	}
+	if req.WorkloadType != "" {
+		query = query.Where("workload_type = ?", req.WorkloadType)
+	}
+	if len(excludeNamespaces) > 0 {
+		query = query.Where("namespace NOT IN ?", excludeNamespaces)
+	}
+
+	query = query.Order(orderCol + " " + orderDir).Limit(topN)
+
+	type rawRow struct {
+		Namespace    string  `gorm:"column:namespace"`
+		WorkloadName string  `gorm:"column:workload_name"`
+		WorkloadType string  `gorm:"column:workload_type"`
+		AvgUtil      float64 `gorm:"column:avg_util"`
+		MaxUtil      float64 `gorm:"column:max_util"`
+		AvgAlloc     float64 `gorm:"column:avg_alloc"`
+		TotalGpuHrs  float64 `gorm:"column:total_gpu_hours"`
+		AvgMem       float64 `gorm:"column:avg_mem"`
+		HoursActive  int     `gorm:"column:hours_active"`
+	}
+
+	var rows []rawRow
+	if err := query.Scan(&rows).Error; err != nil {
+		return nil, errors.WrapError(err, "Failed to query workload summary", errors.CodeDatabaseError)
+	}
+
+	items := make([]WorkloadSummaryItem, 0, len(rows))
+	for _, r := range rows {
+		items = append(items, WorkloadSummaryItem{
+			Namespace:        r.Namespace,
+			WorkloadName:     r.WorkloadName,
+			WorkloadType:     r.WorkloadType,
+			AvgUtilization:   math.Round(r.AvgUtil*100) / 100,
+			MaxUtilization:   math.Round(r.MaxUtil*100) / 100,
+			AvgAllocatedGpus: math.Round(r.AvgAlloc*100) / 100,
+			TotalGpuHours:    math.Round(r.TotalGpuHrs*100) / 100,
+			AvgGpuMemoryUsed: math.Round(r.AvgMem*100) / 100,
+			HoursActive:      r.HoursActive,
+		})
+	}
+
+	return &GpuAggWorkloadSummaryResponse{
+		Workloads: items,
+		Count:     len(items),
+	}, nil
+}
+
+func handleGpuAggWorkloadTypeDist(ctx context.Context, req *GpuAggWorkloadTypeDistRequest) (*GpuAggWorkloadTypeDistResponse, error) {
+	startTime, err := time.Parse(time.RFC3339, req.StartTime)
+	if err != nil {
+		return nil, errors.WrapError(err, "Invalid start_time format", errors.RequestParameterInvalid)
+	}
+
+	endTime, err := time.Parse(time.RFC3339, req.EndTime)
+	if err != nil {
+		return nil, errors.WrapError(err, "Invalid end_time format", errors.RequestParameterInvalid)
+	}
+
+	cm := clientsets.GetClusterManager()
+	clients, err := cm.GetClusterClientsOrDefault(req.Cluster)
+	if err != nil {
+		return nil, err
+	}
+
+	cfg, _ := getGpuAggregationConfig(ctx, clients.ClusterName)
+	excludeNamespaces := getExcludeNamespacesList(cfg)
+
+	db := database.GetFacadeForCluster(clients.ClusterName).GetGpuAggregation().(*database.GpuAggregationFacade)
+	rawDB := db.GetDB()
+
+	query := rawDB.Table("workload_gpu_hourly_stats").
+		Select(`workload_type,
+			COUNT(DISTINCT workload_name) as wl_count,
+			SUM(allocated_gpu_count) as total_gpu_hours,
+			AVG(avg_utilization) as avg_util,
+			AVG(allocated_gpu_count) as avg_alloc`).
+		Where("stat_hour >= ? AND stat_hour <= ?", startTime, endTime).
+		Group("workload_type").
+		Order("total_gpu_hours DESC")
+
+	if req.Namespace != "" {
+		query = query.Where("namespace = ?", req.Namespace)
+	}
+	if len(excludeNamespaces) > 0 {
+		query = query.Where("namespace NOT IN ?", excludeNamespaces)
+	}
+
+	type rawRow struct {
+		WorkloadType string  `gorm:"column:workload_type"`
+		WlCount      int     `gorm:"column:wl_count"`
+		TotalGpuHrs  float64 `gorm:"column:total_gpu_hours"`
+		AvgUtil      float64 `gorm:"column:avg_util"`
+		AvgAlloc     float64 `gorm:"column:avg_alloc"`
+	}
+
+	var rows []rawRow
+	if err := query.Scan(&rows).Error; err != nil {
+		return nil, errors.WrapError(err, "Failed to query workload type distribution", errors.CodeDatabaseError)
+	}
+
+	items := make([]WorkloadTypeDistItem, 0, len(rows))
+	for _, r := range rows {
+		items = append(items, WorkloadTypeDistItem{
+			WorkloadType:     r.WorkloadType,
+			WorkloadCount:    r.WlCount,
+			TotalGpuHours:    math.Round(r.TotalGpuHrs*100) / 100,
+			AvgUtilization:   math.Round(r.AvgUtil*100) / 100,
+			AvgAllocatedGpus: math.Round(r.AvgAlloc*100) / 100,
+		})
+	}
+
+	return &GpuAggWorkloadTypeDistResponse{
+		Distribution: items,
+	}, nil
 }
