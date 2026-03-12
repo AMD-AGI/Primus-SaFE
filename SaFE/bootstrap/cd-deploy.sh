@@ -322,16 +322,28 @@ EOF
                   echo "  ✓ Updated image_registry to $proxy_image_registry"
               fi
 
+              if [ -n "${node_agent_nfs_server:-}" ]; then
+                  sed -i "s/nfs_server: \".*\"/nfs_server: \"${node_agent_nfs_server:-}\"/" "$NODE_AGENT_TMP_VALUES"
+              fi
+
+              if [ -n "${node_agent_nfs_path:-}" ]; then
+                  sed -i "s/nfs_path: \".*\"/nfs_path: \"${node_agent_nfs_path:-}\"/" "$NODE_AGENT_TMP_VALUES"
+              fi
+
+              if [ -n "${node_agent_nfs_mount:-}" ]; then
+                  sed -i "s/nfs_mount: \".*\"/nfs_mount: \"${node_agent_nfs_mount:-}\"/" "$NODE_AGENT_TMP_VALUES"
+              fi
+
+              if [ -n "${node_agent_resolv_search_domain:-}" ]; then
+                  sed -i "s/resolv_search_domain: \".*\"/resolv_search_domain: \"${node_agent_resolv_search_domain:-}\"/" "$NODE_AGENT_TMP_VALUES"
+              fi
+
               # Apply .env configurations to node-agent values
               sed -i "s/nccl_socket_ifname: \".*\"/nccl_socket_ifname: \"$ethernet_nic\"/" "$NODE_AGENT_TMP_VALUES"
               sed -i "s/nccl_ib_hca: \".*\"/nccl_ib_hca: \"$rdma_nic\"/" "$NODE_AGENT_TMP_VALUES"
               sed -i "s/image_pull_secret: \".*\"/image_pull_secret: \"${NAMESPACE}-image\"/" "$NODE_AGENT_TMP_VALUES"
               sed -i "s/gpu_driver: \".*\"/gpu_driver: \"${node_agent_gpu_driver:-6.12.12}\"/" "$NODE_AGENT_TMP_VALUES"
               sed -i "s/rocm_version: \".*\"/rocm_version: \"${node_agent_rocm_version:-6.4}\"/" "$NODE_AGENT_TMP_VALUES"
-              sed -i "s/nfs_server: \".*\"/nfs_server: \"${node_agent_nfs_server:-}\"/" "$NODE_AGENT_TMP_VALUES"
-              sed -i "s/nfs_path: \".*\"/nfs_path: \"${node_agent_nfs_path:-}\"/" "$NODE_AGENT_TMP_VALUES"
-              sed -i "s/nfs_mount: \".*\"/nfs_mount: \"${node_agent_nfs_mount:-}\"/" "$NODE_AGENT_TMP_VALUES"
-              sed -i "s/resolv_search_domain: \".*\"/resolv_search_domain: \"${node_agent_resolv_search_domain:-}\"/" "$NODE_AGENT_TMP_VALUES"
               sed -i "s/net_bnxt_load_204: \".*\"/net_bnxt_load_204: \"${node_agent_toggle_net_bnxt_load_204:-off}\"/" "$NODE_AGENT_TMP_VALUES"
               sed -i "s/net_ainic_load_205: \".*\"/net_ainic_load_205: \"${node_agent_toggle_net_ainic_load_205:-off}\"/" "$NODE_AGENT_TMP_VALUES"
               sed -i "s/net_ainic_devices_208: \".*\"/net_ainic_devices_208: \"${node_agent_toggle_net_ainic_devices_208:-off}\"/" "$NODE_AGENT_TMP_VALUES"
