@@ -23,8 +23,8 @@ if [ -z "$MOUNT_POINT" ]; then
   exit 2
 fi
 
-# Check if mount point already exists
-if nsenter --target 1 --mount --uts --ipc --net --pid -- df -h 2>/dev/null | grep -q "$MOUNT_POINT"; then
+# Check if mount point exists and is accessible (ls avoids df+grep false matches)
+if nsenter --target 1 --mount --uts --ipc --net --pid -- ls "$MOUNT_POINT" >/dev/null 2>&1; then
   exit 0
 fi
 
