@@ -236,7 +236,7 @@ def check_connectivity(nodes: List[str], timeout: int = 300) -> bool:
             log(f"[CONNECTIVITY] Connectivity test exception: {e}, retrying in 10 seconds...")
             time.sleep(10)
 
-    log(f"[CONNECTIVITY] Failed to establish connectivity within {timeout} seconds")
+    log(f"[CONNECTIVITY] Failed to establish connectivity within {timeout} seconds (SSH port={SSH_PORT}, nodes={nodes})")
     return False
 
 def build_env_vars() -> Dict[str, str]:

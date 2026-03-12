@@ -7,24 +7,34 @@
 
 set -o pipefail
 
-if [ "$#" -lt 3 ]; then
+if [ "$#" -lt 1 ]; then
+  echo "Usage: $0 <mount_point> [nfs_server] [nfs_path]"
+  echo "Example: $0 /nfs"
+  echo "Example: $0 /nfs 45.76.27.91 /mnt/nvme0"
   exit 2
 fi
 
-NFS_SERVER="$1"
-NFS_PATH="$2"
-MOUNT_POINT=$3
-if [ -z "$NFS_SERVER" ] || [ -z "$NFS_PATH" ] || [ -z "$MOUNT_POINT" ]; then
-  echo "Usage: $0 <nfs_server> <nfs_path> <nfs_mount>"
-  echo "Example: $0 45.76.27.91 /mnt/nvme0 /nfs"
+MOUNT_POINT="$1"
+NFS_SERVER="${2:-}"
+NFS_PATH="${3:-}"
+
+if [ -z "$MOUNT_POINT" ]; then
+  echo "Error: mount_point cannot be empty"
   exit 2
 fi
 
-nsenter --target 1 --mount --uts --ipc --net --pid -- df -h | grep -q "$MOUNT_POINT" > /dev/null
-if [ $? -eq 0 ]; then
+# Check if mount point already exists
+if nsenter --target 1 --mount --uts --ipc --net --pid -- df -h 2>/dev/null | grep -q "$MOUNT_POINT"; then
   exit 0
 fi
 
+# Mount does not exist and nfs_server/nfs_path not provided: cannot mount
+if [ -z "$NFS_SERVER" ] || [ -z "$NFS_PATH" ]; then
+  echo "Error: mount point $MOUNT_POINT does not exist"
+  exit 1
+fi
+
+# Create mount point and mount
 nsenter --target 1 --mount --uts --ipc --net --pid -- /usr/bin/mkdir -p "$MOUNT_POINT"
 if [ $? -ne 0 ]; then
   echo "Failed to create directory: $MOUNT_POINT"
@@ -35,7 +45,7 @@ nsenter --target 1 --mount --uts --ipc --net --pid -- mount -t nfs4 "$NFS_SERVER
 if [ $? -ne 0 ]; then
   echo "NFS mount failed: $NFS_SERVER:$NFS_PATH -> $MOUNT_POINT"
   exit 1
-else
-  echo "NFS mounted successfully: $NFS_SERVER:$NFS_PATH -> $MOUNT_POINT"
 fi
 
+echo "NFS mounted successfully: $NFS_SERVER:$NFS_PATH -> $MOUNT_POINT"
+exit 0

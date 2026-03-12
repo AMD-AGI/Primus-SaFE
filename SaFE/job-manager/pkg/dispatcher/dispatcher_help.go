@@ -32,7 +32,6 @@ import (
 
 const (
 	SharedMemoryVolume = "shared-memory"
-	DockerSock         = "docker-sock"
 	Launcher           = "/bin/sh /shared-data/launcher.sh"
 )
 
@@ -299,9 +298,6 @@ func modifyVolumeMounts(container map[string]interface{}, workload *v1.Workload,
 		volumeMounts = volumeMountObjs.([]interface{})
 	}
 	volumeMounts = append(volumeMounts, buildVolumeMount(SharedMemoryVolume, "/dev/shm", "", false))
-	if v1.IsPrivileged(workload) {
-		volumeMounts = append(volumeMounts, buildVolumeMount(DockerSock, "/var/run/docker.sock", "", false))
-	}
 
 	maxId := 0
 	if workspace != nil && v1.IsEnableWorkspaceStorage(workload) {
@@ -368,10 +364,6 @@ func modifyVolumes(obj *unstructured.Unstructured, workload *v1.Workload, worksp
 			volumes = append(volumes, buildSecretVolume(secret.Id))
 			hasNewVolume = true
 		}
-	}
-	if v1.IsPrivileged(workload) {
-		volumes = append(volumes, buildHostPathVolume(DockerSock, "/var/run/docker.sock", "Socket"))
-		hasNewVolume = true
 	}
 	if !hasNewVolume {
 		return nil
@@ -1064,18 +1056,23 @@ func updateCICDScaleSetEnvs(obj *unstructured.Unstructured,
 func updateRayJob(obj *unstructured.Unstructured, adminWorkload *v1.Workload) error {
 	jobEntryPoint := adminWorkload.GetEnv(common.RayJobEntrypoint)
 	if jobEntryPoint == "" {
-		return fmt.Errorf("rayjob entrypoint is not set")
+		return fmt.Errorf("rayjob submitter entrypoint is not set")
 	}
 
-	specObject, ok, err := jobutils.NestedMap(obj.Object, []string{"spec"})
+	path := []string{"spec"}
+	specObject, ok, err := jobutils.NestedMap(obj.Object, path)
 	if err != nil {
 		return err
 	}
 	if !ok {
-		return fmt.Errorf("failed to find object with path: [spec]")
+		return fmt.Errorf("failed to find object with path: %v", path)
 	}
-	specObject["entrypoint"] = jobEntryPoint
-	if err = jobutils.SetNestedField(obj.Object, specObject, []string{"spec"}); err != nil {
+	decoded := stringutil.Base64Decode(jobEntryPoint)
+	if decoded == "" {
+		decoded = jobEntryPoint // fallback: plain text when base64 decode fails
+	}
+	specObject["entrypoint"] = decoded
+	if err = jobutils.SetNestedField(obj.Object, specObject, path); err != nil {
 		return err
 	}
 	return nil

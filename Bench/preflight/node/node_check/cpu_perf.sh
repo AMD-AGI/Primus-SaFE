@@ -1,13 +1,13 @@
 #!/bin/bash
 
 #
-# Copyright (c) 2025, Advanced Micro Devices, Inc. All rights reserved.
+# Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
 # See LICENSE for license information.
 #
 
 # Use the perf tool to test CPU performance
 
-threshold=0.2
+threshold=0.19
 
 if [ ! -x /usr/bin/perf ]; then
   echo "Error: /usr/bin/perf not found." >&2
