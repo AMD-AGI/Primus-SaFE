@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
+# Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
 # See LICENSE for license information.
 #
 
@@ -44,6 +44,8 @@ COMMON_SCRIPTS=(
     "install_transfer_bench.sh"
     "install_rccl_test.sh"
     "install_rdma_test.sh"
+    "install_babel_stream.sh"
+    "install_model_check.sh"
 )
 
 for script in "${COMMON_SCRIPTS[@]}"; do
