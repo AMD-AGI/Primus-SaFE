@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
+	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
 	admissionv1 "k8s.io/api/admission/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -180,10 +181,7 @@ func (m *WorkspaceMutator) mutateNodesAction(ctx context.Context, oldWorkspace, 
 	if err != nil {
 		return err
 	}
-	if len(actions) == 0 {
-		v1.RemoveAnnotation(newWorkspace, v1.WorkspaceForcedAction)
-		return nil
-	}
+	newActions := make(map[string]string)
 	for key, val := range actions {
 		n, _ := getNode(ctx, m.Client, key)
 		if n == nil {
@@ -194,6 +192,17 @@ func (m *WorkspaceMutator) mutateNodesAction(ctx context.Context, oldWorkspace, 
 			err = fmt.Errorf("the cluster(%s) of the operation and the workspace's"+
 				" cluster do not match", v1.GetClusterId(n))
 			return err
+		}
+		if val == v1.NodeActionAdd {
+			if v1.GetWorkspaceId(n) == newWorkspace.Name {
+				continue
+			}
+		} else if val == v1.NodeActionRemove {
+			if v1.GetWorkspaceId(n) == "" {
+				continue
+			}
+		} else {
+			continue
 		}
 		if newWorkspace.Spec.Replica == 0 {
 			if val == v1.NodeActionAdd {
@@ -208,10 +217,19 @@ func (m *WorkspaceMutator) mutateNodesAction(ctx context.Context, oldWorkspace, 
 			}
 			if val == v1.NodeActionAdd {
 				newWorkspace.Spec.Replica++
-			} else if val == v1.NodeActionRemove {
+			} else {
 				newWorkspace.Spec.Replica--
 			}
 		}
+		newActions[key] = val
+	}
+
+	if len(newActions) == 0 {
+		v1.RemoveAnnotation(newWorkspace, v1.WorkspaceNodesAction)
+		v1.RemoveAnnotation(newWorkspace, v1.WorkspaceForcedAction)
+	} else if len(newActions) != len(actions) {
+		v1.SetAnnotation(newWorkspace, v1.WorkspaceNodesAction,
+			string(jsonutils.MarshalSilently(newActions)))
 	}
 	return nil
 }
