@@ -15,7 +15,9 @@ ulimit -n 65535
 ulimit -u 10240
 
 if [ "$ENABLE_NODE_OUTPUT" == "true" ]; then
-  export LOG_HEADER="[NODE-$RANK: $(hostname)] "
+  # Sanitize hostname: remove backticks to prevent command injection when LOG_HEADER is expanded
+  safe_hostname=$(hostname | tr -d '`')
+  export LOG_HEADER="[NODE-$RANK: ${safe_hostname}] "
 fi
 
 echo "${LOG_HEADER}[$(date +'%Y-%m-%d %H:%M:%S')] started to diagnose"
@@ -59,6 +61,7 @@ echo "================================================"
 echo "${LOG_HEADER} RANK: $RANK"
 echo "${LOG_HEADER} NCCL_SOCKET_IFNAME: $NCCL_SOCKET_IFNAME"
 echo "${LOG_HEADER} NCCL_IB_HCA: $NCCL_IB_HCA"
+echo "${LOG_HEADER} NCCL_IB_GID_INDEX: $NCCL_IB_GID_INDEX"
 echo "${LOG_HEADER} ENABLE_AINIC: $ENABLE_AINIC"
 echo "================================================"
 # ======================================================
@@ -73,6 +76,10 @@ if [ ! -f "$NODES_FILE" ]; then
     exit 1
   fi
 fi
+
+echo "================================================"
+cat "$NODES_FILE"
+echo "================================================"
 
 # random sort
 readonly NODES_FILE_ORIGIN="${NODES_FILE}.origin"

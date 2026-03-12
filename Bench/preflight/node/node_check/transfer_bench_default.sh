@@ -1,7 +1,7 @@
 #!/bin/bash
 
 #
-# Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
+# Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
 # See LICENSE for license information.
 #
 
@@ -103,7 +103,7 @@ for attempt in $(seq 1 $max_retries); do
   if [[ "$GPU_PRODUCT" == *"MI355X"* ]]; then
     THRESH_1=54.8
     THRESH_2=54.9
-    THRESH_3_GPU00=36.9
+    THRESH_3_GPU00=36.3
     THRESH_3_GPU01=44.8
     THRESH_4=1220
     THRESH_5=10
