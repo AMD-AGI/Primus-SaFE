@@ -323,19 +323,19 @@ EOF
               fi
 
               if [ -n "${node_agent_nfs_server:-}" ]; then
-                  sed -i "s/nfs_server: \".*\"/nfs_server: \"${node_agent_nfs_server:-}\"/" "$NODE_AGENT_TMP_VALUES"
+                  sed -i "s|nfs_server: \".*\"|nfs_server: \"${node_agent_nfs_server}\"|" "$NODE_AGENT_TMP_VALUES"
               fi
 
               if [ -n "${node_agent_nfs_path:-}" ]; then
-                  sed -i "s/nfs_path: \".*\"/nfs_path: \"${node_agent_nfs_path:-}\"/" "$NODE_AGENT_TMP_VALUES"
+                  sed -i "s|nfs_path: \".*\"|nfs_path: \"${node_agent_nfs_path}\"|" "$NODE_AGENT_TMP_VALUES"
               fi
 
               if [ -n "${node_agent_nfs_mount:-}" ]; then
-                  sed -i "s/nfs_mount: \".*\"/nfs_mount: \"${node_agent_nfs_mount:-}\"/" "$NODE_AGENT_TMP_VALUES"
+                  sed -i "s|nfs_mount: \".*\"|nfs_mount: \"${node_agent_nfs_mount}\"|" "$NODE_AGENT_TMP_VALUES"
               fi
 
               if [ -n "${node_agent_resolv_search_domain:-}" ]; then
-                  sed -i "s/resolv_search_domain: \".*\"/resolv_search_domain: \"${node_agent_resolv_search_domain:-}\"/" "$NODE_AGENT_TMP_VALUES"
+                  sed -i "s|resolv_search_domain: \".*\"|resolv_search_domain: \"${node_agent_resolv_search_domain}\"|" "$NODE_AGENT_TMP_VALUES"
               fi
 
               # Apply .env configurations to node-agent values
