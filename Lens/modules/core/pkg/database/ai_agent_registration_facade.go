@@ -85,13 +85,18 @@ func (f *AIAgentRegistrationFacade) Register(ctx context.Context, agent *model.A
 		agent.MetadataJSON = string(metaBytes)
 	}
 
-	// Upsert
+	// Upsert: only overwrite endpoint when the incoming value is non-empty
+	// so that heartbeat registrations without an endpoint don't clear it.
+	updateCols := []string{
+		"topics", "health_check_path", "timeout_secs",
+		"status", "metadata", "updated_at",
+	}
+	if agent.Endpoint != "" {
+		updateCols = append(updateCols, "endpoint")
+	}
 	result := db.Clauses(clause.OnConflict{
-		Columns: []clause.Column{{Name: "name"}},
-		DoUpdates: clause.AssignmentColumns([]string{
-			"endpoint", "topics", "health_check_path", "timeout_secs",
-			"status", "metadata", "updated_at",
-		}),
+		Columns:   []clause.Column{{Name: "name"}},
+		DoUpdates: clause.AssignmentColumns(updateCols),
 	}).Create(agent)
 
 	return result.Error
