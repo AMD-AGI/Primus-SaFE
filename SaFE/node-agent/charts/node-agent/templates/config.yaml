@@ -61,8 +61,9 @@ data:
   sys_pcie_link_308: '{"script":"sys_pcie_link_308.sh","id":"308","cronjob":"@every 300s","timeoutSecond":250,"chip":"amd","toggle":"on"}'
   sys_csi_wekafs_309: '{"script":"sys_csi_wekafs_309.sh","id":"309","cronjob":"@every 300s","timeoutSecond":250,"chip":"amd","toggle":"{{ .Values.monitor.toggles.sys_csi_wekafs_309 }}"}'
   # Disk: 4XX
-  nfs_check_401: '{"script":"nfs_check_401.sh","id":"401","cronjob":"@every 300s","timeoutSecond":250,"toggle":"on","arguments":["{{ .Values.monitor.nfs_server }}","{{ .Values.monitor.nfs_path }}","{{ .Values.monitor.nfs_mount }}"]}'
-  resolv_conf_check_402: '{"script":"resolv_conf_check_402.sh","id":"402","cronjob":"@every 300s","timeoutSecond":250,"toggle":"on","arguments":["$Node"]}'
+  nfs_check_401: '{"script":"nfs_check_401.sh","id":"401","cronjob":"@every 300s","timeoutSecond":250,"toggle":"on","arguments":["{{ .Values.monitor.nfs_mount }}","{{ .Values.monitor.nfs_server }}","{{ .Values.monitor.nfs_path }}"]}'
+  resolv_conf_lock_402: '{"script":"resolv_conf_lock_402.sh","id":"402","cronjob":"@every 300s","timeoutSecond":250,"toggle":"on","arguments":["$Node"]}'
+  resolv_search_domain_check_403: '{"script":"resolv_search_domain_check_403.sh","id":"403","cronjob":"@every 300s","timeoutSecond":250,"toggle":"on","arguments":["{{ .Values.monitor.resolv_search_domain }}"]}'
   # Main configuration as YAML string
   config.yaml: |
     net:
