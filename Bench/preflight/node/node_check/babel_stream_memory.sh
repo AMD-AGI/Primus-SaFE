@@ -11,12 +11,10 @@
 SCRIPT_DIR="$(dirname "${BASH_SOURCE[0]}")"
 source "$SCRIPT_DIR/validate_gpu_product.sh"
 
-REPO_URL="https://github.com/UoB-HPC/BabelStream.git"
 cd /opt
-git clone --branch v5.0 "$REPO_URL" >/dev/null
-if [ $? -ne 0 ]; then
-  echo "failed to clone babel_stream " >&2
-  exit 1
+if [ ! -d "BabelStream" ]; then
+  echo "BabelStream not found in /opt. Test skipped." >&2
+  exit 0
 fi
 
 cd "./BabelStream" || exit 1

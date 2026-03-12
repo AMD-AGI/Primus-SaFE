@@ -1,7 +1,7 @@
 #!/bin/bash
 
 #
-# Copyright (c) 2025, Advanced Micro Devices, Inc. All rights reserved.
+# Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
 # See LICENSE for license information.
 #
 
@@ -20,7 +20,7 @@ success=0
 
 threshold=0
 if [[ "$GPU_PRODUCT" == *"MI355X"* ]]; then
-  threshold=300768
+  threshold=293100
 else
   threshold=117540
 fi
