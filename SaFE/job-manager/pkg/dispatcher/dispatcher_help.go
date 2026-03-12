@@ -1056,18 +1056,23 @@ func updateCICDScaleSetEnvs(obj *unstructured.Unstructured,
 func updateRayJob(obj *unstructured.Unstructured, adminWorkload *v1.Workload) error {
 	jobEntryPoint := adminWorkload.GetEnv(common.RayJobEntrypoint)
 	if jobEntryPoint == "" {
-		return fmt.Errorf("rayjob entrypoint is not set")
+		return fmt.Errorf("rayjob submitter entrypoint is not set")
 	}
 
-	specObject, ok, err := jobutils.NestedMap(obj.Object, []string{"spec"})
+	path := []string{"spec"}
+	specObject, ok, err := jobutils.NestedMap(obj.Object, path)
 	if err != nil {
 		return err
 	}
 	if !ok {
-		return fmt.Errorf("failed to find object with path: [spec]")
+		return fmt.Errorf("failed to find object with path: %v", path)
 	}
-	specObject["entrypoint"] = jobEntryPoint
-	if err = jobutils.SetNestedField(obj.Object, specObject, []string{"spec"}); err != nil {
+	decoded := stringutil.Base64Decode(jobEntryPoint)
+	if decoded == "" {
+		decoded = jobEntryPoint // fallback: plain text when base64 decode fails
+	}
+	specObject["entrypoint"] = decoded
+	if err = jobutils.SetNestedField(obj.Object, specObject, path); err != nil {
 		return err
 	}
 	return nil
