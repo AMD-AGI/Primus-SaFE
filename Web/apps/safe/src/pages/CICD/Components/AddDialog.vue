@@ -37,7 +37,7 @@
             <el-input v-model="form.description" :rows="2" type="textarea" />
           </el-form-item>
           <el-form-item label="entryPoint" prop="entryPoint">
-            <el-input v-model="form.entryPoint" :rows="2" type="textarea" />
+            <el-input v-model="form.entryPoint" :rows="2" type="textarea" placeholder="For multi-line commands, consider saving them to a file on NFS and executing it. e.g. bash run.sh" />
           </el-form-item>
           <el-form-item label="image" prop="image">
             <ImageInput v-model="form.image" />
