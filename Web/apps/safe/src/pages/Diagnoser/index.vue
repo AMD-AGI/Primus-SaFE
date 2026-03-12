@@ -50,7 +50,7 @@
       <el-table-column prop="phase" label="Phase" min-width="120" header-align="center">
         <template #default="{ row }">
           <div class="text-center">
-            <el-tag :type="WorkloadPhaseButtonType[row.phase]?.type || 'info'">{{
+            <el-tag :type="WorkloadPhaseButtonType[row.phase]?.type || 'info'" :effect="row.phase === 'Running' ? 'dark' : 'light'">{{
               row.phase
             }}</el-tag>
           </div>
