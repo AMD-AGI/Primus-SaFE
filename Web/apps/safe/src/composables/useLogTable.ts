@@ -311,6 +311,9 @@ export function useLogTable(
 
   // Context dialog
   const onFetchContext = async (id: string, ts: string, log: string) => {
+    const selection = window.getSelection()?.toString()
+    if (selection) return
+
     ctxVisible.value = true
     ctxLoading.value = true
     try {
