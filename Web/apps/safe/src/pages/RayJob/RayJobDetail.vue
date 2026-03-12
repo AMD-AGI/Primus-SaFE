@@ -322,7 +322,8 @@ const decodedWorkerEntryPoints = computed<Record<number, string>>(() => {
 })
 
 const jobEntrypoint = computed(() => {
-  return detailData?.value?.env?.RAY_JOB_ENTRYPOINT ?? ''
+  const raw = detailData?.value?.env?.RAY_JOB_ENTRYPOINT ?? ''
+  return raw ? decodeFromBase64String(raw) : ''
 })
 
 const filteredEnv = computed<Record<string, string>>(() => {
