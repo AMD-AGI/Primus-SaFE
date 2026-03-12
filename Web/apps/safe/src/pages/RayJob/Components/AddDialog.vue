@@ -532,7 +532,7 @@ import {
 import type { FormItemRule } from 'element-plus'
 import { InfoFilled, ArrowRight } from '@element-plus/icons-vue'
 import { useUserStore } from '@/stores/user'
-import { encodeToBase64String, toUTCISOString, decodeScheduleFromApi } from '@/utils'
+import { encodeToBase64String, decodeFromBase64String, toUTCISOString, decodeScheduleFromApi } from '@/utils'
 import { useDatetimeLimit } from '@/composables/useDatetimeLimit'
 import dayjs from 'dayjs'
 
@@ -1008,7 +1008,7 @@ const setInitialFormValues = async () => {
 
   // Extract RAY_JOB_ENTRYPOINT from env into jobEntrypoint, keep the rest in envList
   const envMap = res.env ?? {}
-  form.jobEntrypoint = envMap.RAY_JOB_ENTRYPOINT ?? ''
+  form.jobEntrypoint = envMap.RAY_JOB_ENTRYPOINT ? decodeFromBase64String(envMap.RAY_JOB_ENTRYPOINT) : ''
   const { RAY_JOB_ENTRYPOINT: _jobEp, ...restEnv } = envMap
   form.envList = convertKeyValueMapToList(restEnv)
   form.labelList = convertKeyValueMapToList(res.customerLabels)
