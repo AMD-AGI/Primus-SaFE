@@ -175,6 +175,9 @@
                     </el-form-item>
                   </el-col>
                   <el-col :span="12">
+
+                  </el-col>
+                  <el-col :span="12">
                     <el-form-item :label="`cpu`" :prop="`workers.${idx}.cpu`">
                       <el-input v-model="w.cpu" :placeholder="placeholders.cpu" />
                     </el-form-item>
@@ -802,7 +805,7 @@ const onSubmit = async (formEl: FormInstance | undefined) => {
 
     const mergedEnv = {
       ...convertListToKeyValueMap(envList),
-      ...(jobEntrypoint ? { RAY_JOB_ENTRYPOINT: jobEntrypoint } : {}),
+      ...(jobEntrypoint ? { RAY_JOB_ENTRYPOINT: encodeToBase64String(jobEntrypoint) } : {}),
     }
 
     if (!isEdit.value) {
