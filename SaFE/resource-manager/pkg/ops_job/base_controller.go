@@ -12,6 +12,8 @@ import (
 
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/backoff"
+	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
+	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -324,7 +326,7 @@ func (r *OpsJobBaseReconciler) handleWorkloadEventImpl(ctx context.Context, work
 		} else {
 			phase = v1.OpsJobFailed
 		}
-		completionMessage = getWorkloadCompletionMessage(workload)
+		completionMessage = r.getWorkloadCompletionMessage(ctx, workload)
 		if completionMessage == "" {
 			completionMessage = "unknown"
 		}
@@ -382,4 +384,62 @@ func newRequeueAfterResult(job *v1.OpsJob) ctrlruntime.Result {
 		result.RequeueAfter = time.Second * time.Duration(job.Spec.TimeoutSecond)
 	}
 	return result
+}
+
+// getWorkloadCompletionMessage extracts the completion message from a workload.
+func (r *OpsJobBaseReconciler) getWorkloadCompletionMessage(ctx context.Context, workload *v1.Workload) string {
+	// Handle stopped or deleted workloads first
+	if workload.Status.Phase == v1.WorkloadStopped || !workload.GetDeletionTimestamp().IsZero() {
+		return "workload is stopped"
+	}
+
+	// Extract message from containers for completed workloads
+	if workload.Status.Phase == v1.WorkloadFailed || workload.Status.Phase == v1.WorkloadSucceeded {
+		if v1.GetOpsJobType(workload) == string(v1.OpsJobPreflightType) {
+			// Try to parse preflight report from pod log
+			if logData, err := r.getPreflightMasterPodLog(ctx, workload); err == nil && len(logData) > 0 {
+				if report := parsePreflightReport(logData); report != nil {
+					result := make(map[string][]string)
+					result["failed_nodes"] = report.FailedNodes
+					result["healthy_nodes"] = report.HealthyNodes
+					return string(jsonutils.MarshalSilently(result))
+				}
+			}
+		} else {
+			for _, pod := range workload.Status.Pods {
+				for _, container := range pod.Containers {
+					if container.Name == v1.GetMainContainer(workload) && container.Message != "" {
+						return container.Message
+					}
+				}
+			}
+		}
+	}
+	return ""
+}
+
+func (r *OpsJobBaseReconciler) getPreflightMasterPodLog(ctx context.Context, workload *v1.Workload) ([]byte, error) {
+	k8sClients, err := utils.GetK8sClientFactory(r.clientManager, v1.GetClusterId(workload))
+	if err != nil || !k8sClients.IsValid() {
+		return nil, fmt.Errorf("the cluster(%s) clients is not ready", v1.GetClusterId(workload))
+	}
+	labelSelector := fmt.Sprintf("%s=%s,training.kubeflow.org/replica-type=master", v1.WorkloadIdLabel, workload.Name)
+	pods, err := k8sClients.ClientSet().CoreV1().Pods(workload.Spec.Workspace).List(ctx, metav1.ListOptions{
+		LabelSelector: labelSelector,
+	})
+	if err != nil || len(pods.Items) == 0 {
+		return nil, err
+	}
+
+	var tailLine int64 = 5000
+	opt := &corev1.PodLogOptions{
+		Container: v1.GetMainContainer(workload),
+		TailLines: &tailLine,
+	}
+	data, err := k8sClients.ClientSet().CoreV1().Pods(workload.Spec.Workspace).GetLogs(pods.Items[0].Name, opt).DoRaw(ctx)
+	if err != nil {
+		klog.ErrorS(err, "failed to get log of pod", "namespace", workload.Spec.Workspace, "podName", pods.Items[0].Name)
+		return nil, err
+	}
+	return data, nil
 }
