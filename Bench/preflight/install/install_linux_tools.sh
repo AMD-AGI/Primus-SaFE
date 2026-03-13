@@ -8,12 +8,16 @@ echo "============== begin to install linux-tools =============="
 
 apt-get update >/dev/null 2>&1
 
+KERNEL_VERSION=$(uname -r)
+
 if [ "${OS_NAME}" = "oci" ]; then
-  linux_tools="linux-cloud-tools-oracle"
-  echo "Trying to install $linux_tools (OS_NAME=oci)..."
-  apt install -y "$linux_tools" >/dev/null 2>&1
+  # e.g. 6.8.0-1039-oracle -> 6.8 for linux-tools-oracle-6.8
+  VERSION_PREFIX="${KERNEL_VERSION%%-*}"
+  VERSION_MAJOR_MINOR=$(echo "$VERSION_PREFIX" | cut -d'.' -f1-2)
+  linux_tools="linux-tools-oracle-${VERSION_MAJOR_MINOR} linux-tools-common"
+  echo "Trying to install $linux_tools (OS_NAME=oci, kernel ${KERNEL_VERSION})..."
+  apt install -y linux-tools-oracle-${VERSION_MAJOR_MINOR} linux-tools-common >/dev/null 2>&1
 else
-  KERNEL_VERSION=$(uname -r)
   linux_tools="linux-tools-${KERNEL_VERSION} linux-tools-common"
   echo "Trying to install $linux_tools..."
   apt install -y linux-tools-${KERNEL_VERSION} linux-tools-common >/dev/null 2>&1
