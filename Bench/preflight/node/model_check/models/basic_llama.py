@@ -702,6 +702,21 @@ class BasicTransformerBlock(torch.nn.Module):
         self.mlp.init_weights(self.weight_init_std)
 
 
+def _get_rope_theta(config) -> float:
+    """Extract rope_theta from config. LlamaConfig has it at top-level; Qwen3Config uses rope_parameters."""
+    if hasattr(config, 'rope_theta'):
+        return config.rope_theta
+    if hasattr(config, 'rope_parameters') and config.rope_parameters is not None:
+        params = config.rope_parameters
+        if isinstance(params, dict):
+            return params.get('rope_theta', 1000000.0)
+        if hasattr(params, 'get'):
+            return params.get('rope_theta', 1000000.0)
+        if hasattr(params, 'rope_theta'):
+            return params.rope_theta
+    return 1000000.0  # Qwen3 default
+
+
 @register_model("qwen3", "torch")
 @register_model("llama", "torch")
 class LlamaBasicModel(nn.Module):
@@ -714,11 +729,13 @@ class LlamaBasicModel(nn.Module):
         self.config = config
         self.debug_enabled = debug_enabled
         # Note: BasicAttention handles its own backend selection internally
-        
+
+        rope_theta = _get_rope_theta(config)
+
         import os
         gpu_id = os.environ.get('GPU_RANK', os.environ.get('CUDA_VISIBLE_DEVICES', ''))
         gpu_info = f"[GPU {gpu_id}] " if gpu_id else ""
-        
+
         if self.debug_enabled:
             print(f"\n{gpu_info}[MODEL INIT] Initializing LlamaBasicModel:")
             print(f"{gpu_info}  - vocab_size: {config.vocab_size}")
@@ -737,7 +754,7 @@ class LlamaBasicModel(nn.Module):
                 config.hidden_size,
                 config.num_attention_heads,
                 config.max_position_embeddings,
-                config.rope_theta,
+                rope_theta,
             ),
             persistent=True,
         )

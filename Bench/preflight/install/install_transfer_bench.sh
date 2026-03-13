@@ -30,7 +30,20 @@ fi
 REPO_URL="https://github.com/ROCm/TransferBench.git"
 cd /opt
 rm -rf TransferBench
-git clone --branch "$TRANSFER_TAG" --depth 1 "$REPO_URL"
+# Retry git clone on transient network errors (e.g. GnuTLS recv error, early EOF)
+git config --global http.postBuffer 524288000
+for i in 1 2 3 4 5; do
+  if git clone --branch "$TRANSFER_TAG" --depth 1 "$REPO_URL"; then
+    break
+  fi
+  echo "Attempt $i failed, retrying in 15s..."
+  rm -rf TransferBench
+  sleep 15
+done
+if [ ! -d "TransferBench" ]; then
+  echo "Error: Failed to clone TransferBench after 5 attempts"
+  exit 1
+fi
 
 cd "./TransferBench"
 # GPU_ARCHS: gfx942 (mi300x/mi325x), gfx950 (mi355x)
