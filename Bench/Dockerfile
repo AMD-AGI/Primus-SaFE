@@ -102,6 +102,14 @@ RUN if [ -n "${AINIC_BUNDLE_FILENAME}" ]; then \
 
 ENV ROCM_PATH=/opt/rocm
 
+# HuggingFace: pre-download during build, use fixed cache (survives workspace mount)
+ENV PRIMUSBENCH_CACHE=/opt/primusbench_cache \
+    HF_HOME=/opt/primusbench_cache/huggingface \
+    TRANSFORMERS_CACHE=/opt/primusbench_cache/huggingface/hub \
+    DATASET_CACHE_DIR=/opt/primusbench_cache/datasets \
+    HF_HUB_DOWNLOAD_TIMEOUT=300 \
+    HF_HUB_ETAG_TIMEOUT=60
+
 ENV PATH="/opt/superbench/bin:/usr/local/bin/:/opt/rocm/bin/:${PATH}" \
     ANSIBLE_DEPRECATION_WARNINGS=FALSE \
     ANSIBLE_COLLECTIONS_PATH=/usr/share/ansible/collections

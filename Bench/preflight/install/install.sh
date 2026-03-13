@@ -46,6 +46,7 @@ COMMON_SCRIPTS=(
     "install_rdma_test.sh"
     "install_babel_stream.sh"
     "install_model_check.sh"
+    "install_prepare_dataset.sh"
 )
 
 for script in "${COMMON_SCRIPTS[@]}"; do
