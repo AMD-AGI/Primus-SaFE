@@ -19,39 +19,41 @@ ENV GPU_ARCHS=${GPU_ARCHS}
 ENV OS_VERSION=${OS_VERSION}
 ENV OS_NAME=${OS_NAME}
 
+# Retry apt-get on transient DNS/network failures (e.g. "Temporary failure resolving")
 RUN LIBTINFO_PKG="libtinfo5" && \
     if [ "${OS_VERSION}" = "24.04" ]; then \
         LIBTINFO_PKG="libtinfo6"; \
     fi && \
-    apt-get update && \
-    apt-get -q install -y --no-install-recommends  \
-    curl bc \
-    dmidecode \
-    hipify-clang \
-    iproute2 \
-    libaio-dev \
-    libboost-all-dev \
-    libcap2 \
-    libcurl4-openssl-dev \
-    ${LIBTINFO_PKG} \
-    lshw \
-    net-tools \
-    openssh-client openssh-server \
-    pciutils \
-    python3-mpi4py \
-    libnuma-dev libfmt-dev \
-    rsync \
-    sudo \
-    util-linux kmod xz-utils numactl \
-    vim \
-    dnsutils \
-    rocm-cmake \
-    dkms \
-    perftest libgtest-dev \
-    python3-yaml \
-    libyaml-cpp-dev \
-    initramfs-tools \
-    && \
+    for i in 1 2 3; do \
+        apt-get update && apt-get -q install -y --no-install-recommends \
+        curl bc \
+        dmidecode \
+        hipify-clang \
+        iproute2 \
+        libaio-dev \
+        libboost-all-dev \
+        libcap2 \
+        libcurl4-openssl-dev \
+        ${LIBTINFO_PKG} \
+        lshw \
+        net-tools \
+        openssh-client openssh-server \
+        pciutils \
+        python3-mpi4py \
+        libnuma-dev libfmt-dev \
+        rsync \
+        sudo \
+        util-linux kmod xz-utils numactl \
+        vim \
+        dnsutils \
+        rocm-cmake \
+        dkms \
+        perftest libgtest-dev \
+        python3-yaml \
+        libyaml-cpp-dev \
+        initramfs-tools \
+        && break || { echo "Attempt $i failed, retrying in 15s..."; sleep 15; }; \
+    done && \
     rm -rf /tmp/*
 
 ARG WORKSPACE=/opt/primusbench
@@ -99,6 +101,14 @@ RUN if [ -n "${AINIC_BUNDLE_FILENAME}" ]; then \
     bash ${PREFLIGHT_HOME}/install/install.sh && rm -rf ${PREFLIGHT_HOME}/install
 
 ENV ROCM_PATH=/opt/rocm
+
+# HuggingFace: pre-download during build, use fixed cache (survives workspace mount)
+ENV PRIMUSBENCH_CACHE=/opt/primusbench_cache \
+    HF_HOME=/opt/primusbench_cache/huggingface \
+    TRANSFORMERS_CACHE=/opt/primusbench_cache/huggingface/hub \
+    DATASET_CACHE_DIR=/opt/primusbench_cache/datasets \
+    HF_HUB_DOWNLOAD_TIMEOUT=300 \
+    HF_HUB_ETAG_TIMEOUT=60
 
 ENV PATH="/opt/superbench/bin:/usr/local/bin/:/opt/rocm/bin/:${PATH}" \
     ANSIBLE_DEPRECATION_WARNINGS=FALSE \

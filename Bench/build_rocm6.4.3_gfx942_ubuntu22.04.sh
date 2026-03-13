@@ -33,4 +33,4 @@ docker buildx build . -f ./Dockerfile \
   --build-arg OS_VERSION="${OS_VERSION}" \
   --build-arg OS_NAME="${OS_NAME}" \
   --build-arg PY_VERSION="${PY_VERSION}" \
-  -t primussafe/primusbench:rocm${ROCM_VERSION}_${GPU_ARCHS}_${OS_NAME}${OS_VERSION}_${IMAGE_VERSION} 2>&1 | tee build.log
+  --network=host --no-cache -t primussafe/primusbench:rocm${ROCM_VERSION}_${GPU_ARCHS}_${OS_NAME}${OS_VERSION}_${IMAGE_VERSION} 2>&1 | tee build.log
