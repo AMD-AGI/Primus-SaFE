@@ -40,6 +40,8 @@ run_script() {
 # Common scripts to run
 COMMON_SCRIPTS=(
     "install_linux_tools.sh"
+    "install_ior.sh"
+    "install_fio.sh"
     "install_ucx.sh"
     "install_open_mpi.sh"
     "install_mpich.sh"
