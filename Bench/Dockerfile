@@ -19,39 +19,41 @@ ENV GPU_ARCHS=${GPU_ARCHS}
 ENV OS_VERSION=${OS_VERSION}
 ENV OS_NAME=${OS_NAME}
 
+# Retry apt-get on transient DNS/network failures (e.g. "Temporary failure resolving")
 RUN LIBTINFO_PKG="libtinfo5" && \
     if [ "${OS_VERSION}" = "24.04" ]; then \
         LIBTINFO_PKG="libtinfo6"; \
     fi && \
-    apt-get update && \
-    apt-get -q install -y --no-install-recommends  \
-    curl bc \
-    dmidecode \
-    hipify-clang \
-    iproute2 \
-    libaio-dev \
-    libboost-all-dev \
-    libcap2 \
-    libcurl4-openssl-dev \
-    ${LIBTINFO_PKG} \
-    lshw \
-    net-tools \
-    openssh-client openssh-server \
-    pciutils \
-    python3-mpi4py \
-    libnuma-dev libfmt-dev \
-    rsync \
-    sudo \
-    util-linux kmod xz-utils numactl \
-    vim \
-    dnsutils \
-    rocm-cmake \
-    dkms \
-    perftest libgtest-dev \
-    python3-yaml \
-    libyaml-cpp-dev \
-    initramfs-tools \
-    && \
+    for i in 1 2 3; do \
+        apt-get update && apt-get -q install -y --no-install-recommends \
+        curl bc \
+        dmidecode \
+        hipify-clang \
+        iproute2 \
+        libaio-dev \
+        libboost-all-dev \
+        libcap2 \
+        libcurl4-openssl-dev \
+        ${LIBTINFO_PKG} \
+        lshw \
+        net-tools \
+        openssh-client openssh-server \
+        pciutils \
+        python3-mpi4py \
+        libnuma-dev libfmt-dev \
+        rsync \
+        sudo \
+        util-linux kmod xz-utils numactl \
+        vim \
+        dnsutils \
+        rocm-cmake \
+        dkms \
+        perftest libgtest-dev \
+        python3-yaml \
+        libyaml-cpp-dev \
+        initramfs-tools \
+        && break || { echo "Attempt $i failed, retrying in 15s..."; sleep 15; }; \
+    done && \
     rm -rf /tmp/*
 
 ARG WORKSPACE=/opt/primusbench
