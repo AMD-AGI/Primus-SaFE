@@ -15,6 +15,7 @@ const (
 	StatusDeploying       = "deploying"
 	StatusDeployed        = "deployed"
 	StatusFailed          = "failed"
+	StatusCancelled       = "cancelled"
 )
 
 // Component name constants
