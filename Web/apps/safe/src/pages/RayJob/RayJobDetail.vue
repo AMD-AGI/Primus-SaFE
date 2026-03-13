@@ -129,12 +129,18 @@
         <!-- Workers -->
         <template v-for="wi in workerIndexes" :key="wi">
           <div class="cluster-role-section mt-4">
-            <div class="cluster-role-title">Worker {{ wi }}</div>
-            <el-descriptions border :column="5" direction="vertical" class="mt-2">
-              <el-descriptions-item label="image" :span="5">
+            <div class="cluster-role-title">
+              Worker {{ wi }}
+              <span class="worker-replica-badge">
+                <el-icon class="res-icon"><DataLine /></el-icon>
+                Replicas: {{ detailData?.resources?.[wi]?.replica ?? '-' }}
+              </span>
+            </div>
+            <el-descriptions border :column="4" direction="vertical" class="mt-2">
+              <el-descriptions-item label="image" :span="4">
                 {{ imagesList[wi] ?? '-' }}
               </el-descriptions-item>
-              <el-descriptions-item label="entryPoint" :span="5">
+              <el-descriptions-item label="entryPoint" :span="4">
                 <template v-if="decodedWorkerEntryPoints[wi]">
                   <span v-if="!workerEpExpanded[wi]">
                     {{ decodedWorkerEntryPoints[wi].slice(0, 80) }}...
@@ -146,10 +152,6 @@
                   </span>
                 </template>
                 <span v-else class="text-gray-400">-</span>
-              </el-descriptions-item>
-              <el-descriptions-item>
-                <template #label><el-icon class="res-icon"><DataLine /></el-icon> Replicas</template>
-                {{ detailData?.resources?.[wi]?.replica ?? '-' }}
               </el-descriptions-item>
               <el-descriptions-item>
                 <template #label><el-icon class="res-icon"><Cpu /></el-icon> CPU</template>
@@ -187,8 +189,9 @@
       <WorkloadTimeline :conditions="detailData?.conditions" />
     </el-tab-pane>
     <el-tab-pane label="Logs" name="logs" lazy v-if="userStore.envs?.enableLog">
-      <LogTable
+      <LogTerminal
         :wlid="workloadId"
+        :select-first-n="1"
         :dispatchCount="detailData?.dispatchCount"
         :nodes="detailData?.nodes"
         :failedNodes="detailData?.failedNodes"
@@ -233,7 +236,7 @@ import { Cpu, Monitor, Collection, Box, DataLine } from '@element-plus/icons-vue
 import LogsDialog from '@/components/Workload/LogsDialog.vue'
 import SshConfigDialog from '@/components/Workload/SshConfigDialog.vue'
 import AddDialog from './Components/AddDialog.vue'
-import LogTable from './Components/LogTable.vue'
+import LogTerminal from '@/components/Workload/LogTerminal.vue'
 import GrafanaIframe from '@/components/Base/GrafanaIframe.vue'
 import WorkloadHeader from '@/components/Workload/WorkloadHeader.vue'
 import WorkloadPodsTable from '@/components/Workload/WorkloadPodsTable.vue'
@@ -378,6 +381,15 @@ html.dark .cluster-role-section {
   color: var(--el-text-color-primary);
   padding-left: 8px;
   border-left: 3px solid var(--safe-primary);
+  display: flex;
+  align-items: center;
+  gap: 20px;
+}
+
+.worker-replica-badge {
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--el-text-color-regular);
 }
 
 .ep-pre {

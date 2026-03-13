@@ -3,7 +3,7 @@
     :model-value="visible"
     @update:model-value="$emit('update:visible', $event)"
     :title="action === 'Create' ? 'Create Deployment Request' : 'Rollback Deployment'"
-    width="700px"
+    width="960px"
     :close-on-click-modal="false"
   >
     <el-form
@@ -14,6 +14,21 @@
       v-loading="loadingDetail"
     >
       <template v-if="form.type === 'safe'">
+      <el-form-item v-if="Object.keys(currentImageVersions).length > 0" label="Current Versions">
+        <div class="w-full">
+          <el-button link type="primary" size="small" @click="showVersions = !showVersions">
+            <el-icon class="expand-icon" :class="{ 'is-expanded': showVersions }"><ArrowRight /></el-icon>
+            {{ showVersions ? 'Hide' : 'Show' }} {{ Object.keys(currentImageVersions).length }} components
+          </el-button>
+          <div v-show="showVersions" class="version-card">
+            <div v-for="(ver, comp) in currentImageVersions" :key="comp" class="version-row">
+              <span class="version-comp">{{ comp }}</span>
+              <code class="version-value">{{ ver }}</code>
+            </div>
+          </div>
+        </div>
+      </el-form-item>
+
       <el-form-item label="Image Versions">
         <div class="w-full">
           <div v-for="(item, index) in form.imageVersions" :key="index" class="flex gap-2 mb-2">
@@ -133,7 +148,7 @@
 <script setup lang="ts">
 import { ref, reactive, watch } from 'vue'
 import { ElMessage, type FormInstance, type FormRules } from 'element-plus'
-import { Plus, Delete } from '@element-plus/icons-vue'
+import { Plus, Delete, ArrowRight } from '@element-plus/icons-vue'
 import {
   createDeployment,
   getEnvConfig,
@@ -172,6 +187,8 @@ const loadingEnv = ref(false)
 const loadingDetail = ref(false)
 const availableComponents = ref<string[]>([])
 const lensComponentsMessage = ref('')
+const currentImageVersions = ref<Record<string, string>>({})
+const showVersions = ref(false)
 
 const form = reactive({
   type: 'safe' as DeploymentType,
@@ -252,6 +269,8 @@ const loadCurrentEnv = async () => {
 
     if (form.type === 'safe') {
       form.envConfig = ('env_file_config' in res ? res.env_file_config : '') || ''
+      const versions = 'image_versions' in res ? res.image_versions : undefined
+      currentImageVersions.value = versions || {}
     } else {
       if ('control_plane_config' in res) {
         form.branch = res.branch || form.branch || 'main'
@@ -404,6 +423,8 @@ watch(
         form.imageVersions = [{ component: '', version: '' }]
         form.envConfig = ''
         lensComponentsMessage.value = ''
+        currentImageVersions.value = {}
+        showVersions.value = false
         loadComponents()
         loadCurrentEnv()
       }
@@ -412,3 +433,40 @@ watch(
 )
 
 </script>
+
+<style scoped>
+.expand-icon {
+  transition: transform 0.2s;
+}
+.expand-icon.is-expanded {
+  transform: rotate(90deg);
+}
+.version-card {
+  margin-top: 8px;
+  background: var(--el-fill-color-light, #f5f7fa);
+  border-radius: 6px;
+  padding: 4px 0;
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+}
+.version-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 4px 12px;
+}
+.version-row:nth-child(odd) {
+  border-right: 1px solid var(--el-border-color-extra-light, #f0f0f0);
+}
+.version-comp {
+  font-size: 12px;
+  color: var(--el-text-color-secondary, #909399);
+}
+.version-value {
+  font-size: 12px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  color: var(--el-text-color-primary, #303133);
+  background: none;
+  padding: 0;
+}
+</style>
