@@ -6,11 +6,15 @@
 package ops_job
 
 import (
+	"bufio"
+	"bytes"
 	"context"
+	"fmt"
+	"regexp"
+	"strings"
 	"sync"
 	"time"
 
-	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/klog/v2"
@@ -28,11 +32,17 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	commonjob "github.com/AMD-AIG-AIMA/SAFE/common/pkg/ops_job"
+	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
+	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
+	"github.com/AMD-AIG-AIMA/SAFE/resource-manager/pkg/utils"
+	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/backoff"
+	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/timeutil"
 )
 
 type PreflightJobReconciler struct {
 	*OpsJobBaseReconciler
+	clientManager *commonutils.ObjectManager
 	sync.RWMutex
 }
 
@@ -42,6 +52,10 @@ func SetupPreflightJobController(mgr manager.Manager) error {
 		OpsJobBaseReconciler: &OpsJobBaseReconciler{
 			Client: mgr.GetClient(),
 		},
+		clientManager: commonutils.NewObjectManagerSingleton(),
+	}
+	if r.clientManager == nil {
+		return fmt.Errorf("failed to new clientManager")
 	}
 	err := ctrlruntime.NewControllerManagedBy(mgr).
 		For(&v1.OpsJob{}, builder.WithPredicates(predicate.Or(
@@ -86,6 +100,60 @@ func isPreflightWorkload(workload *v1.Workload) bool {
 		return true
 	}
 	return false
+}
+
+// handleWorkloadEventImpl handles workload events and parses PrimusBench Node Check Report when workload ends.
+func (r *PreflightJobReconciler) handleWorkloadEventImpl(ctx context.Context, workload *v1.Workload) {
+	var phase v1.OpsJobPhase
+	completionMessage := ""
+	var outputs []v1.Parameter
+
+	switch {
+	case workload.IsEnd():
+		if workload.Status.Phase == v1.WorkloadSucceeded {
+			phase = v1.OpsJobSucceeded
+		} else {
+			phase = v1.OpsJobFailed
+		}
+		completionMessage = getWorkloadCompletionMessage(workload)
+		if completionMessage == "" {
+			completionMessage = "unknown"
+		}
+
+		// Try to parse PrimusBench Node Check Report from pod log
+		if logData, err := r.getMasterPodLog(ctx, workload); err == nil && len(logData) > 0 {
+			if report := parsePreflightReport(logData); report != nil {
+				outputs = append(outputs,
+					v1.Parameter{Name: "failed_nodes", Value: string(jsonutils.MarshalSilently(report.FailedNodes))},
+					v1.Parameter{Name: "healthy_nodes", Value: string(jsonutils.MarshalSilently(report.HealthyNodes))},
+				)
+			}
+		}
+		if len(outputs) == 0 {
+			outputs = []v1.Parameter{{Name: "result", Value: completionMessage}}
+		}
+	case workload.IsRunning():
+		phase = v1.OpsJobRunning
+	default:
+		phase = v1.OpsJobPending
+	}
+
+	jobId := v1.GetOpsJobId(workload)
+	err := backoff.Retry(func() error {
+		job := &v1.OpsJob{}
+		if err := r.Get(ctx, client.ObjectKey{Name: jobId}, job); err != nil {
+			return client.IgnoreNotFound(err)
+		}
+		switch phase {
+		case v1.OpsJobPending, v1.OpsJobRunning:
+			return r.setJobPhase(ctx, job, phase)
+		default:
+			return r.setJobCompleted(ctx, job, phase, completionMessage, outputs)
+		}
+	}, 2*time.Second, 200*time.Millisecond)
+	if err != nil {
+		klog.ErrorS(err, "failed to update job status", "jobId", jobId)
+	}
 }
 
 // Reconcile is the main control loop for PreflightJob resources.
@@ -191,9 +259,10 @@ func (r *PreflightJobReconciler) generatePreflightWorkload(ctx context.Context, 
 			CustomerLabels: map[string]string{
 				v1.K8sHostName: nodeNames,
 			},
-			Workspace: v1.GetWorkspaceId(job),
-			Env:       job.Spec.Env,
-			Hostpath:  job.Spec.Hostpath,
+			Workspace:               v1.GetWorkspaceId(job),
+			Env:                     job.Spec.Env,
+			Hostpath:                job.Spec.Hostpath,
+			TTLSecondsAfterFinished: pointer.Int(120),
 		},
 	}
 
@@ -224,6 +293,104 @@ func (r *PreflightJobReconciler) generatePreflightWorkload(ctx context.Context, 
 		workload.Spec.TTLSecondsAfterFinished = pointer.Int(job.Spec.TTLSecondsAfterFinished)
 	}
 	return workload, nil
+}
+
+// PreflightReport holds parsed PrimusBench Node Check Report results.
+type PreflightReport struct {
+	FailedNodes  []string
+	HealthyNodes []string
+}
+
+// nodeLineRegex matches lines like "  hostname (ip)" or "  hostname (ip): details"
+var nodeLineRegex = regexp.MustCompile(`^\s+(\S+)\s+\([^)]+\)`)
+
+// parsePreflightReport parses PrimusBench Node Check Report from log data.
+// Returns nil if the report format is not found.
+func parsePreflightReport(data []byte) *PreflightReport {
+	content := string(data)
+	if !strings.Contains(content, "PrimusBench Node Check Report") {
+		return nil
+	}
+
+	report := &PreflightReport{}
+	scanner := bufio.NewScanner(bytes.NewReader(data))
+
+	const (
+		sectionNone = iota
+		sectionFailedNodeCheck
+		sectionFailedNetworkCheck
+		sectionHealthy
+	)
+	section := sectionNone
+
+	for scanner.Scan() {
+		line := scanner.Text()
+		trimmed := strings.TrimSpace(line)
+
+		// Detect section headers
+		if strings.HasPrefix(trimmed, "Failed Nodes (Node Check)") {
+			section = sectionFailedNodeCheck
+			continue
+		}
+		if strings.HasPrefix(trimmed, "Failed Nodes (Network Check)") {
+			section = sectionFailedNetworkCheck
+			continue
+		}
+		if strings.HasPrefix(trimmed, "Healthy Nodes (Passed All Checks)") {
+			section = sectionHealthy
+			continue
+		}
+
+		// Skip separator lines (---) and empty lines
+		if trimmed == "" || strings.HasPrefix(trimmed, "---") || strings.HasPrefix(trimmed, "==") {
+			continue
+		}
+
+		// Skip other section headers (e.g. "Summary:")
+		if strings.HasPrefix(trimmed, "Summary:") || strings.HasPrefix(trimmed, "Generated at:") {
+			section = sectionNone
+			continue
+		}
+
+		// Parse node line: "  hostname (ip)" or "  hostname (ip): ..."
+		if section != sectionNone {
+			if m := nodeLineRegex.FindStringSubmatch(line); len(m) >= 2 {
+				nodeName := m[1]
+				if section == sectionFailedNodeCheck || section == sectionFailedNetworkCheck {
+					report.FailedNodes = append(report.FailedNodes, nodeName)
+				} else if section == sectionHealthy {
+					report.HealthyNodes = append(report.HealthyNodes, nodeName)
+				}
+			}
+		}
+	}
+	return report
+}
+
+func (r *PreflightJobReconciler) getMasterPodLog(ctx context.Context, workload *v1.Workload) ([]byte, error) {
+	k8sClients, err := utils.GetK8sClientFactory(r.clientManager, v1.GetClusterId(workload))
+	if err != nil || !k8sClients.IsValid() {
+		return nil, fmt.Errorf("the cluster(%s) clients is not ready", v1.GetClusterId(workload))
+	}
+	labelSelector := fmt.Sprintf("%s=%s,training.kubeflow.org/replica-type=master", v1.WorkloadIdLabel, workload.Name)
+	pods, err := k8sClients.ClientSet().CoreV1().Pods(workload.Spec.Workspace).List(ctx, metav1.ListOptions{
+		LabelSelector: labelSelector,
+	})
+	if err != nil || len(pods.Items) == 0 {
+		return nil, err
+	}
+
+	var tailLine int64 = 5000
+	opt := &corev1.PodLogOptions{
+		Container: v1.GetMainContainer(workload),
+		TailLines: &tailLine,
+	}
+	data, err := k8sClients.ClientSet().CoreV1().Pods(workload.Spec.Workspace).GetLogs(pods.Items[0].Name, opt).DoRaw(ctx)
+	if err != nil {
+		klog.ErrorS(err, "failed to get log of pod", "namespace", workload.Spec.Workspace, "podName", pods.Items[0].Name)
+		return nil, err
+	}
+	return data, nil
 }
 
 // getWorkloadCompletionMessage extracts the completion message from a workload.
