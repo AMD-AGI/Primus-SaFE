@@ -22,6 +22,7 @@ func InitCDRouters(e *gin.Engine, h *Handler) {
 		group.GET("/deployments/:id", h.GetDeploymentRequest)
 		group.POST("/deployments/:id/approve", h.ApproveDeploymentRequest)
 		group.POST("/deployments/:id/rollback", h.RollbackDeployment)
+		group.POST("/deployments/:id/retry", h.RetryDeployment)
 
 		// Get latest deployment configuration
 		// Query params: ?type=safe or ?type=lens (default: safe)
