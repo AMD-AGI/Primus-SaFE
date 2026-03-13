@@ -156,6 +156,11 @@ func (h *Handler) RollbackDeployment(c *gin.Context) {
 	handle(c, h.rollbackDeployment)
 }
 
+// RetryDeployment retries a failed deployment
+func (h *Handler) RetryDeployment(c *gin.Context) {
+	handle(c, h.retryDeployment)
+}
+
 // GetCurrentEnvConfig gets the latest deployment configuration
 // Query params: type=safe|lens (default: safe)
 func (h *Handler) GetCurrentEnvConfig(c *gin.Context) {
@@ -387,20 +392,18 @@ func (h *Handler) approveDeploymentRequest(c *gin.Context) (interface{}, error) 
 	// Get userId from context (User CRD name, safe for K8s labels)
 	userId := c.GetString(common.UserId)
 
-	// Check if user is the same as requester
-	// Self-approval is controlled by cd.require_approval config
-	if req.DeployName == username && commonconfig.IsCDRequireApproval() {
-		return nil, commonerrors.NewForbidden("Cannot approve your own request")
-	}
-
 	if req.Status != StatusPendingApproval {
 		return nil, commonerrors.NewBadRequest("Request is not pending approval")
 	}
 
-	req.ApproverName = dbutils.NullString(username)
-	req.ApprovedAt = dbutils.NullTime(time.Now().UTC())
+	isSelfAction := req.DeployName == username && commonconfig.IsCDRequireApproval()
 
 	if body.Approved {
+		if isSelfAction {
+			return nil, commonerrors.NewForbidden("Cannot approve your own request")
+		}
+		req.ApproverName = dbutils.NullString(username)
+		req.ApprovedAt = dbutils.NullTime(time.Now().UTC())
 		req.Status = StatusApproved
 		req.ApprovalResult = dbutils.NullString(StatusApproved)
 		// Update status first
@@ -452,8 +455,14 @@ func (h *Handler) approveDeploymentRequest(c *gin.Context) (interface{}, error) 
 		}, nil
 
 	} else {
-		req.Status = StatusRejected
-		req.ApprovalResult = dbutils.NullString(StatusRejected)
+		req.ApproverName = dbutils.NullString(username)
+		if isSelfAction {
+			req.Status = StatusCancelled
+			req.ApprovalResult = dbutils.NullString(StatusCancelled)
+		} else {
+			req.Status = StatusRejected
+			req.ApprovalResult = dbutils.NullString(StatusRejected)
+		}
 		req.RejectionReason = dbutils.NullString(body.Reason)
 
 		if err := h.dbClient.UpdateDeploymentRequest(c.Request.Context(), req); err != nil {
@@ -462,8 +471,8 @@ func (h *Handler) approveDeploymentRequest(c *gin.Context) (interface{}, error) 
 
 		return ApprovalResp{
 			Id:      req.Id,
-			Status:  StatusRejected,
-			Message: "Deployment request rejected",
+			Status:  req.Status,
+			Message: fmt.Sprintf("Deployment request %s", req.Status),
 		}, nil
 	}
 }
@@ -604,6 +613,68 @@ func (h *Handler) rollbackDeployment(c *gin.Context) (interface{}, error) {
 	}
 
 	return CreateDeploymentRequestResp{Id: newId}, nil
+}
+
+func (h *Handler) retryDeployment(c *gin.Context) (interface{}, error) {
+	idStr := c.Param("id")
+	id, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		return nil, commonerrors.NewBadRequest("Invalid ID")
+	}
+
+	req, err := h.dbClient.GetDeploymentRequest(c.Request.Context(), id)
+	if err != nil {
+		return nil, err
+	}
+
+	if req.Status != StatusFailed {
+		return nil, commonerrors.NewBadRequest(fmt.Sprintf("Only failed requests can be retried, current status: %s", req.Status))
+	}
+
+	username, err := h.getAndSetUsername(c)
+	if err != nil {
+		return nil, err
+	}
+	userId := c.GetString(common.UserId)
+	ctx := c.Request.Context()
+
+	opsJob, err := h.generateCDOpsJob(ctx, req, userId, username)
+	if err != nil {
+		klog.ErrorS(err, "Failed to generate CD OpsJob for retry", "id", req.Id)
+		return nil, err
+	}
+
+	if err := h.Create(ctx, opsJob); err != nil {
+		klog.ErrorS(err, "Failed to create CD OpsJob for retry", "id", req.Id)
+		return nil, err
+	}
+
+	deployType := req.DeployType
+	if deployType == "" {
+		deployType = DeployTypeSafe
+	}
+	if deployType == DeployTypeLens {
+		if err := h.createLensConfigMap(ctx, req, opsJob); err != nil {
+			klog.ErrorS(err, "Failed to create Lens ConfigMap for retry", "id", req.Id)
+			return nil, commonerrors.NewInternalError(fmt.Sprintf("Failed to create Lens ConfigMap: %v", err))
+		}
+	}
+
+	req.Status = StatusDeploying
+	req.FailureReason = dbutils.NullString("")
+	req.WorkloadId = dbutils.NullString(opsJob.Name)
+	if err := h.dbClient.UpdateDeploymentRequest(ctx, req); err != nil {
+		klog.ErrorS(err, "Failed to update deployment request status for retry", "id", req.Id)
+	}
+
+	klog.Infof("CD OpsJob retried for deployment request %d: %s", req.Id, opsJob.Name)
+
+	return ApprovalResp{
+		Id:         req.Id,
+		Status:     StatusDeploying,
+		WorkloadId: opsJob.Name,
+		Message:    "Deployment retried, new OpsJob created",
+	}, nil
 }
 
 func (h *Handler) getCurrentEnvConfig(c *gin.Context) (interface{}, error) {
