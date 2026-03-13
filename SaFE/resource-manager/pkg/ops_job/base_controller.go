@@ -136,7 +136,9 @@ func (r *OpsJobBaseReconciler) setJobCompleted(ctx context.Context,
 		}
 		latest.Status.Phase = phase
 		latest.Status.Outputs = outputs
-
+		if message == "" {
+			message = "unknown"
+		}
 		condition := metav1.Condition{
 			Type:    JobCompletedType,
 			Message: message,
