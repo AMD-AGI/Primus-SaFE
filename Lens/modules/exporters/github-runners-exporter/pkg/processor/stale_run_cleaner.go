@@ -5,11 +5,14 @@ package processor
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"time"
 
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/clientsets"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/constant"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database/model"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/github-runners-exporter/pkg/types"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -161,19 +164,47 @@ func (c *StaleRunCleaner) checkAndCleanStaleRuns(ctx context.Context) {
 			continue
 		}
 
-		// EphemeralRunner is gone from K8s - mark as completed
+		// EphemeralRunner is gone from K8s - transition to pending (ready for collection)
+		// instead of completed, so the collection pipeline can still process it.
 		if updateErr := runFacade.UpdateFields(ctx, run.ID, map[string]interface{}{
-			"status": database.WorkflowRunStatusCompleted,
+			"status":                database.WorkflowRunStatusPending,
+			"workload_completed_at": time.Now(),
 		}); updateErr != nil {
-			log.Warnf("StaleRunCleaner: failed to mark run %d (%s) as completed: %v", run.ID, name, updateErr)
+			log.Warnf("StaleRunCleaner: failed to mark run %d (%s) as pending: %v", run.ID, name, updateErr)
 		} else {
 			cleaned++
-			log.Infof("StaleRunCleaner: marked stale run %d (%s/%s) as completed - EphemeralRunner no longer exists",
+			log.Infof("StaleRunCleaner: marked stale run %d (%s/%s) as pending for collection - EphemeralRunner no longer exists",
 				run.ID, ns, name)
+			c.submitCollectionTask(ctx, run)
 		}
 	}
 
 	if cleaned > 0 {
-		log.Infof("StaleRunCleaner: cleaned %d stale runs in this cycle", cleaned)
+		log.Infof("StaleRunCleaner: recovered %d stale runs for collection in this cycle", cleaned)
 	}
+}
+
+// submitCollectionTask creates a collection task so stale runs still get data extracted.
+func (c *StaleRunCleaner) submitCollectionTask(ctx context.Context, run *model.GithubWorkflowRuns) {
+	taskFacade := database.NewWorkloadTaskFacade()
+
+	taskUID := fmt.Sprintf("collection-%d", run.ID)
+	collectionTask := &model.WorkloadTaskState{
+		WorkloadUID: taskUID,
+		TaskType:    constant.TaskTypeGithubWorkflowCollection,
+		Status:      constant.TaskStatusPending,
+		Ext: model.ExtType{
+			"run_id":        run.ID,
+			"runner_set_id": run.RunnerSetID,
+			"config_id":     run.ConfigID,
+			"workload_name": run.WorkloadName,
+		},
+	}
+
+	if err := taskFacade.UpsertTask(ctx, collectionTask); err != nil {
+		log.Warnf("StaleRunCleaner: failed to create collection task for run %d: %v", run.ID, err)
+		return
+	}
+
+	log.Infof("StaleRunCleaner: submitted collection task %s for stale run %d", taskUID, run.ID)
 }

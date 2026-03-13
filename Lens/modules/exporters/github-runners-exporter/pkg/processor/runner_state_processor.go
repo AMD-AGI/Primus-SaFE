@@ -271,7 +271,10 @@ func (p *RunnerStateProcessor) getOrCreateWorkflowRun(
 		return existingRun, nil
 	}
 
-	// Find matching config for additional metadata
+	// Find matching config for additional metadata.
+	// First try by runner_set_id; if nothing found, fall back to namespace+name
+	// to handle cases where the ARS was recreated with a new DB id but the
+	// config still references the old id.
 	var configID int64
 	configFacade := database.GetFacade().GetGithubWorkflowConfig()
 	configs, err := configFacade.ListByRunnerSetID(ctx, runnerSet.ID)
@@ -280,6 +283,17 @@ func (p *RunnerStateProcessor) getOrCreateWorkflowRun(
 			if config.Enabled && matchesConfig(state, config) {
 				configID = config.ID
 				break
+			}
+		}
+	}
+	if configID == 0 {
+		configs, err = configFacade.ListByRunnerSet(ctx, runnerSet.Namespace, runnerSet.Name)
+		if err == nil {
+			for _, config := range configs {
+				if config.Enabled && matchesConfig(state, config) {
+					configID = config.ID
+					break
+				}
 			}
 		}
 	}
