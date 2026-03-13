@@ -115,6 +115,7 @@ echo "=========================================="
 echo "Step 2: Running local upgrade script..."
 echo "=========================================="
 cd "$REPO_DIR/SaFE/bootstrap/"
+export CALLED_BY_CD=true
 /bin/bash ./upgrade.sh
 
 # ==========================================
