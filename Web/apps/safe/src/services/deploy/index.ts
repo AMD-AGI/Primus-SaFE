@@ -47,6 +47,12 @@ export const rollbackDeployment = (id: string): Promise<DeploymentRequest> =>
   request.post(`/cd/deployments/${id}/rollback`)
 
 /**
+ * Retry a failed deployment
+ */
+export const retryDeployment = (id: string): Promise<DeploymentRequest> =>
+  request.post(`/cd/deployments/${id}/retry`)
+
+/**
  * Get deployment request detail
  */
 export const getDeploymentDetail = (id: string | number): Promise<DeploymentRequest> =>

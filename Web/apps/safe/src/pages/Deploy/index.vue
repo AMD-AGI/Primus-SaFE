@@ -119,44 +119,24 @@
         </template>
       </el-table-column>
 
-      <el-table-column label="Actions" width="160" fixed="right">
+      <el-table-column label="Actions" width="130" fixed="right">
         <template #default="{ row }">
-          <el-tooltip
-            v-if="
-              row.status !== 'pending_approval' ||
-              (userStore.cdRequireApproval && row.deploy_name === userStore.profile?.name)
-            "
-            content="Share Approval Link"
-            placement="top"
-          >
-            <el-button
-              circle
-              size="default"
-              class="btn-success-plain"
-              :icon="Share"
-              :disabled="row.status !== 'pending_approval'"
-              @click="handleShare(row)"
-            />
+          <el-tooltip v-if="row.status === 'pending_approval' && userStore.cdRequireApproval && row.deploy_name === userStore.profile?.name" content="Share Approval Link" placement="top">
+            <el-button circle size="default" class="btn-success-plain" :icon="Share" @click="handleShare(row)" />
           </el-tooltip>
-          <el-tooltip content="Approve/Reject" placement="top" v-else>
-            <el-button
-              circle
-              size="default"
-              class="btn-success-plain"
-              :icon="Check"
-              @click="handleApprove(row)"
-            />
+          <el-tooltip v-else-if="row.status === 'pending_approval'" content="Approve/Reject" placement="top">
+            <el-button circle size="default" class="btn-success-plain" :icon="Check" @click="handleApprove(row)" />
           </el-tooltip>
+          <el-tooltip v-else-if="row.status === 'failed'" content="Retry" placement="top">
+            <el-button circle size="default" class="btn-primary-plain" :icon="Refresh" @click="handleRetry(row)" />
+          </el-tooltip>
+          <el-tooltip v-else-if="row.status === 'deployed'" content="Rollback" placement="top">
+            <el-button circle size="default" class="btn-warning-plain" :icon="RefreshLeft" @click="handleRollback(row)" />
+          </el-tooltip>
+          <el-button v-else circle size="default" :icon="Check" disabled />
 
-          <el-tooltip content="Rollback" placement="top">
-            <el-button
-              circle
-              size="default"
-              class="btn-warning-plain"
-              :icon="RefreshLeft"
-              :disabled="row.status !== 'deployed'"
-              @click="handleRollback(row)"
-            />
+          <el-tooltip content="Cancel" placement="top">
+            <el-button circle size="default" class="btn-danger-plain" :icon="Close" :disabled="row.status !== 'pending_approval' || row.deploy_name !== userStore.profile?.name" @click="handleCancel(row)" />
           </el-tooltip>
         </template>
       </el-table-column>
@@ -192,9 +172,9 @@
 <script setup lang="ts">
 import { ref, onMounted, reactive } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { Plus, Check, RefreshLeft, CircleCheck, CircleClose, Share } from '@element-plus/icons-vue'
+import { Plus, Check, Close, RefreshLeft, Refresh, CircleCheck, CircleClose, Share } from '@element-plus/icons-vue'
 import { ElMessageBox, ElMessage } from 'element-plus'
-import { getDeployments, rollbackDeployment } from '@/services/deploy'
+import { getDeployments, rollbackDeployment, retryDeployment, approveDeployment } from '@/services/deploy'
 import { formatTimeStr, copyText } from '@/utils'
 import type { DeploymentRequest, DeploymentStatus, DeploymentType } from '@/services/deploy/type'
 import CreateDialog from './Components/CreateDialog.vue'
@@ -350,6 +330,61 @@ const handleRollback = async (row: DeploymentRequest) => {
     if (error !== 'cancel') {
       console.error('Rollback failed:', error)
       ElMessage.error((error as Error)?.message || 'Rollback failed')
+    }
+  } finally {
+    loading.value = false
+  }
+}
+
+const handleCancel = async (row: DeploymentRequest) => {
+  try {
+    await ElMessageBox.confirm(
+      `Are you sure you want to cancel deployment #${row.id}?`,
+      'Confirm Cancel',
+      {
+        confirmButtonText: 'Confirm',
+        cancelButtonText: 'Back',
+        type: 'warning',
+      },
+    )
+
+    loading.value = true
+    await approveDeployment(String(row.id), {
+      approved: false,
+      reason: 'Cancelled by requester',
+    })
+    ElMessage.success('Deployment cancelled successfully')
+    await fetchData()
+  } catch (error) {
+    if (error !== 'cancel') {
+      console.error('Cancel failed:', error)
+      ElMessage.error((error as Error)?.message || 'Cancel failed')
+    }
+  } finally {
+    loading.value = false
+  }
+}
+
+const handleRetry = async (row: DeploymentRequest) => {
+  try {
+    await ElMessageBox.confirm(
+      `Are you sure you want to retry deployment #${row.id}?`,
+      'Confirm Retry',
+      {
+        confirmButtonText: 'Confirm',
+        cancelButtonText: 'Cancel',
+        type: 'warning',
+      },
+    )
+
+    loading.value = true
+    await retryDeployment(String(row.id))
+    ElMessage.success('Deployment retry initiated successfully')
+    await fetchData()
+  } catch (error) {
+    if (error !== 'cancel') {
+      console.error('Retry failed:', error)
+      ElMessage.error((error as Error)?.message || 'Retry failed')
     }
   } finally {
     loading.value = false
