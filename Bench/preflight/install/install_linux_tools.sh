@@ -6,17 +6,18 @@
 
 echo "============== begin to install linux-tools =============="
 
-apt-get update >/dev/null 2>&1
 if [ "${OS_NAME}" = "oci" ]; then
-  linux_tools="linux-tools-oracle linux-cloud-tools-oracle linux-tools-common"
-  echo "Trying to install $linux_tools..."
-  apt install -y linux-tools-oracle linux-cloud-tools-oracle linux-tools-common >/dev/null 2>&1
-else
-  KERNEL_VERSION=$(uname -r)
-  linux_tools="linux-tools-${KERNEL_VERSION} linux-tools-common"
-  echo "Trying to install $linux_tools..."
-  apt install -y linux-tools-${KERNEL_VERSION} linux-tools-common >/dev/null 2>&1
+  echo "Skipping linux-tools installation (OS_NAME=oci)"
+  echo "============== linux-tools skipped (OCI) =============="
+  exit 0
 fi
+
+apt-get update >/dev/null 2>&1
+
+KERNEL_VERSION=$(uname -r)
+linux_tools="linux-tools-${KERNEL_VERSION} linux-tools-common"
+echo "Trying to install $linux_tools..."
+apt install -y $linux_tools >/dev/null 2>&1
 
 if [ $? -ne 0 ]; then
   echo "Failed to install $linux_tools"
