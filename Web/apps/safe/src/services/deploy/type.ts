@@ -71,6 +71,7 @@ export interface Component {
 export type SafeEnvConfigResponse = {
   type?: 'safe'
   env_file_config: string
+  image_versions?: Record<string, string>
 }
 
 export type LensEnvConfigResponse = {
