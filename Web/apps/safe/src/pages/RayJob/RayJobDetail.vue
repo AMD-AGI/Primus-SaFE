@@ -129,12 +129,18 @@
         <!-- Workers -->
         <template v-for="wi in workerIndexes" :key="wi">
           <div class="cluster-role-section mt-4">
-            <div class="cluster-role-title">Worker {{ wi }}</div>
-            <el-descriptions border :column="5" direction="vertical" class="mt-2">
-              <el-descriptions-item label="image" :span="5">
+            <div class="cluster-role-title">
+              Worker {{ wi }}
+              <span class="worker-replica-badge">
+                <el-icon class="res-icon"><DataLine /></el-icon>
+                Replicas: {{ detailData?.resources?.[wi]?.replica ?? '-' }}
+              </span>
+            </div>
+            <el-descriptions border :column="4" direction="vertical" class="mt-2">
+              <el-descriptions-item label="image" :span="4">
                 {{ imagesList[wi] ?? '-' }}
               </el-descriptions-item>
-              <el-descriptions-item label="entryPoint" :span="5">
+              <el-descriptions-item label="entryPoint" :span="4">
                 <template v-if="decodedWorkerEntryPoints[wi]">
                   <span v-if="!workerEpExpanded[wi]">
                     {{ decodedWorkerEntryPoints[wi].slice(0, 80) }}...
@@ -146,10 +152,6 @@
                   </span>
                 </template>
                 <span v-else class="text-gray-400">-</span>
-              </el-descriptions-item>
-              <el-descriptions-item>
-                <template #label><el-icon class="res-icon"><DataLine /></el-icon> Replicas</template>
-                {{ detailData?.resources?.[wi]?.replica ?? '-' }}
               </el-descriptions-item>
               <el-descriptions-item>
                 <template #label><el-icon class="res-icon"><Cpu /></el-icon> CPU</template>
@@ -378,6 +380,15 @@ html.dark .cluster-role-section {
   color: var(--el-text-color-primary);
   padding-left: 8px;
   border-left: 3px solid var(--safe-primary);
+  display: flex;
+  align-items: center;
+  gap: 20px;
+}
+
+.worker-replica-badge {
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--el-text-color-regular);
 }
 
 .ep-pre {
