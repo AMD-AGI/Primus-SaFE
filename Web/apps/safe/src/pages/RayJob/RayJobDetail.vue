@@ -189,8 +189,9 @@
       <WorkloadTimeline :conditions="detailData?.conditions" />
     </el-tab-pane>
     <el-tab-pane label="Logs" name="logs" lazy v-if="userStore.envs?.enableLog">
-      <LogTable
+      <LogTerminal
         :wlid="workloadId"
+        :select-first-n="1"
         :dispatchCount="detailData?.dispatchCount"
         :nodes="detailData?.nodes"
         :failedNodes="detailData?.failedNodes"
@@ -235,7 +236,7 @@ import { Cpu, Monitor, Collection, Box, DataLine } from '@element-plus/icons-vue
 import LogsDialog from '@/components/Workload/LogsDialog.vue'
 import SshConfigDialog from '@/components/Workload/SshConfigDialog.vue'
 import AddDialog from './Components/AddDialog.vue'
-import LogTable from './Components/LogTable.vue'
+import LogTerminal from '@/components/Workload/LogTerminal.vue'
 import GrafanaIframe from '@/components/Base/GrafanaIframe.vue'
 import WorkloadHeader from '@/components/Workload/WorkloadHeader.vue'
 import WorkloadPodsTable from '@/components/Workload/WorkloadPodsTable.vue'

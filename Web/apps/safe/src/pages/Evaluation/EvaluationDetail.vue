@@ -428,7 +428,7 @@
 
       <el-tab-pane label="Logs" name="logs" lazy>
         <!-- v-if="detail?.opsJobId && userStore.envs?.enableLog" -->
-        <LogTable
+        <LogTerminal
           v-if="workloadDetail && detail?.opsJobId"
           :wlid="detail.opsJobId"
           :dispatchCount="workloadDetail.dispatchCount"
@@ -461,7 +461,7 @@ import {
 import { getWorkloadDetail } from '@/services/workload'
 import type { EvaluationTaskDetail } from '@/services/evaluations/type'
 import { useUserStore } from '@/stores/user'
-import LogTable from '@/pages/CICD/Components/LogTable.vue'
+import LogTerminal from '@/components/Workload/LogTerminal.vue'
 
 const router = useRouter()
 const route = useRoute()

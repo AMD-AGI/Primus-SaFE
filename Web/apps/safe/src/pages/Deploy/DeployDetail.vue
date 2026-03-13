@@ -193,7 +193,7 @@
         lazy
         v-if="detail?.workload_id && userStore.envs?.enableLog"
       >
-        <LogTable
+        <LogTerminal
           v-if="workloadDetail"
           :wlid="detail.workload_id"
           :dispatchCount="workloadDetail.dispatchCount"
@@ -219,7 +219,7 @@ import { getWorkloadDetail } from '@/services/workload'
 import { formatTimeStr } from '@/utils'
 import { useUserStore } from '@/stores/user'
 import type { DeploymentRequest } from '@/services/deploy/type'
-import LogTable from '@/pages/CICD/Components/LogTable.vue'
+import LogTerminal from '@/components/Workload/LogTerminal.vue'
 import { ElMessage } from 'element-plus'
 
 const router = useRouter()
