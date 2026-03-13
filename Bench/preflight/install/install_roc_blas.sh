@@ -23,8 +23,20 @@ fi
 
 REPO_URL="https://github.com/ROCm/rocBLAS.git"
 cd /opt
-git clone --branch $ROC_TAG --depth 1 "$REPO_URL" >/dev/null
-
+rm -rf rocBLAS
+git config --global http.postBuffer 524288000
+for i in 1 2 3 4 5; do
+  if git clone --branch $ROC_TAG --depth 1 "$REPO_URL" >/dev/null; then
+    break
+  fi
+  echo "Attempt $i failed, retrying in 15s..." >&2
+  rm -rf rocBLAS
+  sleep 15
+done
+if [ ! -d "rocBLAS" ]; then
+  echo "Error: Failed to clone rocBLAS after 5 attempts" >&2
+  exit 1
+fi
 
 cd "./rocBLAS" || exit 1
 
