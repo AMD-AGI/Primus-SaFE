@@ -23,10 +23,19 @@ else
   exit 1
 fi
 
-# Clone RVS repository
+# Clone RVS repository (retry on transient network errors)
 echo "Cloning ROCm Validation Suite with tag ${RVS_TAG}..."
-git clone --branch ${RVS_TAG} --depth 1 ${RVS_REPO}
-if [ $? -ne 0 ]; then
+git config --global http.postBuffer 524288000
+rm -rf ${RVS_DIR}
+for i in 1 2 3 4 5; do
+  if git clone --branch ${RVS_TAG} --depth 1 ${RVS_REPO}; then
+    break
+  fi
+  echo "Attempt $i failed, retrying in 15s..."
+  rm -rf ${RVS_DIR}
+  sleep 15
+done
+if [ ! -d "${RVS_DIR}" ]; then
   echo "Error: Failed to clone ROCm Validation Suite"
   exit 1
 fi
