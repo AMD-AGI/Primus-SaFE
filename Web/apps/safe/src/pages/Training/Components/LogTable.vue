@@ -24,7 +24,7 @@
           v-if="tableRows?.length"
           height="calc(100vh - 280px)"
           reserve-selection
-          @selection-change="onNodeSelectionChange"
+          @selection-change="doNodeSelectionChange"
         >
           <el-table-column type="selection" width="40" />
           <el-table-column prop="node" label="Node">
@@ -63,7 +63,7 @@
           </el-select>
         </el-col>
         <el-col :span="6">
-          <el-button :icon="Search" size="default" type="primary" @click="onSearch"></el-button>
+          <el-button :icon="Search" size="default" type="primary" @click="doSearch"></el-button>
           <el-tooltip
             content="Download all logs for this workload (not just the search results)."
             placement="top"
@@ -102,48 +102,52 @@
           </div>
         </el-col>
       </el-row>
-      <el-card class="mt-4 safe-card" shadow="never">
-        <el-table
-          :data="rowData"
-          v-loading="loading"
-          :element-loading-text="$loadingText"
-          style="height: calc(100vh - 360px)"
-          row-key="id"
-          v-if="rowData?.length"
+      <div class="log-terminal-wrapper mt-4">
+        <div class="log-terminal-toolbar">
+          <el-switch v-model="wordWrap" size="small" active-text="Wrap" />
+          <span v-if="pagination.total" class="term-stats">
+            {{ loadedCount }} / {{ pagination.total }}
+          </span>
+        </div>
+        <div
+          ref="terminalRef"
+          class="log-terminal"
+          :class="{ 'log-terminal--nowrap': !wordWrap }"
+          v-if="scrollRows.length"
+          @scroll="onTerminalScroll"
         >
-          <el-table-column>
-            <template #default="{ row }">
-              <div v-if="row._kind === 'header'" class="group-header">
-                <span class="pill">host: {{ row.host }}</span>
-                <span class="pill ml-2">pod: {{ row.pod_name }}</span>
-                <span class="pill ml-2">dispatchCount: {{ row.count }}</span>
-              </div>
-              <div v-else class="log-row" @click="onFetchContext(row.id, row.ts, row.log)">
-                <div class="log-time">{{ row.timeMessage }}</div>
-                <div class="log-message">{{ row.log }}</div>
-              </div>
-            </template>
-          </el-table-column>
-        </el-table>
-        <el-empty
-          style="height: calc(100vh - 320px)"
-          v-loading="loading"
+          <div v-if="!hasMore && oldestPage > 0" class="term-end-mark">── top ──</div>
+          <div v-if="loadingMore && searchParams.order === 'asc'" class="term-loading-bar">
+            Loading...
+          </div>
+          <template v-for="row in scrollRows" :key="row.id">
+            <div v-if="row._kind === 'header'" class="term-group-header">
+              ━━━ host: {{ row.host }} │ pod: {{ row.pod_name }} │ dispatch: {{ row.count }} ━━━
+            </div>
+            <div
+              v-else
+              class="term-line"
+              :class="getLogLevelClass(row.log)"
+              @click="onFetchContext(row.id, row.ts, row.log)"
+            >
+              <span class="term-ts">{{ row.timeMessage }}</span>
+              <span class="term-msg" v-html="highlightLog(row.log)"></span>
+            </div>
+          </template>
+          <div v-if="loadingMore && searchParams.order !== 'asc'" class="term-loading-bar">
+            Loading...
+          </div>
+        </div>
+        <div
+          class="log-terminal log-terminal--empty"
+          v-loading="initialLoading"
           :element-loading-text="$loadingText"
+          element-loading-background="rgba(10,12,16,0.8)"
           v-else
-          description="Click the Search button to view results"
-        />
-        <el-pagination
-          v-if="rowData?.length"
-          class="m-t-2"
-          :current-page="pagination.page"
-          :page-size="pagination.pageSize"
-          :total="pagination.total"
-          @current-change="handlePageChange"
-          @size-change="handlePageSizeChange"
-          layout="total, sizes, prev, pager, next"
-          :page-sizes="[200, 500, 800]"
-        />
-      </el-card>
+        >
+          <span style="color: #585b70">Click the Search button to view results</span>
+        </div>
+      </div>
     </el-col>
   </el-row>
 
@@ -157,9 +161,9 @@
 </template>
 
 <script lang="ts" setup>
-import { computed, ref, toRef, watch } from 'vue'
+import { computed, nextTick, ref, toRef, watch } from 'vue'
 import { InfoFilled, Search, Download } from '@element-plus/icons-vue'
-import { useLogTable } from '@/composables/useLogTable'
+import { useLogTable, type RowData } from '@/composables/useLogTable'
 import LogContextDialog from '@/components/Workload/LogContextDialog.vue'
 
 const props = defineProps<{
@@ -172,6 +176,7 @@ const props = defineProps<{
 }>()
 
 const hasRank = (r: unknown) => r !== null && r !== undefined && r !== ''
+const wordWrap = ref(true)
 
 const selectedGroup = ref<number>(props.dispatchCount ?? 0)
 
@@ -196,7 +201,6 @@ const {
   searchParams,
   pagination,
   handlePageChange,
-  handlePageSizeChange,
   onSearch,
   dedupeKeywords,
   nodeTableRef,
@@ -216,6 +220,161 @@ const {
   toRef(props, 'failedNodes'),
 )
 
+searchParams.order = 'asc'
+
+// ── Infinite scroll state ──
+const scrollRows = ref<RowData[]>([])
+const terminalRef = ref<HTMLElement>()
+const oldestPage = ref(0)
+const newestPage = ref(0)
+let pendingReset = true
+
+const totalPages = computed(() =>
+  Math.max(1, Math.ceil(pagination.total / pagination.pageSize)),
+)
+const hasMore = computed(() => {
+  if (!scrollRows.value.length) return false
+  if (searchParams.order === 'asc') return oldestPage.value > 1
+  return newestPage.value > 0 && newestPage.value < totalPages.value
+})
+const loadedCount = computed(() =>
+  scrollRows.value.filter((r) => r._kind !== 'header').length,
+)
+const initialLoading = computed(() => loading.value && !scrollRows.value.length)
+const loadingMore = computed(() => loading.value && scrollRows.value.length > 0)
+
+const mergeRows = (
+  incoming: RowData[],
+  existing: RowData[],
+  prepend: boolean,
+): RowData[] => {
+  if (prepend) {
+    const existingHeaderIds = new Set(
+      existing.filter((r) => r._kind === 'header').map((r) => r.id),
+    )
+    const cleaned = existing.filter(
+      (r) => !(r._kind === 'header' && existingHeaderIds.has(r.id) &&
+        incoming.some((nr) => nr._kind === 'header' && nr.id === r.id)),
+    )
+    return [...incoming, ...cleaned]
+  }
+  const existingHeaderIds = new Set(
+    existing.filter((r) => r._kind === 'header').map((r) => r.id),
+  )
+  const cleaned = incoming.filter(
+    (r) => !(r._kind === 'header' && existingHeaderIds.has(r.id)),
+  )
+  return [...existing, ...cleaned]
+}
+
+const scrollToBottom = () => {
+  const el = terminalRef.value
+  if (el) el.scrollTop = el.scrollHeight
+}
+
+watch(rowData, (rows) => {
+  if (!rows?.length) {
+    if (pendingReset) {
+      scrollRows.value = []
+      oldestPage.value = 0
+      newestPage.value = 0
+    }
+    pendingReset = false
+    return
+  }
+
+  const page = pagination.page
+
+  if (pendingReset) {
+    pendingReset = false
+    if (searchParams.order === 'asc' && totalPages.value > 1 && page === 1) {
+      handlePageChange(totalPages.value)
+      return
+    }
+    scrollRows.value = [...rows]
+    oldestPage.value = page
+    newestPage.value = page
+    if (searchParams.order === 'asc') nextTick(scrollToBottom)
+    return
+  }
+
+  if (oldestPage.value === 0) {
+    scrollRows.value = [...rows]
+    oldestPage.value = page
+    newestPage.value = page
+    nextTick(scrollToBottom)
+    return
+  }
+
+  if (page < oldestPage.value) {
+    const el = terminalRef.value
+    const prevHeight = el?.scrollHeight ?? 0
+    scrollRows.value = mergeRows(rows, scrollRows.value, true)
+    oldestPage.value = page
+    nextTick(() => {
+      if (el) el.scrollTop += el.scrollHeight - prevHeight
+    })
+    return
+  }
+
+  if (page > newestPage.value) {
+    scrollRows.value = mergeRows(rows, scrollRows.value, false)
+    newestPage.value = page
+  }
+})
+
+const onTerminalScroll = () => {
+  const el = terminalRef.value
+  if (!el || loading.value || !hasMore.value) return
+
+  if (searchParams.order === 'asc' && el.scrollTop < 80) {
+    handlePageChange(oldestPage.value - 1)
+  } else if (
+    searchParams.order !== 'asc' &&
+    el.scrollHeight - el.scrollTop - el.clientHeight < 80
+  ) {
+    handlePageChange(newestPage.value + 1)
+  }
+}
+
+const resetScroll = () => {
+  pendingReset = true
+  scrollRows.value = []
+  oldestPage.value = 0
+  newestPage.value = 0
+}
+
+const doSearch = () => {
+  resetScroll()
+  onSearch()
+}
+
+const doNodeSelectionChange = (rows: { node: string; rank?: string | number }[]) => {
+  resetScroll()
+  onNodeSelectionChange(rows)
+}
+
+const getLogLevelClass = (log: string): string => {
+  if (/error|fatal|exception|traceback|panic|NCCL WARN/i.test(log)) return 'term-error'
+  if (/warn(?:ing)?/i.test(log)) return 'term-warn'
+  if (/training.?progress|throughput|metric/i.test(log)) return 'term-metric'
+  if (/cache.?flush|debug/i.test(log)) return 'term-debug'
+  return ''
+}
+
+const escapeHtml = (s: string) =>
+  s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+const escapeRegExp = (s: string) =>
+  s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+
+const highlightLog = (log: string): string => {
+  const html = escapeHtml(log)
+  const kws = searchParams.keywords
+  if (!kws.length) return html
+  const pattern = kws.map(escapeRegExp).join('|')
+  return html.replace(new RegExp(`(${pattern})`, 'gi'), '<mark class="term-kw-hit">$1</mark>')
+}
+
 watch(
   () => props.dispatchCount,
   (v) => {
@@ -226,34 +385,161 @@ watch(
 </script>
 
 <style scoped>
-:deep(.el-table-v2__row) {
-  height: auto !important;
+/* ── Terminal wrapper ── */
+.log-terminal-wrapper {
+  border-radius: 8px;
+  overflow: hidden;
+  border: 1px solid #2a2e3a;
+  background: #1a1d27;
 }
-:deep(.group-header) {
+
+.log-terminal-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 14px;
+  background: #14161e;
+  border-bottom: 1px solid #2a2e3a;
+}
+
+/* ── Terminal body ── */
+.log-terminal {
+  height: calc(100vh - 316px);
+  overflow: auto;
+  padding: 4px 0;
+  font-family: 'Cascadia Code', 'Fira Code', Consolas, 'Courier New', monospace;
+  font-size: 13px;
+  line-height: 20px;
+  background: #1a1d27;
+  color: #cdd6f4;
+}
+.log-terminal--empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.log-terminal--nowrap {
+  white-space: nowrap;
+}
+.log-terminal:not(.log-terminal--nowrap) {
+  white-space: pre-wrap;
+}
+
+/* ── Group header (pod separator) ── */
+.term-group-header {
+  padding: 6px 14px;
+  color: #89b4fa;
   font-weight: 600;
-  color: #628ed0;
+  background: rgba(137, 180, 250, 0.06);
+  border-top: 1px solid #2a2e3a;
+  border-bottom: 1px solid #2a2e3a;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  user-select: none;
+}
+.term-group-header:first-child {
+  border-top: none;
 }
 
-.log-row {
+/* ── Log line ── */
+.term-line {
   display: flex;
   align-items: flex-start;
-  font-family: monospace;
-  white-space: pre-wrap;
-  line-height: 1.4;
-  padding: 2px 0;
+  padding: 1px 14px 1px 14px;
   cursor: pointer;
+  transition: background 0.1s;
+  border-left: 3px solid transparent;
 }
-.log-time {
+.term-line:hover {
+  background: rgba(205, 214, 244, 0.06);
+}
+
+/* ── Timestamp ── */
+.term-ts {
   flex-shrink: 0;
   width: 200px;
-  color: var(--log-time-color);
+  color: #7f849c;
 }
-.log-message {
+
+/* ── Message ── */
+.term-msg {
   flex: 1;
-  color: var(--log-message-color);
+  color: #bac2de;
   overflow-wrap: anywhere;
+}
+
+/* ── Log level colors ── */
+.term-error {
+  border-left-color: #f38ba8;
+}
+.term-error .term-msg {
+  color: #f38ba8;
+}
+.term-warn {
+  border-left-color: #fab387;
+}
+.term-warn .term-msg {
+  color: #fab387;
+}
+.term-metric {
+  border-left-color: #89b4fa;
+}
+.term-metric .term-msg {
+  color: #89dceb;
+}
+.term-debug .term-msg {
+  color: #585b70;
+}
+
+/* ── Keyword highlight ── */
+:deep(.term-kw-hit) {
+  background: rgba(249, 226, 175, 0.3);
+  color: #f9e2af;
+  border-radius: 2px;
+  padding: 0 2px;
+}
+
+/* ── Scrollbar ── */
+.log-terminal::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+.log-terminal::-webkit-scrollbar-track {
+  background: transparent;
+}
+.log-terminal::-webkit-scrollbar-thumb {
+  background: #45475a;
+  border-radius: 4px;
+}
+.log-terminal::-webkit-scrollbar-thumb:hover {
+  background: #585b70;
+}
+
+/* ── Loading / end marks ── */
+.term-loading-bar {
+  padding: 6px 14px;
+  color: #585b70;
+  text-align: center;
+  font-size: 12px;
+}
+.term-end-mark {
+  padding: 4px 14px;
+  color: #45475a;
+  text-align: center;
+  font-size: 12px;
+}
+.term-stats {
+  color: #7f849c;
+  font-size: 12px;
+  margin-left: auto;
+}
+
+/* ── Override el-switch in dark terminal toolbar ── */
+.log-terminal-toolbar :deep(.el-switch__label) {
+  color: #7f849c;
+}
+.log-terminal-toolbar :deep(.el-switch__label.is-active) {
+  color: #cdd6f4;
 }
 </style>
