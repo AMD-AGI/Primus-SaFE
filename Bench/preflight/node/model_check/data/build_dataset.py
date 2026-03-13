@@ -199,7 +199,9 @@ def get_dataloaders(
     cache_dir: str = None,
 ):
     """Get train and validation dataloaders with caching support."""
-    tokenizer = AutoTokenizer.from_pretrained(config.model_path, use_fast=True)
+    tokenizer = AutoTokenizer.from_pretrained(
+        config.model_path, use_fast=True, local_files_only=True
+    )
     tokenizer.pad_token = tokenizer.eos_token
 
     train_ids = load_and_tokenize(
@@ -250,6 +252,7 @@ def build_dataset(
     config,
     use_cache: bool = True,
     cache_dir: str = None,
+    local_files_only: bool = True,
 ):
     """
     Build dataset for training with caching support.
@@ -258,6 +261,7 @@ def build_dataset(
         config: Configuration object with data settings
         use_cache: Whether to use caching (default: True)
         cache_dir: Custom cache directory (default: ./cache/datasets)
+        local_files_only: If True, load tokenizer from cache only (avoids 429 when 8 GPUs load in parallel)
         
     Returns:
         Training dataset
@@ -265,8 +269,10 @@ def build_dataset(
     # Extract model path for tokenizer
     model_path = config.model.model_path if hasattr(config, 'model') else config.model_path
     
-    # Create tokenizer
-    tokenizer = AutoTokenizer.from_pretrained(model_path, use_fast=True)
+    # Create tokenizer (local_files_only=True avoids API calls, prevents 429 when 8 GPUs load in parallel)
+    tokenizer = AutoTokenizer.from_pretrained(
+        model_path, use_fast=True, local_files_only=local_files_only
+    )
     tokenizer.pad_token = tokenizer.eos_token
     
     # Get dataset name and other settings

@@ -11,12 +11,16 @@ apt-get update >/dev/null 2>&1
 KERNEL_VERSION=$(uname -r)
 
 if [ "${OS_NAME}" = "oci" ]; then
-  # e.g. 6.8.0-1039-oracle -> 6.8 for linux-tools-oracle-6.8
-  VERSION_PREFIX="${KERNEL_VERSION%%-*}"
-  VERSION_MAJOR_MINOR=$(echo "$VERSION_PREFIX" | cut -d'.' -f1-2)
-  linux_tools="linux-tools-oracle-${VERSION_MAJOR_MINOR} linux-tools-common"
+  # e.g. 5.15.0-1074 or 6.8.0-1039-oracle -> linux-tools-5.15.0-1074-oracle
+  KERNEL_SUFFIX="${KERNEL_VERSION}"
+  [[ "$KERNEL_VERSION" != *-oracle ]] && KERNEL_SUFFIX="${KERNEL_VERSION}-oracle"
+  linux_tools="linux-tools-${KERNEL_SUFFIX} linux-cloud-tools-${KERNEL_SUFFIX} linux-tools-common"
   echo "Trying to install $linux_tools (OS_NAME=oci, kernel ${KERNEL_VERSION})..."
-  apt install -y linux-tools-oracle-${VERSION_MAJOR_MINOR} linux-tools-common >/dev/null 2>&1
+  if ! apt install -y linux-tools-${KERNEL_SUFFIX} linux-cloud-tools-${KERNEL_SUFFIX} linux-tools-common >/dev/null 2>&1; then
+    echo "Kernel-specific package failed, trying generic linux-tools-oracle..."
+    linux_tools="linux-tools-oracle linux-cloud-tools-oracle linux-tools-common"
+    apt install -y linux-tools-oracle linux-cloud-tools-oracle linux-tools-common >/dev/null 2>&1
+  fi
 else
   linux_tools="linux-tools-${KERNEL_VERSION} linux-tools-common"
   echo "Trying to install $linux_tools..."
