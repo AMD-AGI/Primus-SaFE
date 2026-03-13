@@ -327,9 +327,6 @@ func (r *OpsJobBaseReconciler) handleWorkloadEventImpl(ctx context.Context, work
 			phase = v1.OpsJobFailed
 		}
 		completionMessage = r.getWorkloadCompletionMessage(ctx, workload)
-		if completionMessage == "" {
-			completionMessage = "unknown"
-		}
 	case workload.IsRunning():
 		phase = v1.OpsJobRunning
 	default:
@@ -347,7 +344,10 @@ func (r *OpsJobBaseReconciler) handleWorkloadEventImpl(ctx context.Context, work
 		case v1.OpsJobPending, v1.OpsJobRunning:
 			err = r.setJobPhase(ctx, job, phase)
 		default:
-			output := []v1.Parameter{{Name: "result", Value: completionMessage}}
+			var output []v1.Parameter
+			if completionMessage != "" {
+				output = []v1.Parameter{{Name: "result", Value: completionMessage}}
+			}
 			err = r.setJobCompleted(ctx, job, phase, completionMessage, output)
 		}
 		if err != nil {
