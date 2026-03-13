@@ -6,13 +6,19 @@
 
 echo "============== begin to install linux-tools =============="
 
-KERNEL_VERSION=$(uname -r)
-linux_tools="linux-tools-${KERNEL_VERSION}"
-
 apt-get update >/dev/null 2>&1
-echo "Trying to install $linux_tools..."
 
-apt install -y "$linux_tools" linux-tools-common >/dev/null 2>&1
+if [ "${OS_NAME}" = "oci" ]; then
+  linux_tools="linux-cloud-tools-oracle"
+  echo "Trying to install $linux_tools (OS_NAME=oci)..."
+  apt install -y "$linux_tools" >/dev/null 2>&1
+else
+  KERNEL_VERSION=$(uname -r)
+  linux_tools="linux-tools-${KERNEL_VERSION} linux-tools-common"
+  echo "Trying to install $linux_tools..."
+  apt install -y linux-tools-${KERNEL_VERSION} linux-tools-common >/dev/null 2>&1
+fi
+
 if [ $? -ne 0 ]; then
   echo "Failed to install $linux_tools"
   exit 1
