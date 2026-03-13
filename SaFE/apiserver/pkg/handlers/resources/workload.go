@@ -732,6 +732,7 @@ func (h *Handler) getWorkloadForAuth(ctx context.Context, workloadId string) (*v
 		return nil, err
 	}
 	adminWorkload := generateWorkloadForAuth(workloadId, dbutils.ParseNullString(dbWorkload.UserId), dbWorkload.Workspace, dbWorkload.Cluster)
+	json.Unmarshal([]byte(dbWorkload.GVK), &adminWorkload.Spec.GroupVersionKind)
 	adminWorkload.CreationTimestamp = metav1.NewTime(dbutils.ParseNullTime(dbWorkload.CreationTime))
 	endTime := dbutils.ParseNullTime(dbWorkload.EndTime)
 	if !endTime.IsZero() {
@@ -740,6 +741,12 @@ func (h *Handler) getWorkloadForAuth(ctx context.Context, workloadId string) (*v
 	startTime := dbutils.ParseNullTime(dbWorkload.StartTime)
 	if !startTime.IsZero() {
 		adminWorkload.Status.StartTime = &metav1.Time{Time: startTime}
+	}
+	if runnerSetId := dbutils.ParseNullString(dbWorkload.ScaleRunnerSet); runnerSetId != "" {
+		v1.SetAnnotation(adminWorkload, v1.CICDScaleSetIdAnnotation, runnerSetId)
+	}
+	if runnerId := dbutils.ParseNullString(dbWorkload.ScaleRunnerId); runnerId != "" {
+		v1.SetLabel(adminWorkload, v1.CICDScaleRunnerIdLabel, runnerId)
 	}
 	return adminWorkload, nil
 }

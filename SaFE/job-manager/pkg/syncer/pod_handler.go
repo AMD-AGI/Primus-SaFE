@@ -401,7 +401,9 @@ func buildPodTerminatedInfo(ctx context.Context,
 		if mainContainerName == "" {
 			mainContainerName = c.Name
 		}
-		if commonworkload.IsOpsJob(adminWorkload) && c.Name == mainContainerName {
+		// The preflight results are complex and are handled by job self-parse.
+		if commonworkload.IsOpsJob(adminWorkload) && c.Name == mainContainerName &&
+			v1.GetOpsJobType(adminWorkload) != string(v1.OpsJobPreflightType) {
 			message := getPodLog(ctx, clientSet, pod, mainContainerName)
 			c.Message = message
 		}
