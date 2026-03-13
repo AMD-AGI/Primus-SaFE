@@ -176,10 +176,24 @@ else:
 
 log_info "Detected $NUM_GPUS GPU(s)"
 
-# Prepare dataset
+# Prepare dataset (set HF timeouts for slow/unstable networks; default 10s often causes ReadTimeout)
+export HF_HUB_DOWNLOAD_TIMEOUT="${HF_HUB_DOWNLOAD_TIMEOUT:-300}"
+export HF_HUB_ETAG_TIMEOUT="${HF_HUB_ETAG_TIMEOUT:-60}"
+# Optional: set HF_ENDPOINT=https://hf-mirror.com if huggingface.co is slow/blocked
 log_info "Preparing dataset..."
 cd "$SCRIPT_DIR"
-python3 prepare_dataset.py || exit 1
+for attempt in 1 2 3; do
+  if python3 prepare_dataset.py; then
+    break
+  fi
+  if [ $attempt -lt 3 ]; then
+    log_info "Dataset prepare failed (attempt $attempt/3), retrying in 10s..."
+    sleep 10
+  else
+    log_error "Failed to prepare dataset after 3 attempts"
+    exit 1
+  fi
+done
 
 #############################################################################
 # Launch Training Processes
