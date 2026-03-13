@@ -635,46 +635,21 @@ func (h *Handler) retryDeployment(c *gin.Context) (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
-	userId := c.GetString(common.UserId)
-	ctx := c.Request.Context()
 
-	opsJob, err := h.generateCDOpsJob(ctx, req, userId, username)
+	newReq := &dbclient.DeploymentRequest{
+		DeployName:  username,
+		DeployType:  req.DeployType,
+		Status:      StatusPendingApproval,
+		EnvConfig:   req.EnvConfig,
+		Description: dbutils.NullString(fmt.Sprintf("Retry of failed deployment request %d", id)),
+	}
+
+	newId, err := h.dbClient.CreateDeploymentRequest(c.Request.Context(), newReq)
 	if err != nil {
-		klog.ErrorS(err, "Failed to generate CD OpsJob for retry", "id", req.Id)
 		return nil, err
 	}
 
-	if err := h.Create(ctx, opsJob); err != nil {
-		klog.ErrorS(err, "Failed to create CD OpsJob for retry", "id", req.Id)
-		return nil, err
-	}
-
-	deployType := req.DeployType
-	if deployType == "" {
-		deployType = DeployTypeSafe
-	}
-	if deployType == DeployTypeLens {
-		if err := h.createLensConfigMap(ctx, req, opsJob); err != nil {
-			klog.ErrorS(err, "Failed to create Lens ConfigMap for retry", "id", req.Id)
-			return nil, commonerrors.NewInternalError(fmt.Sprintf("Failed to create Lens ConfigMap: %v", err))
-		}
-	}
-
-	req.Status = StatusDeploying
-	req.FailureReason = dbutils.NullString("")
-	req.WorkloadId = dbutils.NullString(opsJob.Name)
-	if err := h.dbClient.UpdateDeploymentRequest(ctx, req); err != nil {
-		klog.ErrorS(err, "Failed to update deployment request status for retry", "id", req.Id)
-	}
-
-	klog.Infof("CD OpsJob retried for deployment request %d: %s", req.Id, opsJob.Name)
-
-	return ApprovalResp{
-		Id:         req.Id,
-		Status:     StatusDeploying,
-		WorkloadId: opsJob.Name,
-		Message:    "Deployment retried, new OpsJob created",
-	}, nil
+	return CreateDeploymentRequestResp{Id: newId}, nil
 }
 
 func (h *Handler) getCurrentEnvConfig(c *gin.Context) (interface{}, error) {
