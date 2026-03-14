@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	"golang.org/x/crypto/ssh"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -145,7 +146,7 @@ func (r *NodeReconciler) Reconcile(ctx context.Context, req ctrlruntime.Request)
 		return ctrlruntime.Result{}, client.IgnoreNotFound(err)
 	}
 	if !adminNode.GetDeletionTimestamp().IsZero() {
-		return ctrlruntime.Result{}, r.delete(ctx, adminNode)
+		return r.delete(ctx, adminNode)
 	}
 
 	k8sNode, result, err := r.getK8sNode(ctx, adminNode)
@@ -163,8 +164,12 @@ func (r *NodeReconciler) Reconcile(ctx context.Context, req ctrlruntime.Request)
 }
 
 // delete handles Node deletion by removing the finalizer.
-func (r *NodeReconciler) delete(ctx context.Context, adminNode *v1.Node) error {
-	return utils.RemoveFinalizer(ctx, r.Client, adminNode, v1.NodeFinalizer)
+func (r *NodeReconciler) delete(ctx context.Context, adminNode *v1.Node) (ctrlruntime.Result, error) {
+	result, err := r.deleteK8sNode(ctx, adminNode)
+	if err != nil || result.RequeueAfter > 0 {
+		return result, err
+	}
+	return ctrlruntime.Result{}, utils.RemoveFinalizer(ctx, r.Client, adminNode, v1.NodeFinalizer)
 }
 
 // getK8sNode retrieves the Kubernetes Node object in the data plane associated with the admin Node.
@@ -180,6 +185,24 @@ func (r *NodeReconciler) getK8sNode(ctx context.Context, adminNode *v1.Node) (*c
 	}
 	k8sNode, err := getNodeByInformer(ctx, k8sClients, k8sNodeName)
 	return k8sNode, ctrlruntime.Result{}, err
+}
+
+// deleteK8sNode delete the Kubernetes Node in the data plane associated with the admin Node.
+func (r *NodeReconciler) deleteK8sNode(ctx context.Context, adminNode *v1.Node) (ctrlruntime.Result, error) {
+	clusterName := getClusterId(adminNode)
+	k8sNodeName := adminNode.GetK8sNodeName()
+	if clusterName == "" || k8sNodeName == "" {
+		return ctrlruntime.Result{}, nil
+	}
+	k8sClients, err := utils.GetK8sClientFactory(r.clientManager, clusterName)
+	if err != nil {
+		return ctrlruntime.Result{}, commonerrors.IgnoreFound(err)
+	}
+	if !k8sClients.IsValid() {
+		return ctrlruntime.Result{RequeueAfter: time.Second}, nil
+	}
+	err = k8sClients.ClientSet().CoreV1().Nodes().Delete(ctx, k8sNodeName, metav1.DeleteOptions{})
+	return ctrlruntime.Result{}, client.IgnoreNotFound(err)
 }
 
 // observe checks if any observed fields have changed and need updating Or
