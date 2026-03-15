@@ -162,8 +162,9 @@ func TestGetDeploymentResources(t *testing.T) {
 	deploy, err := jsonutils.ParseYamlToJson(TestDeploymentData)
 	assert.NilError(t, err)
 	rt := TestDeploymentResourceTemplate.DeepCopy()
+	v1.SetAnnotation(deploy, v1.MainContainerAnnotation, "test")
 
-	replicaList, resourceList, err := GetResources(deploy, rt, "test", common.AmdGpu, 1)
+	replicaList, resourceList, err := GetResources(deploy, rt, common.AmdGpu, 1)
 	assert.NilError(t, err)
 	assert.Equal(t, len(resourceList), 1)
 	rl := resourceList[0]
@@ -181,8 +182,9 @@ func TestGetDeploymentImage(t *testing.T) {
 	deploy, err := jsonutils.ParseYamlToJson(TestDeploymentData)
 	assert.NilError(t, err)
 	rt := TestDeploymentResourceTemplate.DeepCopy()
+	v1.SetAnnotation(deploy, v1.MainContainerAnnotation, "test")
 
-	images, err := GetImages(deploy, rt, "test", 1)
+	images, err := GetImages(deploy, rt, 1)
 	assert.NilError(t, err)
 	assert.Equal(t, len(images), 1)
 	assert.Equal(t, images[0], "test-image:latest")
@@ -192,8 +194,9 @@ func TestGetDeploymentCommand(t *testing.T) {
 	deploy, err := jsonutils.ParseYamlToJson(TestDeploymentData)
 	assert.NilError(t, err)
 	rt := TestDeploymentResourceTemplate.DeepCopy()
+	v1.SetAnnotation(deploy, v1.MainContainerAnnotation, "test")
 
-	commands, err := GetCommands(deploy, rt, "test", 1)
+	commands, err := GetCommands(deploy, rt, 1)
 	assert.NilError(t, err)
 	assert.Equal(t, len(commands), 1)
 	assert.Equal(t, len(commands[0]), 3)
@@ -206,8 +209,9 @@ func TestGetPytorchJobCommands(t *testing.T) {
 	deploy, err := jsonutils.ParseYamlToJson(TestPytorchData)
 	assert.NilError(t, err)
 	rt := TestPytorchResourceTemplate.DeepCopy()
+	v1.SetAnnotation(deploy, v1.MainContainerAnnotation, "pytorch")
 
-	commands, err := GetCommands(deploy, rt, "pytorch", 2)
+	commands, err := GetCommands(deploy, rt, 2)
 	assert.NilError(t, err)
 	assert.Equal(t, len(commands), 2)
 	assert.Equal(t, len(commands[0]), 3)
@@ -236,8 +240,9 @@ func TestGetPytorchJobResources(t *testing.T) {
 	job, err := jsonutils.ParseYamlToJson(TestPytorchData)
 	assert.NilError(t, err)
 	rt := TestPytorchResourceTemplate.DeepCopy()
+	v1.SetAnnotation(job, v1.MainContainerAnnotation, "pytorch")
 
-	replicaList, resourceList, err := GetResources(job, rt, "pytorch", common.AmdGpu, 2)
+	replicaList, resourceList, err := GetResources(job, rt, common.AmdGpu, 2)
 	assert.NilError(t, err)
 	assert.Equal(t, len(replicaList), 2)
 	assert.Equal(t, len(resourceList), 2)
@@ -265,8 +270,9 @@ func TestGetPytorchJobMasterResource(t *testing.T) {
 	job, err := jsonutils.ParseYamlToJson(TestPytorchData2)
 	assert.NilError(t, err)
 	rt := TestPytorchResourceTemplate.DeepCopy()
+	v1.SetAnnotation(job, v1.MainContainerAnnotation, "pytorch")
 
-	replicaList, resourceList, err := GetResources(job, rt, "pytorch", common.AmdGpu, 1)
+	replicaList, resourceList, err := GetResources(job, rt, common.AmdGpu, 1)
 	assert.NilError(t, err)
 	assert.Equal(t, len(replicaList), 1)
 	assert.Equal(t, len(resourceList), 1)
@@ -307,8 +313,9 @@ func TestGetDeploymentEnv(t *testing.T) {
 	deploy, err := jsonutils.ParseYamlToJson(TestDeploymentData)
 	assert.NilError(t, err)
 	rt := TestDeploymentResourceTemplate.DeepCopy()
+	v1.SetAnnotation(deploy, v1.MainContainerAnnotation, "test")
 
-	envs, err := GetEnv(deploy, rt, "test", 1)
+	envs, err := GetEnv(deploy, rt, 1)
 	assert.NilError(t, err)
 	assert.Equal(t, len(envs), 2)
 	env, ok := envs[0].(map[string]interface{})

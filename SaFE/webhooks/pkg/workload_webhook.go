@@ -118,6 +118,9 @@ func (m *WorkloadMutator) mutateOnCreation(ctx context.Context, workload *v1.Wor
 	m.mutateTTLSeconds(workload)
 	m.mutateCommon(ctx, nil, workload, workspace)
 	m.mutateTimeout(workload, workspace)
+	if commonworkload.IsRayJob(workload) {
+		m.mutateRayJob(workload)
+	}
 	return true
 }
 
@@ -184,7 +187,7 @@ func (m *WorkloadMutator) mutateMeta(ctx context.Context, workload *v1.Workload,
 		v1.SetAnnotation(workload, v1.UseWorkspaceStorageAnnotation, v1.TrueStr)
 	}
 	v1.SetLabel(workload, v1.UserNameMd5Label, stringutil.MD5(v1.GetUserName(workload)))
-	commonworkload.GetWorkloadMainContainer(ctx, m.Client, workload)
+	commonworkload.SetMainContainerViaTemplate(ctx, m.Client, workload)
 	controllerutil.AddFinalizer(workload, v1.WorkloadFinalizer)
 }
 
@@ -414,6 +417,31 @@ func (m *WorkloadMutator) mutateImages(workload *v1.Workload) {
 	for i := 0; i < len(workload.Spec.Images); i++ {
 		workload.Spec.Images[i] = strings.TrimSpace(workload.Spec.Images[i])
 	}
+}
+
+// mutateRayJob automatically add image, entrypoint and resource for submitter pod.
+// This is an internal behavior and is not exposed externally.
+func (m *WorkloadMutator) mutateRayJob(workload *v1.Workload) {
+	if len(workload.Spec.Images) > 0 {
+		images := make([]string, 0, len(workload.Spec.Images)+1)
+		images = append(images, workload.Spec.Images[0])
+		images = append(images, workload.Spec.Images...)
+		workload.Spec.Images = images
+	}
+
+	entryPoints := make([]string, 0, len(workload.Spec.EntryPoints)+1)
+	entryPoints = append(entryPoints, "")
+	entryPoints = append(entryPoints, workload.Spec.EntryPoints...)
+	workload.Spec.EntryPoints = entryPoints
+
+	resources := make([]v1.WorkloadResource, 0, len(workload.Spec.Resources)+1)
+	resources = append(resources, v1.WorkloadResource{
+		CPU:              common.RayJobSubmitterCpu,
+		Memory:           common.RayJobSubmitterMemory,
+		EphemeralStorage: common.RayJobSubmitterStorage,
+	})
+	resources = append(resources, workload.Spec.Resources...)
+	workload.Spec.Resources = resources
 }
 
 // mutateMaxRetry bounds MaxRetry to [0, DefaultMaxFailover].
@@ -835,9 +863,14 @@ func (v *WorkloadValidator) validateTorchFT(newWorkload, oldWorkload *v1.Workloa
 // validateRayJob validates RayJob workload configuration.
 func (v *WorkloadValidator) validateRayJob(newWorkload, _ *v1.Workload) error {
 	// RayJob workloads require at most 3 resource configurations - one for header group and two for the worker groups
-	if len(newWorkload.Spec.Resources) > 3 {
-		return fmt.Errorf("Expected at most 3 resource configurations (header and worker groups), "+
-			"got %d, resources: %v", len(newWorkload.Spec.Resources), newWorkload.Spec.Resources)
+	// The submitter is automatically added and occupies the resources[0] slot; therefore, it is excluded from the calculation.
+	if len(newWorkload.Spec.Resources) > 4 {
+		return fmt.Errorf("Expected at most 3 resource configurations (header and two worker groups), "+
+			"resources: %v", newWorkload.Spec.Resources)
+	}
+	if len(newWorkload.Spec.Resources) < 2 || len(newWorkload.Spec.Images) < 2 {
+		return fmt.Errorf("Expected at least 1 resource configurations (header), "+
+			"resources: %v", newWorkload.Spec.Resources)
 	}
 	keys := []string{common.RayJobEntrypoint}
 	for _, key := range keys {

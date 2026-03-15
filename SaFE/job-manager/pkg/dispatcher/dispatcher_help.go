@@ -214,14 +214,14 @@ func modifyContainers(obj *unstructured.Unstructured,
 	if !found || len(containers) == 0 {
 		return fmt.Errorf("failed to find container with path: %v", path)
 	}
+
 	env := buildEnvironment(workload, resourceId)
-	mainContainerName := v1.GetMainContainer(workload)
+	mainContainerName := commonworkload.GetMainContainer(workload, workload.Spec.Kind, resourceId)
 	for i := range containers {
 		container := containers[i].(map[string]interface{})
 		modifyEnv(container, env, workload.Spec.Resources[resourceId].RdmaResource != "")
-		modifyVolumeMounts(container, workload, workspace)
+		modifyVolumeMounts(container, workload, workspace, resourceId)
 		modifyPrivilegedSecurity(container, workload)
-
 		name := jobutils.NestedStringSilently(container, []string{"name"})
 		if name == mainContainerName {
 			if workload.Spec.JobPort > 0 {
@@ -291,13 +291,16 @@ func modifyEnv(container map[string]interface{}, envs []interface{}, isHostNetwo
 
 // modifyVolumeMounts configures volume mounts for the container based on workspace and workload specifications.
 // It includes shared memory volumes, workspace volumes, host path volumes and secret with default-type of workload.
-func modifyVolumeMounts(container map[string]interface{}, workload *v1.Workload, workspace *v1.Workspace) {
+func modifyVolumeMounts(container map[string]interface{}, workload *v1.Workload, workspace *v1.Workspace, resourceId int) {
 	var volumeMounts []interface{}
 	volumeMountObjs, ok := container["volumeMounts"]
 	if ok {
 		volumeMounts = volumeMountObjs.([]interface{})
 	}
-	volumeMounts = append(volumeMounts, buildVolumeMount(SharedMemoryVolume, "/dev/shm", "", false))
+
+	if workload.Spec.Resources[resourceId].SharedMemory != "" {
+		volumeMounts = append(volumeMounts, buildVolumeMount(SharedMemoryVolume, "/dev/shm", "", false))
+	}
 
 	maxId := 0
 	if workspace != nil && v1.IsEnableWorkspaceStorage(workload) {
@@ -513,6 +516,9 @@ func modifyTolerations(obj *unstructured.Unstructured, workload *v1.Workload, pa
 // buildCommands constructs the command array for executing the workload entry point.
 func buildCommands(workload *v1.Workload, id int) []interface{} {
 	if commonworkload.IsRayJob(workload) {
+		if id == 0 {
+			return nil
+		}
 		return []interface{}{buildEntryPoint(workload, id)}
 	}
 	return []interface{}{"/bin/sh", "-c", buildEntryPoint(workload, id)}
@@ -535,64 +541,6 @@ func buildEntryPoint(workload *v1.Workload, id int) string {
 		result = Launcher + " '" + workload.Spec.EntryPoints[id] + "'"
 	}
 	return result
-}
-
-// buildRayJobSubmitterTemplate builds a complete submitter pod template per KubeRay's GetSubmitterTemplate.
-// It uses the image from the Ray head container and applies our labels/annotations.
-func buildRayJobSubmitterTemplate(adminWorkload *v1.Workload) (map[string]interface{}, error) {
-	if len(adminWorkload.Spec.Images) == 0 {
-		return nil, fmt.Errorf("cannot get head container image from RayJob rayClusterSpec")
-	}
-	headImage := adminWorkload.Spec.Images[0]
-	labels := buildPodLabels(adminWorkload)
-	annotations := buildObjectAnnotations(adminWorkload)
-	annotations[v1.MainContainerAnnotation] = common.RayJobSubmitterName
-	labelsMap := make(map[string]interface{}, len(labels))
-	for k, v := range labels {
-		labelsMap[k] = v
-	}
-	annotationsMap := make(map[string]interface{}, len(annotations))
-	for k, v := range annotations {
-		annotationsMap[k] = v
-	}
-	submitterContainer := map[string]interface{}{
-		"name":  common.RayJobSubmitterName,
-		"image": headImage,
-		"resources": map[string]interface{}{
-			"limits": map[string]interface{}{
-				"cpu":    common.RayJobSubmitterCpu,
-				"memory": common.RayJobSubmitterMemory,
-			},
-			"requests": map[string]interface{}{
-				"cpu":    common.RayJobSubmitterCpu,
-				"memory": common.RayJobSubmitterMemory,
-			},
-		},
-	}
-	return map[string]interface{}{
-		"metadata": map[string]interface{}{
-			"labels":      labelsMap,
-			"annotations": annotationsMap,
-		},
-		"spec": map[string]interface{}{
-			"containers":    []interface{}{submitterContainer},
-			"restartPolicy": "Never",
-		},
-	}, nil
-}
-
-// syncRayJobSubmitterPodMetadata sets spec.submitterPodTemplate to a complete template matching
-// KubeRay's GetSubmitterTemplate default, with our labels and annotations applied.
-// KubeRay requires a full PodTemplateSpec when SubmitterPodTemplate is set
-func syncRayJobSubmitterPodMetadata(obj *unstructured.Unstructured, adminWorkload *v1.Workload) error {
-	template, err := buildRayJobSubmitterTemplate(adminWorkload)
-	if err != nil {
-		return err
-	}
-	if err = jobutils.SetNestedField(obj.Object, template, []string{"spec", "submitterPodTemplate"}); err != nil {
-		return fmt.Errorf("failed to set submitterPodTemplate: %w", err)
-	}
-	return nil
 }
 
 // buildObjectLabels creates a map of labels for object tracking.
@@ -637,17 +585,9 @@ func buildPodLabels(workload *v1.Workload) map[string]interface{} {
 func buildPodAnnotations(workload *v1.Workload, resourceId int) map[string]interface{} {
 	result := buildObjectAnnotations(workload)
 	result[v1.ResourceIdAnnotation] = strconv.Itoa(resourceId)
-	if v1.GetMainContainer(workload) != "" {
-		result[v1.MainContainerAnnotation] = v1.GetMainContainer(workload)
-	}
-	return result
-}
-
-// buildResources constructs resource requirements for the workload container.
-func buildResources(resourceList corev1.ResourceList) map[string]interface{} {
-	result := make(map[string]interface{})
-	for key, val := range resourceList {
-		result[string(key)] = val.String()
+	mainContainerName := commonworkload.GetMainContainer(workload, workload.SpecKind(), resourceId)
+	if mainContainerName != "" {
+		result[v1.MainContainerAnnotation] = mainContainerName
 	}
 	return result
 }
@@ -655,21 +595,25 @@ func buildResources(resourceList corev1.ResourceList) map[string]interface{} {
 // buildEnvironment creates environment variables for the workload container.
 func buildEnvironment(workload *v1.Workload, resourceId int) []interface{} {
 	var result []interface{}
-	if workload.GetEnv("AINIC_DRIVER_VERSION") != "" {
-		result = addEnvVar(result, workload, "NCCL_IB_GID_INDEX", "1")
-		result = addEnvVar(result, workload, "NCCL_IB_TC", "104")
-		result = addEnvVar(result, workload, "NCCL_IB_FIFO_TC", "192")
-		result = addEnvVar(result, workload, "NCCL_DMABUF_ENABLE", "0")
-		result = addEnvVar(result, workload, "NCCL_MAX_P2P_CHANNELS", "56")
-		result = addEnvVar(result, workload, "NET_OPTIONAL_RECV_COMPLETION", "1")
-		result = addEnvVar(result, workload, "NCCL_IB_USE_INLINE", "1")
-		result = addEnvVar(result, workload, "RCCL_GDR_FLUSH_GPU_MEM_NO_RELAXED_ORDERING", "0")
-		result = addEnvVar(result, workload, "NCCL_GDR_FLUSH_DISABLE", "1")
-		result = addEnvVar(result, workload, "NCCL_IGNORE_CPU_AFFINITY", "1")
-		result = addEnvVar(result, workload, "LD_LIBRARY_PATH", "/opt/amd-anp/build:/opt/rccl/build/release:/opt/rocm/lib")
-	} else {
-		result = addEnvVar(result, workload, "NCCL_IB_GID_INDEX", "3")
-		result = addEnvVar(result, workload, "NCCL_IB_TC", "41")
+	if resourceId >= 0 && resourceId < len(workload.Spec.Resources) &&
+		workload.Spec.Resources[resourceId].GPU != "" {
+		if workload.GetEnv("AINIC_DRIVER_VERSION") != "" {
+			result = addEnvVar(result, workload, "NCCL_IB_GID_INDEX", "1")
+			result = addEnvVar(result, workload, "NCCL_IB_TC", "104")
+			result = addEnvVar(result, workload, "NCCL_IB_FIFO_TC", "192")
+			result = addEnvVar(result, workload, "NCCL_DMABUF_ENABLE", "0")
+			result = addEnvVar(result, workload, "NCCL_MAX_P2P_CHANNELS", "56")
+			result = addEnvVar(result, workload, "NET_OPTIONAL_RECV_COMPLETION", "1")
+			result = addEnvVar(result, workload, "NCCL_IB_USE_INLINE", "1")
+			result = addEnvVar(result, workload, "RCCL_GDR_FLUSH_GPU_MEM_NO_RELAXED_ORDERING", "0")
+			result = addEnvVar(result, workload, "NCCL_GDR_FLUSH_DISABLE", "1")
+			result = addEnvVar(result, workload, "NCCL_IGNORE_CPU_AFFINITY", "1")
+			result = addEnvVar(result, workload, "LD_LIBRARY_PATH", "/opt/amd-anp/build:/opt/rccl/build/release:/opt/rocm/lib")
+		} else {
+			result = addEnvVar(result, workload, "NCCL_IB_GID_INDEX", "3")
+			result = addEnvVar(result, workload, "NCCL_IB_TC", "41")
+		}
+		result = addEnvVar(result, workload, "GPUS_PER_NODE", workload.Spec.Resources[resourceId].GPU)
 	}
 
 	if workload.Spec.IsSupervised {
@@ -678,9 +622,6 @@ func buildEnvironment(workload *v1.Workload, resourceId int) []interface{} {
 			result = addEnvVar(result, workload, "HANG_CHECK_INTERVAL",
 				strconv.Itoa(commonconfig.GetWorkloadHangCheckInterval()))
 		}
-	}
-	if workload.Spec.Resources[resourceId].GPU != "" {
-		result = addEnvVar(result, workload, "GPUS_PER_NODE", workload.Spec.Resources[resourceId].GPU)
 	}
 	result = addEnvVar(result, workload, "WORKLOAD_ID", getRootWorkloadId(workload))
 	result = addEnvVar(result, workload, "WORKLOAD_KIND", workload.SpecKind())
@@ -1035,7 +976,7 @@ func updateCICDScaleSetEnvs(obj *unstructured.Unstructured,
 			return err
 		}
 	} else {
-		mainContainerName := v1.GetMainContainer(adminWorkload)
+		mainContainerName := commonworkload.GetMainContainer(adminWorkload, adminWorkload.SpecKind(), 0)
 		// When unified build is disabled, keep only main container with resource variables
 		for i := range containers {
 			container := containers[i].(map[string]interface{})
@@ -1053,7 +994,7 @@ func updateCICDScaleSetEnvs(obj *unstructured.Unstructured,
 }
 
 // updateRayJob updates the rayjob configuration
-func updateRayJob(obj *unstructured.Unstructured, adminWorkload *v1.Workload) error {
+func updateRayJob(obj *unstructured.Unstructured, adminWorkload *v1.Workload, workspace *v1.Workspace) error {
 	jobEntryPoint := adminWorkload.GetEnv(common.RayJobEntrypoint)
 	if jobEntryPoint == "" {
 		return fmt.Errorf("rayjob submitter entrypoint is not set")
@@ -1071,7 +1012,7 @@ func updateRayJob(obj *unstructured.Unstructured, adminWorkload *v1.Workload) er
 	if decoded == "" {
 		decoded = jobEntryPoint // fallback: plain text when base64 decode fails
 	}
-	specObject["entrypoint"] = decoded
+	specObject["entrypoint"] = Launcher + " '" + decoded + "'"
 	if err = jobutils.SetNestedField(obj.Object, specObject, path); err != nil {
 		return err
 	}
@@ -1112,7 +1053,7 @@ func updateContainers(adminWorkload *v1.Workload,
 		return err
 	}
 
-	mainContainerName := v1.GetMainContainer(adminWorkload)
+	mainContainerName := commonworkload.GetMainContainer(adminWorkload, adminWorkload.SpecKind(), id)
 	res := &adminWorkload.Spec.Resources[id]
 	resourceList, err := quantity.CvtToResourceList(res.CPU, res.Memory, res.GPU,
 		res.GPUName, res.EphemeralStorage, res.RdmaResource, 1.0/float64(len(containers)))
@@ -1120,7 +1061,11 @@ func updateContainers(adminWorkload *v1.Workload,
 		return err
 	}
 
-	resources := buildResources(resourceList)
+	resources := make(map[string]interface{})
+	for key, val := range resourceList {
+		resources[string(key)] = val.String()
+	}
+
 	for i := range containers {
 		container := containers[i].(map[string]interface{})
 		updateContainerEnv(adminWorkload.Spec.Env, container, v1.GetEnvToBeRemoved(adminWorkload))
@@ -1133,7 +1078,11 @@ func updateContainers(adminWorkload *v1.Workload,
 			if len(adminWorkload.Spec.Images) > id && adminWorkload.Spec.Images[id] != "" {
 				container["image"] = adminWorkload.Spec.Images[id]
 			}
-			container["command"] = buildCommands(adminWorkload, id)
+			cmds := buildCommands(adminWorkload, id)
+			if len(cmds) > 0 {
+				container["command"] = cmds
+			}
+
 		}
 	}
 	if err = jobutils.SetNestedField(obj.Object, containers, path); err != nil {
@@ -1204,6 +1153,9 @@ func updateContainerEnv(envs map[string]string, container map[string]interface{}
 
 // updateSharedMemory updates the shared memory volume configuration.
 func updateSharedMemory(adminWorkload *v1.Workload, obj *unstructured.Unstructured, resourceSpec v1.ResourceSpec, id int) error {
+	if adminWorkload.Spec.Resources[id].SharedMemory == "" {
+		return nil
+	}
 	path := resourceSpec.PrePaths
 	path = append(path, resourceSpec.TemplatePaths...)
 	path = append(path, "spec", "volumes")

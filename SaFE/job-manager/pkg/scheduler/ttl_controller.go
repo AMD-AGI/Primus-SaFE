@@ -7,12 +7,8 @@ package scheduler
 
 import (
 	"context"
-	"fmt"
 	"time"
 
-	"k8s.io/apimachinery/pkg/api/meta"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	apitypes "k8s.io/apimachinery/pkg/types"
 	"k8s.io/klog/v2"
 	ctrlruntime "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
@@ -22,8 +18,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
-	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
-	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
+	jobutils "github.com/AMD-AIG-AIMA/SAFE/job-manager/pkg/utils"
 )
 
 type WorkloadTTLController struct {
@@ -119,7 +114,7 @@ func (r *WorkloadTTLController) handle(ctx context.Context, workload *v1.Workloa
 			result.RequeueAfter = time.Duration(ttlSeconds-elapsedSeconds) * time.Second
 		}
 	case workload.IsTimeout():
-		if err = r.addTimeoutCondition(ctx, workload); err != nil {
+		if err = jobutils.SetWorkloadTimeout(ctx, r.Client, workload, "the workload has timed out"); err != nil {
 			break
 		}
 		err = r.deleteWorkload(ctx, workload)
@@ -140,41 +135,5 @@ func (r *WorkloadTTLController) deleteWorkload(ctx context.Context, workload *v1
 		klog.ErrorS(err, "failed to delete workload", "workload", workload.Name)
 		return client.IgnoreNotFound(err)
 	}
-	return nil
-}
-
-// addTimeoutCondition adds a timeout condition to a workload that has exceeded its timeout.
-func (r *WorkloadTTLController) addTimeoutCondition(ctx context.Context, workload *v1.Workload) error {
-	if workload.Status.Phase == v1.WorkloadStopped {
-		return nil
-	}
-
-	statusPatch := map[string]any{}
-	statusPatch["phase"] = v1.WorkloadStopped
-	if workload.Status.EndTime == nil {
-		statusPatch["endTime"] = &metav1.Time{Time: time.Now().UTC()}
-	}
-	cond := metav1.Condition{
-		Type:    string(v1.AdminStopped),
-		Status:  metav1.ConditionTrue,
-		Reason:  commonworkload.GenerateDispatchReason(v1.GetWorkloadDispatchCnt(workload)),
-		Message: fmt.Sprintf("the workload has timed out"),
-	}
-	if meta.SetStatusCondition(&workload.Status.Conditions, cond) {
-		statusPatch["conditions"] = workload.Status.Conditions
-	}
-
-	patchObj := map[string]any{
-		"metadata": map[string]any{
-			"resourceVersion": workload.ResourceVersion,
-		},
-		"status": statusPatch,
-	}
-	p := jsonutils.MarshalSilently(patchObj)
-	if err := r.Status().Patch(ctx, workload, client.RawPatch(apitypes.MergePatchType, p)); err != nil {
-		klog.ErrorS(err, "failed to patch workload phase", "workload", workload.Name)
-		return err
-	}
-	klog.Infof("the workload %s has timed out. timeout: %d", workload.Name, workload.GetTimeout())
 	return nil
 }

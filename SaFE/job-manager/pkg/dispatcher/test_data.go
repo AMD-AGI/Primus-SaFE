@@ -407,6 +407,36 @@ data:
     spec:
       shutdownAfterJobFinishes: true
       ttlSecondsAfterFinished: 10
+      backoffLimit: 3
+      submissionMode: K8sJobMode
+      submitterPodTemplate:
+        spec:
+          dnsPolicy: ClusterFirstWithHostNet
+          initContainers:
+            - name: preprocess
+              image: docker.io/primussafe/latest
+              imagePullPolicy: IfNotPresent
+              command: ["/bin/sh", "-c", "cp -r /preprocess/* /shared-data/"]
+              securityContext:
+                capabilities:
+                  add: [ "IPC_LOCK" ]
+              resources:
+                limits:
+                  cpu: 1000m
+                  memory: 128Mi
+              volumeMounts:
+                - name: shared-data
+                  mountPath: /shared-data
+          containers:
+            - name: ray-job-submitter
+              volumeMounts:
+                - name: shared-data
+                  mountPath: /shared-data
+          schedulerName: kube-scheduler-plugins
+          volumes:
+            - name: shared-data
+              emptyDir: {}
+          restartPolicy: Never
       rayClusterSpec:
         headGroupSpec:
           template:
@@ -414,7 +444,7 @@ data:
               dnsPolicy: ClusterFirstWithHostNet
               initContainers:
               - name: preprocess
-                image: docker.io/primussafe/preprocess:latest
+                image: docker.io/primussafe/latest
                 imagePullPolicy: IfNotPresent
                 command: ["/bin/sh", "-c", "cp -r /preprocess/* /shared-data/"]
                 securityContext:
@@ -435,17 +465,19 @@ data:
                 - name: GLOO_SOCKET_IFNAME
                   value: "ens51f0"
                 - name: NCCL_IB_HCA
-                  value: "bnxt_re0,bnxt_re1,bnxt_re2,bnxt_re3,bnxt_re4,bnxt_re5,bnxt_re7,bnxt_re8"
+                  value: "bnxt_re0,bnxt_re1,bnxt_re2,bnxt_re3,bnxt_re4,bnxt_re5,bnxt_re6,bnxt_re7"
                 - name: NCCL_IB_TIMEOUT
                   value: "23"
                 - name: NCCL_IB_RETRY_CNT
                   value: "11"
-                - name: NCCL_IB_GID_INDEX
-                  value: "3"
                 - name: NCCL_IB_QPS_PER_CONNECTION
-                  value: "4"
-                - name: NCCL_IB_TC
-                  value: "41"
+                  value: "1"
+                - name: NCCL_CROSS_NIC
+                  value: "0"
+                - name: NCCL_CHECKS_DISABLE
+                  value: "1"
+                - name: HSA_ENABLE_SDMA
+                  value: "1"
                 - name: POD_NAME
                   valueFrom:
                     fieldRef:
@@ -470,7 +502,7 @@ data:
                 - containerPort: 6379
                   name: gcs-server
                   protocol: TCP
-                - containerPort: 8265 # Ray dashboard
+                - containerPort: 8265
                   name: dashboard
                   protocol: TCP
                 imagePullPolicy: IfNotPresent
@@ -480,9 +512,6 @@ data:
                   - name: podinfo
                     mountPath: /etc/podinfo
                     readOnly: true
-                securityContext:
-                  privileged: true
-                  runAsUser: 0
               schedulerName: kube-scheduler-plugins
               volumes:
                 - name: shared-data
@@ -493,15 +522,15 @@ data:
                     - path: "labels"
                       fieldRef:
                         fieldPath: metadata.labels
-              terminationGracePeriodSeconds: 5
+              terminationGracePeriodSeconds: 15
         workerGroupSpecs:
-        - groupName: workergroup1
+        - groupName: "1"
           template:
             spec:
               dnsPolicy: ClusterFirstWithHostNet
               initContainers:
               - name: preprocess
-                image: docker.io/primussafe/preprocess:latest
+                image: docker.io/primussafe/latest
                 imagePullPolicy: IfNotPresent
                 command: ["/bin/sh", "-c", "cp -r /preprocess/* /shared-data/"]
                 securityContext:
@@ -522,17 +551,19 @@ data:
                 - name: GLOO_SOCKET_IFNAME
                   value: "ens51f0"
                 - name: NCCL_IB_HCA
-                  value: "bnxt_re0,bnxt_re1,bnxt_re2,bnxt_re3,bnxt_re4,bnxt_re5,bnxt_re7,bnxt_re8"
+                  value: "bnxt_re0,bnxt_re1,bnxt_re2,bnxt_re3,bnxt_re4,bnxt_re5,bnxt_re6,bnxt_re7"
                 - name: NCCL_IB_TIMEOUT
                   value: "23"
                 - name: NCCL_IB_RETRY_CNT
                   value: "11"
-                - name: NCCL_IB_GID_INDEX
-                  value: "3"
                 - name: NCCL_IB_QPS_PER_CONNECTION
-                  value: "4"
-                - name: NCCL_IB_TC
-                  value: "41"
+                  value: "1"
+                - name: NCCL_CROSS_NIC
+                  value: "0"
+                - name: NCCL_CHECKS_DISABLE
+                  value: "1"
+                - name: HSA_ENABLE_SDMA
+                  value: "1"
                 - name: POD_NAME
                   valueFrom:
                     fieldRef:
@@ -570,14 +601,14 @@ data:
                     - path: "labels"
                       fieldRef:
                         fieldPath: metadata.labels
-              terminationGracePeriodSeconds: 5
-        - groupName: workergroup2
+              terminationGracePeriodSeconds: 10
+        - groupName: "2"
           template:
             spec:
               dnsPolicy: ClusterFirstWithHostNet
               initContainers:
               - name: preprocess
-                image: docker.io/primussafe/preprocess:latest
+                image: docker.io/primussafe/latest
                 imagePullPolicy: IfNotPresent
                 command: ["/bin/sh", "-c", "cp -r /preprocess/* /shared-data/"]
                 securityContext:
@@ -594,21 +625,23 @@ data:
               - name: main
                 env:
                 - name: NCCL_SOCKET_IFNAME
-                  value: "enp49s0f0np0"
+                  value: "ens51f0"
                 - name: GLOO_SOCKET_IFNAME
-                  value: "enp49s0f0np0"
+                  value: "ens51f0"
                 - name: NCCL_IB_HCA
-                  value: "bnxt_re0,bnxt_re1,bnxt_re2,bnxt_re3,bnxt_re4,bnxt_re5,bnxt_re7,bnxt_re8"
+                  value: "bnxt_re0,bnxt_re1,bnxt_re2,bnxt_re3,bnxt_re4,bnxt_re5,bnxt_re6,bnxt_re7"
                 - name: NCCL_IB_TIMEOUT
                   value: "23"
                 - name: NCCL_IB_RETRY_CNT
                   value: "11"
-                - name: NCCL_IB_GID_INDEX
-                  value: "3"
                 - name: NCCL_IB_QPS_PER_CONNECTION
-                  value: "4"
-                - name: NCCL_IB_TC
-                  value: "41"
+                  value: "1"
+                - name: NCCL_CROSS_NIC
+                  value: "0"
+                - name: NCCL_CHECKS_DISABLE
+                  value: "1"
+                - name: HSA_ENABLE_SDMA
+                  value: "1"
                 - name: POD_NAME
                   valueFrom:
                     fieldRef:
@@ -646,6 +679,6 @@ data:
                     - path: "labels"
                       fieldRef:
                         fieldPath: metadata.labels
-              terminationGracePeriodSeconds: 5
+              terminationGracePeriodSeconds: 10
 `
 )

@@ -279,8 +279,7 @@ func (r *DispatcherReconciler) processWorkload(ctx context.Context, adminWorkloa
 		if err = r.markAsDispatched(ctx, adminWorkload); err != nil {
 			return ctrlruntime.Result{}, err
 		}
-		if commonworkload.IsApplication(adminWorkload) ||
-			commonworkload.IsCICDScalingRunnerSet(adminWorkload) || commonworkload.IsRayJob(adminWorkload) {
+		if commonworkload.IsApplication(adminWorkload) || commonworkload.IsCICDScalingRunnerSet(adminWorkload) {
 			// update the workload which is already dispatched
 			if err = r.syncWorkloadToObject(ctx, adminWorkload, clientSets, obj); err != nil {
 				return ctrlruntime.Result{}, err
@@ -412,11 +411,6 @@ func setK8sObjectMeta(result *unstructured.Unstructured, adminWorkload *v1.Workl
 		}
 	}
 	result.SetAnnotations(targetAnnotations)
-	if commonworkload.IsRayJob(adminWorkload) {
-		if err := syncRayJobSubmitterPodMetadata(result, adminWorkload); err != nil {
-			klog.ErrorS(err, "Failed to sync RayJob submitter pod metadata")
-		}
-	}
 }
 
 // getWorkloadTemplate retrieves the workload template configuration based on its version and kind.
@@ -530,8 +524,7 @@ func isResourceChanged(adminWorkload *v1.Workload, obj *unstructured.Unstructure
 		}
 	}
 
-	replicaList, resourceList, err := jobutils.GetResources(obj, rt,
-		v1.GetMainContainer(adminWorkload), gpuName, len(adminWorkload.Spec.Resources))
+	replicaList, resourceList, err := jobutils.GetResources(obj, rt, gpuName, len(adminWorkload.Spec.Resources))
 	if err != nil {
 		klog.ErrorS(err, "failed to get resource", "rt", rt.Name, "obj", obj.GetName())
 		return false
@@ -561,7 +554,7 @@ func isResourceChanged(adminWorkload *v1.Workload, obj *unstructured.Unstructure
 
 // isImagesChanged checks if the container image of the workload has changed.
 func isImagesChanged(adminWorkload *v1.Workload, obj *unstructured.Unstructured, rt *v1.ResourceTemplate) bool {
-	images, err := jobutils.GetImages(obj, rt, v1.GetMainContainer(adminWorkload), len(adminWorkload.Spec.Resources))
+	images, err := jobutils.GetImages(obj, rt, len(adminWorkload.Spec.Resources))
 	if err != nil {
 		klog.ErrorS(err, "failed to get image", "obj", obj.GetName())
 		return false
@@ -571,7 +564,7 @@ func isImagesChanged(adminWorkload *v1.Workload, obj *unstructured.Unstructured,
 
 // isEntrypointChanged checks if the entry point/command of the workload has changed.
 func isEntrypointChanged(adminWorkload *v1.Workload, obj *unstructured.Unstructured, rt *v1.ResourceTemplate) bool {
-	commands, err := jobutils.GetCommands(obj, rt, v1.GetMainContainer(adminWorkload), len(adminWorkload.Spec.Resources))
+	commands, err := jobutils.GetCommands(obj, rt, len(adminWorkload.Spec.Resources))
 	if err != nil {
 		klog.ErrorS(err, "failed to get command", "obj", obj.GetName())
 		return false
@@ -580,6 +573,9 @@ func isEntrypointChanged(adminWorkload *v1.Workload, obj *unstructured.Unstructu
 		return true
 	}
 	for i := range commands {
+		if commonworkload.IsRayJob(adminWorkload) && i == 0 {
+			continue
+		}
 		newEntrypoint := buildEntryPoint(adminWorkload, i)
 		oldCommand := commands[i]
 		if len(oldCommand) == 0 {
@@ -600,8 +596,7 @@ func isEnvChanged(adminWorkload *v1.Workload, obj *unstructured.Unstructured, rt
 	if len(v1.GetEnvToBeRemoved(adminWorkload)) > 0 {
 		return true
 	}
-	mainContainerName := v1.GetMainContainer(adminWorkload)
-	currentEnvs, err := jobutils.GetEnv(obj, rt, mainContainerName, len(adminWorkload.Spec.Resources))
+	currentEnvs, err := jobutils.GetEnv(obj, rt, len(adminWorkload.Spec.Resources))
 	if err != nil {
 		klog.ErrorS(err, "failed to get env", "obj", obj.GetName())
 		return false
@@ -661,17 +656,14 @@ func applyWorkloadSpecToObject(ctx context.Context, clientSets *syncer.ClusterCl
 	case commonworkload.IsCICDEphemeralRunner(adminWorkload):
 		err = updateCICDEphemeralRunner(ctx, clientSets, obj, adminWorkload, rt)
 	case commonworkload.IsRayJob(adminWorkload):
-		err = updateRayJob(obj, adminWorkload)
+		err = updateRayJob(obj, adminWorkload, workspace)
 	}
 	if err != nil {
 		return err
 	}
 	for i, t := range rt.Spec.ResourceSpecs {
 		if i >= len(adminWorkload.Spec.Resources) {
-			if err = jobutils.RemoveNestedField(obj.Object, t.PrePaths); err != nil {
-				return err
-			}
-			continue
+			break
 		}
 		if err = updateHostNetwork(adminWorkload, obj, t, i); err != nil {
 			return fmt.Errorf("failed to update host network: %v", err.Error())
@@ -690,6 +682,12 @@ func applyWorkloadSpecToObject(ctx context.Context, clientSets *syncer.ClusterCl
 		}
 		if err = updatePriorityClass(adminWorkload, obj, t); err != nil {
 			return fmt.Errorf("failed to update priority: %v", err.Error())
+		}
+	}
+	for i := len(rt.Spec.ResourceSpecs) - 1; i >= len(adminWorkload.Spec.Resources); i-- {
+		t := rt.Spec.ResourceSpecs[i]
+		if err = jobutils.RemoveNestedField(obj.Object, t.PrePaths); err != nil {
+			return err
 		}
 	}
 	return nil
@@ -986,7 +984,7 @@ func (r *DispatcherReconciler) generateLighthouse(ctx context.Context, rootWorkl
 	workload.Spec.Service.Extends["maxUnavailable"] = common.DefaultMaxUnavailable
 	workload.Spec.Service.Extends["maxSurge"] = common.DefaultMaxMaxSurge
 
-	commonworkload.GetWorkloadMainContainer(ctx, r.Client, workload)
+	commonworkload.SetMainContainerViaTemplate(ctx, r.Client, workload)
 	return workload
 }
 
@@ -1020,7 +1018,7 @@ func (r *DispatcherReconciler) generateTorchFTWorker(ctx context.Context,
 	v1.SetLabel(workload, v1.RootWorkloadIdLabel, rootWorkload.Name)
 	v1.SetAnnotation(workload, v1.ResourceIdAnnotation, "1")
 	v1.SetAnnotation(workload, v1.GroupIdAnnotation, groupIdAnnotation)
-	commonworkload.GetWorkloadMainContainer(ctx, r.Client, workload)
+	commonworkload.SetMainContainerViaTemplate(ctx, r.Client, workload)
 	return workload
 }
 

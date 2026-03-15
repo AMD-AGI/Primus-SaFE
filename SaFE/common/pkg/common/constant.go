@@ -61,11 +61,12 @@ const (
 	TaintAction            = "taint"
 	CICDArcNamespace       = "arc-systems"
 
-	RayJobSubmitterName   = "ray-job-submitter"
-	RayJobSubmitterCpu    = "1"
-	RayJobSubmitterMemory = "1Gi"
-	RayJobGcsServerPort   = 6379
-	RayJobDashboard       = 8265
+	RayJobSubmitterName    = "ray-job-submitter"
+	RayJobSubmitterCpu     = "1"
+	RayJobSubmitterMemory  = "1Gi"
+	RayJobSubmitterStorage = "10Gi"
+	RayJobGcsServerPort    = 6379
+	RayJobDashboard        = 8265
 
 	DefaultBurst          = 1000
 	DefaultQPS            = 1000

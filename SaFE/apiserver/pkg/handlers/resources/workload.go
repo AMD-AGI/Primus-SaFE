@@ -644,7 +644,7 @@ func (h *Handler) getWorkloadPodLog(c *gin.Context) (interface{}, error) {
 		return nil, err
 	}
 	podName := strings.TrimSpace(c.Param(common.PodId))
-	mainContainerName := commonworkload.GetMainContainer(workload, workload.SpecKind(), podName)
+	mainContainerName := commonworkload.GetMainContainerByPod(workload, workload.SpecKind(), podName)
 	podLogs, err := h.getPodLog(c, k8sClients.ClientSet(),
 		workload.Spec.Workspace, podName, mainContainerName)
 	if err != nil {
@@ -1413,7 +1413,7 @@ func (h *Handler) buildSSHCommand(ctx context.Context, pod *v1.WorkloadPod, user
 	// pattern: {userId}.{podId}.{container}.sh.{workspace}@{host}
 	// e.g. ssh -o ServerAliveInterval=60 7fda556669b09dcec5d779438e7432c5.verl40-fpg88-master-0.pytorch.bash.x-flannel-prod@tw325.primus-safe.amd.com -p 2222
 	return fmt.Sprintf("ssh -o ServerAliveInterval=60 %s.%s.%s.bash.%s@%s -p %d",
-		userId, pod.PodId, commonworkload.GetMainContainer(template, gvk.Kind, pod.PodId),
+		userId, pod.PodId, commonworkload.GetMainContainerByPod(template, gvk.Kind, pod.PodId),
 		workspace, commonconfig.GetSystemHost(), commonconfig.GetSSHServerPort())
 }
 

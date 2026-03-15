@@ -10,9 +10,6 @@ import (
 	"fmt"
 	"time"
 
-	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
-	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/backoff"
-	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -27,8 +24,12 @@ import (
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	commonfaults "github.com/AMD-AIG-AIMA/SAFE/common/pkg/faults"
+	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
+	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
 	"github.com/AMD-AIG-AIMA/SAFE/resource-manager/pkg/resource"
 	"github.com/AMD-AIG-AIMA/SAFE/resource-manager/pkg/utils"
+	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/backoff"
+	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
 )
 
 const (
@@ -408,9 +409,10 @@ func (r *OpsJobBaseReconciler) getWorkloadCompletionMessage(ctx context.Context,
 				}
 			}
 		} else {
+			mainContainerName := commonworkload.GetMainContainer(workload, workload.SpecKind(), 0)
 			for _, pod := range workload.Status.Pods {
 				for _, container := range pod.Containers {
-					if container.Name == v1.GetMainContainer(workload) && container.Message != "" {
+					if container.Name == mainContainerName && container.Message != "" {
 						return container.Message
 					}
 				}
@@ -433,9 +435,10 @@ func (r *OpsJobBaseReconciler) getPreflightMasterPodLog(ctx context.Context, wor
 		return nil, err
 	}
 
+	mainContainer := commonworkload.GetMainContainer(workload, workload.SpecKind(), 0)
 	var tailLine int64 = 5000
 	opt := &corev1.PodLogOptions{
-		Container: v1.GetMainContainer(workload),
+		Container: mainContainer,
 		TailLines: &tailLine,
 	}
 	data, err := k8sClients.ClientSet().CoreV1().Pods(workload.Spec.Workspace).GetLogs(pods.Items[0].Name, opt).DoRaw(ctx)

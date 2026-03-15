@@ -10,13 +10,16 @@ import (
 	"time"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	apitypes "k8s.io/apimachinery/pkg/types"
 	"k8s.io/klog/v2"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
+	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
 )
 
 // IsUnrecoverableError checks if an error is non-retryable based on error type.
@@ -74,5 +77,41 @@ func SetWorkloadFailed(ctx context.Context, cli client.Client, workload *v1.Work
 		klog.ErrorS(err, "failed to update workload status", "name", workload.Name)
 		return err
 	}
+	return nil
+}
+
+// SetWorkloadTimeout sets the workload to timeout state and add a timeout condition
+func SetWorkloadTimeout(ctx context.Context, cli client.Client, workload *v1.Workload, message string) error {
+	if workload.Status.Phase == v1.WorkloadStopped {
+		return nil
+	}
+
+	statusPatch := map[string]any{}
+	statusPatch["phase"] = v1.WorkloadStopped
+	if workload.Status.EndTime == nil {
+		statusPatch["endTime"] = &metav1.Time{Time: time.Now().UTC()}
+	}
+	cond := metav1.Condition{
+		Type:    string(v1.AdminStopped),
+		Status:  metav1.ConditionTrue,
+		Reason:  commonworkload.GenerateDispatchReason(v1.GetWorkloadDispatchCnt(workload)),
+		Message: message,
+	}
+	if meta.SetStatusCondition(&workload.Status.Conditions, cond) {
+		statusPatch["conditions"] = workload.Status.Conditions
+	}
+
+	patchObj := map[string]any{
+		"metadata": map[string]any{
+			"resourceVersion": workload.ResourceVersion,
+		},
+		"status": statusPatch,
+	}
+	p := jsonutils.MarshalSilently(patchObj)
+	if err := cli.Status().Patch(ctx, workload, client.RawPatch(apitypes.MergePatchType, p)); err != nil {
+		klog.ErrorS(err, "failed to patch workload phase", "workload", workload.Name)
+		return err
+	}
+	klog.Infof("the workload %s has timed out. timeout: %d", workload.Name, workload.GetTimeout())
 	return nil
 }
