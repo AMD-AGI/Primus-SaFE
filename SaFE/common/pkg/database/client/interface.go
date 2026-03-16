@@ -34,6 +34,8 @@ type Interface interface {
 	AuditLogInterface
 	DatasetInterface
 	EvaluationTaskInterface
+	A2AServiceRegistryInterface
+	A2ACallLogInterface
 }
 
 type WorkloadInterface interface {
@@ -225,4 +227,23 @@ type EvaluationTaskInterface interface {
 	UpdateEvaluationTaskResult(ctx context.Context, taskId string, resultSummary, reportS3Path string) error
 	UpdateEvaluationTaskStartTime(ctx context.Context, taskId string) error
 	SetEvaluationTaskFailed(ctx context.Context, taskId, message string) error
+}
+
+// A2AServiceRegistryInterface defines database operations for A2A service registry.
+type A2AServiceRegistryInterface interface {
+	UpsertA2AService(ctx context.Context, svc *A2AServiceRegistry) error
+	GetA2AService(ctx context.Context, serviceName string) (*A2AServiceRegistry, error)
+	GetA2AServiceByK8s(ctx context.Context, namespace, service string) (*A2AServiceRegistry, error)
+	SelectA2AServices(ctx context.Context, query sqrl.Sqlizer, orderBy []string, limit, offset int) ([]*A2AServiceRegistry, error)
+	CountA2AServices(ctx context.Context, query sqrl.Sqlizer) (int, error)
+	ListActiveA2AServices(ctx context.Context) ([]*A2AServiceRegistry, error)
+	SetA2AServiceDeleted(ctx context.Context, serviceName string) error
+	UpdateA2AHealth(ctx context.Context, serviceName, health string) error
+}
+
+// A2ACallLogInterface defines database operations for A2A call logs.
+type A2ACallLogInterface interface {
+	InsertA2ACallLog(ctx context.Context, log *A2ACallLog) error
+	SelectA2ACallLogs(ctx context.Context, query sqrl.Sqlizer, orderBy []string, limit, offset int) ([]*A2ACallLog, error)
+	CountA2ACallLogs(ctx context.Context, query sqrl.Sqlizer) (int, error)
 }

@@ -145,4 +145,12 @@ const (
 	tracingMode          = tracingPrefix + "mode"
 	tracingSamplingRatio = tracingPrefix + "sampling_ratio"
 	tracingOtlpEndpoint  = tracingPrefix + "otlp_endpoint"
+
+	// a2a
+	a2aPrefix            = "a2a."
+	a2aScannerPrefix     = a2aPrefix + "scanner."
+	a2aScannerEnable     = a2aScannerPrefix + "enable"
+	a2aScannerInterval   = a2aScannerPrefix + "interval_seconds"
+	a2aScannerNamespaces = a2aScannerPrefix + "namespaces"
+	a2aScannerLabel      = a2aScannerPrefix + "label_selector"
 )
