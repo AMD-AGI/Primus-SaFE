@@ -28,22 +28,8 @@ type FSReader struct {
 // NewFSReader creates a new file system reader with security constraints
 func NewFSReader() *FSReader {
 	return &FSReader{
-		// Only allow reading from common ML/AI log directories and distributed storage
-		allowedPrefixes: []string{
-			"/workspace",
-			"/data",
-			"/logs",
-			"/tmp",
-			"/home",
-			"/opt",
-			"/wekafs", // WekaFS storage system
-			"/gpfs",   // IBM GPFS/Spectrum Scale
-			"/lustre", // Lustre parallel file system
-			"/cephfs", // Ceph file system
-			"/mnt",    // Common mount point for NFS and other storage
-			"/nfs",    // NFS mounts
-		},
-		maxFileSize: 100 * 1024 * 1024, // 100MB default
+		allowedPrefixes: nil, // No prefix restriction; path traversal is still blocked
+		maxFileSize:     100 * 1024 * 1024, // 100MB default
 	}
 }
 
@@ -454,20 +440,18 @@ func (r *FSReader) validatePath(path string) error {
 		return fmt.Errorf("path traversal not allowed")
 	}
 
-	// Check against whitelist
-	allowed := false
+	// If no prefix restriction configured, allow all absolute paths
+	if len(r.allowedPrefixes) == 0 {
+		return nil
+	}
+
 	for _, prefix := range r.allowedPrefixes {
 		if strings.HasPrefix(cleanPath, prefix) || cleanPath == "/" {
-			allowed = true
-			break
+			return nil
 		}
 	}
 
-	if !allowed {
-		return fmt.Errorf("path not in allowed list: %s (allowed: %v)", cleanPath, r.allowedPrefixes)
-	}
-
-	return nil
+	return fmt.Errorf("path not in allowed list: %s (allowed: %v)", cleanPath, r.allowedPrefixes)
 }
 
 func (r *FSReader) getFileInfo(absolutePath string, displayPath string) (*FileInfo, error) {

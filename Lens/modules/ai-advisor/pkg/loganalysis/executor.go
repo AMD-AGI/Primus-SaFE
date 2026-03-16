@@ -366,6 +366,8 @@ func (e *LogAnalysisExecutor) scanPodLogs(
 			continue
 		}
 
+		logMsg = stripANSI(logMsg)
+
 		matchedKW := e.matchKeywords(logMsg)
 		if len(matchedKW) > 0 {
 			keywordLines = append(keywordLines, unmatchedLine{
@@ -522,6 +524,8 @@ type llmPatternResult struct {
 
 // analyzeUnmatchedLines examines lines with training keywords and determines
 // if they contain extractable performance metrics or should be blacklisted.
+// Performance lines are routed to LLM when available (higher quality patterns);
+// blacklist lines use the heuristic directly.
 // Lines where heuristic cannot generate a regex are returned as LLM candidates.
 func (e *LogAnalysisExecutor) analyzeUnmatchedLines(
 	lines []unmatchedLine,
@@ -540,14 +544,36 @@ func (e *LogAnalysisExecutor) analyzeUnmatchedLines(
 		seen[sig] = true
 
 		isMetric := e.isLikelyPerformanceLine(line.Line, line.Keywords)
-		proposalType := "blacklist"
+
+		// Performance lines: prefer LLM for regex generation (much higher quality).
+		// Only fall back to heuristic when LLM is unavailable.
 		if isMetric {
-			proposalType = "performance"
+			if e.gwClient != nil {
+				result.LLMCandidates = append(result.LLMCandidates, line)
+				continue
+			}
+			// LLM unavailable, try heuristic fallback
+			pattern := e.generatePerformanceRegex(line.Line)
+			if pattern == "" {
+				continue
+			}
+			result.Proposals = append(result.Proposals, patternProposal{
+				Framework:   framework,
+				WorkloadUID: workloadUID,
+				Pattern:     pattern,
+				Type:        "performance",
+				SampleLine:  truncateLine(line.Line, 300),
+				Keywords:    line.Keywords,
+				CreatedAt:   time.Now().Format(time.RFC3339),
+				Source:      "autodiscovered",
+				Confidence:  0.6,
+			})
+			continue
 		}
 
-		pattern := e.generateRegexForLine(line.Line, isMetric)
+		// Blacklist lines: heuristic works fine
+		pattern := e.generateBlacklistRegex(line.Line)
 		if pattern == "" {
-			// Heuristic failed - this line is a candidate for LLM analysis
 			result.LLMCandidates = append(result.LLMCandidates, line)
 			continue
 		}
@@ -556,7 +582,7 @@ func (e *LogAnalysisExecutor) analyzeUnmatchedLines(
 			Framework:   framework,
 			WorkloadUID: workloadUID,
 			Pattern:     pattern,
-			Type:        proposalType,
+			Type:        "blacklist",
 			SampleLine:  truncateLine(line.Line, 300),
 			Keywords:    line.Keywords,
 			CreatedAt:   time.Now().Format(time.RFC3339),
@@ -1062,6 +1088,15 @@ func initKeywords() []trainingKeyword {
 		{name: "consumed_samples", pattern: regexp.MustCompile(`\bconsumed[_\s]?samples\b`)},
 		{name: "consumed_tokens", pattern: regexp.MustCompile(`\bconsumed[_\s]?tokens\b`)},
 	}
+}
+
+// ansiEscapeRe matches ANSI escape sequences (colors, cursor movement, etc.)
+var ansiEscapeRe = regexp.MustCompile(`\x1b\[[0-9;]*[a-zA-Z]`)
+
+// stripANSI removes ANSI escape codes from a string.
+// Training log lines often contain color codes that pollute regex generation.
+func stripANSI(s string) string {
+	return ansiEscapeRe.ReplaceAllString(s, "")
 }
 
 // truncateLine truncates a line to maxLen characters
