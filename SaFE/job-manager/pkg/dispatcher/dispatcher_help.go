@@ -1008,11 +1008,7 @@ func updateRayJob(obj *unstructured.Unstructured, adminWorkload *v1.Workload, wo
 	if !ok {
 		return fmt.Errorf("failed to find object with path: %v", path)
 	}
-	decoded := stringutil.Base64Decode(jobEntryPoint)
-	if decoded == "" {
-		decoded = jobEntryPoint // fallback: plain text when base64 decode fails
-	}
-	specObject["entrypoint"] = Launcher + " '" + decoded + "'"
+	specObject["entrypoint"] = Launcher + " '" + jobEntryPoint + "'"
 	if err = jobutils.SetNestedField(obj.Object, specObject, path); err != nil {
 		return err
 	}
