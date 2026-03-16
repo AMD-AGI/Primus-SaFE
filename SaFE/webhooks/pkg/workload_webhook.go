@@ -436,6 +436,7 @@ func (m *WorkloadMutator) mutateRayJob(workload *v1.Workload) {
 
 	resources := make([]v1.WorkloadResource, 0, len(workload.Spec.Resources)+1)
 	resources = append(resources, v1.WorkloadResource{
+		Replica:          1,
 		CPU:              common.RayJobSubmitterCpu,
 		Memory:           common.RayJobSubmitterMemory,
 		EphemeralStorage: common.RayJobSubmitterStorage,
