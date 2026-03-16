@@ -35,23 +35,21 @@ func executeWorkloadLog(ctx context.Context, workloadLog *PodLog) error {
 		return err
 	}
 
-	// Run universal extractor for intent analysis (framework-agnostic AC automaton)
 	if globalExtractor != nil && globalExtractor.HasPatterns() {
 		result := globalExtractor.ProcessLine(workloadLog.Message)
 		if len(result.Matches) > 0 {
-			go processIntentSignals(context.Background(), workloadLog, result)
+			wl := workloadLog
+			r := result
+			alerts.AsyncDo(func() { processIntentSignals(context.Background(), wl, r) })
 		}
 	}
 
-	// Evaluate log against alert rules
 	engine := log_alert_engine.GetGlobalEngine()
 	if engine != nil {
-		// Convert to PodLogData
 		logData := convertToPodLogData(workloadLog)
 		results := engine.EvaluateLog(logData)
 		if len(results) > 0 {
-			// Process evaluation results asynchronously
-			go processAlertResults(context.Background(), results)
+			alerts.AsyncDo(func() { processAlertResults(context.Background(), results) })
 		}
 	}
 
@@ -171,7 +169,7 @@ func processAlertResult(ctx context.Context, result *log_alert_engine.Evaluation
 	}
 
 	// Update rule statistics
-	go updateRuleStatistics(context.Background(), result)
+	alerts.AsyncDo(func() { updateRuleStatistics(context.Background(), result) })
 
 	log.GlobalLogger().WithContext(ctx).Infof(
 		"Log alert triggered: rule=%s, severity=%s, workload=%s, pod=%s",

@@ -7,11 +7,9 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/clientsets"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/telemetry-processor/pkg/module/pods"
 	"github.com/VictoriaMetrics/VictoriaMetrics/lib/prompb"
-	"github.com/VictoriaMetrics/VictoriaMetrics/lib/prompbmarshal"
 )
 
 func labelExist(labels []prompb.Label, labelName string) bool {
@@ -33,11 +31,9 @@ func getName(labels []prompb.Label) string {
 }
 
 func processTimeSeries(timeseries []prompb.TimeSeries) error {
-	//log.Infof("Processing %d timeseries", len(timeseries)) TODO metrics
-	newTimeseries := []prompbmarshal.TimeSeries{}
+	newTimeseries := make([]prompb.TimeSeries, 0, len(timeseries)/4)
 	newTsNames := map[string]bool{}
 	for _, ts := range timeseries {
-		// Check if this metric needs debugging
 		needDebug := shouldDebug(ts.Labels)
 		metricName := getName(ts.Labels)
 		labelMap := labelsToMap(ts.Labels)
@@ -95,7 +91,7 @@ func processTimeSeries(timeseries []prompb.TimeSeries) error {
 			}
 			workloadName := workload[0]
 			workloadUid := workload[1]
-			newLabels := []prompbmarshal.Label{}
+			newLabels := make([]prompb.Label, 0, len(ts.Labels)+4)
 			for i := range ts.Labels {
 				label := ts.Labels[i]
 				if label.Name == "__name__" {
@@ -105,23 +101,28 @@ func processTimeSeries(timeseries []prompb.TimeSeries) error {
 				if label.Name == "job" {
 					label.Value = "primus-lens-telemetry-processor"
 				}
-				newLabels = append(newLabels, prompbmarshal.Label{Name: label.Name, Value: label.Value})
+				newLabels = append(newLabels, prompb.Label{Name: label.Name, Value: label.Value})
 			}
-			newSamples := []prompbmarshal.Sample{}
+			newLabels = append(newLabels,
+				prompb.Label{Name: "pod_name", Value: podName},
+				prompb.Label{Name: "pod_uid", Value: podUid},
+				prompb.Label{Name: "workload_name", Value: workloadName},
+				prompb.Label{Name: "workload_uid", Value: workloadUid},
+			)
+
+			newSamples := make([]prompb.Sample, 0, len(ts.Samples))
 			filteredSampleCount := 0
 			for _, sample := range ts.Samples {
-				newSample := prompbmarshal.Sample{
-					Timestamp: sample.Timestamp,
-					Value:     sample.Value,
-				}
 				if sample.Value < 0 {
 					filteredSampleCount++
 					continue
 				}
-				newSamples = append(newSamples, newSample)
+				newSamples = append(newSamples, prompb.Sample{
+					Timestamp: sample.Timestamp,
+					Value:     sample.Value,
+				})
 			}
 
-			// If all samples are filtered, record and skip
 			if len(newSamples) == 0 {
 				if needDebug {
 					recordDebug(DebugRecord{
@@ -138,16 +139,11 @@ func processTimeSeries(timeseries []prompb.TimeSeries) error {
 				continue
 			}
 
-			newTs := prompbmarshal.TimeSeries{
-				Labels: append(newLabels, prompbmarshal.Label{Name: "pod_name", Value: podName},
-					prompbmarshal.Label{Name: "pod_uid", Value: podUid},
-					prompbmarshal.Label{Name: "workload_name", Value: workloadName},
-					prompbmarshal.Label{Name: "workload_uid", Value: workloadUid}),
+			newTimeseries = append(newTimeseries, prompb.TimeSeries{
+				Labels:  newLabels,
 				Samples: newSamples,
-			}
-			newTimeseries = append(newTimeseries, newTs)
+			})
 
-			// Record successful pass
 			if needDebug {
 				reason := fmt.Sprintf("passed: successfully relabeled with workload %s (uid: %s), %d samples kept",
 					workloadName, workloadUid, len(newSamples))
@@ -167,16 +163,19 @@ func processTimeSeries(timeseries []prompb.TimeSeries) error {
 			}
 		}
 	}
-	if len(newTimeseries) > 0 {
-		// Record active metrics to cache, reduce log output
-		RecordActiveMetrics(newTsNames, len(newTimeseries))
-		for i := range newTimeseries {
-			ts := newTimeseries[i]
-			err := clientsets.GetClusterManager().GetCurrentClusterClients().StorageClientSet.PrometheusWrite.Push(ts)
-			if err != nil {
-				log.Errorf("Failed to push timeseries: %v", err)
-			}
-		}
+	if len(newTimeseries) == 0 {
+		return nil
+	}
+
+	RecordActiveMetrics(newTsNames, len(newTimeseries))
+
+	w := getBatchWriter()
+	if w == nil {
+		log.Errorf("BatchWriter not initialized, dropping %d relabeled series", len(newTimeseries))
+		return nil
+	}
+	if err := w.WriteBatch(newTimeseries); err != nil {
+		log.Errorf("BatchWriter failed for %d series: %v", len(newTimeseries), err)
 	}
 	return nil
 }

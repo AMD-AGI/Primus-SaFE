@@ -29,6 +29,8 @@ type GlobalPatternRegistry struct {
 	lastLoadedAt time.Time
 	patternCount int
 	facade       database.TrainingLogPatternFacadeInterface
+
+	hitCountCh chan int64
 }
 
 // CompiledGlobalPattern wraps a compiled regex with metadata from training_log_pattern
@@ -53,10 +55,32 @@ type GlobalMatchResult struct {
 
 // NewGlobalPatternRegistry creates a new registry
 func NewGlobalPatternRegistry() *GlobalPatternRegistry {
-	return &GlobalPatternRegistry{
+	r := &GlobalPatternRegistry{
 		trainingEventPatterns: make(map[string][]*CompiledGlobalPattern),
 		checkpointPatterns:    make(map[string][]*CompiledGlobalPattern),
 		facade:                database.NewTrainingLogPatternFacade(),
+		hitCountCh:            make(chan int64, 4096),
+	}
+	go r.runHitCountWorker()
+	return r
+}
+
+// runHitCountWorker drains the hit-count channel with a single goroutine,
+// replacing the previous unbounded fire-and-forget pattern.
+func (r *GlobalPatternRegistry) runHitCountWorker() {
+	for id := range r.hitCountCh {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		_ = r.facade.UpdateHitCount(ctx, id)
+		cancel()
+	}
+}
+
+// enqueueHitCount sends a pattern ID to the hit-count worker without blocking.
+// Drops the update if the channel is full (acceptable for stats).
+func (r *GlobalPatternRegistry) enqueueHitCount(id int64) {
+	select {
+	case r.hitCountCh <- id:
+	default:
 	}
 }
 
@@ -168,8 +192,7 @@ func (r *GlobalPatternRegistry) MatchPerformance(msg string) *GlobalMatchResult 
 		match := cp.Pattern.FindStringSubmatch(msg)
 		if match != nil {
 			groups := extractNamedGroups(cp.Pattern, match)
-			// Async hit count update (fire-and-forget)
-			go r.updateHitCount(cp.ID)
+			r.enqueueHitCount(cp.ID)
 			return &GlobalMatchResult{
 				Matched:   true,
 				PatternID: cp.ID,
@@ -208,7 +231,7 @@ func (r *GlobalPatternRegistry) MatchTrainingEvent(msg string) (string, *GlobalM
 			match := cp.Pattern.FindStringSubmatch(msg)
 			if match != nil {
 				groups := extractNamedGroups(cp.Pattern, match)
-				go r.updateHitCount(cp.ID)
+				r.enqueueHitCount(cp.ID)
 				return subtype, &GlobalMatchResult{
 					Matched:   true,
 					PatternID: cp.ID,
@@ -234,7 +257,7 @@ func (r *GlobalPatternRegistry) MatchCheckpointEvent(msg string) (string, *Globa
 			match := cp.Pattern.FindStringSubmatch(msg)
 			if match != nil {
 				groups := extractNamedGroups(cp.Pattern, match)
-				go r.updateHitCount(cp.ID)
+				r.enqueueHitCount(cp.ID)
 				return subtype, &GlobalMatchResult{
 					Matched:   true,
 					PatternID: cp.ID,
@@ -279,11 +302,6 @@ func (r *GlobalPatternRegistry) GetDebugInfo() map[string]interface{} {
 	}
 }
 
-func (r *GlobalPatternRegistry) updateHitCount(id int64) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	_ = r.facade.UpdateHitCount(ctx, id)
-}
 
 // extractNamedGroups extracts named capture groups from a regex match
 func extractNamedGroups(pattern *regexp.Regexp, match []string) map[string]string {
