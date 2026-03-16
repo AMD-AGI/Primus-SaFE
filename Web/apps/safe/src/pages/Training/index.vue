@@ -929,6 +929,9 @@ const onAnyPointerDown = (e: Event) => {
   if (!inMenu && !inRefBtn) closeMore()
 }
 onMounted(() => {
+  if (route.query.action === 'create') {
+    addVisible.value = true
+  }
   window.addEventListener('scroll', onAnyScroll, { passive: true, capture: true })
   window.addEventListener('wheel', onAnyScroll, { passive: true, capture: true })
   window.addEventListener('touchmove', onAnyScroll, { passive: true, capture: true })

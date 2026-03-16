@@ -470,13 +470,23 @@
 
         <!-- Input Area -->
         <div class="input-section">
+          <SlashCommandMenu
+            :groups="slashGroups"
+            :display-items="slashDisplayItems"
+            :active-index="slashActiveIndex"
+            :visible="slashMenuVisible"
+            :is-searching="slashIsSearching"
+            @select="handleSlashSelect"
+            @update:active-index="slashActiveIndex = $event"
+          />
+
           <div class="input-wrapper" @click="focusInput">
             <!-- Input -->
             <textarea
               ref="inputRef"
               v-model="userInput"
-              placeholder="Ask me anything..."
-              @keydown.enter="handleEnterKey"
+              placeholder="Ask me anything... (type / for commands)"
+              @keydown="onInputKeydown"
               :disabled="loading"
               class="message-input"
               rows="1"
@@ -614,6 +624,10 @@ import WorkflowProgress from './Components/WorkflowProgress.vue'
 import ActionStatus from './Components/ActionStatus.vue'
 import InlineConfirmForm from './Components/InlineConfirmForm.vue'
 import QuickStartCards from './Components/QuickStartCards.vue'
+import SlashCommandMenu from './Components/SlashCommandMenu.vue'
+import { useSlashCommands } from './composables/useSlashCommands'
+import type { SlashCommandHandlers } from './composables/slashCommandExecutor'
+import { builtinSlashCommands } from './constants/slashCommands'
 import {
   askModeQuickStart,
   agentModeQuickStart,
@@ -696,6 +710,45 @@ const currentModeOnline = computed(() =>
   mode.value === 'ask' ? askOnline.value : agentOnline.value,
 )
 const currentModeLabel = computed(() => (mode.value === 'ask' ? 'Ask' : 'Agent'))
+
+// Slash commands
+const slashHandlers: SlashCommandHandlers = {
+  onClear: () => {
+    messages.value = []
+    ElMessage.success('Conversation cleared')
+  },
+  onNewChat: () => startNewConversation(),
+  onSwitchMode: (m) => handleModeChange(m),
+  onToggleThink: () => {
+    enableThinking.value = !enableThinking.value
+    ElMessage.success(`Deep thinking ${enableThinking.value ? 'enabled' : 'disabled'}`)
+  },
+  onHelp: () => {
+    const helpLines = builtinSlashCommands
+      .filter((cmd) => cmd.mode === 'all' || cmd.mode === mode.value)
+      .map((cmd) => `<b>/${cmd.command}</b> — ${cmd.description}`)
+      .join('<br/>')
+    ElMessage({
+      message: helpLines,
+      type: 'info',
+      duration: 5000,
+      dangerouslyUseHTMLString: true,
+    })
+  },
+  onNavigate: (route) => router.push(route),
+  onNavigateWithAction: (route, action) => router.push({ path: route, query: { action } }),
+  onFillInput: (text) => { userInput.value = text },
+}
+
+const {
+  showMenu: slashMenuVisible,
+  isSearching: slashIsSearching,
+  displayItems: slashDisplayItems,
+  groupedCommands: slashGroups,
+  activeIndex: slashActiveIndex,
+  handleSlashKeydown,
+  selectDisplayItem: handleSlashSelect,
+} = useSlashCommands(userInput, mode, slashHandlers)
 
 // Agent state
 const agentConnected = ref(false)
@@ -1488,13 +1541,18 @@ watch(userInput, () => {
 })
 
 // Handle Enter key press
+const onInputKeydown = (event: KeyboardEvent) => {
+  if (handleSlashKeydown(event)) return
+  if (event.key === 'Enter') {
+    handleEnterKey(event)
+  }
+}
+
 const handleEnterKey = (event: KeyboardEvent) => {
-  // Shift + Enter: allow new line (default behavior)
   if (event.shiftKey) {
     return
   }
 
-  // Enter only: send message and prevent default
   event.preventDefault()
   sendMessage()
 }

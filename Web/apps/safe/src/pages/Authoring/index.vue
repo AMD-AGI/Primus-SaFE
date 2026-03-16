@@ -305,7 +305,7 @@ import { Search, Refresh, CopyDocument, Plus, InfoFilled } from '@element-plus/i
 import { copyText, formatTimeStr } from '@/utils/index'
 import dayjs from 'dayjs'
 import utc from 'dayjs/plugin/utc'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import AddDialog from './Components/AddDialog.vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
@@ -326,6 +326,7 @@ dayjs.extend(utc)
 
 const tableRef = ref()
 const isDark = useDark()
+const route = useRoute()
 const router = useRouter()
 const store = useWorkspaceStore()
 const userStore = useUserStore()
@@ -822,6 +823,9 @@ const onAnyPointerDown = (e: Event) => {
   if (!inMenu && !inRefBtn) closeMore()
 }
 onMounted(() => {
+  if (route.query.action === 'create') {
+    addVisible.value = true
+  }
   window.addEventListener('scroll', onAnyScroll, { passive: true, capture: true })
   window.addEventListener('wheel', onAnyScroll, { passive: true, capture: true })
   window.addEventListener('touchmove', onAnyScroll, { passive: true, capture: true })
