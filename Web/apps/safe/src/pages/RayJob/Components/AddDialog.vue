@@ -1127,6 +1127,9 @@ const onOpen = async () => {
     isCustomNodes.value = false
   }
   await nextTick()
+  if (props.action === 'Create') {
+    setTimeout(() => ruleFormRef.value?.clearValidate(), 500)
+  }
 }
 
 watch(

@@ -1049,6 +1049,9 @@ const onOpen = async () => {
     Object.assign(form, initialForm())
   }
   await nextTick()
+  if (props.action === 'Create') {
+    setTimeout(() => ruleFormRef.value?.clearValidate(), 500)
+  }
 }
 </script>
 <style>
