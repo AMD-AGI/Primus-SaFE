@@ -14,6 +14,22 @@ import (
 	coremodel "github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/model"
 )
 
+var asyncSem = make(chan struct{}, 64)
+
+// AsyncDo runs fn in a bounded goroutine pool. If the pool is full, fn
+// executes synchronously to apply back-pressure instead of leaking goroutines.
+func AsyncDo(fn func()) {
+	select {
+	case asyncSem <- struct{}{}:
+		go func() {
+			defer func() { <-asyncSem }()
+			fn()
+		}()
+	default:
+		fn()
+	}
+}
+
 // ProcessAlertFromLog processes an alert generated from log rules (exported for use by log module)
 func ProcessAlertFromLog(ctx context.Context, alert *UnifiedAlert) error {
 	return processAlert(ctx, alert)
@@ -55,15 +71,10 @@ func processAlert(ctx context.Context, alert *UnifiedAlert) error {
 		return err
 	}
 
-	// Step 5: Update statistics (async)
-	go updateAlertStatistics(context.Background(), alert)
-
-	// Step 6: Perform correlation analysis (async)
-	go correlateAlerts(context.Background(), alert)
-
-	// Step 7: Route and notify (async, only for firing and not silenced)
+	AsyncDo(func() { updateAlertStatistics(context.Background(), alert) })
+	AsyncDo(func() { correlateAlerts(context.Background(), alert) })
 	if alert.Status == StatusFiring {
-		go routeAndNotify(context.Background(), alert)
+		AsyncDo(func() { routeAndNotify(context.Background(), alert) })
 	}
 
 	log.GlobalLogger().WithContext(ctx).Infof("Alert %s processed successfully", alert.ID)
@@ -92,21 +103,19 @@ func updateExistingAlert(ctx context.Context, existing *model.AlertEvents, newAl
 			return err
 		}
 
-		// Update statistics for resolved alert
-		go updateResolvedAlertStatistics(context.Background(), existing, endsAt)
+		AsyncDo(func() { updateResolvedAlertStatistics(context.Background(), existing, endsAt) })
 
-		// Send resolved notification
 		log.GlobalLogger().WithContext(ctx).Infof("Alert %s resolved, sending notification", newAlert.ID)
 		newAlert.Status = StatusResolved
-		go routeAndNotify(context.Background(), newAlert)
+		AsyncDo(func() { routeAndNotify(context.Background(), newAlert) })
 	}
 
 	// For firing alerts, retry notification if previous notification failed
 	if existing.Status == StatusFiring && newAlert.Status != StatusResolved {
 		if existing.NotificationStatus == "" || existing.NotificationStatus == "failed" {
-			log.GlobalLogger().WithContext(ctx).Infof("Retrying notification for alert: %s (previous status: %s)", 
+			log.GlobalLogger().WithContext(ctx).Infof("Retrying notification for alert: %s (previous status: %s)",
 				newAlert.ID, existing.NotificationStatus)
-			go routeAndNotify(context.Background(), newAlert)
+			AsyncDo(func() { routeAndNotify(context.Background(), newAlert) })
 		}
 	}
 
