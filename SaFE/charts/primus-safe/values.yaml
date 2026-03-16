@@ -174,3 +174,8 @@ proxy:
   #     prefix: /agent/qa
   #     target: http://qa-agent-service:8080
   #     enabled: true
+llm_gateway:
+  # LLM Gateway: enables SaFE API Key -> LiteLLM Virtual Key binding
+  # When enabled, users can upload APIM Keys on SaFE platform and use
+  # their SaFE API Keys (ak-xxx) to call LLM via LiteLLM.
+  enabled: true

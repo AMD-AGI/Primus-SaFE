@@ -109,6 +109,15 @@ data:
       services:
         {{- toYaml .Values.proxy.services | nindent 8 }}
     {{- end }}
+    llm_gateway:
+      # Whether to enable LLM Gateway (SaFE API Key -> LiteLLM Virtual Key binding)
+      enabled: {{ default true (default dict .Values.llm_gateway).enabled }}
+      # LiteLLM Proxy endpoint (must be reachable from SaFE API Server)
+      litellm_endpoint: "{{ default "https://tw325.primus-safe.amd.com/llm-gateway" (default dict .Values.llm_gateway).litellm_endpoint }}"
+      # LiteLLM Master Key for admin API access (optional, empty = no auth)
+      litellm_admin_key: "{{ default "sk-primus-safe-20260203" (default dict .Values.llm_gateway).litellm_admin_key }}"
+      # Global LiteLLM Team ID (all Service Account keys belong to this team)
+      litellm_team_id: "{{ default "7656ea7d-72c6-4a19-8d66-cbf2cfa4c13c" (default dict .Values.llm_gateway).litellm_team_id }}"
 kind: ConfigMap
 metadata:
   name: {{ .Release.Name }}-apiserver

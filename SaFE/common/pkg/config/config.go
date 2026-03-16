@@ -488,3 +488,26 @@ func GetTracingSamplingRatio() float64 {
 func GetTracingOtlpEndpoint() string {
 	return getString(tracingOtlpEndpoint, "")
 }
+
+// ── LLM Gateway ─────────────────────────────────────────────────────────
+
+// IsLLMGatewayEnable returns whether LLM Gateway feature is enabled.
+func IsLLMGatewayEnable() bool {
+	return getBool(llmGatewayEnable, false)
+}
+
+// GetLLMGatewayEndpoint returns the LiteLLM Proxy endpoint URL.
+func GetLLMGatewayEndpoint() string {
+	return getString(llmGatewayEndpoint, "")
+}
+
+// GetLLMGatewayAdminKey returns the LiteLLM Master Key for admin API access.
+// Returns empty string if not configured (LiteLLM runs without master key).
+func GetLLMGatewayAdminKey() string {
+	return getString(llmGatewayAdminKey, "")
+}
+
+// GetLLMGatewayTeamID returns the global LiteLLM Team ID.
+func GetLLMGatewayTeamID() string {
+	return getString(llmGatewayTeamID, "")
+}
