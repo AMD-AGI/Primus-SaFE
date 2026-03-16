@@ -8,6 +8,7 @@ package llmgateway
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -33,6 +34,9 @@ func NewLiteLLMClient(endpoint, adminKey, teamID string) *LiteLLMClient {
 		teamID:   teamID,
 		httpClient: &http.Client{
 			Timeout: 15 * time.Second,
+			Transport: &http.Transport{
+				TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, // nolint:gosec // skip TLS verify for internal/self-signed certs
+			},
 		},
 	}
 }
