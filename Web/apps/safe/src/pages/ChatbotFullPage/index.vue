@@ -736,7 +736,6 @@ const slashHandlers: SlashCommandHandlers = {
     })
   },
   onNavigate: (route) => router.push(route),
-  onNavigateWithAction: (route, action) => router.push({ path: route, query: { action } }),
   onFillInput: (text) => { userInput.value = text },
 }
 
@@ -748,7 +747,7 @@ const {
   activeIndex: slashActiveIndex,
   handleSlashKeydown,
   selectDisplayItem: handleSlashSelect,
-} = useSlashCommands(userInput, mode, slashHandlers)
+} = useSlashCommands(userInput, mode, computed(() => userStore.hasManagerAccess), slashHandlers)
 
 // Agent state
 const agentConnected = ref(false)

@@ -33,6 +33,7 @@ export interface SlashCommand {
   icon?: string
   category: string
   mode?: 'ask' | 'agent' | 'all'
+  requiredRole?: 'admin'
   action: 'navigate' | 'fill_input' | 'run_handler' | 'switch_mode' | 'toggle_think'
   aliases?: string[]
   keywords?: string[]
@@ -44,21 +45,49 @@ export interface SlashCommand {
 }
 
 // ---------------------------------------------------------------------------
-// Workload type → route mapping
+// Route action constants — shared between executor and workload pages
 // ---------------------------------------------------------------------------
 
-export const workloadRouteMap: Record<string, string> = {
-  training: '/training',
-  infer: '/infer',
-  rayjob: '/rayjob',
-  cicd: '/cicd',
-  torchft: '/torchft',
-  authoring: '/authoring',
+export const ROUTE_ACTIONS = {
+  CREATE: 'create',
+} as const
+
+// ---------------------------------------------------------------------------
+// Resource command config — data-driven navigate + action resolution
+// ---------------------------------------------------------------------------
+
+export interface ResourceActionConfig {
+  query: Record<string, string>
 }
 
-// Shared actions available on all workload types
+export interface ResourceTypeConfig {
+  route: string
+  actions?: Record<string, ResourceActionConfig>
+}
+
+export interface ResourceCommandConfig {
+  types: Record<string, ResourceTypeConfig>
+}
+
+const defaultActions: Record<string, ResourceActionConfig> = {
+  [ROUTE_ACTIONS.CREATE]: { query: { action: ROUTE_ACTIONS.CREATE } },
+}
+
+export const RESOURCE_COMMANDS: Record<string, ResourceCommandConfig> = {
+  wl: {
+    types: {
+      training:  { route: '/training',  actions: defaultActions },
+      rayjob:    { route: '/rayjob',    actions: defaultActions },
+      infer:     { route: '/infer',     actions: defaultActions },
+      cicd:      { route: '/cicd',      actions: defaultActions },
+      torchft:   { route: '/torchft',   actions: defaultActions },
+      authoring: { route: '/authoring', actions: defaultActions },
+    },
+  },
+}
+
 const workloadActions: SubcommandAction[] = [
-  { value: 'create', title: 'Create', description: 'Create new workload', icon: 'Plus', keywords: ['new', 'add'] },
+  { value: ROUTE_ACTIONS.CREATE, title: 'Create', description: 'Create new workload', icon: 'Plus', keywords: ['new', 'add'] },
 ]
 
 // Categories that collapse into a hoverable submenu row
@@ -77,6 +106,7 @@ export const builtinSlashCommands: SlashCommand[] = [
     icon: 'Box',
     category: 'Workloads',
     mode: 'all',
+    requiredRole: 'admin',
     action: 'navigate',
     aliases: ['workload', 'workloads'],
     subcommands: [

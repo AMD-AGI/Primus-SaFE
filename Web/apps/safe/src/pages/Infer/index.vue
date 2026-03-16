@@ -334,6 +334,7 @@ import { copyText, formatTimeStr } from '@/utils/index'
 import dayjs from 'dayjs'
 import utc from 'dayjs/plugin/utc'
 import { useRoute, useRouter } from 'vue-router'
+import { useRouteAction, ROUTE_ACTIONS } from '@/composables/useRouteAction'
 import AddDialog from './Components/AddDialog.vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Delete, DocumentCopy, Edit, Close, MoreFilled, VideoPlay } from '@element-plus/icons-vue'
@@ -676,10 +677,11 @@ const onAnyPointerDown = (e: Event) => {
   const inRefBtn = el.closest('.btn-primary-plain') !== null
   if (!inMenu && !inRefBtn) closeMore()
 }
+useRouteAction({
+  [ROUTE_ACTIONS.CREATE]: () => { addVisible.value = true },
+})
+
 onMounted(() => {
-  if (route.query.action === 'create') {
-    addVisible.value = true
-  }
   window.addEventListener('scroll', onAnyScroll, { passive: true, capture: true })
   window.addEventListener('wheel', onAnyScroll, { passive: true, capture: true })
   window.addEventListener('touchmove', onAnyScroll, { passive: true, capture: true })

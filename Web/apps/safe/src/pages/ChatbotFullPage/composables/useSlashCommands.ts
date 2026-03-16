@@ -39,6 +39,7 @@ type InputState =
 export function useSlashCommands(
   userInput: Ref<string>,
   mode: Ref<'ask' | 'agent'>,
+  isAdmin: Ref<boolean> | boolean,
   handlers: SlashCommandHandlers,
 ) {
   const showMenu = ref(false)
@@ -50,6 +51,8 @@ export function useSlashCommands(
     if (!input.startsWith('/')) return { type: 'idle' }
 
     const afterSlash = input.slice(1)
+    if (!afterSlash) return { type: 'idle' }
+
     const firstSpace = afterSlash.indexOf(' ')
 
     // No space: one-level command search  (e.g. "/w", "/wl")
@@ -90,6 +93,13 @@ export function useSlashCommands(
 
   const isSearching = computed(() => inputState.value.type !== 'idle')
 
+  const adminFlag = computed(() => (typeof isAdmin === 'boolean' ? isAdmin : isAdmin.value))
+
+  const isCommandVisible = (cmd: SlashCommand): boolean => {
+    if (cmd.requiredRole === 'admin' && !adminFlag.value) return false
+    return cmd.mode === 'all' || cmd.mode === mode.value
+  }
+
   // ---- Multi-field matching helpers ----
   const matchesCommandSearch = (cmd: SlashCommand, term: string): boolean => {
     if (!term) return true
@@ -128,10 +138,7 @@ export function useSlashCommands(
 
       case 'searching':
         return builtinSlashCommands
-          .filter((cmd) => {
-            const modeMatch = cmd.mode === 'all' || cmd.mode === mode.value
-            return modeMatch && matchesCommandSearch(cmd, state.term)
-          })
+          .filter((cmd) => isCommandVisible(cmd) && matchesCommandSearch(cmd, state.term))
           .map(cmdToDisplayItem)
 
       case 'subcommand':
@@ -151,7 +158,7 @@ export function useSlashCommands(
 
   // ---- Grouped commands for the idle grouped view ----
   const allVisibleCommands = computed(() =>
-    builtinSlashCommands.filter((cmd) => cmd.mode === 'all' || cmd.mode === mode.value),
+    builtinSlashCommands.filter(isCommandVisible),
   )
 
   const groupedCommands = computed<SlashCommandGroup[]>(() => {

@@ -1,6 +1,6 @@
 import {
   builtinSlashCommands,
-  workloadRouteMap,
+  RESOURCE_COMMANDS,
   type SlashCommand,
 } from '../constants/slashCommands'
 
@@ -31,7 +31,6 @@ export interface SlashCommandHandlers {
   onToggleThink: () => void
   onHelp: () => void
   onNavigate: (route: string) => void
-  onNavigateWithAction: (route: string, action: string) => void
   onFillInput: (text: string) => void
 }
 
@@ -144,7 +143,7 @@ export function executeSlashCommand(
 }
 
 // ---------------------------------------------------------------------------
-// Navigate executor (handles /wl, /wl training, /wl training create)
+// Navigate executor — data-driven via RESOURCE_COMMANDS config
 // ---------------------------------------------------------------------------
 
 function executeNavigate(
@@ -152,7 +151,7 @@ function executeNavigate(
   parsed: ParsedSlashInput,
   handlers: SlashCommandHandlers,
 ): ExecuteResult {
-  // Regular navigate (no subcommands)
+  // Simple navigate (no subcommands)
   if (!cmd.subcommands) {
     if (cmd.route) {
       handlers.onNavigate(cmd.route)
@@ -161,31 +160,33 @@ function executeNavigate(
     return { success: false, reason: 'No route configured' }
   }
 
-  // /wl without args → no route (menu shows submenu instead)
+  // Resource command: resolve via config
+  const resourceConfig = RESOURCE_COMMANDS[cmd.command]
+  if (!resourceConfig) {
+    return { success: false, reason: `No resource config for: ${cmd.command}` }
+  }
+
   if (!parsed.args.length) {
-    return { success: false, reason: 'Workload type required' }
+    return { success: false, reason: 'Resource type required' }
   }
 
-  // Resolve workload type
-  const wlType = parsed.args[0].toLowerCase()
-  const route = workloadRouteMap[wlType]
-  if (!route) {
-    return { success: false, reason: `Unknown workload type: ${wlType}` }
+  const typeName = parsed.args[0].toLowerCase()
+  const typeConfig = resourceConfig.types[typeName]
+  if (!typeConfig) {
+    return { success: false, reason: `Unknown type: ${typeName}` }
   }
 
-  // Check for action (second arg)
   const actionArg = parsed.args[1]?.toLowerCase()
   if (actionArg) {
-    const sub = cmd.subcommands.find((s) => s.value === wlType)
-    const validAction = sub?.actions?.some((a) => a.value === actionArg)
-    if (!validAction) {
+    const actionConfig = typeConfig.actions?.[actionArg]
+    if (!actionConfig) {
       return { success: false, reason: `Unknown action: ${actionArg}` }
     }
-    handlers.onNavigateWithAction(route, actionArg)
+    const query = new URLSearchParams(actionConfig.query).toString()
+    handlers.onNavigate(`${typeConfig.route}?${query}`)
     return { success: true }
   }
 
-  // Type only → simple navigate
-  handlers.onNavigate(route)
+  handlers.onNavigate(typeConfig.route)
   return { success: true }
 }
