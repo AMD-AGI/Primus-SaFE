@@ -124,6 +124,21 @@
                   >{{ row.phase }}</el-tag
                 >
                 <el-tooltip
+                  v-if="row.phase === 'Failed'"
+                  content="Root Cause Analysis"
+                  placement="top"
+                >
+                  <el-icon
+                    class="root-cause-icon"
+                    :size="18"
+                    @click.stop="
+                      router.push({ path: '/training/root-cause', query: { id: row.workloadId } })
+                    "
+                  >
+                    <WarningFilled />
+                  </el-icon>
+                </el-tooltip>
+                <el-tooltip
                   v-if="row.phase === 'Pending'"
                   :content="row.message ? `${row.message} - Click for Pending Cause Analysis` : 'Pending Cause Analysis'"
                   placement="top"
@@ -301,11 +316,12 @@ import {
   phaseFilters,
   WorkloadPhaseButtonType,
 } from '@/services/workload/type'
-import { Search, Refresh, CopyDocument, Plus, InfoFilled } from '@element-plus/icons-vue'
+import { Search, Refresh, CopyDocument, Plus, InfoFilled, WarningFilled } from '@element-plus/icons-vue'
 import { copyText, formatTimeStr } from '@/utils/index'
 import dayjs from 'dayjs'
 import utc from 'dayjs/plugin/utc'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
+import { useRouteAction, ROUTE_ACTIONS } from '@/composables/useRouteAction'
 import AddDialog from './Components/AddDialog.vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
@@ -326,6 +342,7 @@ dayjs.extend(utc)
 
 const tableRef = ref()
 const isDark = useDark()
+const route = useRoute()
 const router = useRouter()
 const store = useWorkspaceStore()
 const userStore = useUserStore()
@@ -821,6 +838,10 @@ const onAnyPointerDown = (e: Event) => {
   const inRefBtn = el.closest('.btn-primary-plain') !== null
   if (!inMenu && !inRefBtn) closeMore()
 }
+useRouteAction({
+  [ROUTE_ACTIONS.CREATE]: () => { addVisible.value = true },
+})
+
 onMounted(() => {
   window.addEventListener('scroll', onAnyScroll, { passive: true, capture: true })
   window.addEventListener('wheel', onAnyScroll, { passive: true, capture: true })
@@ -889,6 +910,18 @@ watch(
 .slide-up-leave-to {
   transform: translateY(100%);
   opacity: 0;
+}
+
+/* Root Cause Analysis Icon */
+.root-cause-icon {
+  cursor: pointer;
+  color: var(--el-color-danger);
+  transition: all 0.2s ease;
+}
+
+.root-cause-icon:hover {
+  color: var(--el-color-warning);
+  transform: scale(1.2);
 }
 
 /* Pending Cause Analysis Icon */

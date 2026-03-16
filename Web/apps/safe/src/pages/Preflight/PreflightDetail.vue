@@ -106,7 +106,7 @@
       />
     </el-tab-pane>
     <el-tab-pane label="Logs" name="logs" lazy v-if="userStore.envs?.enableLog">
-      <LogTable
+      <LogTerminal
         :wlid="workloadId"
         :dispatchCount="workloadDetail?.dispatchCount"
         :nodes="workloadDetail?.nodes"
@@ -152,7 +152,7 @@ import { Cpu, Monitor, Collection, Box } from '@element-plus/icons-vue'
 import LogsDialog from '@/components/Workload/LogsDialog.vue'
 import SshConfigDialog from '@/components/Workload/SshConfigDialog.vue'
 import AddDialog from '@/pages/Diagnoser/Components/AddDialog.vue'
-import LogTable from '@/pages/Diagnoser/Components/LogTable.vue'
+import LogTerminal from '@/components/Workload/LogTerminal.vue'
 import StatCard from '@/components/Base/StatCard.vue'
 import WorkloadHeader from '@/components/Workload/WorkloadHeader.vue'
 import WorkloadPodsTable from '@/components/Workload/WorkloadPodsTable.vue'
