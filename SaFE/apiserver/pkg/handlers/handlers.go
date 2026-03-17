@@ -14,6 +14,7 @@ import (
 
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
 	cdhandlers "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/cd-handlers"
+	emailrelayhandlers "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/email-relay-handlers"
 	imagehandlers "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/image-handlers"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/middleware"
 	model_handlers "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/model-handlers"
@@ -85,6 +86,16 @@ func InitHttpHandlers(_ context.Context, mgr ctrlruntime.Manager) (*gin.Engine, 
 		return nil, err
 	}
 	proxyhandlers.InitProxyRoutes(engine, proxyHandler)
+
+	// Initialize email relay handlers (only when DB is enabled)
+	if commonconfig.IsDBEnable() {
+		emailRelayHandler, err := emailrelayhandlers.NewHandler()
+		if err != nil {
+			klog.Warningf("Email relay handler initialization skipped: %v", err)
+		} else {
+			emailrelayhandlers.InitEmailRelayRouters(engine, emailRelayHandler)
+		}
+	}
 
 	return engine, nil
 }
