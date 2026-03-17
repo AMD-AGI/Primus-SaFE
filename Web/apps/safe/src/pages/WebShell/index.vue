@@ -246,21 +246,26 @@ onMounted(async () => {
   }
   term.element?.addEventListener('contextmenu', onContextMenu)
 
-  /** Keyboard fallback: Ctrl/Cmd + Shift + C / V */
+  /** Keyboard: Ctrl/Cmd + C / V  (with or without Shift) */
   term.attachCustomKeyEventHandler((ev) => {
+    if (ev.type !== 'keydown') return true
     const isMac = /Mac|iPod|iPhone|iPad/.test(navigator.platform)
     const ctrlOrCmd = isMac ? ev.metaKey : ev.ctrlKey
+    if (!ctrlOrCmd) return true
 
-    // Copy
-    if (ctrlOrCmd && ev.shiftKey && ev.code === 'KeyC') {
+    // Copy — Ctrl+C or Ctrl+Shift+C
+    if (ev.code === 'KeyC') {
       if (term?.hasSelection()) {
         copyToClipboard(term.getSelection()).catch(() => {})
+        term.clearSelection()
+        return false
       }
-      return false
+      // No selection: Ctrl+C → pass through as SIGINT; Ctrl+Shift+C → swallow
+      return !ev.shiftKey
     }
 
-    // Paste
-    if (ctrlOrCmd && ev.shiftKey && ev.code === 'KeyV') {
+    // Paste — Ctrl+V or Ctrl+Shift+V
+    if (ev.code === 'KeyV') {
       if (canProgramReadClipboard()) {
         navigator.clipboard
           .readText()
