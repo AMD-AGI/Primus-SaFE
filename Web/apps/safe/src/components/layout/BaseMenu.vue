@@ -344,6 +344,12 @@ watchEffect(() => {
       icon: menuIcons.playground,
       canAccess: hasManagerAccess.value, // Admin only
     },
+    {
+      index: '/llm-gateway',
+      name: 'LLM Gateway',
+      icon: menuIcons.llmGateway,
+      canAccess: true, // Open to all users
+    },
   ]
 
   // Filter out menu items without permission
