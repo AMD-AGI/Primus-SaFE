@@ -90,7 +90,7 @@
                 </el-form-item>
               </el-col>
               <el-col :span="12">
-                <el-form-item label="gpu" prop="header.gpu">
+                <el-form-item label="gpu">
                   <el-input v-model="form.header.gpu" :placeholder="placeholders.gpu" />
                 </el-form-item>
               </el-col>
@@ -162,11 +162,6 @@
                     </el-form-item>
                   </el-col>
 
-
-
-                  <el-col :span="12">
-
-                  </el-col>
                   <el-col :span="12">
                     <el-form-item :label="`cpu`" :prop="`workers.${idx}.cpu`">
                       <el-input v-model="w.cpu" :placeholder="placeholders.cpu" />
@@ -721,7 +716,6 @@ const rules = reactive({
   // Header
   'header.image': [{ required: true, message: 'Please input image', trigger: 'blur' }],
   'header.cpu': [{ required: true, message: 'Please input cpu', trigger: 'blur' }],
-  'header.gpu': [{ required: true, message: 'Please input gpu', trigger: 'blur' }],
   'header.memory': [{ required: true, message: 'Please input memory', trigger: 'blur' }],
   'header.ephemeralStorage': [
     { required: true, message: 'Please input ephemeral storage', trigger: 'blur' },
@@ -919,7 +913,6 @@ watch(
     const res = await getNodeFlavorAvail(flavorId)
     flavorMaxVal.value = res
     ;(rules['header.cpu'] as FormItemRule[]).push(createBetweenRule(1, res.cpu))
-    ;(rules['header.gpu'] as FormItemRule[]).push(createBetweenRule(0, res['amd.com/gpu'] ?? 0))
     ;(rules['header.memory'] as FormItemRule[]).push(
       createBetweenRule(1, Number(byte2Gi(res.memory ?? 0, 0, false))),
     )
