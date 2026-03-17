@@ -13,7 +13,8 @@ import (
 )
 
 type Config struct {
-	Email *EmailConfig `json:"email,omitempty" yaml:"email"`
+	Email      *EmailConfig      `json:"email,omitempty" yaml:"email"`
+	EmailRelay *EmailRelayConfig `json:"email_relay,omitempty" yaml:"email_relay"`
 }
 
 type EmailConfig struct {
@@ -42,9 +43,17 @@ type Channel interface {
 }
 
 // InitChannels initializes all notification channels from the configuration.
+// When EmailRelay is configured, it takes precedence over the direct Email channel.
 func InitChannels(ctx context.Context, conf *Config) (map[string]Channel, error) {
 	channels := make(map[string]Channel)
-	if conf.Email != nil {
+	if conf.EmailRelay != nil && conf.EmailRelay.Enable {
+		relayChannel := &EmailRelayChannel{}
+		if err := relayChannel.Init(*conf); err != nil {
+			return nil, err
+		}
+		channels[relayChannel.Name()] = relayChannel
+		SetEmailRelayInstance(relayChannel)
+	} else if conf.Email != nil {
 		emailChannel := &EmailChannel{}
 		if err := emailChannel.Init(*conf); err != nil {
 			return nil, err
