@@ -84,6 +84,7 @@ func InitRoutes(engine *gin.Engine, handler *Handler) {
 		mgmt.DELETE("/binding", handler.DeleteBinding)
 		mgmt.GET("/binding", handler.GetBinding)
 		mgmt.GET("/usage", handler.GetUsage)
+		mgmt.GET("/summary", handler.GetSummary)
 	}
 
 	// LLM reverse proxy: /api/v1/llm-proxy/* -> LiteLLM
@@ -109,6 +110,7 @@ type BindingResponse struct {
 	KeyAlias    string `json:"key_alias"`
 	HasAPIMKey  bool   `json:"has_apim_key"`
 	ApimKeyHint string `json:"apim_key_hint,omitempty"`
+	VirtualKey  string `json:"virtual_key,omitempty"`
 	CreatedAt   string `json:"created_at,omitempty"`
 	UpdatedAt   string `json:"updated_at,omitempty"`
 }
@@ -190,6 +192,7 @@ func (h *Handler) CreateBinding(c *gin.Context) {
 		UserEmail:  email,
 		KeyAlias:   email,
 		HasAPIMKey: true,
+		VirtualKey: litellmResp.Key,
 		CreatedAt:  binding.CreatedAt.Format("2006-01-02T15:04:05Z"),
 	})
 }
@@ -331,33 +334,81 @@ func (h *Handler) GetBinding(c *gin.Context) {
 	})
 }
 
+// ── Summary types ─────────────────────────────────────────────────────────
+
+type SummaryResponse struct {
+	UserEmail  string                    `json:"user_email"`
+	TotalSpend float64                   `json:"total_spend"`
+	ModelSpend map[string]float64        `json:"model_spend,omitempty"`
+}
+
+// GetSummary handles GET /api/v1/llm-gateway/summary
+// Returns cumulative total spend for the user (not tied to a date range).
+func (h *Handler) GetSummary(c *gin.Context) {
+	email := h.getUserEmail(c)
+	if email == "" {
+		apiutils.AbortWithApiError(c, commonerrors.NewBadRequest("unable to identify user email"))
+		return
+	}
+
+	existing, err := h.dbClient.GetLLMBindingByEmail(c.Request.Context(), email)
+	if err != nil {
+		klog.ErrorS(err, "GetSummary: DB query failed", "email", email)
+		apiutils.AbortWithApiError(c, commonerrors.NewInternalError("service temporarily unavailable, please try again later"))
+		return
+	}
+	if existing == nil {
+		apiutils.AbortWithApiError(c, commonerrors.NewNotFoundWithMessage("no APIM Key bound yet, summary unavailable"))
+		return
+	}
+
+	userInfo, err := h.litellmClient.GetUserInfo(c.Request.Context(), email)
+	if err != nil {
+		klog.ErrorS(err, "GetSummary: LiteLLM query failed", "email", email)
+		c.JSON(http.StatusBadGateway, gin.H{"errorMessage": "summary data temporarily unavailable, please try again later"})
+		return
+	}
+
+	c.JSON(http.StatusOK, SummaryResponse{
+		UserEmail:  email,
+		TotalSpend: userInfo.UserInfo.Spend,
+		ModelSpend: userInfo.UserInfo.ModelSpend,
+	})
+}
+
 // ── Usage types ───────────────────────────────────────────────────────────
 
 type UsageResponse struct {
-	UserEmail             string            `json:"user_email"`
-	TotalSpend            float64           `json:"total_spend"`
-	TotalPromptTokens     int64             `json:"total_prompt_tokens"`
-	TotalCompletionTokens int64             `json:"total_completion_tokens"`
-	TotalTokens           int64             `json:"total_tokens"`
-	TotalAPIRequests      int64             `json:"total_api_requests"`
-	Daily                 []UsageDailyEntry `json:"daily"`
+	UserEmail               string            `json:"user_email"`
+	TotalSpend              float64           `json:"total_spend"`
+	TotalPromptTokens       int64             `json:"total_prompt_tokens"`
+	TotalCompletionTokens   int64             `json:"total_completion_tokens"`
+	TotalTokens             int64             `json:"total_tokens"`
+	TotalAPIRequests        int64             `json:"total_api_requests"`
+	TotalSuccessfulRequests int64             `json:"total_successful_requests"`
+	TotalFailedRequests     int64             `json:"total_failed_requests"`
+	Daily                   []UsageDailyEntry `json:"daily"`
 }
 
 type UsageDailyEntry struct {
-	Date             string                    `json:"date"`
-	Spend            float64                   `json:"spend"`
-	PromptTokens     int64                     `json:"prompt_tokens"`
-	CompletionTokens int64                     `json:"completion_tokens"`
-	TotalTokens      int64                     `json:"total_tokens"`
-	APIRequests      int64                     `json:"api_requests"`
-	Models           map[string]UsageModelData `json:"models,omitempty"`
+	Date               string                    `json:"date"`
+	Spend              float64                   `json:"spend"`
+	PromptTokens       int64                     `json:"prompt_tokens"`
+	CompletionTokens   int64                     `json:"completion_tokens"`
+	TotalTokens        int64                     `json:"total_tokens"`
+	APIRequests        int64                     `json:"api_requests"`
+	SuccessfulRequests int64                     `json:"successful_requests"`
+	FailedRequests     int64                     `json:"failed_requests"`
+	Models             map[string]UsageModelData `json:"models,omitempty"`
 }
 
 type UsageModelData struct {
-	Spend            float64 `json:"spend"`
-	PromptTokens     int64   `json:"prompt_tokens"`
-	CompletionTokens int64   `json:"completion_tokens"`
-	APIRequests      int64   `json:"api_requests"`
+	Spend              float64 `json:"spend"`
+	PromptTokens       int64   `json:"prompt_tokens"`
+	CompletionTokens   int64   `json:"completion_tokens"`
+	APIRequests        int64   `json:"api_requests"`
+	SuccessfulRequests int64   `json:"successful_requests"`
+	FailedRequests     int64   `json:"failed_requests"`
 }
 
 // GetUsage handles GET /api/v1/llm-gateway/usage?start_date=...&end_date=...
@@ -398,21 +449,25 @@ func (h *Handler) GetUsage(c *gin.Context) {
 	daily := make([]UsageDailyEntry, 0, len(activity.Results))
 	for _, r := range activity.Results {
 		entry := UsageDailyEntry{
-			Date:             r.Date,
-			Spend:            r.Metrics.Spend,
-			PromptTokens:     r.Metrics.PromptTokens,
-			CompletionTokens: r.Metrics.CompletionTokens,
-			TotalTokens:      r.Metrics.TotalTokens,
-			APIRequests:      r.Metrics.APIRequests,
+			Date:               r.Date,
+			Spend:              r.Metrics.Spend,
+			PromptTokens:       r.Metrics.PromptTokens,
+			CompletionTokens:   r.Metrics.CompletionTokens,
+			TotalTokens:        r.Metrics.TotalTokens,
+			APIRequests:        r.Metrics.APIRequests,
+			SuccessfulRequests: r.Metrics.SuccessfulRequests,
+			FailedRequests:     r.Metrics.FailedRequests,
 		}
 		if r.Breakdown != nil && len(r.Breakdown.Models) > 0 {
 			entry.Models = make(map[string]UsageModelData, len(r.Breakdown.Models))
 			for model, m := range r.Breakdown.Models {
 				entry.Models[model] = UsageModelData{
-					Spend:            m.Spend,
-					PromptTokens:     m.PromptTokens,
-					CompletionTokens: m.CompletionTokens,
-					APIRequests:      m.APIRequests,
+					Spend:              m.Spend,
+					PromptTokens:       m.PromptTokens,
+					CompletionTokens:   m.CompletionTokens,
+					APIRequests:        m.APIRequests,
+					SuccessfulRequests: m.SuccessfulRequests,
+					FailedRequests:     m.FailedRequests,
 				}
 			}
 		}
@@ -420,13 +475,15 @@ func (h *Handler) GetUsage(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, UsageResponse{
-		UserEmail:             email,
-		TotalSpend:            activity.Metadata.TotalSpend,
-		TotalPromptTokens:     activity.Metadata.TotalPromptTokens,
-		TotalCompletionTokens: activity.Metadata.TotalCompletionTokens,
-		TotalTokens:           totalTokens,
-		TotalAPIRequests:      activity.Metadata.TotalAPIRequests,
-		Daily:                 daily,
+		UserEmail:               email,
+		TotalSpend:              activity.Metadata.TotalSpend,
+		TotalPromptTokens:       activity.Metadata.TotalPromptTokens,
+		TotalCompletionTokens:   activity.Metadata.TotalCompletionTokens,
+		TotalTokens:             totalTokens,
+		TotalAPIRequests:        activity.Metadata.TotalAPIRequests,
+		TotalSuccessfulRequests: activity.Metadata.TotalSuccessfulRequests,
+		TotalFailedRequests:     activity.Metadata.TotalFailedRequests,
+		Daily:                   daily,
 	})
 }
 

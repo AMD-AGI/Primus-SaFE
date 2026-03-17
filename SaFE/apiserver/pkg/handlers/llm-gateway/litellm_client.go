@@ -94,11 +94,13 @@ type DailyResult struct {
 }
 
 type DailyMetrics struct {
-	Spend            float64 `json:"spend"`
-	PromptTokens     int64   `json:"prompt_tokens"`
-	CompletionTokens int64   `json:"completion_tokens"`
-	TotalTokens      int64   `json:"total_tokens"`
-	APIRequests      int64   `json:"api_requests"`
+	Spend              float64 `json:"spend"`
+	PromptTokens       int64   `json:"prompt_tokens"`
+	CompletionTokens   int64   `json:"completion_tokens"`
+	TotalTokens        int64   `json:"total_tokens"`
+	APIRequests        int64   `json:"api_requests"`
+	SuccessfulRequests int64   `json:"successful_requests"`
+	FailedRequests     int64   `json:"failed_requests"`
 }
 
 type DailyBreakdown struct {
@@ -106,11 +108,32 @@ type DailyBreakdown struct {
 	Providers map[string]DailyMetrics `json:"providers,omitempty"`
 }
 
+// UserInfoResponse is the response from GET /user/info
+type UserInfoResponse struct {
+	UserID    string             `json:"user_id"`
+	UserInfo  UserInfoData       `json:"user_info"`
+	Keys      []UserInfoKeyData  `json:"keys"`
+}
+
+type UserInfoData struct {
+	Spend      float64            `json:"spend"`
+	MaxBudget  *float64           `json:"max_budget"`
+	ModelSpend map[string]float64 `json:"model_spend"`
+}
+
+type UserInfoKeyData struct {
+	Token    string  `json:"token"`
+	KeyAlias string  `json:"key_alias"`
+	Spend    float64 `json:"spend"`
+}
+
 type ActivityTotals struct {
-	TotalSpend            float64 `json:"total_spend"`
-	TotalPromptTokens     int64   `json:"total_prompt_tokens"`
-	TotalCompletionTokens int64   `json:"total_completion_tokens"`
-	TotalAPIRequests      int64   `json:"total_api_requests"`
+	TotalSpend              float64 `json:"total_spend"`
+	TotalPromptTokens       int64   `json:"total_prompt_tokens"`
+	TotalCompletionTokens   int64   `json:"total_completion_tokens"`
+	TotalAPIRequests        int64   `json:"total_api_requests"`
+	TotalSuccessfulRequests int64   `json:"total_successful_requests"`
+	TotalFailedRequests     int64   `json:"total_failed_requests"`
 }
 
 // ── API Methods ───────────────────────────────────────────────────────────
@@ -357,6 +380,40 @@ func (c *LiteLLMClient) GetUserDailyActivity(ctx context.Context, userID, startD
 	}
 
 	var result DailyActivityResponse
+	if err := json.Unmarshal(respBody, &result); err != nil {
+		return nil, fmt.Errorf("failed to decode LiteLLM response: %w", err)
+	}
+
+	return &result, nil
+}
+
+// GetUserInfo queries LiteLLM for a user's cumulative spend and key info.
+func (c *LiteLLMClient) GetUserInfo(ctx context.Context, userID string) (*UserInfoResponse, error) {
+	reqURL := fmt.Sprintf("%s/user/info?user_id=%s", c.endpoint, userID)
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+	if c.adminKey != "" {
+		req.Header.Set("Authorization", "Bearer "+c.adminKey)
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to call LiteLLM: %w", err)
+	}
+	defer resp.Body.Close()
+
+	respBody, _ := io.ReadAll(resp.Body)
+
+	if resp.StatusCode != http.StatusOK {
+		klog.ErrorS(nil, "LiteLLM get user info failed",
+			"status", resp.StatusCode, "body", string(respBody))
+		return nil, fmt.Errorf("LiteLLM returned HTTP %d: %s", resp.StatusCode, string(respBody))
+	}
+
+	var result UserInfoResponse
 	if err := json.Unmarshal(respBody, &result); err != nil {
 		return nil, fmt.Errorf("failed to decode LiteLLM response: %w", err)
 	}
