@@ -925,7 +925,7 @@ func updateCICDGithub(adminWorkload *v1.Workload, obj *unstructured.Unstructured
 	specObject["githubConfigUrl"] = adminWorkload.Spec.Env[common.GithubConfigUrl]
 	if commonworkload.IsCICDEphemeralRunner(adminWorkload) {
 		if runnerSetId := v1.GetCICDRunnerScaleSetId(adminWorkload); runnerSetId != "" {
-			specObject["runnerScaleSetId"], err = strconv.ParseInt(runnerSetId, 10, 0)
+			specObject["runnerScaleSetId"], err = strconv.ParseInt(runnerSetId, 10, 64)
 			if err != nil {
 				return fmt.Errorf("invalid runner scale set id %s", runnerSetId)
 			}
