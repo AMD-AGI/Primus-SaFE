@@ -2,6 +2,7 @@ export interface LLMGatewayBinding {
   user_email: string
   key_alias?: string
   has_apim_key: boolean
+  apim_key_hint?: string
   created_at?: string
   updated_at?: string
 }

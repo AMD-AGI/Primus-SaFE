@@ -33,7 +33,7 @@
       <div class="key-input-row">
         <el-input
           v-model="apimKeyInput"
-          placeholder="Enter new APIM Key"
+          :placeholder="binding?.apim_key_hint ? `Current: ${binding.apim_key_hint}` : 'Enter new APIM Key'"
           show-password
           clearable
           class="key-input"
