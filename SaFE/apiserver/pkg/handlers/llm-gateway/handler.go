@@ -460,7 +460,8 @@ func (h *Handler) GetUsage(c *gin.Context) {
 		}
 		if r.Breakdown != nil && len(r.Breakdown.Models) > 0 {
 			entry.Models = make(map[string]UsageModelData, len(r.Breakdown.Models))
-			for model, m := range r.Breakdown.Models {
+			for model, mwm := range r.Breakdown.Models {
+				m := mwm.Metrics
 				entry.Models[model] = UsageModelData{
 					Spend:              m.Spend,
 					PromptTokens:       m.PromptTokens,

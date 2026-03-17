@@ -104,8 +104,12 @@ type DailyMetrics struct {
 }
 
 type DailyBreakdown struct {
-	Models    map[string]DailyMetrics `json:"models,omitempty"`
-	Providers map[string]DailyMetrics `json:"providers,omitempty"`
+	Models    map[string]MetricWithMetadata `json:"models,omitempty"`
+	Providers map[string]MetricWithMetadata `json:"providers,omitempty"`
+}
+
+type MetricWithMetadata struct {
+	Metrics DailyMetrics `json:"metrics"`
 }
 
 // UserInfoResponse is the response from GET /user/info
