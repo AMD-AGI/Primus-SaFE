@@ -503,7 +503,7 @@ func GetA2AScannerInterval() int {
 
 // GetA2AScannerNamespaces returns the namespaces to scan for A2A services.
 func GetA2AScannerNamespaces() []string {
-	return getStrings(a2aScannerNamespaces)
+	return viper.GetStringSlice(a2aScannerNamespaces)
 }
 
 // GetA2AScannerLabelSelector returns the label selector for A2A service discovery.

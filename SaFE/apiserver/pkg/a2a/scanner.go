@@ -65,7 +65,7 @@ func (s *Scanner) scan(ctx context.Context) {
 	labelSelector := commonconfig.GetA2AScannerLabelSelector()
 	labels := parseLabelSelector(labelSelector)
 
-	klog.V(2).InfoS("A2A scanner scanning", "namespaces", namespaces, "labelSelector", labelSelector, "parsedLabels", labels)
+	klog.InfoS("A2A scanner scanning", "namespaces", namespaces, "labelSelector", labelSelector, "parsedLabels", labels)
 
 	for _, ns := range namespaces {
 		var serviceList corev1.ServiceList
@@ -73,7 +73,7 @@ func (s *Scanner) scan(ctx context.Context) {
 			klog.ErrorS(err, "failed to list services", "namespace", ns)
 			continue
 		}
-		klog.V(2).InfoS("A2A scanner found services", "namespace", ns, "count", len(serviceList.Items))
+		klog.InfoS("A2A scanner found services", "namespace", ns, "count", len(serviceList.Items))
 		for i := range serviceList.Items {
 			s.syncService(ctx, &serviceList.Items[i])
 		}
