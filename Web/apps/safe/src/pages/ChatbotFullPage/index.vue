@@ -480,6 +480,26 @@
             @update:active-index="slashActiveIndex = $event"
           />
 
+          <!-- Slash command suggestions (natural language → command) -->
+          <Transition name="slash-menu">
+            <div v-if="slashSuggestions.length > 0" class="slash-suggestions">
+              <div
+                v-for="s in slashSuggestions"
+                :key="s.id"
+                class="slash-suggestion-item"
+              >
+                <span class="slash-suggestion-label">{{ s.label }}</span>
+                <span class="slash-suggestion-desc">{{ s.description }}</span>
+                <div class="slash-suggestion-actions">
+                  <el-button size="small" text @click="fillSuggestion(s)">Insert</el-button>
+                  <el-button size="small" type="primary" text @click="executeSuggestion(s)">
+                    Run
+                  </el-button>
+                </div>
+              </div>
+            </div>
+          </Transition>
+
           <div class="input-wrapper" @click="focusInput">
             <!-- Input -->
             <textarea
@@ -747,6 +767,9 @@ const {
   activeIndex: slashActiveIndex,
   handleSlashKeydown,
   selectDisplayItem: handleSlashSelect,
+  suggestions: slashSuggestions,
+  fillSuggestion,
+  executeSuggestion,
 } = useSlashCommands(userInput, mode, computed(() => userStore.hasManagerAccess), slashHandlers)
 
 // Agent state

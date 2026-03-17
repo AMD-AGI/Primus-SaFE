@@ -1558,6 +1558,52 @@
   position: relative;
 }
 
+// Slash command suggestions (natural language bridge)
+.slash-suggestions {
+  margin-bottom: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.slash-suggestion-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 14px;
+  background: rgba(20, 184, 166, 0.08);
+  border: 1px solid rgba(20, 184, 166, 0.2);
+  border-radius: 10px;
+  transition: background 0.15s ease;
+
+  &:hover {
+    background: rgba(20, 184, 166, 0.14);
+  }
+}
+
+.slash-suggestion-label {
+  font-size: 13px;
+  font-weight: 600;
+  font-family: 'JetBrains Mono', 'Monaco', 'Courier New', monospace;
+  color: #14b8a6;
+  white-space: nowrap;
+}
+
+.slash-suggestion-desc {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.5);
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.slash-suggestion-actions {
+  display: flex;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
 // Deep Thinking 按钮已移到 input-footer 内
 
 .input-wrapper {
@@ -2173,6 +2219,18 @@
     }
   }
 
+  .slash-suggestion-item {
+    background: rgba(20, 184, 166, 0.06);
+    border-color: rgba(20, 184, 166, 0.15);
+  }
+
+  .slash-suggestion-label {
+    color: #0d9488;
+  }
+
+  .slash-suggestion-desc {
+    color: rgba(0, 0, 0, 0.45);
+  }
 
   .mode-selector-button {
     background: rgba(255, 255, 255, 0.9);

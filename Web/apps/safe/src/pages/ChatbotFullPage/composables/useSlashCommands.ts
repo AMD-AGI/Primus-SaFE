@@ -14,8 +14,9 @@ import {
   type SlashCommandHandlers,
   type MenuDisplayItem,
 } from './slashCommandExecutor'
+import { matchSuggestions, type CommandSuggestion } from './slashSuggestionMatcher'
 
-export type { SlashCommandHandlers, MenuDisplayItem }
+export type { SlashCommandHandlers, MenuDisplayItem, CommandSuggestion }
 
 export interface SlashCommandGroup {
   label: string
@@ -256,6 +257,30 @@ export function useSlashCommands(
     }
   }
 
+  // ---- Natural language → command suggestions ----
+  const suggestions = computed<CommandSuggestion[]>(() => {
+    const input = userInput.value
+    if (!input || input.startsWith('/')) return []
+    return matchSuggestions(input)
+  })
+
+  /** Fill the input box with a suggestion's slash command text. */
+  const fillSuggestion = (suggestion: CommandSuggestion) => {
+    userInput.value = suggestion.label
+  }
+
+  /** Execute a suggestion directly via the existing executor. */
+  const executeSuggestion = (suggestion: CommandSuggestion) => {
+    const parsed = makeParsedInput(suggestion.command, suggestion.args)
+    const cmd = resolveCommand(parsed)
+    if (!cmd) return
+
+    const result = executeSlashCommand(cmd, parsed, { mode: mode.value, handlers })
+    if (result.success) {
+      userInput.value = ''
+    }
+  }
+
   return {
     showMenu,
     isSearching,
@@ -264,6 +289,9 @@ export function useSlashCommands(
     activeIndex,
     handleSlashKeydown,
     selectDisplayItem,
+    suggestions,
+    fillSuggestion,
+    executeSuggestion,
   }
 }
 
