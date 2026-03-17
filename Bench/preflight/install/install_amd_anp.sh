@@ -48,22 +48,25 @@ if [ $? -ne 0 ]; then
   exit 1
 fi
 
-# Clone AMD ANP repository
+# Clone AMD ANP repository (retry on transient network errors)
 echo "Cloning AMD ANP repository..."
-git clone ${ANP_REPO}
-if [ $? -ne 0 ]; then
-  echo "Error: Failed to clone AMD ANP repository from ${ANP_REPO}"
+rm -rf ${ANP_DIR}
+git config --global http.postBuffer 524288000
+for i in 1 2 3 4 5; do
+  if git clone ${ANP_REPO} && cd ${ANP_DIR} && git checkout -q tags/${ANP_VERSION}; then
+    break
+  fi
+  echo "Attempt $i failed, retrying in 15s..." >&2
+  cd ${WORKDIR}
+  rm -rf ${ANP_DIR}
+  sleep 15
+done
+if [ ! -d "${WORKDIR}/${ANP_DIR}" ]; then
+  echo "Error: Failed to clone AMD ANP repository after 5 attempts" >&2
   exit 1
 fi
 
-# Checkout specific version or branch
-echo "Checking out version ${ANP_VERSION}..."
-cd ${ANP_DIR}
-git checkout -q tags/${ANP_VERSION}
-if [ $? -ne 0 ]; then
-  echo "Error: Failed to checkout version ${ANP_VERSION}"
-  exit 1
-fi
+cd ${WORKDIR}/${ANP_DIR}
 
 # Modify Makefile for GPU architecture support
 if [ -z "${GPU_ARCHS}" ]; then

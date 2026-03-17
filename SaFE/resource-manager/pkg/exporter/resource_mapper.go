@@ -20,6 +20,7 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
 	dbutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/utils"
+	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
 	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
 )
 
@@ -67,9 +68,6 @@ func workloadMapper(obj *unstructured.Unstructured) *dbclient.Workload {
 		DisplayName:         v1.GetDisplayName(workload),
 		Workspace:           workload.Spec.Workspace,
 		Cluster:             v1.GetClusterId(workload),
-		Resources:           dbutils.NullString(string(jsonutils.MarshalSilently(workload.Spec.Resources))),
-		Images:              dbutils.NullString(string(jsonutils.MarshalSilently(workload.Spec.Images))),
-		EntryPoints:         dbutils.NullString(string(jsonutils.MarshalSilently(workload.Spec.EntryPoints))),
 		GVK:                 string(jsonutils.MarshalSilently(workload.Spec.GroupVersionKind)),
 		Phase:               dbutils.NullString(string(workload.Status.Phase)),
 		UserName:            dbutils.NullString(v1.GetUserName(workload)),
@@ -92,6 +90,16 @@ func workloadMapper(obj *unstructured.Unstructured) *dbclient.Workload {
 		UseWorkspaceStorage: v1.IsEnableWorkspaceStorage(workload),
 		ForceHostNetwork:    v1.IsForceHostNetwork(workload),
 	}
+	if commonworkload.IsRayJob(workload) {
+		result.Resources = dbutils.NullString(string(jsonutils.MarshalSilently(workload.Spec.Resources[1:])))
+		result.Images = dbutils.NullString(string(jsonutils.MarshalSilently(workload.Spec.Images[1:])))
+		result.EntryPoints = dbutils.NullString(string(jsonutils.MarshalSilently(workload.Spec.EntryPoints[1:])))
+	} else {
+		result.Resources = dbutils.NullString(string(jsonutils.MarshalSilently(workload.Spec.Resources)))
+		result.Images = dbutils.NullString(string(jsonutils.MarshalSilently(workload.Spec.Images)))
+		result.EntryPoints = dbutils.NullString(string(jsonutils.MarshalSilently(workload.Spec.EntryPoints)))
+	}
+
 	if workload.Spec.TTLSecondsAfterFinished != nil {
 		result.TTLSecond = *workload.Spec.TTLSecondsAfterFinished
 	}

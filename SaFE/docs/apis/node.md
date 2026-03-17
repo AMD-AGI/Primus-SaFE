@@ -332,7 +332,7 @@ All fields are optional, only provided fields will be updated
 
 Delete the specific node.
 
-**Endpoint**: `DELETE /api/v1/nodes/{NodeId}`
+**Endpoint**: `DELETE /api/v1/nodes/{NodeId}?force=false`
 
 **Authentication Required**: Yes
 
@@ -342,7 +342,13 @@ Delete the specific node.
 |-----------|-------------|
 | NodeId | Node ID |
 
-**Prerequisites**: Node is not bound to any cluster
+**Query Parameters**:
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| force | bool | If `true`, force delete regardless of whether the node has been unbound from cluster first. Default: `false` |
+
+**Prerequisites**: When `force=false`, node must not be bound to any cluster. When `force=true`, node can be deleted even if still bound.
 
 **Response**: 200 OK with no response body
 
@@ -507,9 +513,15 @@ Delete multiple nodes in batch.
   "nodeIds": [
     "node-001",
     "node-002"
-  ]
+  ],
+  "force": false
 }
 ```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| nodeIds | array | Yes | List of node IDs to delete |
+| force | bool | No | If `true`, force delete regardless of whether the node has been unbound from cluster first. Default: `false` |
 
 **Response**: 200 OK with no response body
 

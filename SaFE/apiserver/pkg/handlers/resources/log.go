@@ -29,6 +29,7 @@ import (
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	commonsearch "github.com/AMD-AIG-AIMA/SAFE/common/pkg/opensearch"
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
+	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/concurrent"
 	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
@@ -38,6 +39,11 @@ import (
 // GetWorkloadLog retrieves logs for a workload from OpenSearch
 func (h *Handler) GetWorkloadLog(c *gin.Context) {
 	handle(c, h.getWorkloadLog)
+}
+
+// GetArcControllerLog retrieves logs for Actions Runner Controller of github cicd
+func (h *Handler) GetCICDArcLog(c *gin.Context) {
+	handle(c, h.getCICDArcLog)
 }
 
 // GetServiceLog retrieves service logs from the logging backend.
@@ -84,22 +90,8 @@ func (h *Handler) getWorkloadLog(c *gin.Context) (interface{}, error) {
 	if !commonconfig.IsOpenSearchEnable() {
 		return nil, commonerrors.NewInternalError("The logging function is not enabled")
 	}
-	name := c.GetString(common.Name)
-	if name == "" {
-		return nil, commonerrors.NewBadRequest("the workloadId is empty")
-	}
-	workload, err := h.getWorkloadForAuth(c.Request.Context(), name)
+	workload, err := h.getAndAuthWorkload(c)
 	if err != nil {
-		return nil, err
-	}
-
-	if err = h.accessController.Authorize(authority.AccessInput{
-		Context:    c.Request.Context(),
-		Resource:   workload,
-		Verb:       v1.GetVerb,
-		Workspaces: []string{workload.Spec.Workspace},
-		UserId:     c.GetString(common.UserId),
-	}); err != nil {
 		return nil, err
 	}
 	clusterId := v1.GetClusterId(workload)
@@ -112,7 +104,24 @@ func (h *Handler) getWorkloadLog(c *gin.Context) (interface{}, error) {
 		return nil, commonerrors.NewInternalError("There is no OpenSearch in cluster " + clusterId)
 	}
 	return opensearchClient.SearchByTimeRange(query.SinceTime, query.UntilTime,
-		"", "/_search", buildSearchBody(query, name))
+		"", "/_search", buildSearchBody(query, workload.Name))
+}
+
+func (h *Handler) getCICDArcLog(c *gin.Context) (interface{}, error) {
+	if !commonconfig.IsOpenSearchEnable() {
+		return nil, commonerrors.NewInternalError("The logging function is not enabled")
+	}
+	workload, err := h.getAndAuthWorkload(c)
+	if err != nil {
+		return nil, err
+	}
+
+	queries, err := parseCICDArcLogQuery(c, workload)
+	if err != nil {
+		klog.ErrorS(err, "failed to parse log query")
+		return nil, err
+	}
+	return h.searchCICDLog(queries, workload)
 }
 
 // getServiceLog retrieves logs for a specific service from OpenSearch.
@@ -145,24 +154,11 @@ func (h *Handler) getWorkloadEvent(c *gin.Context) (interface{}, error) {
 	if !commonconfig.IsOpenSearchEnable() {
 		return nil, commonerrors.NewInternalError("The logging function is not enabled")
 	}
-	name := c.GetString(common.Name)
-	if name == "" {
-		return nil, commonerrors.NewBadRequest("the workloadId is empty")
-	}
-	workload, err := h.getWorkloadForAuth(c.Request.Context(), name)
+	workload, err := h.getAndAuthWorkload(c)
 	if err != nil {
 		return nil, err
 	}
 
-	if err = h.accessController.Authorize(authority.AccessInput{
-		Context:    c.Request.Context(),
-		Resource:   workload,
-		Verb:       v1.GetVerb,
-		Workspaces: []string{workload.Spec.Workspace},
-		UserId:     c.GetString(common.UserId),
-	}); err != nil {
-		return nil, err
-	}
 	clusterId := v1.GetClusterId(workload)
 	query, err := parseEventLogQuery(c, workload)
 	if err != nil {
@@ -173,7 +169,7 @@ func (h *Handler) getWorkloadEvent(c *gin.Context) (interface{}, error) {
 		return nil, commonerrors.NewInternalError("There is no OpenSearch in cluster " + clusterId)
 	}
 	return opensearchClient.SearchByTimeRange(query.SinceTime, query.UntilTime,
-		"k8s-event-", "/_search", buildSearchBody(query, name))
+		"k8s-event-", "/_search", buildSearchBody(query, workload.Name))
 }
 
 // getWorkloadLogContext retrieves contextual logs for a specific workload from OpenSearch.
@@ -183,6 +179,19 @@ func (h *Handler) getWorkloadLogContext(c *gin.Context) (interface{}, error) {
 	if !commonconfig.IsOpenSearchEnable() {
 		return nil, commonerrors.NewInternalError("The logging function is not enabled")
 	}
+	workload, err := h.getAndAuthWorkload(c)
+	if err != nil {
+		return nil, err
+	}
+	queries, err := parseContextQuery(c, workload)
+	if err != nil {
+		return nil, err
+	}
+	return h.searchContextLog(queries, workload)
+}
+
+// getAndAuthWorkload retrieves the workload by name and checks user access permission.
+func (h *Handler) getAndAuthWorkload(c *gin.Context) (*v1.Workload, error) {
 	name := c.GetString(common.Name)
 	if name == "" {
 		return nil, commonerrors.NewBadRequest("the workloadId is empty")
@@ -200,40 +209,33 @@ func (h *Handler) getWorkloadLogContext(c *gin.Context) (interface{}, error) {
 	}); err != nil {
 		return nil, err
 	}
-
-	queries, err := parseContextQuery(c, workload)
-	if err != nil {
-		return nil, err
-	}
-	return h.searchContextLog(queries, name)
+	return workload, nil
 }
 
 // searchContextLog performs concurrent OpenSearch queries to retrieve contextual logs for a workload.
 // It executes two parallel searches (before and after the target log) using the provided queries
 // Returns the combined search results or an error if any search fails.
-func (h *Handler) searchContextLog(queries []view.ListContextLogRequest, workloadId string) (*commonsearch.OpenSearchLogResponse, error) {
+func (h *Handler) searchContextLog(queries []view.ListContextLogRequest,
+	workload *v1.Workload) (*commonsearch.OpenSearchLogResponse, error) {
 	startTime := time.Now().UTC()
-	const count = 2
+	count := len(queries)
 	ch := make(chan view.ListContextLogRequest, count)
 	defer close(ch)
 	for i := range queries {
 		ch <- queries[i]
 	}
-	workload, err := h.getWorkloadForAuth(context.Background(), workloadId)
-	if err != nil {
-		return nil, err
-	}
+
 	clusterId := v1.GetClusterId(workload)
 	opensearchClient := commonsearch.GetOpensearchClient(clusterId)
 	if opensearchClient == nil {
 		return nil, commonerrors.NewInternalError("There is no OpenSearch in cluster " + clusterId)
 	}
-	var response [count]commonsearch.OpenSearchLogResponse
-	_, err = concurrent.Exec(count, func() error {
+	response := make([]commonsearch.OpenSearchLogResponse, count)
+	_, err := concurrent.Exec(count, func() error {
 		wrapper := <-ch
 		query := wrapper.Query
 		resp, err := opensearchClient.SearchByTimeRange(query.SinceTime, query.UntilTime,
-			"", "/_search", buildSearchBody(query, workloadId))
+			"", "/_search", buildSearchBody(query, workload.Name))
 		if err != nil {
 			return err
 		}
@@ -254,6 +256,43 @@ func (h *Handler) searchContextLog(queries []view.ListContextLogRequest, workloa
 		return nil, err
 	}
 	result.Took = time.Since(startTime).Milliseconds()
+	return result, nil
+}
+
+// searchCICDLog performs concurrent OpenSearch queries to retrieve CICD logs for a workload.
+// It executes multiple parallel searches based on the provided queries slice.
+// Each query is executed concurrently using a worker pool pattern with a channel.
+// Returns a slice of OpenSearchLogResponse (one per query) or an error if any search fails.
+func (h *Handler) searchCICDLog(queries []view.ListLogRequest, workload *v1.Workload) ([]commonsearch.OpenSearchLogResponse, error) {
+	clusterId := v1.GetClusterId(workload)
+	opensearchClient := commonsearch.GetOpensearchClient(clusterId)
+	if opensearchClient == nil {
+		return nil, commonerrors.NewInternalError("There is no OpenSearch in cluster " + clusterId)
+	}
+
+	count := len(queries)
+	ch := make(chan int, count)
+	defer close(ch)
+	for i := range queries {
+		ch <- i
+	}
+	result := make([]commonsearch.OpenSearchLogResponse, count)
+	_, err := concurrent.Exec(count, func() error {
+		id := <-ch
+		query := &queries[id]
+		resp, err := opensearchClient.SearchByTimeRange(query.SinceTime, query.UntilTime,
+			"", "/_search", buildSearchBody(query, workload.Name))
+		if err != nil {
+			return err
+		}
+		if err = json.Unmarshal(resp, &result[id]); err != nil {
+			return err
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
 	return result, nil
 }
 
@@ -286,8 +325,8 @@ func buildSearchBody(query *view.ListLogRequest, workloadId string) []byte {
 }
 
 func buildFilter(req *commonsearch.OpenSearchRequest, query *view.ListLogRequest) {
-	buildSingleTermFilter(req, query.TermFilters, !query.IsEventRequest, false)
-	buildSingleTermFilter(req, query.PrefixFilters, !query.IsEventRequest, true)
+	buildSingleTermFilter(req, query.TermFilters, query.UseK8sLabel, false)
+	buildSingleTermFilter(req, query.PrefixFilters, query.UseK8sLabel, true)
 	if query.PodNames != "" {
 		buildMultiTermsFilter(req, "pod_name", query.PodNames)
 	} else if query.NodeNames != "" {
@@ -297,6 +336,7 @@ func buildFilter(req *commonsearch.OpenSearchRequest, query *view.ListLogRequest
 
 func buildSingleTermFilter(req *commonsearch.OpenSearchRequest, filters map[string]string, isK8sLabel, isPrefixMatch bool) {
 	for key, val := range filters {
+		val = strings.TrimSpace(val)
 		if key == "" || val == "" {
 			continue
 		}
@@ -327,6 +367,10 @@ func buildMultiTermsFilter(req *commonsearch.OpenSearchRequest, key, values stri
 	var queries []map[string]interface{}
 	termKey := fmt.Sprintf("kubernetes.%s.keyword", key)
 	for _, val := range valueList {
+		val = strings.TrimSpace(val)
+		if val == "" {
+			continue
+		}
 		queries = append(queries, map[string]interface{}{
 			"term": map[string]string{termKey: val},
 		})
@@ -346,44 +390,51 @@ func buildKeywords(req *commonsearch.OpenSearchRequest, query *view.ListLogReque
 			continue
 		}
 		if len(words) == 1 {
+			// match_phrase slop 0: terms must be adjacent, preserving order.
+			// /123/456 matches /123/456/789 (123,456 adjacent) but NOT /123/789/456 (789 between).
+			// Single token (e.g. "error") works as usual.
 			req.Query.Bool.Must = append(req.Query.Bool.Must, commonsearch.OpenSearchField{
-				"term": map[string]interface{}{
-					commonsearch.MessageField: normalize(words[0]),
+				"match_phrase": map[string]interface{}{
+					commonsearch.MessageField: map[string]interface{}{
+						"query": normalize(words[0]),
+						"slop":  0,
+					},
 				},
 			})
 		} else {
-			spanNearQuery := commonsearch.OpenSearchSpanNearQuery{
-				Slop:    0,
-				InOrder: true,
-			}
-			for _, word := range words {
-				spanNearQuery.Clauses = append(spanNearQuery.Clauses, commonsearch.OpenSearchField{
-					"span_term": map[string]interface{}{
-						commonsearch.MessageField: normalize(word),
-					},
-				})
+			// match_phrase with slop: preserve order but allow gaps between terms
+			normalized := make([]string, len(words))
+			for i, w := range words {
+				normalized[i] = normalize(w)
 			}
 			req.Query.Bool.Must = append(req.Query.Bool.Must, commonsearch.OpenSearchField{
-				"span_near": spanNearQuery,
+				"match_phrase": map[string]interface{}{
+					commonsearch.MessageField: map[string]interface{}{
+						"query": strings.Join(normalized, " "),
+						"slop":  100,
+					},
+				},
 			})
 		}
 	}
 }
 
 func normalize(str string) string {
-	str = strings.ToLower(str)
-	punctuation := ",.!?;:/"
-	str = strings.Trim(str, punctuation)
-	return str
+	// Lowercase to align with standard analyzer. Punctuation is handled by the analyzer at query time.
+	return strings.ToLower(str)
 }
 
 func buildOutput(req *commonsearch.OpenSearchRequest, query *view.ListLogRequest, workloadId string) {
-	if query.IsEventRequest {
+	if query.DisableOutput {
 		return
 	}
 	req.Source = []string{
-		commonsearch.TimeField, commonsearch.MessageField, "kubernetes.host",
+		commonsearch.TimeField, commonsearch.MessageField,
 	}
+	if !query.UseK8sLabel {
+		return
+	}
+	req.Source = append(req.Source, "kubernetes.host")
 	if workloadId != "" {
 		req.Source = append(req.Source, commonsearch.StreamField)
 		key := strings.ReplaceAll(v1.WorkloadDispatchCntLabel, ".", "_")
@@ -401,6 +452,7 @@ func parseWorkloadLogQuery(c *gin.Context, workload *v1.Workload) (*view.ListLog
 		klog.ErrorS(err, "failed to parse log query")
 		return nil, err
 	}
+	query.UseK8sLabel = true
 	query.TermFilters = map[string]string{
 		v1.WorkloadIdLabel: workload.Name,
 	}
@@ -420,6 +472,7 @@ func parseServiceLogQuery(c *gin.Context) (*view.ListLogRequest, error) {
 	if err != nil {
 		return nil, err
 	}
+	query.UseK8sLabel = true
 	query.TermFilters = map[string]string{
 		"app": name,
 	}
@@ -432,17 +485,48 @@ func parseEventLogQuery(c *gin.Context, workload *v1.Workload) (*view.ListLogReq
 		klog.ErrorS(err, "failed to parse log query")
 		return nil, err
 	}
+	query.DisableOutput = true
 	query.TermFilters = map[string]string{
 		"involvedObject.namespace": workload.Spec.Workspace,
 	}
 	query.PrefixFilters = map[string]string{
 		"involvedObject.name": workload.Name,
 	}
-	query.IsEventRequest = true
 	// node or pod filtering is not supported
 	query.NodeNames = ""
 	query.PodNames = ""
 	return query, nil
+}
+
+func parseCICDArcLogQuery(c *gin.Context, workload *v1.Workload) ([]view.ListLogRequest, error) {
+	query, err := parseLogQuery(c.Request, workload.CreationTimestamp.Time, workload.EndTime())
+	if err != nil {
+		klog.ErrorS(err, "failed to parse log query")
+		return nil, err
+	}
+	// github arc is fixed in arc-systems namespace
+	query.TermFilters = map[string]string{
+		"kubernetes.namespace_name": "arc-systems",
+	}
+	query.PrefixFilters = map[string]string{
+		"kubernetes.pod_name": commonconfig.GetCICDControllerName(),
+	}
+	// node or pod filtering is not supported
+	query.NodeNames = ""
+	query.PodNames = ""
+
+	query.Keywords = []string{workload.SpecKind(), workload.Spec.Workspace}
+	if commonworkload.IsCICDScalingRunnerSet(workload) {
+		query.Keywords = append(query.Keywords, workload.Name)
+		return []view.ListLogRequest{*query}, nil
+	} else if commonworkload.IsCICDEphemeralRunner(workload) {
+		query2 := new(view.ListLogRequest)
+		*query2 = *query
+		query.Keywords = append(query.Keywords, v1.GetLabel(workload, v1.CICDScaleRunnerIdLabel))
+		query2.Keywords = append(query2.Keywords, v1.GetCICDRunnerScaleSetId(workload))
+		return []view.ListLogRequest{*query, *query2}, nil
+	}
+	return nil, commonerrors.NewBadRequest("the workload is not a CICD workload")
 }
 
 // parseContextQuery parses the context log query parameters for a workload.

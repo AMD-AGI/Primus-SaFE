@@ -107,7 +107,7 @@ func (r *CDJobReconciler) handleWorkloadEventImpl(ctx context.Context, workload 
 		} else {
 			phase = v1.OpsJobFailed
 		}
-		completionMessage = getWorkloadCompletionMessage(workload)
+		completionMessage = r.getWorkloadCompletionMessage(ctx, workload)
 		if completionMessage == "" {
 			completionMessage = "CD deployment completed"
 		}

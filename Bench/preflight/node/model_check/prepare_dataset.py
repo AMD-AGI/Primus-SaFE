@@ -29,8 +29,8 @@ def main():
     print(f"Model: {config.model.model_path}")
     print(f"Context length: {config.training.context_length}")
     
-    # This will either build and cache, or load from cache
-    dataset = build_dataset(config, use_cache=True)
+    # This will either build and cache, or load from cache (local_files_only=False to allow download)
+    dataset = build_dataset(config, use_cache=True, local_files_only=False)
     
     # Get actual cache directory from environment or default
     import os
