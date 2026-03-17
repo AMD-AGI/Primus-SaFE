@@ -264,15 +264,16 @@ onMounted(async () => {
       return !ev.shiftKey
     }
 
-    // Paste — Ctrl+V or Ctrl+Shift+V
+    // Paste — return false so xterm won't interpret Ctrl+V as control char \x16.
+    // The browser's native paste event then fires and xterm's paste listener handles it.
+    // Ctrl+Shift+V: browser won't fire paste event, so read clipboard manually.
     if (ev.code === 'KeyV') {
+      if (!ev.shiftKey) return false
       if (canProgramReadClipboard()) {
         navigator.clipboard
           .readText()
           .then((t) => t && term?.paste(t))
           .catch(() => {})
-      } else {
-        console.warn('[WebShell] Paste requires HTTPS or native menu')
       }
       return false
     }
