@@ -105,11 +105,12 @@ type CreateBindingRequest struct {
 }
 
 type BindingResponse struct {
-	UserEmail  string `json:"user_email"`
-	KeyAlias   string `json:"key_alias"`
-	HasAPIMKey bool   `json:"has_apim_key"`
-	CreatedAt  string `json:"created_at,omitempty"`
-	UpdatedAt  string `json:"updated_at,omitempty"`
+	UserEmail   string `json:"user_email"`
+	KeyAlias    string `json:"key_alias"`
+	HasAPIMKey  bool   `json:"has_apim_key"`
+	ApimKeyHint string `json:"apim_key_hint,omitempty"`
+	CreatedAt   string `json:"created_at,omitempty"`
+	UpdatedAt   string `json:"updated_at,omitempty"`
 }
 
 // ── Handlers ──────────────────────────────────────────────────────────────
@@ -315,12 +316,18 @@ func (h *Handler) GetBinding(c *gin.Context) {
 		return
 	}
 
+	var apimKeyHint string
+	if plainKey, err := h.crypto.Decrypt(existing.ApimKey); err == nil && plainKey != "" {
+		apimKeyHint = maskKey(plainKey)
+	}
+
 	c.JSON(http.StatusOK, BindingResponse{
-		UserEmail:  email,
-		KeyAlias:   existing.KeyAlias,
-		HasAPIMKey: true,
-		CreatedAt:  existing.CreatedAt.Format("2006-01-02T15:04:05Z"),
-		UpdatedAt:  existing.UpdatedAt.Format("2006-01-02T15:04:05Z"),
+		UserEmail:   email,
+		KeyAlias:    existing.KeyAlias,
+		HasAPIMKey:  true,
+		ApimKeyHint: apimKeyHint,
+		CreatedAt:   existing.CreatedAt.Format("2006-01-02T15:04:05Z"),
+		UpdatedAt:   existing.UpdatedAt.Format("2006-01-02T15:04:05Z"),
 	})
 }
 
@@ -450,4 +457,13 @@ func (h *Handler) getUserEmail(c *gin.Context) string {
 		return name
 	}
 	return userId
+}
+
+// maskKey returns a masked version of a key, showing the first 4 and last 4 characters.
+// e.g. "abcdefghijklmnop" → "abcd********mnop"
+func maskKey(key string) string {
+	if len(key) <= 8 {
+		return key[:2] + "****"
+	}
+	return key[:4] + "********" + key[len(key)-4:]
 }
