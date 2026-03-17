@@ -12,6 +12,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"k8s.io/klog/v2"
 
+	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
 )
 
@@ -35,7 +36,8 @@ func ApiKeyMiddleware(db dbclient.Interface) gin.HandlerFunc {
 			return
 		}
 
-		apiKey, err := db.GetApiKeyByKey(c.Request.Context(), token)
+		hashedKey := authority.HashApiKey(token, authority.GetApiKeySecret())
+		apiKey, err := db.GetApiKeyByKey(c.Request.Context(), hashedKey)
 		if err != nil || apiKey == nil {
 			klog.V(4).InfoS("api key validation failed", "error", err)
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "invalid api key"})
