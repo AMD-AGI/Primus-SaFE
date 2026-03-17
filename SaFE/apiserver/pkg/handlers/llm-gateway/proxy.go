@@ -22,28 +22,36 @@ import (
 const llmProxyPrefix = "/api/v1/llm-proxy"
 
 // newLLMProxy creates a reverse proxy targeting the LiteLLM endpoint.
-// It strips the /api/v1/llm-proxy prefix so that
-// /api/v1/llm-proxy/v1/chat/completions is forwarded as /v1/chat/completions to LiteLLM.
+// It strips the /api/v1/llm-proxy prefix and prepends the target's base path, so that
+// /api/v1/llm-proxy/v1/chat/completions → <endpoint>/v1/chat/completions.
+// For example, if endpoint is "https://host/llm-gateway", the result is
+// "https://host/llm-gateway/v1/chat/completions".
 func newLLMProxy(endpoint string) (*httputil.ReverseProxy, error) {
 	targetURL, err := url.Parse(endpoint)
 	if err != nil {
 		return nil, err
 	}
 
+	basePath := strings.TrimSuffix(targetURL.Path, "/")
+
 	proxy := httputil.NewSingleHostReverseProxy(targetURL)
 
 	// Required for SSE streaming — flush response bytes immediately.
 	proxy.FlushInterval = -1
 
-	originalDirector := proxy.Director
 	proxy.Director = func(req *http.Request) {
-		originalDirector(req)
-		req.URL.Path = strings.TrimPrefix(req.URL.Path, llmProxyPrefix)
-		if !strings.HasPrefix(req.URL.Path, "/") {
-			req.URL.Path = "/" + req.URL.Path
-		}
+		req.URL.Scheme = targetURL.Scheme
+		req.URL.Host = targetURL.Host
 		req.Host = targetURL.Host
-		klog.V(4).Infof("LLM Proxy: %s %s -> %s", req.Method, llmProxyPrefix, req.URL.String())
+
+		// Strip SaFE proxy prefix, prepend target's base path
+		trimmed := strings.TrimPrefix(req.URL.Path, llmProxyPrefix)
+		if !strings.HasPrefix(trimmed, "/") {
+			trimmed = "/" + trimmed
+		}
+		req.URL.Path = basePath + trimmed
+
+		klog.Infof("LLM Proxy: %s -> %s", req.Method, req.URL.String())
 	}
 
 	proxy.Transport = &http.Transport{
