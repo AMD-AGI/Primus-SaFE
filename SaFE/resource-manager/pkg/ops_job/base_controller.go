@@ -10,8 +10,7 @@ import (
 	"fmt"
 	"time"
 
-	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
-	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/backoff"
+	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -25,8 +24,12 @@ import (
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	commonfaults "github.com/AMD-AIG-AIMA/SAFE/common/pkg/faults"
+	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
+	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
 	"github.com/AMD-AIG-AIMA/SAFE/resource-manager/pkg/resource"
 	"github.com/AMD-AIG-AIMA/SAFE/resource-manager/pkg/utils"
+	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/backoff"
+	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
 )
 
 const (
@@ -134,7 +137,9 @@ func (r *OpsJobBaseReconciler) setJobCompleted(ctx context.Context,
 		}
 		latest.Status.Phase = phase
 		latest.Status.Outputs = outputs
-
+		if message == "" {
+			message = "unknown"
+		}
 		condition := metav1.Condition{
 			Type:    JobCompletedType,
 			Message: message,
@@ -324,10 +329,7 @@ func (r *OpsJobBaseReconciler) handleWorkloadEventImpl(ctx context.Context, work
 		} else {
 			phase = v1.OpsJobFailed
 		}
-		completionMessage = getWorkloadCompletionMessage(workload)
-		if completionMessage == "" {
-			completionMessage = "unknown"
-		}
+		completionMessage = r.getWorkloadCompletionMessage(ctx, workload)
 	case workload.IsRunning():
 		phase = v1.OpsJobRunning
 	default:
@@ -345,7 +347,10 @@ func (r *OpsJobBaseReconciler) handleWorkloadEventImpl(ctx context.Context, work
 		case v1.OpsJobPending, v1.OpsJobRunning:
 			err = r.setJobPhase(ctx, job, phase)
 		default:
-			output := []v1.Parameter{{Name: "result", Value: completionMessage}}
+			var output []v1.Parameter
+			if completionMessage != "" {
+				output = []v1.Parameter{{Name: "result", Value: completionMessage}}
+			}
 			err = r.setJobCompleted(ctx, job, phase, completionMessage, output)
 		}
 		if err != nil {
@@ -382,4 +387,64 @@ func newRequeueAfterResult(job *v1.OpsJob) ctrlruntime.Result {
 		result.RequeueAfter = time.Second * time.Duration(job.Spec.TimeoutSecond)
 	}
 	return result
+}
+
+// getWorkloadCompletionMessage extracts the completion message from a workload.
+func (r *OpsJobBaseReconciler) getWorkloadCompletionMessage(ctx context.Context, workload *v1.Workload) string {
+	// Handle stopped or deleted workloads first
+	if workload.Status.Phase == v1.WorkloadStopped || !workload.GetDeletionTimestamp().IsZero() {
+		return "workload is stopped"
+	}
+
+	// Extract message from containers for completed workloads
+	if workload.Status.Phase == v1.WorkloadFailed || workload.Status.Phase == v1.WorkloadSucceeded {
+		if v1.GetOpsJobType(workload) == string(v1.OpsJobPreflightType) {
+			// Try to parse preflight report from pod log
+			if logData, err := r.getPreflightMasterPodLog(ctx, workload); err == nil && len(logData) > 0 {
+				if report := parsePreflightReport(logData); report != nil {
+					result := make(map[string][]string)
+					result["failed_nodes"] = report.FailedNodes
+					result["healthy_nodes"] = report.HealthyNodes
+					return string(jsonutils.MarshalSilently(result))
+				}
+			}
+		} else {
+			mainContainerName := commonworkload.GetMainContainer(workload, workload.SpecKind(), 0)
+			for _, pod := range workload.Status.Pods {
+				for _, container := range pod.Containers {
+					if container.Name == mainContainerName && container.Message != "" {
+						return container.Message
+					}
+				}
+			}
+		}
+	}
+	return ""
+}
+
+func (r *OpsJobBaseReconciler) getPreflightMasterPodLog(ctx context.Context, workload *v1.Workload) ([]byte, error) {
+	k8sClients, err := utils.GetK8sClientFactory(r.clientManager, v1.GetClusterId(workload))
+	if err != nil || !k8sClients.IsValid() {
+		return nil, fmt.Errorf("the cluster(%s) clients is not ready", v1.GetClusterId(workload))
+	}
+	labelSelector := fmt.Sprintf("%s=%s,training.kubeflow.org/replica-type=master", v1.WorkloadIdLabel, workload.Name)
+	pods, err := k8sClients.ClientSet().CoreV1().Pods(workload.Spec.Workspace).List(ctx, metav1.ListOptions{
+		LabelSelector: labelSelector,
+	})
+	if err != nil || len(pods.Items) == 0 {
+		return nil, err
+	}
+
+	mainContainer := commonworkload.GetMainContainer(workload, workload.SpecKind(), 0)
+	var tailLine int64 = 5000
+	opt := &corev1.PodLogOptions{
+		Container: mainContainer,
+		TailLines: &tailLine,
+	}
+	data, err := k8sClients.ClientSet().CoreV1().Pods(workload.Spec.Workspace).GetLogs(pods.Items[0].Name, opt).DoRaw(ctx)
+	if err != nil {
+		klog.ErrorS(err, "failed to get log of pod", "namespace", workload.Spec.Workspace, "podName", pods.Items[0].Name)
+		return nil, err
+	}
+	return data, nil
 }
