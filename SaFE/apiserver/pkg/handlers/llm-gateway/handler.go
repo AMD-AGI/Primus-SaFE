@@ -86,11 +86,14 @@ func InitRoutes(engine *gin.Engine, handler *Handler) {
 		mgmt.GET("/usage", handler.GetUsage)
 	}
 
-	// LLM reverse proxy: /llm-gateway/v1/* -> LiteLLM
+	// LLM reverse proxy: /api/v1/llm-proxy/* -> LiteLLM
 	// Authenticates SaFE API Key, resolves Virtual Key, and forwards the request.
+	// User calls: /api/llm-proxy/v1/chat/completions
+	// Web proxy forwards as: /api/v1/llm-proxy/v1/chat/completions
+	// Director strips /api/v1/llm-proxy, forwards /v1/chat/completions to LiteLLM.
 	llmProxy := engine.Group(llmProxyPrefix)
 	llmProxy.Use(authMiddleware)
-	llmProxy.Any("/v1/*proxyPath", handler.ProxyLLMRequest)
+	llmProxy.Any("/*proxyPath", handler.ProxyLLMRequest)
 
 	klog.Info("LLM Gateway: routes registered successfully (management + LLM proxy)")
 }

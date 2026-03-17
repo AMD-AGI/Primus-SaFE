@@ -19,11 +19,11 @@ import (
 	"k8s.io/klog/v2"
 )
 
-const llmProxyPrefix = "/llm-gateway"
+const llmProxyPrefix = "/api/v1/llm-proxy"
 
 // newLLMProxy creates a reverse proxy targeting the LiteLLM endpoint.
-// It strips the /llm-gateway prefix so that /llm-gateway/v1/chat/completions
-// is forwarded as /v1/chat/completions to LiteLLM.
+// It strips the /api/v1/llm-proxy prefix so that
+// /api/v1/llm-proxy/v1/chat/completions is forwarded as /v1/chat/completions to LiteLLM.
 func newLLMProxy(endpoint string) (*httputil.ReverseProxy, error) {
 	targetURL, err := url.Parse(endpoint)
 	if err != nil {
