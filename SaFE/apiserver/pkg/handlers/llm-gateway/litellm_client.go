@@ -43,19 +43,26 @@ func NewLiteLLMClient(endpoint, adminKey, teamID string) *LiteLLMClient {
 
 // ── Request/Response types ────────────────────────────────────────────────
 
-// CreateKeyRequest is the request body for POST /key/service-account/generate
+// CreateUserRequest is the request body for POST /user/new
+type CreateUserRequest struct {
+	UserID    string   `json:"user_id"`
+	UserEmail string   `json:"user_email"`
+	Teams     []string `json:"teams,omitempty"`
+}
+
+// CreateKeyRequest is the request body for POST /key/generate
 type CreateKeyRequest struct {
+	UserID   string            `json:"user_id"`
 	TeamID   string            `json:"team_id"`
-	KeyType  string            `json:"key_type"`
 	Metadata map[string]string `json:"metadata"`
 	KeyAlias string            `json:"key_alias"`
 }
 
-// CreateKeyResponse is the response from POST /key/service-account/generate
+// CreateKeyResponse is the response from POST /key/generate
 type CreateKeyResponse struct {
 	Key     string `json:"key"`      // The generated virtual key (sk-xxx)
 	KeyName string `json:"key_name"` // Abbreviated display name (sk-...xxxx), for UI display only
-	TokenID string `json:"token_id"` // Hashed token stored in LiteLLM DB, used as key identifier for update/delete
+	TokenID string `json:"token"`    // Hashed token stored in LiteLLM DB, used as key identifier for update/delete
 	Expires string `json:"expires"`  // Expiration time
 }
 
@@ -73,11 +80,51 @@ type DeleteKeyRequest struct {
 
 // ── API Methods ───────────────────────────────────────────────────────────
 
-// CreateServiceAccountKey creates a new Service Account key in LiteLLM.
-func (c *LiteLLMClient) CreateServiceAccountKey(ctx context.Context, email, apimKey string) (*CreateKeyResponse, error) {
+// CreateUser creates a LiteLLM User (idempotent — returns existing user if already exists).
+func (c *LiteLLMClient) CreateUser(ctx context.Context, email string) error {
+	reqBody := CreateUserRequest{
+		UserID:    email,
+		UserEmail: email,
+		Teams:     []string{c.teamID},
+	}
+
+	body, err := json.Marshal(reqBody)
+	if err != nil {
+		return fmt.Errorf("failed to marshal request: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
+		c.endpoint+"/user/new", bytes.NewReader(body))
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if c.adminKey != "" {
+		req.Header.Set("Authorization", "Bearer "+c.adminKey)
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to call LiteLLM: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
+		respBody, _ := io.ReadAll(resp.Body)
+		klog.ErrorS(nil, "LiteLLM create user failed",
+			"status", resp.StatusCode, "body", string(respBody))
+		return fmt.Errorf("LiteLLM returned HTTP %d: %s", resp.StatusCode, string(respBody))
+	}
+
+	klog.Infof("LiteLLM: ensured user exists for %s", email)
+	return nil
+}
+
+// CreateKey creates a Virtual Key bound to a LiteLLM User via POST /key/generate.
+func (c *LiteLLMClient) CreateKey(ctx context.Context, email, apimKey string) (*CreateKeyResponse, error) {
 	reqBody := CreateKeyRequest{
-		TeamID:  c.teamID,
-		KeyType: "llm_api",
+		UserID: email,
+		TeamID: c.teamID,
 		Metadata: map[string]string{
 			"apim_key":     apimKey,
 			"safe_user_id": email,
@@ -91,7 +138,7 @@ func (c *LiteLLMClient) CreateServiceAccountKey(ctx context.Context, email, apim
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
-		c.endpoint+"/key/service-account/generate", bytes.NewReader(body))
+		c.endpoint+"/key/generate", bytes.NewReader(body))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
@@ -119,7 +166,7 @@ func (c *LiteLLMClient) CreateServiceAccountKey(ctx context.Context, email, apim
 		return nil, fmt.Errorf("failed to decode LiteLLM response: %w", err)
 	}
 
-	klog.Infof("LiteLLM: created SA key for %s, token_hash=%s, key_name=%s", email, result.TokenID, result.KeyName)
+	klog.Infof("LiteLLM: created key for %s, token=%s, key_name=%s", email, result.TokenID, result.KeyName)
 	return &result, nil
 }
 

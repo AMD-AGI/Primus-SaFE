@@ -7,6 +7,7 @@ package llmgateway
 
 import (
 	"net/http"
+	"net/http/httputil"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
@@ -20,12 +21,13 @@ import (
 	"k8s.io/klog/v2"
 )
 
-// Handler manages LLM Gateway API endpoints.
+// Handler manages LLM Gateway API endpoints and the LLM reverse proxy.
 type Handler struct {
 	accessController *authority.AccessController
 	dbClient         dbclient.Interface
 	litellmClient    *LiteLLMClient
 	crypto           *commoncrypto.Crypto
+	proxy            *httputil.ReverseProxy
 }
 
 // NewHandler creates a new LLM Gateway handler.
@@ -42,6 +44,11 @@ func NewHandler(accessController *authority.AccessController, dbClient dbclient.
 		klog.Warning("LLM Gateway: litellm_admin_key not configured, calling LiteLLM API without authentication")
 	}
 
+	proxy, err := newLLMProxy(endpoint)
+	if err != nil {
+		return nil, err
+	}
+
 	crypto := commoncrypto.NewCrypto()
 
 	return &Handler{
@@ -49,6 +56,7 @@ func NewHandler(accessController *authority.AccessController, dbClient dbclient.
 		dbClient:         dbClient,
 		litellmClient:    NewLiteLLMClient(endpoint, adminKey, teamID),
 		crypto:           crypto,
+		proxy:            proxy,
 	}, nil
 }
 
@@ -59,25 +67,31 @@ func InitRoutes(engine *gin.Engine, handler *Handler) {
 		return
 	}
 
-	// Management API (requires SaFE user auth)
-	mgmt := engine.Group("/api/v1/llm-gateway")
-	mgmt.Use(func(c *gin.Context) {
+	authMiddleware := func(c *gin.Context) {
 		if err := authority.ParseToken(c); err != nil {
 			apiutils.AbortWithApiError(c, err)
 			return
 		}
 		c.Next()
-	})
+	}
+
+	// Management API (requires SaFE user auth via Cookie or API Key)
+	mgmt := engine.Group("/api/v1/llm-gateway")
+	mgmt.Use(authMiddleware)
 	{
 		mgmt.POST("/binding", handler.CreateBinding)
 		mgmt.PUT("/binding", handler.UpdateBinding)
 		mgmt.DELETE("/binding", handler.DeleteBinding)
 		mgmt.GET("/binding", handler.GetBinding)
-		// Resolve: called by LiteLLM custom_auth hook with user's SaFE API Key
-		mgmt.GET("/resolve", handler.Resolve)
 	}
 
-	klog.Info("LLM Gateway: routes registered successfully")
+	// LLM reverse proxy: /llm-gateway/v1/* -> LiteLLM
+	// Authenticates SaFE API Key, resolves Virtual Key, and forwards the request.
+	llmProxy := engine.Group(llmProxyPrefix)
+	llmProxy.Use(authMiddleware)
+	llmProxy.Any("/v1/*proxyPath", handler.ProxyLLMRequest)
+
+	klog.Info("LLM Gateway: routes registered successfully (management + LLM proxy)")
 }
 
 // ── Request/Response types ────────────────────────────────────────────────
@@ -92,11 +106,6 @@ type BindingResponse struct {
 	HasAPIMKey bool   `json:"has_apim_key"`
 	CreatedAt  string `json:"created_at,omitempty"`
 	UpdatedAt  string `json:"updated_at,omitempty"`
-}
-
-type ResolveResponse struct {
-	UserEmail  string `json:"user_email"`
-	VirtualKey string `json:"virtual_key"`
 }
 
 // ── Handlers ──────────────────────────────────────────────────────────────
@@ -133,7 +142,13 @@ func (h *Handler) CreateBinding(c *gin.Context) {
 		return
 	}
 
-	litellmResp, err := h.litellmClient.CreateServiceAccountKey(c.Request.Context(), email, req.ApimKey)
+	if err := h.litellmClient.CreateUser(c.Request.Context(), email); err != nil {
+		klog.ErrorS(err, "failed to create LiteLLM user", "email", email)
+		apiutils.AbortWithApiError(c, commonerrors.NewInternalError("failed to create LiteLLM user: "+err.Error()))
+		return
+	}
+
+	litellmResp, err := h.litellmClient.CreateKey(c.Request.Context(), email, req.ApimKey)
 	if err != nil {
 		klog.ErrorS(err, "failed to create LiteLLM key", "email", email)
 		apiutils.AbortWithApiError(c, commonerrors.NewInternalError("failed to create Virtual Key in LiteLLM: "+err.Error()))
@@ -290,41 +305,6 @@ func (h *Handler) GetBinding(c *gin.Context) {
 		HasAPIMKey: true,
 		CreatedAt:  existing.CreatedAt.Format("2006-01-02T15:04:05Z"),
 		UpdatedAt:  existing.UpdatedAt.Format("2006-01-02T15:04:05Z"),
-	})
-}
-
-// Resolve handles GET /api/v1/internal/llm-gateway/resolve
-func (h *Handler) Resolve(c *gin.Context) {
-	email := h.getUserEmail(c)
-	if email == "" {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "unable to identify user"})
-		return
-	}
-
-	binding, err := h.dbClient.GetLLMBindingByEmail(c.Request.Context(), email)
-	if err != nil {
-		klog.ErrorS(err, "LLM Gateway resolve: DB error", "email", email)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal error"})
-		return
-	}
-
-	if binding == nil {
-		c.JSON(http.StatusForbidden, gin.H{
-			"error": "No APIM Key binding found. Please upload your APIM Key on the SaFE platform first.",
-		})
-		return
-	}
-
-	virtualKey, err := h.crypto.Decrypt(binding.LiteLLMVirtualKey)
-	if err != nil {
-		klog.ErrorS(err, "LLM Gateway resolve: failed to decrypt VKey", "email", email)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal error"})
-		return
-	}
-
-	c.JSON(http.StatusOK, ResolveResponse{
-		UserEmail:  email,
-		VirtualKey: virtualKey,
 	})
 }
 
