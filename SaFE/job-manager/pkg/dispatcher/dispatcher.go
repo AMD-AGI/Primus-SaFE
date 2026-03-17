@@ -656,7 +656,7 @@ func applyWorkloadSpecToObject(ctx context.Context, clientSets *syncer.ClusterCl
 	case commonworkload.IsCICDEphemeralRunner(adminWorkload):
 		err = updateCICDEphemeralRunner(ctx, clientSets, obj, adminWorkload, rt)
 	case commonworkload.IsRayJob(adminWorkload):
-		err = updateRayJob(obj, adminWorkload, workspace)
+		err = updateRayJob(obj, adminWorkload)
 	}
 	if err != nil {
 		return err

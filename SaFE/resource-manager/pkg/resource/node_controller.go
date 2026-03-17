@@ -963,7 +963,8 @@ func (r *NodeReconciler) rebootNode(ctx context.Context, node *v1.Node) {
 	klog.Infof("machine node %s rebooted", node.Name)
 }
 
-// resetNode reset the Node via SSH.
+// resetNode resets the node via SSH by stopping kubelet, cleaning up CNI interfaces and network state,
+// restarting containerd, running kubeadm reset, and removing Kubernetes configuration files.
 func (r *NodeReconciler) resetNode(ctx context.Context, node *v1.Node) error {
 	sshClient, err := utils.GetSSHClient(ctx, r.Client, node)
 	if err != nil {
@@ -986,6 +987,7 @@ systemctl start kubelet 2>/dev/null || true`
 	if err = r.executeSSHCommand(sshClient, resetNodeCmd); err != nil {
 		return fmt.Errorf("failed to kubeadm reset node: %w", err)
 	}
+	klog.Infof("node %s is reset. clean up CNI, Kubernetes, and run kubeadm reset.", node.Name)
 	return nil
 }
 

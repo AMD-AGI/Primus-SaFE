@@ -994,7 +994,7 @@ func updateCICDScaleSetEnvs(obj *unstructured.Unstructured,
 }
 
 // updateRayJob updates the rayjob configuration
-func updateRayJob(obj *unstructured.Unstructured, adminWorkload *v1.Workload, workspace *v1.Workspace) error {
+func updateRayJob(obj *unstructured.Unstructured, adminWorkload *v1.Workload) error {
 	jobEntryPoint := adminWorkload.GetEnv(common.RayJobEntrypoint)
 	if jobEntryPoint == "" {
 		return fmt.Errorf("rayjob submitter entrypoint is not set")
