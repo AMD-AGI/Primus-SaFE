@@ -39,6 +39,7 @@ data:
   gpu_rocm_version_011: '{"script":"gpu_rocm_version_011.sh","id":"011","cronjob":"@every 600s","timeoutSecond":100,"chip":"amd","toggle":"on","arguments":["{{ .Values.monitor.rocm_version }}"]}'
   gpu_ipc_012: '{"script":"gpu_ipc_012.sh","id":"012","cronjob":"@every 300s","timeoutSecond":250,"chip":"amd","toggle":"on"}'
   gpu_rocm_cgroup_013: '{"script":"gpu_rocm_cgroup_013.sh","id":"013","cronjob":"@every 600s","timeoutSecond":300,"chip":"amd","toggle":"on"}'
+  gpu_device_plugin_014: '{"script":"gpu_device_plugin_014.sh","id":"014","cronjob":"@every 30s","timeoutSecond":25,"chip":"amd","toggle":"on"}'
   # Network: 2XX
   net_ib_status_201: '{"script":"net_ib_status_201.sh","id":"201","cronjob":"@every 30s","timeoutSecond":25,"chip":"amd","toggle":"on","arguments":["{{ .Values.monitor.nccl_ib_hca }}"]}'
   net_ethtool_202: '{"script":"net_ethtool_202.sh","id":"202","cronjob":"@every 300s","timeoutSecond":250,"chip":"amd","toggle":"on"}'
@@ -64,6 +65,7 @@ data:
   nfs_check_401: '{"script":"nfs_check_401.sh","id":"401","cronjob":"@every 300s","timeoutSecond":250,"toggle":"on","arguments":["{{ .Values.monitor.nfs_mount }}","{{ .Values.monitor.nfs_server }}","{{ .Values.monitor.nfs_path }}"]}'
   resolv_conf_lock_402: '{"script":"resolv_conf_lock_402.sh","id":"402","cronjob":"@every 300s","timeoutSecond":250,"toggle":"on","arguments":["$Node"]}'
   resolv_search_domain_check_403: '{"script":"resolv_search_domain_check_403.sh","id":"403","cronjob":"@every 300s","timeoutSecond":250,"toggle":"on","arguments":["{{ .Values.monitor.resolv_search_domain }}"]}'
+  disk_ephemeral_storage_404: '{"script":"disk_ephemeral_storage_404.sh","id":"404","cronjob":"@every 300s","timeoutSecond":250,"toggle":"on","arguments":["$Node"]}'
   # Main configuration as YAML string
   config.yaml: |
     net:

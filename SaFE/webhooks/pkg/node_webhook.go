@@ -9,9 +9,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
+	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
 	admissionv1 "k8s.io/api/admission/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -31,7 +33,8 @@ import (
 
 const (
 	// DefaultNodePort Default node SSH port.
-	DefaultNodePort = 22
+	DefaultNodePort       = 22
+	MaxRecommendedStorage = 6000 * 1024 * 1024 * 1024
 )
 
 var SupportedTaintEffect = []corev1.TaintEffect{
@@ -75,7 +78,11 @@ func (m *NodeMutator) Handle(ctx context.Context, req admission.Request) admissi
 	case admissionv1.Create:
 		isChanged = m.mutateOnCreation(ctx, node)
 	case admissionv1.Update:
-		isChanged = m.mutateOnUpdate(ctx, node)
+		oldNode := &v1.Node{}
+		if err := m.decoder.DecodeRaw(req.OldObject, oldNode); err != nil {
+			return handleError(v1.NodeKind, err)
+		}
+		isChanged = m.mutateOnUpdate(ctx, node, oldNode)
 	}
 	if !isChanged {
 		return admission.Allowed("")
@@ -96,8 +103,24 @@ func (m *NodeMutator) mutateOnCreation(ctx context.Context, node *v1.Node) bool 
 }
 
 // mutateOnUpdate applies mutations during updates.
-func (m *NodeMutator) mutateOnUpdate(ctx context.Context, node *v1.Node) bool {
-	return m.mutateCommon(ctx, node)
+func (m *NodeMutator) mutateOnUpdate(ctx context.Context, newNode, oldNode *v1.Node) bool {
+	isChanged := false
+	if m.mutateCommon(ctx, newNode) {
+		isChanged = true
+	}
+
+	nodesLabelAction := make(map[string]string)
+	if v1.GetLabel(newNode, v1.NodeGpuCountLabel) != v1.GetLabel(oldNode, v1.NodeGpuCountLabel) {
+		nodesLabelAction[v1.NodeGpuCountLabel] = v1.NodeActionAdd
+	}
+	if v1.GetLabel(newNode, v1.NodeEphemeralStorageLabel) != v1.GetLabel(oldNode, v1.NodeEphemeralStorageLabel) {
+		nodesLabelAction[v1.NodeEphemeralStorageLabel] = v1.NodeActionAdd
+	}
+	if len(nodesLabelAction) > 0 {
+		v1.SetAnnotation(newNode, v1.NodeLabelAction, string(jsonutils.MarshalSilently(nodesLabelAction)))
+		isChanged = true
+	}
+	return isChanged
 }
 
 // mutateSpec normalizes hostname, private IP and default SSH port.
@@ -177,6 +200,16 @@ func (m *NodeMutator) mutateByNodeFlavor(ctx context.Context, node *v1.Node) boo
 			isChanged = true
 		}
 		if v1.RemoveLabel(node, v1.NodeGpuCountLabel) {
+			isChanged = true
+		}
+	}
+	storage, ok := nf.Spec.ExtendResources[corev1.ResourceEphemeralStorage]
+	if ok {
+		recommendedStorage := storage.Value()
+		if recommendedStorage > MaxRecommendedStorage {
+			recommendedStorage = MaxRecommendedStorage
+		}
+		if v1.SetLabel(node, v1.NodeEphemeralStorageLabel, strconv.FormatInt(recommendedStorage, 10)) {
 			isChanged = true
 		}
 	}
