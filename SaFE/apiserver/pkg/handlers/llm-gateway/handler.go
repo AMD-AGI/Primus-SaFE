@@ -115,23 +115,24 @@ type BindingResponse struct {
 func (h *Handler) CreateBinding(c *gin.Context) {
 	var req CreateBindingRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		apiutils.AbortWithApiError(c, commonerrors.NewBadRequest("invalid request: "+err.Error()))
+		apiutils.AbortWithApiError(c, commonerrors.NewBadRequest("apim_key is required"))
 		return
 	}
 
 	email := h.getUserEmail(c)
 	if email == "" {
-		apiutils.AbortWithApiError(c, commonerrors.NewBadRequest("user email not found"))
+		apiutils.AbortWithApiError(c, commonerrors.NewBadRequest("unable to identify user email"))
 		return
 	}
 
 	existing, err := h.dbClient.GetLLMBindingByEmail(c.Request.Context(), email)
 	if err != nil {
-		apiutils.AbortWithApiError(c, commonerrors.NewInternalError("failed to check existing binding: "+err.Error()))
+		klog.ErrorS(err, "CreateBinding: DB query failed", "email", email)
+		apiutils.AbortWithApiError(c, commonerrors.NewInternalError("service temporarily unavailable, please try again later"))
 		return
 	}
 	if existing != nil {
-		apiutils.AbortWithApiError(c, commonerrors.NewAlreadyExist("binding already exists for "+email+", use PUT to update"))
+		apiutils.AbortWithApiError(c, commonerrors.NewAlreadyExist("APIM Key already bound for "+email+", use PUT to update"))
 		return
 	}
 
@@ -139,26 +140,28 @@ func (h *Handler) CreateBinding(c *gin.Context) {
 
 	encryptedApimKey, err := h.crypto.Encrypt([]byte(req.ApimKey))
 	if err != nil {
-		apiutils.AbortWithApiError(c, commonerrors.NewInternalError("failed to encrypt APIM Key"))
+		klog.ErrorS(err, "CreateBinding: failed to encrypt APIM Key", "email", email)
+		apiutils.AbortWithApiError(c, commonerrors.NewInternalError("service temporarily unavailable, please try again later"))
 		return
 	}
 
 	if err := h.litellmClient.CreateUser(c.Request.Context(), email); err != nil {
-		klog.ErrorS(err, "failed to create LiteLLM user", "email", email)
-		apiutils.AbortWithApiError(c, commonerrors.NewInternalError("failed to create LiteLLM user: "+err.Error()))
+		klog.ErrorS(err, "CreateBinding: LiteLLM create user failed", "email", email)
+		apiutils.AbortWithApiError(c, commonerrors.NewInternalError("LLM service unavailable, please try again later"))
 		return
 	}
 
 	litellmResp, err := h.litellmClient.CreateKey(c.Request.Context(), email, req.ApimKey)
 	if err != nil {
-		klog.ErrorS(err, "failed to create LiteLLM key", "email", email)
-		apiutils.AbortWithApiError(c, commonerrors.NewInternalError("failed to create Virtual Key in LiteLLM: "+err.Error()))
+		klog.ErrorS(err, "CreateBinding: LiteLLM create key failed", "email", email)
+		apiutils.AbortWithApiError(c, commonerrors.NewInternalError("LLM service unavailable, please try again later"))
 		return
 	}
 
 	encryptedVKey, err := h.crypto.Encrypt([]byte(litellmResp.Key))
 	if err != nil {
-		apiutils.AbortWithApiError(c, commonerrors.NewInternalError("failed to encrypt Virtual Key"))
+		klog.ErrorS(err, "CreateBinding: failed to encrypt Virtual Key", "email", email)
+		apiutils.AbortWithApiError(c, commonerrors.NewInternalError("service temporarily unavailable, please try again later"))
 		return
 	}
 
@@ -172,8 +175,9 @@ func (h *Handler) CreateBinding(c *gin.Context) {
 	}
 
 	if err := h.dbClient.CreateLLMBinding(c.Request.Context(), binding); err != nil {
+		klog.ErrorS(err, "CreateBinding: DB save failed, rolling back LiteLLM key", "email", email)
 		_ = h.litellmClient.DeleteKey(c.Request.Context(), litellmResp.TokenID, email)
-		apiutils.AbortWithApiError(c, commonerrors.NewInternalError("failed to save binding: "+err.Error()))
+		apiutils.AbortWithApiError(c, commonerrors.NewInternalError("failed to save binding, please try again later"))
 		return
 	}
 
@@ -190,23 +194,24 @@ func (h *Handler) CreateBinding(c *gin.Context) {
 func (h *Handler) UpdateBinding(c *gin.Context) {
 	var req CreateBindingRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		apiutils.AbortWithApiError(c, commonerrors.NewBadRequest("invalid request: "+err.Error()))
+		apiutils.AbortWithApiError(c, commonerrors.NewBadRequest("apim_key is required"))
 		return
 	}
 
 	email := h.getUserEmail(c)
 	if email == "" {
-		apiutils.AbortWithApiError(c, commonerrors.NewBadRequest("user email not found"))
+		apiutils.AbortWithApiError(c, commonerrors.NewBadRequest("unable to identify user email"))
 		return
 	}
 
 	existing, err := h.dbClient.GetLLMBindingByEmail(c.Request.Context(), email)
 	if err != nil {
-		apiutils.AbortWithApiError(c, commonerrors.NewInternalError("failed to query binding: "+err.Error()))
+		klog.ErrorS(err, "UpdateBinding: DB query failed", "email", email)
+		apiutils.AbortWithApiError(c, commonerrors.NewInternalError("service temporarily unavailable, please try again later"))
 		return
 	}
 	if existing == nil {
-		apiutils.AbortWithApiError(c, commonerrors.NewNotFoundWithMessage("no binding found for "+email))
+		apiutils.AbortWithApiError(c, commonerrors.NewNotFoundWithMessage("no APIM Key bound yet, please bind first"))
 		return
 	}
 
@@ -215,26 +220,28 @@ func (h *Handler) UpdateBinding(c *gin.Context) {
 	oldApimKey, _ := h.crypto.Decrypt(existing.ApimKey)
 
 	if err := h.litellmClient.UpdateKeyMetadata(c.Request.Context(), existing.LiteLLMKeyHash, req.ApimKey, email); err != nil {
-		klog.ErrorS(err, "failed to update LiteLLM key metadata", "email", email)
-		apiutils.AbortWithApiError(c, commonerrors.NewInternalError("failed to update LiteLLM key: "+err.Error()))
+		klog.ErrorS(err, "UpdateBinding: LiteLLM update key failed", "email", email)
+		apiutils.AbortWithApiError(c, commonerrors.NewInternalError("LLM service unavailable, please try again later"))
 		return
 	}
 
 	encryptedApimKey, err := h.crypto.Encrypt([]byte(req.ApimKey))
 	if err != nil {
+		klog.ErrorS(err, "UpdateBinding: failed to encrypt APIM Key", "email", email)
 		if oldApimKey != "" {
 			_ = h.litellmClient.UpdateKeyMetadata(c.Request.Context(), existing.LiteLLMKeyHash, oldApimKey, email)
 		}
-		apiutils.AbortWithApiError(c, commonerrors.NewInternalError("failed to encrypt APIM Key"))
+		apiutils.AbortWithApiError(c, commonerrors.NewInternalError("service temporarily unavailable, please try again later"))
 		return
 	}
 	existing.ApimKey = encryptedApimKey
 	existing.ApimKeyHash = newApimKeyHash
 	if err := h.dbClient.UpdateLLMBinding(c.Request.Context(), existing); err != nil {
+		klog.ErrorS(err, "UpdateBinding: DB save failed, rolling back LiteLLM key", "email", email)
 		if oldApimKey != "" {
 			_ = h.litellmClient.UpdateKeyMetadata(c.Request.Context(), existing.LiteLLMKeyHash, oldApimKey, email)
 		}
-		apiutils.AbortWithApiError(c, commonerrors.NewInternalError("failed to update binding: "+err.Error()))
+		apiutils.AbortWithApiError(c, commonerrors.NewInternalError("failed to update binding, please try again later"))
 		return
 	}
 
@@ -251,28 +258,30 @@ func (h *Handler) UpdateBinding(c *gin.Context) {
 func (h *Handler) DeleteBinding(c *gin.Context) {
 	email := h.getUserEmail(c)
 	if email == "" {
-		apiutils.AbortWithApiError(c, commonerrors.NewBadRequest("user email not found"))
+		apiutils.AbortWithApiError(c, commonerrors.NewBadRequest("unable to identify user email"))
 		return
 	}
 
 	existing, err := h.dbClient.GetLLMBindingByEmail(c.Request.Context(), email)
 	if err != nil {
-		apiutils.AbortWithApiError(c, commonerrors.NewInternalError("failed to query binding: "+err.Error()))
+		klog.ErrorS(err, "DeleteBinding: DB query failed", "email", email)
+		apiutils.AbortWithApiError(c, commonerrors.NewInternalError("service temporarily unavailable, please try again later"))
 		return
 	}
 	if existing == nil {
-		apiutils.AbortWithApiError(c, commonerrors.NewNotFoundWithMessage("no binding found for "+email))
+		apiutils.AbortWithApiError(c, commonerrors.NewNotFoundWithMessage("no APIM Key bound for "+email))
 		return
 	}
 
 	if err := h.litellmClient.DeleteKey(c.Request.Context(), existing.LiteLLMKeyHash, existing.KeyAlias); err != nil {
-		klog.ErrorS(err, "failed to delete LiteLLM key", "email", email)
-		apiutils.AbortWithApiError(c, commonerrors.NewInternalError("failed to delete LiteLLM key: "+err.Error()))
+		klog.ErrorS(err, "DeleteBinding: LiteLLM delete key failed", "email", email)
+		apiutils.AbortWithApiError(c, commonerrors.NewInternalError("LLM service unavailable, please try again later"))
 		return
 	}
 
 	if err := h.dbClient.DeleteLLMBinding(c.Request.Context(), email); err != nil {
-		apiutils.AbortWithApiError(c, commonerrors.NewInternalError("failed to delete binding: "+err.Error()))
+		klog.ErrorS(err, "DeleteBinding: DB delete failed", "email", email)
+		apiutils.AbortWithApiError(c, commonerrors.NewInternalError("failed to delete binding, please try again later"))
 		return
 	}
 
@@ -284,13 +293,14 @@ func (h *Handler) DeleteBinding(c *gin.Context) {
 func (h *Handler) GetBinding(c *gin.Context) {
 	email := h.getUserEmail(c)
 	if email == "" {
-		apiutils.AbortWithApiError(c, commonerrors.NewBadRequest("user email not found"))
+		apiutils.AbortWithApiError(c, commonerrors.NewBadRequest("unable to identify user email"))
 		return
 	}
 
 	existing, err := h.dbClient.GetLLMBindingByEmail(c.Request.Context(), email)
 	if err != nil {
-		apiutils.AbortWithApiError(c, commonerrors.NewInternalError("failed to query binding: "+err.Error()))
+		klog.ErrorS(err, "GetBinding: DB query failed", "email", email)
+		apiutils.AbortWithApiError(c, commonerrors.NewInternalError("service temporarily unavailable, please try again later"))
 		return
 	}
 
@@ -344,31 +354,32 @@ type UsageModelData struct {
 func (h *Handler) GetUsage(c *gin.Context) {
 	email := h.getUserEmail(c)
 	if email == "" {
-		apiutils.AbortWithApiError(c, commonerrors.NewBadRequest("user email not found"))
+		apiutils.AbortWithApiError(c, commonerrors.NewBadRequest("unable to identify user email"))
 		return
 	}
 
 	startDate := c.Query("start_date")
 	endDate := c.Query("end_date")
 	if startDate == "" || endDate == "" {
-		apiutils.AbortWithApiError(c, commonerrors.NewBadRequest("start_date and end_date are required (YYYY-MM-DD)"))
+		apiutils.AbortWithApiError(c, commonerrors.NewBadRequest("start_date and end_date are required, format: YYYY-MM-DD"))
 		return
 	}
 
 	existing, err := h.dbClient.GetLLMBindingByEmail(c.Request.Context(), email)
 	if err != nil {
-		apiutils.AbortWithApiError(c, commonerrors.NewInternalError("failed to query binding: "+err.Error()))
+		klog.ErrorS(err, "GetUsage: DB query failed", "email", email)
+		apiutils.AbortWithApiError(c, commonerrors.NewInternalError("service temporarily unavailable, please try again later"))
 		return
 	}
 	if existing == nil {
-		apiutils.AbortWithApiError(c, commonerrors.NewNotFoundWithMessage("no binding found for "+email))
+		apiutils.AbortWithApiError(c, commonerrors.NewNotFoundWithMessage("no APIM Key bound yet, usage data unavailable"))
 		return
 	}
 
 	activity, err := h.litellmClient.GetUserDailyActivity(c.Request.Context(), email, startDate, endDate)
 	if err != nil {
-		klog.ErrorS(err, "failed to query LiteLLM usage", "email", email)
-		c.JSON(http.StatusBadGateway, gin.H{"errorMessage": "failed to query usage from LiteLLM: " + err.Error()})
+		klog.ErrorS(err, "GetUsage: LiteLLM query failed", "email", email)
+		c.JSON(http.StatusBadGateway, gin.H{"errorMessage": "usage data temporarily unavailable, please try again later"})
 		return
 	}
 

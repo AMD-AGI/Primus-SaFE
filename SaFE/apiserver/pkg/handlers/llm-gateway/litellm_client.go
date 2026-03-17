@@ -144,14 +144,18 @@ func (c *LiteLLMClient) CreateUser(ctx context.Context, email string) error {
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
+	switch resp.StatusCode {
+	case http.StatusOK, http.StatusCreated:
+		klog.Infof("LiteLLM: created user for %s", email)
+	case http.StatusConflict:
+		klog.Infof("LiteLLM: user already exists for %s, skipping", email)
+	default:
 		respBody, _ := io.ReadAll(resp.Body)
 		klog.ErrorS(nil, "LiteLLM create user failed",
 			"status", resp.StatusCode, "body", string(respBody))
 		return fmt.Errorf("LiteLLM returned HTTP %d: %s", resp.StatusCode, string(respBody))
 	}
 
-	klog.Infof("LiteLLM: ensured user exists for %s", email)
 	return nil
 }
 
