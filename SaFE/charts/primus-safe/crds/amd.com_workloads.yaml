@@ -495,7 +495,8 @@ spec:
                   object.
                 type: string
               startTime:
-                description: Workload start time
+                description: Workload start time. calculated from when the workload
+                  begins running.
                 format: date-time
                 type: string
               torchFTPhase:
