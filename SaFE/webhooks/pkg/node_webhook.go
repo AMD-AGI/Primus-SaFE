@@ -33,8 +33,8 @@ import (
 
 const (
 	// DefaultNodePort Default node SSH port.
-	DefaultNodePort       = 22
-	MaxRecommendedStorage = 6000 * 1024 * 1024 * 1024
+	DefaultNodePort             = 22
+	MaxRecommendedStorage int64 = 6000 * 1024 * 1024 * 1024
 )
 
 var SupportedTaintEffect = []corev1.TaintEffect{
