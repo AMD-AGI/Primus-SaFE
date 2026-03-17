@@ -13,6 +13,7 @@ import (
 
 	"github.com/AMD-AIG-AIMA/SAFE/a2a-gateway/pkg/config"
 	"github.com/AMD-AIG-AIMA/SAFE/a2a-gateway/pkg/server"
+	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 )
 
 func main() {
@@ -28,6 +29,12 @@ func main() {
 	if err != nil {
 		klog.Fatalf("failed to load config: %v", err)
 	}
+
+	commonconfig.SetValue("db.enable", "true")
+	commonconfig.SetValue("db.secret_path", cfg.DBSecretPath)
+	commonconfig.SetValue("db.ssl_mode", cfg.DBSSLMode)
+	commonconfig.SetValue("crypto.enable", "true")
+	commonconfig.SetValue("crypto.secret_path", cfg.CryptoSecretPath)
 
 	srv, err := server.New(cfg)
 	if err != nil {
