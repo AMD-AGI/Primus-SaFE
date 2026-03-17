@@ -75,7 +75,8 @@ type UpdateKeyRequest struct {
 
 // DeleteKeyRequest is the request body for POST /key/delete
 type DeleteKeyRequest struct {
-	Keys []string `json:"keys"` // List of token hashes to delete
+	Keys       []string `json:"keys,omitempty"`        // List of token hashes to delete
+	KeyAliases []string `json:"key_aliases,omitempty"` // Alternative: delete by key alias (e.g. user email)
 }
 
 // ── Usage types ───────────────────────────────────────────────────────────
@@ -249,11 +250,34 @@ func (c *LiteLLMClient) UpdateKeyMetadata(ctx context.Context, tokenHash string,
 }
 
 // DeleteKey deletes a Virtual Key by its token hash.
-func (c *LiteLLMClient) DeleteKey(ctx context.Context, tokenHash string) error {
-	reqBody := DeleteKeyRequest{
-		Keys: []string{tokenHash},
+// If the hash-based delete returns 404, it falls back to deleting by key_alias
+// to handle cases where the stored hash doesn't match LiteLLM's record.
+func (c *LiteLLMClient) DeleteKey(ctx context.Context, tokenHash string, keyAlias string) error {
+	err := c.doDeleteKey(ctx, DeleteKeyRequest{Keys: []string{tokenHash}})
+	if err == nil {
+		klog.Infof("LiteLLM: deleted key by hash, token_hash=%s", tokenHash[:16]+"...")
+		return nil
 	}
 
+	if !isNotFoundErr(err) {
+		return err
+	}
+
+	if keyAlias == "" {
+		klog.Warningf("LiteLLM: key not found by hash and no alias to fallback, token_hash=%s", tokenHash[:16]+"...")
+		return nil
+	}
+
+	klog.Warningf("LiteLLM: key not found by hash (404), retrying by alias=%s", keyAlias)
+	if err := c.doDeleteKey(ctx, DeleteKeyRequest{KeyAliases: []string{keyAlias}}); err != nil {
+		return fmt.Errorf("failed to delete key by alias %s: %w", keyAlias, err)
+	}
+
+	klog.Infof("LiteLLM: deleted key by alias=%s", keyAlias)
+	return nil
+}
+
+func (c *LiteLLMClient) doDeleteKey(ctx context.Context, reqBody DeleteKeyRequest) error {
 	body, err := json.Marshal(reqBody)
 	if err != nil {
 		return fmt.Errorf("failed to marshal request: %w", err)
@@ -275,15 +299,30 @@ func (c *LiteLLMClient) DeleteKey(ctx context.Context, tokenHash string) error {
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
-		respBody, _ := io.ReadAll(resp.Body)
-		klog.ErrorS(nil, "LiteLLM delete key failed",
-			"status", resp.StatusCode, "body", string(respBody))
-		return fmt.Errorf("LiteLLM returned HTTP %d: %s", resp.StatusCode, string(respBody))
+	if resp.StatusCode == http.StatusOK {
+		return nil
 	}
 
-	klog.Infof("LiteLLM: deleted key token_hash=%s", tokenHash[:16]+"...")
-	return nil
+	respBody, _ := io.ReadAll(resp.Body)
+	klog.ErrorS(nil, "LiteLLM delete key failed",
+		"status", resp.StatusCode, "body", string(respBody))
+	return &litellmError{StatusCode: resp.StatusCode, Body: string(respBody)}
+}
+
+type litellmError struct {
+	StatusCode int
+	Body       string
+}
+
+func (e *litellmError) Error() string {
+	return fmt.Sprintf("LiteLLM returned HTTP %d: %s", e.StatusCode, e.Body)
+}
+
+func isNotFoundErr(err error) bool {
+	if e, ok := err.(*litellmError); ok {
+		return e.StatusCode == http.StatusNotFound
+	}
+	return false
 }
 
 // GetUserDailyActivity queries LiteLLM for a user's daily usage breakdown.

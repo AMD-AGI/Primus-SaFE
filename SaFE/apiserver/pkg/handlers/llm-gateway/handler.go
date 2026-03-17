@@ -172,7 +172,7 @@ func (h *Handler) CreateBinding(c *gin.Context) {
 	}
 
 	if err := h.dbClient.CreateLLMBinding(c.Request.Context(), binding); err != nil {
-		_ = h.litellmClient.DeleteKey(c.Request.Context(), litellmResp.TokenID)
+		_ = h.litellmClient.DeleteKey(c.Request.Context(), litellmResp.TokenID, email)
 		apiutils.AbortWithApiError(c, commonerrors.NewInternalError("failed to save binding: "+err.Error()))
 		return
 	}
@@ -265,8 +265,10 @@ func (h *Handler) DeleteBinding(c *gin.Context) {
 		return
 	}
 
-	if err := h.litellmClient.DeleteKey(c.Request.Context(), existing.LiteLLMKeyHash); err != nil {
+	if err := h.litellmClient.DeleteKey(c.Request.Context(), existing.LiteLLMKeyHash, existing.KeyAlias); err != nil {
 		klog.ErrorS(err, "failed to delete LiteLLM key", "email", email)
+		apiutils.AbortWithApiError(c, commonerrors.NewInternalError("failed to delete LiteLLM key: "+err.Error()))
+		return
 	}
 
 	if err := h.dbClient.DeleteLLMBinding(c.Request.Context(), email); err != nil {
