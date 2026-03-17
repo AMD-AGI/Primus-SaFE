@@ -12,8 +12,8 @@ import (
 
 	"github.com/AMD-AGI/Primus-SaFE/Lens/ai-advisor/pkg/api/handlers"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/ai-advisor/pkg/common"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/ai-advisor/pkg/dag"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/ai-advisor/pkg/detection"
-	"github.com/AMD-AGI/Primus-SaFE/Lens/ai-advisor/pkg/distill"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/ai-advisor/pkg/loganalysis"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/ai-advisor/pkg/metadata"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/ai-advisor/pkg/pipeline"
@@ -190,10 +190,6 @@ func Bootstrap(ctx context.Context) error {
 		}
 
 		// Register Analysis Pipeline executor (intent-aware replacement for coordinator)
-		conductorURL := os.Getenv("CONDUCTOR_URL")
-		if conductorURL == "" {
-			conductorURL = "http://primus-conductor:8080"
-		}
 		aiGatewayURL := os.Getenv("AI_GATEWAY_URL")
 		if aiGatewayURL == "" {
 			aiGatewayURL = "http://ai-gateway:8003/v1"
@@ -214,7 +210,7 @@ func Bootstrap(ctx context.Context) error {
 			}
 		}
 
-		analysisPipeline := pipeline.NewWorkloadAnalysisPipeline(conductorURL, aiGatewayURL, instanceID, podProber, snapshotStore)
+		analysisPipeline := pipeline.NewWorkloadAnalysisPipeline(podProber, snapshotStore)
 		if err := taskScheduler.RegisterExecutor(analysisPipeline); err != nil {
 			log.Errorf("Failed to register analysis pipeline executor: %v", err)
 		} else {
@@ -248,21 +244,20 @@ func Bootstrap(ctx context.Context) error {
 			log.Infof("Task scheduler started (instance: %s)", instanceID)
 		}
 
+		// Start DAG scheduler for intent analysis
+		dagScheduler := startDAGScheduler(ctx, podProber)
+		if dagScheduler != nil {
+			dagHandler := dag.NewWorkloadEventHandler(dagScheduler)
+			go startPeriodicDAGScan(ctx, dagHandler)
+			log.Info("DAG scheduler started for intent analysis")
+		}
+
 		// Start periodic scan for undetected workloads
 		taskCreator := detection.GetTaskCreator()
 		if taskCreator != nil {
 			go startPeriodicWorkloadScan(ctx, taskCreator)
 			log.Info("Periodic workload scan started (interval: 1 minute)")
-
-			// Start periodic scan for workloads needing intent analysis
-			go startPeriodicIntentScan(ctx, taskCreator)
-			log.Info("Periodic intent analysis scan started (interval: 2 minutes)")
 		}
-
-		// Start daily flywheel jobs (backtesting + promotion + distillation via ai-gateway)
-		flywheelGWClient := aigateway.NewClient(aiGatewayURL)
-		go startDailyFlywheelJobs(ctx, flywheelGWClient)
-		log.Info("Daily flywheel jobs started (backtest + promote + distill via ai-gateway, interval: 24h)")
 
 		// Register cleanup for task scheduler
 		go func() {
@@ -320,29 +315,38 @@ func startPeriodicWorkloadScan(ctx context.Context, taskCreator *detection.TaskC
 	}
 }
 
-// startPeriodicIntentScan starts a goroutine that periodically scans for
-// workloads that have been detected but need intent analysis
-func startPeriodicIntentScan(ctx context.Context, taskCreator *detection.TaskCreator) {
-	ticker := time.NewTicker(2 * time.Minute)
+func startPeriodicDAGScan(ctx context.Context, handler *dag.WorkloadEventHandler) {
+	ticker := time.NewTicker(10 * time.Second)
 	defer ticker.Stop()
-
-	// Initial delay to let detection coordinator populate workload_detection first
-	time.Sleep(30 * time.Second)
-	if err := taskCreator.ScanForWorkloadsNeedingIntent(ctx); err != nil {
-		log.Errorf("Initial intent scan failed: %v", err)
-	}
-
+	time.Sleep(5 * time.Second)
+	handler.ScanAndTrigger(ctx)
 	for {
 		select {
 		case <-ctx.Done():
-			log.Info("Stopping periodic intent scan")
+			log.Info("Stopping periodic DAG scan")
 			return
 		case <-ticker.C:
-			if err := taskCreator.ScanForWorkloadsNeedingIntent(ctx); err != nil {
-				log.Errorf("Periodic intent scan failed: %v", err)
-			}
+			handler.ScanAndTrigger(ctx)
 		}
 	}
+}
+
+func startDAGScheduler(ctx context.Context, podProber *common.PodProber) *dag.DAGScheduler {
+	clusterID := os.Getenv("CLUSTER_ID")
+	if clusterID == "" {
+		clusterID = "default"
+	}
+	scheduler := dag.NewDAGScheduler(clusterID)
+
+	scheduler.RegisterExecutor(dag.TaskTypeImageAnalysis, dag.NewImageAnalysisExecutor())
+	scheduler.RegisterExecutor(dag.TaskTypeLabelEnvCollection, dag.NewLabelEnvExecutor())
+	scheduler.RegisterExecutor(dag.TaskTypeWaitPodReady, dag.NewWaitPodReadyExecutor(podProber))
+	scheduler.RegisterExecutor(dag.TaskTypeProcessCollection, dag.NewProcessCollectionExecutor())
+	scheduler.RegisterExecutor(dag.TaskTypeAssembleSubmit, dag.NewAssembleSubmitExecutor())
+	scheduler.RegisterExecutor(dag.TaskTypeWaitClassification, dag.NewWaitClassificationExecutor())
+
+	scheduler.Start(ctx)
+	return scheduler
 }
 
 func initRouter(group *gin.RouterGroup) error {
@@ -469,10 +473,11 @@ func registerIntentAnalyzerAgent(ctx context.Context, aiGatewayURL string, insta
 	}
 
 	reg := &aigateway.AgentRegistration{
-		Name:        "intent-analyzer",
-		Version:     "1.0.0",
-		Description: "Workload intent analyzer - determines what GPU workloads are doing",
-		Endpoint:    endpoint,
+		Name:            "intent-analyzer",
+		Version:         "1.0.0",
+		Description:     "Workload intent analyzer - determines what GPU workloads are doing",
+		Endpoint:        endpoint,
+		HealthCheckPath: "/v1/health",
 		Topics: []string{
 			"intent.analyze.workload",
 			"intent.analyze.logs",
@@ -498,82 +503,3 @@ func registerIntentAnalyzerAgent(ctx context.Context, aiGatewayURL string, insta
 	log.Error("Exhausted retries for intent-analyzer agent registration")
 }
 
-// startDailyFlywheelJobs runs the flywheel cycle:
-// 1. Backtest all candidate rules (proposed/testing status)
-// 2. Promote validated rules, retire underperforming ones
-// 3. Trigger distillation for new confirmed intents via ai-gateway
-func startDailyFlywheelJobs(ctx context.Context, gwClient *aigateway.Client) {
-	// Wait for initial data to accumulate
-	time.Sleep(5 * time.Minute)
-
-	// Run immediately on first start, then every 24 hours
-	runFlywheelCycle(ctx, gwClient)
-
-	ticker := time.NewTicker(24 * time.Hour)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			log.Info("Stopping daily flywheel jobs")
-			return
-		case <-ticker.C:
-			runFlywheelCycle(ctx, gwClient)
-		}
-	}
-}
-
-func runFlywheelCycle(ctx context.Context, gwClient *aigateway.Client) {
-	log.Info("Flywheel: starting daily cycle")
-
-	// Step 1: Backtest all candidate rules
-	backtester := distill.NewBacktester()
-	backtested, err := backtester.BacktestAll(ctx)
-	if err != nil {
-		log.Errorf("Flywheel: backtesting failed: %v", err)
-	} else {
-		log.Infof("Flywheel: backtested %d rules", backtested)
-	}
-
-	// Step 2: Promote validated rules, retire underperforming
-	promoter := distill.NewPromoter()
-	if err := promoter.RunPromotionCycle(ctx); err != nil {
-		log.Errorf("Flywheel: promotion cycle failed: %v", err)
-	}
-
-	// Step 3: Trigger distillation via ai-gateway (Conductor bridge picks it up)
-	if gwClient != nil {
-		triggerDistillation(ctx, gwClient)
-	}
-
-	log.Info("Flywheel: daily cycle complete")
-}
-
-// triggerDistillation collects confirmed intents grouped by category
-// and publishes distill tasks to ai-gateway
-func triggerDistillation(ctx context.Context, gwClient *aigateway.Client) {
-	facade := database.NewWorkloadDetectionFacade()
-
-	categories := []string{
-		"pre_training", "fine_tuning", "inference", "evaluation",
-		"data_processing", "benchmark", "serving", "interactive_development",
-	}
-
-	for _, category := range categories {
-		detections, _, err := facade.ListByCategory(ctx,
-			category, 50, 0,
-		)
-		if err != nil {
-			log.Errorf("Flywheel: failed to fetch detections for category %s: %v", category, err)
-			continue
-		}
-
-		if len(detections) < 5 {
-			continue
-		}
-
-		log.Infof("Flywheel: triggering distillation for category=%s with %d samples", category, len(detections))
-
-		distill.TriggerConductorDistillation(ctx, gwClient, category, detections)
-	}
-}

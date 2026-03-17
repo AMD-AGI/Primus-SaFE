@@ -15,7 +15,6 @@ import (
 
 	"github.com/AMD-AGI/Primus-SaFE/Lens/ai-advisor/pkg/common"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/ai-advisor/pkg/intent"
-	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/aigateway"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/constant"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database/model"
@@ -25,13 +24,8 @@ import (
 )
 
 const (
-	// Configuration defaults
-	DefaultCollectTimeout   = 120 * time.Second
-	DefaultLLMTimeout       = 10 * time.Minute
-	DefaultEvalInterval     = 5 * time.Minute
-	DefaultMonitorInterval  = 30 * time.Minute
-	DefaultConfidenceGate   = 0.75
-	DefaultMaxCollectCycles = 3
+	DefaultCollectTimeout  = 120 * time.Second
+	DefaultMonitorInterval = 30 * time.Minute
 )
 
 // CollectorPlan describes a single evidence collection task to schedule
@@ -60,17 +54,12 @@ type WorkloadAnalysisPipeline struct {
 	evidenceFacade   database.WorkloadDetectionEvidenceFacadeInterface
 	snapshotFacade   database.WorkloadCodeSnapshotFacadeInterface
 	imageCacheFacade database.ImageRegistryCacheFacadeInterface
-	ruleFacade       database.IntentRuleFacadeInterface
 
-	evaluator              *EvidenceEvaluator
-	specCollector          *SpecCollector
-	processCollector       *ProcessEvidenceCollector
-	imageRegCollector      *ImageRegistryCollector
-	codeSnapshotCollector  *CodeSnapshotCollector
-	snapshotStore          snapshot.Store
-	conductorURL           string // deprecated: use gwClient
-	gwClient               *aigateway.Client
-	instanceID             string
+	specCollector         *SpecCollector
+	processCollector      *ProcessEvidenceCollector
+	imageRegCollector     *ImageRegistryCollector
+	codeSnapshotCollector *CodeSnapshotCollector
+	snapshotStore         snapshot.Store
 }
 
 // NewWorkloadAnalysisPipeline creates a new pipeline executor.
@@ -78,7 +67,7 @@ type WorkloadAnalysisPipeline struct {
 // snapshotStore may be nil; file contents will then be stored inline in the DB.
 // aiGatewayURL is the base URL of the AI Gateway API (e.g. "http://ai-gateway:8080/api/v1").
 // If empty, LLM analysis will be skipped.
-func NewWorkloadAnalysisPipeline(conductorURL string, aiGatewayURL string, instanceID string, podProber *common.PodProber, snapshotStore snapshot.Store) *WorkloadAnalysisPipeline {
+func NewWorkloadAnalysisPipeline(podProber *common.PodProber, snapshotStore snapshot.Store) *WorkloadAnalysisPipeline {
 	p := &WorkloadAnalysisPipeline{
 		detectionFacade:  database.NewWorkloadDetectionFacade(),
 		coverageFacade:   database.NewDetectionCoverageFacade(),
@@ -86,18 +75,11 @@ func NewWorkloadAnalysisPipeline(conductorURL string, aiGatewayURL string, insta
 		evidenceFacade:   database.NewWorkloadDetectionEvidenceFacade(),
 		snapshotFacade:   database.NewWorkloadCodeSnapshotFacade(),
 		imageCacheFacade: database.NewImageRegistryCacheFacade(),
-		ruleFacade:       database.NewIntentRuleFacade(),
-		evaluator:           NewEvidenceEvaluator(),
-		specCollector:       NewSpecCollector(),
-		processCollector:    NewProcessEvidenceCollector(),
-		imageRegCollector:   NewImageRegistryCollector(),
-		conductorURL:        conductorURL,
-		instanceID:          instanceID,
+		specCollector:    NewSpecCollector(),
+		processCollector: NewProcessEvidenceCollector(),
+		imageRegCollector: NewImageRegistryCollector(),
+		snapshotStore:    snapshotStore,
 	}
-	if aiGatewayURL != "" {
-		p.gwClient = aigateway.NewClient(aiGatewayURL)
-	}
-	p.snapshotStore = snapshotStore
 	if podProber != nil {
 		p.codeSnapshotCollector = NewCodeSnapshotCollector(podProber, snapshotStore)
 	}
@@ -156,12 +138,6 @@ func (p *WorkloadAnalysisPipeline) Execute(
 
 	case constant.PipelineStateEvaluating:
 		nextState, err = p.handleEvaluating(ctx, task, updates)
-
-	case constant.PipelineStateRequestingLLM:
-		nextState, err = p.handleRequestingLLM(ctx, task, updates)
-
-	case constant.PipelineStateMergingResult:
-		nextState, err = p.handleMergingResult(ctx, task, updates)
 
 	case constant.PipelineStateConfirmed:
 		nextState, err = p.handleConfirmed(ctx, task, updates)
@@ -307,7 +283,9 @@ func (p *WorkloadAnalysisPipeline) handleCollecting(
 	return constant.PipelineStateEvaluating, nil
 }
 
-// handleEvaluating runs the deterministic EvidenceEvaluator
+// handleEvaluating dispatches to the Python intent-service via DAG T5.
+// The evaluating state now just ensures evidence is assembled into WorkloadJSON
+// and written to the DB for the intent-service to consume.
 func (p *WorkloadAnalysisPipeline) handleEvaluating(
 	ctx context.Context,
 	task *model.WorkloadTaskState,
@@ -315,179 +293,51 @@ func (p *WorkloadAnalysisPipeline) handleEvaluating(
 ) (string, error) {
 	workloadUID := task.WorkloadUID
 
-	// Update intent state
 	_ = p.detectionFacade.UpdateIntentState(ctx, workloadUID, constant.IntentStateAnalyzing)
 
-	// Gather evidence from DB
+	gatherStart := time.Now()
 	evidence, err := p.gatherEvidence(ctx, workloadUID)
+	intentEvidenceGatherDuration.Observe(time.Since(gatherStart).Seconds())
 	if err != nil {
 		return constant.PipelineStateCollecting, fmt.Errorf("failed to gather evidence: %w", err)
 	}
 
-	// Load promoted rules from DB
-	rules, err := p.ruleFacade.GetPromotedRules(ctx)
+	det, _ := p.detectionFacade.GetDetection(ctx, workloadUID)
+	gpuCount := 0
+	replicas := 0
+	if det != nil {
+		gpuCount = int(det.EvidenceCount)
+	}
+	if evidence != nil {
+		replicas = evidence.Replicas
+	}
+
+	wj, err := BuildWorkloadJSON(workloadUID, "", evidence, gpuCount, replicas)
 	if err != nil {
-		log.Warnf("Failed to load promoted rules: %v", err)
-		rules = nil
+		return constant.PipelineStateEvaluating, fmt.Errorf("build workload JSON: %w", err)
 	}
 
-	// Run deterministic evaluation
-	result := p.evaluator.Evaluate(evidence, rules)
-
-	// Store evaluation snapshot in ext
-	evalJSON, _ := json.Marshal(result)
-	updates["eval_result"] = json.RawMessage(evalJSON)
-	updates["eval_confidence"] = result.Confidence
-	updates["eval_category"] = string(result.Category)
-
-	// Decide whether to skip LLM
-	confidenceGate := p.getConfidenceGate(task)
-	mode := p.GetExtString(task, "analysis_mode")
-
-	if result.Confidence >= confidenceGate || mode == constant.AnalysisModeLocal {
-		// High-confidence deterministic result or local-only mode => confirm directly
-		log.Infof("Deterministic evaluation sufficient for workload %s (confidence=%.2f, gate=%.2f)",
-			workloadUID, result.Confidence, confidenceGate)
-		updates["skip_llm"] = true
-		return p.persistIntentResult(ctx, workloadUID, result, updates)
-	}
-
-	// Need LLM analysis
-	log.Infof("Deterministic confidence too low for workload %s (%.2f < %.2f), requesting LLM",
-		workloadUID, result.Confidence, confidenceGate)
-
-	// Store evidence for LLM request
-	evidenceJSON, _ := json.Marshal(evidence)
-	updates["llm_evidence"] = json.RawMessage(evidenceJSON)
-
-	return constant.PipelineStateRequestingLLM, nil
-}
-
-// handleRequestingLLM sends an analysis request to Conductor and waits for the response
-func (p *WorkloadAnalysisPipeline) handleRequestingLLM(
-	ctx context.Context,
-	task *model.WorkloadTaskState,
-	updates map[string]interface{},
-) (string, error) {
-	workloadUID := task.WorkloadUID
-
-	// Check if request already sent
-	requestSent := p.GetExtBool(task, "llm_request_sent")
-	if !requestSent {
-		// Send async request to Conductor
-		gwTaskID, err := p.sendConductorRequest(ctx, workloadUID, task)
-		if err != nil {
-			log.Warnf("Failed to send Conductor request for workload %s: %v", workloadUID, err)
-
-			// Retry up to 3 times before falling back to deterministic result
-			retryCount := p.GetExtInt(task, "llm_send_retry_count")
-			if retryCount >= 3 {
-				log.Warnf("LLM request failed after %d retries for workload %s, falling back to deterministic",
-					retryCount, workloadUID)
-				updates["llm_error"] = err.Error()
-				updates["skip_llm"] = true
-				return constant.PipelineStateMergingResult, nil
-			}
-			updates["llm_send_retry_count"] = retryCount + 1
-			updates["llm_last_error"] = err.Error()
-			return constant.PipelineStateRequestingLLM, nil
-		}
-		updates["llm_request_sent"] = true
-		updates["llm_request_at"] = time.Now().Format(time.RFC3339)
-		updates["gw_task_id"] = gwTaskID
-		// Remove the bulky evidence blob stored by handleEvaluating; it was
-		// re-gathered inside sendConductorRequest and is no longer needed.
-		updates["llm_evidence"] = nil
-		return constant.PipelineStateRequestingLLM, nil
-	}
-
-	// If gw_task_id was lost (e.g. due to a previous bug where it was only stored
-	// in memory), re-send the request rather than polling forever.
-	gwTaskID := p.GetExtString(task, "gw_task_id")
-	if gwTaskID == "" {
-		log.Warnf("gw_task_id missing for workload %s despite llm_request_sent=true, re-sending request",
-			workloadUID)
-		updates["llm_request_sent"] = false
-		updates["llm_resend_reason"] = "gw_task_id_lost"
-		return constant.PipelineStateRequestingLLM, nil
-	}
-
-	// Check for response via ai-gateway
-	llmResult, err := p.pollGatewayTaskResult(ctx, task)
+	wjBytes, err := MarshalWorkloadJSON(wj)
 	if err != nil {
-		log.Warnf("Error polling ai-gateway for workload %s: %v", workloadUID, err)
+		return constant.PipelineStateEvaluating, fmt.Errorf("marshal workload JSON: %w", err)
 	}
 
-	if llmResult != nil {
-		// Got response
-		resultJSON, _ := json.Marshal(llmResult)
-		updates["llm_result"] = json.RawMessage(resultJSON)
-		updates["llm_completed_at"] = time.Now().Format(time.RFC3339)
-		return constant.PipelineStateMergingResult, nil
+	if err := p.detectionFacade.UpdateIntentResult(ctx, workloadUID, map[string]interface{}{
+		"intent_workload_json": json.RawMessage(wjBytes),
+		"intent_state":         "pending",
+	}); err != nil {
+		return constant.PipelineStateEvaluating, fmt.Errorf("write workload JSON: %w", err)
 	}
 
-	// Check timeout
-	requestAtStr := p.GetExtString(task, "llm_request_at")
-	if requestAtStr != "" {
-		if requestAt, parseErr := time.Parse(time.RFC3339, requestAtStr); parseErr == nil {
-			if time.Since(requestAt) > DefaultLLMTimeout {
-				log.Warnf("LLM request timed out for workload %s", workloadUID)
-				updates["llm_timeout"] = true
-				return constant.PipelineStateMergingResult, nil
-			}
-		}
-	}
+	log.Infof("Dispatched workload %s to intent-service (WorkloadJSON written, intent_state=pending)",
+		workloadUID)
 
-	return constant.PipelineStateRequestingLLM, nil
+	updates["dispatched_to_intent_service"] = true
+	updates["dispatched_at"] = time.Now().Format(time.RFC3339)
+
+	return constant.PipelineStateConfirmed, nil
 }
 
-// handleMergingResult merges deterministic and LLM results
-func (p *WorkloadAnalysisPipeline) handleMergingResult(
-	ctx context.Context,
-	task *model.WorkloadTaskState,
-	updates map[string]interface{},
-) (string, error) {
-	workloadUID := task.WorkloadUID
-
-	// Reconstruct deterministic result from ext.
-	// eval_result is stored as json.RawMessage which becomes map[string]interface{}
-	// after JSONB round-trip, so GetExtString won't work; use GetExtMap instead.
-	var evalResult intent.IntentResult
-	if evalMap := p.GetExtMap(task, "eval_result"); evalMap != nil {
-		evalBytes, err := json.Marshal(evalMap)
-		if err == nil {
-			_ = json.Unmarshal(evalBytes, &evalResult)
-		}
-	} else if evalJSON := p.GetExtString(task, "eval_result"); evalJSON != "" {
-		// Fallback: in case ext was somehow stored as a string
-		_ = json.Unmarshal([]byte(evalJSON), &evalResult)
-	}
-
-	// Check if we have an LLM result
-	skipLLM := p.GetExtBool(task, "skip_llm")
-	if skipLLM {
-		// Use deterministic result as-is
-		return p.persistIntentResult(ctx, workloadUID, &evalResult, updates)
-	}
-
-	// Parse LLM result (same JSONB round-trip handling as eval_result)
-	var llmResult intent.IntentResult
-	if llmMap := p.GetExtMap(task, "llm_result"); llmMap != nil {
-		llmBytes, err := json.Marshal(llmMap)
-		if err == nil {
-			_ = json.Unmarshal(llmBytes, &llmResult)
-		}
-	} else if llmJSON := p.GetExtString(task, "llm_result"); llmJSON != "" {
-		_ = json.Unmarshal([]byte(llmJSON), &llmResult)
-	}
-
-	// Merge: LLM overrides deterministic for fields where LLM has higher confidence
-	merged := p.mergeResults(&evalResult, &llmResult)
-	mergedJSON, _ := json.Marshal(merged)
-	updates["merged_result"] = json.RawMessage(mergedJSON)
-
-	return p.persistIntentResult(ctx, workloadUID, merged, updates)
-}
 
 // handleConfirmed triggers side-effects (follow-up tasks) after intent is confirmed
 func (p *WorkloadAnalysisPipeline) handleConfirmed(
@@ -565,105 +415,6 @@ func (p *WorkloadAnalysisPipeline) handleMonitoring(
 // ---------------------------------------------------------------------------
 // Helper methods
 // ---------------------------------------------------------------------------
-
-// persistIntentResult writes the IntentResult to workload_detection.
-// For high-confidence results, transitions to CONFIRMED. For low-confidence
-// config_based results (no cmdline evidence), transitions to ANALYZING to allow
-// future evidence collection to improve the result.
-func (p *WorkloadAnalysisPipeline) persistIntentResult(
-	ctx context.Context,
-	workloadUID string,
-	result *intent.IntentResult,
-	updates map[string]interface{},
-) (string, error) {
-	// Determine intent state: config_based with low confidence stays as "analyzing"
-	// to indicate the result is provisional and may be improved with more evidence.
-	const lowConfidenceThreshold = 0.6
-	intentState := constant.IntentStateConfirmed
-	pipelineNextState := constant.PipelineStateConfirmed
-	if result.AnalysisMode == intent.AnalysisModeConfigBased && result.Confidence < lowConfidenceThreshold {
-		intentState = constant.IntentStateAnalyzing
-		pipelineNextState = constant.PipelineStateMonitoring
-		log.Infof("Low-confidence config_based result for workload %s (%.2f < %.2f), staying in analyzing state",
-			workloadUID, result.Confidence, lowConfidenceThreshold)
-	}
-
-	// Build update map for detection facade
-	intentUpdates := map[string]interface{}{
-		"intent_state":      intentState,
-		"intent_confidence": result.Confidence,
-		"intent_analyzed_at": time.Now(),
-	}
-
-	if result.Category != "" {
-		intentUpdates["category"] = string(result.Category)
-	}
-	if result.ExpectedBehavior != "" {
-		intentUpdates["expected_behavior"] = string(result.ExpectedBehavior)
-	}
-	if result.AnalysisMode != "" {
-		intentUpdates["intent_analysis_mode"] = string(result.AnalysisMode)
-	}
-	if result.Source != "" {
-		intentUpdates["intent_source"] = string(result.Source)
-	}
-	if result.Model != nil {
-		if result.Model.Path != "" {
-			intentUpdates["model_path"] = result.Model.Path
-		}
-		if result.Model.Family != "" {
-			intentUpdates["model_family"] = result.Model.Family
-		}
-		if result.Model.Scale != "" {
-			intentUpdates["model_scale"] = result.Model.Scale
-		}
-		if result.Model.Variant != "" {
-			intentUpdates["model_variant"] = result.Model.Variant
-		}
-	}
-	if result.FrameworkStack != nil {
-		stackJSON, _ := json.Marshal(result.FrameworkStack)
-		intentUpdates["runtime_framework"] = string(stackJSON)
-	}
-
-	// Store full detail JSON
-	detailJSON, _ := json.Marshal(result)
-	intentUpdates["intent_detail"] = string(detailJSON)
-
-	// Field sources
-	if result.FieldSources != nil {
-		sourcesJSON, _ := json.Marshal(result.FieldSources)
-		intentUpdates["intent_field_sources"] = string(sourcesJSON)
-	}
-
-	// Matched rules
-	if len(result.MatchedRules) > 0 {
-		rulesJSON, _ := json.Marshal(result.MatchedRules)
-		intentUpdates["intent_matched_rules"] = string(rulesJSON)
-	}
-
-	// Reasoning
-	if result.Reasoning != "" {
-		intentUpdates["intent_reasoning"] = result.Reasoning
-	}
-
-	if err := p.detectionFacade.UpdateIntentResult(ctx, workloadUID, intentUpdates); err != nil {
-		log.Warnf("Failed to persist intent result for workload %s: %v", workloadUID, err)
-		return constant.PipelineStateEvaluating, err
-	}
-
-	// Increment match_count for each rule that contributed to this result
-	for _, ruleID := range result.MatchedRules {
-		if err := p.ruleFacade.IncrementMatchCount(ctx, ruleID); err != nil {
-			log.Warnf("Failed to increment match_count for rule %d: %v", ruleID, err)
-		}
-	}
-
-	log.Infof("Intent result persisted for workload %s: category=%s confidence=%.2f state=%s matched_rules=%v",
-		workloadUID, result.Category, result.Confidence, intentState, result.MatchedRules)
-
-	return pipelineNextState, nil
-}
 
 // gatherEvidence collects all available evidence for a workload from multiple sources.
 // For terminated workloads, it skips collectors that require a running pod to avoid
@@ -859,153 +610,6 @@ func (p *WorkloadAnalysisPipeline) isWorkloadTerminated(ctx context.Context, wor
 	return isDeleted || terminatedStatuses[string(workload.Status)]
 }
 
-// getConfidenceGate returns the minimum confidence to skip LLM analysis
-func (p *WorkloadAnalysisPipeline) getConfidenceGate(task *model.WorkloadTaskState) float64 {
-	if task.Ext != nil {
-		if val, ok := task.Ext["confidence_gate"]; ok {
-			if f, ok := val.(float64); ok {
-				return f
-			}
-		}
-	}
-	return DefaultConfidenceGate
-}
-
-// mergeResults combines deterministic and LLM analysis results.
-// LLM results take priority for fields where the LLM provides higher confidence.
-func (p *WorkloadAnalysisPipeline) mergeResults(
-	deterministic *intent.IntentResult,
-	llm *intent.IntentResult,
-) *intent.IntentResult {
-	if deterministic == nil && llm == nil {
-		return &intent.IntentResult{}
-	}
-	if deterministic == nil {
-		return llm
-	}
-	if llm == nil {
-		return deterministic
-	}
-
-	merged := *deterministic
-
-	// LLM overrides if it has higher confidence on category
-	if llm.Confidence > deterministic.Confidence {
-		merged.Category = llm.Category
-		merged.ExpectedBehavior = llm.ExpectedBehavior
-		merged.Confidence = llm.Confidence
-		merged.Source = intent.IntentSourceLLM
-		merged.AnalysisMode = intent.AnalysisModeCodeAnalyzed
-	}
-
-	// Always take LLM's enrichment fields if present
-	if llm.Model != nil && (merged.Model == nil || merged.Model.Family == "") {
-		merged.Model = llm.Model
-	}
-	if llm.Training != nil && merged.Training == nil {
-		merged.Training = llm.Training
-	}
-	if llm.Inference != nil && merged.Inference == nil {
-		merged.Inference = llm.Inference
-	}
-	if llm.FrameworkStack != nil {
-		merged.FrameworkStack = llm.FrameworkStack
-	}
-	if llm.Reasoning != "" {
-		merged.Reasoning = llm.Reasoning
-	}
-
-	// Merge field sources
-	if merged.FieldSources == nil {
-		merged.FieldSources = make(map[string]string)
-	}
-	for k, v := range llm.FieldSources {
-		merged.FieldSources[k] = v
-	}
-
-	return &merged
-}
-
-// sendConductorRequest publishes an intent analysis task to ai-gateway.
-// The task will be claimed by a Conductor agent via the pull model.
-// Returns the gateway task ID on success so the caller can persist it.
-func (p *WorkloadAnalysisPipeline) sendConductorRequest(
-	ctx context.Context,
-	workloadUID string,
-	task *model.WorkloadTaskState,
-) (string, error) {
-	if p.gwClient == nil {
-		return "", fmt.Errorf("ai-gateway client not configured")
-	}
-
-	// Build the payload for Conductor: evidence + workload context
-	evidence, err := p.gatherEvidence(ctx, workloadUID)
-	if err != nil {
-		return "", fmt.Errorf("gather evidence for LLM request: %w", err)
-	}
-
-	payload := map[string]interface{}{
-		"workload_uid": workloadUID,
-		"evidence":     evidence,
-		"instance_id":  p.instanceID,
-	}
-
-	// Include deterministic eval result if available
-	if evalMap := p.GetExtMap(task, "eval_result"); evalMap != nil {
-		payload["deterministic_result"] = evalMap
-	}
-
-	payloadJSON, err := json.Marshal(payload)
-	if err != nil {
-		return "", fmt.Errorf("marshal LLM payload: %w", err)
-	}
-
-	resp, err := p.gwClient.Publish(ctx, &aigateway.PublishRequest{
-		Topic:      "intent.analyze",
-		Payload:    payloadJSON,
-		Priority:   10,
-		TimeoutSec: int(DefaultLLMTimeout.Seconds()),
-	})
-	if err != nil {
-		return "", fmt.Errorf("publish to ai-gateway: %w", err)
-	}
-
-	log.Infof("Published intent analysis task %s for workload %s via ai-gateway", resp.ID, workloadUID)
-
-	return resp.ID, nil
-}
-
-// pollGatewayTaskResult polls ai-gateway for task result using the stored gw_task_id.
-func (p *WorkloadAnalysisPipeline) pollGatewayTaskResult(
-	ctx context.Context,
-	task *model.WorkloadTaskState,
-) (*intent.IntentResult, error) {
-	if p.gwClient == nil {
-		return nil, fmt.Errorf("ai-gateway client not configured")
-	}
-
-	gwTaskID, ok := task.Ext["gw_task_id"].(string)
-	if !ok || gwTaskID == "" {
-		return nil, fmt.Errorf("no gw_task_id stored for workload %s", task.WorkloadUID)
-	}
-
-	result, err := p.gwClient.GetResult(ctx, gwTaskID)
-	if err != nil {
-		return nil, fmt.Errorf("poll ai-gateway task %s: %w", gwTaskID, err)
-	}
-	if result == nil {
-		// Still processing
-		return nil, nil
-	}
-
-	// Parse the Conductor result into IntentResult
-	var intentResult intent.IntentResult
-	if err := json.Unmarshal(result.Result, &intentResult); err != nil {
-		return nil, fmt.Errorf("unmarshal Conductor result: %w", err)
-	}
-
-	return &intentResult, nil
-}
 
 // createFollowUpTasks creates tasks based on the confirmed intent
 func (p *WorkloadAnalysisPipeline) createFollowUpTasks(

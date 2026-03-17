@@ -84,6 +84,12 @@ type WorkloadDetectionFacadeInterface interface {
 	// ListByCategory lists detections by intent category
 	ListByCategory(ctx context.Context, category string, limit int, offset int) ([]*model.WorkloadDetection, int64, error)
 
+	// ListNeedingIntentAnalysis finds workloads that need intent dispatch (confirmed + undetected)
+	ListNeedingIntentAnalysis(ctx context.Context, limit int) ([]*model.WorkloadDetection, error)
+
+	// ListStaleUndetectedWorkloads finds workloads stuck in detection >5min with no result
+	ListStaleUndetectedWorkloads(ctx context.Context, limit int) ([]string, error)
+
 	// WithCluster returns a new facade instance for the specified cluster
 	WithCluster(clusterName string) WorkloadDetectionFacadeInterface
 }
@@ -406,10 +412,12 @@ func (f *WorkloadDetectionFacade) UpdateIntentResult(ctx context.Context, worklo
 	allowedFields := map[string]bool{
 		"category": true, "expected_behavior": true,
 		"model_path": true, "model_family": true, "model_scale": true, "model_variant": true,
-		"runtime_framework": true, "intent_detail": true,
+		"runtime_framework": true, "intent_detail": true, "framework": true,
 		"intent_confidence": true, "intent_source": true, "intent_reasoning": true,
 		"intent_field_sources": true, "intent_analysis_mode": true, "intent_matched_rules": true,
 		"intent_state": true, "intent_analyzed_at": true,
+		"intent_workload_json": true, "intent_processing_started_at": true,
+		"intent_classified_at": true, "intent_script_name": true,
 	}
 
 	filtered := make(map[string]interface{})
@@ -520,4 +528,58 @@ func (f *WorkloadDetectionFacade) ListByCategory(ctx context.Context, category s
 	}
 	return results, total, nil
 }
+
+
+// ListNeedingIntentAnalysis finds workloads that have not yet been dispatched
+// to the intent-service (intent_workload_json is NULL). This includes:
+//   - Confirmed/verified workloads with a known framework (any pod state)
+//   - Bootstrapped unknown workloads only if they have a running pod
+func (f *WorkloadDetectionFacade) ListNeedingIntentAnalysis(ctx context.Context, limit int) ([]*model.WorkloadDetection, error) {
+	db := f.getDB()
+	var results []*model.WorkloadDetection
+
+	err := db.WithContext(ctx).
+		Table(model.TableNameWorkloadDetection).
+		Where("intent_workload_json IS NULL").
+		Where("intent_state IS NULL OR intent_state IN ('pending', '')").
+		Where(`(
+			(status IN ('confirmed', 'verified') AND framework IS NOT NULL AND framework != '')
+			OR
+			(status = 'unknown' AND detection_state = 'completed'
+			 AND EXISTS (
+			   SELECT 1 FROM workload_pod_reference wpr
+			   JOIN gpu_pods gp ON gp.uid = wpr.pod_uid AND gp.running = true AND gp.deleted = false
+			   WHERE wpr.workload_uid = workload_detection.workload_uid
+			 ))
+		)`).
+		Order("created_at ASC").
+		Limit(limit).
+		Find(&results).Error
+
+	return results, err
+}
+
+// ListStaleUndetectedWorkloads finds workloads that have a detection_coordinator
+// task older than 5 minutes, no workload_detection record, AND at least one
+// running pod. This ensures we only bootstrap workloads that are still alive
+// and can be explored by the LLM agent.
+func (f *WorkloadDetectionFacade) ListStaleUndetectedWorkloads(ctx context.Context, limit int) ([]string, error) {
+	db := f.getDB()
+	var uids []string
+
+	err := db.WithContext(ctx).
+		Table("workload_task_state").
+		Select("DISTINCT workload_task_state.workload_uid").
+		Joins("LEFT JOIN workload_detection ON workload_detection.workload_uid = workload_task_state.workload_uid").
+		Joins("INNER JOIN workload_pod_reference wpr ON wpr.workload_uid = workload_task_state.workload_uid").
+		Joins("INNER JOIN gpu_pods ON gpu_pods.uid = wpr.pod_uid AND gpu_pods.running = true AND gpu_pods.deleted = false").
+		Where("workload_task_state.task_type = 'detection_coordinator'").
+		Where("workload_task_state.created_at < NOW() - INTERVAL '5 minutes'").
+		Where("workload_detection.workload_uid IS NULL").
+		Limit(limit).
+		Pluck("workload_task_state.workload_uid", &uids).Error
+
+	return uids, err
+}
+// build trigger
 

@@ -94,10 +94,11 @@ type FailRequest struct {
 
 // AgentRegistration is the body for POST /ai/agents/register
 type AgentRegistration struct {
-	Name        string   `json:"name"`
-	Version     string   `json:"version,omitempty"`
-	Description string   `json:"description,omitempty"`
-	Endpoint    string   `json:"endpoint,omitempty"`
-	Topics      []string `json:"topics"`
-	Tags        []string `json:"tags,omitempty"`
+	Name            string   `json:"name"`
+	Version         string   `json:"version,omitempty"`
+	Description     string   `json:"description,omitempty"`
+	Endpoint        string   `json:"endpoint,omitempty"`
+	Topics          []string `json:"topics"`
+	Tags            []string `json:"tags,omitempty"`
+	HealthCheckPath string   `json:"health_check_path,omitempty"`
 }
