@@ -438,6 +438,12 @@ watchEffect(() => {
       icon: menuIcons.fault,
       canAccess: hasManagerAccess.value, // Admin only
     },
+    {
+      index: '/workload-manage',
+      name: 'Workloads',
+      icon: menuIcons.training,
+      canAccess: hasManagerAccess.value, // Admin only
+    },
   ]
 
   // Filter out menu items without permission

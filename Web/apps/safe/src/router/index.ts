@@ -328,6 +328,12 @@ const router = createRouter({
           meta: { requiresWorkspaceAdmin: true },
         },
         {
+          path: '/workload-manage',
+          name: 'WorkloadManage',
+          component: () => import('@/pages/WorkloadManage/index.vue'),
+          meta: { requiresWorkspaceAdmin: true },
+        },
+        {
           path: '/primus-claw',
           name: 'PrimusClaw',
           component: () => import('@/pages/PocoChatPage/index.vue'),
