@@ -592,7 +592,8 @@ import { Search, Refresh, CopyDocument, Plus, Loading } from '@element-plus/icon
 import { copyText, formatTimeStr } from '@/utils/index'
 import dayjs from 'dayjs'
 import utc from 'dayjs/plugin/utc'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
+import { useRouteAction, ROUTE_ACTIONS } from '@/composables/useRouteAction'
 import AddDialog from './Components/AddDialog.vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Delete, DocumentCopy, MoreFilled, Close, Edit, Key, VideoPlay } from '@element-plus/icons-vue'
@@ -607,6 +608,7 @@ dayjs.extend(utc)
 
 const tableRef = ref()
 const isDark = useDark()
+const route = useRoute()
 const router = useRouter()
 const store = useWorkspaceStore()
 const userStore = useUserStore()
@@ -1276,6 +1278,10 @@ const onAnyPointerDown = (e: Event) => {
   const inRefBtn = el.closest('.btn-primary-plain') !== null
   if (!inMenu && !inRefBtn) closeMore()
 }
+useRouteAction({
+  [ROUTE_ACTIONS.CREATE]: () => { addVisible.value = true },
+})
+
 onMounted(() => {
   window.addEventListener('scroll', onAnyScroll, { passive: true, capture: true })
   window.addEventListener('wheel', onAnyScroll, { passive: true, capture: true })

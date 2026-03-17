@@ -24,6 +24,7 @@ type Interface interface {
 	PublicKeyInterface
 	SshSessionRecordsInterface
 	NotificationInterface
+	EmailOutboxInterface
 	WorkloadStatisticInterface
 	NodeStatisticInterface
 	UserTokenInterface
@@ -113,6 +114,14 @@ type NotificationInterface interface {
 	SubmitNotification(ctx context.Context, data *model.Notification) error
 	ListUnprocessedNotifications(ctx context.Context) ([]*model.Notification, error)
 	UpdateNotification(ctx context.Context, data *model.Notification) error
+}
+
+type EmailOutboxInterface interface {
+	CreateEmailOutbox(ctx context.Context, outbox *model.EmailOutbox) error
+	ListPendingEmailOutbox(ctx context.Context, limit int) ([]*model.EmailOutbox, error)
+	AckEmailOutbox(ctx context.Context, id int32) error
+	FailEmailOutbox(ctx context.Context, id int32, errMsg string) error
+	GetEmailOutbox(ctx context.Context, id int32) (*model.EmailOutbox, error)
 }
 
 type WorkloadStatisticInterface interface {

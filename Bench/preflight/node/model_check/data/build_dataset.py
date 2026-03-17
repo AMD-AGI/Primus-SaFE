@@ -18,6 +18,11 @@ from torch.utils.data import DataLoader, Dataset
 from tqdm import tqdm
 from transformers import AutoTokenizer
 
+try:
+    from huggingface_hub import snapshot_download
+except ImportError:
+    snapshot_download = None
+
 
 # Cache directory configuration
 # Priority: 
@@ -51,6 +56,26 @@ class CausalLMDataset(Dataset):
 
     def __repr__(self):
         return f"CausalLMDataset(total_tokens={len(self.token_ids)}, num_samples={len(self)})"
+
+
+def _resolve_model_path_to_local(model_path: str, local_files_only: bool = True) -> str:
+    """
+    Resolve model ID (e.g. 'Qwen/Qwen3-8B') to local cache path to avoid HuggingFace API calls.
+    When 8 GPUs load tokenizer in parallel, each triggers model_info() API call -> 429 rate limit.
+    Using local path bypasses the is_base_mistral check that hits the API.
+    """
+    if not model_path or model_path.startswith("/") or os.path.exists(model_path):
+        return model_path
+    if snapshot_download is None:
+        return model_path
+    try:
+        local_path = snapshot_download(
+            repo_id=model_path,
+            local_files_only=local_files_only,
+        )
+        return local_path
+    except Exception:
+        return model_path
 
 
 def get_cache_key(tokenizer_name: str, dataset_name: str, split: str, max_samples: int) -> str:
@@ -199,7 +224,11 @@ def get_dataloaders(
     cache_dir: str = None,
 ):
     """Get train and validation dataloaders with caching support."""
-    tokenizer = AutoTokenizer.from_pretrained(config.model_path, use_fast=True)
+    model_path = getattr(config, 'model_path', None) or getattr(config.model, 'model_path', None)
+    tokenizer_path = _resolve_model_path_to_local(model_path, local_files_only=True)
+    tokenizer = AutoTokenizer.from_pretrained(
+        tokenizer_path, use_fast=True, local_files_only=True
+    )
     tokenizer.pad_token = tokenizer.eos_token
 
     train_ids = load_and_tokenize(
@@ -250,6 +279,7 @@ def build_dataset(
     config,
     use_cache: bool = True,
     cache_dir: str = None,
+    local_files_only: bool = True,
 ):
     """
     Build dataset for training with caching support.
@@ -258,15 +288,22 @@ def build_dataset(
         config: Configuration object with data settings
         use_cache: Whether to use caching (default: True)
         cache_dir: Custom cache directory (default: ./cache/datasets)
+        local_files_only: If True, load tokenizer from cache only (avoids 429 when 8 GPUs load in parallel)
         
     Returns:
         Training dataset
     """
     # Extract model path for tokenizer
     model_path = config.model.model_path if hasattr(config, 'model') else config.model_path
-    
-    # Create tokenizer
-    tokenizer = AutoTokenizer.from_pretrained(model_path, use_fast=True)
+
+    # Resolve model ID to local cache path to avoid 429 when 8 GPUs load tokenizer in parallel.
+    # AutoTokenizer.from_pretrained("Qwen/Qwen3-8B") triggers model_info() API call per process.
+    tokenizer_path = _resolve_model_path_to_local(model_path, local_files_only)
+    use_local = os.path.exists(tokenizer_path) if tokenizer_path else local_files_only
+
+    tokenizer = AutoTokenizer.from_pretrained(
+        tokenizer_path, use_fast=True, local_files_only=use_local
+    )
     tokenizer.pad_token = tokenizer.eos_token
     
     # Get dataset name and other settings
