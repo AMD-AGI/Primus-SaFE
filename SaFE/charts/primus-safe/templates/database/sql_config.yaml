@@ -257,6 +257,24 @@ data:
     alter table notification
         owner to "primus-safe";
 
+    create table if not exists email_outbox
+    (
+        id            serial primary key,
+        source        varchar(32) not null default 'safe',
+        recipients    text[] not null,
+        subject       varchar(500) not null,
+        html_content  text not null,
+        status        varchar(20) not null default 'pending',
+        created_at    timestamptz not null default now(),
+        sent_at       timestamptz,
+        error_message text
+    );
+
+    create index if not exists idx_email_outbox_status on email_outbox(status);
+    create index if not exists idx_email_outbox_created_at on email_outbox(created_at);
+
+    alter table email_outbox owner to "primus-safe";
+
     create table if not exists user_token
     (
         user_id    varchar(64) NOT NULL PRIMARY KEY,

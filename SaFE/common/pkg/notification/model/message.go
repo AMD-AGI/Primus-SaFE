@@ -6,7 +6,8 @@
 package model
 
 const (
-	ChannelEmail = "email"
+	ChannelEmail      = "email"
+	ChannelEmailRelay = "email_relay"
 )
 
 const (
@@ -22,6 +23,15 @@ func (m Message) GetChannels() []string {
 	channels := []string{}
 	if m.Email != nil {
 		channels = append(channels, ChannelEmail)
+	}
+	return channels
+}
+
+// GetRelayChannels returns relay channel names when email relay is active.
+func (m Message) GetRelayChannels() []string {
+	channels := []string{}
+	if m.Email != nil {
+		channels = append(channels, ChannelEmailRelay)
 	}
 	return channels
 }

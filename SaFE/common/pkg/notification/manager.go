@@ -14,6 +14,7 @@ import (
 	dbClient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client/model"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/notification/channel"
+	nModel "github.com/AMD-AIG-AIMA/SAFE/common/pkg/notification/model"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/notification/topic"
 )
 
@@ -122,7 +123,7 @@ func (m *Manager) SubmitMessage(ctx context.Context, data *model.Notification) e
 		return err
 	}
 	for _, msg := range messages {
-		channelNames := msg.GetChannels()
+		channelNames := m.resolveChannels(msg)
 		for _, chName := range channelNames {
 			ch, exists := m.channels[chName]
 			if !exists {
@@ -136,4 +137,11 @@ func (m *Manager) SubmitMessage(ctx context.Context, data *model.Notification) e
 		}
 	}
 	return nil
+}
+
+func (m *Manager) resolveChannels(msg *nModel.Message) []string {
+	if _, hasRelay := m.channels[nModel.ChannelEmailRelay]; hasRelay {
+		return msg.GetRelayChannels()
+	}
+	return msg.GetChannels()
 }

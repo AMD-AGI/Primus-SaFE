@@ -32,11 +32,12 @@ const (
 	CorrelationTypeCrossSource = "cross_source"
 	
 	// Notification channels
-	ChannelWebhook   = "webhook"
-	ChannelEmail     = "email"
-	ChannelDingTalk  = "dingtalk"
-	ChannelWeChat    = "wechat"
-	ChannelSlack     = "slack"
+	ChannelWebhook      = "webhook"
+	ChannelEmail        = "email"
+	ChannelEmailRelay   = "email_relay"
+	ChannelDingTalk     = "dingtalk"
+	ChannelWeChat       = "wechat"
+	ChannelSlack        = "slack"
 	ChannelAlertManager = "alertmanager"
 	
 	// Notification status

@@ -6,6 +6,7 @@ package model
 // Channel types
 const (
 	ChannelTypeEmail        = "email"
+	ChannelTypeEmailRelay   = "email_relay"
 	ChannelTypeWebhook      = "webhook"
 	ChannelTypeDingTalk     = "dingtalk"
 	ChannelTypeWeChat       = "wechat"
@@ -17,6 +18,7 @@ const (
 func ValidChannelTypes() []string {
 	return []string{
 		ChannelTypeEmail,
+		ChannelTypeEmailRelay,
 		ChannelTypeWebhook,
 		ChannelTypeDingTalk,
 		ChannelTypeWeChat,
