@@ -4,60 +4,60 @@
     Manage your Azure APIM Key binding to enable LLM services.
   </p>
 
-  <el-card class="mt-4 safe-card" shadow="never" v-loading="pageLoading">
-    <!-- Bound state -->
-    <template v-if="binding?.has_apim_key">
-      <el-descriptions :column="1" border>
-        <el-descriptions-item label="Status">
-          <el-tag type="success" effect="plain">Bound</el-tag>
-        </el-descriptions-item>
-        <el-descriptions-item label="Email">
-          {{ binding.user_email }}
-        </el-descriptions-item>
-        <el-descriptions-item label="Key Alias">
-          {{ binding.key_alias || '-' }}
-        </el-descriptions-item>
-        <el-descriptions-item label="Created At">
-          {{ formatTimeStr(binding.created_at) }}
-        </el-descriptions-item>
-        <el-descriptions-item label="Updated At">
-          {{ formatTimeStr(binding.updated_at) }}
-        </el-descriptions-item>
-      </el-descriptions>
+  <el-card class="mt-4 safe-card gateway-card" shadow="never" v-loading="pageLoading">
+    <div class="gateway-center">
+      <div class="gateway-content">
+        <!-- Bound state -->
+        <template v-if="binding?.has_apim_key">
+          <div class="status-banner status-bound">
+            <el-icon :size="20"><CircleCheckFilled /></el-icon>
+            <span>APIM Key is bound</span>
+          </div>
 
-      <el-divider />
+          <el-descriptions :column="2" border class="mt-6">
+            <el-descriptions-item label="Email">
+              {{ binding.user_email }}
+            </el-descriptions-item>
+            <el-descriptions-item label="Key Alias">
+              {{ binding.key_alias || '-' }}
+            </el-descriptions-item>
+            <el-descriptions-item label="Created At">
+              {{ formatTimeStr(binding.created_at) }}
+            </el-descriptions-item>
+            <el-descriptions-item label="Updated At">
+              {{ formatTimeStr(binding.updated_at) }}
+            </el-descriptions-item>
+          </el-descriptions>
 
-      <el-text class="block font-500 mb-4" tag="b">Update APIM Key</el-text>
-      <el-form :inline="true" @submit.prevent="handleUpdate">
-        <el-form-item>
-          <el-input
-            v-model="apimKeyInput"
-            placeholder="Enter new APIM Key"
-            style="width: 400px"
-            show-password
-            clearable
-          />
-        </el-form-item>
-        <el-form-item>
-          <el-button
-            type="primary"
-            :loading="submitLoading"
-            :disabled="!apimKeyInput.trim()"
-            @click="handleUpdate"
-          >
-            Update
-          </el-button>
-        </el-form-item>
-      </el-form>
+          <el-divider />
 
-      <el-divider />
+          <el-text class="block font-500 mb-4" tag="b">Update APIM Key</el-text>
+          <div class="key-input-row">
+            <el-input
+              v-model="apimKeyInput"
+              placeholder="Enter new APIM Key"
+              show-password
+              clearable
+              class="key-input"
+            />
+            <el-button
+              type="primary"
+              :loading="submitLoading"
+              :disabled="!apimKeyInput.trim()"
+              @click="handleUpdate"
+            >
+              Update
+            </el-button>
+          </div>
 
-      <el-text class="block font-500 mb-4" tag="b">Usage</el-text>
-      <el-text class="block mb-2 text-sm text-gray-500">
-        Use any SaFE API Key to call the LLM:
-      </el-text>
-      <div class="code-block">
-        <pre><code>from openai import OpenAI
+          <el-divider />
+
+          <el-text class="block font-500 mb-2" tag="b">Usage</el-text>
+          <el-text class="block mb-4 text-sm text-gray-500">
+            Use any SaFE API Key to call the LLM:
+          </el-text>
+          <div class="code-block">
+            <pre><code>from openai import OpenAI
 
 client = OpenAI(
     api_key="ak-&lt;your-safe-key&gt;",
@@ -69,49 +69,50 @@ response = client.chat.completions.create(
     messages=[{"role": "user", "content": "Hello!"}]
 )
 print(response.choices[0].message.content)</code></pre>
+          </div>
+        </template>
+
+        <!-- Unbound / error fallback state -->
+        <template v-else-if="!pageLoading">
+          <div v-if="binding" class="status-banner status-unbound">
+            <el-icon :size="20"><WarningFilled /></el-icon>
+            <span>APIM Key is not bound</span>
+          </div>
+
+          <el-descriptions v-if="binding" :column="1" border class="mt-6">
+            <el-descriptions-item label="Email">
+              {{ binding.user_email }}
+            </el-descriptions-item>
+          </el-descriptions>
+
+          <el-empty v-else description="Unable to load binding status" :image-size="80" />
+
+          <el-divider />
+
+          <el-text class="block font-500 mb-4" tag="b">Bind APIM Key</el-text>
+          <el-text class="block mb-4 text-sm text-gray-500">
+            Please upload your Azure APIM Subscription Key to enable LLM services.
+          </el-text>
+          <div class="key-input-row">
+            <el-input
+              v-model="apimKeyInput"
+              placeholder="Enter your APIM Key"
+              show-password
+              clearable
+              class="key-input"
+            />
+            <el-button
+              type="primary"
+              :loading="submitLoading"
+              :disabled="!apimKeyInput.trim()"
+              @click="handleBind"
+            >
+              Bind
+            </el-button>
+          </div>
+        </template>
       </div>
-    </template>
-
-    <!-- Unbound / error fallback state -->
-    <template v-else-if="!pageLoading">
-      <el-descriptions v-if="binding" :column="1" border>
-        <el-descriptions-item label="Status">
-          <el-tag type="info" effect="plain">Not Bound</el-tag>
-        </el-descriptions-item>
-        <el-descriptions-item label="Email">
-          {{ binding.user_email }}
-        </el-descriptions-item>
-      </el-descriptions>
-      <el-empty v-else description="Unable to load binding status" :image-size="80"/>
-
-      <el-divider />
-
-      <el-text class="block font-500 mb-4" tag="b">Bind APIM Key</el-text>
-      <el-text class="block mb-4 text-sm text-gray-500">
-        Please upload your Azure APIM Subscription Key to enable LLM services.
-      </el-text>
-      <el-form :inline="true" @submit.prevent="handleBind">
-        <el-form-item>
-          <el-input
-            v-model="apimKeyInput"
-            placeholder="Enter your APIM Key"
-            style="width: 400px"
-            show-password
-            clearable
-          />
-        </el-form-item>
-        <el-form-item>
-          <el-button
-            type="primary"
-            :loading="submitLoading"
-            :disabled="!apimKeyInput.trim()"
-            @click="handleBind"
-          >
-            Bind
-          </el-button>
-        </el-form-item>
-      </el-form>
-    </template>
+    </div>
   </el-card>
 </template>
 
@@ -125,6 +126,7 @@ import {
 import type { LLMGatewayBinding } from '@/services'
 import { formatTimeStr } from '@/utils/index'
 import { ElMessage } from 'element-plus'
+import { CircleCheckFilled, WarningFilled } from '@element-plus/icons-vue'
 
 defineOptions({ name: 'LLMGatewayPage' })
 
@@ -156,7 +158,7 @@ const handleBind = async () => {
     ElMessage.success('APIM Key bound successfully')
     apimKeyInput.value = ''
     await fetchBinding()
-  } catch (err: any) {
+  } catch (err: unknown) {
     if (typeof err === 'string' && err.includes('already exists')) {
       ElMessage.warning('Already bound. Please use the Update function.')
     }
@@ -175,7 +177,7 @@ const handleUpdate = async () => {
     ElMessage.success('APIM Key updated successfully')
     apimKeyInput.value = ''
     await fetchBinding()
-  } catch (err: any) {
+  } catch (err: unknown) {
     if (typeof err === 'string' && err.includes('no binding found')) {
       ElMessage.warning('Not bound yet. Please bind first.')
     }
@@ -190,6 +192,50 @@ onMounted(() => {
 </script>
 
 <style scoped>
+.gateway-card {
+  min-height: calc(100vh - 130px);
+}
+.gateway-card :deep(.el-card__body) {
+  height: 100%;
+  display: flex;
+}
+.gateway-center {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px 0;
+}
+.gateway-content {
+  width: 100%;
+  max-width: 720px;
+}
+.status-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 20px;
+  border-radius: 8px;
+  font-size: 15px;
+  font-weight: 500;
+}
+.status-bound {
+  background: var(--el-color-success-light-9);
+  color: var(--el-color-success);
+}
+.status-unbound {
+  background: var(--el-color-warning-light-9);
+  color: var(--el-color-warning-dark-2);
+}
+.key-input-row {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+}
+.key-input {
+  flex: 1;
+  max-width: 480px;
+}
 .code-block {
   background: var(--el-fill-color-light);
   border: 1px solid var(--el-border-color);
