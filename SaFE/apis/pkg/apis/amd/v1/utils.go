@@ -399,7 +399,7 @@ func atol(str string) int64 {
 	if str == "" {
 		return 0
 	}
-	n, err := strconv.ParseInt(str, 10, 0)
+	n, err := strconv.ParseInt(str, 10, 64)
 	if err != nil {
 		return 0
 	}
