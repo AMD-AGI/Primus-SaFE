@@ -38,5 +38,4 @@ func main() {
 	if err := srv.Run(); err != nil {
 		klog.Fatalf("server error: %v", err)
 	}
-
 }
