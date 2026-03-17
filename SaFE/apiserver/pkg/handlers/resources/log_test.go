@@ -7,12 +7,14 @@ package resources
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 
@@ -447,6 +449,29 @@ func TestBuildSearchBody(t *testing.T) {
 				assert.NotContains(t, string(body), commonsearch.StreamField)
 			},
 		},
+		{
+			name: "cicd query",
+			query: &view.ListLogRequest{
+				ListLogInput: view.ListLogInput{
+					Offset:   0,
+					Limit:    100,
+					Order:    dbclient.ASC,
+					Keywords: []string{common.CICDScaleRunnerSetKind, "project1-dev", "primus-lm-cicd-jax-m42vb"},
+				},
+				SinceTime:     baseTime,
+				UntilTime:     baseTime.Add(time.Hour),
+				TermFilters:   map[string]string{"kubernetes.namespace_name": "arc-systems"},
+				PrefixFilters: map[string]string{"kubernetes.pod_name": "gha-runner-scale-set-gha-rs-controller"},
+			},
+			workloadId: "",
+			validate: func(t *testing.T, body []byte) {
+				var req commonsearch.OpenSearchRequest
+				err := json.Unmarshal(body, &req)
+				assert.NoError(t, err)
+				fmt.Println(string(body))
+				assert.True(t, len(req.Query.Bool.Must) >= 4)
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -649,7 +674,7 @@ func TestBuildKeywords(t *testing.T) {
 			wantLen:  3,
 		},
 		{
-			name:     "multi-word keyword uses span_near",
+			name:     "multi-word keyword uses match_phrase with slop",
 			keywords: []string{"connection timeout"},
 			wantLen:  1,
 		},
@@ -745,6 +770,7 @@ func TestBuildOutput(t *testing.T) {
 				ListLogInput: view.ListLogInput{
 					PodNames: tt.podNames,
 				},
+				UseK8sLabel: true,
 			}
 			buildOutput(req, query, tt.workloadId)
 			for _, expected := range tt.expectSource {
@@ -766,44 +792,44 @@ func TestNormalize(t *testing.T) {
 			expected: "error",
 		},
 		{
-			name:     "trim leading comma",
+			name:     "punctuation preserved",
 			input:    ",error",
-			expected: "error",
+			expected: ",error",
 		},
 		{
-			name:     "trim trailing period",
+			name:     "trailing period preserved",
 			input:    "error.",
-			expected: "error",
+			expected: "error.",
 		},
 		{
-			name:     "trim question mark",
+			name:     "question mark preserved",
 			input:    "error?",
-			expected: "error",
+			expected: "error?",
 		},
 		{
-			name:     "trim exclamation mark",
+			name:     "exclamation preserved",
 			input:    "error!",
-			expected: "error",
+			expected: "error!",
 		},
 		{
-			name:     "trim semicolon",
+			name:     "semicolon preserved",
 			input:    "error;",
-			expected: "error",
+			expected: "error;",
 		},
 		{
-			name:     "trim colon",
+			name:     "colon preserved",
 			input:    "error:",
-			expected: "error",
+			expected: "error:",
 		},
 		{
-			name:     "trim slash",
+			name:     "slash preserved",
 			input:    "/error/",
-			expected: "error",
+			expected: "/error/",
 		},
 		{
 			name:     "mixed case and punctuation",
 			input:    ",ERROR!",
-			expected: "error",
+			expected: ",error!",
 		},
 		{
 			name:     "no changes needed",

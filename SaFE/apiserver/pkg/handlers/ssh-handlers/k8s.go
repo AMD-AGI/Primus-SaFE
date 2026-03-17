@@ -160,7 +160,6 @@ func (h *SshHandler) handleSftp(s Session) {
 		klog.Error(err)
 		return
 	}
-
 	req := k8sClients.ClientSet().CoreV1().RESTClient().
 		Post().
 		Resource("pods").
@@ -168,7 +167,7 @@ func (h *SshHandler) handleSftp(s Session) {
 		Namespace(userInfo.Namespace).
 		SubResource("exec").
 		VersionedParams(&corev1.PodExecOptions{
-			Container: commonworkload.GetMainContainer(workload, workload.SpecKind(), userInfo.Pod),
+			Container: commonworkload.GetMainContainerByPod(workload, workload.SpecKind(), userInfo.Pod),
 			Command:   []string{"/usr/lib/openssh/sftp-server"},
 			Stdin:     true,
 			Stdout:    true,

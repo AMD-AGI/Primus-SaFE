@@ -59,15 +59,6 @@ RUN LIBTINFO_PKG="libtinfo5" && \
 ARG WORKSPACE=/opt/primusbench
 
 WORKDIR ${WORKSPACE}
-#install ior
-RUN cd ${WORKSPACE} && git clone https://github.com/hpc/ior.git && cd ior \
-    && git checkout remotes/origin/4.0 \
-    && ./bootstrap && ./configure --prefix="/opt" && make && make install
-
-#install fio from source
-RUN cd ${WORKSPACE} && git clone --depth=1 https://github.com/axboe/fio.git && cd fio \
-    && ./configure --prefix="/opt" && make && make install
-
 
 RUN if [ "${OS_VERSION}" = "24.04" ]; then \
         pip3 install --upgrade pip --break-system-packages --ignore-installed && \
@@ -110,7 +101,7 @@ ENV PRIMUSBENCH_CACHE=/opt/primusbench_cache \
     HF_HUB_DOWNLOAD_TIMEOUT=300 \
     HF_HUB_ETAG_TIMEOUT=60
 
-ENV PATH="/opt/superbench/bin:/usr/local/bin/:/opt/rocm/bin/:${PATH}" \
+ENV PATH="/opt/superbench/bin:/opt/bin:/usr/local/bin/:/opt/rocm/bin/:${PATH}" \
     ANSIBLE_DEPRECATION_WARNINGS=FALSE \
     ANSIBLE_COLLECTIONS_PATH=/usr/share/ansible/collections
 

@@ -208,6 +208,7 @@ type NodeRebootLogResponseItem struct {
 type BatchNodesRequest struct {
 	// List of node IDs to be processed
 	NodeIds []string `json:"nodeIds"`
+	Force   bool     `json:"force,omitempty"`
 }
 
 // RetryNodesRequest represents the request for retrying node operations (single or batch)

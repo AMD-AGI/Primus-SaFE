@@ -15,12 +15,16 @@ if [ -z "${ROCM_VERSION}" ]; then
   echo "Error: ROCM_VERSION environment variable is not set"
   exit 1
 fi
+
 export ROCM_VERSION=${ROCM_VERSION}
 export GPU_ARCHS=${GPU_ARCHS}
 export OS_VERSION=${OS_VERSION}
+export OS_NAME=${OS_NAME}
 echo "ROCM_VERSION: ${ROCM_VERSION}"
 echo "GPU_ARCHS: ${GPU_ARCHS}"
 echo "OS_VERSION: ${OS_VERSION}"
+echo "OS_NAME: ${OS_NAME}"
+
 # Function to run a script and check result
 run_script() {
   local script=$1
@@ -36,6 +40,8 @@ run_script() {
 # Common scripts to run
 COMMON_SCRIPTS=(
     "install_linux_tools.sh"
+    "install_ior.sh"
+    "install_fio.sh"
     "install_ucx.sh"
     "install_open_mpi.sh"
     "install_mpich.sh"

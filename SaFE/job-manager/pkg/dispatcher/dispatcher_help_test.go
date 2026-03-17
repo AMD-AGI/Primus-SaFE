@@ -6,6 +6,7 @@
 package dispatcher
 
 import (
+	"fmt"
 	"strconv"
 	"testing"
 
@@ -68,6 +69,27 @@ func checkResources(t *testing.T, obj *unstructured.Unstructured, workload *v1.W
 	}
 }
 
+func checkRaySubmitterPod(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workload) {
+	val, found, err := jobutils.NestedString(obj.Object, []string{"spec", "entrypoint"})
+	assert.NilError(t, err)
+	assert.Equal(t, found, true)
+	assert.Equal(t, val, Launcher+fmt.Sprintf(" '%s'", workload.GetEnv(common.RayJobEntrypoint)))
+
+	path := []string{"spec", "submitterPodTemplate"}
+	path = append(path, "spec", "containers")
+	containers, found, err := jobutils.NestedSlice(obj.Object, path)
+	assert.NilError(t, err)
+	assert.Equal(t, found, true)
+	assert.Equal(t, len(containers), 1)
+
+	container := containers[0].(map[string]interface{})
+	resources := container["resources"].(map[string]interface{})
+	limits, ok := resources["limits"].(map[string]interface{})
+	assert.Equal(t, ok, true)
+	assert.Equal(t, limits["cpu"].(string), common.RayJobSubmitterCpu)
+	assert.Equal(t, limits["memory"].(string), common.RayJobSubmitterMemory)
+}
+
 func checkPorts(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workload, template *v1.ResourceSpec, id int) {
 	containerPath := append(template.PrePaths, template.TemplatePaths...)
 	containerPath = append(containerPath, "spec", "containers")
@@ -78,18 +100,17 @@ func checkPorts(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workl
 	assert.Equal(t, len(values) == 0, false)
 	mainContainer, err := runtime.DefaultUnstructuredConverter.ToUnstructured(&values[0])
 	assert.NilError(t, err)
-
 	ports, found, err := jobutils.NestedSlice(mainContainer, []string{"ports"})
 	assert.NilError(t, err)
-	assert.Equal(t, len(ports) >= 1, true)
 
-	portName := ""
 	if workload.SpecKind() == common.PytorchJobKind {
-		portName = common.PytorchJobPortName
+		assert.Equal(t, len(ports) >= 1, true)
+		portName := common.PytorchJobPortName
+		findPort(t, ports, portName, int64(workload.Spec.JobPort))
 	}
-	findPort(t, ports, portName, int64(workload.Spec.JobPort))
 
-	if commonworkload.IsRayJob(workload) && id == 0 {
+	if commonworkload.IsRayJob(workload) && id == 1 {
+		assert.Equal(t, len(ports) >= 2, true)
 		findPort(t, ports, "gcs-server", 6379)
 		findPort(t, ports, "dashboard", 8265)
 	}
@@ -126,16 +147,8 @@ func checkEnvs(t *testing.T, obj *unstructured.Unstructured, workload *v1.Worklo
 	}
 	ok := findEnv(envs, "HANG_CHECK_INTERVAL", "")
 	assert.Equal(t, ok, false)
-
-	if workload.SpecKind() != common.JobKind && !commonworkload.IsCICDScalingRunnerSet(workload) {
-		if workload.Spec.Resources[id].RdmaResource != "" {
-			ok = findEnv(envs, "NCCL_SOCKET_IFNAME", "ens51f0")
-			assert.Equal(t, ok, true)
-		} else {
-			ok = findEnv(envs, "NCCL_SOCKET_IFNAME", "eth0")
-			assert.Equal(t, ok, true)
-		}
-	}
+	ok = findEnv(envs, "WORKLOAD_ID", workload.Name)
+	assert.Equal(t, ok, true)
 }
 
 func findEnv(envs []interface{}, name, val string) bool {

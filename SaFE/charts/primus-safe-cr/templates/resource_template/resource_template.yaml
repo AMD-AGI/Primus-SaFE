@@ -368,6 +368,10 @@ spec:
   resourceSpecs:
     - prePaths:
         - spec
+      templatePaths:
+        - submitterPodTemplate
+    - prePaths:
+        - spec
         - rayClusterSpec
         - headGroupSpec
       defaultReplica: 1

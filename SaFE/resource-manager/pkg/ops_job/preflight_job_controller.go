@@ -6,11 +6,16 @@
 package ops_job
 
 import (
+	"bufio"
+	"bytes"
 	"context"
+	"fmt"
+	"regexp"
+	"strings"
 	"sync"
 	"time"
 
-	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
+	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/klog/v2"
@@ -28,6 +33,7 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	commonjob "github.com/AMD-AIG-AIMA/SAFE/common/pkg/ops_job"
+	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/timeutil"
 )
 
@@ -40,8 +46,12 @@ type PreflightJobReconciler struct {
 func SetupPreflightJobController(mgr manager.Manager) error {
 	r := &PreflightJobReconciler{
 		OpsJobBaseReconciler: &OpsJobBaseReconciler{
-			Client: mgr.GetClient(),
+			Client:        mgr.GetClient(),
+			clientManager: commonutils.NewObjectManagerSingleton(),
 		},
+	}
+	if r.clientManager == nil {
+		return fmt.Errorf("failed to new clientManager")
 	}
 	err := ctrlruntime.NewControllerManagedBy(mgr).
 		For(&v1.OpsJob{}, builder.WithPredicates(predicate.Or(
@@ -191,9 +201,10 @@ func (r *PreflightJobReconciler) generatePreflightWorkload(ctx context.Context, 
 			CustomerLabels: map[string]string{
 				v1.K8sHostName: nodeNames,
 			},
-			Workspace: v1.GetWorkspaceId(job),
-			Env:       job.Spec.Env,
-			Hostpath:  job.Spec.Hostpath,
+			Workspace:               v1.GetWorkspaceId(job),
+			Env:                     job.Spec.Env,
+			Hostpath:                job.Spec.Hostpath,
+			TTLSecondsAfterFinished: pointer.Int(120),
 		},
 	}
 
@@ -226,26 +237,74 @@ func (r *PreflightJobReconciler) generatePreflightWorkload(ctx context.Context, 
 	return workload, nil
 }
 
-// getWorkloadCompletionMessage extracts the completion message from a workload.
-func getWorkloadCompletionMessage(workload *v1.Workload) string {
-	// Handle stopped or deleted workloads first
-	if workload.Status.Phase == v1.WorkloadStopped || !workload.GetDeletionTimestamp().IsZero() {
-		return "workload is stopped"
+// PreflightReport holds parsed PrimusBench Node Check Report results.
+type PreflightReport struct {
+	FailedNodes  []string
+	HealthyNodes []string
+}
+
+// nodeLineRegex matches lines like "  hostname (ip)" or "  hostname (ip): details"
+var nodeLineRegex = regexp.MustCompile(`^\s+(\S+)\s+\([^)]+\)`)
+
+// parsePreflightReport parses PrimusBench Node Check Report from log data.
+// Returns nil if the report format is not found.
+func parsePreflightReport(data []byte) *PreflightReport {
+	content := string(data)
+	if !strings.Contains(content, "PrimusBench Node Check Report") {
+		return nil
 	}
 
-	// Extract message from containers for completed workloads
-	if workload.Status.Phase == v1.WorkloadFailed || workload.Status.Phase == v1.WorkloadSucceeded {
-		for _, pod := range workload.Status.Pods {
-			for _, container := range pod.Containers {
-				if container.Name == v1.GetMainContainer(workload) && container.Message != "" {
-					return container.Message
+	report := &PreflightReport{}
+	scanner := bufio.NewScanner(bytes.NewReader(data))
+
+	const (
+		sectionNone = iota
+		sectionFailedNodeCheck
+		sectionFailedNetworkCheck
+		sectionHealthy
+	)
+	section := sectionNone
+
+	for scanner.Scan() {
+		line := scanner.Text()
+		trimmed := strings.TrimSpace(line)
+
+		// Detect section headers
+		if strings.HasPrefix(trimmed, "Failed Nodes (Node Check)") {
+			section = sectionFailedNodeCheck
+			continue
+		}
+		if strings.HasPrefix(trimmed, "Failed Nodes (Network Check)") {
+			section = sectionFailedNetworkCheck
+			continue
+		}
+		if strings.HasPrefix(trimmed, "Healthy Nodes (Passed All Checks)") {
+			section = sectionHealthy
+			continue
+		}
+
+		// Skip separator lines (---) and empty lines
+		if trimmed == "" || strings.HasPrefix(trimmed, "---") || strings.HasPrefix(trimmed, "==") {
+			continue
+		}
+
+		// Skip other section headers (e.g. "Summary:")
+		if strings.HasPrefix(trimmed, "Summary:") || strings.HasPrefix(trimmed, "Generated at:") {
+			section = sectionNone
+			continue
+		}
+
+		// Parse node line: "  hostname (ip)" or "  hostname (ip): ..."
+		if section != sectionNone {
+			if m := nodeLineRegex.FindStringSubmatch(line); len(m) >= 2 {
+				nodeName := m[1]
+				if section == sectionFailedNodeCheck || section == sectionFailedNetworkCheck {
+					report.FailedNodes = append(report.FailedNodes, nodeName)
+				} else if section == sectionHealthy {
+					report.HealthyNodes = append(report.HealthyNodes, nodeName)
 				}
 			}
 		}
 	}
-	if workload.Status.Phase == v1.WorkloadSucceeded {
-		return ""
-	}
-	// Default message for unknown cases
-	return "unknown"
+	return report
 }

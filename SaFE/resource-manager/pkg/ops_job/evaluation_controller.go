@@ -556,8 +556,8 @@ func (r *EvaluationJobReconciler) handleWorkloadEventImpl(ctx context.Context, w
 				return
 			}
 			status = dbclient.EvaluationTaskStatusFailed
-			message := getWorkloadCompletionMessage(workload)
-			if err := r.dbClient.SetEvaluationTaskFailed(ctx, taskId, message); err != nil {
+			message := r.getWorkloadCompletionMessage(ctx, workload)
+			if err = r.dbClient.SetEvaluationTaskFailed(ctx, taskId, message); err != nil {
 				klog.ErrorS(err, "failed to set evaluation task failed", "taskId", taskId)
 			}
 			return
