@@ -101,9 +101,14 @@ func (s *Scanner) syncService(ctx context.Context, svc *corev1.Service) {
 		pathPrefix = "/a2a"
 	}
 
+	agentCardPath := annotations["a2a.primus.io/agent-card-path"]
+	if agentCardPath == "" {
+		agentCardPath = "/.well-known/agent.json"
+	}
+
 	endpoint := fmt.Sprintf("http://%s.%s.svc.cluster.local:%s", svc.Name, svc.Namespace, port)
 
-	agentCard := s.fetchJSON(endpoint + pathPrefix + "/agent.json")
+	agentCard := s.fetchJSON(endpoint + pathPrefix + agentCardPath)
 	health := "unknown"
 	if s.checkHealth(endpoint + pathPrefix + "/health") {
 		health = "healthy"
