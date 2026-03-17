@@ -47,8 +47,9 @@ type ListLogRequest struct {
 	// All fields used for term filtering.
 	TermFilters map[string]string
 	// All fields used for prefix filtering.
-	PrefixFilters  map[string]string
-	IsEventRequest bool
+	PrefixFilters map[string]string
+	UseK8sLabel   bool
+	DisableOutput bool
 }
 
 // For internal use, the request for searching log context

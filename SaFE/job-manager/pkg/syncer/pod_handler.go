@@ -40,6 +40,7 @@ import (
 
 const (
 	ForceDeleteDelaySeconds = 60
+	MaxRayJobWaitTime       = 3600
 	LogTailLines            = 1000
 
 	appComponent     = "app.kubernetes.io/component"
@@ -122,6 +123,10 @@ func (r *SyncerReconciler) updateWorkloadPod(ctx context.Context, obj *unstructu
 		return ctrlruntime.Result{RequeueAfter: time.Second}, nil
 	}
 
+	if ok, err := r.handleRaySubmitterTimeout(ctx, adminWorkload, pod); err != nil || ok {
+		return ctrlruntime.Result{}, err
+	}
+
 	id := -1
 	for i, p := range adminWorkload.Status.Pods {
 		if p.PodId != pod.Name {
@@ -144,11 +149,7 @@ func (r *SyncerReconciler) updateWorkloadPod(ctx context.Context, obj *unstructu
 		}
 	}
 
-	resourceId, existed := v1.GetResourceId(pod)
-	if !existed && commonworkload.IsRayJob(adminWorkload) {
-		// For RayJob, the ray-job-submitter pod is automatically created as the management pod
-		resourceId = -1
-	}
+	resourceId, _ := v1.GetResourceId(pod)
 	groupId := -1
 	if groupIdStr := v1.GetGroupId(pod); groupIdStr != "" {
 		if groupId, err = strconv.Atoi(groupIdStr); err != nil {
@@ -169,10 +170,12 @@ func (r *SyncerReconciler) updateWorkloadPod(ctx context.Context, obj *unstructu
 	if pod.Status.StartTime != nil && !pod.Status.StartTime.IsZero() {
 		workloadPod.StartTime = timeutil.FormatRFC3339(pod.Status.StartTime.Time)
 	}
-	buildPodTerminatedInfo(ctx,
-		clientSets.dataClientFactory.ClientSet(), adminWorkload, pod, &workloadPod)
+	buildPodTerminatedInfo(ctx, clientSets.dataClientFactory.ClientSet(), adminWorkload, pod, &workloadPod)
 	shouldUpdateNodes := false
+
+	var oldPhase corev1.PodPhase
 	if id >= 0 {
+		oldPhase = adminWorkload.Status.Pods[id].Phase
 		if adminWorkload.Status.Pods[id].K8sNodeName != workloadPod.K8sNodeName ||
 			adminWorkload.Status.Pods[id].HostIp != workloadPod.HostIp ||
 			adminWorkload.Status.Pods[id].Rank != workloadPod.Rank ||
@@ -195,7 +198,15 @@ func (r *SyncerReconciler) updateWorkloadPod(ctx context.Context, obj *unstructu
 	if commonworkload.IsCICDScalingRunnerSet(adminWorkload) {
 		updateCICDScalingRunnerSetPhase(adminWorkload, pod)
 	}
-	return ctrlruntime.Result{}, r.Status().Update(ctx, adminWorkload)
+	if err = r.Status().Update(ctx, adminWorkload); err != nil {
+		return ctrlruntime.Result{}, err
+	}
+	if oldPhase != workloadPod.Phase {
+		if commonworkload.IsRayJob(adminWorkload) && resourceId == 0 && v1.IsPodTerminated(&workloadPod) {
+			return ctrlruntime.Result{RequeueAfter: MaxRayJobWaitTime * time.Second}, nil
+		}
+	}
+	return ctrlruntime.Result{}, nil
 }
 
 // updateCICDScalingRunnerSetPhase updates the workload phase for CICD scaling runner sets
@@ -333,6 +344,32 @@ func (r *SyncerReconciler) createStickyNodeFaults(ctx context.Context, adminWork
 	klog.Infof("Create sticky nodes faults for the workload %s.", adminWorkload.Name)
 	return nil
 }
+
+func (r *SyncerReconciler) handleRaySubmitterTimeout(ctx context.Context, adminWorkload *v1.Workload, pod *corev1.Pod) (bool, error) {
+	if !commonworkload.IsRayJob(adminWorkload) {
+		return false, nil
+	}
+	id := -1
+	for i, p := range adminWorkload.Status.Pods {
+		if p.PodId != pod.Name {
+			continue
+		}
+		id = i
+		break
+	}
+	if id < 0 || adminWorkload.Status.Pods[id].ResourceId > 0 || adminWorkload.Status.Pods[id].EndTime == "" {
+		return false, nil
+	}
+	endTime, err := time.Parse(timeutil.TimeRFC3339Short, adminWorkload.Status.Pods[id].EndTime)
+	if err != nil {
+		return false, nil
+	}
+	if time.Since(endTime) < MaxRayJobWaitTime*time.Second {
+		return false, nil
+	}
+	return true, jobutils.SetWorkloadFailed(ctx, r.Client, adminWorkload, "rayjob submitter has timed out")
+}
+
 func generateStickyFault(adminWorkload *v1.Workload,
 	adminNodeId, k8sNodeId string, scheme *runtime.Scheme) (*v1.Fault, error) {
 	if adminNodeId == "" || k8sNodeId == "" {
@@ -401,7 +438,9 @@ func buildPodTerminatedInfo(ctx context.Context,
 		if mainContainerName == "" {
 			mainContainerName = c.Name
 		}
-		if commonworkload.IsOpsJob(adminWorkload) && c.Name == mainContainerName {
+		// The preflight results are handled by job self-parse.
+		if commonworkload.IsOpsJob(adminWorkload) && c.Name == mainContainerName &&
+			v1.GetOpsJobType(adminWorkload) != string(v1.OpsJobPreflightType) {
 			message := getPodLog(ctx, clientSet, pod, mainContainerName)
 			c.Message = message
 		}
@@ -410,6 +449,8 @@ func buildPodTerminatedInfo(ctx context.Context,
 
 	if finishedTime != nil && !finishedTime.IsZero() {
 		workloadPod.EndTime = timeutil.FormatRFC3339(finishedTime.Time)
+	} else {
+		workloadPod.EndTime = timeutil.FormatRFC3339(time.Now())
 	}
 }
 
@@ -506,7 +547,8 @@ func getMainContainerName(adminWorkload *v1.Workload, pod *corev1.Pod) string {
 	mainContainerName := v1.GetMainContainer(pod)
 	if mainContainerName == "" {
 		// TODO: Keep old logic for compatibility; remove it later.
-		mainContainerName = commonworkload.GetMainContainer(adminWorkload, adminWorkload.SpecKind(), pod.Name)
+		resourceId, _ := v1.GetResourceId(pod)
+		mainContainerName = commonworkload.GetMainContainer(adminWorkload, adminWorkload.SpecKind(), resourceId)
 	}
 	return mainContainerName
 }

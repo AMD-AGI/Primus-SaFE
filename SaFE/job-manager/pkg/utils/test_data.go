@@ -915,6 +915,9 @@ var (
 				Kind:    "RayJob",
 			},
 			ResourceSpecs: []v1.ResourceSpec{{
+				PrePaths:      []string{"spec"},
+				TemplatePaths: []string{"submitterPodTemplate"},
+			}, {
 				PrePaths:      []string{"spec", "rayClusterSpec", "headGroupSpec"},
 				TemplatePaths: []string{"template"},
 			}, {
@@ -936,7 +939,8 @@ var (
 				ReasonPaths:  []string{"reason"},
 				Phases: []v1.PhaseExpression{{
 					MatchExpressions: map[string]string{
-						"jobStatus": "SUCCEEDED",
+						"jobStatus":           "SUCCEEDED",
+						"jobDeploymentStatus": "Complete",
 					},
 					Phase: "K8sSucceeded",
 				}, {
@@ -946,9 +950,20 @@ var (
 					Phase: "K8sFailed",
 				}, {
 					MatchExpressions: map[string]string{
-						"jobStatus": "RUNNING",
+						"jobDeploymentStatus": "Failed",
+					},
+					Phase: "K8sFailed",
+				}, {
+					MatchExpressions: map[string]string{
+						"jobStatus":           "RUNNING",
+						"jobDeploymentStatus": "Running",
 					},
 					Phase: "K8sRunning",
+				}, {
+					MatchExpressions: map[string]string{
+						"jobStatus": "STOPPED",
+					},
+					Phase: "AdminStopped",
 				}},
 			},
 			ActiveReplica: v1.ActiveReplica{
@@ -995,6 +1010,56 @@ var (
 			EntryPoints: []string{"sh -c test.sh"},
 			Env: map[string]string{
 				"key": "value",
+			},
+			CustomerLabels: map[string]string{
+				"key1": "val1",
+				"key2": "val2",
+			},
+		},
+	}
+
+	TestRayWorkloadData = &v1.Workload{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "test-workload-abcde",
+			Labels: map[string]string{
+				v1.ClusterIdLabel:   "test-cluster",
+				v1.DisplayNameLabel: "test-workload",
+			},
+			Annotations: map[string]string{
+				v1.UserNameAnnotation:            "test-user",
+				v1.UseWorkspaceStorageAnnotation: v1.TrueStr,
+				"key":                            "val",
+			},
+			CreationTimestamp: metav1.NewTime(time.Now()),
+		},
+		Spec: v1.WorkloadSpec{
+			Workspace: "test-workspace",
+			GroupVersionKind: v1.GroupVersionKind{
+				Version: "v1",
+				Kind:    "RayJob",
+			},
+			Resources: []v1.WorkloadResource{{
+				CPU:              common.RayJobSubmitterCpu,
+				Memory:           common.RayJobSubmitterMemory,
+				EphemeralStorage: common.RayJobSubmitterStorage,
+			}, {
+				Replica:          1,
+				CPU:              "32",
+				GPU:              "4",
+				GPUName:          "amd.com/gpu",
+				Memory:           "256Gi",
+				SharedMemory:     "32Gi",
+				EphemeralStorage: "20Gi",
+				RdmaResource:     "1k",
+			}},
+			Images: []string{"test-image", "test-image"},
+			Secrets: []v1.SecretEntity{{
+				Id:   "test-image",
+				Type: v1.SecretImage,
+			}},
+			Env: map[string]string{
+				"key":                   "value",
+				common.RayJobEntrypoint: "tail -f /dev/null",
 			},
 			CustomerLabels: map[string]string{
 				"key1": "val1",

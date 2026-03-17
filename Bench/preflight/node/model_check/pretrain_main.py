@@ -93,6 +93,7 @@ def load_model_config(config: Config) -> AutoConfig:
     hf_config = AutoConfig.from_pretrained(
         config.model.model_path,
         trust_remote_code=config.trust_remote_code,
+        local_files_only=True,
     )
     
     # Override with our settings

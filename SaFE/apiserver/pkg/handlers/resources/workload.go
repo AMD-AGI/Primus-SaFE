@@ -644,7 +644,7 @@ func (h *Handler) getWorkloadPodLog(c *gin.Context) (interface{}, error) {
 		return nil, err
 	}
 	podName := strings.TrimSpace(c.Param(common.PodId))
-	mainContainerName := commonworkload.GetMainContainer(workload, workload.SpecKind(), podName)
+	mainContainerName := commonworkload.GetMainContainerByPod(workload, workload.SpecKind(), podName)
 	podLogs, err := h.getPodLog(c, k8sClients.ClientSet(),
 		workload.Spec.Workspace, podName, mainContainerName)
 	if err != nil {
@@ -732,6 +732,7 @@ func (h *Handler) getWorkloadForAuth(ctx context.Context, workloadId string) (*v
 		return nil, err
 	}
 	adminWorkload := generateWorkloadForAuth(workloadId, dbutils.ParseNullString(dbWorkload.UserId), dbWorkload.Workspace, dbWorkload.Cluster)
+	json.Unmarshal([]byte(dbWorkload.GVK), &adminWorkload.Spec.GroupVersionKind)
 	adminWorkload.CreationTimestamp = metav1.NewTime(dbutils.ParseNullTime(dbWorkload.CreationTime))
 	endTime := dbutils.ParseNullTime(dbWorkload.EndTime)
 	if !endTime.IsZero() {
@@ -740,6 +741,12 @@ func (h *Handler) getWorkloadForAuth(ctx context.Context, workloadId string) (*v
 	startTime := dbutils.ParseNullTime(dbWorkload.StartTime)
 	if !startTime.IsZero() {
 		adminWorkload.Status.StartTime = &metav1.Time{Time: startTime}
+	}
+	if runnerSetId := dbutils.ParseNullString(dbWorkload.ScaleRunnerSet); runnerSetId != "" {
+		v1.SetAnnotation(adminWorkload, v1.CICDScaleSetIdAnnotation, runnerSetId)
+	}
+	if runnerId := dbutils.ParseNullString(dbWorkload.ScaleRunnerId); runnerId != "" {
+		v1.SetLabel(adminWorkload, v1.CICDScaleRunnerIdLabel, runnerId)
 	}
 	return adminWorkload, nil
 }
@@ -1406,7 +1413,7 @@ func (h *Handler) buildSSHCommand(ctx context.Context, pod *v1.WorkloadPod, user
 	// pattern: {userId}.{podId}.{container}.sh.{workspace}@{host}
 	// e.g. ssh -o ServerAliveInterval=60 7fda556669b09dcec5d779438e7432c5.verl40-fpg88-master-0.pytorch.bash.x-flannel-prod@tw325.primus-safe.amd.com -p 2222
 	return fmt.Sprintf("ssh -o ServerAliveInterval=60 %s.%s.%s.bash.%s@%s -p %d",
-		userId, pod.PodId, commonworkload.GetMainContainer(template, gvk.Kind, pod.PodId),
+		userId, pod.PodId, commonworkload.GetMainContainerByPod(template, gvk.Kind, pod.PodId),
 		workspace, commonconfig.GetSystemHost(), commonconfig.GetSSHServerPort())
 }
 
