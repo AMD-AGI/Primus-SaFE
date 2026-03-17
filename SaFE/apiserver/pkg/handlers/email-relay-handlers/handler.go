@@ -19,7 +19,6 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
 	dbClient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
 	dbModel "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client/model"
-	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/notification/channel"
 )
 
@@ -38,10 +37,6 @@ func NewHandler() (*Handler, error) {
 // Stream handles the SSE long-connection for relaying pending emails.
 // GET /api/v1/email-relay/stream
 func (h *Handler) Stream(c *gin.Context) {
-	if !h.validateInternalToken(c) {
-		return
-	}
-
 	c.Header("Content-Type", "text/event-stream")
 	c.Header("Cache-Control", "no-cache")
 	c.Header("Connection", "keep-alive")
@@ -93,10 +88,6 @@ func (h *Handler) Stream(c *gin.Context) {
 // Ack acknowledges that an outbox entry was successfully sent.
 // POST /api/v1/email-relay/:id/ack
 func (h *Handler) Ack(c *gin.Context) {
-	if !h.validateInternalToken(c) {
-		return
-	}
-
 	idStr := c.Param("id")
 	id, err := strconv.ParseInt(idStr, 10, 32)
 	if err != nil {
@@ -117,10 +108,6 @@ func (h *Handler) Ack(c *gin.Context) {
 // Fail marks an outbox entry as failed.
 // POST /api/v1/email-relay/:id/fail
 func (h *Handler) Fail(c *gin.Context) {
-	if !h.validateInternalToken(c) {
-		return
-	}
-
 	idStr := c.Param("id")
 	id, err := strconv.ParseInt(idStr, 10, 32)
 	if err != nil {
@@ -156,10 +143,6 @@ type SubmitRequest struct {
 // Submit allows external services (e.g., Lens) to push emails into the outbox.
 // POST /api/v1/email-relay/submit
 func (h *Handler) Submit(c *gin.Context) {
-	if !h.validateInternalToken(c) {
-		return
-	}
-
 	bodyBytes, err := io.ReadAll(c.Request.Body)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "failed to read request body"})
@@ -219,18 +202,29 @@ func (h *Handler) sendSSEEvent(c *gin.Context, flusher interface{ Flush() }, ite
 	}
 }
 
-func (h *Handler) validateInternalToken(c *gin.Context) bool {
-	internalAuth := authority.InternalAuthInstance()
-	if internalAuth == nil {
-		c.JSON(http.StatusInternalServerError, commonerrors.NewInternalError("internal auth not initialized"))
-		c.Abort()
-		return false
+// AuthorizeRelay returns a middleware that accepts either:
+//   - X-Internal-Token header (service-to-service)
+//   - Authorization: Bearer <api-key> (SaFE API key)
+//   - SaFE user session token (Cookie)
+func (h *Handler) AuthorizeRelay() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		// Try internal token first (service-to-service, e.g. Lens -> SaFE)
+		internalToken := c.GetHeader(authority.InternalAuthTokenHeader)
+		if internalToken != "" {
+			internalAuth := authority.InternalAuthInstance()
+			if internalAuth != nil && internalAuth.Validate(internalToken) {
+				c.Next()
+				return
+			}
+		}
+
+		// Fall back to standard SaFE auth (API key or session token)
+		err := authority.ParseToken(c)
+		if err != nil {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "authentication required: provide X-Internal-Token or Authorization: Bearer <api-key>"})
+			c.Abort()
+			return
+		}
+		c.Next()
 	}
-	token := c.GetHeader(authority.InternalAuthTokenHeader)
-	if !internalAuth.Validate(token) {
-		c.JSON(http.StatusForbidden, gin.H{"error": "invalid internal token"})
-		c.Abort()
-		return false
-	}
-	return true
 }
