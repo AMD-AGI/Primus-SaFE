@@ -78,6 +78,40 @@ type DeleteKeyRequest struct {
 	Keys []string `json:"keys"` // List of token hashes to delete
 }
 
+// ── Usage types ───────────────────────────────────────────────────────────
+
+// DailyActivityResponse is the response from GET /user/daily/activity
+type DailyActivityResponse struct {
+	Results  []DailyResult  `json:"results"`
+	Metadata ActivityTotals `json:"metadata"`
+}
+
+type DailyResult struct {
+	Date      string           `json:"date"`
+	Metrics   DailyMetrics     `json:"metrics"`
+	Breakdown *DailyBreakdown  `json:"breakdown,omitempty"`
+}
+
+type DailyMetrics struct {
+	Spend            float64 `json:"spend"`
+	PromptTokens     int64   `json:"prompt_tokens"`
+	CompletionTokens int64   `json:"completion_tokens"`
+	TotalTokens      int64   `json:"total_tokens"`
+	APIRequests      int64   `json:"api_requests"`
+}
+
+type DailyBreakdown struct {
+	Models    map[string]DailyMetrics `json:"models,omitempty"`
+	Providers map[string]DailyMetrics `json:"providers,omitempty"`
+}
+
+type ActivityTotals struct {
+	TotalSpend            float64 `json:"total_spend"`
+	TotalPromptTokens     int64   `json:"total_prompt_tokens"`
+	TotalCompletionTokens int64   `json:"total_completion_tokens"`
+	TotalAPIRequests      int64   `json:"total_api_requests"`
+}
+
 // ── API Methods ───────────────────────────────────────────────────────────
 
 // CreateUser creates a LiteLLM User (idempotent — returns existing user if already exists).
@@ -250,4 +284,39 @@ func (c *LiteLLMClient) DeleteKey(ctx context.Context, tokenHash string) error {
 
 	klog.Infof("LiteLLM: deleted key token_hash=%s", tokenHash[:16]+"...")
 	return nil
+}
+
+// GetUserDailyActivity queries LiteLLM for a user's daily usage breakdown.
+func (c *LiteLLMClient) GetUserDailyActivity(ctx context.Context, userID, startDate, endDate string) (*DailyActivityResponse, error) {
+	reqURL := fmt.Sprintf("%s/user/daily/activity?user_id=%s&start_date=%s&end_date=%s",
+		c.endpoint, userID, startDate, endDate)
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+	if c.adminKey != "" {
+		req.Header.Set("Authorization", "Bearer "+c.adminKey)
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to call LiteLLM: %w", err)
+	}
+	defer resp.Body.Close()
+
+	respBody, _ := io.ReadAll(resp.Body)
+
+	if resp.StatusCode != http.StatusOK {
+		klog.ErrorS(nil, "LiteLLM get user daily activity failed",
+			"status", resp.StatusCode, "body", string(respBody))
+		return nil, fmt.Errorf("LiteLLM returned HTTP %d: %s", resp.StatusCode, string(respBody))
+	}
+
+	var result DailyActivityResponse
+	if err := json.Unmarshal(respBody, &result); err != nil {
+		return nil, fmt.Errorf("failed to decode LiteLLM response: %w", err)
+	}
+
+	return &result, nil
 }

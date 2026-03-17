@@ -83,6 +83,7 @@ func InitRoutes(engine *gin.Engine, handler *Handler) {
 		mgmt.PUT("/binding", handler.UpdateBinding)
 		mgmt.DELETE("/binding", handler.DeleteBinding)
 		mgmt.GET("/binding", handler.GetBinding)
+		mgmt.GET("/usage", handler.GetUsage)
 	}
 
 	// LLM reverse proxy: /llm-gateway/v1/* -> LiteLLM
@@ -305,6 +306,104 @@ func (h *Handler) GetBinding(c *gin.Context) {
 		HasAPIMKey: true,
 		CreatedAt:  existing.CreatedAt.Format("2006-01-02T15:04:05Z"),
 		UpdatedAt:  existing.UpdatedAt.Format("2006-01-02T15:04:05Z"),
+	})
+}
+
+// ── Usage types ───────────────────────────────────────────────────────────
+
+type UsageResponse struct {
+	UserEmail             string            `json:"user_email"`
+	TotalSpend            float64           `json:"total_spend"`
+	TotalPromptTokens     int64             `json:"total_prompt_tokens"`
+	TotalCompletionTokens int64             `json:"total_completion_tokens"`
+	TotalTokens           int64             `json:"total_tokens"`
+	TotalAPIRequests      int64             `json:"total_api_requests"`
+	Daily                 []UsageDailyEntry `json:"daily"`
+}
+
+type UsageDailyEntry struct {
+	Date             string                    `json:"date"`
+	Spend            float64                   `json:"spend"`
+	PromptTokens     int64                     `json:"prompt_tokens"`
+	CompletionTokens int64                     `json:"completion_tokens"`
+	TotalTokens      int64                     `json:"total_tokens"`
+	APIRequests      int64                     `json:"api_requests"`
+	Models           map[string]UsageModelData `json:"models,omitempty"`
+}
+
+type UsageModelData struct {
+	Spend            float64 `json:"spend"`
+	PromptTokens     int64   `json:"prompt_tokens"`
+	CompletionTokens int64   `json:"completion_tokens"`
+	APIRequests      int64   `json:"api_requests"`
+}
+
+// GetUsage handles GET /api/v1/llm-gateway/usage?start_date=...&end_date=...
+func (h *Handler) GetUsage(c *gin.Context) {
+	email := h.getUserEmail(c)
+	if email == "" {
+		apiutils.AbortWithApiError(c, commonerrors.NewBadRequest("user email not found"))
+		return
+	}
+
+	startDate := c.Query("start_date")
+	endDate := c.Query("end_date")
+	if startDate == "" || endDate == "" {
+		apiutils.AbortWithApiError(c, commonerrors.NewBadRequest("start_date and end_date are required (YYYY-MM-DD)"))
+		return
+	}
+
+	existing, err := h.dbClient.GetLLMBindingByEmail(c.Request.Context(), email)
+	if err != nil {
+		apiutils.AbortWithApiError(c, commonerrors.NewInternalError("failed to query binding: "+err.Error()))
+		return
+	}
+	if existing == nil {
+		apiutils.AbortWithApiError(c, commonerrors.NewNotFoundWithMessage("no binding found for "+email))
+		return
+	}
+
+	activity, err := h.litellmClient.GetUserDailyActivity(c.Request.Context(), email, startDate, endDate)
+	if err != nil {
+		klog.ErrorS(err, "failed to query LiteLLM usage", "email", email)
+		c.JSON(http.StatusBadGateway, gin.H{"errorMessage": "failed to query usage from LiteLLM: " + err.Error()})
+		return
+	}
+
+	totalTokens := activity.Metadata.TotalPromptTokens + activity.Metadata.TotalCompletionTokens
+
+	daily := make([]UsageDailyEntry, 0, len(activity.Results))
+	for _, r := range activity.Results {
+		entry := UsageDailyEntry{
+			Date:             r.Date,
+			Spend:            r.Metrics.Spend,
+			PromptTokens:     r.Metrics.PromptTokens,
+			CompletionTokens: r.Metrics.CompletionTokens,
+			TotalTokens:      r.Metrics.TotalTokens,
+			APIRequests:      r.Metrics.APIRequests,
+		}
+		if r.Breakdown != nil && len(r.Breakdown.Models) > 0 {
+			entry.Models = make(map[string]UsageModelData, len(r.Breakdown.Models))
+			for model, m := range r.Breakdown.Models {
+				entry.Models[model] = UsageModelData{
+					Spend:            m.Spend,
+					PromptTokens:     m.PromptTokens,
+					CompletionTokens: m.CompletionTokens,
+					APIRequests:      m.APIRequests,
+				}
+			}
+		}
+		daily = append(daily, entry)
+	}
+
+	c.JSON(http.StatusOK, UsageResponse{
+		UserEmail:             email,
+		TotalSpend:            activity.Metadata.TotalSpend,
+		TotalPromptTokens:     activity.Metadata.TotalPromptTokens,
+		TotalCompletionTokens: activity.Metadata.TotalCompletionTokens,
+		TotalTokens:           totalTokens,
+		TotalAPIRequests:      activity.Metadata.TotalAPIRequests,
+		Daily:                 daily,
 	})
 }
 
