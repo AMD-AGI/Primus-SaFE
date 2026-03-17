@@ -147,9 +147,7 @@ const (
 	tracingOtlpEndpoint  = tracingPrefix + "otlp_endpoint"
 
 	// llm_gateway
-	llmGatewayPrefix   = "llm_gateway."
-	llmGatewayEnable   = llmGatewayPrefix + "enabled"
-	llmGatewayEndpoint = llmGatewayPrefix + "litellm_endpoint"
-	llmGatewayAdminKey = llmGatewayPrefix + "litellm_admin_key"
-	llmGatewayTeamID   = llmGatewayPrefix + "litellm_team_id"
+	llmGatewayPrefix     = "llm_gateway."
+	llmGatewayEnable     = llmGatewayPrefix + "enabled"
+	llmGatewaySecretPath = llmGatewayPrefix + "secret_path"
 )

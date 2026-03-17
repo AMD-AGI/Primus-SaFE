@@ -175,7 +175,15 @@ proxy:
   #     target: http://qa-agent-service:8080
   #     enabled: true
 llm_gateway:
-  # LLM Gateway: enables SaFE API Key -> LiteLLM Virtual Key binding
+  # LLM Gateway: enables SaFE API Key -> LiteLLM Virtual Key binding and LLM proxy.
   # When enabled, users can upload APIM Keys on SaFE platform and use
   # their SaFE API Keys (ak-xxx) to call LLM via LiteLLM.
   enabled: true
+  # Path where the llm-gateway secret is mounted (contains litellm_admin_key, litellm_endpoint, litellm_team_id)
+  secret_path: "/etc/secrets/llm-gateway"
+  # LiteLLM Proxy endpoint (stored in K8s Secret, not in config)
+  litellm_endpoint: ""
+  # LiteLLM Master Key (stored in K8s Secret, not in config)
+  litellm_admin_key: ""
+  # Global LiteLLM Team ID (stored in K8s Secret, not in config)
+  litellm_team_id: ""

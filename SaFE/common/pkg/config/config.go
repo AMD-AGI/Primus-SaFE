@@ -496,18 +496,17 @@ func IsLLMGatewayEnable() bool {
 	return getBool(llmGatewayEnable, false)
 }
 
-// GetLLMGatewayEndpoint returns the LiteLLM Proxy endpoint URL.
+// GetLLMGatewayEndpoint returns the LiteLLM Proxy endpoint URL (from secret file).
 func GetLLMGatewayEndpoint() string {
-	return getString(llmGatewayEndpoint, "")
+	return getFromFile(llmGatewaySecretPath, "litellm_endpoint")
 }
 
-// GetLLMGatewayAdminKey returns the LiteLLM Master Key for admin API access.
-// Returns empty string if not configured (LiteLLM runs without master key).
+// GetLLMGatewayAdminKey returns the LiteLLM Master Key for admin API access (from secret file).
 func GetLLMGatewayAdminKey() string {
-	return getString(llmGatewayAdminKey, "")
+	return getFromFile(llmGatewaySecretPath, "litellm_admin_key")
 }
 
-// GetLLMGatewayTeamID returns the global LiteLLM Team ID.
+// GetLLMGatewayTeamID returns the global LiteLLM Team ID (from secret file).
 func GetLLMGatewayTeamID() string {
-	return getString(llmGatewayTeamID, "")
+	return getFromFile(llmGatewaySecretPath, "litellm_team_id")
 }
