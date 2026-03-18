@@ -122,6 +122,14 @@
           <MenuItem v-for="item in aiAgentMenuItems" :key="item.index" :item="item" />
         </el-sub-menu>
 
+        <!-- Agent Infra Menu -->
+        <el-sub-menu index="agent-infra" v-if="agentInfraMenuItems.length">
+          <template #title>
+            <span style="color: var(--safe-primary)">Agent Infra</span>
+          </template>
+          <MenuItem v-for="item in agentInfraMenuItems" :key="item.index" :item="item" />
+        </el-sub-menu>
+
         <!-- System Menu -->
         <el-sub-menu index="1" v-if="systemMenuItems.length">
           <template #title>
@@ -321,12 +329,6 @@ watchEffect(() => {
       canAccess: true, // Open to all users
     },
     {
-      index: '/tools',
-      name: 'Tools',
-      icon: menuIcons.tools,
-      canAccess: true, // Open to all users
-    },
-    {
       index: '/qabase',
       name: 'QA Base',
       icon: menuIcons.qabase,
@@ -337,6 +339,23 @@ watchEffect(() => {
       name: 'Feedback',
       icon: menuIcons.usermanage,
       canAccess: hasManagerAccess.value, // Admin only
+    },
+  ]
+
+  // Filter out menu items without permission
+  aiAgentMenuItems.value = allAiAgentItems.filter((item) => item.canAccess !== false)
+})
+
+// Agent Infra submenu config - dynamic
+const agentInfraMenuItems = shallowRef<MenuItem[]>([])
+
+watchEffect(() => {
+  const allAgentInfraItems = [
+    {
+      index: '/tools',
+      name: 'Tools',
+      icon: menuIcons.tools,
+      canAccess: true, // Open to all users
     },
     {
       index: '/sandbox',
@@ -352,8 +371,7 @@ watchEffect(() => {
     },
   ]
 
-  // Filter out menu items without permission
-  aiAgentMenuItems.value = allAiAgentItems.filter((item) => item.canAccess !== false)
+  agentInfraMenuItems.value = allAgentInfraItems.filter((item) => item.canAccess !== false)
 })
 
 // System submenu config - dynamic (partially open to regular users)
