@@ -141,7 +141,7 @@ log_info "Log directory: $LOG_DIR"
 # Check and install dependencies
 if ! python3 -c "import datasets" 2>/dev/null; then
     log_info "Installing required packages (this may take a few minutes)..."
-    pip3 install -r "$SCRIPT_DIR/requirements.txt" || {
+    pip3 install -r "$SCRIPT_DIR/requirements.txt" --break-system-packages || {
         log_error "Failed to install dependencies"
         exit 1
     }

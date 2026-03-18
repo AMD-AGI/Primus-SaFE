@@ -110,6 +110,8 @@ const (
 	GroupIdAnnotation                 = WorkloadPrefix + "group.id"
 	RootWorkloadIdLabel               = WorkloadPrefix + "root.id"
 	K8sObjectIdLabel                  = PrimusSafePrefix + "k8s.object.id"
+	UseWorkspaceStorageAnnotation     = WorkloadPrefix + "use.workspace.storage"
+	ForceHostNetworkAnnotation        = WorkloadPrefix + "force.host.network"
 
 	// user
 	UserPrefix              = PrimusSafePrefix + "user."

@@ -272,8 +272,8 @@ def build_env_vars() -> Dict[str, str]:
             "NET_OPTIONAL_RECV_COMPLETION": "1",
             "NCCL_IB_USE_INLINE": "1",
             "RCCL_GDR_FLUSH_GPU_MEM_NO_RELAXED_ORDERING": "0",
-            "NCCL_IB_TC": "104",
-            "NCCL_IB_FIFO_TC": "192",
+            "NCCL_IB_TC": os.environ.get("NCCL_IB_TC", "104"),
+            "NCCL_IB_FIFO_TC": os.environ.get("NCCL_IB_FIFO_TC", "192"),
             "NCCL_IGNORE_CPU_AFFINITY": "1",
             "NCCL_IB_QPS_PER_CONNECTION": "1",
             "UCX_NET_DEVICES": RCCL_SOCKET_IFNAME
@@ -560,6 +560,8 @@ def main():
     log(f"🔍 Starting diagnosis on {len(nodes)} nodes: {nodes}, test={test_name}")
     if ENABLE_AINIC:
         log("📌 AINIC mode enabled: using ANP libraries")
+        log(f"📌 NCCL_IB_TC={os.environ.get('NCCL_IB_TC', '(unset, default=104)')}, "
+            f"NCCL_IB_FIFO_TC={os.environ.get('NCCL_IB_FIFO_TC', '(unset, default=192)')}")
     else:
         log("📌 Standard mode: using default RCCL configuration")
     log(f"📊 Test parameters: MAX_BYTES={MAX_BYTES} (adaptive for {len(nodes)} nodes), Interface={RCCL_SOCKET_IFNAME}")

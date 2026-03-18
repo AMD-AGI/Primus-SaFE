@@ -25,3 +25,4 @@ spec:
     - sysctl-max-map-count
     - sysctl-ulimit
     - sysctl-inotify
+    - set-gpu-passthrough

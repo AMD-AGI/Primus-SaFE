@@ -5,7 +5,6 @@ package action_task_executor
 
 import (
 	"context"
-	"os"
 
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/clientsets"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
@@ -18,18 +17,12 @@ type ActionTaskExecutorJob struct {
 }
 
 // NewActionTaskExecutorJob creates a new ActionTaskExecutorJob
-// It automatically detects the current cluster name from environment
 func NewActionTaskExecutorJob() *ActionTaskExecutorJob {
-	// Get cluster name from environment or ClusterManager
-	clusterName := getClusterName()
+	executor := NewActionTaskExecutor()
 
-	executor := NewActionTaskExecutor(clusterName)
-
-	// Register default handlers
 	RegisterDefaultHandlers(executor)
 
-	log.Infof("Created ActionTaskExecutorJob for cluster: %s (poll interval: %v)",
-		clusterName, executor.pollInterval)
+	log.Infof("Created ActionTaskExecutorJob (poll interval: %v)", executor.pollInterval)
 
 	return &ActionTaskExecutorJob{
 		executor: executor,
@@ -49,32 +42,4 @@ func (j *ActionTaskExecutorJob) Run(
 	storageClient *clientsets.StorageClientSet,
 ) (*common.ExecutionStats, error) {
 	return j.executor.Run(ctx, k8sClient, storageClient)
-}
-
-// getClusterName returns the current cluster name
-func getClusterName() string {
-	// First try CLUSTER_NAME environment variable
-	if name := os.Getenv("CLUSTER_NAME"); name != "" {
-		return name
-	}
-
-	// Then try DEFAULT_CLUSTER_NAME (used by primus-lens-jobs deployment)
-	if name := os.Getenv("DEFAULT_CLUSTER_NAME"); name != "" {
-		return name
-	}
-
-	// Try to get from ClusterManager
-	cm := clientsets.GetClusterManager()
-	if cm != nil {
-		if name := cm.GetCurrentClusterName(); name != "" && name != "default" {
-			return name
-		}
-		// Also try default cluster name from ClusterManager
-		if name := cm.GetDefaultClusterName(); name != "" {
-			return name
-		}
-	}
-
-	// Default fallback
-	return "default"
 }

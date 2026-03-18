@@ -21,15 +21,15 @@ install_if_not_exists() {
     echo "Installing missing packages:$missing_packages"
 
     # Detect OS type and use appropriate package manager
-    if command -v apt >/dev/null 2>&1; then
+    if command -v apt-get >/dev/null 2>&1; then
       # Ubuntu/Debian system
-      apt update >/dev/null
-      apt-get install -y $missing_packages >/dev/null
+      apt-get update >/dev/null 2>&1
+      apt-get install -y $missing_packages >/dev/null 2>&1
     elif command -v yum >/dev/null 2>&1; then
       # CentOS/RHEL system
-      yum install -y $missing_packages >/dev/null
+      yum install -y $missing_packages >/dev/null 2>&1
     else
-      echo "Unsupported package manager. Neither apt nor yum found."
+      echo "Unsupported package manager. Neither apt-get nor yum found."
       exit 1
     fi
   fi

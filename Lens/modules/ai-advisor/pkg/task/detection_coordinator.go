@@ -24,11 +24,15 @@ const (
 	// Default configuration values
 	DefaultInitialDelay     = 30 * time.Second
 	DefaultRetryInterval    = 30 * time.Second
-	DefaultMaxRetryInterval = 60 * time.Second
+	DefaultMaxRetryInterval = 10 * time.Minute
 	DefaultConfirmThreshold = 0.70 // Lowered from 0.85 to allow single-source confirmation
 	DefaultMinPodAge        = 30 * time.Second
 	DefaultMaxAttemptCount  = 5
 	DefaultSubTaskTimeout   = 60 * time.Second
+
+	// DefaultMaxCoordinatorAttempts is the max number of analysis attempts before
+	// the coordinator gives up and marks the task as completed with best-effort result.
+	DefaultMaxCoordinatorAttempts = 100
 )
 
 // CollectionPlan represents a plan to collect evidence from a specific source
@@ -213,17 +217,16 @@ func (c *DetectionCoordinator) handleWaitingState(
 		return constant.CoordinatorStateCompleted, nil
 	}
 
-	// Check if we have any evidence collected - if so, move to ANALYZING immediately
-	// This bypasses the schedule check since we already have data to analyze
-	if c.hasAnyEvidenceCollected(ctx, workloadUID) {
-		log.Infof("Evidence exists for workload %s, moving to ANALYZING", workloadUID)
-		return constant.CoordinatorStateAnalyzing, nil
-	}
-
-	// Check if we should schedule now
+	// Respect the backoff schedule - do not bypass shouldScheduleNow
 	if !c.shouldScheduleNow(task) {
 		log.Debugf("Not yet time to schedule for workload %s", workloadUID)
 		return constant.CoordinatorStateWaiting, nil
+	}
+
+	// If we already have evidence collected, skip probing and go directly to ANALYZING
+	if c.hasAnyEvidenceCollected(ctx, workloadUID) {
+		log.Infof("Evidence exists for workload %s, moving to ANALYZING", workloadUID)
+		return constant.CoordinatorStateAnalyzing, nil
 	}
 
 	// Generate collection plans
@@ -343,6 +346,25 @@ func (c *DetectionCoordinator) handleAnalyzingState(
 	// Increment attempt count
 	attemptCount := c.GetExtInt(task, "attempt_count") + 1
 	updates["attempt_count"] = attemptCount
+
+	// Check if max coordinator attempts exceeded - give up with best-effort result
+	if attemptCount >= DefaultMaxCoordinatorAttempts {
+		log.Warnf("Max coordinator attempts (%d) reached for workload %s, completing with best-effort result (framework=%s, confidence=%.2f)",
+			DefaultMaxCoordinatorAttempts, workloadUID, result.Framework, result.Confidence)
+		updates["terminated_reason"] = "max_attempts_exceeded"
+		updates["best_effort_framework"] = result.Framework
+		updates["best_effort_confidence"] = result.Confidence
+
+		// If we have any framework detected at all, save it as confirmed with low confidence note
+		if result.Framework != "" {
+			updates["confirmed_framework"] = result.Framework
+			updates["confirmed_confidence"] = result.Confidence
+			updates["confirmed_at"] = time.Now().Format(time.RFC3339)
+			return constant.CoordinatorStateConfirmed, nil
+		}
+
+		return constant.CoordinatorStateCompleted, nil
+	}
 
 	// Update next schedule time with backoff
 	c.updateNextScheduleWithBackoff(task, updates, attemptCount)
@@ -657,12 +679,14 @@ func (c *DetectionCoordinator) isWorkloadTerminated(ctx context.Context, workloa
 		return true // Assume terminated if can't find
 	}
 
-	// Check status
+	// Check status - include all terminal states including SaFE "Done" and "Deleted"
 	terminatedStatuses := map[string]bool{
 		"Completed": true,
 		"Failed":    true,
 		"Succeeded": true,
 		"Stopped":   true,
+		"Done":      true,
+		"Deleted":   true,
 	}
 
 	// Check if DeletedAt is set (soft delete)
@@ -703,10 +727,18 @@ func (c *DetectionCoordinator) updateNextScheduleWithBackoff(
 	maxInterval := DefaultMaxRetryInterval
 
 	// Calculate interval with backoff: base * 2^(attempt-1), capped at max
-	multiplier := 1 << uint(attemptCount-1) // 2^(attempt-1)
+	// Guard against integer overflow: cap the shift amount to avoid 1<<64 == 0
+	shift := attemptCount - 1
+	if shift < 0 {
+		shift = 0
+	}
+	if shift > 30 {
+		shift = 30 // cap at 2^30 (~1 billion) to prevent overflow
+	}
+	multiplier := int64(1) << uint(shift)
 	interval := time.Duration(multiplier) * baseInterval
 
-	if interval > maxInterval {
+	if interval > maxInterval || interval <= 0 {
 		interval = maxInterval
 	}
 

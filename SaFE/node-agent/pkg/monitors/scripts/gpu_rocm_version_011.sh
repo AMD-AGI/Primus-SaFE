@@ -21,6 +21,6 @@ if [ $? -ne 0 ]; then
 fi
 
 if [ "$expect_version" != "$current_version" ]; then
-  echo "current rocm version $current_version, but the expect value is $expect_version"
+  echo "Error: current rocm version $current_version, but the expect value is $expect_version"
   exit 1
 fi

@@ -227,6 +227,23 @@ func (p *PodProber) ReadContainerFile(ctx context.Context, nodeName string, pid 
 	return resp.Content, nil
 }
 
+// ListContainerDirectory lists files in a container directory via node-exporter
+func (p *PodProber) ListContainerDirectory(ctx context.Context, nodeName string, pid int, path string, recursive bool, pattern string) (*types.ContainerDirectoryListResponse, error) {
+	nodeClient, err := p.GetNodeExporterClient(ctx, nodeName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get node-exporter client: %w", err)
+	}
+
+	req := &types.ContainerDirectoryListRequest{
+		PID:       pid,
+		Path:      path,
+		Recursive: recursive,
+		Pattern:   pattern,
+	}
+
+	return nodeClient.ListContainerDirectory(ctx, req)
+}
+
 // IsPodReady checks if a pod is in ready state
 func (p *PodProber) IsPodReady(ctx context.Context, pod *model.GpuPods) bool {
 	if pod == nil {

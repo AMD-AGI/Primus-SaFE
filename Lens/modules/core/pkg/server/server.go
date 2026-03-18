@@ -27,10 +27,40 @@ func InitServerWithPreInitFunc(ctx context.Context, preInit func(ctx context.Con
 	if err != nil {
 		return err
 	}
-	err = clientsets.InitClientSets(ctx, cfg.MultiCluster, cfg.LoadK8SClient, cfg.LoadStorageClient)
+
+	// Build component declaration based on config
+	decl := clientsets.ComponentDeclaration{
+		RequireK8S:     cfg.LoadK8SClient,
+		RequireStorage: cfg.LoadStorageClient,
+	}
+
+	// Determine component type from config
+	if cfg.IsControlPlane {
+		decl.Type = clientsets.ComponentTypeControlPlane
+		log.Info("Initializing as ControlPlane component")
+	} else {
+		decl.Type = clientsets.ComponentTypeDataPlane
+		log.Info("Initializing as DataPlane component")
+	}
+
+	// Initialize cluster manager with declaration
+	err = clientsets.InitClusterManager(ctx, decl)
 	if err != nil {
 		return err
 	}
+
+	// Initialize control plane client after cluster manager is ready (needs K8S to read secret)
+	if cfg.IsControlPlane {
+		log.Info("Control plane mode enabled, initializing control plane database...")
+		if err := clientsets.InitControlPlaneClient(ctx, cfg); err != nil {
+			return errors.NewError().
+				WithCode(errors.CodeInitializeError).
+				WithMessage("failed to initialize control plane client").
+				WithError(err)
+		}
+		log.Info("Control plane database initialized successfully")
+	}
+
 	if preInit != nil {
 		err := preInit(ctx, cfg)
 		if err != nil {
@@ -52,6 +82,11 @@ func InitServerWithPreInitFunc(ctx context.Context, preInit func(ctx context.Con
 	// Initialize MCP server routes under /mcp path if enabled
 	if cfg.IsMCPEnabled() {
 		initMCPRoutes(ginEngine, cfg)
+	}
+
+	// Initialize diagnostic MCP server routes under /mcp-diag path if enabled
+	if cfg.IsDiagnosticMCPEnabled() {
+		initDiagnosticMCPRoutes(ginEngine, cfg)
 	}
 
 	err = controller.InitControllers(ctx, *cfg)
@@ -142,4 +177,58 @@ func initMCPRoutes(engine *gin.Engine, cfg *config.Config) {
 	log.Infof("MCP Server: Routes registered under %s", basePath)
 	log.Infof("MCP Server: SSE endpoint: %s/sse", basePath)
 	log.Infof("MCP Server: RPC endpoint: %s/rpc (for testing)", basePath)
+}
+
+// initDiagnosticMCPRoutes initializes a dedicated MCP server for workload diagnostic tools
+func initDiagnosticMCPRoutes(engine *gin.Engine, cfg *config.Config) {
+	server := mcpserver.New()
+
+	tools := unified.GetRegistry().GetMCPToolsByGroup("diagnostic")
+	server.RegisterTools(tools)
+	log.Infof("Diagnostic MCP Server: Registered %d tools", len(tools))
+
+	if instructions := cfg.GetDiagnosticMCPInstructions(); instructions != "" {
+		server.SetInstructions(instructions)
+	} else {
+		server.SetInstructions("Workload Diagnostic Tools - GPU workload performance diagnostics via MCP. All tools are scoped by workload_uid.")
+	}
+
+	sseTransport := mcpserver.NewSSETransport(server)
+	streamableTransport := mcpserver.NewStreamableHTTPTransport(server)
+
+	basePath := cfg.GetDiagnosticMCPBasePath()
+	mcpGroup := engine.Group(basePath)
+	{
+		mcpGroup.GET("/sse", gin.WrapH(sseTransport.Handler()))
+		mcpGroup.POST("/message", gin.WrapH(sseTransport.Handler()))
+		mcpGroup.POST("/rpc", gin.WrapH(streamableTransport.Handler()))
+
+		mcpGroup.GET("/health", func(c *gin.Context) {
+			currentTools := unified.GetRegistry().GetMCPToolsByGroup("diagnostic")
+			c.JSON(200, gin.H{
+				"status": "ok",
+				"server": "Lens Diagnostic MCP Server",
+				"tools":  len(currentTools),
+			})
+		})
+
+		mcpGroup.GET("/", func(c *gin.Context) {
+			currentTools := unified.GetRegistry().GetMCPToolsByGroup("diagnostic")
+			toolList := make([]gin.H, 0, len(currentTools))
+			for _, tool := range currentTools {
+				toolList = append(toolList, gin.H{
+					"name":        tool.Name,
+					"description": tool.Description,
+				})
+			}
+			c.JSON(200, gin.H{
+				"server":       "Lens Diagnostic MCP Server",
+				"sse_endpoint": basePath + "/sse",
+				"rpc_endpoint": basePath + "/rpc",
+				"tools":        toolList,
+			})
+		})
+	}
+
+	log.Infof("Diagnostic MCP Server: Routes registered under %s", basePath)
 }

@@ -123,6 +123,7 @@ if [[ "$sso_enable" == "true" ]]; then
   sso_redirect_uri=$(get_input_with_default "Enter SSO redirect uri(empty to disable SSO): " "")
 fi
 
+csi_volume_handle=$(get_input_with_default "Enter csi volume handle? (empty to disable pfs for workspace): " "")
 install_node_agent=$(get_input_with_default "install node-agent ? (y/n): " "n")
 
 echo "✅ Ethernet nic: \"$ethernet_nic\""
@@ -151,6 +152,7 @@ if [[ "$sso_enable" == "true" ]]; then
   echo "✅ SSO Client Secret: \"$sso_client_secret\""
   echo "✅ SSO Redirect URI: \"$sso_redirect_uri\""
 fi
+echo "✅ CSI Volume Handle: \"$csi_volume_handle\""
 
 replicas=1
 cpu=2000m
@@ -259,6 +261,7 @@ fi
 values_yaml="primus-safe/.values.yaml"
 cp "$src_values_yaml" "${values_yaml}"
 
+sed -i "s/csi_volume_handle: \".*\"/csi_volume_handle: \"$csi_volume_handle\"/" "$values_yaml"
 sed -i "s/nccl_socket_ifname: \".*\"/nccl_socket_ifname: \"$ethernet_nic\"/" "$values_yaml"
 sed -i "s/nccl_ib_hca: \".*\"/nccl_ib_hca: \"$rdma_nic\"/" "$values_yaml"
 sed -i "s/replicas: [0-9]*/replicas: $replicas/" "$values_yaml"
@@ -327,7 +330,7 @@ if [ ! -f "$src_values_yaml" ]; then
 fi
 
 install_or_upgrade_helm_chart "primus-safe-cr" "$values_yaml"
-
+cd ..
 
 if [[ "$install_node_agent" == "y" ]]; then
   echo
@@ -335,7 +338,7 @@ if [[ "$install_node_agent" == "y" ]]; then
   echo "🔧 Step 6: install primus-safe data plane"
   echo "========================================="
 
-  cd ../node-agent/charts/
+  cd ./node-agent/charts/
   src_values_yaml="node-agent/values.yaml"
   if [ ! -f "$src_values_yaml" ]; then
     echo "Error: $src_values_yaml does not exist"
@@ -350,6 +353,7 @@ if [[ "$install_node_agent" == "y" ]]; then
 
   install_or_upgrade_helm_chart "node-agent" "$values_yaml"
   rm -f "$values_yaml"
+  cd ../../
 fi
 
 echo
@@ -357,7 +361,7 @@ echo "========================================="
 echo "🔧 Step 7: All completed!"
 echo "========================================="
 
-cd ../../bootstrap
+cd ./bootstrap
 cat > .env <<EOF
 ethernet_nic=$ethernet_nic
 rdma_nic=$rdma_nic
@@ -369,4 +373,11 @@ sso_enable=$sso_enable
 ingress=$ingress
 sub_domain=$sub_domain
 install_node_agent=$install_node_agent
+csi_volume_handle=$csi_volume_handle
+node_agent_gpu_driver=6.12.12
+node_agent_rocm_version=6.4
+node_agent_toggle_net_bnxt_load_204=off
+node_agent_toggle_net_ainic_load_205=off
+node_agent_toggle_net_ainic_devices_208=off
+node_agent_toggle_sys_csi_wekafs_309=off
 EOF

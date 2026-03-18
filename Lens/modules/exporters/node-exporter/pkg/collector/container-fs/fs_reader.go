@@ -101,12 +101,14 @@ type ListRequest struct {
 	Path      string `json:"path" binding:"required"`
 	Recursive bool   `json:"recursive,omitempty"`
 	Pattern   string `json:"pattern,omitempty"` // Glob pattern filter
+	MaxFiles  int    `json:"max_files,omitempty"` // Maximum number of entries to return (0 = default 10000)
 }
 
 // ListResponse represents directory listing response
 type ListResponse struct {
-	Files []*FileInfo `json:"files"`
-	Total int         `json:"total"`
+	Files     []*FileInfo `json:"files"`
+	Total     int         `json:"total"`
+	Truncated bool        `json:"truncated,omitempty"` // True if results were truncated by MaxFiles limit
 }
 
 // ReadFile reads a file from container filesystem
@@ -196,6 +198,22 @@ func (r *FSReader) ReadFile(ctx context.Context, req *ReadRequest) (*ReadRespons
 	return response, nil
 }
 
+// defaultMaxFiles is the default limit for recursive directory listing
+const defaultMaxFiles = 10000
+
+// skipDirNamesForWalk are directory names skipped during recursive walks to avoid
+// scanning huge third-party or data directories.
+var skipDirNamesForWalk = map[string]bool{
+	"__pycache__":   true,
+	"site-packages": true,
+	"dist-packages": true,
+	".git":          true,
+	"node_modules":  true,
+	".tox":          true,
+	".mypy_cache":   true,
+	".pytest_cache": true,
+}
+
 // ListDirectory lists files in a directory
 func (r *FSReader) ListDirectory(ctx context.Context, req *ListRequest) (*ListResponse, error) {
 	// Validate path
@@ -217,7 +235,14 @@ func (r *FSReader) ListDirectory(ctx context.Context, req *ListRequest) (*ListRe
 		return nil, fmt.Errorf("process %d not found or not accessible", pid)
 	}
 
+	// Determine file limit
+	maxFiles := req.MaxFiles
+	if maxFiles <= 0 {
+		maxFiles = defaultMaxFiles
+	}
+
 	var files []*FileInfo
+	truncated := false
 
 	if req.Recursive {
 		// Walk directory tree
@@ -225,6 +250,20 @@ func (r *FSReader) ListDirectory(ctx context.Context, req *ListRequest) (*ListRe
 			if err != nil {
 				log.Warnf("Error accessing path %s: %v", path, err)
 				return nil // Continue walking
+			}
+
+			// Skip well-known large/irrelevant directories
+			if info.IsDir() {
+				dirName := filepath.Base(path)
+				if skipDirNamesForWalk[dirName] && path != containerPath {
+					return filepath.SkipDir
+				}
+			}
+
+			// Check file limit
+			if len(files) >= maxFiles {
+				truncated = true
+				return filepath.SkipAll
 			}
 
 			// Convert absolute path back to container path
@@ -272,6 +311,11 @@ func (r *FSReader) ListDirectory(ctx context.Context, req *ListRequest) (*ListRe
 		}
 
 		for _, entry := range entries {
+			if len(files) >= maxFiles {
+				truncated = true
+				break
+			}
+
 			// Apply pattern filter
 			if req.Pattern != "" {
 				matched, err := filepath.Match(req.Pattern, entry.Name())
@@ -308,12 +352,13 @@ func (r *FSReader) ListDirectory(ctx context.Context, req *ListRequest) (*ListRe
 		}
 	}
 
-	log.Debugf("Listed %d files in container directory: pid=%d, path=%s, recursive=%v",
-		len(files), pid, req.Path, req.Recursive)
+	log.Debugf("Listed %d files in container directory: pid=%d, path=%s, recursive=%v, truncated=%v",
+		len(files), pid, req.Path, req.Recursive, truncated)
 
 	return &ListResponse{
-		Files: files,
-		Total: len(files),
+		Files:     files,
+		Total:     len(files),
+		Truncated: truncated,
 	}, nil
 }
 

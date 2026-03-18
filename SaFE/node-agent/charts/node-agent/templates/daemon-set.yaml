@@ -125,9 +125,6 @@ spec:
             - mountPath: /host/proc
               name: proc
               readOnly: true
-            - mountPath: /var/run/dbus
-              name: dbus
-              readOnly: true
             - mountPath: /run/systemd
               name: systemd
               readOnly: true
@@ -178,10 +175,6 @@ spec:
             type: Directory
           name: proc
         - hostPath:
-            path: /var/run/dbus
-            type: Directory
-          name: dbus
-        - hostPath:
             path: /run/systemd
             type: Directory
           name: systemd
@@ -207,5 +200,5 @@ spec:
           name: device-plugin
   updateStrategy:
     rollingUpdate:
-      maxUnavailable: 20
+      maxUnavailable: 50
     type: RollingUpdate

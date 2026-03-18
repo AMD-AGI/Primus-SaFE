@@ -52,7 +52,8 @@ var (
 		    cron_jobs = :cron_jobs,
 		    service = :service,
 		    workload_uid = :workload_uid,
-		    is_sticky_nodes = :is_sticky_nodes 
+		    is_sticky_nodes = :is_sticky_nodes,
+		    is_privileged = :is_privileged 
 		WHERE workload_id = :workload_id`, TWorkload)
 )
 

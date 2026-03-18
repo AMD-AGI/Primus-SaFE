@@ -21,6 +21,7 @@ spec:
     metadata:
       labels:
         app: {{ include "lens.fullname" . }}-system-tuner
+        primus-lens-app-name: system-tuner
         {{- include "lens.selectorLabels" . | nindent 8 }}
     spec:
       serviceAccountName: {{ include "lens.serviceAccountName" . }}

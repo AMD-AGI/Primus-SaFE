@@ -1,7 +1,7 @@
 #!/bin/bash
 
 #
-# Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
+# Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
 # See LICENSE for license information.
 #
 
@@ -35,9 +35,17 @@ export RANK=$RANK
 export NCCL_SOCKET_IFNAME=${NCCL_SOCKET_IFNAME:-"eth0"}
 export NCCL_IB_HCA=${NCCL_IB_HCA:-""}
 export TEST_LEVEL=${TEST_LEVEL:-"BASIC"}
-export ENABLE_ANP=${ENABLE_ANP:-"false"}
 export GPU_PRODUCT=${GPU_PRODUCT:-"MI300X"}
+export ENABLE_AINIC=${ENABLE_AINIC:-"false"}
 
+echo "================================================"
+echo "${LOG_HEADER} RANK: $RANK"
+echo "${LOG_HEADER} NCCL_SOCKET_IFNAME: $NCCL_SOCKET_IFNAME"
+echo "${LOG_HEADER} NCCL_IB_HCA: $NCCL_IB_HCA"
+echo "${LOG_HEADER} TEST_LEVEL: $TEST_LEVEL"
+echo "${LOG_HEADER} GPU_PRODUCT: $GPU_PRODUCT"
+echo "${LOG_HEADER} ENABLE_AINIC: $ENABLE_AINIC"
+echo "================================================"
 # ============================================================================
 # Helper function to run check scripts
 # ============================================================================
