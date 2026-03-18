@@ -46,6 +46,7 @@ spec:
         prometheus.io/path: "/metrics"
       labels:
         app: {{ include "lens.fullname" . }}-gpu-resource-exporter
+        primus-lens-app-name: gpu-resource-exporter
         {{- include "lens.selectorLabels" . | nindent 8 }}
     spec:
       serviceAccountName: {{ include "lens.serviceAccountName" . }}

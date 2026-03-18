@@ -12,6 +12,7 @@ import (
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/clientsets"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database"
 	dbModel "github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database/model"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/helper/metadata"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/trace"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/modules/jobs/pkg/common"
@@ -272,6 +273,32 @@ func (g *GpuPodJob) checkSinglePodWithK8sPod(ctx context.Context, dbPod *dbModel
 				attribute.String("pod.phase_after", dbPod.Phase),
 			)
 		}
+
+		// Backfill container_image if missing (for rows created before patch069)
+		if dbPod.ContainerImage == "" {
+			if img := extractPrimaryContainerImage(k8sPod); img != "" {
+				dbPod.ContainerImage = img
+				changed = true
+				log.Infof("Pod %s/%s backfilled container_image: %s", dbPod.Namespace, dbPod.Name, img)
+				span.SetAttributes(
+					attribute.Bool("pod.image_backfilled", true),
+					attribute.String("pod.container_image", img),
+				)
+			}
+		}
+
+		// Backfill owner_uid if missing
+		if dbPod.OwnerUID == "" {
+			if ownerUID := extractOwnerUID(k8sPod); ownerUID != "" {
+				dbPod.OwnerUID = ownerUID
+				changed = true
+				log.Infof("Pod %s/%s backfilled owner_uid: %s", dbPod.Namespace, dbPod.Name, ownerUID)
+				span.SetAttributes(
+					attribute.Bool("pod.owner_backfilled", true),
+					attribute.String("pod.owner_uid", ownerUID),
+				)
+			}
+		}
 	}
 
 	if changed {
@@ -317,4 +344,40 @@ func (g *GpuPodJob) checkSinglePodWithK8sPod(ctx context.Context, dbPod *dbModel
 
 	span.SetStatus(codes.Ok, "")
 	return nil
+}
+
+// extractPrimaryContainerImage returns the image of the primary (GPU-using) container.
+// It prefers the container that requests GPU resources; falls back to the first container.
+func extractPrimaryContainerImage(pod *corev1.Pod) string {
+	if pod == nil || len(pod.Spec.Containers) == 0 {
+		return ""
+	}
+
+	gpuResourceName := metadata.GetResourceName(metadata.GpuVendorAMD)
+	for _, c := range pod.Spec.Containers {
+		if q, ok := c.Resources.Limits[corev1.ResourceName(gpuResourceName)]; ok && !q.IsZero() {
+			return c.Image
+		}
+		if q, ok := c.Resources.Requests[corev1.ResourceName(gpuResourceName)]; ok && !q.IsZero() {
+			return c.Image
+		}
+	}
+
+	return pod.Spec.Containers[0].Image
+}
+
+// extractOwnerUID returns the UID of the pod's controller owner.
+func extractOwnerUID(pod *corev1.Pod) string {
+	if pod == nil {
+		return ""
+	}
+	for _, ref := range pod.OwnerReferences {
+		if ref.Controller != nil && *ref.Controller {
+			return string(ref.UID)
+		}
+	}
+	if len(pod.OwnerReferences) > 0 {
+		return string(pod.OwnerReferences[0].UID)
+	}
+	return ""
 }

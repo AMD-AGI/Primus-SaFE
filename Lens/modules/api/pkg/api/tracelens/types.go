@@ -16,6 +16,7 @@ type CreateSessionRequest struct {
 // SessionResponse is the response for session operations
 type SessionResponse struct {
 	SessionID       string     `json:"session_id"`
+	ClusterName     string     `json:"cluster_name"`
 	WorkloadUID     string     `json:"workload_uid"`
 	ProfilerFileID  int32      `json:"profiler_file_id"`
 	Status          string     `json:"status"`

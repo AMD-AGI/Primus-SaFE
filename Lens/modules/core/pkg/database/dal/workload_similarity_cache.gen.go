@@ -46,13 +46,13 @@ type workloadSimilarityCache struct {
 
 	ALL             field.Asterisk
 	ID              field.Int64
-	WorkloadUid1    field.String
-	WorkloadUid2    field.String
-	SimilarityScore field.Float64
-	SignatureHash1  field.String
-	SignatureHash2  field.String
-	CalculatedAt    field.Time
-	ExpiresAt       field.Time
+	WorkloadUid1    field.String  // First workload UID in the comparison pair
+	WorkloadUid2    field.String  // Second workload UID in the comparison pair
+	SimilarityScore field.Float64 // Calculated similarity score (0.000-1.000)
+	SignatureHash1  field.String  // Hash of first workload signature for cache invalidation
+	SignatureHash2  field.String  // Hash of second workload signature for cache invalidation
+	CalculatedAt    field.Time    // Timestamp when the similarity was calculated
+	ExpiresAt       field.Time    // Cache expiration time (managed by application cleanup task)
 
 	fieldMap map[string]field.Expr
 }

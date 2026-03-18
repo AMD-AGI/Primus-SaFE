@@ -6,13 +6,15 @@ package database
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database/model"
+	"gorm.io/gen/field"
 	"gorm.io/gorm"
 )
 
-// WorkflowRunStatus constants
+// WorkflowRunStatus constants (DEPRECATED: use CollectionStatus instead for new code)
 const (
 	// Workload phases (before collection)
 	WorkflowRunStatusWorkloadPending = "workload_pending" // EphemeralRunner is pending
@@ -25,6 +27,66 @@ const (
 	WorkflowRunStatusCompleted  = "completed"  // Collection completed successfully
 	WorkflowRunStatusFailed     = "failed"     // Collection failed
 	WorkflowRunStatusSkipped    = "skipped"    // Skipped (no matching config or files)
+)
+
+// ============================================================================
+// NEW: Separated Status Constants
+// ============================================================================
+
+// WorkflowStatus from GitHub API (workflow execution status)
+const (
+	WorkflowStatusQueued     = "queued"
+	WorkflowStatusInProgress = "in_progress"
+	WorkflowStatusCompleted  = "completed"
+)
+
+// WorkflowConclusion from GitHub API (workflow execution result)
+const (
+	WorkflowConclusionSuccess        = "success"
+	WorkflowConclusionFailure        = "failure"
+	WorkflowConclusionCancelled      = "cancelled"
+	WorkflowConclusionSkipped        = "skipped"
+	WorkflowConclusionTimedOut       = "timed_out"
+	WorkflowConclusionActionRequired = "action_required"
+)
+
+// CollectionStatus for Lens internal processing
+const (
+	CollectionStatusPending    = "pending"    // Waiting for collection
+	CollectionStatusCollecting = "collecting" // Collecting metrics files
+	CollectionStatusExtracting = "extracting" // Extracting metrics from files
+	CollectionStatusCompleted  = "completed"  // Collection completed successfully
+	CollectionStatusFailed     = "failed"     // Collection failed
+	CollectionStatusSkipped    = "skipped"    // Skipped (no config/files)
+)
+
+// WorkflowEvent types from GitHub
+const (
+	WorkflowEventPush             = "push"
+	WorkflowEventPullRequest      = "pull_request"
+	WorkflowEventSchedule         = "schedule"
+	WorkflowEventWorkflowDispatch = "workflow_dispatch"
+)
+
+// Runner types for EphemeralRunner
+const (
+	RunnerTypeLauncher = "launcher"
+	RunnerTypeWorker   = "worker"
+	RunnerTypeUnknown  = "unknown"
+)
+
+// Pod conditions
+const (
+	PodConditionImagePullBackOff  = "ImagePullBackOff"
+	PodConditionCrashLoopBackOff  = "CrashLoopBackOff"
+	PodConditionContainerCreating = "ContainerCreating"
+	PodConditionOOMKilled         = "OOMKilled"
+	PodConditionReady             = "Ready"
+)
+
+// Run status with error state
+const (
+	WorkflowRunStatusError = "error" // Pod has an error condition
 )
 
 // WorkflowRunTriggerSource constants
@@ -91,8 +153,24 @@ type GithubWorkflowRunFacadeInterface interface {
 	// ListByGithubRunID lists runs by GitHub run ID
 	ListByGithubRunID(ctx context.Context, githubRunID int64) ([]*model.GithubWorkflowRuns, error)
 
+	// ListByRunSummaryID lists runs by run summary ID
+	ListByRunSummaryID(ctx context.Context, runSummaryID int64) ([]*model.GithubWorkflowRuns, error)
+
+	// CountByRunSummaryID counts runs by run summary ID
+	CountByRunSummaryID(ctx context.Context, runSummaryID int64) (int64, error)
+
 	// Update updates a run record
 	Update(ctx context.Context, run *model.GithubWorkflowRuns) error
+
+	// UpdateSyncFields updates only GitHub sync-related fields (workflow_status, workflow_conclusion, etc.)
+	// without overwriting collection status fields (status, error_message, etc.)
+	UpdateSyncFields(ctx context.Context, id int64,
+		workflowStatus, workflowConclusion, headSha, headBranch, workflowName string,
+		githubRunNumber int32,
+	) error
+
+	// UpdateFields updates specific fields of a run by map (for targeted updates without overwriting other fields)
+	UpdateFields(ctx context.Context, id int64, fields map[string]interface{}) error
 
 	// UpdateStatus updates the status of a run
 	UpdateStatus(ctx context.Context, id int64, status string, errMsg string) error
@@ -133,6 +211,11 @@ type GithubWorkflowRunFacadeInterface interface {
 	// Returns the number of affected rows
 	ResetStuckCollectingToPending(ctx context.Context, timeout time.Duration) (int64, error)
 
+	// ListStaleRunning lists runs that are in workload_running or workload_pending status
+	// but haven't been updated since the given cutoff time. Used by StaleRunCleaner
+	// to detect runs whose EphemeralRunner may no longer exist in K8s.
+	ListStaleRunning(ctx context.Context, updatedBefore time.Time, limit int) ([]*model.GithubWorkflowRuns, error)
+
 	// WithCluster returns a new facade instance for the specified cluster
 	WithCluster(clusterName string) GithubWorkflowRunFacadeInterface
 }
@@ -144,9 +227,12 @@ type GithubWorkflowRunFilter struct {
 	RunnerSetNamespace string
 	ConfigID           int64
 	Status             string
+	PodCondition       string // Filter by pod condition (e.g. "error" for all error conditions)
 	TriggerSource      string
 	GithubRunID        int64
 	WorkloadUID        string
+	Owner              string
+	Repo               string
 	Since              *time.Time
 	Until              *time.Time
 	Offset             int
@@ -401,12 +487,92 @@ func (f *GithubWorkflowRunFacade) ListByGithubRunID(ctx context.Context, githubR
 		Find()
 }
 
+// ListByRunSummaryID lists runs by run summary ID
+func (f *GithubWorkflowRunFacade) ListByRunSummaryID(ctx context.Context, runSummaryID int64) ([]*model.GithubWorkflowRuns, error) {
+	db := f.getDAL().GithubWorkflowRuns.WithContext(ctx).UnderlyingDB()
+	var runs []*model.GithubWorkflowRuns
+	err := db.Where("run_summary_id = ?", runSummaryID).
+		Order("id ASC").
+		Find(&runs).Error
+	return runs, err
+}
+
+// CountByRunSummaryID counts runs by run summary ID
+func (f *GithubWorkflowRunFacade) CountByRunSummaryID(ctx context.Context, runSummaryID int64) (int64, error) {
+	db := f.getDAL().GithubWorkflowRuns.WithContext(ctx).UnderlyingDB()
+	var count int64
+	err := db.Model(&model.GithubWorkflowRuns{}).
+		Where("run_summary_id = ?", runSummaryID).
+		Count(&count).Error
+	return count, err
+}
+
+// ListStaleRunning lists runs that are in workload_running or workload_pending status
+// but haven't been updated since the given cutoff time.
+func (f *GithubWorkflowRunFacade) ListStaleRunning(ctx context.Context, updatedBefore time.Time, limit int) ([]*model.GithubWorkflowRuns, error) {
+	db := f.getDAL().GithubWorkflowRuns.WithContext(ctx).UnderlyingDB()
+	var runs []*model.GithubWorkflowRuns
+	q := db.Where("status IN (?, ?)", WorkflowRunStatusWorkloadRunning, WorkflowRunStatusWorkloadPending).
+		Where("updated_at < ?", updatedBefore).
+		Order("updated_at ASC")
+	if limit > 0 {
+		q = q.Limit(limit)
+	}
+	err := q.Find(&runs).Error
+	return runs, err
+}
+
 // Update updates a run record
 func (f *GithubWorkflowRunFacade) Update(ctx context.Context, run *model.GithubWorkflowRuns) error {
 	run.UpdatedAt = time.Now()
 	q := f.getDAL().GithubWorkflowRuns
 	_, err := q.WithContext(ctx).Where(q.ID.Eq(run.ID)).Updates(run)
 	return err
+}
+
+// UpdateSyncFields updates only the GitHub sync-related fields of a run.
+// This avoids overwriting the collection status (status, error_message, etc.)
+// that may be concurrently updated by collection tasks.
+func (f *GithubWorkflowRunFacade) UpdateSyncFields(ctx context.Context, id int64,
+	workflowStatus, workflowConclusion, headSha, headBranch, workflowName string,
+	githubRunNumber int32,
+) error {
+	q := f.getDAL().GithubWorkflowRuns
+	now := time.Now()
+
+	updates := []field.AssignExpr{
+		q.WorkflowStatus.Value(workflowStatus),
+		q.WorkflowConclusion.Value(workflowConclusion),
+		q.LastSyncedAt.Value(now),
+	}
+
+	// Only update optional fields if they have values (don't overwrite with empty)
+	if headSha != "" {
+		updates = append(updates, q.HeadSha.Value(headSha))
+	}
+	if headBranch != "" {
+		updates = append(updates, q.HeadBranch.Value(headBranch))
+	}
+	if workflowName != "" {
+		updates = append(updates, q.WorkflowName.Value(workflowName))
+	}
+	if githubRunNumber != 0 {
+		updates = append(updates, q.GithubRunNumber.Value(githubRunNumber))
+	}
+
+	_, err := q.WithContext(ctx).
+		Where(q.ID.Eq(id)).
+		UpdateSimple(updates...)
+	return err
+}
+
+// UpdateFields updates specific fields of a run using a map.
+// This allows targeted updates without overwriting unrelated fields.
+// Used by RunnerStateProcessor and other components that need selective updates.
+func (f *GithubWorkflowRunFacade) UpdateFields(ctx context.Context, id int64, fields map[string]interface{}) error {
+	fields["updated_at"] = time.Now()
+	db := f.getDAL().GithubWorkflowRuns.WithContext(ctx).UnderlyingDB()
+	return db.Model(&model.GithubWorkflowRuns{}).Where("id = ?", id).Updates(fields).Error
 }
 
 // UpdateStatus updates the status of a run
@@ -665,137 +831,90 @@ func (f *GithubWorkflowRunFacade) ListAllWithRunnerSetName(ctx context.Context, 
 
 // ListAllWithConfigName lists runs across all configs with config name (for global runs view)
 func (f *GithubWorkflowRunFacade) ListAllWithConfigName(ctx context.Context, filter *GithubWorkflowRunFilter) ([]*RunWithConfigName, int64, error) {
-	db := f.getDAL().GithubWorkflowRuns.WithContext(ctx).UnderlyingDB()
-
-	// Build base query with join - use Session to prevent query mutation
-	baseQuery := db.Table("github_workflow_runs r").
-		Joins("LEFT JOIN github_workflow_configs c ON r.config_id = c.id")
-
-	// Apply filters
-	if filter != nil {
-		if filter.ConfigID > 0 {
-			baseQuery = baseQuery.Where("r.config_id = ?", filter.ConfigID)
-		}
-		if filter.Status != "" {
-			baseQuery = baseQuery.Where("r.status = ?", filter.Status)
-		}
-		if filter.TriggerSource != "" {
-			baseQuery = baseQuery.Where("r.trigger_source = ?", filter.TriggerSource)
-		}
-		if filter.GithubRunID > 0 {
-			baseQuery = baseQuery.Where("r.github_run_id = ?", filter.GithubRunID)
-		}
-		if filter.WorkloadUID != "" {
-			baseQuery = baseQuery.Where("r.workload_uid = ?", filter.WorkloadUID)
-		}
-		if filter.RunnerSetName != "" {
-			baseQuery = baseQuery.Where("r.runner_set_name = ?", filter.RunnerSetName)
-		}
-		if filter.Since != nil {
-			baseQuery = baseQuery.Where("r.created_at >= ?", *filter.Since)
-		}
-		if filter.Until != nil {
-			baseQuery = baseQuery.Where("r.created_at <= ?", *filter.Until)
-		}
+	rawDB := f.getDB()
+	if rawDB == nil {
+		return nil, 0, fmt.Errorf("database connection is nil")
 	}
 
-	// Count total using a separate query to avoid mutation
+	// buildBaseQuery creates a completely fresh query each time from the raw DB connection.
+	// This avoids any GORM state accumulation issues between Count() and Find() calls.
+	buildBaseQuery := func() *gorm.DB {
+		q := rawDB.WithContext(ctx).
+			Table("github_workflow_runs r").
+			Joins("LEFT JOIN github_workflow_configs c ON r.config_id = c.id")
+
+		if filter != nil {
+			if filter.ConfigID > 0 {
+				q = q.Where("r.config_id = ?", filter.ConfigID)
+			}
+			if filter.Status != "" {
+				q = q.Where("r.status = ?", filter.Status)
+			}
+			if filter.TriggerSource != "" {
+				q = q.Where("r.trigger_source = ?", filter.TriggerSource)
+			}
+			if filter.GithubRunID > 0 {
+				q = q.Where("r.github_run_id = ?", filter.GithubRunID)
+			}
+			if filter.WorkloadUID != "" {
+				q = q.Where("r.workload_uid = ?", filter.WorkloadUID)
+			}
+			if filter.RunnerSetName != "" {
+				q = q.Where("r.runner_set_name = ?", filter.RunnerSetName)
+			}
+			if filter.Owner != "" {
+				q = q.Where("r.runner_set_id IN (SELECT id FROM github_runner_sets WHERE github_owner = ?)", filter.Owner)
+			}
+			if filter.Repo != "" {
+				q = q.Where("r.runner_set_id IN (SELECT id FROM github_runner_sets WHERE github_repo = ?)", filter.Repo)
+			}
+			if filter.PodCondition == "error" {
+				// Only return active error pods (pods that haven't completed yet)
+				q = q.Where("(r.pod_condition IN (?, ?, ?) OR r.status = ?)",
+					PodConditionImagePullBackOff, PodConditionCrashLoopBackOff, PodConditionOOMKilled, WorkflowRunStatusError)
+				q = q.Where("r.workload_completed_at = ?", time.Time{})
+			} else if filter.PodCondition != "" {
+				q = q.Where("r.pod_condition = ?", filter.PodCondition)
+			}
+			if filter.Since != nil {
+				q = q.Where("r.created_at >= ?", *filter.Since)
+			}
+			if filter.Until != nil {
+				q = q.Where("r.created_at <= ?", *filter.Until)
+			}
+		}
+		return q
+	}
+
+	// Count total
 	var total int64
-	countQuery := baseQuery.Session(&gorm.Session{})
-	if err := countQuery.Count(&total).Error; err != nil {
+	if err := buildBaseQuery().Count(&total).Error; err != nil {
 		return nil, 0, err
 	}
 
-	// Build data query with select and pagination
-	query := baseQuery.Session(&gorm.Session{}).Select("r.*, c.name as config_name")
-
-	// Apply pagination
-	if filter != nil {
-		if filter.Offset > 0 {
-			query = query.Offset(filter.Offset)
-		}
-		if filter.Limit > 0 {
-			query = query.Limit(filter.Limit)
-		}
-	}
-
-	// Order by id descending
-	query = query.Order("r.id DESC")
-
-	// Execute query
-	rows, err := query.Rows()
-	if err != nil {
-		return nil, 0, err
-	}
-	defer rows.Close()
-
-	var results []*RunWithConfigName
-	for rows.Next() {
-		run := &model.GithubWorkflowRuns{}
-		var configName string
-
-		err := db.ScanRows(rows, run)
-		if err != nil {
-			return nil, 0, err
-		}
-
-		// Scan config_name separately (it's appended after run fields)
-		// Since ScanRows scans all columns into the struct, we need to re-scan with explicit columns
-		results = append(results, &RunWithConfigName{
-			GithubWorkflowRuns: run,
-			ConfigName:         configName,
-		})
-	}
-
-	// Re-query with explicit struct scanning
+	// Data query with struct scanning
 	var rawResults []struct {
 		model.GithubWorkflowRuns
 		ConfigName string `gorm:"column:config_name"`
 	}
 
-	// Rebuild query for final scan
-	query2 := db.Table("github_workflow_runs r").
-		Select("r.*, c.name as config_name").
-		Joins("LEFT JOIN github_workflow_configs c ON r.config_id = c.id")
+	dataQuery := buildBaseQuery().Select("r.*, c.name as config_name")
 
+	// Apply pagination
 	if filter != nil {
-		if filter.ConfigID > 0 {
-			query2 = query2.Where("r.config_id = ?", filter.ConfigID)
-		}
-		if filter.Status != "" {
-			query2 = query2.Where("r.status = ?", filter.Status)
-		}
-		if filter.TriggerSource != "" {
-			query2 = query2.Where("r.trigger_source = ?", filter.TriggerSource)
-		}
-		if filter.GithubRunID > 0 {
-			query2 = query2.Where("r.github_run_id = ?", filter.GithubRunID)
-		}
-		if filter.WorkloadUID != "" {
-			query2 = query2.Where("r.workload_uid = ?", filter.WorkloadUID)
-		}
-		if filter.RunnerSetName != "" {
-			query2 = query2.Where("r.runner_set_name = ?", filter.RunnerSetName)
-		}
-		if filter.Since != nil {
-			query2 = query2.Where("r.created_at >= ?", *filter.Since)
-		}
-		if filter.Until != nil {
-			query2 = query2.Where("r.created_at <= ?", *filter.Until)
-		}
 		if filter.Offset > 0 {
-			query2 = query2.Offset(filter.Offset)
+			dataQuery = dataQuery.Offset(filter.Offset)
 		}
 		if filter.Limit > 0 {
-			query2 = query2.Limit(filter.Limit)
+			dataQuery = dataQuery.Limit(filter.Limit)
 		}
 	}
 
-	if err := query2.Order("r.id DESC").Find(&rawResults).Error; err != nil {
+	if err := dataQuery.Order("r.id DESC").Find(&rawResults).Error; err != nil {
 		return nil, 0, err
 	}
 
-	results = make([]*RunWithConfigName, 0, len(rawResults))
+	results := make([]*RunWithConfigName, 0, len(rawResults))
 	for i := range rawResults {
 		run := rawResults[i].GithubWorkflowRuns
 		results = append(results, &RunWithConfigName{

@@ -98,14 +98,23 @@ func initRouter(group *gin.RouterGroup) error {
 		agentsGroup.GET("/:name/health", agentHandler.GetHealth)
 	}
 
-	// Task endpoints
+	// Task endpoints — producer API + agent pull API
 	tasksGroup := group.Group("/ai/tasks")
 	{
 		taskHandler := api.NewTaskHandler(taskQueue)
+
+		// Producer endpoints
+		tasksGroup.POST("", taskHandler.Publish)
+		tasksGroup.GET("", taskHandler.ListTasks)
 		tasksGroup.GET("/:id", taskHandler.GetTask)
 		tasksGroup.GET("/:id/status", taskHandler.GetTaskStatus)
+		tasksGroup.GET("/:id/result", taskHandler.GetTaskResult)
 		tasksGroup.POST("/:id/cancel", taskHandler.CancelTask)
-		tasksGroup.GET("", taskHandler.ListTasks)
+
+		// Agent pull endpoints
+		tasksGroup.POST("/claim", taskHandler.ClaimTask)
+		tasksGroup.POST("/:id/complete", taskHandler.CompleteTask)
+		tasksGroup.POST("/:id/fail", taskHandler.FailTask)
 	}
 
 	// Stats endpoint

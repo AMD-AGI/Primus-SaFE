@@ -25,4 +25,6 @@ const (
 
 	CodeRemoteServiceError = 8001
 	CodeInvalidArgument    = 8002
+
+	ServiceUnavailable = 5003
 )

@@ -84,6 +84,14 @@ func Init(ctx context.Context, cfg *config.Config) error {
 		log.Info("Scheduled tasks initialized successfully")
 	}
 
+	// Start cluster sync service if control plane mode is enabled
+	if cfg.IsControlPlane && clientsets.IsControlPlaneMode() {
+		if err := startClusterSyncService(ctx, cfg); err != nil {
+			log.Errorf("Failed to start cluster sync service: %v", err)
+			// Don't block startup
+		}
+	}
+
 	return nil
 }
 
@@ -169,10 +177,14 @@ func initScheduledTasks(ctx context.Context, cfg *config.Config) error {
 	// Add namespace sync task (runs every 60 seconds)
 	globalScheduler.AddTask(namespaceSyncService, 60*time.Second)
 
+	// Add workload children linker task (runs every 30 seconds)
+	workloadLinkService := service.NewWorkloadLinkService(k8sClient)
+	globalScheduler.AddTask(workloadLinkService, 30*time.Second)
+
 	// Start scheduler in background
 	go globalScheduler.Start(ctx)
 
-	log.Info("Scheduler started with workload stats (30s), node stats (60s), and namespace sync (60s) tasks")
+	log.Info("Scheduler started with workload stats (30s), node stats (60s), namespace sync (60s), and workload linker (30s) tasks")
 	return nil
 }
 
@@ -253,4 +265,40 @@ func decodeSecretData(data map[string][]byte, key string) (string, error) {
 
 	// Secret data is already decoded by Kubernetes client, just convert to string
 	return string(encodedValue), nil
+}
+
+// startClusterSyncService starts the cluster sync service for control plane mode
+func startClusterSyncService(ctx context.Context, cfg *config.Config) error {
+	log.Info("Starting cluster sync service for control plane mode...")
+
+	// Get controller-runtime client for watching Primus-SaFE clusters
+	clusterManager := clientsets.GetClusterManager()
+	if clusterManager == nil {
+		return fmt.Errorf("cluster manager not initialized")
+	}
+
+	currentCluster := clusterManager.GetCurrentClusterClients()
+	if currentCluster.K8SClientSet == nil || currentCluster.K8SClientSet.ControllerRuntimeClient == nil {
+		return fmt.Errorf("K8S client not initialized")
+	}
+
+	safeClient := currentCluster.K8SClientSet.ControllerRuntimeClient
+
+	// Create cluster sync service with config
+	var syncService *service.ClusterSyncService
+	if cfg.ControlPlane != nil && cfg.ControlPlane.PrimusSafeSync != nil {
+		syncService = service.NewClusterSyncServiceFromConfig(safeClient, cfg.ControlPlane.PrimusSafeSync)
+	} else {
+		syncService = service.NewClusterSyncService(safeClient)
+	}
+
+	// Start sync service in background
+	go func() {
+		if err := syncService.Run(ctx); err != nil {
+			log.Errorf("Cluster sync service stopped with error: %v", err)
+		}
+	}()
+
+	log.Info("Cluster sync service started successfully")
+	return nil
 }

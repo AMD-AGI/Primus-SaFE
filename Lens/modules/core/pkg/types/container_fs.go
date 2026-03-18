@@ -125,6 +125,7 @@ type ContainerDirectoryListRequest struct {
 	Path      string `json:"path" binding:"required"`
 	Recursive bool   `json:"recursive,omitempty"`
 	Pattern   string `json:"pattern,omitempty"`
+	MaxFiles  int    `json:"max_files,omitempty"` // Maximum number of entries to return (0 = server default)
 }
 
 // ContainerDirectoryListResponse represents directory listing response

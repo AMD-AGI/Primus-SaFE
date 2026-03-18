@@ -15,7 +15,9 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/klog/v2"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
@@ -26,13 +28,14 @@ import (
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	commonsearch "github.com/AMD-AIG-AIMA/SAFE/common/pkg/opensearch"
+	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/concurrent"
 	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/timeutil"
 )
 
-// GetWorkloadLog retrieves logs for a workload from OpenSearch or similar logging service.
+// GetWorkloadLog retrieves logs for a workload from OpenSearch
 func (h *Handler) GetWorkloadLog(c *gin.Context) {
 	handle(c, h.getWorkloadLog)
 }
@@ -42,9 +45,36 @@ func (h *Handler) GetServiceLog(c *gin.Context) {
 	handle(c, h.getServiceLog)
 }
 
+// GetWorkloadEvent retrieves events for a workload from OpenSearch
+func (h *Handler) GetWorkloadEvent(c *gin.Context) {
+	handle(c, h.getWorkloadEvent)
+}
+
 // GetWorkloadLogContext retrieves contextual log information for a workload.
 func (h *Handler) GetWorkloadLogContext(c *gin.Context) {
 	handle(c, h.getWorkloadLogContext)
+}
+
+// DownloadWorkloadLog handles the request to download workload logs.
+// It creates a DumpLog job, waits for completion, and redirects to the S3 presigned URL.
+// Using HTTP 303 (See Other) redirect ensures clients use GET method for the S3 URL,
+// which is required for S3 presigned download URLs.
+// Benefits of redirect approach:
+// - Avoids loading the entire file into API server memory
+// - Allows direct client-to-S3 transfer for better performance
+// - Reduces API server load
+// Note: Clients should use "curl -L" to follow the redirect automatically.
+func (h *Handler) DownloadWorkloadLog(c *gin.Context) {
+	resp, err := h.downloadWorkloadLog(c)
+	if err != nil {
+		apiutils.AbortWithApiError(c, err)
+		return
+	}
+	// Ensure HTTPS for external access (S3 internal URL may use HTTP)
+	downloadURL := strings.Replace(resp.DownloadURL, "http://", "https://", 1)
+	// Redirect to S3 presigned URL for direct download
+	// Use 303 See Other to ensure client uses GET method for S3 URL
+	c.Redirect(http.StatusSeeOther, downloadURL)
 }
 
 // getWorkloadLog retrieves logs for a specific workload from OpenSearch.
@@ -82,7 +112,7 @@ func (h *Handler) getWorkloadLog(c *gin.Context) (interface{}, error) {
 		return nil, commonerrors.NewInternalError("There is no OpenSearch in cluster " + clusterId)
 	}
 	return opensearchClient.SearchByTimeRange(query.SinceTime, query.UntilTime,
-		"/_search", buildSearchBody(query, name))
+		"", "/_search", buildSearchBody(query, name))
 }
 
 // getServiceLog retrieves logs for a specific service from OpenSearch.
@@ -107,7 +137,43 @@ func (h *Handler) getServiceLog(c *gin.Context) (interface{}, error) {
 		return nil, commonerrors.NewInternalError("There is no OpenSearch in cluster " + "")
 	}
 	return opensearchClient.SearchByTimeRange(query.SinceTime, query.UntilTime,
-		"/_search", buildSearchBody(query, ""))
+		"", "/_search", buildSearchBody(query, ""))
+}
+
+// getWorkloadEvent retrieves events for a specific workload from OpenSearch.
+func (h *Handler) getWorkloadEvent(c *gin.Context) (interface{}, error) {
+	if !commonconfig.IsOpenSearchEnable() {
+		return nil, commonerrors.NewInternalError("The logging function is not enabled")
+	}
+	name := c.GetString(common.Name)
+	if name == "" {
+		return nil, commonerrors.NewBadRequest("the workloadId is empty")
+	}
+	workload, err := h.getWorkloadForAuth(c.Request.Context(), name)
+	if err != nil {
+		return nil, err
+	}
+
+	if err = h.accessController.Authorize(authority.AccessInput{
+		Context:    c.Request.Context(),
+		Resource:   workload,
+		Verb:       v1.GetVerb,
+		Workspaces: []string{workload.Spec.Workspace},
+		UserId:     c.GetString(common.UserId),
+	}); err != nil {
+		return nil, err
+	}
+	clusterId := v1.GetClusterId(workload)
+	query, err := parseEventLogQuery(c, workload)
+	if err != nil {
+		return nil, err
+	}
+	opensearchClient := commonsearch.GetOpensearchClient(clusterId)
+	if opensearchClient == nil {
+		return nil, commonerrors.NewInternalError("There is no OpenSearch in cluster " + clusterId)
+	}
+	return opensearchClient.SearchByTimeRange(query.SinceTime, query.UntilTime,
+		"k8s-event-", "/_search", buildSearchBody(query, name))
 }
 
 // getWorkloadLogContext retrieves contextual logs for a specific workload from OpenSearch.
@@ -145,7 +211,7 @@ func (h *Handler) getWorkloadLogContext(c *gin.Context) (interface{}, error) {
 // searchContextLog performs concurrent OpenSearch queries to retrieve contextual logs for a workload.
 // It executes two parallel searches (before and after the target log) using the provided queries
 // Returns the combined search results or an error if any search fails.
-func (h *Handler) searchContextLog(queries []view.ListContextLogRequest, workloadId string) (*commonsearch.OpenSearchResponse, error) {
+func (h *Handler) searchContextLog(queries []view.ListContextLogRequest, workloadId string) (*commonsearch.OpenSearchLogResponse, error) {
 	startTime := time.Now().UTC()
 	const count = 2
 	ch := make(chan view.ListContextLogRequest, count)
@@ -162,12 +228,12 @@ func (h *Handler) searchContextLog(queries []view.ListContextLogRequest, workloa
 	if opensearchClient == nil {
 		return nil, commonerrors.NewInternalError("There is no OpenSearch in cluster " + clusterId)
 	}
-	var response [count]commonsearch.OpenSearchResponse
+	var response [count]commonsearch.OpenSearchLogResponse
 	_, err = concurrent.Exec(count, func() error {
 		wrapper := <-ch
 		query := wrapper.Query
 		resp, err := opensearchClient.SearchByTimeRange(query.SinceTime, query.UntilTime,
-			"/_search", buildSearchBody(query, workloadId))
+			"", "/_search", buildSearchBody(query, workloadId))
 		if err != nil {
 			return err
 		}
@@ -180,7 +246,7 @@ func (h *Handler) searchContextLog(queries []view.ListContextLogRequest, workloa
 		return nil, err
 	}
 
-	result := &commonsearch.OpenSearchResponse{}
+	result := &commonsearch.OpenSearchLogResponse{}
 	if err = addContextDoc(result, queries[0], &response[0], true); err != nil {
 		return nil, err
 	}
@@ -199,13 +265,12 @@ func buildSearchBody(query *view.ListLogRequest, workloadId string) []byte {
 	req := &commonsearch.OpenSearchRequest{
 		From: query.Offset,
 		Size: query.Limit,
-		Sort: []commonsearch.OpenSearchField{{
-			commonsearch.TimeField: map[string]interface{}{
-				"order": query.Order,
-			}},
-		},
 	}
-
+	req.Sort = []commonsearch.OpenSearchField{{
+		commonsearch.TimeField: map[string]interface{}{
+			"order": query.Order,
+		}},
+	}
 	req.Query.Bool.Must = []commonsearch.OpenSearchField{{
 		"range": map[string]interface{}{
 			commonsearch.TimeField: map[string]string{
@@ -214,7 +279,6 @@ func buildSearchBody(query *view.ListLogRequest, workloadId string) []byte {
 			},
 		},
 	}}
-
 	buildFilter(req, query)
 	buildKeywords(req, query)
 	buildOutput(req, query, workloadId)
@@ -222,7 +286,8 @@ func buildSearchBody(query *view.ListLogRequest, workloadId string) []byte {
 }
 
 func buildFilter(req *commonsearch.OpenSearchRequest, query *view.ListLogRequest) {
-	buildLabelFilter(req, query.Filters)
+	buildSingleTermFilter(req, query.TermFilters, !query.IsEventRequest, false)
+	buildSingleTermFilter(req, query.PrefixFilters, !query.IsEventRequest, true)
 	if query.PodNames != "" {
 		buildMultiTermsFilter(req, "pod_name", query.PodNames)
 	} else if query.NodeNames != "" {
@@ -230,17 +295,25 @@ func buildFilter(req *commonsearch.OpenSearchRequest, query *view.ListLogRequest
 	}
 }
 
-func buildLabelFilter(req *commonsearch.OpenSearchRequest, labelFilters map[string]string) {
-	// including workload id/service name/dispatch count
-	for key, val := range labelFilters {
+func buildSingleTermFilter(req *commonsearch.OpenSearchRequest, filters map[string]string, isK8sLabel, isPrefixMatch bool) {
+	for key, val := range filters {
 		if key == "" || val == "" {
 			continue
 		}
-		// Use the same punctuation handling rules as OpenSearch.
-		key = strings.ReplaceAll(key, ".", "_")
+		if isK8sLabel {
+			// Use the same punctuation handling rules as OpenSearch.
+			key = strings.ReplaceAll(key, ".", "_")
+			key = "kubernetes.labels." + key
+		}
+		filterType := ""
+		if isPrefixMatch {
+			filterType = "prefix"
+		} else {
+			filterType = "term"
+		}
 		req.Query.Bool.Filter = append(req.Query.Bool.Filter, commonsearch.OpenSearchField{
-			"term": map[string]interface{}{
-				"kubernetes.labels." + key + ".keyword": val,
+			filterType: map[string]interface{}{
+				key + ".keyword": val,
 			},
 		})
 	}
@@ -252,11 +325,10 @@ func buildMultiTermsFilter(req *commonsearch.OpenSearchRequest, key, values stri
 		return
 	}
 	var queries []map[string]interface{}
+	termKey := fmt.Sprintf("kubernetes.%s.keyword", key)
 	for _, val := range valueList {
 		queries = append(queries, map[string]interface{}{
-			"term": map[string]string{
-				fmt.Sprintf("kubernetes.%s.keyword", key): val,
-			},
+			"term": map[string]string{termKey: val},
 		})
 	}
 	req.Query.Bool.Must = append(req.Query.Bool.Must, commonsearch.OpenSearchField{
@@ -306,6 +378,9 @@ func normalize(str string) string {
 }
 
 func buildOutput(req *commonsearch.OpenSearchRequest, query *view.ListLogRequest, workloadId string) {
+	if query.IsEventRequest {
+		return
+	}
 	req.Source = []string{
 		commonsearch.TimeField, commonsearch.MessageField, "kubernetes.host",
 	}
@@ -320,16 +395,17 @@ func buildOutput(req *commonsearch.OpenSearchRequest, query *view.ListLogRequest
 }
 
 func parseWorkloadLogQuery(c *gin.Context, workload *v1.Workload) (*view.ListLogRequest, error) {
-	query, err := parseLogQuery(c.Request, workload.CreationTimestamp.Time, workload.EndTime())
+	startTime := getLogQueryStartTime(workload)
+	query, err := parseLogQuery(c.Request, startTime, workload.EndTime())
 	if err != nil {
 		klog.ErrorS(err, "failed to parse log query")
 		return nil, err
 	}
-	query.Filters = map[string]string{
+	query.TermFilters = map[string]string{
 		v1.WorkloadIdLabel: workload.Name,
 	}
 	if query.DispatchCount > 0 {
-		query.Filters[v1.WorkloadDispatchCntLabel] = strconv.Itoa(query.DispatchCount)
+		query.TermFilters[v1.WorkloadDispatchCntLabel] = strconv.Itoa(query.DispatchCount)
 	}
 	return query, nil
 }
@@ -344,10 +420,28 @@ func parseServiceLogQuery(c *gin.Context) (*view.ListLogRequest, error) {
 	if err != nil {
 		return nil, err
 	}
-	query.DispatchCount = 0
-	query.Filters = map[string]string{
+	query.TermFilters = map[string]string{
 		"app": name,
 	}
+	return query, nil
+}
+
+func parseEventLogQuery(c *gin.Context, workload *v1.Workload) (*view.ListLogRequest, error) {
+	query, err := parseLogQuery(c.Request, workload.CreationTimestamp.Time, workload.EndTime())
+	if err != nil {
+		klog.ErrorS(err, "failed to parse log query")
+		return nil, err
+	}
+	query.TermFilters = map[string]string{
+		"involvedObject.namespace": workload.Spec.Workspace,
+	}
+	query.PrefixFilters = map[string]string{
+		"involvedObject.name": workload.Name,
+	}
+	query.IsEventRequest = true
+	// node or pod filtering is not supported
+	query.NodeNames = ""
+	query.PodNames = ""
 	return query, nil
 }
 
@@ -471,8 +565,8 @@ func parseLogQuery(req *http.Request, beginTime, endTime time.Time) (*view.ListL
 // that document (based on isAsc flag) up to the specified limit. Each log entry is assigned
 // a line number for context (positive for forward context, negative for backward context).
 // The function updates the result response with the extracted documents and total count.
-func addContextDoc(result *commonsearch.OpenSearchResponse,
-	query view.ListContextLogRequest, response *commonsearch.OpenSearchResponse, isAsc bool) error {
+func addContextDoc(result *commonsearch.OpenSearchLogResponse,
+	query view.ListContextLogRequest, response *commonsearch.OpenSearchLogResponse, isAsc bool) error {
 	id := -1
 	for i := range response.Hits.Hits {
 		if response.Hits.Hits[i].Id == query.DocId {
@@ -500,4 +594,157 @@ func addContextDoc(result *commonsearch.OpenSearchResponse,
 	}
 	result.Hits.Total.Value += count
 	return nil
+}
+
+// getLogQueryStartTime calculates the adjusted start time for log queries.
+// It ensures the returned time is not earlier than the workload's creation time.
+func getLogQueryStartTime(workload *v1.Workload) time.Time {
+	startTime := workload.CreationTimestamp.Time
+	if workload.Status.StartTime != nil && !workload.Status.StartTime.IsZero() {
+		startTime = workload.Status.StartTime.Time.Add(-time.Hour)
+		if startTime.Before(workload.CreationTimestamp.Time) {
+			startTime = workload.CreationTimestamp.Time
+		}
+	}
+	return startTime
+}
+
+// downloadWorkloadLog implements the logic for getting workload log download URL.
+// It creates a DumpLog job, waits for completion, and returns the S3 presigned URL.
+func (h *Handler) downloadWorkloadLog(c *gin.Context) (*view.DownloadWorkloadLogResponse, error) {
+	if !commonconfig.IsOpenSearchEnable() {
+		return nil, commonerrors.NewInternalError("the logging function is not enabled")
+	}
+	if !commonconfig.IsS3Enable() {
+		return nil, commonerrors.NewInternalError("the S3 function is not enabled")
+	}
+
+	req := &view.DownloadWorkloadLogRequest{}
+	if _, err := apiutils.ParseRequestBody(c.Request, req); err != nil {
+		return nil, err
+	}
+	// Set default values
+	if req.TimeoutSecond <= 0 {
+		req.TimeoutSecond = 900 // 15 minutes
+	}
+
+	ctx := c.Request.Context()
+	requestUser, err := h.getAndSetUsername(c)
+	if err != nil {
+		return nil, err
+	}
+
+	// Step 1: Verify workload exists and authorize
+	workload, err := h.getWorkloadForAuth(ctx, c.GetString(common.Name))
+	if err != nil {
+		return nil, err
+	}
+	if err = h.accessController.Authorize(authority.AccessInput{
+		Context:    ctx,
+		Resource:   workload,
+		Verb:       v1.GetVerb,
+		Workspaces: []string{workload.Spec.Workspace},
+		User:       requestUser,
+	}); err != nil {
+		return nil, err
+	}
+
+	// Step 2: Create DumpLog job
+	job, err := h.createDumpLogJobInternal(ctx, workload, requestUser, req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create dumplog job: %w", err)
+	}
+	klog.Infof("DumpLog job created: %s for workload: %s", job.Name, workload.Name)
+
+	// Step 3: Wait for job completion and get presigned URL
+	downloadURL, err := h.waitForDumpLogJobCompletion(ctx, job.Name, req.TimeoutSecond)
+	if err != nil {
+		return nil, fmt.Errorf("failed to wait for dumplog job completion: %w", err)
+	}
+	klog.Infof("DumpLog job completed, download URL generated for workload: %s", workload.Name)
+
+	return &view.DownloadWorkloadLogResponse{DownloadURL: downloadURL}, nil
+}
+
+// createDumpLogJobInternal creates a DumpLog OpsJob for the specified workload.
+func (h *Handler) createDumpLogJobInternal(ctx context.Context,
+	workload *v1.Workload, requestUser *v1.User, req *view.DownloadWorkloadLogRequest) (*v1.OpsJob, error) {
+	jobId := "down-" + workload.Name
+	if len(jobId) > commonutils.MaxNameLength {
+		jobId = jobId[:commonutils.MaxNameLength]
+	}
+	job := &v1.OpsJob{}
+	if h.Get(ctx, client.ObjectKey{Name: jobId}, job) == nil {
+		return job, nil
+	}
+	// Build the OpsJob
+	job = &v1.OpsJob{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: jobId,
+			Labels: map[string]string{
+				v1.DisplayNameLabel: commonutils.GetBaseFromName(workload.Name),
+				v1.WorkspaceIdLabel: workload.Spec.Workspace,
+				v1.UserIdLabel:      requestUser.Name,
+			},
+		},
+		Spec: v1.OpsJobSpec{
+			Type: v1.OpsJobDumpLogType,
+			Inputs: []v1.Parameter{
+				{Name: v1.ParameterWorkload, Value: workload.Name},
+			},
+			TimeoutSecond: req.TimeoutSecond,
+		},
+	}
+	if err := h.Create(ctx, job); err != nil {
+		return nil, err
+	}
+	return job, nil
+}
+
+// waitForDumpLogJobCompletion polls the job status until it completes or times out.
+// Returns the S3 endpoint URL on success.
+func (h *Handler) waitForDumpLogJobCompletion(ctx context.Context, jobName string, timeoutSecond int) (string, error) {
+	timeout := time.Duration(timeoutSecond) * time.Second
+	pollInterval := 5 * time.Second
+	deadline := time.Now().Add(timeout)
+
+	for {
+		if time.Now().After(deadline) {
+			return "", fmt.Errorf("timeout waiting for dumplog job completion after %d seconds", timeoutSecond)
+		}
+
+		job := &v1.OpsJob{}
+		if err := h.Get(ctx, client.ObjectKey{Name: jobName}, job); err != nil {
+			time.Sleep(pollInterval)
+			continue
+		}
+
+		switch job.Status.Phase {
+		case v1.OpsJobSucceeded:
+			for _, p := range job.Status.Outputs {
+				if p.Name == v1.ParameterEndpoint {
+					return p.Value, nil
+				}
+			}
+			return "", fmt.Errorf("job succeeded but no endpoint found in outputs")
+		case v1.OpsJobFailed:
+			message := "unknown error"
+			// Get error message from conditions
+			for _, cond := range job.Status.Conditions {
+				if cond.Status == metav1.ConditionFalse && cond.Message != "" {
+					message = cond.Message
+					break
+				}
+			}
+			return "", fmt.Errorf("dumplog job failed: %s", message)
+		}
+
+		// Job still running, wait and poll again
+		select {
+		case <-ctx.Done():
+			return "", ctx.Err()
+		case <-time.After(pollInterval):
+			// continue polling
+		}
+	}
 }

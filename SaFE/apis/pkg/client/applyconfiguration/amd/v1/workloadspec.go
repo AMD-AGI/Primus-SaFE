@@ -17,7 +17,6 @@ type WorkloadSpecApplyConfiguration struct {
 	EntryPoint                          *string                              `json:"entryPoint,omitempty"`
 	EntryPoints                         []string                             `json:"entryPoints,omitempty"`
 	JobPort                             *int                                 `json:"jobPort,omitempty"`
-	SSHPort                             *int                                 `json:"sshPort,omitempty"`
 	Env                                 map[string]string                    `json:"env,omitempty"`
 	IsSupervised                        *bool                                `json:"isSupervised,omitempty"`
 	*GroupVersionKindApplyConfiguration `json:"groupVersionKind,omitempty"`
@@ -112,14 +111,6 @@ func (b *WorkloadSpecApplyConfiguration) WithEntryPoints(values ...string) *Work
 // If called multiple times, the JobPort field is set to the value of the last call.
 func (b *WorkloadSpecApplyConfiguration) WithJobPort(value int) *WorkloadSpecApplyConfiguration {
 	b.JobPort = &value
-	return b
-}
-
-// WithSSHPort sets the SSHPort field in the declarative configuration to the given value
-// and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the SSHPort field is set to the value of the last call.
-func (b *WorkloadSpecApplyConfiguration) WithSSHPort(value int) *WorkloadSpecApplyConfiguration {
-	b.SSHPort = &value
 	return b
 }
 

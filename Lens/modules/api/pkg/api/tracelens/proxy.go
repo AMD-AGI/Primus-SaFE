@@ -16,8 +16,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/clientsets"
-	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database"
+	cpdb "github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/controlplane/database"
+	cpmodel "github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/controlplane/database/model"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
 	tlconst "github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/tracelens"
 	"github.com/gin-gonic/gin"
@@ -27,6 +27,7 @@ import (
 // ProxyUI proxies requests to the TraceLens pod UI (Streamlit)
 // Handles both HTTP and WebSocket connections
 // Also handles /health endpoint for session status check
+// Session data is now fetched from Control Plane database
 func ProxyUI(c *gin.Context) {
 	sessionID := c.Param("session_id")
 	path := c.Param("path")
@@ -37,31 +38,30 @@ func ProxyUI(c *gin.Context) {
 		return
 	}
 
-	// Get cluster
-	cm := clientsets.GetClusterManager()
-	clusterName := c.Query("cluster")
-	clients, err := cm.GetClusterClientsOrDefault(clusterName)
-	if err != nil {
-		_ = c.Error(err)
+	// Get Control Plane facade
+	cpFacade := cpdb.GetControlPlaneFacade()
+	if cpFacade == nil {
+		log.Error("Control plane not available")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "control plane not available"})
 		return
 	}
+	facade := cpFacade.GetTraceLensSession()
 
-	// Get session from database
-	facade := database.GetFacadeForCluster(clients.ClusterName).GetTraceLensSession()
+	// Get session from Control Plane database
 	session, err := facade.GetBySessionID(c, sessionID)
 	if err != nil {
 		log.Errorf("Failed to get session %s: %v", sessionID, err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get session"})
 		return
 	}
-	// Note: gorm gen First() may return empty struct with ID=0 instead of nil
+	// Note: gorm may return empty struct with ID=0 instead of nil
 	if session == nil || session.ID == 0 {
 		c.JSON(http.StatusNotFound, gin.H{"error": "session not found"})
 		return
 	}
 
 	// Check session status
-	if session.Status != tlconst.StatusReady {
+	if session.Status != cpmodel.SessionStatusReady {
 		c.JSON(http.StatusServiceUnavailable, gin.H{
 			"error":   "session not ready",
 			"status":  session.Status,
@@ -281,34 +281,34 @@ func copyWebSocket(dst, src *websocket.Conn, errChan chan<- error) {
 
 // proxyUIHealthCheckInternal handles health check requests internally
 func proxyUIHealthCheckInternal(c *gin.Context, sessionID string) {
-	// Get cluster
-	cm := clientsets.GetClusterManager()
-	clusterName := c.Query("cluster")
-	clients, err := cm.GetClusterClientsOrDefault(clusterName)
-	if err != nil {
-		_ = c.Error(err)
+	// Get Control Plane facade
+	cpFacade := cpdb.GetControlPlaneFacade()
+	if cpFacade == nil {
+		log.Error("Control plane not available")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "control plane not available"})
 		return
 	}
+	facade := cpFacade.GetTraceLensSession()
 
-	// Get session
-	facade := database.GetFacadeForCluster(clients.ClusterName).GetTraceLensSession()
+	// Get session from Control Plane database
 	session, err := facade.GetBySessionID(c, sessionID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get session"})
 		return
 	}
-	// Note: gorm gen First() may return empty struct with ID=0 instead of nil
+	// Note: gorm may return empty struct with ID=0 instead of nil
 	if session == nil || session.ID == 0 {
 		c.JSON(http.StatusNotFound, gin.H{"error": "session not found"})
 		return
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"session_id": sessionID,
-		"status":     session.Status,
-		"pod_ip":     session.PodIP,
-		"pod_port":   session.PodPort,
-		"ready":      session.Status == tlconst.StatusReady,
+		"session_id":   sessionID,
+		"cluster_name": session.ClusterName,
+		"status":       session.Status,
+		"pod_ip":       session.PodIP,
+		"pod_port":     session.PodPort,
+		"ready":        session.Status == cpmodel.SessionStatusReady,
 	})
 }
 
@@ -396,4 +396,3 @@ func modifyHostConfig(resp *http.Response, req *http.Request) error {
 
 	return nil
 }
-

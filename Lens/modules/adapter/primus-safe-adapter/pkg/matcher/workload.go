@@ -45,11 +45,13 @@ func (w *WorkloadMatcher) run(ctx context.Context) {
 	}
 }
 
-func (w *WorkloadMatcher) scanForSingleWorkload(ctx context.Context, dbWorkload *model.GpuWorkload) error {
-	// Get cluster ID from workload labels
-	clusterID := ""
-	if clusterIDInter, ok := dbWorkload.Labels[primusSafeConstant.ClusterIdLabel]; ok {
-		clusterID, _ = clusterIDInter.(string)
+func (w *WorkloadMatcher) scanForSingleWorkload(ctx context.Context, dbWorkload *model.GpuWorkload, clusterName string) error {
+	// Use provided clusterName, or try to get from workload labels as fallback
+	clusterID := clusterName
+	if clusterID == "" {
+		if clusterIDInter, ok := dbWorkload.Labels[primusSafeConstant.ClusterIdLabel]; ok {
+			clusterID, _ = clusterIDInter.(string)
+		}
 	}
 
 	// Get the appropriate facade based on cluster ID
@@ -57,7 +59,8 @@ func (w *WorkloadMatcher) scanForSingleWorkload(ctx context.Context, dbWorkload 
 	if clusterID != "" {
 		facade = database.GetFacadeForCluster(clusterID)
 	} else {
-		facade = database.GetFacade()
+		log.Warnf("WorkloadMatcher: no cluster ID for workload %s/%s, skipping", dbWorkload.Namespace, dbWorkload.Name)
+		return nil
 	}
 
 	children, err := facade.GetWorkload().ListChildrenWorkloadByParentUid(ctx, dbWorkload.UID)
@@ -104,18 +107,21 @@ func (w *WorkloadMatcher) scanForSingleWorkload(ctx context.Context, dbWorkload 
 	// Set current Workload (parent) UID as parent_uid for child workloads (only if needed)
 	if needUpdateParentUID {
 		for _, childWorkload := range referencedWorkload {
+			// Skip the Workload itself to avoid self-referencing
+			// This can happen because Workload also has the primus-safe.workload.id label set to its own name
 			if childWorkload.UID == dbWorkload.UID {
+				// Fix existing self-referencing records
 				if childWorkload.ParentUID == childWorkload.UID {
 					childWorkload.ParentUID = ""
 					err = facade.GetWorkload().UpdateGpuWorkload(ctx, childWorkload)
 					if err != nil {
-						log.Errorf("failed to update child workload %s/%s parent_uid: %v",
+						log.Errorf("failed to fix self-referencing workload %s/%s: %v",
 							childWorkload.Namespace, childWorkload.Name, err)
-						continue
 					}
 				}
 				continue
 			}
+
 			if childWorkload.ParentUID == "" {
 				childWorkload.ParentUID = dbWorkload.UID
 				err = facade.GetWorkload().UpdateGpuWorkload(ctx, childWorkload)
@@ -198,13 +204,21 @@ func (w *WorkloadMatcher) doScan(ctx context.Context) error {
 	clusterManager := clientsets.GetClusterManager()
 	clusterNames := clusterManager.GetClusterNames()
 
-	// If no clusters found, scan the default database
+	// If no clusters found, skip scanning - no storage available
 	if len(clusterNames) == 0 {
-		return w.scanCluster(ctx, "")
+		log.Debug("WorkloadMatcher: no clusters available, skipping scan")
+		return nil
 	}
 
 	// Scan each cluster
 	for _, clusterName := range clusterNames {
+		// Check if cluster has storage client available
+		clientSet, err := clusterManager.GetClientSetByClusterName(clusterName)
+		if err != nil || clientSet.StorageClientSet == nil || clientSet.StorageClientSet.DB == nil {
+			log.Debugf("WorkloadMatcher: cluster %s storage not ready, skipping", clusterName)
+			continue
+		}
+
 		if err := w.scanCluster(ctx, clusterName); err != nil {
 			log.Errorf("failed to scan cluster %s: %v", clusterName, err)
 			// Continue to next cluster even if one fails
@@ -230,7 +244,7 @@ func (w *WorkloadMatcher) scanCluster(ctx context.Context, clusterName string) e
 	}
 
 	for i := range workloads {
-		err := w.scanForSingleWorkload(ctx, workloads[i])
+		err := w.scanForSingleWorkload(ctx, workloads[i], clusterName)
 		if err != nil {
 			log.Errorf("failed to scan workload %s/%s in cluster %s: %v",
 				workloads[i].Namespace, workloads[i].Name, clusterName, err)

@@ -18,37 +18,61 @@ type BaseFacade struct {
 
 // getDB retrieves the corresponding database connection based on clusterName
 func (f *BaseFacade) getDB() *gorm.DB {
+	clusterName := f.clusterName
 
-	if f.clusterName == "" {
+	// If clusterName is empty, use default behavior
+	if clusterName == "" {
+		// First try sql.GetDefaultDB() which uses "default" key
 		db := sql.GetDefaultDB()
-		return db
+		if db != nil {
+			return db
+		}
+
+		// Fallback: try to get from ClusterManager's current cluster
+		cm := clientsets.GetClusterManager()
+		if cm != nil {
+			currentCluster := cm.GetCurrentClusterClients()
+			if currentCluster != nil && currentCluster.StorageClientSet != nil && currentCluster.StorageClientSet.DB != nil {
+				return currentCluster.StorageClientSet.DB
+			}
+		}
+		return nil
 	}
 
 	// Get the database of the specified cluster through ClusterManager
 	cm := clientsets.GetClusterManager()
-	clientSet, err := cm.GetClientSetByClusterName(f.clusterName)
+	clientSet, err := cm.GetClientSetByClusterName(clusterName)
 	if err != nil {
-		log.Errorf("getDB: error getting client set by cluster name '%s': %v", f.clusterName, err)
-		// If retrieval fails, return the default database
-		db := sql.GetDefaultDB()
-		log.Errorf("getDB: falling back to default DB: %p", db)
-		return db
+		log.Errorf("getDB: error getting client set by cluster name '%s': %v", clusterName, err)
+		// If retrieval fails, try sql pool directly
+		db := sql.GetDB(clusterName)
+		if db != nil {
+			return db
+		}
+		// Fallback to default database
+		return sql.GetDefaultDB()
 	}
 
-	if clientSet.StorageClientSet == nil {
-		log.Errorf("getDB: cluster '%s' has no Storage configuration", f.clusterName)
-		// If the cluster has no Storage configuration, return the default database
-		db := sql.GetDefaultDB()
-		log.Errorf("getDB: falling back to default DB: %p", db)
-		return db
+	if clientSet.StorageClientSet == nil || clientSet.StorageClientSet.DB == nil {
+		log.Errorf("getDB: cluster '%s' has no Storage configuration", clusterName)
+		// Try sql pool directly
+		db := sql.GetDB(clusterName)
+		if db != nil {
+			return db
+		}
+		// Fallback to default database
+		return sql.GetDefaultDB()
 	}
-	db := clientSet.StorageClientSet.DB
-	return db
+	return clientSet.StorageClientSet.DB
 }
 
 // getDAL retrieves the DAL instance
 func (f *BaseFacade) getDAL() *dal.Query {
 	db := f.getDB()
+	if db == nil {
+		log.Errorf("getDAL: database connection is nil for cluster '%s'", f.clusterName)
+		return nil
+	}
 	query := dal.Use(db)
 	return query
 }

@@ -43,6 +43,7 @@ func InitInferenceRouters(e *gin.Engine, h *Handler) {
 		// Dataset routes (only registered if S3 is enabled)
 		if h.IsDatasetEnabled() {
 			group.POST("datasets", middleware.Audit("dataset"), h.CreateDataset)
+			group.POST("datasets/import-hf", middleware.Audit("dataset", "import"), h.ImportDatasetFromHF)
 			group.DELETE("datasets/:id", middleware.Audit("dataset"), h.DeleteDataset)
 			group.GET("datasets/types", h.ListDatasetTypes)
 			group.GET("datasets", h.ListDatasets)

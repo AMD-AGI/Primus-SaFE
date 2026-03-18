@@ -1,0 +1,71 @@
+{{- if .Values.opensearch.enabled }}
+apiVersion: opensearch.opster.io/v1
+kind: OpenSearchCluster
+metadata:
+  name: {{ .Values.opensearch.name }}
+  namespace: {{ include "opensearch.namespace" . }}
+  labels:
+    {{- include "opensearch.labels" . | nindent 4 }}
+spec:
+  general:
+    serviceName: {{ .Values.opensearch.name }}
+    version: {{ .Values.opensearch.version | quote }}
+    httpPort: {{ .Values.opensearch.httpPort }}
+    setVMMaxMapCount: true
+    additionalConfig:
+      cluster.routing.allocation.disk.threshold_enabled: "false"
+      plugins.security.allow_default_init_securityindex: "true"
+  
+  dashboards:
+    enable: {{ .Values.opensearch.dashboards.enabled }}
+    replicas: {{ .Values.opensearch.dashboards.replicas | default 1 }}
+    version: {{ .Values.opensearch.version | quote }}
+  
+  security:
+    config:
+      adminCredentialsSecret:
+        name: {{ include "opensearch.adminSecretName" . }}
+    tls:
+      transport:
+        generate: true
+      http:
+        generate: true
+  
+  nodePools:
+    {{- range .Values.opensearch.nodePools }}
+    - component: {{ .name }}
+      replicas: {{ .replicas }}
+      diskSize: {{ .diskSize | quote }}
+      persistence:
+        pvc:
+          storageAmount: {{ .diskSize | quote }}
+          accessModes:
+            - ReadWriteOnce
+          storageClass: {{ include "opensearch.storageClass" $ }}
+      resources:
+        {{- toYaml .resources | nindent 8 }}
+      roles:
+        {{- range .roles }}
+        - {{ . }}
+        {{- end }}
+      {{- if .jvm }}
+      jvm: {{ .jvm | quote }}
+      {{- end }}
+    {{- end }}
+{{- end }}
+---
+{{- if .Values.opensearch.enabled }}
+{{- if not .Values.opensearch.adminSecretName }}
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ include "opensearch.adminSecretName" . }}
+  namespace: {{ include "opensearch.namespace" . }}
+  labels:
+    {{- include "opensearch.labels" . | nindent 4 }}
+type: Opaque
+stringData:
+  username: admin
+  password: admin
+{{- end }}
+{{- end }}

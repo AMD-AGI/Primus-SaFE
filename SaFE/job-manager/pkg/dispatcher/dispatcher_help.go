@@ -32,7 +32,8 @@ import (
 
 const (
 	SharedMemoryVolume = "shared-memory"
-	Launcher           = "chmod +x /shared-data/launcher.sh; /bin/sh /shared-data/launcher.sh"
+	DockerSock         = "docker-sock"
+	Launcher           = "/bin/sh /shared-data/launcher.sh"
 )
 
 // initializeObject modifies various aspects of a Kubernetes object during workload creation.
@@ -224,7 +225,14 @@ func modifyContainers(obj *unstructured.Unstructured,
 
 		name := jobutils.NestedStringSilently(container, []string{"name"})
 		if name == mainContainerName {
-			container["ports"] = buildPorts(workload)
+			if workload.Spec.JobPort > 0 {
+				newPorts := buildPorts(workload)
+				if existingPorts, ok := container["ports"].([]interface{}); ok {
+					container["ports"] = append(existingPorts, newPorts...)
+				} else {
+					container["ports"] = newPorts
+				}
+			}
 			if healthz := buildHealthCheck(workload.Spec.Liveness); healthz != nil {
 				container["livenessProbe"] = healthz
 			}
@@ -291,8 +299,12 @@ func modifyVolumeMounts(container map[string]interface{}, workload *v1.Workload,
 		volumeMounts = volumeMountObjs.([]interface{})
 	}
 	volumeMounts = append(volumeMounts, buildVolumeMount(SharedMemoryVolume, "/dev/shm", "", false))
+	if v1.IsPrivileged(workload) {
+		volumeMounts = append(volumeMounts, buildVolumeMount(DockerSock, "/var/run/docker.sock", "", false))
+	}
+
 	maxId := 0
-	if workspace != nil {
+	if workspace != nil && v1.IsEnableWorkspaceStorage(workload) {
 		for _, vol := range workspace.Spec.Volumes {
 			if vol.Id > maxId {
 				maxId = vol.Id
@@ -329,7 +341,7 @@ func modifyVolumes(obj *unstructured.Unstructured, workload *v1.Workload, worksp
 
 	maxId := 0
 	hasNewVolume := false
-	if workspace != nil {
+	if workspace != nil && v1.IsEnableWorkspaceStorage(workload) {
 		for _, vol := range workspace.Spec.Volumes {
 			if vol.Id > maxId {
 				maxId = vol.Id
@@ -337,7 +349,7 @@ func modifyVolumes(obj *unstructured.Unstructured, workload *v1.Workload, worksp
 			volumeName := vol.GenFullVolumeId()
 			var volume interface{}
 			if vol.Type == v1.HOSTPATH {
-				volume = buildHostPathVolume(volumeName, vol.HostPath)
+				volume = buildHostPathVolume(volumeName, vol.HostPath, "Directory")
 			} else {
 				volume = buildPvcVolume(volumeName)
 			}
@@ -348,7 +360,7 @@ func modifyVolumes(obj *unstructured.Unstructured, workload *v1.Workload, worksp
 	for _, hostpath := range workload.Spec.Hostpath {
 		maxId++
 		volumeName := v1.GenFullVolumeId(v1.HOSTPATH, maxId)
-		volumes = append(volumes, buildHostPathVolume(volumeName, hostpath))
+		volumes = append(volumes, buildHostPathVolume(volumeName, hostpath, "Directory"))
 		hasNewVolume = true
 	}
 	for _, secret := range workload.Spec.Secrets {
@@ -356,6 +368,10 @@ func modifyVolumes(obj *unstructured.Unstructured, workload *v1.Workload, worksp
 			volumes = append(volumes, buildSecretVolume(secret.Id))
 			hasNewVolume = true
 		}
+	}
+	if v1.IsPrivileged(workload) {
+		volumes = append(volumes, buildHostPathVolume(DockerSock, "/var/run/docker.sock", "Socket"))
+		hasNewVolume = true
 	}
 	if !hasNewVolume {
 		return nil
@@ -422,7 +438,7 @@ func modifyServiceAccountName(obj *unstructured.Unstructured, workload *v1.Workl
 	return nil
 }
 
-// modifyHostNetwork enables or disables host networking based on workload annotations.
+// modifyHostNetwork enables or disables host networking based on workload rdma-resource.
 func modifyHostNetwork(obj *unstructured.Unstructured, workload *v1.Workload, path []string, resourceId int) error {
 	isEnableHostNetwork := workload.Spec.Resources[resourceId].RdmaResource != ""
 	if err := jobutils.SetNestedField(obj.Object, isEnableHostNetwork, path); err != nil {
@@ -504,14 +520,21 @@ func modifyTolerations(obj *unstructured.Unstructured, workload *v1.Workload, pa
 
 // buildCommands constructs the command array for executing the workload entry point.
 func buildCommands(workload *v1.Workload, id int) []interface{} {
+	if commonworkload.IsRayJob(workload) {
+		return []interface{}{buildEntryPoint(workload, id)}
+	}
 	return []interface{}{"/bin/sh", "-c", buildEntryPoint(workload, id)}
 }
 
 // buildEntryPoint constructs the command entry point for a workload.
 func buildEntryPoint(workload *v1.Workload, id int) string {
-	if workload.Spec.EntryPoints[id] == "" {
+	if len(workload.Spec.EntryPoints) <= id || workload.Spec.EntryPoints[id] == "" {
+		if commonworkload.IsRayJob(workload) {
+			return Launcher
+		}
 		return ""
 	}
+
 	result := ""
 	switch workload.SpecKind() {
 	case common.CICDScaleRunnerSetKind:
@@ -520,6 +543,64 @@ func buildEntryPoint(workload *v1.Workload, id int) string {
 		result = Launcher + " '" + workload.Spec.EntryPoints[id] + "'"
 	}
 	return result
+}
+
+// buildRayJobSubmitterTemplate builds a complete submitter pod template per KubeRay's GetSubmitterTemplate.
+// It uses the image from the Ray head container and applies our labels/annotations.
+func buildRayJobSubmitterTemplate(adminWorkload *v1.Workload) (map[string]interface{}, error) {
+	if len(adminWorkload.Spec.Images) == 0 {
+		return nil, fmt.Errorf("cannot get head container image from RayJob rayClusterSpec")
+	}
+	headImage := adminWorkload.Spec.Images[0]
+	labels := buildPodLabels(adminWorkload)
+	annotations := buildObjectAnnotations(adminWorkload)
+	annotations[v1.MainContainerAnnotation] = common.RayJobSubmitterName
+	labelsMap := make(map[string]interface{}, len(labels))
+	for k, v := range labels {
+		labelsMap[k] = v
+	}
+	annotationsMap := make(map[string]interface{}, len(annotations))
+	for k, v := range annotations {
+		annotationsMap[k] = v
+	}
+	submitterContainer := map[string]interface{}{
+		"name":  common.RayJobSubmitterName,
+		"image": headImage,
+		"resources": map[string]interface{}{
+			"limits": map[string]interface{}{
+				"cpu":    common.RayJobSubmitterCpu,
+				"memory": common.RayJobSubmitterMemory,
+			},
+			"requests": map[string]interface{}{
+				"cpu":    common.RayJobSubmitterCpu,
+				"memory": common.RayJobSubmitterMemory,
+			},
+		},
+	}
+	return map[string]interface{}{
+		"metadata": map[string]interface{}{
+			"labels":      labelsMap,
+			"annotations": annotationsMap,
+		},
+		"spec": map[string]interface{}{
+			"containers":    []interface{}{submitterContainer},
+			"restartPolicy": "Never",
+		},
+	}, nil
+}
+
+// syncRayJobSubmitterPodMetadata sets spec.submitterPodTemplate to a complete template matching
+// KubeRay's GetSubmitterTemplate default, with our labels and annotations applied.
+// KubeRay requires a full PodTemplateSpec when SubmitterPodTemplate is set
+func syncRayJobSubmitterPodMetadata(obj *unstructured.Unstructured, adminWorkload *v1.Workload) error {
+	template, err := buildRayJobSubmitterTemplate(adminWorkload)
+	if err != nil {
+		return err
+	}
+	if err = jobutils.SetNestedField(obj.Object, template, []string{"spec", "submitterPodTemplate"}); err != nil {
+		return fmt.Errorf("failed to set submitterPodTemplate: %w", err)
+	}
+	return nil
 }
 
 // buildObjectLabels creates a map of labels for object tracking.
@@ -582,6 +663,23 @@ func buildResources(resourceList corev1.ResourceList) map[string]interface{} {
 // buildEnvironment creates environment variables for the workload container.
 func buildEnvironment(workload *v1.Workload, resourceId int) []interface{} {
 	var result []interface{}
+	if workload.GetEnv("AINIC_DRIVER_VERSION") != "" {
+		result = addEnvVar(result, workload, "NCCL_IB_GID_INDEX", "1")
+		result = addEnvVar(result, workload, "NCCL_IB_TC", "104")
+		result = addEnvVar(result, workload, "NCCL_IB_FIFO_TC", "192")
+		result = addEnvVar(result, workload, "NCCL_DMABUF_ENABLE", "0")
+		result = addEnvVar(result, workload, "NCCL_MAX_P2P_CHANNELS", "56")
+		result = addEnvVar(result, workload, "NET_OPTIONAL_RECV_COMPLETION", "1")
+		result = addEnvVar(result, workload, "NCCL_IB_USE_INLINE", "1")
+		result = addEnvVar(result, workload, "RCCL_GDR_FLUSH_GPU_MEM_NO_RELAXED_ORDERING", "0")
+		result = addEnvVar(result, workload, "NCCL_GDR_FLUSH_DISABLE", "1")
+		result = addEnvVar(result, workload, "NCCL_IGNORE_CPU_AFFINITY", "1")
+		result = addEnvVar(result, workload, "LD_LIBRARY_PATH", "/opt/amd-anp/build:/opt/rccl/build/release:/opt/rocm/lib")
+	} else {
+		result = addEnvVar(result, workload, "NCCL_IB_GID_INDEX", "3")
+		result = addEnvVar(result, workload, "NCCL_IB_TC", "41")
+	}
+
 	if workload.Spec.IsSupervised {
 		result = addEnvVar(result, workload, "ENABLE_SUPERVISE", v1.TrueStr)
 		if commonconfig.GetWorkloadHangCheckInterval() > 0 {
@@ -595,9 +693,6 @@ func buildEnvironment(workload *v1.Workload, resourceId int) []interface{} {
 	result = addEnvVar(result, workload, "WORKLOAD_ID", getRootWorkloadId(workload))
 	result = addEnvVar(result, workload, "WORKLOAD_KIND", workload.SpecKind())
 	result = addEnvVar(result, workload, "DISPATCH_COUNT", strconv.Itoa(v1.GetWorkloadDispatchCnt(workload)+1))
-	if workload.Spec.SSHPort > 0 {
-		result = addEnvVar(result, workload, "SSH_PORT", strconv.Itoa(workload.Spec.SSHPort))
-	}
 	if commonworkload.IsAuthoring(workload) {
 		result = addEnvVar(result, workload, jobutils.AdminControlPlaneEnv, v1.GetAdminControlPlane(workload))
 	}
@@ -616,23 +711,14 @@ func addEnvVar(result []interface{}, workload *v1.Workload, name, value string) 
 	})
 }
 
-// buildPorts constructs port definitions for the workload container.
+// buildPorts constructs port definitions for the pytorch-job container.
 func buildPorts(workload *v1.Workload) []interface{} {
 	jobPort := map[string]interface{}{
 		"containerPort": int64(workload.Spec.JobPort),
 		"protocol":      "TCP",
+		"name":          common.PytorchJobPortName,
 	}
-	kind := workload.SpecKind()
-	if kind == common.PytorchJobKind || kind == common.AuthoringKind ||
-		kind == common.UnifiedJobKind || kind == common.TorchFTKind {
-		jobPort["name"] = common.PytorchJobPortName
-	}
-	sshPort := map[string]interface{}{
-		"containerPort": int64(workload.Spec.SSHPort),
-		"protocol":      "TCP",
-		"name":          common.SSHPortName,
-	}
-	return []interface{}{jobPort, sshPort}
+	return []interface{}{jobPort}
 }
 
 // buildHealthCheck creates a health check probe configuration.
@@ -665,11 +751,11 @@ func buildVolumeMount(name, mountPath, subPath string, readOnly bool) interface{
 }
 
 // buildHostPathVolume creates a host path volume definition.
-func buildHostPathVolume(volumeName, hostPath string) interface{} {
+func buildHostPathVolume(volumeName, hostPath, hostPathType string) interface{} {
 	return map[string]interface{}{
 		"hostPath": map[string]interface{}{
 			"path": hostPath,
-			"type": "Directory",
+			"type": hostPathType,
 		},
 		"name": volumeName,
 	}
@@ -941,7 +1027,7 @@ func updateCICDScaleSetEnvs(obj *unstructured.Unstructured,
 		val, _ = adminWorkload.Spec.Env[common.UnifiedJobEnable]
 	}
 	if val == v1.TrueStr {
-		pfsPath := getNfsPathFromWorkspace(workspace)
+		pfsPath := getNfsPathFromWorkspace(adminWorkload, workspace)
 		if pfsPath == "" {
 			return fmt.Errorf("failed to get NFS path from workspace")
 		}
@@ -970,6 +1056,27 @@ func updateCICDScaleSetEnvs(obj *unstructured.Unstructured,
 			}
 		}
 		return fmt.Errorf("no main container found")
+	}
+	return nil
+}
+
+// updateRayJob updates the rayjob configuration
+func updateRayJob(obj *unstructured.Unstructured, adminWorkload *v1.Workload) error {
+	jobEntryPoint := adminWorkload.GetEnv(common.RayJobEntrypoint)
+	if jobEntryPoint == "" {
+		return fmt.Errorf("rayjob entrypoint is not set")
+	}
+
+	specObject, ok, err := jobutils.NestedMap(obj.Object, []string{"spec"})
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return fmt.Errorf("failed to find object with path: [spec]")
+	}
+	specObject["entrypoint"] = jobEntryPoint
+	if err = jobutils.SetNestedField(obj.Object, specObject, []string{"spec"}); err != nil {
+		return err
 	}
 	return nil
 }
@@ -1029,9 +1136,7 @@ func updateContainers(adminWorkload *v1.Workload,
 			if len(adminWorkload.Spec.Images) > id && adminWorkload.Spec.Images[id] != "" {
 				container["image"] = adminWorkload.Spec.Images[id]
 			}
-			if len(adminWorkload.Spec.EntryPoints) > id && adminWorkload.Spec.EntryPoints[id] != "" {
-				container["command"] = buildCommands(adminWorkload, id)
-			}
+			container["command"] = buildCommands(adminWorkload, id)
 		}
 	}
 	if err = jobutils.SetNestedField(obj.Object, containers, path); err != nil {
@@ -1166,7 +1271,10 @@ func getContainers(obj *unstructured.Unstructured, resourceSpec v1.ResourceSpec)
 
 // getNfsPathFromWorkspace retrieves the NFS path from the workspace's volumes.
 // It prioritizes PFS type volumes, otherwise falls back to the first available volume's mount path.
-func getNfsPathFromWorkspace(workspace *v1.Workspace) string {
+func getNfsPathFromWorkspace(workload *v1.Workload, workspace *v1.Workspace) string {
+	if !v1.IsEnableWorkspaceStorage(workload) {
+		return ""
+	}
 	result := ""
 	for _, vol := range workspace.Spec.Volumes {
 		if vol.Type == v1.PFS {

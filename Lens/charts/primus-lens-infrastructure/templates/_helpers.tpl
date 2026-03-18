@@ -77,6 +77,54 @@ Get the current profile configuration
 {{- end -}}
 
 {{/*
+Get PostgreSQL data size - supports override via database.storage.size
+*/}}
+{{- define "primus-lens-infra.postgresDataSize" -}}
+{{- $profile := include "primus-lens-infra.profileConfig" . | fromYaml -}}
+{{- if and .Values.database .Values.database.storage .Values.database.storage.size -}}
+{{- .Values.database.storage.size -}}
+{{- else -}}
+{{- $profile.postgres.dataSize -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+Get PostgreSQL backup size - supports override via database.storage.backupSize
+*/}}
+{{- define "primus-lens-infra.postgresBackupSize" -}}
+{{- $profile := include "primus-lens-infra.profileConfig" . | fromYaml -}}
+{{- if and .Values.database .Values.database.storage .Values.database.storage.backupSize -}}
+{{- .Values.database.storage.backupSize -}}
+{{- else -}}
+{{- $profile.postgres.backupSize -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+Get VictoriaMetrics storage size - supports override via victoriametrics.storage.size
+*/}}
+{{- define "primus-lens-infra.vmStorageSize" -}}
+{{- $profile := include "primus-lens-infra.profileConfig" . | fromYaml -}}
+{{- if and .Values.victoriametrics .Values.victoriametrics.storage .Values.victoriametrics.storage.size -}}
+{{- .Values.victoriametrics.storage.size -}}
+{{- else -}}
+{{- $profile.victoriametrics.vmstorage.size -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+Get OpenSearch disk size - supports override via opensearch.storage.size
+*/}}
+{{- define "primus-lens-infra.opensearchDiskSize" -}}
+{{- $profile := include "primus-lens-infra.profileConfig" . | fromYaml -}}
+{{- if and .Values.opensearch .Values.opensearch.storage .Values.opensearch.storage.size -}}
+{{- .Values.opensearch.storage.size -}}
+{{- else -}}
+{{- $profile.opensearch.diskSize -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
 Generate PostgreSQL host
 */}}
 {{- define "primus-lens-infra.postgresHost" -}}

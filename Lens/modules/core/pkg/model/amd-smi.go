@@ -228,6 +228,22 @@ type SocPStateInfo struct {
 	Policies     []PolicyInfo `json:"policies"`
 }
 
+func (s *SocPStateInfo) UnmarshalJSON(data []byte) error {
+	var str string
+	if err := json.Unmarshal(data, &str); err == nil {
+		*s = SocPStateInfo{}
+		return nil
+	}
+
+	type Alias SocPStateInfo
+	var tmp Alias
+	if err := json.Unmarshal(data, &tmp); err != nil {
+		return err
+	}
+	*s = SocPStateInfo(tmp)
+	return nil
+}
+
 type PolicyInfo struct {
 	PolicyID          int    `json:"policy_id"`
 	PolicyDescription string `json:"policy_description"`
@@ -237,6 +253,22 @@ type XGMIPLPDInfo struct {
 	NumSupported int          `json:"num_supported"`
 	CurrentID    int          `json:"current_id"`
 	PLPDs        []PolicyInfo `json:"plpds"`
+}
+
+func (x *XGMIPLPDInfo) UnmarshalJSON(data []byte) error {
+	var str string
+	if err := json.Unmarshal(data, &str); err == nil {
+		*x = XGMIPLPDInfo{}
+		return nil
+	}
+
+	type Alias XGMIPLPDInfo
+	var tmp Alias
+	if err := json.Unmarshal(data, &tmp); err != nil {
+		return err
+	}
+	*x = XGMIPLPDInfo(tmp)
+	return nil
 }
 
 type NUMAInfo struct {
@@ -444,6 +476,23 @@ type VoltageValueOrNA struct {
 }
 
 func (v *VoltageValueOrNA) UnmarshalJSON(data []byte) error {
+	var str string
+	if err := json.Unmarshal(data, &str); err == nil {
+		if str == "N/A" || str == "" {
+			v.IsNA = true
+			v.Value = 0
+			return nil
+		}
+		if f, err := strconv.ParseFloat(str, 64); err == nil {
+			v.Value = f
+			v.IsNA = false
+			return nil
+		}
+		v.IsNA = true
+		v.Value = 0
+		return nil
+	}
+
 	type Alias struct {
 		Value interface{} `json:"value"`
 		Unit  string      `json:"unit"`

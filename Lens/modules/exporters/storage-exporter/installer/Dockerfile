@@ -1,6 +1,7 @@
 # Dockerfile for storage-exporter
 # Standard lightweight build
 
+ARG REGISTRY=""
 ARG GO_VERSION=1.24.7
 ARG BUILDPATH
 ARG APPNAME
@@ -8,7 +9,7 @@ ARG BASEPATH
 ARG GOPROXY=https://proxy.golang.org,direct
 
 # Stage 1: Build stage
-FROM golang:${GO_VERSION} AS builder
+FROM ${REGISTRY}golang:${GO_VERSION} AS builder
 WORKDIR /app
 
 ARG GITHUB_TOKEN
@@ -36,10 +37,12 @@ RUN echo "BUILDPATH: $BUILDPATH" && \
 
 COPY . .
 
-RUN cd $BASEPATH && CGO_ENABLED=0 go build -tags nosqlite -a -installsuffix cgo -o $APPNAME $BUILDPATH/main.go
+RUN cd Lens/modules/core && go mod tidy
+RUN cd $BASEPATH && go mod tidy && CGO_ENABLED=0 go build -tags nosqlite -a -installsuffix cgo -o $APPNAME $BUILDPATH/main.go
 
 # Stage 2: Runtime stage - lightweight alpine with coreutils for df command
-FROM alpine:3.19
+ARG REGISTRY=""
+FROM ${REGISTRY}alpine:3.19
 
 ARG APPNAME
 ARG BASEPATH

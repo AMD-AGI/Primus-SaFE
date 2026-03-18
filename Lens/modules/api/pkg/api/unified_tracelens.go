@@ -8,9 +8,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/clientsets"
-	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database"
-	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database/model"
+	cpdb "github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/controlplane/database"
+	cpmodel "github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/controlplane/database/model"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/errors"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/mcp/unified"
 	tlconst "github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/tracelens"
@@ -18,6 +17,7 @@ import (
 
 func init() {
 	// TraceLens Session endpoints (GET only)
+	// Session data is now centralized in Control Plane database
 	unified.Register(&unified.EndpointDef[TraceLensResourceProfilesRequest, TraceLensResourceProfilesResponse]{
 		Name:        "tracelens_resource_profiles",
 		Description: "Get available resource profiles for TraceLens sessions (CPU/memory configurations)",
@@ -29,16 +29,16 @@ func init() {
 
 	unified.Register(&unified.EndpointDef[TraceLensSessionsListRequest, TraceLensSessionsListResponse]{
 		Name:        "tracelens_sessions_list",
-		Description: "List all active TraceLens analysis sessions",
+		Description: "List all active TraceLens analysis sessions (from all clusters)",
 		HTTPMethod:  "GET",
 		HTTPPath:    "/tracelens/sessions",
 		MCPToolName: "lens_tracelens_sessions_list",
 		Handler:     handleTraceLensSessionsList,
 	})
 
-	unified.Register(&unified.EndpointDef[TraceLensSessionStatsRequest, map[string]int]{
+	unified.Register(&unified.EndpointDef[TraceLensSessionStatsRequest, TraceLensSessionStatsResponse]{
 		Name:        "tracelens_session_stats",
-		Description: "Get session statistics by status",
+		Description: "Get session statistics by status and cluster",
 		HTTPMethod:  "GET",
 		HTTPPath:    "/tracelens/sessions/stats",
 		MCPToolName: "lens_tracelens_session_stats",
@@ -69,20 +69,20 @@ func init() {
 type TraceLensResourceProfilesRequest struct{}
 
 type TraceLensSessionsListRequest struct {
-	Cluster string `json:"cluster" query:"cluster" mcp:"description=Cluster name"`
+	Cluster string `json:"cluster" query:"cluster" mcp:"description=Optional cluster filter"`
 }
 
 type TraceLensSessionStatsRequest struct {
-	Cluster string `json:"cluster" query:"cluster" mcp:"description=Cluster name"`
+	Cluster string `json:"cluster" query:"cluster" mcp:"description=Optional cluster filter"`
 }
 
 type TraceLensSessionGetRequest struct {
-	Cluster   string `json:"cluster" query:"cluster" mcp:"description=Cluster name"`
+	Cluster   string `json:"cluster" query:"cluster" mcp:"description=Cluster name (optional - sessions are in CP DB)"`
 	SessionID string `json:"session_id" form:"session_id" param:"session_id" binding:"required" mcp:"description=Session ID,required"`
 }
 
 type TraceLensWorkloadSessionsRequest struct {
-	Cluster     string `json:"cluster" query:"cluster" mcp:"description=Cluster name"`
+	Cluster     string `json:"cluster" query:"cluster" mcp:"description=Optional cluster filter"`
 	WorkloadUID string `json:"workload_uid" form:"workload_uid" param:"workload_uid" binding:"required" mcp:"description=Workload UID,required"`
 }
 
@@ -109,6 +109,7 @@ type TraceLensSessionsListResponse struct {
 
 type TraceLensSessionResponse struct {
 	SessionID       string     `json:"session_id"`
+	ClusterName     string     `json:"cluster_name"`
 	WorkloadUID     string     `json:"workload_uid"`
 	ProfilerFileID  int32      `json:"profiler_file_id"`
 	Status          string     `json:"status"`
@@ -122,6 +123,11 @@ type TraceLensSessionResponse struct {
 	ReadyAt         *time.Time `json:"ready_at,omitempty"`
 	LastAccessedAt  *time.Time `json:"last_accessed_at,omitempty"`
 	EstimatedReady  int        `json:"estimated_ready,omitempty"`
+}
+
+type TraceLensSessionStatsResponse struct {
+	ByStatus  map[string]int `json:"by_status"`
+	ByCluster map[string]int `json:"by_cluster"`
 }
 
 // ======================== Handler Implementations ========================
@@ -146,16 +152,34 @@ func handleTraceLensResourceProfiles(ctx context.Context, req *TraceLensResource
 }
 
 func handleTraceLensSessionsList(ctx context.Context, req *TraceLensSessionsListRequest) (*TraceLensSessionsListResponse, error) {
-	cm := clientsets.GetClusterManager()
-	clients, err := cm.GetClusterClientsOrDefault(req.Cluster)
-	if err != nil {
-		return nil, err
+	// Get Control Plane facade
+	cpFacade := cpdb.GetControlPlaneFacade()
+	if cpFacade == nil {
+		return nil, errors.NewError().WithCode(errors.CodeInitializeError).WithMessage("control plane not available")
 	}
+	facade := cpFacade.GetTraceLensSession()
 
-	facade := database.GetFacadeForCluster(clients.ClusterName).GetTraceLensSession()
-	sessions, err := facade.ListActive(ctx)
-	if err != nil {
-		return nil, errors.WrapError(err, "failed to list sessions", errors.CodeDatabaseError)
+	var sessions []*cpmodel.TracelensSessions
+	var err error
+
+	if req.Cluster != "" {
+		// Filter by cluster - get all sessions for the cluster and filter active ones
+		allSessions, err := facade.ListByCluster(ctx, req.Cluster)
+		if err != nil {
+			return nil, errors.WrapError(err, "failed to list sessions", errors.CodeDatabaseError)
+		}
+		sessions = make([]*cpmodel.TracelensSessions, 0)
+		for _, s := range allSessions {
+			if isActiveSessionStatus(s.Status) {
+				sessions = append(sessions, s)
+			}
+		}
+	} else {
+		// List all active sessions across all clusters
+		sessions, err = facade.ListActive(ctx)
+		if err != nil {
+			return nil, errors.WrapError(err, "failed to list sessions", errors.CodeDatabaseError)
+		}
 	}
 
 	resp := &TraceLensSessionsListResponse{
@@ -169,20 +193,28 @@ func handleTraceLensSessionsList(ctx context.Context, req *TraceLensSessionsList
 	return resp, nil
 }
 
-func handleTraceLensSessionStats(ctx context.Context, req *TraceLensSessionStatsRequest) (*map[string]int, error) {
-	cm := clientsets.GetClusterManager()
-	clients, err := cm.GetClusterClientsOrDefault(req.Cluster)
-	if err != nil {
-		return nil, err
+func handleTraceLensSessionStats(ctx context.Context, req *TraceLensSessionStatsRequest) (*TraceLensSessionStatsResponse, error) {
+	// Get Control Plane facade
+	cpFacade := cpdb.GetControlPlaneFacade()
+	if cpFacade == nil {
+		return nil, errors.NewError().WithCode(errors.CodeInitializeError).WithMessage("control plane not available")
 	}
+	facade := cpFacade.GetTraceLensSession()
 
-	facade := database.GetFacadeForCluster(clients.ClusterName).GetTraceLensSession()
-	counts, err := facade.CountByStatus(ctx)
+	byStatus, err := facade.CountByStatus(ctx)
 	if err != nil {
 		return nil, errors.WrapError(err, "failed to get session stats", errors.CodeDatabaseError)
 	}
 
-	return &counts, nil
+	byCluster, err := facade.CountByCluster(ctx)
+	if err != nil {
+		return nil, errors.WrapError(err, "failed to get cluster stats", errors.CodeDatabaseError)
+	}
+
+	return &TraceLensSessionStatsResponse{
+		ByStatus:  byStatus,
+		ByCluster: byCluster,
+	}, nil
 }
 
 func handleTraceLensSessionGet(ctx context.Context, req *TraceLensSessionGetRequest) (*TraceLensSessionResponse, error) {
@@ -190,13 +222,13 @@ func handleTraceLensSessionGet(ctx context.Context, req *TraceLensSessionGetRequ
 		return nil, errors.NewError().WithCode(errors.RequestParameterInvalid).WithMessage("session_id is required")
 	}
 
-	cm := clientsets.GetClusterManager()
-	clients, err := cm.GetClusterClientsOrDefault(req.Cluster)
-	if err != nil {
-		return nil, err
+	// Get Control Plane facade - sessions are centralized
+	cpFacade := cpdb.GetControlPlaneFacade()
+	if cpFacade == nil {
+		return nil, errors.NewError().WithCode(errors.CodeInitializeError).WithMessage("control plane not available")
 	}
+	facade := cpFacade.GetTraceLensSession()
 
-	facade := database.GetFacadeForCluster(clients.ClusterName).GetTraceLensSession()
 	session, err := facade.GetBySessionID(ctx, req.SessionID)
 	if err != nil {
 		return nil, errors.WrapError(err, "failed to get session", errors.CodeDatabaseError)
@@ -214,13 +246,13 @@ func handleTraceLensWorkloadSessions(ctx context.Context, req *TraceLensWorkload
 		return nil, errors.NewError().WithCode(errors.RequestParameterInvalid).WithMessage("workload_uid is required")
 	}
 
-	cm := clientsets.GetClusterManager()
-	clients, err := cm.GetClusterClientsOrDefault(req.Cluster)
-	if err != nil {
-		return nil, err
+	// Get Control Plane facade
+	cpFacade := cpdb.GetControlPlaneFacade()
+	if cpFacade == nil {
+		return nil, errors.NewError().WithCode(errors.CodeInitializeError).WithMessage("control plane not available")
 	}
+	facade := cpFacade.GetTraceLensSession()
 
-	facade := database.GetFacadeForCluster(clients.ClusterName).GetTraceLensSession()
 	sessions, err := facade.ListByWorkloadUID(ctx, req.WorkloadUID)
 	if err != nil {
 		return nil, errors.WrapError(err, "failed to list sessions", errors.CodeDatabaseError)
@@ -237,10 +269,21 @@ func handleTraceLensWorkloadSessions(ctx context.Context, req *TraceLensWorkload
 	return resp, nil
 }
 
+// Helper function to check if status is active
+func isActiveSessionStatus(status string) bool {
+	for _, s := range cpmodel.ActiveStatuses() {
+		if status == s {
+			return true
+		}
+	}
+	return false
+}
+
 // Helper function to convert session model to response
-func toTraceLensSessionResponse(session *model.TracelensSessions) *TraceLensSessionResponse {
+func toTraceLensSessionResponse(session *cpmodel.TracelensSessions) *TraceLensSessionResponse {
 	resp := &TraceLensSessionResponse{
 		SessionID:       session.SessionID,
+		ClusterName:     session.ClusterName,
 		WorkloadUID:     session.WorkloadUID,
 		ProfilerFileID:  session.ProfilerFileID,
 		Status:          session.Status,
@@ -253,7 +296,7 @@ func toTraceLensSessionResponse(session *model.TracelensSessions) *TraceLensSess
 	}
 
 	// Set UI path only if session is ready
-	if session.Status == tlconst.StatusReady {
+	if session.Status == cpmodel.SessionStatusReady {
 		resp.UIPath = fmt.Sprintf("/api/v1/tracelens/sessions/%s/ui/", session.SessionID)
 	}
 
@@ -268,7 +311,7 @@ func toTraceLensSessionResponse(session *model.TracelensSessions) *TraceLensSess
 	}
 
 	// Set estimated ready time for pending/creating sessions
-	if session.Status == tlconst.StatusPending || session.Status == tlconst.StatusCreating {
+	if session.Status == cpmodel.SessionStatusPending || session.Status == cpmodel.SessionStatusCreating {
 		resp.EstimatedReady = 30 // estimated 30 seconds
 	}
 

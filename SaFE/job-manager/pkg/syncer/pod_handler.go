@@ -144,7 +144,11 @@ func (r *SyncerReconciler) updateWorkloadPod(ctx context.Context, obj *unstructu
 		}
 	}
 
-	resourceId, _ := v1.GetResourceId(pod)
+	resourceId, existed := v1.GetResourceId(pod)
+	if !existed && commonworkload.IsRayJob(adminWorkload) {
+		// For RayJob, the ray-job-submitter pod is automatically created as the management pod
+		resourceId = -1
+	}
 	groupId := -1
 	if groupIdStr := v1.GetGroupId(pod); groupIdStr != "" {
 		if groupId, err = strconv.Atoi(groupIdStr); err != nil {
@@ -183,9 +187,6 @@ func (r *SyncerReconciler) updateWorkloadPod(ctx context.Context, obj *unstructu
 	if shouldUpdateNodes {
 		r.updateWorkloadNodes(adminWorkload, message)
 		if isAllPodsAssigned(adminWorkload) {
-			if strings.Contains(adminWorkload.Status.Message, PullingImageMessage) {
-				adminWorkload.Status.Message = ""
-			}
 			if err = r.createStickyNodeFaults(ctx, adminWorkload, message.dispatchCount); err != nil {
 				return ctrlruntime.Result{}, err
 			}
@@ -208,12 +209,10 @@ func updateCICDScalingRunnerSetPhase(adminWorkload *v1.Workload, pod *corev1.Pod
 	}
 	switch pod.Status.Phase {
 	case corev1.PodRunning:
-		adminWorkload.Status.Message = ""
 		adminWorkload.Status.Phase = v1.WorkloadRunning
 	case corev1.PodPending:
 		adminWorkload.Status.Phase = v1.WorkloadPending
 	default:
-		adminWorkload.Status.Message = ""
 		adminWorkload.Status.Phase = v1.WorkloadNotReady
 	}
 }
@@ -448,6 +447,7 @@ func getPodLog(ctx context.Context, clientSet kubernetes.Interface, pod *corev1.
 
 // sortWorkloadPods sorts workload pods by host IP and pod ID to maintain consistent ordering.
 // For TorchFT workloads, pods are first sorted by GroupId, then by host IP and pod ID within the same group.
+// For RayJob workloads, pods are sorted by role: submitter (no -head-/-worker-) first, then head, then worker (by name).
 // For regular workloads, pods are sorted directly by host IP and pod ID.
 // This ensures consistent ordering of pods for node assignment tracking.
 func sortWorkloadPods(adminWorkload *v1.Workload) {
@@ -461,12 +461,33 @@ func sortWorkloadPods(adminWorkload *v1.Workload) {
 			}
 			return pods[i].GroupId < pods[j].GroupId
 		})
+	} else if commonworkload.IsRayJob(adminWorkload) {
+		// For RayJob: submitter first, then head, then worker (by name)
+		sort.Slice(pods, func(i, j int) bool {
+			tierI := getRayJobPodTier(pods[i].PodId)
+			tierJ := getRayJobPodTier(pods[j].PodId)
+			if tierI != tierJ {
+				return tierI < tierJ
+			}
+			return pods[i].PodId < pods[j].PodId
+		})
 	} else {
 		// For regular workloads, sort directly by host IP and pod ID
 		sort.Slice(pods, func(i, j int) bool {
 			return comparePodsByIPAndID(pods[i], pods[j])
 		})
 	}
+}
+
+// getRayJobPodTier returns sort tier for RayJob pods: 0=submitter, 1=head, 2=worker
+func getRayJobPodTier(podId string) int {
+	if strings.Contains(podId, "-head-") {
+		return 1
+	}
+	if strings.Contains(podId, "-worker-") {
+		return 2
+	}
+	return 0 // submitter or other
 }
 
 // comparePodsByIPAndID sort by hostIp and podId
@@ -485,14 +506,19 @@ func getMainContainerName(adminWorkload *v1.Workload, pod *corev1.Pod) string {
 	mainContainerName := v1.GetMainContainer(pod)
 	if mainContainerName == "" {
 		// TODO: Keep old logic for compatibility; remove it later.
-		mainContainerName = v1.GetMainContainer(adminWorkload)
+		mainContainerName = commonworkload.GetMainContainer(adminWorkload, adminWorkload.SpecKind(), pod.Name)
 	}
 	return mainContainerName
 }
 
 // isAllPodsAssigned checks if all pods in the workload are in Running or Termination phase
 func isAllPodsAssigned(workload *v1.Workload) bool {
-	if len(workload.Status.Pods) != commonworkload.GetTotalReplica(workload) {
+	if commonworkload.IsRayJob(workload) {
+		// For RayJob, the ray-job-submitter pod is automatically created as the management pod
+		if len(workload.Status.Pods) != commonworkload.GetTotalReplica(workload)+1 {
+			return false
+		}
+	} else if len(workload.Status.Pods) != commonworkload.GetTotalReplica(workload) {
 		return false
 	}
 	for _, p := range workload.Status.Pods {

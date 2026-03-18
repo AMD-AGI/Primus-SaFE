@@ -1,0 +1,11 @@
+# VictoriaMetrics Operator Configuration
+victoria-metrics-operator:
+  operator:
+    enable_converter_ownership: true
+    resources:
+      limits:
+        cpu: 200m
+        memory: 150Mi
+      requests:
+        cpu: 50m
+        memory: 100Mi

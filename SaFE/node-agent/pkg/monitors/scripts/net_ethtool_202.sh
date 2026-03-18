@@ -22,7 +22,7 @@ while read -r line; do
   netdev=$(echo "$line" | awk '{print $NF}')
   nsenter --target 1 --mount --uts --ipc --net --pid -- /usr/sbin/ethtool -t $netdev online |grep "FAIL" > /dev/null
   if [ $? -eq 0 ]; then
-      echo "Error: failed to test $netdev"
-      exit 1
+    echo "Error: Network device '$netdev' failed the ethtool online test. "
+    exit 1
   fi
 done <<< "$data"

@@ -77,6 +77,8 @@ type FacadeInterface interface {
 	GetGithubWorkflowCommit() GithubWorkflowCommitFacadeInterface
 	// GetGithubWorkflowRunDetails returns the GithubWorkflowRunDetails Facade interface
 	GetGithubWorkflowRunDetails() GithubWorkflowRunDetailsFacadeInterface
+	// GetGithubWorkflowRunSummary returns the GithubWorkflowRunSummary Facade interface
+	GetGithubWorkflowRunSummary() *GithubWorkflowRunSummaryFacade
 	// GetDashboardSummary returns the DashboardSummary Facade interface
 	GetDashboardSummary() DashboardSummaryFacadeInterface
 	// GetMetricBaseline returns the MetricBaseline Facade interface
@@ -87,6 +89,16 @@ type FacadeInterface interface {
 	GetNotificationChannel() NotificationChannelFacadeInterface
 	// GetPodRunningPeriods returns the PodRunningPeriods Facade interface
 	GetPodRunningPeriods() PodRunningPeriodsFacadeInterface
+	// GetWorkloadCodeSnapshot returns the WorkloadCodeSnapshot Facade interface
+	GetWorkloadCodeSnapshot() WorkloadCodeSnapshotFacadeInterface
+	// GetImageRegistryCache returns the ImageRegistryCache Facade interface
+	GetImageRegistryCache() ImageRegistryCacheFacadeInterface
+	// GetIntentRule returns the IntentRule Facade interface
+	GetIntentRule() IntentRuleFacadeInterface
+	// GetWorkloadResource returns the WorkloadResource Facade interface
+	GetWorkloadResource() WorkloadResourceFacadeInterface
+	// GetProfilerFile returns the ProfilerFile Facade interface
+	GetProfilerFile() ProfilerFileFacadeInterface
 	// WithCluster returns a new Facade instance using the specified cluster
 	WithCluster(clusterName string) FacadeInterface
 }
@@ -129,11 +141,17 @@ type Facade struct {
 	GithubRunnerSet           GithubRunnerSetFacadeInterface
 	GithubWorkflowCommit      GithubWorkflowCommitFacadeInterface
 	GithubWorkflowRunDetails  GithubWorkflowRunDetailsFacadeInterface
+	GithubWorkflowRunSummary  *GithubWorkflowRunSummaryFacade
 	DashboardSummary          DashboardSummaryFacadeInterface
 	MetricBaseline            MetricBaselineFacadeInterface
 	CommitImpactAnalysis      CommitImpactAnalysisFacadeInterface
 	NotificationChannel       NotificationChannelFacadeInterface
 	PodRunningPeriods         PodRunningPeriodsFacadeInterface
+	WorkloadCodeSnapshot     WorkloadCodeSnapshotFacadeInterface
+	ImageRegistryCache       ImageRegistryCacheFacadeInterface
+	IntentRule               IntentRuleFacadeInterface
+	WorkloadResource         WorkloadResourceFacadeInterface
+	ProfilerFile             ProfilerFileFacadeInterface
 }
 
 // NewFacade creates a new Facade instance
@@ -175,11 +193,17 @@ func NewFacade() *Facade {
 		GithubRunnerSet:           NewGithubRunnerSetFacade(),
 		GithubWorkflowCommit:      NewGithubWorkflowCommitFacade(),
 		GithubWorkflowRunDetails:  NewGithubWorkflowRunDetailsFacade(),
+		GithubWorkflowRunSummary:  NewGithubWorkflowRunSummaryFacade(),
 		DashboardSummary:          NewDashboardSummaryFacade(),
 		MetricBaseline:            NewMetricBaselineFacade(),
 		CommitImpactAnalysis:      NewCommitImpactAnalysisFacade(),
 		NotificationChannel:       NewNotificationChannelFacade(),
 		PodRunningPeriods:         NewPodRunningPeriodsFacade(),
+		WorkloadCodeSnapshot:     NewWorkloadCodeSnapshotFacade(),
+		ImageRegistryCache:       NewImageRegistryCacheFacade(),
+		IntentRule:               NewIntentRuleFacade(),
+		WorkloadResource:         NewWorkloadResourceFacade(),
+		ProfilerFile:             NewProfilerFileFacade(),
 	}
 }
 
@@ -363,6 +387,11 @@ func (f *Facade) GetGithubWorkflowRunDetails() GithubWorkflowRunDetailsFacadeInt
 	return f.GithubWorkflowRunDetails
 }
 
+// GetGithubWorkflowRunSummary returns the GithubWorkflowRunSummary Facade interface
+func (f *Facade) GetGithubWorkflowRunSummary() *GithubWorkflowRunSummaryFacade {
+	return f.GithubWorkflowRunSummary
+}
+
 // GetDashboardSummary returns the DashboardSummary Facade interface
 func (f *Facade) GetDashboardSummary() DashboardSummaryFacadeInterface {
 	return f.DashboardSummary
@@ -386,6 +415,31 @@ func (f *Facade) GetNotificationChannel() NotificationChannelFacadeInterface {
 // GetPodRunningPeriods returns the PodRunningPeriods Facade interface
 func (f *Facade) GetPodRunningPeriods() PodRunningPeriodsFacadeInterface {
 	return f.PodRunningPeriods
+}
+
+// GetWorkloadCodeSnapshot returns the WorkloadCodeSnapshot Facade interface
+func (f *Facade) GetWorkloadCodeSnapshot() WorkloadCodeSnapshotFacadeInterface {
+	return f.WorkloadCodeSnapshot
+}
+
+// GetImageRegistryCache returns the ImageRegistryCache Facade interface
+func (f *Facade) GetImageRegistryCache() ImageRegistryCacheFacadeInterface {
+	return f.ImageRegistryCache
+}
+
+// GetIntentRule returns the IntentRule Facade interface
+func (f *Facade) GetIntentRule() IntentRuleFacadeInterface {
+	return f.IntentRule
+}
+
+// GetWorkloadResource returns the WorkloadResource Facade interface
+func (f *Facade) GetWorkloadResource() WorkloadResourceFacadeInterface {
+	return f.WorkloadResource
+}
+
+// GetProfilerFile returns the ProfilerFile Facade interface
+func (f *Facade) GetProfilerFile() ProfilerFileFacadeInterface {
+	return f.ProfilerFile
 }
 
 // WithCluster returns a new Facade instance, all sub-Facades use the specified cluster
@@ -427,11 +481,17 @@ func (f *Facade) WithCluster(clusterName string) FacadeInterface {
 		GithubRunnerSet:           f.GithubRunnerSet.WithCluster(clusterName),
 		GithubWorkflowCommit:      f.GithubWorkflowCommit.WithCluster(clusterName),
 		GithubWorkflowRunDetails:  f.GithubWorkflowRunDetails.WithCluster(clusterName),
+		GithubWorkflowRunSummary:  f.GithubWorkflowRunSummary.WithCluster(clusterName),
 		DashboardSummary:          f.DashboardSummary.WithCluster(clusterName),
 		MetricBaseline:            f.MetricBaseline.WithCluster(clusterName),
 		CommitImpactAnalysis:      f.CommitImpactAnalysis.WithCluster(clusterName),
 		NotificationChannel:       f.NotificationChannel.WithCluster(clusterName),
 		PodRunningPeriods:         f.PodRunningPeriods.WithCluster(clusterName),
+		WorkloadCodeSnapshot:     f.WorkloadCodeSnapshot.WithCluster(clusterName),
+		ImageRegistryCache:       f.ImageRegistryCache.WithCluster(clusterName),
+		IntentRule:               f.IntentRule.WithCluster(clusterName),
+		WorkloadResource:         f.WorkloadResource.WithCluster(clusterName),
+		ProfilerFile:             f.ProfilerFile.WithCluster(clusterName),
 	}
 }
 

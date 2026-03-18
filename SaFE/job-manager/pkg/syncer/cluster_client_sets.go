@@ -21,7 +21,6 @@ import (
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	commoncluster "github.com/AMD-AIG-AIMA/SAFE/common/pkg/cluster"
-	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/controller"
 	commonclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/k8sclient"
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
@@ -199,13 +198,6 @@ func (r *ClusterClientSets) handleResource(_ context.Context, oldObj, newObj int
 	}
 	if msg.action != ResourceDel && !newUnstructured.GetDeletionTimestamp().IsZero() {
 		msg.action = ResourceDeleting
-	}
-
-	if newUnstructured.GetKind() == common.EventKind {
-		if isRelevantPodEvent(newUnstructured) {
-			r.handler(msg)
-		}
-		return
 	}
 
 	// Only resources dispatched by this system are currently synchronized; others are ignored

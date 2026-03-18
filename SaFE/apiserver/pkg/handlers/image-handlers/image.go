@@ -35,11 +35,13 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
 	apiutils "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/utils"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
+	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/crypto"
 	dbClient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client/model"
 	dbutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/utils"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
+	commonsearch "github.com/AMD-AIG-AIMA/SAFE/common/pkg/opensearch"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/timeutil"
 )
 
@@ -364,6 +366,122 @@ func (h *ImageHandler) getImportingDetail(c *gin.Context) (*ImportDetailResponse
 	return &ImportDetailResponse{
 		LayersDetail: importImage.Layer,
 	}, nil
+}
+
+// getImportingLogs retrieves logs for an image import job from OpenSearch.
+// Queries OpenSearch by the import job's pod name prefix to get real-time and historical logs.
+// Falls back to the DB stored log if OpenSearch is not enabled or the job has not been dispatched.
+func (h *ImageHandler) getImportingLogs(c *gin.Context) (interface{}, error) {
+	id, err := parseImageID(c.Param("id"))
+	if err != nil {
+		return nil, err
+	}
+
+	if err = h.accessController.Authorize(authority.AccessInput{
+		Context:      c.Request.Context(),
+		ResourceKind: authority.ImageImportKind,
+		Verb:         v1.GetVerb,
+		UserId:       c.GetString(common.UserId),
+	}); err != nil {
+		return nil, err
+	}
+
+	existImage, err := h.dbClient.GetImage(c, id)
+	if err != nil {
+		return nil, err
+	}
+	if existImage == nil {
+		return nil, commonerrors.NewNotFound("get image by id", strconv.Itoa(int(id)))
+	}
+
+	importImage, err := h.dbClient.GetImportImageByImageID(c, existImage.ID)
+	if err != nil {
+		return nil, err
+	}
+	if importImage == nil {
+		return nil, commonerrors.NewNotFound("get import image by id", strconv.Itoa(int(id)))
+	}
+
+	// If job has not been dispatched yet, return DB log (if any)
+	if importImage.JobName == "" {
+		return &ImportImageLogsResponse{
+			ImageID:     existImage.ID,
+			Logs:        importImage.Log,
+			OsArch:      fmt.Sprintf(OSArchFormat, importImage.Os, importImage.Arch),
+			SrcName:     importImage.SrcTag,
+			DestName:    importImage.DstName,
+			CreatedTime: importImage.CreatedAt,
+		}, nil
+	}
+
+	// If OpenSearch is not enabled, fall back to DB log
+	if !commonconfig.IsOpenSearchEnable() {
+		return &ImportImageLogsResponse{
+			ImageID:     existImage.ID,
+			Logs:        importImage.Log,
+			OsArch:      fmt.Sprintf(OSArchFormat, importImage.Os, importImage.Arch),
+			SrcName:     importImage.SrcTag,
+			DestName:    importImage.DstName,
+			CreatedTime: importImage.CreatedAt,
+		}, nil
+	}
+
+	// Query OpenSearch for logs by pod name prefix (job pod name = jobName + "-xxxxx")
+	opensearchClient := commonsearch.GetAnyOpensearchClient()
+	if opensearchClient == nil {
+		return nil, commonerrors.NewInternalError("OpenSearch client is not available")
+	}
+
+	// Parse query parameters
+	limit := 500
+	if l := c.Query("limit"); l != "" {
+		if parsed, err := strconv.Atoi(l); err == nil && parsed > 0 && parsed <= commonsearch.MaxDocsPerQuery {
+			limit = parsed
+		}
+	}
+	order := "asc"
+	if o := c.Query("order"); o == "desc" {
+		order = "desc"
+	}
+
+	sinceTime := importImage.CreatedAt
+	untilTime := time.Now().UTC()
+
+	searchBody := buildImportLogSearchBody(importImage.JobName, sinceTime, untilTime, limit, order)
+	return opensearchClient.SearchByTimeRange(sinceTime, untilTime, "", "/_search", searchBody)
+}
+
+// buildImportLogSearchBody builds the OpenSearch query body for import job logs.
+// Filters by pod_name prefix matching the job name (K8s Job pods are named <jobName>-<random>).
+func buildImportLogSearchBody(jobName string, sinceTime, untilTime time.Time, limit int, order string) []byte {
+	req := &commonsearch.OpenSearchRequest{
+		From: 0,
+		Size: limit,
+		Source: []string{
+			commonsearch.TimeField, commonsearch.MessageField, commonsearch.StreamField,
+			"kubernetes.pod_name", "kubernetes.host", "kubernetes.container_name",
+		},
+	}
+	req.Sort = []commonsearch.OpenSearchField{{
+		commonsearch.TimeField: map[string]interface{}{
+			"order": order,
+		},
+	}}
+	req.Query.Bool.Must = []commonsearch.OpenSearchField{{
+		"range": map[string]interface{}{
+			commonsearch.TimeField: map[string]string{
+				"gte": sinceTime.Format(time.RFC3339),
+				"lte": untilTime.Format(time.RFC3339),
+			},
+		},
+	}}
+	req.Query.Bool.Filter = []commonsearch.OpenSearchField{{
+		"prefix": map[string]interface{}{
+			"kubernetes.pod_name.keyword": jobName,
+		},
+	}}
+	body, _ := json.Marshal(req)
+	return body
 }
 
 // cvtImageToResponse converts database images to a grouped response format.

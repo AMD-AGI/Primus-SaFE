@@ -58,6 +58,10 @@ echo "✅ Image Registry: \"$proxy_image_registry\""
 echo "✅ Helm Registry: \"$helm_registry\""
 echo "✅ CD Require Approval: \"$cd_require_approval\""
 echo "✅ Install Node Agent: \"${install_node_agent:-y}\""
+echo "✅ CSI Volume Handle: \"$csi_volume_handle\""
+echo "✅ Node Agent GPU Driver: \"${node_agent_gpu_driver:-6.12.12}\""
+echo "✅ Node Agent ROCm Version: \"${node_agent_rocm_version:-6.4}\""
+echo "✅ Node Agent Toggles: net_bnxt_load_204=${node_agent_toggle_net_bnxt_load_204:-off}, net_ainic_load_205=${node_agent_toggle_net_ainic_load_205:-off}, net_ainic_devices_208=${node_agent_toggle_net_ainic_devices_208:-off}, sys_csi_wekafs_309=${node_agent_toggle_sys_csi_wekafs_309:-off}"
 
 echo
 
@@ -93,6 +97,7 @@ cp "$src_values_yaml" "${values_yaml}"
 
 safe_image=$(printf '%s\n' "$proxy_image_registry" | sed 's/[&/\]/\\&/g')
 sed -i '/global:/,/^[a-z]/ s/image_registry: .*/image_registry: "'"$safe_image"'"/' "$values_yaml"
+sed -i "s/csi_volume_handle: \".*\"/csi_volume_handle: \"$csi_volume_handle\"/" "$values_yaml"
 
 sed -i "s/nccl_socket_ifname: \".*\"/nccl_socket_ifname: \"$ethernet_nic\"/" "$values_yaml"
 sed -i "s/nccl_ib_hca: \".*\"/nccl_ib_hca: \"$rdma_nic\"/" "$values_yaml"
@@ -179,34 +184,6 @@ rm -f "$values_yaml"
 
 
 echo
-echo "========================================="
-echo "🔧 Step 4: upgrade primus-safe data plane"
-echo "========================================="
-
-# Check if node-agent installation is enabled (default: y)
-if [[ "${install_node_agent:-y}" == "n" ]]; then
-  echo "⏭️  Skipping node-agent upgrade (install_node_agent=n)"
-else
-  cd ../node-agent/charts/
-  src_values_yaml="node-agent/values.yaml"
-  if [ ! -f "$src_values_yaml" ]; then
-    echo "Error: $src_values_yaml does not exist"
-    exit 1
-  fi
-  values_yaml="node-agent/.values.yaml"
-  cp "$src_values_yaml" "${values_yaml}"
-
-  sed -i '/node_agent:/,/^[a-z]/ s/image_registry: .*/image_registry: "'"$safe_image"'"/' "$values_yaml"
-
-  sed -i "s/nccl_socket_ifname: \".*\"/nccl_socket_ifname: \"$ethernet_nic\"/" "$values_yaml"
-  sed -i "s/nccl_ib_hca: \".*\"/nccl_ib_hca: \"$rdma_nic\"/" "$values_yaml"
-  sed -i "s/image_pull_secret: \".*\"/image_pull_secret: \"$IMAGE_PULL_SECRET\"/" "$values_yaml"
-
-  install_or_upgrade_helm_chart "node-agent" "$values_yaml"
-  rm -f "$values_yaml"
-fi
-
-echo
 echo "==============================="
-echo "🔧 Step 5: All completed!"
+echo "🔧 Step 4: All completed!"
 echo "==============================="

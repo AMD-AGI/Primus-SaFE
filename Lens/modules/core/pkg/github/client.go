@@ -170,6 +170,7 @@ func (c *Client) GetWorkflowRun(ctx context.Context, owner, repo string, runID i
 		WorkflowID     int64  `json:"workflow_id"`
 		Name           string `json:"name"`
 		Path           string `json:"path"`
+		DisplayTitle   string `json:"display_title"`
 		Status         string `json:"status"`
 		Conclusion     string `json:"conclusion"`
 		HTMLURL        string `json:"html_url"`
@@ -185,6 +186,10 @@ func (c *Client) GetWorkflowRun(ctx context.Context, owner, repo string, runID i
 		HeadRepository struct {
 			FullName string `json:"full_name"`
 		} `json:"head_repository"`
+		Actor struct {
+			Login string `json:"login"`
+			ID    int64  `json:"id"`
+		} `json:"actor"`
 		TriggeringActor struct {
 			Login string `json:"login"`
 			ID    int64  `json:"id"`
@@ -214,6 +219,7 @@ func (c *Client) GetWorkflowRun(ctx context.Context, owner, repo string, runID i
 		WorkflowID:     ghRun.WorkflowID,
 		WorkflowName:   ghRun.Name,
 		WorkflowPath:   ghRun.Path,
+		DisplayTitle:   ghRun.DisplayTitle,
 		Status:         ghRun.Status,
 		Conclusion:     ghRun.Conclusion,
 		HTMLURL:        ghRun.HTMLURL,
@@ -227,6 +233,10 @@ func (c *Client) GetWorkflowRun(ctx context.Context, owner, repo string, runID i
 		HeadSHA:        ghRun.HeadSHA,
 		HeadBranch:     ghRun.HeadBranch,
 		HeadRepository: ghRun.HeadRepository.FullName,
+		Actor: &Actor{
+			Login: ghRun.Actor.Login,
+			ID:    ghRun.Actor.ID,
+		},
 		TriggerActor: &Actor{
 			Login: ghRun.TriggeringActor.Login,
 			ID:    ghRun.TriggeringActor.ID,
@@ -281,6 +291,7 @@ func (c *Client) GetWorkflowRunJobs(ctx context.Context, owner, repo string, run
 			CompletedAt *time.Time `json:"completed_at"`
 			RunnerID    int64      `json:"runner_id"`
 			RunnerName  string     `json:"runner_name"`
+			HTMLURL     string     `json:"html_url"`
 			Steps       []struct {
 				Name        string     `json:"name"`
 				Status      string     `json:"status"`
@@ -307,6 +318,7 @@ func (c *Client) GetWorkflowRunJobs(ctx context.Context, owner, repo string, run
 			CompletedAt: j.CompletedAt,
 			RunnerID:    j.RunnerID,
 			RunnerName:  j.RunnerName,
+			HTMLURL:     j.HTMLURL,
 			Steps:       make([]StepInfo, len(j.Steps)),
 		}
 		for k, s := range j.Steps {
@@ -438,5 +450,147 @@ func (c *Client) ValidateToken(ctx context.Context) (bool, error) {
 	}
 
 	return resp.StatusCode() == http.StatusOK, nil
+}
+
+// GetJobLogs fetches logs for a specific job
+// GitHub API returns a redirect to a time-limited URL for downloading logs
+func (c *Client) GetJobLogs(ctx context.Context, owner, repo string, jobID int64) (string, error) {
+	url := fmt.Sprintf("%s/repos/%s/%s/actions/jobs/%d/logs", c.baseURL, owner, repo, jobID)
+
+	// Create a client that doesn't follow redirects
+	noRedirectClient := resty.New().
+		SetTimeout(defaultTimeout).
+		SetHeader("Accept", "application/vnd.github.v3+json").
+		SetHeader("X-GitHub-Api-Version", "2022-11-28").
+		SetRedirectPolicy(resty.NoRedirectPolicy())
+
+	if c.token != "" {
+		noRedirectClient.SetHeader("Authorization", "Bearer "+c.token)
+	}
+
+	resp, err := noRedirectClient.R().
+		SetContext(ctx).
+		Get(url)
+
+	// Redirect is expected - GitHub returns 302 with Location header
+	if err != nil {
+		// Check if it's a redirect (expected behavior)
+		if resp != nil && resp.StatusCode() == http.StatusFound {
+			location := resp.Header().Get("Location")
+			if location != "" {
+				// Fetch the actual logs from the redirect URL
+				return c.fetchLogsFromURL(ctx, location)
+			}
+		}
+		return "", fmt.Errorf("failed to get job logs: %w", err)
+	}
+
+	// If we got a redirect, follow it
+	if resp.StatusCode() == http.StatusFound {
+		location := resp.Header().Get("Location")
+		if location != "" {
+			return c.fetchLogsFromURL(ctx, location)
+		}
+	}
+
+	if resp.StatusCode() != http.StatusOK {
+		return "", fmt.Errorf("GitHub API error: %s", resp.Status())
+	}
+
+	return string(resp.Body()), nil
+}
+
+// fetchLogsFromURL fetches logs from a pre-signed URL
+func (c *Client) fetchLogsFromURL(ctx context.Context, url string) (string, error) {
+	// Create a new client without auth headers for the pre-signed URL
+	client := resty.New().SetTimeout(60 * time.Second)
+
+	resp, err := client.R().
+		SetContext(ctx).
+		Get(url)
+
+	if err != nil {
+		return "", fmt.Errorf("failed to fetch logs from URL: %w", err)
+	}
+
+	if resp.StatusCode() != http.StatusOK {
+		return "", fmt.Errorf("failed to fetch logs: %s", resp.Status())
+	}
+
+	return string(resp.Body()), nil
+}
+
+// GetWorkflowRunLogs fetches logs for an entire workflow run (zip file URL)
+func (c *Client) GetWorkflowRunLogs(ctx context.Context, owner, repo string, runID int64) (string, error) {
+	url := fmt.Sprintf("%s/repos/%s/%s/actions/runs/%d/logs", c.baseURL, owner, repo, runID)
+
+	// Create a client that doesn't follow redirects
+	noRedirectClient := resty.New().
+		SetTimeout(defaultTimeout).
+		SetHeader("Accept", "application/vnd.github.v3+json").
+		SetHeader("X-GitHub-Api-Version", "2022-11-28").
+		SetRedirectPolicy(resty.NoRedirectPolicy())
+
+	if c.token != "" {
+		noRedirectClient.SetHeader("Authorization", "Bearer "+c.token)
+	}
+
+	resp, err := noRedirectClient.R().
+		SetContext(ctx).
+		Get(url)
+
+	if err != nil {
+		// Check if it's a redirect (expected behavior)
+		if resp != nil && resp.StatusCode() == http.StatusFound {
+			location := resp.Header().Get("Location")
+			if location != "" {
+				return location, nil // Return the download URL
+			}
+		}
+		return "", fmt.Errorf("failed to get workflow run logs: %w", err)
+	}
+
+	if resp.StatusCode() == http.StatusFound {
+		return resp.Header().Get("Location"), nil
+	}
+
+	return "", fmt.Errorf("GitHub API error: %s", resp.Status())
+}
+
+// GetWorkflowFileContent retrieves the workflow YAML file content from GitHub
+func (c *Client) GetWorkflowFileContent(ctx context.Context, owner, repo, path, ref string) (string, error) {
+	url := fmt.Sprintf("%s/repos/%s/%s/contents/%s", c.baseURL, owner, repo, path)
+
+	req := c.httpClient.R().
+		SetContext(ctx).
+		SetHeader("Accept", "application/vnd.github.raw+json")
+
+	if ref != "" {
+		req.SetQueryParam("ref", ref)
+	}
+
+	resp, err := req.Get(url)
+	if err != nil {
+		return "", fmt.Errorf("failed to get workflow file: %w", err)
+	}
+
+	if resp.StatusCode() != http.StatusOK {
+		return "", fmt.Errorf("GitHub API error: %s", resp.Status())
+	}
+
+	return string(resp.Body()), nil
+}
+
+// WorkflowDefinition represents parsed workflow YAML structure
+type WorkflowDefinition struct {
+	Name string                        `yaml:"name"`
+	Jobs map[string]WorkflowJobDef     `yaml:"jobs"`
+}
+
+// WorkflowJobDef represents a job definition in workflow YAML
+type WorkflowJobDef struct {
+	Name   string      `yaml:"name"`
+	Needs  interface{} `yaml:"needs"` // Can be string or []string
+	RunsOn interface{} `yaml:"runs-on"`
 }
 

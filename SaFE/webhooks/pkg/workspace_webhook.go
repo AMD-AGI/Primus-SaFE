@@ -743,7 +743,7 @@ func (v *WorkspaceValidator) validateNodesRemoved(ctx context.Context, workspace
 				continue
 			}
 			return commonerrors.NewForbidden(fmt.Sprintf("the node(%s) is currently in use by"+
-				" the workload(%s) and cannot be removed", p.AdminNodeName, workload.Name))
+				" the workload(%s) and cannot be removed. alternatively, you can force the unbinding.", p.AdminNodeName, workload.Name))
 		}
 	}
 	return nil

@@ -52,9 +52,7 @@ func SubResource(rl1, rl2 corev1.ResourceList) corev1.ResourceList {
 		if exists {
 			subtractedQuantity := quantity1.DeepCopy()
 			subtractedQuantity.Sub(quantity2)
-			if !subtractedQuantity.IsZero() {
-				result[resourceType] = subtractedQuantity
-			}
+			result[resourceType] = subtractedQuantity
 		} else {
 			result[resourceType] = quantity1.DeepCopy()
 		}

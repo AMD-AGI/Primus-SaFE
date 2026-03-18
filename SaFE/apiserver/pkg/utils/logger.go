@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	"github.com/gin-gonic/gin"
 	"k8s.io/klog/v2"
 
@@ -44,21 +45,22 @@ func Logger() gin.HandlerFunc {
 			path = path + "?" + raw
 		}
 		param.Path = path
-		klog.Info(formatter(param))
+		klog.Info(formatter(param, c.GetString(common.UserId)))
 	}
 }
 
 // formatter formats the Gin log parameters into a standardized log message string.
 // It creates a structured log entry containing timestamp, status code, latency, client IP,
 // HTTP method, path, response body size, and any error messages.
-func formatter(param gin.LogFormatterParams) string {
-	return fmt.Sprintf("[GIN] %v | %d | %v | %s | %s %#v | %d |\n%s",
+func formatter(param gin.LogFormatterParams, userId string) string {
+	return fmt.Sprintf("[GIN] %v | %d | %v | %s | %s %#v | %s | %d |\n%s",
 		param.TimeStamp.Format(time.DateTime),
 		param.StatusCode,
 		param.Latency,
 		param.ClientIP,
 		param.Method,
 		param.Path,
+		userId,
 		param.BodySize,
 		param.ErrorMessage,
 	)

@@ -61,13 +61,12 @@ func (f *DashboardSummaryFacade) Create(ctx context.Context, summary *model.Dash
 // Upsert creates or updates a dashboard summary
 func (f *DashboardSummaryFacade) Upsert(ctx context.Context, summary *model.DashboardSummaries) error {
 	return f.getDB().WithContext(ctx).Clauses(clause.OnConflict{
-		Columns: []clause.Column{{Name: "config_id"}, {Name: "summary_date"}},
+		Columns: []clause.Column{{Name: "config_id"}, {Name: "date"}},
 		DoUpdates: clause.AssignmentColumns([]string{
-			"current_run_id", "previous_run_id", "build_status", "build_duration_seconds",
-			"commit_count", "pr_count", "contributor_count", "total_additions", "total_deletions",
-			"overall_perf_change_percent", "regression_count", "improvement_count", "new_metric_count",
-			"top_improvements", "top_regressions", "top_contributors", "active_alerts",
-			"generated_at", "expires_at", "is_stale", "updated_at",
+			"build_status", "perf_change",
+			"commit_count", "contributor_count",
+			"alert_info", "top_improvements", "top_regressions",
+			"ai_insights", "updated_at",
 		}),
 	}).Create(summary).Error
 }
@@ -78,7 +77,7 @@ func (f *DashboardSummaryFacade) GetByConfigAndDate(ctx context.Context, configI
 	// Normalize date to start of day
 	dateOnly := time.Date(date.Year(), date.Month(), date.Day(), 0, 0, 0, 0, date.Location())
 	err := f.getDB().WithContext(ctx).
-		Where("config_id = ? AND summary_date = ?", configID, dateOnly).
+		Where("config_id = ? AND date = ?", configID, dateOnly).
 		First(&summary).Error
 	if err == gorm.ErrRecordNotFound {
 		return nil, nil
@@ -94,7 +93,7 @@ func (f *DashboardSummaryFacade) GetLatestByConfig(ctx context.Context, configID
 	var summary model.DashboardSummaries
 	err := f.getDB().WithContext(ctx).
 		Where("config_id = ?", configID).
-		Order("summary_date DESC").
+		Order("date DESC").
 		First(&summary).Error
 	if err == gorm.ErrRecordNotFound {
 		return nil, nil
@@ -110,13 +109,13 @@ func (f *DashboardSummaryFacade) ListByConfig(ctx context.Context, configID int6
 	query := f.getDB().WithContext(ctx).Where("config_id = ?", configID)
 
 	if startDate != nil {
-		query = query.Where("summary_date >= ?", startDate)
+		query = query.Where("date >= ?", startDate)
 	}
 	if endDate != nil {
-		query = query.Where("summary_date <= ?", endDate)
+		query = query.Where("date <= ?", endDate)
 	}
 
-	query = query.Order("summary_date DESC")
+	query = query.Order("date DESC")
 
 	if limit > 0 {
 		query = query.Limit(limit)
@@ -151,7 +150,7 @@ func (f *DashboardSummaryFacade) Delete(ctx context.Context, id int64) error {
 // DeleteOlderThan deletes summaries older than a given date
 func (f *DashboardSummaryFacade) DeleteOlderThan(ctx context.Context, configID int64, before time.Time) (int64, error) {
 	result := f.getDB().WithContext(ctx).
-		Where("config_id = ? AND summary_date < ?", configID, before).
+		Where("config_id = ? AND date < ?", configID, before).
 		Delete(&model.DashboardSummaries{})
 	return result.RowsAffected, result.Error
 }

@@ -9,19 +9,33 @@ input="$1"
 
 export NODE_RANK="${PET_NODE_RANK:-${NODE_RANK}}"
 export NNODES="${PET_NNODES:-${NNODES}}"
-export PATH_TO_BNXT_TAR_PACKAGE=$PATH_TO_BNXT_TAR_PACKAGE
-export PATH_TO_AINIC_TAR_PACKAGE=$PATH_TO_AINIC_TAR_PACKAGE
-export AMD_ANP_VERSION=$AMD_ANP_VERSION
 export WORKLOAD_KIND=$WORKLOAD_KIND
 
-if [ -f "${PATH_TO_AINIC_TAR_PACKAGE}" ]; then
-  export ENABLE_AINIC=true
+# Export variables for build scripts
+# AINIC driver: AINIC_DRIVER_VERSION (e.g., 1.117.5-a-56)
+export AINIC_DRIVER_VERSION=${AINIC_DRIVER_VERSION}
+# BNXT driver: BNXT_DRIVER_VERSION or PATH_TO_BNXT_TAR_PACKAGE
+export BNXT_DRIVER_VERSION=${BNXT_DRIVER_VERSION}
+export PATH_TO_BNXT_TAR_PACKAGE=${PATH_TO_BNXT_TAR_PACKAGE}
+
+# Build AINIC driver
+if [ -n "${AINIC_DRIVER_VERSION}" ]; then
   /bin/sh /shared-data/build_ainic.sh
-else
-  /bin/sh /shared-data/build_bnxt.sh
+  if [ $? -ne 0 ]; then
+    echo "ERROR: Failed to build AINIC with driver version ${AINIC_DRIVER_VERSION}. Please check input or remove installation"
+    exit 1
+  fi
+  export USING_AINIC=1
+  echo "INFO: AINIC support enabled (USING_AINIC=1)"
 fi
 
+/bin/sh /shared-data/build_bnxt.sh
 /bin/sh /shared-data/build_ssh.sh
+
+if [ -z "$input" ]; then
+    exit 0
+fi
+
 echo "$input" |base64 -d > ".run.sh"
 chmod +x ".run.sh"
 if [ -x /usr/bin/bash ]; then

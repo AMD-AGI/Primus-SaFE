@@ -6,6 +6,7 @@ package github
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -106,11 +107,18 @@ func (m *ClientManager) getTokenFromSecret(ctx context.Context, namespace, secre
 	tokenKeys := []string{"github_token", "token", "GITHUB_TOKEN"}
 	for _, key := range tokenKeys {
 		if token, ok := secret.Data[key]; ok {
-			return string(token), nil
+			// Trim whitespace — some secrets have trailing spaces/newlines
+			return strings.TrimSpace(string(token)), nil
 		}
 	}
 
 	return "", fmt.Errorf("no GitHub token found in secret %s/%s", namespace, secretName)
+}
+
+// GetTokenForSecret returns the GitHub token from a Kubernetes secret.
+// This is useful when external components need the raw token (e.g. for git clone).
+func (m *ClientManager) GetTokenForSecret(ctx context.Context, namespace, secretName string) (string, error) {
+	return m.getTokenFromSecret(ctx, namespace, secretName)
 }
 
 // InvalidateCache removes a client from the cache

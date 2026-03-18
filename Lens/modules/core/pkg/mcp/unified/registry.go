@@ -117,6 +117,22 @@ func (r *Registry) GetMCPTools() []*MCPTool {
 	return tools
 }
 
+// GetMCPToolsByGroup returns MCP tools filtered by group name.
+func (r *Registry) GetMCPToolsByGroup(group string) []*MCPTool {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	var filtered []*MCPTool
+	for _, ep := range r.endpoints {
+		if ep.GetGroup() == group {
+			if tool := ep.GetMCPTool(); tool != nil {
+				filtered = append(filtered, tool)
+			}
+		}
+	}
+	return filtered
+}
+
 // GetEndpoints returns all registered endpoints.
 func (r *Registry) GetEndpoints() []EndpointRegistration {
 	r.mu.RLock()
@@ -183,10 +199,32 @@ func (r *Registry) GetAllEndpoints() []EndpointRegistration {
 }
 
 // GetEndpointByPath returns an endpoint by its HTTP path.
+// Note: If multiple endpoints share the same path with different methods,
+// use GetEndpointByMethodAndPath instead.
 func (r *Registry) GetEndpointByPath(path string) EndpointRegistration {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
+	for _, ep := range r.endpoints {
+		if ep.GetHTTPPath() == path {
+			return ep
+		}
+	}
+	return nil
+}
+
+// GetEndpointByMethodAndPath returns an endpoint matching both HTTP method and path.
+// Falls back to path-only match if no exact method+path combination is found.
+func (r *Registry) GetEndpointByMethodAndPath(method, path string) EndpointRegistration {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	for _, ep := range r.endpoints {
+		if ep.GetHTTPPath() == path && ep.GetHTTPMethod() == method {
+			return ep
+		}
+	}
+	// Fallback: path-only match for backward compatibility
 	for _, ep := range r.endpoints {
 		if ep.GetHTTPPath() == path {
 			return ep

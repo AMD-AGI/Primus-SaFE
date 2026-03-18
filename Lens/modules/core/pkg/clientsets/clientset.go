@@ -8,7 +8,17 @@ import (
 )
 
 // InitClientSets initializes all client sets through ClusterManager
-// ClusterManager will handle the initialization of K8S and Storage clients
-func InitClientSets(ctx context.Context, multiCluster bool, loadK8SClient bool, loadStorageClient bool) error {
-	return InitClusterManager(ctx, multiCluster, loadK8SClient, loadStorageClient)
+// Deprecated: Use InitClusterManager with ComponentDeclaration instead
+// This function is kept for backward compatibility
+func InitClientSets(ctx context.Context, isControlPlane bool, loadK8SClient bool, loadStorageClient bool) error {
+	decl := ComponentDeclaration{
+		RequireK8S:     loadK8SClient,
+		RequireStorage: loadStorageClient,
+	}
+	if isControlPlane {
+		decl.Type = ComponentTypeControlPlane
+	} else {
+		decl.Type = ComponentTypeDataPlane
+	}
+	return InitClusterManager(ctx, decl)
 }

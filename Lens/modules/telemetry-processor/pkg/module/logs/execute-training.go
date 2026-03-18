@@ -15,6 +15,7 @@ import (
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/telemetry-processor/pkg/module/alerts"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/telemetry-processor/pkg/module/log_alert_engine"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/telemetry-processor/pkg/module/pods" // For pod-to-workload UID resolution
 )
 
 func executeWorkloadLog(ctx context.Context, workloadLog *PodLog) error {
@@ -34,6 +35,14 @@ func executeWorkloadLog(ctx context.Context, workloadLog *PodLog) error {
 		return err
 	}
 
+	// Run universal extractor for intent analysis (framework-agnostic AC automaton)
+	if globalExtractor != nil && globalExtractor.HasPatterns() {
+		result := globalExtractor.ProcessLine(workloadLog.Message)
+		if len(result.Matches) > 0 {
+			go processIntentSignals(context.Background(), workloadLog, result)
+		}
+	}
+
 	// Evaluate log against alert rules
 	engine := log_alert_engine.GetGlobalEngine()
 	if engine != nil {
@@ -47,6 +56,49 @@ func executeWorkloadLog(ctx context.Context, workloadLog *PodLog) error {
 	}
 
 	return nil
+}
+
+// processIntentSignals handles intent signals from the universal extractor
+func processIntentSignals(ctx context.Context, podLog *PodLog, result *ExtractionResult) {
+	if podLog.Kubernetes == nil {
+		return
+	}
+
+	podUID := podLog.Kubernetes.PodId
+	if podUID == "" {
+		return
+	}
+
+	// Resolve pod UID to workload UID via pod cache
+	workloadInfo := pods.GetPodUidWorkloadCache()[podUID]
+	if len(workloadInfo) == 0 || len(workloadInfo[0]) < 2 {
+		return
+	}
+	workloadUID := workloadInfo[0][1] // [workloadName, workloadUID]
+	if workloadUID == "" {
+		return
+	}
+
+	// Store signals as detection evidence for the pipeline to consume
+	evidenceFacade := database.NewWorkloadDetectionEvidenceFacade()
+	for _, sig := range result.Matches {
+		evidence := &model.WorkloadDetectionEvidence{
+			WorkloadUID: workloadUID,
+			Source:      "log",
+			SourceType:  "passive",
+			Confidence:  sig.Confidence,
+			Evidence: model.ExtType{
+				"rule_id":  sig.RuleID,
+				"field":    sig.Field,
+				"value":    sig.Value,
+				"position": sig.Position,
+				"method":   "universal_extractor",
+			},
+		}
+		if err := evidenceFacade.CreateEvidence(ctx, evidence); err != nil {
+			log.GlobalLogger().WithContext(ctx).Debugf("Failed to store intent signal: %v", err)
+		}
+	}
 }
 
 // convertToPodLogData converts PodLog to PodLogData for the alert engine

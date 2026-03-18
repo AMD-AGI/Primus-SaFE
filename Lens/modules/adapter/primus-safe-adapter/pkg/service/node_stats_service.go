@@ -86,6 +86,16 @@ func (s *NodeStatsService) Run(ctx context.Context) error {
 
 // processCluster processes a single cluster's node statistics
 func (s *NodeStatsService) processCluster(ctx context.Context, clusterName string) (successCount int, failCount int, err error) {
+	// Check if cluster has storage client initialized
+	cm := clientsets.GetClusterManager()
+	if cm != nil {
+		clientSet, err := cm.GetClientSetByClusterName(clusterName)
+		if err != nil || clientSet.StorageClientSet == nil {
+			log.Warnf("Cluster %s storage client not ready, skipping node stats collection: %v", clusterName, err)
+			return 0, 0, nil
+		}
+	}
+
 	// Get nodes from the specific cluster's Lens database
 	nodes, err := database.GetFacadeForCluster(clusterName).GetNode().ListGpuNodes(ctx)
 	if err != nil {

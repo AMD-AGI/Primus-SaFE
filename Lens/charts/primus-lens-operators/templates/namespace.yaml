@@ -1,6 +1,9 @@
 {{/*
 Namespace creation for Primus Lens
+Only created if createNamespace is true (default: false)
+When false, relies on helm --create-namespace or external namespace creation
 */}}
+{{- if .Values.createNamespace }}
 apiVersion: v1
 kind: Namespace
 metadata:
@@ -8,4 +11,5 @@ metadata:
   labels:
     {{- include "primus-lens-operators.labels" . | nindent 4 }}
     primus-lens/managed: "true"
+{{- end }}
 

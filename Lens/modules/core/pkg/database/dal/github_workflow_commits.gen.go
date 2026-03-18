@@ -55,8 +55,8 @@ type githubWorkflowCommits struct {
 
 	ALL            field.Asterisk
 	ID             field.Int64
-	RunID          field.Int64  // Reference to github_workflow_runs.id
-	Sha            field.String // Git commit SHA
+	RunID          field.Int64
+	Sha            field.String
 	Message        field.String
 	AuthorName     field.String
 	AuthorEmail    field.String
@@ -67,8 +67,8 @@ type githubWorkflowCommits struct {
 	Additions      field.Int32
 	Deletions      field.Int32
 	FilesChanged   field.Int32
-	ParentShas     field.Field // JSON array of parent commit SHAs
-	Files          field.Field // JSON array of changed files with status, additions, deletions
+	ParentShas     field.Field
+	Files          field.Field
 	HTMLURL        field.String
 	CreatedAt      field.Time
 

@@ -60,8 +60,19 @@ type SchedulerConfig struct {
 	// Stale lock cleanup interval
 	StaleLockCleanupInterval time.Duration
 
+	// Old task cleanup interval (how often to run CleanupOldTasks)
+	OldTaskCleanupInterval time.Duration
+
+	// Old task retention days (how many days to keep completed/cancelled tasks)
+	OldTaskRetentionDays int
+
 	// Whether to auto start
 	AutoStart bool
+
+	// ConsumeTaskTypes specifies which task types this scheduler instance should consume.
+	// If empty, the scheduler will consume all task types that have registered executors.
+	// If not empty, only tasks with types in this list will be consumed (executor must also be registered).
+	ConsumeTaskTypes []string
 }
 
 // DefaultSchedulerConfig default configuration
@@ -72,6 +83,8 @@ func DefaultSchedulerConfig() *SchedulerConfig {
 		HeartbeatInterval:        30 * time.Second,
 		MaxConcurrentTasks:       20, // Increased from 10 to support more parallel task execution
 		StaleLockCleanupInterval: 1 * time.Minute,
+		OldTaskCleanupInterval:   1 * time.Hour,
+		OldTaskRetentionDays:     7,
 		AutoStart:                true,
 	}
 }
@@ -141,6 +154,10 @@ func (s *TaskScheduler) Start() error {
 	s.wg.Add(1)
 	go s.staleLockCleanupLoop()
 
+	// 5. Start old task cleanup loop
+	s.wg.Add(1)
+	go s.oldTaskCleanupLoop()
+
 	log.Info("Task scheduler started successfully")
 	return nil
 }
@@ -206,6 +223,39 @@ func (s *TaskScheduler) staleLockCleanupLoop() {
 	}
 }
 
+// oldTaskCleanupLoop periodically removes old completed/cancelled tasks
+// to prevent unbounded growth of the workload_task_state table.
+func (s *TaskScheduler) oldTaskCleanupLoop() {
+	defer s.wg.Done()
+
+	// Use a longer initial delay to avoid cleanup during startup.
+	// Use select to respect context cancellation during the delay.
+	initialDelay := time.NewTimer(5 * time.Minute)
+	defer initialDelay.Stop()
+	select {
+	case <-s.ctx.Done():
+		return
+	case <-initialDelay.C:
+	}
+
+	ticker := time.NewTicker(s.config.OldTaskCleanupInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-s.ctx.Done():
+			return
+		case <-ticker.C:
+			removed, err := s.taskFacade.CleanupOldTasks(s.ctx, s.config.OldTaskRetentionDays)
+			if err != nil {
+				log.Errorf("Failed to cleanup old tasks: %v", err)
+			} else if removed > 0 {
+				log.Infof("Cleaned up %d old tasks (retention: %d days)", removed, s.config.OldTaskRetentionDays)
+			}
+		}
+	}
+}
+
 // scanAndExecuteTasks scans and executes tasks
 func (s *TaskScheduler) scanAndExecuteTasks() {
 	// Check current running task count
@@ -224,8 +274,15 @@ func (s *TaskScheduler) scanAndExecuteTasks() {
 		return
 	}
 
-	// Query pending tasks
-	tasks, err := s.taskFacade.ListTasksByStatus(s.ctx, constant.TaskStatusPending)
+	// Get task types this scheduler should consume
+	consumeTypes := s.getConsumeTaskTypes()
+	if len(consumeTypes) == 0 {
+		log.Debugf("No task types to consume (no executors registered or configured)")
+		return
+	}
+
+	// Query pending tasks filtered by type
+	tasks, err := s.taskFacade.ListTasksByStatusAndTypes(s.ctx, constant.TaskStatusPending, consumeTypes)
 	if err != nil {
 		log.Errorf("Failed to list pending tasks: %v", err)
 		return
@@ -449,6 +506,15 @@ func (s *TaskScheduler) handleTaskResult(ctx context.Context, task *model.Worklo
 			log.Errorf("Failed to update task ext: %v", err)
 		}
 	}
+
+	// Trim large intermediate data from ext for completed tasks to prevent bloat.
+	// This runs asynchronously after the status/ext updates above.
+	if result.NewStatus == constant.TaskStatusCompleted {
+		if err := s.taskFacade.TrimCompletedTaskExt(ctx, task.WorkloadUID, task.TaskType); err != nil {
+			log.Warnf("Failed to trim ext for completed task %s/%s: %v",
+				task.WorkloadUID, task.TaskType, err)
+		}
+	}
 }
 
 // handleTaskFailure handles task failure
@@ -547,4 +613,39 @@ func (s *TaskScheduler) GetRegisteredExecutors() []string {
 		types = append(types, taskType)
 	}
 	return types
+}
+
+// getConsumeTaskTypes returns the task types this scheduler should consume.
+// If ConsumeTaskTypes is configured, only those types are consumed (filtered by registered executors).
+// If ConsumeTaskTypes is empty, all registered executor types are consumed.
+func (s *TaskScheduler) getConsumeTaskTypes() []string {
+	registeredTypes := s.GetRegisteredExecutors()
+
+	// If no specific types configured, consume all registered types
+	if len(s.config.ConsumeTaskTypes) == 0 {
+		return registeredTypes
+	}
+
+	// Filter configured types by registered executors
+	// Only consume types that are both configured AND have a registered executor
+	registeredSet := make(map[string]bool, len(registeredTypes))
+	for _, t := range registeredTypes {
+		registeredSet[t] = true
+	}
+
+	result := make([]string, 0, len(s.config.ConsumeTaskTypes))
+	for _, t := range s.config.ConsumeTaskTypes {
+		if registeredSet[t] {
+			result = append(result, t)
+		} else {
+			log.Warnf("Configured task type %q has no registered executor, will be ignored", t)
+		}
+	}
+
+	return result
+}
+
+// GetConsumeTaskTypes returns the effective task types this scheduler consumes (public accessor)
+func (s *TaskScheduler) GetConsumeTaskTypes() []string {
+	return s.getConsumeTaskTypes()
 }

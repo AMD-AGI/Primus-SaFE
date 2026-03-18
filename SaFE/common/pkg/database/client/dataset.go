@@ -34,6 +34,11 @@ var (
 		    total_size = :total_size,
 		    file_count = :file_count,
 		    message = :message,
+		    local_paths = :local_paths,
+		    tried_workspaces = :tried_workspaces,
+		    source = :source,
+		    source_url = :source_url,
+		    hf_job_name = :hf_job_name,
 		    update_time = :update_time,
 		    deletion_time = :deletion_time
 		WHERE dataset_id = :dataset_id`, TDataset)

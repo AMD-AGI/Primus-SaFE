@@ -11,8 +11,8 @@ import (
 
 	"github.com/AMD-AGI/Primus-SaFE/Lens/api/pkg/api/tracelens"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/clientsets"
-	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database"
-	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database/model"
+	cpdb "github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/controlplane/database"
+	cpmodel "github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/controlplane/database/model"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/errors"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/mcp/unified"
@@ -21,6 +21,7 @@ import (
 
 // ============================================================================
 // TraceLens Session Write Endpoints
+// Session metadata is stored in Control Plane database
 // ============================================================================
 
 // --- Create TraceLens Session ---
@@ -35,6 +36,7 @@ type CreateTraceLensSessionRequest struct {
 
 type CreateTraceLensSessionResponse struct {
 	SessionID       string    `json:"session_id"`
+	ClusterName     string    `json:"cluster_name"`
 	WorkloadUID     string    `json:"workload_uid"`
 	ProfilerFileID  int32     `json:"profiler_file_id"`
 	Status          string    `json:"status"`
@@ -51,16 +53,23 @@ func handleCreateTraceLensSession(ctx context.Context, req *CreateTraceLensSessi
 		return nil, errors.NewError().WithCode(errors.RequestParameterInvalid).WithMessage("profiler_file_id is required")
 	}
 
+	// Get cluster name for profiler file reference
 	cm := clientsets.GetClusterManager()
 	clients, err := cm.GetClusterClientsOrDefault(req.Cluster)
 	if err != nil {
 		return nil, err
 	}
+	clusterName := clients.ClusterName
 
-	facade := database.GetFacadeForCluster(clients.ClusterName).GetTraceLensSession()
+	// Get Control Plane facade
+	cpFacade := cpdb.GetControlPlaneFacade()
+	if cpFacade == nil {
+		return nil, errors.NewError().WithCode(errors.CodeInitializeError).WithMessage("control plane not available")
+	}
+	facade := cpFacade.GetTraceLensSession()
 
 	// Check for existing active session
-	existing, err := facade.FindActiveSession(ctx, req.WorkloadUID, req.ProfilerFileID)
+	existing, err := facade.FindActiveSession(ctx, clusterName, req.WorkloadUID, req.ProfilerFileID)
 	if err != nil {
 		log.Warnf("Failed to check existing session: %v", err)
 	}
@@ -76,6 +85,7 @@ func handleCreateTraceLensSession(ctx context.Context, req *CreateTraceLensSessi
 		}
 		return &CreateTraceLensSessionResponse{
 			SessionID:       existing.SessionID,
+			ClusterName:     existing.ClusterName,
 			WorkloadUID:     existing.WorkloadUID,
 			ProfilerFileID:  existing.ProfilerFileID,
 			Status:          existing.Status,
@@ -102,14 +112,15 @@ func handleCreateTraceLensSession(ctx context.Context, req *CreateTraceLensSessi
 		return nil, errors.NewError().WithCode(errors.RequestParameterInvalid).WithMessage(fmt.Sprintf("invalid resource_profile: %s", resourceProfile))
 	}
 
-	// Create session record
-	session := &model.TracelensSessions{
+	// Create session record in Control Plane database
+	session := &cpmodel.TracelensSessions{
 		SessionID:       sessionID,
+		ClusterName:     clusterName,
 		WorkloadUID:     req.WorkloadUID,
 		ProfilerFileID:  req.ProfilerFileID,
 		PodNamespace:    tlconst.DefaultPodNamespace,
 		PodPort:         tlconst.DefaultPodPort,
-		Status:          tlconst.StatusPending,
+		Status:          cpmodel.SessionStatusPending,
 		ResourceProfile: resourceProfile,
 		ExpiresAt:       time.Now().Add(time.Duration(ttl) * time.Minute),
 	}
@@ -118,13 +129,14 @@ func handleCreateTraceLensSession(ctx context.Context, req *CreateTraceLensSessi
 		return nil, errors.WrapError(err, "failed to create session", errors.CodeDatabaseError)
 	}
 
-	log.Infof("Created TraceLens session %s for workload %s, file %d", sessionID, req.WorkloadUID, req.ProfilerFileID)
+	log.Infof("Created TraceLens session %s for workload %s, file %d (cluster: %s)", sessionID, req.WorkloadUID, req.ProfilerFileID, clusterName)
 
 	// Trigger pod creation asynchronously
-	tracelens.CreatePodAsync(ctx, clients.ClusterName, session, "")
+	tracelens.CreatePodAsync(ctx, clusterName, session, "")
 
 	return &CreateTraceLensSessionResponse{
 		SessionID:       session.SessionID,
+		ClusterName:     session.ClusterName,
 		WorkloadUID:     session.WorkloadUID,
 		ProfilerFileID:  session.ProfilerFileID,
 		Status:          session.Status,
@@ -139,7 +151,7 @@ func handleCreateTraceLensSession(ctx context.Context, req *CreateTraceLensSessi
 type ExtendTraceLensSessionRequest struct {
 	SessionID     string `json:"session_id" mcp:"required,desc=The session ID to extend"`
 	ExtendMinutes int    `json:"extend_minutes" mcp:"required,desc=Minutes to extend (1-60)"`
-	Cluster       string `json:"cluster" mcp:"desc=Cluster name (optional)"`
+	Cluster       string `json:"cluster" mcp:"desc=Cluster name (optional, ignored - sessions are in CP DB)"`
 }
 
 type ExtendTraceLensSessionResponse struct {
@@ -156,13 +168,13 @@ func handleExtendTraceLensSession(ctx context.Context, req *ExtendTraceLensSessi
 		return nil, errors.NewError().WithCode(errors.RequestParameterInvalid).WithMessage("extend_minutes must be between 1 and 60")
 	}
 
-	cm := clientsets.GetClusterManager()
-	clients, err := cm.GetClusterClientsOrDefault(req.Cluster)
-	if err != nil {
-		return nil, err
+	// Get Control Plane facade
+	cpFacade := cpdb.GetControlPlaneFacade()
+	if cpFacade == nil {
+		return nil, errors.NewError().WithCode(errors.CodeInitializeError).WithMessage("control plane not available")
 	}
+	facade := cpFacade.GetTraceLensSession()
 
-	facade := database.GetFacadeForCluster(clients.ClusterName).GetTraceLensSession()
 	session, err := facade.GetBySessionID(ctx, req.SessionID)
 	if err != nil {
 		return nil, errors.WrapError(err, "failed to get session", errors.CodeDatabaseError)
@@ -171,7 +183,7 @@ func handleExtendTraceLensSession(ctx context.Context, req *ExtendTraceLensSessi
 		return nil, errors.NewError().WithCode(errors.RequestDataNotExisted).WithMessage("session not found")
 	}
 
-	if session.Status == tlconst.StatusDeleted || session.Status == tlconst.StatusExpired {
+	if session.Status == cpmodel.SessionStatusDeleted || session.Status == cpmodel.SessionStatusExpired {
 		return nil, errors.NewError().WithCode(errors.RequestParameterInvalid).WithMessage("cannot extend deleted or expired session")
 	}
 
@@ -191,7 +203,7 @@ func handleExtendTraceLensSession(ctx context.Context, req *ExtendTraceLensSessi
 
 type DeleteTraceLensSessionRequest struct {
 	SessionID string `json:"session_id" mcp:"required,desc=The session ID to delete"`
-	Cluster   string `json:"cluster" mcp:"desc=Cluster name (optional)"`
+	Cluster   string `json:"cluster" mcp:"desc=Cluster name (optional, ignored - sessions are in CP DB)"`
 }
 
 type DeleteTraceLensSessionResponse struct {
@@ -203,13 +215,13 @@ func handleDeleteTraceLensSession(ctx context.Context, req *DeleteTraceLensSessi
 		return nil, errors.NewError().WithCode(errors.RequestParameterInvalid).WithMessage("session_id is required")
 	}
 
-	cm := clientsets.GetClusterManager()
-	clients, err := cm.GetClusterClientsOrDefault(req.Cluster)
-	if err != nil {
-		return nil, err
+	// Get Control Plane facade
+	cpFacade := cpdb.GetControlPlaneFacade()
+	if cpFacade == nil {
+		return nil, errors.NewError().WithCode(errors.CodeInitializeError).WithMessage("control plane not available")
 	}
+	facade := cpFacade.GetTraceLensSession()
 
-	facade := database.GetFacadeForCluster(clients.ClusterName).GetTraceLensSession()
 	session, err := facade.GetBySessionID(ctx, req.SessionID)
 	if err != nil {
 		return nil, errors.WrapError(err, "failed to get session", errors.CodeDatabaseError)
@@ -224,7 +236,7 @@ func handleDeleteTraceLensSession(ctx context.Context, req *DeleteTraceLensSessi
 	}
 
 	// Mark session as deleted
-	if err := facade.UpdateStatus(ctx, req.SessionID, tlconst.StatusDeleted, "Deleted by user"); err != nil {
+	if err := facade.UpdateStatus(ctx, req.SessionID, cpmodel.SessionStatusDeleted, "Deleted by user"); err != nil {
 		log.Errorf("Failed to mark session as deleted: %v", err)
 	}
 

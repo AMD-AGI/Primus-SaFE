@@ -108,7 +108,7 @@ spec:
               maxRuntime:
                 additionalProperties:
                   type: integer
-                description: The maximum workload runtime of each scope
+                description: 'The maximum workload runtime of each scope, Unit: hours'
                 type: object
               nodeFlavor:
                 description: The node flavor id of workspace, A workspace supports

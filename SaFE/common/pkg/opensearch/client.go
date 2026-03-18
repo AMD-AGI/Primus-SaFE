@@ -22,10 +22,10 @@ const (
 )
 
 type SearchClientConfig struct {
-	Username string
-	Password string
-	Endpoint string
-	Prefix   string
+	Username     string
+	Password     string
+	Endpoint     string
+	DefaultIndex string
 }
 
 // Equals compares two SearchClientConfig instances for equality.
@@ -33,7 +33,7 @@ func (s SearchClientConfig) Equals(other SearchClientConfig) bool {
 	return s.Username == other.Username &&
 		s.Password == other.Password &&
 		s.Endpoint == other.Endpoint &&
-		s.Prefix == other.Prefix
+		s.DefaultIndex == other.DefaultIndex
 }
 
 // Validate validates the input parameters.
@@ -46,9 +46,6 @@ func (s SearchClientConfig) Validate() error {
 	}
 	if s.Password == "" {
 		return fmt.Errorf("opensearch password is empty")
-	}
-	if s.Prefix == "" {
-		return fmt.Errorf("opensearch index prefix is empty")
 	}
 	return nil
 }
@@ -67,15 +64,18 @@ func NewClient(cfg SearchClientConfig) *SearchClient {
 }
 
 // SearchByTimeRange search openSearch data by time range.
-func (c *SearchClient) SearchByTimeRange(sinceTime, untilTime time.Time, uri string, body []byte) ([]byte, error) {
-	index, err := c.generateQueryIndex(sinceTime, untilTime)
+func (c *SearchClient) SearchByTimeRange(sinceTime, untilTime time.Time, index, uri string, body []byte) ([]byte, error) {
+	if index == "" {
+		index = c.DefaultIndex
+	}
+	indexPattern, err := c.generateIndexPattern(index, sinceTime, untilTime)
 	if err != nil {
 		return nil, err
 	}
 	if !strings.HasPrefix(uri, "/") {
 		uri = "/" + uri
 	}
-	return c.Request(index+uri, http.MethodPost, body)
+	return c.Request(indexPattern+uri, http.MethodPost, body)
 }
 
 // Request send HTTP request to OpenSearch.
@@ -100,16 +100,20 @@ func (c *SearchClient) Request(uri, httpMethod string, body []byte) ([]byte, err
 	return resp.Body, nil
 }
 
-// generateQueryIndex generate OpenSearch index name based on time range.
-func (c *SearchClient) generateQueryIndex(sinceTime, untilTime time.Time) (string, error) {
+// generateIndexPattern generates the OpenSearch index name prefix based on the provided time range.
+// If the start and end times are equal, it returns the index concatenated with the formatted date.
+// If the time range exceeds 30 days, it uses a wildcard (*) to cover all indices.
+// For smaller ranges, it iterates through each day in the range and appends the formatted date to the index,
+// separating multiple indices with commas.
+func (c *SearchClient) generateIndexPattern(index string, sinceTime, untilTime time.Time) (string, error) {
 	if sinceTime.Equal(untilTime) {
-		return c.Prefix + sinceTime.Format(IndexDateFormat), nil
+		return index + sinceTime.Format(IndexDateFormat), nil
 	}
 
 	// If the time range is too large, use the wildcard * directly
 	days := int(untilTime.Sub(sinceTime).Hours() / 24)
 	if days >= 30 {
-		return c.Prefix + "*", nil
+		return index + "*", nil
 	}
 
 	sinceTime = sinceTime.Truncate(time.Hour * 24)
@@ -120,7 +124,7 @@ func (c *SearchClient) generateQueryIndex(sinceTime, untilTime time.Time) (strin
 		if result != "" {
 			result += ","
 		}
-		result += c.Prefix + currentDate.Format(IndexDateFormat)
+		result += index + currentDate.Format(IndexDateFormat)
 		currentDate = currentDate.AddDate(0, 0, 1)
 	}
 	return result, nil

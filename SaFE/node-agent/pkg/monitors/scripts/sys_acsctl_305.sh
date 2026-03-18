@@ -5,8 +5,6 @@
 # See LICENSE for license information.
 #
 
-set -o pipefail
-
 count=`nsenter --target 1 --mount --uts --ipc --net --pid --  /usr/bin/lspci -vvv |grep ACSCtl |grep "SrcValid+" |wc -l`
 if [ $? -ne 0 ]; then
   echo "Error: failed to execute lspci"
@@ -14,6 +12,6 @@ if [ $? -ne 0 ]; then
 fi
 
 if [ $count -gt 0 ]; then
-  echo 'acs is enabled'
+  echo "Warning: ACS (Access Control Services) is enabled."
   exit 1
 fi

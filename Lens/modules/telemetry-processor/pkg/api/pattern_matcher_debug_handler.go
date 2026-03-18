@@ -7,100 +7,48 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
-	"github.com/sirupsen/logrus"
 
 	"github.com/AMD-AGI/Primus-SaFE/Lens/telemetry-processor/pkg/module/logs"
 )
 
-// GetPatternMatchers gets pattern matcher information for all frameworks (for debugging)
-// @Summary Get Pattern Matcher List
-// @Description Returns detailed information about all initialized pattern matchers, including various matching patterns
+// GetPatternMatchers returns debug information about the global pattern registry
+// @Summary Get Global Pattern Registry Info
+// @Description Returns information about all loaded patterns in the global registry
 // @Tags Debug
 // @Produce json
-// @Success 200 {object} map[string]interface{} "Pattern matcher information list"
+// @Success 200 {object} map[string]interface{} "Pattern registry information"
 // @Router /debug/pattern-matchers [get]
 func GetPatternMatchers(c *gin.Context) {
-	matchersInfo := logs.GetPatternMatchersInfo()
-
-	if len(matchersInfo) == 0 {
-		c.JSON(http.StatusOK, gin.H{
-			"message":   "Pattern matchers not initialized yet",
-			"frameworks": []string{},
-			"total":     0,
-		})
-		return
-	}
-
-	// Calculate total patterns across all frameworks
-	totalPatterns := 0
-	for _, info := range matchersInfo {
-		totalPatterns += info.TotalPatterns
-	}
-
-	logrus.Debugf("Returning pattern matcher info for %d frameworks with %d total patterns",
-		len(matchersInfo), totalPatterns)
+	info := logs.GetGlobalRegistryDebugInfo()
 
 	c.JSON(http.StatusOK, gin.H{
-		"frameworks":      matchersInfo,
-		"total_frameworks": len(matchersInfo),
-		"total_patterns":  totalPatterns,
+		"global_registry": info,
 	})
 }
 
-// GetFrameworkList gets available framework list (for debugging)
-// @Summary Get Framework List
-// @Description Returns list of all initialized framework names
+// GetFrameworkList returns the global pattern registry info
+// @Summary Get Pattern Registry Info
+// @Description Returns the global pattern registry debug information
 // @Tags Debug
 // @Produce json
-// @Success 200 {object} map[string]interface{} "Framework list"
+// @Success 200 {object} map[string]interface{} "Pattern registry info"
 // @Router /debug/frameworks [get]
 func GetFrameworkList(c *gin.Context) {
-	frameworks := logs.GetFrameworkList()
-
 	c.JSON(http.StatusOK, gin.H{
-		"frameworks": frameworks,
-		"total":      len(frameworks),
+		"global_registry": logs.GetGlobalRegistryDebugInfo(),
 	})
 }
 
-// GetPatternMatcherByFramework gets pattern matcher information for specified framework (for debugging)
-// @Summary Get Pattern Matcher for Specified Framework
-// @Description Returns detailed pattern matcher information for specified framework
+// GetPatternMatcherByFramework is kept for API compatibility but returns global registry info
+// @Summary Get Pattern Info
+// @Description Returns global pattern registry debug information
 // @Tags Debug
 // @Produce json
-// @Param framework path string true "Framework name"
-// @Success 200 {object} map[string]interface{} "Pattern matcher information"
-// @Failure 404 {object} map[string]interface{} "Framework does not exist"
+// @Param framework path string true "Framework name (informational)"
+// @Success 200 {object} map[string]interface{} "Pattern info"
 // @Router /debug/pattern-matchers/{framework} [get]
 func GetPatternMatcherByFramework(c *gin.Context) {
-	framework := c.Param("framework")
-
-	if framework == "" {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error": "framework parameter is required",
-		})
-		return
-	}
-
-	matchersInfo := logs.GetPatternMatchersInfo()
-	info, exists := matchersInfo[framework]
-
-	if !exists {
-		availableFrameworks := logs.GetFrameworkList()
-		c.JSON(http.StatusNotFound, gin.H{
-			"error":                "framework not found",
-			"framework":           framework,
-			"available_frameworks": availableFrameworks,
-		})
-		return
-	}
-
-	logrus.Debugf("Returning pattern matcher info for framework %s with %d patterns",
-		framework, info.TotalPatterns)
-
 	c.JSON(http.StatusOK, gin.H{
-		"framework": framework,
-		"info":      info,
+		"global_registry": logs.GetGlobalRegistryDebugInfo(),
 	})
 }
-

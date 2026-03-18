@@ -255,7 +255,7 @@ func GetWorkloadId(obj metav1.Object) string {
 
 // IsWorkloadDisableFailover checks if failover is disabled for a workload.
 func IsWorkloadDisableFailover(obj metav1.Object) bool {
-	return HasAnnotation(obj, WorkloadDisableFailoverAnnotation)
+	return GetAnnotation(obj, WorkloadDisableFailoverAnnotation) == TrueStr
 }
 
 // IsWorkloadReScheduled checks if a workload has been rescheduled.
@@ -340,7 +340,6 @@ func IsRequireNodeSpread(obj metav1.Object) bool {
 func IsPrivileged(obj metav1.Object) bool {
 	return GetAnnotation(obj, WorkloadPrivilegedAnnotation) == TrueStr
 }
-
 func GetRootWorkloadId(obj metav1.Object) string {
 	return GetLabel(obj, RootWorkloadIdLabel)
 }
@@ -369,6 +368,14 @@ func GetSourceWorkloadId(obj metav1.Object) string {
 // When enabled, the workload will try to use the same nodes during retries/failovers.
 func IsEnableStickyNodes(obj metav1.Object) bool {
 	return GetAnnotation(obj, WorkloadStickyNodesAnnotation) == TrueStr
+}
+
+func IsEnableWorkspaceStorage(obj metav1.Object) bool {
+	return GetAnnotation(obj, UseWorkspaceStorageAnnotation) == TrueStr
+}
+
+func IsForceHostNetwork(obj metav1.Object) bool {
+	return GetAnnotation(obj, ForceHostNetworkAnnotation) == TrueStr
 }
 
 // atoi converts a string to an integer, returning 0 if conversion fails.

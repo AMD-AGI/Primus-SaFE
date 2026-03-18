@@ -34,6 +34,24 @@ type WorkloadDetection struct {
 	CreatedAt        time.Time `gorm:"column:created_at;not null;default:now()" json:"created_at"`
 	UpdatedAt        time.Time `gorm:"column:updated_at;not null;default:now()" json:"updated_at"`
 	ConfirmedAt      time.Time `gorm:"column:confirmed_at;comment:Timestamp when detection was confirmed or verified" json:"confirmed_at"` // Timestamp when detection was confirmed or verified
+
+	// Phase 2: Intent Analysis fields (added by patch064)
+	Category          *string  `gorm:"column:category;comment:Fine-grained intent category: pre_training, fine_tuning, inference, evaluation, data_processing, serving, profiling" json:"category"`
+	ExpectedBehavior  *string  `gorm:"column:expected_behavior;comment:Expected behavior pattern: long_running, batch, periodic, elastic" json:"expected_behavior"`
+	ModelPath         *string  `gorm:"column:model_path;comment:Model path or identifier" json:"model_path"`
+	ModelFamily       *string  `gorm:"column:model_family;comment:Model family: llama, mixtral, qwen, phi, deepseek, etc." json:"model_family"`
+	ModelScale        *string  `gorm:"column:model_scale;comment:Model parameter scale: 7B, 70B, 8x7B, etc." json:"model_scale"`
+	ModelVariant      *string  `gorm:"column:model_variant;comment:Model variant: base, chat, instruct, etc." json:"model_variant"`
+	RuntimeFramework  *string  `gorm:"column:runtime_framework;comment:Runtime framework: pytorch, jax, tensorflow" json:"runtime_framework"`
+	IntentDetail      ExtType  `gorm:"column:intent_detail;default:{};comment:Detailed intent parameters (JSONB)" json:"intent_detail"`
+	IntentConfidence  *float64 `gorm:"column:intent_confidence;comment:Intent analysis confidence score [0.000-1.000]" json:"intent_confidence"`
+	IntentSource      *string  `gorm:"column:intent_source;comment:Intent analysis source: deterministic, llm, rule, manual" json:"intent_source"`
+	IntentReasoning   *string  `gorm:"column:intent_reasoning;comment:LLM reasoning chain for intent analysis" json:"intent_reasoning"`
+	IntentFieldSources ExtType `gorm:"column:intent_field_sources;default:{};comment:Per-field provenance mapping (JSONB)" json:"intent_field_sources"`
+	IntentAnalysisMode *string `gorm:"column:intent_analysis_mode;comment:Analysis mode: cmdline_rich, config_based, code_analyzed, shell_expanded" json:"intent_analysis_mode"`
+	IntentMatchedRules ExtJSON `gorm:"column:intent_matched_rules;default:[];comment:List of matched intent rule IDs (JSONB)" json:"intent_matched_rules"`
+	IntentState       *string  `gorm:"column:intent_state;default:pending;comment:Intent analysis lifecycle: pending, analyzing, completed, failed, partial, timeout" json:"intent_state"`
+	IntentAnalyzedAt  *time.Time `gorm:"column:intent_analyzed_at;comment:Timestamp when intent analysis was completed" json:"intent_analyzed_at"`
 }
 
 // TableName WorkloadDetection's table name

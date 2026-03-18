@@ -23,51 +23,54 @@ const (
 )
 
 type Workload struct {
-	Id             int64          `db:"id"`
-	WorkloadId     string         `db:"workload_id"`
-	DisplayName    string         `db:"display_name"`
-	Workspace      string         `db:"workspace"`
-	Cluster        string         `db:"cluster"`
-	Resource       string         `db:"resource"`
-	Resources      sql.NullString `db:"resources"`
-	Image          string         `db:"image"`
-	Images         sql.NullString `db:"images"`
-	EntryPoint     string         `db:"entrypoint"`
-	EntryPoints    sql.NullString `db:"entrypoints"`
-	GVK            string         `db:"gvk"`
-	Phase          sql.NullString `db:"phase"`
-	UserName       sql.NullString `db:"username"`
-	CreationTime   pq.NullTime    `db:"creation_time"`
-	StartTime      pq.NullTime    `db:"start_time"`
-	EndTime        pq.NullTime    `db:"end_time"`
-	DeletionTime   pq.NullTime    `db:"deletion_time"`
-	IsSupervised   bool           `db:"is_supervised"`
-	IsTolerateAll  bool           `db:"is_tolerate_all"`
-	IsDeleted      bool           `db:"is_deleted"`
-	IsStickyNodes  bool           `db:"is_sticky_nodes"`
-	Priority       int            `db:"priority"`
-	MaxRetry       int            `db:"max_retry"`
-	QueuePosition  int            `db:"queue_position"`
-	DispatchCount  int            `db:"dispatch_count"`
-	TTLSecond      int            `db:"ttl_second"`
-	Timeout        int            `db:"timeout"`
-	Env            sql.NullString `db:"env"`
-	Description    sql.NullString `db:"description"`
-	Pods           sql.NullString `db:"pods"`
-	Nodes          sql.NullString `db:"nodes"`
-	Conditions     sql.NullString `db:"conditions"`
-	CustomerLabels sql.NullString `db:"customer_labels"`
-	Service        sql.NullString `db:"service"`
-	Liveness       sql.NullString `db:"liveness"`
-	Readiness      sql.NullString `db:"readiness"`
-	UserId         sql.NullString `db:"user_id"`
-	WorkloadUId    sql.NullString `db:"workload_uid"`
-	Ranks          sql.NullString `db:"ranks"`
-	Dependencies   sql.NullString `db:"dependencies"`
-	CronJobs       sql.NullString `db:"cron_jobs"`
-	Secrets        sql.NullString `db:"secrets"`
-	ScaleRunnerSet sql.NullString `db:"scale_runner_set"`
-	ScaleRunnerId  sql.NullString `db:"scale_runner_id"`
+	Id                  int64          `db:"id"`
+	WorkloadId          string         `db:"workload_id"`
+	DisplayName         string         `db:"display_name"`
+	Workspace           string         `db:"workspace"`
+	Cluster             string         `db:"cluster"`
+	Resource            string         `db:"resource"`
+	Resources           sql.NullString `db:"resources"`
+	Image               string         `db:"image"`
+	Images              sql.NullString `db:"images"`
+	EntryPoint          string         `db:"entrypoint"`
+	EntryPoints         sql.NullString `db:"entrypoints"`
+	GVK                 string         `db:"gvk"`
+	Phase               sql.NullString `db:"phase"`
+	UserName            sql.NullString `db:"username"`
+	CreationTime        pq.NullTime    `db:"creation_time"`
+	StartTime           pq.NullTime    `db:"start_time"`
+	EndTime             pq.NullTime    `db:"end_time"`
+	DeletionTime        pq.NullTime    `db:"deletion_time"`
+	IsSupervised        bool           `db:"is_supervised"`
+	IsTolerateAll       bool           `db:"is_tolerate_all"`
+	IsDeleted           bool           `db:"is_deleted"`
+	IsStickyNodes       bool           `db:"is_sticky_nodes"`
+	IsPrivileged        bool           `db:"is_privileged"`
+	UseWorkspaceStorage bool           `db:"use_workspace_storage"`
+	ForceHostNetwork    bool           `db:"force_host_network"`
+	Priority            int            `db:"priority"`
+	MaxRetry            int            `db:"max_retry"`
+	QueuePosition       int            `db:"queue_position"`
+	DispatchCount       int            `db:"dispatch_count"`
+	TTLSecond           int            `db:"ttl_second"`
+	Timeout             int            `db:"timeout"`
+	Env                 sql.NullString `db:"env"`
+	Description         sql.NullString `db:"description"`
+	Pods                sql.NullString `db:"pods"`
+	Nodes               sql.NullString `db:"nodes"`
+	Conditions          sql.NullString `db:"conditions"`
+	CustomerLabels      sql.NullString `db:"customer_labels"`
+	Service             sql.NullString `db:"service"`
+	Liveness            sql.NullString `db:"liveness"`
+	Readiness           sql.NullString `db:"readiness"`
+	UserId              sql.NullString `db:"user_id"`
+	WorkloadUId         sql.NullString `db:"workload_uid"`
+	Ranks               sql.NullString `db:"ranks"`
+	Dependencies        sql.NullString `db:"dependencies"`
+	CronJobs            sql.NullString `db:"cron_jobs"`
+	Secrets             sql.NullString `db:"secrets"`
+	ScaleRunnerSet      sql.NullString `db:"scale_runner_set"`
+	ScaleRunnerId       sql.NullString `db:"scale_runner_id"`
 }
 
 // GetWorkloadFieldTags returns the WorkloadFieldTags value.
@@ -365,24 +368,28 @@ type DatasetLocalPathDB struct {
 
 // Dataset represents a dataset record in the database.
 type Dataset struct {
-	Id           int64         `db:"id"`
-	DatasetId    string        `db:"dataset_id"`
-	DisplayName  string        `db:"display_name"`
-	Description  string        `db:"description"`
-	DatasetType  string        `db:"dataset_type"`
-	Status       DatasetStatus `db:"status"`
-	S3Path       string        `db:"s3_path"`
-	TotalSize    int64         `db:"total_size"`
-	FileCount    int           `db:"file_count"`
-	Message      string        `db:"message"`
-	LocalPaths   string        `db:"local_paths"` // JSON array of DatasetLocalPathDB
-	Workspace    string        `db:"workspace"`   // Workspace ID for access control, empty means public
-	UserId       string        `db:"user_id"`
-	UserName     string        `db:"user_name"`
-	CreationTime pq.NullTime   `db:"creation_time"`
-	UpdateTime   pq.NullTime   `db:"update_time"`
-	DeletionTime pq.NullTime   `db:"deletion_time"`
-	IsDeleted    bool          `db:"is_deleted"`
+	Id              int64         `db:"id"`
+	DatasetId       string        `db:"dataset_id"`
+	DisplayName     string        `db:"display_name"`
+	Description     string        `db:"description"`
+	DatasetType     string        `db:"dataset_type"`
+	Status          DatasetStatus `db:"status"`
+	S3Path          string        `db:"s3_path"`
+	TotalSize       int64         `db:"total_size"`
+	FileCount       int           `db:"file_count"`
+	Message         string        `db:"message"`
+	LocalPaths      string        `db:"local_paths"`      // JSON array of DatasetLocalPathDB
+	TriedWorkspaces string        `db:"tried_workspaces"` // JSON map: {"path": ["ws1","ws2"]} for failover tracking
+	Source          string        `db:"source"`           // "upload" or "huggingface"
+	SourceURL       string        `db:"source_url"`       // HuggingFace URL (if source=huggingface)
+	HFJobName       string        `db:"hf_job_name"`      // HF download job name (for tracking)
+	Workspace       string        `db:"workspace"`        // Workspace ID for access control, empty means public
+	UserId          string        `db:"user_id"`
+	UserName        string        `db:"user_name"`
+	CreationTime    pq.NullTime   `db:"creation_time"`
+	UpdateTime      pq.NullTime   `db:"update_time"`
+	DeletionTime    pq.NullTime   `db:"deletion_time"`
+	IsDeleted       bool          `db:"is_deleted"`
 }
 
 // GetDatasetFieldTags returns the DatasetFieldTags value.

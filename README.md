@@ -49,6 +49,7 @@ Primus-SaFE transforms a collection of AMD GPU servers into a resilient, self-mo
   - [Primus-Lens](#primus-lens-full-stack-observability--visualization)
   - [Primus-Bench](#primus-bench-node-health-checks-and-performance-benchmarking)
   - [Scheduler Plugins](#scheduler-plugins-advanced-scheduling-capabilities)
+  - [Web](#web-frontend-dashboards)
 - [Roadmap](#roadmap)
 - [License](#license)
 ---
@@ -416,6 +417,35 @@ spec:
 ```
 
 **Learn More:** [Scheduler-Plugins/README.md](Scheduler-Plugins/README.md)
+
+---
+
+### Web: Frontend Dashboards
+
+**Location:** [`Web/`](Web/)
+
+Web provides the browser-based management dashboards for the Primus-SaFE platform. It is organized as a pnpm monorepo containing two independent Vue 3 apps:
+
+| App | Description |
+|-----|-------------|
+| **Safe** (`Web/apps/safe`) | Control-plane & workload management UI — cluster overview, job scheduling, training/inference management, resource monitoring |
+| **Lens** (`Web/apps/lens`) | Observability UI — interactive dashboards, metrics visualization, log exploration, AI-powered diagnostics |
+
+**Tech Stack:**
+- Vue 3 + TypeScript + Vite
+- Element Plus + UnoCSS
+- Pinia for state management
+- Vitest for unit testing
+
+**Quick Start:**
+```bash
+cd Web
+pnpm install
+pnpm dev:safe   # Start Safe UI dev server
+pnpm dev:lens   # Start Lens UI dev server
+```
+
+**Learn More:** [Web/README.md](Web/README.md)
 
 ---
 

@@ -200,7 +200,7 @@ func init() {
 		Handler:     handleGithubWorkflowAllRuns,
 	})
 
-	unified.Register(&unified.EndpointDef[GithubWorkflowRunGetRequest, *dbmodel.GithubWorkflowRuns]{
+	unified.Register(&unified.EndpointDef[GithubWorkflowRunGetRequest, GithubWorkflowRunWithSafeUID]{
 		Name:        "github_workflow_run_get",
 		Description: "Get a specific workflow run by ID",
 		HTTPMethod:  "GET",
@@ -382,15 +382,25 @@ type GithubWorkflowRunHistoryRequest struct {
 }
 
 type GithubWorkflowAllRunsRequest struct {
-	Cluster string `json:"cluster" query:"cluster" mcp:"description=Cluster name"`
-	Status  string `json:"status" form:"status" mcp:"description=Filter by status"`
-	Offset  int    `json:"offset" form:"offset" mcp:"description=Pagination offset"`
-	Limit   int    `json:"limit" form:"limit" mcp:"description=Pagination limit"`
+	Cluster      string `json:"cluster" query:"cluster" mcp:"description=Cluster name"`
+	Status       string `json:"status" query:"status" mcp:"description=Filter by status"`
+	Owner        string `json:"owner" query:"owner" mcp:"description=Filter by GitHub owner"`
+	Repo         string `json:"repo" query:"repo" mcp:"description=Filter by GitHub repo"`
+	PodCondition string `json:"pod_condition" query:"pod_condition" mcp:"description=Filter by pod condition (use 'error' for all error conditions)"`
+	GithubRunID  int64  `json:"github_run_id" query:"github_run_id" mcp:"description=Filter by GitHub run ID"`
+	Offset       int    `json:"offset" query:"offset" mcp:"description=Pagination offset"`
+	Limit        int    `json:"limit" query:"limit" mcp:"description=Pagination limit"`
 }
 
 type GithubWorkflowRunGetRequest struct {
 	Cluster string `json:"cluster" query:"cluster" mcp:"description=Cluster name"`
 	ID      string `json:"id" form:"id" param:"id" binding:"required" mcp:"description=Run ID,required"`
+}
+
+// GithubWorkflowRunWithSafeUID extends GithubWorkflowRuns with resolved SaFE UnifiedJob UID
+type GithubWorkflowRunWithSafeUID struct {
+	*dbmodel.GithubWorkflowRuns
+	SafeWorkloadUID string `json:"safeWorkloadUid,omitempty"`
 }
 
 type GithubWorkflowRunMetricsRequest struct {
@@ -1256,13 +1266,23 @@ func handleGithubWorkflowAllRuns(ctx context.Context, req *GithubWorkflowAllRuns
 	}
 
 	facade := database.GetFacadeForCluster(clusterName).GetGithubWorkflowRun()
-	runs, total, err := facade.List(ctx, &database.GithubWorkflowRunFilter{
-		Status: req.Status,
-		Offset: offset,
-		Limit:  limit,
+	runsWithConfig, total, err := facade.ListAllWithConfigName(ctx, &database.GithubWorkflowRunFilter{
+		Status:       req.Status,
+		Owner:        req.Owner,
+		Repo:         req.Repo,
+		PodCondition: req.PodCondition,
+		GithubRunID:  req.GithubRunID,
+		Offset:       offset,
+		Limit:        limit,
 	})
 	if err != nil {
 		return nil, errors.WrapError(err, "failed to list runs", errors.CodeDatabaseError)
+	}
+
+	// Extract base model for response compatibility
+	runs := make([]*dbmodel.GithubWorkflowRuns, len(runsWithConfig))
+	for i, r := range runsWithConfig {
+		runs[i] = r.GithubWorkflowRuns
 	}
 
 	return &GithubWorkflowRunsListResponse{
@@ -1273,7 +1293,7 @@ func handleGithubWorkflowAllRuns(ctx context.Context, req *GithubWorkflowAllRuns
 	}, nil
 }
 
-func handleGithubWorkflowRunGet(ctx context.Context, req *GithubWorkflowRunGetRequest) (**dbmodel.GithubWorkflowRuns, error) {
+func handleGithubWorkflowRunGet(ctx context.Context, req *GithubWorkflowRunGetRequest) (*GithubWorkflowRunWithSafeUID, error) {
 	runID, err := strconv.ParseInt(req.ID, 10, 64)
 	if err != nil {
 		return nil, errors.NewError().WithCode(errors.RequestParameterInvalid).WithMessage("invalid run id")
@@ -1284,7 +1304,8 @@ func handleGithubWorkflowRunGet(ctx context.Context, req *GithubWorkflowRunGetRe
 		return nil, err
 	}
 
-	facade := database.GetFacadeForCluster(clusterName).GetGithubWorkflowRun()
+	clusterFacade := database.GetFacadeForCluster(clusterName)
+	facade := clusterFacade.GetGithubWorkflowRun()
 	run, err := facade.GetByID(ctx, runID)
 	if err != nil {
 		return nil, errors.WrapError(err, "failed to get run", errors.CodeDatabaseError)
@@ -1293,7 +1314,29 @@ func handleGithubWorkflowRunGet(ctx context.Context, req *GithubWorkflowRunGetRe
 		return nil, errors.NewError().WithCode(errors.RequestDataNotExisted).WithMessage("run not found")
 	}
 
-	return &run, nil
+	result := &GithubWorkflowRunWithSafeUID{GithubWorkflowRuns: run}
+
+	// Resolve SafeWorkloadUID from gpu_workload table.
+	// Strategy:
+	// 1. If the run has a safe_workload_id (multi-node UnifiedJob), look up that name
+	// 2. Otherwise, look up by the runner's own workload_name (single-node runners
+	//    have a top-level SaFE Workload entry with the same name as the runner)
+	// Note: we do NOT search siblings - a sibling's UnifiedJob belongs to a
+	// different GitHub job and should not be associated with this runner.
+	workloadFacade := clusterFacade.GetWorkload()
+	lookupName := run.SafeWorkloadID
+	if lookupName == "" {
+		lookupName = run.WorkloadName
+	}
+	if lookupName != "" {
+		// GetGpuWorkloadByName prefers top-level (parent_uid='') workloads,
+		// then active over completed, then most recently ended.
+		if gpuWorkload, wErr := workloadFacade.GetGpuWorkloadByName(ctx, lookupName); wErr == nil && gpuWorkload != nil {
+			result.SafeWorkloadUID = gpuWorkload.UID
+		}
+	}
+
+	return result, nil
 }
 
 func handleGithubWorkflowRunMetrics(ctx context.Context, req *GithubWorkflowRunMetricsRequest) (*GithubWorkflowRunMetricsResponse, error) {

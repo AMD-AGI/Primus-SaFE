@@ -702,6 +702,7 @@ class BasicTransformerBlock(torch.nn.Module):
         self.mlp.init_weights(self.weight_init_std)
 
 
+@register_model("qwen3", "torch")
 @register_model("llama", "torch")
 class LlamaBasicModel(nn.Module):
     def __init__(

@@ -25,7 +25,7 @@ spec:
           - {{ include "primus-lens-infra.accessMode" . }}
         resources:
           requests:
-            storage: {{ $profile.postgres.dataSize }}
+            storage: {{ include "primus-lens-infra.postgresDataSize" . }}
         storageClassName: {{ include "primus-lens-infra.storageClass" . }}
       
       # Resource limits
@@ -68,7 +68,7 @@ spec:
                 - {{ include "primus-lens-infra.accessMode" . }}
               resources:
                 requests:
-                  storage: {{ $profile.postgres.backupSize }}
+                  storage: {{ include "primus-lens-infra.postgresBackupSize" . }}
               storageClassName: {{ include "primus-lens-infra.storageClass" . }}
   
   # PostgreSQL configuration

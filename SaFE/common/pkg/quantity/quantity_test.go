@@ -48,8 +48,7 @@ func TestSubResource(t *testing.T) {
 		corev1.ResourceStorage: *resource.NewQuantity(1024, resource.BinarySI),
 	}
 	result := SubResource(resource1, resource2)
-	_, ok := result[corev1.ResourceCPU]
-	assert.Equal(t, ok, false)
+	assert.Equal(t, result.Cpu().Value(), int64(0))
 	assert.Equal(t, result.Memory().Value(), int64(-512))
 	assert.Equal(t, result.StorageEphemeral().Value(), int64(0))
 	assert.Equal(t, result.Storage().Value(), int64(-1024))

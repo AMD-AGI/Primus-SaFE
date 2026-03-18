@@ -75,11 +75,8 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req reconcile.Reques
 	if err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
-	err = r.saveWorkloadToDB(ctx, workload)
-	if err != nil {
-		return reconcile.Result{}, err
-	}
 
+	// Handle deletion: remove finalizer first to ensure CR can be deleted even if DB fails
 	if workload.DeletionTimestamp != nil {
 		if !controllerutil.RemoveFinalizer(workload, constant.PrimusLensGpuWorkloadExporterFinalizer) {
 			return reconcile.Result{}, nil
@@ -100,8 +97,19 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req reconcile.Reques
 			log.Errorf("Failed to patch workload for removing finalizer: %v", err)
 			return reconcile.Result{}, err
 		}
+		// Save to DB after finalizer removal - error does not block deletion
+		if saveErr := r.saveWorkloadToDB(ctx, workload); saveErr != nil {
+			log.Errorf("Failed to save workload to DB during deletion (non-blocking): %v", saveErr)
+		}
 		return reconcile.Result{}, nil
 	}
+
+	// Handle create/update: save to DB first, then add finalizer
+	err = r.saveWorkloadToDB(ctx, workload)
+	if err != nil {
+		return reconcile.Result{}, err
+	}
+
 	if controllerutil.AddFinalizer(workload, constant.PrimusLensGpuWorkloadExporterFinalizer) {
 		// Use raw patch with resource version to add finalizer
 		finalizers := workload.GetFinalizers()
@@ -167,6 +175,16 @@ func (r *WorkloadReconciler) saveWorkloadToDB(ctx context.Context, workload *pri
 	// Get the appropriate facade based on cluster ID
 	var facade database.FacadeInterface
 	if clusterID != "" {
+		// Check if cluster exists in ClusterManager before proceeding
+		cm := clientsets.GetClusterManager()
+		if cm != nil {
+			_, err := cm.GetClientSetByClusterName(clusterID)
+			if err != nil {
+				log.Warnf("Cluster %s not found in ClusterManager, skipping workload %s/%s until next reconcile: %v",
+					clusterID, workload.Namespace, workload.Name, err)
+				return nil
+			}
+		}
 		facade = database.GetFacadeForCluster(clusterID)
 		log.Debugf("Using facade for cluster: %s", clusterID)
 	} else {
@@ -275,6 +293,12 @@ func (r *WorkloadReconciler) linkChildrenWorkloads(ctx context.Context, workload
 
 	// Set the parent_uid of found child workloads to current Workload's UID
 	for _, child := range childWorkloads {
+		// Skip the Workload itself to avoid self-referencing
+		// This can happen because Workload also has the primus-safe.workload.id label set to its own name
+		if child.UID == string(workload.UID) {
+			continue
+		}
+
 		// Only update workloads that don't have parent_uid set yet
 		if child.ParentUID == "" {
 			log.Debugf("Linking child workload: name=%s, uid=%s to parent uid=%s", child.Name, child.UID, workload.UID)
@@ -287,6 +311,71 @@ func (r *WorkloadReconciler) linkChildrenWorkloads(ctx context.Context, workload
 				continue
 			}
 		}
+	}
+
+	// Copy pod references from child workloads to parent workload immediately
+	// This ensures that pod references are available right away without waiting for WorkloadMatcher
+	if err := r.copyChildPodReferencesToParent(ctx, facade, workload, childWorkloads); err != nil {
+		log.Errorf("Failed to copy pod references from children to parent workload %s: %v", workload.Name, err)
+		// Don't fail the entire operation for pod reference copy errors
+	}
+
+	return nil
+}
+
+// copyChildPodReferencesToParent copies all pod references from child workloads to the parent workload
+// This ensures that aggregation jobs can correctly calculate GPU allocation for the parent workload
+func (r *WorkloadReconciler) copyChildPodReferencesToParent(ctx context.Context, facade database.FacadeInterface, parentWorkload *primusSafeV1.Workload, childWorkloads []*model.GpuWorkload) error {
+	parentUID := string(parentWorkload.UID)
+
+	// Collect all child workload UIDs (excluding parent workload itself)
+	childUIDs := make([]string, 0, len(childWorkloads))
+	for _, child := range childWorkloads {
+		if child.UID != parentUID {
+			childUIDs = append(childUIDs, child.UID)
+		}
+	}
+
+	if len(childUIDs) == 0 {
+		return nil
+	}
+
+	// Get existing pod references for parent workload
+	existingParentRefs, err := facade.GetWorkload().ListWorkloadPodReferenceByWorkloadUid(ctx, parentUID)
+	if err != nil {
+		return err
+	}
+
+	// Create set of existing pod UIDs for quick lookup
+	existingPodUIDs := make(map[string]bool)
+	for _, ref := range existingParentRefs {
+		existingPodUIDs[ref.PodUID] = true
+	}
+
+	// Collect all pod references from child workloads and copy to parent
+	copiedCount := 0
+	for _, childUID := range childUIDs {
+		childPodRefs, err := facade.GetWorkload().ListWorkloadPodReferenceByWorkloadUid(ctx, childUID)
+		if err != nil {
+			log.Warnf("Failed to get pod references for child workload %s: %v", childUID, err)
+			continue
+		}
+		for _, ref := range childPodRefs {
+			if !existingPodUIDs[ref.PodUID] {
+				err := facade.GetWorkload().CreateWorkloadPodReference(ctx, parentUID, ref.PodUID)
+				if err != nil {
+					log.Warnf("Failed to create pod reference for parent workload %s, pod %s: %v",
+						parentWorkload.Name, ref.PodUID, err)
+					continue
+				}
+				existingPodUIDs[ref.PodUID] = true
+				copiedCount++
+			}
+		}
+	}
+
+	if copiedCount > 0 {
+		log.Infof("Copied %d pod references from children to parent workload %s", copiedCount, parentWorkload.Name)
 	}
 
 	return nil

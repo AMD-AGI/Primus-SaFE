@@ -117,7 +117,7 @@ func (m *WorkloadMutator) mutateOnCreation(ctx context.Context, workload *v1.Wor
 	m.mutateMeta(ctx, workload, workspace)
 	m.mutateTTLSeconds(workload)
 	m.mutateCommon(ctx, nil, workload, workspace)
-	m.mutateWorkloadTimeout(workload, workspace)
+	m.mutateTimeout(workload, workspace)
 	return true
 }
 
@@ -146,7 +146,7 @@ func (m *WorkloadMutator) mutateCommon(ctx context.Context, oldWorkload, newWork
 	m.mutateEntryPoints(newWorkload)
 	m.mutateEnv(oldWorkload, newWorkload)
 	m.mutateMaxRetry(newWorkload)
-	m.mutateHostNetwork(ctx, newWorkload)
+	m.mutateRdmaResource(ctx, newWorkload)
 	m.mutateCustomerLabels(newWorkload)
 	m.mutateCronJobs(newWorkload)
 	m.mutateHealthCheck(newWorkload)
@@ -180,12 +180,18 @@ func (m *WorkloadMutator) mutateMeta(ctx context.Context, workload *v1.Workload,
 	if v1.GetUserName(workload) == "" {
 		v1.SetAnnotation(workload, v1.UserNameAnnotation, v1.GetUserId(workload))
 	}
+	if !v1.HasAnnotation(workload, v1.UseWorkspaceStorageAnnotation) {
+		v1.SetAnnotation(workload, v1.UseWorkspaceStorageAnnotation, v1.TrueStr)
+	}
 	v1.SetLabel(workload, v1.UserNameMd5Label, stringutil.MD5(v1.GetUserName(workload)))
 	commonworkload.GetWorkloadMainContainer(ctx, m.Client, workload)
 	controllerutil.AddFinalizer(workload, v1.WorkloadFinalizer)
 }
 
 func (m *WorkloadMutator) mutateOwnerReference(ctx context.Context, workload *v1.Workload, workspace *v1.Workspace) {
+	if v1.HasLabel(workload, v1.OwnerLabel) {
+		return
+	}
 	var err error
 	switch workload.SpecKind() {
 	case common.CICDEphemeralRunnerKind:
@@ -381,6 +387,7 @@ func (m *WorkloadMutator) mutateAuthoring(workload *v1.Workload) {
 		workload.Spec.Resources = workload.Spec.Resources[0:1]
 		workload.Spec.Resources[0].Replica = 1
 	}
+	v1.SetAnnotation(workload, v1.WorkloadDisableFailoverAnnotation, v1.TrueStr)
 	workload.Spec.EntryPoints = []string{stringutil.Base64Encode("sleep infinity")}
 	workload.Spec.Dependencies = nil
 }
@@ -470,9 +477,9 @@ func (m *WorkloadMutator) mutateEntryPoints(workload *v1.Workload) {
 	}
 }
 
-// mutateHostNetwork enables hostNetwork when replica equals per-node GPU count.
-// Also sets RDMA resources if enabled and flavor defines RDMA capacity.
-func (m *WorkloadMutator) mutateHostNetwork(ctx context.Context, workload *v1.Workload) {
+// mutateRdmaResource configures RDMA resources when hostNetwork is enabled.
+// If the NodeFlavor specifies RDMA capacity, it uses that value; otherwise defaults to "1".
+func (m *WorkloadMutator) mutateRdmaResource(ctx context.Context, workload *v1.Workload) {
 	flavorId := v1.GetNodeFlavorId(workload)
 	if flavorId == "" {
 		return
@@ -481,7 +488,6 @@ func (m *WorkloadMutator) mutateHostNetwork(ctx context.Context, workload *v1.Wo
 	if nf == nil {
 		return
 	}
-
 	rdmaName := commonconfig.GetRdmaName()
 	for i := range workload.Spec.Resources {
 		isEnableHostNetWork := isHostNetworkEnabled(workload, i, nf)
@@ -584,7 +590,7 @@ func (m *WorkloadMutator) mutateStickNodes(ctx context.Context, workload *v1.Wor
 	}
 }
 
-func (m *WorkloadMutator) mutateWorkloadTimeout(workload *v1.Workload, workspace *v1.Workspace) bool {
+func (m *WorkloadMutator) mutateTimeout(workload *v1.Workload, workspace *v1.Workspace) bool {
 	if workspace == nil {
 		return false
 	}
@@ -689,7 +695,7 @@ func (v *WorkloadValidator) validateCommon(ctx context.Context, newWorkload, old
 	if err = v.validateWorkspace(ctx, newWorkload); err != nil {
 		return err
 	}
-	if err = v.validateService(newWorkload); err != nil {
+	if err = v.validateService(ctx, newWorkload); err != nil {
 		return err
 	}
 	if err = v.validateHealthCheck(newWorkload); err != nil {
@@ -769,6 +775,9 @@ func (v *WorkloadValidator) validateCICDScalingRunnerSet(workload *v1.Workload) 
 	if err = v.validateResource(workloadResource); err != nil {
 		return err
 	}
+	if !v1.IsEnableWorkspaceStorage(workload) && workload.GetEnv(common.UnifiedJobEnable) == v1.TrueStr {
+		return fmt.Errorf("unified job must use workspace storage")
+	}
 	return nil
 }
 
@@ -830,6 +839,12 @@ func (v *WorkloadValidator) validateRayJob(newWorkload, _ *v1.Workload) error {
 		return fmt.Errorf("Expected at most 3 resource configurations (header and worker groups), "+
 			"got %d, resources: %v", len(newWorkload.Spec.Resources), newWorkload.Spec.Resources)
 	}
+	keys := []string{common.RayJobEntrypoint}
+	for _, key := range keys {
+		if val, ok := newWorkload.Spec.Env[key]; !ok || val == "" {
+			return fmt.Errorf("the %s of workload environment variables is empty", key)
+		}
+	}
 	return nil
 }
 
@@ -857,7 +872,7 @@ func (v *WorkloadValidator) validateResource(resource *v1.WorkloadResource) erro
 }
 
 // validateService validates service ports, protocol and type configuration.
-func (v *WorkloadValidator) validateService(workload *v1.Workload) error {
+func (v *WorkloadValidator) validateService(ctx context.Context, workload *v1.Workload) error {
 	if workload.Spec.Service == nil {
 		return nil
 	}
@@ -870,6 +885,11 @@ func (v *WorkloadValidator) validateService(workload *v1.Workload) error {
 	if workload.Spec.Service.NodePort > 0 {
 		if err := validatePort("service/node", workload.Spec.Service.NodePort); err != nil {
 			return err
+		}
+		currentPorts := commonworkload.GetUsedHostPorts(ctx, v.Client, v1.GetClusterId(workload))
+		_, existed := currentPorts[workload.Spec.Service.NodePort]
+		if existed {
+			return fmt.Errorf("the nodePort %d is already used", workload.Spec.Service.NodePort)
 		}
 	}
 	if workload.Spec.Service.Protocol != corev1.ProtocolTCP && workload.Spec.Service.Protocol != corev1.ProtocolUDP {
@@ -1079,13 +1099,12 @@ func (v *WorkloadValidator) validateCronJobs(workload *v1.Workload) error {
 }
 
 // isHostNetworkEnabled checks if host network should be enabled for a specific resource in the workload
-// Returns true when the resource has GPU requirements that match the node flavor's GPU count
-// and the workload has more than one replica and is not an authoring workload
+// Returns true when the workload uses multi-node with full GPU count
 func isHostNetworkEnabled(workload *v1.Workload, id int, nf *v1.NodeFlavor) bool {
-	if workload == nil || nf == nil {
-		return false
+	if v1.IsForceHostNetwork(workload) {
+		return true
 	}
-	if commonworkload.IsAuthoring(workload) {
+	if workload == nil || nf == nil {
 		return false
 	}
 	if commonworkload.GetTotalReplica(workload) <= 1 {

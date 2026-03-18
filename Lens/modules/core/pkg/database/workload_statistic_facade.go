@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database/dal"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database/model"
@@ -21,6 +22,14 @@ type WorkloadStatisticFacadeInterface interface {
 	GetOrCreate(ctx context.Context, clusterName string, workload *model.GpuWorkload) (*model.WorkloadStatistic, bool, error)
 	// Update updates or creates a statistic record
 	Update(ctx context.Context, record *model.WorkloadStatistic) error
+	// UpdateInstantOnly updates only the instant utilization and timestamp fields.
+	// This avoids rewriting the entire row (including large JSONB fields like histogram)
+	// when no new sample data is available, significantly reducing dead tuple generation.
+	UpdateInstantOnly(ctx context.Context, id int32, instantUtilization float64, lastQueryTime, statEndTime time.Time) error
+	// UpdateStatistics updates only the statistics-related columns.
+	// This avoids rewriting immutable columns (uid, cluster_name, namespace, labels, annotations)
+	// to reduce row size and dead tuple generation.
+	UpdateStatistics(ctx context.Context, record *model.WorkloadStatistic) error
 	// GetByUID gets a workload statistic by UID
 	GetByUID(ctx context.Context, uid string) (*model.WorkloadStatistic, error)
 	// List lists workload statistics with optional filters
@@ -48,7 +57,11 @@ func (f *WorkloadStatisticFacade) GetDB() *gorm.DB {
 	return f.getDB()
 }
 
-// GetOrCreate gets or creates a statistic record for the workload
+// GetOrCreate gets or creates a statistic record for the workload.
+// The lookup uses only (uid, cluster_name) — NOT workload_status — so that
+// once a record exists for a workload it is always found and updated in-place,
+// regardless of status transitions (Running -> Done/Failed/etc.).
+// This prevents the creation of duplicate rows when a workload's status changes.
 func (f *WorkloadStatisticFacade) GetOrCreate(ctx context.Context, clusterName string, workload *model.GpuWorkload) (*model.WorkloadStatistic, bool, error) {
 	db := f.getDB()
 	q := dal.Use(db).WorkloadStatistic
@@ -57,14 +70,12 @@ func (f *WorkloadStatisticFacade) GetOrCreate(ctx context.Context, clusterName s
 	// Each workload (including child workloads) has its own independent statistic record
 	workloadUID := workload.UID
 
-	// Try to query existing record
-	// Use Take() instead of First() to avoid ORDER BY id which prevents using uid index
+	// Try to query existing record by (uid, cluster_name) only.
+	// Do NOT filter by workload_status to avoid creating duplicates when status changes.
+	// Use Take() instead of First() to avoid ORDER BY id which prevents using uid index.
 	record, err := q.WithContext(ctx).Where(
-		q.ClusterName.Eq(clusterName),
-		q.Namespace.Eq(workload.Namespace),
-		q.WorkloadName.Eq(workload.Name),
 		q.UID.Eq(workloadUID),
-		q.WorkloadStatus.In("Running", "Pending"),
+		q.ClusterName.Eq(clusterName),
 	).Take()
 
 	// If found existing record, return it
@@ -104,6 +115,51 @@ func (f *WorkloadStatisticFacade) GetOrCreate(ctx context.Context, clusterName s
 	return newRecord, true, nil
 }
 
+// UpdateInstantOnly updates only the instant utilization and timestamp fields.
+// This is used when no new sample data is available from Prometheus,
+// avoiding the need to rewrite large JSONB columns (histogram, labels, annotations).
+func (f *WorkloadStatisticFacade) UpdateInstantOnly(ctx context.Context, id int32, instantUtilization float64, lastQueryTime, statEndTime time.Time) error {
+	db := f.getDB()
+	return db.WithContext(ctx).
+		Model(&model.WorkloadStatistic{}).
+		Where("id = ?", id).
+		Updates(map[string]interface{}{
+			"instant_gpu_utilization": instantUtilization,
+			"last_query_time":         lastQueryTime,
+			"stat_end_time":           statEndTime,
+			"updated_at":              time.Now(),
+		}).Error
+}
+
+// UpdateStatistics updates only the statistics-related columns, avoiding immutable
+// columns like uid, cluster_name, namespace, labels, and annotations.
+// This significantly reduces the amount of data written per UPDATE and helps
+// control dead tuple growth.
+func (f *WorkloadStatisticFacade) UpdateStatistics(ctx context.Context, record *model.WorkloadStatistic) error {
+	db := f.getDB()
+	return db.WithContext(ctx).
+		Model(&model.WorkloadStatistic{}).
+		Where("id = ?", record.ID).
+		Updates(map[string]interface{}{
+			"instant_gpu_utilization": record.InstantGpuUtilization,
+			"avg_gpu_utilization":     record.AvgGpuUtilization,
+			"p50_gpu_utilization":     record.P50GpuUtilization,
+			"p90_gpu_utilization":     record.P90GpuUtilization,
+			"p95_gpu_utilization":     record.P95GpuUtilization,
+			"max_gpu_utilization":     record.MaxGpuUtilization,
+			"min_gpu_utilization":     record.MinGpuUtilization,
+			"sample_count":            record.SampleCount,
+			"total_sum":               record.TotalSum,
+			"histogram":               record.Histogram,
+			"stat_start_time":         record.StatStartTime,
+			"stat_end_time":           record.StatEndTime,
+			"last_query_time":         record.LastQueryTime,
+			"workload_status":         record.WorkloadStatus,
+			"allocated_gpu_count":     record.AllocatedGpuCount,
+			"updated_at":              time.Now(),
+		}).Error
+}
+
 // Update updates or creates a statistic record
 func (f *WorkloadStatisticFacade) Update(ctx context.Context, record *model.WorkloadStatistic) error {
 	db := f.getDB()
@@ -125,12 +181,10 @@ func (f *WorkloadStatisticFacade) Update(ctx context.Context, record *model.Work
 	// try to find the existing record and update it
 	if strings.Contains(err.Error(), "duplicate key") || strings.Contains(err.Error(), "unique constraint") {
 		// Use Take() instead of First() to avoid ORDER BY id which prevents using uid index
+		// Look up by (uid, cluster_name) only — do NOT filter by workload_status
 		existingRecord, findErr := q.WithContext(ctx).Where(
-			q.ClusterName.Eq(record.ClusterName),
-			q.Namespace.Eq(record.Namespace),
-			q.WorkloadName.Eq(record.WorkloadName),
 			q.UID.Eq(record.UID),
-			q.WorkloadStatus.In("Running", "Pending"),
+			q.ClusterName.Eq(record.ClusterName),
 		).Take()
 
 		if findErr == nil && existingRecord.ID > 0 {
