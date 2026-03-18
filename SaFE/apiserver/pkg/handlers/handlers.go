@@ -98,6 +98,8 @@ func InitHttpHandlers(_ context.Context, mgr ctrlruntime.Manager) (*gin.Engine, 
 			} else {
 				llmgateway.InitRoutes(engine, llmHandler)
 			}
+		}
+	}
 
 	// Initialize email relay handlers (only when DB is enabled)
 	if commonconfig.IsDBEnable() {
@@ -106,7 +108,6 @@ func InitHttpHandlers(_ context.Context, mgr ctrlruntime.Manager) (*gin.Engine, 
 			klog.Warningf("Email relay handler initialization skipped: %v", err)
 		} else {
 			emailrelayhandlers.InitEmailRelayRouters(engine, emailRelayHandler)
-
 		}
 	}
 
