@@ -156,6 +156,12 @@ notification:
     from: ""
     # Use TLS/SSL (true for port 465, false for port 587 STARTTLS)
     use_tls: false
+  # Email relay mode (for clusters that cannot reach SMTP directly)
+  # When enabled, emails are queued in DB and streamed via SSE to a central relay service.
+  # Takes precedence over direct email when both are configured.
+  email_relay:
+    # Enable email relay mode
+    enable: false
 grafana:
   # Enable Grafana for monitoring metrics display (requires primus-lens)
   enable: false

@@ -41,6 +41,8 @@ func sendNotification(ctx context.Context, alert *UnifiedAlert, channel ChannelC
 		err = sendWebhookNotification(ctx, alert, channel.Config)
 	case ChannelEmail:
 		err = sendEmailNotification(ctx, alert, channel.Config)
+	case ChannelEmailRelay:
+		err = sendEmailRelayNotification(ctx, alert, channel.Config)
 	case ChannelDingTalk:
 		err = sendDingTalkNotification(ctx, alert, channel.Config)
 	case ChannelWeChat:
@@ -579,6 +581,70 @@ func sendSMTPEmail(ctx context.Context, config *EmailConfig, msg []byte) error {
 	}
 
 	return client.Quit()
+}
+
+// sendEmailRelayNotification posts alert email content to SaFE's email relay endpoint.
+// Required config: "url" (SaFE email-relay submit endpoint).
+// Optional config: "internal_token" (X-Internal-Token for auth), "from" (sender), "to" (recipients).
+func sendEmailRelayNotification(ctx context.Context, alert *UnifiedAlert, config map[string]interface{}) error {
+	url, ok := config["url"].(string)
+	if !ok || url == "" {
+		return fmt.Errorf("email_relay url not configured")
+	}
+
+	// Parse recipients
+	var recipients []string
+	if to, ok := config["to"].([]interface{}); ok {
+		for _, addr := range to {
+			if s, ok := addr.(string); ok && s != "" {
+				recipients = append(recipients, s)
+			}
+		}
+	} else if to, ok := config["to"].(string); ok && to != "" {
+		recipients = strings.Split(to, ",")
+	}
+	if len(recipients) == 0 {
+		return fmt.Errorf("email_relay requires at least one recipient in 'to'")
+	}
+
+	subject := fmt.Sprintf("[%s] Alert: %s - %s", strings.ToUpper(alert.Severity), alert.AlertName, alert.Status)
+	htmlBody := buildEmailHTMLBody(alert)
+
+	payload := map[string]interface{}{
+		"source":     "lens",
+		"recipients": recipients,
+		"subject":    subject,
+		"content":    htmlBody,
+	}
+
+	jsonData, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("failed to marshal email relay payload: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(jsonData))
+	if err != nil {
+		return fmt.Errorf("failed to create email relay request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	if token, ok := config["internal_token"].(string); ok && token != "" {
+		req.Header.Set("X-Internal-Token", token)
+	}
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to send email relay request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return fmt.Errorf("email relay returned status %d", resp.StatusCode)
+	}
+
+	log.GlobalLogger().WithContext(ctx).Infof("Email relay notification sent for alert %s to %v", alert.ID, recipients)
+	return nil
 }
 
 // sendDingTalkNotification sends a notification via DingTalk

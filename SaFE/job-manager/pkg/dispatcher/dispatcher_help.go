@@ -515,19 +515,20 @@ func modifyTolerations(obj *unstructured.Unstructured, workload *v1.Workload, pa
 
 // buildCommands constructs the command array for executing the workload entry point.
 func buildCommands(workload *v1.Workload, id int) []interface{} {
-	if commonworkload.IsRayJob(workload) {
-		if id == 0 {
-			return nil
-		}
-		return []interface{}{buildEntryPoint(workload, id)}
+	entryPoint := buildEntryPoint(workload, id)
+	if entryPoint == "" {
+		return nil
 	}
-	return []interface{}{"/bin/sh", "-c", buildEntryPoint(workload, id)}
+	if commonworkload.IsRayJob(workload) {
+		return []interface{}{entryPoint}
+	}
+	return []interface{}{"/bin/sh", "-c", entryPoint}
 }
 
 // buildEntryPoint constructs the command entry point for a workload.
 func buildEntryPoint(workload *v1.Workload, id int) string {
 	if len(workload.Spec.EntryPoints) <= id || workload.Spec.EntryPoints[id] == "" {
-		if commonworkload.IsRayJob(workload) {
+		if id > 0 && commonworkload.IsRayJob(workload) {
 			return Launcher
 		}
 		return ""
@@ -1074,11 +1075,9 @@ func updateContainers(adminWorkload *v1.Workload,
 			if len(adminWorkload.Spec.Images) > id && adminWorkload.Spec.Images[id] != "" {
 				container["image"] = adminWorkload.Spec.Images[id]
 			}
-			cmds := buildCommands(adminWorkload, id)
-			if len(cmds) > 0 {
+			if cmds := buildCommands(adminWorkload, id); len(cmds) > 0 {
 				container["command"] = cmds
 			}
-
 		}
 	}
 	if err = jobutils.SetNestedField(obj.Object, containers, path); err != nil {
