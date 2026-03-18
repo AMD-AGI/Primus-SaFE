@@ -415,12 +415,34 @@ PYTHON_SCRIPT
 
         if [ "$INSTALL_SYSTEM_PYTHON" = true ]; then
             print_info "Installing to system Python (--install-system-python)..."
-            if $MP_SYS_PYTHON -m pip install --no-cache-dir primus-lens-wandb-exporter 2>/dev/null; then
-                print_success "Installed to system Python: $MP_SYS_PYTHON"
+            # Clear PYTHONPATH to prevent pip from seeing the venv packages
+            # as "already satisfied", which would skip the actual installation
+            # and .pth file creation in system site-packages.
+            if PYTHONPATH="" $MP_SYS_PYTHON -m pip install --no-cache-dir --force-reinstall --no-deps primus-lens-wandb-exporter 2>/dev/null; then
+                # Verify .pth was actually created in system site-packages
+                SYS_PTH_CHECK=$(PYTHONPATH="" $MP_SYS_PYTHON -c "
+import site, os
+for sp in site.getsitepackages():
+    pth = os.path.join(sp, 'primus_lens_wandb_hook.pth')
+    if os.path.exists(pth):
+        print('OK|' + pth)
+        break
+else:
+    print('MISSING')
+" 2>/dev/null)
+                if echo "$SYS_PTH_CHECK" | grep -q "^OK|"; then
+                    SYS_PTH_PATH=$(echo "$SYS_PTH_CHECK" | cut -d'|' -f2)
+                    print_success "Installed to system Python: $MP_SYS_PYTHON"
+                    print_success ".pth file created: $SYS_PTH_PATH"
+                else
+                    print_warning "Package installed but .pth file not found in system site-packages"
+                    print_info "Manually create it:"
+                    echo "     echo 'import primus_lens_wandb_exporter.wandb_hook' | sudo tee $MP_SYS_SP/primus_lens_wandb_hook.pth"
+                fi
                 return 0
             else
                 print_error "Failed to install to system Python (permission denied?)"
-                print_info "Try: sudo $MP_SYS_PYTHON -m pip install --no-cache-dir primus-lens-wandb-exporter"
+                print_info "Try: sudo PYTHONPATH='' $MP_SYS_PYTHON -m pip install --no-cache-dir primus-lens-wandb-exporter"
                 return 1
             fi
         else
@@ -430,7 +452,7 @@ PYTHON_SCRIPT
             echo "     bash install.sh --install-system-python"
             echo
             echo "  Option 2: Manually install to system Python:"
-            echo "     $MP_SYS_PYTHON -m pip install --no-cache-dir primus-lens-wandb-exporter"
+            echo "     PYTHONPATH='' $MP_SYS_PYTHON -m pip install --no-cache-dir primus-lens-wandb-exporter"
             echo
             return 0
         fi
