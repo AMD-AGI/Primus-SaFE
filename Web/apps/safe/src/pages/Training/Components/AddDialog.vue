@@ -14,7 +14,7 @@
   >
     <!-- Middle content area: scrollable -->
     <div class="drawer-body">
-      <el-form ref="ruleFormRef" :model="form" :rules="rules" label-width="120px">
+      <el-form ref="ruleFormRef" :model="form" :rules="rules" label-width="120px" :validate-on-rule-change="false">
         <!-- ===== Basic Information ===== -->
         <div class="section-card">
           <div class="section-header">
@@ -925,6 +925,8 @@ const setInitialFormValues = async () => {
   if (props.action === 'Clone') {
     fetchWorkspaceOption()
   }
+  await nextTick()
+  ruleFormRef.value?.clearValidate()
 }
 
 const fetchNodes = async () => {

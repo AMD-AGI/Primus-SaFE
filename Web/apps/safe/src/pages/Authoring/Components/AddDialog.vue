@@ -19,6 +19,7 @@
         :model="form"
         label-width="auto"
         :rules="rules"
+        :validate-on-rule-change="false"
       >
         <!-- ===== Basic Information ===== -->
         <div class="section-card">
@@ -627,6 +628,8 @@ const setInitialFormValues = async () => {
   }
 
   form.forceHostNetwork = res.forceHostNetwork ?? false
+  await nextTick()
+  ruleFormRef.value?.clearValidate()
 }
 
 const fetchNodes = async () => {
