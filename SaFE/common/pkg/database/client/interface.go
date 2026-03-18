@@ -236,3 +236,13 @@ type EvaluationTaskInterface interface {
 	UpdateEvaluationTaskStartTime(ctx context.Context, taskId string) error
 	SetEvaluationTaskFailed(ctx context.Context, taskId, message string) error
 }
+
+// LLMGatewayInterface defines database operations for LLM Gateway bindings.
+type LLMGatewayInterface interface {
+	CreateLLMBinding(ctx context.Context, binding *LLMGatewayUserBinding) error
+	GetLLMBindingByEmail(ctx context.Context, email string) (*LLMGatewayUserBinding, error)
+	GetLLMBindingByApimKeyHash(ctx context.Context, apimKeyHash string) (*LLMGatewayUserBinding, error)
+	UpdateLLMBinding(ctx context.Context, binding *LLMGatewayUserBinding) error
+	DeleteLLMBinding(ctx context.Context, email string) error
+	ListLLMBindings(ctx context.Context, limit, offset int) ([]*LLMGatewayUserBinding, int64, error)
+}
