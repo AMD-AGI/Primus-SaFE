@@ -246,28 +246,34 @@ onMounted(async () => {
   }
   term.element?.addEventListener('contextmenu', onContextMenu)
 
-  /** Keyboard fallback: Ctrl/Cmd + Shift + C / V */
+  /** Keyboard: Ctrl/Cmd + C / V  (with or without Shift) */
   term.attachCustomKeyEventHandler((ev) => {
+    if (ev.type !== 'keydown') return true
     const isMac = /Mac|iPod|iPhone|iPad/.test(navigator.platform)
     const ctrlOrCmd = isMac ? ev.metaKey : ev.ctrlKey
+    if (!ctrlOrCmd) return true
 
-    // Copy
-    if (ctrlOrCmd && ev.shiftKey && ev.code === 'KeyC') {
+    // Copy — Ctrl+C or Ctrl+Shift+C
+    if (ev.code === 'KeyC') {
       if (term?.hasSelection()) {
         copyToClipboard(term.getSelection()).catch(() => {})
+        term.clearSelection()
+        return false
       }
-      return false
+      // No selection: Ctrl+C → pass through as SIGINT; Ctrl+Shift+C → swallow
+      return !ev.shiftKey
     }
 
-    // Paste
-    if (ctrlOrCmd && ev.shiftKey && ev.code === 'KeyV') {
+    // Paste — return false so xterm won't interpret Ctrl+V as control char \x16.
+    // The browser's native paste event then fires and xterm's paste listener handles it.
+    // Ctrl+Shift+V: browser won't fire paste event, so read clipboard manually.
+    if (ev.code === 'KeyV') {
+      if (!ev.shiftKey) return false
       if (canProgramReadClipboard()) {
         navigator.clipboard
           .readText()
           .then((t) => t && term?.paste(t))
           .catch(() => {})
-      } else {
-        console.warn('[WebShell] Paste requires HTTPS or native menu')
       }
       return false
     }

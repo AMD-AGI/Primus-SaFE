@@ -328,6 +328,11 @@ const router = createRouter({
           meta: { requiresWorkspaceAdmin: true },
         },
         {
+          path: '/llm-gateway',
+          name: 'LLMGateway',
+          component: () => import('@/pages/LLMGateway/index.vue'),
+        },
+        {
           path: '/primus-claw',
           name: 'PrimusClaw',
           component: () => import('@/pages/PocoChatPage/index.vue'),
