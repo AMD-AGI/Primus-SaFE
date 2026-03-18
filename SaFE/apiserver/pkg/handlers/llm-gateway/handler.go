@@ -500,13 +500,15 @@ func (h *Handler) getUserEmail(c *gin.Context) string {
 	}
 
 	// Look up User CR to get the real email
-	user, err := h.accessController.GetRequestUser(c.Request.Context(), userId)
-	if err != nil {
-		klog.V(4).InfoS("LLM Gateway: failed to get user, falling back to userName",
-			"userId", userId, "error", err)
-	} else {
-		if email := v1.GetUserEmail(user); email != "" {
-			return email
+	if h.accessController != nil {
+		user, err := h.accessController.GetRequestUser(c.Request.Context(), userId)
+		if err != nil {
+			klog.V(4).InfoS("LLM Gateway: failed to get user, falling back to userName",
+				"userId", userId, "error", err)
+		} else {
+			if email := v1.GetUserEmail(user); email != "" {
+				return email
+			}
 		}
 	}
 
