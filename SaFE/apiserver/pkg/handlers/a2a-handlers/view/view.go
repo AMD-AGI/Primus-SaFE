@@ -55,13 +55,13 @@ type CallLogView struct {
 	CallerServiceName string     `json:"callerServiceName"`
 	CallerUserId      string     `json:"callerUserId"`
 	TargetServiceName string     `json:"targetServiceName"`
-	SkillId           string     `json:"skillId,omitempty"`
+	SkillId           string     `json:"skillId"`
 	Status            string     `json:"status"`
 	LatencyMs         float64    `json:"latencyMs"`
 	RequestSizeBytes  int64      `json:"requestSizeBytes"`
 	ResponseSizeBytes int64      `json:"responseSizeBytes"`
-	ErrorMessage      string     `json:"errorMessage,omitempty"`
-	CreatedAt         *time.Time `json:"createdAt,omitempty"`
+	ErrorMessage      string     `json:"errorMessage"`
+	CreatedAt         *time.Time `json:"createdAt"`
 }
 
 // TopologyEdge represents a caller→target relationship for the topology graph.
