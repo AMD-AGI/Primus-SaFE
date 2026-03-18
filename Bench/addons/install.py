@@ -17,6 +17,10 @@
 #   - SSH key-based authentication configured (passwordless login)
 #   - Scripts in scripts_dir must be executable
 #
+# Behavior:
+#   - Copies entire scripts_dir (including subdirs) to each host before running
+#   - Each script runs with cwd=its directory, so scripts can call siblings (e.g. bash other.sh)
+#
 # Output:
 #   Per-node, per-script execution status (OK/FAIL). Hosts are processed in parallel.
 
@@ -25,6 +29,7 @@ import os
 import subprocess
 import sys
 import threading
+import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Optional
@@ -35,6 +40,7 @@ SSH_OPTS = [
     "-o", "BatchMode=yes",
     "-o", "ConnectTimeout=10",
 ]
+SCP_OPTS = SSH_OPTS  # scp uses same options
 
 print_lock = threading.Lock()
 
@@ -44,17 +50,41 @@ def log(msg: str) -> None:
         print(msg, flush=True)
 
 
-def run_script_on_host(host: str, script_path: Path) -> tuple[str, str, bool]:
-    """Run a single script on a host via SSH. Returns (host, script_name, success)."""
+def _copy_scripts_to_host(host: str, scripts_dir: Path, remote_base: str) -> bool:
+    """Copy entire scripts_dir (including subdirs) to remote host. Returns True on success."""
+    try:
+        subprocess.run(
+            ["ssh"] + SSH_OPTS + [host, f"mkdir -p {remote_base}"],
+            capture_output=True,
+            timeout=10,
+            check=True,
+        )
+        subprocess.run(
+            ["scp"] + ["-r"] + SCP_OPTS + [str(scripts_dir), f"{host}:{remote_base}/"],
+            capture_output=True,
+            timeout=120,
+            check=True,
+        )
+        return True
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired, Exception):
+        return False
+
+
+def _run_script_on_remote(host: str, script_path: Path, scripts_dir: Path, remote_base: str) -> tuple[str, str, bool]:
+    """Run script on remote host. Script runs with cwd=its directory so relative paths work."""
+    script_path = script_path.resolve()
+    scripts_dir = scripts_dir.resolve()
     script_name = script_path.name
     try:
-        with open(script_path, "rb") as f:
-            result = subprocess.run(
-                ["ssh"] + SSH_OPTS + [host, "bash -s"],
-                stdin=f,
-                capture_output=True,
-                timeout=300,
-            )
+        # Relative path from scripts_dir, e.g. "oci" for scripts/oci/foo.sh
+        rel = script_path.parent.relative_to(scripts_dir)
+        remote_script_dir = f"{remote_base}/{scripts_dir.name}/{rel}" if rel != Path(".") else f"{remote_base}/{scripts_dir.name}"
+        cmd = f"cd {remote_script_dir} && bash {script_name}"
+        result = subprocess.run(
+            ["ssh"] + SSH_OPTS + [host, cmd],
+            capture_output=True,
+            timeout=300,
+        )
         success = result.returncode == 0
         return (host, script_name, success)
     except subprocess.TimeoutExpired:
@@ -63,14 +93,31 @@ def run_script_on_host(host: str, script_path: Path) -> tuple[str, str, bool]:
         return (host, script_name, False)
 
 
-def run_host(host: str, scripts: list[Path]) -> list[tuple[str, str, bool]]:
-    """Run all scripts on one host sequentially. Returns list of (host, script_name, success)."""
+def run_host(host: str, scripts: list[Path], scripts_dir: Path) -> list[tuple[str, str, bool]]:
+    """Copy scripts to host, run each with correct cwd, cleanup. Returns list of (host, script_name, success)."""
+    remote_base = f"/tmp/primus-addons-{uuid.uuid4().hex[:12]}"
     results = []
-    for script_path in scripts:
-        r = run_script_on_host(host, script_path)
-        results.append(r)
-        status = "OK" if r[2] else "FAIL"
-        log(f"  {host}: {r[1]}: {status}")
+
+    if not _copy_scripts_to_host(host, scripts_dir, remote_base):
+        log(f"  {host}: FAIL (could not copy scripts)")
+        return [(host, sp.name, False) for sp in scripts]
+
+    try:
+        for script_path in scripts:
+            r = _run_script_on_remote(host, script_path, scripts_dir, remote_base)
+            results.append(r)
+            status = "OK" if r[2] else "FAIL"
+            log(f"  {host}: {r[1]}: {status}")
+    finally:
+        try:
+            subprocess.run(
+                ["ssh"] + SSH_OPTS + [host, f"rm -rf {remote_base}"],
+                capture_output=True,
+                timeout=10,
+            )
+        except Exception:
+            pass
+
     return results
 
 
@@ -153,9 +200,10 @@ def main() -> int:
 
     all_results: list[tuple[str, str, bool]] = []
     max_workers = min(len(nodes), 32)
+    scripts_dir_path = Path(args.scripts_dir).resolve()
 
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        futures = {executor.submit(run_host, host, scripts): host for host in nodes}
+        futures = {executor.submit(run_host, host, scripts, scripts_dir_path): host for host in nodes}
         for future in as_completed(futures):
             host = futures[future]
             try:

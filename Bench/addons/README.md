@@ -52,6 +52,8 @@ Run scripts on multiple nodes via SSH in batch. Hosts are processed in parallel.
 
 ### Behavior
 
+- Copies entire scripts directory (including subdirs) to each host via scp before running
+- Each script runs with its directory as cwd, so scripts can call siblings (e.g. `bash other.sh`)
 - Hosts are processed in parallel (up to 32 concurrent)
 - SSH uses `StrictHostKeyChecking=no` to auto-accept new hosts
 - On script failure, skip and continue with the next script
