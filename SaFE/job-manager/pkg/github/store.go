@@ -118,6 +118,29 @@ func (s *Store) UpsertJob(ctx context.Context, runID int, githubJobID int64,
 	return err
 }
 
+// InsertMetrics inserts a workflow metrics record.
+func (s *Store) InsertMetrics(ctx context.Context, configID, runID int64,
+	timestamp *time.Time, dimensions, metrics, rawData []byte) error {
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO github_workflow_metrics (config_id, run_id, timestamp, dimensions, metrics, raw_data)
+		VALUES ($1, $2, $3, $4, $5, $6)`,
+		configID, runID, timestamp, dimensions, metrics, rawData)
+	return err
+}
+
+// UpsertStep inserts or updates a GitHub workflow step.
+func (s *Store) UpsertStep(ctx context.Context, jobID, stepNumber int,
+	name, status, conclusion string, startedAt, completedAt *time.Time, durationSec int) error {
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO github_workflow_steps
+			(job_id, step_number, name, status, conclusion, started_at, completed_at, duration_seconds)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		ON CONFLICT (job_id, step_number) WHERE false
+		DO NOTHING`,
+		jobID, stepNumber, name, status, conclusion, startedAt, completedAt, durationSec)
+	return err
+}
+
 // UpsertCommit inserts or updates a GitHub commit.
 func (s *Store) UpsertCommit(ctx context.Context, sha, owner, repo, message, authorName, authorEmail string,
 	authoredAt *time.Time, additions, deletions, filesChanged int) error {
