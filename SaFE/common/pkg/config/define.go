@@ -145,4 +145,9 @@ const (
 	tracingMode          = tracingPrefix + "mode"
 	tracingSamplingRatio = tracingPrefix + "sampling_ratio"
 	tracingOtlpEndpoint  = tracingPrefix + "otlp_endpoint"
+
+	// llm_gateway
+	llmGatewayPrefix     = "llm_gateway."
+	llmGatewayEnable     = llmGatewayPrefix + "enabled"
+	llmGatewaySecretPath = llmGatewayPrefix + "secret_path"
 )
