@@ -16,6 +16,7 @@ import (
 	cdhandlers "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/cd-handlers"
 	emailrelayhandlers "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/email-relay-handlers"
 	imagehandlers "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/image-handlers"
+	llmgateway "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/llm-gateway"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/middleware"
 	model_handlers "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/model-handlers"
 	proxyhandlers "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/proxy-handlers"
@@ -86,6 +87,19 @@ func InitHttpHandlers(_ context.Context, mgr ctrlruntime.Manager) (*gin.Engine, 
 		return nil, err
 	}
 	proxyhandlers.InitProxyRoutes(engine, proxyHandler)
+
+	// Initialize LLM Gateway handlers (if enabled and DB is available)
+	if commonconfig.IsLLMGatewayEnable() && commonconfig.IsDBEnable() {
+		llmDbClient := dbclient.NewClient()
+		if llmDbClient != nil {
+			llmHandler, llmErr := llmgateway.NewHandler(authority.NewAccessController(mgr.GetClient()), llmDbClient)
+			if llmErr != nil {
+				klog.ErrorS(llmErr, "failed to initialize LLM Gateway handler")
+			} else {
+				llmgateway.InitRoutes(engine, llmHandler)
+			}
+		}
+	}
 
 	// Initialize email relay handlers (only when DB is enabled)
 	if commonconfig.IsDBEnable() {

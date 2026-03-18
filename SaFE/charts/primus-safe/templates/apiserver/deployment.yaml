@@ -85,6 +85,11 @@ spec:
               mountPath: /etc/secrets/notification
               readOnly: true
             {{- end }}
+            {{- if and .Values.llm_gateway .Values.llm_gateway.enabled }}
+            - name: llm-gateway-secret
+              mountPath: {{ default "/etc/secrets/llm-gateway" (default dict .Values.llm_gateway).secret_path }}
+              readOnly: true
+            {{- end }}
           ports:
             - containerPort: {{ default 8088 (default .Values.apiserver).port }}
               name: http-port
@@ -152,6 +157,11 @@ spec:
         - name: notification-secret
           secret:
             secretName: {{ .Release.Name }}-notification
+        {{- end }}
+        {{- if and .Values.llm_gateway .Values.llm_gateway.enabled }}
+        - name: llm-gateway-secret
+          secret:
+            secretName: {{ .Release.Name }}-llm-gateway
         {{- end }}
       {{- if .Values.global.image_pull_secret }}
       imagePullSecrets:
