@@ -157,14 +157,22 @@
       </el-text>
       <div class="code-block mb-6">
         <pre><code>from openai import OpenAI
+import httpx
+
+http_client = httpx.Client(verify=False)
 
 client = OpenAI(
     api_key="ak-&lt;your-safe-apikey&gt;",
-    base_url="{{ safeProxyBaseUrl }}",
+    base_url="https://oci-slc.primus-safe.amd.com/api/v1/llm-proxy/v1",
+    http_client=http_client,
 )
 
+models = client.models.list()
+for model in models.data:
+    print(model.id)
+
 response = client.chat.completions.create(
-    model="claude-opus-4-6",
+    model="openai/gpt-5.2",
     messages=[{"role": "user", "content": "Hello!"}],
 )
 print(response.choices[0].message.content)</code></pre>
@@ -176,14 +184,22 @@ print(response.choices[0].message.content)</code></pre>
       </el-text>
       <div class="code-block">
         <pre><code>from openai import OpenAI
+import httpx
+
+http_client = httpx.Client(verify=False)
 
 client = OpenAI(
-    api_key="sk-&lt;your-llm-virtual-key&gt;",
-    base_url="{{ llmGatewayBaseUrl }}",
+    api_key="sk-",
+    base_url="https://project1.tw325.primus-safe.amd.com/llm-gateway/v1",
+    http_client=http_client,
 )
 
+models = client.models.list()
+for model in models.data:
+    print(model.id)
+
 response = client.chat.completions.create(
-    model="claude-opus-4-6",
+    model="openai/gpt-5.2",
     messages=[{"role": "user", "content": "Hello!"}],
 )
 print(response.choices[0].message.content)</code></pre>
