@@ -600,8 +600,6 @@ func buildEnvironment(workload *v1.Workload, resourceId int) []interface{} {
 		workload.Spec.Resources[resourceId].GPU != "" {
 		if workload.GetEnv("AINIC_DRIVER_VERSION") != "" {
 			result = addEnvVar(result, workload, "NCCL_IB_GID_INDEX", "1")
-			result = addEnvVar(result, workload, "NCCL_IB_TC", "104")
-			result = addEnvVar(result, workload, "NCCL_IB_FIFO_TC", "192")
 			result = addEnvVar(result, workload, "NCCL_DMABUF_ENABLE", "0")
 			result = addEnvVar(result, workload, "NCCL_MAX_P2P_CHANNELS", "56")
 			result = addEnvVar(result, workload, "NET_OPTIONAL_RECV_COMPLETION", "1")
@@ -612,7 +610,6 @@ func buildEnvironment(workload *v1.Workload, resourceId int) []interface{} {
 			result = addEnvVar(result, workload, "LD_LIBRARY_PATH", "/opt/amd-anp/build:/opt/rccl/build/release:/opt/rocm/lib")
 		} else {
 			result = addEnvVar(result, workload, "NCCL_IB_GID_INDEX", "3")
-			result = addEnvVar(result, workload, "NCCL_IB_TC", "41")
 		}
 		result = addEnvVar(result, workload, "GPUS_PER_NODE", workload.Spec.Resources[resourceId].GPU)
 	}

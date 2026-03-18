@@ -1,0 +1,20 @@
+#
+# Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
+# See LICENSE for license information.
+#
+
+apiVersion: amd.com/v1
+kind: AddonTemplate
+metadata:
+  name: disable-oci-acs
+  labels:
+    primus-safe.display.name: "disable-oci-acs"
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    meta.helm.sh/release-name: {{ .Release.Name }}
+    meta.helm.sh/release-namespace: {{ .Release.Namespace }}
+spec:
+  category: System
+  required: false
+  description: Disables ACS on all PCI devices that support it so RDMA/GPU peer-to-peer access can work. Only for oci-cluster
+  action: Zm9yIEJERiBpbiBgbHNwY2kgLWQgIio6KjoqIiB8IGF3ayAne3ByaW50ICQxfSdgOyBkbwogICAgIyBza2lwIGlmIGl0IGRvZXNuJ3Qgc3VwcG9ydCBBQ1MKICAgIHNldHBjaSAtdiAtcyAke0JERn0gRUNBUF9BQ1MrMHg2LncgPiAvZGV2L251bGwgMj4mMQogICAgaWYgWyAkPyAtbmUgMCBdOyB0aGVuCiAgICAgICAgY29udGludWUKICAgIGZpCiAgICBlY2hvICJEaXNhYmxpbmcgQUNTIG9uIGBsc3BjaSAtcyAke0JERn1gIgogICAgc2V0cGNpIC12IC1zICR7QkRGfSBFQ0FQX0FDUysweDYudz0wMDAwCiAgICBpZiBbICQ/IC1uZSAwIF07IHRoZW4KICAgICAgICBjb250aW51ZQogICAgZmkKICAgIE5FV19WQUw9YHNldHBjaSAtdiAtcyAke0JERn0gRUNBUF9BQ1MrMHg2LncgfCBhd2sgJ3twcmludCAkTkZ9J2AKICAgIGlmIFsgIiR7TkVXX1ZBTH0iICE9ICIwMDAwIiBdOyB0aGVuCiAgICAgICAgY29udGludWUKICAgIGZpCmRvbmUK

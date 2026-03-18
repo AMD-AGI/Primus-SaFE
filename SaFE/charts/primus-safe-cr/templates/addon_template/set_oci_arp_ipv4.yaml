@@ -1,0 +1,20 @@
+#
+# Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
+# See LICENSE for license information.
+#
+
+apiVersion: amd.com/v1
+kind: AddonTemplate
+metadata:
+  name: set-oci-arp-ipv4
+  labels:
+    primus-safe.display.name: "set-oci-arp-ipv4"
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    meta.helm.sh/release-name: {{ .Release.Name }}
+    meta.helm.sh/release-namespace: {{ .Release.Namespace }}
+spec:
+  category: System
+  required: false
+  description: Tunes kernel ARP and IPv4 settings and configures NIC RDMA pipeline options for OCI RDMA/RoCEv2 environments. Only for oci-cluster
+  action: c3lzY3RsIC13IG5ldC5pcHY0Lm5laWdoLmRlZmF1bHQuZ2NfdGhyZXNoMT0yNjIxNDQKc3lzY3RsIC13IG5ldC5pcHY0Lm5laWdoLmRlZmF1bHQuZ2NfdGhyZXNoMj0yNjIxNDQKc3lzY3RsIC13IG5ldC5pcHY0Lm5laWdoLmRlZmF1bHQuZ2NfdGhyZXNoMz0yNjIxNDQKbmljY3RsIGRlYnVnIHVwZGF0ZSBwaXBlbGluZSBpbnRlcm5hbCByZG1hIC0tc2tpcC1kYXRhLWNvcHkgZGlzYWJsZQoKZWNobyAwID4gL3Byb2Mvc3lzL25ldC9pcHY0L2NvbmYvYWxsL3JwX2ZpbHRlcgplY2hvIDEgPiAvcHJvYy9zeXMvbmV0L2lwdjQvY29uZi9hbGwvYWNjZXB0X2xvY2FsCmVjaG8gMSA+IC9wcm9jL3N5cy9uZXQvaXB2NC9jb25mL2FsbC9hcnBfZmlsdGVyCmVjaG8gMSA+IC9wcm9jL3N5cy9uZXQvaXB2NC9jb25mL2FsbC9hcnBfaWdub3JlCmVjaG8gMiA+IC9wcm9jL3N5cy9uZXQvaXB2NC9jb25mL2FsbC9hcnBfYW5ub3VuY2UKCmdyZXAgLXIgIC4gL3Byb2Mvc3lzL25ldC9pcHY0L2NvbmYvYWxsLyB8IGdyZXAgJ2FycF9cfGFjY2VwdF9sb2NhbFx8X2ZpbHRlcicKbmljY3RsIHVwZGF0ZSBjYXJkIHRpbWUK

@@ -252,7 +252,6 @@ echo "========================================="
 echo "🔧 Step 4: install primus-safe admin plane"
 echo "========================================="
 
-cd ../charts/
 src_values_yaml="primus-safe/values.yaml"
 if [ ! -f "$src_values_yaml" ]; then
   echo "Error: $src_values_yaml does not exist"
@@ -314,7 +313,7 @@ if helm list -n "$NAMESPACE" -q | grep -qx "$chart_name"; then
   fi
 fi
 install_or_upgrade_helm_chart "$chart_name" "$values_yaml"
-
+rm -f "$values_yaml"
 sleep 10
 
 echo
@@ -322,15 +321,23 @@ echo "========================================="
 echo "🔧 Step 5: upgrade primus-safe cr"
 echo "========================================="
 
-cd ../charts/
-values_yaml="primus-safe-cr/values.yaml"
+src_values_yaml="primus-safe-cr/values.yaml"
 if [ ! -f "$src_values_yaml" ]; then
   echo "Error: $src_values_yaml does not exist"
   exit 1
 fi
+values_yaml="primus-safe-cr/.values.yaml"
+cp "$src_values_yaml" "${values_yaml}"
+
+if [[ -n "${helm_registry:-}" ]]; then
+  sed -i '/global:/,/^[a-z]/ s/helm_registry: .*/helm_registry: "'"$helm_registry"'"/' "$values_yaml"
+fi
+sed -i '/global:/,/^[a-z]/ s/sub_domain: .*/sub_domain: "'"$sub_domain"'"/' "$values_yaml"
 
 install_or_upgrade_helm_chart "primus-safe-cr" "$values_yaml"
+rm -f "$values_yaml"
 cd ..
+
 
 if [[ "$install_node_agent" == "y" ]]; then
   echo
