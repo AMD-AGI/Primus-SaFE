@@ -164,7 +164,7 @@ client = OpenAI(
 )
 
 response = client.chat.completions.create(
-    model="openai/gpt-4.1",
+    model="claude-opus-4-6",
     messages=[{"role": "user", "content": "Hello!"}],
 )
 print(response.choices[0].message.content)</code></pre>
@@ -183,7 +183,7 @@ client = OpenAI(
 )
 
 response = client.chat.completions.create(
-    model="openai/gpt-4.1",
+    model="claude-opus-4-6",
     messages=[{"role": "user", "content": "Hello!"}],
 )
 print(response.choices[0].message.content)</code></pre>
@@ -319,7 +319,8 @@ const binding = ref<LLMGatewayBinding | null>(null)
 const apimKeyInput = ref('')
 
 const safeProxyBaseUrl = `${location.origin}/api/v1/llm-proxy/v1`
-const llmGatewayBaseUrl = `${location.origin}/llm-gateway/v1`
+const llmGatewayBaseUrl = "https://project1.tw325.primus-safe.amd.com/llm-gateway/v1"
+// const llmGatewayBaseUrl = `${location.origin}/llm-gateway/v1`
 
 // ── Virtual Key Dialog ──
 const virtualKeyVisible = ref(false)
