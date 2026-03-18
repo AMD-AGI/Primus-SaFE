@@ -25,9 +25,10 @@ type CreateSftJobRequest struct {
 
 	// Resource configuration (optional, has defaults)
 	Image            string            `json:"image"`            // default "rocm/primus:v26.1"
-	GpuCount         int               `json:"gpuCount"`         // default 8
-	Cpu              string            `json:"cpu"`              // default "128"
-	Memory           string            `json:"memory"`           // default "1024Gi"
+	NodeCount        int               `json:"nodeCount"`        // number of nodes, default 1 (single-node), >1 for multi-node
+	GpuCount         int               `json:"gpuCount"`         // GPUs per node, default 8
+	Cpu              string            `json:"cpu"`              // CPU per node, default "128"
+	Memory           string            `json:"memory"`           // memory per node, default "1024Gi"
 	EphemeralStorage string            `json:"ephemeralStorage"` // default "300Gi"
 	Env              map[string]string `json:"env"`
 	Hostpath         []string          `json:"hostpath"`

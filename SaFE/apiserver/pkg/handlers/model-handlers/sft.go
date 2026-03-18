@@ -117,6 +117,10 @@ func (h *Handler) createSftJob(c *gin.Context) (interface{}, error) {
 
 	env := map[string]string{
 		"PYTORCH_HIP_ALLOC_CONF": "expandable_segments:True",
+		"GPUS_PER_NODE":          strconv.Itoa(req.GpuCount),
+	}
+	if req.NodeCount > 1 {
+		env["NNODES"] = strconv.Itoa(req.NodeCount)
 	}
 	for k, v := range req.Env {
 		env[k] = v
@@ -130,6 +134,35 @@ func (h *Handler) createSftJob(c *gin.Context) (interface{}, error) {
 	}
 	if baseModelId != "" {
 		customerLabels[SftLabelBaseModelId] = baseModelId
+	}
+
+	// Build resources: PyTorchJob splits into master (replica=1) + workers (replica=N-1)
+	nodeResource := v1.WorkloadResource{
+		Replica:          1,
+		CPU:              req.Cpu,
+		GPU:              strconv.Itoa(req.GpuCount),
+		Memory:           req.Memory,
+		EphemeralStorage: req.EphemeralStorage,
+	}
+
+	var resources []v1.WorkloadResource
+	var images []string
+	var entryPoints []string
+
+	if req.NodeCount > 1 {
+		// Multi-node: master (1) + workers (N-1), same resource spec per node
+		masterResource := nodeResource
+		masterResource.Replica = 1
+		workerResource := nodeResource
+		workerResource.Replica = req.NodeCount - 1
+		resources = []v1.WorkloadResource{masterResource, workerResource}
+		images = []string{req.Image, req.Image}
+		entryPoints = []string{encodedEntrypoint, encodedEntrypoint}
+	} else {
+		// Single-node
+		resources = []v1.WorkloadResource{nodeResource}
+		images = []string{req.Image}
+		entryPoints = []string{encodedEntrypoint}
 	}
 
 	workload := &v1.Workload{}
@@ -148,20 +181,14 @@ func (h *Handler) createSftJob(c *gin.Context) (interface{}, error) {
 
 	workload.Spec = v1.WorkloadSpec{
 		GroupVersionKind: v1.GroupVersionKind{Kind: common.PytorchJobKind, Version: common.DefaultVersion},
-		Images:           []string{req.Image},
-		EntryPoints:      []string{encodedEntrypoint},
-		Resources: []v1.WorkloadResource{{
-			Replica:          1,
-			CPU:              req.Cpu,
-			GPU:              strconv.Itoa(req.GpuCount),
-			Memory:           req.Memory,
-			EphemeralStorage: req.EphemeralStorage,
-		}},
-		Env:            env,
-		CustomerLabels: customerLabels,
-		Hostpath:       req.Hostpath,
-		Priority:       req.Priority,
-		Workspace:      req.Workspace,
+		Images:           images,
+		EntryPoints:      entryPoints,
+		Resources:        resources,
+		Env:              env,
+		CustomerLabels:   customerLabels,
+		Hostpath:         req.Hostpath,
+		Priority:         req.Priority,
+		Workspace:        req.Workspace,
 	}
 	if timeout > 0 {
 		workload.Spec.Timeout = &timeout

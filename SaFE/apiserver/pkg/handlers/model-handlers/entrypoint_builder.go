@@ -152,6 +152,9 @@ func FillSftDefaults(req *CreateSftJobRequest, modelSize string) {
 	if req.Image == "" {
 		req.Image = DefaultImage
 	}
+	if req.NodeCount == 0 {
+		req.NodeCount = 1
+	}
 	if req.GpuCount == 0 {
 		req.GpuCount = DefaultGpuCount
 	}
