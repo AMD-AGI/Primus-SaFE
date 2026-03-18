@@ -109,6 +109,11 @@ data:
       services:
         {{- toYaml .Values.proxy.services | nindent 8 }}
     {{- end }}
+    llm_gateway:
+      # Whether to enable LLM Gateway (SaFE API Key -> LiteLLM Virtual Key binding)
+      enabled: {{ default true (default dict .Values.llm_gateway).enabled }}
+      # Path to the secret directory containing litellm_admin_key, litellm_endpoint, litellm_team_id
+      secret_path: {{ default "/etc/secrets/llm-gateway" (default dict .Values.llm_gateway).secret_path }}
 kind: ConfigMap
 metadata:
   name: {{ .Release.Name }}-apiserver
