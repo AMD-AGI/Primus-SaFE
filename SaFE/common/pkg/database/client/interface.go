@@ -35,6 +35,7 @@ type Interface interface {
 	AuditLogInterface
 	DatasetInterface
 	EvaluationTaskInterface
+	LLMGatewayInterface
 }
 
 type WorkloadInterface interface {
