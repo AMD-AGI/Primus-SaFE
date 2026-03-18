@@ -498,12 +498,29 @@ func (f *Facade) WithCluster(clusterName string) FacadeInterface {
 // Global default Facade instance
 var defaultFacade = NewFacade()
 
+// robustFacadeFactory is set during initialization when dataPlane.mode != "local".
+// It wraps the local facade with Robust API-backed sub-facades.
+var robustFacadeFactory func(localFacade *Facade, clusterName string) FacadeInterface
+
+// SetRobustFacadeFactory registers a factory function that creates Robust-backed facades.
+// Called during server initialization when Robust data plane is enabled.
+func SetRobustFacadeFactory(factory func(localFacade *Facade, clusterName string) FacadeInterface) {
+	robustFacadeFactory = factory
+}
+
 // GetFacade returns the default Facade instance (using the current cluster)
 func GetFacade() FacadeInterface {
 	return defaultFacade
 }
 
-// GetFacadeForCluster returns a Facade instance for the specified cluster
+// GetFacadeForCluster returns a Facade instance for the specified cluster.
+// When Robust data plane is enabled, returns a RobustFacade that delegates
+// data-plane queries to the Robust API while keeping local-only queries
+// on the embedded local facade.
 func GetFacadeForCluster(clusterName string) FacadeInterface {
-	return defaultFacade.WithCluster(clusterName)
+	localFacade := defaultFacade.WithCluster(clusterName).(*Facade)
+	if robustFacadeFactory != nil {
+		return robustFacadeFactory(localFacade, clusterName)
+	}
+	return localFacade
 }

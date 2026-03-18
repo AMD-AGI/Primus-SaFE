@@ -29,6 +29,59 @@ type Config struct {
 	MCP               *MCPConfig           `json:"mcp" yaml:"mcp"`
 	DiagnosticMCP     *MCPConfig           `json:"diagnosticMcp" yaml:"diagnosticMcp"`
 	SnapshotStore     *SnapshotStoreConfig `json:"snapshotStore" yaml:"snapshotStore"`
+	DataPlane         *DataPlaneConfig     `json:"dataPlane" yaml:"dataPlane"`
+}
+
+type DataPlaneConfig struct {
+	Mode    string       `json:"mode" yaml:"mode"`       // "local" (default) | "robust" | "hybrid"
+	Robust  RobustConfig `json:"robust" yaml:"robust"`
+	Domains map[string]string `json:"domains" yaml:"domains"` // domain → "robust" | "local" override
+	FallbackToLocal bool `json:"fallbackToLocal" yaml:"fallbackToLocal"`
+}
+
+type RobustConfig struct {
+	BaseURL  string            `json:"baseUrl" yaml:"baseUrl"`
+	Timeout  time.Duration     `json:"timeout" yaml:"timeout"`
+	Clusters map[string]string `json:"clusters" yaml:"clusters"` // cluster → robust URL
+}
+
+func (c *Config) GetDataPlaneMode() string {
+	if c.DataPlane == nil || c.DataPlane.Mode == "" {
+		return "local"
+	}
+	return c.DataPlane.Mode
+}
+
+func (c *Config) GetRobustBaseURL(clusterName string) string {
+	if c.DataPlane == nil {
+		return ""
+	}
+	if url, ok := c.DataPlane.Robust.Clusters[clusterName]; ok {
+		return url
+	}
+	return c.DataPlane.Robust.BaseURL
+}
+
+func (c *Config) IsRobustDomain(domain string) bool {
+	if c.DataPlane == nil {
+		return false
+	}
+	if c.DataPlane.Mode == "robust" {
+		if c.DataPlane.Domains != nil {
+			if mode, ok := c.DataPlane.Domains[domain]; ok {
+				return mode == "robust"
+			}
+		}
+		return true
+	}
+	if c.DataPlane.Mode == "hybrid" && c.DataPlane.Domains != nil {
+		return c.DataPlane.Domains[domain] == "robust"
+	}
+	return false
+}
+
+func (c *Config) ShouldFallbackToLocal() bool {
+	return c.DataPlane != nil && c.DataPlane.FallbackToLocal
 }
 
 // MCPConfig contains MCP (Model Context Protocol) server configuration

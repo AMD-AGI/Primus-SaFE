@@ -14,6 +14,7 @@ import (
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
 	mcpserver "github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/mcp/server"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/mcp/unified"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/robust"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/router"
 	"github.com/gin-gonic/gin"
 )
@@ -67,6 +68,9 @@ func InitServerWithPreInitFunc(ctx context.Context, preInit func(ctx context.Con
 			return errors.NewError().WithCode(errors.CodeInitializeError).WithMessage("PreInit Error").WithError(err)
 		}
 	}
+
+	robust.Init(ctx, cfg)
+
 	ginEngine := gin.New()
 	ginEngine.Use(gin.Recovery())
 	err = router.InitRouter(ginEngine, cfg)
