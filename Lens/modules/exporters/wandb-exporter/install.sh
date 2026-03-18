@@ -6,15 +6,28 @@
 #   Method 1: curl -fsSL https://raw.githubusercontent.com/your-repo/main/install.sh | bash
 #   Method 2: wget -qO- https://raw.githubusercontent.com/your-repo/main/install.sh | bash
 #   Method 3: bash install.sh
+#   Method 4: bash install.sh --install-system-python  (also install to system Python)
 #
 # This script will:
 #   1. Detect Python environment
 #   2. Install primus-lens-wandb-exporter package
 #   3. Automatically create .pth file
 #   4. Verify installation success
+#   5. Detect multi-interpreter environments (venv vs system Python)
 ################################################################################
 
 set -e
+
+# Parse arguments
+INSTALL_SYSTEM_PYTHON=false
+for arg in "$@"; do
+    case $arg in
+        --install-system-python)
+            INSTALL_SYSTEM_PYTHON=true
+            shift
+            ;;
+    esac
+done
 
 # Color definitions
 RED='\033[0;31m'
@@ -83,7 +96,7 @@ detect_pip() {
 install_package() {
     echo
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-    echo "Step 1/3: Install Package"
+    echo "Step 1/4: Install Package"
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     
     # Check if already installed
@@ -141,7 +154,7 @@ install_package() {
 create_pth_file() {
     echo
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-    echo "Step 2/3: Configure Hook (.pth file)"
+    echo "Step 2/4: Configure Hook (.pth file)"
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     
     # Create .pth file using Python
@@ -233,7 +246,7 @@ PYTHON_SCRIPT
 verify_installation() {
     echo
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-    echo "Step 3/3: Verify Installation"
+    echo "Step 3/4: Verify Installation"
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     
     VERIFY_RESULT=$($PYTHON_CMD << 'PYTHON_SCRIPT'
@@ -308,6 +321,124 @@ PYTHON_SCRIPT
     return 0
 }
 
+# Detect multi-Python environments (venv vs system Python)
+detect_multi_python() {
+    echo
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo "Step 4/4: Multi-Python Environment Check"
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+    MULTI_PYTHON_RESULT=$($PYTHON_CMD << 'PYTHON_SCRIPT'
+import sys
+import os
+import site
+
+venv_prefix = getattr(sys, 'prefix', '')
+base_prefix = getattr(sys, 'base_prefix', getattr(sys, 'real_prefix', ''))
+in_venv = venv_prefix != base_prefix
+
+if not in_venv:
+    print("NO_VENV")
+    sys.exit(0)
+
+venv_exe = sys.executable
+real_exe = os.path.realpath(venv_exe)
+venv_sp = site.getsitepackages()[0] if hasattr(site, 'getsitepackages') else None
+
+# Try to find the system python's site-packages
+# The real executable typically lives in /usr/bin/ or similar
+sys_python = None
+for candidate in [real_exe, '/usr/bin/python3', '/usr/bin/python3.10', '/usr/bin/python3.11', '/usr/bin/python3.12']:
+    if os.path.exists(candidate) and candidate != venv_exe:
+        sys_python = candidate
+        break
+
+if not sys_python:
+    print("NO_SYS_PYTHON")
+    sys.exit(0)
+
+# Check if system python has the .pth file in its site-packages
+import subprocess
+try:
+    result = subprocess.run(
+        [sys_python, '-c', 
+         'import site,os; sp=site.getsitepackages(); '
+         'found=any(os.path.exists(os.path.join(p,"primus_lens_wandb_hook.pth")) for p in sp); '
+         'print("YES" if found else "NO"); '
+         '[print(p) for p in sp]'],
+        capture_output=True, text=True, timeout=5
+    )
+    lines = result.stdout.strip().split('\n')
+    has_pth = lines[0] == 'YES' if lines else False
+    sys_sp = lines[1] if len(lines) > 1 else 'unknown'
+except Exception:
+    has_pth = False
+    sys_sp = 'unknown'
+
+if has_pth:
+    print(f"ALREADY_INSTALLED|{sys_python}|{sys_sp}")
+else:
+    print(f"MISSING|{sys_python}|{sys_sp}|{venv_sp}")
+PYTHON_SCRIPT
+)
+
+    if [ "$MULTI_PYTHON_RESULT" = "NO_VENV" ]; then
+        print_success "Not running in a virtualenv, no multi-Python concerns"
+        return 0
+    fi
+
+    if [ "$MULTI_PYTHON_RESULT" = "NO_SYS_PYTHON" ]; then
+        print_success "No separate system Python detected"
+        return 0
+    fi
+
+    MP_STATUS=$(echo "$MULTI_PYTHON_RESULT" | cut -d'|' -f1)
+    MP_SYS_PYTHON=$(echo "$MULTI_PYTHON_RESULT" | cut -d'|' -f2)
+    MP_SYS_SP=$(echo "$MULTI_PYTHON_RESULT" | cut -d'|' -f3)
+
+    if [ "$MP_STATUS" = "ALREADY_INSTALLED" ]; then
+        print_success "System Python ($MP_SYS_PYTHON) already has the .pth hook"
+        return 0
+    fi
+
+    if [ "$MP_STATUS" = "MISSING" ]; then
+        MP_VENV_SP=$(echo "$MULTI_PYTHON_RESULT" | cut -d'|' -f4)
+        echo
+        print_warning "Detected virtualenv environment"
+        print_warning "The .pth hook is installed in:     $MP_VENV_SP"
+        print_warning "But system Python ($MP_SYS_PYTHON) uses: $MP_SYS_SP"
+        echo
+        print_warning "If your training framework spawns subprocesses using the system"
+        print_warning "Python (e.g., Monarch, torchrun, DeepSpeed), the WandB hook will"
+        print_warning "NOT activate in those subprocesses."
+        echo
+
+        if [ "$INSTALL_SYSTEM_PYTHON" = true ]; then
+            print_info "Installing to system Python (--install-system-python)..."
+            if $MP_SYS_PYTHON -m pip install --no-cache-dir primus-lens-wandb-exporter 2>/dev/null; then
+                print_success "Installed to system Python: $MP_SYS_PYTHON"
+                return 0
+            else
+                print_error "Failed to install to system Python (permission denied?)"
+                print_info "Try: sudo $MP_SYS_PYTHON -m pip install --no-cache-dir primus-lens-wandb-exporter"
+                return 1
+            fi
+        else
+            print_info "To fix this, run ONE of the following:"
+            echo
+            echo "  Option 1: Re-run this installer with the flag:"
+            echo "     bash install.sh --install-system-python"
+            echo
+            echo "  Option 2: Manually install to system Python:"
+            echo "     $MP_SYS_PYTHON -m pip install --no-cache-dir primus-lens-wandb-exporter"
+            echo
+            return 0
+        fi
+    fi
+
+    return 0
+}
+
 # Show usage instructions
 show_usage() {
     echo
@@ -364,17 +495,20 @@ main() {
     fi
     
     # Verify installation
-    if verify_installation; then
-        show_usage
-        
-        if [ $PTH_SUCCESS -eq 1 ]; then
-            exit 1
-        else
-            exit 0
-        fi
-    else
+    if ! verify_installation; then
         print_error "Verification failed, but package may already be installed"
         exit 1
+    fi
+
+    # Detect multi-Python environments
+    detect_multi_python
+    
+    show_usage
+    
+    if [ $PTH_SUCCESS -eq 1 ]; then
+        exit 1
+    else
+        exit 0
     fi
 }
 
