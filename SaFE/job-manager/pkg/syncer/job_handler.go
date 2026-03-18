@@ -53,9 +53,13 @@ func (r *SyncerReconciler) handleJob(ctx context.Context,
 
 	result, err := r.handleJobImpl(ctx, message, adminWorkload, clientSets)
 	if jobutils.IsUnrecoverableError(err) {
-		// Errors defined internally are fatal and lead to a terminal state without retry
 		err = jobutils.SetWorkloadFailed(ctx, r.Client, adminWorkload, err.Error())
 	}
+
+	if message.gvk.Kind == common.CICDEphemeralRunnerKind && r.workflowTracker != nil {
+		r.trackGithubWorkflow(ctx, message, adminWorkload, clientSets)
+	}
+
 	return result, err
 }
 
