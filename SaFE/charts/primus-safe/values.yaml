@@ -180,3 +180,6 @@ proxy:
   #     prefix: /agent/qa
   #     target: http://qa-agent-service:8080
   #     enabled: true
+llm_gateway:
+  enabled: true
+  secret_path: "/etc/secrets/llm-gateway"
