@@ -333,6 +333,11 @@ const router = createRouter({
           component: () => import('@/pages/LLMGateway/index.vue'),
         },
         {
+          path: '/a2a',
+          name: 'A2AProtocol',
+          component: () => import('@/pages/A2A/index.vue'),
+        },
+        {
           path: '/primus-claw',
           name: 'PrimusClaw',
           component: () => import('@/pages/PocoChatPage/index.vue'),
