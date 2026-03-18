@@ -631,3 +631,24 @@ data:
     create index if not exists T_A2A_CALL_LOG_USER_INDEX on a2a_call_log (caller_user_id, created_at);
 
     alter table a2a_call_log owner to "primus-safe";
+
+    -- ═══ LLM Gateway User Binding ═══
+    create table if not exists llm_gateway_user_binding
+    (
+        user_email VARCHAR(256) PRIMARY KEY,
+        apim_key TEXT NOT NULL,
+        apim_key_hash VARCHAR(64) NOT NULL,
+        litellm_virtual_key TEXT NOT NULL,
+        litellm_key_hash VARCHAR(128) NOT NULL,
+        key_alias VARCHAR(256) NOT NULL,
+        created_at TIMESTAMP DEFAULT NOW(),
+        updated_at TIMESTAMP DEFAULT NOW()
+    );
+
+    -- Composite unique: same APIM Key CAN be shared by different users (team sharing),
+    -- but the same user (key_alias) cannot bind the same APIM Key twice.
+    create unique index if not exists T_LLM_GW_APIMKEY_ALIAS_UNIQ on llm_gateway_user_binding (apim_key_hash, key_alias);
+    create index if not exists T_LLM_GW_APIM_KEY_HASH_INDEX on llm_gateway_user_binding (apim_key_hash);
+    create index if not exists T_LLM_GW_KEY_ALIAS_INDEX on llm_gateway_user_binding (key_alias);
+
+    alter table llm_gateway_user_binding owner to "primus-safe";

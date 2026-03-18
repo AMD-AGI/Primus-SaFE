@@ -16,6 +16,7 @@ import (
 	cdhandlers "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/cd-handlers"
 	emailrelayhandlers "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/email-relay-handlers"
 	imagehandlers "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/image-handlers"
+	llmgateway "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/llm-gateway"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/middleware"
 	model_handlers "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/model-handlers"
 	a2ahandlers "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/a2a-handlers"
@@ -99,6 +100,19 @@ func InitHttpHandlers(_ context.Context, mgr ctrlruntime.Manager) (*gin.Engine, 
 			if commonconfig.IsA2AScannerEnable() {
 				scanner := a2a.NewScanner(mgr.GetClient(), a2aDbClient)
 				go scanner.Start(context.Background())
+			}
+		}
+	}
+
+	// Initialize LLM Gateway handlers (if enabled and DB is available)
+	if commonconfig.IsLLMGatewayEnable() && commonconfig.IsDBEnable() {
+		llmDbClient := dbclient.NewClient()
+		if llmDbClient != nil {
+			llmHandler, llmErr := llmgateway.NewHandler(authority.NewAccessController(mgr.GetClient()), llmDbClient)
+			if llmErr != nil {
+				klog.ErrorS(llmErr, "failed to initialize LLM Gateway handler")
+			} else {
+				llmgateway.InitRoutes(engine, llmHandler)
 			}
 		}
 	}

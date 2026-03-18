@@ -50,6 +50,7 @@ echo "✅ Support Primus-lens: \"$lens_enable\""
 echo "✅ Support S3: \"$s3_enable\""
 echo "✅ Support SSO: \"$sso_enable\""
 echo "✅ Support Tracing: \"${tracing_enable:-false}\" (mode: ${tracing_mode:-error_only})"
+echo "✅ Support LLM Gateway: \"${llm_gateway_enable:-false}\""
 echo "✅ Ingress Name: \"$ingress\""
 if [[ "$ingress" == "higress" ]]; then
   echo "✅ Cluster Name: \"$sub_domain\""
@@ -138,6 +139,14 @@ if [[ "${tracing_enable:-false}" == "true" ]]; then
   if [[ -n "${tracing_otlp_endpoint:-}" ]]; then
     sed -i '/^tracing:/,/^[a-z]/ s#otlp_endpoint: .*#otlp_endpoint: "'"$tracing_otlp_endpoint"'"#' "$values_yaml"
   fi
+fi
+
+# Configure LLM Gateway secrets if defined in .env
+if [[ -n "${llm_gateway_litellm_endpoint:-}" ]]; then
+  sed -i "/^llm_gateway:/a\\
+  litellm_endpoint: \"${llm_gateway_litellm_endpoint}\"\\
+  litellm_admin_key: \"${llm_gateway_litellm_admin_key:-}\"\\
+  litellm_team_id: \"${llm_gateway_litellm_team_id:-}\"" "$values_yaml"
 fi
 
 # Configure proxy services if defined in .env

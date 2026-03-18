@@ -153,4 +153,9 @@ const (
 	a2aScannerInterval   = a2aScannerPrefix + "interval_seconds"
 	a2aScannerNamespaces = a2aScannerPrefix + "namespaces"
 	a2aScannerLabel      = a2aScannerPrefix + "label_selector"
+
+	// llm_gateway
+	llmGatewayPrefix     = "llm_gateway."
+	llmGatewayEnable     = llmGatewayPrefix + "enabled"
+	llmGatewaySecretPath = llmGatewayPrefix + "secret_path"
 )

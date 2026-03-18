@@ -200,3 +200,6 @@ a2a_gateway:
   memory: 512Mi
   port: 8089
   metrics_port: 9090
+llm_gateway:
+  enabled: true
+  secret_path: "/etc/secrets/llm-gateway"

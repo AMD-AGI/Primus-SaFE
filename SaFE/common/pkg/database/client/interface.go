@@ -37,6 +37,7 @@ type Interface interface {
 	EvaluationTaskInterface
 	A2AServiceRegistryInterface
 	A2ACallLogInterface
+	LLMGatewayInterface
 }
 
 type WorkloadInterface interface {

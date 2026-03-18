@@ -151,43 +151,39 @@
     <el-card class="mt-4 safe-card" shadow="never">
       <h3 class="section-title" style="margin-bottom: 14px">Quick Start</h3>
 
-      <el-text class="block font-500 mb-2 text-sm">Using SaFE API Key</el-text>
-      <el-text class="block mb-3 text-sm text-gray-500">
-        Use any SaFE API Key to call the LLM via SaFE proxy:
-      </el-text>
-      <div class="code-block mb-6">
-        <pre><code>from openai import OpenAI
+      <el-tabs v-model="activeTab">
+        <el-tab-pane label="SaFE API Key" name="safeKey">
+          <div class="code-block">
+            <el-icon class="copy-btn" @click="copyText(codeSnippets.safeKey)"><CopyDocument /></el-icon>
+            <pre><code>{{ codeSnippets.safeKey }}</code></pre>
+          </div>
+        </el-tab-pane>
 
-client = OpenAI(
-    api_key="ak-&lt;your-safe-apikey&gt;",
-    base_url="{{ safeProxyBaseUrl }}",
-)
+        <el-tab-pane label="LLM Virtual Key" name="virtualKey">
+          <div class="code-block">
+            <el-icon class="copy-btn" @click="copyText(codeSnippets.virtualKey)"><CopyDocument /></el-icon>
+            <pre><code>{{ codeSnippets.virtualKey }}</code></pre>
+          </div>
+        </el-tab-pane>
 
-response = client.chat.completions.create(
-    model="claude-opus-4-6",
-    messages=[{"role": "user", "content": "Hello!"}],
-)
-print(response.choices[0].message.content)</code></pre>
-      </div>
+        <el-tab-pane label="Certificates Setup" name="certs">
+          <el-text class="block font-500 mb-2 text-xs" type="info">
+            Linux (SaFE Authoring / Remote SSH) — requires root user
+          </el-text>
+          <div class="code-block mb-4">
+            <el-icon class="copy-btn" @click="copyText(codeSnippets.linux)"><CopyDocument /></el-icon>
+            <pre><code>{{ codeSnippets.linux }}</code></pre>
+          </div>
 
-      <el-text class="block font-500 mb-2 text-sm">Using LLM Virtual Key</el-text>
-      <el-text class="block mb-3 text-sm text-gray-500">
-        Use the LLM Virtual Key to call the LLM gateway directly:
-      </el-text>
-      <div class="code-block">
-        <pre><code>from openai import OpenAI
-
-client = OpenAI(
-    api_key="sk-&lt;your-llm-virtual-key&gt;",
-    base_url="{{ llmGatewayBaseUrl }}",
-)
-
-response = client.chat.completions.create(
-    model="claude-opus-4-6",
-    messages=[{"role": "user", "content": "Hello!"}],
-)
-print(response.choices[0].message.content)</code></pre>
-      </div>
+          <el-text class="block font-500 mb-2 text-xs" type="info">
+            Windows (PowerShell as Administrator)
+          </el-text>
+          <div class="code-block">
+            <el-icon class="copy-btn" @click="copyText(codeSnippets.windows)"><CopyDocument /></el-icon>
+            <pre><code>{{ codeSnippets.windows }}</code></pre>
+          </div>
+        </el-tab-pane>
+      </el-tabs>
     </el-card>
   </template>
 
@@ -318,9 +314,52 @@ const submitLoading = ref(false)
 const binding = ref<LLMGatewayBinding | null>(null)
 const apimKeyInput = ref('')
 
-const safeProxyBaseUrl = `${location.origin}/api/v1/llm-proxy/v1`
-const llmGatewayBaseUrl = "https://project1.tw325.primus-safe.amd.com/llm-gateway/v1"
-// const llmGatewayBaseUrl = `${location.origin}/llm-gateway/v1`
+const activeTab = ref('safeKey')
+
+const codeSnippets = {
+  safeKey: `from openai import OpenAI
+import httpx
+
+http_client = httpx.Client(verify=False)
+
+client = OpenAI(
+    api_key="ak-<your-safe-apikey>",
+    base_url="https://oci-slc.primus-safe.amd.com/api/v1/llm-proxy/v1",
+    http_client=http_client,
+)
+
+models = client.models.list()
+for model in models.data:
+    print(model.id)
+
+response = client.chat.completions.create(
+    model="openai/gpt-5.2",
+    messages=[{"role": "user", "content": "Hello!"}],
+)
+print(response.choices[0].message.content)`,
+  virtualKey: `from openai import OpenAI
+import httpx
+
+http_client = httpx.Client(verify=False)
+
+client = OpenAI(
+    api_key="sk-",
+    base_url="https://project1.tw325.primus-safe.amd.com/llm-gateway/v1",
+    http_client=http_client,
+)
+
+models = client.models.list()
+for model in models.data:
+    print(model.id)
+
+response = client.chat.completions.create(
+    model="openai/gpt-5.2",
+    messages=[{"role": "user", "content": "Hello!"}],
+)
+print(response.choices[0].message.content)`,
+  linux: `curl -fsSL https://raw.githubusercontent.com/AMD-AGI/Primus-SaFE/main/Scripts/setup-certs/setup.sh | bash`,
+  windows: `irm https://raw.githubusercontent.com/AMD-AGI/Primus-SaFE/main/Scripts/setup-certs/setup.bat -OutFile $env:TEMP\\setup.bat; cmd /c $env:TEMP\\setup.bat`,
+}
 
 // ── Virtual Key Dialog ──
 const virtualKeyVisible = ref(false)
@@ -731,11 +770,24 @@ onBeforeUnmount(() => {
 
 /* Code block */
 .code-block {
+  position: relative;
   background: var(--el-fill-color-light);
   border: 1px solid var(--el-border-color);
   border-radius: 8px;
   padding: 16px;
   overflow-x: auto;
+}
+.copy-btn {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  font-size: 15px;
+  cursor: pointer;
+  color: var(--el-text-color-placeholder);
+  transition: color 0.2s;
+}
+.copy-btn:hover {
+  color: var(--el-color-primary);
 }
 .code-block pre {
   margin: 0;

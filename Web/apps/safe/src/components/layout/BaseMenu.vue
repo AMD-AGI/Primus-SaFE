@@ -369,12 +369,6 @@ watchEffect(() => {
       icon: menuIcons.llmGateway,
       canAccess: true, // Open to all users
     },
-    {
-      index: '/a2a',
-      name: 'A2A Protocol',
-      icon: menuIcons.a2a,
-      canAccess: true, // Open to all users
-    },
   ]
 
   agentInfraMenuItems.value = allAgentInfraItems.filter((item) => item.canAccess !== false)
@@ -466,6 +460,12 @@ watchEffect(() => {
       index: '/auditlogs',
       name: 'Audit Logs',
       icon: menuIcons.fault,
+      canAccess: hasManagerAccess.value, // Admin only
+    },
+    {
+      index: '/workload-manage',
+      name: 'Workloads',
+      icon: menuIcons.training,
       canAccess: hasManagerAccess.value, // Admin only
     },
   ]
