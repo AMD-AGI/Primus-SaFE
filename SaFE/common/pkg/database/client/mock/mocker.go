@@ -1988,7 +1988,7 @@ func (mr *MockInterfaceMockRecorder) GetA2AServiceByK8s(arg0, arg1, arg2 interfa
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetA2AServiceByK8s", reflect.TypeOf((*MockInterface)(nil).GetA2AServiceByK8s), arg0, arg1, arg2)
 }
 
-func (m *MockInterface) SelectA2AServices(arg0 context.Context, arg1 sqrl.Sqlizer, arg2 []string, arg3, arg4 int) ([]*client.A2AServiceRegistry, error) {
+func (m *MockInterface) SelectA2AServices(arg0 context.Context, arg1 squirrel.Sqlizer, arg2 []string, arg3, arg4 int) ([]*client.A2AServiceRegistry, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "SelectA2AServices", arg0, arg1, arg2, arg3, arg4)
 	return ret[0].([]*client.A2AServiceRegistry), ret[1].(error)
@@ -1998,7 +1998,7 @@ func (mr *MockInterfaceMockRecorder) SelectA2AServices(arg0, arg1, arg2, arg3, a
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SelectA2AServices", reflect.TypeOf((*MockInterface)(nil).SelectA2AServices), arg0, arg1, arg2, arg3, arg4)
 }
 
-func (m *MockInterface) CountA2AServices(arg0 context.Context, arg1 sqrl.Sqlizer) (int, error) {
+func (m *MockInterface) CountA2AServices(arg0 context.Context, arg1 squirrel.Sqlizer) (int, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "CountA2AServices", arg0, arg1)
 	return ret[0].(int), ret[1].(error)
@@ -2050,7 +2050,7 @@ func (mr *MockInterfaceMockRecorder) InsertA2ACallLog(arg0, arg1 interface{}) *g
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "InsertA2ACallLog", reflect.TypeOf((*MockInterface)(nil).InsertA2ACallLog), arg0, arg1)
 }
 
-func (m *MockInterface) SelectA2ACallLogs(arg0 context.Context, arg1 sqrl.Sqlizer, arg2 []string, arg3, arg4 int) ([]*client.A2ACallLog, error) {
+func (m *MockInterface) SelectA2ACallLogs(arg0 context.Context, arg1 squirrel.Sqlizer, arg2 []string, arg3, arg4 int) ([]*client.A2ACallLog, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "SelectA2ACallLogs", arg0, arg1, arg2, arg3, arg4)
 	return ret[0].([]*client.A2ACallLog), ret[1].(error)
@@ -2060,7 +2060,7 @@ func (mr *MockInterfaceMockRecorder) SelectA2ACallLogs(arg0, arg1, arg2, arg3, a
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SelectA2ACallLogs", reflect.TypeOf((*MockInterface)(nil).SelectA2ACallLogs), arg0, arg1, arg2, arg3, arg4)
 }
 
-func (m *MockInterface) CountA2ACallLogs(arg0 context.Context, arg1 sqrl.Sqlizer) (int, error) {
+func (m *MockInterface) CountA2ACallLogs(arg0 context.Context, arg1 squirrel.Sqlizer) (int, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "CountA2ACallLogs", arg0, arg1)
 	return ret[0].(int), ret[1].(error)
