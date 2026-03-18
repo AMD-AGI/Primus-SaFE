@@ -3,6 +3,7 @@ export interface LLMGatewayBinding {
   key_alias?: string
   has_apim_key: boolean
   apim_key_hint?: string
+  virtual_key?: string
   created_at?: string
   updated_at?: string
 }
@@ -16,6 +17,8 @@ export interface LLMGatewayModelUsage {
   prompt_tokens: number
   completion_tokens: number
   api_requests: number
+  successful_requests: number
+  failed_requests: number
 }
 
 export interface LLMGatewayDailyUsage {
@@ -25,6 +28,8 @@ export interface LLMGatewayDailyUsage {
   completion_tokens: number
   total_tokens: number
   api_requests: number
+  successful_requests: number
+  failed_requests: number
   models: Record<string, LLMGatewayModelUsage>
 }
 
@@ -35,10 +40,18 @@ export interface LLMGatewayUsage {
   total_completion_tokens: number
   total_tokens: number
   total_api_requests: number
+  total_successful_requests: number
+  total_failed_requests: number
   daily: LLMGatewayDailyUsage[]
 }
 
 export interface LLMGatewayUsageParams {
   start_date: string
   end_date: string
+}
+
+export interface LLMGatewaySummary {
+  user_email: string
+  total_spend: number
+  model_spend: Record<string, number>
 }
