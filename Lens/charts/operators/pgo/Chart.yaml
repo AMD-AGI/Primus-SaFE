@@ -1,0 +1,11 @@
+apiVersion: v2
+name: primus-lens-pgo
+description: PostgreSQL Operator (CrunchyData PGO) wrapper chart
+type: application
+version: 1.0.0
+appVersion: "5.7.0"
+
+dependencies:
+  - name: pgo
+    version: "5.7.0"
+    repository: oci://registry.developers.crunchydata.com/crunchydata

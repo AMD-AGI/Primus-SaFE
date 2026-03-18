@@ -15,6 +15,7 @@ data:
     multiCluster: true
     loadK8SClient: true
     loadStorageClient: true
+    isControlPlane: true
     controller:
       namespace: {{ .Values.global.namespace }}
       leaderElectionId: {{ .Values.apps.primusSafeAdapter.config.controller.leaderElectionId | default "primus-safe-adapter" }}
@@ -66,6 +67,7 @@ spec:
     metadata:
       labels:
         app: primus-safe-adapter
+        primus-safe-app-name: primus-safe-adapter
         {{- include "lens.selectorLabels" . | nindent 8 }}
     spec:
       serviceAccountName: {{ include "lens.serviceAccountName" . }}

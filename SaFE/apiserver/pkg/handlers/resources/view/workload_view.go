@@ -39,6 +39,11 @@ type CreateWorkloadRequest struct {
 	StickyNodes bool `json:"stickyNodes,omitempty"`
 	// The workload will be created using that specific user ID and name. This field is only accessible to administrators.
 	UserEntity *UserEntity `json:"userEntity,omitempty"`
+	// Whether to use the workspace storage for workload. default true
+	UseWorkspaceStorage *bool `json:"useWorkspaceStorage,omitempty"`
+	// Whether to use host network forcibly.
+	// Default logic relies on task size: it triggers only for multi-node tasks using full GPU count
+	ForceHostNetwork *bool `json:"forceHostNetwork,omitempty"`
 }
 
 type CreateWorkloadResponse struct {
@@ -191,12 +196,18 @@ type GetWorkloadResponse struct {
 	Secrets []v1.SecretEntity `json:"secrets,omitempty"`
 	// When enabled, the workload will try to use the same nodes during retries/failovers.
 	StickyNodes bool `json:"stickyNodes,omitempty"`
+	// Whether to run the workload in privileged mode, only accessible to administrators
+	Privileged bool `json:"privileged"`
+	// Whether to use the workspace storage
+	UseWorkspaceStorage bool `json:"useWorkspaceStorage"`
+	// Whether to use host network forcibly.
+	ForceHostNetwork bool `json:"forceHostNetwork"`
 }
 
 type WorkloadPodWrapper struct {
 	v1.WorkloadPod
-	// SSH address to log in
-	SSHAddr string `json:"sshAddr,omitempty"`
+	// SSH command for direct login into the container
+	SSHCommand string `json:"sshCommand,omitempty"`
 }
 
 type PatchWorkloadRequest struct {

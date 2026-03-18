@@ -7,6 +7,7 @@ import (
 	"context"
 
 	"github.com/AMD-AGI/Primus-SaFE/Lens/api/pkg/api"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/config"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/controller"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/conf"
 	log "github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
@@ -59,7 +60,10 @@ func StartServer(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	return server.InitServer(ctx)
+	return server.InitServerWithPreInitFunc(ctx, func(_ context.Context, cfg *config.Config) error {
+		api.InitSnapshotStore(cfg)
+		return nil
+	})
 }
 
 func RegisterApi(ctx context.Context) error {

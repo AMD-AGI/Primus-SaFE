@@ -173,12 +173,10 @@ func (r *SyncerReconciler) Do(ctx context.Context, message *resourceMessage) (ct
 	var result ctrlruntime.Result
 	switch message.gvk.Kind {
 	case common.PytorchJobKind, common.DeploymentKind, common.StatefulSetKind, common.JobKind,
-		common.CICDScaleRunnerSetKind, common.CICDEphemeralRunnerKind:
+		common.CICDScaleRunnerSetKind, common.CICDEphemeralRunnerKind, common.RayJobKind:
 		result, err = r.handleJob(ctx, message, clientSets)
 	case common.PodKind:
 		result, err = r.handlePod(ctx, message, clientSets)
-	case common.EventKind:
-		result, err = r.handleEvent(ctx, message, clientSets)
 	}
 	if jobutils.IsUnrecoverableError(err) {
 		err = nil

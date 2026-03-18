@@ -18,6 +18,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonfaults "github.com/AMD-AIG-AIMA/SAFE/common/pkg/faults"
 )
 
@@ -347,6 +348,9 @@ func TestSortWorkloadPods(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			workload := &v1.Workload{
+				Spec: v1.WorkloadSpec{
+					GroupVersionKind: v1.GroupVersionKind{Kind: common.PytorchJobKind},
+				},
 				Status: v1.WorkloadStatus{
 					Pods: tt.inputPods,
 				},
@@ -360,5 +364,38 @@ func TestSortWorkloadPods(t *testing.T) {
 					"Pod at index %d should be %s", i, expectedPodId)
 			}
 		})
+	}
+}
+
+// TestSortWorkloadPodsRayJob tests RayJob pod sorting: submitter first, then head, then worker by name
+func TestSortWorkloadPodsRayJob(t *testing.T) {
+	inputPods := []v1.WorkloadPod{
+		{PodId: "rdma-bench-sleep-fwlts-rfz2g-1-worker-jddbx"},
+		{PodId: "rdma-bench-sleep-fwlts-rfz2g-head-4cbqm"},
+		{PodId: "rdma-bench-sleep-fwlts-zqndk"},
+		{PodId: "rdma-bench-sleep-fwlts-rfz2g-2-worker-jddbx"},
+	}
+	expectedOrder := []string{
+		"rdma-bench-sleep-fwlts-zqndk",                // submitter (no -head-/-worker-)
+		"rdma-bench-sleep-fwlts-rfz2g-head-4cbqm",     // head
+		"rdma-bench-sleep-fwlts-rfz2g-1-worker-jddbx", // worker 1
+		"rdma-bench-sleep-fwlts-rfz2g-2-worker-jddbx", // worker 2
+	}
+
+	workload := &v1.Workload{
+		Spec: v1.WorkloadSpec{
+			GroupVersionKind: v1.GroupVersionKind{Kind: common.RayJobKind},
+		},
+		Status: v1.WorkloadStatus{
+			Pods: inputPods,
+		},
+	}
+
+	sortWorkloadPods(workload)
+
+	assert.Equal(t, len(expectedOrder), len(workload.Status.Pods))
+	for i, expectedPodId := range expectedOrder {
+		assert.Equal(t, expectedPodId, workload.Status.Pods[i].PodId,
+			"Pod at index %d should be %s", i, expectedPodId)
 	}
 }

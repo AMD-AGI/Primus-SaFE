@@ -227,3 +227,11 @@ Lens/docs/local/
 
 # Model check outputs (may contain sensitive tokens)
 Bench/preflight/node/model_check/.outputs/
+
+# ── Web (frontend) ──────────────────────────────────────────────
+node_modules/
+Web/apps/*/dist/
+Web/pnpm-debug.log*
+Web/apps/*/.env.development.local
+Web/apps/*/.env.production
+*.tsbuildinfo

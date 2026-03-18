@@ -44,8 +44,11 @@ type ListLogRequest struct {
 	SinceTime time.Time
 	// End timestamp of the query
 	UntilTime time.Time
-	// All fields used for filtering.
-	Filters map[string]string
+	// All fields used for term filtering.
+	TermFilters map[string]string
+	// All fields used for prefix filtering.
+	PrefixFilters  map[string]string
+	IsEventRequest bool
 }
 
 // For internal use, the request for searching log context
@@ -57,4 +60,16 @@ type ListContextLogRequest struct {
 	Limit int
 	// Input the specified document ID to retrieve the log context of that document.
 	DocId string
+}
+
+// DownloadWorkloadLogRequest is the request for getting workload log download URL.
+type DownloadWorkloadLogRequest struct {
+	// Timeout in seconds for waiting job completion, default 900 (15 minutes)
+	TimeoutSecond int `json:"timeoutSecond,omitempty"`
+}
+
+// DownloadWorkloadLogResponse is the response containing the S3 presigned URL for downloading logs.
+type DownloadWorkloadLogResponse struct {
+	// The S3 presigned URL to download the log file
+	DownloadURL string `json:"downloadUrl"`
 }

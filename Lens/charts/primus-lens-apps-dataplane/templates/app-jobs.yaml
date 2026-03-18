@@ -48,6 +48,7 @@ spec:
         prometheus.io/path: "/metrics"
       labels:
         app: {{ include "lens.fullname" . }}-jobs
+        primus-lens-app-name: jobs
         {{- include "lens.selectorLabels" . | nindent 8 }}
     spec:
       serviceAccountName: {{ include "lens.serviceAccountName" . }}

@@ -4,18 +4,42 @@
 package api
 
 import (
+	"github.com/AMD-AGI/Primus-SaFE/Lens/api/pkg/api/cluster"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/api/pkg/api/cpconfig"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/api/pkg/api/perfetto"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/api/pkg/api/pyspy"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/api/pkg/api/registry"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/api/pkg/api/release"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/api/pkg/api/sysconfig"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/api/pkg/api/tracelens"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/mcp/unified"
 	"github.com/gin-gonic/gin"
 )
 
-// getUnifiedHandler returns the unified handler for a given path, or nil if not found.
+// getUnifiedHandler returns a gin handler that dispatches to the unified endpoint
+// matching both the request's HTTP method and the given path at request time.
+// This correctly handles cases where multiple endpoints share the same path
+// but differ by HTTP method (e.g., GET /alert-silences vs POST /alert-silences).
 func getUnifiedHandler(path string) gin.HandlerFunc {
-	ep := unified.GetRegistry().GetEndpointByPath(path)
+	return func(c *gin.Context) {
+		ep := unified.GetRegistry().GetEndpointByMethodAndPath(c.Request.Method, path)
+		if ep == nil {
+			c.JSON(404, map[string]string{"error": "endpoint not found: " + c.Request.Method + " " + path})
+			return
+		}
+		handler := ep.GetGinHandler()
+		if handler == nil {
+			c.JSON(404, map[string]string{"error": "no handler for endpoint: " + c.Request.Method + " " + path})
+			return
+		}
+		handler(c)
+	}
+}
+
+// getUnifiedHandlerWithMethod returns the unified handler for a given path and HTTP method.
+// Use this when the same path has multiple HTTP methods (e.g., GET and POST on /skills).
+func getUnifiedHandlerWithMethod(path string, method string) gin.HandlerFunc {
+	ep := unified.GetRegistry().GetEndpointByMethodAndPath(method, path)
 	if ep != nil {
 		return ep.GetGinHandler()
 	}
@@ -82,12 +106,36 @@ func RegisterRouter(group *gin.RouterGroup) error {
 		workloadGroup.GET(":uid/metrics/iteration-times", getUnifiedHandler("/workloads/:uid/metrics/iteration-times"))
 		// Process tree API for py-spy profiling
 		workloadGroup.POST(":uid/process-tree", pyspy.GetProcessTree)
+		// Profiler files alias: /workloads/:uid/profiler-files -> /profiler/files?workload_uid=:uid
+		workloadGroup.GET(":uid/profiler-files", tracelens.ListProfilerFilesForWorkload)
 	}
 	// Phase 6 Unified: Workload metadata
 	group.GET("workloadMetadata", getUnifiedHandler("/workloadMetadata"))
+
+	// Training Metrics endpoints - Unified (HTTP + MCP)
+	trainingMetricsGroup := group.Group("/training-metrics")
+	{
+		trainingMetricsGroup.GET("", getUnifiedHandler("/training-metrics"))
+		trainingMetricsGroup.GET("/data", getUnifiedHandler("/training-metrics/data"))
+	}
 	storageGroup := group.Group("/storage")
 	{
 		storageGroup.GET("stat", getUnifiedHandler("/storage/stat"))
+	}
+
+	// Components probe (kube-system + Primus-SaFE + Primus-Lens) for external agents
+	group.GET("components/probe", getUnifiedHandler("/components/probe"))
+
+	// Alert Silence management routes - Unified (HTTP + MCP)
+	alertSilenceGroup := group.Group("/alert-silences")
+	{
+		alertSilenceGroup.POST("", getUnifiedHandler("/alert-silences"))
+		alertSilenceGroup.GET("", getUnifiedHandler("/alert-silences"))
+		alertSilenceGroup.GET("/silenced-alerts", getUnifiedHandler("/alert-silences/silenced-alerts"))
+		alertSilenceGroup.GET("/:id", getUnifiedHandler("/alert-silences/:id"))
+		alertSilenceGroup.PUT("/:id", getUnifiedHandler("/alert-silences/:id"))
+		alertSilenceGroup.DELETE("/:id", getUnifiedHandler("/alert-silences/:id"))
+		alertSilenceGroup.PATCH("/:id/disable", getUnifiedHandler("/alert-silences/:id/disable"))
 	}
 
 	// Phase 7 Unified: Alert Event routes - Alert events query and analysis
@@ -376,7 +424,7 @@ func RegisterRouter(group *gin.RouterGroup) error {
 		realtimeGroup.GET("/status", getUnifiedHandler("/realtime/status"))
 		realtimeGroup.GET("/running-tasks", getUnifiedHandler("/realtime/running-tasks"))
 	}
-  
+
 	// Phase 8 Unified (GET only): Detection Status routes - Framework detection status and task progress
 	detectionStatusGroup := group.Group("/detection-status")
 	{
@@ -495,12 +543,37 @@ func RegisterRouter(group *gin.RouterGroup) error {
 			// Commit and details from V2 group
 			runsGroup.GET("/:id/commit", getUnifiedHandler("/github-workflow-metrics/runs/:id/commit"))
 			runsGroup.GET("/:id/details", getUnifiedHandler("/github-workflow-metrics/runs/:id/details"))
+			// Real-time workflow state sync APIs
+			runsGroup.GET("/:id/state", GetRunLiveState)
+			runsGroup.GET("/:id/live", HandleLiveWorkflowState)
+			runsGroup.GET("/:id/jobs", GetRunJobs)
+			runsGroup.POST("/:id/sync/start", StartRunSync)
+			runsGroup.POST("/:id/sync/stop", StopRunSync)
+			// Manual sync (event-driven sync, replaces high-frequency polling)
+			runsGroup.POST("/:id/sync", ManualSyncRun)
+			// Job and step logs APIs
+			runsGroup.GET("/:id/jobs/:job_id/logs", GetJobLogs)
+			runsGroup.GET("/:id/jobs/:job_id/steps/:step_number/logs", GetStepLogs)
+			// Analysis tasks by run ID
+			runsGroup.GET("/:id/analysis-tasks", GetAnalysisTasksByRunID)
 		}
 		// Schema details
 		schemasGroup := githubWorkflowMetricsGroup.Group("/schemas")
 		{
 			schemasGroup.GET("/:id", getUnifiedHandler("/github-workflow-metrics/schemas/:id"))
 			schemasGroup.POST("/:id/activate", SetGithubWorkflowSchemaActive)
+		}
+		// Analysis tasks - AI workflow analysis tasks
+		analysisTasksGroup := githubWorkflowMetricsGroup.Group("/analysis-tasks")
+		{
+			// List all analysis tasks with optional filters
+			analysisTasksGroup.GET("", ListAnalysisTasks)
+			// Get a specific analysis task
+			analysisTasksGroup.GET("/:task_id", GetAnalysisTaskByID)
+			// Update an analysis task (status and ext fields)
+			analysisTasksGroup.PUT("/:task_id", UpdateAnalysisTask)
+			// Retry a failed analysis task
+			analysisTasksGroup.POST("/:task_id/retry", RetryAnalysisTask)
 		}
 	}
 
@@ -525,10 +598,253 @@ func RegisterRouter(group *gin.RouterGroup) error {
 			// Create config for a runner set - POST not migrated
 			runnerSetsGroup.POST("/by-id/:id/config", CreateConfigForRunnerSet)
 		}
+
+		// Repositories - aggregated view by repository
+		repositoriesGroup := githubRunnersGroup.Group("/repositories")
+		{
+			// List all repositories with aggregated runner set statistics
+			repositoriesGroup.GET("", getUnifiedHandler("/github-runners/repositories"))
+			// Get repository details with aggregated statistics
+			repositoriesGroup.GET("/:owner/:repo", getUnifiedHandler("/github-runners/repositories/:owner/:repo"))
+			// List runner sets for a specific repository
+			repositoriesGroup.GET("/:owner/:repo/runner-sets", getUnifiedHandler("/github-runners/repositories/:owner/:repo/runner-sets"))
+			// Get metrics metadata for all configs in a repository
+			repositoriesGroup.GET("/:owner/:repo/metrics/metadata", getUnifiedHandler("/github-runners/repositories/:owner/:repo/metrics/metadata"))
+			// Query metrics trends across all configs in a repository
+			repositoriesGroup.POST("/:owner/:repo/metrics/trends", getUnifiedHandler("/github-runners/repositories/:owner/:repo/metrics/trends"))
+			// List run summaries for a repository
+			repositoriesGroup.GET("/:owner/:repo/run-summaries", getUnifiedHandler("/github-runners/repositories/:owner/:repo/run-summaries"))
+			// List distinct workflow names (pipelines) for a repository
+			repositoriesGroup.GET("/:owner/:repo/workflow-names", getUnifiedHandler("/github-runners/repositories/:owner/:repo/workflow-names"))
+		}
+
+		// Run Summaries - workflow run level aggregation
+		runSummariesGroup := githubRunnersGroup.Group("/run-summaries")
+		{
+			// Get run summary by ID
+			runSummariesGroup.GET("/:id", getUnifiedHandler("/github-runners/run-summaries/:id"))
+			// Get jobs for a run summary
+			runSummariesGroup.GET("/:id/jobs", getUnifiedHandler("/github-runners/run-summaries/:id/jobs"))
+			// Get workflow graph for a run summary
+			runSummariesGroup.GET("/:id/graph", getUnifiedHandler("/github-runners/run-summaries/:id/graph"))
+			// Manual sync (event-driven sync, replaces high-frequency polling)
+			runSummariesGroup.POST("/:id/sync", ManualSyncRunSummary)
+			// AI analysis tasks for a run summary
+			runSummariesGroup.GET("/:id/analysis-tasks", GetAnalysisTasksByRunSummaryID)
+		}
 	}
 
-	// Note: V2 group endpoints (analytics, history, commit, details) are now merged 
+	// Note: V2 group endpoints (analytics, history, commit, details) are now merged
 	// into the main github-workflow-metrics group above using unified handlers
+
+	// Intent Analysis: Workload Profile API - Full workload profile including detection + intent
+	workloadProfileGroup := group.Group("/workload-profile")
+	{
+		// List workload profiles with filtering
+		workloadProfileGroup.GET("", getUnifiedHandler("/workload-profile"))
+		// Seed detection records for undetected workloads (must be before :workload_uid)
+		workloadProfileGroup.POST("seed", getUnifiedHandler("/workload-profile/seed"))
+		// Get single workload profile (must be after seed to avoid conflict)
+		workloadProfileGroup.GET(":workload_uid", getUnifiedHandler("/workload-profile/:workload_uid"))
+		// Trigger manual intent analysis
+		workloadProfileGroup.POST(":workload_uid/analyze", getUnifiedHandler("/workload-profile/:workload_uid/analyze"))
+		// Get analysis evidence
+		workloadProfileGroup.GET(":workload_uid/evidence", getUnifiedHandler("/workload-profile/:workload_uid/evidence"))
+	}
+
+	// Intent Analysis: Workload Task API - Detection/analysis task state
+	group.GET("/workload-task", getUnifiedHandler("/workload-task"))
+
+	// Intent Analysis: Image Registry API - Cached image analysis results
+	imageRegistryGroup := group.Group("/image-registry")
+	{
+		// List cached images
+		imageRegistryGroup.GET("", getUnifiedHandler("/image-registry"))
+		// Get image analysis by digest
+		imageRegistryGroup.GET(":digest", getUnifiedHandler("/image-registry/:digest"))
+	}
+
+	// Intent Analysis: Code Snapshot API - Workload code snapshots and diff
+	codeSnapshotGroup := group.Group("/code-snapshot")
+	{
+		// Diff two snapshots (must be before :workload_uid to avoid conflict)
+		codeSnapshotGroup.GET("diff", getUnifiedHandler("/code-snapshot/diff"))
+		// Get snapshot by workload UID
+		codeSnapshotGroup.GET(":workload_uid", getUnifiedHandler("/code-snapshot/:workload_uid"))
+	}
+
+	// Flywheel: Intent Rule Management API - CRUD + promote / retire / backtest
+	intentRuleGroup := group.Group("/intent-rule")
+	{
+		// Create a new rule
+		intentRuleGroup.POST("", getUnifiedHandler("/intent-rule"))
+		// List rules with filtering
+		intentRuleGroup.GET("", getUnifiedHandler("/intent-rule"))
+		// Get single rule by ID
+		intentRuleGroup.GET(":rule_id", getUnifiedHandler("/intent-rule/:rule_id"))
+		// Update a rule
+		intentRuleGroup.PUT(":rule_id", getUnifiedHandler("/intent-rule/:rule_id"))
+		// Delete a rule
+		intentRuleGroup.DELETE(":rule_id", getUnifiedHandler("/intent-rule/:rule_id"))
+		// Force promote a rule
+		intentRuleGroup.POST(":rule_id/promote", getUnifiedHandler("/intent-rule/:rule_id/promote"))
+		// Force retire a rule
+		intentRuleGroup.POST(":rule_id/retire", getUnifiedHandler("/intent-rule/:rule_id/retire"))
+		// Manual label / update
+		intentRuleGroup.PUT(":rule_id/label", getUnifiedHandler("/intent-rule/:rule_id/label"))
+		// Trigger backtest
+		intentRuleGroup.POST(":rule_id/backtest", getUnifiedHandler("/intent-rule/:rule_id/backtest"))
+	}
+
+	// Tools Marketplace routes - Proxy to skills-repository service
+	toolsGroup := group.Group("/tools")
+	{
+		// List tools with pagination, filtering and sorting
+		toolsGroup.GET("", getUnifiedHandlerWithMethod("/tools", "GET"))
+		// Search tools (keyword, semantic, hybrid)
+		toolsGroup.GET("/search", getUnifiedHandler("/tools/search"))
+		// Health check
+		toolsGroup.GET("/health", getUnifiedHandler("/tools/health"))
+		// Create MCP Server
+		toolsGroup.POST("/mcp", getUnifiedHandler("/tools/mcp"))
+		// Run tools (returns redirect URL)
+		toolsGroup.POST("/run", getUnifiedHandler("/tools/run"))
+		// Import skills - discover candidates (multipart/form-data, direct proxy)
+		toolsGroup.POST("/import/discover", ToolsImportDiscoverProxyHandler())
+		// Import skills - commit selected
+		toolsGroup.POST("/import/commit", getUnifiedHandler("/tools/import/commit"))
+		// Get tool by ID
+		toolsGroup.GET("/:id", getUnifiedHandlerWithMethod("/tools/:id", "GET"))
+		// Update tool
+		toolsGroup.PUT("/:id", getUnifiedHandlerWithMethod("/tools/:id", "PUT"))
+		// Delete tool
+		toolsGroup.DELETE("/:id", getUnifiedHandlerWithMethod("/tools/:id", "DELETE"))
+		// Download tool (binary content, direct proxy)
+		toolsGroup.GET("/:id/download", ToolsDownloadProxyHandler())
+		// Like/Unlike tool
+		toolsGroup.POST("/:id/like", getUnifiedHandlerWithMethod("/tools/:id/like", "POST"))
+		toolsGroup.DELETE("/:id/like", getUnifiedHandlerWithMethod("/tools/:id/like", "DELETE"))
+		// Icon upload (multipart/form-data, direct proxy)
+		toolsGroup.POST("/icon", func(c *gin.Context) {
+			toolsProxyRaw(c, "/api/v1/tools/icon")
+		})
+		// Get tool content (SKILL.md for skills, direct proxy)
+		toolsGroup.GET("/:id/content", func(c *gin.Context) {
+			id := c.Param("id")
+			toolsProxyRaw(c, "/api/v1/tools/"+id+"/content")
+		})
+	}
+
+	// Toolsets routes - Proxy to skills-repository service
+	toolsetsGroup := group.Group("/toolsets")
+	{
+		// List toolsets
+		toolsetsGroup.GET("", getUnifiedHandlerWithMethod("/toolsets", "GET"))
+		// Create toolset
+		toolsetsGroup.POST("", getUnifiedHandlerWithMethod("/toolsets", "POST"))
+		// Search toolsets
+		toolsetsGroup.GET("/search", getUnifiedHandler("/toolsets/search"))
+		// Get toolset by ID
+		toolsetsGroup.GET("/:id", getUnifiedHandlerWithMethod("/toolsets/:id", "GET"))
+		// Update toolset
+		toolsetsGroup.PUT("/:id", getUnifiedHandlerWithMethod("/toolsets/:id", "PUT"))
+		// Delete toolset
+		toolsetsGroup.DELETE("/:id", getUnifiedHandlerWithMethod("/toolsets/:id", "DELETE"))
+		// Add tools to toolset
+		toolsetsGroup.POST("/:id/tools", getUnifiedHandler("/toolsets/:id/tools"))
+		// Remove tool from toolset
+		toolsetsGroup.DELETE("/:id/tools/:toolId", getUnifiedHandler("/toolsets/:id/tools/:toolId"))
+	}
+
+	// Release Management routes (Control Plane only)
+	releaseGroup := group.Group("/releases")
+	{
+		// Release Versions
+		versionsGroup := releaseGroup.Group("/versions")
+		{
+			versionsGroup.GET("", release.ListReleaseVersions)
+			versionsGroup.POST("", release.CreateReleaseVersion)
+			versionsGroup.GET("/:id", release.GetReleaseVersion)
+			versionsGroup.PUT("/:id", release.UpdateReleaseVersion)
+			versionsGroup.DELETE("/:id", release.DeleteReleaseVersion)
+			versionsGroup.PATCH("/:id/status", release.UpdateReleaseVersionStatus)
+		}
+
+		// Cluster Release Configs
+		clustersGroup := releaseGroup.Group("/clusters")
+		{
+			clustersGroup.GET("", release.ListClusterReleaseConfigs)
+			clustersGroup.GET("/default", release.GetDefaultCluster)
+			clustersGroup.PUT("/default", release.SetDefaultCluster)
+			clustersGroup.DELETE("/default", release.ClearDefaultCluster)
+			clustersGroup.GET("/:cluster_name", release.GetClusterReleaseConfig)
+			clustersGroup.PUT("/:cluster_name/version", release.UpdateClusterVersion)
+			clustersGroup.PUT("/:cluster_name/values", release.UpdateClusterValuesOverride)
+			clustersGroup.GET("/:cluster_name/history", release.ListReleaseHistory)
+			clustersGroup.POST("/:cluster_name/deploy", release.TriggerDeploy)
+			clustersGroup.POST("/:cluster_name/rollback", release.TriggerRollback)
+		}
+
+		// Release History
+		historyGroup := releaseGroup.Group("/history")
+		{
+			historyGroup.GET("/:id", release.GetReleaseHistoryByID)
+		}
+	}
+
+	// Cluster Management routes (Control Plane only)
+	managementGroup := group.Group("/management")
+	{
+		clusterMgmtGroup := managementGroup.Group("/clusters")
+		{
+			clusterMgmtGroup.GET("", cluster.ListClusters)
+			clusterMgmtGroup.POST("", cluster.CreateCluster)
+			clusterMgmtGroup.GET("/:cluster_name", cluster.GetCluster)
+			clusterMgmtGroup.PUT("/:cluster_name", cluster.UpdateCluster)
+			clusterMgmtGroup.DELETE("/:cluster_name", cluster.DeleteCluster)
+			clusterMgmtGroup.PUT("/:cluster_name/default", cluster.SetDefaultCluster)
+			clusterMgmtGroup.POST("/:cluster_name/test", cluster.TestClusterConnection)
+
+			// Infrastructure initialization
+			clusterMgmtGroup.POST("/:cluster_name/initialize", cluster.InitializeInfrastructure)
+			clusterMgmtGroup.GET("/:cluster_name/infrastructure/status", cluster.GetInfrastructureStatus)
+
+			// Task management
+			clusterMgmtGroup.GET("/:cluster_name/tasks", cluster.ListTasks)
+			clusterMgmtGroup.GET("/:cluster_name/tasks/active", cluster.GetActiveTask)
+			clusterMgmtGroup.GET("/:cluster_name/tasks/:task_id", cluster.GetTask)
+			clusterMgmtGroup.GET("/:cluster_name/tasks/:task_id/logs", cluster.GetTaskLogs)
+		}
+
+		// Control plane configuration routes
+		configGroup := managementGroup.Group("/config")
+		{
+			configGroup.GET("", cpconfig.ListConfigs)
+			configGroup.GET("/installer", cpconfig.GetInstallerConfig)
+			configGroup.GET("/:key", cpconfig.GetConfig)
+			configGroup.PUT("/:key", cpconfig.SetConfig)
+			configGroup.DELETE("/:key", cpconfig.DeleteConfig)
+		}
+	}
+
+	// Workload Diagnostic endpoints - Unified (HTTP + MCP)
+	diagGroup := group.Group("/workload-diag")
+	{
+		diagGroup.GET("/:uid/profile", getUnifiedHandler("/workload-diag/:uid/profile"))
+		diagGroup.GET("/:uid/pods", getUnifiedHandler("/workload-diag/:uid/pods"))
+		diagGroup.GET("/:uid/pod-events", getUnifiedHandler("/workload-diag/:uid/pod-events"))
+		diagGroup.GET("/:uid/k8s-events", getUnifiedHandler("/workload-diag/:uid/k8s-events"))
+		diagGroup.GET("/:uid/gpu-utilization", getUnifiedHandler("/workload-diag/:uid/gpu-utilization"))
+		diagGroup.GET("/:uid/compute-metrics", getUnifiedHandler("/workload-diag/:uid/compute-metrics"))
+		diagGroup.GET("/:uid/network-metrics", getUnifiedHandler("/workload-diag/:uid/network-metrics"))
+		diagGroup.GET("/:uid/training-progress", getUnifiedHandler("/workload-diag/:uid/training-progress"))
+		diagGroup.GET("/:uid/code-snapshot", getUnifiedHandler("/workload-diag/:uid/code-snapshot"))
+		diagGroup.GET("/:uid/image-analysis", getUnifiedHandler("/workload-diag/:uid/image-analysis"))
+		diagGroup.GET("/:uid/evidence", getUnifiedHandler("/workload-diag/:uid/evidence"))
+		diagGroup.GET("/:uid/profiler-files", getUnifiedHandler("/workload-diag/:uid/profiler-files"))
+		diagGroup.GET("/:uid/k8s-spec", getUnifiedHandler("/workload-diag/:uid/k8s-spec"))
+		diagGroup.GET("/:uid/code-snapshot-download", getUnifiedHandler("/workload-diag/:uid/code-snapshot-download"))
+	}
 
 	return nil
 }

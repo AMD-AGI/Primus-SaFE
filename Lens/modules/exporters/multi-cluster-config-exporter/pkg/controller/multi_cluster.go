@@ -683,6 +683,17 @@ func (m *MultiClusterStorageConfigListener) createProxyServiceAndEndpoint(
 	return serviceName, servicePort, nil
 }
 
+// prometheusReadServiceHasVMSelectSelector returns true if the named Service exists and selects vmselect (do not overwrite with NodePort proxy).
+func (m *MultiClusterStorageConfigListener) prometheusReadServiceHasVMSelectSelector(serviceName string) bool {
+	currentClientSet := clientsets.GetClusterManager().GetCurrentClusterClients().K8SClientSet
+	namespace := clientsets.StorageConfigSecretNamespace
+	svc, err := currentClientSet.Clientsets.CoreV1().Services(namespace).Get(m.ctx, serviceName, metav1.GetOptions{})
+	if err != nil || svc == nil {
+		return false
+	}
+	return svc.Spec.Selector != nil && svc.Spec.Selector["app.kubernetes.io/name"] == "vmselect"
+}
+
 // createProxyServicesForCluster creates proxy services for all storage components in a cluster
 func (m *MultiClusterStorageConfigListener) createProxyServicesForCluster(
 	clusterName string,
@@ -728,21 +739,28 @@ func (m *MultiClusterStorageConfigListener) createProxyServicesForCluster(
 			}
 		}
 
-		// Prometheus read endpoint
+		// Prometheus read endpoint: do not overwrite if Service already uses vmselect (set by control-plane-controller for current cluster)
 		if config.Prometheus.ReadNodePort > 0 {
-			serviceName, port, err := m.createProxyServiceAndEndpoint(
-				clusterName,
-				"prometheus-read",
-				nodeIPs,
-				config.Prometheus.ReadNodePort,
-				9090, // Standard prometheus port
-			)
-			if err != nil {
-				log.Errorf("Failed to create proxy service for prometheus-read in cluster %s: %v", clusterName, err)
+			readSvcName := fmt.Sprintf("primus-lens-prometheus-read-%s", clusterName)
+			if m.prometheusReadServiceHasVMSelectSelector(readSvcName) {
+				config.Prometheus.ReadService = readSvcName
+				config.Prometheus.ReadPort = 9090
+				log.Debugf("Skipping NodePort proxy for %s: prometheus-read already uses vmselect", clusterName)
 			} else {
-				config.Prometheus.ReadService = serviceName
-				config.Prometheus.ReadPort = port
-				log.Infof("Updated prometheus read config for cluster %s: service=%s, port=%d", clusterName, serviceName, port)
+				serviceName, port, err := m.createProxyServiceAndEndpoint(
+					clusterName,
+					"prometheus-read",
+					nodeIPs,
+					config.Prometheus.ReadNodePort,
+					9090, // Standard prometheus port
+				)
+				if err != nil {
+					log.Errorf("Failed to create proxy service for prometheus-read in cluster %s: %v", clusterName, err)
+				} else {
+					config.Prometheus.ReadService = serviceName
+					config.Prometheus.ReadPort = port
+					log.Infof("Updated prometheus read config for cluster %s: service=%s, port=%d", clusterName, serviceName, port)
+				}
 			}
 		}
 	}

@@ -205,7 +205,7 @@ jobs:
         echo "matrix=$MATRIX" >> $GITHUB_OUTPUT
   build:
     needs: detect-changes
-    runs-on: primus-safe-cicd-xfxr6
+    runs-on: ubuntu-latest
     timeout-minutes: 120
     outputs:
       primary_tag: ${{ steps.build-and-push.outputs.primary_tag }}
@@ -222,17 +222,36 @@ jobs:
           echo "Docker username length: ${#DOCKER_USERNAME}"
           buildah login -u "${{ secrets.DOCKER_USERNAME }}" -p "${{ secrets.DOCKER_PASSWORD }}" docker.io && echo "✅ Docker Hub login successful" || echo "❌ Docker Hub login failed"
           
+          echo "🔐 Logging in to Quay.io..."
+          buildah login -u "${{ secrets.QUAY_USERNAME }}" -p "${{ secrets.QUAY_PASSWORD }}" quay.io && echo "✅ Quay.io login successful" || echo "❌ Quay.io login failed"
+          
         env:
           DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
 
       - name: Build and push with Buildah
         env:
           DOCKERIO_REPOSITORY: docker.io/primussafe
+          QUAYIO_REPOSITORY: quay.io/primussafe
           IMAGE_VERSION: ${{ needs.detect-changes.outputs.image_version }}
           DATE_TIME: ${{ needs.detect-changes.outputs.date_time }}
         run: |
           set -e
           echo "🚧 Building ${{ matrix.name }}..."
+
+          # For preprocess: include driver paths for BNXT and AINIC (tw325 cluster)
+          # Change these paths when switching to a different cluster
+          EXTRA_ARGS=""
+          if [[ "${{ matrix.name }}" == "preprocess" ]]; then
+            # Copy drivers from shared storage to build context
+            mkdir -p ./drivers ./apps
+            cp /wekafs/primussafe/libbnxt_re-234.0.154.0.tar.gz ./drivers/ 2>/dev/null && echo "📦 Copied BNXT driver" || echo "⚠️ BNXT driver not found, skipping"
+            cp /wekafs/primussafe/ainic_bundle_1.117.5-a-56.tar.gz ./drivers/ 2>/dev/null && echo "📦 Copied AINIC driver" || echo "⚠️ AINIC driver not found, skipping"
+            cp -r /wekafs/primussafe/apps/* ./apps/ 2>/dev/null && echo "📦 Copied Apps" || echo "⚠️ Apps not found, skipping"
+            EXTRA_ARGS+=" --build-arg BNXT_DRIVER_PATH=./drivers/libbnxt_re-234.0.154.0.tar.gz"
+            EXTRA_ARGS+=" --build-arg AINIC_DRIVER_PATH=./drivers/ainic_bundle_1.117.5-a-56.tar.gz"
+            EXTRA_ARGS+=" --build-arg RCCL_PATH=./apps/rccl"
+            EXTRA_ARGS+=" --build-arg AMD_ANP_PATH=./apps/amd-anp"
+          fi
 
           buildah bud \
             --layers \
@@ -243,11 +262,12 @@ jobs:
             --build-arg APPNAME=${{ matrix.name }} \
             --build-arg GITHUB_TOKEN=${{ secrets.GITHUB_TOKEN }} \
             --build-arg REGISTRY=${{ secrets.REGISTRY }} \
+            $EXTRA_ARGS \
             -t ${{ matrix.name }}:${IMAGE_VERSION} \
             -t ${{ matrix.name }}:${DATE_TIME} \
             -f ${{ matrix.dockerfile_path }} .
 
-          for repo in ${DOCKERIO_REPOSITORY}; do
+          for repo in ${DOCKERIO_REPOSITORY} ${QUAYIO_REPOSITORY}; do
             echo "🚀 Pushing ${{ matrix.name }} to $repo..."
             buildah tag ${{ matrix.name }}:${IMAGE_VERSION} ${repo}/${{ matrix.name }}:${IMAGE_VERSION}
             buildah tag ${{ matrix.name }}:${DATE_TIME} ${repo}/${{ matrix.name }}:${DATE_TIME}

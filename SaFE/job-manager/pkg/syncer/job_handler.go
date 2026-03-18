@@ -264,10 +264,10 @@ func (r *SyncerReconciler) updateAdminWorkloadStatus(ctx context.Context, origin
 		return originalWorkload, nil
 	}
 	adminWorkload := originalWorkload.DeepCopy()
-	if adminWorkload.Status.StartTime == nil {
-		adminWorkload.Status.StartTime = &metav1.Time{Time: time.Now().UTC()}
-	}
 	if commonworkload.IsCICDScalingRunnerSet(adminWorkload) && status.RunnerScaleSetId != "" {
+		if adminWorkload.Status.StartTime == nil {
+			adminWorkload.Status.StartTime = &metav1.Time{Time: time.Now().UTC()}
+		}
 		if adminWorkload.Status.RunnerScaleSetId != status.RunnerScaleSetId {
 			patch := client.MergeFrom(originalWorkload)
 			adminWorkload.Status.RunnerScaleSetId = status.RunnerScaleSetId
@@ -286,11 +286,11 @@ func (r *SyncerReconciler) updateAdminWorkloadStatus(ctx context.Context, origin
 			updateWorkloadCondition(adminWorkload, cond)
 		}
 	}
+	if !adminWorkload.IsPending() && adminWorkload.Status.StartTime == nil {
+		adminWorkload.Status.StartTime = &metav1.Time{Time: time.Now().UTC()}
+	}
 	if adminWorkload.IsEnd() && adminWorkload.Status.EndTime == nil {
 		adminWorkload.Status.EndTime = &metav1.Time{Time: time.Now().UTC()}
-	}
-	if !status.IsPending() {
-		adminWorkload.Status.Message = ""
 	}
 	if reflect.DeepEqual(adminWorkload.Status, originalWorkload.Status) {
 		return originalWorkload, nil
@@ -353,6 +353,9 @@ func (r *SyncerReconciler) updateAdminWorkloadPhase(adminWorkload *v1.Workload,
 	case v1.K8sUpdating:
 		// only for deployment/statefulSet
 		adminWorkload.Status.Phase = v1.WorkloadUpdating
+	case v1.AdminStopped:
+		// available for Rayjob
+		adminWorkload.Status.Phase = v1.WorkloadStopped
 	}
 }
 

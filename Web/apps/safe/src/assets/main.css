@@ -1,0 +1,293 @@
+@import './base.css';
+/* @import './glass-btn.css'; */
+@import './safe-theme.css';
+
+:root {
+  --scale: 1;
+  --compact-scale: 1;
+} /* 全局默认 */
+
+@media (min-width: 1440px) {
+  :root {
+    --scale: 1.08;
+    --compact-scale: 1.02;
+  }
+}
+@media (min-width: 1680px) {
+  :root {
+    --scale: 1.16;
+    --compact-scale: 1.05;
+  }
+}
+@media (min-width: 1920px) {
+  :root {
+    --scale: 1.24;
+    --compact-scale: 1.08;
+  }
+}
+@media (min-width: 2560px) {
+  :root {
+    --scale: 1.36;
+    --compact-scale: 1.1;
+  }
+}
+
+/* #app {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 2rem;
+  font-weight: normal;
+} */
+
+a,
+.green {
+  text-decoration: none;
+  color: hsla(160, 100%, 37%, 1);
+  transition: 0.4s;
+  padding: 3px;
+}
+
+@media (hover: hover) {
+  a:hover {
+    background-color: hsla(160, 100%, 37%, 0.2);
+  }
+}
+/*
+@media (min-width: 1024px) {
+  body {
+    display: flex;
+    place-items: center;
+  }
+
+  #app {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    overflow: hidden;
+    padding: 0 2rem;
+  }
+} */
+/*
+$btn-colors: (
+  primary: var(--safe-primary),
+  success: #67C23A,
+  warning: #E6A23C,
+  danger:  #F56C6C,
+  info:    #909399
+); */
+
+/* 圆形操作按钮样式 */
+.btn-danger-plain {
+  color: #f56c6c; /* 红标 */
+  background-color: var(--safe-card);
+  border: 1px solid #f56c6c;
+}
+
+.btn-danger-plain:hover {
+  color: #fff; /* 白标 */
+  background-color: #f56c6c; /* 红底 */
+  border-color: #f56c6c;
+}
+
+.btn-primary-plain {
+  color: var(--safe-primary);
+  background-color: var(--safe-card);
+  border: 1px solid var(--safe-primary);
+}
+
+.btn-primary-plain:hover {
+  color: #fff;
+  background-color: var(--safe-primary);
+  border-color: var(--safe-primary);
+}
+.btn-success-plain {
+  color: #67c23a;
+  background-color: var(--safe-card);
+  border: 1px solid #67c23a;
+}
+
+.btn-success-plain:hover {
+  color: #fff;
+  background-color: #67c23a;
+  border-color: #67c23a;
+}
+.btn-warning-plain {
+  color: #e6a23c;
+  background-color: var(--safe-card);
+  border: 1px solid #e6a23c;
+}
+
+.btn-warning-plain:hover {
+  color: #fff;
+  background-color: #e6a23c;
+  border-color: #e6a23c;
+}
+
+/* 详情页标题部分样式 */
+.w-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.w-left {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+.w-name {
+  font-size: calc(18px * var(--scale));
+  font-weight: 700;
+  letter-spacing: 0.2px;
+}
+.w-actions {
+  margin-left: auto;
+  display: flex;
+  gap: 8px;
+}
+
+.w-meta {
+  margin-top: 6px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  font-size: calc(12px * var(--scale));
+  color: var(--safe-muted);
+}
+.w-meta .item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.w-meta .label {
+  color: var(--safe-muted);
+}
+.w-meta .sep {
+  opacity: 0.5;
+  margin: 0 4px;
+}
+.w-meta .code {
+  padding: 2px 6px;
+  border-radius: 6px;
+  border: 1px solid var(--safe-border);
+  background: var(--safe-card-2);
+  color: var(--safe-text);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+.w-meta .copy {
+  cursor: pointer;
+  opacity: 0.8;
+}
+
+/* **********操作栏-三个折叠+展开pop按钮样式****************** */
+.actions-menu {
+  padding: 6px 0;
+}
+.menu-col {
+  list-style: none;
+  margin: 0;
+  padding: 4px 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.menu-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  user-select: none;
+}
+.menu-item:hover {
+  background: var(--el-fill-color-light);
+}
+.menu-item.disabled {
+  color: var(--el-text-color-disabled);
+  cursor: not-allowed;
+}
+.menu-item.disabled:hover {
+  background: transparent;
+}
+.menu-ico {
+  font-size: 16px;
+  opacity: 0.9;
+  width: 16px;
+  height: 16px;
+}
+.menu-label {
+  font-size: 14px;
+}
+
+/* 保险起见，确保 popover 层级足够高（与 :z-index 配合） */
+.actions-menu.el-popper {
+  z-index: 99999;
+}
+
+/* 确保 training drawer 及其遮罩层在最顶层 */
+.training-drawer.el-drawer {
+  z-index: 100001 !important;
+}
+
+.el-overlay {
+  z-index: 100000 !important;
+}
+
+/* 确保所有 Element Plus 的 popper 组件都有足够的层级 */
+/* 设置为 100002，高于 drawer 的 100001，这样 drawer 内的下拉框才能正常显示 */
+.el-popper,
+.el-select__popper,
+.el-picker__popper,
+.el-date-picker__popper,
+.el-dropdown__popper {
+  z-index: 100002 !important;
+}
+
+/* 确保 Message 提示框在抽屉上方显示 */
+.el-message {
+  z-index: 100003 !important;
+}
+
+/* *********************全局组件字体大小等样式适配****************** */
+.el-tabs__item {
+  font-size: calc(12px * var(--scale, 1));
+}
+.el-descriptions__body .el-descriptions__table .el-descriptions__cell {
+  font-size: calc(13px * var(--scale, 1));
+  line-height: calc(23px * var(--scale, 1));
+}
+.el-dialog__title {
+  font-size: calc(18px * var(--scale, 1));
+}
+.el-form {
+  --el-form-label-font-size: clamp(14px, 0.9vw, 15px);
+}
+.el-loading-text {
+  white-space: pre-line;
+  text-align: center;
+}
+.el-loading-spinner .el-loading-text {
+  font-size: calc(13px * var(--scale));
+}
+.el-menu-item {
+  font-size: calc(14px * var(--compact-scale));
+}
+.el-sub-menu__title {
+  font-size: calc(14px * var(--compact-scale));
+}
+.el-menu-item-group__title {
+  font-size: calc(12px * var(--compact-scale));
+}
+
+.el-menu-item {
+  padding-left: 20px !important;
+}
+.el-sub-menu__title {
+  padding-left: 20px !important;
+}
+.addon-catalog-sub {
+  padding-left: 0px !important;
+}
+.addon-catalog-sub .el-menu-item {
+  padding-left: 40px !important;
+}

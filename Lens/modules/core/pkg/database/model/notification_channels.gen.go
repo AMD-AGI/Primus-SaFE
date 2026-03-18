@@ -14,9 +14,9 @@ const TableNameNotificationChannels = "notification_channels"
 type NotificationChannels struct {
 	ID          int64     `gorm:"column:id;primaryKey;autoIncrement:true" json:"id"`
 	Name        string    `gorm:"column:name;not null" json:"name"`
-	Type        string    `gorm:"column:type;not null" json:"type"`
+	Type        string    `gorm:"column:type;not null;comment:Channel type: email, webhook, dingtalk, wechat, slack, alertmanager" json:"type"` // Channel type: email, webhook, dingtalk, wechat, slack, alertmanager
 	Enabled     bool      `gorm:"column:enabled;default:true" json:"enabled"`
-	Config      ExtType   `gorm:"column:config;not null" json:"config"`
+	Config      ExtType   `gorm:"column:config;not null;comment:Channel-specific configuration (SMTP settings, webhook URL, etc.)" json:"config"` // Channel-specific configuration (SMTP settings, webhook URL, etc.)
 	Description string    `gorm:"column:description" json:"description"`
 	CreatedAt   time.Time `gorm:"column:created_at;not null;default:CURRENT_TIMESTAMP" json:"created_at"`
 	UpdatedAt   time.Time `gorm:"column:updated_at;not null;default:CURRENT_TIMESTAMP" json:"updated_at"`

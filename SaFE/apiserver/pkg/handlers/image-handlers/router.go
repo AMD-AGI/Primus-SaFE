@@ -33,6 +33,9 @@ func InitImageRouter(e *gin.Engine, h *ImageHandler) {
 		imageGroup.GET(":id/importing-details", func(c *gin.Context) {
 			handle(c, h.getImportingDetail)
 		})
+		imageGroup.GET(":id/importing-logs", func(c *gin.Context) {
+			handle(c, h.getImportingLogs)
+		})
 
 		imageGroup.DELETE("custom/:jobId", middleware.Audit("custom-image"), func(c *gin.Context) {
 			handle(c, h.deleteExportedImage)

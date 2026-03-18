@@ -151,7 +151,8 @@ func (e *ProcessProbeExecutor) Execute(
 	// Detect frameworks and store evidence
 	evidenceCount, err := e.storeEvidence(ctx, workloadUID, result)
 	if err != nil {
-		log.Warnf("Failed to store process evidence: %v", err)
+		log.Errorf("Failed to store process evidence for workload %s: %v", workloadUID, err)
+		updates["store_evidence_error"] = err.Error()
 	}
 
 	updates["evidence_count"] = evidenceCount
@@ -294,16 +295,34 @@ type EnvDetectionResult struct {
 	BaseFramework    string
 }
 
-// detectFrameworkFromCmdline detects framework from command line
+// detectFrameworkFromCmdline detects framework from command line.
+// Order matters: training frameworks that internally use inference engines (e.g. verl uses vllm)
+// must be checked BEFORE generic inference patterns to avoid misclassification.
 func (e *ProcessProbeExecutor) detectFrameworkFromCmdline(cmdline string) (string, string) {
 	cmdlineLower := strings.ToLower(cmdline)
 
-	// Inference patterns
+	// Phase 0: RL/hybrid training frameworks that embed inference engines internally.
+	// These MUST be checked before inference patterns because their cmdlines may contain
+	// inference engine names (e.g. verl uses vllm for rollout generation).
+	rlTrainingPatterns := map[string][]string{
+		"verl": {"verl.trainer", "verl.workers", "verl.worker"},
+	}
+	for fw, keywords := range rlTrainingPatterns {
+		for _, kw := range keywords {
+			if strings.Contains(cmdlineLower, kw) {
+				return fw, "training"
+			}
+		}
+	}
+
+	// Phase 1: Inference patterns (use specific patterns to avoid false positives)
+	// Use specific entry points rather than bare substring "vllm" which would match
+	// config paths, environment variables, or nested frameworks.
 	inferencePatterns := map[string][]string{
-		"vllm":   {"vllm", "vllm.entrypoints"},
+		"vllm":   {"vllm.entrypoints", "python -m vllm", "python3 -m vllm"},
 		"triton": {"tritonserver"},
 		"tgi":    {"text-generation-launcher"},
-		"sglang": {"sglang"},
+		"sglang": {"sglang.launch_server", "python -m sglang", "python3 -m sglang"},
 	}
 
 	for fw, keywords := range inferencePatterns {
@@ -314,7 +333,7 @@ func (e *ProcessProbeExecutor) detectFrameworkFromCmdline(cmdline string) (strin
 		}
 	}
 
-	// Training patterns
+	// Phase 2: Training patterns
 	trainingPatterns := map[string][]string{
 		"primus":    {"primus", "primus-train", "primus.train"},
 		"megatron":  {"megatron", "pretrain_gpt", "megatron-lm", "megatron_lm"},
