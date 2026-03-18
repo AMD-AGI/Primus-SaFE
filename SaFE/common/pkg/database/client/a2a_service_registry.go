@@ -33,7 +33,7 @@ func (c *Client) UpsertA2AService(ctx context.Context, svc *A2AServiceRegistry) 
 		return err
 	}
 
-	existing, _ := c.GetA2AService(ctx, svc.ServiceName)
+	existing, _ := c.getA2AServiceIncludeDeleted(ctx, svc.ServiceName)
 	if existing != nil {
 		svc.Id = existing.Id
 		nowTime := time.Now().UTC()
@@ -58,6 +58,23 @@ func (c *Client) UpsertA2AService(ctx context.Context, svc *A2AServiceRegistry) 
 		}
 	}
 	return nil
+}
+
+func (c *Client) getA2AServiceIncludeDeleted(ctx context.Context, serviceName string) (*A2AServiceRegistry, error) {
+	if serviceName == "" {
+		return nil, commonerrors.NewBadRequest("service name is empty")
+	}
+	db, err := c.getDB()
+	if err != nil {
+		return nil, err
+	}
+	cmd := fmt.Sprintf(`SELECT * FROM %s WHERE service_name=$1 LIMIT 1`, TA2AServiceRegistry)
+	var svc A2AServiceRegistry
+	err = db.GetContext(ctx, &svc, cmd, serviceName)
+	if err != nil {
+		return nil, err
+	}
+	return &svc, nil
 }
 
 func (c *Client) GetA2AService(ctx context.Context, serviceName string) (*A2AServiceRegistry, error) {
