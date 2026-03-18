@@ -48,6 +48,9 @@ func SetupSyncerController(ctx context.Context, mgr manager.Manager) error {
 		Client:            mgr.GetClient(),
 		clusterClientSets: commonutils.NewObjectManagerSingleton(),
 	}
+
+	r.workflowTracker = initWorkflowTracker(ctx)
+
 	r.Controller = controller.NewController[*resourceMessage](r, 1)
 	if err := r.start(ctx); err != nil {
 		return err
