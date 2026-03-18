@@ -390,6 +390,12 @@ data:
 
     ALTER TABLE model ADD COLUMN IF NOT EXISTS max_tokens INTEGER DEFAULT 0;
 
+    -- SFT training: distinguish external models from fine-tuned models
+    ALTER TABLE model ADD COLUMN IF NOT EXISTS origin VARCHAR(32) DEFAULT 'external';
+    ALTER TABLE model ADD COLUMN IF NOT EXISTS sft_job_id VARCHAR(64);
+    ALTER TABLE model ADD COLUMN IF NOT EXISTS base_model VARCHAR(256);
+    create index if not exists T_MODEL_ORIGIN_INDEX on model (origin, is_deleted);
+
     alter table model owner to "primus-safe";
 
     create table if not exists deployment_requests
