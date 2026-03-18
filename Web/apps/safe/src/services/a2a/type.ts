@@ -36,10 +36,13 @@ export interface A2ACallLog {
   callerServiceName: string
   callerUserId: string
   targetServiceName: string
+  skillId?: string
   status: string
   latencyMs: number
   requestSizeBytes: number
   responseSizeBytes: number
+  errorMessage?: string
+  createdAt?: string
 }
 
 export interface A2ACallLogListResponse {

@@ -12,57 +12,66 @@
     </div>
   </div>
 
-  <!-- Topology + Call Volume -->
+  <!-- Topology + Call Volume (24h) -->
   <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-4">
     <!-- Topology Graph -->
-    <el-card class="safe-card" shadow="never">
+    <el-card class="safe-card" shadow="never" v-loading="topoLoading">
       <template #header>
         <span class="font-500">Agent Topology</span>
       </template>
-      <div ref="topoRef" style="width: 100%; height: 360px" v-loading="topoLoading" />
-      <el-empty v-if="!topoLoading && !topoData.nodes.length" description="No topology data" :image-size="60" />
+      <div ref="topoRef" style="width: 100%; height: 360px" />
+      <div v-if="!topoLoading && !topoData.nodes.length" class="chart-empty">
+        <el-empty description="No topology data" :image-size="60" />
+      </div>
     </el-card>
 
-    <!-- Status Distribution -->
-    <el-card class="safe-card" shadow="never">
+    <!-- Call Volume (24h) / Status Distribution fallback -->
+    <el-card class="safe-card" shadow="never" v-loading="loading">
       <template #header>
-        <span class="font-500">Status Distribution</span>
+        <span class="font-500">{{ hasTimeLogs ? 'Call Volume (24h)' : 'Status Distribution' }}</span>
       </template>
       <div ref="volumeRef" style="width: 100%; height: 360px" />
-      <el-empty v-if="!callLogs.length" description="No call data" :image-size="60" />
+      <div v-if="!loading && !callLogs.length" class="chart-empty">
+        <el-empty description="No call data" :image-size="60" />
+      </div>
     </el-card>
   </div>
 
-  <!-- Target Distribution + Recent Invocations -->
+  <!-- Skill Usage + Recent Invocations -->
   <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-4">
-    <!-- Target Distribution -->
-    <el-card class="safe-card" shadow="never">
+    <!-- Skill Usage / Target Distribution fallback -->
+    <el-card class="safe-card" shadow="never" v-loading="loading">
       <template #header>
-        <span class="font-500">Target Distribution</span>
+        <span class="font-500">{{ hasSkillLogs ? 'Skill Usage' : 'Target Distribution' }}</span>
       </template>
-      <div ref="targetRef" style="width: 100%; height: 320px" />
-      <el-empty v-if="!callLogs.length" description="No call data" :image-size="60" />
+      <div ref="skillRef" style="width: 100%; height: 320px" />
+      <div v-if="!loading && !callLogs.length" class="chart-empty">
+        <el-empty description="No call data" :image-size="60" />
+      </div>
     </el-card>
 
     <!-- Recent Invocations -->
-    <el-card class="safe-card" shadow="never">
+    <el-card class="safe-card" shadow="never" v-loading="loading">
       <template #header>
         <span class="font-500">Recent Invocations</span>
       </template>
-      <el-table :data="recentLogs" size="small" :show-header="true" max-height="320">
-        <el-table-column prop="callerServiceName" label="Caller" min-width="100" show-overflow-tooltip />
-        <el-table-column prop="targetServiceName" label="Target" min-width="100" show-overflow-tooltip />
-        <el-table-column label="Latency" width="90" align="right">
-          <template #default="{ row }">{{ row.latencyMs }}ms</template>
-        </el-table-column>
-        <el-table-column label="Status" width="90">
-          <template #default="{ row }">
-            <el-tag :type="row.status === 'success' ? 'success' : 'danger'" size="small">
-              {{ row.status }}
-            </el-tag>
-          </template>
-        </el-table-column>
-      </el-table>
+      <div class="invocation-list">
+        <div v-for="log in recentLogs" :key="log.id" class="invocation-item">
+          <div class="invocation-flow">
+            <span class="invocation-name">{{ log.callerServiceName }}</span>
+            <el-icon :size="12" class="invocation-arrow"><Right /></el-icon>
+            <span class="invocation-name">{{ log.targetServiceName }}</span>
+          </div>
+          <div class="invocation-meta">
+            <span class="invocation-latency">{{ log.latencyMs }}ms</span>
+            <span class="invocation-dot" :class="log.status === 'success' ? 'dot--ok' : 'dot--err'" />
+            <span class="invocation-status" :class="log.status === 'success' ? 'text-green' : 'text-red'">
+              {{ log.status }}
+            </span>
+          </div>
+        </div>
+        <el-empty v-if="!loading && !recentLogs.length" description="No invocations" :image-size="48" />
+      </div>
     </el-card>
   </div>
 </template>
@@ -71,9 +80,10 @@
 import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import { getA2ATopology } from '@/services'
 import type { A2AService, A2ACallLog, A2ATopologyResponse } from '@/services'
-import { Connection, Timer, SuccessFilled, Monitor } from '@element-plus/icons-vue'
+import { Connection, Timer, SuccessFilled, Monitor, Right } from '@element-plus/icons-vue'
+import dayjs from 'dayjs'
 import * as echarts from 'echarts/core'
-import { GraphChart, BarChart } from 'echarts/charts'
+import { GraphChart, LineChart, BarChart } from 'echarts/charts'
 import {
   GridComponent,
   TooltipComponent,
@@ -81,29 +91,34 @@ import {
 } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
 
-echarts.use([GraphChart, BarChart, GridComponent, TooltipComponent, LegendComponent, CanvasRenderer])
+echarts.use([GraphChart, LineChart, BarChart, GridComponent, TooltipComponent, LegendComponent, CanvasRenderer])
 
 const props = defineProps<{
   services: A2AService[]
   callLogs: A2ACallLog[]
+  loading: boolean
 }>()
+
+const hasTimeLogs = computed(() => props.callLogs.some((l) => l.createdAt))
+const hasSkillLogs = computed(() => props.callLogs.some((l) => l.skillId))
 
 // ── Stats ──
 const statsCards = computed(() => {
-  const total = props.callLogs.length
-  const successCount = props.callLogs.filter((l) => l.status === 'success').length
+  const logs = props.callLogs
+  const total = logs.length
+  const successCount = logs.filter((l) => l.status === 'success').length
   const rate = total > 0 ? ((successCount / total) * 100).toFixed(1) + '%' : '-'
   const avgLatency =
     total > 0
-      ? Math.round(props.callLogs.reduce((sum, l) => sum + (l.latencyMs || 0), 0) / total) + 'ms'
+      ? Math.round(logs.reduce((sum, l) => sum + (l.latencyMs || 0), 0) / total) + 'ms'
       : '-'
   const activeAgents = props.services.filter((s) => s.status === 'active').length
 
   return [
-    { label: 'Total Calls', value: String(total), icon: Connection, color: '#3b82f6' },
-    { label: 'Success Rate', value: rate, icon: SuccessFilled, color: '#10b981' },
-    { label: 'Avg Latency', value: avgLatency, icon: Timer, color: '#f59e0b' },
-    { label: 'Active Agents', value: String(activeAgents), icon: Monitor, color: '#8b5cf6' },
+    { label: 'Total Calls', value: String(total), icon: Connection, color: '#6b9eff' },
+    { label: 'Success Rate', value: rate, icon: SuccessFilled, color: '#5ec6a0' },
+    { label: 'Avg Latency', value: avgLatency, icon: Timer, color: '#e8b160' },
+    { label: 'Active Agents', value: String(activeAgents), icon: Monitor, color: '#a78bdb' },
   ]
 })
 
@@ -117,8 +132,8 @@ const topoData = ref<A2ATopologyResponse>({ nodes: [], edges: [] })
 let topoChart: echarts.ECharts | null = null
 
 const healthColor: Record<string, string> = {
-  healthy: '#10b981',
-  unhealthy: '#ef4444',
+  healthy: '#5ec6a0',
+  unhealthy: '#e87272',
   unknown: '#9ca3af',
 }
 
@@ -185,119 +200,170 @@ const renderTopo = () => {
   topoChart.resize()
 }
 
-// ── Status Distribution ──
+// ── Chart 1: Call Volume (24h) line chart, or Status Distribution bar chart fallback ──
 const volumeRef = ref<HTMLDivElement | null>(null)
 let volumeChart: echarts.ECharts | null = null
 
-const renderStatusDist = () => {
+const renderVolumeChart = () => {
   if (!volumeRef.value || !props.callLogs.length) return
   if (!volumeChart) {
     volumeChart = echarts.init(volumeRef.value)
   }
 
-  const statusMap = new Map<string, number>()
-  props.callLogs.forEach((l) => {
-    const s = l.status || 'unknown'
-    statusMap.set(s, (statusMap.get(s) || 0) + 1)
-  })
-
-  const statusColorMap: Record<string, string> = {
-    success: '#10b981',
-    error: '#ef4444',
-    timeout: '#f59e0b',
-    unknown: '#9ca3af',
-  }
-
-  const sorted = [...statusMap.entries()].sort((a, b) => b[1] - a[1])
   const isDark = document.documentElement.classList.contains('dark')
+  const axisColor = isDark ? '#999' : '#888'
+  const splitColor = isDark ? '#2a2a2a' : '#f0f0f0'
 
-  volumeChart.setOption({
-    tooltip: { trigger: 'axis' },
-    grid: { top: 16, right: 16, bottom: 32, left: 48, containLabel: false },
-    xAxis: {
-      type: 'category',
-      data: sorted.map((s) => s[0]),
-      axisLabel: { color: isDark ? '#aaa' : '#666', fontSize: 12 },
-    },
-    yAxis: {
-      type: 'value',
-      minInterval: 1,
-      axisLabel: { color: isDark ? '#aaa' : '#666', fontSize: 11 },
-      splitLine: { lineStyle: { color: isDark ? '#333' : '#eee' } },
-    },
-    series: [
-      {
-        type: 'bar',
-        data: sorted.map((s) => ({
-          value: s[1],
-          itemStyle: { color: statusColorMap[s[0]] || '#409eff' },
-        })),
-        barMaxWidth: 48,
-        itemStyle: { borderRadius: [4, 4, 0, 0] },
+  if (hasTimeLogs.value) {
+    const now = dayjs()
+    const hours: string[] = []
+    const successData: number[] = []
+    const failureData: number[] = []
+
+    for (let i = 23; i >= 0; i--) {
+      const hourStart = now.subtract(i, 'hour').startOf('hour')
+      const hourEnd = hourStart.add(1, 'hour')
+      hours.push(hourStart.format('HH:00'))
+
+      const hourLogs = props.callLogs.filter((l) => {
+        if (!l.createdAt) return false
+        const t = dayjs(l.createdAt)
+        return t.isAfter(hourStart) && t.isBefore(hourEnd)
+      })
+      successData.push(hourLogs.filter((l) => l.status === 'success').length)
+      failureData.push(hourLogs.filter((l) => l.status !== 'success').length)
+    }
+
+    volumeChart.setOption({
+      tooltip: { trigger: 'axis' },
+      legend: { data: ['Success', 'Failure'], textStyle: { color: axisColor, fontSize: 12 }, top: 0 },
+      grid: { top: 36, right: 16, bottom: 32, left: 48, containLabel: false },
+      xAxis: {
+        type: 'category', data: hours, boundaryGap: false,
+        axisLabel: { color: axisColor, fontSize: 11 },
+        axisLine: { lineStyle: { color: isDark ? '#444' : '#ddd' } },
       },
-    ],
-  })
+      yAxis: {
+        type: 'value', minInterval: 1,
+        axisLabel: { color: axisColor, fontSize: 11 },
+        splitLine: { lineStyle: { color: splitColor } },
+      },
+      series: [
+        {
+          name: 'Success', type: 'line', data: successData, smooth: true,
+          symbol: 'circle', symbolSize: 4,
+          lineStyle: { width: 2, color: '#7ecba1' }, itemStyle: { color: '#7ecba1' },
+          areaStyle: { color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+            { offset: 0, color: 'rgba(126,203,161,0.25)' }, { offset: 1, color: 'rgba(126,203,161,0.02)' },
+          ]) },
+        },
+        {
+          name: 'Failure', type: 'line', data: failureData, smooth: true,
+          symbol: 'circle', symbolSize: 4,
+          lineStyle: { width: 2, color: '#e88e8e' }, itemStyle: { color: '#e88e8e' },
+          areaStyle: { color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+            { offset: 0, color: 'rgba(232,142,142,0.20)' }, { offset: 1, color: 'rgba(232,142,142,0.02)' },
+          ]) },
+        },
+      ],
+    }, true)
+  } else {
+    const statusMap = new Map<string, number>()
+    props.callLogs.forEach((l) => statusMap.set(l.status || 'unknown', (statusMap.get(l.status || 'unknown') || 0) + 1))
+    const sorted = [...statusMap.entries()].sort((a, b) => b[1] - a[1])
+    const colorMap: Record<string, string> = { success: '#7ecba1', error: '#e88e8e', timeout: '#e8b160', unknown: '#9ca3af' }
+
+    volumeChart.setOption({
+      tooltip: { trigger: 'axis' },
+      grid: { top: 16, right: 16, bottom: 32, left: 48, containLabel: false },
+      xAxis: {
+        type: 'category', data: sorted.map((s) => s[0]),
+        axisLabel: { color: axisColor, fontSize: 12 },
+        axisLine: { lineStyle: { color: isDark ? '#444' : '#ddd' } },
+      },
+      yAxis: {
+        type: 'value', minInterval: 1,
+        axisLabel: { color: axisColor, fontSize: 11 },
+        splitLine: { lineStyle: { color: splitColor } },
+      },
+      series: [{
+        type: 'bar',
+        data: sorted.map((s) => ({ value: s[1], itemStyle: { color: colorMap[s[0]] || '#7ea8e8' } })),
+        barMaxWidth: 48, itemStyle: { borderRadius: [4, 4, 0, 0] },
+      }],
+    }, true)
+  }
   volumeChart.resize()
 }
 
-// ── Target Distribution ──
-const targetRef = ref<HTMLDivElement | null>(null)
-let targetChart: echarts.ECharts | null = null
+// ── Chart 2: Skill Usage bar chart, or Target Distribution fallback ──
+const skillRef = ref<HTMLDivElement | null>(null)
+let skillChart: echarts.ECharts | null = null
 
-const renderTargetDist = () => {
-  if (!targetRef.value || !props.callLogs.length) return
-  if (!targetChart) {
-    targetChart = echarts.init(targetRef.value)
+const renderSkillChart = () => {
+  if (!skillRef.value || !props.callLogs.length) return
+  if (!skillChart) {
+    skillChart = echarts.init(skillRef.value)
   }
 
-  const targetMap = new Map<string, number>()
-  props.callLogs.forEach((l) => {
-    if (l.targetServiceName) {
-      targetMap.set(l.targetServiceName, (targetMap.get(l.targetServiceName) || 0) + 1)
-    }
-  })
-
-  const sorted = [...targetMap.entries()].sort((a, b) => b[1] - a[1]).slice(0, 10)
   const isDark = document.documentElement.classList.contains('dark')
+  const axisColor = isDark ? '#999' : '#888'
+  const splitColor = isDark ? '#2a2a2a' : '#f0f0f0'
 
-  targetChart.setOption({
+  const dataMap = new Map<string, number>()
+  if (hasSkillLogs.value) {
+    props.callLogs.forEach((l) => {
+      if (l.skillId) dataMap.set(l.skillId, (dataMap.get(l.skillId) || 0) + 1)
+    })
+  } else {
+    props.callLogs.forEach((l) => {
+      if (l.targetServiceName) dataMap.set(l.targetServiceName, (dataMap.get(l.targetServiceName) || 0) + 1)
+    })
+  }
+
+  const sorted = [...dataMap.entries()].sort((a, b) => b[1] - a[1]).slice(0, 10)
+
+  skillChart.setOption({
     tooltip: { trigger: 'axis' },
-    grid: { top: 16, right: 16, bottom: 40, left: 120, containLabel: false },
+    grid: { top: 8, right: 24, bottom: 32, left: 8, containLabel: true },
     xAxis: {
-      type: 'value',
-      minInterval: 1,
-      axisLabel: { color: isDark ? '#aaa' : '#666', fontSize: 11 },
-      splitLine: { lineStyle: { color: isDark ? '#333' : '#eee' } },
+      type: 'value', minInterval: 1,
+      axisLabel: { color: axisColor, fontSize: 11 },
+      splitLine: { lineStyle: { color: splitColor } },
     },
     yAxis: {
       type: 'category',
       data: sorted.map((s) => s[0]).reverse(),
-      axisLabel: { color: isDark ? '#aaa' : '#666', fontSize: 11 },
+      axisLabel: { color: isDark ? '#bbb' : '#666', fontSize: 12 },
+      axisLine: { show: false }, axisTick: { show: false },
     },
-    series: [
-      {
-        type: 'bar',
-        data: sorted.map((s) => s[1]).reverse(),
-        itemStyle: { color: '#409eff', borderRadius: [0, 4, 4, 0] },
-        barMaxWidth: 28,
+    series: [{
+      type: 'bar',
+      data: sorted.map((s) => s[1]).reverse(),
+      itemStyle: {
+        color: new echarts.graphic.LinearGradient(0, 0, 1, 0, [
+          { offset: 0, color: '#7ea8e8' }, { offset: 1, color: '#a0c4f1' },
+        ]),
+        borderRadius: [0, 4, 4, 0],
       },
-    ],
-  })
-  targetChart.resize()
+      barMaxWidth: 24,
+    }],
+  }, true)
+  skillChart.resize()
 }
 
 const resizeAll = () => {
   topoChart?.resize()
   volumeChart?.resize()
-  targetChart?.resize()
+  skillChart?.resize()
 }
 
 watch(
   () => [props.services, props.callLogs],
   async () => {
     await nextTick()
-    renderStatusDist()
-    renderTargetDist()
+    renderVolumeChart()
+    renderSkillChart()
   },
   { deep: true },
 )
@@ -310,7 +376,7 @@ onMounted(() => {
 onBeforeUnmount(() => {
   topoChart?.dispose()
   volumeChart?.dispose()
-  targetChart?.dispose()
+  skillChart?.dispose()
   window.removeEventListener('resize', resizeAll)
 })
 </script>
@@ -366,4 +432,68 @@ onBeforeUnmount(() => {
 @media (max-width: 768px) {
   .summary-grid { grid-template-columns: repeat(2, 1fr); }
 }
+.safe-card :deep(.el-card__body) {
+  position: relative;
+}
+.chart-empty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.invocation-list {
+  display: flex;
+  flex-direction: column;
+  max-height: 320px;
+  overflow-y: auto;
+}
+.invocation-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 4px;
+  border-bottom: 1px solid var(--el-border-color-lighter);
+  font-size: 13px;
+}
+.invocation-item:last-child { border-bottom: none; }
+.invocation-flow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.invocation-name {
+  font-weight: 500;
+  color: var(--el-text-color-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 120px;
+}
+.invocation-arrow { color: var(--el-text-color-placeholder); flex-shrink: 0; }
+.invocation-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  margin-left: 12px;
+}
+.invocation-latency {
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+  font-variant-numeric: tabular-nums;
+}
+.invocation-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.dot--ok { background: #5ec6a0; }
+.dot--err { background: #e88e8e; }
+.invocation-status { font-size: 12px; }
+.text-green { color: #5ec6a0; }
+.text-red { color: #e88e8e; }
 </style>

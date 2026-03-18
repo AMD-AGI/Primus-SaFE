@@ -14,6 +14,7 @@
       round
       :icon="Plus"
       @click="registerVisible = true"
+      class="text-black"
     >
       Register Agent
     </el-button>
@@ -42,7 +43,7 @@
   </div>
 
   <!-- Dashboard Tab -->
-  <DashboardTab v-if="activeTab === 'dashboard'" ref="dashboardRef" :services="services" :call-logs="allCallLogs" />
+  <DashboardTab v-if="activeTab === 'dashboard'" ref="dashboardRef" :services="services" :call-logs="allCallLogs" :loading="dashboardLoading" />
 
   <!-- Agent Registry Tab -->
   <AgentRegistryTab v-if="activeTab === 'registry'" :services="services" :loading="servicesLoading" @delete="onDeleteAgent" />
@@ -64,7 +65,7 @@
 </template>
 
 <script lang="ts" setup>
-import { ref, watch, onMounted, h } from 'vue'
+import { ref, computed, watch, onMounted, h } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { Plus, Refresh, Search } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -143,13 +144,18 @@ const fetchCallLogs = async () => {
 
 // ── All Call Logs (for Dashboard stats, fetches up to 500) ──
 const allCallLogs = ref<A2ACallLog[]>([])
+const allCallLogsLoading = ref(false)
+const dashboardLoading = computed(() => servicesLoading.value || allCallLogsLoading.value)
 
 const fetchAllCallLogs = async () => {
+  allCallLogsLoading.value = true
   try {
     const res = await getA2ACallLogs({ limit: 500, offset: 0 })
     allCallLogs.value = res.data || []
   } catch {
     allCallLogs.value = []
+  } finally {
+    allCallLogsLoading.value = false
   }
 }
 
@@ -210,13 +216,7 @@ const refreshCurrentTab = () => {
   }
 }
 
-// Track which tabs have been visited for lazy data loading
-const visited = new Set<string>()
-
-const ensureTabData = (tab: string) => {
-  if (visited.has(tab)) return
-  visited.add(tab)
-
+const loadTabData = (tab: string) => {
   if (tab === 'dashboard') {
     fetchServices()
     fetchAllCallLogs()
@@ -227,10 +227,10 @@ const ensureTabData = (tab: string) => {
   }
 }
 
-watch(activeTab, (tab) => ensureTabData(tab))
+watch(activeTab, (tab) => loadTabData(tab))
 
 onMounted(() => {
-  ensureTabData(activeTab.value)
+  loadTabData(activeTab.value)
 })
 </script>
 

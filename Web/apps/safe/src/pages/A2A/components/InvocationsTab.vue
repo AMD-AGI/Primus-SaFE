@@ -1,7 +1,7 @@
 <template>
   <el-card class="mt-4 safe-card" shadow="never">
     <el-table
-      :height="'calc(100vh - 280px)'"
+      :height="'calc(100vh - 235px)'"
       :data="data"
       size="large"
       v-loading="loading"
