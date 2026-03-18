@@ -8,6 +8,7 @@ package llmgateway
 import (
 	"net/http"
 	"net/http/httputil"
+	"strings"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
@@ -493,6 +494,7 @@ func (h *Handler) GetUsage(c *gin.Context) {
 // getUserEmail retrieves the user's email by looking up the K8s User CR
 // via AccessController.GetRequestUser (same pattern as resources/cd-handlers).
 // Falls back to userName if User CR lookup fails or email annotation is not set.
+// Always returns lowercase to avoid case-sensitivity issues with LiteLLM.
 func (h *Handler) getUserEmail(c *gin.Context) string {
 	userId := c.GetString(common.UserId)
 	if userId == "" {
@@ -506,15 +508,15 @@ func (h *Handler) getUserEmail(c *gin.Context) string {
 			"userId", userId, "error", err)
 	} else {
 		if email := v1.GetUserEmail(user); email != "" {
-			return email
+			return strings.ToLower(email)
 		}
 	}
 
 	// Fallback: userName
 	if name := c.GetString(common.UserName); name != "" {
-		return name
+		return strings.ToLower(name)
 	}
-	return userId
+	return strings.ToLower(userId)
 }
 
 // maskKey returns a masked version of a key, showing the first 4 and last 4 characters.

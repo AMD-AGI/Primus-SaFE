@@ -45,9 +45,10 @@ func NewLiteLLMClient(endpoint, adminKey, teamID string) *LiteLLMClient {
 
 // CreateUserRequest is the request body for POST /user/new
 type CreateUserRequest struct {
-	UserID    string   `json:"user_id"`
-	UserEmail string   `json:"user_email"`
-	Teams     []string `json:"teams,omitempty"`
+	UserID        string   `json:"user_id"`
+	UserEmail     string   `json:"user_email"`
+	Teams         []string `json:"teams,omitempty"`
+	AutoCreateKey bool     `json:"auto_create_key"`
 }
 
 // CreateKeyRequest is the request body for POST /key/generate
