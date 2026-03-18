@@ -141,18 +141,12 @@ if [[ "${tracing_enable:-false}" == "true" ]]; then
   fi
 fi
 
-# Configure LLM Gateway if defined in .env
-if [[ "${llm_gateway_enable:-false}" == "true" ]]; then
-  sed -i '/^llm_gateway:/,/^[a-z]/ s/enabled: .*/enabled: true/' "$values_yaml"
-  if [[ -n "${llm_gateway_litellm_endpoint:-}" ]]; then
-    sed -i '/^llm_gateway:/,/^[a-z]/ s#litellm_endpoint: .*#litellm_endpoint: "'"$llm_gateway_litellm_endpoint"'"#' "$values_yaml"
-  fi
-  if [[ -n "${llm_gateway_litellm_admin_key:-}" ]]; then
-    sed -i '/^llm_gateway:/,/^[a-z]/ s#litellm_admin_key: .*#litellm_admin_key: "'"$llm_gateway_litellm_admin_key"'"#' "$values_yaml"
-  fi
-  if [[ -n "${llm_gateway_litellm_team_id:-}" ]]; then
-    sed -i '/^llm_gateway:/,/^[a-z]/ s#litellm_team_id: .*#litellm_team_id: "'"$llm_gateway_litellm_team_id"'"#' "$values_yaml"
-  fi
+# Configure LLM Gateway secrets if defined in .env
+if [[ -n "${llm_gateway_litellm_endpoint:-}" ]]; then
+  sed -i "/^llm_gateway:/a\\
+  litellm_endpoint: \"${llm_gateway_litellm_endpoint}\"\\
+  litellm_admin_key: \"${llm_gateway_litellm_admin_key:-}\"\\
+  litellm_team_id: \"${llm_gateway_litellm_team_id:-}\"" "$values_yaml"
 fi
 
 # Configure proxy services if defined in .env
