@@ -50,6 +50,13 @@ type ClusterConfig struct {
 	PrometheusWritePort int    `gorm:"column:prometheus_write_port;default:8480" json:"prometheus_write_port"`
 	StorageManualMode   bool   `gorm:"column:storage_manual_mode;default:false" json:"storage_manual_mode"` // When true, storage config won't be overwritten by sync job
 
+	// Robust Data Plane Config
+	RobustAPIURL     string `gorm:"column:robust_api_url" json:"robust_api_url"`
+	RobustAPIEnabled bool   `gorm:"column:robust_api_enabled;default:false" json:"robust_api_enabled"`
+
+	// Optional per-cluster feature flags
+	GithubWorkflowEnabled bool `gorm:"column:github_workflow_enabled;default:false" json:"github_workflow_enabled"`
+
 	// Infrastructure Status (one-time initialization)
 	InfrastructureStatus  string     `gorm:"column:infrastructure_status;default:not_initialized" json:"infrastructure_status"` // not_initialized, initializing, ready, failed
 	InfrastructureMessage string     `gorm:"column:infrastructure_message" json:"infrastructure_message"`

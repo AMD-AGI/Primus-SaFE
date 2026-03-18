@@ -32,7 +32,16 @@ var (
 	currentClusterStorageClientSet     *StorageClientSet
 	multiClusterStorageClientSet       = map[string]*StorageClientSet{}
 	multiClusterStorageConfigJsonBytes []byte
+
+	// onRobustClusterLoaded is called when a cluster with robust_api_enabled=true is loaded.
+	// Set by robust.Init to avoid import cycle (clientsets → robust → database → clientsets).
+	onRobustClusterLoaded func(clusterName, robustAPIURL string)
 )
+
+// SetOnRobustClusterLoaded registers a callback for Robust cluster registration.
+func SetOnRobustClusterLoaded(fn func(clusterName, robustAPIURL string)) {
+	onRobustClusterLoaded = fn
+}
 
 // getCurrentClusterStorageClientSet returns the storage client for current cluster
 // This is internal function, external code should use ClusterManager.GetCurrentClusterClients()
@@ -284,6 +293,12 @@ func loadMultiClusterStorageConfigFromDB(ctx context.Context) (PrimusLensMultiCl
 
 		cfg[cluster.ClusterName] = clusterCfg
 		log.Debugf("Loaded storage config for cluster %s from DB", cluster.ClusterName)
+
+		if cluster.RobustAPIEnabled && cluster.RobustAPIURL != "" {
+			if onRobustClusterLoaded != nil {
+				onRobustClusterLoaded(cluster.ClusterName, cluster.RobustAPIURL)
+			}
+		}
 	}
 
 	log.Infof("Loaded storage config for %d clusters from control plane DB", len(cfg))

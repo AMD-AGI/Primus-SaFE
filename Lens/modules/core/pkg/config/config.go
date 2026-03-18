@@ -33,16 +33,19 @@ type Config struct {
 }
 
 type DataPlaneConfig struct {
-	Mode    string       `json:"mode" yaml:"mode"`       // "local" (default) | "robust" | "hybrid"
+	// Mode controls data plane source: "local" (default), "robust", "hybrid"
+	// In "robust" mode, per-cluster Robust URL is read from cluster_config.robust_api_url
+	// In "hybrid" mode, domains map controls which features use robust
+	Mode    string       `json:"mode" yaml:"mode"`
 	Robust  RobustConfig `json:"robust" yaml:"robust"`
-	Domains map[string]string `json:"domains" yaml:"domains"` // domain → "robust" | "local" override
+	Domains map[string]string `json:"domains" yaml:"domains"`
 	FallbackToLocal bool `json:"fallbackToLocal" yaml:"fallbackToLocal"`
 }
 
 type RobustConfig struct {
-	BaseURL  string            `json:"baseUrl" yaml:"baseUrl"`
-	Timeout  time.Duration     `json:"timeout" yaml:"timeout"`
-	Clusters map[string]string `json:"clusters" yaml:"clusters"` // cluster → robust URL
+	// DefaultBaseURL is used when cluster_config.robust_api_url is empty
+	DefaultBaseURL string        `json:"defaultBaseUrl" yaml:"defaultBaseUrl"`
+	Timeout        time.Duration `json:"timeout" yaml:"timeout"`
 }
 
 func (c *Config) GetDataPlaneMode() string {
@@ -52,14 +55,11 @@ func (c *Config) GetDataPlaneMode() string {
 	return c.DataPlane.Mode
 }
 
-func (c *Config) GetRobustBaseURL(clusterName string) string {
+func (c *Config) GetRobustDefaultBaseURL() string {
 	if c.DataPlane == nil {
 		return ""
 	}
-	if url, ok := c.DataPlane.Robust.Clusters[clusterName]; ok {
-		return url
-	}
-	return c.DataPlane.Robust.BaseURL
+	return c.DataPlane.Robust.DefaultBaseURL
 }
 
 func (c *Config) IsRobustDomain(domain string) bool {

@@ -69,7 +69,11 @@ func InitServerWithPreInitFunc(ctx context.Context, preInit func(ctx context.Con
 		}
 	}
 
+	clientsets.SetOnRobustClusterLoaded(robust.RegisterCluster)
 	robust.Init(ctx, cfg)
+	if cfg.GetDataPlaneMode() != "local" {
+		initRobustFacadeFactory()
+	}
 
 	ginEngine := gin.New()
 	ginEngine.Use(gin.Recovery())
