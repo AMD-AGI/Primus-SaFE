@@ -132,9 +132,14 @@ func (h *Handler) logCall(c *gin.Context, callerUserID, target, skill, status st
 		traceID = fmt.Sprintf("gw-%d", time.Now().UnixNano())
 	}
 
+	callerAgent := c.GetHeader("X-Caller-Agent")
+	if callerAgent == "" {
+		callerAgent = "gateway"
+	}
+
 	log := &dbclient.A2ACallLog{
 		TraceId:           traceID,
-		CallerServiceName: "gateway",
+		CallerServiceName: callerAgent,
 		CallerUserId:      callerUserID,
 		TargetServiceName: target,
 		SkillId:           skill,
