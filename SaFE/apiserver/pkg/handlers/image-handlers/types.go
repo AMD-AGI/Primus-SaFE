@@ -237,8 +237,23 @@ type PrewarmImageListItem struct {
 	WorkspaceName   string `json:"workspaceName"`
 	Status          string `json:"status"`
 	PrewarmProgress string `json:"prewarmProgress"`
+	NodesReady      string `json:"nodesReady"`
+	NodesTotal      string `json:"nodesTotal"`
 	CreatedTime     string `json:"createdTime"`
 	EndTime         string `json:"endTime"`
 	UserName        string `json:"userName"`
 	ErrorMessage    string `json:"errorMessage"`
+	JobName         string `json:"jobName"`
+}
+
+// PrewarmNodeDetail represents the status of a single node in a prewarm job.
+type PrewarmNodeDetail struct {
+	Node   string `json:"node"`
+	Status string `json:"status"`
+	Reason string `json:"reason,omitempty"`
+}
+
+// PrewarmNodesResponse represents the response for prewarm node details.
+type PrewarmNodesResponse struct {
+	Nodes []PrewarmNodeDetail `json:"nodes"`
 }
