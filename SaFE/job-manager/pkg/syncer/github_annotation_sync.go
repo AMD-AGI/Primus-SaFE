@@ -15,7 +15,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-// GitHub annotation keys on EphemeralRunner (set by ARC controller when runner starts)
+// GitHub annotation keys on EphemeralRunner K8s resource (set by ARC controller when runner starts)
 var githubAnnotationKeys = []string{
 	"actions.github.com/run-id",
 	"actions.github.com/run-number",

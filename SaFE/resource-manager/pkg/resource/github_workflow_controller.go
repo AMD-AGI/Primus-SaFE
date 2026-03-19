@@ -74,7 +74,7 @@ func SetupGitHubWorkflowController(mgr manager.Manager) error {
 	if err != nil {
 		return err
 	}
-	klog.Infof("[github-workflow] controller registered + sync job started (CI/CD enabled)")
+	klog.Infof("[github-workflow] controller registered + sync job started (cicd=%v)", commonconfig.IsCICDEnable())
 	return nil
 }
 
