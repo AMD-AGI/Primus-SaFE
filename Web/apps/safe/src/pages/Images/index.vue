@@ -199,7 +199,7 @@
       </el-table-column>
       <el-table-column label="Progress" prop="prewarmProgress" min-width="220">
         <template #default="{ row }">
-          <div class="progress-cell">
+          <el-tooltip :content="row.prewarmProgress || '0%'" placement="top" effect="dark">
             <el-progress
               :percentage="parseFloat(row.prewarmProgress) || 0"
               :status="
@@ -216,8 +216,7 @@
                 {{ row.nodesReady || '0' }}/{{ row.nodesTotal || '0' }}
               </span>
             </el-progress>
-            <span class="progress-pct">{{ row.prewarmProgress || '0%' }}</span>
-          </div>
+          </el-tooltip>
         </template>
       </el-table-column>
       <el-table-column
@@ -922,22 +921,6 @@ defineOptions({
   gap: 12px;
 }
 
-.progress-cell {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.progress-pct {
-  font-size: 12px;
-  color: transparent;
-  transition: color 0.2s ease;
-  white-space: nowrap;
-}
-
-.progress-cell:hover .progress-pct {
-  color: var(--el-text-color-secondary);
-}
 </style>
 <style>
 /* Reuse project-wide segmented unified styles */
@@ -947,4 +930,5 @@ defineOptions({
 .myself-seg .el-segmented__item.is-selected {
   color: var(--safe-primary) !important;
 }
+
 </style>
