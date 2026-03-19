@@ -14,6 +14,7 @@ const (
 	CronjobReason        = "In queue - waiting for scheduled start time"
 	DependencyReason     = "In queue - dependent workloads not yet complete"
 	SourceWorkloadReason = "In queue - source workload still running"
+	InsufficientReason   = "In queue - insufficient resources"
 )
 
 // formatResourceName formats resource names for display purposes.

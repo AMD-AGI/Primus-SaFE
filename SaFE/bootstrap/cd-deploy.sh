@@ -341,6 +341,7 @@ EOF
 
               # Apply .env configurations to node-agent values
               sed -i "s/nccl_socket_ifname: \".*\"/nccl_socket_ifname: \"$ethernet_nic\"/" "$NODE_AGENT_TMP_VALUES"
+              sed -i "s/^.*sub_domain:.*/  sub_domain: \"$sub_domain\"/" "$NODE_AGENT_TMP_VALUES"
               sed -i "s/nccl_ib_hca: \".*\"/nccl_ib_hca: \"$rdma_nic\"/" "$NODE_AGENT_TMP_VALUES"
               sed -i "s/image_pull_secret: \".*\"/image_pull_secret: \"${NAMESPACE}-image\"/" "$NODE_AGENT_TMP_VALUES"
               sed -i "s/gpu_driver: \".*\"/gpu_driver: \"${node_agent_gpu_driver:-6.12.12}\"/" "$NODE_AGENT_TMP_VALUES"

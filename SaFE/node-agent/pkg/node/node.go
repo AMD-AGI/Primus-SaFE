@@ -215,14 +215,23 @@ func (n *Node) GetGpuQuantity() resource.Quantity {
 	if n.k8sNode == nil {
 		return resource.Quantity{}
 	}
-	var gpuQuantity resource.Quantity
+	var result resource.Quantity
 	switch {
 	case n.isAmdGpu():
-		gpuQuantity, _ = n.k8sNode.Status.Allocatable[common.AmdGpu]
+		result, _ = n.k8sNode.Status.Allocatable[common.AmdGpu]
 	case n.isNvGpu():
-		gpuQuantity, _ = n.k8sNode.Status.Allocatable[common.NvidiaGpu]
+		result, _ = n.k8sNode.Status.Allocatable[common.NvidiaGpu]
 	}
-	return gpuQuantity
+	return result
+}
+
+// GetEphemeralStorage returns the allocatable EphemeralStorage for the node.
+func (n *Node) GetEphemeralStorage() resource.Quantity {
+	if n.k8sNode == nil {
+		return resource.Quantity{}
+	}
+	result, _ := n.k8sNode.Status.Allocatable[corev1.ResourceEphemeralStorage]
+	return result
 }
 
 // isNvGpu checks if the node has NVIDIA GPU hardware.
