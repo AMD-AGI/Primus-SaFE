@@ -630,7 +630,7 @@ func (r *SchedulerReconciler) updateUnScheduled(ctx context.Context,
 				workspace.Spec.Cluster, []string{workspace.Name}, filterFunc)
 			if len(pendingWorkloads) > 0 {
 				reason += fmt.Sprintf(". Blocked by earlier %d workloads, like %s",
-					len(pendingWorkloads), pendingWorkloads[0])
+					len(pendingWorkloads), pendingWorkloads[0].Name)
 			}
 		}
 		if reason != workloads[i].Status.Message {
