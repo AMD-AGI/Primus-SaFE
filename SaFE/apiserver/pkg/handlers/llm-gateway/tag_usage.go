@@ -8,6 +8,8 @@ package llmgateway
 import (
 	"encoding/json"
 	"net/http"
+	"sort"
+	"strconv"
 	"strings"
 
 	apiutils "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/utils"
@@ -16,28 +18,9 @@ import (
 	"k8s.io/klog/v2"
 )
 
-// ── Tag Usage Response types ──────────────────────────────────────────────
-
-type TagUsageResponse struct {
-	UserEmail     string         `json:"user_email"`
-	StartDate     string         `json:"start_date"`
-	EndDate       string         `json:"end_date"`
-	TotalSpend    float64        `json:"total_spend"`
-	TotalRequests int64          `json:"total_requests"`
-	Tags          []TagUsageItem `json:"tags"`
-}
-
-type TagUsageItem struct {
-	TagName          *string `json:"tag_name"`
-	Spend            float64 `json:"spend"`
-	APIRequests      int64   `json:"api_requests"`
-	PromptTokens     int64   `json:"prompt_tokens"`
-	CompletionTokens int64   `json:"completion_tokens"`
-}
-
 // ── Tag Usage Handler ─────────────────────────────────────────────────────
 
-// GetTagUsage handles GET /api/v1/llm-gateway/tags/usage?start_date=...&end_date=...
+// GetTagUsage handles GET /api/v1/llm-gateway/tags/usage?start_date=...&end_date=...&page=1&page_size=20
 func (h *Handler) GetTagUsage(c *gin.Context) {
 	email := h.getUserEmail(c)
 	if email == "" {
@@ -52,6 +35,18 @@ func (h *Handler) GetTagUsage(c *gin.Context) {
 		return
 	}
 
+	page := parseIntParam(c.Query("page"), 1)
+	pageSize := parseIntParam(c.Query("page_size"), defaultTagPageSize)
+	if page < 1 {
+		page = 1
+	}
+	if pageSize < 1 {
+		pageSize = defaultTagPageSize
+	}
+	if pageSize > maxTagPageSize {
+		pageSize = maxTagPageSize
+	}
+
 	existing, err := h.dbClient.GetLLMBindingByEmail(c.Request.Context(), email)
 	if err != nil {
 		klog.ErrorS(err, "GetTagUsage: DB query failed", "email", email)
@@ -63,14 +58,29 @@ func (h *Handler) GetTagUsage(c *gin.Context) {
 		return
 	}
 
-	logsResp, err := h.litellmClient.GetSpendLogs(c.Request.Context(), email, startDate, endDate, 100)
+	allLogs, err := h.litellmClient.GetAllSpendLogs(c.Request.Context(), email, startDate, endDate, maxSpendLogPages)
 	if err != nil {
 		klog.ErrorS(err, "GetTagUsage: LiteLLM query failed", "email", email)
 		c.JSON(http.StatusBadGateway, gin.H{"errorMessage": "tag usage data temporarily unavailable, please try again later"})
 		return
 	}
 
-	result := aggregateByTag(logsResp.Data)
+	result := aggregateByTag(allLogs)
+
+	sort.Slice(result.tags, func(i, j int) bool {
+		return result.tags[i].Spend > result.tags[j].Spend
+	})
+
+	total := len(result.tags)
+	totalPages := (total + pageSize - 1) / pageSize
+	start := (page - 1) * pageSize
+	end := start + pageSize
+	if start > total {
+		start = total
+	}
+	if end > total {
+		end = total
+	}
 
 	c.JSON(http.StatusOK, TagUsageResponse{
 		UserEmail:     email,
@@ -78,8 +88,23 @@ func (h *Handler) GetTagUsage(c *gin.Context) {
 		EndDate:       endDate,
 		TotalSpend:    result.totalSpend,
 		TotalRequests: result.totalRequests,
-		Tags:          result.tags,
+		Tags:          result.tags[start:end],
+		Page:          page,
+		PageSize:      pageSize,
+		Total:         total,
+		TotalPages:    totalPages,
 	})
+}
+
+func parseIntParam(s string, defaultVal int) int {
+	if s == "" {
+		return defaultVal
+	}
+	v, err := strconv.Atoi(s)
+	if err != nil {
+		return defaultVal
+	}
+	return v
 }
 
 // ── Tag aggregation logic ─────────────────────────────────────────────────

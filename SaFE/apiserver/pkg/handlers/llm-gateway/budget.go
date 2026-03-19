@@ -14,22 +14,6 @@ import (
 	"k8s.io/klog/v2"
 )
 
-// ── Budget Request/Response types ─────────────────────────────────────────
-
-type SetBudgetRequest struct {
-	MaxBudget float64 `json:"max_budget" binding:"required,gt=0"`
-}
-
-type BudgetResponse struct {
-	UserEmail      string   `json:"user_email"`
-	Spend          float64  `json:"spend"`
-	MaxBudget      *float64 `json:"max_budget"`
-	Remaining      *float64 `json:"remaining"`
-	BudgetExceeded bool     `json:"budget_exceeded"`
-	UsagePercent   *float64 `json:"usage_percent"`
-	Message        string   `json:"message,omitempty"`
-}
-
 // ── Budget Handlers ───────────────────────────────────────────────────────
 
 // GetBudget handles GET /api/v1/llm-gateway/budget

@@ -7,7 +7,6 @@ package llmgateway
 
 import (
 	"net/http"
-	"net/http/httputil"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
@@ -20,15 +19,6 @@ import (
 	"github.com/gin-gonic/gin"
 	"k8s.io/klog/v2"
 )
-
-// Handler manages LLM Gateway API endpoints and the LLM reverse proxy.
-type Handler struct {
-	accessController *authority.AccessController
-	dbClient         dbclient.Interface
-	litellmClient    *LiteLLMClient
-	crypto           *commoncrypto.Crypto
-	proxy            *httputil.ReverseProxy
-}
 
 // NewHandler creates a new LLM Gateway handler.
 func NewHandler(accessController *authority.AccessController, dbClient dbclient.Interface) (*Handler, error) {
@@ -101,22 +91,6 @@ func InitRoutes(engine *gin.Engine, handler *Handler) {
 	llmProxy.Any("/*proxyPath", handler.ProxyLLMRequest)
 
 	klog.Info("LLM Gateway: routes registered successfully (management + LLM proxy)")
-}
-
-// ── Request/Response types ────────────────────────────────────────────────
-
-type CreateBindingRequest struct {
-	ApimKey string `json:"apim_key" binding:"required"`
-}
-
-type BindingResponse struct {
-	UserEmail   string `json:"user_email"`
-	KeyAlias    string `json:"key_alias"`
-	HasAPIMKey  bool   `json:"has_apim_key"`
-	ApimKeyHint string `json:"apim_key_hint,omitempty"`
-	VirtualKey  string `json:"virtual_key,omitempty"`
-	CreatedAt   string `json:"created_at,omitempty"`
-	UpdatedAt   string `json:"updated_at,omitempty"`
 }
 
 // ── Handlers ──────────────────────────────────────────────────────────────
@@ -338,14 +312,6 @@ func (h *Handler) GetBinding(c *gin.Context) {
 	})
 }
 
-// ── Summary types ─────────────────────────────────────────────────────────
-
-type SummaryResponse struct {
-	UserEmail  string                    `json:"user_email"`
-	TotalSpend float64                   `json:"total_spend"`
-	ModelSpend map[string]float64        `json:"model_spend,omitempty"`
-}
-
 // GetSummary handles GET /api/v1/llm-gateway/summary
 // Returns cumulative total spend for the user (not tied to a date range).
 func (h *Handler) GetSummary(c *gin.Context) {
@@ -378,41 +344,6 @@ func (h *Handler) GetSummary(c *gin.Context) {
 		TotalSpend: userInfo.UserInfo.Spend,
 		ModelSpend: userInfo.UserInfo.ModelSpend,
 	})
-}
-
-// ── Usage types ───────────────────────────────────────────────────────────
-
-type UsageResponse struct {
-	UserEmail               string            `json:"user_email"`
-	TotalSpend              float64           `json:"total_spend"`
-	TotalPromptTokens       int64             `json:"total_prompt_tokens"`
-	TotalCompletionTokens   int64             `json:"total_completion_tokens"`
-	TotalTokens             int64             `json:"total_tokens"`
-	TotalAPIRequests        int64             `json:"total_api_requests"`
-	TotalSuccessfulRequests int64             `json:"total_successful_requests"`
-	TotalFailedRequests     int64             `json:"total_failed_requests"`
-	Daily                   []UsageDailyEntry `json:"daily"`
-}
-
-type UsageDailyEntry struct {
-	Date               string                    `json:"date"`
-	Spend              float64                   `json:"spend"`
-	PromptTokens       int64                     `json:"prompt_tokens"`
-	CompletionTokens   int64                     `json:"completion_tokens"`
-	TotalTokens        int64                     `json:"total_tokens"`
-	APIRequests        int64                     `json:"api_requests"`
-	SuccessfulRequests int64                     `json:"successful_requests"`
-	FailedRequests     int64                     `json:"failed_requests"`
-	Models             map[string]UsageModelData `json:"models,omitempty"`
-}
-
-type UsageModelData struct {
-	Spend              float64 `json:"spend"`
-	PromptTokens       int64   `json:"prompt_tokens"`
-	CompletionTokens   int64   `json:"completion_tokens"`
-	APIRequests        int64   `json:"api_requests"`
-	SuccessfulRequests int64   `json:"successful_requests"`
-	FailedRequests     int64   `json:"failed_requests"`
 }
 
 // GetUsage handles GET /api/v1/llm-gateway/usage?start_date=...&end_date=...
