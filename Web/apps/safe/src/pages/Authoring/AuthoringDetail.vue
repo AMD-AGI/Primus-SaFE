@@ -398,7 +398,7 @@ const handleDeleteCustomImage = async (row: ImageCustomRow) => {
     })
 }
 
-const defaultTime = computed<[Date, Date] | null>(() => {
+const defaultTime = computed<[Date, Date | 'now'] | null>(() => {
   return calculateDefaultTime(
     detailData.value?.startTime,
     detailData.value?.endTime,

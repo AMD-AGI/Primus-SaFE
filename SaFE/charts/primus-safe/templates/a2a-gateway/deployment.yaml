@@ -1,0 +1,74 @@
+{{- if and .Values.a2a_gateway .Values.a2a_gateway.enable }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-a2a-gateway
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: a2a-gateway
+    app.kubernetes.io/managed-by: Helm
+spec:
+  replicas: {{ .Values.a2a_gateway.replicas }}
+  selector:
+    matchLabels:
+      app: a2a-gateway
+  template:
+    metadata:
+      labels:
+        app: a2a-gateway
+    spec:
+      containers:
+      - name: a2a-gateway
+        image: "{{ .Values.global.image_registry }}/primussafe/{{ .Values.a2a_gateway.image }}"
+        imagePullPolicy: Always
+        ports:
+        - name: http
+          containerPort: {{ .Values.a2a_gateway.port }}
+        - name: metrics
+          containerPort: {{ .Values.a2a_gateway.metrics_port }}
+        env:
+        - name: CONFIG_PATH
+          value: /etc/a2a-gateway/config.yaml
+        resources:
+          requests:
+            cpu: {{ .Values.a2a_gateway.cpu }}
+            memory: {{ .Values.a2a_gateway.memory }}
+          limits:
+            cpu: {{ .Values.a2a_gateway.cpu }}
+            memory: {{ .Values.a2a_gateway.memory }}
+        readinessProbe:
+          httpGet:
+            path: /healthz
+            port: {{ .Values.a2a_gateway.port }}
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: {{ .Values.a2a_gateway.port }}
+          initialDelaySeconds: 10
+          periodSeconds: 30
+        volumeMounts:
+        - name: config
+          mountPath: /etc/a2a-gateway
+        - name: db-secret
+          mountPath: /etc/secrets/db
+          readOnly: true
+        - name: crypto-secret
+          mountPath: /etc/secrets/crypto
+          readOnly: true
+      volumes:
+      - name: config
+        configMap:
+          name: {{ .Release.Name }}-a2a-gateway
+      - name: db-secret
+        secret:
+          secretName: {{ .Release.Name }}-db-secret
+      - name: crypto-secret
+        secret:
+          secretName: {{ .Release.Name }}-crypto-secret
+      {{- if .Values.global.image_pull_secret }}
+      imagePullSecrets:
+      - name: {{ .Values.global.image_pull_secret }}
+      {{- end }}
+{{- end }}
