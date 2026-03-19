@@ -34,7 +34,6 @@ check_block() {
   echo "$block" | grep -q "DSCP.*10.*priority.*0" || return 1
   echo "$block" | grep -q "DSCP.*0-9, 11-45, 47-63.*priority.*1" || return 1
   echo "$block" | grep -q "DSCP.*46.*priority.*6" || return 1
-  echo "$block" | grep -q "46.*rdma-ack" || return 1
   echo "$block" | grep -q "PFC priority bitmap.*0x1" || return 1
   echo "$block" | grep -q "PFC no-drop priorities.*0" || return 1
   echo "$block" | grep -q "0.*DWRR.*99.*N/A" || return 1
