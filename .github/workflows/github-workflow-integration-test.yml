@@ -1,17 +1,10 @@
 name: GitHub Workflow Integration Test
 
 on:
+  push:
+    branches:
+      - '**'
   workflow_dispatch:
-    inputs:
-      test_scenario:
-        description: 'Test scenario to run'
-        required: false
-        default: 'all'
-        type: choice
-        options:
-          - all
-          - build-only
-          - lint-only
 
 jobs:
   # Job 1: Setup & Lint
