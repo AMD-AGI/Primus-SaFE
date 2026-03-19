@@ -305,78 +305,105 @@ func (h *ImageHandler) listPrewarmImage(c *gin.Context) (interface{}, error) {
 
 // getPrewarmNodes returns node-level status for a prewarm job.
 // For running jobs, it queries DaemonSet pods in real-time.
-// For completed/failed jobs, it returns persisted nodes_detail from outputs.
+// For completed/failed jobs, it returns persisted nodes_detail from outputs (DB fallback if CR is deleted by TTL).
 func (h *ImageHandler) getPrewarmNodes(c *gin.Context) (interface{}, error) {
 	jobName := c.Param("name")
 	if jobName == "" {
 		return nil, commonerrors.NewBadRequest("job name is required")
 	}
 
+	ctx := c.Request.Context()
+
+	// Try K8s CR first
 	job := &v1.OpsJob{}
-	if err := h.Get(c.Request.Context(), client.ObjectKey{Name: jobName}, job); err != nil {
-		return nil, err
+	crFound := true
+	if err := h.Get(ctx, client.ObjectKey{Name: jobName}, job); err != nil {
+		crFound = false
 	}
 
-	// For finished jobs, return persisted nodes_detail from outputs
-	if job.IsFinished() {
-		for _, param := range job.Status.Outputs {
-			if param.Name == "nodes_detail" && param.Value != "" {
-				var nodes []PrewarmNodeDetail
-				if err := json.Unmarshal([]byte(param.Value), &nodes); err == nil {
-					return &PrewarmNodesResponse{Nodes: nodes}, nil
-				}
-			}
+	// If CR exists and job is still running, query DaemonSet pods in real-time
+	if crFound && !job.IsFinished() {
+		cluster := v1.GetClusterId(job)
+		k8sClients, err := apiutils.GetK8sClientFactory(h.clientManager, cluster)
+		if err != nil {
+			return nil, err
 		}
-		return &PrewarmNodesResponse{Nodes: []PrewarmNodeDetail{}}, nil
-	}
 
-	// For running jobs, query DaemonSet pods in real-time
-	cluster := v1.GetClusterId(job)
-	k8sClients, err := apiutils.GetK8sClientFactory(h.clientManager, cluster)
-	if err != nil {
-		return nil, err
-	}
+		labelSelector := fmt.Sprintf("app=%s", jobName)
+		pods, err := k8sClients.ClientSet().CoreV1().Pods(common.PrimusSafeNamespace).List(ctx, metav1.ListOptions{
+			LabelSelector: labelSelector,
+		})
+		if err != nil {
+			return nil, err
+		}
 
-	labelSelector := fmt.Sprintf("app=%s", jobName)
-	pods, err := k8sClients.ClientSet().CoreV1().Pods(common.PrimusSafeNamespace).List(c.Request.Context(), metav1.ListOptions{
-		LabelSelector: labelSelector,
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	nodes := make([]PrewarmNodeDetail, 0, len(pods.Items))
-	for _, pod := range pods.Items {
-		d := PrewarmNodeDetail{Node: pod.Spec.NodeName}
-		if pod.Status.Phase == corev1.PodRunning {
-			ready := false
-			for _, cs := range pod.Status.ContainerStatuses {
-				if cs.Ready {
-					ready = true
-					break
+		nodes := make([]PrewarmNodeDetail, 0, len(pods.Items))
+		for _, pod := range pods.Items {
+			d := PrewarmNodeDetail{Node: pod.Spec.NodeName}
+			if pod.Status.Phase == corev1.PodRunning {
+				ready := false
+				for _, cs := range pod.Status.ContainerStatuses {
+					if cs.Ready {
+						ready = true
+						break
+					}
 				}
-			}
-			if ready {
-				d.Status = "Ready"
+				if ready {
+					d.Status = "Ready"
+				} else {
+					d.Status = "Running"
+				}
 			} else {
-				d.Status = "Running"
+				d.Status = string(pod.Status.Phase)
+				for _, cs := range pod.Status.ContainerStatuses {
+					if cs.State.Waiting != nil {
+						d.Reason = fmt.Sprintf("%s: %s", cs.State.Waiting.Reason, cs.State.Waiting.Message)
+						break
+					} else if cs.State.Terminated != nil {
+						d.Reason = fmt.Sprintf("%s: %s", cs.State.Terminated.Reason, cs.State.Terminated.Message)
+						break
+					}
+				}
 			}
-		} else {
-			d.Status = string(pod.Status.Phase)
-			for _, cs := range pod.Status.ContainerStatuses {
-				if cs.State.Waiting != nil {
-					d.Reason = fmt.Sprintf("%s: %s", cs.State.Waiting.Reason, cs.State.Waiting.Message)
-					break
-				} else if cs.State.Terminated != nil {
-					d.Reason = fmt.Sprintf("%s: %s", cs.State.Terminated.Reason, cs.State.Terminated.Message)
-					break
+			nodes = append(nodes, d)
+		}
+		return &PrewarmNodesResponse{Nodes: nodes}, nil
+	}
+
+	// For finished jobs (or CR deleted by TTL), read nodes_detail from persisted outputs.
+	// Try CR outputs first, then fall back to database.
+	nodesDetail := ""
+	if crFound {
+		for _, param := range job.Status.Outputs {
+			if param.Name == "nodes_detail" {
+				nodesDetail = param.Value
+				break
+			}
+		}
+	}
+	if nodesDetail == "" && h.dbClient != nil {
+		if dbJob, err := h.dbClient.GetOpsJob(ctx, jobName); err == nil {
+			if outputsStr := dbutils.ParseNullString(dbJob.Outputs); outputsStr != "" {
+				var outputs []v1.Parameter
+				if err := json.Unmarshal([]byte(outputsStr), &outputs); err == nil {
+					for _, param := range outputs {
+						if param.Name == "nodes_detail" {
+							nodesDetail = param.Value
+							break
+						}
+					}
 				}
 			}
 		}
-		nodes = append(nodes, d)
 	}
 
-	return &PrewarmNodesResponse{Nodes: nodes}, nil
+	if nodesDetail != "" {
+		var nodes []PrewarmNodeDetail
+		if err := json.Unmarshal([]byte(nodesDetail), &nodes); err == nil {
+			return &PrewarmNodesResponse{Nodes: nodes}, nil
+		}
+	}
+	return &PrewarmNodesResponse{Nodes: []PrewarmNodeDetail{}}, nil
 }
 
 // parseListImageQuery extracts and validates query parameters for listing images.
