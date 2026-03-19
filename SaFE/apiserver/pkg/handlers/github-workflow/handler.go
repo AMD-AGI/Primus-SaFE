@@ -31,6 +31,9 @@ func RegisterRoutes(router *gin.RouterGroup) {
 	gh.GET("/stats", handleStats)
 	gh.GET("/collection-configs/:id/fields", handleGetFields)
 	gh.GET("/collection-configs/:id/metrics", handleGetConfigMetrics)
+	gh.PUT("/collection-configs/:id", handleUpdateConfig)
+	gh.GET("/repositories", handleListRepositories)
+	gh.GET("/repositories/:owner/:repo", handleGetRepository)
 }
 
 func getDB() *sql.DB {
@@ -513,6 +516,201 @@ func handleGetConfigMetrics(c *gin.Context) {
 		"total":   total,
 		"limit":   limit,
 		"offset":  offset,
+	})
+}
+
+func handleUpdateConfig(c *gin.Context) {
+	id := c.Param("id")
+	var req struct {
+		Name             *string                `json:"name"`
+		FilePatterns     []string               `json:"file_patterns"`
+		WorkflowPatterns []string               `json:"workflow_patterns"`
+		BranchPatterns   []string               `json:"branch_patterns"`
+		DisplaySettings  map[string]interface{} `json:"display_settings"`
+		Enabled          *bool                  `json:"enabled"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(400, gin.H{"error": err.Error()})
+		return
+	}
+
+	db := getDB()
+	sets := []string{"updated_at = NOW()"}
+	args := []interface{}{}
+	idx := 1
+
+	if req.Name != nil {
+		sets = append(sets, fmt.Sprintf("name = $%d", idx))
+		args = append(args, *req.Name)
+		idx++
+	}
+	if req.FilePatterns != nil {
+		sets = append(sets, fmt.Sprintf("file_patterns = $%d", idx))
+		args = append(args, sliceToArr(req.FilePatterns))
+		idx++
+	}
+	if req.WorkflowPatterns != nil {
+		sets = append(sets, fmt.Sprintf("workflow_patterns = $%d", idx))
+		args = append(args, sliceToArr(req.WorkflowPatterns))
+		idx++
+	}
+	if req.BranchPatterns != nil {
+		sets = append(sets, fmt.Sprintf("branch_patterns = $%d", idx))
+		args = append(args, sliceToArr(req.BranchPatterns))
+		idx++
+	}
+	if req.DisplaySettings != nil {
+		dsJSON, _ := json.Marshal(req.DisplaySettings)
+		sets = append(sets, fmt.Sprintf("display_settings = $%d", idx))
+		args = append(args, dsJSON)
+		idx++
+	}
+	if req.Enabled != nil {
+		sets = append(sets, fmt.Sprintf("enabled = $%d", idx))
+		args = append(args, *req.Enabled)
+		idx++
+	}
+
+	args = append(args, id)
+	query := fmt.Sprintf("UPDATE github_collection_configs SET %s WHERE id = $%d",
+		strings.Join(sets, ", "), idx)
+
+	_, err := db.ExecContext(c.Request.Context(), query, args...)
+	if err != nil {
+		c.JSON(500, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(200, gin.H{"updated": id})
+}
+
+func handleListRepositories(c *gin.Context) {
+	db := getDB()
+	search := c.Query("search")
+
+	query := `
+		SELECT r.github_owner, r.github_repo,
+		       count(*) as total_runs,
+		       count(*) FILTER (WHERE r.status = 'running') as running_runs,
+		       count(*) FILTER (WHERE r.status = 'completed') as completed_runs,
+		       count(*) FILTER (WHERE r.conclusion = 'failure') as failed_runs,
+		       max(r.started_at) as latest_run_at
+		FROM github_workflow_runs r
+		WHERE r.github_owner != '' AND r.github_repo != ''`
+	args := []interface{}{}
+	idx := 1
+
+	if search != "" {
+		query += fmt.Sprintf(` AND (r.github_owner || '/' || r.github_repo) ILIKE '%%' || $%d || '%%'`, idx)
+		args = append(args, search)
+		idx++
+	}
+
+	query += ` GROUP BY r.github_owner, r.github_repo ORDER BY max(r.started_at) DESC NULLS LAST`
+
+	rows, err := db.QueryContext(c.Request.Context(), query, args...)
+	if err != nil {
+		c.JSON(500, gin.H{"error": err.Error()})
+		return
+	}
+	defer rows.Close()
+
+	var repos []map[string]interface{}
+	for rows.Next() {
+		var owner, repo string
+		var total, running, completed, failed int
+		var latestAt sql.NullTime
+		rows.Scan(&owner, &repo, &total, &running, &completed, &failed, &latestAt)
+
+		r := map[string]interface{}{
+			"github_owner":  owner,
+			"github_repo":   repo,
+			"total_runs":    total,
+			"running_runs":  running,
+			"completed_runs": completed,
+			"failed_runs":   failed,
+		}
+		if latestAt.Valid {
+			r["latest_run_at"] = latestAt.Time.Format(time.RFC3339)
+		}
+
+		var configCount int
+		var configIDs []int
+		cfgRows, _ := db.QueryContext(c.Request.Context(),
+			`SELECT id FROM github_collection_configs WHERE github_owner = $1 AND github_repo = $2`, owner, repo)
+		if cfgRows != nil {
+			for cfgRows.Next() {
+				var cfgID int
+				cfgRows.Scan(&cfgID)
+				configIDs = append(configIDs, cfgID)
+				configCount++
+			}
+			cfgRows.Close()
+		}
+		r["config_count"] = configCount
+		r["config_ids"] = configIDs
+
+		repos = append(repos, r)
+	}
+
+	c.JSON(200, gin.H{"repositories": repos, "count": len(repos)})
+}
+
+func handleGetRepository(c *gin.Context) {
+	owner := c.Param("owner")
+	repo := c.Param("repo")
+	db := getDB()
+
+	var total, running, completed, failed int
+	db.QueryRowContext(c.Request.Context(), `
+		SELECT count(*),
+		       count(*) FILTER (WHERE status = 'running'),
+		       count(*) FILTER (WHERE status = 'completed'),
+		       count(*) FILTER (WHERE conclusion = 'failure')
+		FROM github_workflow_runs WHERE github_owner = $1 AND github_repo = $2`,
+		owner, repo).Scan(&total, &running, &completed, &failed)
+
+	wfRows, _ := db.QueryContext(c.Request.Context(),
+		`SELECT DISTINCT workflow_name FROM github_workflow_runs WHERE github_owner = $1 AND github_repo = $2 AND workflow_name != ''`,
+		owner, repo)
+	var workflows []string
+	if wfRows != nil {
+		for wfRows.Next() {
+			var wf string
+			wfRows.Scan(&wf)
+			workflows = append(workflows, wf)
+		}
+		wfRows.Close()
+	}
+
+	cfgRows, _ := db.QueryContext(c.Request.Context(), `
+		SELECT c.id, c.name, c.display_settings::text,
+		       (SELECT count(*) FROM github_workflow_metrics m WHERE m.config_id = c.id) as metrics_count
+		FROM github_collection_configs c
+		WHERE c.github_owner = $1 AND c.github_repo = $2`, owner, repo)
+	var configs []map[string]interface{}
+	if cfgRows != nil {
+		for cfgRows.Next() {
+			var cfgID, metricsCount int
+			var name, dsStr string
+			cfgRows.Scan(&cfgID, &name, &dsStr, &metricsCount)
+			var ds interface{}
+			json.Unmarshal([]byte(dsStr), &ds)
+			configs = append(configs, map[string]interface{}{
+				"id": cfgID, "name": name, "display_settings": ds, "metrics_count": metricsCount,
+			})
+		}
+		cfgRows.Close()
+	}
+
+	c.JSON(200, gin.H{
+		"github_owner":   owner,
+		"github_repo":    repo,
+		"total_runs":     total,
+		"running_runs":   running,
+		"completed_runs": completed,
+		"failed_runs":    failed,
+		"workflows":      workflows,
+		"configs":        configs,
 	})
 }
 
