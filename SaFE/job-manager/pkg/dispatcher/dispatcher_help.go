@@ -539,9 +539,26 @@ func buildEntryPoint(workload *v1.Workload, id int) string {
 	case common.CICDScaleRunnerSetKind:
 		result = workload.Spec.EntryPoints[id]
 	default:
-		result = Launcher + " '" + workload.Spec.EntryPoints[id] + "'"
+		result = Launcher + " " + workload.Spec.EntryPoints[id]
 	}
 	return result
+}
+
+// entrypointsEqual compares two entrypoint strings, treating launcher-style
+// commands with quoted vs unquoted base64 payload as equivalent.
+// e.g. "/bin/sh /shared-data/launcher.sh 'c2xlZXAgaW5maW5pdHk='" equals
+// "/bin/sh /shared-data/launcher.sh c2xlZXAgaW5maW5pdHk="
+func entrypointsEqual(newEp, oldEp string) bool {
+	if newEp == oldEp {
+		return true
+	}
+	prefix := Launcher + " "
+	if !strings.HasPrefix(newEp, prefix) || !strings.HasPrefix(oldEp, prefix) {
+		return false
+	}
+	newPayload := strings.Trim(strings.TrimPrefix(newEp, prefix), "'")
+	oldPayload := strings.Trim(strings.TrimPrefix(oldEp, prefix), "'")
+	return newPayload == oldPayload
 }
 
 // buildObjectLabels creates a map of labels for object tracking.
@@ -600,8 +617,6 @@ func buildEnvironment(workload *v1.Workload, resourceId int) []interface{} {
 		workload.Spec.Resources[resourceId].GPU != "" {
 		if workload.GetEnv("AINIC_DRIVER_VERSION") != "" {
 			result = addEnvVar(result, workload, "NCCL_IB_GID_INDEX", "1")
-			result = addEnvVar(result, workload, "NCCL_IB_TC", "104")
-			result = addEnvVar(result, workload, "NCCL_IB_FIFO_TC", "192")
 			result = addEnvVar(result, workload, "NCCL_DMABUF_ENABLE", "0")
 			result = addEnvVar(result, workload, "NCCL_MAX_P2P_CHANNELS", "56")
 			result = addEnvVar(result, workload, "NET_OPTIONAL_RECV_COMPLETION", "1")
@@ -612,7 +627,6 @@ func buildEnvironment(workload *v1.Workload, resourceId int) []interface{} {
 			result = addEnvVar(result, workload, "LD_LIBRARY_PATH", "/opt/amd-anp/build:/opt/rccl/build/release:/opt/rocm/lib")
 		} else {
 			result = addEnvVar(result, workload, "NCCL_IB_GID_INDEX", "3")
-			result = addEnvVar(result, workload, "NCCL_IB_TC", "41")
 		}
 		result = addEnvVar(result, workload, "GPUS_PER_NODE", workload.Spec.Resources[resourceId].GPU)
 	}
@@ -925,7 +939,7 @@ func updateCICDGithub(adminWorkload *v1.Workload, obj *unstructured.Unstructured
 	specObject["githubConfigUrl"] = adminWorkload.Spec.Env[common.GithubConfigUrl]
 	if commonworkload.IsCICDEphemeralRunner(adminWorkload) {
 		if runnerSetId := v1.GetCICDRunnerScaleSetId(adminWorkload); runnerSetId != "" {
-			specObject["runnerScaleSetId"], err = strconv.ParseInt(runnerSetId, 10, 0)
+			specObject["runnerScaleSetId"], err = strconv.ParseInt(runnerSetId, 10, 64)
 			if err != nil {
 				return fmt.Errorf("invalid runner scale set id %s", runnerSetId)
 			}

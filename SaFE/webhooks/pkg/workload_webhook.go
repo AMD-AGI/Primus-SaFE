@@ -873,11 +873,8 @@ func (v *WorkloadValidator) validateRayJob(newWorkload, _ *v1.Workload) error {
 		return fmt.Errorf("Expected at least 1 resource configurations (header), "+
 			"resources: %v", newWorkload.Spec.Resources)
 	}
-	keys := []string{common.RayJobEntrypoint}
-	for _, key := range keys {
-		if val, ok := newWorkload.Spec.Env[key]; !ok || val == "" {
-			return fmt.Errorf("the %s of workload environment variables is empty", key)
-		}
+	if val, ok := newWorkload.Spec.Env[common.RayJobEntrypoint]; !ok || val == "" {
+		return fmt.Errorf("RayJob entrypoint is missing(use 'RAY_JOB_ENTRYPOINT' environment variable)")
 	}
 	return nil
 }

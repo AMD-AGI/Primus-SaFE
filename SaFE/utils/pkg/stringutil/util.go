@@ -138,7 +138,7 @@ func ExtractNumber(s string) int64 {
 			str += string(c)
 		}
 	}
-	num, err := strconv.ParseInt(str, 10, 0)
+	num, err := strconv.ParseInt(str, 10, 64)
 	if err != nil {
 		return 0
 	}

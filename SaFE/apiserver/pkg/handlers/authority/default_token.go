@@ -112,7 +112,7 @@ func (t *defaultToken) Validate(_ context.Context, rawToken string) (*UserInfo, 
 			return nil, fmt.Errorf("invalid token")
 		}
 	}
-	expire, err := strconv.ParseInt(parts[1], 10, 0)
+	expire, err := strconv.ParseInt(parts[1], 10, 64)
 	if err != nil {
 		klog.ErrorS(err, "failed to parse token expire", "user", parts[0], "expire", parts[1])
 		return nil, fmt.Errorf("invalid token")

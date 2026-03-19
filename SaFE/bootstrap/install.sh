@@ -252,7 +252,6 @@ echo "========================================="
 echo "🔧 Step 4: install primus-safe admin plane"
 echo "========================================="
 
-cd ../charts/
 src_values_yaml="primus-safe/values.yaml"
 if [ ! -f "$src_values_yaml" ]; then
   echo "Error: $src_values_yaml does not exist"
@@ -268,9 +267,7 @@ sed -i "s/replicas: [0-9]*/replicas: $replicas/" "$values_yaml"
 sed -i "s/^.*cpu:.*/  cpu: $cpu/" "$values_yaml"
 sed -i "s/^.*memory:.*/  memory: $memory/" "$values_yaml"
 sed -i "s/^.*storage_class:.*/  storage_class: \"$storage_class\"/" "$values_yaml"
-if [[ "$ingress" == "higress" ]]; then
-  sed -i "s/^.*sub_domain:.*/  sub_domain: \"$sub_domain\"/" "$values_yaml"
-fi
+sed -i "s/^.*sub_domain:.*/  sub_domain: \"$sub_domain\"/" "$values_yaml"
 sed -i '/opensearch:/,/^[a-z]/ s/enable: .*/enable: '"$lens_enable"'/' "$values_yaml"
 sed -i '/s3:/,/^[a-z]/ s/enable: .*/enable: '"$s3_enable"'/' "$values_yaml"
 if [[ "$s3_enable" == "true" ]]; then
@@ -314,7 +311,7 @@ if helm list -n "$NAMESPACE" -q | grep -qx "$chart_name"; then
   fi
 fi
 install_or_upgrade_helm_chart "$chart_name" "$values_yaml"
-
+rm -f "$values_yaml"
 sleep 10
 
 echo
@@ -322,15 +319,23 @@ echo "========================================="
 echo "🔧 Step 5: upgrade primus-safe cr"
 echo "========================================="
 
-cd ../charts/
-values_yaml="primus-safe-cr/values.yaml"
+src_values_yaml="primus-safe-cr/values.yaml"
 if [ ! -f "$src_values_yaml" ]; then
   echo "Error: $src_values_yaml does not exist"
   exit 1
 fi
+values_yaml="primus-safe-cr/.values.yaml"
+cp "$src_values_yaml" "${values_yaml}"
+
+if [[ -n "${helm_registry:-}" ]]; then
+  sed -i '/global:/,/^[a-z]/ s/helm_registry: .*/helm_registry: "'"$helm_registry"'"/' "$values_yaml"
+fi
+sed -i '/global:/,/^[a-z]/ s/sub_domain: .*/sub_domain: "'"$sub_domain"'"/' "$values_yaml"
 
 install_or_upgrade_helm_chart "primus-safe-cr" "$values_yaml"
+rm -f "$values_yaml"
 cd ..
+
 
 if [[ "$install_node_agent" == "y" ]]; then
   echo
@@ -350,6 +355,7 @@ if [[ "$install_node_agent" == "y" ]]; then
   sed -i "s/nccl_socket_ifname: \".*\"/nccl_socket_ifname: \"$ethernet_nic\"/" "$values_yaml"
   sed -i "s/nccl_ib_hca: \".*\"/nccl_ib_hca: \"$rdma_nic\"/" "$values_yaml"
   sed -i "s/image_pull_secret: \".*\"/image_pull_secret: \"$IMAGE_PULL_SECRET\"/" "$values_yaml"
+  sed -i "s/^.*sub_domain:.*/  sub_domain: \"$sub_domain\"/" "$values_yaml"
 
   install_or_upgrade_helm_chart "node-agent" "$values_yaml"
   rm -f "$values_yaml"
