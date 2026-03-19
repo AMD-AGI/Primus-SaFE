@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"reflect"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/k8sclient"
@@ -369,7 +370,7 @@ func (r *SchedulerReconciler) scheduleWorkloads(ctx context.Context, message *Sc
 		scheduledCount++
 	}
 	if scheduledCount != len(schedulingWorkloads) {
-		r.updateUnScheduled(ctx, schedulingWorkloads, unScheduledReasons)
+		r.updateUnScheduled(ctx, schedulingWorkloads, unScheduledReasons, workspace)
 	}
 	return nil
 }
@@ -388,7 +389,7 @@ func (r *SchedulerReconciler) canScheduleWorkload(ctx context.Context, requestWo
 		}
 		patch := client.MergeFrom(workspace.DeepCopy())
 		v1.RemoveLabel(workspace, v1.SourceWorkloadIdLabel)
-		r.Patch(ctx, workspace, patch)
+		_ = r.Patch(ctx, workspace, patch)
 	}
 
 	for _, job := range requestWorkload.Spec.CronJobs {
@@ -413,7 +414,7 @@ func (r *SchedulerReconciler) canScheduleWorkload(ctx context.Context, requestWo
 	hasEnoughQuota, key := quantity.IsSubResource(requestResources, leftResources)
 	isPreemptable := false
 	if !hasEnoughQuota {
-		reason = fmt.Sprintf("In queue - insufficient %s resources", formatResourceName(key))
+		reason = fmt.Sprintf("%s, no %s available", InsufficientReason, formatResourceName(key))
 		isPreemptable, err = r.preempt(ctx, requestWorkload, scheduledWorkloads, leftResources)
 	}
 	if !hasEnoughQuota && !isPreemptable {
@@ -604,7 +605,7 @@ func (r *SchedulerReconciler) updateStatus(ctx context.Context, workload *v1.Wor
 
 // updateUnScheduled updates the status of unscheduled workloads with ordering and reasons.
 func (r *SchedulerReconciler) updateUnScheduled(ctx context.Context,
-	workloads []*v1.Workload, unScheduledReasons map[string]string) {
+	workloads []*v1.Workload, unScheduledReasons map[string]string, workspace *v1.Workspace) {
 	position := 1
 	for i, w := range workloads {
 		if v1.IsWorkloadScheduled(w) || w.IsEnd() {
@@ -617,8 +618,20 @@ func (r *SchedulerReconciler) updateUnScheduled(ctx context.Context,
 			isChanged = true
 		}
 		reason, _ := unScheduledReasons[w.Name]
-		if reason == "" && position > 1 {
-			reason = "In queue - waiting for earlier or higher priority workloads"
+		if reason == "" {
+			if position > 1 {
+				reason = "In queue - waiting for earlier or higher priority workloads"
+			}
+		} else if position == 1 && strings.Contains(reason, InsufficientReason) {
+			filterFunc := func(w *v1.Workload) bool {
+				return !w.IsPending() || !v1.IsWorkloadScheduled(w)
+			}
+			pendingWorkloads, _ := commonworkload.GetWorkloadsOfWorkspace(ctx, r.Client,
+				workspace.Spec.Cluster, []string{workspace.Name}, filterFunc)
+			if len(pendingWorkloads) > 0 {
+				reason += fmt.Sprintf(". Blocked by earlier %d workloads, like %s",
+					len(pendingWorkloads), pendingWorkloads[0])
+			}
 		}
 		if reason != workloads[i].Status.Message {
 			workloads[i].Status.Message = reason

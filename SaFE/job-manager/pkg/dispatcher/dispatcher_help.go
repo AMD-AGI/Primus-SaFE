@@ -539,9 +539,26 @@ func buildEntryPoint(workload *v1.Workload, id int) string {
 	case common.CICDScaleRunnerSetKind:
 		result = workload.Spec.EntryPoints[id]
 	default:
-		result = Launcher + " '" + workload.Spec.EntryPoints[id] + "'"
+		result = Launcher + " " + workload.Spec.EntryPoints[id]
 	}
 	return result
+}
+
+// entrypointsEqual compares two entrypoint strings, treating launcher-style
+// commands with quoted vs unquoted base64 payload as equivalent.
+// e.g. "/bin/sh /shared-data/launcher.sh 'c2xlZXAgaW5maW5pdHk='" equals
+// "/bin/sh /shared-data/launcher.sh c2xlZXAgaW5maW5pdHk="
+func entrypointsEqual(newEp, oldEp string) bool {
+	if newEp == oldEp {
+		return true
+	}
+	prefix := Launcher + " "
+	if !strings.HasPrefix(newEp, prefix) || !strings.HasPrefix(oldEp, prefix) {
+		return false
+	}
+	newPayload := strings.Trim(strings.TrimPrefix(newEp, prefix), "'")
+	oldPayload := strings.Trim(strings.TrimPrefix(oldEp, prefix), "'")
+	return newPayload == oldPayload
 }
 
 // buildObjectLabels creates a map of labels for object tracking.
