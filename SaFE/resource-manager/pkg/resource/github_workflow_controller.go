@@ -17,6 +17,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/event"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
@@ -75,7 +76,8 @@ func SetupGitHubWorkflowController(mgr manager.Manager) error {
 	}
 
 	err = ctrlruntime.NewControllerManagedBy(mgr).
-		For(&v1.Workload{}, builder.WithPredicates(predicate.Funcs{
+		Named("github-workflow").
+		Watches(&v1.Workload{}, &handler.EnqueueRequestForObject{}, builder.WithPredicates(predicate.Funcs{
 			CreateFunc:  func(e event.CreateEvent) bool { return isEphemeralRunnerWorkload(e.Object) },
 			UpdateFunc:  func(e event.UpdateEvent) bool { return isEphemeralRunnerWorkload(e.ObjectNew) },
 			DeleteFunc:  func(e event.DeleteEvent) bool { return isEphemeralRunnerWorkload(e.Object) },
