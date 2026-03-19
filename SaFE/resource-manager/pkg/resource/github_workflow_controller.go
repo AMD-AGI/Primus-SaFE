@@ -10,8 +10,6 @@ import (
 	"time"
 
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/klog/v2"
 	ctrlruntime "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
@@ -24,21 +22,12 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
-	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 	githubpkg "github.com/AMD-AIG-AIMA/SAFE/resource-manager/pkg/github"
-	rmutils "github.com/AMD-AIG-AIMA/SAFE/resource-manager/pkg/utils"
 )
-
-var ephemeralRunnerGVR = schema.GroupVersionResource{
-	Group:    "actions.github.com",
-	Version:  "v1alpha1",
-	Resource: "ephemeralrunners",
-}
 
 type GitHubWorkflowReconciler struct {
 	client.Client
-	tracker       *githubpkg.WorkflowTracker
-	clientManager *commonutils.ObjectManager
+	tracker *githubpkg.WorkflowTracker
 }
 
 func SetupGitHubWorkflowController(mgr manager.Manager) error {
@@ -69,9 +58,8 @@ func SetupGitHubWorkflowController(mgr manager.Manager) error {
 	go syncJob.Start(context.Background())
 
 	r := &GitHubWorkflowReconciler{
-		Client:        mgr.GetClient(),
-		tracker:       tracker,
-		clientManager: commonutils.NewObjectManagerSingleton(),
+		Client:  mgr.GetClient(),
+		tracker: tracker,
 	}
 
 	err = ctrlruntime.NewControllerManagedBy(mgr).
@@ -114,45 +102,31 @@ func (r *GitHubWorkflowReconciler) Reconcile(ctx context.Context, req ctrlruntim
 		return ctrlruntime.Result{}, nil
 	}
 
-	cluster := v1.GetClusterId(wl)
-	isCompleted := wl.IsEnd()
-	klog.Infof("[github-workflow] reconcile: workload=%s cluster=%s workspace=%s completed=%v",
-		wl.Name, cluster, wl.Spec.Workspace, isCompleted)
-
-	obj, retryable := r.fetchEphemeralRunner(ctx, cluster, wl)
-	if obj == nil {
-		if retryable {
-			return ctrlruntime.Result{RequeueAfter: 5 * time.Second}, nil
-		}
+	annotations := wl.GetAnnotations()
+	if annotations == nil {
 		return ctrlruntime.Result{}, nil
 	}
 
-	klog.Infof("[github-workflow] tracked: workload=%s annotations=%v", wl.Name, obj.GetAnnotations())
+	// GitHub annotations are synced from EphemeralRunner by job-manager.
+	// If run-id is not present yet, skip (will be called again when job-manager syncs it).
+	runID := annotations["actions.github.com/run-id"]
+	if runID == "" {
+		return ctrlruntime.Result{}, nil
+	}
+
+	cluster := v1.GetClusterId(wl)
+	isCompleted := wl.IsEnd()
+
+	// Build an unstructured object with the Workload's annotations for the tracker
+	obj := &unstructured.Unstructured{}
+	obj.SetAnnotations(annotations)
+	obj.SetLabels(wl.GetLabels())
+	obj.SetName(wl.Name)
+	obj.SetNamespace(wl.Namespace)
+
+	klog.Infof("[github-workflow] processing workload=%s run-id=%s cluster=%s completed=%v",
+		wl.Name, runID, cluster, isCompleted)
+
 	r.tracker.OnEphemeralRunnerEvent(ctx, obj, wl.Name, cluster, isCompleted)
 	return ctrlruntime.Result{}, nil
-}
-
-func (r *GitHubWorkflowReconciler) fetchEphemeralRunner(ctx context.Context, cluster string, wl *v1.Workload) (*unstructured.Unstructured, bool) {
-	k8sClients, err := rmutils.GetK8sClientFactory(r.clientManager, cluster)
-	if err != nil {
-		klog.Infof("[github-workflow] no client for cluster %s (will retry): %v", cluster, err)
-		return nil, true
-	}
-
-	dynClient := k8sClients.DynamicClient()
-	if dynClient == nil {
-		klog.Infof("[github-workflow] no dynamic client for cluster %s (will retry)", cluster)
-		return nil, true
-	}
-
-	obj, err := dynClient.Resource(ephemeralRunnerGVR).
-		Namespace(wl.Spec.Workspace).
-		Get(ctx, wl.Name, metav1.GetOptions{})
-	if err != nil {
-		klog.Infof("[github-workflow] cannot get EphemeralRunner %s/%s in cluster %s: %v",
-			wl.Spec.Workspace, wl.Name, cluster, err)
-		return nil, false
-	}
-
-	return obj, false
 }
