@@ -23,6 +23,7 @@ import (
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/k8sclient"
+	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/httpclient"
 )
 
@@ -45,6 +46,7 @@ func NewImageHandler(mgr ctrlruntime.Manager) (*ImageHandler, error) {
 		dbClient:         dbClient,
 		httpClient:       httpclient.NewClient(),
 		accessController: authority.NewAccessController(mgr.GetClient()),
+		clientManager:    commonutils.NewObjectManagerSingleton(),
 	}
 	err = h.initHarbor(context.Background())
 	if err != nil {
@@ -59,6 +61,7 @@ type ImageHandler struct {
 	dbClient         dbclient.Interface
 	httpClient       httpclient.Interface
 	accessController *authority.AccessController
+	clientManager    *commonutils.ObjectManager
 }
 
 type handleFunc[T any] func(*gin.Context) (T, error)
