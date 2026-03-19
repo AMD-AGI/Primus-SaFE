@@ -50,10 +50,38 @@ for pair in "${BIND_MOUNTS[@]}"; do
   # Mount if not already mounted
   ${NSENTER} mountpoint -q "$target" 2>/dev/null
   if [ $? -ne 0 ]; then
+    # Stop service before mount
+    if [[ "$target" == *kubelet* ]]; then
+      ${NSENTER} systemctl stop kubelet 2>/dev/null || true
+    elif [[ "$target" == *containerd* ]]; then
+      ${NSENTER} systemctl stop containerd 2>/dev/null || true
+    fi
+
+    # Copy target data to source (preserve existing data to persistent storage)
+    ${NSENTER} test -d "$target" 2>/dev/null
+    if [ $? -eq 0 ]; then
+      ${NSENTER} cp -a "$target"/. "$source"/ 2>/dev/null || true
+    fi
+
+    # Ensure target exists for mount
+    ${NSENTER} mkdir -p "$target" 2>/dev/null
+
     ${NSENTER} mount --bind "$source" "$target" 2>/dev/null
     if [ $? -ne 0 ]; then
       echo "Error: failed to mount --bind $source $target"
+      if [[ "$target" == *kubelet* ]]; then
+        ${NSENTER} systemctl start kubelet 2>/dev/null || true
+      elif [[ "$target" == *containerd* ]]; then
+        ${NSENTER} systemctl start containerd 2>/dev/null || true
+      fi
       exit 1
+    fi
+
+    # Restart service after successful mount
+    if [[ "$target" == *kubelet* ]]; then
+      ${NSENTER} systemctl restart kubelet 2>/dev/null || true
+    elif [[ "$target" == *containerd* ]]; then
+      ${NSENTER} systemctl restart containerd 2>/dev/null || true
     fi
   fi
 

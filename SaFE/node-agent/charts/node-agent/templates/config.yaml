@@ -68,7 +68,7 @@ data:
   resolv_conf_lock_402: '{"script":"resolv_conf_lock_402.sh","id":"402","cronjob":"@every 300s","timeoutSecond":250,"toggle":"on","arguments":["$Node"]}'
   resolv_search_domain_check_403: '{"script":"resolv_search_domain_check_403.sh","id":"403","cronjob":"@every 300s","timeoutSecond":250,"toggle":"on","arguments":["{{ .Values.monitor.resolv_search_domain }}"]}'
   disk_ephemeral_storage_404: '{"script":"disk_ephemeral_storage_404.sh","id":"404","cronjob":"@every 300s","timeoutSecond":250,"toggle":"on","arguments":["$Node"]}'
-  disk_oci_bind_mount_405: '{"script":"disk_oci_bind_mount_405.sh","id":"405","cronjob":"@every 300s","timeoutSecond":250,"toggle":"on","arguments":["{{ .Values.node_agent.sub_domain }}"}'
+  disk_oci_bind_mount_405: '{"script":"disk_oci_bind_mount_405.sh","id":"405","cronjob":"@every 300s","timeoutSecond":250,"toggle":"on","arguments":["{{ .Values.node_agent.sub_domain }}"]}'
   # Main configuration as YAML string
   config.yaml: |
     net:
