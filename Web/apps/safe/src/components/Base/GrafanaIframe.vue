@@ -22,7 +22,7 @@ const props = defineProps<{
   varKey?: string
   /** Variable value */
   varValue?: string
-  time?: [Date, Date] | null
+  time?: [Date, Date | 'now'] | null
   refresh?: string
   theme?: 'light' | 'dark'
   kiosk?: boolean
@@ -47,7 +47,7 @@ const src = computed(() => {
 
   if (props.time && props.time[0] && props.time[1]) {
     p.set('from', String(dayjs(props.time[0]).valueOf()))
-    p.set('to', String(dayjs(props.time[1]).valueOf()))
+    p.set('to', props.time[1] === 'now' ? 'now' : String(dayjs(props.time[1]).valueOf()))
   } else {
     p.set('from', 'now-12h')
     p.set('to', 'now')
