@@ -26,3 +26,10 @@ spec:
     - sysctl-ulimit
     - sysctl-inotify
     - set-gpu-passthrough
+    {{- if eq (.Values.global.sub_domain | default "") "oci-slc" }}
+    - set-oci-arp-ipv4
+    - disable-oci-acs
+    - set-oci-qos
+    - set-oci-dcqcn
+    - set-oci-rdma
+    {{- end }}

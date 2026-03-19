@@ -584,7 +584,7 @@ func isEntrypointChanged(adminWorkload *v1.Workload, obj *unstructured.Unstructu
 			}
 			continue
 		}
-		if newEntrypoint != oldCommand[len(oldCommand)-1] {
+		if !entrypointsEqual(newEntrypoint, oldCommand[len(oldCommand)-1]) {
 			return true
 		}
 	}
