@@ -416,35 +416,55 @@ PYTHON_SCRIPT
         if [ "$INSTALL_SYSTEM_PYTHON" = true ]; then
             print_info "Installing to system Python (--install-system-python)..."
             # Clear PYTHONPATH to prevent pip from seeing the venv packages
-            # as "already satisfied", which would skip the actual installation
-            # and .pth file creation in system site-packages.
+            # as "already satisfied", which would skip the actual installation.
             if PYTHONPATH="" $MP_SYS_PYTHON -m pip install --no-cache-dir --force-reinstall --no-deps primus-lens-wandb-exporter 2>/dev/null; then
-                # Verify .pth was actually created in system site-packages
-                SYS_PTH_CHECK=$(PYTHONPATH="" $MP_SYS_PYTHON -c "
-import site, os
-for sp in site.getsitepackages():
-    pth = os.path.join(sp, 'primus_lens_wandb_hook.pth')
-    if os.path.exists(pth):
-        print('OK|' + pth)
-        break
-else:
-    print('MISSING')
-" 2>/dev/null)
-                if echo "$SYS_PTH_CHECK" | grep -q "^OK|"; then
-                    SYS_PTH_PATH=$(echo "$SYS_PTH_CHECK" | cut -d'|' -f2)
-                    print_success "Installed to system Python: $MP_SYS_PYTHON"
-                    print_success ".pth file created: $SYS_PTH_PATH"
-                else
-                    print_warning "Package installed but .pth file not found in system site-packages"
-                    print_info "Manually create it:"
-                    echo "     echo 'import primus_lens_wandb_exporter.wandb_hook' | sudo tee $MP_SYS_SP/primus_lens_wandb_hook.pth"
-                fi
-                return 0
+                print_success "Package installed to system Python: $MP_SYS_PYTHON"
             else
                 print_error "Failed to install to system Python (permission denied?)"
                 print_info "Try: sudo PYTHONPATH='' $MP_SYS_PYTHON -m pip install --no-cache-dir primus-lens-wandb-exporter"
                 return 1
             fi
+
+            # pip install does NOT create the .pth hook file — create it explicitly.
+            SYS_PTH_CREATE=$(PYTHONPATH="" $MP_SYS_PYTHON -c "
+import site, os
+sp = site.getsitepackages()[0]
+pth = os.path.join(sp, 'primus_lens_wandb_hook.pth')
+try:
+    with open(pth, 'w') as f:
+        f.write('import primus_lens_wandb_exporter.wandb_hook\n')
+    print('OK|' + pth)
+except Exception as e:
+    print('FAIL|' + str(e) + '|' + pth)
+" 2>/dev/null)
+
+            if echo "$SYS_PTH_CREATE" | grep -q "^OK|"; then
+                SYS_PTH_PATH=$(echo "$SYS_PTH_CREATE" | cut -d'|' -f2)
+                print_success ".pth hook created: $SYS_PTH_PATH"
+            else
+                SYS_PTH_ERR=$(echo "$SYS_PTH_CREATE" | cut -d'|' -f2)
+                SYS_PTH_TARGET=$(echo "$SYS_PTH_CREATE" | cut -d'|' -f3)
+                print_warning "Failed to create .pth file: $SYS_PTH_ERR"
+                print_info "Manually create it:"
+                echo "     echo 'import primus_lens_wandb_exporter.wandb_hook' | sudo tee ${SYS_PTH_TARGET:-$MP_SYS_SP/primus_lens_wandb_hook.pth}"
+            fi
+
+            # Final verification
+            SYS_HOOK_CHECK=$(PYTHONPATH="" $MP_SYS_PYTHON -c "
+import sys
+for f in sys.meta_path:
+    if type(f).__name__ == 'WandbImportHook':
+        print('OK')
+        break
+else:
+    print('FAIL')
+" 2>/dev/null)
+            if [ "$SYS_HOOK_CHECK" = "OK" ]; then
+                print_success "System Python WandbImportHook verified"
+            else
+                print_warning "WandbImportHook not loaded in system Python (may need manual .pth creation)"
+            fi
+            return 0
         else
             print_info "To fix this, run ONE of the following:"
             echo
