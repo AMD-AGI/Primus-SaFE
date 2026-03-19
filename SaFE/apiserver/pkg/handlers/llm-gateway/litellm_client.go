@@ -357,6 +357,154 @@ func isNotFoundErr(err error) bool {
 	return false
 }
 
+// ── Budget & Tag API Types ────────────────────────────────────────────────
+
+// KeyInfoResponse is the relevant subset of GET /key/info response.
+type KeyInfoResponse struct {
+	Info KeyInfoData `json:"info"`
+}
+
+type KeyInfoData struct {
+	Spend     float64  `json:"spend"`
+	MaxBudget *float64 `json:"max_budget"`
+}
+
+// UpdateKeyBudgetRequest is the request body for updating max_budget via POST /key/update.
+type UpdateKeyBudgetRequest struct {
+	Key       string   `json:"key"`
+	MaxBudget *float64 `json:"max_budget"`
+}
+
+// SpendLogsResponse is the paginated response from GET /spend/logs/v2.
+type SpendLogsResponse struct {
+	Data       []SpendLogEntry `json:"data"`
+	Total      int             `json:"total"`
+	Page       int             `json:"page"`
+	PageSize   int             `json:"page_size"`
+	TotalPages int             `json:"total_pages"`
+}
+
+// SpendLogEntry represents a single spend log entry.
+type SpendLogEntry struct {
+	RequestID        string          `json:"request_id"`
+	Model            string          `json:"model"`
+	Spend            float64         `json:"spend"`
+	PromptTokens     int64           `json:"prompt_tokens"`
+	CompletionTokens int64           `json:"completion_tokens"`
+	TotalTokens      int64           `json:"total_tokens"`
+	RequestTags      json.RawMessage `json:"request_tags"`
+	StartTime        string          `json:"startTime"`
+	Status           string          `json:"status"`
+}
+
+// ── Budget & Tag API Methods ──────────────────────────────────────────────
+
+// GetKeyInfo queries a Virtual Key's spend and budget status via GET /key/info.
+func (c *LiteLLMClient) GetKeyInfo(ctx context.Context, keyHash string) (*KeyInfoData, error) {
+	reqURL := fmt.Sprintf("%s/key/info?key=%s", c.endpoint, keyHash)
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+	if c.adminKey != "" {
+		req.Header.Set("Authorization", "Bearer "+c.adminKey)
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to call LiteLLM: %w", err)
+	}
+	defer resp.Body.Close()
+
+	respBody, _ := io.ReadAll(resp.Body)
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("LiteLLM returned HTTP %d: %s", resp.StatusCode, string(respBody))
+	}
+
+	var result KeyInfoResponse
+	if err := json.Unmarshal(respBody, &result); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	return &result.Info, nil
+}
+
+// UpdateKeyBudget sets or removes the max_budget on a Virtual Key via POST /key/update.
+// Pass nil to remove the budget limit.
+func (c *LiteLLMClient) UpdateKeyBudget(ctx context.Context, keyHash string, maxBudget *float64) error {
+	reqBody := UpdateKeyBudgetRequest{
+		Key:       keyHash,
+		MaxBudget: maxBudget,
+	}
+
+	body, err := json.Marshal(reqBody)
+	if err != nil {
+		return fmt.Errorf("failed to marshal request: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
+		c.endpoint+"/key/update", bytes.NewReader(body))
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if c.adminKey != "" {
+		req.Header.Set("Authorization", "Bearer "+c.adminKey)
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to call LiteLLM: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		respBody, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("LiteLLM returned HTTP %d: %s", resp.StatusCode, string(respBody))
+	}
+
+	return nil
+}
+
+// GetSpendLogs queries spend logs for a specific user within a date range via GET /spend/logs/v2.
+func (c *LiteLLMClient) GetSpendLogs(ctx context.Context, userID, startDate, endDate string, pageSize int) (*SpendLogsResponse, error) {
+	if pageSize <= 0 {
+		pageSize = 100
+	}
+
+	reqURL := fmt.Sprintf("%s/spend/logs/v2?user_id=%s&start_date=%s&end_date=%s&page_size=%d",
+		c.endpoint, userID, startDate, endDate, pageSize)
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+	if c.adminKey != "" {
+		req.Header.Set("Authorization", "Bearer "+c.adminKey)
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to call LiteLLM: %w", err)
+	}
+	defer resp.Body.Close()
+
+	respBody, _ := io.ReadAll(resp.Body)
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("LiteLLM returned HTTP %d: %s", resp.StatusCode, string(respBody))
+	}
+
+	var result SpendLogsResponse
+	if err := json.Unmarshal(respBody, &result); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	return &result, nil
+}
+
 // GetUserDailyActivity queries LiteLLM for a user's daily usage breakdown.
 func (c *LiteLLMClient) GetUserDailyActivity(ctx context.Context, userID, startDate, endDate string) (*DailyActivityResponse, error) {
 	reqURL := fmt.Sprintf("%s/user/daily/activity?user_id=%s&start_date=%s&end_date=%s",

@@ -85,6 +85,10 @@ func InitRoutes(engine *gin.Engine, handler *Handler) {
 		mgmt.GET("/binding", handler.GetBinding)
 		mgmt.GET("/usage", handler.GetUsage)
 		mgmt.GET("/summary", handler.GetSummary)
+		mgmt.GET("/budget", handler.GetBudget)
+		mgmt.PUT("/budget", handler.SetBudget)
+		mgmt.DELETE("/budget", handler.RemoveBudget)
+		mgmt.GET("/tags/usage", handler.GetTagUsage)
 	}
 
 	// LLM reverse proxy: /api/v1/llm-proxy/* -> LiteLLM
