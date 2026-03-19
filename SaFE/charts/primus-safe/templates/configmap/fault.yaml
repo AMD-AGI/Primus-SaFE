@@ -55,6 +55,7 @@ data:
   resolv_conf_lock_402: '{"id":"402","toggle":"on"}'
   resolv_search_domain_check_403: '{"id":"403","action":"taint","toggle":"on"}'
   disk_ephemeral_storage_404: '{"id":"404","toggle":"on"}'
+  disk_oci_bind_mount_405: '{"id":"405","toggle":"on"}'
   # primus system: 5XX, System reserved
   addon: '{"id": "501","action":"taint","toggle":"on"}'
   sticky_nodes: '{"id": "502","action":"taint","toggle":"on"}'

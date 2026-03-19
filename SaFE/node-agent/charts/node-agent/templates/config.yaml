@@ -52,7 +52,7 @@ data:
   net_sys_resolved_209: '{"script":"net_sys_resolved_209.sh","id":"209","cronjob":"@every 300s","timeoutSecond":250,"toggle":"on"}'
   net_rdma_count_210: '{"script":"net_rdma_count_210.sh","id":"210","cronjob":"@every 300s","timeoutSecond":250,"toggle":"on","chip":"amd","arguments":["$Node"]}'
   net_oci_qos_211: '{"script":"net_oci_qos_211.sh","id":"211","cronjob":"@every 300s","timeoutSecond":250,"chip":"amd","toggle":"on","arguments":["{{ .Values.node_agent.sub_domain }}"]}'
-  net_oci_dcqcn_212: '{"script":"net_oci_dcqcn_212.sh","id":"211","cronjob":"@every 300s","timeoutSecond":250,"chip":"amd","toggle":"on","arguments":["{{ .Values.node_agent.sub_domain }}"]}'
+  net_oci_dcqcn_212: '{"script":"net_oci_dcqcn_212.sh","id":"212","cronjob":"@every 300s","timeoutSecond":250,"chip":"amd","toggle":"on","arguments":["{{ .Values.node_agent.sub_domain }}"]}'
   # System: 3XX
   sys_timezone_301: '{"script":"sys_timezone_301.sh","id":"301","cronjob":"@every 30s","timeoutSecond":25,"toggle":"on"}'
   sys_hostname_302: '{"script":"sys_hostname_302.sh","id":"302","cronjob":"@every 30s","timeoutSecond":25,"toggle":"on"}'
@@ -68,6 +68,7 @@ data:
   resolv_conf_lock_402: '{"script":"resolv_conf_lock_402.sh","id":"402","cronjob":"@every 300s","timeoutSecond":250,"toggle":"on","arguments":["$Node"]}'
   resolv_search_domain_check_403: '{"script":"resolv_search_domain_check_403.sh","id":"403","cronjob":"@every 300s","timeoutSecond":250,"toggle":"on","arguments":["{{ .Values.monitor.resolv_search_domain }}"]}'
   disk_ephemeral_storage_404: '{"script":"disk_ephemeral_storage_404.sh","id":"404","cronjob":"@every 300s","timeoutSecond":250,"toggle":"on","arguments":["$Node"]}'
+  disk_oci_bind_mount_405: '{"script":"disk_oci_bind_mount_405.sh","id":"405","cronjob":"@every 300s","timeoutSecond":250,"toggle":"on","arguments":["{{ .Values.node_agent.sub_domain }}"}'
   # Main configuration as YAML string
   config.yaml: |
     net:
