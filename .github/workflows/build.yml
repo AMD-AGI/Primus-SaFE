@@ -12,7 +12,7 @@ concurrency:
 
 jobs:
   detect-changes:
-    runs-on: ubuntu-latest
+    runs-on: primus-safe-tw-proj2
     outputs:
       matrix: ${{ steps.generate-matrix.outputs.matrix }}
       image_version: ${{ steps.get-image-version.outputs.image_version }}
@@ -215,7 +215,7 @@ jobs:
         echo "matrix=$MATRIX" >> $GITHUB_OUTPUT
   build:
     needs: detect-changes
-    runs-on: ubuntu-latest
+    runs-on: primus-safe-tw-proj2
     timeout-minutes: 120
     outputs:
       primary_tag: ${{ steps.build-and-push.outputs.primary_tag }}
