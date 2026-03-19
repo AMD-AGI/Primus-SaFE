@@ -116,12 +116,16 @@ func (r *GitHubWorkflowReconciler) Reconcile(ctx context.Context, req ctrlruntim
 
 	cluster := v1.GetClusterId(wl)
 	isCompleted := wl.IsEnd()
+	klog.Infof("[github-workflow] reconcile: workload=%s cluster=%s workspace=%s completed=%v",
+		wl.Name, cluster, wl.Spec.Workspace, isCompleted)
 
 	obj := r.fetchEphemeralRunner(ctx, cluster, wl)
 	if obj == nil {
+		klog.Infof("[github-workflow] EphemeralRunner not found for %s in %s/%s", wl.Name, cluster, wl.Spec.Workspace)
 		return ctrlruntime.Result{}, nil
 	}
 
+	klog.Infof("[github-workflow] tracked: workload=%s annotations=%v", wl.Name, obj.GetAnnotations())
 	r.tracker.OnEphemeralRunnerEvent(ctx, obj, wl.Name, cluster, isCompleted)
 	return ctrlruntime.Result{}, nil
 }
@@ -129,21 +133,22 @@ func (r *GitHubWorkflowReconciler) Reconcile(ctx context.Context, req ctrlruntim
 func (r *GitHubWorkflowReconciler) fetchEphemeralRunner(ctx context.Context, cluster string, wl *v1.Workload) *unstructured.Unstructured {
 	k8sClients, err := rmutils.GetK8sClientFactory(r.clientManager, cluster)
 	if err != nil {
-		klog.V(2).Infof("[github-workflow] no client for cluster %s: %v", cluster, err)
+		klog.Infof("[github-workflow] no client for cluster %s: %v", cluster, err)
 		return nil
 	}
 
 	dynClient := k8sClients.DynamicClient()
 	if dynClient == nil {
-		klog.V(2).Infof("[github-workflow] no dynamic client for cluster %s", cluster)
+		klog.Infof("[github-workflow] no dynamic client for cluster %s", cluster)
 		return nil
 	}
 
+	klog.Infof("[github-workflow] fetching EphemeralRunner %s/%s from cluster %s", wl.Spec.Workspace, wl.Name, cluster)
 	obj, err := dynClient.Resource(ephemeralRunnerGVR).
 		Namespace(wl.Spec.Workspace).
 		Get(ctx, wl.Name, metav1.GetOptions{})
 	if err != nil {
-		klog.V(2).Infof("[github-workflow] cannot get EphemeralRunner %s/%s in cluster %s: %v",
+		klog.Infof("[github-workflow] cannot get EphemeralRunner %s/%s in cluster %s: %v",
 			wl.Spec.Workspace, wl.Name, cluster, err)
 		return nil
 	}
