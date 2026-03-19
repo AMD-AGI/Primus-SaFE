@@ -187,7 +187,7 @@ const refreshPods = async () => {
 const entryPointExpanded = ref(false)
 const envExpanded = ref(false)
 
-const defaultTime = computed<[Date, Date] | null>(() => {
+const defaultTime = computed<[Date, Date | 'now'] | null>(() => {
   return calculateDefaultTime(
     workloadDetail.value?.startTime,
     workloadDetail.value?.endTime,

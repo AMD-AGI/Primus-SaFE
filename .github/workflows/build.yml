@@ -116,6 +116,13 @@ jobs:
           echo "s3_downloader_changed=false" >> $GITHUB_OUTPUT
         fi
         
+        # a2a-gateway: SaFE/a2a-gateway/**
+        if echo "$CHANGED_FILES" | grep -qE '^SaFE/a2a-gateway/'; then
+          echo "a2a_gateway_changed=true" >> $GITHUB_OUTPUT
+        else
+          echo "a2a_gateway_changed=false" >> $GITHUB_OUTPUT
+        fi
+        
         # webhooks: SaFE/apis/**, SaFE/webhooks/**, SaFE/charts/primus-safe/templates/webhooks/**, SaFE/common/**, SaFE/utils/**
         if echo "$CHANGED_FILES" | grep -qE '^SaFE/(apis|webhooks|charts/primus-safe/templates/webhooks|common|utils)/'; then
           echo "webhooks_changed=true" >> $GITHUB_OUTPUT
@@ -198,6 +205,9 @@ jobs:
         fi
         if [[ "${{ steps.detect-changes.outputs.sync_image_changed }}" == "true" ]]; then
           MATRIX+='{"name":"sync-image","basepath":"SaFE/tools/sync-image","dockerfile_path":"SaFE/tools/sync-image/Dockerfile"},'
+        fi
+        if [[ "${{ steps.detect-changes.outputs.a2a_gateway_changed }}" == "true" ]]; then
+          MATRIX+='{"name":"a2a-gateway","basepath":"SaFE/a2a-gateway","dockerfile_path":"SaFE/a2a-gateway/Dockerfile"},'
         fi
         MATRIX=${MATRIX%,} # remove trailing comma
         MATRIX+=']}'
