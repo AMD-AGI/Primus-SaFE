@@ -63,7 +63,7 @@ func (h *Handler) GetTagUsage(c *gin.Context) {
 		return
 	}
 
-	logsResp, err := h.litellmClient.GetSpendLogs(c.Request.Context(), email, startDate, endDate, 500)
+	logsResp, err := h.litellmClient.GetSpendLogs(c.Request.Context(), email, startDate, endDate, 100)
 	if err != nil {
 		klog.ErrorS(err, "GetTagUsage: LiteLLM query failed", "email", email)
 		c.JSON(http.StatusBadGateway, gin.H{"errorMessage": "tag usage data temporarily unavailable, please try again later"})
