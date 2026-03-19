@@ -52,7 +52,6 @@ data:
   sys_csi_wekafs_309: '{"id":"309","action":"taint","toggle":"on"}'
   # Disk: 4XX
   nfs_check_401: '{"id":"401","action":"taint","toggle":"on"}'
-  resolv_conf_lock_402: '{"id":"402","toggle":"on"}'
   resolv_search_domain_check_403: '{"id":"403","action":"taint","toggle":"on"}'
   disk_ephemeral_storage_404: '{"id":"404","toggle":"on"}'
   disk_oci_bind_mount_405: '{"id":"405","toggle":"on"}'
