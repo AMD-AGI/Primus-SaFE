@@ -282,8 +282,9 @@ func GetMetricsData(ctx *gin.Context) {
 		// Trim leading and trailing spaces
 		metricsStr = strings.TrimSpace(metricsStr)
 
-		// If explicitly specified "all", return all metrics
-		if strings.ToLower(metricsStr) == "all" {
+		// If explicitly specified "all" or Grafana's "$__all", return all metrics
+		lower := strings.ToLower(metricsStr)
+		if lower == "all" || lower == "$__all" {
 			returnAllMetrics = true
 		} else {
 			// Support Grafana format: {metric1,metric2} or plain format: metric1,metric2
