@@ -4,11 +4,14 @@
 package logs
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 
 	advisorClient "github.com/AMD-AGI/Primus-SaFE/Lens/ai-advisor/pkg/client"
 	advisorCommon "github.com/AMD-AGI/Primus-SaFE/Lens/ai-advisor/pkg/common"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/clientsets"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/model/rest"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/telemetry-processor/pkg/module/pods"
@@ -85,8 +88,8 @@ func ReceiveWandBDetection(ctx *gin.Context) {
 		return
 	}
 
-	// Try to get workload information from pod cache (may have multiple)
-	workloadUIDs := getWorkloadUIDsFromPodName(req.WorkloadUID, req.PodName, "WandB Detection API")
+	// Resolve workload UIDs using multi-level fallback (cache → DB)
+	workloadUIDs := resolveWorkloadUIDs(req.WorkloadUID, req.PodName, req.PodUID, "WandB Detection API")
 	if len(workloadUIDs) == 0 {
 		logrus.Errorf("[WandB Detection API] No valid workload UIDs found")
 		ctx.JSON(http.StatusBadRequest, rest.ErrorResp(ctx.Request.Context(),
@@ -190,8 +193,8 @@ func ReceiveWandBMetrics(ctx *gin.Context) {
 		return
 	}
 
-	// Try to get workload information from pod cache (may have multiple)
-	workloadUIDs := getWorkloadUIDsFromPodName(req.WorkloadUID, req.PodName, "WandB Metrics API")
+	// Resolve workload UIDs using multi-level fallback (cache → DB)
+	workloadUIDs := resolveWorkloadUIDs(req.WorkloadUID, req.PodName, req.PodUID, "WandB Metrics API")
 	if len(workloadUIDs) == 0 {
 		logrus.Errorf("[WandB Metrics API] No valid workload UIDs found")
 		ctx.JSON(http.StatusBadRequest, rest.ErrorResp(ctx.Request.Context(),
@@ -289,8 +292,8 @@ func ReceiveWandBLogs(ctx *gin.Context) {
 		return
 	}
 
-	// Try to get workload information from pod cache (may have multiple)
-	workloadUIDs := getWorkloadUIDsFromPodName(req.WorkloadUID, req.PodName, "WandB Logs/Training API")
+	// Resolve workload UIDs using multi-level fallback (cache → DB)
+	workloadUIDs := resolveWorkloadUIDs(req.WorkloadUID, req.PodName, req.PodUID, "WandB Logs/Training API")
 	if len(workloadUIDs) == 0 {
 		logrus.Errorf("[WandB Logs/Training API] No valid workload UIDs found")
 		ctx.JSON(http.StatusBadRequest, rest.ErrorResp(ctx.Request.Context(),
@@ -387,8 +390,8 @@ func ReceiveWandBBatch(ctx *gin.Context) {
 
 	// Process framework detection
 	if req.Detection != nil {
-		// Try to get workload information from pod cache (may have multiple)
-		workloadUIDs := getWorkloadUIDsFromPodName(req.Detection.WorkloadUID, req.Detection.PodName, "WandB Batch API - Detection")
+		// Resolve workload UIDs using multi-level fallback (cache → DB)
+		workloadUIDs := resolveWorkloadUIDs(req.Detection.WorkloadUID, req.Detection.PodName, req.Detection.PodUID, "WandB Batch API - Detection")
 
 		if len(workloadUIDs) == 0 {
 			logrus.Errorf("[WandB Batch API] No valid workload UIDs found for detection")
@@ -445,8 +448,8 @@ func ReceiveWandBBatch(ctx *gin.Context) {
 
 	// Process metrics
 	if req.Metrics != nil {
-		// Try to get workload information from pod cache (may have multiple)
-		workloadUIDs := getWorkloadUIDsFromPodName(req.Metrics.WorkloadUID, req.Metrics.PodName, "WandB Batch API - Metrics")
+		// Resolve workload UIDs using multi-level fallback (cache → DB)
+		workloadUIDs := resolveWorkloadUIDs(req.Metrics.WorkloadUID, req.Metrics.PodName, req.Metrics.PodUID, "WandB Batch API - Metrics")
 
 		if len(workloadUIDs) == 0 {
 			logrus.Errorf("[WandB Batch API] No valid workload UIDs found for metrics")
@@ -497,8 +500,8 @@ func ReceiveWandBBatch(ctx *gin.Context) {
 
 	// Process logs
 	if req.Logs != nil {
-		// Try to get workload information from pod cache (may have multiple)
-		workloadUIDs := getWorkloadUIDsFromPodName(req.Logs.WorkloadUID, req.Logs.PodName, "WandB Batch API - Logs")
+		// Resolve workload UIDs using multi-level fallback (cache → DB)
+		workloadUIDs := resolveWorkloadUIDs(req.Logs.WorkloadUID, req.Logs.PodName, req.Logs.PodUID, "WandB Batch API - Logs")
 
 		if len(workloadUIDs) == 0 {
 			logrus.Errorf("[WandB Batch API] No valid workload UIDs found for logs")
@@ -561,39 +564,74 @@ func getMapKeys(m map[string]interface{}) []string {
 	return keys
 }
 
-// getWorkloadUIDsFromPodName gets all associated WorkloadUIDs from cache by PodName
-// If WorkloadUID is already provided, return it directly; otherwise get all associated workload info from pod_cache
-// Returns workload UID array, one pod may correspond to multiple workloads
-func getWorkloadUIDsFromPodName(workloadUID string, podName string, apiName string) []string {
-	// If WorkloadUID is already provided, return it directly
+// resolveWorkloadUIDs resolves WorkloadUIDs using a multi-level fallback strategy:
+//  1. Use workload_uid directly if provided
+//  2. Look up by pod_name in cache
+//  3. Look up by pod_uid in cache
+//  4. Query database by pod_uid as final fallback (handles cache-miss on newly started pods)
+func resolveWorkloadUIDs(workloadUID string, podName string, podUID string, apiName string) []string {
 	if workloadUID != "" {
 		logrus.Infof("[%s] WorkloadUID provided: %s", apiName, workloadUID)
 		return []string{workloadUID}
 	}
 
-	// If PodName is provided, try to get all associated workloads from cache
+	// Try pod_name cache lookup
 	if podName != "" {
-		logrus.Infof("[%s] WorkloadUID not provided, trying to get all workloads from pod cache by PodName: %s", apiName, podName)
 		workloads := pods.GetWorkloadsByPodName(podName)
 		if len(workloads) > 0 {
-			workloadUIDs := make([]string, 0, len(workloads))
-			for _, workload := range workloads {
-				workloadName := workload[0]
-				workloadUID := workload[1]
-				workloadUIDs = append(workloadUIDs, workloadUID)
-				logrus.Infof("[%s] ✓ Found workload from cache - WorkloadName: %s, WorkloadUID: %s, PodName: %s",
-					apiName, workloadName, workloadUID, podName)
+			result := extractWorkloadUIDs(workloads, apiName, "podName cache", podName)
+			return result
+		}
+		logrus.Debugf("[%s] PodName %s not in cache, trying next strategy", apiName, podName)
+	}
+
+	// Try pod_uid cache lookup
+	if podUID != "" {
+		workloads := pods.GetWorkloadsByPodUid(podUID)
+		if len(workloads) > 0 {
+			result := extractWorkloadUIDs(workloads, apiName, "podUID cache", podUID)
+			return result
+		}
+		logrus.Debugf("[%s] PodUID %s not in cache, falling back to DB query", apiName, podUID)
+	}
+
+	// DB fallback: query workload_pod_reference by pod_uid
+	if podUID != "" {
+		clusterName := clientsets.GetClusterManager().GetCurrentClusterName()
+		facade := database.GetFacadeForCluster(clusterName).GetWorkload()
+		uids, err := facade.ListWorkloadUidsByPodUids(context.Background(), []string{podUID})
+		if err != nil {
+			logrus.Warnf("[%s] DB fallback query failed for PodUID %s: %v", apiName, podUID, err)
+		} else if len(uids) > 0 {
+			logrus.Infof("[%s] ✓ DB fallback found %d workload(s) for PodUID: %s", apiName, len(uids), podUID)
+			for _, uid := range uids {
+				logrus.Infof("[%s]   WorkloadUID: %s", apiName, uid)
 			}
-			logrus.Infof("[%s] Total %d workload(s) found for PodName: %s", apiName, len(workloadUIDs), podName)
-			return workloadUIDs
-		} else {
-			logrus.Warnf("[%s] Failed to find any workload for PodName: %s in cache", apiName, podName)
-			return []string{}
+			return uids
 		}
 	}
 
-	logrus.Warnf("[%s] Neither WorkloadUID nor PodName provided", apiName)
+	identifier := podName
+	if identifier == "" {
+		identifier = podUID
+	}
+	logrus.Warnf("[%s] No workload found for pod (name=%s, uid=%s)", apiName, podName, podUID)
 	return []string{}
+}
+
+func extractWorkloadUIDs(workloads [][]string, apiName string, source string, key string) []string {
+	result := make([]string, 0, len(workloads))
+	for _, w := range workloads {
+		result = append(result, w[1])
+		logrus.Infof("[%s] ✓ Found workload via %s - WorkloadName: %s, WorkloadUID: %s, Key: %s",
+			apiName, source, w[0], w[1], key)
+	}
+	return result
+}
+
+// getWorkloadUIDsFromPodName is kept for backward compatibility, delegates to resolveWorkloadUIDs.
+func getWorkloadUIDsFromPodName(workloadUID string, podName string, apiName string) []string {
+	return resolveWorkloadUIDs(workloadUID, podName, "", apiName)
 }
 
 // convertToAdvisorWandBRequest converts telemetry-processor WandBDetectionRequest
