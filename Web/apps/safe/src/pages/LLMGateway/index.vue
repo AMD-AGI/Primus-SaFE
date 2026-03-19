@@ -12,44 +12,116 @@
         <span>AMD LLM Subscription Key is bound</span>
       </div>
 
-      <el-descriptions :column="2" border class="mt-6">
-        <el-descriptions-item label="Email">
-          {{ binding.user_email }}
-        </el-descriptions-item>
-        <el-descriptions-item label="Summary Usage">
-          <span v-if="summary">
-            ${{ summary.total_spend?.toFixed(5) ?? '0.00000' }}
-          </span>
-          <el-text v-else type="info">-</el-text>
-        </el-descriptions-item>
-        <el-descriptions-item label="Created At">
-          {{ formatTimeStr(binding.created_at) }}
-        </el-descriptions-item>
-        <el-descriptions-item label="Updated At">
-          {{ formatTimeStr(binding.updated_at) }}
-        </el-descriptions-item>
-      </el-descriptions>
+      <div class="info-budget-row mt-6">
+        <!-- Left: Binding info -->
+        <div class="info-side">
+          <el-descriptions :column="1" border>
+            <el-descriptions-item label="Email">
+              {{ binding.user_email }}
+            </el-descriptions-item>
+            <el-descriptions-item label="Created At">
+              {{ formatTimeStr(binding.created_at) }}
+            </el-descriptions-item>
+            <el-descriptions-item label="Updated At">
+              {{ formatTimeStr(binding.updated_at) }}
+            </el-descriptions-item>
+          </el-descriptions>
 
-      <el-divider />
+          <el-text class="block font-500 mb-4 mt-4" tag="b">Update AMD LLM Subscription Key</el-text>
+          <div class="key-input-row">
+            <el-input
+              v-model="apimKeyInput"
+              type="password"
+              :placeholder="binding?.apim_key_hint ? `Current: ${binding.apim_key_hint}` : 'Enter new AMD LLM Subscription Key'"
+              show-password
+              clearable
+              class="key-input"
+            />
+            <el-button
+              type="primary"
+              :loading="submitLoading"
+              :disabled="!apimKeyInput.trim()"
+              @click="handleUpdate"
+            >
+              Update
+            </el-button>
+          </div>
+        </div>
 
-      <el-text class="block font-500 mb-4" tag="b">Update AMD LLM Subscription Key</el-text>
-      <div class="key-input-row">
-        <el-input
-          v-model="apimKeyInput"
-          type="password"
-          :placeholder="binding?.apim_key_hint ? `Current: ${binding.apim_key_hint}` : 'Enter new AMD LLM Subscription Key'"
-          show-password
-          clearable
-          class="key-input"
-        />
-        <el-button
-          type="primary"
-          :loading="submitLoading"
-          :disabled="!apimKeyInput.trim()"
-          @click="handleUpdate"
-        >
-          Update
-        </el-button>
+        <!-- Right: Summary Usage + Budget -->
+        <div class="budget-side">
+          <div class="budget-card" v-loading="budgetLoading">
+            <div class="budget-header">
+              <span class="budget-title">Summary Usage</span>
+              <span class="budget-total">${{ summary?.total_spend?.toFixed(5) ?? '0.00000' }}</span>
+            </div>
+
+            <!-- Budget section -->
+            <fieldset class="budget-fieldset">
+              <legend>Budget</legend>
+              <template v-if="budget?.max_budget != null">
+                <div class="budget-stats">
+                  <div class="budget-stat">
+                    <div class="budget-stat-label">Spend</div>
+                    <div class="budget-stat-value">${{ budget.spend?.toFixed(2) }}</div>
+                  </div>
+                  <div class="budget-stat">
+                    <div class="budget-stat-label">Budget</div>
+                    <div class="budget-stat-value">${{ budget.max_budget?.toFixed(2) }}</div>
+                  </div>
+                  <div class="budget-stat">
+                    <div class="budget-stat-label">Remaining</div>
+                    <div class="budget-stat-value">${{ budget.remaining?.toFixed(2) }}</div>
+                  </div>
+                </div>
+                <el-progress
+                  :percentage="Math.min(budget.usage_percent ?? 0, 100)"
+                  :status="budget.budget_exceeded ? 'exception' : undefined"
+                  :stroke-width="10"
+                  class="mt-3"
+                >
+                  <span class="text-xs">{{ budget.usage_percent?.toFixed(1) }}%</span>
+                </el-progress>
+                <el-alert
+                  v-if="budget.budget_exceeded"
+                  title="Budget exceeded — LLM requests will be rejected (HTTP 429)"
+                  type="error"
+                  :closable="false"
+                  show-icon
+                  class="mt-3"
+                />
+              </template>
+              <template v-else>
+                <el-text type="info" class="text-sm">No budget limit set.</el-text>
+              </template>
+
+              <div class="budget-adjust mt-3">
+                <span class="text-sm">Adjust Budget:</span>
+                <div class="flex items-center gap-2">
+                  <span class="budget-dollar">$</span>
+                  <el-input-number
+                    v-model="budgetInput"
+                    :min="0.01"
+                    :step="10"
+                    :precision="2"
+                    size="small"
+                    controls-position="right"
+                    class="budget-input"
+                  />
+                  <el-button
+                    type="primary"
+                    size="small"
+                    :loading="budgetSaving"
+                    :disabled="!budgetInput || budgetInput <= 0"
+                    @click="handleSaveBudget"
+                  >
+                    Save
+                  </el-button>
+                </div>
+              </div>
+            </fieldset>
+          </div>
+        </div>
       </div>
     </el-card>
 
@@ -145,6 +217,43 @@
           </el-table-column>
         </el-table>
       </div>
+
+      <!-- Tag Breakdown table -->
+      <div class="mt-6" v-loading="tagUsageLoading">
+        <div class="flex items-center gap-3 mb-4">
+          <h4 class="sub-title">Tag Breakdown</h4>
+        </div>
+        <template v-if="tagRows.length">
+          <el-table :data="tagRows" size="default" stripe class="model-table">
+            <el-table-column prop="tag_name" label="Tag" min-width="180">
+              <template #default="{ row }">
+                <el-text v-if="row.tag_name === null" type="info">(Untagged)</el-text>
+                <span v-else>{{ row.tag_name }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column prop="spend" label="Spend (USD)" width="130" align="right">
+              <template #default="{ row }">
+                ${{ row.spend.toFixed(5) }}
+              </template>
+            </el-table-column>
+            <el-table-column label="Tokens" width="120" align="right">
+              <template #default="{ row }">
+                {{ fmtCompact(row.prompt_tokens + row.completion_tokens) }}
+              </template>
+            </el-table-column>
+            <el-table-column prop="api_requests" label="Requests" width="120" align="right">
+              <template #default="{ row }">
+                {{ fmtNum(row.api_requests) }}
+              </template>
+            </el-table-column>
+          </el-table>
+        </template>
+        <el-empty
+          v-else-if="!tagUsageLoading"
+          description="No tag data yet. Pass tags in your LLM requests via extra_body={&quot;tags&quot;: [&quot;xxx&quot;]} to categorize spend."
+          :image-size="60"
+        />
+      </div>
     </el-card>
 
     <!-- Code examples -->
@@ -163,6 +272,13 @@
           <div class="code-block">
             <el-icon class="copy-btn" @click="copyText(codeSnippets.virtualKey)"><CopyDocument /></el-icon>
             <pre><code>{{ codeSnippets.virtualKey }}</code></pre>
+          </div>
+        </el-tab-pane>
+
+        <el-tab-pane label="Using Tags" name="tags">
+          <div class="code-block">
+            <el-icon class="copy-btn" @click="copyText(codeSnippets.tags)"><CopyDocument /></el-icon>
+            <pre><code>{{ codeSnippets.tags }}</code></pre>
           </div>
         </el-tab-pane>
 
@@ -282,8 +398,17 @@ import {
   updateLLMGatewayBinding,
   getLLMGatewayUsage,
   getLLMGatewaySummary,
+  getLLMGatewayBudget,
+  updateLLMGatewayBudget,
+  getLLMGatewayTagUsage,
 } from '@/services'
-import type { LLMGatewayBinding, LLMGatewayUsage, LLMGatewaySummary } from '@/services'
+import type {
+  LLMGatewayBinding,
+  LLMGatewayUsage,
+  LLMGatewaySummary,
+  LLMGatewayBudget,
+  LLMGatewayTagUsage,
+} from '@/services'
 import { formatTimeStr, copyText } from '@/utils/index'
 import { ElMessage } from 'element-plus'
 import {
@@ -357,6 +482,24 @@ response = client.chat.completions.create(
     messages=[{"role": "user", "content": "Hello!"}],
 )
 print(response.choices[0].message.content)`,
+  tags: `# Using Tags to categorize spend (optional)
+from openai import OpenAI
+import httpx
+
+http_client = httpx.Client(verify=False)
+
+client = OpenAI(
+    api_key="ak-<your-safe-apikey>",
+    base_url="https://oci-slc.primus-safe.amd.com/api/v1/llm-proxy/v1",
+    http_client=http_client,
+)
+
+response = client.chat.completions.create(
+    model="openai/gpt-4.1",
+    messages=[{"role": "user", "content": "Hello!"}],
+    extra_body={"tags": ["project-A"]}  # Tags are optional; untagged requests appear as "(Untagged)"
+)
+print(response.choices[0].message.content)`,
   linux: `curl -fsSL https://raw.githubusercontent.com/AMD-AGI/Primus-SaFE/main/Scripts/setup-certs/setup.sh | bash`,
   windows: `irm https://raw.githubusercontent.com/AMD-AGI/Primus-SaFE/main/Scripts/setup-certs/setup.bat -OutFile $env:TEMP\\setup.bat; cmd /c $env:TEMP\\setup.bat`,
 }
@@ -377,6 +520,63 @@ const fetchSummary = async () => {
     summary.value = await getLLMGatewaySummary()
   } catch {
     summary.value = null
+  }
+}
+
+// ── Budget ──
+const budget = ref<LLMGatewayBudget | null>(null)
+const budgetLoading = ref(false)
+const budgetSaving = ref(false)
+const budgetInput = ref<number | undefined>(undefined)
+
+const fetchBudget = async () => {
+  try {
+    budgetLoading.value = true
+    budget.value = await getLLMGatewayBudget()
+    if (budget.value?.max_budget != null) {
+      budgetInput.value = budget.value.max_budget
+    }
+  } catch {
+    budget.value = null
+  } finally {
+    budgetLoading.value = false
+  }
+}
+
+const handleSaveBudget = async () => {
+  if (!budgetInput.value || budgetInput.value <= 0) return
+  try {
+    budgetSaving.value = true
+    budget.value = await updateLLMGatewayBudget({ max_budget: budgetInput.value })
+    ElMessage.success('Budget updated successfully')
+  } catch {
+    ElMessage.error('Failed to update budget')
+  } finally {
+    budgetSaving.value = false
+  }
+}
+
+// ── Tag Usage ──
+const tagUsage = ref<LLMGatewayTagUsage | null>(null)
+const tagUsageLoading = ref(false)
+
+const tagRows = computed(() => {
+  if (!tagUsage.value?.tags) return []
+  return [...tagUsage.value.tags].sort((a, b) => b.spend - a.spend)
+})
+
+const fetchTagUsage = async () => {
+  if (!binding.value?.has_apim_key) return
+  try {
+    tagUsageLoading.value = true
+    tagUsage.value = await getLLMGatewayTagUsage({
+      start_date: dateRange.value[0],
+      end_date: dateRange.value[1],
+    })
+  } catch {
+    tagUsage.value = null
+  } finally {
+    tagUsageLoading.value = false
   }
 }
 
@@ -456,12 +656,14 @@ const onQuickRangeChange = (days: number) => {
     dayjs().format('YYYY-MM-DD'),
   ]
   fetchUsage()
+  fetchTagUsage()
 }
 
 const onDateRangeChange = (val: [string, string] | null) => {
   if (!val) return
   quickRange.value = 0 as never
   fetchUsage()
+  fetchTagUsage()
 }
 
 const fetchBinding = async () => {
@@ -593,6 +795,8 @@ watch(
     if (bound) {
       fetchUsage()
       fetchSummary()
+      fetchBudget()
+      fetchTagUsage()
     }
   },
 )
@@ -766,6 +970,105 @@ onBeforeUnmount(() => {
   .model-table :deep(.el-table__body td) {
     padding: 16px 0;
   }
+}
+
+/* Info + Budget side-by-side layout */
+.info-budget-row {
+  display: flex;
+  gap: 24px;
+  align-items: flex-start;
+}
+.info-side {
+  flex: 1;
+  min-width: 0;
+}
+.budget-side {
+  flex: 1;
+  min-width: 0;
+}
+@media (max-width: 900px) {
+  .info-budget-row {
+    flex-direction: column;
+  }
+}
+
+/* Budget card */
+.budget-card {
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 12px;
+  padding: 20px;
+  background: linear-gradient(
+    135deg,
+    rgba(255, 255, 255, 0.6),
+    rgba(255, 255, 255, 0.15)
+  );
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  height: 100%;
+}
+.dark .budget-card {
+  background: linear-gradient(
+    135deg,
+    rgba(255, 255, 255, 0.06),
+    rgba(255, 255, 255, 0.02)
+  );
+}
+.budget-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+}
+.budget-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--el-text-color-primary);
+}
+.budget-total {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--el-color-primary);
+}
+.budget-fieldset {
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 8px;
+  padding: 14px 16px;
+  margin: 0;
+}
+.budget-fieldset legend {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--el-text-color-secondary);
+  padding: 0 6px;
+}
+.budget-stats {
+  display: flex;
+  gap: 24px;
+}
+.budget-stat-label {
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+}
+.budget-stat-value {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--el-text-color-primary);
+  margin-top: 2px;
+}
+.budget-adjust {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.budget-dollar {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--el-text-color-primary);
+  line-height: 1;
+}
+.budget-input {
+  width: 140px;
 }
 
 /* Code block */
