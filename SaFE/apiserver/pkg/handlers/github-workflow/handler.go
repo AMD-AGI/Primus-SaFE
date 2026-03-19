@@ -30,6 +30,7 @@ func RegisterRoutes(router *gin.RouterGroup) {
 	gh.GET("/commits/:sha", handleGetCommit)
 	gh.GET("/stats", handleStats)
 	gh.GET("/collection-configs/:id/fields", handleGetFields)
+	gh.GET("/collection-configs/:id/metrics", handleGetConfigMetrics)
 }
 
 func getDB() *sql.DB {
@@ -198,11 +199,9 @@ func handleGetRun(c *gin.Context) {
 	id := c.Param("id")
 	db := getDB()
 
-	var run map[string]interface{}
-	var wid, cluster, wfName, ghOwner, ghRepo, branch, sha, st, conclusion, syncSt string
-	var ghRunID, ghJobID int64
-	var startedAt, completedAt sql.NullTime
-	var createdAt time.Time
+	var wid, cluster, wfName, ghOwner, ghRepo, branch, sha, st, conclusion, syncSt sql.NullString
+	var ghRunID, ghJobID sql.NullInt64
+	var startedAt, completedAt, createdAt sql.NullTime
 
 	err := db.QueryRowContext(c.Request.Context(), `
 		SELECT workload_id, cluster, github_run_id, github_job_id, workflow_name,
@@ -216,13 +215,15 @@ func handleGetRun(c *gin.Context) {
 		return
 	}
 
-	run = map[string]interface{}{
-		"id": id, "workload_id": wid, "cluster": cluster,
-		"github_run_id": ghRunID, "github_job_id": ghJobID, "workflow_name": wfName,
-		"github_owner": ghOwner, "github_repo": ghRepo,
-		"head_branch": branch, "head_sha": sha,
-		"status": st, "conclusion": conclusion, "sync_status": syncSt,
-		"created_at": createdAt.Format(time.RFC3339),
+	run := map[string]interface{}{
+		"id": id, "workload_id": ns(wid), "cluster": ns(cluster),
+		"github_run_id": ni(ghRunID), "github_job_id": ni(ghJobID), "workflow_name": ns(wfName),
+		"github_owner": ns(ghOwner), "github_repo": ns(ghRepo),
+		"head_branch": ns(branch), "head_sha": ns(sha),
+		"status": ns(st), "conclusion": ns(conclusion), "sync_status": ns(syncSt),
+	}
+	if createdAt.Valid {
+		run["created_at"] = createdAt.Time.Format(time.RFC3339)
 	}
 	if startedAt.Valid {
 		run["started_at"] = startedAt.Time.Format(time.RFC3339)
@@ -455,6 +456,78 @@ func handleGetFields(c *gin.Context) {
 		"fields":           fields,
 		"display_settings": displaySettings,
 	})
+}
+
+func handleGetConfigMetrics(c *gin.Context) {
+	configID := c.Param("id")
+	db := getDB()
+	limit := 500
+	if l := c.Query("limit"); l != "" {
+		limit, _ = strconv.Atoi(l)
+	}
+	offset := 0
+	if o := c.Query("offset"); o != "" {
+		offset, _ = strconv.Atoi(o)
+	}
+
+	var total int
+	db.QueryRowContext(c.Request.Context(),
+		`SELECT count(*) FROM github_workflow_metrics WHERE config_id = $1`, configID).Scan(&total)
+
+	rows, err := db.QueryContext(c.Request.Context(), `
+		SELECT id, source_file, row_data, created_at
+		FROM github_workflow_metrics
+		WHERE config_id = $1
+		ORDER BY created_at DESC
+		LIMIT $2 OFFSET $3`, configID, limit, offset)
+	if err != nil {
+		c.JSON(500, gin.H{"error": err.Error()})
+		return
+	}
+	defer rows.Close()
+
+	var metrics []map[string]interface{}
+	for rows.Next() {
+		var mid int
+		var sourceFile sql.NullString
+		var rowDataBytes []byte
+		var createdAt time.Time
+		rows.Scan(&mid, &sourceFile, &rowDataBytes, &createdAt)
+		m := map[string]interface{}{
+			"id":         mid,
+			"created_at": createdAt.Format(time.RFC3339),
+		}
+		if sourceFile.Valid {
+			m["source_file"] = sourceFile.String
+		}
+		if len(rowDataBytes) > 0 && string(rowDataBytes) != "{}" {
+			var rd interface{}
+			json.Unmarshal(rowDataBytes, &rd)
+			m["row_data"] = rd
+		}
+		metrics = append(metrics, m)
+	}
+
+	c.JSON(200, gin.H{
+		"metrics": metrics,
+		"total":   total,
+		"limit":   limit,
+		"offset":  offset,
+	})
+}
+
+func ns(s sql.NullString) string {
+	if s.Valid {
+		return s.String
+	}
+	return ""
+}
+
+func ni(n sql.NullInt64) int64 {
+	if n.Valid {
+		return n.Int64
+	}
+	return 0
 }
 
 func pgArr(s string) []string {
