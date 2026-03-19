@@ -23,7 +23,6 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/controller"
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
-	githubpkg "github.com/AMD-AIG-AIMA/SAFE/job-manager/pkg/github"
 	jobutils "github.com/AMD-AIG-AIMA/SAFE/job-manager/pkg/utils"
 )
 
@@ -36,8 +35,6 @@ type SyncerReconciler struct {
 	// Key: cluster name, Value: *ClusterClientSets instance
 	clusterClientSets *commonutils.ObjectManager
 	*controller.Controller[*resourceMessage]
-	// workflowTracker handles GitHub workflow run tracking for CI/CD workloads
-	workflowTracker *githubpkg.WorkflowTracker
 }
 
 // SetupSyncerController initializes and registers the syncer controller with the manager.
@@ -48,9 +45,6 @@ func SetupSyncerController(ctx context.Context, mgr manager.Manager) error {
 		Client:            mgr.GetClient(),
 		clusterClientSets: commonutils.NewObjectManagerSingleton(),
 	}
-
-	r.workflowTracker = initWorkflowTracker(ctx)
-
 	r.Controller = controller.NewController[*resourceMessage](r, 1)
 	if err := r.start(ctx); err != nil {
 		return err
