@@ -105,17 +105,17 @@ func (c *MetricsCollector) CollectFromPVC(ctx context.Context,
 			continue
 		}
 
-		metrics, err := parseMetricsJSON(data)
+		rows, err := ParseFileToRows(data, filePath)
 		if err != nil {
 			klog.V(1).Infof("[metrics-collector] parse %s: %v", filePath, err)
 			continue
 		}
 
-		for _, m := range metrics {
-			metricsJSON, _ := json.Marshal(m.Metrics)
-			dimJSON, _ := json.Marshal(m.Dimensions)
-			c.store.InsertMetrics(ctx, configID, int64(runID), m.Timestamp, dimJSON, metricsJSON, data)
+		for _, row := range rows {
+			rowJSON, _ := json.Marshal(row)
+			c.store.InsertMetricRow(ctx, configID, int64(runID), filePath, rowJSON)
 		}
+		klog.Infof("[metrics-collector] stored %d rows from %s", len(rows), filePath)
 	}
 
 	return nil

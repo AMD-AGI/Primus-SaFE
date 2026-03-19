@@ -118,13 +118,23 @@ func (s *Store) UpsertJob(ctx context.Context, runID int, githubJobID int64,
 	return err
 }
 
-// InsertMetrics inserts a workflow metrics record.
+// InsertMetrics inserts a workflow metrics record (legacy).
 func (s *Store) InsertMetrics(ctx context.Context, configID, runID int64,
 	timestamp *time.Time, dimensions, metrics, rawData []byte) error {
 	_, err := s.db.ExecContext(ctx, `
 		INSERT INTO github_workflow_metrics (config_id, run_id, timestamp, dimensions, metrics, raw_data)
 		VALUES ($1, $2, $3, $4, $5, $6)`,
 		configID, runID, timestamp, dimensions, metrics, rawData)
+	return err
+}
+
+// InsertMetricRow inserts a single flat row_data record.
+func (s *Store) InsertMetricRow(ctx context.Context, configID, runID int64,
+	sourceFile string, rowData []byte) error {
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO github_workflow_metrics (config_id, run_id, source_file, row_data, created_at)
+		VALUES ($1, $2, $3, $4, NOW())`,
+		configID, runID, sourceFile, rowData)
 	return err
 }
 

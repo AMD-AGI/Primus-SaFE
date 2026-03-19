@@ -29,6 +29,7 @@ func RegisterRoutes(router *gin.RouterGroup) {
 	gh.GET("/runs/:id/metrics", handleGetRunMetrics)
 	gh.GET("/commits/:sha", handleGetCommit)
 	gh.GET("/stats", handleStats)
+	gh.GET("/collection-configs/:id/fields", handleGetFields)
 }
 
 func getDB() *sql.DB {
@@ -44,7 +45,7 @@ func handleListConfigs(c *gin.Context) {
 	db := getDB()
 	rows, err := db.QueryContext(c.Request.Context(), `
 		SELECT id, name, github_owner, github_repo, workflow_patterns, branch_patterns,
-		       file_patterns, enabled, COALESCE(created_by, ''), created_at, updated_at
+		       file_patterns, COALESCE(display_settings::text, '{}'), enabled, COALESCE(created_by, ''), created_at, updated_at
 		FROM github_collection_configs ORDER BY name`)
 	if err != nil {
 		c.JSON(500, gin.H{"error": err.Error()})
@@ -55,14 +56,16 @@ func handleListConfigs(c *gin.Context) {
 	var configs []map[string]interface{}
 	for rows.Next() {
 		var id int
-		var name, owner, repo, wp, bp, fp, createdBy string
+		var name, owner, repo, wp, bp, fp, ds, createdBy string
 		var enabled bool
 		var createdAt, updatedAt time.Time
-		rows.Scan(&id, &name, &owner, &repo, &wp, &bp, &fp, &enabled, &createdBy, &createdAt, &updatedAt)
+		rows.Scan(&id, &name, &owner, &repo, &wp, &bp, &fp, &ds, &enabled, &createdBy, &createdAt, &updatedAt)
+		var displaySettings interface{}
+		json.Unmarshal([]byte(ds), &displaySettings)
 		configs = append(configs, map[string]interface{}{
 			"id": id, "name": name, "github_owner": owner, "github_repo": repo,
 			"workflow_patterns": pgArr(wp), "branch_patterns": pgArr(bp), "file_patterns": pgArr(fp),
-			"enabled": enabled, "created_by": createdBy,
+			"display_settings": displaySettings, "enabled": enabled, "created_by": createdBy,
 			"created_at": createdAt.Format(time.RFC3339), "updated_at": updatedAt.Format(time.RFC3339),
 		})
 	}
@@ -71,13 +74,14 @@ func handleListConfigs(c *gin.Context) {
 
 func handleCreateConfig(c *gin.Context) {
 	var req struct {
-		Name             string   `json:"name" binding:"required"`
-		GithubOwner      string   `json:"github_owner" binding:"required"`
-		GithubRepo       string   `json:"github_repo" binding:"required"`
-		WorkflowPatterns []string `json:"workflow_patterns"`
-		BranchPatterns   []string `json:"branch_patterns"`
-		FilePatterns     []string `json:"file_patterns" binding:"required"`
-		Enabled          *bool    `json:"enabled"`
+		Name             string                 `json:"name" binding:"required"`
+		GithubOwner      string                 `json:"github_owner" binding:"required"`
+		GithubRepo       string                 `json:"github_repo" binding:"required"`
+		WorkflowPatterns []string               `json:"workflow_patterns"`
+		BranchPatterns   []string               `json:"branch_patterns"`
+		FilePatterns     []string               `json:"file_patterns" binding:"required"`
+		DisplaySettings  map[string]interface{} `json:"display_settings"`
+		Enabled          *bool                  `json:"enabled"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(400, gin.H{"error": err.Error()})
@@ -87,14 +91,19 @@ func handleCreateConfig(c *gin.Context) {
 	if req.Enabled != nil {
 		enabled = *req.Enabled
 	}
+	displayJSON, _ := json.Marshal(req.DisplaySettings)
+	if req.DisplaySettings == nil {
+		displayJSON = []byte("{}")
+	}
 
 	db := getDB()
 	_, err := db.ExecContext(c.Request.Context(), `
 		INSERT INTO github_collection_configs
-			(name, github_owner, github_repo, workflow_patterns, branch_patterns, file_patterns, enabled)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+			(name, github_owner, github_repo, workflow_patterns, branch_patterns, file_patterns, display_settings, enabled)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
 		req.Name, req.GithubOwner, req.GithubRepo,
-		sliceToArr(req.WorkflowPatterns), sliceToArr(req.BranchPatterns), sliceToArr(req.FilePatterns), enabled)
+		sliceToArr(req.WorkflowPatterns), sliceToArr(req.BranchPatterns), sliceToArr(req.FilePatterns),
+		displayJSON, enabled)
 	if err != nil {
 		c.JSON(500, gin.H{"error": err.Error()})
 		return
@@ -295,9 +304,9 @@ func handleGetRunMetrics(c *gin.Context) {
 	db := getDB()
 
 	rows, err := db.QueryContext(c.Request.Context(), `
-		SELECT id, config_id, timestamp, dimensions, metrics
+		SELECT id, config_id, source_file, row_data, timestamp, dimensions, metrics, created_at
 		FROM github_workflow_metrics WHERE run_id = $1
-		ORDER BY timestamp`, id)
+		ORDER BY created_at`, id)
 	if err != nil {
 		c.JSON(500, gin.H{"error": err.Error()})
 		return
@@ -308,21 +317,39 @@ func handleGetRunMetrics(c *gin.Context) {
 	for rows.Next() {
 		var mid int
 		var configID sql.NullInt64
+		var sourceFile sql.NullString
+		var rowDataBytes, dims, mets []byte
 		var ts sql.NullTime
-		var dims, mets []byte
-		rows.Scan(&mid, &configID, &ts, &dims, &mets)
-		m := map[string]interface{}{"id": mid}
+		var createdAt time.Time
+		rows.Scan(&mid, &configID, &sourceFile, &rowDataBytes, &ts, &dims, &mets, &createdAt)
+		m := map[string]interface{}{
+			"id":         mid,
+			"created_at": createdAt.Format(time.RFC3339),
+		}
 		if configID.Valid {
 			m["config_id"] = configID.Int64
+		}
+		if sourceFile.Valid {
+			m["source_file"] = sourceFile.String
+		}
+		if len(rowDataBytes) > 0 && string(rowDataBytes) != "{}" {
+			var rd interface{}
+			json.Unmarshal(rowDataBytes, &rd)
+			m["row_data"] = rd
 		}
 		if ts.Valid {
 			m["timestamp"] = ts.Time.Format(time.RFC3339)
 		}
-		var d, v interface{}
-		json.Unmarshal(dims, &d)
-		json.Unmarshal(mets, &v)
-		m["dimensions"] = d
-		m["metrics"] = v
+		if len(dims) > 0 && string(dims) != "{}" {
+			var d interface{}
+			json.Unmarshal(dims, &d)
+			m["dimensions"] = d
+		}
+		if len(mets) > 0 && string(mets) != "{}" {
+			var v interface{}
+			json.Unmarshal(mets, &v)
+			m["metrics"] = v
+		}
 		metrics = append(metrics, m)
 	}
 
@@ -369,6 +396,64 @@ func handleStats(c *gin.Context) {
 
 	c.JSON(200, gin.H{
 		"total": total, "running": running, "completed": completed, "failed": failed,
+	})
+}
+
+func handleGetFields(c *gin.Context) {
+	configID := c.Param("id")
+	db := getDB()
+
+	rows, err := db.QueryContext(c.Request.Context(), `
+		SELECT key,
+		       count(*) as total,
+		       count(*) FILTER (WHERE value ~ '^-?[0-9]+\.?[0-9]*([eE][+-]?[0-9]+)?$') as numeric_count,
+		       count(DISTINCT value) as distinct_count
+		FROM github_workflow_metrics,
+		     jsonb_each_text(row_data) AS kv(key, value)
+		WHERE config_id = $1
+		  AND created_at > NOW() - INTERVAL '30 days'
+		GROUP BY key
+		ORDER BY key`, configID)
+	if err != nil {
+		c.JSON(500, gin.H{"error": err.Error()})
+		return
+	}
+	defer rows.Close()
+
+	var fields []map[string]interface{}
+	for rows.Next() {
+		var key string
+		var total, numericCount, distinctCount int
+		rows.Scan(&key, &total, &numericCount, &distinctCount)
+
+		dataType := "string"
+		if numericCount > total/2 {
+			dataType = "number"
+		}
+
+		hint := "dimension"
+		if dataType == "number" && (distinctCount > 20 || float64(distinctCount) > float64(total)*0.1) {
+			hint = "metric"
+		}
+
+		fields = append(fields, map[string]interface{}{
+			"name":           key,
+			"data_type":      dataType,
+			"distinct_count": distinctCount,
+			"total_count":    total,
+			"hint":           hint,
+		})
+	}
+
+	var displaySettings interface{}
+	var ds string
+	db.QueryRowContext(c.Request.Context(),
+		`SELECT COALESCE(display_settings::text, '{}') FROM github_collection_configs WHERE id = $1`, configID).Scan(&ds)
+	json.Unmarshal([]byte(ds), &displaySettings)
+
+	c.JSON(200, gin.H{
+		"fields":           fields,
+		"display_settings": displaySettings,
 	})
 }
 
