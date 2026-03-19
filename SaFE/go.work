@@ -3,6 +3,7 @@ go 1.24.7
 use (
 	./apis
 	./apiserver
+	./a2a-gateway
 	./common
 	./node-agent
 	./resource-manager

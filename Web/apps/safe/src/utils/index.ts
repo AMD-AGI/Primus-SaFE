@@ -491,7 +491,7 @@ export function calculateDefaultTime(
   startTime?: string,
   endTime?: string,
   creationTime?: string,
-): [Date, Date] | null {
+): [Date, Date | 'now'] | null {
   const s = startTime || creationTime
   const e = endTime
   if (!s) return null
@@ -502,13 +502,10 @@ export function calculateDefaultTime(
   const start = startRaw
 
   if (e) {
-    // Has end time: parse as UTC likewise, browser auto-converts to local timezone
     const endRaw = new Date(e.replace(' ', 'T') + 'Z')
     const end = endRaw
     return end >= start ? [start, end] : [start, start]
   } else {
-    // No end time: use current local time, but ensure end >= start
-    const end = new Date()
-    return end >= start ? [start, end] : [start, start]
+    return [start, 'now']
   }
 }
