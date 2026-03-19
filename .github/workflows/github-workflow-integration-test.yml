@@ -10,7 +10,7 @@ jobs:
   # Job 1: Setup & Lint
   lint:
     name: Lint & Static Analysis
-    runs-on: cicd-test-kp4bc
+    runs-on: primus-safe-cicd-jjgkn
     steps:
       - name: Checkout code
         run: |
@@ -68,7 +68,7 @@ jobs:
   # Job 2: Unit Tests
   unit-test:
     name: Unit Tests
-    runs-on: cicd-test-kp4bc
+    runs-on: primus-safe-cicd-jjgkn
     needs: lint
     steps:
       - name: Checkout code
@@ -140,7 +140,7 @@ jobs:
   # Job 3: Build
   build:
     name: Build Application
-    runs-on: cicd-test-kp4bc
+    runs-on: primus-safe-cicd-jjgkn
     needs: [lint, unit-test]
     steps:
       - name: Checkout code
@@ -213,7 +213,7 @@ jobs:
   # Job 4: E2E smoke test
   e2e-smoke:
     name: E2E Smoke Test
-    runs-on: cicd-test-kp4bc
+    runs-on: primus-safe-cicd-jjgkn
     needs: build
     steps:
       - name: Setup test environment
