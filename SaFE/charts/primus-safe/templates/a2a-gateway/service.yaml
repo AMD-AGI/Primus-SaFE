@@ -1,0 +1,20 @@
+{{- if and .Values.a2a_gateway .Values.a2a_gateway.enable }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Release.Name }}-a2a-gateway
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: a2a-gateway
+spec:
+  type: ClusterIP
+  selector:
+    app: a2a-gateway
+  ports:
+  - name: http
+    port: {{ .Values.a2a_gateway.port }}
+    targetPort: {{ .Values.a2a_gateway.port }}
+  - name: metrics
+    port: {{ .Values.a2a_gateway.metrics_port }}
+    targetPort: {{ .Values.a2a_gateway.metrics_port }}
+{{- end }}

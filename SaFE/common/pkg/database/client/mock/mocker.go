@@ -80,6 +80,36 @@ func (mr *MockInterfaceMockRecorder) CheckDatasetNameExists(ctx, displayName int
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CheckDatasetNameExists", reflect.TypeOf((*MockInterface)(nil).CheckDatasetNameExists), ctx, displayName)
 }
 
+// CountA2ACallLogs mocks base method.
+func (m *MockInterface) CountA2ACallLogs(ctx context.Context, query squirrel.Sqlizer) (int, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CountA2ACallLogs", ctx, query)
+	ret0, _ := ret[0].(int)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CountA2ACallLogs indicates an expected call of CountA2ACallLogs.
+func (mr *MockInterfaceMockRecorder) CountA2ACallLogs(ctx, query interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountA2ACallLogs", reflect.TypeOf((*MockInterface)(nil).CountA2ACallLogs), ctx, query)
+}
+
+// CountA2AServices mocks base method.
+func (m *MockInterface) CountA2AServices(ctx context.Context, query squirrel.Sqlizer) (int, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CountA2AServices", ctx, query)
+	ret0, _ := ret[0].(int)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CountA2AServices indicates an expected call of CountA2AServices.
+func (mr *MockInterfaceMockRecorder) CountA2AServices(ctx, query interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountA2AServices", reflect.TypeOf((*MockInterface)(nil).CountA2AServices), ctx, query)
+}
+
 // CountApiKeys mocks base method.
 func (m *MockInterface) CountApiKeys(ctx context.Context, query squirrel.Sqlizer) (int, error) {
 	m.ctrl.T.Helper()
@@ -496,6 +526,36 @@ func (m *MockInterface) FailEmailOutbox(ctx context.Context, id int32, errMsg st
 func (mr *MockInterfaceMockRecorder) FailEmailOutbox(ctx, id, errMsg interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FailEmailOutbox", reflect.TypeOf((*MockInterface)(nil).FailEmailOutbox), ctx, id, errMsg)
+}
+
+// GetA2AService mocks base method.
+func (m *MockInterface) GetA2AService(ctx context.Context, serviceName string) (*client.A2AServiceRegistry, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetA2AService", ctx, serviceName)
+	ret0, _ := ret[0].(*client.A2AServiceRegistry)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetA2AService indicates an expected call of GetA2AService.
+func (mr *MockInterfaceMockRecorder) GetA2AService(ctx, serviceName interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetA2AService", reflect.TypeOf((*MockInterface)(nil).GetA2AService), ctx, serviceName)
+}
+
+// GetA2AServiceByK8s mocks base method.
+func (m *MockInterface) GetA2AServiceByK8s(ctx context.Context, namespace, service string) (*client.A2AServiceRegistry, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetA2AServiceByK8s", ctx, namespace, service)
+	ret0, _ := ret[0].(*client.A2AServiceRegistry)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetA2AServiceByK8s indicates an expected call of GetA2AServiceByK8s.
+func (mr *MockInterfaceMockRecorder) GetA2AServiceByK8s(ctx, namespace, service interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetA2AServiceByK8s", reflect.TypeOf((*MockInterface)(nil).GetA2AServiceByK8s), ctx, namespace, service)
 }
 
 // GetApiKeyById mocks base method.
@@ -1053,6 +1113,20 @@ func (mr *MockInterfaceMockRecorder) GetWorkloadStatisticsByWorkloadUID(ctx, wor
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetWorkloadStatisticsByWorkloadUID", reflect.TypeOf((*MockInterface)(nil).GetWorkloadStatisticsByWorkloadUID), ctx, workloadUID)
 }
 
+// InsertA2ACallLog mocks base method.
+func (m *MockInterface) InsertA2ACallLog(ctx context.Context, log *client.A2ACallLog) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "InsertA2ACallLog", ctx, log)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// InsertA2ACallLog indicates an expected call of InsertA2ACallLog.
+func (mr *MockInterfaceMockRecorder) InsertA2ACallLog(ctx, log interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "InsertA2ACallLog", reflect.TypeOf((*MockInterface)(nil).InsertA2ACallLog), ctx, log)
+}
+
 // InsertApiKey mocks base method.
 func (m *MockInterface) InsertApiKey(ctx context.Context, apiKey *client.ApiKey) error {
 	m.ctrl.T.Helper()
@@ -1122,6 +1196,21 @@ func (m *MockInterface) InsertSshSessionRecord(ctx context.Context, record *clie
 func (mr *MockInterfaceMockRecorder) InsertSshSessionRecord(ctx, record interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "InsertSshSessionRecord", reflect.TypeOf((*MockInterface)(nil).InsertSshSessionRecord), ctx, record)
+}
+
+// ListActiveA2AServices mocks base method.
+func (m *MockInterface) ListActiveA2AServices(ctx context.Context) ([]*client.A2AServiceRegistry, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListActiveA2AServices", ctx)
+	ret0, _ := ret[0].([]*client.A2AServiceRegistry)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListActiveA2AServices indicates an expected call of ListActiveA2AServices.
+func (mr *MockInterfaceMockRecorder) ListActiveA2AServices(ctx interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListActiveA2AServices", reflect.TypeOf((*MockInterface)(nil).ListActiveA2AServices), ctx)
 }
 
 // ListDeploymentRequests mocks base method.
@@ -1228,6 +1317,36 @@ func (m *MockInterface) ListUnprocessedNotifications(ctx context.Context) ([]*mo
 func (mr *MockInterfaceMockRecorder) ListUnprocessedNotifications(ctx interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListUnprocessedNotifications", reflect.TypeOf((*MockInterface)(nil).ListUnprocessedNotifications), ctx)
+}
+
+// SelectA2ACallLogs mocks base method.
+func (m *MockInterface) SelectA2ACallLogs(ctx context.Context, query squirrel.Sqlizer, orderBy []string, limit, offset int) ([]*client.A2ACallLog, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SelectA2ACallLogs", ctx, query, orderBy, limit, offset)
+	ret0, _ := ret[0].([]*client.A2ACallLog)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// SelectA2ACallLogs indicates an expected call of SelectA2ACallLogs.
+func (mr *MockInterfaceMockRecorder) SelectA2ACallLogs(ctx, query, orderBy, limit, offset interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SelectA2ACallLogs", reflect.TypeOf((*MockInterface)(nil).SelectA2ACallLogs), ctx, query, orderBy, limit, offset)
+}
+
+// SelectA2AServices mocks base method.
+func (m *MockInterface) SelectA2AServices(ctx context.Context, query squirrel.Sqlizer, orderBy []string, limit, offset int) ([]*client.A2AServiceRegistry, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SelectA2AServices", ctx, query, orderBy, limit, offset)
+	ret0, _ := ret[0].([]*client.A2AServiceRegistry)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// SelectA2AServices indicates an expected call of SelectA2AServices.
+func (mr *MockInterfaceMockRecorder) SelectA2AServices(ctx, query, orderBy, limit, offset interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SelectA2AServices", reflect.TypeOf((*MockInterface)(nil).SelectA2AServices), ctx, query, orderBy, limit, offset)
 }
 
 // SelectApiKeys mocks base method.
@@ -1394,6 +1513,20 @@ func (m *MockInterface) SelectWorkloads(ctx context.Context, query squirrel.Sqli
 func (mr *MockInterfaceMockRecorder) SelectWorkloads(ctx, query, orderBy, limit, offset interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SelectWorkloads", reflect.TypeOf((*MockInterface)(nil).SelectWorkloads), ctx, query, orderBy, limit, offset)
+}
+
+// SetA2AServiceDeleted mocks base method.
+func (m *MockInterface) SetA2AServiceDeleted(ctx context.Context, serviceName string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SetA2AServiceDeleted", ctx, serviceName)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// SetA2AServiceDeleted indicates an expected call of SetA2AServiceDeleted.
+func (mr *MockInterfaceMockRecorder) SetA2AServiceDeleted(ctx, serviceName interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetA2AServiceDeleted", reflect.TypeOf((*MockInterface)(nil).SetA2AServiceDeleted), ctx, serviceName)
 }
 
 // SetApiKeyDeleted mocks base method.
@@ -1576,6 +1709,20 @@ func (m *MockInterface) SubmitNotification(ctx context.Context, data *model.Noti
 func (mr *MockInterfaceMockRecorder) SubmitNotification(ctx, data interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SubmitNotification", reflect.TypeOf((*MockInterface)(nil).SubmitNotification), ctx, data)
+}
+
+// UpdateA2AHealth mocks base method.
+func (m *MockInterface) UpdateA2AHealth(ctx context.Context, serviceName, health string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateA2AHealth", ctx, serviceName, health)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpdateA2AHealth indicates an expected call of UpdateA2AHealth.
+func (mr *MockInterfaceMockRecorder) UpdateA2AHealth(ctx, serviceName, health interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateA2AHealth", reflect.TypeOf((*MockInterface)(nil).UpdateA2AHealth), ctx, serviceName, health)
 }
 
 // UpdateDatasetFileInfo mocks base method.
@@ -1772,6 +1919,20 @@ func (m *MockInterface) UpdateWorkloadStatistic(ctx context.Context, stat *model
 func (mr *MockInterfaceMockRecorder) UpdateWorkloadStatistic(ctx, stat interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateWorkloadStatistic", reflect.TypeOf((*MockInterface)(nil).UpdateWorkloadStatistic), ctx, stat)
+}
+
+// UpsertA2AService mocks base method.
+func (m *MockInterface) UpsertA2AService(ctx context.Context, svc *client.A2AServiceRegistry) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpsertA2AService", ctx, svc)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpsertA2AService indicates an expected call of UpsertA2AService.
+func (mr *MockInterfaceMockRecorder) UpsertA2AService(ctx, svc interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpsertA2AService", reflect.TypeOf((*MockInterface)(nil).UpsertA2AService), ctx, svc)
 }
 
 // UpsertDataset mocks base method.
@@ -4379,4 +4540,211 @@ func (m *MockLLMGatewayInterface) UpdateLLMBinding(ctx context.Context, binding 
 func (mr *MockLLMGatewayInterfaceMockRecorder) UpdateLLMBinding(ctx, binding interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateLLMBinding", reflect.TypeOf((*MockLLMGatewayInterface)(nil).UpdateLLMBinding), ctx, binding)
+}
+
+// MockA2AServiceRegistryInterface is a mock of A2AServiceRegistryInterface interface.
+type MockA2AServiceRegistryInterface struct {
+	ctrl     *gomock.Controller
+	recorder *MockA2AServiceRegistryInterfaceMockRecorder
+}
+
+// MockA2AServiceRegistryInterfaceMockRecorder is the mock recorder for MockA2AServiceRegistryInterface.
+type MockA2AServiceRegistryInterfaceMockRecorder struct {
+	mock *MockA2AServiceRegistryInterface
+}
+
+// NewMockA2AServiceRegistryInterface creates a new mock instance.
+func NewMockA2AServiceRegistryInterface(ctrl *gomock.Controller) *MockA2AServiceRegistryInterface {
+	mock := &MockA2AServiceRegistryInterface{ctrl: ctrl}
+	mock.recorder = &MockA2AServiceRegistryInterfaceMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockA2AServiceRegistryInterface) EXPECT() *MockA2AServiceRegistryInterfaceMockRecorder {
+	return m.recorder
+}
+
+// CountA2AServices mocks base method.
+func (m *MockA2AServiceRegistryInterface) CountA2AServices(ctx context.Context, query squirrel.Sqlizer) (int, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CountA2AServices", ctx, query)
+	ret0, _ := ret[0].(int)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CountA2AServices indicates an expected call of CountA2AServices.
+func (mr *MockA2AServiceRegistryInterfaceMockRecorder) CountA2AServices(ctx, query interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountA2AServices", reflect.TypeOf((*MockA2AServiceRegistryInterface)(nil).CountA2AServices), ctx, query)
+}
+
+// GetA2AService mocks base method.
+func (m *MockA2AServiceRegistryInterface) GetA2AService(ctx context.Context, serviceName string) (*client.A2AServiceRegistry, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetA2AService", ctx, serviceName)
+	ret0, _ := ret[0].(*client.A2AServiceRegistry)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetA2AService indicates an expected call of GetA2AService.
+func (mr *MockA2AServiceRegistryInterfaceMockRecorder) GetA2AService(ctx, serviceName interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetA2AService", reflect.TypeOf((*MockA2AServiceRegistryInterface)(nil).GetA2AService), ctx, serviceName)
+}
+
+// GetA2AServiceByK8s mocks base method.
+func (m *MockA2AServiceRegistryInterface) GetA2AServiceByK8s(ctx context.Context, namespace, service string) (*client.A2AServiceRegistry, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetA2AServiceByK8s", ctx, namespace, service)
+	ret0, _ := ret[0].(*client.A2AServiceRegistry)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetA2AServiceByK8s indicates an expected call of GetA2AServiceByK8s.
+func (mr *MockA2AServiceRegistryInterfaceMockRecorder) GetA2AServiceByK8s(ctx, namespace, service interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetA2AServiceByK8s", reflect.TypeOf((*MockA2AServiceRegistryInterface)(nil).GetA2AServiceByK8s), ctx, namespace, service)
+}
+
+// ListActiveA2AServices mocks base method.
+func (m *MockA2AServiceRegistryInterface) ListActiveA2AServices(ctx context.Context) ([]*client.A2AServiceRegistry, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListActiveA2AServices", ctx)
+	ret0, _ := ret[0].([]*client.A2AServiceRegistry)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListActiveA2AServices indicates an expected call of ListActiveA2AServices.
+func (mr *MockA2AServiceRegistryInterfaceMockRecorder) ListActiveA2AServices(ctx interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListActiveA2AServices", reflect.TypeOf((*MockA2AServiceRegistryInterface)(nil).ListActiveA2AServices), ctx)
+}
+
+// SelectA2AServices mocks base method.
+func (m *MockA2AServiceRegistryInterface) SelectA2AServices(ctx context.Context, query squirrel.Sqlizer, orderBy []string, limit, offset int) ([]*client.A2AServiceRegistry, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SelectA2AServices", ctx, query, orderBy, limit, offset)
+	ret0, _ := ret[0].([]*client.A2AServiceRegistry)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// SelectA2AServices indicates an expected call of SelectA2AServices.
+func (mr *MockA2AServiceRegistryInterfaceMockRecorder) SelectA2AServices(ctx, query, orderBy, limit, offset interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SelectA2AServices", reflect.TypeOf((*MockA2AServiceRegistryInterface)(nil).SelectA2AServices), ctx, query, orderBy, limit, offset)
+}
+
+// SetA2AServiceDeleted mocks base method.
+func (m *MockA2AServiceRegistryInterface) SetA2AServiceDeleted(ctx context.Context, serviceName string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SetA2AServiceDeleted", ctx, serviceName)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// SetA2AServiceDeleted indicates an expected call of SetA2AServiceDeleted.
+func (mr *MockA2AServiceRegistryInterfaceMockRecorder) SetA2AServiceDeleted(ctx, serviceName interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetA2AServiceDeleted", reflect.TypeOf((*MockA2AServiceRegistryInterface)(nil).SetA2AServiceDeleted), ctx, serviceName)
+}
+
+// UpdateA2AHealth mocks base method.
+func (m *MockA2AServiceRegistryInterface) UpdateA2AHealth(ctx context.Context, serviceName, health string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateA2AHealth", ctx, serviceName, health)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpdateA2AHealth indicates an expected call of UpdateA2AHealth.
+func (mr *MockA2AServiceRegistryInterfaceMockRecorder) UpdateA2AHealth(ctx, serviceName, health interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateA2AHealth", reflect.TypeOf((*MockA2AServiceRegistryInterface)(nil).UpdateA2AHealth), ctx, serviceName, health)
+}
+
+// UpsertA2AService mocks base method.
+func (m *MockA2AServiceRegistryInterface) UpsertA2AService(ctx context.Context, svc *client.A2AServiceRegistry) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpsertA2AService", ctx, svc)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpsertA2AService indicates an expected call of UpsertA2AService.
+func (mr *MockA2AServiceRegistryInterfaceMockRecorder) UpsertA2AService(ctx, svc interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpsertA2AService", reflect.TypeOf((*MockA2AServiceRegistryInterface)(nil).UpsertA2AService), ctx, svc)
+}
+
+// MockA2ACallLogInterface is a mock of A2ACallLogInterface interface.
+type MockA2ACallLogInterface struct {
+	ctrl     *gomock.Controller
+	recorder *MockA2ACallLogInterfaceMockRecorder
+}
+
+// MockA2ACallLogInterfaceMockRecorder is the mock recorder for MockA2ACallLogInterface.
+type MockA2ACallLogInterfaceMockRecorder struct {
+	mock *MockA2ACallLogInterface
+}
+
+// NewMockA2ACallLogInterface creates a new mock instance.
+func NewMockA2ACallLogInterface(ctrl *gomock.Controller) *MockA2ACallLogInterface {
+	mock := &MockA2ACallLogInterface{ctrl: ctrl}
+	mock.recorder = &MockA2ACallLogInterfaceMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockA2ACallLogInterface) EXPECT() *MockA2ACallLogInterfaceMockRecorder {
+	return m.recorder
+}
+
+// CountA2ACallLogs mocks base method.
+func (m *MockA2ACallLogInterface) CountA2ACallLogs(ctx context.Context, query squirrel.Sqlizer) (int, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CountA2ACallLogs", ctx, query)
+	ret0, _ := ret[0].(int)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CountA2ACallLogs indicates an expected call of CountA2ACallLogs.
+func (mr *MockA2ACallLogInterfaceMockRecorder) CountA2ACallLogs(ctx, query interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountA2ACallLogs", reflect.TypeOf((*MockA2ACallLogInterface)(nil).CountA2ACallLogs), ctx, query)
+}
+
+// InsertA2ACallLog mocks base method.
+func (m *MockA2ACallLogInterface) InsertA2ACallLog(ctx context.Context, log *client.A2ACallLog) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "InsertA2ACallLog", ctx, log)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// InsertA2ACallLog indicates an expected call of InsertA2ACallLog.
+func (mr *MockA2ACallLogInterfaceMockRecorder) InsertA2ACallLog(ctx, log interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "InsertA2ACallLog", reflect.TypeOf((*MockA2ACallLogInterface)(nil).InsertA2ACallLog), ctx, log)
+}
+
+// SelectA2ACallLogs mocks base method.
+func (m *MockA2ACallLogInterface) SelectA2ACallLogs(ctx context.Context, query squirrel.Sqlizer, orderBy []string, limit, offset int) ([]*client.A2ACallLog, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SelectA2ACallLogs", ctx, query, orderBy, limit, offset)
+	ret0, _ := ret[0].([]*client.A2ACallLog)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// SelectA2ACallLogs indicates an expected call of SelectA2ACallLogs.
+func (mr *MockA2ACallLogInterfaceMockRecorder) SelectA2ACallLogs(ctx, query, orderBy, limit, offset interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SelectA2ACallLogs", reflect.TypeOf((*MockA2ACallLogInterface)(nil).SelectA2ACallLogs), ctx, query, orderBy, limit, offset)
 }

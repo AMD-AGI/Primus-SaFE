@@ -19,9 +19,11 @@ import (
 	llmgateway "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/llm-gateway"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/middleware"
 	model_handlers "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/model-handlers"
+	a2ahandlers "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/a2a-handlers"
 	proxyhandlers "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/proxy-handlers"
 	reshandler "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/resources"
 	sshhandler "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/ssh-handlers"
+	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/a2a"
 	apiutils "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/utils"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
@@ -87,6 +89,20 @@ func InitHttpHandlers(_ context.Context, mgr ctrlruntime.Manager) (*gin.Engine, 
 		return nil, err
 	}
 	proxyhandlers.InitProxyRoutes(engine, proxyHandler)
+
+	// Initialize A2A handlers if database is enabled
+	if commonconfig.IsDBEnable() {
+		a2aDbClient := dbclient.NewClient()
+		if a2aDbClient != nil {
+			a2aHandler := a2ahandlers.NewHandler(a2aDbClient)
+			a2ahandlers.InitA2ARouters(engine, a2aHandler)
+
+			if commonconfig.IsA2AScannerEnable() {
+				scanner := a2a.NewScanner(mgr.GetClient(), a2aDbClient)
+				go scanner.Start(context.Background())
+			}
+		}
+	}
 
 	// Initialize LLM Gateway handlers (if enabled and DB is available)
 	if commonconfig.IsLLMGatewayEnable() && commonconfig.IsDBEnable() {

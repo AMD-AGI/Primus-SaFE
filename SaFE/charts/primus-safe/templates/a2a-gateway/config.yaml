@@ -1,0 +1,16 @@
+{{- if and .Values.a2a_gateway .Values.a2a_gateway.enable }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}-a2a-gateway
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: a2a-gateway
+data:
+  config.yaml: |
+    server_port: {{ .Values.a2a_gateway.port }}
+    metrics_port: {{ .Values.a2a_gateway.metrics_port }}
+    db_secret_path: /etc/secrets/db
+    db_ssl_mode: {{ default "require" .Values.db.ssl_mode }}
+    crypto_secret_path: /etc/secrets/crypto
+{{- end }}
