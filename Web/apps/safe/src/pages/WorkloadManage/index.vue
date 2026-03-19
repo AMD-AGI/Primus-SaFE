@@ -579,7 +579,14 @@ const getActions = (row: Row): Action[] => {
       icon: VideoPlay,
       btnClass: 'btn-success-plain',
       disabled: (r) => !['Stopped', 'Failed', 'Succeeded'].includes(r.phase),
-      onClick: (r) => openDialog(r, 'Resume'),
+      onClick: (r) => {
+        const endTime = (r as any).endTime
+        if (endTime && dayjs().diff(dayjs.utc(endTime), 'second') < 15) {
+          ElMessage.warning('Please wait 15 seconds after stopping before resuming the workload.')
+          return
+        }
+        openDialog(r, 'Resume')
+      },
     })
   }
 

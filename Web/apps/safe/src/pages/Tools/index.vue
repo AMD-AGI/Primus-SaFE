@@ -391,10 +391,10 @@ const toggleToolSelection = (toolId: number) => {
 // Single run - navigate to internal Poco Chat page
 const handleRun = (tool: Tool) => {
 
-  // const pocoUrl = `${location.origin}/poco?utm_source=safe#settings/tools/import?tools=${tool.name}`
-  // window.open(pocoUrl, '_blank')
+  const pocoUrl = `${location.origin}/poco?utm_source=safe#settings/tools/import?tools=${tool.name}`
+  window.open(pocoUrl, '_blank')
 
-  router.push({ path: '/primus-claw', query: { tools: tool.name } })
+  // router.push({ path: '/primus-claw', query: { tools: tool.name } })
 }
 
 // Batch run - navigate to internal Poco Chat page
@@ -409,12 +409,12 @@ const handleBatchRun = () => {
     .map(t => t.name)
     .join(',')
 
-  // const pocoUrl = `${location.origin}/poco?utm_source=safe#settings/tools/import?tools=${selectedToolNames}`
-  // window.open(pocoUrl, '_blank')
+  const pocoUrl = `${location.origin}/poco?utm_source=safe#settings/tools/import?tools=${selectedToolNames}`
+  window.open(pocoUrl, '_blank')
 
   // ElMessage.success(`Opening ${selectedTools.value.length} tool(s) in Poco`)
 
-  router.push({ path: '/primus-claw', query: { tools: selectedToolNames } })
+  // router.push({ path: '/primus-claw', query: { tools: selectedToolNames } })
   selectedTools.value = [] // Clear selected items
 }
 
