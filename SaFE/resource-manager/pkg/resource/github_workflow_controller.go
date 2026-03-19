@@ -119,9 +119,11 @@ func (r *GitHubWorkflowReconciler) Reconcile(ctx context.Context, req ctrlruntim
 	klog.Infof("[github-workflow] reconcile: workload=%s cluster=%s workspace=%s completed=%v",
 		wl.Name, cluster, wl.Spec.Workspace, isCompleted)
 
-	obj := r.fetchEphemeralRunner(ctx, cluster, wl)
+	obj, retryable := r.fetchEphemeralRunner(ctx, cluster, wl)
 	if obj == nil {
-		klog.Infof("[github-workflow] EphemeralRunner not found for %s in %s/%s", wl.Name, cluster, wl.Spec.Workspace)
+		if retryable {
+			return ctrlruntime.Result{RequeueAfter: 5 * time.Second}, nil
+		}
 		return ctrlruntime.Result{}, nil
 	}
 
@@ -130,28 +132,27 @@ func (r *GitHubWorkflowReconciler) Reconcile(ctx context.Context, req ctrlruntim
 	return ctrlruntime.Result{}, nil
 }
 
-func (r *GitHubWorkflowReconciler) fetchEphemeralRunner(ctx context.Context, cluster string, wl *v1.Workload) *unstructured.Unstructured {
+func (r *GitHubWorkflowReconciler) fetchEphemeralRunner(ctx context.Context, cluster string, wl *v1.Workload) (*unstructured.Unstructured, bool) {
 	k8sClients, err := rmutils.GetK8sClientFactory(r.clientManager, cluster)
 	if err != nil {
-		klog.Infof("[github-workflow] no client for cluster %s: %v", cluster, err)
-		return nil
+		klog.Infof("[github-workflow] no client for cluster %s (will retry): %v", cluster, err)
+		return nil, true
 	}
 
 	dynClient := k8sClients.DynamicClient()
 	if dynClient == nil {
-		klog.Infof("[github-workflow] no dynamic client for cluster %s", cluster)
-		return nil
+		klog.Infof("[github-workflow] no dynamic client for cluster %s (will retry)", cluster)
+		return nil, true
 	}
 
-	klog.Infof("[github-workflow] fetching EphemeralRunner %s/%s from cluster %s", wl.Spec.Workspace, wl.Name, cluster)
 	obj, err := dynClient.Resource(ephemeralRunnerGVR).
 		Namespace(wl.Spec.Workspace).
 		Get(ctx, wl.Name, metav1.GetOptions{})
 	if err != nil {
 		klog.Infof("[github-workflow] cannot get EphemeralRunner %s/%s in cluster %s: %v",
 			wl.Spec.Workspace, wl.Name, cluster, err)
-		return nil
+		return nil, false
 	}
 
-	return obj
+	return obj, false
 }
