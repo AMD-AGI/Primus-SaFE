@@ -79,7 +79,7 @@
 <script lang="ts" setup>
 import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import { getA2ATopology } from '@/services'
-import type { A2AService, A2ACallLog, A2ATopologyResponse } from '@/services'
+import type { A2AService, A2ACallLog, A2ATopologyResponse, A2ATopologyNode, A2ATopologyEdge } from '@/services'
 import { Connection, Timer, SuccessFilled, Monitor, Right } from '@element-plus/icons-vue'
 import dayjs from 'dayjs'
 import * as echarts from 'echarts/core'
@@ -156,7 +156,7 @@ const renderTopo = () => {
     topoChart = echarts.init(topoRef.value)
   }
 
-  const nodes = topoData.value.nodes.map((n, i) => ({
+  const nodes = topoData.value.nodes.map((n: A2ATopologyNode, i: number) => ({
     name: n.displayName || n.serviceName,
     symbolSize: 50,
     itemStyle: { color: healthColor[n.a2aHealth] || healthColor.unknown },
@@ -164,9 +164,9 @@ const renderTopo = () => {
     y: 80 + Math.floor(i / 4) * 140,
   }))
 
-  const edges = topoData.value.edges.map((e) => {
-    const sourceNode = topoData.value.nodes.find((n) => n.serviceName === e.caller)
-    const targetNode = topoData.value.nodes.find((n) => n.serviceName === e.target)
+  const edges = topoData.value.edges.map((e: A2ATopologyEdge) => {
+    const sourceNode = topoData.value.nodes.find((n: A2ATopologyNode) => n.serviceName === e.caller)
+    const targetNode = topoData.value.nodes.find((n: A2ATopologyNode) => n.serviceName === e.target)
     return {
       source: sourceNode?.displayName || e.caller,
       target: targetNode?.displayName || e.target,
