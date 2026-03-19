@@ -8,185 +8,306 @@
 
 ```
 /cicd
-├── [Tab: Workloads]     ← 现有的 CICD workload 列表
+├── [Tab: Workloads]       ← 现有的 CICD workload 列表
 └── [Tab: Repository View] ← 新增
     ├── 仓库列表页
-    │   ├── 统计卡片 (总仓库数 / 总运行数 / 运行中 / 采集配置数)
-    │   ├── 搜索框
-    │   └── 仓库卡片列表
-    │       ├── owner/repo 名称 + GitHub 链接
-    │       ├── 最近运行状态 (running / completed / failed)
-    │       ├── 是否有采集配置
-    │       └── 点击 → 仓库详情页
-    │
     └── 仓库详情页 (/cicd/repo/:owner/:repo)
-        ├── Header: owner/repo + GitHub 链接 + 返回按钮
-        ├── [Tab: Runs]       ← 该仓库的 workflow run 列表
-        │   ├── 过滤: status / workflow_name
-        │   └── 表格: run_id, workflow, workload, status, started_at
-        │       └── 点击展开 → Jobs + Steps
-        │
-        ├── [Tab: Metrics]    ← 该仓库的采集指标 (如果有 config)
-        │   ├── Config 选择器 (如果一个仓库有多个 config)
-        │   ├── Fields 信息面板 (dimensions / metrics, 来自 /fields API)
-        │   ├── 图表区域
-        │   │   ├── 根据 display_settings 自动配置:
-        │   │   │   - chart_type: line / bar
-        │   │   │   - group_by: 默认分组维度
-        │   │   │   - group_mode: dimension / metric
-        │   │   ├── 用户可切换 Y 轴指标 / 分组维度
-        │   │   └── ECharts 渲染
-        │   └── 原始数据表格 (show_raw_data_by_default 控制默认展开)
-        │
-        └── [Tab: Settings]   ← 采集配置管理
-            ├── 当前 config 详情
-            ├── 编辑 file_patterns / workflow_patterns / branch_patterns
-            └── 编辑 display_settings
+        ├── [Tab: Runs]
+        ├── [Tab: Metrics]
+        └── [Tab: Settings]
 ```
 
-## API 依赖
+---
 
-### 现有 API (已实现)
+## 页面 1：仓库列表
 
-| 方法 | 路径 | 用途 |
-|------|------|------|
-| GET | `/github-workflow/collection-configs` | 列表页: 获取所有配置 |
-| GET | `/github-workflow/collection-configs/:id/fields` | 详情页-Metrics: 获取字段列表 + display_settings |
-| GET | `/github-workflow/collection-configs/:id/metrics` | 详情页-Metrics: 获取指标数据 |
-| POST | `/github-workflow/collection-configs` | 详情页-Settings: 创建配置 |
-| DELETE | `/github-workflow/collection-configs/:id` | 详情页-Settings: 删除配置 |
-| GET | `/github-workflow/runs` | 详情页-Runs: 按仓库过滤 runs |
-| GET | `/github-workflow/runs/:id` | 详情页-Runs: run 详情 |
-| GET | `/github-workflow/runs/:id/jobs` | 详情页-Runs: jobs + steps |
-| GET | `/github-workflow/stats` | 列表页: 汇总统计 |
+### 样例图
 
-### 需要新增的 API
-
-| 方法 | 路径 | 用途 | 说明 |
-|------|------|------|------|
-| GET | `/github-workflow/repositories` | 列表页: 仓库列表 | 聚合 runs + configs 按 owner/repo 分组 |
-| GET | `/github-workflow/repositories/:owner/:repo` | 详情页: 仓库汇总 | 单个仓库的统计信息 |
-| PUT | `/github-workflow/collection-configs/:id` | 详情页-Settings: 更新配置 | 修改 file_patterns / display_settings |
-
-## 需要新增的 API 详细设计
-
-### GET /github-workflow/repositories
-
-按 owner/repo 聚合 runs 和 configs，返回仓库列表。
-
-**Request**: 无参数 (或 `search` 搜索)
-
-**Response**:
-```json
-{
-  "repositories": [
-    {
-      "github_owner": "AMD-AGI",
-      "github_repo": "Primus-Turbo",
-      "total_runs": 3,
-      "running_runs": 1,
-      "completed_runs": 2,
-      "failed_runs": 0,
-      "latest_run_at": "2026-03-19T10:17:04Z",
-      "latest_workflow": "unittest-pytorch-gfx942",
-      "config_count": 1,
-      "config_ids": [1]
-    }
-  ],
-  "count": 3
-}
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│  CICD                                                               │
+│  ┌──────────────┬───────────────────┐                               │
+│  │  Workloads   │  Repository View  │                               │
+│  └──────────────┴───────────────────┘                               │
+│                                                                     │
+│  ┌────────────┐  ┌────────────┐  ┌────────────┐  ┌────────────┐   │
+│  │ 📦 3       │  │ ▶ 0        │  │ ✅ 7       │  │ ⚙ 3        │   │
+│  │ Repos      │  │ Running    │  │ Completed  │  │ Configs    │   │
+│  └────────────┘  └────────────┘  └────────────┘  └────────────┘   │
+│                                                                     │
+│  🔍 [Search by repository...                              ]        │
+│                                                                     │
+│  ┌─────────────────────────────────────────────────────────────┐   │
+│  │ 🔗 AMD-AGI / Primus              ↗ GitHub                  │   │
+│  │    3 runs  │  0 running  │  3 completed  │  0 failed        │   │
+│  │    📊 2 collection configs                                  │   │
+│  │    Last run: 2 hours ago  │  Workflows: run-unittest-jax    │   │
+│  ├─────────────────────────────────────────────────────────────┤   │
+│  │ 🔗 AMD-AGI / Primus-Turbo        ↗ GitHub                  │   │
+│  │    3 runs  │  0 running  │  3 completed  │  0 failed        │   │
+│  │    📊 1 collection config (Primus-Turbo MI325 Benchmark)    │   │
+│  │    Last run: 4 hours ago  │  Workflows: unittest-pytorch... │   │
+│  ├─────────────────────────────────────────────────────────────┤   │
+│  │ 🔗 ROCm / unified-training-dockers  ↗ GitHub               │   │
+│  │    1 runs  │  0 running  │  1 completed  │  0 failed        │   │
+│  │    ⚠️ No collection config                                   │   │
+│  │    Last run: 3 hours ago  │  Workflows: run_ai_agent        │   │
+│  └─────────────────────────────────────────────────────────────┘   │
+└─────────────────────────────────────────────────────────────────────┘
 ```
 
-**SQL**:
-```sql
-SELECT github_owner, github_repo,
-       count(*) as total_runs,
-       count(*) FILTER (WHERE status = 'running') as running_runs,
-       count(*) FILTER (WHERE status = 'completed') as completed_runs,
-       count(*) FILTER (WHERE conclusion = 'failure') as failed_runs,
-       max(started_at) as latest_run_at
-FROM github_workflow_runs
-GROUP BY github_owner, github_repo
-ORDER BY max(started_at) DESC NULLS LAST
+### 数据来源
+- `GET /api/v1/github-workflow/repositories` → 仓库列表
+- `GET /api/v1/github-workflow/stats` → 统计卡片
+
+---
+
+## 页面 2：仓库详情 — Runs Tab
+
+### 样例图
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│  ← Back    🔗 AMD-AGI / Primus-Turbo  ↗ GitHub                     │
+│                                                                     │
+│  ┌────────────┐  ┌────────────┐  ┌────────────┐  ┌────────────┐   │
+│  │ ▶ 0        │  │ ✅ 3       │  │ ❌ 0       │  │ 📊 9434    │   │
+│  │ Running    │  │ Completed  │  │ Failed     │  │ Metrics    │   │
+│  └────────────┘  └────────────┘  └────────────┘  └────────────┘   │
+│                                                                     │
+│  ┌─────────┬─────────┬──────────┐                                  │
+│  │  Runs   │ Metrics │ Settings │                                  │
+│  └─────────┴─────────┴──────────┘                                  │
+│                                                                     │
+│  Status: [All ▼]  Workflow: [All ▼]  [🔍 Search]                   │
+│                                                                     │
+│  ┌──────┬──────────────────────────┬──────────┬────────┬─────────┐ │
+│  │ Run  │ Workflow                 │ Workload │ Status │ Started │ │
+│  ├──────┼──────────────────────────┼──────────┼────────┼─────────┤ │
+│  │23294 │ ✅ unittest-pytorch-gfx  │ turbo-.. │ done   │ 2h ago  │ │
+│  │      │   └─ 4 jobs: ✅✅✅✅     │  -r7gd6  │        │         │ │
+│  ├──────┼──────────────────────────┼──────────┼────────┼─────────┤ │
+│  │23293 │ ✅ unittest-jax-gfx942   │ turbo-.. │ done   │ 5h ago  │ │
+│  │      │   └─ 3 jobs: ✅✅✅       │  -c7gml  │        │         │ │
+│  ├──────┼──────────────────────────┼──────────┼────────┼─────────┤ │
+│  │23283 │ ✅ unittest-pytorch-gfx  │ turbo-.. │ done   │ 12h ago │ │
+│  │      │   └─ 4 jobs: ✅✅✅✅     │  -s227d  │        │         │ │
+│  └──────┴──────────────────────────┴──────────┴────────┴─────────┘ │
+│                                                                     │
+│  ▸ 展开 Run #23294 的 Jobs:                                         │
+│  ┌───────────────────────────────────────────────────────────────┐ │
+│  │  Job                    │ Status │ Runner              │ Time │ │
+│  ├─────────────────────────┼────────┼─────────────────────┼──────┤ │
+│  │  code-lint (3.12)       │ ✅     │ GitHub Actions      │ 18s  │ │
+│  │  install-dependencies   │ ✅     │ turbo-...-wcwg6     │ 80s  │ │
+│  │  unittest-jax-gfx942    │ ✅     │ turbo-...-lr598     │ 52m  │ │
+│  │  unittest-pytorch-gfx   │ ✅     │ turbo-...-s227d     │ 2h   │ │
+│  └─────────────────────────┴────────┴─────────────────────┴──────┘ │
+└─────────────────────────────────────────────────────────────────────┘
 ```
 
-### GET /github-workflow/repositories/:owner/:repo
+### 数据来源
+- `GET /api/v1/github-workflow/repositories/:owner/:repo` → Header 统计
+- `GET /api/v1/github-workflow/runs?github_owner=X&github_repo=Y` → Run 列表
+- `GET /api/v1/github-workflow/runs/:id/jobs` → 展开的 Jobs
 
-单个仓库的汇总信息。
+---
 
-**Response**:
-```json
-{
-  "github_owner": "AMD-AGI",
-  "github_repo": "Primus-Turbo",
-  "total_runs": 3,
-  "running_runs": 1,
-  "completed_runs": 2,
-  "failed_runs": 0,
-  "workflows": ["unittest-pytorch-gfx942", "unittest-jax-gfx942"],
-  "configs": [
-    {
-      "id": 1,
-      "name": "Primus-Turbo MI325 Benchmark",
-      "display_settings": {...},
-      "metrics_count": 9434
-    }
-  ]
-}
+## 页面 3：仓库详情 — Metrics Tab
+
+### 样例图（group_mode = "dimension", group_by = "Op"）
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│  ┌─────────┬─────────┬──────────┐                                  │
+│  │  Runs   │ Metrics │ Settings │                                  │
+│  └─────────┴─────────┴──────────┘                                  │
+│                                                                     │
+│  Config: [Primus-Turbo MI325 Benchmark ▼]   📊 9434 data points   │
+│                                                                     │
+│  ┌───────────────────────────────────────────────────────────────┐ │
+│  │ Chart Type: [Line ▼]  Y-Axis: [value ▼]  Group By: [Op ▼]   │ │
+│  │                                                               │ │
+│  │  value (TFLOPS)                                               │ │
+│  │  600 ┤                                    ╭─── Attention      │ │
+│  │      │                              ╭────╯                    │ │
+│  │  500 ┤                        ╭────╯     ╭─── GEMM           │ │
+│  │      │                  ╭────╯     ╭────╯                    │ │
+│  │  400 ┤            ╭────╯     ╭────╯                          │ │
+│  │      │      ╭────╯     ╭────╯          ╭─── GroupedGEMM     │ │
+│  │  300 ┤╭────╯     ╭────╯          ╭────╯                     │ │
+│  │      ├╯     ╭────╯          ╭────╯                           │ │
+│  │  200 ┤╭────╯          ╭────╯          ╭─── DeepEP           │ │
+│  │      │           ╭────╯          ╭────╯                      │ │
+│  │  100 ┤     ╭────╯          ╭────╯                            │ │
+│  │      │────╯          ╭────╯                                  │ │
+│  │    0 ┼───────────────┼───────────────┼──────────────────     │ │
+│  │      Jan-30    Feb-10    Feb-20    Mar-01    Mar-10           │ │
+│  └───────────────────────────────────────────────────────────────┘ │
+│                                                                     │
+│  Fields:  Dimensions: [Framework] [GPU] [Op✓] [Stage]              │
+│           Metrics:    [value✓]                                      │
+│                                                                     │
+│  ▾ Raw Data (9434 rows)                                            │
+│  ┌──────────┬─────┬────────────┬──────┬────────┐                   │
+│  │ Framework│ GPU │ Op         │Stage │ value  │                   │
+│  ├──────────┼─────┼────────────┼──────┼────────┤                   │
+│  │ Turbo    │MI325│ DeepEP     │Comb  │ 255.68 │                   │
+│  │ Turbo    │MI325│ DeepEP     │FP8   │ 227.61 │                   │
+│  │ Turbo    │MI325│ Attention  │Fwd   │ 557.59 │                   │
+│  │ ...      │     │            │      │        │                   │
+│  └──────────┴─────┴────────────┴──────┴────────┘                   │
+│  Showing 1-50 of 9434  [< 1 2 3 ... 189 >]                        │
+└─────────────────────────────────────────────────────────────────────┘
 ```
 
-### PUT /github-workflow/collection-configs/:id
+### 样例图（group_mode = "metric"，Primus-lm Benchmark）
 
-更新采集配置。
-
-**Request**:
-```json
-{
-  "name": "Updated name",
-  "file_patterns": ["**/results/*.csv"],
-  "workflow_patterns": ["benchmark.yml"],
-  "display_settings": {
-    "default_chart_type": "line",
-    "default_chart_group_by": "Op"
-  }
-}
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│  Config: [MI325 Primus-lm Benchmark ▼]   📊 223 data points       │
+│                                                                     │
+│  ┌───────────────────────────────────────────────────────────────┐ │
+│  │ Chart Type: [Line ▼]  Filter: Model=[All ▼] Framework=[All ▼]│ │
+│  │                                                               │ │
+│  │  Tokens/s/GPU                                                 │ │
+│  │  14000 ┤                                                      │ │
+│  │        │     ╭── deepseek_v3_16b-BF16                        │ │
+│  │  12000 ┤╭───╯                                                │ │
+│  │        ├╯    ╭── qwen2.5_7B-BF16                             │ │
+│  │  10000 ┤╭───╯                                                │ │
+│  │        │     ╭── llama3.1_8B-BF16                            │ │
+│  │   8000 ┤╭───╯                                                │ │
+│  │        │                                                      │ │
+│  │   6000 ┤╭─── mixtral_8x7B-BF16                              │ │
+│  │        │                                                      │ │
+│  │   2000 ┤                                                      │ │
+│  │        │     ╭── llama3.1_70B-BF16                           │ │
+│  │   1000 ┤────╯                                                │ │
+│  │      0 ┼─────────┼─────────┼─────────┼──────────────────     │ │
+│  │        Jan-19    Feb-01    Feb-15    Feb-28                   │ │
+│  │                                                               │ │
+│  │  ┌────────────────────────────────────────────────────┐       │ │
+│  │  │ Y-Axis: ○Tokens/s/GPU ○TFLOP/s/GPU ○Step Time    │       │ │
+│  │  │         ○Mem Usage                                 │       │ │
+│  │  └────────────────────────────────────────────────────┘       │ │
+│  └───────────────────────────────────────────────────────────────┘ │
+└─────────────────────────────────────────────────────────────────────┘
 ```
 
-## 图表渲染逻辑
+### 数据来源
+- `GET /api/v1/github-workflow/repositories/:owner/:repo` → config 列表
+- `GET /api/v1/github-workflow/collection-configs/:id/fields` → 字段 + display_settings
+- `GET /api/v1/github-workflow/collection-configs/:id/metrics?limit=5000` → 指标数据
 
-### 数据获取
-```
-1. GET /collection-configs/:id/fields → 获取 fields + display_settings
-2. GET /collection-configs/:id/metrics?limit=5000 → 获取 row_data
-```
+### 图表渲染逻辑
 
-### 根据 display_settings 渲染
-```
-display_settings.default_chart_group_mode:
-  - "dimension": 按 display_settings.default_chart_group_by 分组
-    例: group_by="Op" → X轴: date, Y轴: value, 每条线: Op 的不同值
-  - "metric": 按不同 metric 字段分组
-    例: Y轴上多条线: Tokens/s/GPU, TFLOP/s/GPU, Step Time (s)
-  - "none" 或空: 单条线
-
-display_settings.default_chart_type:
-  - "line": 折线图
-  - "bar": 柱状图
-
-display_settings.show_raw_data_by_default:
-  - true: 默认展开原始数据表格
-  - false: 默认折叠
-```
-
-### ECharts 配置生成
 ```javascript
-// group_mode = "dimension", group_by = "Op"
-const groups = [...new Set(metrics.map(m => m.row_data["Op"]))]
-const series = groups.map(g => ({
-  name: g,
-  type: chartType,
-  data: metrics
-    .filter(m => m.row_data["Op"] === g)
-    .map(m => [m.row_data["date"] || m.created_at, m.row_data["value"]])
-}))
+// 1. 获取 fields + display_settings
+const { fields, display_settings } = await api.getFields(configId)
+
+// 2. 分类字段
+const dimensions = fields.filter(f => f.hint === 'dimension')
+const metrics = fields.filter(f => f.hint === 'metric')
+
+// 3. 获取 metrics 数据
+const { metrics: rows } = await api.getConfigMetrics(configId, { limit: 5000 })
+
+// 4. 根据 display_settings 渲染
+if (display_settings.default_chart_group_mode === 'dimension') {
+  // 按维度分组: 每个 dimension 值一条线
+  const groupBy = display_settings.default_chart_group_by || dimensions[0]?.name
+  const metricField = metrics[0]?.name || 'value'
+  const groups = [...new Set(rows.map(r => r.row_data[groupBy]))]
+  
+  series = groups.map(g => ({
+    name: g,
+    type: display_settings.default_chart_type || 'line',
+    data: rows
+      .filter(r => r.row_data[groupBy] === g)
+      .map(r => [r.row_data['date'] || r.created_at, r.row_data[metricField]])
+      .sort((a, b) => a[0] > b[0] ? 1 : -1)
+  }))
+} else if (display_settings.default_chart_group_mode === 'metric') {
+  // 按指标分组: 每个 metric 字段一条线
+  series = metrics.map(m => ({
+    name: m.name,
+    type: display_settings.default_chart_type || 'line',
+    data: rows
+      .filter(r => r.row_data[m.name] != null)
+      .map(r => [r.row_data['date'] || r.created_at, r.row_data[m.name]])
+      .sort((a, b) => a[0] > b[0] ? 1 : -1)
+  }))
+}
 ```
+
+---
+
+## 页面 4：仓库详情 — Settings Tab
+
+### 样例图
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│  ┌─────────┬─────────┬──────────┐                                  │
+│  │  Runs   │ Metrics │ Settings │                                  │
+│  └─────────┴─────────┴──────────┘                                  │
+│                                                                     │
+│  Collection Configs                                                 │
+│                                                                     │
+│  ┌───────────────────────────────────────────────────────────────┐ │
+│  │ 📊 Primus-Turbo MI325 Benchmark                    [Edit] [✕]│ │
+│  │                                                               │ │
+│  │ File Patterns:                                                │ │
+│  │   /wekafs/primus_turbo/benchmark/{yyyymmdd}/**/summary.csv   │ │
+│  │   /wekafs/primus_turbo/benchmark/{yyyymmdd}/summary.csv      │ │
+│  │                                                               │ │
+│  │ Workflow Filter:  (none)                                      │ │
+│  │ Branch Filter:    (none)                                      │ │
+│  │                                                               │ │
+│  │ Display Settings:                                             │ │
+│  │   Chart Type:     line                                        │ │
+│  │   Group Mode:     dimension                                   │ │
+│  │   Group By:       Op                                          │ │
+│  │   Show Raw Data:  ✅                                          │ │
+│  │                                                               │ │
+│  │ Metrics: 9434 data points │ Enabled: ✅                       │ │
+│  └───────────────────────────────────────────────────────────────┘ │
+│                                                                     │
+│  [+ Add Collection Config]                                          │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+### 数据来源
+- `GET /api/v1/github-workflow/repositories/:owner/:repo` → config 列表
+- `PUT /api/v1/github-workflow/collection-configs/:id` → 更新配置
+- `POST /api/v1/github-workflow/collection-configs` → 创建配置
+- `DELETE /api/v1/github-workflow/collection-configs/:id` → 删除配置
+
+---
+
+## 完整 API 清单（14 个端点）
+
+| # | 方法 | 路径 | 用途 | 状态 |
+|---|------|------|------|------|
+| 1 | GET | `/github-workflow/repositories` | 仓库列表（聚合 runs + configs） | ✅ |
+| 2 | GET | `/github-workflow/repositories/:owner/:repo` | 仓库详情（workflows + configs） | ✅ |
+| 3 | GET | `/github-workflow/collection-configs` | 采集配置列表 | ✅ |
+| 4 | POST | `/github-workflow/collection-configs` | 创建采集配置 | ✅ |
+| 5 | PUT | `/github-workflow/collection-configs/:id` | 更新采集配置 | ✅ |
+| 6 | DELETE | `/github-workflow/collection-configs/:id` | 删除采集配置 | ✅ |
+| 7 | GET | `/github-workflow/collection-configs/:id/fields` | 字段列表 + display_settings | ✅ |
+| 8 | GET | `/github-workflow/collection-configs/:id/metrics` | 指标数据（row_data） | ✅ |
+| 9 | GET | `/github-workflow/runs` | Run 列表（支持 owner/repo/status 过滤） | ✅ |
+| 10 | GET | `/github-workflow/runs/:id` | Run 详情 | ✅ |
+| 11 | GET | `/github-workflow/runs/:id/jobs` | Jobs + Steps | ✅ |
+| 12 | GET | `/github-workflow/runs/:id/metrics` | 按 run 查 metrics | ✅ |
+| 13 | GET | `/github-workflow/commits/:sha` | Commit 详情 | ✅ |
+| 14 | GET | `/github-workflow/stats` | 汇总统计 | ✅ |
+
+## 前端技术栈
+
+- **框架**: Vue 3 + Element Plus（与现有 SaFE 前端一致）
+- **图表**: ECharts
+- **路由**: 在 `/cicd` 页面内通过 Tab 切换，仓库详情通过 `:owner/:repo` 参数
+- **样式**: 复用 Lens GithubWorkflow 的 CSS 变量和卡片样式
