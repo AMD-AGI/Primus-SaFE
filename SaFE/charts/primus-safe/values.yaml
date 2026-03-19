@@ -180,6 +180,26 @@ proxy:
   #     prefix: /agent/qa
   #     target: http://qa-agent-service:8080
   #     enabled: true
+langfuse_proxy:
+  # Langfuse proxy: unified Trace ingestion via SaFE API Key (ak-xxx)
+  enable: false
+  # Internal Langfuse service address
+  target: "http://langfuse-web.langfuse.svc.cluster.local:3000/langfuse"
+a2a:
+  # A2A service discovery scanner
+  scanner_enable: false
+  scanner_interval: 60
+  scanner_namespaces:
+    - primus-lens
+a2a_gateway:
+  # A2A Gateway for Agent-to-Agent invocations
+  enable: false
+  image: "a2a-gateway:latest"
+  replicas: 1
+  cpu: 500m
+  memory: 512Mi
+  port: 8089
+  metrics_port: 9090
 llm_gateway:
   enabled: true
   secret_path: "/etc/secrets/llm-gateway"

@@ -578,6 +578,60 @@ data:
 
     alter table evaluation_task owner to "primus-safe";
 
+    -- A2A Service Registry: tracks Agent services for A2A protocol
+    create table if not exists a2a_service_registry
+    (
+        id BIGSERIAL PRIMARY KEY,
+        workload_id VARCHAR(64),
+        service_name VARCHAR(128) NOT NULL UNIQUE,
+        display_name VARCHAR(128) NOT NULL DEFAULT '',
+        description TEXT DEFAULT '',
+        endpoint VARCHAR(512) NOT NULL,
+        a2a_path_prefix VARCHAR(128) DEFAULT '/a2a',
+        a2a_agent_card JSONB DEFAULT '{}',
+        a2a_skills JSONB DEFAULT '[]',
+        a2a_health VARCHAR(32) DEFAULT 'unknown',
+        a2a_last_seen TIMESTAMPTZ,
+        k8s_namespace VARCHAR(128),
+        k8s_service VARCHAR(128),
+        discovery_source VARCHAR(32) DEFAULT 'manual',
+        status VARCHAR(32) NOT NULL DEFAULT 'active',
+        created_by VARCHAR(128),
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        updated_at TIMESTAMPTZ DEFAULT NOW()
+    );
+
+    create index if not exists T_A2A_REGISTRY_WORKLOAD_INDEX on a2a_service_registry (workload_id);
+    create index if not exists T_A2A_REGISTRY_K8S_INDEX on a2a_service_registry (k8s_namespace, k8s_service);
+    create index if not exists T_A2A_REGISTRY_HEALTH_INDEX on a2a_service_registry (a2a_health) WHERE status = 'active';
+    create index if not exists T_A2A_REGISTRY_STATUS_INDEX on a2a_service_registry (status);
+
+    alter table a2a_service_registry owner to "primus-safe";
+
+    -- A2A Call Log: records Agent-to-Agent invocations
+    create table if not exists a2a_call_log
+    (
+        id BIGSERIAL PRIMARY KEY,
+        trace_id VARCHAR(128) NOT NULL,
+        caller_service_name VARCHAR(128) NOT NULL,
+        caller_user_id VARCHAR(128) NOT NULL DEFAULT '',
+        target_service_name VARCHAR(128) NOT NULL,
+        skill_id VARCHAR(128) NOT NULL DEFAULT '',
+        status VARCHAR(32) NOT NULL,
+        latency_ms FLOAT DEFAULT 0,
+        request_size_bytes BIGINT DEFAULT 0,
+        response_size_bytes BIGINT DEFAULT 0,
+        error_message TEXT DEFAULT '',
+        created_at TIMESTAMPTZ DEFAULT NOW()
+    );
+
+    create index if not exists T_A2A_CALL_LOG_CALLER_INDEX on a2a_call_log (caller_service_name, created_at);
+    create index if not exists T_A2A_CALL_LOG_TARGET_INDEX on a2a_call_log (target_service_name, created_at);
+    create index if not exists T_A2A_CALL_LOG_TRACE_INDEX on a2a_call_log (trace_id);
+    create index if not exists T_A2A_CALL_LOG_USER_INDEX on a2a_call_log (caller_user_id, created_at);
+
+    alter table a2a_call_log owner to "primus-safe";
+
     -- ═══ LLM Gateway User Binding ═══
     create table if not exists llm_gateway_user_binding
     (

@@ -350,7 +350,7 @@ watch(
   { immediate: true },
 )
 
-const defaultTime = computed<[Date, Date] | null>(() => {
+const defaultTime = computed<[Date, Date | 'now'] | null>(() => {
   return calculateDefaultTime(
     detailData.value?.startTime,
     detailData.value?.endTime,

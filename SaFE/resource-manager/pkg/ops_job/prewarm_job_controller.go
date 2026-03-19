@@ -236,7 +236,7 @@ func (r *PrewarmJobReconciler) checkAndUpdateJobStatus(ctx context.Context, job 
 		}
 	}
 
-	if ready == desired && desired >= 0 {
+	if ready == desired && desired > 0 {
 		klog.Infof("Prewarm job %s completed: %d/%d nodes ready", job.Name, ready, desired)
 
 		if delErr := r.deleteDaemonSet(ctx, k8sClients, dsName); delErr != nil {
@@ -263,7 +263,7 @@ func (r *PrewarmJobReconciler) buildJobOutputs(status, message string, ready, de
 	if desired > 0 {
 		successRate = int(float64(ready) / float64(desired) * 100)
 	} else {
-		successRate = 100
+		successRate = 0
 	}
 
 	return []v1.Parameter{
