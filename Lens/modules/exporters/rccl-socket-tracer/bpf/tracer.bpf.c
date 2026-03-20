@@ -104,7 +104,7 @@ struct {
     __uint(max_entries, 1);
     __type(key, __u32);
     __type(value, __u64);
-} config SEC(".maps");
+} tracer_config SEC(".maps");
 
 struct {
     __uint(type, BPF_MAP_TYPE_HASH);
@@ -123,7 +123,7 @@ static __always_inline bool should_trace(void)
 static __always_inline __u64 get_slow_threshold(void)
 {
     __u32 key = 0;
-    __u64 *val = bpf_map_lookup_elem(&config, &key);
+    __u64 *val = bpf_map_lookup_elem(&tracer_config, &key);
     return val ? *val : 100000000ULL;
 }
 

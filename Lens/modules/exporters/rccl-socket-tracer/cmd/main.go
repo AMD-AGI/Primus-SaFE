@@ -112,7 +112,7 @@ func main() {
 	// Set slow I/O threshold
 	thresholdNs := uint64(slowThresholdMs) * 1_000_000
 	key := uint32(0)
-	if err := objs.Config.Put(key, thresholdNs); err != nil {
+	if err := objs.TracerConfig.Put(key, thresholdNs); err != nil {
 		log.Printf("Warning: failed to set config: %v", err)
 	}
 
