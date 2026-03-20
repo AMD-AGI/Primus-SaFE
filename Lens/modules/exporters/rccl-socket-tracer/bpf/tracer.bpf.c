@@ -129,36 +129,9 @@ static __always_inline void read_sockaddr_in(struct event *e,
 }
 
 // ===== Layer 1: TCP lifecycle =====
-
-SEC("tracepoint/sock/inet_sock_set_state")
-int handle_tcp_state(struct trace_event_raw_inet_sock_set_state *ctx)
-{
-    if (ctx->protocol != IPPROTO_TCP)
-        return 0;
-    if (!should_trace())
-        return 0;
-
-    struct event *e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
-    if (!e) return 0;
-
-    fill_event_base(e, EVT_TCP_STATE);
-    e->af = ctx->family;
-    e->sport = ctx->sport;
-    e->dport = ctx->dport;
-    e->old_state = ctx->oldstate;
-    e->new_state = ctx->newstate;
-
-    if (ctx->family == AF_INET) {
-        __builtin_memcpy(e->saddr, ctx->saddr, 4);
-        __builtin_memcpy(e->daddr, ctx->daddr, 4);
-    } else if (ctx->family == AF_INET6) {
-        __builtin_memcpy(e->saddr, ctx->saddr_v6, 16);
-        __builtin_memcpy(e->daddr, ctx->daddr_v6, 16);
-    }
-
-    bpf_ringbuf_submit(e, 0);
-    return 0;
-}
+// inet_sock_set_state tracepoint removed: struct layout varies across kernels
+// and causes BPF verifier failures. TCP state changes are still observable
+// via connect() return codes and tcp_reset kprobe.
 
 SEC("kprobe/tcp_reset")
 int handle_tcp_reset(struct pt_regs *ctx)

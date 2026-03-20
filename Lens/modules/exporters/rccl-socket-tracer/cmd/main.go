@@ -131,10 +131,7 @@ func main() {
 		log.Printf("Attached: %s", name)
 	}
 
-	// Layer 1: TCP lifecycle
-	tryAttach("inet_sock_set_state", func() (link.Link, error) {
-		return link.Tracepoint("sock", "inet_sock_set_state", objs.HandleTcpState, nil)
-	})
+	// Layer 1: TCP lifecycle (kprobe only, tracepoints have cross-kernel struct issues)
 	tryAttach("tcp_reset", func() (link.Link, error) {
 		return link.Kprobe("tcp_reset", objs.HandleTcpReset, nil)
 	})
