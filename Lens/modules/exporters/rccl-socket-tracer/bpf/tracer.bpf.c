@@ -22,14 +22,26 @@
  */
 
 enum event_type {
-    EVT_CONNECT_ENTER = 1,
-    EVT_CONNECT_EXIT  = 2,
-    EVT_ACCEPT_EXIT   = 3,
-    EVT_TCP_STATE     = 4,
-    EVT_TCP_RETRANSMIT= 5,
-    EVT_TCP_RESET     = 6,
-    EVT_SENDMSG_SLOW  = 7,
-    EVT_RECVMSG_SLOW  = 8,
+    EVT_CONNECT_ENTER  = 1,
+    EVT_CONNECT_EXIT   = 2,
+    EVT_ACCEPT_EXIT    = 3,
+    EVT_TCP_STATE      = 4,
+    EVT_TCP_RETRANSMIT = 5,
+    EVT_TCP_RESET      = 6,
+    EVT_SENDMSG_SLOW   = 7,
+    EVT_RECVMSG_SLOW   = 8,
+    // Layer 3: RCCL/RDMA uprobe events
+    EVT_ANP_CONNECT    = 20,
+    EVT_ANP_CONNECT_RET= 21,
+    EVT_ANP_ACCEPT     = 22,
+    EVT_ANP_ACCEPT_RET = 23,
+    EVT_ANP_ISEND      = 24,
+    EVT_ANP_IRECV      = 25,
+    EVT_ANP_CLOSE_SEND = 26,
+    EVT_ANP_CLOSE_RECV = 27,
+    EVT_IBV_CREATE_QP  = 30,
+    EVT_IBV_MODIFY_QP  = 31,
+    EVT_IBV_MODIFY_QP_RET = 32,
 };
 
 struct event {
@@ -317,6 +329,203 @@ int handle_recvfrom_exit(struct trace_event_raw_sys_exit *ctx)
     e->duration_ns = duration;
     e->retval = ctx->ret;
 
+    bpf_ringbuf_submit(e, 0);
+    return 0;
+}
+
+// ===== Layer 3: RCCL ANP (AINIC) + ibverbs uprobes =====
+// These are auto-attached by userspace using the library paths found at runtime.
+// SEC names use uprobe/ prefix; userspace resolves the actual binary path.
+
+// Track anpNetConnect/anpNetAccept enter timestamps
+struct {
+    __uint(type, BPF_MAP_TYPE_HASH);
+    __uint(max_entries, MAX_ENTRIES);
+    __type(key, __u64);
+    __type(value, __u64);
+} anp_connect_start SEC(".maps");
+
+struct {
+    __uint(type, BPF_MAP_TYPE_HASH);
+    __uint(max_entries, MAX_ENTRIES);
+    __type(key, __u64);
+    __type(value, __u64);
+} ibv_modify_qp_start SEC(".maps");
+
+// anpNetConnect(int dev, ncclNetCommConfig*, void* handle, void** sendComm, ...)
+SEC("uprobe/anp_net_connect")
+int handle_anp_connect(struct pt_regs *ctx)
+{
+    struct event *e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
+    if (!e) return 0;
+
+    fill_event_base(e, EVT_ANP_CONNECT);
+    e->retval = (int)PT_REGS_PARM1(ctx);  // dev id
+
+    __u64 pid_tgid = bpf_get_current_pid_tgid();
+    __u64 ts = bpf_ktime_get_ns();
+    bpf_map_update_elem(&anp_connect_start, &pid_tgid, &ts, BPF_ANY);
+
+    bpf_ringbuf_submit(e, 0);
+    return 0;
+}
+
+SEC("uretprobe/anp_net_connect")
+int handle_anp_connect_ret(struct pt_regs *ctx)
+{
+    __u64 pid_tgid = bpf_get_current_pid_tgid();
+    __u64 *start = bpf_map_lookup_elem(&anp_connect_start, &pid_tgid);
+    if (!start)
+        return 0;
+
+    __u64 duration = bpf_ktime_get_ns() - *start;
+    bpf_map_delete_elem(&anp_connect_start, &pid_tgid);
+
+    struct event *e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
+    if (!e) return 0;
+
+    fill_event_base(e, EVT_ANP_CONNECT_RET);
+    e->duration_ns = duration;
+    e->retval = (int)PT_REGS_RC(ctx);  // ncclResult_t (0=success)
+
+    bpf_ringbuf_submit(e, 0);
+    return 0;
+}
+
+// anpNetAccept(void* listenComm, void** recvComm, ...)
+SEC("uprobe/anp_net_accept")
+int handle_anp_accept(struct pt_regs *ctx)
+{
+    struct event *e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
+    if (!e) return 0;
+
+    fill_event_base(e, EVT_ANP_ACCEPT);
+
+    __u64 pid_tgid = bpf_get_current_pid_tgid();
+    __u64 ts = bpf_ktime_get_ns();
+    bpf_map_update_elem(&anp_connect_start, &pid_tgid, &ts, BPF_ANY);
+
+    bpf_ringbuf_submit(e, 0);
+    return 0;
+}
+
+SEC("uretprobe/anp_net_accept")
+int handle_anp_accept_ret(struct pt_regs *ctx)
+{
+    __u64 pid_tgid = bpf_get_current_pid_tgid();
+    __u64 *start = bpf_map_lookup_elem(&anp_connect_start, &pid_tgid);
+    if (!start)
+        return 0;
+
+    __u64 duration = bpf_ktime_get_ns() - *start;
+    bpf_map_delete_elem(&anp_connect_start, &pid_tgid);
+
+    struct event *e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
+    if (!e) return 0;
+
+    fill_event_base(e, EVT_ANP_ACCEPT_RET);
+    e->duration_ns = duration;
+    e->retval = (int)PT_REGS_RC(ctx);
+
+    bpf_ringbuf_submit(e, 0);
+    return 0;
+}
+
+// anpNetIsend(void* sendComm, void* data, unsigned long size, int tag, ...)
+SEC("uprobe/anp_net_isend")
+int handle_anp_isend(struct pt_regs *ctx)
+{
+    struct event *e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
+    if (!e) return 0;
+
+    fill_event_base(e, EVT_ANP_ISEND);
+    e->duration_ns = (long)PT_REGS_PARM3(ctx);  // size
+    e->retval = (int)PT_REGS_PARM4(ctx);  // tag
+
+    bpf_ringbuf_submit(e, 0);
+    return 0;
+}
+
+// anpNetIrecv(void* recvComm, int nbufs, ...)
+SEC("uprobe/anp_net_irecv")
+int handle_anp_irecv(struct pt_regs *ctx)
+{
+    struct event *e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
+    if (!e) return 0;
+
+    fill_event_base(e, EVT_ANP_IRECV);
+    e->retval = (int)PT_REGS_PARM2(ctx);  // nbufs
+
+    bpf_ringbuf_submit(e, 0);
+    return 0;
+}
+
+SEC("uprobe/anp_net_close_send")
+int handle_anp_close_send(struct pt_regs *ctx)
+{
+    struct event *e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
+    if (!e) return 0;
+    fill_event_base(e, EVT_ANP_CLOSE_SEND);
+    bpf_ringbuf_submit(e, 0);
+    return 0;
+}
+
+SEC("uprobe/anp_net_close_recv")
+int handle_anp_close_recv(struct pt_regs *ctx)
+{
+    struct event *e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
+    if (!e) return 0;
+    fill_event_base(e, EVT_ANP_CLOSE_RECV);
+    bpf_ringbuf_submit(e, 0);
+    return 0;
+}
+
+// ibv_modify_qp - track QP state transitions and failures
+SEC("uprobe/ibv_modify_qp")
+int handle_ibv_modify_qp(struct pt_regs *ctx)
+{
+    struct event *e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
+    if (!e) return 0;
+
+    fill_event_base(e, EVT_IBV_MODIFY_QP);
+
+    __u64 pid_tgid = bpf_get_current_pid_tgid();
+    __u64 ts = bpf_ktime_get_ns();
+    bpf_map_update_elem(&ibv_modify_qp_start, &pid_tgid, &ts, BPF_ANY);
+
+    bpf_ringbuf_submit(e, 0);
+    return 0;
+}
+
+SEC("uretprobe/ibv_modify_qp")
+int handle_ibv_modify_qp_ret(struct pt_regs *ctx)
+{
+    __u64 pid_tgid = bpf_get_current_pid_tgid();
+    __u64 *start = bpf_map_lookup_elem(&ibv_modify_qp_start, &pid_tgid);
+    if (!start)
+        return 0;
+
+    __u64 duration = bpf_ktime_get_ns() - *start;
+    bpf_map_delete_elem(&ibv_modify_qp_start, &pid_tgid);
+
+    struct event *e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
+    if (!e) return 0;
+
+    fill_event_base(e, EVT_IBV_MODIFY_QP_RET);
+    e->duration_ns = duration;
+    e->retval = (int)PT_REGS_RC(ctx);  // 0=success, -1=error
+
+    bpf_ringbuf_submit(e, 0);
+    return 0;
+}
+
+// ibv_create_qp
+SEC("uprobe/ibv_create_qp")
+int handle_ibv_create_qp(struct pt_regs *ctx)
+{
+    struct event *e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
+    if (!e) return 0;
+    fill_event_base(e, EVT_IBV_CREATE_QP);
     bpf_ringbuf_submit(e, 0);
     return 0;
 }

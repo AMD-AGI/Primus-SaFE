@@ -14,6 +14,7 @@ import (
 	"sync"
 	"syscall"
 	"time"
+	"github.com/cilium/ebpf"
 	"github.com/cilium/ebpf/link"
 	"github.com/cilium/ebpf/ringbuf"
 )
@@ -21,27 +22,49 @@ import (
 //go:generate go run github.com/cilium/ebpf/cmd/bpf2go -cc clang -cflags "-O2 -g -Wall -D__TARGET_ARCH_x86" -target amd64 tracer ../bpf/tracer.bpf.c -- -I/usr/include -I../bpf
 
 const (
-	EvtConnectEnter  = 1
-	EvtConnectExit   = 2
-	EvtAcceptExit    = 3
-	EvtTCPState      = 4
-	EvtTCPRetransmit = 5
-	EvtTCPReset      = 6
-	EvtSendmsgSlow   = 7
-	EvtRecvmsgSlow   = 8
-	EvtClose         = 9
+	EvtConnectEnter    = 1
+	EvtConnectExit     = 2
+	EvtAcceptExit      = 3
+	EvtTCPState        = 4
+	EvtTCPRetransmit   = 5
+	EvtTCPReset        = 6
+	EvtSendmsgSlow     = 7
+	EvtRecvmsgSlow     = 8
+	EvtClose           = 9
+	EvtAnpConnect      = 20
+	EvtAnpConnectRet   = 21
+	EvtAnpAccept       = 22
+	EvtAnpAcceptRet    = 23
+	EvtAnpIsend        = 24
+	EvtAnpIrecv        = 25
+	EvtAnpCloseSend    = 26
+	EvtAnpCloseRecv    = 27
+	EvtIbvCreateQP     = 30
+	EvtIbvModifyQP     = 31
+	EvtIbvModifyQPRet  = 32
 )
 
 var eventNames = map[uint32]string{
-	EvtConnectEnter:  "CONNECT",
-	EvtConnectExit:   "CONNECT_DONE",
-	EvtAcceptExit:    "ACCEPT_DONE",
-	EvtTCPState:      "TCP_STATE",
-	EvtTCPRetransmit: "TCP_RETX",
-	EvtTCPReset:      "TCP_RESET",
-	EvtSendmsgSlow:   "SEND_SLOW",
-	EvtRecvmsgSlow:   "RECV_SLOW",
-	EvtClose:         "CLOSE",
+	EvtConnectEnter:   "CONNECT",
+	EvtConnectExit:    "CONNECT_DONE",
+	EvtAcceptExit:     "ACCEPT_DONE",
+	EvtTCPState:       "TCP_STATE",
+	EvtTCPRetransmit:  "TCP_RETX",
+	EvtTCPReset:       "TCP_RESET",
+	EvtSendmsgSlow:    "SEND_SLOW",
+	EvtRecvmsgSlow:    "RECV_SLOW",
+	EvtClose:          "CLOSE",
+	EvtAnpConnect:     "ANP_CONNECT",
+	EvtAnpConnectRet:  "ANP_CONNECT_RET",
+	EvtAnpAccept:      "ANP_ACCEPT",
+	EvtAnpAcceptRet:   "ANP_ACCEPT_RET",
+	EvtAnpIsend:       "ANP_ISEND",
+	EvtAnpIrecv:       "ANP_IRECV",
+	EvtAnpCloseSend:   "ANP_CLOSE_SEND",
+	EvtAnpCloseRecv:   "ANP_CLOSE_RECV",
+	EvtIbvCreateQP:    "IBV_CREATE_QP",
+	EvtIbvModifyQP:    "IBV_MODIFY_QP",
+	EvtIbvModifyQPRet: "IBV_MODIFY_QP_RET",
 }
 
 var tcpStateNames = map[uint32]string{
@@ -162,6 +185,55 @@ func main() {
 		return link.Tracepoint("syscalls", "sys_exit_recvfrom", objs.HandleRecvfromExit, nil)
 	})
 
+	// Layer 3: RCCL ANP + ibverbs uprobes (best-effort, libraries may not exist on all nodes)
+	anpLib := getEnv("ANP_LIB_PATH", "/opt/rocm-7.1.0/lib/librccl-anp.so")
+	ibvLib := getEnv("IBV_LIB_PATH", "/lib/x86_64-linux-gnu/libibverbs.so.1")
+
+	attachUprobe := func(name string, lib string, symbol string, prog *ebpf.Program) {
+		ex, err := link.OpenExecutable(lib)
+		if err != nil {
+			log.Printf("Warning: cannot open %s for uprobe %s: %v", lib, name, err)
+			return
+		}
+		l, err := ex.Uprobe(symbol, prog, nil)
+		if err != nil {
+			log.Printf("Warning: uprobe %s (%s) failed: %v", name, symbol, err)
+			return
+		}
+		links = append(links, l)
+		log.Printf("Attached uprobe: %s → %s:%s", name, filepath.Base(lib), symbol)
+	}
+
+	attachUretprobe := func(name string, lib string, symbol string, prog *ebpf.Program) {
+		ex, err := link.OpenExecutable(lib)
+		if err != nil {
+			log.Printf("Warning: cannot open %s for uretprobe %s: %v", lib, name, err)
+			return
+		}
+		l, err := ex.Uretprobe(symbol, prog, nil)
+		if err != nil {
+			log.Printf("Warning: uretprobe %s (%s) failed: %v", name, symbol, err)
+			return
+		}
+		links = append(links, l)
+		log.Printf("Attached uretprobe: %s → %s:%s", name, filepath.Base(lib), symbol)
+	}
+
+	// librccl-anp.so (AINIC network plugin)
+	attachUprobe("anp_connect", anpLib, "anpNetConnect", objs.HandleAnpConnect)
+	attachUretprobe("anp_connect_ret", anpLib, "anpNetConnect", objs.HandleAnpConnectRet)
+	attachUprobe("anp_accept", anpLib, "anpNetAccept", objs.HandleAnpAccept)
+	attachUretprobe("anp_accept_ret", anpLib, "anpNetAccept", objs.HandleAnpAcceptRet)
+	attachUprobe("anp_isend", anpLib, "anpNetIsend", objs.HandleAnpIsend)
+	attachUprobe("anp_irecv", anpLib, "anpNetIrecv", objs.HandleAnpIrecv)
+	attachUprobe("anp_close_send", anpLib, "anpNetCloseSend", objs.HandleAnpCloseSend)
+	attachUprobe("anp_close_recv", anpLib, "anpNetCloseRecv", objs.HandleAnpCloseRecv)
+
+	// libibverbs.so
+	attachUprobe("ibv_create_qp", ibvLib, "ibv_create_qp", objs.HandleIbvCreateQp)
+	attachUprobe("ibv_modify_qp", ibvLib, "ibv_modify_qp", objs.HandleIbvModifyQp)
+	attachUretprobe("ibv_modify_qp_ret", ibvLib, "ibv_modify_qp", objs.HandleIbvModifyQpRet)
+
 	defer func() {
 		for _, l := range links {
 			l.Close()
@@ -277,6 +349,35 @@ func formatEvent(e *Event, c *ContainerInfo, ts time.Time) string {
 	case EvtSendmsgSlow, EvtRecvmsgSlow:
 		durMs := float64(e.DurationNs) / 1e6
 		return fmt.Sprintf("%s duration=%.1fms ret=%d", base, durMs, e.Retval)
+
+	case EvtAnpConnect:
+		return fmt.Sprintf("%s dev=%d", base, e.Retval)
+	case EvtAnpConnectRet:
+		durMs := float64(e.DurationNs) / 1e6
+		ncclErr := ncclResultName(e.Retval)
+		return fmt.Sprintf("%s duration=%.1fms result=%s", base, durMs, ncclErr)
+	case EvtAnpAccept:
+		return base
+	case EvtAnpAcceptRet:
+		durMs := float64(e.DurationNs) / 1e6
+		ncclErr := ncclResultName(e.Retval)
+		return fmt.Sprintf("%s duration=%.1fms result=%s", base, durMs, ncclErr)
+	case EvtAnpIsend:
+		return fmt.Sprintf("%s size=%d tag=%d", base, e.DurationNs, e.Retval)
+	case EvtAnpIrecv:
+		return fmt.Sprintf("%s nbufs=%d", base, e.Retval)
+	case EvtAnpCloseSend, EvtAnpCloseRecv:
+		return base
+	case EvtIbvCreateQP:
+		return base
+	case EvtIbvModifyQP:
+		return base
+	case EvtIbvModifyQPRet:
+		durMs := float64(e.DurationNs) / 1e6
+		if e.Retval != 0 {
+			return fmt.Sprintf("%s duration=%.1fms FAILED ret=%d", base, durMs, e.Retval)
+		}
+		return fmt.Sprintf("%s duration=%.1fms OK", base, durMs)
 	}
 
 	return base
@@ -287,6 +388,29 @@ func formatAddr(addr []byte, af uint32) string {
 		return net.IP(addr[:4]).String()
 	}
 	return net.IP(addr[:16]).String()
+}
+
+func ncclResultName(r int32) string {
+	switch r {
+	case 0:
+		return "ncclSuccess"
+	case 1:
+		return "ncclUnhandledCudaError"
+	case 2:
+		return "ncclSystemError"
+	case 3:
+		return "ncclInternalError"
+	case 4:
+		return "ncclInvalidArgument"
+	case 5:
+		return "ncclInvalidUsage"
+	case 6:
+		return "ncclRemoteError"
+	case 7:
+		return "ncclInProgress"
+	default:
+		return fmt.Sprintf("ncclError(%d)", r)
+	}
 }
 
 func errnoName(e int32) string {
