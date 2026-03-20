@@ -9,19 +9,12 @@ RUN apt-get update && apt-get install -y \
 
 WORKDIR /build
 
-# Copy BPF source (vmlinux.h is bundled in the repo)
+# Copy all source (bpf/ has vmlinux.h bundled, cmd/ has Go source)
 COPY Lens/modules/exporters/rccl-socket-tracer/bpf/ ./bpf/
-RUN clang -O2 -g -Wall -target bpf \
-    -D__TARGET_ARCH_x86 \
-    -I./bpf \
-    -c ./bpf/tracer.bpf.c \
-    -o ./bpf/tracer.bpf.o
-
-# Copy Go source
 COPY Lens/modules/exporters/rccl-socket-tracer/cmd/ ./cmd/
 WORKDIR /build/cmd
 
-# Resolve dependencies and generate Go bindings from compiled BPF object
+# bpf2go compiles BPF and generates Go bindings in one step
 RUN go mod tidy
 RUN go generate ./...
 

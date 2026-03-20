@@ -21,7 +21,7 @@ import (
 	"github.com/cilium/ebpf/ringbuf"
 )
 
-//go:generate go run github.com/cilium/ebpf/cmd/bpf2go -cc clang -cflags "-O2 -g -Wall -target bpf" tracer ../bpf/tracer.bpf.c -- -I/usr/include -I../bpf
+//go:generate go run github.com/cilium/ebpf/cmd/bpf2go -cc clang -cflags "-O2 -g -Wall -D__TARGET_ARCH_x86" -target amd64 tracer ../bpf/tracer.bpf.c -- -I/usr/include -I../bpf
 
 const (
 	EvtConnectEnter  = 1
