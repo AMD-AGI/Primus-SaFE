@@ -667,18 +667,19 @@ func findTrainingPid(libRelPath string) uint32 {
 		if pid[0] < '1' || pid[0] > '9' {
 			continue
 		}
-		// Quick filter: only check processes named python3 or torchrun
-		comm, err := os.ReadFile(fmt.Sprintf("/host/proc/%s/comm", pid))
-		if err != nil {
+		// Check if this process's container root has the target library.
+		// Skip PID 1 and kernel threads (no root fs).
+		if pid == "1" || pid == "2" {
 			continue
 		}
-		commStr := strings.TrimSpace(string(comm))
-		if commStr != "python3" && commStr != "torchrun" && commStr != "pt_elastic" {
-			continue
-		}
-		// Check if the library exists in this process's root filesystem
 		libPath := fmt.Sprintf("/host/proc/%s/root%s", pid, libRelPath)
 		if _, err := os.Stat(libPath); err == nil {
+			// Verify it's a container process by checking cgroup for kubepods
+			cgPath := fmt.Sprintf("/host/proc/%s/cgroup", pid)
+			cg, err := os.ReadFile(cgPath)
+			if err != nil || !strings.Contains(string(cg), "kubepods") {
+				continue
+			}
 			pidNum, _ := strconv.ParseUint(pid, 10, 32)
 			return uint32(pidNum)
 		}
