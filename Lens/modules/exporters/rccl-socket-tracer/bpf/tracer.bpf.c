@@ -52,6 +52,13 @@ enum event_type {
     EVT_IONIC_POST_SEND     = 46,
     EVT_IB_ASYNC_EVENT      = 50,
     EVT_IONIC_PORT_EVENT    = 51,
+    // Layer 5: GPU/amdgpu/KFD probes
+    EVT_KFD_EVICT_QUEUES  = 60,
+    EVT_KFD_RESTORE_QUEUES= 61,
+    EVT_GPU_JOB_TIMEDOUT  = 62,
+    EVT_GPU_RESET          = 63,
+    EVT_GPU_XGMI_RAS_ERR  = 64,
+    EVT_GPU_POISON         = 65,
 };
 
 struct event {
@@ -777,6 +784,74 @@ int handle_ionic_port_event(struct pt_regs *ctx)
     struct event *e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
     if (!e) return 0;
     fill_event_base(e, EVT_IONIC_PORT_EVENT);
+    bpf_ringbuf_submit(e, 0);
+    return 0;
+}
+
+// ===== Layer 5: GPU/amdgpu/KFD probes =====
+
+// kfd_process_evict_queues - fires when GPU queues are evicted (the "queue evicted" dmesg message)
+SEC("kprobe/kfd_process_evict_queues")
+int handle_kfd_evict_queues(struct pt_regs *ctx)
+{
+    struct event *e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
+    if (!e) return 0;
+    fill_event_base(e, EVT_KFD_EVICT_QUEUES);
+    bpf_ringbuf_submit(e, 0);
+    return 0;
+}
+
+// kfd_process_restore_queues - fires when evicted queues are restored
+SEC("kprobe/kfd_process_restore_queues")
+int handle_kfd_restore_queues(struct pt_regs *ctx)
+{
+    struct event *e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
+    if (!e) return 0;
+    fill_event_base(e, EVT_KFD_RESTORE_QUEUES);
+    bpf_ringbuf_submit(e, 0);
+    return 0;
+}
+
+// amdgpu_job_timedout - fires when a GPU job exceeds the scheduler timeout
+SEC("kprobe/amdgpu_job_timedout")
+int handle_gpu_job_timedout(struct pt_regs *ctx)
+{
+    struct event *e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
+    if (!e) return 0;
+    fill_event_base(e, EVT_GPU_JOB_TIMEDOUT);
+    bpf_ringbuf_submit(e, 0);
+    return 0;
+}
+
+// amdgpu_device_gpu_recover - fires when GPU reset/recovery is triggered
+SEC("kprobe/amdgpu_device_gpu_recover")
+int handle_gpu_reset(struct pt_regs *ctx)
+{
+    struct event *e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
+    if (!e) return 0;
+    fill_event_base(e, EVT_GPU_RESET);
+    bpf_ringbuf_submit(e, 0);
+    return 0;
+}
+
+// amdgpu_xgmi_query_ras_error_count - XGMI link RAS error query
+SEC("kprobe/amdgpu_xgmi_query_ras_error_count")
+int handle_xgmi_ras_err(struct pt_regs *ctx)
+{
+    struct event *e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
+    if (!e) return 0;
+    fill_event_base(e, EVT_GPU_XGMI_RAS_ERR);
+    bpf_ringbuf_submit(e, 0);
+    return 0;
+}
+
+// amdgpu_umc_pasid_poison_handler - GPU memory poison (ECC uncorrectable)
+SEC("kprobe/amdgpu_umc_pasid_poison_handler")
+int handle_gpu_poison(struct pt_regs *ctx)
+{
+    struct event *e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
+    if (!e) return 0;
+    fill_event_base(e, EVT_GPU_POISON);
     bpf_ringbuf_submit(e, 0);
     return 0;
 }

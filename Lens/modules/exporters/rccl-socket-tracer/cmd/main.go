@@ -53,6 +53,12 @@ const (
 	EvtIonicPostSend    = 46
 	EvtIbAsyncEvent     = 50
 	EvtIonicPortEvent   = 51
+	EvtKfdEvictQueues   = 60
+	EvtKfdRestoreQueues = 61
+	EvtGpuJobTimedout   = 62
+	EvtGpuReset         = 63
+	EvtGpuXgmiRasErr    = 64
+	EvtGpuPoison        = 65
 )
 
 var eventNames = map[uint32]string{
@@ -85,6 +91,12 @@ var eventNames = map[uint32]string{
 	EvtIonicPostSend:    "IONIC_POST_SEND",
 	EvtIbAsyncEvent:     "IB_ASYNC_EVENT",
 	EvtIonicPortEvent:   "IONIC_PORT_EVENT",
+	EvtKfdEvictQueues:   "KFD_EVICT_QUEUES",
+	EvtKfdRestoreQueues: "KFD_RESTORE_QUEUES",
+	EvtGpuJobTimedout:   "GPU_JOB_TIMEDOUT",
+	EvtGpuReset:         "GPU_RESET",
+	EvtGpuXgmiRasErr:    "GPU_XGMI_RAS_ERR",
+	EvtGpuPoison:        "GPU_POISON",
 }
 
 var tcpStateNames = map[uint32]string{
@@ -232,6 +244,26 @@ func main() {
 	})
 	tryAttach("ionic_port_event", func() (link.Link, error) {
 		return link.Kprobe("ionic_port_event", objs.HandleIonicPortEvent, nil)
+	})
+
+	// Layer 5: GPU/amdgpu/KFD probes (best-effort, module may not be loaded)
+	tryAttach("kfd_process_evict_queues", func() (link.Link, error) {
+		return link.Kprobe("kfd_process_evict_queues", objs.HandleKfdEvictQueues, nil)
+	})
+	tryAttach("kfd_process_restore_queues", func() (link.Link, error) {
+		return link.Kprobe("kfd_process_restore_queues", objs.HandleKfdRestoreQueues, nil)
+	})
+	tryAttach("amdgpu_job_timedout", func() (link.Link, error) {
+		return link.Kprobe("amdgpu_job_timedout", objs.HandleGpuJobTimedout, nil)
+	})
+	tryAttach("amdgpu_device_gpu_recover", func() (link.Link, error) {
+		return link.Kprobe("amdgpu_device_gpu_recover", objs.HandleGpuReset, nil)
+	})
+	tryAttach("amdgpu_xgmi_query_ras_error_count", func() (link.Link, error) {
+		return link.Kprobe("amdgpu_xgmi_query_ras_error_count", objs.HandleXgmiRasErr, nil)
+	})
+	tryAttach("amdgpu_umc_pasid_poison_handler", func() (link.Link, error) {
+		return link.Kprobe("amdgpu_umc_pasid_poison_handler", objs.HandleGpuPoison, nil)
 	})
 
 	// Layer 3: Dynamic uprobe discovery for RCCL ANP + ibverbs
@@ -528,6 +560,18 @@ func formatEvent(e *Event, c *ContainerInfo, ts time.Time) string {
 			return fmt.Sprintf("%s qp_num=%d", base, e.OldState)
 		}
 		return base
+	case EvtKfdEvictQueues:
+		return fmt.Sprintf("%s *** GPU QUEUE EVICTION", base)
+	case EvtKfdRestoreQueues:
+		return fmt.Sprintf("%s GPU queues restored", base)
+	case EvtGpuJobTimedout:
+		return fmt.Sprintf("%s *** GPU JOB TIMEOUT", base)
+	case EvtGpuReset:
+		return fmt.Sprintf("%s *** GPU RESET/RECOVERY", base)
+	case EvtGpuXgmiRasErr:
+		return fmt.Sprintf("%s *** XGMI RAS ERROR", base)
+	case EvtGpuPoison:
+		return fmt.Sprintf("%s *** GPU MEMORY POISON (ECC uncorrectable)", base)
 	}
 
 	return base
