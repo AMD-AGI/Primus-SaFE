@@ -9,6 +9,7 @@ import (
 	"database/sql/driver"
 	"encoding/json"
 	"errors"
+	"strings"
 	"time"
 
 	"gorm.io/gorm"
@@ -58,11 +59,14 @@ func (a StringArray) Value() (driver.Value, error) {
 	if a == nil {
 		return nil, nil
 	}
-	b, err := json.Marshal(a)
-	if err != nil {
-		return nil, err
+	// PostgreSQL text[] literal format: {item1,item2}
+	escaped := make([]string, len(a))
+	for i, s := range a {
+		s = strings.ReplaceAll(s, `\`, `\\`)
+		s = strings.ReplaceAll(s, `"`, `\"`)
+		escaped[i] = `"` + s + `"`
 	}
-	return string(b), nil
+	return "{" + strings.Join(escaped, ",") + "}", nil
 }
 
 func (a *StringArray) Scan(value interface{}) error {
