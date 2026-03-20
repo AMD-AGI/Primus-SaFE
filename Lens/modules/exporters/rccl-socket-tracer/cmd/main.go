@@ -39,9 +39,16 @@ const (
 	EvtAnpIrecv        = 25
 	EvtAnpCloseSend    = 26
 	EvtAnpCloseRecv    = 27
-	EvtIbvCreateQP     = 30
-	EvtIbvModifyQP     = 31
-	EvtIbvModifyQPRet  = 32
+	EvtIbvCreateQP      = 30
+	EvtIbvModifyQP      = 31
+	EvtIbvModifyQPRet   = 32
+	EvtIonicPollCqEnter = 40
+	EvtIonicPollCqExit  = 41
+	EvtIonicModifyQP    = 42
+	EvtIonicModifyQPRet = 43
+	EvtIonicCqeError    = 44
+	EvtIonicCreateQP    = 45
+	EvtIonicPostSend    = 46
 )
 
 var eventNames = map[uint32]string{
@@ -62,9 +69,16 @@ var eventNames = map[uint32]string{
 	EvtAnpIrecv:       "ANP_IRECV",
 	EvtAnpCloseSend:   "ANP_CLOSE_SEND",
 	EvtAnpCloseRecv:   "ANP_CLOSE_RECV",
-	EvtIbvCreateQP:    "IBV_CREATE_QP",
-	EvtIbvModifyQP:    "IBV_MODIFY_QP",
-	EvtIbvModifyQPRet: "IBV_MODIFY_QP_RET",
+	EvtIbvCreateQP:      "IBV_CREATE_QP",
+	EvtIbvModifyQP:      "IBV_MODIFY_QP",
+	EvtIbvModifyQPRet:   "IBV_MODIFY_QP_RET",
+	EvtIonicPollCqEnter: "IONIC_POLL_CQ",
+	EvtIonicPollCqExit:  "IONIC_POLL_CQ_RET",
+	EvtIonicModifyQP:    "IONIC_MODIFY_QP",
+	EvtIonicModifyQPRet: "IONIC_MODIFY_QP_RET",
+	EvtIonicCqeError:    "IONIC_CQE_ERROR",
+	EvtIonicCreateQP:    "IONIC_CREATE_QP",
+	EvtIonicPostSend:    "IONIC_POST_SEND",
 }
 
 var tcpStateNames = map[uint32]string{
@@ -185,6 +199,26 @@ func main() {
 		return link.Tracepoint("syscalls", "sys_exit_recvfrom", objs.HandleRecvfromExit, nil)
 	})
 
+	// Layer 4: ionic RDMA driver kprobes (kernel-wide, no library path needed)
+	tryAttach("ionic_poll_cq", func() (link.Link, error) {
+		return link.Kprobe("ionic_poll_cq", objs.HandleIonicPollCq, nil)
+	})
+	tryAttach("ionic_poll_cq_ret", func() (link.Link, error) {
+		return link.Kretprobe("ionic_poll_cq", objs.HandleIonicPollCqRet, nil)
+	})
+	tryAttach("ionic_modify_qp", func() (link.Link, error) {
+		return link.Kprobe("ionic_modify_qp", objs.HandleIonicModifyQp, nil)
+	})
+	tryAttach("ionic_modify_qp_ret", func() (link.Link, error) {
+		return link.Kretprobe("ionic_modify_qp", objs.HandleIonicModifyQpRet, nil)
+	})
+	tryAttach("ionic_create_qp", func() (link.Link, error) {
+		return link.Kprobe("ionic_create_qp", objs.HandleIonicCreateQp, nil)
+	})
+	tryAttach("ionic_post_send", func() (link.Link, error) {
+		return link.Kprobe("ionic_post_send", objs.HandleIonicPostSend, nil)
+	})
+
 	// Layer 3: Dynamic uprobe discovery for RCCL ANP + ibverbs
 	// Libraries live inside training containers, so we scan /host/proc/<pid>/root/
 	// to find them once a training process appears on this node.
@@ -202,7 +236,7 @@ func main() {
 			}
 			time.Sleep(scanInterval)
 
-			pid := findTrainingPid(anpRelPath)
+			pid := findRDMATrainingPid(anpRelPath)
 			if pid == 0 {
 				continue
 			}
@@ -419,6 +453,24 @@ func formatEvent(e *Event, c *ContainerInfo, ts time.Time) string {
 			return fmt.Sprintf("%s duration=%.1fms FAILED ret=%d", base, durMs, e.Retval)
 		}
 		return fmt.Sprintf("%s duration=%.1fms OK", base, durMs)
+	case EvtIonicPollCqEnter:
+		return base
+	case EvtIonicPollCqExit:
+		return fmt.Sprintf("%s completions=%d", base, e.Retval)
+	case EvtIonicModifyQP:
+		return base
+	case EvtIonicModifyQPRet:
+		durMs := float64(e.DurationNs) / 1e6
+		if e.Retval != 0 {
+			return fmt.Sprintf("%s duration=%.1fms FAILED ret=%d", base, durMs, e.Retval)
+		}
+		return fmt.Sprintf("%s duration=%.1fms OK", base, durMs)
+	case EvtIonicCqeError:
+		return fmt.Sprintf("%s qp_num=%d status=%d(%s) opcode=%d", base, e.OldState, e.Retval, ibWcStatusName(e.Retval), e.NewState)
+	case EvtIonicCreateQP:
+		return base
+	case EvtIonicPostSend:
+		return base
 	}
 
 	return base
@@ -451,6 +503,57 @@ func ncclResultName(r int32) string {
 		return "ncclInProgress"
 	default:
 		return fmt.Sprintf("ncclError(%d)", r)
+	}
+}
+
+func ibWcStatusName(s int32) string {
+	switch s {
+	case 0:
+		return "SUCCESS"
+	case 1:
+		return "LOC_LEN_ERR"
+	case 2:
+		return "LOC_QP_OP_ERR"
+	case 3:
+		return "LOC_EEC_OP_ERR"
+	case 4:
+		return "LOC_PROT_ERR"
+	case 5:
+		return "WR_FLUSH_ERR"
+	case 6:
+		return "MW_BIND_ERR"
+	case 7:
+		return "BAD_RESP_ERR"
+	case 8:
+		return "LOC_ACCESS_ERR"
+	case 9:
+		return "REM_INV_REQ_ERR"
+	case 10:
+		return "REM_ACCESS_ERR"
+	case 11:
+		return "REM_OP_ERR"
+	case 12:
+		return "RETRY_EXC_ERR"
+	case 13:
+		return "RNR_RETRY_EXC_ERR"
+	case 14:
+		return "LOC_RDD_VIOL_ERR"
+	case 15:
+		return "REM_INV_RD_REQ_ERR"
+	case 16:
+		return "REM_ABORT_ERR"
+	case 17:
+		return "INV_EECN_ERR"
+	case 18:
+		return "INV_EEC_STATE_ERR"
+	case 19:
+		return "FATAL_ERR"
+	case 20:
+		return "RESP_TIMEOUT_ERR"
+	case 21:
+		return "GENERAL_ERR"
+	default:
+		return fmt.Sprintf("WC_ERR_%d", s)
 	}
 }
 
@@ -652,13 +755,8 @@ func resolveContainerPid(hostPid uint32) uint32 {
 	return hostPid
 }
 
-// findTrainingPid scans /host/proc/ for a process whose root filesystem
-// contains the given library path. Returns the first matching host PID.
-func findTrainingPid(libRelPath string) uint32 {
-	entries, err := os.ReadDir("/host/proc")
-	if err != nil {
-		return 0
-	}
+func findRDMATrainingPid(libRelPath string) uint32 {
+	entries, _ := os.ReadDir("/host/proc")
 	for _, entry := range entries {
 		if !entry.IsDir() {
 			continue
@@ -667,19 +765,20 @@ func findTrainingPid(libRelPath string) uint32 {
 		if pid[0] < '1' || pid[0] > '9' {
 			continue
 		}
-		// Check if this process's container root has the target library.
-		// Skip PID 1 and kernel threads (no root fs).
-		if pid == "1" || pid == "2" {
+
+		ibPath := fmt.Sprintf("/host/proc/%s/root/dev/infiniband", pid)
+		if _, err := os.Stat(ibPath); err != nil {
 			continue
 		}
+
+		cgPath := fmt.Sprintf("/host/proc/%s/cgroup", pid)
+		cg, err := os.ReadFile(cgPath)
+		if err != nil || !strings.Contains(string(cg), "kubepods") {
+			continue
+		}
+
 		libPath := fmt.Sprintf("/host/proc/%s/root%s", pid, libRelPath)
 		if _, err := os.Stat(libPath); err == nil {
-			// Verify it's a container process by checking cgroup for kubepods
-			cgPath := fmt.Sprintf("/host/proc/%s/cgroup", pid)
-			cg, err := os.ReadFile(cgPath)
-			if err != nil || !strings.Contains(string(cg), "kubepods") {
-				continue
-			}
 			pidNum, _ := strconv.ParseUint(pid, 10, 32)
 			return uint32(pidNum)
 		}

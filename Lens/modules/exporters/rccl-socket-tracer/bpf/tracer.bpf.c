@@ -42,6 +42,14 @@ enum event_type {
     EVT_IBV_CREATE_QP  = 30,
     EVT_IBV_MODIFY_QP  = 31,
     EVT_IBV_MODIFY_QP_RET = 32,
+    // Layer 4: ionic RDMA driver kprobes
+    EVT_IONIC_POLL_CQ_ENTER = 40,
+    EVT_IONIC_POLL_CQ_EXIT  = 41,
+    EVT_IONIC_MODIFY_QP     = 42,
+    EVT_IONIC_MODIFY_QP_RET = 43,
+    EVT_IONIC_CQE_ERROR     = 44,
+    EVT_IONIC_CREATE_QP     = 45,
+    EVT_IONIC_POST_SEND     = 46,
 };
 
 struct event {
@@ -519,6 +527,27 @@ int handle_ibv_modify_qp_ret(struct pt_regs *ctx)
     return 0;
 }
 
+// ===== Layer 4: ionic RDMA driver kprobes =====
+
+struct poll_cq_args {
+    void *wc_ptr;
+    __u32 num_entries;
+};
+
+struct {
+    __uint(type, BPF_MAP_TYPE_HASH);
+    __uint(max_entries, MAX_ENTRIES);
+    __type(key, __u64);
+    __type(value, struct poll_cq_args);
+} poll_cq_enter SEC(".maps");
+
+struct {
+    __uint(type, BPF_MAP_TYPE_HASH);
+    __uint(max_entries, MAX_ENTRIES);
+    __type(key, __u64);
+    __type(value, __u64);
+} ionic_modify_qp_start SEC(".maps");
+
 // ibv_create_qp
 SEC("uprobe/ibv_create_qp")
 int handle_ibv_create_qp(struct pt_regs *ctx)
@@ -526,6 +555,150 @@ int handle_ibv_create_qp(struct pt_regs *ctx)
     struct event *e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
     if (!e) return 0;
     fill_event_base(e, EVT_IBV_CREATE_QP);
+    bpf_ringbuf_submit(e, 0);
+    return 0;
+}
+
+// ===== Layer 4 probes: ionic RDMA driver =====
+
+SEC("kprobe/ionic_poll_cq")
+int handle_ionic_poll_cq(struct pt_regs *ctx)
+{
+    if (!should_trace())
+        return 0;
+
+    __u64 pid_tgid = bpf_get_current_pid_tgid();
+
+    struct poll_cq_args args = {};
+    args.wc_ptr = (void *)PT_REGS_PARM3(ctx);
+    args.num_entries = (__u32)PT_REGS_PARM2(ctx);
+    bpf_map_update_elem(&poll_cq_enter, &pid_tgid, &args, BPF_ANY);
+
+    struct event *e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
+    if (!e) return 0;
+
+    fill_event_base(e, EVT_IONIC_POLL_CQ_ENTER);
+    e->retval = args.num_entries;
+
+    bpf_ringbuf_submit(e, 0);
+    return 0;
+}
+
+SEC("kretprobe/ionic_poll_cq")
+int handle_ionic_poll_cq_ret(struct pt_regs *ctx)
+{
+    __u64 pid_tgid = bpf_get_current_pid_tgid();
+    struct poll_cq_args *args = bpf_map_lookup_elem(&poll_cq_enter, &pid_tgid);
+    if (!args)
+        return 0;
+
+    void *wc_ptr = args->wc_ptr;
+    bpf_map_delete_elem(&poll_cq_enter, &pid_tgid);
+
+    int ret = (int)PT_REGS_RC(ctx);
+
+    #pragma unroll
+    for (int i = 0; i < 8; i++) {
+        if (i >= ret)
+            break;
+
+        __u32 status = 0;
+        __u32 qp_num = 0;
+        __u32 opcode = 0;
+
+        bpf_probe_read_kernel(&status, sizeof(status), wc_ptr + i * 48);
+        bpf_probe_read_kernel(&opcode, sizeof(opcode), wc_ptr + i * 48 + 4);
+        bpf_probe_read_kernel(&qp_num, sizeof(qp_num), wc_ptr + i * 48 + 16);
+
+        if (status != 0) {
+            struct event *err = bpf_ringbuf_reserve(&events, sizeof(*err), 0);
+            if (err) {
+                fill_event_base(err, EVT_IONIC_CQE_ERROR);
+                err->retval = status;
+                err->old_state = qp_num;
+                err->new_state = opcode;
+                bpf_ringbuf_submit(err, 0);
+            }
+        }
+    }
+
+    struct event *e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
+    if (!e) return 0;
+
+    fill_event_base(e, EVT_IONIC_POLL_CQ_EXIT);
+    e->retval = ret;
+
+    bpf_ringbuf_submit(e, 0);
+    return 0;
+}
+
+SEC("kprobe/ionic_modify_qp")
+int handle_ionic_modify_qp(struct pt_regs *ctx)
+{
+    if (!should_trace())
+        return 0;
+
+    __u64 pid_tgid = bpf_get_current_pid_tgid();
+    __u64 ts = bpf_ktime_get_ns();
+    bpf_map_update_elem(&ionic_modify_qp_start, &pid_tgid, &ts, BPF_ANY);
+
+    struct event *e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
+    if (!e) return 0;
+
+    fill_event_base(e, EVT_IONIC_MODIFY_QP);
+
+    bpf_ringbuf_submit(e, 0);
+    return 0;
+}
+
+SEC("kretprobe/ionic_modify_qp")
+int handle_ionic_modify_qp_ret(struct pt_regs *ctx)
+{
+    __u64 pid_tgid = bpf_get_current_pid_tgid();
+    __u64 *start = bpf_map_lookup_elem(&ionic_modify_qp_start, &pid_tgid);
+    if (!start)
+        return 0;
+
+    __u64 duration = bpf_ktime_get_ns() - *start;
+    bpf_map_delete_elem(&ionic_modify_qp_start, &pid_tgid);
+
+    struct event *e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
+    if (!e) return 0;
+
+    fill_event_base(e, EVT_IONIC_MODIFY_QP_RET);
+    e->duration_ns = duration;
+    e->retval = (int)PT_REGS_RC(ctx);
+
+    bpf_ringbuf_submit(e, 0);
+    return 0;
+}
+
+SEC("kprobe/ionic_create_qp")
+int handle_ionic_create_qp(struct pt_regs *ctx)
+{
+    if (!should_trace())
+        return 0;
+
+    struct event *e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
+    if (!e) return 0;
+
+    fill_event_base(e, EVT_IONIC_CREATE_QP);
+
+    bpf_ringbuf_submit(e, 0);
+    return 0;
+}
+
+SEC("kprobe/ionic_post_send")
+int handle_ionic_post_send(struct pt_regs *ctx)
+{
+    if (!should_trace())
+        return 0;
+
+    struct event *e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
+    if (!e) return 0;
+
+    fill_event_base(e, EVT_IONIC_POST_SEND);
+
     bpf_ringbuf_submit(e, 0);
     return 0;
 }

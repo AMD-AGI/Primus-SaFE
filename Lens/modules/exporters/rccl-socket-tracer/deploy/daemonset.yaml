@@ -30,6 +30,10 @@ spec:
             # Report send/recv calls slower than this (ms)
             - name: TRACE_SLOW_THRESHOLD_MS
               value: "100"
+            - name: ANP_LIB_REL_PATH
+              value: /opt/rocm-7.1.0/lib/librccl-anp.so
+            - name: IBV_LIB_REL_PATH
+              value: /lib/x86_64-linux-gnu/libibverbs.so.1
             - name: NODE_NAME
               valueFrom:
                 fieldRef:
@@ -45,6 +49,9 @@ spec:
               readOnly: true
             - name: trace-output
               mountPath: /var/log/rccl-tracer
+            - name: host-run
+              mountPath: /host/run
+              readOnly: true
           resources:
             requests:
               cpu: 50m
@@ -63,3 +70,6 @@ spec:
           hostPath:
             path: /var/log/rccl-tracer
             type: DirectoryOrCreate
+        - name: host-run
+          hostPath:
+            path: /run
