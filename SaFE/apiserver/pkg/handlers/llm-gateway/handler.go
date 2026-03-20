@@ -346,7 +346,7 @@ func (h *Handler) GetSummary(c *gin.Context) {
 	})
 }
 
-// GetUsage handles GET /api/v1/llm-gateway/usage?start_date=...&end_date=...
+// GetUsage handles GET /api/v1/llm-gateway/usage?start_date=...&end_date=...&timezone=...
 func (h *Handler) GetUsage(c *gin.Context) {
 	email := h.getUserEmail(c)
 	if email == "" {
@@ -361,6 +361,12 @@ func (h *Handler) GetUsage(c *gin.Context) {
 		return
 	}
 
+	loc, err := resolveTimezone(c.Query("timezone"))
+	if err != nil {
+		apiutils.AbortWithApiError(c, commonerrors.NewBadRequest(err.Error()))
+		return
+	}
+
 	existing, err := h.dbClient.GetLLMBindingByEmail(c.Request.Context(), email)
 	if err != nil {
 		klog.ErrorS(err, "GetUsage: DB query failed", "email", email)
@@ -372,14 +378,22 @@ func (h *Handler) GetUsage(c *gin.Context) {
 		return
 	}
 
-	activity, err := h.litellmClient.GetUserDailyActivity(c.Request.Context(), email, startDate, endDate)
+	adjStart, adjEnd := expandDateRangeForTimezone(startDate, endDate, loc)
+	activity, err := h.litellmClient.GetUserDailyActivity(c.Request.Context(), email, adjStart, adjEnd)
 	if err != nil {
 		klog.ErrorS(err, "GetUsage: LiteLLM query failed", "email", email)
 		c.JSON(http.StatusBadGateway, gin.H{"errorMessage": "usage data temporarily unavailable, please try again later"})
 		return
 	}
 
-	totalTokens := activity.Metadata.TotalPromptTokens + activity.Metadata.TotalCompletionTokens
+	var (
+		totalSpend              float64
+		totalPromptTokens       int64
+		totalCompletionTokens   int64
+		totalAPIRequests        int64
+		totalSuccessfulRequests int64
+		totalFailedRequests     int64
+	)
 
 	daily := make([]UsageDailyEntry, 0, len(activity.Results))
 	for _, r := range activity.Results {
@@ -408,17 +422,24 @@ func (h *Handler) GetUsage(c *gin.Context) {
 			}
 		}
 		daily = append(daily, entry)
+
+		totalSpend += r.Metrics.Spend
+		totalPromptTokens += r.Metrics.PromptTokens
+		totalCompletionTokens += r.Metrics.CompletionTokens
+		totalAPIRequests += r.Metrics.APIRequests
+		totalSuccessfulRequests += r.Metrics.SuccessfulRequests
+		totalFailedRequests += r.Metrics.FailedRequests
 	}
 
 	c.JSON(http.StatusOK, UsageResponse{
 		UserEmail:               email,
-		TotalSpend:              activity.Metadata.TotalSpend,
-		TotalPromptTokens:       activity.Metadata.TotalPromptTokens,
-		TotalCompletionTokens:   activity.Metadata.TotalCompletionTokens,
-		TotalTokens:             totalTokens,
-		TotalAPIRequests:        activity.Metadata.TotalAPIRequests,
-		TotalSuccessfulRequests: activity.Metadata.TotalSuccessfulRequests,
-		TotalFailedRequests:     activity.Metadata.TotalFailedRequests,
+		TotalSpend:              totalSpend,
+		TotalPromptTokens:       totalPromptTokens,
+		TotalCompletionTokens:   totalCompletionTokens,
+		TotalTokens:             totalPromptTokens + totalCompletionTokens,
+		TotalAPIRequests:        totalAPIRequests,
+		TotalSuccessfulRequests: totalSuccessfulRequests,
+		TotalFailedRequests:     totalFailedRequests,
 		Daily:                   daily,
 	})
 }

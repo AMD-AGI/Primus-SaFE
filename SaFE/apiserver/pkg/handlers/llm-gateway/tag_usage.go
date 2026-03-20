@@ -20,7 +20,7 @@ import (
 
 // ── Tag Usage Handler ─────────────────────────────────────────────────────
 
-// GetTagUsage handles GET /api/v1/llm-gateway/tags/usage?start_date=...&end_date=...&page=1&page_size=20
+// GetTagUsage handles GET /api/v1/llm-gateway/tags/usage?start_date=...&end_date=...&timezone=...&page=1&page_size=20
 func (h *Handler) GetTagUsage(c *gin.Context) {
 	email := h.getUserEmail(c)
 	if email == "" {
@@ -32,6 +32,12 @@ func (h *Handler) GetTagUsage(c *gin.Context) {
 	endDate := c.Query("end_date")
 	if startDate == "" || endDate == "" {
 		apiutils.AbortWithApiError(c, commonerrors.NewBadRequest("start_date and end_date are required, format: YYYY-MM-DD"))
+		return
+	}
+
+	loc, err := resolveTimezone(c.Query("timezone"))
+	if err != nil {
+		apiutils.AbortWithApiError(c, commonerrors.NewBadRequest(err.Error()))
 		return
 	}
 
@@ -58,13 +64,15 @@ func (h *Handler) GetTagUsage(c *gin.Context) {
 		return
 	}
 
-	allLogs, err := h.litellmClient.GetAllSpendLogs(c.Request.Context(), email, startDate, endDate, maxSpendLogPages)
+	adjStart, adjEnd := expandDateRangeForTimezone(startDate, endDate, loc)
+	allLogs, err := h.litellmClient.GetAllSpendLogs(c.Request.Context(), email, adjStart, adjEnd, maxSpendLogPages)
 	if err != nil {
 		klog.ErrorS(err, "GetTagUsage: LiteLLM query failed", "email", email)
 		c.JSON(http.StatusBadGateway, gin.H{"errorMessage": "tag usage data temporarily unavailable, please try again later"})
 		return
 	}
 
+	allLogs = filterLogsByLocalDate(allLogs, startDate, endDate, loc)
 	result := aggregateByTag(allLogs)
 
 	sort.Slice(result.tags, func(i, j int) bool {
