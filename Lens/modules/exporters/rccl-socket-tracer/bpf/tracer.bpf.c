@@ -15,6 +15,36 @@
 #define TASK_COMM_LEN 16
 #define MAX_ENTRIES 65536
 
+/* Tracepoint context structs - not in vmlinux.h, must match kernel definitions */
+struct trace_event_raw_inet_sock_set_state {
+    struct trace_entry ent;
+    const void *skaddr;
+    int oldstate;
+    int newstate;
+    __u16 sport;
+    __u16 dport;
+    __u16 family;
+    __u16 protocol;
+    __u8 saddr[4];
+    __u8 daddr[4];
+    __u8 saddr_v6[16];
+    __u8 daddr_v6[16];
+};
+
+struct trace_event_raw_tcp_retransmit_skb {
+    struct trace_entry ent;
+    const void *skbaddr;
+    const void *skaddr;
+    int state;
+    __u16 sport;
+    __u16 dport;
+    __u16 family;
+    __u8 saddr[4];
+    __u8 daddr[4];
+    __u8 saddr_v6[16];
+    __u8 daddr_v6[16];
+};
+
 enum event_type {
     EVT_CONNECT_ENTER = 1,
     EVT_CONNECT_EXIT  = 2,
