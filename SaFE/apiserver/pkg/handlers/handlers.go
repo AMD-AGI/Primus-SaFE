@@ -15,14 +15,18 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
 	cdhandlers "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/cd-handlers"
 	emailrelayhandlers "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/email-relay-handlers"
+	githubworkflow "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/github-workflow"
 	imagehandlers "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/image-handlers"
 	llmgateway "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/llm-gateway"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/middleware"
 	model_handlers "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/model-handlers"
+	a2ahandlers "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/a2a-handlers"
 	proxyhandlers "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/proxy-handlers"
 	reshandler "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/resources"
 	sshhandler "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/ssh-handlers"
+	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/a2a"
 	apiutils "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/utils"
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
@@ -88,6 +92,20 @@ func InitHttpHandlers(_ context.Context, mgr ctrlruntime.Manager) (*gin.Engine, 
 	}
 	proxyhandlers.InitProxyRoutes(engine, proxyHandler)
 
+	// Initialize A2A handlers if database is enabled
+	if commonconfig.IsDBEnable() {
+		a2aDbClient := dbclient.NewClient()
+		if a2aDbClient != nil {
+			a2aHandler := a2ahandlers.NewHandler(a2aDbClient)
+			a2ahandlers.InitA2ARouters(engine, a2aHandler)
+
+			if commonconfig.IsA2AScannerEnable() {
+				scanner := a2a.NewScanner(mgr.GetClient(), a2aDbClient)
+				go scanner.Start(context.Background())
+			}
+		}
+	}
+
 	// Initialize LLM Gateway handlers (if enabled and DB is available)
 	if commonconfig.IsLLMGatewayEnable() && commonconfig.IsDBEnable() {
 		llmDbClient := dbclient.NewClient()
@@ -109,6 +127,11 @@ func InitHttpHandlers(_ context.Context, mgr ctrlruntime.Manager) (*gin.Engine, 
 		} else {
 			emailrelayhandlers.InitEmailRelayRouters(engine, emailRelayHandler)
 		}
+	}
+
+	// GitHub Workflow CI/CD API
+	if commonconfig.IsDBEnable() {
+		githubworkflow.RegisterRoutes(engine.Group(common.PrimusRouterCustomRootPath))
 	}
 
 	return engine, nil

@@ -95,6 +95,12 @@ data:
                   value: "1"
                 - name: HSA_ENABLE_SDMA
                   value: "1"
+                - name: NCCL_IB_TC
+                  value: "41"
+                - name: NCCL_IB_FIFO_TC
+                  value: "185"
+                - name: NCCL_IB_SL
+                  value: "0"
                 - name: POD_NAME
                   valueFrom:
                     fieldRef:
@@ -181,6 +187,12 @@ data:
                   value: "1"
                 - name: HSA_ENABLE_SDMA
                   value: "1"
+                - name: NCCL_IB_TC
+                  value: "41"
+                - name: NCCL_IB_FIFO_TC
+                  value: "185"
+                - name: NCCL_IB_SL
+                  value: "0"
                 - name: POD_NAME
                   valueFrom:
                     fieldRef:
@@ -259,6 +271,12 @@ data:
                   value: "1"
                 - name: HSA_ENABLE_SDMA
                   value: "1"
+                - name: NCCL_IB_TC
+                  value: "41"
+                - name: NCCL_IB_FIFO_TC
+                  value: "185"
+                - name: NCCL_IB_SL
+                  value: "0"
                 - name: POD_NAME
                   valueFrom:
                     fieldRef:

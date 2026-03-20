@@ -30,6 +30,9 @@ func InitImageRouter(e *gin.Engine, h *ImageHandler) {
 		imageGroup.GET("prewarm", func(c *gin.Context) {
 			handle(c, h.listPrewarmImage)
 		})
+		imageGroup.GET("prewarm/:name/nodes", func(c *gin.Context) {
+			handle(c, h.getPrewarmNodes)
+		})
 		imageGroup.GET(":id/importing-details", func(c *gin.Context) {
 			handle(c, h.getImportingDetail)
 		})

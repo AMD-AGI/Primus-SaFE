@@ -161,12 +161,16 @@
       :element-loading-text="$loadingText"
       @filter-change="handleFilterChange"
     >
+      <el-table-column type="expand">
+        <template #default="{ row }">
+          <PrewarmNodeDetail :job-name="row.jobName" />
+        </template>
+      </el-table-column>
       <el-table-column
         label="Image Name"
         prop="imageName"
         min-width="240"
         show-overflow-tooltip
-        fixed="left"
       />
       <el-table-column
         label="Workspace"
@@ -193,22 +197,26 @@
           {{ row.userName || '-' }}
         </template>
       </el-table-column>
-      <el-table-column label="Progress" prop="prewarmProgress" min-width="200">
+      <el-table-column label="Progress" prop="prewarmProgress" min-width="220">
         <template #default="{ row }">
-          <el-progress
-            :percentage="parseFloat(row.prewarmProgress) || 0"
-            :status="
-              row.status === 'Completed'
-                ? 'success'
-                : row.status === 'Failed'
-                  ? 'exception'
-                  : undefined
-            "
-            :stroke-width="8"
-            class="w-200px"
-          >
-            <span class="text-xs">{{ row.prewarmProgress || '0%' }}</span>
-          </el-progress>
+          <el-tooltip :content="row.prewarmProgress || '0%'" placement="top" effect="dark">
+            <el-progress
+              :percentage="parseFloat(row.prewarmProgress) || 0"
+              :status="
+                row.status === 'Completed'
+                  ? 'success'
+                  : row.status === 'Failed'
+                    ? 'exception'
+                    : undefined
+              "
+              :stroke-width="8"
+              class="w-200px"
+            >
+              <span class="text-xs">
+                {{ row.nodesReady || '0' }}/{{ row.nodesTotal || '0' }}
+              </span>
+            </el-progress>
+          </el-tooltip>
         </template>
       </el-table-column>
       <el-table-column
@@ -233,7 +241,7 @@
           {{ formatTimeStr(row.endTime) }}
         </template>
       </el-table-column>
-      <el-table-column label="Actions" width="100" fixed="right">
+      <el-table-column label="Actions" width="100">
         <template #default="{ row }">
           <el-tooltip content="Retry" placement="top">
             <el-button
@@ -356,7 +364,7 @@
 </template>
 
 <script lang="ts" setup>
-import { ref, onMounted, h, reactive, computed, nextTick, watch } from 'vue'
+import { ref, onMounted, onUnmounted, h, reactive, computed, nextTick, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
   deleteImage,
@@ -372,6 +380,7 @@ import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'elem
 import { Delete, Upload, Refresh, SetUp, Search, CopyDocument } from '@element-plus/icons-vue'
 import { useDark, useDebounceFn } from '@vueuse/core'
 import ImportDetailDialog from './Components/ImportDetailDialog.vue'
+import PrewarmNodeDetail from './Components/PrewarmNodeDetail.vue'
 import { formatTimeStr, formatBytes, copyText } from '@/utils'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { useUserStore } from '@/stores/user'
@@ -861,6 +870,18 @@ const onRetryPrewarm = async (row: any) => {
   }
 }
 
+// Auto-poll when any prewarm task is Running
+const pollTimer = ref<ReturnType<typeof setInterval>>()
+
+watch(() => prewarmState.rowData, (rows) => {
+  clearInterval(pollTimer.value)
+  if (rows.some((r: any) => r.status === 'Running')) {
+    pollTimer.value = setInterval(getPrewarmList, 15000)
+  }
+}, { immediate: true })
+
+onUnmounted(() => clearInterval(pollTimer.value))
+
 // Watch tab switch, auto load corresponding data
 watch(activeTab, (newTab) => {
   if (newTab === 'prewarm' && prewarmState.rowData.length === 0) {
@@ -899,6 +920,7 @@ defineOptions({
   display: flex;
   gap: 12px;
 }
+
 </style>
 <style>
 /* Reuse project-wide segmented unified styles */
@@ -908,4 +930,5 @@ defineOptions({
 .myself-seg .el-segmented__item.is-selected {
   color: var(--safe-primary) !important;
 }
+
 </style>

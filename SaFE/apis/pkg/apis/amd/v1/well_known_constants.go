@@ -46,11 +46,13 @@ const (
 	NodeLabelAction                 = NodePrefix + "label.action"
 	NodeAnnotationAction            = NodePrefix + "annotation.action"
 	NodeTemplateInstalledAnnotation = NodePrefix + "template.installed"
-	NodeIdLabel                     = NodePrefix + "id"
-	NodeManageRebootLabel           = "manage.reboot"
-	NodeUnmanageNoRebootLabel       = "unmanage.noreboot"
-	NodeActionAdd                   = "add"
-	NodeActionRemove                = "remove"
+	// The expected ephemeral storage for the node. Actual node storage may be larger than expected, but cannot be smaller, or it will trigger a fault.
+	NodeEphemeralStorageLabel = NodePrefix + "ephemeral.storage"
+	NodeIdLabel               = NodePrefix + "id"
+	NodeManageRebootLabel     = "manage.reboot"
+	NodeUnmanageNoRebootLabel = "unmanage.noreboot"
+	NodeActionAdd             = "add"
+	NodeActionRemove          = "remove"
 
 	// cluster
 	ClusterPrefix                 = PrimusSafePrefix + "cluster."

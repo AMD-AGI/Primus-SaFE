@@ -7,6 +7,7 @@ package ops_job
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -219,42 +220,52 @@ func (r *PrewarmJobReconciler) checkAndUpdateJobStatus(ctx context.Context, job 
 			// Get failed pods info before cleanup
 			failedPods := r.getFailedPodsInfo(ctx, k8sClients, dsName)
 
+			// Persist node details before deleting DaemonSet
+			nodesDetail := r.getNodesDetail(ctx, k8sClients, dsName)
+			failureOutputs := r.buildJobOutputs("Failed", "", ready, desired)
+			if nodesDetail != "" {
+				failureOutputs = append(failureOutputs, v1.Parameter{Name: "nodes_detail", Value: nodesDetail})
+			}
+
 			// Delete DaemonSet
 			if delErr := r.deleteDaemonSet(ctx, k8sClients, dsName); delErr != nil {
 				klog.ErrorS(delErr, "Failed to delete DaemonSet after timeout", "daemonset", dsName)
 			}
 
-			// Build failure message with failed pods info
 			errMsg := fmt.Sprintf("Timeout after %v (ready: %d/%d)", elapsed.Round(time.Second), ready, desired)
 			if len(failedPods) > 0 {
 				errMsg += fmt.Sprintf(". Failed pods: %s", failedPods)
 			}
-
-			// Build outputs
-			failureOutputs := r.buildJobOutputs("Failed", errMsg, ready, desired)
+			failureOutputs = setOutputParam(failureOutputs, "message", errMsg)
 			return ctrlruntime.Result{}, r.setJobCompleted(ctx, job, v1.OpsJobFailed, errMsg, failureOutputs)
 		}
 	}
 
-	if ready == desired && desired >= 0 {
+	if ready == desired && desired > 0 {
 		klog.Infof("Prewarm job %s completed: %d/%d nodes ready", job.Name, ready, desired)
+
+		// Persist node details before deleting DaemonSet
+		nodesDetail := r.getNodesDetail(ctx, k8sClients, dsName)
 
 		if delErr := r.deleteDaemonSet(ctx, k8sClients, dsName); delErr != nil {
 			klog.ErrorS(delErr, "Failed to delete DaemonSet after completion", "daemonset", dsName)
 		}
 
 		outputs := r.buildJobOutputs("Completed", "Image prewarming completed successfully", ready, desired)
+		if nodesDetail != "" {
+			outputs = append(outputs, v1.Parameter{Name: "nodes_detail", Value: nodesDetail})
+		}
 		return ctrlruntime.Result{}, r.setJobCompleted(ctx, job, v1.OpsJobSucceeded, "Image prewarming completed successfully", outputs)
 	}
 
 	if desired > 0 {
 		successRate := int(float64(ready) / float64(desired) * 100)
-		if err := r.updatePrewarmProgress(ctx, job.Name, successRate); err != nil {
+		if err := r.updatePrewarmProgress(ctx, job.Name, successRate, ready, desired); err != nil {
 			klog.V(4).ErrorS(err, "Failed to update prewarm progress", "job", job.Name)
 		}
 	}
 
-	return ctrlruntime.Result{RequeueAfter: time.Minute}, nil
+	return ctrlruntime.Result{RequeueAfter: 10 * time.Second}, nil
 }
 
 // buildJobOutputs builds the output parameters for job completion
@@ -263,7 +274,7 @@ func (r *PrewarmJobReconciler) buildJobOutputs(status, message string, ready, de
 	if desired > 0 {
 		successRate = int(float64(ready) / float64(desired) * 100)
 	} else {
-		successRate = 100
+		successRate = 0
 	}
 
 	return []v1.Parameter{
@@ -354,7 +365,7 @@ func (r *PrewarmJobReconciler) createPrewarmDaemonSet(ctx context.Context, k8sCl
 							Name:            "prewarm",
 							Image:           image,
 							ImagePullPolicy: corev1.PullIfNotPresent,
-							Command:         []string{"sleep", "infinity"},
+							Command:         []string{"tail", "-f", "/dev/null"},
 							Resources: corev1.ResourceRequirements{
 								Limits: corev1.ResourceList{
 									corev1.ResourceCPU:    resource.MustParse("50m"),
@@ -380,40 +391,86 @@ func (r *PrewarmJobReconciler) createPrewarmDaemonSet(ctx context.Context, k8sCl
 	return ds, nil
 }
 
-// updatePrewarmProgress updates the job output with current prewarm progress
-func (r *PrewarmJobReconciler) updatePrewarmProgress(ctx context.Context, jobName string, successRate int) error {
+// updatePrewarmProgress updates the job output with current prewarm progress, nodes_ready and nodes_total.
+func (r *PrewarmJobReconciler) updatePrewarmProgress(ctx context.Context, jobName string, successRate int, ready, desired int32) error {
 	job := &v1.OpsJob{}
 	if err := r.Get(ctx, client.ObjectKey{Name: jobName}, job); err != nil {
 		return err
 	}
 
-	// Update or add progress output
-	progressKey := "prewarm_progress"
-	progressValue := fmt.Sprintf("%d%%", successRate)
+	job.Status.Outputs = setOutputParam(job.Status.Outputs, "prewarm_progress", fmt.Sprintf("%d%%", successRate))
+	job.Status.Outputs = setOutputParam(job.Status.Outputs, "nodes_ready", fmt.Sprintf("%d", ready))
+	job.Status.Outputs = setOutputParam(job.Status.Outputs, "nodes_total", fmt.Sprintf("%d", desired))
 
-	// Check if progress output already exists and update it
-	found := false
-	for i := range job.Status.Outputs {
-		if job.Status.Outputs[i].Name == progressKey {
-			job.Status.Outputs[i].Value = progressValue
-			found = true
-			break
+	return r.Status().Update(ctx, job)
+}
+
+// setOutputParam sets or updates a named parameter in the outputs slice.
+func setOutputParam(outputs []v1.Parameter, name, value string) []v1.Parameter {
+	for i := range outputs {
+		if outputs[i].Name == name {
+			outputs[i].Value = value
+			return outputs
 		}
 	}
+	return append(outputs, v1.Parameter{Name: name, Value: value})
+}
 
-	// If not found, add new output
-	if !found {
-		job.Status.Outputs = append(job.Status.Outputs, v1.Parameter{
-			Name:  progressKey,
-			Value: progressValue,
-		})
+// NodeDetail represents the status of a single node in a prewarm job.
+type NodeDetail struct {
+	Node   string `json:"node"`
+	Status string `json:"status"`
+	Reason string `json:"reason,omitempty"`
+}
+
+// getNodesDetail lists all DaemonSet pods and returns a JSON string of node statuses.
+func (r *PrewarmJobReconciler) getNodesDetail(ctx context.Context, k8sClients *k8sclient.ClientFactory, dsName string) string {
+	labelSelector := fmt.Sprintf("app=%s", dsName)
+	pods, err := k8sClients.ClientSet().CoreV1().Pods(common.PrimusSafeNamespace).List(ctx, metav1.ListOptions{
+		LabelSelector: labelSelector,
+	})
+	if err != nil {
+		klog.V(4).ErrorS(err, "Failed to list pods for nodes detail", "daemonset", dsName)
+		return ""
 	}
 
-	if err := r.Status().Update(ctx, job); err != nil {
-		return err
+	details := make([]NodeDetail, 0, len(pods.Items))
+	for _, pod := range pods.Items {
+		d := NodeDetail{Node: pod.Spec.NodeName}
+		if pod.Status.Phase == corev1.PodRunning {
+			ready := false
+			for _, cs := range pod.Status.ContainerStatuses {
+				if cs.Ready {
+					ready = true
+					break
+				}
+			}
+			if ready {
+				d.Status = "Ready"
+			} else {
+				d.Status = "Running"
+			}
+		} else {
+			d.Status = string(pod.Status.Phase)
+			for _, cs := range pod.Status.ContainerStatuses {
+				if cs.State.Waiting != nil {
+					d.Reason = fmt.Sprintf("%s: %s", cs.State.Waiting.Reason, cs.State.Waiting.Message)
+					break
+				} else if cs.State.Terminated != nil {
+					d.Reason = fmt.Sprintf("%s: %s", cs.State.Terminated.Reason, cs.State.Terminated.Message)
+					break
+				}
+			}
+		}
+		details = append(details, d)
 	}
 
-	return nil
+	data, err := json.Marshal(details)
+	if err != nil {
+		klog.V(4).ErrorS(err, "Failed to marshal nodes detail")
+		return ""
+	}
+	return string(data)
 }
 
 // deleteDaemonSet deletes the DaemonSet after image prewarming is complete
