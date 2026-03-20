@@ -20,9 +20,8 @@ RUN clang -O2 -g -Wall -target bpf \
 COPY Lens/modules/exporters/rccl-socket-tracer/cmd/ ./cmd/
 WORKDIR /build/cmd
 
-# Generate Go bindings from compiled BPF object
-RUN go mod download
-RUN go install github.com/cilium/ebpf/cmd/bpf2go@v0.17.3
+# Resolve dependencies and generate Go bindings from compiled BPF object
+RUN go mod tidy
 RUN go generate ./...
 
 # Build Go binary
