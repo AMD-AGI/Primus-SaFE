@@ -136,7 +136,7 @@ func main() {
 	// Layer 1: TCP lifecycle
 	attach(link.Tracepoint("sock", "inet_sock_set_state", objs.HandleTcpState, nil))
 	attach(link.Kprobe("tcp_reset", objs.HandleTcpReset, nil))
-	attach(link.Tracepoint("tcp", "tcp_retransmit_skb", objs.HandleTcpRetransmit, nil))
+	// tcp_retransmit_skb removed: not all kernel BTFs export this tracepoint struct
 
 	// Layer 2: Syscall latency
 	attach(link.Tracepoint("syscalls", "sys_enter_connect", objs.HandleConnectEnter, nil))

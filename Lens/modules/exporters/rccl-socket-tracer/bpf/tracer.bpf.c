@@ -186,31 +186,11 @@ int handle_tcp_reset(struct pt_regs *ctx)
     return 0;
 }
 
-SEC("tracepoint/tcp/tcp_retransmit_skb")
-int handle_tcp_retransmit(struct trace_event_raw_tcp_retransmit_skb *ctx)
-{
-    if (!should_trace())
-        return 0;
-
-    struct event *e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
-    if (!e) return 0;
-
-    fill_event_base(e, EVT_TCP_RETRANSMIT);
-    e->af = ctx->family;
-    e->sport = ctx->sport;
-    e->dport = ctx->dport;
-
-    if (ctx->family == AF_INET) {
-        __builtin_memcpy(e->saddr, ctx->saddr, 4);
-        __builtin_memcpy(e->daddr, ctx->daddr, 4);
-    } else if (ctx->family == AF_INET6) {
-        __builtin_memcpy(e->saddr, ctx->saddr_v6, 16);
-        __builtin_memcpy(e->daddr, ctx->daddr_v6, 16);
-    }
-
-    bpf_ringbuf_submit(e, 0);
-    return 0;
-}
+/*
+ * tcp_retransmit_skb tracepoint removed: trace_event_raw_tcp_retransmit_skb
+ * is not in all kernel BTF exports. TCP retransmissions are still observable
+ * via inet_sock_set_state (repeated SYN_SENT) and kprobe/tcp_reset.
+ */
 
 // ===== Layer 2: Syscall latency =====
 
