@@ -26,6 +26,11 @@ BIND_MOUNTS=(
   "/mnt/m2m_nobackup/containerd:/var/lib/containerd"
 )
 
+restart_services() {
+  ${NSENTER} systemctl start containerd 2>/dev/null || true
+  ${NSENTER} systemctl start kubelet 2>/dev/null || true
+}
+
 for pair in "${BIND_MOUNTS[@]}"; do
   source="${pair%%:*}"
   target="${pair##*:}"
@@ -60,20 +65,35 @@ for pair in "${BIND_MOUNTS[@]}"; do
     # Copy target data to source (preserve existing data to persistent storage)
     ${NSENTER} test -d "$target" 2>/dev/null
     if [ $? -eq 0 ]; then
-      ${NSENTER} cp -a "$target"/. "$source"/ 2>/dev/null || true
+      ${NSENTER} cp -a "$target"/. "$source"/ 2>/dev/null
+      if [ $? -ne 0 ]; then
+        echo "Error: failed to copy $target to $source, restarting services and aborting"
+        restart_services
+        exit 1
+      fi
+
+      # Verify critical files after copy
+      if [[ "$target" == *kubelet* ]]; then
+        if ! ${NSENTER} test -f "$source/pki/kubelet-client-current.pem" 2>/dev/null; then
+          echo "Error: kubelet client cert not found in $source/pki/ after copy, restarting services and aborting"
+          restart_services
+          exit 1
+        fi
+      fi
     fi
 
     # Ensure target exists for mount
     ${NSENTER} mkdir -p "$target" 2>/dev/null
+    if [ $? -ne 0 ]; then
+      echo "Error: failed to create target directory: $target, restarting services and aborting"
+      restart_services
+      exit 1
+    fi
 
     ${NSENTER} mount --bind "$source" "$target" 2>/dev/null
     if [ $? -ne 0 ]; then
-      echo "Error: failed to mount --bind $source $target"
-      if [[ "$target" == *kubelet* ]]; then
-        ${NSENTER} systemctl start kubelet 2>/dev/null || true
-      elif [[ "$target" == *containerd* ]]; then
-        ${NSENTER} systemctl start containerd 2>/dev/null || true
-      fi
+      echo "Error: failed to mount --bind $source $target, restarting services and aborting"
+      restart_services
       exit 1
     fi
 
@@ -88,7 +108,7 @@ for pair in "${BIND_MOUNTS[@]}"; do
   # Add to fstab
   ${NSENTER} sh -c "echo '${fstab_line}' >> ${FSTAB}" 2>/dev/null
   if [ $? -ne 0 ]; then
-    echo "Error: failed to append to $FSTAB"
+    echo "Error: failed to append ${fstab_line} to $FSTAB"
     exit 1
   fi
 done
