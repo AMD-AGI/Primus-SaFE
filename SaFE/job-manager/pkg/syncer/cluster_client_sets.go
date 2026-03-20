@@ -225,6 +225,8 @@ func (r *ClusterClientSets) handleResource(_ context.Context, oldObj, newObj int
 				msg.gvk.Kind, oldUnstructured.GetGeneration(), msg.workloadId, msg.dispatchCount)
 		}
 	}
+	r.syncGithubAnnotations(newUnstructured)
+
 	r.handler(msg)
 }
 

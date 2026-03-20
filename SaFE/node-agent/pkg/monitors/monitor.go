@@ -48,6 +48,10 @@ type NodeInfo struct {
 	ExpectedGpuCount int `json:"expectedGpuCount"`
 	// The gpu count observed by the k8s node
 	ObservedGpuCount int `json:"observedGpuCount"`
+	// Expected ephemeral storage size on each node
+	ExpectedEphemeralStorage int64 `json:"expectedEphemeralStorage"`
+	// The ephemeral storage size observed by the k8s node
+	ObservedEphemeralStorage int64 `json:"observedEphemeralStorage"`
 	// The name of the node
 	NodeName string `json:"nodeName"`
 	// The workspace bound to the node
@@ -175,14 +179,19 @@ func (m *Monitor) generateNodeInfo() *NodeInfo {
 		return nil
 	}
 	info := &NodeInfo{
-		NodeName:         m.node.GetK8sNode().Name,
-		WorkspaceId:      v1.GetWorkspaceId(m.node.GetK8sNode()),
-		ClusterId:        v1.GetClusterId(m.node.GetK8sNode()),
-		ExpectedGpuCount: v1.GetNodeGpuCount(m.node.GetK8sNode()),
+		NodeName:                 m.node.GetK8sNode().Name,
+		WorkspaceId:              v1.GetWorkspaceId(m.node.GetK8sNode()),
+		ClusterId:                v1.GetClusterId(m.node.GetK8sNode()),
+		ExpectedGpuCount:         v1.GetNodeGpuCount(m.node.GetK8sNode()),
+		ExpectedEphemeralStorage: v1.GetNodeEphemeralStorage(m.node.GetK8sNode()),
 	}
 	gpuQuantity := m.node.GetGpuQuantity()
 	if !gpuQuantity.IsZero() {
 		info.ObservedGpuCount = int(gpuQuantity.Value())
+	}
+	ephemeralStorageQuantity := m.node.GetEphemeralStorage()
+	if !ephemeralStorageQuantity.IsZero() {
+		info.ObservedEphemeralStorage = ephemeralStorageQuantity.Value()
 	}
 	if commonconfig.GetRdmaName() != "" {
 		q, ok := m.node.GetK8sNode().Status.Allocatable[corev1.ResourceName(commonconfig.GetRdmaName())]
@@ -190,7 +199,6 @@ func (m *Monitor) generateNodeInfo() *NodeInfo {
 			info.ObserveRdmaCount = int(q.Value())
 		}
 	}
-
 	return info
 }
 

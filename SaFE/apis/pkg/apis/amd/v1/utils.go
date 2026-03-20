@@ -128,9 +128,14 @@ func SetAnnotation(obj metav1.Object, key, val string) bool {
 	return true
 }
 
-// GetNodeGpuCount retrieves the GPU count from a node's labels.
+// GetNodeGpuCount retrieves the expected GPU count of node
 func GetNodeGpuCount(obj metav1.Object) int {
 	return atoi(GetLabel(obj, NodeGpuCountLabel))
+}
+
+// GetNodeEphemeralStorage retrieves the expected ephemeralStorage of node
+func GetNodeEphemeralStorage(obj metav1.Object) int64 {
+	return atol(GetLabel(obj, NodeEphemeralStorageLabel))
 }
 
 // GetNodeStartupTime retrieves the node startup timestamp from labels.
@@ -384,6 +389,17 @@ func atoi(str string) int {
 		return 0
 	}
 	n, err := strconv.Atoi(str)
+	if err != nil {
+		return 0
+	}
+	return n
+}
+
+func atol(str string) int64 {
+	if str == "" {
+		return 0
+	}
+	n, err := strconv.ParseInt(str, 10, 64)
 	if err != nil {
 		return 0
 	}

@@ -54,3 +54,6 @@ export const deleteImageCustom = (jobId: string): Promise<any> =>
 
 export const getImagePrewarmList = (params: any): Promise<any> =>
   request.get('/images/prewarm', { params })
+
+export const getPrewarmNodes = (jobName: string): Promise<any> =>
+  request.get(`/images/prewarm/${jobName}/nodes`)

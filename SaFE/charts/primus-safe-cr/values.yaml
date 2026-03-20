@@ -5,3 +5,4 @@
 
 global:
   helm_registry: "registry-1.docker.io"
+  sub_domain: ""
