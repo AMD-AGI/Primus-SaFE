@@ -14,8 +14,13 @@ import (
 
 type CreateWorkloadRequest struct {
 	v1.WorkloadSpec
-	// When specifying a workload run on nodes, the replica count will be overwritten with the node count.
+	// SpecifiedNodes defines the list of node names where the workload should run.
 	SpecifiedNodes []string `json:"specifiedNodes,omitempty"`
+	// SpecifiedNodesMode controls how strictly the workload adheres to SpecifiedNodes.
+	// "required": Workload must run on nodes from SpecifiedNodes (hard constraint).
+	// "preferred": Workload prefers nodes from SpecifiedNodes but can use others if needed (soft constraint).
+	// Empty or unspecified: Defaults to "required" if SpecifiedNodes is provided, otherwise no node affinity.
+	SpecifiedNodesMode *string `json:"nodeAffinity,omitempty"`
 	// ExcludedNodes is a list of node names that the workload should avoid running on.
 	ExcludedNodes []string `json:"excludedNodes,omitempty"`
 	// The Workload name(display only). Used to generate the workload ID,
@@ -35,8 +40,6 @@ type CreateWorkloadRequest struct {
 	Preheat bool `json:"preheat,omitempty"`
 	// Whether to run the workload in privileged mode, only accessible to administrators
 	Privileged bool `json:"privileged,omitempty"`
-	// When enabled, the workload will try to use the same nodes during retries/failovers.
-	StickyNodes bool `json:"stickyNodes,omitempty"`
 	// The workload will be created using that specific user ID and name. This field is only accessible to administrators.
 	UserEntity *UserEntity `json:"userEntity,omitempty"`
 	// Whether to use the workspace storage for workload. default true
@@ -44,6 +47,13 @@ type CreateWorkloadRequest struct {
 	// Whether to use host network forcibly.
 	// Default logic relies on task size: it triggers only for multi-node tasks using full GPU count
 	ForceHostNetwork *bool `json:"forceHostNetwork,omitempty"`
+}
+
+func (req *CreateWorkloadRequest) GetSpecifiedNodesMode() string {
+	if req.SpecifiedNodesMode != nil {
+		return *req.SpecifiedNodesMode
+	}
+	return ""
 }
 
 type CreateWorkloadResponse struct {
@@ -194,8 +204,8 @@ type GetWorkloadResponse struct {
 	CronJobs []v1.CronJob `json:"cronJobs,omitempty"`
 	// The secrets used by the workload. Only the user themselves or an administrator can get this info.
 	Secrets []v1.SecretEntity `json:"secrets,omitempty"`
-	// When enabled, the workload will try to use the same nodes during retries/failovers.
-	StickyNodes bool `json:"stickyNodes,omitempty"`
+	// stickyNodesMode specifies the node affinity mode. supports required/preferred/""
+	StickyNodesMode string `json:"stickyNodesMode,omitempty"`
 	// Whether to run the workload in privileged mode, only accessible to administrators
 	Privileged bool `json:"privileged"`
 	// Whether to use the workspace storage

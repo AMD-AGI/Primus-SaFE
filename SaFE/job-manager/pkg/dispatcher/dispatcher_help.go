@@ -7,6 +7,7 @@ package dispatcher
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strconv"
 	"strings"
@@ -51,7 +52,7 @@ func initializeObject(obj *unstructured.Unstructured,
 	if err = modifyNodeSelectorTerms(obj, workload, path); err != nil {
 		return fmt.Errorf("failed to modify nodeSelectorTerms: %v", err.Error())
 	}
-	if v1.GetWorkloadDispatchCnt(workload) > 0 && v1.IsEnableStickyNodes(workload) {
+	if v1.GetStickyNodesMode(workload) == common.StickyNodesPreferred {
 		path = append(templatePath, "spec",
 			"affinity", "nodeAffinity", "preferredDuringSchedulingIgnoredDuringExecution")
 		if err = modifyPreferredNodeAffinity(obj, workload, path); err != nil {
@@ -116,7 +117,7 @@ func modifyNodeSelectorTerms(obj *unstructured.Unstructured, workload *v1.Worklo
 	if err != nil {
 		return err
 	}
-	expression := buildMatchExpression(workload)
+	expression := buildNodeMatchExpression(workload)
 	if len(expression) == 0 {
 		return nil
 	}
@@ -145,11 +146,13 @@ func modifyNodeSelectorTerms(obj *unstructured.Unstructured, workload *v1.Worklo
 // nodes from the previous dispatch attempt. This helps workloads to be rescheduled on the same nodes.
 func modifyPreferredNodeAffinity(obj *unstructured.Unstructured, workload *v1.Workload, path []string) error {
 	dispatchCnt := v1.GetWorkloadDispatchCnt(workload)
-	if dispatchCnt <= 0 || len(workload.Status.Nodes) < dispatchCnt {
-		return nil
-	}
+	var previousNodes []string
+	if dispatchCnt <= 0 {
+		json.Unmarshal([]byte(v1.GetStickyNodes(workload)), &previousNodes)
 
-	previousNodes := workload.Status.Nodes[dispatchCnt-1]
+	} else if len(workload.Status.Nodes) >= dispatchCnt {
+		previousNodes = workload.Status.Nodes[dispatchCnt-1]
+	}
 	if len(previousNodes) == 0 {
 		return nil
 	}
@@ -487,7 +490,7 @@ func modifySelector(obj *unstructured.Unstructured, workload *v1.Workload, path 
 
 // modifyTolerations adds tolerations to tolerate all taints when IsTolerateAll is enabled or tolerate sticky node taints
 func modifyTolerations(obj *unstructured.Unstructured, workload *v1.Workload, path []string) error {
-	if !workload.Spec.IsTolerateAll && !v1.IsEnableStickyNodes(workload) {
+	if !workload.Spec.IsTolerateAll && v1.GetStickyNodesMode(workload) == "" {
 		return nil
 	}
 	var tolerations []interface{}
@@ -730,8 +733,8 @@ func buildSecretVolume(secretName string) interface{} {
 	}
 }
 
-// buildMatchExpression creates node selector match expressions based on workload specifications.
-func buildMatchExpression(workload *v1.Workload) []interface{} {
+// buildNodeMatchExpression creates node selector match expressions based on workload specifications.
+func buildNodeMatchExpression(workload *v1.Workload) []interface{} {
 	var result []interface{}
 	if workload.Spec.Workspace != corev1.NamespaceDefault {
 		result = append(result, map[string]interface{}{
@@ -757,6 +760,17 @@ func buildMatchExpression(workload *v1.Workload) []interface{} {
 				"key":      key,
 				"operator": "In",
 				"values":   values,
+			})
+		}
+	}
+	if v1.GetStickyNodesMode(workload) == common.StickyNodesRequired {
+		var nodes []string
+		json.Unmarshal([]byte(v1.GetStickyNodes(workload)), &nodes)
+		if len(nodes) > 0 {
+			result = append(result, map[string]interface{}{
+				"key":      v1.K8sHostName,
+				"operator": "In",
+				"values":   nodes,
 			})
 		}
 	}

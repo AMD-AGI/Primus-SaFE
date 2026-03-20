@@ -1030,7 +1030,8 @@ func TestCreatePytorchJobWithStickyNodes(t *testing.T) {
 	workload.Spec.Workspace = workspace.Name
 	workload.Status.Nodes = [][]string{{"node1", "node2"}}
 	v1.SetLabel(workload, v1.WorkloadDispatchCntLabel, "1")
-	v1.SetAnnotation(workload, v1.WorkloadStickyNodesAnnotation, v1.TrueStr)
+	v1.SetAnnotation(workload, v1.StickyNodesAnnotation, string(jsonutils.MarshalSilently(workload.Status.Nodes[0])))
+	v1.SetAnnotation(workload, v1.StickyNodesModeAnnotation, common.StickyNodesPreferred)
 
 	configmap, err := parseConfigmap(TestPytorchJobTemplateConfig)
 	assert.NilError(t, err)
