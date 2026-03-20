@@ -37,6 +37,20 @@ func (m *MockInterface) EXPECT() *MockInterfaceMockRecorder {
 	return m.recorder
 }
 
+// AckEmailOutbox mocks base method.
+func (m *MockInterface) AckEmailOutbox(ctx context.Context, id int32) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "AckEmailOutbox", ctx, id)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// AckEmailOutbox indicates an expected call of AckEmailOutbox.
+func (mr *MockInterfaceMockRecorder) AckEmailOutbox(ctx, id interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AckEmailOutbox", reflect.TypeOf((*MockInterface)(nil).AckEmailOutbox), ctx, id)
+}
+
 // CountApiKeys mocks base method.
 func (m *MockInterface) CountApiKeys(ctx context.Context, query squirrel.Sqlizer) (int, error) {
 	m.ctrl.T.Helper()
@@ -155,6 +169,20 @@ func (m *MockInterface) CreateDeploymentRequest(ctx context.Context, req *client
 func (mr *MockInterfaceMockRecorder) CreateDeploymentRequest(ctx, req interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateDeploymentRequest", reflect.TypeOf((*MockInterface)(nil).CreateDeploymentRequest), ctx, req)
+}
+
+// CreateEmailOutbox mocks base method.
+func (m *MockInterface) CreateEmailOutbox(ctx context.Context, outbox *model.EmailOutbox) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CreateEmailOutbox", ctx, outbox)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// CreateEmailOutbox indicates an expected call of CreateEmailOutbox.
+func (mr *MockInterfaceMockRecorder) CreateEmailOutbox(ctx, outbox interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateEmailOutbox", reflect.TypeOf((*MockInterface)(nil).CreateEmailOutbox), ctx, outbox)
 }
 
 // CreateEnvironmentSnapshot mocks base method.
@@ -354,6 +382,20 @@ func (mr *MockInterfaceMockRecorder) DeleteWorkloadStatisticsByWorkloadID(ctx, w
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteWorkloadStatisticsByWorkloadID", reflect.TypeOf((*MockInterface)(nil).DeleteWorkloadStatisticsByWorkloadID), ctx, workloadID)
 }
 
+// FailEmailOutbox mocks base method.
+func (m *MockInterface) FailEmailOutbox(ctx context.Context, id int32, errMsg string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "FailEmailOutbox", ctx, id, errMsg)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// FailEmailOutbox indicates an expected call of FailEmailOutbox.
+func (mr *MockInterfaceMockRecorder) FailEmailOutbox(ctx, id, errMsg interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FailEmailOutbox", reflect.TypeOf((*MockInterface)(nil).FailEmailOutbox), ctx, id, errMsg)
+}
+
 // GetApiKeyById mocks base method.
 func (m *MockInterface) GetApiKeyById(ctx context.Context, id int64) (*client.ApiKey, error) {
 	m.ctrl.T.Helper()
@@ -442,6 +484,21 @@ func (m *MockInterface) GetEnvironmentSnapshotByRequestId(ctx context.Context, r
 func (mr *MockInterfaceMockRecorder) GetEnvironmentSnapshotByRequestId(ctx, reqId interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetEnvironmentSnapshotByRequestId", reflect.TypeOf((*MockInterface)(nil).GetEnvironmentSnapshotByRequestId), ctx, reqId)
+}
+
+// GetEmailOutbox mocks base method.
+func (m *MockInterface) GetEmailOutbox(ctx context.Context, id int32) (*model.EmailOutbox, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetEmailOutbox", ctx, id)
+	ret0, _ := ret[0].(*model.EmailOutbox)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetEmailOutbox indicates an expected call of GetEmailOutbox.
+func (mr *MockInterfaceMockRecorder) GetEmailOutbox(ctx, id interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetEmailOutbox", reflect.TypeOf((*MockInterface)(nil).GetEmailOutbox), ctx, id)
 }
 
 // GetFault mocks base method.
@@ -934,6 +991,21 @@ func (m *MockInterface) ListModels(ctx context.Context, accessMode, workspace st
 func (mr *MockInterfaceMockRecorder) ListModels(ctx, accessMode, workspace, isDeleted interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListModels", reflect.TypeOf((*MockInterface)(nil).ListModels), ctx, accessMode, workspace, isDeleted)
+}
+
+// ListPendingEmailOutbox mocks base method.
+func (m *MockInterface) ListPendingEmailOutbox(ctx context.Context, limit int) ([]*model.EmailOutbox, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListPendingEmailOutbox", ctx, limit)
+	ret0, _ := ret[0].([]*model.EmailOutbox)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListPendingEmailOutbox indicates an expected call of ListPendingEmailOutbox.
+func (mr *MockInterfaceMockRecorder) ListPendingEmailOutbox(ctx, limit interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListPendingEmailOutbox", reflect.TypeOf((*MockInterface)(nil).ListPendingEmailOutbox), ctx, limit)
 }
 
 // ListRegistryInfos mocks base method.
