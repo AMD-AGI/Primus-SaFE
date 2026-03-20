@@ -1,0 +1,209 @@
+/*
+ * Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
+ * See LICENSE for license information.
+ */
+
+package llmgateway
+
+import (
+	"encoding/json"
+	"net/http"
+	"sort"
+	"strconv"
+	"strings"
+
+	apiutils "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/utils"
+	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
+	"github.com/gin-gonic/gin"
+	"k8s.io/klog/v2"
+)
+
+// ── Tag Usage Handler ─────────────────────────────────────────────────────
+
+// GetTagUsage handles GET /api/v1/llm-gateway/tags/usage?start_date=...&end_date=...&timezone=...&page=1&page_size=20
+func (h *Handler) GetTagUsage(c *gin.Context) {
+	email := h.getUserEmail(c)
+	if email == "" {
+		apiutils.AbortWithApiError(c, commonerrors.NewBadRequest("unable to identify user email"))
+		return
+	}
+
+	startDate := c.Query("start_date")
+	endDate := c.Query("end_date")
+	if startDate == "" || endDate == "" {
+		apiutils.AbortWithApiError(c, commonerrors.NewBadRequest("start_date and end_date are required, format: YYYY-MM-DD"))
+		return
+	}
+
+	loc, err := resolveTimezone(c.Query("timezone"))
+	if err != nil {
+		apiutils.AbortWithApiError(c, commonerrors.NewBadRequest(err.Error()))
+		return
+	}
+
+	page := parseIntParam(c.Query("page"), 1)
+	pageSize := parseIntParam(c.Query("page_size"), defaultTagPageSize)
+	if page < 1 {
+		page = 1
+	}
+	if pageSize < 1 {
+		pageSize = defaultTagPageSize
+	}
+	if pageSize > maxTagPageSize {
+		pageSize = maxTagPageSize
+	}
+
+	existing, err := h.dbClient.GetLLMBindingByEmail(c.Request.Context(), email)
+	if err != nil {
+		klog.ErrorS(err, "GetTagUsage: DB query failed", "email", email)
+		apiutils.AbortWithApiError(c, commonerrors.NewInternalError("service temporarily unavailable, please try again later"))
+		return
+	}
+	if existing == nil {
+		apiutils.AbortWithApiError(c, commonerrors.NewNotFoundWithMessage("no APIM Key bound yet"))
+		return
+	}
+
+	adjStart, adjEnd := expandDateRangeForTimezone(startDate, endDate, loc)
+	allLogs, err := h.litellmClient.GetAllSpendLogs(c.Request.Context(), email, adjStart, adjEnd, maxSpendLogPages)
+	if err != nil {
+		klog.ErrorS(err, "GetTagUsage: LiteLLM query failed", "email", email)
+		c.JSON(http.StatusBadGateway, gin.H{"errorMessage": "tag usage data temporarily unavailable, please try again later"})
+		return
+	}
+
+	allLogs = filterLogsByLocalDate(allLogs, startDate, endDate, loc)
+	result := aggregateByTag(allLogs)
+
+	sort.Slice(result.tags, func(i, j int) bool {
+		return result.tags[i].Spend > result.tags[j].Spend
+	})
+
+	total := len(result.tags)
+	totalPages := (total + pageSize - 1) / pageSize
+	start := (page - 1) * pageSize
+	end := start + pageSize
+	if start > total {
+		start = total
+	}
+	if end > total {
+		end = total
+	}
+
+	c.JSON(http.StatusOK, TagUsageResponse{
+		UserEmail:     email,
+		StartDate:     startDate,
+		EndDate:       endDate,
+		TotalSpend:    result.totalSpend,
+		TotalRequests: result.totalRequests,
+		Tags:          result.tags[start:end],
+		Page:          page,
+		PageSize:      pageSize,
+		Total:         total,
+		TotalPages:    totalPages,
+	})
+}
+
+func parseIntParam(s string, defaultVal int) int {
+	if s == "" {
+		return defaultVal
+	}
+	v, err := strconv.Atoi(s)
+	if err != nil {
+		return defaultVal
+	}
+	return v
+}
+
+// ── Tag aggregation logic ─────────────────────────────────────────────────
+
+type tagAggResult struct {
+	totalSpend    float64
+	totalRequests int64
+	tags          []TagUsageItem
+}
+
+type tagAccum struct {
+	spend            float64
+	requests         int64
+	promptTokens     int64
+	completionTokens int64
+}
+
+func aggregateByTag(logs []SpendLogEntry) tagAggResult {
+	tagMap := make(map[string]*tagAccum)
+	var totalSpend float64
+	var totalRequests int64
+
+	for i := range logs {
+		log := &logs[i]
+		totalSpend += log.Spend
+		totalRequests++
+
+		tags := parseRequestTags(log.RequestTags)
+		customTags := filterCustomTags(tags)
+
+		if len(customTags) == 0 {
+			customTags = []string{""}
+		}
+
+		for _, tag := range customTags {
+			accum, ok := tagMap[tag]
+			if !ok {
+				accum = &tagAccum{}
+				tagMap[tag] = accum
+			}
+			accum.spend += log.Spend
+			accum.requests++
+			accum.promptTokens += log.PromptTokens
+			accum.completionTokens += log.CompletionTokens
+		}
+	}
+
+	items := make([]TagUsageItem, 0, len(tagMap))
+	for tag, accum := range tagMap {
+		item := TagUsageItem{
+			Spend:            accum.spend,
+			APIRequests:      accum.requests,
+			PromptTokens:     accum.promptTokens,
+			CompletionTokens: accum.completionTokens,
+		}
+		if tag == "" {
+			item.TagName = nil
+		} else {
+			t := tag
+			item.TagName = &t
+		}
+		items = append(items, item)
+	}
+
+	return tagAggResult{
+		totalSpend:    totalSpend,
+		totalRequests: totalRequests,
+		tags:          items,
+	}
+}
+
+func parseRequestTags(raw json.RawMessage) []string {
+	if len(raw) == 0 {
+		return nil
+	}
+
+	var tags []string
+	if err := json.Unmarshal(raw, &tags); err != nil {
+		return nil
+	}
+	return tags
+}
+
+// filterCustomTags removes LiteLLM auto-generated tags (User-Agent headers).
+func filterCustomTags(tags []string) []string {
+	var custom []string
+	for _, tag := range tags {
+		if strings.HasPrefix(tag, "User-Agent:") {
+			continue
+		}
+		custom = append(custom, tag)
+	}
+	return custom
+}
