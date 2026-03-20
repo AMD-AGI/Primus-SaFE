@@ -383,11 +383,37 @@ func main() {
 	// Start Prometheus metrics HTTP server for per-QP traffic stats
 	go func() {
 		http.HandleFunc("/metrics", func(w http.ResponseWriter, r *http.Request) {
-			var key struct {
+			nodeName := os.Getenv("NODE_NAME")
+
+			// Activity counters
+			counterNames := []string{
+				"rccl_tracer_connect_total",
+				"rccl_tracer_post_send_total",
+				"rccl_tracer_poll_cq_total",
+				"rccl_tracer_modify_qp_total",
+				"rccl_tracer_create_qp_total",
+				"rccl_tracer_sigsegv_total",
+				"rccl_tracer_kfd_evict_total",
+				"rccl_tracer_connect_error_total",
+				"rccl_tracer_cqe_error_total",
+				"rccl_tracer_ib_async_event_total",
+				"rccl_tracer_hsa_signal_ops_total",
+			}
+
+			for i, name := range counterNames {
+				key := uint32(i)
+				var val uint64
+				if err := objs.ActivityCounters.Lookup(key, &val); err == nil {
+					fmt.Fprintf(w, "%s{node=\"%s\"} %d\n", name, nodeName, val)
+				}
+			}
+
+			// Per-QP traffic
+			var qpKey struct {
 				QpNum     uint32
 				DeviceIdx uint32
 			}
-			var val struct {
+			var qpVal struct {
 				TxBytes uint64
 				TxOps   uint64
 				RxBytes uint64
@@ -395,12 +421,12 @@ func main() {
 			}
 
 			iter := objs.QpTraffic.Iterate()
-			for iter.Next(&key, &val) {
-				fmt.Fprintf(w, "rccl_tracer_qp_tx_ops{qp_num=\"%d\",device_idx=\"%d\"} %d\n",
-					key.QpNum, key.DeviceIdx, val.TxOps)
-				fmt.Fprintf(w, "rccl_tracer_qp_tx_bytes{qp_num=\"%d\",device_idx=\"%d\"} %d\n",
-					key.QpNum, key.DeviceIdx, val.TxBytes)
+			for iter.Next(&qpKey, &qpVal) {
+				fmt.Fprintf(w, "rccl_tracer_qp_tx_ops{node=\"%s\",qp_num=\"%d\",device_idx=\"%d\"} %d\n",
+					nodeName, qpKey.QpNum, qpKey.DeviceIdx, qpVal.TxOps)
 			}
+
+			fmt.Fprintf(w, "rccl_tracer_up{node=\"%s\"} 1\n", nodeName)
 		})
 		log.Printf("Prometheus metrics server listening on %s/metrics", prometheusAddr)
 		if err := http.ListenAndServe(prometheusAddr, nil); err != nil {

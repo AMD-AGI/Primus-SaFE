@@ -146,6 +146,25 @@ struct {
     __type(value, struct qp_stats_val);
 } qp_traffic SEC(".maps");
 
+// Global activity counters for Prometheus export
+// Key: counter_id (0=connect_total, 1=post_send_total, 2=poll_cq_total,
+//      3=modify_qp_total, 4=create_qp_total, 5=sigsegv_total,
+//      6=kfd_evict_total, 7=connect_error_total, 8=cqe_error_total,
+//      9=ib_async_total, 10=hsa_signal_total)
+struct {
+    __uint(type, BPF_MAP_TYPE_ARRAY);
+    __uint(max_entries, 16);
+    __type(key, __u32);
+    __type(value, __u64);
+} activity_counters SEC(".maps");
+
+static __always_inline void bump_counter(__u32 idx)
+{
+    __u64 *val = bpf_map_lookup_elem(&activity_counters, &idx);
+    if (val)
+        __sync_fetch_and_add(val, 1);
+}
+
 static __always_inline bool should_trace(void)
 {
     __u64 cgid = bpf_get_current_cgroup_id();
@@ -244,6 +263,7 @@ int handle_connect_enter(struct trace_event_raw_sys_enter *ctx)
     if (!e) return 0;
 
     fill_event_base(e, EVT_CONNECT_ENTER);
+    bump_counter(0);
     read_sockaddr_in(e, addr, true);
 
     bpf_ringbuf_submit(e, 0);
@@ -267,6 +287,8 @@ int handle_connect_exit(struct trace_event_raw_sys_exit *ctx)
     fill_event_base(e, EVT_CONNECT_EXIT);
     e->duration_ns = duration;
     e->retval = ctx->ret;
+    if (ctx->ret < 0)
+        bump_counter(7);
 
     bpf_ringbuf_submit(e, 0);
     return 0;
@@ -616,6 +638,7 @@ int handle_ionic_poll_cq(struct pt_regs *ctx)
     if (!e) return 0;
 
     fill_event_base(e, EVT_IONIC_POLL_CQ_ENTER);
+    bump_counter(2);
     e->retval = args.num_entries;
 
     bpf_ringbuf_submit(e, 0);
@@ -650,6 +673,7 @@ int handle_ionic_poll_cq_ret(struct pt_regs *ctx)
         bpf_probe_read_kernel(&qp_num, sizeof(qp_num), wc_entry + 16);
 
         if (status != 0) {
+            bump_counter(8);
             struct event *err = bpf_ringbuf_reserve(&events, sizeof(*err), 0);
             if (err) {
                 fill_event_base(err, EVT_IONIC_CQE_ERROR);
@@ -685,6 +709,7 @@ int handle_ionic_modify_qp(struct pt_regs *ctx)
     if (!e) return 0;
 
     fill_event_base(e, EVT_IONIC_MODIFY_QP);
+    bump_counter(3);
 
     bpf_ringbuf_submit(e, 0);
     return 0;
@@ -722,6 +747,7 @@ int handle_ionic_create_qp(struct pt_regs *ctx)
     if (!e) return 0;
 
     fill_event_base(e, EVT_IONIC_CREATE_QP);
+    bump_counter(4);
 
     bpf_ringbuf_submit(e, 0);
     return 0;
@@ -730,8 +756,8 @@ int handle_ionic_create_qp(struct pt_regs *ctx)
 SEC("kprobe/ionic_post_send")
 int handle_ionic_post_send(struct pt_regs *ctx)
 {
-    if (!should_trace())
-        return 0;
+    // No cgroup filter - RDMA data plane runs in kernel context
+    bump_counter(1);
 
     struct ib_qp *qp = (struct ib_qp *)PT_REGS_PARM1(ctx);
     __u32 qp_num = 0;
@@ -766,6 +792,7 @@ int handle_ib_dispatch_event(struct pt_regs *ctx)
     if (!e) return 0;
 
     fill_event_base(e, EVT_IB_ASYNC_EVENT);
+    bump_counter(9);
     e->retval = event_type;
 
     if (event_type >= 1 && event_type <= 5) {
@@ -806,6 +833,7 @@ int handle_kfd_evict_queues(struct pt_regs *ctx)
     struct event *e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
     if (!e) return 0;
     fill_event_base(e, EVT_KFD_EVICT_QUEUES);
+    bump_counter(6);
     bpf_ringbuf_submit(e, 0);
     return 0;
 }
@@ -878,6 +906,7 @@ int handle_sigsegv(struct pt_regs *ctx)
     if (!e) return 0;
 
     fill_event_base(e, EVT_SIGSEGV);
+    bump_counter(5);
     e->retval = sig;
 
     __u64 fault_addr = (__u64)PT_REGS_PARM3(ctx);
@@ -898,6 +927,7 @@ int handle_sigsegv(struct pt_regs *ctx)
 SEC("uprobe/hsa_signal_store_screlease")
 int handle_hsa_signal_op(struct pt_regs *ctx)
 {
+    bump_counter(10);
     __u64 pid_tgid = bpf_get_current_pid_tgid();
     __u32 pid = pid_tgid >> 32;
     __u64 signal_handle = (__u64)PT_REGS_PARM1(ctx);
