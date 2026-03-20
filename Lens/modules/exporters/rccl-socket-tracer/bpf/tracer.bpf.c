@@ -50,6 +50,8 @@ enum event_type {
     EVT_IONIC_CQE_ERROR     = 44,
     EVT_IONIC_CREATE_QP     = 45,
     EVT_IONIC_POST_SEND     = 46,
+    EVT_IB_ASYNC_EVENT      = 50,
+    EVT_IONIC_PORT_EVENT    = 51,
 };
 
 struct event {
@@ -108,6 +110,25 @@ struct {
     __type(key, __u64);
     __type(value, __u8);
 } cgroup_filter SEC(".maps");
+
+struct qp_stats_key {
+    __u32 qp_num;
+    __u32 device_idx;
+};
+
+struct qp_stats_val {
+    __u64 tx_bytes;
+    __u64 tx_ops;
+    __u64 rx_bytes;
+    __u64 rx_ops;
+};
+
+struct {
+    __uint(type, BPF_MAP_TYPE_HASH);
+    __uint(max_entries, 16384);
+    __type(key, struct qp_stats_key);
+    __type(value, struct qp_stats_val);
+} qp_traffic SEC(".maps");
 
 static __always_inline bool should_trace(void)
 {
@@ -696,11 +717,66 @@ int handle_ionic_post_send(struct pt_regs *ctx)
     if (!should_trace())
         return 0;
 
+    struct ib_qp *qp = (struct ib_qp *)PT_REGS_PARM1(ctx);
+    __u32 qp_num = 0;
+    bpf_probe_read_kernel(&qp_num, sizeof(qp_num), (void *)qp + 168);
+
+    struct qp_stats_key key = { .qp_num = qp_num, .device_idx = 0 };
+    struct qp_stats_val *val = bpf_map_lookup_elem(&qp_traffic, &key);
+    if (val) {
+        __sync_fetch_and_add(&val->tx_ops, 1);
+    } else {
+        struct qp_stats_val new_val = { .tx_ops = 1 };
+        bpf_map_update_elem(&qp_traffic, &key, &new_val, BPF_NOEXIST);
+    }
+
+    struct event *e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
+    if (!e) return 0;
+    fill_event_base(e, EVT_IONIC_POST_SEND);
+    e->old_state = qp_num;
+    bpf_ringbuf_submit(e, 0);
+    return 0;
+}
+
+SEC("kprobe/ib_dispatch_event")
+int handle_ib_dispatch_event(struct pt_regs *ctx)
+{
+    void *ib_event = (void *)PT_REGS_PARM1(ctx);
+
+    __u32 event_type = 0;
+    bpf_probe_read_kernel(&event_type, sizeof(event_type), ib_event + 8);
+
     struct event *e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
     if (!e) return 0;
 
-    fill_event_base(e, EVT_IONIC_POST_SEND);
+    fill_event_base(e, EVT_IB_ASYNC_EVENT);
+    e->retval = event_type;
 
+    if (event_type >= 1 && event_type <= 5) {
+        void *qp_ptr = NULL;
+        bpf_probe_read_kernel(&qp_ptr, sizeof(qp_ptr), ib_event + 16);
+        if (qp_ptr) {
+            __u32 qp_num = 0;
+            bpf_probe_read_kernel(&qp_num, sizeof(qp_num), qp_ptr + 168);
+            e->old_state = qp_num;
+        }
+    }
+    if (event_type >= 8 && event_type <= 9) {
+        __u32 port_num = 0;
+        bpf_probe_read_kernel(&port_num, sizeof(port_num), ib_event + 16);
+        e->new_state = port_num;
+    }
+
+    bpf_ringbuf_submit(e, 0);
+    return 0;
+}
+
+SEC("kprobe/ionic_port_event")
+int handle_ionic_port_event(struct pt_regs *ctx)
+{
+    struct event *e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
+    if (!e) return 0;
+    fill_event_base(e, EVT_IONIC_PORT_EVENT);
     bpf_ringbuf_submit(e, 0);
     return 0;
 }

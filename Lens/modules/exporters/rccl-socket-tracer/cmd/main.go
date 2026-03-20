@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -14,6 +15,7 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
 	"github.com/cilium/ebpf"
 	"github.com/cilium/ebpf/link"
 	"github.com/cilium/ebpf/ringbuf"
@@ -49,6 +51,8 @@ const (
 	EvtIonicCqeError    = 44
 	EvtIonicCreateQP    = 45
 	EvtIonicPostSend    = 46
+	EvtIbAsyncEvent     = 50
+	EvtIonicPortEvent   = 51
 )
 
 var eventNames = map[uint32]string{
@@ -79,6 +83,8 @@ var eventNames = map[uint32]string{
 	EvtIonicCqeError:    "IONIC_CQE_ERROR",
 	EvtIonicCreateQP:    "IONIC_CREATE_QP",
 	EvtIonicPostSend:    "IONIC_POST_SEND",
+	EvtIbAsyncEvent:     "IB_ASYNC_EVENT",
+	EvtIonicPortEvent:   "IONIC_PORT_EVENT",
 }
 
 var tcpStateNames = map[uint32]string{
@@ -123,6 +129,7 @@ var (
 	containerCache sync.Map // host PID -> ContainerInfo
 	fileCache      sync.Map // "container/pid" -> *os.File
 	nsFilter       string
+	prometheusAddr = getEnv("PROMETHEUS_ADDR", ":9190")
 )
 
 func main() {
@@ -217,6 +224,14 @@ func main() {
 	})
 	tryAttach("ionic_post_send", func() (link.Link, error) {
 		return link.Kprobe("ionic_post_send", objs.HandleIonicPostSend, nil)
+	})
+
+	// IB async events (system-wide, catches QP_FATAL, PORT_ERR etc.)
+	tryAttach("ib_dispatch_event", func() (link.Link, error) {
+		return link.Kprobe("ib_dispatch_event", objs.HandleIbDispatchEvent, nil)
+	})
+	tryAttach("ionic_port_event", func() (link.Link, error) {
+		return link.Kprobe("ionic_port_event", objs.HandleIonicPortEvent, nil)
 	})
 
 	// Layer 3: Dynamic uprobe discovery for RCCL ANP + ibverbs
@@ -317,6 +332,34 @@ func main() {
 
 	log.Printf("rccl-socket-tracer running. Output: %s, namespace filter: %q, slow threshold: %dms",
 		outputDir, nsFilter, slowThresholdMs)
+
+	// Start Prometheus metrics HTTP server for per-QP traffic stats
+	go func() {
+		http.HandleFunc("/metrics", func(w http.ResponseWriter, r *http.Request) {
+			var key struct {
+				QpNum     uint32
+				DeviceIdx uint32
+			}
+			var val struct {
+				TxBytes uint64
+				TxOps   uint64
+				RxBytes uint64
+				RxOps   uint64
+			}
+
+			iter := objs.QpTraffic.Iterate()
+			for iter.Next(&key, &val) {
+				fmt.Fprintf(w, "rccl_tracer_qp_tx_ops{qp_num=\"%d\",device_idx=\"%d\"} %d\n",
+					key.QpNum, key.DeviceIdx, val.TxOps)
+				fmt.Fprintf(w, "rccl_tracer_qp_tx_bytes{qp_num=\"%d\",device_idx=\"%d\"} %d\n",
+					key.QpNum, key.DeviceIdx, val.TxBytes)
+			}
+		})
+		log.Printf("Prometheus metrics server listening on %s/metrics", prometheusAddr)
+		if err := http.ListenAndServe(prometheusAddr, nil); err != nil {
+			log.Printf("Warning: Prometheus server failed: %v", err)
+		}
+	}()
 
 	rd, err := ringbuf.NewReader(objs.Events)
 	if err != nil {
@@ -469,7 +512,21 @@ func formatEvent(e *Event, c *ContainerInfo, ts time.Time) string {
 		return fmt.Sprintf("%s qp_num=%d status=%d(%s) opcode=%d", base, e.OldState, e.Retval, ibWcStatusName(e.Retval), e.NewState)
 	case EvtIonicCreateQP:
 		return base
+	case EvtIbAsyncEvent:
+		evtType := ibEventTypeName(e.Retval)
+		if e.OldState != 0 {
+			return fmt.Sprintf("%s event=%s qp_num=%d", base, evtType, e.OldState)
+		}
+		if e.NewState != 0 {
+			return fmt.Sprintf("%s event=%s port=%d", base, evtType, e.NewState)
+		}
+		return fmt.Sprintf("%s event=%s", base, evtType)
+	case EvtIonicPortEvent:
+		return base
 	case EvtIonicPostSend:
+		if e.OldState != 0 {
+			return fmt.Sprintf("%s qp_num=%d", base, e.OldState)
+		}
 		return base
 	}
 
@@ -554,6 +611,43 @@ func ibWcStatusName(s int32) string {
 		return "GENERAL_ERR"
 	default:
 		return fmt.Sprintf("WC_ERR_%d", s)
+	}
+}
+
+func ibEventTypeName(t int32) string {
+	switch t {
+	case 0:
+		return "CQ_ERR"
+	case 1:
+		return "QP_FATAL"
+	case 2:
+		return "QP_REQ_ERR"
+	case 3:
+		return "QP_ACCESS_ERR"
+	case 4:
+		return "COMM_EST"
+	case 5:
+		return "SQ_DRAINED"
+	case 6:
+		return "PATH_MIG_ERR"
+	case 7:
+		return "PATH_MIG"
+	case 8:
+		return "PORT_ERR"
+	case 9:
+		return "PORT_ACTIVE"
+	case 10:
+		return "LID_CHANGE"
+	case 11:
+		return "PKEY_CHANGE"
+	case 12:
+		return "SM_CHANGE"
+	case 13:
+		return "CLIENT_REREGISTER"
+	case 14:
+		return "GID_CHANGE"
+	default:
+		return fmt.Sprintf("EVENT_%d", t)
 	}
 }
 
