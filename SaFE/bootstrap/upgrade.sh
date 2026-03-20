@@ -1,9 +1,12 @@
-#!/bin/bash
 
 #
 # Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
 # See LICENSE for license information.
 #
+
+#!/bin/bash
+
+
 
 # This script only applies if install.sh has been previously executed and
 # the environment configuration and code directory have not changed.
@@ -102,9 +105,7 @@ sed -i "s/csi_volume_handle: \".*\"/csi_volume_handle: \"$csi_volume_handle\"/" 
 
 sed -i "s/nccl_socket_ifname: \".*\"/nccl_socket_ifname: \"$ethernet_nic\"/" "$values_yaml"
 sed -i "s/nccl_ib_hca: \".*\"/nccl_ib_hca: \"$rdma_nic\"/" "$values_yaml"
-if [[ "$ingress" == "higress" ]]; then
-  sed -i "s/^.*sub_domain:.*/  sub_domain: \"$sub_domain\"/" "$values_yaml"
-fi
+sed -i "s/^.*sub_domain:.*/  sub_domain: \"$sub_domain\"/" "$values_yaml"
 sed -i "s/replicas: [0-9]*/replicas: $replicas/" "$values_yaml"
 sed -i "s/^.*cpu:.*/  cpu: $cpu/" "$values_yaml"
 sed -i "s/^.*memory:.*/  memory: $memory/" "$values_yaml"
@@ -167,7 +168,7 @@ if helm -n "$NAMESPACE" list | grep -q "^$chart_name "; then
   rm -rf output
 fi
 install_or_upgrade_helm_chart "$chart_name" "$values_yaml"
-
+rm -f "$values_yaml"
 sleep 10
 
 echo
@@ -175,7 +176,6 @@ echo "========================================="
 echo "🔧 Step 3: upgrade primus-safe cr"
 echo "========================================="
 
-cd ../charts/
 src_values_yaml="primus-safe-cr/values.yaml"
 if [ ! -f "$src_values_yaml" ]; then
   echo "Error: $src_values_yaml does not exist"
@@ -187,9 +187,11 @@ cp "$src_values_yaml" "${values_yaml}"
 if [[ -n "${helm_registry:-}" ]]; then
   sed -i '/global:/,/^[a-z]/ s/helm_registry: .*/helm_registry: "'"$helm_registry"'"/' "$values_yaml"
 fi
+sed -i '/global:/,/^[a-z]/ s/sub_domain: .*/sub_domain: "'"$sub_domain"'"/' "$values_yaml"
 
 install_or_upgrade_helm_chart "primus-safe-cr" "$values_yaml"
 rm -f "$values_yaml"
+cd ..
 
 
 echo
@@ -202,7 +204,7 @@ if [[ "${CALLED_BY_CD:-false}" == "true" ]]; then
 elif [[ "${install_node_agent:-y}" == "n" ]]; then
   echo "⏭️  Skipping node-agent upgrade (install_node_agent=n)"
 else
-  cd ../node-agent/charts/
+  cd ./node-agent/charts/
   src_values_yaml="node-agent/values.yaml"
   if [ ! -f "$src_values_yaml" ]; then
     echo "Error: $src_values_yaml does not exist"
@@ -214,6 +216,7 @@ else
   sed -i '/node_agent:/,/^[a-z]/ s/image_registry: .*/image_registry: "'"$safe_image"'"/' "$values_yaml"
   sed -i "s/nccl_socket_ifname: \".*\"/nccl_socket_ifname: \"$ethernet_nic\"/" "$values_yaml"
   sed -i "s/nccl_ib_hca: \".*\"/nccl_ib_hca: \"$rdma_nic\"/" "$values_yaml"
+  sed -i "s/^.*sub_domain:.*/  sub_domain: \"$sub_domain\"/" "$values_yaml"
   sed -i "s/image_pull_secret: \".*\"/image_pull_secret: \"$IMAGE_PULL_SECRET\"/" "$values_yaml"
   sed -i "s/gpu_driver: \".*\"/gpu_driver: \"${node_agent_gpu_driver:-6.12.12}\"/" "$values_yaml"
   sed -i "s/rocm_version: \".*\"/rocm_version: \"${node_agent_rocm_version:-6.4}\"/" "$values_yaml"

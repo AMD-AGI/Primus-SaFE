@@ -13,7 +13,6 @@ import (
 	"strings"
 	"time"
 
-	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	"golang.org/x/crypto/ssh"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -33,6 +32,7 @@ import (
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
+	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	commonfaults "github.com/AMD-AIG-AIMA/SAFE/common/pkg/faults"
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 	"github.com/AMD-AIG-AIMA/SAFE/resource-manager/pkg/utils"
@@ -760,6 +760,9 @@ func (r *NodeReconciler) manage(ctx context.Context, adminNode *v1.Node, k8sNode
 		if err = r.syncLabelsToK8sNode(ctx, k8sClients.ClientSet(), adminNode, k8sNode); err != nil {
 			return ctrlruntime.Result{}, err
 		}
+		if err = r.modifyResolvConf(ctx, adminNode); err != nil {
+			return ctrlruntime.Result{}, err
+		}
 		if err = r.installAddons(ctx, adminNode); err != nil {
 			return ctrlruntime.Result{}, err
 		}
@@ -983,11 +986,67 @@ systemctl start kubelet 2>/dev/null || true`
 	}
 
 	// cleanup kubernetes files
-	resetNodeCmd := "kubeadm reset -f || true; rm -rf /etc/kubernetes/ ~/.kube || true"
+	resetNodeCmd := "chattr -i /etc/resolv.conf; kubeadm reset -f || true; rm -rf /etc/kubernetes/ ~/.kube || true"
 	if err = r.executeSSHCommand(sshClient, resetNodeCmd); err != nil {
 		return fmt.Errorf("failed to kubeadm reset node: %w", err)
 	}
 	klog.Infof("node %s is reset. clean up CNI, Kubernetes, and run kubeadm reset.", node.Name)
+	return nil
+}
+
+func (r *NodeReconciler) modifyResolvConf(ctx context.Context, node *v1.Node) error {
+	sshClient, err := utils.GetSSHClient(ctx, r.Client, node)
+	if err != nil {
+		return err
+	}
+	defer sshClient.Close()
+
+	// Add nameserver 127.0.0.53 to resolv.conf and set immutable (chattr +i)
+	// Logic: if already has 127.0.0.53, ensure chattr +i; else add it before first nameserver, then chattr +i
+	script := `RESOLV_CONF="/etc/resolv.conf"
+TARGET_FILE="$RESOLV_CONF"
+test -e "$RESOLV_CONF" || exit 0
+test -L "$RESOLV_CONF" && TARGET_FILE=$(readlink -f "$RESOLV_CONF") || true
+test -z "$TARGET_FILE" && exit 0
+content=$(cat "$TARGET_FILE" 2>/dev/null) || exit 0
+if echo "$content" | grep -q "nameserver 127.0.0.53"; then
+  attrs=$(lsattr "$TARGET_FILE" 2>/dev/null)
+  if [ -n "$attrs" ] && echo "$attrs" | grep -qE '^[ -]{4}i'; then exit 0; fi
+  chattr +i "$TARGET_FILE" 2>/dev/null || true
+else
+  chattr -i "$TARGET_FILE" 2>/dev/null || true
+  sed -i '0,/^nameserver/{s/^nameserver/nameserver 127.0.0.53\nnameserver/}' "$TARGET_FILE" 2>/dev/null || exit 1
+  chattr +i "$TARGET_FILE" 2>/dev/null || true
+fi`
+	executeCmd := "bash -c " + fmt.Sprintf("%q", script)
+	if err = r.executeSSHCommand(sshClient, executeCmd); err != nil {
+		klog.Warningf("failed to add resolv.conf lock on node %s: %v", node.Name, err)
+		return err
+	}
+	klog.Infof("node %s: added nameserver 127.0.0.53 and set resolv.conf immutable", node.Name)
+	return nil
+}
+
+func (r *NodeReconciler) removeResolvConfLock(ctx context.Context, node *v1.Node) error {
+	sshClient, err := utils.GetSSHClient(ctx, r.Client, node)
+	if err != nil {
+		return err
+	}
+	defer sshClient.Close()
+
+	// Remove immutable flag from resolv.conf (chattr -i)
+	script := `RESOLV_CONF="/etc/resolv.conf"
+TARGET_FILE="$RESOLV_CONF"
+test -e "$RESOLV_CONF" || exit 0
+test -L "$RESOLV_CONF" && TARGET_FILE=$(readlink -f "$RESOLV_CONF") || true
+test -z "$TARGET_FILE" && exit 0
+chattr -i "$TARGET_FILE" 2>/dev/null || true`
+	executeCmd := "bash -c " + fmt.Sprintf("%q", script)
+	if err = r.executeSSHCommand(sshClient, executeCmd); err != nil {
+		klog.Warningf("failed to remove resolv.conf lock on node %s: %v", node.Name, err)
+		return err
+	}
+	klog.Infof("node %s: removed resolv.conf immutable lock", node.Name)
 	return nil
 }
 
@@ -1008,6 +1067,9 @@ func (r *NodeReconciler) syncOrCreateScaleDownPod(ctx context.Context,
 	if len(pods) == 0 {
 		username, err := r.getUsername(ctx, adminNode, cluster)
 		if err != nil {
+			return ctrlruntime.Result{}, err
+		}
+		if err = r.removeResolvConfLock(ctx, adminNode); err != nil {
 			return ctrlruntime.Result{}, err
 		}
 		hostsContent, err := r.generateHosts(ctx, cluster, adminNode)
