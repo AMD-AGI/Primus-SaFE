@@ -1,4 +1,4 @@
-FROM golang:1.22-bookworm AS builder
+FROM golang:1.24-bookworm AS builder
 
 RUN apt-get update && apt-get install -y \
     clang-15 llvm-15 libbpf-dev linux-headers-generic \
@@ -21,7 +21,7 @@ COPY Lens/modules/exporters/rccl-socket-tracer/cmd/ ./cmd/
 WORKDIR /build/cmd
 
 # Generate Go bindings from compiled BPF object
-RUN go install github.com/cilium/ebpf/cmd/bpf2go@latest
+RUN go install github.com/cilium/ebpf/cmd/bpf2go@v0.17.3
 RUN go generate ./...
 
 # Build Go binary
