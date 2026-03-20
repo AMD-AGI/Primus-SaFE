@@ -158,11 +158,50 @@ struct {
     __type(value, __u64);
 } activity_counters SEC(".maps");
 
+// Per-device activity counters: key = device_idx * 16 + counter_id
+// Supports up to 10 devices × 16 counter types = 160 entries
+struct {
+    __uint(type, BPF_MAP_TYPE_ARRAY);
+    __uint(max_entries, 160);
+    __type(key, __u32);
+    __type(value, __u64);
+} device_counters SEC(".maps");
+
 static __always_inline void bump_counter(__u32 idx)
 {
     __u64 *val = bpf_map_lookup_elem(&activity_counters, &idx);
     if (val)
         __sync_fetch_and_add(val, 1);
+}
+
+static __always_inline void bump_device_counter(__u32 device_idx, __u32 counter_id)
+{
+    __u32 key = device_idx * 16 + counter_id;
+    if (key >= 160) return;
+    __u64 *val = bpf_map_lookup_elem(&device_counters, &key);
+    if (val)
+        __sync_fetch_and_add(val, 1);
+}
+
+// Read ionic device index from ib_qp pointer
+// ib_qp->device (offset 0) → ib_device->name (offset varies, try common offsets)
+static __always_inline __u32 read_device_idx_from_qp(void *qp)
+{
+    void *device = NULL;
+    bpf_probe_read_kernel(&device, sizeof(device), qp); // ib_qp->device at offset 0
+    if (!device) return 0;
+
+    // Read device name - try offset 24 (common for ib_device.name in 6.x kernels)
+    // name is char[IB_DEVICE_NAME_MAX] = char[64]
+    char name[8] = {};
+    bpf_probe_read_kernel(&name, sizeof(name), device + 24);
+
+    // Parse "ionic_N" → N
+    if (name[0] == 'i' && name[1] == 'o' && name[2] == 'n' &&
+        name[3] == 'i' && name[4] == 'c' && name[5] == '_') {
+        return name[6] - '0';  // single digit 0-9
+    }
+    return 0;
 }
 
 static __always_inline bool should_trace(void)
@@ -757,13 +796,16 @@ SEC("kprobe/ionic_post_send")
 int handle_ionic_post_send(struct pt_regs *ctx)
 {
     // No cgroup filter - RDMA data plane runs in kernel context
-    bump_counter(1);
-
-    struct ib_qp *qp = (struct ib_qp *)PT_REGS_PARM1(ctx);
+    void *qp = (void *)PT_REGS_PARM1(ctx);
     __u32 qp_num = 0;
-    bpf_probe_read_kernel(&qp_num, sizeof(qp_num), (void *)qp + 168);
+    bpf_probe_read_kernel(&qp_num, sizeof(qp_num), qp + 168);
 
-    struct qp_stats_key key = { .qp_num = qp_num, .device_idx = 0 };
+    __u32 dev_idx = read_device_idx_from_qp(qp);
+
+    bump_counter(1);
+    bump_device_counter(dev_idx, 1);  // per-device post_send
+
+    struct qp_stats_key key = { .qp_num = qp_num, .device_idx = dev_idx };
     struct qp_stats_val *val = bpf_map_lookup_elem(&qp_traffic, &key);
     if (val) {
         __sync_fetch_and_add(&val->tx_ops, 1);
@@ -776,6 +818,7 @@ int handle_ionic_post_send(struct pt_regs *ctx)
     if (!e) return 0;
     fill_event_base(e, EVT_IONIC_POST_SEND);
     e->old_state = qp_num;
+    e->new_state = dev_idx;
     bpf_ringbuf_submit(e, 0);
     return 0;
 }

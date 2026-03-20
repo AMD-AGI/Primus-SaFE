@@ -385,7 +385,7 @@ func main() {
 		http.HandleFunc("/metrics", func(w http.ResponseWriter, r *http.Request) {
 			nodeName := os.Getenv("NODE_NAME")
 
-			// Activity counters
+			// Global activity counters
 			counterNames := []string{
 				"rccl_tracer_connect_total",
 				"rccl_tracer_post_send_total",
@@ -408,7 +408,22 @@ func main() {
 				}
 			}
 
-			// Per-QP traffic
+			// Per-device activity counters
+			deviceNames := []string{"ionic_0", "ionic_2", "ionic_3", "ionic_4", "ionic_5", "ionic_7", "ionic_8", "ionic_9"}
+			deviceIdxMap := []uint32{0, 2, 3, 4, 5, 7, 8, 9}
+			for _, devIdx := range deviceIdxMap {
+				for ci, cname := range counterNames {
+					key := devIdx*16 + uint32(ci)
+					var val uint64
+					if err := objs.DeviceCounters.Lookup(key, &val); err == nil && val > 0 {
+						devName := fmt.Sprintf("ionic_%d", devIdx)
+						fmt.Fprintf(w, "%s{node=\"%s\",device=\"%s\"} %d\n", cname, nodeName, devName, val)
+					}
+				}
+			}
+			_ = deviceNames
+
+			// Per-QP traffic (with device)
 			var qpKey struct {
 				QpNum     uint32
 				DeviceIdx uint32
@@ -422,8 +437,9 @@ func main() {
 
 			iter := objs.QpTraffic.Iterate()
 			for iter.Next(&qpKey, &qpVal) {
-				fmt.Fprintf(w, "rccl_tracer_qp_tx_ops{node=\"%s\",qp_num=\"%d\",device_idx=\"%d\"} %d\n",
-					nodeName, qpKey.QpNum, qpKey.DeviceIdx, qpVal.TxOps)
+				devName := fmt.Sprintf("ionic_%d", qpKey.DeviceIdx)
+				fmt.Fprintf(w, "rccl_tracer_qp_tx_ops{node=\"%s\",device=\"%s\",qp_num=\"%d\"} %d\n",
+					nodeName, devName, qpKey.QpNum, qpVal.TxOps)
 			}
 
 			fmt.Fprintf(w, "rccl_tracer_up{node=\"%s\"} 1\n", nodeName)
@@ -598,7 +614,7 @@ func formatEvent(e *Event, c *ContainerInfo, ts time.Time) string {
 		return base
 	case EvtIonicPostSend:
 		if e.OldState != 0 {
-			return fmt.Sprintf("%s qp_num=%d", base, e.OldState)
+			return fmt.Sprintf("%s qp_num=%d device=ionic_%d", base, e.OldState, e.NewState)
 		}
 		return base
 	case EvtKfdEvictQueues:
