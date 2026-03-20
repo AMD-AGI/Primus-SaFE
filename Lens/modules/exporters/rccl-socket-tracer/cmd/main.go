@@ -124,7 +124,7 @@ func main() {
 	}
 
 	var links []link.Link
-	attach := func(l link.Link, err error, name string) {
+	mustAttach := func(name string, l link.Link, err error) {
 		if err != nil {
 			log.Printf("Warning: failed to attach %s: %v", name, err)
 			return
@@ -134,19 +134,18 @@ func main() {
 	}
 
 	// Layer 1: TCP lifecycle
-	attach(link.Tracepoint("sock", "inet_sock_set_state", objs.HandleTcpState, nil))
-	attach(link.Kprobe("tcp_reset", objs.HandleTcpReset, nil))
-	// tcp_retransmit_skb removed: not all kernel BTFs export this tracepoint struct
+	mustAttach("inet_sock_set_state", link.Tracepoint("sock", "inet_sock_set_state", objs.HandleTcpState, nil))
+	mustAttach("tcp_reset", link.Kprobe("tcp_reset", objs.HandleTcpReset, nil))
 
 	// Layer 2: Syscall latency
-	attach(link.Tracepoint("syscalls", "sys_enter_connect", objs.HandleConnectEnter, nil))
-	attach(link.Tracepoint("syscalls", "sys_exit_connect", objs.HandleConnectExit, nil))
-	attach(link.Tracepoint("syscalls", "sys_enter_accept4", objs.HandleAcceptEnter, nil))
-	attach(link.Tracepoint("syscalls", "sys_exit_accept4", objs.HandleAcceptExit, nil))
-	attach(link.Tracepoint("syscalls", "sys_enter_sendto", objs.HandleSendtoEnter, nil))
-	attach(link.Tracepoint("syscalls", "sys_exit_sendto", objs.HandleSendtoExit, nil))
-	attach(link.Tracepoint("syscalls", "sys_enter_recvfrom", objs.HandleRecvfromEnter, nil))
-	attach(link.Tracepoint("syscalls", "sys_exit_recvfrom", objs.HandleRecvfromExit, nil))
+	mustAttach("sys_enter_connect", link.Tracepoint("syscalls", "sys_enter_connect", objs.HandleConnectEnter, nil))
+	mustAttach("sys_exit_connect", link.Tracepoint("syscalls", "sys_exit_connect", objs.HandleConnectExit, nil))
+	mustAttach("sys_enter_accept4", link.Tracepoint("syscalls", "sys_enter_accept4", objs.HandleAcceptEnter, nil))
+	mustAttach("sys_exit_accept4", link.Tracepoint("syscalls", "sys_exit_accept4", objs.HandleAcceptExit, nil))
+	mustAttach("sys_enter_sendto", link.Tracepoint("syscalls", "sys_enter_sendto", objs.HandleSendtoEnter, nil))
+	mustAttach("sys_exit_sendto", link.Tracepoint("syscalls", "sys_exit_sendto", objs.HandleSendtoExit, nil))
+	mustAttach("sys_enter_recvfrom", link.Tracepoint("syscalls", "sys_enter_recvfrom", objs.HandleRecvfromEnter, nil))
+	mustAttach("sys_exit_recvfrom", link.Tracepoint("syscalls", "sys_exit_recvfrom", objs.HandleRecvfromExit, nil))
 
 	defer func() {
 		for _, l := range links {
