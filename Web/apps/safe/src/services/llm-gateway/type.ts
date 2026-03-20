@@ -48,6 +48,7 @@ export interface LLMGatewayUsage {
 export interface LLMGatewayUsageParams {
   start_date: string
   end_date: string
+  timezone?: string
 }
 
 export interface LLMGatewaySummary {

@@ -380,6 +380,63 @@ const fetchSummary = async () => {
   }
 }
 
+// ── Budget ──
+const budget = ref<LLMGatewayBudget | null>(null)
+const budgetLoading = ref(false)
+const budgetSaving = ref(false)
+const budgetInput = ref<number | undefined>(undefined)
+
+const fetchBudget = async () => {
+  try {
+    budgetLoading.value = true
+    budget.value = await getLLMGatewayBudget()
+    if (budget.value?.max_budget != null) {
+      budgetInput.value = budget.value.max_budget
+    }
+  } catch {
+    budget.value = null
+  } finally {
+    budgetLoading.value = false
+  }
+}
+
+const handleSaveBudget = async () => {
+  if (!budgetInput.value || budgetInput.value <= 0) return
+  try {
+    budgetSaving.value = true
+    budget.value = await updateLLMGatewayBudget({ max_budget: budgetInput.value })
+    ElMessage.success('Budget updated successfully')
+  } catch {
+    ElMessage.error('Failed to update budget')
+  } finally {
+    budgetSaving.value = false
+  }
+}
+
+// ── Tag Usage ──
+const tagUsage = ref<LLMGatewayTagUsage | null>(null)
+const tagUsageLoading = ref(false)
+
+const tagRows = computed(() => {
+  if (!tagUsage.value?.tags) return []
+  return [...tagUsage.value.tags].sort((a, b) => b.spend - a.spend)
+})
+
+const fetchTagUsage = async () => {
+  if (!binding.value?.has_apim_key) return
+  try {
+    tagUsageLoading.value = true
+    tagUsage.value = await getLLMGatewayTagUsage({
+      start_date: dateRange.value[0],
+      end_date: dateRange.value[1],
+      timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+    })
+  } catch {
+    tagUsage.value = null
+  } finally {
+    tagUsageLoading.value = false
+  }
+}
 // ── Usage ──
 const usageLoading = ref(false)
 const usage = ref<LLMGatewayUsage | null>(null)
@@ -482,6 +539,7 @@ const fetchUsage = async () => {
     usage.value = await getLLMGatewayUsage({
       start_date: dateRange.value[0],
       end_date: dateRange.value[1],
+      timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
     })
     await nextTick()
     renderChart()

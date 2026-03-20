@@ -143,7 +143,8 @@ export interface SubmitWorkloadRequest {
   workloadId?: string
   dependencies?: string[]
   excludedNodes?: string[]
-  stickyNodes?: boolean
+  stickyNodes?: boolean | string[]
+  stickyNodesMode?: 'required' | 'preferred'
   privileged?: boolean
   useWorkspaceStorage?: boolean
 }
