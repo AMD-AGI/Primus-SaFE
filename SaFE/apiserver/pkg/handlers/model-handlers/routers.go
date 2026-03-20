@@ -60,5 +60,8 @@ func InitInferenceRouters(e *gin.Engine, h *Handler) {
 		group.DELETE("evaluations/tasks/:id", h.DeleteEvaluationTask)            // Delete/cancel task
 		group.POST("evaluations/tasks/:id/stop", h.StopEvaluationTask)           // Stop running task
 		group.GET("evaluations/tasks/:id/report", h.GetEvaluationReport)         // Get evaluation report
+
+		// SFT Training routes (List/Get/Stop/Delete reuse Training page)
+		group.POST("sft/jobs", middleware.Audit("sft"), h.CreateSftJob)
 	}
 }

@@ -118,15 +118,21 @@ type CreateModelRequest struct {
 
 	// Workspace for local models (empty = public, non-empty = specific workspace)
 	Workspace string `json:"workspace"`
+
+	// SFT training fields (used when accessMode=local_path)
+	Origin    string `json:"origin"`              // "external" (default) or "fine_tuned"
+	SftJobId  string `json:"sftJobId,omitempty"`  // SFT workload ID that produced this model
+	BaseModel string `json:"baseModel,omitempty"` // Base model HF name used for fine-tuning
 }
 
 // ModelSourceReq represents the model source configuration.
 type ModelSourceReq struct {
 	URL        string `json:"url"`        // Model URL (HuggingFace repo ID or API endpoint)
-	AccessMode string `json:"accessMode"` // "remote_api" or "local"
+	AccessMode string `json:"accessMode"` // "remote_api" | "local" | "local_path"
 	ModelName  string `json:"modelName"`  // Model name for API calls (required for remote_api)
 	Token      string `json:"token"`      // HuggingFace token for pulling private models (local mode)
 	ApiKey     string `json:"apiKey"`     // API key for remote API access (remote_api mode)
+	LocalPath  string `json:"localPath"`  // NFS/PFS path where model files exist (local_path mode)
 }
 
 // CreateResponse represents the response after creating a model.
@@ -153,6 +159,9 @@ type ModelInfo struct {
 	Workspace       string            `json:"workspace"`            // Workspace ID (empty = public)
 	S3Path          string            `json:"s3Path,omitempty"`     // S3 storage path
 	LocalPaths      []LocalPathInfo   `json:"localPaths,omitempty"` // Local download status per workspace
+	Origin          string            `json:"origin,omitempty"`
+	SftJobId        string            `json:"sftJobId,omitempty"`
+	BaseModel       string            `json:"baseModel,omitempty"`
 	CreatedAt       string            `json:"createdAt,omitempty"`
 	UpdatedAt       string            `json:"updatedAt,omitempty"`
 	DeletionTime    string            `json:"deletionTime,omitempty"`

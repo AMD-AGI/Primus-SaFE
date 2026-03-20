@@ -79,6 +79,11 @@ func (h *Handler) createModel(c *gin.Context) (interface{}, error) {
 
 	ctx := context.Background()
 
+	// Handle local_path mode (SFT training output) — separate flow
+	if req.Source.AccessMode == string(v1.AccessModeLocalPath) {
+		return h.createModelFromLocalPath(ctx, &req)
+	}
+
 	// Validate URL first
 	if req.Source.URL == "" {
 		return nil, commonerrors.NewBadRequest("model source url is required")
@@ -86,7 +91,7 @@ func (h *Handler) createModel(c *gin.Context) (interface{}, error) {
 
 	// Validate AccessMode
 	if req.Source.AccessMode != string(v1.AccessModeLocal) && req.Source.AccessMode != string(v1.AccessModeRemoteAPI) {
-		return nil, commonerrors.NewBadRequest("accessMode must be 'local' or 'remote_api'")
+		return nil, commonerrors.NewBadRequest("accessMode must be 'local', 'remote_api', or 'local_path'")
 	}
 
 	// For remote_api mode, modelName is required
@@ -330,6 +335,92 @@ func parseListModelQuery(c *gin.Context) (*ListModelQuery, error) {
 		query.Offset = 0
 	}
 	return query, nil
+}
+
+// createModelFromLocalPath creates a model from an existing NFS/PFS path (SFT training output).
+// The model is immediately set to Ready phase — no download is needed.
+func (h *Handler) createModelFromLocalPath(ctx context.Context, req *CreateModelRequest) (interface{}, error) {
+	if req.Source.LocalPath == "" {
+		return nil, commonerrors.NewBadRequest("localPath is required for local_path mode")
+	}
+	if req.DisplayName == "" {
+		return nil, commonerrors.NewBadRequest("displayName is required for local_path mode")
+	}
+
+	origin := req.Origin
+	if origin == "" {
+		origin = "fine_tuned"
+	}
+
+	modelId := commonutils.GenerateName(req.DisplayName)
+
+	// Build local paths — the model is already on disk
+	localPaths := []v1.ModelLocalPath{{
+		Workspace: req.Workspace,
+		Path:      req.Source.LocalPath,
+		Status:    v1.LocalPathStatusReady,
+	}}
+
+	// Create Model CR directly in Ready state
+	model := &v1.Model{}
+	model.Name = modelId
+	model.Labels = map[string]string{
+		v1.DisplayNameLabel: req.DisplayName,
+	}
+	model.Spec = v1.ModelSpec{
+		DisplayName: req.DisplayName,
+		Description: req.Description,
+		Tags:        req.Tags,
+		Source: v1.ModelSource{
+			AccessMode: v1.AccessModeLocalPath,
+			LocalPath:  req.Source.LocalPath,
+			ModelName:  req.Source.ModelName,
+		},
+		Workspace: req.Workspace,
+		Origin:    origin,
+		SftJobId:  req.SftJobId,
+		BaseModel: req.BaseModel,
+	}
+	model.Status = v1.ModelStatus{
+		Phase:      v1.ModelPhaseReady,
+		LocalPaths: localPaths,
+	}
+
+	if err := h.k8sClient.Create(ctx, model); err != nil {
+		klog.ErrorS(err, "failed to create local_path model", "name", modelId)
+		return nil, commonerrors.NewInternalError(fmt.Sprintf("failed to create model: %v", err))
+	}
+
+	// Also insert into DB if available
+	if h.dbClient != nil {
+		dbModel := &dbclient.Model{
+			ID:          modelId,
+			DisplayName: req.DisplayName,
+			Description: req.Description,
+			AccessMode:  string(v1.AccessModeLocalPath),
+			Phase:       string(v1.ModelPhaseReady),
+			ModelName:   req.Source.ModelName,
+			Workspace:   req.Workspace,
+			Origin:      origin,
+			SftJobId:    req.SftJobId,
+			BaseModel:   req.BaseModel,
+		}
+		if localPathsJSON, err := json.Marshal(localPaths); err == nil {
+			dbModel.LocalPaths = string(localPathsJSON)
+		}
+		if err := h.dbClient.UpsertModel(ctx, dbModel); err != nil {
+			klog.ErrorS(err, "failed to insert local_path model into DB", "id", modelId)
+		}
+	}
+
+	klog.InfoS("created model from local path",
+		"modelId", modelId,
+		"localPath", req.Source.LocalPath,
+		"origin", origin,
+		"sftJobId", req.SftJobId,
+	)
+
+	return &CreateResponse{ID: modelId}, nil
 }
 
 // listModels implements the model listing logic.
