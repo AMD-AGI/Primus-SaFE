@@ -21,6 +21,7 @@ COPY Lens/modules/exporters/rccl-socket-tracer/cmd/ ./cmd/
 WORKDIR /build/cmd
 
 # Generate Go bindings from compiled BPF object
+RUN go mod download
 RUN go install github.com/cilium/ebpf/cmd/bpf2go@v0.17.3
 RUN go generate ./...
 
