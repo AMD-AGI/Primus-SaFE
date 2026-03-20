@@ -18,14 +18,6 @@ import (
 	"k8s.io/klog/v2"
 )
 
-// LiteLLMClient encapsulates LiteLLM management API calls.
-type LiteLLMClient struct {
-	endpoint   string // e.g. "http://10.32.80.50:4000"
-	adminKey   string // LiteLLM Master Key
-	teamID     string // Global Team ID
-	httpClient *http.Client
-}
-
 // NewLiteLLMClient creates a new LiteLLM admin client.
 func NewLiteLLMClient(endpoint, adminKey, teamID string) *LiteLLMClient {
 	return &LiteLLMClient{
@@ -39,106 +31,6 @@ func NewLiteLLMClient(endpoint, adminKey, teamID string) *LiteLLMClient {
 			},
 		},
 	}
-}
-
-// ── Request/Response types ────────────────────────────────────────────────
-
-// CreateUserRequest is the request body for POST /user/new
-type CreateUserRequest struct {
-	UserID        string   `json:"user_id"`
-	UserEmail     string   `json:"user_email"`
-	Teams         []string `json:"teams,omitempty"`
-	AutoCreateKey bool     `json:"auto_create_key"`
-}
-
-// CreateKeyRequest is the request body for POST /key/generate
-type CreateKeyRequest struct {
-	UserID   string            `json:"user_id"`
-	TeamID   string            `json:"team_id"`
-	Metadata map[string]string `json:"metadata"`
-	KeyAlias string            `json:"key_alias"`
-}
-
-// CreateKeyResponse is the response from POST /key/generate
-type CreateKeyResponse struct {
-	Key     string `json:"key"`      // The generated virtual key (sk-xxx)
-	KeyName string `json:"key_name"` // Abbreviated display name (sk-...xxxx), for UI display only
-	TokenID string `json:"token"`    // Hashed token stored in LiteLLM DB, used as key identifier for update/delete
-	Expires string `json:"expires"`  // Expiration time
-}
-
-// UpdateKeyRequest is the request body for POST /key/update
-type UpdateKeyRequest struct {
-	Key      string            `json:"key,omitempty"`
-	KeyAlias string            `json:"key_alias,omitempty"`
-	Metadata map[string]string `json:"metadata,omitempty"`
-}
-
-// DeleteKeyRequest is the request body for POST /key/delete
-type DeleteKeyRequest struct {
-	Keys       []string `json:"keys,omitempty"`        // List of token hashes to delete
-	KeyAliases []string `json:"key_aliases,omitempty"` // Alternative: delete by key alias (e.g. user email)
-}
-
-// ── Usage types ───────────────────────────────────────────────────────────
-
-// DailyActivityResponse is the response from GET /user/daily/activity
-type DailyActivityResponse struct {
-	Results  []DailyResult  `json:"results"`
-	Metadata ActivityTotals `json:"metadata"`
-}
-
-type DailyResult struct {
-	Date      string           `json:"date"`
-	Metrics   DailyMetrics     `json:"metrics"`
-	Breakdown *DailyBreakdown  `json:"breakdown,omitempty"`
-}
-
-type DailyMetrics struct {
-	Spend              float64 `json:"spend"`
-	PromptTokens       int64   `json:"prompt_tokens"`
-	CompletionTokens   int64   `json:"completion_tokens"`
-	TotalTokens        int64   `json:"total_tokens"`
-	APIRequests        int64   `json:"api_requests"`
-	SuccessfulRequests int64   `json:"successful_requests"`
-	FailedRequests     int64   `json:"failed_requests"`
-}
-
-type DailyBreakdown struct {
-	Models    map[string]MetricWithMetadata `json:"models,omitempty"`
-	Providers map[string]MetricWithMetadata `json:"providers,omitempty"`
-}
-
-type MetricWithMetadata struct {
-	Metrics DailyMetrics `json:"metrics"`
-}
-
-// UserInfoResponse is the response from GET /user/info
-type UserInfoResponse struct {
-	UserID    string             `json:"user_id"`
-	UserInfo  UserInfoData       `json:"user_info"`
-	Keys      []UserInfoKeyData  `json:"keys"`
-}
-
-type UserInfoData struct {
-	Spend      float64            `json:"spend"`
-	MaxBudget  *float64           `json:"max_budget"`
-	ModelSpend map[string]float64 `json:"model_spend"`
-}
-
-type UserInfoKeyData struct {
-	Token    string  `json:"token"`
-	KeyAlias string  `json:"key_alias"`
-	Spend    float64 `json:"spend"`
-}
-
-type ActivityTotals struct {
-	TotalSpend              float64 `json:"total_spend"`
-	TotalPromptTokens       int64   `json:"total_prompt_tokens"`
-	TotalCompletionTokens   int64   `json:"total_completion_tokens"`
-	TotalAPIRequests        int64   `json:"total_api_requests"`
-	TotalSuccessfulRequests int64   `json:"total_successful_requests"`
-	TotalFailedRequests     int64   `json:"total_failed_requests"`
 }
 
 // ── API Methods ───────────────────────────────────────────────────────────
@@ -341,11 +233,6 @@ func (c *LiteLLMClient) doDeleteKey(ctx context.Context, reqBody DeleteKeyReques
 	return &litellmError{StatusCode: resp.StatusCode, Body: string(respBody)}
 }
 
-type litellmError struct {
-	StatusCode int
-	Body       string
-}
-
 func (e *litellmError) Error() string {
 	return fmt.Sprintf("LiteLLM returned HTTP %d: %s", e.StatusCode, e.Body)
 }
@@ -355,6 +242,144 @@ func isNotFoundErr(err error) bool {
 		return e.StatusCode == http.StatusNotFound
 	}
 	return false
+}
+
+// ── Budget & Tag API Methods ──────────────────────────────────────────────
+
+// GetKeyInfo queries a Virtual Key's spend and budget status via GET /key/info.
+func (c *LiteLLMClient) GetKeyInfo(ctx context.Context, keyHash string) (*KeyInfoData, error) {
+	reqURL := fmt.Sprintf("%s/key/info?key=%s", c.endpoint, keyHash)
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+	if c.adminKey != "" {
+		req.Header.Set("Authorization", "Bearer "+c.adminKey)
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to call LiteLLM: %w", err)
+	}
+	defer resp.Body.Close()
+
+	respBody, _ := io.ReadAll(resp.Body)
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("LiteLLM returned HTTP %d: %s", resp.StatusCode, string(respBody))
+	}
+
+	var result KeyInfoResponse
+	if err := json.Unmarshal(respBody, &result); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	return &result.Info, nil
+}
+
+// UpdateKeyBudget sets or removes the max_budget on a Virtual Key via POST /key/update.
+// Pass nil to remove the budget limit.
+func (c *LiteLLMClient) UpdateKeyBudget(ctx context.Context, keyHash string, maxBudget *float64) error {
+	reqBody := UpdateKeyBudgetRequest{
+		Key:       keyHash,
+		MaxBudget: maxBudget,
+	}
+
+	body, err := json.Marshal(reqBody)
+	if err != nil {
+		return fmt.Errorf("failed to marshal request: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
+		c.endpoint+"/key/update", bytes.NewReader(body))
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if c.adminKey != "" {
+		req.Header.Set("Authorization", "Bearer "+c.adminKey)
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to call LiteLLM: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		respBody, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("LiteLLM returned HTTP %d: %s", resp.StatusCode, string(respBody))
+	}
+
+	return nil
+}
+
+// GetSpendLogs queries a single page of spend logs for a specific user via GET /spend/logs/v2.
+func (c *LiteLLMClient) GetSpendLogs(ctx context.Context, userID, startDate, endDate string, page, pageSize int) (*SpendLogsResponse, error) {
+	if pageSize <= 0 {
+		pageSize = 100
+	}
+	if page <= 0 {
+		page = 1
+	}
+
+	reqURL := fmt.Sprintf("%s/spend/logs/v2?user_id=%s&start_date=%s&end_date=%s&page=%d&page_size=%d",
+		c.endpoint, userID, startDate, endDate, page, pageSize)
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+	if c.adminKey != "" {
+		req.Header.Set("Authorization", "Bearer "+c.adminKey)
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to call LiteLLM: %w", err)
+	}
+	defer resp.Body.Close()
+
+	respBody, _ := io.ReadAll(resp.Body)
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("LiteLLM returned HTTP %d: %s", resp.StatusCode, string(respBody))
+	}
+
+	var result SpendLogsResponse
+	if err := json.Unmarshal(respBody, &result); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	return &result, nil
+}
+
+// GetAllSpendLogs fetches all spend logs by iterating through pages.
+// maxPages limits the total pages to avoid runaway queries (0 = no limit).
+func (c *LiteLLMClient) GetAllSpendLogs(ctx context.Context, userID, startDate, endDate string, maxPages int) ([]SpendLogEntry, error) {
+	const pageSize = 100
+	var allLogs []SpendLogEntry
+
+	for page := 1; ; page++ {
+		if maxPages > 0 && page > maxPages {
+			klog.Warningf("GetAllSpendLogs: reached max pages %d for user %s, returning partial data", maxPages, userID)
+			break
+		}
+
+		resp, err := c.GetSpendLogs(ctx, userID, startDate, endDate, page, pageSize)
+		if err != nil {
+			return nil, err
+		}
+
+		allLogs = append(allLogs, resp.Data...)
+
+		if page >= resp.TotalPages || len(resp.Data) == 0 {
+			break
+		}
+	}
+
+	return allLogs, nil
 }
 
 // GetUserDailyActivity queries LiteLLM for a user's daily usage breakdown.
