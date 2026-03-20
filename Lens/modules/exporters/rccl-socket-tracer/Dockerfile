@@ -8,8 +8,12 @@ RUN apt-get update && apt-get install -y \
 
 WORKDIR /build
 
-# Download vmlinux.h (kernel BTF header for CO-RE)
-RUN curl -sL https://raw.githubusercontent.com/libbpf/libbpf-bootstrap/master/vmlinux/vmlinux_612.h -o /build/vmlinux.h
+# Generate vmlinux.h from libbpf-bootstrap (try multiple sources)
+RUN curl -sfL "https://raw.githubusercontent.com/libbpf/libbpf-bootstrap/refs/heads/master/vmlinux/vmlinux_612.h" -o /build/vmlinux.h || \
+    curl -sfL "https://cdn.jsdelivr.net/gh/libbpf/libbpf-bootstrap@master/vmlinux/vmlinux_612.h" -o /build/vmlinux.h || \
+    (apt-get update && apt-get install -y linux-tools-common bpftool && \
+     bpftool btf dump file /sys/kernel/btf/vmlinux format c > /build/vmlinux.h)
+RUN head -1 /build/vmlinux.h && wc -l /build/vmlinux.h
 
 # Copy BPF source and compile
 COPY Lens/modules/exporters/rccl-socket-tracer/bpf/ ./bpf/
