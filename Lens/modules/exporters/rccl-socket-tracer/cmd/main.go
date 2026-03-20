@@ -185,59 +185,100 @@ func main() {
 		return link.Tracepoint("syscalls", "sys_exit_recvfrom", objs.HandleRecvfromExit, nil)
 	})
 
-	// Layer 3: RCCL ANP + ibverbs uprobes (best-effort, libraries may not exist on all nodes)
-	anpLib := getEnv("ANP_LIB_PATH", "/opt/rocm-7.1.0/lib/librccl-anp.so")
-	ibvLib := getEnv("IBV_LIB_PATH", "/lib/x86_64-linux-gnu/libibverbs.so.1")
+	// Layer 3: Dynamic uprobe discovery for RCCL ANP + ibverbs
+	// Libraries live inside training containers, so we scan /host/proc/<pid>/root/
+	// to find them once a training process appears on this node.
+	var linksMu sync.Mutex
+	uprobesAttached := false
 
-	attachUprobe := func(name string, lib string, symbol string, prog *ebpf.Program) {
-		ex, err := link.OpenExecutable(lib)
-		if err != nil {
-			log.Printf("Warning: cannot open %s for uprobe %s: %v", lib, name, err)
+	anpRelPath := getEnv("ANP_LIB_REL_PATH", "/opt/rocm-7.1.0/lib/librccl-anp.so")
+	ibvRelPath := getEnv("IBV_LIB_REL_PATH", "/lib/x86_64-linux-gnu/libibverbs.so.1")
+
+	go func() {
+		scanInterval := 5 * time.Second
+		for {
+			if uprobesAttached {
+				return
+			}
+			time.Sleep(scanInterval)
+
+			pid := findTrainingPid(anpRelPath)
+			if pid == 0 {
+				continue
+			}
+
+			hostAnpPath := fmt.Sprintf("/host/proc/%d/root%s", pid, anpRelPath)
+			hostIbvPath := fmt.Sprintf("/host/proc/%d/root%s", pid, ibvRelPath)
+
+			if _, err := os.Stat(hostAnpPath); err != nil {
+				continue
+			}
+
+			log.Printf("Found training process PID %d, attaching L3 uprobes via %s", pid, hostAnpPath)
+
+			attachU := func(name, lib, symbol string, prog *ebpf.Program) {
+				ex, err := link.OpenExecutable(lib)
+				if err != nil {
+					log.Printf("Warning: uprobe %s open %s: %v", name, filepath.Base(lib), err)
+					return
+				}
+				l, err := ex.Uprobe(symbol, prog, nil)
+				if err != nil {
+					log.Printf("Warning: uprobe %s (%s): %v", name, symbol, err)
+					return
+				}
+				linksMu.Lock()
+				links = append(links, l)
+				linksMu.Unlock()
+				log.Printf("Attached uprobe: %s → %s:%s", name, filepath.Base(lib), symbol)
+			}
+
+			attachUR := func(name, lib, symbol string, prog *ebpf.Program) {
+				ex, err := link.OpenExecutable(lib)
+				if err != nil {
+					log.Printf("Warning: uretprobe %s open %s: %v", name, filepath.Base(lib), err)
+					return
+				}
+				l, err := ex.Uretprobe(symbol, prog, nil)
+				if err != nil {
+					log.Printf("Warning: uretprobe %s (%s): %v", name, symbol, err)
+					return
+				}
+				linksMu.Lock()
+				links = append(links, l)
+				linksMu.Unlock()
+				log.Printf("Attached uretprobe: %s → %s:%s", name, filepath.Base(lib), symbol)
+			}
+
+			// librccl-anp.so
+			attachU("anp_connect", hostAnpPath, "anpNetConnect", objs.HandleAnpConnect)
+			attachUR("anp_connect_ret", hostAnpPath, "anpNetConnect", objs.HandleAnpConnectRet)
+			attachU("anp_accept", hostAnpPath, "anpNetAccept", objs.HandleAnpAccept)
+			attachUR("anp_accept_ret", hostAnpPath, "anpNetAccept", objs.HandleAnpAcceptRet)
+			attachU("anp_isend", hostAnpPath, "anpNetIsend", objs.HandleAnpIsend)
+			attachU("anp_irecv", hostAnpPath, "anpNetIrecv", objs.HandleAnpIrecv)
+			attachU("anp_close_send", hostAnpPath, "anpNetCloseSend", objs.HandleAnpCloseSend)
+			attachU("anp_close_recv", hostAnpPath, "anpNetCloseRecv", objs.HandleAnpCloseRecv)
+
+			// libibverbs.so
+			if _, err := os.Stat(hostIbvPath); err == nil {
+				attachU("ibv_create_qp", hostIbvPath, "ibv_create_qp", objs.HandleIbvCreateQp)
+				attachU("ibv_modify_qp", hostIbvPath, "ibv_modify_qp", objs.HandleIbvModifyQp)
+				attachUR("ibv_modify_qp_ret", hostIbvPath, "ibv_modify_qp", objs.HandleIbvModifyQpRet)
+			}
+
+			uprobesAttached = true
+			log.Printf("Layer 3 uprobes attached successfully via PID %d", pid)
 			return
 		}
-		l, err := ex.Uprobe(symbol, prog, nil)
-		if err != nil {
-			log.Printf("Warning: uprobe %s (%s) failed: %v", name, symbol, err)
-			return
-		}
-		links = append(links, l)
-		log.Printf("Attached uprobe: %s → %s:%s", name, filepath.Base(lib), symbol)
-	}
-
-	attachUretprobe := func(name string, lib string, symbol string, prog *ebpf.Program) {
-		ex, err := link.OpenExecutable(lib)
-		if err != nil {
-			log.Printf("Warning: cannot open %s for uretprobe %s: %v", lib, name, err)
-			return
-		}
-		l, err := ex.Uretprobe(symbol, prog, nil)
-		if err != nil {
-			log.Printf("Warning: uretprobe %s (%s) failed: %v", name, symbol, err)
-			return
-		}
-		links = append(links, l)
-		log.Printf("Attached uretprobe: %s → %s:%s", name, filepath.Base(lib), symbol)
-	}
-
-	// librccl-anp.so (AINIC network plugin)
-	attachUprobe("anp_connect", anpLib, "anpNetConnect", objs.HandleAnpConnect)
-	attachUretprobe("anp_connect_ret", anpLib, "anpNetConnect", objs.HandleAnpConnectRet)
-	attachUprobe("anp_accept", anpLib, "anpNetAccept", objs.HandleAnpAccept)
-	attachUretprobe("anp_accept_ret", anpLib, "anpNetAccept", objs.HandleAnpAcceptRet)
-	attachUprobe("anp_isend", anpLib, "anpNetIsend", objs.HandleAnpIsend)
-	attachUprobe("anp_irecv", anpLib, "anpNetIrecv", objs.HandleAnpIrecv)
-	attachUprobe("anp_close_send", anpLib, "anpNetCloseSend", objs.HandleAnpCloseSend)
-	attachUprobe("anp_close_recv", anpLib, "anpNetCloseRecv", objs.HandleAnpCloseRecv)
-
-	// libibverbs.so
-	attachUprobe("ibv_create_qp", ibvLib, "ibv_create_qp", objs.HandleIbvCreateQp)
-	attachUprobe("ibv_modify_qp", ibvLib, "ibv_modify_qp", objs.HandleIbvModifyQp)
-	attachUretprobe("ibv_modify_qp_ret", ibvLib, "ibv_modify_qp", objs.HandleIbvModifyQpRet)
+	}()
 
 	defer func() {
+		linksMu.Lock()
 		for _, l := range links {
 			l.Close()
 		}
+		linksMu.Unlock()
 	}()
 
 	log.Printf("rccl-socket-tracer running. Output: %s, namespace filter: %q, slow threshold: %dms",
@@ -609,6 +650,40 @@ func resolveContainerPid(hostPid uint32) uint32 {
 		}
 	}
 	return hostPid
+}
+
+// findTrainingPid scans /host/proc/ for a process whose root filesystem
+// contains the given library path. Returns the first matching host PID.
+func findTrainingPid(libRelPath string) uint32 {
+	entries, err := os.ReadDir("/host/proc")
+	if err != nil {
+		return 0
+	}
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		pid := entry.Name()
+		if pid[0] < '1' || pid[0] > '9' {
+			continue
+		}
+		// Quick filter: only check processes named python3 or torchrun
+		comm, err := os.ReadFile(fmt.Sprintf("/host/proc/%s/comm", pid))
+		if err != nil {
+			continue
+		}
+		commStr := strings.TrimSpace(string(comm))
+		if commStr != "python3" && commStr != "torchrun" && commStr != "pt_elastic" {
+			continue
+		}
+		// Check if the library exists in this process's root filesystem
+		libPath := fmt.Sprintf("/host/proc/%s/root%s", pid, libRelPath)
+		if _, err := os.Stat(libPath); err == nil {
+			pidNum, _ := strconv.ParseUint(pid, 10, 32)
+			return uint32(pidNum)
+		}
+	}
+	return 0
 }
 
 func getBootTime() time.Time {
