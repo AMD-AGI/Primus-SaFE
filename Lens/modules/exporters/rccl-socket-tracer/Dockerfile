@@ -2,8 +2,9 @@ FROM golang:1.24-bookworm AS builder
 
 RUN apt-get update && apt-get install -y \
     clang-15 llvm-15 libbpf-dev linux-headers-generic \
-    && ln -s /usr/bin/clang-15 /usr/bin/clang \
-    && ln -s /usr/bin/llc-15 /usr/bin/llc \
+    && ln -sf /usr/bin/clang-15 /usr/bin/clang \
+    && ln -sf /usr/bin/llc-15 /usr/bin/llc \
+    && ln -sf /usr/bin/llvm-strip-15 /usr/bin/llvm-strip \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /build
