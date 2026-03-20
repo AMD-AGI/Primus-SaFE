@@ -530,8 +530,9 @@ int handle_ibv_modify_qp_ret(struct pt_regs *ctx)
 // ===== Layer 4: ionic RDMA driver kprobes =====
 
 struct poll_cq_args {
-    void *wc_ptr;
+    __u64 wc_addr;  // void *wc cast to u64 (bpf2go can't handle pointer types)
     __u32 num_entries;
+    __u32 _pad;
 };
 
 struct {
@@ -570,7 +571,7 @@ int handle_ionic_poll_cq(struct pt_regs *ctx)
     __u64 pid_tgid = bpf_get_current_pid_tgid();
 
     struct poll_cq_args args = {};
-    args.wc_ptr = (void *)PT_REGS_PARM3(ctx);
+    args.wc_addr = (__u64)PT_REGS_PARM3(ctx);
     args.num_entries = (__u32)PT_REGS_PARM2(ctx);
     bpf_map_update_elem(&poll_cq_enter, &pid_tgid, &args, BPF_ANY);
 
@@ -592,7 +593,7 @@ int handle_ionic_poll_cq_ret(struct pt_regs *ctx)
     if (!args)
         return 0;
 
-    void *wc_ptr = args->wc_ptr;
+    __u64 wc_addr = args->wc_addr;
     bpf_map_delete_elem(&poll_cq_enter, &pid_tgid);
 
     int ret = (int)PT_REGS_RC(ctx);
@@ -606,9 +607,10 @@ int handle_ionic_poll_cq_ret(struct pt_regs *ctx)
         __u32 qp_num = 0;
         __u32 opcode = 0;
 
-        bpf_probe_read_kernel(&status, sizeof(status), wc_ptr + i * 48);
-        bpf_probe_read_kernel(&opcode, sizeof(opcode), wc_ptr + i * 48 + 4);
-        bpf_probe_read_kernel(&qp_num, sizeof(qp_num), wc_ptr + i * 48 + 16);
+        void *wc_entry = (void *)(wc_addr + i * 48);
+        bpf_probe_read_kernel(&status, sizeof(status), wc_entry);
+        bpf_probe_read_kernel(&opcode, sizeof(opcode), wc_entry + 4);
+        bpf_probe_read_kernel(&qp_num, sizeof(qp_num), wc_entry + 16);
 
         if (status != 0) {
             struct event *err = bpf_ringbuf_reserve(&events, sizeof(*err), 0);
