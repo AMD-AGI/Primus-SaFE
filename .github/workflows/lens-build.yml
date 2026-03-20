@@ -192,6 +192,13 @@ jobs:
           echo "storage_exporter_changed=false" >> $GITHUB_OUTPUT
         fi
         
+        # rccl_socket_tracer: Lens/modules/exporters/rccl-socket-tracer/**
+        if echo "$CHANGED_FILES" | grep -qE '^Lens/modules/exporters/rccl-socket-tracer/'; then
+          echo "rccl_socket_tracer_changed=true" >> $GITHUB_OUTPUT
+        else
+          echo "rccl_socket_tracer_changed=false" >> $GITHUB_OUTPUT
+        fi
+        
         # installer: Lens/modules/installer/** or Lens/modules/core/** or Lens/charts/**
         # Charts are bundled into installer image, so chart changes should trigger rebuild
         if echo "$CHANGED_FILES" | grep -qE '^Lens/modules/installer/|^Lens/modules/core/|^Lens/charts/'; then
@@ -290,6 +297,9 @@ jobs:
           fi
           if [[ "${{ steps.detect-changes.outputs.storage_exporter_changed }}" == "true" ]]; then
             MATRIX+='{"name":"storage-exporter","buildpath":"cmd/storage-exporter","basepath":"Lens/modules/exporters/storage-exporter/"},'
+          fi
+          if [[ "${{ steps.detect-changes.outputs.rccl_socket_tracer_changed }}" == "true" ]]; then
+            MATRIX+='{"name":"rccl-socket-tracer","buildpath":"cmd","basepath":"Lens/modules/exporters/rccl-socket-tracer/"},'
           fi
           if [[ "${{ steps.detect-changes.outputs.installer_changed }}" == "true" ]]; then
             MATRIX+='{"name":"primus-lens-installer","buildpath":"cmd","basepath":"Lens/modules/installer/"},'
