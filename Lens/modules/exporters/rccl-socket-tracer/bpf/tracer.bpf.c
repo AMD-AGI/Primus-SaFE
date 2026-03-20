@@ -59,6 +59,8 @@ enum event_type {
     EVT_GPU_RESET          = 63,
     EVT_GPU_XGMI_RAS_ERR  = 64,
     EVT_GPU_POISON         = 65,
+    EVT_SIGSEGV            = 70,
+    EVT_HSA_SIGNAL_OP      = 71,
 };
 
 struct event {
@@ -117,6 +119,13 @@ struct {
     __type(key, __u64);
     __type(value, __u8);
 } cgroup_filter SEC(".maps");
+
+struct {
+    __uint(type, BPF_MAP_TYPE_HASH);
+    __uint(max_entries, MAX_ENTRIES);
+    __type(key, __u32);
+    __type(value, __u64);
+} hsa_last_signal SEC(".maps");
 
 struct qp_stats_key {
     __u32 qp_num;
@@ -853,6 +862,47 @@ int handle_gpu_poison(struct pt_regs *ctx)
     if (!e) return 0;
     fill_event_base(e, EVT_GPU_POISON);
     bpf_ringbuf_submit(e, 0);
+    return 0;
+}
+
+// ===== Layer 6: SIGSEGV crash context =====
+
+SEC("kprobe/force_sig_fault")
+int handle_sigsegv(struct pt_regs *ctx)
+{
+    int sig = (int)PT_REGS_PARM1(ctx);
+    if (sig != 11)
+        return 0;
+
+    struct event *e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
+    if (!e) return 0;
+
+    fill_event_base(e, EVT_SIGSEGV);
+    e->retval = sig;
+
+    __u64 fault_addr = (__u64)PT_REGS_PARM3(ctx);
+    __builtin_memcpy(e->saddr, &fault_addr, 8);
+
+    e->old_state = (__u32)PT_REGS_PARM2(ctx);
+
+    __u32 pid = e->pid;
+    __u64 *last_sig = bpf_map_lookup_elem(&hsa_last_signal, &pid);
+    if (last_sig) {
+        __builtin_memcpy(e->daddr, last_sig, 8);
+    }
+
+    bpf_ringbuf_submit(e, 0);
+    return 0;
+}
+
+SEC("uprobe/hsa_signal_store_screlease")
+int handle_hsa_signal_op(struct pt_regs *ctx)
+{
+    __u64 pid_tgid = bpf_get_current_pid_tgid();
+    __u32 pid = pid_tgid >> 32;
+    __u64 signal_handle = (__u64)PT_REGS_PARM1(ctx);
+
+    bpf_map_update_elem(&hsa_last_signal, &pid, &signal_handle, BPF_ANY);
     return 0;
 }
 

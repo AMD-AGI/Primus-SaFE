@@ -59,6 +59,8 @@ const (
 	EvtGpuReset         = 63
 	EvtGpuXgmiRasErr    = 64
 	EvtGpuPoison        = 65
+	EvtSigsegv          = 70
+	EvtHsaSignalOp      = 71
 )
 
 var eventNames = map[uint32]string{
@@ -97,6 +99,8 @@ var eventNames = map[uint32]string{
 	EvtGpuReset:         "GPU_RESET",
 	EvtGpuXgmiRasErr:    "GPU_XGMI_RAS_ERR",
 	EvtGpuPoison:        "GPU_POISON",
+	EvtSigsegv:          "SIGSEGV",
+	EvtHsaSignalOp:      "HSA_SIGNAL_OP",
 }
 
 var tcpStateNames = map[uint32]string{
@@ -216,6 +220,11 @@ func main() {
 	})
 	tryAttach("sys_exit_recvfrom", func() (link.Link, error) {
 		return link.Tracepoint("syscalls", "sys_exit_recvfrom", objs.HandleRecvfromExit, nil)
+	})
+
+	// SIGSEGV capture with fault address
+	tryAttach("force_sig_fault", func() (link.Link, error) {
+		return link.Kprobe("force_sig_fault", objs.HandleSigsegv, nil)
 	})
 
 	// Layer 4: ionic RDMA driver kprobes (kernel-wide, no library path needed)
@@ -346,6 +355,12 @@ func main() {
 				attachU("ibv_create_qp", hostIbvPath, "ibv_create_qp", objs.HandleIbvCreateQp)
 				attachU("ibv_modify_qp", hostIbvPath, "ibv_modify_qp", objs.HandleIbvModifyQp)
 				attachUR("ibv_modify_qp_ret", hostIbvPath, "ibv_modify_qp", objs.HandleIbvModifyQpRet)
+			}
+
+			// HSA signal tracking for crash context
+			hsaLib := fmt.Sprintf("/host/proc/%d/root/opt/venv/lib/python3.10/site-packages/torch/lib/libhsa-runtime64.so", pid)
+			if _, err := os.Stat(hsaLib); err == nil {
+				attachU("hsa_signal_store_screlease", hsaLib, "hsa_signal_store_screlease", objs.HandleHsaSignalOp)
 			}
 
 			uprobesAttached = true
@@ -572,6 +587,23 @@ func formatEvent(e *Event, c *ContainerInfo, ts time.Time) string {
 		return fmt.Sprintf("%s *** XGMI RAS ERROR", base)
 	case EvtGpuPoison:
 		return fmt.Sprintf("%s *** GPU MEMORY POISON (ECC uncorrectable)", base)
+	case EvtSigsegv:
+		faultAddr := binary.LittleEndian.Uint64(e.Saddr[:8])
+		lastSignal := binary.LittleEndian.Uint64(e.Daddr[:8])
+		codeStr := "UNKNOWN"
+		switch e.OldState {
+		case 1:
+			codeStr = "SEGV_MAPERR"
+		case 2:
+			codeStr = "SEGV_ACCERR"
+		}
+		s := fmt.Sprintf("%s *** SIGSEGV code=%s fault_addr=0x%x", base, codeStr, faultAddr)
+		if lastSignal != 0 {
+			s += fmt.Sprintf(" last_hsa_signal=0x%x", lastSignal)
+		}
+		return s
+	case EvtHsaSignalOp:
+		return base
 	}
 
 	return base
