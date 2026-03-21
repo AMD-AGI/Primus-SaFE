@@ -104,7 +104,6 @@ const (
 	WorkloadDisableFailoverAnnotation = WorkloadPrefix + "disable.failover"
 	WorkloadEnablePreemptAnnotation   = WorkloadPrefix + "enable.preempt"
 	WorkloadPrivilegedAnnotation      = WorkloadPrefix + "privileged"
-	WorkloadStickyNodesAnnotation     = WorkloadPrefix + "sticky.nodes"
 	CronJobTimestampAnnotation        = WorkloadPrefix + "cronjob"
 	EnvToBeRemovedAnnotation          = WorkloadPrefix + "env.to.remove"
 	AdminControlPlaneAnnotation       = WorkloadPrefix + "admin.control.plane"
@@ -114,6 +113,9 @@ const (
 	K8sObjectIdLabel                  = PrimusSafePrefix + "k8s.object.id"
 	UseWorkspaceStorageAnnotation     = WorkloadPrefix + "use.workspace.storage"
 	ForceHostNetworkAnnotation        = WorkloadPrefix + "force.host.network"
+	StickyNodesModeAnnotation         = PrimusSafePrefix + "sticky.nodes.mode"
+	StickyNodesAnnotation             = PrimusSafePrefix + "sticky.nodes.mode"
+	SpecifiedNodesModeAnnotation      = PrimusSafePrefix + "specified.nodes.mode"
 
 	// user
 	UserPrefix              = PrimusSafePrefix + "user."

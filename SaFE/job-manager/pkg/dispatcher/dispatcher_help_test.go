@@ -467,7 +467,7 @@ func checkTolerations(t *testing.T, obj *unstructured.Unstructured, workload *v1
 		op, ok := toleration["operator"]
 		assert.Equal(t, ok, true)
 		assert.Equal(t, op, "Exists")
-	} else if v1.IsEnableStickyNodes(workload) {
+	} else if v1.GetStickyNodesMode(workload) != "" {
 		assert.Equal(t, found, true)
 		assert.Equal(t, len(tolerations), 1)
 		toleration := tolerations[0].(map[string]interface{})

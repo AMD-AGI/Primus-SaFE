@@ -104,3 +104,13 @@ const (
 	ImageImportFailedStatus  = "Failed"
 	ImageImportPendingStatus = "Pending"
 )
+
+const (
+	StickyNodesRequired  = "required"
+	StickyNodesPreferred = "preferred"
+)
+
+const (
+	SpecifiedNodesRequired  = "required"
+	SpecifiedNodesPreferred = "preferred"
+)

@@ -615,7 +615,8 @@ func (m *WorkloadMutator) mutateStickNodes(ctx context.Context, workload *v1.Wor
 		return false
 	}
 	if isDisableStickyNodes(ctx, workload, workspace) {
-		v1.RemoveAnnotation(workload, v1.WorkloadStickyNodesAnnotation)
+		v1.RemoveAnnotation(workload, v1.StickyNodesAnnotation)
+		v1.RemoveAnnotation(workload, v1.StickyNodesModeAnnotation)
 	}
 }
 
