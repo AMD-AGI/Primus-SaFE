@@ -8,6 +8,7 @@ package resource
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -1001,24 +1002,37 @@ func (r *NodeReconciler) modifyResolvConf(ctx context.Context, node *v1.Node) er
 	}
 	defer sshClient.Close()
 
-	// Add nameserver 127.0.0.53 to resolv.conf and set immutable (chattr +i)
-	// Logic: if already has 127.0.0.53, ensure chattr +i; else add it before first nameserver, then chattr +i
+	// Add nameserver 127.0.0.53 to resolv.conf and set immutable (chattr +i).
+	// Run the script via base64 | bash so we never pass a multiline script through fmt.Sprintf("%q", ...), which can
+	// produce quoting that the remote shell parses incorrectly (bash syntax error -> exit 2).
+	// Match logic uses bash [[ ]] / read loops only (no grep), avoiding grep exit 2 on "binary" stdin.
 	script := `RESOLV_CONF="/etc/resolv.conf"
 TARGET_FILE="$RESOLV_CONF"
 test -e "$RESOLV_CONF" || exit 0
-test -L "$RESOLV_CONF" && TARGET_FILE=$(readlink -f "$RESOLV_CONF") || true
-test -z "$TARGET_FILE" && exit 0
+if test -L "$RESOLV_CONF"; then
+  TARGET_FILE=$(readlink -f "$RESOLV_CONF" 2>/dev/null) || TARGET_FILE="$RESOLV_CONF"
+fi
+test -n "$TARGET_FILE" || exit 0
 content=$(cat "$TARGET_FILE" 2>/dev/null) || exit 0
-if echo "$content" | grep -q "nameserver 127.0.0.53"; then
-  attrs=$(lsattr "$TARGET_FILE" 2>/dev/null)
-  if [ -n "$attrs" ] && echo "$attrs" | grep -qE '^[ -]{4}i'; then exit 0; fi
+if [[ "$content" == *"nameserver 127.0.0.53"* ]]; then
+  attr_line=$(lsattr "$TARGET_FILE" 2>/dev/null | head -n1)
+  read -r attr_flags _ <<<"$attr_line"
+  case "$attr_flags" in *i*) exit 0;; esac
   chattr +i "$TARGET_FILE" 2>/dev/null || true
 else
   chattr -i "$TARGET_FILE" 2>/dev/null || true
-  sed -i '0,/^nameserver/{s/^nameserver/nameserver 127.0.0.53\nnameserver/}' "$TARGET_FILE" 2>/dev/null || exit 1
+  line_match_ns=false
+  while IFS= read -r line || [ -n "$line" ]; do
+    [[ "$line" == nameserver* ]] && line_match_ns=true && break
+  done < <(printf '%s\n' "$content")
+  if [[ "$line_match_ns" == true ]]; then
+    sed -i '0,/^nameserver/{s/^nameserver/nameserver 127.0.0.53\nnameserver/}' "$TARGET_FILE" 2>/dev/null || exit 1
+  else
+    { printf '%s\n' "nameserver 127.0.0.53"; cat "$TARGET_FILE"; } >"${TARGET_FILE}.new" 2>/dev/null && mv -f "${TARGET_FILE}.new" "$TARGET_FILE" || exit 1
+  fi
   chattr +i "$TARGET_FILE" 2>/dev/null || true
 fi`
-	executeCmd := "bash -c " + fmt.Sprintf("%q", script)
+	executeCmd := bashRemoteScript(script)
 	if err = r.executeSSHCommand(sshClient, executeCmd); err != nil {
 		klog.Warningf("failed to add resolv.conf lock on node %s: %v", node.Name, err)
 		return err
@@ -1041,7 +1055,7 @@ test -e "$RESOLV_CONF" || exit 0
 test -L "$RESOLV_CONF" && TARGET_FILE=$(readlink -f "$RESOLV_CONF") || true
 test -z "$TARGET_FILE" && exit 0
 chattr -i "$TARGET_FILE" 2>/dev/null || true`
-	executeCmd := "bash -c " + fmt.Sprintf("%q", script)
+	executeCmd := bashRemoteScript(script)
 	if err = r.executeSSHCommand(sshClient, executeCmd); err != nil {
 		klog.Warningf("failed to remove resolv.conf lock on node %s: %v", node.Name, err)
 		return err
@@ -1231,6 +1245,14 @@ func (r *NodeReconciler) deletePods(ctx context.Context, clusterId, nodeId, acti
 		klog.Infof("delete pod(%s)", pod.Name)
 	}
 	return nil
+}
+
+// bashRemoteScript builds `bash -c 'printf '%s' '<base64>' | base64 -d | bash'`.
+// Base64 uses [A-Za-z0-9+/=] only — safe inside single quotes. Avoids multiline fmt.Sprintf("%q", script) SSH quoting bugs (exit 2).
+func bashRemoteScript(script string) string {
+	b64 := base64.StdEncoding.EncodeToString([]byte(script))
+	inner := fmt.Sprintf("printf '%%s' '%s' | base64 -d | bash", b64)
+	return "bash -c " + fmt.Sprintf("%q", inner)
 }
 
 // executeSSHCommand executes a command via SSH on the specified node.

@@ -59,7 +59,7 @@ func RemoveFinalizer(ctx context.Context, cli client.Client, obj client.Object, 
 	}
 	if err := commonutils.PatchObjectFinalizer(ctx, cli, obj); err != nil {
 		klog.ErrorS(err, "failed to remove finalizer")
-		return err
+		return client.IgnoreNotFound(err)
 	}
 	return nil
 }
