@@ -1018,7 +1018,7 @@ else
   sed -i '0,/^nameserver/{s/^nameserver/nameserver 127.0.0.53\nnameserver/}' "$TARGET_FILE" 2>/dev/null || exit 1
   chattr +i "$TARGET_FILE" 2>/dev/null || true
 fi`
-	executeCmd := "bash -c " + fmt.Sprintf("%q", script)
+	executeCmd := fmt.Sprintf("bash <<'EOFSCRIPT'\n%s\nEOFSCRIPT", script)
 	if err = r.executeSSHCommand(sshClient, executeCmd); err != nil {
 		klog.Warningf("failed to add resolv.conf lock on node %s: %v", node.Name, err)
 		return err
@@ -1041,7 +1041,7 @@ test -e "$RESOLV_CONF" || exit 0
 test -L "$RESOLV_CONF" && TARGET_FILE=$(readlink -f "$RESOLV_CONF") || true
 test -z "$TARGET_FILE" && exit 0
 chattr -i "$TARGET_FILE" 2>/dev/null || true`
-	executeCmd := "bash -c " + fmt.Sprintf("%q", script)
+	executeCmd := fmt.Sprintf("bash <<'EOFSCRIPT'\n%s\nEOFSCRIPT", script)
 	if err = r.executeSSHCommand(sshClient, executeCmd); err != nil {
 		klog.Warningf("failed to remove resolv.conf lock on node %s: %v", node.Name, err)
 		return err
