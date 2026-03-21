@@ -158,7 +158,8 @@ var (
 	containerCache sync.Map // host PID -> ContainerInfo
 	fileCache      sync.Map // "container/pid" -> *os.File
 	nsFilter       string
-	prometheusAddr = getEnv("PROMETHEUS_ADDR", ":9190")
+	// Default avoids :9190 which is commonly used on GPU nodes (hostNetwork binds host port).
+	prometheusAddr = getEnv("PROMETHEUS_ADDR", ":29190")
 	rcclStatsMap   sync.Map // host PID (uint32) -> *rcclStats
 )
 
@@ -399,7 +400,8 @@ func main() {
 
 	// Start Prometheus metrics HTTP server for per-QP traffic stats
 	go func() {
-		http.HandleFunc("/metrics", func(w http.ResponseWriter, r *http.Request) {
+		mux := http.NewServeMux()
+		mux.HandleFunc("/metrics", func(w http.ResponseWriter, r *http.Request) {
 			nodeName := os.Getenv("NODE_NAME")
 
 			// Global activity counters
@@ -489,9 +491,14 @@ func main() {
 
 			fmt.Fprintf(w, "rccl_tracer_up{node=\"%s\"} 1\n", nodeName)
 		})
-		log.Printf("Prometheus metrics server listening on %s/metrics", prometheusAddr)
-		if err := http.ListenAndServe(prometheusAddr, nil); err != nil {
-			log.Printf("Warning: Prometheus server failed: %v", err)
+		ln, err := net.Listen("tcp", prometheusAddr)
+		if err != nil {
+			log.Printf("Warning: Prometheus metrics listen failed on %s: %v", prometheusAddr, err)
+			return
+		}
+		log.Printf("Prometheus metrics server listening on http://%s/metrics", ln.Addr())
+		if err := http.Serve(ln, mux); err != nil {
+			log.Printf("Warning: Prometheus server exited: %v", err)
 		}
 	}()
 

@@ -21,6 +21,7 @@ spec:
       containers:
         - name: tracer
           image: quay.io/primussafe/rccl-socket-tracer:latest
+          imagePullPolicy: Always
           env:
             - name: TRACE_OUTPUT_DIR
               value: /var/log/rccl-tracer
@@ -38,6 +39,9 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: spec.nodeName
+            # hostNetwork: avoid :9190 (often in use on nodes)
+            - name: PROMETHEUS_ADDR
+              value: :29190
           securityContext:
             privileged: true
           volumeMounts:
