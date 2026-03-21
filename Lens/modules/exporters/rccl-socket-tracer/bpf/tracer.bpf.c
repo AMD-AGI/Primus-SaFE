@@ -611,12 +611,9 @@ int handle_anp_isend(struct pt_regs *ctx)
 
     __u64 comm_ptr = (__u64)PT_REGS_PARM1(ctx);
     __u32 dev_idx = 0;
-    __u32 peer_ip = 0;
-    struct comm_info *info = bpf_map_lookup_elem(&comm_to_dev, &comm_ptr);
-    if (info) {
-        dev_idx = info->dev_idx;
-        peer_ip = info->peer_ip;
-    }
+    __u32 *dev = bpf_map_lookup_elem(&comm_to_dev, &comm_ptr);
+    if (dev)
+        dev_idx = *dev;
 
     struct event *e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
     if (!e) return 0;
@@ -625,8 +622,6 @@ int handle_anp_isend(struct pt_regs *ctx)
     e->duration_ns = (long)PT_REGS_PARM3(ctx);  // size
     e->retval = (int)PT_REGS_PARM4(ctx);  // tag
     e->old_state = dev_idx;  // local device index
-    __builtin_memcpy(e->daddr, &peer_ip, 4);  // peer IP
-    e->af = AF_INET;
 
     bpf_ringbuf_submit(e, 0);
     return 0;

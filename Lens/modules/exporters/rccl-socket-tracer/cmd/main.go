@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"debug/elf"
 	"encoding/binary"
 	"fmt"
 	"log"
@@ -10,6 +11,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -296,27 +298,29 @@ func main() {
 	anpRelPath := getEnv("ANP_LIB_REL_PATH", "/opt/rocm-7.1.0/lib/librccl-anp.so")
 	ibvRelPath := getEnv("IBV_LIB_REL_PATH", "/lib/x86_64-linux-gnu/libibverbs.so.1")
 
-	go func() {
+		go func() {
 		scanInterval := 5 * time.Second
+		// Mangled name used both to pick the correct mapped SO and to attach (RCCL 2.27 / ROCm 7.1 ANP).
+		const symAnpNetConnect = "_Z13anpNetConnectiP23ncclNetCommConfig_v10_tPvPS1_PP24ncclNetDeviceHandle_v7_t"
 		for {
 			if uprobesAttached {
 				return
 			}
 			time.Sleep(scanInterval)
 
-			pid := findRDMATrainingPid(anpRelPath)
-			if pid == 0 {
+			pid, hostAnpPath := findAnpAttachTarget(anpRelPath, symAnpNetConnect)
+			if pid == 0 || hostAnpPath == "" {
 				continue
 			}
 
-			hostAnpPath := fmt.Sprintf("/host/proc/%d/root%s", pid, anpRelPath)
-			hostIbvPath := fmt.Sprintf("/host/proc/%d/root%s", pid, ibvRelPath)
-
-			if _, err := os.Stat(hostAnpPath); err != nil {
-				continue
+			hostIbvPath := mapsResolvedLibPath(pid, "libibverbs.so.1")
+			if hostIbvPath == "" {
+				hostIbvPath = fmt.Sprintf("/host/proc/%d/root%s", pid, ibvRelPath)
 			}
 
-			log.Printf("Found training process PID %d, attaching L3 uprobes via %s", pid, hostAnpPath)
+			log.Printf("Found training process host PID %d, attaching L3 uprobes via %s", pid, hostAnpPath)
+
+			upOpts := &link.UprobeOptions{PID: int(pid)}
 
 			attachU := func(name, lib, symbol string, prog *ebpf.Program) {
 				ex, err := link.OpenExecutable(lib)
@@ -324,7 +328,7 @@ func main() {
 					log.Printf("Warning: uprobe %s open %s: %v", name, filepath.Base(lib), err)
 					return
 				}
-				l, err := ex.Uprobe(symbol, prog, nil)
+				l, err := ex.Uprobe(symbol, prog, upOpts)
 				if err != nil {
 					log.Printf("Warning: uprobe %s (%s): %v", name, symbol, err)
 					return
@@ -341,7 +345,7 @@ func main() {
 					log.Printf("Warning: uretprobe %s open %s: %v", name, filepath.Base(lib), err)
 					return
 				}
-				l, err := ex.Uretprobe(symbol, prog, nil)
+				l, err := ex.Uretprobe(symbol, prog, upOpts)
 				if err != nil {
 					log.Printf("Warning: uretprobe %s (%s): %v", name, symbol, err)
 					return
@@ -1034,35 +1038,126 @@ func resolveContainerPid(hostPid uint32) uint32 {
 	return hostPid
 }
 
-func findRDMATrainingPid(libRelPath string) uint32 {
-	entries, _ := os.ReadDir("/host/proc")
+// mapsResolvedLibPath returns the tracer-visible absolute path to a library file that the
+// process actually mapped executable (r-xp), e.g. .../root/opt/rocm-.../librccl-anp.so.
+// This avoids attaching using a different on-disk copy than the one in the process address space.
+func mapsResolvedLibPath(hostPID uint32, libBase string) string {
+	data, err := os.ReadFile(fmt.Sprintf("/host/proc/%d/maps", hostPID))
+	if err != nil {
+		return ""
+	}
+	root := fmt.Sprintf("/host/proc/%d/root", hostPID)
+	for _, line := range strings.Split(string(data), "\n") {
+		if !strings.Contains(line, libBase) {
+			continue
+		}
+		if !strings.Contains(line, "r-xp") && !strings.Contains(line, "r-x") {
+			continue
+		}
+		slash := strings.Index(line, "/")
+		if slash < 0 {
+			continue
+		}
+		path := strings.TrimSpace(line[slash:])
+		path = strings.TrimSuffix(path, " (deleted)")
+		if path == "" || strings.HasPrefix(path, "/memfd:") || strings.HasPrefix(path, "/dev/") {
+			continue
+		}
+		abs := root + path
+		st, err := os.Stat(abs)
+		if err != nil || st.IsDir() {
+			continue
+		}
+		return abs
+	}
+	return ""
+}
+
+func elfDynamicHasFuncSymbol(hostPath, symbol string) bool {
+	f, err := os.Open(hostPath)
+	if err != nil {
+		return false
+	}
+	defer f.Close()
+	ef, err := elf.NewFile(f)
+	if err != nil {
+		return false
+	}
+	syms, err := ef.DynamicSymbols()
+	if err != nil {
+		return false
+	}
+	for _, s := range syms {
+		if s.Name != symbol {
+			continue
+		}
+		if elf.ST_TYPE(s.Info) != elf.STT_FUNC {
+			continue
+		}
+		return true
+	}
+	return false
+}
+
+// findAnpAttachTarget scans GPU kubepods processes and picks one whose mapped librccl-anp.so
+// actually exports the expected mangled symbol. ReadDir order is undefined; without this,
+// the first match could be another workload's older/different ANP library and Uprobe fails
+// with "symbol ... not found" even when the training pod's SO has the symbol.
+func findAnpAttachTarget(libRelPath, requiredMangledSym string) (uint32, string) {
+	entries, err := os.ReadDir("/host/proc")
+	if err != nil {
+		return 0, ""
+	}
+	var cands []uint32
 	for _, entry := range entries {
 		if !entry.IsDir() {
 			continue
 		}
-		pid := entry.Name()
-		if pid[0] < '1' || pid[0] > '9' {
+		pdir := entry.Name()
+		if len(pdir) == 0 || pdir[0] < '1' || pdir[0] > '9' {
 			continue
 		}
 
-		ibPath := fmt.Sprintf("/host/proc/%s/root/dev/infiniband", pid)
+		ibPath := fmt.Sprintf("/host/proc/%s/root/dev/infiniband", pdir)
 		if _, err := os.Stat(ibPath); err != nil {
 			continue
 		}
 
-		cgPath := fmt.Sprintf("/host/proc/%s/cgroup", pid)
+		cgPath := fmt.Sprintf("/host/proc/%s/cgroup", pdir)
 		cg, err := os.ReadFile(cgPath)
 		if err != nil || !strings.Contains(string(cg), "kubepods") {
 			continue
 		}
 
-		libPath := fmt.Sprintf("/host/proc/%s/root%s", pid, libRelPath)
-		if _, err := os.Stat(libPath); err == nil {
-			pidNum, _ := strconv.ParseUint(pid, 10, 32)
-			return uint32(pidNum)
+		libPath := fmt.Sprintf("/host/proc/%s/root%s", pdir, libRelPath)
+		if _, err := os.Stat(libPath); err != nil {
+			continue
+		}
+
+		pidNum, err := strconv.ParseUint(pdir, 10, 32)
+		if err != nil {
+			continue
+		}
+		cands = append(cands, uint32(pidNum))
+	}
+
+	sort.Slice(cands, func(i, j int) bool { return cands[i] < cands[j] })
+
+	for _, pid := range cands {
+		hostPath := mapsResolvedLibPath(pid, "librccl-anp.so")
+		if hostPath == "" {
+			hostPath = fmt.Sprintf("/host/proc/%d/root%s", pid, libRelPath)
+		}
+		if elfDynamicHasFuncSymbol(hostPath, requiredMangledSym) {
+			log.Printf("ANP: using host PID %d library %s (symbol %s present)", pid, hostPath, requiredMangledSym)
+			return pid, hostPath
 		}
 	}
-	return 0
+
+	if len(cands) > 0 {
+		log.Printf("ANP: no suitable process among %d candidates (missing symbol %s in mapped or default lib)", len(cands), requiredMangledSym)
+	}
+	return 0, ""
 }
 
 func getBootTime() time.Time {
