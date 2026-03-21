@@ -13,7 +13,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -25,23 +24,23 @@ import (
 //go:generate go run github.com/cilium/ebpf/cmd/bpf2go -cc clang -cflags "-O2 -g -Wall -D__TARGET_ARCH_x86" -target amd64 tracer ../bpf/tracer.bpf.c -- -I/usr/include -I../bpf
 
 const (
-	EvtConnectEnter    = 1
-	EvtConnectExit     = 2
-	EvtAcceptExit      = 3
-	EvtTCPState        = 4
-	EvtTCPRetransmit   = 5
-	EvtTCPReset        = 6
-	EvtSendmsgSlow     = 7
-	EvtRecvmsgSlow     = 8
-	EvtClose           = 9
-	EvtAnpConnect      = 20
-	EvtAnpConnectRet   = 21
-	EvtAnpAccept       = 22
-	EvtAnpAcceptRet    = 23
-	EvtAnpIsend        = 24
-	EvtAnpIrecv        = 25
-	EvtAnpCloseSend    = 26
-	EvtAnpCloseRecv    = 27
+	EvtConnectEnter     = 1
+	EvtConnectExit      = 2
+	EvtAcceptExit       = 3
+	EvtTCPState         = 4
+	EvtTCPRetransmit    = 5
+	EvtTCPReset         = 6
+	EvtSendmsgSlow      = 7
+	EvtRecvmsgSlow      = 8
+	EvtClose            = 9
+	EvtAnpConnect       = 20
+	EvtAnpConnectRet    = 21
+	EvtAnpAccept        = 22
+	EvtAnpAcceptRet     = 23
+	EvtAnpIsend         = 24
+	EvtAnpIrecv         = 25
+	EvtAnpCloseSend     = 26
+	EvtAnpCloseRecv     = 27
 	EvtIbvCreateQP      = 30
 	EvtIbvModifyQP      = 31
 	EvtIbvModifyQPRet   = 32
@@ -65,23 +64,23 @@ const (
 )
 
 var eventNames = map[uint32]string{
-	EvtConnectEnter:   "CONNECT",
-	EvtConnectExit:    "CONNECT_DONE",
-	EvtAcceptExit:     "ACCEPT_DONE",
-	EvtTCPState:       "TCP_STATE",
-	EvtTCPRetransmit:  "TCP_RETX",
-	EvtTCPReset:       "TCP_RESET",
-	EvtSendmsgSlow:    "SEND_SLOW",
-	EvtRecvmsgSlow:    "RECV_SLOW",
-	EvtClose:          "CLOSE",
-	EvtAnpConnect:     "ANP_CONNECT",
-	EvtAnpConnectRet:  "ANP_CONNECT_RET",
-	EvtAnpAccept:      "ANP_ACCEPT",
-	EvtAnpAcceptRet:   "ANP_ACCEPT_RET",
-	EvtAnpIsend:       "ANP_ISEND",
-	EvtAnpIrecv:       "ANP_IRECV",
-	EvtAnpCloseSend:   "ANP_CLOSE_SEND",
-	EvtAnpCloseRecv:   "ANP_CLOSE_RECV",
+	EvtConnectEnter:     "CONNECT",
+	EvtConnectExit:      "CONNECT_DONE",
+	EvtAcceptExit:       "ACCEPT_DONE",
+	EvtTCPState:         "TCP_STATE",
+	EvtTCPRetransmit:    "TCP_RETX",
+	EvtTCPReset:         "TCP_RESET",
+	EvtSendmsgSlow:      "SEND_SLOW",
+	EvtRecvmsgSlow:      "RECV_SLOW",
+	EvtClose:            "CLOSE",
+	EvtAnpConnect:       "ANP_CONNECT",
+	EvtAnpConnectRet:    "ANP_CONNECT_RET",
+	EvtAnpAccept:        "ANP_ACCEPT",
+	EvtAnpAcceptRet:     "ANP_ACCEPT_RET",
+	EvtAnpIsend:         "ANP_ISEND",
+	EvtAnpIrecv:         "ANP_IRECV",
+	EvtAnpCloseSend:     "ANP_CLOSE_SEND",
+	EvtAnpCloseRecv:     "ANP_CLOSE_RECV",
 	EvtIbvCreateQP:      "IBV_CREATE_QP",
 	EvtIbvModifyQP:      "IBV_MODIFY_QP",
 	EvtIbvModifyQPRet:   "IBV_MODIFY_QP_RET",
@@ -142,11 +141,12 @@ type ContainerInfo struct {
 }
 
 type rcclStats struct {
-	TxBytes uint64
-	TxOps   uint64
-	RxOps   uint64
-	PodName string
-	LastSeen int64 // unix timestamp
+	TxBytes   uint64
+	TxOps     uint64
+	RxOps     uint64
+	PodName   string
+	DeviceIdx uint32
+	LastSeen  int64
 }
 
 var (
@@ -155,8 +155,6 @@ var (
 	fileCache      sync.Map // "container/pid" -> *os.File
 	nsFilter       string
 	prometheusAddr = getEnv("PROMETHEUS_ADDR", ":9190")
-
-	// RCCL traffic aggregation from ringbuf events (scheme B)
 	rcclStatsMap   sync.Map // host PID (uint32) -> *rcclStats
 )
 
@@ -293,10 +291,7 @@ func main() {
 	var linksMu sync.Mutex
 	uprobesAttached := false
 
-	anpRelPaths := []string{
-		getEnv("ANP_LIB_REL_PATH", "/opt/rocm-7.1.0/lib/librccl-anp.so"),
-		"/opt/amd-anp/build/librccl-anp.so",
-	}
+	anpRelPath := getEnv("ANP_LIB_REL_PATH", "/opt/rocm-7.1.0/lib/librccl-anp.so")
 	ibvRelPath := getEnv("IBV_LIB_REL_PATH", "/lib/x86_64-linux-gnu/libibverbs.so.1")
 
 	go func() {
@@ -307,16 +302,7 @@ func main() {
 			}
 			time.Sleep(scanInterval)
 
-			// Try multiple ANP library paths
-			var pid uint32
-			var anpRelPath string
-			for _, p := range anpRelPaths {
-				pid = findRDMATrainingPid(p)
-				if pid != 0 {
-					anpRelPath = p
-					break
-				}
-			}
+			pid := findRDMATrainingPid(anpRelPath)
 			if pid == 0 {
 				continue
 			}
@@ -410,21 +396,19 @@ func main() {
 		http.HandleFunc("/metrics", func(w http.ResponseWriter, r *http.Request) {
 			nodeName := os.Getenv("NODE_NAME")
 
-			// Global activity counters (indices 0-12 match bump_counter() calls in BPF)
+			// Global activity counters
 			counterNames := []string{
-				"rccl_tracer_connect_total",         // 0
-				"rccl_tracer_post_send_total",       // 1
-				"rccl_tracer_poll_cq_total",         // 2
-				"rccl_tracer_modify_qp_total",       // 3
-				"rccl_tracer_create_qp_total",       // 4
-				"rccl_tracer_sigsegv_total",         // 5
-				"rccl_tracer_kfd_evict_total",       // 6
-				"rccl_tracer_connect_error_total",   // 7
-				"rccl_tracer_cqe_error_total",       // 8
-				"rccl_tracer_ib_async_event_total",  // 9
-				"rccl_tracer_hsa_signal_ops_total",  // 10
-				"rccl_tracer_anp_isend_total",       // 11
-				"rccl_tracer_anp_irecv_total",       // 12
+				"rccl_tracer_connect_total",
+				"rccl_tracer_post_send_total",
+				"rccl_tracer_poll_cq_total",
+				"rccl_tracer_modify_qp_total",
+				"rccl_tracer_create_qp_total",
+				"rccl_tracer_sigsegv_total",
+				"rccl_tracer_kfd_evict_total",
+				"rccl_tracer_connect_error_total",
+				"rccl_tracer_cqe_error_total",
+				"rccl_tracer_ib_async_event_total",
+				"rccl_tracer_hsa_signal_ops_total",
 			}
 
 			for i, name := range counterNames {
@@ -469,27 +453,27 @@ func main() {
 					nodeName, devName, qpKey.QpNum, qpVal.TxOps)
 			}
 
-			// Per-rank RCCL traffic (aggregated from ringbuf events in Go)
+			// Per-rank RCCL traffic with device label (scheme B: Go aggregation)
 			now := time.Now().Unix()
 			rcclStatsMap.Range(func(k, v interface{}) bool {
 				pid := k.(uint32)
 				stats := v.(*rcclStats)
-				// Auto-cleanup: remove entries older than 5 minutes
 				if now-atomic.LoadInt64(&stats.LastSeen) > 300 {
 					rcclStatsMap.Delete(k)
 					return true
 				}
 				containerPid := resolveContainerPid(pid)
 				podName := stats.PodName
+				devName := fmt.Sprintf("ionic_%d", stats.DeviceIdx)
 				txBytes := atomic.LoadUint64(&stats.TxBytes)
 				txOps := atomic.LoadUint64(&stats.TxOps)
 				rxOps := atomic.LoadUint64(&stats.RxOps)
-				fmt.Fprintf(w, "rccl_tracer_rccl_tx_bytes{node=\"%s\",pod=\"%s\",rank_pid=\"%d\"} %d\n",
-					nodeName, podName, containerPid, txBytes)
-				fmt.Fprintf(w, "rccl_tracer_rccl_tx_ops{node=\"%s\",pod=\"%s\",rank_pid=\"%d\"} %d\n",
-					nodeName, podName, containerPid, txOps)
-				fmt.Fprintf(w, "rccl_tracer_rccl_rx_ops{node=\"%s\",pod=\"%s\",rank_pid=\"%d\"} %d\n",
-					nodeName, podName, containerPid, rxOps)
+				fmt.Fprintf(w, "rccl_tracer_rccl_tx_bytes{node=\"%s\",pod=\"%s\",device=\"%s\",rank_pid=\"%d\"} %d\n",
+					nodeName, podName, devName, containerPid, txBytes)
+				fmt.Fprintf(w, "rccl_tracer_rccl_tx_ops{node=\"%s\",pod=\"%s\",device=\"%s\",rank_pid=\"%d\"} %d\n",
+					nodeName, podName, devName, containerPid, txOps)
+				fmt.Fprintf(w, "rccl_tracer_rccl_rx_ops{node=\"%s\",pod=\"%s\",device=\"%s\",rank_pid=\"%d\"} %d\n",
+					nodeName, podName, devName, containerPid, rxOps)
 				return true
 			})
 
@@ -544,18 +528,24 @@ func main() {
 		line := formatEvent(&evt, cinfo, wallTime)
 		writeToFile(cinfo, evt.Pid, line)
 
-		// Aggregate RCCL traffic from ANP events (scheme B)
-		if evt.EventType == EvtAnpIsend || evt.EventType == EvtAnpIrecv {
+		// Aggregate RCCL traffic from ANP events (scheme B: Go-side aggregation)
+		switch evt.EventType {
+		case EvtAnpIsend:
+			key := evt.Pid
+			val, _ := rcclStatsMap.LoadOrStore(key, &rcclStats{PodName: cinfo.PodName, DeviceIdx: evt.OldState})
+			stats := val.(*rcclStats)
+			atomic.StoreInt64(&stats.LastSeen, time.Now().Unix())
+			atomic.AddUint64(&stats.TxBytes, uint64(evt.DurationNs))
+			atomic.AddUint64(&stats.TxOps, 1)
+			if evt.OldState != 0 {
+				stats.DeviceIdx = evt.OldState
+			}
+		case EvtAnpIrecv:
 			key := evt.Pid
 			val, _ := rcclStatsMap.LoadOrStore(key, &rcclStats{PodName: cinfo.PodName})
 			stats := val.(*rcclStats)
-			stats.LastSeen = time.Now().Unix()
-			if evt.EventType == EvtAnpIsend {
-				atomic.AddUint64(&stats.TxBytes, uint64(evt.DurationNs)) // size stored in DurationNs
-				atomic.AddUint64(&stats.TxOps, 1)
-			} else {
-				atomic.AddUint64(&stats.RxOps, 1)
-			}
+			atomic.StoreInt64(&stats.LastSeen, time.Now().Unix())
+			atomic.AddUint64(&stats.RxOps, 1)
 		}
 	}
 
@@ -627,7 +617,7 @@ func formatEvent(e *Event, c *ContainerInfo, ts time.Time) string {
 	case EvtAnpConnectRet:
 		durMs := float64(e.DurationNs) / 1e6
 		ncclErr := ncclResultName(e.Retval)
-		return fmt.Sprintf("%s duration=%.1fms result=%s", base, durMs, ncclErr)
+		return fmt.Sprintf("%s duration=%.1fms result=%s device=ionic_%d", base, durMs, ncclErr, e.OldState)
 	case EvtAnpAccept:
 		return base
 	case EvtAnpAcceptRet:
@@ -635,7 +625,7 @@ func formatEvent(e *Event, c *ContainerInfo, ts time.Time) string {
 		ncclErr := ncclResultName(e.Retval)
 		return fmt.Sprintf("%s duration=%.1fms result=%s", base, durMs, ncclErr)
 	case EvtAnpIsend:
-		return fmt.Sprintf("%s size=%d tag=%d", base, e.DurationNs, e.Retval)
+		return fmt.Sprintf("%s size=%d tag=%d device=ionic_%d", base, e.DurationNs, e.Retval, e.OldState)
 	case EvtAnpIrecv:
 		return fmt.Sprintf("%s nbufs=%d", base, e.Retval)
 	case EvtAnpCloseSend, EvtAnpCloseRecv:
@@ -948,49 +938,28 @@ func readPodName(hostPid uint32) string {
 }
 
 func readPodNamespace(hostPid uint32) string {
-	// Walk up the process tree to find POD_NAMESPACE in any ancestor's environ
-	pid := hostPid
-	for i := 0; i < 5; i++ {
-		envPath := fmt.Sprintf("/host/proc/%d/environ", pid)
-		data, err := os.ReadFile(envPath)
-		if err != nil {
-			break
+	envPath := fmt.Sprintf("/host/proc/%d/environ", hostPid)
+	data, err := os.ReadFile(envPath)
+	if err != nil {
+		return "unknown"
+	}
+	// K8s injects POD_NAMESPACE via downward API; if not available, parse from cgroup
+	for _, entry := range bytes.Split(data, []byte{0}) {
+		if bytes.HasPrefix(entry, []byte("POD_NAMESPACE=")) {
+			return string(entry[14:])
 		}
-		for _, entry := range bytes.Split(data, []byte{0}) {
-			if bytes.HasPrefix(entry, []byte("POD_NAMESPACE=")) {
-				return string(entry[14:])
-			}
-		}
-		// Try parent process
-		statusPath := fmt.Sprintf("/host/proc/%d/status", pid)
-		status, err := os.ReadFile(statusPath)
-		if err != nil {
-			break
-		}
-		ppid := uint32(0)
-		for _, line := range strings.Split(string(status), "\n") {
-			if strings.HasPrefix(line, "PPid:") {
-				if v, err := strconv.ParseUint(strings.TrimSpace(strings.TrimPrefix(line, "PPid:")), 10, 32); err == nil {
-					ppid = uint32(v)
-				}
-			}
-		}
-		if ppid <= 1 {
-			break
-		}
-		pid = ppid
 	}
 
-	// Fallback: check if the pod name (HOSTNAME) contains namespace hints
-	// In K8s, pod names are often prefixed with the workload name which
-	// indicates the namespace (e.g. control-plane-deepseek pods)
-	podName := readPodName(hostPid)
-	if podName != fmt.Sprintf("pid-%d", hostPid) {
-		// If we got a real pod name, assume the container is in a training namespace
-		// This is safe because findRDMATrainingPid already verified kubepods cgroup
-		return "control-plane-inferred"
+	// Fallback: read from /proc/<pid>/cgroup and check if it contains a known namespace
+	cgPath := fmt.Sprintf("/host/proc/%d/cgroup", hostPid)
+	cg, err := os.ReadFile(cgPath)
+	if err != nil {
+		return "unknown"
 	}
-
+	cgStr := string(cg)
+	// Try to find namespace from pod labels file
+	// Fallback: just return "unknown" and let userspace match by pod name
+	_ = cgStr
 	return "unknown"
 }
 

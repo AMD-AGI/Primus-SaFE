@@ -458,6 +458,29 @@ struct {
     __type(value, __u64);
 } ibv_modify_qp_start SEC(".maps");
 
+// Map sendComm pointer → device index (populated by anpNetConnect return)
+struct {
+    __uint(type, BPF_MAP_TYPE_HASH);
+    __uint(max_entries, 8192);
+    __type(key, __u64);   // sendComm pointer value
+    __type(value, __u32); // device index
+} comm_to_dev SEC(".maps");
+
+// Save connect enter args per thread: dev_idx and sendComm** output pointer
+struct connect_args {
+    __u64 start_ns;
+    __u64 sendcomm_out_ptr;  // void** sendComm (arg4)
+    __u32 dev_idx;           // int dev (arg1)
+    __u32 _pad;
+};
+
+struct {
+    __uint(type, BPF_MAP_TYPE_HASH);
+    __uint(max_entries, MAX_ENTRIES);
+    __type(key, __u64);   // pid_tgid
+    __type(value, struct connect_args);
+} anp_connect_args SEC(".maps");
+
 // anpNetConnect(int dev, ncclNetCommConfig*, void* handle, void** sendComm, ...)
 SEC("uprobe/anp_net_connect")
 int handle_anp_connect(struct pt_regs *ctx)
@@ -465,12 +488,17 @@ int handle_anp_connect(struct pt_regs *ctx)
     struct event *e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
     if (!e) return 0;
 
+    __u32 dev = (__u32)PT_REGS_PARM1(ctx);
     fill_event_base(e, EVT_ANP_CONNECT);
-    e->retval = (int)PT_REGS_PARM1(ctx);  // dev id
+    e->retval = dev;
 
     __u64 pid_tgid = bpf_get_current_pid_tgid();
-    __u64 ts = bpf_ktime_get_ns();
-    bpf_map_update_elem(&anp_connect_start, &pid_tgid, &ts, BPF_ANY);
+    struct connect_args args = {
+        .start_ns = bpf_ktime_get_ns(),
+        .sendcomm_out_ptr = (__u64)PT_REGS_PARM4(ctx),  // void** sendComm
+        .dev_idx = dev,
+    };
+    bpf_map_update_elem(&anp_connect_args, &pid_tgid, &args, BPF_ANY);
 
     bpf_ringbuf_submit(e, 0);
     return 0;
@@ -480,19 +508,33 @@ SEC("uretprobe/anp_net_connect")
 int handle_anp_connect_ret(struct pt_regs *ctx)
 {
     __u64 pid_tgid = bpf_get_current_pid_tgid();
-    __u64 *start = bpf_map_lookup_elem(&anp_connect_start, &pid_tgid);
-    if (!start)
+    struct connect_args *args = bpf_map_lookup_elem(&anp_connect_args, &pid_tgid);
+    if (!args)
         return 0;
 
-    __u64 duration = bpf_ktime_get_ns() - *start;
-    bpf_map_delete_elem(&anp_connect_start, &pid_tgid);
+    __u64 duration = bpf_ktime_get_ns() - args->start_ns;
+    __u32 dev_idx = args->dev_idx;
+    __u64 sendcomm_out = args->sendcomm_out_ptr;
+    bpf_map_delete_elem(&anp_connect_args, &pid_tgid);
+
+    int ret = (int)PT_REGS_RC(ctx);
+
+    // On success, read *sendComm from the output pointer and map it to device
+    if (ret == 0 && sendcomm_out != 0) {
+        __u64 comm_ptr = 0;
+        bpf_probe_read_user(&comm_ptr, sizeof(comm_ptr), (void *)sendcomm_out);
+        if (comm_ptr != 0) {
+            bpf_map_update_elem(&comm_to_dev, &comm_ptr, &dev_idx, BPF_ANY);
+        }
+    }
 
     struct event *e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
     if (!e) return 0;
 
     fill_event_base(e, EVT_ANP_CONNECT_RET);
     e->duration_ns = duration;
-    e->retval = (int)PT_REGS_RC(ctx);  // ncclResult_t (0=success)
+    e->retval = ret;
+    e->old_state = dev_idx;  // include device in return event
 
     bpf_ringbuf_submit(e, 0);
     return 0;
@@ -537,12 +579,17 @@ int handle_anp_accept_ret(struct pt_regs *ctx)
     return 0;
 }
 
-// anpNetIsend/Irecv: only emit ringbuf events, Go aggregates for Prometheus
 // anpNetIsend(void* sendComm, void* data, unsigned long size, int tag, ...)
 SEC("uprobe/anp_net_isend")
 int handle_anp_isend(struct pt_regs *ctx)
 {
     bump_counter(11);
+
+    __u64 comm_ptr = (__u64)PT_REGS_PARM1(ctx);
+    __u32 dev_idx = 0;
+    __u32 *dev = bpf_map_lookup_elem(&comm_to_dev, &comm_ptr);
+    if (dev)
+        dev_idx = *dev;
 
     struct event *e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
     if (!e) return 0;
@@ -550,6 +597,7 @@ int handle_anp_isend(struct pt_regs *ctx)
     fill_event_base(e, EVT_ANP_ISEND);
     e->duration_ns = (long)PT_REGS_PARM3(ctx);  // size
     e->retval = (int)PT_REGS_PARM4(ctx);  // tag
+    e->old_state = dev_idx;  // local device index
 
     bpf_ringbuf_submit(e, 0);
     return 0;
