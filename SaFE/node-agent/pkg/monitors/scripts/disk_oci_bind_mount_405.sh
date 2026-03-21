@@ -41,9 +41,22 @@ for pair in "${BIND_MOUNTS[@]}"; do
   target="${pair##*:}"
   fstab_line="${source} ${target} none bind 0 0"
 
-  # Skip if fstab entry already exists (ignore commented lines)
+  # If fstab already lists this bind and the mount is active, nothing to do.
+  # If fstab lists it but nothing is mounted (append-only run, failed boot, or wrong order), apply bind now.
   ${NSENTER} grep -v '^[[:space:]]*#' "$FSTAB" 2>/dev/null | grep -qF "${source} ${target}"
   if [ $? -eq 0 ]; then
+    if ${NSENTER} mountpoint -q "$target" 2>/dev/null; then
+      continue
+    fi
+    if ! ${NSENTER} test -d "$source" 2>/dev/null; then
+      echo "Error: ${source} missing — is /mnt/m2m_nobackup mounted before this bind? (check fstab order / boot)"
+      exit 1
+    fi
+    ${NSENTER} mkdir -p "$target" 2>/dev/null
+    if ! ${NSENTER} mount --bind "$source" "$target" 2>/dev/null; then
+      echo "Error: fstab has bind ${source} -> ${target} but mount --bind failed (busy or parent fs not ready)"
+      exit 1
+    fi
     continue
   fi
 
@@ -135,5 +148,19 @@ for pair in "${BIND_MOUNTS[@]}"; do
   if [ $? -ne 0 ]; then
     echo "Error: failed to append to $FSTAB"
     exit 1
+  fi
+
+  # fstab is only used at boot / mount -a; ensure the bind is active in the running system too
+  # (covers same-inode skip path that wrote fstab without a live bind).
+  if ! ${NSENTER} mountpoint -q "$target" 2>/dev/null; then
+    if ! ${NSENTER} test -d "$source" 2>/dev/null; then
+      echo "Error: ${source} missing after fstab update — mount /mnt/m2m_nobackup first"
+      exit 1
+    fi
+    ${NSENTER} mkdir -p "$target" 2>/dev/null
+    if ! ${NSENTER} mount --bind "$source" "$target" 2>/dev/null; then
+      echo "Error: failed to mount --bind $source $target after updating fstab"
+      exit 1
+    fi
   fi
 done
