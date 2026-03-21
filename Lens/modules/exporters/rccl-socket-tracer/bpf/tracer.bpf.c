@@ -458,20 +458,26 @@ struct {
     __type(value, __u64);
 } ibv_modify_qp_start SEC(".maps");
 
-// Map sendComm pointer → device index (populated by anpNetConnect return)
+// Per-sendComm connection info: local device + peer IP
+struct comm_info {
+    __u32 dev_idx;      // local ionic device index
+    __u32 peer_ip;      // peer IPv4 address (network byte order)
+};
+
+// Map sendComm pointer → connection info (populated by anpNetConnect return)
 struct {
     __uint(type, BPF_MAP_TYPE_HASH);
     __uint(max_entries, 8192);
-    __type(key, __u64);   // sendComm pointer value
-    __type(value, __u32); // device index
+    __type(key, __u64);              // sendComm pointer value
+    __type(value, struct comm_info); // device + peer
 } comm_to_dev SEC(".maps");
 
-// Save connect enter args per thread: dev_idx and sendComm** output pointer
+// Save connect enter args per thread
 struct connect_args {
     __u64 start_ns;
     __u64 sendcomm_out_ptr;  // void** sendComm (arg4)
     __u32 dev_idx;           // int dev (arg1)
-    __u32 _pad;
+    __u32 peer_ip;           // extracted from handle->connectAddr
 };
 
 struct {
@@ -482,23 +488,37 @@ struct {
 } anp_connect_args SEC(".maps");
 
 // anpNetConnect(int dev, ncclNetCommConfig*, void* handle, void** sendComm, ...)
+// handle is ncclIbHandle* where connectAddr (sockaddr) is at offset 0
 SEC("uprobe/anp_net_connect")
 int handle_anp_connect(struct pt_regs *ctx)
 {
-    struct event *e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
-    if (!e) return 0;
-
     __u32 dev = (__u32)PT_REGS_PARM1(ctx);
-    fill_event_base(e, EVT_ANP_CONNECT);
-    e->retval = dev;
+    void *handle = (void *)PT_REGS_PARM3(ctx);
+
+    // Read peer IP from handle->connectAddr (struct sockaddr_in at offset 0)
+    // sockaddr_in layout: sa_family(2B) + sin_port(2B) + sin_addr(4B)
+    __u32 peer_ip = 0;
+    if (handle) {
+        bpf_probe_read_user(&peer_ip, sizeof(peer_ip), handle + 4);  // sin_addr at offset 4
+    }
 
     __u64 pid_tgid = bpf_get_current_pid_tgid();
     struct connect_args args = {
         .start_ns = bpf_ktime_get_ns(),
-        .sendcomm_out_ptr = (__u64)PT_REGS_PARM4(ctx),  // void** sendComm
+        .sendcomm_out_ptr = (__u64)PT_REGS_PARM4(ctx),
         .dev_idx = dev,
+        .peer_ip = peer_ip,
     };
     bpf_map_update_elem(&anp_connect_args, &pid_tgid, &args, BPF_ANY);
+
+    struct event *e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
+    if (!e) return 0;
+
+    fill_event_base(e, EVT_ANP_CONNECT);
+    e->retval = dev;
+    // Store peer IP in daddr field
+    __builtin_memcpy(e->daddr, &peer_ip, 4);
+    e->af = AF_INET;
 
     bpf_ringbuf_submit(e, 0);
     return 0;
@@ -514,17 +534,19 @@ int handle_anp_connect_ret(struct pt_regs *ctx)
 
     __u64 duration = bpf_ktime_get_ns() - args->start_ns;
     __u32 dev_idx = args->dev_idx;
+    __u32 peer_ip = args->peer_ip;
     __u64 sendcomm_out = args->sendcomm_out_ptr;
     bpf_map_delete_elem(&anp_connect_args, &pid_tgid);
 
     int ret = (int)PT_REGS_RC(ctx);
 
-    // On success, read *sendComm from the output pointer and map it to device
+    // On success, map sendComm → {device, peer_ip}
     if (ret == 0 && sendcomm_out != 0) {
         __u64 comm_ptr = 0;
         bpf_probe_read_user(&comm_ptr, sizeof(comm_ptr), (void *)sendcomm_out);
         if (comm_ptr != 0) {
-            bpf_map_update_elem(&comm_to_dev, &comm_ptr, &dev_idx, BPF_ANY);
+            struct comm_info info = { .dev_idx = dev_idx, .peer_ip = peer_ip };
+            bpf_map_update_elem(&comm_to_dev, &comm_ptr, &info, BPF_ANY);
         }
     }
 
@@ -534,7 +556,9 @@ int handle_anp_connect_ret(struct pt_regs *ctx)
     fill_event_base(e, EVT_ANP_CONNECT_RET);
     e->duration_ns = duration;
     e->retval = ret;
-    e->old_state = dev_idx;  // include device in return event
+    e->old_state = dev_idx;
+    __builtin_memcpy(e->daddr, &peer_ip, 4);
+    e->af = AF_INET;
 
     bpf_ringbuf_submit(e, 0);
     return 0;
@@ -587,9 +611,12 @@ int handle_anp_isend(struct pt_regs *ctx)
 
     __u64 comm_ptr = (__u64)PT_REGS_PARM1(ctx);
     __u32 dev_idx = 0;
-    __u32 *dev = bpf_map_lookup_elem(&comm_to_dev, &comm_ptr);
-    if (dev)
-        dev_idx = *dev;
+    __u32 peer_ip = 0;
+    struct comm_info *info = bpf_map_lookup_elem(&comm_to_dev, &comm_ptr);
+    if (info) {
+        dev_idx = info->dev_idx;
+        peer_ip = info->peer_ip;
+    }
 
     struct event *e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
     if (!e) return 0;
@@ -598,6 +625,8 @@ int handle_anp_isend(struct pt_regs *ctx)
     e->duration_ns = (long)PT_REGS_PARM3(ctx);  // size
     e->retval = (int)PT_REGS_PARM4(ctx);  // tag
     e->old_state = dev_idx;  // local device index
+    __builtin_memcpy(e->daddr, &peer_ip, 4);  // peer IP
+    e->af = AF_INET;
 
     bpf_ringbuf_submit(e, 0);
     return 0;

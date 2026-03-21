@@ -147,6 +147,7 @@ type rcclStats struct {
 	RxOps     uint64
 	PodName   string
 	DeviceIdx uint32
+	PeerIP    string // peer node IP from anpNetConnect handle
 	LastSeen  int64
 }
 
@@ -466,15 +467,19 @@ func main() {
 				containerPid := resolveContainerPid(pid)
 				podName := stats.PodName
 				devName := fmt.Sprintf("ionic_%d", stats.DeviceIdx)
+				peerIP := stats.PeerIP
+				if peerIP == "" {
+					peerIP = "unknown"
+				}
 				txBytes := atomic.LoadUint64(&stats.TxBytes)
 				txOps := atomic.LoadUint64(&stats.TxOps)
 				rxOps := atomic.LoadUint64(&stats.RxOps)
-				fmt.Fprintf(w, "rccl_tracer_rccl_tx_bytes{node=\"%s\",pod=\"%s\",device=\"%s\",rank_pid=\"%d\"} %d\n",
-					nodeName, podName, devName, containerPid, txBytes)
-				fmt.Fprintf(w, "rccl_tracer_rccl_tx_ops{node=\"%s\",pod=\"%s\",device=\"%s\",rank_pid=\"%d\"} %d\n",
-					nodeName, podName, devName, containerPid, txOps)
-				fmt.Fprintf(w, "rccl_tracer_rccl_rx_ops{node=\"%s\",pod=\"%s\",device=\"%s\",rank_pid=\"%d\"} %d\n",
-					nodeName, podName, devName, containerPid, rxOps)
+				fmt.Fprintf(w, "rccl_tracer_rccl_tx_bytes{node=\"%s\",pod=\"%s\",device=\"%s\",peer=\"%s\",rank_pid=\"%d\"} %d\n",
+					nodeName, podName, devName, peerIP, containerPid, txBytes)
+				fmt.Fprintf(w, "rccl_tracer_rccl_tx_ops{node=\"%s\",pod=\"%s\",device=\"%s\",peer=\"%s\",rank_pid=\"%d\"} %d\n",
+					nodeName, podName, devName, peerIP, containerPid, txOps)
+				fmt.Fprintf(w, "rccl_tracer_rccl_rx_ops{node=\"%s\",pod=\"%s\",device=\"%s\",peer=\"%s\",rank_pid=\"%d\"} %d\n",
+					nodeName, podName, devName, peerIP, containerPid, rxOps)
 				return true
 			})
 
@@ -532,14 +537,18 @@ func main() {
 		// Aggregate RCCL traffic from ANP events (scheme B: Go-side aggregation)
 		switch evt.EventType {
 		case EvtAnpIsend:
+			peerIP := formatAddr(evt.Daddr[:], evt.AF)
 			key := evt.Pid
-			val, _ := rcclStatsMap.LoadOrStore(key, &rcclStats{PodName: cinfo.PodName, DeviceIdx: evt.OldState})
+			val, _ := rcclStatsMap.LoadOrStore(key, &rcclStats{PodName: cinfo.PodName, DeviceIdx: evt.OldState, PeerIP: peerIP})
 			stats := val.(*rcclStats)
 			atomic.StoreInt64(&stats.LastSeen, time.Now().Unix())
 			atomic.AddUint64(&stats.TxBytes, uint64(evt.DurationNs))
 			atomic.AddUint64(&stats.TxOps, 1)
 			if evt.OldState != 0 {
 				stats.DeviceIdx = evt.OldState
+			}
+			if peerIP != "0.0.0.0" && stats.PeerIP == "" {
+				stats.PeerIP = peerIP
 			}
 		case EvtAnpIrecv:
 			key := evt.Pid
@@ -614,7 +623,8 @@ func formatEvent(e *Event, c *ContainerInfo, ts time.Time) string {
 		return fmt.Sprintf("%s duration=%.1fms ret=%d", base, durMs, e.Retval)
 
 	case EvtAnpConnect:
-		return fmt.Sprintf("%s dev=%d", base, e.Retval)
+		peer := formatAddr(e.Daddr[:], e.AF)
+		return fmt.Sprintf("%s dev=%d peer=%s", base, e.Retval, peer)
 	case EvtAnpConnectRet:
 		durMs := float64(e.DurationNs) / 1e6
 		ncclErr := ncclResultName(e.Retval)
@@ -626,7 +636,8 @@ func formatEvent(e *Event, c *ContainerInfo, ts time.Time) string {
 		ncclErr := ncclResultName(e.Retval)
 		return fmt.Sprintf("%s duration=%.1fms result=%s", base, durMs, ncclErr)
 	case EvtAnpIsend:
-		return fmt.Sprintf("%s size=%d tag=%d device=ionic_%d", base, e.DurationNs, e.Retval, e.OldState)
+		peer := formatAddr(e.Daddr[:], e.AF)
+		return fmt.Sprintf("%s size=%d tag=%d device=ionic_%d peer=%s", base, e.DurationNs, e.Retval, e.OldState, peer)
 	case EvtAnpIrecv:
 		return fmt.Sprintf("%s nbufs=%d", base, e.Retval)
 	case EvtAnpCloseSend, EvtAnpCloseRecv:
