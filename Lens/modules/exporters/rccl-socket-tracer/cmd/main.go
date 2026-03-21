@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -140,12 +141,23 @@ type ContainerInfo struct {
 	PodName     string
 }
 
+type rcclStats struct {
+	TxBytes uint64
+	TxOps   uint64
+	RxOps   uint64
+	PodName string
+	LastSeen int64 // unix timestamp
+}
+
 var (
 	outputDir      string
 	containerCache sync.Map // host PID -> ContainerInfo
 	fileCache      sync.Map // "container/pid" -> *os.File
 	nsFilter       string
 	prometheusAddr = getEnv("PROMETHEUS_ADDR", ":9190")
+
+	// RCCL traffic aggregation from ringbuf events (scheme B)
+	rcclStatsMap   sync.Map // host PID (uint32) -> *rcclStats
 )
 
 func main() {
@@ -457,32 +469,29 @@ func main() {
 					nodeName, devName, qpKey.QpNum, qpVal.TxOps)
 			}
 
-			// Per-PID RCCL traffic (from ANP isend/irecv)
-			var rcclKey struct {
-				Pid uint32
-				Pad uint32
-			}
-			var rcclVal struct {
-				TxBytes uint64
-				TxOps   uint64
-				RxOps   uint64
-			}
-
-			rcclIter := objs.RcclTraffic.Iterate()
-			for rcclIter.Next(&rcclKey, &rcclVal) {
-				cinfo := resolveContainer(rcclKey.Pid)
-				podName := "unknown"
-				if cinfo != nil {
-					podName = cinfo.PodName
+			// Per-rank RCCL traffic (aggregated from ringbuf events in Go)
+			now := time.Now().Unix()
+			rcclStatsMap.Range(func(k, v interface{}) bool {
+				pid := k.(uint32)
+				stats := v.(*rcclStats)
+				// Auto-cleanup: remove entries older than 5 minutes
+				if now-atomic.LoadInt64(&stats.LastSeen) > 300 {
+					rcclStatsMap.Delete(k)
+					return true
 				}
-				containerPid := resolveContainerPid(rcclKey.Pid)
+				containerPid := resolveContainerPid(pid)
+				podName := stats.PodName
+				txBytes := atomic.LoadUint64(&stats.TxBytes)
+				txOps := atomic.LoadUint64(&stats.TxOps)
+				rxOps := atomic.LoadUint64(&stats.RxOps)
 				fmt.Fprintf(w, "rccl_tracer_rccl_tx_bytes{node=\"%s\",pod=\"%s\",rank_pid=\"%d\"} %d\n",
-					nodeName, podName, containerPid, rcclVal.TxBytes)
+					nodeName, podName, containerPid, txBytes)
 				fmt.Fprintf(w, "rccl_tracer_rccl_tx_ops{node=\"%s\",pod=\"%s\",rank_pid=\"%d\"} %d\n",
-					nodeName, podName, containerPid, rcclVal.TxOps)
+					nodeName, podName, containerPid, txOps)
 				fmt.Fprintf(w, "rccl_tracer_rccl_rx_ops{node=\"%s\",pod=\"%s\",rank_pid=\"%d\"} %d\n",
-					nodeName, podName, containerPid, rcclVal.RxOps)
-			}
+					nodeName, podName, containerPid, rxOps)
+				return true
+			})
 
 			fmt.Fprintf(w, "rccl_tracer_up{node=\"%s\"} 1\n", nodeName)
 		})
@@ -534,6 +543,20 @@ func main() {
 		wallTime := bootTime.Add(time.Duration(evt.TsNs))
 		line := formatEvent(&evt, cinfo, wallTime)
 		writeToFile(cinfo, evt.Pid, line)
+
+		// Aggregate RCCL traffic from ANP events (scheme B)
+		if evt.EventType == EvtAnpIsend || evt.EventType == EvtAnpIrecv {
+			key := evt.Pid
+			val, _ := rcclStatsMap.LoadOrStore(key, &rcclStats{PodName: cinfo.PodName})
+			stats := val.(*rcclStats)
+			stats.LastSeen = time.Now().Unix()
+			if evt.EventType == EvtAnpIsend {
+				atomic.AddUint64(&stats.TxBytes, uint64(evt.DurationNs)) // size stored in DurationNs
+				atomic.AddUint64(&stats.TxOps, 1)
+			} else {
+				atomic.AddUint64(&stats.RxOps, 1)
+			}
+		}
 	}
 
 	// Flush all files
