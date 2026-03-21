@@ -9,6 +9,11 @@ spec:
   selector:
     matchLabels:
       app: rccl-socket-tracer
+  updateStrategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 40
+      maxSurge: 0
   template:
     metadata:
       labels:
