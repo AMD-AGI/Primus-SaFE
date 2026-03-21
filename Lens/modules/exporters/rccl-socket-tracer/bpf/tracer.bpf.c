@@ -537,15 +537,52 @@ int handle_anp_accept_ret(struct pt_regs *ctx)
     return 0;
 }
 
+// Per-rank RCCL traffic counters for Prometheus
+struct rccl_traffic_key {
+    __u32 pid;
+    __u32 _pad;
+};
+
+struct rccl_traffic_val {
+    __u64 tx_bytes;
+    __u64 tx_ops;
+    __u64 rx_ops;
+};
+
+struct {
+    __uint(type, BPF_MAP_TYPE_HASH);
+    __uint(max_entries, 4096);
+    __type(key, struct rccl_traffic_key);
+    __type(value, struct rccl_traffic_val);
+} rccl_traffic SEC(".maps");
+
 // anpNetIsend(void* sendComm, void* data, unsigned long size, int tag, ...)
 SEC("uprobe/anp_net_isend")
 int handle_anp_isend(struct pt_regs *ctx)
 {
+    __u64 pid_tgid = bpf_get_current_pid_tgid();
+    __u32 pid = pid_tgid >> 32;
+    __u64 size = (__u64)PT_REGS_PARM3(ctx);
+
+    // Update per-PID traffic counter
+    struct rccl_traffic_key key = { .pid = pid };
+    struct rccl_traffic_val *val = bpf_map_lookup_elem(&rccl_traffic, &key);
+    if (val) {
+        __sync_fetch_and_add(&val->tx_bytes, size);
+        __sync_fetch_and_add(&val->tx_ops, 1);
+    } else {
+        struct rccl_traffic_val new_val = { .tx_bytes = size, .tx_ops = 1 };
+        bpf_map_update_elem(&rccl_traffic, &key, &new_val, BPF_NOEXIST);
+    }
+
+    // Global counter
+    bump_counter(11);  // idx 11 = anp_isend_total
+
     struct event *e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
     if (!e) return 0;
 
     fill_event_base(e, EVT_ANP_ISEND);
-    e->duration_ns = (long)PT_REGS_PARM3(ctx);  // size
+    e->duration_ns = (long)size;
     e->retval = (int)PT_REGS_PARM4(ctx);  // tag
 
     bpf_ringbuf_submit(e, 0);
@@ -556,6 +593,20 @@ int handle_anp_isend(struct pt_regs *ctx)
 SEC("uprobe/anp_net_irecv")
 int handle_anp_irecv(struct pt_regs *ctx)
 {
+    __u64 pid_tgid = bpf_get_current_pid_tgid();
+    __u32 pid = pid_tgid >> 32;
+
+    struct rccl_traffic_key key = { .pid = pid };
+    struct rccl_traffic_val *val = bpf_map_lookup_elem(&rccl_traffic, &key);
+    if (val) {
+        __sync_fetch_and_add(&val->rx_ops, 1);
+    } else {
+        struct rccl_traffic_val new_val = { .rx_ops = 1 };
+        bpf_map_update_elem(&rccl_traffic, &key, &new_val, BPF_NOEXIST);
+    }
+
+    bump_counter(12);  // idx 12 = anp_irecv_total
+
     struct event *e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
     if (!e) return 0;
 

@@ -398,19 +398,21 @@ func main() {
 		http.HandleFunc("/metrics", func(w http.ResponseWriter, r *http.Request) {
 			nodeName := os.Getenv("NODE_NAME")
 
-			// Global activity counters
+			// Global activity counters (indices 0-12 match bump_counter() calls in BPF)
 			counterNames := []string{
-				"rccl_tracer_connect_total",
-				"rccl_tracer_post_send_total",
-				"rccl_tracer_poll_cq_total",
-				"rccl_tracer_modify_qp_total",
-				"rccl_tracer_create_qp_total",
-				"rccl_tracer_sigsegv_total",
-				"rccl_tracer_kfd_evict_total",
-				"rccl_tracer_connect_error_total",
-				"rccl_tracer_cqe_error_total",
-				"rccl_tracer_ib_async_event_total",
-				"rccl_tracer_hsa_signal_ops_total",
+				"rccl_tracer_connect_total",         // 0
+				"rccl_tracer_post_send_total",       // 1
+				"rccl_tracer_poll_cq_total",         // 2
+				"rccl_tracer_modify_qp_total",       // 3
+				"rccl_tracer_create_qp_total",       // 4
+				"rccl_tracer_sigsegv_total",         // 5
+				"rccl_tracer_kfd_evict_total",       // 6
+				"rccl_tracer_connect_error_total",   // 7
+				"rccl_tracer_cqe_error_total",       // 8
+				"rccl_tracer_ib_async_event_total",  // 9
+				"rccl_tracer_hsa_signal_ops_total",  // 10
+				"rccl_tracer_anp_isend_total",       // 11
+				"rccl_tracer_anp_irecv_total",       // 12
 			}
 
 			for i, name := range counterNames {
@@ -453,6 +455,33 @@ func main() {
 				devName := fmt.Sprintf("ionic_%d", qpKey.DeviceIdx)
 				fmt.Fprintf(w, "rccl_tracer_qp_tx_ops{node=\"%s\",device=\"%s\",qp_num=\"%d\"} %d\n",
 					nodeName, devName, qpKey.QpNum, qpVal.TxOps)
+			}
+
+			// Per-PID RCCL traffic (from ANP isend/irecv)
+			var rcclKey struct {
+				Pid uint32
+				Pad uint32
+			}
+			var rcclVal struct {
+				TxBytes uint64
+				TxOps   uint64
+				RxOps   uint64
+			}
+
+			rcclIter := objs.RcclTraffic.Iterate()
+			for rcclIter.Next(&rcclKey, &rcclVal) {
+				cinfo := resolveContainer(rcclKey.Pid)
+				podName := "unknown"
+				if cinfo != nil {
+					podName = cinfo.PodName
+				}
+				containerPid := resolveContainerPid(rcclKey.Pid)
+				fmt.Fprintf(w, "rccl_tracer_rccl_tx_bytes{node=\"%s\",pod=\"%s\",rank_pid=\"%d\"} %d\n",
+					nodeName, podName, containerPid, rcclVal.TxBytes)
+				fmt.Fprintf(w, "rccl_tracer_rccl_tx_ops{node=\"%s\",pod=\"%s\",rank_pid=\"%d\"} %d\n",
+					nodeName, podName, containerPid, rcclVal.TxOps)
+				fmt.Fprintf(w, "rccl_tracer_rccl_rx_ops{node=\"%s\",pod=\"%s\",rank_pid=\"%d\"} %d\n",
+					nodeName, podName, containerPid, rcclVal.RxOps)
 			}
 
 			fmt.Fprintf(w, "rccl_tracer_up{node=\"%s\"} 1\n", nodeName)
