@@ -1001,21 +1001,28 @@ func (r *NodeReconciler) modifyResolvConf(ctx context.Context, node *v1.Node) er
 	}
 	defer sshClient.Close()
 
-	// Add nameserver 127.0.0.53 to resolv.conf and set immutable (chattr +i)
-	// Logic: if already has 127.0.0.53, ensure chattr +i; else add it before first nameserver, then chattr +i
+	// Add nameserver 127.0.0.53 to resolv.conf and set immutable (chattr +i).
+	// Use bash -c + %q (not heredoc): SSH often runs -c in sh or heredoc EOF can break on CRLF / delimiter mismatch -> exit 2.
+	// Logic: if already has 127.0.0.53, ensure chattr +i; else add it before first nameserver (or prepend if none), then chattr +i.
 	script := `RESOLV_CONF="/etc/resolv.conf"
 TARGET_FILE="$RESOLV_CONF"
 test -e "$RESOLV_CONF" || exit 0
-test -L "$RESOLV_CONF" && TARGET_FILE=$(readlink -f "$RESOLV_CONF") || true
-test -z "$TARGET_FILE" && exit 0
+if test -L "$RESOLV_CONF"; then
+  TARGET_FILE=$(readlink -f "$RESOLV_CONF" 2>/dev/null) || TARGET_FILE="$RESOLV_CONF"
+fi
+test -n "$TARGET_FILE" || exit 0
 content=$(cat "$TARGET_FILE" 2>/dev/null) || exit 0
 if echo "$content" | grep -q "nameserver 127.0.0.53"; then
-  attrs=$(lsattr "$TARGET_FILE" 2>/dev/null)
-  if [ -n "$attrs" ] && echo "$attrs" | grep -qE '^[ -]{4}i'; then exit 0; fi
+  attr_flags=$(lsattr "$TARGET_FILE" 2>/dev/null | awk '{print $1}')
+  case "$attr_flags" in *i*) exit 0;; esac
   chattr +i "$TARGET_FILE" 2>/dev/null || true
 else
   chattr -i "$TARGET_FILE" 2>/dev/null || true
-  sed -i '0,/^nameserver/{s/^nameserver/nameserver 127.0.0.53\nnameserver/}' "$TARGET_FILE" 2>/dev/null || exit 1
+  if echo "$content" | grep -q "^nameserver"; then
+    sed -i '0,/^nameserver/{s/^nameserver/nameserver 127.0.0.53\nnameserver/}' "$TARGET_FILE" 2>/dev/null || exit 1
+  else
+    { printf '%s\n' "nameserver 127.0.0.53"; cat "$TARGET_FILE"; } >"${TARGET_FILE}.new" 2>/dev/null && mv -f "${TARGET_FILE}.new" "$TARGET_FILE" || exit 1
+  fi
   chattr +i "$TARGET_FILE" 2>/dev/null || true
 fi`
 	executeCmd := "bash -c " + fmt.Sprintf("%q", script)
