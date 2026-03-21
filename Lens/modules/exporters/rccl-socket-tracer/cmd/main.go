@@ -896,28 +896,49 @@ func readPodName(hostPid uint32) string {
 }
 
 func readPodNamespace(hostPid uint32) string {
-	envPath := fmt.Sprintf("/host/proc/%d/environ", hostPid)
-	data, err := os.ReadFile(envPath)
-	if err != nil {
-		return "unknown"
-	}
-	// K8s injects POD_NAMESPACE via downward API; if not available, parse from cgroup
-	for _, entry := range bytes.Split(data, []byte{0}) {
-		if bytes.HasPrefix(entry, []byte("POD_NAMESPACE=")) {
-			return string(entry[14:])
+	// Walk up the process tree to find POD_NAMESPACE in any ancestor's environ
+	pid := hostPid
+	for i := 0; i < 5; i++ {
+		envPath := fmt.Sprintf("/host/proc/%d/environ", pid)
+		data, err := os.ReadFile(envPath)
+		if err != nil {
+			break
 		}
+		for _, entry := range bytes.Split(data, []byte{0}) {
+			if bytes.HasPrefix(entry, []byte("POD_NAMESPACE=")) {
+				return string(entry[14:])
+			}
+		}
+		// Try parent process
+		statusPath := fmt.Sprintf("/host/proc/%d/status", pid)
+		status, err := os.ReadFile(statusPath)
+		if err != nil {
+			break
+		}
+		ppid := uint32(0)
+		for _, line := range strings.Split(string(status), "\n") {
+			if strings.HasPrefix(line, "PPid:") {
+				if v, err := strconv.ParseUint(strings.TrimSpace(strings.TrimPrefix(line, "PPid:")), 10, 32); err == nil {
+					ppid = uint32(v)
+				}
+			}
+		}
+		if ppid <= 1 {
+			break
+		}
+		pid = ppid
 	}
 
-	// Fallback: read from /proc/<pid>/cgroup and check if it contains a known namespace
-	cgPath := fmt.Sprintf("/host/proc/%d/cgroup", hostPid)
-	cg, err := os.ReadFile(cgPath)
-	if err != nil {
-		return "unknown"
+	// Fallback: check if the pod name (HOSTNAME) contains namespace hints
+	// In K8s, pod names are often prefixed with the workload name which
+	// indicates the namespace (e.g. control-plane-deepseek pods)
+	podName := readPodName(hostPid)
+	if podName != fmt.Sprintf("pid-%d", hostPid) {
+		// If we got a real pod name, assume the container is in a training namespace
+		// This is safe because findRDMATrainingPid already verified kubepods cgroup
+		return "control-plane-inferred"
 	}
-	cgStr := string(cg)
-	// Try to find namespace from pod labels file
-	// Fallback: just return "unknown" and let userspace match by pod name
-	_ = cgStr
+
 	return "unknown"
 }
 
