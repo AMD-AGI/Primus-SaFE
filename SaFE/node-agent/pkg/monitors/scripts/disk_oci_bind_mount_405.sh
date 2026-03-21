@@ -60,30 +60,53 @@ for pair in "${BIND_MOUNTS[@]}"; do
   # Mount if not already mounted
   ${NSENTER} mountpoint -q "$target" 2>/dev/null
   if [ $? -ne 0 ]; then
-    # Stop service before mount. For containerd, stop kubelet first so nothing holds
-    # /var/lib/containerd open (otherwise cp can fail with busy files / partial copy).
-    if [[ "$target" == *containerd* ]]; then
-      ${NSENTER} systemctl stop kubelet 2>/dev/null || true
-      kubelet_stopped_for_containerd=1
-    fi
-    if [[ "$target" == *kubelet* ]]; then
-      ${NSENTER} systemctl stop kubelet 2>/dev/null || true
-    elif [[ "$target" == *containerd* ]]; then
-      ${NSENTER} systemctl stop containerd 2>/dev/null || true
-    fi
-    # Allow shims / sockets to release (containerd can take a few seconds)
-    if [[ "$target" == *containerd* ]]; then
-      for _ in {1..30}; do
-        ${NSENTER} systemctl is-active --quiet containerd 2>/dev/null && sleep 1 && continue
-        break
-      done
-    fi
+    # If source and target already resolve to the same inode (bind mount or symlink), cp would
+    # error with "are the same file" — nothing to migrate; only fstab is needed below.
+    t_stat=$(${NSENTER} stat -L -c '%d:%i' "$target" 2>/dev/null || true)
+    s_stat=$(${NSENTER} stat -L -c '%d:%i' "$source" 2>/dev/null || true)
+    if [ -n "$t_stat" ] && [ -n "$s_stat" ] && [ "$t_stat" = "$s_stat" ]; then
+      :
+    else
+      # Stop service before mount. For containerd, stop kubelet first so nothing holds
+      # /var/lib/containerd open (otherwise cp can fail with busy files / partial copy).
+      if [[ "$target" == *containerd* ]]; then
+        ${NSENTER} systemctl stop kubelet 2>/dev/null || true
+        kubelet_stopped_for_containerd=1
+      fi
+      if [[ "$target" == *kubelet* ]]; then
+        ${NSENTER} systemctl stop kubelet 2>/dev/null || true
+      elif [[ "$target" == *containerd* ]]; then
+        ${NSENTER} systemctl stop containerd 2>/dev/null || true
+      fi
+      # Allow shims / sockets to release (containerd can take a few seconds)
+      if [[ "$target" == *containerd* ]]; then
+        for _ in {1..30}; do
+          ${NSENTER} systemctl is-active --quiet containerd 2>/dev/null && sleep 1 && continue
+          break
+        done
+      fi
 
-    # Copy target data to source (preserve existing data to persistent storage)
-    ${NSENTER} test -d "$target" 2>/dev/null
-    if [ $? -eq 0 ]; then
-      if ! ${NSENTER} cp -a "$target"/. "$source"/; then
-        echo "Error: failed to copy ${target} to ${source}, restarting services and aborting"
+      # Copy target data to source (preserve existing data to persistent storage)
+      ${NSENTER} test -d "$target" 2>/dev/null
+      if [ $? -eq 0 ]; then
+        if ! ${NSENTER} cp -a "$target"/. "$source"/; then
+          echo "Error: failed to copy ${target} to ${source}, restarting services and aborting"
+          if [[ "$target" == *kubelet* ]]; then
+            ${NSENTER} systemctl start kubelet 2>/dev/null || true
+          elif [[ "$target" == *containerd* ]]; then
+            ${NSENTER} systemctl start containerd 2>/dev/null || true
+            recover_services
+          fi
+          exit 1
+        fi
+      fi
+
+      # Ensure target exists for mount
+      ${NSENTER} mkdir -p "$target" 2>/dev/null
+
+      ${NSENTER} mount --bind "$source" "$target" 2>/dev/null
+      if [ $? -ne 0 ]; then
+        echo "Error: failed to mount --bind $source $target"
         if [[ "$target" == *kubelet* ]]; then
           ${NSENTER} systemctl start kubelet 2>/dev/null || true
         elif [[ "$target" == *containerd* ]]; then
@@ -92,33 +115,22 @@ for pair in "${BIND_MOUNTS[@]}"; do
         fi
         exit 1
       fi
-    fi
 
-    # Ensure target exists for mount
-    ${NSENTER} mkdir -p "$target" 2>/dev/null
-
-    ${NSENTER} mount --bind "$source" "$target" 2>/dev/null
-    if [ $? -ne 0 ]; then
-      echo "Error: failed to mount --bind $source $target"
+      # Restart service after successful mount
       if [[ "$target" == *kubelet* ]]; then
-        ${NSENTER} systemctl start kubelet 2>/dev/null || true
+        ${NSENTER} systemctl restart kubelet 2>/dev/null || true
       elif [[ "$target" == *containerd* ]]; then
-        ${NSENTER} systemctl start containerd 2>/dev/null || true
+        ${NSENTER} systemctl restart containerd 2>/dev/null || true
         recover_services
       fi
-      exit 1
-    fi
-
-    # Restart service after successful mount
-    if [[ "$target" == *kubelet* ]]; then
-      ${NSENTER} systemctl restart kubelet 2>/dev/null || true
-    elif [[ "$target" == *containerd* ]]; then
-      ${NSENTER} systemctl restart containerd 2>/dev/null || true
-      recover_services
     fi
   fi
 
-  # Add to fstab
+  # Add to fstab (re-check: loop start vs append can race with another cron / concurrent run)
+  ${NSENTER} grep -v '^[[:space:]]*#' "$FSTAB" 2>/dev/null | grep -qF "${source} ${target}"
+  if [ $? -eq 0 ]; then
+    continue
+  fi
   ${NSENTER} sh -c "echo '${fstab_line}' >> ${FSTAB}" 2>/dev/null
   if [ $? -ne 0 ]; then
     echo "Error: failed to append to $FSTAB"
