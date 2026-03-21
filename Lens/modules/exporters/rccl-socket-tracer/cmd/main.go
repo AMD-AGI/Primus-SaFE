@@ -341,14 +341,15 @@ func main() {
 			}
 
 			// librccl-anp.so
-			attachU("anp_connect", hostAnpPath, "anpNetConnect", objs.HandleAnpConnect)
-			attachUR("anp_connect_ret", hostAnpPath, "anpNetConnect", objs.HandleAnpConnectRet)
-			attachU("anp_accept", hostAnpPath, "anpNetAccept", objs.HandleAnpAccept)
-			attachUR("anp_accept_ret", hostAnpPath, "anpNetAccept", objs.HandleAnpAcceptRet)
-			attachU("anp_isend", hostAnpPath, "anpNetIsend", objs.HandleAnpIsend)
-			attachU("anp_irecv", hostAnpPath, "anpNetIrecv", objs.HandleAnpIrecv)
-			attachU("anp_close_send", hostAnpPath, "anpNetCloseSend", objs.HandleAnpCloseSend)
-			attachU("anp_close_recv", hostAnpPath, "anpNetCloseRecv", objs.HandleAnpCloseRecv)
+			// C++ mangled symbols for RCCL ANP (ROCm 7.1 / RCCL 2.27.x)
+			attachU("anp_connect", hostAnpPath, "_Z13anpNetConnectiP23ncclNetCommConfig_v10_tPvPS1_PP24ncclNetDeviceHandle_v7_t", objs.HandleAnpConnect)
+			attachUR("anp_connect_ret", hostAnpPath, "_Z13anpNetConnectiP23ncclNetCommConfig_v10_tPvPS1_PP24ncclNetDeviceHandle_v7_t", objs.HandleAnpConnectRet)
+			attachU("anp_accept", hostAnpPath, "_Z12anpNetAcceptPvPS_PP24ncclNetDeviceHandle_v7_t", objs.HandleAnpAccept)
+			attachUR("anp_accept_ret", hostAnpPath, "_Z12anpNetAcceptPvPS_PP24ncclNetDeviceHandle_v7_t", objs.HandleAnpAcceptRet)
+			attachU("anp_isend", hostAnpPath, "_Z11anpNetIsendPvS_miS_S_PS_", objs.HandleAnpIsend)
+			attachU("anp_irecv", hostAnpPath, "_Z11anpNetIrecvPviPS_PmPiS0_S0_S0_", objs.HandleAnpIrecv)
+			attachU("anp_close_send", hostAnpPath, "_Z15anpNetCloseSendPv", objs.HandleAnpCloseSend)
+			attachU("anp_close_recv", hostAnpPath, "_Z15anpNetCloseRecvPv", objs.HandleAnpCloseRecv)
 
 			// libibverbs.so
 			if _, err := os.Stat(hostIbvPath); err == nil {
