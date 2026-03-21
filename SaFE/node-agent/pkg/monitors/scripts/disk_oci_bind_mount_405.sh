@@ -20,7 +20,17 @@ fi
 NSENTER="nsenter --target 1 --mount --uts --ipc --net --pid --"
 FSTAB="/etc/fstab"
 
-# Bind mount pairs: source target
+# If we stopped kubelet only for the containerd migration step, restart it on exit (success or handled failure).
+kubelet_stopped_for_containerd=0
+
+recover_services() {
+  if [[ "${kubelet_stopped_for_containerd:-0}" -eq 1 ]]; then
+    ${NSENTER} systemctl start kubelet 2>/dev/null || true
+    kubelet_stopped_for_containerd=0
+  fi
+}
+
+# Bind mount pairs: source target (kubelet first, then containerd)
 BIND_MOUNTS=(
   "/mnt/m2m_nobackup/kubelet:/var/lib/kubelet"
   "/mnt/m2m_nobackup/containerd:/var/lib/containerd"
@@ -50,17 +60,38 @@ for pair in "${BIND_MOUNTS[@]}"; do
   # Mount if not already mounted
   ${NSENTER} mountpoint -q "$target" 2>/dev/null
   if [ $? -ne 0 ]; then
-    # Stop service before mount
+    # Stop service before mount. For containerd, stop kubelet first so nothing holds
+    # /var/lib/containerd open (otherwise cp can fail with busy files / partial copy).
+    if [[ "$target" == *containerd* ]]; then
+      ${NSENTER} systemctl stop kubelet 2>/dev/null || true
+      kubelet_stopped_for_containerd=1
+    fi
     if [[ "$target" == *kubelet* ]]; then
       ${NSENTER} systemctl stop kubelet 2>/dev/null || true
     elif [[ "$target" == *containerd* ]]; then
       ${NSENTER} systemctl stop containerd 2>/dev/null || true
     fi
+    # Allow shims / sockets to release (containerd can take a few seconds)
+    if [[ "$target" == *containerd* ]]; then
+      for _ in {1..30}; do
+        ${NSENTER} systemctl is-active --quiet containerd 2>/dev/null && sleep 1 && continue
+        break
+      done
+    fi
 
     # Copy target data to source (preserve existing data to persistent storage)
     ${NSENTER} test -d "$target" 2>/dev/null
     if [ $? -eq 0 ]; then
-      ${NSENTER} cp -a "$target"/. "$source"/ 2>/dev/null || true
+      if ! ${NSENTER} cp -a "$target"/. "$source"/; then
+        echo "Error: failed to copy ${target} to ${source}, restarting services and aborting"
+        if [[ "$target" == *kubelet* ]]; then
+          ${NSENTER} systemctl start kubelet 2>/dev/null || true
+        elif [[ "$target" == *containerd* ]]; then
+          ${NSENTER} systemctl start containerd 2>/dev/null || true
+          recover_services
+        fi
+        exit 1
+      fi
     fi
 
     # Ensure target exists for mount
@@ -73,6 +104,7 @@ for pair in "${BIND_MOUNTS[@]}"; do
         ${NSENTER} systemctl start kubelet 2>/dev/null || true
       elif [[ "$target" == *containerd* ]]; then
         ${NSENTER} systemctl start containerd 2>/dev/null || true
+        recover_services
       fi
       exit 1
     fi
@@ -82,6 +114,7 @@ for pair in "${BIND_MOUNTS[@]}"; do
       ${NSENTER} systemctl restart kubelet 2>/dev/null || true
     elif [[ "$target" == *containerd* ]]; then
       ${NSENTER} systemctl restart containerd 2>/dev/null || true
+      recover_services
     fi
   fi
 
