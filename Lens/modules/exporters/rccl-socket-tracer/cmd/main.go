@@ -281,7 +281,10 @@ func main() {
 	var linksMu sync.Mutex
 	uprobesAttached := false
 
-	anpRelPath := getEnv("ANP_LIB_REL_PATH", "/opt/rocm-7.1.0/lib/librccl-anp.so")
+	anpRelPaths := []string{
+		getEnv("ANP_LIB_REL_PATH", "/opt/rocm-7.1.0/lib/librccl-anp.so"),
+		"/opt/amd-anp/build/librccl-anp.so",
+	}
 	ibvRelPath := getEnv("IBV_LIB_REL_PATH", "/lib/x86_64-linux-gnu/libibverbs.so.1")
 
 	go func() {
@@ -292,7 +295,16 @@ func main() {
 			}
 			time.Sleep(scanInterval)
 
-			pid := findRDMATrainingPid(anpRelPath)
+			// Try multiple ANP library paths
+			var pid uint32
+			var anpRelPath string
+			for _, p := range anpRelPaths {
+				pid = findRDMATrainingPid(p)
+				if pid != 0 {
+					anpRelPath = p
+					break
+				}
+			}
 			if pid == 0 {
 				continue
 			}
