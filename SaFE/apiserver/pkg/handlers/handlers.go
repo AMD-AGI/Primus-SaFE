@@ -15,6 +15,7 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
 	cdhandlers "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/cd-handlers"
 	emailrelayhandlers "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/email-relay-handlers"
+	githubworkflow "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/github-workflow"
 	imagehandlers "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/image-handlers"
 	llmgateway "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/llm-gateway"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/middleware"
@@ -25,6 +26,7 @@ import (
 	sshhandler "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/ssh-handlers"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/a2a"
 	apiutils "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/utils"
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
@@ -125,6 +127,11 @@ func InitHttpHandlers(_ context.Context, mgr ctrlruntime.Manager) (*gin.Engine, 
 		} else {
 			emailrelayhandlers.InitEmailRelayRouters(engine, emailRelayHandler)
 		}
+	}
+
+	// GitHub Workflow CI/CD API
+	if commonconfig.IsDBEnable() {
+		githubworkflow.RegisterRoutes(engine.Group(common.PrimusRouterCustomRootPath))
 	}
 
 	return engine, nil

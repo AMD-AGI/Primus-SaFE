@@ -56,5 +56,8 @@ func SetupControllers(ctx context.Context, mgr manager.Manager) error {
 	if err := SetupModelController(mgr); err != nil {
 		return fmt.Errorf("failed to set up model controller: %v", err)
 	}
+	if err := SetupGitHubWorkflowController(mgr); err != nil {
+		return fmt.Errorf("failed to set up github workflow controller: %v", err)
+	}
 	return nil
 }
