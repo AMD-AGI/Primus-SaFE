@@ -369,14 +369,13 @@ func GetSourceWorkloadId(obj metav1.Object) string {
 	return GetLabel(obj, SourceWorkloadIdLabel)
 }
 
-func GetStickyNodesMode(obj metav1.Object) string {
-	return GetAnnotation(obj, StickyNodesModeAnnotation)
+func GetNodesAffinity(obj metav1.Object) string {
+	return GetAnnotation(obj, NodesAffinityAnnotation)
 }
 
-func GetStickyNodes(obj metav1.Object) string {
-	return GetAnnotation(obj, StickyNodesAnnotation)
+func IsStickyNodes(obj metav1.Object) bool {
+	return GetAnnotation(obj, StickyNodesAnnotation) == TrueStr
 }
-
 func IsEnableWorkspaceStorage(obj metav1.Object) bool {
 	return GetAnnotation(obj, UseWorkspaceStorageAnnotation) == TrueStr
 }

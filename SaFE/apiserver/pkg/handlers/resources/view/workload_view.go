@@ -16,11 +16,11 @@ type CreateWorkloadRequest struct {
 	v1.WorkloadSpec
 	// SpecifiedNodes defines the list of node names where the workload should run.
 	SpecifiedNodes []string `json:"specifiedNodes,omitempty"`
-	// SpecifiedNodesMode controls how strictly the workload adheres to SpecifiedNodes.
+	// NodesAffinity controls how strictly the workload adheres to SpecifiedNodes.
 	// "required": Workload must run on nodes from SpecifiedNodes (hard constraint).
 	// "preferred": Workload prefers nodes from SpecifiedNodes but can use others if needed (soft constraint).
 	// Empty or unspecified: Defaults to "required" if SpecifiedNodes is provided, otherwise no node affinity.
-	SpecifiedNodesMode *string `json:"nodeAffinity,omitempty"`
+	NodesAffinity *string `json:"nodesAffinity,omitempty"`
 	// ExcludedNodes is a list of node names that the workload should avoid running on.
 	ExcludedNodes []string `json:"excludedNodes,omitempty"`
 	// The Workload name(display only). Used to generate the workload ID,
@@ -49,9 +49,9 @@ type CreateWorkloadRequest struct {
 	ForceHostNetwork *bool `json:"forceHostNetwork,omitempty"`
 }
 
-func (req *CreateWorkloadRequest) GetSpecifiedNodesMode() string {
-	if req.SpecifiedNodesMode != nil {
-		return *req.SpecifiedNodesMode
+func (req *CreateWorkloadRequest) GetNodesAffinity() string {
+	if req.NodesAffinity != nil {
+		return *req.NodesAffinity
 	}
 	return ""
 }
@@ -167,6 +167,8 @@ type GetWorkloadResponse struct {
 	WorkloadResponseItem
 	// The node specified by the user when creating the workload
 	SpecifiedNodes []string `json:"specifiedNodes,omitempty"`
+	// NodesAffinity specifies the node affinity mode. supports required/preferred/""
+	NodesAffinity string `json:"nodesAffinity,omitempty"`
 	// ExcludedNodes is a list of node names that the workload should avoid running on.
 	ExcludedNodes []string `json:"excludedNodes,omitempty"`
 	// The address of the image used by the workload
@@ -204,8 +206,6 @@ type GetWorkloadResponse struct {
 	CronJobs []v1.CronJob `json:"cronJobs,omitempty"`
 	// The secrets used by the workload. Only the user themselves or an administrator can get this info.
 	Secrets []v1.SecretEntity `json:"secrets,omitempty"`
-	// stickyNodesMode specifies the node affinity mode. supports required/preferred/""
-	StickyNodesMode string `json:"stickyNodesMode,omitempty"`
 	// Whether to run the workload in privileged mode, only accessible to administrators
 	Privileged bool `json:"privileged"`
 	// Whether to use the workspace storage

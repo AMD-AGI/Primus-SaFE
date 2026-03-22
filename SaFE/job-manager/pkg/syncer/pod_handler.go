@@ -307,7 +307,7 @@ func (r *SyncerReconciler) removeWorkloadPod(ctx context.Context, message *resou
 // createReservedFaults creates fault to reserve nodes for the workload
 // This ensures that after failover, the workload can still use the same nodes
 func (r *SyncerReconciler) createStickyNodeFaults(ctx context.Context, adminWorkload *v1.Workload, count int) error {
-	if v1.GetStickyNodesMode(adminWorkload) == "" || count <= 0 || shouldWorkloadStopRetry(adminWorkload, count) {
+	if !v1.IsStickyNodes(adminWorkload) || count <= 0 || shouldWorkloadStopRetry(adminWorkload, count) {
 		return nil
 	}
 	var toAddNodes, toDelNodes []string

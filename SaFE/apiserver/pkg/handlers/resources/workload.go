@@ -776,20 +776,12 @@ func (h *Handler) generateWorkload(ctx context.Context,
 		return nil, err
 	}
 	v1.SetAnnotation(workload, v1.AdminControlPlaneAnnotation, controlPlaneIp)
-	if len(req.SpecifiedNodes) > 0 && req.SpecifiedNodesMode == nil {
-		req.SpecifiedNodesMode = pointer.String(common.SpecifiedNodesRequired)
+	if len(req.SpecifiedNodes) > 0 && req.NodesAffinity == nil {
+		req.NodesAffinity = pointer.String(common.NodesAffinityRequired)
 	}
-	if req.GetSpecifiedNodesMode() != "" {
-		v1.SetAnnotation(workload, v1.SpecifiedNodesModeAnnotation, req.GetSpecifiedNodesMode())
-	}
-
-	if commonworkload.IsAuthoring(workload) {
-		if len(req.SpecifiedNodes) > 1 && req.GetSpecifiedNodesMode() == common.SpecifiedNodesRequired {
-			return nil, fmt.Errorf("the authoring can only be created with one node")
-		}
-	}
-	genCustomerLabelsByNodes(workload, req.SpecifiedNodes, v1.K8sHostName)
-	if len(req.SpecifiedNodes) == 0 || req.GetSpecifiedNodesMode() != common.SpecifiedNodesRequired {
+	v1.SetAnnotation(workload, v1.NodesAffinityAnnotation, req.GetNodesAffinity())
+	genCustomerLabelsByNodes(workload, req.SpecifiedNodes, common.SpecifiedNodes)
+	if len(req.SpecifiedNodes) == 0 || req.GetNodesAffinity() != common.NodesAffinityRequired {
 		genCustomerLabelsByNodes(workload, req.ExcludedNodes, common.ExcludedNodes)
 	}
 	if req.WorkspaceId != "" {
@@ -818,7 +810,6 @@ func (h *Handler) generateWorkload(ctx context.Context,
 	if req.Privileged {
 		v1.SetAnnotation(workload, v1.WorkloadPrivilegedAnnotation, v1.TrueStr)
 	}
-
 	if req.UseWorkspaceStorage != nil {
 		v1.SetAnnotation(workload, v1.UseWorkspaceStorageAnnotation, strconv.FormatBool(*req.UseWorkspaceStorage))
 	} else {
@@ -892,7 +883,7 @@ func (h *Handler) createPreheatWorkload(c *gin.Context, mainWorkload *v1.Workloa
 			Secrets:                 mainWorkload.Spec.Secrets,
 		},
 	}
-	if len(mainQuery.SpecifiedNodes) > 0 && mainQuery.GetSpecifiedNodesMode() == common.SpecifiedNodesRequired {
+	if len(mainQuery.SpecifiedNodes) > 0 && mainQuery.GetNodesAffinity() == common.NodesAffinityRequired {
 		preheatWorkload.Spec.Resources[0].Replica = len(mainQuery.SpecifiedNodes)
 	} else {
 		workspace, err := h.getAdminWorkspace(c.Request.Context(), preheatWorkload.Spec.Workspace)
@@ -983,10 +974,14 @@ func genCustomerLabelsByNodes(workload *v1.Workload, nodeList []string, labelKey
 	}
 	nodeNames := ""
 	for i := range nodeList {
-		if i > 0 {
+		n := strings.TrimSpace(nodeList[i])
+		if n == "" {
+			continue
+		}
+		if nodeNames != "" {
 			nodeNames += " "
 		}
-		nodeNames += nodeList[i]
+		nodeNames += n
 	}
 	workload.Spec.CustomerLabels[labelKey] = nodeNames
 }
@@ -1155,8 +1150,7 @@ func applyWorkloadPatch(adminWorkload *v1.Workload, req *view.PatchWorkloadReque
 			reqCount += res.Replica
 		}
 		if reqCount != commonworkload.GetTotalReplica(adminWorkload) {
-			_, ok := adminWorkload.Spec.CustomerLabels[v1.K8sHostName]
-			if ok {
+			if len(commonworkload.GetSpecifiedNodes(adminWorkload)) > 0 {
 				return commonerrors.NewBadRequest("cannot update replica when specifying nodes")
 			}
 		}
@@ -1260,7 +1254,7 @@ func (h *Handler) cvtDBWorkloadToGetResponse(ctx context.Context,
 	result := &view.GetWorkloadResponse{
 		WorkloadResponseItem: h.cvtDBWorkloadToResponseItem(ctx, dbWorkload),
 		IsSupervised:         dbWorkload.IsSupervised,
-		StickyNodesMode:      dbutils.ParseNullString(dbWorkload.StickyNodesMode),
+		NodesAffinity:        dbutils.ParseNullString(dbWorkload.NodesAffinity),
 		Privileged:           dbWorkload.IsPrivileged,
 		UseWorkspaceStorage:  dbWorkload.UseWorkspaceStorage,
 		ForceHostNetwork:     dbWorkload.ForceHostNetwork,
@@ -1345,7 +1339,7 @@ func parseCustomerLabels(labels map[string]string) (map[string]string, []string,
 	customerLabels := make(map[string]string)
 	for key, val := range labels {
 		switch key {
-		case v1.K8sHostName:
+		case common.SpecifiedNodes, v1.K8sHostName:
 			specifiedNodes = strings.Split(val, " ")
 		case common.ExcludedNodes:
 			excludedNodes = strings.Split(val, " ")

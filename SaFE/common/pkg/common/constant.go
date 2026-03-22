@@ -57,6 +57,7 @@ const (
 	PfsSelectorKey         = "pfs-name"
 	JsonContentType        = "application/json; charset=utf-8"
 	KubernetesControlPlane = "node-role.kubernetes.io/control-plane"
+	SpecifiedNodes         = "specified-nodes"
 	ExcludedNodes          = "excluded-nodes"
 	TaintAction            = "taint"
 	CICDArcNamespace       = "arc-systems"
@@ -106,11 +107,6 @@ const (
 )
 
 const (
-	StickyNodesRequired  = "required"
-	StickyNodesPreferred = "preferred"
-)
-
-const (
-	SpecifiedNodesRequired  = "required"
-	SpecifiedNodesPreferred = "preferred"
+	NodesAffinityRequired  = "required"
+	NodesAffinityPreferred = "preferred"
 )

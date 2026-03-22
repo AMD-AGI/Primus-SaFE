@@ -614,9 +614,11 @@ func (m *WorkloadMutator) mutateStickNodes(ctx context.Context, workload *v1.Wor
 		}
 		return false
 	}
-	if isDisableStickyNodes(ctx, workload, workspace) {
+	if workload.Spec.MaxRetry > 0 && v1.GetNodesAffinity(workload) == common.NodesAffinityRequired &&
+		!isDisableStickyNodes(ctx, workload, workspace) && !workspace.Spec.EnablePreempt {
+		v1.SetAnnotation(workload, v1.StickyNodesAnnotation, v1.TrueStr)
+	} else {
 		v1.RemoveAnnotation(workload, v1.StickyNodesAnnotation)
-		v1.RemoveAnnotation(workload, v1.StickyNodesModeAnnotation)
 	}
 }
 
@@ -708,6 +710,8 @@ func (v *WorkloadValidator) validateOnUpdate(ctx context.Context, newWorkload, o
 func (v *WorkloadValidator) validateCommon(ctx context.Context, newWorkload, oldWorkload *v1.Workload) error {
 	var err error
 	switch newWorkload.SpecKind() {
+	case common.AuthoringKind:
+		err = v.validateAuthoring(newWorkload)
 	case common.CICDScaleRunnerSetKind:
 		err = v.validateCICDScalingRunnerSet(newWorkload)
 	case common.TorchFTKind:
@@ -779,6 +783,16 @@ func (v *WorkloadValidator) validateRequiredParams(workload *v1.Workload) error 
 
 	if err := utilerrors.NewAggregate(errs); err != nil {
 		return err
+	}
+	return nil
+}
+
+func (v *WorkloadValidator) validateAuthoring(workload *v1.Workload) error {
+	if v1.GetNodesAffinity(workload) == common.NodesAffinityRequired {
+		val, _ := workload.Spec.CustomerLabels[v1.K8sHostName]
+		if val != "" && len(strings.Split(val, " ")) > 1 {
+			return fmt.Errorf("the authoring can only be created with one node")
+		}
 	}
 	return nil
 }

@@ -70,7 +70,7 @@ type Workload struct {
 	Secrets             sql.NullString `db:"secrets"`
 	ScaleRunnerSet      sql.NullString `db:"scale_runner_set"`
 	ScaleRunnerId       sql.NullString `db:"scale_runner_id"`
-	StickyNodesMode     sql.NullString `db:"sticky_nodes_mode"`
+	NodesAffinity       sql.NullString `db:"nodes_affinity"`
 }
 
 // GetWorkloadFieldTags returns the WorkloadFieldTags value.

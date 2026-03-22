@@ -286,15 +286,8 @@ func checkRequiredNodeSelectorTerms(t *testing.T, obj *unstructured.Unstructured
 	matchExpressionObj, ok := affinity["matchExpressions"]
 	assert.Equal(t, ok, true)
 	matchExpressionsSlice := matchExpressionObj.([]interface{})
-	totalExpressions := len(workload.Spec.CustomerLabels)
-	if workload.Spec.Workspace != "" && workload.Spec.Workspace != corev1.NamespaceDefault {
-		totalExpressions++
-	}
-	assert.Equal(t, len(matchExpressionsSlice), totalExpressions)
-	if totalExpressions == 0 {
-		return
-	}
 
+	id := 0
 	if workload.Spec.Workspace != "" && workload.Spec.Workspace != corev1.NamespaceDefault {
 		matchExpression := matchExpressionsSlice[0].(map[string]interface{})
 		key, ok := matchExpression["key"]
@@ -305,18 +298,21 @@ func checkRequiredNodeSelectorTerms(t *testing.T, obj *unstructured.Unstructured
 		valuesSlice := values.([]interface{})
 		assert.Equal(t, len(valuesSlice), 1)
 		assert.Equal(t, valuesSlice[0].(string), workload.Spec.Workspace)
+		id++
 	}
 
-	matchExpression := matchExpressionsSlice[totalExpressions-1].(map[string]interface{})
-	key, ok := matchExpression["key"]
-	assert.Equal(t, ok, true)
-	val, ok := workload.Spec.CustomerLabels[key.(string)]
-	assert.Equal(t, ok, true)
-	values, ok := matchExpression["values"]
-	assert.Equal(t, ok, true)
-	valuesSlice := values.([]interface{})
-	assert.Equal(t, len(valuesSlice), 1)
-	assert.Equal(t, valuesSlice[0].(string) == val, true)
+	for ; id < len(matchExpressionsSlice); id++ {
+		matchExpression := matchExpressionsSlice[id].(map[string]interface{})
+		key, ok := matchExpression["key"]
+		assert.Equal(t, ok, true)
+		val, ok := workload.Spec.CustomerLabels[key.(string)]
+		assert.Equal(t, ok, true)
+		values, ok := matchExpression["values"]
+		assert.Equal(t, ok, true)
+		valuesSlice := values.([]interface{})
+		assert.Equal(t, len(valuesSlice), 1)
+		assert.Equal(t, valuesSlice[0].(string) == val, true)
+	}
 }
 
 func checkPreferredNodeSelectorTerms(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workload, resourceSpec *v1.ResourceSpec) {
@@ -467,7 +463,7 @@ func checkTolerations(t *testing.T, obj *unstructured.Unstructured, workload *v1
 		op, ok := toleration["operator"]
 		assert.Equal(t, ok, true)
 		assert.Equal(t, op, "Exists")
-	} else if v1.GetStickyNodesMode(workload) != "" {
+	} else if v1.IsStickyNodes(workload) {
 		assert.Equal(t, found, true)
 		assert.Equal(t, len(tolerations), 1)
 		toleration := tolerations[0].(map[string]interface{})

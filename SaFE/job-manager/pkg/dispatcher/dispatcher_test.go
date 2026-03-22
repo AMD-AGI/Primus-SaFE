@@ -1029,9 +1029,9 @@ func TestCreatePytorchJobWithStickyNodes(t *testing.T) {
 	workload := jobutils.TestWorkloadData.DeepCopy()
 	workload.Spec.Workspace = workspace.Name
 	workload.Status.Nodes = [][]string{{"node1", "node2"}}
+	workload.Spec.CustomerLabels[common.SpecifiedNodes] = "node1 node2"
 	v1.SetLabel(workload, v1.WorkloadDispatchCntLabel, "1")
-	v1.SetAnnotation(workload, v1.StickyNodesAnnotation, string(jsonutils.MarshalSilently(workload.Status.Nodes[0])))
-	v1.SetAnnotation(workload, v1.StickyNodesModeAnnotation, common.StickyNodesPreferred)
+	v1.SetAnnotation(workload, v1.NodesAffinityAnnotation, common.NodesAffinityPreferred)
 
 	configmap, err := parseConfigmap(TestPytorchJobTemplateConfig)
 	assert.NilError(t, err)

@@ -187,10 +187,12 @@ func TestMutateStickyNodes_EnablePreempt(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{
 			Name: "w1",
 			Annotations: map[string]string{
-				v1.StickyNodesModeAnnotation: common.StickyNodesPreferred,
+				v1.StickyNodesAnnotation:   v1.TrueStr,
+				v1.NodesAffinityAnnotation: common.NodesAffinityRequired,
 			},
 		},
 		Spec: v1.WorkloadSpec{
+			MaxRetry:         1,
 			GroupVersionKind: v1.GroupVersionKind{Kind: common.PytorchJobKind},
 		},
 	}
@@ -207,7 +209,7 @@ func TestMutateStickyNodes_EnablePreempt(t *testing.T) {
 	m.mutateStickNodes(ctx, workload, workspace)
 
 	// Should remove sticky nodes annotation when preempt is enabled
-	assert.Equal(t, v1.GetAnnotation(workload, v1.StickyNodesModeAnnotation), "")
+	assert.Equal(t, v1.GetAnnotation(workload, v1.StickyNodesAnnotation), "")
 }
 
 func TestMutateStickyNodes_UnsupportedKind(t *testing.T) {
@@ -218,10 +220,12 @@ func TestMutateStickyNodes_UnsupportedKind(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{
 			Name: "w1",
 			Annotations: map[string]string{
-				v1.StickyNodesModeAnnotation: common.StickyNodesPreferred,
+				v1.StickyNodesAnnotation:   v1.TrueStr,
+				v1.NodesAffinityAnnotation: common.NodesAffinityRequired,
 			},
 		},
 		Spec: v1.WorkloadSpec{
+			MaxRetry:         1,
 			GroupVersionKind: v1.GroupVersionKind{Kind: "Deployment"}, // unsupported kind
 		},
 	}
@@ -238,7 +242,7 @@ func TestMutateStickyNodes_UnsupportedKind(t *testing.T) {
 	m.mutateStickNodes(ctx, workload, workspace)
 
 	// Should remove sticky nodes annotation for unsupported kind
-	assert.Equal(t, v1.GetAnnotation(workload, v1.StickyNodesModeAnnotation), "")
+	assert.Equal(t, v1.GetAnnotation(workload, v1.StickyNodesAnnotation), "")
 }
 
 func TestMutateStickyNodes_GpuCountMismatch(t *testing.T) {
@@ -263,10 +267,12 @@ func TestMutateStickyNodes_GpuCountMismatch(t *testing.T) {
 				v1.NodeFlavorIdLabel: "nf1",
 			},
 			Annotations: map[string]string{
-				v1.StickyNodesModeAnnotation: common.StickyNodesPreferred,
+				v1.StickyNodesAnnotation:   v1.TrueStr,
+				v1.NodesAffinityAnnotation: common.NodesAffinityRequired,
 			},
 		},
 		Spec: v1.WorkloadSpec{
+			MaxRetry:         1,
 			GroupVersionKind: v1.GroupVersionKind{Kind: common.PytorchJobKind},
 			Resources: []v1.WorkloadResource{
 				{GPU: "4"}, // mismatch: 4 != 8
@@ -286,7 +292,7 @@ func TestMutateStickyNodes_GpuCountMismatch(t *testing.T) {
 	m.mutateStickNodes(ctx, workload, workspace)
 
 	// Should remove sticky nodes annotation when GPU count mismatch
-	assert.Equal(t, v1.GetAnnotation(workload, v1.StickyNodesModeAnnotation), "")
+	assert.Equal(t, v1.GetAnnotation(workload, v1.StickyNodesAnnotation), "")
 }
 
 func TestMutateStickyNodes_AllConditionsPass(t *testing.T) {
@@ -311,10 +317,11 @@ func TestMutateStickyNodes_AllConditionsPass(t *testing.T) {
 				v1.NodeFlavorIdLabel: "nf1",
 			},
 			Annotations: map[string]string{
-				v1.StickyNodesModeAnnotation: common.StickyNodesPreferred,
+				v1.NodesAffinityAnnotation: common.NodesAffinityRequired,
 			},
 		},
 		Spec: v1.WorkloadSpec{
+			MaxRetry:         1,
 			GroupVersionKind: v1.GroupVersionKind{Kind: common.PytorchJobKind},
 			Resources: []v1.WorkloadResource{
 				{GPU: "8"}, // matches node flavor GPU count
@@ -334,5 +341,5 @@ func TestMutateStickyNodes_AllConditionsPass(t *testing.T) {
 	m.mutateStickNodes(ctx, workload, workspace)
 
 	// Should keep sticky nodes annotation when all conditions pass
-	assert.Equal(t, v1.GetAnnotation(workload, v1.StickyNodesModeAnnotation), common.StickyNodesPreferred)
+	assert.Equal(t, v1.GetAnnotation(workload, v1.StickyNodesAnnotation), v1.TrueStr)
 }

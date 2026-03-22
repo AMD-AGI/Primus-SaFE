@@ -331,9 +331,6 @@ func (m *WorkspaceMutator) mutateWorkloadsOfWorkspace(ctx context.Context, works
 			if v1.RemoveAnnotation(w, v1.StickyNodesAnnotation) {
 				isChanged = true
 			}
-			if v1.RemoveAnnotation(w, v1.StickyNodesModeAnnotation) {
-				isChanged = true
-			}
 		} else {
 			if v1.RemoveAnnotation(w, v1.WorkloadEnablePreemptAnnotation) {
 				isChanged = true

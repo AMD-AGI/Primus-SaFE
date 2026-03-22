@@ -7,7 +7,6 @@ package dispatcher
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"strconv"
 	"strings"
@@ -49,10 +48,10 @@ func initializeObject(obj *unstructured.Unstructured,
 
 	path := append(templatePath, "spec",
 		"affinity", "nodeAffinity", "requiredDuringSchedulingIgnoredDuringExecution", "nodeSelectorTerms")
-	if err = modifyNodeSelectorTerms(obj, workload, path); err != nil {
+	if err = modifyRequiredNodeAffinity(obj, workload, path); err != nil {
 		return fmt.Errorf("failed to modify nodeSelectorTerms: %v", err.Error())
 	}
-	if v1.GetStickyNodesMode(workload) == common.StickyNodesPreferred {
+	if v1.GetNodesAffinity(workload) == common.NodesAffinityPreferred {
 		path = append(templatePath, "spec",
 			"affinity", "nodeAffinity", "preferredDuringSchedulingIgnoredDuringExecution")
 		if err = modifyPreferredNodeAffinity(obj, workload, path); err != nil {
@@ -110,14 +109,14 @@ func initializeObject(obj *unstructured.Unstructured,
 	return nil
 }
 
-// modifyNodeSelectorTerms updates node selector terms in the object's node affinity configuration.
+// modifyRequiredNodeAffinity updates node selector terms in the object's node affinity configuration.
 // It adds custom match expressions based on the workload specification.
-func modifyNodeSelectorTerms(obj *unstructured.Unstructured, workload *v1.Workload, path []string) error {
+func modifyRequiredNodeAffinity(obj *unstructured.Unstructured, workload *v1.Workload, path []string) error {
 	nodeSelectorTerms, _, err := jobutils.NestedSlice(obj.Object, path)
 	if err != nil {
 		return err
 	}
-	expression := buildNodeMatchExpression(workload)
+	expression := buildRequiredMatchExpression(workload)
 	if len(expression) == 0 {
 		return nil
 	}
@@ -145,24 +144,22 @@ func modifyNodeSelectorTerms(obj *unstructured.Unstructured, workload *v1.Worklo
 // modifyPreferredNodeAffinity adds preferredDuringSchedulingIgnoredDuringExecution to prefer
 // nodes from the previous dispatch attempt. This helps workloads to be rescheduled on the same nodes.
 func modifyPreferredNodeAffinity(obj *unstructured.Unstructured, workload *v1.Workload, path []string) error {
-	dispatchCnt := v1.GetWorkloadDispatchCnt(workload)
-	var previousNodes []string
-	if dispatchCnt <= 0 {
-		json.Unmarshal([]byte(v1.GetStickyNodes(workload)), &previousNodes)
-
-	} else if len(workload.Status.Nodes) >= dispatchCnt {
-		previousNodes = workload.Status.Nodes[dispatchCnt-1]
+	nodes := commonworkload.GetSpecifiedNodes(workload)
+	if len(nodes) == 0 {
+		dispatchCnt := v1.GetWorkloadDispatchCnt(workload)
+		if dispatchCnt > 0 && len(workload.Status.Nodes) >= dispatchCnt {
+			nodes = workload.Status.Nodes[dispatchCnt-1]
+		}
 	}
-	if len(previousNodes) == 0 {
+	if len(nodes) == 0 {
 		return nil
 	}
 
 	// Convert node names to interface slice
-	nodeValues := make([]interface{}, len(previousNodes))
-	for i, node := range previousNodes {
+	nodeValues := make([]interface{}, len(nodes))
+	for i, node := range nodes {
 		nodeValues[i] = node
 	}
-
 	preferredTerm := map[string]interface{}{
 		"weight": int64(100),
 		"preference": map[string]interface{}{
@@ -490,7 +487,7 @@ func modifySelector(obj *unstructured.Unstructured, workload *v1.Workload, path 
 
 // modifyTolerations adds tolerations to tolerate all taints when IsTolerateAll is enabled or tolerate sticky node taints
 func modifyTolerations(obj *unstructured.Unstructured, workload *v1.Workload, path []string) error {
-	if !workload.Spec.IsTolerateAll && v1.GetStickyNodesMode(workload) == "" {
+	if !workload.Spec.IsTolerateAll && !v1.IsStickyNodes(workload) {
 		return nil
 	}
 	var tolerations []interface{}
@@ -733,8 +730,8 @@ func buildSecretVolume(secretName string) interface{} {
 	}
 }
 
-// buildNodeMatchExpression creates node selector match expressions based on workload specifications.
-func buildNodeMatchExpression(workload *v1.Workload) []interface{} {
+// buildRequiredMatchExpression creates node selector match expressions based on workload specifications.
+func buildRequiredMatchExpression(workload *v1.Workload) []interface{} {
 	var result []interface{}
 	if workload.Spec.Workspace != corev1.NamespaceDefault {
 		result = append(result, map[string]interface{}{
@@ -749,30 +746,22 @@ func buildNodeMatchExpression(workload *v1.Workload) []interface{} {
 		for i := range parts {
 			values = append(values, parts[i])
 		}
+		operator := "In"
 		if key == common.ExcludedNodes {
-			result = append(result, map[string]interface{}{
-				"key":      v1.K8sHostName,
-				"operator": "NotIn",
-				"values":   values,
-			})
-		} else {
-			result = append(result, map[string]interface{}{
-				"key":      key,
-				"operator": "In",
-				"values":   values,
-			})
+			key = v1.K8sHostName
+			operator = "NotIn"
+		} else if key == v1.K8sHostName || key == common.SpecifiedNodes {
+			affinity, ok := workload.Annotations[v1.NodesAffinityAnnotation]
+			if ok && affinity != common.NodesAffinityRequired {
+				continue
+			}
+			key = v1.K8sHostName
 		}
-	}
-	if v1.GetStickyNodesMode(workload) == common.StickyNodesRequired {
-		var nodes []string
-		json.Unmarshal([]byte(v1.GetStickyNodes(workload)), &nodes)
-		if len(nodes) > 0 {
-			result = append(result, map[string]interface{}{
-				"key":      v1.K8sHostName,
-				"operator": "In",
-				"values":   nodes,
-			})
-		}
+		result = append(result, map[string]interface{}{
+			"key":      key,
+			"operator": operator,
+			"values":   values,
+		})
 	}
 	return result
 }
