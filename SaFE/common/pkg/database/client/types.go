@@ -44,7 +44,6 @@ type Workload struct {
 	IsSupervised        bool           `db:"is_supervised"`
 	IsTolerateAll       bool           `db:"is_tolerate_all"`
 	IsDeleted           bool           `db:"is_deleted"`
-	IsStickyNodes       bool           `db:"is_sticky_nodes"`
 	IsPrivileged        bool           `db:"is_privileged"`
 	UseWorkspaceStorage bool           `db:"use_workspace_storage"`
 	ForceHostNetwork    bool           `db:"force_host_network"`
@@ -71,6 +70,7 @@ type Workload struct {
 	Secrets             sql.NullString `db:"secrets"`
 	ScaleRunnerSet      sql.NullString `db:"scale_runner_set"`
 	ScaleRunnerId       sql.NullString `db:"scale_runner_id"`
+	NodesAffinity       sql.NullString `db:"nodes_affinity"`
 }
 
 // GetWorkloadFieldTags returns the WorkloadFieldTags value.

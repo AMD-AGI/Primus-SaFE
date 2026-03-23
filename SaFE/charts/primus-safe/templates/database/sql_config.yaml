@@ -73,10 +73,11 @@ data:
     alter table workload add column if not exists resources TEXT;
     alter table workload add column if not exists images TEXT;
     alter table workload add column if not exists entrypoints TEXT;
-    alter table workload add column if not exists is_sticky_nodes boolean default false;
+    alter table workload drop column if exists is_sticky_nodes;
     alter table workload add column if not exists is_privileged boolean default false;
     alter table workload add column if not exists use_workspace_storage boolean default true;
     alter table workload add column if not exists force_host_network boolean default false;
+    alter table workload add column if not exists nodes_affinity VARCHAR(16);
 
     create table if not exists fault
     (
@@ -652,3 +653,142 @@ data:
     create index if not exists T_LLM_GW_KEY_ALIAS_INDEX on llm_gateway_user_binding (key_alias);
 
     alter table llm_gateway_user_binding owner to "primus-safe";
+
+    -- ═══ GitHub Workflow CI/CD ═══
+
+    create table if not exists github_collection_configs
+    (
+        id                SERIAL PRIMARY KEY,
+        name              VARCHAR(255) NOT NULL,
+        github_owner      VARCHAR(255) NOT NULL,
+        github_repo       VARCHAR(255) NOT NULL,
+        workflow_patterns TEXT[] DEFAULT '{}',
+        branch_patterns   TEXT[] DEFAULT '{}',
+        file_patterns     TEXT[] DEFAULT '{}',
+        display_settings  JSONB DEFAULT '{}',
+        enabled           BOOLEAN DEFAULT TRUE,
+        created_by        VARCHAR(255),
+        created_at        TIMESTAMPTZ DEFAULT NOW(),
+        updated_at        TIMESTAMPTZ DEFAULT NOW()
+    );
+    create index if not exists idx_gcc_owner_repo on github_collection_configs (github_owner, github_repo);
+    alter table github_collection_configs owner to "primus-safe";
+
+    create table if not exists github_workflow_runs
+    (
+        id                SERIAL PRIMARY KEY,
+        workload_id       VARCHAR(64),
+        cluster           VARCHAR(64),
+        github_run_id     BIGINT,
+        github_job_id     BIGINT,
+        workflow_name     VARCHAR(500),
+        github_owner      VARCHAR(255),
+        github_repo       VARCHAR(255),
+        head_branch       VARCHAR(255),
+        head_sha          VARCHAR(64),
+        status            VARCHAR(50) DEFAULT 'running',
+        conclusion        VARCHAR(50),
+        collection_status VARCHAR(50) DEFAULT 'pending',
+        sync_status       VARCHAR(50) DEFAULT 'pending',
+        config_id         INT,
+        started_at        TIMESTAMPTZ,
+        completed_at      TIMESTAMPTZ,
+        created_at        TIMESTAMPTZ DEFAULT NOW(),
+        updated_at        TIMESTAMPTZ DEFAULT NOW()
+    );
+    create index if not exists idx_gwr_run_id on github_workflow_runs (github_run_id);
+    create index if not exists idx_gwr_workload on github_workflow_runs (workload_id);
+    create index if not exists idx_gwr_status on github_workflow_runs (status);
+    create index if not exists idx_gwr_sync on github_workflow_runs (sync_status);
+    create index if not exists idx_gwr_owner_repo on github_workflow_runs (github_owner, github_repo);
+    alter table github_workflow_runs owner to "primus-safe";
+
+    create table if not exists github_workflow_run_details
+    (
+        id                SERIAL PRIMARY KEY,
+        run_id            INT NOT NULL,
+        github_run_id     BIGINT NOT NULL,
+        html_url          TEXT,
+        jobs_url          TEXT,
+        logs_url          TEXT,
+        event             VARCHAR(50),
+        trigger_actor     VARCHAR(255),
+        pull_request_number INT,
+        workflow_path     TEXT,
+        raw_data          JSONB,
+        created_at        TIMESTAMPTZ DEFAULT NOW(),
+        updated_at        TIMESTAMPTZ DEFAULT NOW()
+    );
+    create index if not exists idx_gwrd_run on github_workflow_run_details (run_id);
+    create index if not exists idx_gwrd_github_run on github_workflow_run_details (github_run_id);
+    alter table github_workflow_run_details owner to "primus-safe";
+
+    create table if not exists github_workflow_jobs
+    (
+        id                SERIAL PRIMARY KEY,
+        run_id            INT NOT NULL,
+        github_job_id     BIGINT NOT NULL,
+        name              VARCHAR(500),
+        status            VARCHAR(50),
+        conclusion        VARCHAR(50),
+        started_at        TIMESTAMPTZ,
+        completed_at      TIMESTAMPTZ,
+        runner_name       VARCHAR(255),
+        runner_group_name VARCHAR(255),
+        needs             TEXT[],
+        created_at        TIMESTAMPTZ DEFAULT NOW()
+    );
+    create index if not exists idx_gwj_run on github_workflow_jobs (run_id);
+    create unique index if not exists idx_gwj_github_job on github_workflow_jobs (github_job_id);
+    alter table github_workflow_jobs owner to "primus-safe";
+
+    create table if not exists github_workflow_steps
+    (
+        id                SERIAL PRIMARY KEY,
+        job_id            INT NOT NULL,
+        step_number       INT NOT NULL,
+        name              VARCHAR(500),
+        status            VARCHAR(50),
+        conclusion        VARCHAR(50),
+        started_at        TIMESTAMPTZ,
+        completed_at      TIMESTAMPTZ,
+        duration_seconds  INT
+    );
+    create index if not exists idx_gws_job on github_workflow_steps (job_id);
+    alter table github_workflow_steps owner to "primus-safe";
+
+    create table if not exists github_workflow_commits
+    (
+        id                SERIAL PRIMARY KEY,
+        sha               VARCHAR(64) NOT NULL,
+        github_owner      VARCHAR(255),
+        github_repo       VARCHAR(255),
+        message           TEXT,
+        author_name       VARCHAR(255),
+        author_email      VARCHAR(255),
+        authored_at       TIMESTAMPTZ,
+        additions         INT,
+        deletions         INT,
+        files_changed     INT,
+        created_at        TIMESTAMPTZ DEFAULT NOW()
+    );
+    create unique index if not exists idx_gwc_sha on github_workflow_commits (sha, github_owner, github_repo);
+    alter table github_workflow_commits owner to "primus-safe";
+
+    create table if not exists github_workflow_metrics
+    (
+        id                SERIAL PRIMARY KEY,
+        config_id         INT,
+        run_id            INT NOT NULL,
+        source_file       VARCHAR(500),
+        row_data          JSONB NOT NULL DEFAULT '{}',
+        timestamp         TIMESTAMPTZ,
+        dimensions        JSONB DEFAULT '{}',
+        metrics           JSONB DEFAULT '{}',
+        raw_data          JSONB,
+        created_at        TIMESTAMPTZ DEFAULT NOW()
+    );
+    create index if not exists idx_gwm_run on github_workflow_metrics (run_id);
+    create index if not exists idx_gwm_config on github_workflow_metrics (config_id);
+    create index if not exists idx_gwm_timestamp on github_workflow_metrics (timestamp);
+    alter table github_workflow_metrics owner to "primus-safe";
