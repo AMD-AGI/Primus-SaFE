@@ -47,7 +47,7 @@ func (h *Handler) GetTagUsage(c *gin.Context) {
 		return
 	}
 
-	tagFilter := c.Query("tag")
+	tagFilters := splitTags(c.Query("tag"))
 
 	page := parseIntParam(c.Query("page"), 1)
 	pageSize := parseIntParam(c.Query("page_size"), defaultTagPageSize)
@@ -82,11 +82,11 @@ func (h *Handler) GetTagUsage(c *gin.Context) {
 
 	allLogs = filterLogsByLocalDate(allLogs, startDate, endDate, loc)
 
-	if tagFilter != "" {
-		allLogs = filterLogsByTag(allLogs, tagFilter)
+	if len(tagFilters) > 0 {
+		allLogs = filterLogsByTags(allLogs, tagFilters)
 	}
 
-	result := aggregateByTag(allLogs, loc)
+	result := aggregateByTag(allLogs, loc, tagFilters)
 
 	sort.Slice(result.tags, func(i, j int) bool {
 		return result.tags[i].Spend > result.tags[j].Spend
@@ -138,22 +138,52 @@ func parseIntParam(s string, defaultVal int) int {
 
 // ── Tag filtering logic ───────────────────────────────────────────────────
 
-// filterLogsByTag keeps only log entries that match the given tag.
-// Use untaggedFilterValue ("__untagged__") to match entries with no custom tags.
+// splitTags splits a comma-separated tag parameter into individual tags,
+// trimming whitespace and ignoring empty segments.
+func splitTags(raw string) []string {
+	if raw == "" {
+		return nil
+	}
+	parts := strings.Split(raw, ",")
+	tags := make([]string, 0, len(parts))
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p != "" {
+			tags = append(tags, p)
+		}
+	}
+	return tags
+}
+
+// filterLogsByTag keeps only log entries that match a single tag (retained for tests).
 func filterLogsByTag(logs []SpendLogEntry, tag string) []SpendLogEntry {
+	return filterLogsByTags(logs, []string{tag})
+}
+
+// filterLogsByTags keeps log entries matching ANY of the given tags (union).
+// Use untaggedFilterValue ("__untagged__") to match entries with no custom tags.
+func filterLogsByTags(logs []SpendLogEntry, tags []string) []SpendLogEntry {
+	wantSet := make(map[string]struct{}, len(tags))
+	wantUntagged := false
+	for _, t := range tags {
+		if t == untaggedFilterValue {
+			wantUntagged = true
+		} else {
+			wantSet[t] = struct{}{}
+		}
+	}
+
 	filtered := make([]SpendLogEntry, 0, len(logs)/2)
 	for i := range logs {
 		customTags := filterCustomTags(parseRequestTags(logs[i].RequestTags))
-		if tag == untaggedFilterValue {
-			if len(customTags) == 0 {
+		if wantUntagged && len(customTags) == 0 {
+			filtered = append(filtered, logs[i])
+			continue
+		}
+		for _, ct := range customTags {
+			if _, ok := wantSet[ct]; ok {
 				filtered = append(filtered, logs[i])
-			}
-		} else {
-			for _, t := range customTags {
-				if t == tag {
-					filtered = append(filtered, logs[i])
-					break
-				}
+				break
 			}
 		}
 	}
@@ -185,7 +215,22 @@ func isSuccessStatus(status string) bool {
 	return status == "success" || status == "Success"
 }
 
-func aggregateByTag(logs []SpendLogEntry, loc *time.Location) tagAggResult {
+// aggregateByTag aggregates spend logs by tag. When tagFilters is non-empty,
+// only the specified tags are included in the tag breakdown (filtered aggregation).
+// When tagFilters is empty/nil, all tags are aggregated.
+func aggregateByTag(logs []SpendLogEntry, loc *time.Location, tagFilters []string) tagAggResult {
+	var filterSet map[string]struct{}
+	if len(tagFilters) > 0 {
+		filterSet = make(map[string]struct{}, len(tagFilters))
+		for _, t := range tagFilters {
+			if t == untaggedFilterValue {
+				filterSet[""] = struct{}{}
+			} else {
+				filterSet[t] = struct{}{}
+			}
+		}
+	}
+
 	tagMap := make(map[string]*tagAccum)
 	dailyMap := make(map[string]float64)
 	var totalSpend float64
@@ -217,6 +262,11 @@ func aggregateByTag(logs []SpendLogEntry, loc *time.Location) tagAggResult {
 		}
 
 		for _, tag := range customTags {
+			if filterSet != nil {
+				if _, ok := filterSet[tag]; !ok {
+					continue
+				}
+			}
 			accum, ok := tagMap[tag]
 			if !ok {
 				accum = &tagAccum{}

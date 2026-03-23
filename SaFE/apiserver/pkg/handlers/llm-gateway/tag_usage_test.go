@@ -62,7 +62,7 @@ func TestAggregateByTag(t *testing.T) {
 		},
 	}
 
-	result := aggregateByTag(logs, time.UTC)
+	result := aggregateByTag(logs, time.UTC, nil)
 
 	assert.Equal(t, 10.5, result.totalSpend)
 	assert.Equal(t, int64(4), result.totalRequests)
@@ -122,6 +122,74 @@ func TestFilterLogsByTag(t *testing.T) {
 	assert.Len(t, filtered, 2)
 	assert.Equal(t, 3.0, filtered[0].Spend)
 	assert.Equal(t, 4.0, filtered[1].Spend)
+}
+
+func TestSplitTags(t *testing.T) {
+	assert.Nil(t, splitTags(""))
+	assert.Equal(t, []string{"alpha"}, splitTags("alpha"))
+	assert.Equal(t, []string{"alpha", "beta"}, splitTags("alpha,beta"))
+	assert.Equal(t, []string{"alpha", "beta"}, splitTags(" alpha , beta "))
+	assert.Equal(t, []string{"alpha"}, splitTags("alpha,,,"))
+}
+
+func TestFilterLogsByTags_MultiTag(t *testing.T) {
+	logs := []SpendLogEntry{
+		{Spend: 1.0, RequestTags: json.RawMessage(`["alpha","beta"]`)},
+		{Spend: 2.0, RequestTags: json.RawMessage(`["beta"]`)},
+		{Spend: 3.0, RequestTags: json.RawMessage(`[]`)},
+		{Spend: 4.0, RequestTags: json.RawMessage(`["gamma"]`)},
+		{Spend: 5.0, RequestTags: json.RawMessage(`["User-Agent:SAFE"]`)},
+	}
+
+	// multi-tag union: alpha OR gamma
+	filtered := filterLogsByTags(logs, []string{"alpha", "gamma"})
+	assert.Len(t, filtered, 2)
+	assert.Equal(t, 1.0, filtered[0].Spend)
+	assert.Equal(t, 4.0, filtered[1].Spend)
+
+	// multi-tag with __untagged__
+	filtered = filterLogsByTags(logs, []string{"alpha", untaggedFilterValue})
+	assert.Len(t, filtered, 3)
+	assert.Equal(t, 1.0, filtered[0].Spend)
+	assert.Equal(t, 3.0, filtered[1].Spend)
+	assert.Equal(t, 5.0, filtered[2].Spend)
+
+	// single tag via filterLogsByTags
+	filtered = filterLogsByTags(logs, []string{"beta"})
+	assert.Len(t, filtered, 2)
+}
+
+func TestAggregateByTag_WithFilter(t *testing.T) {
+	logs := []SpendLogEntry{
+		{
+			Spend:            1.0,
+			PromptTokens:     10,
+			CompletionTokens: 5,
+			RequestTags:      json.RawMessage(`["alpha","beta"]`),
+			StartTime:        "2026-03-18T10:00:00",
+			Status:           "success",
+		},
+		{
+			Spend:            2.0,
+			PromptTokens:     20,
+			CompletionTokens: 8,
+			RequestTags:      json.RawMessage(`["alpha"]`),
+			StartTime:        "2026-03-18T14:00:00",
+			Status:           "success",
+		},
+	}
+
+	// filter to only "alpha" — should NOT include "beta" in tags breakdown
+	result := aggregateByTag(logs, time.UTC, []string{"alpha"})
+	assert.Equal(t, 3.0, result.totalSpend)
+	assert.Equal(t, int64(2), result.totalRequests)
+	assert.Len(t, result.tags, 1)
+	assert.Equal(t, "alpha", *result.tags[0].TagName)
+	assert.Equal(t, 3.0, result.tags[0].Spend)
+
+	// no filter — should include both "alpha" and "beta"
+	result = aggregateByTag(logs, time.UTC, nil)
+	assert.Len(t, result.tags, 2)
 }
 
 func TestGetTagUsage_SuccessPaginationAndSorting(t *testing.T) {
