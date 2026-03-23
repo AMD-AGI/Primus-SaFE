@@ -9,14 +9,6 @@ input="$1"
 
 export NODE_RANK="${PET_NODE_RANK:-${NODE_RANK}}"
 export NNODES="${PET_NNODES:-${NNODES}}"
-export WORKLOAD_KIND=$WORKLOAD_KIND
-
-# Export variables for build scripts
-# AINIC driver: AINIC_DRIVER_VERSION (e.g., 1.117.5-a-56)
-export AINIC_DRIVER_VERSION=${AINIC_DRIVER_VERSION}
-# BNXT driver: BNXT_DRIVER_VERSION or PATH_TO_BNXT_TAR_PACKAGE
-export BNXT_DRIVER_VERSION=${BNXT_DRIVER_VERSION}
-export PATH_TO_BNXT_TAR_PACKAGE=${PATH_TO_BNXT_TAR_PACKAGE}
 
 # Build AINIC driver
 if [ -n "${AINIC_DRIVER_VERSION}" ]; then
@@ -27,6 +19,11 @@ if [ -n "${AINIC_DRIVER_VERSION}" ]; then
   fi
   export USING_AINIC=1
   echo "INFO: AINIC support enabled (USING_AINIC=1)"
+fi
+
+# Pensando AINIC: NCCL_IB_TC / NCCL_IB_FIFO_TC (logic in detect_nccl_ib_tc.sh; stdout is eval-safe export lines only).
+if [ -f /shared-data/detect_nccl_ib_tc.sh ] && [ -x /bin/sh ]; then
+    eval "$(/bin/sh /shared-data/detect_nccl_ib_tc.sh)" || true
 fi
 
 /bin/sh /shared-data/build_bnxt.sh
