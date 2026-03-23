@@ -51,7 +51,7 @@ func initializeObject(obj *unstructured.Unstructured,
 	if err = modifyRequiredNodeAffinity(obj, workload, path); err != nil {
 		return fmt.Errorf("failed to modify nodeSelectorTerms: %v", err.Error())
 	}
-	if v1.GetNodesAffinity(workload) == common.NodesAffinityPreferred {
+	if v1.IsRetryingOnOriginal(workload) || v1.GetNodesAffinity(workload) == common.NodesAffinityPreferred {
 		path = append(templatePath, "spec",
 			"affinity", "nodeAffinity", "preferredDuringSchedulingIgnoredDuringExecution")
 		if err = modifyPreferredNodeAffinity(obj, workload, path); err != nil {
@@ -144,8 +144,10 @@ func modifyRequiredNodeAffinity(obj *unstructured.Unstructured, workload *v1.Wor
 // modifyPreferredNodeAffinity adds preferredDuringSchedulingIgnoredDuringExecution to prefer
 // nodes from the previous dispatch attempt. This helps workloads to be rescheduled on the same nodes.
 func modifyPreferredNodeAffinity(obj *unstructured.Unstructured, workload *v1.Workload, path []string) error {
-	nodes := commonworkload.GetSpecifiedNodes(workload)
-	if len(nodes) == 0 {
+	var nodes []string
+	if v1.GetNodesAffinity(workload) == common.NodesAffinityPreferred {
+		nodes = commonworkload.GetSpecifiedNodes(workload)
+	} else if v1.IsRetryingOnOriginal(workload) {
 		dispatchCnt := v1.GetWorkloadDispatchCnt(workload)
 		if dispatchCnt > 0 && len(workload.Status.Nodes) >= dispatchCnt {
 			nodes = workload.Status.Nodes[dispatchCnt-1]
