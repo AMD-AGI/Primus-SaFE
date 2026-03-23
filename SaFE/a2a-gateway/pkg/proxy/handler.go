@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/lib/pq"
 	"k8s.io/klog/v2"
 
 	"github.com/AMD-AIG-AIMA/SAFE/a2a-gateway/pkg/auth"
@@ -147,6 +148,7 @@ func (h *Handler) logCall(c *gin.Context, callerUserID, target, skill, status st
 		LatencyMs:         float64(latency.Milliseconds()),
 		RequestSizeBytes:  reqSize,
 		ResponseSizeBytes: respSize,
+		CreatedAt:         pq.NullTime{Time: time.Now().UTC(), Valid: true},
 	}
 	if errMsg != "" {
 		log.ErrorMessage = sql.NullString{String: errMsg, Valid: true}
