@@ -36,6 +36,9 @@
           <el-descriptions-item label="excludedNodes" v-if="detailData?.excludedNodes">{{
             detailData?.excludedNodes?.join(',') || '-'
           }}</el-descriptions-item>
+          <el-descriptions-item label="nodesAffinity" v-if="detailData.nodesAffinity">{{
+            detailData.nodesAffinity
+          }}</el-descriptions-item>
 
           <el-descriptions-item label="env" :span="2" v-if="detailData.env">
             <div>

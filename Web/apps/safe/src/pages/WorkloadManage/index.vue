@@ -30,11 +30,20 @@
         type="primary"
         @click="onSearch({ resetPage: true })"
       />
-      <el-button
-        :icon="Refresh"
-        size="default"
-        @click="resetAndSearch"
-      />
+      <el-tooltip content="Reset filters" placement="top">
+        <el-button
+          :icon="ResetIcon"
+          size="default"
+          @click="resetAndSearch"
+        />
+      </el-tooltip>
+      <el-tooltip content="Refresh" placement="top">
+        <el-button
+          :icon="Refresh"
+          size="default"
+          @click="onSearch({ resetPage: false })"
+        />
+      </el-tooltip>
     </div>
   </div>
 
@@ -332,6 +341,7 @@ import {
 import {
   Search, Refresh, CopyDocument, Timer, WarningFilled, InfoFilled,
 } from '@element-plus/icons-vue'
+import ResetIcon from '@/components/icons/ResetIcon.vue'
 import { copyText, formatTimeStr } from '@/utils/index'
 import dayjs from 'dayjs'
 import utc from 'dayjs/plugin/utc'
