@@ -56,13 +56,42 @@
     <!-- Usage Statistics -->
     <el-card class="mt-4 safe-card" shadow="never">
       <div class="flex items-center justify-between flex-wrap gap-3 mb-6">
-        <h3 class="section-title">Usage Statistics</h3>
         <div class="flex items-center gap-3">
-          <el-radio-group v-model="quickRange" size="small" @change="onQuickRangeChange">
-            <el-radio-button :value="7">7 Days</el-radio-button>
-            <el-radio-button :value="14">14 Days</el-radio-button>
-            <el-radio-button :value="30">30 Days</el-radio-button>
-          </el-radio-group>
+          <h3 class="section-title">Usage View</h3>
+          <el-dropdown trigger="click" @command="onUsageViewChange">
+            <el-button size="small" round type="success">
+              <el-icon class="mr-1"><PriceTag /></el-icon>
+              {{ usageView === 'user' ? 'User Usage' : 'Tag Usage' }}
+              <el-icon class="el-icon--right"><ArrowDown /></el-icon>
+            </el-button>
+            <template #dropdown>
+              <el-dropdown-menu>
+                <el-dropdown-item command="user" :class="{ 'is-active-item': usageView === 'user' }">User Usage</el-dropdown-item>
+                <el-dropdown-item command="tag" :class="{ 'is-active-item': usageView === 'tag' }">Tag Usage</el-dropdown-item>
+              </el-dropdown-menu>
+            </template>
+          </el-dropdown>
+        </div>
+        <div class="flex items-center gap-3">
+          <el-select
+            v-if="usageView === 'tag'"
+            v-model="selectedTag"
+            placeholder="Filter by tag..."
+            clearable
+            size="small"
+            style="width: 200px"
+            @change="onTagFilterChange"
+          >
+            <el-option label="All Tags" value="" />
+            <el-option label="(Untagged)" value="__untagged__" />
+            <el-option
+              v-for="t in availableTagNames"
+              :key="t"
+              :label="t"
+              :value="t"
+            />
+          </el-select>
+          <span class="text-sm text-gray-400">Select Time Range</span>
           <el-date-picker
             v-model="dateRange"
             type="daterange"
@@ -78,8 +107,9 @@
       </div>
 
       <!-- Summary cards -->
+      <h4 class="sub-title mb-4">Usage Statistics</h4>
       <div class="summary-grid" v-loading="usageLoading">
-        <div v-for="s in summaryCards" :key="s.label" class="summary-card">
+        <div v-for="s in activeSummaryCards" :key="s.label" class="summary-card">
           <div class="summary-icon" :style="{ color: s.color }">
             <el-icon :size="18"><component :is="s.icon" /></el-icon>
           </div>
@@ -96,8 +126,8 @@
         <div ref="chartRef" class="spend-chart" v-loading="usageLoading" />
       </div>
 
-      <!-- Model breakdown table -->
-      <div class="mt-6" v-if="modelRows.length">
+      <!-- Model breakdown table (User Usage) -->
+      <div class="mt-6" v-if="usageView === 'user' && modelRows.length">
         <div class="flex items-center gap-3 mb-4">
           <h4 class="sub-title">Model Breakdown</h4>
           <el-select v-model="selectedDate" size="small" style="width: 160px">
@@ -139,6 +169,36 @@
             </template>
           </el-table-column>
           <el-table-column prop="api_requests" label="Total" width="100" align="right">
+            <template #default="{ row }">
+              {{ fmtNum(row.api_requests) }}
+            </template>
+          </el-table-column>
+        </el-table>
+      </div>
+
+      <!-- Tag breakdown table (Tag Usage) -->
+      <div class="mt-6" v-if="usageView === 'tag' && tagRows.length">
+        <h4 class="sub-title mb-4">Tag Breakdown</h4>
+        <el-table :data="tagRows" size="default" stripe class="model-table">
+          <el-table-column prop="tag_name" label="TAG" min-width="180">
+            <template #default="{ row }">
+              <el-link v-if="row.tag_name" type="primary" :underline="false" @click="onTagFilterChange(row.tag_name)">
+                {{ row.tag_name }}
+              </el-link>
+              <el-text v-else type="info">(Untagged)</el-text>
+            </template>
+          </el-table-column>
+          <el-table-column prop="spend" label="SPEND" width="140" align="right">
+            <template #default="{ row }">
+              <el-text type="success">${{ row.spend.toFixed(5) }}</el-text>
+            </template>
+          </el-table-column>
+          <el-table-column label="TOKENS" width="140" align="right">
+            <template #default="{ row }">
+              {{ fmtCompact(row.prompt_tokens + row.completion_tokens) }}
+            </template>
+          </el-table-column>
+          <el-table-column prop="api_requests" label="REQUESTS" width="120" align="right">
             <template #default="{ row }">
               {{ fmtNum(row.api_requests) }}
             </template>
@@ -282,8 +342,9 @@ import {
   updateLLMGatewayBinding,
   getLLMGatewayUsage,
   getLLMGatewaySummary,
+  getLLMGatewayTagUsage,
 } from '@/services'
-import type { LLMGatewayBinding, LLMGatewayUsage, LLMGatewaySummary } from '@/services'
+import type { LLMGatewayBinding, LLMGatewayUsage, LLMGatewaySummary, LLMGatewayTagUsage, LLMGatewayTagItem, LLMGatewayTagUsageParams } from '@/services'
 import { formatTimeStr, copyText } from '@/utils/index'
 import { ElMessage } from 'element-plus'
 import {
@@ -294,6 +355,10 @@ import {
   Connection,
   Coin,
   Grid,
+  PriceTag,
+  ArrowDown,
+  SuccessFilled,
+  CircleCloseFilled,
 } from '@element-plus/icons-vue'
 import dayjs from 'dayjs'
 import * as echarts from 'echarts/core'
@@ -343,7 +408,7 @@ import httpx
 http_client = httpx.Client(verify=False)
 
 client = OpenAI(
-    api_key="sk-",
+    api_key="sk-<your-llm-virtual-key>",
     base_url="https://project1.tw325.primus-safe.amd.com/llm-gateway/v1",
     http_client=http_client,
 )
@@ -380,10 +445,18 @@ const fetchSummary = async () => {
   }
 }
 
+// ── Usage View Toggle ──
+type UsageViewType = 'user' | 'tag'
+const usageView = ref<UsageViewType>('tag')
+
+const onUsageViewChange = (view: UsageViewType) => {
+  usageView.value = view
+  fetchCurrentUsage()
+}
+
 // ── Usage ──
 const usageLoading = ref(false)
 const usage = ref<LLMGatewayUsage | null>(null)
-const quickRange = ref(7)
 const dateRange = ref<[string, string]>([
   dayjs().subtract(6, 'day').format('YYYY-MM-DD'),
   dayjs().format('YYYY-MM-DD'),
@@ -392,6 +465,17 @@ const dateRange = ref<[string, string]>([
 const chartRef = ref<HTMLDivElement | null>(null)
 let chart: echarts.ECharts | null = null
 
+const generateDateRange = (start: string, end: string): string[] => {
+  const dates: string[] = []
+  let cur = dayjs(start)
+  const endDay = dayjs(end)
+  while (cur.isBefore(endDay) || cur.isSame(endDay, 'day')) {
+    dates.push(cur.format('YYYY-MM-DD'))
+    cur = cur.add(1, 'day')
+  }
+  return dates
+}
+
 const fmtNum = (n: number) => n?.toLocaleString('en-US') ?? '0'
 const fmtCompact = (n: number) => {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`
@@ -399,7 +483,7 @@ const fmtCompact = (n: number) => {
   return String(n)
 }
 
-const summaryCards = computed(() => {
+const userSummaryCards = computed(() => {
   const u = usage.value
   const modelCount = u?.daily
     ? new Set(u.daily.flatMap((d) => Object.keys(d.models ?? {}))).size
@@ -411,6 +495,33 @@ const summaryCards = computed(() => {
     { label: 'Models Used', value: String(modelCount), icon: Grid, color: '#8b5cf6' },
   ]
 })
+
+// ── Tag Usage ──
+const tagUsage = ref<LLMGatewayTagUsage | null>(null)
+const selectedTag = ref('')
+const availableTagNames = ref<string[]>([])
+
+const tagSummaryCards = computed(() => {
+  const t = tagUsage.value
+  return [
+    { label: 'Total Spend', value: `$${t?.total_spend?.toFixed(5) ?? '0.00000'}`, icon: Money, color: '#10b981' },
+    { label: 'Total Requests', value: fmtCompact(t?.total_requests ?? 0), icon: Connection, color: '#3b82f6' },
+    { label: 'Successful Requests', value: fmtCompact(t?.total_successful_requests ?? 0), icon: SuccessFilled, color: '#10b981' },
+    { label: 'Failed Requests', value: fmtCompact(t?.total_failed_requests ?? 0), icon: CircleCloseFilled, color: '#ef4444' },
+    { label: 'Total Tokens', value: fmtCompact(t?.total_tokens ?? 0), icon: Coin, color: '#f59e0b' },
+  ]
+})
+
+const tagRows = computed<LLMGatewayTagItem[]>(() => {
+  return (tagUsage.value?.tags ?? []).map((t) => ({
+    ...t,
+    tag_name: t.tag_name,
+  })).sort((a, b) => b.spend - a.spend)
+})
+
+const activeSummaryCards = computed(() =>
+  usageView.value === 'tag' ? tagSummaryCards.value : userSummaryCards.value,
+)
 
 interface ModelRow {
   model: string
@@ -450,18 +561,49 @@ const modelRows = computed<ModelRow[]>(() => {
     .sort((a, b) => b.spend - a.spend)
 })
 
-const onQuickRangeChange = (days: number) => {
-  dateRange.value = [
-    dayjs().subtract(days - 1, 'day').format('YYYY-MM-DD'),
-    dayjs().format('YYYY-MM-DD'),
-  ]
-  fetchUsage()
-}
-
 const onDateRangeChange = (val: [string, string] | null) => {
   if (!val) return
-  quickRange.value = 0 as never
-  fetchUsage()
+  fetchCurrentUsage()
+}
+
+const onTagFilterChange = (tag: string) => {
+  selectedTag.value = tag
+  fetchTagUsage()
+}
+
+const fetchTagUsage = async () => {
+  if (!binding.value?.has_apim_key) return
+  try {
+    usageLoading.value = true
+    const params: LLMGatewayTagUsageParams = {
+      start_date: dateRange.value[0],
+      end_date: dateRange.value[1],
+      timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+      ...(selectedTag.value ? { tag: selectedTag.value } : {}),
+    }
+    tagUsage.value = await getLLMGatewayTagUsage(params)
+
+    if (!selectedTag.value && tagUsage.value?.tags) {
+      availableTagNames.value = tagUsage.value.tags
+        .map((t) => t.tag_name)
+        .filter((n): n is string => n !== null)
+    }
+
+    await nextTick()
+    renderChart()
+  } catch {
+    tagUsage.value = null
+  } finally {
+    usageLoading.value = false
+  }
+}
+
+const fetchCurrentUsage = () => {
+  if (usageView.value === 'tag') {
+    fetchTagUsage()
+  } else {
+    fetchUsage()
+  }
 }
 
 const fetchBinding = async () => {
@@ -498,7 +640,14 @@ const renderChart = () => {
     chart = echarts.init(chartRef.value)
     window.addEventListener('resize', resizeChart)
   }
-  const daily = [...(usage.value?.daily ?? [])].reverse()
+  const rawDaily = usageView.value === 'tag'
+    ? (tagUsage.value?.daily ?? [])
+    : [...(usage.value?.daily ?? [])].reverse()
+
+  const allDates = generateDateRange(dateRange.value[0], dateRange.value[1])
+  const spendMap = new Map(rawDaily.map((d) => [d.date, d.spend]))
+  const daily = allDates.map((date) => ({ date, spend: spendMap.get(date) ?? 0 }))
+
   const isDark = document.documentElement.classList.contains('dark')
 
   chart.setOption({
@@ -591,7 +740,7 @@ watch(
   () => binding.value?.has_apim_key,
   (bound) => {
     if (bound) {
-      fetchUsage()
+      fetchCurrentUsage()
       fetchSummary()
     }
   },
@@ -675,7 +824,7 @@ onBeforeUnmount(() => {
 /* Summary cards – glass + tilt */
 .summary-grid {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   gap: 16px;
 }
 .summary-card {
@@ -794,5 +943,11 @@ onBeforeUnmount(() => {
   font-family: 'Cascadia Code', 'Fira Code', Consolas, monospace;
   font-size: 13px;
   line-height: 1.6;
+}
+</style>
+<style>
+.is-active-item {
+  color: var(--el-color-success) !important;
+  font-weight: 600;
 }
 </style>

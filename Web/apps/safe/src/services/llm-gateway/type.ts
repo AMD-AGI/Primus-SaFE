@@ -55,3 +55,44 @@ export interface LLMGatewaySummary {
   total_spend: number
   model_spend: Record<string, number>
 }
+
+export interface LLMGatewayTagUsageParams {
+  start_date: string
+  end_date: string
+  timezone?: string
+  page?: number
+  page_size?: number
+  tag?: string
+}
+
+export interface LLMGatewayTagItem {
+  tag_name: string | null
+  spend: number
+  api_requests: number
+  successful_requests: number
+  failed_requests: number
+  prompt_tokens: number
+  completion_tokens: number
+}
+
+export interface LLMGatewayTagDailySpend {
+  date: string
+  spend: number
+}
+
+export interface LLMGatewayTagUsage {
+  user_email: string
+  start_date: string
+  end_date: string
+  total_spend: number
+  total_requests: number
+  total_successful_requests: number
+  total_failed_requests: number
+  total_tokens: number
+  daily: LLMGatewayTagDailySpend[]
+  tags: LLMGatewayTagItem[]
+  page: number
+  page_size: number
+  total: number
+  total_pages: number
+}

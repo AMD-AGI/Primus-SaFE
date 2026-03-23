@@ -5,6 +5,8 @@ import type {
   LLMGatewayUsage,
   LLMGatewayUsageParams,
   LLMGatewaySummary,
+  LLMGatewayTagUsage,
+  LLMGatewayTagUsageParams,
 } from './type'
 
 export const getLLMGatewayBinding = (): Promise<LLMGatewayBinding> =>
@@ -23,3 +25,6 @@ export const getLLMGatewayUsage = (params: LLMGatewayUsageParams): Promise<LLMGa
 
 export const getLLMGatewaySummary = (): Promise<LLMGatewaySummary> =>
   request.get('/llm-gateway/summary')
+
+export const getLLMGatewayTagUsage = (params: LLMGatewayTagUsageParams): Promise<LLMGatewayTagUsage> =>
+  request.get('/llm-gateway/tags/usage', { params })
