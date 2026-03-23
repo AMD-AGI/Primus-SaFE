@@ -282,8 +282,17 @@ import {
   updateLLMGatewayBinding,
   getLLMGatewayUsage,
   getLLMGatewaySummary,
+  getLLMGatewayBudget,
+  updateLLMGatewayBudget,
+  getLLMGatewayTagUsage,
 } from '@/services'
-import type { LLMGatewayBinding, LLMGatewayUsage, LLMGatewaySummary } from '@/services'
+import type {
+  LLMGatewayBinding,
+  LLMGatewayUsage,
+  LLMGatewaySummary,
+  LLMGatewayBudget,
+  LLMGatewayTagUsage,
+} from '@/services'
 import { formatTimeStr, copyText } from '@/utils/index'
 import { ElMessage } from 'element-plus'
 import {
