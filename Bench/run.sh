@@ -74,6 +74,22 @@ if [[ "$RANK" == "0" ]]; then
         ok "I/O Benchmarks completed."
     fi
 
+    # ==== Step 4.1: Internet Bandwidth Benchmark ====
+    if [ -n "${RUN_INTERNET_BANDWIDTH_BENCHMARK:-true}" ]; then
+        log "⚙ Running Internet Bandwidth Benchmark..."
+        internet_bandwidth_benchmark_logname="${OUTPUT_PATH}/internet_bandwidth_benchmark.log"
+        bash "$PRIMUSBENCH_PATH/benchmarks/internet_bw/scripts/download.sh" 2>&1 | tee "$internet_bandwidth_benchmark_logname"
+        ok "Internet Bandwidth Benchmark completed."
+    fi
+
+    # ==== Step 4.2: Packet Loss Benchmark ====
+    if [ -n "${RUN_PACKET_LOSS_TEST:-true}" ]; then
+        log "⚙ Running Packet Loss Test..."
+        packet_loss_test_logname="${OUTPUT_PATH}/packet_loss_test.log"
+        bash "$PRIMUSBENCH_PATH/benchmarks/internet_bw/scripts/packet_loss.sh" 2>&1 | tee "$packet_loss_test_logname"
+        ok "Packet Loss Test completed."
+    fi
+
     # ==== Step 5: Node checks ====
     PALYBOOKS="$PRIMUSBENCH_PATH/playbooks"
     HOSTS_INI="$OUTPUT_PATH/primusbench_hosts.ini"
