@@ -85,6 +85,11 @@ spec:
               mountPath: {{ default "/etc/secrets/llm-gateway" (default dict .Values.llm_gateway).secret_path }}
               readOnly: true
             {{- end }}
+            {{- if and .Values.langfuse_proxy .Values.langfuse_proxy.enable .Values.langfuse_proxy.secret }}
+            - name: langfuse-proxy-secret
+              mountPath: {{ default "/etc/secrets/langfuse-proxy" .Values.langfuse_proxy.secret_path }}
+              readOnly: true
+            {{- end }}
           ports:
             - containerPort: {{ default 8088 (default .Values.apiserver).port }}
               name: http-port
@@ -157,6 +162,11 @@ spec:
         - name: llm-gateway-secret
           secret:
             secretName: {{ .Release.Name }}-llm-gateway
+        {{- end }}
+        {{- if and .Values.langfuse_proxy .Values.langfuse_proxy.enable .Values.langfuse_proxy.secret }}
+        - name: langfuse-proxy-secret
+          secret:
+            secretName: {{ .Values.langfuse_proxy.secret }}
         {{- end }}
       {{- if .Values.global.image_pull_secret }}
       imagePullSecrets:
