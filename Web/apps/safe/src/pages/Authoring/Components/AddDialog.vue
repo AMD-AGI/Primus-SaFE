@@ -237,10 +237,10 @@
                   </el-form-item>
                 </el-col>
                 <!-- nodesAffinity -->
-                <el-col :span="12" v-if="!isEdit">
+                <el-col :span="12" v-if="!isEdit && (form.resourceType === 'nodes' || props.action === 'Clone' || props.action === 'Resume')">
                   <el-form-item label="nodesAffinity">
                     <el-radio-group v-model="form.nodesAffinity" size="small">
-                      <el-radio-button value="" :disabled="form.resourceType === 'nodes'">Disabled</el-radio-button>
+                      <el-radio-button value="" :disabled="form.resourceType === 'nodes' && !clonedLastNodes.length">Disabled</el-radio-button>
                       <el-radio-button value="required">Required</el-radio-button>
                       <el-radio-button value="preferred">Preferred</el-radio-button>
                     </el-radio-group>
@@ -414,11 +414,15 @@ const initialForm = () => ({
 })
 const form = reactive({ ...initialForm() })
 
-watch(() => form.resourceType, (newType) => {
-  if (newType === 'nodes') {
-    if (!form.nodesAffinity) form.nodesAffinity = 'required'
-  } else {
-    form.nodesAffinity = ''
+const clonedLastNodes = ref<string[]>([])
+watch(() => form.nodesAffinity, (newVal, oldVal) => {
+  if (!clonedLastNodes.value.length) return
+  if (newVal && !oldVal) {
+    form.resourceType = 'nodes'
+    form.nodeId = clonedLastNodes.value[0] || ''
+  } else if (!newVal && oldVal) {
+    form.resourceType = 'replicas'
+    form.nodeId = ''
   }
 })
 
@@ -626,25 +630,17 @@ const setInitialFormValues = async () => {
         ? 1
         : res.priority
 
-  const detailAffinity = res.nodesAffinity || ''
   if (res.specifiedNodes?.length) {
     form.resourceType = 'nodes'
     form.nodeId = res.specifiedNodes[0]
-    form.nodesAffinity = detailAffinity || 'required'
-  } else if (props.action === 'Clone' && res.nodes?.length) {
-    const lastNodes = res.nodes[res.nodes.length - 1] ?? []
-    if (lastNodes.length) {
-      form.resourceType = 'nodes'
-      form.nodeId = lastNodes[0]
-      form.nodesAffinity = detailAffinity || 'required'
-    } else {
-      form.resourceType = 'replicas'
-      form.nodesAffinity = detailAffinity
-    }
+    form.nodesAffinity = res.nodesAffinity || 'required'
+    clonedLastNodes.value = []
   } else {
     form.resourceType = 'replicas'
     form.nodeId = ''
-    form.nodesAffinity = detailAffinity
+    form.nodesAffinity = ''
+    const lastNodes = res.nodes?.length ? (res.nodes[res.nodes.length - 1] ?? []) : []
+    clonedLastNodes.value = lastNodes
   }
 
   // resources is now an array; Authoring takes the first element
@@ -770,6 +766,7 @@ const fetchPersistentStoragePaths = async () => {
 const onOpen = async () => {
   showAdvanced.value = false
   cachedUseWorkspaceStorage.value = undefined
+  clonedLastNodes.value = []
   pendingWorkspaceId.value = store.currentWorkspaceId ?? store.firstWorkspace ?? ''
 
   const fetches = [fetchNodes(), fetchSecrets(), userStore.fetchEnvs(), fetchPersistentStoragePaths()]
