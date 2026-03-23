@@ -162,6 +162,8 @@ type ModelInfo struct {
 	Origin          string            `json:"origin,omitempty"`
 	SftJobId        string            `json:"sftJobId,omitempty"`
 	BaseModel       string            `json:"baseModel,omitempty"`
+	UserId          string            `json:"userId,omitempty"`
+	UserName        string            `json:"userName,omitempty"`
 	CreatedAt       string            `json:"createdAt,omitempty"`
 	UpdatedAt       string            `json:"updatedAt,omitempty"`
 	DeletionTime    string            `json:"deletionTime,omitempty"`

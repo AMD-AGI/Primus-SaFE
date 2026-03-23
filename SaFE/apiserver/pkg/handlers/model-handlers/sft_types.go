@@ -72,6 +72,8 @@ const (
 	SftLabelDataset      = "safe/sft-dataset"
 	SftLabelPeft         = "safe/sft-peft"
 	SftLabelBaseModelId  = "safe/sft-base-model-id"
+	SftLabelUserId       = "safe/sft-user-id"
+	SftLabelUserName     = "safe/sft-user-name"
 
 	SftWorkloadTypeValue = "sft"
 )

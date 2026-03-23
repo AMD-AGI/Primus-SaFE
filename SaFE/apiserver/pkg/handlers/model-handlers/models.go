@@ -81,7 +81,9 @@ func (h *Handler) createModel(c *gin.Context) (interface{}, error) {
 
 	// Handle local_path mode (SFT training output) — separate flow
 	if req.Source.AccessMode == string(v1.AccessModeLocalPath) {
-		return h.createModelFromLocalPath(ctx, &req)
+		userId := c.GetString(common.UserId)
+		userName := c.GetString(common.UserName)
+		return h.createModelFromLocalPath(ctx, &req, userId, userName)
 	}
 
 	// Validate URL first
@@ -339,7 +341,7 @@ func parseListModelQuery(c *gin.Context) (*ListModelQuery, error) {
 
 // createModelFromLocalPath creates a model from an existing NFS/PFS path (SFT training output).
 // The model is immediately set to Ready phase — no download is needed.
-func (h *Handler) createModelFromLocalPath(ctx context.Context, req *CreateModelRequest) (interface{}, error) {
+func (h *Handler) createModelFromLocalPath(ctx context.Context, req *CreateModelRequest, userId, userName string) (interface{}, error) {
 	if req.Source.LocalPath == "" {
 		return nil, commonerrors.NewBadRequest("localPath is required for local_path mode")
 	}
@@ -404,6 +406,8 @@ func (h *Handler) createModelFromLocalPath(ctx context.Context, req *CreateModel
 			Origin:      origin,
 			SftJobId:    req.SftJobId,
 			BaseModel:   req.BaseModel,
+			UserId:      userId,
+			UserName:    userName,
 		}
 		if localPathsJSON, err := json.Marshal(localPaths); err == nil {
 			dbModel.LocalPaths = string(localPathsJSON)
@@ -987,6 +991,8 @@ func cvtDBModelToInfo(dbModel *dbclient.Model) ModelInfo {
 		Workspace:       dbModel.Workspace,
 		S3Path:          dbModel.S3Path,
 		LocalPaths:      localPaths,
+		UserId:          dbModel.UserId,
+		UserName:        dbModel.UserName,
 		CreatedAt:       formatNullTime(dbModel.CreatedAt),
 		UpdatedAt:       formatNullTime(dbModel.UpdatedAt),
 		DeletionTime:    formatNullTime(dbModel.DeletionTime),

@@ -86,12 +86,16 @@ func (h *Handler) createSftJob(c *gin.Context) (interface{}, error) {
 	}
 
 	// Step 7: Build customer labels (used by Training list to identify SFT jobs)
+	userId := c.GetString(common.UserId)
+	userName := c.GetString(common.UserName)
 	customerLabels := map[string]string{
 		SftLabelWorkloadType: SftWorkloadTypeValue,
 		SftLabelModel:        hfModelName,
 		SftLabelDataset:      req.DatasetId,
 		SftLabelPeft:         req.TrainConfig.Peft,
 		SftLabelBaseModelId:  req.ModelId,
+		SftLabelUserId:       userId,
+		SftLabelUserName:     userName,
 	}
 
 	// Step 8: Build resources — PyTorchJob splits into master + workers
