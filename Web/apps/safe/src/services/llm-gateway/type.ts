@@ -48,7 +48,6 @@ export interface LLMGatewayUsage {
 export interface LLMGatewayUsageParams {
   start_date: string
   end_date: string
-  timezone?: string
 }
 
 export interface LLMGatewaySummary {
@@ -57,26 +56,28 @@ export interface LLMGatewaySummary {
   model_spend: Record<string, number>
 }
 
-export interface LLMGatewayBudget {
-  user_email: string
-  spend: number
-  max_budget: number | null
-  remaining: number | null
-  budget_exceeded: boolean
-  usage_percent: number | null
-  message?: string
+export interface LLMGatewayTagUsageParams {
+  start_date: string
+  end_date: string
+  timezone?: string
+  page?: number
+  page_size?: number
+  tag?: string
 }
 
-export interface LLMGatewayBudgetRequest {
-  max_budget: number
-}
-
-export interface LLMGatewayTagUsageItem {
+export interface LLMGatewayTagItem {
   tag_name: string | null
   spend: number
   api_requests: number
+  successful_requests: number
+  failed_requests: number
   prompt_tokens: number
   completion_tokens: number
+}
+
+export interface LLMGatewayTagDailySpend {
+  date: string
+  spend: number
 }
 
 export interface LLMGatewayTagUsage {
@@ -85,17 +86,13 @@ export interface LLMGatewayTagUsage {
   end_date: string
   total_spend: number
   total_requests: number
-  tags: LLMGatewayTagUsageItem[]
+  total_successful_requests: number
+  total_failed_requests: number
+  total_tokens: number
+  daily: LLMGatewayTagDailySpend[]
+  tags: LLMGatewayTagItem[]
   page: number
   page_size: number
   total: number
   total_pages: number
-}
-
-export interface LLMGatewayTagUsageParams {
-  start_date: string
-  end_date: string
-  timezone?: string
-  page?: number
-  page_size?: number
 }
