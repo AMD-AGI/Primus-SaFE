@@ -17,10 +17,11 @@ import (
 
 // ProxyService represents a proxy service configuration
 type ProxyService struct {
-	Name    string `json:"name" yaml:"name"`       // Service name
-	Prefix  string `json:"prefix" yaml:"prefix"`   // URL prefix for the proxy route
-	Target  string `json:"target" yaml:"target"`   // Target service URL
-	Enabled bool   `json:"enabled" yaml:"enabled"` // Whether the proxy is enabled
+	Name       string `json:"name" yaml:"name" mapstructure:"name"`                         // Service name
+	Prefix     string `json:"prefix" yaml:"prefix" mapstructure:"prefix"`                   // URL prefix for the proxy route
+	Target     string `json:"target" yaml:"target" mapstructure:"target"`                   // Target service URL
+	Enabled    bool   `json:"enabled" yaml:"enabled" mapstructure:"enabled"`                // Whether the proxy is enabled
+	AuthHeader string `json:"auth_header" yaml:"auth_header" mapstructure:"auth_header"`    // Optional: replace Authorization with Basic auth (format: "user:pass")
 }
 
 // SetValue sets a configuration value for the specified key.
@@ -487,6 +488,16 @@ func GetTracingSamplingRatio() float64 {
 // GetTracingOtlpEndpoint returns the OTLP exporter endpoint URL.
 func GetTracingOtlpEndpoint() string {
 	return getString(tracingOtlpEndpoint, "")
+}
+
+// GetLangfuseProxyPublicKey returns the shared Langfuse project public key from secret.
+func GetLangfuseProxyPublicKey() string {
+	return getFromFile(langfuseProxySecretPath, "public_key")
+}
+
+// GetLangfuseProxySecretKey returns the shared Langfuse project secret key from secret.
+func GetLangfuseProxySecretKey() string {
+	return getFromFile(langfuseProxySecretPath, "secret_key")
 }
 
 // IsA2AScannerEnable returns whether the A2A service scanner is enabled.
