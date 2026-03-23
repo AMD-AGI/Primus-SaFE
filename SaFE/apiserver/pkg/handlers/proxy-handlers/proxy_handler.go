@@ -6,6 +6,7 @@
 package proxyhandlers
 
 import (
+	"encoding/base64"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
@@ -74,6 +75,12 @@ func (h *ProxyHandler) addProxy(service commonconfig.ProxyService) error {
 		}
 
 		originalDirector(req)
+
+		// Replace Authorization header with backend credentials if configured
+		if service.AuthHeader != "" {
+			encoded := base64.StdEncoding.EncodeToString([]byte(service.AuthHeader))
+			req.Header.Set("Authorization", "Basic "+encoded)
+		}
 
 		klog.V(4).Infof("Proxy request: %s %s -> %s", req.Method, service.Prefix, req.URL.String())
 	}

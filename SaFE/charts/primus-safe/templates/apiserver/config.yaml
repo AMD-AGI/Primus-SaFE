@@ -123,6 +123,7 @@ data:
           prefix: /api/v1/langfuse
           target: {{ .Values.langfuse_proxy.target }}
           enabled: true
+          auth_header: "{{ .Values.langfuse_proxy.public_key }}:{{ .Values.langfuse_proxy.secret_key }}"
         {{- end }}
     {{- end }}
     llm_gateway:

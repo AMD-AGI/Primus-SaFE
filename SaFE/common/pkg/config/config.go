@@ -17,10 +17,11 @@ import (
 
 // ProxyService represents a proxy service configuration
 type ProxyService struct {
-	Name    string `json:"name" yaml:"name"`       // Service name
-	Prefix  string `json:"prefix" yaml:"prefix"`   // URL prefix for the proxy route
-	Target  string `json:"target" yaml:"target"`   // Target service URL
-	Enabled bool   `json:"enabled" yaml:"enabled"` // Whether the proxy is enabled
+	Name       string `json:"name" yaml:"name"`              // Service name
+	Prefix     string `json:"prefix" yaml:"prefix"`          // URL prefix for the proxy route
+	Target     string `json:"target" yaml:"target"`          // Target service URL
+	Enabled    bool   `json:"enabled" yaml:"enabled"`        // Whether the proxy is enabled
+	AuthHeader string `json:"auth_header" yaml:"auth_header"` // Optional: replace Authorization with Basic auth (format: "user:pass")
 }
 
 // SetValue sets a configuration value for the specified key.

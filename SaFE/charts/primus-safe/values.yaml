@@ -185,6 +185,9 @@ langfuse_proxy:
   enable: false
   # Internal Langfuse service address
   target: "http://langfuse-web.langfuse.svc.cluster.local:3000/langfuse"
+  # Shared Langfuse project credentials (proxy replaces Authorization header with these)
+  public_key: ""
+  secret_key: ""
 a2a:
   # A2A service discovery scanner
   scanner_enable: false
