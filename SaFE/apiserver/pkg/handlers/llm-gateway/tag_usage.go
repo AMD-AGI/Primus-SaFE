@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	apiutils "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/utils"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
@@ -18,9 +19,14 @@ import (
 	"k8s.io/klog/v2"
 )
 
+const untaggedFilterValue = "__untagged__"
+
 // ── Tag Usage Handler ─────────────────────────────────────────────────────
 
-// GetTagUsage handles GET /api/v1/llm-gateway/tags/usage?start_date=...&end_date=...&timezone=...&page=1&page_size=20
+// GetTagUsage handles GET /api/v1/llm-gateway/tags/usage?start_date=...&end_date=...&timezone=...&tag=...&page=1&page_size=20
+//
+// Optional "tag" parameter filters logs to a specific tag.
+// Use tag=__untagged__ to show only requests without custom tags.
 func (h *Handler) GetTagUsage(c *gin.Context) {
 	email := h.getUserEmail(c)
 	if email == "" {
@@ -40,6 +46,8 @@ func (h *Handler) GetTagUsage(c *gin.Context) {
 		apiutils.AbortWithApiError(c, commonerrors.NewBadRequest(err.Error()))
 		return
 	}
+
+	tagFilter := c.Query("tag")
 
 	page := parseIntParam(c.Query("page"), 1)
 	pageSize := parseIntParam(c.Query("page_size"), defaultTagPageSize)
@@ -73,10 +81,19 @@ func (h *Handler) GetTagUsage(c *gin.Context) {
 	}
 
 	allLogs = filterLogsByLocalDate(allLogs, startDate, endDate, loc)
-	result := aggregateByTag(allLogs)
+
+	if tagFilter != "" {
+		allLogs = filterLogsByTag(allLogs, tagFilter)
+	}
+
+	result := aggregateByTag(allLogs, loc)
 
 	sort.Slice(result.tags, func(i, j int) bool {
 		return result.tags[i].Spend > result.tags[j].Spend
+	})
+
+	sort.Slice(result.daily, func(i, j int) bool {
+		return result.daily[i].Date < result.daily[j].Date
 	})
 
 	total := len(result.tags)
@@ -91,16 +108,20 @@ func (h *Handler) GetTagUsage(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, TagUsageResponse{
-		UserEmail:     email,
-		StartDate:     startDate,
-		EndDate:       endDate,
-		TotalSpend:    result.totalSpend,
-		TotalRequests: result.totalRequests,
-		Tags:          result.tags[start:end],
-		Page:          page,
-		PageSize:      pageSize,
-		Total:         total,
-		TotalPages:    totalPages,
+		UserEmail:               email,
+		StartDate:               startDate,
+		EndDate:                 endDate,
+		TotalSpend:              result.totalSpend,
+		TotalRequests:           result.totalRequests,
+		TotalSuccessfulRequests: result.totalSuccessful,
+		TotalFailedRequests:     result.totalFailed,
+		TotalTokens:             result.totalTokens,
+		Daily:                   result.daily,
+		Tags:                    result.tags[start:end],
+		Page:                    page,
+		PageSize:                pageSize,
+		Total:                   total,
+		TotalPages:              totalPages,
 	})
 }
 
@@ -115,30 +136,78 @@ func parseIntParam(s string, defaultVal int) int {
 	return v
 }
 
+// ── Tag filtering logic ───────────────────────────────────────────────────
+
+// filterLogsByTag keeps only log entries that match the given tag.
+// Use untaggedFilterValue ("__untagged__") to match entries with no custom tags.
+func filterLogsByTag(logs []SpendLogEntry, tag string) []SpendLogEntry {
+	filtered := make([]SpendLogEntry, 0, len(logs)/2)
+	for i := range logs {
+		customTags := filterCustomTags(parseRequestTags(logs[i].RequestTags))
+		if tag == untaggedFilterValue {
+			if len(customTags) == 0 {
+				filtered = append(filtered, logs[i])
+			}
+		} else {
+			for _, t := range customTags {
+				if t == tag {
+					filtered = append(filtered, logs[i])
+					break
+				}
+			}
+		}
+	}
+	return filtered
+}
+
 // ── Tag aggregation logic ─────────────────────────────────────────────────
 
 type tagAggResult struct {
 	totalSpend    float64
 	totalRequests int64
+	totalSuccessful int64
+	totalFailed     int64
+	totalTokens     int64
+	daily         []TagUsageDailyEntry
 	tags          []TagUsageItem
 }
 
 type tagAccum struct {
 	spend            float64
 	requests         int64
+	successful       int64
+	failed           int64
 	promptTokens     int64
 	completionTokens int64
 }
 
-func aggregateByTag(logs []SpendLogEntry) tagAggResult {
+func isSuccessStatus(status string) bool {
+	return status == "success" || status == "Success"
+}
+
+func aggregateByTag(logs []SpendLogEntry, loc *time.Location) tagAggResult {
 	tagMap := make(map[string]*tagAccum)
+	dailyMap := make(map[string]float64)
 	var totalSpend float64
-	var totalRequests int64
+	var totalRequests, totalSuccessful, totalFailed, totalTokens int64
 
 	for i := range logs {
 		log := &logs[i]
 		totalSpend += log.Spend
 		totalRequests++
+		tokens := log.PromptTokens + log.CompletionTokens
+		totalTokens += tokens
+
+		if isSuccessStatus(log.Status) {
+			totalSuccessful++
+		} else {
+			totalFailed++
+		}
+
+		if t := parseTimestamp(log.StartTime); !t.IsZero() {
+			day := t.In(loc).Format(dateLayout)
+			dailyMap[day] += log.Spend
+		}
 
 		tags := parseRequestTags(log.RequestTags)
 		customTags := filterCustomTags(tags)
@@ -157,16 +226,23 @@ func aggregateByTag(logs []SpendLogEntry) tagAggResult {
 			accum.requests++
 			accum.promptTokens += log.PromptTokens
 			accum.completionTokens += log.CompletionTokens
+			if isSuccessStatus(log.Status) {
+				accum.successful++
+			} else {
+				accum.failed++
+			}
 		}
 	}
 
 	items := make([]TagUsageItem, 0, len(tagMap))
 	for tag, accum := range tagMap {
 		item := TagUsageItem{
-			Spend:            accum.spend,
-			APIRequests:      accum.requests,
-			PromptTokens:     accum.promptTokens,
-			CompletionTokens: accum.completionTokens,
+			Spend:              accum.spend,
+			APIRequests:        accum.requests,
+			SuccessfulRequests: accum.successful,
+			FailedRequests:     accum.failed,
+			PromptTokens:       accum.promptTokens,
+			CompletionTokens:   accum.completionTokens,
 		}
 		if tag == "" {
 			item.TagName = nil
@@ -177,9 +253,18 @@ func aggregateByTag(logs []SpendLogEntry) tagAggResult {
 		items = append(items, item)
 	}
 
+	daily := make([]TagUsageDailyEntry, 0, len(dailyMap))
+	for date, spend := range dailyMap {
+		daily = append(daily, TagUsageDailyEntry{Date: date, Spend: spend})
+	}
+
 	return tagAggResult{
 		totalSpend:    totalSpend,
 		totalRequests: totalRequests,
+		totalSuccessful: totalSuccessful,
+		totalFailed:     totalFailed,
+		totalTokens:     totalTokens,
+		daily:         daily,
 		tags:          items,
 	}
 }
