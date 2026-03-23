@@ -115,8 +115,8 @@ const (
 	ForceHostNetworkAnnotation        = WorkloadPrefix + "force.host.network"
 	// For full-GPU jobs with required affinity, the system reserves a node during retries to ensure reuse.
 	// Note: This feature is disabled when preemption is enabled
-	StickyNodesAnnotation   = PrimusSafePrefix + "sticky.nodes.mode"
-	NodesAffinityAnnotation = PrimusSafePrefix + "nodes.affinity"
+	RetryOnOriginalNodesAnnotation = PrimusSafePrefix + "retry.on.original.nodes"
+	NodesAffinityAnnotation        = PrimusSafePrefix + "nodes.affinity"
 
 	// user
 	UserPrefix              = PrimusSafePrefix + "user."

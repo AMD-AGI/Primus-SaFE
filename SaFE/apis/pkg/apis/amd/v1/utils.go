@@ -373,8 +373,8 @@ func GetNodesAffinity(obj metav1.Object) string {
 	return GetAnnotation(obj, NodesAffinityAnnotation)
 }
 
-func IsStickyNodes(obj metav1.Object) bool {
-	return GetAnnotation(obj, StickyNodesAnnotation) == TrueStr
+func IsRetryingOnOriginal(obj metav1.Object) bool {
+	return GetAnnotation(obj, RetryOnOriginalNodesAnnotation) == TrueStr
 }
 func IsEnableWorkspaceStorage(obj metav1.Object) bool {
 	return GetAnnotation(obj, UseWorkspaceStorageAnnotation) == TrueStr

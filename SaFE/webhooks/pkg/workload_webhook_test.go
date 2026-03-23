@@ -187,8 +187,8 @@ func TestMutateStickyNodes_EnablePreempt(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{
 			Name: "w1",
 			Annotations: map[string]string{
-				v1.StickyNodesAnnotation:   v1.TrueStr,
-				v1.NodesAffinityAnnotation: common.NodesAffinityRequired,
+				v1.RetryOnOriginalNodesAnnotation: v1.TrueStr,
+				v1.NodesAffinityAnnotation:        common.NodesAffinityRequired,
 			},
 		},
 		Spec: v1.WorkloadSpec{
@@ -209,7 +209,7 @@ func TestMutateStickyNodes_EnablePreempt(t *testing.T) {
 	m.mutateStickNodes(ctx, workload, workspace)
 
 	// Should remove sticky nodes annotation when preempt is enabled
-	assert.Equal(t, v1.GetAnnotation(workload, v1.StickyNodesAnnotation), "")
+	assert.Equal(t, v1.GetAnnotation(workload, v1.RetryOnOriginalNodesAnnotation), "")
 }
 
 func TestMutateStickyNodes_UnsupportedKind(t *testing.T) {
@@ -220,8 +220,8 @@ func TestMutateStickyNodes_UnsupportedKind(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{
 			Name: "w1",
 			Annotations: map[string]string{
-				v1.StickyNodesAnnotation:   v1.TrueStr,
-				v1.NodesAffinityAnnotation: common.NodesAffinityRequired,
+				v1.RetryOnOriginalNodesAnnotation: v1.TrueStr,
+				v1.NodesAffinityAnnotation:        common.NodesAffinityRequired,
 			},
 		},
 		Spec: v1.WorkloadSpec{
@@ -242,7 +242,7 @@ func TestMutateStickyNodes_UnsupportedKind(t *testing.T) {
 	m.mutateStickNodes(ctx, workload, workspace)
 
 	// Should remove sticky nodes annotation for unsupported kind
-	assert.Equal(t, v1.GetAnnotation(workload, v1.StickyNodesAnnotation), "")
+	assert.Equal(t, v1.GetAnnotation(workload, v1.RetryOnOriginalNodesAnnotation), "")
 }
 
 func TestMutateStickyNodes_GpuCountMismatch(t *testing.T) {
@@ -267,8 +267,8 @@ func TestMutateStickyNodes_GpuCountMismatch(t *testing.T) {
 				v1.NodeFlavorIdLabel: "nf1",
 			},
 			Annotations: map[string]string{
-				v1.StickyNodesAnnotation:   v1.TrueStr,
-				v1.NodesAffinityAnnotation: common.NodesAffinityRequired,
+				v1.RetryOnOriginalNodesAnnotation: v1.TrueStr,
+				v1.NodesAffinityAnnotation:        common.NodesAffinityRequired,
 			},
 		},
 		Spec: v1.WorkloadSpec{
@@ -292,7 +292,7 @@ func TestMutateStickyNodes_GpuCountMismatch(t *testing.T) {
 	m.mutateStickNodes(ctx, workload, workspace)
 
 	// Should remove sticky nodes annotation when GPU count mismatch
-	assert.Equal(t, v1.GetAnnotation(workload, v1.StickyNodesAnnotation), "")
+	assert.Equal(t, v1.GetAnnotation(workload, v1.RetryOnOriginalNodesAnnotation), "")
 }
 
 func TestMutateStickyNodes_AllConditionsPass(t *testing.T) {
@@ -341,5 +341,5 @@ func TestMutateStickyNodes_AllConditionsPass(t *testing.T) {
 	m.mutateStickNodes(ctx, workload, workspace)
 
 	// Should keep sticky nodes annotation when all conditions pass
-	assert.Equal(t, v1.GetAnnotation(workload, v1.StickyNodesAnnotation), v1.TrueStr)
+	assert.Equal(t, v1.GetAnnotation(workload, v1.RetryOnOriginalNodesAnnotation), v1.TrueStr)
 }

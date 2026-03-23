@@ -487,7 +487,7 @@ func modifySelector(obj *unstructured.Unstructured, workload *v1.Workload, path 
 
 // modifyTolerations adds tolerations to tolerate all taints when IsTolerateAll is enabled or tolerate sticky node taints
 func modifyTolerations(obj *unstructured.Unstructured, workload *v1.Workload, path []string) error {
-	if !workload.Spec.IsTolerateAll && !v1.IsStickyNodes(workload) {
+	if !workload.Spec.IsTolerateAll && !v1.IsRetryingOnOriginal(workload) {
 		return nil
 	}
 	var tolerations []interface{}

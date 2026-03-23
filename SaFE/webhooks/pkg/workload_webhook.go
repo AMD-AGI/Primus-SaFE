@@ -598,6 +598,9 @@ func (m *WorkloadMutator) mutateStickNodes(ctx context.Context, workload *v1.Wor
 		if workspace == nil || workspace.Spec.EnablePreempt {
 			return true
 		}
+		if workload.Spec.MaxRetry <= 0 || v1.GetNodesAffinity(workload) != common.NodesAffinityRequired {
+			return true
+		}
 		supportsKinds := []string{common.PytorchJobKind, common.TorchFTKind, common.RayJobKind}
 		if !slice.Contains(supportsKinds, workload.SpecKind()) {
 			return true
@@ -614,11 +617,10 @@ func (m *WorkloadMutator) mutateStickNodes(ctx context.Context, workload *v1.Wor
 		}
 		return false
 	}
-	if workload.Spec.MaxRetry > 0 && v1.GetNodesAffinity(workload) == common.NodesAffinityRequired &&
-		!isDisableStickyNodes(ctx, workload, workspace) && !workspace.Spec.EnablePreempt {
-		v1.SetAnnotation(workload, v1.StickyNodesAnnotation, v1.TrueStr)
+	if !isDisableStickyNodes(ctx, workload, workspace) {
+		v1.SetAnnotation(workload, v1.RetryOnOriginalNodesAnnotation, v1.TrueStr)
 	} else {
-		v1.RemoveAnnotation(workload, v1.StickyNodesAnnotation)
+		v1.RemoveAnnotation(workload, v1.RetryOnOriginalNodesAnnotation)
 	}
 }
 
@@ -789,8 +791,7 @@ func (v *WorkloadValidator) validateRequiredParams(workload *v1.Workload) error 
 
 func (v *WorkloadValidator) validateAuthoring(workload *v1.Workload) error {
 	if v1.GetNodesAffinity(workload) == common.NodesAffinityRequired {
-		val, _ := workload.Spec.CustomerLabels[v1.K8sHostName]
-		if val != "" && len(strings.Split(val, " ")) > 1 {
+		if len(commonworkload.GetSpecifiedNodes(workload)) > 1 {
 			return fmt.Errorf("the authoring can only be created with one node")
 		}
 	}
