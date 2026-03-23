@@ -58,17 +58,27 @@
         type="primary"
         @click="onSearch({ resetPage: true })"
       ></el-button>
-      <el-button
-        :icon="Refresh"
-        size="default"
-        @click="
+      <el-tooltip content="Reset filters" placement="top">
+        <el-button
+          :icon="ResetIcon"
+          size="default"
+          @click="
           () => {
-            Object.assign(searchParams, initialSearchParams)
+            const { onlyMyself, userId } = searchParams
+            Object.assign(searchParams, initialSearchParams, { onlyMyself, userId })
             pagination.page = 1
             onSearch({ resetPage: true })
           }
-        "
-      ></el-button>
+          "
+        ></el-button>
+      </el-tooltip>
+      <el-tooltip content="Refresh" placement="top">
+        <el-button
+          :icon="Refresh"
+          size="default"
+          @click="onSearch({ resetPage: false })"
+        ></el-button>
+      </el-tooltip>
     </div>
   </div>
 
@@ -370,6 +380,7 @@ import {
   WorkloadPhaseButtonType,
 } from '@/services/workload/type'
 import { Search, Refresh, CopyDocument, Plus, Timer, WarningFilled, InfoFilled } from '@element-plus/icons-vue'
+import ResetIcon from '@/components/icons/ResetIcon.vue'
 import { copyText, formatTimeStr, last24hUtcExact } from '@/utils/index'
 import dayjs from 'dayjs'
 import utc from 'dayjs/plugin/utc'
