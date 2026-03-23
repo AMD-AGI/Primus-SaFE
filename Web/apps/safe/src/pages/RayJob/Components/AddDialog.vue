@@ -313,13 +313,17 @@
                   </el-form-item>
                 </el-col>
 
-                <!-- stickyNodes -->
+                <!-- nodesAffinity -->
                 <el-col :span="12" v-if="!isEdit">
-                  <el-form-item label="stickyNodes">
-                    <el-switch v-model="form.stickyNodes" class="mr-2" />
-                    <el-text size="small" type="info">
+                  <el-form-item label="nodesAffinity">
+                    <el-radio-group v-model="form.nodesAffinity" size="small">
+                      <el-radio-button value="">Disabled</el-radio-button>
+                      <el-radio-button value="required">Required</el-radio-button>
+                      <el-radio-button value="preferred">Preferred</el-radio-button>
+                    </el-radio-group>
+                    <el-text size="small" type="info" class="ml-2">
                       <el-icon class="mr-1"><InfoFilled /></el-icon>
-                      {{ STICKY_NODES_INFO }}
+                      {{ NODES_AFFINITY_INFO }}
                     </el-text>
                   </el-form-item>
                 </el-col>
@@ -564,7 +568,7 @@ const SCHEDULER_INFO = 'Scheduled execution time'
 const RETRY_TIMES_INFO = 'Maximum retries:50'
 const HANG_CHECK_INFO = 'workload fails if the last node(by rank) has no logs for 20 minutes'
 const PREHEAT_INFO = 'preheat: When enabled, preheats the image, which increases workload duration.'
-const STICKY_NODES_INFO = 'When enabled, it will prefer the last-used nodes.'
+const NODES_AFFINITY_INFO = 'Node affinity: Required (strict) or Preferred (best-effort)'
 const JOB_ENTRYPOINT_INFO = 'Defines the task to run after cluster startup. Use tail -f /dev/null to just keep the cluster alive.'
 const CLUSTER_ENTRYPOINT_INFO = 'Ray Cluster entrypoint, used for initialization during cluster creation'
 const PRIVILEGED_INFO = 'Whether to run in privileged mode'
@@ -646,7 +650,7 @@ const initialForm = () => ({
 
   secretIds: [] as string[],
   preheat: false,
-  stickyNodes: false,
+  nodesAffinity: '' as '' | 'required' | 'preferred',
   privileged: false,
   forceHostNetwork: false,
 })
@@ -769,6 +773,7 @@ const onSubmit = async (formEl: FormInstance | undefined) => {
       workers,
       header,
       jobEntrypoint,
+      nodesAffinity: _nodesAffinity,
       ...addPayload
     } = form
 
@@ -820,7 +825,7 @@ const onSubmit = async (formEl: FormInstance | undefined) => {
         ...(form.timeout ? { timeout: form.timeout } : {}),
         ...(secrets.length > 0 ? { secrets: secrets } : {}),
         ...(excludedNodesPayload ? { excludedNodes: excludedNodesPayload } : {}),
-        stickyNodes: form.stickyNodes,
+        ...(form.nodesAffinity ? { nodesAffinity: form.nodesAffinity as 'required' | 'preferred' } : {}),
         ...(cachedUseWorkspaceStorage.value !== undefined ? { useWorkspaceStorage: cachedUseWorkspaceStorage.value } : {}),
       })
       ElMessage({ message: 'Create successful', type: 'success' })
@@ -952,7 +957,7 @@ const setInitialFormValues = async () => {
   form.isSupervised = res.isSupervised ?? false
   form.maxRetry = res.maxRetry ?? 0
   form.timeout = res.timeout
-  form.stickyNodes = res.stickyNodes ?? false
+  form.nodesAffinity = res.nodesAffinity || ''
   form.privileged = res.privileged ?? false
   form.schedulerTime = decodeScheduleFromApi(res.cronJobs?.[0]?.schedule) ?? ''
   form.dependencies = res.dependencies ?? []

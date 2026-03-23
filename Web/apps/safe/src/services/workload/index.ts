@@ -107,8 +107,6 @@ export const batchDelWorkload = (data: { workloadIds: string[] }): Promise<any> 
   request.post('/workloads/delete', data)
 export const batchStopWorkload = (data: { workloadIds: string[] }): Promise<any> =>
   request.post('/workloads/stop', data)
-export const batchCloneWorkload = (data: { workloadIds: string[] }): Promise<any> =>
-  request.post('/workloads/clone', data)
 
 function toQuery(obj?: Record<string, any>) {
   const usp = new URLSearchParams()

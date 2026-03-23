@@ -335,7 +335,7 @@ export function useWorkloadDetail(options: UseWorkloadDetailOptions) {
           ...(detail.timeout ? { timeout: detail.timeout } : {}),
           ...(secrets.length > 0 ? { secrets } : {}),
           ...(detail.excludedNodes?.length ? { excludedNodes: detail.excludedNodes } : {}),
-          ...(detail.stickyNodes !== undefined ? { stickyNodes: detail.stickyNodes } : {}),
+          ...(detail.nodesAffinity ? { nodesAffinity: detail.nodesAffinity } : {}),
           ...(detail.cronJobs?.length ? { cronJobs: detail.cronJobs } : {}),
           // resume the same workload
           workloadId: detail.workloadId,

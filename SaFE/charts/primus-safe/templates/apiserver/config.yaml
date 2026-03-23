@@ -124,6 +124,10 @@ data:
           target: {{ .Values.langfuse_proxy.target }}
           enabled: true
         {{- end }}
+    {{- if and .Values.langfuse_proxy .Values.langfuse_proxy.enable }}
+    langfuse_proxy:
+      secret_path: {{ default "/etc/secrets/langfuse-proxy" .Values.langfuse_proxy.secret_path }}
+    {{- end }}
     {{- end }}
     llm_gateway:
       # Whether to enable LLM Gateway (SaFE API Key -> LiteLLM Virtual Key binding)
