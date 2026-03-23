@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/golang/mock/gomock"
@@ -32,33 +33,53 @@ func TestAggregateByTag(t *testing.T) {
 			PromptTokens:     10,
 			CompletionTokens: 5,
 			RequestTags:      json.RawMessage(`["team-a","User-Agent:SAFE"]`),
+			StartTime:        "2026-03-18T10:00:00",
+			Status:           "success",
 		},
 		{
 			Spend:            2.0,
 			PromptTokens:     20,
 			CompletionTokens: 8,
 			RequestTags:      json.RawMessage(`["team-a","team-b"]`),
+			StartTime:        "2026-03-18T14:00:00",
+			Status:           "success",
 		},
 		{
 			Spend:            3.0,
 			PromptTokens:     30,
 			CompletionTokens: 12,
 			RequestTags:      json.RawMessage(`["User-Agent:SAFE"]`),
+			StartTime:        "2026-03-19T09:00:00",
+			Status:           "fail",
 		},
 		{
 			Spend:            4.0,
 			PromptTokens:     40,
 			CompletionTokens: 16,
 			RequestTags:      json.RawMessage(`invalid-json`),
+			StartTime:        "2026-03-19T12:00:00",
+			Status:           "fail",
 		},
 	}
 
-	result := aggregateByTag(logs)
+	result := aggregateByTag(logs, time.UTC)
 
 	assert.Equal(t, 10.5, result.totalSpend)
 	assert.Equal(t, int64(4), result.totalRequests)
+	assert.Equal(t, int64(2), result.totalSuccessful)
+	assert.Equal(t, int64(2), result.totalFailed)
+	assert.Equal(t, int64(141), result.totalTokens)
 	assert.Len(t, result.tags, 3)
 
+	// daily breakdown
+	dailyMap := make(map[string]float64, len(result.daily))
+	for _, d := range result.daily {
+		dailyMap[d.Date] = d.Spend
+	}
+	assert.Equal(t, 3.5, dailyMap["2026-03-18"])
+	assert.Equal(t, 7.0, dailyMap["2026-03-19"])
+
+	// tag breakdown
 	items := make(map[string]TagUsageItem, len(result.tags))
 	for _, item := range result.tags {
 		if item.TagName == nil {
@@ -70,10 +91,37 @@ func TestAggregateByTag(t *testing.T) {
 
 	assert.Equal(t, 3.5, items["team-a"].Spend)
 	assert.Equal(t, int64(2), items["team-a"].APIRequests)
+	assert.Equal(t, int64(2), items["team-a"].SuccessfulRequests)
+	assert.Equal(t, int64(0), items["team-a"].FailedRequests)
 	assert.Equal(t, int64(30), items["team-a"].PromptTokens)
 	assert.Equal(t, 2.0, items["team-b"].Spend)
 	assert.Equal(t, int64(2), items[""].APIRequests)
+	assert.Equal(t, int64(0), items[""].SuccessfulRequests)
+	assert.Equal(t, int64(2), items[""].FailedRequests)
 	assert.Equal(t, 7.0, items[""].Spend)
+}
+
+func TestFilterLogsByTag(t *testing.T) {
+	logs := []SpendLogEntry{
+		{Spend: 1.0, RequestTags: json.RawMessage(`["alpha","beta"]`)},
+		{Spend: 2.0, RequestTags: json.RawMessage(`["beta"]`)},
+		{Spend: 3.0, RequestTags: json.RawMessage(`[]`)},
+		{Spend: 4.0, RequestTags: json.RawMessage(`["User-Agent:SAFE"]`)},
+	}
+
+	// filter by specific tag
+	filtered := filterLogsByTag(logs, "alpha")
+	assert.Len(t, filtered, 1)
+	assert.Equal(t, 1.0, filtered[0].Spend)
+
+	filtered = filterLogsByTag(logs, "beta")
+	assert.Len(t, filtered, 2)
+
+	// filter untagged (no custom tags)
+	filtered = filterLogsByTag(logs, untaggedFilterValue)
+	assert.Len(t, filtered, 2)
+	assert.Equal(t, 3.0, filtered[0].Spend)
+	assert.Equal(t, 4.0, filtered[1].Spend)
 }
 
 func TestGetTagUsage_SuccessPaginationAndSorting(t *testing.T) {
