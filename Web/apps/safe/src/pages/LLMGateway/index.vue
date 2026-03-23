@@ -669,7 +669,6 @@ const fetchUsage = async () => {
     usage.value = await getLLMGatewayUsage({
       start_date: dateRange.value[0],
       end_date: dateRange.value[1],
-      timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
     })
     await nextTick()
     renderChart()
