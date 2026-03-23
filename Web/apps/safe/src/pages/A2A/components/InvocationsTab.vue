@@ -6,10 +6,10 @@
       size="large"
       v-loading="loading"
     >
-      <el-table-column prop="id" label="ID" width="80" />
-      <el-table-column prop="traceId" label="Trace ID" min-width="200" show-overflow-tooltip />
+      <el-table-column prop="id" label="ID" width="80" fixed="left" />
+      <el-table-column prop="traceId" label="Trace ID" min-width="200" show-overflow-tooltip fixed="left" />
       <el-table-column prop="callerServiceName" label="Caller" min-width="120" show-overflow-tooltip />
-      <el-table-column prop="callerUserId" label="Caller User" min-width="160" show-overflow-tooltip />
+      <el-table-column prop="callerUserName" label="Caller User" min-width="160" show-overflow-tooltip />
       <el-table-column prop="targetServiceName" label="Target" min-width="120" show-overflow-tooltip />
       <el-table-column label="Status" width="110">
         <template #default="{ row }">
