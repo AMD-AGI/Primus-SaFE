@@ -9,7 +9,6 @@ import (
 	"context"
 	"testing"
 
-	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	"gotest.tools/assert"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -139,7 +138,7 @@ func TestMutateWorkloadsOfWorkspace_EnablePreempt(t *testing.T) {
 				v1.WorkspaceIdLabel: "ws1",
 			},
 			Annotations: map[string]string{
-				v1.NodesAffinityAnnotation: common.NodesAffinityPreferred,
+				v1.RetryOnOriginalNodesAnnotation: v1.TrueStr,
 			},
 		},
 		Status: v1.WorkloadStatus{
@@ -171,7 +170,7 @@ func TestMutateWorkloadsOfWorkspace_EnablePreempt(t *testing.T) {
 	// Should set preempt annotation
 	assert.Equal(t, v1.GetAnnotation(updated, v1.WorkloadEnablePreemptAnnotation), v1.TrueStr)
 	// Should remove sticky nodes annotation
-	assert.Equal(t, v1.GetAnnotation(updated, v1.NodesAffinityAnnotation), "")
+	assert.Equal(t, v1.GetAnnotation(updated, v1.RetryOnOriginalNodesAnnotation), "")
 }
 
 func TestMutateWorkloadsOfWorkspace_DisablePreempt(t *testing.T) {
