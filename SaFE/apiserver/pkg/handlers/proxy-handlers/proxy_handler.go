@@ -64,18 +64,17 @@ func (h *ProxyHandler) addProxy(service commonconfig.ProxyService) error {
 
 	proxy := httputil.NewSingleHostReverseProxy(targetURL)
 
-	// Customize the director to strip the prefix
+	// Customize the director to strip the prefix before joining with target path
 	originalDirector := proxy.Director
 	proxy.Director = func(req *http.Request) {
-		originalDirector(req)
-
-		// Strip the prefix from the path
+		// Strip the prefix first, before originalDirector joins with target path
 		req.URL.Path = strings.TrimPrefix(req.URL.Path, service.Prefix)
 		if !strings.HasPrefix(req.URL.Path, "/") {
 			req.URL.Path = "/" + req.URL.Path
 		}
 
-		// User ID is already set in the request header by createProxyHandler
+		originalDirector(req)
+
 		klog.V(4).Infof("Proxy request: %s %s -> %s", req.Method, service.Prefix, req.URL.String())
 	}
 
