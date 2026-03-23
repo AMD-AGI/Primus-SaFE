@@ -33,10 +33,8 @@ import (
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
-	commonfaults "github.com/AMD-AIG-AIMA/SAFE/common/pkg/faults"
 	commonnodes "github.com/AMD-AIG-AIMA/SAFE/common/pkg/nodes"
 	commonjob "github.com/AMD-AIG-AIMA/SAFE/common/pkg/ops_job"
-	"github.com/AMD-AIG-AIMA/SAFE/resource-manager/pkg/resource"
 	"github.com/AMD-AIG-AIMA/SAFE/resource-manager/pkg/utils"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/backoff"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/concurrent"
@@ -325,8 +323,7 @@ func (r *AddonJobReconciler) handleNode(ctx context.Context,
 	if err != nil {
 		return false, "", err
 	}
-	key := commonfaults.GenerateTaintKey(resource.NodeNotReady)
-	if !adminNode.IsMachineReady() || commonfaults.HasTaintKey(adminNode.Status.Taints, key) {
+	if !adminNode.IsMachineReady() {
 		return false, "", fmt.Errorf("the node is not ready")
 	}
 	if err = r.createFault(ctx, job, adminNode, v1.AddonMonitorId, "upgrade Addon"); err != nil {

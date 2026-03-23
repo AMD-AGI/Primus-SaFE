@@ -14,8 +14,6 @@ import (
 	"strings"
 	"time"
 
-	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
-	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/slice"
 	admissionv1 "k8s.io/api/admission/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -41,7 +39,9 @@ import (
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/floatutil"
+	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/sets"
+	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/slice"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/timeutil"
 )
@@ -598,6 +598,9 @@ func (m *WorkloadMutator) mutateStickNodes(ctx context.Context, workload *v1.Wor
 		if workspace == nil || workspace.Spec.EnablePreempt {
 			return true
 		}
+		if workload.Spec.MaxRetry <= 0 || v1.GetNodesAffinity(workload) != common.NodesAffinityRequired {
+			return true
+		}
 		supportsKinds := []string{common.PytorchJobKind, common.TorchFTKind, common.RayJobKind}
 		if !slice.Contains(supportsKinds, workload.SpecKind()) {
 			return true
@@ -614,8 +617,10 @@ func (m *WorkloadMutator) mutateStickNodes(ctx context.Context, workload *v1.Wor
 		}
 		return false
 	}
-	if isDisableStickyNodes(ctx, workload, workspace) {
-		v1.RemoveAnnotation(workload, v1.WorkloadStickyNodesAnnotation)
+	if !isDisableStickyNodes(ctx, workload, workspace) {
+		v1.SetAnnotation(workload, v1.RetryOnOriginalNodesAnnotation, v1.TrueStr)
+	} else {
+		v1.RemoveAnnotation(workload, v1.RetryOnOriginalNodesAnnotation)
 	}
 }
 
@@ -707,6 +712,8 @@ func (v *WorkloadValidator) validateOnUpdate(ctx context.Context, newWorkload, o
 func (v *WorkloadValidator) validateCommon(ctx context.Context, newWorkload, oldWorkload *v1.Workload) error {
 	var err error
 	switch newWorkload.SpecKind() {
+	case common.AuthoringKind:
+		err = v.validateAuthoring(newWorkload)
 	case common.CICDScaleRunnerSetKind:
 		err = v.validateCICDScalingRunnerSet(newWorkload)
 	case common.TorchFTKind:
@@ -778,6 +785,15 @@ func (v *WorkloadValidator) validateRequiredParams(workload *v1.Workload) error 
 
 	if err := utilerrors.NewAggregate(errs); err != nil {
 		return err
+	}
+	return nil
+}
+
+func (v *WorkloadValidator) validateAuthoring(workload *v1.Workload) error {
+	if v1.GetNodesAffinity(workload) == common.NodesAffinityRequired {
+		if len(commonworkload.GetSpecifiedNodes(workload)) > 1 {
+			return fmt.Errorf("the authoring can only be created with one node")
+		}
 	}
 	return nil
 }

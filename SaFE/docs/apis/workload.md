@@ -73,7 +73,7 @@ Create a new workload.
     "description": "Training job for model v2"
   },
   "preheat": true,
-  "stickyNodes": true,
+  "nodesAffinity": "required",
   "privileged": false,
   "useWorkspaceStorage": true, 
   "forceHostNetwork": false
@@ -349,6 +349,7 @@ TorchFT is a fault-tolerant distributed training framework that supports elastic
 | maxRetry                     | int      | No       | Maximum retry count, default 0                                                                                                                                                                            |
 | env                          | object   | No       | Environment variable key-value pairs                                                                                                                                                                      |
 | specifiedNodes               | []string | No       | List of nodes to run on                                                                                                                                                                                   |
+| nodesAffinity                | string   | No       | How strictly scheduling follows `specifiedNodes`: `required` (hard: must run on listed nodes) or `preferred` (soft: prefer listed nodes but may use others). If omitted and `specifiedNodes` is non-empty, defaults to `required`. Ignored when `specifiedNodes` is empty. |
 | excludedNodes                | []string | No       | List of nodes to avoid running on. If `specifiedNodes` is provided, this field will be ignored.                                                                                                           |                                                                                                  
 | isSupervised                 | bool     | No       | When enabled, it performs operations like hang detection                                                                                                                                                  |
 | ttlSecondsAfterFinished      | int      | No       | The lifecycle of the workload after completion, in seconds. Default is 60                                                                                                                                 |
@@ -373,7 +374,6 @@ TorchFT is a fault-tolerant distributed training framework that supports elastic
 | labels                       | object   | No       | User-defined labels (key-value pairs). Keys cannot start with "primus-safe"                                                                                                                               |
 | annotations                  | object   | No       | User-defined annotations (key-value pairs). Keys cannot start with "primus-safe"                                                                                                                          |
 | preheat                      | bool     | No       | Whether to preheat the workload to prepare image in advance                                                                                                                                               |
-| stickyNodes                  | bool     | No       | When enabled, the workload will try to use the same nodes during retries/failovers.                                                                                                                       |
 | workloadId                   | string   | NO       | If a workload ID is specified, use that ID directly instead of generating one from the display name.                                                                                                      |
 | userEntry.id                 | string   | NO       | The workload will be created using that specific user ID. This field is only accessible to administrators.                                                                                                |
 | userEntry.name               | string   | NO       | The workload will be created using that specific user name. This field is only accessible to administrators.                                                                                              |
@@ -610,7 +610,7 @@ Get detailed information about a specific workload.
     }
   ],
   "workloadUid": "a8e357ad-f73d-43ac-99fe-118886d5e193",
-  "stickyNodes": true,
+  "nodesAffinity": "required",
   "privileged": false,
   "useWorkspaceStorage": true,
   "forceHostNetwork": false
@@ -652,6 +652,7 @@ Only fields not already covered by "List Workloads" are listed below. Other fiel
 | ranks                           | [][]string | The rank is only valid for the PyTorch job and corresponds one-to-one with the nodes listed above, e.g. [["0"]]                         |
 | customerLabels                  | object     | Custom labels associated with the workload                                                                                              |
 | specifiedNodes                  | []string   | The nodes explicitly specified to run on                                                                                                |
+| nodesAffinity                   | string     | Node affinity mode for `specifiedNodes`: `required`, `preferred`, or empty when not applicable. Same semantics as create request.       |
 | liveness                        | object     | Refer to the CreateWorkload parameter                                                                                                   |
 | readiness                       | object     | Refer to the CreateWorkload parameter                                                                                                   |
 | service                         | object     | Refer to the CreateWorkload parameter                                                                                                   |
@@ -659,7 +660,6 @@ Only fields not already covered by "List Workloads" are listed below. Other fiel
 | cronJobs                        | object     | Refer to the CreateWorkload parameter                                                                                                   |
 | secrets                         | object     | Refer to the CreateWorkload parameter                                                                                                   |
 | workloadUid                     | string     | UID of the workload                                                                                                                     |
-| stickyNodes                     | bool       | When enabled, the workload will try to use the same nodes during retries/failovers.                                                     |
 | privileged                      | bool       | Whether to run the workload in privileged mode.                                                                                         |
 | useWorkspaceStorage             | bool       | Whether to use the workspace storage for workload. Default true.                                                                        |
 | forceHostNetwork                | bool       | Whether to use the Host Network  forcibly                                                                                                       |
@@ -1042,7 +1042,7 @@ Port fields:
 ## Notes
 
 1. **EntryPoint Encoding**: `entryPoint` field must be Base64 encoded
-2. **Node Specification**: When `specifiedNodes` is set, `replica` will be automatically set to the number of nodes
+2. **Node Specification**: When `specifiedNodes` is set, `replica` will be automatically set to the number of nodes. Use `nodesAffinity` (`required` / `preferred`) to control whether those nodes are a hard or soft constraint; if omitted with non-empty `specifiedNodes`, the API defaults to `required`.
 3. **Resource Units**: CPU is in cores, memory format like "256Gi"
 4. **Priority**: 0 is low, 1 is med, 2 is high (requires appropriate permissions)
 5. **Timeout Setting**: timeout of 0 means no timeout, otherwise in seconds

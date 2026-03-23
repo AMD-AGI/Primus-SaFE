@@ -57,6 +57,7 @@ const (
 	PfsSelectorKey         = "pfs-name"
 	JsonContentType        = "application/json; charset=utf-8"
 	KubernetesControlPlane = "node-role.kubernetes.io/control-plane"
+	SpecifiedNodes         = "specified-nodes"
 	ExcludedNodes          = "excluded-nodes"
 	TaintAction            = "taint"
 	CICDArcNamespace       = "arc-systems"
@@ -103,4 +104,9 @@ const (
 	ImageImportingStatus     = "Importing"
 	ImageImportFailedStatus  = "Failed"
 	ImageImportPendingStatus = "Pending"
+)
+
+const (
+	NodesAffinityRequired  = "required"
+	NodesAffinityPreferred = "preferred"
 )
