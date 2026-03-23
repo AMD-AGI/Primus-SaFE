@@ -598,7 +598,7 @@ func (m *WorkloadMutator) mutateStickNodes(ctx context.Context, workload *v1.Wor
 		if workspace == nil || workspace.Spec.EnablePreempt {
 			return true
 		}
-		if workload.Spec.MaxRetry <= 0 || v1.GetNodesAffinity(workload) != common.NodesAffinityRequired {
+		if workload.Spec.MaxRetry <= 0 {
 			return true
 		}
 		supportsKinds := []string{common.PytorchJobKind, common.TorchFTKind, common.RayJobKind}

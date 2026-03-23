@@ -776,8 +776,12 @@ func (h *Handler) generateWorkload(ctx context.Context,
 		return nil, err
 	}
 	v1.SetAnnotation(workload, v1.AdminControlPlaneAnnotation, controlPlaneIp)
-	if len(req.SpecifiedNodes) > 0 && req.NodesAffinity == nil {
-		req.NodesAffinity = pointer.String(common.NodesAffinityRequired)
+	if len(req.SpecifiedNodes) > 0 {
+		if req.NodesAffinity == nil {
+			req.NodesAffinity = pointer.String(common.NodesAffinityRequired)
+		}
+	} else {
+		req.NodesAffinity = nil
 	}
 	v1.SetAnnotation(workload, v1.NodesAffinityAnnotation, req.GetNodesAffinity())
 	genCustomerLabelsByNodes(workload, req.SpecifiedNodes, common.SpecifiedNodes)
