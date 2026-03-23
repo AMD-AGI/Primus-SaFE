@@ -104,7 +104,6 @@ const (
 	WorkloadDisableFailoverAnnotation = WorkloadPrefix + "disable.failover"
 	WorkloadEnablePreemptAnnotation   = WorkloadPrefix + "enable.preempt"
 	WorkloadPrivilegedAnnotation      = WorkloadPrefix + "privileged"
-	WorkloadStickyNodesAnnotation     = WorkloadPrefix + "sticky.nodes"
 	CronJobTimestampAnnotation        = WorkloadPrefix + "cronjob"
 	EnvToBeRemovedAnnotation          = WorkloadPrefix + "env.to.remove"
 	AdminControlPlaneAnnotation       = WorkloadPrefix + "admin.control.plane"
@@ -114,6 +113,10 @@ const (
 	K8sObjectIdLabel                  = PrimusSafePrefix + "k8s.object.id"
 	UseWorkspaceStorageAnnotation     = WorkloadPrefix + "use.workspace.storage"
 	ForceHostNetworkAnnotation        = WorkloadPrefix + "force.host.network"
+	// For full-GPU jobs with required affinity, the system reserves a node during retries to ensure reuse.
+	// Note: This feature is disabled when preemption is enabled
+	RetryOnOriginalNodesAnnotation = PrimusSafePrefix + "retry.on.original.nodes"
+	NodesAffinityAnnotation        = PrimusSafePrefix + "nodes.affinity"
 
 	// user
 	UserPrefix              = PrimusSafePrefix + "user."

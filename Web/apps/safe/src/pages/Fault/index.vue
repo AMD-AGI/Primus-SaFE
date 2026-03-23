@@ -39,17 +39,26 @@
           type="primary"
           @click="onSearch({ resetPage: true })"
         ></el-button>
-        <el-button
-          :icon="Refresh"
-          size="default"
-          @click="
+        <el-tooltip content="Reset filters" placement="top">
+          <el-button
+            :icon="ResetIcon"
+            size="default"
+            @click="
             () => {
               Object.assign(searchParams, initialSearchParams)
               pagination.page = 1
               fetchData()
             }
-          "
-        ></el-button>
+            "
+          ></el-button>
+        </el-tooltip>
+        <el-tooltip content="Refresh" placement="top">
+          <el-button
+            :icon="Refresh"
+            size="default"
+            @click="onSearch({ resetPage: false })"
+          ></el-button>
+        </el-tooltip>
       </el-space>
     </el-col>
   </el-row>
@@ -149,6 +158,7 @@ import { ref, reactive, onMounted, h, watch } from 'vue'
 import { useClusterStore } from '@/stores/cluster'
 import { useUserStore } from '@/stores/user'
 import { Search, Refresh, Delete, Close, Warning } from '@element-plus/icons-vue'
+import ResetIcon from '@/components/icons/ResetIcon.vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { getFaultsList, type FaultsData, deleteFault, stopFault } from '@/services'
 import { formatTimeStr } from '@/utils'

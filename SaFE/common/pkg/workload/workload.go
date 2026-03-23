@@ -503,3 +503,14 @@ func GetUsedHostPorts(ctx context.Context, cli client.Client, clusterId string) 
 	}
 	return ports
 }
+
+// GetSpecifiedNodes retrieves the list of nodes specified for the workload to run on.
+func GetSpecifiedNodes(workload *v1.Workload) []string {
+	keys := []string{common.SpecifiedNodes, v1.K8sHostName}
+	for _, key := range keys {
+		if val, _ := workload.Spec.CustomerLabels[key]; val != "" {
+			return strings.Split(val, " ")
+		}
+	}
+	return nil
+}

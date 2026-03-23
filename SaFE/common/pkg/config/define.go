@@ -146,6 +146,10 @@ const (
 	tracingSamplingRatio = tracingPrefix + "sampling_ratio"
 	tracingOtlpEndpoint  = tracingPrefix + "otlp_endpoint"
 
+	// langfuse_proxy
+	langfuseProxyPrefix    = "langfuse_proxy."
+	langfuseProxySecretPath = langfuseProxyPrefix + "secret_path"
+
 	// a2a
 	a2aPrefix            = "a2a."
 	a2aScannerPrefix     = a2aPrefix + "scanner."

@@ -48,12 +48,27 @@ export interface LLMGatewayUsage {
 export interface LLMGatewayUsageParams {
   start_date: string
   end_date: string
+  timezone?: string
 }
 
 export interface LLMGatewaySummary {
   user_email: string
   total_spend: number
   model_spend: Record<string, number>
+}
+
+export interface LLMGatewayBudget {
+  user_email: string
+  spend: number
+  max_budget: number | null
+  remaining: number | null
+  budget_exceeded: boolean
+  usage_percent: number | null
+  message?: string
+}
+
+export interface LLMGatewayBudgetRequest {
+  max_budget: number
 }
 
 export interface LLMGatewayTagUsageParams {

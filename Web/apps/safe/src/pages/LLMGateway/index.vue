@@ -342,9 +342,19 @@ import {
   updateLLMGatewayBinding,
   getLLMGatewayUsage,
   getLLMGatewaySummary,
+  getLLMGatewayBudget,
+  updateLLMGatewayBudget,
   getLLMGatewayTagUsage,
 } from '@/services'
-import type { LLMGatewayBinding, LLMGatewayUsage, LLMGatewaySummary, LLMGatewayTagUsage, LLMGatewayTagItem, LLMGatewayTagUsageParams } from '@/services'
+import type {
+  LLMGatewayBinding,
+  LLMGatewayUsage,
+  LLMGatewaySummary,
+  LLMGatewayBudget,
+  LLMGatewayTagUsage,
+  LLMGatewayTagItem,
+  LLMGatewayTagUsageParams,
+} from '@/services'
 import { formatTimeStr, copyText } from '@/utils/index'
 import { ElMessage } from 'element-plus'
 import {
@@ -442,6 +452,41 @@ const fetchSummary = async () => {
     summary.value = await getLLMGatewaySummary()
   } catch {
     summary.value = null
+  }
+}
+
+// ── Budget ──
+const budget = ref<LLMGatewayBudget | null>(null)
+const budgetLoading = ref(false)
+const budgetSaving = ref(false)
+const budgetInput = ref<number | undefined>(undefined)
+
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+const fetchBudget = async () => {
+  try {
+    budgetLoading.value = true
+    budget.value = await getLLMGatewayBudget()
+    if (budget.value?.max_budget != null) {
+      budgetInput.value = budget.value.max_budget
+    }
+  } catch {
+    budget.value = null
+  } finally {
+    budgetLoading.value = false
+  }
+}
+
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+const handleSaveBudget = async () => {
+  if (!budgetInput.value || budgetInput.value <= 0) return
+  try {
+    budgetSaving.value = true
+    budget.value = await updateLLMGatewayBudget({ max_budget: budgetInput.value })
+    ElMessage.success('Budget updated successfully')
+  } catch {
+    ElMessage.error('Failed to update budget')
+  } finally {
+    budgetSaving.value = false
   }
 }
 
@@ -624,6 +669,7 @@ const fetchUsage = async () => {
     usage.value = await getLLMGatewayUsage({
       start_date: dateRange.value[0],
       end_date: dateRange.value[1],
+      timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
     })
     await nextTick()
     renderChart()
