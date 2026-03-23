@@ -490,6 +490,16 @@ func GetTracingOtlpEndpoint() string {
 	return getString(tracingOtlpEndpoint, "")
 }
 
+// GetLangfuseProxyPublicKey returns the shared Langfuse project public key from secret.
+func GetLangfuseProxyPublicKey() string {
+	return getFromFile(langfuseProxySecretPath, "public_key")
+}
+
+// GetLangfuseProxySecretKey returns the shared Langfuse project secret key from secret.
+func GetLangfuseProxySecretKey() string {
+	return getFromFile(langfuseProxySecretPath, "secret_key")
+}
+
 // IsA2AScannerEnable returns whether the A2A service scanner is enabled.
 func IsA2AScannerEnable() bool { return getBool(a2aScannerEnable, false) }
 

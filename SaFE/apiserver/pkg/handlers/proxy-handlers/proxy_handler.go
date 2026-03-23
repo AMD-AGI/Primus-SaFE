@@ -80,6 +80,13 @@ func (h *ProxyHandler) addProxy(service commonconfig.ProxyService) error {
 		if service.AuthHeader != "" {
 			encoded := base64.StdEncoding.EncodeToString([]byte(service.AuthHeader))
 			req.Header.Set("Authorization", "Basic "+encoded)
+		} else if service.Name == "langfuse" {
+			pk := commonconfig.GetLangfuseProxyPublicKey()
+			sk := commonconfig.GetLangfuseProxySecretKey()
+			if pk != "" && sk != "" {
+				encoded := base64.StdEncoding.EncodeToString([]byte(pk + ":" + sk))
+				req.Header.Set("Authorization", "Basic "+encoded)
+			}
 		}
 
 		klog.V(4).Infof("Proxy request: %s %s -> %s", req.Method, service.Prefix, req.URL.String())
