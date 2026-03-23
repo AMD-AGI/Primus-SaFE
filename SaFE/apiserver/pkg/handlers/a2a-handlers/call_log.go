@@ -77,9 +77,25 @@ func (h *Handler) ListCallLogs(c *gin.Context) {
 	}
 	total, _ := h.dbClient.CountA2ACallLogs(c.Request.Context(), query)
 
+	// Build userId -> userName map
+	userNameMap := make(map[string]string)
+	for _, log := range logs {
+		if log.CallerUserId != "" {
+			userNameMap[log.CallerUserId] = ""
+		}
+	}
+	for uid := range userNameMap {
+		keys, _ := h.dbClient.SelectApiKeys(c.Request.Context(), sqrl.Eq{"user_id": uid}, nil, 1, 0)
+		if len(keys) > 0 {
+			userNameMap[uid] = keys[0].UserName
+		}
+	}
+
 	views := make([]view.CallLogView, 0, len(logs))
 	for _, log := range logs {
-		views = append(views, toCallLogView(log))
+		v := toCallLogView(log)
+		v.CallerUserName = userNameMap[log.CallerUserId]
+		views = append(views, v)
 	}
 	c.JSON(http.StatusOK, gin.H{"data": views, "total": total})
 }

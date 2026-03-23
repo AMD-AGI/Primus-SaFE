@@ -54,6 +54,7 @@ type CallLogView struct {
 	TraceId           string     `json:"traceId"`
 	CallerServiceName string     `json:"callerServiceName"`
 	CallerUserId      string     `json:"callerUserId"`
+	CallerUserName    string     `json:"callerUserName"`
 	TargetServiceName string     `json:"targetServiceName"`
 	SkillId           string     `json:"skillId"`
 	Status            string     `json:"status"`
