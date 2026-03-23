@@ -41,9 +41,18 @@ spec:
                 requests:
                   storage: 1024Gi
               storageClassName: {{ .Values.global.storage_class }}
-  # To avoid multiple instances on the same node, please add affinity.
   instances:
-    - dataVolumeClaimSpec:
+    - affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    postgres-operator.crunchydata.com/cluster: {{ .Release.Name }}
+                    postgres-operator.crunchydata.com/instance-set: db
+                topologyKey: kubernetes.io/hostname
+      dataVolumeClaimSpec:
         storageClassName: {{ .Values.global.storage_class }}
         accessModes:
           - ReadWriteOnce
