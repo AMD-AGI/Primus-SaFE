@@ -26,6 +26,14 @@ spec:
         app: {{ .Release.Name }}-apiserver
     spec:
       affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app: {{ .Release.Name }}-apiserver
+                topologyKey: kubernetes.io/hostname
         nodeAffinity:
           preferredDuringSchedulingIgnoredDuringExecution:
             - weight: 100
