@@ -150,6 +150,16 @@ if [[ -n "${llm_gateway_litellm_endpoint:-}" ]]; then
   litellm_team_id: \"${llm_gateway_litellm_team_id:-}\"" "$values_yaml"
 fi
 
+# Configure A2A Gateway if defined in .env
+if [[ "${a2a_gateway_enable:-false}" == "true" ]]; then
+  sed -i '/^a2a_gateway:/,/^[a-z]/ s/enable: .*/enable: true/' "$values_yaml"
+fi
+
+# Configure A2A Scanner if defined in .env
+if [[ "${a2a_scanner_enable:-false}" == "true" ]]; then
+  sed -i '/^a2a:/,/^[a-z]/ s/scanner_enable: .*/scanner_enable: true/' "$values_yaml"
+fi
+
 # Configure Langfuse proxy if defined in .env
 if [[ "${langfuse_proxy_enable:-false}" == "true" ]]; then
   sed -i '/^langfuse_proxy:/,/^[a-z]/ s/enable: .*/enable: true/' "$values_yaml"
