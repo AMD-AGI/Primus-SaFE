@@ -58,17 +58,27 @@
         type="primary"
         @click="onSearch({ resetPage: true })"
       ></el-button>
-      <el-button
-        :icon="Refresh"
-        size="default"
-        @click="
+      <el-tooltip content="Reset filters" placement="top">
+        <el-button
+          :icon="ResetIcon"
+          size="default"
+          @click="
           () => {
-            Object.assign(searchParams, initialSearchParams)
+            const { onlyMyself, userId } = searchParams
+            Object.assign(searchParams, initialSearchParams, { onlyMyself, userId })
             pagination.page = 1
             onSearch({ resetPage: true })
           }
-        "
-      ></el-button>
+          "
+        ></el-button>
+      </el-tooltip>
+      <el-tooltip content="Refresh" placement="top">
+        <el-button
+          :icon="Refresh"
+          size="default"
+          @click="onSearch({ resetPage: false })"
+        ></el-button>
+      </el-tooltip>
     </div>
   </div>
 
@@ -319,7 +329,6 @@
           <div class="right">
             <el-button type="danger" plain @click="onBatchDelete">Delete</el-button>
             <el-button type="warning" plain @click="onBatchStop">Stop</el-button>
-            <el-button type="success" plain @click="onBatchClone">Clone</el-button>
           </div>
         </div>
       </transition>
@@ -359,7 +368,6 @@ import {
   stopWorkload,
   batchDelWorkload,
   batchStopWorkload,
-  batchCloneWorkload,
   getLensHourlyStats,
   getWorkloadDetail,
   addWorkload,
@@ -372,6 +380,7 @@ import {
   WorkloadPhaseButtonType,
 } from '@/services/workload/type'
 import { Search, Refresh, CopyDocument, Plus, Timer, WarningFilled, InfoFilled } from '@element-plus/icons-vue'
+import ResetIcon from '@/components/icons/ResetIcon.vue'
 import { copyText, formatTimeStr, last24hUtcExact } from '@/utils/index'
 import dayjs from 'dayjs'
 import utc from 'dayjs/plugin/utc'
@@ -833,12 +842,11 @@ const getActions = (_row: Row) => {
   return actions
 }
 
-type BatchAction = 'delete' | 'stop' | 'clone'
+type BatchAction = 'delete' | 'stop'
 
 const apiMap: Record<BatchAction, (body: any) => Promise<any>> = {
   delete: batchDelWorkload,
   stop: batchStopWorkload,
-  clone: batchCloneWorkload,
 }
 
 const batchLoading = ref(false)
@@ -893,7 +901,6 @@ async function onBatch(action: BatchAction) {
 // Reuse button handlers directly
 const onBatchDelete = () => onBatch('delete')
 const onBatchStop = () => onBatch('stop')
-const onBatchClone = () => onBatch('clone')
 
 const moreOpenId = ref<string | null>(null) // ID of the currently open popover row
 

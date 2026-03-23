@@ -51,6 +51,9 @@
           <el-descriptions-item label="specifiedNode" v-if="detailData?.specifiedNodes?.length">{{
             detailData?.specifiedNodes?.join(',') || '-'
           }}</el-descriptions-item>
+          <el-descriptions-item label="nodesAffinity" v-if="detailData.nodesAffinity">{{
+            detailData.nodesAffinity
+          }}</el-descriptions-item>
           <el-descriptions-item label="GitHubConfigURL" v-if="envData.githubConfigUrl">{{
             envData.githubConfigUrl
           }}</el-descriptions-item>

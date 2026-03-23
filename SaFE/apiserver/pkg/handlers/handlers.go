@@ -62,6 +62,13 @@ func InitHttpHandlers(_ context.Context, mgr ctrlruntime.Manager) (*gin.Engine, 
 			authority.NewApiKeyToken(dbClient)
 		}
 	}
+	// Initialize proxy handlers first to avoid route conflicts with resource handlers
+	proxyHandler, err := proxyhandlers.NewProxyHandler()
+	if err != nil {
+		return nil, err
+	}
+	proxyhandlers.InitProxyRoutes(engine, proxyHandler)
+
 	customHandler, err := reshandler.NewHandler(mgr)
 	if err != nil {
 		return nil, err
@@ -84,13 +91,6 @@ func InitHttpHandlers(_ context.Context, mgr ctrlruntime.Manager) (*gin.Engine, 
 	sshhandler.InitWebShellRouters(engine, sshHandler)
 	modelHandler := InitModelHandlers(context.Background(), mgr)
 	model_handlers.InitInferenceRouters(engine, modelHandler)
-
-	// Initialize proxy handlers
-	proxyHandler, err := proxyhandlers.NewProxyHandler()
-	if err != nil {
-		return nil, err
-	}
-	proxyhandlers.InitProxyRoutes(engine, proxyHandler)
 
 	// Initialize A2A handlers if database is enabled
 	if commonconfig.IsDBEnable() {

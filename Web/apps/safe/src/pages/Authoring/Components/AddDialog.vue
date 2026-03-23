@@ -236,6 +236,20 @@
                     </el-select>
                   </el-form-item>
                 </el-col>
+                <!-- nodesAffinity -->
+                <el-col :span="12" v-if="!isEdit">
+                  <el-form-item label="nodesAffinity">
+                    <el-radio-group v-model="form.nodesAffinity" size="small">
+                      <el-radio-button value="" :disabled="form.resourceType === 'nodes'">Disabled</el-radio-button>
+                      <el-radio-button value="required">Required</el-radio-button>
+                      <el-radio-button value="preferred">Preferred</el-radio-button>
+                    </el-radio-group>
+                    <el-text size="small" type="info" class="ml-2">
+                      <el-icon class="mr-1"><InfoFilled /></el-icon>
+                      {{ NODES_AFFINITY_INFO }}
+                    </el-text>
+                  </el-form-item>
+                </el-col>
                 <el-col :span="12" v-if="!isEdit">
                   <el-form-item label="forceHostNetwork">
                     <el-switch v-model="form.forceHostNetwork" class="mr-2" />
@@ -345,6 +359,7 @@ const REPLICA_INFO = 'If a node is specified, the replica cannot be modified.'
 const PRIVILEGED_INFO = 'Whether to run in privileged mode'
 const TIMEOUT_INFO = 'timeout duration in seconds'
 const FORCE_HOST_NETWORK_INFO = 'Force host network (default: auto-based on resources)'
+const NODES_AFFINITY_INFO = 'Node affinity: Required (strict) or Preferred (best-effort)'
 
 const advancedOpen = ref(false)
 
@@ -394,9 +409,18 @@ const initialForm = () => ({
   secretIds: [] as string[],
   privileged: false,
   timeout: undefined as number | undefined,
+  nodesAffinity: '' as '' | 'required' | 'preferred',
   forceHostNetwork: false,
 })
 const form = reactive({ ...initialForm() })
+
+watch(() => form.resourceType, (newType) => {
+  if (newType === 'nodes') {
+    if (!form.nodesAffinity) form.nodesAffinity = 'required'
+  } else {
+    form.nodesAffinity = ''
+  }
+})
 
 const flavorMaxVal = ref()
 const placeholders = computed(() => {
@@ -445,7 +469,7 @@ const onSubmit = async (formEl: FormInstance | undefined) => {
     await formEl.validate()
     submitting.value = true
 
-    const { envList, resourceType, nodeId, resource, excludedNodes, image, timeout, ...addPayload } = form
+    const { envList, resourceType, nodeId, resource, excludedNodes, image, timeout, nodesAffinity: _nodesAffinity, ...addPayload } = form
 
     const baseResource = {
       cpu: form.resource.cpu,
@@ -480,6 +504,7 @@ const onSubmit = async (formEl: FormInstance | undefined) => {
         env: convertListToKeyValueMap(envList),
         ...(excludedNodesPayload ? { excludedNodes: excludedNodesPayload } : {}),
         ...(secrets.length > 0 ? { secrets: secrets } : {}),
+        ...(form.nodesAffinity ? { nodesAffinity: form.nodesAffinity as 'required' | 'preferred' } : {}),
         privileged: form.privileged,
         ...(props.action === 'Resume' ? { workloadId: props.wlid } : {}),
         ...(cachedUseWorkspaceStorage.value !== undefined ? { useWorkspaceStorage: cachedUseWorkspaceStorage.value } : {}),
@@ -601,8 +626,26 @@ const setInitialFormValues = async () => {
         ? 1
         : res.priority
 
-  form.resourceType = 'replicas'
-  form.nodeId = res.specifiedNodes?.length ? res.specifiedNodes[0] : ''
+  const detailAffinity = res.nodesAffinity || ''
+  if (res.specifiedNodes?.length) {
+    form.resourceType = 'nodes'
+    form.nodeId = res.specifiedNodes[0]
+    form.nodesAffinity = detailAffinity || 'required'
+  } else if (props.action === 'Clone' && res.nodes?.length) {
+    const lastNodes = res.nodes[res.nodes.length - 1] ?? []
+    if (lastNodes.length) {
+      form.resourceType = 'nodes'
+      form.nodeId = lastNodes[0]
+      form.nodesAffinity = detailAffinity || 'required'
+    } else {
+      form.resourceType = 'replicas'
+      form.nodesAffinity = detailAffinity
+    }
+  } else {
+    form.resourceType = 'replicas'
+    form.nodeId = ''
+    form.nodesAffinity = detailAffinity
+  }
 
   // resources is now an array; Authoring takes the first element
   const firstResource = res.resources?.[0] || res.resource || {}
