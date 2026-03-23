@@ -153,12 +153,6 @@ fi
 # Configure Langfuse proxy if defined in .env
 if [[ "${langfuse_proxy_enable:-false}" == "true" ]]; then
   sed -i '/^langfuse_proxy:/,/^[a-z]/ s/enable: .*/enable: true/' "$values_yaml"
-  if [[ -n "${langfuse_proxy_public_key:-}" ]]; then
-    sed -i '/^langfuse_proxy:/,/^[a-z]/ s/public_key: .*/public_key: "'"$langfuse_proxy_public_key"'"/' "$values_yaml"
-  fi
-  if [[ -n "${langfuse_proxy_secret_key:-}" ]]; then
-    sed -i '/^langfuse_proxy:/,/^[a-z]/ s/secret_key: .*/secret_key: "'"$langfuse_proxy_secret_key"'"/' "$values_yaml"
-  fi
   if [[ -n "${langfuse_proxy_target:-}" ]]; then
     sed -i '/^langfuse_proxy:/,/^[a-z]/ s#target: .*#target: "'"$langfuse_proxy_target"'"#' "$values_yaml"
   fi
