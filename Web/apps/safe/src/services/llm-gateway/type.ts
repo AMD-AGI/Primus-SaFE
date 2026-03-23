@@ -48,10 +48,54 @@ export interface LLMGatewayUsage {
 export interface LLMGatewayUsageParams {
   start_date: string
   end_date: string
+  timezone?: string
 }
 
 export interface LLMGatewaySummary {
   user_email: string
   total_spend: number
   model_spend: Record<string, number>
+}
+
+export interface LLMGatewayBudget {
+  user_email: string
+  spend: number
+  max_budget: number | null
+  remaining: number | null
+  budget_exceeded: boolean
+  usage_percent: number | null
+  message?: string
+}
+
+export interface LLMGatewayBudgetRequest {
+  max_budget: number
+}
+
+export interface LLMGatewayTagUsageItem {
+  tag_name: string | null
+  spend: number
+  api_requests: number
+  prompt_tokens: number
+  completion_tokens: number
+}
+
+export interface LLMGatewayTagUsage {
+  user_email: string
+  start_date: string
+  end_date: string
+  total_spend: number
+  total_requests: number
+  tags: LLMGatewayTagUsageItem[]
+  page: number
+  page_size: number
+  total: number
+  total_pages: number
+}
+
+export interface LLMGatewayTagUsageParams {
+  start_date: string
+  end_date: string
+  timezone?: string
+  page?: number
+  page_size?: number
 }

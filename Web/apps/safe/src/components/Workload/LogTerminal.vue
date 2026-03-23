@@ -256,12 +256,6 @@ const reverseWithinGroups = (rows: RowData[]): RowData[] => {
   return result
 }
 
-const concatRows = (
-  incoming: RowData[],
-  existing: RowData[],
-  prepend: boolean,
-): RowData[] => (prepend ? [...incoming, ...existing] : [...existing, ...incoming])
-
 const scrollToBottom = () => {
   const el = terminalRef.value
   if (el) el.scrollTop = el.scrollHeight
@@ -293,13 +287,13 @@ watch(rowData, (rows) => {
     if (isAsc) {
       const el = terminalRef.value
       const prevHeight = el?.scrollHeight ?? 0
-      scrollRows.value = concatRows(processed, scrollRows.value, true)
+      scrollRows.value = [...processed, ...scrollRows.value]
       lastLoadedPage.value = page
       nextTick(() => {
         if (el) el.scrollTop += el.scrollHeight - prevHeight
       })
     } else {
-      scrollRows.value = concatRows(processed, scrollRows.value, false)
+      scrollRows.value = [...scrollRows.value, ...processed]
       lastLoadedPage.value = page
     }
   }
