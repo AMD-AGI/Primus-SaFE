@@ -17,9 +17,10 @@ type CreateWorkloadRequest struct {
 	// SpecifiedNodes defines the list of node names where the workload should run.
 	SpecifiedNodes []string `json:"specifiedNodes,omitempty"`
 	// NodesAffinity controls how strictly the workload adheres to SpecifiedNodes.
+	// This field only takes effect when SpecifiedNodes is provided; it is ignored otherwise.
 	// "required": Workload must run on nodes from SpecifiedNodes (hard constraint).
 	// "preferred": Workload prefers nodes from SpecifiedNodes but can use others if needed (soft constraint).
-	// Empty or unspecified: Defaults to "required" if SpecifiedNodes is provided, otherwise no node affinity.
+	// Empty or unspecified: Defaults to "required" if SpecifiedNodes is provided.
 	NodesAffinity *string `json:"nodesAffinity,omitempty"`
 	// ExcludedNodes is a list of node names that the workload should avoid running on.
 	ExcludedNodes []string `json:"excludedNodes,omitempty"`
