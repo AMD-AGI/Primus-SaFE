@@ -53,6 +53,7 @@ data:
   net_rdma_count_210: '{"script":"net_rdma_count_210.sh","id":"210","cronjob":"@every 300s","timeoutSecond":250,"toggle":"on","chip":"amd","arguments":["$Node"]}'
   net_oci_qos_211: '{"script":"net_oci_qos_211.sh","id":"211","cronjob":"@every 300s","timeoutSecond":250,"chip":"amd","toggle":"on","arguments":["{{ .Values.node_agent.sub_domain }}"]}'
   net_oci_dcqcn_212: '{"script":"net_oci_dcqcn_212.sh","id":"212","cronjob":"@every 300s","timeoutSecond":250,"chip":"amd","toggle":"on","arguments":["{{ .Values.node_agent.sub_domain }}"]}'
+  net_resolved_conf_213: '{"script":"net_resolved_conf_213.sh","id":"213","cronjob":"@every 300s","timeoutSecond":250,"toggle":"on"}'
   # System: 3XX
   sys_timezone_301: '{"script":"sys_timezone_301.sh","id":"301","cronjob":"@every 30s","timeoutSecond":25,"toggle":"on"}'
   sys_hostname_302: '{"script":"sys_hostname_302.sh","id":"302","cronjob":"@every 30s","timeoutSecond":25,"toggle":"on"}'

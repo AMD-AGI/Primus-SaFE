@@ -11,8 +11,6 @@ import (
 	"fmt"
 	"strings"
 
-	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
-	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
 	admissionv1 "k8s.io/api/admission/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -32,7 +30,9 @@ import (
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	commonnodes "github.com/AMD-AIG-AIMA/SAFE/common/pkg/nodes"
 	commonuser "github.com/AMD-AIG-AIMA/SAFE/common/pkg/user"
+	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
+	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/maps"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/sets"
 	sliceutil "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/slice"
@@ -328,7 +328,7 @@ func (m *WorkspaceMutator) mutateWorkloadsOfWorkspace(ctx context.Context, works
 			if v1.SetAnnotation(w, v1.WorkloadEnablePreemptAnnotation, v1.TrueStr) {
 				isChanged = true
 			}
-			if v1.RemoveAnnotation(w, v1.WorkloadStickyNodesAnnotation) {
+			if v1.RemoveAnnotation(w, v1.RetryOnOriginalNodesAnnotation) {
 				isChanged = true
 			}
 		} else {
