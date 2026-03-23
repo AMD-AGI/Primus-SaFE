@@ -306,7 +306,6 @@ import {
   stopWorkload,
   batchDelWorkload,
   batchStopWorkload,
-  batchCloneWorkload,
   getWorkloadDetail,
 } from '@/services/workload/index'
 import { useWorkspaceStore } from '@/stores/workspace'
@@ -743,12 +742,11 @@ const openSSH = async (r: Row) => {
   }
 }
 
-type BatchAction = 'delete' | 'stop' | 'clone'
+type BatchAction = 'delete' | 'stop'
 
 const apiMap: Record<BatchAction, (body: any) => Promise<any>> = {
   delete: batchDelWorkload,
   stop: batchStopWorkload,
-  clone: batchCloneWorkload,
 }
 
 const batchLoading = ref(false)

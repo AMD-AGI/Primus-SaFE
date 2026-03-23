@@ -144,7 +144,7 @@ export interface SubmitWorkloadRequest {
   dependencies?: string[]
   excludedNodes?: string[]
   stickyNodes?: boolean | string[]
-  stickyNodesMode?: 'required' | 'preferred'
+  nodesAffinity?: 'required' | 'preferred'
   privileged?: boolean
   useWorkspaceStorage?: boolean
 }

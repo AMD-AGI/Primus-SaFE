@@ -583,7 +583,6 @@ import {
   stopWorkload,
   batchDelWorkload,
   batchStopWorkload,
-  batchCloneWorkload,
   phaseFilters,
 } from '@/services'
 import { useWorkspaceStore } from '@/stores/workspace'
@@ -913,12 +912,11 @@ const getActions = (_row: Row): Action[] => [
   },
 ]
 
-type BatchAction = 'delete' | 'stop' | 'clone'
+type BatchAction = 'delete' | 'stop'
 
 const apiMap: Record<BatchAction, (body: any) => Promise<any>> = {
   delete: batchDelWorkload,
   stop: batchStopWorkload,
-  clone: batchCloneWorkload,
 }
 
 const batchLoading = ref(false)

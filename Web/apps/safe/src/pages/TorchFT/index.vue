@@ -299,7 +299,6 @@
           <div class="right">
             <el-button type="danger" plain @click="onBatchDelete">Delete</el-button>
             <el-button type="warning" plain @click="onBatchStop">Stop</el-button>
-            <el-button type="success" plain @click="onBatchClone">Clone</el-button>
           </div>
         </div>
       </transition>
@@ -339,7 +338,6 @@ import {
   stopWorkload,
   batchDelWorkload,
   batchStopWorkload,
-  batchCloneWorkload,
   getLensHourlyStats,
   getWorkloadDetail,
   addWorkload,
@@ -649,12 +647,11 @@ const getActions = (row: Row) => {
   return actions
 }
 
-type BatchAction = 'delete' | 'stop' | 'clone'
+type BatchAction = 'delete' | 'stop'
 
 const apiMap: Record<BatchAction, (body: any) => Promise<any>> = {
   delete: batchDelWorkload,
   stop: batchStopWorkload,
-  clone: batchCloneWorkload,
 }
 
 const batchLoading = ref(false)
@@ -709,7 +706,6 @@ async function onBatch(action: BatchAction) {
 // Reuse button handlers directly
 const onBatchDelete = () => onBatch('delete')
 const onBatchStop = () => onBatch('stop')
-const onBatchClone = () => onBatch('clone')
 
 const moreOpenId = ref<string | null>(null) // ID of the currently open popover row
 
