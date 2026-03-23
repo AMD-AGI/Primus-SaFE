@@ -25,7 +25,6 @@ func InitCustomRouters(e *gin.Engine, h *Handler) {
 		workloads := authGroup.Group("/workloads")
 		{
 			workloads.POST("", middleware.Audit("workload"), h.CreateWorkload)
-			workloads.POST("/clone", middleware.Audit("workload", "clone"), h.CloneWorkloads)
 			workloads.POST("/delete", middleware.Audit("workload", "delete"), h.DeleteWorkloads)
 			workloads.POST("/stop", middleware.Audit("workload", "stop"), h.StopWorkloads)
 			workloads.POST(fmt.Sprintf("/:%s/stop", common.Name), middleware.Audit("workload", "stop"), h.StopWorkload)
