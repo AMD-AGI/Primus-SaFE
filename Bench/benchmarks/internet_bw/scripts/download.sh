@@ -38,6 +38,3 @@ mbps=$(awk "BEGIN { printf \"%.2f\", $total_bytes * 8 / 1024 / 1024 / $elapsed }
 echo "Downloaded: ${total_mb} MB in ${elapsed}s"
 echo "Average speed: ${mbps} Mbps"
 
-sudo tcpdump -i any -w /tmp/tcpdump.pcap host $SPEEDTEST_TARGET_IP &
-wget -q --timeout=90 -O /dev/null "$SPEEDTEST_URL"; sudo pkill -INT tcpdump
-#tshark -r /tmp/tcpdump.pcap -Y 'tcp.analysis.retransmission' -t ad 2>/dev/null | wc -l
