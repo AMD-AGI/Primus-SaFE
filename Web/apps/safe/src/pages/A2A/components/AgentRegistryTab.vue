@@ -12,7 +12,7 @@
           <span class="font-600 text-base truncate">
             {{ agent.displayName || agent.serviceName }}
           </span>
-          <el-tag v-if="agent.cardVersion" size="small" effect="dark" type="info" round>
+          <el-tag v-if="agent.cardVersion" size="small" effect="light" class="version-tag" round>
             v{{ agent.cardVersion }}
           </el-tag>
         </div>
@@ -171,5 +171,12 @@ const parsedAgents = computed(() =>
 .skill-chip--more {
   background: transparent;
   color: var(--el-text-color-secondary);
+}
+
+.version-tag {
+  background: rgba(0, 229, 229, 0.12) !important;
+  border-color: rgba(0, 229, 229, 0.3) !important;
+  color: #00a3a3 !important;
+  font-weight: 500;
 }
 </style>
