@@ -150,6 +150,14 @@ if [[ -n "${llm_gateway_litellm_endpoint:-}" ]]; then
   litellm_team_id: \"${llm_gateway_litellm_team_id:-}\"" "$values_yaml"
 fi
 
+# Configure Langfuse proxy if defined in .env
+if [[ "${langfuse_proxy_enable:-false}" == "true" ]]; then
+  sed -i '/^langfuse_proxy:/,/^[a-z]/ s/enable: .*/enable: true/' "$values_yaml"
+  if [[ -n "${langfuse_proxy_target:-}" ]]; then
+    sed -i '/^langfuse_proxy:/,/^[a-z]/ s#target: .*#target: "'"$langfuse_proxy_target"'"#' "$values_yaml"
+  fi
+fi
+
 # Configure proxy services if defined in .env
 if [[ -n "${proxy_services:-}" ]]; then
   sed -i "/^proxy:/,/^[a-z_]*:/ { /^proxy:/! { /^[a-z_]*:/!d } }" "$values_yaml"

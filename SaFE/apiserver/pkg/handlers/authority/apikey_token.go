@@ -270,10 +270,30 @@ func ExtractApiKeyFromRequest(authHeader string) string {
 	}
 
 	parts := strings.Split(authHeader, " ")
-	if len(parts) == 2 && strings.ToLower(parts[0]) == "bearer" {
-		token := parts[1]
-		if IsApiKey(token) {
-			return token
+	if len(parts) != 2 {
+		return ""
+	}
+
+	scheme := strings.ToLower(parts[0])
+
+	// Bearer ak-xxx
+	if scheme == "bearer" {
+		if IsApiKey(parts[1]) {
+			return parts[1]
+		}
+	}
+
+	// Basic base64(username:ak-xxx) — used by Langfuse SDK
+	if scheme == "basic" {
+		decoded, err := base64.StdEncoding.DecodeString(parts[1])
+		if err == nil {
+			colonIdx := strings.Index(string(decoded), ":")
+			if colonIdx >= 0 {
+				password := string(decoded)[colonIdx+1:]
+				if IsApiKey(password) {
+					return password
+				}
+			}
 		}
 	}
 
