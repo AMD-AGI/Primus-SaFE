@@ -77,7 +77,6 @@ func workloadMapper(obj *unstructured.Unstructured) *dbclient.Workload {
 		DeletionTime:        dbutils.NullMetaV1Time(workload.GetDeletionTimestamp()),
 		IsSupervised:        workload.Spec.IsSupervised,
 		IsTolerateAll:       workload.Spec.IsTolerateAll,
-		IsStickyNodes:       v1.IsEnableStickyNodes(workload),
 		IsPrivileged:        v1.IsPrivileged(workload),
 		Priority:            workload.Spec.Priority,
 		MaxRetry:            workload.Spec.MaxRetry,
@@ -89,6 +88,7 @@ func workloadMapper(obj *unstructured.Unstructured) *dbclient.Workload {
 		WorkloadUId:         dbutils.NullString(string(workload.UID)),
 		UseWorkspaceStorage: v1.IsEnableWorkspaceStorage(workload),
 		ForceHostNetwork:    v1.IsForceHostNetwork(workload),
+		NodesAffinity:       dbutils.NullString(v1.GetNodesAffinity(workload)),
 	}
 	if commonworkload.IsRayJob(workload) {
 		result.Resources = dbutils.NullString(string(jsonutils.MarshalSilently(workload.Spec.Resources[1:])))

@@ -181,7 +181,7 @@ func TestCreateStickyNodeFaults(t *testing.T) {
 			ObjectMeta: metav1.ObjectMeta{
 				Name: "test-workload",
 				Annotations: map[string]string{
-					v1.WorkloadStickyNodesAnnotation: "true",
+					v1.RetryOnOriginalNodesAnnotation: v1.TrueStr,
 				},
 			},
 		}
@@ -204,7 +204,7 @@ func TestCreateStickyNodeFaults(t *testing.T) {
 				Name: "test-workload",
 				UID:  "test-uid",
 				Annotations: map[string]string{
-					v1.WorkloadStickyNodesAnnotation: "true",
+					v1.RetryOnOriginalNodesAnnotation: v1.TrueStr,
 				},
 			},
 			Spec: v1.WorkloadSpec{
@@ -249,7 +249,7 @@ func TestCreateStickyNodeFaults(t *testing.T) {
 				Name: "test-workload",
 				UID:  "test-uid",
 				Annotations: map[string]string{
-					v1.WorkloadStickyNodesAnnotation: "true",
+					v1.RetryOnOriginalNodesAnnotation: v1.TrueStr,
 				},
 			},
 			Spec: v1.WorkloadSpec{

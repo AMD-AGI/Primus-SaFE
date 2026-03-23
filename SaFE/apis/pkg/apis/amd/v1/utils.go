@@ -369,12 +369,13 @@ func GetSourceWorkloadId(obj metav1.Object) string {
 	return GetLabel(obj, SourceWorkloadIdLabel)
 }
 
-// IsWorkloadStickyNodes checks if the workload has sticky node feature enabled.
-// When enabled, the workload will try to use the same nodes during retries/failovers.
-func IsEnableStickyNodes(obj metav1.Object) bool {
-	return GetAnnotation(obj, WorkloadStickyNodesAnnotation) == TrueStr
+func GetNodesAffinity(obj metav1.Object) string {
+	return GetAnnotation(obj, NodesAffinityAnnotation)
 }
 
+func IsRetryingOnOriginal(obj metav1.Object) bool {
+	return GetAnnotation(obj, RetryOnOriginalNodesAnnotation) == TrueStr
+}
 func IsEnableWorkspaceStorage(obj metav1.Object) bool {
 	return GetAnnotation(obj, UseWorkspaceStorageAnnotation) == TrueStr
 }
