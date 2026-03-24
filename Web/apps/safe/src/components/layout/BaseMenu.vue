@@ -369,6 +369,12 @@ watchEffect(() => {
       icon: menuIcons.llmGateway,
       canAccess: true, // Open to all users
     },
+    {
+      index: '/a2a',
+      name: 'A2A Protocol',
+      icon: menuIcons.a2a,
+      canAccess: true, // Open to all users
+    },
   ]
 
   agentInfraMenuItems.value = allAgentInfraItems.filter((item) => item.canAccess !== false)
