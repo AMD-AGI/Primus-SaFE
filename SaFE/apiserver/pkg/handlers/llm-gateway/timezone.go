@@ -8,6 +8,7 @@ package llmgateway
 import (
 	"fmt"
 	"time"
+	_ "time/tzdata"
 )
 
 const dateLayout = "2006-01-02"
