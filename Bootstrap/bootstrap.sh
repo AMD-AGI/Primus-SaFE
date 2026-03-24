@@ -8,7 +8,7 @@ CONFIG_FILE=hosts.ini
 NODE_LOCAL_DNS_IP=169.254.25.10
 KUBE_PODS_SUBNET=172.16.0.0/12 #10.232.0.0/14
 KUBE_SERVICE_ADDRESSES=192.168.0.0/16 #10.236.0.0/14
-KUBE_NETWORK_PLUGIN=cilium
+KUBE_NETWORK_PLUGIN=flannel
 NGINX_IMAGE=public.ecr.aws/docker/library/nginx
 
 # -----------------------------------------------------------------------------
@@ -69,10 +69,6 @@ ansible-playbook -i "../$CONFIG_FILE" ../playbooks/set-vm-max-map-count.yml --be
 # REVIEW: Use ansible‑extra‑vars or inventory overrides rather than sed—less fragile.
 sudo sed -i 's/kube_kubeadm_apiserver_extra_args: {}/kube_kubeadm_apiserver_extra_args: \n  max-mutating-requests-inflight: 10000 \n  max-requests-inflight: 20000/g' \
   roles/kubernetes/control-plane/defaults/main/main.yml
-{
-  echo 'etcd_quota_backend_bytes: "8589934592"'
-  echo 'etcd_memory_limit: "8GB"'
-} | sudo tee -a roles/kubernetes/control-plane/defaults/main/etcd.yml >/dev/null
 
 {
   echo securityContext:
@@ -90,6 +86,8 @@ ansible-playbook -i "../$CONFIG_FILE" cluster.yml --become --become-user=root \
   -e auto_renew_certificates=true \
   -e nginx_image_repo="$NGINX_IMAGE" \
   -e kube_network_plugin="$KUBE_NETWORK_PLUGIN" \
+  -e etcd_quota_backend_bytes="8589934592" \
+  -e etcd_memory_limit="8GB" \
   -v
 
 
@@ -120,25 +118,17 @@ fi
 # 8. Helm repos and chart deployments
 # -----------------------------------------------------------------------------
 # REVIEW: Consider pinning chart versions for reproducibility.
-helm repo add rocm https://rocm.github.io/gpu-operator
 helm repo add jetstack https://charts.jetstack.io --force-update
 
 helm upgrade --install cert-manager jetstack/cert-manager \
   --namespace cert-manager --create-namespace \
   --version v1.17.2 --set installCRDs=true
 
-helm upgrade --install amd-gpu-operator rocm/gpu-operator-charts \
-  --namespace kube-amd-gpu --create-namespace
+sudo helm upgrade --install amd-gpu-operator oci://registry-1.docker.io/primussafe/gpu-operator-charts --version v1.4.0 \
+  --namespace kube-amd-gpu --create-namespace --no-hooks
  
-helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+sudo helm upgrade --install network-operator oci://registry-1.docker.io/primussafe/network-operator --version 25.4.0 \
+  --namespace network-operator --create-namespace 
 
-helm upgrade --install prometheus prometheus-community/kube-prometheus-stack \
-  --namespace prometheus --create-namespace --set installCRDs=true
- 
-helm upgrade --install network-operator oci://registry-1.docker.io/primussafe/network-operator --version 25.4.0 \
-  --namespace network-operator --create-namespace
-
-helm upgrade --install kube-scheduler-plugins oci://registry-1.docker.io/primussafe/scheduler-plugins --version 0.31.8 \
+sudo helm upgrade --install kube-scheduler-plugins oci://registry-1.docker.io/primussafe/scheduler-plugins --version 0.31.8 \
   --namespace kube-system --create-namespace
-
- 
