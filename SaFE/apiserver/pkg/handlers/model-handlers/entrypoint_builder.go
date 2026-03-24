@@ -87,7 +87,7 @@ const (
 	DefaultEphemeralStorage = "300Gi"
 	DefaultPrimusPath       = "/tmp/primus"
 	PrimusGitRepo           = "https://github.com/AMD-AGI/Primus.git"
-	DefaultPriority         = 5 // medium priority
+	DefaultPriority         = 1 // medium: HighPriorityInt=2, MedPriorityInt=1, LowPriorityInt=0
 )
 
 // FillSftDefaults populates zero-valued fields with smart defaults based on model size and peft type.
@@ -221,7 +221,12 @@ MODELEOF
 cat > /tmp/sft_experiment.yaml << 'EXPEOF'
 %s
 EXPEOF
-./runner/primus-cli direct -- train posttrain --config /tmp/sft_experiment.yaml`,
+./runner/primus-cli direct -- train posttrain --config /tmp/sft_experiment.yaml
+TRAIN_EXIT_CODE=$?
+if [ $TRAIN_EXIT_CODE -ne 0 ]; then
+  echo "Training failed with exit code $TRAIN_EXIT_CODE, skipping model export."
+  exit $TRAIN_EXIT_CODE
+fi`,
 		cfg.PrimusPath, PrimusGitRepo, cfg.PrimusPath, cfg.PrimusPath, modelYaml, expYaml)
 
 	if cfg.ExportModel {

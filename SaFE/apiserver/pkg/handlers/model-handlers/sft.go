@@ -142,12 +142,14 @@ func (h *Handler) createSftJob(c *gin.Context) (interface{}, error) {
 	workload.Name = workloadName
 	workload.Labels = map[string]string{
 		v1.DisplayNameLabel: req.DisplayName,
+		v1.UserIdLabel:      userId,
 	}
 	for k, v := range sftLabels {
 		workload.Labels[k] = v
 	}
 	workload.Annotations = map[string]string{
 		v1.DescriptionAnnotation: req.Description,
+		v1.UserNameAnnotation:    userName,
 	}
 	for k, v := range sftAnnotations {
 		workload.Annotations[k] = v
