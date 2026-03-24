@@ -30,7 +30,7 @@ cd:
   # false: users can self-approve their own requests (development environment)
   require_approval: true
   # This list is of deployable components
-  components: "apiserver,resource_manager,job_manager,webhooks,web,preprocess,node_agent,cicd_runner,cicd_unified_job,model_downloader,ops_download"
+  components: "apiserver,resource_manager,job_manager,webhooks,web,preprocess,node_agent,cicd_runner,cicd_unified_job,model_downloader,ops_download,a2a_gateway"
 apiserver:
   # Apiserver component image version
   image: "apiserver:latest"
@@ -185,15 +185,24 @@ langfuse_proxy:
   enable: false
   # Internal Langfuse service address
   target: "http://langfuse-web.langfuse.svc.cluster.local:3000/langfuse"
+  # Secret name for shared Langfuse project credentials
+  secret: "primus-safe-langfuse-proxy"
+  secret_path: "/etc/secrets/langfuse-proxy"
+  # Shared Langfuse project credentials (stored in Secret via Helm)
+  public_key: ""
+  secret_key: ""
+  # Shared Langfuse project credentials (stored in Secret, not ConfigMap)
+  public_key: ""
+  secret_key: ""
 a2a:
   # A2A service discovery scanner
-  scanner_enable: false
+  scanner_enable: true
   scanner_interval: 60
   scanner_namespaces:
     - primus-lens
 a2a_gateway:
   # A2A Gateway for Agent-to-Agent invocations
-  enable: false
+  enable: true
   image: "a2a-gateway:latest"
   replicas: 1
   cpu: 500m

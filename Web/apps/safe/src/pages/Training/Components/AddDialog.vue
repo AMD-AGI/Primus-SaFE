@@ -261,13 +261,17 @@
                   </el-form-item>
                 </el-col>
 
-                <!-- stickyNodes -->
-                <el-col :span="12" v-if="!isEdit">
-                  <el-form-item label="stickyNodes">
-                    <el-switch v-model="form.stickyNodes" class="mr-2" />
-                    <el-text size="small" type="info">
+                <!-- nodesAffinity -->
+                <el-col :span="12" v-if="!isEdit && (form.resourceType === 'nodes' || props.action === 'Clone' || props.action === 'Resume')">
+                  <el-form-item label="nodesAffinity">
+                    <el-radio-group v-model="form.nodesAffinity" size="small">
+                      <el-radio-button value="" :disabled="form.resourceType === 'nodes' && !clonedLastNodes.length">Disabled</el-radio-button>
+                      <el-radio-button value="required">Required</el-radio-button>
+                      <el-radio-button value="preferred">Preferred</el-radio-button>
+                    </el-radio-group>
+                    <el-text size="small" type="info" class="ml-2">
                       <el-icon class="mr-1"><InfoFilled /></el-icon>
-                      {{ STICKY_NODES_INFO }}
+                      {{ NODES_AFFINITY_INFO }}
                     </el-text>
                   </el-form-item>
                 </el-col>
@@ -518,7 +522,7 @@ const SCHEDULER_INFO = 'Scheduled execution time'
 const RETRY_TIMES_INFO = 'Maximum retries:50'
 const HANG_CHECK_INFO = 'workload fails if the last node(by rank) has no logs for 20 minutes'
 const PREHEAT_INFO = 'preheat: When enabled, preheats the image, which increases workload duration.'
-const STICKY_NODES_INFO = 'When enabled, it will prefer the last-used nodes.'
+const NODES_AFFINITY_INFO = 'Node affinity: Required (strict) or Preferred (best-effort)'
 // const LABEL_INFO = 'schedule the workload to nodes with label, e.g. kubernetes.io/hostname: myhost'
 // const RESOURCE_INFO = 'If not specified, all available resources on the node will be used.'
 const REPLICA_INFO = 'If a node is specified, the replica cannot be modified.'
@@ -590,11 +594,23 @@ const initialForm = () => ({
 
   secretIds: [] as string[],
   preheat: false,
-  stickyNodes: false,
+  nodesAffinity: '' as '' | 'required' | 'preferred',
   forceHostNetwork: false,
 })
 const form = reactive({ ...initialForm() })
 const isRetry = ref(false) // isAutoRetry
+
+const clonedLastNodes = ref<string[]>([])
+watch(() => form.nodesAffinity, (newVal, oldVal) => {
+  if (!clonedLastNodes.value.length) return
+  if (newVal && !oldVal) {
+    form.resourceType = 'nodes'
+    form.nodeList = [...clonedLastNodes.value]
+  } else if (!newVal && oldVal) {
+    form.resourceType = 'replicas'
+    form.nodeList = []
+  }
+})
 
 // If today is selected, auto-fill current time
 const midnightDefault = ref(new Date(2000, 0, 1, 0, 0, 0))
@@ -701,6 +717,7 @@ const onSubmit = async (formEl: FormInstance | undefined) => {
       timeout,
       secretIds,
       excludedNodes,
+      nodesAffinity: _nodesAffinity,
       ...addPayload
     } = form
 
@@ -757,7 +774,7 @@ const onSubmit = async (formEl: FormInstance | undefined) => {
         ...(form.timeout ? { timeout: form.timeout } : {}),
         ...(secrets.length > 0 ? { secrets: secrets } : {}),
         ...(excludedNodesPayload ? { excludedNodes: excludedNodesPayload } : {}),
-        stickyNodes: form.stickyNodes,
+        ...(form.nodesAffinity ? { nodesAffinity: form.nodesAffinity as 'required' | 'preferred' } : {}),
         ...(cachedUseWorkspaceStorage.value !== undefined ? { useWorkspaceStorage: cachedUseWorkspaceStorage.value } : {}),
       })
       ElMessage({ message: 'Create successful', type: 'success' })
@@ -880,7 +897,6 @@ const setInitialFormValues = async () => {
   form.image = (Array.isArray(res.images) ? res.images[0] : undefined) ?? res.image ?? ''
   form.maxRetry = res.maxRetry ?? 0
   form.timeout = res.timeout
-  form.stickyNodes = res.stickyNodes ?? false
   form.schedulerTime = decodeScheduleFromApi(res.cronJobs?.[0]?.schedule) ?? ''
   form.dependencies = res.dependencies ?? []
 
@@ -892,9 +908,16 @@ const setInitialFormValues = async () => {
         ? 1
         : res.priority
 
-  form.resourceType = 'replicas'
   if (!isEdit.value && res.specifiedNodes?.length) {
+    form.resourceType = 'nodes'
     form.nodeList = res.specifiedNodes
+    form.nodesAffinity = res.nodesAffinity || 'required'
+    clonedLastNodes.value = []
+  } else {
+    form.resourceType = 'replicas'
+    form.nodesAffinity = ''
+    const lastNodes = res.nodes?.length ? (res.nodes[res.nodes.length - 1] ?? []) : []
+    clonedLastNodes.value = lastNodes
   }
 
   // resources changed to array; Training sums replica from index 0 and 1, other fields from index 0
@@ -1038,6 +1061,7 @@ const fetchPersistentStoragePaths = async () => {
 const onOpen = async () => {
   showAdvanced.value = false
   cachedUseWorkspaceStorage.value = undefined
+  clonedLastNodes.value = []
   pendingWorkspaceId.value = store.currentWorkspaceId ?? store.firstWorkspace ?? ''
   fetchNodes()
   fetchImage()

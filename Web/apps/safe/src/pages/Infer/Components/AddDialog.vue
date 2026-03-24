@@ -378,6 +378,20 @@
                     </el-select>
                   </el-form-item>
                 </el-col>
+                <!-- nodesAffinity -->
+                <el-col :span="12" v-if="!isEdit && (form.resourceType === 'nodes' || props.action === 'Clone' || props.action === 'Resume')">
+                  <el-form-item label="nodesAffinity">
+                    <el-radio-group v-model="form.nodesAffinity" size="small">
+                      <el-radio-button value="" :disabled="form.resourceType === 'nodes' && !clonedLastNodes.length">Disabled</el-radio-button>
+                      <el-radio-button value="required">Required</el-radio-button>
+                      <el-radio-button value="preferred">Preferred</el-radio-button>
+                    </el-radio-group>
+                    <el-text size="small" type="info" class="ml-2">
+                      <el-icon class="mr-1"><InfoFilled /></el-icon>
+                      {{ NODES_AFFINITY_INFO }}
+                    </el-text>
+                  </el-form-item>
+                </el-col>
                 <el-col :span="12" v-if="!isEdit">
                   <el-form-item label="forceHostNetwork">
                     <el-switch v-model="form.forceHostNetwork" class="mr-2" />
@@ -478,6 +492,7 @@ const excludedNodesSearchQuery = ref('')
 const TIMEOUT_INFO = 'timeout duration in seconds'
 const REPLICA_INFO = 'If a node is specified, the replica cannot be modified.'
 const FORCE_HOST_NETWORK_INFO = 'Force host network (default: auto-based on resources)'
+const NODES_AFFINITY_INFO = 'Node affinity: Required (strict) or Preferred (best-effort)'
 
 // Prevent directly overwriting store data
 const pendingWorkspaceId = ref<string>('')
@@ -533,6 +548,7 @@ const initialForm = () => ({
   timeout: undefined,
 
   secretIds: [] as string[],
+  nodesAffinity: '' as '' | 'required' | 'preferred',
   forceHostNetwork: false,
 
   // Service configuration
@@ -552,6 +568,18 @@ const initialForm = () => ({
   },
 })
 const form = reactive({ ...initialForm() })
+
+const clonedLastNodes = ref<string[]>([])
+watch(() => form.nodesAffinity, (newVal, oldVal) => {
+  if (!clonedLastNodes.value.length) return
+  if (newVal && !oldVal) {
+    form.resourceType = 'nodes'
+    form.nodeList = [...clonedLastNodes.value]
+  } else if (!newVal && oldVal) {
+    form.resourceType = 'replicas'
+    form.nodeList = []
+  }
+})
 
 const copyImage = async () => {
   if (!form.image) return
@@ -673,6 +701,7 @@ const onSubmit = async (formEl: FormInstance | undefined) => {
       secretIds,
       healthCheck,
       excludedNodes,
+      nodesAffinity: _nodesAffinity,
       ...addPayload
     } = form
 
@@ -743,6 +772,7 @@ const onSubmit = async (formEl: FormInstance | undefined) => {
         ...servicePayload,
         ...healthCheckPayload,
         ...(excludedNodesPayload ? { excludedNodes: excludedNodesPayload } : {}),
+        ...(form.nodesAffinity ? { nodesAffinity: form.nodesAffinity as 'required' | 'preferred' } : {}),
         ...(props.action === 'Resume' ? { workloadId: props.wlid } : {}),
         ...(cachedUseWorkspaceStorage.value !== undefined ? { useWorkspaceStorage: cachedUseWorkspaceStorage.value } : {}),
       })
@@ -894,9 +924,16 @@ const setInitialFormValues = async () => {
         ? 1
         : res.priority
 
-  form.resourceType = 'replicas'
   if (!isEdit.value && res.specifiedNodes?.length) {
+    form.resourceType = 'nodes'
     form.nodeList = res.specifiedNodes
+    form.nodesAffinity = res.nodesAffinity || 'required'
+    clonedLastNodes.value = []
+  } else {
+    form.resourceType = 'replicas'
+    form.nodesAffinity = ''
+    const lastNodes = res.nodes?.length ? (res.nodes[res.nodes.length - 1] ?? []) : []
+    clonedLastNodes.value = lastNodes
   }
 
   // resources changed to array, Infer uses first element
@@ -1108,6 +1145,7 @@ const applyPrefillData = () => {
 const onOpen = async () => {
   showAdvanced.value = false
   cachedUseWorkspaceStorage.value = undefined
+  clonedLastNodes.value = []
   pendingWorkspaceId.value = store.currentWorkspaceId ?? store.firstWorkspace ?? ''
   fetchNodes()
   fetchImage()

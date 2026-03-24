@@ -115,7 +115,7 @@ const statsCards = computed(() => {
   const activeAgents = props.services.filter((s) => s.status === 'active').length
 
   return [
-    { label: 'Total Calls', value: String(total), icon: Connection, color: '#6b9eff' },
+    { label: 'Request Count', value: String(total), icon: Connection, color: '#6b9eff' },
     { label: 'Success Rate', value: rate, icon: SuccessFilled, color: '#5ec6a0' },
     { label: 'Avg Latency', value: avgLatency, icon: Timer, color: '#e8b160' },
     { label: 'Active Agents', value: String(activeAgents), icon: Monitor, color: '#a78bdb' },
