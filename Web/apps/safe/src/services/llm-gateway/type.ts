@@ -65,6 +65,20 @@ export interface LLMGatewayTagUsageParams {
   tag?: string
 }
 
+export interface LLMGatewayBudget {
+  user_email: string
+  spend: number
+  max_budget: number | null
+  remaining: number | null
+  budget_exceeded: boolean
+  usage_percent: number | null
+  message?: string
+}
+
+export interface LLMGatewayBudgetRequest {
+  max_budget: number
+}
+
 export interface LLMGatewayTagItem {
   tag_name: string | null
   spend: number

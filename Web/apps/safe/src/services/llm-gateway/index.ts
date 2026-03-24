@@ -5,6 +5,8 @@ import type {
   LLMGatewayUsage,
   LLMGatewayUsageParams,
   LLMGatewaySummary,
+  LLMGatewayBudget,
+  LLMGatewayBudgetRequest,
   LLMGatewayTagUsage,
   LLMGatewayTagUsageParams,
 } from './type'
@@ -26,5 +28,13 @@ export const getLLMGatewayUsage = (params: LLMGatewayUsageParams): Promise<LLMGa
 export const getLLMGatewaySummary = (): Promise<LLMGatewaySummary> =>
   request.get('/llm-gateway/summary')
 
-export const getLLMGatewayTagUsage = (params: LLMGatewayTagUsageParams): Promise<LLMGatewayTagUsage> =>
-  request.get('/llm-gateway/tags/usage', { params })
+export const getLLMGatewayBudget = (): Promise<LLMGatewayBudget> =>
+  request.get('/llm-gateway/budget')
+
+export const updateLLMGatewayBudget = (
+  data: LLMGatewayBudgetRequest,
+): Promise<LLMGatewayBudget> => request.put('/llm-gateway/budget', data)
+
+export const getLLMGatewayTagUsage = (
+  params: LLMGatewayTagUsageParams,
+): Promise<LLMGatewayTagUsage> => request.get('/llm-gateway/tags/usage', { params })
