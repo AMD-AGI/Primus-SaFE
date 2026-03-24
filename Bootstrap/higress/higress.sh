@@ -80,8 +80,8 @@ install_higress() {
     # --namespace: specify the installation namespace
     # --create-namespace: create namespace if it doesn't exist
     # -f: specify custom configuration file
-    helm upgrade --install higress higress.io/higress \
-        --namespace higress-system \
+    helm upgrade --install higress oci://registry-1.docker.io/primussafe/higress \
+        --namespace higress-system --version 2.1.8 \
         --create-namespace \
         -f "${SCRIPT_DIR}/values.yaml"
     

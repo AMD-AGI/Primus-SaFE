@@ -93,7 +93,7 @@ func isAlreadyAuthorized(username string, secret *corev1.Secret, sshClient *ssh.
 
 // getKubeSprayScaleUpCMD generates the command for scaling up a Kubernetes cluster node.
 func getKubeSprayScaleUpCMD(user, node, env string) string {
-	return fmt.Sprintf("ansible-playbook -i hosts/hosts.yaml --private-key .ssh/%s scale.yml --limit=%s %s --become-user=root -b -vvv", utils.Authorize, node, env)
+	return fmt.Sprintf("ansible-playbook -i hosts/hosts.yaml --private-key .ssh/%s scale.yml --limit=%s %s -e download_run_once=false -e download_localhost=false -e download_parallel=5 --become-user=root -b -vvv", utils.Authorize, node, env)
 }
 
 // getKubeSprayScaleDownCMD generates the command for scaling down a Kubernetes cluster node.
