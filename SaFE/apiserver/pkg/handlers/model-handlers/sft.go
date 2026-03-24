@@ -85,20 +85,21 @@ func (h *Handler) createSftJob(c *gin.Context) (interface{}, error) {
 		env[k] = v
 	}
 
-	// Step 7: Build SFT metadata labels
-	// IMPORTANT: These go into workload.Labels (metadata), NOT CustomerLabels.
-	// CustomerLabels are injected into node affinity by job-manager, which would
-	// make the pod unschedulable since nodes don't have these SFT-specific labels.
+	// Step 7: Build SFT metadata
+	// Labels: only k8s-safe values (alphanumeric, '-', '_', '.'); used for list filtering.
+	// Annotations: free-form values (model names with '/', usernames with spaces, etc.).
 	userId := c.GetString(common.UserId)
 	userName := c.GetString(common.UserName)
 	sftLabels := map[string]string{
 		SftLabelWorkloadType: SftWorkloadTypeValue,
-		SftLabelModel:        hfModelName,
-		SftLabelDataset:      req.DatasetId,
 		SftLabelPeft:         req.TrainConfig.Peft,
 		SftLabelBaseModelId:  req.ModelId,
 		SftLabelUserId:       userId,
-		SftLabelUserName:     userName,
+	}
+	sftAnnotations := map[string]string{
+		SftLabelModel:    hfModelName,
+		SftLabelDataset:  req.DatasetId,
+		SftLabelUserName: userName,
 	}
 
 	// Step 8: Build resources — PyTorchJob splits into master + workers
@@ -139,6 +140,9 @@ func (h *Handler) createSftJob(c *gin.Context) (interface{}, error) {
 	}
 	workload.Annotations = map[string]string{
 		v1.DescriptionAnnotation: req.Description,
+	}
+	for k, v := range sftAnnotations {
+		workload.Annotations[k] = v
 	}
 
 	timeout := 0
