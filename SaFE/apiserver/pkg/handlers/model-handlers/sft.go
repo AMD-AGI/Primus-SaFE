@@ -58,7 +58,10 @@ func (h *Handler) createSftJob(c *gin.Context) (interface{}, error) {
 		return nil, err
 	}
 
-	// Step 5: Build entrypoint script
+	// Step 5: Build workload name (needed for export)
+	workloadName := generateSftWorkloadName(req.DisplayName)
+
+	// Step 6: Build entrypoint script
 	entrypoint := BuildEntrypoint(EntrypointConfig{
 		PrimusPath:    DefaultPrimusPath,
 		Recipe:        recipe.Recipe,
@@ -69,11 +72,16 @@ func (h *Handler) createSftJob(c *gin.Context) (interface{}, error) {
 		ExpName:       req.DisplayName,
 		ModelSize:     recipe.Size,
 		TrainConfig:   req.TrainConfig,
+		ExportModel:   *req.ExportModel,
+		Workspace:     req.Workspace,
+		ModelId:       req.ModelId,
+		BaseModel:     hfModelName,
+		SftJobId:      workloadName,
 	})
 
 	encodedEntrypoint := base64.StdEncoding.EncodeToString([]byte(entrypoint))
 
-	// Step 6: Build env
+	// Step 7: Build env
 	env := map[string]string{
 		"PYTORCH_HIP_ALLOC_CONF": "expandable_segments:True",
 		"GPUS_PER_NODE":          strconv.Itoa(req.GpuCount),
@@ -85,11 +93,11 @@ func (h *Handler) createSftJob(c *gin.Context) (interface{}, error) {
 		env[k] = v
 	}
 
-	// Step 7: Build SFT metadata
-	// Labels: only k8s-safe values (alphanumeric, '-', '_', '.'); used for list filtering.
-	// Annotations: free-form values (model names with '/', usernames with spaces, etc.).
+	// Step 8: Build SFT metadata
 	userId := c.GetString(common.UserId)
 	userName := c.GetString(common.UserName)
+	env["SFT_USER_ID"] = userId
+	env["SFT_USER_NAME"] = userName
 	sftLabels := map[string]string{
 		SftLabelWorkloadType: SftWorkloadTypeValue,
 		SftLabelPeft:         req.TrainConfig.Peft,
@@ -102,7 +110,7 @@ func (h *Handler) createSftJob(c *gin.Context) (interface{}, error) {
 		SftLabelUserName: userName,
 	}
 
-	// Step 8: Build resources — PyTorchJob splits into master + workers
+	// Step 9: Build resources — PyTorchJob splits into master + workers
 	nodeResource := v1.WorkloadResource{
 		Replica:          1,
 		CPU:              req.Cpu,
@@ -129,9 +137,9 @@ func (h *Handler) createSftJob(c *gin.Context) (interface{}, error) {
 		entryPoints = []string{encodedEntrypoint}
 	}
 
-	// Step 9: Create PyTorchJob workload
+	// Step 10: Create PyTorchJob workload
 	workload := &v1.Workload{}
-	workload.Name = generateSftWorkloadName(req.DisplayName)
+	workload.Name = workloadName
 	workload.Labels = map[string]string{
 		v1.DisplayNameLabel: req.DisplayName,
 	}

@@ -85,11 +85,20 @@ const (
 	DefaultCpu              = "128"
 	DefaultMemory           = "1024Gi"
 	DefaultEphemeralStorage = "300Gi"
-	DefaultPrimusPath       = "/shared_nfs/xiaofei/Primus"
+	DefaultPrimusPath       = "/tmp/primus"
+	PrimusGitRepo           = "https://github.com/AMD-AGI/Primus.git"
+	DefaultPriority         = 5 // medium priority
 )
 
 // FillSftDefaults populates zero-valued fields with smart defaults based on model size and peft type.
 func FillSftDefaults(req *CreateSftJobRequest, modelSize string) {
+	if req.Priority == 0 {
+		req.Priority = DefaultPriority
+	}
+	if req.ExportModel == nil {
+		t := true
+		req.ExportModel = &t
+	}
 	tc := &req.TrainConfig
 	if tc.Peft == "" {
 		tc.Peft = "none"
@@ -182,6 +191,12 @@ type EntrypointConfig struct {
 	ExpName       string
 	ModelSize     string // "8b" | "32b" | "70b"
 	TrainConfig   SftTrainConfig
+
+	ExportModel bool
+	Workspace   string
+	ModelId     string
+	BaseModel   string
+	SftJobId    string
 }
 
 // BuildEntrypoint generates the shell script that writes Primus YAML configs and invokes primus-cli.
@@ -189,7 +204,17 @@ func BuildEntrypoint(cfg EntrypointConfig) string {
 	modelYaml := buildModelYaml(cfg)
 	expYaml := buildExperimentYaml(cfg)
 
-	return fmt.Sprintf(`cd %s
+	script := fmt.Sprintf(`PRIMUS_DIR=""
+for p in /workspace/Primus %s; do
+  if [ -d "$p/runner" ]; then PRIMUS_DIR="$p"; break; fi
+done
+if [ -z "$PRIMUS_DIR" ]; then
+  echo "Primus not found in image, cloning..."
+  git clone --depth 1 %s %s
+  PRIMUS_DIR="%s"
+fi
+echo "Using Primus at: $PRIMUS_DIR"
+cd "$PRIMUS_DIR"
 cat > /tmp/sft_model.yaml << 'MODELEOF'
 %s
 MODELEOF
@@ -197,7 +222,61 @@ cat > /tmp/sft_experiment.yaml << 'EXPEOF'
 %s
 EXPEOF
 ./runner/primus-cli direct -- train posttrain --config /tmp/sft_experiment.yaml`,
-		cfg.PrimusPath, modelYaml, expYaml)
+		cfg.PrimusPath, PrimusGitRepo, cfg.PrimusPath, cfg.PrimusPath, modelYaml, expYaml)
+
+	if cfg.ExportModel {
+		script += buildExportScript(cfg)
+	}
+
+	return script
+}
+
+// buildExportScript generates shell commands to copy the trained model output
+// to a well-known PFS path and register it as a new Model via the apiserver API.
+func buildExportScript(cfg EntrypointConfig) string {
+	exportPath := fmt.Sprintf("/wekafs/custom/models/%s", cfg.SftJobId)
+	displayName := fmt.Sprintf("%s-finetuned", strings.ToLower(cfg.ExpName))
+
+	return fmt.Sprintf(`
+
+# ==================== Export Model ====================
+EXPORT_PATH="%s"
+echo "Exporting trained model to ${EXPORT_PATH}..."
+mkdir -p "${EXPORT_PATH}"
+if [ -d "./output" ]; then
+  cp -r ./output/* "${EXPORT_PATH}/" 2>/dev/null || true
+fi
+echo "Model exported to ${EXPORT_PATH}"
+
+APISERVER="http://primus-safe-apiserver.primus-safe.svc:8088"
+echo "Registering model in Model Square..."
+curl -s -X POST "${APISERVER}/api/v1/playground/models" \
+  -H "Content-Type: application/json" \
+  -H "userId: ${SFT_USER_ID:-system}" \
+  -H "userName: ${SFT_USER_NAME:-system}" \
+  -d '{
+    "displayName": "%s",
+    "description": "Fine-tuned from %s via SFT (job: %s)",
+    "source": {
+      "accessMode": "local_path",
+      "localPath": "%s",
+      "modelName": "%s"
+    },
+    "workspace": "%s",
+    "origin": "fine_tuned",
+    "sftJobId": "%s",
+    "baseModel": "%s"
+  }' || echo "Warning: failed to register model, but training output is saved at ${EXPORT_PATH}"
+echo "Model export complete."`,
+		exportPath,
+		displayName,
+		cfg.BaseModel, cfg.SftJobId,
+		exportPath,
+		cfg.HfPath,
+		cfg.Workspace,
+		cfg.SftJobId,
+		cfg.BaseModel,
+	)
 }
 
 func buildModelYaml(cfg EntrypointConfig) string {

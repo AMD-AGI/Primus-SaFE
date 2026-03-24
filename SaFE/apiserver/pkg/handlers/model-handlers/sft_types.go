@@ -17,6 +17,7 @@ type CreateSftJobRequest struct {
 
 	TrainConfig SftTrainConfig `json:"trainConfig"`
 
+	ExportModel      *bool             `json:"exportModel"`
 	Image            string            `json:"image"`
 	NodeCount        int               `json:"nodeCount"`
 	GpuCount         int               `json:"gpuCount"`
