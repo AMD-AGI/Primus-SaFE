@@ -314,7 +314,7 @@
                 </el-col>
 
                 <!-- nodesAffinity -->
-                <el-col :span="12" v-if="!isEdit">
+                <el-col :span="12" v-if="props.action === 'Clone'">
                   <el-form-item label="nodesAffinity">
                     <el-radio-group v-model="form.nodesAffinity" size="small">
                       <el-radio-button value="">Disabled</el-radio-button>

@@ -17,8 +17,9 @@ import (
 )
 
 const (
-	apiKeyPrefix     = "ak-"
-	contextKeyUserID = "userId"
+	apiKeyPrefix       = "ak-"
+	contextKeyUserID   = "userId"
+	contextKeyUserName = "userName"
 )
 
 // ApiKeyMiddleware validates SaFE API keys from the Authorization header.
@@ -50,6 +51,7 @@ func ApiKeyMiddleware(db dbclient.Interface) gin.HandlerFunc {
 		}
 
 		c.Set(contextKeyUserID, apiKey.UserId)
+		c.Set(contextKeyUserName, apiKey.UserName)
 		c.Next()
 	}
 }
@@ -57,6 +59,15 @@ func ApiKeyMiddleware(db dbclient.Interface) gin.HandlerFunc {
 // GetUserID extracts the user ID set by the auth middleware.
 func GetUserID(c *gin.Context) string {
 	v, _ := c.Get(contextKeyUserID)
+	if s, ok := v.(string); ok {
+		return s
+	}
+	return ""
+}
+
+// GetUserName extracts the user name set by the auth middleware.
+func GetUserName(c *gin.Context) string {
+	v, _ := c.Get(contextKeyUserName)
 	if s, ok := v.(string); ok {
 		return s
 	}
