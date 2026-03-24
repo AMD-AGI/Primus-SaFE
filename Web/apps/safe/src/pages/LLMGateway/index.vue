@@ -12,51 +12,129 @@
         <span>AMD LLM Subscription Key is bound</span>
       </div>
 
-      <el-descriptions :column="2" border class="mt-6">
-        <el-descriptions-item label="Email">
-          {{ binding.user_email }}
-        </el-descriptions-item>
-        <el-descriptions-item label="Summary Usage">
-          <span v-if="summary">
-            ${{ summary.total_spend?.toFixed(5) ?? '0.00000' }}
-          </span>
-          <el-text v-else type="info">-</el-text>
-        </el-descriptions-item>
-        <el-descriptions-item label="Created At">
-          {{ formatTimeStr(binding.created_at) }}
-        </el-descriptions-item>
-        <el-descriptions-item label="Updated At">
-          {{ formatTimeStr(binding.updated_at) }}
-        </el-descriptions-item>
-      </el-descriptions>
+      <div class="bound-columns mt-6">
+        <!-- Left: Binding info + update key -->
+        <div class="bound-col-left">
+          <el-descriptions :column="1" border>
+            <el-descriptions-item label="Email">
+              {{ binding.user_email }}
+            </el-descriptions-item>
+            <el-descriptions-item label="Created At">
+              {{ formatTimeStr(binding.created_at) }}
+            </el-descriptions-item>
+            <el-descriptions-item label="Updated At">
+              {{ formatTimeStr(binding.updated_at) }}
+            </el-descriptions-item>
+          </el-descriptions>
 
-      <el-divider />
+          <el-text class="block font-500 mb-4 mt-4" tag="b">Update AMD LLM Subscription Key</el-text>
+          <div class="key-input-row">
+            <el-input
+              v-model="apimKeyInput"
+              type="password"
+              :placeholder="binding?.apim_key_hint ? `Current: ${binding.apim_key_hint}` : 'Enter new AMD LLM Subscription Key'"
+              show-password
+              clearable
+              class="key-input"
+            />
+            <el-button
+              type="primary"
+              :loading="submitLoading"
+              :disabled="!apimKeyInput.trim()"
+              @click="handleUpdate"
+            >
+              Update
+            </el-button>
+          </div>
+        </div>
 
-      <el-text class="block font-500 mb-4" tag="b">Update AMD LLM Subscription Key</el-text>
-      <div class="key-input-row">
-        <el-input
-          v-model="apimKeyInput"
-          type="password"
-          :placeholder="binding?.apim_key_hint ? `Current: ${binding.apim_key_hint}` : 'Enter new AMD LLM Subscription Key'"
-          show-password
-          clearable
-          class="key-input"
-        />
-        <el-button
-          type="primary"
-          :loading="submitLoading"
-          :disabled="!apimKeyInput.trim()"
-          @click="handleUpdate"
-        >
-          Update
-        </el-button>
+        <!-- Right: Summary Usage + Budget -->
+        <div class="bound-col-right">
+          <div class="budget-header">
+            <span class="budget-title">Summary Usage</span>
+            <span class="budget-amount">${{ summary?.total_spend?.toFixed(5) ?? '0.00000' }}</span>
+          </div>
+
+          <fieldset class="budget-fieldset" v-loading="budgetLoading">
+            <legend>Budget</legend>
+            <template v-if="budget">
+              <div class="budget-stats">
+                <div class="budget-stat">
+                  <span class="budget-stat-label">Spend</span>
+                  <span class="budget-stat-value">${{ budget.spend?.toFixed(2) ?? '0.00' }}</span>
+                </div>
+                <div class="budget-stat">
+                  <span class="budget-stat-label">Budget</span>
+                  <span class="budget-stat-value">${{ budget.max_budget?.toFixed(2) ?? '∞' }}</span>
+                </div>
+                <div class="budget-stat">
+                  <span class="budget-stat-label">Remaining</span>
+                  <span class="budget-stat-value">${{ budget.remaining?.toFixed(2) ?? '∞' }}</span>
+                </div>
+              </div>
+              <el-progress
+                v-if="budget.usage_percent != null"
+                :percentage="Math.min(budget.usage_percent, 100)"
+                :color="budget.budget_exceeded ? 'var(--el-color-danger)' : undefined"
+                :stroke-width="10"
+                class="mt-3"
+              >
+                <span class="text-xs">{{ budget.usage_percent.toFixed(1) }}%</span>
+              </el-progress>
+              <el-alert
+                v-if="budget.budget_exceeded"
+                title="Budget exceeded"
+                type="error"
+                :closable="false"
+                show-icon
+                class="mt-3"
+              />
+            </template>
+            <el-empty v-else description="No budget data" :image-size="40" />
+            <div class="budget-adjust mt-3">
+              <span class="text-sm text-gray-400">Adjust Budget:</span>
+              <el-input-number
+                v-model="budgetInput"
+                :min="1"
+                :precision="2"
+                :controls="false"
+                size="small"
+                style="width: 120px"
+                placeholder="$"
+              />
+              <el-button
+                size="small"
+                type="primary"
+                :loading="budgetSaving"
+                @click="handleSaveBudget"
+              >
+                Save
+              </el-button>
+            </div>
+          </fieldset>
+        </div>
       </div>
     </el-card>
 
     <!-- Usage Statistics -->
     <el-card class="mt-4 safe-card" shadow="never">
-      <div class="flex items-center justify-between flex-wrap gap-3 mb-6">
-        <h3 class="section-title">Usage Statistics</h3>
+      <div class="flex items-center justify-between flex-wrap gap-3 mb-4">
+        <div class="flex items-center gap-3">
+          <h3 class="section-title">Usage View</h3>
+          <el-dropdown trigger="click" @command="onUsageViewChange">
+            <el-button size="small" round class="usage-view-toggle">
+              <el-icon class="mr-1"><PriceTag /></el-icon>
+              {{ usageView === 'user' ? 'User Usage' : 'Tag Usage' }}
+              <el-icon class="el-icon--right"><ArrowDown /></el-icon>
+            </el-button>
+            <template #dropdown>
+              <el-dropdown-menu>
+                <el-dropdown-item command="user" :class="{ 'is-active-item': usageView === 'user' }">User Usage</el-dropdown-item>
+                <el-dropdown-item command="tag" :class="{ 'is-active-item': usageView === 'tag' }">Tag Usage</el-dropdown-item>
+              </el-dropdown-menu>
+            </template>
+          </el-dropdown>
+        </div>
         <div class="flex items-center gap-3">
           <el-radio-group v-model="quickRange" size="small" @change="onQuickRangeChange">
             <el-radio-button :value="7">7 Days</el-radio-button>
@@ -77,9 +155,34 @@
         </div>
       </div>
 
+      <!-- Tag filter (shown when Tag Usage is selected) -->
+      <div v-if="usageView === 'tag'" class="flex items-center gap-3 mb-6">
+        <span class="text-sm text-gray-400">Filter by Tags:</span>
+        <el-select
+          v-model="selectedTags"
+          placeholder="All Tags"
+          multiple
+          collapse-tags
+          collapse-tags-tooltip
+          clearable
+          size="small"
+          style="width: 320px"
+          @change="onTagFilterChange"
+        >
+          <el-option label="(Untagged)" value="__untagged__" />
+          <el-option
+            v-for="t in availableTagNames"
+            :key="t"
+            :label="t"
+            :value="t"
+          />
+        </el-select>
+      </div>
+
       <!-- Summary cards -->
+      <h4 class="sub-title mb-4">Usage Statistics</h4>
       <div class="summary-grid" v-loading="usageLoading">
-        <div v-for="s in summaryCards" :key="s.label" class="summary-card">
+        <div v-for="s in activeSummaryCards" :key="s.label" class="summary-card">
           <div class="summary-icon" :style="{ color: s.color }">
             <el-icon :size="18"><component :is="s.icon" /></el-icon>
           </div>
@@ -96,8 +199,8 @@
         <div ref="chartRef" class="spend-chart" v-loading="usageLoading" />
       </div>
 
-      <!-- Model breakdown table -->
-      <div class="mt-6" v-if="modelRows.length">
+      <!-- Model breakdown table (User Usage) -->
+      <div class="mt-6" v-if="usageView === 'user' && modelRows.length">
         <div class="flex items-center gap-3 mb-4">
           <h4 class="sub-title">Model Breakdown</h4>
           <el-select v-model="selectedDate" size="small" style="width: 160px">
@@ -145,6 +248,36 @@
           </el-table-column>
         </el-table>
       </div>
+
+      <!-- Tag breakdown table (Tag Usage) -->
+      <div class="mt-6" v-if="usageView === 'tag' && tagRows.length">
+        <h4 class="sub-title mb-4">Tag Breakdown</h4>
+        <el-table :data="tagRows" size="default" stripe class="model-table">
+          <el-table-column prop="tag_name" label="TAG" min-width="180">
+            <template #default="{ row }">
+              <el-link v-if="row.tag_name" type="primary" :underline="false" @click="onTagRowClick(row.tag_name)">
+                {{ row.tag_name }}
+              </el-link>
+              <el-text v-else type="info">(Untagged)</el-text>
+            </template>
+          </el-table-column>
+          <el-table-column prop="spend" label="SPEND" width="140" align="right">
+            <template #default="{ row }">
+              <el-text type="success">${{ row.spend.toFixed(5) }}</el-text>
+            </template>
+          </el-table-column>
+          <el-table-column label="TOKENS" width="140" align="right">
+            <template #default="{ row }">
+              {{ fmtCompact(row.prompt_tokens + row.completion_tokens) }}
+            </template>
+          </el-table-column>
+          <el-table-column prop="api_requests" label="REQUESTS" width="120" align="right">
+            <template #default="{ row }">
+              {{ fmtNum(row.api_requests) }}
+            </template>
+          </el-table-column>
+        </el-table>
+      </div>
     </el-card>
 
     <!-- Code examples -->
@@ -163,6 +296,13 @@
           <div class="code-block">
             <el-icon class="copy-btn" @click="copyText(codeSnippets.virtualKey)"><CopyDocument /></el-icon>
             <pre><code>{{ codeSnippets.virtualKey }}</code></pre>
+          </div>
+        </el-tab-pane>
+
+        <el-tab-pane label="Tag Usage" name="tagUsage">
+          <div class="code-block">
+            <el-icon class="copy-btn" @click="copyText(codeSnippets.tagUsage)"><CopyDocument /></el-icon>
+            <pre><code>{{ codeSnippets.tagUsage }}</code></pre>
           </div>
         </el-tab-pane>
 
@@ -292,6 +432,8 @@ import type {
   LLMGatewaySummary,
   LLMGatewayBudget,
   LLMGatewayTagUsage,
+  LLMGatewayTagItem,
+  LLMGatewayTagUsageParams,
 } from '@/services'
 import { formatTimeStr, copyText } from '@/utils/index'
 import { ElMessage } from 'element-plus'
@@ -303,6 +445,10 @@ import {
   Connection,
   Coin,
   Grid,
+  PriceTag,
+  ArrowDown,
+  SuccessFilled,
+  CircleCloseFilled,
 } from '@element-plus/icons-vue'
 import dayjs from 'dayjs'
 import * as echarts from 'echarts/core'
@@ -352,7 +498,7 @@ import httpx
 http_client = httpx.Client(verify=False)
 
 client = OpenAI(
-    api_key="sk-",
+    api_key="sk-<your-llm-virtual-key>",
     base_url="https://project1.tw325.primus-safe.amd.com/llm-gateway/v1",
     http_client=http_client,
 )
@@ -364,6 +510,19 @@ for model in models.data:
 response = client.chat.completions.create(
     model="openai/gpt-5.2",
     messages=[{"role": "user", "content": "Hello!"}],
+)
+print(response.choices[0].message.content)`,
+  tagUsage: `from openai import OpenAI
+
+client = OpenAI(
+    api_key="ak-<your-safe-apikey>",
+    base_url="https://oci-slc.primus-safe.amd.com/api/v1/llm-proxy/v1",
+)
+
+response = client.chat.completions.create(
+    model="openai/gpt-4.1",
+    messages=[{"role": "user", "content": "Hello!"}],
+    extra_body={"tags": ["project-A"]}  # Tag is optional; omit to leave untagged
 )
 print(response.choices[0].message.content)`,
   linux: `curl -fsSL https://raw.githubusercontent.com/AMD-AGI/Primus-SaFE/main/Scripts/setup-certs/setup.sh | bash`,
@@ -422,30 +581,15 @@ const handleSaveBudget = async () => {
   }
 }
 
-// ── Tag Usage ──
-const tagUsage = ref<LLMGatewayTagUsage | null>(null)
-const tagUsageLoading = ref(false)
+// ── Usage View Toggle ──
+type UsageViewType = 'user' | 'tag'
+const usageView = ref<UsageViewType>('user')
 
-const tagRows = computed(() => {
-  if (!tagUsage.value?.tags) return []
-  return [...tagUsage.value.tags].sort((a, b) => b.spend - a.spend)
-})
-
-const fetchTagUsage = async () => {
-  if (!binding.value?.has_apim_key) return
-  try {
-    tagUsageLoading.value = true
-    tagUsage.value = await getLLMGatewayTagUsage({
-      start_date: dateRange.value[0],
-      end_date: dateRange.value[1],
-      timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-    })
-  } catch {
-    tagUsage.value = null
-  } finally {
-    tagUsageLoading.value = false
-  }
+const onUsageViewChange = (view: UsageViewType) => {
+  usageView.value = view
+  fetchCurrentUsage()
 }
+
 // ── Usage ──
 const usageLoading = ref(false)
 const usage = ref<LLMGatewayUsage | null>(null)
@@ -458,6 +602,17 @@ const dateRange = ref<[string, string]>([
 const chartRef = ref<HTMLDivElement | null>(null)
 let chart: echarts.ECharts | null = null
 
+const generateDateRange = (start: string, end: string): string[] => {
+  const dates: string[] = []
+  let cur = dayjs(start)
+  const endDay = dayjs(end)
+  while (cur.isBefore(endDay) || cur.isSame(endDay, 'day')) {
+    dates.push(cur.format('YYYY-MM-DD'))
+    cur = cur.add(1, 'day')
+  }
+  return dates
+}
+
 const fmtNum = (n: number) => n?.toLocaleString('en-US') ?? '0'
 const fmtCompact = (n: number) => {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`
@@ -465,7 +620,7 @@ const fmtCompact = (n: number) => {
   return String(n)
 }
 
-const summaryCards = computed(() => {
+const userSummaryCards = computed(() => {
   const u = usage.value
   const modelCount = u?.daily
     ? new Set(u.daily.flatMap((d) => Object.keys(d.models ?? {}))).size
@@ -477,6 +632,33 @@ const summaryCards = computed(() => {
     { label: 'Models Used', value: String(modelCount), icon: Grid, color: '#8b5cf6' },
   ]
 })
+
+// ── Tag Usage ──
+const tagUsage = ref<LLMGatewayTagUsage | null>(null)
+const selectedTags = ref<string[]>([])
+const availableTagNames = ref<string[]>([])
+
+const tagSummaryCards = computed(() => {
+  const t = tagUsage.value
+  return [
+    { label: 'Total Spend', value: `$${t?.total_spend?.toFixed(5) ?? '0.00000'}`, icon: Money, color: '#10b981' },
+    { label: 'Total Requests', value: fmtCompact(t?.total_requests ?? 0), icon: Connection, color: '#3b82f6' },
+    { label: 'Successful Requests', value: fmtCompact(t?.total_successful_requests ?? 0), icon: SuccessFilled, color: '#10b981' },
+    { label: 'Failed Requests', value: fmtCompact(t?.total_failed_requests ?? 0), icon: CircleCloseFilled, color: '#ef4444' },
+    { label: 'Total Tokens', value: fmtCompact(t?.total_tokens ?? 0), icon: Coin, color: '#f59e0b' },
+  ]
+})
+
+const tagRows = computed<LLMGatewayTagItem[]>(() => {
+  return (tagUsage.value?.tags ?? []).map((t) => ({
+    ...t,
+    tag_name: t.tag_name,
+  })).sort((a, b) => b.spend - a.spend)
+})
+
+const activeSummaryCards = computed(() =>
+  usageView.value === 'tag' ? tagSummaryCards.value : userSummaryCards.value,
+)
 
 interface ModelRow {
   model: string
@@ -521,13 +703,59 @@ const onQuickRangeChange = (days: number) => {
     dayjs().subtract(days - 1, 'day').format('YYYY-MM-DD'),
     dayjs().format('YYYY-MM-DD'),
   ]
-  fetchUsage()
+  fetchCurrentUsage()
 }
 
 const onDateRangeChange = (val: [string, string] | null) => {
   if (!val) return
   quickRange.value = 0 as never
-  fetchUsage()
+  fetchCurrentUsage()
+}
+
+const onTagFilterChange = () => {
+  fetchTagUsage()
+}
+
+const onTagRowClick = (tag: string) => {
+  if (!selectedTags.value.includes(tag)) {
+    selectedTags.value = [...selectedTags.value, tag]
+  }
+  fetchTagUsage()
+}
+
+const fetchTagUsage = async () => {
+  if (!binding.value?.has_apim_key) return
+  try {
+    usageLoading.value = true
+    const params: LLMGatewayTagUsageParams = {
+      start_date: dateRange.value[0],
+      end_date: dateRange.value[1],
+      timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+      ...(selectedTags.value.length ? { tag: selectedTags.value.join(',') } : {}),
+    }
+    tagUsage.value = await getLLMGatewayTagUsage(params)
+
+    if (!selectedTags.value.length && tagUsage.value?.tags) {
+      availableTagNames.value = tagUsage.value.tags
+        .map((t) => t.tag_name)
+        .filter((n): n is string => n !== null)
+    }
+
+    await nextTick()
+    renderChart()
+  } catch {
+    tagUsage.value = null
+  } finally {
+    usageLoading.value = false
+  }
+}
+
+const fetchCurrentUsage = () => {
+  if (usageView.value === 'tag') {
+    fetchTagUsage()
+  } else {
+    fetchUsage()
+  }
 }
 
 const fetchBinding = async () => {
@@ -548,7 +776,6 @@ const fetchUsage = async () => {
     usage.value = await getLLMGatewayUsage({
       start_date: dateRange.value[0],
       end_date: dateRange.value[1],
-      timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
     })
     await nextTick()
     renderChart()
@@ -565,7 +792,14 @@ const renderChart = () => {
     chart = echarts.init(chartRef.value)
     window.addEventListener('resize', resizeChart)
   }
-  const daily = [...(usage.value?.daily ?? [])].reverse()
+  const rawDaily = usageView.value === 'tag'
+    ? (tagUsage.value?.daily ?? [])
+    : [...(usage.value?.daily ?? [])].reverse()
+
+  const allDates = generateDateRange(dateRange.value[0], dateRange.value[1])
+  const spendMap = new Map(rawDaily.map((d) => [d.date, d.spend]))
+  const daily = allDates.map((date) => ({ date, spend: spendMap.get(date) ?? 0 }))
+
   const isDark = document.documentElement.classList.contains('dark')
 
   chart.setOption({
@@ -658,8 +892,9 @@ watch(
   () => binding.value?.has_apim_key,
   (bound) => {
     if (bound) {
-      fetchUsage()
+      fetchCurrentUsage()
       fetchSummary()
+      fetchBudget()
     }
   },
 )
@@ -742,7 +977,7 @@ onBeforeUnmount(() => {
 /* Summary cards – glass + tilt */
 .summary-grid {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   gap: 16px;
 }
 .summary-card {
@@ -798,6 +1033,109 @@ onBeforeUnmount(() => {
   margin-top: 2px;
   font-size: 12px;
   color: var(--el-text-color-secondary);
+}
+
+/* Bound state two-column layout */
+.bound-columns {
+  display: flex;
+  gap: 24px;
+}
+.bound-col-left {
+  flex: 1;
+  min-width: 0;
+}
+.bound-col-right {
+  flex: 1;
+  min-width: 0;
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 12px;
+  padding: 20px;
+  background: linear-gradient(
+    135deg,
+    rgba(255, 255, 255, 0.6),
+    rgba(255, 255, 255, 0.15)
+  );
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+.dark .bound-col-right {
+  background: linear-gradient(
+    135deg,
+    rgba(255, 255, 255, 0.06),
+    rgba(255, 255, 255, 0.02)
+  );
+}
+
+/* Budget header */
+.budget-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 16px;
+}
+.budget-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--el-text-color-primary);
+}
+.budget-amount {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--el-color-success);
+}
+
+/* Budget fieldset */
+.budget-fieldset {
+  border: 1px solid var(--el-border-color);
+  border-radius: 8px;
+  padding: 16px;
+  margin: 0;
+}
+.budget-fieldset legend {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--el-text-color-secondary);
+  padding: 0 6px;
+}
+.budget-stats {
+  display: flex;
+  gap: 24px;
+}
+.budget-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.budget-stat-label {
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+}
+.budget-stat-value {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--el-text-color-primary);
+}
+.budget-adjust {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Usage view toggle button — teal style matching Tools SKILL tag */
+.usage-view-toggle {
+  --el-button-bg-color: rgba(0, 229, 229, 0.12);
+  --el-button-text-color: #00a3a3;
+  --el-button-border-color: rgba(0, 229, 229, 0.3);
+  --el-button-hover-bg-color: rgba(0, 229, 229, 0.2);
+  --el-button-hover-text-color: #008a8a;
+  --el-button-hover-border-color: rgba(0, 229, 229, 0.45);
+  font-weight: 500;
+}
+
+@media (max-width: 900px) {
+  .bound-columns {
+    flex-direction: column;
+  }
 }
 
 /* Chart */
@@ -861,5 +1199,11 @@ onBeforeUnmount(() => {
   font-family: 'Cascadia Code', 'Fira Code', Consolas, monospace;
   font-size: 13px;
   line-height: 1.6;
+}
+</style>
+<style>
+.is-active-item {
+  color: #00a3a3 !important;
+  font-weight: 600;
 }
 </style>
