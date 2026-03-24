@@ -85,10 +85,13 @@ func (h *Handler) createSftJob(c *gin.Context) (interface{}, error) {
 		env[k] = v
 	}
 
-	// Step 7: Build customer labels (used by Training list to identify SFT jobs)
+	// Step 7: Build SFT metadata labels
+	// IMPORTANT: These go into workload.Labels (metadata), NOT CustomerLabels.
+	// CustomerLabels are injected into node affinity by job-manager, which would
+	// make the pod unschedulable since nodes don't have these SFT-specific labels.
 	userId := c.GetString(common.UserId)
 	userName := c.GetString(common.UserName)
-	customerLabels := map[string]string{
+	sftLabels := map[string]string{
 		SftLabelWorkloadType: SftWorkloadTypeValue,
 		SftLabelModel:        hfModelName,
 		SftLabelDataset:      req.DatasetId,
@@ -131,6 +134,9 @@ func (h *Handler) createSftJob(c *gin.Context) (interface{}, error) {
 	workload.Labels = map[string]string{
 		v1.DisplayNameLabel: req.DisplayName,
 	}
+	for k, v := range sftLabels {
+		workload.Labels[k] = v
+	}
 	workload.Annotations = map[string]string{
 		v1.DescriptionAnnotation: req.Description,
 	}
@@ -146,7 +152,6 @@ func (h *Handler) createSftJob(c *gin.Context) (interface{}, error) {
 		EntryPoints:      entryPoints,
 		Resources:        resources,
 		Env:              env,
-		CustomerLabels:   customerLabels,
 		Hostpath:         req.Hostpath,
 		Priority:         req.Priority,
 		Workspace:        req.Workspace,
