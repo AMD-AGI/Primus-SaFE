@@ -78,11 +78,11 @@ func (h *Handler) createModel(c *gin.Context) (interface{}, error) {
 	}
 
 	ctx := context.Background()
+	userId := c.GetString(common.UserId)
+	userName := c.GetString(common.UserName)
 
 	// Handle local_path mode (SFT training output) — separate flow
 	if req.Source.AccessMode == string(v1.AccessModeLocalPath) {
-		userId := c.GetString(common.UserId)
-		userName := c.GetString(common.UserName)
 		return h.createModelFromLocalPath(ctx, &req, userId, userName)
 	}
 
@@ -249,9 +249,21 @@ func (h *Handler) createModel(c *gin.Context) (interface{}, error) {
 	}
 
 	// Create K8s Model CR with Secret references already set
+	modelLabels := map[string]string{
+		v1.DisplayNameLabel: displayName,
+	}
+	if userId != "" {
+		modelLabels[v1.UserIdLabel] = userId
+	}
+	modelAnnotations := map[string]string{}
+	if userName != "" {
+		modelAnnotations[v1.UserNameAnnotation] = userName
+	}
 	k8sModel := &v1.Model{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: name,
+			Name:        name,
+			Labels:      modelLabels,
+			Annotations: modelAnnotations,
 		},
 		Spec: v1.ModelSpec{
 			DisplayName: displayName,
@@ -261,6 +273,7 @@ func (h *Handler) createModel(c *gin.Context) (interface{}, error) {
 			Tags:        tags,
 			MaxTokens:   maxTokens,
 			Workspace:   req.Workspace, // Empty means public (available to all workspaces)
+			Origin:      normalizeModelOrigin(""),
 			Source: v1.ModelSource{
 				URL:        normalizedURL,
 				AccessMode: v1.AccessMode(req.Source.AccessMode),
@@ -369,6 +382,14 @@ func (h *Handler) createModelFromLocalPath(ctx context.Context, req *CreateModel
 	model.Labels = map[string]string{
 		v1.DisplayNameLabel: req.DisplayName,
 	}
+	if userId != "" {
+		model.Labels[v1.UserIdLabel] = userId
+	}
+	if userName != "" {
+		model.Annotations = map[string]string{
+			v1.UserNameAnnotation: userName,
+		}
+	}
 	model.Spec = v1.ModelSpec{
 		DisplayName: req.DisplayName,
 		Description: req.Description,
@@ -377,6 +398,7 @@ func (h *Handler) createModelFromLocalPath(ctx context.Context, req *CreateModel
 			AccessMode: v1.AccessModeLocalPath,
 			LocalPath:  req.Source.LocalPath,
 			ModelName:  req.Source.ModelName,
+			URL:        req.Source.URL,
 		},
 		Workspace: req.Workspace,
 		Origin:    origin,
@@ -548,7 +570,15 @@ func (h *Handler) convertK8sModelToInfo(k8sModel *v1.Model) ModelInfo {
 		Workspace:       k8sModel.Spec.Workspace,
 		S3Path:          k8sModel.Status.S3Path,
 		LocalPaths:      localPaths,
+		Origin:          normalizeModelOrigin(k8sModel.Spec.Origin),
+		SftJobId:        k8sModel.Spec.SftJobId,
+		BaseModel:       k8sModel.Spec.BaseModel,
+		UserId:          v1.GetUserId(k8sModel),
+		UserName:        v1.GetUserName(k8sModel),
 		CreatedAt:       k8sModel.CreationTimestamp.Format(time.RFC3339),
+		UpdatedAt:       formatMetaV1Time(k8sModel.Status.UpdateTime),
+		DeletionTime:    formatMetaV1Time(k8sModel.GetDeletionTimestamp()),
+		IsDeleted:       k8sModel.DeletionTimestamp != nil,
 	}
 }
 
@@ -991,6 +1021,9 @@ func cvtDBModelToInfo(dbModel *dbclient.Model) ModelInfo {
 		Workspace:       dbModel.Workspace,
 		S3Path:          dbModel.S3Path,
 		LocalPaths:      localPaths,
+		Origin:          normalizeModelOrigin(dbModel.Origin),
+		SftJobId:        dbModel.SftJobId,
+		BaseModel:       dbModel.BaseModel,
 		UserId:          dbModel.UserId,
 		UserName:        dbModel.UserName,
 		CreatedAt:       formatNullTime(dbModel.CreatedAt),
@@ -1006,4 +1039,18 @@ func formatNullTime(nt pq.NullTime) string {
 		return nt.Time.Format(time.RFC3339)
 	}
 	return ""
+}
+
+func formatMetaV1Time(t *metav1.Time) string {
+	if t != nil {
+		return t.Time.Format(time.RFC3339)
+	}
+	return ""
+}
+
+func normalizeModelOrigin(origin string) string {
+	if origin == "" {
+		return "external"
+	}
+	return origin
 }

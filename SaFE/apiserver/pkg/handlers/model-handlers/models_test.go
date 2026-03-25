@@ -526,6 +526,9 @@ func TestGetWorkloadConfig_ModelNotReady(t *testing.T) {
 func TestConvertK8sModelToInfo(t *testing.T) {
 	model := genMockLocalK8sModel("test-model", "ws1")
 	model.Spec.Tags = []string{"llm", "text-generation", "english"}
+	model.Spec.Origin = "fine_tuned"
+	model.Spec.SftJobId = "sft-job-1"
+	model.Spec.BaseModel = "Qwen/Qwen3-8B"
 	model.Status.LocalPaths = []v1.ModelLocalPath{
 		{
 			Workspace: "ws1",
@@ -534,6 +537,8 @@ func TestConvertK8sModelToInfo(t *testing.T) {
 			Message:   "Download completed",
 		},
 	}
+	v1.SetLabel(model, v1.UserIdLabel, "user-1")
+	v1.SetAnnotation(model, v1.UserNameAnnotation, "Test User")
 
 	h := newMockModelHandler(nil)
 	info := h.convertK8sModelToInfo(model)
@@ -545,6 +550,11 @@ func TestConvertK8sModelToInfo(t *testing.T) {
 	assert.Equal(t, info.Workspace, "ws1")
 	assert.Equal(t, len(info.LocalPaths), 1)
 	assert.Equal(t, info.LocalPaths[0].Workspace, "ws1")
+	assert.Equal(t, info.Origin, "fine_tuned")
+	assert.Equal(t, info.SftJobId, "sft-job-1")
+	assert.Equal(t, info.BaseModel, "Qwen/Qwen3-8B")
+	assert.Equal(t, info.UserId, "user-1")
+	assert.Equal(t, info.UserName, "Test User")
 }
 
 // TestParseListModelQuery tests the parseListModelQuery function
