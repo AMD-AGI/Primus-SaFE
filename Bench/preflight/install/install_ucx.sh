@@ -14,66 +14,28 @@ INSTALL_PREFIX="${WORKDIR}/ucx"  # Install directory (will be kept)
 echo "============== begin to install UCX ${UCX_VERSION} =============="
 
 cd ${WORKDIR}
+git config --global http.postBuffer 524288000
 
-# Clone UCX repository
-echo "Cloning UCX repository..."
-if [ -d "${UCX_SRC_DIR}" ]; then
-  echo "Removing existing UCX source directory..."
+for attempt in 1 2 3 4 5; do
   rm -rf ${UCX_SRC_DIR}
-fi
-
-git clone ${UCX_REPO} ${UCX_SRC_DIR}
-if [ $? -ne 0 ]; then
-  echo "Error: Failed to clone UCX repository from ${UCX_REPO}"
-  exit 1
-fi
-
-# Checkout specific version
-echo "Checking out version ${UCX_VERSION}..."
-cd ${UCX_SRC_DIR}
-git checkout ${UCX_VERSION}
-if [ $? -ne 0 ]; then
-  echo "Error: Failed to checkout version ${UCX_VERSION}"
-  exit 1
-fi
-
-# Generate configure script
-echo "Running autogen.sh..."
-./autogen.sh  >/dev/null
-if [ $? -ne 0 ]; then
-  echo "Error: Failed to run autogen.sh"
-  exit 1
-fi
-
-# Configure
-echo "Configuring UCX..."
-mkdir -p build && cd build
-../configure --prefix=${INSTALL_PREFIX} --with-rocm=/opt/rocm >/dev/null
-if [ $? -ne 0 ]; then
-  echo "Error: Failed to configure UCX."
-  exit 1
-fi
-
-# Build
-echo "Building UCX (this may take a while)..."
-make -j $(nproc)  >/dev/null
-if [ $? -ne 0 ]; then
-  echo "Error: Failed to build UCX."
-  exit 1
-fi
-
-# Install
-echo "Installing UCX..."
-make install  >/dev/null
-if [ $? -ne 0 ]; then
-  echo "Error: Failed to install UCX"
-  exit 1
-fi
-
-# Cleanup source directory (keep install directory)
-cd ${WORKDIR}
-rm -rf ${UCX_SRC_DIR}
-
-echo "============== install UCX ${UCX_VERSION} successfully =============="
-echo "UCX installed to: ${INSTALL_PREFIX}"
-echo "Add to LD_LIBRARY_PATH: export LD_LIBRARY_PATH=${INSTALL_PREFIX}/lib:\$LD_LIBRARY_PATH"
+  echo "Cloning UCX repository (attempt $attempt)..."
+  if git clone ${UCX_REPO} ${UCX_SRC_DIR} && \
+     cd ${UCX_SRC_DIR} && \
+     git checkout ${UCX_VERSION} && \
+     ./autogen.sh >/dev/null && \
+     mkdir -p build && cd build && \
+     ../configure --prefix=${INSTALL_PREFIX} --with-rocm=/opt/rocm >/dev/null && \
+     make -j $(nproc) >/dev/null && \
+     make install >/dev/null; then
+    cd ${WORKDIR} && rm -rf ${UCX_SRC_DIR}
+    echo "============== install UCX ${UCX_VERSION} successfully =============="
+    echo "UCX installed to: ${INSTALL_PREFIX}"
+    echo "Add to LD_LIBRARY_PATH: export LD_LIBRARY_PATH=${INSTALL_PREFIX}/lib:\$LD_LIBRARY_PATH"
+    exit 0
+  fi
+  echo "Attempt $attempt failed, retrying in 15s..." >&2
+  cd ${WORKDIR}
+  sleep 15
+done
+echo "Error: Failed to clone/build UCX after 5 attempts" >&2
+exit 1

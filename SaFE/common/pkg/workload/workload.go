@@ -13,7 +13,6 @@ import (
 
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/sets"
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -113,17 +112,7 @@ func GetResourcesPerNode(workload *v1.Workload, adminNodeName string) (map[strin
 		if adminNodeName != "" && adminNodeName != pod.AdminNodeName {
 			continue
 		}
-		var podResources corev1.ResourceList
-		if IsRayJob(workload) {
-			if pod.ResourceId < 0 {
-				podResources = GetRayJobSubmitterResource()
-			} else {
-				podResources = allPodResources[pod.ResourceId]
-			}
-		} else if pod.ResourceId >= 0 {
-			podResources = allPodResources[pod.ResourceId]
-		}
-
+		podResources := allPodResources[pod.ResourceId]
 		resList, ok := result[pod.AdminNodeName]
 		if ok {
 			result[pod.AdminNodeName] = quantity.AddResource(resList, podResources)
@@ -134,27 +123,20 @@ func GetResourcesPerNode(workload *v1.Workload, adminNodeName string) (map[strin
 	return result, nil
 }
 
-func GetRayJobSubmitterResource() corev1.ResourceList {
-	cpuQuantity, _ := resource.ParseQuantity(common.RayJobSubmitterCpu)
-	memQuantity, _ := resource.ParseQuantity(common.RayJobSubmitterMemory)
-	return corev1.ResourceList{
-		corev1.ResourceCPU:    cpuQuantity,
-		corev1.ResourceMemory: memQuantity,
+func GetMainContainer(obj metav1.Object, kind string, resourceId int) string {
+	if kind == common.RayJobKind && resourceId == 0 {
+		return common.RayJobSubmitterName
 	}
+	return v1.GetMainContainer(obj)
 }
 
-func GetMainContainer(obj metav1.Object, kind, podName string) string {
-	var mainContainerName string
+func GetMainContainerByPod(obj metav1.Object, kind, podName string) string {
 	if kind == common.RayJobKind && podName != "" {
-		if strings.Contains(podName, "-head-") || strings.Contains(podName, "-worker-") {
-			mainContainerName = v1.GetMainContainer(obj)
-		} else {
-			mainContainerName = common.RayJobSubmitterName
+		if !strings.Contains(podName, "-head-") && !strings.Contains(podName, "-worker-") {
+			return common.RayJobSubmitterName
 		}
-	} else {
-		mainContainerName = v1.GetMainContainer(obj)
 	}
-	return mainContainerName
+	return v1.GetMainContainer(obj)
 }
 
 // GetWorkloadResourceUsage retrieves active resources based on the input workload.
@@ -211,16 +193,7 @@ func GetWorkloadResourceUsage(workload *v1.Workload, filterNode func(nodeName st
 		if outputs[i].isTerminated || resourceId >= len(allPodResources) {
 			continue
 		}
-		var podResource corev1.ResourceList
-		if IsRayJob(workload) {
-			if resourceId < 0 {
-				podResource = GetRayJobSubmitterResource()
-			} else {
-				podResource = allPodResources[resourceId]
-			}
-		} else if resourceId >= 0 {
-			podResource = allPodResources[resourceId]
-		}
+		podResource := allPodResources[resourceId]
 		totalResource = quantity.AddResource(totalResource, podResource)
 		if !outputs[i].isFiltered {
 			availableResource = quantity.AddResource(availableResource, podResource)
@@ -491,10 +464,10 @@ func GetWorkloadGVK(workload *v1.Workload) []schema.GroupVersionKind {
 	return result
 }
 
-// GetWorkloadMainContainer retrieves and sets the main container name for a workload
+// SetMainContainerViaTemplate retrieves and sets the main container name for a workload
 // Returns false if the workload is TorchFT or already has a main container annotation
 // Otherwise, fetches the workload template and sets the main container annotation
-func GetWorkloadMainContainer(ctx context.Context, cli client.Client, workload *v1.Workload) bool {
+func SetMainContainerViaTemplate(ctx context.Context, cli client.Client, workload *v1.Workload) bool {
 	if IsTorchFT(workload) || v1.GetMainContainer(workload) != "" {
 		return false
 	}
@@ -529,4 +502,15 @@ func GetUsedHostPorts(ctx context.Context, cli client.Client, clusterId string) 
 		}
 	}
 	return ports
+}
+
+// GetSpecifiedNodes retrieves the list of nodes specified for the workload to run on.
+func GetSpecifiedNodes(workload *v1.Workload) []string {
+	keys := []string{common.SpecifiedNodes, v1.K8sHostName}
+	for _, key := range keys {
+		if val, _ := workload.Spec.CustomerLabels[key]; val != "" {
+			return strings.Split(val, " ")
+		}
+	}
+	return nil
 }

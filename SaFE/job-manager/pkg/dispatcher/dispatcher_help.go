@@ -48,10 +48,10 @@ func initializeObject(obj *unstructured.Unstructured,
 
 	path := append(templatePath, "spec",
 		"affinity", "nodeAffinity", "requiredDuringSchedulingIgnoredDuringExecution", "nodeSelectorTerms")
-	if err = modifyNodeSelectorTerms(obj, workload, path); err != nil {
+	if err = modifyRequiredNodeAffinity(obj, workload, path); err != nil {
 		return fmt.Errorf("failed to modify nodeSelectorTerms: %v", err.Error())
 	}
-	if v1.GetWorkloadDispatchCnt(workload) > 0 && v1.IsEnableStickyNodes(workload) {
+	if v1.IsRetryingOnOriginal(workload) || v1.GetNodesAffinity(workload) == common.NodesAffinityPreferred {
 		path = append(templatePath, "spec",
 			"affinity", "nodeAffinity", "preferredDuringSchedulingIgnoredDuringExecution")
 		if err = modifyPreferredNodeAffinity(obj, workload, path); err != nil {
@@ -109,14 +109,14 @@ func initializeObject(obj *unstructured.Unstructured,
 	return nil
 }
 
-// modifyNodeSelectorTerms updates node selector terms in the object's node affinity configuration.
+// modifyRequiredNodeAffinity updates node selector terms in the object's node affinity configuration.
 // It adds custom match expressions based on the workload specification.
-func modifyNodeSelectorTerms(obj *unstructured.Unstructured, workload *v1.Workload, path []string) error {
+func modifyRequiredNodeAffinity(obj *unstructured.Unstructured, workload *v1.Workload, path []string) error {
 	nodeSelectorTerms, _, err := jobutils.NestedSlice(obj.Object, path)
 	if err != nil {
 		return err
 	}
-	expression := buildMatchExpression(workload)
+	expression := buildRequiredMatchExpression(workload)
 	if len(expression) == 0 {
 		return nil
 	}
@@ -144,22 +144,24 @@ func modifyNodeSelectorTerms(obj *unstructured.Unstructured, workload *v1.Worklo
 // modifyPreferredNodeAffinity adds preferredDuringSchedulingIgnoredDuringExecution to prefer
 // nodes from the previous dispatch attempt. This helps workloads to be rescheduled on the same nodes.
 func modifyPreferredNodeAffinity(obj *unstructured.Unstructured, workload *v1.Workload, path []string) error {
-	dispatchCnt := v1.GetWorkloadDispatchCnt(workload)
-	if dispatchCnt <= 0 || len(workload.Status.Nodes) < dispatchCnt {
-		return nil
+	var nodes []string
+	if v1.GetNodesAffinity(workload) == common.NodesAffinityPreferred {
+		nodes = commonworkload.GetSpecifiedNodes(workload)
+	} else if v1.IsRetryingOnOriginal(workload) {
+		dispatchCnt := v1.GetWorkloadDispatchCnt(workload)
+		if dispatchCnt > 0 && len(workload.Status.Nodes) >= dispatchCnt {
+			nodes = workload.Status.Nodes[dispatchCnt-1]
+		}
 	}
-
-	previousNodes := workload.Status.Nodes[dispatchCnt-1]
-	if len(previousNodes) == 0 {
+	if len(nodes) == 0 {
 		return nil
 	}
 
 	// Convert node names to interface slice
-	nodeValues := make([]interface{}, len(previousNodes))
-	for i, node := range previousNodes {
+	nodeValues := make([]interface{}, len(nodes))
+	for i, node := range nodes {
 		nodeValues[i] = node
 	}
-
 	preferredTerm := map[string]interface{}{
 		"weight": int64(100),
 		"preference": map[string]interface{}{
@@ -214,14 +216,14 @@ func modifyContainers(obj *unstructured.Unstructured,
 	if !found || len(containers) == 0 {
 		return fmt.Errorf("failed to find container with path: %v", path)
 	}
+
 	env := buildEnvironment(workload, resourceId)
-	mainContainerName := v1.GetMainContainer(workload)
+	mainContainerName := commonworkload.GetMainContainer(workload, workload.Spec.Kind, resourceId)
 	for i := range containers {
 		container := containers[i].(map[string]interface{})
 		modifyEnv(container, env, workload.Spec.Resources[resourceId].RdmaResource != "")
-		modifyVolumeMounts(container, workload, workspace)
+		modifyVolumeMounts(container, workload, workspace, resourceId)
 		modifyPrivilegedSecurity(container, workload)
-
 		name := jobutils.NestedStringSilently(container, []string{"name"})
 		if name == mainContainerName {
 			if workload.Spec.JobPort > 0 {
@@ -291,13 +293,16 @@ func modifyEnv(container map[string]interface{}, envs []interface{}, isHostNetwo
 
 // modifyVolumeMounts configures volume mounts for the container based on workspace and workload specifications.
 // It includes shared memory volumes, workspace volumes, host path volumes and secret with default-type of workload.
-func modifyVolumeMounts(container map[string]interface{}, workload *v1.Workload, workspace *v1.Workspace) {
+func modifyVolumeMounts(container map[string]interface{}, workload *v1.Workload, workspace *v1.Workspace, resourceId int) {
 	var volumeMounts []interface{}
 	volumeMountObjs, ok := container["volumeMounts"]
 	if ok {
 		volumeMounts = volumeMountObjs.([]interface{})
 	}
-	volumeMounts = append(volumeMounts, buildVolumeMount(SharedMemoryVolume, "/dev/shm", "", false))
+
+	if workload.Spec.Resources[resourceId].SharedMemory != "" {
+		volumeMounts = append(volumeMounts, buildVolumeMount(SharedMemoryVolume, "/dev/shm", "", false))
+	}
 
 	maxId := 0
 	if workspace != nil && v1.IsEnableWorkspaceStorage(workload) {
@@ -484,7 +489,7 @@ func modifySelector(obj *unstructured.Unstructured, workload *v1.Workload, path 
 
 // modifyTolerations adds tolerations to tolerate all taints when IsTolerateAll is enabled or tolerate sticky node taints
 func modifyTolerations(obj *unstructured.Unstructured, workload *v1.Workload, path []string) error {
-	if !workload.Spec.IsTolerateAll && !v1.IsEnableStickyNodes(workload) {
+	if !workload.Spec.IsTolerateAll && !v1.IsRetryingOnOriginal(workload) {
 		return nil
 	}
 	var tolerations []interface{}
@@ -512,16 +517,20 @@ func modifyTolerations(obj *unstructured.Unstructured, workload *v1.Workload, pa
 
 // buildCommands constructs the command array for executing the workload entry point.
 func buildCommands(workload *v1.Workload, id int) []interface{} {
-	if commonworkload.IsRayJob(workload) {
-		return []interface{}{buildEntryPoint(workload, id)}
+	entryPoint := buildEntryPoint(workload, id)
+	if entryPoint == "" {
+		return nil
 	}
-	return []interface{}{"/bin/sh", "-c", buildEntryPoint(workload, id)}
+	if commonworkload.IsRayJob(workload) {
+		return []interface{}{entryPoint}
+	}
+	return []interface{}{"/bin/sh", "-c", entryPoint}
 }
 
 // buildEntryPoint constructs the command entry point for a workload.
 func buildEntryPoint(workload *v1.Workload, id int) string {
 	if len(workload.Spec.EntryPoints) <= id || workload.Spec.EntryPoints[id] == "" {
-		if commonworkload.IsRayJob(workload) {
+		if id > 0 && commonworkload.IsRayJob(workload) {
 			return Launcher
 		}
 		return ""
@@ -532,67 +541,26 @@ func buildEntryPoint(workload *v1.Workload, id int) string {
 	case common.CICDScaleRunnerSetKind:
 		result = workload.Spec.EntryPoints[id]
 	default:
-		result = Launcher + " '" + workload.Spec.EntryPoints[id] + "'"
+		result = Launcher + " " + workload.Spec.EntryPoints[id]
 	}
 	return result
 }
 
-// buildRayJobSubmitterTemplate builds a complete submitter pod template per KubeRay's GetSubmitterTemplate.
-// It uses the image from the Ray head container and applies our labels/annotations.
-func buildRayJobSubmitterTemplate(adminWorkload *v1.Workload) (map[string]interface{}, error) {
-	if len(adminWorkload.Spec.Images) == 0 {
-		return nil, fmt.Errorf("cannot get head container image from RayJob rayClusterSpec")
+// entrypointsEqual compares two entrypoint strings, treating launcher-style
+// commands with quoted vs unquoted base64 payload as equivalent.
+// e.g. "/bin/sh /shared-data/launcher.sh 'c2xlZXAgaW5maW5pdHk='" equals
+// "/bin/sh /shared-data/launcher.sh c2xlZXAgaW5maW5pdHk="
+func entrypointsEqual(newEp, oldEp string) bool {
+	if newEp == oldEp {
+		return true
 	}
-	headImage := adminWorkload.Spec.Images[0]
-	labels := buildPodLabels(adminWorkload)
-	annotations := buildObjectAnnotations(adminWorkload)
-	annotations[v1.MainContainerAnnotation] = common.RayJobSubmitterName
-	labelsMap := make(map[string]interface{}, len(labels))
-	for k, v := range labels {
-		labelsMap[k] = v
+	prefix := Launcher + " "
+	if !strings.HasPrefix(newEp, prefix) || !strings.HasPrefix(oldEp, prefix) {
+		return false
 	}
-	annotationsMap := make(map[string]interface{}, len(annotations))
-	for k, v := range annotations {
-		annotationsMap[k] = v
-	}
-	submitterContainer := map[string]interface{}{
-		"name":  common.RayJobSubmitterName,
-		"image": headImage,
-		"resources": map[string]interface{}{
-			"limits": map[string]interface{}{
-				"cpu":    common.RayJobSubmitterCpu,
-				"memory": common.RayJobSubmitterMemory,
-			},
-			"requests": map[string]interface{}{
-				"cpu":    common.RayJobSubmitterCpu,
-				"memory": common.RayJobSubmitterMemory,
-			},
-		},
-	}
-	return map[string]interface{}{
-		"metadata": map[string]interface{}{
-			"labels":      labelsMap,
-			"annotations": annotationsMap,
-		},
-		"spec": map[string]interface{}{
-			"containers":    []interface{}{submitterContainer},
-			"restartPolicy": "Never",
-		},
-	}, nil
-}
-
-// syncRayJobSubmitterPodMetadata sets spec.submitterPodTemplate to a complete template matching
-// KubeRay's GetSubmitterTemplate default, with our labels and annotations applied.
-// KubeRay requires a full PodTemplateSpec when SubmitterPodTemplate is set
-func syncRayJobSubmitterPodMetadata(obj *unstructured.Unstructured, adminWorkload *v1.Workload) error {
-	template, err := buildRayJobSubmitterTemplate(adminWorkload)
-	if err != nil {
-		return err
-	}
-	if err = jobutils.SetNestedField(obj.Object, template, []string{"spec", "submitterPodTemplate"}); err != nil {
-		return fmt.Errorf("failed to set submitterPodTemplate: %w", err)
-	}
-	return nil
+	newPayload := strings.Trim(strings.TrimPrefix(newEp, prefix), "'")
+	oldPayload := strings.Trim(strings.TrimPrefix(oldEp, prefix), "'")
+	return newPayload == oldPayload
 }
 
 // buildObjectLabels creates a map of labels for object tracking.
@@ -637,17 +605,9 @@ func buildPodLabels(workload *v1.Workload) map[string]interface{} {
 func buildPodAnnotations(workload *v1.Workload, resourceId int) map[string]interface{} {
 	result := buildObjectAnnotations(workload)
 	result[v1.ResourceIdAnnotation] = strconv.Itoa(resourceId)
-	if v1.GetMainContainer(workload) != "" {
-		result[v1.MainContainerAnnotation] = v1.GetMainContainer(workload)
-	}
-	return result
-}
-
-// buildResources constructs resource requirements for the workload container.
-func buildResources(resourceList corev1.ResourceList) map[string]interface{} {
-	result := make(map[string]interface{})
-	for key, val := range resourceList {
-		result[string(key)] = val.String()
+	mainContainerName := commonworkload.GetMainContainer(workload, workload.SpecKind(), resourceId)
+	if mainContainerName != "" {
+		result[v1.MainContainerAnnotation] = mainContainerName
 	}
 	return result
 }
@@ -655,21 +615,22 @@ func buildResources(resourceList corev1.ResourceList) map[string]interface{} {
 // buildEnvironment creates environment variables for the workload container.
 func buildEnvironment(workload *v1.Workload, resourceId int) []interface{} {
 	var result []interface{}
-	if workload.GetEnv("AINIC_DRIVER_VERSION") != "" {
-		result = addEnvVar(result, workload, "NCCL_IB_GID_INDEX", "1")
-		result = addEnvVar(result, workload, "NCCL_IB_TC", "104")
-		result = addEnvVar(result, workload, "NCCL_IB_FIFO_TC", "192")
-		result = addEnvVar(result, workload, "NCCL_DMABUF_ENABLE", "0")
-		result = addEnvVar(result, workload, "NCCL_MAX_P2P_CHANNELS", "56")
-		result = addEnvVar(result, workload, "NET_OPTIONAL_RECV_COMPLETION", "1")
-		result = addEnvVar(result, workload, "NCCL_IB_USE_INLINE", "1")
-		result = addEnvVar(result, workload, "RCCL_GDR_FLUSH_GPU_MEM_NO_RELAXED_ORDERING", "0")
-		result = addEnvVar(result, workload, "NCCL_GDR_FLUSH_DISABLE", "1")
-		result = addEnvVar(result, workload, "NCCL_IGNORE_CPU_AFFINITY", "1")
-		result = addEnvVar(result, workload, "LD_LIBRARY_PATH", "/opt/amd-anp/build:/opt/rccl/build/release:/opt/rocm/lib")
-	} else {
-		result = addEnvVar(result, workload, "NCCL_IB_GID_INDEX", "3")
-		result = addEnvVar(result, workload, "NCCL_IB_TC", "41")
+	if resourceId >= 0 && resourceId < len(workload.Spec.Resources) &&
+		workload.Spec.Resources[resourceId].GPU != "" {
+		if workload.GetEnv("AINIC_DRIVER_VERSION") != "" {
+			result = addEnvVar(result, workload, "NCCL_IB_GID_INDEX", "1")
+			result = addEnvVar(result, workload, "NCCL_DMABUF_ENABLE", "0")
+			result = addEnvVar(result, workload, "NCCL_MAX_P2P_CHANNELS", "56")
+			result = addEnvVar(result, workload, "NET_OPTIONAL_RECV_COMPLETION", "1")
+			result = addEnvVar(result, workload, "NCCL_IB_USE_INLINE", "1")
+			result = addEnvVar(result, workload, "RCCL_GDR_FLUSH_GPU_MEM_NO_RELAXED_ORDERING", "0")
+			result = addEnvVar(result, workload, "NCCL_GDR_FLUSH_DISABLE", "1")
+			result = addEnvVar(result, workload, "NCCL_IGNORE_CPU_AFFINITY", "1")
+			result = addEnvVar(result, workload, "LD_LIBRARY_PATH", "/opt/amd-anp/build:/opt/rccl/build/release:/opt/rocm/lib")
+		} else {
+			result = addEnvVar(result, workload, "NCCL_IB_GID_INDEX", "3")
+		}
+		result = addEnvVar(result, workload, "GPUS_PER_NODE", workload.Spec.Resources[resourceId].GPU)
 	}
 
 	if workload.Spec.IsSupervised {
@@ -678,9 +639,6 @@ func buildEnvironment(workload *v1.Workload, resourceId int) []interface{} {
 			result = addEnvVar(result, workload, "HANG_CHECK_INTERVAL",
 				strconv.Itoa(commonconfig.GetWorkloadHangCheckInterval()))
 		}
-	}
-	if workload.Spec.Resources[resourceId].GPU != "" {
-		result = addEnvVar(result, workload, "GPUS_PER_NODE", workload.Spec.Resources[resourceId].GPU)
 	}
 	result = addEnvVar(result, workload, "WORKLOAD_ID", getRootWorkloadId(workload))
 	result = addEnvVar(result, workload, "WORKLOAD_KIND", workload.SpecKind())
@@ -774,8 +732,8 @@ func buildSecretVolume(secretName string) interface{} {
 	}
 }
 
-// buildMatchExpression creates node selector match expressions based on workload specifications.
-func buildMatchExpression(workload *v1.Workload) []interface{} {
+// buildRequiredMatchExpression creates node selector match expressions based on workload specifications.
+func buildRequiredMatchExpression(workload *v1.Workload) []interface{} {
 	var result []interface{}
 	if workload.Spec.Workspace != corev1.NamespaceDefault {
 		result = append(result, map[string]interface{}{
@@ -790,19 +748,22 @@ func buildMatchExpression(workload *v1.Workload) []interface{} {
 		for i := range parts {
 			values = append(values, parts[i])
 		}
+		operator := "In"
 		if key == common.ExcludedNodes {
-			result = append(result, map[string]interface{}{
-				"key":      v1.K8sHostName,
-				"operator": "NotIn",
-				"values":   values,
-			})
-		} else {
-			result = append(result, map[string]interface{}{
-				"key":      key,
-				"operator": "In",
-				"values":   values,
-			})
+			key = v1.K8sHostName
+			operator = "NotIn"
+		} else if key == v1.K8sHostName || key == common.SpecifiedNodes {
+			affinity, ok := workload.Annotations[v1.NodesAffinityAnnotation]
+			if ok && affinity != common.NodesAffinityRequired {
+				continue
+			}
+			key = v1.K8sHostName
 		}
+		result = append(result, map[string]interface{}{
+			"key":      key,
+			"operator": operator,
+			"values":   values,
+		})
 	}
 	return result
 }
@@ -983,7 +944,7 @@ func updateCICDGithub(adminWorkload *v1.Workload, obj *unstructured.Unstructured
 	specObject["githubConfigUrl"] = adminWorkload.Spec.Env[common.GithubConfigUrl]
 	if commonworkload.IsCICDEphemeralRunner(adminWorkload) {
 		if runnerSetId := v1.GetCICDRunnerScaleSetId(adminWorkload); runnerSetId != "" {
-			specObject["runnerScaleSetId"], err = strconv.ParseInt(runnerSetId, 10, 0)
+			specObject["runnerScaleSetId"], err = strconv.ParseInt(runnerSetId, 10, 64)
 			if err != nil {
 				return fmt.Errorf("invalid runner scale set id %s", runnerSetId)
 			}
@@ -1035,7 +996,7 @@ func updateCICDScaleSetEnvs(obj *unstructured.Unstructured,
 			return err
 		}
 	} else {
-		mainContainerName := v1.GetMainContainer(adminWorkload)
+		mainContainerName := commonworkload.GetMainContainer(adminWorkload, adminWorkload.SpecKind(), 0)
 		// When unified build is disabled, keep only main container with resource variables
 		for i := range containers {
 			container := containers[i].(map[string]interface{})
@@ -1067,11 +1028,7 @@ func updateRayJob(obj *unstructured.Unstructured, adminWorkload *v1.Workload) er
 	if !ok {
 		return fmt.Errorf("failed to find object with path: %v", path)
 	}
-	decoded := stringutil.Base64Decode(jobEntryPoint)
-	if decoded == "" {
-		decoded = jobEntryPoint // fallback: plain text when base64 decode fails
-	}
-	specObject["entrypoint"] = decoded
+	specObject["entrypoint"] = Launcher + " '" + jobEntryPoint + "'"
 	if err = jobutils.SetNestedField(obj.Object, specObject, path); err != nil {
 		return err
 	}
@@ -1112,7 +1069,7 @@ func updateContainers(adminWorkload *v1.Workload,
 		return err
 	}
 
-	mainContainerName := v1.GetMainContainer(adminWorkload)
+	mainContainerName := commonworkload.GetMainContainer(adminWorkload, adminWorkload.SpecKind(), id)
 	res := &adminWorkload.Spec.Resources[id]
 	resourceList, err := quantity.CvtToResourceList(res.CPU, res.Memory, res.GPU,
 		res.GPUName, res.EphemeralStorage, res.RdmaResource, 1.0/float64(len(containers)))
@@ -1120,7 +1077,11 @@ func updateContainers(adminWorkload *v1.Workload,
 		return err
 	}
 
-	resources := buildResources(resourceList)
+	resources := make(map[string]interface{})
+	for key, val := range resourceList {
+		resources[string(key)] = val.String()
+	}
+
 	for i := range containers {
 		container := containers[i].(map[string]interface{})
 		updateContainerEnv(adminWorkload.Spec.Env, container, v1.GetEnvToBeRemoved(adminWorkload))
@@ -1133,7 +1094,9 @@ func updateContainers(adminWorkload *v1.Workload,
 			if len(adminWorkload.Spec.Images) > id && adminWorkload.Spec.Images[id] != "" {
 				container["image"] = adminWorkload.Spec.Images[id]
 			}
-			container["command"] = buildCommands(adminWorkload, id)
+			if cmds := buildCommands(adminWorkload, id); len(cmds) > 0 {
+				container["command"] = cmds
+			}
 		}
 	}
 	if err = jobutils.SetNestedField(obj.Object, containers, path); err != nil {
@@ -1204,6 +1167,9 @@ func updateContainerEnv(envs map[string]string, container map[string]interface{}
 
 // updateSharedMemory updates the shared memory volume configuration.
 func updateSharedMemory(adminWorkload *v1.Workload, obj *unstructured.Unstructured, resourceSpec v1.ResourceSpec, id int) error {
+	if adminWorkload.Spec.Resources[id].SharedMemory == "" {
+		return nil
+	}
 	path := resourceSpec.PrePaths
 	path = append(path, resourceSpec.TemplatePaths...)
 	path = append(path, "spec", "volumes")

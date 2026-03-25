@@ -14,7 +14,7 @@
   >
     <!-- Middle content area: scrollable -->
     <div class="drawer-body">
-      <el-form ref="ruleFormRef" :model="form" :rules="rules" label-width="120px">
+      <el-form ref="ruleFormRef" :model="form" :rules="rules" label-width="120px" :validate-on-rule-change="false">
         <!-- ===== Basic Information ===== -->
         <div class="section-card">
           <div class="section-header">
@@ -320,13 +320,17 @@
                   </el-form-item>
                 </el-col>
 
-                <!-- stickyNodes -->
-                <el-col :span="12" v-if="!isEdit">
-                  <el-form-item label="stickyNodes">
-                    <el-switch v-model="form.stickyNodes" class="mr-2" />
-                    <el-text size="small" type="info">
+                <!-- nodesAffinity -->
+                <el-col :span="12" v-if="!isEdit && (form.resourceType === 'nodes' || props.action === 'Clone' || props.action === 'Resume')">
+                  <el-form-item label="nodesAffinity">
+                    <el-radio-group v-model="form.nodesAffinity" size="small">
+                      <el-radio-button value="" :disabled="form.resourceType === 'nodes' && !clonedLastNodes.length">Disabled</el-radio-button>
+                      <el-radio-button value="required">Required</el-radio-button>
+                      <el-radio-button value="preferred">Preferred</el-radio-button>
+                    </el-radio-group>
+                    <el-text size="small" type="info" class="ml-2">
                       <el-icon class="mr-1"><InfoFilled /></el-icon>
-                      {{ STICKY_NODES_INFO }}
+                      {{ NODES_AFFINITY_INFO }}
                     </el-text>
                   </el-form-item>
                 </el-col>
@@ -577,7 +581,7 @@ const SCHEDULER_INFO = 'Scheduled execution time'
 const RETRY_TIMES_INFO = 'Maximum retries:50'
 const HANG_CHECK_INFO = 'workload fails if the last node(by rank) has no logs for 20 minutes'
 const PREHEAT_INFO = 'preheat: When enabled, preheats the image, which increases workload duration.'
-const STICKY_NODES_INFO = 'When enabled, it will prefer the last-used nodes.'
+const NODES_AFFINITY_INFO = 'Node affinity: Required (strict) or Preferred (best-effort)'
 const FORCE_HOST_NETWORK_INFO = 'Force host network (default: auto-based on resources)'
 
 const advancedOpen = ref(false)
@@ -657,11 +661,25 @@ const initialForm = () => ({
 
   secretIds: [] as string[],
   preheat: false,
-  stickyNodes: false,
+  nodesAffinity: '' as '' | 'required' | 'preferred',
   forceHostNetwork: false,
 })
 const form = reactive({ ...initialForm() })
 const isRetry = ref(false) // isAutoRetry
+
+const clonedLastNodes = ref<string[]>([])
+watch(() => form.nodesAffinity, (newVal, oldVal) => {
+  if (!clonedLastNodes.value.length) return
+  if (newVal && !oldVal) {
+    isCustomNodes.value = true
+    form.resourceType = 'nodes'
+    form.nodeList = [...clonedLastNodes.value]
+  } else if (!newVal && oldVal) {
+    isCustomNodes.value = false
+    form.resourceType = 'replicas'
+    form.nodeList = []
+  }
+})
 
 // Watch nodeList changes, sync update replica if in nodes mode
 watch(
@@ -895,6 +913,7 @@ const onSubmit = async (formEl: FormInstance | undefined) => {
       secretIds,
       excludedNodes,
       image,
+      nodesAffinity: _nodesAffinity,
       ...addPayload
     } = form
 
@@ -965,7 +984,7 @@ const onSubmit = async (formEl: FormInstance | undefined) => {
         ...(secrets.length > 0 ? { secrets: secrets } : {}),
         ...nodeListPayload,
         ...(excludedNodesPayload ? { excludedNodes: excludedNodesPayload } : {}),
-        stickyNodes: form.stickyNodes,
+        ...(form.nodesAffinity ? { nodesAffinity: form.nodesAffinity as 'required' | 'preferred' } : {}),
         ...(cachedUseWorkspaceStorage.value !== undefined ? { useWorkspaceStorage: cachedUseWorkspaceStorage.value } : {}),
       })
       ElMessage({ message: 'Create successful', type: 'success' })
@@ -1087,7 +1106,6 @@ const setInitialFormValues = async () => {
   form.image = (Array.isArray(res.images) ? res.images[0] : undefined) ?? res.image ?? ''
   form.maxRetry = res.maxRetry ?? 0
   form.timeout = res.timeout
-  form.stickyNodes = res.stickyNodes ?? false
   form.schedulerTime = decodeScheduleFromApi(res.cronJobs?.[0]?.schedule) ?? ''
   form.dependencies = res.dependencies ?? []
 
@@ -1116,8 +1134,13 @@ const setInitialFormValues = async () => {
     if (!isEdit.value) {
       form.nodeList = customNodesList
     }
+    form.nodesAffinity = res.nodesAffinity || 'required'
+    clonedLastNodes.value = []
   } else {
     form.resourceType = 'replicas'
+    form.nodesAffinity = ''
+    const lastNodes = res.nodes?.length ? (res.nodes[res.nodes.length - 1] ?? []) : []
+    clonedLastNodes.value = lastNodes
   }
 
   // TorchFT: load two resources - Lighthouse (index 0) and Worker Group (index 1)
@@ -1182,6 +1205,8 @@ const setInitialFormValues = async () => {
   if (props.action === 'Clone') {
     fetchWorkspaceOption()
   }
+  await nextTick()
+  ruleFormRef.value?.clearValidate()
 }
 
 const fetchNodes = async () => {
@@ -1279,6 +1304,7 @@ watch(
 const onOpen = async () => {
   showAdvanced.value = false
   cachedUseWorkspaceStorage.value = undefined
+  clonedLastNodes.value = []
   pendingWorkspaceId.value = store.currentWorkspaceId ?? store.firstWorkspace ?? ''
   fetchNodes()
   fetchImage()

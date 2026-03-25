@@ -19,6 +19,7 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/quantity"
+	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/slice"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
 )
@@ -185,7 +186,7 @@ func convertUnstructuredToString(obj map[string]interface{}, paths []string) str
 
 // GetResources Retrieve the replica count and the resource specifications of the main container.
 func GetResources(unstructuredObj *unstructured.Unstructured,
-	rt *v1.ResourceTemplate, mainContainer, gpuName string, maxResource int) ([]int64, []corev1.ResourceList, error) {
+	rt *v1.ResourceTemplate, gpuName string, maxResource int) ([]int64, []corev1.ResourceList, error) {
 	var replicaList []int64
 	var resourceList []corev1.ResourceList
 	for i, t := range rt.Spec.ResourceSpecs {
@@ -216,6 +217,7 @@ func GetResources(unstructuredObj *unstructured.Unstructured,
 		if !found {
 			continue
 		}
+		mainContainer := commonworkload.GetMainContainer(unstructuredObj, rt.SpecKind(), i)
 		for _, c := range containers {
 			obj, err := runtime.DefaultUnstructuredConverter.ToUnstructured(&c)
 			if err != nil {
@@ -249,7 +251,7 @@ func GetResources(unstructuredObj *unstructured.Unstructured,
 
 // GetCommands Retrieve the command of the main container.
 func GetCommands(unstructuredObj *unstructured.Unstructured,
-	rt *v1.ResourceTemplate, mainContainer string, maxResource int) ([][]string, error) {
+	rt *v1.ResourceTemplate, maxResource int) ([][]string, error) {
 	result := make([][]string, 0, len(rt.Spec.ResourceSpecs))
 	for i, t := range rt.Spec.ResourceSpecs {
 		if i >= maxResource {
@@ -266,6 +268,7 @@ func GetCommands(unstructuredObj *unstructured.Unstructured,
 		if !found {
 			return nil, fmt.Errorf("failed to find containers, path: %s", path)
 		}
+		mainContainer := commonworkload.GetMainContainer(unstructuredObj, rt.SpecKind(), i)
 		for _, c := range containers {
 			obj, err := runtime.DefaultUnstructuredConverter.ToUnstructured(&c)
 			if err != nil {
@@ -298,7 +301,7 @@ func GetCommands(unstructuredObj *unstructured.Unstructured,
 
 // GetImages Retrieve all the image address of the main container.
 func GetImages(unstructuredObj *unstructured.Unstructured,
-	rt *v1.ResourceTemplate, mainContainer string, maxResource int) ([]string, error) {
+	rt *v1.ResourceTemplate, maxResource int) ([]string, error) {
 	result := make([]string, 0, len(rt.Spec.ResourceSpecs))
 	for i, t := range rt.Spec.ResourceSpecs {
 		if i >= maxResource {
@@ -315,6 +318,7 @@ func GetImages(unstructuredObj *unstructured.Unstructured,
 		if !found {
 			return nil, fmt.Errorf("failed to find containers, path: %s", path)
 		}
+		mainContainer := commonworkload.GetMainContainer(unstructuredObj, rt.SpecKind(), i)
 		for _, c := range containers {
 			obj, err := runtime.DefaultUnstructuredConverter.ToUnstructured(&c)
 			if err != nil {
@@ -547,7 +551,7 @@ func GetSelectorLabels(unstructuredObj *unstructured.Unstructured) (map[string]i
 
 // GetEnv Retrieve the environment value of the main container.
 func GetEnv(unstructuredObj *unstructured.Unstructured,
-	rt *v1.ResourceTemplate, mainContainer string, maxResource int) ([]interface{}, error) {
+	rt *v1.ResourceTemplate, maxResource int) ([]interface{}, error) {
 	for i, t := range rt.Spec.ResourceSpecs {
 		if i >= maxResource {
 			break
@@ -562,6 +566,7 @@ func GetEnv(unstructuredObj *unstructured.Unstructured,
 		if !found {
 			return nil, fmt.Errorf("failed to find containers, path: %s", path)
 		}
+		mainContainer := commonworkload.GetMainContainer(unstructuredObj, rt.SpecKind(), i)
 		for _, c := range containers {
 			obj, err := runtime.DefaultUnstructuredConverter.ToUnstructured(&c)
 			if err != nil {

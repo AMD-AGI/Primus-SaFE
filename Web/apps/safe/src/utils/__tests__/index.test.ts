@@ -391,6 +391,7 @@ describe('calculateDefaultTime', () => {
     const result = calculateDefaultTime(undefined, undefined, '2024-06-01 12:00:00')
     expect(result).not.toBeNull()
     expect(result![0]).toBeInstanceOf(Date)
+    expect(result![1]).toBe('now')
   })
 
   it('returns [start, start] when end < start', () => {

@@ -57,15 +57,17 @@ const (
 	PfsSelectorKey         = "pfs-name"
 	JsonContentType        = "application/json; charset=utf-8"
 	KubernetesControlPlane = "node-role.kubernetes.io/control-plane"
+	SpecifiedNodes         = "specified-nodes"
 	ExcludedNodes          = "excluded-nodes"
 	TaintAction            = "taint"
 	CICDArcNamespace       = "arc-systems"
 
-	RayJobSubmitterName   = "ray-job-submitter"
-	RayJobSubmitterCpu    = "1"
-	RayJobSubmitterMemory = "1Gi"
-	RayJobGcsServerPort   = 6379
-	RayJobDashboard       = 8265
+	RayJobSubmitterName    = "ray-job-submitter"
+	RayJobSubmitterCpu     = "1"
+	RayJobSubmitterMemory  = "1Gi"
+	RayJobSubmitterStorage = "10Gi"
+	RayJobGcsServerPort    = 6379
+	RayJobDashboard        = 8265
 
 	DefaultBurst          = 1000
 	DefaultQPS            = 1000
@@ -102,4 +104,9 @@ const (
 	ImageImportingStatus     = "Importing"
 	ImageImportFailedStatus  = "Failed"
 	ImageImportPendingStatus = "Pending"
+)
+
+const (
+	NodesAffinityRequired  = "required"
+	NodesAffinityPreferred = "preferred"
 )

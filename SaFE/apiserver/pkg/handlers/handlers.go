@@ -14,13 +14,19 @@ import (
 
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
 	cdhandlers "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/cd-handlers"
+	emailrelayhandlers "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/email-relay-handlers"
+	githubworkflow "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/github-workflow"
 	imagehandlers "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/image-handlers"
+	llmgateway "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/llm-gateway"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/middleware"
 	model_handlers "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/model-handlers"
+	a2ahandlers "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/a2a-handlers"
 	proxyhandlers "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/proxy-handlers"
 	reshandler "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/resources"
 	sshhandler "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/ssh-handlers"
+	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/a2a"
 	apiutils "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/utils"
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
@@ -56,6 +62,13 @@ func InitHttpHandlers(_ context.Context, mgr ctrlruntime.Manager) (*gin.Engine, 
 			authority.NewApiKeyToken(dbClient)
 		}
 	}
+	// Initialize proxy handlers first to avoid route conflicts with resource handlers
+	proxyHandler, err := proxyhandlers.NewProxyHandler()
+	if err != nil {
+		return nil, err
+	}
+	proxyhandlers.InitProxyRoutes(engine, proxyHandler)
+
 	customHandler, err := reshandler.NewHandler(mgr)
 	if err != nil {
 		return nil, err
@@ -79,12 +92,47 @@ func InitHttpHandlers(_ context.Context, mgr ctrlruntime.Manager) (*gin.Engine, 
 	modelHandler := InitModelHandlers(context.Background(), mgr)
 	model_handlers.InitInferenceRouters(engine, modelHandler)
 
-	// Initialize proxy handlers
-	proxyHandler, err := proxyhandlers.NewProxyHandler()
-	if err != nil {
-		return nil, err
+	// Initialize A2A handlers if database is enabled
+	if commonconfig.IsDBEnable() {
+		a2aDbClient := dbclient.NewClient()
+		if a2aDbClient != nil {
+			a2aHandler := a2ahandlers.NewHandler(a2aDbClient)
+			a2ahandlers.InitA2ARouters(engine, a2aHandler)
+
+			if commonconfig.IsA2AScannerEnable() {
+				scanner := a2a.NewScanner(mgr.GetClient(), a2aDbClient)
+				go scanner.Start(context.Background())
+			}
+		}
 	}
-	proxyhandlers.InitProxyRoutes(engine, proxyHandler)
+
+	// Initialize LLM Gateway handlers (if enabled and DB is available)
+	if commonconfig.IsLLMGatewayEnable() && commonconfig.IsDBEnable() {
+		llmDbClient := dbclient.NewClient()
+		if llmDbClient != nil {
+			llmHandler, llmErr := llmgateway.NewHandler(authority.NewAccessController(mgr.GetClient()), llmDbClient)
+			if llmErr != nil {
+				klog.ErrorS(llmErr, "failed to initialize LLM Gateway handler")
+			} else {
+				llmgateway.InitRoutes(engine, llmHandler)
+			}
+		}
+	}
+
+	// Initialize email relay handlers (only when DB is enabled)
+	if commonconfig.IsDBEnable() {
+		emailRelayHandler, err := emailrelayhandlers.NewHandler()
+		if err != nil {
+			klog.Warningf("Email relay handler initialization skipped: %v", err)
+		} else {
+			emailrelayhandlers.InitEmailRelayRouters(engine, emailRelayHandler)
+		}
+	}
+
+	// GitHub Workflow CI/CD API
+	if commonconfig.IsDBEnable() {
+		githubworkflow.RegisterRoutes(engine.Group(common.PrimusRouterCustomRootPath))
+	}
 
 	return engine, nil
 }

@@ -416,7 +416,7 @@ func TestUpdateDeploymentEnv(t *testing.T) {
 
 	err = applyWorkloadSpecToObject(context.Background(), nil, workloadObj, adminWorkload, nil, jobutils.TestDeploymentResourceTemplate)
 	assert.NilError(t, err)
-	envs, err := jobutils.GetEnv(workloadObj, jobutils.TestDeploymentResourceTemplate, "test", 1)
+	envs, err := jobutils.GetEnv(workloadObj, jobutils.TestDeploymentResourceTemplate, 1)
 	assert.NilError(t, err)
 	assert.Equal(t, len(envs), 3)
 	env, ok := envs[0].(map[string]interface{})
@@ -438,7 +438,7 @@ func TestUpdateDeploymentEnv(t *testing.T) {
 	}
 	err = applyWorkloadSpecToObject(context.Background(), nil, workloadObj, adminWorkload, nil, jobutils.TestDeploymentResourceTemplate)
 	assert.NilError(t, err)
-	envs, err = jobutils.GetEnv(workloadObj, jobutils.TestDeploymentResourceTemplate, "test", 1)
+	envs, err = jobutils.GetEnv(workloadObj, jobutils.TestDeploymentResourceTemplate, 1)
 	assert.NilError(t, err)
 	assert.Equal(t, len(envs), 3)
 	env, ok = envs[0].(map[string]interface{})
@@ -460,7 +460,7 @@ func TestUpdateDeploymentEnv(t *testing.T) {
 	v1.SetAnnotation(adminWorkload, v1.EnvToBeRemovedAnnotation, string(jsonutils.MarshalSilently([]string{"key"})))
 	err = applyWorkloadSpecToObject(context.Background(), nil, workloadObj, adminWorkload, nil, jobutils.TestDeploymentResourceTemplate)
 	assert.NilError(t, err)
-	envs, err = jobutils.GetEnv(workloadObj, jobutils.TestDeploymentResourceTemplate, "test", 1)
+	envs, err = jobutils.GetEnv(workloadObj, jobutils.TestDeploymentResourceTemplate, 1)
 	assert.NilError(t, err)
 	assert.Equal(t, len(envs), 2)
 	env, ok = envs[0].(map[string]interface{})
@@ -956,17 +956,7 @@ func TestCreateRayJob(t *testing.T) {
 	defer commonconfig.SetValue("net.rdma_name", "")
 
 	workspace := jobutils.TestWorkspaceData.DeepCopy()
-	workload := jobutils.TestWorkloadData.DeepCopy()
-	workload.Spec.GroupVersionKind = v1.GroupVersionKind{
-		Kind:    common.RayJobKind,
-		Version: common.DefaultVersion,
-	}
-	workload.Spec.Secrets = []v1.SecretEntity{{
-		Id:   workspace.Spec.ImageSecrets[0].Name,
-		Type: v1.SecretImage,
-	}}
-	jobEntrypoint := "tail -f /dev/null"
-	workload.Spec.Env[common.RayJobEntrypoint] = jobEntrypoint
+	workload := jobutils.TestRayWorkloadData.DeepCopy()
 	workload.Spec.Workspace = workspace.Name
 
 	configmap, err := parseConfigmap(TestRayJobTemplateConfig)
@@ -979,27 +969,26 @@ func TestCreateRayJob(t *testing.T) {
 	r := DispatcherReconciler{Client: adminClient}
 	obj, err := r.generateK8sObject(context.Background(), workload, nil)
 	assert.NilError(t, err)
-	val, found, err := jobutils.NestedString(obj.Object, []string{"spec", "entrypoint"})
-	assert.NilError(t, err)
-	assert.Equal(t, found, true)
-	assert.Equal(t, val, jobEntrypoint)
+	checkRaySubmitterPod(t, obj, workload)
 
 	templates := jobutils.TestRayJobResourceTemplate.Spec.ResourceSpecs
-	checkResources(t, obj, workload, &templates[0], 0, 0)
-	checkPorts(t, obj, workload, &templates[0], 0)
-	checkEnvs(t, obj, workload, &templates[0], 0)
-	checkVolumeMounts(t, obj, &templates[0])
-	checkVolumes(t, obj, workload, &templates[0], 0)
-	checkRequiredNodeSelectorTerms(t, obj, workload, &templates[0])
-	checkImage(t, obj, workload.Spec.Images[0], &templates[0])
-	checkLabels(t, obj, workload, &templates[0], 0)
-	checkHostNetwork(t, obj, workload, &templates[0], 0)
-	checkTolerations(t, obj, workload, &templates[0])
-	checkPriorityClass(t, obj, workload, &templates[0])
-	checkImageSecrets(t, obj, &templates[0])
-	_, found, err = jobutils.NestedSlice(obj.Object, templates[1].PrePaths)
-	assert.Equal(t, err != nil, true)
-	assert.Equal(t, found, false)
+	for id := 0; id < 2; id++ {
+		checkResources(t, obj, workload, &templates[id], 0, id)
+		checkPorts(t, obj, workload, &templates[id], id)
+		checkEnvs(t, obj, workload, &templates[id], id)
+		checkVolumeMounts(t, obj, &templates[id])
+		checkVolumes(t, obj, workload, &templates[id], id)
+		checkRequiredNodeSelectorTerms(t, obj, workload, &templates[id])
+		checkImage(t, obj, workload.Spec.Images[id], &templates[id])
+		checkLabels(t, obj, workload, &templates[id], id)
+		checkHostNetwork(t, obj, workload, &templates[id], id)
+		checkTolerations(t, obj, workload, &templates[id])
+		checkPriorityClass(t, obj, workload, &templates[id])
+		checkImageSecrets(t, obj, &templates[id])
+		_, found, err := jobutils.NestedSlice(obj.Object, templates[id].PrePaths)
+		assert.Equal(t, err != nil, true)
+		assert.Equal(t, found, false)
+	}
 
 	workload.Spec.Resources = append(workload.Spec.Resources, v1.WorkloadResource{
 		Replica:          2,
@@ -1016,18 +1005,19 @@ func TestCreateRayJob(t *testing.T) {
 	obj, err = r.generateK8sObject(context.Background(), workload, nil)
 	assert.NilError(t, err)
 
-	checkResources(t, obj, workload, &templates[1], 2, 1)
-	checkEnvs(t, obj, workload, &templates[1], 1)
-	checkPorts(t, obj, workload, &templates[1], 1)
-	checkVolumeMounts(t, obj, &templates[1])
-	checkVolumes(t, obj, workload, &templates[1], 1)
-	checkRequiredNodeSelectorTerms(t, obj, workload, &templates[1])
-	checkImage(t, obj, workload.Spec.Images[1], &templates[1])
-	checkLabels(t, obj, workload, &templates[1], 1)
-	checkHostNetwork(t, obj, workload, &templates[1], 1)
-	checkTolerations(t, obj, workload, &templates[1])
-	checkPriorityClass(t, obj, workload, &templates[1])
-	checkImageSecrets(t, obj, &templates[1])
+	id := 2
+	checkResources(t, obj, workload, &templates[id], 2, id)
+	checkPorts(t, obj, workload, &templates[id], id)
+	checkEnvs(t, obj, workload, &templates[id], id)
+	checkVolumeMounts(t, obj, &templates[id])
+	checkVolumes(t, obj, workload, &templates[id], id)
+	checkRequiredNodeSelectorTerms(t, obj, workload, &templates[id])
+	checkImage(t, obj, workload.Spec.Images[id], &templates[id])
+	checkLabels(t, obj, workload, &templates[id], id)
+	checkHostNetwork(t, obj, workload, &templates[id], id)
+	checkTolerations(t, obj, workload, &templates[id])
+	checkPriorityClass(t, obj, workload, &templates[id])
+	checkImageSecrets(t, obj, &templates[id])
 	// fmt.Println(unstructuredutils.ToString(obj))
 }
 
@@ -1039,8 +1029,9 @@ func TestCreatePytorchJobWithStickyNodes(t *testing.T) {
 	workload := jobutils.TestWorkloadData.DeepCopy()
 	workload.Spec.Workspace = workspace.Name
 	workload.Status.Nodes = [][]string{{"node1", "node2"}}
+	workload.Spec.CustomerLabels[common.SpecifiedNodes] = "node1 node2"
 	v1.SetLabel(workload, v1.WorkloadDispatchCntLabel, "1")
-	v1.SetAnnotation(workload, v1.WorkloadStickyNodesAnnotation, v1.TrueStr)
+	v1.SetAnnotation(workload, v1.NodesAffinityAnnotation, common.NodesAffinityPreferred)
 
 	configmap, err := parseConfigmap(TestPytorchJobTemplateConfig)
 	assert.NilError(t, err)

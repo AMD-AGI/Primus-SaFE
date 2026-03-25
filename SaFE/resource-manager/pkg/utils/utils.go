@@ -59,7 +59,7 @@ func RemoveFinalizer(ctx context.Context, cli client.Client, obj client.Object, 
 	}
 	if err := commonutils.PatchObjectFinalizer(ctx, cli, obj); err != nil {
 		klog.ErrorS(err, "failed to remove finalizer")
-		return err
+		return client.IgnoreNotFound(err)
 	}
 	return nil
 }
@@ -101,11 +101,11 @@ func GetK8sClientFactory(clientManager *commonutils.ObjectManager, clusterId str
 	if obj == nil {
 		err := fmt.Errorf("the client for cluster %s is not found. pls retry later", clusterId)
 		//	klog.Error(err.Error())
-		return nil, commonerrors.NewInternalError(err.Error())
+		return nil, commonerrors.NewNotFoundWithMessage(err.Error())
 	}
 	k8sClients, ok := obj.(*commonclient.ClientFactory)
 	if !ok {
-		return nil, commonerrors.NewInternalError("failed to correctly build the k8s client")
+		return nil, commonerrors.NewInternalError("invalid client object")
 	}
 	return k8sClients, nil
 }

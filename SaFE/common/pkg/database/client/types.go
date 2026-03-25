@@ -44,7 +44,6 @@ type Workload struct {
 	IsSupervised        bool           `db:"is_supervised"`
 	IsTolerateAll       bool           `db:"is_tolerate_all"`
 	IsDeleted           bool           `db:"is_deleted"`
-	IsStickyNodes       bool           `db:"is_sticky_nodes"`
 	IsPrivileged        bool           `db:"is_privileged"`
 	UseWorkspaceStorage bool           `db:"use_workspace_storage"`
 	ForceHostNetwork    bool           `db:"force_host_network"`
@@ -71,6 +70,7 @@ type Workload struct {
 	Secrets             sql.NullString `db:"secrets"`
 	ScaleRunnerSet      sql.NullString `db:"scale_runner_set"`
 	ScaleRunnerId       sql.NullString `db:"scale_runner_id"`
+	NodesAffinity       sql.NullString `db:"nodes_affinity"`
 }
 
 // GetWorkloadFieldTags returns the WorkloadFieldTags value.
@@ -449,4 +449,54 @@ type EvaluationTask struct {
 func GetEvaluationTaskFieldTags() map[string]string {
 	t := EvaluationTask{}
 	return getFieldTags(t)
+}
+
+// A2AServiceRegistry represents an A2A service registration record.
+type A2AServiceRegistry struct {
+	Id              int64          `db:"id"`
+	WorkloadId      sql.NullString `db:"workload_id"`
+	ServiceName     string         `db:"service_name"`
+	DisplayName     string         `db:"display_name"`
+	Description     string         `db:"description"`
+	Endpoint        string         `db:"endpoint"`
+	A2APathPrefix   string         `db:"a2a_path_prefix"`
+	A2AAgentCard    sql.NullString `db:"a2a_agent_card"`
+	A2ASkills       sql.NullString `db:"a2a_skills"`
+	A2AHealth       string         `db:"a2a_health"`
+	A2ALastSeen     pq.NullTime    `db:"a2a_last_seen"`
+	K8sNamespace    sql.NullString `db:"k8s_namespace"`
+	K8sService      sql.NullString `db:"k8s_service"`
+	DiscoverySource string         `db:"discovery_source"`
+	Status          string         `db:"status"`
+	CreatedBy       sql.NullString `db:"created_by"`
+	CreatedAt       pq.NullTime    `db:"created_at"`
+	UpdatedAt       pq.NullTime    `db:"updated_at"`
+}
+
+// GetA2AServiceRegistryFieldTags returns field tags for A2AServiceRegistry.
+func GetA2AServiceRegistryFieldTags() map[string]string {
+	s := A2AServiceRegistry{}
+	return getFieldTags(s)
+}
+
+// A2ACallLog represents an A2A invocation log record.
+type A2ACallLog struct {
+	Id                int64          `db:"id"`
+	TraceId           string         `db:"trace_id"`
+	CallerServiceName string         `db:"caller_service_name"`
+	CallerUserId      string         `db:"caller_user_id"`
+	TargetServiceName string         `db:"target_service_name"`
+	SkillId           string         `db:"skill_id"`
+	Status            string         `db:"status"`
+	LatencyMs         float64        `db:"latency_ms"`
+	RequestSizeBytes  int64          `db:"request_size_bytes"`
+	ResponseSizeBytes int64          `db:"response_size_bytes"`
+	ErrorMessage      sql.NullString `db:"error_message"`
+	CreatedAt         pq.NullTime    `db:"created_at"`
+}
+
+// GetA2ACallLogFieldTags returns field tags for A2ACallLog.
+func GetA2ACallLogFieldTags() map[string]string {
+	l := A2ACallLog{}
+	return getFieldTags(l)
 }

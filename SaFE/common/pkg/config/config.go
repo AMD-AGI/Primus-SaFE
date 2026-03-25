@@ -17,10 +17,11 @@ import (
 
 // ProxyService represents a proxy service configuration
 type ProxyService struct {
-	Name    string `json:"name" yaml:"name"`       // Service name
-	Prefix  string `json:"prefix" yaml:"prefix"`   // URL prefix for the proxy route
-	Target  string `json:"target" yaml:"target"`   // Target service URL
-	Enabled bool   `json:"enabled" yaml:"enabled"` // Whether the proxy is enabled
+	Name       string `json:"name" yaml:"name" mapstructure:"name"`                         // Service name
+	Prefix     string `json:"prefix" yaml:"prefix" mapstructure:"prefix"`                   // URL prefix for the proxy route
+	Target     string `json:"target" yaml:"target" mapstructure:"target"`                   // Target service URL
+	Enabled    bool   `json:"enabled" yaml:"enabled" mapstructure:"enabled"`                // Whether the proxy is enabled
+	AuthHeader string `json:"auth_header" yaml:"auth_header" mapstructure:"auth_header"`    // Optional: replace Authorization with Basic auth (format: "user:pass")
 }
 
 // SetValue sets a configuration value for the specified key.
@@ -487,4 +488,62 @@ func GetTracingSamplingRatio() float64 {
 // GetTracingOtlpEndpoint returns the OTLP exporter endpoint URL.
 func GetTracingOtlpEndpoint() string {
 	return getString(tracingOtlpEndpoint, "")
+}
+
+// GetLangfuseProxyPublicKey returns the shared Langfuse project public key from secret.
+func GetLangfuseProxyPublicKey() string {
+	return getFromFile(langfuseProxySecretPath, "public_key")
+}
+
+// GetLangfuseProxySecretKey returns the shared Langfuse project secret key from secret.
+func GetLangfuseProxySecretKey() string {
+	return getFromFile(langfuseProxySecretPath, "secret_key")
+}
+
+// IsA2AScannerEnable returns whether the A2A service scanner is enabled.
+func IsA2AScannerEnable() bool { return getBool(a2aScannerEnable, false) }
+
+// GetA2AScannerInterval returns the A2A scanner interval in seconds.
+func GetA2AScannerInterval() int {
+	v := getInt(a2aScannerInterval, 60)
+	if v <= 0 {
+		return 60
+	}
+	return v
+}
+
+// GetA2AScannerNamespaces returns the namespaces to scan for A2A services.
+func GetA2AScannerNamespaces() []string {
+	return viper.GetStringSlice(a2aScannerNamespaces)
+}
+
+// GetA2AScannerLabelSelector returns the label selector for A2A service discovery.
+func GetA2AScannerLabelSelector() string {
+	v := getString(a2aScannerLabel, "")
+	if v == "" {
+		return "a2a.primus.io/enabled=true"
+	}
+	return v
+}
+
+// ── LLM Gateway ─────────────────────────────────────────────────────────
+
+// IsLLMGatewayEnable returns whether LLM Gateway feature is enabled.
+func IsLLMGatewayEnable() bool {
+	return getBool(llmGatewayEnable, false)
+}
+
+// GetLLMGatewayEndpoint returns the LiteLLM Proxy endpoint URL (from secret file).
+func GetLLMGatewayEndpoint() string {
+	return getFromFile(llmGatewaySecretPath, "litellm_endpoint")
+}
+
+// GetLLMGatewayAdminKey returns the LiteLLM Master Key for admin API access (from secret file).
+func GetLLMGatewayAdminKey() string {
+	return getFromFile(llmGatewaySecretPath, "litellm_admin_key")
+}
+
+// GetLLMGatewayTeamID returns the global LiteLLM Team ID (from secret file).
+func GetLLMGatewayTeamID() string {
+	return getFromFile(llmGatewaySecretPath, "litellm_team_id")
 }

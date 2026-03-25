@@ -46,11 +46,13 @@ const (
 	NodeLabelAction                 = NodePrefix + "label.action"
 	NodeAnnotationAction            = NodePrefix + "annotation.action"
 	NodeTemplateInstalledAnnotation = NodePrefix + "template.installed"
-	NodeIdLabel                     = NodePrefix + "id"
-	NodeManageRebootLabel           = "manage.reboot"
-	NodeUnmanageNoRebootLabel       = "unmanage.noreboot"
-	NodeActionAdd                   = "add"
-	NodeActionRemove                = "remove"
+	// The expected ephemeral storage for the node. Actual node storage may be larger than expected, but cannot be smaller, or it will trigger a fault.
+	NodeEphemeralStorageLabel = NodePrefix + "ephemeral.storage"
+	NodeIdLabel               = NodePrefix + "id"
+	NodeManageRebootLabel     = "manage.reboot"
+	NodeUnmanageNoRebootLabel = "unmanage.noreboot"
+	NodeActionAdd             = "add"
+	NodeActionRemove          = "remove"
 
 	// cluster
 	ClusterPrefix                 = PrimusSafePrefix + "cluster."
@@ -102,7 +104,6 @@ const (
 	WorkloadDisableFailoverAnnotation = WorkloadPrefix + "disable.failover"
 	WorkloadEnablePreemptAnnotation   = WorkloadPrefix + "enable.preempt"
 	WorkloadPrivilegedAnnotation      = WorkloadPrefix + "privileged"
-	WorkloadStickyNodesAnnotation     = WorkloadPrefix + "sticky.nodes"
 	CronJobTimestampAnnotation        = WorkloadPrefix + "cronjob"
 	EnvToBeRemovedAnnotation          = WorkloadPrefix + "env.to.remove"
 	AdminControlPlaneAnnotation       = WorkloadPrefix + "admin.control.plane"
@@ -112,6 +113,10 @@ const (
 	K8sObjectIdLabel                  = PrimusSafePrefix + "k8s.object.id"
 	UseWorkspaceStorageAnnotation     = WorkloadPrefix + "use.workspace.storage"
 	ForceHostNetworkAnnotation        = WorkloadPrefix + "force.host.network"
+	// For full-GPU jobs with required affinity, the system reserves a node during retries to ensure reuse.
+	// Note: This feature is disabled when preemption is enabled
+	RetryOnOriginalNodesAnnotation = PrimusSafePrefix + "retry.on.original.nodes"
+	NodesAffinityAnnotation        = PrimusSafePrefix + "nodes.affinity"
 
 	// user
 	UserPrefix              = PrimusSafePrefix + "user."

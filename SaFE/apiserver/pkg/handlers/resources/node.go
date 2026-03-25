@@ -26,21 +26,20 @@ import (
 	"k8s.io/utils/pointer"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
-	dbutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/utils"
-	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/concurrent"
-
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/resources/view"
 	apiutils "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/utils"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
+	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
+	dbutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/utils"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	commonfaults "github.com/AMD-AIG-AIMA/SAFE/common/pkg/faults"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/quantity"
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/backoff"
+	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/concurrent"
 	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/sets"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/slice"
@@ -647,10 +646,11 @@ func (h *Handler) deleteNode(c *gin.Context) (interface{}, error) {
 	}
 	roles := h.accessController.GetRoles(c.Request.Context(), requestUser)
 	name := c.GetString(common.Name)
-	return h.deleteNodeImpl(c, name, requestUser, roles)
+	isForce := c.Query("force") == "true"
+	return h.deleteNodeImpl(c, name, requestUser, roles, isForce)
 }
 
-func (h *Handler) deleteNodeImpl(c *gin.Context, name string, requestUser *v1.User, roles []*v1.Role) (interface{}, error) {
+func (h *Handler) deleteNodeImpl(c *gin.Context, name string, requestUser *v1.User, roles []*v1.Role, isForce bool) (interface{}, error) {
 	ctx := c.Request.Context()
 	node, err := h.getAdminNode(ctx, name)
 	if err != nil {
@@ -667,7 +667,7 @@ func (h *Handler) deleteNodeImpl(c *gin.Context, name string, requestUser *v1.Us
 		return nil, err
 	}
 
-	if v1.GetClusterId(node) != "" {
+	if v1.GetClusterId(node) != "" && !isForce {
 		cluster, _ := h.getAdminCluster(ctx, v1.GetClusterId(node))
 		if cluster != nil {
 			return nil, commonerrors.NewInternalError(
@@ -1068,7 +1068,7 @@ func (h *Handler) handleBatchNodes(c *gin.Context, action WorkloadBatchAction) (
 		var innerErr error
 		switch action {
 		case BatchDelete:
-			_, innerErr = h.deleteNodeImpl(c, nodeId, requestUser, roles)
+			_, innerErr = h.deleteNodeImpl(c, nodeId, requestUser, roles, req.Force)
 		default:
 			return commonerrors.NewInternalError("invalid action")
 		}

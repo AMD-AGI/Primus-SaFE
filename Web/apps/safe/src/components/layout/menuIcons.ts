@@ -38,6 +38,8 @@ export interface MenuIcons {
   chatbot: IconSet
   rayjob: IconSet
   tools: IconSet
+  llmGateway: IconSet
+  a2a: IconSet
 }
 
 const createIconSet = (name: string): IconSet => ({
@@ -77,4 +79,6 @@ export const menuIcons: MenuIcons = {
   chatbot: createIconSet('sparkles'),
   rayjob: createIconSet('ray'),
   tools: createIconSet('skill'), // Using addons icons as placeholder
+  llmGateway: createIconSet('apikey'), // Using apikey icons as placeholder
+  a2a: createIconSet('skill'), // Using skill icons as placeholder
 }

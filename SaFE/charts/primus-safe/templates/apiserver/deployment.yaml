@@ -26,14 +26,17 @@ spec:
         app: {{ .Release.Name }}-apiserver
     spec:
       affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app: {{ .Release.Name }}-apiserver
+                topologyKey: kubernetes.io/hostname
         nodeAffinity:
           preferredDuringSchedulingIgnoredDuringExecution:
             - weight: 100
-              preference:
-                matchExpressions:
-                  - key: primus-safe.workspace.id
-                    operator: DoesNotExist
-            - weight: 80
               preference:
                 matchExpressions:
                   - key: feature.node.kubernetes.io/amd-gpu
@@ -83,6 +86,16 @@ spec:
             {{- if and .Values.notification .Values.notification.email .Values.notification.email.smtp_host }}
             - name: notification-secret
               mountPath: /etc/secrets/notification
+              readOnly: true
+            {{- end }}
+            {{- if and .Values.llm_gateway .Values.llm_gateway.enabled }}
+            - name: llm-gateway-secret
+              mountPath: {{ default "/etc/secrets/llm-gateway" (default dict .Values.llm_gateway).secret_path }}
+              readOnly: true
+            {{- end }}
+            {{- if and .Values.langfuse_proxy .Values.langfuse_proxy.enable .Values.langfuse_proxy.secret }}
+            - name: langfuse-proxy-secret
+              mountPath: {{ default "/etc/secrets/langfuse-proxy" .Values.langfuse_proxy.secret_path }}
               readOnly: true
             {{- end }}
           ports:
@@ -152,6 +165,16 @@ spec:
         - name: notification-secret
           secret:
             secretName: {{ .Release.Name }}-notification
+        {{- end }}
+        {{- if and .Values.llm_gateway .Values.llm_gateway.enabled }}
+        - name: llm-gateway-secret
+          secret:
+            secretName: {{ .Release.Name }}-llm-gateway
+        {{- end }}
+        {{- if and .Values.langfuse_proxy .Values.langfuse_proxy.enable .Values.langfuse_proxy.secret }}
+        - name: langfuse-proxy-secret
+          secret:
+            secretName: {{ .Values.langfuse_proxy.secret }}
         {{- end }}
       {{- if .Values.global.image_pull_secret }}
       imagePullSecrets:

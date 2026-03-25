@@ -58,7 +58,6 @@ const (
 
 	BatchDelete WorkloadBatchAction = "delete"
 	BatchStop   WorkloadBatchAction = "stop"
-	BatchClone  WorkloadBatchAction = "clone"
 )
 
 // CreateWorkload handles the creation of a new workload resource.
@@ -110,12 +109,6 @@ func (h *Handler) StopWorkloads(c *gin.Context) {
 // Supports updating specific fields like priority, resources, and configuration.
 func (h *Handler) PatchWorkload(c *gin.Context) {
 	handle(c, h.patchWorkload)
-}
-
-// CloneWorkloads handles batch cloning of multiple workload resources.
-// Creates new workloads based on existing workload configurations.
-func (h *Handler) CloneWorkloads(c *gin.Context) {
-	handle(c, h.cloneWorkloads)
 }
 
 // GetWorkloadPodLog retrieves logs from a specific pod associated with a workload.
@@ -587,41 +580,6 @@ func (h *Handler) updateWorkload(ctx context.Context,
 	return nil
 }
 
-// cloneWorkloads implements batch workload cloning logic.
-// Processes multiple workload clones concurrently with error handling.
-func (h *Handler) cloneWorkloads(c *gin.Context) (interface{}, error) {
-	if !commonconfig.IsDBEnable() {
-		return nil, commonerrors.NewInternalError("the database function is not enabled")
-	}
-	return h.handleBatchWorkloads(c, BatchClone)
-}
-
-// cloneWorkloadImpl performs the actual cloning of a workload.
-// Creates a new workload based on an existing workload's database record.
-func (h *Handler) cloneWorkloadImpl(c *gin.Context, name string, requestUser *v1.User, roles []*v1.Role) (interface{}, error) {
-	dbWorkload, err := h.dbClient.GetWorkload(c.Request.Context(), name)
-	if err != nil {
-		return nil, err
-	}
-	workload := cvtDBWorkloadToAdminWorkload(dbWorkload)
-	if commonworkload.IsCICDScalingRunnerSet(workload) {
-		return nil, commonerrors.NewNotImplemented("the clone function is not supported for cicd scaling runner")
-	}
-	if err = h.accessController.Authorize(authority.AccessInput{
-		Context:  c.Request.Context(),
-		Resource: workload,
-		Verb:     v1.GetVerb,
-		User:     requestUser,
-		Roles:    roles,
-	}); err != nil {
-		return nil, err
-	}
-	v1.RemoveLabel(workload, v1.UserIdLabel)
-	v1.RemoveAnnotation(workload, v1.UserNameAnnotation)
-	klog.Infof("cloning workload from %s to %s", name, workload.Name)
-	return h.createWorkloadImpl(c, workload, requestUser, roles)
-}
-
 // getWorkloadPodLog implements the logic for retrieving pod logs for a workload.
 // Fetches logs from the Kubernetes cluster and formats them for the response.
 func (h *Handler) getWorkloadPodLog(c *gin.Context) (interface{}, error) {
@@ -644,7 +602,7 @@ func (h *Handler) getWorkloadPodLog(c *gin.Context) (interface{}, error) {
 		return nil, err
 	}
 	podName := strings.TrimSpace(c.Param(common.PodId))
-	mainContainerName := commonworkload.GetMainContainer(workload, workload.SpecKind(), podName)
+	mainContainerName := commonworkload.GetMainContainerByPod(workload, workload.SpecKind(), podName)
 	podLogs, err := h.getPodLog(c, k8sClients.ClientSet(),
 		workload.Spec.Workspace, podName, mainContainerName)
 	if err != nil {
@@ -732,6 +690,7 @@ func (h *Handler) getWorkloadForAuth(ctx context.Context, workloadId string) (*v
 		return nil, err
 	}
 	adminWorkload := generateWorkloadForAuth(workloadId, dbutils.ParseNullString(dbWorkload.UserId), dbWorkload.Workspace, dbWorkload.Cluster)
+	json.Unmarshal([]byte(dbWorkload.GVK), &adminWorkload.Spec.GroupVersionKind)
 	adminWorkload.CreationTimestamp = metav1.NewTime(dbutils.ParseNullTime(dbWorkload.CreationTime))
 	endTime := dbutils.ParseNullTime(dbWorkload.EndTime)
 	if !endTime.IsZero() {
@@ -740,6 +699,12 @@ func (h *Handler) getWorkloadForAuth(ctx context.Context, workloadId string) (*v
 	startTime := dbutils.ParseNullTime(dbWorkload.StartTime)
 	if !startTime.IsZero() {
 		adminWorkload.Status.StartTime = &metav1.Time{Time: startTime}
+	}
+	if runnerSetId := dbutils.ParseNullString(dbWorkload.ScaleRunnerSet); runnerSetId != "" {
+		v1.SetAnnotation(adminWorkload, v1.CICDScaleSetIdAnnotation, runnerSetId)
+	}
+	if runnerId := dbutils.ParseNullString(dbWorkload.ScaleRunnerId); runnerId != "" {
+		v1.SetLabel(adminWorkload, v1.CICDScaleRunnerIdLabel, runnerId)
 	}
 	return adminWorkload, nil
 }
@@ -811,14 +776,16 @@ func (h *Handler) generateWorkload(ctx context.Context,
 		return nil, err
 	}
 	v1.SetAnnotation(workload, v1.AdminControlPlaneAnnotation, controlPlaneIp)
-
-	if commonworkload.IsAuthoring(workload) {
-		if len(req.SpecifiedNodes) > 1 {
-			return nil, fmt.Errorf("the authoring can only be created with one node")
+	if len(req.SpecifiedNodes) > 0 {
+		if req.NodesAffinity == nil {
+			req.NodesAffinity = pointer.String(common.NodesAffinityRequired)
 		}
+	} else {
+		req.NodesAffinity = nil
 	}
-	genCustomerLabelsByNodes(workload, req.SpecifiedNodes, v1.K8sHostName)
-	if len(req.SpecifiedNodes) == 0 {
+	v1.SetAnnotation(workload, v1.NodesAffinityAnnotation, req.GetNodesAffinity())
+	genCustomerLabelsByNodes(workload, req.SpecifiedNodes, common.SpecifiedNodes)
+	if len(req.SpecifiedNodes) == 0 || req.GetNodesAffinity() != common.NodesAffinityRequired {
 		genCustomerLabelsByNodes(workload, req.ExcludedNodes, common.ExcludedNodes)
 	}
 	if req.WorkspaceId != "" {
@@ -846,9 +813,6 @@ func (h *Handler) generateWorkload(ctx context.Context,
 	}
 	if req.Privileged {
 		v1.SetAnnotation(workload, v1.WorkloadPrivilegedAnnotation, v1.TrueStr)
-	}
-	if req.StickyNodes {
-		v1.SetAnnotation(workload, v1.WorkloadStickyNodesAnnotation, v1.TrueStr)
 	}
 	if req.UseWorkspaceStorage != nil {
 		v1.SetAnnotation(workload, v1.UseWorkspaceStorageAnnotation, strconv.FormatBool(*req.UseWorkspaceStorage))
@@ -923,7 +887,7 @@ func (h *Handler) createPreheatWorkload(c *gin.Context, mainWorkload *v1.Workloa
 			Secrets:                 mainWorkload.Spec.Secrets,
 		},
 	}
-	if len(mainQuery.SpecifiedNodes) > 0 {
+	if len(mainQuery.SpecifiedNodes) > 0 && mainQuery.GetNodesAffinity() == common.NodesAffinityRequired {
 		preheatWorkload.Spec.Resources[0].Replica = len(mainQuery.SpecifiedNodes)
 	} else {
 		workspace, err := h.getAdminWorkspace(c.Request.Context(), preheatWorkload.Spec.Workspace)
@@ -989,8 +953,6 @@ func (h *Handler) handleBatchWorkloads(c *gin.Context, action WorkloadBatchActio
 			_, innerErr = h.deleteWorkloadImpl(c, workloadId, requestUser, roles)
 		case BatchStop:
 			_, innerErr = h.stopWorkloadImpl(c, workloadId, requestUser, roles)
-		case BatchClone:
-			_, innerErr = h.cloneWorkloadImpl(c, workloadId, requestUser, roles)
 		default:
 			return commonerrors.NewInternalError("invalid action")
 		}
@@ -1016,10 +978,14 @@ func genCustomerLabelsByNodes(workload *v1.Workload, nodeList []string, labelKey
 	}
 	nodeNames := ""
 	for i := range nodeList {
-		if i > 0 {
+		n := strings.TrimSpace(nodeList[i])
+		if n == "" {
+			continue
+		}
+		if nodeNames != "" {
 			nodeNames += " "
 		}
-		nodeNames += nodeList[i]
+		nodeNames += n
 	}
 	workload.Spec.CustomerLabels[labelKey] = nodeNames
 }
@@ -1188,8 +1154,7 @@ func applyWorkloadPatch(adminWorkload *v1.Workload, req *view.PatchWorkloadReque
 			reqCount += res.Replica
 		}
 		if reqCount != commonworkload.GetTotalReplica(adminWorkload) {
-			_, ok := adminWorkload.Spec.CustomerLabels[v1.K8sHostName]
-			if ok {
+			if len(commonworkload.GetSpecifiedNodes(adminWorkload)) > 0 {
 				return commonerrors.NewBadRequest("cannot update replica when specifying nodes")
 			}
 		}
@@ -1293,7 +1258,7 @@ func (h *Handler) cvtDBWorkloadToGetResponse(ctx context.Context,
 	result := &view.GetWorkloadResponse{
 		WorkloadResponseItem: h.cvtDBWorkloadToResponseItem(ctx, dbWorkload),
 		IsSupervised:         dbWorkload.IsSupervised,
-		StickyNodes:          dbWorkload.IsStickyNodes,
+		NodesAffinity:        dbutils.ParseNullString(dbWorkload.NodesAffinity),
 		Privileged:           dbWorkload.IsPrivileged,
 		UseWorkspaceStorage:  dbWorkload.UseWorkspaceStorage,
 		ForceHostNetwork:     dbWorkload.ForceHostNetwork,
@@ -1378,7 +1343,7 @@ func parseCustomerLabels(labels map[string]string) (map[string]string, []string,
 	customerLabels := make(map[string]string)
 	for key, val := range labels {
 		switch key {
-		case v1.K8sHostName:
+		case common.SpecifiedNodes, v1.K8sHostName:
 			specifiedNodes = strings.Split(val, " ")
 		case common.ExcludedNodes:
 			excludedNodes = strings.Split(val, " ")
@@ -1406,7 +1371,7 @@ func (h *Handler) buildSSHCommand(ctx context.Context, pod *v1.WorkloadPod, user
 	// pattern: {userId}.{podId}.{container}.sh.{workspace}@{host}
 	// e.g. ssh -o ServerAliveInterval=60 7fda556669b09dcec5d779438e7432c5.verl40-fpg88-master-0.pytorch.bash.x-flannel-prod@tw325.primus-safe.amd.com -p 2222
 	return fmt.Sprintf("ssh -o ServerAliveInterval=60 %s.%s.%s.bash.%s@%s -p %d",
-		userId, pod.PodId, commonworkload.GetMainContainer(template, gvk.Kind, pod.PodId),
+		userId, pod.PodId, commonworkload.GetMainContainerByPod(template, gvk.Kind, pod.PodId),
 		workspace, commonconfig.GetSystemHost(), commonconfig.GetSSHServerPort())
 }
 
@@ -1430,81 +1395,6 @@ func generateWorkloadForAuth(name, userId, workspace, clusterId string) *v1.Work
 			Workspace: workspace,
 		},
 	}
-}
-
-// cvtDBWorkloadToAdminWorkload converts a database workload record to a workload CR object.
-// Used for cloning workloads from database records to create new workload objects.
-func cvtDBWorkloadToAdminWorkload(dbWorkload *dbclient.Workload) *v1.Workload {
-	result := &v1.Workload{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: commonutils.GenerateName(dbWorkload.DisplayName),
-			Labels: map[string]string{
-				v1.DisplayNameLabel: dbWorkload.DisplayName,
-				v1.UserIdLabel:      dbutils.ParseNullString(dbWorkload.UserId),
-			},
-			Annotations: map[string]string{
-				v1.DescriptionAnnotation:         dbutils.ParseNullString(dbWorkload.Description),
-				v1.UserNameAnnotation:            dbutils.ParseNullString(dbWorkload.UserName),
-				v1.UseWorkspaceStorageAnnotation: strconv.FormatBool(dbWorkload.UseWorkspaceStorage),
-				v1.ForceHostNetworkAnnotation:    strconv.FormatBool(dbWorkload.ForceHostNetwork),
-			},
-		},
-		Spec: v1.WorkloadSpec{
-			Workspace:     dbWorkload.Workspace,
-			IsSupervised:  dbWorkload.IsSupervised,
-			MaxRetry:      dbWorkload.MaxRetry,
-			Priority:      dbWorkload.Priority,
-			IsTolerateAll: dbWorkload.IsTolerateAll,
-		},
-	}
-	json.Unmarshal([]byte(dbWorkload.GVK), &result.Spec.GroupVersionKind)
-	result.Spec.Resources = cvtToWorkloadResources(dbWorkload, result.SpecKind())
-	result.Spec.Images = cvtToWorkloadImages(dbWorkload, len(result.Spec.Resources))
-	result.Spec.EntryPoints = cvtToWorkloadEntryPoints(dbWorkload, len(result.Spec.Resources))
-	if dbWorkload.IsStickyNodes {
-		v1.SetAnnotation(result, v1.WorkloadStickyNodesAnnotation, v1.TrueStr)
-	}
-	if dbWorkload.IsPrivileged {
-		v1.SetAnnotation(result, v1.WorkloadPrivilegedAnnotation, v1.TrueStr)
-	}
-
-	if str := dbutils.ParseNullString(dbWorkload.Env); str != "" {
-		json.Unmarshal([]byte(str), &result.Spec.Env)
-	}
-	if dbWorkload.TTLSecond > 0 {
-		result.Spec.TTLSecondsAfterFinished = pointer.Int(dbWorkload.TTLSecond)
-	}
-	if dbWorkload.Timeout > 0 {
-		result.Spec.Timeout = pointer.Int(dbWorkload.Timeout)
-	}
-	if str := dbutils.ParseNullString(dbWorkload.CustomerLabels); str != "" {
-		json.Unmarshal([]byte(str), &result.Spec.CustomerLabels)
-	}
-	if str := dbutils.ParseNullString(dbWorkload.Liveness); str != "" {
-		json.Unmarshal([]byte(str), &result.Spec.Liveness)
-	}
-	if str := dbutils.ParseNullString(dbWorkload.Readiness); str != "" {
-		json.Unmarshal([]byte(str), &result.Spec.Readiness)
-	}
-	if str := dbutils.ParseNullString(dbWorkload.Service); str != "" {
-		json.Unmarshal([]byte(str), &result.Spec.Service)
-	}
-	if str := dbutils.ParseNullString(dbWorkload.Dependencies); str != "" {
-		json.Unmarshal([]byte(str), &result.Spec.Dependencies)
-	}
-	if str := dbutils.ParseNullString(dbWorkload.CronJobs); str != "" {
-		json.Unmarshal([]byte(str), &result.Spec.CronJobs)
-	}
-	if str := dbutils.ParseNullString(dbWorkload.Secrets); str != "" {
-		json.Unmarshal([]byte(str), &result.Spec.Secrets)
-	}
-	if str := dbutils.ParseNullString(dbWorkload.ScaleRunnerSet); str != "" {
-		if len(result.Spec.Env) == 0 {
-			result.Spec.Env = make(map[string]string)
-		}
-		result.Spec.Env[common.ScaleRunnerSetID] = str
-	}
-	return result
 }
 
 func (h *Handler) getWorkloadPodContainers(c *gin.Context) (interface{}, error) {

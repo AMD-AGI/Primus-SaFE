@@ -30,7 +30,7 @@ cd:
   # false: users can self-approve their own requests (development environment)
   require_approval: true
   # This list is of deployable components
-  components: "apiserver,resource_manager,job_manager,webhooks,web,preprocess,node_agent,cicd_runner,cicd_unified_job,model_downloader,ops_download"
+  components: "apiserver,resource_manager,job_manager,webhooks,web,preprocess,node_agent,cicd_runner,cicd_unified_job,model_downloader,ops_download,a2a_gateway"
 apiserver:
   # Apiserver component image version
   image: "apiserver:latest"
@@ -156,6 +156,12 @@ notification:
     from: ""
     # Use TLS/SSL (true for port 465, false for port 587 STARTTLS)
     use_tls: false
+  # Email relay mode (for clusters that cannot reach SMTP directly)
+  # When enabled, emails are queued in DB and streamed via SSE to a central relay service.
+  # Takes precedence over direct email when both are configured.
+  email_relay:
+    # Enable email relay mode
+    enable: false
 grafana:
   # Enable Grafana for monitoring metrics display (requires primus-lens)
   enable: false
@@ -174,3 +180,35 @@ proxy:
   #     prefix: /agent/qa
   #     target: http://qa-agent-service:8080
   #     enabled: true
+langfuse_proxy:
+  # Langfuse proxy: unified Trace ingestion via SaFE API Key (ak-xxx)
+  enable: false
+  # Internal Langfuse service address
+  target: "http://langfuse-web.langfuse.svc.cluster.local:3000/langfuse"
+  # Secret name for shared Langfuse project credentials
+  secret: "primus-safe-langfuse-proxy"
+  secret_path: "/etc/secrets/langfuse-proxy"
+  # Shared Langfuse project credentials (stored in Secret via Helm)
+  public_key: ""
+  secret_key: ""
+  # Shared Langfuse project credentials (stored in Secret, not ConfigMap)
+  public_key: ""
+  secret_key: ""
+a2a:
+  # A2A service discovery scanner
+  scanner_enable: true
+  scanner_interval: 60
+  scanner_namespaces:
+    - primus-lens
+a2a_gateway:
+  # A2A Gateway for Agent-to-Agent invocations
+  enable: true
+  image: "a2a-gateway:latest"
+  replicas: 1
+  cpu: 500m
+  memory: 512Mi
+  port: 8089
+  metrics_port: 9090
+llm_gateway:
+  enabled: true
+  secret_path: "/etc/secrets/llm-gateway"

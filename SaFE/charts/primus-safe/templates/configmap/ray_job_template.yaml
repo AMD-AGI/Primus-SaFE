@@ -25,6 +25,35 @@ data:
       shutdownAfterJobFinishes: true
       ttlSecondsAfterFinished: 10
       backoffLimit: 3
+      submissionMode: K8sJobMode
+      submitterPodTemplate:
+        spec:
+          dnsPolicy: ClusterFirstWithHostNet
+          initContainers:
+            - name: preprocess
+              image: {{ .Values.global.image_registry }}/primussafe/{{ .Values.preprocess.image }}
+              imagePullPolicy: IfNotPresent
+              command: ["/bin/sh", "-c", "cp -r /preprocess/* /shared-data/"]
+              securityContext:
+                capabilities:
+                  add: [ "IPC_LOCK" ]
+              resources:
+                limits:
+                  cpu: 1000m
+                  memory: 128Mi
+              volumeMounts:
+                - name: shared-data
+                  mountPath: /shared-data
+          containers:
+            - name: ray-job-submitter
+              volumeMounts:
+                - name: shared-data
+                  mountPath: /shared-data
+          schedulerName: kube-scheduler-plugins
+          volumes:
+            - name: shared-data
+              emptyDir: {}
+          restartPolicy: Never
       rayClusterSpec:
         headGroupSpec:
           template:
@@ -66,6 +95,12 @@ data:
                   value: "1"
                 - name: HSA_ENABLE_SDMA
                   value: "1"
+                - name: NCCL_IB_TC
+                  value: "41"
+                - name: NCCL_IB_FIFO_TC
+                  value: "185"
+                - name: NCCL_IB_SL
+                  value: "0"
                 - name: POD_NAME
                   valueFrom:
                     fieldRef:
@@ -152,6 +187,12 @@ data:
                   value: "1"
                 - name: HSA_ENABLE_SDMA
                   value: "1"
+                - name: NCCL_IB_TC
+                  value: "41"
+                - name: NCCL_IB_FIFO_TC
+                  value: "185"
+                - name: NCCL_IB_SL
+                  value: "0"
                 - name: POD_NAME
                   valueFrom:
                     fieldRef:
@@ -230,6 +271,12 @@ data:
                   value: "1"
                 - name: HSA_ENABLE_SDMA
                   value: "1"
+                - name: NCCL_IB_TC
+                  value: "41"
+                - name: NCCL_IB_FIFO_TC
+                  value: "185"
+                - name: NCCL_IB_SL
+                  value: "0"
                 - name: POD_NAME
                   valueFrom:
                     fieldRef:

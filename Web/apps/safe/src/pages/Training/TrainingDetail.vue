@@ -58,6 +58,9 @@
           <el-descriptions-item label="specifiedNode" v-if="detailData?.specifiedNodes?.length">{{
             detailData?.specifiedNodes?.join(',') || '-'
           }}</el-descriptions-item>
+          <el-descriptions-item label="nodesAffinity" v-if="detailData.nodesAffinity">{{
+            detailData.nodesAffinity
+          }}</el-descriptions-item>
           <el-descriptions-item v-if="detailData.dependencies?.length" label="dependencies">
             <div class="flex flex-wrap gap-2">
               <el-link
@@ -287,7 +290,7 @@ const totalReplica = computed(() => {
   return sum || '-'
 })
 
-const defaultTime = computed<[Date, Date] | null>(() => {
+const defaultTime = computed<[Date, Date | 'now'] | null>(() => {
   return calculateDefaultTime(
     detailData.value?.startTime,
     detailData.value?.endTime,

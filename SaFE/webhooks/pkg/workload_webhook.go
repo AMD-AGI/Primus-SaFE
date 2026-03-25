@@ -14,8 +14,6 @@ import (
 	"strings"
 	"time"
 
-	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
-	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/slice"
 	admissionv1 "k8s.io/api/admission/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -41,7 +39,9 @@ import (
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/floatutil"
+	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/sets"
+	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/slice"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/timeutil"
 )
@@ -118,6 +118,9 @@ func (m *WorkloadMutator) mutateOnCreation(ctx context.Context, workload *v1.Wor
 	m.mutateTTLSeconds(workload)
 	m.mutateCommon(ctx, nil, workload, workspace)
 	m.mutateTimeout(workload, workspace)
+	if commonworkload.IsRayJob(workload) {
+		m.mutateRayJob(workload)
+	}
 	return true
 }
 
@@ -184,7 +187,7 @@ func (m *WorkloadMutator) mutateMeta(ctx context.Context, workload *v1.Workload,
 		v1.SetAnnotation(workload, v1.UseWorkspaceStorageAnnotation, v1.TrueStr)
 	}
 	v1.SetLabel(workload, v1.UserNameMd5Label, stringutil.MD5(v1.GetUserName(workload)))
-	commonworkload.GetWorkloadMainContainer(ctx, m.Client, workload)
+	commonworkload.SetMainContainerViaTemplate(ctx, m.Client, workload)
 	controllerutil.AddFinalizer(workload, v1.WorkloadFinalizer)
 }
 
@@ -416,6 +419,32 @@ func (m *WorkloadMutator) mutateImages(workload *v1.Workload) {
 	}
 }
 
+// mutateRayJob automatically add image, entrypoint and resource for submitter pod.
+// This is an internal behavior and is not exposed externally.
+func (m *WorkloadMutator) mutateRayJob(workload *v1.Workload) {
+	if len(workload.Spec.Images) > 0 {
+		images := make([]string, 0, len(workload.Spec.Images)+1)
+		images = append(images, workload.Spec.Images[0])
+		images = append(images, workload.Spec.Images...)
+		workload.Spec.Images = images
+	}
+
+	entryPoints := make([]string, 0, len(workload.Spec.EntryPoints)+1)
+	entryPoints = append(entryPoints, "")
+	entryPoints = append(entryPoints, workload.Spec.EntryPoints...)
+	workload.Spec.EntryPoints = entryPoints
+
+	resources := make([]v1.WorkloadResource, 0, len(workload.Spec.Resources)+1)
+	resources = append(resources, v1.WorkloadResource{
+		Replica:          1,
+		CPU:              common.RayJobSubmitterCpu,
+		Memory:           common.RayJobSubmitterMemory,
+		EphemeralStorage: common.RayJobSubmitterStorage,
+	})
+	resources = append(resources, workload.Spec.Resources...)
+	workload.Spec.Resources = resources
+}
+
 // mutateMaxRetry bounds MaxRetry to [0, DefaultMaxFailover].
 func (m *WorkloadMutator) mutateMaxRetry(workload *v1.Workload) {
 	if workload.Spec.MaxRetry > DefaultMaxFailover {
@@ -569,6 +598,9 @@ func (m *WorkloadMutator) mutateStickNodes(ctx context.Context, workload *v1.Wor
 		if workspace == nil || workspace.Spec.EnablePreempt {
 			return true
 		}
+		if workload.Spec.MaxRetry <= 0 {
+			return true
+		}
 		supportsKinds := []string{common.PytorchJobKind, common.TorchFTKind, common.RayJobKind}
 		if !slice.Contains(supportsKinds, workload.SpecKind()) {
 			return true
@@ -585,8 +617,10 @@ func (m *WorkloadMutator) mutateStickNodes(ctx context.Context, workload *v1.Wor
 		}
 		return false
 	}
-	if isDisableStickyNodes(ctx, workload, workspace) {
-		v1.RemoveAnnotation(workload, v1.WorkloadStickyNodesAnnotation)
+	if !isDisableStickyNodes(ctx, workload, workspace) {
+		v1.SetAnnotation(workload, v1.RetryOnOriginalNodesAnnotation, v1.TrueStr)
+	} else {
+		v1.RemoveAnnotation(workload, v1.RetryOnOriginalNodesAnnotation)
 	}
 }
 
@@ -678,6 +712,8 @@ func (v *WorkloadValidator) validateOnUpdate(ctx context.Context, newWorkload, o
 func (v *WorkloadValidator) validateCommon(ctx context.Context, newWorkload, oldWorkload *v1.Workload) error {
 	var err error
 	switch newWorkload.SpecKind() {
+	case common.AuthoringKind:
+		err = v.validateAuthoring(newWorkload)
 	case common.CICDScaleRunnerSetKind:
 		err = v.validateCICDScalingRunnerSet(newWorkload)
 	case common.TorchFTKind:
@@ -749,6 +785,15 @@ func (v *WorkloadValidator) validateRequiredParams(workload *v1.Workload) error 
 
 	if err := utilerrors.NewAggregate(errs); err != nil {
 		return err
+	}
+	return nil
+}
+
+func (v *WorkloadValidator) validateAuthoring(workload *v1.Workload) error {
+	if v1.GetNodesAffinity(workload) == common.NodesAffinityRequired {
+		if len(commonworkload.GetSpecifiedNodes(workload)) > 1 {
+			return fmt.Errorf("the authoring can only be created with one node")
+		}
 	}
 	return nil
 }
@@ -835,15 +880,17 @@ func (v *WorkloadValidator) validateTorchFT(newWorkload, oldWorkload *v1.Workloa
 // validateRayJob validates RayJob workload configuration.
 func (v *WorkloadValidator) validateRayJob(newWorkload, _ *v1.Workload) error {
 	// RayJob workloads require at most 3 resource configurations - one for header group and two for the worker groups
-	if len(newWorkload.Spec.Resources) > 3 {
-		return fmt.Errorf("Expected at most 3 resource configurations (header and worker groups), "+
-			"got %d, resources: %v", len(newWorkload.Spec.Resources), newWorkload.Spec.Resources)
+	// The submitter is automatically added and occupies the resources[0] slot; therefore, it is excluded from the calculation.
+	if len(newWorkload.Spec.Resources) > 4 {
+		return fmt.Errorf("Expected at most 3 resource configurations (header and two worker groups), "+
+			"resources: %v", newWorkload.Spec.Resources)
 	}
-	keys := []string{common.RayJobEntrypoint}
-	for _, key := range keys {
-		if val, ok := newWorkload.Spec.Env[key]; !ok || val == "" {
-			return fmt.Errorf("the %s of workload environment variables is empty", key)
-		}
+	if len(newWorkload.Spec.Resources) < 2 || len(newWorkload.Spec.Images) < 2 {
+		return fmt.Errorf("Expected at least 1 resource configurations (header), "+
+			"resources: %v", newWorkload.Spec.Resources)
+	}
+	if val, ok := newWorkload.Spec.Env[common.RayJobEntrypoint]; !ok || val == "" {
+		return fmt.Errorf("RayJob entrypoint is missing(use 'RAY_JOB_ENTRYPOINT' environment variable)")
 	}
 	return nil
 }

@@ -56,17 +56,27 @@
         type="primary"
         @click="onSearch({ resetPage: true })"
       ></el-button>
-      <el-button
-        :icon="Refresh"
-        size="default"
-        @click="
+      <el-tooltip content="Reset filters" placement="top">
+        <el-button
+          :icon="ResetIcon"
+          size="default"
+          @click="
           () => {
-            Object.assign(searchParams, initialSearchParams)
+            const { onlyMyself, userId } = searchParams
+            Object.assign(searchParams, initialSearchParams, { onlyMyself, userId })
             pagination.page = 1
-            fetchData()
+            onSearch({ resetPage: true })
           }
-        "
-      ></el-button>
+          "
+        ></el-button>
+      </el-tooltip>
+      <el-tooltip content="Refresh" placement="top">
+        <el-button
+          :icon="Refresh"
+          size="default"
+          @click="onSearch({ resetPage: false })"
+        ></el-button>
+      </el-tooltip>
     </div>
   </div>
 
@@ -583,12 +593,12 @@ import {
   stopWorkload,
   batchDelWorkload,
   batchStopWorkload,
-  batchCloneWorkload,
   phaseFilters,
 } from '@/services'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { WorkloadKind, WorkloadPhase, WorkloadPhaseButtonType } from '@/services/workload/type'
 import { Search, Refresh, CopyDocument, Plus, Loading } from '@element-plus/icons-vue'
+import ResetIcon from '@/components/icons/ResetIcon.vue'
 import { copyText, formatTimeStr } from '@/utils/index'
 import dayjs from 'dayjs'
 import utc from 'dayjs/plugin/utc'
@@ -913,12 +923,11 @@ const getActions = (_row: Row): Action[] => [
   },
 ]
 
-type BatchAction = 'delete' | 'stop' | 'clone'
+type BatchAction = 'delete' | 'stop'
 
 const apiMap: Record<BatchAction, (body: any) => Promise<any>> = {
   delete: batchDelWorkload,
   stop: batchStopWorkload,
-  clone: batchCloneWorkload,
 }
 
 const batchLoading = ref(false)

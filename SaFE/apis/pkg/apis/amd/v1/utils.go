@@ -128,9 +128,14 @@ func SetAnnotation(obj metav1.Object, key, val string) bool {
 	return true
 }
 
-// GetNodeGpuCount retrieves the GPU count from a node's labels.
+// GetNodeGpuCount retrieves the expected GPU count of node
 func GetNodeGpuCount(obj metav1.Object) int {
 	return atoi(GetLabel(obj, NodeGpuCountLabel))
+}
+
+// GetNodeEphemeralStorage retrieves the expected ephemeralStorage of node
+func GetNodeEphemeralStorage(obj metav1.Object) int64 {
+	return atol(GetLabel(obj, NodeEphemeralStorageLabel))
 }
 
 // GetNodeStartupTime retrieves the node startup timestamp from labels.
@@ -364,12 +369,13 @@ func GetSourceWorkloadId(obj metav1.Object) string {
 	return GetLabel(obj, SourceWorkloadIdLabel)
 }
 
-// IsWorkloadStickyNodes checks if the workload has sticky node feature enabled.
-// When enabled, the workload will try to use the same nodes during retries/failovers.
-func IsEnableStickyNodes(obj metav1.Object) bool {
-	return GetAnnotation(obj, WorkloadStickyNodesAnnotation) == TrueStr
+func GetNodesAffinity(obj metav1.Object) string {
+	return GetAnnotation(obj, NodesAffinityAnnotation)
 }
 
+func IsRetryingOnOriginal(obj metav1.Object) bool {
+	return GetAnnotation(obj, RetryOnOriginalNodesAnnotation) == TrueStr
+}
 func IsEnableWorkspaceStorage(obj metav1.Object) bool {
 	return GetAnnotation(obj, UseWorkspaceStorageAnnotation) == TrueStr
 }
@@ -384,6 +390,17 @@ func atoi(str string) int {
 		return 0
 	}
 	n, err := strconv.Atoi(str)
+	if err != nil {
+		return 0
+	}
+	return n
+}
+
+func atol(str string) int64 {
+	if str == "" {
+		return 0
+	}
+	n, err := strconv.ParseInt(str, 10, 64)
 	if err != nil {
 		return 0
 	}

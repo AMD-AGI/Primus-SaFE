@@ -8,12 +8,12 @@ package faults
 import (
 	"strings"
 
-	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
-	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/slice"
 	corev1 "k8s.io/api/core/v1"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/sets"
+	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/slice"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
 )
 

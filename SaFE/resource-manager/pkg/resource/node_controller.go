@@ -8,6 +8,7 @@ package resource
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -32,6 +33,7 @@ import (
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
+	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	commonfaults "github.com/AMD-AIG-AIMA/SAFE/common/pkg/faults"
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 	"github.com/AMD-AIG-AIMA/SAFE/resource-manager/pkg/utils"
@@ -145,7 +147,7 @@ func (r *NodeReconciler) Reconcile(ctx context.Context, req ctrlruntime.Request)
 		return ctrlruntime.Result{}, client.IgnoreNotFound(err)
 	}
 	if !adminNode.GetDeletionTimestamp().IsZero() {
-		return ctrlruntime.Result{}, r.delete(ctx, adminNode)
+		return r.delete(ctx, adminNode)
 	}
 
 	k8sNode, result, err := r.getK8sNode(ctx, adminNode)
@@ -163,8 +165,12 @@ func (r *NodeReconciler) Reconcile(ctx context.Context, req ctrlruntime.Request)
 }
 
 // delete handles Node deletion by removing the finalizer.
-func (r *NodeReconciler) delete(ctx context.Context, adminNode *v1.Node) error {
-	return utils.RemoveFinalizer(ctx, r.Client, adminNode, v1.NodeFinalizer)
+func (r *NodeReconciler) delete(ctx context.Context, adminNode *v1.Node) (ctrlruntime.Result, error) {
+	result, err := r.deleteK8sNode(ctx, adminNode)
+	if err != nil || result.RequeueAfter > 0 {
+		return result, err
+	}
+	return ctrlruntime.Result{}, utils.RemoveFinalizer(ctx, r.Client, adminNode, v1.NodeFinalizer)
 }
 
 // getK8sNode retrieves the Kubernetes Node object in the data plane associated with the admin Node.
@@ -180,6 +186,24 @@ func (r *NodeReconciler) getK8sNode(ctx context.Context, adminNode *v1.Node) (*c
 	}
 	k8sNode, err := getNodeByInformer(ctx, k8sClients, k8sNodeName)
 	return k8sNode, ctrlruntime.Result{}, err
+}
+
+// deleteK8sNode delete the Kubernetes Node in the data plane associated with the admin Node.
+func (r *NodeReconciler) deleteK8sNode(ctx context.Context, adminNode *v1.Node) (ctrlruntime.Result, error) {
+	clusterName := getClusterId(adminNode)
+	k8sNodeName := adminNode.GetK8sNodeName()
+	if clusterName == "" || k8sNodeName == "" {
+		return ctrlruntime.Result{}, nil
+	}
+	k8sClients, err := utils.GetK8sClientFactory(r.clientManager, clusterName)
+	if err != nil {
+		return ctrlruntime.Result{}, commonerrors.IgnoreFound(err)
+	}
+	if !k8sClients.IsValid() {
+		return ctrlruntime.Result{RequeueAfter: time.Second}, nil
+	}
+	err = k8sClients.ClientSet().CoreV1().Nodes().Delete(ctx, k8sNodeName, metav1.DeleteOptions{})
+	return ctrlruntime.Result{}, client.IgnoreNotFound(err)
 }
 
 // observe checks if any observed fields have changed and need updating Or
@@ -737,6 +761,9 @@ func (r *NodeReconciler) manage(ctx context.Context, adminNode *v1.Node, k8sNode
 		if err = r.syncLabelsToK8sNode(ctx, k8sClients.ClientSet(), adminNode, k8sNode); err != nil {
 			return ctrlruntime.Result{}, err
 		}
+		if err = r.modifyResolvConf(ctx, adminNode); err != nil {
+			return ctrlruntime.Result{}, err
+		}
 		if err = r.installAddons(ctx, adminNode); err != nil {
 			return ctrlruntime.Result{}, err
 		}
@@ -940,7 +967,8 @@ func (r *NodeReconciler) rebootNode(ctx context.Context, node *v1.Node) {
 	klog.Infof("machine node %s rebooted", node.Name)
 }
 
-// resetNode reset the Node via SSH.
+// resetNode resets the node via SSH by stopping kubelet, cleaning up CNI interfaces and network state,
+// restarting containerd, running kubeadm reset, and removing Kubernetes configuration files.
 func (r *NodeReconciler) resetNode(ctx context.Context, node *v1.Node) error {
 	sshClient, err := utils.GetSSHClient(ctx, r.Client, node)
 	if err != nil {
@@ -959,10 +987,80 @@ systemctl start kubelet 2>/dev/null || true`
 	}
 
 	// cleanup kubernetes files
-	resetNodeCmd := "kubeadm reset -f || true; rm -rf /etc/kubernetes/ ~/.kube || true"
+	resetNodeCmd := "chattr -i /etc/resolv.conf; kubeadm reset -f || true; rm -rf /etc/kubernetes/ ~/.kube || true"
 	if err = r.executeSSHCommand(sshClient, resetNodeCmd); err != nil {
 		return fmt.Errorf("failed to kubeadm reset node: %w", err)
 	}
+	klog.Infof("node %s is reset. clean up CNI, Kubernetes, and run kubeadm reset.", node.Name)
+	return nil
+}
+
+func (r *NodeReconciler) modifyResolvConf(ctx context.Context, node *v1.Node) error {
+	sshClient, err := utils.GetSSHClient(ctx, r.Client, node)
+	if err != nil {
+		return err
+	}
+	defer sshClient.Close()
+
+	// Add nameserver 127.0.0.53 to resolv.conf and set immutable (chattr +i).
+	// Run the script via base64 | bash so we never pass a multiline script through fmt.Sprintf("%q", ...), which can
+	// produce quoting that the remote shell parses incorrectly (bash syntax error -> exit 2).
+	// Match logic uses bash [[ ]] / read loops only (no grep), avoiding grep exit 2 on "binary" stdin.
+	script := `RESOLV_CONF="/etc/resolv.conf"
+TARGET_FILE="$RESOLV_CONF"
+test -e "$RESOLV_CONF" || exit 0
+if test -L "$RESOLV_CONF"; then
+  TARGET_FILE=$(readlink -f "$RESOLV_CONF" 2>/dev/null) || TARGET_FILE="$RESOLV_CONF"
+fi
+test -n "$TARGET_FILE" || exit 0
+content=$(cat "$TARGET_FILE" 2>/dev/null) || exit 0
+if [[ "$content" == *"nameserver 127.0.0.53"* ]]; then
+  attr_line=$(lsattr "$TARGET_FILE" 2>/dev/null | head -n1)
+  read -r attr_flags _ <<<"$attr_line"
+  case "$attr_flags" in *i*) exit 0;; esac
+  chattr +i "$TARGET_FILE" 2>/dev/null || true
+else
+  chattr -i "$TARGET_FILE" 2>/dev/null || true
+  line_match_ns=false
+  while IFS= read -r line || [ -n "$line" ]; do
+    [[ "$line" == nameserver* ]] && line_match_ns=true && break
+  done < <(printf '%s\n' "$content")
+  if [[ "$line_match_ns" == true ]]; then
+    sed -i '0,/^nameserver/{s/^nameserver/nameserver 127.0.0.53\nnameserver/}' "$TARGET_FILE" 2>/dev/null || exit 1
+  else
+    { printf '%s\n' "nameserver 127.0.0.53"; cat "$TARGET_FILE"; } >"${TARGET_FILE}.new" 2>/dev/null && mv -f "${TARGET_FILE}.new" "$TARGET_FILE" || exit 1
+  fi
+  chattr +i "$TARGET_FILE" 2>/dev/null || true
+fi`
+	executeCmd := bashRemoteScript(script)
+	if err = r.executeSSHCommand(sshClient, executeCmd); err != nil {
+		klog.Warningf("failed to add resolv.conf lock on node %s: %v", node.Name, err)
+		return err
+	}
+	klog.Infof("node %s: added nameserver 127.0.0.53 and set resolv.conf immutable", node.Name)
+	return nil
+}
+
+func (r *NodeReconciler) removeResolvConfLock(ctx context.Context, node *v1.Node) error {
+	sshClient, err := utils.GetSSHClient(ctx, r.Client, node)
+	if err != nil {
+		return err
+	}
+	defer sshClient.Close()
+
+	// Remove immutable flag from resolv.conf (chattr -i)
+	script := `RESOLV_CONF="/etc/resolv.conf"
+TARGET_FILE="$RESOLV_CONF"
+test -e "$RESOLV_CONF" || exit 0
+test -L "$RESOLV_CONF" && TARGET_FILE=$(readlink -f "$RESOLV_CONF") || true
+test -z "$TARGET_FILE" && exit 0
+chattr -i "$TARGET_FILE" 2>/dev/null || true`
+	executeCmd := bashRemoteScript(script)
+	if err = r.executeSSHCommand(sshClient, executeCmd); err != nil {
+		klog.Warningf("failed to remove resolv.conf lock on node %s: %v", node.Name, err)
+		return err
+	}
+	klog.Infof("node %s: removed resolv.conf immutable lock", node.Name)
 	return nil
 }
 
@@ -983,6 +1081,9 @@ func (r *NodeReconciler) syncOrCreateScaleDownPod(ctx context.Context,
 	if len(pods) == 0 {
 		username, err := r.getUsername(ctx, adminNode, cluster)
 		if err != nil {
+			return ctrlruntime.Result{}, err
+		}
+		if err = r.removeResolvConfLock(ctx, adminNode); err != nil {
 			return ctrlruntime.Result{}, err
 		}
 		hostsContent, err := r.generateHosts(ctx, cluster, adminNode)
@@ -1144,6 +1245,14 @@ func (r *NodeReconciler) deletePods(ctx context.Context, clusterId, nodeId, acti
 		klog.Infof("delete pod(%s)", pod.Name)
 	}
 	return nil
+}
+
+// bashRemoteScript builds `bash -c 'printf '%s' '<base64>' | base64 -d | bash'`.
+// Base64 uses [A-Za-z0-9+/=] only — safe inside single quotes. Avoids multiline fmt.Sprintf("%q", script) SSH quoting bugs (exit 2).
+func bashRemoteScript(script string) string {
+	b64 := base64.StdEncoding.EncodeToString([]byte(script))
+	inner := fmt.Sprintf("printf '%%s' '%s' | base64 -d | bash", b64)
+	return "bash -c " + fmt.Sprintf("%q", inner)
 }
 
 // executeSSHCommand executes a command via SSH on the specified node.

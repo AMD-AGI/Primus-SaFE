@@ -122,6 +122,14 @@
           <MenuItem v-for="item in aiAgentMenuItems" :key="item.index" :item="item" />
         </el-sub-menu>
 
+        <!-- Agent Infra Menu -->
+        <el-sub-menu index="agent-infra" v-if="agentInfraMenuItems.length">
+          <template #title>
+            <span style="color: var(--safe-primary)">Agent Infra</span>
+          </template>
+          <MenuItem v-for="item in agentInfraMenuItems" :key="item.index" :item="item" />
+        </el-sub-menu>
+
         <!-- System Menu -->
         <el-sub-menu index="1" v-if="systemMenuItems.length">
           <template #title>
@@ -321,12 +329,6 @@ watchEffect(() => {
       canAccess: true, // Open to all users
     },
     {
-      index: '/tools',
-      name: 'Tools',
-      icon: menuIcons.tools,
-      canAccess: true, // Open to all users
-    },
-    {
       index: '/qabase',
       name: 'QA Base',
       icon: menuIcons.qabase,
@@ -338,16 +340,44 @@ watchEffect(() => {
       icon: menuIcons.usermanage,
       canAccess: hasManagerAccess.value, // Admin only
     },
+  ]
+
+  // Filter out menu items without permission
+  aiAgentMenuItems.value = allAiAgentItems.filter((item) => item.canAccess !== false)
+})
+
+// Agent Infra submenu config - dynamic
+const agentInfraMenuItems = shallowRef<MenuItem[]>([])
+
+watchEffect(() => {
+  const allAgentInfraItems = [
+    {
+      index: '/tools',
+      name: 'Tools',
+      icon: menuIcons.tools,
+      canAccess: true, // Open to all users
+    },
     {
       index: '/sandbox',
       name: 'Sandbox',
       icon: menuIcons.playground,
       canAccess: hasManagerAccess.value, // Admin only
     },
+    {
+      index: '/llm-gateway',
+      name: 'LLM Gateway',
+      icon: menuIcons.llmGateway,
+      canAccess: true, // Open to all users
+    },
+    {
+      index: '/a2a',
+      name: 'A2A Protocol',
+      icon: menuIcons.a2a,
+      canAccess: true, // Open to all users
+    },
   ]
 
-  // Filter out menu items without permission
-  aiAgentMenuItems.value = allAiAgentItems.filter((item) => item.canAccess !== false)
+  agentInfraMenuItems.value = allAgentInfraItems.filter((item) => item.canAccess !== false)
 })
 
 // System submenu config - dynamic (partially open to regular users)
@@ -436,6 +466,12 @@ watchEffect(() => {
       index: '/auditlogs',
       name: 'Audit Logs',
       icon: menuIcons.fault,
+      canAccess: hasManagerAccess.value, // Admin only
+    },
+    {
+      index: '/workload-manage',
+      name: 'Workloads',
+      icon: menuIcons.training,
       canAccess: hasManagerAccess.value, // Admin only
     },
   ]
