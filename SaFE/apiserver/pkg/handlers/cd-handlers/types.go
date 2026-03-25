@@ -31,6 +31,7 @@ const (
 	ComponentCICDUnifiedJob  = "cicd_unified_job"
 	ComponentModelDownloader = "model_downloader"
 	ComponentOpsDownload     = "ops_download"
+	ComponentA2AGateway      = "a2a_gateway"
 )
 
 // Image name constants (used in container registry)
@@ -46,6 +47,7 @@ const (
 	ImageCICDUnifiedJob  = "cicd-unified-job-proxy"
 	ImageModelDownloader = "model-downloader"
 	ImageOpsDownload     = "s3-downloader"
+	ImageA2AGateway      = "a2a-gateway"
 )
 
 // YAML key constants for values.yaml
@@ -70,6 +72,7 @@ var ComponentImageMap = map[string]string{
 	ComponentCICDUnifiedJob:  ImageCICDUnifiedJob,
 	ComponentModelDownloader: ImageModelDownloader,
 	ComponentOpsDownload:     ImageOpsDownload,
+	ComponentA2AGateway:      ImageA2AGateway,
 }
 
 // CICDComponentsMap maps CICD component names to their YAML keys
