@@ -244,15 +244,44 @@ func buildExportScript(cfg EntrypointConfig) string {
 
 	return fmt.Sprintf(`
 
-# ==================== Export Model ====================
+# ==================== Convert Megatron Checkpoint to HuggingFace ====================
 EXPORT_PATH="%s"
-echo "Exporting trained model to ${EXPORT_PATH}..."
-mkdir -p "${EXPORT_PATH}"
-if [ -d "./output" ]; then
-  cp -r ./output/* "${EXPORT_PATH}/" 2>/dev/null || true
-fi
-echo "Model exported to ${EXPORT_PATH}"
+CKPT_DIR="./output/checkpoints"
+HF_EXPORT_PATH="${EXPORT_PATH}"
 
+echo "Converting Megatron checkpoint to HuggingFace format..."
+mkdir -p "${HF_EXPORT_PATH}"
+
+LATEST_CKPT=""
+if [ -f "${CKPT_DIR}/latest_checkpointed_iteration.txt" ]; then
+  LATEST_ITER=$(cat "${CKPT_DIR}/latest_checkpointed_iteration.txt" | tr -d '[:space:]')
+  LATEST_CKPT="${CKPT_DIR}/iter_$(printf '%%07d' ${LATEST_ITER})"
+fi
+if [ -z "${LATEST_CKPT}" ] || [ ! -d "${LATEST_CKPT}" ]; then
+  LATEST_CKPT=$(ls -td ${CKPT_DIR}/iter_* 2>/dev/null | head -1)
+fi
+
+if [ -n "${LATEST_CKPT}" ] && [ -d "${LATEST_CKPT}" ]; then
+  echo "Found checkpoint at: ${LATEST_CKPT}"
+  export PYTHONPATH="${PRIMUS_DIR}/third_party/Megatron-Bridge/src:${PRIMUS_DIR}/third_party/Megatron-Bridge/3rdparty/Megatron-LM:${PYTHONPATH:-}"
+  python3 "${PRIMUS_DIR}/third_party/Megatron-Bridge/examples/conversion/convert_checkpoints.py" export \
+    --hf-model "%s" \
+    --megatron-path "${CKPT_DIR}" \
+    --hf-path "${HF_EXPORT_PATH}" \
+    --torch-dtype bfloat16 \
+    --no-progress 2>&1 || echo "Warning: checkpoint conversion failed, falling back to raw copy"
+
+  if [ ! -f "${HF_EXPORT_PATH}/config.json" ]; then
+    echo "Warning: conversion did not produce config.json, copying raw output as fallback"
+    cp -r ./output/* "${HF_EXPORT_PATH}/" 2>/dev/null || true
+  fi
+else
+  echo "Warning: no Megatron checkpoint found, copying raw output"
+  cp -r ./output/* "${HF_EXPORT_PATH}/" 2>/dev/null || true
+fi
+echo "Model exported to ${HF_EXPORT_PATH}"
+
+# ==================== Register Model ====================
 APISERVER="http://primus-safe-apiserver.primus-safe.svc:8088"
 echo "Registering model in Model Square..."
 curl -s -X POST "${APISERVER}/api/v1/playground/models" \
@@ -274,6 +303,7 @@ curl -s -X POST "${APISERVER}/api/v1/playground/models" \
   }' || echo "Warning: failed to register model, but training output is saved at ${EXPORT_PATH}"
 echo "Model export complete."`,
 		exportPath,
+		cfg.HfPath,
 		displayName,
 		cfg.BaseModel, cfg.SftJobId,
 		exportPath,
