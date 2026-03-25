@@ -205,11 +205,13 @@ func BuildEntrypoint(cfg EntrypointConfig) string {
 	expYaml := buildExperimentYaml(cfg)
 
 	script := fmt.Sprintf(`PRIMUS_DIR=""
+SFT_CONFIG="primus/configs/modules/megatron_bridge/sft_trainer.yaml"
 for p in /workspace/Primus %s; do
-  if [ -d "$p/runner" ]; then PRIMUS_DIR="$p"; break; fi
+  if [ -d "$p/runner" ] && [ -f "$p/$SFT_CONFIG" ]; then PRIMUS_DIR="$p"; break; fi
 done
 if [ -z "$PRIMUS_DIR" ]; then
-  echo "Primus not found in image, cloning..."
+  echo "Compatible Primus not found (missing $SFT_CONFIG), cloning latest..."
+  rm -rf %s
   git clone --depth 1 %s %s
   PRIMUS_DIR="%s"
 fi
@@ -227,7 +229,7 @@ if [ $TRAIN_EXIT_CODE -ne 0 ]; then
   echo "Training failed with exit code $TRAIN_EXIT_CODE, skipping model export."
   exit $TRAIN_EXIT_CODE
 fi`,
-		cfg.PrimusPath, PrimusGitRepo, cfg.PrimusPath, cfg.PrimusPath, modelYaml, expYaml)
+		cfg.PrimusPath, cfg.PrimusPath, PrimusGitRepo, cfg.PrimusPath, cfg.PrimusPath, modelYaml, expYaml)
 
 	if cfg.ExportModel {
 		script += buildExportScript(cfg)
