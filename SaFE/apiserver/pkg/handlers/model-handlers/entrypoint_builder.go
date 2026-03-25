@@ -212,7 +212,7 @@ done
 if [ -z "$PRIMUS_DIR" ]; then
   echo "Compatible Primus not found (missing $SFT_CONFIG), cloning latest..."
   rm -rf %s
-  git clone --depth 1 %s %s
+  git clone --depth 1 --recurse-submodules %s %s
   PRIMUS_DIR="%s"
 fi
 echo "Using Primus at: $PRIMUS_DIR"
