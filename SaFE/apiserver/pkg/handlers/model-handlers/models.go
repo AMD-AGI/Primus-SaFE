@@ -460,7 +460,7 @@ func (h *Handler) listModels(c *gin.Context) (interface{}, error) {
 
 	// 1. Try to list from database first (if available)
 	if h.dbClient != nil {
-		dbModels, err := h.dbClient.ListModels(ctx, queryArgs.AccessMode, queryArgs.Workspace, false)
+		dbModels, err := h.dbClient.ListModels(ctx, queryArgs.AccessMode, queryArgs.Workspace, false, queryArgs.Origin)
 		if err == nil && len(dbModels) > 0 {
 			var items []ModelInfo
 			for _, dbModel := range dbModels {
@@ -509,6 +509,9 @@ func (h *Handler) listModels(c *gin.Context) (interface{}, error) {
 			if k8sModel.Spec.Workspace != "" && k8sModel.Spec.Workspace != queryArgs.Workspace {
 				continue
 			}
+		}
+		if queryArgs.Origin != "" && normalizeModelOrigin(k8sModel.Spec.Origin) != queryArgs.Origin {
+			continue
 		}
 
 		items = append(items, h.convertK8sModelToInfo(&k8sModel))
