@@ -13,10 +13,18 @@
           </el-tag>
           <el-tag
             size="small"
-            :type="detailData.accessMode === 'local' ? 'primary' : 'warning'"
+            :type="isDeployable ? 'primary' : 'warning'"
             :effect="isDark ? 'dark' : 'plain'"
           >
             {{ detailData.accessMode || 'Unknown' }}
+          </el-tag>
+          <el-tag
+            v-if="detailData.origin === 'fine_tuned'"
+            size="small"
+            type="success"
+            :effect="isDark ? 'dark' : 'plain'"
+          >
+            Fine-tuned
           </el-tag>
         </div>
       </div>
@@ -25,6 +33,16 @@
         <el-tooltip content="Chat" placement="top">
           <el-button circle class="glass-btn glass-btn--primary" @click="openChat">
             <el-icon><ChatDotRound /></el-icon>
+          </el-button>
+        </el-tooltip>
+
+        <el-tooltip
+          v-if="canFineTuneModel"
+          content="Fine-tune"
+          placement="top"
+        >
+          <el-button circle class="glass-btn glass-btn--success" @click="showSftDialog = true">
+            <el-icon><MagicStick /></el-icon>
           </el-button>
         </el-tooltip>
 
@@ -104,6 +122,26 @@
       <el-descriptions-item label="Access Mode">{{ detailData.accessMode }}</el-descriptions-item>
       <el-descriptions-item label="Phase">{{ detailData.phase }}</el-descriptions-item>
       <el-descriptions-item label="Version">{{ detailData.version || '-' }}</el-descriptions-item>
+      <el-descriptions-item v-if="detailData.origin" label="Origin">
+        <el-tag size="small" :type="detailData.origin === 'fine_tuned' ? 'success' : 'info'">
+          {{ detailData.origin === 'fine_tuned' ? 'Fine-tuned' : 'External' }}
+        </el-tag>
+      </el-descriptions-item>
+      <el-descriptions-item v-if="detailData.userName" label="Owner">
+        {{ detailData.userName }}
+      </el-descriptions-item>
+      <el-descriptions-item v-if="detailData.baseModel" label="Base Model">
+        {{ detailData.baseModel }}
+      </el-descriptions-item>
+      <el-descriptions-item v-if="detailData.sftJobId" label="SFT Job">
+        <el-link type="primary" :underline="false" @click="goToSftJob">
+          {{ detailData.sftJobId }}
+          <el-icon class="ml-1"><Right /></el-icon>
+        </el-link>
+      </el-descriptions-item>
+      <el-descriptions-item v-if="detailData.workspace" label="Workspace">
+        {{ detailData.workspace }}
+      </el-descriptions-item>
     </el-descriptions>
   </el-card>
 
@@ -212,6 +250,13 @@
     :is-starting="canStartService"
     @success="handleToggleSuccess"
   />
+
+  <!-- Create SFT Dialog -->
+  <CreateSftDialog
+    v-model:visible="showSftDialog"
+    :model="detailData"
+    @success="handleSftSuccess"
+  />
 </template>
 
 <script setup lang="ts">
@@ -227,10 +272,12 @@ import {
   VideoPause,
   Right,
   ArrowLeft,
+  MagicStick,
 } from '@element-plus/icons-vue'
-import { getModelDetail, deleteModel } from '@/services/playground'
+import { getModelDetail, deleteModel, isDeployableLocalModel, canFineTune } from '@/services/playground'
 import { copyText, formatTimeStr } from '@/utils/index'
 import ToggleServiceDialog from './Components/ToggleServiceDialog.vue'
+import CreateSftDialog from './Components/CreateSftDialog.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -239,6 +286,17 @@ const isDark = useDark()
 const modelId = computed(() => route.params.id as string)
 const detailData = ref<any>(null)
 const toggleDialogVisible = ref(false)
+const showSftDialog = ref(false)
+
+const isDeployable = computed(() => {
+  if (!detailData.value) return false
+  return isDeployableLocalModel(detailData.value)
+})
+
+const canFineTuneModel = computed(() => {
+  if (!detailData.value) return false
+  return canFineTune(detailData.value)
+})
 
 // Get status type
 const getStatusType = (phase: string) => {
@@ -314,6 +372,25 @@ const handleToggleService = () => {
 
 const handleToggleSuccess = () => {
   getDetail()
+}
+
+// Navigate to SFT job detail
+const goToSftJob = () => {
+  if (detailData.value?.sftJobId) {
+    router.push({
+      path: '/training/detail',
+      query: { id: detailData.value.sftJobId },
+    })
+  }
+}
+
+// Handle SFT success
+const handleSftSuccess = (workloadId: string) => {
+  showSftDialog.value = false
+  router.push({
+    path: '/training/detail',
+    query: { id: workloadId },
+  })
 }
 
 // Delete model
