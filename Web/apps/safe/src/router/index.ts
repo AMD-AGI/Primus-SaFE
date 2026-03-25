@@ -352,6 +352,12 @@ const router = createRouter({
       ],
     },
     {
+      path: '/standalone',
+      name: 'Standalone',
+      component: () => import('@/pages/ChatbotFullPage/index.vue'),
+      meta: { hideInMenu: true, standalone: true },
+    },
+    {
       path: '/:pathMatch(.*)*',
       name: 'NotFound',
       component: () => import('@/pages/Error/404Page.vue'),

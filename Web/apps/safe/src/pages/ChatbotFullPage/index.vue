@@ -120,7 +120,7 @@
               >{{ currentModeLabel }} {{ currentModeOnline ? 'Online' : 'Offline' }}</span
             >
           </div>
-          <el-button class="back-button" @click="goBack">
+          <el-button v-if="!isStandalone" class="back-button" @click="goBack">
             <el-icon class="back-icon"><Back /></el-icon>
             <span class="back-text">Back</span>
           </el-button>
@@ -586,7 +586,7 @@
 
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRouter, useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   ChatDotRound,
@@ -700,6 +700,8 @@ interface HistoryItem {
 
 // Router
 const router = useRouter()
+const route = useRoute()
+const isStandalone = computed(() => route.meta.standalone === true)
 
 // User store
 const userStore = useUserStore()
@@ -2417,10 +2419,9 @@ const stopAgentHealthCheck = () => {
 onMounted(async () => {
   await fetchConversationList()
 
-  // Check if there's a mode parameter from floating window
+  // Standalone mode defaults to Agent; also honor ?mode=agent from floating window
   const modeParam = router.currentRoute.value.query.mode as string
-  if (modeParam === 'agent') {
-    // Switch to agent mode
+  if (isStandalone.value || modeParam === 'agent') {
     mode.value = 'agent'
     connectAgent()
   }
