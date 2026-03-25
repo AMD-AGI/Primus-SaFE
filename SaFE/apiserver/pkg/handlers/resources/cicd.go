@@ -7,6 +7,9 @@ package resources
 
 import (
 	"context"
+	"fmt"
+	"net/http"
+	"time"
 
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
@@ -107,7 +110,7 @@ func (h *Handler) cleanupCICDSecrets(ctx context.Context, workload *v1.Workload)
 }
 
 // generateCICDScaleRunnerSet configures a workload for CICD scaling runner set.
-// It validates CICD settings, creates a GitHub token secret.
+// It validates CICD settings, verifies the GitHub PAT against the API, and creates a secret.
 func (h *Handler) generateCICDScaleRunnerSet(ctx context.Context, workload *v1.Workload, requestUser *v1.User) error {
 	if !commonconfig.IsCICDEnable() {
 		return commonerrors.NewNotImplemented("the CICD is not enabled")
@@ -116,6 +119,11 @@ func (h *Handler) generateCICDScaleRunnerSet(ctx context.Context, workload *v1.W
 	if val == "" {
 		return commonerrors.NewBadRequest("the github pat(token) is empty")
 	}
+
+	if err := validateGitHubPAT(ctx, val); err != nil {
+		return commonerrors.NewBadRequest(fmt.Sprintf("github PAT validation failed: %v", err))
+	}
+
 	secret, err := h.createCICDSecret(ctx, workload, requestUser, val)
 	if err != nil {
 		return err
@@ -123,4 +131,45 @@ func (h *Handler) generateCICDScaleRunnerSet(ctx context.Context, workload *v1.W
 	delete(workload.Spec.Env, GithubPAT)
 	v1.SetAnnotation(workload, v1.GithubSecretIdAnnotation, secret.Name)
 	return nil
+}
+
+// gitHubPATValidator is the function used to validate GitHub PATs.
+// It can be replaced in tests to avoid real HTTP calls.
+var gitHubPATValidator = defaultValidateGitHubPAT
+
+// validateGitHubPAT performs a preflight check against the GitHub API to verify
+// the token is valid before persisting it into a Kubernetes secret. This catches
+// expired, revoked, or malformed tokens early and avoids 401 errors in the
+// downstream ARC listener.
+func validateGitHubPAT(ctx context.Context, token string) error {
+	return gitHubPATValidator(ctx, token)
+}
+
+func defaultValidateGitHubPAT(ctx context.Context, token string) error {
+	client := &http.Client{Timeout: 10 * time.Second}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://api.github.com/user", nil)
+	if err != nil {
+		return fmt.Errorf("failed to create validation request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Accept", "application/vnd.github.v3+json")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		klog.Warningf("GitHub PAT validation request failed (network error): %v", err)
+		return nil
+	}
+	defer resp.Body.Close()
+
+	switch resp.StatusCode {
+	case http.StatusOK:
+		return nil
+	case http.StatusUnauthorized:
+		return fmt.Errorf("token returned 401 Bad credentials — it may be expired, revoked, or malformed")
+	case http.StatusForbidden:
+		return fmt.Errorf("token returned 403 Forbidden — it may lack required scopes (needs repo and admin:org)")
+	default:
+		klog.Warningf("GitHub PAT validation returned unexpected status %d", resp.StatusCode)
+		return nil
+	}
 }

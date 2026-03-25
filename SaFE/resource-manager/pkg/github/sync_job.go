@@ -8,6 +8,7 @@ package github
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -174,23 +175,34 @@ func (j *SyncJob) syncJobs(ctx context.Context, client *GitHubClient, run *Workf
 func (j *SyncJob) getGitHubToken(ctx context.Context, cluster, owner, repo string) string {
 	k8sClient, ok := j.k8sClients[cluster]
 	if !ok {
+		klog.V(2).Infof("[github-sync] no k8s client registered for cluster %s", cluster)
 		return ""
 	}
 
 	secrets, err := k8sClient.CoreV1().Secrets("").List(ctx, metav1.ListOptions{})
 	if err != nil {
+		klog.V(1).Infof("[github-sync] failed to list secrets in cluster %s: %v", cluster, err)
 		return ""
 	}
 
+	tokenKeys := []string{"github_token", "token", "GITHUB_TOKEN"}
 	for _, secret := range secrets.Items {
 		if secret.Type != corev1.SecretTypeOpaque {
 			continue
 		}
-		for _, key := range []string{"github_token", "token", "GITHUB_TOKEN"} {
+		for _, key := range tokenKeys {
 			if v, ok := secret.Data[key]; ok {
-				return string(v)
+				token := strings.TrimSpace(string(v))
+				if token == "" {
+					klog.V(2).Infof("[github-sync] secret %s/%s has empty token at key %q, skipping",
+						secret.Namespace, secret.Name, key)
+					continue
+				}
+				return token
 			}
 		}
 	}
+	klog.V(1).Infof("[github-sync] no GitHub token found in any secret for cluster %s (owner=%s, repo=%s)",
+		cluster, owner, repo)
 	return ""
 }

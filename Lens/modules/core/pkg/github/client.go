@@ -437,7 +437,9 @@ func (c *Client) CompareCommits(ctx context.Context, owner, repo, base, head str
 	return comparison, nil
 }
 
-// ValidateToken validates the GitHub token
+// ValidateToken validates the GitHub token by calling the /user endpoint.
+// Returns (true, nil) if valid, (false, nil) if the token is rejected (401/403),
+// or (false, err) if the request itself failed.
 func (c *Client) ValidateToken(ctx context.Context) (bool, error) {
 	url := fmt.Sprintf("%s/user", c.baseURL)
 
@@ -449,7 +451,18 @@ func (c *Client) ValidateToken(ctx context.Context) (bool, error) {
 		return false, fmt.Errorf("failed to validate token: %w", err)
 	}
 
-	return resp.StatusCode() == http.StatusOK, nil
+	switch resp.StatusCode() {
+	case http.StatusOK:
+		return true, nil
+	case http.StatusUnauthorized:
+		return false, nil
+	case http.StatusForbidden:
+		return false, fmt.Errorf("token is valid but lacks required permissions (403 Forbidden): %s",
+			resp.String())
+	default:
+		return false, fmt.Errorf("unexpected status %d from GitHub API: %s",
+			resp.StatusCode(), resp.String())
+	}
 }
 
 // GetJobLogs fetches logs for a specific job

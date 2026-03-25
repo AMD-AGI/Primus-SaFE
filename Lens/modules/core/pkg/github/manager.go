@@ -10,6 +10,8 @@ import (
 	"sync"
 	"time"
 
+	"k8s.io/klog/v2"
+
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 )
@@ -30,6 +32,7 @@ type tokenCacheEntry struct {
 const (
 	tokenCacheDuration = 10 * time.Minute
 	defaultTokenKey    = "github_token"
+	tokenPrefixLen     = 8
 )
 
 var (
@@ -58,7 +61,10 @@ func NewClientManager(k8sClient kubernetes.Interface) *ClientManager {
 	}
 }
 
-// GetClientForSecret returns a GitHub client using the token from the specified secret
+// GetClientForSecret returns a GitHub client using the token from the specified secret.
+// It caches clients for tokenCacheDuration and automatically re-reads the secret
+// when the cache expires. If the cached token results in a 401 from GitHub,
+// callers should use InvalidateCache to force a re-read on the next call.
 func (m *ClientManager) GetClientForSecret(ctx context.Context, namespace, secretName string) (*Client, error) {
 	key := fmt.Sprintf("%s/%s", namespace, secretName)
 
@@ -78,11 +84,25 @@ func (m *ClientManager) GetClientForSecret(ctx context.Context, namespace, secre
 		return nil, err
 	}
 
+	client := NewClient(token)
+
+	valid, validateErr := client.ValidateToken(ctx)
+	if validateErr != nil {
+		klog.Warningf("GitHub token validation request failed for secret %s: %v (token prefix: %s)",
+			key, validateErr, maskToken(token))
+	} else if !valid {
+		klog.Errorf("GitHub token from secret %s returned 401 Bad credentials (token prefix: %s). "+
+			"The PAT may be expired, revoked, or lack required scopes. "+
+			"Please rotate the token in the Kubernetes secret and restart the affected pods.",
+			key, maskToken(token))
+		return nil, fmt.Errorf("GitHub token from secret %s is invalid (401 Bad credentials): "+
+			"the PAT may be expired, revoked, or lack required scopes", key)
+	}
+
 	// Create and cache client
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	client := NewClient(token)
 	m.clients[key] = client
 	m.tokenCache[key] = &tokenCacheEntry{
 		token:     token,
@@ -103,16 +123,33 @@ func (m *ClientManager) getTokenFromSecret(ctx context.Context, namespace, secre
 		return "", fmt.Errorf("failed to get secret %s/%s: %w", namespace, secretName, err)
 	}
 
-	// Try common token keys
 	tokenKeys := []string{"github_token", "token", "GITHUB_TOKEN"}
 	for _, key := range tokenKeys {
 		if token, ok := secret.Data[key]; ok {
-			// Trim whitespace — some secrets have trailing spaces/newlines
-			return strings.TrimSpace(string(token)), nil
+			trimmed := strings.TrimSpace(string(token))
+			if trimmed == "" {
+				klog.Warningf("GitHub token key %q in secret %s/%s is present but empty",
+					key, namespace, secretName)
+				continue
+			}
+			return trimmed, nil
 		}
 	}
 
-	return "", fmt.Errorf("no GitHub token found in secret %s/%s", namespace, secretName)
+	availableKeys := make([]string, 0, len(secret.Data))
+	for k := range secret.Data {
+		availableKeys = append(availableKeys, k)
+	}
+	return "", fmt.Errorf("no GitHub token found in secret %s/%s (available keys: %v, expected one of: %v)",
+		namespace, secretName, availableKeys, tokenKeys)
+}
+
+// maskToken returns a safe-to-log prefix of the token for diagnostics.
+func maskToken(token string) string {
+	if len(token) <= tokenPrefixLen {
+		return "***"
+	}
+	return token[:tokenPrefixLen] + "***"
 }
 
 // GetTokenForSecret returns the GitHub token from a Kubernetes secret.

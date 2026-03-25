@@ -7,6 +7,7 @@ package resources
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
@@ -469,6 +470,10 @@ func Test_generateCICDScaleRunnerSet(t *testing.T) {
 	commonconfig.SetValue("cicd.enable", "true")
 	defer commonconfig.SetValue("cicd.enable", "")
 
+	origValidator := gitHubPATValidator
+	gitHubPATValidator = func(_ context.Context, _ string) error { return nil }
+	defer func() { gitHubPATValidator = origValidator }()
+
 	ctx := context.Background()
 	clusterId := "test-cluster"
 	workspaceId := "test-workspace"
@@ -515,6 +520,46 @@ func Test_generateCICDScaleRunnerSet(t *testing.T) {
 	secret, err := fakeClientSet.CoreV1().Secrets(common.PrimusSafeNamespace).Get(ctx, secretId, metav1.GetOptions{})
 	assert.NilError(t, err)
 	assert.Assert(t, secret != nil, "Secret should be created")
+}
+
+// Test_generateCICDScaleRunnerSet_InvalidToken tests that an invalid PAT is rejected early
+func Test_generateCICDScaleRunnerSet_InvalidToken(t *testing.T) {
+	commonconfig.SetValue("cicd.enable", "true")
+	defer commonconfig.SetValue("cicd.enable", "")
+
+	origValidator := gitHubPATValidator
+	gitHubPATValidator = func(_ context.Context, _ string) error {
+		return fmt.Errorf("token returned 401 Bad credentials — it may be expired, revoked, or malformed")
+	}
+	defer func() { gitHubPATValidator = origValidator }()
+
+	ctx := context.Background()
+	workload := genMockWorkload("test-cluster", "test-workspace")
+	workload.Spec.Env = map[string]string{
+		GithubPAT: "expired_token",
+	}
+	user := genMockUser()
+	role := genMockRole()
+
+	fakeCtrlClient := ctrlruntimefake.NewClientBuilder().
+		WithObjects(workload, user, role).
+		WithScheme(scheme.Scheme).
+		Build()
+	fakeClientSet := k8sfake.NewSimpleClientset()
+
+	h := Handler{
+		Client:           fakeCtrlClient,
+		clientSet:        fakeClientSet,
+		accessController: authority.NewAccessController(fakeCtrlClient),
+	}
+
+	err := h.generateCICDScaleRunnerSet(ctx, workload, user)
+	assert.Assert(t, err != nil, "should reject invalid token")
+
+	// Verify no secret was created
+	secrets, listErr := fakeClientSet.CoreV1().Secrets(common.PrimusSafeNamespace).List(ctx, metav1.ListOptions{})
+	assert.NilError(t, listErr)
+	assert.Equal(t, len(secrets.Items), 0, "no secret should be created for invalid token")
 }
 
 // Test_cleanupCICDSecrets_CICDWorkload tests cleanup deletes secret for CICD workload
