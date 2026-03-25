@@ -521,7 +521,7 @@ const loadConfig = async () => {
 
   configLoading.value = true
   try {
-    const res = await getSftConfig(props.model.id, wsStore.currentWorkspaceId)
+    const res = await getSftConfig(props.model.id, wsStore.currentWorkspaceId || '')
     sftConfig.value = res as unknown as SftConfigResponse
 
     if (sftConfig.value.supported) {
@@ -577,7 +577,7 @@ const handleSubmit = async () => {
         displayName: form.displayName,
         modelId: props.model!.id,
         datasetId: form.datasetId,
-        workspace: wsStore.currentWorkspaceId,
+        workspace: wsStore.currentWorkspaceId || '',
         exportModel: form.exportModel,
         image: form.image,
         nodeCount: form.nodeCount,
