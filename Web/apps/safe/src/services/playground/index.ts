@@ -225,7 +225,7 @@ export interface PlaygroundModel {
   id: string
   displayName: string
   description?: string
-  accessMode?: 'remote_api' | 'local' | 'cloud'
+  accessMode?: 'remote_api' | 'local' | 'local_path' | 'cloud'
   phase: 'Ready' | 'Pending' | 'Failed' | 'Running' | 'Stopped'
   message?: string
   icon?: string
@@ -264,6 +264,28 @@ export interface PlaygroundModel {
   label?: string
   version?: string
   isDeleted?: boolean
+
+  // Fine-tuning metadata
+  origin?: 'external' | 'fine_tuned'
+  sftJobId?: string
+  baseModel?: string
+  userId?: string
+  userName?: string
+  workspace?: string
+}
+
+/**
+ * Whether the model is a deployable local model (supports both imported and fine-tuned).
+ */
+export function isDeployableLocalModel(model: PlaygroundModel): boolean {
+  return model.accessMode === 'local' || model.accessMode === 'local_path'
+}
+
+/**
+ * Whether the model can be fine-tuned (only HuggingFace-imported base models).
+ */
+export function canFineTune(model: PlaygroundModel): boolean {
+  return model.accessMode === 'local' && model.phase === 'Ready'
 }
 
 export interface ModelsListParams {

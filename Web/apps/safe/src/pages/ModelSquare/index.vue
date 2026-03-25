@@ -35,8 +35,9 @@
           class="mb-2"
         >
           <el-option label="All Types" value="" />
-          <el-option label="local" value="local" />
-          <el-option label="remote_api" value="remote_api" />
+          <el-option label="Local" value="local" />
+          <el-option label="Local Path" value="local_path" />
+          <el-option label="Remote API" value="remote_api" />
         </el-select>
       </div>
     </div>
@@ -96,10 +97,18 @@
                   </el-tag>
                   <el-tag
                     size="small"
-                    :type="model.accessMode === 'local' ? 'primary' : 'warning'"
+                    :type="isDeployableLocalModel(model) ? 'primary' : 'warning'"
                     :effect="isDark ? 'dark' : 'plain'"
                   >
                     {{ model.accessMode || 'Unknown' }}
+                  </el-tag>
+                  <el-tag
+                    v-if="model.origin === 'fine_tuned'"
+                    size="small"
+                    type="success"
+                    :effect="isDark ? 'dark' : 'plain'"
+                  >
+                    Fine-tuned
                   </el-tag>
                 </div>
               </div>
@@ -107,6 +116,15 @@
             <p class="model-description">
               {{ model.description || 'No description available' }}
             </p>
+            <!-- Fine-tuned model metadata -->
+            <div
+              v-if="model.origin === 'fine_tuned'"
+              class="text-xs text-gray-400 mt-1"
+            >
+              <span v-if="model.userName">By {{ model.userName }}</span>
+              <span v-if="model.userName && model.baseModel"> · </span>
+              <span v-if="model.baseModel">Base: {{ model.baseModel }}</span>
+            </div>
 
             <!-- Resource info -->
             <div v-if="model.cpu || model.gpu || model.memory" class="model-resources">
@@ -190,9 +208,9 @@
                   <el-icon><RefreshRight /></el-icon>
                 </el-button>
               </el-tooltip>
-              <!-- Start/Stop buttons (shown only for local type) -->
+              <!-- Start/Stop buttons (shown for deployable local models) -->
               <el-tooltip
-                v-else-if="model.accessMode === 'local'"
+                v-else-if="isDeployableLocalModel(model)"
                 :content="!model.serviceID ? 'Start Service' : 'Stop Service'"
                 placement="top"
               >
@@ -215,6 +233,21 @@
                   :disabled="model.phase !== 'Ready'"
                 >
                   <el-icon><VideoPause /></el-icon>
+                </el-button>
+              </el-tooltip>
+              <!-- Fine-tune button -->
+              <el-tooltip
+                v-if="canFineTune(model)"
+                content="Fine-tune"
+                placement="top"
+              >
+                <el-button
+                  size="small"
+                  @click="handleCommand('fine-tune', model)"
+                  circle
+                  class="btn-icon btn-finetune"
+                >
+                  <el-icon><MagicStick /></el-icon>
                 </el-button>
               </el-tooltip>
               <el-tooltip content="Delete Model" placement="top">
@@ -272,6 +305,13 @@
       :model-id="currentSelectModel?.id || ''"
       @confirm="handleInferSelected"
     />
+
+    <!-- Create SFT dialog -->
+    <CreateSftDialog
+      v-model:visible="showSftDialog"
+      :model="currentSftModel"
+      @success="handleSftSuccess"
+    />
   </div>
 </template>
 
@@ -288,6 +328,7 @@ import {
   VideoPause,
   Box,
   RefreshRight,
+  MagicStick,
 } from '@element-plus/icons-vue'
 import { useDark } from '@vueuse/core'
 import { formatTimeStr } from '@/utils'
@@ -296,12 +337,15 @@ import {
   deleteModel,
   retryModel,
   getModelWorkloadConfig,
+  isDeployableLocalModel,
+  canFineTune,
   type PlaygroundModel,
   type ModelsListParams,
   type ModelsListResp,
 } from '@/services/playground'
 import AddModelDialog from './Components/AddModelDialog.vue'
 import ToggleServiceDialog from './Components/ToggleServiceDialog.vue'
+import CreateSftDialog from './Components/CreateSftDialog.vue'
 import InferAddDialog from '@/pages/Infer/Components/AddDialog.vue'
 import SelectInferDialog from './Components/SelectInferDialog.vue'
 import { useWorkspaceStore } from '@/stores/workspace'
@@ -323,6 +367,8 @@ const inferAction = ref('Create')
 const inferPrefillData = ref<Record<string, unknown>>({})
 const showSelectInferDialog = ref(false)
 const currentSelectModel = ref<PlaygroundModel | null>(null)
+const showSftDialog = ref(false)
+const currentSftModel = ref<PlaygroundModel | null>(null)
 
 // Filter criteria
 const filters = reactive({
@@ -449,6 +495,10 @@ const handleCommand = async (command: string, model: PlaygroundModel) => {
     case 'delete':
       await handleDeleteModel(model)
       break
+    case 'fine-tune':
+      currentSftModel.value = model
+      showSftDialog.value = true
+      break
   }
 }
 
@@ -563,6 +613,16 @@ const handleInferSuccess = () => {
     query: {
       onlyMyself: 'My Workloads',
     },
+  })
+}
+
+// Handle SFT job creation success
+const handleSftSuccess = (workloadId: string) => {
+  showSftDialog.value = false
+  currentSftModel.value = null
+  router.push({
+    path: '/training/detail',
+    query: { id: workloadId },
   })
 }
 
