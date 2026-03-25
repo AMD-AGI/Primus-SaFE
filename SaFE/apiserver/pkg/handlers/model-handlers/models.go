@@ -854,8 +854,8 @@ func (h *Handler) getWorkloadConfig(c *gin.Context) (interface{}, error) {
 		return nil, commonerrors.NewInternalError("failed to fetch model: " + err.Error())
 	}
 
-	// Only local models can be deployed as workloads
-	if k8sModel.Spec.Source.AccessMode != v1.AccessModeLocal {
+	// Only deployable local models (local or local_path) can be deployed as workloads
+	if k8sModel.Spec.Source.AccessMode != v1.AccessModeLocal && k8sModel.Spec.Source.AccessMode != v1.AccessModeLocalPath {
 		return nil, commonerrors.NewBadRequest("only local models can be deployed as workloads")
 	}
 
@@ -889,6 +889,10 @@ func (h *Handler) getWorkloadConfig(c *gin.Context) (interface{}, error) {
 				// Don't break - continue to check for exact match
 			}
 		}
+	}
+
+	if modelPath == "" && k8sModel.Spec.Source.LocalPath != "" {
+		modelPath = k8sModel.Spec.Source.LocalPath
 	}
 
 	if modelPath == "" {
