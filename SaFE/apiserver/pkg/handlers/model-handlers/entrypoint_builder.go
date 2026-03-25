@@ -217,7 +217,8 @@ if [ -z "$PRIMUS_DIR" ]; then
 fi
 echo "Using Primus at: $PRIMUS_DIR"
 cd "$PRIMUS_DIR"
-cat > /tmp/sft_model.yaml << 'MODELEOF'
+mkdir -p primus/configs/models/megatron_bridge
+cat > primus/configs/models/megatron_bridge/sft_custom_model.yaml << 'MODELEOF'
 %s
 MODELEOF
 cat > /tmp/sft_experiment.yaml << 'EXPEOF'
@@ -342,7 +343,7 @@ func buildExperimentYaml(cfg EntrypointConfig) string {
 	sb.WriteString("  post_trainer:\n")
 	sb.WriteString("    framework: megatron_bridge\n")
 	sb.WriteString("    config: sft_trainer.yaml\n")
-	sb.WriteString("    model: /tmp/sft_model.yaml\n")
+	sb.WriteString("    model: sft_custom_model.yaml\n")
 	sb.WriteString("    overrides:\n")
 	sb.WriteString("      stderr_sink_level: DEBUG\n")
 
