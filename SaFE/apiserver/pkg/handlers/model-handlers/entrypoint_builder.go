@@ -8,6 +8,8 @@ package model_handlers
 import (
 	"fmt"
 	"strings"
+
+	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 )
 
 // ==================== Model Recipe Mapping ====================
@@ -80,15 +82,33 @@ var trainPresets = map[string]map[string]TrainPreset{
 // ==================== Default Value Population ====================
 
 const (
-	DefaultImage            = "rocm/primus:v26.1"
+	DefaultSftImageTag      = "sync/tasimage/primus:pr-624-ainic"
+	DefaultSftImageFallback = "docker.io/tasimage/primus:pr-624-ainic"
 	DefaultGpuCount         = 8
 	DefaultCpu              = "128"
 	DefaultMemory           = "1024Gi"
 	DefaultEphemeralStorage = "300Gi"
 	DefaultPrimusPath       = "/tmp/primus"
 	PrimusGitRepo           = "https://github.com/AMD-AGI/Primus.git"
+	PrimusGitCommit         = "1dd3ebe8" // compatible with pr-609-ainic / pr-624-ainic images
 	DefaultPriority         = 1 // medium: HighPriorityInt=2, MedPriorityInt=1, LowPriorityInt=0
 )
+
+// GetDefaultSftImage returns the default SFT training image using the cluster's harbor registry.
+// It extracts the registry host from the ops_job download_image config (which is already
+// populated by Helm with the correct per-cluster harbor address).
+func GetDefaultSftImage() string {
+	downloadImage := commonconfig.GetDownloadJoImage()
+	if idx := strings.Index(downloadImage, "/primussafe/"); idx > 0 {
+		registryHost := downloadImage[:idx]
+		return fmt.Sprintf("%s/%s", registryHost, DefaultSftImageTag)
+	}
+	if idx := strings.Index(downloadImage, "/"); idx > 0 {
+		registryHost := downloadImage[:idx]
+		return fmt.Sprintf("%s/%s", registryHost, DefaultSftImageTag)
+	}
+	return DefaultSftImageFallback
+}
 
 // FillSftDefaults populates zero-valued fields with smart defaults based on model size and peft type.
 func FillSftDefaults(req *CreateSftJobRequest, modelSize string) {
@@ -159,7 +179,7 @@ func FillSftDefaults(req *CreateSftJobRequest, modelSize string) {
 	}
 
 	if req.Image == "" {
-		req.Image = DefaultImage
+		req.Image = GetDefaultSftImage()
 	}
 	if req.NodeCount == 0 {
 		req.NodeCount = 1
@@ -210,9 +230,10 @@ for p in /workspace/Primus %s; do
   if [ -d "$p/runner" ] && [ -f "$p/$SFT_CONFIG" ]; then PRIMUS_DIR="$p"; break; fi
 done
 if [ -z "$PRIMUS_DIR" ]; then
-  echo "Compatible Primus not found (missing $SFT_CONFIG), cloning latest..."
+  echo "Compatible Primus not found (missing $SFT_CONFIG), cloning compatible version..."
   rm -rf %s
-  git clone --depth 1 --recurse-submodules %s %s
+  git clone --recurse-submodules %s %s
+  cd %s && git checkout %s && cd -
   PRIMUS_DIR="%s"
 fi
 echo "Using Primus at: $PRIMUS_DIR"
