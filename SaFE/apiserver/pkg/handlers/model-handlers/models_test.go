@@ -522,6 +522,66 @@ func TestGetWorkloadConfig_ModelNotReady(t *testing.T) {
 	assert.ErrorContains(t, err, "not ready")
 }
 
+func TestGetSftConfig(t *testing.T) {
+	model := genMockLocalK8sModel("model-qwen", "ws1")
+	model.Spec.DisplayName = "Qwen/Qwen3-8B"
+	model.Spec.Source.URL = "https://huggingface.co/Qwen/Qwen3-8B"
+	model.Spec.Source.ModelName = "Qwen/Qwen3-8B"
+
+	k8sClient := fake.NewClientBuilder().
+		WithObjects(model).
+		WithScheme(scheme.Scheme).
+		Build()
+
+	h := newMockModelHandler(k8sClient)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Params = gin.Params{{Key: "id", Value: "model-qwen"}}
+	c.Request, _ = http.NewRequest("GET", "/models/model-qwen/sft-config?workspace=ws1", nil)
+
+	result, err := h.getSftConfig(c)
+	assert.NilError(t, err)
+
+	resp := result.(*SftConfigResponse)
+	assert.Equal(t, resp.Supported, true)
+	assert.Equal(t, resp.Model.ID, "model-qwen")
+	assert.Equal(t, resp.Model.ModelName, "Qwen/Qwen3-8B")
+	assert.Equal(t, resp.DatasetFilter.DatasetType, "sft")
+	assert.Equal(t, resp.DatasetFilter.Workspace, "ws1")
+	assert.Assert(t, resp.Defaults != nil)
+	assert.Equal(t, resp.Defaults.ExportModel, true)
+	assert.Equal(t, resp.Defaults.Priority, 1)
+	assert.Equal(t, resp.Defaults.Image, DefaultImage)
+	assert.Equal(t, resp.Defaults.TrainConfig.Peft, "none")
+	assert.DeepEqual(t, resp.Options.DatasetFormatOptions, []string{"alpaca"})
+	assert.DeepEqual(t, resp.Options.PeftOptions, []string{"none", "lora"})
+}
+
+func TestGetSftConfig_UnsupportedModel(t *testing.T) {
+	model := genMockRemoteAPIK8sModel("remote-model")
+
+	k8sClient := fake.NewClientBuilder().
+		WithObjects(model).
+		WithScheme(scheme.Scheme).
+		Build()
+
+	h := newMockModelHandler(k8sClient)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Params = gin.Params{{Key: "id", Value: "remote-model"}}
+	c.Request, _ = http.NewRequest("GET", "/models/remote-model/sft-config?workspace=ws1", nil)
+
+	result, err := h.getSftConfig(c)
+	assert.NilError(t, err)
+
+	resp := result.(*SftConfigResponse)
+	assert.Equal(t, resp.Supported, false)
+	assert.Equal(t, resp.Reason, "only local models can be fine-tuned")
+	assert.Assert(t, resp.Defaults == nil)
+}
+
 // TestConvertK8sModelToInfo tests the convertK8sModelToInfo function
 func TestConvertK8sModelToInfo(t *testing.T) {
 	model := genMockLocalK8sModel("test-model", "ws1")

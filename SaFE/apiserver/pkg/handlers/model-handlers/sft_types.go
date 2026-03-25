@@ -65,6 +65,60 @@ type CreateSftJobResponse struct {
 	WorkloadId string `json:"workloadId"`
 }
 
+// GetSftConfigQuery represents query parameters for fetching SFT form defaults.
+type GetSftConfigQuery struct {
+	Workspace string `form:"workspace" binding:"required"`
+}
+
+// SftConfigResponse contains frontend-facing defaults and options for the SFT form.
+type SftConfigResponse struct {
+	Supported     bool                    `json:"supported"`
+	Reason        string                  `json:"reason,omitempty"`
+	Model         SftConfigModelInfo      `json:"model"`
+	DatasetFilter SftConfigDatasetFilter  `json:"datasetFilter"`
+	Defaults      *SftConfigDefaults      `json:"defaults,omitempty"`
+	Options       SftConfigOptions        `json:"options"`
+}
+
+type SftConfigModelInfo struct {
+	ID          string `json:"id"`
+	DisplayName string `json:"displayName"`
+	ModelName   string `json:"modelName"`
+	AccessMode  string `json:"accessMode"`
+	Phase       string `json:"phase"`
+	Workspace   string `json:"workspace"`
+	MaxTokens   int    `json:"maxTokens"`
+}
+
+type SftConfigDatasetFilter struct {
+	DatasetType string `json:"datasetType"`
+	Workspace   string `json:"workspace"`
+	Status      string `json:"status"`
+}
+
+type SftConfigDefaults struct {
+	ExportModel      bool           `json:"exportModel"`
+	Image            string         `json:"image"`
+	NodeCount        int            `json:"nodeCount"`
+	GpuCount         int            `json:"gpuCount"`
+	Cpu              string         `json:"cpu"`
+	Memory           string         `json:"memory"`
+	EphemeralStorage string         `json:"ephemeralStorage"`
+	Priority         int            `json:"priority"`
+	TrainConfig      SftTrainConfig `json:"trainConfig"`
+}
+
+type SftConfigOptions struct {
+	PeftOptions          []string               `json:"peftOptions"`
+	DatasetFormatOptions []string               `json:"datasetFormatOptions"`
+	PriorityOptions      []SftConfigPriorityRef `json:"priorityOptions"`
+}
+
+type SftConfigPriorityRef struct {
+	Label string `json:"label"`
+	Value int    `json:"value"`
+}
+
 // ==================== SFT Label Constants ====================
 
 const (

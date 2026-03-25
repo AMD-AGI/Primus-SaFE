@@ -15,7 +15,9 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/klog/v2"
+	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
@@ -26,6 +28,11 @@ import (
 // CreateSftJob handles POST /api/v1/sft/jobs
 func (h *Handler) CreateSftJob(c *gin.Context) {
 	handle(c, h.createSftJob)
+}
+
+// GetSftConfig handles GET /api/v1/playground/models/:id/sft-config
+func (h *Handler) GetSftConfig(c *gin.Context) {
+	handle(c, h.getSftConfig)
 }
 
 func (h *Handler) createSftJob(c *gin.Context) (interface{}, error) {
@@ -191,6 +198,88 @@ func (h *Handler) createSftJob(c *gin.Context) (interface{}, error) {
 	}, nil
 }
 
+func (h *Handler) getSftConfig(c *gin.Context) (interface{}, error) {
+	modelId := c.Param("id")
+	if modelId == "" {
+		return nil, commonerrors.NewBadRequest("model id is required")
+	}
+
+	var query GetSftConfigQuery
+	if err := c.ShouldBindQuery(&query); err != nil {
+		return nil, commonerrors.NewBadRequest(fmt.Sprintf("invalid query: %v", err))
+	}
+
+	ctx := c.Request.Context()
+	k8sModel := &v1.Model{}
+	if err := h.k8sClient.Get(ctx, ctrlclient.ObjectKey{Name: modelId}, k8sModel); err != nil {
+		if k8serrors.IsNotFound(err) {
+			return nil, commonerrors.NewNotFound("model", modelId)
+		}
+		return nil, commonerrors.NewInternalError("failed to fetch model: " + err.Error())
+	}
+
+	hfModelName := extractHfModelNameFromURLOrModelName(k8sModel.Spec.Source.URL, k8sModel.Spec.Source.ModelName)
+	resp := &SftConfigResponse{
+		Supported: false,
+		Model: SftConfigModelInfo{
+			ID:          k8sModel.Name,
+			DisplayName: k8sModel.Spec.DisplayName,
+			ModelName:   hfModelName,
+			AccessMode:  string(k8sModel.Spec.Source.AccessMode),
+			Phase:       string(k8sModel.Status.Phase),
+			Workspace:   k8sModel.Spec.Workspace,
+			MaxTokens:   k8sModel.Spec.MaxTokens,
+		},
+		DatasetFilter: SftConfigDatasetFilter{
+			DatasetType: "sft",
+			Workspace:   query.Workspace,
+			Status:      "Ready",
+		},
+		Options: SftConfigOptions{
+			DatasetFormatOptions: getSupportedDatasetFormats(),
+			PriorityOptions:      getSftPriorityOptions(),
+		},
+	}
+
+	if k8sModel.Spec.Source.AccessMode != v1.AccessModeLocal {
+		resp.Reason = "only local models can be fine-tuned"
+		return resp, nil
+	}
+
+	if k8sModel.Status.Phase != v1.ModelPhaseReady {
+		resp.Reason = fmt.Sprintf("model is not ready, current phase: %s", k8sModel.Status.Phase)
+		return resp, nil
+	}
+
+	recipe, err := InferModelRecipe(hfModelName)
+	if err != nil {
+		resp.Reason = err.Error()
+		return resp, nil
+	}
+
+	defaultReq := CreateSftJobRequest{
+		Workspace: query.Workspace,
+		ModelId:   modelId,
+	}
+	FillSftDefaults(&defaultReq, recipe.Size)
+
+	resp.Supported = true
+	resp.Defaults = &SftConfigDefaults{
+		ExportModel:      *defaultReq.ExportModel,
+		Image:            defaultReq.Image,
+		NodeCount:        defaultReq.NodeCount,
+		GpuCount:         defaultReq.GpuCount,
+		Cpu:              defaultReq.Cpu,
+		Memory:           defaultReq.Memory,
+		EphemeralStorage: defaultReq.EphemeralStorage,
+		Priority:         defaultReq.Priority,
+		TrainConfig:      defaultReq.TrainConfig,
+	}
+	resp.Options.PeftOptions = getSupportedPeftOptions(recipe.Size)
+
+	return resp, nil
+}
+
 // ==================== Helpers ====================
 
 func (h *Handler) resolveDatasetPath(ctx context.Context, datasetId, workspace string) (string, error) {
@@ -223,13 +312,44 @@ func (h *Handler) resolveDatasetPath(ctx context.Context, datasetId, workspace s
 }
 
 func extractHfModelName(model *dbclient.Model) string {
-	url := model.SourceURL
+	return extractHfModelNameFromURLOrModelName(model.SourceURL, model.ModelName)
+}
+
+func extractHfModelNameFromURLOrModelName(url, modelName string) string {
 	url = strings.TrimPrefix(url, "https://huggingface.co/")
 	url = strings.TrimSuffix(url, "/")
 	if url != "" {
 		return url
 	}
-	return model.ModelName
+	return modelName
+}
+
+func getSupportedDatasetFormats() []string {
+	return []string{"alpaca"}
+}
+
+func getSupportedPeftOptions(modelSize string) []string {
+	presets, ok := trainPresets[modelSize]
+	if !ok {
+		presets = trainPresets["8b"]
+	}
+
+	ordered := []string{"none", "lora"}
+	var options []string
+	for _, option := range ordered {
+		if _, exists := presets[option]; exists {
+			options = append(options, option)
+		}
+	}
+	return options
+}
+
+func getSftPriorityOptions() []SftConfigPriorityRef {
+	return []SftConfigPriorityRef{
+		{Label: "Low", Value: common.LowPriorityInt},
+		{Label: "Medium", Value: common.MedPriorityInt},
+		{Label: "High", Value: common.HighPriorityInt},
+	}
 }
 
 func generateSftWorkloadName(displayName string) string {
