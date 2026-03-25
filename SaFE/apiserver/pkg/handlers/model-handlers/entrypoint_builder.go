@@ -82,8 +82,8 @@ var trainPresets = map[string]map[string]TrainPreset{
 // ==================== Default Value Population ====================
 
 const (
-	DefaultSftImageTag      = "sync/tasimage/primus:pr-624-ainic"
-	DefaultSftImageFallback = "docker.io/tasimage/primus:pr-624-ainic"
+	DefaultSftImageTag      = "sync/tasimage/primus:pr-609-ainic"
+	DefaultSftImageFallback = "docker.io/tasimage/primus:pr-609-ainic"
 	DefaultGpuCount         = 8
 	DefaultCpu              = "128"
 	DefaultMemory           = "1024Gi"
@@ -230,10 +230,10 @@ for p in /workspace/Primus %s; do
   if [ -d "$p/runner" ] && [ -f "$p/$SFT_CONFIG" ]; then PRIMUS_DIR="$p"; break; fi
 done
 if [ -z "$PRIMUS_DIR" ]; then
-  echo "Compatible Primus not found (missing $SFT_CONFIG), cloning compatible version..."
+  echo "Compatible Primus not found (missing $SFT_CONFIG), cloning compatible version (%s)..."
   rm -rf %s
-  git clone --recurse-submodules %s %s
-  cd %s && git checkout %s && cd -
+  git clone %s %s
+  cd %s && git checkout %s && git submodule update --init --recursive && cd -
   PRIMUS_DIR="%s"
 fi
 echo "Using Primus at: $PRIMUS_DIR"
@@ -251,7 +251,7 @@ if [ $TRAIN_EXIT_CODE -ne 0 ]; then
   echo "Training failed with exit code $TRAIN_EXIT_CODE, skipping model export."
   exit $TRAIN_EXIT_CODE
 fi`,
-		cfg.PrimusPath, cfg.PrimusPath, PrimusGitRepo, cfg.PrimusPath, cfg.PrimusPath, modelYaml, expYaml)
+		cfg.PrimusPath, PrimusGitCommit, cfg.PrimusPath, PrimusGitRepo, cfg.PrimusPath, cfg.PrimusPath, PrimusGitCommit, cfg.PrimusPath, modelYaml, expYaml)
 
 	if cfg.ExportModel {
 		script += buildExportScript(cfg)
