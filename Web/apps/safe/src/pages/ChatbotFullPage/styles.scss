@@ -1680,8 +1680,9 @@
 }
 
 .control-button {
-  width: 84px;
+  min-width: 84px;
   height: 32px;
+  padding: 0 12px;
   border-radius: 20px;
   display: flex;
   align-items: center;
@@ -1693,6 +1694,7 @@
   transition: all 0.2s ease;
   color: #666;
   font-size: 13px;
+  white-space: nowrap;
 
   .el-icon {
     font-size: 16px;
@@ -1702,6 +1704,12 @@
     width: 18px;
     height: 18px;
     object-fit: contain;
+    opacity: 0.6;
+    transition: all 0.2s ease;
+  }
+
+  .control-icon-el {
+    font-size: 16px;
     opacity: 0.6;
     transition: all 0.2s ease;
   }
@@ -1717,6 +1725,10 @@
       filter: brightness(0) saturate(100%) invert(64%) sepia(55%) saturate(473%) hue-rotate(130deg)
         brightness(95%) contrast(91%);
     }
+
+    .control-icon-el {
+      opacity: 1;
+    }
   }
 
   &.active {
@@ -1728,6 +1740,10 @@
     .control-icon {
       opacity: 1;
       filter: brightness(0) invert(1);
+    }
+
+    .control-icon-el {
+      opacity: 1;
     }
   }
 }
