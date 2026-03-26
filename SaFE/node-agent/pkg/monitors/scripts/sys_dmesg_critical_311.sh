@@ -56,6 +56,7 @@ PATTERNS=(
 	'CRITICAL|AMD GPU Reset|amdgpu.*reset'
 	'CRITICAL|AMD GPU Poison|amdgpu.*poison'
 	'CRITICAL|AMD ACA|\[Hardware Error\].*Accelerator Check Architecture.*uncorrectable'
+	'HIGH|AMD ACA|\[Hardware Error\].*Accelerator Check Architecture'
 	'CRITICAL|Kernel Panic|kernel panic'
 	'CRITICAL|Memory ECC|EDAC.*Uncorrected'
 	'CRITICAL|CPU MCE|MCE.*Hardware Error'
