@@ -99,10 +99,9 @@ const (
 // populated by Helm with the correct per-cluster harbor address).
 func GetDefaultSftImage() string {
 	downloadImage := commonconfig.GetDownloadJoImage()
-	if idx := strings.Index(downloadImage, "/primussafe/"); idx > 0 {
-		registryHost := downloadImage[:idx]
-		return fmt.Sprintf("%s/%s", registryHost, DefaultSftImageTag)
-	}
+	// Extract just the harbor hostname (before the first '/') and append the SFT image tag.
+	// downloadImage is like "harbor.project1.tw325.primus-safe.amd.com/proxy/primussafe/safe-download-job:xxx"
+	// SFT images are under /sync/ not /proxy/, so we only need the hostname.
 	if idx := strings.Index(downloadImage, "/"); idx > 0 {
 		registryHost := downloadImage[:idx]
 		return fmt.Sprintf("%s/%s", registryHost, DefaultSftImageTag)
