@@ -87,7 +87,7 @@ const (
 	DefaultGpuCount         = 8
 	DefaultCpu              = "128"
 	DefaultMemory           = "1024Gi"
-	DefaultEphemeralStorage = "500Gi"
+	DefaultEphemeralStorage = "1024Gi"
 	DefaultPrimusPath       = "/tmp/primus"
 	PrimusGitRepo           = "https://github.com/AMD-AGI/Primus.git"
 	PrimusGitCommit         = "1dd3ebe8" // compatible with pr-609-ainic / pr-624-ainic images
