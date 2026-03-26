@@ -162,7 +162,10 @@ func FillSftDefaults(req *CreateSftJobRequest, modelSize string) {
 		tc.EvalInterval = 30
 	}
 	if tc.SaveInterval == 0 {
-		tc.SaveInterval = 50
+		tc.SaveInterval = tc.TrainIters / 2
+		if tc.SaveInterval < 1 {
+			tc.SaveInterval = 1
+		}
 	}
 	if tc.PrecisionConfig == "" {
 		tc.PrecisionConfig = "bf16_mixed"
