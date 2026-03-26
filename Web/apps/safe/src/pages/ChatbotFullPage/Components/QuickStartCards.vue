@@ -9,13 +9,14 @@
         v-for="(card, index) in config.cards"
         :key="index"
         class="quick-card"
-        @click="handleCardClick(card.value)"
+        @click="handleCardClick(card)"
       >
         <el-icon v-if="card.icon" class="card-icon">
           <component :is="iconComponents[card.icon]" />
         </el-icon>
         <span v-else class="card-bullet">▸</span>
         <span class="card-text">{{ card.text }}</span>
+        <span v-if="card.type === 'guided_workflow'" class="wizard-badge">Guided</span>
       </div>
     </div>
   </div>
@@ -24,15 +25,16 @@
 <script setup lang="ts">
 import { QuestionFilled, Folder, Connection, Box } from '@element-plus/icons-vue'
 import type { Component } from 'vue'
-import type { QuickStartConfig } from '../constants/quickStartData'
+import type { QuickStartConfig, QuickStartCard } from '../constants/quickStartData'
 
 interface Props {
   config: QuickStartConfig
-  showHeader?: boolean // Whether to show the title, defaults to true
+  showHeader?: boolean
 }
 
 interface Emits {
   (e: 'cardClick', value: string): void
+  (e: 'wizardClick', workflowId: string): void
 }
 
 withDefaults(defineProps<Props>(), {
@@ -41,7 +43,6 @@ withDefaults(defineProps<Props>(), {
 
 const emit = defineEmits<Emits>()
 
-// Icon components mapping
 const iconComponents: Record<string, Component> = {
   QuestionFilled,
   Folder,
@@ -49,8 +50,12 @@ const iconComponents: Record<string, Component> = {
   Box,
 }
 
-const handleCardClick = (value: string) => {
-  emit('cardClick', value)
+const handleCardClick = (card: QuickStartCard) => {
+  if (card.type === 'guided_workflow' && card.workflowId) {
+    emit('wizardClick', card.workflowId)
+  } else {
+    emit('cardClick', card.value)
+  }
 }
 </script>
 
@@ -136,6 +141,16 @@ const handleCardClick = (value: string) => {
       .card-text {
         color: #1e293b;
       }
+    }
+
+    .wizard-badge {
+      flex-shrink: 0;
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--safe-primary);
+      background: color-mix(in oklab, var(--safe-primary) 10%, transparent 90%);
+      padding: 2px 8px;
+      border-radius: 10px;
     }
   }
 }
@@ -224,6 +239,7 @@ const handleCardClick = (value: string) => {
           color: #e2e8f0;
         }
       }
+
     }
   }
 }

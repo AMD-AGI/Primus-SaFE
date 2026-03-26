@@ -118,13 +118,13 @@ const steps = [
   {
     tag: 'Model Training',
     title: 'Launch a Training Job',
-    desc: 'Clone an existing template or create from scratch — configure data path, node count, image, and env vars.',
+    desc: 'Use the guided wizard to create a training workload step by step — select workspace, configure resources, and submit.',
     hints: [
-      'Clone recommended — faster setup with pre-configured defaults',
-      'Multi-node — NNODES & NODE_RANK are auto-injected; do not set manually',
+      'Guided wizard — fill a step-by-step form right inside the chat page',
+      'Or clone an existing template from the Training page for quick setup',
     ],
-    cta: 'Launch Training',
-    to: '/training',
+    cta: 'Create Training (Guided)',
+    to: '/chatbot?wizard=create_training',
   },
 ]
 

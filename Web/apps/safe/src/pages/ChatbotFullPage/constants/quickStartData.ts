@@ -4,6 +4,8 @@ export interface QuickStartCard {
   text: string
   value: string
   icon?: string // Element Plus icon name (optional)
+  type?: 'fill_input' | 'send_message' | 'guided_workflow'
+  workflowId?: string
 }
 
 export interface QuickStartConfig {
@@ -46,9 +48,11 @@ export const normalUserQuickStart: QuickStartConfig = {
   title: 'Quick start:',
   cards: [
     {
-      text: 'Create training: name ops-agent, workspace prod, image python:3.11, cpu 2, memory 4, replica 1, priority low, gpu 0, ephemeral_storage 50, entrypoint sleep 60',
-      value:
-        'create training, name: ops-agent, workspace: prod, image: python:3.11, cpu: 2, memory: 4, replica: 1, priority: low, gpu:0, ephemeral_storage: 50, entrypoint: sleep 60',
+      text: 'Create a Training Workload (Guided)',
+      value: 'create_training',
+      icon: 'Box',
+      type: 'guided_workflow',
+      workflowId: 'create_training',
     },
     {
       text: 'Stop training workloadID',
@@ -79,6 +83,13 @@ export const agentModeQuickStart: QuickStartConfig = {
   emoji: '🤖',
   title: 'Quick start:',
   cards: [
+    {
+      text: 'Create a Training Workload (Guided)',
+      value: 'create_training',
+      icon: 'Box',
+      type: 'guided_workflow',
+      workflowId: 'create_training',
+    },
     {
       text: 'Stop GPU tasks that have been idle for more than 1 Hour in the prod workspace.',
       value: 'Stop GPU tasks that have been idle for more than 1 Hour in the prod workspace.',

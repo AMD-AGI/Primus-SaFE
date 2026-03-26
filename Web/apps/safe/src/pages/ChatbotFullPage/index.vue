@@ -141,6 +141,7 @@
               v-if="mode === 'ask'"
               :config="askModeQuickStart"
               @card-click="setQuestion"
+              @wizard-click="handleWizardCardClick"
             />
 
             <!-- Agent Mode Quick Start -->
@@ -148,6 +149,7 @@
               v-else-if="mode === 'agent'"
               :config="agentQuickStartConfig"
               @card-click="setInputText"
+              @wizard-click="handleWizardCardClick"
             />
           </div>
 
@@ -229,6 +231,16 @@
                     :confirmed-selections="message.confirmedSelections"
                     @submit="handleInlineConfirmSubmit(index, $event)"
                     @cancel="handleInlineConfirmCancel(index, $event)"
+                  />
+
+                  <!-- Guided Wizard -->
+                  <GuidedWizard
+                    v-if="message.wizardData"
+                    :workflow="message.wizardData"
+                    :readonly="message.wizardReadonly || false"
+                    :submitted-data="message.wizardSubmittedData"
+                    @submit="handleWizardSubmit(index, $event)"
+                    @cancel="handleWizardCancel(index)"
                   />
 
                   <!-- Response content (bubble) -->
@@ -643,6 +655,7 @@ import { useImagePreview } from '@/composables/useImagePreview'
 import WorkflowProgress from './Components/WorkflowProgress.vue'
 import ActionStatus from './Components/ActionStatus.vue'
 import InlineConfirmForm from './Components/InlineConfirmForm.vue'
+import GuidedWizard from './Components/GuidedWizard.vue'
 import QuickStartCards from './Components/QuickStartCards.vue'
 import SlashCommandMenu from './Components/SlashCommandMenu.vue'
 import { useSlashCommands } from './composables/useSlashCommands'
@@ -654,6 +667,7 @@ import {
   normalUserQuickStart,
   workspaceAdminQuickStart,
 } from './constants/quickStartData'
+import { getWorkflowById, type GuidedWorkflow } from './constants/guidedWorkflows'
 import {
   agentSocket,
   checkAgentHealth,
@@ -691,6 +705,10 @@ interface Message {
   confirmReadonly?: boolean // Whether confirm form is readonly (already submitted)
   confirmedSelections?: Record<string, unknown> // Submitted selections
   savedSelectionConfirm?: ConfirmMessageData // Saved selection form data
+  // Guided wizard fields
+  wizardData?: GuidedWorkflow
+  wizardReadonly?: boolean
+  wizardSubmittedData?: Record<string, unknown>
 }
 
 interface HistoryItem {
@@ -1453,10 +1471,63 @@ const setQuestion = (question: string) => {
 // Set input text from quick actions (Agent mode - only fill input, don't send)
 const setInputText = (text: string) => {
   userInput.value = text
-  // Focus on input field so user can modify
   nextTick(() => {
     inputRef.value?.focus()
   })
+}
+
+// Launch a guided wizard from card click or query param
+const handleWizardCardClick = (workflowId: string) => {
+  const workflow = getWorkflowById(workflowId)
+  if (!workflow) {
+    console.warn(`[GuidedWizard] Unknown workflow: ${workflowId}`)
+    return
+  }
+
+  if (mode.value === 'ask') {
+    mode.value = 'agent'
+    connectAgent()
+  }
+
+  messages.value.push({
+    role: 'user',
+    content: `I'd like to: **${workflow.name}**`,
+  })
+  messages.value.push({
+    role: 'assistant',
+    content: '',
+    wizardData: workflow,
+  })
+
+  nextTick(scrollToNewQuestion)
+}
+
+// Handle wizard submit: format message and send to Agent
+const handleWizardSubmit = (messageIndex: number, data: Record<string, unknown>) => {
+  const message = messages.value[messageIndex]
+  if (!message?.wizardData) return
+
+  const formatted = message.wizardData.formatMessage(data)
+  message.wizardReadonly = true
+  message.wizardSubmittedData = data
+
+  userInput.value = formatted
+  nextTick(() => {
+    sendMessage()
+  })
+}
+
+// Handle wizard cancel
+const handleWizardCancel = (messageIndex: number) => {
+  const message = messages.value[messageIndex]
+  if (!message) return
+  message.wizardData = undefined
+  if (!message.content) {
+    messages.value.splice(messageIndex, 1)
+    if (messageIndex > 0 && messages.value[messageIndex - 1]?.role === 'user') {
+      messages.value.splice(messageIndex - 1, 1)
+    }
+  }
 }
 
 // Scroll to top (used for loading conversation history)
@@ -2450,6 +2521,12 @@ onMounted(async () => {
     startAskHealthCheck()
   } else {
     startAgentHealthCheck()
+  }
+
+  // Auto-launch wizard from ?wizard= query param (e.g. from QuickStart page)
+  const wizardParam = router.currentRoute.value.query.wizard as string
+  if (wizardParam) {
+    nextTick(() => handleWizardCardClick(wizardParam))
   }
 })
 
