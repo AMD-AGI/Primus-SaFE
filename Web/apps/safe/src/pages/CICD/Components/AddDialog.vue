@@ -441,6 +441,7 @@ const onSubmit = async (formEl: FormInstance | undefined) => {
     const fixedResource = {
       replica: 1,
       cpu: form.unifiedJobEnable ? '2' : '1',
+      gpu: '0',
       memory: form.unifiedJobEnable ? '8Gi' : '4Gi',
       ephemeralStorage: '10Gi',
     }
