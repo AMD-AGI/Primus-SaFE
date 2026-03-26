@@ -51,6 +51,8 @@ data:
   sys_docker_307: '{"id":"307","toggle":"on"}'
   sys_pcie_link_308: '{"id":"308","toggle":"on"}'
   sys_csi_wekafs_309: '{"id":"309","action":"taint","toggle":"on"}'
+  sys_pcie_bus_error_310: '{"id":"310","action":"taint","toggle":"on"}'
+  sys_dmesg_critical_311: '{"id":"311","toggle":"on"}'
   # Disk: 4XX
   nfs_check_401: '{"id":"401","action":"taint","toggle":"on"}'
   resolv_search_domain_check_403: '{"id":"403","action":"taint","toggle":"on"}'

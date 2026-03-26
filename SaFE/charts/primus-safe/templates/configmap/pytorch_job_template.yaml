@@ -75,8 +75,6 @@ data:
                       value: "1"
                     - name: NCCL_IB_SL
                       value: "0"
-                    - name: MAIN_CONTAINER_NAME
-                      value: "pytorch"
                     - name: POD_NAME
                       valueFrom:
                         fieldRef:
@@ -154,8 +152,6 @@ data:
                       value: "1"
                     - name: NCCL_IB_SL
                       value: "0"
-                    - name: MAIN_CONTAINER_NAME
-                      value: "pytorch"
                     - name: POD_NAME
                       valueFrom:
                         fieldRef:

@@ -85,6 +85,8 @@ web:
 preprocess:
   # Preprocessing component image version. used for pytorch-job etc.
   image: "preprocess:latest"
+monarch:
+  image: "monarch:latest"
 ops_job:
   # Opsjob download image version. used for download file
   download_image: "s3-downloader:latest"

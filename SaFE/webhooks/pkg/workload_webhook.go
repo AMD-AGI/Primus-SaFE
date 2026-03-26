@@ -720,6 +720,8 @@ func (v *WorkloadValidator) validateCommon(ctx context.Context, newWorkload, old
 		err = v.validateTorchFT(newWorkload, oldWorkload)
 	case common.RayJobKind:
 		err = v.validateRayJob(newWorkload, oldWorkload)
+	case common.MonarchJob:
+		err = v.validateMonarchJob(newWorkload)
 	}
 	if err != nil {
 		return err
@@ -891,6 +893,27 @@ func (v *WorkloadValidator) validateRayJob(newWorkload, _ *v1.Workload) error {
 	}
 	if val, ok := newWorkload.Spec.Env[common.RayJobEntrypoint]; !ok || val == "" {
 		return fmt.Errorf("RayJob entrypoint is missing(use 'RAY_JOB_ENTRYPOINT' environment variable)")
+	}
+	return nil
+}
+
+// validateMonarchJob validates Monarch workload configuration including environment variables and resource requirements.
+func (v *WorkloadValidator) validateMonarchJob(newWorkload *v1.Workload) error {
+	// Monarch workloads require at least 2 resource configurations - one for client (index=0) and one for the MonarchMesh(worker)
+	if len(newWorkload.Spec.Resources) < 2 || len(newWorkload.Spec.Images) < 2 {
+		return fmt.Errorf("insufficient resources for Monarch: expected at least 2 resource configurations (client and mesh groups), "+
+			"got %d, resources: %v", len(newWorkload.Spec.Resources), newWorkload.Spec.Resources)
+	}
+	if len(v1.GetDisplayName(newWorkload)) > commonutils.MaxMonarchJobNameLen {
+		return fmt.Errorf("the displayName is too long, maximum length is %d", commonutils.MaxMonarchJobNameLen)
+	}
+
+	group, err := commonworkload.GetReplicaGroup(newWorkload, common.ReplicaGroup)
+	if err != nil {
+		return err
+	}
+	if group <= 0 {
+		return fmt.Errorf("environment variable %s must be set and greater than 0 for workload", common.ReplicaGroup)
 	}
 	return nil
 }
