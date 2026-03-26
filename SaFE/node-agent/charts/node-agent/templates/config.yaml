@@ -57,7 +57,7 @@ data:
   # System: 3XX
   sys_timezone_301: '{"script":"sys_timezone_301.sh","id":"301","cronjob":"@every 30s","timeoutSecond":25,"toggle":"on"}'
   sys_hostname_302: '{"script":"sys_hostname_302.sh","id":"302","cronjob":"@every 30s","timeoutSecond":25,"toggle":"on"}'
-  sys_containerd_303: '{"script":"sys_containerd_303.sh","id":"303","cronjob":"@every 600s","timeoutSecond":500,"toggle":"on"}'
+  sys_containerd_303: '{"script":"sys_containerd_303.sh","id":"303","cronjob":"@every 600s","timeoutSecond":300,"toggle":"on","consecutiveCount":2}'
   sys_kernel_lock_304: '{"script":"sys_kernel_lock_304.sh","id":"304","cronjob":"@every 300s","timeoutSecond":200,"toggle":"on","arguments":["300"]}'
   sys_acsctl_305: '{"script":"sys_acsctl_305.sh","id":"305","cronjob":"@every 600s","timeoutSecond":300,"toggle":"on"}'
   sys_boot_args_306: '{"script":"sys_boot_arguments_306.sh","id":"306","cronjob":"@every 600s","timeoutSecond":300,"chip":"amd","toggle":"on"}'
