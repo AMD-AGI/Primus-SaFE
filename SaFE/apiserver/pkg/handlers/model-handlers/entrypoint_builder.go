@@ -83,7 +83,7 @@ var trainPresets = map[string]map[string]TrainPreset{
 
 const (
 	DefaultSftImageTag      = "sync/primus:v26.1"
-	DefaultSftImageFallback = "docker.io/primus:v26.1"
+	DefaultSftImageFallback = "docker.io/sync/primus:v26.1"
 	DefaultGpuCount         = 8
 	DefaultCpu              = "128"
 	DefaultMemory           = "1024Gi"
