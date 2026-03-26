@@ -70,8 +70,8 @@ var trainPresets = map[string]map[string]TrainPreset{
 		"lora": {TrainIters: 1000, GlobalBatchSize: 128, MicroBatchSize: 1, SeqLength: 2048, FinetuneLr: 1e-4, TpSize: 1},
 	},
 	"32b": {
-		"none": {TrainIters: 200, GlobalBatchSize: 8, MicroBatchSize: 1, SeqLength: 8192, FinetuneLr: 5e-6, TpSize: 4},
-		"lora": {TrainIters: 200, GlobalBatchSize: 32, MicroBatchSize: 4, SeqLength: 8192, FinetuneLr: 1e-4, TpSize: 4},
+		"none": {TrainIters: 200, GlobalBatchSize: 8, MicroBatchSize: 1, SeqLength: 2048, FinetuneLr: 5e-6, TpSize: 8},
+		"lora": {TrainIters: 200, GlobalBatchSize: 32, MicroBatchSize: 4, SeqLength: 8192, FinetuneLr: 1e-4, TpSize: 1},
 	},
 	"70b": {
 		"none": {TrainIters: 200, GlobalBatchSize: 128, MicroBatchSize: 1, SeqLength: 2048, FinetuneLr: 5e-6, TpSize: 8},
@@ -87,7 +87,7 @@ const (
 	DefaultGpuCount         = 8
 	DefaultCpu              = "128"
 	DefaultMemory           = "1024Gi"
-	DefaultEphemeralStorage = "1024Gi"
+	DefaultEphemeralStorage = "2048Gi"
 	DefaultPrimusPath       = "/tmp/primus"
 	PrimusGitRepo           = "https://github.com/AMD-AGI/Primus.git"
 	PrimusGitCommit         = "1dd3ebe8" // compatible with pr-609-ainic / pr-624-ainic images
@@ -327,12 +327,25 @@ if [ $TRAIN_EXIT_CODE -ne 0 ]; then
   exit $TRAIN_EXIT_CODE
 fi
 
-# Debug: show what checkpoints exist after training
-echo "=== DEBUG: searching for checkpoints ==="
-echo "PWD: $(pwd)"
-find . -name "latest_checkpointed_iteration.txt" -o -name "iter_*" -type d 2>/dev/null | head -20
-find /tmp -name "latest_checkpointed_iteration.txt" -o -path "*/iter_*" -type d 2>/dev/null | head -20
-echo "=== END DEBUG ==="`,
+# Cleanup: remove intermediate checkpoints and HF cache to free ephemeral storage
+# Keep only the latest checkpoint (needed for export), delete everything else
+CKPT_BASE="./nemo_experiments/default/checkpoints"
+if [ -d "$CKPT_BASE" ] && [ -f "$CKPT_BASE/latest_checkpointed_iteration.txt" ]; then
+  LATEST_ITER=$(cat "$CKPT_BASE/latest_checkpointed_iteration.txt" | tr -d '[:space:]')
+  LATEST_DIR="$CKPT_BASE/iter_$(printf '%%07d' $LATEST_ITER)"
+  echo "Cleaning up intermediate checkpoints (keeping $LATEST_DIR)..."
+  for d in "$CKPT_BASE"/iter_*; do
+    if [ -d "$d" ] && [ "$d" != "$LATEST_DIR" ]; then
+      echo "  Removing $d"
+      rm -rf "$d"
+    fi
+  done
+fi
+# Remove HF model cache (already converted to Megatron format)
+rm -rf data/huggingface/hub/models--* 2>/dev/null
+# Remove pretrained Megatron checkpoint (training is done, only need trained checkpoint)
+rm -rf data/megatron_checkpoints 2>/dev/null
+echo "Cleanup done. Disk usage: $(du -sh . 2>/dev/null | cut -f1)"`,
 		cfg.DatasetPath, preparedDatasetDir,
 		cfg.PrimusPath, PrimusGitCommit, cfg.PrimusPath, PrimusGitRepo, cfg.PrimusPath, cfg.PrimusPath, PrimusGitCommit, cfg.PrimusPath, modelYaml, expYaml)
 
