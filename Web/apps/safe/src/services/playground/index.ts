@@ -275,22 +275,23 @@ export interface PlaygroundModel {
 }
 
 /**
- * Whether the model is a deployable local model (supports both imported and fine-tuned).
+ * Whether the model is a deployable local model (supports both imported and SFT-produced).
  */
 export function isDeployableLocalModel(model: PlaygroundModel): boolean {
   return model.accessMode === 'local' || model.accessMode === 'local_path'
 }
 
 /**
- * Whether the model can be fine-tuned (only HuggingFace-imported base models).
+ * Whether the model supports SFT (only HuggingFace-imported base models).
  */
-export function canFineTune(model: PlaygroundModel): boolean {
+export function canSft(model: PlaygroundModel): boolean {
   return model.accessMode === 'local' && model.phase === 'Ready'
 }
 
 export interface ModelsListParams {
   inferenceStatus?: string
   accessMode?: string
+  origin?: string
   workspace?: string
 }
 

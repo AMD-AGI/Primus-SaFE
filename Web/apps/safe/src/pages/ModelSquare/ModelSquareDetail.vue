@@ -24,7 +24,7 @@
             type="success"
             :effect="isDark ? 'dark' : 'plain'"
           >
-            Fine-tuned
+            SFT
           </el-tag>
         </div>
       </div>
@@ -37,8 +37,8 @@
         </el-tooltip>
 
         <el-tooltip
-          v-if="canFineTuneModel"
-          content="Fine-tune"
+          v-if="canSftModel"
+          content="SFT"
           placement="top"
         >
           <el-button circle class="glass-btn glass-btn--success" @click="showSftDialog = true">
@@ -124,7 +124,7 @@
       <el-descriptions-item label="Version">{{ detailData.version || '-' }}</el-descriptions-item>
       <el-descriptions-item v-if="detailData.origin" label="Origin">
         <el-tag size="small" :type="detailData.origin === 'fine_tuned' ? 'success' : 'info'">
-          {{ detailData.origin === 'fine_tuned' ? 'Fine-tuned' : 'External' }}
+          {{ detailData.origin === 'fine_tuned' ? 'SFT' : 'External' }}
         </el-tag>
       </el-descriptions-item>
       <el-descriptions-item v-if="detailData.userName" label="Owner">
@@ -274,7 +274,7 @@ import {
   ArrowLeft,
   MagicStick,
 } from '@element-plus/icons-vue'
-import { getModelDetail, deleteModel, isDeployableLocalModel, canFineTune } from '@/services/playground'
+import { getModelDetail, deleteModel, isDeployableLocalModel, canSft } from '@/services/playground'
 import { copyText, formatTimeStr } from '@/utils/index'
 import ToggleServiceDialog from './Components/ToggleServiceDialog.vue'
 import CreateSftDialog from './Components/CreateSftDialog.vue'
@@ -293,9 +293,9 @@ const isDeployable = computed(() => {
   return isDeployableLocalModel(detailData.value)
 })
 
-const canFineTuneModel = computed(() => {
+const canSftModel = computed(() => {
   if (!detailData.value) return false
-  return canFineTune(detailData.value)
+  return canSft(detailData.value)
 })
 
 // Get status type

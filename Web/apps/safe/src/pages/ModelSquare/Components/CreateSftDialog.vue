@@ -1,7 +1,7 @@
 <template>
   <el-dialog
     v-model="visible"
-    title="Create Fine-Tuning Job"
+    title="Create SFT Job"
     :close-on-click-modal="false"
     width="860"
     destroy-on-close
@@ -40,7 +40,7 @@
       <!-- Unsupported warning -->
       <el-alert
         v-if="sftConfig && !sftConfig.supported"
-        :title="sftConfig.reason || 'This model is not supported for fine-tuning'"
+        :title="sftConfig.reason || 'This model is not supported for SFT'"
         type="warning"
         show-icon
         :closable="false"

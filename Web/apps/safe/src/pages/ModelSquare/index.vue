@@ -23,9 +23,16 @@
         </el-button>
       </div>
 
-      <!-- Right side search, aligned right -->
+      <!-- Right side filters -->
       <div class="flex flex-wrap items-center mt-2 mb-2 sm:mt-0 ml-auto gap-4">
-        <!-- Model type filter -->
+        <!-- Origin filter -->
+        <el-segmented
+          v-model="filters.origin"
+          :options="originOptions"
+          @change="handleFilterChange"
+          class="mb-2"
+        />
+        <!-- Access mode filter -->
         <el-select
           v-model="filters.modelType"
           placeholder="All Types"
@@ -108,7 +115,7 @@
                     type="success"
                     :effect="isDark ? 'dark' : 'plain'"
                   >
-                    Fine-tuned
+                    SFT
                   </el-tag>
                 </div>
               </div>
@@ -116,7 +123,7 @@
             <p class="model-description">
               {{ model.description || 'No description available' }}
             </p>
-            <!-- Fine-tuned model metadata -->
+            <!-- SFT model metadata -->
             <div
               v-if="model.origin === 'fine_tuned'"
               class="text-xs text-gray-400 mt-1"
@@ -235,17 +242,17 @@
                   <el-icon><VideoPause /></el-icon>
                 </el-button>
               </el-tooltip>
-              <!-- Fine-tune button -->
+              <!-- SFT button -->
               <el-tooltip
-                v-if="canFineTune(model)"
-                content="Fine-tune"
+                v-if="canSft(model)"
+                content="SFT"
                 placement="top"
               >
                 <el-button
                   size="small"
-                  @click="handleCommand('fine-tune', model)"
+                  @click="handleCommand('sft', model)"
                   circle
-                  class="btn-icon btn-finetune"
+                  class="btn-icon btn-sft"
                 >
                   <el-icon><MagicStick /></el-icon>
                 </el-button>
@@ -338,7 +345,7 @@ import {
   retryModel,
   getModelWorkloadConfig,
   isDeployableLocalModel,
-  canFineTune,
+  canSft,
   type PlaygroundModel,
   type ModelsListParams,
   type ModelsListResp,
@@ -373,6 +380,7 @@ const currentSftModel = ref<PlaygroundModel | null>(null)
 // Filter criteria
 const filters = reactive({
   modelType: '',
+  origin: '',
   search: '',
 })
 
@@ -401,6 +409,13 @@ const getTagColorType = (color: string) => {
   return colorMap[color.toLowerCase()] || 'info'
 }
 
+// Origin filter options
+const originOptions = [
+  { label: 'All', value: '' },
+  { label: 'Imported', value: 'external' },
+  { label: 'SFT', value: 'fine_tuned' },
+]
+
 // Handle image load error
 const handleIconError = (event: Event, model: PlaygroundModel & { _iconLoadFailed?: boolean }) => {
   const target = event.target as HTMLImageElement
@@ -417,6 +432,7 @@ const fetchModels = async () => {
     const params: ModelsListParams = {}
 
     if (filters.modelType) params.accessMode = filters.modelType
+    if (filters.origin) params.origin = filters.origin
     if (wsStore.currentWorkspaceId) params.workspace = wsStore.currentWorkspaceId
 
     const res = (await getModelsList(params)) as unknown as ModelsListResp
@@ -495,7 +511,7 @@ const handleCommand = async (command: string, model: PlaygroundModel) => {
     case 'delete':
       await handleDeleteModel(model)
       break
-    case 'fine-tune':
+    case 'sft':
       currentSftModel.value = model
       showSftDialog.value = true
       break
