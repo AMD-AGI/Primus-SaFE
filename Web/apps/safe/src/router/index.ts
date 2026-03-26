@@ -344,7 +344,7 @@ const router = createRouter({
           component: () => import('@/pages/A2A/index.vue'),
         },
         {
-          path: '/primus-claw',
+          path: '/claw',
           name: 'PrimusClaw',
           component: () => import('@/pages/PocoChatPage/index.vue'),
           meta: { hideInMenu: true },
