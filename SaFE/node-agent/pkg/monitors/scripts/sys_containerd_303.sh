@@ -18,7 +18,7 @@ SNAP_DIR="/var/lib/containerd/io.containerd.snapshotter.v1.overlayfs/snapshots"
 
 host() { ${NSENTER} "$@"; }
 
-fail() { echo "FAIL: $1"; exit 1; }
+fail() { echo "Error: $1"; exit 1; }
 
 # 1. containerd service
 host systemctl is-active containerd &>/dev/null || fail "containerd service is not active"
