@@ -82,12 +82,12 @@ var trainPresets = map[string]map[string]TrainPreset{
 // ==================== Default Value Population ====================
 
 const (
-	DefaultSftImageTag      = "sync/tasimage/primus:pr-609-ainic"
-	DefaultSftImageFallback = "docker.io/tasimage/primus:pr-609-ainic"
+	DefaultSftImageTag      = "sync/primus:v26.1"
+	DefaultSftImageFallback = "docker.io/primus:v26.1"
 	DefaultGpuCount         = 8
 	DefaultCpu              = "128"
 	DefaultMemory           = "1024Gi"
-	DefaultEphemeralStorage = "300Gi"
+	DefaultEphemeralStorage = "500Gi"
 	DefaultPrimusPath       = "/tmp/primus"
 	PrimusGitRepo           = "https://github.com/AMD-AGI/Primus.git"
 	PrimusGitCommit         = "1dd3ebe8" // compatible with pr-609-ainic / pr-624-ainic images
@@ -169,6 +169,16 @@ func FillSftDefaults(req *CreateSftJobRequest, modelSize string) {
 		tc.PrecisionConfig = "bf16_mixed"
 	}
 
+	// Ensure save_interval allows at least one checkpoint before the last iteration.
+	// Primus patches skip saving at the final iteration, so save_interval must be
+	// strictly less than train_iters to guarantee a saved checkpoint for export.
+	if tc.SaveInterval >= tc.TrainIters {
+		tc.SaveInterval = tc.TrainIters / 2
+		if tc.SaveInterval < 1 {
+			tc.SaveInterval = 1
+		}
+	}
+
 	if tc.Peft == "lora" {
 		if tc.PeftDim == 0 {
 			tc.PeftDim = 16
@@ -221,10 +231,73 @@ type EntrypointConfig struct {
 
 // BuildEntrypoint generates the shell script that writes Primus YAML configs and invokes primus-cli.
 func BuildEntrypoint(cfg EntrypointConfig) string {
-	modelYaml := buildModelYaml(cfg)
-	expYaml := buildExperimentYaml(cfg)
+	preparedDatasetDir := "/tmp/sft_dataset"
+	cfgForYaml := cfg
+	cfgForYaml.DatasetPath = preparedDatasetDir
+	modelYaml := buildModelYaml(cfgForYaml)
+	expYaml := buildExperimentYaml(cfgForYaml)
 
-	script := fmt.Sprintf(`PRIMUS_DIR=""
+	script := fmt.Sprintf(`# ==================== Prepare Dataset ====================
+SRC_DATASET="%s"
+DATASET_DIR="%s"
+echo "Preparing dataset from ${SRC_DATASET} -> ${DATASET_DIR} ..."
+rm -rf "${DATASET_DIR}"
+mkdir -p "${DATASET_DIR}"
+
+python3 -c "
+import json, os, sys, glob
+src = '${SRC_DATASET}'
+dst = '${DATASET_DIR}'
+candidates = ['training.jsonl', 'train.jsonl', 'data.jsonl']
+src_file = None
+for c in candidates:
+    p = os.path.join(src, c)
+    if os.path.isfile(p) and os.path.getsize(p) > 0:
+        src_file = p; break
+if not src_file:
+    jsonl_files = sorted(glob.glob(os.path.join(src, '*.jsonl')))
+    json_files = sorted(glob.glob(os.path.join(src, '*.json')))
+    all_files = jsonl_files + json_files
+    all_files = [f for f in all_files if os.path.getsize(f) > 0]
+    if all_files:
+        src_file = all_files[0]
+if not src_file:
+    print('ERROR: no usable jsonl/json files in ' + src); sys.exit(1)
+print(f'Using source file: {src_file}')
+data = []
+with open(src_file, encoding='utf-8') as f:
+    for line in f:
+        line = line.strip()
+        if not line: continue
+        obj = json.loads(line)
+        if 'input' in obj and 'output' in obj:
+            data.append(obj)
+        elif 'instruction' in obj:
+            inst = obj.get('instruction','')
+            inp = obj.get('input','')
+            out = obj.get('output','')
+            new_input = (inst + chr(10) + inp).strip() if inp else inst
+            data.append({'input': new_input, 'output': out})
+        else:
+            data.append(obj)
+if len(data) == 0:
+    print('ERROR: dataset is empty'); sys.exit(1)
+val_count = max(1, len(data) // 10)
+train_data = data[:-val_count] if len(data) > val_count else data
+val_data = data[-val_count:] if len(data) > val_count else data[:1]
+for name, items in [('training', train_data), ('validation', val_data), ('test', val_data)]:
+    with open(os.path.join(dst, name + '.jsonl'), 'w', encoding='utf-8') as out:
+        for item in items:
+            out.write(json.dumps(item, ensure_ascii=False) + chr(10))
+print(f'Dataset ready: {len(train_data)} train, {len(val_data)} val/test in {dst}')
+"
+if [ $? -ne 0 ]; then
+  echo "Dataset preparation failed!"
+  exit 1
+fi
+
+# ==================== Find/Clone Primus ====================
+PRIMUS_DIR=""
 SFT_CONFIG="primus/configs/modules/megatron_bridge/sft_trainer.yaml"
 for p in /workspace/Primus %s; do
   if [ -d "$p/runner" ] && [ -f "$p/$SFT_CONFIG" ]; then PRIMUS_DIR="$p"; break; fi
@@ -250,7 +323,15 @@ TRAIN_EXIT_CODE=$?
 if [ $TRAIN_EXIT_CODE -ne 0 ]; then
   echo "Training failed with exit code $TRAIN_EXIT_CODE, skipping model export."
   exit $TRAIN_EXIT_CODE
-fi`,
+fi
+
+# Debug: show what checkpoints exist after training
+echo "=== DEBUG: searching for checkpoints ==="
+echo "PWD: $(pwd)"
+find . -name "latest_checkpointed_iteration.txt" -o -name "iter_*" -type d 2>/dev/null | head -20
+find /tmp -name "latest_checkpointed_iteration.txt" -o -path "*/iter_*" -type d 2>/dev/null | head -20
+echo "=== END DEBUG ==="`,
+		cfg.DatasetPath, preparedDatasetDir,
 		cfg.PrimusPath, PrimusGitCommit, cfg.PrimusPath, PrimusGitRepo, cfg.PrimusPath, cfg.PrimusPath, PrimusGitCommit, cfg.PrimusPath, modelYaml, expYaml)
 
 	if cfg.ExportModel {
@@ -270,7 +351,39 @@ func buildExportScript(cfg EntrypointConfig) string {
 
 # ==================== Convert Megatron Checkpoint to HuggingFace ====================
 EXPORT_PATH="%s"
-CKPT_DIR="./output/checkpoints"
+CKPT_DIR=""
+CKPT_SEARCH_DIRS="./nemo_experiments/default/checkpoints ./output/checkpoints ${PRIMUS_DIR}/nemo_experiments/default/checkpoints /tmp/primus/nemo_experiments/default/checkpoints"
+
+# First pass: prefer dirs with latest_checkpointed_iteration.txt (real trained checkpoints)
+for d in ${CKPT_SEARCH_DIRS}; do
+  if [ -d "$d" ] && [ -f "$d/latest_checkpointed_iteration.txt" ]; then
+    ITER_VAL=$(cat "$d/latest_checkpointed_iteration.txt" 2>/dev/null | tr -d '[:space:]')
+    if [ -n "$ITER_VAL" ] && [ "$ITER_VAL" != "0" ]; then
+      CKPT_DIR="$d"; break
+    fi
+  fi
+done
+
+# Second pass: dirs with iter_* subdirectories (checkpoint saved but maybe no latest file)
+if [ -z "$CKPT_DIR" ]; then
+  for d in ${CKPT_SEARCH_DIRS}; do
+    if [ -d "$d" ] && ls -d "$d"/iter_* >/dev/null 2>&1; then
+      HIGHEST_ITER=$(ls -d "$d"/iter_* 2>/dev/null | sort -t_ -k2 -n | tail -1)
+      if [ -n "$HIGHEST_ITER" ] && [ "$(basename "$HIGHEST_ITER")" != "iter_0000000" ]; then
+        CKPT_DIR="$d"; break
+      fi
+    fi
+  done
+fi
+
+# Third pass: any existing checkpoint dir (including pretrained iter_0000000)
+if [ -z "$CKPT_DIR" ]; then
+  for d in ${CKPT_SEARCH_DIRS}; do
+    if [ -d "$d" ]; then CKPT_DIR="$d"; break; fi
+  done
+fi
+
+echo "Checkpoint directory: ${CKPT_DIR:-not found}"
 HF_EXPORT_PATH="${EXPORT_PATH}"
 
 echo "Converting Megatron checkpoint to HuggingFace format..."
@@ -279,10 +392,13 @@ mkdir -p "${HF_EXPORT_PATH}"
 LATEST_CKPT=""
 if [ -f "${CKPT_DIR}/latest_checkpointed_iteration.txt" ]; then
   LATEST_ITER=$(cat "${CKPT_DIR}/latest_checkpointed_iteration.txt" | tr -d '[:space:]')
-  LATEST_CKPT="${CKPT_DIR}/iter_$(printf '%%07d' ${LATEST_ITER})"
+  if [ -n "$LATEST_ITER" ] && [ "$LATEST_ITER" != "0" ]; then
+    LATEST_CKPT="${CKPT_DIR}/iter_$(printf '%%07d' ${LATEST_ITER})"
+  fi
 fi
+# Fallback: pick the highest-numbered iter_* directory
 if [ -z "${LATEST_CKPT}" ] || [ ! -d "${LATEST_CKPT}" ]; then
-  LATEST_CKPT=$(ls -td ${CKPT_DIR}/iter_* 2>/dev/null | head -1)
+  LATEST_CKPT=$(ls -td ${CKPT_DIR}/iter_* 2>/dev/null | sort -t_ -k2 -n | tail -1)
 fi
 
 if [ -n "${LATEST_CKPT}" ] && [ -d "${LATEST_CKPT}" ]; then
@@ -292,7 +408,6 @@ if [ -n "${LATEST_CKPT}" ] && [ -d "${LATEST_CKPT}" ]; then
     --hf-model "%s" \
     --megatron-path "${CKPT_DIR}" \
     --hf-path "${HF_EXPORT_PATH}" \
-    --torch-dtype bfloat16 \
     --no-progress 2>&1 || echo "Warning: checkpoint conversion failed, falling back to raw copy"
 
   if [ ! -f "${HF_EXPORT_PATH}/config.json" ]; then
@@ -300,7 +415,7 @@ if [ -n "${LATEST_CKPT}" ] && [ -d "${LATEST_CKPT}" ]; then
     cp -r ./output/* "${HF_EXPORT_PATH}/" 2>/dev/null || true
   fi
 else
-  echo "Warning: no Megatron checkpoint found, copying raw output"
+  echo "Warning: no Megatron checkpoint found (only pretrained iter_0000000), copying raw output"
   cp -r ./output/* "${HF_EXPORT_PATH}/" 2>/dev/null || true
 fi
 echo "Model exported to ${HF_EXPORT_PATH}"
@@ -331,7 +446,7 @@ echo "Model export complete."`,
 		displayName,
 		cfg.BaseModel, cfg.SftJobId,
 		exportPath,
-		cfg.HfPath,
+		displayName,
 		cfg.Workspace,
 		cfg.SftJobId,
 		cfg.BaseModel,
@@ -399,7 +514,7 @@ func buildExperimentYaml(cfg EntrypointConfig) string {
 	fmt.Fprintf(&sb, "      save_interval: %d\n", tc.SaveInterval)
 
 	// Optimizer
-	fmt.Fprintf(&sb, "      finetune_lr: %e\n", tc.FinetuneLr)
+	fmt.Fprintf(&sb, "      finetune_lr: %g\n", tc.FinetuneLr)
 	fmt.Fprintf(&sb, "      min_lr: %g\n", tc.MinLr)
 	fmt.Fprintf(&sb, "      lr_warmup_iters: %d\n", tc.LrWarmupIters)
 

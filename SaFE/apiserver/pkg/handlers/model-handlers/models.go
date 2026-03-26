@@ -250,7 +250,7 @@ func (h *Handler) createModel(c *gin.Context) (interface{}, error) {
 
 	// Create K8s Model CR with Secret references already set
 	modelLabels := map[string]string{
-		v1.DisplayNameLabel: displayName,
+		v1.DisplayNameLabel: sanitizeLabelValue(displayName),
 	}
 	if userId != "" {
 		modelLabels[v1.UserIdLabel] = userId
@@ -380,7 +380,7 @@ func (h *Handler) createModelFromLocalPath(ctx context.Context, req *CreateModel
 	model := &v1.Model{}
 	model.Name = modelId
 	model.Labels = map[string]string{
-		v1.DisplayNameLabel: req.DisplayName,
+		v1.DisplayNameLabel: sanitizeLabelValue(req.DisplayName),
 	}
 	if userId != "" {
 		model.Labels[v1.UserIdLabel] = userId
@@ -1060,4 +1060,28 @@ func normalizeModelOrigin(origin string) string {
 		return "external"
 	}
 	return origin
+}
+
+// sanitizeLabelValue ensures a string is valid as a Kubernetes label value.
+// Label values must match: (([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])?
+// Max 63 characters. Characters like '/' are replaced with '_'.
+func sanitizeLabelValue(s string) string {
+	if s == "" {
+		return s
+	}
+	var b strings.Builder
+	for _, c := range s {
+		if (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '-' || c == '_' || c == '.' {
+			b.WriteRune(c)
+		} else {
+			b.WriteRune('_')
+		}
+	}
+	result := b.String()
+	result = strings.Trim(result, "-_.")
+	if len(result) > 63 {
+		result = result[:63]
+		result = strings.TrimRight(result, "-_.")
+	}
+	return result
 }
