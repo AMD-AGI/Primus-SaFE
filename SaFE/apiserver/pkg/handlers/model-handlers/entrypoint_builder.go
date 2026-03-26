@@ -95,13 +95,13 @@ const (
 )
 
 // GetDefaultSftImage returns the default SFT training image using the cluster's harbor registry.
-// It extracts the registry host from the ops_job download_image config (which is already
+// It extracts the registry hostname from the ops_job download_image config (which is already
 // populated by Helm with the correct per-cluster harbor address).
+// e.g. "harbor.project1.tw325.primus-safe.amd.com/proxy/primussafe/s3-downloader:latest"
+//   -> registry host = "harbor.project1.tw325.primus-safe.amd.com"
+//   -> result = "harbor.project1.tw325.primus-safe.amd.com/sync/primus:v26.1"
 func GetDefaultSftImage() string {
 	downloadImage := commonconfig.GetDownloadJoImage()
-	// Extract just the harbor hostname (before the first '/') and append the SFT image tag.
-	// downloadImage is like "harbor.project1.tw325.primus-safe.amd.com/proxy/primussafe/safe-download-job:xxx"
-	// SFT images are under /sync/ not /proxy/, so we only need the hostname.
 	if idx := strings.Index(downloadImage, "/"); idx > 0 {
 		registryHost := downloadImage[:idx]
 		return fmt.Sprintf("%s/%s", registryHost, DefaultSftImageTag)
