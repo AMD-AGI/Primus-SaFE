@@ -70,8 +70,8 @@ var trainPresets = map[string]map[string]TrainPreset{
 		"lora": {TrainIters: 1000, GlobalBatchSize: 128, MicroBatchSize: 1, SeqLength: 2048, FinetuneLr: 1e-4, TpSize: 1},
 	},
 	"32b": {
-		"none": {TrainIters: 200, GlobalBatchSize: 8, MicroBatchSize: 1, SeqLength: 8192, FinetuneLr: 5e-6, TpSize: 1},
-		"lora": {TrainIters: 200, GlobalBatchSize: 32, MicroBatchSize: 4, SeqLength: 8192, FinetuneLr: 1e-4, TpSize: 1},
+		"none": {TrainIters: 200, GlobalBatchSize: 8, MicroBatchSize: 1, SeqLength: 8192, FinetuneLr: 5e-6, TpSize: 4},
+		"lora": {TrainIters: 200, GlobalBatchSize: 32, MicroBatchSize: 4, SeqLength: 8192, FinetuneLr: 1e-4, TpSize: 4},
 	},
 	"70b": {
 		"none": {TrainIters: 200, GlobalBatchSize: 128, MicroBatchSize: 1, SeqLength: 2048, FinetuneLr: 5e-6, TpSize: 8},
