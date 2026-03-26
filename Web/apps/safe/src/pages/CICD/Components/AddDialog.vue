@@ -78,6 +78,7 @@
                   collapse-tags
                   collapse-tags-tooltip
                   :max-collapse-tags="5"
+                  :disabled="isEdit"
                   placeholder="Select or paste nodes to exclude (comma-separated)"
                   ref="excludedNodesSelectRef"
                   :filter-method="filterExcludedNodes"
@@ -162,7 +163,7 @@
               <el-row :gutter="16">
                 <el-col :span="12">
                   <el-form-item label="toleration">
-                    <el-switch v-model="form.isTolerateAll" class="mr-2" />
+                    <el-switch v-model="form.isTolerateAll" :disabled="isEdit" class="mr-2" />
                     <el-text size="small" type="info">
                       <el-icon class="mr-1"><InfoFilled /></el-icon>
                       {{ TOLERATE_INFO }}
@@ -200,7 +201,7 @@
                 </el-col>
                 <el-col :span="12">
                   <el-form-item label="secret" prop="secretIds">
-                    <el-select v-model="form.secretIds" multiple placeholder="Please select secrets">
+                    <el-select v-model="form.secretIds" multiple :disabled="isEdit" placeholder="Please select secrets">
                       <el-option
                         v-for="item in secretOptions"
                         :key="item.value"
@@ -483,23 +484,6 @@ const onSubmit = async (formEl: FormInstance | undefined) => {
       await addWorkload(payload)
       ElMessage({ message: `${props.action} successful`, type: 'success' })
     } else {
-      const {
-        displayName: _n,
-        groupVersionKind,
-        isSupervised,
-        resource,
-        entryPoint,
-        timeout,
-        unifiedJobEnable,
-        githubConfigUrl,
-        githubPAT,
-        ttlSecondsAfterFinished,
-        image,
-        excludedNodes,
-        secretIds,
-        forceHostNetwork: _fhn,
-        ...editPayload
-      } = form
       if (!props.wlid) return
 
       // During Edit, fetch existing env and update
@@ -507,26 +491,19 @@ const onSubmit = async (formEl: FormInstance | undefined) => {
       const editEnvMap = { ...res.env }
 
       // Update fixed keys
-      editEnvMap.UNIFIED_JOB_ENABLE = String(unifiedJobEnable)
-      editEnvMap.GITHUB_CONFIG_URL = githubConfigUrl
+      editEnvMap.UNIFIED_JOB_ENABLE = String(form.unifiedJobEnable)
+      editEnvMap.GITHUB_CONFIG_URL = form.githubConfigUrl
       editEnvMap.RESOURCES = JSON.stringify(userResource)
-      editEnvMap.IMAGE = image
-      editEnvMap.ENTRYPOINT = encodeToBase64String(entryPoint)
+      editEnvMap.IMAGE = form.image
+      editEnvMap.ENTRYPOINT = encodeToBase64String(form.entryPoint)
 
-      const excludedNodesPayload = (() => {
-        const arr = (excludedNodes ?? []).filter(Boolean)
-        return arr.length ? arr : undefined
-      })()
-
-      const editData: any = {
-        ...editPayload,
+      await editWorkload(props.wlid, {
+        description: form.description,
+        priority: form.priority,
+        maxRetry: form.maxRetry,
         resources: [fixedResource],
         env: editEnvMap,
-        ...(excludedNodesPayload ? { excludedNodes: excludedNodesPayload } : {}),
-        ...(secrets.length > 0 ? { secrets: secrets } : {}),
-      }
-
-      await editWorkload(props.wlid, editData)
+      })
       ElMessage({ message: 'Edit successful', type: 'success' })
     }
     if (props.action === 'Clone' && pendingWorkspaceId.value !== store.currentWorkspaceId) {
