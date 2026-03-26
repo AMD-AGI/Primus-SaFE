@@ -348,7 +348,6 @@ func buildModelYaml(cfg EntrypointConfig) string {
 	}
 	fmt.Fprintf(&sb, "dataset:\n")
 	fmt.Fprintf(&sb, "    dataset_name: \"%s\"\n", cfg.DatasetPath)
-	fmt.Fprintf(&sb, "    rewrite: true\n")
 	return strings.TrimRight(sb.String(), "\n")
 }
 
