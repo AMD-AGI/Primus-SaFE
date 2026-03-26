@@ -513,7 +513,7 @@ func buildExperimentYaml(cfg EntrypointConfig) string {
 	fmt.Fprintf(&sb, "      save_interval: %d\n", tc.SaveInterval)
 
 	// Optimizer
-	fmt.Fprintf(&sb, "      finetune_lr: %g\n", tc.FinetuneLr)
+	fmt.Fprintf(&sb, "      finetune_lr: %.10f\n", tc.FinetuneLr)
 	fmt.Fprintf(&sb, "      min_lr: %g\n", tc.MinLr)
 	fmt.Fprintf(&sb, "      lr_warmup_iters: %d\n", tc.LrWarmupIters)
 
