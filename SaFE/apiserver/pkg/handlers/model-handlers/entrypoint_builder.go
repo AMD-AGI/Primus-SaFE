@@ -447,13 +447,30 @@ if [ -z "$PRETRAINED_CKPT" ]; then
 fi
 
 MERGED_CKPT="./merged_checkpoint"
+
+# Resolve the actual iter_* subdirectory (merge_lora.py needs the distributed checkpoint dir, not the parent)
+LORA_ITER_DIR=""
+if [ -f "${CKPT_DIR}/latest_checkpointed_iteration.txt" ]; then
+  _LORA_ITER=$(cat "${CKPT_DIR}/latest_checkpointed_iteration.txt" | tr -d '[:space:]')
+  if [ -n "$_LORA_ITER" ] && [ "$_LORA_ITER" != "0" ]; then
+    LORA_ITER_DIR="${CKPT_DIR}/iter_$(printf '%%07d' $_LORA_ITER)"
+  fi
+fi
+if [ -z "$LORA_ITER_DIR" ] || [ ! -d "$LORA_ITER_DIR" ]; then
+  LORA_ITER_DIR=$(ls -d ${CKPT_DIR}/iter_* 2>/dev/null | sort -t_ -k2 -n | tail -1)
+fi
+if [ -z "$LORA_ITER_DIR" ] || [ ! -d "$LORA_ITER_DIR" ]; then
+  echo "ERROR: No iter_* checkpoint found in ${CKPT_DIR} for LoRA merge."
+  exit 1
+fi
+
 echo "Merging LoRA adapter into base model..."
-echo "  LoRA checkpoint: ${CKPT_DIR}"
+echo "  LoRA checkpoint: ${LORA_ITER_DIR}"
 echo "  Pretrained base: ${PRETRAINED_CKPT}"
 echo "  Output:          ${MERGED_CKPT}"
 
 python3 "${PRIMUS_DIR}/third_party/Megatron-Bridge/examples/peft/merge_lora.py" \
-  --lora-checkpoint "${CKPT_DIR}" \
+  --lora-checkpoint "${LORA_ITER_DIR}" \
   --pretrained "${PRETRAINED_CKPT}" \
   --hf-model-path "%s" \
   --output "${MERGED_CKPT}" 2>&1
