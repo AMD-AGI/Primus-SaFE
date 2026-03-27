@@ -14,8 +14,13 @@
       v-loading="loadingDetail"
     >
       <template v-if="form.type === 'safe'">
-      <el-form-item v-if="Object.keys(currentImageVersions).length > 0" label="Current Versions">
-        <div class="w-full">
+      <el-form-item v-if="loadingEnv || Object.keys(currentImageVersions).length > 0" label="Current Versions">
+        <div v-if="loadingEnv && Object.keys(currentImageVersions).length === 0" class="w-full">
+          <el-text type="info" size="small">
+            <el-icon class="is-loading mr-1"><Loading /></el-icon>Loading versions...
+          </el-text>
+        </div>
+        <div v-else class="w-full">
           <el-button link type="primary" size="small" @click="showVersions = !showVersions">
             <el-icon class="expand-icon" :class="{ 'is-expanded': showVersions }"><ArrowRight /></el-icon>
             {{ showVersions ? 'Hide' : 'Show' }} {{ Object.keys(currentImageVersions).length }} components
@@ -148,7 +153,7 @@
 <script setup lang="ts">
 import { ref, reactive, watch } from 'vue'
 import { ElMessage, type FormInstance, type FormRules } from 'element-plus'
-import { Plus, Delete, ArrowRight } from '@element-plus/icons-vue'
+import { Plus, Delete, ArrowRight, Loading } from '@element-plus/icons-vue'
 import {
   createDeployment,
   getEnvConfig,

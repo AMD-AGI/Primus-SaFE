@@ -90,7 +90,20 @@ func (r *ModelReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 		return ctrl.Result{}, nil
 	}
 
-	// 4. Initialize Status if needed
+	// 4. Skip local_path models — they are already Ready on disk, no download needed
+	if model.Spec.Source.AccessMode == v1.AccessModeLocalPath {
+		if model.Status.Phase != v1.ModelPhaseReady {
+			model.Status.Phase = v1.ModelPhaseReady
+			model.Status.Message = "Model available from local path"
+			model.Status.UpdateTime = &metav1.Time{Time: time.Now().UTC()}
+			if err := r.Status().Update(ctx, model); err != nil {
+				return ctrl.Result{}, err
+			}
+		}
+		return ctrl.Result{}, nil
+	}
+
+	// 5. Initialize Status if needed
 	if model.Status.Phase == "" {
 		if model.IsRemoteAPI() {
 			// Remote API models are immediately ready

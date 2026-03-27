@@ -6,6 +6,7 @@ export interface ChatBotRequest {
   stream: boolean
   history: HistoryItem[]
   enable_thinking: boolean
+  enable_confluence_recall?: boolean | null
 }
 
 export interface HistoryItem {

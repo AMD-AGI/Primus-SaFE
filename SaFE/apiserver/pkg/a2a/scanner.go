@@ -67,6 +67,19 @@ func (s *Scanner) scan(ctx context.Context) {
 
 	klog.InfoS("A2A scanner scanning", "namespaces", namespaces, "labelSelector", labelSelector, "parsedLabels", labels)
 
+	if len(namespaces) == 0 {
+		var serviceList corev1.ServiceList
+		if err := s.k8sClient.List(ctx, &serviceList, client.MatchingLabels(labels)); err != nil {
+			klog.ErrorS(err, "failed to list services across all namespaces")
+			return
+		}
+		klog.InfoS("A2A scanner found services", "namespace", "all", "count", len(serviceList.Items))
+		for i := range serviceList.Items {
+			s.syncService(ctx, &serviceList.Items[i])
+		}
+		return
+	}
+
 	for _, ns := range namespaces {
 		var serviceList corev1.ServiceList
 		if err := s.k8sClient.List(ctx, &serviceList, client.InNamespace(ns), client.MatchingLabels(labels)); err != nil {

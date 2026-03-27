@@ -265,6 +265,11 @@ type Model struct {
 	Workspace    string      `gorm:"column:workspace" json:"workspace" db:"workspace"`      // Empty means public (all workspaces)
 	S3Path       string      `gorm:"column:s3_path" json:"s3Path" db:"s3_path"`             // S3 storage path
 	LocalPaths   string      `gorm:"column:local_paths" json:"localPaths" db:"local_paths"` // JSON array of ModelLocalPathDB
+	Origin       string      `gorm:"column:origin;default:external" json:"origin" db:"origin"`  // "external" or "fine_tuned"
+	SftJobId     string      `gorm:"column:sft_job_id" json:"sftJobId" db:"sft_job_id"`         // SFT workload ID (origin=fine_tuned)
+	BaseModel    string      `gorm:"column:base_model" json:"baseModel" db:"base_model"`        // Base model HF name (origin=fine_tuned)
+	UserId       string      `gorm:"column:user_id" json:"userId" db:"user_id"`
+	UserName     string      `gorm:"column:user_name" json:"userName" db:"user_name"`
 	CreatedAt    pq.NullTime `gorm:"column:created_at;autoCreateTime" json:"createdAt" db:"created_at"`
 	UpdatedAt    pq.NullTime `gorm:"column:updated_at;autoUpdateTime" json:"updatedAt" db:"updated_at"`
 	DeletionTime pq.NullTime `gorm:"column:deletion_time" json:"deletionTime" db:"deletion_time"`

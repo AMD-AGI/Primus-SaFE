@@ -106,6 +106,7 @@
                   collapse-tags
                   collapse-tags-tooltip
                   :max-collapse-tags="5"
+                  :disabled="isEdit"
                   placeholder="Select or paste nodes to exclude (comma-separated)"
                   ref="excludedNodesSelectRef"
                   :filter-method="filterExcludedNodes"
@@ -253,7 +254,7 @@
                 <!-- preheat -->
                 <el-col :span="12">
                   <el-form-item label="preheat">
-                    <el-switch v-model="form.preheat" class="mr-2" />
+                    <el-switch v-model="form.preheat" :disabled="isEdit" class="mr-2" />
                     <el-text size="small" type="info">
                       <el-icon class="mr-1"><InfoFilled /></el-icon>
                       {{ PREHEAT_INFO }}
@@ -368,6 +369,7 @@
                       collapse-tags
                       collapse-tags-tooltip
                       :max-collapse-tags="5"
+                      :disabled="isEdit"
                       placeholder="Select one or more dependencies"
                     >
                       <el-option
@@ -400,6 +402,7 @@
                     <el-select
                       v-model="form.secretIds"
                       multiple
+                      :disabled="isEdit"
                       placeholder="Please select secrets"
                     >
                       <el-option
@@ -611,6 +614,11 @@ watch(() => form.nodesAffinity, (newVal, oldVal) => {
     form.nodeList = []
   }
 })
+watch(() => form.resourceType, (newType) => {
+  if (newType === 'nodes' && !form.nodesAffinity) {
+    form.nodesAffinity = 'required'
+  }
+})
 
 // If today is selected, auto-fill current time
 const midnightDefault = ref(new Date(2000, 0, 1, 0, 0, 0))
@@ -779,40 +787,22 @@ const onSubmit = async (formEl: FormInstance | undefined) => {
       })
       ElMessage({ message: 'Create successful', type: 'success' })
     } else {
-      const {
-        displayName: _n,
-        groupVersionKind,
-        isSupervised,
-        resource,
-        envList,
-        labelList,
-        resourceType,
-        nodeList,
-        entryPoint,
-        schedulerTime,
-        timeout,
-        secretIds,
-        excludedNodes: _excludedNodes,
-        forceHostNetwork: _fhn,
-        ...editPayload
-      } = form
       if (!props.wlid) return
 
       await editWorkload(props.wlid, {
-        ...editPayload,
+        description: form.description,
+        priority: form.priority,
         resources,
-        env: convertListToKeyValueMap(envList),
+        env: convertListToKeyValueMap(form.envList),
         maxRetry: isRetry.value ? form.maxRetry : 0,
         entryPoints: Array.from({ length: resources.length }, () =>
-          encodeToBase64String(entryPoint),
+          encodeToBase64String(form.entryPoint),
         ),
         images: Array.from({ length: resources.length }, () => form.image),
         ...(form.schedulerTime
           ? { cronJobs: [{ schedule: form.schedulerTime, action: 'start' }] }
           : {}),
         ...(form.timeout !== undefined ? { timeout: form.timeout } : {}),
-        ...(secrets.length > 0 ? { secrets: secrets } : {}),
-        ...(excludedNodesPayload ? { excludedNodes: excludedNodesPayload } : {}),
       })
       ElMessage({ message: 'Edit successful', type: 'success' })
     }

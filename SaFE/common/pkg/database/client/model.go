@@ -60,7 +60,8 @@ func (c *Client) GetModelByModelName(ctx context.Context, modelName string) (*Mo
 // ListModels retrieves all models matching the filter criteria.
 // If accessMode is empty, all access modes are returned.
 // If workspace is empty, all workspaces are returned.
-func (c *Client) ListModels(ctx context.Context, accessMode string, workspace string, isDeleted bool) ([]*Model, error) {
+// If origin is empty, all origins are returned.
+func (c *Client) ListModels(ctx context.Context, accessMode string, workspace string, isDeleted bool, origin ...string) ([]*Model, error) {
 	db, err := c.GetGormDB()
 	if err != nil {
 		return nil, err
@@ -75,6 +76,10 @@ func (c *Client) ListModels(ctx context.Context, accessMode string, workspace st
 	if workspace != "" {
 		// Filter by specific workspace OR public models (empty workspace)
 		query = query.Where("workspace = ? OR workspace = ''", workspace)
+	}
+
+	if len(origin) > 0 && origin[0] != "" {
+		query = query.Where("origin = ?", origin[0])
 	}
 
 	var models []*Model
