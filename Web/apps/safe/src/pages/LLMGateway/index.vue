@@ -499,7 +499,7 @@ http_client = httpx.Client(verify=False)
 
 client = OpenAI(
     api_key="sk-<your-llm-virtual-key>",
-    base_url="https://project1.tw325.primus-safe.amd.com/llm-gateway/v1",
+    base_url="https://oci-slc.primus-safe.amd.com/llm-gateway/v1",
     http_client=http_client,
 )
 
