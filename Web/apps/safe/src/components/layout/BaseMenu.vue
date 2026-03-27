@@ -364,7 +364,7 @@ watchEffect(() => {
       canAccess: hasManagerAccess.value, // Admin only
     },
     {
-      index: '/llm-gateway',
+      index: '/litellm-gateway',
       name: 'LLM Gateway',
       icon: menuIcons.llmGateway,
       canAccess: true, // Open to all users
