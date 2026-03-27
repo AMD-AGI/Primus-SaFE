@@ -334,7 +334,7 @@ const router = createRouter({
           meta: { requiresWorkspaceAdmin: true },
         },
         {
-          path: '/llm-gateway',
+          path: '/litellm-gateway',
           name: 'LLMGateway',
           component: () => import('@/pages/LLMGateway/index.vue'),
         },

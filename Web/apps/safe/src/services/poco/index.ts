@@ -11,9 +11,9 @@ import type {
   PocoChatMessage,
 } from './type'
 
-// PrimusClaw dedicated axios instance, baseURL points to /claw/v1
+// PrimusClaw dedicated axios instance, baseURL points to /claw-api/v1
 const clawRequest = axios.create({
-  baseURL: '/claw/v1',
+  baseURL: '/claw-api/v1',
   timeout: 30000,
   withCredentials: true,
 })
@@ -26,7 +26,7 @@ clawRequest.interceptors.response.use(
   },
 )
 
-const BASE_URL = '/claw/v1'
+const BASE_URL = '/claw-api/v1'
 
 // ========== Sessions ==========
 
