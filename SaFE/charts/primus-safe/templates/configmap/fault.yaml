@@ -58,6 +58,7 @@ data:
   resolv_search_domain_check_403: '{"id":"403","action":"taint","toggle":"on"}'
   disk_ephemeral_storage_404: '{"id":"404","toggle":"on"}'
   disk_oci_bind_mount_405: '{"id":"405","toggle":"on"}'
+  disk_nvme_count_406: '{"id":"406","action":"taint","toggle":"on"}'
   # primus system: 5XX, System reserved
   addon: '{"id": "501","action":"taint","toggle":"on"}'
   sticky_nodes: '{"id": "502","action":"taint","toggle":"on"}'

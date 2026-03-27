@@ -48,47 +48,54 @@ _cleanup() {
 trap _cleanup EXIT INT TERM HUP
 host /usr/bin/journalctl -k --no-pager --since "$since" 2>/dev/null >"$_jtmp" || true
 
-# Format: "SEVERITY|CATEGORY|GREP_EXTENDED_REGEX"
+# Format: "SEVERITY|CATEGORY|THRESHOLD|GREP_EXTENDED_REGEX"
+# THRESHOLD: minimum match count to trigger alert (CRITICAL=1, HIGH=3 by default)
 PATTERNS=(
 	# ── CRITICAL (recommend drain) — node hardware faults only ──
-	'CRITICAL|AMD GPU ECC|uncorrectable hardware errors detected in .* block'
-	'CRITICAL|AMD GPU Hang|amdgpu.*GPU hang'
-	'CRITICAL|AMD GPU Reset|amdgpu.*reset'
-	'CRITICAL|AMD GPU Poison|amdgpu.*poison'
-	'CRITICAL|AMD ACA|\[Hardware Error\].*Accelerator Check Architecture.*uncorrectable'
-	'CRITICAL|Kernel Panic|kernel panic'
-	'CRITICAL|Memory ECC|EDAC.*Uncorrected'
-	'CRITICAL|CPU MCE|MCE.*Hardware Error'
-	'CRITICAL|CPU MCE|mce:.*Machine check'
-	'CRITICAL|Network NIC Init|mlx5_core.*init failed'
-	'CRITICAL|Network NIC PCIe|mlx5_core.*PCI slot is unavailable'
-	'CRITICAL|PCIe AER|pcieport.*AER.*(Uncorrectable|Fatal)'
+	'CRITICAL|AMD GPU ECC|1|uncorrectable hardware errors detected in .* block'
+	'CRITICAL|AMD GPU Hang|1|amdgpu.*GPU hang'
+	'CRITICAL|AMD GPU Reset|1|amdgpu.*reset'
+	'CRITICAL|AMD GPU Poison|1|amdgpu.*poison'
+	'CRITICAL|AMD ACA|1|\[Hardware Error\].*Accelerator Check Architecture.*uncorrectable'
+	'CRITICAL|Kernel Panic|1|kernel panic'
+	'CRITICAL|Memory ECC|1|EDAC.*Uncorrected'
+	'CRITICAL|CPU MCE|1|MCE.*Hardware Error'
+	'CRITICAL|CPU MCE|1|mce:.*Machine check'
+	'CRITICAL|Network NIC Init|1|mlx5_core.*init failed'
+	'CRITICAL|Network NIC PCIe|1|mlx5_core.*PCI slot is unavailable'
+	'CRITICAL|PCIe AER|1|pcieport.*AER.*(Uncorrectable|Fatal)'
 	# ── HIGH (investigate) — node-level infrastructure issues ──
-	'HIGH|AMD ACA|\[Hardware Error\].*Accelerator Check Architecture'
-	'HIGH|Kernel Lockup|bug: soft lockup'
-	'HIGH|Kernel Lockup|bug: hard lockup'
-	'HIGH|Network Link|mlx5_core.*Link down'
-	'HIGH|Network NIC Temp|mlx5_core.*High temperature'
-	'HIGH|InfiniBand|infiniband.*wait status -512'
-	'HIGH|Weka Storage|wekafsio.*ALL FEs down'
-	'HIGH|Weka Storage|wekafsgw.*FE was down'
-	'HIGH|NFS|nfs.*not responding'
+	'HIGH|AMD ACA|500|\[Hardware Error\].*Accelerator Check Architecture'
+	'HIGH|Kernel Lockup|3|bug: soft lockup'
+	'HIGH|Kernel Lockup|3|bug: hard lockup'
+	'HIGH|Network Link|3|mlx5_core.*Link down'
+	'HIGH|Network NIC Temp|3|mlx5_core.*High temperature'
+	'HIGH|InfiniBand|100|infiniband.*wait status -512'
+	'HIGH|Weka Storage|3|wekafsio.*ALL FEs down'
+	'HIGH|Weka Storage|3|wekafsgw.*FE was down'
+	'HIGH|NFS|100|nfs.*not responding'
 )
 
 for entry in "${PATTERNS[@]}"; do
 	severity="${entry%%|*}"
 	rest="${entry#*|}"
 	category="${rest%%|*}"
+	rest="${rest#*|}"
+	threshold="${rest%%|*}"
 	pattern="${rest#*|}"
 
 	if [ "$category" = "AMD GPU Reset" ]; then
-		match=$(grep -E "$pattern" "$_jtmp" 2>/dev/null | grep -v "init context" | tail -1)
+		matches=$(grep -E "$pattern" "$_jtmp" 2>/dev/null | grep -v "init context")
 	else
-		match=$(grep -E "$pattern" "$_jtmp" 2>/dev/null | tail -1)
+		matches=$(grep -E "$pattern" "$_jtmp" 2>/dev/null)
 	fi
 
-	if [ -n "$match" ]; then
-		echo "[${severity}] [${category}] [${since} ~ ${current_time_fmt}]: ${match}"
+	[ -z "$matches" ] && continue
+
+	count=$(echo "$matches" | wc -l)
+	if [ "$count" -ge "$threshold" ]; then
+		last=$(echo "$matches" | tail -1)
+		echo "[${severity}] [${category}] [${since} ~ ${current_time_fmt}] (${count}x): ${last}"
 		exit 1
 	fi
 done
