@@ -552,7 +552,7 @@ func TestGetSftConfig(t *testing.T) {
 	assert.Assert(t, resp.Defaults != nil)
 	assert.Equal(t, resp.Defaults.ExportModel, true)
 	assert.Equal(t, resp.Defaults.Priority, 1)
-	assert.Equal(t, resp.Defaults.Image, DefaultImage)
+	assert.Equal(t, resp.Defaults.Image, GetDefaultSftImage())
 	assert.Equal(t, resp.Defaults.TrainConfig.Peft, "none")
 	assert.DeepEqual(t, resp.Options.DatasetFormatOptions, []string{"alpaca"})
 	assert.DeepEqual(t, resp.Options.PeftOptions, []string{"none", "lora"})
