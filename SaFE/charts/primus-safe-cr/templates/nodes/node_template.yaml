@@ -18,7 +18,7 @@ spec:
     - disable-apt-auto-upgrade
     - disable-numa-balancing
     - enable-cpu-performance
-    - enable-huge-pages
+    - disable-huge-pages
     - load-amdgpu-module
     - load-rdma-module
     - set-max-sclk
@@ -26,6 +26,7 @@ spec:
     - sysctl-ulimit
     - sysctl-inotify
     - set-gpu-passthrough
+    - set-gpu-perflevel-auto
     {{- if eq (.Values.global.sub_domain | default "") "oci-slc" }}
     - set-oci-arp-ipv4
     - disable-oci-acs
