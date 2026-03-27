@@ -322,9 +322,18 @@ cat > /tmp/sft_experiment.yaml << 'EXPEOF'
 EXPEOF
 ./runner/primus-cli direct -- train posttrain --config /tmp/sft_experiment.yaml
 TRAIN_EXIT_CODE=$?
+
+# Check if training actually produced checkpoints (torchrun may return non-zero
+# during distributed cleanup even when training completed successfully)
+CKPT_BASE="./nemo_experiments/default/checkpoints"
 if [ $TRAIN_EXIT_CODE -ne 0 ]; then
-  echo "Training failed with exit code $TRAIN_EXIT_CODE, skipping model export."
-  exit $TRAIN_EXIT_CODE
+  if [ -f "$CKPT_BASE/latest_checkpointed_iteration.txt" ]; then
+    SAVED_ITER=$(cat "$CKPT_BASE/latest_checkpointed_iteration.txt" 2>/dev/null | tr -d '[:space:]')
+    echo "WARNING: primus-cli exited with code $TRAIN_EXIT_CODE, but checkpoint found at iteration $SAVED_ITER. Continuing with export."
+  else
+    echo "Training failed with exit code $TRAIN_EXIT_CODE and no checkpoint found. Skipping model export."
+    exit $TRAIN_EXIT_CODE
+  fi
 fi
 
 # Cleanup: remove intermediate checkpoints and HF cache to free ephemeral storage
