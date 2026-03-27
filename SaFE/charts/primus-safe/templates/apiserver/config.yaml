@@ -109,7 +109,11 @@ data:
         enable: {{ default false .Values.a2a.scanner_enable }}
         interval_seconds: {{ default 60 .Values.a2a.scanner_interval }}
         namespaces:
-          {{- toYaml (default (list "primus-lens") .Values.a2a.scanner_namespaces) | nindent 10 }}
+{{- if hasKey .Values.a2a "scanner_namespaces" }}
+{{ toYaml .Values.a2a.scanner_namespaces | nindent 10 }}
+{{- else }}
+          - primus-lens
+{{- end }}
         label_selector: "a2a.primus.io/enabled=true"
     {{- end }}
     {{- if or .Values.proxy .Values.langfuse_proxy }}

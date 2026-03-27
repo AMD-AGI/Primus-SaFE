@@ -38,6 +38,7 @@ func InitInferenceRouters(e *gin.Engine, h *Handler) {
 		group.GET("playground/models/:id", h.GetModel)
 		group.GET("playground/models/:id/workloads", h.GetModelWorkloads)
 		group.GET("playground/models/:id/workload-config", h.GetWorkloadConfig)
+		group.GET("playground/models/:id/sft-config", h.GetSftConfig)
 		group.GET("playground/models/:id/chat-url", h.GetChatURL)
 
 		// Dataset routes (only registered if S3 is enabled)
@@ -60,5 +61,8 @@ func InitInferenceRouters(e *gin.Engine, h *Handler) {
 		group.DELETE("evaluations/tasks/:id", h.DeleteEvaluationTask)            // Delete/cancel task
 		group.POST("evaluations/tasks/:id/stop", h.StopEvaluationTask)           // Stop running task
 		group.GET("evaluations/tasks/:id/report", h.GetEvaluationReport)         // Get evaluation report
+
+		// SFT Training routes (List/Get/Stop/Delete reuse Training page)
+		group.POST("sft/jobs", middleware.Audit("sft"), h.CreateSftJob)
 	}
 }

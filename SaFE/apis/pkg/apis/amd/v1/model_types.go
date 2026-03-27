@@ -39,8 +39,9 @@ const (
 	ModelPhaseFailed      ModelPhase = "Failed"
 
 	// Access Mode Types
-	AccessModeRemoteAPI AccessMode = "remote_api" // Call external API directly
-	AccessModeLocal     AccessMode = "local"      // Download model and run locally
+	AccessModeRemoteAPI  AccessMode = "remote_api"  // Call external API directly
+	AccessModeLocal      AccessMode = "local"       // Download model and run locally
+	AccessModeLocalPath  AccessMode = "local_path"  // Model already exists on NFS/PFS (SFT output)
 
 	// Local Path Status
 	LocalPathStatusPending     LocalPathStatus = "Pending"
@@ -93,6 +94,14 @@ type (
 		// Empty string means "public" - the model will be downloaded to all workspaces
 		// Non-empty means the model is private to a specific workspace
 		Workspace string `json:"workspace,omitempty"`
+		// Origin indicates where the model came from:
+		//   - "external": downloaded from HuggingFace or connected via remote API (default)
+		//   - "fine_tuned": produced by SFT training within the platform
+		Origin string `json:"origin,omitempty"`
+		// SftJobId is the workload ID of the SFT training job that produced this model (origin=fine_tuned only)
+		SftJobId string `json:"sftJobId,omitempty"`
+		// BaseModel is the HuggingFace name of the base model used for fine-tuning (origin=fine_tuned only)
+		BaseModel string `json:"baseModel,omitempty"`
 	}
 
 	// ModelSource describes the model storage location
@@ -113,6 +122,9 @@ type (
 		// ApiKey references a Secret containing the API key for remote API access
 		// Used for remote_api mode to authenticate with external services (e.g., OpenAI, DeepSeek)
 		ApiKey *corev1.LocalObjectReference `json:"apiKey,omitempty"`
+		// LocalPath is the NFS/PFS path where the model files already exist.
+		// Used for "local_path" access mode (SFT training output) — skips download entirely.
+		LocalPath string `json:"localPath,omitempty"`
 	}
 
 	// ModelLocalPath represents the download status of a model in a specific workspace

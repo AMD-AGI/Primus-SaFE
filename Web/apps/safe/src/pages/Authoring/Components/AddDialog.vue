@@ -63,6 +63,7 @@
               <el-segmented
                 v-model="form.resourceType"
                 :options="['replicas', 'nodes']"
+                :disabled="isEdit"
               />
             </div>
           </div>
@@ -87,6 +88,7 @@
                   collapse-tags
                   collapse-tags-tooltip
                   :max-collapse-tags="5"
+                  :disabled="isEdit"
                   placeholder="Select or paste nodes to exclude (comma-separated)"
                   ref="excludedNodesSelectRef"
                   :filter-method="filterExcludedNodes"
@@ -125,6 +127,7 @@
                   v-model="form.nodeId"
                   clearable
                   filterable
+                  :disabled="isEdit"
                   placeholder="Select one node (required)"
                 >
                   <el-option v-for="n in nodeOptions" :key="n.value" :label="n.label" :value="n.value">
@@ -194,7 +197,7 @@
               <el-row :gutter="16">
                 <el-col :span="12">
                   <el-form-item label="toleration">
-                    <el-switch v-model="form.isTolerateAll" class="mr-2" />
+                    <el-switch v-model="form.isTolerateAll" :disabled="isEdit" class="mr-2" />
                     <el-text size="small" type="info">
                       <el-icon class="mr-1"><InfoFilled /></el-icon>
                       {{ TOLERATE_INFO }}
@@ -203,7 +206,7 @@
                 </el-col>
                 <el-col :span="12" v-if="isManager || store.isCurrentWorkspaceAdmin()">
                   <el-form-item label="privileged">
-                    <el-switch v-model="form.privileged" class="mr-2" />
+                    <el-switch v-model="form.privileged" :disabled="isEdit" class="mr-2" />
                     <el-text size="small" type="info">
                       <el-icon class="mr-1"><InfoFilled /></el-icon>
                       {{ PRIVILEGED_INFO }}
@@ -261,7 +264,7 @@
                 </el-col>
                 <el-col :span="12">
                   <el-form-item label="secret" prop="secretIds">
-                    <el-select v-model="form.secretIds" multiple placeholder="Please select secrets">
+                    <el-select v-model="form.secretIds" multiple :disabled="isEdit" placeholder="Please select secrets">
                       <el-option
                         v-for="item in secretOptions"
                         :key="item.value"
@@ -425,6 +428,11 @@ watch(() => form.nodesAffinity, (newVal, oldVal) => {
     form.nodeId = ''
   }
 })
+watch(() => form.resourceType, (newType) => {
+  if (newType === 'nodes' && !form.nodesAffinity) {
+    form.nodesAffinity = 'required'
+  }
+})
 
 const flavorMaxVal = ref()
 const placeholders = computed(() => {
@@ -515,30 +523,15 @@ const onSubmit = async (formEl: FormInstance | undefined) => {
       })
       ElMessage({ message: `${props.action} successful`, type: 'success' })
     } else {
-      const {
-        displayName: _n,
-        groupVersionKind,
-        resource,
-        envList,
-        resourceType,
-        nodeId,
-        excludedNodes,
-        image,
-        secretIds,
-        forceHostNetwork: _fhn,
-        ...editPayload
-      } = form
       if (!props.wlid) return
 
       await editWorkload(props.wlid, {
-        ...editPayload,
-        ...nodePayload,
-        images: [image],
+        description: form.description,
+        priority: form.priority,
+        images: [form.image],
         resources,
-        env: convertListToKeyValueMap(envList),
-        ...(excludedNodesPayload ? { excludedNodes: excludedNodesPayload } : {}),
-        ...(secrets.length > 0 ? { secrets: secrets } : {}),
-        privileged: form.privileged,
+        env: convertListToKeyValueMap(form.envList),
+        ...(form.timeout !== undefined ? { timeout: form.timeout } : {}),
       })
       ElMessage({ message: 'Edit successful', type: 'success' })
     }

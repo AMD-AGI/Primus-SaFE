@@ -508,7 +508,7 @@ const onExport = async () => {
       ...(searchParams.workspaceId
         ? { workspaceId: searchParams.workspaceId === 'UNASSIGNED' ? '' : searchParams.workspaceId }
         : {}),
-      ...(searchParams.search ? { search: searchParams.search } : {}),
+      ...(searchParams.search?.trim() ? { search: searchParams.search.trim() } : {}),
       ...(searchParams.phase ? { phase: searchParams.phase } : {}),
       ...(searchParams.clusterId
         ? { clusterId: searchParams.clusterId === 'UNASSIGNED' ? '' : searchParams.clusterId }
@@ -811,7 +811,7 @@ const onSearch = (options?: { resetPage?: boolean }) => {
   router.replace({
     query: {
       ...route.query,
-      search: searchParams.search || undefined,
+      search: searchParams.search?.trim() || undefined,
       workspaceId: searchParams.workspaceId || undefined,
       clusterId: searchParams.clusterId || undefined,
       phase: searchParams.phase || undefined,
@@ -833,7 +833,7 @@ const onSearch = (options?: { resetPage?: boolean }) => {
     ...(searchParams.workspaceId
       ? { workspaceId: searchParams.workspaceId === 'UNASSIGNED' ? '' : searchParams.workspaceId }
       : {}),
-    ...(searchParams.search ? { search: searchParams.search } : {}),
+    ...(searchParams.search?.trim() ? { search: searchParams.search.trim() } : {}),
     ...(searchParams.phase ? { phase: searchParams.phase } : {}),
     ...(searchParams.clusterId
       ? { clusterId: searchParams.clusterId === 'UNASSIGNED' ? '' : searchParams.clusterId }

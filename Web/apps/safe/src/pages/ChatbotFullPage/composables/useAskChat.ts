@@ -12,6 +12,7 @@ export function useAskChat(
   messagesContainer: Ref<HTMLElement | undefined>,
 ) {
   const enableThinking = ref(false)
+  const enableConfluenceRecall = ref(false)
   let abortController: AbortController | null = null
 
   // Build history from messages
@@ -108,6 +109,7 @@ export function useAskChat(
           stream: true,
           history: history,
           enable_thinking: enableThinking.value,
+          enable_confluence_recall: enableConfluenceRecall.value || null,
         },
         (content: string) => {
           messages.value[assistantMessageIndex].content += content
@@ -188,6 +190,7 @@ export function useAskChat(
 
   return {
     enableThinking,
+    enableConfluenceRecall,
     sendAskMessage,
     stopAskGeneration,
   }
