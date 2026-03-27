@@ -452,7 +452,7 @@ echo "  LoRA checkpoint: ${CKPT_DIR}"
 echo "  Pretrained base: ${PRETRAINED_CKPT}"
 echo "  Output:          ${MERGED_CKPT}"
 
-python3 "${PRIMUS_DIR}/third_party/Megatron-Bridge/examples/conversion/merge_lora.py" \
+python3 "${PRIMUS_DIR}/third_party/Megatron-Bridge/examples/peft/merge_lora.py" \
   --lora-checkpoint "${CKPT_DIR}" \
   --pretrained "${PRETRAINED_CKPT}" \
   --hf-model-path "%s" \
