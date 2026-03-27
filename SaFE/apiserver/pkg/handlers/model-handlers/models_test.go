@@ -554,8 +554,51 @@ func TestGetSftConfig(t *testing.T) {
 	assert.Equal(t, resp.Defaults.Priority, 1)
 	assert.Equal(t, resp.Defaults.Image, GetDefaultSftImage())
 	assert.Equal(t, resp.Defaults.TrainConfig.Peft, "none")
+	assert.Equal(t, resp.Defaults.TrainConfig.TrainIters, 100)
+	assert.Equal(t, resp.Defaults.TrainConfig.GlobalBatchSize, 8)
+	assert.Equal(t, resp.Defaults.TrainConfig.MicroBatchSize, 1)
+	assert.Equal(t, resp.Defaults.TrainConfig.SeqLength, 2048)
+	assert.Equal(t, resp.Defaults.TrainConfig.FinetuneLr, 5e-6)
+	assert.Equal(t, resp.Defaults.TrainConfig.LrWarmupIters, 5)
+	assert.Equal(t, resp.Defaults.TrainConfig.SaveInterval, 50)
+	assert.Equal(t, resp.Defaults.TrainConfig.TensorModelParallelSize, 1)
 	assert.DeepEqual(t, resp.Options.DatasetFormatOptions, []string{"alpaca"})
 	assert.DeepEqual(t, resp.Options.PeftOptions, []string{"none", "lora"})
+}
+
+func TestGetSftConfig_32BDefaults(t *testing.T) {
+	model := genMockLocalK8sModel("model-qwen-32b", "ws1")
+	model.Spec.DisplayName = "Qwen/Qwen3-32B"
+	model.Spec.Source.URL = "https://huggingface.co/Qwen/Qwen3-32B"
+	model.Spec.Source.ModelName = "Qwen/Qwen3-32B"
+
+	k8sClient := fake.NewClientBuilder().
+		WithObjects(model).
+		WithScheme(scheme.Scheme).
+		Build()
+
+	h := newMockModelHandler(k8sClient)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Params = gin.Params{{Key: "id", Value: "model-qwen-32b"}}
+	c.Request, _ = http.NewRequest("GET", "/models/model-qwen-32b/sft-config?workspace=ws1", nil)
+
+	result, err := h.getSftConfig(c)
+	assert.NilError(t, err)
+
+	resp := result.(*SftConfigResponse)
+	assert.Equal(t, resp.Supported, true)
+	assert.Assert(t, resp.Defaults != nil)
+	assert.Equal(t, resp.Defaults.TrainConfig.Peft, "none")
+	assert.Equal(t, resp.Defaults.TrainConfig.TrainIters, 1000)
+	assert.Equal(t, resp.Defaults.TrainConfig.GlobalBatchSize, 8)
+	assert.Equal(t, resp.Defaults.TrainConfig.MicroBatchSize, 1)
+	assert.Equal(t, resp.Defaults.TrainConfig.SeqLength, 2048)
+	assert.Equal(t, resp.Defaults.TrainConfig.FinetuneLr, 5e-6)
+	assert.Equal(t, resp.Defaults.TrainConfig.LrWarmupIters, 10)
+	assert.Equal(t, resp.Defaults.TrainConfig.SaveInterval, 500)
+	assert.Equal(t, resp.Defaults.TrainConfig.TensorModelParallelSize, 8)
 }
 
 func TestGetSftConfig_UnsupportedModel(t *testing.T) {
@@ -777,4 +820,3 @@ func TestModelPhaseMessages(t *testing.T) {
 		})
 	}
 }
-

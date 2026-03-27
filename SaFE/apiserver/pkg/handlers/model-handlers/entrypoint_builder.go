@@ -62,20 +62,22 @@ type TrainPreset struct {
 	SeqLength       int
 	FinetuneLr      float64
 	TpSize          int
+	LrWarmupIters   int
+	SaveInterval    int
 }
 
 var trainPresets = map[string]map[string]TrainPreset{
 	"8b": {
-		"none": {TrainIters: 1000, GlobalBatchSize: 128, MicroBatchSize: 1, SeqLength: 2048, FinetuneLr: 1e-4, TpSize: 1},
-		"lora": {TrainIters: 1000, GlobalBatchSize: 128, MicroBatchSize: 1, SeqLength: 2048, FinetuneLr: 1e-4, TpSize: 1},
+		"none": {TrainIters: 100, GlobalBatchSize: 8, MicroBatchSize: 1, SeqLength: 2048, FinetuneLr: 5e-6, TpSize: 1, LrWarmupIters: 5, SaveInterval: 50},
+		"lora": {TrainIters: 1000, GlobalBatchSize: 128, MicroBatchSize: 1, SeqLength: 2048, FinetuneLr: 1e-4, TpSize: 1, LrWarmupIters: 50, SaveInterval: 500},
 	},
 	"32b": {
-		"none": {TrainIters: 200, GlobalBatchSize: 8, MicroBatchSize: 1, SeqLength: 2048, FinetuneLr: 5e-6, TpSize: 8},
-		"lora": {TrainIters: 200, GlobalBatchSize: 32, MicroBatchSize: 4, SeqLength: 8192, FinetuneLr: 1e-4, TpSize: 1},
+		"none": {TrainIters: 1000, GlobalBatchSize: 8, MicroBatchSize: 1, SeqLength: 2048, FinetuneLr: 5e-6, TpSize: 8, LrWarmupIters: 10, SaveInterval: 500},
+		"lora": {TrainIters: 200, GlobalBatchSize: 32, MicroBatchSize: 4, SeqLength: 8192, FinetuneLr: 1e-4, TpSize: 1, LrWarmupIters: 50, SaveInterval: 100},
 	},
 	"70b": {
-		"none": {TrainIters: 200, GlobalBatchSize: 128, MicroBatchSize: 1, SeqLength: 2048, FinetuneLr: 5e-6, TpSize: 8},
-		"lora": {TrainIters: 200, GlobalBatchSize: 128, MicroBatchSize: 1, SeqLength: 2048, FinetuneLr: 1e-4, TpSize: 8},
+		"none": {TrainIters: 200, GlobalBatchSize: 128, MicroBatchSize: 1, SeqLength: 2048, FinetuneLr: 5e-6, TpSize: 8, LrWarmupIters: 50, SaveInterval: 100},
+		"lora": {TrainIters: 200, GlobalBatchSize: 128, MicroBatchSize: 1, SeqLength: 2048, FinetuneLr: 1e-4, TpSize: 8, LrWarmupIters: 50, SaveInterval: 100},
 	},
 }
 
@@ -157,13 +159,13 @@ func FillSftDefaults(req *CreateSftJobRequest, modelSize string) {
 		tc.ContextParallelSize = 1
 	}
 	if tc.LrWarmupIters == 0 {
-		tc.LrWarmupIters = 50
+		tc.LrWarmupIters = preset.LrWarmupIters
 	}
 	if tc.EvalInterval == 0 {
 		tc.EvalInterval = 30
 	}
 	if tc.SaveInterval == 0 {
-		tc.SaveInterval = tc.TrainIters / 2
+		tc.SaveInterval = preset.SaveInterval
 		if tc.SaveInterval < 1 {
 			tc.SaveInterval = 1
 		}
