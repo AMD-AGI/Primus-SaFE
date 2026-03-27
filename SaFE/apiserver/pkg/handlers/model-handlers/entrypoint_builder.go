@@ -23,8 +23,8 @@ type ModelRecipe struct {
 }
 
 var modelRecipes = map[string]ModelRecipe{
-	"Qwen/Qwen3-8B":                {Recipe: "qwen.qwen3", Flavor: "qwen3_8b_finetune_config", Size: "8b"},
-	"Qwen/Qwen3-32B":               {Recipe: "qwen.qwen3", Flavor: "qwen3_32b_finetune_config", Size: "32b"},
+	"Qwen/Qwen3-8B":                 {Recipe: "qwen.qwen3", Flavor: "qwen3_8b_finetune_config", Size: "8b"},
+	"Qwen/Qwen3-32B":                {Recipe: "qwen.qwen3", Flavor: "qwen3_32b_finetune_config", Size: "32b"},
 	"meta-llama/Meta-Llama-3.1-70B": {Recipe: "llama.llama3", Flavor: "llama31_70b_finetune_config", Size: "70b"},
 }
 
@@ -91,15 +91,16 @@ const (
 	DefaultPrimusPath       = "/tmp/primus"
 	PrimusGitRepo           = "https://github.com/AMD-AGI/Primus.git"
 	PrimusGitCommit         = "1dd3ebe8" // compatible with pr-609-ainic / pr-624-ainic images
-	DefaultPriority         = 1 // medium: HighPriorityInt=2, MedPriorityInt=1, LowPriorityInt=0
+	DefaultPriority         = 1          // medium: HighPriorityInt=2, MedPriorityInt=1, LowPriorityInt=0
 )
 
 // GetDefaultSftImage returns the default SFT training image using the cluster's harbor registry.
 // It extracts the registry hostname from the ops_job download_image config (which is already
 // populated by Helm with the correct per-cluster harbor address).
 // e.g. "harbor.project1.tw325.primus-safe.amd.com/proxy/primussafe/s3-downloader:latest"
-//   -> registry host = "harbor.project1.tw325.primus-safe.amd.com"
-//   -> result = "harbor.project1.tw325.primus-safe.amd.com/sync/primus:v26.1"
+//
+//	-> registry host = "harbor.project1.tw325.primus-safe.amd.com"
+//	-> result = "harbor.project1.tw325.primus-safe.amd.com/sync/primus:v26.1"
 func GetDefaultSftImage() string {
 	downloadImage := commonconfig.GetDownloadJoImage()
 	if idx := strings.Index(downloadImage, "/"); idx > 0 {
@@ -352,11 +353,14 @@ if [ -d "$CKPT_BASE" ] && [ -f "$CKPT_BASE/latest_checkpointed_iteration.txt" ];
 fi
 # Remove HF model cache (already converted to Megatron format)
 rm -rf data/huggingface/hub/models--* 2>/dev/null
-# Remove pretrained Megatron checkpoint (training is done, only need trained checkpoint)
-rm -rf data/megatron_checkpoints 2>/dev/null
+# For LoRA, keep pretrained Megatron checkpoint (needed for merge); for full SFT, remove it
+if [ "%s" = "none" ]; then
+  rm -rf data/megatron_checkpoints 2>/dev/null
+fi
 echo "Cleanup done. Disk usage: $(du -sh . 2>/dev/null | cut -f1)"`,
 		cfg.DatasetPath, preparedDatasetDir,
-		cfg.PrimusPath, PrimusGitCommit, cfg.PrimusPath, PrimusGitRepo, cfg.PrimusPath, cfg.PrimusPath, PrimusGitCommit, cfg.PrimusPath, modelYaml, expYaml)
+		cfg.PrimusPath, PrimusGitCommit, cfg.PrimusPath, PrimusGitRepo, cfg.PrimusPath, cfg.PrimusPath, PrimusGitCommit, cfg.PrimusPath, modelYaml, expYaml,
+		cfg.TrainConfig.Peft)
 
 	if cfg.ExportModel {
 		script += buildExportScript(cfg)
@@ -365,17 +369,23 @@ echo "Cleanup done. Disk usage: $(du -sh . 2>/dev/null | cut -f1)"`,
 	return script
 }
 
-// buildExportScript generates shell commands to copy the trained model output
-// to a well-known PFS path and register it as a new Model via the apiserver API.
+// buildExportScript generates shell commands to convert the trained checkpoint
+// to HuggingFace format, copy it to PFS, and register it as a new Model.
+// For LoRA training, an extra merge step is inserted before the HF conversion.
 func buildExportScript(cfg EntrypointConfig) string {
 	exportPath := fmt.Sprintf("/wekafs/custom/models/%s", cfg.SftJobId)
 	displayName := fmt.Sprintf("%s-finetuned", strings.ToLower(cfg.ExpName))
+	isLoRA := cfg.TrainConfig.Peft == "lora"
 
-	return fmt.Sprintf(`
+	var sb strings.Builder
+
+	// --- Locate trained checkpoint ---
+	sb.WriteString(`
 
 # ==================== Convert Megatron Checkpoint to HuggingFace ====================
-EXPORT_PATH="%s"
-CKPT_DIR=""
+`)
+	fmt.Fprintf(&sb, "EXPORT_PATH=%q\n", exportPath)
+	sb.WriteString(`CKPT_DIR=""
 CKPT_SEARCH_DIRS="./nemo_experiments/default/checkpoints ./output/checkpoints ${PRIMUS_DIR}/nemo_experiments/default/checkpoints /tmp/primus/nemo_experiments/default/checkpoints"
 
 # First pass: prefer dirs with latest_checkpointed_iteration.txt (real trained checkpoints)
@@ -409,28 +419,81 @@ fi
 
 echo "Checkpoint directory: ${CKPT_DIR:-not found}"
 HF_EXPORT_PATH="${EXPORT_PATH}"
-
-echo "Converting Megatron checkpoint to HuggingFace format..."
 mkdir -p "${HF_EXPORT_PATH}"
 
+export PYTHONPATH="${PRIMUS_DIR}/third_party/Megatron-Bridge/src:${PRIMUS_DIR}/third_party/Megatron-Bridge/3rdparty/Megatron-LM:${PYTHONPATH:-}"
+`)
+
+	// --- LoRA: merge adapter into base model before export ---
+	if isLoRA {
+		hfModelBasename := cfg.HfPath
+		if idx := strings.LastIndex(hfModelBasename, "/"); idx >= 0 {
+			hfModelBasename = hfModelBasename[idx+1:]
+		}
+		fmt.Fprintf(&sb, `
+# ==================== LoRA: Merge Adapter into Base Model ====================
+PRETRAINED_CKPT=""
+PRETRAINED_SEARCH="./data/megatron_checkpoints/%s ./data/megatron_checkpoints"
+for d in ${PRETRAINED_SEARCH}; do
+  if [ -d "$d" ]; then PRETRAINED_CKPT="$d"; break; fi
+done
+
+if [ -z "$PRETRAINED_CKPT" ]; then
+  echo "ERROR: Cannot find pretrained Megatron checkpoint for LoRA merge."
+  echo "Searched: ${PRETRAINED_SEARCH}"
+  exit 1
+fi
+
+MERGED_CKPT="./merged_checkpoint"
+echo "Merging LoRA adapter into base model..."
+echo "  LoRA checkpoint: ${CKPT_DIR}"
+echo "  Pretrained base: ${PRETRAINED_CKPT}"
+echo "  Output:          ${MERGED_CKPT}"
+
+python3 "${PRIMUS_DIR}/third_party/Megatron-Bridge/examples/conversion/merge_lora.py" \
+  --lora-checkpoint "${CKPT_DIR}" \
+  --pretrained "${PRETRAINED_CKPT}" \
+  --hf-model-path "%s" \
+  --output "${MERGED_CKPT}" 2>&1
+MERGE_EXIT=$?
+
+if [ $MERGE_EXIT -ne 0 ]; then
+  echo "ERROR: LoRA merge failed with exit code $MERGE_EXIT"
+  echo "Falling back to direct export (may fail for LoRA checkpoints)..."
+  CONVERT_CKPT_DIR="${CKPT_DIR}"
+else
+  echo "LoRA merge succeeded. Merged checkpoint at: ${MERGED_CKPT}"
+  CONVERT_CKPT_DIR="${MERGED_CKPT}"
+  rm -rf "${CKPT_DIR}" 2>/dev/null
+  rm -rf "${PRETRAINED_CKPT}" 2>/dev/null
+fi
+echo "Disk usage after merge: $(du -sh . 2>/dev/null | cut -f1)"
+`, hfModelBasename, cfg.HfPath)
+	} else {
+		sb.WriteString(`CONVERT_CKPT_DIR="${CKPT_DIR}"
+`)
+	}
+
+	// --- Convert Megatron → HuggingFace ---
+	fmt.Fprintf(&sb, `
+echo "Converting Megatron checkpoint to HuggingFace format..."
+
 LATEST_CKPT=""
-if [ -f "${CKPT_DIR}/latest_checkpointed_iteration.txt" ]; then
-  LATEST_ITER=$(cat "${CKPT_DIR}/latest_checkpointed_iteration.txt" | tr -d '[:space:]')
+if [ -f "${CONVERT_CKPT_DIR}/latest_checkpointed_iteration.txt" ]; then
+  LATEST_ITER=$(cat "${CONVERT_CKPT_DIR}/latest_checkpointed_iteration.txt" | tr -d '[:space:]')
   if [ -n "$LATEST_ITER" ] && [ "$LATEST_ITER" != "0" ]; then
-    LATEST_CKPT="${CKPT_DIR}/iter_$(printf '%%07d' ${LATEST_ITER})"
+    LATEST_CKPT="${CONVERT_CKPT_DIR}/iter_$(printf '%%07d' ${LATEST_ITER})"
   fi
 fi
-# Fallback: pick the highest-numbered iter_* directory
 if [ -z "${LATEST_CKPT}" ] || [ ! -d "${LATEST_CKPT}" ]; then
-  LATEST_CKPT=$(ls -td ${CKPT_DIR}/iter_* 2>/dev/null | sort -t_ -k2 -n | tail -1)
+  LATEST_CKPT=$(ls -td ${CONVERT_CKPT_DIR}/iter_* 2>/dev/null | sort -t_ -k2 -n | tail -1)
 fi
 
 if [ -n "${LATEST_CKPT}" ] && [ -d "${LATEST_CKPT}" ]; then
   echo "Found checkpoint at: ${LATEST_CKPT}"
-  export PYTHONPATH="${PRIMUS_DIR}/third_party/Megatron-Bridge/src:${PRIMUS_DIR}/third_party/Megatron-Bridge/3rdparty/Megatron-LM:${PYTHONPATH:-}"
   python3 "${PRIMUS_DIR}/third_party/Megatron-Bridge/examples/conversion/convert_checkpoints.py" export \
     --hf-model "%s" \
-    --megatron-path "${CKPT_DIR}" \
+    --megatron-path "${CONVERT_CKPT_DIR}" \
     --hf-path "${HF_EXPORT_PATH}" \
     --no-progress 2>&1 || echo "Warning: checkpoint conversion failed, falling back to raw copy"
 
@@ -439,11 +502,15 @@ if [ -n "${LATEST_CKPT}" ] && [ -d "${LATEST_CKPT}" ]; then
     cp -r ./output/* "${HF_EXPORT_PATH}/" 2>/dev/null || true
   fi
 else
-  echo "Warning: no Megatron checkpoint found (only pretrained iter_0000000), copying raw output"
+  echo "Warning: no Megatron checkpoint found, copying raw output"
   cp -r ./output/* "${HF_EXPORT_PATH}/" 2>/dev/null || true
 fi
+rm -rf "${CONVERT_CKPT_DIR}" 2>/dev/null
 echo "Model exported to ${HF_EXPORT_PATH}"
+`, cfg.HfPath)
 
+	// --- Register model ---
+	fmt.Fprintf(&sb, `
 # ==================== Register Model ====================
 APISERVER="http://primus-safe-apiserver.primus-safe.svc:8088"
 echo "Registering model in Model Square..."
@@ -465,8 +532,6 @@ curl -s -X POST "${APISERVER}/api/v1/playground/models" \
     "baseModel": "%s"
   }' || echo "Warning: failed to register model, but training output is saved at ${EXPORT_PATH}"
 echo "Model export complete."`,
-		exportPath,
-		cfg.HfPath,
 		displayName,
 		cfg.BaseModel, cfg.SftJobId,
 		exportPath,
@@ -475,6 +540,8 @@ echo "Model export complete."`,
 		cfg.SftJobId,
 		cfg.BaseModel,
 	)
+
+	return sb.String()
 }
 
 func buildModelYaml(cfg EntrypointConfig) string {
