@@ -818,15 +818,19 @@ func (r *NodeReconciler) syncLabelsToK8sNode(ctx context.Context,
 	if v != adminNode.Name {
 		labels[v1.NodeIdLabel] = adminNode.Name
 	}
+	annotations := map[string]string{
+		v1.NodeDiskAnnotation: v1.GetAnnotation(adminNode, v1.NodeDiskAnnotation),
+	}
 
-	if len(labels) == 0 {
-		return nil
+	metadata := map[string]interface{}{
+		"resourceVersion": k8sNode.ResourceVersion,
+		"annotations":     annotations,
+	}
+	if len(labels) > 0 {
+		metadata["labels"] = labels
 	}
 	data, err := json.Marshal(map[string]interface{}{
-		"metadata": map[string]interface{}{
-			"resourceVersion": k8sNode.ResourceVersion,
-			"labels":          labels,
-		},
+		"metadata": metadata,
 	})
 	if err != nil {
 		return err
@@ -1195,7 +1199,8 @@ func (r *NodeReconciler) installAddons(ctx context.Context, adminNode *v1.Node) 
 			Name: v1.OpsJobKind + "-" + name,
 		},
 		Spec: v1.OpsJobSpec{
-			Type: v1.OpsJobAddonType,
+			Type:          v1.OpsJobAddonType,
+			IsTolerateAll: true,
 			Inputs: []v1.Parameter{{
 				Name:  v1.ParameterNode,
 				Value: adminNode.Name,

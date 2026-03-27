@@ -25,6 +25,8 @@ const (
 	CICDEphemeralRunnerKind = "EphemeralRunner"
 	UnifiedJobKind          = "UnifiedJob"
 	TorchFTKind             = "TorchFT"
+	MonarchJob              = "MonarchJob"
+	MonarchMesh             = "MonarchMesh"
 	RayJobKind              = "RayJob"
 
 	PodKind            = "Pod"
@@ -68,6 +70,8 @@ const (
 	RayJobSubmitterStorage = "10Gi"
 	RayJobGcsServerPort    = 6379
 	RayJobDashboard        = 8265
+
+	MonarchMeshPort = 26600
 
 	DefaultBurst          = 1000
 	DefaultQPS            = 1000

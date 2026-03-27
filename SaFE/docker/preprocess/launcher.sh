@@ -27,7 +27,7 @@ if [ -f /shared-data/detect_nccl_ib_tc.sh ] && [ -x /bin/sh ]; then
 fi
 
 /bin/sh /shared-data/build_bnxt.sh
-/bin/sh /shared-data/build_ssh.sh
+/bin/sh /shared-data/build_authoring.sh
 
 if [ -z "$input" ]; then
     exit 0

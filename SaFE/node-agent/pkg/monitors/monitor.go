@@ -6,6 +6,7 @@
 package monitors
 
 import (
+	"encoding/json"
 	"path/filepath"
 	"time"
 
@@ -51,7 +52,9 @@ type NodeInfo struct {
 	// Expected ephemeral storage size on each node
 	ExpectedEphemeralStorage int64 `json:"expectedEphemeralStorage"`
 	// The ephemeral storage size observed by the k8s node
-	ObservedEphemeralStorage int64 `json:"observedEphemeralStorage"`
+	ObservedEphemeralStorage int64  `json:"observedEphemeralStorage"`
+	ExpectedDiskType         string `json:"expectedDiskType"`
+	ExpectedDiskCount        int    `json:"expectedDiskCount"`
 	// The name of the node
 	NodeName string `json:"nodeName"`
 	// The workspace bound to the node
@@ -178,12 +181,17 @@ func (m *Monitor) generateNodeInfo() *NodeInfo {
 	if m.node == nil || m.node.GetK8sNode() == nil {
 		return nil
 	}
+	diskInfo := v1.DiskInfo{}
+	json.Unmarshal([]byte(m.node.GetK8sNode().Annotations[v1.NodeDiskAnnotation]), &diskInfo)
+
 	info := &NodeInfo{
 		NodeName:                 m.node.GetK8sNode().Name,
 		WorkspaceId:              v1.GetWorkspaceId(m.node.GetK8sNode()),
 		ClusterId:                v1.GetClusterId(m.node.GetK8sNode()),
 		ExpectedGpuCount:         v1.GetNodeGpuCount(m.node.GetK8sNode()),
-		ExpectedEphemeralStorage: v1.GetNodeEphemeralStorage(m.node.GetK8sNode()),
+		ExpectedEphemeralStorage: diskInfo.EphemeralStorage,
+		ExpectedDiskType:         string(diskInfo.Type),
+		ExpectedDiskCount:        diskInfo.Count,
 	}
 	gpuQuantity := m.node.GetGpuQuantity()
 	if !gpuQuantity.IsZero() {
