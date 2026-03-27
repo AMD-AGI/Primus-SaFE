@@ -324,7 +324,7 @@ func (r *AddonJobReconciler) handleNode(ctx context.Context,
 		return false, "", err
 	}
 	if !adminNode.IsMachineReady() {
-		return false, "", fmt.Errorf("the node is not ready")
+		return false, "", fmt.Errorf("the node %s is not ready", adminNode.Name)
 	}
 	if err = r.createFault(ctx, job, adminNode, v1.AddonMonitorId, "upgrade Addon"); err != nil {
 		return false, "", err
