@@ -156,12 +156,18 @@ const renderTopo = () => {
     topoChart = echarts.init(topoRef.value)
   }
 
-  const nodes = topoData.value.nodes.map((n: A2ATopologyNode, i: number) => ({
+  const isDark = document.documentElement.classList.contains('dark')
+
+  const connectedNames = new Set<string>()
+  topoData.value.edges.forEach((e: A2ATopologyEdge) => {
+    connectedNames.add(e.caller)
+    connectedNames.add(e.target)
+  })
+
+  const nodes = topoData.value.nodes.map((n: A2ATopologyNode) => ({
     name: n.displayName || n.serviceName,
-    symbolSize: 50,
+    symbolSize: connectedNames.has(n.serviceName) ? 50 : 36,
     itemStyle: { color: healthColor[n.a2aHealth] || healthColor.unknown },
-    x: 150 + (i % 4) * 160,
-    y: 80 + Math.floor(i / 4) * 140,
   }))
 
   const edges = topoData.value.edges.map((e: A2ATopologyEdge) => {
@@ -170,28 +176,61 @@ const renderTopo = () => {
     return {
       source: sourceNode?.displayName || e.caller,
       target: targetNode?.displayName || e.target,
-      label: { show: true, formatter: String(e.count), fontSize: 11 },
-      lineStyle: { width: Math.min(1 + e.count / 5, 6) },
+      label: {
+        show: true,
+        formatter: String(e.count),
+        fontSize: 12,
+        fontWeight: 700,
+        color: '#fff',
+        backgroundColor: isDark ? 'rgba(70,70,70,0.92)' : 'rgba(60,60,60,0.82)',
+        borderRadius: 10,
+        padding: [3, 8],
+        shadowColor: 'rgba(0,0,0,0.15)',
+        shadowBlur: 4,
+      },
+      lineStyle: {
+        width: Math.min(1.5 + e.count / 5, 5),
+        color: isDark ? 'rgba(160,160,160,0.35)' : 'rgba(160,160,160,0.5)',
+        curveness: 0.2,
+      },
     }
   })
 
-  const isDark = document.documentElement.classList.contains('dark')
-
   topoChart.setOption({
-    tooltip: { trigger: 'item' },
+    tooltip: {
+      trigger: 'item',
+      formatter: (params: any) => {
+        if (params.dataType === 'edge') {
+          return `${params.data.source} → ${params.data.target}<br/>Calls: <b>${params.data.label.formatter}</b>`
+        }
+        if (params.dataType === 'node') {
+          return `<b>${params.name}</b>`
+        }
+        return ''
+      },
+    },
     series: [
       {
         type: 'graph',
-        layout: 'none',
+        layout: 'force',
         roam: true,
+        draggable: true,
+        force: {
+          repulsion: 300,
+          edgeLength: [120, 220],
+          gravity: 0.1,
+          layoutAnimation: true,
+        },
         label: {
           show: true,
           position: 'bottom',
           fontSize: 12,
+          fontWeight: 500,
           color: isDark ? '#ccc' : '#333',
+          distance: 8,
         },
         edgeSymbol: ['none', 'arrow'],
-        edgeSymbolSize: [0, 10],
+        edgeSymbolSize: [0, 8],
         data: nodes,
         links: edges,
       },

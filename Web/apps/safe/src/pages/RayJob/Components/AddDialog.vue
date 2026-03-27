@@ -219,6 +219,7 @@
                     collapse-tags
                     collapse-tags-tooltip
                     :max-collapse-tags="5"
+                    :disabled="isEdit"
                     placeholder="Select or paste nodes to exclude (comma-separated)"
                     ref="excludedNodesSelectRef"
                     :filter-method="filterExcludedNodes"
@@ -294,7 +295,7 @@
                 <!-- preheat -->
                 <el-col :span="12">
                   <el-form-item label="preheat">
-                    <el-switch v-model="form.preheat" class="mr-2" />
+                    <el-switch v-model="form.preheat" :disabled="isEdit" class="mr-2" />
                     <el-text size="small" type="info">
                       <el-icon class="mr-1"><InfoFilled /></el-icon>
                       {{ PREHEAT_INFO }}
@@ -305,7 +306,7 @@
                 <!-- privileged -->
                 <el-col :span="12" v-if="isManager || store.isCurrentWorkspaceAdmin()">
                   <el-form-item label="privileged">
-                    <el-switch v-model="form.privileged" class="mr-2" />
+                    <el-switch v-model="form.privileged" :disabled="isEdit" class="mr-2" />
                     <el-text size="small" type="info">
                       <el-icon class="mr-1"><InfoFilled /></el-icon>
                       {{ PRIVILEGED_INFO }}
@@ -418,6 +419,7 @@
                       collapse-tags
                       collapse-tags-tooltip
                       :max-collapse-tags="5"
+                      :disabled="isEdit"
                       placeholder="Select one or more dependencies"
                     >
                       <el-option
@@ -450,6 +452,7 @@
                     <el-select
                       v-model="form.secretIds"
                       multiple
+                      :disabled="isEdit"
                       placeholder="Please select secrets"
                     >
                       <el-option
@@ -830,27 +833,11 @@ const onSubmit = async (formEl: FormInstance | undefined) => {
       })
       ElMessage({ message: 'Create successful', type: 'success' })
     } else {
-      const {
-        displayName: _n,
-        groupVersionKind,
-        isSupervised,
-        envList,
-        labelList,
-        schedulerTime,
-        timeout,
-        secretIds,
-        excludedNodes: _excludedNodes,
-        jobEntrypoint,
-        header,
-        workers,
-        resource,
-        forceHostNetwork: _fhn,
-        ...editPayload
-      } = form
       if (!props.wlid) return
 
       await editWorkload(props.wlid, {
-        ...editPayload,
+        description: form.description,
+        priority: form.priority,
         resources,
         env: mergedEnv,
         maxRetry: isRetry.value ? form.maxRetry : 0,
@@ -860,8 +847,6 @@ const onSubmit = async (formEl: FormInstance | undefined) => {
           ? { cronJobs: [{ schedule: form.schedulerTime, action: 'start' }] }
           : {}),
         ...(form.timeout !== undefined ? { timeout: form.timeout } : {}),
-        ...(secrets.length > 0 ? { secrets: secrets } : {}),
-        ...(excludedNodesPayload ? { excludedNodes: excludedNodesPayload } : {}),
       })
       ElMessage({ message: 'Edit successful', type: 'success' })
     }

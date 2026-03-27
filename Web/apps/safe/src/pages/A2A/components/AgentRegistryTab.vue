@@ -55,15 +55,23 @@
 
       <!-- Skills -->
       <div v-if="agent.parsedSkills.length" class="skill-list">
-        <span
-          v-for="skill in agent.parsedSkills.slice(0, 5)"
+        <el-tooltip
+          v-for="skill in (expandedSkills[agent.serviceName] ? agent.parsedSkills : agent.parsedSkills.slice(0, 5))"
           :key="skill.id || skill.name"
-          class="skill-chip"
+          :content="skill.description || 'No description'"
+          placement="top"
+          :show-after="300"
         >
-          {{ skill.name || skill.id }}
-        </span>
-        <span v-if="agent.parsedSkills.length > 5" class="skill-chip skill-chip--more">
-          +{{ agent.parsedSkills.length - 5 }}
+          <span class="skill-chip">
+            {{ skill.name || skill.id }}
+          </span>
+        </el-tooltip>
+        <span
+          v-if="agent.parsedSkills.length > 5"
+          class="skill-chip skill-chip--toggle"
+          @click="toggleSkills(agent.serviceName)"
+        >
+          {{ expandedSkills[agent.serviceName] ? 'Show less' : `+${agent.parsedSkills.length - 5} more` }}
         </span>
       </div>
 
@@ -78,7 +86,7 @@
 </template>
 
 <script lang="ts" setup>
-import { computed } from 'vue'
+import { computed, reactive } from 'vue'
 import { Delete, SuccessFilled, CircleCloseFilled } from '@element-plus/icons-vue'
 import { formatTimeStr } from '@/utils'
 import type { A2AService } from '@/services'
@@ -95,6 +103,13 @@ defineEmits<{
 interface ParsedSkill {
   id?: string
   name?: string
+  description?: string
+}
+
+const expandedSkills = reactive<Record<string, boolean>>({})
+
+const toggleSkills = (serviceName: string) => {
+  expandedSkills[serviceName] = !expandedSkills[serviceName]
 }
 
 const healthColor: Record<string, string> = {
@@ -167,10 +182,20 @@ const parsedAgents = computed(() =>
   line-height: 20px;
   background: var(--el-fill-color);
   color: var(--el-text-color-regular);
+  cursor: default;
+  transition: background 0.15s ease;
 }
-.skill-chip--more {
+.skill-chip:hover {
+  background: var(--el-fill-color-dark);
+}
+.skill-chip--toggle {
   background: transparent;
-  color: var(--el-text-color-secondary);
+  color: var(--el-color-primary);
+  cursor: pointer;
+  font-weight: 500;
+}
+.skill-chip--toggle:hover {
+  background: var(--el-color-primary-light-9);
 }
 
 .version-tag {

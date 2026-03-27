@@ -325,6 +325,11 @@ func modelMapper(obj *unstructured.Unstructured) *dbclient.Model {
 		AccessMode:   string(cr.Spec.Source.AccessMode),
 		ModelName:    cr.Spec.Source.ModelName,
 		Workspace:    cr.Spec.Workspace,
+		Origin:       normalizeModelOrigin(cr.Spec.Origin),
+		SftJobId:     cr.Spec.SftJobId,
+		BaseModel:    cr.Spec.BaseModel,
+		UserId:       v1.GetUserId(cr),
+		UserName:     v1.GetUserName(cr),
 		Phase:        string(cr.Status.Phase),
 		Message:      cr.Status.Message,
 		S3Path:       cr.Status.S3Path,
@@ -347,4 +352,11 @@ func modelMapper(obj *unstructured.Unstructured) *dbclient.Model {
 	}
 
 	return dbModel
+}
+
+func normalizeModelOrigin(origin string) string {
+	if origin == "" {
+		return "external"
+	}
+	return origin
 }

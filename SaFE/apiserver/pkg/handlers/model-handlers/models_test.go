@@ -522,10 +522,116 @@ func TestGetWorkloadConfig_ModelNotReady(t *testing.T) {
 	assert.ErrorContains(t, err, "not ready")
 }
 
+func TestGetSftConfig(t *testing.T) {
+	model := genMockLocalK8sModel("model-qwen", "ws1")
+	model.Spec.DisplayName = "Qwen/Qwen3-8B"
+	model.Spec.Source.URL = "https://huggingface.co/Qwen/Qwen3-8B"
+	model.Spec.Source.ModelName = "Qwen/Qwen3-8B"
+
+	k8sClient := fake.NewClientBuilder().
+		WithObjects(model).
+		WithScheme(scheme.Scheme).
+		Build()
+
+	h := newMockModelHandler(k8sClient)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Params = gin.Params{{Key: "id", Value: "model-qwen"}}
+	c.Request, _ = http.NewRequest("GET", "/models/model-qwen/sft-config?workspace=ws1", nil)
+
+	result, err := h.getSftConfig(c)
+	assert.NilError(t, err)
+
+	resp := result.(*SftConfigResponse)
+	assert.Equal(t, resp.Supported, true)
+	assert.Equal(t, resp.Model.ID, "model-qwen")
+	assert.Equal(t, resp.Model.ModelName, "Qwen/Qwen3-8B")
+	assert.Equal(t, resp.DatasetFilter.DatasetType, "sft")
+	assert.Equal(t, resp.DatasetFilter.Workspace, "ws1")
+	assert.Assert(t, resp.Defaults != nil)
+	assert.Equal(t, resp.Defaults.ExportModel, true)
+	assert.Equal(t, resp.Defaults.Priority, 1)
+	assert.Equal(t, resp.Defaults.Image, GetDefaultSftImage())
+	assert.Equal(t, resp.Defaults.TrainConfig.Peft, "none")
+	assert.Equal(t, resp.Defaults.TrainConfig.TrainIters, 100)
+	assert.Equal(t, resp.Defaults.TrainConfig.GlobalBatchSize, 8)
+	assert.Equal(t, resp.Defaults.TrainConfig.MicroBatchSize, 1)
+	assert.Equal(t, resp.Defaults.TrainConfig.SeqLength, 2048)
+	assert.Equal(t, resp.Defaults.TrainConfig.FinetuneLr, 5e-6)
+	assert.Equal(t, resp.Defaults.TrainConfig.LrWarmupIters, 5)
+	assert.Equal(t, resp.Defaults.TrainConfig.SaveInterval, 50)
+	assert.Equal(t, resp.Defaults.TrainConfig.TensorModelParallelSize, 1)
+	assert.DeepEqual(t, resp.Options.DatasetFormatOptions, []string{"alpaca"})
+	assert.DeepEqual(t, resp.Options.PeftOptions, []string{"none", "lora"})
+}
+
+func TestGetSftConfig_32BDefaults(t *testing.T) {
+	model := genMockLocalK8sModel("model-qwen-32b", "ws1")
+	model.Spec.DisplayName = "Qwen/Qwen3-32B"
+	model.Spec.Source.URL = "https://huggingface.co/Qwen/Qwen3-32B"
+	model.Spec.Source.ModelName = "Qwen/Qwen3-32B"
+
+	k8sClient := fake.NewClientBuilder().
+		WithObjects(model).
+		WithScheme(scheme.Scheme).
+		Build()
+
+	h := newMockModelHandler(k8sClient)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Params = gin.Params{{Key: "id", Value: "model-qwen-32b"}}
+	c.Request, _ = http.NewRequest("GET", "/models/model-qwen-32b/sft-config?workspace=ws1", nil)
+
+	result, err := h.getSftConfig(c)
+	assert.NilError(t, err)
+
+	resp := result.(*SftConfigResponse)
+	assert.Equal(t, resp.Supported, true)
+	assert.Assert(t, resp.Defaults != nil)
+	assert.Equal(t, resp.Defaults.TrainConfig.Peft, "none")
+	assert.Equal(t, resp.Defaults.TrainConfig.TrainIters, 1000)
+	assert.Equal(t, resp.Defaults.TrainConfig.GlobalBatchSize, 8)
+	assert.Equal(t, resp.Defaults.TrainConfig.MicroBatchSize, 1)
+	assert.Equal(t, resp.Defaults.TrainConfig.SeqLength, 2048)
+	assert.Equal(t, resp.Defaults.TrainConfig.FinetuneLr, 5e-6)
+	assert.Equal(t, resp.Defaults.TrainConfig.LrWarmupIters, 10)
+	assert.Equal(t, resp.Defaults.TrainConfig.SaveInterval, 500)
+	assert.Equal(t, resp.Defaults.TrainConfig.TensorModelParallelSize, 8)
+}
+
+func TestGetSftConfig_UnsupportedModel(t *testing.T) {
+	model := genMockRemoteAPIK8sModel("remote-model")
+
+	k8sClient := fake.NewClientBuilder().
+		WithObjects(model).
+		WithScheme(scheme.Scheme).
+		Build()
+
+	h := newMockModelHandler(k8sClient)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Params = gin.Params{{Key: "id", Value: "remote-model"}}
+	c.Request, _ = http.NewRequest("GET", "/models/remote-model/sft-config?workspace=ws1", nil)
+
+	result, err := h.getSftConfig(c)
+	assert.NilError(t, err)
+
+	resp := result.(*SftConfigResponse)
+	assert.Equal(t, resp.Supported, false)
+	assert.Equal(t, resp.Reason, "only local models can be fine-tuned")
+	assert.Assert(t, resp.Defaults == nil)
+}
+
 // TestConvertK8sModelToInfo tests the convertK8sModelToInfo function
 func TestConvertK8sModelToInfo(t *testing.T) {
 	model := genMockLocalK8sModel("test-model", "ws1")
 	model.Spec.Tags = []string{"llm", "text-generation", "english"}
+	model.Spec.Origin = "fine_tuned"
+	model.Spec.SftJobId = "sft-job-1"
+	model.Spec.BaseModel = "Qwen/Qwen3-8B"
 	model.Status.LocalPaths = []v1.ModelLocalPath{
 		{
 			Workspace: "ws1",
@@ -534,6 +640,8 @@ func TestConvertK8sModelToInfo(t *testing.T) {
 			Message:   "Download completed",
 		},
 	}
+	v1.SetLabel(model, v1.UserIdLabel, "user-1")
+	v1.SetAnnotation(model, v1.UserNameAnnotation, "Test User")
 
 	h := newMockModelHandler(nil)
 	info := h.convertK8sModelToInfo(model)
@@ -545,6 +653,11 @@ func TestConvertK8sModelToInfo(t *testing.T) {
 	assert.Equal(t, info.Workspace, "ws1")
 	assert.Equal(t, len(info.LocalPaths), 1)
 	assert.Equal(t, info.LocalPaths[0].Workspace, "ws1")
+	assert.Equal(t, info.Origin, "fine_tuned")
+	assert.Equal(t, info.SftJobId, "sft-job-1")
+	assert.Equal(t, info.BaseModel, "Qwen/Qwen3-8B")
+	assert.Equal(t, info.UserId, "user-1")
+	assert.Equal(t, info.UserName, "Test User")
 }
 
 // TestParseListModelQuery tests the parseListModelQuery function
@@ -707,4 +820,3 @@ func TestModelPhaseMessages(t *testing.T) {
 		})
 	}
 }
-

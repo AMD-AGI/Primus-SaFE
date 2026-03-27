@@ -529,6 +529,21 @@
                     <img :src="deepThinkIcon" class="control-icon" alt="Deep Thinking" />Think
                   </div>
                 </el-tooltip>
+
+                <!-- Confluence Recall Toggle (Ask mode only) -->
+                <el-tooltip
+                  v-if="mode === 'ask'"
+                  :content="enableConfluenceRecall ? 'Confluence Recall Enabled' : 'Enable Confluence Recall'"
+                  placement="top"
+                >
+                  <div
+                    class="control-button"
+                    :class="{ active: enableConfluenceRecall }"
+                    @click="enableConfluenceRecall = !enableConfluenceRecall"
+                  >
+                    <el-icon class="control-icon-el"><Notebook /></el-icon>Confluence
+                  </div>
+                </el-tooltip>
               </div>
 
               <div class="right-controls">
@@ -586,6 +601,7 @@ import {
   Loading,
   Close,
   DocumentCopy,
+  Notebook,
 } from '@element-plus/icons-vue'
 import deepThinkIcon from '@/assets/icons/deepthink.png'
 import sparklesIcon from '@/assets/icons/sparkles.png'
@@ -701,6 +717,7 @@ const userInput = ref('')
 const messages = ref<Message[]>([])
 const loading = ref(false)
 const enableThinking = ref(false)
+const enableConfluenceRecall = ref(false)
 const currentConversationId = ref<string>('')
 const sidebarVisible = ref(true)
 const askOnline = ref(true)
@@ -1658,6 +1675,7 @@ const sendMessage = async () => {
         stream: true,
         history: history,
         enable_thinking: enableThinking.value,
+        enable_confluence_recall: enableConfluenceRecall.value || null,
       },
       (content: string) => {
         // Just update content, don't auto scroll

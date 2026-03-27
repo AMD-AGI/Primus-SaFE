@@ -278,6 +278,21 @@
                   <img :src="deepThinkIcon" class="control-icon" alt="Deep Thinking" />Think
                 </div>
               </el-tooltip>
+
+              <!-- Confluence Recall Toggle (Ask mode only) -->
+              <el-tooltip
+                v-if="mode === 'ask'"
+                :content="enableConfluenceRecall ? 'Confluence Recall Enabled' : 'Enable Confluence Recall'"
+                placement="top"
+              >
+                <div
+                  class="control-button confluence-btn"
+                  :class="{ active: enableConfluenceRecall }"
+                  @click="enableConfluenceRecall = !enableConfluenceRecall"
+                >
+                  <el-icon class="control-icon-el"><Notebook /></el-icon>Confluence
+                </div>
+              </el-tooltip>
             </div>
 
             <div class="right-controls">
@@ -324,6 +339,7 @@ import {
   ArrowDown,
   ArrowUp,
   Star,
+  Notebook,
 } from '@element-plus/icons-vue'
 import stopIcon from '@/assets/icons/stop.png'
 import deepThinkIcon from '@/assets/icons/deepthink.png'
@@ -420,7 +436,7 @@ const dragStart = reactive({ x: 0, y: 0 })
 const clickTime = ref(0)
 
 // Use composables
-const { enableThinking, sendAskMessage, stopAskGeneration } = useAskChat(
+const { enableThinking, enableConfluenceRecall, sendAskMessage, stopAskGeneration } = useAskChat(
   messages,
   currentConversationId,
   loading,
@@ -1130,12 +1146,16 @@ onUnmounted(() => {
   .header-left {
     display: flex;
     align-items: center;
-    gap: 10px;
+    gap: 8px;
+    min-width: 0;
+    flex: 1;
+    overflow: hidden;
   }
 
   .header-icon {
     width: 20px;
     height: 20px;
+    flex-shrink: 0;
     object-fit: contain;
     filter: brightness(0) saturate(100%) invert(42%) sepia(93%) saturate(1352%) hue-rotate(201deg)
       brightness(103%) contrast(97%);
@@ -1146,17 +1166,23 @@ onUnmounted(() => {
     font-weight: 600;
     color: #0f172a;
     letter-spacing: -0.3px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    flex-shrink: 1;
+    min-width: 0;
   }
 
   .header-status {
     font-size: 10px;
     color: #059669;
-    margin-left: 6px;
     padding: 2px 6px;
     background: linear-gradient(135deg, #d1fae5 0%, #a7f3d0 100%);
     border-radius: 10px;
     font-weight: 500;
     transition: all 0.3s ease;
+    white-space: nowrap;
+    flex-shrink: 0;
 
     &.offline {
       color: #64748b;
@@ -1165,7 +1191,7 @@ onUnmounted(() => {
   }
 
   .header-star-icon {
-    margin-left: 8px;
+    flex-shrink: 0;
     font-size: 16px;
     color: #ffd700;
     cursor: pointer;
@@ -1192,6 +1218,8 @@ onUnmounted(() => {
     display: flex;
     align-items: center;
     gap: 4px;
+    flex-shrink: 0;
+    margin-left: 8px;
   }
 
   .action-icon {
@@ -1981,8 +2009,9 @@ onUnmounted(() => {
     }
 
     .control-button {
-      width: 74px;
+      min-width: 74px;
       height: 28px;
+      padding: 0 10px;
       border-radius: 20px;
       display: flex;
       align-items: center;
@@ -1994,6 +2023,7 @@ onUnmounted(() => {
       transition: all 0.2s ease;
       color: #666;
       font-size: 12px;
+      white-space: nowrap;
 
       .el-icon {
         font-size: 14px;
@@ -2003,6 +2033,12 @@ onUnmounted(() => {
         width: 16px;
         height: 16px;
         object-fit: contain;
+        opacity: 0.6;
+        transition: all 0.2s ease;
+      }
+
+      .control-icon-el {
+        font-size: 14px;
         opacity: 0.6;
         transition: all 0.2s ease;
       }
@@ -2018,6 +2054,10 @@ onUnmounted(() => {
           filter: brightness(0) saturate(100%) invert(42%) sepia(93%) saturate(1352%)
             hue-rotate(201deg) brightness(103%) contrast(97%);
         }
+
+        .control-icon-el {
+          opacity: 1;
+        }
       }
 
       &.active {
@@ -2029,6 +2069,10 @@ onUnmounted(() => {
         .control-icon {
           opacity: 1;
           filter: brightness(0) invert(1);
+        }
+
+        .control-icon-el {
+          opacity: 1;
         }
       }
     }
