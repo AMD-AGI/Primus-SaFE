@@ -7,9 +7,15 @@ export interface ConnectionEstablishedData {
 
 // Message types
 export interface MessageEvent {
-  type: 'content' | 'workflow' | 'action' | 'confirm' | 'error' | 'complete' | 'timeout'
+  type: 'content' | 'workflow' | 'action' | 'confirm' | 'guided_confirm' | 'error' | 'complete' | 'timeout'
   operation_id?: string
   data: any
+}
+
+export interface GuidedConfirmMessageData {
+  workflow_id: string
+  prefilled: Record<string, unknown>
+  message?: string
 }
 
 export interface ContentMessageData {

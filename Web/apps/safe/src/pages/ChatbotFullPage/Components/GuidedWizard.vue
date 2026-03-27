@@ -107,11 +107,13 @@ interface Props {
   workflow: GuidedWorkflow
   readonly?: boolean
   submittedData?: Record<string, unknown>
+  prefilled?: Record<string, unknown>
 }
 
 const props = withDefaults(defineProps<Props>(), {
   readonly: false,
   submittedData: undefined,
+  prefilled: undefined,
 })
 
 defineEmits<{
@@ -137,6 +139,13 @@ watch(
     for (const step of wf.steps) {
       for (const field of step.fields) {
         defaults[field.key] = field.default ?? (field.type === 'number' ? undefined : '')
+      }
+    }
+    if (props.prefilled) {
+      for (const [key, value] of Object.entries(props.prefilled)) {
+        if (value !== undefined && value !== null) {
+          defaults[key] = value
+        }
       }
     }
     stepData.value = defaults

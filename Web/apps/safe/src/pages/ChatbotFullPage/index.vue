@@ -239,6 +239,7 @@
                     :workflow="message.wizardData"
                     :readonly="message.wizardReadonly || false"
                     :submitted-data="message.wizardSubmittedData"
+                    :prefilled="message.wizardPrefilled"
                     @submit="handleWizardSubmit(index, $event)"
                     @cancel="handleWizardCancel(index)"
                   />
@@ -674,6 +675,7 @@ import {
   type WorkflowMessageData,
   type ActionMessageData,
   type ConfirmMessageData,
+  type GuidedConfirmMessageData,
   type MessageEvent,
   type TimeoutMessageData,
 } from '@/services/agent'
@@ -709,6 +711,8 @@ interface Message {
   wizardData?: GuidedWorkflow
   wizardReadonly?: boolean
   wizardSubmittedData?: Record<string, unknown>
+  wizardPrefilled?: Record<string, unknown>
+  wizardFromAgent?: boolean
 }
 
 interface HistoryItem {
@@ -937,6 +941,9 @@ const handleAgentMessage = (event: MessageEvent) => {
     case 'confirm':
       handleConfirmMessage(data)
       break
+    case 'guided_confirm':
+      handleGuidedConfirmMessage(lastAssistantIndex, data as GuidedConfirmMessageData)
+      break
     case 'error':
       handleErrorMessage(lastAssistantIndex, data)
       break
@@ -1048,6 +1055,30 @@ const handleConfirmMessage = (data: ConfirmMessageData) => {
   }
 
   loading.value = false
+}
+
+// Agent: Handle guided_confirm — open wizard with prefilled data from Agent
+const handleGuidedConfirmMessage = (messageIndex: number, data: GuidedConfirmMessageData) => {
+  const message = messages.value[messageIndex]
+  if (!message) return
+
+  const workflow = getWorkflowById(data.workflow_id)
+  if (!workflow) {
+    console.warn(`[GuidedWizard] Unknown workflow from agent: ${data.workflow_id}`)
+    return
+  }
+
+  message.wizardData = workflow
+  message.wizardPrefilled = data.prefilled
+  message.wizardFromAgent = true
+  message.agentHasSteps = true
+
+  if (data.message) {
+    message.content = data.message
+  }
+
+  loading.value = false
+  nextTick(scrollToNewQuestion)
 }
 
 // Agent: Handle error message
@@ -1507,14 +1538,19 @@ const handleWizardSubmit = (messageIndex: number, data: Record<string, unknown>)
   const message = messages.value[messageIndex]
   if (!message?.wizardData) return
 
-  const formatted = message.wizardData.formatMessage(data)
   message.wizardReadonly = true
   message.wizardSubmittedData = data
 
-  userInput.value = formatted
-  nextTick(() => {
-    sendMessage()
-  })
+  if (message.wizardFromAgent) {
+    agentSocket.sendSelection(data, currentOperationId.value)
+    loading.value = true
+  } else {
+    const formatted = message.wizardData.formatMessage(data)
+    userInput.value = formatted
+    nextTick(() => {
+      sendMessage()
+    })
+  }
 }
 
 // Handle wizard cancel
