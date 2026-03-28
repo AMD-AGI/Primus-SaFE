@@ -100,11 +100,11 @@ spec:
           resources:
             limits:
               cpu: "1500m"
-              memory: 300Mi
+              memory: 600Mi
               ephemeral-storage: 2Gi
             requests:
               cpu: "1500m"
-              memory: 300Mi
+              memory: 600Mi
               ephemeral-storage: 2Gi
           securityContext:
             privileged: true
