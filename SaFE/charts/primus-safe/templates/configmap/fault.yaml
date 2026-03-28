@@ -45,7 +45,6 @@ data:
   sys_timezone_301: '{"id":"301","toggle":"on"}'
   sys_hostname_302: '{"id":"302","action":"taint","toggle":"on"}'
   sys_containerd_303: '{"id":"303","toggle":"on"}'
-  sys_kernel_lock_304: '{"id":"304","action":"taint","toggle":"on"}'
   sys_acsctl_305: '{"id":"305","toggle":"on"}'
   sys_boot_args_306: '{"id":"306","toggle":"on"}'
   sys_docker_307: '{"id":"307","toggle":"on"}'

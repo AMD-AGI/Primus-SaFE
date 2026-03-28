@@ -8,13 +8,7 @@
 set -o pipefail
 export PATH="/usr/bin:/bin:${PATH:-}"
 
-# Stage capture under the app dir, then move to /tmp/rocm-smi (other gpu_*.sh scripts read that path).
-STATE_DIR="/opt/primus-safe/node-agent/tmp"
-if ! mkdir -p "${STATE_DIR}" "/tmp"; then
-  echo "Error: cannot create ${STATE_DIR} or /tmp"
-  exit 1
-fi
-tmpfile="${STATE_DIR}/rocm-smi.tmp"
+tmpfile="/tmp/rocm-smi.tmp"
 outfile="/tmp/rocm-smi"
 
 nsenter --target 1 --mount --uts --ipc --net --pid -- lsmod | grep 'amdgpu ' > /dev/null
