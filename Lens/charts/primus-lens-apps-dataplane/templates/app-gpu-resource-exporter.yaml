@@ -23,6 +23,9 @@ data:
       metricsPort: {{ .Values.apps.gpuResourceExporter.config.controller.metricsPort | default 19193 }}
       healthzPort: {{ .Values.apps.gpuResourceExporter.config.controller.healthzPort | default 19194 }}
       pprofPort: {{ .Values.apps.gpuResourceExporter.config.controller.pprofPort | default 19195 }}
+      leaseDurationSeconds: {{ .Values.apps.gpuResourceExporter.config.controller.leaseDurationSeconds | default 35 }}
+      renewDeadlineSeconds: {{ .Values.apps.gpuResourceExporter.config.controller.renewDeadlineSeconds | default 25 }}
+      retryPeriodSeconds: {{ .Values.apps.gpuResourceExporter.config.controller.retryPeriodSeconds | default 10 }}
 
 ---
 apiVersion: apps/v1

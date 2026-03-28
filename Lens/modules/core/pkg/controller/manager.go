@@ -5,6 +5,7 @@ package controller
 
 import (
 	"context"
+	"os"
 	"reflect"
 
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/config"
@@ -60,18 +61,27 @@ func InitControllers(ctx context.Context, conf config.Config) error {
 	controllerLogger.SetLogger(logr.New(logger))
 	cfg := conf.Controller
 	k8sCfg := ctrl.GetConfigOrDie()
+	leaseDuration := cfg.GetLeaseDuration()
+	renewDeadline := cfg.GetRenewDeadline()
+	retryPeriod := cfg.GetRetryPeriod()
+	log.Infof("Leader election config: leaseDuration=%v, renewDeadline=%v, retryPeriod=%v", leaseDuration, renewDeadline, retryPeriod)
+
 	mgr, err := ctrl.NewManager(k8sCfg, ctrl.Options{
 		Scheme: scheme,
 		Metrics: metricsserver.Options{
 			BindAddress: cfg.GetMetricsBindAddress(),
 		},
-		HealthProbeBindAddress:  cfg.GetHealthzBindAddress(),
-		PprofBindAddress:        cfg.GetPprofBindAddress(),
-		ReadinessEndpointName:   "/ready",
-		LivenessEndpointName:    "/health",
-		LeaderElection:          true,
-		LeaderElectionNamespace: cfg.Namespace,
-		LeaderElectionID:        cfg.LeaderElectionId,
+		HealthProbeBindAddress:        cfg.GetHealthzBindAddress(),
+		PprofBindAddress:              cfg.GetPprofBindAddress(),
+		ReadinessEndpointName:         "/ready",
+		LivenessEndpointName:          "/health",
+		LeaderElection:                true,
+		LeaderElectionNamespace:       cfg.Namespace,
+		LeaderElectionID:              cfg.LeaderElectionId,
+		LeaseDuration:                 &leaseDuration,
+		RenewDeadline:                 &renewDeadline,
+		RetryPeriod:                   &retryPeriod,
+		LeaderElectionReleaseOnCancel: true,
 	})
 	if err != nil {
 		return err
@@ -97,7 +107,8 @@ func InitControllers(ctx context.Context, conf config.Config) error {
 	go func() {
 		err := mgr.Start(ctx)
 		if err != nil {
-			panic(err)
+			log.Errorf("Controller manager stopped with error: %v. Exiting process for restart.", err)
+			os.Exit(1)
 		}
 	}()
 	return err
