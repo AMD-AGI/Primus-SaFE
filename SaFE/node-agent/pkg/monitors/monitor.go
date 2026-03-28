@@ -111,7 +111,7 @@ func (m *Monitor) startCronJob() {
 	// Create a new Cron instance. If a job is still running,
 	// subsequent triggers of the same job will be skipped to avoid overlapping executions.
 	c := cron.New(cron.WithChain(
-		cron.SkipIfStillRunning(cron.DiscardLogger),
+		cron.SkipIfStillRunning(cron.VerbosePrintfLogger(klogPrintf{})),
 	))
 
 	schedule, err := timeutil.ParseCronStandard(m.config.Cronjob)
@@ -140,7 +140,8 @@ func (m *Monitor) Run() {
 
 	timeout := time.Second * time.Duration(m.config.TimeoutSecond)
 	statusCode, output := utils.ExecuteScript(args, timeout)
-	// If the result is unknown, ignore it
+
+	// Only process OK(0) and Error(1); discard unknown, timeout, signal kills, etc.
 	if statusCode != types.StatusOk && statusCode != types.StatusError {
 		return
 	}
@@ -213,4 +214,11 @@ func (m *Monitor) generateNodeInfo() *NodeInfo {
 // IsExited returns whether the monitor has been stopped.
 func (m *Monitor) IsExited() bool {
 	return m.isExited
+}
+
+// klogPrintf adapts klog.Warningf to the Printf interface required by cron.VerbosePrintfLogger.
+type klogPrintf struct{}
+
+func (klogPrintf) Printf(format string, v ...interface{}) {
+	klog.Warningf(format, v...)
 }
