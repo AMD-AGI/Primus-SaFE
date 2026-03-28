@@ -89,6 +89,36 @@ type ControllerConfig struct {
 	MetricsPort      int    `json:"metricsPort" yaml:"metricsPort"`
 	HealthzPort      int    `json:"healthzPort" yaml:"healthzPort"`
 	PprofPort        int    `json:"pprofPort" yaml:"pprofPort"`
+	// LeaseDurationSeconds is the duration that non-leader candidates will wait to force acquire leadership.
+	// Default: 35s (controller-runtime default is 15s, increased for environments with high API server latency)
+	LeaseDurationSeconds int `json:"leaseDurationSeconds" yaml:"leaseDurationSeconds"`
+	// RenewDeadlineSeconds is the duration that the acting leader will retry refreshing leadership before giving up.
+	// Default: 25s (controller-runtime default is 10s, increased for environments with high API server latency)
+	RenewDeadlineSeconds int `json:"renewDeadlineSeconds" yaml:"renewDeadlineSeconds"`
+	// RetryPeriodSeconds is the duration between each retry of the leader election actions.
+	// Default: 10s (controller-runtime default is 2s, increased for environments with high API server latency)
+	RetryPeriodSeconds int `json:"retryPeriodSeconds" yaml:"retryPeriodSeconds"`
+}
+
+func (cfg ControllerConfig) GetLeaseDuration() time.Duration {
+	if cfg.LeaseDurationSeconds <= 0 {
+		return 35 * time.Second
+	}
+	return time.Duration(cfg.LeaseDurationSeconds) * time.Second
+}
+
+func (cfg ControllerConfig) GetRenewDeadline() time.Duration {
+	if cfg.RenewDeadlineSeconds <= 0 {
+		return 25 * time.Second
+	}
+	return time.Duration(cfg.RenewDeadlineSeconds) * time.Second
+}
+
+func (cfg ControllerConfig) GetRetryPeriod() time.Duration {
+	if cfg.RetryPeriodSeconds <= 0 {
+		return 10 * time.Second
+	}
+	return time.Duration(cfg.RetryPeriodSeconds) * time.Second
 }
 
 func (cfg ControllerConfig) GetMetricsBindAddress() string {
