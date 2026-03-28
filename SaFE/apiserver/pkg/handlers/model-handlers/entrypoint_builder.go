@@ -89,6 +89,8 @@ const (
 	DefaultGpuCount         = 8
 	DefaultCpu              = "128"
 	DefaultMemory           = "1024Gi"
+	DefaultSharedMemory     = "500Gi"
+	DefaultRdmaResource     = "1k"
 	DefaultEphemeralStorage = "2048Gi"
 	DefaultPrimusPath       = "/tmp/primus"
 	PrimusGitRepo           = "https://github.com/AMD-AGI/Primus.git"
@@ -207,6 +209,9 @@ func FillSftDefaults(req *CreateSftJobRequest, modelSize string) {
 	}
 	if req.Memory == "" {
 		req.Memory = DefaultMemory
+	}
+	if req.SharedMemory == "" && req.NodeCount > 1 {
+		req.SharedMemory = DefaultSharedMemory
 	}
 	if req.EphemeralStorage == "" {
 		req.EphemeralStorage = DefaultEphemeralStorage

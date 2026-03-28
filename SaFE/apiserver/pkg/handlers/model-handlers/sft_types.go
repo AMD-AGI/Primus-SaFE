@@ -23,6 +23,7 @@ type CreateSftJobRequest struct {
 	GpuCount         int               `json:"gpuCount"`
 	Cpu              string            `json:"cpu"`
 	Memory           string            `json:"memory"`
+	SharedMemory     string            `json:"sharedMemory"`
 	EphemeralStorage string            `json:"ephemeralStorage"`
 	Env              map[string]string `json:"env"`
 	Hostpath         []string          `json:"hostpath"`
@@ -103,6 +104,7 @@ type SftConfigDefaults struct {
 	GpuCount         int            `json:"gpuCount"`
 	Cpu              string         `json:"cpu"`
 	Memory           string         `json:"memory"`
+	SharedMemory     string         `json:"sharedMemory,omitempty"`
 	EphemeralStorage string         `json:"ephemeralStorage"`
 	Priority         int            `json:"priority"`
 	TrainConfig      SftTrainConfig `json:"trainConfig"`

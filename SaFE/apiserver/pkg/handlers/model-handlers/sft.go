@@ -123,6 +123,7 @@ func (h *Handler) createSftJob(c *gin.Context) (interface{}, error) {
 		CPU:              req.Cpu,
 		GPU:              strconv.Itoa(req.GpuCount),
 		Memory:           req.Memory,
+		SharedMemory:     req.SharedMemory,
 		EphemeralStorage: req.EphemeralStorage,
 	}
 
@@ -131,6 +132,7 @@ func (h *Handler) createSftJob(c *gin.Context) (interface{}, error) {
 	var entryPoints []string
 
 	if req.NodeCount > 1 {
+		nodeResource.RdmaResource = DefaultRdmaResource
 		masterResource := nodeResource
 		masterResource.Replica = 1
 		workerResource := nodeResource
@@ -271,6 +273,7 @@ func (h *Handler) getSftConfig(c *gin.Context) (interface{}, error) {
 		GpuCount:         defaultReq.GpuCount,
 		Cpu:              defaultReq.Cpu,
 		Memory:           defaultReq.Memory,
+		SharedMemory:     defaultReq.SharedMemory,
 		EphemeralStorage: defaultReq.EphemeralStorage,
 		Priority:         defaultReq.Priority,
 		TrainConfig:      defaultReq.TrainConfig,
