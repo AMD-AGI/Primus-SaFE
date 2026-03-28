@@ -324,7 +324,6 @@ if [ -z "$PRIMUS_DIR" ]; then
 fi
 echo "Using Primus at: $PRIMUS_DIR (module config: $MODULE_CONFIG)"
 cd "$PRIMUS_DIR"
-mkdir -p ./output
 mkdir -p primus/configs/models/megatron_bridge
 cat > primus/configs/models/megatron_bridge/sft_custom_model.yaml << 'MODELEOF'
 %s
@@ -332,6 +331,7 @@ MODELEOF
 sed "s/%%MODULE_CONFIG%%/$MODULE_CONFIG/g" > /tmp/sft_experiment.yaml << 'EXPEOF'
 %s
 EXPEOF
+mkdir -p "./output/${PRIMUS_TEAM:-amd}/${PRIMUS_USER:-root}/%s"
 ./runner/primus-cli direct -- train posttrain --config /tmp/sft_experiment.yaml
 TRAIN_EXIT_CODE=$?
 
@@ -370,7 +370,7 @@ if [ "%s" = "none" ]; then
 fi
 echo "Cleanup done. Disk usage: $(du -sh . 2>/dev/null | cut -f1)"`,
 		cfg.DatasetPath, preparedDatasetDir,
-		cfg.PrimusPath, cfg.PrimusPath, modelYaml, expYaml,
+		cfg.PrimusPath, cfg.PrimusPath, modelYaml, expYaml, cfg.ExpName,
 		cfg.TrainConfig.Peft)
 
 	if cfg.ExportModel {
