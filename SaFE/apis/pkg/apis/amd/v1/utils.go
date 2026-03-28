@@ -133,11 +133,6 @@ func GetNodeGpuCount(obj metav1.Object) int {
 	return atoi(GetLabel(obj, NodeGpuCountLabel))
 }
 
-// GetNodeEphemeralStorage retrieves the expected ephemeralStorage of node
-func GetNodeEphemeralStorage(obj metav1.Object) int64 {
-	return atol(GetLabel(obj, NodeEphemeralStorageLabel))
-}
-
 // GetNodeStartupTime retrieves the node startup timestamp from labels.
 func GetNodeStartupTime(obj metav1.Object) string {
 	return GetLabel(obj, NodeStartupTimeLabel)

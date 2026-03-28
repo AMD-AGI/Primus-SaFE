@@ -195,7 +195,7 @@ func (c *ssoToken) validate(ctx context.Context, rawToken string) (*UserInfo, er
 	if err = json.Indent(buff, claims, "", "  "); err != nil {
 		return nil, fmt.Errorf("failed to indent ID token claims: %v", err)
 	}
-	// klog.Infof("user buffer: %s, tokensize: %d", buff.String(), len(rawToken))
+	klog.Infof("user buffer: %s, tokensize: %d", buff.String(), len(rawToken))
 	userInfo := &UserInfo{}
 	err = json.Unmarshal(buff.Bytes(), userInfo)
 	if err != nil {

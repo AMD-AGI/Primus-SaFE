@@ -11,21 +11,21 @@
 
 set -o pipefail
 
-if [ "$#" -lt 2 ]; then
-  echo "Usage: $0 <model_keyword> <expected_count>"
-  echo "Example: $0 nvme 8"
+if [ "$#" -lt 1 ]; then
+  echo "Usage: $0 <node-info>"
+  echo "Example: $0 '{\"expectedDiskType\": \"nvme\", \"expectedDiskCount\": 8}'"
   exit 2
 fi
 
-model_keyword="$1"
-expected_count="$2"
+model_keyword=$(echo "$1" | jq -r '.expectedDiskType')
+expected_count=$(echo "$1" | jq -r '.expectedDiskCount')
 
-if [ -z "$model_keyword" ] || [ "$model_keyword" != "nvme" ]; then
+if [ -z "$model_keyword" ] || [ "$model_keyword" = "null" ] || [ "$model_keyword" != "nvme" ]; then
   exit 0
 fi
 
-if ! [[ "$expected_count" =~ ^[0-9]+$ ]]; then
-  echo "Error: expected_count must be a positive integer, got: $expected_count"
+if [ -z "$expected_count" ] || [ "$expected_count" = "null" ] || ! [[ "$expected_count" =~ ^[0-9]+$ ]] || [ "$expected_count" -le 0 ]; then
+  echo "Error: expectedDiskCount must be a positive integer, got: $expected_count"
   exit 2
 fi
 

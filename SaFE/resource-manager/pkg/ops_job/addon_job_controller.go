@@ -374,6 +374,9 @@ func (r *AddonJobReconciler) handleNode(ctx context.Context,
 	// If the addon specified by node.template is installed on the node, save the operation result.
 	// Subsequent operations can then trigger the preflight check.
 	hasTaskRunning := output != ""
+	if !hasTaskRunning {
+		return true, "", nil
+	}
 	if err = r.updateNodeTemplatePhase(ctx, job, adminNode, hasTaskRunning); err != nil {
 		return false, "", err
 	}

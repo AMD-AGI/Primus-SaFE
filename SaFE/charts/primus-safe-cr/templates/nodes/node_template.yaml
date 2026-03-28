@@ -21,7 +21,6 @@ spec:
     - disable-huge-pages
     - load-amdgpu-module
     - load-rdma-module
-    - set-max-sclk
     - sysctl-max-map-count
     - sysctl-ulimit
     - sysctl-inotify

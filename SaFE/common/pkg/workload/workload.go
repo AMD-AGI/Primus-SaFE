@@ -317,6 +317,13 @@ func IsRayJob(w *v1.Workload) bool {
 	return false
 }
 
+func IsMonarchJob(w *v1.Workload) bool {
+	if w.SpecKind() == common.MonarchJob {
+		return true
+	}
+	return false
+}
+
 // IsOpsJob returns true if the workload is about ops job
 func IsOpsJob(w *v1.Workload) bool {
 	return v1.GetOpsJobId(w) != ""
@@ -494,6 +501,9 @@ func GetUsedHostPorts(ctx context.Context, cli client.Client, clusterId string) 
 				if IsRayJob(&item) {
 					ports[common.RayJobDashboard] = struct{}{}
 					ports[common.RayJobGcsServerPort] = struct{}{}
+				}
+				if IsMonarchJob(&item) {
+					ports[common.MonarchMeshPort] = struct{}{}
 				}
 			}
 			if item.Spec.Service != nil && item.Spec.Service.NodePort > 0 {
