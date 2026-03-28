@@ -93,9 +93,7 @@ const (
 	DefaultRdmaResource     = "1k"
 	DefaultEphemeralStorage = "2048Gi"
 	DefaultPrimusPath       = "/tmp/primus"
-	PrimusGitRepo           = "https://github.com/AMD-AGI/Primus.git"
-	PrimusGitCommit         = "1dd3ebe8" // compatible with pr-609-ainic / pr-624-ainic images
-	DefaultPriority         = 1          // medium: HighPriorityInt=2, MedPriorityInt=1, LowPriorityInt=0
+	DefaultPriority         = 1 // medium: HighPriorityInt=2, MedPriorityInt=1, LowPriorityInt=0
 )
 
 // GetDefaultSftImage returns the default SFT training image using the cluster's harbor registry.
@@ -306,26 +304,31 @@ if [ $? -ne 0 ]; then
   exit 1
 fi
 
-# ==================== Find/Clone Primus ====================
+# ==================== Find Primus ====================
 PRIMUS_DIR=""
-SFT_CONFIG="primus/configs/modules/megatron_bridge/sft_trainer.yaml"
+MODULE_CONFIG=""
+NEW_CFG="primus/configs/modules/megatron_bridge/sft_trainer.yaml"
+OLD_CFG="primus/configs/modules/megatron_bridge/post_trainer.yaml"
 for p in /workspace/Primus %s; do
-  if [ -d "$p/runner" ] && [ -f "$p/$SFT_CONFIG" ]; then PRIMUS_DIR="$p"; break; fi
+  if [ -d "$p/runner" ]; then
+    if [ -f "$p/$NEW_CFG" ]; then
+      PRIMUS_DIR="$p"; MODULE_CONFIG="sft_trainer.yaml"; break
+    elif [ -f "$p/$OLD_CFG" ]; then
+      PRIMUS_DIR="$p"; MODULE_CONFIG="post_trainer.yaml"; break
+    fi
+  fi
 done
 if [ -z "$PRIMUS_DIR" ]; then
-  echo "Compatible Primus not found (missing $SFT_CONFIG), cloning compatible version (%s)..."
-  rm -rf %s
-  git clone %s %s
-  cd %s && git checkout %s && git submodule update --init --recursive && cd -
-  PRIMUS_DIR="%s"
+  echo "ERROR: No compatible Primus found in /workspace/Primus or %s"
+  exit 1
 fi
-echo "Using Primus at: $PRIMUS_DIR"
+echo "Using Primus at: $PRIMUS_DIR (module config: $MODULE_CONFIG)"
 cd "$PRIMUS_DIR"
 mkdir -p primus/configs/models/megatron_bridge
 cat > primus/configs/models/megatron_bridge/sft_custom_model.yaml << 'MODELEOF'
 %s
 MODELEOF
-cat > /tmp/sft_experiment.yaml << 'EXPEOF'
+sed "s/%%MODULE_CONFIG%%/$MODULE_CONFIG/g" > /tmp/sft_experiment.yaml << 'EXPEOF'
 %s
 EXPEOF
 ./runner/primus-cli direct -- train posttrain --config /tmp/sft_experiment.yaml
@@ -366,7 +369,7 @@ if [ "%s" = "none" ]; then
 fi
 echo "Cleanup done. Disk usage: $(du -sh . 2>/dev/null | cut -f1)"`,
 		cfg.DatasetPath, preparedDatasetDir,
-		cfg.PrimusPath, PrimusGitCommit, cfg.PrimusPath, PrimusGitRepo, cfg.PrimusPath, cfg.PrimusPath, PrimusGitCommit, cfg.PrimusPath, modelYaml, expYaml,
+		cfg.PrimusPath, cfg.PrimusPath, modelYaml, expYaml,
 		cfg.TrainConfig.Peft)
 
 	if cfg.ExportModel {
@@ -592,7 +595,7 @@ func buildExperimentYaml(cfg EntrypointConfig) string {
 	sb.WriteString("modules:\n")
 	sb.WriteString("  post_trainer:\n")
 	sb.WriteString("    framework: megatron_bridge\n")
-	sb.WriteString("    config: sft_trainer.yaml\n")
+	sb.WriteString("    config: %MODULE_CONFIG%\n")
 	sb.WriteString("    model: sft_custom_model.yaml\n")
 	sb.WriteString("    overrides:\n")
 	sb.WriteString("      stderr_sink_level: DEBUG\n")
