@@ -6,6 +6,7 @@
 package utils
 
 import (
+	"bytes"
 	"context"
 	"os/exec"
 	"strings"
@@ -38,8 +39,11 @@ func ExecuteScript(args []string, timeout time.Duration) (int, string) {
 	defer cancel()
 	cmd := Exec(ctx, "/bin/bash", args...)
 
-	output, err := cmd.CombinedOutput()
-	value := strings.TrimSpace(string(output))
+	var buf bytes.Buffer
+	cmd.Stdout = &buf
+	cmd.Stderr = &buf
+	err := cmd.Run()
+	value := strings.TrimSpace(buf.String())
 	statusCode := types.StatusUnknown
 	if err != nil {
 		if exitError, ok := err.(*exec.ExitError); ok {

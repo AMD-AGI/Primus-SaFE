@@ -28,12 +28,12 @@ if [ $? -ne 0 ]; then
   exit 2
 fi
 
-nsenter --target 1 --mount --uts --ipc --net --pid -- /usr/bin/rocm-smi > "${tmpfile}"
+nsenter --target 1 --mount --uts --ipc --net --pid -- /usr/bin/rocm-smi > "${tmpfile}" 2>/dev/null
 ret=$?
 if [ $ret -ne 0 ]; then
   echo "Error: failed to execute rocm-smi. ret=$ret"
-  /bin/rm -f "${tmpfile}" 2>/dev/null || > "${tmpfile}" 2>/dev/null || true
+  rm -f "${tmpfile}" 2>/dev/null || true
   exit 1
 fi
-/bin/mv -f "${tmpfile}" "${outfile}"
+mv -f "${tmpfile}" "${outfile}" 2>/dev/null || true
 exit 0
