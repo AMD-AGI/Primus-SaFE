@@ -324,6 +324,7 @@ if [ -z "$PRIMUS_DIR" ]; then
 fi
 echo "Using Primus at: $PRIMUS_DIR (module config: $MODULE_CONFIG)"
 cd "$PRIMUS_DIR"
+mkdir -p ./output
 mkdir -p primus/configs/models/megatron_bridge
 cat > primus/configs/models/megatron_bridge/sft_custom_model.yaml << 'MODELEOF'
 %s
@@ -615,6 +616,13 @@ func buildExperimentYaml(cfg EntrypointConfig) string {
 
 	// PEFT
 	fmt.Fprintf(&sb, "      peft: \"%s\"\n", tc.Peft)
+	if tc.Peft == "lora" {
+		hfBasename := cfg.HfPath
+		if idx := strings.LastIndex(hfBasename, "/"); idx >= 0 {
+			hfBasename = hfBasename[idx+1:]
+		}
+		fmt.Fprintf(&sb, "      pretrained_checkpoint: ./data/megatron_checkpoints/%s\n", hfBasename)
+	}
 	if tc.Peft == "lora" || cfg.ModelSize == "32b" || cfg.ModelSize == "70b" {
 		fmt.Fprintf(&sb, "      packed_sequence: %v\n", tc.PackedSequence)
 	}
