@@ -551,12 +551,14 @@ func (h *Handler) generatePrewarmImageJob(c *gin.Context, body []byte) (*v1.OpsJ
 
 	// Extract image and workspace from inputs
 	var image, workspace string
-	for _, param := range req.Inputs {
+	for i, param := range req.Inputs {
 		if param.Name == v1.ParameterImage {
-			image = param.Value
+			image = strings.TrimSpace(param.Value)
+			req.Inputs[i].Value = image
 		}
 		if param.Name == v1.ParameterWorkspace {
-			workspace = param.Value
+			workspace = strings.TrimSpace(param.Value)
+			req.Inputs[i].Value = workspace
 		}
 	}
 	if image == "" {
