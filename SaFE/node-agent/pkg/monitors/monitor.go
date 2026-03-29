@@ -7,6 +7,7 @@ package monitors
 
 import (
 	"encoding/json"
+	"math/rand"
 	"path/filepath"
 	"time"
 
@@ -107,6 +108,10 @@ func (m *Monitor) startCronJob() {
 	defer func() {
 		klog.Infof("stop cronjob %s, duration: %v", m.config.Id, time.Since(start))
 	}()
+
+	// Stagger first execution across monitors to avoid simultaneous resource spikes.
+	jitter := time.Duration(rand.Int63n(int64(30 * time.Second)))
+	time.Sleep(jitter)
 
 	// Create a new Cron instance. If a job is still running,
 	// subsequent triggers of the same job will be skipped to avoid overlapping executions.
