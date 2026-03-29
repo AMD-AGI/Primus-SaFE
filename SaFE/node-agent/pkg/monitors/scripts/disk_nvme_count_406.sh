@@ -17,10 +17,10 @@ if [ "$#" -lt 1 ]; then
   exit 2
 fi
 
-model_keyword=$(echo "$1" | jq -r '.expectedDiskType')
+disk_type=$(echo "$1" | jq -r '.expectedDiskType')
 expected_count=$(echo "$1" | jq -r '.expectedDiskCount')
 
-if [ -z "$model_keyword" ] || [ "$model_keyword" = "null" ] || [ "$model_keyword" != "nvme" ]; then
+if [ -z "$disk_type" ] || [ "$disk_type" = "null" ] || [ "$disk_type" != "nvme" ]; then
   exit 0
 fi
 

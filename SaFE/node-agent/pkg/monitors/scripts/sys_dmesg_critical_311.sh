@@ -74,6 +74,7 @@ PATTERNS=(
 	'HIGH|Weka Storage|3|wekafsio.*ALL FEs down'
 	'HIGH|Weka Storage|3|wekafsgw.*FE was down'
 	'HIGH|NFS|100|nfs.*not responding'
+	'HIGH|Disk IO|3|(nvme.*I/O error|I/O error.*nvme|blk_update)'
 )
 
 for entry in "${PATTERNS[@]}"; do

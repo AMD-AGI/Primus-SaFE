@@ -71,6 +71,7 @@ data:
   disk_ephemeral_storage_404: '{"script":"disk_ephemeral_storage_404.sh","id":"404","cronjob":"@every 300s","timeoutSecond":250,"toggle":"on","chip":"amd","arguments":["$Node"]}'
   disk_oci_bind_mount_405: '{"script":"disk_oci_bind_mount_405.sh","id":"405","cronjob":"@every 300s","timeoutSecond":250,"toggle":"on","chip":"amd","arguments":["{{ .Values.node_agent.sub_domain }}"]}'
   disk_nvme_count_406: '{"script":"disk_nvme_count_406.sh","id":"406","cronjob":"@every 300s","timeoutSecond":250,"toggle":"on","chip":"amd","arguments":["$Node"]}'
+  disk_nvme_health_407: '{"script":"disk_nvme_health_407.sh","id":"407","cronjob":"@every 600s","timeoutSecond":500,"toggle":"on","chip":"amd","arguments":["$Node"]}'
   # Main configuration as YAML string
   config.yaml: |
     net:
