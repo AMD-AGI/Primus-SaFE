@@ -83,7 +83,7 @@ spec:
               mountPath: {{ .Values.sso.secret_path }}
               readOnly: true
             {{- end }}
-            {{- if and .Values.notification .Values.notification.email .Values.notification.email.smtp_host }}
+            {{- if or (and .Values.notification .Values.notification.email .Values.notification.email.smtp_host) (and .Values.notification .Values.notification.email_relay .Values.notification.email_relay.enable) }}
             - name: notification-secret
               mountPath: /etc/secrets/notification
               readOnly: true
@@ -161,7 +161,7 @@ spec:
           secret:
             secretName: {{ .Values.sso.secret }}
         {{- end }}
-        {{- if and .Values.notification .Values.notification.email .Values.notification.email.smtp_host }}
+        {{- if or (and .Values.notification .Values.notification.email .Values.notification.email.smtp_host) (and .Values.notification .Values.notification.email_relay .Values.notification.email_relay.enable) }}
         - name: notification-secret
           secret:
             secretName: {{ .Release.Name }}-notification
