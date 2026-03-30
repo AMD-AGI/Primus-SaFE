@@ -411,6 +411,9 @@ func (m *WorkloadMutator) mutateCICDScaleSet(workload *v1.Workload) {
 func (m *WorkloadMutator) mutateMonarchJob(workload *v1.Workload) {
 	workload.Spec.IsSupervised = false
 	workload.Spec.MaxRetry = 0
+	if len(workload.Spec.Resources) > 0 {
+		workload.Spec.Resources[0].Replica = 1
+	}
 }
 
 // mutateImages handles image assignment for workload resources.

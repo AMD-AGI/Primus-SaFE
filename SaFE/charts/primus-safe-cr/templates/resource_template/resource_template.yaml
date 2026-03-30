@@ -74,6 +74,7 @@ metadata:
   labels:
     app.kubernetes.io/managed-by: Helm
   annotations:
+    primus-safe.workload.kind: "Pod"
     meta.helm.sh/release-name: {{ .Release.Name }}
     meta.helm.sh/release-namespace: {{ .Release.Namespace }}
 spec:
@@ -81,6 +82,8 @@ spec:
     group: ""
     version: v1
     kind: Pod
+  resourceSpecs:
+    - defaultReplica: 1
 ---
 apiVersion: amd.com/v1
 kind: ResourceTemplate
