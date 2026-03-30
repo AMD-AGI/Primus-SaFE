@@ -28,6 +28,18 @@ func (c *Client) ListPendingEmailOutbox(ctx context.Context, limit int) ([]*mode
 	return results, err
 }
 
+func (c *Client) ListPendingEmailOutboxAfter(ctx context.Context, afterID int32, limit int) ([]*model.EmailOutbox, error) {
+	var results []*model.EmailOutbox
+	query := c.gorm.WithContext(ctx).
+		Where("status = ? AND id > ?", model.EmailOutboxStatusPending, afterID).
+		Order("id ASC")
+	if limit > 0 {
+		query = query.Limit(limit)
+	}
+	err := query.Find(&results).Error
+	return results, err
+}
+
 func (c *Client) AckEmailOutbox(ctx context.Context, id int32) error {
 	now := time.Now()
 	return c.gorm.WithContext(ctx).
