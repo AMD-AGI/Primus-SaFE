@@ -161,7 +161,7 @@ notification:
   # Takes precedence over direct email when both are configured.
   email_relay:
     # Enable email relay mode
-    enable: false
+    enable: true
 grafana:
   # Enable Grafana for monitoring metrics display (requires primus-lens)
   enable: false

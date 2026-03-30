@@ -98,6 +98,12 @@ func (e *EmailRelayChannel) Unsubscribe(ch chan *dbModel.EmailOutbox) {
 	}
 }
 
+// Notify directly pushes an outbox entry to SSE listeners without writing to DB.
+// Use this when the outbox entry was already created by another code path.
+func (e *EmailRelayChannel) Notify(outbox *dbModel.EmailOutbox) {
+	e.notifyListeners(outbox)
+}
+
 func (e *EmailRelayChannel) notifyListeners(outbox *dbModel.EmailOutbox) {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
