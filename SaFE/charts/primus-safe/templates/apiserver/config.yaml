@@ -94,7 +94,7 @@ data:
       require_approval: {{ default false (default .Values.cd).require_approval }}
       components: {{ .Values.cd.components }}
     notification:
-      enable: {{ and .Values.notification .Values.notification.email .Values.notification.email.smtp_host | default false }}
+      enable: {{ or (and .Values.notification .Values.notification.email .Values.notification.email.smtp_host) (and .Values.notification .Values.notification.email_relay .Values.notification.email_relay.enable) | default false }}
       secret_path: /etc/secrets/notification
     tracing:
       # Whether to enable OpenTelemetry tracing
