@@ -73,7 +73,7 @@ func newMonitor(t *testing.T, id, script string) *Monitor {
 	assert.NilError(t, err)
 	m := NewMonitor(newMonitorConfig(id, TestScriptPath), &queue, n, ".")
 	if m != nil {
-		m.isDebug = true
+		m.config.IsDebug = true
 	}
 	return m
 }

@@ -43,8 +43,6 @@ type Monitor struct {
 	consecutiveCount int
 	// Mark whether the service has exited
 	isExited bool
-	// Mark whether the monitor is in debug mode
-	isDebug bool
 }
 
 type NodeInfo struct {
@@ -111,9 +109,10 @@ func (m *Monitor) startCronJob() {
 		klog.Infof("stop cronjob %s, duration: %v", m.config.Id, time.Since(start))
 	}()
 
-	if !m.isDebug {
+	if !m.config.IsDebug {
 		// Stagger first execution across monitors to avoid simultaneous resource spikes.
 		jitter := time.Duration(rand.Int63n(int64(30 * time.Second)))
+		klog.Infof("sleep %v for jitter of monitor %s", jitter, m.config.Id)
 		time.Sleep(jitter)
 	}
 
