@@ -76,7 +76,22 @@ func (r *PrewarmJobReconciler) start(ctx context.Context) {
 
 // Reconcile is the main control loop for PrewarmJob resources.
 func (r *PrewarmJobReconciler) Reconcile(ctx context.Context, req ctrlruntime.Request) (ctrlruntime.Result, error) {
-	return r.OpsJobBaseReconciler.Reconcile(ctx, req, r)
+	clearFuncs := []ClearFunc{r.cleanupDaemonSet}
+	return r.OpsJobBaseReconciler.Reconcile(ctx, req, r, clearFuncs...)
+}
+
+// cleanupDaemonSet deletes the prewarm DaemonSet on the remote cluster when the OpsJob is deleted.
+func (r *PrewarmJobReconciler) cleanupDaemonSet(ctx context.Context, job *v1.OpsJob) error {
+	cluster := v1.GetClusterId(job)
+	k8sClients, err := rmutils.GetK8sClientFactory(r.clientManager, cluster)
+	if err != nil {
+		klog.V(4).InfoS("Skipping DaemonSet cleanup: cluster client not available", "job", job.Name, "cluster", cluster)
+		return nil
+	}
+	if err := r.deleteDaemonSet(ctx, k8sClients, job.Name); err != nil {
+		klog.ErrorS(err, "Failed to cleanup DaemonSet during job deletion", "daemonset", job.Name)
+	}
+	return nil
 }
 
 // observe checks if the job is already completed
@@ -145,6 +160,15 @@ func (r *PrewarmJobReconciler) Do(ctx context.Context, jobName string) (ctrlrunt
 
 	k8sClients, err := rmutils.GetK8sClientFactory(r.clientManager, cluster)
 	if err != nil {
+		if job.Status.StartedAt != nil {
+			elapsed := time.Since(job.Status.StartedAt.Time)
+			const clientRetryWindow = 2 * time.Minute
+			if elapsed < clientRetryWindow {
+				klog.InfoS("Cluster client not ready in Do(), will retry", "job", job.Name, "cluster", cluster, "elapsed", elapsed.Round(time.Second))
+				r.Add(job.Name)
+				return ctrlruntime.Result{}, nil
+			}
+		}
 		errMsg := fmt.Sprintf("failed to get k8s client factory: %v", err)
 		klog.ErrorS(err, "Failed to get k8s client factory", "job", job.Name, "cluster", cluster)
 		return ctrlruntime.Result{}, r.setJobCompleted(ctx, job, v1.OpsJobFailed, errMsg, nil)
@@ -177,6 +201,14 @@ func (r *PrewarmJobReconciler) checkAndUpdateJobStatus(ctx context.Context, job 
 
 	k8sClients, err := rmutils.GetK8sClientFactory(r.clientManager, cluster)
 	if err != nil {
+		if job.Status.StartedAt != nil {
+			elapsed := time.Since(job.Status.StartedAt.Time)
+			const clientRetryWindow = 2 * time.Minute
+			if elapsed < clientRetryWindow {
+				klog.InfoS("Cluster client not ready, will retry", "job", job.Name, "cluster", cluster, "elapsed", elapsed.Round(time.Second))
+				return ctrlruntime.Result{RequeueAfter: 5 * time.Second}, nil
+			}
+		}
 		errMsg := fmt.Sprintf("failed to get k8s client factory: %v", err)
 		klog.ErrorS(err, "Failed to get k8s client factory", "job", job.Name)
 		return ctrlruntime.Result{}, r.setJobCompleted(ctx, job, v1.OpsJobFailed, errMsg, nil)
