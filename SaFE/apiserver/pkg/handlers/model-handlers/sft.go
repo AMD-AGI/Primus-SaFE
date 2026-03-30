@@ -95,6 +95,7 @@ func (h *Handler) createSftJob(c *gin.Context) (interface{}, error) {
 	}
 	if req.NodeCount > 1 {
 		env["NNODES"] = strconv.Itoa(req.NodeCount)
+		env["DATA_PATH"] = fmt.Sprintf("/wekafs/sft-shared-data/%s", workloadName)
 	}
 	for k, v := range req.Env {
 		env[k] = v

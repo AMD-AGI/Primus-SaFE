@@ -332,6 +332,48 @@ sed "s/%%MODULE_CONFIG%%/$MODULE_CONFIG/g" > /tmp/sft_experiment.yaml << 'EXPEOF
 %s
 EXPEOF
 mkdir -p "./output/${PRIMUS_TEAM:-amd}/${PRIMUS_USER:-root}/%s"
+
+# Multi-node: redirect ./data and ./nemo_experiments to shared storage so all
+# nodes see the same HF cache, Megatron checkpoints, trained checkpoints, and
+# .done signal files. Also patch hooks and increase NCCL timeout.
+NNODES="${NNODES:-1}"
+if [ "$NNODES" -gt 1 ] && [ -n "${DATA_PATH:-}" ]; then
+  mkdir -p "$DATA_PATH"
+  if [ -e data ] && [ ! -L data ]; then
+    rm -rf data
+  fi
+  ln -sfn "$DATA_PATH" data
+  echo "[MULTI-NODE] ./data -> $DATA_PATH (shared storage)"
+
+  # Redirect nemo_experiments to shared storage so distributed checkpoints
+  # are accessible by all nodes and persist after container exit for export
+  SHARED_CKPT_DIR="$DATA_PATH/nemo_experiments"
+  mkdir -p "$SHARED_CKPT_DIR"
+  rm -rf ./nemo_experiments
+  ln -sfn "$SHARED_CKPT_DIR" ./nemo_experiments
+  echo "[MULTI-NODE] ./nemo_experiments -> $SHARED_CKPT_DIR (shared checkpoints)"
+
+  # Redirect squad eval dataset cache to shared storage so rank 0 generated
+  # index files (.idx.npy, .idx.info) are visible to all other ranks
+  SQUAD_SHARED="$DATA_PATH/squad-cache"
+  SQUAD_LOCAL="/root/.cache/nemo/datasets/squad"
+  mkdir -p "$SQUAD_SHARED" "$(dirname $SQUAD_LOCAL)"
+  rm -rf "$SQUAD_LOCAL"
+  ln -sfn "$SQUAD_SHARED" "$SQUAD_LOCAL"
+  echo "[MULTI-NODE] squad cache -> $SQUAD_SHARED (shared)"
+
+  HOOK_SCRIPT="runner/helpers/hooks/train/posttrain/megatron_bridge/01_convert_checkpoints.sh"
+  if [ -f "$HOOK_SCRIPT" ]; then
+    sed -i 's/timeout=600/timeout=3600/' "$HOOK_SCRIPT"
+    # Checkpoint conversion must run as single process to avoid DistStoreError
+    sed -i 's|python3 third_party/Megatron-Bridge/examples/conversion/convert_checkpoints.py import|WORLD_SIZE=1 RANK=0 LOCAL_RANK=0 MASTER_ADDR=127.0.0.1 MASTER_PORT=29599 python3 third_party/Megatron-Bridge/examples/conversion/convert_checkpoints.py import|' "$HOOK_SCRIPT"
+    echo "[MULTI-NODE] Patched hook: timeout=3600s + single-process conversion"
+  fi
+
+  export NCCL_TIMEOUT=1800000
+  echo "[MULTI-NODE] NCCL_TIMEOUT=1800000ms (30min)"
+fi
+
 ./runner/primus-cli direct -- train posttrain --config /tmp/sft_experiment.yaml
 TRAIN_EXIT_CODE=$?
 
@@ -397,7 +439,7 @@ func buildExportScript(cfg EntrypointConfig) string {
 `)
 	fmt.Fprintf(&sb, "EXPORT_PATH=%q\n", exportPath)
 	sb.WriteString(`CKPT_DIR=""
-CKPT_SEARCH_DIRS="./nemo_experiments/default/checkpoints ./output/checkpoints ${PRIMUS_DIR}/nemo_experiments/default/checkpoints /tmp/primus/nemo_experiments/default/checkpoints"
+CKPT_SEARCH_DIRS="./nemo_experiments/default/checkpoints ${DATA_PATH:-/dev/null}/nemo_experiments/default/checkpoints ./output/checkpoints ${PRIMUS_DIR}/nemo_experiments/default/checkpoints /tmp/primus/nemo_experiments/default/checkpoints"
 
 # First pass: prefer dirs with latest_checkpointed_iteration.txt (real trained checkpoints)
 for d in ${CKPT_SEARCH_DIRS}; do
@@ -433,6 +475,9 @@ HF_EXPORT_PATH="${EXPORT_PATH}"
 mkdir -p "${HF_EXPORT_PATH}"
 
 export PYTHONPATH="${PRIMUS_DIR}/third_party/Megatron-Bridge/src:${PRIMUS_DIR}/third_party/Megatron-Bridge/3rdparty/Megatron-LM:${PYTHONPATH:-}"
+
+# Force single-process mode for checkpoint conversion/export to avoid DistStoreError
+export WORLD_SIZE=1 RANK=0 LOCAL_RANK=0 MASTER_ADDR=127.0.0.1 MASTER_PORT=29599
 `)
 
 	// --- LoRA: merge adapter into base model before export ---
@@ -444,7 +489,7 @@ export PYTHONPATH="${PRIMUS_DIR}/third_party/Megatron-Bridge/src:${PRIMUS_DIR}/t
 		fmt.Fprintf(&sb, `
 # ==================== LoRA: Merge Adapter into Base Model ====================
 PRETRAINED_CKPT=""
-PRETRAINED_SEARCH="./data/megatron_checkpoints/%s ./data/megatron_checkpoints"
+PRETRAINED_SEARCH="./data/megatron_checkpoints/%s ${DATA_PATH:-/dev/null}/megatron_checkpoints/%s ./data/megatron_checkpoints"
 for d in ${PRETRAINED_SEARCH}; do
   if [ -d "$d" ]; then PRETRAINED_CKPT="$d"; break; fi
 done
@@ -496,7 +541,7 @@ else
   rm -rf "${PRETRAINED_CKPT}" 2>/dev/null
 fi
 echo "Disk usage after merge: $(du -sh . 2>/dev/null | cut -f1)"
-`, hfModelBasename, cfg.HfPath)
+`, hfModelBasename, hfModelBasename, cfg.HfPath)
 	} else {
 		sb.WriteString(`CONVERT_CKPT_DIR="${CKPT_DIR}"
 `)
