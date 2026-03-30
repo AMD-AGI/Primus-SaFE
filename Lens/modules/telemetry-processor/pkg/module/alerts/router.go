@@ -162,8 +162,9 @@ func getDefaultRoute() RouteConfig {
 			{
 				Type: ChannelEmailRelay,
 				Config: map[string]interface{}{
-					"url": "http://primus-safe-apiserver.primus-safe.svc.cluster.local:32495/api/v1/email-relay/submit",
-					"to":  []interface{}{"chenluo@amd.com"},
+					"url":            "http://primus-safe-apiserver.primus-safe.svc.cluster.local:8088/api/v1/email-relay/submit",
+					"to":             []interface{}{"chenluo@amd.com"},
+					"internal_token": "REMOVED_LEAKED_SECRET",
 				},
 			},
 		},
