@@ -1065,6 +1065,8 @@ func (r *DispatcherReconciler) generateMonarchClient(ctx context.Context, rootWo
 	workload := rootWorkload.DeepCopy()
 	displayName := v1.GetDisplayName(rootWorkload) + "-client"
 	workload.Name = rootWorkload.Name + "-client"
+	// Validation via webhook confirms the existence of at least 2 resource configs.
+	nodePerGroup := rootWorkload.Spec.Resources[1].Replica / meshGroupCount
 	v1.SetLabel(workload, v1.DisplayNameLabel, displayName)
 	v1.SetLabel(workload, v1.RootWorkloadIdLabel, rootWorkload.Name)
 	v1.SetAnnotation(workload, v1.ResourceIdAnnotation, "0")
@@ -1081,6 +1083,7 @@ func (r *DispatcherReconciler) generateMonarchClient(ctx context.Context, rootWo
 	}
 	workload.Spec.Env[common.MonarchMeshPrefix] = v1.GetDisplayName(rootWorkload) + "-mesh-"
 	workload.Spec.Env[common.MonarchPort] = strconv.Itoa(common.MonarchMeshPortNum)
+	workload.Spec.Env[common.HostPerReplica] = strconv.Itoa(nodePerGroup)
 
 	commonworkload.SetMainContainerViaTemplate(ctx, r.Client, workload)
 	return workload

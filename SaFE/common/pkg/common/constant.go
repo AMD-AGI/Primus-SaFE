@@ -39,6 +39,7 @@ const (
 	ScaleRunnerSetID  = "SCALE_RUNNER_SET_ID"
 	ScaleRunnerID     = "SCALE_RUNNER_ID"
 	ReplicaCount      = "REPLICA_COUNT"
+	HostPerReplica    = "HOST_PER_REPLICA"
 	MaxReplicaGroup   = "MAX_REPLICA_GROUP"
 	MinReplicaGroup   = "MIN_REPLICA_GROUP"
 	TorchFTLightHouse = "TORCHFT_LIGHTHOUSE"

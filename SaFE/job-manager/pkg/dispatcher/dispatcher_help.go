@@ -621,31 +621,21 @@ func buildPodAnnotations(workload *v1.Workload, resourceId int) map[string]inter
 // buildEnvironment creates environment variables for the workload container.
 func buildEnvironment(workload *v1.Workload, resourceId int) []interface{} {
 	var result []interface{}
-	if resourceId >= 0 && resourceId < len(workload.Spec.Resources) {
-		if workload.Spec.Resources[resourceId].GPU != "" {
-			if workload.GetEnv("AINIC_DRIVER_VERSION") != "" {
-				result = addEnvVar(result, workload, "NCCL_IB_GID_INDEX", "1")
-				result = addEnvVar(result, workload, "NCCL_DMABUF_ENABLE", "0")
-				result = addEnvVar(result, workload, "NCCL_MAX_P2P_CHANNELS", "56")
-				result = addEnvVar(result, workload, "NET_OPTIONAL_RECV_COMPLETION", "1")
-				result = addEnvVar(result, workload, "NCCL_IB_USE_INLINE", "1")
-				result = addEnvVar(result, workload, "RCCL_GDR_FLUSH_GPU_MEM_NO_RELAXED_ORDERING", "0")
-				result = addEnvVar(result, workload, "NCCL_GDR_FLUSH_DISABLE", "1")
-				result = addEnvVar(result, workload, "NCCL_IGNORE_CPU_AFFINITY", "1")
-				result = addEnvVar(result, workload, "LD_LIBRARY_PATH", "/opt/amd-anp/build:/opt/rccl/build/release:/opt/rocm/lib")
-			} else {
-				result = addEnvVar(result, workload, "NCCL_IB_GID_INDEX", "3")
-			}
-			result = addEnvVar(result, workload, "GPUS_PER_NODE", workload.Spec.Resources[resourceId].GPU)
+	if resourceId >= 0 && resourceId < len(workload.Spec.Resources) && workload.Spec.Resources[resourceId].GPU != "" {
+		if workload.GetEnv("AINIC_DRIVER_VERSION") != "" {
+			result = addEnvVar(result, workload, "NCCL_IB_GID_INDEX", "1")
+			result = addEnvVar(result, workload, "NCCL_DMABUF_ENABLE", "0")
+			result = addEnvVar(result, workload, "NCCL_MAX_P2P_CHANNELS", "56")
+			result = addEnvVar(result, workload, "NET_OPTIONAL_RECV_COMPLETION", "1")
+			result = addEnvVar(result, workload, "NCCL_IB_USE_INLINE", "1")
+			result = addEnvVar(result, workload, "RCCL_GDR_FLUSH_GPU_MEM_NO_RELAXED_ORDERING", "0")
+			result = addEnvVar(result, workload, "NCCL_GDR_FLUSH_DISABLE", "1")
+			result = addEnvVar(result, workload, "NCCL_IGNORE_CPU_AFFINITY", "1")
+			result = addEnvVar(result, workload, "LD_LIBRARY_PATH", "/opt/amd-anp/build:/opt/rccl/build/release:/opt/rocm/lib")
+		} else {
+			result = addEnvVar(result, workload, "NCCL_IB_GID_INDEX", "3")
 		}
-		if commonworkload.IsMonarchClient(workload) {
-			replicaCount, _ := commonworkload.GetReplicaCount(workload, common.ReplicaCount)
-			if replicaCount > 0 {
-				// Validation via webhook confirms the existence of at least 2 resource configs.
-				n := workload.Spec.Resources[1].Replica / replicaCount
-				result = addEnvVar(result, workload, "HOST_PER_REPLICA", strconv.Itoa(n))
-			}
-		}
+		result = addEnvVar(result, workload, "GPUS_PER_NODE", workload.Spec.Resources[resourceId].GPU)
 	}
 
 	if workload.Spec.IsSupervised {
