@@ -27,7 +27,7 @@ data:
   #  1. $Node: Node information, in json format, e.g., '{"nodeName": "testNode", "workspaceId": "testWorkspace", "expectedGpuCount": 8, "observedGpuCount": 8}'
   # GPU: 0XX - 1XX
   gpu_module_001: '{"script":"gpu_module_001.sh","id":"001","cronjob":"@every 30s","timeoutSecond":25,"chip":"amd","toggle":"on"}'
-  gpu_ecc_002: '{"script":"gpu_ecc_002.sh","id":"002","cronjob":"@every 30s","timeoutSecond":25,"chip":"amd","toggle":"on"}'
+  gpu_ecc_002: '{"script":"gpu_ecc_002.sh","id":"002","cronjob":"@every 300s","timeoutSecond":250,"chip":"amd","toggle":"on"}'
   gpu_bad_pages_003: '{"script":"gpu_bad_pages_003.sh","id":"003","cronjob":"@every 30s","timeoutSecond":25,"chip":"amd","toggle":"on"}'
   gpu_node_count_004: '{"script":"gpu_node_count_004.sh","id":"004","cronjob":"@every 30s","timeoutSecond":25,"chip":"amd","toggle":"on","arguments":["$Node"]}'
   gpu_k8s_available_005: '{"script":"gpu_k8s_available_005.sh","id":"005","cronjob":"@every 30s","timeoutSecond":25,"chip":"amd","toggle":"on","arguments":["$Node"]}'

@@ -72,7 +72,9 @@ func newMonitor(t *testing.T, id, script string) *Monitor {
 	err := os.WriteFile(TestScriptPath, []byte(script), 0777)
 	assert.NilError(t, err)
 	m := NewMonitor(newMonitorConfig(id, TestScriptPath), &queue, n, ".")
-	m.isDebug = true
+	if m != nil {
+		m.isDebug = true
+	}
 	return m
 }
 
