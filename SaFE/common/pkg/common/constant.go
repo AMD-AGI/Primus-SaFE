@@ -71,8 +71,8 @@ const (
 	RayJobDashboard        = 8265
 
 	MonarchMeshPortNum = 26600
-	MonarchMeshPort    = "MONARCH_MESH_PORT"
-	MonarchMeshNames   = "MONARCH_MESH_NAMES"
+	MonarchPort        = "MONARCH_PORT"
+	MonarchMeshPrefix  = "MONARCH_MESH_PREFIX"
 
 	DefaultBurst          = 1000
 	DefaultQPS            = 1000

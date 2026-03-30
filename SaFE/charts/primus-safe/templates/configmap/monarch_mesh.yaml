@@ -22,7 +22,6 @@ data:
     apiVersion: monarch.pytorch.org/v1alpha1
     kind: MonarchMesh
     spec:
-      port: 26600
       podTemplate:
         dnsPolicy: ClusterFirstWithHostNet
         schedulerName: kube-scheduler-plugins
@@ -53,8 +52,6 @@ data:
                 value: "300"
               - name: TORCHFT_CONNECT_TIMEOUT_SEC
                 value: "120"
-              - name: MONARCH_PORT
-                value: "26600"
               - name: NCCL_SOCKET_IFNAME
                 value: "{{ .Values.net.nccl_socket_ifname }}"
               - name: GLOO_SOCKET_IFNAME

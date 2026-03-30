@@ -324,6 +324,13 @@ func IsMonarchJob(w *v1.Workload) bool {
 	return false
 }
 
+func IsMonarchMesh(w *v1.Workload) bool {
+	if w.SpecKind() == common.MonarchMesh {
+		return true
+	}
+	return false
+}
+
 // IsOpsJob returns true if the workload is about ops job
 func IsOpsJob(w *v1.Workload) bool {
 	return v1.GetOpsJobId(w) != ""

@@ -349,9 +349,9 @@ func (r *DispatcherReconciler) generateJobPort(ctx context.Context, workload *v1
 		return nil
 	}
 	kind := workload.SpecKind()
-	// only for workload using pytorch job
+	// only for workload which use pytorch job
 	if kind != common.PytorchJobKind && kind != common.AuthoringKind &&
-		kind != common.UnifiedJobKind && kind != common.TorchFTKind {
+		kind != common.UnifiedJobKind && kind != common.TorchFTKind && kind != common.MonarchMesh {
 		return nil
 	}
 
@@ -415,11 +415,21 @@ func setK8sObjectMeta(result *unstructured.Unstructured, adminWorkload *v1.Workl
 	result.SetName(adminWorkload.Name)
 	result.SetNamespace(adminWorkload.Spec.Workspace)
 
+	var tmpLabels, tmpAnnotations map[string]interface{}
+	if commonworkload.IsMonarchMesh(adminWorkload) {
+		tmpLabels = buildPodLabels(adminWorkload)
+		resourceId, _ := v1.GetResourceId(adminWorkload)
+		tmpAnnotations = buildPodAnnotations(adminWorkload, resourceId)
+	} else {
+		tmpLabels = buildObjectLabels(adminWorkload)
+		tmpAnnotations = buildObjectAnnotations(adminWorkload)
+	}
+
 	targetLabels := result.GetLabels()
 	if len(targetLabels) == 0 {
 		targetLabels = make(map[string]string)
 	}
-	for key, val := range buildObjectLabels(adminWorkload) {
+	for key, val := range tmpLabels {
 		if strValue, ok := val.(string); ok {
 			targetLabels[key] = strValue
 		}
@@ -430,7 +440,7 @@ func setK8sObjectMeta(result *unstructured.Unstructured, adminWorkload *v1.Workl
 	if len(targetAnnotations) == 0 {
 		targetAnnotations = make(map[string]string)
 	}
-	for key, val := range buildObjectAnnotations(adminWorkload) {
+	for key, val := range tmpAnnotations {
 		if strValue, ok := val.(string); ok {
 			targetAnnotations[key] = strValue
 		}
@@ -682,6 +692,8 @@ func applyWorkloadSpecToObject(ctx context.Context, clientSets *syncer.ClusterCl
 		err = updateCICDEphemeralRunner(ctx, clientSets, obj, adminWorkload, rt)
 	case commonworkload.IsRayJob(adminWorkload):
 		err = updateRayJob(obj, adminWorkload)
+	case commonworkload.IsMonarchMesh(adminWorkload):
+		err = updateMonarchJob(obj, adminWorkload)
 	}
 	if err != nil {
 		return err
@@ -1056,21 +1068,19 @@ func (r *DispatcherReconciler) generateMonarchClient(ctx context.Context, rootWo
 	v1.SetLabel(workload, v1.DisplayNameLabel, displayName)
 	v1.SetLabel(workload, v1.RootWorkloadIdLabel, rootWorkload.Name)
 	v1.SetAnnotation(workload, v1.ResourceIdAnnotation, "0")
+	v1.SetAnnotation(workload, v1.ForceHostNetworkAnnotation, v1.TrueStr)
 	if len(rootWorkload.Spec.EntryPoints) > 0 {
 		workload.Spec.EntryPoints = []string{rootWorkload.Spec.EntryPoints[0]}
 	}
 	workload.Spec.Kind = common.MonarchClient
+	workload.Spec.Version = common.DefaultVersion
 	workload.Spec.Resources = []v1.WorkloadResource{rootWorkload.Spec.Resources[0]}
 
 	if workload.Spec.Env == nil {
 		workload.Spec.Env = make(map[string]string)
 	}
-	meshNames := make([]string, 0, meshGroupCount)
-	for i := 0; i < meshGroupCount; i++ {
-		meshNames = append(meshNames, monarchMeshName(rootWorkload, i))
-	}
-	workload.Spec.Env[common.MonarchMeshNames] = strings.Join(meshNames, ",")
-	workload.Spec.Env[common.MonarchMeshPort] = strconv.Itoa(common.MonarchMeshPortNum)
+	workload.Spec.Env[common.MonarchMeshPrefix] = v1.GetDisplayName(rootWorkload) + "-mesh-"
+	workload.Spec.Env[common.MonarchPort] = strconv.Itoa(common.MonarchMeshPortNum)
 
 	commonworkload.SetMainContainerViaTemplate(ctx, r.Client, workload)
 	return workload
@@ -1093,7 +1103,12 @@ func (r *DispatcherReconciler) generateMonarchMesh(ctx context.Context, rootWork
 	if len(rootWorkload.Spec.EntryPoints) > 1 {
 		workload.Spec.EntryPoints = []string{rootWorkload.Spec.EntryPoints[1]}
 	}
+	if workload.Spec.Env == nil {
+		workload.Spec.Env = make(map[string]string)
+	}
+	workload.Spec.Env[common.MonarchPort] = strconv.Itoa(common.MonarchMeshPortNum)
 	workload.Spec.Kind = common.MonarchMesh
+	workload.Spec.Version = common.DefaultVersion
 	workload.Spec.Resources = []v1.WorkloadResource{rootWorkload.Spec.Resources[1]}
 	workload.Spec.Resources[0].Replica = nodePerGroup
 	commonworkload.SetMainContainerViaTemplate(ctx, r.Client, workload)

@@ -26,6 +26,7 @@ data:
       schedulerName: default-scheduler
       serviceAccount: {{ .Values.monarch.client_role }}
       serviceAccountName: {{ .Values.monarch.client_role }}
+      restartPolicy: Never
       initContainers:
         - name: preprocess
           image: {{ .Values.global.image_registry }}/primussafe/{{ .Values.preprocess.image }}
@@ -58,8 +59,6 @@ data:
               value: "300"
             - name: TORCHFT_CONNECT_TIMEOUT_SEC
               value: "120"
-            - name: MONARCH_PORT
-              value: "26600"
             - name: NCCL_SOCKET_IFNAME
               value: "{{ .Values.net.nccl_socket_ifname }}"
             - name: GLOO_SOCKET_IFNAME
