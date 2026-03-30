@@ -84,6 +84,8 @@ data:
     cicd:
       enable: {{ .Values.cicd.enable }}
       controller_name: {{ .Values.cicd.controller_name }}
+    monarch:
+      enable: {{ .Values.monarch.enable }}
     ops_job:
       # Opsjob download image version. used for download file
       download_image: "{{ .Values.global.image_registry }}/primussafe/{{ .Values.ops_job.download_image }}"
