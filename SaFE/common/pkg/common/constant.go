@@ -27,19 +27,18 @@ const (
 	TorchFTKind             = "TorchFT"
 	MonarchJob              = "MonarchJob"
 	MonarchMesh             = "MonarchMesh"
+	MonarchClient           = "MonarchClient"
 	RayJobKind              = "RayJob"
-
-	PodKind            = "Pod"
-	EventKind          = "Event"
-	ConfigmapKind      = "ConfigMap"
-	ClusterRoleKind    = "ClusterRole"
-	ServiceAccountKind = "ServiceAccount"
+	PodKind                 = "Pod"
+	ConfigmapKind           = "ConfigMap"
+	ClusterRoleKind         = "ClusterRole"
+	ServiceAccountKind      = "ServiceAccount"
 
 	GithubConfigUrl   = "GITHUB_CONFIG_URL"
 	UnifiedJobEnable  = "UNIFIED_JOB_ENABLE"
 	ScaleRunnerSetID  = "SCALE_RUNNER_SET_ID"
 	ScaleRunnerID     = "SCALE_RUNNER_ID"
-	ReplicaGroup      = "REPLICA_GROUP"
+	ReplicaCount      = "REPLICA_COUNT"
 	MaxReplicaGroup   = "MAX_REPLICA_GROUP"
 	MinReplicaGroup   = "MIN_REPLICA_GROUP"
 	TorchFTLightHouse = "TORCHFT_LIGHTHOUSE"
@@ -71,7 +70,9 @@ const (
 	RayJobGcsServerPort    = 6379
 	RayJobDashboard        = 8265
 
-	MonarchMeshPort = 26600
+	MonarchMeshPortNum = 26600
+	MonarchMeshPort    = "MONARCH_MESH_PORT"
+	MonarchMeshNames   = "MONARCH_MESH_NAMES"
 
 	DefaultBurst          = 1000
 	DefaultQPS            = 1000

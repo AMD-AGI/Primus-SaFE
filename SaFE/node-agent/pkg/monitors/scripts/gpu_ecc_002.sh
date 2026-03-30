@@ -25,7 +25,7 @@ while read -r line; do
     total_single_ecc=$((total_single_ecc + single_ecc))
     total_double_ecc=$((total_double_ecc + double_ecc))
     total_pcie_replay=$((total_pcie_replay + pcie_replay))
-    if [[ $total_single_ecc -gt 1000 || $total_pcie_replay -gt 500 || $total_double_ecc -gt 0 ]]; then
+    if [[ $total_single_ecc -gt 10000 || $total_pcie_replay -gt 1000 || $total_double_ecc -gt 0 ]]; then
       echo "ECC error threshold exceeded: total_single_ecc: $total_single_ecc, total_double_errors: $total_double_ecc, total_pcie_replay: $total_pcie_replay"
       exit 1
     fi

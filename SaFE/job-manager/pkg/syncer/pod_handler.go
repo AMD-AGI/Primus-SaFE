@@ -197,6 +197,8 @@ func (r *SyncerReconciler) updateWorkloadPod(ctx context.Context, obj *unstructu
 	}
 	if commonworkload.IsCICDScalingRunnerSet(adminWorkload) {
 		updateCICDScalingRunnerSetPhase(adminWorkload, pod)
+	} else if commonworkload.IsMonarchJob(adminWorkload) {
+		updateMonarchJob(adminWorkload, pod)
 	}
 	if err = r.Status().Update(ctx, adminWorkload); err != nil {
 		return ctrlruntime.Result{}, err
@@ -227,6 +229,30 @@ func updateCICDScalingRunnerSetPhase(adminWorkload *v1.Workload, pod *corev1.Pod
 		adminWorkload.Status.Phase = v1.WorkloadNotReady
 	}
 }
+func updateMonarchJob(adminWorkload *v1.Workload, pod *corev1.Pod) {
+	switch pod.Status.Phase {
+	case corev1.PodRunning:
+		if isAllPodsAssigned(adminWorkload) && isAllPodRunning(adminWorkload) {
+			adminWorkload.Status.Phase = v1.WorkloadRunning
+		}
+	case corev1.PodPending:
+		if adminWorkload.Status.Phase == "" {
+			adminWorkload.Status.Phase = v1.WorkloadPending
+		}
+	case corev1.PodSucceeded:
+		resourceId, _ := v1.GetResourceId(pod)
+		if resourceId == 0 {
+			adminWorkload.Status.Phase = v1.WorkloadSucceeded
+		}
+	case corev1.PodFailed:
+		resourceId, _ := v1.GetResourceId(pod)
+		if resourceId == 0 {
+			adminWorkload.Status.Phase = v1.WorkloadFailed
+		} else {
+			adminWorkload.Status.Phase = v1.WorkloadNotReady
+		}
+	}
+}
 
 // updateWorkloadNodes updates the node information for a workload.
 // Collects node assignments from workload pods.
@@ -239,7 +265,7 @@ func (r *SyncerReconciler) updateWorkloadNodes(adminWorkload *v1.Workload, messa
 	for _, p := range adminWorkload.Status.Pods {
 		if !nodeNameSet.Has(p.K8sNodeName) {
 			nodeNames = append(nodeNames, p.K8sNodeName)
-			if !commonworkload.IsTorchFT(adminWorkload) {
+			if !commonworkload.IsTorchFT(adminWorkload) && !commonworkload.IsMonarchJob(adminWorkload) {
 				ranks = append(ranks, p.Rank)
 			}
 			nodeNameSet.Insert(p.K8sNodeName)
@@ -502,6 +528,16 @@ func sortWorkloadPods(adminWorkload *v1.Workload) {
 			}
 			return pods[i].GroupId < pods[j].GroupId
 		})
+	} else if commonworkload.IsMonarchJob(adminWorkload) {
+		sort.Slice(pods, func(i, j int) bool {
+			if pods[i].ResourceId == pods[j].ResourceId {
+				if pods[i].GroupId == pods[j].GroupId {
+					return comparePodsByIPAndID(pods[i], pods[j])
+				}
+				return pods[i].GroupId < pods[j].GroupId
+			}
+			return pods[i].ResourceId < pods[j].ResourceId
+		})
 	} else if commonworkload.IsRayJob(adminWorkload) {
 		// For RayJob: submitter first, then head, then worker (by name)
 		sort.Slice(pods, func(i, j int) bool {
@@ -560,11 +596,27 @@ func isAllPodsAssigned(workload *v1.Workload) bool {
 		if len(workload.Status.Pods) != commonworkload.GetTotalReplica(workload)+1 {
 			return false
 		}
+	} else if commonworkload.IsMonarchJob(workload) {
+		totalGroups, _ := commonworkload.GetReplicaCount(workload, common.ReplicaCount)
+		replica := workload.Spec.Resources[0].Replica + totalGroups*workload.Spec.Resources[1].Replica
+		// For RayJob, the ray-job-submitter pod is automatically created as the management pod
+		if len(workload.Status.Pods) != replica {
+			return false
+		}
 	} else if len(workload.Status.Pods) != commonworkload.GetTotalReplica(workload) {
 		return false
 	}
 	for _, p := range workload.Status.Pods {
 		if p.Phase == corev1.PodPending || p.AdminNodeName == "" {
+			return false
+		}
+	}
+	return true
+}
+
+func isAllPodRunning(workload *v1.Workload) bool {
+	for _, p := range workload.Status.Pods {
+		if p.Phase != corev1.PodRunning {
 			return false
 		}
 	}

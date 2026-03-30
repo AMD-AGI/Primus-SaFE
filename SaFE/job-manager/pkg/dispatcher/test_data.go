@@ -150,8 +150,6 @@ data:
                       value: "22"
                     - name: NCCL_IB_RETRY_CNT
                       value: "12"
-                    - name: MAIN_CONTAINER_NAME
-                      value: "pytorch"
                     - name: POD_NAME
                       valueFrom:
                         fieldRef:
@@ -219,8 +217,6 @@ data:
                       value: "22"
                     - name: NCCL_IB_RETRY_CNT
                       value: "12"
-                    - name: MAIN_CONTAINER_NAME
-                      value: "pytorch"
                     - name: POD_NAME
                       valueFrom:
                         fieldRef:

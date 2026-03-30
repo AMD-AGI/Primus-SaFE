@@ -142,6 +142,8 @@ func (m *WorkloadMutator) mutateCommon(ctx context.Context, oldWorkload, newWork
 		m.mutateAuthoring(newWorkload)
 	case common.CICDScaleRunnerSetKind:
 		m.mutateCICDScaleSet(newWorkload)
+	case common.MonarchJob:
+		m.mutateMonarchJob(newWorkload)
 	}
 	m.mutateHostPath(newWorkload, workspace)
 	m.mutatePriority(newWorkload)
@@ -403,6 +405,12 @@ func (m *WorkloadMutator) mutateCICDScaleSet(workload *v1.Workload) {
 		workload.Spec.Resources[0].Replica = 1
 	}
 	workload.Spec.Dependencies = nil
+}
+
+// mutateMonarchJob sets no-retry, disable Supervised
+func (m *WorkloadMutator) mutateMonarchJob(workload *v1.Workload) {
+	workload.Spec.IsSupervised = false
+	workload.Spec.MaxRetry = 0
 }
 
 // mutateImages handles image assignment for workload resources.
@@ -838,33 +846,38 @@ func (v *WorkloadValidator) validateTorchFT(newWorkload, oldWorkload *v1.Workloa
 	if len(v1.GetDisplayName(newWorkload)) > commonutils.MaxTorchFTNameLen {
 		return fmt.Errorf("the displayName is too long, maximum length is %d", commonutils.MaxTorchFTNameLen)
 	}
+	for i, img := range newWorkload.Spec.Images {
+		if img == "" {
+			return fmt.Errorf("images[%d] must not be empty", i)
+		}
+	}
 
-	group, err := commonworkload.GetReplicaGroup(newWorkload, common.ReplicaGroup)
+	group, err := commonworkload.GetReplicaCount(newWorkload, common.ReplicaCount)
 	if err != nil {
 		return err
 	}
 	if group <= 0 || group > newWorkload.Spec.Resources[1].Replica ||
 		(newWorkload.Spec.Resources[1].Replica%group) != 0 {
 		return fmt.Errorf("the %s of workload environment is invalid: worker node count (%d) must be divisible by group count (%d)",
-			common.ReplicaGroup, newWorkload.Spec.Resources[1].Replica, group)
+			common.ReplicaCount, newWorkload.Spec.Resources[1].Replica, group)
 	}
 
-	maxGroup, err := commonworkload.GetReplicaGroup(newWorkload, common.MaxReplicaGroup)
+	maxGroup, err := commonworkload.GetReplicaCount(newWorkload, common.MaxReplicaGroup)
 	if err != nil {
 		return err
 	}
-	minGroup, err := commonworkload.GetReplicaGroup(newWorkload, common.MinReplicaGroup)
+	minGroup, err := commonworkload.GetReplicaCount(newWorkload, common.MinReplicaGroup)
 	if err != nil {
 		return err
 	}
 	if group < minGroup || group > maxGroup {
 		return fmt.Errorf("the %s of workload environment is invalid: group count (%d) must be between min group (%d) and max group (%d)",
-			common.ReplicaGroup, group, minGroup, maxGroup)
+			common.ReplicaCount, group, minGroup, maxGroup)
 	}
 	if oldWorkload != nil {
-		oldMaxGroup, _ := commonworkload.GetReplicaGroup(oldWorkload, common.MaxReplicaGroup)
-		oldMinGroup, _ := commonworkload.GetReplicaGroup(oldWorkload, common.MinReplicaGroup)
-		oldGroup, _ := commonworkload.GetReplicaGroup(oldWorkload, common.ReplicaGroup)
+		oldMaxGroup, _ := commonworkload.GetReplicaCount(oldWorkload, common.MaxReplicaGroup)
+		oldMinGroup, _ := commonworkload.GetReplicaCount(oldWorkload, common.MinReplicaGroup)
+		oldGroup, _ := commonworkload.GetReplicaCount(oldWorkload, common.ReplicaCount)
 		if maxGroup != oldMaxGroup {
 			return fmt.Errorf("the %s of workload environment can not be changed", common.MaxReplicaGroup)
 		}
@@ -891,6 +904,11 @@ func (v *WorkloadValidator) validateRayJob(newWorkload, _ *v1.Workload) error {
 		return fmt.Errorf("Expected at least 1 resource configurations (header), "+
 			"resources: %v", newWorkload.Spec.Resources)
 	}
+	for i, img := range newWorkload.Spec.Images {
+		if img == "" {
+			return fmt.Errorf("images[%d] must not be empty", i)
+		}
+	}
 	if val, ok := newWorkload.Spec.Env[common.RayJobEntrypoint]; !ok || val == "" {
 		return fmt.Errorf("RayJob entrypoint is missing(use 'RAY_JOB_ENTRYPOINT' environment variable)")
 	}
@@ -904,16 +922,21 @@ func (v *WorkloadValidator) validateMonarchJob(newWorkload *v1.Workload) error {
 		return fmt.Errorf("insufficient resources for Monarch: expected at least 2 resource configurations (client and mesh groups), "+
 			"got %d, resources: %v", len(newWorkload.Spec.Resources), newWorkload.Spec.Resources)
 	}
+	for i, img := range newWorkload.Spec.Images {
+		if img == "" {
+			return fmt.Errorf("images[%d] must not be empty", i)
+		}
+	}
 	if len(v1.GetDisplayName(newWorkload)) > commonutils.MaxMonarchJobNameLen {
 		return fmt.Errorf("the displayName is too long, maximum length is %d", commonutils.MaxMonarchJobNameLen)
 	}
 
-	group, err := commonworkload.GetReplicaGroup(newWorkload, common.ReplicaGroup)
+	group, err := commonworkload.GetReplicaCount(newWorkload, common.ReplicaCount)
 	if err != nil {
 		return err
 	}
 	if group <= 0 {
-		return fmt.Errorf("environment variable %s must be set and greater than 0 for workload", common.ReplicaGroup)
+		return fmt.Errorf("environment variable %s must be set and greater than 0 for workload", common.ReplicaCount)
 	}
 	return nil
 }

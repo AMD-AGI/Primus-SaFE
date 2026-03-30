@@ -27,7 +27,7 @@ const (
 	WorkloadRunning   WorkloadPhase = "Running"
 	// only for deployment/statefulSet
 	WorkloadUpdating WorkloadPhase = "Updating"
-	// only for deployment/statefulSet/AutoscalingRunnerSet
+	// only for deployment/statefulSet/AutoscalingRunnerSet/MonarchJob
 	WorkloadNotReady WorkloadPhase = "NotReady"
 	WorkloadStopped  WorkloadPhase = "Stopped"
 
@@ -210,7 +210,6 @@ type WorkloadPod struct {
 	PodId string `json:"podId"`
 	// The id of workload resources that the pod is bound to.
 	// If the value is less than 0, it means the pod does not belong to any resource.
-	// Currently, RayJob's submitter pod uses this scenario.
 	ResourceId int `json:"resourceId,omitempty"`
 	// The Kubernetes node that the Pod is scheduled on
 	K8sNodeName string `json:"k8sNodeName,omitempty"`
@@ -232,7 +231,9 @@ type WorkloadPod struct {
 	FailedMessage string `json:"failedMessage,omitempty"`
 	// The Container info of pod
 	Containers []Container `json:"containers,omitempty"`
-	// The group id of pod, only for torchft. 0 lighthouse, > 0 worker
+	// The group id of pod
+	// for torchft. 0 lighthouse, > 0 worker
+	// for monarch. 0 client, > 0 mesh
 	GroupId int `json:"groupId,omitempty"`
 }
 

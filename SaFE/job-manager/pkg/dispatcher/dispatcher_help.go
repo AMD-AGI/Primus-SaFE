@@ -631,6 +631,7 @@ func buildEnvironment(workload *v1.Workload, resourceId int) []interface{} {
 			result = addEnvVar(result, workload, "NCCL_IB_GID_INDEX", "3")
 		}
 		result = addEnvVar(result, workload, "GPUS_PER_NODE", workload.Spec.Resources[resourceId].GPU)
+		result = addEnvVar(result, workload, "HOST_PER_REPLICA", strconv.Itoa(workload.Spec.Resources[resourceId].Replica))
 	}
 
 	if workload.Spec.IsSupervised {
@@ -641,6 +642,8 @@ func buildEnvironment(workload *v1.Workload, resourceId int) []interface{} {
 		}
 	}
 	result = addEnvVar(result, workload, "WORKLOAD_ID", getRootWorkloadId(workload))
+	result = addEnvVar(result, workload, "MAIN_CONTAINER_NAME",
+		commonworkload.GetMainContainer(workload, workload.SpecKind(), resourceId))
 	result = addEnvVar(result, workload, "WORKLOAD_KIND", workload.SpecKind())
 	result = addEnvVar(result, workload, "DISPATCH_COUNT", strconv.Itoa(v1.GetWorkloadDispatchCnt(workload)+1))
 	if commonworkload.IsAuthoring(workload) {

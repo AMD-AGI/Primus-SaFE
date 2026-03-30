@@ -435,10 +435,10 @@ func ConvertResourceToList(workloadResource v1.WorkloadResource, kind string) []
 	return result
 }
 
-// GetReplicaGroup retrieves the replica process group number from the workload's environment variables.
-// The replica process group is used for torchFT workload.
+// GetReplicaCount retrieves the replica group count from the workload's environment variables.
+// The replica group is used for torchFT workload.
 // Returns an error if the environment variable is not set or cannot be converted to a valid integer.
-func GetReplicaGroup(workload *v1.Workload, key string) (int, error) {
+func GetReplicaCount(workload *v1.Workload, key string) (int, error) {
 	val, ok := workload.Spec.Env[key]
 	if !ok || val == "" {
 		return 0, fmt.Errorf("the %s of workload environment variables is empty", key)
@@ -464,6 +464,13 @@ func GetWorkloadGVK(workload *v1.Workload) []schema.GroupVersionKind {
 		})
 		result = append(result, schema.GroupVersionKind{
 			Group: "apps", Version: common.DefaultVersion, Kind: common.DeploymentKind,
+		})
+	} else if IsMonarchJob(workload) {
+		result = append(result, schema.GroupVersionKind{
+			Group: "", Version: common.DefaultVersion, Kind: common.PodKind,
+		})
+		result = append(result, schema.GroupVersionKind{
+			Group: "monarch.pytorch.org", Version: "v1alpha1", Kind: common.MonarchMesh,
 		})
 	} else {
 		result = append(result, workload.ToSchemaGVK())
@@ -503,7 +510,7 @@ func GetUsedHostPorts(ctx context.Context, cli client.Client, clusterId string) 
 					ports[common.RayJobGcsServerPort] = struct{}{}
 				}
 				if IsMonarchJob(&item) {
-					ports[common.MonarchMeshPort] = struct{}{}
+					ports[common.MonarchMeshPortNum] = struct{}{}
 				}
 			}
 			if item.Spec.Service != nil && item.Spec.Service.NodePort > 0 {

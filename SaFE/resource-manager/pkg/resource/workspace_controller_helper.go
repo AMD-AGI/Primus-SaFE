@@ -14,6 +14,7 @@ import (
 	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
 	unstructuredutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/unstructured"
 	corev1 "k8s.io/api/core/v1"
+	rbacv1 "k8s.io/api/rbac/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -245,13 +246,100 @@ func syncDataPlanePVC(ctx context.Context, workspace *v1.Workspace, clientSet ku
 	return nil
 }
 
-// createCICDNoPermissionSA creates a CICD ServiceAccount for the workspace in the data plane cluster.
+// createCICDServiceAccount creates a CICD ServiceAccount for the workspace in the data plane cluster.
 // It checks if the ServiceAccount already exists, and creates it if not found.
-func createCICDNoPermissionSA(ctx context.Context, workspace *v1.Workspace, clientSet kubernetes.Interface) error {
+func createCICDServiceAccount(ctx context.Context, workspace *v1.Workspace, clientSet kubernetes.Interface) error {
 	if !commonconfig.IsCICDEnable() {
 		return nil
 	}
 	saName := commonutils.GenerateCICDNoPermissionName()
+	return createServiceAccount(ctx, workspace, clientSet, saName)
+}
+
+// deleteCICDServiceAccount removes the CICD ServiceAccount for the workspace from the data plane cluster.
+// If the ServiceAccount doesn't exist, it ignores the NotFound error.
+func deleteCICDServiceAccount(ctx context.Context, workspace *v1.Workspace, clientSet kubernetes.Interface) error {
+	if !commonconfig.IsCICDEnable() {
+		return nil
+	}
+	saName := commonutils.GenerateCICDNoPermissionName()
+	return deleteServiceAccount(ctx, workspace, clientSet, saName)
+}
+
+// createMonarchServiceAccount creates a Monarch ServiceAccount for the workspace in the data plane cluster.
+// It checks if the ServiceAccount already exists, and creates it if not found.
+func createMonarchServiceAccount(ctx context.Context, workspace *v1.Workspace, clientSet kubernetes.Interface) error {
+	if !commonconfig.IsMonarchEnable() {
+		return nil
+	}
+	saName := commonconfig.GetMonarchClientRole()
+	if err := createServiceAccount(ctx, workspace, clientSet, saName); err != nil {
+		return err
+	}
+	return createMonarchRoleBinding(ctx, workspace, clientSet, saName)
+}
+
+// createMonarchRoleBinding creates a RoleBinding that binds the pre-existing ClusterRole (same name as SA)
+// to the Monarch ServiceAccount in the workspace namespace.
+func createMonarchRoleBinding(ctx context.Context, workspace *v1.Workspace, clientSet kubernetes.Interface, saName string) error {
+	ns := workspace.Name
+	if _, err := clientSet.RbacV1().RoleBindings(ns).Get(ctx, saName, metav1.GetOptions{}); err == nil {
+		return nil
+	} else if !apierrors.IsNotFound(err) {
+		return err
+	}
+	rb := &rbacv1.RoleBinding{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      saName,
+			Namespace: ns,
+		},
+		RoleRef: rbacv1.RoleRef{
+			APIGroup: "rbac.authorization.k8s.io",
+			Kind:     common.ClusterRoleKind,
+			Name:     saName,
+		},
+		Subjects: []rbacv1.Subject{{
+			Kind:      common.ServiceAccountKind,
+			Name:      saName,
+			Namespace: ns,
+		}},
+	}
+	if _, err := clientSet.RbacV1().RoleBindings(ns).Create(ctx, rb, metav1.CreateOptions{}); err != nil {
+		return err
+	}
+	klog.Infof("create RoleBinding %s/%s (clusterRole=%s) on cluster %s", ns, saName, saName, workspace.Spec.Cluster)
+	return nil
+}
+
+// deleteMonarchServiceAccount removes the Monarch ServiceAccount for the workspace from the data plane cluster.
+// If the ServiceAccount doesn't exist, it ignores the NotFound error.
+func deleteMonarchServiceAccount(ctx context.Context, workspace *v1.Workspace, clientSet kubernetes.Interface) error {
+	if !commonconfig.IsMonarchEnable() {
+		return nil
+	}
+	saName := commonconfig.GetMonarchClientRole()
+	if err := deleteRoleBinding(ctx, workspace, clientSet, saName); err != nil {
+		return err
+	}
+	return deleteServiceAccount(ctx, workspace, clientSet, saName)
+}
+
+// deleteRoleBinding removes a RoleBinding from the workspace namespace.
+func deleteRoleBinding(ctx context.Context, workspace *v1.Workspace, clientSet kubernetes.Interface, name string) error {
+	ns := workspace.Name
+	if err := clientSet.RbacV1().RoleBindings(ns).Delete(ctx, name, metav1.DeleteOptions{}); err != nil {
+		if apierrors.IsNotFound(err) {
+			return nil
+		}
+		return err
+	}
+	klog.Infof("delete RoleBinding %s/%s on cluster %s", ns, name, workspace.Spec.Cluster)
+	return nil
+}
+
+// createServiceAccount creates a ServiceAccount for the workspace in the data plane cluster.
+func createServiceAccount(ctx context.Context,
+	workspace *v1.Workspace, clientSet kubernetes.Interface, saName string) error {
 	saNamespace := workspace.Name
 	// Ensure ServiceAccount exists
 	_, err := clientSet.CoreV1().ServiceAccounts(saNamespace).Get(ctx, saName, metav1.GetOptions{})
@@ -274,13 +362,9 @@ func createCICDNoPermissionSA(ctx context.Context, workspace *v1.Workspace, clie
 	return nil
 }
 
-// deleteCICDNoPermissionSA removes the CICD ServiceAccount for the workspace from the data plane cluster.
-// If the ServiceAccount doesn't exist, it ignores the NotFound error.
-func deleteCICDNoPermissionSA(ctx context.Context, workspace *v1.Workspace, clientSet kubernetes.Interface) error {
-	if !commonconfig.IsCICDEnable() {
-		return nil
-	}
-	saName := commonutils.GenerateCICDNoPermissionName()
+// deleteServiceAccount removes a ServiceAccount for the workspace from the data plane cluster.
+func deleteServiceAccount(ctx context.Context,
+	workspace *v1.Workspace, clientSet kubernetes.Interface, saName string) error {
 	saNamespace := workspace.Name
 	if err := clientSet.CoreV1().ServiceAccounts(saNamespace).Delete(ctx, saName, metav1.DeleteOptions{}); err != nil {
 		if !apierrors.IsNotFound(err) {

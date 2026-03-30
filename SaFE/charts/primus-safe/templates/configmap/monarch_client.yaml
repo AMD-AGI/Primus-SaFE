@@ -23,16 +23,33 @@ data:
     kind: Pod
     spec:
       dnsPolicy: ClusterFirstWithHostNet
-      enableServiceLinks: true
       schedulerName: default-scheduler
-      serviceAccount: monarch-client
-      serviceAccountName: monarch-client
+      serviceAccount: {{ .Values.monarch.client_role }}
+      serviceAccountName: {{ .Values.monarch.client_role }}
+      initContainers:
+        - name: preprocess
+          image: {{ .Values.global.image_registry }}/primussafe/{{ .Values.preprocess.image }}
+          imagePullPolicy: IfNotPresent
+          command: ["/bin/sh", "-c", "cp -r /preprocess/* /shared-data/"]
+          securityContext:
+            capabilities:
+              add: [ "IPC_LOCK" ]
+          resources:
+            limits:
+              cpu: 1000m
+              memory: 128Mi
+          volumeMounts:
+          - name: shared-data
+            mountPath: /shared-data
       containers:
         - name: main
           image: {{ .Values.global.image_registry }}/primussafe/{{ .Values.monarch.image }}
           imagePullPolicy: Always
           terminationMessagePath: /dev/termination-log
           terminationMessagePolicy: File
+          volumeMounts:
+            - name: shared-data
+              mountPath: /shared-data
           env:
             # TorchFT timeout settings (increase from default 60s to reduce commit failures)
             - name: TORCHFT_TIMEOUT_SEC
@@ -83,3 +100,7 @@ data:
               valueFrom:
                 fieldRef:
                   fieldPath: spec.nodeName
+      volumes:
+        - name: shared-data
+          emptyDir: {}
+      terminationGracePeriodSeconds: 5

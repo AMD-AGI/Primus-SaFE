@@ -26,6 +26,21 @@ data:
       podTemplate:
         dnsPolicy: ClusterFirstWithHostNet
         schedulerName: kube-scheduler-plugins
+        initContainers:
+          - name: preprocess
+            image: {{ .Values.global.image_registry }}/primussafe/{{ .Values.preprocess.image }}
+            imagePullPolicy: IfNotPresent
+            command: ["/bin/sh", "-c", "cp -r /preprocess/* /shared-data/"]
+            securityContext:
+              capabilities:
+                add: [ "IPC_LOCK" ]
+            resources:
+              limits:
+                cpu: 1000m
+                memory: 128Mi
+            volumeMounts:
+            - name: shared-data
+              mountPath: /shared-data
         containers:
           - name: main
             image: {{ .Values.global.image_registry }}/primussafe/{{ .Values.monarch.image }}
@@ -80,3 +95,10 @@ data:
                 valueFrom:
                   fieldRef:
                     fieldPath: spec.nodeName
+            volumeMounts:
+              - name: shared-data
+                mountPath: /shared-data
+        volumes:
+          - name: shared-data
+            emptyDir: {}
+        terminationGracePeriodSeconds: 5

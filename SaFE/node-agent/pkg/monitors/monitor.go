@@ -129,6 +129,7 @@ func (m *Monitor) startCronJob() {
 		return
 	}
 	c.Schedule(schedule, m)
+	go m.Run()
 	c.Start()
 	klog.Infof("start cronjob %s", m.config.Id)
 
