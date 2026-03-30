@@ -29,5 +29,15 @@ parameters:
 provisioner: rbd.csi.ceph.com
 reclaimPolicy: Delete
 volumeBindingMode: Immediate
+---
+apiVersion: v1
+data:
+  userID: YWRtaW4=
+  userKey: SECRET
+kind: Secret
+metadata:
+  name: storage-rbd
+  namespace: default
+type: kubernetes.io/rbd
 
 

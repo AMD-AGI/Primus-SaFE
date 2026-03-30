@@ -78,6 +78,13 @@ func (h *Handler) createModel(c *gin.Context) (interface{}, error) {
 	}
 
 	ctx := context.Background()
+	userId := c.GetString(common.UserId)
+	userName := c.GetString(common.UserName)
+
+	// Handle local_path mode (SFT training output) — separate flow
+	if req.Source.AccessMode == string(v1.AccessModeLocalPath) {
+		return h.createModelFromLocalPath(ctx, &req, userId, userName)
+	}
 
 	// Validate URL first
 	if req.Source.URL == "" {
@@ -86,7 +93,7 @@ func (h *Handler) createModel(c *gin.Context) (interface{}, error) {
 
 	// Validate AccessMode
 	if req.Source.AccessMode != string(v1.AccessModeLocal) && req.Source.AccessMode != string(v1.AccessModeRemoteAPI) {
-		return nil, commonerrors.NewBadRequest("accessMode must be 'local' or 'remote_api'")
+		return nil, commonerrors.NewBadRequest("accessMode must be 'local', 'remote_api', or 'local_path'")
 	}
 
 	// For remote_api mode, modelName is required
@@ -242,9 +249,21 @@ func (h *Handler) createModel(c *gin.Context) (interface{}, error) {
 	}
 
 	// Create K8s Model CR with Secret references already set
+	modelLabels := map[string]string{
+		v1.DisplayNameLabel: sanitizeLabelValue(displayName),
+	}
+	if userId != "" {
+		modelLabels[v1.UserIdLabel] = userId
+	}
+	modelAnnotations := map[string]string{}
+	if userName != "" {
+		modelAnnotations[v1.UserNameAnnotation] = userName
+	}
 	k8sModel := &v1.Model{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: name,
+			Name:        name,
+			Labels:      modelLabels,
+			Annotations: modelAnnotations,
 		},
 		Spec: v1.ModelSpec{
 			DisplayName: displayName,
@@ -254,6 +273,7 @@ func (h *Handler) createModel(c *gin.Context) (interface{}, error) {
 			Tags:        tags,
 			MaxTokens:   maxTokens,
 			Workspace:   req.Workspace, // Empty means public (available to all workspaces)
+			Origin:      normalizeModelOrigin(""),
 			Source: v1.ModelSource{
 				URL:        normalizedURL,
 				AccessMode: v1.AccessMode(req.Source.AccessMode),
@@ -332,6 +352,103 @@ func parseListModelQuery(c *gin.Context) (*ListModelQuery, error) {
 	return query, nil
 }
 
+// createModelFromLocalPath creates a model from an existing NFS/PFS path (SFT training output).
+// The model is immediately set to Ready phase — no download is needed.
+func (h *Handler) createModelFromLocalPath(ctx context.Context, req *CreateModelRequest, userId, userName string) (interface{}, error) {
+	if req.Source.LocalPath == "" {
+		return nil, commonerrors.NewBadRequest("localPath is required for local_path mode")
+	}
+	if req.DisplayName == "" {
+		return nil, commonerrors.NewBadRequest("displayName is required for local_path mode")
+	}
+
+	origin := req.Origin
+	if origin == "" {
+		origin = "fine_tuned"
+	}
+
+	modelId := commonutils.GenerateName(req.DisplayName)
+
+	// Build local paths — the model is already on disk
+	localPaths := []v1.ModelLocalPath{{
+		Workspace: req.Workspace,
+		Path:      req.Source.LocalPath,
+		Status:    v1.LocalPathStatusReady,
+	}}
+
+	// Create Model CR directly in Ready state
+	model := &v1.Model{}
+	model.Name = modelId
+	model.Labels = map[string]string{
+		v1.DisplayNameLabel: sanitizeLabelValue(req.DisplayName),
+	}
+	if userId != "" {
+		model.Labels[v1.UserIdLabel] = userId
+	}
+	if userName != "" {
+		model.Annotations = map[string]string{
+			v1.UserNameAnnotation: userName,
+		}
+	}
+	model.Spec = v1.ModelSpec{
+		DisplayName: req.DisplayName,
+		Description: req.Description,
+		Tags:        req.Tags,
+		Source: v1.ModelSource{
+			AccessMode: v1.AccessModeLocalPath,
+			LocalPath:  req.Source.LocalPath,
+			ModelName:  req.Source.ModelName,
+			URL:        req.Source.URL,
+		},
+		Workspace: req.Workspace,
+		Origin:    origin,
+		SftJobId:  req.SftJobId,
+		BaseModel: req.BaseModel,
+	}
+	model.Status = v1.ModelStatus{
+		Phase:      v1.ModelPhaseReady,
+		LocalPaths: localPaths,
+	}
+
+	if err := h.k8sClient.Create(ctx, model); err != nil {
+		klog.ErrorS(err, "failed to create local_path model", "name", modelId)
+		return nil, commonerrors.NewInternalError(fmt.Sprintf("failed to create model: %v", err))
+	}
+
+	// Also insert into DB if available
+	if h.dbClient != nil {
+		dbModel := &dbclient.Model{
+			ID:          modelId,
+			DisplayName: req.DisplayName,
+			Description: req.Description,
+			AccessMode:  string(v1.AccessModeLocalPath),
+			Phase:       string(v1.ModelPhaseReady),
+			ModelName:   req.Source.ModelName,
+			Workspace:   req.Workspace,
+			Origin:      origin,
+			SftJobId:    req.SftJobId,
+			BaseModel:   req.BaseModel,
+			UserId:      userId,
+			UserName:    userName,
+		}
+		if localPathsJSON, err := json.Marshal(localPaths); err == nil {
+			dbModel.LocalPaths = string(localPathsJSON)
+		}
+		if err := h.dbClient.UpsertModel(ctx, dbModel); err != nil {
+			klog.ErrorS(err, "failed to insert local_path model into DB", "id", modelId)
+		}
+	}
+
+	klog.InfoS("created model from local path",
+		"modelId", modelId,
+		"localPath", req.Source.LocalPath,
+		"origin", origin,
+		"sftJobId", req.SftJobId,
+	)
+
+	return &CreateResponse{ID: modelId}, nil
+}
+
 // listModels implements the model listing logic.
 func (h *Handler) listModels(c *gin.Context) (interface{}, error) {
 	queryArgs, err := parseListModelQuery(c)
@@ -343,7 +460,7 @@ func (h *Handler) listModels(c *gin.Context) (interface{}, error) {
 
 	// 1. Try to list from database first (if available)
 	if h.dbClient != nil {
-		dbModels, err := h.dbClient.ListModels(ctx, queryArgs.AccessMode, queryArgs.Workspace, false)
+		dbModels, err := h.dbClient.ListModels(ctx, queryArgs.AccessMode, queryArgs.Workspace, false, queryArgs.Origin)
 		if err == nil && len(dbModels) > 0 {
 			var items []ModelInfo
 			for _, dbModel := range dbModels {
@@ -392,6 +509,9 @@ func (h *Handler) listModels(c *gin.Context) (interface{}, error) {
 			if k8sModel.Spec.Workspace != "" && k8sModel.Spec.Workspace != queryArgs.Workspace {
 				continue
 			}
+		}
+		if queryArgs.Origin != "" && normalizeModelOrigin(k8sModel.Spec.Origin) != queryArgs.Origin {
+			continue
 		}
 
 		items = append(items, h.convertK8sModelToInfo(&k8sModel))
@@ -453,7 +573,15 @@ func (h *Handler) convertK8sModelToInfo(k8sModel *v1.Model) ModelInfo {
 		Workspace:       k8sModel.Spec.Workspace,
 		S3Path:          k8sModel.Status.S3Path,
 		LocalPaths:      localPaths,
+		Origin:          normalizeModelOrigin(k8sModel.Spec.Origin),
+		SftJobId:        k8sModel.Spec.SftJobId,
+		BaseModel:       k8sModel.Spec.BaseModel,
+		UserId:          v1.GetUserId(k8sModel),
+		UserName:        v1.GetUserName(k8sModel),
 		CreatedAt:       k8sModel.CreationTimestamp.Format(time.RFC3339),
+		UpdatedAt:       formatMetaV1Time(k8sModel.Status.UpdateTime),
+		DeletionTime:    formatMetaV1Time(k8sModel.GetDeletionTimestamp()),
+		IsDeleted:       k8sModel.DeletionTimestamp != nil,
 	}
 }
 
@@ -729,8 +857,8 @@ func (h *Handler) getWorkloadConfig(c *gin.Context) (interface{}, error) {
 		return nil, commonerrors.NewInternalError("failed to fetch model: " + err.Error())
 	}
 
-	// Only local models can be deployed as workloads
-	if k8sModel.Spec.Source.AccessMode != v1.AccessModeLocal {
+	// Only deployable local models (local or local_path) can be deployed as workloads
+	if k8sModel.Spec.Source.AccessMode != v1.AccessModeLocal && k8sModel.Spec.Source.AccessMode != v1.AccessModeLocalPath {
 		return nil, commonerrors.NewBadRequest("only local models can be deployed as workloads")
 	}
 
@@ -764,6 +892,10 @@ func (h *Handler) getWorkloadConfig(c *gin.Context) (interface{}, error) {
 				// Don't break - continue to check for exact match
 			}
 		}
+	}
+
+	if modelPath == "" && k8sModel.Spec.Source.LocalPath != "" {
+		modelPath = k8sModel.Spec.Source.LocalPath
 	}
 
 	if modelPath == "" {
@@ -896,6 +1028,11 @@ func cvtDBModelToInfo(dbModel *dbclient.Model) ModelInfo {
 		Workspace:       dbModel.Workspace,
 		S3Path:          dbModel.S3Path,
 		LocalPaths:      localPaths,
+		Origin:          normalizeModelOrigin(dbModel.Origin),
+		SftJobId:        dbModel.SftJobId,
+		BaseModel:       dbModel.BaseModel,
+		UserId:          dbModel.UserId,
+		UserName:        dbModel.UserName,
 		CreatedAt:       formatNullTime(dbModel.CreatedAt),
 		UpdatedAt:       formatNullTime(dbModel.UpdatedAt),
 		DeletionTime:    formatNullTime(dbModel.DeletionTime),
@@ -909,4 +1046,42 @@ func formatNullTime(nt pq.NullTime) string {
 		return nt.Time.Format(time.RFC3339)
 	}
 	return ""
+}
+
+func formatMetaV1Time(t *metav1.Time) string {
+	if t != nil {
+		return t.Time.Format(time.RFC3339)
+	}
+	return ""
+}
+
+func normalizeModelOrigin(origin string) string {
+	if origin == "" {
+		return "external"
+	}
+	return origin
+}
+
+// sanitizeLabelValue ensures a string is valid as a Kubernetes label value.
+// Label values must match: (([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])?
+// Max 63 characters. Characters like '/' are replaced with '_'.
+func sanitizeLabelValue(s string) string {
+	if s == "" {
+		return s
+	}
+	var b strings.Builder
+	for _, c := range s {
+		if (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '-' || c == '_' || c == '.' {
+			b.WriteRune(c)
+		} else {
+			b.WriteRune('_')
+		}
+	}
+	result := b.String()
+	result = strings.Trim(result, "-_.")
+	if len(result) > 63 {
+		result = result[:63]
+		result = strings.TrimRight(result, "-_.")
+	}
+	return result
 }

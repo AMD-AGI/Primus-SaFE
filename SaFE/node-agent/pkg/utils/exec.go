@@ -47,6 +47,10 @@ func ExecuteScript(args []string, timeout time.Duration) (int, string) {
 	defer cancel()
 	cmd := Exec(ctx, "/bin/bash", args...)
 
+	// Use a shared buffer with cmd.Run() instead of CombinedOutput().
+	// CombinedOutput() creates two separate OS pipe fds for stdout and stderr,
+	// which causes bash redirection failures when scripts use nsenter to cross
+	// mount namespaces. A single shared buffer avoids the dual-pipe issue.
 	var buf bytes.Buffer
 	cmd.Stdout = &buf
 	cmd.Stderr = &buf

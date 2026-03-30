@@ -107,6 +107,7 @@
                   collapse-tags
                   collapse-tags-tooltip
                   :max-collapse-tags="5"
+                  :disabled="isEdit"
                   placeholder="Select or paste nodes to exclude (comma-separated)"
                   ref="excludedNodesSelectRef"
                   :filter-method="filterExcludedNodes"
@@ -368,7 +369,7 @@
                 </el-col>
                 <el-col :span="12">
                   <el-form-item label="secret" prop="secretIds">
-                    <el-select v-model="form.secretIds" multiple placeholder="Please select secrets">
+                    <el-select v-model="form.secretIds" multiple :disabled="isEdit" placeholder="Please select secrets">
                       <el-option
                         v-for="item in secretOptions"
                         :key="item.value"
@@ -778,34 +779,17 @@ const onSubmit = async (formEl: FormInstance | undefined) => {
       })
       ElMessage({ message: `${props.action} successful`, type: 'success' })
     } else {
-      const {
-        displayName: _n,
-        groupVersionKind,
-        isSupervised,
-        resource,
-        envList,
-        labelList,
-        resourceType,
-        nodeList,
-        entryPoint,
-        timeout,
-        secretIds,
-        excludedNodes: _excludedNodes,
-        forceHostNetwork: _fhn,
-        ...editPayload
-      } = form
       if (!props.wlid) return
 
       await editWorkload(props.wlid, {
-        ...editPayload,
+        description: form.description,
+        priority: form.priority,
         resources,
-        env: convertListToKeyValueMap(envList),
-        entryPoints: [encodeToBase64String(entryPoint)],
+        env: convertListToKeyValueMap(form.envList),
+        entryPoints: [encodeToBase64String(form.entryPoint)],
         images: [form.image],
         ...(form.timeout !== undefined ? { timeout: form.timeout } : {}),
-        ...(secrets.length > 0 ? { secrets: secrets } : {}),
         ...servicePayload,
-        ...(excludedNodesPayload ? { excludedNodes: excludedNodesPayload } : {}),
       })
       ElMessage({ message: 'Edit successful', type: 'success' })
     }

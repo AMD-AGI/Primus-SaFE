@@ -1260,18 +1260,23 @@ func (mr *MockInterfaceMockRecorder) ListLLMBindings(ctx, limit, offset interfac
 }
 
 // ListModels mocks base method.
-func (m *MockInterface) ListModels(ctx context.Context, accessMode, workspace string, isDeleted bool) ([]*client.Model, error) {
+func (m *MockInterface) ListModels(ctx context.Context, accessMode, workspace string, isDeleted bool, origin ...string) ([]*client.Model, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ListModels", ctx, accessMode, workspace, isDeleted)
+	varargs := []interface{}{ctx, accessMode, workspace, isDeleted}
+	for _, a := range origin {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "ListModels", varargs...)
 	ret0, _ := ret[0].([]*client.Model)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // ListModels indicates an expected call of ListModels.
-func (mr *MockInterfaceMockRecorder) ListModels(ctx, accessMode, workspace, isDeleted interface{}) *gomock.Call {
+func (mr *MockInterfaceMockRecorder) ListModels(ctx, accessMode, workspace, isDeleted interface{}, origin ...interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListModels", reflect.TypeOf((*MockInterface)(nil).ListModels), ctx, accessMode, workspace, isDeleted)
+	varargs := append([]interface{}{ctx, accessMode, workspace, isDeleted}, origin...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListModels", reflect.TypeOf((*MockInterface)(nil).ListModels), varargs...)
 }
 
 // ListPendingEmailOutbox mocks base method.
@@ -4003,18 +4008,23 @@ func (mr *MockModelInterfaceMockRecorder) GetModelByModelName(ctx, modelName int
 }
 
 // ListModels mocks base method.
-func (m *MockModelInterface) ListModels(ctx context.Context, accessMode, workspace string, isDeleted bool) ([]*client.Model, error) {
+func (m *MockModelInterface) ListModels(ctx context.Context, accessMode, workspace string, isDeleted bool, origin ...string) ([]*client.Model, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ListModels", ctx, accessMode, workspace, isDeleted)
+	varargs := []interface{}{ctx, accessMode, workspace, isDeleted}
+	for _, a := range origin {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "ListModels", varargs...)
 	ret0, _ := ret[0].([]*client.Model)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // ListModels indicates an expected call of ListModels.
-func (mr *MockModelInterfaceMockRecorder) ListModels(ctx, accessMode, workspace, isDeleted interface{}) *gomock.Call {
+func (mr *MockModelInterfaceMockRecorder) ListModels(ctx, accessMode, workspace, isDeleted interface{}, origin ...interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListModels", reflect.TypeOf((*MockModelInterface)(nil).ListModels), ctx, accessMode, workspace, isDeleted)
+	varargs := append([]interface{}{ctx, accessMode, workspace, isDeleted}, origin...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListModels", reflect.TypeOf((*MockModelInterface)(nil).ListModels), varargs...)
 }
 
 // UpsertModel mocks base method.

@@ -63,10 +63,10 @@ spec:
           name: {{ .Release.Name }}-a2a-gateway
       - name: db-secret
         secret:
-          secretName: {{ .Release.Name }}-db-secret
+          secretName: {{ .Release.Name }}-pguser-{{ .Release.Name }}
       - name: crypto-secret
         secret:
-          secretName: {{ .Release.Name }}-crypto-secret
+          secretName: {{ .Release.Name }}-crypto
       {{- if .Values.global.image_pull_secret }}
       imagePullSecrets:
       - name: {{ .Values.global.image_pull_secret }}

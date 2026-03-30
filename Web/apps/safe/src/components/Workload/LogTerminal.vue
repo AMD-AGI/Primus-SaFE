@@ -15,14 +15,21 @@
         </el-tooltip>
       </div>
       <el-card class="mt-4 safe-card" style="height: calc(100vh - 238px)" shadow="never">
+        <el-input
+          v-model="nodeSearch"
+          size="default"
+          placeholder="Search node"
+          clearable
+          class="mb-2"
+        />
         <el-table
           ref="nodeTableRef"
-          :data="tableRows"
+          :data="filteredTableRows"
           row-key="node"
           stripe
           border
           v-if="tableRows?.length"
-          height="calc(100vh - 280px)"
+          height="calc(100vh - 320px)"
           reserve-selection
           @selection-change="doNodeSelectionChange"
         >
@@ -175,6 +182,12 @@ const props = defineProps<{
 
 const hasRank = (r: unknown) => r !== null && r !== undefined && r !== ''
 const wordWrap = ref(true)
+const nodeSearch = ref('')
+const filteredTableRows = computed(() => {
+  const kw = nodeSearch.value.trim().toLowerCase()
+  if (!kw) return tableRows.value
+  return tableRows.value.filter((r) => r.node.toLowerCase().includes(kw))
+})
 
 const selectedGroup = ref<number>(props.dispatchCount ?? 0)
 
