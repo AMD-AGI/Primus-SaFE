@@ -917,20 +917,14 @@ func (v *WorkloadValidator) validateRayJob(newWorkload, _ *v1.Workload) error {
 
 // validateMonarchJob validates Monarch workload configuration including environment variables and resource requirements.
 func (v *WorkloadValidator) validateMonarchJob(newWorkload *v1.Workload) error {
-	// Monarch workloads require at least 2 resource configurations - one for client (index=0) and one for the MonarchMesh(worker)
-	if len(newWorkload.Spec.Resources) < 2 || len(newWorkload.Spec.Images) < 2 {
-		return fmt.Errorf("insufficient resources for Monarch: expected at least 2 resource configurations (client and mesh groups), "+
+	// Monarch workloads require 2 resource configurations - one for client (index=0) and one for the MonarchMesh(worker)
+	if len(newWorkload.Spec.Resources) != 2 {
+		return fmt.Errorf("insufficient resources for Monarch: required 2 resource configurations (client and mesh worker), "+
 			"got %d, resources: %v", len(newWorkload.Spec.Resources), newWorkload.Spec.Resources)
-	}
-	for i, img := range newWorkload.Spec.Images {
-		if img == "" {
-			return fmt.Errorf("images[%d] must not be empty", i)
-		}
 	}
 	if len(v1.GetDisplayName(newWorkload)) > commonutils.MaxMonarchJobNameLen {
 		return fmt.Errorf("the displayName is too long, maximum length is %d", commonutils.MaxMonarchJobNameLen)
 	}
-
 	group, err := commonworkload.GetReplicaCount(newWorkload, common.ReplicaCount)
 	if err != nil {
 		return err
