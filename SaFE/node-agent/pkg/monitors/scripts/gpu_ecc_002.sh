@@ -19,9 +19,9 @@ total_pcie_replay=0
 
 while read -r line; do
   if [[ "$line" =~ ^[0-9] ]]; then
-    single_ecc=$(echo "$line" | awk '{print $2}')
-    double_ecc=$(echo "$line" | awk '{print $3}')
-    pcie_replay=$(echo "$line" | awk '{print $4}')
+    single_ecc=$(echo "$line" | awk '{print $3}')
+    double_ecc=$(echo "$line" | awk '{print $4}')
+    pcie_replay=$(echo "$line" | awk '{print $5}')
     total_single_ecc=$((total_single_ecc + single_ecc))
     total_double_ecc=$((total_double_ecc + double_ecc))
     total_pcie_replay=$((total_pcie_replay + pcie_replay))

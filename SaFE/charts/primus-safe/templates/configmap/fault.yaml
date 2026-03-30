@@ -16,7 +16,7 @@ metadata:
     meta.helm.sh/release-namespace: {{ .Release.Namespace }}
 data:
   gpu_module_001: '{"id":"001","action":"taint","toggle":"on"}'
-  gpu_ecc_002: '{"id":"002","toggle":"on"}'
+  gpu_ecc_002: '{"id":"002","action":"taint","toggle":"on"}'
   gpu_bad_pages_003: '{"id":"003","action":"taint","toggle":"on"}'
   gpu_node_count_004: '{"id":"004","action":"taint","toggle":"on"}'
   gpu_k8s_available_005: '{"id":"005","action":"taint","toggle":"on"}'
