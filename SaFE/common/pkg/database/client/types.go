@@ -331,6 +331,8 @@ type ApiKey struct {
 	Whitelist      string      `db:"whitelist"` // JSON string of IP/CIDR list
 	Deleted        bool        `db:"deleted"`
 	DeletionTime   pq.NullTime `db:"deletion_time"`
+	KeyType        string      `db:"key_type"`      // "user" (default) or "platform"
+	EncryptedKey   *string     `db:"encrypted_key"` // AES-GCM encrypted plaintext, only for platform keys
 }
 
 // GetApiKeyFieldTags returns the ApiKeyFieldTags value.

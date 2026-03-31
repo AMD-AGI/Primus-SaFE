@@ -216,11 +216,12 @@ func (h *Handler) listApiKey(c *gin.Context) (interface{}, error) {
 	}
 	req.UserId = userId
 
-	// Build query: filter by user_id, exclude deleted only (include expired keys)
+	// Build query: filter by user_id, exclude deleted and platform keys
 	tags := dbclient.GetApiKeyFieldTags()
 	query := sqrl.And{
 		sqrl.Eq{dbclient.GetFieldTag(tags, "UserId"): req.UserId},
 		sqrl.Eq{dbclient.GetFieldTag(tags, "Deleted"): false},
+		sqrl.Eq{dbclient.GetFieldTag(tags, "KeyType"): authority.KeyTypeUser},
 	}
 
 	// Add name filter if specified (partial match using ILIKE)
@@ -288,6 +289,11 @@ func (h *Handler) deleteApiKey(c *gin.Context) (interface{}, error) {
 	record, err := h.dbClient.GetApiKeyById(c.Request.Context(), id)
 	if err != nil {
 		return nil, commonerrors.NewNotFoundWithMessage("API key not found")
+	}
+
+	// Platform keys cannot be deleted via user API
+	if record.KeyType == authority.KeyTypePlatform {
+		return nil, commonerrors.NewForbidden("platform API key cannot be deleted")
 	}
 
 	// Check RBAC permission - user must have "delete" permission on "apikeys" resource
