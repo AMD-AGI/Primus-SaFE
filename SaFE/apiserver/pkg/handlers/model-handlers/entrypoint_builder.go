@@ -337,17 +337,34 @@ sed "s/%%MODULE_CONFIG%%/$MODULE_CONFIG/g" > /tmp/sft_experiment.yaml << 'EXPEOF
 EXPEOF
 mkdir -p "./output/${PRIMUS_TEAM:-amd}/${PRIMUS_USER:-root}/%s"
 
-# Redirect squad eval dataset cache to shared storage so the Primus qwen3
-# flavor's built-in squad evaluation does not attempt to download from
-# huggingface.co (which is unreachable from the cluster).
-SQUAD_SHARED="%s/sft-shared-data/squad-cache"
-SQUAD_LOCAL="/root/.cache/nemo/datasets/squad"
-mkdir -p "$SQUAD_SHARED" "$(dirname $SQUAD_LOCAL)"
-if [ ! -L "$SQUAD_LOCAL" ]; then
-  rm -rf "$SQUAD_LOCAL"
-  ln -sfn "$SQUAD_SHARED" "$SQUAD_LOCAL"
+# Prepare squad eval dataset cache from pre-downloaded parquet files.
+# Primus qwen3 flavor requires squad for evaluation; load_dataset("squad")
+# needs arrow cache format, so we convert from parquet on first use.
+SQUAD_PARQUET_DIR="%s/datasets/rajpurkar/squad/plain_text"
+SQUAD_CACHE="/root/.cache/nemo/datasets/squad"
+mkdir -p "$SQUAD_CACHE"
+if [ -d "$SQUAD_PARQUET_DIR" ] && [ ! -f "$SQUAD_CACHE/dataset_dict.json" ]; then
+  echo "[SFT] Converting squad parquet -> arrow cache..."
+  python3 -c "
+import os
+os.environ['HF_DATASETS_OFFLINE']='1'
+os.environ['HF_HUB_OFFLINE']='1'
+from datasets import load_dataset
+pq='${SQUAD_PARQUET_DIR}'
+train_pq=os.path.join(pq,'train-00000-of-00001.parquet')
+val_pq=os.path.join(pq,'validation-00000-of-00001.parquet')
+if os.path.isfile(train_pq):
+    ds=load_dataset('parquet',data_files={'train':train_pq,'validation':val_pq})
+    ds.save_to_disk('${SQUAD_CACHE}')
+    print(f'[SFT] squad cache ready: {len(ds[\"train\"])} train, {len(ds[\"validation\"])} val')
+else:
+    print('[SFT] WARNING: squad parquet not found at '+pq)
+" 2>&1 || echo "[SFT] WARNING: squad cache conversion failed, evaluation may fail"
+elif [ -f "$SQUAD_CACHE/dataset_dict.json" ]; then
+  echo "[SFT] squad cache already exists"
+else
+  echo "[SFT] WARNING: squad parquet not found at $SQUAD_PARQUET_DIR, evaluation may fail"
 fi
-echo "[SFT] squad cache -> $SQUAD_SHARED"
 
 # Multi-node: redirect ./data and ./nemo_experiments to shared storage so all
 # nodes see the same HF cache, Megatron checkpoints, trained checkpoints, and
