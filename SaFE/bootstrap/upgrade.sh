@@ -128,6 +128,11 @@ if [[ "$sso_enable" == "true" ]]; then
 fi
 sed -i '/^cd:/,/^[a-z]/ s/require_approval: .*/require_approval: '"$cd_require_approval"'/' "$values_yaml"
 
+# Configure metrics port if defined in .env
+if [[ -n "${metrics_port:-}" ]]; then
+  sed -i '/^job_manager:/,/^[a-z]/ s/metrics_port: .*/metrics_port: '"$metrics_port"'/' "$values_yaml"
+fi
+
 # Configure tracing if defined in .env
 if [[ "${tracing_enable:-false}" == "true" ]]; then
   sed -i '/^tracing:/,/^[a-z]/ s/enable: .*/enable: true/' "$values_yaml"
