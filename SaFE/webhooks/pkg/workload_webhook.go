@@ -118,9 +118,6 @@ func (m *WorkloadMutator) mutateOnCreation(ctx context.Context, workload *v1.Wor
 	m.mutateTTLSeconds(workload)
 	m.mutateCommon(ctx, nil, workload, workspace)
 	m.mutateTimeout(workload, workspace)
-	if commonworkload.IsRayJob(workload) {
-		m.mutateRayJob(workload)
-	}
 	return true
 }
 
@@ -144,6 +141,8 @@ func (m *WorkloadMutator) mutateCommon(ctx context.Context, oldWorkload, newWork
 		m.mutateCICDScaleSet(newWorkload)
 	case common.MonarchJob:
 		m.mutateMonarchJob(newWorkload)
+	case common.RayJobKind:
+		m.mutateRayJob(newWorkload)
 	}
 	m.mutateHostPath(newWorkload, workspace)
 	m.mutatePriority(newWorkload)
@@ -433,6 +432,14 @@ func (m *WorkloadMutator) mutateImages(workload *v1.Workload) {
 // mutateRayJob automatically add image, entrypoint and resource for submitter pod.
 // This is an internal behavior and is not exposed externally.
 func (m *WorkloadMutator) mutateRayJob(workload *v1.Workload) {
+	if len(workload.Spec.Resources) > 0 {
+		r := workload.Spec.Resources[0]
+		if r.Replica == 1 && r.CPU == common.RayJobSubmitterCpu &&
+			r.Memory == common.RayJobSubmitterMemory && r.EphemeralStorage == common.RayJobSubmitterStorage {
+			return
+		}
+	}
+
 	if len(workload.Spec.Images) > 0 {
 		images := make([]string, 0, len(workload.Spec.Images)+1)
 		images = append(images, workload.Spec.Images[0])

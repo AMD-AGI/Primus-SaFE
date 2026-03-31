@@ -210,17 +210,13 @@ type WorkloadPod struct {
 	PodId string `json:"podId"`
 	// The id of workload resources that the pod is bound to.
 	// If the value is less than 0, it means the pod does not belong to any resource.
-	ResourceId int `json:"resourceId,omitempty"`
-	// The Kubernetes node that the Pod is scheduled on
-	K8sNodeName string `json:"k8sNodeName,omitempty"`
+	ResourceId int8 `json:"resourceId,omitempty"`
 	// The admin node that the Pod is scheduled on
 	AdminNodeName string `json:"adminNodeName,omitempty"`
 	// Pod status: Pending, Running, Succeeded, Failed, Unknown
 	Phase corev1.PodPhase `json:"phase,omitempty"`
 	// The node's IP address where the Pod is running
 	HostIp string `json:"hostIP,omitempty"`
-	// The pod's IP address where the Pod is running
-	PodIp string `json:"podIP,omitempty"`
 	// The rank of pod, only for pytorch-job
 	Rank string `json:"rank,omitempty"`
 	// Pod start time
@@ -234,14 +230,12 @@ type WorkloadPod struct {
 	// The group id of pod
 	// for torchft. 0 lighthouse, > 0 worker
 	// for monarch. 0 client, > 0 mesh
-	GroupId int `json:"groupId,omitempty"`
+	GroupId int8 `json:"groupId,omitempty"`
 }
 
 type Container struct {
 	// Container name
 	Name string `json:"name"`
-	// (brief) reason from the last termination of the container
-	Reason string `json:"reason,omitempty"`
 	// Message regarding the last termination of the container
 	Message string `json:"message,omitempty"`
 	// Exit status from the last termination of the container
@@ -351,7 +345,7 @@ func (w *Workload) GetLastCondition() *metav1.Condition {
 func IsPodRunning(p *WorkloadPod) bool {
 	return corev1.PodSucceeded != p.Phase &&
 		corev1.PodFailed != p.Phase &&
-		p.K8sNodeName != ""
+		p.AdminNodeName != ""
 }
 
 // IsPodTerminated returns true if the pod is in terminated phase.

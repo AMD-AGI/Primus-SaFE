@@ -17,6 +17,9 @@ type ModelSpecApplyConfiguration struct {
 	MaxTokens   *int                           `json:"maxTokens,omitempty"`
 	Source      *ModelSourceApplyConfiguration `json:"source,omitempty"`
 	Workspace   *string                        `json:"workspace,omitempty"`
+	Origin      *string                        `json:"origin,omitempty"`
+	SftJobId    *string                        `json:"sftJobId,omitempty"`
+	BaseModel   *string                        `json:"baseModel,omitempty"`
 }
 
 // ModelSpecApplyConfiguration constructs a declarative configuration of the ModelSpec type for use with
@@ -88,5 +91,29 @@ func (b *ModelSpecApplyConfiguration) WithSource(value *ModelSourceApplyConfigur
 // If called multiple times, the Workspace field is set to the value of the last call.
 func (b *ModelSpecApplyConfiguration) WithWorkspace(value string) *ModelSpecApplyConfiguration {
 	b.Workspace = &value
+	return b
+}
+
+// WithOrigin sets the Origin field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the Origin field is set to the value of the last call.
+func (b *ModelSpecApplyConfiguration) WithOrigin(value string) *ModelSpecApplyConfiguration {
+	b.Origin = &value
+	return b
+}
+
+// WithSftJobId sets the SftJobId field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the SftJobId field is set to the value of the last call.
+func (b *ModelSpecApplyConfiguration) WithSftJobId(value string) *ModelSpecApplyConfiguration {
+	b.SftJobId = &value
+	return b
+}
+
+// WithBaseModel sets the BaseModel field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the BaseModel field is set to the value of the last call.
+func (b *ModelSpecApplyConfiguration) WithBaseModel(value string) *ModelSpecApplyConfiguration {
+	b.BaseModel = &value
 	return b
 }

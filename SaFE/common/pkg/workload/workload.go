@@ -106,7 +106,7 @@ func GetResourcesPerNode(workload *v1.Workload, adminNodeName string) (map[strin
 
 	result := map[string]corev1.ResourceList{}
 	for _, pod := range workload.Status.Pods {
-		if !v1.IsPodRunning(&pod) || pod.ResourceId >= len(allPodResources) {
+		if !v1.IsPodRunning(&pod) || pod.ResourceId >= int8(len(allPodResources)) {
 			continue
 		}
 		if adminNodeName != "" && adminNodeName != pod.AdminNodeName {
@@ -178,7 +178,7 @@ func GetWorkloadResourceUsage(workload *v1.Workload, filterNode func(nodeName st
 			outputs[in.id].isTerminated = true
 			return nil
 		}
-		outputs[in.id].resourceId = in.pod.ResourceId
+		outputs[in.id].resourceId = int(in.pod.ResourceId)
 		if filterNode != nil && filterNode(in.pod.AdminNodeName) {
 			outputs[in.id].isFiltered = true
 			return nil

@@ -574,7 +574,7 @@ func getFailedPodInfo(workload *v1.Workload) string {
 		}
 		info := FailedPodInfo{
 			Pod:     pod.PodId,
-			Node:    pod.K8sNodeName,
+			Node:    pod.AdminNodeName,
 			Message: pod.FailedMessage,
 		}
 		for _, c := range pod.Containers {
