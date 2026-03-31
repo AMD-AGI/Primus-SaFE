@@ -103,6 +103,15 @@ export ADD_LOG_HEADER="${ADD_LOG_HEADER:-true}"
 
 
 # ==============================================================================
+# Internet Bandwidth Benchmark Configuration
+# ==============================================================================
+export SPEEDTEST_URL="${SPEEDTEST_URL:-http://speedtest.newark.linode.com/100MB-newark.bin}"
+export SPEEDTEST_TARGET_IP="${SPEEDTEST_TARGET_IP:-50.116.57.237}"
+export SPEEDTEST_THREADS_PER_NODE="${SPEEDTEST_THREADS_PER_NODE:-4}"
+export SPEEDTEST_ROUNDS="${SPEEDTEST_ROUNDS:-10}"
+
+
+# ==============================================================================
 # Helper function to print configuration
 # ==============================================================================
 print_config() {
