@@ -97,31 +97,38 @@
             <el-switch v-model="debugMode" />
           </div>
 
-          <!-- Secondary Model (for comparison) -->
+          <!-- Secondary Service (for comparison) -->
           <div class="param-item" v-if="compareMode">
             <label class="param-label">
-              Compare Model
-              <el-tooltip content="Select a second model for comparison">
+              Compare Service
+              <el-tooltip content="Select a second inference service for comparison">
                 <el-icon class="ml-1 text-gray-400"><QuestionFilled /></el-icon>
               </el-tooltip>
             </label>
             <el-select
-              v-model="secondaryModelId"
-              placeholder="Select compare model"
+              v-model="secondaryServiceId"
+              placeholder="Select compare service"
               class="w-full"
-              :loading="loadingModels"
-              @change="handleSecondaryModelChange"
+              :loading="loadingServices"
+              @change="handleSecondaryServiceChange"
             >
               <el-option
-                v-for="model in modelsList"
-                :key="model.id"
-                :label="model.displayName || model.label"
-                :value="model.id"
-                :disabled="model.id === modelId"
+                v-for="svc in servicesList"
+                :key="svc.id"
+                :label="svc.displayName"
+                :value="svc.id"
+                :disabled="svc.id === serviceId"
               >
                 <div class="flex items-center justify-between">
-                  <span>{{ model.displayName || model.label }}</span>
-                  <el-tag v-if="model.id === modelId" type="warning" size="small"> Primary </el-tag>
+                  <span>{{ svc.displayName }}</span>
+                  <div class="flex items-center gap-2">
+                    <el-tag v-if="svc.phase" size="small" :type="getPhaseType(svc.phase)">
+                      {{ svc.phase }}
+                    </el-tag>
+                    <el-tag v-if="svc.id === serviceId" type="warning" size="small">
+                      Primary
+                    </el-tag>
+                  </div>
                 </div>
               </el-option>
             </el-select>
@@ -1210,7 +1217,7 @@
                   </div>
 
                   <!-- Loading indicator for secondary model -->
-                  <div v-if="loading && secondaryModelId" class="flex justify-start">
+                  <div v-if="loading && secondaryServiceId" class="flex justify-start">
                     <div class="flex flex-col items-start">
                       <div class="flex items-center gap-2 mb-2">
                         <div
@@ -1248,8 +1255,8 @@
                 <i i="ep-chat-line-square" class="text-6xl text-gray-300 dark:text-gray-600 mb-4" />
                 <p class="text-gray-500 dark:text-gray-400">
                   {{
-                    !secondaryModelId
-                      ? 'Please select a secondary model'
+                    !secondaryServiceId
+                      ? 'Please select a compare service'
                       : 'Send a message to start comparing models'
                   }}
                 </p>
@@ -1287,11 +1294,11 @@
               :rows="3"
               :autosize="{ minRows: 2, maxRows: 6 }"
               :placeholder="
-                !secondaryModelId
-                  ? 'Please select a secondary model first...'
+                !secondaryServiceId
+                  ? 'Please select a compare service first...'
                   : 'Type your message here... (Enter to send, Shift+Enter for new line)'
               "
-              :disabled="!secondaryModelId"
+              :disabled="!secondaryServiceId"
               class="chat-input"
               @keydown.enter.exact.prevent="sendMessage"
             />
@@ -1300,7 +1307,7 @@
               <el-button
                 v-if="!loading"
                 type="primary"
-                :disabled="!userInput.trim() || !secondaryModelId"
+                :disabled="!userInput.trim() || !secondaryServiceId"
                 class="send-button"
                 @click="sendMessage"
               >
@@ -1643,25 +1650,14 @@ const getPhaseType = (phase: string) => {
   return typeMap[phase] || 'info'
 }
 
-// Handle secondary model change (for comparison)
-const handleSecondaryModelChange = async (selectedModelId: string) => {
-  const selectedModel = modelsList.value.find((m) => m.id === selectedModelId)
-  if (selectedModel) {
-    secondaryModelId.value = selectedModel.id
+// Handle secondary service change (for comparison)
+const handleSecondaryServiceChange = async (selectedSvcId: string) => {
+  const selectedService = servicesList.value.find((s) => s.id === selectedSvcId)
+  if (selectedService) {
+    secondaryServiceId.value = selectedSvcId
+    secondaryModelId.value = selectedSvcId
     secondaryChatParams.value.model =
-      selectedModel.displayName || selectedModel.label || 'Unknown Model'
-    secondaryServiceId.value = selectedModel.serviceID || ''
-
-    // Fetch secondary model details for maxTokens
-    try {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const detail: any = await getModelDetail(selectedModelId)
-      if (detail) {
-        updateMaxTokensFromDetail(detail, true)
-      }
-    } catch (error) {
-      console.error('Failed to fetch secondary model details:', error)
-    }
+      selectedService.modelName || selectedService.displayName || 'Unknown Model'
   }
 }
 
@@ -1773,7 +1769,10 @@ const sendMessage = async () => {
 
     // Check if compare mode is enabled and secondary model is selected
     if (compareMode.value && secondaryModelId.value && secondaryServiceId.value) {
-      // Compare mode with streaming: create message with two choices
+      // Build chat messages BEFORE pushing assistant placeholder to avoid
+      // sending a trailing empty assistant message to the backend
+      const chatMessages = buildMessagesForChat(messages.value, systemPrompt.value)
+
       const message: MessageWithChoices = {
         role: 'assistant',
         content: '',
@@ -1795,10 +1794,22 @@ const sendMessage = async () => {
         selectedChoiceIndex: undefined,
       }
       messages.value.push(message)
-      streamingMessage.value = message
+      const msgIndex = messages.value.length - 1
+      streamingMessage.value = messages.value[msgIndex]
 
       await nextTick()
       scrollToBottom()
+
+      // Use separate AbortControllers so aborting one stream doesn't cancel the other
+      const primaryAbort = new AbortController()
+      const secondaryAbort = new AbortController()
+      const parentSignal = abortController.value?.signal
+      if (parentSignal) {
+        parentSignal.addEventListener('abort', () => {
+          primaryAbort.abort()
+          secondaryAbort.abort()
+        })
+      }
 
       // Stream both models simultaneously
       await Promise.allSettled([
@@ -1806,7 +1817,7 @@ const sendMessage = async () => {
         playgroundChatStream(
           {
             serviceId: serviceId.value,
-            messages: buildMessagesForChat(messages.value, systemPrompt.value),
+            messages: chatMessages,
             modelName: modelName.value,
             temperature: chatParams.value.temperature,
             topP: chatParams.value.topP,
@@ -1815,26 +1826,28 @@ const sendMessage = async () => {
             presencePenalty: 0,
           },
           (content: string) => {
-            if (message.choices && message.choices[0]) {
-              message.choices[0].content += content
+            const reactiveMsg = messages.value[msgIndex]
+            if (reactiveMsg?.choices?.[0]) {
+              reactiveMsg.choices[0].content += content
               nextTick(() => scrollToBottom())
             }
           },
           (error: unknown) => {
             console.error('Primary model streaming error:', error)
-            if (message.choices && message.choices[0]) {
-              message.choices[0].content = 'Error: Failed to get response from primary model'
-              message.choices[0].finish_reason = 'error'
+            const reactiveMsg = messages.value[msgIndex]
+            if (reactiveMsg?.choices?.[0]) {
+              reactiveMsg.choices[0].content = 'Error: Failed to get response from primary model'
+              reactiveMsg.choices[0].finish_reason = 'error'
             }
           },
           undefined,
-          abortController.value?.signal,
+          primaryAbort.signal,
         ),
         // Secondary model stream
         playgroundChatStream(
           {
             serviceId: secondaryServiceId.value,
-            messages: buildMessagesForChat(messages.value, systemPrompt.value),
+            messages: chatMessages,
             modelName: secondaryChatParams.value.model,
             temperature: secondaryChatParams.value.temperature,
             topP: secondaryChatParams.value.topP,
@@ -1843,34 +1856,38 @@ const sendMessage = async () => {
             presencePenalty: 0,
           },
           (content: string) => {
-            if (message.choices && message.choices[1]) {
-              message.choices[1].content += content
+            const reactiveMsg = messages.value[msgIndex]
+            if (reactiveMsg?.choices?.[1]) {
+              reactiveMsg.choices[1].content += content
               nextTick(() => scrollToBottom())
             }
           },
           (error: unknown) => {
             console.error('Secondary model streaming error:', error)
-            if (message.choices && message.choices[1]) {
-              message.choices[1].content = 'Error: Failed to get response from compare model'
-              message.choices[1].finish_reason = 'error'
+            const reactiveMsg = messages.value[msgIndex]
+            if (reactiveMsg?.choices?.[1]) {
+              reactiveMsg.choices[1].content = 'Error: Failed to get response from compare model'
+              reactiveMsg.choices[1].finish_reason = 'error'
             }
           },
           undefined,
-          abortController.value?.signal,
+          secondaryAbort.signal,
         ),
       ])
 
       streamingMessage.value = null
     } else {
       // Single model mode with streaming
-      // Create a placeholder message for streaming content
+      // Build chat messages BEFORE pushing assistant placeholder
+      const chatMessages = buildMessagesForChat(messages.value, systemPrompt.value)
+
       const message: MessageWithChoices = {
         role: 'assistant',
         content: '',
         timestamp,
       }
       messages.value.push(message)
-      streamingMessage.value = message
+      streamingMessage.value = messages.value[messages.value.length - 1]
 
       await nextTick()
       scrollToBottom()
@@ -1879,7 +1896,7 @@ const sendMessage = async () => {
       await playgroundChatStream(
         {
           serviceId: serviceId.value,
-          messages: buildMessagesForChat(messages.value, systemPrompt.value),
+          messages: chatMessages,
           modelName: modelName.value,
           temperature: chatParams.value.temperature,
           topP: chatParams.value.topP,
