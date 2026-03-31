@@ -64,6 +64,8 @@ job_manager:
   cpu: 2000m
   # Memory resources allocated to job manager
   memory: 4Gi
+  # Port for Prometheus metrics endpoint
+  metrics_port: 8000
 webhooks:
   # Webhooks component image version
   image: "webhooks:latest"

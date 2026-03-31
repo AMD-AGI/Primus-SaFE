@@ -24,6 +24,10 @@ spec:
     metadata:
       labels:
         app: {{ .Release.Name }}-webhooks
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "{{ default 8000 (default .Values.job_manager).metrics_port }}"
+        prometheus.io/path: "/metrics"
     spec:
       affinity:
         podAntiAffinity:
@@ -66,6 +70,9 @@ spec:
               mountPath: /opt/primus-safe/webhooks/config
               readOnly: true
           ports:
+            - name: metrics
+              containerPort: {{ default 8000 (default .Values.job_manager).metrics_port }}
+              protocol: TCP
             - containerPort: {{ default 8084 (default .Values.webhooks).port }}
               protocol: TCP
               name: http-port
