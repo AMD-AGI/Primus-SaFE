@@ -45,6 +45,16 @@ export default function setupAuthGuard(router: Router) {
         }
       }
 
+      // Check if this is an SSO request from the HyperLoom app
+      if (state && state.startsWith('hyperloom:')) {
+        const parts = state.split(':')
+        if (parts.length >= 3) {
+          const hlRedirect = decodeURIComponent(parts.slice(2).join(':'))
+          window.location.href = `${hlRedirect}?code=${code}&state=${encodeURIComponent(state)}`
+          return
+        }
+      }
+
       const saved = sessionStorage.getItem(OAUTH_STATE_KEY)
       if (saved && state && saved !== state) {
         history.replaceState(null, '', to.path)

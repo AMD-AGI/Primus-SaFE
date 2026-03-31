@@ -7,9 +7,12 @@
     "build:safe": "pnpm --filter ./apps/safe build",
     "dev:lens": "pnpm --filter ./apps/lens dev",
     "build:lens": "pnpm --filter ./apps/lens build",
+    "dev:hyperloom": "pnpm --filter ./apps/hyperloom dev",
+    "build:hyperloom": "pnpm --filter ./apps/hyperloom build",
     "lint": "pnpm -r lint",
     "test": "pnpm -r test",
     "test:safe": "pnpm --filter ./apps/safe test",
-    "test:lens": "pnpm --filter ./apps/lens test"
+    "test:lens": "pnpm --filter ./apps/lens test",
+    "test:hyperloom": "pnpm --filter ./apps/hyperloom test"
   }
 }

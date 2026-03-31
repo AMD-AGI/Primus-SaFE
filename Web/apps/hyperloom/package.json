@@ -1,0 +1,36 @@
+{
+  "name": "@primus/hyperloom",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@element-plus/icons-vue": "^2.3.2",
+    "axios": "^1.10.0",
+    "chart.js": "^4.4.9",
+    "element-plus": "^2.10.4",
+    "marked": "^17.0.5",
+    "pinia": "^3.0.4",
+    "pinia-plugin-persistedstate": "^4.7.1",
+    "vue": "^3.5.17",
+    "vue-router": "^4.5.1"
+  },
+  "devDependencies": {
+    "@iconify-json/ep": "^1.2.2",
+    "@types/node": "^22.15.32",
+    "@unocss/preset-icons": "^66.3.3",
+    "@unocss/preset-uno": "^66.3.3",
+    "@vitejs/plugin-vue": "^5.0.4",
+    "sass": "^1.89.2",
+    "typescript": "^5.8.3",
+    "unocss": "^66.3.3",
+    "vite": "^5.2.0",
+    "vitest": "^3.2.1"
+  }
+}
