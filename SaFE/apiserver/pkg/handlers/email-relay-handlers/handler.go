@@ -52,19 +52,27 @@ func (h *Handler) Stream(c *gin.Context) {
 		defer relay.Unsubscribe(sub)
 	}
 
-	// Send backlog first
+	// Send backlog first, track last sent ID for polling
+	var lastSentID int32
 	pending, err := h.dbClient.ListPendingEmailOutbox(ctx, 100)
 	if err != nil {
 		klog.Errorf("failed to list pending outbox: %v", err)
 	} else {
 		for _, item := range pending {
 			h.sendSSEEvent(c, flusher, item)
+			if item.ID > lastSentID {
+				lastSentID = item.ID
+			}
 		}
 	}
 
 	// Heartbeat ticker
-	ticker := time.NewTicker(15 * time.Second)
-	defer ticker.Stop()
+	heartbeat := time.NewTicker(15 * time.Second)
+	defer heartbeat.Stop()
+
+	// Poll for new pending emails every 5s (handles cross-process writes from resource-manager)
+	poll := time.NewTicker(5 * time.Second)
+	defer poll.Stop()
 
 	for {
 		select {
@@ -76,7 +84,22 @@ func (h *Handler) Stream(c *gin.Context) {
 				return
 			}
 			h.sendSSEEvent(c, flusher, item)
-		case <-ticker.C:
+			if item.ID > lastSentID {
+				lastSentID = item.ID
+			}
+		case <-poll.C:
+			newPending, err := h.dbClient.ListPendingEmailOutboxAfter(ctx, lastSentID, 100)
+			if err != nil {
+				klog.Errorf("failed to poll pending outbox: %v", err)
+				continue
+			}
+			for _, item := range newPending {
+				h.sendSSEEvent(c, flusher, item)
+				if item.ID > lastSentID {
+					lastSentID = item.ID
+				}
+			}
+		case <-heartbeat.C:
 			c.SSEvent("heartbeat", "ping")
 			if flusher != nil {
 				flusher.Flush()
@@ -180,10 +203,10 @@ func (h *Handler) Submit(c *gin.Context) {
 		return
 	}
 
-	// Notify SSE listeners
+	// Notify SSE listeners in-process
 	relay := channel.GetEmailRelayInstance()
 	if relay != nil {
-		relay.Send(c.Request.Context(), nil)
+		relay.Notify(outbox)
 	}
 
 	klog.Infof("External email submitted to outbox (id=%d, source=%s)", outbox.ID, source)
