@@ -80,6 +80,7 @@ export ENGINE="${ENGINE:-psync}"
 export RUNTIME="${RUNTIME:-30}"
 export BNIC="${BNIC:-50}"
 export BXGMI="${BXGMI:-315}"
+export SKIP_NODE_CHECK="${SKIP_NODE_CHECK:-false}"
 
 # ==============================================================================
 # Path Configuration
