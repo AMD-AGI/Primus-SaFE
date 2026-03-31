@@ -416,6 +416,15 @@ echo "Cleanup done. Disk usage: $(du -sh . 2>/dev/null | cut -f1)"`,
 		cfg.TrainConfig.Peft)
 
 	if cfg.ExportModel {
+		script += `
+
+# Only master node (rank 0) performs export and model registration
+MY_RANK=${RANK:-${OMPI_COMM_WORLD_RANK:-0}}
+if [ "$MY_RANK" != "0" ] && [ "$MY_RANK" != "" ]; then
+  echo "Worker node (rank=$MY_RANK), skipping export."
+  exit 0
+fi
+`
 		script += buildExportScript(cfg)
 	}
 
