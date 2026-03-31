@@ -1764,13 +1764,16 @@ const sendMessage = async () => {
   // Create new AbortController for this request
   abortController.value = new AbortController()
 
+  // Compare mode uses fire-and-forget streams; cleanup is handled by per-stream callbacks
+  let compareCleanupHandled = false
+
   try {
     const timestamp = new Date().toISOString()
 
     // Check if compare mode is enabled and secondary model is selected
     if (compareMode.value && secondaryModelId.value && secondaryServiceId.value) {
-      // Build chat messages BEFORE pushing assistant placeholder to avoid
-      // sending a trailing empty assistant message to the backend
+      compareCleanupHandled = true
+
       const chatMessages = buildMessagesForChat(messages.value, systemPrompt.value)
 
       const message: MessageWithChoices = {
@@ -1800,7 +1803,6 @@ const sendMessage = async () => {
       await nextTick()
       scrollToBottom()
 
-      // Use separate AbortControllers so aborting one stream doesn't cancel the other
       const primaryAbort = new AbortController()
       const secondaryAbort = new AbortController()
       const parentSignal = abortController.value?.signal
@@ -1812,92 +1814,100 @@ const sendMessage = async () => {
       }
 
       const STREAM_TIMEOUT = 120_000
-      const setChoiceTimeout = (
-        abort: AbortController,
-        choiceIdx: number,
-        label: string,
-      ) => {
-        const timer = setTimeout(() => {
+      const makeTimeout = (abort: AbortController, choiceIdx: number, label: string) =>
+        setTimeout(() => {
           abort.abort()
-          const reactiveMsg = messages.value[msgIndex]
-          if (reactiveMsg?.choices?.[choiceIdx] && !reactiveMsg.choices[choiceIdx].content) {
-            reactiveMsg.choices[choiceIdx].content = `Error: ${label} response timed out`
-            reactiveMsg.choices[choiceIdx].finish_reason = 'error'
+          const m = messages.value[msgIndex]
+          if (m?.choices?.[choiceIdx] && !m.choices[choiceIdx].content) {
+            m.choices[choiceIdx].content = `Error: ${label} response timed out`
+            m.choices[choiceIdx].finish_reason = 'error'
           }
         }, STREAM_TIMEOUT)
-        return timer
+
+      const primaryTimer = makeTimeout(primaryAbort, 0, 'Primary model')
+      const secondaryTimer = makeTimeout(secondaryAbort, 1, 'Compare model')
+
+      let doneCount = 0
+      const onStreamSettled = () => {
+        doneCount++
+        if (doneCount >= 2) {
+          clearTimeout(primaryTimer)
+          clearTimeout(secondaryTimer)
+          streamingMessage.value = null
+          loading.value = false
+          abortController.value = null
+        }
       }
 
-      const primaryTimer = setChoiceTimeout(primaryAbort, 0, 'Primary model')
-      const secondaryTimer = setChoiceTimeout(secondaryAbort, 1, 'Compare model')
+      // Fire both streams independently — neither blocks the other
+      playgroundChatStream(
+        {
+          serviceId: serviceId.value,
+          messages: chatMessages,
+          modelName: modelName.value,
+          temperature: chatParams.value.temperature,
+          topP: chatParams.value.topP,
+          maxTokens: chatParams.value.maxTokens,
+          frequencyPenalty: chatParams.value.frequencyPenalty,
+          presencePenalty: 0,
+        },
+        (content: string) => {
+          const m = messages.value[msgIndex]
+          if (m?.choices?.[0]) {
+            m.choices[0].content += content
+            nextTick(() => scrollToBottom())
+          }
+        },
+        (error: unknown) => {
+          console.error('Primary model streaming error:', error)
+          const m = messages.value[msgIndex]
+          if (m?.choices?.[0]) {
+            m.choices[0].content = 'Error: Failed to get response from primary model'
+            m.choices[0].finish_reason = 'error'
+          }
+        },
+        undefined,
+        primaryAbort.signal,
+      ).finally(() => {
+        clearTimeout(primaryTimer)
+        onStreamSettled()
+      })
 
-      // Stream both models simultaneously
-      await Promise.allSettled([
-        // Primary model stream
-        playgroundChatStream(
-          {
-            serviceId: serviceId.value,
-            messages: chatMessages,
-            modelName: modelName.value,
-            temperature: chatParams.value.temperature,
-            topP: chatParams.value.topP,
-            maxTokens: chatParams.value.maxTokens,
-            frequencyPenalty: chatParams.value.frequencyPenalty,
-            presencePenalty: 0,
-          },
-          (content: string) => {
-            const reactiveMsg = messages.value[msgIndex]
-            if (reactiveMsg?.choices?.[0]) {
-              reactiveMsg.choices[0].content += content
-              nextTick(() => scrollToBottom())
-            }
-          },
-          (error: unknown) => {
-            console.error('Primary model streaming error:', error)
-            const reactiveMsg = messages.value[msgIndex]
-            if (reactiveMsg?.choices?.[0]) {
-              reactiveMsg.choices[0].content = 'Error: Failed to get response from primary model'
-              reactiveMsg.choices[0].finish_reason = 'error'
-            }
-          },
-          () => clearTimeout(primaryTimer),
-          primaryAbort.signal,
-        ),
-        // Secondary model stream
-        playgroundChatStream(
-          {
-            serviceId: secondaryServiceId.value,
-            messages: chatMessages,
-            modelName: secondaryChatParams.value.model,
-            temperature: secondaryChatParams.value.temperature,
-            topP: secondaryChatParams.value.topP,
-            maxTokens: secondaryChatParams.value.maxTokens,
-            frequencyPenalty: secondaryChatParams.value.frequencyPenalty,
-            presencePenalty: 0,
-          },
-          (content: string) => {
-            const reactiveMsg = messages.value[msgIndex]
-            if (reactiveMsg?.choices?.[1]) {
-              reactiveMsg.choices[1].content += content
-              nextTick(() => scrollToBottom())
-            }
-          },
-          (error: unknown) => {
-            console.error('Secondary model streaming error:', error)
-            const reactiveMsg = messages.value[msgIndex]
-            if (reactiveMsg?.choices?.[1]) {
-              reactiveMsg.choices[1].content = 'Error: Failed to get response from compare model'
-              reactiveMsg.choices[1].finish_reason = 'error'
-            }
-          },
-          () => clearTimeout(secondaryTimer),
-          secondaryAbort.signal,
-        ),
-      ])
+      playgroundChatStream(
+        {
+          serviceId: secondaryServiceId.value,
+          messages: chatMessages,
+          modelName: secondaryChatParams.value.model,
+          temperature: secondaryChatParams.value.temperature,
+          topP: secondaryChatParams.value.topP,
+          maxTokens: secondaryChatParams.value.maxTokens,
+          frequencyPenalty: secondaryChatParams.value.frequencyPenalty,
+          presencePenalty: 0,
+        },
+        (content: string) => {
+          const m = messages.value[msgIndex]
+          if (m?.choices?.[1]) {
+            m.choices[1].content += content
+            nextTick(() => scrollToBottom())
+          }
+        },
+        (error: unknown) => {
+          console.error('Secondary model streaming error:', error)
+          const m = messages.value[msgIndex]
+          if (m?.choices?.[1]) {
+            m.choices[1].content = 'Error: Failed to get response from compare model'
+            m.choices[1].finish_reason = 'error'
+          }
+        },
+        undefined,
+        secondaryAbort.signal,
+      ).finally(() => {
+        clearTimeout(secondaryTimer)
+        onStreamSettled()
+      })
 
-      clearTimeout(primaryTimer)
-      clearTimeout(secondaryTimer)
-      streamingMessage.value = null
+      // Don't await — streams run independently; onStreamSettled handles cleanup
+      return
     } else {
       // Single model mode with streaming
       // Build chat messages BEFORE pushing assistant placeholder
@@ -1973,9 +1983,11 @@ const sendMessage = async () => {
 
     ElMessage.error(uiMsg)
   } finally {
-    loading.value = false
-    abortController.value = null
-    streamingMessage.value = null
+    if (!compareCleanupHandled) {
+      loading.value = false
+      abortController.value = null
+      streamingMessage.value = null
+    }
   }
 }
 
