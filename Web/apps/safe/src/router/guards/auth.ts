@@ -33,14 +33,15 @@ export default function setupAuthGuard(router: Router) {
     if (code) {
       const state = to.query.state as string | undefined
 
-      // Check if this is an SSO request from the Lens app
-      if (state && state.startsWith('lens:')) {
-        // Parse the Lens callback URL from the state
+      // Check if this is an SSO request from another app (Lens / Hyperloom)
+      // State format: {app}:{csrfToken}:{encodeURIComponent(bridgeUrl)}
+      const APP_PREFIXES = ['lens:', 'hyperloom:'] as const
+      const matchedPrefix = APP_PREFIXES.find((p) => state?.startsWith(p))
+      if (matchedPrefix && state) {
         const parts = state.split(':')
         if (parts.length >= 3) {
-          const lensRedirect = decodeURIComponent(parts.slice(2).join(':'))
-          // Forward code and state to Lens
-          window.location.href = `${lensRedirect}?code=${code}&state=${encodeURIComponent(state)}`
+          const appRedirect = decodeURIComponent(parts.slice(2).join(':'))
+          window.location.href = `${appRedirect}?code=${code}&state=${encodeURIComponent(state)}`
           return
         }
       }
