@@ -7,6 +7,8 @@ package authority
 
 import (
 	"context"
+	"crypto/aes"
+	"crypto/cipher"
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
@@ -15,11 +17,13 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/lib/pq"
 	"k8s.io/klog/v2"
 
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
@@ -36,6 +40,12 @@ const (
 	MaxTTLDays = 366
 	// UserTypeApiKey is the user type for API key authentication
 	UserTypeApiKey = "apikey"
+	// KeyTypeUser is the default key type for user-created API keys
+	KeyTypeUser = "user"
+	// KeyTypePlatform is the key type for platform-managed API keys (invisible to users, never expires)
+	KeyTypePlatform = "platform"
+	// PlatformKeyName is the default name for auto-created platform keys
+	PlatformKeyName = "platform-key"
 )
 
 var (
@@ -138,9 +148,11 @@ func (a *ApiKeyToken) ValidateApiKey(ctx context.Context, apiKey string, clientI
 		return nil, commonerrors.NewUnauthorized("Unavailable")
 	}
 
-	// Check if expired
-	if record.ExpirationTime.Valid && time.Now().UTC().After(record.ExpirationTime.Time) {
-		return nil, commonerrors.NewUnauthorized("API key expired")
+	// Platform keys never expire; only check expiration for user keys
+	if record.KeyType != KeyTypePlatform {
+		if record.ExpirationTime.Valid && time.Now().UTC().After(record.ExpirationTime.Time) {
+			return nil, commonerrors.NewUnauthorized("API key expired")
+		}
 	}
 
 	// Check IP whitelist
@@ -261,6 +273,122 @@ func maskApiKey(apiKey string) string {
 // IsApiKey checks if a token looks like an API key
 func IsApiKey(token string) bool {
 	return strings.HasPrefix(token, ApiKeyPrefix)
+}
+
+// EncryptApiKey encrypts an API key plaintext using AES-GCM for reversible storage.
+// The secret must be exactly 16, 24, or 32 bytes for AES-128/192/256.
+func EncryptApiKey(plaintext string, secret []byte) (string, error) {
+	key := deriveAESKey(secret)
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		return "", fmt.Errorf("failed to create cipher: %w", err)
+	}
+	aesGCM, err := cipher.NewGCM(block)
+	if err != nil {
+		return "", fmt.Errorf("failed to create GCM: %w", err)
+	}
+	nonce := make([]byte, aesGCM.NonceSize())
+	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
+		return "", fmt.Errorf("failed to generate nonce: %w", err)
+	}
+	ciphertext := aesGCM.Seal(nonce, nonce, []byte(plaintext), nil)
+	return base64.RawURLEncoding.EncodeToString(ciphertext), nil
+}
+
+// DecryptApiKey decrypts an AES-GCM encrypted API key back to plaintext.
+func DecryptApiKey(encrypted string, secret []byte) (string, error) {
+	key := deriveAESKey(secret)
+	data, err := base64.RawURLEncoding.DecodeString(encrypted)
+	if err != nil {
+		return "", fmt.Errorf("failed to decode encrypted key: %w", err)
+	}
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		return "", fmt.Errorf("failed to create cipher: %w", err)
+	}
+	aesGCM, err := cipher.NewGCM(block)
+	if err != nil {
+		return "", fmt.Errorf("failed to create GCM: %w", err)
+	}
+	nonceSize := aesGCM.NonceSize()
+	if len(data) < nonceSize {
+		return "", fmt.Errorf("ciphertext too short")
+	}
+	plaintext, err := aesGCM.Open(nil, data[:nonceSize], data[nonceSize:], nil)
+	if err != nil {
+		return "", fmt.Errorf("failed to decrypt: %w", err)
+	}
+	return string(plaintext), nil
+}
+
+// deriveAESKey derives a 32-byte AES-256 key from the secret using SHA-256.
+func deriveAESKey(secret []byte) []byte {
+	hash := sha256.Sum256(secret)
+	return hash[:]
+}
+
+// GetOrCreatePlatformKey returns the plaintext platform key for a user.
+// If no platform key exists, it creates one automatically.
+func (a *ApiKeyToken) GetOrCreatePlatformKey(ctx context.Context, userId, userName string) (string, error) {
+	if a.dbClient == nil {
+		return "", commonerrors.NewInternalError("database client not initialized")
+	}
+
+	record, err := a.dbClient.GetPlatformKeyByUserId(ctx, userId)
+	if err != nil && err != sql.ErrNoRows {
+		klog.ErrorS(err, "failed to query platform key", "userId", userId)
+		return "", commonerrors.NewInternalError("failed to query platform key")
+	}
+
+	if record != nil {
+		if record.EncryptedKey == nil || *record.EncryptedKey == "" {
+			return "", commonerrors.NewInternalError("platform key has no encrypted value")
+		}
+		plaintext, err := DecryptApiKey(*record.EncryptedKey, GetApiKeySecret())
+		if err != nil {
+			klog.ErrorS(err, "failed to decrypt platform key", "userId", userId)
+			return "", commonerrors.NewInternalError("failed to decrypt platform key")
+		}
+		return plaintext, nil
+	}
+
+	// Create a new platform key
+	apiKey, err := GenerateApiKey()
+	if err != nil {
+		return "", commonerrors.NewInternalError("failed to generate platform key")
+	}
+
+	hashedKey := HashApiKey(apiKey, GetApiKeySecret())
+	keyHint := GenerateKeyHint(apiKey)
+	encryptedKey, err := EncryptApiKey(apiKey, GetApiKeySecret())
+	if err != nil {
+		return "", commonerrors.NewInternalError("failed to encrypt platform key")
+	}
+
+	now := time.Now().UTC()
+	farFuture := time.Date(9999, 12, 31, 23, 59, 59, 0, time.UTC)
+
+	newRecord := &dbclient.ApiKey{
+		Name:           PlatformKeyName,
+		UserId:         userId,
+		UserName:       userName,
+		ApiKey:         hashedKey,
+		KeyHint:        keyHint,
+		ExpirationTime: pq.NullTime{Time: farFuture, Valid: true},
+		CreationTime:   pq.NullTime{Time: now, Valid: true},
+		Whitelist:      "[]",
+		Deleted:        false,
+		KeyType:        KeyTypePlatform,
+		EncryptedKey:   &encryptedKey,
+	}
+
+	if err := a.dbClient.InsertApiKey(ctx, newRecord); err != nil {
+		klog.ErrorS(err, "failed to insert platform key", "userId", userId)
+		return "", commonerrors.NewInternalError("failed to create platform key")
+	}
+
+	klog.Infof("created platform key for user %s, apiKeyId: %d", userId, newRecord.Id)
+	return apiKey, nil
 }
 
 // ExtractApiKeyFromRequest extracts API key from Authorization: Bearer header

@@ -460,6 +460,13 @@ data:
     CREATE INDEX IF NOT EXISTS idx_api_key_user_id ON api_keys(user_id);
     CREATE INDEX IF NOT EXISTS idx_api_key_deleted ON api_keys(deleted, expiration_time);
 
+    -- Platform API key support: key_type distinguishes user vs platform keys,
+    -- encrypted_key stores AES-GCM encrypted plaintext for platform key retrieval.
+    ALTER TABLE api_keys ADD COLUMN IF NOT EXISTS key_type VARCHAR(16) NOT NULL DEFAULT 'user';
+    ALTER TABLE api_keys ADD COLUMN IF NOT EXISTS encrypted_key VARCHAR(256) NULL;
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_api_key_platform_user
+        ON api_keys(user_id) WHERE key_type = 'platform' AND deleted = false;
+
     alter table api_keys owner to "primus-safe";
 
     CREATE TABLE IF NOT EXISTS audit_logs (
