@@ -329,6 +329,7 @@ if [[ "$RANK" == "0" ]]; then
     echo "ansible_ssh_port=${SSH_PORT}" >> $INVENTORY_FILE
     cat $INVENTORY_FILE
 
+    if [ "${RUN_BENCHMARKS}" = "true" ]; then
     log "🧠 Running Computation-Communication Overlap benchmark..."
     CCO_MASTER_PORT=$((RANDOM % 9999 + 30001))
     cco_logname="$OUTPUT_PATH/cco_ansible.log"
@@ -397,6 +398,7 @@ if [[ "$RANK" == "0" ]]; then
     echo
     log "📊 Kernel Launch Overhead results:"
     jq . < "${OUTPUT_PATH}/kernel_overhead_results.json"
+    fi
 
     ok "✅ PrimusBench completed successfully!"
 
