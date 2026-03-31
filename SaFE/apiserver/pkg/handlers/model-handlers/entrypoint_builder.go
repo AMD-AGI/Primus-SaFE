@@ -162,7 +162,7 @@ func FillSftDefaults(req *CreateSftJobRequest, modelSize string) {
 		tc.LrWarmupIters = preset.LrWarmupIters
 	}
 	if tc.EvalInterval == 0 {
-		tc.EvalInterval = 30
+		tc.EvalInterval = 999999
 	}
 	if tc.SaveInterval == 0 {
 		tc.SaveInterval = preset.SaveInterval
