@@ -297,7 +297,9 @@ const activeTab = ref((route.query.tab as string) || 'templates')
 
 watch(activeTab, (newTab) => {
   router.replace({ query: { ...route.query, tab: newTab } })
-  if (newTab === 'sandboxes' && sessionState.rowData.length === 0) {
+  if (newTab === 'templates') {
+    fetchTemplates()
+  } else if (newTab === 'sandboxes') {
     fetchSessions()
   }
 })

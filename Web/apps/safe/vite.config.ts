@@ -78,6 +78,26 @@ export default defineConfig(({ mode }) => {
           secure: false,
           rewrite: (path) => path,
         },
+        '/claw-api': {
+          target: API_TARGET,
+          changeOrigin: true,
+          secure: false,
+          timeout: 300000,
+          cookieDomainRewrite: { '*': DEV_DOMAIN },
+          configure(proxy) {
+            proxy.on('proxyRes', (proxyRes) => {
+              const setCookie = proxyRes.headers['set-cookie']
+              if (setCookie) {
+                proxyRes.headers['set-cookie'] = setCookie.map((c) =>
+                  c
+                    .replace(/;\s*Domain=[^;]+/i, `; Domain=${DEV_DOMAIN}`)
+                    .replace(/;\s*Secure/gi, '')
+                    .replace(/;\s*SameSite=None/gi, '; SameSite=Lax'),
+                )
+              }
+            })
+          },
+        },
         '/x-flannel': {
           target: API_TARGET,
           changeOrigin: true,
