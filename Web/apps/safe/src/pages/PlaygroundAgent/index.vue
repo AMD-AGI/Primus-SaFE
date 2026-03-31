@@ -993,8 +993,8 @@
                     </div>
                   </div>
 
-                  <!-- Loading indicator for primary model -->
-                  <div v-if="loading && !secondaryLoading" class="flex justify-start">
+                  <!-- Loading indicator for primary model (hidden once streaming starts) -->
+                  <div v-if="loading && !streamingMessage" class="flex justify-start">
                     <div class="flex flex-col items-start">
                       <div class="flex items-center gap-2 mb-2">
                         <div
@@ -1216,8 +1216,8 @@
                     </div>
                   </div>
 
-                  <!-- Loading indicator for secondary model -->
-                  <div v-if="loading && secondaryServiceId" class="flex justify-start">
+                  <!-- Loading indicator for secondary model (hidden once streaming starts) -->
+                  <div v-if="loading && !streamingMessage && secondaryServiceId" class="flex justify-start">
                     <div class="flex flex-col items-start">
                       <div class="flex items-center gap-2 mb-2">
                         <div
@@ -1811,6 +1811,26 @@ const sendMessage = async () => {
         })
       }
 
+      const STREAM_TIMEOUT = 120_000
+      const setChoiceTimeout = (
+        abort: AbortController,
+        choiceIdx: number,
+        label: string,
+      ) => {
+        const timer = setTimeout(() => {
+          abort.abort()
+          const reactiveMsg = messages.value[msgIndex]
+          if (reactiveMsg?.choices?.[choiceIdx] && !reactiveMsg.choices[choiceIdx].content) {
+            reactiveMsg.choices[choiceIdx].content = `Error: ${label} response timed out`
+            reactiveMsg.choices[choiceIdx].finish_reason = 'error'
+          }
+        }, STREAM_TIMEOUT)
+        return timer
+      }
+
+      const primaryTimer = setChoiceTimeout(primaryAbort, 0, 'Primary model')
+      const secondaryTimer = setChoiceTimeout(secondaryAbort, 1, 'Compare model')
+
       // Stream both models simultaneously
       await Promise.allSettled([
         // Primary model stream
@@ -1840,7 +1860,7 @@ const sendMessage = async () => {
               reactiveMsg.choices[0].finish_reason = 'error'
             }
           },
-          undefined,
+          () => clearTimeout(primaryTimer),
           primaryAbort.signal,
         ),
         // Secondary model stream
@@ -1870,11 +1890,13 @@ const sendMessage = async () => {
               reactiveMsg.choices[1].finish_reason = 'error'
             }
           },
-          undefined,
+          () => clearTimeout(secondaryTimer),
           secondaryAbort.signal,
         ),
       ])
 
+      clearTimeout(primaryTimer)
+      clearTimeout(secondaryTimer)
       streamingMessage.value = null
     } else {
       // Single model mode with streaming
