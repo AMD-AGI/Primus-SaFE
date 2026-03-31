@@ -162,7 +162,7 @@ func FillSftDefaults(req *CreateSftJobRequest, modelSize string) {
 		tc.LrWarmupIters = preset.LrWarmupIters
 	}
 	if tc.EvalInterval == 0 {
-		tc.EvalInterval = 999999
+		tc.EvalInterval = 30
 	}
 	if tc.SaveInterval == 0 {
 		tc.SaveInterval = preset.SaveInterval
@@ -235,10 +235,14 @@ type EntrypointConfig struct {
 	ModelId     string
 	BaseModel   string
 	SftJobId    string
+	PfsBasePath string // e.g. "/wekafs" or "/shared_nfs", resolved from workspace
 }
 
 // BuildEntrypoint generates the shell script that writes Primus YAML configs and invokes primus-cli.
 func BuildEntrypoint(cfg EntrypointConfig) string {
+	if cfg.PfsBasePath == "" {
+		cfg.PfsBasePath = "/wekafs"
+	}
 	preparedDatasetDir := "/tmp/sft_dataset"
 	cfgForYaml := cfg
 	cfgForYaml.DatasetPath = preparedDatasetDir
@@ -333,10 +337,10 @@ sed "s/%%MODULE_CONFIG%%/$MODULE_CONFIG/g" > /tmp/sft_experiment.yaml << 'EXPEOF
 EXPEOF
 mkdir -p "./output/${PRIMUS_TEAM:-amd}/${PRIMUS_USER:-root}/%s"
 
-# Redirect squad eval dataset cache to shared storage (WekaFS) so the
-# Primus qwen3 flavor's built-in squad evaluation does not attempt to
-# download from huggingface.co (which is unreachable from the cluster).
-SQUAD_SHARED="/wekafs/sft-shared-data/squad-cache"
+# Redirect squad eval dataset cache to shared storage so the Primus qwen3
+# flavor's built-in squad evaluation does not attempt to download from
+# huggingface.co (which is unreachable from the cluster).
+SQUAD_SHARED="%s/sft-shared-data/squad-cache"
 SQUAD_LOCAL="/root/.cache/nemo/datasets/squad"
 mkdir -p "$SQUAD_SHARED" "$(dirname $SQUAD_LOCAL)"
 if [ ! -L "$SQUAD_LOCAL" ]; then
@@ -415,6 +419,7 @@ fi
 echo "Cleanup done. Disk usage: $(du -sh . 2>/dev/null | cut -f1)"`,
 		cfg.DatasetPath, preparedDatasetDir,
 		cfg.PrimusPath, cfg.PrimusPath, modelYaml, expYaml, cfg.ExpName,
+		cfg.PfsBasePath,
 		cfg.TrainConfig.Peft)
 
 	if cfg.ExportModel {
@@ -437,7 +442,11 @@ fi
 // to HuggingFace format, copy it to PFS, and register it as a new Model.
 // For LoRA training, an extra merge step is inserted before the HF conversion.
 func buildExportScript(cfg EntrypointConfig) string {
-	exportPath := fmt.Sprintf("/wekafs/custom/models/%s", cfg.SftJobId)
+	pfs := cfg.PfsBasePath
+	if pfs == "" {
+		pfs = "/wekafs"
+	}
+	exportPath := fmt.Sprintf("%s/custom/models/%s", pfs, cfg.SftJobId)
 	displayName := fmt.Sprintf("%s-finetuned", strings.ToLower(cfg.ExpName))
 	isLoRA := cfg.TrainConfig.Peft == "lora"
 

@@ -23,6 +23,7 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
+	commonworkspace "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workspace"
 )
 
 // CreateSftJob handles POST /api/v1/sft/jobs
@@ -68,6 +69,17 @@ func (h *Handler) createSftJob(c *gin.Context) (interface{}, error) {
 	// Step 5: Build workload name (needed for export)
 	workloadName := generateSftWorkloadName(req.DisplayName)
 
+	// Step 5.5: Resolve PFS base path from workspace (e.g. /wekafs, /shared_nfs)
+	pfsBasePath := "/wekafs"
+	if req.Workspace != "" {
+		ws := &v1.Workspace{}
+		if err := h.k8sClient.Get(ctx, ctrlclient.ObjectKey{Name: req.Workspace}, ws); err == nil {
+			if p := commonworkspace.GetNfsPathFromWorkspace(ws); p != "" {
+				pfsBasePath = p
+			}
+		}
+	}
+
 	// Step 6: Build entrypoint script
 	entrypoint := BuildEntrypoint(EntrypointConfig{
 		PrimusPath:    DefaultPrimusPath,
@@ -84,6 +96,7 @@ func (h *Handler) createSftJob(c *gin.Context) (interface{}, error) {
 		ModelId:       req.ModelId,
 		BaseModel:     hfModelName,
 		SftJobId:      workloadName,
+		PfsBasePath:   pfsBasePath,
 	})
 
 	encodedEntrypoint := base64.StdEncoding.EncodeToString([]byte(entrypoint))
@@ -95,7 +108,7 @@ func (h *Handler) createSftJob(c *gin.Context) (interface{}, error) {
 	}
 	if req.NodeCount > 1 {
 		env["NNODES"] = strconv.Itoa(req.NodeCount)
-		env["DATA_PATH"] = fmt.Sprintf("/wekafs/sft-shared-data/%s", workloadName)
+		env["DATA_PATH"] = fmt.Sprintf("%s/sft-shared-data/%s", pfsBasePath, workloadName)
 	}
 	for k, v := range req.Env {
 		env[k] = v
