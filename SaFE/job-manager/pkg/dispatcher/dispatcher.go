@@ -259,15 +259,15 @@ func (r *DispatcherReconciler) processMonarchWorkload(ctx context.Context, rootW
 		return ctrlruntime.Result{}, commonerrors.NewBadRequest("invalid mesh group count")
 	}
 
-	cliWorkload := r.generateMonarchClient(ctx, rootWorkload, count)
-	if result, err := r.processWorkload(ctx, cliWorkload); err != nil || result.RequeueAfter > 0 {
-		return result, err
-	}
 	for i := 0; i < count; i++ {
 		meshWorkload := r.generateMonarchMesh(ctx, rootWorkload, count, i)
 		if result, err := r.processWorkload(ctx, meshWorkload); err != nil || result.RequeueAfter > 0 {
 			return result, err
 		}
+	}
+	cliWorkload := r.generateMonarchClient(ctx, rootWorkload, count)
+	if result, err := r.processWorkload(ctx, cliWorkload); err != nil || result.RequeueAfter > 0 {
+		return result, err
 	}
 	if err = r.markAsDispatched(ctx, rootWorkload); err != nil {
 		return ctrlruntime.Result{}, err
