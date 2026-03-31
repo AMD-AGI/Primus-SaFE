@@ -66,6 +66,15 @@ func newCtrlManager(scheme *runtime.Scheme) (ctrlruntime.Manager, error) {
 		healthProbeAddress = fmt.Sprintf("%s:%d", localIp, commonconfig.GetHealthCheckPort())
 	}
 
+	metricsBindAddress := "0"
+	if commonconfig.IsMetricsEnabled() {
+		localIp, err := netutil.GetLocalIp()
+		if err != nil {
+			return nil, err
+		}
+		metricsBindAddress = fmt.Sprintf("%s:%d", localIp, commonconfig.GetMetricsPort())
+	}
+
 	opts := manager.Options{
 		Scheme:                     scheme,
 		LeaderElection:             commonconfig.IsLeaderElectionEnable(),
@@ -74,7 +83,7 @@ func newCtrlManager(scheme *runtime.Scheme) (ctrlruntime.Manager, error) {
 		LeaderElectionID:           "primus-job-manager",
 		HealthProbeBindAddress:     healthProbeAddress,
 		Metrics: metricsserver.Options{
-			BindAddress: "0",
+			BindAddress: metricsBindAddress,
 		},
 		Controller: config.Controller{
 			SkipNameValidation: ptr.To(true),

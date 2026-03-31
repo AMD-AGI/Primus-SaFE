@@ -20,6 +20,9 @@ data:
       enable: {{ default true (default .Values.k8s).enable_health_check }}
       # The port of health check
       port: {{ default 8083 (default .Values.job_manager).health_port }}
+    metrics:
+      enable: true
+      port: {{ default 8000 (default .Values.job_manager).metrics_port }}
     leader_election:
       # Whether to enable leader election when starting the manager
       enable: true

@@ -342,10 +342,6 @@ func parseListModelQuery(c *gin.Context) (*ListModelQuery, error) {
 	if err := c.ShouldBindWith(&query, binding.Query); err != nil {
 		return nil, commonerrors.NewBadRequest("invalid query: " + err.Error())
 	}
-	// Set default values
-	if query.Limit <= 0 {
-		query.Limit = 10 // Default limit
-	}
 	if query.Offset < 0 {
 		query.Offset = 0
 	}
@@ -470,12 +466,15 @@ func (h *Handler) listModels(c *gin.Context) (interface{}, error) {
 			// Apply pagination
 			total := int64(len(items))
 			start := queryArgs.Offset
-			end := queryArgs.Offset + queryArgs.Limit
 			if start > int(total) {
 				start = int(total)
 			}
-			if end > int(total) {
-				end = int(total)
+			end := int(total)
+			if queryArgs.Limit > 0 {
+				end = queryArgs.Offset + queryArgs.Limit
+				if end > int(total) {
+					end = int(total)
+				}
 			}
 
 			return &ListModelResponse{
@@ -520,12 +519,15 @@ func (h *Handler) listModels(c *gin.Context) (interface{}, error) {
 	// Apply pagination
 	total := int64(len(items))
 	start := queryArgs.Offset
-	end := queryArgs.Offset + queryArgs.Limit
 	if start > int(total) {
 		start = int(total)
 	}
-	if end > int(total) {
-		end = int(total)
+	end := int(total)
+	if queryArgs.Limit > 0 {
+		end = queryArgs.Offset + queryArgs.Limit
+		if end > int(total) {
+			end = int(total)
+		}
 	}
 
 	return &ListModelResponse{
