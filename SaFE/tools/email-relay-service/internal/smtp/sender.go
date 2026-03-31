@@ -44,8 +44,8 @@ func (s *Sender) Send(clusterName string, recipients []string, subject, htmlCont
 	addr := fmt.Sprintf("%s:%d", s.cfg.Host, s.cfg.Port)
 
 	var auth smtp.Auth
-	if s.cfg.Username != "" && s.cfg.Password != "" {
-		auth = smtp.PlainAuth("", s.cfg.Username, s.cfg.Password, s.cfg.Host)
+	if s.cfg.User != "" && s.cfg.Credential != "" {
+		auth = smtp.PlainAuth("", s.cfg.User, s.cfg.Credential, s.cfg.Host)
 	}
 
 	err := smtp.SendMail(addr, auth, s.cfg.From, recipients, []byte(msg.String()))

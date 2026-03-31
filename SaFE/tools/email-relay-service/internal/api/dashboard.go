@@ -111,7 +111,7 @@ const dashboardHTML = `<!DOCTYPE html>
 
 <div class="header">
   <h1>Email Relay Service</h1>
-  <span class="tag">primus-safe@amd.com</span>
+  <span class="tag">local</span>
 </div>
 
 <div class="container">
@@ -129,7 +129,7 @@ const dashboardHTML = `<!DOCTYPE html>
       </div>
       <div class="field">
         <label>To</label>
-        <input type="text" id="testTo" placeholder="user@amd.com">
+        <input type="text" id="testTo" placeholder="recipient@example.com">
       </div>
       <div class="field">
         <label>Subject</label>
