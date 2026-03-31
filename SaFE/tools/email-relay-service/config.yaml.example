@@ -1,0 +1,25 @@
+# Copy to config.yaml and fill in real values.
+
+smtp:
+  host: "smtp.example.com"
+  port: 25
+  from: "noreply@example.com"
+  from_name: "Primus-SaFE"
+  username: ""
+  password: ""
+
+clusters:
+  - name: "cluster-a"
+    base_url: "https://primus-safe.example.com"
+    auth:
+      api_key: ""
+    reconnect_interval: 5s
+
+  - name: "cluster-b"
+    base_url: "http://127.0.0.1:32495"
+    auth:
+      internal_token: ""
+    reconnect_interval: 5s
+
+api_port: 8090
+log_level: "info"
