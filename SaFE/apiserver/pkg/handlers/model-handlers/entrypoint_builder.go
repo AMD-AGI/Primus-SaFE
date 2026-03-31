@@ -202,6 +202,20 @@ func FillSftDefaults(req *CreateSftJobRequest, modelSize string) {
 	if req.GpuCount == 0 {
 		req.GpuCount = DefaultGpuCount
 	}
+
+	// Megatron requires: global_batch_size % (micro_batch_size * data_parallel_size) == 0
+	// data_parallel_size = total_gpus / (tp * pp * cp)
+	totalGpus := req.NodeCount * req.GpuCount
+	dpSize := totalGpus / (tc.TensorModelParallelSize * tc.PipelineModelParallelSize * tc.ContextParallelSize)
+	if dpSize < 1 {
+		dpSize = 1
+	}
+	minBatch := tc.MicroBatchSize * dpSize
+	if tc.GlobalBatchSize < minBatch {
+		tc.GlobalBatchSize = minBatch
+	} else if tc.GlobalBatchSize%minBatch != 0 {
+		tc.GlobalBatchSize = ((tc.GlobalBatchSize / minBatch) + 1) * minBatch
+	}
 	if req.Cpu == "" {
 		req.Cpu = DefaultCpu
 	}
