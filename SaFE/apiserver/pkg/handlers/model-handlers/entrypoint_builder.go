@@ -333,6 +333,18 @@ sed "s/%%MODULE_CONFIG%%/$MODULE_CONFIG/g" > /tmp/sft_experiment.yaml << 'EXPEOF
 EXPEOF
 mkdir -p "./output/${PRIMUS_TEAM:-amd}/${PRIMUS_USER:-root}/%s"
 
+# Redirect squad eval dataset cache to shared storage (WekaFS) so the
+# Primus qwen3 flavor's built-in squad evaluation does not attempt to
+# download from huggingface.co (which is unreachable from the cluster).
+SQUAD_SHARED="/wekafs/sft-shared-data/squad-cache"
+SQUAD_LOCAL="/root/.cache/nemo/datasets/squad"
+mkdir -p "$SQUAD_SHARED" "$(dirname $SQUAD_LOCAL)"
+if [ ! -L "$SQUAD_LOCAL" ]; then
+  rm -rf "$SQUAD_LOCAL"
+  ln -sfn "$SQUAD_SHARED" "$SQUAD_LOCAL"
+fi
+echo "[SFT] squad cache -> $SQUAD_SHARED"
+
 # Multi-node: redirect ./data and ./nemo_experiments to shared storage so all
 # nodes see the same HF cache, Megatron checkpoints, trained checkpoints, and
 # .done signal files. Also patch hooks and increase NCCL timeout.
@@ -353,19 +365,9 @@ if [ "$NNODES" -gt 1 ] && [ -n "${DATA_PATH:-}" ]; then
   ln -sfn "$SHARED_CKPT_DIR" ./nemo_experiments
   echo "[MULTI-NODE] ./nemo_experiments -> $SHARED_CKPT_DIR (shared checkpoints)"
 
-  # Redirect squad eval dataset cache to shared storage so rank 0 generated
-  # index files (.idx.npy, .idx.info) are visible to all other ranks
-  SQUAD_SHARED="$DATA_PATH/squad-cache"
-  SQUAD_LOCAL="/root/.cache/nemo/datasets/squad"
-  mkdir -p "$SQUAD_SHARED" "$(dirname $SQUAD_LOCAL)"
-  rm -rf "$SQUAD_LOCAL"
-  ln -sfn "$SQUAD_SHARED" "$SQUAD_LOCAL"
-  echo "[MULTI-NODE] squad cache -> $SQUAD_SHARED (shared)"
-
   HOOK_SCRIPT="runner/helpers/hooks/train/posttrain/megatron_bridge/01_convert_checkpoints.sh"
   if [ -f "$HOOK_SCRIPT" ]; then
     sed -i 's/timeout=600/timeout=3600/' "$HOOK_SCRIPT"
-    # Checkpoint conversion must run as single process to avoid DistStoreError
     sed -i 's|python3 third_party/Megatron-Bridge/examples/conversion/convert_checkpoints.py import|WORLD_SIZE=1 RANK=0 LOCAL_RANK=0 MASTER_ADDR=127.0.0.1 MASTER_PORT=29599 python3 third_party/Megatron-Bridge/examples/conversion/convert_checkpoints.py import|' "$HOOK_SCRIPT"
     echo "[MULTI-NODE] Patched hook: timeout=3600s + single-process conversion"
   fi
