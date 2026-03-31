@@ -22,31 +22,31 @@ type SMTPConfig struct {
 	Port     int    `yaml:"port"`
 	From     string `yaml:"from"`
 	FromName string `yaml:"from_name"`
-	Username string `yaml:"username"`
-	Password string `yaml:"password"`
+	// User and plain credential for SMTP AUTH; set via EMAIL_RELAY_SMTP_USER / EMAIL_RELAY_SMTP_CREDENTIAL.
+	User       string `yaml:"-"`
+	Credential string `yaml:"-"`
 }
 
 type ClusterConfig struct {
 	Name              string        `yaml:"name"`
 	BaseURL           string        `yaml:"base_url"`
 	APIPath           string        `yaml:"api_path"`
-	Auth              AuthConfig    `yaml:"auth"`
+	Auth              AuthConfig    `yaml:"-"`
 	ReconnectInterval time.Duration `yaml:"reconnect_interval"`
 }
 
-// AuthConfig supports multiple auth methods per cluster.
-// Priority: api_key > internal_token (first non-empty wins).
+// AuthConfig holds upstream HTTP credentials; values come from environment only.
 type AuthConfig struct {
-	APIKey        string `yaml:"api_key"`
-	InternalToken string `yaml:"internal_token"`
+	Outbound string `yaml:"-"`
+	Internal string `yaml:"-"`
 }
 
-// ApplyHeaders sets the appropriate auth header on the request.
+// ApplyHeaders sets upstream HTTP auth headers.
 func (a AuthConfig) ApplyHeaders(req *http.Request) {
-	if a.APIKey != "" {
-		req.Header.Set("Authorization", "Bearer "+a.APIKey)
-	} else if a.InternalToken != "" {
-		req.Header.Set("X-Internal-Token", a.InternalToken)
+	if a.Outbound != "" {
+		req.Header.Set("Authorization", "Bearer "+a.Outbound)
+	} else if a.Internal != "" {
+		req.Header.Set("X-Internal-Token", a.Internal)
 	}
 }
 
@@ -76,6 +76,9 @@ func Load(path string) (*Config, error) {
 		cfg.APIPort = 8090
 	}
 
+	cfg.SMTP.User = os.Getenv("EMAIL_RELAY_SMTP_USER")
+	cfg.SMTP.Credential = os.Getenv("EMAIL_RELAY_SMTP_CREDENTIAL")
+
 	for i := range cfg.Clusters {
 		if cfg.Clusters[i].Name == "" {
 			return nil, fmt.Errorf("clusters[%d].name is required", i)
@@ -91,6 +94,9 @@ func Load(path string) (*Config, error) {
 		if cfg.Clusters[i].ReconnectInterval == 0 {
 			cfg.Clusters[i].ReconnectInterval = 5 * time.Second
 		}
+		prefix := fmt.Sprintf("EMAIL_RELAY_CLUSTER_%d_", i)
+		cfg.Clusters[i].Auth.Outbound = os.Getenv(prefix + "OUTBOUND")
+		cfg.Clusters[i].Auth.Internal = os.Getenv(prefix + "INTERNAL")
 	}
 
 	return cfg, nil
