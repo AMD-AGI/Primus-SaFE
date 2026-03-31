@@ -8,6 +8,7 @@ package authority
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"testing"
 	"time"
 
@@ -764,4 +765,245 @@ func TestApiKeyTokenNilDbClient(t *testing.T) {
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "database client not initialized")
 	assert.Nil(t, userInfo)
+}
+
+// TestEncryptDecryptApiKey tests AES-GCM encrypt/decrypt roundtrip
+func TestEncryptDecryptApiKey(t *testing.T) {
+	secret := []byte("test-secret-for-aes-encryption")
+
+	t.Run("roundtrip succeeds", func(t *testing.T) {
+		plaintext := "ak-dGVzdC1rZXktMTIzNDU2Nzg5MA"
+		encrypted, err := EncryptApiKey(plaintext, secret)
+		assert.NoError(t, err)
+		assert.NotEmpty(t, encrypted)
+		assert.NotEqual(t, plaintext, encrypted)
+
+		decrypted, err := DecryptApiKey(encrypted, secret)
+		assert.NoError(t, err)
+		assert.Equal(t, plaintext, decrypted)
+	})
+
+	t.Run("different plaintexts produce different ciphertexts", func(t *testing.T) {
+		enc1, err := EncryptApiKey("ak-key-1", secret)
+		assert.NoError(t, err)
+		enc2, err := EncryptApiKey("ak-key-2", secret)
+		assert.NoError(t, err)
+		assert.NotEqual(t, enc1, enc2)
+	})
+
+	t.Run("same plaintext produces different ciphertexts (random nonce)", func(t *testing.T) {
+		enc1, err := EncryptApiKey("ak-same-key", secret)
+		assert.NoError(t, err)
+		enc2, err := EncryptApiKey("ak-same-key", secret)
+		assert.NoError(t, err)
+		assert.NotEqual(t, enc1, enc2)
+
+		dec1, _ := DecryptApiKey(enc1, secret)
+		dec2, _ := DecryptApiKey(enc2, secret)
+		assert.Equal(t, dec1, dec2)
+	})
+
+	t.Run("wrong secret fails to decrypt", func(t *testing.T) {
+		encrypted, err := EncryptApiKey("ak-secret-test", secret)
+		assert.NoError(t, err)
+
+		_, err = DecryptApiKey(encrypted, []byte("wrong-secret"))
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "failed to decrypt")
+	})
+
+	t.Run("invalid base64 fails to decrypt", func(t *testing.T) {
+		_, err := DecryptApiKey("!!!invalid-base64!!!", secret)
+		assert.Error(t, err)
+	})
+
+	t.Run("empty ciphertext fails to decrypt", func(t *testing.T) {
+		_, err := DecryptApiKey("", secret)
+		assert.Error(t, err)
+	})
+
+	t.Run("short ciphertext fails", func(t *testing.T) {
+		_, err := DecryptApiKey("YWJj", secret)
+		assert.Error(t, err)
+	})
+
+	t.Run("empty plaintext roundtrip", func(t *testing.T) {
+		encrypted, err := EncryptApiKey("", secret)
+		assert.NoError(t, err)
+		decrypted, err := DecryptApiKey(encrypted, secret)
+		assert.NoError(t, err)
+		assert.Equal(t, "", decrypted)
+	})
+}
+
+// TestDeriveAESKey tests the AES key derivation function
+func TestDeriveAESKey(t *testing.T) {
+	t.Run("produces 32-byte key", func(t *testing.T) {
+		key := deriveAESKey([]byte("any-length-secret"))
+		assert.Equal(t, 32, len(key))
+	})
+
+	t.Run("deterministic output", func(t *testing.T) {
+		key1 := deriveAESKey([]byte("test-secret"))
+		key2 := deriveAESKey([]byte("test-secret"))
+		assert.Equal(t, key1, key2)
+	})
+
+	t.Run("different inputs produce different keys", func(t *testing.T) {
+		key1 := deriveAESKey([]byte("secret-1"))
+		key2 := deriveAESKey([]byte("secret-2"))
+		assert.NotEqual(t, key1, key2)
+	})
+}
+
+// TestValidateApiKeyPlatformKeySkipsExpiration tests that platform keys bypass expiration check
+func TestValidateApiKeyPlatformKeySkipsExpiration(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockDB := mock_client.NewMockInterface(ctrl)
+	apiKeyToken := &ApiKeyToken{dbClient: mockDB}
+
+	now := time.Now().UTC()
+
+	t.Run("expired platform key is still valid", func(t *testing.T) {
+		mockDB.EXPECT().GetApiKeyByKey(gomock.Any(), HashApiKey("ak-platform-expired", nil)).Return(&dbclient.ApiKey{
+			Id:             100,
+			UserId:         "user-platform",
+			UserName:       "platform-user",
+			ApiKey:         HashApiKey("ak-platform-expired", nil),
+			Deleted:        false,
+			ExpirationTime: pq.NullTime{Time: now.Add(-48 * time.Hour), Valid: true},
+			Whitelist:      "[]",
+			KeyType:        KeyTypePlatform,
+		}, nil)
+
+		userInfo, err := apiKeyToken.ValidateApiKey(context.Background(), "ak-platform-expired", "192.168.1.1")
+		assert.NoError(t, err)
+		assert.NotNil(t, userInfo)
+		assert.Equal(t, "user-platform", userInfo.Id)
+	})
+
+	t.Run("expired user key is rejected", func(t *testing.T) {
+		mockDB.EXPECT().GetApiKeyByKey(gomock.Any(), HashApiKey("ak-user-expired", nil)).Return(&dbclient.ApiKey{
+			Id:             101,
+			UserId:         "user-regular",
+			ApiKey:         HashApiKey("ak-user-expired", nil),
+			Deleted:        false,
+			ExpirationTime: pq.NullTime{Time: now.Add(-48 * time.Hour), Valid: true},
+			Whitelist:      "[]",
+			KeyType:        KeyTypeUser,
+		}, nil)
+
+		userInfo, err := apiKeyToken.ValidateApiKey(context.Background(), "ak-user-expired", "192.168.1.1")
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "API key expired")
+		assert.Nil(t, userInfo)
+	})
+
+	t.Run("deleted platform key is still rejected", func(t *testing.T) {
+		mockDB.EXPECT().GetApiKeyByKey(gomock.Any(), HashApiKey("ak-platform-deleted", nil)).Return(&dbclient.ApiKey{
+			Id:             102,
+			UserId:         "user-platform",
+			ApiKey:         HashApiKey("ak-platform-deleted", nil),
+			Deleted:        true,
+			ExpirationTime: pq.NullTime{Time: now.Add(24 * time.Hour), Valid: true},
+			Whitelist:      "[]",
+			KeyType:        KeyTypePlatform,
+		}, nil)
+
+		userInfo, err := apiKeyToken.ValidateApiKey(context.Background(), "ak-platform-deleted", "192.168.1.1")
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "Unavailable")
+		assert.Nil(t, userInfo)
+	})
+}
+
+// TestGetOrCreatePlatformKey tests the GetOrCreate logic for platform keys
+func TestGetOrCreatePlatformKey(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockDB := mock_client.NewMockInterface(ctrl)
+	apiKeyToken := &ApiKeyToken{dbClient: mockDB}
+
+	t.Run("nil db client returns error", func(t *testing.T) {
+		nilToken := &ApiKeyToken{dbClient: nil}
+		_, err := nilToken.GetOrCreatePlatformKey(context.Background(), "user-1", "testuser")
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "database client not initialized")
+	})
+
+	t.Run("returns existing platform key", func(t *testing.T) {
+		plainKey := "ak-existing-platform-key-12345"
+		encryptedKey, _ := EncryptApiKey(plainKey, nil)
+
+		mockDB.EXPECT().GetPlatformKeyByUserId(gomock.Any(), "user-existing").Return(&dbclient.ApiKey{
+			Id:           10,
+			UserId:       "user-existing",
+			KeyType:      KeyTypePlatform,
+			EncryptedKey: &encryptedKey,
+		}, nil)
+
+		result, err := apiKeyToken.GetOrCreatePlatformKey(context.Background(), "user-existing", "testuser")
+		assert.NoError(t, err)
+		assert.Equal(t, plainKey, result)
+	})
+
+	t.Run("creates new platform key when not found", func(t *testing.T) {
+		mockDB.EXPECT().GetPlatformKeyByUserId(gomock.Any(), "user-new").Return(nil, sql.ErrNoRows)
+		mockDB.EXPECT().InsertApiKey(gomock.Any(), gomock.Any()).DoAndReturn(
+			func(ctx context.Context, apiKey *dbclient.ApiKey) error {
+				assert.Equal(t, "user-new", apiKey.UserId)
+				assert.Equal(t, "newuser", apiKey.UserName)
+				assert.Equal(t, KeyTypePlatform, apiKey.KeyType)
+				assert.Equal(t, PlatformKeyName, apiKey.Name)
+				assert.NotNil(t, apiKey.EncryptedKey)
+				assert.True(t, apiKey.ExpirationTime.Time.Year() == 9999)
+				apiKey.Id = 99
+				return nil
+			},
+		)
+
+		result, err := apiKeyToken.GetOrCreatePlatformKey(context.Background(), "user-new", "newuser")
+		assert.NoError(t, err)
+		assert.True(t, IsApiKey(result))
+	})
+
+	t.Run("db query error returns error", func(t *testing.T) {
+		mockDB.EXPECT().GetPlatformKeyByUserId(gomock.Any(), "user-err").Return(nil, fmt.Errorf("db connection failed"))
+
+		_, err := apiKeyToken.GetOrCreatePlatformKey(context.Background(), "user-err", "erruser")
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "failed to query platform key")
+	})
+
+	t.Run("existing key with nil encrypted_key returns error", func(t *testing.T) {
+		mockDB.EXPECT().GetPlatformKeyByUserId(gomock.Any(), "user-nil-enc").Return(&dbclient.ApiKey{
+			Id:           11,
+			UserId:       "user-nil-enc",
+			KeyType:      KeyTypePlatform,
+			EncryptedKey: nil,
+		}, nil)
+
+		_, err := apiKeyToken.GetOrCreatePlatformKey(context.Background(), "user-nil-enc", "testuser")
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "platform key has no encrypted value")
+	})
+
+	t.Run("insert failure returns error", func(t *testing.T) {
+		mockDB.EXPECT().GetPlatformKeyByUserId(gomock.Any(), "user-insert-fail").Return(nil, sql.ErrNoRows)
+		mockDB.EXPECT().InsertApiKey(gomock.Any(), gomock.Any()).Return(fmt.Errorf("unique constraint violation"))
+
+		_, err := apiKeyToken.GetOrCreatePlatformKey(context.Background(), "user-insert-fail", "failuser")
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "failed to create platform key")
+	})
+}
+
+// TestPlatformKeyConstants tests that platform key constants are correctly defined
+func TestPlatformKeyConstants(t *testing.T) {
+	assert.Equal(t, "user", KeyTypeUser)
+	assert.Equal(t, "platform", KeyTypePlatform)
+	assert.Equal(t, "platform-key", PlatformKeyName)
 }

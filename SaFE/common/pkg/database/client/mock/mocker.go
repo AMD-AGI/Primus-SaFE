@@ -933,6 +933,21 @@ func (mr *MockInterfaceMockRecorder) GetOpsJob(ctx, jobId interface{}) *gomock.C
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetOpsJob", reflect.TypeOf((*MockInterface)(nil).GetOpsJob), ctx, jobId)
 }
 
+// GetPlatformKeyByUserId mocks base method.
+func (m *MockInterface) GetPlatformKeyByUserId(ctx context.Context, userId string) (*client.ApiKey, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetPlatformKeyByUserId", ctx, userId)
+	ret0, _ := ret[0].(*client.ApiKey)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetPlatformKeyByUserId indicates an expected call of GetPlatformKeyByUserId.
+func (mr *MockInterfaceMockRecorder) GetPlatformKeyByUserId(ctx, userId interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetPlatformKeyByUserId", reflect.TypeOf((*MockInterface)(nil).GetPlatformKeyByUserId), ctx, userId)
+}
+
 // GetPlaygroundSession mocks base method.
 func (m *MockInterface) GetPlaygroundSession(ctx context.Context, id int64) (*client.PlaygroundSession, error) {
 	m.ctrl.T.Helper()
@@ -3895,6 +3910,21 @@ func (m *MockApiKeyInterface) GetApiKeyByKey(ctx context.Context, apiKey string)
 func (mr *MockApiKeyInterfaceMockRecorder) GetApiKeyByKey(ctx, apiKey interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetApiKeyByKey", reflect.TypeOf((*MockApiKeyInterface)(nil).GetApiKeyByKey), ctx, apiKey)
+}
+
+// GetPlatformKeyByUserId mocks base method.
+func (m *MockApiKeyInterface) GetPlatformKeyByUserId(ctx context.Context, userId string) (*client.ApiKey, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetPlatformKeyByUserId", ctx, userId)
+	ret0, _ := ret[0].(*client.ApiKey)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetPlatformKeyByUserId indicates an expected call of GetPlatformKeyByUserId.
+func (mr *MockApiKeyInterfaceMockRecorder) GetPlatformKeyByUserId(ctx, userId interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetPlatformKeyByUserId", reflect.TypeOf((*MockApiKeyInterface)(nil).GetPlatformKeyByUserId), ctx, userId)
 }
 
 // InsertApiKey mocks base method.

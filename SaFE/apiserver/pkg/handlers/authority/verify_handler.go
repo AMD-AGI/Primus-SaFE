@@ -25,15 +25,18 @@ type VerifyTokenRequest struct {
 	Authorization string `json:"authorization,omitempty"`
 	// User type when using authorization header
 	UserType string `json:"userType,omitempty"`
+	// If true, returns the user's platform API key (GetOrCreate)
+	IncludePlatformKey bool `json:"includePlatformKey,omitempty"`
 }
 
 // VerifyTokenResponse represents the response body for token verification
 type VerifyTokenResponse struct {
-	Id    string `json:"id"`
-	Name  string `json:"name"`
-	Email string `json:"email,omitempty"`
-	Exp   int64  `json:"exp"`
-	Type  string `json:"type"`
+	Id          string `json:"id"`
+	Name        string `json:"name"`
+	Email       string `json:"email,omitempty"`
+	Exp         int64  `json:"exp"`
+	Type        string `json:"type"`
+	PlatformKey string `json:"platformKey,omitempty"`
 }
 
 // VerifyToken validates a user token and returns user information
@@ -144,16 +147,32 @@ func VerifyToken(c *gin.Context) {
 		return
 	}
 
-	// Return user info
+	resp := VerifyTokenResponse{
+		Id:    userInfo.Id,
+		Name:  userInfo.Name,
+		Email: userInfo.Email,
+		Exp:   userInfo.Exp,
+		Type:  userType,
+	}
+
+	// Optionally include platform API key (GetOrCreate)
+	if req.IncludePlatformKey {
+		apiKeyToken := ApiKeyTokenInstance()
+		if apiKeyToken != nil {
+			platformKey, err := apiKeyToken.GetOrCreatePlatformKey(c.Request.Context(), userInfo.Id, userInfo.Name)
+			if err != nil {
+				klog.ErrorS(err, "failed to get/create platform key", "userId", userInfo.Id)
+			} else {
+				resp.PlatformKey = platformKey
+			}
+		} else {
+			klog.Warning("API key auth not initialized, cannot provide platform key")
+		}
+	}
+
 	c.JSON(http.StatusOK, gin.H{
 		"code": 0,
-		"data": VerifyTokenResponse{
-			Id:    userInfo.Id,
-			Name:  userInfo.Name,
-			Email: userInfo.Email,
-			Exp:   userInfo.Exp,
-			Type:  userType,
-		},
+		"data": resp,
 	})
 }
 
