@@ -245,7 +245,7 @@ func toPodResourceLists(workload *v1.Workload) ([]corev1.ResourceList, error) {
 // GetScope determines the workspace scope based on workload kind.
 func GetScope(w *v1.Workload) v1.WorkspaceScope {
 	switch w.SpecKind() {
-	case common.PytorchJobKind, common.UnifiedJobKind, common.JobKind, common.TorchFTKind:
+	case common.PytorchJobKind, common.UnifiedJobKind, common.JobKind, common.TorchFTKind, common.MonarchJob:
 		return v1.TrainScope
 	case common.DeploymentKind, common.StatefulSetKind:
 		return v1.InferScope
@@ -478,13 +478,6 @@ func GetWorkloadGVK(workload *v1.Workload) []schema.GroupVersionKind {
 		})
 		result = append(result, schema.GroupVersionKind{
 			Group: "apps", Version: common.DefaultVersion, Kind: common.DeploymentKind,
-		})
-	} else if IsMonarchJob(workload) {
-		result = append(result, schema.GroupVersionKind{
-			Group: "", Version: common.DefaultVersion, Kind: common.PodKind,
-		})
-		result = append(result, schema.GroupVersionKind{
-			Group: "monarch.pytorch.org", Version: "v1alpha1", Kind: common.MonarchMesh,
 		})
 	} else {
 		result = append(result, workload.ToSchemaGVK())

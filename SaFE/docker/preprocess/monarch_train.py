@@ -761,8 +761,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--namespace",
         type=str,
-        default="monarch-tests",
-        help="Kubernetes namespace for worker pods (default: monarch-tests)",
+        default=os.environ.get("WORKSPACE", "monarch-tests"),
+        help="Kubernetes namespace for worker pods (default: env WORKSPACE or monarch-tests)",
     )
     parser.add_argument(
         "--model-config",
@@ -910,9 +910,20 @@ def make_job_spec(args: argparse.Namespace) -> JobSpec:
         run_start_time_epoch=time.time(),
     )
 # === CLI / CONFIG === #
+def _log_env_vars() -> None:
+    env_keys = [
+        "MONARCH_MESH_PREFIX", "MONARCH_PORT", "REPLICA_COUNT",
+        "HOST_PER_REPLICA", "GPUS_PER_NODE", "WORKSPACE",
+        "MASTER_ADDR", "MASTER_PORT",
+    ]
+    for key in env_keys:
+        logger.info(f"[ENV] {key}={os.environ.get(key, '<unset>')}")
+
+
 async def main() -> None:
     init_logger()
     enable_transport("tcp")
+    _log_env_vars()
     args = parse_args()
     job_spec = make_job_spec(args)
     orchestrator = OrchestrationManager(job_spec)
