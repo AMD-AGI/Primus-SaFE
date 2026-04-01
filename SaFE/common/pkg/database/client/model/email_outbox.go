@@ -18,9 +18,10 @@ import (
 const TableNameEmailOutbox = "email_outbox"
 
 const (
-	EmailOutboxStatusPending = "pending"
-	EmailOutboxStatusSent    = "sent"
-	EmailOutboxStatusFailed  = "failed"
+	EmailOutboxStatusPending    = "pending"
+	EmailOutboxStatusDispatched = "dispatched"
+	EmailOutboxStatusSent       = "sent"
+	EmailOutboxStatusFailed     = "failed"
 
 	EmailOutboxSourceSafe = "safe"
 	EmailOutboxSourceLens = "lens"
