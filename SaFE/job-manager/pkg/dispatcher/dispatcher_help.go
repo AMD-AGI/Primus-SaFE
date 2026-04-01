@@ -11,11 +11,6 @@ import (
 	"strconv"
 	"strings"
 
-	commonfaults "github.com/AMD-AIG-AIMA/SAFE/common/pkg/faults"
-	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/quantity"
-	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
-	"github.com/AMD-AIG-AIMA/SAFE/job-manager/pkg/syncer"
-	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/maps"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -28,6 +23,11 @@ import (
 	jobutils "github.com/AMD-AIG-AIMA/SAFE/job-manager/pkg/utils"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/sets"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
+	commonfaults "github.com/AMD-AIG-AIMA/SAFE/common/pkg/faults"
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/quantity"
+	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
+	"github.com/AMD-AIG-AIMA/SAFE/job-manager/pkg/syncer"
+	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/maps"
 )
 
 const (
