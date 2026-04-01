@@ -35,7 +35,7 @@
       >
         <template #default="{ row }">
           <div class="flex flex-col items-start">
-            <el-link type="primary" @click="jumpToDetail(row.workspaceId)">{{
+            <el-link type="primary" v-route="{ path: '/workspace/detail', query: { id: row.workspaceId } }">{{
               row.workspaceName
             }}</el-link>
             <div class="text-[13px] text-gray-400">

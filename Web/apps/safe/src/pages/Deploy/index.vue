@@ -38,7 +38,7 @@
     >
       <el-table-column prop="id" label="ID" width="80" fixed="left" align="center">
         <template #default="{ row }">
-          <el-link type="primary" @click="handleViewDetail(row.id)">{{ row.id }}</el-link>
+          <el-link type="primary" v-route="getDeployDetailRoute(row.id)">{{ row.id }}</el-link>
         </template>
       </el-table-column>
 
@@ -72,7 +72,7 @@
           <el-link
             v-if="row.rollback_from_id"
             type="primary"
-            @click="handleViewDetail(row.rollback_from_id)"
+            v-route="getDeployDetailRoute(row.rollback_from_id)"
           >
             #{{ row.rollback_from_id }}
           </el-link>
@@ -293,6 +293,11 @@ const handleCreateSuccess = (type?: DeploymentType) => {
   router.replace({ query: { ...route.query, type: currentType.value } })
   fetchData()
 }
+
+const getDeployDetailRoute = (id: number) => ({
+  path: '/deploy/detail',
+  query: { id: String(id), type: currentType.value },
+})
 
 const handleViewDetail = (id: number) => {
   router.push({ path: '/deploy/detail', query: { id: String(id), type: currentType.value } })

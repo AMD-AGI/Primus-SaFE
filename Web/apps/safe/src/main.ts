@@ -9,6 +9,7 @@ import 'uno.css'
 
 import App from './App.vue'
 import router from './router'
+import vRoute from '@/directives/vRoute'
 import { useUserStore } from './stores/user'
 
 // ---------------------------------------------------------------------------
@@ -38,6 +39,7 @@ pinia.use(piniaPersist)
 app.use(pinia)
 app.use(router)
 app.use(ElementPlus, { zIndex: 3000 })
+app.directive('route', vRoute)
 
 const user = useUserStore(pinia)
 user

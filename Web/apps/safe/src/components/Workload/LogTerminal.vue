@@ -151,6 +151,16 @@
         >
           <span style="color: #585b70">Click the Search button to view results</span>
         </div>
+        <transition name="term-fab-fade">
+          <div v-if="scrollRows.length" class="term-fab-group">
+            <button v-show="showGoTop" class="term-fab" title="Scroll to top" @click="scrollToTop">
+              <el-icon><Top /></el-icon>
+            </button>
+            <button v-show="showGoBottom" class="term-fab" title="Scroll to bottom" @click="scrollToBottom(true)">
+              <el-icon><Bottom /></el-icon>
+            </button>
+          </div>
+        </transition>
       </div>
     </el-col>
   </el-row>
@@ -166,7 +176,7 @@
 
 <script lang="ts" setup>
 import { computed, nextTick, ref, toRef, watch } from 'vue'
-import { InfoFilled, Search, Download } from '@element-plus/icons-vue'
+import { InfoFilled, Search, Download, Top, Bottom } from '@element-plus/icons-vue'
 import { useLogTable, type RowData } from '@/composables/useLogTable'
 import LogContextDialog from '@/components/Workload/LogContextDialog.vue'
 
@@ -240,6 +250,7 @@ const scrollRows = ref<RowData[]>([])
 const terminalRef = ref<HTMLElement>()
 const lastLoadedPage = ref(0)
 let pendingReset = true
+let switchedOrder = false
 
 const totalPages = computed(() =>
   Math.max(1, Math.ceil(pagination.total / pagination.pageSize)),
@@ -269,9 +280,36 @@ const reverseWithinGroups = (rows: RowData[]): RowData[] => {
   return result
 }
 
-const scrollToBottom = () => {
+const showGoTop = ref(false)
+const showGoBottom = ref(false)
+const SCROLL_THRESHOLD = 200
+
+const updateScrollIndicators = () => {
   const el = terminalRef.value
-  if (el) el.scrollTop = el.scrollHeight
+  if (!el) return
+  showGoTop.value = el.scrollTop > SCROLL_THRESHOLD
+  showGoBottom.value = el.scrollHeight - el.scrollTop - el.clientHeight > SCROLL_THRESHOLD
+}
+
+const scrollToTop = () => {
+  const el = terminalRef.value
+  if (!el) return
+  el.scrollTo({ top: 0, behavior: 'smooth' })
+  if (displayOrder.value === 'asc' && hasMore.value && !loading.value) {
+    handlePageChange(lastLoadedPage.value + 1)
+  }
+}
+const scrollToBottom = (smooth = false) => {
+  const el = terminalRef.value
+  if (!el) return
+  if (smooth) {
+    el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' })
+    if (displayOrder.value === 'desc' && hasMore.value && !loading.value) {
+      handlePageChange(lastLoadedPage.value + 1)
+    }
+  } else {
+    el.scrollTop = el.scrollHeight
+  }
 }
 
 watch(rowData, (rows) => {
@@ -292,7 +330,8 @@ watch(rowData, (rows) => {
     pendingReset = false
     scrollRows.value = processed
     lastLoadedPage.value = page
-    if (isAsc) nextTick(scrollToBottom)
+    if (isAsc || switchedOrder) nextTick(scrollToBottom)
+    switchedOrder = false
     return
   }
 
@@ -313,6 +352,8 @@ watch(rowData, (rows) => {
 })
 
 const onTerminalScroll = () => {
+  updateScrollIndicators()
+
   const el = terminalRef.value
   if (!el || loading.value || !hasMore.value) return
 
@@ -342,7 +383,10 @@ const doNodeSelectionChange = (rows: { node: string; rank?: string | number }[])
   onNodeSelectionChange(rows)
 }
 
-watch(displayOrder, () => doSearch())
+watch(displayOrder, () => {
+  switchedOrder = true
+  doSearch()
+})
 
 const RE_ANSI = new RegExp(String.fromCharCode(0x1b) + '\\[[0-9;]*[A-Za-z]', 'g')
 const stripAnsi = (s: string) => s.replace(RE_ANSI, '')
@@ -538,5 +582,45 @@ watch(
 }
 .log-terminal-toolbar :deep(.el-switch__label.is-active) {
   color: #cdd6f4;
+}
+
+/* ── Floating scroll buttons ── */
+.log-terminal-wrapper {
+  position: relative;
+}
+.term-fab-group {
+  position: absolute;
+  right: 18px;
+  bottom: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  z-index: 2;
+}
+.term-fab {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: none;
+  border-radius: 6px;
+  background: rgba(69, 71, 90, 0.75);
+  color: #cdd6f4;
+  font-size: 16px;
+  cursor: pointer;
+  backdrop-filter: blur(4px);
+  transition: background 0.2s, opacity 0.2s;
+}
+.term-fab:hover {
+  background: rgba(88, 91, 112, 0.95);
+}
+.term-fab-fade-enter-active,
+.term-fab-fade-leave-active {
+  transition: opacity 0.25s;
+}
+.term-fab-fade-enter-from,
+.term-fab-fade-leave-to {
+  opacity: 0;
 }
 </style>
