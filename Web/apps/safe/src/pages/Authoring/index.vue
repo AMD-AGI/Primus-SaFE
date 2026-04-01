@@ -98,7 +98,10 @@
         <el-table-column prop="workloadId" label="Name/ID" min-width="200" :fixed="true">
           <template #default="{ row }">
             <div class="flex flex-col items-start">
-              <el-link type="primary" @click="jumpToDetail(row.workloadId)">{{
+              <el-link
+                type="primary"
+                v-route="{ path: '/authoring/detail', query: { id: row.workloadId } }"
+              >{{
                 row.displayName
               }}</el-link>
               <div class="text-[13px] text-gray-400">

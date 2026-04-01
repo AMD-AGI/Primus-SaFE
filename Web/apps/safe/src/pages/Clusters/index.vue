@@ -26,7 +26,7 @@
     >
       <el-table-column prop="clusterId" label="Cluster ID">
         <template #default="{ row }">
-          <el-link type="primary" @click="jumpToDetail(row.clusterId)">{{ row.clusterId }}</el-link>
+          <el-link type="primary" v-route="{ path: '/cluster/detail', query: { id: row.clusterId } }">{{ row.clusterId }}</el-link>
         </template>
       </el-table-column>
       <el-table-column prop="phase" label="Phase">
