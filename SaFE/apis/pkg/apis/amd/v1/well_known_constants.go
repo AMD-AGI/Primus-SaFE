@@ -139,13 +139,13 @@ const (
 	ExporterFinalizer = PrimusSafeDomain + "exporter.finalizer"
 
 	// job
-	OpsJobPrefix                    = PrimusSafePrefix + "ops.job."
-	OpsJobIdLabel                   = OpsJobPrefix + "id"
-	OpsJobTypeLabel                 = OpsJobPrefix + "type"
-	OpsJobSecurityUpgradeAnnotation = OpsJobPrefix + "security.upgrade"
-	OpsJobBatchCountAnnotation      = OpsJobPrefix + "batch.count"
-	OpsJobAvailRatioAnnotation      = OpsJobPrefix + "avail.ratio"
-	OpsJobFinalizer                 = PrimusSafeDomain + "ops.job.finalizer"
+	OpsJobPrefix                      = PrimusSafePrefix + "ops.job."
+	OpsJobIdLabel                     = OpsJobPrefix + "id"
+	OpsJobTypeLabel                   = OpsJobPrefix + "type"
+	OpsJobSecurityOperationAnnotation = OpsJobPrefix + "security.operation"
+	OpsJobBatchCountAnnotation        = OpsJobPrefix + "batch.count"
+	OpsJobAvailRatioAnnotation        = OpsJobPrefix + "avail.ratio"
+	OpsJobFinalizer                   = PrimusSafeDomain + "ops.job.finalizer"
 
 	// addon
 	AddonPrefix       = PrimusSafePrefix + "addon."

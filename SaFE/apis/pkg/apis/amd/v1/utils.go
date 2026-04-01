@@ -288,9 +288,9 @@ func GetOpsJobType(obj metav1.Object) string {
 	return GetLabel(obj, OpsJobTypeLabel)
 }
 
-// IsSecurityUpgrade checks if an operations job is a security upgrade.
-func IsSecurityUpgrade(obj metav1.Object) bool {
-	return HasAnnotation(obj, OpsJobSecurityUpgradeAnnotation)
+// IsSecurityOperation checks if an operations job is a security upgrade.
+func IsSecurityOperation(obj metav1.Object) bool {
+	return GetAnnotation(obj, OpsJobSecurityOperationAnnotation) == TrueStr
 }
 
 // GetOpsJobBatchCount retrieves the batch count for an operations job.

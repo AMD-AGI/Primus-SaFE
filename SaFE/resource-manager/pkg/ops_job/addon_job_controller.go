@@ -159,7 +159,7 @@ func (r *AddonJobReconciler) handleWorkloadEvent() handler.EventHandler {
 			return
 		}
 		for _, job := range jobList {
-			if v1.IsSecurityUpgrade(&job) {
+			if v1.IsSecurityOperation(&job) {
 				q.Add(reconcile.Request{NamespacedName: apitypes.NamespacedName{Name: job.Name}})
 			}
 		}
@@ -275,7 +275,7 @@ func (r *AddonJobReconciler) handle(ctx context.Context, job *v1.OpsJob) (ctrlru
 func (r *AddonJobReconciler) handleNodes(ctx context.Context, job *v1.OpsJob, nodeNames []string) error {
 	var err error
 	allUsingNodes := sets.NewSet()
-	if v1.IsSecurityUpgrade(job) {
+	if v1.IsSecurityOperation(job) {
 		if allUsingNodes, err = commonnodes.GetUsingNodesOfCluster(ctx, r.Client, v1.GetClusterId(job)); err != nil {
 			return err
 		}
