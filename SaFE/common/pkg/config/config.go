@@ -99,6 +99,16 @@ func GetHealthCheckPort() int {
 	return getInt(healthCheckPort, 0)
 }
 
+// IsMetricsEnabled returns whether the Prometheus metrics endpoint is enabled.
+func IsMetricsEnabled() bool {
+	return getBool(metricsEnable, false)
+}
+
+// GetMetricsPort returns the port for the Prometheus metrics endpoint.
+func GetMetricsPort() int {
+	return getInt(metricsPort, 0)
+}
+
 // IsLeaderElectionEnable returns whether leader election is enabled.
 func IsLeaderElectionEnable() bool {
 	return getBool(leaderElectionEnable, true)

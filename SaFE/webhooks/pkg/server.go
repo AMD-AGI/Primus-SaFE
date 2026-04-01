@@ -153,10 +153,14 @@ func (s *Server) newCtrlManager() error {
 		}
 		healthProbeAddress = fmt.Sprintf("%s:%d", localIp, commonconfig.GetHealthCheckPort())
 	}
+	metricsBindAddress := "0"
+	if commonconfig.IsMetricsEnabled() {
+		metricsBindAddress = fmt.Sprintf("%s:%d", localIp, commonconfig.GetMetricsPort())
+	}
 	opts := manager.Options{
 		Scheme: scheme,
 		Metrics: metricsserver.Options{
-			BindAddress: "0",
+			BindAddress: metricsBindAddress,
 		},
 		LeaderElection:             commonconfig.IsLeaderElectionEnable(),
 		LeaderElectionResourceLock: resourcelock.LeasesResourceLock,

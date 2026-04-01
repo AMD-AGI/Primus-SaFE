@@ -390,4 +390,5 @@ node_agent_toggle_net_ainic_load_205=off
 node_agent_toggle_net_ainic_devices_208=off
 node_agent_toggle_sys_csi_wekafs_309=off
 node_agent_resolv_search_domain=
+metrics_port=8000
 EOF

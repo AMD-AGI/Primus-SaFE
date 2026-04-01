@@ -256,12 +256,21 @@ func newCtrlManager() (ctrlruntime.Manager, error) {
 		healthProbeAddress = fmt.Sprintf("%s:%d", localIp, commonconfig.GetHealthCheckPort())
 	}
 
+	metricsBindAddress := "0"
+	if commonconfig.IsMetricsEnabled() {
+		localIp, err := netutil.GetLocalIp()
+		if err != nil {
+			return nil, err
+		}
+		metricsBindAddress = fmt.Sprintf("%s:%d", localIp, commonconfig.GetMetricsPort())
+	}
+
 	opts := manager.Options{
 		Scheme:                 scheme,
 		LeaderElection:         false,
 		HealthProbeBindAddress: healthProbeAddress,
 		Metrics: metricsserver.Options{
-			BindAddress: "0",
+			BindAddress: metricsBindAddress,
 		},
 		Controller: config.Controller{
 			SkipNameValidation: ptr.To(true),

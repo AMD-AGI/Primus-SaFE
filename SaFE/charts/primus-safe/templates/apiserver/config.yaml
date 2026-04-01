@@ -29,6 +29,9 @@ data:
       enable: {{ default true (default .Values.k8s).enable_health_check }}
       # The port of health check
       port: {{ default 8082 (default .Values.apiserver).health_port }}
+    metrics:
+      enable: true
+      port: {{ default 8000 (default .Values.job_manager).metrics_port }}
     workspace:
       # The percentage of memory reserved for the system.
       mem_reserve_percent: {{ default 0.02 (default .Values.workspace).mem_reserve_percent }}
