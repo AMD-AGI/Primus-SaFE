@@ -1112,6 +1112,7 @@ func validateResourceEnough(nf *v1.NodeFlavor, res *v1.WorkloadResource) error {
 
 // validateTemplate ensures the resource template and task template for the workload kind exist.
 func (v *WorkloadValidator) validateTemplate(ctx context.Context, workload *v1.Workload) error {
+	if commonworkload.IsMonarchJob(workload) {
 	workloadGVKs := commonworkload.GetWorkloadGVK(workload)
 	for _, gvk := range workloadGVKs {
 		if _, err := commonworkload.GetResourceTemplateByGVK(ctx, v.Client, gvk); err != nil {
