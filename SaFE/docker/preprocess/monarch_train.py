@@ -761,8 +761,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--namespace",
         type=str,
-        default="monarch-tests",
-        help="Kubernetes namespace for worker pods (default: monarch-tests)",
+        default=os.environ.get("WORKSPACE", "monarch-tests"),
+        help="Kubernetes namespace for worker pods (default: env WORKSPACE or monarch-tests)",
     )
     parser.add_argument(
         "--model-config",
