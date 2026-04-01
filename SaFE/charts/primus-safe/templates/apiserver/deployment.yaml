@@ -24,6 +24,10 @@ spec:
     metadata:
       labels:
         app: {{ .Release.Name }}-apiserver
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "{{ default 8000 (default .Values.job_manager).metrics_port }}"
+        prometheus.io/path: "/metrics"
     spec:
       affinity:
         podAntiAffinity:
@@ -99,6 +103,9 @@ spec:
               readOnly: true
             {{- end }}
           ports:
+            - name: metrics
+              containerPort: {{ default 8000 (default .Values.job_manager).metrics_port }}
+              protocol: TCP
             - containerPort: {{ default 8088 (default .Values.apiserver).port }}
               name: http-port
             {{- if .Values.ssh.enable }}
