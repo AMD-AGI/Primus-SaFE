@@ -49,6 +49,15 @@ func NewControllerManager(scheme *runtime.Scheme) (*ControllerManager, error) {
 		healthProbeAddress = fmt.Sprintf("%s:%d", localIp, commonconfig.GetHealthCheckPort())
 	}
 
+	metricsBindAddress := "0"
+	if commonconfig.IsMetricsEnabled() {
+		localIp, err := netutil.GetLocalIp()
+		if err != nil {
+			return nil, err
+		}
+		metricsBindAddress = fmt.Sprintf("%s:%d", localIp, commonconfig.GetMetricsPort())
+	}
+
 	opts := manager.Options{
 		Scheme:                     scheme,
 		LeaderElection:             commonconfig.IsLeaderElectionEnable(),
@@ -57,7 +66,7 @@ func NewControllerManager(scheme *runtime.Scheme) (*ControllerManager, error) {
 		LeaderElectionID:           "primus-resource-manager",
 		HealthProbeBindAddress:     healthProbeAddress,
 		Metrics: metricsserver.Options{
-			BindAddress: "0",
+			BindAddress: metricsBindAddress,
 		},
 		Controller: config.Controller{
 			MaxConcurrentReconciles: 10,
