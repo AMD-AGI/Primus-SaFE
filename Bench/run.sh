@@ -26,6 +26,18 @@ send_ready_signal() {
     wait $WAIT_READY_PID
 }
 
+# ==== NFS optimization: prepare per-workload exchange directory ====
+NFS_EXCHANGE_DIR=""
+if [ -n "${SHARE_PATH:-}" ] && [ -n "${WORKLOAD_ID:-}" ]; then
+    if [ ! -d "${SHARE_PATH}" ]; then
+        mkdir -p "${SHARE_PATH}"
+        log "Created SHARE_PATH: ${SHARE_PATH}"
+    fi
+    NFS_EXCHANGE_DIR="${SHARE_PATH}/ssh_exchange/${WORKLOAD_ID}"
+    mkdir -p "${NFS_EXCHANGE_DIR}"
+    log "NFS optimization enabled: exchange_dir=${NFS_EXCHANGE_DIR}"
+fi
+
 # ==== Step 1: Start FIO server ====
 if [ -n "${IO_BENCHMARK_MOUNT:-}" ]; then
     log "Starting FIO server..."
@@ -389,6 +401,20 @@ if [[ "$RANK" == "0" ]]; then
     echo ""
     cat "$BENCH_REPORT"
     echo ""
+
+    # Cleanup NFS per-workload directories
+    if [ -n "${NFS_EXCHANGE_DIR}" ] && [ -d "${NFS_EXCHANGE_DIR}" ]; then
+        rm -rf "${NFS_EXCHANGE_DIR}"
+        log "Cleaned up NFS exchange dir: ${NFS_EXCHANGE_DIR}"
+    fi
+    if [ -n "${SHARE_PATH:-}" ] && [ -n "${WORKLOAD_ID:-}" ]; then
+        NFS_BARRIER_DIR="${SHARE_PATH}/cache/barrier/${WORKLOAD_ID}"
+        if [ -d "${NFS_BARRIER_DIR}" ]; then
+            rm -rf "${NFS_BARRIER_DIR}"
+            log "Cleaned up NFS cache barrier dir: ${NFS_BARRIER_DIR}"
+        fi
+    fi
+
     send_ready_signal
 else
     log "${LOG_HEADER} [$(date +'%Y-%m-%d %H:%M:%S')] Waiting for rank 0 to complete bench..."

@@ -82,6 +82,12 @@ export BNIC="${BNIC:-50}"
 export BXGMI="${BXGMI:-315}"
 
 # ==============================================================================
+# NFS Shared Storage Configuration
+# ==============================================================================
+export SHARE_PATH="${SHARE_PATH:-}"
+export WORKLOAD_ID="${WORKLOAD_ID:-}"
+
+# ==============================================================================
 # Path Configuration
 # ==============================================================================
 export PRIMUSBENCH_PATH="${PRIMUSBENCH_PATH:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
@@ -142,6 +148,8 @@ print_config() {
     echo "Paths:"
     echo "  PRIMUSBENCH_PATH:       $PRIMUSBENCH_PATH"
     echo "  LOG_DIR:                $LOG_DIR"
+    echo "  SHARE_PATH:             ${SHARE_PATH:-<not set>}"
+    echo "  WORKLOAD_ID:            ${WORKLOAD_ID:-<not set>}"
     echo ""
     echo "Container Warmup:"
     echo "  ENABLE_IMAGE_WARMUP:    $ENABLE_IMAGE_WARMUP"
