@@ -479,13 +479,6 @@ func GetWorkloadGVK(workload *v1.Workload) []schema.GroupVersionKind {
 		result = append(result, schema.GroupVersionKind{
 			Group: "apps", Version: common.DefaultVersion, Kind: common.DeploymentKind,
 		})
-	} else if IsMonarchJob(workload) {
-		result = append(result, schema.GroupVersionKind{
-			Group: "", Version: common.DefaultVersion, Kind: common.PodKind,
-		})
-		result = append(result, schema.GroupVersionKind{
-			Group: "monarch.pytorch.org", Version: "v1alpha1", Kind: common.MonarchMesh,
-		})
 	} else {
 		result = append(result, workload.ToSchemaGVK())
 	}

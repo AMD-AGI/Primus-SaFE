@@ -119,10 +119,9 @@ func ListObjectsByWorkload(ctx context.Context, adminClient client.Client,
 
 	workloadGVKs := commonworkload.GetWorkloadGVK(adminWorkload)
 	var objectGVKs []schema.GroupVersionKind
-	if commonworkload.IsTorchFT(adminWorkload) || commonworkload.IsMonarchJob(adminWorkload) {
+	if commonworkload.IsTorchFT(adminWorkload) {
 		// For TorchFT or Monarch workloads, the Kubernetes object GVKs match the workload GVKs directly
 		// TorchFT consists of multiple resource types (PyTorchJob and Deployment)
-		// Monarch consists of multiple resource types (Pod and MonarchMesh)
 		objectGVKs = workloadGVKs
 	} else {
 		// For other workloads, retrieve the actual Kubernetes object GVK from the resource template
