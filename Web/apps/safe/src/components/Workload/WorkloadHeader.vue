@@ -253,9 +253,7 @@ const showResumeButton = computed(() => {
 const handleBack = () => {
   emit('back')
 
-  // Check if browser history is available for going back
-  // window.history.length > 1 indicates history is available
-  if (window.history.length > 1 && document.referrer) {
+  if (window.history.state?.back) {
     router.back()
   } else {
     // If page was accessed directly, navigate to fallback path

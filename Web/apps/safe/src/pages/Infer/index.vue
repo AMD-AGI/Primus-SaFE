@@ -99,7 +99,10 @@
           <template #default="{ row }">
             <div class="flex flex-col items-start">
               <div class="flex items-center">
-                <el-link type="primary" @click="jumpToDetail(row.workloadId)">{{
+                <el-link
+                  type="primary"
+                  v-route="{ path: '/infer/detail', query: { id: row.workloadId } }"
+                >{{
                   row.displayName
                 }}</el-link>
                 <el-tooltip
