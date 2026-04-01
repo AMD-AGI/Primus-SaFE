@@ -126,11 +126,13 @@ func ListObjectsByWorkload(ctx context.Context, adminClient client.Client,
 	} else {
 		// For other workloads, retrieve the actual Kubernetes object GVK from the resource template
 		// The resource template defines the underlying Kubernetes resources that the workload creates
-		rt, err := commonworkload.GetResourceTemplateByGVK(ctx, adminClient, workloadGVKs[0])
-		if err != nil {
-			return nil, err
+		for _, gvk := range workloadGVKs {
+			rt, err := commonworkload.GetResourceTemplateByGVK(ctx, adminClient, gvk)
+			if err != nil {
+				return nil, err
+			}
+			objectGVKs = append(objectGVKs, rt.ToSchemaGVK())
 		}
-		objectGVKs = append(objectGVKs, rt.ToSchemaGVK())
 	}
 
 	labelSelector := v1.WorkloadIdLabel + "=" + adminWorkload.Name
