@@ -245,7 +245,7 @@ func toPodResourceLists(workload *v1.Workload) ([]corev1.ResourceList, error) {
 // GetScope determines the workspace scope based on workload kind.
 func GetScope(w *v1.Workload) v1.WorkspaceScope {
 	switch w.SpecKind() {
-	case common.PytorchJobKind, common.UnifiedJobKind, common.JobKind, common.TorchFTKind:
+	case common.PytorchJobKind, common.UnifiedJobKind, common.JobKind, common.TorchFTKind, common.MonarchJob:
 		return v1.TrainScope
 	case common.DeploymentKind, common.StatefulSetKind:
 		return v1.InferScope
