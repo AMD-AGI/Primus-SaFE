@@ -406,16 +406,19 @@ func (r *SyncerReconciler) reSchedule(ctx context.Context, workload *v1.Workload
 }
 
 // updateWorkloadCondition updates workload conditions based on resource status.
-// Manages condition history and ensures proper condition tracking.
+// For all workload types, it searches the full condition list by Type+Reason
+// to prevent duplicate conditions from being appended.
 func updateWorkloadCondition(adminWorkload *v1.Workload, newCondition *metav1.Condition) {
-	if commonworkload.IsApplication(adminWorkload) {
-		lastCondition := adminWorkload.GetLastCondition()
-		if lastCondition != nil && newCondition.Type == lastCondition.Type && newCondition.Reason == lastCondition.Reason {
-			*lastCondition = *newCondition
-			return
+	currentCondition := jobutils.FindCondition(adminWorkload, newCondition)
+	if currentCondition != nil {
+		if currentCondition.Status != newCondition.Status ||
+			currentCondition.Message != newCondition.Message {
+			*currentCondition = *newCondition
 		}
-		adminWorkload.Status.Conditions = append(adminWorkload.Status.Conditions, *newCondition)
-		// Only keep the latest 30 conditions
+		return
+	}
+	adminWorkload.Status.Conditions = append(adminWorkload.Status.Conditions, *newCondition)
+	if commonworkload.IsApplication(adminWorkload) {
 		maxReserved := MaxConditionHistory
 		if l := len(adminWorkload.Status.Conditions); l > maxReserved {
 			begin := l - maxReserved
@@ -424,16 +427,6 @@ func updateWorkloadCondition(adminWorkload *v1.Workload, newCondition *metav1.Co
 				conditions = append(conditions, adminWorkload.Status.Conditions[i])
 			}
 			adminWorkload.Status.Conditions = conditions
-		}
-	} else {
-		currentCondition := jobutils.FindCondition(adminWorkload, newCondition)
-		if currentCondition != nil {
-			if currentCondition.Status != newCondition.Status ||
-				currentCondition.Message != newCondition.Message {
-				*currentCondition = *newCondition
-			}
-		} else {
-			adminWorkload.Status.Conditions = append(adminWorkload.Status.Conditions, *newCondition)
 		}
 	}
 }
