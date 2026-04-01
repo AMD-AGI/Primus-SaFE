@@ -24,6 +24,10 @@ spec:
     metadata:
       labels:
         app: {{ .Release.Name }}-job-manager
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "{{ default 8000 (default .Values.job_manager).metrics_port }}"
+        prometheus.io/path: "/metrics"
     spec:
       affinity:
         podAntiAffinity:
@@ -60,8 +64,11 @@ spec:
               mountPath: {{ default "/etc/secrets/ssh" (default .Values.ssh).secret_path }}
               readOnly: true
             {{- end }}
-          {{- if default true (default .Values.k8s).enable_health_check }}
           ports:
+            - name: metrics
+              containerPort: {{ default 8000 (default .Values.job_manager).metrics_port }}
+              protocol: TCP
+          {{- if default true (default .Values.k8s).enable_health_check }}
             - containerPort: {{ default 8083 (default .Values.job_manager).health_port }}
           livenessProbe:
             httpGet:

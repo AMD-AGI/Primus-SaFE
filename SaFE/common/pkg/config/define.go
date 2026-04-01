@@ -37,6 +37,11 @@ const (
 	healthCheckEnable = healthCheckPrefix + "enable"
 	healthCheckPort   = healthCheckPrefix + "port"
 
+	// metrics
+	metricsPrefix = "metrics."
+	metricsEnable = metricsPrefix + "enable"
+	metricsPort   = metricsPrefix + "port"
+
 	// leader_election
 	leaderElectionPrefix = "leader_election."
 	leaderElectionEnable = leaderElectionPrefix + "enable"
