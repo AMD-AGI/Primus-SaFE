@@ -922,7 +922,11 @@ def _log_env_vars() -> None:
 
 async def main() -> None:
     init_logger()
-    enable_transport("tcp")
+    pod_ip = os.environ.get("POD_IP", "")
+    if pod_ip:
+        enable_transport("tcp", bind_addr=f"tcp://{pod_ip}:0")
+    else:
+        enable_transport("tcp")
     _log_env_vars()
     args = parse_args()
     job_spec = make_job_spec(args)
