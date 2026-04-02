@@ -130,7 +130,7 @@ data:
     alter table ops_job add column if not exists is_tolerate_all boolean default false;
     alter table ops_job add column if not exists hostpath TEXT;
     alter table ops_job add column if not exists excluded_nodes TEXT;
-    alter table ops_job add column if not exists security_operation booelan default false;
+    alter table ops_job add column if not exists security_operation boolean default false;
 
     create table if not exists registry_info
     (
