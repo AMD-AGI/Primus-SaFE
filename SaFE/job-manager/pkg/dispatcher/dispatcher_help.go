@@ -226,7 +226,7 @@ func modifyContainers(obj *unstructured.Unstructured,
 	mainContainerName := commonworkload.GetMainContainer(workload, workload.Spec.Kind, resourceId)
 	for i := range containers {
 		container := containers[i].(map[string]interface{})
-		modifyEnv(container, env, workload.Spec.Resources[resourceId].RdmaResource != "")
+		modifyEnv(container, env, commonworkload.IsEnabledHostNetwork(workload, resourceId))
 		modifyVolumeMounts(container, workload, workspace, resourceId)
 		modifyPrivilegedSecurity(container, workload)
 		name := jobutils.NestedStringSilently(container, []string{"name"})
@@ -442,7 +442,7 @@ func modifyServiceAccountName(obj *unstructured.Unstructured, workload *v1.Workl
 
 // modifyHostNetwork enables or disables host networking based on workload rdma-resource.
 func modifyHostNetwork(obj *unstructured.Unstructured, workload *v1.Workload, path []string, resourceId int) error {
-	isEnableHostNetwork := (workload.Spec.Resources[resourceId].RdmaResource != "" || v1.IsForceHostNetwork(workload))
+	isEnableHostNetwork := commonworkload.IsEnabledHostNetwork(workload, resourceId)
 	if err := jobutils.SetNestedField(obj.Object, isEnableHostNetwork, path); err != nil {
 		return err
 	}
