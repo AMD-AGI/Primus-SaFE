@@ -65,7 +65,7 @@ func (m *ExporterManager) Start() {
 				return
 			default:
 				if shutdown := m.Dispatch(); shutdown {
-					break
+					return
 				}
 			}
 		}

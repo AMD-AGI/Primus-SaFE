@@ -11,7 +11,6 @@ import (
 	"fmt"
 
 	admissionv1 "k8s.io/api/admission/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	utilerrors "k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	ctrlruntime "sigs.k8s.io/controller-runtime"
@@ -96,7 +95,7 @@ func (m *UserMutator) mutateMetadata(user *v1.User) {
 	if user.Spec.Type == "" {
 		user.Spec.Type = v1.DefaultUserType
 	}
-	metav1.SetMetaDataLabel(&user.ObjectMeta, v1.UserIdLabel, user.Name)
+	v1.SetLabel(user, v1.UserIdLabel, user.Name)
 }
 
 // mutateLabels updates user label hashes and the user type label.

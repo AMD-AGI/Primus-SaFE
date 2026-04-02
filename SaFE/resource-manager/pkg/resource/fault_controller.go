@@ -141,8 +141,8 @@ func (r *FaultReconciler) handleConfigmapEvent() handler.EventHandler {
 			oldConfigs := parseFaultConfig(oldConfigmap)
 			newConfigs := parseFaultConfig(newConfigmap)
 			for key, oldConf := range oldConfigs {
+				labelSelector := labels.SelectorFromSet(map[string]string{v1.FaultMonitorId: oldConf.Id})
 				newConf, ok := newConfigs[key]
-				labelSelector := labels.SelectorFromSet(map[string]string{v1.FaultMonitorId: newConf.Id})
 				if !ok || (oldConf.IsEnable() && !newConf.IsEnable()) {
 					if err := r.deleteFaults(ctx, labelSelector); err != nil {
 						klog.ErrorS(err, "failed to delete faults")

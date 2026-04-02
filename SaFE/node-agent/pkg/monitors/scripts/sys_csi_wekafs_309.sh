@@ -6,7 +6,13 @@
 #
 
 CONTAINER_NAME="csi-wekafs-node"
-output=$(nsenter --target 1 --mount --uts --ipc --net --pid -- crictl ps 2>/dev/null | grep "$CONTAINER_NAME")
+
+if ! nsenter --target 1 --mount --uts --ipc --net --pid -- test -x /usr/local/bin/crictl; then
+    echo "crictl not found or not executable on host, skipping check"
+    exit 2
+fi
+
+output=$(nsenter --target 1 --mount --uts --ipc --net --pid -- /usr/local/bin/crictl ps 2>/dev/null | grep "$CONTAINER_NAME")
 
 if [ -z "$output" ]; then
     echo "No $CONTAINER_NAME containers found, skipping check"
