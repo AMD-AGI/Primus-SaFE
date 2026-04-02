@@ -10,7 +10,6 @@ package v1
 // with apply.
 type ContainerApplyConfiguration struct {
 	Name     *string `json:"name,omitempty"`
-	Reason   *string `json:"reason,omitempty"`
 	Message  *string `json:"message,omitempty"`
 	ExitCode *int32  `json:"exitCode,omitempty"`
 }
@@ -26,14 +25,6 @@ func Container() *ContainerApplyConfiguration {
 // If called multiple times, the Name field is set to the value of the last call.
 func (b *ContainerApplyConfiguration) WithName(value string) *ContainerApplyConfiguration {
 	b.Name = &value
-	return b
-}
-
-// WithReason sets the Reason field in the declarative configuration to the given value
-// and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the Reason field is set to the value of the last call.
-func (b *ContainerApplyConfiguration) WithReason(value string) *ContainerApplyConfiguration {
-	b.Reason = &value
 	return b
 }
 

@@ -24,6 +24,9 @@ type BaseOpsJobRequest struct {
 	TimeoutSecond int `json:"timeoutSecond,omitempty"`
 	// The lifecycle of ops-job after it finishes
 	TTLSecondsAfterFinished int `json:"ttlSecondsAfterFinished,omitempty"`
+	// for addon: the operation will wait until the node is idle(no workloads)
+	// for preflight: the operation will exclude busy nodes(with workloads)
+	SecurityOperation bool `json:"securityOperation,omitempty"`
 }
 
 type CreatePreflightRequest struct {
@@ -57,8 +60,6 @@ type CreateAddonRequest struct {
 	// The job is marked as successful if the number of successfully upgraded nodes exceeds total nodes * ratio.
 	// default: 1
 	AvailableRatio *float64 `json:"availableRatio,omitempty"`
-	// When enabled, the operation will wait until the node is idle(no workloads), only to addon
-	SecurityUpgrade bool `json:"securityUpgrade,omitempty"`
 	// Nodes to be excluded, not participating in the ops job
 	ExcludedNodes []string `json:"excludedNodes,omitempty"`
 }
@@ -172,5 +173,6 @@ type GetOpsJobResponse struct {
 	// The hostpath for opsjob mounting.
 	Hostpath []string `json:"hostpath"`
 	// Nodes to be excluded, not participating in the ops job
-	ExcludedNodes []string `json:"excludedNodes,omitempty"`
+	ExcludedNodes     []string `json:"excludedNodes,omitempty"`
+	SecurityOperation bool     `json:"securityOperation,omitempty"`
 }

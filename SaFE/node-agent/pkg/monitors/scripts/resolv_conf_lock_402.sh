@@ -57,7 +57,7 @@ if echo "$content" | grep -q "nameserver 127.0.0.53"; then
   if [ $? -eq 0 ]; then
     echo "Set ${TARGET_FILE} immutable (contains nameserver 127.0.0.53)"
   else
-    echo "failed to chattr +i ${TARGET_FILE}"
+    echo "Error: failed to chattr +i ${TARGET_FILE}"
   fi
 else
   # Does not have 127.0.0.53: add it before first nameserver, then set immutable

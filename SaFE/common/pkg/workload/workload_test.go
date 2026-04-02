@@ -191,9 +191,9 @@ func TestGetResourcePerNode(t *testing.T) {
 		},
 		Status: v1.WorkloadStatus{
 			Pods: []v1.WorkloadPod{
-				{AdminNodeName: "n1", K8sNodeName: "n1"},
-				{AdminNodeName: "n2", K8sNodeName: "n2"},
-				{AdminNodeName: "n1", K8sNodeName: "n1"}},
+				{AdminNodeName: "n1"},
+				{AdminNodeName: "n2"},
+				{AdminNodeName: "n1"}},
 		},
 	}
 	allResourcePerNode, err := GetResourcesPerNode(workload, "")
@@ -270,9 +270,9 @@ func TestGetWorkloadResourceUsage(t *testing.T) {
 		},
 		Status: v1.WorkloadStatus{
 			Pods: []v1.WorkloadPod{
-				{AdminNodeName: "n1", K8sNodeName: "n1", ResourceId: 0},
-				{AdminNodeName: "n2", K8sNodeName: "n2", Phase: corev1.PodSucceeded, ResourceId: 0},
-				{AdminNodeName: "n3", K8sNodeName: "n3", ResourceId: 0}},
+				{AdminNodeName: "n1", ResourceId: 0},
+				{AdminNodeName: "n2", Phase: corev1.PodSucceeded, ResourceId: 0},
+				{AdminNodeName: "n3", ResourceId: 0}},
 		},
 	}
 

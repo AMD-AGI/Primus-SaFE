@@ -115,14 +115,11 @@ func TestListNodes(t *testing.T) {
 	workload2 := genMockWorkload(clusterId, workspace.Name)
 	workload1.Status.Pods = []v1.WorkloadPod{{
 		AdminNodeName: adminNode1.Name,
-		K8sNodeName:   adminNode1.Name,
 	}}
 	workload2.Status.Pods = []v1.WorkloadPod{{
 		AdminNodeName: adminNode1.Name,
-		K8sNodeName:   adminNode1.Name,
 	}, {
 		AdminNodeName: adminNode2.Name,
-		K8sNodeName:   adminNode2.Name,
 	}}
 	user := genMockUser()
 	role := genMockRole()
