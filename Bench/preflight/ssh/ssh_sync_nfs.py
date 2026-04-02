@@ -94,10 +94,13 @@ def publish(args):
     log.info("Rank %d wrote public key to %s", args.rank, key_path)
 
     my_ip = get_ip_by_interface(args.interface)
+    my_hostname = socket.gethostname()
     info_path = os.path.join(info_dir, f"rank_{args.rank}.json")
-    Path(info_path).write_text(json.dumps({"ip": my_ip, "port": args.ssh_port}))
-    log.info("Rank %d wrote node info to %s (ip=%s port=%s)",
-             args.rank, info_path, my_ip, args.ssh_port)
+    Path(info_path).write_text(json.dumps({
+        "ip": my_ip, "port": args.ssh_port, "hostname": my_hostname,
+    }))
+    log.info("Rank %d wrote node info to %s (ip=%s port=%s hostname=%s)",
+             args.rank, info_path, my_ip, args.ssh_port, my_hostname)
 
 
 def wait_and_create_barrier(args):

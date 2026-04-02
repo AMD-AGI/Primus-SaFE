@@ -6,15 +6,18 @@
 import argparse
 import datetime
 import hashlib
+import json
 import os
 import re
+import socket
 import subprocess
 import sys
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 from queue import Queue, Empty
-from typing import List, Tuple, Dict
+from typing import List, Tuple, Dict, Optional
 
 # ================= Configuration =================
 # System paths
@@ -45,7 +48,116 @@ total_failed_nodes = 0
 healthy_node_queue: Queue[str] = Queue()
 print_lock = threading.Lock()
 stat_lock = threading.Lock()
+
+HYDRA_IFACE: Optional[str] = None
+HOSTNAME_MAP: Dict[str, str] = {}
 # ===========================================
+
+
+def detect_local_iface(nodes: List[str]) -> Optional[str]:
+    """Find the local network interface whose IP appears in the node list.
+
+    MPICH Hydra uses gethostname() for the proxy control-port address when the
+    launcher host is absent from -hosts.  Passing ``-iface <iface>`` forces
+    Hydra to use the interface IP instead, avoiding DNS resolution failures in
+    containers that lack the bare-hostname search domain.
+    """
+    try:
+        result = subprocess.run(
+            ["hostname", "-I"], capture_output=True, text=True, timeout=5
+        )
+        local_ips = set(result.stdout.strip().split()) if result.returncode == 0 else set()
+    except Exception:
+        return None
+
+    local_ip = None
+    for ip in nodes:
+        if ip in local_ips:
+            local_ip = ip
+            break
+    if not local_ip:
+        return None
+
+    try:
+        result = subprocess.run(
+            ["ip", "-o", "-4", "addr", "show"], capture_output=True, text=True, timeout=5
+        )
+        for line in result.stdout.splitlines():
+            parts = line.split()
+            if len(parts) >= 4:
+                iface = parts[1]
+                addr = parts[3].split("/")[0]
+                if addr == local_ip:
+                    return iface
+    except Exception:
+        pass
+    return None
+
+
+def build_hostname_map(nodes: List[str]) -> Dict[str, str]:
+    """Build an IP -> hostname mapping for human-readable logging.
+
+    Reads from NFS info files first (populated by ssh_sync_nfs.py), then
+    falls back to SSH for any remaining nodes.
+    """
+    hmap: Dict[str, str] = {}
+
+    # Local hostname
+    try:
+        result = subprocess.run(
+            ["hostname", "-I"], capture_output=True, text=True, timeout=5
+        )
+        local_ips = set(result.stdout.strip().split()) if result.returncode == 0 else set()
+        my_hostname = socket.gethostname()
+        for ip in nodes:
+            if ip in local_ips:
+                hmap[ip] = my_hostname
+                break
+    except Exception:
+        pass
+
+    # Try NFS info dir (set by run.sh as NFS_INFO_DIR)
+    nfs_info_dir = os.environ.get("NFS_INFO_DIR", "")
+    if nfs_info_dir and os.path.isdir(nfs_info_dir):
+        for fpath in Path(nfs_info_dir).glob("rank_*.json"):
+            try:
+                data = json.loads(fpath.read_text())
+                if "hostname" in data and data.get("ip") in set(nodes):
+                    hmap[data["ip"]] = data["hostname"]
+            except Exception:
+                continue
+
+    # SSH fallback for nodes not yet mapped
+    missing = [ip for ip in nodes if ip not in hmap]
+    if missing:
+        def _get_hostname(ip: str):
+            try:
+                result = subprocess.run(
+                    ["ssh", "-o", "StrictHostKeyChecking=no",
+                     "-o", "UserKnownHostsFile=/dev/null",
+                     "-p", str(SSH_PORT), ip, "hostname"],
+                    capture_output=True, text=True, timeout=10,
+                )
+                if result.returncode == 0:
+                    hmap[ip] = result.stdout.strip()
+            except Exception:
+                pass
+
+        with ThreadPoolExecutor(max_workers=min(8, len(missing))) as pool:
+            list(pool.map(lambda ip: _get_hostname(ip), missing))
+
+    return hmap
+
+
+def node_label(ip: str) -> str:
+    """Return 'hostname(ip)' if hostname is known, otherwise just 'ip'."""
+    hn = HOSTNAME_MAP.get(ip)
+    return f"{hn}({ip})" if hn else ip
+
+
+def label_nodes(nodes: List[str]) -> str:
+    """Format a node list with hostname labels for logging."""
+    return "[" + ", ".join(node_label(n) for n in nodes) + "]"
 
 def log(msg: str) -> None:
     """Thread-safe logging with timestamp."""
@@ -196,12 +308,10 @@ def check_connectivity(nodes: List[str], timeout: int = 300) -> bool:
     np = len(nodes)
     ppn = 1
 
-    cmd = [
-        MPIEXEC, "-n", str(np), "-ppn", str(ppn),
-        "-launcher", "ssh",
-        "-hosts", nodes_str,
-        "/bin/echo", "OK"
-    ]
+    cmd = [MPIEXEC, "-n", str(np), "-ppn", str(ppn)]
+    if HYDRA_IFACE:
+        cmd += ["-iface", HYDRA_IFACE]
+    cmd += ["-launcher", "ssh", "-hosts", nodes_str, "/bin/echo", "OK"]
 
     env_vars = os.environ.copy()
     env_vars["MPIEXEC_RSH"] = f"ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -p {SSH_PORT}"
@@ -291,11 +401,11 @@ def build_env_vars() -> Dict[str, str]:
 def run_rccl_test(nodes: List[str]) -> float:
     """Run RCCL performance test on specified nodes."""
     if len(nodes) < 2:
-        log(f"[WARN] Not enough nodes ({nodes}) for RCCL test.")
+        log(f"[WARN] Not enough nodes ({label_nodes(nodes)}) for RCCL test.")
         return 0.0
 
     if not check_connectivity(nodes):
-        log(f"[FAIL] Connectivity check failed for nodes {nodes}")
+        log(f"[FAIL] Connectivity check failed for nodes {label_nodes(nodes)}")
         return 0.0
 
     # Get test binary
@@ -319,11 +429,11 @@ def run_rccl_test(nodes: List[str]) -> float:
     # Build command
     nodes_str = ",".join(nodes)
     np = len(nodes) * NUM_GPUS_PER_NODE
-    cmd = [
-        MPIEXEC, "-n", str(np), "-ppn", str(NUM_GPUS_PER_NODE),
-        "-launcher", "ssh", "-hosts", nodes_str,
-        rccl_test, "-b", "32M", "-e", MAX_BYTES, "-f", "2", "-g", "1"
-    ]
+    cmd = [MPIEXEC, "-n", str(np), "-ppn", str(NUM_GPUS_PER_NODE)]
+    if HYDRA_IFACE:
+        cmd += ["-iface", HYDRA_IFACE]
+    cmd += ["-launcher", "ssh", "-hosts", nodes_str,
+            rccl_test, "-b", "32M", "-e", MAX_BYTES, "-f", "2", "-g", "1"]
 
     log_file = get_log_filename(nodes)
     log(f"# Log: {log_file}")
@@ -384,16 +494,16 @@ def run_rccl_test(nodes: List[str]) -> float:
         target_size = parse_size(MAX_BYTES)
         algbw = parse_algbw(result_stdout, target_size)
         if algbw == 0.0:
-            log(f"[FAIL] Failed to parse algbw from output for {nodes}")
+            log(f"[FAIL] Failed to parse algbw from output for {label_nodes(nodes)}")
         else:
             test_name = "all_reduce_perf" if RCCL_TEST_TYPE == 0 else "alltoall_perf"
-            log(f"[INFO] After {test_name} on {nodes}, count={len(nodes)}, algbw = {algbw:.2f} GB/s")
+            log(f"[INFO] After {test_name} on {label_nodes(nodes)}, count={len(nodes)}, algbw = {algbw:.2f} GB/s")
         return algbw
     except subprocess.TimeoutExpired:
-        log(f"[Exception] RCCL test timed out for {nodes}")
+        log(f"[Exception] RCCL test timed out for {label_nodes(nodes)}")
         return 0.0
     except Exception as e:
-        log(f"[Exception] Test failed for {nodes}: {e}")
+        log(f"[Exception] Test failed for {label_nodes(nodes)}: {e}")
         return 0.0
 
 
@@ -408,13 +518,13 @@ def diagnose_single_with_healthy(suspect_node: str, timeout: float = 600.0) -> T
     while time.time() - start_time < timeout:
         try:
             healthy_node = healthy_node_queue.get_nowait()
-            log(f"[COMBINE] Testing {suspect_node} + {healthy_node} ...")
+            log(f"[COMBINE] Testing {node_label(suspect_node)} + {node_label(healthy_node)} ...")
             test_nodes=[suspect_node, healthy_node]
             algbw = run_rccl_test(test_nodes)
             limit = threshold(len(test_nodes))
             is_faulty = algbw < limit
             test_name = "all_reduce_perf" if RCCL_TEST_TYPE == 0 else "alltoall_perf"
-            log(f"[INFO] {test_name} {suspect_node}+{healthy_node} -> {algbw:.2f} GB/s, threshold:{limit:.2f} GB/s-> {'FAULTY' if is_faulty else 'OK'}")
+            log(f"[INFO] {test_name} {node_label(suspect_node)}+{node_label(healthy_node)} -> {algbw:.2f} GB/s, threshold:{limit:.2f} GB/s-> {'FAULTY' if is_faulty else 'OK'}")
             healthy_node_queue.put(healthy_node)
             return suspect_node, is_faulty
         except Empty:
@@ -439,10 +549,10 @@ def recursive_diagnose(nodes: List[str]) -> List[str]:
     algbw = run_rccl_test(nodes)
     limit = threshold(len(nodes))
     test_name = "all_reduce_perf" if RCCL_TEST_TYPE == 0 else "alltoall_perf"
-    log(f"[INFO] {test_name} {nodes} -> {algbw:.2f} GB/s, threshold: {limit:.2f} GB/s")
+    log(f"[INFO] {test_name} {label_nodes(nodes)} -> {algbw:.2f} GB/s, threshold: {limit:.2f} GB/s")
 
     if algbw >= limit:
-        log(f"[PASS] Group {nodes} is healthy. Adding to global healthy pool.")
+        log(f"[PASS] Group {label_nodes(nodes)} is healthy. Adding to global healthy pool.")
         for node in nodes:
             healthy_node_queue.put(node)
         return []
@@ -455,7 +565,7 @@ def recursive_diagnose(nodes: List[str]) -> List[str]:
                 log(f"[WARNING] All nodes appear to be faulty or no healthy nodes available for comparison")
                 return nodes.copy()
 
-        log(f"[FINAL CHECK] Testing {nodes} individually with healthy nodes.")
+        log(f"[FINAL CHECK] Testing {label_nodes(nodes)} individually with healthy nodes.")
         bad_nodes = []
         # Parallel testing (up to MAX_CONCURRENT_TESTS)
         with ThreadPoolExecutor(max_workers=min(MAX_CONCURRENT_TESTS, len(nodes))) as executor:
@@ -465,10 +575,10 @@ def recursive_diagnose(nodes: List[str]) -> List[str]:
                     node, is_faulty = future.result()
                     if is_faulty:
                         bad_nodes.append(node)
-                        log(f"[FAIL] {node} confirmed faulty.")
+                        log(f"[FAIL] {node_label(node)} confirmed faulty.")
                     else:
                         healthy_node_queue.put(node)
-                        log(f"[PASS] {node} passed with healthy node.")
+                        log(f"[PASS] {node_label(node)} passed with healthy node.")
                 except Exception as e:
                     node = "unknown"
                     log(f"[Exception] during test for {node}: {e}")
@@ -479,7 +589,7 @@ def recursive_diagnose(nodes: List[str]) -> List[str]:
     mid = len(nodes) // 2
     group_a, group_b = nodes[:mid], nodes[mid:]
     confirmed_bad = []
-    log(f"[SPLIT] {nodes} -> A: {group_a}, B: {group_b}")
+    log(f"[SPLIT] {label_nodes(nodes)} -> A: {label_nodes(group_a)}, B: {label_nodes(group_b)}")
 
     with ThreadPoolExecutor(max_workers=2) as executor:
         future_a = executor.submit(recursive_diagnose, group_a)
@@ -553,11 +663,25 @@ def main():
         print("Error: At least 2 nodes are required.")
         sys.exit(1)
     
+    # Detect local network interface for Hydra control-port fix
+    global HYDRA_IFACE, HOSTNAME_MAP
+    HYDRA_IFACE = detect_local_iface(nodes)
+    if HYDRA_IFACE:
+        log(f"[INIT] Detected local interface: {HYDRA_IFACE} (will pass -iface to mpiexec)")
+    else:
+        log("[INIT] WARNING: Could not detect local interface; "
+            "mpiexec may fall back to gethostname() for control port")
+
+    # Build hostname map for human-readable logging
+    HOSTNAME_MAP = build_hostname_map(nodes)
+    if HOSTNAME_MAP:
+        log(f"[INIT] Hostname map: { {ip: hn for ip, hn in HOSTNAME_MAP.items()} }")
+    
     # Get test name for logging
     test_name = "all_reduce_perf" if RCCL_TEST_TYPE == 0 else "alltoall_perf"
     
     # Log configuration details
-    log(f"🔍 Starting diagnosis on {len(nodes)} nodes: {nodes}, test={test_name}")
+    log(f"🔍 Starting diagnosis on {len(nodes)} nodes: {label_nodes(nodes)}, test={test_name}")
     if ENABLE_AINIC:
         log("📌 AINIC mode enabled: using ANP libraries")
         log(f"📌 NCCL_IB_TC={os.environ.get('NCCL_IB_TC', '(unset, default=104)')}, "
@@ -577,7 +701,7 @@ def main():
     
     # Report results
     if bad_nodes:
-        log(f"[RESULT] unhealthy nodes: {bad_nodes}, obtained through {test_name}")
+        log(f"[RESULT] unhealthy nodes: {label_nodes(bad_nodes)}, obtained through {test_name}")
         sys.exit(1)
     else:
         log(f"[RESULT] ✅ all passed, obtained through {test_name}")

@@ -251,6 +251,7 @@ print(f'_ne={d.get(\"error\",\"\")}')
             log "Running network preflight check..."
             cd "$PRIMUSBENCH_PATH/preflight/network"
             NODES_FILE=$NETWORK_HOSTS \
+            NFS_INFO_DIR="${NFS_EXCHANGE_DIR}/info" \
             WAIT=false \
             bash run.sh 2>&1 | tee $preflight_network_logname
             cd $PRIMUSBENCH_PATH
