@@ -1086,7 +1086,7 @@ func (r *DispatcherReconciler) generateMonarchClient(ctx context.Context, rootWo
 	workload.Spec.Env[common.HostPerReplica] = strconv.Itoa(nodePerGroup)
 
 	if len(workload.Spec.Resources) >= 2 && workload.Spec.Resources[1].GPU != "" {
-		workload.Spec.Env["GPUS_PER_NODE"] = workload.Spec.Resources[1].GPU)
+		workload.Spec.Env["GPUS_PER_NODE"] = workload.Spec.Resources[1].GPU
 	}
 
 	commonworkload.SetMainContainerViaTemplate(ctx, r.Client, workload)
