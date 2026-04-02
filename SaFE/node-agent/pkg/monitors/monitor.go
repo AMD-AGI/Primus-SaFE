@@ -6,6 +6,8 @@
 package monitors
 
 import (
+	"encoding/json"
+	"math/rand"
 	"path/filepath"
 	"time"
 
@@ -51,7 +53,9 @@ type NodeInfo struct {
 	// Expected ephemeral storage size on each node
 	ExpectedEphemeralStorage int64 `json:"expectedEphemeralStorage"`
 	// The ephemeral storage size observed by the k8s node
-	ObservedEphemeralStorage int64 `json:"observedEphemeralStorage"`
+	ObservedEphemeralStorage int64  `json:"observedEphemeralStorage"`
+	ExpectedDiskType         string `json:"expectedDiskType"`
+	ExpectedDiskCount        int    `json:"expectedDiskCount"`
 	// The name of the node
 	NodeName string `json:"nodeName"`
 	// The workspace bound to the node
@@ -105,10 +109,17 @@ func (m *Monitor) startCronJob() {
 		klog.Infof("stop cronjob %s, duration: %v", m.config.Id, time.Since(start))
 	}()
 
+	if !m.config.IsDebug {
+		// Stagger first execution across monitors to avoid simultaneous resource spikes.
+		jitter := time.Duration(rand.Int63n(int64(30 * time.Second)))
+		klog.Infof("sleep %v for jitter of monitor %s", jitter, m.config.Id)
+		time.Sleep(jitter)
+	}
+
 	// Create a new Cron instance. If a job is still running,
 	// subsequent triggers of the same job will be skipped to avoid overlapping executions.
 	c := cron.New(cron.WithChain(
-		cron.SkipIfStillRunning(cron.DiscardLogger),
+		cron.SkipIfStillRunning(cron.VerbosePrintfLogger(klogPrintf{})),
 	))
 
 	schedule, err := timeutil.ParseCronStandard(m.config.Cronjob)
@@ -117,6 +128,7 @@ func (m *Monitor) startCronJob() {
 		return
 	}
 	c.Schedule(schedule, m)
+	go m.Run()
 	c.Start()
 	klog.Infof("start cronjob %s", m.config.Id)
 
@@ -137,7 +149,8 @@ func (m *Monitor) Run() {
 
 	timeout := time.Second * time.Duration(m.config.TimeoutSecond)
 	statusCode, output := utils.ExecuteScript(args, timeout)
-	// If the result is unknown, ignore it
+
+	// Only process OK(0) and Error(1); discard unknown, timeout, signal kills, etc.
 	if statusCode != types.StatusOk && statusCode != types.StatusError {
 		return
 	}
@@ -178,12 +191,17 @@ func (m *Monitor) generateNodeInfo() *NodeInfo {
 	if m.node == nil || m.node.GetK8sNode() == nil {
 		return nil
 	}
+	diskInfo := v1.DiskInfo{}
+	json.Unmarshal([]byte(m.node.GetK8sNode().Annotations[v1.NodeDiskAnnotation]), &diskInfo)
+
 	info := &NodeInfo{
 		NodeName:                 m.node.GetK8sNode().Name,
 		WorkspaceId:              v1.GetWorkspaceId(m.node.GetK8sNode()),
 		ClusterId:                v1.GetClusterId(m.node.GetK8sNode()),
 		ExpectedGpuCount:         v1.GetNodeGpuCount(m.node.GetK8sNode()),
-		ExpectedEphemeralStorage: v1.GetNodeEphemeralStorage(m.node.GetK8sNode()),
+		ExpectedEphemeralStorage: diskInfo.EphemeralStorage,
+		ExpectedDiskType:         string(diskInfo.Type),
+		ExpectedDiskCount:        diskInfo.Count,
 	}
 	gpuQuantity := m.node.GetGpuQuantity()
 	if !gpuQuantity.IsZero() {
@@ -205,4 +223,11 @@ func (m *Monitor) generateNodeInfo() *NodeInfo {
 // IsExited returns whether the monitor has been stopped.
 func (m *Monitor) IsExited() bool {
 	return m.isExited
+}
+
+// klogPrintf adapts klog.Warningf to the Printf interface required by cron.VerbosePrintfLogger.
+type klogPrintf struct{}
+
+func (klogPrintf) Printf(format string, v ...interface{}) {
+	klog.Warningf(format, v...)
 }

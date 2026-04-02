@@ -32,7 +32,7 @@ fi
 
 PCI_OUTPUT=`nsenter --target 1 --mount --uts --ipc --net --pid -- lspci -d $model -vvv | grep "LnkSta:"`
 if [ $? -ne 0 ]; then
-  echo "failed to get PCI info"
+  echo "Error: failed to get PCI info"
   exit 1
 fi
 

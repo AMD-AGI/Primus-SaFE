@@ -212,11 +212,15 @@ func (c *ssoToken) synchronizeUser(ctx context.Context, userInfo *UserInfo) (*v1
 		patch := client.MergeFrom(user.DeepCopy())
 		isChanged := false
 		if v1.GetUserName(user) != userInfo.Name {
-			metav1.SetMetaDataAnnotation(&user.ObjectMeta, v1.UserNameAnnotation, userInfo.Name)
+			v1.SetAnnotation(user, v1.UserNameAnnotation, userInfo.Name)
 			isChanged = true
 		}
 		if v1.GetUserEmail(user) != userInfo.Email {
-			metav1.SetMetaDataAnnotation(&user.ObjectMeta, v1.UserEmailAnnotation, userInfo.Email)
+			v1.SetAnnotation(user, v1.UserEmailAnnotation, userInfo.Email)
+			isChanged = true
+		}
+		if v1.GetAnnotation(user, v1.UserPreferredNameAnnotation) != userInfo.PreferredUsername {
+			v1.SetAnnotation(user, v1.UserPreferredNameAnnotation, userInfo.PreferredUsername)
 			isChanged = true
 		}
 		if isChanged {

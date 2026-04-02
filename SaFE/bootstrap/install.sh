@@ -159,7 +159,7 @@ cpu=2000m
 memory=4Gi
 if [[ "$cluster_scale" == "medium" ]]; then
   replicas=2
-  cpu=8000m
+  cpu=4000m
   memory=8Gi
 elif [[ "$cluster_scale" == "large" ]]; then
   replicas=2

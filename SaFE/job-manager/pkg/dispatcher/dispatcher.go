@@ -13,7 +13,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -43,6 +42,7 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/job-manager/pkg/syncer"
 	jobutils "github.com/AMD-AIG-AIMA/SAFE/job-manager/pkg/utils"
 	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
+	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/maps"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/timeutil"
 )
@@ -102,8 +102,8 @@ func (relevantChangePredicate) Update(e event.UpdateEvent) bool {
 		return true
 	}
 	if v1.IsWorkloadDispatched(newWorkload) {
-		oldGroup, _ := commonworkload.GetReplicaGroup(oldWorkload, common.ReplicaGroup)
-		newGroup, _ := commonworkload.GetReplicaGroup(newWorkload, common.ReplicaGroup)
+		oldGroup, _ := commonworkload.GetReplicaCount(oldWorkload, common.ReplicaCount)
+		newGroup, _ := commonworkload.GetReplicaCount(newWorkload, common.ReplicaCount)
 		if oldGroup != newGroup {
 			return true
 		}
@@ -156,6 +156,8 @@ func (r *DispatcherReconciler) Reconcile(ctx context.Context, req ctrlruntime.Re
 	var result ctrlruntime.Result
 	if commonworkload.IsTorchFT(workload) {
 		result, err = r.processTorchFTWorkload(ctx, workload)
+	} else if commonworkload.IsMonarchJob(workload) {
+		result, err = r.processMonarchWorkload(ctx, workload)
 	} else {
 		result, err = r.processWorkload(ctx, workload)
 	}
@@ -174,7 +176,7 @@ func (r *DispatcherReconciler) processTorchFTWorkload(ctx context.Context, rootW
 	if commonconfig.GetTorchFTLightHouse() == "" {
 		return ctrlruntime.Result{}, commonerrors.NewInternalError("TorchFT LightHouse is not configured")
 	}
-	group, err := commonworkload.GetReplicaGroup(rootWorkload, common.ReplicaGroup)
+	group, err := commonworkload.GetReplicaCount(rootWorkload, common.ReplicaCount)
 	if err != nil {
 		return ctrlruntime.Result{}, commonerrors.NewBadRequest("invalid replica process group")
 	}
@@ -248,6 +250,29 @@ func (r *DispatcherReconciler) scaleDownTorchFTWorkers(ctx context.Context, root
 		}
 	}
 	return nil
+}
+
+// processMonarchWorkload processes a Monarch workload resource, handling both scale-up and scale-down.
+func (r *DispatcherReconciler) processMonarchWorkload(ctx context.Context, rootWorkload *v1.Workload) (ctrlruntime.Result, error) {
+	count, err := commonworkload.GetReplicaCount(rootWorkload, common.ReplicaCount)
+	if err != nil || count <= 0 {
+		return ctrlruntime.Result{}, commonerrors.NewBadRequest("invalid mesh group count")
+	}
+
+	for i := 0; i < count; i++ {
+		meshWorkload := r.generateMonarchMesh(ctx, rootWorkload, count, i)
+		if result, err := r.processWorkload(ctx, meshWorkload); err != nil || result.RequeueAfter > 0 {
+			return result, err
+		}
+	}
+	cliWorkload := r.generateMonarchClient(ctx, rootWorkload, count)
+	if result, err := r.processWorkload(ctx, cliWorkload); err != nil || result.RequeueAfter > 0 {
+		return result, err
+	}
+	if err = r.markAsDispatched(ctx, rootWorkload); err != nil {
+		return ctrlruntime.Result{}, err
+	}
+	return ctrlruntime.Result{}, nil
 }
 
 // processWorkload processes a workload resource and updates its state.
@@ -324,9 +349,9 @@ func (r *DispatcherReconciler) generateJobPort(ctx context.Context, workload *v1
 		return nil
 	}
 	kind := workload.SpecKind()
-	// only for workload using pytorch job
+	// only for workload which use pytorch job
 	if kind != common.PytorchJobKind && kind != common.AuthoringKind &&
-		kind != common.UnifiedJobKind && kind != common.TorchFTKind {
+		kind != common.UnifiedJobKind && kind != common.TorchFTKind && kind != common.MonarchMesh {
 		return nil
 	}
 
@@ -390,11 +415,21 @@ func setK8sObjectMeta(result *unstructured.Unstructured, adminWorkload *v1.Workl
 	result.SetName(adminWorkload.Name)
 	result.SetNamespace(adminWorkload.Spec.Workspace)
 
+	var tmpLabels, tmpAnnotations map[string]interface{}
+	if commonworkload.IsMonarchMesh(adminWorkload) {
+		tmpLabels = buildPodLabels(adminWorkload)
+		resourceId, _ := v1.GetResourceId(adminWorkload)
+		tmpAnnotations = buildPodAnnotations(adminWorkload, resourceId)
+	} else {
+		tmpLabels = buildObjectLabels(adminWorkload)
+		tmpAnnotations = buildObjectAnnotations(adminWorkload)
+	}
+
 	targetLabels := result.GetLabels()
 	if len(targetLabels) == 0 {
 		targetLabels = make(map[string]string)
 	}
-	for key, val := range buildObjectLabels(adminWorkload) {
+	for key, val := range tmpLabels {
 		if strValue, ok := val.(string); ok {
 			targetLabels[key] = strValue
 		}
@@ -405,7 +440,7 @@ func setK8sObjectMeta(result *unstructured.Unstructured, adminWorkload *v1.Workl
 	if len(targetAnnotations) == 0 {
 		targetAnnotations = make(map[string]string)
 	}
-	for key, val := range buildObjectAnnotations(adminWorkload) {
+	for key, val := range tmpAnnotations {
 		if strValue, ok := val.(string); ok {
 			targetAnnotations[key] = strValue
 		}
@@ -657,6 +692,8 @@ func applyWorkloadSpecToObject(ctx context.Context, clientSets *syncer.ClusterCl
 		err = updateCICDEphemeralRunner(ctx, clientSets, obj, adminWorkload, rt)
 	case commonworkload.IsRayJob(adminWorkload):
 		err = updateRayJob(obj, adminWorkload)
+	case commonworkload.IsMonarchMesh(adminWorkload):
+		err = updateMonarchJob(obj, adminWorkload)
 	}
 	if err != nil {
 		return err
@@ -967,7 +1004,7 @@ func (r *DispatcherReconciler) generateLighthouse(ctx context.Context, rootWorkl
 	v1.SetAnnotation(workload, v1.ResourceIdAnnotation, "0")
 	v1.SetAnnotation(workload, v1.GroupIdAnnotation, groupId)
 
-	minGroup, _ := commonworkload.GetReplicaGroup(workload, common.MinReplicaGroup)
+	minGroup, _ := commonworkload.GetReplicaCount(workload, common.MinReplicaGroup)
 	entryPoint := stringutil.Base64Decode(commonconfig.GetTorchFTLightHouse())
 	entryPoint = strings.TrimRight(entryPoint, "\n")
 	entryPoint += fmt.Sprintf(" --min_replicas %d", minGroup)
@@ -998,8 +1035,9 @@ func (r *DispatcherReconciler) generateTorchFTWorker(ctx context.Context,
 	displayName := v1.GetDisplayName(rootWorkload) + "-" + groupIdAnnotation
 	workload.Name = rootWorkload.Name + "-" + groupIdAnnotation
 	workload.Spec.Resources = []v1.WorkloadResource{rootWorkload.Spec.Resources[1]}
-	workload.Spec.Resources[0].Replica = 1
+	workload.Spec.Resources[0].Replica = 1 // pytorch master
 	if nodePerGroup > 1 {
+		// pytorch worker
 		workload.Spec.Resources = append(workload.Spec.Resources, rootWorkload.Spec.Resources[1])
 		workload.Spec.Resources[1].Replica = nodePerGroup - 1
 	}
@@ -1020,6 +1058,71 @@ func (r *DispatcherReconciler) generateTorchFTWorker(ctx context.Context,
 	v1.SetAnnotation(workload, v1.GroupIdAnnotation, groupIdAnnotation)
 	commonworkload.SetMainContainerViaTemplate(ctx, r.Client, workload)
 	return workload
+}
+
+// generateMonarchClient generates a client workload for MonarchJob
+func (r *DispatcherReconciler) generateMonarchClient(ctx context.Context, rootWorkload *v1.Workload, meshGroupCount int) *v1.Workload {
+	workload := rootWorkload.DeepCopy()
+	displayName := v1.GetDisplayName(rootWorkload) + "-client"
+	workload.Name = rootWorkload.Name + "-client"
+	// Validation via webhook confirms the existence of at least 2 resource configs.
+	nodePerGroup := rootWorkload.Spec.Resources[1].Replica / meshGroupCount
+	v1.SetLabel(workload, v1.DisplayNameLabel, displayName)
+	v1.SetLabel(workload, v1.RootWorkloadIdLabel, rootWorkload.Name)
+	v1.SetAnnotation(workload, v1.ResourceIdAnnotation, "0")
+	v1.SetAnnotation(workload, v1.ForceHostNetworkAnnotation, v1.TrueStr)
+	if len(rootWorkload.Spec.EntryPoints) > 0 {
+		workload.Spec.EntryPoints = []string{rootWorkload.Spec.EntryPoints[0]}
+	}
+	workload.Spec.Kind = common.MonarchClient
+	workload.Spec.Version = common.DefaultVersion
+	workload.Spec.Resources = []v1.WorkloadResource{rootWorkload.Spec.Resources[0]}
+
+	if workload.Spec.Env == nil {
+		workload.Spec.Env = make(map[string]string)
+	}
+	workload.Spec.Env[common.MonarchMeshPrefix] = generateMeshNamePrefix(rootWorkload.Name)
+	workload.Spec.Env[common.MonarchPort] = strconv.Itoa(common.MonarchMeshPortNum)
+	workload.Spec.Env[common.HostPerReplica] = strconv.Itoa(nodePerGroup)
+
+	if len(rootWorkload.Spec.Resources) >= 2 && rootWorkload.Spec.Resources[1].GPU != "" {
+		workload.Spec.Env["GPUS_PER_NODE"] = rootWorkload.Spec.Resources[1].GPU
+	}
+
+	commonworkload.SetMainContainerViaTemplate(ctx, r.Client, workload)
+	return workload
+}
+
+// generateMonarchMesh generates a mesh workload for MonarchJob
+func (r *DispatcherReconciler) generateMonarchMesh(ctx context.Context, rootWorkload *v1.Workload, totalGroup, groupId int) *v1.Workload {
+	workload := rootWorkload.DeepCopy()
+	displayName := generateMeshNamePrefix(rootWorkload.Name) + strconv.Itoa(groupId+1)
+	nodePerGroup := rootWorkload.Spec.Resources[1].Replica / totalGroup
+	workload.Name = displayName
+	v1.SetLabel(workload, v1.DisplayNameLabel, displayName)
+	v1.SetLabel(workload, v1.RootWorkloadIdLabel, rootWorkload.Name)
+	v1.SetAnnotation(workload, v1.ResourceIdAnnotation, "1")
+	v1.SetAnnotation(workload, v1.GroupIdAnnotation, strconv.Itoa(groupId))
+	if len(rootWorkload.Spec.EntryPoints) > 1 {
+		workload.Spec.EntryPoints = []string{rootWorkload.Spec.EntryPoints[1]}
+	}
+	if workload.Spec.Env == nil {
+		workload.Spec.Env = make(map[string]string)
+	}
+	workload.Spec.Env[common.MonarchPort] = strconv.Itoa(common.MonarchMeshPortNum)
+	workload.Spec.Kind = common.MonarchMesh
+	workload.Spec.Version = common.DefaultVersion
+	workload.Spec.Resources = []v1.WorkloadResource{rootWorkload.Spec.Resources[1]}
+	workload.Spec.Resources[0].Replica = nodePerGroup
+	commonworkload.SetMainContainerViaTemplate(ctx, r.Client, workload)
+	return workload
+}
+
+// generateMeshNamePrefix strips '-' and '_' from displayName to produce a valid
+// Monarch mesh name prefix (lowercase alphanumeric only).
+func generateMeshNamePrefix(displayName string) string {
+	r := strings.NewReplacer("-", "", "_", "")
+	return r.Replace(displayName) + "mesh"
 }
 
 func generateServicePorts(specService *v1.Service) []corev1.ServicePort {

@@ -1,11 +1,18 @@
 <template>
   <div class="header-row">
     <h3 class="chart-title">Usage breakdown</h3>
-    <!-- Lens entry - shown only in production -->
-    <el-button v-if="isProd" link @click="goToLens" class="lens-link">
-      Go to Lens
-      <el-icon class="ml-1"><Right /></el-icon>
-    </el-button>
+    <div class="header-links">
+      <!-- Hyperloom entry - shown only in OCI environment -->
+      <el-button v-if="isOci" link @click="goToHyperloom" class="lens-link">
+        Go to Hyperloom
+        <el-icon class="ml-1"><Right /></el-icon>
+      </el-button>
+      <!-- Lens entry - shown only in production -->
+      <el-button v-if="isProd" link @click="goToLens" class="lens-link">
+        Go to Lens
+        <el-icon class="ml-1"><Right /></el-icon>
+      </el-button>
+    </div>
   </div>
 
   <!-- Template -->
@@ -142,10 +149,15 @@ import { useClusterStore } from '@/stores/cluster'
 
 // Check if in production environment
 const isProd = import.meta.env.PROD
+const isOci = window.location.origin === 'https://oci-slc.primus-safe.amd.com'
 
 // Navigate to Lens system
 const goToLens = () => {
   window.open(`${location.origin}/lens`, '_blank')
+}
+
+const goToHyperloom = () => {
+  window.open('https://oci-slc.primus-safe.amd.com/hyperloom/', '_blank')
 }
 
 const store = useWorkspaceStore()
@@ -714,6 +726,12 @@ onMounted(() => {
   margin: clamp(10px, 1vw, 16px) 0;
   flex-wrap: wrap;
   gap: 12px;
+}
+
+.header-links {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 /* Lens link style */
