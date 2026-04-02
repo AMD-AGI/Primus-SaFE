@@ -127,19 +127,6 @@ func (r *SyncerReconciler) updateWorkloadPod(ctx context.Context, obj *unstructu
 		return ctrlruntime.Result{}, err
 	}
 
-	id := -1
-	for i, p := range adminWorkload.Status.Pods {
-		if p.PodId != pod.Name {
-			continue
-		}
-		id = i
-		if p.Phase == pod.Status.Phase && p.K8sNodeName == pod.Spec.NodeName &&
-			p.StartTime != "" && p.HostIp == pod.Status.HostIP {
-			return ctrlruntime.Result{}, nil
-		}
-		break
-	}
-
 	k8sNode := &corev1.Node{}
 	if pod.Spec.NodeName != "" {
 		if k8sNode, err = clientSets.dataClientFactory.ClientSet().
@@ -147,6 +134,19 @@ func (r *SyncerReconciler) updateWorkloadPod(ctx context.Context, obj *unstructu
 			klog.ErrorS(err, "failed to get k8s node")
 			return ctrlruntime.Result{}, err
 		}
+	}
+
+	id := -1
+	for i, p := range adminWorkload.Status.Pods {
+		if p.PodId != pod.Name {
+			continue
+		}
+		id = i
+		if p.Phase == pod.Status.Phase && p.AdminNodeName == v1.GetNodeId(k8sNode) &&
+			p.StartTime != "" && p.HostIp == pod.Status.HostIP {
+			return ctrlruntime.Result{}, nil
+		}
+		break
 	}
 
 	resourceId, _ := v1.GetResourceId(pod)
@@ -158,14 +158,12 @@ func (r *SyncerReconciler) updateWorkloadPod(ctx context.Context, obj *unstructu
 	}
 	workloadPod := v1.WorkloadPod{
 		PodId:         pod.Name,
-		ResourceId:    resourceId,
-		K8sNodeName:   pod.Spec.NodeName,
+		ResourceId:    int8(resourceId),
 		AdminNodeName: v1.GetNodeId(k8sNode),
 		Phase:         pod.Status.Phase,
 		HostIp:        pod.Status.HostIP,
-		PodIp:         pod.Status.PodIP,
 		Rank:          getMainContainerRank(adminWorkload, pod),
-		GroupId:       groupId,
+		GroupId:       int8(groupId),
 	}
 	if pod.Status.StartTime != nil && !pod.Status.StartTime.IsZero() {
 		workloadPod.StartTime = timeutil.FormatRFC3339(pod.Status.StartTime.Time)
@@ -176,7 +174,7 @@ func (r *SyncerReconciler) updateWorkloadPod(ctx context.Context, obj *unstructu
 	var oldPhase corev1.PodPhase
 	if id >= 0 {
 		oldPhase = adminWorkload.Status.Pods[id].Phase
-		if adminWorkload.Status.Pods[id].K8sNodeName != workloadPod.K8sNodeName ||
+		if adminWorkload.Status.Pods[id].AdminNodeName != workloadPod.AdminNodeName ||
 			adminWorkload.Status.Pods[id].HostIp != workloadPod.HostIp ||
 			adminWorkload.Status.Pods[id].Rank != workloadPod.Rank ||
 			adminWorkload.Status.Pods[id].Phase != workloadPod.Phase {
@@ -197,6 +195,8 @@ func (r *SyncerReconciler) updateWorkloadPod(ctx context.Context, obj *unstructu
 	}
 	if commonworkload.IsCICDScalingRunnerSet(adminWorkload) {
 		updateCICDScalingRunnerSetPhase(adminWorkload, pod)
+	} else if commonworkload.IsMonarchJob(adminWorkload) {
+		updateMonarchJob(adminWorkload, pod)
 	}
 	if err = r.Status().Update(ctx, adminWorkload); err != nil {
 		return ctrlruntime.Result{}, err
@@ -227,6 +227,30 @@ func updateCICDScalingRunnerSetPhase(adminWorkload *v1.Workload, pod *corev1.Pod
 		adminWorkload.Status.Phase = v1.WorkloadNotReady
 	}
 }
+func updateMonarchJob(adminWorkload *v1.Workload, pod *corev1.Pod) {
+	switch pod.Status.Phase {
+	case corev1.PodRunning:
+		if isAllPodsAssigned(adminWorkload) && isAllPodRunning(adminWorkload) {
+			adminWorkload.Status.Phase = v1.WorkloadRunning
+		}
+	case corev1.PodPending:
+		if adminWorkload.Status.Phase == "" {
+			adminWorkload.Status.Phase = v1.WorkloadPending
+		}
+	case corev1.PodSucceeded:
+		resourceId, _ := v1.GetResourceId(pod)
+		if resourceId == 0 {
+			adminWorkload.Status.Phase = v1.WorkloadSucceeded
+		}
+	case corev1.PodFailed:
+		resourceId, _ := v1.GetResourceId(pod)
+		if resourceId == 0 {
+			adminWorkload.Status.Phase = v1.WorkloadFailed
+		} else {
+			adminWorkload.Status.Phase = v1.WorkloadNotReady
+		}
+	}
+}
 
 // updateWorkloadNodes updates the node information for a workload.
 // Collects node assignments from workload pods.
@@ -236,13 +260,13 @@ func (r *SyncerReconciler) updateWorkloadNodes(adminWorkload *v1.Workload, messa
 	nodeNames := make([]string, 0, len(adminWorkload.Status.Pods))
 	ranks := make([]string, 0, len(adminWorkload.Status.Pods))
 	nodeNameSet := sets.NewSet()
-	for _, p := range adminWorkload.Status.Pods {
-		if !nodeNameSet.Has(p.K8sNodeName) {
-			nodeNames = append(nodeNames, p.K8sNodeName)
-			if !commonworkload.IsTorchFT(adminWorkload) {
-				ranks = append(ranks, p.Rank)
+	for i := range adminWorkload.Status.Pods {
+		if !nodeNameSet.Has(adminWorkload.Status.Pods[i].AdminNodeName) {
+			nodeNames = append(nodeNames, adminWorkload.Status.Pods[i].AdminNodeName)
+			if !commonworkload.IsTorchFT(adminWorkload) && !commonworkload.IsMonarchJob(adminWorkload) {
+				ranks = append(ranks, adminWorkload.Status.Pods[i].Rank)
 			}
-			nodeNameSet.Insert(p.K8sNodeName)
+			nodeNameSet.Insert(adminWorkload.Status.Pods[i].AdminNodeName)
 		}
 	}
 	if len(adminWorkload.Status.Nodes) < message.dispatchCount {
@@ -318,13 +342,8 @@ func (r *SyncerReconciler) createStickyNodeFaults(ctx context.Context, adminWork
 		toAddNodes = adminWorkload.Status.Nodes[count-1]
 	}
 
-	k8sNodeMap := make(map[string]string)
-	for _, p := range adminWorkload.Status.Pods {
-		k8sNodeMap[p.AdminNodeName] = p.K8sNodeName
-	}
-
 	for _, n := range toAddNodes {
-		fault, err := generateStickyFault(adminWorkload, n, k8sNodeMap[n], r.Client.Scheme())
+		fault, err := generateStickyFault(adminWorkload, n, r.Client.Scheme())
 		if err != nil {
 			return err
 		}
@@ -371,8 +390,8 @@ func (r *SyncerReconciler) handleRaySubmitterTimeout(ctx context.Context, adminW
 }
 
 func generateStickyFault(adminWorkload *v1.Workload,
-	adminNodeId, k8sNodeId string, scheme *runtime.Scheme) (*v1.Fault, error) {
-	if adminNodeId == "" || k8sNodeId == "" {
+	adminNodeId string, scheme *runtime.Scheme) (*v1.Fault, error) {
+	if adminNodeId == "" {
 		return nil, nil
 	}
 	fault := &v1.Fault{
@@ -390,7 +409,6 @@ func generateStickyFault(adminWorkload *v1.Workload,
 			Node: &v1.FaultNode{
 				ClusterName: v1.GetClusterId(adminWorkload),
 				AdminName:   adminNodeId,
-				K8sName:     k8sNodeId,
 			},
 		},
 	}
@@ -431,7 +449,6 @@ func buildPodTerminatedInfo(ctx context.Context,
 		}
 		c := v1.Container{
 			Name:     container.Name,
-			Reason:   terminated.Reason,
 			ExitCode: terminated.ExitCode,
 			Message:  terminated.Message,
 		}
@@ -502,6 +519,16 @@ func sortWorkloadPods(adminWorkload *v1.Workload) {
 			}
 			return pods[i].GroupId < pods[j].GroupId
 		})
+	} else if commonworkload.IsMonarchJob(adminWorkload) {
+		sort.Slice(pods, func(i, j int) bool {
+			if pods[i].ResourceId == pods[j].ResourceId {
+				if pods[i].GroupId == pods[j].GroupId {
+					return comparePodsByIPAndID(pods[i], pods[j])
+				}
+				return pods[i].GroupId < pods[j].GroupId
+			}
+			return pods[i].ResourceId < pods[j].ResourceId
+		})
 	} else if commonworkload.IsRayJob(adminWorkload) {
 		// For RayJob: submitter first, then head, then worker (by name)
 		sort.Slice(pods, func(i, j int) bool {
@@ -560,11 +587,27 @@ func isAllPodsAssigned(workload *v1.Workload) bool {
 		if len(workload.Status.Pods) != commonworkload.GetTotalReplica(workload)+1 {
 			return false
 		}
+	} else if commonworkload.IsMonarchJob(workload) {
+		totalGroups, _ := commonworkload.GetReplicaCount(workload, common.ReplicaCount)
+		replica := workload.Spec.Resources[0].Replica + totalGroups*workload.Spec.Resources[1].Replica
+		// For RayJob, the ray-job-submitter pod is automatically created as the management pod
+		if len(workload.Status.Pods) != replica {
+			return false
+		}
 	} else if len(workload.Status.Pods) != commonworkload.GetTotalReplica(workload) {
 		return false
 	}
 	for _, p := range workload.Status.Pods {
 		if p.Phase == corev1.PodPending || p.AdminNodeName == "" {
+			return false
+		}
+	}
+	return true
+}
+
+func isAllPodRunning(workload *v1.Workload) bool {
+	for _, p := range workload.Status.Pods {
+		if p.Phase != corev1.PodRunning {
 			return false
 		}
 	}

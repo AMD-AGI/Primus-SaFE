@@ -164,7 +164,7 @@ watch(
       <el-table-column prop="jobId" label="Name/ID" min-width="200" :fixed="true">
         <template #default="{ row }">
           <div class="flex flex-col items-start">
-            <el-link type="primary" @click="jumpToDetail(row.jobId)">{{ row.jobName }}</el-link>
+            <el-link type="primary" v-route="{ path: '/preflight/ws/detail', query: { id: row.jobId } }">{{ row.jobName }}</el-link>
             <div class="text-[13px] text-gray-400">
               {{ row.jobId }}
               <el-icon

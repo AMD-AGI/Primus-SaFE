@@ -1,0 +1,101 @@
+#
+# Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
+# See LICENSE for license information.
+#
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: amd-monarch-mesh-template
+  namespace: {{ .Release.Namespace }}
+  labels:
+    primus-safe.workload.version: v1
+    primus-safe.workload.kind: MonarchMesh
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    # The main container name should match the configuration defined in the template below
+    primus-safe.main.container: main
+    meta.helm.sh/release-name: {{ .Release.Name }}
+    meta.helm.sh/release-namespace: {{ .Release.Namespace }}
+data:
+  template: |
+    apiVersion: monarch.pytorch.org/v1alpha1
+    kind: MonarchMesh
+    spec:
+      podTemplate:
+        dnsPolicy: ClusterFirstWithHostNet
+        schedulerName: kube-scheduler-plugins
+        initContainers:
+          - name: preprocess
+            image: {{ .Values.global.image_registry }}/primussafe/{{ .Values.preprocess.image }}
+            imagePullPolicy: IfNotPresent
+            command: ["/bin/sh", "-c", "cp -r /preprocess/* /shared-data/"]
+            securityContext:
+              capabilities:
+                add: [ "IPC_LOCK" ]
+            resources:
+              limits:
+                cpu: 1000m
+                memory: 128Mi
+            volumeMounts:
+            - name: shared-data
+              mountPath: /shared-data
+        containers:
+          - name: main
+            image: {{ .Values.global.image_registry }}/primussafe/{{ .Values.monarch.image }}
+            imagePullPolicy: Always
+            env:
+              # TorchFT timeout settings (increase from default 60s to reduce commit failures)
+              - name: TORCHFT_TIMEOUT_SEC
+                value: "300"
+              - name: TORCHFT_QUORUM_TIMEOUT_SEC
+                value: "300"
+              - name: TORCHFT_CONNECT_TIMEOUT_SEC
+                value: "120"
+              - name: NCCL_SOCKET_IFNAME
+                value: "{{ .Values.net.nccl_socket_ifname }}"
+              - name: GLOO_SOCKET_IFNAME
+                value: "{{ .Values.net.nccl_socket_ifname }}"
+              - name: NCCL_IB_HCA
+                value: "{{ .Values.net.nccl_ib_hca }}"
+              - name: NCCL_IB_TIMEOUT
+                value: "23"
+              - name: NCCL_IB_RETRY_CNT
+                value: "11"
+              - name: NCCL_IB_QPS_PER_CONNECTION
+                value: "1"
+              - name: NCCL_CROSS_NIC
+                value: "0"
+              - name: NCCL_CHECKS_DISABLE
+                value: "1"
+              - name: HSA_ENABLE_SDMA
+                value: "1"
+              - name: NCCL_IB_SL
+                value: "0"
+              - name: POD_NAME
+                valueFrom:
+                  fieldRef:
+                    fieldPath: metadata.name
+              - name: POD_UID
+                valueFrom:
+                  fieldRef:
+                    fieldPath: metadata.uid
+              - name: POD_IP
+                valueFrom:
+                  fieldRef:
+                    fieldPath: status.podIP
+              - name: POD_NAMESPACE
+                valueFrom:
+                  fieldRef:
+                    fieldPath: metadata.namespace
+              - name: NODE_NAME
+                valueFrom:
+                  fieldRef:
+                    fieldPath: spec.nodeName
+            volumeMounts:
+              - name: shared-data
+                mountPath: /shared-data
+        volumes:
+          - name: shared-data
+            emptyDir: {}
+        terminationGracePeriodSeconds: 5

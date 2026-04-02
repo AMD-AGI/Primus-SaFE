@@ -66,7 +66,7 @@
           <template #default="{ row }">
             <div class="flex flex-col items-start">
               <div class="flex items-center">
-                <el-link type="primary" @click="jumpToDetail(row)">{{ row.displayName }}</el-link>
+                <el-link type="primary" v-route="getDetailRoute(row)">{{ row.displayName }}</el-link>
                 <el-tooltip
                   v-if="row.secondsUntilTimeout > 0"
                   :content="`${row.secondsUntilTimeout} seconds remaining until the task ends`"
@@ -449,6 +449,11 @@ const tableHeight = computed(() => {
 })
 
 // ── Detail navigation ──
+const getDetailRoute = (row: any) => {
+  const kind = getRowKind(row) as WorkloadKind
+  const basePath = KindPathMap[kind]
+  return basePath ? { path: `${basePath}/detail`, query: { id: row.workloadId } } : undefined
+}
 const jumpToDetail = (row: any) => {
   const kind = getRowKind(row) as WorkloadKind
   const basePath = KindPathMap[kind]

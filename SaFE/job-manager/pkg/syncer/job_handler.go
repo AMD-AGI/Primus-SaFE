@@ -469,7 +469,7 @@ func shouldWorkloadStopRetry(adminWorkload *v1.Workload, count int) bool {
 // otherwise: returns empty string.
 func handleTorchFTGroupStatus(adminWorkload *v1.Workload, groupIdStr string, phase v1.WorkloadPhase) v1.WorkloadPhase {
 	// Get total group count
-	totalGroups, err := commonworkload.GetReplicaGroup(adminWorkload, common.ReplicaGroup)
+	totalGroups, err := commonworkload.GetReplicaCount(adminWorkload, common.ReplicaCount)
 	if err != nil || totalGroups <= 0 {
 		// If we can't get total groups, treat as single group
 		return phase
@@ -484,7 +484,7 @@ func handleTorchFTGroupStatus(adminWorkload *v1.Workload, groupIdStr string, pha
 		return ""
 	}
 
-	minGroups, err := commonworkload.GetReplicaGroup(adminWorkload, common.MinReplicaGroup)
+	minGroups, err := commonworkload.GetReplicaCount(adminWorkload, common.MinReplicaGroup)
 	if err != nil || minGroups <= 0 {
 		// If we can't get total groups, treat as single group
 		return phase
@@ -532,8 +532,8 @@ func handleTorchFTGroupStatus(adminWorkload *v1.Workload, groupIdStr string, pha
 // isTorchFTGroupFailed checks if the TorchFT workload should be considered as failed
 // if the number of remaining available worker groups falls below the minimum required groups
 func isTorchFTGroupFailed(adminWorkload *v1.Workload) bool {
-	totalGroups, _ := commonworkload.GetReplicaGroup(adminWorkload, common.ReplicaGroup)
-	minGroups, _ := commonworkload.GetReplicaGroup(adminWorkload, common.MinReplicaGroup)
+	totalGroups, _ := commonworkload.GetReplicaCount(adminWorkload, common.ReplicaCount)
+	minGroups, _ := commonworkload.GetReplicaCount(adminWorkload, common.MinReplicaGroup)
 
 	failedCount := 0
 	for i := 1; i <= totalGroups; i++ {
@@ -567,7 +567,7 @@ func getFailedPodInfo(workload *v1.Workload) string {
 		}
 		info := FailedPodInfo{
 			Pod:     pod.PodId,
-			Node:    pod.K8sNodeName,
+			Node:    pod.AdminNodeName,
 			Message: pod.FailedMessage,
 		}
 		for _, c := range pod.Containers {
