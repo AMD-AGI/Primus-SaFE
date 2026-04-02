@@ -16,6 +16,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/klog/v2"
 	ctrlruntime "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -572,10 +573,7 @@ func (r *SyncerReconciler) syncMonarchStatefulSetLabels(ctx context.Context,
 		return ctrlruntime.Result{}, nil
 	}
 
-	resourceId := v1.GetAnnotation(adminWorkload, v1.ResourceIdAnnotation)
-	if resourceId == "" {
-		resourceId = "1"
-	}
+	resourceId := "1"
 	patchLabels := map[string]interface{}{
 		v1.WorkloadIdLabel:          adminWorkload.Name,
 		v1.K8sObjectIdLabel:         message.name,
@@ -584,8 +582,11 @@ func (r *SyncerReconciler) syncMonarchStatefulSetLabels(ctx context.Context,
 	patchAnnotations := map[string]interface{}{
 		v1.ResourceIdAnnotation: resourceId,
 	}
-	if groupId := v1.GetGroupId(adminWorkload); groupId != "" {
-		patchAnnotations[v1.GroupIdAnnotation] = groupId
+	meshGVK := schema.GroupVersionKind{Version: common.DefaultVersion, Kind: common.MonarchMesh}
+	if cm, cmErr := commonworkload.GetWorkloadTemplate(ctx, r.Client, meshGVK); cmErr == nil {
+		if name := v1.GetMainContainer(cm); name != "" {
+			patchAnnotations[v1.MainContainerAnnotation] = name
+		}
 	}
 
 	patchObj := map[string]interface{}{
