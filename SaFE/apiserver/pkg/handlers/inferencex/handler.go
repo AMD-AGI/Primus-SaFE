@@ -7,6 +7,7 @@ package inferencex
 
 import (
 	"compress/gzip"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -82,8 +83,13 @@ type FiltersResponse struct {
 
 func NewHandler(ttl time.Duration) *Handler {
 	return &Handler{
-		httpClient: &http.Client{Timeout: 30 * time.Second},
-		ttl:        ttl,
+		httpClient: &http.Client{
+			Timeout: 30 * time.Second,
+			Transport: &http.Transport{
+				TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec // InferenceX public API, container lacks updated CA certs
+			},
+		},
+		ttl: ttl,
 	}
 }
 
