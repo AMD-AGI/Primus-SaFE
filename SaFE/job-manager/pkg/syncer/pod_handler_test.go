@@ -215,8 +215,8 @@ func TestCreateStickyNodeFaults(t *testing.T) {
 					{"node-1", "node-2"},
 				},
 				Pods: []v1.WorkloadPod{
-					{AdminNodeName: "node-1", K8sNodeName: "k8s-node-1"},
-					{AdminNodeName: "node-2", K8sNodeName: "k8s-node-2"},
+					{AdminNodeName: "node-1"},
+					{AdminNodeName: "node-2"},
 				},
 			},
 		}
@@ -261,8 +261,8 @@ func TestCreateStickyNodeFaults(t *testing.T) {
 					{"node-2", "node-3"}, // current nodes (node-1 removed, node-3 added)
 				},
 				Pods: []v1.WorkloadPod{
-					{AdminNodeName: "node-2", K8sNodeName: "k8s-node-2"},
-					{AdminNodeName: "node-3", K8sNodeName: "k8s-node-3"},
+					{AdminNodeName: "node-2"},
+					{AdminNodeName: "node-3"},
 				},
 			},
 		}
