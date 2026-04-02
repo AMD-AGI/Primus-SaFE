@@ -63,6 +63,10 @@ spec:
           spec:
             description: ModelSpec defines the desired state of Model
             properties:
+              baseModel:
+                description: BaseModel is the HuggingFace name of the base model used
+                  for fine-tuning (origin=fine_tuned only)
+                type: string
               description:
                 description: Description describes the model
                 type: string
@@ -79,6 +83,16 @@ spec:
                 description: MaxTokens is the maximum context length of the model
                   (from config.json max_position_embeddings)
                 type: integer
+              origin:
+                description: |-
+                  Origin indicates where the model came from:
+                    - "external": downloaded from HuggingFace or connected via remote API (default)
+                    - "fine_tuned": produced by SFT training within the platform
+                type: string
+              sftJobId:
+                description: SftJobId is the workload ID of the SFT training job that
+                  produced this model (origin=fine_tuned only)
+                type: string
               source:
                 description: Source defines where to pull the model from
                 properties:
@@ -104,6 +118,11 @@ spec:
                         type: string
                     type: object
                     x-kubernetes-map-type: atomic
+                  localPath:
+                    description: |-
+                      LocalPath is the NFS/PFS path where the model files already exist.
+                      Used for "local_path" access mode (SFT training output) — skips download entirely.
+                    type: string
                   modelName:
                     description: |-
                       ModelName is the model identifier used when calling the API
@@ -126,11 +145,6 @@ spec:
                         type: string
                     type: object
                     x-kubernetes-map-type: atomic
-                  localPath:
-                    description: LocalPath is the NFS/PFS path where the model files
-                      already exist. Used for local_path access mode (SFT training
-                      output) — skips download entirely.
-                    type: string
                   url:
                     description: URL is the pull address (e.g., "meta-llama/Llama-2-7b",
                       "s3://bucket/model", "https://api.openai.com")
@@ -149,20 +163,6 @@ spec:
                   Workspace specifies which workspace this model belongs to (for local models only)
                   Empty string means "public" - the model will be downloaded to all workspaces
                   Non-empty means the model is private to a specific workspace
-                type: string
-              origin:
-                description: |-
-                  Origin indicates where the model came from:
-                  "external" (default) - downloaded from HuggingFace or connected via remote API
-                  "fine_tuned" - produced by SFT training within the platform
-                type: string
-              sftJobId:
-                description: SftJobId is the workload ID of the SFT training job that
-                  produced this model (origin=fine_tuned only)
-                type: string
-              baseModel:
-                description: BaseModel is the HuggingFace name of the base model used
-                  for fine-tuning (origin=fine_tuned only)
                 type: string
             required:
             - source

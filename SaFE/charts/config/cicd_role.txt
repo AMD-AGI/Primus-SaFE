@@ -1,5 +1,5 @@
----
 {{- if .Values.cicd.enable }}
+---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
@@ -70,4 +70,44 @@ rules:
       - get
       - patch
       - update
+{{- end }}
+{{- if .Values.monarch.enable }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  annotations:
+    meta.helm.sh/release-name: {{ .Release.Name }}
+    meta.helm.sh/release-namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: client
+    app.kubernetes.io/name: monarch-operator
+  name: {{ .Values.monarch.client_role }}
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - pods
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - ""
+    resources:
+      - services
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - monarch.pytorch.org
+    resources:
+      - monarchmeshes
+      - monarchmeshes/status
+    verbs:
+      - get
+      - list
+      - watch
 {{- end }}

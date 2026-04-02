@@ -14,18 +14,16 @@ import (
 // with apply.
 type WorkloadPodApplyConfiguration struct {
 	PodId         *string                       `json:"podId,omitempty"`
-	ResourceId    *int                          `json:"resourceId,omitempty"`
-	K8sNodeName   *string                       `json:"k8sNodeName,omitempty"`
+	ResourceId    *byte                         `json:"resourceId,omitempty"`
 	AdminNodeName *string                       `json:"adminNodeName,omitempty"`
 	Phase         *corev1.PodPhase              `json:"phase,omitempty"`
 	HostIp        *string                       `json:"hostIP,omitempty"`
-	PodIp         *string                       `json:"podIP,omitempty"`
 	Rank          *string                       `json:"rank,omitempty"`
 	StartTime     *string                       `json:"startTime,omitempty"`
 	EndTime       *string                       `json:"endTime,omitempty"`
 	FailedMessage *string                       `json:"failedMessage,omitempty"`
 	Containers    []ContainerApplyConfiguration `json:"containers,omitempty"`
-	GroupId       *int                          `json:"groupId,omitempty"`
+	GroupId       *byte                         `json:"groupId,omitempty"`
 }
 
 // WorkloadPodApplyConfiguration constructs a declarative configuration of the WorkloadPod type for use with
@@ -45,16 +43,8 @@ func (b *WorkloadPodApplyConfiguration) WithPodId(value string) *WorkloadPodAppl
 // WithResourceId sets the ResourceId field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the ResourceId field is set to the value of the last call.
-func (b *WorkloadPodApplyConfiguration) WithResourceId(value int) *WorkloadPodApplyConfiguration {
+func (b *WorkloadPodApplyConfiguration) WithResourceId(value byte) *WorkloadPodApplyConfiguration {
 	b.ResourceId = &value
-	return b
-}
-
-// WithK8sNodeName sets the K8sNodeName field in the declarative configuration to the given value
-// and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the K8sNodeName field is set to the value of the last call.
-func (b *WorkloadPodApplyConfiguration) WithK8sNodeName(value string) *WorkloadPodApplyConfiguration {
-	b.K8sNodeName = &value
 	return b
 }
 
@@ -79,14 +69,6 @@ func (b *WorkloadPodApplyConfiguration) WithPhase(value corev1.PodPhase) *Worklo
 // If called multiple times, the HostIp field is set to the value of the last call.
 func (b *WorkloadPodApplyConfiguration) WithHostIp(value string) *WorkloadPodApplyConfiguration {
 	b.HostIp = &value
-	return b
-}
-
-// WithPodIp sets the PodIp field in the declarative configuration to the given value
-// and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the PodIp field is set to the value of the last call.
-func (b *WorkloadPodApplyConfiguration) WithPodIp(value string) *WorkloadPodApplyConfiguration {
-	b.PodIp = &value
 	return b
 }
 
@@ -138,7 +120,7 @@ func (b *WorkloadPodApplyConfiguration) WithContainers(values ...*ContainerApply
 // WithGroupId sets the GroupId field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the GroupId field is set to the value of the last call.
-func (b *WorkloadPodApplyConfiguration) WithGroupId(value int) *WorkloadPodApplyConfiguration {
+func (b *WorkloadPodApplyConfiguration) WithGroupId(value byte) *WorkloadPodApplyConfiguration {
 	b.GroupId = &value
 	return b
 }
