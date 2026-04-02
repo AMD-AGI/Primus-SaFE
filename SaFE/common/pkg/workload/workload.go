@@ -401,7 +401,7 @@ func GetWorkloadTemplate(ctx context.Context, cli client.Client, gvk schema.Grou
 		return &configmapList.Items[0], nil
 	}
 	return nil, commonerrors.NewInternalError(
-		fmt.Sprintf("failed to find configMap. gvk: %s", gvk.String()))
+		fmt.Sprintf("failed to find workload template. gvk: %s", gvk.String()))
 }
 
 // GetResourceTemplate Retrieve the corresponding resource_template based on the workload's GVK.
