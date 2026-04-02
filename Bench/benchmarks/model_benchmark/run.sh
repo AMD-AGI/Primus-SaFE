@@ -57,6 +57,11 @@ acquire_primus() {
         log "Cloning Primus from $PRIMUS_REPO (branch: $PRIMUS_BRANCH)"
         git clone --depth=1 --branch "$PRIMUS_BRANCH" "$PRIMUS_REPO" "$target" 2>&1
     fi
+
+    cd "$target"
+    log "Initializing required submodules (Megatron-LM)..."
+    git submodule update --init --depth=1 third_party/Megatron-LM 2>&1
+    cd - > /dev/null
 }
 
 if [ -n "${SHARE_PATH:-}" ] && [ -d "${SHARE_PATH}" ]; then
