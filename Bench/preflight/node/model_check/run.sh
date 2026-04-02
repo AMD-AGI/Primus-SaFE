@@ -181,15 +181,20 @@ install_deps_and_prepare_dataset() {
 }
 
 # ---------------------------------------------------------------------------
-# NFS barrier: rank 0 downloads first, workers wait for the ready signal
+# NFS barrier: coordinate first-ever download, skip barrier on cache hit
 # ---------------------------------------------------------------------------
+NFS_CACHE_SENTINEL=""
 CACHE_BARRIER_DIR=""
 if [ -n "${NFS_CACHE}" ] && [ -n "${WORKLOAD_ID:-}" ]; then
+    NFS_CACHE_SENTINEL="${NFS_CACHE}/deps_cached"
     CACHE_BARRIER_DIR="${NFS_CACHE}/barrier/${WORKLOAD_ID}"
     mkdir -p "${CACHE_BARRIER_DIR}"
 fi
 
-if [ -n "${CACHE_BARRIER_DIR}" ] && [ "${RANK:-0}" != "0" ]; then
+if [ -n "${NFS_CACHE_SENTINEL}" ] && [ -f "${NFS_CACHE_SENTINEL}" ]; then
+    log_info "NFS cache already populated (sentinel exists), installing from cache in parallel"
+    install_deps_and_prepare_dataset || exit 1
+elif [ -n "${CACHE_BARRIER_DIR}" ] && [ "${RANK:-0}" != "0" ]; then
     READY_FILE="${CACHE_BARRIER_DIR}/cache_ready"
     FAIL_FILE="${CACHE_BARRIER_DIR}/cache_failed"
     BARRIER_TIMEOUT=${NFS_BARRIER_TIMEOUT:-600}
@@ -218,8 +223,9 @@ else
 
     if [ -n "${CACHE_BARRIER_DIR}" ]; then
         if [ $rc -eq 0 ]; then
+            touch "${NFS_CACHE_SENTINEL}"
             touch "${CACHE_BARRIER_DIR}/cache_ready"
-            log_info "Rank 0 signaled cache_ready"
+            log_info "Rank 0 signaled cache_ready and wrote global sentinel"
         else
             touch "${CACHE_BARRIER_DIR}/cache_failed"
             log_info "Rank 0 signaled cache_failed"
