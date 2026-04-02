@@ -357,7 +357,7 @@ func GetResourceId(obj metav1.Object) (int, bool) {
 }
 
 func GetGroupId(obj metav1.Object) string {
-	return GetAnnotation(obj, GroupIdAnnotation)
+	return GetLabel(obj, GroupIdLabel)
 }
 
 func GetSourceWorkloadId(obj metav1.Object) string {

@@ -579,6 +579,9 @@ func (r *SyncerReconciler) syncMonarchStatefulSetLabels(ctx context.Context,
 		v1.K8sObjectIdLabel:         message.name,
 		v1.WorkloadDispatchCntLabel: strconv.Itoa(v1.GetWorkloadDispatchCnt(adminWorkload)),
 	}
+	if v1.GetGroupId(adminWorkload) != "" {
+		patchLabels[v1.GroupIdLabel] = v1.GetGroupId(adminWorkload)
+	}
 	patchAnnotations := map[string]interface{}{
 		v1.ResourceIdAnnotation: resourceId,
 	}

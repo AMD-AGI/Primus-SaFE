@@ -19,15 +19,15 @@ import (
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
-	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
-	jobutils "github.com/AMD-AIG-AIMA/SAFE/job-manager/pkg/utils"
-	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/sets"
-	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
 	commonfaults "github.com/AMD-AIG-AIMA/SAFE/common/pkg/faults"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/quantity"
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
+	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
 	"github.com/AMD-AIG-AIMA/SAFE/job-manager/pkg/syncer"
+	jobutils "github.com/AMD-AIG-AIMA/SAFE/job-manager/pkg/utils"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/maps"
+	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/sets"
+	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
 )
 
 const (
@@ -580,6 +580,9 @@ func buildObjectLabels(workload *v1.Workload) map[string]interface{} {
 			result[key] = value
 		}
 	}
+	if v1.GetGroupId(workload) != "" {
+		result[v1.GroupIdLabel] = v1.GetGroupId(workload)
+	}
 	return result
 }
 
@@ -593,9 +596,6 @@ func buildObjectAnnotations(workload *v1.Workload) map[string]interface{} {
 	}
 	if v1.GetUserName(workload) != "" {
 		result[v1.UserNameAnnotation] = v1.GetUserName(workload)
-	}
-	if v1.GetGroupId(workload) != "" {
-		result[v1.GroupIdAnnotation] = v1.GetGroupId(workload)
 	}
 	return result
 }
