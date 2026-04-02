@@ -126,8 +126,12 @@ func (h *Handler) GetBenchmarks(c *gin.Context) {
 func (h *Handler) GetFilters(c *gin.Context) {
 	knownModels := []string{
 		"DeepSeek-R1-0528",
+		"GLM-5",
+		"gpt-oss-120b",
 		"Llama-3.3-70B-Instruct-FP8",
 		"Qwen-3.5-397B-A17B",
+		"Kimi-K2.5",
+		"MiniMax-M2.5",
 	}
 
 	gpuSet := make(map[string]bool)
