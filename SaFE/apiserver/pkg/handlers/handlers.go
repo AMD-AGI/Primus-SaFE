@@ -7,6 +7,7 @@ package handlers
 
 import (
 	"context"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"k8s.io/klog/v2"
@@ -21,6 +22,7 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/middleware"
 	model_handlers "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/model-handlers"
 	a2ahandlers "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/a2a-handlers"
+	inferencexhandlers "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/inferencex"
 	proxyhandlers "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/proxy-handlers"
 	reshandler "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/resources"
 	sshhandler "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/ssh-handlers"
@@ -133,6 +135,10 @@ func InitHttpHandlers(_ context.Context, mgr ctrlruntime.Manager) (*gin.Engine, 
 	if commonconfig.IsDBEnable() {
 		githubworkflow.RegisterRoutes(engine.Group(common.PrimusRouterCustomRootPath))
 	}
+
+	// InferenceX benchmark data proxy (no DB required)
+	infxHandler := inferencexhandlers.NewHandler(24 * time.Hour)
+	inferencexhandlers.InitInferenceXRouters(engine, infxHandler)
 
 	return engine, nil
 }
