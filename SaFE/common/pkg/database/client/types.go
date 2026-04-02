@@ -101,30 +101,31 @@ func GetFaultFieldTags() map[string]string {
 }
 
 type OpsJob struct {
-	Id            int64          `db:"id"`
-	JobId         string         `db:"job_id"`
-	Cluster       string         `db:"cluster"`
-	Inputs        []byte         `db:"inputs"`
-	Type          string         `db:"type"`
-	Timeout       int            `db:"timeout"`
-	UserName      sql.NullString `db:"user_name"`
-	Workspace     sql.NullString `db:"workspace"`
-	CreationTime  pq.NullTime    `db:"creation_time"`
-	StartTime     pq.NullTime    `db:"start_time"`
-	EndTime       pq.NullTime    `db:"end_time"`
-	DeletionTime  pq.NullTime    `db:"deletion_time"`
-	Phase         sql.NullString `db:"phase"`
-	Conditions    sql.NullString `db:"conditions"`
-	Outputs       sql.NullString `db:"outputs"`
-	Env           sql.NullString `db:"env"`
-	IsDeleted     bool           `db:"is_deleted"`
-	UserId        sql.NullString `db:"user_id"`
-	Resource      sql.NullString `db:"resource"`
-	Image         sql.NullString `db:"image"`
-	EntryPoint    sql.NullString `db:"entrypoint"`
-	IsTolerateAll bool           `db:"is_tolerate_all"`
-	Hostpath      sql.NullString `db:"hostpath"`
-	ExcludedNodes sql.NullString `db:"excluded_nodes"`
+	Id                int64          `db:"id"`
+	JobId             string         `db:"job_id"`
+	Cluster           string         `db:"cluster"`
+	Inputs            []byte         `db:"inputs"`
+	Type              string         `db:"type"`
+	Timeout           int            `db:"timeout"`
+	UserName          sql.NullString `db:"user_name"`
+	Workspace         sql.NullString `db:"workspace"`
+	CreationTime      pq.NullTime    `db:"creation_time"`
+	StartTime         pq.NullTime    `db:"start_time"`
+	EndTime           pq.NullTime    `db:"end_time"`
+	DeletionTime      pq.NullTime    `db:"deletion_time"`
+	Phase             sql.NullString `db:"phase"`
+	Conditions        sql.NullString `db:"conditions"`
+	Outputs           sql.NullString `db:"outputs"`
+	Env               sql.NullString `db:"env"`
+	IsDeleted         bool           `db:"is_deleted"`
+	UserId            sql.NullString `db:"user_id"`
+	Resource          sql.NullString `db:"resource"`
+	Image             sql.NullString `db:"image"`
+	EntryPoint        sql.NullString `db:"entrypoint"`
+	IsTolerateAll     bool           `db:"is_tolerate_all"`
+	Hostpath          sql.NullString `db:"hostpath"`
+	ExcludedNodes     sql.NullString `db:"excluded_nodes"`
+	SecurityOperation bool           `db:"security_operation"`
 }
 
 // GetOpsJobFieldTags returns the OpsJobFieldTags value.
@@ -261,13 +262,13 @@ type Model struct {
 	SourceToken  string      `gorm:"column:source_token" json:"sourceToken" db:"source_token"`
 	Phase        string      `gorm:"column:phase" json:"phase" db:"phase"`
 	Message      string      `gorm:"column:message" json:"message" db:"message"`
-	ModelName    string      `gorm:"column:model_name" json:"modelName" db:"model_name"`    // Model identifier for API calls
-	Workspace    string      `gorm:"column:workspace" json:"workspace" db:"workspace"`      // Empty means public (all workspaces)
-	S3Path       string      `gorm:"column:s3_path" json:"s3Path" db:"s3_path"`             // S3 storage path
-	LocalPaths   string      `gorm:"column:local_paths" json:"localPaths" db:"local_paths"` // JSON array of ModelLocalPathDB
-	Origin       string      `gorm:"column:origin;default:external" json:"origin" db:"origin"`  // "external" or "fine_tuned"
-	SftJobId     string      `gorm:"column:sft_job_id" json:"sftJobId" db:"sft_job_id"`         // SFT workload ID (origin=fine_tuned)
-	BaseModel    string      `gorm:"column:base_model" json:"baseModel" db:"base_model"`        // Base model HF name (origin=fine_tuned)
+	ModelName    string      `gorm:"column:model_name" json:"modelName" db:"model_name"`       // Model identifier for API calls
+	Workspace    string      `gorm:"column:workspace" json:"workspace" db:"workspace"`         // Empty means public (all workspaces)
+	S3Path       string      `gorm:"column:s3_path" json:"s3Path" db:"s3_path"`                // S3 storage path
+	LocalPaths   string      `gorm:"column:local_paths" json:"localPaths" db:"local_paths"`    // JSON array of ModelLocalPathDB
+	Origin       string      `gorm:"column:origin;default:external" json:"origin" db:"origin"` // "external" or "fine_tuned"
+	SftJobId     string      `gorm:"column:sft_job_id" json:"sftJobId" db:"sft_job_id"`        // SFT workload ID (origin=fine_tuned)
+	BaseModel    string      `gorm:"column:base_model" json:"baseModel" db:"base_model"`       // Base model HF name (origin=fine_tuned)
 	UserId       string      `gorm:"column:user_id" json:"userId" db:"user_id"`
 	UserName     string      `gorm:"column:user_name" json:"userName" db:"user_name"`
 	CreatedAt    pq.NullTime `gorm:"column:created_at;autoCreateTime" json:"createdAt" db:"created_at"`

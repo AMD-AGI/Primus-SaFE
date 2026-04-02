@@ -84,6 +84,9 @@ func (n *Node) Start() error {
 
 // update runs continuously to sync node status at regular intervals.
 func (n *Node) update() {
+	ticker := time.NewTicker(SYNC_INTERVAL)
+	defer ticker.Stop()
+	n.syncK8sNode()
 	for {
 		select {
 		case <-n.ctx.Done():
@@ -91,9 +94,8 @@ func (n *Node) update() {
 				klog.Infof("stop node watcher: %s", n.k8sNode.Name)
 			}
 			return
-		default:
+		case <-ticker.C:
 			n.syncK8sNode()
-			time.Sleep(SYNC_INTERVAL)
 		}
 	}
 }
@@ -269,7 +271,7 @@ func (n *Node) syncK8sNode() error {
 // getLocation retrieves the system timezone using "timedatectl" command.
 func getLocation() (*time.Location, error) {
 	cmd := fmt.Sprintf(`%s timedatectl |grep "Time zone" |awk -F" " '{print $3}'`, NSENTER)
-	statusCode, output := utils.ExecuteCommand(cmd, 0)
+	statusCode, output := utils.ExecuteCommand(cmd, 30*time.Second)
 	if statusCode != types.StatusOk {
 		return nil, fmt.Errorf("failed to execute command, output: %s", output)
 	}
@@ -290,7 +292,7 @@ func getLocation() (*time.Location, error) {
 // getUptime gets the system uptime using the "uptime -s" command.
 func getUptime(loc *time.Location) (time.Time, error) {
 	cmd := fmt.Sprintf("%s uptime -s", NSENTER)
-	statusCode, output := utils.ExecuteCommand(cmd, 0)
+	statusCode, output := utils.ExecuteCommand(cmd, 30*time.Second)
 	if statusCode != types.StatusOk {
 		return time.Time{}, fmt.Errorf("failed to do 'uptime -s', output: %s", output)
 	}
