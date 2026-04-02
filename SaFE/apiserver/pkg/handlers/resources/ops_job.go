@@ -330,9 +330,6 @@ func (h *Handler) generateAddonJob(c *gin.Context, body []byte) (*v1.OpsJob, err
 		req.AvailableRatio = pointer.Float64(1.0)
 	}
 
-	if req.SecurityUpgrade {
-		v1.SetAnnotation(job, v1.OpsJobSecurityUpgradeAnnotation, "")
-	}
 	v1.SetAnnotation(job, v1.OpsJobBatchCountAnnotation, strconv.Itoa(req.BatchCount))
 	v1.SetAnnotation(job, v1.OpsJobAvailRatioAnnotation,
 		strconv.FormatFloat(*req.AvailableRatio, 'f', -1, 64))
@@ -367,6 +364,11 @@ func (h *Handler) generatePreflightJob(c *gin.Context, body []byte) (*v1.OpsJob,
 	}
 	if err = h.generateOpsJobNodesInput(c.Request.Context(), job); err != nil {
 		return nil, err
+	}
+	if req.SecurityOperation {
+		if err = h.excludeBusyNodes(c.Request.Context(), job); err != nil {
+			return nil, err
+		}
 	}
 	if err = h.accessController.Authorize(authority.AccessInput{
 		Context:      c.Request.Context(),
@@ -683,6 +685,9 @@ func genDefaultOpsJob(req *view.BaseOpsJobRequest, requestUser *v1.User) *v1.Ops
 	if v1.GetUserName(job) == "" {
 		v1.SetAnnotation(job, v1.UserNameAnnotation, v1.GetUserId(job))
 	}
+	if req.SecurityOperation {
+		v1.SetAnnotation(job, v1.OpsJobSecurityOperationAnnotation, v1.TrueStr)
+	}
 	return job
 }
 
@@ -803,6 +808,33 @@ func (h *Handler) getNodesOfWorkload(ctx context.Context, workloadId string) ([]
 		}
 	}
 	return nil, "", nil
+}
+
+// excludeBusyNodes removes nodes that are currently used by running workloads
+func (h *Handler) excludeBusyNodes(ctx context.Context, job *v1.OpsJob) error {
+	var workspaceNames []string
+	if v1.GetWorkspaceId(job) != "" {
+		workspaceNames = append(workspaceNames, v1.GetWorkspaceId(job))
+	}
+	workloads, err := h.getRunningWorkloads(ctx, "", workspaceNames)
+	if err != nil {
+		return err
+	}
+
+	usingNodesSet := sets.NewSet()
+	for _, w := range workloads {
+		for _, p := range w.Status.Pods {
+			usingNodesSet.Insert(p.AdminNodeName)
+		}
+	}
+	nodeParams := job.GetParameters(v1.ParameterNode)
+	for i, n := range nodeParams {
+		if usingNodesSet.Has(n.Value) {
+			// if set empty, it will be ignored by webhook
+			nodeParams[i].Value = ""
+		}
+	}
+	return nil
 }
 
 // parseListOpsJobQuery parses and validates the query parameters for listing ops jobs.
@@ -979,6 +1011,7 @@ func cvtToGetOpsJobResponse(job *dbclient.OpsJob) view.GetOpsJobResponse {
 	result := view.GetOpsJobResponse{
 		OpsJobResponseItem: cvtToOpsJobResponseItem(job),
 		IsTolerateAll:      job.IsTolerateAll,
+		SecurityOperation:  job.SecurityOperation,
 	}
 	if conditions := dbutils.ParseNullString(job.Conditions); conditions != "" {
 		json.Unmarshal([]byte(conditions), &result.Conditions)

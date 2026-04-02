@@ -40,33 +40,10 @@ func (w *WorkloadInformer) OnAdd(obj interface{}, isInInitialList bool) {
 	if isInInitialList {
 		return
 	}
-	ctx := context.Background()
-	if len(workload.Status.Conditions) == 0 {
+	if workload.Status.Phase == "" {
 		return
 	}
-	newestCondition := workload.Status.Conditions[len(workload.Status.Conditions)-1]
-	uid := fmt.Sprintf("%s-%s-%s", workload.Name, newestCondition.Type, newestCondition.Reason)
-
-	notifyData := map[string]interface{}{
-		"topic":     model.TopicWorkload,
-		"condition": newestCondition.Type,
-		"workload":  workload,
-	}
-	userId := v1.GetUserId(workload)
-	user := &v1.User{}
-	err := w.Get(ctx, client.ObjectKey{Name: userId}, user)
-	if err != nil {
-		klog.Errorf("Failed to get user %s: %v", userId, err)
-		return
-	}
-	notifyData["users"] = []*v1.User{user}
-
-	notificationManager := notification.GetNotificationManager()
-	err = notificationManager.SubmitNotification(ctx, model.TopicWorkload, uid, notifyData)
-	if err != nil {
-		klog.Errorf("Failed to submit notification for workload %s: %v", workload.Name, err)
-		return
-	}
+	w.submitWorkloadNotification(workload)
 }
 
 // OnUpdate is called when a workload is updated.
@@ -81,19 +58,27 @@ func (w *WorkloadInformer) OnUpdate(oldObj, newObj interface{}) {
 		klog.Errorf("Failed to convert oldObj to Workload")
 		return
 	}
+	if workload.Status.Phase == "" {
+		return
+	}
+	// Only notify when the workload-level Phase actually changes,
+	// so that multi-pod updates for the same phase produce a single notification.
+	if oldWorkload.Status.Phase == workload.Status.Phase {
+		return
+	}
+	w.submitWorkloadNotification(workload)
+}
+
+// submitWorkloadNotification deduplicates by workload name + phase, ensuring
+// at most one notification per workload per phase transition.
+func (w *WorkloadInformer) submitWorkloadNotification(workload *v1.Workload) {
 	ctx := context.Background()
-	if len(workload.Status.Conditions) == 0 {
-		return
-	}
-	if len(oldWorkload.Status.Conditions) == len(workload.Status.Conditions) {
-		return
-	}
-	newestCondition := workload.Status.Conditions[len(workload.Status.Conditions)-1]
-	uid := fmt.Sprintf("%s-%s-%s", workload.Name, newestCondition.Type, newestCondition.Reason)
+	phase := string(workload.Status.Phase)
+	uid := fmt.Sprintf("%s-%s", workload.Name, phase)
 
 	notifyData := map[string]interface{}{
 		"topic":     model.TopicWorkload,
-		"condition": newestCondition.Type,
+		"condition": phase,
 		"workload":  workload,
 	}
 	userId := v1.GetUserId(workload)
@@ -105,12 +90,10 @@ func (w *WorkloadInformer) OnUpdate(oldObj, newObj interface{}) {
 	}
 	notifyData["users"] = []*v1.User{user}
 
-	// Submit notification
 	notificationManager := notification.GetNotificationManager()
 	err = notificationManager.SubmitNotification(ctx, model.TopicWorkload, uid, notifyData)
 	if err != nil {
 		klog.Errorf("Failed to submit notification for workload %s: %v", workload.Name, err)
-		return
 	}
 }
 

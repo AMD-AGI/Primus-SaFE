@@ -146,9 +146,6 @@ func (v *FaultValidator) validateFaultSpec(fault *v1.Fault) error {
 		if fault.Spec.Node.AdminName == "" {
 			return fmt.Errorf("the admin node of spec is empty")
 		}
-		if fault.Spec.Node.K8sName == "" {
-			return fmt.Errorf("the k8s node of spec is empty")
-		}
 	}
 	return nil
 }

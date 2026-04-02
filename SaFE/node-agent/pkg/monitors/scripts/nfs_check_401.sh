@@ -37,13 +37,13 @@ fi
 # Create mount point and mount
 nsenter --target 1 --mount --uts --ipc --net --pid -- /usr/bin/mkdir -p "$MOUNT_POINT"
 if [ $? -ne 0 ]; then
-  echo "Failed to create directory: $MOUNT_POINT"
+  echo "Error: Failed to create directory: $MOUNT_POINT"
   exit 1
 fi
 
 nsenter --target 1 --mount --uts --ipc --net --pid -- mount -t nfs4 "$NFS_SERVER:$NFS_PATH" "$MOUNT_POINT"
 if [ $? -ne 0 ]; then
-  echo "NFS mount failed: $NFS_SERVER:$NFS_PATH -> $MOUNT_POINT"
+  echo "Error: NFS mount failed: $NFS_SERVER:$NFS_PATH -> $MOUNT_POINT"
   exit 1
 fi
 

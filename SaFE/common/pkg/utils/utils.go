@@ -32,6 +32,8 @@ const (
 	MaxTorchFTNameLen = MaxDeploymentNameLen - 4
 	// ray-pod: {workload-id}-5qj68-1-worker-78x27. 21 is the fixed suffix length
 	MaxRayJobNameLen = MaxGeneratedNameLength - 21
+	// monarch-pod: {workload-id}mesh12310. 9 is the max suffix length
+	MaxMonarchJobNameLen = MaxGeneratedNameLength - 9
 )
 
 // GenerateName generates a unique name by appending a random string to the base name.

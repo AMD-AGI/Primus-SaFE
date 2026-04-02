@@ -223,24 +223,24 @@
               </el-col>
 
               <el-col :span="24">
-                <el-form-item label="replicaGroup" prop="replicaGroup">
-                  <el-input v-model.number="form.replicaGroup" placeholder="Replica Group" />
+                <el-form-item label="replicaCount" prop="replicaCount">
+                  <el-input v-model.number="form.replicaCount" placeholder="Replica Count" />
                 </el-form-item>
               </el-col>
               <el-col :span="12">
-                <el-form-item label="minReplicaGroup" prop="minReplicaGroup">
+                <el-form-item label="minReplicaCount" prop="minReplicaCount">
                   <el-input
-                    v-model.number="form.minReplicaGroup"
-                    placeholder="Min Replica Group"
+                    v-model.number="form.minReplicaCount"
+                    placeholder="Min Replica Count"
                     :disabled="isEdit"
                   />
                 </el-form-item>
               </el-col>
               <el-col :span="12">
-                <el-form-item label="maxReplicaGroup" prop="maxReplicaGroup">
+                <el-form-item label="maxReplicaCount" prop="maxReplicaCount">
                   <el-input
-                    v-model.number="form.maxReplicaGroup"
-                    placeholder="Max Replica Group"
+                    v-model.number="form.maxReplicaCount"
+                    placeholder="Max Replica Count"
                     :disabled="isEdit"
                   />
                 </el-form-item>
@@ -637,9 +637,9 @@ const initialForm = () => ({
     ephemeralStorage: '20',
   },
   // TorchFT specific fields
-  replicaGroup: undefined as number | undefined,
-  minReplicaGroup: undefined as number | undefined,
-  maxReplicaGroup: undefined as number | undefined,
+  replicaCount: undefined as number | undefined,
+  minReplicaCount: undefined as number | undefined,
+  maxReplicaCount: undefined as number | undefined,
 
   envList: [
     {
@@ -739,11 +739,11 @@ const validateNodesDivisibility = (
   workerReplica: number,
   callback: (err?: Error) => void,
 ): void => {
-  const replicaGroup = Number(form.replicaGroup)
-  if (form.resourceType === 'nodes' && replicaGroup && workerReplica % replicaGroup !== 0) {
+  const replicaCount = Number(form.replicaCount)
+  if (form.resourceType === 'nodes' && replicaCount && workerReplica % replicaCount !== 0) {
     callback(
       new Error(
-        `Worker nodes count (${workerReplica}) must be divisible by REPLICA_GROUP (${replicaGroup})`,
+        `Worker nodes count (${workerReplica}) must be divisible by REPLICA_COUNT (${replicaCount})`,
       ),
     )
     return
@@ -782,7 +782,7 @@ const rules = reactive({
         const nodeList = value as string[]
         const workerReplica = nodeList.length
 
-        // Validate whether node count is divisible by replicaGroup
+        // Validate whether node count is divisible by replicaCount
         validateNodesDivisibility(workerReplica, callback)
       },
       trigger: 'change',
@@ -807,45 +807,45 @@ const rules = reactive({
     { required: true, message: 'Please input lighthouse ephemeral storage', trigger: 'blur' },
   ],
   // TorchFT Specific
-  replicaGroup: [
-    { required: true, message: 'Please input replica group', trigger: 'blur' },
+  replicaCount: [
+    { required: true, message: 'Please input replica count', trigger: 'blur' },
     {
       validator: (_rule: unknown, value: unknown, callback: (err?: Error) => void) => {
-        const replicaGroup = Number(value)
-        const minReplicaGroup = Number(form.minReplicaGroup)
-        const maxReplicaGroup = Number(form.maxReplicaGroup)
+        const replicaCount = Number(value)
+        const minReplicaCount = Number(form.minReplicaCount)
+        const maxReplicaCount = Number(form.maxReplicaCount)
         const workerReplica = Number(form.resource.replica)
 
-        // Validate replicaGroup must be between min and max (inclusive)
+        // Validate replicaCount must be between min and max (inclusive)
         if (
-          minReplicaGroup &&
-          maxReplicaGroup &&
-          (replicaGroup < minReplicaGroup || replicaGroup > maxReplicaGroup)
+          minReplicaCount &&
+          maxReplicaCount &&
+          (replicaCount < minReplicaCount || replicaCount > maxReplicaCount)
         ) {
           callback(
             new Error(
-              `REPLICA_GROUP must be between MIN_REPLICA_GROUP (${minReplicaGroup}) and MAX_REPLICA_GROUP (${maxReplicaGroup})`,
+              `REPLICA_COUNT must be between MIN_REPLICA_COUNT (${minReplicaCount}) and MAX_REPLICA_COUNT (${maxReplicaCount})`,
             ),
           )
           return
         }
 
-        // Validate whether node count is divisible by replicaGroup
+        // Validate whether node count is divisible by replicaCount
         validateNodesDivisibility(workerReplica, callback)
       },
       trigger: 'blur',
     },
   ],
-  minReplicaGroup: [
-    { required: true, message: 'Please input min replica group', trigger: 'blur' },
+  minReplicaCount: [
+    { required: true, message: 'Please input min replica count', trigger: 'blur' },
     {
       validator: (_rule: unknown, value: unknown, callback: (err?: Error) => void) => {
-        const minReplicaGroup = Number(value)
-        const maxReplicaGroup = Number(form.maxReplicaGroup)
+        const minReplicaCount = Number(value)
+        const maxReplicaCount = Number(form.maxReplicaCount)
 
-        if (maxReplicaGroup && minReplicaGroup >= maxReplicaGroup) {
+        if (maxReplicaCount && minReplicaCount >= maxReplicaCount) {
           callback(
-            new Error(`MIN_REPLICA_GROUP must be less than MAX_REPLICA_GROUP (${maxReplicaGroup})`),
+            new Error(`MIN_REPLICA_COUNT must be less than MAX_REPLICA_COUNT (${maxReplicaCount})`),
           )
           return
         }
@@ -855,17 +855,17 @@ const rules = reactive({
       trigger: 'blur',
     },
   ],
-  maxReplicaGroup: [
-    { required: true, message: 'Please input max replica group', trigger: 'blur' },
+  maxReplicaCount: [
+    { required: true, message: 'Please input max replica count', trigger: 'blur' },
     {
       validator: (_rule: unknown, value: unknown, callback: (err?: Error) => void) => {
-        const maxReplicaGroup = Number(value)
-        const minReplicaGroup = Number(form.minReplicaGroup)
+        const maxReplicaCount = Number(value)
+        const minReplicaCount = Number(form.minReplicaCount)
 
-        if (minReplicaGroup && maxReplicaGroup <= minReplicaGroup) {
+        if (minReplicaCount && maxReplicaCount <= minReplicaCount) {
           callback(
             new Error(
-              `MAX_REPLICA_GROUP must be greater than MIN_REPLICA_GROUP (${minReplicaGroup})`,
+              `MAX_REPLICA_COUNT must be greater than MIN_REPLICA_COUNT (${minReplicaCount})`,
             ),
           )
           return
@@ -907,9 +907,9 @@ const onSubmit = async (formEl: FormInstance | undefined) => {
       nodeList,
       resource,
       lighthouseResource,
-      replicaGroup,
-      minReplicaGroup,
-      maxReplicaGroup,
+      replicaCount,
+      minReplicaCount,
+      maxReplicaCount,
       entryPoint,
       schedulerTime,
       timeout,
@@ -927,10 +927,10 @@ const onSubmit = async (formEl: FormInstance | undefined) => {
       // Custom node mode: replica = nodeList.length
       actualReplica = form.nodeList.length
     } else {
-      // Replicas mode: replica = groupNode * replicaGroup
+      // Replicas mode: replica = groupNode * replicaCount
       const groupNode = Number(form.resource.replica) || 1
-      const replicaGroup = Number(form.replicaGroup) || 1
-      actualReplica = groupNode * replicaGroup
+      const replicaCount = Number(form.replicaCount) || 1
+      actualReplica = groupNode * replicaCount
     }
 
     const workerResource = {
@@ -964,9 +964,9 @@ const onSubmit = async (formEl: FormInstance | undefined) => {
 
     // Add TorchFT specific fields to env
     const torchFTEnv = {
-      REPLICA_GROUP: String(form.replicaGroup),
-      MIN_REPLICA_GROUP: String(form.minReplicaGroup),
-      MAX_REPLICA_GROUP: String(form.maxReplicaGroup),
+      REPLICA_COUNT: String(form.replicaCount),
+      MIN_REPLICA_COUNT: String(form.minReplicaCount),
+      MAX_REPLICA_COUNT: String(form.maxReplicaCount),
     }
     const mergedEnv = { ...convertListToKeyValueMap(envList), ...torchFTEnv }
 
@@ -1149,10 +1149,10 @@ const setInitialFormValues = async () => {
 
       // If not custom nodes, calculate groupNode (needed for both edit and clone)
       if (!isCustomNodes.value) {
-        // groupNode = replica / replicaGroup
-        const replicaGroup = res.env?.REPLICA_GROUP ? Number(res.env.REPLICA_GROUP) : 1
+        // groupNode = replica / replicaCount
+        const replicaCount = res.env?.REPLICA_COUNT ? Number(res.env.REPLICA_COUNT) : 1
         form.resource.replica =
-          replicaGroup > 0 ? Math.round(workerReplica / replicaGroup) : workerReplica
+          replicaCount > 0 ? Math.round(workerReplica / replicaCount) : workerReplica
       } else {
         // Custom nodes use replica directly
         form.resource.replica = workerReplica
@@ -1162,14 +1162,14 @@ const setInitialFormValues = async () => {
 
   // Extract TorchFT specific fields from env
   const envCopy = { ...res.env }
-  form.replicaGroup = envCopy.REPLICA_GROUP ? Number(envCopy.REPLICA_GROUP) : undefined
-  form.minReplicaGroup = envCopy.MIN_REPLICA_GROUP ? Number(envCopy.MIN_REPLICA_GROUP) : undefined
-  form.maxReplicaGroup = envCopy.MAX_REPLICA_GROUP ? Number(envCopy.MAX_REPLICA_GROUP) : undefined
+  form.replicaCount = envCopy.REPLICA_COUNT ? Number(envCopy.REPLICA_COUNT) : undefined
+  form.minReplicaCount = envCopy.MIN_REPLICA_COUNT ? Number(envCopy.MIN_REPLICA_COUNT) : undefined
+  form.maxReplicaCount = envCopy.MAX_REPLICA_COUNT ? Number(envCopy.MAX_REPLICA_COUNT) : undefined
 
   // Remove these three fields from env, put the rest into envList
-  delete envCopy.REPLICA_GROUP
-  delete envCopy.MIN_REPLICA_GROUP
-  delete envCopy.MAX_REPLICA_GROUP
+  delete envCopy.REPLICA_COUNT
+  delete envCopy.MIN_REPLICA_COUNT
+  delete envCopy.MAX_REPLICA_COUNT
 
   form.envList = convertKeyValueMapToList(envCopy)
   form.labelList = convertKeyValueMapToList(res.customerLabels)

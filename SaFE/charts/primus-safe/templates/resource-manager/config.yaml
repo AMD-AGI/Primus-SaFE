@@ -84,6 +84,9 @@ data:
       enable: {{ .Values.cicd.enable }}
       role_name: {{ .Values.cicd.role_name }}
       controller_name: {{ .Values.cicd.controller_name }}
+    monarch:
+      enable: {{ .Values.monarch.enable }}
+      client_role: {{ .Values.monarch.client_role }}
     model:
       # Image for downloading models from HuggingFace and uploading to S3
       # Uses global.image_registry to support different registry environments
