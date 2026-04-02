@@ -171,6 +171,39 @@ def assemble(args):
     log.info("Rank %d wrote SSH config for %d nodes", args.rank, len(node_info))
 
 
+def signal_done(args):
+    """Signal that this rank has finished writing SSH config."""
+    done_dir = os.path.join(args.exchange_dir, "done")
+    os.makedirs(done_dir, exist_ok=True)
+    Path(os.path.join(done_dir, f"rank_{args.rank}")).write_text("1")
+    log.info("Rank %d signaled assemble done", args.rank)
+
+
+def wait_all_done(args):
+    """Rank 0 waits until all ranks have finished writing SSH config.
+
+    This prevents rank 0 from proceeding (e.g. running ansible) before
+    worker nodes have written the master's public key to their
+    authorized_keys.
+    """
+    done_dir = os.path.join(args.exchange_dir, "done")
+    deadline = time.monotonic() + args.timeout
+
+    while time.monotonic() < deadline:
+        existing = list(Path(done_dir).glob("rank_*"))
+        if len(existing) >= args.world_size:
+            log.info("Rank 0 confirmed all %d ranks finished assemble",
+                     len(existing))
+            return
+        time.sleep(POLL_INTERVAL)
+
+    existing = list(Path(done_dir).glob("rank_*"))
+    raise TimeoutError(
+        f"Rank 0 timed out waiting for all ranks to finish assemble "
+        f"(got {len(existing)}/{args.world_size})"
+    )
+
+
 def main():
     args = parse_args()
     log.info("Starting NFS-based SSH sync: rank=%d world_size=%d workload=%s",
@@ -184,6 +217,11 @@ def main():
         wait_for_barrier(args)
 
     assemble(args)
+    signal_done(args)
+
+    if args.rank == 0:
+        wait_all_done(args)
+
     log.info("SSH synchronization completed on rank %d", args.rank)
 
 
