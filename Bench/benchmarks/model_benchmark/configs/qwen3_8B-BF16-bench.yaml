@@ -1,0 +1,69 @@
+# Qwen3-8B BF16 Benchmark Config (based on Primus MI355X config)
+#
+# This is the default model benchmark config shipped with PrimusBench.
+# Parallelism settings (TP/PP/EP) determine the minimum GPU allocation unit;
+# the adapt_nodes.py script uses these values to calculate how many healthy
+# nodes can actually participate in training.
+#
+# With TP=1, PP=1, EP=1: any number of nodes >= 1 works (pure DP).
+# Adjust TP/PP for larger models that require tensor/pipeline parallelism.
+
+work_group: ${PRIMUS_TEAM:amd}
+user_name: ${PRIMUS_USER:root}
+exp_name: ${PRIMUS_EXP_NAME:qwen3_8B-bench}
+workspace: ${PRIMUS_WORKSPACE:./output}
+
+modules:
+  pre_trainer:
+    framework: megatron
+    config: pre_trainer.yaml
+
+    model: qwen3_8B.yaml
+    overrides:
+      stderr_sink_level: DEBUG
+
+      log_avg_skip_iterations: 2
+      log_avg_reset_interval: 50
+
+      # -- benchmark parameters (overridden by run.sh via CLI args) --
+      train_iters: 50
+      micro_batch_size: 2
+      global_batch_size: 128
+
+      seq_length: 8192
+      max_position_embeddings: 8192
+
+      lr: 1.0e-5
+      min_lr: 0.0
+      lr_warmup_iters: 2
+      lr_decay_iters: null
+      lr_decay_style: cosine
+      weight_decay: 0.1
+      adam_beta1: 0.9
+      adam_beta2: 0.95
+      eod_mask_loss: true
+      init_method_std: 0.008
+      norm_epsilon: 1.0e-6
+
+      # -- parallelism (determines minimum allocation unit) --
+      tensor_model_parallel_size: 1
+      pipeline_model_parallel_size: 1
+      expert_model_parallel_size: 1
+      overlap_grad_reduce: true
+      overlap_param_gather: true
+      gradient_accumulation_fusion: false
+
+      # -- data (always mock for benchmark) --
+      mock_data: true
+      train_data_path: null
+      valid_data_path: null
+      test_data_path: null
+
+      # -- checkpoint (disabled for benchmark) --
+      finetune: false
+      auto_continue_train: false
+      load: null
+      save: null
+      save_interval: 20000
+      disable_last_saving: true
+      ckpt_format: torch

@@ -67,19 +67,7 @@ if $NFS_MODE; then
     fi
     mkdir -p "$OUTPUT_PATH"
 
-    # -- Phase 1: Every node runs single-node check locally --
-    log "🔍 Running local node preflight check..."
-    NODE_OUTPUT_DIR="$OUTPUT_PATH/$(hostname)"
-    mkdir -p "$NODE_OUTPUT_DIR"
-
-    export ADD_LOG_HEADER=true
-    cd "$PRIMUSBENCH_PATH/preflight/node"
-    set -o pipefail
-    bash run.sh 2>&1 | tee "${NODE_OUTPUT_DIR}/node.log"
-    NODE_CHECK_RC=$?
-    set +o pipefail
-    cd "$PRIMUSBENCH_PATH"
-
+    # -- Resolve this node's IP --
     MY_INFO_FILE="${NFS_EXCHANGE_DIR}/info/rank_${RANK}.json"
     if [ -f "$MY_INFO_FILE" ]; then
         MY_IP=$(python3 -c "import json,sys; print(json.load(open(sys.argv[1]))['ip'])" "$MY_INFO_FILE" 2>/dev/null)
@@ -92,6 +80,24 @@ s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 ip = socket.inet_ntoa(fcntl.ioctl(s.fileno(), 0x8915, struct.pack('16sH14s', iface.encode(), socket.AF_INET, b'\\x00'*14))[20:24])
 print(ip)
 " 2>/dev/null)
+    fi
+
+    # -- Phase 1: Every node runs single-node check locally --
+    NODE_CHECK_RC=0
+    if [ "$SKIP_NODE_CHECK" = "true" ]; then
+        log "Skipping node check (SKIP_NODE_CHECK=true)"
+    else
+        log "Running local node preflight check..."
+        NODE_OUTPUT_DIR="$OUTPUT_PATH/$(hostname)"
+        mkdir -p "$NODE_OUTPUT_DIR"
+
+        export ADD_LOG_HEADER=true
+        cd "$PRIMUSBENCH_PATH/preflight/node"
+        set -o pipefail
+        bash run.sh 2>&1 | tee "${NODE_OUTPUT_DIR}/node.log"
+        NODE_CHECK_RC=$?
+        set +o pipefail
+        cd "$PRIMUSBENCH_PATH"
     fi
 
     # Write result to NFS for rank 0 to collect
@@ -231,41 +237,48 @@ print(f'_ne={d.get(\"error\",\"\")}')
         ok "Detected ${#successed_nodes[@]} healthy nodes."
 
         # -- Phase 3: Network check (multi-node, rank 0 orchestrates via SSH) --
-        NETWORK_HOSTS="$OUTPUT_PATH/network_hosts.ini"
-        printf "%s\n" "${successed_nodes_ip[@]}" > "$NETWORK_HOSTS"
-
-        preflight_network_logname="${OUTPUT_PATH}/preflight_network.log"
-        log "🌐 Running network preflight check..."
-        cd "$PRIMUSBENCH_PATH/preflight/network"
-        NODES_FILE=$NETWORK_HOSTS \
-        WAIT=false \
-        bash run.sh 2>&1 | tee $preflight_network_logname
-        cd $PRIMUSBENCH_PATH
-
-        match=$(grep -oP "unhealthy nodes: \[\K[^\]]+" "$preflight_network_logname" | tail -n1)
-        if [[ -n "$match" ]]; then
-            unhealthy_nodes=($(echo "$match" | tr -d "'" | tr ',' ' '))
-        else
-            unhealthy_nodes=()
-        fi
-        log "Unhealthy nodes detected: ${unhealthy_nodes[*]:-none}"
-
+        unhealthy_nodes=()
         healthy_nodes_ip=()
-        if [ ${#unhealthy_nodes[@]} -eq 0 ]; then
+
+        if [ "$SKIP_NETWORK_CHECK" = "true" ]; then
+            log "Skipping network check (SKIP_NETWORK_CHECK=true)"
             healthy_nodes_ip=("${successed_nodes_ip[@]}")
         else
-            for ip in "${successed_nodes_ip[@]}"; do
-                is_healthy=true
-                for unhealthy_ip in "${unhealthy_nodes[@]}"; do
-                    if [[ "$ip" == "$unhealthy_ip" ]]; then
-                        is_healthy=false
-                        break
+            NETWORK_HOSTS="$OUTPUT_PATH/network_hosts.ini"
+            printf "%s\n" "${successed_nodes_ip[@]}" > "$NETWORK_HOSTS"
+
+            preflight_network_logname="${OUTPUT_PATH}/preflight_network.log"
+            log "Running network preflight check..."
+            cd "$PRIMUSBENCH_PATH/preflight/network"
+            NODES_FILE=$NETWORK_HOSTS \
+            WAIT=false \
+            bash run.sh 2>&1 | tee $preflight_network_logname
+            cd $PRIMUSBENCH_PATH
+
+            match=$(grep -oP "unhealthy nodes: \[\K[^\]]+" "$preflight_network_logname" | tail -n1)
+            if [[ -n "$match" ]]; then
+                unhealthy_nodes=($(echo "$match" | tr -d "'" | tr ',' ' '))
+            else
+                unhealthy_nodes=()
+            fi
+            log "Unhealthy nodes detected: ${unhealthy_nodes[*]:-none}"
+
+            if [ ${#unhealthy_nodes[@]} -eq 0 ]; then
+                healthy_nodes_ip=("${successed_nodes_ip[@]}")
+            else
+                for ip in "${successed_nodes_ip[@]}"; do
+                    is_healthy=true
+                    for unhealthy_ip in "${unhealthy_nodes[@]}"; do
+                        if [[ "$ip" == "$unhealthy_ip" ]]; then
+                            is_healthy=false
+                            break
+                        fi
+                    done
+                    if $is_healthy; then
+                        healthy_nodes_ip+=("$ip")
                     fi
                 done
-                if $is_healthy; then
-                    healthy_nodes_ip+=("$ip")
-                fi
-            done
+            fi
         fi
         ok "Network check complete. Healthy nodes (${#healthy_nodes_ip[@]}/${#all_nodes[@]}): ${healthy_nodes_ip[*]}"
 
@@ -323,76 +336,168 @@ print(f'_ne={d.get(\"error\",\"\")}')
         echo "ansible_ssh_port=${SSH_PORT}" >> $INVENTORY_FILE
         cat $INVENTORY_FILE
 
-        log "🧠 Running Computation-Communication Overlap benchmark..."
-        CCO_MASTER_PORT=$((RANDOM % 9999 + 30001))
-        cco_logname="$OUTPUT_PATH/cco_ansible.log"
-        ansible-playbook -i "$INVENTORY_FILE" "$PALYBOOKS/computation_communication_overlap.yaml" \
-            -e workspace="$PRIMUSBENCH_PATH" -e master_port="$CCO_MASTER_PORT" -e output_dir="$OUTPUT_PATH" \
-            --extra-vars "$CONTAINER_ENV_JSON" \
-            -vvv -f "$WORLD_SIZE" > "$cco_logname" 2>&1 &
-        ansible_pid=$!
         first_ip="${healthy_nodes_ip[0]}"
         first_node="${ip_node_map[$first_ip]}"
-        echo first_ip=$first_ip first_node=$first_node
-        LOG="$OUTPUT_PATH/$first_node/cco.log"
-        echo $LOG
-        TIMEOUT=120
-        ELAPSED=0
-        while [ ! -f "$LOG" ]; do
-            if ! kill -0 $ansible_pid 2>/dev/null; then
-                warn "Ansible process exited before creating log file"
-                break
+
+        # -- CCO Benchmark --
+        if [ "$SKIP_CCO" = "true" ]; then
+            log "Skipping CCO benchmark (SKIP_CCO=true)"
+        else
+            log "Running Computation-Communication Overlap benchmark..."
+            CCO_MASTER_PORT=$((RANDOM % 9999 + 30001))
+            cco_logname="$OUTPUT_PATH/cco_ansible.log"
+            ansible-playbook -i "$INVENTORY_FILE" "$PALYBOOKS/computation_communication_overlap.yaml" \
+                -e workspace="$PRIMUSBENCH_PATH" -e master_port="$CCO_MASTER_PORT" -e output_dir="$OUTPUT_PATH" \
+                --extra-vars "$CONTAINER_ENV_JSON" \
+                -vvv -f "$WORLD_SIZE" > "$cco_logname" 2>&1 &
+            ansible_pid=$!
+            LOG="$OUTPUT_PATH/$first_node/cco.log"
+            TIMEOUT=120
+            ELAPSED=0
+            while [ ! -f "$LOG" ]; do
+                if ! kill -0 $ansible_pid 2>/dev/null; then
+                    warn "Ansible process exited before creating log file"
+                    break
+                fi
+                if [ $ELAPSED -ge $TIMEOUT ]; then
+                    warn "Timeout waiting for CCO log file"
+                    break
+                fi
+                sleep 1
+                ((ELAPSED++))
+            done
+            if [ -f "$LOG" ]; then
+                tail -n +1 --pid=$ansible_pid -f "$LOG"
             fi
-            if [ $ELAPSED -ge $TIMEOUT ]; then
-                warn "Timeout waiting for CCO log file"
-                break
-            fi
-            sleep 1
-            ((ELAPSED++))
-        done
-        if [ -f "$LOG" ]; then
-            tail -n +1 --pid=$ansible_pid -f "$LOG"
+            wait $ansible_pid || true
+            ok "Computation-Communication benchmark completed."
         fi
-        wait $ansible_pid || true
-        ok "Computation-Communication benchmark completed."
 
-        log "⚙ Running Kernel Launch Overhead benchmark..."
-        kernel_launch_logname="$OUTPUT_PATH/kernel_launch_ansible.log"
-        ansible-playbook -i "$INVENTORY_FILE" "$PALYBOOKS/kernel_launch_overhead.yaml" \
-            -e output_dir="$OUTPUT_PATH" \
-            --extra-vars "$CONTAINER_ENV_JSON" \
-            -vvv -f "$WORLD_SIZE" \
-            > "$kernel_launch_logname" 2>&1 &
-        ansible_pid=$!
-        LOG="$OUTPUT_PATH/$first_node/kernel_launch.log"
-        TIMEOUT=120
-        ELAPSED=0
-        while [ ! -f "$LOG" ]; do
-            if ! kill -0 $ansible_pid 2>/dev/null; then
-                warn "Ansible process exited before creating log file"
-                break
+        # -- Kernel Launch Overhead Benchmark --
+        if [ "$SKIP_KERNEL_LAUNCH" = "true" ]; then
+            log "Skipping Kernel Launch benchmark (SKIP_KERNEL_LAUNCH=true)"
+        else
+            log "Running Kernel Launch Overhead benchmark..."
+            kernel_launch_logname="$OUTPUT_PATH/kernel_launch_ansible.log"
+            ansible-playbook -i "$INVENTORY_FILE" "$PALYBOOKS/kernel_launch_overhead.yaml" \
+                -e output_dir="$OUTPUT_PATH" \
+                --extra-vars "$CONTAINER_ENV_JSON" \
+                -vvv -f "$WORLD_SIZE" \
+                > "$kernel_launch_logname" 2>&1 &
+            ansible_pid=$!
+            LOG="$OUTPUT_PATH/$first_node/kernel_launch.log"
+            TIMEOUT=120
+            ELAPSED=0
+            while [ ! -f "$LOG" ]; do
+                if ! kill -0 $ansible_pid 2>/dev/null; then
+                    warn "Ansible process exited before creating log file"
+                    break
+                fi
+                if [ $ELAPSED -ge $TIMEOUT ]; then
+                    warn "Timeout waiting for kernel launch log file"
+                    break
+                fi
+                sleep 1
+                ((ELAPSED++))
+            done
+            if [ -f "$LOG" ]; then
+                tail -n +1 --pid=$ansible_pid -f "$LOG"
             fi
-            if [ $ELAPSED -ge $TIMEOUT ]; then
-                warn "Timeout waiting for kernel launch log file"
-                break
-            fi
-            sleep 1
-            ((ELAPSED++))
-        done
-        if [ -f "$LOG" ]; then
-            tail -n +1 --pid=$ansible_pid -f "$LOG"
+            wait $ansible_pid || true
+            ok "Kernel Launch Overhead benchmark completed."
         fi
-        wait $ansible_pid || true
-        ok "Kernel Launch Overhead benchmark completed."
 
-        echo
-        log "📊 Computation Communication Overlap results:"
-        jq . < "${OUTPUT_PATH}/overlap_results.json"
-        echo
-        log "📊 Kernel Launch Overhead results:"
-        jq . < "${OUTPUT_PATH}/kernel_overhead_results.json"
+        # -- Model Benchmark (optional, with node adaptation) --
+        if [ "$ENABLE_MODEL_BENCHMARK" = "true" ]; then
+            MODEL_BENCH_CONFIG="${MODEL_BENCHMARK_CONFIG:-$PRIMUSBENCH_PATH/benchmarks/model_benchmark/configs/qwen3_8B-BF16-bench.yaml}"
 
-        ok "✅ PrimusBench completed successfully!"
+            ADAPT_JSON=$(python3 "$PRIMUSBENCH_PATH/benchmarks/model_benchmark/adapt_nodes.py" \
+                --config "$MODEL_BENCH_CONFIG" \
+                --healthy-nodes ${#healthy_nodes_ip[@]} \
+                --gpus-per-node "$GPUS_PER_NODE" \
+                --json)
+            MODEL_USABLE_NODES=$(echo "$ADAPT_JSON" | python3 -c "import sys,json; print(json.load(sys.stdin)['usable_nodes'])")
+            MODEL_IDLE_NODES=$(echo "$ADAPT_JSON" | python3 -c "import sys,json; print(json.load(sys.stdin)['idle_nodes'])")
+            MODEL_ADJUSTED_GBS=$(echo "$ADAPT_JSON" | python3 -c "import sys,json; print(json.load(sys.stdin)['adjusted_gbs'])")
+
+            log "Model benchmark node adaptation: usable=$MODEL_USABLE_NODES idle=$MODEL_IDLE_NODES gbs=$MODEL_ADJUSTED_GBS"
+            log "Adaptation details: $ADAPT_JSON"
+
+            if [ "$MODEL_USABLE_NODES" -gt 0 ]; then
+                MODEL_BENCH_INVENTORY="$OUTPUT_PATH/model_bench_inventory.ini"
+                echo "[all]" > "$MODEL_BENCH_INVENTORY"
+                for i in $(seq 0 $((MODEL_USABLE_NODES - 1))); do
+                    ip="${healthy_nodes_ip[$i]}"
+                    node="${ip_node_map[$ip]}"
+                    echo "$node ansible_host=$ip" >> "$MODEL_BENCH_INVENTORY"
+                done
+                echo "[all:vars]" >> "$MODEL_BENCH_INVENTORY"
+                echo "ansible_ssh_port=${SSH_PORT}" >> "$MODEL_BENCH_INVENTORY"
+
+                log "Running Model Benchmark on $MODEL_USABLE_NODES nodes (${MODEL_IDLE_NODES} idle)..."
+                MODEL_BENCH_MASTER_PORT=$((RANDOM % 9999 + 30001))
+                model_bench_logname="$OUTPUT_PATH/model_benchmark_ansible.log"
+
+                MODEL_BENCH_ENV=$(python3 -c "
+import os, json
+env = dict(os.environ)
+env['MODEL_BENCHMARK_CONFIG'] = '$MODEL_BENCH_CONFIG'
+env['MODEL_BENCHMARK_GBS'] = '$MODEL_ADJUSTED_GBS'
+print(json.dumps({'container_env': env}))
+")
+                ansible-playbook -i "$MODEL_BENCH_INVENTORY" "$PALYBOOKS/model_benchmark.yaml" \
+                    -e workspace="$PRIMUSBENCH_PATH" -e master_port="$MODEL_BENCH_MASTER_PORT" \
+                    -e output_dir="$OUTPUT_PATH" \
+                    --extra-vars "$MODEL_BENCH_ENV" \
+                    -vvv -f "$MODEL_USABLE_NODES" > "$model_bench_logname" 2>&1 &
+                ansible_pid=$!
+
+                mb_first_ip="${healthy_nodes_ip[0]}"
+                mb_first_node="${ip_node_map[$mb_first_ip]}"
+                LOG="$OUTPUT_PATH/$mb_first_node/model_benchmark.log"
+                TIMEOUT=180
+                ELAPSED=0
+                while [ ! -f "$LOG" ]; do
+                    if ! kill -0 $ansible_pid 2>/dev/null; then
+                        warn "Ansible process exited before creating log file"
+                        break
+                    fi
+                    if [ $ELAPSED -ge $TIMEOUT ]; then
+                        warn "Timeout waiting for model benchmark log file"
+                        break
+                    fi
+                    sleep 1
+                    ((ELAPSED++))
+                done
+                if [ -f "$LOG" ]; then
+                    tail -n +1 --pid=$ansible_pid -f "$LOG"
+                fi
+                wait $ansible_pid || true
+                ok "Model Benchmark completed."
+            else
+                warn "Not enough healthy nodes for model benchmark (need at least 1 parallel group)"
+            fi
+        fi
+
+        # -- Print results --
+        echo
+        if [ "$SKIP_CCO" != "true" ] && [ -f "${OUTPUT_PATH}/overlap_results.json" ]; then
+            log "Computation Communication Overlap results:"
+            jq . < "${OUTPUT_PATH}/overlap_results.json"
+            echo
+        fi
+        if [ "$SKIP_KERNEL_LAUNCH" != "true" ] && [ -f "${OUTPUT_PATH}/kernel_overhead_results.json" ]; then
+            log "Kernel Launch Overhead results:"
+            jq . < "${OUTPUT_PATH}/kernel_overhead_results.json"
+            echo
+        fi
+        if [ "$ENABLE_MODEL_BENCHMARK" = "true" ] && [ -f "${OUTPUT_PATH}/model_benchmark_results.json" ]; then
+            log "Model Benchmark results:"
+            jq . < "${OUTPUT_PATH}/model_benchmark_results.json"
+            echo
+        fi
+
+        ok "PrimusBench completed successfully!"
 
         echo ""
         log "📋 Bench Report:"
@@ -470,89 +575,108 @@ else
             ok "Packet Loss Test completed."
         fi
 
-        # Node checks via ansible
         PALYBOOKS="$PRIMUSBENCH_PATH/playbooks"
         HOSTS_INI="$OUTPUT_PATH/primusbench_hosts.ini"
         (echo "[all]"; cat "$HOSTS") > "$HOSTS_INI"
 
-        preflight_node_logname="${OUTPUT_PATH}/preflight_node.log"
-        log "🔍 Running node preflight check..."
-        NODE_CHECK_MASTER_PORT=$((RANDOM % 9999 + 30001))
-        ansible-playbook -i "$HOSTS_INI" "$PALYBOOKS/node_check.yaml" \
-            -e workspace="$PRIMUSBENCH_PATH" \
-            -e hf_token="$HF_TOKEN" \
-            -e master_port="$NODE_CHECK_MASTER_PORT" \
-            -e output_dir="$OUTPUT_PATH" \
-            --extra-vars "$CONTAINER_ENV_JSON" \
-            -vvv -f "$WORLD_SIZE" \
-            > "$preflight_node_logname" 2>&1 &
-        ansible_pid=$!
-
-        TIMEOUT=60
-        ELAPSED=0
-        NODE_LOG=""
-        while [ -z "$NODE_LOG" ] || [ ! -f "$NODE_LOG" ]; do
-            if ! kill -0 $ansible_pid 2>/dev/null; then
-                warn "Ansible process exited before creating log file"
-                break
-            fi
-            if [ $ELAPSED -ge $TIMEOUT ]; then
-                warn "Timeout waiting for node log file"
-                break
-            fi
-            FIRST_DIR=$(find "$OUTPUT_PATH" -maxdepth 1 -type d ! -path "$OUTPUT_PATH" 2>/dev/null | head -1)
-            if [ -n "$FIRST_DIR" ]; then
-                NODE_LOG="$FIRST_DIR/node.log"
-            fi
-            sleep 1
-            ((ELAPSED++))
-        done
-        if [ -f "$NODE_LOG" ]; then
-            tail -n +1 --pid=$ansible_pid -f "$NODE_LOG"
-        fi
-        wait $ansible_pid || true
-
+        # -- Node checks via ansible --
         successed_nodes=()
         successed_nodes_ip=()
         failed_nodes=()
         all_nodes=()
         declare -A node_ip_map ip_node_map
-        while IFS= read -r line; do
-            status=true
-            if [[ "$line" != *"All checks passed"* ]]; then
-                if [[ "$line" != *"[NODE] [ERROR]"* ]]; then
+
+        if [ "$SKIP_NODE_CHECK" = "true" ]; then
+            log "Skipping node check (SKIP_NODE_CHECK=true)"
+            while IFS= read -r node; do
+                [ -z "$node" ] && continue
+                ip_addr=$(nsenter --target 1 --mount --uts --ipc --net --pid -- getent hosts "$node" | awk '{print $1; exit}')
+                if [[ "$ip_addr" == 127.* ]]; then
+                    ip_addr=$(ip route get 8.8.8.8 | awk '{print $7}')
+                fi
+                if [[ -n "$ip_addr" ]] && [[ "$ip_addr" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+                    node_ip_map[$node]="$ip_addr"
+                    ip_node_map[$ip_addr]="$node"
+                    all_nodes+=("$node")
+                    successed_nodes+=("$node")
+                    successed_nodes_ip+=("$ip_addr")
+                fi
+            done < "$HOSTS"
+        else
+            preflight_node_logname="${OUTPUT_PATH}/preflight_node.log"
+            log "Running node preflight check..."
+            NODE_CHECK_MASTER_PORT=$((RANDOM % 9999 + 30001))
+            ansible-playbook -i "$HOSTS_INI" "$PALYBOOKS/node_check.yaml" \
+                -e workspace="$PRIMUSBENCH_PATH" \
+                -e hf_token="$HF_TOKEN" \
+                -e master_port="$NODE_CHECK_MASTER_PORT" \
+                -e output_dir="$OUTPUT_PATH" \
+                --extra-vars "$CONTAINER_ENV_JSON" \
+                -vvv -f "$WORLD_SIZE" \
+                > "$preflight_node_logname" 2>&1 &
+            ansible_pid=$!
+
+            TIMEOUT=60
+            ELAPSED=0
+            NODE_LOG=""
+            while [ -z "$NODE_LOG" ] || [ ! -f "$NODE_LOG" ]; do
+                if ! kill -0 $ansible_pid 2>/dev/null; then
+                    warn "Ansible process exited before creating log file"
+                    break
+                fi
+                if [ $ELAPSED -ge $TIMEOUT ]; then
+                    warn "Timeout waiting for node log file"
+                    break
+                fi
+                FIRST_DIR=$(find "$OUTPUT_PATH" -maxdepth 1 -type d ! -path "$OUTPUT_PATH" 2>/dev/null | head -1)
+                if [ -n "$FIRST_DIR" ]; then
+                    NODE_LOG="$FIRST_DIR/node.log"
+                fi
+                sleep 1
+                ((ELAPSED++))
+            done
+            if [ -f "$NODE_LOG" ]; then
+                tail -n +1 --pid=$ansible_pid -f "$NODE_LOG"
+            fi
+            wait $ansible_pid || true
+
+            while IFS= read -r line; do
+                status=true
+                if [[ "$line" != *"All checks passed"* ]]; then
+                    if [[ "$line" != *"[NODE] [ERROR]"* ]]; then
+                        continue
+                    fi
+                    status=false
+                fi
+
+                mapfile -t fields < <(grep -oP '\[\K[^\]]+(?=\])' <<< "$line")
+                node="${fields[0]}"
+
+                if [[ -n "${node_ip_map[$node]}" ]]; then
                     continue
                 fi
-                status=false
-            fi
+                ip_addr=$(nsenter --target 1 --mount --uts --ipc --net --pid -- getent hosts "$node" | awk '{print $1; exit}')
 
-            mapfile -t fields < <(grep -oP '\[\K[^\]]+(?=\])' <<< "$line")
-            node="${fields[0]}"
+                if [[ "$ip_addr" == 127.* ]]; then
+                    ip_addr=$(ip route get 8.8.8.8 | awk '{print $7}')
+                fi
+                if [[ -n "$ip_addr" ]] && [[ "$ip_addr" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+                    node_ip_map[$node]="$ip_addr"
+                    ip_node_map[$ip_addr]="$node"
+                else
+                    echo "Warning: Invalid IP address '$ip_addr' for node $node, skipping..." >&2
+                    continue
+                fi
 
-            if [[ -n "${node_ip_map[$node]}" ]]; then
-                continue
-            fi
-            ip_addr=$(nsenter --target 1 --mount --uts --ipc --net --pid -- getent hosts "$node" | awk '{print $1; exit}')
-
-            if [[ "$ip_addr" == 127.* ]]; then
-                ip_addr=$(ip route get 8.8.8.8 | awk '{print $7}')
-            fi
-            if [[ -n "$ip_addr" ]] && [[ "$ip_addr" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-                node_ip_map[$node]="$ip_addr"
-                ip_node_map[$ip_addr]="$node"
-            else
-                echo "Warning: Invalid IP address '$ip_addr' for node $node, skipping..." >&2
-                continue
-            fi
-
-            all_nodes+=("$node")
-            if $status; then
-                successed_nodes+=("$node")
-                successed_nodes_ip+=("$ip_addr")
-            else
-                failed_nodes+=("$node")
-            fi
-        done < "$preflight_node_logname"
+                all_nodes+=("$node")
+                if $status; then
+                    successed_nodes+=("$node")
+                    successed_nodes_ip+=("$ip_addr")
+                else
+                    failed_nodes+=("$node")
+                fi
+            done < "$preflight_node_logname"
+        fi
 
         BENCH_REPORT="${OUTPUT_PATH}/bench_report.txt"
         echo "================================================================================" > "$BENCH_REPORT"
@@ -586,41 +710,49 @@ else
         fi
         ok "Detected ${#successed_nodes[@]} healthy nodes."
 
-        NETWORK_HOSTS="$OUTPUT_PATH/network_hosts.ini"
-        printf "%s\n" "${successed_nodes_ip[@]}" > "$NETWORK_HOSTS"
-
-        preflight_network_logname="${OUTPUT_PATH}/preflight_network.log"
-        log "🌐 Running network preflight check..."
-        cd "$PRIMUSBENCH_PATH/preflight/network"
-        NODES_FILE=$NETWORK_HOSTS \
-        WAIT=false \
-        bash run.sh 2>&1 | tee $preflight_network_logname
-        cd $PRIMUSBENCH_PATH
-
-        match=$(grep -oP "unhealthy nodes: \[\K[^\]]+" "$preflight_network_logname" | tail -n1)
-        if [[ -n "$match" ]]; then
-            unhealthy_nodes=($(echo "$match" | tr -d "'" | tr ',' ' '))
-        else
-            unhealthy_nodes=()
-        fi
-        log "Unhealthy nodes detected: ${unhealthy_nodes[*]:-none}"
-
+        # -- Network check --
+        unhealthy_nodes=()
         healthy_nodes_ip=()
-        if [ ${#unhealthy_nodes[@]} -eq 0 ]; then
+
+        if [ "$SKIP_NETWORK_CHECK" = "true" ]; then
+            log "Skipping network check (SKIP_NETWORK_CHECK=true)"
             healthy_nodes_ip=("${successed_nodes_ip[@]}")
         else
-            for ip in "${successed_nodes_ip[@]}"; do
-                is_healthy=true
-                for unhealthy_ip in "${unhealthy_nodes[@]}"; do
-                    if [[ "$ip" == "$unhealthy_ip" ]]; then
-                        is_healthy=false
-                        break
+            NETWORK_HOSTS="$OUTPUT_PATH/network_hosts.ini"
+            printf "%s\n" "${successed_nodes_ip[@]}" > "$NETWORK_HOSTS"
+
+            preflight_network_logname="${OUTPUT_PATH}/preflight_network.log"
+            log "Running network preflight check..."
+            cd "$PRIMUSBENCH_PATH/preflight/network"
+            NODES_FILE=$NETWORK_HOSTS \
+            WAIT=false \
+            bash run.sh 2>&1 | tee $preflight_network_logname
+            cd $PRIMUSBENCH_PATH
+
+            match=$(grep -oP "unhealthy nodes: \[\K[^\]]+" "$preflight_network_logname" | tail -n1)
+            if [[ -n "$match" ]]; then
+                unhealthy_nodes=($(echo "$match" | tr -d "'" | tr ',' ' '))
+            else
+                unhealthy_nodes=()
+            fi
+            log "Unhealthy nodes detected: ${unhealthy_nodes[*]:-none}"
+
+            if [ ${#unhealthy_nodes[@]} -eq 0 ]; then
+                healthy_nodes_ip=("${successed_nodes_ip[@]}")
+            else
+                for ip in "${successed_nodes_ip[@]}"; do
+                    is_healthy=true
+                    for unhealthy_ip in "${unhealthy_nodes[@]}"; do
+                        if [[ "$ip" == "$unhealthy_ip" ]]; then
+                            is_healthy=false
+                            break
+                        fi
+                    done
+                    if $is_healthy; then
+                        healthy_nodes_ip+=("$ip")
                     fi
                 done
-                if $is_healthy; then
-                    healthy_nodes_ip+=("$ip")
-                fi
-            done
+            fi
         fi
         ok "Network check complete. Healthy nodes (${#healthy_nodes_ip[@]}/${#all_nodes[@]}): ${healthy_nodes_ip[*]}"
 
@@ -656,7 +788,7 @@ else
 
         if [ ${#healthy_nodes_ip[@]} -eq 0 ]; then
             echo ""
-            log "📋 Bench Report:"
+            log "Bench Report:"
             echo ""
             cat "$BENCH_REPORT"
             echo ""
@@ -676,77 +808,168 @@ else
         echo "ansible_ssh_port=${SSH_PORT}" >> $INVENTORY_FILE
         cat $INVENTORY_FILE
 
-        log "🧠 Running Computation-Communication Overlap benchmark..."
-        CCO_MASTER_PORT=$((RANDOM % 9999 + 30001))
-        cco_logname="$OUTPUT_PATH/cco_ansible.log"
-        PALYBOOKS="$PRIMUSBENCH_PATH/playbooks"
-        ansible-playbook -i "$INVENTORY_FILE" "$PALYBOOKS/computation_communication_overlap.yaml" \
-            -e workspace="$PRIMUSBENCH_PATH" -e master_port="$CCO_MASTER_PORT" -e output_dir="$OUTPUT_PATH" \
-            --extra-vars "$CONTAINER_ENV_JSON" \
-            -vvv -f "$WORLD_SIZE" > "$cco_logname" 2>&1 &
-        ansible_pid=$!
         first_ip="${healthy_nodes_ip[0]}"
         first_node="${ip_node_map[$first_ip]}"
-        echo first_ip=$first_ip first_node=$first_node
-        LOG="$OUTPUT_PATH/$first_node/cco.log"
-        echo $LOG
-        TIMEOUT=120
-        ELAPSED=0
-        while [ ! -f "$LOG" ]; do
-            if ! kill -0 $ansible_pid 2>/dev/null; then
-                warn "Ansible process exited before creating log file"
-                break
+
+        # -- CCO Benchmark --
+        if [ "$SKIP_CCO" = "true" ]; then
+            log "Skipping CCO benchmark (SKIP_CCO=true)"
+        else
+            log "Running Computation-Communication Overlap benchmark..."
+            CCO_MASTER_PORT=$((RANDOM % 9999 + 30001))
+            cco_logname="$OUTPUT_PATH/cco_ansible.log"
+            ansible-playbook -i "$INVENTORY_FILE" "$PALYBOOKS/computation_communication_overlap.yaml" \
+                -e workspace="$PRIMUSBENCH_PATH" -e master_port="$CCO_MASTER_PORT" -e output_dir="$OUTPUT_PATH" \
+                --extra-vars "$CONTAINER_ENV_JSON" \
+                -vvv -f "$WORLD_SIZE" > "$cco_logname" 2>&1 &
+            ansible_pid=$!
+            LOG="$OUTPUT_PATH/$first_node/cco.log"
+            TIMEOUT=120
+            ELAPSED=0
+            while [ ! -f "$LOG" ]; do
+                if ! kill -0 $ansible_pid 2>/dev/null; then
+                    warn "Ansible process exited before creating log file"
+                    break
+                fi
+                if [ $ELAPSED -ge $TIMEOUT ]; then
+                    warn "Timeout waiting for CCO log file"
+                    break
+                fi
+                sleep 1
+                ((ELAPSED++))
+            done
+            if [ -f "$LOG" ]; then
+                tail -n +1 --pid=$ansible_pid -f "$LOG"
             fi
-            if [ $ELAPSED -ge $TIMEOUT ]; then
-                warn "Timeout waiting for CCO log file"
-                break
-            fi
-            sleep 1
-            ((ELAPSED++))
-        done
-        if [ -f "$LOG" ]; then
-            tail -n +1 --pid=$ansible_pid -f "$LOG"
+            wait $ansible_pid || true
+            ok "Computation-Communication benchmark completed."
         fi
-        wait $ansible_pid || true
-        ok "Computation-Communication benchmark completed."
 
-        log "⚙ Running Kernel Launch Overhead benchmark..."
-        kernel_launch_logname="$OUTPUT_PATH/kernel_launch_ansible.log"
-        ansible-playbook -i "$INVENTORY_FILE" "$PALYBOOKS/kernel_launch_overhead.yaml" \
-            -e output_dir="$OUTPUT_PATH" \
-            --extra-vars "$CONTAINER_ENV_JSON" \
-            -vvv -f "$WORLD_SIZE" \
-            > "$kernel_launch_logname" 2>&1 &
-        ansible_pid=$!
-        LOG="$OUTPUT_PATH/$first_node/kernel_launch.log"
-        TIMEOUT=120
-        ELAPSED=0
-        while [ ! -f "$LOG" ]; do
-            if ! kill -0 $ansible_pid 2>/dev/null; then
-                warn "Ansible process exited before creating log file"
-                break
+        # -- Kernel Launch Overhead Benchmark --
+        if [ "$SKIP_KERNEL_LAUNCH" = "true" ]; then
+            log "Skipping Kernel Launch benchmark (SKIP_KERNEL_LAUNCH=true)"
+        else
+            log "Running Kernel Launch Overhead benchmark..."
+            kernel_launch_logname="$OUTPUT_PATH/kernel_launch_ansible.log"
+            ansible-playbook -i "$INVENTORY_FILE" "$PALYBOOKS/kernel_launch_overhead.yaml" \
+                -e output_dir="$OUTPUT_PATH" \
+                --extra-vars "$CONTAINER_ENV_JSON" \
+                -vvv -f "$WORLD_SIZE" \
+                > "$kernel_launch_logname" 2>&1 &
+            ansible_pid=$!
+            LOG="$OUTPUT_PATH/$first_node/kernel_launch.log"
+            TIMEOUT=120
+            ELAPSED=0
+            while [ ! -f "$LOG" ]; do
+                if ! kill -0 $ansible_pid 2>/dev/null; then
+                    warn "Ansible process exited before creating log file"
+                    break
+                fi
+                if [ $ELAPSED -ge $TIMEOUT ]; then
+                    warn "Timeout waiting for kernel launch log file"
+                    break
+                fi
+                sleep 1
+                ((ELAPSED++))
+            done
+            if [ -f "$LOG" ]; then
+                tail -n +1 --pid=$ansible_pid -f "$LOG"
             fi
-            if [ $ELAPSED -ge $TIMEOUT ]; then
-                warn "Timeout waiting for kernel launch log file"
-                break
-            fi
-            sleep 1
-            ((ELAPSED++))
-        done
-        if [ -f "$LOG" ]; then
-            tail -n +1 --pid=$ansible_pid -f "$LOG"
+            wait $ansible_pid || true
+            ok "Kernel Launch Overhead benchmark completed."
         fi
-        wait $ansible_pid || true
-        ok "Kernel Launch Overhead benchmark completed."
 
-        echo
-        log "📊 Computation Communication Overlap results:"
-        jq . < "${OUTPUT_PATH}/overlap_results.json"
-        echo
-        log "📊 Kernel Launch Overhead results:"
-        jq . < "${OUTPUT_PATH}/kernel_overhead_results.json"
+        # -- Model Benchmark (optional, with node adaptation) --
+        if [ "$ENABLE_MODEL_BENCHMARK" = "true" ]; then
+            MODEL_BENCH_CONFIG="${MODEL_BENCHMARK_CONFIG:-$PRIMUSBENCH_PATH/benchmarks/model_benchmark/configs/qwen3_8B-BF16-bench.yaml}"
 
-        ok "✅ PrimusBench completed successfully!"
+            ADAPT_JSON=$(python3 "$PRIMUSBENCH_PATH/benchmarks/model_benchmark/adapt_nodes.py" \
+                --config "$MODEL_BENCH_CONFIG" \
+                --healthy-nodes ${#healthy_nodes_ip[@]} \
+                --gpus-per-node "$GPUS_PER_NODE" \
+                --json)
+            MODEL_USABLE_NODES=$(echo "$ADAPT_JSON" | python3 -c "import sys,json; print(json.load(sys.stdin)['usable_nodes'])")
+            MODEL_IDLE_NODES=$(echo "$ADAPT_JSON" | python3 -c "import sys,json; print(json.load(sys.stdin)['idle_nodes'])")
+            MODEL_ADJUSTED_GBS=$(echo "$ADAPT_JSON" | python3 -c "import sys,json; print(json.load(sys.stdin)['adjusted_gbs'])")
+
+            log "Model benchmark node adaptation: usable=$MODEL_USABLE_NODES idle=$MODEL_IDLE_NODES gbs=$MODEL_ADJUSTED_GBS"
+            log "Adaptation details: $ADAPT_JSON"
+
+            if [ "$MODEL_USABLE_NODES" -gt 0 ]; then
+                MODEL_BENCH_INVENTORY="$OUTPUT_PATH/model_bench_inventory.ini"
+                echo "[all]" > "$MODEL_BENCH_INVENTORY"
+                for i in $(seq 0 $((MODEL_USABLE_NODES - 1))); do
+                    ip="${healthy_nodes_ip[$i]}"
+                    node="${ip_node_map[$ip]}"
+                    echo "$node ansible_host=$ip" >> "$MODEL_BENCH_INVENTORY"
+                done
+                echo "[all:vars]" >> "$MODEL_BENCH_INVENTORY"
+                echo "ansible_ssh_port=${SSH_PORT}" >> "$MODEL_BENCH_INVENTORY"
+
+                log "Running Model Benchmark on $MODEL_USABLE_NODES nodes (${MODEL_IDLE_NODES} idle)..."
+                MODEL_BENCH_MASTER_PORT=$((RANDOM % 9999 + 30001))
+                model_bench_logname="$OUTPUT_PATH/model_benchmark_ansible.log"
+
+                MODEL_BENCH_ENV=$(python3 -c "
+import os, json
+env = dict(os.environ)
+env['MODEL_BENCHMARK_CONFIG'] = '$MODEL_BENCH_CONFIG'
+env['MODEL_BENCHMARK_GBS'] = '$MODEL_ADJUSTED_GBS'
+print(json.dumps({'container_env': env}))
+")
+                ansible-playbook -i "$MODEL_BENCH_INVENTORY" "$PALYBOOKS/model_benchmark.yaml" \
+                    -e workspace="$PRIMUSBENCH_PATH" -e master_port="$MODEL_BENCH_MASTER_PORT" \
+                    -e output_dir="$OUTPUT_PATH" \
+                    --extra-vars "$MODEL_BENCH_ENV" \
+                    -vvv -f "$MODEL_USABLE_NODES" > "$model_bench_logname" 2>&1 &
+                ansible_pid=$!
+
+                mb_first_ip="${healthy_nodes_ip[0]}"
+                mb_first_node="${ip_node_map[$mb_first_ip]}"
+                LOG="$OUTPUT_PATH/$mb_first_node/model_benchmark.log"
+                TIMEOUT=180
+                ELAPSED=0
+                while [ ! -f "$LOG" ]; do
+                    if ! kill -0 $ansible_pid 2>/dev/null; then
+                        warn "Ansible process exited before creating log file"
+                        break
+                    fi
+                    if [ $ELAPSED -ge $TIMEOUT ]; then
+                        warn "Timeout waiting for model benchmark log file"
+                        break
+                    fi
+                    sleep 1
+                    ((ELAPSED++))
+                done
+                if [ -f "$LOG" ]; then
+                    tail -n +1 --pid=$ansible_pid -f "$LOG"
+                fi
+                wait $ansible_pid || true
+                ok "Model Benchmark completed."
+            else
+                warn "Not enough healthy nodes for model benchmark (need at least 1 parallel group)"
+            fi
+        fi
+
+        # -- Print results --
+        echo
+        if [ "$SKIP_CCO" != "true" ] && [ -f "${OUTPUT_PATH}/overlap_results.json" ]; then
+            log "Computation Communication Overlap results:"
+            jq . < "${OUTPUT_PATH}/overlap_results.json"
+            echo
+        fi
+        if [ "$SKIP_KERNEL_LAUNCH" != "true" ] && [ -f "${OUTPUT_PATH}/kernel_overhead_results.json" ]; then
+            log "Kernel Launch Overhead results:"
+            jq . < "${OUTPUT_PATH}/kernel_overhead_results.json"
+            echo
+        fi
+        if [ "$ENABLE_MODEL_BENCHMARK" = "true" ] && [ -f "${OUTPUT_PATH}/model_benchmark_results.json" ]; then
+            log "Model Benchmark results:"
+            jq . < "${OUTPUT_PATH}/model_benchmark_results.json"
+            echo
+        fi
+
+        ok "PrimusBench completed successfully!"
 
         echo ""
         log "📋 Bench Report:"

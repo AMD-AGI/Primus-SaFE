@@ -82,6 +82,24 @@ export BNIC="${BNIC:-50}"
 export BXGMI="${BXGMI:-315}"
 
 # ==============================================================================
+# Stage Control — skip individual stages or enable optional ones
+# ==============================================================================
+export SKIP_NODE_CHECK="${SKIP_NODE_CHECK:-false}"
+export SKIP_NETWORK_CHECK="${SKIP_NETWORK_CHECK:-false}"
+export SKIP_CCO="${SKIP_CCO:-false}"
+export SKIP_KERNEL_LAUNCH="${SKIP_KERNEL_LAUNCH:-false}"
+export ENABLE_MODEL_BENCHMARK="${ENABLE_MODEL_BENCHMARK:-false}"
+
+# ==============================================================================
+# Model Benchmark Configuration (requires ENABLE_MODEL_BENCHMARK=true)
+# ==============================================================================
+export MODEL_BENCHMARK_PRIMUS_REPO="${MODEL_BENCHMARK_PRIMUS_REPO:-https://github.com/AMD-AGI/Primus.git}"
+export MODEL_BENCHMARK_PRIMUS_BRANCH="${MODEL_BENCHMARK_PRIMUS_BRANCH:-main}"
+export MODEL_BENCHMARK_CONFIG="${MODEL_BENCHMARK_CONFIG:-${PRIMUSBENCH_PATH:-}/benchmarks/model_benchmark/configs/qwen3_8B-BF16-bench.yaml}"
+export MODEL_BENCHMARK_TRAIN_ITERS="${MODEL_BENCHMARK_TRAIN_ITERS:-50}"
+export MODEL_BENCHMARK_WARMUP_ITERS="${MODEL_BENCHMARK_WARMUP_ITERS:-2}"
+
+# ==============================================================================
 # NFS Shared Storage Configuration
 # ==============================================================================
 export SHARE_PATH="${SHARE_PATH:-}"
@@ -151,6 +169,21 @@ print_config() {
     echo "  SHARE_PATH:             ${SHARE_PATH:-<not set>}"
     echo "  WORKLOAD_ID:            ${WORKLOAD_ID:-<not set>}"
     echo ""
+    echo "Stage Control:"
+    echo "  SKIP_NODE_CHECK:        $SKIP_NODE_CHECK"
+    echo "  SKIP_NETWORK_CHECK:     $SKIP_NETWORK_CHECK"
+    echo "  SKIP_CCO:               $SKIP_CCO"
+    echo "  SKIP_KERNEL_LAUNCH:     $SKIP_KERNEL_LAUNCH"
+    echo "  ENABLE_MODEL_BENCHMARK: $ENABLE_MODEL_BENCHMARK"
+    echo ""
+    if [ "$ENABLE_MODEL_BENCHMARK" = "true" ]; then
+    echo "Model Benchmark:"
+    echo "  PRIMUS_REPO:            $MODEL_BENCHMARK_PRIMUS_REPO"
+    echo "  PRIMUS_BRANCH:          $MODEL_BENCHMARK_PRIMUS_BRANCH"
+    echo "  CONFIG:                 ${MODEL_BENCHMARK_CONFIG:-<auto-detect>}"
+    echo "  TRAIN_ITERS:            $MODEL_BENCHMARK_TRAIN_ITERS"
+    echo ""
+    fi
     echo "Container Warmup:"
     echo "  ENABLE_IMAGE_WARMUP:    $ENABLE_IMAGE_WARMUP"
     echo "================================================================================"
