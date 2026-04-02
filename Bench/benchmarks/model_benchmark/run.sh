@@ -75,6 +75,13 @@ if [ ! -d "$PRIMUS_DIR/primus" ]; then
 fi
 log "Primus source ready at $PRIMUS_DIR (branch: $PRIMUS_BRANCH)"
 
+# Install Primus Python dependencies
+if [ -f "$PRIMUS_DIR/requirements.txt" ]; then
+    log "Installing Primus dependencies..."
+    pip install --quiet -r "$PRIMUS_DIR/requirements.txt" 2>&1 | tail -5
+    log "Dependencies installed."
+fi
+
 # ======================================================================
 # Step 2: Resolve experiment config
 # ======================================================================
