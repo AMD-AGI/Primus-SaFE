@@ -86,6 +86,7 @@ ensure_search_domain() {
   if echo "$new_content" | ${NSENTER} tee "$file" >/dev/null 2>&1; then
     ${NSENTER} chattr +i "$file" 2>/dev/null
     echo "Added search domain $domain to $display"
+    RESOLV_MODIFIED=1
     return 0
   fi
 
@@ -113,9 +114,11 @@ ensure_search_domain() {
   fi
   ${NSENTER} chattr +i "$file" 2>/dev/null
   echo "Added search domain $domain to $display"
+  RESOLV_MODIFIED=1
   return 0
 }
 
+RESOLV_MODIFIED=0
 exit_code=0
 for file in "${FILES[@]}"; do
   if ! ${NSENTER} test -e "$file" 2>/dev/null; then
@@ -140,5 +143,9 @@ for file in "${FILES[@]}"; do
     exit_code=1
   fi
 done
+
+if [ "$RESOLV_MODIFIED" -eq 1 ]; then
+  ${NSENTER} systemctl restart systemd-resolved 2>/dev/null || echo "WARN: failed to restart systemd-resolved"
+fi
 
 exit $exit_code

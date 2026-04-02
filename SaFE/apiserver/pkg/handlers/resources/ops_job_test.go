@@ -184,21 +184,20 @@ func TestCreateAddonRequestValidation(t *testing.T) {
 			name: "addon request with batch settings",
 			request: view.CreateAddonRequest{
 				BaseOpsJobRequest: view.BaseOpsJobRequest{
-					Name: "addon-upgrade",
-					Type: v1.OpsJobAddonType,
+					Name:              "addon-upgrade",
+					Type:              v1.OpsJobAddonType,
+					SecurityOperation: true,
 					Inputs: []v1.Parameter{
 						{Name: "addon", Value: "driver"},
 					},
 				},
-				BatchCount:      5,
-				AvailableRatio:  floatPtr(0.95),
-				SecurityUpgrade: true,
+				BatchCount:     5,
+				AvailableRatio: floatPtr(0.95),
 			},
 			validate: func(t *testing.T, req view.CreateAddonRequest) {
 				assert.Equal(t, 5, req.BatchCount)
 				assert.NotNil(t, req.AvailableRatio)
 				assert.Equal(t, 0.95, *req.AvailableRatio)
-				assert.True(t, req.SecurityUpgrade)
 			},
 		},
 		{
@@ -215,7 +214,6 @@ func TestCreateAddonRequestValidation(t *testing.T) {
 			validate: func(t *testing.T, req view.CreateAddonRequest) {
 				assert.Equal(t, 0, req.BatchCount)
 				assert.Nil(t, req.AvailableRatio)
-				assert.False(t, req.SecurityUpgrade)
 			},
 		},
 	}

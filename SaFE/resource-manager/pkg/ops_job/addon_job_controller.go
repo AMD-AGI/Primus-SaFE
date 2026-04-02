@@ -159,7 +159,7 @@ func (r *AddonJobReconciler) handleWorkloadEvent() handler.EventHandler {
 			return
 		}
 		for _, job := range jobList {
-			if v1.IsSecurityUpgrade(&job) {
+			if v1.IsSecurityOperation(&job) {
 				q.Add(reconcile.Request{NamespacedName: apitypes.NamespacedName{Name: job.Name}})
 			}
 		}
@@ -275,7 +275,7 @@ func (r *AddonJobReconciler) handle(ctx context.Context, job *v1.OpsJob) (ctrlru
 func (r *AddonJobReconciler) handleNodes(ctx context.Context, job *v1.OpsJob, nodeNames []string) error {
 	var err error
 	allUsingNodes := sets.NewSet()
-	if v1.IsSecurityUpgrade(job) {
+	if v1.IsSecurityOperation(job) {
 		if allUsingNodes, err = commonnodes.GetUsingNodesOfCluster(ctx, r.Client, v1.GetClusterId(job)); err != nil {
 			return err
 		}
@@ -324,7 +324,7 @@ func (r *AddonJobReconciler) handleNode(ctx context.Context,
 		return false, "", err
 	}
 	if !adminNode.IsMachineReady() {
-		return false, "", fmt.Errorf("the node is not ready")
+		return false, "", fmt.Errorf("the node %s is not ready", adminNode.Name)
 	}
 	if err = r.createFault(ctx, job, adminNode, v1.AddonMonitorId, "upgrade Addon"); err != nil {
 		return false, "", err
@@ -374,6 +374,9 @@ func (r *AddonJobReconciler) handleNode(ctx context.Context,
 	// If the addon specified by node.template is installed on the node, save the operation result.
 	// Subsequent operations can then trigger the preflight check.
 	hasTaskRunning := output != ""
+	if !hasTaskRunning {
+		return true, "", nil
+	}
 	if err = r.updateNodeTemplatePhase(ctx, job, adminNode, hasTaskRunning); err != nil {
 		return false, "", err
 	}

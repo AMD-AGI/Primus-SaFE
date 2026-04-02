@@ -427,10 +427,6 @@ spec:
                           name:
                             description: Container name
                             type: string
-                          reason:
-                            description: (brief) reason from the last termination
-                              of the container
-                            type: string
                         required:
                         - exitCode
                         - name
@@ -443,21 +439,17 @@ spec:
                       description: Pod failed reason. may be empty
                       type: string
                     groupId:
-                      description: The group id of pod, only for torchft. 0 lighthouse,
-                        > 0 worker
+                      description: |-
+                        The group id of pod
+                        for torchft. 0 lighthouse, > 0 worker
+                        for monarch. 0 client, > 0 mesh
                       type: integer
                     hostIP:
                       description: The node's IP address where the Pod is running
                       type: string
-                    k8sNodeName:
-                      description: The Kubernetes node that the Pod is scheduled on
-                      type: string
                     phase:
                       description: 'Pod status: Pending, Running, Succeeded, Failed,
                         Unknown'
-                      type: string
-                    podIP:
-                      description: The pod's IP address where the Pod is running
                       type: string
                     podId:
                       description: The podId
@@ -469,7 +461,6 @@ spec:
                       description: |-
                         The id of workload resources that the pod is bound to.
                         If the value is less than 0, it means the pod does not belong to any resource.
-                        Currently, RayJob's submitter pod uses this scenario.
                       type: integer
                     startTime:
                       description: Pod start time

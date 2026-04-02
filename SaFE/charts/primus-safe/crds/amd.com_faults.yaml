@@ -63,13 +63,9 @@ spec:
                   clusterName:
                     description: The cluster which fault belongs to
                     type: string
-                  k8sName:
-                    description: Fault-associated k8s node name
-                    type: string
                 required:
                 - adminName
                 - clusterName
-                - k8sName
                 type: object
             required:
             - monitorId

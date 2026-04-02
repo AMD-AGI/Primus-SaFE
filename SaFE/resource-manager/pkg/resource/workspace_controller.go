@@ -171,8 +171,12 @@ func (r *WorkspaceReconciler) guaranteeDataPlaneResources(ctx context.Context, w
 		klog.ErrorS(err, "failed to create pvc for data plane", "name", workspace.Name)
 		return err
 	}
-	if err := createCICDNoPermissionSA(ctx, workspace, clientSet); err != nil {
-		klog.ErrorS(err, "failed to create service account for cicd with no permission", "name", workspace.Name)
+	if err := createCICDServiceAccount(ctx, workspace, clientSet); err != nil {
+		klog.ErrorS(err, "failed to create service account for cicd", "name", workspace.Name)
+		return err
+	}
+	if err := createMonarchServiceAccount(ctx, workspace, clientSet); err != nil {
+		klog.ErrorS(err, "failed to create service account for monarch", "name", workspace.Name)
 		return err
 	}
 	if err := syncDataPlanePVC(ctx, workspace, clientSet); err != nil {
@@ -215,7 +219,10 @@ func (r *WorkspaceReconciler) deleteDataPlaneResources(ctx context.Context, work
 		}
 	}
 
-	if err = deleteCICDNoPermissionSA(ctx, workspace, clientSet); err != nil {
+	if err = deleteCICDServiceAccount(ctx, workspace, clientSet); err != nil {
+		return err
+	}
+	if err = deleteMonarchServiceAccount(ctx, workspace, clientSet); err != nil {
 		return err
 	}
 	if err = deleteWorkspaceSecrets(ctx, workspace, clientSet); err != nil {

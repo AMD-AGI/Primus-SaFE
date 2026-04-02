@@ -69,6 +69,7 @@ ensure_bind_live() {
     echo "Error: mount --bind failed ${source} -> ${target}"
     exit 1
   fi
+  echo "INFO: bind mount applied ${source} -> ${target}"
 }
 
 # Stop services, copy data, bind mount, restart (only when paths are not already the same inode).
@@ -95,6 +96,7 @@ migrate_pair() {
       recover_services "$target" start
       return 1
     fi
+    echo "INFO: migrated data ${target} -> ${source}"
   fi
 
   host mkdir -p "$target" 2>/dev/null
@@ -103,6 +105,7 @@ migrate_pair() {
     recover_services "$target" start
     return 1
   fi
+  echo "INFO: bind mount applied ${source} -> ${target} (migration)"
 
   recover_services "$target" restart
 }
@@ -120,6 +123,7 @@ for pair in "${BIND_MOUNTS[@]}"; do
   # fstab already has bind line: either already mounted, or repair live bind only
   if fstab_has_bind "$source" "$target"; then
     if ! host mountpoint -q "$target" 2>/dev/null; then
+      echo "INFO: fstab entry exists but ${target} not mounted, repairing live bind"
       ensure_bind_live "$source" "$target"
     fi
     continue
@@ -148,4 +152,5 @@ for pair in "${BIND_MOUNTS[@]}"; do
     echo "Error: failed to append to $FSTAB"
     exit 1
   fi
+  echo "INFO: appended fstab entry: ${fstab_line}"
 done
