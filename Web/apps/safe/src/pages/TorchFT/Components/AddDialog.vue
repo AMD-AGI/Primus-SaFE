@@ -743,7 +743,7 @@ const validateNodesDivisibility = (
   if (form.resourceType === 'nodes' && replicaGroup && workerReplica % replicaGroup !== 0) {
     callback(
       new Error(
-        `Worker nodes count (${workerReplica}) must be divisible by REPLICA_GROUP (${replicaGroup})`,
+        `Worker nodes count (${workerReplica}) must be divisible by REPLICA_COUNT (${replicaGroup})`,
       ),
     )
     return
@@ -824,7 +824,7 @@ const rules = reactive({
         ) {
           callback(
             new Error(
-              `REPLICA_GROUP must be between MIN_REPLICA_GROUP (${minReplicaGroup}) and MAX_REPLICA_GROUP (${maxReplicaGroup})`,
+              `REPLICA_COUNT must be between MIN_REPLICA_COUNT (${minReplicaGroup}) and MAX_REPLICA_COUNT (${maxReplicaGroup})`,
             ),
           )
           return
@@ -845,7 +845,7 @@ const rules = reactive({
 
         if (maxReplicaGroup && minReplicaGroup >= maxReplicaGroup) {
           callback(
-            new Error(`MIN_REPLICA_GROUP must be less than MAX_REPLICA_GROUP (${maxReplicaGroup})`),
+            new Error(`MIN_REPLICA_COUNT must be less than MAX_REPLICA_COUNT (${maxReplicaGroup})`),
           )
           return
         }
@@ -865,7 +865,7 @@ const rules = reactive({
         if (minReplicaGroup && maxReplicaGroup <= minReplicaGroup) {
           callback(
             new Error(
-              `MAX_REPLICA_GROUP must be greater than MIN_REPLICA_GROUP (${minReplicaGroup})`,
+              `MAX_REPLICA_COUNT must be greater than MIN_REPLICA_COUNT (${minReplicaGroup})`,
             ),
           )
           return
@@ -964,9 +964,9 @@ const onSubmit = async (formEl: FormInstance | undefined) => {
 
     // Add TorchFT specific fields to env
     const torchFTEnv = {
-      REPLICA_GROUP: String(form.replicaGroup),
-      MIN_REPLICA_GROUP: String(form.minReplicaGroup),
-      MAX_REPLICA_GROUP: String(form.maxReplicaGroup),
+      REPLICA_COUNT: String(form.replicaGroup),
+      MIN_REPLICA_COUNT: String(form.minReplicaGroup),
+      MAX_REPLICA_COUNT: String(form.maxReplicaGroup),
     }
     const mergedEnv = { ...convertListToKeyValueMap(envList), ...torchFTEnv }
 
@@ -1150,7 +1150,7 @@ const setInitialFormValues = async () => {
       // If not custom nodes, calculate groupNode (needed for both edit and clone)
       if (!isCustomNodes.value) {
         // groupNode = replica / replicaGroup
-        const replicaGroup = res.env?.REPLICA_GROUP ? Number(res.env.REPLICA_GROUP) : 1
+        const replicaGroup = res.env?.REPLICA_COUNT ? Number(res.env.REPLICA_COUNT) : 1
         form.resource.replica =
           replicaGroup > 0 ? Math.round(workerReplica / replicaGroup) : workerReplica
       } else {
@@ -1162,14 +1162,14 @@ const setInitialFormValues = async () => {
 
   // Extract TorchFT specific fields from env
   const envCopy = { ...res.env }
-  form.replicaGroup = envCopy.REPLICA_GROUP ? Number(envCopy.REPLICA_GROUP) : undefined
-  form.minReplicaGroup = envCopy.MIN_REPLICA_GROUP ? Number(envCopy.MIN_REPLICA_GROUP) : undefined
-  form.maxReplicaGroup = envCopy.MAX_REPLICA_GROUP ? Number(envCopy.MAX_REPLICA_GROUP) : undefined
+  form.replicaGroup = envCopy.REPLICA_COUNT ? Number(envCopy.REPLICA_COUNT) : undefined
+  form.minReplicaGroup = envCopy.MIN_REPLICA_COUNT ? Number(envCopy.MIN_REPLICA_COUNT) : undefined
+  form.maxReplicaGroup = envCopy.MAX_REPLICA_COUNT ? Number(envCopy.MAX_REPLICA_COUNT) : undefined
 
   // Remove these three fields from env, put the rest into envList
-  delete envCopy.REPLICA_GROUP
-  delete envCopy.MIN_REPLICA_GROUP
-  delete envCopy.MAX_REPLICA_GROUP
+  delete envCopy.REPLICA_COUNT
+  delete envCopy.MIN_REPLICA_COUNT
+  delete envCopy.MAX_REPLICA_COUNT
 
   form.envList = convertKeyValueMapToList(envCopy)
   form.labelList = convertKeyValueMapToList(res.customerLabels)
