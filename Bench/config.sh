@@ -82,6 +82,18 @@ export BNIC="${BNIC:-50}"
 export BXGMI="${BXGMI:-315}"
 
 # ==============================================================================
+# Path Configuration (must precede sections that reference PRIMUSBENCH_PATH)
+# ==============================================================================
+export PRIMUSBENCH_PATH="${PRIMUSBENCH_PATH:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
+export LOG_DIR="${LOG_DIR:-${PRIMUSBENCH_PATH}/outputs}"
+
+# ==============================================================================
+# NFS Shared Storage Configuration
+# ==============================================================================
+export SHARE_PATH="${SHARE_PATH:-}"
+export WORKLOAD_ID="${WORKLOAD_ID:-}"
+
+# ==============================================================================
 # Stage Control — skip individual stages or enable optional ones
 # ==============================================================================
 export SKIP_NODE_CHECK="${SKIP_NODE_CHECK:-false}"
@@ -95,21 +107,9 @@ export ENABLE_MODEL_BENCHMARK="${ENABLE_MODEL_BENCHMARK:-false}"
 # ==============================================================================
 export MODEL_BENCHMARK_PRIMUS_REPO="${MODEL_BENCHMARK_PRIMUS_REPO:-https://github.com/AMD-AGI/Primus.git}"
 export MODEL_BENCHMARK_PRIMUS_BRANCH="${MODEL_BENCHMARK_PRIMUS_BRANCH:-main}"
-export MODEL_BENCHMARK_CONFIG="${MODEL_BENCHMARK_CONFIG:-${PRIMUSBENCH_PATH:-}/benchmarks/model_benchmark/configs/qwen3_8B-BF16-bench.yaml}"
+export MODEL_BENCHMARK_CONFIG="${MODEL_BENCHMARK_CONFIG:-${PRIMUSBENCH_PATH}/benchmarks/model_benchmark/configs/qwen3_8B-BF16-bench.yaml}"
 export MODEL_BENCHMARK_TRAIN_ITERS="${MODEL_BENCHMARK_TRAIN_ITERS:-50}"
 export MODEL_BENCHMARK_WARMUP_ITERS="${MODEL_BENCHMARK_WARMUP_ITERS:-2}"
-
-# ==============================================================================
-# NFS Shared Storage Configuration
-# ==============================================================================
-export SHARE_PATH="${SHARE_PATH:-}"
-export WORKLOAD_ID="${WORKLOAD_ID:-}"
-
-# ==============================================================================
-# Path Configuration
-# ==============================================================================
-export PRIMUSBENCH_PATH="${PRIMUSBENCH_PATH:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
-export LOG_DIR="${LOG_DIR:-${PRIMUSBENCH_PATH}/outputs}"
 export INVENTORY_FILE="${INVENTORY_FILE:-hosts.ini}"
 export HOSTS="${HOSTS:-/root/hosts}"
 
