@@ -10,6 +10,16 @@ input="$1"
 export NODE_RANK="${PET_NODE_RANK:-${NODE_RANK}}"
 export NNODES="${PET_NNODES:-${NNODES}}"
 
+# Fix hostname resolution for hostNetwork pods (replace 127.0.1.1 -> real IP)
+if [ -n "$POD_IP" ]; then
+  hostname_val=$(hostname 2>/dev/null)
+  if [ -n "$hostname_val" ] && grep -q "127.0.1.1" /etc/hosts 2>/dev/null; then
+    sed "s/127.0.1.1/$POD_IP/g" /etc/hosts > /tmp/hosts.fixed 2>/dev/null && \
+    cp /tmp/hosts.fixed /etc/hosts 2>/dev/null || true
+    rm -f /tmp/hosts.fixed 2>/dev/null
+  fi
+fi
+
 # Build AINIC driver
 if [ -n "${AINIC_DRIVER_VERSION}" ]; then
   /bin/sh /shared-data/build_ainic.sh

@@ -418,6 +418,8 @@ class ReplicaActor(Actor):
         self.failure_actors = self._trainers_proc_mesh.spawn(
             "failure_actors", FailureActor
         )
+        # Wait for actor objects to be fully initialized before broadcasting.
+        await asyncio.sleep(10)
         logger.info(
             f"{self.uid} Starting trainers with broadcast (attempt {self.attempt}, generation {generation})"
         )
@@ -922,11 +924,7 @@ def _log_env_vars() -> None:
 
 async def main() -> None:
     init_logger()
-    pod_ip = os.environ.get("POD_IP", "")
-    if pod_ip:
-        enable_transport("tcp", bind_addr=f"tcp://{pod_ip}:0")
-    else:
-        enable_transport("tcp")
+    enable_transport("tcp")
     _log_env_vars()
     args = parse_args()
     job_spec = make_job_spec(args)
