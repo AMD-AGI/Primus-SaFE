@@ -106,7 +106,7 @@ func GetResourcesPerNode(workload *v1.Workload, adminNodeName string) (map[strin
 
 	result := map[string]corev1.ResourceList{}
 	for _, pod := range workload.Status.Pods {
-		if !v1.IsPodRunning(&pod) || pod.ResourceId >= len(allPodResources) {
+		if !v1.IsPodRunning(&pod) || pod.ResourceId >= int8(len(allPodResources)) {
 			continue
 		}
 		if adminNodeName != "" && adminNodeName != pod.AdminNodeName {
@@ -178,7 +178,7 @@ func GetWorkloadResourceUsage(workload *v1.Workload, filterNode func(nodeName st
 			outputs[in.id].isTerminated = true
 			return nil
 		}
-		outputs[in.id].resourceId = in.pod.ResourceId
+		outputs[in.id].resourceId = int(in.pod.ResourceId)
 		if filterNode != nil && filterNode(in.pod.AdminNodeName) {
 			outputs[in.id].isFiltered = true
 			return nil
@@ -245,7 +245,7 @@ func toPodResourceLists(workload *v1.Workload) ([]corev1.ResourceList, error) {
 // GetScope determines the workspace scope based on workload kind.
 func GetScope(w *v1.Workload) v1.WorkspaceScope {
 	switch w.SpecKind() {
-	case common.PytorchJobKind, common.UnifiedJobKind, common.JobKind, common.TorchFTKind:
+	case common.PytorchJobKind, common.UnifiedJobKind, common.JobKind, common.TorchFTKind, common.MonarchJob:
 		return v1.TrainScope
 	case common.DeploymentKind, common.StatefulSetKind:
 		return v1.InferScope
@@ -317,6 +317,27 @@ func IsRayJob(w *v1.Workload) bool {
 	return false
 }
 
+func IsMonarchJob(w *v1.Workload) bool {
+	if w.SpecKind() == common.MonarchJob {
+		return true
+	}
+	return false
+}
+
+func IsMonarchMesh(w *v1.Workload) bool {
+	if w.SpecKind() == common.MonarchMesh {
+		return true
+	}
+	return false
+}
+
+func IsMonarchClient(w *v1.Workload) bool {
+	if w.SpecKind() == common.MonarchClient {
+		return true
+	}
+	return false
+}
+
 // IsOpsJob returns true if the workload is about ops job
 func IsOpsJob(w *v1.Workload) bool {
 	return v1.GetOpsJobId(w) != ""
@@ -380,7 +401,7 @@ func GetWorkloadTemplate(ctx context.Context, cli client.Client, gvk schema.Grou
 		return &configmapList.Items[0], nil
 	}
 	return nil, commonerrors.NewInternalError(
-		fmt.Sprintf("failed to find configMap. gvk: %s", gvk.String()))
+		fmt.Sprintf("failed to find workload template. gvk: %s", gvk.String()))
 }
 
 // GetResourceTemplate Retrieve the corresponding resource_template based on the workload's GVK.
@@ -428,10 +449,10 @@ func ConvertResourceToList(workloadResource v1.WorkloadResource, kind string) []
 	return result
 }
 
-// GetReplicaGroup retrieves the replica process group number from the workload's environment variables.
-// The replica process group is used for torchFT workload.
+// GetReplicaCount retrieves the replica group count from the workload's environment variables.
+// The replica group is used for torchFT workload.
 // Returns an error if the environment variable is not set or cannot be converted to a valid integer.
-func GetReplicaGroup(workload *v1.Workload, key string) (int, error) {
+func GetReplicaCount(workload *v1.Workload, key string) (int, error) {
 	val, ok := workload.Spec.Env[key]
 	if !ok || val == "" {
 		return 0, fmt.Errorf("the %s of workload environment variables is empty", key)
@@ -447,6 +468,9 @@ func GetReplicaGroup(workload *v1.Workload, key string) (int, error) {
 // For TorchFT workloads: returns multiple GVKs since TorchFT consists of multiple resource types
 //   - PyTorchJob GVK for the training job components
 //   - Deployment GVK for the lighthouse deployment component
+// For MonarhchJob workloads: returns multiple GVKs since Moranch consists of multiple resource types
+//   - MonarchMesh GVK for the training job components
+//   - MonarchClient GVK for the client component
 //
 // For other workloads: returns the single GVK specified in the workload spec
 func GetWorkloadGVK(workload *v1.Workload) []schema.GroupVersionKind {
@@ -457,6 +481,13 @@ func GetWorkloadGVK(workload *v1.Workload) []schema.GroupVersionKind {
 		})
 		result = append(result, schema.GroupVersionKind{
 			Group: "apps", Version: common.DefaultVersion, Kind: common.DeploymentKind,
+		})
+	} else if IsMonarchJob(workload) {
+		result = append(result, schema.GroupVersionKind{
+			Group: "", Version: common.DefaultVersion, Kind: common.MonarchClient,
+		})
+		result = append(result, schema.GroupVersionKind{
+			Group: "monarch.pytorch.org", Version: common.DefaultVersion, Kind: common.MonarchMesh,
 		})
 	} else {
 		result = append(result, workload.ToSchemaGVK())
@@ -494,6 +525,9 @@ func GetUsedHostPorts(ctx context.Context, cli client.Client, clusterId string) 
 				if IsRayJob(&item) {
 					ports[common.RayJobDashboard] = struct{}{}
 					ports[common.RayJobGcsServerPort] = struct{}{}
+				}
+				if IsMonarchJob(&item) {
+					ports[common.MonarchMeshPortNum] = struct{}{}
 				}
 			}
 			if item.Spec.Service != nil && item.Spec.Service.NodePort > 0 {

@@ -157,7 +157,7 @@ func (r *FailoverReconciler) handleFaultEvent() handler.EventHandler {
 
 // handleFaultEventImpl handles the actual processing of a Fault event.
 func (r *FailoverReconciler) handleFaultEventImpl(ctx context.Context, fault *v1.Fault, q v1.RequestWorkQueue) {
-	message := fmt.Sprintf("the node %s has fault %s, detail: %s", fault.Spec.Node.K8sName,
+	message := fmt.Sprintf("the node %s has fault %s, detail: %s", fault.Spec.Node.AdminName,
 		commonfaults.GenerateTaintKey(fault.Spec.MonitorId), fault.Spec.Message)
 	klog.Infof("%s, try to do failover", message)
 
@@ -179,8 +179,8 @@ func (r *FailoverReconciler) handleFaultEventImpl(ctx context.Context, fault *v1
 				}
 			} else if isDisableFailover(workload) ||
 				workload.CreationTimestamp.After(fault.CreationTimestamp.Time) ||
-				// The torchft workload do not support failover triggered by a fault.
-				commonworkload.IsTorchFT(workload) {
+				// The torchft or monarch workload do not support failover triggered by a fault.
+				commonworkload.IsTorchFT(workload) || commonworkload.IsMonarchJob(workload) {
 				return false
 			} else if r.addFailoverCondition(ctx, workload, message) == nil {
 				break
@@ -248,10 +248,10 @@ func (r *FailoverReconciler) getWorkloadsOnFaultNode(ctx context.Context,
 	}
 
 	workloadNames, err := commonworkload.GetWorkloadsOfK8sNode(ctx,
-		clientSets.ClientFactory().ClientSet(), fault.Spec.Node.K8sName, v1.GetWorkspaceId(adminNode))
+		clientSets.ClientFactory().ClientSet(), adminNode.GetK8sNodeName(), v1.GetWorkspaceId(adminNode))
 	if err != nil {
 		klog.ErrorS(err, "failed to get workload of node",
-			"name", fault.Spec.Node.K8sName, "workspace", v1.GetWorkspaceId(adminNode))
+			"name", fault.Spec.Node.AdminName, "workspace", v1.GetWorkspaceId(adminNode))
 		return nil, err
 	}
 	return workloadNames, nil

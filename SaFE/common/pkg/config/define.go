@@ -152,7 +152,7 @@ const (
 	tracingOtlpEndpoint  = tracingPrefix + "otlp_endpoint"
 
 	// langfuse_proxy
-	langfuseProxyPrefix    = "langfuse_proxy."
+	langfuseProxyPrefix     = "langfuse_proxy."
 	langfuseProxySecretPath = langfuseProxyPrefix + "secret_path"
 
 	// a2a
@@ -167,4 +167,9 @@ const (
 	llmGatewayPrefix     = "llm_gateway."
 	llmGatewayEnable     = llmGatewayPrefix + "enabled"
 	llmGatewaySecretPath = llmGatewayPrefix + "secret_path"
+
+	// monarch
+	monarchPrefix     = "monarch."
+	monarchEnable     = monarchPrefix + "enable"
+	monarchClientRole = monarchPrefix + "client_role"
 )

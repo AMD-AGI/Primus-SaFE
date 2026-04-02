@@ -1,0 +1,23 @@
+# Non-secret settings only. Provide credentials via environment variables:
+#   EMAIL_RELAY_SMTP_USER, EMAIL_RELAY_SMTP_CREDENTIAL (optional SMTP AUTH)
+#   EMAIL_RELAY_CLUSTER_<index>_OUTBOUND (Authorization Bearer value for that cluster)
+#   EMAIL_RELAY_CLUSTER_<index>_INTERNAL (X-Internal-Token value if OUTBOUND unset)
+# Index matches the order of entries in clusters below (0, 1, ...).
+
+smtp:
+  host: "smtp.example.com"
+  port: 25
+  from: "noreply@example.com"
+  from_name: "Example"
+
+clusters:
+  - name: "cluster-a"
+    base_url: "https://example.com"
+    reconnect_interval: 5s
+
+  - name: "cluster-b"
+    base_url: "http://127.0.0.1:32495"
+    reconnect_interval: 5s
+
+api_port: 8090
+log_level: "info"
