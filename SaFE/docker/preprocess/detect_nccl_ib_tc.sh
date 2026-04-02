@@ -14,16 +14,15 @@ should_run_nccl_ib_tc_detect() {
 	case "$_nnodes" in
 		'' | *[!0-9]*) return 1 ;;
 	esac
-	[ "$_nnodes" -gt 1 ] || return 1
 	[ "${GPUS_PER_NODE:-}" = "8" ] || return 1
 	case "${WORKLOAD_KIND:-}" in
-		PyTorchJob|UnifiedJob|TorchFT|RayJob) return 0 ;;
+		PyTorchJob|UnifiedJob|TorchFT|RayJob|MonarchMesh) return 0 ;;
 		*) return 1 ;;
 	esac
 }
 
 if ! should_run_nccl_ib_tc_detect; then
-	echo "# Skip NCCL_IB_TC detection: requires NNODES>1, GPUS_PER_NODE=8, WORKLOAD_KIND in {PyTorchJob,UnifiedJob,TorchFT,RayJob}" >&2
+	echo "# Skip NCCL_IB_TC detection: requires GPUS_PER_NODE=8, WORKLOAD_KIND in {PyTorchJob,UnifiedJob,TorchFT,RayJob,MonarchMesh}" >&2
 	exit 0
 fi
 

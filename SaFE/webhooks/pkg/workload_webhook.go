@@ -939,8 +939,11 @@ func (v *WorkloadValidator) validateMonarchJob(newWorkload *v1.Workload) error {
 	if err != nil {
 		return err
 	}
-	if group <= 0 {
-		return fmt.Errorf("environment variable %s must be set and greater than 0 for workload", common.ReplicaCount)
+
+	if group <= 0 || group > newWorkload.Spec.Resources[1].Replica ||
+		(newWorkload.Spec.Resources[1].Replica%group) != 0 {
+		return fmt.Errorf("the %s of workload environment is invalid: worker node count (%d) must be divisible by replica count (%d)",
+			common.ReplicaCount, newWorkload.Spec.Resources[1].Replica, group)
 	}
 	return nil
 }

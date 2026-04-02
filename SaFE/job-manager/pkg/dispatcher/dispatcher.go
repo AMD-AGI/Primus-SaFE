@@ -1085,20 +1085,21 @@ func (r *DispatcherReconciler) generateMonarchClient(ctx context.Context, rootWo
 	workload.Spec.Env[common.MonarchPort] = strconv.Itoa(common.MonarchMeshPortNum)
 	workload.Spec.Env[common.HostPerReplica] = strconv.Itoa(nodePerGroup)
 
+	if len(workload.Spec.Resources) >= 2 && workload.Spec.Resources[1].GPU != "" {
+		workload.Spec.Env["GPUS_PER_NODE"] = workload.Spec.Resources[1].GPU)
+	}
+
 	commonworkload.SetMainContainerViaTemplate(ctx, r.Client, workload)
 	return workload
-}
-
-func monarchMeshName(rootWorkload *v1.Workload, groupId int) string {
-	return v1.GetDisplayName(rootWorkload) + "-mesh-" + strconv.Itoa(groupId+1)
 }
 
 // generateMonarchMesh generates a mesh workload for MonarchJob
 func (r *DispatcherReconciler) generateMonarchMesh(ctx context.Context, rootWorkload *v1.Workload, totalGroup, groupId int) *v1.Workload {
 	workload := rootWorkload.DeepCopy()
-	displayName := monarchMeshName(rootWorkload, groupId)
+	suffix :=  "-mesh-" + strconv.Itoa(groupId+1)
+	displayName := v1.GetDisplayName(rootWorkload) + suffix
 	nodePerGroup := rootWorkload.Spec.Resources[1].Replica / totalGroup
-	workload.Name = displayName
+	workload.Name = rootWorkload.Name + suffix
 	v1.SetLabel(workload, v1.DisplayNameLabel, displayName)
 	v1.SetLabel(workload, v1.RootWorkloadIdLabel, rootWorkload.Name)
 	v1.SetAnnotation(workload, v1.ResourceIdAnnotation, "1")
