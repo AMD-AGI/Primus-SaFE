@@ -10,7 +10,6 @@ import (
 	"context"
 	"fmt"
 	"html/template"
-	"strings"
 	"time"
 
 	sliceutil "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/slice"
@@ -30,20 +29,20 @@ func (t *Topic) Name() string {
 	return model.TopicWorkload
 }
 
-// Filter determines if the notification should be sent based on the data.
+// Filter determines if the notification should be sent based on the workload phase.
+// Only meaningful phase transitions produce notifications; intermediate phases are dropped.
 func (t *Topic) Filter(data map[string]interface{}) bool {
-	if condition, ok := data["condition"].(string); ok {
-		targetConditions := []string{
-			string(v1.AdminScheduled),
-			string(v1.K8sPending),
-			string(v1.K8sUpdating),
-			string(v1.K8sDeleted),
-		}
-		if !sliceutil.Contains(targetConditions, condition) {
-			return true
-		}
+	phase, ok := data["condition"].(string)
+	if !ok || phase == "" {
+		return false
 	}
-	return false
+	notifyPhases := []string{
+		string(v1.WorkloadRunning),
+		string(v1.WorkloadSucceeded),
+		string(v1.WorkloadFailed),
+		string(v1.WorkloadStopped),
+	}
+	return sliceutil.Contains(notifyPhases, phase)
 }
 
 // BuildMessage constructs a notification message from the provided data.
@@ -60,8 +59,7 @@ func (t *Topic) BuildMessage(ctx context.Context, data map[string]interface{}) (
 		ScheduleTime: topicData.Workload.CreationTimestamp.Time.Format(time.DateTime),
 		JobURL:       getWorkloadUrl(topicData.Workload.Name),
 	}
-	targetConditions := []string{string(v1.K8sFailed), string(v1.AdminFailed), string(v1.AdminFailover)}
-	if sliceutil.Contains(targetConditions, topicData.Condition) {
+	if topicData.Condition == string(v1.WorkloadFailed) {
 		emailData.ErrorMessage = topicData.Message
 	}
 	emailContent, err := renderEmailTemplate(emailData)
@@ -114,18 +112,18 @@ func renderEmailTemplate(data EmailData) (string, error) {
 	return buf.String(), nil
 }
 
-func getStatusColor(status string) string {
-	switch strings.ToLower(status) {
-	case string(v1.K8sFailed), string(v1.AdminFailed), string(v1.AdminFailover):
+func getStatusColor(phase string) string {
+	switch v1.WorkloadPhase(phase) {
+	case v1.WorkloadFailed:
 		return "#c53030" // red
-	case string(v1.K8sSucceeded):
+	case v1.WorkloadSucceeded:
 		return "#2f855a" // green
-	case string(v1.AdminDispatched):
+	case v1.WorkloadRunning:
 		return "#3182ce" // blue
-	case string(v1.K8sPending):
+	case v1.WorkloadStopped:
 		return "#d69e2e" // yellow
 	default:
-		return "#4a5568" // gray (unknown)
+		return "#4a5568" // gray
 	}
 }
 

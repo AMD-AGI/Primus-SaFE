@@ -255,6 +255,17 @@ data:
     );
 
 
+    alter table notification add column if not exists topic varchar(64);
+
+    DO $$ BEGIN
+      IF NOT EXISTS (
+        SELECT 1 FROM information_schema.table_constraints
+        WHERE constraint_type = 'PRIMARY KEY' AND table_name = 'notification'
+      ) THEN
+        ALTER TABLE notification ADD PRIMARY KEY (id);
+      END IF;
+    END $$;
+
     alter table notification
         owner to "primus-safe";
 
