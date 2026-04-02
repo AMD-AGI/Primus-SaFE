@@ -11,4 +11,5 @@ use (
 	./webhooks
 	./utils
 	tools/sync-image
+	tools/email-relay-service
 )

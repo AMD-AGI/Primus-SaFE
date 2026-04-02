@@ -822,6 +822,9 @@ func (h *Handler) generateWorkload(ctx context.Context,
 	if req.ForceHostNetwork != nil {
 		v1.SetAnnotation(workload, v1.ForceHostNetworkAnnotation, strconv.FormatBool(*req.ForceHostNetwork))
 	}
+	if commonworkload.IsMonarchJob(workload) && !commonconfig.IsMonarchEnable() {
+		return nil, commonerrors.NewNotImplemented("the Monarch is not enabled")
+	}
 	return workload, nil
 }
 

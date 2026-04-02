@@ -10,14 +10,22 @@ import (
 	"context"
 	"os/exec"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/AMD-AIG-AIMA/SAFE/node-agent/pkg/types"
 )
 
 // Exec creates a new process with the specified arguments.
+// Setpgid ensures all child processes (including nsenter descendants) belong to
+// the same process group so they can be killed together on timeout.
 func Exec(ctx context.Context, name string, arg ...string) *exec.Cmd {
 	cmd := exec.CommandContext(ctx, name, arg...)
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.Cancel = func() error {
+		return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+	}
+	cmd.WaitDelay = 5 * time.Second
 	return cmd
 }
 

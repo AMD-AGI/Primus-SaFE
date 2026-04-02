@@ -71,7 +71,11 @@ func newMonitor(t *testing.T, id, script string) *Monitor {
 	n := newNode(t)
 	err := os.WriteFile(TestScriptPath, []byte(script), 0777)
 	assert.NilError(t, err)
-	return NewMonitor(newMonitorConfig(id, TestScriptPath), &queue, n, ".")
+	m := NewMonitor(newMonitorConfig(id, TestScriptPath), &queue, n, ".")
+	if m != nil {
+		m.config.IsDebug = true
+	}
+	return m
 }
 
 func TestRunWithStatusOk(t *testing.T) {

@@ -17,11 +17,11 @@ import (
 
 // ProxyService represents a proxy service configuration
 type ProxyService struct {
-	Name       string `json:"name" yaml:"name" mapstructure:"name"`                         // Service name
-	Prefix     string `json:"prefix" yaml:"prefix" mapstructure:"prefix"`                   // URL prefix for the proxy route
-	Target     string `json:"target" yaml:"target" mapstructure:"target"`                   // Target service URL
-	Enabled    bool   `json:"enabled" yaml:"enabled" mapstructure:"enabled"`                // Whether the proxy is enabled
-	AuthHeader string `json:"auth_header" yaml:"auth_header" mapstructure:"auth_header"`    // Optional: replace Authorization with Basic auth (format: "user:pass")
+	Name       string `json:"name" yaml:"name" mapstructure:"name"`                      // Service name
+	Prefix     string `json:"prefix" yaml:"prefix" mapstructure:"prefix"`                // URL prefix for the proxy route
+	Target     string `json:"target" yaml:"target" mapstructure:"target"`                // Target service URL
+	Enabled    bool   `json:"enabled" yaml:"enabled" mapstructure:"enabled"`             // Whether the proxy is enabled
+	AuthHeader string `json:"auth_header" yaml:"auth_header" mapstructure:"auth_header"` // Optional: replace Authorization with Basic auth (format: "user:pass")
 }
 
 // SetValue sets a configuration value for the specified key.
@@ -556,4 +556,12 @@ func GetLLMGatewayAdminKey() string {
 // GetLLMGatewayTeamID returns the global LiteLLM Team ID (from secret file).
 func GetLLMGatewayTeamID() string {
 	return getFromFile(llmGatewaySecretPath, "litellm_team_id")
+}
+
+func IsMonarchEnable() bool {
+	return getBool(monarchEnable, false)
+}
+
+func GetMonarchClientRole() string {
+	return getString(monarchClientRole, "")
 }
