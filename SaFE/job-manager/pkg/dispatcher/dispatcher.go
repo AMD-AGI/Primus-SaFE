@@ -1081,22 +1081,22 @@ func (r *DispatcherReconciler) generateMonarchClient(ctx context.Context, rootWo
 	if workload.Spec.Env == nil {
 		workload.Spec.Env = make(map[string]string)
 	}
-	workload.Spec.Env[common.MonarchMeshPrefix] = v1.GetDisplayName(rootWorkload) + "-mesh-"
+	workload.Spec.Env[common.MonarchMeshPrefix] = generateMeshNamePrefix(rootWorkload.Name)
 	workload.Spec.Env[common.MonarchPort] = strconv.Itoa(common.MonarchMeshPortNum)
 	workload.Spec.Env[common.HostPerReplica] = strconv.Itoa(nodePerGroup)
+
+	if len(rootWorkload.Spec.Resources) >= 2 && rootWorkload.Spec.Resources[1].GPU != "" {
+		workload.Spec.Env["GPUS_PER_NODE"] = rootWorkload.Spec.Resources[1].GPU
+	}
 
 	commonworkload.SetMainContainerViaTemplate(ctx, r.Client, workload)
 	return workload
 }
 
-func monarchMeshName(rootWorkload *v1.Workload, groupId int) string {
-	return v1.GetDisplayName(rootWorkload) + "-mesh-" + strconv.Itoa(groupId+1)
-}
-
 // generateMonarchMesh generates a mesh workload for MonarchJob
 func (r *DispatcherReconciler) generateMonarchMesh(ctx context.Context, rootWorkload *v1.Workload, totalGroup, groupId int) *v1.Workload {
 	workload := rootWorkload.DeepCopy()
-	displayName := monarchMeshName(rootWorkload, groupId)
+	displayName := generateMeshNamePrefix(rootWorkload.Name) + strconv.Itoa(groupId+1)
 	nodePerGroup := rootWorkload.Spec.Resources[1].Replica / totalGroup
 	workload.Name = displayName
 	v1.SetLabel(workload, v1.DisplayNameLabel, displayName)
@@ -1116,6 +1116,13 @@ func (r *DispatcherReconciler) generateMonarchMesh(ctx context.Context, rootWork
 	workload.Spec.Resources[0].Replica = nodePerGroup
 	commonworkload.SetMainContainerViaTemplate(ctx, r.Client, workload)
 	return workload
+}
+
+// generateMeshNamePrefix strips '-' and '_' from displayName to produce a valid
+// Monarch mesh name prefix (lowercase alphanumeric only).
+func generateMeshNamePrefix(displayName string) string {
+	r := strings.NewReplacer("-", "", "_", "")
+	return r.Replace(displayName) + "mesh"
 }
 
 func generateServicePorts(specService *v1.Service) []corev1.ServicePort {

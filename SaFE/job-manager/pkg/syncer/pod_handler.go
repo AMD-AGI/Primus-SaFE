@@ -260,15 +260,16 @@ func (r *SyncerReconciler) updateWorkloadNodes(adminWorkload *v1.Workload, messa
 	nodeNames := make([]string, 0, len(adminWorkload.Status.Pods))
 	ranks := make([]string, 0, len(adminWorkload.Status.Pods))
 	nodeNameSet := sets.NewSet()
-	for _, p := range adminWorkload.Status.Pods {
-		if !nodeNameSet.Has(p.AdminNodeName) {
-			nodeNames = append(nodeNames, p.AdminNodeName)
+	for i := range adminWorkload.Status.Pods {
+		if !nodeNameSet.Has(adminWorkload.Status.Pods[i].AdminNodeName) {
+			nodeNames = append(nodeNames, adminWorkload.Status.Pods[i].AdminNodeName)
 			if !commonworkload.IsTorchFT(adminWorkload) && !commonworkload.IsMonarchJob(adminWorkload) {
-				ranks = append(ranks, p.Rank)
+				ranks = append(ranks, adminWorkload.Status.Pods[i].Rank)
 			}
-			nodeNameSet.Insert(p.AdminNodeName)
+			nodeNameSet.Insert(adminWorkload.Status.Pods[i].AdminNodeName)
 		}
 	}
+	klog.Infof("workload: %s, nodes: %v", adminWorkload.Name, nodeNames)
 	if len(adminWorkload.Status.Nodes) < message.dispatchCount {
 		adminWorkload.Status.Nodes = append(adminWorkload.Status.Nodes, nodeNames)
 		adminWorkload.Status.Ranks = append(adminWorkload.Status.Ranks, ranks)

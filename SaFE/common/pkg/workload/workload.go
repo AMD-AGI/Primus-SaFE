@@ -401,7 +401,7 @@ func GetWorkloadTemplate(ctx context.Context, cli client.Client, gvk schema.Grou
 		return &configmapList.Items[0], nil
 	}
 	return nil, commonerrors.NewInternalError(
-		fmt.Sprintf("failed to find configMap. gvk: %s", gvk.String()))
+		fmt.Sprintf("failed to find workload template. gvk: %s", gvk.String()))
 }
 
 // GetResourceTemplate Retrieve the corresponding resource_template based on the workload's GVK.
@@ -468,6 +468,9 @@ func GetReplicaCount(workload *v1.Workload, key string) (int, error) {
 // For TorchFT workloads: returns multiple GVKs since TorchFT consists of multiple resource types
 //   - PyTorchJob GVK for the training job components
 //   - Deployment GVK for the lighthouse deployment component
+// For MonarhchJob workloads: returns multiple GVKs since Moranch consists of multiple resource types
+//   - MonarchMesh GVK for the training job components
+//   - MonarchClient GVK for the client component
 //
 // For other workloads: returns the single GVK specified in the workload spec
 func GetWorkloadGVK(workload *v1.Workload) []schema.GroupVersionKind {
@@ -478,6 +481,13 @@ func GetWorkloadGVK(workload *v1.Workload) []schema.GroupVersionKind {
 		})
 		result = append(result, schema.GroupVersionKind{
 			Group: "apps", Version: common.DefaultVersion, Kind: common.DeploymentKind,
+		})
+	} else if IsMonarchJob(workload) {
+		result = append(result, schema.GroupVersionKind{
+			Group: "", Version: common.DefaultVersion, Kind: common.MonarchClient,
+		})
+		result = append(result, schema.GroupVersionKind{
+			Group: "monarch.pytorch.org", Version: common.DefaultVersion, Kind: common.MonarchMesh,
 		})
 	} else {
 		result = append(result, workload.ToSchemaGVK())
