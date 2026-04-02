@@ -101,7 +101,7 @@
             <el-table v-if="detailData.workloads" :data="detailData.workloads">
               <el-table-column prop="id" label="id" width="180">
                 <template #default="{ row }">
-                  <el-link type="primary" @click="jumpToDetail(row.kind, row.id)">{{
+                  <el-link type="primary" v-route="getDetailRoute(row.kind, row.id)">{{
                     row.id
                   }}</el-link>
                 </template>
@@ -275,6 +275,10 @@ const pathFor = (kind: WorkloadKind, sub: string = ''): `/${string}` => {
   const base = basePathOf(kind)
   return sub ? (`${base}/${sub.replace(/^\/+/, '')}` as `/${string}`) : base
 }
+const getDetailRoute = (kind: WorkloadKind, id: string) => ({
+  path: `${basePathOf(kind)}/detail`,
+  query: { id },
+})
 const jumpToDetail = (kind: WorkloadKind, id: string) => {
   router.push({ path: pathFor(kind, 'detail'), query: { id } })
 }

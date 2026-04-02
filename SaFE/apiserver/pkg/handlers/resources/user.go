@@ -290,7 +290,7 @@ func applyUserPatch(targetUser *v1.User, req *view.PatchUserRequest) {
 		targetUser.Spec.RestrictedType = *req.RestrictedType
 	}
 	if req.AvatarUrl != nil {
-		metav1.SetMetaDataAnnotation(&targetUser.ObjectMeta, v1.UserAvatarUrlAnnotation, *req.AvatarUrl)
+		v1.SetAnnotation(targetUser, v1.UserAvatarUrlAnnotation, *req.AvatarUrl)
 	}
 	if req.Password != nil && *req.Password != "" {
 		targetUser.Spec.Password = stringutil.Base64Encode(*req.Password)

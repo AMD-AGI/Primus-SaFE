@@ -232,7 +232,6 @@ func (r *OpsJobBaseReconciler) createFault(ctx context.Context,
 			Node: &v1.FaultNode{
 				ClusterName: v1.GetClusterId(job),
 				AdminName:   adminNode.Name,
-				K8sName:     adminNode.GetK8sNodeName(),
 			},
 		},
 	}

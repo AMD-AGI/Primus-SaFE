@@ -100,9 +100,10 @@
           <template #default="{ row }">
             <div class="flex flex-col items-start">
               <div class="flex items-center">
-                <el-link type="primary" @click="jumpToDetail(row.workloadId)">{{
-                  row.displayName
-                }}</el-link>
+                <el-link
+                  type="primary"
+                  v-route="{ path: '/training/detail', query: { id: row.workloadId } }"
+                >{{ row.displayName }}</el-link>
                 <el-tooltip
                   v-if="row.secondsUntilTimeout > 0"
                   :content="`${row.secondsUntilTimeout} seconds remaining until the task ends`"

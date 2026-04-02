@@ -150,8 +150,6 @@ data:
                       value: "22"
                     - name: NCCL_IB_RETRY_CNT
                       value: "12"
-                    - name: MAIN_CONTAINER_NAME
-                      value: "pytorch"
                     - name: POD_NAME
                       valueFrom:
                         fieldRef:
@@ -219,8 +217,6 @@ data:
                       value: "22"
                     - name: NCCL_IB_RETRY_CNT
                       value: "12"
-                    - name: MAIN_CONTAINER_NAME
-                      value: "pytorch"
                     - name: POD_NAME
                       valueFrom:
                         fieldRef:
@@ -680,5 +676,200 @@ data:
                       fieldRef:
                         fieldPath: metadata.labels
               terminationGracePeriodSeconds: 10
+`
+
+	TestMonarchClientTemplateConfig = `
+piVersion: v1
+kind: ConfigMap
+metadata:
+  name: amd-monarch-client-template
+  namespace: primus-safe
+  labels:
+    primus-safe.workload.version: v1
+    primus-safe.workload.kind: MonarchClient
+  annotations:
+    # The main container name should match the configuration defined in the template below
+    primus-safe.main.container: main
+data:
+  template: |
+    apiVersion: v1
+    kind: Pod
+    spec:
+      dnsPolicy: ClusterFirstWithHostNet
+      schedulerName: default-scheduler
+      serviceAccount: monarch-client
+      serviceAccountName: monarch-client
+      initContainers:
+        - name: preprocess
+          image: harbor.oci-slc.primus-safe.amd.com/proxy/primussafe/preprocess:latest
+          imagePullPolicy: IfNotPresent
+          command: ["/bin/sh", "-c", "cp -r /preprocess/* /shared-data/"]
+          securityContext:
+            capabilities:
+              add: [ "IPC_LOCK" ]
+          resources:
+            limits:
+              cpu: 1000m
+              memory: 128Mi
+          volumeMounts:
+          - name: shared-data
+            mountPath: /shared-data
+      containers:
+        - name: main
+          image: harbor.oci-slc.primus-safe.amd.com/proxy/primussafe/monarch:latest
+          imagePullPolicy: Always
+          terminationMessagePath: /dev/termination-log
+          terminationMessagePolicy: File
+          volumeMounts:
+            - name: shared-data
+              mountPath: /shared-data
+          env:
+            # TorchFT timeout settings (increase from default 60s to reduce commit failures)
+            - name: TORCHFT_TIMEOUT_SEC
+              value: "300"
+            - name: TORCHFT_QUORUM_TIMEOUT_SEC
+              value: "300"
+            - name: TORCHFT_CONNECT_TIMEOUT_SEC
+              value: "120"
+            - name: NCCL_SOCKET_IFNAME
+              value: "ens9np0"
+            - name: GLOO_SOCKET_IFNAME
+              value: "ens9np0"
+            - name: NCCL_IB_HCA
+              value: "ionic_0,ionic_2,ionic_3,ionic_4,ionic_5,ionic_7,ionic_8,ionic_9"
+            - name: NCCL_IB_TIMEOUT
+              value: "23"
+            - name: NCCL_IB_RETRY_CNT
+              value: "11"
+            - name: NCCL_IB_QPS_PER_CONNECTION
+              value: "1"
+            - name: NCCL_CROSS_NIC
+              value: "0"
+            - name: NCCL_CHECKS_DISABLE
+              value: "1"
+            - name: HSA_ENABLE_SDMA
+              value: "1"
+            - name: NCCL_IB_SL
+              value: "0"
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: POD_UID
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.uid
+            - name: POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+      volumes:
+        - name: shared-data
+          emptyDir: {}
+      terminationGracePeriodSeconds: 5
+`
+
+	TestMonarchMeshTemplateConfig = `
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: amd-monarch-mesh-template
+  namespace: "primus-safe"
+  labels:
+    primus-safe.workload.version: v1
+    primus-safe.workload.kind: MonarchMesh
+  annotations:
+    # The main container name should match the configuration defined in the template below
+    primus-safe.main.container: main
+data:
+  template: |
+    apiVersion: monarch.pytorch.org/v1alpha1
+    kind: MonarchMesh
+    spec:
+      podTemplate:
+        dnsPolicy: ClusterFirstWithHostNet
+        schedulerName: kube-scheduler-plugins
+        initContainers:
+          - name: preprocess
+            image: harbor.oci-slc.primus-safe.amd.com/proxy/primussafe/preprocess:latest
+            imagePullPolicy: IfNotPresent
+            command: ["/bin/sh", "-c", "cp -r /preprocess/* /shared-data/"]
+            securityContext:
+              capabilities:
+                add: [ "IPC_LOCK" ]
+            resources:
+              limits:
+                cpu: 1000m
+                memory: 128Mi
+            volumeMounts:
+            - name: shared-data
+              mountPath: /shared-data
+        containers:
+          - name: main
+            image: harbor.oci-slc.primus-safe.amd.com/proxy/primussafe/monarch:latest
+            imagePullPolicy: Always
+            env:
+              # TorchFT timeout settings (increase from default 60s to reduce commit failures)
+              - name: TORCHFT_TIMEOUT_SEC
+                value: "300"
+              - name: TORCHFT_QUORUM_TIMEOUT_SEC
+                value: "300"
+              - name: TORCHFT_CONNECT_TIMEOUT_SEC
+                value: "120"
+              - name: NCCL_SOCKET_IFNAME
+                value: "ens9np0"
+              - name: GLOO_SOCKET_IFNAME
+                value: "ens9np0"
+              - name: NCCL_IB_HCA
+                value: "ionic_0,ionic_2,ionic_3,ionic_4,ionic_5,ionic_7,ionic_8,ionic_9"
+              - name: NCCL_IB_TIMEOUT
+                value: "23"
+              - name: NCCL_IB_RETRY_CNT
+                value: "11"
+              - name: NCCL_IB_QPS_PER_CONNECTION
+                value: "1"
+              - name: NCCL_CROSS_NIC
+                value: "0"
+              - name: NCCL_CHECKS_DISABLE
+                value: "1"
+              - name: HSA_ENABLE_SDMA
+                value: "1"
+              - name: NCCL_IB_SL
+                value: "0"
+              - name: POD_NAME
+                valueFrom:
+                  fieldRef:
+                    fieldPath: metadata.name
+              - name: POD_UID
+                valueFrom:
+                  fieldRef:
+                    fieldPath: metadata.uid
+              - name: POD_IP
+                valueFrom:
+                  fieldRef:
+                    fieldPath: status.podIP
+              - name: POD_NAMESPACE
+                valueFrom:
+                  fieldRef:
+                    fieldPath: metadata.namespace
+              - name: NODE_NAME
+                valueFrom:
+                  fieldRef:
+                    fieldPath: spec.nodeName
+            volumeMounts:
+              - name: shared-data
+                mountPath: /shared-data
+        volumes:
+          - name: shared-data
+            emptyDir: {}
+        terminationGracePeriodSeconds: 5
 `
 )

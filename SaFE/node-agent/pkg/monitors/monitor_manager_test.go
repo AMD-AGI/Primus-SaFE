@@ -31,6 +31,7 @@ func addFakeConfig(t *testing.T, config *MonitorConfig) {
 		assert.NilError(t, err)
 	}
 	fullPath = filepath.Join(fullPath, config.Script)
+	config.IsDebug = true
 	data, err := json.Marshal(config)
 	assert.NilError(t, err)
 	err = utils.WriteFile(fullPath, string(data), 0777)
