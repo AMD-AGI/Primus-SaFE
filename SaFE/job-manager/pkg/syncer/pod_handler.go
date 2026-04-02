@@ -269,7 +269,6 @@ func (r *SyncerReconciler) updateWorkloadNodes(adminWorkload *v1.Workload, messa
 			nodeNameSet.Insert(adminWorkload.Status.Pods[i].AdminNodeName)
 		}
 	}
-	klog.Infof("workload: %s, nodes: %v", adminWorkload.Name, nodeNames)
 	if len(adminWorkload.Status.Nodes) < message.dispatchCount {
 		adminWorkload.Status.Nodes = append(adminWorkload.Status.Nodes, nodeNames)
 		adminWorkload.Status.Ranks = append(adminWorkload.Status.Ranks, ranks)
