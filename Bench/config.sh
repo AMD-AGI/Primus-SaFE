@@ -65,6 +65,12 @@ export RCCL_MSCCL_ENABLE="${RCCL_MSCCL_ENABLE:-0}"
 export NCCL_IB_TIMEOUT=23  
 export NCCL_IB_RETRY_CNT=11  
 
+if [[ "$ENABLE_AINIC" == "true" ]]; then
+    export NCCL_IB_GID_INDEX=1
+    export NCCL_NET_PLUGIN="${NCCL_NET_PLUGIN:-anp}"
+    export LD_LIBRARY_PATH="/opt/amd-anp/build:${LD_LIBRARY_PATH}"
+fi
+
 # ==============================================================================
 # Torch/CUDA Configuration
 # ==============================================================================
