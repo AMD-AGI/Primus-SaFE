@@ -13,20 +13,21 @@ if [ "$#" -lt 1 ]; then
   exit 2
 fi
 
-if [ ! -f "/tmp/rocm-smi" ]; then
+JSON_FILE="/tmp/rocm-smi.json"
+
+if [ ! -f "${JSON_FILE}" ]; then
   exit 0
 fi
 
-expectedCount=`echo "$1" |jq '.expectedGpuCount'`
-if [ -z "$expectedCount" ] || [ "$expectedCount" == "null" ] || [ $expectedCount -le 0 ]; then
+expectedCount=$(echo "$1" | jq '.expectedGpuCount')
+if [ -z "$expectedCount" ] || [ "$expectedCount" == "null" ] || [ "$expectedCount" -le 0 ]; then
   echo "Error: failed to get expectedGpuCount from input: $1"
   exit 2
 fi
 
-actualCount=`cat "/tmp/rocm-smi" | grep '^[0-9]' |wc -l`
-ret=$?
-if [ $ret -ne 0 ]; then
-  echo "Error: failed to execute rocm-smi"
+actualCount=$(jq '[keys[] | select(startswith("card"))] | length' "${JSON_FILE}" 2>/dev/null)
+if [ -z "$actualCount" ]; then
+  echo "Error: failed to parse GPU count from ${JSON_FILE}"
   exit 2
 fi
 

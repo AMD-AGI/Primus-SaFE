@@ -9,9 +9,15 @@ set -o pipefail
 
 EXPECTED_SPEED="32GT/s"
 EXPECTED_WIDTH="x16"
-GPU_PRODUCT=`nsenter --target 1 --mount --uts --ipc --net --pid -- rocm-smi --showproductname |grep "Card Series" |head -1 |awk -F"\t" '{print $NF}'`
-if [ $? -ne 0 ] || [ -z "$GPU_PRODUCT" ]; then
-  echo "Error: failed to get product"
+JSON_FILE="/tmp/rocm-smi.json"
+
+if [ ! -f "${JSON_FILE}" ]; then
+  exit 0
+fi
+
+GPU_PRODUCT=$(jq -r '[.[] | .["Card Series"] // empty] | first // empty' "${JSON_FILE}" 2>/dev/null)
+if [ -z "$GPU_PRODUCT" ]; then
+  echo "Error: failed to get product from ${JSON_FILE}"
   exit 2
 fi
 

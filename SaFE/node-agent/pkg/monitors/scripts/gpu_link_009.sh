@@ -7,12 +7,16 @@
 
 set -o pipefail
 
-if [ ! -f "/tmp/rocm-smi" ]; then
+JSON_FILE="/tmp/rocm-smi.json"
+
+if [ ! -f "${JSON_FILE}" ]; then
   exit 0
 fi
 
-nsenter --target 1 --mount --uts --ipc --net --pid -- /usr/bin/rocm-smi --showtopoaccess |grep -i false >/dev/null
-if [ $? -eq 0 ]; then
-  echo "Error: There is a link error between two GPUs"
+# Check topology link accessibility from "system" section
+failed=$(jq -r '.system | to_entries[] | select(.key | startswith("(Topology) Link accessibility")) | select(.value != "True") | "\(.key): \(.value)"' "${JSON_FILE}" 2>/dev/null)
+
+if [ -n "$failed" ]; then
+  echo "Error: GPU link accessibility failure. $(echo "$failed" | head -5)"
   exit 1
 fi

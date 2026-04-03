@@ -418,6 +418,8 @@ class ReplicaActor(Actor):
         self.failure_actors = self._trainers_proc_mesh.spawn(
             "failure_actors", FailureActor
         )
+        # Wait for actor objects to be fully initialized before broadcasting.
+        await asyncio.sleep(10)
         logger.info(
             f"{self.uid} Starting trainers with broadcast (attempt {self.attempt}, generation {generation})"
         )
@@ -920,8 +922,30 @@ def _log_env_vars() -> None:
         logger.info(f"[ENV] {key}={os.environ.get(key, '<unset>')}")
 
 
+def _fix_loopback_hosts() -> None:
+    """Replace 127.0.1.1 with real POD_IP in /etc/hosts so Monarch Rust
+    runtime resolves hostname to the correct address instead of loopback."""
+    pod_ip = os.environ.get("POD_IP", "")
+    if not pod_ip:
+        return
+    try:
+        with open("/etc/hosts", "r") as f:
+            content = f.read()
+        if "127.0.1.1" not in content:
+            return
+        fixed = content.replace("127.0.1.1", pod_ip)
+        with open("/tmp/hosts.fixed", "w") as f:
+            f.write(fixed)
+        os.system("cp /tmp/hosts.fixed /etc/hosts 2>/dev/null")
+        os.remove("/tmp/hosts.fixed")
+        logger.info(f"[hosts] Replaced 127.0.1.1 with {pod_ip} in /etc/hosts")
+    except Exception as e:
+        logger.warning(f"[hosts] Failed to fix /etc/hosts: {e}")
+
+
 async def main() -> None:
     init_logger()
+    _fix_loopback_hosts()
     enable_transport("tcp")
     _log_env_vars()
     args = parse_args()

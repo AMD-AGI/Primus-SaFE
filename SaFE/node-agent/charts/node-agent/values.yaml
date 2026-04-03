@@ -15,8 +15,9 @@ monitor:
   gpu_driver: "6.12.12"
   rocm_version: "6.4"
   nfs_server: ""
-  nfs_path: ""
+  nfs_server_path: ""
   nfs_mount: ""
+  all_nfs_path: ""
   resolv_search_domain: ""
   # Toggle switches for monitor scripts. Key matches config entry name (e.g., gpu_module_001).
   # Value: "on" or "off". Omitted keys use default (see config.yaml).

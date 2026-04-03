@@ -16,6 +16,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/klog/v2"
 	ctrlruntime "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -43,6 +44,9 @@ func (r *SyncerReconciler) handleJob(ctx context.Context,
 	}
 	if message.namespace != adminWorkload.Spec.Workspace {
 		return ctrlruntime.Result{}, nil
+	}
+	if commonworkload.IsMonarchJob(adminWorkload) && message.gvk.Kind == common.StatefulSetKind {
+		return r.syncMonarchStatefulSetLabels(ctx, adminWorkload, message, clientSets)
 	}
 	if commonworkload.IsCICDScalingRunnerSet(adminWorkload) && message.gvk.Kind != common.CICDScaleRunnerSetKind {
 		return ctrlruntime.Result{}, nil
@@ -548,6 +552,66 @@ func isTorchFTGroupFailed(adminWorkload *v1.Workload) bool {
 		return true
 	}
 	return false
+}
+
+// syncMonarchStatefulSetLabels patches the StatefulSet's pod template with the
+// required labels and annotations so that pods created by the Monarch operator
+// are visible to the syncer's pod handler.
+func (r *SyncerReconciler) syncMonarchStatefulSetLabels(ctx context.Context,
+	adminWorkload *v1.Workload, message *resourceMessage, clientSets *ClusterClientSets) (ctrlruntime.Result, error) {
+	if message.action != ResourceAdd {
+		return ctrlruntime.Result{}, nil
+	}
+	k8sObject, err := jobutils.GetObject(ctx, clientSets.ClientFactory(), message.name, message.namespace, message.gvk)
+	if err != nil {
+		return ctrlruntime.Result{}, client.IgnoreNotFound(err)
+	}
+
+	templateLabels, _, err := unstructured.NestedStringMap(k8sObject.Object,
+		"spec", "template", "metadata", "labels")
+	if err != nil {
+		return ctrlruntime.Result{}, err
+	}
+	if _, ok := templateLabels[v1.K8sObjectIdLabel]; ok {
+		return ctrlruntime.Result{}, nil
+	}
+
+	resourceId := "1"
+	patchLabels := map[string]interface{}{
+		v1.WorkloadIdLabel:          adminWorkload.Name,
+		v1.K8sObjectIdLabel:         message.name,
+		v1.WorkloadDispatchCntLabel: strconv.Itoa(v1.GetWorkloadDispatchCnt(adminWorkload)),
+	}
+	if v1.GetGroupId(k8sObject) != "" {
+		patchLabels[v1.GroupIdLabel] = v1.GetGroupId(k8sObject)
+	}
+	patchAnnotations := map[string]interface{}{
+		v1.ResourceIdAnnotation: resourceId,
+	}
+	meshGVK := schema.GroupVersionKind{Version: common.DefaultVersion, Kind: common.MonarchMesh}
+	if cm, cmErr := commonworkload.GetWorkloadTemplate(ctx, r.Client, meshGVK); cmErr == nil {
+		if name := v1.GetMainContainer(cm); name != "" {
+			patchAnnotations[v1.MainContainerAnnotation] = name
+		}
+	}
+
+	patchObj := map[string]interface{}{
+		"spec": map[string]interface{}{
+			"template": map[string]interface{}{
+				"metadata": map[string]interface{}{
+					"labels":      patchLabels,
+					"annotations": patchAnnotations,
+				},
+			},
+		},
+	}
+	p := jsonutils.MarshalSilently(patchObj)
+	if err = jobutils.PatchObject(ctx, clientSets.ClientFactory(), k8sObject, p); err != nil {
+		klog.ErrorS(err, "failed to patch monarch statefulset pod template", "name", message.name)
+		return ctrlruntime.Result{}, err
+	}
+	klog.Infof("patched monarch statefulset pod template labels, sts: %s, workload: %s", message.name, adminWorkload.Name)
+	return ctrlruntime.Result{}, nil
 }
 
 // getFailedPodInfo extracts information about failed pods for error reporting.
