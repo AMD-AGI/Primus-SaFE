@@ -123,6 +123,7 @@ func (h *Handler) createApiKey(c *gin.Context) (interface{}, error) {
 		CreationTime:   pq.NullTime{Time: now, Valid: true},
 		Whitelist:      whitelistJSON,
 		Deleted:        false,
+		KeyType:        authority.KeyTypeUser,
 	}
 
 	if err := h.dbClient.InsertApiKey(c.Request.Context(), record); err != nil {
