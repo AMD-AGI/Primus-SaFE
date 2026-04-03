@@ -7,31 +7,17 @@
 
 set -o pipefail
 
-if [ "$#" -lt 1 ]; then
-  echo "Usage: $0 <mount_point> [nfs_server] [nfs_path]"
-  echo "Example: $0 /nfs"
-  echo "Example: $0 /nfs 45.76.27.91 /mnt/nvme0"
+if [ "$#" -lt 3 ]; then
   exit 2
 fi
 
 MOUNT_POINT="$1"
-NFS_SERVER="${2:-}"
-NFS_PATH="${3:-}"
-
-if [ -z "$MOUNT_POINT" ]; then
-  echo "Error: mount_point cannot be empty"
-  exit 2
-fi
+NFS_SERVER="$2"
+NFS_PATH="$3"
 
 # Check if mount point exists and is accessible (ls avoids df+grep false matches)
 if nsenter --target 1 --mount --uts --ipc --net --pid -- ls "$MOUNT_POINT" >/dev/null 2>&1; then
   exit 0
-fi
-
-# Mount does not exist and nfs_server/nfs_path not provided: cannot mount
-if [ -z "$NFS_SERVER" ] || [ -z "$NFS_PATH" ]; then
-  echo "Error: mount point $MOUNT_POINT does not exist"
-  exit 1
 fi
 
 # Create mount point and mount
