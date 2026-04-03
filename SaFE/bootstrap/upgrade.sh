@@ -241,11 +241,14 @@ else
   if [ -n "${node_agent_nfs_server:-}" ]; then
     sed -i "s|nfs_server: \".*\"|nfs_server: \"${node_agent_nfs_server}\"|" "$values_yaml"
   fi
-  if [ -n "${node_agent_nfs_path:-}" ]; then
-    sed -i "s|nfs_path: \".*\"|nfs_path: \"${node_agent_nfs_path}\"|" "$values_yaml"
+  if [ -n "${node_agent_nfs_server_path:-}" ]; then
+    sed -i "s|nfs_server_path: \".*\"|nfs_server_path: \"${node_agent_nfs_server_path}\"|" "$values_yaml"
   fi
   if [ -n "${node_agent_nfs_mount:-}" ]; then
     sed -i "s|nfs_mount: \".*\"|nfs_mount: \"${node_agent_nfs_mount}\"|" "$values_yaml"
+  fi
+  if [ -n "${node_agent_all_nfs_path:-}" ]; then
+    sed -i "s|all_nfs_path: \".*\"|all_nfs_path: \"${node_agent_all_nfs_path}\"|" "$values_yaml"
   fi
   if [ -n "${node_agent_resolv_search_domain:-}" ]; then
     sed -i "s|resolv_search_domain: \".*\"|resolv_search_domain: \"${node_agent_resolv_search_domain}\"|" "$values_yaml"

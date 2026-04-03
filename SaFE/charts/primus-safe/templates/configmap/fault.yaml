@@ -55,6 +55,7 @@ data:
   sys_dmesg_311: '{"id":"311","toggle":"on"}'
   # Disk: 4XX
   disk_nfs_mount_401: '{"id":"401","action":"taint","toggle":"on"}'
+  disk_nfs_exist_check_402: '{"id":"402","action":"taint","toggle":"on"}'
   disk_ephemeral_storage_404: '{"id":"404","toggle":"on"}'
   disk_oci_bind_mount_405: '{"id":"405","toggle":"on"}'
   disk_nvme_count_406: '{"id":"406","action":"taint","toggle":"on"}'
