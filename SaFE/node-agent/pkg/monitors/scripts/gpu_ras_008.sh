@@ -7,13 +7,15 @@
 
 set -o pipefail
 
-if [ ! -f "/tmp/rocm-smi" ]; then
+host() { nsenter --target 1 --mount --uts --ipc --net --pid -- "$@"; }
+
+if [ ! -f "/tmp/rocm-smi.json" ]; then
   exit 0
 fi
 
-data=`nsenter --target 1 --mount --uts --ipc --net --pid -- /usr/bin/rocm-smi --showrasinfo`
+data=$(host /usr/bin/rocm-smi --showrasinfo all 2>&1)
 if [ $? -ne 0 ]; then
-  echo "Error: failed to execute rocm-smi --showrasinfo"
+  echo "Error: failed to execute rocm-smi --showrasinfo. $data"
   exit 1
 fi
 

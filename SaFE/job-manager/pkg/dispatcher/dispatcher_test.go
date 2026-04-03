@@ -1104,7 +1104,7 @@ func TestCreateMonarchMesh(t *testing.T) {
 	workload.Spec.Resources[0].Replica = 2
 	workload.Spec.JobPort = 0
 	workload.Spec.Env[common.MonarchPort] = strconv.Itoa(common.MonarchMeshPortNum)
-	v1.SetAnnotation(workload, v1.GroupIdAnnotation, "0")
+	v1.SetLabel(workload, v1.GroupIdLabel, "0")
 	v1.SetAnnotation(workload, v1.ResourceIdAnnotation, "1")
 
 	configmap, err := parseConfigmap(TestMonarchMeshTemplateConfig)

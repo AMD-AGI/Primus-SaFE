@@ -430,6 +430,9 @@ func (w *Workload) GetEnv(name string) string {
 // HasHostNetwork checks if the workload uses hostNetwork.
 // Note: Setting hostNetwork at the Workload level does not mean all Pods inherit it; network mode is defined per Pod
 func (w *Workload) HasHostNetwork() bool {
+	if IsForceHostNetwork(w) {
+		return true
+	}
 	for _, res := range w.Spec.Resources {
 		if res.RdmaResource != "" {
 			return true

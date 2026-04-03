@@ -41,6 +41,7 @@ data:
   net_oci_qos_211: '{"id":"211","action":"taint","toggle":"on"}'
   net_oci_dcqcn_212: '{"id":"212","action":"taint","toggle":"on"}'
   net_resolved_conf_213: '{"id":"213","action":"taint","toggle":"on"}'
+  net_search_domain_214: '{"id":"214","action":"taint","toggle":"on"}'
   # System: 3XX
   sys_timezone_301: '{"id":"301","toggle":"on"}'
   sys_hostname_302: '{"id":"302","action":"taint","toggle":"on"}'
@@ -53,8 +54,8 @@ data:
   sys_pcie_bus_error_310: '{"id":"310","action":"taint","toggle":"on"}'
   sys_dmesg_311: '{"id":"311","toggle":"on"}'
   # Disk: 4XX
-  nfs_check_401: '{"id":"401","action":"taint","toggle":"on"}'
-  resolv_search_domain_check_403: '{"id":"403","action":"taint","toggle":"on"}'
+  disk_nfs_mount_401: '{"id":"401","action":"taint","toggle":"on"}'
+  disk_nfs_exist_check_402: '{"id":"402","action":"taint","toggle":"on"}'
   disk_ephemeral_storage_404: '{"id":"404","toggle":"on"}'
   disk_oci_bind_mount_405: '{"id":"405","toggle":"on"}'
   disk_nvme_count_406: '{"id":"406","action":"taint","toggle":"on"}'
