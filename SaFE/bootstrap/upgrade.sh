@@ -237,6 +237,7 @@ else
   sed -i "s/net_ainic_load_205: \".*\"/net_ainic_load_205: \"${node_agent_toggle_net_ainic_load_205:-off}\"/" "$values_yaml"
   sed -i "s/net_ainic_devices_208: \".*\"/net_ainic_devices_208: \"${node_agent_toggle_net_ainic_devices_208:-off}\"/" "$values_yaml"
   sed -i "s/sys_csi_wekafs_309: \".*\"/sys_csi_wekafs_309: \"${node_agent_toggle_sys_csi_wekafs_309:-off}\"/" "$values_yaml"
+  sed -i "s/disk_nfs_exist_check_402: \".*\"/disk_nfs_exist_check_402: \"${node_agent_toggle_disk_nfs_exist_check_402:-off}\"/" "$values_yaml"
 
   if [ -n "${node_agent_nfs_server:-}" ]; then
     sed -i "s|nfs_server: \".*\"|nfs_server: \"${node_agent_nfs_server}\"|" "$values_yaml"
