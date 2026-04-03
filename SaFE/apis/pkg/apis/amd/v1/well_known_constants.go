@@ -109,7 +109,7 @@ const (
 	EnvToBeRemovedAnnotation          = WorkloadPrefix + "env.to.remove"
 	AdminControlPlaneAnnotation       = WorkloadPrefix + "admin.control.plane"
 	ResourceIdAnnotation              = WorkloadPrefix + "resource.id"
-	GroupIdAnnotation                 = WorkloadPrefix + "group.id"
+	GroupIdLabel                      = WorkloadPrefix + "group.id"
 	RootWorkloadIdLabel               = WorkloadPrefix + "root.id"
 	K8sObjectIdLabel                  = PrimusSafePrefix + "k8s.object.id"
 	UseWorkspaceStorageAnnotation     = WorkloadPrefix + "use.workspace.storage"

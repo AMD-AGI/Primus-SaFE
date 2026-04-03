@@ -548,3 +548,13 @@ func GetSpecifiedNodes(workload *v1.Workload) []string {
 	}
 	return nil
 }
+
+func IsEnabledHostNetwork(workload *v1.Workload, resourceId int) bool {
+	if v1.IsForceHostNetwork(workload) {
+		return true
+	}
+	if resourceId >= len(workload.Spec.Resources) || resourceId < 0 {
+		return false
+	}
+	return workload.Spec.Resources[resourceId].RdmaResource != "" 
+}

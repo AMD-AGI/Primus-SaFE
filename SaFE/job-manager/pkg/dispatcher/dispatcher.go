@@ -42,8 +42,8 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/job-manager/pkg/syncer"
 	jobutils "github.com/AMD-AIG-AIMA/SAFE/job-manager/pkg/utils"
 	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
-	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/maps"
+	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/timeutil"
 )
 
@@ -233,7 +233,7 @@ func (r *DispatcherReconciler) scaleDownTorchFTWorkers(ctx context.Context, root
 
 	// GroupId 0 = lighthouse (ignore), Index 1 to totalGroups = TorchFT workers
 	for _, obj := range unstructuredObjs {
-		groupIdStr, ok := obj.GetAnnotations()[v1.GroupIdAnnotation]
+		groupIdStr, ok := obj.GetLabels()[v1.GroupIdLabel]
 		if !ok {
 			continue
 		}
@@ -1001,8 +1001,8 @@ func (r *DispatcherReconciler) generateLighthouse(ctx context.Context, rootWorkl
 	workload.Name = rootWorkload.Name + "-" + groupId
 	v1.SetLabel(workload, v1.DisplayNameLabel, displayName)
 	v1.SetLabel(workload, v1.RootWorkloadIdLabel, rootWorkload.Name)
+	v1.SetLabel(workload, v1.GroupIdLabel, groupId)
 	v1.SetAnnotation(workload, v1.ResourceIdAnnotation, "0")
-	v1.SetAnnotation(workload, v1.GroupIdAnnotation, groupId)
 
 	minGroup, _ := commonworkload.GetReplicaCount(workload, common.MinReplicaGroup)
 	entryPoint := stringutil.Base64Decode(commonconfig.GetTorchFTLightHouse())
@@ -1030,10 +1030,10 @@ func (r *DispatcherReconciler) generateTorchFTWorker(ctx context.Context,
 	rootWorkload *v1.Workload, groupId, totalGroup int, lightHouseAddr string) *v1.Workload {
 	workload := rootWorkload.DeepCopy()
 	// The webhook has already validated the resources, ensuring at least 2 elements exist.
-	groupIdAnnotation := strconv.Itoa(groupId + 1)
+	groupIdStr := strconv.Itoa(groupId + 1)
 	nodePerGroup := rootWorkload.Spec.Resources[1].Replica / totalGroup
-	displayName := v1.GetDisplayName(rootWorkload) + "-" + groupIdAnnotation
-	workload.Name = rootWorkload.Name + "-" + groupIdAnnotation
+	displayName := v1.GetDisplayName(rootWorkload) + "-" + groupIdStr
+	workload.Name = rootWorkload.Name + "-" + groupIdStr
 	workload.Spec.Resources = []v1.WorkloadResource{rootWorkload.Spec.Resources[1]}
 	workload.Spec.Resources[0].Replica = 1 // pytorch master
 	if nodePerGroup > 1 {
@@ -1054,8 +1054,8 @@ func (r *DispatcherReconciler) generateTorchFTWorker(ctx context.Context,
 	workload.Spec.GroupVersionKind.Kind = common.PytorchJobKind
 	v1.SetLabel(workload, v1.DisplayNameLabel, displayName)
 	v1.SetLabel(workload, v1.RootWorkloadIdLabel, rootWorkload.Name)
+	v1.SetLabel(workload, v1.GroupIdLabel, groupIdStr)
 	v1.SetAnnotation(workload, v1.ResourceIdAnnotation, "1")
-	v1.SetAnnotation(workload, v1.GroupIdAnnotation, groupIdAnnotation)
 	commonworkload.SetMainContainerViaTemplate(ctx, r.Client, workload)
 	return workload
 }
@@ -1101,8 +1101,8 @@ func (r *DispatcherReconciler) generateMonarchMesh(ctx context.Context, rootWork
 	workload.Name = displayName
 	v1.SetLabel(workload, v1.DisplayNameLabel, displayName)
 	v1.SetLabel(workload, v1.RootWorkloadIdLabel, rootWorkload.Name)
+	v1.SetLabel(workload, v1.GroupIdLabel, strconv.Itoa(groupId))
 	v1.SetAnnotation(workload, v1.ResourceIdAnnotation, "1")
-	v1.SetAnnotation(workload, v1.GroupIdAnnotation, strconv.Itoa(groupId))
 	if len(rootWorkload.Spec.EntryPoints) > 1 {
 		workload.Spec.EntryPoints = []string{rootWorkload.Spec.EntryPoints[1]}
 	}
