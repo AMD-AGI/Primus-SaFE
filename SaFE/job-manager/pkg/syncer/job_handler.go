@@ -559,6 +559,9 @@ func isTorchFTGroupFailed(adminWorkload *v1.Workload) bool {
 // are visible to the syncer's pod handler.
 func (r *SyncerReconciler) syncMonarchStatefulSetLabels(ctx context.Context,
 	adminWorkload *v1.Workload, message *resourceMessage, clientSets *ClusterClientSets) (ctrlruntime.Result, error) {
+	if message.action != ResourceAdd {
+		return ctrlruntime.Result{}, nil
+	}
 	k8sObject, err := jobutils.GetObject(ctx, clientSets.ClientFactory(), message.name, message.namespace, message.gvk)
 	if err != nil {
 		return ctrlruntime.Result{}, client.IgnoreNotFound(err)
