@@ -354,6 +354,7 @@ EOF
               sed -i "s/net_ainic_load_205: \".*\"/net_ainic_load_205: \"${node_agent_toggle_net_ainic_load_205:-off}\"/" "$NODE_AGENT_TMP_VALUES"
               sed -i "s/net_ainic_devices_208: \".*\"/net_ainic_devices_208: \"${node_agent_toggle_net_ainic_devices_208:-off}\"/" "$NODE_AGENT_TMP_VALUES"
               sed -i "s/sys_csi_wekafs_309: \".*\"/sys_csi_wekafs_309: \"${node_agent_toggle_sys_csi_wekafs_309:-off}\"/" "$NODE_AGENT_TMP_VALUES"
+              sed -i "s/disk_nfs_exist_check_402: \".*\"/disk_nfs_exist_check_402: \"${node_agent_toggle_disk_nfs_exist_check_402:-off}\"/" "$NODE_AGENT_TMP_VALUES"
               echo "  ✓ Applied .env configurations to node-agent values"
 
               helm $KUBECONFIG_OPT upgrade -i node-agent "$NODE_AGENT_CHART" \
