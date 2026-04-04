@@ -598,41 +598,66 @@ func (h *Handler) UploadIcon(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"icon_url": iconURL})
 }
 
-// UploadFile handles POST /files?path=xxx - upload a file to storage.
-// path is the directory prefix; filename is taken from the uploaded file.
+// UploadFile handles POST /files?path=xxx - upload one or more files.
+// path is the directory prefix; filenames are taken from the uploaded files.
 func (h *Handler) UploadFile(c *gin.Context) {
 	if h.storage == nil {
 		respondWithError(c, http.StatusServiceUnavailable, "STORAGE_NOT_CONFIGURED", "Storage backend not configured")
 		return
 	}
 
-	file, header, err := c.Request.FormFile("file")
-	if err != nil {
-		respondInvalidParameter(c, "file", "File is required")
+	if err := c.Request.ParseMultipartForm(32 << 20); err != nil {
+		respondBadRequest(c, "Invalid multipart form", err.Error())
 		return
 	}
-	defer file.Close()
+
+	files := c.Request.MultipartForm.File["file"]
+	if len(files) == 0 {
+		respondInvalidParameter(c, "file", "At least one file is required")
+		return
+	}
 
 	userInfo := GetUserInfo(c)
-
-	// Build S3 key: path prefix (optional) + original filename
 	prefix := c.Query("path")
-	key := header.Filename
-	if prefix != "" {
-		key = prefix + "/" + header.Filename
+
+	type fileResult struct {
+		Key string `json:"key"`
+		URL string `json:"url"`
+	}
+	results := make([]fileResult, 0, len(files))
+
+	for _, header := range files {
+		key := header.Filename
+		if prefix != "" {
+			key = prefix + "/" + header.Filename
+		}
+
+		file, err := header.Open()
+		if err != nil {
+			log.Printf("[UploadFile] user=%s key=%s open error=%v", userInfo.UserID, key, err)
+			respondWithError(c, http.StatusInternalServerError, "UPLOAD_FAILED", err.Error())
+			return
+		}
+
+		err = h.storage.Upload(c.Request.Context(), key, file)
+		file.Close()
+		if err != nil {
+			log.Printf("[UploadFile] user=%s key=%s error=%v", userInfo.UserID, key, err)
+			respondWithError(c, http.StatusInternalServerError, "UPLOAD_FAILED", err.Error())
+			return
+		}
+
+		url, _ := h.storage.GetURL(c.Request.Context(), key)
+		results = append(results, fileResult{Key: key, URL: url})
+		log.Printf("[UploadFile] user=%s key=%s size=%d success", userInfo.UserID, key, header.Size)
 	}
 
-	log.Printf("[UploadFile] user=%s key=%s size=%d", userInfo.UserID, key, header.Size)
-
-	if err := h.storage.Upload(c.Request.Context(), key, file); err != nil {
-		log.Printf("[UploadFile] user=%s key=%s error=%v", userInfo.UserID, key, err)
-		respondWithError(c, http.StatusInternalServerError, "UPLOAD_FAILED", err.Error())
-		return
+	// Single file: flat response; multiple files: array response
+	if len(results) == 1 {
+		c.JSON(http.StatusOK, gin.H{"key": results[0].Key, "url": results[0].URL})
+	} else {
+		c.JSON(http.StatusOK, gin.H{"files": results})
 	}
-
-	url, _ := h.storage.GetURL(c.Request.Context(), key)
-	log.Printf("[UploadFile] user=%s key=%s success", userInfo.UserID, key)
-	c.JSON(http.StatusOK, gin.H{"key": key, "url": url})
 }
 
 // DownloadFile handles GET /files?path=xxx - download a file from storage
