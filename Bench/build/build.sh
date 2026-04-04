@@ -19,6 +19,7 @@
 #   --te-branch <branch>   Transformer Engine branch (default: stable)
 #   --tag <tag>            Custom image tag (overrides auto-generated tag)
 #   --no-cache             Build without Docker cache
+#   --push                 After a successful build, run docker push (no login; run docker login first)
 #   --dry-run              Print the docker build command without executing
 #   -h, --help             Show this help message
 #
@@ -40,6 +41,7 @@ PRIMUS_TURBO_COMMIT="79373eb781a54fd49aed9430c8718489409d1dd0"
 TE_BRANCH="stable"
 CUSTOM_TAG=""
 NO_CACHE=""
+DO_PUSH=false
 DRY_RUN=false
 
 usage() {
@@ -59,6 +61,7 @@ while [[ $# -gt 0 ]]; do
         --te-branch) TE_BRANCH="$2"; shift 2 ;;
         --tag)      CUSTOM_TAG="$2"; shift 2 ;;
         --no-cache) NO_CACHE="--no-cache"; shift ;;
+        --push)     DO_PUSH=true; shift ;;
         --dry-run)  DRY_RUN=true; shift ;;
         -h|--help)  usage ;;
         *) echo "Unknown option: $1"; usage ;;
@@ -147,3 +150,10 @@ fi
 
 echo ""
 echo "Build complete: ${IMAGE_TAG}"
+
+if [ "${DO_PUSH}" = true ]; then
+    echo ""
+    echo "Pushing ${IMAGE_TAG} ..."
+    docker push "${IMAGE_TAG}"
+    echo "Push complete: ${IMAGE_TAG}"
+fi
