@@ -63,13 +63,12 @@ RUN apt-get update && \
             libyaml-cpp-dev initramfs-tools hipify-clang \
         && break || { echo "Attempt $i failed, retrying in 15s..."; sleep 15; }; \
     done && \
-    apt-get clean && rm -rf /var/lib/apt/lists/* /tmp/*
-
-RUN if [ "${OS_VERSION}" = "24.04" ]; then \
+    if [ "${OS_VERSION}" = "24.04" ]; then \
         pip3 install --upgrade pip --break-system-packages --ignore-installed; \
     else \
         python3 -m pip install --upgrade pip; \
-    fi
+    fi && \
+    apt-get clean && rm -rf /var/lib/apt/lists/* /tmp/*
 
 ARG _BUILD=/opt/_build
 RUN mkdir -p ${_BUILD}
