@@ -1004,7 +1004,7 @@ func (r *DispatcherReconciler) generateLighthouse(ctx context.Context, rootWorkl
 	v1.SetLabel(workload, v1.GroupIdLabel, groupId)
 	v1.SetAnnotation(workload, v1.ResourceIdAnnotation, "0")
 
-	minGroup, _ := commonworkload.GetReplicaCount(workload, common.MinReplicaGroup)
+	minGroup, _ := commonworkload.GetReplicaCount(workload, common.MinReplicaCount)
 	entryPoint := stringutil.Base64Decode(commonconfig.GetTorchFTLightHouse())
 	entryPoint = strings.TrimRight(entryPoint, "\n")
 	entryPoint += fmt.Sprintf(" --min_replicas %d", minGroup)

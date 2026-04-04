@@ -24,6 +24,7 @@ RUN mkdir -p ${APP_HOME} && mkdir -p ${APP_HOME}/scripts && mkdir -p ${APP_HOME}
 
 COPY ./SaFE/docker/preprocess/*.sh ${APP_HOME}/
 COPY ./SaFE/docker/preprocess/*.py ${APP_HOME}/
+COPY ./SaFE/docker/preprocess/utils/ ${APP_HOME}/utils/
 COPY ./SaFE/docker/preprocess/scripts/*.sh ${APP_HOME}/scripts/
 
 # Copy bnxt driver if path is specified
