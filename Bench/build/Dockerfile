@@ -60,7 +60,7 @@ RUN apt-get update && \
             python3-mpi4py libnuma-dev libfmt-dev \
             rsync sudo util-linux kmod xz-utils numactl vim dnsutils \
             rocm-cmake dkms perftest libgtest-dev python3-yaml \
-            libyaml-cpp-dev initramfs-tools hipify-clang \
+            libyaml-cpp-dev initramfs-tools \
         && break || { echo "Attempt $i failed, retrying in 15s..."; sleep 15; }; \
     done && \
     if [ "${OS_VERSION}" = "24.04" ]; then \
@@ -75,6 +75,9 @@ RUN mkdir -p ${_BUILD}
 COPY pytorch/install_cmake.sh pytorch/install_rocm.sh pytorch/install_rccl.sh ${_BUILD}/
 RUN cd ${_BUILD} && bash install_cmake.sh
 RUN cd ${_BUILD} && bash install_rocm.sh
+# hipify-clang comes from ROCm apt repo (not stock Ubuntu)
+RUN apt-get update && apt-get install -y --no-install-recommends hipify-clang \
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
 RUN cd ${_BUILD} && bash install_rccl.sh
 RUN rm -rf ${_BUILD}
 
