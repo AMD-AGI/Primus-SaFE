@@ -598,33 +598,33 @@ func (h *Handler) UploadIcon(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"icon_url": iconURL})
 }
 
-// UploadFile handles PUT /files?path=xxx - upload a file to storage.
-// Supports both form-data (field "file") and raw binary body.
+// UploadFile handles POST /files?path=xxx - upload a file to storage.
+// path is the directory prefix; filename is taken from the uploaded file.
 func (h *Handler) UploadFile(c *gin.Context) {
-	key := c.Query("path")
-	if key == "" {
-		respondInvalidParameter(c, "path", "Query parameter 'path' is required, e.g. ?path=models/weights.tar.gz")
-		return
-	}
-
 	if h.storage == nil {
 		respondWithError(c, http.StatusServiceUnavailable, "STORAGE_NOT_CONFIGURED", "Storage backend not configured")
 		return
 	}
 
-	userInfo := GetUserInfo(c)
-	log.Printf("[UploadFile] user=%s key=%s", userInfo.UserID, key)
+	file, header, err := c.Request.FormFile("file")
+	if err != nil {
+		respondInvalidParameter(c, "file", "File is required")
+		return
+	}
+	defer file.Close()
 
-	var reader io.Reader
-	file, _, err := c.Request.FormFile("file")
-	if err == nil {
-		defer file.Close()
-		reader = file
-	} else {
-		reader = c.Request.Body
+	userInfo := GetUserInfo(c)
+
+	// Build S3 key: path prefix (optional) + original filename
+	prefix := c.Query("path")
+	key := header.Filename
+	if prefix != "" {
+		key = prefix + "/" + header.Filename
 	}
 
-	if err := h.storage.Upload(c.Request.Context(), key, reader); err != nil {
+	log.Printf("[UploadFile] user=%s key=%s size=%d", userInfo.UserID, key, header.Size)
+
+	if err := h.storage.Upload(c.Request.Context(), key, file); err != nil {
 		log.Printf("[UploadFile] user=%s key=%s error=%v", userInfo.UserID, key, err)
 		respondWithError(c, http.StatusInternalServerError, "UPLOAD_FAILED", err.Error())
 		return
