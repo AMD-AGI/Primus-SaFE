@@ -9,6 +9,7 @@ import (
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database"
 	dbModel "github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database/model"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/errors"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/helper/workload"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/mcp/unified"
 )
 
@@ -111,7 +112,7 @@ func handleCodeSnapshotGet(ctx context.Context, req *CodeSnapshotGetRequest) (*C
 			WithMessage("workload_uid is required")
 	}
 
-	clusterName, err := ResolveWorkloadCluster(ctx, req.WorkloadUID, req.Cluster)
+	clusterName, err := workload.ResolveWorkloadCluster(ctx, req.WorkloadUID, req.Cluster)
 	if err != nil {
 		return nil, err
 	}
@@ -139,7 +140,7 @@ func handleCodeSnapshotDiff(ctx context.Context, req *CodeSnapshotDiffRequest) (
 			WithMessage("both workload_uid_1 and workload_uid_2 are required")
 	}
 
-	clusterName, err := ResolveWorkloadCluster(ctx, req.WorkloadUID1, req.Cluster)
+	clusterName, err := workload.ResolveWorkloadCluster(ctx, req.WorkloadUID1, req.Cluster)
 	if err != nil {
 		return nil, err
 	}

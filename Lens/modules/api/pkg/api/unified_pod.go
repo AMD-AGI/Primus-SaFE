@@ -7,12 +7,12 @@ package api
 
 import (
 	"context"
-	"strings"
+	"encoding/json"
+	"fmt"
+	"net/url"
+	"strconv"
 	"time"
 
-	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/clientsets"
-	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database"
-	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/errors"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/mcp/unified"
 )
 
@@ -136,11 +136,8 @@ func init() {
 
 // ===== Handler Implementations =====
 
-// handlePodStats handles pod stats requests.
-// Reuses: database.GetPod().QueryPodsWithFilters, queryPodsWithStats logic
 func handlePodStats(ctx context.Context, req *PodStatsRequest) (*PodStatsListResponse, error) {
-	cm := clientsets.GetClusterManager()
-	clients, err := cm.GetClientSetByClusterName(req.Cluster)
+	rc, err := getRobustClient(req.Cluster)
 	if err != nil {
 		return nil, err
 	}
@@ -154,251 +151,200 @@ func handlePodStats(ctx context.Context, req *PodStatsRequest) (*PodStatsListRes
 		pageSize = 20
 	}
 
-	// Reuse existing database facade
-	podFacade := database.GetFacadeForCluster(clients.ClusterName).GetPod()
+	p := url.Values{}
+	if req.Namespace != "" {
+		p.Set("namespace", req.Namespace)
+	}
+	if req.PodName != "" {
+		p.Set("pod_name", req.PodName)
+	}
+	if req.StartTime != "" {
+		p.Set("start_time", req.StartTime)
+	}
+	if req.EndTime != "" {
+		p.Set("end_time", req.EndTime)
+	}
+	p.Set("page", strconv.Itoa(page))
+	p.Set("page_num", strconv.Itoa(page))
+	p.Set("page_size", strconv.Itoa(pageSize))
 
-	// Query pods with filters - reusing existing method
-	gpuPods, total, err := podFacade.QueryPodsWithFilters(
-		ctx,
-		req.Namespace,
-		req.PodName,
-		req.StartTime,
-		req.EndTime,
-		page,
-		pageSize,
-	)
+	raw, err := rc.GetRaw(ctx, "/pods/stats", p)
+	if err != nil {
+		return nil, fmt.Errorf("robust pod stats: %w", err)
+	}
+
+	var wire struct {
+		Total   int        `json:"total"`
+		Page    int        `json:"page"`
+		PageNum int        `json:"page_num"`
+		Pods    []PodStats `json:"pods"`
+	}
+	if err := json.Unmarshal(raw, &wire); err != nil {
+		return nil, fmt.Errorf("decode pod stats: %w", err)
+	}
+	outPage := wire.Page
+	if outPage == 0 {
+		outPage = wire.PageNum
+	}
+	if outPage == 0 {
+		outPage = page
+	}
+	return &PodStatsResponse{
+		Total: wire.Total,
+		Page:  outPage,
+		Pods:  wire.Pods,
+	}, nil
+}
+
+func handlePodDetail(ctx context.Context, req *PodDetailRequest) (*PodDetailResult, error) {
+	rc, err := getRobustClient(req.Cluster)
 	if err != nil {
 		return nil, err
 	}
 
-	// Convert to response format - same logic as original
-	pods := make([]PodStats, 0, len(gpuPods))
-	for _, pod := range gpuPods {
-		avgUtil, _ := podFacade.GetAverageGPUUtilizationByNode(ctx, pod.NodeName)
-		status := "Unknown"
-		if pod.Running {
+	raw, err := rc.GetRaw(ctx, "/pods/"+req.PodUID, nil)
+	if err != nil {
+		return nil, fmt.Errorf("robust pod detail: %w", err)
+	}
+
+	var wire struct {
+		PodUID         string         `json:"pod_uid"`
+		PodName        string         `json:"pod_name"`
+		Namespace      string         `json:"namespace"`
+		NodeName       string         `json:"node_name"`
+		Status         string         `json:"status"`
+		Phase          string         `json:"phase"`
+		CreatedAt      time.Time      `json:"created_at"`
+		UpdatedAt      time.Time      `json:"updated_at"`
+		AllocatedGPUs  int32          `json:"allocated_gpus"`
+		GPUAllocated   int            `json:"gpu_allocated"`
+		Running        bool           `json:"running"`
+		Deleted        bool           `json:"deleted"`
+		IP             string         `json:"ip"`
+		OwnerUID       string         `json:"owner_uid"`
+		WorkloadID     string         `json:"workload_id"`
+		CurrentMetrics *PodGPUMetrics `json:"current_metrics"`
+	}
+	if err := json.Unmarshal(raw, &wire); err != nil {
+		return nil, fmt.Errorf("decode pod detail: %w", err)
+	}
+
+	alloc := wire.AllocatedGPUs
+	if alloc == 0 && wire.GPUAllocated != 0 {
+		alloc = int32(wire.GPUAllocated)
+	}
+	owner := wire.OwnerUID
+	if owner == "" {
+		owner = wire.WorkloadID
+	}
+	status := wire.Status
+	if status == "" {
+		if wire.Running {
 			status = "Running"
 		} else {
-			switch pod.Phase {
-			case "Pending":
-				status = "Pending"
-			case "Succeeded":
-				status = "Succeeded"
-			case "Failed":
-				status = "Failed"
+			switch wire.Phase {
+			case "Pending", "Succeeded", "Failed":
+				status = wire.Phase
+			default:
+				status = "Unknown"
 			}
 		}
-
-		pods = append(pods, PodStats{
-			PodUID:         pod.UID,
-			PodName:        pod.Name,
-			Namespace:      pod.Namespace,
-			NodeName:       pod.NodeName,
-			Status:         status,
-			Phase:          pod.Phase,
-			CreatedAt:      pod.CreatedAt,
-			AllocatedGPUs:  pod.GpuAllocated,
-			AvgUtilization: avgUtil,
-			Running:        pod.Running,
-			OwnerUID:       pod.OwnerUID,
-			IP:             pod.IP,
-		})
 	}
-
-	return &PodStatsResponse{
-		Total: int(total),
-		Page:  page,
-		Pods:  pods,
-	}, nil
-}
-
-// ===== Phase 4 Handler Implementations =====
-
-// handlePodDetail handles pod detail requests.
-// Reuses: database.GetPod().GetGpuPodsByPodUid, getCurrentPodMetrics
-func handlePodDetail(ctx context.Context, req *PodDetailRequest) (*PodDetailResult, error) {
-	cm := clientsets.GetClusterManager()
-	clients, err := cm.GetClientSetByClusterName(req.Cluster)
-	if err != nil {
-		return nil, err
-	}
-
-	podFacade := database.GetFacadeForCluster(clients.ClusterName).GetPod()
-
-	pod, err := podFacade.GetGpuPodsByPodUid(ctx, req.PodUID)
-	if err != nil {
-		return nil, err
-	}
-	if pod == nil {
-		return nil, errors.NewError().WithCode(errors.RequestDataNotExisted).WithMessage("pod not found")
-	}
-
-	// Get current metrics - reuse existing helper
-	metrics := getCurrentPodMetrics(ctx, podFacade, pod.NodeName)
 
 	return &PodDetailResponse{
-		PodUID:         pod.UID,
-		PodName:        pod.Name,
-		Namespace:      pod.Namespace,
-		NodeName:       pod.NodeName,
-		Status:         getStatusFromPhase(pod.Phase, pod.Running),
-		Phase:          pod.Phase,
-		CreatedAt:      pod.CreatedAt,
-		UpdatedAt:      pod.UpdatedAt,
-		AllocatedGPUs:  pod.GpuAllocated,
-		Running:        pod.Running,
-		Deleted:        pod.Deleted,
-		IP:             pod.IP,
-		OwnerUID:       pod.OwnerUID,
-		CurrentMetrics: metrics,
+		PodUID:         wire.PodUID,
+		PodName:        wire.PodName,
+		Namespace:      wire.Namespace,
+		NodeName:       wire.NodeName,
+		Status:         status,
+		Phase:          wire.Phase,
+		CreatedAt:      wire.CreatedAt,
+		UpdatedAt:      wire.UpdatedAt,
+		AllocatedGPUs:  alloc,
+		Running:        wire.Running,
+		Deleted:        wire.Deleted,
+		IP:             wire.IP,
+		OwnerUID:       owner,
+		CurrentMetrics: wire.CurrentMetrics,
 	}, nil
 }
 
-// ===== Phase 5 Handler Implementations =====
-
-// handlePodGPUHistory handles pod GPU history requests.
-// Reuses: database.GetPod().GetGpuPodsByPodUid, queryGPUHistory
 func handlePodGPUHistory(ctx context.Context, req *PodGPUHistoryRequest) (*PodGPUHistoryResult, error) {
-	cm := clientsets.GetClusterManager()
-	clients, err := cm.GetClientSetByClusterName(req.Cluster)
+	rc, err := getRobustClient(req.Cluster)
 	if err != nil {
 		return nil, err
 	}
 
-	// Default granularity
-	granularity := req.Granularity
-	if granularity == "" {
-		granularity = "hourly"
+	p := url.Values{}
+	if req.StartTime != "" {
+		p.Set("start_time", req.StartTime)
 	}
-
-	podFacade := database.GetFacadeForCluster(clients.ClusterName).GetPod()
-
-	// Get pod info first
-	pod, err := podFacade.GetGpuPodsByPodUid(ctx, req.PodUID)
-	if err != nil {
-		return nil, err
+	if req.EndTime != "" {
+		p.Set("end_time", req.EndTime)
 	}
-	if pod == nil {
-		return nil, errors.NewError().WithCode(errors.RequestDataNotExisted).WithMessage("pod not found")
-	}
-
-	// Parse time range - reuse existing logic
-	var startTime, endTime time.Time
-
 	if req.Hours > 0 {
-		endTime = time.Now()
-		startTime = endTime.Add(-time.Duration(req.Hours) * time.Hour)
-	} else if req.StartTime != "" && req.EndTime != "" {
-		startTime, err = time.Parse(time.RFC3339, req.StartTime)
-		if err != nil {
-			return nil, errors.NewError().WithCode(errors.RequestParameterInvalid).WithMessage("invalid start_time format, use RFC3339")
-		}
-		endTime, err = time.Parse(time.RFC3339, req.EndTime)
-		if err != nil {
-			return nil, errors.NewError().WithCode(errors.RequestParameterInvalid).WithMessage("invalid end_time format, use RFC3339")
-		}
-	} else {
-		return nil, errors.NewError().WithCode(errors.RequestParameterInvalid).WithMessage("either 'hours' or both 'start_time' and 'end_time' are required")
+		p.Set("hours", strconv.Itoa(req.Hours))
+	}
+	if req.Granularity != "" {
+		p.Set("granularity", req.Granularity)
 	}
 
-	// Query GPU history - reuse existing helper
-	dataPoints := queryGPUHistory(ctx, podFacade, pod.NodeName, startTime, endTime, granularity)
+	raw, err := rc.GetRaw(ctx, "/pods/"+req.PodUID+"/gpu-history", p)
+	if err != nil {
+		return nil, fmt.Errorf("robust pod gpu history: %w", err)
+	}
 
-	return &PodGPUHistoryResponse{
-		PodUID:      req.PodUID,
-		PodName:     pod.Name,
-		Granularity: granularity,
-		DataPoints:  dataPoints,
-	}, nil
+	var out PodGPUHistoryResponse
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return nil, fmt.Errorf("decode pod gpu history: %w", err)
+	}
+	if out.PodUID == "" {
+		out.PodUID = req.PodUID
+	}
+	if out.Granularity == "" {
+		out.Granularity = "hourly"
+	}
+	return &out, nil
 }
 
-// handlePodEvents handles pod events requests.
-// Reuses: database.GetPod().ListPodEventsByUID, queryPodEvents
 func handlePodEvents(ctx context.Context, req *PodEventsRequest) (*PodEventsResult, error) {
-	cm := clientsets.GetClusterManager()
-	clients, err := cm.GetClientSetByClusterName(req.Cluster)
+	rc, err := getRobustClient(req.Cluster)
 	if err != nil {
 		return nil, err
 	}
 
-	podFacade := database.GetFacadeForCluster(clients.ClusterName).GetPod()
+	raw, err := rc.GetRaw(ctx, "/pods/"+req.PodUID+"/events", nil)
+	if err != nil {
+		return nil, fmt.Errorf("robust pod events: %w", err)
+	}
 
-	// Query pod events - reuse existing helper
-	events := queryPodEvents(ctx, podFacade, req.PodUID)
-
-	return &PodEventsResponse{
-		PodUID: req.PodUID,
-		Events: events,
-	}, nil
+	var out PodEventsResponse
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return nil, fmt.Errorf("decode pod events: %w", err)
+	}
+	if out.PodUID == "" {
+		out.PodUID = req.PodUID
+	}
+	return &out, nil
 }
 
-// handlePodComparison handles pod comparison requests.
-// Reuses: database.GetPod().ListPodsByUids, GetAverageGPUUtilizationByNode
 func handlePodComparison(ctx context.Context, req *PodComparisonRequest) (*PodComparisonResult, error) {
-	cm := clientsets.GetClusterManager()
-	clients, err := cm.GetClientSetByClusterName(req.Cluster)
+	rc, err := getRobustClient(req.Cluster)
 	if err != nil {
 		return nil, err
 	}
 
-	// Parse pod UIDs (comma-separated)
-	podUIDs := strings.Split(req.PodUIDs, ",")
-	if len(podUIDs) < 2 || len(podUIDs) > 10 {
-		return nil, errors.NewError().WithCode(errors.RequestParameterInvalid).WithMessage("pod_uids must contain 2-10 UIDs")
-	}
+	p := url.Values{}
+	p.Set("pod_uids", req.PodUIDs)
 
-	podFacade := database.GetFacadeForCluster(clients.ClusterName).GetPod()
-
-	// Query pods
-	pods, err := podFacade.ListPodsByUids(ctx, podUIDs)
+	raw, err := rc.GetRaw(ctx, "/pods/comparison", p)
 	if err != nil {
-		return nil, err
-	}
-	if len(pods) == 0 {
-		return nil, errors.NewError().WithCode(errors.RequestDataNotExisted).WithMessage("no pods found")
+		return nil, fmt.Errorf("robust pod comparison: %w", err)
 	}
 
-	// Build comparison items - same logic as original
-	comparisonItems := make([]PodComparisonItem, 0, len(pods))
-	var totalUtil float64
-	var highestUtil float64
-	var lowestUtil float64 = 100.0
-	var highestPod, lowestPod string
-
-	for _, pod := range pods {
-		avgUtil, _ := podFacade.GetAverageGPUUtilizationByNode(ctx, pod.NodeName)
-
-		metrics := map[string]float64{
-			"gpu_utilization": avgUtil,
-		}
-
-		comparisonItems = append(comparisonItems, PodComparisonItem{
-			PodUID:        pod.UID,
-			PodName:       pod.Name,
-			Namespace:     pod.Namespace,
-			AllocatedGPUs: pod.GpuAllocated,
-			Metrics:       metrics,
-		})
-
-		totalUtil += avgUtil
-		if avgUtil > highestUtil {
-			highestUtil = avgUtil
-			highestPod = pod.Name
-		}
-		if avgUtil < lowestUtil {
-			lowestUtil = avgUtil
-			lowestPod = pod.Name
-		}
+	var out PodComparisonResponse
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return nil, fmt.Errorf("decode pod comparison: %w", err)
 	}
-
-	summary := ComparisonSummary{
-		HighestUtilization: highestPod,
-		LowestUtilization:  lowestPod,
-		AvgUtilization:     totalUtil / float64(len(pods)),
-	}
-
-	return &PodComparisonResponse{
-		Pods:       comparisonItems,
-		Comparison: summary,
-	}, nil
+	return &out, nil
 }

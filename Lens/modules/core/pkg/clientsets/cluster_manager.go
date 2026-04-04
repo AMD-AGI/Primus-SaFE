@@ -11,6 +11,7 @@ import (
 
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/errors"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/robust"
 	"k8s.io/client-go/tools/clientcmd"
 )
 
@@ -19,6 +20,7 @@ type ClusterClientSet struct {
 	ClusterName      string
 	K8SClientSet     *K8SClientSet
 	StorageClientSet *StorageClientSet
+	RobustClient     *robust.Client
 }
 
 // ClusterManager manages clients for all clusters
@@ -174,10 +176,16 @@ func (cm *ClusterManager) initializeCurrentCluster() error {
 	// Try to get cluster name from environment variable or config
 	clusterName := getCurrentClusterName()
 
+	var robustClient *robust.Client
+	if rc, err := robust.GetRegistry().GetClient(clusterName); err == nil {
+		robustClient = rc
+	}
+
 	cm.currentCluster = &ClusterClientSet{
 		ClusterName:      clusterName,
 		K8SClientSet:     k8sClient,
 		StorageClientSet: storageClient,
+		RobustClient:     robustClient,
 	}
 
 	// For data plane components, add current cluster to clusters map
@@ -233,14 +241,20 @@ func (cm *ClusterManager) loadAllClusters(ctx context.Context) error {
 			}
 		}
 
+		var rc *robust.Client
+		if c, err := robust.GetRegistry().GetClient(clusterName); err == nil {
+			rc = c
+		}
+
 		newClusters[clusterName] = &ClusterClientSet{
 			ClusterName:      clusterName,
 			K8SClientSet:     k8sClient,
 			StorageClientSet: storageClient,
+			RobustClient:     rc,
 		}
 
-		log.Infof("Loaded cluster: %s (K8S: %v, Storage: %v)",
-			clusterName, k8sClient != nil, storageClient != nil)
+		log.Infof("Loaded cluster: %s (K8S: %v, Storage: %v, Robust: %v)",
+			clusterName, k8sClient != nil, storageClient != nil, rc != nil)
 	}
 
 	cm.clusters = newClusters

@@ -16,6 +16,7 @@ import (
 	dbmodel "github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database/model"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/errors"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/helper/prom"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/helper/workload"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/mcp/unified"
 )
@@ -178,7 +179,7 @@ func diagResolveFacade(ctx context.Context, uid string, cluster string) (databas
 	if uid == "" {
 		return nil, "", errors.NewError().WithCode(errors.RequestParameterInvalid).WithMessage("uid is required")
 	}
-	clusterName, err := ResolveWorkloadCluster(ctx, uid, cluster)
+	clusterName, err := workload.ResolveWorkloadCluster(ctx, uid, cluster)
 	if err != nil {
 		return nil, "", err
 	}
@@ -189,7 +190,12 @@ func diagResolveStorage(ctx context.Context, uid string, cluster string) (*clien
 	if uid == "" {
 		return nil, "", errors.NewError().WithCode(errors.RequestParameterInvalid).WithMessage("uid is required")
 	}
-	clients, err := getClusterClientsForWorkload(ctx, uid, cluster)
+	clusterName, err := workload.ResolveWorkloadCluster(ctx, uid, cluster)
+	if err != nil {
+		return nil, "", err
+	}
+	cm := clientsets.GetClusterManager()
+	clients, err := cm.GetClientSetByClusterName(clusterName)
 	if err != nil {
 		return nil, "", err
 	}

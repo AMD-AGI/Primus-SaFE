@@ -7,39 +7,16 @@ package api
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
+	"net/url"
 	"strconv"
-	"time"
 
-	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/clientsets"
-	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database"
-	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database/filter"
-	dbModel "github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database/model"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/errors"
-	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/helper/metadata"
-	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/helper/workload"
-	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/mcp/unified"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/model"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/robust"
 )
-
-// ===== Helper Functions =====
-
-// ResolveWorkloadCluster delegates to workload.ResolveWorkloadCluster in core module.
-func ResolveWorkloadCluster(ctx context.Context, uid string, requestedCluster string) (string, error) {
-	return workload.ResolveWorkloadCluster(ctx, uid, requestedCluster)
-}
-
-// getClusterClientsForWorkload resolves the cluster and returns the client set.
-// This is a convenience wrapper that combines ResolveWorkloadCluster and GetClientSetByClusterName.
-func getClusterClientsForWorkload(ctx context.Context, uid string, requestedCluster string) (*clientsets.ClusterClientSet, error) {
-	clusterName, err := ResolveWorkloadCluster(ctx, uid, requestedCluster)
-	if err != nil {
-		return nil, err
-	}
-
-	cm := clientsets.GetClusterManager()
-	return cm.GetClientSetByClusterName(clusterName)
-}
 
 // ===== Workload List =====
 
@@ -346,11 +323,8 @@ func init() {
 
 // ===== Handler Implementations =====
 
-// handleWorkloadList handles workload list requests.
-// Reuses: database.GetWorkload().QueryWorkload, cvtDBWorkloadListItem
 func handleWorkloadList(ctx context.Context, req *WorkloadListRequest) (*WorkloadListResponse, error) {
-	cm := clientsets.GetClusterManager()
-	clients, err := cm.GetClusterClientsOrDefault(req.Cluster)
+	rc, err := getRobustClient(req.Cluster)
 	if err != nil {
 		return nil, err
 	}
@@ -364,829 +338,387 @@ func handleWorkloadList(ctx context.Context, req *WorkloadListRequest) (*Workloa
 		pageSize = 10
 	}
 
-	// Build filter - reusing existing filter structure
-	emptyParentUid := ""
-	f := &filter.WorkloadFilter{
-		Limit:     pageSize,
-		Offset:    (pageNum - 1) * pageSize,
-		ParentUid: &emptyParentUid,
-	}
+	p := url.Values{}
+	p.Set("page_num", strconv.Itoa(pageNum))
+	p.Set("page_size", strconv.Itoa(pageSize))
 	if req.Name != "" {
-		f.Name = &req.Name
+		p.Set("name", req.Name)
 	}
 	if req.Kind != "" {
-		f.Kind = &req.Kind
+		p.Set("kind", req.Kind)
 	}
 	if req.Namespace != "" {
-		f.Namespace = &req.Namespace
+		p.Set("namespace", req.Namespace)
 	}
 	if req.Status != "" {
-		f.Status = &req.Status
+		p.Set("status", req.Status)
 	}
 	if req.OrderBy != "" {
-		switch req.OrderBy {
+		orderBy := req.OrderBy
+		switch orderBy {
 		case "start_at":
-			f.OrderBy = "created_at"
+			orderBy = "created_at"
 		case "end_at":
-			f.OrderBy = "end_at"
+			// pass through for Robust compatibility
 		}
+		p.Set("order_by", orderBy)
 	}
 
-	// Reuse existing database query
-	workloads, count, err := database.GetFacadeForCluster(clients.ClusterName).GetWorkload().QueryWorkload(ctx, f)
+	raw, err := rc.GetRaw(ctx, "/workloads", p)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("robust workloads list: %w", err)
 	}
 
-	// Reuse existing conversion function
-	result := []model.WorkloadListItem{}
-	for _, w := range workloads {
-		item, _ := cvtDBWorkloadListItem(ctx, clients.ClusterName, w)
-		result = append(result, item)
+	var out WorkloadListResponse
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return nil, fmt.Errorf("decode workloads list: %w", err)
 	}
-
-	return &WorkloadListResponse{
-		Data:  result,
-		Total: count,
-	}, nil
+	return &out, nil
 }
 
-// handleWorkloadDetail handles workload detail requests.
-// Reuses: database.GetWorkload().GetGpuWorkloadByUid, workload.GetWorkloadPods, workload.GetWorkloadResource
 func handleWorkloadDetail(ctx context.Context, req *WorkloadDetailRequest) (*WorkloadDetailResponse, error) {
-	log.Debugf("[WorkloadDetail] Request: UID=%s, Cluster=%s", req.UID, req.Cluster)
-
-	// Auto-resolve cluster if not specified
-	clients, err := getClusterClientsForWorkload(ctx, req.UID, req.Cluster)
-	if err != nil {
-		log.Errorf("[WorkloadDetail] Failed to resolve cluster for workload %s: %v", req.UID, err)
-		return nil, err
-	}
-
-	log.Debugf("[WorkloadDetail] Resolved cluster: %s", clients.ClusterName)
-
-	// Query workload from the resolved cluster
-	dbWorkload, err := database.GetFacadeForCluster(clients.ClusterName).GetWorkload().GetGpuWorkloadByUid(ctx, req.UID)
-	if err != nil {
-		log.Errorf("[WorkloadDetail] Database query error: uid=%s, cluster=%s, error=%v", req.UID, clients.ClusterName, err)
-		return nil, err
-	}
-	if dbWorkload == nil {
-		return nil, errors.NewError().WithCode(errors.RequestDataNotExisted).WithMessage("workload not found")
-	}
-
-	log.Debugf("[WorkloadDetail] Workload found: uid=%s, name=%s, kind=%s, namespace=%s",
-		dbWorkload.UID, dbWorkload.Name, dbWorkload.Kind, dbWorkload.Namespace)
-
-	workloadInfo := &model.WorkloadInfo{
-		ApiVersion:    dbWorkload.GroupVersion,
-		Kind:          dbWorkload.Kind,
-		Name:          dbWorkload.Name,
-		Namespace:     dbWorkload.Namespace,
-		Uid:           dbWorkload.UID,
-		GpuAllocation: nil,
-		Pods:          []model.WorkloadInfoPod{},
-		ActivePods:    []model.WorkloadInfoPod{},
-		StartTime:     dbWorkload.CreatedAt.Unix(),
-		EndTime:       dbWorkload.EndAt.Unix(),
-		Source:        getSource(dbWorkload),
-	}
-	if dbWorkload.EndAt.Unix() < int64(8*time.Hour) {
-		workloadInfo.EndTime = 0
-	}
-
-	// Reuse existing helper to get pods
-	pods, err := workload.GetWorkloadPods(ctx, clients.ClusterName, dbWorkload.UID)
+	rc, err := getRobustClient(req.Cluster)
 	if err != nil {
 		return nil, err
 	}
-	for _, pod := range pods {
-		podInfo := model.WorkloadInfoPod{
-			PodUID:       pod.UID,
-			PodNamespace: pod.Namespace,
-			PodName:      pod.Name,
-			NodeName:     pod.NodeName,
-			Phase:        pod.Phase,
-			Running:      pod.Running,
-			IP:           pod.IP,
-			GpuAllocated: int(pod.GpuAllocated),
-			CreatedAt:    pod.CreatedAt.Unix(),
-			UpdatedAt:    pod.UpdatedAt.Unix(),
-		}
-		workloadInfo.Pods = append(workloadInfo.Pods, podInfo)
-		if pod.Running && !pod.Deleted {
-			workloadInfo.ActivePods = append(workloadInfo.ActivePods, podInfo)
-		}
+	if req.UID == "" {
+		return nil, errors.NewError().WithCode(errors.RequestParameterInvalid).WithMessage("uid is required")
 	}
 
-	// Reuse existing helper to get GPU allocation
-	gpuAllocation, err := workload.GetWorkloadResource(ctx, clients.ClusterName, dbWorkload.UID)
-	if err == nil {
-		workloadInfo.GpuAllocation = gpuAllocation
+	path := "/workloads/" + url.PathEscape(req.UID)
+	raw, err := rc.GetRaw(ctx, path, nil)
+	if err != nil {
+		return nil, fmt.Errorf("robust workload detail: %w", err)
 	}
 
-	return workloadInfo, nil
+	var out model.WorkloadInfo
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return nil, fmt.Errorf("decode workload detail: %w", err)
+	}
+	return &out, nil
 }
 
-// ===== Phase 5 Handler Implementations =====
-
-// handleWorkloadStatistics handles workload statistics requests.
-// Reuses: database.GetWorkload().GetWorkloadNotEnd, database.GetWorkloadStatistic().GetByUID
 func handleWorkloadStatistics(ctx context.Context, req *WorkloadStatisticsRequest) (*WorkloadStatisticsResponse, error) {
-	cm := clientsets.GetClusterManager()
-	clients, err := cm.GetClusterClientsOrDefault(req.Cluster)
+	rc, err := getRobustClient(req.Cluster)
 	if err != nil {
 		return nil, err
 	}
 
-	// Get all workloads that have not ended
-	workloadFacade := database.GetFacadeForCluster(clients.ClusterName).GetWorkload()
-	allWorkloads, err := workloadFacade.GetWorkloadNotEnd(ctx)
+	raw, err := rc.GetRaw(ctx, "/workloads/statistic", nil)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("robust workloads statistic: %w", err)
 	}
 
-	// Filter out top-level (ParentUID is empty) and Running status workloads
-	runningWorkloads := make([]*dbModel.GpuWorkload, 0)
-	for _, w := range allWorkloads {
-		if w.ParentUID == "" && w.Status == metadata.WorkloadStatusRunning {
-			runningWorkloads = append(runningWorkloads, w)
-		}
+	var out model.WorkloadStatisticResp
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return nil, fmt.Errorf("decode workload statistic: %w", err)
 	}
-
-	resp := &model.WorkloadStatisticResp{
-		RunningWorkloadsCount:        len(runningWorkloads),
-		AvgGpuAllocated:              0,
-		AvgGpuUtilization:            0,
-		LowUtilizationWorkloadsCount: 0,
-	}
-
-	if len(runningWorkloads) == 0 {
-		return resp, nil
-	}
-
-	// Calculate average gpu_allocated
-	totalGpuAllocated := int64(0)
-	for _, w := range runningWorkloads {
-		totalGpuAllocated += int64(w.GpuRequest)
-	}
-	resp.AvgGpuAllocated = float64(totalGpuAllocated) / float64(len(runningWorkloads))
-
-	// Get utilization data from workload_statistic table
-	statisticFacade := database.GetFacadeForCluster(clients.ClusterName).GetWorkloadStatistic()
-	totalUtilization := 0.0
-	utilizationCount := 0
-	lowUtilizationCount := 0
-
-	for _, w := range runningWorkloads {
-		statistic, err := statisticFacade.GetByUID(ctx, w.UID)
-		if err != nil {
-			log.Warnf("Failed to get statistic for workload %s: %v", w.UID, err)
-			continue
-		}
-		if statistic == nil {
-			continue
-		}
-
-		totalUtilization += statistic.InstantGpuUtilization
-		utilizationCount++
-
-		if statistic.AvgGpuUtilization < 30.0 {
-			lowUtilizationCount++
-		}
-	}
-
-	if utilizationCount > 0 {
-		resp.AvgGpuUtilization = totalUtilization / float64(utilizationCount)
-	}
-	resp.LowUtilizationWorkloadsCount = lowUtilizationCount
-
-	return resp, nil
+	return &out, nil
 }
 
-// handleWorkloadHierarchyQuery handles workload hierarchy query requests.
-// Reuses: database.GetWorkload().QueryWorkload, buildHierarchy
+func firstWorkloadUIDFromRobustList(ctx context.Context, rc *robust.Client, kind, name, namespace string) (string, error) {
+	if kind == "" || name == "" {
+		return "", errors.NewError().WithCode(errors.RequestParameterInvalid).WithMessage("kind and name are required")
+	}
+	p := url.Values{}
+	p.Set("kind", kind)
+	p.Set("name", name)
+	if namespace != "" {
+		p.Set("namespace", namespace)
+	}
+	p.Set("page_num", "1")
+	p.Set("page_size", "1")
+
+	raw, err := rc.GetRaw(ctx, "/workloads", p)
+	if err != nil {
+		return "", fmt.Errorf("robust workloads lookup: %w", err)
+	}
+	var list WorkloadListResponse
+	if err := json.Unmarshal(raw, &list); err != nil {
+		return "", fmt.Errorf("decode workloads lookup: %w", err)
+	}
+	if len(list.Data) == 0 {
+		return "", errors.NewError().WithCode(errors.RequestDataNotExisted).WithMessage("workload not found")
+	}
+	return list.Data[0].Uid, nil
+}
+
 func handleWorkloadHierarchyQuery(ctx context.Context, req *WorkloadHierarchyQueryRequest) (*WorkloadHierarchyResponse, error) {
-	// DEBUG: Log request parameters
-	log.Infof("[DEBUG-WorkloadHierarchy] Request received: Kind=%s, Name=%s, Namespace=%s, Cluster=%s",
-		req.Kind, req.Name, req.Namespace, req.Cluster)
-
-	cm := clientsets.GetClusterManager()
-
-	// DEBUG: Log ClusterManager state
-	clusterNames := cm.GetClusterNames()
-	log.Infof("[DEBUG-WorkloadHierarchy] ClusterManager state: available_clusters=%v, requested_cluster=%s", clusterNames, req.Cluster)
-
-	clients, err := cm.GetClusterClientsOrDefault(req.Cluster)
-	if err != nil {
-		log.Errorf("[DEBUG-WorkloadHierarchy] GetClusterClientsOrDefault failed: cluster=%s, error=%v", req.Cluster, err)
-		return nil, err
-	}
-
-	// DEBUG: Log resolved cluster
-	log.Infof("[DEBUG-WorkloadHierarchy] Resolved cluster: requested=%s, resolved=%s, has_storage=%v",
-		req.Cluster, clients.ClusterName, clients.StorageClientSet != nil)
-
-	if req.Kind == "" || req.Name == "" {
-		return nil, errors.NewError().WithCode(errors.RequestParameterInvalid).WithMessage("kind and name are required")
-	}
-
-	// Build filter to find workload by kind and name
-	f := &filter.WorkloadFilter{
-		Kind: &req.Kind,
-		Name: &req.Name,
-	}
-	if req.Namespace != "" {
-		f.Namespace = &req.Namespace
-	}
-
-	// Query workload by kind and name
-	log.Infof("[DEBUG-WorkloadHierarchy] Querying database: kind=%s, name=%s, namespace=%s, cluster=%s",
-		req.Kind, req.Name, req.Namespace, clients.ClusterName)
-	workloads, _, err := database.GetFacadeForCluster(clients.ClusterName).GetWorkload().QueryWorkload(ctx, f)
-	if err != nil {
-		log.Errorf("[DEBUG-WorkloadHierarchy] Database query error: kind=%s, name=%s, cluster=%s, error=%v",
-			req.Kind, req.Name, clients.ClusterName, err)
-		return nil, err
-	}
-
-	if len(workloads) == 0 {
-		log.Warnf("[DEBUG-WorkloadHierarchy] Workload not found: kind=%s, name=%s, cluster=%s", req.Kind, req.Name, clients.ClusterName)
-		return nil, errors.NewError().WithCode(errors.RequestDataNotExisted).WithMessage("workload not found")
-	}
-
-	// DEBUG: Log found workloads
-	log.Infof("[DEBUG-WorkloadHierarchy] Found %d workloads, using first: uid=%s, name=%s",
-		len(workloads), workloads[0].UID, workloads[0].Name)
-
-	// Use the first matched workload
-	rootWorkload := workloads[0]
-
-	// Build hierarchy tree - reuse existing helper
-	tree, err := buildHierarchy(ctx, clients.ClusterName, rootWorkload.UID)
+	rc, err := getRobustClient(req.Cluster)
 	if err != nil {
 		return nil, err
 	}
 
-	return tree, nil
+	uid, err := firstWorkloadUIDFromRobustList(ctx, rc, req.Kind, req.Name, req.Namespace)
+	if err != nil {
+		return nil, err
+	}
+
+	path := "/workloads/" + url.PathEscape(uid) + "/hierarchy"
+	raw, err := rc.GetRaw(ctx, path, nil)
+	if err != nil {
+		return nil, fmt.Errorf("robust workload hierarchy: %w", err)
+	}
+
+	var out model.WorkloadHierarchyItem
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return nil, fmt.Errorf("decode workload hierarchy: %w", err)
+	}
+	return &out, nil
 }
 
-// handleWorkloadGPUHistory handles workload GPU utilization history requests.
-// Reuses: database.GetWorkload().QueryWorkload, workload.GetWorkloadGpuUtilizationHistory
 func handleWorkloadGPUHistory(ctx context.Context, req *WorkloadGPUHistoryRequest) (*WorkloadGPUHistoryResponse, error) {
-	cm := clientsets.GetClusterManager()
-	clients, err := cm.GetClusterClientsOrDefault(req.Cluster)
+	rc, err := getRobustClient(req.Cluster)
 	if err != nil {
 		return nil, err
-	}
-
-	if req.Kind == "" || req.Name == "" {
-		return nil, errors.NewError().WithCode(errors.RequestParameterInvalid).WithMessage("kind and name are required")
 	}
 
 	if req.Start == "" || req.End == "" {
 		return nil, errors.NewError().WithCode(errors.RequestParameterInvalid).WithMessage("start and end timestamps are required")
 	}
 
-	// Parse timestamps
-	startUnix, err := strconv.ParseInt(req.Start, 10, 64)
+	uid, err := firstWorkloadUIDFromRobustList(ctx, rc, req.Kind, req.Name, req.Namespace)
 	if err != nil {
-		return nil, errors.NewError().WithCode(errors.RequestParameterInvalid).WithMessage("invalid start timestamp")
-	}
-	endUnix, err := strconv.ParseInt(req.End, 10, 64)
-	if err != nil {
-		return nil, errors.NewError().WithCode(errors.RequestParameterInvalid).WithMessage("invalid end timestamp")
+		return nil, err
 	}
 
-	startTime := time.Unix(startUnix, 0)
-	endTime := time.Unix(endUnix, 0)
-
-	step := 60
+	p := url.Values{}
+	p.Set("start", req.Start)
+	p.Set("end", req.End)
 	if req.Step != "" {
-		step, err = strconv.Atoi(req.Step)
-		if err != nil || step <= 0 {
-			return nil, errors.NewError().WithCode(errors.RequestParameterInvalid).WithMessage("invalid step value, must be positive integer")
-		}
+		p.Set("step", req.Step)
 	}
 
-	// Build filter to find workload by kind and name
-	f := &filter.WorkloadFilter{
-		Kind: &req.Kind,
-		Name: &req.Name,
-	}
-	if req.Namespace != "" {
-		f.Namespace = &req.Namespace
-	}
-
-	// Query workload by kind and name
-	workloads, _, err := database.GetFacadeForCluster(clients.ClusterName).GetWorkload().QueryWorkload(ctx, f)
+	path := "/workloads/" + url.PathEscape(uid) + "/gpu-metrics"
+	raw, err := rc.GetRaw(ctx, path, p)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("robust workload gpu-metrics: %w", err)
 	}
 
-	if len(workloads) == 0 {
-		return nil, errors.NewError().WithCode(errors.RequestDataNotExisted).WithMessage("workload not found")
+	var out model.MetricsGraph
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return nil, fmt.Errorf("decode gpu-metrics: %w", err)
 	}
-
-	dbWorkload := workloads[0]
-
-	// Query GPU utilization history - reuse existing helper
-	storageClient := clients.StorageClientSet
-	// Check if storage client is available (needed for Prometheus queries)
-	if storageClient == nil {
-		log.Warnf("[WorkloadGPUHistory] Cluster '%s' has no storage configuration, falling back to current cluster",
-			clients.ClusterName)
-		currentClients := cm.GetCurrentClusterClients()
-		if currentClients == nil || currentClients.StorageClientSet == nil {
-			return nil, errors.NewError().WithCode(errors.InternalError).
-				WithMessage("No storage configuration available for metrics query")
-		}
-		storageClient = currentClients.StorageClientSet
-	}
-
-	gpuUtilHistory, err := workload.GetWorkloadGpuUtilizationHistory(ctx, dbWorkload.UID, startTime, endTime, step, storageClient)
-	if err != nil {
-		return nil, err
-	}
-
-	return gpuUtilHistory, nil
+	return &out, nil
 }
 
-// ===== Phase 6 Handler Implementations =====
-
-// handleWorkloadHierarchyByUID handles workload hierarchy by UID requests.
-// Reuses: database.GetWorkload().GetGpuWorkloadByUid, buildHierarchy
 func handleWorkloadHierarchyByUID(ctx context.Context, req *WorkloadHierarchyByUIDRequest) (*WorkloadHierarchyResponse, error) {
-	// Auto-resolve cluster if not specified
-	clients, err := getClusterClientsForWorkload(ctx, req.UID, req.Cluster)
+	rc, err := getRobustClient(req.Cluster)
 	if err != nil {
 		return nil, err
 	}
-
-	// Build hierarchy tree using the resolved cluster
-	tree, err := buildHierarchy(ctx, clients.ClusterName, req.UID)
-	if err != nil {
-		return nil, err
+	if req.UID == "" {
+		return nil, errors.NewError().WithCode(errors.RequestParameterInvalid).WithMessage("uid is required")
 	}
 
-	return tree, nil
+	path := "/workloads/" + url.PathEscape(req.UID) + "/hierarchy"
+	raw, err := rc.GetRaw(ctx, path, nil)
+	if err != nil {
+		return nil, fmt.Errorf("robust workload hierarchy: %w", err)
+	}
+
+	var out model.WorkloadHierarchyItem
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return nil, fmt.Errorf("decode workload hierarchy: %w", err)
+	}
+	return &out, nil
 }
 
-// handleWorkloadMetrics handles workload metrics requests (GPU util, memory, power, TFLOPS).
-// Reuses: workload.GetWorkloadGpuUtilMetrics, workload.GetWorkloadGpuMemoryUtilMetrics,
-//
-//	workload.GetWorkloadGpuPowerMetrics, workload.GetTFLOPSMetrics
 func handleWorkloadMetrics(ctx context.Context, req *WorkloadMetricsRequest) (*WorkloadMetricsResponse, error) {
+	rc, err := getRobustClient(req.Cluster)
+	if err != nil {
+		return nil, err
+	}
+	if req.UID == "" {
+		return nil, errors.NewError().WithCode(errors.RequestParameterInvalid).WithMessage("uid is required")
+	}
 	if req.Start == "" || req.End == "" {
 		return nil, errors.NewError().WithCode(errors.RequestParameterInvalid).WithMessage("start and end timestamps are required")
 	}
 
-	startUnix, err := strconv.ParseInt(req.Start, 10, 64)
-	if err != nil {
-		return nil, errors.NewError().WithCode(errors.RequestParameterInvalid).WithMessage("invalid start timestamp")
-	}
-	endUnix, err := strconv.ParseInt(req.End, 10, 64)
-	if err != nil {
-		return nil, errors.NewError().WithCode(errors.RequestParameterInvalid).WithMessage("invalid end timestamp")
-	}
-
-	startTime := time.Unix(startUnix, 0)
-	endTime := time.Unix(endUnix, 0)
-
-	step := 60
+	p := url.Values{}
+	p.Set("start", req.Start)
+	p.Set("end", req.End)
 	if req.Step != "" {
-		step, err = strconv.Atoi(req.Step)
-		if err != nil || step <= 0 {
-			return nil, errors.NewError().WithCode(errors.RequestParameterInvalid).WithMessage("invalid step value")
-		}
+		p.Set("step", req.Step)
 	}
 
-	// Auto-resolve cluster if not specified
-	clients, err := getClusterClientsForWorkload(ctx, req.UID, req.Cluster)
+	path := "/workloads/" + url.PathEscape(req.UID) + "/gpu-metrics"
+	raw, err := rc.GetRaw(ctx, path, p)
 	if err != nil {
-		return nil, err
-	}
-	storageClient := clients.StorageClientSet
-
-	// Check if storage client is available (needed for Prometheus queries)
-	if storageClient == nil {
-		log.Warnf("[WorkloadMetrics] Cluster '%s' has no storage configuration, falling back to current cluster",
-			clients.ClusterName)
-		cm := clientsets.GetClusterManager()
-		currentClients := cm.GetCurrentClusterClients()
-		if currentClients == nil || currentClients.StorageClientSet == nil {
-			return nil, errors.NewError().WithCode(errors.InternalError).
-				WithMessage("No storage configuration available for metrics query")
-		}
-		storageClient = currentClients.StorageClientSet
+		return nil, fmt.Errorf("robust workload gpu-metrics: %w", err)
 	}
 
-	result := make(WorkloadMetricsResponse)
-
-	// GPU Utilization
-	gpuUtil, err := workload.GetWorkloadGpuUtilMetrics(ctx, req.UID, startTime, endTime, step, storageClient)
-	if err != nil {
-		return nil, err
+	var out WorkloadMetricsResponse
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return nil, fmt.Errorf("decode workload metrics: %w", err)
 	}
-	gpuUtil.Serial = 1
-	result["GPU Utilization"] = *gpuUtil
-
-	// GPU Memory Utilization
-	gpuMemUtil, err := workload.GetWorkloadGpuMemoryUtilMetrics(ctx, req.UID, startTime, endTime, step, storageClient)
-	if err != nil {
-		return nil, err
-	}
-	gpuMemUtil.Serial = 2
-	result["GPU Memory Utilization"] = *gpuMemUtil
-
-	// GPU Power
-	powerUtil, err := workload.GetWorkloadGpuPowerMetrics(ctx, req.UID, startTime, endTime, step, storageClient)
-	if err != nil {
-		return nil, err
-	}
-	powerUtil.Serial = 3
-	result["GPU Power"] = *powerUtil
-
-	// Training Performance (TFLOPS)
-	tflopsMetrics, err := workload.GetTFLOPSMetrics(ctx, req.UID, startTime, endTime, step, storageClient)
-	if err != nil {
-		return nil, err
-	}
-	if tflopsMetrics != nil {
-		tflopsMetrics.Serial = 4
-		result["TrainingPerformance"] = *tflopsMetrics
-	}
-
-	return &result, nil
+	return &out, nil
 }
 
-// handleTrainingPerformance handles training performance requests.
-// Reuses: database.GetTraining().ListTrainingPerformanceByWorkloadIdsAndTimeRange
 func handleTrainingPerformance(ctx context.Context, req *TrainingPerformanceRequest) (*TrainingPerformanceResponse, error) {
+	rc, err := getRobustClient("")
+	if err != nil {
+		return nil, err
+	}
+	if req.UID == "" {
+		return nil, errors.NewError().WithCode(errors.RequestParameterInvalid).WithMessage("uid is required")
+	}
 	if req.Start == "" || req.End == "" {
 		return nil, errors.NewError().WithCode(errors.RequestParameterInvalid).WithMessage("start and end timestamps are required")
 	}
 
-	startMs, err := strconv.ParseInt(req.Start, 10, 64)
+	p := url.Values{}
+	p.Set("start", req.Start)
+	p.Set("end", req.End)
+
+	path := "/training/" + url.PathEscape(req.UID)
+	raw, err := rc.GetRaw(ctx, path, p)
 	if err != nil {
-		return nil, errors.NewError().WithCode(errors.RequestParameterInvalid).WithMessage("invalid start time format")
-	}
-	endMs, err := strconv.ParseInt(req.End, 10, 64)
-	if err != nil {
-		return nil, errors.NewError().WithCode(errors.RequestParameterInvalid).WithMessage("invalid end time format")
+		return nil, fmt.Errorf("robust training performance: %w", err)
 	}
 
-	startTime := time.UnixMilli(startMs)
-	endTime := time.UnixMilli(endMs)
-
-	performances, err := database.GetFacade().GetTraining().ListTrainingPerformanceByWorkloadIdsAndTimeRange(
-		ctx, []string{req.UID}, startTime, endTime,
-	)
-	if err != nil {
-		return nil, err
+	var out TrainingPerformanceResponse
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return nil, fmt.Errorf("decode training performance: %w", err)
 	}
-
-	series := map[string]*model.GrafanaMetricsSeries{}
-	for _, p := range performances {
-		for key, value := range p.Performance {
-			valueFloat := convertToFloat(value)
-			if isNaN(valueFloat) {
-				continue
-			}
-			if _, ok := series[key]; !ok {
-				series[key] = &model.GrafanaMetricsSeries{
-					Name:   key,
-					Points: [][2]float64{},
-				}
-			}
-			series[key].Points = append(series[key].Points,
-				[2]float64{valueFloat, float64(p.CreatedAt.UnixMilli())})
-		}
-	}
-
-	// Flatten to rows for Infinity
-	result := make(TrainingPerformanceResponse, 0)
-	for name, s := range series {
-		for _, pt := range s.Points {
-			result = append(result, GrafanaMetricsPoint{
-				Metric:    name,
-				Value:     pt[0],
-				Timestamp: int64(pt[1]),
-			})
-		}
-	}
-
-	return &result, nil
+	return &out, nil
 }
 
-// handleWorkloadDataSources handles data sources requests.
-// Reuses: database.GetTraining().ListTrainingPerformanceByWorkloadUID
 func handleWorkloadDataSources(ctx context.Context, req *WorkloadDataSourcesRequest) (*WorkloadDataSourcesResponse, error) {
-	// Auto-resolve cluster if not specified
-	clients, err := getClusterClientsForWorkload(ctx, req.UID, req.Cluster)
+	rc, err := getRobustClient(req.Cluster)
 	if err != nil {
 		return nil, err
 	}
+	if req.UID == "" {
+		return nil, errors.NewError().WithCode(errors.RequestParameterInvalid).WithMessage("uid is required")
+	}
 
-	performances, err := database.GetFacadeForCluster(clients.ClusterName).GetTraining().
-		ListTrainingPerformanceByWorkloadUID(ctx, req.UID)
+	path := "/training/" + url.PathEscape(req.UID) + "/sources"
+	raw, err := rc.GetRaw(ctx, path, nil)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("robust training sources: %w", err)
 	}
 
-	// Count data sources
-	sourceMap := make(map[string]int)
-	for _, p := range performances {
-		sourceMap[p.DataSource]++
+	var out DataSourcesResponse
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return nil, fmt.Errorf("decode data sources: %w", err)
 	}
-
-	dataSources := make([]DataSourceInfo, 0, len(sourceMap))
-	for source, count := range sourceMap {
-		dataSources = append(dataSources, DataSourceInfo{
-			Name:  source,
-			Count: count,
-		})
-	}
-
-	return &DataSourcesResponse{
-		WorkloadUID: req.UID,
-		DataSources: dataSources,
-		TotalCount:  len(dataSources),
-	}, nil
+	return &out, nil
 }
 
-// handleWorkloadAvailableMetrics handles available metrics requests.
-// Reuses: database.GetTraining().ListTrainingPerformanceByWorkloadUID/ByWorkloadUIDAndDataSource
 func handleWorkloadAvailableMetrics(ctx context.Context, req *WorkloadAvailableMetricsRequest) (*WorkloadAvailableMetricsResponse, error) {
-	// Auto-resolve cluster if not specified
-	clients, err := getClusterClientsForWorkload(ctx, req.UID, req.Cluster)
+	rc, err := getRobustClient(req.Cluster)
 	if err != nil {
 		return nil, err
 	}
+	if req.UID == "" {
+		return nil, errors.NewError().WithCode(errors.RequestParameterInvalid).WithMessage("uid is required")
+	}
 
-	var performances []*dbModel.TrainingPerformance
+	p := url.Values{}
 	if req.DataSource != "" {
-		performances, err = database.GetFacadeForCluster(clients.ClusterName).GetTraining().
-			ListTrainingPerformanceByWorkloadUIDAndDataSource(ctx, req.UID, req.DataSource)
-	} else {
-		performances, err = database.GetFacadeForCluster(clients.ClusterName).GetTraining().
-			ListTrainingPerformanceByWorkloadUID(ctx, req.UID)
+		p.Set("data_source", req.DataSource)
 	}
+
+	path := "/training/" + url.PathEscape(req.UID) + "/available"
+	raw, err := rc.GetRaw(ctx, path, p)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("robust training available metrics: %w", err)
 	}
 
-	// Count all available metrics
-	metricMap := make(map[string]map[string]int) // metric_name -> {data_source -> count}
-	for _, p := range performances {
-		for metricName := range p.Performance {
-			if commonMetadataFields[metricName] {
-				continue
-			}
-			if !isMetricField(metricName, p.DataSource) {
-				continue
-			}
-			if _, exists := metricMap[metricName]; !exists {
-				metricMap[metricName] = make(map[string]int)
-			}
-			metricMap[metricName][p.DataSource]++
-		}
+	var out AvailableMetricsResponse
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return nil, fmt.Errorf("decode available metrics: %w", err)
 	}
-
-	metrics := make([]MetricInfo, 0, len(metricMap))
-	for metricName, sources := range metricMap {
-		sourceList := make([]string, 0, len(sources))
-		totalCount := 0
-		for source, count := range sources {
-			sourceList = append(sourceList, source)
-			totalCount += count
-		}
-		metrics = append(metrics, MetricInfo{
-			Name:       metricName,
-			DataSource: sourceList,
-			Count:      totalCount,
-		})
-	}
-
-	return &AvailableMetricsResponse{
-		WorkloadUID: req.UID,
-		Metrics:     metrics,
-		TotalCount:  len(metrics),
-	}, nil
+	return &out, nil
 }
 
-// handleWorkloadMetricsData handles metrics data requests.
-// Reuses: database.GetTraining().ListTrainingPerformanceByWorkloadUIDDataSourceAndTimeRange
 func handleWorkloadMetricsData(ctx context.Context, req *WorkloadMetricsDataRequest) (*WorkloadMetricsDataResponse, error) {
-	// Auto-resolve cluster if not specified
-	clients, err := getClusterClientsForWorkload(ctx, req.UID, req.Cluster)
+	rc, err := getRobustClient(req.Cluster)
 	if err != nil {
 		return nil, err
 	}
-
-	// Parse time range
-	var startTime, endTime time.Time
-	var hasTimeRange bool
-	if req.Start != "" && req.End != "" {
-		startMs, err := strconv.ParseInt(req.Start, 10, 64)
-		if err != nil {
-			return nil, errors.NewError().WithCode(errors.RequestParameterInvalid).WithMessage("invalid start time format")
-		}
-		endMs, err := strconv.ParseInt(req.End, 10, 64)
-		if err != nil {
-			return nil, errors.NewError().WithCode(errors.RequestParameterInvalid).WithMessage("invalid end time format")
-		}
-		startTime = time.UnixMilli(startMs)
-		endTime = time.UnixMilli(endMs)
-		hasTimeRange = true
+	if req.UID == "" {
+		return nil, errors.NewError().WithCode(errors.RequestParameterInvalid).WithMessage("uid is required")
 	}
 
-	var performances []*dbModel.TrainingPerformance
-	if hasTimeRange {
-		performances, err = database.GetFacadeForCluster(clients.ClusterName).GetTraining().
-			ListTrainingPerformanceByWorkloadUIDDataSourceAndTimeRange(ctx, req.UID, req.DataSource, startTime, endTime)
-	} else {
-		performances, err = database.GetFacadeForCluster(clients.ClusterName).GetTraining().
-			ListTrainingPerformanceByWorkloadUIDAndDataSource(ctx, req.UID, req.DataSource)
+	p := url.Values{}
+	if req.DataSource != "" {
+		p.Set("data_source", req.DataSource)
 	}
+	if req.Metrics != "" {
+		p.Set("metrics", req.Metrics)
+	}
+	if req.Start != "" {
+		p.Set("start", req.Start)
+	}
+	if req.End != "" {
+		p.Set("end", req.End)
+	}
+
+	path := "/training/" + url.PathEscape(req.UID) + "/data"
+	raw, err := rc.GetRaw(ctx, path, p)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("robust training metrics data: %w", err)
 	}
 
-	// Parse metrics filter
-	returnAllMetrics := true
-	metricsSet := make(map[string]bool)
-	if req.Metrics != "" && req.Metrics != "all" {
-		metricsStr := req.Metrics
-		if len(metricsStr) > 2 && metricsStr[0] == '{' && metricsStr[len(metricsStr)-1] == '}' {
-			metricsStr = metricsStr[1 : len(metricsStr)-1]
-		}
-		for _, m := range splitMetricsForUnified(metricsStr) {
-			metricsSet[m] = true
-		}
-		returnAllMetrics = false
+	var out MetricsDataResponse
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return nil, fmt.Errorf("decode metrics data: %w", err)
 	}
-
-	// Build data points
-	dataPoints := make([]MetricDataPoint, 0)
-	for _, p := range performances {
-		for metricName, value := range p.Performance {
-			if commonMetadataFields[metricName] {
-				continue
-			}
-			if !isMetricField(metricName, p.DataSource) {
-				continue
-			}
-			if !returnAllMetrics && len(metricsSet) > 0 && !metricsSet[metricName] {
-				continue
-			}
-			valueFloat := convertToFloat(value)
-			if isNaN(valueFloat) {
-				continue
-			}
-			dataPoints = append(dataPoints, MetricDataPoint{
-				MetricName: metricName,
-				Value:      valueFloat,
-				Timestamp:  p.CreatedAt.UnixMilli(),
-				Iteration:  p.Iteration,
-				DataSource: p.DataSource,
-			})
-		}
-	}
-
-	// Deduplicate tensorflow data
-	if req.DataSource == "tensorflow" || (req.DataSource == "" && len(dataPoints) > 0 && dataPoints[0].DataSource == "tensorflow") {
-		dataPoints = deduplicateTensorflowDataPoints(dataPoints)
-	}
-
-	return &MetricsDataResponse{
-		WorkloadUID: req.UID,
-		DataSource:  req.DataSource,
-		Data:        dataPoints,
-		TotalCount:  len(dataPoints),
-	}, nil
+	return &out, nil
 }
 
-// handleWorkloadIterationTimes handles iteration times requests.
-// Reuses: database.GetTraining().ListTrainingPerformanceByWorkloadUIDDataSourceAndTimeRange
 func handleWorkloadIterationTimes(ctx context.Context, req *WorkloadIterationTimesRequest) (*WorkloadIterationTimesResponse, error) {
-	// Auto-resolve cluster if not specified
-	clients, err := getClusterClientsForWorkload(ctx, req.UID, req.Cluster)
+	rc, err := getRobustClient(req.Cluster)
 	if err != nil {
 		return nil, err
 	}
-
-	// Parse time range
-	var startTime, endTime time.Time
-	var hasTimeRange bool
-	if req.Start != "" && req.End != "" {
-		startMs, err := strconv.ParseInt(req.Start, 10, 64)
-		if err != nil {
-			return nil, errors.NewError().WithCode(errors.RequestParameterInvalid).WithMessage("invalid start time format")
-		}
-		endMs, err := strconv.ParseInt(req.End, 10, 64)
-		if err != nil {
-			return nil, errors.NewError().WithCode(errors.RequestParameterInvalid).WithMessage("invalid end time format")
-		}
-		startTime = time.UnixMilli(startMs)
-		endTime = time.UnixMilli(endMs)
-		hasTimeRange = true
+	if req.UID == "" {
+		return nil, errors.NewError().WithCode(errors.RequestParameterInvalid).WithMessage("uid is required")
 	}
 
-	var performances []*dbModel.TrainingPerformance
-	if hasTimeRange {
-		performances, err = database.GetFacadeForCluster(clients.ClusterName).GetTraining().
-			ListTrainingPerformanceByWorkloadUIDDataSourceAndTimeRange(ctx, req.UID, req.DataSource, startTime, endTime)
-	} else {
-		performances, err = database.GetFacadeForCluster(clients.ClusterName).GetTraining().
-			ListTrainingPerformanceByWorkloadUIDAndDataSource(ctx, req.UID, req.DataSource)
+	p := url.Values{}
+	if req.DataSource != "" {
+		p.Set("data_source", req.DataSource)
 	}
+	if req.Start != "" {
+		p.Set("start", req.Start)
+	}
+	if req.End != "" {
+		p.Set("end", req.End)
+	}
+
+	path := "/training/" + url.PathEscape(req.UID) + "/iteration-times"
+	raw, err := rc.GetRaw(ctx, path, p)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("robust training iteration-times: %w", err)
 	}
 
-	// Build iteration map for deduplication
-	iterationMap := make(map[int32]*IterationInfo)
-	for _, p := range performances {
-		timestamp := p.CreatedAt.UnixMilli()
-		var targetIteration *float64
-		if targetIterValue, exists := p.Performance["target_iteration"]; exists {
-			targetIterFloat := convertToFloat(targetIterValue)
-			if !isNaN(targetIterFloat) {
-				targetIteration = &targetIterFloat
-			}
-		}
-		if existing, exists := iterationMap[p.Iteration]; !exists || timestamp < existing.Timestamp {
-			iterationMap[p.Iteration] = &IterationInfo{
-				Timestamp:       timestamp,
-				TargetIteration: targetIteration,
-				DataSource:      p.DataSource,
-			}
-		}
+	var out MetricsDataResponse
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return nil, fmt.Errorf("decode iteration times: %w", err)
 	}
-
-	// Filter anomalous iterations for tensorflow
-	if req.DataSource == "tensorflow" || (req.DataSource == "" && hasTensorflowData(iterationMap)) {
-		iterationMap = filterAnomalousIterations(iterationMap)
-	}
-
-	// Convert to data points
-	dataPoints := make([]MetricDataPoint, 0, len(iterationMap)*2)
-	for iteration, info := range iterationMap {
-		dataPoints = append(dataPoints, MetricDataPoint{
-			MetricName: "iteration",
-			Value:      float64(iteration),
-			Timestamp:  info.Timestamp,
-			Iteration:  iteration,
-			DataSource: info.DataSource,
-		})
-		if info.TargetIteration != nil {
-			dataPoints = append(dataPoints, MetricDataPoint{
-				MetricName: "target_iteration",
-				Value:      *info.TargetIteration,
-				Timestamp:  info.Timestamp,
-				Iteration:  iteration,
-				DataSource: info.DataSource,
-			})
-		}
-	}
-
-	// Deduplicate tensorflow data
-	if req.DataSource == "tensorflow" || (req.DataSource == "" && len(dataPoints) > 0 && dataPoints[0].DataSource == "tensorflow") {
-		dataPoints = deduplicateTensorflowDataPoints(dataPoints)
-	}
-
-	return &MetricsDataResponse{
-		WorkloadUID: req.UID,
-		DataSource:  req.DataSource,
-		Data:        dataPoints,
-		TotalCount:  len(dataPoints),
-	}, nil
+	return &out, nil
 }
 
-// handleWorkloadMetadata handles workload metadata requests.
-// Reuses: database.GetWorkload().GetWorkloadsNamespaceList, GetWorkloadKindList
 func handleWorkloadMetadata(ctx context.Context, req *WorkloadMetadataRequest) (*WorkloadMetadataResponse, error) {
-	cm := clientsets.GetClusterManager()
-	clients, err := cm.GetClusterClientsOrDefault(req.Cluster)
+	rc, err := getRobustClient(req.Cluster)
 	if err != nil {
 		return nil, err
 	}
 
-	namespaces, err := database.GetFacadeForCluster(clients.ClusterName).GetWorkload().GetWorkloadsNamespaceList(ctx)
+	raw, err := rc.GetRaw(ctx, "/workloads/metadata", nil)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("robust workload metadata: %w", err)
 	}
 
-	kinds, err := database.GetFacadeForCluster(clients.ClusterName).GetWorkload().GetWorkloadKindList(ctx)
-	if err != nil {
-		return nil, err
+	var out WorkloadMetadataResponse
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return nil, fmt.Errorf("decode workload metadata: %w", err)
 	}
-
-	return &WorkloadMetadataResponse{
-		Namespaces: namespaces,
-		Kinds:      kinds,
-	}, nil
+	return &out, nil
 }
 
 // Helper functions
