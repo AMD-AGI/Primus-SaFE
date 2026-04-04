@@ -98,7 +98,7 @@ func RegisterRoutes(router *gin.Engine, h *Handler) {
 		auth.GET("/tools/:id/content", h.GetToolContent)
 
 		// Generic file storage (?path=xxx)
-		auth.PUT("/files", h.UploadFile)
+		auth.POST("/files", h.UploadFile)
 		auth.GET("/files", h.DownloadFile)
 
 		// Toolsets
@@ -598,7 +598,8 @@ func (h *Handler) UploadIcon(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"icon_url": iconURL})
 }
 
-// UploadFile handles PUT /files?path=xxx - upload a file to storage
+// UploadFile handles PUT /files?path=xxx - upload a file to storage.
+// Supports both form-data (field "file") and raw binary body.
 func (h *Handler) UploadFile(c *gin.Context) {
 	key := c.Query("path")
 	if key == "" {
@@ -614,7 +615,16 @@ func (h *Handler) UploadFile(c *gin.Context) {
 	userInfo := GetUserInfo(c)
 	log.Printf("[UploadFile] user=%s key=%s", userInfo.UserID, key)
 
-	if err := h.storage.Upload(c.Request.Context(), key, c.Request.Body); err != nil {
+	var reader io.Reader
+	file, _, err := c.Request.FormFile("file")
+	if err == nil {
+		defer file.Close()
+		reader = file
+	} else {
+		reader = c.Request.Body
+	}
+
+	if err := h.storage.Upload(c.Request.Context(), key, reader); err != nil {
 		log.Printf("[UploadFile] user=%s key=%s error=%v", userInfo.UserID, key, err)
 		respondWithError(c, http.StatusInternalServerError, "UPLOAD_FAILED", err.Error())
 		return
