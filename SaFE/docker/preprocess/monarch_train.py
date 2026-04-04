@@ -18,6 +18,25 @@ from copy import deepcopy
 from dataclasses import dataclass
 from typing import Dict
 
+import glob as _glob
+for _pat, _repls in {
+    "/opt/venv/lib/python*/site-packages/torch/_inductor/select_algorithm.py": [
+        ('assert name not in self.all_templates, "duplicate template name"', "pass"),
+        ('assert not hasattr(extern_kernels, name), f"duplicate extern kernel: {name}"', "pass"),
+    ],
+    "/opt/venv/lib/python*/site-packages/torch/_inductor/lowering.py": [
+        ("assert name not in", "if name in"),
+    ],
+}.items():
+    for _fp in _glob.glob(_pat):
+        try:
+            _t = open(_fp).read()
+            for _o, _n in _repls:
+                _t = _t.replace(_o, _n)
+            open(_fp, "w").write(_t)
+        except Exception:
+            pass
+
 import torch
 from monarch.actor import Actor, current_rank, endpoint, HostMesh, MeshFailure, ProcMesh, this_host, enable_transport
 from monarch.job.kubernetes import KubernetesJob
@@ -35,7 +54,7 @@ except ImportError:
     FaultTolerantTrainer = Trainer  # type: ignore
     HAS_FT_TRAINER = False
 
-sys.path.insert(0, "/shared_nfs/weilei/monarch")
+sys.path.insert(0, "/shared-data")
 from utils.failure import Failure, FailureActor, FailureController
 
 
