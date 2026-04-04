@@ -35,7 +35,7 @@ except ImportError:
     FaultTolerantTrainer = Trainer  # type: ignore
     HAS_FT_TRAINER = False
 
-sys.path.insert(0, "/shared_nfs/zhanglei/torchft/examples/monarch")
+sys.path.insert(0, "/shared_nfs/weilei/monarch")
 from utils.failure import Failure, FailureActor, FailureController
 
 
