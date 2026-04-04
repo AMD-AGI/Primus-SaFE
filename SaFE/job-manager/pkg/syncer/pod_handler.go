@@ -45,6 +45,7 @@ const (
 
 	appComponent     = "app.kubernetes.io/component"
 	scaleSetListener = "runner-scale-set-listener"
+	monarchMeshLabel = "monarch.pytorch.org/mesh-name"
 )
 
 // handlePod processes Pod resource events (add, update, delete).
@@ -65,7 +66,7 @@ func (r *SyncerReconciler) handlePod(ctx context.Context,
 		}
 		return r.deletePod(ctx, obj, clusterClientSets)
 	}
-	return r.updateWorkloadPod(ctx, obj, clusterClientSets, message)
+	return r.updateAdminWorkloadByPod(ctx, clusterClientSets, obj, message)
 }
 
 // deletePod forcefully deletes a pod from the data plane.
@@ -100,113 +101,178 @@ func (r *SyncerReconciler) deletePod(ctx context.Context,
 	return ctrlruntime.Result{}, nil
 }
 
-// updateWorkloadPod updates the workload status based on pod information.
+// updateAdminWorkloadByPod updates the workload status based on pod information.
 // Synchronizes pod details like phase, node assignment, and container status.
-func (r *SyncerReconciler) updateWorkloadPod(ctx context.Context, obj *unstructured.Unstructured,
-	clientSets *ClusterClientSets, message *resourceMessage) (ctrlruntime.Result, error) {
-	pod := &corev1.Pod{}
-	err := unstructuredutils.ConvertUnstructuredToObject(obj, pod)
-	if err != nil {
-		// This error cannot be resolved by retrying, so it is ignored by returning nil.
-		klog.ErrorS(err, "failed to convert object to pod", "data", obj)
+func (r *SyncerReconciler) updateAdminWorkloadByPod(ctx context.Context, clientSets *ClusterClientSets,
+	obj *unstructured.Unstructured, message *resourceMessage) (ctrlruntime.Result, error) {
+	pod := convertPodFromUnstructured(obj)
+	if pod == nil {
 		return ctrlruntime.Result{}, nil
 	}
-	if pod.Status.Phase == corev1.PodFailed {
-		klog.Infof("pod(%s) is failed. reason: %s, message: %s, container: %s",
-			pod.Name, pod.Status.Reason, pod.Status.Message, string(jsonutils.MarshalSilently(pod.Status.ContainerStatuses)))
-	}
-	adminWorkload, err := r.getAdminWorkload(ctx, message.workloadId)
-	if adminWorkload == nil {
+
+	adminWorkload, err := r.getAdminWorkloadAndSyncPod(ctx, clientSets, pod, message)
+	if adminWorkload == nil || err != nil {
 		return ctrlruntime.Result{}, err
 	}
 	if !v1.IsWorkloadDispatched(adminWorkload) {
 		return ctrlruntime.Result{RequeueAfter: time.Second}, nil
 	}
 
+	// Submitter pod is handled as an independent module, no further updates needed
 	if ok, err := r.handleRaySubmitterTimeout(ctx, adminWorkload, pod); err != nil || ok {
 		return ctrlruntime.Result{}, err
 	}
 
-	k8sNode := &corev1.Node{}
-	if pod.Spec.NodeName != "" {
-		if k8sNode, err = clientSets.dataClientFactory.ClientSet().
-			CoreV1().Nodes().Get(ctx, pod.Spec.NodeName, metav1.GetOptions{}); err != nil {
-			klog.ErrorS(err, "failed to get k8s node")
+	k8sNode, err := r.getK8sNode(ctx, clientSets, pod.Spec.NodeName)
+	if err != nil {
+		return ctrlruntime.Result{}, err
+	}
+
+	podInfo, oldPodPhase, isUpdated := r.updateWorkloadNodeAndPods(ctx, clientSets, adminWorkload, pod, k8sNode)
+	if !isUpdated {
+		return ctrlruntime.Result{}, nil
+	}
+
+	if isAllPodsAssigned(adminWorkload) {
+		if err = r.createStickyNodeFaults(ctx, adminWorkload); err != nil {
 			return ctrlruntime.Result{}, err
 		}
 	}
+	if commonworkload.IsCICDScalingRunnerSet(adminWorkload) {
+		updateCICDScalingRunnerSetPhase(adminWorkload, pod)
+	} else if commonworkload.IsMonarchJob(adminWorkload) {
+		updateMonarchJobPhase(adminWorkload, pod)
+	}
+	if err = r.Status().Update(ctx, adminWorkload); err != nil {
+		return ctrlruntime.Result{}, err
+	}
+	if oldPodPhase != podInfo.Phase {
+		if commonworkload.IsRayJob(adminWorkload) && podInfo.ResourceId == 0 && v1.IsPodTerminated(&podInfo) {
+			return ctrlruntime.Result{RequeueAfter: MaxRayJobWaitTime * time.Second}, nil
+		}
+	}
+	return ctrlruntime.Result{}, nil
+}
 
+func convertPodFromUnstructured(obj *unstructured.Unstructured) *corev1.Pod {
+	pod := &corev1.Pod{}
+	err := unstructuredutils.ConvertUnstructuredToObject(obj, pod)
+	if err != nil {
+		// This error cannot be resolved by retrying, so it is ignored by returning nil.
+		klog.ErrorS(err, "failed to convert object to pod", "data", obj)
+		return nil
+	}
+	if pod.Status.Phase == corev1.PodFailed {
+		klog.Infof("pod(%s) is failed. reason: %s, message: %s, container: %s",
+			pod.Name, pod.Status.Reason, pod.Status.Message, string(jsonutils.MarshalSilently(pod.Status.ContainerStatuses)))
+	}
+	return pod
+}
+
+func (r *SyncerReconciler) getAdminWorkloadAndSyncPod(ctx context.Context,
+	clientSets *ClusterClientSets, pod *corev1.Pod, message *resourceMessage) (*v1.Workload, error) {
+	var adminWorkload *v1.Workload
+	var err error
+	if meshName := pod.GetLabels()[monarchMeshLabel]; meshName != "" {
+		var meshObj *unstructured.Unstructured
+		meshObj, err = r.getMonarchMesh(ctx, clientSets, meshName, pod.GetNamespace())
+		if err != nil {
+			return nil, err
+		}
+		v1.SetLabel(pod, v1.GroupIdLabel, v1.GetLabel(meshObj, v1.GroupIdLabel))
+		v1.SetAnnotation(pod, v1.ResourceIdAnnotation, v1.GetAnnotation(meshObj, v1.ResourceIdAnnotation))
+		v1.SetAnnotation(pod, v1.MainContainerAnnotation, v1.GetAnnotation(meshObj, v1.MainContainerAnnotation))
+		adminWorkload, err = r.getAdminWorkload(ctx, v1.GetWorkloadId(meshObj))
+	} else {
+		adminWorkload, err = r.getAdminWorkload(ctx, message.workloadId)
+	}
+	if err != nil {
+		return nil, err
+	}
+	v1.SetLabel(adminWorkload, v1.WorkloadDispatchCntLabel, strconv.Itoa(message.dispatchCount))
+	return adminWorkload, nil
+}
+
+func (r *SyncerReconciler) getK8sNode(ctx context.Context, clientSets *ClusterClientSets, nodeName string) (*corev1.Node, error) {
+	k8sNode := &corev1.Node{}
+	if nodeName == "" {
+		return k8sNode, nil
+	}
+	var err error
+	if k8sNode, err = clientSets.dataClientFactory.ClientSet().CoreV1().Nodes().Get(ctx, nodeName, metav1.GetOptions{}); err != nil {
+		klog.ErrorS(err, "failed to get k8s node", "name", nodeName)
+		return nil, err
+	}
+	return k8sNode, nil
+}
+
+func (r *SyncerReconciler) updateWorkloadNodeAndPods(ctx context.Context, clientSets *ClusterClientSets,
+	adminWorkload *v1.Workload, pod *corev1.Pod, k8sNode *corev1.Node) (v1.WorkloadPod, corev1.PodPhase, bool) {
 	id := -1
 	for i, p := range adminWorkload.Status.Pods {
 		if p.PodId != pod.Name {
 			continue
 		}
 		id = i
+		//
 		if p.Phase == pod.Status.Phase && p.AdminNodeName == v1.GetNodeId(k8sNode) &&
 			p.StartTime != "" && p.HostIp == pod.Status.HostIP {
-			return ctrlruntime.Result{}, nil
+			// Return early if no critical changes detected
+			return v1.WorkloadPod{}, "", false
 		}
 		break
 	}
 
+	podInfo := r.buildWorkloadPodInfo(ctx, clientSets, adminWorkload, pod, k8sNode)
+	var oldPhase corev1.PodPhase
+	needUpdateNode := false
+	if id >= 0 {
+		oldPhase = adminWorkload.Status.Pods[id].Phase
+		if adminWorkload.Status.Pods[id].AdminNodeName != podInfo.AdminNodeName ||
+			adminWorkload.Status.Pods[id].HostIp != podInfo.HostIp ||
+			adminWorkload.Status.Pods[id].Rank != podInfo.Rank {
+			needUpdateNode = true
+		}
+		adminWorkload.Status.Pods[id] = podInfo
+	} else {
+		adminWorkload.Status.Pods = append(adminWorkload.Status.Pods, podInfo)
+		needUpdateNode = true
+	}
+	if needUpdateNode {
+		r.updateWorkloadNodes(adminWorkload)
+	}
+	return podInfo, oldPhase, true
+
+}
+
+func (r *SyncerReconciler) buildWorkloadPodInfo(ctx context.Context, clientSets *ClusterClientSets,
+	adminWorkload *v1.Workload, pod *corev1.Pod, k8sNode *corev1.Node) v1.WorkloadPod {
 	resourceId, _ := v1.GetResourceId(pod)
+	mainContainerName := getMainContainerName(adminWorkload, pod)
 	groupId := -1
 	if groupIdStr := v1.GetGroupId(pod); groupIdStr != "" {
+		var err error
 		if groupId, err = strconv.Atoi(groupIdStr); err != nil {
 			groupId = -1
 		}
 	}
+
 	workloadPod := v1.WorkloadPod{
 		PodId:         pod.Name,
 		ResourceId:    int8(resourceId),
 		AdminNodeName: v1.GetNodeId(k8sNode),
 		Phase:         pod.Status.Phase,
 		HostIp:        pod.Status.HostIP,
-		Rank:          getMainContainerRank(adminWorkload, pod),
+		Rank:          getMainContainerRank(mainContainerName, pod),
 		GroupId:       int8(groupId),
 	}
 	if pod.Status.StartTime != nil && !pod.Status.StartTime.IsZero() {
 		workloadPod.StartTime = timeutil.FormatRFC3339(pod.Status.StartTime.Time)
 	}
-	buildPodTerminatedInfo(ctx, clientSets.dataClientFactory.ClientSet(), adminWorkload, pod, &workloadPod)
-	shouldUpdateNodes := false
+	buildPodTerminatedInfo(ctx, clientSets.dataClientFactory.ClientSet(),
+		adminWorkload, pod, &workloadPod, mainContainerName)
 
-	var oldPhase corev1.PodPhase
-	if id >= 0 {
-		oldPhase = adminWorkload.Status.Pods[id].Phase
-		if adminWorkload.Status.Pods[id].AdminNodeName != workloadPod.AdminNodeName ||
-			adminWorkload.Status.Pods[id].HostIp != workloadPod.HostIp ||
-			adminWorkload.Status.Pods[id].Rank != workloadPod.Rank ||
-			adminWorkload.Status.Pods[id].Phase != workloadPod.Phase {
-			shouldUpdateNodes = true
-		}
-		adminWorkload.Status.Pods[id] = workloadPod
-	} else {
-		adminWorkload.Status.Pods = append(adminWorkload.Status.Pods, workloadPod)
-		shouldUpdateNodes = true
-	}
-	if shouldUpdateNodes {
-		r.updateWorkloadNodes(adminWorkload, message)
-		if isAllPodsAssigned(adminWorkload) {
-			if err = r.createStickyNodeFaults(ctx, adminWorkload, message.dispatchCount); err != nil {
-				return ctrlruntime.Result{}, err
-			}
-		}
-	}
-	if commonworkload.IsCICDScalingRunnerSet(adminWorkload) {
-		updateCICDScalingRunnerSetPhase(adminWorkload, pod)
-	} else if commonworkload.IsMonarchJob(adminWorkload) {
-		updateMonarchJob(adminWorkload, pod)
-	}
-	if err = r.Status().Update(ctx, adminWorkload); err != nil {
-		return ctrlruntime.Result{}, err
-	}
-	if oldPhase != workloadPod.Phase {
-		if commonworkload.IsRayJob(adminWorkload) && resourceId == 0 && v1.IsPodTerminated(&workloadPod) {
-			return ctrlruntime.Result{RequeueAfter: MaxRayJobWaitTime * time.Second}, nil
-		}
-	}
-	return ctrlruntime.Result{}, nil
+	return workloadPod
 }
 
 // updateCICDScalingRunnerSetPhase updates the workload phase for CICD scaling runner sets
@@ -227,7 +293,7 @@ func updateCICDScalingRunnerSetPhase(adminWorkload *v1.Workload, pod *corev1.Pod
 		adminWorkload.Status.Phase = v1.WorkloadNotReady
 	}
 }
-func updateMonarchJob(adminWorkload *v1.Workload, pod *corev1.Pod) {
+func updateMonarchJobPhase(adminWorkload *v1.Workload, pod *corev1.Pod) {
 	switch pod.Status.Phase {
 	case corev1.PodRunning:
 		if isAllPodsAssigned(adminWorkload) && isAllPodRunning(adminWorkload) {
@@ -254,7 +320,7 @@ func updateMonarchJob(adminWorkload *v1.Workload, pod *corev1.Pod) {
 
 // updateWorkloadNodes updates the node information for a workload.
 // Collects node assignments from workload pods.
-func (r *SyncerReconciler) updateWorkloadNodes(adminWorkload *v1.Workload, message *resourceMessage) {
+func (r *SyncerReconciler) updateWorkloadNodes(adminWorkload *v1.Workload) {
 	sortWorkloadPods(adminWorkload)
 
 	nodeNames := make([]string, 0, len(adminWorkload.Status.Pods))
@@ -269,19 +335,19 @@ func (r *SyncerReconciler) updateWorkloadNodes(adminWorkload *v1.Workload, messa
 			nodeNameSet.Insert(adminWorkload.Status.Pods[i].AdminNodeName)
 		}
 	}
-	if len(adminWorkload.Status.Nodes) < message.dispatchCount {
+	dispatchCount := v1.GetWorkloadDispatchCnt(adminWorkload)
+	if len(adminWorkload.Status.Nodes) < dispatchCount {
 		adminWorkload.Status.Nodes = append(adminWorkload.Status.Nodes, nodeNames)
 		adminWorkload.Status.Ranks = append(adminWorkload.Status.Ranks, ranks)
-	} else if message.dispatchCount > 0 {
-		adminWorkload.Status.Nodes[message.dispatchCount-1] = nodeNames
-		adminWorkload.Status.Ranks[message.dispatchCount-1] = ranks
+	} else if dispatchCount > 0 {
+		adminWorkload.Status.Nodes[dispatchCount-1] = nodeNames
+		adminWorkload.Status.Ranks[dispatchCount-1] = ranks
 	}
 }
 
 // getMainContainerRank retrieves the rank value from the main container's environment variables.
 // Used for distributed training workloads to identify process rank.
-func getMainContainerRank(adminWorkload *v1.Workload, pod *corev1.Pod) string {
-	mainContainerName := getMainContainerName(adminWorkload, pod)
+func getMainContainerRank(mainContainerName string, pod *corev1.Pod) string {
 	for _, container := range pod.Spec.Containers {
 		if mainContainerName != "" && container.Name != mainContainerName {
 			continue
@@ -305,6 +371,9 @@ func (r *SyncerReconciler) removeWorkloadPod(ctx context.Context, message *resou
 	if adminWorkload == nil || adminWorkload.IsEnd() {
 		return err
 	}
+	if !commonworkload.IsApplication(adminWorkload) && shouldWorkloadStopRetry(adminWorkload, message.dispatchCount) {
+		return nil
+	}
 
 	id := -1
 	for i, p := range adminWorkload.Status.Pods {
@@ -319,7 +388,7 @@ func (r *SyncerReconciler) removeWorkloadPod(ctx context.Context, message *resou
 	newPods := append(adminWorkload.Status.Pods[:id], adminWorkload.Status.Pods[id+1:]...)
 	adminWorkload.Status.Pods = newPods
 	if commonworkload.IsApplication(adminWorkload) {
-		r.updateWorkloadNodes(adminWorkload, message)
+		r.updateWorkloadNodes(adminWorkload)
 	}
 	if err = r.Status().Update(ctx, adminWorkload); err != nil {
 		klog.ErrorS(err, "failed to update workload status", "name", adminWorkload.Name)
@@ -330,7 +399,8 @@ func (r *SyncerReconciler) removeWorkloadPod(ctx context.Context, message *resou
 
 // createReservedFaults creates fault to reserve nodes for the workload
 // This ensures that after failover, the workload can still use the same nodes
-func (r *SyncerReconciler) createStickyNodeFaults(ctx context.Context, adminWorkload *v1.Workload, count int) error {
+func (r *SyncerReconciler) createStickyNodeFaults(ctx context.Context, adminWorkload *v1.Workload) error {
+	count := v1.GetWorkloadDispatchCnt(adminWorkload)
 	if !v1.IsRetryingOnOriginal(adminWorkload) || count <= 0 || shouldWorkloadStopRetry(adminWorkload, count) {
 		return nil
 	}
@@ -351,12 +421,14 @@ func (r *SyncerReconciler) createStickyNodeFaults(ctx context.Context, adminWork
 			continue
 		}
 		if err = r.Create(ctx, fault); err != nil && !apierrors.IsAlreadyExists(err) {
+			klog.ErrorS(err, "failed to create sticky node fault", "name", fault.Name)
 			return err
 		}
 	}
 	for _, n := range toDelNodes {
 		faultId := commonfaults.GenerateFaultId(n, v1.StickyNodesMonitorId)
 		if err := r.Delete(ctx, &v1.Fault{ObjectMeta: metav1.ObjectMeta{Name: faultId}}); err != nil && !apierrors.IsNotFound(err) {
+			klog.ErrorS(err, "failed to delete sticky node fault", "name", faultId)
 			return err
 		}
 	}
@@ -386,7 +458,21 @@ func (r *SyncerReconciler) handleRaySubmitterTimeout(ctx context.Context, adminW
 	if time.Since(endTime) < MaxRayJobWaitTime*time.Second {
 		return false, nil
 	}
-	return true, jobutils.SetWorkloadFailed(ctx, r.Client, adminWorkload, "rayjob submitter has timed out")
+	return true, jobutils.SetWorkloadFailed(ctx, r.Client, adminWorkload, "rayJob submitter has timed out")
+}
+
+func (r *SyncerReconciler) getMonarchMesh(ctx context.Context,
+	clusterClientSets *ClusterClientSets, name, namespace string) (*unstructured.Unstructured, error) {
+	meshGvk := commonworkload.MonarchMeshWorkloadGVK()
+	rt, err := commonworkload.GetResourceTemplateByGVK(ctx, r.Client, meshGvk)
+	if err != nil {
+		return nil, err
+	}
+	meshObject, err := jobutils.GetObject(ctx, clusterClientSets.ClientFactory(), name, namespace, rt.ToSchemaGVK())
+	if err != nil {
+		return nil, err
+	}
+	return meshObject, nil
 }
 
 func generateStickyFault(adminWorkload *v1.Workload,
@@ -421,8 +507,8 @@ func generateStickyFault(adminWorkload *v1.Workload,
 
 // buildPodTerminatedInfo constructs termination information for a pod.
 // Extracts container termination details and finished time for completed pods.
-func buildPodTerminatedInfo(ctx context.Context,
-	clientSet kubernetes.Interface, adminWorkload *v1.Workload, pod *corev1.Pod, workloadPod *v1.WorkloadPod) {
+func buildPodTerminatedInfo(ctx context.Context, clientSet kubernetes.Interface,
+	adminWorkload *v1.Workload, pod *corev1.Pod, workloadPod *v1.WorkloadPod, mainContainerName string) {
 	if pod.Status.Phase == corev1.PodFailed {
 		if pod.Status.Reason != "" {
 			workloadPod.FailedMessage += pod.Status.Reason
@@ -438,7 +524,6 @@ func buildPodTerminatedInfo(ctx context.Context,
 	}
 
 	var finishedTime *metav1.Time
-	mainContainerName := getMainContainerName(adminWorkload, pod)
 	for i, container := range pod.Status.ContainerStatuses {
 		terminated := container.State.Terminated
 		if terminated == nil {
@@ -585,13 +670,6 @@ func isAllPodsAssigned(workload *v1.Workload) bool {
 	if commonworkload.IsRayJob(workload) {
 		// For RayJob, the ray-job-submitter pod is automatically created as the management pod
 		if len(workload.Status.Pods) != commonworkload.GetTotalReplica(workload)+1 {
-			return false
-		}
-	} else if commonworkload.IsMonarchJob(workload) {
-		totalGroups, _ := commonworkload.GetReplicaCount(workload, common.ReplicaCount)
-		replica := workload.Spec.Resources[0].Replica + totalGroups*workload.Spec.Resources[1].Replica
-		// For RayJob, the ray-job-submitter pod is automatically created as the management pod
-		if len(workload.Status.Pods) != replica {
 			return false
 		}
 	} else if len(workload.Status.Pods) != commonworkload.GetTotalReplica(workload) {
