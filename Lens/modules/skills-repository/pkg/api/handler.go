@@ -5,12 +5,16 @@ package api
 
 import (
 	"errors"
+	"io"
 	"log"
+	"mime"
 	"net/http"
+	"path/filepath"
 	"strconv"
 
 	"github.com/AMD-AGI/Primus-SaFE/Lens/skills-repository/pkg/safe"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/skills-repository/pkg/service"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/skills-repository/pkg/storage"
 	"github.com/gin-gonic/gin"
 )
 
@@ -22,6 +26,7 @@ type Handler struct {
 	runService     *service.RunService
 	toolsetService *service.ToolsetService
 	safeClient     *safe.UserClient
+	storage        storage.Storage
 }
 
 // NewHandler creates a new Handler
@@ -32,6 +37,7 @@ func NewHandler(
 	runSvc *service.RunService,
 	toolsetSvc *service.ToolsetService,
 	safeClient *safe.UserClient,
+	store storage.Storage,
 ) *Handler {
 	return &Handler{
 		toolService:    toolSvc,
@@ -40,6 +46,7 @@ func NewHandler(
 		runService:     runSvc,
 		toolsetService: toolsetSvc,
 		safeClient:     safeClient,
+		storage:        store,
 	}
 }
 
@@ -89,6 +96,10 @@ func RegisterRoutes(router *gin.Engine, h *Handler) {
 
 		// Get tool content (SKILL.md for skills)
 		auth.GET("/tools/:id/content", h.GetToolContent)
+
+		// Generic file storage (?path=xxx)
+		auth.PUT("/files", h.UploadFile)
+		auth.GET("/files", h.DownloadFile)
 
 		// Toolsets
 		auth.GET("/toolsets", h.ListToolsets)
@@ -585,6 +596,68 @@ func (h *Handler) UploadIcon(c *gin.Context) {
 
 	log.Printf("[UploadIcon] user=%s icon_url=%s success", userInfo.UserID, iconURL)
 	c.JSON(http.StatusOK, gin.H{"icon_url": iconURL})
+}
+
+// UploadFile handles PUT /files?path=xxx - upload a file to storage
+func (h *Handler) UploadFile(c *gin.Context) {
+	key := c.Query("path")
+	if key == "" {
+		respondInvalidParameter(c, "path", "Query parameter 'path' is required, e.g. ?path=models/weights.tar.gz")
+		return
+	}
+
+	if h.storage == nil {
+		respondWithError(c, http.StatusServiceUnavailable, "STORAGE_NOT_CONFIGURED", "Storage backend not configured")
+		return
+	}
+
+	userInfo := GetUserInfo(c)
+	log.Printf("[UploadFile] user=%s key=%s", userInfo.UserID, key)
+
+	if err := h.storage.Upload(c.Request.Context(), key, c.Request.Body); err != nil {
+		log.Printf("[UploadFile] user=%s key=%s error=%v", userInfo.UserID, key, err)
+		respondWithError(c, http.StatusInternalServerError, "UPLOAD_FAILED", err.Error())
+		return
+	}
+
+	url, _ := h.storage.GetURL(c.Request.Context(), key)
+	log.Printf("[UploadFile] user=%s key=%s success", userInfo.UserID, key)
+	c.JSON(http.StatusOK, gin.H{"key": key, "url": url})
+}
+
+// DownloadFile handles GET /files?path=xxx - download a file from storage
+func (h *Handler) DownloadFile(c *gin.Context) {
+	key := c.Query("path")
+	if key == "" {
+		respondInvalidParameter(c, "path", "Query parameter 'path' is required, e.g. ?path=models/weights.tar.gz")
+		return
+	}
+
+	if h.storage == nil {
+		respondWithError(c, http.StatusServiceUnavailable, "STORAGE_NOT_CONFIGURED", "Storage backend not configured")
+		return
+	}
+
+	userInfo := GetUserInfo(c)
+	log.Printf("[DownloadFile] user=%s key=%s", userInfo.UserID, key)
+
+	reader, err := h.storage.Download(c.Request.Context(), key)
+	if err != nil {
+		log.Printf("[DownloadFile] user=%s key=%s error=%v", userInfo.UserID, key, err)
+		respondWithError(c, http.StatusNotFound, "FILE_NOT_FOUND", err.Error())
+		return
+	}
+	defer reader.Close()
+
+	contentType := mime.TypeByExtension(filepath.Ext(key))
+	if contentType == "" {
+		contentType = "application/octet-stream"
+	}
+
+	c.Header("Content-Disposition", "inline; filename="+filepath.Base(key))
+	c.Header("Content-Type", contentType)
+	c.Status(http.StatusOK)
+	io.Copy(c.Writer, reader)
 }
 
 // GetToolContent handles GET /tools/:id/content - returns raw SKILL.md content
