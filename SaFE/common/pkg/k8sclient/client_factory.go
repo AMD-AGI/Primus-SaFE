@@ -75,10 +75,11 @@ func NewClientFactory(ctx context.Context, name, endpoint, certData,
 		valid:         true,
 	}
 
+	const defaultResyncPeriod = 30 * time.Minute
 	switch informerType {
 	case EnableInformer:
 		factory.stopCh = make(chan struct{})
-		factory.sharedInformerFactory = informers.NewSharedInformerFactory(clientSet, 0)
+		factory.sharedInformerFactory = informers.NewSharedInformerFactory(clientSet, defaultResyncPeriod)
 	case EnableDynamicInformer:
 		factory.stopCh = make(chan struct{})
 		httpClient, err := rest.HTTPClientFor(restCfg)
@@ -90,7 +91,7 @@ func NewClientFactory(ctx context.Context, name, endpoint, certData,
 			return nil, err
 		}
 		factory.mapper = mapper
-		factory.dynamicSharedInformerFactory = dynamicinformer.NewDynamicSharedInformerFactory(dynamicClient, 0)
+		factory.dynamicSharedInformerFactory = dynamicinformer.NewDynamicSharedInformerFactory(dynamicClient, defaultResyncPeriod)
 	default:
 	}
 	klog.Infof("new k8s client factory. name: %s, informer type: %d", name, informerType)

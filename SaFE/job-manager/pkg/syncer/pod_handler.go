@@ -144,6 +144,7 @@ func (r *SyncerReconciler) updateAdminWorkloadByPod(ctx context.Context, clientS
 		updateMonarchJobPhase(adminWorkload, pod)
 	}
 	if err = r.Status().Update(ctx, adminWorkload); err != nil {
+		klog.ErrorS(err, "failed to update admin workload status", "name", adminWorkload.Name)
 		return ctrlruntime.Result{}, err
 	}
 	if oldPodPhase != podInfo.Phase {

@@ -293,6 +293,7 @@ func (r *SyncerReconciler) updateAdminWorkloadByJob(ctx context.Context, clientS
 		return originalWorkload, nil
 	}
 	if err := r.Status().Update(ctx, adminWorkload); err != nil {
+		klog.ErrorS(err, "failed to update admin workload status", "name", adminWorkload.Name)
 		return nil, err
 	}
 	klog.Infof("update workload status, name: %s, phase: %s, dispatchCount: %d, k8s.status: %s",
