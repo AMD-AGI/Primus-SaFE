@@ -214,17 +214,22 @@ RUN cd /opt && \
 RUN python3 -c "import transformer_engine; print(f'TE {transformer_engine.__version__}')" \
     || echo "WARNING: Transformer Engine not available"
 
-# --- Primus-Turbo ---
-RUN cd /opt && \
+# --- Primus-Turbo (best-effort: requires matching PyTorch + CK versions) ---
+RUN set +e && \
+    cd /opt && \
     git clone --recursive https://github.com/AMD-AGI/Primus-Turbo.git && \
     cd Primus-Turbo && \
     git checkout ${PRIMUS_TURBO_COMMIT} && \
     git submodule update --init --recursive && \
     pip3 install -r requirements.txt && \
-    GPU_ARCHS="${GPU_ARCHS}" pip3 install --no-build-isolation . && \
-    cd /opt && rm -rf Primus-Turbo
+    GPU_ARCHS="${GPU_ARCHS}" pip3 install --no-build-isolation .; \
+    _rc=$?; cd /opt; rm -rf Primus-Turbo; \
+    if [ $_rc -eq 0 ]; then echo "Primus-Turbo installed successfully"; \
+    else echo "WARNING: Primus-Turbo build failed (non-fatal)"; fi; \
+    exit 0
 
-RUN python3 -c "import primus_turbo; print('Primus-Turbo OK')" || true
+RUN python3 -c "import primus_turbo; print('Primus-Turbo OK')" \
+    || echo "WARNING: Primus-Turbo not available"
 
 # --- Primus Python dependencies ---
 RUN pip3 install \
