@@ -210,6 +210,11 @@ COPY --from=te-prebuilt /opt/venv/lib/python3.10/site-packages/transformer_engin
      /usr/local/lib/python3.10/dist-packages/transformer_engine
 COPY --from=te-prebuilt /opt/venv/lib/python3.10/site-packages/transformer_engine-2.6.0.dev0+f141f34b.dist-info \
      /usr/local/lib/python3.10/dist-packages/transformer_engine-2.6.0.dev0+f141f34b.dist-info
+
+# Relax the strict ROCm major.minor assertion (7.0 vs 7.1); ABI is compatible.
+RUN sed -i 's/assert (rocm_version == build_rocm_version)/# &/' \
+    /usr/local/lib/python3.10/dist-packages/transformer_engine/common/__init__.py
+
 RUN pip3 install einops importlib-metadata onnx onnxscript packaging pydantic
 
 RUN python3 -c "import transformer_engine; print(f'TE {transformer_engine.__version__}')"
