@@ -40,8 +40,8 @@ const (
 	ScaleRunnerID     = "SCALE_RUNNER_ID"
 	ReplicaCount      = "REPLICA_COUNT"
 	HostPerReplica    = "HOST_PER_REPLICA"
-	MaxReplicaGroup   = "MAX_REPLICA_GROUP"
-	MinReplicaGroup   = "MIN_REPLICA_GROUP"
+	MaxReplicaCount   = "MAX_REPLICA_COUNT"
+	MinReplicaCount   = "MIN_REPLICA_COUNT"
 	TorchFTLightHouse = "TORCHFT_LIGHTHOUSE"
 	RayJobEntrypoint  = "RAY_JOB_ENTRYPOINT"
 	// for preflight job

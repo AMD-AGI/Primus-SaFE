@@ -229,7 +229,7 @@ type WorkloadPod struct {
 	Containers []Container `json:"containers,omitempty"`
 	// The group id of pod
 	// for torchft. 0 lighthouse, > 0 worker
-	// for monarch. 0 client, > 0 mesh
+	// for monarch. -1 client, >= 0 mesh
 	GroupId int8 `json:"groupId,omitempty"`
 }
 

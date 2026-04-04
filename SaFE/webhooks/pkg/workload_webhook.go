@@ -872,11 +872,11 @@ func (v *WorkloadValidator) validateTorchFT(newWorkload, oldWorkload *v1.Workloa
 			common.ReplicaCount, newWorkload.Spec.Resources[1].Replica, group)
 	}
 
-	maxGroup, err := commonworkload.GetReplicaCount(newWorkload, common.MaxReplicaGroup)
+	maxGroup, err := commonworkload.GetReplicaCount(newWorkload, common.MaxReplicaCount)
 	if err != nil {
 		return err
 	}
-	minGroup, err := commonworkload.GetReplicaCount(newWorkload, common.MinReplicaGroup)
+	minGroup, err := commonworkload.GetReplicaCount(newWorkload, common.MinReplicaCount)
 	if err != nil {
 		return err
 	}
@@ -885,14 +885,14 @@ func (v *WorkloadValidator) validateTorchFT(newWorkload, oldWorkload *v1.Workloa
 			common.ReplicaCount, group, minGroup, maxGroup)
 	}
 	if oldWorkload != nil {
-		oldMaxGroup, _ := commonworkload.GetReplicaCount(oldWorkload, common.MaxReplicaGroup)
-		oldMinGroup, _ := commonworkload.GetReplicaCount(oldWorkload, common.MinReplicaGroup)
+		oldMaxGroup, _ := commonworkload.GetReplicaCount(oldWorkload, common.MaxReplicaCount)
+		oldMinGroup, _ := commonworkload.GetReplicaCount(oldWorkload, common.MinReplicaCount)
 		oldGroup, _ := commonworkload.GetReplicaCount(oldWorkload, common.ReplicaCount)
 		if maxGroup != oldMaxGroup {
-			return fmt.Errorf("the %s of workload environment can not be changed", common.MaxReplicaGroup)
+			return fmt.Errorf("the %s of workload environment can not be changed", common.MaxReplicaCount)
 		}
 		if minGroup != oldMinGroup {
-			return fmt.Errorf("the %s of workload environment can not be changed", common.MinReplicaGroup)
+			return fmt.Errorf("the %s of workload environment can not be changed", common.MinReplicaCount)
 		}
 
 		if (oldWorkload.Spec.Resources[1].Replica / oldGroup) != (newWorkload.Spec.Resources[1].Replica / group) {

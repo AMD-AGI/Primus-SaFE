@@ -482,7 +482,7 @@ func handleTorchFTGroupStatus(adminWorkload *v1.Workload, groupIdStr string, pha
 		return ""
 	}
 
-	minGroups, err := commonworkload.GetReplicaCount(adminWorkload, common.MinReplicaGroup)
+	minGroups, err := commonworkload.GetReplicaCount(adminWorkload, common.MinReplicaCount)
 	if err != nil || minGroups <= 0 {
 		// If we can't get total groups, treat as single group
 		return phase
@@ -531,7 +531,7 @@ func handleTorchFTGroupStatus(adminWorkload *v1.Workload, groupIdStr string, pha
 // if the number of remaining available worker groups falls below the minimum required groups
 func isTorchFTGroupFailed(adminWorkload *v1.Workload) bool {
 	totalGroups, _ := commonworkload.GetReplicaCount(adminWorkload, common.ReplicaCount)
-	minGroups, _ := commonworkload.GetReplicaCount(adminWorkload, common.MinReplicaGroup)
+	minGroups, _ := commonworkload.GetReplicaCount(adminWorkload, common.MinReplicaCount)
 
 	failedCount := 0
 	for i := 1; i <= totalGroups; i++ {
