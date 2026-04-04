@@ -71,12 +71,21 @@ case "${TARGET}" in
     *) echo "Error: Invalid target '${TARGET}'. Must be: base, bench, pytorch, full"; exit 1 ;;
 esac
 
-# Handle AINIC bundle
+# Handle AINIC bundle (skip cp when source is already under preflight/install)
 AINIC_FILENAME=""
+AINIC_COPIED_FOR_BUILD=false
 if [ -n "${AINIC_BUNDLE_PATH}" ] && [ -f "${AINIC_BUNDLE_PATH}" ]; then
     AINIC_FILENAME=$(basename "${AINIC_BUNDLE_PATH}")
-    cp "${AINIC_BUNDLE_PATH}" "${BENCH_DIR}/preflight/install/${AINIC_FILENAME}"
-    echo "Copied AINIC bundle to preflight/install/${AINIC_FILENAME}"
+    DEST="${BENCH_DIR}/preflight/install/${AINIC_FILENAME}"
+    SRC_ABS=$(readlink -f "${AINIC_BUNDLE_PATH}")
+    DEST_ABS=$(readlink -f "${DEST}" 2>/dev/null || true)
+    if [ "${SRC_ABS}" != "${DEST_ABS}" ]; then
+        cp "${AINIC_BUNDLE_PATH}" "${DEST}"
+        AINIC_COPIED_FOR_BUILD=true
+        echo "Copied AINIC bundle to preflight/install/${AINIC_FILENAME}"
+    else
+        echo "AINIC bundle already at preflight/install/${AINIC_FILENAME}"
+    fi
 fi
 
 # Auto-generate image tag
@@ -130,10 +139,10 @@ echo ""
 echo "Building..."
 "${BUILD_CMD[@]}" 2>&1 | tee "${BENCH_DIR}/build/build.log"
 
-# Cleanup AINIC bundle copy
-if [ -n "${AINIC_FILENAME}" ] && [ -f "${BENCH_DIR}/preflight/install/${AINIC_FILENAME}" ]; then
+# Remove only a temporary copy (do not delete a pre-existing NFS bundle)
+if [ "${AINIC_COPIED_FOR_BUILD}" = true ] && [ -n "${AINIC_FILENAME}" ] && [ -f "${BENCH_DIR}/preflight/install/${AINIC_FILENAME}" ]; then
     rm -f "${BENCH_DIR}/preflight/install/${AINIC_FILENAME}"
-    echo "Cleaned up preflight/install/${AINIC_FILENAME}"
+    echo "Cleaned up temporary preflight/install/${AINIC_FILENAME}"
 fi
 
 echo ""
