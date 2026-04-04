@@ -195,5 +195,5 @@ func (r *SyncerReconciler) getAdminWorkload(ctx context.Context, workloadId stri
 		}
 		return nil, err
 	}
-	return adminWorkload, nil
+	return adminWorkload.DeepCopy(), nil
 }

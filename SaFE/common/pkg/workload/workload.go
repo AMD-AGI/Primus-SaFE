@@ -468,6 +468,7 @@ func GetReplicaCount(workload *v1.Workload, key string) (int, error) {
 // For TorchFT workloads: returns multiple GVKs since TorchFT consists of multiple resource types
 //   - PyTorchJob GVK for the training job components
 //   - Deployment GVK for the lighthouse deployment component
+//
 // For MonarhchJob workloads: returns multiple GVKs since Moranch consists of multiple resource types
 //   - MonarchMesh GVK for the training job components
 //   - MonarchClient GVK for the client component
@@ -486,13 +487,17 @@ func GetWorkloadGVK(workload *v1.Workload) []schema.GroupVersionKind {
 		result = append(result, schema.GroupVersionKind{
 			Group: "", Version: common.DefaultVersion, Kind: common.MonarchClient,
 		})
-		result = append(result, schema.GroupVersionKind{
-			Group: "monarch.pytorch.org", Version: common.DefaultVersion, Kind: common.MonarchMesh,
-		})
+		result = append(result, MonarchMeshWorkloadGVK())
 	} else {
 		result = append(result, workload.ToSchemaGVK())
 	}
 	return result
+}
+
+func MonarchMeshWorkloadGVK() schema.GroupVersionKind {
+	return schema.GroupVersionKind{
+		Group: "monarch.pytorch.org", Version: common.DefaultVersion, Kind: common.MonarchMesh,
+	}
 }
 
 // SetMainContainerViaTemplate retrieves and sets the main container name for a workload
@@ -556,5 +561,5 @@ func IsEnabledHostNetwork(workload *v1.Workload, resourceId int) bool {
 	if resourceId >= len(workload.Spec.Resources) || resourceId < 0 {
 		return false
 	}
-	return workload.Spec.Resources[resourceId].RdmaResource != "" 
+	return workload.Spec.Resources[resourceId].RdmaResource != ""
 }

@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"strconv"
 
-	jobutils "github.com/AMD-AIG-AIMA/SAFE/job-manager/pkg/utils"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	apitypes "k8s.io/apimachinery/pkg/types"
@@ -71,8 +70,6 @@ type resourceMessage struct {
 	action     string
 	workloadId string
 	groupId    string
-	// TODO: Keep old logic for compatibility; remove it later.
-	selectorLabels map[string]interface{}
 	// dispatch count for this message — note that messages can be redelivered due to failover
 	dispatchCount int
 }
@@ -201,17 +198,18 @@ func (r *ClusterClientSets) handleResource(_ context.Context, oldObj, newObj int
 	}
 
 	// Only resources dispatched by this system are currently synchronized; others are ignored
-	if msg.workloadId = v1.GetWorkloadId(newUnstructured); msg.workloadId == "" {
-		return
+	if newUnstructured.GetLabels()[monarchMeshLabel] == "" {
+		if msg.workloadId = v1.GetWorkloadId(newUnstructured); msg.workloadId == "" {
+			return
+		}
+		strCount := newUnstructured.GetLabels()[v1.WorkloadDispatchCntLabel]
+		if n, err := strconv.Atoi(strCount); err == nil {
+			msg.dispatchCount = n
+		}
+		msg.groupId = v1.GetGroupId(newUnstructured)
+	} else {
+		msg.dispatchCount = 1
 	}
-	strCount := newUnstructured.GetLabels()[v1.WorkloadDispatchCntLabel]
-	if n, err := strconv.Atoi(strCount); err == nil {
-		msg.dispatchCount = n
-	}
-	if labels, _ := jobutils.GetSelectorLabels(newUnstructured); len(labels) > 0 {
-		msg.selectorLabels = labels
-	}
-	msg.groupId = v1.GetGroupId(newUnstructured)
 
 	switch msg.action {
 	case ResourceAdd:
