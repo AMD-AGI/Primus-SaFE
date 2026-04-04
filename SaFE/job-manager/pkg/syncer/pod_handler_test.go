@@ -138,7 +138,8 @@ func TestGetMainContainerRank(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			rank := getMainContainerRank(tt.workload, tt.pod)
+			name := getMainContainerName(tt.workload, tt.pod)
+			rank := getMainContainerRank(name, tt.pod)
 			assert.Equal(t, tt.expectedRank, rank)
 		})
 	}
@@ -161,12 +162,15 @@ func TestCreateStickyNodeFaults(t *testing.T) {
 		workload := &v1.Workload{
 			ObjectMeta: metav1.ObjectMeta{
 				Name: "test-workload",
+				Labels: map[string]string{
+					v1.WorkloadDispatchCntLabel: "1",
+				},
 			},
 		}
 		cli := fake.NewClientBuilder().WithScheme(scheme).Build()
 		r := &SyncerReconciler{Client: cli}
 
-		err := r.createStickyNodeFaults(ctx, workload, 1)
+		err := r.createStickyNodeFaults(ctx, workload)
 		assert.NoError(t, err)
 
 		// Verify no fault was created
@@ -180,6 +184,9 @@ func TestCreateStickyNodeFaults(t *testing.T) {
 		workload := &v1.Workload{
 			ObjectMeta: metav1.ObjectMeta{
 				Name: "test-workload",
+				Labels: map[string]string{
+					v1.WorkloadDispatchCntLabel: "0",
+				},
 				Annotations: map[string]string{
 					v1.RetryOnOriginalNodesAnnotation: v1.TrueStr,
 				},
@@ -188,7 +195,7 @@ func TestCreateStickyNodeFaults(t *testing.T) {
 		cli := fake.NewClientBuilder().WithScheme(scheme).Build()
 		r := &SyncerReconciler{Client: cli}
 
-		err := r.createStickyNodeFaults(ctx, workload, 0)
+		err := r.createStickyNodeFaults(ctx, workload)
 		assert.NoError(t, err)
 
 		// Verify no fault was created
@@ -203,6 +210,9 @@ func TestCreateStickyNodeFaults(t *testing.T) {
 			ObjectMeta: metav1.ObjectMeta{
 				Name: "test-workload",
 				UID:  "test-uid",
+				Labels: map[string]string{
+					v1.WorkloadDispatchCntLabel: "1",
+				},
 				Annotations: map[string]string{
 					v1.RetryOnOriginalNodesAnnotation: v1.TrueStr,
 				},
@@ -223,7 +233,7 @@ func TestCreateStickyNodeFaults(t *testing.T) {
 		cli := fake.NewClientBuilder().WithScheme(scheme).Build()
 		r := &SyncerReconciler{Client: cli}
 
-		err := r.createStickyNodeFaults(ctx, workload, 1)
+		err := r.createStickyNodeFaults(ctx, workload)
 		assert.NoError(t, err)
 
 		// Verify faults were created for both nodes
@@ -248,6 +258,9 @@ func TestCreateStickyNodeFaults(t *testing.T) {
 			ObjectMeta: metav1.ObjectMeta{
 				Name: "test-workload",
 				UID:  "test-uid",
+				Labels: map[string]string{
+					v1.WorkloadDispatchCntLabel: "2",
+				},
 				Annotations: map[string]string{
 					v1.RetryOnOriginalNodesAnnotation: v1.TrueStr,
 				},
@@ -279,7 +292,7 @@ func TestCreateStickyNodeFaults(t *testing.T) {
 		cli := fake.NewClientBuilder().WithScheme(scheme).WithObjects(existingFault).Build()
 		r := &SyncerReconciler{Client: cli}
 
-		err := r.createStickyNodeFaults(ctx, workload, 2)
+		err := r.createStickyNodeFaults(ctx, workload)
 		assert.NoError(t, err)
 
 		// Verify fault for node-3 was created

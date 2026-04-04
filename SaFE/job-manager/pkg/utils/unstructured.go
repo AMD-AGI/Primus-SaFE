@@ -535,20 +535,6 @@ func GetLabels(unstructuredObj *unstructured.Unstructured, resourceSpec v1.Resou
 	return labels, nil
 }
 
-// GetSelectorLabels retrieves the labels of selector from Unstructured object.
-func GetSelectorLabels(unstructuredObj *unstructured.Unstructured) (map[string]interface{}, error) {
-	path := []string{"spec", "selector", "matchLabels"}
-	labels, found, err := NestedMap(unstructuredObj.Object, path)
-	if err != nil {
-		klog.ErrorS(err, "failed to find labels", "path", path)
-		return nil, err
-	}
-	if !found {
-		return nil, nil
-	}
-	return labels, nil
-}
-
 // GetEnv Retrieve the environment value of the main container.
 func GetEnv(unstructuredObj *unstructured.Unstructured,
 	rt *v1.ResourceTemplate, maxResource int) ([]interface{}, error) {

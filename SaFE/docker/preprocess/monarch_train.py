@@ -35,7 +35,7 @@ except ImportError:
     FaultTolerantTrainer = Trainer  # type: ignore
     HAS_FT_TRAINER = False
 
-sys.path.insert(0, "/shared_nfs/zhanglei/torchft/examples/monarch")
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from utils.failure import Failure, FailureActor, FailureController
 
 
@@ -126,8 +126,20 @@ class LighthouseActor(Actor):
             # excluded before they can join quorum. 10 min covers 8B models.
             join_timeout_ms=15000,
         )
-        logger.info(f"[Lighthouse] Started with min_replicas={min_replicas}")
-        return self.lighthouse.address()
+        addr = self.lighthouse.address()
+        # Replace hostname with IP so mesh workers on other nodes can resolve it
+        import re, socket
+        m = re.match(r"(https?://)([^:]+)(:\d+.*)", addr)
+        if m:
+            try:
+                ip = socket.gethostbyname(m.group(2))
+                addr = f"{m.group(1)}{ip}{m.group(3)}"
+            except socket.gaierror:
+                pod_ip = os.environ.get("POD_IP", "")
+                if pod_ip:
+                    addr = f"{m.group(1)}{pod_ip}{m.group(3)}"
+        logger.info(f"[Lighthouse] Started with min_replicas={min_replicas}, address={addr}")
+        return addr
     @endpoint
     def stop_lighthouse(self) -> None:
         if not self.lighthouse:
@@ -227,6 +239,13 @@ class TrainingActor(Actor):
                     f"{self.uid} Replacing loopback MASTER_ADDR={master_addr} with {real_ip}"
                 )
                 os.environ["MASTER_ADDR"] = real_ip
+
+        # Patch socket.gethostname to return IP instead of hostname so that
+        # ft.ManagerServer advertises a routable IP to Lighthouse
+        pod_ip = os.environ.get("POD_IP", "")
+        if pod_ip:
+            import socket as _socket
+            _socket.gethostname = lambda: pod_ip
         trainer_cls = (
             FaultTolerantTrainer
             if isinstance(self.job_config, FaultTolerantTrainer.Config)
@@ -732,7 +751,7 @@ def parse_args() -> argparse.Namespace:
         description="Monarch-TorchFT Distributed Training - broadcast supervision demo"
     )
     script_dir = os.path.dirname(os.path.abspath(__file__))
-    workspace_dir = os.path.normpath(os.path.join(script_dir, "../../.."))
+    workspace_dir = os.environ.get("WORKSPACE_DIR", "/workspace")
     torchtitan_assets_dir = os.path.join(workspace_dir, "torchtitan", "tests", "assets")
     parser.add_argument(
         "--replica-count", type=int,
