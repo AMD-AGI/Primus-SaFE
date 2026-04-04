@@ -35,7 +35,7 @@ except ImportError:
     FaultTolerantTrainer = Trainer  # type: ignore
     HAS_FT_TRAINER = False
 
-sys.path.insert(0, "/shared-data")
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from utils.failure import Failure, FailureActor, FailureController
 
 
