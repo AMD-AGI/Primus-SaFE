@@ -18,24 +18,24 @@ from copy import deepcopy
 from dataclasses import dataclass
 from typing import Dict
 
-import glob as _glob
-for _pat, _repls in {
-    "/opt/venv/lib/python*/site-packages/torch/_inductor/select_algorithm.py": [
-        ('assert name not in self.all_templates, "duplicate template name"', "pass"),
-        ('assert not hasattr(extern_kernels, name), f"duplicate extern kernel: {name}"', "pass"),
-    ],
-    "/opt/venv/lib/python*/site-packages/torch/_inductor/lowering.py": [
-        ("assert name not in", "if name in"),
-    ],
-}.items():
-    for _fp in _glob.glob(_pat):
-        try:
-            _t = open(_fp).read()
-            for _o, _n in _repls:
-                _t = _t.replace(_o, _n)
-            open(_fp, "w").write(_t)
-        except Exception:
-            pass
+# import glob as _glob
+# for _pat, _repls in {
+#     "/opt/venv/lib/python*/site-packages/torch/_inductor/select_algorithm.py": [
+#         ('assert name not in self.all_templates, "duplicate template name"', "pass"),
+#         ('assert not hasattr(extern_kernels, name), f"duplicate extern kernel: {name}"', "pass"),
+#     ],
+#     "/opt/venv/lib/python*/site-packages/torch/_inductor/lowering.py": [
+#         ("assert name not in", "if name in"),
+#     ],
+# }.items():
+#     for _fp in _glob.glob(_pat):
+#         try:
+#             _t = open(_fp).read()
+#             for _o, _n in _repls:
+#                 _t = _t.replace(_o, _n)
+#             open(_fp, "w").write(_t)
+#         except Exception:
+#             pass
 
 import torch
 from monarch.actor import Actor, current_rank, endpoint, HostMesh, MeshFailure, ProcMesh, this_host, enable_transport
@@ -145,8 +145,20 @@ class LighthouseActor(Actor):
             # excluded before they can join quorum. 10 min covers 8B models.
             join_timeout_ms=15000,
         )
-        logger.info(f"[Lighthouse] Started with min_replicas={min_replicas}")
-        return self.lighthouse.address()
+        addr = self.lighthouse.address()
+        # Replace hostname with IP so mesh workers on other nodes can resolve it
+        import re, socket
+        m = re.match(r"(https?://)([^:]+)(:\d+.*)", addr)
+        if m:
+            try:
+                ip = socket.gethostbyname(m.group(2))
+                addr = f"{m.group(1)}{ip}{m.group(3)}"
+            except socket.gaierror:
+                pod_ip = os.environ.get("POD_IP", "")
+                if pod_ip:
+                    addr = f"{m.group(1)}{pod_ip}{m.group(3)}"
+        logger.info(f"[Lighthouse] Started with min_replicas={min_replicas}, address={addr}")
+        return addr
     @endpoint
     def stop_lighthouse(self) -> None:
         if not self.lighthouse:
