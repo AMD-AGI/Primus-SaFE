@@ -194,6 +194,9 @@ FROM pytorch AS full
 ARG PRIMUS_TURBO_COMMIT=79373eb781a54fd49aed9430c8718489409d1dd0
 ARG TE_BRANCH=stable
 
+# TransformerEngine hipify invokes `env python`; Ubuntu images often only ship python3.
+RUN ln -sf /usr/bin/python3 /usr/bin/python
+
 RUN cd /opt && \
     git clone --branch ${TE_BRANCH} --depth 1 \
         https://github.com/ROCm/TransformerEngine.git && \
