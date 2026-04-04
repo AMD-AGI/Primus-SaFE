@@ -119,6 +119,8 @@ RUN mkdir -p ${PREFLIGHT_HOME}/{ssh,network,node,install} && \
     mkdir -p ${PREFLIGHT_HOME}/node/{config_check,node_check,model_check}
 
 COPY preflight/install/* ${PREFLIGHT_HOME}/install/
+# install.sh runs install_model_check.sh, which needs this path before full node/ COPY
+COPY preflight/node/model_check/requirements.txt ${PREFLIGHT_HOME}/node/model_check/requirements.txt
 
 RUN if [ -n "${AINIC_BUNDLE_FILENAME}" ]; then \
       export AINIC_BUNDLE_PATH="${PREFLIGHT_HOME}/install/${AINIC_BUNDLE_FILENAME}"; \
