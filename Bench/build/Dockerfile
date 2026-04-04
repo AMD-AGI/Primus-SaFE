@@ -22,6 +22,7 @@
 # ============================================================================
 ARG REGISTRY=docker.io
 ARG OS_VERSION=22.04
+ARG TE_BASE_IMAGE=docker.io/rocm/primus:v26.1
 
 # ============================================================================
 # Stage 1: base - System + ROCm SDK + cmake + RCCL
@@ -184,6 +185,15 @@ RUN PIP_EXTRA_ARGS="" && \
 RUN python3 -c "import torch; print(f'PyTorch {torch.__version__}, ROCm {torch.version.hip}')"
 
 # ============================================================================
+# Helper stage: pull pre-built Transformer Engine from official ROCm image.
+# Building TE from source requires CK headers that are tightly coupled to
+# the exact HIP compiler version; extracting the pre-built package is the
+# officially-supported consumption path.
+# ============================================================================
+ARG TE_BASE_IMAGE
+FROM ${TE_BASE_IMAGE} AS te-prebuilt
+
+# ============================================================================
 # Stage 4: full - Primus training capabilities
 #
 # Complete image with Transformer Engine, Primus-Turbo, and all Python
@@ -192,23 +202,19 @@ RUN python3 -c "import torch; print(f'PyTorch {torch.__version__}, ROCm {torch.v
 FROM pytorch AS full
 
 ARG PRIMUS_TURBO_COMMIT=79373eb781a54fd49aed9430c8718489409d1dd0
-ARG TE_BRANCH=stable
 
-# TransformerEngine hipify invokes `env python`; Ubuntu images often only ship python3.
 RUN ln -sf /usr/bin/python3 /usr/bin/python
 
-RUN cd /opt && \
-    git clone --branch ${TE_BRANCH} --depth 1 \
-        https://github.com/ROCm/TransformerEngine.git && \
-    cd TransformerEngine && \
-    git submodule update --init --recursive && \
-    sed -i 's/ -Werror//' transformer_engine/common/ck_fused_attn/CMakeLists.txt && \
-    NVTE_FRAMEWORK=pytorch NVTE_BUILD_MAX_JOBS=16 \
-        pip3 install --no-build-isolation . && \
-    cd /opt && rm -rf TransformerEngine
+# --- Transformer Engine (pre-built from rocm/primus) ---
+COPY --from=te-prebuilt /opt/venv/lib/python3.10/site-packages/transformer_engine \
+     /usr/local/lib/python3.10/dist-packages/transformer_engine
+COPY --from=te-prebuilt /opt/venv/lib/python3.10/site-packages/transformer_engine-2.6.0.dev0+f141f34b.dist-info \
+     /usr/local/lib/python3.10/dist-packages/transformer_engine-2.6.0.dev0+f141f34b.dist-info
+RUN pip3 install einops importlib-metadata onnx onnxscript packaging pydantic
 
 RUN python3 -c "import transformer_engine; print(f'TE {transformer_engine.__version__}')"
 
+# --- Primus-Turbo ---
 RUN cd /opt && \
     git clone --recursive https://github.com/AMD-AGI/Primus-Turbo.git && \
     cd Primus-Turbo && \
@@ -220,6 +226,7 @@ RUN cd /opt && \
 
 RUN python3 -c "import primus_turbo; print('Primus-Turbo OK')" || true
 
+# --- Primus Python dependencies ---
 RUN pip3 install \
     loguru wandb expecttest nltk matplotlib markdown2 weasyprint \
     tyro torchao blobfile "torchdata>=0.8.0" "datasets>=3.6.0" \
