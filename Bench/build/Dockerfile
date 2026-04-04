@@ -202,7 +202,9 @@ RUN cd /opt && \
         https://github.com/ROCm/TransformerEngine.git && \
     cd TransformerEngine && \
     git submodule update --init --recursive && \
-    NVTE_FRAMEWORK=pytorch pip3 install --no-build-isolation . && \
+    sed -i 's/ -Werror//' transformer_engine/common/ck_fused_attn/CMakeLists.txt && \
+    NVTE_FRAMEWORK=pytorch NVTE_BUILD_MAX_JOBS=16 \
+        pip3 install --no-build-isolation . && \
     cd /opt && rm -rf TransformerEngine
 
 RUN python3 -c "import transformer_engine; print(f'TE {transformer_engine.__version__}')"
