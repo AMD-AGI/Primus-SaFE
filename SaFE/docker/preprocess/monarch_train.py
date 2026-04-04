@@ -751,7 +751,7 @@ def parse_args() -> argparse.Namespace:
         description="Monarch-TorchFT Distributed Training - broadcast supervision demo"
     )
     script_dir = os.path.dirname(os.path.abspath(__file__))
-    workspace_dir = os.path.normpath(os.path.join(script_dir, "../../.."))
+    workspace_dir = os.environ.get("WORKSPACE_DIR", "/workspace")
     torchtitan_assets_dir = os.path.join(workspace_dir, "torchtitan", "tests", "assets")
     parser.add_argument(
         "--replica-count", type=int,
