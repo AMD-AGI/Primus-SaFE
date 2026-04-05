@@ -1064,7 +1064,7 @@ func (r *DispatcherReconciler) generateTorchFTWorker(ctx context.Context,
 func (r *DispatcherReconciler) generateMonarchClient(ctx context.Context, rootWorkload *v1.Workload, meshGroupCount int) *v1.Workload {
 	workload := rootWorkload.DeepCopy()
 	displayName := v1.GetDisplayName(rootWorkload) + "-client"
-	workload.Name = rootWorkload.Name + "-client"
+	workload.Name = rootWorkload.Name
 	// Validation via webhook confirms the existence of at least 2 resource configs.
 	nodePerGroup := rootWorkload.Spec.Resources[1].Replica / meshGroupCount
 	v1.SetLabel(workload, v1.DisplayNameLabel, displayName)
