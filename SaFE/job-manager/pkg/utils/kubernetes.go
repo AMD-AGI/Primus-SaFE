@@ -162,6 +162,7 @@ func DeleteObjectsByWorkload(ctx context.Context, adminClient client.Client,
 			klog.ErrorS(err, "failed to delete k8s object")
 			return true, err
 		}
+
 	}
 	return true, nil
 }
@@ -189,6 +190,9 @@ func DeleteObject(ctx context.Context, k8sClientFactory *commonclient.ClientFact
 	if isWorkloadOrPod(obj.GroupVersionKind()) {
 		gracePeriod = WorkloadGracePeriod
 	}
+	if obj.GetDeletionTimestamp().IsZero() {
+		klog.Infof("deleting k8s object %s/%s, kind: %s", obj.GetNamespace(), obj.GetName(), obj.GetKind())
+	}
 	policy := metav1.DeletePropagationForeground
 	err = k8sClientFactory.DynamicClient().
 		Resource(gvr).
@@ -200,7 +204,6 @@ func DeleteObject(ctx context.Context, k8sClientFactory *commonclient.ClientFact
 	if err != nil {
 		return client.IgnoreNotFound(err)
 	}
-	klog.Infof("deleting k8s object %s/%s, kind: %s", obj.GetNamespace(), obj.GetName(), obj.GetKind())
 	return nil
 }
 
