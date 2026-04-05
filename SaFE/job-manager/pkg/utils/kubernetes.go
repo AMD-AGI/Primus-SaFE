@@ -194,13 +194,15 @@ func DeleteObject(ctx context.Context, k8sClientFactory *commonclient.ClientFact
 		klog.Infof("deleting k8s object %s/%s, kind: %s", obj.GetNamespace(), obj.GetName(), obj.GetKind())
 	}
 
-	// For MonarchMesh: scale down owned StatefulSets before deletion to prevent
-	// the StatefulSet controller from recreating Pods during foreground cascade.
-	if obj.GetKind() == "MonarchMesh" {
-		scaleDownOwnedStatefulSets(ctx, k8sClientFactory, obj)
-	}
-
 	policy := metav1.DeletePropagationForeground
+	// MonarchMesh uses Background deletion: the monarch-operator reconciles
+	// MonarchMesh and keeps recreating child StatefulSet/Pods even after
+	// deletionTimestamp is set, causing an infinite create-delete loop with
+	// Foreground propagation. Background deletes the MonarchMesh object
+	// immediately so the operator stops reconciling, and GC cleans up children.
+	if obj.GetKind() == common.MonarchMeshKind {
+		policy = metav1.DeletePropagationBackground
+	}
 	err = k8sClientFactory.DynamicClient().
 		Resource(gvr).
 		Namespace(obj.GetNamespace()).
@@ -214,36 +216,6 @@ func DeleteObject(ctx context.Context, k8sClientFactory *commonclient.ClientFact
 	return nil
 }
 
-// scaleDownOwnedStatefulSets patches all StatefulSets owned by the given object to 0 replicas.
-func scaleDownOwnedStatefulSets(ctx context.Context, k8sClientFactory *commonclient.ClientFactory, owner *unstructured.Unstructured) {
-	stsGVR := schema.GroupVersionResource{Group: "apps", Version: "v1", Resource: "statefulsets"}
-	stsList, err := k8sClientFactory.DynamicClient().
-		Resource(stsGVR).
-		Namespace(owner.GetNamespace()).
-		List(ctx, metav1.ListOptions{})
-	if err != nil {
-		klog.V(4).Infof("failed to list StatefulSets for scale-down: %v", err)
-		return
-	}
-	ownerUID := owner.GetUID()
-	for _, sts := range stsList.Items {
-		for _, ref := range sts.GetOwnerReferences() {
-			if ref.UID == ownerUID {
-				patch := []byte(`{"spec":{"replicas":0}}`)
-				_, err := k8sClientFactory.DynamicClient().
-					Resource(stsGVR).
-					Namespace(sts.GetNamespace()).
-					Patch(ctx, sts.GetName(), apitypes.MergePatchType, patch, metav1.PatchOptions{})
-				if err != nil {
-					klog.V(4).Infof("failed to scale down StatefulSet %s: %v", sts.GetName(), err)
-				} else {
-					klog.Infof("scaled down StatefulSet %s/%s to 0 before MonarchMesh deletion", sts.GetNamespace(), sts.GetName())
-				}
-				break
-			}
-		}
-	}
-}
 
 // FindFailedCondition checks if a workload has a failed condition
 // It looks for a K8sFailed type condition that matches the workload's dispatch count
