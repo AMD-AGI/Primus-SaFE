@@ -20,6 +20,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	commonclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/k8sclient"
 	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
@@ -200,7 +201,7 @@ func DeleteObject(ctx context.Context, k8sClientFactory *commonclient.ClientFact
 	// deletionTimestamp is set, causing an infinite create-delete loop with
 	// Foreground propagation. Background deletes the MonarchMesh object
 	// immediately so the operator stops reconciling, and GC cleans up children.
-	if obj.GetKind() == common.MonarchMeshKind {
+	if obj.GetKind() == common.MonarchMesh {
 		policy = metav1.DeletePropagationBackground
 	}
 	err = k8sClientFactory.DynamicClient().
@@ -215,7 +216,6 @@ func DeleteObject(ctx context.Context, k8sClientFactory *commonclient.ClientFact
 	}
 	return nil
 }
-
 
 // FindFailedCondition checks if a workload has a failed condition
 // It looks for a K8sFailed type condition that matches the workload's dispatch count
