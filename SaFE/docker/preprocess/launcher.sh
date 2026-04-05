@@ -37,6 +37,7 @@ fi
 case "${WORKLOAD_KIND}" in
   *Monarch*)
     /bin/sh /shared-data/patch_inductor.sh || true
+    export PYTHONPATH="${PYTHONPATH}:/shared-data"
     ;;
 esac
 
