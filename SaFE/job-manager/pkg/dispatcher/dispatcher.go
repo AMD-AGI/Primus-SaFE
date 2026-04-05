@@ -260,7 +260,7 @@ func (r *DispatcherReconciler) processMonarchWorkload(ctx context.Context, rootW
 	}
 
 	for i := 0; i < count; i++ {
-		meshWorkload := r.generateMonarchMesh(ctx, rootWorkload, count, i)
+		meshWorkload := r.generateMonarchMesh(ctx, rootWorkload, count, i+1)
 		if result, err := r.processWorkload(ctx, meshWorkload); err != nil || result.RequeueAfter > 0 {
 			return result, err
 		}
@@ -693,7 +693,7 @@ func applyWorkloadSpecToObject(ctx context.Context, clientSets *syncer.ClusterCl
 	case commonworkload.IsRayJob(adminWorkload):
 		err = updateRayJob(obj, adminWorkload)
 	case commonworkload.IsMonarchMesh(adminWorkload):
-		err = updateMonarchJob(obj, adminWorkload)
+		err = updateMonarchMesh(obj, adminWorkload)
 	}
 	if err != nil {
 		return err
@@ -1096,12 +1096,13 @@ func (r *DispatcherReconciler) generateMonarchClient(ctx context.Context, rootWo
 // generateMonarchMesh generates a mesh workload for MonarchJob
 func (r *DispatcherReconciler) generateMonarchMesh(ctx context.Context, rootWorkload *v1.Workload, totalGroup, groupId int) *v1.Workload {
 	workload := rootWorkload.DeepCopy()
-	displayName := generateMeshNamePrefix(rootWorkload.Name) + strconv.Itoa(groupId+1)
+	groupIdStr := strconv.Itoa(groupId)
+	displayName := generateMeshNamePrefix(rootWorkload.Name) + groupIdStr
 	nodePerGroup := rootWorkload.Spec.Resources[1].Replica / totalGroup
 	workload.Name = displayName
 	v1.SetLabel(workload, v1.DisplayNameLabel, displayName)
 	v1.SetLabel(workload, v1.RootWorkloadIdLabel, rootWorkload.Name)
-	v1.SetLabel(workload, v1.GroupIdLabel, strconv.Itoa(groupId))
+	v1.SetLabel(workload, v1.GroupIdLabel, groupIdStr)
 	v1.SetAnnotation(workload, v1.ResourceIdAnnotation, "1")
 	if len(rootWorkload.Spec.EntryPoints) > 1 {
 		workload.Spec.EntryPoints = []string{rootWorkload.Spec.EntryPoints[1]}

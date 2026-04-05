@@ -44,7 +44,7 @@ func (r *SyncerReconciler) handleJob(ctx context.Context,
 	if message.namespace != adminWorkload.Spec.Workspace {
 		return ctrlruntime.Result{}, nil
 	}
-	if commonworkload.IsMonarchJob(adminWorkload) && message.gvk.Kind == common.StatefulSetKind {
+	if commonworkload.IsMonarchJob(adminWorkload) && message.gvk.Kind != common.JobKind {
 		return ctrlruntime.Result{}, nil
 	}
 	if commonworkload.IsCICDScalingRunnerSet(adminWorkload) && message.gvk.Kind != common.CICDScaleRunnerSetKind {

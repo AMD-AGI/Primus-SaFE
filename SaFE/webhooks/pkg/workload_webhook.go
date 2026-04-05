@@ -143,6 +143,8 @@ func (m *WorkloadMutator) mutateCommon(ctx context.Context, oldWorkload, newWork
 		m.mutateMonarchJob(newWorkload)
 	case common.RayJobKind:
 		m.mutateRayJob(newWorkload)
+	case common.TorchFTKind:
+		m.mutateTorchFT(newWorkload)
 	}
 	m.mutateHostPath(newWorkload, workspace)
 	m.mutatePriority(newWorkload)
@@ -408,10 +410,21 @@ func (m *WorkloadMutator) mutateCICDScaleSet(workload *v1.Workload) {
 
 // mutateMonarchJob sets no-retry, disable Supervised
 func (m *WorkloadMutator) mutateMonarchJob(workload *v1.Workload) {
-	workload.Spec.IsSupervised = false
-	workload.Spec.MaxRetry = 0
 	if len(workload.Spec.Resources) > 0 {
 		workload.Spec.Resources[0].Replica = 1
+	}
+	m.mutateTorchFT(workload)
+}
+
+func (m *WorkloadMutator) mutateTorchFT(workload *v1.Workload) {
+	group, _ := commonworkload.GetReplicaCount(workload, common.ReplicaCount)
+	_, err := commonworkload.GetReplicaCount(workload, common.MaxReplicaCount)
+	if err != nil {
+		workload.Spec.Env[common.MaxReplicaCount] = strconv.Itoa(group)
+	}
+	_, err = commonworkload.GetReplicaCount(workload, common.MinReplicaCount)
+	if err != nil {
+		workload.Spec.Env[common.MinReplicaCount] = "1"
 	}
 }
 
@@ -739,7 +752,7 @@ func (v *WorkloadValidator) validateCommon(ctx context.Context, newWorkload, old
 	case common.RayJobKind:
 		err = v.validateRayJob(newWorkload, oldWorkload)
 	case common.MonarchJob:
-		err = v.validateMonarchJob(newWorkload)
+		err = v.validateMonarchJob(newWorkload, oldWorkload)
 	}
 	if err != nil {
 		return err
@@ -861,7 +874,10 @@ func (v *WorkloadValidator) validateTorchFT(newWorkload, oldWorkload *v1.Workloa
 			return fmt.Errorf("images[%d] must not be empty", i)
 		}
 	}
+	return v.validateReplicaCount(newWorkload, oldWorkload)
+}
 
+func (v *WorkloadValidator) validateReplicaCount(newWorkload, oldWorkload *v1.Workload) error {
 	group, err := commonworkload.GetReplicaCount(newWorkload, common.ReplicaCount)
 	if err != nil {
 		return err
@@ -926,26 +942,21 @@ func (v *WorkloadValidator) validateRayJob(newWorkload, _ *v1.Workload) error {
 }
 
 // validateMonarchJob validates Monarch workload configuration including environment variables and resource requirements.
-func (v *WorkloadValidator) validateMonarchJob(newWorkload *v1.Workload) error {
+func (v *WorkloadValidator) validateMonarchJob(newWorkload, oldWorkload *v1.Workload) error {
 	// Monarch workloads require 2 resource configurations - one for client (index=0) and one for the MonarchMesh(worker)
-	if len(newWorkload.Spec.Resources) != 2 {
+	if len(newWorkload.Spec.Resources) < 2 {
 		return fmt.Errorf("insufficient resources for Monarch: required 2 resource configurations (client and mesh worker), "+
 			"got %d, resources: %v", len(newWorkload.Spec.Resources), newWorkload.Spec.Resources)
 	}
 	if len(v1.GetDisplayName(newWorkload)) > commonutils.MaxMonarchJobNameLen {
 		return fmt.Errorf("the displayName is too long, maximum length is %d", commonutils.MaxMonarchJobNameLen)
 	}
-	group, err := commonworkload.GetReplicaCount(newWorkload, common.ReplicaCount)
-	if err != nil {
-		return err
+	for i, img := range newWorkload.Spec.Images {
+		if img == "" {
+			return fmt.Errorf("images[%d] must not be empty", i)
+		}
 	}
-
-	if group <= 0 || group > newWorkload.Spec.Resources[1].Replica ||
-		(newWorkload.Spec.Resources[1].Replica%group) != 0 {
-		return fmt.Errorf("the %s of workload environment is invalid: worker node count (%d) must be divisible by replica count (%d)",
-			common.ReplicaCount, newWorkload.Spec.Resources[1].Replica, group)
-	}
-	return nil
+	return v.validateReplicaCount(newWorkload, oldWorkload)
 }
 
 // validateResource validates the basic fields of a WorkloadResource to ensure they are properly set
