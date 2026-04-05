@@ -33,10 +33,10 @@ if [ -z "$input" ]; then
     exit 0
 fi
 
-# Patch PyTorch inductor duplicate assertions for Monarch workloads
+# Monarch-specific patches
 case "${WORKLOAD_KIND}" in
   *Monarch*)
-    /bin/sh /shared-data/patch_inductor.sh || true
+    python3 /shared-data/patch_monarch.py || true
     export PYTHONPATH="${PYTHONPATH}:/shared-data"
     ;;
 esac

@@ -240,12 +240,6 @@ class TrainingActor(Actor):
                 )
                 os.environ["MASTER_ADDR"] = real_ip
 
-        # Patch socket.gethostname to return IP instead of hostname so that
-        # ft.ManagerServer advertises a routable IP to Lighthouse
-        pod_ip = os.environ.get("POD_IP", "")
-        if pod_ip:
-            import socket as _socket
-            _socket.gethostname = lambda: pod_ip
         trainer_cls = (
             FaultTolerantTrainer
             if isinstance(self.job_config, FaultTolerantTrainer.Config)
