@@ -1,5 +1,5 @@
-# Copyright (c) Meta Platforms, Inc. and affiliates.
-# All rights reserved.
+#  Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
+#  See LICENSE for license information.
 #
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
@@ -939,8 +939,8 @@ def make_job_spec(args: argparse.Namespace) -> JobSpec:
 def _log_env_vars() -> None:
     env_keys = [
         "MONARCH_MESH_PREFIX", "MONARCH_PORT", "REPLICA_COUNT",
-        "HOST_PER_REPLICA", "GPUS_PER_NODE", "WORKSPACE",
-        "MASTER_ADDR", "MASTER_PORT",
+        "MIN_REPLICA_COUNT", "HOST_PER_REPLICA", "GPUS_PER_NODE",
+        "WORKSPACE", "MASTER_ADDR", "MASTER_PORT", "PYTHONPATH",
     ]
     for key in env_keys:
         logger.info(f"[ENV] {key}={os.environ.get(key, '<unset>')}")

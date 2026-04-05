@@ -42,7 +42,6 @@ data:
               mountPath: /shared-data
         containers:
           - name: main
-            image: {{ .Values.global.image_registry }}/primussafe/{{ .Values.monarch.image }}
             imagePullPolicy: Always
             env:
               # TorchFT timeout settings (increase from default 60s to reduce commit failures)
