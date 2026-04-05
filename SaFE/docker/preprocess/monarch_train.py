@@ -755,8 +755,8 @@ def parse_args() -> argparse.Namespace:
     torchtitan_assets_dir = os.path.join(workspace_dir, "torchtitan", "tests", "assets")
     parser.add_argument(
         "--replica-count", type=int,
-        default=int(os.environ.get("REPLICA_COUNT", "2")),
-        help="Number of replicas (default: env REPLICA_COUNT or 2)",
+        default=int(os.environ.get("REPLICA_COUNT", "0")),
+        help="Number of replicas (required: env REPLICA_COUNT or --replica-count)",
     )
     parser.add_argument(
         "--gpu-per-node", type=int,
@@ -782,8 +782,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--namespace",
         type=str,
-        default=os.environ.get("WORKSPACE", "monarch-tests"),
-        help="Kubernetes namespace for worker pods (default: env WORKSPACE or monarch-tests)",
+        default=os.environ.get("WORKSPACE", ""),
+        help="Kubernetes namespace for worker pods (required: env WORKSPACE or --namespace)",
     )
     parser.add_argument(
         "--model-config",
@@ -817,9 +817,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--failure-injection-delay",
         type=int,
-        default=900,
+        default=600,
         help=(
-            "Seconds to wait before injecting the first failure (default: 900). "
+            "Seconds to wait before injecting the first failure (default: 600). "
             "Must exceed model initialization time to avoid injecting during loading. "
             "For debugmodel use ~120; for 8B use ~600."
         ),
@@ -827,8 +827,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--min-replicas",
         type=int,
-        default=1,
-        help="Minimum number of replicas required for quorum (default: 1)",
+        default=int(os.environ.get("MIN_REPLICA_COUNT", "1")),
+        help="Minimum number of replicas required for quorum (default: env MIN_REPLICA_COUNT or 1)",
     )
     parser.add_argument(
         "--wandb-project",
@@ -848,7 +848,12 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="Prefix for per-replica W&B run names (default: wandb-group).",
     )
-    return parser.parse_args()
+    args = parser.parse_args()
+    if args.replica_count <= 0:
+        parser.error("--replica-count is required (or set REPLICA_COUNT env var)")
+    if not args.namespace:
+        parser.error("--namespace is required (or set WORKSPACE env var)")
+    return args
 
 
 def make_job_spec(args: argparse.Namespace) -> JobSpec:
