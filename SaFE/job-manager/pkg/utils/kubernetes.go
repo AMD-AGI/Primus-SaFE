@@ -26,7 +26,7 @@ import (
 )
 
 const (
-	WorkloadGracePeriod = 180
+	WorkloadGracePeriod = 60
 )
 
 // CreateObject creates a Kubernetes object using the dynamic client.
@@ -236,7 +236,8 @@ func isWorkloadOrPod(gvk schema.GroupVersionKind) bool {
 	switch gvk.Kind {
 	case "Pod",
 		"Deployment", "StatefulSet", "DaemonSet", "ReplicaSet",
-		"Job", "CronJob", "EphemeralRunner":
+		"Job", "CronJob", "EphemeralRunner",
+		"MonarchMesh":
 		return true
 	default:
 		return false
