@@ -54,6 +54,9 @@ modules:
       gradient_accumulation_fusion: false
       apply_rope_fusion: false
       transformer_impl: local
+      no_persist_layer_norm: true
+      bias_swiglu_fusion: false
+      bias_dropout_fusion: false
 
       # -- data (always mock for benchmark) --
       mock_data: true
