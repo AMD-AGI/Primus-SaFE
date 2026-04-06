@@ -105,6 +105,7 @@ TRAIN_LOG="${OUTPUT_DIR:-/tmp}/model_benchmark_train.log"
 mkdir -p "$(dirname "$TRAIN_LOG")"
 
 cd "$PRIMUS_DIR"
+export PYTHONPATH="${PRIMUS_DIR}:${PRIMUS_DIR}/third_party/Megatron-LM:${PYTHONPATH:-}"
 
 OVERRIDE_ARGS=""
 OVERRIDE_ARGS="$OVERRIDE_ARGS --train_iters=$TRAIN_ITERS"
