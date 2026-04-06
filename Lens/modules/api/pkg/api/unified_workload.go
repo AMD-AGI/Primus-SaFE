@@ -34,9 +34,9 @@ type robustWorkloadItem struct {
 	Labels    map[string]string `json:"labels"`
 }
 
-type robustWorkloadListResp struct {
-	Data []robustWorkloadItem `json:"data"`
-}
+// robustWorkloadListResp - GetRaw strips the {data:...} envelope,
+// so this struct directly matches the inner payload (an array).
+type robustWorkloadListResp []robustWorkloadItem
 
 func convertRobustWorkloadItem(r robustWorkloadItem) model.WorkloadListItem {
 	item := model.WorkloadListItem{
@@ -408,7 +408,7 @@ func handleWorkloadList(ctx context.Context, req *WorkloadListRequest) (*Workloa
 		p.Set("namespace", req.Namespace)
 	}
 	if req.Status != "" {
-		p.Set("status", req.Status)
+		p.Set("state", strings.ToUpper(req.Status))
 	}
 	if req.OrderBy != "" {
 		orderBy := req.OrderBy
@@ -426,13 +426,13 @@ func handleWorkloadList(ctx context.Context, req *WorkloadListRequest) (*Workloa
 		return nil, fmt.Errorf("robust workloads list: %w", err)
 	}
 
-	var resp robustWorkloadListResp
-	if err := json.Unmarshal(raw, &resp); err != nil {
+	var robustItems robustWorkloadListResp
+	if err := json.Unmarshal(raw, &robustItems); err != nil {
 		return nil, fmt.Errorf("decode workloads list: %w", err)
 	}
 
-	items := make([]model.WorkloadListItem, 0, len(resp.Data))
-	for _, r := range resp.Data {
+	items := make([]model.WorkloadListItem, 0, len(robustItems))
+	for _, r := range robustItems {
 		items = append(items, convertRobustWorkloadItem(r))
 	}
 	return &WorkloadListResponse{
@@ -456,9 +456,7 @@ type robustWorkloadDetail struct {
 	Labels       map[string]string `json:"labels"`
 }
 
-type robustWorkloadDetailResp struct {
-	Data robustWorkloadDetail `json:"data"`
-}
+// robustWorkloadDetailResp is an alias since GetRaw strips the envelope.
 
 func handleWorkloadDetail(ctx context.Context, req *WorkloadDetailRequest) (*WorkloadDetailResponse, error) {
 	rc, err := getRobustClient(req.Cluster)
@@ -475,12 +473,10 @@ func handleWorkloadDetail(ctx context.Context, req *WorkloadDetailRequest) (*Wor
 		return nil, fmt.Errorf("robust workload detail: %w", err)
 	}
 
-	var resp robustWorkloadDetailResp
-	if err := json.Unmarshal(raw, &resp); err != nil {
+	var r robustWorkloadDetail
+	if err := json.Unmarshal(raw, &r); err != nil {
 		return nil, fmt.Errorf("decode workload detail: %w", err)
 	}
-
-	r := resp.Data
 	if r.ID == "" {
 		return nil, errors.NewError().WithCode(errors.RequestDataNotExisted).
 			WithMessage(fmt.Sprintf("workload %s not found", req.UID))
@@ -518,13 +514,11 @@ func handleWorkloadStatistics(ctx context.Context, req *WorkloadStatisticsReques
 		return nil, fmt.Errorf("robust workloads statistic: %w", err)
 	}
 
-	var resp struct {
-		Data model.WorkloadStatisticResp `json:"data"`
-	}
-	if err := json.Unmarshal(raw, &resp); err != nil {
+	var out model.WorkloadStatisticResp
+	if err := json.Unmarshal(raw, &out); err != nil {
 		return nil, fmt.Errorf("decode workload statistic: %w", err)
 	}
-	return &resp.Data, nil
+	return &out, nil
 }
 
 func firstWorkloadUIDFromRobustList(ctx context.Context, rc *robust.Client, kind, name, namespace string) (string, error) {
@@ -544,14 +538,14 @@ func firstWorkloadUIDFromRobustList(ctx context.Context, rc *robust.Client, kind
 	if err != nil {
 		return "", fmt.Errorf("robust workloads lookup: %w", err)
 	}
-	var resp robustWorkloadListResp
-	if err := json.Unmarshal(raw, &resp); err != nil {
+	var robustItems robustWorkloadListResp
+	if err := json.Unmarshal(raw, &robustItems); err != nil {
 		return "", fmt.Errorf("decode workloads lookup: %w", err)
 	}
-	if len(resp.Data) == 0 {
+	if len(robustItems) == 0 {
 		return "", errors.NewError().WithCode(errors.RequestDataNotExisted).WithMessage("workload not found")
 	}
-	return resp.Data[0].ID, nil
+	return robustItems[0].ID, nil
 }
 
 func handleWorkloadHierarchyQuery(ctx context.Context, req *WorkloadHierarchyQueryRequest) (*WorkloadHierarchyResponse, error) {

@@ -110,6 +110,8 @@ func (c *Client) Get(ctx context.Context, path string, params url.Values, result
 }
 
 // GetRaw performs a GET request and returns the raw JSON bytes.
+// The Robust API wraps responses in {"data": ..., "meta": {...}} envelope;
+// this method strips the envelope and returns only the "data" payload.
 func (c *Client) GetRaw(ctx context.Context, path string, params url.Values) (json.RawMessage, error) {
 	u := c.baseURL + DefaultBasePath + path
 	if len(params) > 0 {
@@ -137,7 +139,20 @@ func (c *Client) GetRaw(ctx context.Context, path string, params url.Values) (js
 		return nil, fmt.Errorf("robust: %s returned %d: %s", path, resp.StatusCode, truncate(body, 200))
 	}
 
-	return json.RawMessage(body), nil
+	return unwrapEnvelope(body), nil
+}
+
+// unwrapEnvelope strips the Robust API {"data": ..., "meta": ...} envelope,
+// returning only the "data" payload. If the response doesn't have this
+// structure, the original body is returned as-is.
+func unwrapEnvelope(body []byte) json.RawMessage {
+	var envelope struct {
+		Data json.RawMessage `json:"data"`
+	}
+	if err := json.Unmarshal(body, &envelope); err == nil && len(envelope.Data) > 0 {
+		return envelope.Data
+	}
+	return json.RawMessage(body)
 }
 
 // Post performs a POST request with a JSON body and decodes the JSON response.
