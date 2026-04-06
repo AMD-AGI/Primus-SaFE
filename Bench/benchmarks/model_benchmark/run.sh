@@ -110,9 +110,10 @@ export PYTHONPATH="${PRIMUS_DIR}:${PRIMUS_DIR}/third_party/Megatron-LM:${PYTHONP
 OVERRIDE_ARGS=""
 OVERRIDE_ARGS="$OVERRIDE_ARGS --train_iters=$TRAIN_ITERS"
 OVERRIDE_ARGS="$OVERRIDE_ARGS --mock_data=true"
-OVERRIDE_ARGS="$OVERRIDE_ARGS --save=null"
-OVERRIDE_ARGS="$OVERRIDE_ARGS --load=null"
 OVERRIDE_ARGS="$OVERRIDE_ARGS --disable_last_saving=true"
+OVERRIDE_ARGS="$OVERRIDE_ARGS --exit_on_missing_checkpoint=false"
+OVERRIDE_ARGS="$OVERRIDE_ARGS --auto_continue_train=false"
+OVERRIDE_ARGS="$OVERRIDE_ARGS --finetune=false"
 OVERRIDE_ARGS="$OVERRIDE_ARGS --log_avg_skip_iterations=$WARMUP_ITERS"
 OVERRIDE_ARGS="$OVERRIDE_ARGS --log_avg_reset_interval=$TRAIN_ITERS"
 
