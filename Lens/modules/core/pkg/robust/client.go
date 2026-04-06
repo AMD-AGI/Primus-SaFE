@@ -73,6 +73,7 @@ func (c *Client) ClusterName() string { return c.cluster }
 func (c *Client) BaseURL() string     { return c.baseURL }
 
 // Get performs a GET request to the Robust API and decodes JSON into result.
+// The Robust API envelope is automatically stripped before decoding.
 func (c *Client) Get(ctx context.Context, path string, params url.Values, result interface{}) error {
 	u := c.baseURL + DefaultBasePath + path
 	if len(params) > 0 {
@@ -102,7 +103,8 @@ func (c *Client) Get(ctx context.Context, path string, params url.Values, result
 	}
 
 	if result != nil {
-		if err := json.Unmarshal(body, result); err != nil {
+		data := unwrapEnvelope(body)
+		if err := json.Unmarshal(data, result); err != nil {
 			return fmt.Errorf("robust: decode response for %s: %w", path, err)
 		}
 	}
@@ -211,7 +213,8 @@ func (c *Client) doJSON(ctx context.Context, method, path string, body interface
 	}
 
 	if result != nil {
-		if err := json.Unmarshal(respBody, result); err != nil {
+		data := unwrapEnvelope(respBody)
+		if err := json.Unmarshal(data, result); err != nil {
 			return fmt.Errorf("robust: decode response for %s %s: %w", method, path, err)
 		}
 	}
@@ -252,7 +255,7 @@ func (c *Client) doRawJSON(ctx context.Context, method, path string, body interf
 		return nil, fmt.Errorf("robust: %s %s returned %d: %s", method, path, resp.StatusCode, truncate(respBody, 200))
 	}
 
-	return json.RawMessage(respBody), nil
+	return unwrapEnvelope(respBody), nil
 }
 
 func truncate(b []byte, max int) string {
