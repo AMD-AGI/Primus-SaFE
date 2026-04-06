@@ -11,12 +11,69 @@ import (
 	"fmt"
 	"net/url"
 	"strconv"
+	"strings"
+	"time"
 
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/errors"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/mcp/unified"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/model"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/robust"
 )
+
+// robustWorkloadItem mirrors the Robust API workload list response fields.
+type robustWorkloadItem struct {
+	ID        string            `json:"id"`
+	Kind      string            `json:"kind"`
+	Name      string            `json:"name"`
+	Namespace string            `json:"namespace"`
+	GPUs      int               `json:"gpus"`
+	Nodes     string            `json:"nodes"`
+	StartTime string            `json:"start_time"`
+	State     string            `json:"state"`
+	User      string            `json:"user"`
+	Labels    map[string]string `json:"labels"`
+}
+
+type robustWorkloadListResp struct {
+	Data []robustWorkloadItem `json:"data"`
+}
+
+func convertRobustWorkloadItem(r robustWorkloadItem) model.WorkloadListItem {
+	item := model.WorkloadListItem{
+		Kind:         r.Kind,
+		Name:         r.Name,
+		Namespace:    r.Namespace,
+		Uid:          r.ID,
+		GpuAllocated: r.GPUs,
+		Source:       "k8s",
+	}
+
+	switch strings.ToUpper(r.State) {
+	case "RUNNING":
+		item.Status = "Running"
+		item.StatusColor = "green"
+	case "COMPLETED":
+		item.Status = "Done"
+		item.StatusColor = "blue"
+	case "FAILED":
+		item.Status = "Failed"
+		item.StatusColor = "red"
+	case "PENDING":
+		item.Status = "Pending"
+		item.StatusColor = "yellow"
+	default:
+		item.Status = r.State
+		item.StatusColor = "gray"
+	}
+
+	if r.StartTime != "" {
+		if t, err := time.Parse(time.RFC3339, r.StartTime); err == nil {
+			item.StartAt = t.Unix()
+		}
+	}
+
+	return item
+}
 
 // ===== Workload List =====
 
@@ -369,11 +426,38 @@ func handleWorkloadList(ctx context.Context, req *WorkloadListRequest) (*Workloa
 		return nil, fmt.Errorf("robust workloads list: %w", err)
 	}
 
-	var out WorkloadListResponse
-	if err := json.Unmarshal(raw, &out); err != nil {
+	var resp robustWorkloadListResp
+	if err := json.Unmarshal(raw, &resp); err != nil {
 		return nil, fmt.Errorf("decode workloads list: %w", err)
 	}
-	return &out, nil
+
+	items := make([]model.WorkloadListItem, 0, len(resp.Data))
+	for _, r := range resp.Data {
+		items = append(items, convertRobustWorkloadItem(r))
+	}
+	return &WorkloadListResponse{
+		Data:  items,
+		Total: len(items),
+	}, nil
+}
+
+type robustWorkloadDetail struct {
+	ID           string            `json:"id"`
+	Name         string            `json:"name"`
+	Namespace    string            `json:"namespace"`
+	Kind         string            `json:"kind"`
+	InfraType    string            `json:"infra_type"`
+	User         string            `json:"user"`
+	State        string            `json:"state"`
+	Nodes        string            `json:"nodes"`
+	GPUs         int               `json:"gpus"`
+	StartTime    string            `json:"start_time"`
+	DurationSec  int64             `json:"duration_sec"`
+	Labels       map[string]string `json:"labels"`
+}
+
+type robustWorkloadDetailResp struct {
+	Data robustWorkloadDetail `json:"data"`
 }
 
 func handleWorkloadDetail(ctx context.Context, req *WorkloadDetailRequest) (*WorkloadDetailResponse, error) {
@@ -391,11 +475,36 @@ func handleWorkloadDetail(ctx context.Context, req *WorkloadDetailRequest) (*Wor
 		return nil, fmt.Errorf("robust workload detail: %w", err)
 	}
 
-	var out model.WorkloadInfo
-	if err := json.Unmarshal(raw, &out); err != nil {
+	var resp robustWorkloadDetailResp
+	if err := json.Unmarshal(raw, &resp); err != nil {
 		return nil, fmt.Errorf("decode workload detail: %w", err)
 	}
-	return &out, nil
+
+	r := resp.Data
+	if r.ID == "" {
+		return nil, errors.NewError().WithCode(errors.RequestDataNotExisted).
+			WithMessage(fmt.Sprintf("workload %s not found", req.UID))
+	}
+
+	out := &model.WorkloadInfo{
+		Kind:      r.Kind,
+		Name:      r.Name,
+		Namespace: r.Namespace,
+		Uid:       r.ID,
+		Source:    "k8s",
+		GpuAllocation: model.GpuAllocationInfo{
+			"": float64(r.GPUs),
+		},
+	}
+	if r.StartTime != "" {
+		if t, err := time.Parse(time.RFC3339, r.StartTime); err == nil {
+			out.StartTime = t.Unix()
+			if r.DurationSec > 0 {
+				out.EndTime = t.Unix() + r.DurationSec
+			}
+		}
+	}
+	return out, nil
 }
 
 func handleWorkloadStatistics(ctx context.Context, req *WorkloadStatisticsRequest) (*WorkloadStatisticsResponse, error) {
@@ -409,11 +518,13 @@ func handleWorkloadStatistics(ctx context.Context, req *WorkloadStatisticsReques
 		return nil, fmt.Errorf("robust workloads statistic: %w", err)
 	}
 
-	var out model.WorkloadStatisticResp
-	if err := json.Unmarshal(raw, &out); err != nil {
+	var resp struct {
+		Data model.WorkloadStatisticResp `json:"data"`
+	}
+	if err := json.Unmarshal(raw, &resp); err != nil {
 		return nil, fmt.Errorf("decode workload statistic: %w", err)
 	}
-	return &out, nil
+	return &resp.Data, nil
 }
 
 func firstWorkloadUIDFromRobustList(ctx context.Context, rc *robust.Client, kind, name, namespace string) (string, error) {
@@ -433,14 +544,14 @@ func firstWorkloadUIDFromRobustList(ctx context.Context, rc *robust.Client, kind
 	if err != nil {
 		return "", fmt.Errorf("robust workloads lookup: %w", err)
 	}
-	var list WorkloadListResponse
-	if err := json.Unmarshal(raw, &list); err != nil {
+	var resp robustWorkloadListResp
+	if err := json.Unmarshal(raw, &resp); err != nil {
 		return "", fmt.Errorf("decode workloads lookup: %w", err)
 	}
-	if len(list.Data) == 0 {
+	if len(resp.Data) == 0 {
 		return "", errors.NewError().WithCode(errors.RequestDataNotExisted).WithMessage("workload not found")
 	}
-	return list.Data[0].Uid, nil
+	return resp.Data[0].ID, nil
 }
 
 func handleWorkloadHierarchyQuery(ctx context.Context, req *WorkloadHierarchyQueryRequest) (*WorkloadHierarchyResponse, error) {

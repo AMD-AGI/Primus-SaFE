@@ -76,6 +76,14 @@ spec:
         {{- end }}
         - name: ENVIRONMENT
           value: {{ .Values.apps.api.config.environment | default "production" }}
+        {{- if .Values.apps.api.config.robustApiUrl }}
+        - name: ROBUST_API_URL
+          value: {{ .Values.apps.api.config.robustApiUrl | quote }}
+        {{- end }}
+        {{- if .Values.apps.api.config.clusterName }}
+        - name: CLUSTER_NAME
+          value: {{ .Values.apps.api.config.clusterName | quote }}
+        {{- end }}
         - name: DB_PASSWORD
           valueFrom:
             secretKeyRef:

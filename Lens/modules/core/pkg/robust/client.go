@@ -8,6 +8,7 @@
 package robust
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -137,6 +138,106 @@ func (c *Client) GetRaw(ctx context.Context, path string, params url.Values) (js
 	}
 
 	return json.RawMessage(body), nil
+}
+
+// Post performs a POST request with a JSON body and decodes the JSON response.
+func (c *Client) Post(ctx context.Context, path string, body interface{}, result interface{}) error {
+	return c.doJSON(ctx, http.MethodPost, path, body, result)
+}
+
+// PostRaw performs a POST request with a JSON body and returns raw JSON bytes.
+func (c *Client) PostRaw(ctx context.Context, path string, body interface{}) (json.RawMessage, error) {
+	return c.doRawJSON(ctx, http.MethodPost, path, body)
+}
+
+// Put performs a PUT request with a JSON body and decodes the JSON response.
+func (c *Client) Put(ctx context.Context, path string, body interface{}, result interface{}) error {
+	return c.doJSON(ctx, http.MethodPut, path, body, result)
+}
+
+// PutRaw performs a PUT request with a JSON body and returns raw JSON bytes.
+func (c *Client) PutRaw(ctx context.Context, path string, body interface{}) (json.RawMessage, error) {
+	return c.doRawJSON(ctx, http.MethodPut, path, body)
+}
+
+func (c *Client) doJSON(ctx context.Context, method, path string, body interface{}, result interface{}) error {
+	u := c.baseURL + DefaultBasePath + path
+
+	var reqBody io.Reader
+	if body != nil {
+		b, err := json.Marshal(body)
+		if err != nil {
+			return fmt.Errorf("robust: marshal body: %w", err)
+		}
+		reqBody = bytes.NewReader(b)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, method, u, reqBody)
+	if err != nil {
+		return fmt.Errorf("robust: create request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("robust: %s %s %s: %w", method, c.cluster, path, err)
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("robust: read body: %w", err)
+	}
+
+	if resp.StatusCode >= 400 {
+		log.Warnf("Robust API error [%s] %s %s -> %d: %s", c.cluster, method, path, resp.StatusCode, truncate(respBody, 200))
+		return fmt.Errorf("robust: %s %s returned %d", method, path, resp.StatusCode)
+	}
+
+	if result != nil {
+		if err := json.Unmarshal(respBody, result); err != nil {
+			return fmt.Errorf("robust: decode response for %s %s: %w", method, path, err)
+		}
+	}
+	return nil
+}
+
+func (c *Client) doRawJSON(ctx context.Context, method, path string, body interface{}) (json.RawMessage, error) {
+	u := c.baseURL + DefaultBasePath + path
+
+	var reqBody io.Reader
+	if body != nil {
+		b, err := json.Marshal(body)
+		if err != nil {
+			return nil, fmt.Errorf("robust: marshal body: %w", err)
+		}
+		reqBody = bytes.NewReader(b)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, method, u, reqBody)
+	if err != nil {
+		return nil, fmt.Errorf("robust: create request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("robust: %s %s %s: %w", method, c.cluster, path, err)
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("robust: read body: %w", err)
+	}
+
+	if resp.StatusCode >= 400 {
+		return nil, fmt.Errorf("robust: %s %s returned %d: %s", method, path, resp.StatusCode, truncate(respBody, 200))
+	}
+
+	return json.RawMessage(respBody), nil
 }
 
 func truncate(b []byte, max int) string {

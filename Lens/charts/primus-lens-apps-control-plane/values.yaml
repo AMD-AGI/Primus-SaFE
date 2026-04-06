@@ -52,6 +52,8 @@ apps:
     config:
       defaultClusterName: ""
       environment: "production"
+      robustApiUrl: ""
+      clusterName: ""
       db:
         userName: "primus-lens"
       controllerConfig:

@@ -11,9 +11,11 @@ import (
 	"fmt"
 	"net/url"
 	"strconv"
+	"time"
 
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/clientsets"
 	dbmodel "github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database/model"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/errors"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/mcp/unified"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/robust"
 )
@@ -137,8 +139,9 @@ type GpuAggDimensionValuesRequest struct {
 
 type GpuAggClusterHourlyStatsRequest struct {
 	Cluster        string `json:"cluster" query:"cluster" mcp:"description=Cluster name"`
-	StartTime      string `json:"start_time" query:"start_time" mcp:"description=Start time (RFC3339 format),required"`
-	EndTime        string `json:"end_time" query:"end_time" mcp:"description=End time (RFC3339 format),required"`
+	StartTime      string `json:"start_time" query:"start_time" mcp:"description=Start time (RFC3339 format)"`
+	EndTime        string `json:"end_time" query:"end_time" mcp:"description=End time (RFC3339 format)"`
+	Hours          int    `json:"hours" query:"hours" mcp:"description=Shortcut: query last N hours (used if start_time/end_time not set)"`
 	Page           int    `json:"page" query:"page" mcp:"description=Page number (default 1)"`
 	PageSize       int    `json:"page_size" query:"page_size" mcp:"description=Items per page (default 20 max 1000)"`
 	OrderBy        string `json:"order_by" query:"order_by" mcp:"description=Sort field: time or utilization"`
@@ -294,9 +297,21 @@ func handleGpuAggClusterHourlyStats(ctx context.Context, req *GpuAggClusterHourl
 		return nil, err
 	}
 
+	startTime := req.StartTime
+	endTime := req.EndTime
+	if startTime == "" && endTime == "" && req.Hours > 0 {
+		now := time.Now().UTC()
+		endTime = now.Format(time.RFC3339)
+		startTime = now.Add(-time.Duration(req.Hours) * time.Hour).Format(time.RFC3339)
+	}
+	if startTime == "" || endTime == "" {
+		return nil, errors.NewError().WithCode(errors.RequestParameterInvalid).
+			WithMessage("start_time and end_time are required, or use hours parameter")
+	}
+
 	return proxyGpuAggPaginated(ctx, rc, "/gpu-aggregation/cluster/hourly-stats", url.Values{
-		"start_time":      {req.StartTime},
-		"end_time":        {req.EndTime},
+		"start_time":      {startTime},
+		"end_time":        {endTime},
 		"page":            {strconv.Itoa(req.Page)},
 		"page_size":       {strconv.Itoa(req.PageSize)},
 		"order_by":        {req.OrderBy},
