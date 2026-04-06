@@ -52,6 +52,7 @@ modules:
       overlap_grad_reduce: true
       overlap_param_gather: true
       gradient_accumulation_fusion: false
+      apply_rope_fusion: false
 
       # -- data (always mock for benchmark) --
       mock_data: true
