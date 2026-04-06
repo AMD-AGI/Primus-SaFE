@@ -112,7 +112,7 @@ export ENABLE_MODEL_BENCHMARK="${ENABLE_MODEL_BENCHMARK:-false}"
 # Model Benchmark Configuration (requires ENABLE_MODEL_BENCHMARK=true)
 # ==============================================================================
 export MODEL_BENCHMARK_PRIMUS_REPO="${MODEL_BENCHMARK_PRIMUS_REPO:-https://github.com/AMD-AGI/Primus.git}"
-export MODEL_BENCHMARK_PRIMUS_BRANCH="${MODEL_BENCHMARK_PRIMUS_BRANCH:-main}"
+export MODEL_BENCHMARK_PRIMUS_BRANCH="${MODEL_BENCHMARK_PRIMUS_BRANCH:-v0.7.0}"
 export MODEL_BENCHMARK_CONFIG="${MODEL_BENCHMARK_CONFIG:-${PRIMUSBENCH_PATH}/benchmarks/model_benchmark/configs/qwen3_8B-BF16-bench.yaml}"
 export MODEL_BENCHMARK_TRAIN_ITERS="${MODEL_BENCHMARK_TRAIN_ITERS:-50}"
 export MODEL_BENCHMARK_WARMUP_ITERS="${MODEL_BENCHMARK_WARMUP_ITERS:-2}"
