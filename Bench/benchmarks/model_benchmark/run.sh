@@ -38,40 +38,70 @@ MPORT="${MASTER_PORT:-29500}"
 # ======================================================================
 # Step 1: Obtain Primus source
 # ======================================================================
-if [ -n "${SHARE_PATH:-}" ] && [ -d "${SHARE_PATH}" ]; then
-    PRIMUS_DIR="${SHARE_PATH}/primus_repo"
-else
-    PRIMUS_DIR="/tmp/primus_repo"
+PREINSTALL_DIR="${PRIMUS_PREINSTALL_DIR:-/opt/primus}"
+USE_PREINSTALLED=false
+
+if [ -d "$PREINSTALL_DIR/primus" ] && [ -d "$PREINSTALL_DIR/third_party/Megatron-LM/megatron" ]; then
+    PREINSTALL_BRANCH=$(cd "$PREINSTALL_DIR" && git describe --tags --exact-match 2>/dev/null || git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "unknown")
+    if [ "$PRIMUS_BRANCH" = "$PREINSTALL_BRANCH" ] || [ "$PRIMUS_BRANCH" = "$(cd "$PREINSTALL_DIR" && git rev-parse HEAD 2>/dev/null)" ]; then
+        USE_PREINSTALLED=true
+        log "Using pre-installed Primus at $PREINSTALL_DIR (branch: $PREINSTALL_BRANCH)"
+    else
+        log "Pre-installed Primus is $PREINSTALL_BRANCH, requested $PRIMUS_BRANCH — will clone"
+    fi
 fi
 
-acquire_primus() {
-    local target="$1"
-
-    if [ -d "$target/.git" ]; then
-        log "Updating existing Primus clone at $target"
-        cd "$target"
-        git fetch origin "$PRIMUS_BRANCH" --depth=1 2>&1 || true
-        git checkout FETCH_HEAD 2>&1 || git checkout "$PRIMUS_BRANCH" 2>&1 || true
-        cd - > /dev/null
+if $USE_PREINSTALLED; then
+    PRIMUS_DIR="$PREINSTALL_DIR"
+else
+    if [ -n "${SHARE_PATH:-}" ] && [ -d "${SHARE_PATH}" ]; then
+        PRIMUS_DIR="${SHARE_PATH}/primus_repo"
     else
-        log "Cloning Primus from $PRIMUS_REPO (branch: $PRIMUS_BRANCH)"
-        git clone --depth=1 --branch "$PRIMUS_BRANCH" "$PRIMUS_REPO" "$target" 2>&1
+        PRIMUS_DIR="/tmp/primus_repo"
     fi
 
-    cd "$target"
-    log "Initializing required submodules (Megatron-LM)..."
-    git submodule update --init --depth=1 third_party/Megatron-LM 2>&1
-    cd - > /dev/null
-}
+    acquire_primus() {
+        local target="$1"
+        if [ -d "$target/.git" ]; then
+            log "Updating existing Primus clone at $target"
+            cd "$target"
+            git fetch origin "$PRIMUS_BRANCH" --depth=1 2>&1 || true
+            git checkout FETCH_HEAD 2>&1 || git checkout "$PRIMUS_BRANCH" 2>&1 || true
+            cd - > /dev/null
+        else
+            log "Cloning Primus from $PRIMUS_REPO (branch: $PRIMUS_BRANCH)"
+            git clone --depth=1 --branch "$PRIMUS_BRANCH" "$PRIMUS_REPO" "$target" 2>&1
+        fi
+        cd "$target"
+        log "Initializing required submodules (Megatron-LM)..."
+        git submodule update --init --depth=1 third_party/Megatron-LM 2>&1
+        cd - > /dev/null
+    }
 
-if [ -n "${SHARE_PATH:-}" ] && [ -d "${SHARE_PATH}" ]; then
-    LOCKFILE="${SHARE_PATH}/.primus_clone.lock"
-    (
-        flock -w 300 9 || { log "ERROR: failed to acquire clone lock"; exit 1; }
+    if [ -n "${SHARE_PATH:-}" ] && [ -d "${SHARE_PATH}" ]; then
+        LOCKFILE="${SHARE_PATH}/.primus_clone.lock"
+        (
+            flock -w 300 9 || { log "ERROR: failed to acquire clone lock"; exit 1; }
+            acquire_primus "$PRIMUS_DIR"
+        ) 9>"$LOCKFILE"
+    else
         acquire_primus "$PRIMUS_DIR"
-    ) 9>"$LOCKFILE"
-else
-    acquire_primus "$PRIMUS_DIR"
+    fi
+
+    # Install Primus Python dependencies (only needed for fresh clone)
+    if [ -f "$PRIMUS_DIR/requirements.txt" ]; then
+        log "Installing Primus dependencies..."
+        pip install --quiet -r "$PRIMUS_DIR/requirements.txt" 2>&1 | tail -5
+        log "Dependencies installed."
+    fi
+
+    # Build Megatron C++ dataset helpers
+    HELPERS_DIR="$PRIMUS_DIR/third_party/Megatron-LM/megatron/core/datasets"
+    if [ -d "$HELPERS_DIR" ] && ! ls "$HELPERS_DIR"/helpers_cpp*.so 1>/dev/null 2>&1; then
+        log "Building Megatron dataset helpers..."
+        pip install --quiet pybind11 2>&1 || true
+        (cd "$HELPERS_DIR" && make -j4 2>&1) || log "WARNING: helpers_cpp build failed (non-fatal)"
+    fi
 fi
 
 if [ ! -d "$PRIMUS_DIR/primus" ]; then
@@ -79,21 +109,6 @@ if [ ! -d "$PRIMUS_DIR/primus" ]; then
     exit 1
 fi
 log "Primus source ready at $PRIMUS_DIR (branch: $PRIMUS_BRANCH)"
-
-# Install Primus Python dependencies
-if [ -f "$PRIMUS_DIR/requirements.txt" ]; then
-    log "Installing Primus dependencies..."
-    pip install --quiet -r "$PRIMUS_DIR/requirements.txt" 2>&1 | tail -5
-    log "Dependencies installed."
-fi
-
-# Build Megatron C++ dataset helpers (needed even with mock_data)
-HELPERS_DIR="$PRIMUS_DIR/third_party/Megatron-LM/megatron/core/datasets"
-if [ -d "$HELPERS_DIR" ] && [ ! -f "$HELPERS_DIR/helpers_cpp"*.so ]; then
-    log "Building Megatron dataset helpers..."
-    pip install --quiet pybind11 2>&1 || true
-    (cd "$HELPERS_DIR" && make -j4 2>&1) || log "WARNING: helpers_cpp build failed (non-fatal)"
-fi
 
 # ======================================================================
 # Step 2: Resolve experiment config

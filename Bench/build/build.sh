@@ -17,6 +17,7 @@
 #   --ainic <path>         Path to AINIC bundle tarball (optional)
 #   --turbo-commit <hash>  Primus-Turbo commit (default: 79373eb...)
 #   --te-branch <branch>   Transformer Engine branch/tag (default: v2.8_rocm)
+#   --primus-branch <tag>  Pre-installed Primus branch/tag (default: v0.7.0)
 #   --tag <tag>            Custom image tag (overrides auto-generated tag)
 #   --no-cache             Build without Docker cache
 #   --push                 After a successful build, run docker push (no login; run docker login first)
@@ -39,6 +40,7 @@ OS_VERSION="22.04"
 AINIC_BUNDLE_PATH=""
 PRIMUS_TURBO_COMMIT="79373eb781a54fd49aed9430c8718489409d1dd0"
 TE_BRANCH="v2.8_rocm"
+PRIMUS_BRANCH="v0.7.0"
 CUSTOM_TAG=""
 NO_CACHE=""
 DO_PUSH=false
@@ -59,6 +61,7 @@ while [[ $# -gt 0 ]]; do
         --ainic)    AINIC_BUNDLE_PATH="$2"; shift 2 ;;
         --turbo-commit) PRIMUS_TURBO_COMMIT="$2"; shift 2 ;;
         --te-branch) TE_BRANCH="$2"; shift 2 ;;
+        --primus-branch) PRIMUS_BRANCH="$2"; shift 2 ;;
         --tag)      CUSTOM_TAG="$2"; shift 2 ;;
         --no-cache) NO_CACHE="--no-cache"; shift ;;
         --push)     DO_PUSH=true; shift ;;
@@ -111,6 +114,7 @@ echo "  OS:           ${OS_NAME} ${OS_VERSION}"
 echo "  AINIC:        ${AINIC_FILENAME:-none}"
 echo "  Turbo commit: ${PRIMUS_TURBO_COMMIT}"
 echo "  TE branch:    ${TE_BRANCH}"
+echo "  Primus:       ${PRIMUS_BRANCH}"
 echo "  Image tag:    ${IMAGE_TAG}"
 echo "============================================"
 
@@ -125,6 +129,7 @@ BUILD_CMD=(
     --build-arg AINIC_BUNDLE_FILENAME="${AINIC_FILENAME}"
     --build-arg PRIMUS_TURBO_COMMIT="${PRIMUS_TURBO_COMMIT}"
     --build-arg TE_BRANCH="${TE_BRANCH}"
+    --build-arg PRIMUS_BRANCH="${PRIMUS_BRANCH}"
     --network=host
     --load
     ${NO_CACHE}

@@ -231,10 +231,29 @@ RUN set +e && \
 RUN python3 -c "import primus_turbo; print('Primus-Turbo OK')" \
     || echo "WARNING: Primus-Turbo not available"
 
-# --- Primus Python dependencies ---
-RUN pip3 install \
-    loguru wandb expecttest nltk matplotlib markdown2 weasyprint \
-    tyro torchao blobfile "torchdata>=0.8.0" "datasets>=3.6.0" \
-    "mlflow==3.4.0" pyrsmi plotext
+# --- Pre-install Primus + Megatron-LM (pinned version for model benchmark) ---
+ARG PRIMUS_BRANCH=v0.7.0
+ENV PRIMUS_PREINSTALL_DIR=/opt/primus
+
+RUN git clone --depth=1 --branch ${PRIMUS_BRANCH} \
+        https://github.com/AMD-AGI/Primus.git ${PRIMUS_PREINSTALL_DIR} && \
+    cd ${PRIMUS_PREINSTALL_DIR} && \
+    git submodule update --init --depth=1 third_party/Megatron-LM && \
+    echo "Primus ${PRIMUS_BRANCH} pre-installed at ${PRIMUS_PREINSTALL_DIR}"
+
+# Primus Python dependencies (from Primus requirements.txt + extras)
+RUN pip3 install pybind11 && \
+    pip3 install -r ${PRIMUS_PREINSTALL_DIR}/requirements.txt && \
+    pip3 install \
+        loguru wandb expecttest nltk matplotlib markdown2 weasyprint \
+        tyro torchao blobfile "torchdata>=0.8.0" "datasets>=3.6.0" \
+        "mlflow==3.4.0" pyrsmi plotext
+
+# Build Megatron C++ dataset helpers
+RUN cd ${PRIMUS_PREINSTALL_DIR}/third_party/Megatron-LM/megatron/core/datasets && \
+    make -j4 && \
+    echo "Megatron helpers_cpp built successfully"
+
+ENV PYTHONPATH="${PRIMUS_PREINSTALL_DIR}:${PRIMUS_PREINSTALL_DIR}/third_party/Megatron-LM:${PYTHONPATH}"
 
 WORKDIR /opt/primusbench
