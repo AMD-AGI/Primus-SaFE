@@ -87,6 +87,14 @@ if [ -f "$PRIMUS_DIR/requirements.txt" ]; then
     log "Dependencies installed."
 fi
 
+# Build Megatron C++ dataset helpers (needed even with mock_data)
+HELPERS_DIR="$PRIMUS_DIR/third_party/Megatron-LM/megatron/core/datasets"
+if [ -d "$HELPERS_DIR" ] && [ ! -f "$HELPERS_DIR/helpers_cpp"*.so ]; then
+    log "Building Megatron dataset helpers..."
+    pip install --quiet pybind11 2>&1 || true
+    (cd "$HELPERS_DIR" && make -j4 2>&1) || log "WARNING: helpers_cpp build failed (non-fatal)"
+fi
+
 # ======================================================================
 # Step 2: Resolve experiment config
 # ======================================================================
