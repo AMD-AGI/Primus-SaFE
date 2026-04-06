@@ -27,11 +27,11 @@ modules:
 
       # -- benchmark parameters (overridden by run.sh via CLI args) --
       train_iters: 50
-      micro_batch_size: 2
-      global_batch_size: 128
+      micro_batch_size: 1
+      global_batch_size: 64
 
-      seq_length: 8192
-      max_position_embeddings: 8192
+      seq_length: 2048
+      max_position_embeddings: 2048
 
       lr: 1.0e-5
       min_lr: 0.0
