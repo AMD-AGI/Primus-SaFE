@@ -1094,8 +1094,6 @@ func validateResourceEnough(nf *v1.NodeFlavor, res *v1.WorkloadResource) error {
 		klog.ErrorS(err, "failed to get pod resource", "input", *res)
 		return err
 	}
-	fmt.Println(availNodeResourceList)
-	fmt.Println(podResourceList)
 	if ok, key := quantity.IsSubResource(podResourceList, availNodeResourceList); !ok {
 		return commonerrors.NewQuotaInsufficient(
 			fmt.Sprintf("Insufficient resource: %s, request: %v, available: %v",
