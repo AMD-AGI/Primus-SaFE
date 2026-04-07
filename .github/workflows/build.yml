@@ -95,6 +95,13 @@ jobs:
           echo "preprocess_changed=false" >> $GITHUB_OUTPUT
         fi
         
+        # monarch: SaFE/docker/monarch/**
+        if echo "$CHANGED_FILES" | grep -qE '^SaFE/docker/monarch/'; then
+          echo "monarch_changed=true" >> $GITHUB_OUTPUT
+        else
+          echo "monarch_changed=false" >> $GITHUB_OUTPUT
+        fi
+        
         # cicd_runner_proxy: SaFE/docker/cicd/runner-proxy/**
         if echo "$CHANGED_FILES" | grep -qE '^SaFE/docker/cicd/runner-proxy/'; then
           echo "cicd_runner_proxy_changed=true" >> $GITHUB_OUTPUT
@@ -187,6 +194,9 @@ jobs:
         fi
         if [[ "${{ steps.detect-changes.outputs.preprocess_changed }}" == "true" ]]; then
           MATRIX+='{"name":"preprocess","basepath":"SaFE/docker/preprocess","dockerfile_path":"SaFE/docker/preprocess/Dockerfile"},'
+        fi
+        if [[ "${{ steps.detect-changes.outputs.monarch_changed }}" == "true" ]]; then
+          MATRIX+='{"name":"monarch","basepath":"SaFE/docker/monarch","dockerfile_path":"SaFE/docker/monarch/Dockerfile"},'
         fi
         if [[ "${{ steps.detect-changes.outputs.cicd_runner_proxy_changed }}" == "true" ]]; then
           MATRIX+='{"name":"cicd-runner-proxy","basepath":"SaFE/docker/cicd/runner-proxy","dockerfile_path":"SaFE/docker/cicd/runner-proxy/Dockerfile"},'

@@ -127,17 +127,6 @@ class LighthouseActor(Actor):
             join_timeout_ms=15000,
         )
         addr = self.lighthouse.address()
-        # Replace hostname with IP so mesh workers on other nodes can resolve it
-        import re, socket
-        m = re.match(r"(https?://)([^:]+)(:\d+.*)", addr)
-        if m:
-            try:
-                ip = socket.gethostbyname(m.group(2))
-                addr = f"{m.group(1)}{ip}{m.group(3)}"
-            except socket.gaierror:
-                pod_ip = os.environ.get("POD_IP", "")
-                if pod_ip:
-                    addr = f"{m.group(1)}{pod_ip}{m.group(3)}"
         logger.info(f"[Lighthouse] Started with min_replicas={min_replicas}, address={addr}")
         return addr
     @endpoint

@@ -48,6 +48,7 @@ data:
                   mountPath: /shared-data
           containers:
             - name: main
+              image: {{ .Values.global.image_registry }}/primussafe/{{ .Values.monarch.image }}
               imagePullPolicy: IfNotPresent
               terminationMessagePath: /dev/termination-log
               terminationMessagePolicy: File

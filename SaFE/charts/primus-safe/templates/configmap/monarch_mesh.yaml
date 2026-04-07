@@ -42,7 +42,9 @@ data:
               mountPath: /shared-data
         containers:
           - name: main
+            image: {{ .Values.global.image_registry }}/primussafe/{{ .Values.monarch.image }}
             imagePullPolicy: Always
+            command: ["/bin/sh", "/workspace/monarch/start_mesh.sh"]
             env:
               # TorchFT timeout settings (increase from default 60s to reduce commit failures)
               - name: TORCHFT_TIMEOUT_SEC

@@ -33,14 +33,6 @@ if [ -z "$input" ]; then
     exit 0
 fi
 
-# Monarch-specific patches
-case "${WORKLOAD_KIND}" in
-  *Monarch*)
-    python3 /shared-data/patch_monarch.py || true
-    export PYTHONPATH="${PYTHONPATH}:/shared-data"
-    ;;
-esac
-
 echo "$input" |base64 -d > ".run.sh"
 chmod +x ".run.sh"
 if [ -x /usr/bin/bash ]; then

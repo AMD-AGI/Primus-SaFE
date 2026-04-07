@@ -89,6 +89,7 @@ preprocess:
   image: "preprocess:latest"
 monarch:
   enable: true
+  image: "monarch:latest"
   client_role: "monarch-client"
 ops_job:
   # Opsjob download image version. used for download file

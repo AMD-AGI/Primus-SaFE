@@ -808,7 +808,7 @@ func (v *WorkloadValidator) validateRequiredParams(workload *v1.Workload) error 
 			errs = append(errs, err)
 		}
 	}
-	if v1.GetOpsJobId(workload) == "" && !commonworkload.IsCICDScalingRunnerSet(workload) {
+	if v1.GetOpsJobId(workload) == "" && !commonworkload.IsCICDScalingRunnerSet(workload) && !commonworkload.IsMonarchJob(workload) {
 		if len(workload.Spec.Images) == 0 {
 			errs = append(errs, fmt.Errorf("the images are empty"))
 		} else if len(workload.Spec.Images) != len(workload.Spec.Resources) {
@@ -951,10 +951,8 @@ func (v *WorkloadValidator) validateMonarchJob(newWorkload, oldWorkload *v1.Work
 	if len(v1.GetDisplayName(newWorkload)) > commonutils.MaxMonarchJobNameLen {
 		return fmt.Errorf("the displayName is too long, maximum length is %d", commonutils.MaxMonarchJobNameLen)
 	}
-	for i, img := range newWorkload.Spec.Images {
-		if img == "" {
-			return fmt.Errorf("images[%d] must not be empty", i)
-		}
+	if len(newWorkload.Spec.entryPoints) == 0 || newWorkload.Spec.entryPoints[0] == "" {
+		return fmt.Errorf("the entryPoint of client is empty")
 	}
 	return v.validateReplicaCount(newWorkload, oldWorkload)
 }
