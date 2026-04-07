@@ -195,12 +195,15 @@ func DeleteObject(ctx context.Context, k8sClientFactory *commonclient.ClientFact
 		klog.Infof("deleting k8s object %s/%s, kind: %s", obj.GetNamespace(), obj.GetName(), obj.GetKind())
 	}
 
+	// MonarchMesh: delete owned StatefulSets first (Foreground), then delete
+	// MonarchMesh itself (Background). This prevents the monarch-operator from
+	// recreating Pods during the cascade, while ensuring StatefulSets are
+	// properly torn down.
+	if obj.GetKind() == common.MonarchMesh {
+		deleteOwnedStatefulSets(ctx, k8sClientFactory, obj)
+	}
+
 	policy := metav1.DeletePropagationForeground
-	// MonarchMesh uses Background deletion: the monarch-operator reconciles
-	// MonarchMesh and keeps recreating child StatefulSet/Pods even after
-	// deletionTimestamp is set, causing an infinite create-delete loop with
-	// Foreground propagation. Background deletes the MonarchMesh object
-	// immediately so the operator stops reconciling, and GC cleans up children.
 	if obj.GetKind() == common.MonarchMesh {
 		policy = metav1.DeletePropagationBackground
 	}
@@ -239,6 +242,23 @@ func ConvertGVKToGVR(mapper meta.RESTMapper, gvk schema.GroupVersionKind) (schem
 		return schema.GroupVersionResource{}, err
 	}
 	return m.Resource, nil
+}
+
+// deleteOwnedStatefulSets deletes the StatefulSet with the same name as the MonarchMesh.
+func deleteOwnedStatefulSets(ctx context.Context, k8sClientFactory *commonclient.ClientFactory, owner *unstructured.Unstructured) {
+	stsGVR := schema.GroupVersionResource{Group: "apps", Version: "v1", Resource: "statefulsets"}
+	foreground := metav1.DeletePropagationForeground
+	err := k8sClientFactory.DynamicClient().
+		Resource(stsGVR).
+		Namespace(owner.GetNamespace()).
+		Delete(ctx, owner.GetName(), metav1.DeleteOptions{
+			PropagationPolicy: &foreground,
+		})
+	if err != nil {
+		klog.V(4).Infof("failed to delete StatefulSet %s/%s: %v", owner.GetNamespace(), owner.GetName(), err)
+	} else {
+		klog.Infof("deleted StatefulSet %s/%s before MonarchMesh cleanup", owner.GetNamespace(), owner.GetName())
+	}
 }
 
 // isWorkloadOrPod checks if the given GroupVersionKind represents a workload or pod resource.
