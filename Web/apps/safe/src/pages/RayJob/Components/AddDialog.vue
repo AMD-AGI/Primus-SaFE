@@ -705,7 +705,7 @@ const placeholders = computed(() => {
 const nameRegex = /^[a-z](?:[-a-z0-9]{0,34}[a-z0-9])?$/
 
 const ruleFormRef = ref<FormInstance>()
-const optRequiredIfHasWorker = (index: number, label: string) => ({
+const optRequiredIfHasWorker = (index: number, label: string): FormItemRule => ({
   validator: (_rule: unknown, value: unknown, callback: (err?: Error) => void) => {
     if ((form.workers?.length ?? 0) <= index) return callback()
     if (value == null || String(value).trim() === '')
@@ -715,7 +715,7 @@ const optRequiredIfHasWorker = (index: number, label: string) => ({
   trigger: 'blur',
 })
 const optRequiredIfHasWorker2 = (label: string) => optRequiredIfHasWorker(1, label)
-const rules = reactive({
+const rules: Record<string, FormItemRule[]> = reactive({
   displayName: [
     { required: true, message: 'Please input name', trigger: 'blur' },
     {
