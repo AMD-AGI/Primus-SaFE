@@ -1,11 +1,13 @@
 #!/bin/sh
+set -e
 echo "Starting Monarch Worker ..."
 python -u -c "
 import os
+import sys
 import logging
 
 from monarch.actor import run_worker_loop_forever
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.INFO, stream=sys.stdout)
 logger = logging.getLogger('monarch-worker')
 port = os.environ.get('MONARCH_PORT', '26600')
 pod_ip = os.environ.get('POD_IP', '0.0.0.0')
