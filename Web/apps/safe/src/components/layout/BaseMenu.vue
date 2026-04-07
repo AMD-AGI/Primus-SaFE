@@ -205,6 +205,8 @@ const hasWorkloadScope = (scope: ScopesKeys) => {
 // Workload permissions
 const workloadPermissions = {
   canTrain: hasWorkloadScope('Train'),
+  canTorchFT: hasWorkloadScope('TorchFT'),
+  canMonarch: hasWorkloadScope('Monarch'),
   canAuthoring: hasWorkloadScope('Authoring'),
   canCICD: hasWorkloadScope('CICD'),
   canInfer: hasWorkloadScope('Infer'),
@@ -212,7 +214,7 @@ const workloadPermissions = {
 }
 
 // Destructure specific permission variables (maintain backward compatibility)
-const { canTrain, canAuthoring, canCICD, canInfer, canRay } = workloadPermissions
+const { canTrain, canTorchFT, canMonarch, canAuthoring, canCICD, canInfer, canRay } = workloadPermissions
 
 // workspaceMenu and usersMenu:
 // Visible to system-admin, system-admin-readonly, or current workspace-admin
@@ -253,7 +255,7 @@ watchEffect(() => {
     {
       index: '/torchft',
       name: 'TorchFT',
-      canAccess: canTrain.value, // Use same permissions as Training
+      canAccess: canTorchFT.value,
       tooltip: 'TorchFT has been disabled by the administrator.',
       icon: menuIcons.torchft,
     },
@@ -263,6 +265,13 @@ watchEffect(() => {
       canAccess: canRay.value,
       tooltip: 'RayJob has been disabled by the administrator.',
       icon: menuIcons.rayjob,
+    },
+    {
+      index: '/monarch',
+      name: 'Monarch',
+      canAccess: canMonarch.value,
+      tooltip: 'Monarch has been disabled by the administrator.',
+      icon: menuIcons.monarch,
     },
     {
       index: '/authoring',
