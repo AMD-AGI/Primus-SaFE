@@ -311,7 +311,7 @@ const initialForm = reactive({
   isDefault: false,
   managers: [],
   volumes: [] as Volume[],
-  scopes: ['Train', 'Infer', 'Authoring'],
+  scopes: ['Train', 'TorchFT', 'Monarch', 'Infer', 'Authoring'],
   maxRuntime: {} as Record<string, number | undefined>,
 })
 
