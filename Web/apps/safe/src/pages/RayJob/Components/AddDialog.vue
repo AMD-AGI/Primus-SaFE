@@ -338,6 +338,15 @@
                     </el-text>
                   </el-form-item>
                 </el-col>
+                <el-col :span="12" v-if="!isEdit">
+                  <el-form-item label="emailNotification">
+                    <el-switch v-model="form.enableNotification" class="mr-2" />
+                    <el-text size="small" type="info">
+                      <el-icon class="mr-1"><InfoFilled /></el-icon>
+                      {{ EMAIL_NOTIFICATION_INFO }}
+                    </el-text>
+                  </el-form-item>
+                </el-col>
 
                 <!-- timeout -->
                 <el-col :span="12">
@@ -576,6 +585,7 @@ const JOB_ENTRYPOINT_INFO = 'Defines the task to run after cluster startup. Use 
 const CLUSTER_ENTRYPOINT_INFO = 'Ray Cluster entrypoint, used for initialization during cluster creation'
 const PRIVILEGED_INFO = 'Whether to run in privileged mode'
 const FORCE_HOST_NETWORK_INFO = 'Force host network (default: auto-based on resources)'
+const EMAIL_NOTIFICATION_INFO = 'Receive email notifications on workload status changes'
 
 const advancedOpen = ref(false)
 
@@ -656,6 +666,7 @@ const initialForm = () => ({
   nodesAffinity: '' as '' | 'required' | 'preferred',
   privileged: false,
   forceHostNetwork: false,
+  enableNotification: false,
 })
 const form = reactive({ ...initialForm() })
 const isRetry = ref(false) // isAutoRetry
@@ -1010,6 +1021,7 @@ const setInitialFormValues = async () => {
   }
 
   form.forceHostNetwork = res.forceHostNetwork ?? false
+  form.enableNotification = res.enableNotification ?? false
 
   if (props.action === 'Clone') {
     fetchWorkspaceOption()

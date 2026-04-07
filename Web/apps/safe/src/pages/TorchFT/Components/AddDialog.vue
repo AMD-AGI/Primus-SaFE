@@ -345,6 +345,15 @@
                     </el-text>
                   </el-form-item>
                 </el-col>
+                <el-col :span="12" v-if="!isEdit">
+                  <el-form-item label="emailNotification">
+                    <el-switch v-model="form.enableNotification" class="mr-2" />
+                    <el-text size="small" type="info">
+                      <el-icon class="mr-1"><InfoFilled /></el-icon>
+                      {{ EMAIL_NOTIFICATION_INFO }}
+                    </el-text>
+                  </el-form-item>
+                </el-col>
 
 
                 <!-- autoRecovery -->
@@ -586,6 +595,7 @@ const HANG_CHECK_INFO = 'workload fails if the last node(by rank) has no logs fo
 const PREHEAT_INFO = 'preheat: When enabled, preheats the image, which increases workload duration.'
 const NODES_AFFINITY_INFO = 'Node affinity: Required (strict) or Preferred (best-effort)'
 const FORCE_HOST_NETWORK_INFO = 'Force host network (default: auto-based on resources)'
+const EMAIL_NOTIFICATION_INFO = 'Receive email notifications on workload status changes'
 
 const advancedOpen = ref(false)
 
@@ -666,6 +676,7 @@ const initialForm = () => ({
   preheat: false,
   nodesAffinity: '' as '' | 'required' | 'preferred',
   forceHostNetwork: false,
+  enableNotification: false,
 })
 const form = reactive({ ...initialForm() })
 const isRetry = ref(false) // isAutoRetry
@@ -1185,6 +1196,7 @@ const setInitialFormValues = async () => {
   }
 
   form.forceHostNetwork = res.forceHostNetwork ?? false
+  form.enableNotification = res.enableNotification ?? false
 
   if (props.action === 'Clone') {
     fetchWorkspaceOption()
