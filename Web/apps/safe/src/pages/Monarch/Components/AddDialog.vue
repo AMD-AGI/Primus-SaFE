@@ -675,7 +675,7 @@ const validateNodesDivisibility = (
 }
 
 const ruleFormRef = ref<FormInstance>()
-const rules = reactive({
+const rules: Record<string, FormItemRule[]> = reactive({
   displayName: [
     { required: true, message: 'Please input name', trigger: 'blur' },
     {
