@@ -70,9 +70,23 @@ export const addNode = (data: Record<string, any>): Promise<any> => request.post
 
 export const editNode = (id: string, data: NodeEditData) => request.patch(`/nodes/${id}`, data)
 
-export const deleteNode = (id: string): Promise<any> => request.delete(`/nodes/${id}`)
-export const deleteNodes = (data: { nodeIds: string[] }): Promise<any> =>
-  request.post('/nodes/delete', data)
+export const deleteNode = (
+  id: string,
+  opts?: { force?: boolean; skipErrorHandler?: boolean },
+): Promise<any> =>
+  request.delete(`/nodes/${id}`, {
+    ...(opts?.force ? { params: { force: true } } : {}),
+    skipErrorHandler: opts?.skipErrorHandler,
+  })
+
+export const deleteNodes = (
+  data: { nodeIds: string[] },
+  opts?: { force?: boolean; skipErrorHandler?: boolean },
+): Promise<any> =>
+  request.post('/nodes/delete', data, {
+    ...(opts?.force ? { params: { force: true } } : {}),
+    skipErrorHandler: opts?.skipErrorHandler,
+  })
 
 export const rebootNodes = (data: RebootNodesParams) => request.post('/opsjobs', data)
 
