@@ -255,6 +255,9 @@ func deleteOwnedStatefulSets(ctx context.Context, k8sClientFactory *commonclient
 			PropagationPolicy: &foreground,
 		})
 	if err != nil {
+		if apierrors.IsNotFound(err) {
+			return
+		}
 		klog.V(4).Infof("failed to delete StatefulSet %s/%s: %v", owner.GetNamespace(), owner.GetName(), err)
 	} else {
 		klog.Infof("deleted StatefulSet %s/%s before MonarchMesh cleanup", owner.GetNamespace(), owner.GetName())
