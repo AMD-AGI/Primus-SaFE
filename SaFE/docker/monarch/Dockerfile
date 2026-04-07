@@ -1,8 +1,6 @@
 # Build from latest pytorch stable image; should be relatively in sync with torchmonarch and pytorch.
 FROM tasimage/primus:pr-563
-# FROM primussafe/primusbench:rocm7.0.3_gfx950_oci22.04_ainic_202603131144
-# rocm/pytorch:rocm7.1.1_ubuntu22.04_py3.10_pytorch_release_2.10.0
-# FROM rocm/pytorch:rocm7.1.1_ubuntu22.04_py3.11_pytorch_release_2.10.0
+# docker build --build-arg GPU_ARCH=gfx950 -t monarch:latest .
 
 SHELL ["/bin/bash", "-c"]
 
