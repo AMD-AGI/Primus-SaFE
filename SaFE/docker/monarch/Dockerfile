@@ -43,7 +43,10 @@ ARG GPU_ARCH=gfx942
 RUN AINIC_DRIVER_VERSION=${AINIC_DRIVER_VERSION} GPU_ARCH=${GPU_ARCH} /bin/sh /workspace/ainic/build_ainic.sh && \
     rm -rf /workspace/ainic
 
-# PyTorch is already included in the base image (2.10.0+rocm7.1).
+# Upgrade PyTorch to a version compatible with torchtitan (requires >= 2.11)
+# Note: 2.12.0 has HIPBLAS_STATUS_INVALID_VALUE on gfx950, use 2.11.0 instead
+RUN pip install --pre torch==2.11.0.dev20260215+rocm7.1 torchvision --index-url https://download.pytorch.org/whl/nightly/rocm7.1 --break-system-packages
+
 # Install Rust toolchain.
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y && \
     . "$HOME/.cargo/env" && \
