@@ -184,15 +184,6 @@
                     </el-text>
                   </el-form-item>
                 </el-col>
-                <el-col :span="12" v-if="!isEdit">
-                  <el-form-item label="emailNotification">
-                    <el-switch v-model="form.enableNotification" class="mr-2" />
-                    <el-text size="small" type="info">
-                      <el-icon class="mr-1"><InfoFilled /></el-icon>
-                      {{ EMAIL_NOTIFICATION_INFO }}
-                    </el-text>
-                  </el-form-item>
-                </el-col>
                 <el-col :span="12">
                   <el-form-item label="maxRetry">
                     <el-input-number
@@ -325,7 +316,6 @@ const isManager = computed(() => userStore.isManager)
 const TOLERATE_INFO = 'If enabled, workloads can be scheduled to nodes with taints'
 const RETRY_TIMES_INFO = 'Maximum retries:50'
 const FORCE_HOST_NETWORK_INFO = 'Force host network (default: auto-based on resources)'
-const EMAIL_NOTIFICATION_INFO = 'Receive email notifications on workload status changes'
 
 const imageOptions = ref([] as Array<{ id: number; tag: string }>)
 const excludedNodeOptions = ref(
@@ -378,7 +368,6 @@ const initialForm = () => ({
   isTolerateAll: true,
   secretIds: [] as string[],
   forceHostNetwork: false,
-  enableNotification: false,
 })
 const form = reactive({ ...initialForm() })
 
@@ -602,7 +591,6 @@ const setInitialFormValues = async () => {
   form.excludedNodes = res.excludedNodes ?? []
   form.isTolerateAll = res.isTolerateAll ?? false
   form.forceHostNetwork = res.forceHostNetwork ?? false
-  form.enableNotification = res.enableNotification ?? false
 
   // Regular users cannot select high priority; auto-downgrade to medium when cloning
   form.priority =

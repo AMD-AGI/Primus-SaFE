@@ -822,9 +822,6 @@ func (h *Handler) generateWorkload(ctx context.Context,
 	if req.ForceHostNetwork != nil {
 		v1.SetAnnotation(workload, v1.ForceHostNetworkAnnotation, strconv.FormatBool(*req.ForceHostNetwork))
 	}
-	if req.EnableNotification {
-		v1.SetAnnotation(workload, v1.EnableNotificationAnnotation, v1.TrueStr)
-	}
 	if commonworkload.IsMonarchJob(workload) && !commonconfig.IsMonarchEnable() {
 		return nil, commonerrors.NewNotImplemented("the Monarch is not enabled")
 	}
@@ -1268,7 +1265,6 @@ func (h *Handler) cvtDBWorkloadToGetResponse(ctx context.Context,
 		Privileged:           dbWorkload.IsPrivileged,
 		UseWorkspaceStorage:  dbWorkload.UseWorkspaceStorage,
 		ForceHostNetwork:     dbWorkload.ForceHostNetwork,
-		EnableNotification:   dbWorkload.EnableNotification,
 	}
 	result.Images = cvtToWorkloadImages(dbWorkload, len(result.Resources))
 	if result.GroupVersionKind.Kind != common.AuthoringKind {

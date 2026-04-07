@@ -147,7 +147,6 @@ export interface SubmitWorkloadRequest {
   nodesAffinity?: 'required' | 'preferred'
   privileged?: boolean
   useWorkspaceStorage?: boolean
-  enableNotification?: boolean
 }
 
 // workload-detail-log

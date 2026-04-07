@@ -262,15 +262,6 @@
                     </el-text>
                   </el-form-item>
                 </el-col>
-                <el-col :span="12" v-if="!isEdit">
-                  <el-form-item label="emailNotification">
-                    <el-switch v-model="form.enableNotification" class="mr-2" />
-                    <el-text size="small" type="info">
-                      <el-icon class="mr-1"><InfoFilled /></el-icon>
-                      {{ EMAIL_NOTIFICATION_INFO }}
-                    </el-text>
-                  </el-form-item>
-                </el-col>
                 <el-col :span="12">
                   <el-form-item label="secret" prop="secretIds">
                     <el-select v-model="form.secretIds" multiple :disabled="isEdit" placeholder="Please select secrets">
@@ -371,7 +362,6 @@ const REPLICA_INFO = 'If a node is specified, the replica cannot be modified.'
 const PRIVILEGED_INFO = 'Whether to run in privileged mode'
 const TIMEOUT_INFO = 'timeout duration in seconds'
 const FORCE_HOST_NETWORK_INFO = 'Force host network (default: auto-based on resources)'
-const EMAIL_NOTIFICATION_INFO = 'Receive email notifications on workload status changes'
 const NODES_AFFINITY_INFO = 'Node affinity: Required (strict) or Preferred (best-effort)'
 
 const advancedOpen = ref(false)
@@ -424,7 +414,6 @@ const initialForm = () => ({
   timeout: undefined as number | undefined,
   nodesAffinity: '' as '' | 'required' | 'preferred',
   forceHostNetwork: false,
-  enableNotification: false,
 })
 const form = reactive({ ...initialForm() })
 
@@ -671,7 +660,6 @@ const setInitialFormValues = async () => {
   }
 
   form.forceHostNetwork = res.forceHostNetwork ?? false
-  form.enableNotification = res.enableNotification ?? false
   await nextTick()
   ruleFormRef.value?.clearValidate()
 }

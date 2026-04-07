@@ -48,8 +48,6 @@ type CreateWorkloadRequest struct {
 	// Whether to use host network forcibly.
 	// Default logic relies on task size: it triggers only for multi-node tasks using full GPU count
 	ForceHostNetwork *bool `json:"forceHostNetwork,omitempty"`
-	// Whether to enable email notification for workload status changes. Default: false
-	EnableNotification bool `json:"enableNotification,omitempty"`
 }
 
 func (req *CreateWorkloadRequest) GetNodesAffinity() string {
@@ -215,8 +213,6 @@ type GetWorkloadResponse struct {
 	UseWorkspaceStorage bool `json:"useWorkspaceStorage"`
 	// Whether to use host network forcibly.
 	ForceHostNetwork bool `json:"forceHostNetwork"`
-	// Whether email notification is enabled for this workload
-	EnableNotification bool `json:"enableNotification"`
 }
 
 type WorkloadPodWrapper struct {
