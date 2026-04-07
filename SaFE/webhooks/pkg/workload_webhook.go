@@ -804,7 +804,7 @@ func (v *WorkloadValidator) validateRequiredParams(workload *v1.Workload) error 
 		errs = append(errs, fmt.Errorf("the resources are empty"))
 	}
 	for _, res := range workload.Spec.Resources {
-		if err := v.validateResource(&res); err != nil {
+		if err := validateResource(&res, workload.Spec.Workspace); err != nil {
 			errs = append(errs, err)
 		}
 	}
@@ -850,7 +850,7 @@ func (v *WorkloadValidator) validateCICDScalingRunnerSet(workload *v1.Workload) 
 	if err != nil {
 		return err
 	}
-	if err = v.validateResource(workloadResource); err != nil {
+	if err = validateResource(workloadResource, workload.Spec.Workspace); err != nil {
 		return err
 	}
 	if !v1.IsEnableWorkspaceStorage(workload) && workload.GetEnv(common.UnifiedJobEnable) == v1.TrueStr {
@@ -960,7 +960,7 @@ func (v *WorkloadValidator) validateMonarchJob(newWorkload, oldWorkload *v1.Work
 // validateResource validates the basic fields of a WorkloadResource to ensure they are properly set
 // Checks that replica count, CPU, memory, and ephemeral storage are all specified and valid
 // Returns an error if any required field is missing or invalid
-func (v *WorkloadValidator) validateResource(resource *v1.WorkloadResource) error {
+func validateResource(resource *v1.WorkloadResource, workspaceName string) error {
 	var errs []error
 	if resource.Replica <= 0 {
 		errs = append(errs, fmt.Errorf("the replica is empty"))
@@ -973,6 +973,9 @@ func (v *WorkloadValidator) validateResource(resource *v1.WorkloadResource) erro
 	}
 	if resource.EphemeralStorage == "" {
 		errs = append(errs, fmt.Errorf("the ephemeralStorage is empty"))
+	}
+	if resource.GPU != "" && resource.GPUName == "" {
+		errs = append(errs, fmt.Errorf("This workspace %s has no GPU resources", workspaceName))
 	}
 	if err := utilerrors.NewAggregate(errs); err != nil {
 		return err
@@ -1091,6 +1094,8 @@ func validateResourceEnough(nf *v1.NodeFlavor, res *v1.WorkloadResource) error {
 		klog.ErrorS(err, "failed to get pod resource", "input", *res)
 		return err
 	}
+	fmt.Println(availNodeResourceList)
+	fmt.Println(podResourceList)
 	if ok, key := quantity.IsSubResource(podResourceList, availNodeResourceList); !ok {
 		return commonerrors.NewQuotaInsufficient(
 			fmt.Sprintf("Insufficient resource: %s, request: %v, available: %v",

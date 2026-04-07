@@ -368,6 +368,7 @@ func TestValidateResourceEnough_CpuFlavorWithGpuRequest(t *testing.T) {
 			res: &v1.WorkloadResource{
 				CPU:              "1",
 				GPU:              "1",
+				GPUName:          "amd.com/gpu",
 				Memory:           "2Gi",
 				SharedMemory:     "1Gi",
 				EphemeralStorage: "3Gi",
