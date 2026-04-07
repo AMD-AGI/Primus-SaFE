@@ -82,9 +82,12 @@
                   placeholder="Select or paste nodes to exclude (comma-separated)"
                   ref="excludedNodesSelectRef"
                   :filter-method="filterExcludedNodes"
+                  :loading="nodesLoading"
                   @visible-change="
-                    (visible: boolean) =>
+                    async (visible: boolean) => {
+                      if (visible) await fetchNodesOnDropdown()
                       handleExcludedNodesVisibleChange(excludedNodesSelectRef, visible)
+                    }
                   "
                 >
                   <el-option
@@ -322,6 +325,7 @@ const excludedNodeOptions = ref(
   [] as Array<{ nodeId: string; available: boolean; internalIP?: string }>,
 )
 const excludedNodesSearchQuery = ref('')
+const nodesLoading = ref(false)
 const excludedNodesSelectRef = ref()
 
 // Use composable to fetch secrets
@@ -682,6 +686,16 @@ const fetchNodes = async () => {
   }))
 }
 
+const fetchNodesOnDropdown = async () => {
+  if (nodesLoading.value) return
+  nodesLoading.value = true
+  try {
+    await fetchNodes()
+  } finally {
+    nodesLoading.value = false
+  }
+}
+
 // Filter excluded nodes based on search query
 const filteredExcludedNodeOptions = computed(() => {
   if (!excludedNodesSearchQuery.value) {
@@ -731,7 +745,6 @@ const onOpen = async () => {
   cachedUseWorkspaceStorage.value = undefined
   pendingWorkspaceId.value = store.currentWorkspaceId ?? store.firstWorkspace ?? ''
   fetchImage()
-  fetchNodes()
   fetchSecrets()
 
   if (props.action !== 'Create') {
