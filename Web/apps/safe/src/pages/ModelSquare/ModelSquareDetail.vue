@@ -26,6 +26,14 @@
           >
             SFT
           </el-tag>
+          <el-tag
+            v-if="detailData.origin === 'rl_trained'"
+            size="small"
+            type="warning"
+            :effect="isDark ? 'dark' : 'plain'"
+          >
+            RL
+          </el-tag>
         </div>
       </div>
 
@@ -37,11 +45,11 @@
         </el-tooltip>
 
         <el-tooltip
-          v-if="canSftModel"
-          content="SFT"
+          v-if="canTrainModel"
+          content="Train"
           placement="top"
         >
-          <el-button circle class="glass-btn glass-btn--success" @click="showSftDialog = true">
+          <el-button circle class="glass-btn glass-btn--success" @click="showTrainDialog = true">
             <el-icon><MagicStick /></el-icon>
           </el-button>
         </el-tooltip>
@@ -123,8 +131,11 @@
       <el-descriptions-item label="Phase">{{ detailData.phase }}</el-descriptions-item>
       <el-descriptions-item label="Version">{{ detailData.version || '-' }}</el-descriptions-item>
       <el-descriptions-item v-if="detailData.origin" label="Origin">
-        <el-tag size="small" :type="detailData.origin === 'fine_tuned' ? 'success' : 'info'">
-          {{ detailData.origin === 'fine_tuned' ? 'SFT' : 'External' }}
+        <el-tag
+          size="small"
+          :type="detailData.origin === 'fine_tuned' ? 'success' : detailData.origin === 'rl_trained' ? 'warning' : 'info'"
+        >
+          {{ detailData.origin === 'fine_tuned' ? 'SFT' : detailData.origin === 'rl_trained' ? 'RL' : 'External' }}
         </el-tag>
       </el-descriptions-item>
       <el-descriptions-item v-if="detailData.userName" label="Owner">
@@ -133,7 +144,7 @@
       <el-descriptions-item v-if="detailData.baseModel" label="Base Model">
         {{ detailData.baseModel }}
       </el-descriptions-item>
-      <el-descriptions-item v-if="detailData.sftJobId" label="SFT Job">
+      <el-descriptions-item v-if="detailData.sftJobId" label="Training Job">
         <el-link type="primary" :underline="false" @click="goToSftJob">
           {{ detailData.sftJobId }}
           <el-icon class="ml-1"><Right /></el-icon>
@@ -251,11 +262,11 @@
     @success="handleToggleSuccess"
   />
 
-  <!-- Create SFT Dialog -->
-  <CreateSftDialog
-    v-model:visible="showSftDialog"
+  <!-- Create Training Dialog -->
+  <CreateTrainingDialog
+    v-model:visible="showTrainDialog"
     :model="detailData"
-    @success="handleSftSuccess"
+    @success="handleTrainSuccess"
   />
 </template>
 
@@ -274,10 +285,10 @@ import {
   ArrowLeft,
   MagicStick,
 } from '@element-plus/icons-vue'
-import { getModelDetail, deleteModel, isDeployableLocalModel, canSft } from '@/services/playground'
+import { getModelDetail, deleteModel, isDeployableLocalModel, canTrain } from '@/services/playground'
 import { copyText, formatTimeStr } from '@/utils/index'
 import ToggleServiceDialog from './Components/ToggleServiceDialog.vue'
-import CreateSftDialog from './Components/CreateSftDialog.vue'
+import CreateTrainingDialog from './Components/CreateTrainingDialog.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -286,16 +297,16 @@ const isDark = useDark()
 const modelId = computed(() => route.params.id as string)
 const detailData = ref<any>(null)
 const toggleDialogVisible = ref(false)
-const showSftDialog = ref(false)
+const showTrainDialog = ref(false)
 
 const isDeployable = computed(() => {
   if (!detailData.value) return false
   return isDeployableLocalModel(detailData.value)
 })
 
-const canSftModel = computed(() => {
+const canTrainModel = computed(() => {
   if (!detailData.value) return false
-  return canSft(detailData.value)
+  return canTrain(detailData.value)
 })
 
 // Get status type
@@ -384,9 +395,9 @@ const goToSftJob = () => {
   }
 }
 
-// Handle SFT success
-const handleSftSuccess = (workloadId: string) => {
-  showSftDialog.value = false
+// Handle training success
+const handleTrainSuccess = (workloadId: string) => {
+  showTrainDialog.value = false
   router.push({
     path: '/training/detail',
     query: { id: workloadId },

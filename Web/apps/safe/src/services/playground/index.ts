@@ -266,7 +266,7 @@ export interface PlaygroundModel {
   isDeleted?: boolean
 
   // Fine-tuning metadata
-  origin?: 'external' | 'fine_tuned'
+  origin?: 'external' | 'fine_tuned' | 'rl_trained'
   sftJobId?: string
   baseModel?: string
   userId?: string
@@ -286,6 +286,13 @@ export function isDeployableLocalModel(model: PlaygroundModel): boolean {
  */
 export function canSft(model: PlaygroundModel): boolean {
   return model.accessMode === 'local' && model.phase === 'Ready'
+}
+
+/**
+ * Whether the model supports training (SFT + RL).
+ */
+export function canTrain(model: PlaygroundModel): boolean {
+  return (model.accessMode === 'local' || model.accessMode === 'local_path') && model.phase === 'Ready'
 }
 
 export interface ModelsListParams {
