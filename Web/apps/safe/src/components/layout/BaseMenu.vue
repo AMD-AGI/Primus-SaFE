@@ -265,6 +265,13 @@ watchEffect(() => {
       icon: menuIcons.rayjob,
     },
     {
+      index: '/monarch',
+      name: 'Monarch',
+      canAccess: canTrain.value,
+      tooltip: 'Monarch has been disabled by the administrator.',
+      icon: menuIcons.monarch,
+    },
+    {
       index: '/authoring',
       name: 'Authoring',
       canAccess: canAuthoring.value,
