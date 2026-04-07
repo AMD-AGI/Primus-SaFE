@@ -170,10 +170,19 @@ fi
 # ======================================================================
 if [ "$NODE_RANK" = "0" ]; then
     RESULTS_FILE="${OUTPUT_DIR:-/tmp}/model_benchmark_results.json"
-    log "Parsing training metrics from $TRAIN_LOG"
+
+    ALL_LOGS=("$TRAIN_LOG")
+    PARENT_DIR="$(dirname "${OUTPUT_DIR:-/tmp}")"
+    if [ "$NNODES" -gt 1 ] && [ -d "$PARENT_DIR" ]; then
+        while IFS= read -r -d '' f; do
+            [[ "$f" != "$TRAIN_LOG" ]] && ALL_LOGS+=("$f")
+        done < <(find "$PARENT_DIR" -maxdepth 2 -name "model_benchmark_train.log" -print0 2>/dev/null)
+    fi
+
+    log "Parsing training metrics from ${#ALL_LOGS[@]} log file(s): ${ALL_LOGS[*]}"
 
     python3 "$SCRIPT_DIR/collect_metrics.py" \
-        --log-file "$TRAIN_LOG" \
+        --log-file "${ALL_LOGS[@]}" \
         --config "$EXP_CONFIG" \
         --nodes "$NNODES" \
         --gpus-per-node "$GPUS" \

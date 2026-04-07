@@ -78,7 +78,9 @@ def resolve_config_name(config_path: str) -> str:
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--log-file", required=True)
+    ap.add_argument("--log-file", nargs="+", required=True,
+                    help="One or more training log files to parse. "
+                         "The file yielding the most iteration records wins.")
     ap.add_argument("--config", default="")
     ap.add_argument("--nodes", type=int, default=1)
     ap.add_argument("--gpus-per-node", type=int, default=8)
@@ -86,8 +88,24 @@ def main():
     ap.add_argument("--output", required=True)
     args = ap.parse_args()
 
-    records = parse_log(args.log_file)
-    stats = compute(records, args.warmup_iters)
+    best_records: list[dict] = []
+    best_file = args.log_file[0]
+    for log_path in args.log_file:
+        if not os.path.isfile(log_path):
+            continue
+        recs = parse_log(log_path)
+        if len(recs) > len(best_records):
+            best_records = recs
+            best_file = log_path
+
+    if len(args.log_file) > 1:
+        print(
+            f"INFO: Scanned {len(args.log_file)} log file(s); "
+            f"best match: {best_file} ({len(best_records)} iteration records)",
+            file=sys.stderr,
+        )
+
+    stats = compute(best_records, args.warmup_iters)
 
     result = {
         "benchmark": "model_training",
@@ -97,6 +115,7 @@ def main():
         "gpus_per_node": args.gpus_per_node,
         "total_gpus": args.nodes * args.gpus_per_node,
         "warmup_iters_discarded": args.warmup_iters,
+        "log_file_used": best_file,
     }
 
     if stats:
@@ -105,9 +124,11 @@ def main():
     else:
         result["status"] = "no_data"
         result["metrics"] = {}
+        all_files = " ".join(args.log_file)
         print(
-            f"WARNING: Could not extract metrics from {args.log_file} "
-            f"(found {len(records)} iteration records, need > {args.warmup_iters})",
+            f"WARNING: Could not extract metrics from any log file "
+            f"(best: {best_file} with {len(best_records)} records, "
+            f"need > {args.warmup_iters}). Files checked: {all_files}",
             file=sys.stderr,
         )
 
