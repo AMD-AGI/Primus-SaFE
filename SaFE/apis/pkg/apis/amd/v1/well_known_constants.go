@@ -114,6 +114,7 @@ const (
 	K8sObjectIdLabel                  = PrimusSafePrefix + "k8s.object.id"
 	UseWorkspaceStorageAnnotation     = WorkloadPrefix + "use.workspace.storage"
 	ForceHostNetworkAnnotation        = WorkloadPrefix + "force.host.network"
+	EnableNotificationAnnotation      = WorkloadPrefix + "enable.notification"
 	// For full-GPU jobs with required affinity, the system reserves a node during retries to ensure reuse.
 	// Note: This feature is disabled when preemption is enabled
 	RetryOnOriginalNodesAnnotation = PrimusSafePrefix + "retry.on.original.nodes"
