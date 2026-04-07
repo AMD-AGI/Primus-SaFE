@@ -152,9 +152,9 @@ func TestGetDefaultRoute(t *testing.T) {
 	assert.Equal(t, 1, len(route.Channels), "Default route should have exactly one channel")
 
 	defaultChannel := route.Channels[0]
-	assert.Equal(t, ChannelWebhook, defaultChannel.Type, "Default channel should be webhook")
+	assert.Equal(t, ChannelEmailRelay, defaultChannel.Type, "Default channel should be email_relay")
 	assert.NotNil(t, defaultChannel.Config, "Default channel config should not be nil")
-	assert.Contains(t, defaultChannel.Config, "url", "Webhook config should contain URL")
+	assert.Contains(t, defaultChannel.Config, "url", "Email relay config should contain URL")
 }
 
 func TestMatchRouteWithComplexLabels(t *testing.T) {
