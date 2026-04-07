@@ -92,9 +92,12 @@
                   placeholder="Select or paste nodes to exclude (comma-separated)"
                   ref="excludedNodesSelectRef"
                   :filter-method="filterExcludedNodes"
+                  :loading="nodesLoading"
                   @visible-change="
-                    (visible: boolean) =>
+                    async (visible: boolean) => {
+                      if (visible) await fetchNodesOnDropdown()
                       handleExcludedNodesVisibleChange(excludedNodesSelectRef, visible)
+                    }
                   "
                 >
                   <el-option
@@ -129,6 +132,8 @@
                   filterable
                   :disabled="isEdit"
                   placeholder="Select one node (required)"
+                  :loading="nodesLoading"
+                  @visible-change="async (visible) => { if (visible) await fetchNodesOnDropdown() }"
                 >
                   <el-option v-for="n in nodeOptions" :key="n.value" :label="n.label" :value="n.value">
                     <div class="flex items-center justify-between w-full">
@@ -352,6 +357,7 @@ const excludedNodeOptions = ref(
   [] as Array<{ nodeId: string; available: boolean; internalIP?: string }>,
 )
 const excludedNodesSearchQuery = ref('')
+const nodesLoading = ref(false)
 const excludedNodesSelectRef = ref()
 
 // Use composable to fetch secrets
@@ -701,6 +707,16 @@ const fetchNodes = async () => {
   )
 }
 
+const fetchNodesOnDropdown = async () => {
+  if (nodesLoading.value) return
+  nodesLoading.value = true
+  try {
+    await fetchNodes()
+  } finally {
+    nodesLoading.value = false
+  }
+}
+
 // Filter excluded nodes based on search query
 const filteredExcludedNodeOptions = computed(() => {
   if (!excludedNodesSearchQuery.value) {
@@ -762,7 +778,7 @@ const onOpen = async () => {
   clonedLastNodes.value = []
   pendingWorkspaceId.value = store.currentWorkspaceId ?? store.firstWorkspace ?? ''
 
-  const fetches = [fetchNodes(), fetchSecrets(), userStore.fetchEnvs(), fetchPersistentStoragePaths()]
+  const fetches = [fetchSecrets(), userStore.fetchEnvs(), fetchPersistentStoragePaths()]
 
   if (props.action !== 'Create') {
     fetches.push(setInitialFormValues())

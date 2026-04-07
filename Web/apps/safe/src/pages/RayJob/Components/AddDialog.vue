@@ -223,9 +223,12 @@
                     placeholder="Select or paste nodes to exclude (comma-separated)"
                     ref="excludedNodesSelectRef"
                     :filter-method="filterExcludedNodes"
+                    :loading="nodesLoading"
                     @visible-change="
-                      (visible: boolean) =>
+                      async (visible: boolean) => {
+                        if (visible) await fetchNodesOnDropdown()
                         handleExcludedNodesVisibleChange(excludedNodesSelectRef, visible)
+                      }
                     "
                   >
                     <el-option
@@ -564,6 +567,7 @@ const wlOptions = ref([] as Array<{ label: string; value: string }>)
 const { secretOptions, fetchSecrets } = useSecrets('image')
 const excludedNodesSelectRef = ref()
 const excludedNodesSearchQuery = ref('')
+const nodesLoading = ref(false)
 
 const AUTO_RETRY_INFO = 'automatically retry after workload failure'
 const TIMEOUT_INFO = 'timeout duration in seconds'
@@ -1031,6 +1035,16 @@ const fetchNodes = async () => {
   }))
 }
 
+const fetchNodesOnDropdown = async () => {
+  if (nodesLoading.value) return
+  nodesLoading.value = true
+  try {
+    await fetchNodes()
+  } finally {
+    nodesLoading.value = false
+  }
+}
+
 // Filter excluded nodes based on search query
 const filteredExcludedNodeOptions = computed(() => {
   if (!excludedNodesSearchQuery.value) {
@@ -1101,7 +1115,6 @@ const onOpen = async () => {
   showAdvanced.value = false
   cachedUseWorkspaceStorage.value = undefined
   pendingWorkspaceId.value = store.currentWorkspaceId ?? store.firstWorkspace ?? ''
-  fetchNodes()
   fetchWlOptions()
   fetchSecrets()
   if (props.action !== 'Create') {
