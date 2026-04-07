@@ -47,6 +47,7 @@ type Workload struct {
 	IsPrivileged        bool           `db:"is_privileged"`
 	UseWorkspaceStorage bool           `db:"use_workspace_storage"`
 	ForceHostNetwork    bool           `db:"force_host_network"`
+	EnableNotification  bool           `db:"enable_notification"`
 	Priority            int            `db:"priority"`
 	MaxRetry            int            `db:"max_retry"`
 	QueuePosition       int            `db:"queue_position"`

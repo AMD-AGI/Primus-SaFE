@@ -88,6 +88,7 @@ func workloadMapper(obj *unstructured.Unstructured) *dbclient.Workload {
 		WorkloadUId:         dbutils.NullString(string(workload.UID)),
 		UseWorkspaceStorage: v1.IsEnableWorkspaceStorage(workload),
 		ForceHostNetwork:    v1.IsForceHostNetwork(workload),
+		EnableNotification:  v1.IsEnableNotification(workload),
 		NodesAffinity:       dbutils.NullString(v1.GetNodesAffinity(workload)),
 	}
 	if commonworkload.IsRayJob(workload) {

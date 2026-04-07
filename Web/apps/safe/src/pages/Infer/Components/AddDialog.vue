@@ -402,6 +402,15 @@
                     </el-text>
                   </el-form-item>
                 </el-col>
+                <el-col :span="12" v-if="!isEdit">
+                  <el-form-item label="emailNotification">
+                    <el-switch v-model="form.enableNotification" class="mr-2" />
+                    <el-text size="small" type="info">
+                      <el-icon class="mr-1"><InfoFilled /></el-icon>
+                      {{ EMAIL_NOTIFICATION_INFO }}
+                    </el-text>
+                  </el-form-item>
+                </el-col>
               </el-row>
 
               <el-divider border-style="dashed" class="kv-divider" />
@@ -493,6 +502,7 @@ const excludedNodesSearchQuery = ref('')
 const TIMEOUT_INFO = 'timeout duration in seconds'
 const REPLICA_INFO = 'If a node is specified, the replica cannot be modified.'
 const FORCE_HOST_NETWORK_INFO = 'Force host network (default: auto-based on resources)'
+const EMAIL_NOTIFICATION_INFO = 'Receive email notifications on workload status changes'
 const NODES_AFFINITY_INFO = 'Node affinity: Required (strict) or Preferred (best-effort)'
 
 // Prevent directly overwriting store data
@@ -551,6 +561,7 @@ const initialForm = () => ({
   secretIds: [] as string[],
   nodesAffinity: '' as '' | 'required' | 'preferred',
   forceHostNetwork: false,
+  enableNotification: false,
 
   // Service configuration
   service: {
@@ -941,6 +952,7 @@ const setInitialFormValues = async () => {
   }
 
   form.forceHostNetwork = res.forceHostNetwork ?? false
+  form.enableNotification = res.enableNotification ?? false
 
   if (props.action === 'Clone') {
     fetchWorkspaceOption()
