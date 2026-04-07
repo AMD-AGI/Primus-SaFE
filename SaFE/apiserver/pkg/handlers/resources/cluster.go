@@ -232,7 +232,7 @@ func (h *Handler) deleteCluster(c *gin.Context) (interface{}, error) {
 	}
 	if len(workloads) > 0 {
 		klog.Errorf("failed to delete cluster %s, due to running workloads", cluster.Name)
-		return nil, commonerrors.NewForbidden("some workloads are still in progress. Please terminate them first.")
+		return nil, commonerrors.NewConflict("some workloads are still in progress. Please terminate them first.")
 	}
 	if err = h.Delete(ctx, cluster); err != nil {
 		klog.ErrorS(err, "failed to delete cluster")
