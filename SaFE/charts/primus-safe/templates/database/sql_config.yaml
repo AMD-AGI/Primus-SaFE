@@ -76,7 +76,6 @@ data:
     alter table workload add column if not exists is_privileged boolean default false;
     alter table workload add column if not exists use_workspace_storage boolean default true;
     alter table workload add column if not exists force_host_network boolean default false;
-    alter table workload add column if not exists enable_notification boolean default false;
     alter table workload add column if not exists nodes_affinity VARCHAR(16);
 
     create table if not exists fault
