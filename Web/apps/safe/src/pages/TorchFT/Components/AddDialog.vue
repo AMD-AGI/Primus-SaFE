@@ -259,7 +259,7 @@
                   <el-input v-model="form.resource.cpu" :placeholder="placeholders.cpu" />
                 </el-form-item>
               </el-col>
-              <el-col :span="12">
+              <el-col :span="12" v-if="!flavorMaxVal || flavorMaxVal['amd.com/gpu']">
                 <el-form-item label="gpu">
                   <el-input v-model="form.resource.gpu" :placeholder="placeholders.gpu" />
                 </el-form-item>
@@ -759,6 +759,20 @@ const validateNodesDivisibility = (
   callback()
 }
 
+function createBetweenRule(min: number, max: number, unit?: string): FormItemRule {
+  return {
+    validator: (_rule: unknown, value: unknown, callback: (err?: Error) => void) => {
+      const num = Number(value)
+      if (isNaN(num) || num < min || num > max) {
+        callback(new Error(`Must be between ${min} and ${max}${unit ? ` ${unit}` : ''}`))
+      } else {
+        callback()
+      }
+    },
+    trigger: 'blur',
+  }
+}
+
 const ruleFormRef = ref<FormInstance>()
 const rules = reactive({
   hostname: [
@@ -777,7 +791,10 @@ const rules = reactive({
   entryPoint: [{ required: true, message: 'Please input entry point', trigger: 'blur' }],
   image: [{ required: true, message: 'Please input image', trigger: 'blur' }],
   // Worker Group
-  'resource.replica': [{ required: true, message: 'Please input nodePerGroup', trigger: 'blur' }],
+  'resource.replica': [
+    { required: true, message: 'Please input nodePerGroup', trigger: 'blur' },
+    createBetweenRule(1, 999),
+  ],
   nodeList: [
     {
       type: 'array',
@@ -888,6 +905,26 @@ const rules = reactive({
     },
   ],
 })
+
+const fetchFlavorAvail = async () => {
+  const flavorId = store.currentNodeFlavor
+  if (!flavorId) return
+  const res = await getNodeFlavorAvail(flavorId)
+  flavorMaxVal.value = res
+  const r = rules as unknown as Record<string, FormItemRule[]>
+  r['resource.cpu'] = [
+    { required: true, message: 'Please input cpu', trigger: 'blur' },
+    createBetweenRule(1, res.cpu),
+  ]
+  r['resource.memory'] = [
+    { required: true, message: 'Please input memory', trigger: 'blur' },
+    createBetweenRule(1, Number(byte2Gi(res.memory ?? 0, 0, false))),
+  ]
+  r['resource.ephemeralStorage'] = [
+    { required: true, message: 'Please input ephemeral storage', trigger: 'blur' },
+    createBetweenRule(1, Number(byte2Gi(res['ephemeral-storage'] ?? 0, 0, false))),
+  ]
+}
 
 const submitting = ref(false)
 const onSubmit = async (formEl: FormInstance | undefined) => {
@@ -1051,38 +1088,6 @@ const cancelAdd = () => {
     Object.assign(form, initialForm())
   })
 }
-
-function createBetweenRule(min: number, max: number, unit?: string): FormItemRule {
-  return {
-    validator: (_rule: unknown, value: unknown, callback: (err?: Error) => void) => {
-      const num = Number(value)
-      if (isNaN(num) || num < min || num > max) {
-        callback(new Error(`Must be between ${min} and ${max}${unit ? ` ${unit}` : ''}`))
-      } else {
-        callback()
-      }
-    },
-    trigger: 'blur',
-  }
-}
-watch(
-  () => store.currentNodeFlavor,
-  async (flavorId) => {
-    if (!flavorId) return
-
-    const res = await getNodeFlavorAvail(flavorId)
-    flavorMaxVal.value = res
-    ;(rules['resource.replica'] as FormItemRule[]).push(createBetweenRule(1, 999))
-    ;(rules['resource.cpu'] as FormItemRule[]).push(createBetweenRule(1, res.cpu))
-    ;(rules['resource.memory'] as FormItemRule[]).push(
-      createBetweenRule(1, Number(byte2Gi(res.memory ?? 0, 0, false))),
-    )
-    ;(rules['resource.ephemeralStorage'] as FormItemRule[]).push(
-      createBetweenRule(1, Number(byte2Gi(res['ephemeral-storage'] ?? 0, 0, false))),
-    )
-  },
-  { immediate: true },
-)
 
 const setInitialFormValues = async () => {
   if (!props.wlid) return
@@ -1311,6 +1316,7 @@ const onOpen = async () => {
   cachedUseWorkspaceStorage.value = undefined
   clonedLastNodes.value = []
   pendingWorkspaceId.value = store.currentWorkspaceId ?? store.firstWorkspace ?? ''
+  fetchFlavorAvail()
   fetchImage()
   fetchWlOptions()
   fetchSecrets()

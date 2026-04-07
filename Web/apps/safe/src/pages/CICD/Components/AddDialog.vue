@@ -120,7 +120,7 @@
                 <el-input v-model="form.resource.cpu" :placeholder="placeholders.cpu" />
               </el-form-item>
             </el-col>
-            <el-col :span="12">
+            <el-col :span="12" v-if="!flavorMaxVal || flavorMaxVal['amd.com/gpu']">
               <el-form-item label="gpu">
                 <el-input v-model="form.resource.gpu" :placeholder="placeholders.gpu" />
               </el-form-item>
@@ -563,23 +563,24 @@ watch(
   { immediate: true },
 )
 
-watch(
-  () => store.currentNodeFlavor,
-  async (flavorId) => {
-    if (!flavorId) return
-
-    const res = await getNodeFlavorAvail(flavorId)
-    flavorMaxVal.value = res
-    ;(rules['resource.cpu'] as FormItemRule[]).push(createBetweenRule(1, res.cpu))
-    ;(rules['resource.memory'] as FormItemRule[]).push(
-      createBetweenRule(1, Number(byte2Gi(res.memory ?? 0, 0, false))),
-    )
-    ;(rules['resource.ephemeralStorage'] as FormItemRule[]).push(
-      createBetweenRule(1, Number(byte2Gi(res['ephemeral-storage'] ?? 0, 0, false))),
-    )
-  },
-  { immediate: true },
-)
+const fetchFlavorAvail = async () => {
+  const flavorId = store.currentNodeFlavor
+  if (!flavorId) return
+  const res = await getNodeFlavorAvail(flavorId)
+  flavorMaxVal.value = res
+  rules['resource.cpu'] = [
+    { required: true, message: 'Please input cpu', trigger: 'blur' },
+    createBetweenRule(1, res.cpu),
+  ]
+  rules['resource.memory'] = [
+    { required: true, message: 'Please input memory', trigger: 'blur' },
+    createBetweenRule(1, Number(byte2Gi(res.memory ?? 0, 0, false))),
+  ]
+  rules['resource.ephemeralStorage'] = [
+    { required: true, message: 'Please input ephemeral storage', trigger: 'blur' },
+    createBetweenRule(1, Number(byte2Gi(res['ephemeral-storage'] ?? 0, 0, false))),
+  ]
+}
 
 const setInitialFormValues = async () => {
   if (!props.wlid) return
@@ -744,6 +745,7 @@ const onOpen = async () => {
   showAdvanced.value = false
   cachedUseWorkspaceStorage.value = undefined
   pendingWorkspaceId.value = store.currentWorkspaceId ?? store.firstWorkspace ?? ''
+  fetchFlavorAvail()
   fetchImage()
   fetchSecrets()
 

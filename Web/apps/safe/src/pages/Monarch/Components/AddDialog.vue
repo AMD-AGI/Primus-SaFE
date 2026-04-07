@@ -81,7 +81,7 @@
                   <el-input v-model="form.client.cpu" :placeholder="placeholders.cpu" />
                 </el-form-item>
               </el-col>
-              <el-col :span="12">
+              <el-col :span="12" v-if="!flavorMaxVal || flavorMaxVal['amd.com/gpu']">
                 <el-form-item label="gpu">
                   <el-input v-model="form.client.gpu" :placeholder="placeholders.gpu" />
                 </el-form-item>
@@ -247,7 +247,7 @@
                   <el-input v-model="form.mesh.cpu" :placeholder="placeholders.cpu" />
                 </el-form-item>
               </el-col>
-              <el-col :span="12">
+              <el-col :span="12" v-if="!flavorMaxVal || flavorMaxVal['amd.com/gpu']">
                 <el-form-item label="gpu">
                   <el-input v-model="form.mesh.gpu" :placeholder="placeholders.gpu" />
                 </el-form-item>
@@ -888,30 +888,37 @@ function createBetweenRule(min: number, max: number, unit?: string): FormItemRul
     trigger: 'blur',
   }
 }
-watch(
-  () => store.currentNodeFlavor,
-  async (flavorId) => {
-    if (!flavorId) return
 
-    const res = await getNodeFlavorAvail(flavorId)
-    flavorMaxVal.value = res
-    ;(rules['client.cpu'] as FormItemRule[]).push(createBetweenRule(1, res.cpu))
-    ;(rules['client.memory'] as FormItemRule[]).push(
-      createBetweenRule(1, Number(byte2Gi(res.memory ?? 0, 0, false))),
-    )
-    ;(rules['client.ephemeralStorage'] as FormItemRule[]).push(
-      createBetweenRule(1, Number(byte2Gi(res['ephemeral-storage'] ?? 0, 0, false))),
-    )
-    ;(rules['mesh.cpu'] as FormItemRule[]).push(createBetweenRule(1, res.cpu))
-    ;(rules['mesh.memory'] as FormItemRule[]).push(
-      createBetweenRule(1, Number(byte2Gi(res.memory ?? 0, 0, false))),
-    )
-    ;(rules['mesh.ephemeralStorage'] as FormItemRule[]).push(
-      createBetweenRule(1, Number(byte2Gi(res['ephemeral-storage'] ?? 0, 0, false))),
-    )
-  },
-  { immediate: true },
-)
+const fetchFlavorAvail = async () => {
+  const flavorId = store.currentNodeFlavor
+  if (!flavorId) return
+  const res = await getNodeFlavorAvail(flavorId)
+  flavorMaxVal.value = res
+  rules['client.cpu'] = [
+    { required: true, message: 'Please input client cpu', trigger: 'blur' },
+    createBetweenRule(1, res.cpu),
+  ] as FormItemRule[]
+  rules['client.memory'] = [
+    { required: true, message: 'Please input client memory', trigger: 'blur' },
+    createBetweenRule(1, Number(byte2Gi(res.memory ?? 0, 0, false))),
+  ] as FormItemRule[]
+  rules['client.ephemeralStorage'] = [
+    { required: true, message: 'Please input client ephemeral storage', trigger: 'blur' },
+    createBetweenRule(1, Number(byte2Gi(res['ephemeral-storage'] ?? 0, 0, false))),
+  ] as FormItemRule[]
+  rules['mesh.cpu'] = [
+    { required: true, message: 'Please input mesh group cpu', trigger: 'blur' },
+    createBetweenRule(1, res.cpu),
+  ] as FormItemRule[]
+  rules['mesh.memory'] = [
+    { required: true, message: 'Please input mesh group memory', trigger: 'blur' },
+    createBetweenRule(1, Number(byte2Gi(res.memory ?? 0, 0, false))),
+  ] as FormItemRule[]
+  rules['mesh.ephemeralStorage'] = [
+    { required: true, message: 'Please input mesh group ephemeral storage', trigger: 'blur' },
+    createBetweenRule(1, Number(byte2Gi(res['ephemeral-storage'] ?? 0, 0, false))),
+  ] as FormItemRule[]
+}
 
 const setInitialFormValues = async () => {
   if (!props.wlid) return
@@ -1104,6 +1111,7 @@ const onOpen = async () => {
   cachedUseWorkspaceStorage.value = undefined
   clonedLastNodes.value = []
   pendingWorkspaceId.value = store.currentWorkspaceId ?? store.firstWorkspace ?? ''
+  await fetchFlavorAvail()
   fetchWlOptions()
   fetchSecrets()
   if (props.action !== 'Create') {
