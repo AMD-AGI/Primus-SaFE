@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"gotest.tools/assert"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -342,4 +343,78 @@ func TestMutateStickyNodes_AllConditionsPass(t *testing.T) {
 
 	// Should keep sticky nodes annotation when all conditions pass
 	assert.Equal(t, v1.GetAnnotation(workload, v1.RetryOnOriginalNodesAnnotation), v1.TrueStr)
+}
+
+func TestValidateResourceEnough_CpuFlavorWithGpuRequest(t *testing.T) {
+	// NodeFlavor: CPU-only (no GPU)
+	nf := &v1.NodeFlavor{
+		ObjectMeta: metav1.ObjectMeta{Name: "amd-cpu"},
+		Spec: v1.NodeFlavorSpec{
+			Cpu:    v1.CpuChip{Quantity: resource.MustParse("32")},
+			Memory: resource.MustParse("256Gi"),
+			ExtendResources: map[corev1.ResourceName]resource.Quantity{
+				corev1.ResourceEphemeralStorage: resource.MustParse("990Gi"),
+			},
+		},
+	}
+
+	tests := []struct {
+		name    string
+		res     *v1.WorkloadResource
+		wantErr bool
+	}{
+		{
+			name: "gpu request on cpu-only flavor should fail",
+			res: &v1.WorkloadResource{
+				CPU:              "1",
+				GPU:              "1",
+				Memory:           "2Gi",
+				SharedMemory:     "1Gi",
+				EphemeralStorage: "3Gi",
+				Replica:          1,
+			},
+			wantErr: true,
+		},
+		{
+			name: "cpu-only request on cpu flavor should pass",
+			res: &v1.WorkloadResource{
+				CPU:              "1",
+				Memory:           "2Gi",
+				EphemeralStorage: "3Gi",
+				Replica:          1,
+			},
+			wantErr: false,
+		},
+		{
+			name: "cpu request exceeding flavor should fail",
+			res: &v1.WorkloadResource{
+				CPU:              "64",
+				Memory:           "2Gi",
+				EphemeralStorage: "3Gi",
+				Replica:          1,
+			},
+			wantErr: true,
+		},
+		{
+			name: "memory request exceeding flavor should fail",
+			res: &v1.WorkloadResource{
+				CPU:              "1",
+				Memory:           "512Gi",
+				EphemeralStorage: "3Gi",
+				Replica:          1,
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateResourceEnough(nf, tt.res)
+			if tt.wantErr {
+				assert.Assert(t, err != nil, "expected error but got nil")
+			} else {
+				assert.NilError(t, err)
+			}
+		})
+	}
 }
