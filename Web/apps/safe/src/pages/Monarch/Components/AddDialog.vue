@@ -1,7 +1,7 @@
 <template>
   <el-drawer
     :model-value="visible"
-    :title="`${props.action} Training`"
+    :title="`${props.action} Monarch`"
     :close-on-click-modal="false"
     size="820px"
     :before-close="cancelAdd"
@@ -21,14 +21,14 @@
             <div class="section-bar"></div>
             <div>
               <div class="section-title">Basic Information</div>
-              <div class="section-subtitle">Name, description, entry point and image</div>
+              <div class="section-subtitle">Name, priority and description</div>
             </div>
           </div>
 
           <el-row :gutter="16">
             <el-col :span="16">
-              <el-form-item label="name" prop="displayName" data-tour="training-field-name">
-                <el-input v-model="form.displayName" :disabled="isEdit" />
+              <el-form-item label="name" prop="displayName">
+                <el-input v-model="form.displayName" />
               </el-form-item>
             </el-col>
             <el-col :span="8">
@@ -49,133 +49,179 @@
           <el-form-item label="description">
             <el-input v-model="form.description" type="textarea" :rows="2" />
           </el-form-item>
-
-          <el-form-item label="entryPoint" prop="entryPoint" data-tour="training-field-entrypoint">
-            <el-input v-model="form.entryPoint" type="textarea" :rows="2" />
-          </el-form-item>
-
-          <el-form-item label="image" prop="image" data-tour="training-field-image">
-            <ImageInput v-model="form.image" />
-          </el-form-item>
         </div>
 
         <!-- ===== Resource ===== -->
-        <div class="section-card" data-tour="training-field-resource">
+        <div class="section-card">
           <div class="section-header">
             <div class="section-bar"></div>
-            <div class="flex-1 flex items-center justify-between">
-              <div>
-                <div class="section-title">Resource</div>
-                <div class="section-subtitle">
-                  Choose replicas / nodes and allocate CPU, GPU and memory
-                </div>
-              </div>
-              <el-segmented
-                v-if="!(isEdit && form.resourceType === 'nodes')"
-                v-model="form.resourceType"
-                :options="
-                  isEdit && form.resourceType === 'replicas' ? ['replicas'] : ['replicas', 'nodes']
-                "
-              />
+            <div class="flex-1">
+              <div class="section-title">Resource</div>
+              <div class="section-subtitle">Configure Client and Mesh Group resources</div>
             </div>
           </div>
 
-          <el-text class="mx-1 mb-2 block" size="small" type="info" v-if="isEdit">
-            <el-icon class="mr-1"><InfoFilled /></el-icon>{{ REPLICA_INFO }}
-          </el-text>
+          <!-- Client -->
+          <div class="mb-4">
+            <div class="resource-group-title mb-3">Client</div>
+            <el-row :gutter="16">
+              <el-col :span="24">
+                <el-form-item label="image" prop="client.image">
+                  <ImageInput v-model="form.client.image" />
+                </el-form-item>
+              </el-col>
+              <el-col :span="24">
+                <el-form-item label="entryPoint">
+                  <el-input v-model="form.client.entryPoint" type="textarea" :rows="2" placeholder="Client entrypoint (optional)" />
+                </el-form-item>
+              </el-col>
 
-          <el-row :gutter="16">
-            <!-- Replicas / nodes selection -->
-            <el-col :span="24" v-if="form.resourceType === 'replicas'">
-              <el-form-item label="replicas" prop="resource.replica">
-                <el-input
-                  v-model.number="form.resource.replica"
-                  :placeholder="placeholders.replica"
-                  :disabled="isEdit"
-                />
-              </el-form-item>
-            </el-col>
-
-            <el-col :span="24" v-if="form.resourceType === 'replicas'">
-              <el-form-item label="excludedNodes">
-                <el-select
-                  v-model="form.excludedNodes"
-                  multiple
-                  clearable
-                  filterable
-                  collapse-tags
-                  collapse-tags-tooltip
-                  :max-collapse-tags="5"
-                  :disabled="isEdit"
-                  placeholder="Select or paste nodes to exclude (comma-separated)"
-                  ref="excludedNodesSelectRef"
-                  :filter-method="filterExcludedNodes"
-                  :loading="nodesLoading"
-                  @visible-change="
-                    async (visible: boolean) => {
-                      if (visible) await fetchNodesOnDropdown()
-                      handleExcludedNodesVisibleChange(excludedNodesSelectRef, visible)
-                    }
-                  "
-                >
-                  <el-option
-                    v-for="n in filteredExcludedNodeOptions"
-                    :key="n.nodeId"
-                    :label="n.nodeId"
-                    :value="n.nodeId"
+              <el-col :span="12">
+                <el-form-item label="cpu" prop="client.cpu">
+                  <el-input v-model="form.client.cpu" :placeholder="placeholders.cpu" />
+                </el-form-item>
+              </el-col>
+              <el-col :span="12">
+                <el-form-item label="gpu">
+                  <el-input v-model="form.client.gpu" :placeholder="placeholders.gpu" />
+                </el-form-item>
+              </el-col>
+              <el-col :span="12">
+                <el-form-item label="memory" prop="client.memory">
+                  <el-input v-model="form.client.memory" :placeholder="placeholders.memory">
+                    <template #append>Gi</template>
+                  </el-input>
+                </el-form-item>
+              </el-col>
+              <el-col :span="12">
+                <el-form-item label="ephemeral" prop="client.ephemeralStorage">
+                  <el-input
+                    v-model="form.client.ephemeralStorage"
+                    :placeholder="placeholders.ephemeralStorage"
                   >
-                    <div class="flex items-center justify-between w-full">
-                      <div class="truncate">
-                        <span>{{ n.nodeId }}</span>
-                        <span
-                          v-if="excludedNodesSearchQuery && n.internalIP"
-                          class="text-gray-400 text-xs ml-2"
-                        >
-                          ({{ n.internalIP }})
-                        </span>
-                      </div>
-                      <el-tag
-                        :type="n.available ? 'success' : 'danger'"
-                        size="small"
-                        effect="plain"
-                      >
-                        {{ n.available ? 'Available' : 'Unavailable' }}
-                      </el-tag>
-                    </div>
-                  </el-option>
-                </el-select>
-              </el-form-item>
-            </el-col>
+                    <template #append>Gi</template>
+                  </el-input>
+                </el-form-item>
+              </el-col>
+            </el-row>
+          </div>
 
-            <el-col :span="24" v-if="!isEdit && form.resourceType === 'nodes'">
-              <el-form-item label="nodes" prop="nodeList">
-                <div class="node-select-wrapper">
+          <el-divider />
+
+          <!-- Mesh Group -->
+          <div class="mb-4">
+            <div class="flex items-center justify-between mb-3">
+              <div class="resource-group-title">Mesh Group</div>
+              <el-segmented
+                v-model="form.resourceType"
+                :options="['replicas', 'nodes']"
+                size="small"
+              />
+            </div>
+            <el-row :gutter="16">
+              <el-col :span="24">
+                <el-form-item label="image" prop="mesh.image">
+                  <ImageInput v-model="form.mesh.image" />
+                </el-form-item>
+              </el-col>
+              <el-col :span="24">
+                <el-form-item label="entryPoint">
+                  <el-input v-model="form.mesh.entryPoint" type="textarea" :rows="2" placeholder="Mesh Group entrypoint (optional)" />
+                </el-form-item>
+              </el-col>
+
+              <!-- replicas mode: groupNode -->
+              <el-col :span="24" v-if="form.resourceType === 'replicas'">
+                <el-form-item label="groupNode" prop="mesh.groupNode">
+                  <el-input
+                    v-model.number="form.mesh.groupNode"
+                    :placeholder="placeholders.replica"
+                  />
+                </el-form-item>
+              </el-col>
+
+              <!-- nodes mode: node selection -->
+              <el-col :span="24" v-if="form.resourceType === 'nodes'">
+                <el-form-item label="nodes" prop="nodeList">
+                  <div class="node-select-wrapper">
+                    <el-select
+                      v-model="form.nodeList"
+                      multiple
+                      clearable
+                      filterable
+                      collapse-tags
+                      collapse-tags-tooltip
+                      :max-collapse-tags="5"
+                      placeholder="Select or paste nodes (comma-separated)"
+                      ref="nodeSelectRef"
+                      :loading="nodesLoading"
+                      @visible-change="
+                        async (visible: boolean) => {
+                          if (visible) await fetchNodesOnDropdown()
+                          handleNodesVisibleChange(nodeSelectRef, visible)
+                        }
+                      "
+                    >
+                      <el-option
+                        v-for="n in nodeOptions"
+                        :key="n.value"
+                        :label="n.label"
+                        :value="n.value"
+                      >
+                        <div class="flex items-center justify-between w-full">
+                          <span class="truncate">{{ n.label }}</span>
+                          <el-tag
+                            :type="n.available ? 'success' : 'danger'"
+                            size="small"
+                            effect="plain"
+                          >
+                            {{ n.available ? 'Available' : 'Unavailable' }}
+                          </el-tag>
+                        </div>
+                      </el-option>
+                    </el-select>
+                  </div>
+                </el-form-item>
+              </el-col>
+
+              <!-- excludedNodes (only in replicas mode) -->
+              <el-col :span="24" v-if="form.resourceType === 'replicas'">
+                <el-form-item label="excludedNodes">
                   <el-select
-                    v-model="form.nodeList"
+                    v-model="form.excludedNodes"
                     multiple
                     clearable
                     filterable
                     collapse-tags
                     collapse-tags-tooltip
                     :max-collapse-tags="5"
-                    placeholder="Select or paste nodes (comma-separated)"
-                    ref="nodeSelectRef"
+                    placeholder="Select or paste nodes to exclude (comma-separated)"
+                    ref="excludedNodesSelectRef"
+                    :filter-method="filterExcludedNodes"
                     :loading="nodesLoading"
                     @visible-change="
                       async (visible: boolean) => {
                         if (visible) await fetchNodesOnDropdown()
-                        handleNodesVisibleChange(nodeSelectRef, visible)
+                        handleExcludedNodesVisibleChange(excludedNodesSelectRef, visible)
                       }
                     "
                   >
                     <el-option
-                      v-for="n in nodeOptions"
-                      :key="n.value"
-                      :label="n.label"
-                      :value="n.value"
+                      v-for="n in filteredExcludedNodeOptions"
+                      :key="n.nodeId"
+                      :label="n.nodeId"
+                      :value="n.nodeId"
                     >
                       <div class="flex items-center justify-between w-full">
-                        <span class="truncate">{{ n.label }}</span>
+                        <div class="truncate">
+                          <span>{{ n.nodeId }}</span>
+                          <span
+                            v-if="excludedNodesSearchQuery && n.internalIP"
+                            class="text-gray-400 text-xs ml-2"
+                          >
+                            ({{ n.internalIP }})
+                          </span>
+                        </div>
                         <el-tag
                           :type="n.available ? 'success' : 'danger'"
                           size="small"
@@ -186,47 +232,48 @@
                       </div>
                     </el-option>
                   </el-select>
-                </div>
-              </el-form-item>
-            </el-col>
+                </el-form-item>
+              </el-col>
 
-            <!-- Resource 2x2 grid -->
-            <el-col :span="12">
-              <el-form-item label="cpu" prop="resource.cpu">
-                <el-input v-model="form.resource.cpu" :placeholder="placeholders.cpu" />
-              </el-form-item>
-            </el-col>
-            <el-col :span="12">
-              <el-form-item label="gpu">
-                <el-input v-model="form.resource.gpu" :placeholder="placeholders.gpu" />
-              </el-form-item>
-            </el-col>
-            <el-col :span="12">
-              <el-form-item label="memory" prop="resource.memory">
-                <el-input v-model="form.resource.memory" :placeholder="placeholders.memory">
-                  <template #append>Gi</template>
-                </el-input>
-              </el-form-item>
-            </el-col>
-            <el-col :span="12">
-              <el-form-item label="ephemeral" prop="resource.ephemeralStorage">
-                <el-input
-                  v-model="form.resource.ephemeralStorage"
-                  :placeholder="placeholders.ephemeralStorage"
-                >
-                  <template #append>Gi</template>
-                </el-input>
-              </el-form-item>
-            </el-col>
-          </el-row>
+              <el-col :span="24">
+                <el-form-item label="replicaCount" prop="replicaCount">
+                  <el-input v-model.number="form.replicaCount" placeholder="Replica Count" />
+                </el-form-item>
+              </el-col>
 
-          <div v-if="persistentStoragePaths" class="persistent-storage-hint">
-            <el-icon class="mr-1"><InfoFilled /></el-icon>
-            <span>persistentStoragePath: {{ persistentStoragePaths }}</span>
+              <!-- Resource 2x2 grid -->
+              <el-col :span="12">
+                <el-form-item label="cpu" prop="mesh.cpu">
+                  <el-input v-model="form.mesh.cpu" :placeholder="placeholders.cpu" />
+                </el-form-item>
+              </el-col>
+              <el-col :span="12">
+                <el-form-item label="gpu">
+                  <el-input v-model="form.mesh.gpu" :placeholder="placeholders.gpu" />
+                </el-form-item>
+              </el-col>
+              <el-col :span="12">
+                <el-form-item label="memory" prop="mesh.memory">
+                  <el-input v-model="form.mesh.memory" :placeholder="placeholders.memory">
+                    <template #append>Gi</template>
+                  </el-input>
+                </el-form-item>
+              </el-col>
+              <el-col :span="12">
+                <el-form-item label="ephemeral" prop="mesh.ephemeralStorage">
+                  <el-input
+                    v-model="form.mesh.ephemeralStorage"
+                    :placeholder="placeholders.ephemeralStorage"
+                  >
+                    <template #append>Gi</template>
+                  </el-input>
+                </el-form-item>
+              </el-col>
+            </el-row>
           </div>
         </div>
 
-        <!-- ===== Advanced Options (collapsible) ===== -->
+        <!-- ===== Advanced Options (collapsible header) ===== -->
         <div class="section-card">
           <!-- Card header: click entire row to expand/collapse -->
           <div
@@ -236,7 +283,7 @@
             <div class="section-bar"></div>
             <div class="flex-1">
               <div class="section-title">Advanced Options</div>
-              <div class="section-subtitle">Retry, timeout, scheduler and metadata</div>
+              <div class="section-subtitle">Timeout, scheduler and metadata</div>
             </div>
             <el-icon :class="['section-chevron', { 'is-open': advancedOpen }]">
               <ArrowRight />
@@ -247,21 +294,10 @@
           <transition name="fade-slide">
             <div v-show="advancedOpen" class="advanced-body">
               <el-row :gutter="16">
-                <!-- hangCheck -->
-                <el-col :span="12" v-if="!isEdit">
-                  <el-form-item label="hangCheck">
-                    <el-switch v-model="form.isSupervised" class="mr-2" />
-                    <el-text size="small" type="info">
-                      <el-icon class="mr-1"><InfoFilled /></el-icon>
-                      {{ HANG_CHECK_INFO }}
-                    </el-text>
-                  </el-form-item>
-                </el-col>
-
                 <!-- preheat -->
                 <el-col :span="12">
                   <el-form-item label="preheat">
-                    <el-switch v-model="form.preheat" :disabled="isEdit" class="mr-2" />
+                    <el-switch v-model="form.preheat" class="mr-2" />
                     <el-text size="small" type="info">
                       <el-icon class="mr-1"><InfoFilled /></el-icon>
                       {{ PREHEAT_INFO }}
@@ -270,7 +306,7 @@
                 </el-col>
 
                 <!-- nodesAffinity -->
-                <el-col :span="12" v-if="!isEdit && (form.resourceType === 'nodes' || props.action === 'Clone' || props.action === 'Resume')">
+                <el-col :span="12" v-if="props.action === 'Clone' || form.resourceType === 'nodes'">
                   <el-form-item label="nodesAffinity">
                     <el-radio-group v-model="form.nodesAffinity" size="small">
                       <el-radio-button value="" :disabled="form.resourceType === 'nodes' && !clonedLastNodes.length">Disabled</el-radio-button>
@@ -284,7 +320,7 @@
                   </el-form-item>
                 </el-col>
 
-                <el-col :span="12" v-if="!isEdit">
+                <el-col :span="12">
                   <el-form-item label="forceHostNetwork">
                     <el-switch v-model="form.forceHostNetwork" class="mr-2" />
                     <el-text size="small" type="info">
@@ -293,36 +329,6 @@
                     </el-text>
                   </el-form-item>
                 </el-col>
-
-
-                <!-- autoRecovery -->
-                <el-col :span="12">
-                  <el-form-item label="autoRecovery">
-                    <el-switch v-model="isRetry" class="mr-2" />
-                    <el-text size="small" type="info">
-                      <el-icon class="mr-1"><InfoFilled /></el-icon>
-                      {{ AUTO_RETRY_INFO }}
-                    </el-text>
-                  </el-form-item>
-                </el-col>
-
-                <!-- maxRetry -->
-                <el-col :span="12" v-if="isRetry">
-                  <el-form-item label="maxRetry">
-                    <el-input-number
-                      v-model.number="form.maxRetry"
-                      :min="0"
-                      :max="50"
-                      :step="1"
-                      class="w-[120px] mr-2"
-                    />
-                    <el-text size="small" type="info">
-                      <el-icon class="mr-1"><InfoFilled /></el-icon>
-                      {{ RETRY_TIMES_INFO }}
-                    </el-text>
-                  </el-form-item>
-                </el-col>
-                <el-col :span="12" v-else />
 
                 <!-- timeout -->
                 <el-col :span="12">
@@ -339,7 +345,6 @@
                     </el-text>
                   </el-form-item>
                 </el-col>
-
 
                 <!-- schedulerTime -->
                 <el-col :span="12">
@@ -376,7 +381,6 @@
                       collapse-tags
                       collapse-tags-tooltip
                       :max-collapse-tags="5"
-                      :disabled="isEdit"
                       placeholder="Select one or more dependencies"
                     >
                       <el-option
@@ -409,7 +413,6 @@
                     <el-select
                       v-model="form.secretIds"
                       multiple
-                      :disabled="isEdit"
                       placeholder="Please select secrets"
                     >
                       <el-option
@@ -421,13 +424,12 @@
                     </el-select>
                   </el-form-item>
                 </el-col>
-
               </el-row>
 
               <el-divider border-style="dashed" class="kv-divider" />
 
               <!-- labels / env full width -->
-              <el-form-item label="labels" v-if="!isEdit" class="kv-full">
+              <el-form-item label="labels" class="kv-full">
                 <KeyValueList
                   v-model="form.labelList"
                   :max="20"
@@ -477,10 +479,8 @@ import {
   addWorkload,
   getNodeFlavorAvail,
   getWorkloadDetail,
-  editWorkload,
 } from '@/services/workload/index'
-import { getWorkspaceDetail } from '@/services/workspace/index'
-import { getNodesList, getImagesList, getWorkloadsList } from '@/services'
+import { getNodesList, getWorkloadsList } from '@/services'
 import { useSecrets, useSelectPaste } from '@/composables'
 import { type FormInstance, ElMessage, ElMessageBox } from 'element-plus'
 import { useWorkspaceStore } from '@/stores/workspace'
@@ -490,13 +490,11 @@ import {
   byte2Gi,
   convertKeyValueMapToList,
   convertListToKeyValueMap,
-  copyText,
 } from '@/utils/index'
 import type { FormItemRule } from 'element-plus'
-import { InfoFilled, CopyDocument, ArrowRight } from '@element-plus/icons-vue'
+import { InfoFilled, ArrowRight } from '@element-plus/icons-vue'
 import { useUserStore } from '@/stores/user'
 import { encodeToBase64String, toUTCISOString, decodeScheduleFromApi } from '@/utils'
-import { debounce } from 'lodash'
 import { useDatetimeLimit } from '@/composables/useDatetimeLimit'
 import dayjs from 'dayjs'
 
@@ -507,9 +505,6 @@ const props = defineProps<{
 }>()
 const emit = defineEmits(['update:visible', 'success'])
 
-const isEdit = computed(() => props.action === 'Edit')
-const cachedUseWorkspaceStorage = ref<boolean | undefined>(undefined)
-
 const store = useWorkspaceStore()
 const userStore = useUserStore()
 const isManager = computed(() => userStore.isManager)
@@ -518,7 +513,6 @@ const nodeOptions = ref([] as Array<{ label: string; value: string; available: b
 const excludedNodeOptions = ref(
   [] as Array<{ nodeId: string; available: boolean; internalIP?: string }>,
 )
-const imageOptions = ref([] as Array<{ id: number; tag: string }>)
 const wlOptions = ref([] as Array<{ label: string; value: string }>)
 // Use composable to fetch secrets
 const { secretOptions, fetchSecrets } = useSecrets('image')
@@ -526,26 +520,19 @@ const nodeSelectRef = ref()
 const excludedNodesSelectRef = ref()
 const excludedNodesSearchQuery = ref('')
 const nodesLoading = ref(false)
+const isCustomNodes = ref(false)
+const clonedLastNodes = ref<string[]>([])
 
-const AUTO_RETRY_INFO = 'automatically retry after workload failure'
 const TIMEOUT_INFO = 'timeout duration in seconds'
 const SCHEDULER_INFO = 'Scheduled execution time'
-const RETRY_TIMES_INFO = 'Maximum retries:50'
-const HANG_CHECK_INFO = 'workload fails if the last node(by rank) has no logs for 20 minutes'
 const PREHEAT_INFO = 'preheat: When enabled, preheats the image, which increases workload duration.'
 const NODES_AFFINITY_INFO = 'Node affinity: Required (strict) or Preferred (best-effort)'
-// const LABEL_INFO = 'schedule the workload to nodes with label, e.g. kubernetes.io/hostname: myhost'
-// const RESOURCE_INFO = 'If not specified, all available resources on the node will be used.'
-const REPLICA_INFO = 'If a node is specified, the replica cannot be modified.'
 const FORCE_HOST_NETWORK_INFO = 'Force host network (default: auto-based on resources)'
 
 const advancedOpen = ref(false)
 
-const persistentStoragePaths = ref('')
-
 // Prevent directly overwriting store data
 const pendingWorkspaceId = ref<string>('')
-// Advanced options (keep data synced)
 const targetWorkspaceId = computed<string>({
   get: () => pendingWorkspaceId.value || store.currentWorkspaceId || store.firstWorkspace || '',
   set: (val: string) => {
@@ -553,12 +540,6 @@ const targetWorkspaceId = computed<string>({
   },
 })
 
-const copyImage = async () => {
-  if (!form.image) return
-  await copyText(form.image)
-}
-
-const showAdvanced = ref(false)
 const fetchWorkspaceOption = () => store.fetchWorkspace(true)
 
 const curPriority = computed(() => (isManager.value || store.isCurrentWorkspaceAdmin() ? 2 : 1))
@@ -566,34 +547,35 @@ const curPriority = computed(() => (isManager.value || store.isCurrentWorkspaceA
 const initialForm = () => ({
   displayName: '',
   groupVersionKind: {
-    kind: 'PyTorchJob',
+    kind: 'MonarchJob',
     version: 'v1',
   },
   description: '',
-  entryPoint: '',
-  isSupervised: false,
-  image: '',
-  maxRetry: 5,
   priority: unref(curPriority),
-  resource: {
-    replica: undefined as number | undefined,
+  // Client (replica fixed to 1)
+  client: {
     cpu: '',
     gpu: '',
     memory: '',
     ephemeralStorage: '',
+    entryPoint: '',
+    image: '',
   },
-  envList: [
-    {
-      key: '',
-      value: '',
-    },
-  ],
-  labelList: [
-    {
-      key: '',
-      value: '',
-    },
-  ],
+  // Mesh Group
+  mesh: {
+    cpu: '',
+    gpu: '',
+    memory: '',
+    ephemeralStorage: '',
+    entryPoint: '',
+    image: '',
+    groupNode: undefined as number | undefined,
+  },
+  // TorchFT-style: replicaCount is top-level
+  replicaCount: undefined as number | undefined,
+
+  envList: [{ key: '', value: '' }],
+  labelList: [{ key: '', value: '' }],
 
   resourceType: 'replicas',
   nodeList: [] as string[],
@@ -609,24 +591,33 @@ const initialForm = () => ({
   forceHostNetwork: false,
 })
 const form = reactive({ ...initialForm() })
-const isRetry = ref(false) // isAutoRetry
 
-const clonedLastNodes = ref<string[]>([])
+const cachedUseWorkspaceStorage = ref<boolean | undefined>(undefined)
+
+// Watch nodesAffinity toggle (same as TorchFT)
 watch(() => form.nodesAffinity, (newVal, oldVal) => {
   if (!clonedLastNodes.value.length) return
   if (newVal && !oldVal) {
+    isCustomNodes.value = true
     form.resourceType = 'nodes'
     form.nodeList = [...clonedLastNodes.value]
   } else if (!newVal && oldVal) {
+    isCustomNodes.value = false
     form.resourceType = 'replicas'
     form.nodeList = []
   }
 })
-watch(() => form.resourceType, (newType) => {
-  if (newType === 'nodes' && !form.nodesAffinity) {
-    form.nodesAffinity = 'required'
-  }
-})
+
+// Watch nodeList changes, sync update groupNode if in nodes mode
+watch(
+  () => form.nodeList,
+  (newList) => {
+    if (form.resourceType === 'nodes') {
+      form.mesh.groupNode = newList.length || undefined
+    }
+  },
+  { deep: true },
+)
 
 // If today is selected, auto-fill current time
 const midnightDefault = ref(new Date(2000, 0, 1, 0, 0, 0))
@@ -641,7 +632,6 @@ watch(
       picked.year() === now.year() && picked.month() === now.month() && picked.date() === now.date()
     const isMidnight = picked.hour() === 0 && picked.minute() === 0
 
-    // If today + still at 00:00, auto-fill with current time
     if (sameDay && isMidnight) {
       form.schedulerTime = now.format('YYYY-MM-DD HH:mm')
     }
@@ -661,19 +651,31 @@ const placeholders = computed(() => {
     gpu: `0 to ${val['amd.com/gpu'] ?? '-'}`,
     memory: `1 to ${Math.min(Number(byte2Gi(val.memory, undefined, false)) ?? 2000, 2000)}`,
     ephemeralStorage: `1 to ${Math.min(Number(byte2Gi(val['ephemeral-storage'], undefined, false)) ?? 6000, 6000)}`,
-    replica: `Replica count`,
+    replica: `Group node ratio`,
   }
 })
 
-const nameRegex = /^[a-z](?:[-a-z0-9]{0,42}[a-z0-9])?$/
+const nameRegex = /^[a-z](?:[-a-z0-9]{0,34}[a-z0-9])?$/
+
+// Shared divisibility validation logic (for nodes mode only)
+const validateNodesDivisibility = (
+  workerReplica: number,
+  callback: (err?: Error) => void,
+): void => {
+  const replicaCount = Number(form.replicaCount)
+  if (form.resourceType === 'nodes' && replicaCount && workerReplica % replicaCount !== 0) {
+    callback(
+      new Error(
+        `Worker nodes count (${workerReplica}) must be divisible by REPLICA_COUNT (${replicaCount})`,
+      ),
+    )
+    return
+  }
+  callback()
+}
 
 const ruleFormRef = ref<FormInstance>()
 const rules = reactive({
-  hostname: [
-    { required: true, message: 'Please input activity name', trigger: 'blur' },
-    { max: 64, message: 'Must be less than 64 characters', trigger: 'blur' },
-  ],
-
   displayName: [
     { required: true, message: 'Please input name', trigger: 'blur' },
     {
@@ -682,20 +684,51 @@ const rules = reactive({
       trigger: 'blur',
     },
   ],
-  entryPoint: [{ required: true, message: 'Please input entry point', trigger: 'blur' }],
-  image: [{ required: true, message: 'Please input image', trigger: 'blur' }],
-  'resource.replica': [{ required: true, message: 'Please input replica', trigger: 'blur' }],
-  'resource.cpu': [{ required: true, message: 'Please input cpu', trigger: 'blur' }],
-  'resource.memory': [{ required: true, message: 'Please input memory', trigger: 'blur' }],
-  'resource.ephemeralStorage': [
-    { required: true, message: 'Please input ephemeral storage', trigger: 'blur' },
+  // Client
+  'client.image': [{ required: true, message: 'Please input client image', trigger: 'blur' }],
+  'client.cpu': [{ required: true, message: 'Please input client cpu', trigger: 'blur' }],
+  'client.memory': [{ required: true, message: 'Please input client memory', trigger: 'blur' }],
+  'client.ephemeralStorage': [
+    { required: true, message: 'Please input client ephemeral storage', trigger: 'blur' },
   ],
+  // Mesh Group
+  'mesh.image': [{ required: true, message: 'Please input mesh group image', trigger: 'blur' }],
+  'mesh.cpu': [{ required: true, message: 'Please input mesh group cpu', trigger: 'blur' }],
+  'mesh.memory': [{ required: true, message: 'Please input mesh group memory', trigger: 'blur' }],
+  'mesh.ephemeralStorage': [
+    { required: true, message: 'Please input mesh group ephemeral storage', trigger: 'blur' },
+  ],
+  'mesh.groupNode': [{ required: true, message: 'Please input group node count', trigger: 'blur' }],
   nodeList: [
     {
       type: 'array',
       required: true,
       message: 'Please select at least one node',
       trigger: 'change',
+    },
+    {
+      validator: (_rule: unknown, value: unknown, callback: (err?: Error) => void) => {
+        const nodeList = value as string[]
+        const workerReplica = nodeList.length
+        validateNodesDivisibility(workerReplica, callback)
+      },
+      trigger: 'change',
+    },
+  ],
+  replicaCount: [
+    { required: true, message: 'Please input replica count', trigger: 'blur' },
+    {
+      validator: (_rule: unknown, value: unknown, callback: (err?: Error) => void) => {
+        const replicaCount = Number(value)
+        const workerReplica = Number(form.mesh.groupNode)
+        validateNodesDivisibility(workerReplica, callback)
+        if (replicaCount < 1) {
+          callback(new Error('Replica count must be at least 1'))
+          return
+        }
+        callback()
+      },
+      trigger: 'blur',
     },
   ],
 })
@@ -725,95 +758,91 @@ const onSubmit = async (formEl: FormInstance | undefined) => {
     const {
       envList,
       labelList,
-      resourceType,
-      nodeList,
-      resource,
-      entryPoint,
       schedulerTime,
       timeout,
       secretIds,
       excludedNodes,
+      resourceType,
+      nodeList,
+      client,
+      mesh,
+      replicaCount: _replicaCount,
       nodesAffinity: _nodesAffinity,
       ...addPayload
     } = form
 
-    const baseResource = {
-      cpu: form.resource.cpu,
-      gpu: Number(form.resource.gpu) === 0 ? '' : (form.resource.gpu ?? ''),
-      memory: `${form.resource.memory}Gi`,
-      ephemeralStorage: `${form.resource.ephemeralStorage}Gi`,
+    // Client Resource (replica fixed to 1)
+    const clientRes = {
+      cpu: client.cpu,
+      gpu: Number(client.gpu) === 0 ? '' : (client.gpu ?? ''),
+      memory: `${client.memory}Gi`,
+      ephemeralStorage: `${client.ephemeralStorage}Gi`,
+      replica: 1,
     }
 
-    // Build resources array - Training requires special split logic
-    const buildResources = () => {
-      const totalReplica = resourceType === 'replicas' ? form.resource.replica : nodeList.length
-
-      if (totalReplica && totalReplica > 1) {
-        // Split into two resources: [1, totalReplica - 1]
-        return [
-          { ...baseResource, replica: 1 },
-          { ...baseResource, replica: totalReplica - 1 },
-        ]
-      } else {
-        // Single resource
-        return [{ ...baseResource, replica: totalReplica || 1 }]
-      }
-    }
-
-    const resources = buildResources()
-    const nodeListPayload = resourceType !== 'replicas' ? { specifiedNodes: nodeList } : {}
-    // excludedNodes only works in replica mode, mutually exclusive with specifiedNodes
-    const excludedNodesPayload =
-      resourceType === 'replicas'
-        ? (() => {
-            const arr = (excludedNodes ?? []).filter(Boolean)
-            return arr.length ? arr : undefined
-          })()
-        : undefined
-
-    if (!isEdit.value) {
-      await addWorkload({
-        ...addPayload,
-        ...nodeListPayload,
-        resources,
-        workspace: props.action === 'Clone' ? pendingWorkspaceId.value : store.currentWorkspaceId!,
-        env: convertListToKeyValueMap(envList),
-        customerLabels: convertListToKeyValueMap(labelList),
-        maxRetry: isRetry.value ? form.maxRetry : 0,
-        entryPoints: Array.from({ length: resources.length }, () =>
-          encodeToBase64String(entryPoint),
-        ),
-        images: Array.from({ length: resources.length }, () => form.image),
-        ...(form.schedulerTime
-          ? { cronJobs: [{ schedule: toUTCISOString(form.schedulerTime), action: 'start' }] }
-          : {}),
-        ...(form.timeout ? { timeout: form.timeout } : {}),
-        ...(secrets.length > 0 ? { secrets: secrets } : {}),
-        ...(excludedNodesPayload ? { excludedNodes: excludedNodesPayload } : {}),
-        ...(form.nodesAffinity ? { nodesAffinity: form.nodesAffinity as 'required' | 'preferred' } : {}),
-        ...(cachedUseWorkspaceStorage.value !== undefined ? { useWorkspaceStorage: cachedUseWorkspaceStorage.value } : {}),
-      })
-      ElMessage({ message: 'Create successful', type: 'success' })
+    // Mesh Group Resource: actual replica depends on mode
+    let meshActualReplica: number
+    if (form.resourceType === 'nodes') {
+      // Custom node mode: replica = nodeList.length
+      meshActualReplica = form.nodeList.length
     } else {
-      if (!props.wlid) return
-
-      await editWorkload(props.wlid, {
-        description: form.description,
-        priority: form.priority,
-        resources,
-        env: convertListToKeyValueMap(form.envList),
-        maxRetry: isRetry.value ? form.maxRetry : 0,
-        entryPoints: Array.from({ length: resources.length }, () =>
-          encodeToBase64String(form.entryPoint),
-        ),
-        images: Array.from({ length: resources.length }, () => form.image),
-        ...(form.schedulerTime
-          ? { cronJobs: [{ schedule: form.schedulerTime, action: 'start' }] }
-          : {}),
-        ...(form.timeout !== undefined ? { timeout: form.timeout } : {}),
-      })
-      ElMessage({ message: 'Edit successful', type: 'success' })
+      // Replicas mode: replica = groupNode * replicaCount
+      const groupNode = Number(mesh.groupNode) || 1
+      const replicaCount = Number(form.replicaCount) || 1
+      meshActualReplica = groupNode * replicaCount
     }
+
+    const meshRes = {
+      cpu: mesh.cpu,
+      gpu: Number(mesh.gpu) === 0 ? '' : (mesh.gpu ?? ''),
+      memory: `${mesh.memory}Gi`,
+      ephemeralStorage: `${mesh.ephemeralStorage}Gi`,
+      replica: meshActualReplica,
+    }
+
+    const resources = [clientRes, meshRes]
+    const images = [client.image, mesh.image]
+
+    // entryPoints: encode to base64 if not empty, use empty string if empty
+    const clientEp = client.entryPoint ? encodeToBase64String(client.entryPoint) : ''
+    const meshEp = mesh.entryPoint ? encodeToBase64String(mesh.entryPoint) : ''
+    const entryPoints = [clientEp, meshEp]
+
+    // nodeList only effective in nodes mode, mutually exclusive with excludedNodes
+    const nodeListPayload = resourceType !== 'replicas' ? { specifiedNodes: nodeList } : {}
+
+    // excludedNodes only effective in replica mode
+    const excludedNodesPayload = (() => {
+      const arr = (excludedNodes ?? []).filter(Boolean)
+      return arr.length ? arr : undefined
+    })()
+
+    // Add Monarch-specific fields to env
+    const monarchEnv = {
+      REPLICA_COUNT: String(form.replicaCount),
+    }
+    const mergedEnv = { ...convertListToKeyValueMap(envList), ...monarchEnv }
+
+    await addWorkload({
+      ...addPayload,
+      resources,
+      workspace: props.action === 'Clone' ? pendingWorkspaceId.value : store.currentWorkspaceId!,
+      env: mergedEnv,
+      customerLabels: convertListToKeyValueMap(labelList),
+      maxRetry: 0,
+      entryPoints,
+      images,
+      ...(form.schedulerTime
+        ? { cronJobs: [{ schedule: toUTCISOString(form.schedulerTime), action: 'start' }] }
+        : {}),
+      ...(form.timeout ? { timeout: form.timeout } : {}),
+      ...(secrets.length > 0 ? { secrets: secrets } : {}),
+      ...nodeListPayload,
+      ...(excludedNodesPayload ? { excludedNodes: excludedNodesPayload } : {}),
+      ...(form.nodesAffinity ? { nodesAffinity: form.nodesAffinity as 'required' | 'preferred' } : {}),
+      ...(cachedUseWorkspaceStorage.value !== undefined ? { useWorkspaceStorage: cachedUseWorkspaceStorage.value } : {}),
+    })
+    ElMessage({ message: 'Create successful', type: 'success' })
 
     if (props.action === 'Clone' && pendingWorkspaceId.value !== store.currentWorkspaceId) {
       store.setCurrentWorkspace(pendingWorkspaceId.value)
@@ -827,7 +856,7 @@ const onSubmit = async (formEl: FormInstance | undefined) => {
       const fields = err as Record<string, Array<{ message?: string }>>
       const firstKey = Object.keys(fields)[0]
       const firstMsg = fields[firstKey]?.[0]?.message || 'Invalid form'
-      formEl.scrollToField?.(firstKey as any)
+      formEl.scrollToField?.(firstKey as string)
       ElMessage.error(firstMsg)
     }
   } finally {
@@ -866,12 +895,18 @@ watch(
 
     const res = await getNodeFlavorAvail(flavorId)
     flavorMaxVal.value = res
-    ;(rules['resource.replica'] as FormItemRule[]).push(createBetweenRule(1, 999))
-    ;(rules['resource.cpu'] as FormItemRule[]).push(createBetweenRule(1, res.cpu))
-    ;(rules['resource.memory'] as FormItemRule[]).push(
+    ;(rules['client.cpu'] as FormItemRule[]).push(createBetweenRule(1, res.cpu))
+    ;(rules['client.memory'] as FormItemRule[]).push(
       createBetweenRule(1, Number(byte2Gi(res.memory ?? 0, 0, false))),
     )
-    ;(rules['resource.ephemeralStorage'] as FormItemRule[]).push(
+    ;(rules['client.ephemeralStorage'] as FormItemRule[]).push(
+      createBetweenRule(1, Number(byte2Gi(res['ephemeral-storage'] ?? 0, 0, false))),
+    )
+    ;(rules['mesh.cpu'] as FormItemRule[]).push(createBetweenRule(1, res.cpu))
+    ;(rules['mesh.memory'] as FormItemRule[]).push(
+      createBetweenRule(1, Number(byte2Gi(res.memory ?? 0, 0, false))),
+    )
+    ;(rules['mesh.ephemeralStorage'] as FormItemRule[]).push(
       createBetweenRule(1, Number(byte2Gi(res['ephemeral-storage'] ?? 0, 0, false))),
     )
   },
@@ -884,19 +919,8 @@ const setInitialFormValues = async () => {
   const res = await getWorkloadDetail(props.wlid)
   cachedUseWorkspaceStorage.value = res.useWorkspaceStorage
 
-  isRetry.value = true
-
   form.displayName = res.displayName
   form.description = res.description
-  // workload now supports entryPoints/images arrays; UI keeps a single entryPoint/image
-  form.entryPoint =
-    (Array.isArray(res.entryPoints) ? res.entryPoints[0] : undefined) ?? res.entryPoint ?? ''
-  form.isSupervised = res.isSupervised ?? false
-  form.image = (Array.isArray(res.images) ? res.images[0] : undefined) ?? res.image ?? ''
-  form.maxRetry = res.maxRetry ?? 0
-  form.timeout = res.timeout
-  form.schedulerTime = decodeScheduleFromApi(res.cronJobs?.[0]?.schedule) ?? ''
-  form.dependencies = res.dependencies ?? []
 
   // Regular users cannot select high priority; auto-downgrade to medium when cloning
   form.priority =
@@ -906,9 +930,33 @@ const setInitialFormValues = async () => {
         ? 1
         : res.priority
 
-  if (!isEdit.value && res.specifiedNodes?.length) {
+  // Load two resources: Client (index 0) and Mesh Group (index 1)
+  const images = Array.isArray(res.images) ? res.images : res.image ? [res.image] : []
+  const entryPoints = Array.isArray(res.entryPoints)
+    ? res.entryPoints
+    : res.entryPoint
+      ? [res.entryPoint]
+      : []
+
+  // Client
+  if (res.resources && Array.isArray(res.resources) && res.resources[0]) {
+    const clientResData = res.resources[0]
+    form.client.cpu = clientResData.cpu ?? ''
+    form.client.gpu = clientResData.gpu ?? ''
+    form.client.memory = clientResData.memory?.replace(/Gi$/i, '') ?? ''
+    form.client.ephemeralStorage = clientResData.ephemeralStorage?.replace(/Gi$/i, '') ?? ''
+  }
+  form.client.image = images[0] ?? ''
+  form.client.entryPoint = entryPoints[0] ?? ''
+
+  // Check if custom nodes (determined by specifiedNodes array)
+  const customNodesList = res.specifiedNodes ?? []
+  isCustomNodes.value = customNodesList.length > 0
+
+  // If custom nodes, set to nodes mode
+  if (isCustomNodes.value) {
     form.resourceType = 'nodes'
-    form.nodeList = res.specifiedNodes
+    form.nodeList = customNodesList
     form.nodesAffinity = res.nodesAffinity || 'required'
     clonedLastNodes.value = []
   } else {
@@ -918,29 +966,41 @@ const setInitialFormValues = async () => {
     clonedLastNodes.value = lastNodes
   }
 
-  // resources changed to array; Training sums replica from index 0 and 1, other fields from index 0
-  const firstResource = res.resources?.[0] || res.resource || {}
-  const secondResource = res.resources?.[1] || {}
-  const { gpuName, rdmaResource, ...clearResource } = firstResource
-  form.resource = clearResource
-  // replica needs to sum index 0 and index 1
-  form.resource.replica = Number(firstResource.replica || 0) + Number(secondResource.replica || 0)
-  form.resource.memory = firstResource?.memory?.replace(/Gi$/i, '') ?? ''
-  form.resource.ephemeralStorage = firstResource?.ephemeralStorage?.replace(/Gi$/i, '') ?? ''
+  // Mesh Group
+  if (res.resources && Array.isArray(res.resources) && res.resources[1]) {
+    const meshResData = res.resources[1]
+    form.mesh.cpu = meshResData.cpu ?? ''
+    form.mesh.gpu = meshResData.gpu ?? ''
+    form.mesh.memory = meshResData.memory?.replace(/Gi$/i, '') ?? ''
+    form.mesh.ephemeralStorage = meshResData.ephemeralStorage?.replace(/Gi$/i, '') ?? ''
 
-  form.envList = convertKeyValueMapToList(res.env)
+    // Calculate groupNode from replica / replicaCount
+    const replicaCount = res.env?.REPLICA_COUNT ? Number(res.env.REPLICA_COUNT) : 1
+
+    if (!isCustomNodes.value) {
+      // groupNode = replica / replicaCount
+      const totalReplica = meshResData.replica ?? 1
+      form.mesh.groupNode = replicaCount > 0 ? Math.round(totalReplica / replicaCount) : totalReplica
+    } else {
+      // Custom nodes use replica directly
+      form.mesh.groupNode = meshResData.replica
+    }
+    form.replicaCount = replicaCount || undefined
+  }
+  form.mesh.image = images[1] ?? ''
+  form.mesh.entryPoint = entryPoints[1] ?? ''
+
+  // Env (remove REPLICA_COUNT from env list)
+  const envCopy = { ...(res.env || {}) }
+  delete envCopy.REPLICA_COUNT
+  form.envList = convertKeyValueMapToList(envCopy)
   form.labelList = convertKeyValueMapToList(res.customerLabels)
 
-  // Handle excludedNodes
   form.excludedNodes = res.excludedNodes ?? []
-
-  // Handle secrets — clear when cloning, keep when editing
-  if (props.action === 'Edit' && res.secrets && res.secrets.length > 0) {
-    form.secretIds = res.secrets.map((s: any) => s.id)
-  } else if (props.action === 'Clone') {
-    form.secretIds = [] // Clear secrets when cloning so user can re-select
-  }
-
+  form.timeout = res.timeout
+  form.schedulerTime = decodeScheduleFromApi(res.cronJobs?.[0]?.schedule) ?? ''
+  form.dependencies = res.dependencies ?? []
+  form.secretIds = []
   form.forceHostNetwork = res.forceHostNetwork ?? false
 
   if (props.action === 'Clone') {
@@ -956,16 +1016,16 @@ const fetchNodes = async () => {
     limit: -1,
     brief: true,
   }).catch(() => ({ items: [] }))
-  nodeOptions.value = (nodes?.items ?? []).map((n: any) => ({
-    label: n.hostname ?? n.nodeName ?? n.nodeId ?? n.name,
-    value: n.nodeId ?? n.name ?? n.hostname,
+  nodeOptions.value = (nodes?.items ?? []).map((n: Record<string, unknown>) => ({
+    label: (n.hostname ?? n.nodeName ?? n.nodeId ?? n.name) as string,
+    value: (n.nodeId ?? n.name ?? n.hostname) as string,
     available: Boolean(n.available),
   }))
   // Also populate excludedNodeOptions with the same data
-  excludedNodeOptions.value = (nodes?.items ?? []).map((n: any) => ({
-    nodeId: n.nodeId ?? n.name ?? n.hostname,
+  excludedNodeOptions.value = (nodes?.items ?? []).map((n: Record<string, unknown>) => ({
+    nodeId: (n.nodeId ?? n.name ?? n.hostname) as string,
     available: Boolean(n.available),
-    internalIP: n.internalIP,
+    internalIP: n.internalIP as string | undefined,
   }))
 }
 
@@ -997,12 +1057,7 @@ const filterExcludedNodes = (query: string) => {
   excludedNodesSearchQuery.value = query
 }
 
-const fetchImage = async (tag?: string) => {
-  const res = await getImagesList({ flat: true, tag })
-  imageOptions.value = res ?? []
-}
-
-// Use composable to handle nodes paste functionality
+// Use composable for nodes paste functionality
 const { handleSelectVisibleChange: handleNodesVisibleChange } = useSelectPaste({
   options: nodeOptions,
   modelValue: toRef(form, 'nodeList'),
@@ -1029,18 +1084,11 @@ const fetchWlOptions = async () => {
     userId: userStore.userId,
     workspaceId: store.currentWorkspaceId,
   })
-  wlOptions.value = res?.items?.map((v: any) => ({
-    label: v.displayName,
-    value: v.workloadId,
+  wlOptions.value = res?.items?.map((v: Record<string, unknown>) => ({
+    label: v.displayName as string,
+    value: v.workloadId as string,
   }))
 }
-const filterImageOptions = debounce(async (query: string) => {
-  if (!query) {
-    await fetchImage()
-  } else {
-    await fetchImage(query)
-  }
-}, 300)
 
 watch(
   () => store.currentWorkspaceId,
@@ -1052,34 +1100,18 @@ watch(
   { immediate: true },
 )
 
-const fetchPersistentStoragePaths = async () => {
-  try {
-    const wsId = store.currentWorkspaceId
-    if (!wsId) return
-    const res = await getWorkspaceDetail(wsId)
-    const paths = (res.volumes ?? [])
-      .map((v: { mountPath?: string }) => v.mountPath)
-      .filter(Boolean)
-    persistentStoragePaths.value = paths.length ? paths.join(', ') : ''
-  } catch {
-    persistentStoragePaths.value = ''
-  }
-}
-
 const onOpen = async () => {
-  showAdvanced.value = false
   cachedUseWorkspaceStorage.value = undefined
   clonedLastNodes.value = []
   pendingWorkspaceId.value = store.currentWorkspaceId ?? store.firstWorkspace ?? ''
-  fetchImage()
   fetchWlOptions()
   fetchSecrets()
-  fetchPersistentStoragePaths()
   if (props.action !== 'Create') {
     setInitialFormValues()
   } else {
     ruleFormRef.value?.resetFields()
     Object.assign(form, initialForm())
+    isCustomNodes.value = false
   }
   await nextTick()
   if (props.action === 'Create') {
@@ -1103,7 +1135,6 @@ const onOpen = async () => {
 <style scoped>
 .drawer-body {
   overflow-y: auto;
-  /* padding: 8px 24px 16px; */
 }
 
 /* Wrap each group in a card */
@@ -1111,16 +1142,14 @@ const onOpen = async () => {
   background: var(--el-bg-color-overlay);
   border-radius: 10px;
   padding: 14px 16px 10px;
-  margin-bottom: 20px; /* Add spacing between cards */
+  margin-bottom: 20px;
 
-  /* Subtle border: barely visible stroke + shadow */
   border: 1px solid var(--el-border-color-lighter);
   box-shadow:
     0 2px 8px rgba(0, 0, 0, 0.08),
     0 1px 3px rgba(0, 0, 0, 0.04);
 }
 
-/* Use stronger shadow in dark mode */
 html.dark .section-card {
   border: 1px solid rgba(255, 255, 255, 0.03);
   box-shadow:
@@ -1128,7 +1157,6 @@ html.dark .section-card {
     0 0 0 1px rgba(0, 0, 0, 0.7);
 }
 
-/* Slight lift on hover for card effect (optional) */
 .section-card:hover {
   box-shadow:
     0 4px 12px rgba(0, 0, 0, 0.12),
@@ -1181,14 +1209,23 @@ html.dark .section-card:hover {
   transform: rotate(90deg);
 }
 
-/* Leave some space at the top of advanced expanded content */
 .advanced-body {
   margin-top: 4px;
 }
 
-/* Slightly tighten top of collapsed area */
-.advanced-collapse :deep(.el-collapse-item__header) {
-  padding: 0;
+/* Resource Group Title */
+.resource-group-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--el-text-color-primary);
+  padding: 6px 12px;
+  background: var(--el-fill-color-light);
+  border-radius: 6px;
+  border-left: 3px solid var(--safe-primary);
+}
+
+html.dark .resource-group-title {
+  background: rgba(255, 255, 255, 0.05);
 }
 
 /* Node select wrapper */
@@ -1201,7 +1238,6 @@ html.dark .section-card:hover {
   flex: 1;
 }
 
-/* Add some padding for labels/env section */
 .kv-divider {
   margin: 4px 0 10px;
 }
@@ -1210,20 +1246,6 @@ html.dark .section-card:hover {
 }
 .kv-full :deep(.key-value-list-root) {
   width: 100%;
-}
-
-/* persistentStoragePath hint bar */
-.persistent-storage-hint {
-  display: flex;
-  align-items: center;
-  margin: 4px 4px 6px;
-  padding: 6px 12px;
-  font-size: 12px;
-  line-height: 1.4;
-  color: var(--el-text-color-secondary);
-  background: var(--el-fill-color-light);
-  border-left: 3px solid var(--el-border-color);
-  border-radius: 4px;
 }
 
 /* Drawer footer */
@@ -1244,8 +1266,5 @@ html.dark .section-card:hover {
 .fade-slide-leave-to {
   opacity: 0;
   transform: translateY(-4px);
-}
-.rotate-180 {
-  transform: rotate(180deg);
 }
 </style>
