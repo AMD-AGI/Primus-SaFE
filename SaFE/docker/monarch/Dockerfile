@@ -1,7 +1,13 @@
 # Build from latest pytorch stable image; should be relatively in sync with torchmonarch and pytorch.
 FROM tasimage/primus:pr-563
-# docker build --build-arg GPU_ARCH=gfx950 -t monarch:latest .
 
+# usage:
+#    docker buildx build \
+#    --build-arg GPU_ARCH=gfx950 \
+#    --build-context ainic=/shared_nfs/weilei/ainic \
+#    --build-context torchtitan=/shared_nfs/weilei/torchtitan \
+#    --build-context torchft=/shared_nfs/weilei/torchft \
+#    -t primussafe/monarch:202604071400 .
 SHELL ["/bin/bash", "-c"]
 
 # Ensure /opt/venv/bin is on PATH for ALL shells (bash, sh, subprocess).
@@ -29,8 +35,10 @@ RUN pip install --upgrade pip setuptools wheel setuptools-rust --break-system-pa
 
 # Install AMD AINIC driver (set AINIC_DRIVER_VERSION to skip/change version)
 # GPU_ARCH: target GPU architecture (e.g., gfx942, gfx950) - required for Docker builds without GPU access
-COPY ainic /workspace/ainic
-ARG AINIC_DRIVER_VERSION=1.117.5-a-56
+# Use --build-context to override source dirs:
+#   docker buildx build --build-context ainic=/path/to/ainic --build-context torchtitan=/path/to/torchtitan --build-context torchft=/path/to/torchft .
+COPY --from=ainic . /workspace/ainic
+#ARG AINIC_DRIVER_VERSION=1.117.5-a-56
 ARG GPU_ARCH=gfx942
 RUN AINIC_DRIVER_VERSION=${AINIC_DRIVER_VERSION} GPU_ARCH=${GPU_ARCH} /bin/sh /workspace/ainic/build_ainic.sh && \
     rm -rf /workspace/ainic
@@ -48,13 +56,13 @@ RUN pip uninstall -y torchtitan || true && \
     rm -rf /workspace/torchtitan /opt/venv/lib/python*/site-packages/torchtitan* && \
     pip cache purge
 
-COPY torchtitan /workspace/torchtitan
+COPY --from=torchtitan . /workspace/torchtitan
 RUN cd /workspace/torchtitan && \
     python -m pip install -r requirements.txt --break-system-packages && \
     python -m pip install -e . --break-system-packages --force-reinstall --no-deps
 
 # Install torchft from source (with hostname fix for Kubernetes)
-COPY torchft /workspace/torchft
+COPY --from=torchft . /workspace/torchft
 RUN rm -f /workspace/torchft/torchft/_torchft*.so && \
     cd /workspace/torchft && \
     pip install -e . --break-system-packages
