@@ -245,6 +245,11 @@ jobs:
           echo "🔐 Logging in to Quay.io..."
           buildah login -u "${{ secrets.QUAY_USERNAME }}" -p "${{ secrets.QUAY_PASSWORD }}" quay.io && echo "✅ Quay.io login successful" || echo "❌ Quay.io login failed"
           
+          if [ -n "${{ secrets.TASIMAGE_USERNAME }}" ]; then
+            echo "🔐 Logging in to Docker Hub for tasimage..."
+            buildah login -u "${{ secrets.TASIMAGE_USERNAME }}" -p "${{ secrets.TASIMAGE_PASSWORD }}" docker.io && echo "✅ tasimage login successful" || echo "❌ tasimage login failed"
+          fi
+          
         env:
           DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
 
