@@ -3,6 +3,7 @@
 KUBE_CONFIG=/etc/kubernetes/admin.conf
 
 KUBE_VERSION=1.32.5
+KUBESPRAY_VERSION=v2.28.0
 KUBE_DIR=${HOME}/.kube
 CONFIG_FILE=hosts.ini
 NODE_LOCAL_DNS_IP=169.254.25.10
@@ -15,7 +16,8 @@ NGINX_IMAGE=public.ecr.aws/docker/library/nginx
 # 1. Clone Kubespray (if missing)
 # -----------------------------------------------------------------------------
 if [[ ! -d kubespray ]]; then
-  sudo git clone https://github.com/kubernetes-sigs/kubespray.git || {
+  sudo git clone --branch "$KUBESPRAY_VERSION" --depth 1 \
+    https://github.com/kubernetes-sigs/kubespray.git || {
     echo "[ERROR] Git clone failed – please check connectivity or permissions." >&2
     exit 1
   }
