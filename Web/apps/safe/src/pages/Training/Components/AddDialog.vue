@@ -110,9 +110,12 @@
                   placeholder="Select or paste nodes to exclude (comma-separated)"
                   ref="excludedNodesSelectRef"
                   :filter-method="filterExcludedNodes"
+                  :loading="nodesLoading"
                   @visible-change="
-                    (visible: boolean) =>
+                    async (visible: boolean) => {
+                      if (visible) await fetchNodesOnDropdown()
                       handleExcludedNodesVisibleChange(excludedNodesSelectRef, visible)
+                    }
                   "
                 >
                   <el-option
@@ -157,8 +160,12 @@
                     :max-collapse-tags="5"
                     placeholder="Select or paste nodes (comma-separated)"
                     ref="nodeSelectRef"
+                    :loading="nodesLoading"
                     @visible-change="
-                      (visible: boolean) => handleNodesVisibleChange(nodeSelectRef, visible)
+                      async (visible: boolean) => {
+                        if (visible) await fetchNodesOnDropdown()
+                        handleNodesVisibleChange(nodeSelectRef, visible)
+                      }
                     "
                   >
                     <el-option
@@ -518,6 +525,7 @@ const { secretOptions, fetchSecrets } = useSecrets('image')
 const nodeSelectRef = ref()
 const excludedNodesSelectRef = ref()
 const excludedNodesSearchQuery = ref('')
+const nodesLoading = ref(false)
 
 const AUTO_RETRY_INFO = 'automatically retry after workload failure'
 const TIMEOUT_INFO = 'timeout duration in seconds'
@@ -961,6 +969,16 @@ const fetchNodes = async () => {
   }))
 }
 
+const fetchNodesOnDropdown = async () => {
+  if (nodesLoading.value) return
+  nodesLoading.value = true
+  try {
+    await fetchNodes()
+  } finally {
+    nodesLoading.value = false
+  }
+}
+
 // Filter excluded nodes based on search query
 const filteredExcludedNodeOptions = computed(() => {
   if (!excludedNodesSearchQuery.value) {
@@ -1053,7 +1071,6 @@ const onOpen = async () => {
   cachedUseWorkspaceStorage.value = undefined
   clonedLastNodes.value = []
   pendingWorkspaceId.value = store.currentWorkspaceId ?? store.firstWorkspace ?? ''
-  fetchNodes()
   fetchImage()
   fetchWlOptions()
   fetchSecrets()
