@@ -1,0 +1,13 @@
+apiVersion: chainsaw.kyverno.io/v1alpha2
+kind: Configuration
+metadata:
+  name: bootstrap-tests
+spec:
+  timeouts:
+    apply: 30s
+    assert: 120s
+    exec: 60s
+  cleanup:
+    skipDelete: true
+  execution:
+    failFast: true
