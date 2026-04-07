@@ -454,7 +454,7 @@ const placeholders = computed(() => {
 const nameRegex = /^[a-z](?:[-a-z0-9]{0,42}[a-z0-9])?$/
 
 const ruleFormRef = ref<FormInstance>()
-const rules = reactive({
+const rules: Record<string, FormItemRule[]> = reactive({
   displayName: [
     { required: true, message: 'Please input name', trigger: 'blur' },
     {

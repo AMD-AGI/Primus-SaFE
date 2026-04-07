@@ -774,7 +774,7 @@ function createBetweenRule(min: number, max: number, unit?: string): FormItemRul
 }
 
 const ruleFormRef = ref<FormInstance>()
-const rules = reactive({
+const rules: Record<string, FormItemRule[]> = reactive({
   hostname: [
     { required: true, message: 'Please input activity name', trigger: 'blur' },
     { max: 64, message: 'Must be less than 64 characters', trigger: 'blur' },
