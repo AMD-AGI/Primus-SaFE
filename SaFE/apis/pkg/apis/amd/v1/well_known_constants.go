@@ -128,7 +128,8 @@ const (
 	UserEmailMd5Label           = UserPrefix + "email.md5"
 	UserAvatarUrlAnnotation     = UserPrefix + "avatar.url"
 	UserTypeLabel               = UserPrefix + "type"
-	UserPreferredNameAnnotation = UserPrefix + "preferred.name"
+	UserPreferredNameAnnotation      = UserPrefix + "preferred.name"
+	UserEnableNotificationAnnotation = UserPrefix + "enable.notification"
 
 	// secret
 	SecretPrefix    = PrimusSafePrefix + "secret."
