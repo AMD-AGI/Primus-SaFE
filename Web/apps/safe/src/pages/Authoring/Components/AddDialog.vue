@@ -133,7 +133,7 @@
                   :disabled="isEdit"
                   placeholder="Select one node (required)"
                   :loading="nodesLoading"
-                  @visible-change="async (visible) => { if (visible) await fetchNodesOnDropdown() }"
+                  @visible-change="async (visible: boolean) => { if (visible) await fetchNodesOnDropdown() }"
                 >
                   <el-option v-for="n in nodeOptions" :key="n.value" :label="n.label" :value="n.value">
                     <div class="flex items-center justify-between w-full">
