@@ -709,6 +709,20 @@ const openManage = async (
   nodeId?: string,
   clusterId?: string,
 ) => {
+  // Block unmanage when SSHFailed nodes are in the batch selection
+  if (action === 'Unmanage' && isBatch) {
+    const sshFailedNodes = selectedRows.value.filter((r) => r['phase'] === 'SSHFailed')
+    if (sshFailedNodes.length > 0) {
+      const names = sshFailedNodes
+        .map((r) => (r['nodeName'] as string) || (r['nodeId'] as string))
+        .join(', ')
+      ElMessage.warning(
+        `Selection contains SSHFailed node(s): ${names}. SSHFailed nodes do not support unmanage, please deselect them or use Force Delete.`,
+      )
+      return
+    }
+  }
+
   manageAction.value = action
   curNodeId.value = isBatch ? getSelectedNodeIds() : nodeId ? [nodeId] : []
   selectedClusterId.value = (isBatch ? unManageClusterId.value : clusterId) ?? ''
@@ -945,7 +959,29 @@ const getActions = (row: Row): Action[] => [
     label: 'UnManage',
     icon: Minus,
     btnClass: 'btn-danger-plain',
-    onClick: async (r: Row) => openManage('Unmanage', false, r.nodeId, r.clusterId),
+    onClick: async (r: Row) => {
+      if (r.phase === 'SSHFailed') {
+        try {
+          await ElMessageBox.confirm(
+            'SSHFailed nodes do not support unmanage. Would you like to force delete this node instead?',
+            'Cannot Unmanage',
+            {
+              confirmButtonText: 'Force Delete',
+              cancelButtonText: 'Cancel',
+              type: 'warning',
+              confirmButtonClass: 'el-button--danger',
+            },
+          )
+          await deleteNode(r.nodeId, { force: true })
+          ElMessage.success('Force delete completed')
+          onSearch({ resetPage: false })
+        } catch (e: unknown) {
+          if (e === 'cancel' || e === 'close') return
+        }
+        return
+      }
+      openManage('Unmanage', false, r.nodeId, r.clusterId)
+    },
     show: isUnManage(row) && !!isManager.value,
   },
   {
@@ -995,13 +1031,51 @@ const onDelete = async (isBatch: boolean, id?: string) => {
 
   try {
     if (isBatch) {
-      await deleteNodes({ nodeIds: ids })
+      await deleteNodes({ nodeIds: ids }, { skipErrorHandler: true })
     } else {
-      await deleteNode(ids[0])
+      await deleteNode(ids[0], { skipErrorHandler: true })
     }
     ElMessage.success('Delete completed')
     onSearch({ resetPage: false })
-  } catch {}
+  } catch (err: unknown) {
+    const axiosErr = err as Record<string, unknown>
+    const resp = (axiosErr?.response as Record<string, unknown>) ?? {}
+    const respData = (resp?.data as Record<string, unknown>) ?? {}
+    const errorCode = respData?.errorCode ?? axiosErr?.errorCode
+    if (errorCode === 'Primus.00012') {
+      // Prompt user for force delete
+      try {
+        await ElMessageBox.confirm(
+          'Normal deletion failed because the node still has associated resources. Would you like to force delete? This action is irreversible.',
+          'Force Delete',
+          {
+            confirmButtonText: 'Force Delete',
+            cancelButtonText: 'Cancel',
+            type: 'warning',
+            confirmButtonClass: 'el-button--danger',
+          },
+        )
+        if (isBatch) {
+          await deleteNodes({ nodeIds: ids }, { force: true })
+        } else {
+          await deleteNode(ids[0], { force: true })
+        }
+        ElMessage.success('Force delete completed')
+        onSearch({ resetPage: false })
+      } catch (forceErr: unknown) {
+        if (forceErr === 'cancel' || forceErr === 'close') {
+          ElMessage.info('Force delete canceled')
+        }
+      }
+    } else {
+      // Show error message manually since we skipped the global handler
+      const errorMsg =
+        (respData?.errorMessage as string) ??
+        (axiosErr?.errorMessage as string) ??
+        (err instanceof Error ? err.message : 'Delete failed')
+      ElMessage.error(errorMsg)
+    }
+  }
 }
 
 onMounted(() => {

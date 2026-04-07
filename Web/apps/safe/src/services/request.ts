@@ -6,6 +6,8 @@ import { ElMessage } from 'element-plus'
 declare module 'axios' {
   export interface AxiosRequestConfig {
     rawResponse?: boolean
+    /** When true the global interceptor will NOT show ElMessage and will reject with the raw error object */
+    skipErrorHandler?: boolean
   }
 }
 
@@ -28,12 +30,22 @@ function attachInterceptors(instance: AxiosInstance) {
       if (hasBizErr) {
         const code = rawData.errorCode ?? rawData.code
         const msg = rawData.errorMessage ?? rawData.message ?? 'API Error'
+        if (response.config.skipErrorHandler) {
+          const bizErr = new Error(msg) as any
+          bizErr.errorCode = code
+          bizErr.errorMessage = msg
+          return Promise.reject(bizErr)
+        }
         ElMessage({ type: 'error', message: `${code ?? ''} ${msg}`.trim() })
         return Promise.reject(msg)
       }
       return rawData
     },
     async (error) => {
+      if (error?.config?.skipErrorHandler) {
+        return Promise.reject(error)
+      }
+
       const status = error?.response?.status as number | undefined
 
       if (status === 401) {
