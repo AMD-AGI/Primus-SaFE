@@ -88,6 +88,9 @@ func (w *WorkloadInformer) submitWorkloadNotification(workload *v1.Workload) {
 		klog.Errorf("Failed to get user %s: %v", userId, err)
 		return
 	}
+	if !v1.IsUserEnableNotification(user) {
+		return
+	}
 	notifyData["users"] = []*v1.User{user}
 
 	notificationManager := notification.GetNotificationManager()
