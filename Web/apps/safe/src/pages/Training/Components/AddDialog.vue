@@ -1102,7 +1102,6 @@ const onOpen = async () => {
 </style>
 <style scoped>
 .drawer-body {
-  max-height: 83vh;
   overflow-y: auto;
   /* padding: 8px 24px 16px; */
 }

@@ -124,7 +124,7 @@
             <el-row :gutter="16">
               <!-- replicas / nodes selection section -->
               <el-col :span="24" v-if="form.resourceType === 'replicas'">
-                <el-form-item label="groupNode" prop="resource.replica">
+                <el-form-item label="nodePerGroup" prop="resource.replica">
                   <el-input
                     v-model.number="form.resource.replica"
                     :placeholder="placeholders.replica"
@@ -777,7 +777,7 @@ const rules = reactive({
   entryPoint: [{ required: true, message: 'Please input entry point', trigger: 'blur' }],
   image: [{ required: true, message: 'Please input image', trigger: 'blur' }],
   // Worker Group
-  'resource.replica': [{ required: true, message: 'Please input groupNode', trigger: 'blur' }],
+  'resource.replica': [{ required: true, message: 'Please input nodePerGroup', trigger: 'blur' }],
   nodeList: [
     {
       type: 'array',
@@ -864,9 +864,12 @@ const rules = reactive({
     },
   ],
   maxReplicaCount: [
-    { required: true, message: 'Please input max replica count', trigger: 'blur' },
     {
       validator: (_rule: unknown, value: unknown, callback: (err?: Error) => void) => {
+        if (!value && value !== 0) {
+          callback()
+          return
+        }
         const maxReplicaCount = Number(value)
         const minReplicaCount = Number(form.minReplicaCount)
 
@@ -935,10 +938,10 @@ const onSubmit = async (formEl: FormInstance | undefined) => {
       // Custom node mode: replica = nodeList.length
       actualReplica = form.nodeList.length
     } else {
-      // Replicas mode: replica = groupNode * replicaCount
-      const groupNode = Number(form.resource.replica) || 1
+      // Replicas mode: replica = nodePerGroup * replicaCount
+      const nodePerGroup = Number(form.resource.replica) || 1
       const replicaCount = Number(form.replicaCount) || 1
-      actualReplica = groupNode * replicaCount
+      actualReplica = nodePerGroup * replicaCount
     }
 
     const workerResource = {
@@ -974,7 +977,7 @@ const onSubmit = async (formEl: FormInstance | undefined) => {
     const torchFTEnv = {
       REPLICA_COUNT: String(form.replicaCount),
       MIN_REPLICA_COUNT: String(form.minReplicaCount),
-      MAX_REPLICA_COUNT: String(form.maxReplicaCount),
+      MAX_REPLICA_COUNT: String(form.maxReplicaCount ?? form.replicaCount),
     }
     const mergedEnv = { ...convertListToKeyValueMap(envList), ...torchFTEnv }
 
@@ -1155,9 +1158,9 @@ const setInitialFormValues = async () => {
       form.resource.memory = workerRes.memory?.replace(/Gi$/i, '') ?? ''
       form.resource.ephemeralStorage = workerRes.ephemeralStorage?.replace(/Gi$/i, '') ?? ''
 
-      // If not custom nodes, calculate groupNode (needed for both edit and clone)
+      // If not custom nodes, calculate nodePerGroup (needed for both edit and clone)
       if (!isCustomNodes.value) {
-        // groupNode = replica / replicaCount
+        // nodePerGroup = replica / replicaCount
         const replicaCount = res.env?.REPLICA_COUNT ? Number(res.env.REPLICA_COUNT) : 1
         form.resource.replica =
           replicaCount > 0 ? Math.round(workerReplica / replicaCount) : workerReplica
@@ -1339,7 +1342,6 @@ const onOpen = async () => {
 </style>
 <style scoped>
 .drawer-body {
-  max-height: 83vh;
   overflow-y: auto;
   /* padding: 8px 24px 16px; */
 }
