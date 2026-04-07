@@ -35,7 +35,7 @@ ARG GPU_ARCH=gfx942
 RUN AINIC_DRIVER_VERSION=${AINIC_DRIVER_VERSION} GPU_ARCH=${GPU_ARCH} /bin/sh /workspace/ainic/build_ainic.sh && \
     rm -rf /workspace/ainic
 
-RUN pip install --pre torch==2.11.0.dev20260129+rocm7.1 torchvision --index-url https://download.pytorch.org/whl/nightly/rocm7.1
+# PyTorch is already included in the base image (2.10.0+rocm7.1).
 # Install Rust toolchain.
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y && \
     . "$HOME/.cargo/env" && \
