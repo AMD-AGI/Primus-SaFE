@@ -951,7 +951,7 @@ func (v *WorkloadValidator) validateMonarchJob(newWorkload, oldWorkload *v1.Work
 	if len(v1.GetDisplayName(newWorkload)) > commonutils.MaxMonarchJobNameLen {
 		return fmt.Errorf("the displayName is too long, maximum length is %d", commonutils.MaxMonarchJobNameLen)
 	}
-	if len(newWorkload.Spec.entryPoints) == 0 || newWorkload.Spec.entryPoints[0] == "" {
+	if len(newWorkload.Spec.EntryPoints) == 0 || newWorkload.Spec.EntryPoints[0] == "" {
 		return fmt.Errorf("the entryPoint of client is empty")
 	}
 	return v.validateReplicaCount(newWorkload, oldWorkload)
