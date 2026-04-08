@@ -309,7 +309,7 @@ func (h *Handler) generateAddonJob(c *gin.Context, body []byte) (*v1.OpsJob, err
 	}
 	job := genDefaultOpsJob(&req.BaseOpsJobRequest, requestUser)
 	job.Spec.ExcludedNodes = req.ExcludedNodes
-	if err = h.generateOpsJobNodesInput(c.Request.Context(), job); err != nil {
+	if _, err = h.generateOpsJobNodesInput(c.Request.Context(), job); err != nil {
 		return nil, err
 	}
 
@@ -362,13 +362,8 @@ func (h *Handler) generatePreflightJob(c *gin.Context, body []byte) (*v1.OpsJob,
 	if req.WorkspaceId != "" {
 		v1.SetLabel(job, v1.WorkspaceIdLabel, req.WorkspaceId)
 	}
-	if err = h.generateOpsJobNodesInput(c.Request.Context(), job); err != nil {
+	if err = h.generatePreflightNodesInput(c.Request.Context(), job, req); err != nil {
 		return nil, err
-	}
-	if req.SecurityOperation {
-		if err = h.excludeBusyNodes(c.Request.Context(), job); err != nil {
-			return nil, err
-		}
 	}
 	if err = h.accessController.Authorize(authority.AccessInput{
 		Context:      c.Request.Context(),
@@ -695,10 +690,12 @@ func genDefaultOpsJob(req *view.BaseOpsJobRequest, requestUser *v1.User) *v1.Ops
 // It determines the target nodes by resolving the job's scope parameter (workload, workspace, or cluster)
 // and populates the job inputs with the corresponding node names. Nodes in the excludedNodes(parameter of request) list
 // are filtered out. The function ensures that ops jobs are ultimately executed on a per-node basis.
-func (h *Handler) generateOpsJobNodesInput(ctx context.Context, job *v1.OpsJob) error {
+// Returning true indicates that no specific node was explicitly selected (via workspace or cluster).
+func (h *Handler) generateOpsJobNodesInput(ctx context.Context, job *v1.OpsJob) (bool, error) {
 	excludedNodesSet := sets.NewSetByKeys(job.Spec.ExcludedNodes...)
 	workspaceId := ""
 	allTheSameWorkspace := true
+	isNodesSpecified := true
 	if nodeParams := job.GetParameters(v1.ParameterNode); len(nodeParams) > 0 {
 		for i, n := range nodeParams {
 			if excludedNodesSet.Has(n.Value) {
@@ -708,7 +705,7 @@ func (h *Handler) generateOpsJobNodesInput(ctx context.Context, job *v1.OpsJob) 
 			}
 			node, err := h.getAdminNode(ctx, n.Value)
 			if err != nil {
-				return err
+				return false, err
 			}
 			if workspaceId == "" {
 				workspaceId = v1.GetWorkspaceId(node)
@@ -724,7 +721,7 @@ func (h *Handler) generateOpsJobNodesInput(ctx context.Context, job *v1.OpsJob) 
 			labelSelector := labels.SelectorFromSet(map[string]string{v1.NodeHostnameLabel: n.Value})
 			nodeList, err := h.getAdminNodes(ctx, labelSelector)
 			if err != nil {
-				return err
+				return false, err
 			}
 			if len(nodeList) == 0 || excludedNodesSet.Has(nodeList[0].Name) {
 				continue
@@ -742,7 +739,7 @@ func (h *Handler) generateOpsJobNodesInput(ctx context.Context, job *v1.OpsJob) 
 	} else if workloadParam := job.GetParameter(v1.ParameterWorkload); workloadParam != nil {
 		nodes, workspaceId, err := h.getNodesOfWorkload(ctx, workloadParam.Value)
 		if err != nil {
-			return err
+			return false, err
 		}
 		for _, n := range nodes {
 			if excludedNodesSet.Has(n) {
@@ -754,7 +751,7 @@ func (h *Handler) generateOpsJobNodesInput(ctx context.Context, job *v1.OpsJob) 
 	} else if workspaceParam := job.GetParameter(v1.ParameterWorkspace); workspaceParam != nil {
 		nodes, err := commonnodes.GetNodesOfWorkspaces(ctx, h.Client, []string{workspaceParam.Value}, nil)
 		if err != nil {
-			return err
+			return false, err
 		}
 		for _, n := range nodes {
 			if excludedNodesSet.Has(n.Name) {
@@ -762,14 +759,15 @@ func (h *Handler) generateOpsJobNodesInput(ctx context.Context, job *v1.OpsJob) 
 			}
 			job.Spec.Inputs = append(job.Spec.Inputs, v1.Parameter{Name: v1.ParameterNode, Value: n.Name})
 		}
+		isNodesSpecified = false
 		v1.SetLabel(job, v1.WorkspaceIdLabel, workspaceParam.Value)
 	} else if clusterParam := job.GetParameter(v1.ParameterCluster); clusterParam != nil {
 		if v1.GetWorkspaceId(job) != "" {
-			return commonerrors.NewBadRequest("cannot run cluster-wide job when workspaceId is already specified")
+			return false, commonerrors.NewBadRequest("cannot run cluster-wide job when workspaceId is already specified")
 		}
 		nodes, err := commonnodes.GetNodesOfCluster(ctx, h.Client, clusterParam.Value, nil)
 		if err != nil {
-			return err
+			return false, err
 		}
 		for _, n := range nodes {
 			if excludedNodesSet.Has(n.Name) {
@@ -777,8 +775,30 @@ func (h *Handler) generateOpsJobNodesInput(ctx context.Context, job *v1.OpsJob) 
 			}
 			job.Spec.Inputs = append(job.Spec.Inputs, v1.Parameter{Name: v1.ParameterNode, Value: n.Name})
 		}
+		isNodesSpecified = false
 	} else {
-		return commonerrors.NewBadRequest("the nodes of ops-job is not specified")
+		return false, commonerrors.NewBadRequest("the nodes of ops-job is not specified")
+	}
+	return isNodesSpecified, nil
+}
+
+// generatePreflightNodesInput generates node parameters for a preflight job based on the specified scope.
+func (h *Handler) generatePreflightNodesInput(ctx context.Context, job *v1.OpsJob, req *view.CreatePreflightRequest) error {
+	if isNodesSpecified, err := h.generateOpsJobNodesInput(ctx, job); err != nil {
+		return err
+	} else if isNodesSpecified || req.Replica < 0 {
+		req.Replica = 0
+	}
+	if req.SecurityOperation {
+		if err := h.excludeBusyNodes(ctx, job); err != nil {
+			return err
+		}
+	}
+	if req.Replica > 0 {
+		nodeParams := job.GetParameters(v1.ParameterNode)
+		for i := req.Replica; i < len(nodeParams); i++ {
+			nodeParams[i].Value = ""
+		}
 	}
 	return nil
 }

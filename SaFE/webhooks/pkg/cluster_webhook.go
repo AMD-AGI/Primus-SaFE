@@ -177,7 +177,7 @@ func (v *ClusterValidator) validateNodesReady(ctx context.Context, cluster *v1.C
 			return err
 		}
 		if !adminNode.IsMachineReady() {
-			return commonerrors.NewForbidden(fmt.Sprintf("the node(%s) is not ready", n))
+			return commonerrors.NewConflict(fmt.Sprintf("the node(%s) is not ready", n))
 		}
 	}
 	return nil

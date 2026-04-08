@@ -191,25 +191,24 @@ func (r *ClusterClientSets) handleResource(_ context.Context, oldObj, newObj int
 		uid:           newUnstructured.GetUID(),
 		gvk:           newUnstructured.GroupVersionKind(),
 		action:        action,
-		dispatchCount: 0,
+		dispatchCount: 1,
 	}
 	if msg.action != ResourceDel && !newUnstructured.GetDeletionTimestamp().IsZero() {
 		msg.action = ResourceDeleting
 	}
 
 	// Only resources dispatched by this system are currently synchronized; others are ignored
-	if newUnstructured.GetLabels()[monarchMeshLabel] == "" {
-		if msg.workloadId = v1.GetWorkloadId(newUnstructured); msg.workloadId == "" {
+	if msg.workloadId = v1.GetWorkloadId(newUnstructured); msg.workloadId == "" {
+		if newUnstructured.GetLabels()[monarchMeshLabel] == "" {
 			return
 		}
-		strCount := newUnstructured.GetLabels()[v1.WorkloadDispatchCntLabel]
+	}
+	if strCount := newUnstructured.GetLabels()[v1.WorkloadDispatchCntLabel]; strCount != "" {
 		if n, err := strconv.Atoi(strCount); err == nil {
 			msg.dispatchCount = n
 		}
-		msg.groupId = v1.GetGroupId(newUnstructured)
-	} else {
-		msg.dispatchCount = 1
 	}
+	msg.groupId = v1.GetGroupId(newUnstructured)
 
 	switch msg.action {
 	case ResourceAdd:

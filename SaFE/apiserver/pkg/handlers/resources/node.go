@@ -670,7 +670,7 @@ func (h *Handler) deleteNodeImpl(c *gin.Context, name string, requestUser *v1.Us
 	if v1.GetClusterId(node) != "" && !isForce {
 		cluster, _ := h.getAdminCluster(ctx, v1.GetClusterId(node))
 		if cluster != nil {
-			return nil, commonerrors.NewInternalError(
+			return nil, commonerrors.NewConflict(
 				fmt.Sprintf("The node is bound to cluster %s and needs to be unmanaged first", v1.GetClusterId(node)))
 		}
 	}
