@@ -80,8 +80,8 @@ install_higress() {
     # --namespace: specify the installation namespace
     # --create-namespace: create namespace if it doesn't exist
     # -f: specify custom configuration file
-    helm upgrade --install higress oci://registry-1.docker.io/primussafe/higress \
-        --namespace higress-system --version 2.1.8 \
+    helm upgrade --install higress higress.io/higress \
+        --namespace higress-system --version 2.2.0 \
         --create-namespace \
         -f "${SCRIPT_DIR}/values.yaml"
     
@@ -92,9 +92,7 @@ install_higress() {
 install_gateway_api() {
     log_info "Deploying Kubernetes Gateway API CRDs..."
     
-    # Install Gateway API v1.0.0 experimental version
-    # Includes GatewayClass, Gateway, HTTPRoute, TCPRoute and other CRDs
-    kubectl apply -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.0.0/experimental-install.yaml
+    kubectl apply --server-side -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.4.0/experimental-install.yaml
     
     log_info "Gateway API CRDs deployment completed"
 }

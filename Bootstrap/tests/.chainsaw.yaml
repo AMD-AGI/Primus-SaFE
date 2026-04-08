@@ -4,9 +4,9 @@ metadata:
   name: bootstrap-tests
 spec:
   timeouts:
-    apply: 30s
-    assert: 120s
-    exec: 60s
+    apply: 10s
+    assert: 10s
+    exec: 15s
   cleanup:
     skipDelete: true
   execution:
