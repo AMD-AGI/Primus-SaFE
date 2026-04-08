@@ -70,11 +70,9 @@ func (h *Handler) createRlJob(c *gin.Context) (interface{}, error) {
 	// Step 6: Generate workload name
 	workloadName := generateRlWorkloadName(req.DisplayName)
 	pfsBasePath := "/wekafs"
-	var workspaceObj *v1.Workspace
 	if req.Workspace != "" {
 		ws := &v1.Workspace{}
 		if err := h.k8sClient.Get(ctx, ctrlclient.ObjectKey{Name: req.Workspace}, ws); err == nil {
-			workspaceObj = ws
 			if p := commonworkspace.GetNfsPathFromWorkspace(ws); p != "" {
 				pfsBasePath = p
 			}
@@ -116,9 +114,6 @@ func (h *Handler) createRlJob(c *gin.Context) (interface{}, error) {
 		"RL_ALGORITHM":           req.TrainConfig.Algorithm,
 		"RL_TRAIN_BATCH_SIZE":    strconv.Itoa(req.TrainConfig.TrainBatchSize),
 		"RL_MINI_BATCH_SIZE":     strconv.Itoa(req.TrainConfig.MiniPatchSize),
-	}
-	if shouldApplyAinicEnv(workspaceObj) && req.GpuCount > 0 {
-		applyAinicWorkloadEnv(env)
 	}
 	for k, v := range req.Env {
 		env[k] = v

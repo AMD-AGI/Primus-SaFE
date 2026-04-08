@@ -94,11 +94,9 @@ func (h *Handler) createSftJob(c *gin.Context) (interface{}, error) {
 
 	// Step 5.5: Resolve PFS base path from workspace (e.g. /wekafs, /shared_nfs)
 	pfsBasePath := "/wekafs"
-	var workspaceObj *v1.Workspace
 	if req.Workspace != "" {
 		ws := &v1.Workspace{}
 		if err := h.k8sClient.Get(ctx, ctrlclient.ObjectKey{Name: req.Workspace}, ws); err == nil {
-			workspaceObj = ws
 			if p := commonworkspace.GetNfsPathFromWorkspace(ws); p != "" {
 				pfsBasePath = p
 			}
@@ -130,9 +128,6 @@ func (h *Handler) createSftJob(c *gin.Context) (interface{}, error) {
 	env := map[string]string{
 		"PYTORCH_HIP_ALLOC_CONF": "expandable_segments:True",
 		"GPUS_PER_NODE":          strconv.Itoa(req.GpuCount),
-	}
-	if shouldApplyAinicEnv(workspaceObj) && req.GpuCount > 0 {
-		applyAinicWorkloadEnv(env)
 	}
 	if req.NodeCount > 1 {
 		env["NNODES"] = strconv.Itoa(req.NodeCount)

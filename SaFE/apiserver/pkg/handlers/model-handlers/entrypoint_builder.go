@@ -375,19 +375,19 @@ fi
 # Multi-node: redirect ./data and ./nemo_experiments to shared storage so all
 # nodes see the same HF cache, Megatron checkpoints, trained checkpoints, and
 # .done signal files. Also patch hooks and increase NCCL timeout.
-# Auto-detect AINIC network (OCI clusters with ionic NICs). If workload env
-# already marked this job as AINIC, keep those values and only fill missing
-# HCA/IFNAME from the node.
-if [ "${USING_AINIC:-0}" = "1" ] || ls /sys/class/infiniband/ionic_* >/dev/null 2>&1; then
+# Runtime-detect network backend from the actual node instead of inferring it
+# from workspace metadata. OCI/AINIC nodes expose ionic_* RDMA devices, while
+# TW/Project nodes typically expose Broadcom (bnxt/tw-eth) interfaces.
+if ls /sys/class/infiniband/ionic_* >/dev/null 2>&1 || ip link show | grep -q 'ionic_'; then
   export USING_AINIC=1
-  export NCCL_IB_GID_INDEX="${NCCL_IB_GID_INDEX:-1}"
-  export NCCL_DMABUF_ENABLE="${NCCL_DMABUF_ENABLE:-0}"
-  export NCCL_MAX_P2P_CHANNELS="${NCCL_MAX_P2P_CHANNELS:-56}"
-  export NET_OPTIONAL_RECV_COMPLETION="${NET_OPTIONAL_RECV_COMPLETION:-1}"
-  export NCCL_IB_USE_INLINE="${NCCL_IB_USE_INLINE:-1}"
-  export RCCL_GDR_FLUSH_GPU_MEM_NO_RELAXED_ORDERING="${RCCL_GDR_FLUSH_GPU_MEM_NO_RELAXED_ORDERING:-0}"
-  export NCCL_GDR_FLUSH_DISABLE="${NCCL_GDR_FLUSH_DISABLE:-1}"
-  export NCCL_IGNORE_CPU_AFFINITY="${NCCL_IGNORE_CPU_AFFINITY:-1}"
+  export NCCL_IB_GID_INDEX=1
+  export NCCL_DMABUF_ENABLE=0
+  export NCCL_MAX_P2P_CHANNELS=56
+  export NET_OPTIONAL_RECV_COMPLETION=1
+  export NCCL_IB_USE_INLINE=1
+  export RCCL_GDR_FLUSH_GPU_MEM_NO_RELAXED_ORDERING=0
+  export NCCL_GDR_FLUSH_DISABLE=1
+  export NCCL_IGNORE_CPU_AFFINITY=1
   export LD_LIBRARY_PATH="/opt/amd-anp/build:/opt/rccl/build/release:/opt/rocm/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
   if [ -z "${NCCL_IB_HCA:-}" ]; then
     DETECTED_AINIC_HCA=$(ls -d /sys/class/infiniband/ionic_* 2>/dev/null | sed 's|.*/||' | awk '{printf "%%s:1,",$1}' | sed 's/,$//')
@@ -406,6 +406,9 @@ if [ "${USING_AINIC:-0}" = "1" ] || ls /sys/class/infiniband/ionic_* >/dev/null 
     echo "[AINIC] Patched torch._inductor duplicate assert bug"
   fi
   echo "[NETWORK] AINIC final: USING_AINIC=$USING_AINIC NCCL_IB_GID_INDEX=$NCCL_IB_GID_INDEX NCCL_IB_HCA=${NCCL_IB_HCA:-unset} GLOO_SOCKET_IFNAME=${GLOO_SOCKET_IFNAME:-unset} NCCL_SOCKET_IFNAME=${NCCL_SOCKET_IFNAME:-unset}"
+elif ip link show | grep -qE 'bnxt|tw-eth' || lsmod | grep -q 'bnxt_re'; then
+  export NCCL_IB_GID_INDEX="${NCCL_IB_GID_INDEX:-3}"
+  echo "[NETWORK] Broadcom final: NCCL_IB_GID_INDEX=$NCCL_IB_GID_INDEX"
 fi
 
 NNODES="${NNODES:-1}"

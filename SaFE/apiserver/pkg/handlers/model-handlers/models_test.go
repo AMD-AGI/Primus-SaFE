@@ -621,7 +621,7 @@ func TestGetSftConfig_UnsupportedModel(t *testing.T) {
 
 	resp := result.(*SftConfigResponse)
 	assert.Equal(t, resp.Supported, false)
-	assert.Equal(t, resp.Reason, "only local models can be fine-tuned")
+	assert.Equal(t, resp.Reason, "only local or local_path models can be fine-tuned")
 	assert.Assert(t, resp.Defaults == nil)
 }
 
