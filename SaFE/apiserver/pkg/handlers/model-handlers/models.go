@@ -342,9 +342,6 @@ func parseListModelQuery(c *gin.Context) (*ListModelQuery, error) {
 	if err := c.ShouldBindWith(&query, binding.Query); err != nil {
 		return nil, commonerrors.NewBadRequest("invalid query: " + err.Error())
 	}
-	if query.Limit <= 0 {
-		query.Limit = 10
-	}
 	if query.Offset < 0 {
 		query.Offset = 0
 	}
