@@ -15,7 +15,7 @@ type ListModelQuery struct {
 	Offset     int    `form:"offset" binding:"omitempty,min=0"`
 	AccessMode string `form:"accessMode" binding:"omitempty"` // Filter by access mode: "local", "remote_api", or "local_path"
 	Workspace  string `form:"workspace" binding:"omitempty"`  // Filter by workspace (for local models)
-	Origin     string `form:"origin" binding:"omitempty"`     // Filter by origin: "external" or "fine_tuned"
+	Origin     string `form:"origin" binding:"omitempty"`     // Filter by origin: "external", "fine_tuned", "rl_trained", or "custom" (all non-external)
 }
 
 // ChatRequest represents the unified request to chat with a model or workload.

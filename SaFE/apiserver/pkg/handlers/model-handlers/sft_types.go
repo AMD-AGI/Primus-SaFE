@@ -69,6 +69,7 @@ type CreateSftJobResponse struct {
 // GetSftConfigQuery represents query parameters for fetching SFT form defaults.
 type GetSftConfigQuery struct {
 	Workspace string `form:"workspace" binding:"required"`
+	Peft      string `form:"peft"` // "none" (default, full finetune) | "lora"
 }
 
 // SftConfigResponse contains frontend-facing defaults and options for the SFT form.
