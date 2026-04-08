@@ -8,6 +8,6 @@ spec:
     assert: 10s
     exec: 15s
   cleanup:
-    skipDelete: true
+    skipDelete: false
   execution:
     failFast: true
