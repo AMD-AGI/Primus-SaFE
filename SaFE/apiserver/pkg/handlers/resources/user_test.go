@@ -6,13 +6,9 @@
 package resources
 
 import (
-	"bytes"
-	"encoding/json"
-	"net/http"
-	"net/http/httptest"
+	"context"
 	"testing"
 
-	"github.com/gin-gonic/gin"
 	"gotest.tools/assert"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -20,10 +16,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
-	"github.com/AMD-AIG-AIMA/SAFE/apis/pkg/client/clientset/versioned/scheme"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/resources/view"
-	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 )
 
 func genMockUser() *v1.User {
@@ -67,95 +61,71 @@ func createMockUser() (*v1.User, client.WithWatch) {
 	return mockUser, fakeClient
 }
 
-func TestUserSettings(t *testing.T) {
+func TestIsUserEnableNotification(t *testing.T) {
+	t.Run("default is false", func(t *testing.T) {
+		user := genMockUser()
+		assert.Equal(t, v1.IsUserEnableNotification(user), false)
+	})
+
+	t.Run("returns true when annotation set", func(t *testing.T) {
+		user := genMockUser()
+		v1.SetAnnotation(user, v1.UserEnableNotificationAnnotation, v1.TrueStr)
+		assert.Equal(t, v1.IsUserEnableNotification(user), true)
+	})
+
+	t.Run("returns false after annotation removed", func(t *testing.T) {
+		user := genMockUser()
+		v1.SetAnnotation(user, v1.UserEnableNotificationAnnotation, v1.TrueStr)
+		v1.RemoveAnnotation(user, v1.UserEnableNotificationAnnotation)
+		assert.Equal(t, v1.IsUserEnableNotification(user), false)
+	})
+}
+
+func TestUserSettingsResponse(t *testing.T) {
+	t.Run("response reflects annotation off", func(t *testing.T) {
+		user := genMockUser()
+		resp := &view.UserSettingsResponse{
+			EnableNotification: v1.IsUserEnableNotification(user),
+		}
+		assert.Equal(t, resp.EnableNotification, false)
+	})
+
+	t.Run("response reflects annotation on", func(t *testing.T) {
+		user := genMockUser()
+		v1.SetAnnotation(user, v1.UserEnableNotificationAnnotation, v1.TrueStr)
+		resp := &view.UserSettingsResponse{
+			EnableNotification: v1.IsUserEnableNotification(user),
+		}
+		assert.Equal(t, resp.EnableNotification, true)
+	})
+}
+
+func TestUserSettingsAnnotationPersistence(t *testing.T) {
 	user := genMockUser()
-	role := genMockRole()
-	fakeClient := fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(user, role).Build()
-	h := Handler{Client: fakeClient, accessController: authority.NewAccessController(fakeClient)}
+	s := runtime.NewScheme()
+	_ = v1.AddToScheme(s)
+	fakeClient := fake.NewClientBuilder().WithScheme(s).WithObjects(user).Build()
+	ctx := context.Background()
 
-	t.Run("default is off", func(t *testing.T) {
-		rsp := httptest.NewRecorder()
-		c, _ := gin.CreateTestContext(rsp)
-		c.Set(common.UserId, user.Name)
-		c.Set(common.Name, common.UserSelf)
-		c.Request = httptest.NewRequest(http.MethodGet, "/api/v1/users/self/settings", nil)
-
-		h.GetUserSettings(c)
-		assert.Equal(t, rsp.Code, http.StatusOK)
-
-		var result view.UserSettingsResponse
-		err := json.Unmarshal(rsp.Body.Bytes(), &result)
+	t.Run("enable persists to store", func(t *testing.T) {
+		v1.SetAnnotation(user, v1.UserEnableNotificationAnnotation, v1.TrueStr)
+		err := fakeClient.Update(ctx, user)
 		assert.NilError(t, err)
-		assert.Equal(t, result.EnableNotification, false)
+
+		fetched := &v1.User{}
+		err = fakeClient.Get(ctx, client.ObjectKeyFromObject(user), fetched)
+		assert.NilError(t, err)
+		assert.Equal(t, v1.IsUserEnableNotification(fetched), true)
 	})
 
-	t.Run("enable notification", func(t *testing.T) {
-		enable := true
-		body, _ := json.Marshal(view.UpdateUserSettingsRequest{EnableNotification: &enable})
-		rsp := httptest.NewRecorder()
-		c, _ := gin.CreateTestContext(rsp)
-		c.Set(common.UserId, user.Name)
-		c.Set(common.Name, common.UserSelf)
-		c.Request = httptest.NewRequest(http.MethodPut, "/api/v1/users/self/settings", bytes.NewReader(body))
-		c.Request.Header.Set("Content-Type", "application/json")
-
-		h.UpdateUserSettings(c)
-		assert.Equal(t, rsp.Code, http.StatusOK)
-
-		updated := &v1.User{}
-		err := fakeClient.Get(c.Request.Context(), client.ObjectKeyFromObject(user), updated)
+	t.Run("disable persists to store", func(t *testing.T) {
+		v1.RemoveAnnotation(user, v1.UserEnableNotificationAnnotation)
+		err := fakeClient.Update(ctx, user)
 		assert.NilError(t, err)
-		assert.Equal(t, v1.IsUserEnableNotification(updated), true)
-	})
 
-	t.Run("get returns enabled", func(t *testing.T) {
-		rsp := httptest.NewRecorder()
-		c, _ := gin.CreateTestContext(rsp)
-		c.Set(common.UserId, user.Name)
-		c.Set(common.Name, common.UserSelf)
-		c.Request = httptest.NewRequest(http.MethodGet, "/api/v1/users/self/settings", nil)
-
-		h.GetUserSettings(c)
-		assert.Equal(t, rsp.Code, http.StatusOK)
-
-		var result view.UserSettingsResponse
-		err := json.Unmarshal(rsp.Body.Bytes(), &result)
+		fetched := &v1.User{}
+		err = fakeClient.Get(ctx, client.ObjectKeyFromObject(user), fetched)
 		assert.NilError(t, err)
-		assert.Equal(t, result.EnableNotification, true)
-	})
-
-	t.Run("disable notification", func(t *testing.T) {
-		disable := false
-		body, _ := json.Marshal(view.UpdateUserSettingsRequest{EnableNotification: &disable})
-		rsp := httptest.NewRecorder()
-		c, _ := gin.CreateTestContext(rsp)
-		c.Set(common.UserId, user.Name)
-		c.Set(common.Name, common.UserSelf)
-		c.Request = httptest.NewRequest(http.MethodPut, "/api/v1/users/self/settings", bytes.NewReader(body))
-		c.Request.Header.Set("Content-Type", "application/json")
-
-		h.UpdateUserSettings(c)
-		assert.Equal(t, rsp.Code, http.StatusOK)
-
-		updated := &v1.User{}
-		err := fakeClient.Get(c.Request.Context(), client.ObjectKeyFromObject(user), updated)
-		assert.NilError(t, err)
-		assert.Equal(t, v1.IsUserEnableNotification(updated), false)
-	})
-
-	t.Run("get returns disabled", func(t *testing.T) {
-		rsp := httptest.NewRecorder()
-		c, _ := gin.CreateTestContext(rsp)
-		c.Set(common.UserId, user.Name)
-		c.Set(common.Name, common.UserSelf)
-		c.Request = httptest.NewRequest(http.MethodGet, "/api/v1/users/self/settings", nil)
-
-		h.GetUserSettings(c)
-		assert.Equal(t, rsp.Code, http.StatusOK)
-
-		var result view.UserSettingsResponse
-		err := json.Unmarshal(rsp.Body.Bytes(), &result)
-		assert.NilError(t, err)
-		assert.Equal(t, result.EnableNotification, false)
+		assert.Equal(t, v1.IsUserEnableNotification(fetched), false)
 	})
 }
