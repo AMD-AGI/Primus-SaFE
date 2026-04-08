@@ -8,6 +8,7 @@ import type {
   UsersItemResp,
   EnvsResp,
   EditUserResp,
+  UserSettings,
 } from './type'
 
 export const login = (data: LoginReq): Promise<LoginResp> => postForm<LoginResp>(`/login`, data)
@@ -49,3 +50,9 @@ export const getUserDataList = (): Promise<UsersItemResp> => request.get(`/users
 
 // Get log-related user permissions
 export const getEnvs = (): Promise<EnvsResp> => request.get(`/envs`)
+
+export const getUserSettings = (name = 'self'): Promise<UserSettings> =>
+  request.get(`/users/${name}/settings`)
+
+export const updateUserSettings = (data: Partial<UserSettings>, name = 'self'): Promise<void> =>
+  request.put(`/users/${name}/settings`, data)
