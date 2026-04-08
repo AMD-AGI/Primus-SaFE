@@ -617,7 +617,11 @@ func buildEnvironment(workload *v1.Workload, resourceId int) []interface{} {
 	var result []interface{}
 	if resourceId >= 0 && resourceId < len(workload.Spec.Resources) &&
 		workload.Spec.Resources[resourceId].GPU != "" {
-		if workload.GetEnv("AINIC_DRIVER_VERSION") != "" {
+		usingAinic := workload.GetEnv("AINIC_DRIVER_VERSION") != "" ||
+			workload.GetEnv("NCCL_IB_GID_INDEX") == "1" ||
+			workload.GetEnv("USING_AINIC") == "1" ||
+			strings.EqualFold(workload.GetEnv("USING_AINIC"), "true")
+		if usingAinic {
 			result = addEnvVar(result, workload, "NCCL_IB_GID_INDEX", "1")
 			result = addEnvVar(result, workload, "NCCL_DMABUF_ENABLE", "0")
 			result = addEnvVar(result, workload, "NCCL_MAX_P2P_CHANNELS", "56")

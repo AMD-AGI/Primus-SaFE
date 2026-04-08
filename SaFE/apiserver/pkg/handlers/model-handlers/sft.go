@@ -109,6 +109,13 @@ func (h *Handler) createSftJob(c *gin.Context) (interface{}, error) {
 	if req.NodeCount > 1 {
 		env["NNODES"] = strconv.Itoa(req.NodeCount)
 		env["DATA_PATH"] = fmt.Sprintf("%s/sft-shared-data/%s", pfsBasePath, workloadName)
+		// OCI multi-node jobs use the AINIC/RDMA path. Set the final
+		// GID index in workload env so job-manager defaults do not fall
+		// back to the generic value 3 before the entrypoint runs.
+		if strings.HasPrefix(pfsBasePath, "/shared_nfs") {
+			env["USING_AINIC"] = "1"
+			env["NCCL_IB_GID_INDEX"] = "1"
+		}
 	}
 	for k, v := range req.Env {
 		env[k] = v
@@ -276,6 +283,9 @@ func (h *Handler) getSftConfig(c *gin.Context) (interface{}, error) {
 	defaultReq := CreateSftJobRequest{
 		Workspace: query.Workspace,
 		ModelId:   modelId,
+	}
+	if query.Peft != "" {
+		defaultReq.TrainConfig.Peft = query.Peft
 	}
 	FillSftDefaults(&defaultReq, recipe.Size)
 

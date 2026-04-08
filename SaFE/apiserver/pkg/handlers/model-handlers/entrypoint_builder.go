@@ -273,25 +273,39 @@ if not src_file:
     all_files = [f for f in all_files if os.path.getsize(f) > 0]
     if all_files:
         src_file = all_files[0]
+pq_files = []
 if not src_file:
-    print('ERROR: no usable jsonl/json files in ' + src); sys.exit(1)
-print(f'Using source file: {src_file}')
-data = []
-with open(src_file, encoding='utf-8') as f:
-    for line in f:
-        line = line.strip()
-        if not line: continue
-        obj = json.loads(line)
-        if 'input' in obj and 'output' in obj:
+    for d in [src, os.path.join(src, 'data')]:
+        pq_files = sorted(glob.glob(os.path.join(d, '*.parquet')))
+        if pq_files: break
+if pq_files:
+    print(f'Loading parquet: {pq_files}')
+    import pandas as pd
+    frames = [pd.read_parquet(f) for f in pq_files]
+    df = pd.concat(frames, ignore_index=True)
+    data = [dict(r) for _, r in df.iterrows()]
+elif src_file:
+    data = []
+else:
+    print('ERROR: no usable data files in ' + src); sys.exit(1)
+if src_file:
+    print(f'Using source file: {src_file}')
+    data = []
+    with open(src_file, encoding='utf-8') as f:
+        for line in f:
+            line = line.strip()
+            if not line: continue
+            obj = json.loads(line)
             data.append(obj)
-        elif 'instruction' in obj:
-            inst = obj.get('instruction','')
-            inp = obj.get('input','')
-            out = obj.get('output','')
-            new_input = (inst + chr(10) + inp).strip() if inp else inst
-            data.append({'input': new_input, 'output': out})
-        else:
-            data.append(obj)
+for i, obj in enumerate(data):
+    if 'input' in obj and 'output' in obj:
+        continue
+    elif 'instruction' in obj:
+        inst = obj.get('instruction','')
+        inp = obj.get('input','')
+        out = obj.get('output','')
+        new_input = (inst + chr(10) + inp).strip() if inp else inst
+        data[i] = {'input': new_input, 'output': out}
 if len(data) == 0:
     print('ERROR: dataset is empty'); sys.exit(1)
 val_count = max(1, len(data) // 10)
@@ -361,6 +375,31 @@ fi
 # Multi-node: redirect ./data and ./nemo_experiments to shared storage so all
 # nodes see the same HF cache, Megatron checkpoints, trained checkpoints, and
 # .done signal files. Also patch hooks and increase NCCL timeout.
+# Auto-detect AINIC network (OCI clusters with ionic NICs). If workload env
+# already marked this job as AINIC, keep those values and only fill missing
+# HCA/IFNAME from the node.
+if [ "${USING_AINIC:-0}" = "1" ] || ls /sys/class/infiniband/ionic_* >/dev/null 2>&1; then
+  export USING_AINIC=1
+  export NCCL_IB_GID_INDEX="${NCCL_IB_GID_INDEX:-1}"
+  if [ -z "${NCCL_IB_HCA:-}" ]; then
+    DETECTED_AINIC_HCA=$(ls -d /sys/class/infiniband/ionic_* 2>/dev/null | sed 's|.*/||' | awk '{printf "%%s:1,",$1}' | sed 's/,$//')
+    if [ -n "$DETECTED_AINIC_HCA" ]; then
+      export NCCL_IB_HCA="$DETECTED_AINIC_HCA"
+    fi
+  fi
+  AINIC_IFACE=$(ip -o link show | grep -oP 'ens\d+np\d+' | head -1)
+  if [ -n "$AINIC_IFACE" ]; then
+    export GLOO_SOCKET_IFNAME="${GLOO_SOCKET_IFNAME:-$AINIC_IFACE}"
+    export NCCL_SOCKET_IFNAME="${NCCL_SOCKET_IFNAME:-$AINIC_IFACE}"
+  fi
+  SELECT_ALG="/opt/venv/lib/python3.10/site-packages/torch/_inductor/select_algorithm.py"
+  if [ -f "$SELECT_ALG" ] && grep -q "duplicate" "$SELECT_ALG"; then
+    sed -i 's/assert.*duplicate.*/pass  # patched/' "$SELECT_ALG"
+    echo "[AINIC] Patched torch._inductor duplicate assert bug"
+  fi
+  echo "[NETWORK] AINIC final: USING_AINIC=$USING_AINIC NCCL_IB_GID_INDEX=$NCCL_IB_GID_INDEX NCCL_IB_HCA=${NCCL_IB_HCA:-unset} GLOO_SOCKET_IFNAME=${GLOO_SOCKET_IFNAME:-unset} NCCL_SOCKET_IFNAME=${NCCL_SOCKET_IFNAME:-unset}"
+fi
+
 NNODES="${NNODES:-1}"
 if [ "$NNODES" -gt 1 ] && [ -n "${DATA_PATH:-}" ]; then
   mkdir -p "$DATA_PATH"
@@ -415,17 +454,18 @@ if [ -d "$CKPT_BASE" ] && [ -f "$CKPT_BASE/latest_checkpointed_iteration.txt" ];
   for d in "$CKPT_BASE"/iter_*; do
     if [ -d "$d" ] && [ "$d" != "$LATEST_DIR" ]; then
       echo "  Removing $d"
-      rm -rf "$d"
+      rm -rf "$d" 2>/dev/null || echo "  Warning: best-effort cleanup failed for $d"
     fi
   done
 fi
 # Remove HF model cache (already converted to Megatron format)
-rm -rf data/huggingface/hub/models--* 2>/dev/null
+rm -rf data/huggingface/hub/models--* 2>/dev/null || true
 # For LoRA, keep pretrained Megatron checkpoint (needed for merge); for full SFT, remove it
 if [ "%s" = "none" ]; then
-  rm -rf data/megatron_checkpoints 2>/dev/null
+  rm -rf data/megatron_checkpoints 2>/dev/null || true
 fi
-echo "Cleanup done. Disk usage: $(du -sh . 2>/dev/null | cut -f1)"`,
+DISK_USAGE=$(du -sh . 2>/dev/null | cut -f1 || true)
+echo "Cleanup done. Disk usage: ${DISK_USAGE:-unknown}"`,
 		cfg.DatasetPath, preparedDatasetDir,
 		cfg.PrimusPath, cfg.PrimusPath, modelYaml, expYaml, cfg.ExpName,
 		cfg.PfsBasePath,
