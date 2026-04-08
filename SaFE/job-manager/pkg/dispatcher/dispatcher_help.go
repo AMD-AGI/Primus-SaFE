@@ -1043,8 +1043,8 @@ func updateRayJob(obj *unstructured.Unstructured, adminWorkload *v1.Workload) er
 	return nil
 }
 
-// updateMonarchJob updates the monarch-job configuration
-func updateMonarchJob(obj *unstructured.Unstructured, adminWorkload *v1.Workload) error {
+// updateMonarchMesh updates the monarch-job configuration
+func updateMonarchMesh(obj *unstructured.Unstructured, adminWorkload *v1.Workload) error {
 	path := []string{"spec"}
 	specObject, ok, err := jobutils.NestedMap(obj.Object, path)
 	if err != nil {

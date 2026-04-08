@@ -201,7 +201,7 @@ type WorkloadStatus struct {
 	RunnerScaleSetId string `json:"runnerScaleSetId,omitempty"`
 	// The phase of each dependency workload.
 	DependenciesPhase map[string]WorkloadPhase `json:"dependenciesPhase,omitempty"`
-	// The phase of each torchFT object.
+	// The phase of each torchFT object. key is group-id
 	TorchFTPhase map[string]WorkloadPhase `json:"torchFTPhase,omitempty"`
 }
 

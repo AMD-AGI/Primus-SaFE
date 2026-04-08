@@ -1,0 +1,23 @@
+#
+# Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
+# See LICENSE for license information.
+#
+
+apiVersion: amd.com/v1
+kind: AddonTemplate
+metadata:
+  labels:
+    primus-safe.display.name: "monarch-operator.0.1.2"
+    app.kubernetes.io/managed-by: Helm
+    primus-safe.addon.default: ""
+  annotations:
+    meta.helm.sh/release-name: {{ .Release.Name }}
+    meta.helm.sh/release-namespace: {{ .Release.Namespace }}
+  name: monarch-operator.0.1.2
+spec:
+  category: plugin
+  description: Monarch CRD and operator for native Kubernetes support. Provides MonarchMesh CRD for deploying distributed Monarch workloads.
+  url: oci://{{ .Values.global.helm_registry }}/primussafe/monarch-operator
+  version: 0.1.2
+  type: helm
+  helmDefaultNamespace: monarch-system
