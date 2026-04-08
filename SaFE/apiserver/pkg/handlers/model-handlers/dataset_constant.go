@@ -50,9 +50,11 @@ var DatasetTypes = map[DatasetType]DatasetTypeMetadata{
 		},
 	},
 	DatasetTypeRLHF: {
-		Description: "RLHF dataset for reinforcement learning from human feedback",
+		Description: "RL dataset for reinforcement learning training (GRPO/PPO with rule-based or human feedback rewards)",
 		Schema: map[string]string{
-			"prompt":     "string (required) - The input prompt",
+			"instruction": "string (required) - The input prompt or question (alias: prompt, input)",
+			"answer":      "string (optional) - Ground truth answer for rule-based reward verification (e.g. math answer)",
+			"prompt":      "string (optional) - Alias for instruction",
 			"response":   "string (required) - Model response",
 			"reward":     "float (required) - Human feedback score",
 			"preference": "string (optional) - Preference ranking",

@@ -459,14 +459,21 @@ func (h *Handler) listModels(c *gin.Context) (interface{}, error) {
 
 	// 1. Try to list from database first (if available)
 	if h.dbClient != nil {
-		dbModels, err := h.dbClient.ListModels(ctx, queryArgs.AccessMode, queryArgs.Workspace, false, queryArgs.Origin)
+		dbOrigin := queryArgs.Origin
+		if dbOrigin == "custom" {
+			dbOrigin = "" // "custom" is a virtual filter; fetch all from DB, filter in-memory below
+		}
+		dbModels, err := h.dbClient.ListModels(ctx, queryArgs.AccessMode, queryArgs.Workspace, false, dbOrigin)
 		if err == nil && len(dbModels) > 0 {
 			var items []ModelInfo
 			for _, dbModel := range dbModels {
+				if queryArgs.Origin != "" && !matchModelOrigin(normalizeModelOrigin(dbModel.Origin), queryArgs.Origin) {
+					continue
+				}
 				items = append(items, cvtDBModelToInfo(dbModel))
 			}
 
-			// Apply pagination
+			// Apply pagination (limit=0 means return all)
 			total := int64(len(items))
 			start := queryArgs.Offset
 			if start > int(total) {
@@ -514,14 +521,14 @@ func (h *Handler) listModels(c *gin.Context) (interface{}, error) {
 				continue
 			}
 		}
-		if queryArgs.Origin != "" && normalizeModelOrigin(k8sModel.Spec.Origin) != queryArgs.Origin {
+		if queryArgs.Origin != "" && !matchModelOrigin(normalizeModelOrigin(k8sModel.Spec.Origin), queryArgs.Origin) {
 			continue
 		}
 
 		items = append(items, h.convertK8sModelToInfo(&k8sModel))
 	}
 
-	// Apply pagination
+	// Apply pagination (limit=0 means return all)
 	total := int64(len(items))
 	start := queryArgs.Offset
 	if start > int(total) {
@@ -1069,6 +1076,15 @@ func normalizeModelOrigin(origin string) string {
 		return "external"
 	}
 	return origin
+}
+
+// matchModelOrigin checks if a model's origin matches the query filter.
+// "custom" is a virtual filter that matches all non-external origins (fine_tuned, rl_trained, etc).
+func matchModelOrigin(modelOrigin, queryOrigin string) bool {
+	if queryOrigin == "custom" {
+		return modelOrigin != "external"
+	}
+	return modelOrigin == queryOrigin
 }
 
 // sanitizeLabelValue ensures a string is valid as a Kubernetes label value.

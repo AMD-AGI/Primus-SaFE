@@ -23,6 +23,7 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
+	commonworkspace "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workspace"
 )
 
 // CreateSftJob handles POST /api/v1/sft/jobs
@@ -44,14 +45,37 @@ func (h *Handler) createSftJob(c *gin.Context) (interface{}, error) {
 	ctx := c.Request.Context()
 
 	// Step 1: Resolve model from Model Square
-	model, err := h.dbClient.GetModelByID(ctx, req.ModelId)
-	if err != nil {
-		return nil, commonerrors.NewBadRequest(fmt.Sprintf("model not found: %s", req.ModelId))
+	k8sModel := &v1.Model{}
+	if err := h.k8sClient.Get(ctx, ctrlclient.ObjectKey{Name: req.ModelId}, k8sModel); err != nil {
+		if k8serrors.IsNotFound(err) {
+			return nil, commonerrors.NewBadRequest(fmt.Sprintf("model not found: %s", req.ModelId))
+		}
+		return nil, commonerrors.NewInternalError("failed to fetch model: " + err.Error())
 	}
-	hfModelName := extractHfModelName(model)
+	if k8sModel.Spec.Source.AccessMode != v1.AccessModeLocal &&
+		k8sModel.Spec.Source.AccessMode != v1.AccessModeLocalPath {
+		return nil, commonerrors.NewBadRequest("SFT training requires a local or local_path model on shared storage")
+	}
+	if k8sModel.Status.Phase != v1.ModelPhaseReady {
+		return nil, commonerrors.NewBadRequest(
+			fmt.Sprintf("model is not ready, current phase: %s", k8sModel.Status.Phase),
+		)
+	}
+	selectedModelName := extractHfModelNameFromURLOrModelName(
+		k8sModel.Spec.Source.URL,
+		k8sModel.Spec.Source.ModelName,
+	)
+	if selectedModelName == "" {
+		selectedModelName = k8sModel.Spec.DisplayName
+	}
+	baseModelName := resolveTrainingBaseModelNameFromK8sModel(k8sModel)
+	modelPath, err := resolveModelLocalPathFromK8sModel(k8sModel, req.Workspace)
+	if err != nil {
+		return nil, commonerrors.NewBadRequest(fmt.Sprintf("model not available locally: %v", err))
+	}
 
 	// Step 2: Infer recipe/flavor from model name
-	recipe, err := InferModelRecipe(hfModelName)
+	recipe, err := InferModelRecipe(baseModelName)
 	if err != nil {
 		return nil, commonerrors.NewBadRequest(err.Error())
 	}
@@ -68,12 +92,23 @@ func (h *Handler) createSftJob(c *gin.Context) (interface{}, error) {
 	// Step 5: Build workload name (needed for export)
 	workloadName := generateSftWorkloadName(req.DisplayName)
 
+	// Step 5.5: Resolve PFS base path from workspace (e.g. /wekafs, /shared_nfs)
+	pfsBasePath := "/wekafs"
+	if req.Workspace != "" {
+		ws := &v1.Workspace{}
+		if err := h.k8sClient.Get(ctx, ctrlclient.ObjectKey{Name: req.Workspace}, ws); err == nil {
+			if p := commonworkspace.GetNfsPathFromWorkspace(ws); p != "" {
+				pfsBasePath = p
+			}
+		}
+	}
+
 	// Step 6: Build entrypoint script
 	entrypoint := BuildEntrypoint(EntrypointConfig{
 		PrimusPath:    DefaultPrimusPath,
 		Recipe:        recipe.Recipe,
 		Flavor:        recipe.Flavor,
-		HfPath:        hfModelName,
+		HfPath:        modelPath,
 		DatasetPath:   datasetPath,
 		DatasetFormat: req.TrainConfig.DatasetFormat,
 		ExpName:       req.DisplayName,
@@ -82,8 +117,9 @@ func (h *Handler) createSftJob(c *gin.Context) (interface{}, error) {
 		ExportModel:   *req.ExportModel,
 		Workspace:     req.Workspace,
 		ModelId:       req.ModelId,
-		BaseModel:     hfModelName,
+		BaseModel:     baseModelName,
 		SftJobId:      workloadName,
+		PfsBasePath:   pfsBasePath,
 	})
 
 	encodedEntrypoint := base64.StdEncoding.EncodeToString([]byte(entrypoint))
@@ -95,6 +131,7 @@ func (h *Handler) createSftJob(c *gin.Context) (interface{}, error) {
 	}
 	if req.NodeCount > 1 {
 		env["NNODES"] = strconv.Itoa(req.NodeCount)
+		env["DATA_PATH"] = fmt.Sprintf("%s/sft-shared-data/%s", pfsBasePath, workloadName)
 	}
 	for k, v := range req.Env {
 		env[k] = v
@@ -112,7 +149,7 @@ func (h *Handler) createSftJob(c *gin.Context) (interface{}, error) {
 		SftLabelUserId:       userId,
 	}
 	sftAnnotations := map[string]string{
-		SftLabelModel:    hfModelName,
+		SftLabelModel:    selectedModelName,
 		SftLabelDataset:  req.DatasetId,
 		SftLabelUserName: userName,
 	}
@@ -123,6 +160,7 @@ func (h *Handler) createSftJob(c *gin.Context) (interface{}, error) {
 		CPU:              req.Cpu,
 		GPU:              strconv.Itoa(req.GpuCount),
 		Memory:           req.Memory,
+		SharedMemory:     req.SharedMemory,
 		EphemeralStorage: req.EphemeralStorage,
 	}
 
@@ -131,6 +169,7 @@ func (h *Handler) createSftJob(c *gin.Context) (interface{}, error) {
 	var entryPoints []string
 
 	if req.NodeCount > 1 {
+		nodeResource.RdmaResource = DefaultRdmaResource
 		masterResource := nodeResource
 		masterResource.Replica = 1
 		workerResource := nodeResource
@@ -161,6 +200,10 @@ func (h *Handler) createSftJob(c *gin.Context) (interface{}, error) {
 	for k, v := range sftAnnotations {
 		workload.Annotations[k] = v
 	}
+	v1.SetAnnotation(workload, v1.UseWorkspaceStorageAnnotation, v1.TrueStr)
+	if req.ForceHostNetwork {
+		v1.SetAnnotation(workload, v1.ForceHostNetworkAnnotation, v1.TrueStr)
+	}
 
 	timeout := 0
 	if req.Timeout > 0 {
@@ -188,7 +231,9 @@ func (h *Handler) createSftJob(c *gin.Context) (interface{}, error) {
 
 	klog.InfoS("created SFT training job",
 		"workloadId", workload.Name,
-		"model", hfModelName,
+		"model", selectedModelName,
+		"modelPath", modelPath,
+		"baseModel", baseModelName,
 		"dataset", req.DatasetId,
 		"peft", req.TrainConfig.Peft,
 	)
@@ -218,13 +263,13 @@ func (h *Handler) getSftConfig(c *gin.Context) (interface{}, error) {
 		return nil, commonerrors.NewInternalError("failed to fetch model: " + err.Error())
 	}
 
-	hfModelName := extractHfModelNameFromURLOrModelName(k8sModel.Spec.Source.URL, k8sModel.Spec.Source.ModelName)
+	trainingModelName := resolveTrainingBaseModelNameFromK8sModel(k8sModel)
 	resp := &SftConfigResponse{
 		Supported: false,
 		Model: SftConfigModelInfo{
 			ID:          k8sModel.Name,
 			DisplayName: k8sModel.Spec.DisplayName,
-			ModelName:   hfModelName,
+			ModelName:   trainingModelName,
 			AccessMode:  string(k8sModel.Spec.Source.AccessMode),
 			Phase:       string(k8sModel.Status.Phase),
 			Workspace:   k8sModel.Spec.Workspace,
@@ -241,8 +286,9 @@ func (h *Handler) getSftConfig(c *gin.Context) (interface{}, error) {
 		},
 	}
 
-	if k8sModel.Spec.Source.AccessMode != v1.AccessModeLocal {
-		resp.Reason = "only local models can be fine-tuned"
+	if k8sModel.Spec.Source.AccessMode != v1.AccessModeLocal &&
+		k8sModel.Spec.Source.AccessMode != v1.AccessModeLocalPath {
+		resp.Reason = "only local or local_path models can be fine-tuned"
 		return resp, nil
 	}
 
@@ -251,7 +297,7 @@ func (h *Handler) getSftConfig(c *gin.Context) (interface{}, error) {
 		return resp, nil
 	}
 
-	recipe, err := InferModelRecipe(hfModelName)
+	recipe, err := InferModelRecipe(trainingModelName)
 	if err != nil {
 		resp.Reason = err.Error()
 		return resp, nil
@@ -260,6 +306,9 @@ func (h *Handler) getSftConfig(c *gin.Context) (interface{}, error) {
 	defaultReq := CreateSftJobRequest{
 		Workspace: query.Workspace,
 		ModelId:   modelId,
+	}
+	if query.Peft != "" {
+		defaultReq.TrainConfig.Peft = query.Peft
 	}
 	FillSftDefaults(&defaultReq, recipe.Size)
 
@@ -271,6 +320,7 @@ func (h *Handler) getSftConfig(c *gin.Context) (interface{}, error) {
 		GpuCount:         defaultReq.GpuCount,
 		Cpu:              defaultReq.Cpu,
 		Memory:           defaultReq.Memory,
+		SharedMemory:     defaultReq.SharedMemory,
 		EphemeralStorage: defaultReq.EphemeralStorage,
 		Priority:         defaultReq.Priority,
 		TrainConfig:      defaultReq.TrainConfig,
@@ -322,6 +372,39 @@ func extractHfModelNameFromURLOrModelName(url, modelName string) string {
 		return url
 	}
 	return modelName
+}
+
+func resolveTrainingBaseModelNameFromK8sModel(k8sModel *v1.Model) string {
+	if k8sModel.Spec.Source.AccessMode == v1.AccessModeLocalPath && k8sModel.Spec.BaseModel != "" {
+		return k8sModel.Spec.BaseModel
+	}
+	name := extractHfModelNameFromURLOrModelName(k8sModel.Spec.Source.URL, k8sModel.Spec.Source.ModelName)
+	if name != "" {
+		return name
+	}
+	return k8sModel.Spec.DisplayName
+}
+
+func resolveModelLocalPathFromK8sModel(k8sModel *v1.Model, workspace string) (string, error) {
+	if k8sModel.Spec.Source.AccessMode == v1.AccessModeLocalPath && k8sModel.Spec.Source.LocalPath != "" {
+		return k8sModel.Spec.Source.LocalPath, nil
+	}
+
+	for _, lp := range k8sModel.Status.LocalPaths {
+		if lp.Status == v1.LocalPathStatusReady {
+			if lp.Workspace == workspace || workspace == "" {
+				return lp.Path, nil
+			}
+		}
+	}
+
+	for _, lp := range k8sModel.Status.LocalPaths {
+		if lp.Status == v1.LocalPathStatusReady {
+			return lp.Path, nil
+		}
+	}
+
+	return "", fmt.Errorf("no local path available for model %s in workspace %s", k8sModel.Name, workspace)
 }
 
 func getSupportedDatasetFormats() []string {
