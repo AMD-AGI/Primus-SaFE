@@ -442,7 +442,7 @@ spec:
                       description: |-
                         The group id of pod
                         for torchft. 0 lighthouse, > 0 worker
-                        for monarch. 0 client, > 0 mesh
+                        for monarch. -1 client, >= 0 mesh
                       type: integer
                     hostIP:
                       description: The node's IP address where the Pod is running
@@ -493,7 +493,7 @@ spec:
               torchFTPhase:
                 additionalProperties:
                   type: string
-                description: The phase of each torchFT object.
+                description: The phase of each torchFT object. key is group-id
                 type: object
             type: object
         type: object

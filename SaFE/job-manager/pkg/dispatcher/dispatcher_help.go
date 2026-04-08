@@ -621,7 +621,7 @@ func buildPodAnnotations(workload *v1.Workload, resourceId int) map[string]inter
 // buildEnvironment creates environment variables for the workload container.
 func buildEnvironment(workload *v1.Workload, resourceId int) []interface{} {
 	var result []interface{}
-	if resourceId >= 0 && resourceId < len(workload.Spec.Resources) && workload.Spec.Resources[resourceId].GPU != "" {
+	if resourceId >= 0 && resourceId < len(workload.Spec.Resources) && workload.Spec.Resources[resourceId].HasGpu() {
 		if workload.GetEnv("AINIC_DRIVER_VERSION") != "" {
 			result = addEnvVar(result, workload, "NCCL_IB_GID_INDEX", "1")
 			result = addEnvVar(result, workload, "NCCL_DMABUF_ENABLE", "0")

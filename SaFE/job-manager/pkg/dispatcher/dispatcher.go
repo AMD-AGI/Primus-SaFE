@@ -553,7 +553,7 @@ func (r *DispatcherReconciler) syncWorkloadToObject(ctx context.Context, adminWo
 func isResourceChanged(adminWorkload *v1.Workload, obj *unstructured.Unstructured, rt *v1.ResourceTemplate) bool {
 	gpuName := ""
 	for _, res := range adminWorkload.Spec.Resources {
-		if res.GPU != "" {
+		if res.HasGpu() {
 			gpuName = res.GPUName
 			break
 		}
@@ -1085,7 +1085,7 @@ func (r *DispatcherReconciler) generateMonarchClient(ctx context.Context, rootWo
 	workload.Spec.Env[common.MonarchPort] = strconv.Itoa(common.MonarchMeshPortNum)
 	workload.Spec.Env[common.HostPerReplica] = strconv.Itoa(nodePerGroup)
 
-	if len(rootWorkload.Spec.Resources) >= 2 && rootWorkload.Spec.Resources[1].GPU != "" {
+	if len(rootWorkload.Spec.Resources) >= 2 && rootWorkload.Spec.Resources[1].HasGpu() {
 		workload.Spec.Env["GPUS_PER_NODE"] = rootWorkload.Spec.Resources[1].GPU
 	}
 

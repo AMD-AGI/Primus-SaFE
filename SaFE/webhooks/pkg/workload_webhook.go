@@ -300,7 +300,6 @@ func (m *WorkloadMutator) mutateResources(workload *v1.Workload, workspace *v1.W
 		newResources = append(newResources, res)
 	}
 	workload.Spec.Resources = newResources
-	klog.Infof("new resources: %v", newResources)
 	return isChanged
 }
 
@@ -962,6 +961,9 @@ func (v *WorkloadValidator) validateMonarchJob(newWorkload, oldWorkload *v1.Work
 // Checks that replica count, CPU, memory, and ephemeral storage are all specified and valid
 // Returns an error if any required field is missing or invalid
 func validateResource(resource *v1.WorkloadResource, workspaceName string) error {
+	if resource == nil {
+		return nil
+	}
 	var errs []error
 	if resource.Replica <= 0 {
 		errs = append(errs, fmt.Errorf("the replica is empty"))
@@ -975,8 +977,7 @@ func validateResource(resource *v1.WorkloadResource, workspaceName string) error
 	if resource.EphemeralStorage == "" {
 		errs = append(errs, fmt.Errorf("the ephemeralStorage is empty"))
 	}
-	if resource.GPU != "" && resource.GPUName == "" {
-		klog.Infof("resource.gpu: %s", resource.GPUName)
+	if resource.HasGpu() && resource.GPUName == "" {
 		errs = append(errs, fmt.Errorf("This workspace %s has no GPU resources", workspaceName))
 	}
 	if err := utilerrors.NewAggregate(errs); err != nil {

@@ -72,6 +72,13 @@ type WorkloadResource struct {
 	RdmaResource string `json:"rdmaResource,omitempty"`
 }
 
+func (w *WorkloadResource) HasGpu() bool {
+	if w.GPU != "" && w.GPU != "0" {
+		return true
+	}
+	return false
+}
+
 type HealthCheck struct {
 	// Liveness probe HTTP path
 	Path string `json:"path"`
