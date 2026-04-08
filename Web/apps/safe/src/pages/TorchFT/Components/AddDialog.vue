@@ -911,6 +911,7 @@ const fetchFlavorAvail = async () => {
   if (!flavorId) return
   const res = await getNodeFlavorAvail(flavorId)
   flavorMaxVal.value = res
+  if (!res['amd.com/gpu']) form.resource.gpu = ''
   const r = rules as unknown as Record<string, FormItemRule[]>
   r['resource.cpu'] = [
     { required: true, message: 'Please input cpu', trigger: 'blur' },
