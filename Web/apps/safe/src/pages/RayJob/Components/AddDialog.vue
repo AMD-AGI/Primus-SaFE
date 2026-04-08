@@ -784,6 +784,12 @@ const onSubmit = async (formEl: FormInstance | undefined) => {
       ...addPayload
     } = form
 
+    if (!flavorMaxVal.value?.['amd.com/gpu']) {
+      form.header.gpu = ''
+      if (form.workers?.[0]) form.workers[0].gpu = ''
+      if (form.workers?.[1]) form.workers[1].gpu = ''
+    }
+
     const headerRes = {
       cpu: header.cpu,
       gpu: Number(header.gpu) === 0 ? '' : (header.gpu ?? ''),
