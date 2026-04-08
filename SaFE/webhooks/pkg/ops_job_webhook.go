@@ -335,6 +335,11 @@ func (v *OpsJobValidator) validateRequiredParams(ctx context.Context, job *v1.Op
 			errs = append(errs, fmt.Errorf("opsJob nodes are either empty or unhealthy"))
 		}
 	}
+	if job.Spec.Resource != nil {
+		if err := validateResource(job.Spec.Resource, v1.GetWorkspaceId(job)); err != nil {
+			errs = append(errs, err)
+		}
+	}
 	if err := utilerrors.NewAggregate(errs); err != nil {
 		return commonerrors.NewBadRequest(err.Error())
 	}

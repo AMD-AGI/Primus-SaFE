@@ -331,13 +331,6 @@ func IsMonarchMesh(w *v1.Workload) bool {
 	return false
 }
 
-func IsMonarchClient(w *v1.Workload) bool {
-	if w.SpecKind() == common.MonarchClient {
-		return true
-	}
-	return false
-}
-
 // IsOpsJob returns true if the workload is about ops job
 func IsOpsJob(w *v1.Workload) bool {
 	return v1.GetOpsJobId(w) != ""
@@ -405,8 +398,8 @@ func GetWorkloadTemplate(ctx context.Context, cli client.Client, gvk schema.Grou
 }
 
 // GetResourceTemplate Retrieve the corresponding resource_template based on the workload's GVK.
-// For non-TorchFT workloads: the workload GVK can be used directly to find the resource template
-// For TorchFT workloads: cannot be looked up directly because TorchFT corresponds to multiple objects
+// For TorchFT or Monarch workload: cannot be looked up directly because it corresponds to multiple objects
+// For other workloads: the workload GVK can be used directly to find the resource template
 // (PyTorchJob and Deployment), so the template lookup needs to be handled differently
 func GetResourceTemplate(ctx context.Context, cli client.Client, workload *v1.Workload) (*v1.ResourceTemplate, error) {
 	return GetResourceTemplateByGVK(ctx, cli, workload.ToSchemaGVK())

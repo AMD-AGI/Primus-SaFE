@@ -541,7 +541,8 @@ func (v *WorkspaceValidator) validateScaleDown(ctx context.Context, newWorkspace
 	if sourceWorkloadId := v1.GetSourceWorkloadId(newWorkspace); sourceWorkloadId != "" {
 		workload, err := getWorkload(ctx, v.Client, sourceWorkloadId)
 		if err == nil && !workload.IsEnd() {
-			return fmt.Errorf("Scaling down is not allowed before the workload(%s) finishes.", sourceWorkloadId)
+			return commonerrors.NewConflict(
+				fmt.Sprintf("Scaling down is not allowed before the workload(%s) finishes.", sourceWorkloadId))
 		}
 	}
 	return nil
@@ -674,7 +675,7 @@ func (v *WorkspaceValidator) validateVolumeRemoved(ctx context.Context, newWorks
 	runningWorkloads, _ := commonworkload.GetWorkloadsOfWorkspace(ctx, v.Client,
 		v1.GetClusterId(newWorkspace), []string{newWorkspace.Name}, filterFunc)
 	if len(runningWorkloads) > 0 {
-		return commonerrors.NewForbidden(fmt.Sprintf("the pvc(%s) is used by workload(%s), "+
+		return commonerrors.NewConflict(fmt.Sprintf("the pvc(%s) is used by workload(%s), "+
 			"it can not be removed", volumeId, runningWorkloads[0].Name))
 	}
 	return nil

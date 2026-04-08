@@ -70,25 +70,6 @@ spec:
 apiVersion: amd.com/v1
 kind: ResourceTemplate
 metadata:
-  name: monarch-client
-  labels:
-    app.kubernetes.io/managed-by: Helm
-    primus-safe.workload.version: v1
-  annotations:
-    primus-safe.workload.kind: "MonarchClient"
-    meta.helm.sh/release-name: {{ .Release.Name }}
-    meta.helm.sh/release-namespace: {{ .Release.Namespace }}
-spec:
-  groupVersionKind:
-    group: ""
-    version: v1
-    kind: Pod
-  resourceSpecs:
-    - defaultReplica: 1
----
-apiVersion: amd.com/v1
-kind: ResourceTemplate
-metadata:
   name: monarch-mesh
   labels:
     app.kubernetes.io/managed-by: Helm
@@ -107,6 +88,31 @@ spec:
         - spec
       replicasPaths:
         - replicas
+  resourceStatus:
+    prePaths:
+      - status
+      - conditions
+    messagePaths:
+      - message
+    reasonPaths:
+      - reason
+    phases:
+      - matchExpressions:
+          status: 'True'
+          type: Ready
+        phase: K8sSucceeded
+      - matchExpressions:
+          status: 'True'
+          type: Failed
+        phase: K8sFailed
+      - matchExpressions:
+          status: 'True'
+          type: FailedValidation
+        phase: K8sFailed
+  activeReplica:
+    prePaths:
+      - status
+    replicaPath: readyReplicas
 ---
 apiVersion: amd.com/v1
 kind: ResourceTemplate
@@ -289,7 +295,7 @@ metadata:
     app.kubernetes.io/managed-by: Helm
     primus-safe.workload.version: v1
   annotations:
-    primus-safe.workload.kind: "Job"
+    primus-safe.workload.kind: "Job,MonarchClient"
     meta.helm.sh/release-name: {{ .Release.Name }}
     meta.helm.sh/release-namespace: {{ .Release.Namespace }}
 spec:

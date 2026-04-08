@@ -30,7 +30,7 @@ cd:
   # false: users can self-approve their own requests (development environment)
   require_approval: true
   # This list is of deployable components
-  components: "apiserver,resource_manager,job_manager,webhooks,web,preprocess,node_agent,cicd_runner,cicd_unified_job,model_downloader,ops_download,a2a_gateway"
+  components: "apiserver,resource_manager,job_manager,webhooks,web,preprocess,node_agent,cicd_runner,cicd_unified_job,model_downloader,ops_download,a2a_gateway,monarch"
 apiserver:
   # Apiserver component image version
   image: "apiserver:latest"
