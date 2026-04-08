@@ -21,12 +21,16 @@ spec:
   # Step 2: At least one higress-gateway pod is Running
   - name: higress-gateway-pods-running
     try:
-    - script:
-        content: |
-          kubectl get pods -n higress-system -l app=higress-gateway \
-            -o jsonpath='{.items[0].status.phase}'
-        check:
-          ($stdout): Running
+    - assert:
+        resource:
+          apiVersion: v1
+          kind: Pod
+          metadata:
+            namespace: higress-system
+            labels:
+              app: higress-gateway
+          status:
+            phase: Running
 
   # Step 3: Gateway resource exists in the cluster
   - name: gateway-resource-exists
