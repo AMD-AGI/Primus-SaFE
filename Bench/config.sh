@@ -86,7 +86,6 @@ export ENGINE="${ENGINE:-psync}"
 export RUNTIME="${RUNTIME:-30}"
 export BNIC="${BNIC:-50}"
 export BXGMI="${BXGMI:-315}"
-export RUN_BENCHMARKS="${RUN_BENCHMARKS:-false}"
 
 # ==============================================================================
 # Path Configuration (must precede sections that reference PRIMUSBENCH_PATH)
@@ -107,7 +106,13 @@ export SKIP_NODE_CHECK="${SKIP_NODE_CHECK:-false}"
 export SKIP_NETWORK_CHECK="${SKIP_NETWORK_CHECK:-false}"
 export SKIP_CCO="${SKIP_CCO:-false}"
 export SKIP_KERNEL_LAUNCH="${SKIP_KERNEL_LAUNCH:-false}"
+export ENABLE_MICRO_BENCHMARKS="${ENABLE_MICRO_BENCHMARKS:-false}"
 export ENABLE_MODEL_BENCHMARK="${ENABLE_MODEL_BENCHMARK:-false}"
+
+if [ "$ENABLE_MICRO_BENCHMARKS" != "true" ]; then
+    export SKIP_CCO="true"
+    export SKIP_KERNEL_LAUNCH="true"
+fi
 
 # ==============================================================================
 # Model Benchmark Configuration (requires ENABLE_MODEL_BENCHMARK=true)
@@ -177,11 +182,12 @@ print_config() {
     echo "  WORKLOAD_ID:            ${WORKLOAD_ID:-<not set>}"
     echo ""
     echo "Stage Control:"
-    echo "  SKIP_NODE_CHECK:        $SKIP_NODE_CHECK"
-    echo "  SKIP_NETWORK_CHECK:     $SKIP_NETWORK_CHECK"
-    echo "  SKIP_CCO:               $SKIP_CCO"
-    echo "  SKIP_KERNEL_LAUNCH:     $SKIP_KERNEL_LAUNCH"
-    echo "  ENABLE_MODEL_BENCHMARK: $ENABLE_MODEL_BENCHMARK"
+    echo "  SKIP_NODE_CHECK:          $SKIP_NODE_CHECK"
+    echo "  SKIP_NETWORK_CHECK:       $SKIP_NETWORK_CHECK"
+    echo "  ENABLE_MICRO_BENCHMARKS:  $ENABLE_MICRO_BENCHMARKS"
+    echo "  SKIP_CCO:                 $SKIP_CCO"
+    echo "  SKIP_KERNEL_LAUNCH:       $SKIP_KERNEL_LAUNCH"
+    echo "  ENABLE_MODEL_BENCHMARK:   $ENABLE_MODEL_BENCHMARK"
     echo ""
     if [ "$ENABLE_MODEL_BENCHMARK" = "true" ]; then
     echo "Model Benchmark:"
