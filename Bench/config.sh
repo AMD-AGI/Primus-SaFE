@@ -65,6 +65,12 @@ export RCCL_MSCCL_ENABLE="${RCCL_MSCCL_ENABLE:-0}"
 export NCCL_IB_TIMEOUT=23  
 export NCCL_IB_RETRY_CNT=11  
 
+if [[ "$ENABLE_AINIC" == "true" ]]; then
+    export NCCL_IB_GID_INDEX=1
+    export NCCL_NET_PLUGIN="${NCCL_NET_PLUGIN:-anp}"
+    export LD_LIBRARY_PATH="/opt/amd-anp/build:${LD_LIBRARY_PATH}"
+fi
+
 # ==============================================================================
 # Torch/CUDA Configuration
 # ==============================================================================
@@ -80,14 +86,42 @@ export ENGINE="${ENGINE:-psync}"
 export RUNTIME="${RUNTIME:-30}"
 export BNIC="${BNIC:-50}"
 export BXGMI="${BXGMI:-315}"
-export SKIP_NODE_CHECK="${SKIP_NODE_CHECK:-false}"
-export RUN_BENCHMARKS="${RUN_BENCHMARKS:-false}"
 
 # ==============================================================================
-# Path Configuration
+# Path Configuration (must precede sections that reference PRIMUSBENCH_PATH)
 # ==============================================================================
 export PRIMUSBENCH_PATH="${PRIMUSBENCH_PATH:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
 export LOG_DIR="${LOG_DIR:-${PRIMUSBENCH_PATH}/outputs}"
+
+# ==============================================================================
+# NFS Shared Storage Configuration
+# ==============================================================================
+export SHARE_PATH="${SHARE_PATH:-}"
+export WORKLOAD_ID="${WORKLOAD_ID:-}"
+
+# ==============================================================================
+# Stage Control — skip individual stages or enable optional ones
+# ==============================================================================
+export SKIP_NODE_CHECK="${SKIP_NODE_CHECK:-false}"
+export SKIP_NETWORK_CHECK="${SKIP_NETWORK_CHECK:-false}"
+export SKIP_CCO="${SKIP_CCO:-false}"
+export SKIP_KERNEL_LAUNCH="${SKIP_KERNEL_LAUNCH:-false}"
+export ENABLE_MICRO_BENCHMARKS="${ENABLE_MICRO_BENCHMARKS:-false}"
+export ENABLE_MODEL_BENCHMARK="${ENABLE_MODEL_BENCHMARK:-false}"
+
+if [ "$ENABLE_MICRO_BENCHMARKS" != "true" ]; then
+    export SKIP_CCO="true"
+    export SKIP_KERNEL_LAUNCH="true"
+fi
+
+# ==============================================================================
+# Model Benchmark Configuration (requires ENABLE_MODEL_BENCHMARK=true)
+# ==============================================================================
+export MODEL_BENCHMARK_PRIMUS_REPO="${MODEL_BENCHMARK_PRIMUS_REPO:-https://github.com/AMD-AGI/Primus.git}"
+export MODEL_BENCHMARK_PRIMUS_BRANCH="${MODEL_BENCHMARK_PRIMUS_BRANCH:-v0.7.0}"
+export MODEL_BENCHMARK_CONFIG="${MODEL_BENCHMARK_CONFIG:-${PRIMUSBENCH_PATH}/benchmarks/model_benchmark/configs/qwen3_8B-BF16-bench.yaml}"
+export MODEL_BENCHMARK_TRAIN_ITERS="${MODEL_BENCHMARK_TRAIN_ITERS:-50}"
+export MODEL_BENCHMARK_WARMUP_ITERS="${MODEL_BENCHMARK_WARMUP_ITERS:-2}"
 export INVENTORY_FILE="${INVENTORY_FILE:-hosts.ini}"
 export HOSTS="${HOSTS:-/root/hosts}"
 
@@ -144,7 +178,25 @@ print_config() {
     echo "Paths:"
     echo "  PRIMUSBENCH_PATH:       $PRIMUSBENCH_PATH"
     echo "  LOG_DIR:                $LOG_DIR"
+    echo "  SHARE_PATH:             ${SHARE_PATH:-<not set>}"
+    echo "  WORKLOAD_ID:            ${WORKLOAD_ID:-<not set>}"
     echo ""
+    echo "Stage Control:"
+    echo "  SKIP_NODE_CHECK:          $SKIP_NODE_CHECK"
+    echo "  SKIP_NETWORK_CHECK:       $SKIP_NETWORK_CHECK"
+    echo "  ENABLE_MICRO_BENCHMARKS:  $ENABLE_MICRO_BENCHMARKS"
+    echo "  SKIP_CCO:                 $SKIP_CCO"
+    echo "  SKIP_KERNEL_LAUNCH:       $SKIP_KERNEL_LAUNCH"
+    echo "  ENABLE_MODEL_BENCHMARK:   $ENABLE_MODEL_BENCHMARK"
+    echo ""
+    if [ "$ENABLE_MODEL_BENCHMARK" = "true" ]; then
+    echo "Model Benchmark:"
+    echo "  PRIMUS_REPO:            $MODEL_BENCHMARK_PRIMUS_REPO"
+    echo "  PRIMUS_BRANCH:          $MODEL_BENCHMARK_PRIMUS_BRANCH"
+    echo "  CONFIG:                 ${MODEL_BENCHMARK_CONFIG:-<auto-detect>}"
+    echo "  TRAIN_ITERS:            $MODEL_BENCHMARK_TRAIN_ITERS"
+    echo ""
+    fi
     echo "Container Warmup:"
     echo "  ENABLE_IMAGE_WARMUP:    $ENABLE_IMAGE_WARMUP"
     echo "================================================================================"
