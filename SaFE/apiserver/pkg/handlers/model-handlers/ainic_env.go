@@ -5,11 +5,30 @@
 
 package model_handlers
 
-import "strings"
+import (
+	"strings"
 
-// isSharedNfsPath identifies OCI-style shared storage paths used by AINIC jobs.
-func isSharedNfsPath(path string) bool {
-	return strings.HasPrefix(path, "/shared_nfs")
+	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+)
+
+// shouldApplyAinicEnv decides whether OCI/AINIC-specific RCCL env should be
+// injected for SFT/RL workloads. The decision is derived from the workspace's
+// mounted storage instead of a pre-resolved path string.
+func shouldApplyAinicEnv(workspace *v1.Workspace) bool {
+	if workspace == nil {
+		return false
+	}
+
+	for _, vol := range workspace.Spec.Volumes {
+		if vol.Type == v1.PFS {
+			return strings.HasPrefix(vol.MountPath, "/shared_nfs")
+		}
+	}
+
+	if len(workspace.Spec.Volumes) > 0 {
+		return strings.HasPrefix(workspace.Spec.Volumes[0].MountPath, "/shared_nfs")
+	}
+	return false
 }
 
 // applyAinicWorkloadEnv injects the AINIC/RCCL environment values that were

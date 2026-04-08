@@ -70,9 +70,11 @@ func (h *Handler) createRlJob(c *gin.Context) (interface{}, error) {
 	// Step 6: Generate workload name
 	workloadName := generateRlWorkloadName(req.DisplayName)
 	pfsBasePath := "/wekafs"
+	var workspaceObj *v1.Workspace
 	if req.Workspace != "" {
 		ws := &v1.Workspace{}
 		if err := h.k8sClient.Get(ctx, ctrlclient.ObjectKey{Name: req.Workspace}, ws); err == nil {
+			workspaceObj = ws
 			if p := commonworkspace.GetNfsPathFromWorkspace(ws); p != "" {
 				pfsBasePath = p
 			}
@@ -115,7 +117,7 @@ func (h *Handler) createRlJob(c *gin.Context) (interface{}, error) {
 		"RL_TRAIN_BATCH_SIZE":    strconv.Itoa(req.TrainConfig.TrainBatchSize),
 		"RL_MINI_BATCH_SIZE":     strconv.Itoa(req.TrainConfig.MiniPatchSize),
 	}
-	if isSharedNfsPath(pfsBasePath) && req.GpuCount > 0 {
+	if shouldApplyAinicEnv(workspaceObj) && req.GpuCount > 0 {
 		applyAinicWorkloadEnv(env)
 	}
 	for k, v := range req.Env {
@@ -125,13 +127,13 @@ func (h *Handler) createRlJob(c *gin.Context) (interface{}, error) {
 	// Step 10: Build labels and annotations
 	rlLabels := map[string]string{
 		SftLabelWorkloadType: RlWorkloadTypeValue,
-		RlLabelAlgorithm:    req.TrainConfig.Algorithm,
-		RlLabelRewardType:   req.TrainConfig.RewardType,
-		RlLabelBaseModelId:  req.ModelId,
-		RlLabelUserId:       userId,
+		RlLabelAlgorithm:     req.TrainConfig.Algorithm,
+		RlLabelRewardType:    req.TrainConfig.RewardType,
+		RlLabelBaseModelId:   req.ModelId,
+		RlLabelUserId:        userId,
 	}
 	rlAnnotations := map[string]string{
-		SftLabelModel:  hfModelName,
+		SftLabelModel:   hfModelName,
 		SftLabelDataset: req.DatasetId,
 		RlLabelUserName: userName,
 	}
@@ -302,29 +304,7 @@ func (h *Handler) resolveModelLocalPath(ctx context.Context, modelId, workspace 
 	if err := h.k8sClient.Get(ctx, ctrlclient.ObjectKey{Name: modelId}, k8sModel); err != nil {
 		return "", fmt.Errorf("model %s not found in k8s: %v", modelId, err)
 	}
-
-	// For local_path models (e.g. SFT output), use the direct path
-	if k8sModel.Spec.Source.AccessMode == v1.AccessModeLocalPath && k8sModel.Spec.Source.LocalPath != "" {
-		return k8sModel.Spec.Source.LocalPath, nil
-	}
-
-	// For local models, find the workspace-specific local path
-	for _, lp := range k8sModel.Status.LocalPaths {
-		if lp.Status == v1.LocalPathStatusReady {
-			if lp.Workspace == workspace || workspace == "" {
-				return lp.Path, nil
-			}
-		}
-	}
-
-	// Fallback: any ready local path
-	for _, lp := range k8sModel.Status.LocalPaths {
-		if lp.Status == v1.LocalPathStatusReady {
-			return lp.Path, nil
-		}
-	}
-
-	return "", fmt.Errorf("no local path available for model %s in workspace %s", modelId, workspace)
+	return resolveModelLocalPathFromK8sModel(k8sModel, workspace)
 }
 
 // inferModelSize guesses model size from name string for default parameter selection.
