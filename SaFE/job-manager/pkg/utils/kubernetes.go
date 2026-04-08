@@ -20,13 +20,14 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	commonclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/k8sclient"
 	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
 )
 
 const (
-	WorkloadGracePeriod = 180
+	WorkloadGracePeriod = 60
 )
 
 // CreateObject creates a Kubernetes object using the dynamic client.
@@ -162,6 +163,7 @@ func DeleteObjectsByWorkload(ctx context.Context, adminClient client.Client,
 			klog.ErrorS(err, "failed to delete k8s object")
 			return true, err
 		}
+
 	}
 	return true, nil
 }
@@ -189,7 +191,22 @@ func DeleteObject(ctx context.Context, k8sClientFactory *commonclient.ClientFact
 	if isWorkloadOrPod(obj.GroupVersionKind()) {
 		gracePeriod = WorkloadGracePeriod
 	}
+	if obj.GetDeletionTimestamp().IsZero() {
+		klog.Infof("deleting k8s object %s/%s, kind: %s", obj.GetNamespace(), obj.GetName(), obj.GetKind())
+	}
+
+	// MonarchMesh: delete owned StatefulSets first (Foreground), then delete
+	// MonarchMesh itself (Background). This prevents the monarch-operator from
+	// recreating Pods during the cascade, while ensuring StatefulSets are
+	// properly torn down.
+	if obj.GetKind() == common.MonarchMesh {
+		deleteOwnedStatefulSets(ctx, k8sClientFactory, obj)
+	}
+
 	policy := metav1.DeletePropagationForeground
+	if obj.GetKind() == common.MonarchMesh {
+		policy = metav1.DeletePropagationBackground
+	}
 	err = k8sClientFactory.DynamicClient().
 		Resource(gvr).
 		Namespace(obj.GetNamespace()).
@@ -200,7 +217,6 @@ func DeleteObject(ctx context.Context, k8sClientFactory *commonclient.ClientFact
 	if err != nil {
 		return client.IgnoreNotFound(err)
 	}
-	klog.Infof("deleting k8s object %s/%s, kind: %s", obj.GetNamespace(), obj.GetName(), obj.GetKind())
 	return nil
 }
 
@@ -228,12 +244,33 @@ func ConvertGVKToGVR(mapper meta.RESTMapper, gvk schema.GroupVersionKind) (schem
 	return m.Resource, nil
 }
 
+// deleteOwnedStatefulSets deletes the StatefulSet with the same name as the MonarchMesh.
+func deleteOwnedStatefulSets(ctx context.Context, k8sClientFactory *commonclient.ClientFactory, owner *unstructured.Unstructured) {
+	stsGVR := schema.GroupVersionResource{Group: "apps", Version: "v1", Resource: "statefulsets"}
+	foreground := metav1.DeletePropagationForeground
+	err := k8sClientFactory.DynamicClient().
+		Resource(stsGVR).
+		Namespace(owner.GetNamespace()).
+		Delete(ctx, owner.GetName(), metav1.DeleteOptions{
+			PropagationPolicy: &foreground,
+		})
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			return
+		}
+		klog.V(4).Infof("failed to delete StatefulSet %s/%s: %v", owner.GetNamespace(), owner.GetName(), err)
+	} else {
+		klog.Infof("deleted StatefulSet %s/%s before MonarchMesh cleanup", owner.GetNamespace(), owner.GetName())
+	}
+}
+
 // isWorkloadOrPod checks if the given GroupVersionKind represents a workload or pod resource.
 func isWorkloadOrPod(gvk schema.GroupVersionKind) bool {
 	switch gvk.Kind {
 	case "Pod",
 		"Deployment", "StatefulSet", "DaemonSet", "ReplicaSet",
-		"Job", "CronJob", "EphemeralRunner":
+		"Job", "CronJob", "EphemeralRunner",
+		"MonarchMesh":
 		return true
 	default:
 		return false

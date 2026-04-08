@@ -44,7 +44,7 @@ func (r *SyncerReconciler) handleJob(ctx context.Context,
 	if message.namespace != adminWorkload.Spec.Workspace {
 		return ctrlruntime.Result{}, nil
 	}
-	if commonworkload.IsMonarchJob(adminWorkload) && message.gvk.Kind == common.StatefulSetKind {
+	if commonworkload.IsMonarchJob(adminWorkload) && message.gvk.Kind != common.JobKind {
 		return ctrlruntime.Result{}, nil
 	}
 	if commonworkload.IsCICDScalingRunnerSet(adminWorkload) && message.gvk.Kind != common.CICDScaleRunnerSetKind {
@@ -114,9 +114,8 @@ func (r *SyncerReconciler) getK8sObjectStatus(ctx context.Context, message *reso
 	}
 
 	var rt *v1.ResourceTemplate
-	if commonworkload.IsTorchFT(adminWorkload) {
-		// For TorchFT workloads, the Kubernetes object GVK matches the workload GVK directly
-		// So we can retrieve the resource template using the message GVK (which is the actual object GVK)
+	if commonworkload.IsTorchFT(adminWorkload) || commonworkload.IsMonarchJob(adminWorkload) {
+		// For TorchFT or MonarchJob workloads, the GVK of the K8s object is not the workload GVK, but we can retrieve it via the object's own GVK.
 		rt, err = commonworkload.GetResourceTemplateByGVK(ctx, r.Client, message.gvk)
 	} else {
 		// For other workloads, the resource template is associated with the workload GVK

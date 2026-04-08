@@ -1,5 +1,5 @@
-# Copyright (c) Meta Platforms, Inc. and affiliates.
-# All rights reserved.
+#  Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
+#  See LICENSE for license information.
 #
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
@@ -127,8 +127,9 @@ class LighthouseActor(Actor):
             join_timeout_ms=15000,
         )
         addr = self.lighthouse.address()
-        # Replace hostname with IP so mesh workers on other nodes can resolve it
-        import re, socket
+        # LighthouseServer is Rust code and uses system hostname directly,
+        # bypassing Python's socket.gethostname hook. Replace hostname with IP.
+        import re
         m = re.match(r"(https?://)([^:]+)(:\d+.*)", addr)
         if m:
             try:
@@ -240,12 +241,6 @@ class TrainingActor(Actor):
                 )
                 os.environ["MASTER_ADDR"] = real_ip
 
-        # Patch socket.gethostname to return IP instead of hostname so that
-        # ft.ManagerServer advertises a routable IP to Lighthouse
-        pod_ip = os.environ.get("POD_IP", "")
-        if pod_ip:
-            import socket as _socket
-            _socket.gethostname = lambda: pod_ip
         trainer_cls = (
             FaultTolerantTrainer
             if isinstance(self.job_config, FaultTolerantTrainer.Config)
@@ -755,8 +750,8 @@ def parse_args() -> argparse.Namespace:
     torchtitan_assets_dir = os.path.join(workspace_dir, "torchtitan", "tests", "assets")
     parser.add_argument(
         "--replica-count", type=int,
-        default=int(os.environ.get("REPLICA_COUNT", "2")),
-        help="Number of replicas (default: env REPLICA_COUNT or 2)",
+        default=int(os.environ.get("REPLICA_COUNT", "0")),
+        help="Number of replicas (required: env REPLICA_COUNT or --replica-count)",
     )
     parser.add_argument(
         "--gpu-per-node", type=int,
@@ -782,8 +777,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--namespace",
         type=str,
-        default=os.environ.get("WORKSPACE", "monarch-tests"),
-        help="Kubernetes namespace for worker pods (default: env WORKSPACE or monarch-tests)",
+        default=os.environ.get("WORKSPACE", ""),
+        help="Kubernetes namespace for worker pods (required: env WORKSPACE or --namespace)",
     )
     parser.add_argument(
         "--model-config",
@@ -817,9 +812,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--failure-injection-delay",
         type=int,
-        default=900,
+        default=600,
         help=(
-            "Seconds to wait before injecting the first failure (default: 900). "
+            "Seconds to wait before injecting the first failure (default: 600). "
             "Must exceed model initialization time to avoid injecting during loading. "
             "For debugmodel use ~120; for 8B use ~600."
         ),
@@ -827,8 +822,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--min-replicas",
         type=int,
-        default=1,
-        help="Minimum number of replicas required for quorum (default: 1)",
+        default=int(os.environ.get("MIN_REPLICA_COUNT", "1")),
+        help="Minimum number of replicas required for quorum (default: env MIN_REPLICA_COUNT or 1)",
     )
     parser.add_argument(
         "--wandb-project",
@@ -848,7 +843,12 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="Prefix for per-replica W&B run names (default: wandb-group).",
     )
-    return parser.parse_args()
+    args = parser.parse_args()
+    if args.replica_count <= 0:
+        parser.error("--replica-count is required (or set REPLICA_COUNT env var)")
+    if not args.namespace:
+        parser.error("--namespace is required (or set WORKSPACE env var)")
+    return args
 
 
 def make_job_spec(args: argparse.Namespace) -> JobSpec:
@@ -934,8 +934,8 @@ def make_job_spec(args: argparse.Namespace) -> JobSpec:
 def _log_env_vars() -> None:
     env_keys = [
         "MONARCH_MESH_PREFIX", "MONARCH_PORT", "REPLICA_COUNT",
-        "HOST_PER_REPLICA", "GPUS_PER_NODE", "WORKSPACE",
-        "MASTER_ADDR", "MASTER_PORT",
+        "MIN_REPLICA_COUNT", "HOST_PER_REPLICA", "GPUS_PER_NODE",
+        "WORKSPACE", "MASTER_ADDR", "MASTER_PORT", "PYTHONPATH",
     ]
     for key in env_keys:
         logger.info(f"[ENV] {key}={os.environ.get(key, '<unset>')}")

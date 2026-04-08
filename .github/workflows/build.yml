@@ -95,6 +95,13 @@ jobs:
           echo "preprocess_changed=false" >> $GITHUB_OUTPUT
         fi
         
+        # # monarch: SaFE/docker/monarch/**
+        # if echo "$CHANGED_FILES" | grep -qE '^SaFE/docker/monarch/'; then
+        #   echo "monarch_changed=true" >> $GITHUB_OUTPUT
+        # else
+        #   echo "monarch_changed=false" >> $GITHUB_OUTPUT
+        # fi
+        
         # cicd_runner_proxy: SaFE/docker/cicd/runner-proxy/**
         if echo "$CHANGED_FILES" | grep -qE '^SaFE/docker/cicd/runner-proxy/'; then
           echo "cicd_runner_proxy_changed=true" >> $GITHUB_OUTPUT
@@ -188,6 +195,9 @@ jobs:
         if [[ "${{ steps.detect-changes.outputs.preprocess_changed }}" == "true" ]]; then
           MATRIX+='{"name":"preprocess","basepath":"SaFE/docker/preprocess","dockerfile_path":"SaFE/docker/preprocess/Dockerfile"},'
         fi
+        # if [[ "${{ steps.detect-changes.outputs.monarch_changed }}" == "true" ]]; then
+        #   MATRIX+='{"name":"monarch","basepath":"SaFE/docker/monarch","dockerfile_path":"SaFE/docker/monarch/Dockerfile"},'
+        # fi
         if [[ "${{ steps.detect-changes.outputs.cicd_runner_proxy_changed }}" == "true" ]]; then
           MATRIX+='{"name":"cicd-runner-proxy","basepath":"SaFE/docker/cicd/runner-proxy","dockerfile_path":"SaFE/docker/cicd/runner-proxy/Dockerfile"},'
         fi
@@ -234,6 +244,11 @@ jobs:
           
           echo "🔐 Logging in to Quay.io..."
           buildah login -u "${{ secrets.QUAY_USERNAME }}" -p "${{ secrets.QUAY_PASSWORD }}" quay.io && echo "✅ Quay.io login successful" || echo "❌ Quay.io login failed"
+          
+          if [ -n "${{ secrets.TASIMAGE_USERNAME }}" ]; then
+            echo "🔐 Logging in to Docker Hub for tasimage..."
+            buildah login -u "${{ secrets.TASIMAGE_USERNAME }}" -p "${{ secrets.TASIMAGE_PASSWORD }}" docker.io && echo "✅ tasimage login successful" || echo "❌ tasimage login failed"
+          fi
           
         env:
           DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}

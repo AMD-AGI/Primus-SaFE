@@ -140,8 +140,6 @@ func (r *SyncerReconciler) updateAdminWorkloadByPod(ctx context.Context, clientS
 	}
 	if commonworkload.IsCICDScalingRunnerSet(adminWorkload) {
 		updateCICDScalingRunnerSetPhase(adminWorkload, pod)
-	} else if commonworkload.IsMonarchJob(adminWorkload) {
-		updateMonarchJobPhase(adminWorkload, pod)
 	}
 	if err = r.Status().Update(ctx, adminWorkload); err != nil {
 		klog.ErrorS(err, "failed to update admin workload status", "name", adminWorkload.Name)
@@ -292,30 +290,6 @@ func updateCICDScalingRunnerSetPhase(adminWorkload *v1.Workload, pod *corev1.Pod
 		adminWorkload.Status.Phase = v1.WorkloadPending
 	default:
 		adminWorkload.Status.Phase = v1.WorkloadNotReady
-	}
-}
-func updateMonarchJobPhase(adminWorkload *v1.Workload, pod *corev1.Pod) {
-	switch pod.Status.Phase {
-	case corev1.PodRunning:
-		if isAllPodsAssigned(adminWorkload) && isAllPodRunning(adminWorkload) {
-			adminWorkload.Status.Phase = v1.WorkloadRunning
-		}
-	case corev1.PodPending:
-		if adminWorkload.Status.Phase == "" {
-			adminWorkload.Status.Phase = v1.WorkloadPending
-		}
-	case corev1.PodSucceeded:
-		resourceId, _ := v1.GetResourceId(pod)
-		if resourceId == 0 {
-			adminWorkload.Status.Phase = v1.WorkloadSucceeded
-		}
-	case corev1.PodFailed:
-		resourceId, _ := v1.GetResourceId(pod)
-		if resourceId == 0 {
-			adminWorkload.Status.Phase = v1.WorkloadFailed
-		} else {
-			adminWorkload.Status.Phase = v1.WorkloadNotReady
-		}
 	}
 }
 
