@@ -28,21 +28,54 @@ func (c *Client) ListPendingEmailOutbox(ctx context.Context, limit int) ([]*mode
 	return results, err
 }
 
+func (c *Client) ListPendingEmailOutboxAfter(ctx context.Context, afterID int32, limit int) ([]*model.EmailOutbox, error) {
+	var results []*model.EmailOutbox
+	query := c.gorm.WithContext(ctx).
+		Where("status = ? AND id > ?", model.EmailOutboxStatusPending, afterID).
+		Order("id ASC")
+	if limit > 0 {
+		query = query.Limit(limit)
+	}
+	err := query.Find(&results).Error
+	return results, err
+}
+
+// DispatchEmailOutbox atomically marks a pending outbox entry as dispatched (pushed to SSE).
+// Returns the number of rows affected so the caller knows whether it won the race.
+func (c *Client) DispatchEmailOutbox(ctx context.Context, id int32) (int64, error) {
+	result := c.gorm.WithContext(ctx).
+		Model(&model.EmailOutbox{}).
+		Where("id = ? AND status = ?", id, model.EmailOutboxStatusPending).
+		Update("status", model.EmailOutboxStatusDispatched)
+	return result.RowsAffected, result.Error
+}
+
 func (c *Client) AckEmailOutbox(ctx context.Context, id int32) error {
 	now := time.Now()
 	return c.gorm.WithContext(ctx).
 		Model(&model.EmailOutbox{}).
-		Where("id = ? AND status = ?", id, model.EmailOutboxStatusPending).
+		Where("id = ? AND status IN ?", id, []string{model.EmailOutboxStatusPending, model.EmailOutboxStatusDispatched}).
 		Updates(map[string]interface{}{
 			"status":  model.EmailOutboxStatusSent,
 			"sent_at": now,
 		}).Error
 }
 
+// ResetStaleDispatched resets entries stuck in "dispatched" for longer than the given duration
+// back to "pending" so they can be retried. Call this periodically to handle relay crashes.
+func (c *Client) ResetStaleDispatched(ctx context.Context, olderThan time.Duration) (int64, error) {
+	cutoff := time.Now().Add(-olderThan)
+	result := c.gorm.WithContext(ctx).
+		Model(&model.EmailOutbox{}).
+		Where("status = ? AND created_at < ?", model.EmailOutboxStatusDispatched, cutoff).
+		Update("status", model.EmailOutboxStatusPending)
+	return result.RowsAffected, result.Error
+}
+
 func (c *Client) FailEmailOutbox(ctx context.Context, id int32, errMsg string) error {
 	return c.gorm.WithContext(ctx).
 		Model(&model.EmailOutbox{}).
-		Where("id = ?", id).
+		Where("id = ? AND status IN ?", id, []string{model.EmailOutboxStatusPending, model.EmailOutboxStatusDispatched}).
 		Updates(map[string]interface{}{
 			"status":        model.EmailOutboxStatusFailed,
 			"error_message": errMsg,

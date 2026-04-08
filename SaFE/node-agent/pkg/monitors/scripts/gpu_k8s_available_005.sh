@@ -30,3 +30,5 @@ if  [ $observedCount -ne $expectedCount ]; then
   echo 'Error: The gpu cards reported by the device plugin is' $observedCount, 'but the expected value is' $expectedCount
   exit 1
 fi
+
+exit 0

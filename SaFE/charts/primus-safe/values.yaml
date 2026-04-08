@@ -30,7 +30,7 @@ cd:
   # false: users can self-approve their own requests (development environment)
   require_approval: true
   # This list is of deployable components
-  components: "apiserver,resource_manager,job_manager,webhooks,web,preprocess,node_agent,cicd_runner,cicd_unified_job,model_downloader,ops_download,a2a_gateway"
+  components: "apiserver,resource_manager,job_manager,webhooks,web,preprocess,node_agent,cicd_runner,cicd_unified_job,model_downloader,ops_download,a2a_gateway,monarch"
 apiserver:
   # Apiserver component image version
   image: "apiserver:latest"
@@ -64,6 +64,8 @@ job_manager:
   cpu: 2000m
   # Memory resources allocated to job manager
   memory: 4Gi
+  # Port for Prometheus metrics endpoint
+  metrics_port: 8000
 webhooks:
   # Webhooks component image version
   image: "webhooks:latest"
@@ -85,6 +87,10 @@ web:
 preprocess:
   # Preprocessing component image version. used for pytorch-job etc.
   image: "preprocess:latest"
+monarch:
+  enable: true
+  image: "monarch:latest"
+  client_role: "monarch-client"
 ops_job:
   # Opsjob download image version. used for download file
   download_image: "s3-downloader:latest"
@@ -161,7 +167,7 @@ notification:
   # Takes precedence over direct email when both are configured.
   email_relay:
     # Enable email relay mode
-    enable: false
+    enable: true
 grafana:
   # Enable Grafana for monitoring metrics display (requires primus-lens)
   enable: false
@@ -188,9 +194,6 @@ langfuse_proxy:
   # Secret name for shared Langfuse project credentials
   secret: "primus-safe-langfuse-proxy"
   secret_path: "/etc/secrets/langfuse-proxy"
-  # Shared Langfuse project credentials (stored in Secret via Helm)
-  public_key: ""
-  secret_key: ""
   # Shared Langfuse project credentials (stored in Secret, not ConfigMap)
   public_key: ""
   secret_key: ""

@@ -11,5 +11,11 @@
     "test": "pnpm -r test",
     "test:safe": "pnpm --filter ./apps/safe test",
     "test:lens": "pnpm --filter ./apps/lens test"
+  },
+  "pnpm": {
+    "overrides": {
+      "axios@1.14.1": "1.14.0",
+      "axios@0.30.4": "0.30.3"
+    }
   }
 }

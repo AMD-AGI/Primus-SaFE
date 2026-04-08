@@ -292,12 +292,14 @@
           </div>
         </el-tab-pane>
 
+        <!-- LLM Virtual Key tab hidden: no longer exposing virtual key to users
         <el-tab-pane label="LLM Virtual Key" name="virtualKey">
           <div class="code-block">
             <el-icon class="copy-btn" @click="copyText(codeSnippets.virtualKey)"><CopyDocument /></el-icon>
             <pre><code>{{ codeSnippets.virtualKey }}</code></pre>
           </div>
         </el-tab-pane>
+        -->
 
         <el-tab-pane label="Tag Usage" name="tagUsage">
           <div class="code-block">
@@ -379,7 +381,7 @@
     </div>
   </el-card>
 
-  <!-- Virtual Key Success Dialog -->
+  <!-- Virtual Key Success Dialog (hidden: no longer exposing virtual key to users)
   <el-dialog
     v-model="virtualKeyVisible"
     title="LLM Virtual Key Created Successfully"
@@ -412,6 +414,7 @@
       </el-form-item>
     </el-form>
   </el-dialog>
+  -->
 </template>
 
 <script lang="ts" setup>
@@ -533,9 +536,9 @@ print(response.choices[0].message.content)`,
 const virtualKeyVisible = ref(false)
 const createdVirtualKey = ref('')
 
-const copyVirtualKey = () => {
-  copyText(createdVirtualKey.value)
-}
+// const copyVirtualKey = () => {
+//   copyText(createdVirtualKey.value)
+// }
 
 // ── Summary ──
 const summary = ref<LLMGatewaySummary | null>(null)

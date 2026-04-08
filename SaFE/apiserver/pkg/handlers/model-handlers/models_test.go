@@ -671,7 +671,7 @@ func TestParseListModelQuery(t *testing.T) {
 		{
 			name:           "Default values",
 			query:          "",
-			expectedLimit:  10,
+			expectedLimit:  0,
 			expectedOffset: 0,
 		},
 		{

@@ -89,7 +89,7 @@
                   <el-input v-model="form.header.cpu" :placeholder="placeholders.cpu" />
                 </el-form-item>
               </el-col>
-              <el-col :span="12">
+              <el-col :span="12" v-if="!flavorMaxVal || flavorMaxVal['amd.com/gpu']">
                 <el-form-item label="gpu">
                   <el-input v-model="form.header.gpu" :placeholder="placeholders.gpu" />
                 </el-form-item>
@@ -167,7 +167,7 @@
                       <el-input v-model="w.cpu" :placeholder="placeholders.cpu" />
                     </el-form-item>
                   </el-col>
-                  <el-col :span="12">
+                  <el-col :span="12" v-if="!flavorMaxVal || flavorMaxVal['amd.com/gpu']">
                     <el-form-item :label="`gpu`" :prop="`workers.${idx}.gpu`">
                       <el-input v-model="w.gpu" :placeholder="placeholders.gpu" />
                     </el-form-item>
@@ -223,9 +223,12 @@
                     placeholder="Select or paste nodes to exclude (comma-separated)"
                     ref="excludedNodesSelectRef"
                     :filter-method="filterExcludedNodes"
+                    :loading="nodesLoading"
                     @visible-change="
-                      (visible: boolean) =>
+                      async (visible: boolean) => {
+                        if (visible) await fetchNodesOnDropdown()
                         handleExcludedNodesVisibleChange(excludedNodesSelectRef, visible)
+                      }
                     "
                   >
                     <el-option
@@ -564,6 +567,7 @@ const wlOptions = ref([] as Array<{ label: string; value: string }>)
 const { secretOptions, fetchSecrets } = useSecrets('image')
 const excludedNodesSelectRef = ref()
 const excludedNodesSearchQuery = ref('')
+const nodesLoading = ref(false)
 
 const AUTO_RETRY_INFO = 'automatically retry after workload failure'
 const TIMEOUT_INFO = 'timeout duration in seconds'
@@ -701,7 +705,7 @@ const placeholders = computed(() => {
 const nameRegex = /^[a-z](?:[-a-z0-9]{0,34}[a-z0-9])?$/
 
 const ruleFormRef = ref<FormInstance>()
-const optRequiredIfHasWorker = (index: number, label: string) => ({
+const optRequiredIfHasWorker = (index: number, label: string): FormItemRule => ({
   validator: (_rule: unknown, value: unknown, callback: (err?: Error) => void) => {
     if ((form.workers?.length ?? 0) <= index) return callback()
     if (value == null || String(value).trim() === '')
@@ -711,7 +715,7 @@ const optRequiredIfHasWorker = (index: number, label: string) => ({
   trigger: 'blur',
 })
 const optRequiredIfHasWorker2 = (label: string) => optRequiredIfHasWorker(1, label)
-const rules = reactive({
+const rules: Record<string, FormItemRule[]> = reactive({
   displayName: [
     { required: true, message: 'Please input name', trigger: 'blur' },
     {
@@ -779,6 +783,12 @@ const onSubmit = async (formEl: FormInstance | undefined) => {
       nodesAffinity: _nodesAffinity,
       ...addPayload
     } = form
+
+    if (!flavorMaxVal.value?.['amd.com/gpu']) {
+      form.header.gpu = ''
+      if (form.workers?.[0]) form.workers[0].gpu = ''
+      if (form.workers?.[1]) form.workers[1].gpu = ''
+    }
 
     const headerRes = {
       cpu: header.cpu,
@@ -895,39 +905,56 @@ function createBetweenRule(min: number, max: number, unit?: string): FormItemRul
     trigger: 'blur',
   }
 }
-watch(
-  () => store.currentNodeFlavor,
-  async (flavorId) => {
-    if (!flavorId) return
-
-    const res = await getNodeFlavorAvail(flavorId)
-    flavorMaxVal.value = res
-    ;(rules['header.cpu'] as FormItemRule[]).push(createBetweenRule(1, res.cpu))
-    ;(rules['header.memory'] as FormItemRule[]).push(
-      createBetweenRule(1, Number(byte2Gi(res.memory ?? 0, 0, false))),
-    )
-    ;(rules['header.ephemeralStorage'] as FormItemRule[]).push(
-      createBetweenRule(1, Number(byte2Gi(res['ephemeral-storage'] ?? 0, 0, false))),
-    )
-    ;(rules['workers.0.cpu'] as FormItemRule[]).push(createBetweenRule(1, res.cpu))
-    ;(rules['workers.0.gpu'] as FormItemRule[]).push(createBetweenRule(0, res['amd.com/gpu'] ?? 0))
-    ;(rules['workers.0.memory'] as FormItemRule[]).push(
-      createBetweenRule(1, Number(byte2Gi(res.memory ?? 0, 0, false))),
-    )
-    ;(rules['workers.0.ephemeralStorage'] as FormItemRule[]).push(
-      createBetweenRule(1, Number(byte2Gi(res['ephemeral-storage'] ?? 0, 0, false))),
-    )
-    ;(rules['workers.1.cpu'] as FormItemRule[]).push(createBetweenRule(1, res.cpu))
-    ;(rules['workers.1.gpu'] as FormItemRule[]).push(createBetweenRule(0, res['amd.com/gpu'] ?? 0))
-    ;(rules['workers.1.memory'] as FormItemRule[]).push(
-      createBetweenRule(1, Number(byte2Gi(res.memory ?? 0, 0, false))),
-    )
-    ;(rules['workers.1.ephemeralStorage'] as FormItemRule[]).push(
-      createBetweenRule(1, Number(byte2Gi(res['ephemeral-storage'] ?? 0, 0, false))),
-    )
-  },
-  { immediate: true },
-)
+const fetchFlavorAvail = async () => {
+  const flavorId = store.currentNodeFlavor
+  if (!flavorId) return
+  const res = await getNodeFlavorAvail(flavorId)
+  flavorMaxVal.value = res
+  rules['header.cpu'] = [
+    { required: true, message: 'Please input cpu', trigger: 'blur' },
+    createBetweenRule(1, res.cpu),
+  ]
+  rules['header.memory'] = [
+    { required: true, message: 'Please input memory', trigger: 'blur' },
+    createBetweenRule(1, Number(byte2Gi(res.memory ?? 0, 0, false))),
+  ]
+  rules['header.ephemeralStorage'] = [
+    { required: true, message: 'Please input ephemeral storage', trigger: 'blur' },
+    createBetweenRule(1, Number(byte2Gi(res['ephemeral-storage'] ?? 0, 0, false))),
+  ]
+  rules['workers.0.cpu'] = [
+    optRequiredIfHasWorker(0, 'cpu'),
+    createBetweenRule(1, res.cpu),
+  ]
+  rules['workers.0.gpu'] = [
+    optRequiredIfHasWorker(0, 'gpu'),
+    createBetweenRule(0, res['amd.com/gpu'] ?? 0),
+  ]
+  rules['workers.0.memory'] = [
+    optRequiredIfHasWorker(0, 'memory'),
+    createBetweenRule(1, Number(byte2Gi(res.memory ?? 0, 0, false))),
+  ]
+  rules['workers.0.ephemeralStorage'] = [
+    optRequiredIfHasWorker(0, 'ephemeral storage'),
+    createBetweenRule(1, Number(byte2Gi(res['ephemeral-storage'] ?? 0, 0, false))),
+  ]
+  rules['workers.1.cpu'] = [
+    optRequiredIfHasWorker2('cpu'),
+    createBetweenRule(1, res.cpu),
+  ]
+  rules['workers.1.gpu'] = [
+    optRequiredIfHasWorker2('gpu'),
+    createBetweenRule(0, res['amd.com/gpu'] ?? 0),
+  ]
+  rules['workers.1.memory'] = [
+    optRequiredIfHasWorker2('memory'),
+    createBetweenRule(1, Number(byte2Gi(res.memory ?? 0, 0, false))),
+  ]
+  rules['workers.1.ephemeralStorage'] = [
+    optRequiredIfHasWorker2('ephemeral storage'),
+    createBetweenRule(1, Number(byte2Gi(res['ephemeral-storage'] ?? 0, 0, false))),
+  ]
+}
 
 const setInitialFormValues = async () => {
   if (!props.wlid) return
@@ -1031,6 +1058,16 @@ const fetchNodes = async () => {
   }))
 }
 
+const fetchNodesOnDropdown = async () => {
+  if (nodesLoading.value) return
+  nodesLoading.value = true
+  try {
+    await fetchNodes()
+  } finally {
+    nodesLoading.value = false
+  }
+}
+
 // Filter excluded nodes based on search query
 const filteredExcludedNodeOptions = computed(() => {
   if (!excludedNodesSearchQuery.value) {
@@ -1101,7 +1138,7 @@ const onOpen = async () => {
   showAdvanced.value = false
   cachedUseWorkspaceStorage.value = undefined
   pendingWorkspaceId.value = store.currentWorkspaceId ?? store.firstWorkspace ?? ''
-  fetchNodes()
+  fetchFlavorAvail()
   fetchWlOptions()
   fetchSecrets()
   if (props.action !== 'Create') {
@@ -1161,7 +1198,6 @@ const removeWorker = (idx: number) => {
 </style>
 <style scoped>
 .drawer-body {
-  max-height: 83vh;
   overflow-y: auto;
   /* padding: 8px 24px 16px; */
 }

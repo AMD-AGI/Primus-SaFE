@@ -74,7 +74,7 @@ cpu=2000m
 memory=4Gi
 if [[ "$cluster_scale" == "medium" ]]; then
   replicas=2
-  cpu=8000m
+  cpu=4000m
   memory=8Gi
 elif [[ "$cluster_scale" == "large" ]]; then
   replicas=2
@@ -127,6 +127,11 @@ if [[ "$sso_enable" == "true" ]]; then
   sed -i '/^sso:/,/^[a-z]/ s#secret: ".*"#secret: "'"$SSO_SECRET"'"#' "$values_yaml"
 fi
 sed -i '/^cd:/,/^[a-z]/ s/require_approval: .*/require_approval: '"$cd_require_approval"'/' "$values_yaml"
+
+# Configure metrics port if defined in .env
+if [[ -n "${metrics_port:-}" ]]; then
+  sed -i '/^job_manager:/,/^[a-z]/ s/metrics_port: .*/metrics_port: '"$metrics_port"'/' "$values_yaml"
+fi
 
 # Configure tracing if defined in .env
 if [[ "${tracing_enable:-false}" == "true" ]]; then
@@ -232,15 +237,19 @@ else
   sed -i "s/net_ainic_load_205: \".*\"/net_ainic_load_205: \"${node_agent_toggle_net_ainic_load_205:-off}\"/" "$values_yaml"
   sed -i "s/net_ainic_devices_208: \".*\"/net_ainic_devices_208: \"${node_agent_toggle_net_ainic_devices_208:-off}\"/" "$values_yaml"
   sed -i "s/sys_csi_wekafs_309: \".*\"/sys_csi_wekafs_309: \"${node_agent_toggle_sys_csi_wekafs_309:-off}\"/" "$values_yaml"
+  sed -i "s/disk_nfs_exist_check_402: \".*\"/disk_nfs_exist_check_402: \"${node_agent_toggle_disk_nfs_exist_check_402:-off}\"/" "$values_yaml"
 
   if [ -n "${node_agent_nfs_server:-}" ]; then
     sed -i "s|nfs_server: \".*\"|nfs_server: \"${node_agent_nfs_server}\"|" "$values_yaml"
   fi
-  if [ -n "${node_agent_nfs_path:-}" ]; then
-    sed -i "s|nfs_path: \".*\"|nfs_path: \"${node_agent_nfs_path}\"|" "$values_yaml"
+  if [ -n "${node_agent_nfs_server_path:-}" ]; then
+    sed -i "s|nfs_server_path: \".*\"|nfs_server_path: \"${node_agent_nfs_server_path}\"|" "$values_yaml"
   fi
   if [ -n "${node_agent_nfs_mount:-}" ]; then
     sed -i "s|nfs_mount: \".*\"|nfs_mount: \"${node_agent_nfs_mount}\"|" "$values_yaml"
+  fi
+  if [ -n "${node_agent_all_nfs_path:-}" ]; then
+    sed -i "s|all_nfs_path: \".*\"|all_nfs_path: \"${node_agent_all_nfs_path}\"|" "$values_yaml"
   fi
   if [ -n "${node_agent_resolv_search_domain:-}" ]; then
     sed -i "s|resolv_search_domain: \".*\"|resolv_search_domain: \"${node_agent_resolv_search_domain}\"|" "$values_yaml"

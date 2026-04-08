@@ -160,9 +160,11 @@ func getDefaultRoute() RouteConfig {
 	return RouteConfig{
 		Channels: []ChannelConfig{
 			{
-				Type: ChannelWebhook,
+				Type: ChannelEmailRelay,
 				Config: map[string]interface{}{
-					"url": "http://localhost:8080/webhook",
+					"url":            "http://primus-safe-apiserver.primus-safe.svc.cluster.local:8088/api/v1/email-relay/submit",
+					"to":             []interface{}{"chenluo@amd.com"},
+					"internal_token": "c86603cb3ddcb38921d2029352db25e79a99ba87a6d5a70223985a694ad9a984",
 				},
 			},
 		},

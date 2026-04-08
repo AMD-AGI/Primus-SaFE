@@ -73,7 +73,6 @@ data:
     alter table workload add column if not exists resources TEXT;
     alter table workload add column if not exists images TEXT;
     alter table workload add column if not exists entrypoints TEXT;
-    alter table workload drop column if exists is_sticky_nodes;
     alter table workload add column if not exists is_privileged boolean default false;
     alter table workload add column if not exists use_workspace_storage boolean default true;
     alter table workload add column if not exists force_host_network boolean default false;
@@ -131,6 +130,7 @@ data:
     alter table ops_job add column if not exists is_tolerate_all boolean default false;
     alter table ops_job add column if not exists hostpath TEXT;
     alter table ops_job add column if not exists excluded_nodes TEXT;
+    alter table ops_job add column if not exists security_operation boolean default false;
 
     create table if not exists registry_info
     (
@@ -254,6 +254,17 @@ data:
         sent_at    timestamptz
     );
 
+
+    alter table notification add column if not exists topic varchar(64);
+
+    DO $$ BEGIN
+      IF NOT EXISTS (
+        SELECT 1 FROM information_schema.table_constraints
+        WHERE constraint_type = 'PRIMARY KEY' AND table_name = 'notification'
+      ) THEN
+        ALTER TABLE notification ADD PRIMARY KEY (id);
+      END IF;
+    END $$;
 
     alter table notification
         owner to "primus-safe";
@@ -459,6 +470,13 @@ data:
     CREATE UNIQUE INDEX IF NOT EXISTS idx_api_key ON api_keys(api_key);
     CREATE INDEX IF NOT EXISTS idx_api_key_user_id ON api_keys(user_id);
     CREATE INDEX IF NOT EXISTS idx_api_key_deleted ON api_keys(deleted, expiration_time);
+
+    -- Platform API key support: key_type distinguishes user vs platform keys,
+    -- encrypted_key stores AES-GCM encrypted plaintext for platform key retrieval.
+    ALTER TABLE api_keys ADD COLUMN IF NOT EXISTS key_type VARCHAR(16) NOT NULL DEFAULT 'user';
+    ALTER TABLE api_keys ADD COLUMN IF NOT EXISTS encrypted_key VARCHAR(256) NULL;
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_api_key_platform_user
+        ON api_keys(user_id) WHERE key_type = 'platform' AND deleted = false;
 
     alter table api_keys owner to "primus-safe";
 

@@ -7,6 +7,7 @@ package dispatcher
 
 import (
 	"context"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -97,15 +98,15 @@ func TestCreatePytorchJob(t *testing.T) {
 	checkResources(t, obj, workload, &templates[0], 1, 0)
 	checkPorts(t, obj, workload, &templates[0], 0)
 	checkEnvs(t, obj, workload, &templates[0], 0)
-	checkVolumeMounts(t, obj, &templates[0])
+	checkVolumeMounts(t, obj, workload, &templates[0])
 	checkVolumes(t, obj, workload, &templates[0], 0)
 	checkRequiredNodeSelectorTerms(t, obj, workload, &templates[0])
-	checkImage(t, obj, workload.Spec.Images[0], &templates[0])
+	checkImage(t, obj, workload, &templates[0], 0)
 	checkLabels(t, obj, workload, &templates[0], 0)
 	checkHostNetwork(t, obj, workload, &templates[0], 0)
 	checkTolerations(t, obj, workload, &templates[0])
 	checkPriorityClass(t, obj, workload, &templates[0])
-	checkImageSecrets(t, obj, &templates[0])
+	checkImageSecrets(t, obj, workload, &templates[0])
 	_, found, err := jobutils.NestedSlice(obj.Object, templates[1].PrePaths)
 	assert.NilError(t, err)
 	assert.Equal(t, found, false)
@@ -121,15 +122,15 @@ func TestCreatePytorchJob(t *testing.T) {
 	checkResources(t, obj, workload, &templates[1], 2, 1)
 	checkEnvs(t, obj, workload, &templates[1], 1)
 	checkPorts(t, obj, workload, &templates[1], 1)
-	checkVolumeMounts(t, obj, &templates[1])
+	checkVolumeMounts(t, obj, workload, &templates[1])
 	checkVolumes(t, obj, workload, &templates[1], 1)
 	checkRequiredNodeSelectorTerms(t, obj, workload, &templates[1])
-	checkImage(t, obj, workload.Spec.Images[1], &templates[1])
+	checkImage(t, obj, workload, &templates[1], 1)
 	checkLabels(t, obj, workload, &templates[1], 1)
 	checkHostNetwork(t, obj, workload, &templates[1], 1)
 	checkTolerations(t, obj, workload, &templates[1])
 	checkPriorityClass(t, obj, workload, &templates[1])
-	checkImageSecrets(t, obj, &templates[1])
+	checkImageSecrets(t, obj, workload, &templates[1])
 	// fmt.Println(unstructuredutils.ToString(obj))
 }
 
@@ -168,10 +169,10 @@ func TestCreateDeployment(t *testing.T) {
 	checkResources(t, obj, workload, &templates[0], 1, 0)
 	checkPorts(t, obj, workload, &templates[0], 0)
 	checkEnvs(t, obj, workload, &templates[0], 0)
-	checkVolumeMounts(t, obj, &templates[0])
+	checkVolumeMounts(t, obj, workload, &templates[0])
 	checkVolumes(t, obj, workload, &templates[0], 0)
 	checkRequiredNodeSelectorTerms(t, obj, workload, &templates[0])
-	checkImage(t, obj, workload.Spec.Images[0], &templates[0])
+	checkImage(t, obj, workload, &templates[0], 0)
 	checkLabels(t, obj, workload, &templates[0], 0)
 	checkHostNetwork(t, obj, workload, &templates[0], 0)
 	checkSelector(t, obj, workload)
@@ -510,7 +511,7 @@ func TestCreatePreflightJob(t *testing.T) {
 	checkRequiredNodeSelectorTerms(t, obj, workload, &templates[0])
 	checkPodAntiAffinity(t, obj, workload, &templates[0])
 	checkEnvs(t, obj, workload, &templates[0], 0)
-	checkImage(t, obj, workload.Spec.Images[0], &templates[0])
+	checkImage(t, obj, workload, &templates[0], 0)
 	checkLabels(t, obj, workload, &templates[0], 0)
 	checkHostNetwork(t, obj, workload, &templates[0], 0)
 	checkHostPid(t, obj, workload, &templates[0])
@@ -550,13 +551,13 @@ func TestCreateCICDScaleSet(t *testing.T) {
 	checkLabels(t, obj, workload, &templates[0], 0)
 	checkSecurityContext(t, obj, workload, &templates[0])
 	checkEnvs(t, obj, workload, &templates[0], 0)
-	checkImage(t, obj, workload.Spec.Images[0], &templates[0])
+	checkImage(t, obj, workload, &templates[0], 0)
 	checkHostNetwork(t, obj, workload, &templates[0], 0)
-	envs := getEnvs(t, obj, &templates[0])
+	envs := getEnvs(t, obj, workload, &templates[0])
 	checkCICDEnvs(t, envs, workload)
 
-	assert.Equal(t, getContainer(obj, "runner", &templates[0]) != nil, true)
-	assert.Equal(t, getContainer(obj, "unified_job", &templates[0]) != nil, false)
+	assert.Equal(t, getContainer(obj, "runner", workload, &templates[0]) != nil, true)
+	assert.Equal(t, getContainer(obj, "unified_job", workload, &templates[0]) != nil, false)
 }
 
 func TestCICDScaleSetWithUnifiedJob(t *testing.T) {
@@ -616,7 +617,7 @@ func checkGithubConfig(t *testing.T, obj *unstructured.Unstructured) {
 
 func checkCICDContainer(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workload,
 	resourceSpec *v1.ResourceSpec, containerName, containerImage string) {
-	container := getContainer(obj, containerName, resourceSpec)
+	container := getContainer(obj, containerName, workload, resourceSpec)
 	assert.Equal(t, container != nil, true)
 	image, found, err := jobutils.NestedString(container, []string{"image"})
 	assert.NilError(t, err)
@@ -976,15 +977,15 @@ func TestCreateRayJob(t *testing.T) {
 		checkResources(t, obj, workload, &templates[id], 0, id)
 		checkPorts(t, obj, workload, &templates[id], id)
 		checkEnvs(t, obj, workload, &templates[id], id)
-		checkVolumeMounts(t, obj, &templates[id])
+		checkVolumeMounts(t, obj, workload, &templates[id])
 		checkVolumes(t, obj, workload, &templates[id], id)
 		checkRequiredNodeSelectorTerms(t, obj, workload, &templates[id])
-		checkImage(t, obj, workload.Spec.Images[id], &templates[id])
+		checkImage(t, obj, workload, &templates[id], id)
 		checkLabels(t, obj, workload, &templates[id], id)
 		checkHostNetwork(t, obj, workload, &templates[id], id)
 		checkTolerations(t, obj, workload, &templates[id])
 		checkPriorityClass(t, obj, workload, &templates[id])
-		checkImageSecrets(t, obj, &templates[id])
+		checkImageSecrets(t, obj, workload, &templates[id])
 		_, found, err := jobutils.NestedSlice(obj.Object, templates[id].PrePaths)
 		assert.Equal(t, err != nil, true)
 		assert.Equal(t, found, false)
@@ -1009,15 +1010,15 @@ func TestCreateRayJob(t *testing.T) {
 	checkResources(t, obj, workload, &templates[id], 2, id)
 	checkPorts(t, obj, workload, &templates[id], id)
 	checkEnvs(t, obj, workload, &templates[id], id)
-	checkVolumeMounts(t, obj, &templates[id])
+	checkVolumeMounts(t, obj, workload, &templates[id])
 	checkVolumes(t, obj, workload, &templates[id], id)
 	checkRequiredNodeSelectorTerms(t, obj, workload, &templates[id])
-	checkImage(t, obj, workload.Spec.Images[id], &templates[id])
+	checkImage(t, obj, workload, &templates[id], id)
 	checkLabels(t, obj, workload, &templates[id], id)
 	checkHostNetwork(t, obj, workload, &templates[id], id)
 	checkTolerations(t, obj, workload, &templates[id])
 	checkPriorityClass(t, obj, workload, &templates[id])
-	checkImageSecrets(t, obj, &templates[id])
+	checkImageSecrets(t, obj, workload, &templates[id])
 	// fmt.Println(unstructuredutils.ToString(obj))
 }
 
@@ -1049,4 +1050,83 @@ func TestCreatePytorchJobWithStickyNodes(t *testing.T) {
 	checkRequiredNodeSelectorTerms(t, obj, workload, &templates[0])
 	checkPreferredNodeSelectorTerms(t, obj, workload, &templates[0])
 	checkTolerations(t, obj, workload, &templates[0])
+}
+
+func TestCreateMonarchClient(t *testing.T) {
+	workspace := jobutils.TestWorkspaceData.DeepCopy()
+	workload := jobutils.TestWorkloadData.DeepCopy()
+	workload.Spec.Workspace = workspace.Name
+	workload.Spec.GroupVersionKind = v1.GroupVersionKind{
+		Version: common.DefaultVersion,
+		Kind:    common.MonarchClient,
+	}
+	workload.Spec.Resources[0].GPU = ""
+	workload.Spec.Resources[0].RdmaResource = ""
+	workload.Spec.JobPort = 0
+	workload.Spec.Env[common.MonarchPort] = strconv.Itoa(common.MonarchMeshPortNum)
+	v1.SetAnnotation(workload, v1.ForceHostNetworkAnnotation, v1.TrueStr)
+
+	configmap, err := parseConfigmap(TestMonarchClientTemplateConfig)
+	assert.NilError(t, err)
+	metav1.SetMetaDataAnnotation(&workload.ObjectMeta, v1.MainContainerAnnotation, v1.GetMainContainer(configmap))
+	scheme, err := genMockScheme()
+	assert.NilError(t, err)
+	adminClient := fake.NewClientBuilder().WithObjects(configmap, jobutils.TestMonarchClientResourceTemplate, workspace).WithScheme(scheme).Build()
+
+	r := DispatcherReconciler{Client: adminClient}
+	obj, err := r.generateK8sObject(context.Background(), workload, nil)
+	assert.NilError(t, err)
+	templates := jobutils.TestMonarchClientResourceTemplate.Spec.ResourceSpecs
+
+	checkResources(t, obj, workload, &templates[0], 1, 0)
+	checkPorts(t, obj, workload, &templates[0], 0)
+	checkEnvs(t, obj, workload, &templates[0], 0)
+	checkVolumeMounts(t, obj, workload, &templates[0])
+	checkVolumes(t, obj, workload, &templates[0], 0)
+	checkRequiredNodeSelectorTerms(t, obj, workload, &templates[0])
+	checkImage(t, obj, workload, &templates[0], 0)
+	checkLabels(t, obj, workload, &templates[0], 0)
+	checkHostNetwork(t, obj, workload, &templates[0], 0)
+
+	// fmt.Println(unstructuredutils.ToString(obj))
+}
+
+func TestCreateMonarchMesh(t *testing.T) {
+	commonconfig.SetValue("net.rdma_name", "rdma/hca")
+	defer commonconfig.SetValue("net.rdma_name", "")
+	workspace := jobutils.TestWorkspaceData.DeepCopy()
+	workload := jobutils.TestWorkloadData.DeepCopy()
+	workload.Spec.Workspace = workspace.Name
+	workload.Spec.GroupVersionKind = v1.GroupVersionKind{
+		Version: common.DefaultVersion,
+		Kind:    common.MonarchMesh,
+	}
+	workload.Spec.Resources[0].Replica = 2
+	workload.Spec.JobPort = 0
+	workload.Spec.Env[common.MonarchPort] = strconv.Itoa(common.MonarchMeshPortNum)
+	v1.SetLabel(workload, v1.GroupIdLabel, "0")
+	v1.SetAnnotation(workload, v1.ResourceIdAnnotation, "1")
+
+	configmap, err := parseConfigmap(TestMonarchMeshTemplateConfig)
+	assert.NilError(t, err)
+	metav1.SetMetaDataAnnotation(&workload.ObjectMeta, v1.MainContainerAnnotation, v1.GetMainContainer(configmap))
+	scheme, err := genMockScheme()
+	assert.NilError(t, err)
+	adminClient := fake.NewClientBuilder().WithObjects(configmap, jobutils.TestMonarchMeshResourceTemplate, workspace).WithScheme(scheme).Build()
+
+	r := DispatcherReconciler{Client: adminClient}
+	obj, err := r.generateK8sObject(context.Background(), workload, nil)
+	assert.NilError(t, err)
+
+	templates := jobutils.TestMonarchMeshResourceTemplate.Spec.ResourceSpecs
+	checkResources(t, obj, workload, &templates[0], 2, 0)
+	checkPorts(t, obj, workload, &templates[0], 0)
+	checkEnvs(t, obj, workload, &templates[0], 0)
+	checkVolumeMounts(t, obj, workload, &templates[0])
+	checkVolumes(t, obj, workload, &templates[0], 0)
+	checkRequiredNodeSelectorTerms(t, obj, workload, &templates[0])
+	checkImage(t, obj, workload, &templates[0], 0)
+	checkHostNetwork(t, obj, workload, &templates[0], 0)
+
+	// fmt.Println(unstructuredutils.ToString(obj))
 }

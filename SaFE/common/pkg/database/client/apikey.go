@@ -130,6 +130,25 @@ func (c *Client) GetApiKeyByKey(ctx context.Context, key string) (*ApiKey, error
 	return &apiKey, nil
 }
 
+// GetPlatformKeyByUserId retrieves the active platform key for a user.
+func (c *Client) GetPlatformKeyByUserId(ctx context.Context, userId string) (*ApiKey, error) {
+	if userId == "" {
+		return nil, commonerrors.NewBadRequest("user id is empty")
+	}
+	db, err := c.getDB()
+	if err != nil {
+		return nil, err
+	}
+
+	cmd := fmt.Sprintf(`SELECT * FROM %s WHERE user_id=$1 AND key_type='platform' AND deleted=false LIMIT 1`, TApiKey)
+	var apiKey ApiKey
+	err = db.GetContext(ctx, &apiKey, cmd, userId)
+	if err != nil {
+		return nil, err
+	}
+	return &apiKey, nil
+}
+
 // SetApiKeyDeleted performs soft delete on an API key.
 func (c *Client) SetApiKeyDeleted(ctx context.Context, userId string, id int64) error {
 	db, err := c.getDB()

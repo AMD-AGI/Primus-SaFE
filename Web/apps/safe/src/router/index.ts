@@ -79,6 +79,11 @@ const router = createRouter({
           component: () => import('../pages/RayJob/index.vue'),
         },
         {
+          path: '/monarch',
+          name: 'Monarch',
+          component: () => import('../pages/Monarch/index.vue'),
+        },
+        {
           path: '/authoring',
           name: 'Authoring',
           component: () => import('../pages/Authoring/index.vue'),
@@ -112,6 +117,11 @@ const router = createRouter({
           path: '/rayjob/detail',
           name: 'RayJobDetail',
           component: () => import('../pages/RayJob/RayJobDetail.vue'),
+        },
+        {
+          path: '/monarch/detail',
+          name: 'MonarchDetail',
+          component: () => import('../pages/Monarch/MonarchDetail.vue'),
         },
         {
           path: '/training/root-cause',

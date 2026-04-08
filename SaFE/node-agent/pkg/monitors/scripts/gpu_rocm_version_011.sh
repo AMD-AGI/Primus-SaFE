@@ -13,10 +13,24 @@ if [ "$#" -lt 1 ]; then
   exit 2
 fi
 
+host() { nsenter --target 1 --mount --uts --ipc --net --pid -- "$@"; }
+
 expect_version=$1
-current_version=`nsenter --target 1 --mount --uts --ipc --net --pid -- /usr/bin/hipconfig --version |awk -F'.' '{print $1"."$2}'`
+
+hipconfig=""
+for path in /usr/bin/hipconfig /opt/rocm/bin/hipconfig; do
+  if host test -x "$path" > /dev/null 2>&1; then
+    hipconfig="$path"
+    break
+  fi
+done
+if [ -z "$hipconfig" ]; then
+  exit 2
+fi
+
+current_version=$(host "$hipconfig" --version | awk -F'.' '{print $1"."$2}')
 if [ $? -ne 0 ]; then
-  echo "Error: failed to execute hipconfig --version"
+  echo "Error: failed to execute $hipconfig --version"
   exit 1
 fi
 

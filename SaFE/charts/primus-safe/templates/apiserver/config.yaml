@@ -29,6 +29,9 @@ data:
       enable: {{ default true (default .Values.k8s).enable_health_check }}
       # The port of health check
       port: {{ default 8082 (default .Values.apiserver).health_port }}
+    metrics:
+      enable: true
+      port: {{ default 8000 (default .Values.job_manager).metrics_port }}
     workspace:
       # The percentage of memory reserved for the system.
       mem_reserve_percent: {{ default 0.02 (default .Values.workspace).mem_reserve_percent }}
@@ -84,6 +87,8 @@ data:
     cicd:
       enable: {{ .Values.cicd.enable }}
       controller_name: {{ .Values.cicd.controller_name }}
+    monarch:
+      enable: {{ .Values.monarch.enable }}
     ops_job:
       # Opsjob download image version. used for download file
       download_image: "{{ .Values.global.image_registry }}/primussafe/{{ .Values.ops_job.download_image }}"
@@ -92,7 +97,7 @@ data:
       require_approval: {{ default false (default .Values.cd).require_approval }}
       components: {{ .Values.cd.components }}
     notification:
-      enable: {{ and .Values.notification .Values.notification.email .Values.notification.email.smtp_host | default false }}
+      enable: {{ or (and .Values.notification .Values.notification.email .Values.notification.email.smtp_host) (and .Values.notification .Values.notification.email_relay .Values.notification.email_relay.enable) | default false }}
       secret_path: /etc/secrets/notification
     tracing:
       # Whether to enable OpenTelemetry tracing

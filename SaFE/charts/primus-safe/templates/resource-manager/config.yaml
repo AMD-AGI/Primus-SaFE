@@ -17,13 +17,16 @@ data:
       # Ingress component name selected during install.sh
       ingress: {{ .Values.net.ingress }}
     notification:
-      enable: {{ and .Values.notification .Values.notification.email .Values.notification.email.smtp_host | default false }}
+      enable: {{ or (and .Values.notification .Values.notification.email .Values.notification.email.smtp_host) (and .Values.notification .Values.notification.email_relay .Values.notification.email_relay.enable) | default false }}
       secret_path: /etc/secrets/notification
     health_check:
       # Whether to enable health check
       enable: {{ default true (default .Values.k8s).enable_health_check }}
       # The port of health check
       port: {{ default 8081 (default .Values.resource_manager).health_port }}
+    metrics:
+      enable: true
+      port: {{ default 8000 (default .Values.job_manager).metrics_port }}
     leader_election:
       # LeaderElection determines whether or not to use leader election when starting the manager.
       enable: true
@@ -81,6 +84,9 @@ data:
       enable: {{ .Values.cicd.enable }}
       role_name: {{ .Values.cicd.role_name }}
       controller_name: {{ .Values.cicd.controller_name }}
+    monarch:
+      enable: {{ .Values.monarch.enable }}
+      client_role: {{ .Values.monarch.client_role }}
     model:
       # Image for downloading models from HuggingFace and uploading to S3
       # Uses global.image_registry to support different registry environments

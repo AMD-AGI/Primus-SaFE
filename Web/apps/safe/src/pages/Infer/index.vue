@@ -99,7 +99,10 @@
           <template #default="{ row }">
             <div class="flex flex-col items-start">
               <div class="flex items-center">
-                <el-link type="primary" @click="jumpToDetail(row.workloadId)">{{
+                <el-link
+                  type="primary"
+                  v-route="{ path: '/infer/detail', query: { id: row.workloadId } }"
+                >{{
                   row.displayName
                 }}</el-link>
                 <el-tooltip
@@ -527,6 +530,11 @@ const getActions = (_row: Row): Action[] => [
     btnClass: 'btn-primary-plain',
     disabled: (r: Row) => !['Stopped','Failed','Succeeded'].includes((r as any).phase),
     onClick: (r: Row) => {
+      const endTime = (r as any).endTime
+      if (endTime && dayjs().diff(dayjs.utc(endTime), 'second') < 15) {
+        ElMessage.warning('Please wait 15 seconds after stopping before resuming the workload.')
+        return
+      }
       curAction.value = 'Resume'
       curWlId.value = r.workloadId
       addVisible.value = true

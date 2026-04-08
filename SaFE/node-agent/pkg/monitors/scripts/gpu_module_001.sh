@@ -6,26 +6,32 @@
 #
 
 set -o pipefail
-export PATH="/usr/bin:/bin:${PATH:-}"
-[ -d /tmp ] || mkdir -p /tmp 2>/dev/null || true
+export PATH="/usr/bin:/bin:/usr/sbin:/sbin:${PATH:-}"
 
-nsenter --target 1 --mount --uts --ipc --net --pid -- lsmod | grep 'amdgpu ' > /dev/null
+host() { nsenter --target 1 --mount --uts --ipc --net --pid -- "$@"; }
+
+json_tmpfile="/tmp/rocm-smi.json.tmp"
+json_outfile="/tmp/rocm-smi.json"
+
+host lsmod | grep 'amdgpu ' > /dev/null
 if [ $? -ne 0 ]; then
   echo "Error: unable to find amdgpu module"
   exit 1
 fi
 
-nsenter --target 1 --mount --uts --ipc --net --pid -- ls /usr/bin/rocm-smi > /dev/null
+host test -x /usr/bin/rocm-smi > /dev/null 2>&1
 if [ $? -ne 0 ]; then
   exit 2
 fi
 
-nsenter --target 1 --mount --uts --ipc --net --pid -- /usr/bin/rocm-smi > /tmp/rocm-smi.tmp
+# Cache JSON output with all-info, driver version, and topology
+host /usr/bin/rocm-smi -a --showdriverversion --showtopoaccess --json > "${json_tmpfile}" 2>/dev/null
 ret=$?
 if [ $ret -ne 0 ]; then
-  echo "Error: failed to execute rocm-smi. ret=$ret"
-  rm -f /tmp/rocm-smi.tmp
+  echo "Error: failed to execute rocm-smi --json. ret=$ret"
+  rm -f "${json_tmpfile}" 2>/dev/null || true
   exit 1
 fi
-mv /tmp/rocm-smi.tmp /tmp/rocm-smi
+mv -f "${json_tmpfile}" "${json_outfile}" 2>/dev/null || true
+
 exit 0

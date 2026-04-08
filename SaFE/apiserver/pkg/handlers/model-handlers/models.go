@@ -6,9 +6,12 @@
 package model_handlers
 
 import (
+	"compress/gzip"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 	"strings"
 	"time"
 
@@ -484,9 +487,11 @@ func (h *Handler) listModels(c *gin.Context) (interface{}, error) {
 				}
 			}
 
+			paged := items[start:end]
+			enrichInferenceXInfo(paged)
 			return &ListModelResponse{
 				Total: total,
-				Items: items[start:end],
+				Items: paged,
 			}, nil
 		}
 		// If error or empty, fall through to K8s
@@ -537,9 +542,11 @@ func (h *Handler) listModels(c *gin.Context) (interface{}, error) {
 		}
 	}
 
+	paged := items[start:end]
+	enrichInferenceXInfo(paged)
 	return &ListModelResponse{
 		Total: total,
-		Items: items[start:end],
+		Items: paged,
 	}, nil
 }
 
@@ -1102,4 +1109,104 @@ func sanitizeLabelValue(s string) string {
 		result = strings.TrimRight(result, "-_.")
 	}
 	return result
+}
+
+// inferenceXModels caches the model list from InferenceX /filters API.
+// Populated lazily on first call, refreshed every 24h.
+var (
+	inferenceXModelCache     []string
+	inferenceXModelCacheTime time.Time
+)
+
+var inferenceXFallbackModels = []string{
+	"DeepSeek-R1-0528", "GLM-5", "gpt-oss-120b",
+	"Llama-3.3-70B-Instruct-FP8", "Qwen-3.5-397B-A17B",
+	"Kimi-K2.5", "MiniMax-M2.5",
+}
+
+func getInferenceXModels() []string {
+	if len(inferenceXModelCache) > 0 && time.Since(inferenceXModelCacheTime) < 24*time.Hour {
+		return inferenceXModelCache
+	}
+
+	models, err := fetchInferenceXModelList()
+	if err != nil {
+		klog.Warningf("Failed to fetch InferenceX model list, using fallback: %v", err)
+		return inferenceXFallbackModels
+	}
+	inferenceXModelCache = models
+	inferenceXModelCacheTime = time.Now()
+	return models
+}
+
+func fetchInferenceXModelList() ([]string, error) {
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Get("https://inferencex.semianalysis.com/api/v1/availability")
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	var reader io.Reader = resp.Body
+	if resp.Header.Get("Content-Encoding") == "gzip" {
+		gr, gzErr := gzip.NewReader(resp.Body)
+		if gzErr != nil {
+			return nil, gzErr
+		}
+		defer gr.Close()
+		reader = gr
+	}
+
+	var rows []struct{ Model string `json:"model"` }
+	if err := json.NewDecoder(reader).Decode(&rows); err != nil {
+		return nil, err
+	}
+
+	// availability returns DB keys (e.g. "dsr1"), map to display names
+	dbToDisplay := map[string]string{
+		"dsr1":       "DeepSeek-R1-0528",
+		"glm5":       "GLM-5",
+		"gptoss120b": "gpt-oss-120b",
+		"llama70b":   "Llama-3.3-70B-Instruct-FP8",
+		"qwen3.5":    "Qwen-3.5-397B-A17B",
+		"kimik2.5":   "Kimi-K2.5",
+		"minimaxm2.5": "MiniMax-M2.5",
+	}
+
+	seen := make(map[string]bool)
+	var result []string
+	for _, r := range rows {
+		if name, ok := dbToDisplay[r.Model]; ok && !seen[name] {
+			seen[name] = true
+			result = append(result, name)
+		}
+	}
+	return result, nil
+}
+
+// displayNameToInferenceX maps our model DisplayName patterns to InferenceX model names.
+// Key is lowercased suffix after the org prefix (e.g. "deepseek-r1-0528" from "deepseek-ai/DeepSeek-R1-0528").
+var displayNameToInferenceX = map[string]string{
+	"deepseek-r1-0528":            "DeepSeek-R1-0528",
+	"glm-5":                       "GLM-5",
+	"gpt-oss-120b":                "gpt-oss-120b",
+	"llama-3.3-70b-instruct-fp8":  "Llama-3.3-70B-Instruct-FP8",
+	"qwen3.5-397b-a17b":           "Qwen-3.5-397B-A17B",
+	"kimi-k2.5":                   "Kimi-K2.5",
+	"minimax-m2.5":                "MiniMax-M2.5",
+}
+
+func enrichInferenceXInfo(items []ModelInfo) {
+	for i := range items {
+		displayName := items[i].DisplayName
+		// Strip org prefix: "deepseek-ai/DeepSeek-R1-0528" → "DeepSeek-R1-0528"
+		if idx := strings.LastIndex(displayName, "/"); idx >= 0 {
+			displayName = displayName[idx+1:]
+		}
+		lower := strings.ToLower(displayName)
+		if infxModel, ok := displayNameToInferenceX[lower]; ok {
+			items[i].HasInferenceX = true
+			items[i].InferenceXModel = infxModel
+		}
+	}
 }

@@ -41,6 +41,7 @@ const (
 	Unauthorized          = PrimusPrefix + "00009"
 	ResourceProcessing    = PrimusPrefix + "00010"
 	UserNotRegistered     = PrimusPrefix + "00011"
+	StatusConflict        = PrimusPrefix + "00012"
 )
 
 // workload: 01xxx
@@ -150,6 +151,16 @@ func NewForbidden(message string) *apierrors.StatusError {
 		Status:  metav1.StatusFailure,
 		Code:    http.StatusForbidden,
 		Reason:  Forbidden,
+		Message: message,
+	}}
+}
+
+// NewConflict creates a new conflict error with the given message.
+func NewConflict(message string) *apierrors.StatusError {
+	return &apierrors.StatusError{ErrStatus: metav1.Status{
+		Status:  metav1.StatusFailure,
+		Code:    http.StatusConflict,
+		Reason:  StatusConflict,
 		Message: message,
 	}}
 }

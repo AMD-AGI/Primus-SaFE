@@ -11,11 +11,6 @@ import (
 	"strconv"
 	"strings"
 
-	commonfaults "github.com/AMD-AIG-AIMA/SAFE/common/pkg/faults"
-	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/quantity"
-	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
-	"github.com/AMD-AIG-AIMA/SAFE/job-manager/pkg/syncer"
-	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/maps"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -24,8 +19,13 @@ import (
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
+	commonfaults "github.com/AMD-AIG-AIMA/SAFE/common/pkg/faults"
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/quantity"
+	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
+	"github.com/AMD-AIG-AIMA/SAFE/job-manager/pkg/syncer"
 	jobutils "github.com/AMD-AIG-AIMA/SAFE/job-manager/pkg/utils"
+	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/maps"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/sets"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
 )
@@ -40,56 +40,61 @@ const (
 // based on the admin workload specification and workspace configuration.
 func initializeObject(obj *unstructured.Unstructured,
 	workload *v1.Workload, workspace *v1.Workspace, resourceSpec *v1.ResourceSpec, resourceId int) error {
-	_, found, err := jobutils.NestedField(obj.Object, resourceSpec.PrePaths)
-	if err != nil || !found {
-		return nil
+	if len(resourceSpec.PrePaths) > 0 {
+		_, found, err := jobutils.NestedField(obj.Object, resourceSpec.PrePaths)
+		if err != nil || !found {
+			return nil
+		}
 	}
-	templatePath := resourceSpec.GetTemplatePath()
 
-	path := append(templatePath, "spec",
+	var err error
+	templatePath := resourceSpec.GetTemplatePath()
+	podSpec := getPodSpec(workload)
+
+	path := append(templatePath, podSpec,
 		"affinity", "nodeAffinity", "requiredDuringSchedulingIgnoredDuringExecution", "nodeSelectorTerms")
 	if err = modifyRequiredNodeAffinity(obj, workload, path); err != nil {
 		return fmt.Errorf("failed to modify nodeSelectorTerms: %v", err.Error())
 	}
 	if v1.IsRetryingOnOriginal(workload) || v1.GetNodesAffinity(workload) == common.NodesAffinityPreferred {
-		path = append(templatePath, "spec",
+		path = append(templatePath, podSpec,
 			"affinity", "nodeAffinity", "preferredDuringSchedulingIgnoredDuringExecution")
 		if err = modifyPreferredNodeAffinity(obj, workload, path); err != nil {
 			return fmt.Errorf("failed to modify preferredNodeAffinity: %v", err.Error())
 		}
 	}
 	if v1.IsRequireNodeSpread(workload) {
-		path = append(templatePath, "spec",
+		path = append(templatePath, podSpec,
 			"affinity", "podAntiAffinity", "requiredDuringSchedulingIgnoredDuringExecution")
 		if err = modifyPodAntiAffinity(obj, workload, path); err != nil {
 			return fmt.Errorf("failed to modify podAntiAffinity: %v", err.Error())
 		}
 	}
-	path = append(templatePath, "spec", "containers")
+	path = append(templatePath, podSpec, "containers")
 	if err = modifyContainers(obj, workload, workspace, path, resourceId); err != nil {
 		return fmt.Errorf("failed to modify main container: %v", err.Error())
 	}
-	path = append(templatePath, "spec", "volumes")
+	path = append(templatePath, podSpec, "volumes")
 	if err = modifyVolumes(obj, workload, workspace, path); err != nil {
 		return fmt.Errorf("failed to modify volumes: %v", err.Error())
 	}
-	path = append(templatePath, "spec", "imagePullSecrets")
+	path = append(templatePath, podSpec, "imagePullSecrets")
 	if err = modifyImageSecrets(obj, workload, path); err != nil {
 		return fmt.Errorf("failed to modify image secrets: %v", err.Error())
 	}
-	path = append(templatePath, "spec", "priorityClassName")
+	path = append(templatePath, podSpec, "priorityClassName")
 	if err = modifyPriorityClass(obj, workload, path); err != nil {
 		return fmt.Errorf("failed to modify priority: %v", err.Error())
 	}
-	path = append(templatePath, "spec", "serviceAccountName")
+	path = append(templatePath, podSpec, "serviceAccountName")
 	if err = modifyServiceAccountName(obj, workload, path); err != nil {
 		return fmt.Errorf("failed to modify sa: %v", err.Error())
 	}
-	path = append(templatePath, "spec", "hostNetwork")
+	path = append(templatePath, podSpec, "hostNetwork")
 	if err = modifyHostNetwork(obj, workload, path, resourceId); err != nil {
 		return fmt.Errorf("failed to modify host network: %v", err.Error())
 	}
-	path = append(templatePath, "spec", "tolerations")
+	path = append(templatePath, podSpec, "tolerations")
 	if err = modifyTolerations(obj, workload, path); err != nil {
 		return fmt.Errorf("failed to modify tolerations: %v", err.Error())
 	}
@@ -221,7 +226,7 @@ func modifyContainers(obj *unstructured.Unstructured,
 	mainContainerName := commonworkload.GetMainContainer(workload, workload.Spec.Kind, resourceId)
 	for i := range containers {
 		container := containers[i].(map[string]interface{})
-		modifyEnv(container, env, workload.Spec.Resources[resourceId].RdmaResource != "")
+		modifyEnv(container, env, commonworkload.IsEnabledHostNetwork(workload, resourceId))
 		modifyVolumeMounts(container, workload, workspace, resourceId)
 		modifyPrivilegedSecurity(container, workload)
 		name := jobutils.NestedStringSilently(container, []string{"name"})
@@ -437,7 +442,7 @@ func modifyServiceAccountName(obj *unstructured.Unstructured, workload *v1.Workl
 
 // modifyHostNetwork enables or disables host networking based on workload rdma-resource.
 func modifyHostNetwork(obj *unstructured.Unstructured, workload *v1.Workload, path []string, resourceId int) error {
-	isEnableHostNetwork := workload.Spec.Resources[resourceId].RdmaResource != ""
+	isEnableHostNetwork := commonworkload.IsEnabledHostNetwork(workload, resourceId)
 	if err := jobutils.SetNestedField(obj.Object, isEnableHostNetwork, path); err != nil {
 		return err
 	}
@@ -449,11 +454,12 @@ func modifyHostPid(obj *unstructured.Unstructured, workload *v1.Workload, templa
 	if !v1.IsPrivileged(workload) {
 		return nil
 	}
-	path := append(templatePath, "spec", "hostPID")
+	podSpec := getPodSpec(workload)
+	path := append(templatePath, podSpec, "hostPID")
 	if err := jobutils.SetNestedField(obj.Object, true, path); err != nil {
 		return err
 	}
-	path = append(templatePath, "spec", "hostIPC")
+	path = append(templatePath, podSpec, "hostIPC")
 	if err := jobutils.SetNestedField(obj.Object, true, path); err != nil {
 		return err
 	}
@@ -574,6 +580,9 @@ func buildObjectLabels(workload *v1.Workload) map[string]interface{} {
 			result[key] = value
 		}
 	}
+	if v1.GetGroupId(workload) != "" {
+		result[v1.GroupIdLabel] = v1.GetGroupId(workload)
+	}
 	return result
 }
 
@@ -587,9 +596,6 @@ func buildObjectAnnotations(workload *v1.Workload) map[string]interface{} {
 	}
 	if v1.GetUserName(workload) != "" {
 		result[v1.UserNameAnnotation] = v1.GetUserName(workload)
-	}
-	if v1.GetGroupId(workload) != "" {
-		result[v1.GroupIdAnnotation] = v1.GetGroupId(workload)
 	}
 	return result
 }
@@ -645,7 +651,10 @@ func buildEnvironment(workload *v1.Workload, resourceId int) []interface{} {
 		}
 	}
 	result = addEnvVar(result, workload, "WORKLOAD_ID", getRootWorkloadId(workload))
+	result = addEnvVar(result, workload, "MAIN_CONTAINER_NAME",
+		commonworkload.GetMainContainer(workload, workload.SpecKind(), resourceId))
 	result = addEnvVar(result, workload, "WORKLOAD_KIND", workload.SpecKind())
+	result = addEnvVar(result, workload, "WORKSPACE", workload.Spec.Workspace)
 	result = addEnvVar(result, workload, "DISPATCH_COUNT", strconv.Itoa(v1.GetWorkloadDispatchCnt(workload)+1))
 	if commonworkload.IsAuthoring(workload) {
 		result = addEnvVar(result, workload, jobutils.AdminControlPlaneEnv, v1.GetAdminControlPlane(workload))
@@ -967,7 +976,7 @@ func updateCICDGithub(adminWorkload *v1.Workload, obj *unstructured.Unstructured
 // When unified build is disabled, it keeps only the main container with environment variables.
 func updateCICDScaleSetEnvs(obj *unstructured.Unstructured,
 	adminWorkload *v1.Workload, workspace *v1.Workspace, resourceSpec v1.ResourceSpec) error {
-	containers, path, err := getContainers(obj, resourceSpec)
+	containers, path, err := getContainers(adminWorkload, obj, resourceSpec)
 	if err != nil {
 		return err
 	}
@@ -1039,16 +1048,39 @@ func updateRayJob(obj *unstructured.Unstructured, adminWorkload *v1.Workload) er
 	return nil
 }
 
+// updateMonarchMesh updates the monarch-job configuration
+func updateMonarchMesh(obj *unstructured.Unstructured, adminWorkload *v1.Workload) error {
+	path := []string{"spec"}
+	specObject, ok, err := jobutils.NestedMap(obj.Object, path)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return fmt.Errorf("failed to find object with path: %v", path)
+	}
+	specObject["port"] = int64(common.MonarchMeshPortNum)
+	if err = jobutils.SetNestedField(obj.Object, specObject, path); err != nil {
+		return err
+	}
+	return nil
+}
+
 // updateMetadata updates the template metadata annotations in the unstructured object.
 func updateMetadata(adminWorkload *v1.Workload,
 	obj *unstructured.Unstructured, resourceSpec v1.ResourceSpec, id int) error {
-	_, found, err := jobutils.NestedMap(obj.Object, resourceSpec.GetTemplatePath())
-	if err != nil || !found {
-		return err
+	if commonworkload.IsMonarchMesh(adminWorkload) {
+		return nil
 	}
+	if len(resourceSpec.GetTemplatePath()) > 0 {
+		_, found, err := jobutils.NestedMap(obj.Object, resourceSpec.GetTemplatePath())
+		if err != nil || !found {
+			return err
+		}
+	}
+
 	labels := buildPodLabels(adminWorkload)
 	path := append(resourceSpec.GetTemplatePath(), "metadata", "labels")
-	if err = jobutils.SetNestedField(obj.Object, labels, path); err != nil {
+	if err := jobutils.SetNestedField(obj.Object, labels, path); err != nil {
 		return err
 	}
 
@@ -1057,7 +1089,7 @@ func updateMetadata(adminWorkload *v1.Workload,
 	}
 	annotations := buildPodAnnotations(adminWorkload, id)
 	path = append(resourceSpec.GetTemplatePath(), "metadata", "annotations")
-	if err = jobutils.SetNestedField(obj.Object, annotations, path); err != nil {
+	if err := jobutils.SetNestedField(obj.Object, annotations, path); err != nil {
 		return err
 	}
 	return nil
@@ -1068,7 +1100,7 @@ func updateMetadata(adminWorkload *v1.Workload,
 // it also updates resources, image, and command based on the workload spec.
 func updateContainers(adminWorkload *v1.Workload,
 	obj *unstructured.Unstructured, resourceSpec v1.ResourceSpec, id int) error {
-	containers, path, err := getContainers(obj, resourceSpec)
+	containers, path, err := getContainers(adminWorkload, obj, resourceSpec)
 	if err != nil {
 		return err
 	}
@@ -1176,7 +1208,8 @@ func updateSharedMemory(adminWorkload *v1.Workload, obj *unstructured.Unstructur
 	}
 	path := resourceSpec.PrePaths
 	path = append(path, resourceSpec.TemplatePaths...)
-	path = append(path, "spec", "volumes")
+	podSpec := getPodSpec(adminWorkload)
+	path = append(path, podSpec, "volumes")
 	volumes, found, err := jobutils.NestedSlice(obj.Object, path)
 	if err != nil {
 		return err
@@ -1209,7 +1242,8 @@ func updateSharedMemory(adminWorkload *v1.Workload, obj *unstructured.Unstructur
 func updateHostNetwork(adminWorkload *v1.Workload,
 	obj *unstructured.Unstructured, resourceSpec v1.ResourceSpec, resourceId int) error {
 	templatePath := resourceSpec.GetTemplatePath()
-	path := append(templatePath, "spec", "hostNetwork")
+	podSpec := getPodSpec(adminWorkload)
+	path := append(templatePath, podSpec, "hostNetwork")
 	return modifyHostNetwork(obj, adminWorkload, path, resourceId)
 }
 
@@ -1217,15 +1251,17 @@ func updateHostNetwork(adminWorkload *v1.Workload,
 func updatePriorityClass(adminWorkload *v1.Workload,
 	obj *unstructured.Unstructured, resourceSpec v1.ResourceSpec) error {
 	templatePath := resourceSpec.GetTemplatePath()
-	path := append(templatePath, "spec", "priorityClassName")
+	podSpec := getPodSpec(adminWorkload)
+	path := append(templatePath, podSpec, "priorityClassName")
 	return modifyPriorityClass(obj, adminWorkload, path)
 }
 
 // getContainers retrieves the containers slice and its path from the unstructured object based on the resource specification.
 // Returns the containers slice, the path to the containers field, and an error if the operation fails or no containers are found.
-func getContainers(obj *unstructured.Unstructured, resourceSpec v1.ResourceSpec) ([]interface{}, []string, error) {
+func getContainers(adminWorkload *v1.Workload, obj *unstructured.Unstructured, resourceSpec v1.ResourceSpec) ([]interface{}, []string, error) {
 	templatePath := resourceSpec.GetTemplatePath()
-	path := append(templatePath, "spec", "containers")
+	podSpec := getPodSpec(adminWorkload)
+	path := append(templatePath, podSpec, "containers")
 	containers, found, err := jobutils.NestedSlice(obj.Object, path)
 	if err != nil {
 		return nil, nil, err
@@ -1267,4 +1303,12 @@ func getRootWorkloadId(workload *v1.Workload) string {
 func buildDispatchCount(w *v1.Workload) string {
 	// The count for the first dispatch is 1, so it needs to be incremented by 1 here.
 	return strconv.Itoa(v1.GetWorkloadDispatchCnt(w) + 1)
+}
+
+func getPodSpec(w *v1.Workload) string {
+	podSpec := "spec"
+	if commonworkload.IsMonarchMesh(w) {
+		podSpec = "podTemplate"
+	}
+	return podSpec
 }

@@ -80,6 +80,8 @@ export ENGINE="${ENGINE:-psync}"
 export RUNTIME="${RUNTIME:-30}"
 export BNIC="${BNIC:-50}"
 export BXGMI="${BXGMI:-315}"
+export SKIP_NODE_CHECK="${SKIP_NODE_CHECK:-false}"
+export RUN_BENCHMARKS="${RUN_BENCHMARKS:-false}"
 
 # ==============================================================================
 # Path Configuration
@@ -100,6 +102,15 @@ export HF_TOKEN="${HF_TOKEN:-}"
 # ==============================================================================
 export CLEAN_DOCKER_CONTAINER="${CLEAN_DOCKER_CONTAINER:-1}"
 export ADD_LOG_HEADER="${ADD_LOG_HEADER:-true}"
+
+
+# ==============================================================================
+# Internet Bandwidth Benchmark Configuration
+# ==============================================================================
+export SPEEDTEST_URL="${SPEEDTEST_URL:-http://speedtest.newark.linode.com/100MB-newark.bin}"
+export SPEEDTEST_TARGET_IP="${SPEEDTEST_TARGET_IP:-50.116.57.237}"
+export SPEEDTEST_THREADS_PER_NODE="${SPEEDTEST_THREADS_PER_NODE:-4}"
+export SPEEDTEST_ROUNDS="${SPEEDTEST_ROUNDS:-10}"
 
 
 # ==============================================================================

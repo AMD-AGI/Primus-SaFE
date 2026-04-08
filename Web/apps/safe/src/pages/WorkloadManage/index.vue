@@ -66,7 +66,7 @@
           <template #default="{ row }">
             <div class="flex flex-col items-start">
               <div class="flex items-center">
-                <el-link type="primary" @click="jumpToDetail(row)">{{ row.displayName }}</el-link>
+                <el-link type="primary" v-route="getDetailRoute(row)">{{ row.displayName }}</el-link>
                 <el-tooltip
                   v-if="row.secondsUntilTimeout > 0"
                   :content="`${row.secondsUntilTimeout} seconds remaining until the task ends`"
@@ -449,6 +449,11 @@ const tableHeight = computed(() => {
 })
 
 // ── Detail navigation ──
+const getDetailRoute = (row: any) => {
+  const kind = getRowKind(row) as WorkloadKind
+  const basePath = KindPathMap[kind]
+  return basePath ? { path: `${basePath}/detail`, query: { id: row.workloadId } } : undefined
+}
 const jumpToDetail = (row: any) => {
   const kind = getRowKind(row) as WorkloadKind
   const basePath = KindPathMap[kind]
@@ -589,7 +594,14 @@ const getActions = (row: Row): Action[] => {
       icon: VideoPlay,
       btnClass: 'btn-success-plain',
       disabled: (r) => !['Stopped', 'Failed', 'Succeeded'].includes(r.phase),
-      onClick: (r) => openDialog(r, 'Resume'),
+      onClick: (r) => {
+        const endTime = (r as any).endTime
+        if (endTime && dayjs().diff(dayjs.utc(endTime), 'second') < 15) {
+          ElMessage.warning('Please wait 15 seconds after stopping before resuming the workload.')
+          return
+        }
+        openDialog(r, 'Resume')
+      },
     })
   }
 

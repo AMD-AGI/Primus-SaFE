@@ -9,7 +9,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"strconv"
 	"strings"
 	"time"
 
@@ -113,11 +112,16 @@ func (m *NodeMutator) mutateOnUpdate(ctx context.Context, newNode, oldNode *v1.N
 	if v1.GetLabel(newNode, v1.NodeGpuCountLabel) != v1.GetLabel(oldNode, v1.NodeGpuCountLabel) {
 		nodesLabelAction[v1.NodeGpuCountLabel] = v1.NodeActionAdd
 	}
-	if v1.GetLabel(newNode, v1.NodeEphemeralStorageLabel) != v1.GetLabel(oldNode, v1.NodeEphemeralStorageLabel) {
-		nodesLabelAction[v1.NodeEphemeralStorageLabel] = v1.NodeActionAdd
+	nodesAnnotationAction := make(map[string]string)
+	if v1.GetAnnotation(newNode, v1.NodeDiskAnnotation) != v1.GetAnnotation(oldNode, v1.NodeDiskAnnotation) {
+		nodesAnnotationAction[v1.NodeDiskAnnotation] = v1.NodeActionAdd
 	}
 	if len(nodesLabelAction) > 0 {
 		v1.SetAnnotation(newNode, v1.NodeLabelAction, string(jsonutils.MarshalSilently(nodesLabelAction)))
+		isChanged = true
+	}
+	if len(nodesAnnotationAction) > 0 {
+		v1.SetAnnotation(newNode, v1.NodeAnnotationAction, string(jsonutils.MarshalSilently(nodesAnnotationAction)))
 		isChanged = true
 	}
 	return isChanged
@@ -209,7 +213,14 @@ func (m *NodeMutator) mutateByNodeFlavor(ctx context.Context, node *v1.Node) boo
 		if recommendedStorage > MaxRecommendedStorage {
 			recommendedStorage = MaxRecommendedStorage
 		}
-		if v1.SetLabel(node, v1.NodeEphemeralStorageLabel, strconv.FormatInt(recommendedStorage, 10)) {
+		info := v1.DiskInfo{
+			EphemeralStorage: recommendedStorage,
+		}
+		if nf.Spec.DataDisk != nil {
+			info.Type = nf.Spec.DataDisk.Type
+			info.Count = nf.Spec.DataDisk.Count
+		}
+		if v1.SetAnnotation(node, v1.NodeDiskAnnotation, string(jsonutils.MarshalSilently(&info))) {
 			isChanged = true
 		}
 	}

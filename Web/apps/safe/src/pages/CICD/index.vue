@@ -107,7 +107,7 @@
               <el-table :data="subTableDataMap[row.workloadId] || []" size="small">
                 <el-table-column prop="workloadId" label="Name/ID" min-width="180">
                   <template #default="{ row: subRow }">
-                    <el-link type="primary" @click="jumpToDetail(subRow.workloadId)">
+                    <el-link type="primary" v-route="{ path: '/cicd/detail', query: { id: subRow.workloadId } }">
                       {{ subRow.displayName }}
                     </el-link>
                     <div class="text-[12px] text-gray-400">
@@ -234,7 +234,7 @@
         <el-table-column prop="workloadId" label="Name/ID" min-width="200" :fixed="true">
           <template #default="{ row }">
             <div class="flex flex-col items-start">
-              <el-link type="primary" @click="jumpToDetail(row.workloadId)">{{
+              <el-link type="primary" v-route="{ path: '/cicd/detail', query: { id: row.workloadId } }">{{
                 row.displayName
               }}</el-link>
               <div class="text-[13px] text-gray-400">
@@ -452,7 +452,7 @@
     >
       <el-table-column prop="workloadId" label="Name/ID" min-width="180">
         <template #default="{ row: subRow }">
-          <el-link type="primary" @click="jumpToDetail(subRow.workloadId)">
+          <el-link type="primary" v-route="{ path: '/cicd/detail', query: { id: subRow.workloadId } }">
             {{ subRow.displayName }}
           </el-link>
           <div class="text-[12px] text-gray-400">
@@ -851,6 +851,11 @@ const getActions = (_row: Row): Action[] => [
     btnClass: 'btn-primary-plain',
     disabled: (r: Row) => !['Stopped', 'Failed', 'Succeeded'].includes(r.phase),
     onClick: (r: Row) => {
+      const endTime = (r as any).endTime
+      if (endTime && dayjs().diff(dayjs.utc(endTime), 'second') < 15) {
+        ElMessage.warning('Please wait 15 seconds after stopping before resuming the workload.')
+        return
+      }
       curAction.value = 'Resume'
       curWlId.value = r.workloadId
       addVisible.value = true
