@@ -110,30 +110,17 @@
 
           <!-- Mesh Group -->
           <div class="mb-4">
-            <div class="resource-group-title mb-3">Mesh Group</div>
+            <div class="flex items-center justify-between mb-3">
+              <div class="resource-group-title">Mesh Group</div>
+              <el-segmented
+                v-model="form.resourceType"
+                :options="['replicas', 'nodes']"
+                size="small"
+              />
+            </div>
             <el-row :gutter="16">
-              <el-col :span="24">
-                <el-form-item label="image" prop="mesh.image">
-                  <ImageInput v-model="form.mesh.image" />
-                </el-form-item>
-              </el-col>
-              <el-col :span="24">
-                <el-form-item label="entryPoint">
-                  <el-input v-model="form.mesh.entryPoint" type="textarea" :rows="2" placeholder="Mesh Group entrypoint (optional)" />
-                </el-form-item>
-              </el-col>
-
-              <!-- replicas / nodes switch + field on the same row -->
-              <el-col :span="6">
-                <el-form-item label="mode">
-                  <el-segmented
-                    v-model="form.resourceType"
-                    :options="['replicas', 'nodes']"
-                    size="small"
-                  />
-                </el-form-item>
-              </el-col>
-              <el-col :span="18" v-if="form.resourceType === 'replicas'">
+              <!-- replicas mode: nodePerGroup first -->
+              <el-col :span="24" v-if="form.resourceType === 'replicas'">
                 <el-form-item label="nodePerGroup" prop="mesh.nodePerGroup">
                   <el-input
                     v-model.number="form.mesh.nodePerGroup"
@@ -142,8 +129,8 @@
                 </el-form-item>
               </el-col>
 
-              <!-- nodes mode: node selection -->
-              <el-col :span="18" v-if="form.resourceType === 'nodes'">
+              <!-- nodes mode: node selection first -->
+              <el-col :span="24" v-if="form.resourceType === 'nodes'">
                 <el-form-item label="nodes" prop="nodeList">
                   <div class="node-select-wrapper">
                     <el-select
@@ -234,6 +221,17 @@
                       </div>
                     </el-option>
                   </el-select>
+                </el-form-item>
+              </el-col>
+
+              <el-col :span="24">
+                <el-form-item label="image" prop="mesh.image">
+                  <ImageInput v-model="form.mesh.image" />
+                </el-form-item>
+              </el-col>
+              <el-col :span="24">
+                <el-form-item label="entryPoint">
+                  <el-input v-model="form.mesh.entryPoint" type="textarea" :rows="2" placeholder="Mesh Group entrypoint (optional)" />
                 </el-form-item>
               </el-col>
 
