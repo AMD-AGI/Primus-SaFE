@@ -173,7 +173,10 @@
         </el-col>
         <el-col :span="12" v-if="form.inputsName === 'cluster' || form.inputsName === 'workspace'">
           <el-form-item label="securityOperation">
-            <el-switch v-model="form.securityOperation" />
+            <el-switch v-model="form.securityOperation" class="m-r-2" />
+            <el-text class="mx-1" size="small" type="info"
+              ><el-icon class="m-r-1"><InfoFilled /></el-icon>If enabled, skip nodes with workloads</el-text
+            >
           </el-form-item>
         </el-col>
       </el-row>
