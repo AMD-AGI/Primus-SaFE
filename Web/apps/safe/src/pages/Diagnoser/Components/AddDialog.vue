@@ -121,6 +121,16 @@
       </el-form-item>
 
       <el-row :gutter="20">
+        <el-col :span="12" v-if="form.inputsName === 'workspace'">
+          <el-form-item label="replica">
+            <el-input-number
+              v-model="form.replica"
+              :min="1"
+              :max="selectedWorkspaceNodeCount"
+              :placeholder="`Max: ${selectedWorkspaceNodeCount ?? '-'}`"
+            />
+          </el-form-item>
+        </el-col>
         <el-col :span="12">
           <el-form-item label="cpu" prop="resource.cpu">
             <el-input v-model="form.resource.cpu" :placeholder="resourcePlaceholders.cpu" />
@@ -227,18 +237,6 @@
 
       <el-form-item label="securityOperation" v-if="form.inputsName === 'cluster' || form.inputsName === 'workspace'">
         <el-switch v-model="form.securityOperation" />
-      </el-form-item>
-
-      <el-form-item label="replica" v-if="form.inputsName === 'workspace'" prop="replica">
-        <el-input-number
-          v-model="form.replica"
-          :min="1"
-          :max="selectedWorkspaceNodeCount"
-          :placeholder="`Max: ${selectedWorkspaceNodeCount ?? '-'}`"
-        />
-        <el-text size="small" type="info" class="ml-2">
-          Optional. Max = workspace node count ({{ selectedWorkspaceNodeCount ?? '-' }})
-        </el-text>
       </el-form-item>
 
       <el-form-item label="Workspace" v-if="props.action === 'Clone'">
