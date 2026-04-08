@@ -493,21 +493,19 @@ func (h *Handler) previewDatasetFile(ctx context.Context, s3Key, filePath string
 func getDatasetContentType(filePath string) string {
 	ext := strings.ToLower(filepath.Ext(filePath))
 
-	// Try standard library first
-	contentType := mime.TypeByExtension(ext)
-	if contentType != "" {
-		return contentType
-	}
-
-	// Custom mappings for types not in standard library
+	// Custom mappings take precedence for consistent cross-platform behavior
 	switch ext {
 	case ".jsonl":
 		return "application/jsonl"
 	case ".yaml", ".yml":
 		return "application/yaml"
-	default:
-		return "text/plain"
 	}
+
+	// Fall back to standard library
+	if contentType := mime.TypeByExtension(ext); contentType != "" {
+		return contentType
+	}
+	return "text/plain"
 }
 
 // convertToDatasetResponse converts a database dataset to response format.
