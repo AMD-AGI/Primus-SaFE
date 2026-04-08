@@ -19,18 +19,24 @@ if [ $? -ne 0 ]; then
   exit 1
 fi
 
-# Step 2: Sync SSH keys and config via torchrun
+# Step 2: Sync SSH keys and config
 echo "[NODE-$RANK] [SSH-SYNC] Syncing SSH keys and config..."
 
-torchrun \
-  --nproc_per_node=1 \
-  --nnodes=$WORLD_SIZE \
-  --node_rank=$RANK \
-  --master_addr=$MASTER_ADDR \
-  --master_port=$MASTER_PORT \
-  ssh_sync.py \
-  --interface $NCCL_SOCKET_IFNAME \
-  --distributed-timeout-minutes 30
+if [ -n "${SHARE_PATH:-}" ] && [ -n "${WORKLOAD_ID:-}" ] && [ -d "${SHARE_PATH}" ]; then
+  echo "[NODE-$RANK] [SSH-SYNC] Using NFS-based sync (SHARE_PATH=$SHARE_PATH, WORKLOAD_ID=$WORKLOAD_ID)"
+  python3 ssh_sync_nfs.py --interface $NCCL_SOCKET_IFNAME
+else
+  echo "[NODE-$RANK] [SSH-SYNC] Using torchrun-based sync (no SHARE_PATH/WORKLOAD_ID)"
+  torchrun \
+    --nproc_per_node=1 \
+    --nnodes=$WORLD_SIZE \
+    --node_rank=$RANK \
+    --master_addr=$MASTER_ADDR \
+    --master_port=$MASTER_PORT \
+    ssh_sync.py \
+    --interface $NCCL_SOCKET_IFNAME \
+    --distributed-timeout-minutes 30
+fi
 
 if [ $? -ne 0 ]; then
   echo "[NODE-$RANK] [SSH-SYNC] Failed to sync SSH keys"

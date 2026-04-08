@@ -1,6 +1,7 @@
 __pycache__
 *.so
-build
+# CMake build trees under micro_benchmarks (not Bench/build/ image tooling)
+benchmarks/micro_benchmarks/*/build/
 .coverage_*
 *.egg-info
 *~
