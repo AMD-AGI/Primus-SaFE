@@ -139,6 +139,8 @@ func InitCustomRouters(e *gin.Engine, h *Handler) {
 			users.PATCH(fmt.Sprintf("/:%s", common.Name), middleware.Audit("user"), h.PatchUser)
 			users.GET("", h.ListUser)
 			users.GET(fmt.Sprintf("/:%s", common.Name), h.GetUser)
+			users.GET(fmt.Sprintf("/:%s/settings", common.Name), h.GetUserSettings)
+			users.PUT(fmt.Sprintf("/:%s/settings", common.Name), middleware.Audit("user-settings"), h.UpdateUserSettings)
 		}
 
 		// ==================== Public Keys ====================
