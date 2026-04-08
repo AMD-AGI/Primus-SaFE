@@ -121,19 +121,6 @@
       </el-form-item>
 
       <el-row :gutter="20">
-        <el-col :span="24" v-if="form.inputsName === 'workspace'">
-          <el-form-item label="replica">
-            <el-input-number
-              v-model="form.replica"
-              :min="1"
-              :max="selectedWorkspaceNodeCount"
-              :placeholder="`Max: ${selectedWorkspaceNodeCount ?? '-'}`"
-            />
-            <el-text size="small" type="info" class="ml-2">
-              Optional. Max = workspace node count ({{ selectedWorkspaceNodeCount ?? '-' }})
-            </el-text>
-          </el-form-item>
-        </el-col>
         <el-col :span="12">
           <el-form-item label="cpu" prop="resource.cpu">
             <el-input v-model="form.resource.cpu" :placeholder="resourcePlaceholders.cpu" />
@@ -161,14 +148,35 @@
             </el-input>
           </el-form-item>
         </el-col>
+        <el-col :span="24" v-if="form.inputsName === 'workspace'">
+          <el-form-item label="replica">
+            <el-input-number
+              v-model="form.replica"
+              :min="0"
+              :max="selectedWorkspaceNodeCount"
+            />
+            <el-text size="small" type="info" class="ml-2">
+              Optional. Max = workspace node count ({{ selectedWorkspaceNodeCount ?? '-' }})
+            </el-text>
+          </el-form-item>
+        </el-col>
       </el-row>
 
-      <el-form-item label="Toleration">
-        <el-switch v-model="form.isTolerateAll" class="m-r-2" />
-        <el-text class="mx-1" size="small" type="info"
-          ><el-icon class="m-r-1"><InfoFilled /></el-icon>{{ TOLERATE_INFO }}</el-text
-        >
-      </el-form-item>
+      <el-row :gutter="20">
+        <el-col :span="12">
+          <el-form-item label="Toleration">
+            <el-switch v-model="form.isTolerateAll" class="m-r-2" />
+            <el-text class="mx-1" size="small" type="info"
+              ><el-icon class="m-r-1"><InfoFilled /></el-icon>{{ TOLERATE_INFO }}</el-text
+            >
+          </el-form-item>
+        </el-col>
+        <el-col :span="12" v-if="form.inputsName === 'cluster' || form.inputsName === 'workspace'">
+          <el-form-item label="securityOperation">
+            <el-switch v-model="form.securityOperation" />
+          </el-form-item>
+        </el-col>
+      </el-row>
       <el-form-item label="Timeout Second">
         <el-input-number v-model="form.timeoutSecond" />
       </el-form-item>
@@ -236,10 +244,6 @@
           @change="dedupeHostpath"
         >
         </el-select>
-      </el-form-item>
-
-      <el-form-item label="securityOperation" v-if="form.inputsName === 'cluster' || form.inputsName === 'workspace'">
-        <el-switch v-model="form.securityOperation" />
       </el-form-item>
 
       <el-form-item label="Workspace" v-if="props.action === 'Clone'">
@@ -434,7 +438,7 @@ const initialForm = () => ({
   excludedNodes: [],
   hostpath: [] as string[],
   securityOperation: false,
-  replica: undefined as number | undefined,
+  replica: 0 as number | undefined,
 })
 const form = reactive({ ...initialForm() })
 
