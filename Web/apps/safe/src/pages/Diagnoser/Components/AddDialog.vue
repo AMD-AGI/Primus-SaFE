@@ -121,7 +121,7 @@
       </el-form-item>
 
       <el-row :gutter="20">
-        <el-col :span="12" v-if="form.inputsName === 'workspace'">
+        <el-col :span="24" v-if="form.inputsName === 'workspace'">
           <el-form-item label="replica">
             <el-input-number
               v-model="form.replica"
@@ -129,6 +129,9 @@
               :max="selectedWorkspaceNodeCount"
               :placeholder="`Max: ${selectedWorkspaceNodeCount ?? '-'}`"
             />
+            <el-text size="small" type="info" class="ml-2">
+              Optional. Max = workspace node count ({{ selectedWorkspaceNodeCount ?? '-' }})
+            </el-text>
           </el-form-item>
         </el-col>
         <el-col :span="12">
