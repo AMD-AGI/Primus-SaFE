@@ -431,6 +431,8 @@ const onSubmit = async (formEl: FormInstance | undefined) => {
       ...addPayload
     } = form
 
+    if (!flavorMaxVal.value?.['amd.com/gpu']) form.resource.gpu = ''
+
     // Build user-submitted resource object for storing in env
     const userResource = {
       replica: 1,
