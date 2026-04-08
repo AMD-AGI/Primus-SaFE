@@ -300,6 +300,7 @@ func (m *WorkloadMutator) mutateResources(workload *v1.Workload, workspace *v1.W
 		newResources = append(newResources, res)
 	}
 	workload.Spec.Resources = newResources
+	klog.Infof("new resources: %v", newResources)
 	return isChanged
 }
 
@@ -975,6 +976,7 @@ func validateResource(resource *v1.WorkloadResource, workspaceName string) error
 		errs = append(errs, fmt.Errorf("the ephemeralStorage is empty"))
 	}
 	if resource.GPU != "" && resource.GPUName == "" {
+		klog.Infof("resource.gpu: %s", resource.GPUName)
 		errs = append(errs, fmt.Errorf("This workspace %s has no GPU resources", workspaceName))
 	}
 	if err := utilerrors.NewAggregate(errs); err != nil {
