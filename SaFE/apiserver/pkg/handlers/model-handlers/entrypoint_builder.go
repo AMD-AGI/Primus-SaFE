@@ -89,11 +89,11 @@ const (
 	DefaultGpuCount         = 8
 	DefaultCpu              = "128"
 	DefaultMemory           = "1024Gi"
+	DefaultSharedMemory     = "500Gi"
+	DefaultRdmaResource     = "1k"
 	DefaultEphemeralStorage = "2048Gi"
 	DefaultPrimusPath       = "/tmp/primus"
-	PrimusGitRepo           = "https://github.com/AMD-AGI/Primus.git"
-	PrimusGitCommit         = "1dd3ebe8" // compatible with pr-609-ainic / pr-624-ainic images
-	DefaultPriority         = 1          // medium: HighPriorityInt=2, MedPriorityInt=1, LowPriorityInt=0
+	DefaultPriority         = 1 // medium: HighPriorityInt=2, MedPriorityInt=1, LowPriorityInt=0
 )
 
 // GetDefaultSftImage returns the default SFT training image using the cluster's harbor registry.
@@ -208,6 +208,9 @@ func FillSftDefaults(req *CreateSftJobRequest, modelSize string) {
 	if req.Memory == "" {
 		req.Memory = DefaultMemory
 	}
+	if req.SharedMemory == "" && req.NodeCount > 1 {
+		req.SharedMemory = DefaultSharedMemory
+	}
 	if req.EphemeralStorage == "" {
 		req.EphemeralStorage = DefaultEphemeralStorage
 	}
@@ -232,10 +235,14 @@ type EntrypointConfig struct {
 	ModelId     string
 	BaseModel   string
 	SftJobId    string
+	PfsBasePath string // e.g. "/wekafs" or "/shared_nfs", resolved from workspace
 }
 
 // BuildEntrypoint generates the shell script that writes Primus YAML configs and invokes primus-cli.
 func BuildEntrypoint(cfg EntrypointConfig) string {
+	if cfg.PfsBasePath == "" {
+		cfg.PfsBasePath = "/wekafs"
+	}
 	preparedDatasetDir := "/tmp/sft_dataset"
 	cfgForYaml := cfg
 	cfgForYaml.DatasetPath = preparedDatasetDir
@@ -266,25 +273,39 @@ if not src_file:
     all_files = [f for f in all_files if os.path.getsize(f) > 0]
     if all_files:
         src_file = all_files[0]
+pq_files = []
 if not src_file:
-    print('ERROR: no usable jsonl/json files in ' + src); sys.exit(1)
-print(f'Using source file: {src_file}')
-data = []
-with open(src_file, encoding='utf-8') as f:
-    for line in f:
-        line = line.strip()
-        if not line: continue
-        obj = json.loads(line)
-        if 'input' in obj and 'output' in obj:
+    for d in [src, os.path.join(src, 'data')]:
+        pq_files = sorted(glob.glob(os.path.join(d, '*.parquet')))
+        if pq_files: break
+if pq_files:
+    print(f'Loading parquet: {pq_files}')
+    import pandas as pd
+    frames = [pd.read_parquet(f) for f in pq_files]
+    df = pd.concat(frames, ignore_index=True)
+    data = [dict(r) for _, r in df.iterrows()]
+elif src_file:
+    data = []
+else:
+    print('ERROR: no usable data files in ' + src); sys.exit(1)
+if src_file:
+    print(f'Using source file: {src_file}')
+    data = []
+    with open(src_file, encoding='utf-8') as f:
+        for line in f:
+            line = line.strip()
+            if not line: continue
+            obj = json.loads(line)
             data.append(obj)
-        elif 'instruction' in obj:
-            inst = obj.get('instruction','')
-            inp = obj.get('input','')
-            out = obj.get('output','')
-            new_input = (inst + chr(10) + inp).strip() if inp else inst
-            data.append({'input': new_input, 'output': out})
-        else:
-            data.append(obj)
+for i, obj in enumerate(data):
+    if 'input' in obj and 'output' in obj:
+        continue
+    elif 'instruction' in obj:
+        inst = obj.get('instruction','')
+        inp = obj.get('input','')
+        out = obj.get('output','')
+        new_input = (inst + chr(10) + inp).strip() if inp else inst
+        data[i] = {'input': new_input, 'output': out}
 if len(data) == 0:
     print('ERROR: dataset is empty'); sys.exit(1)
 val_count = max(1, len(data) // 10)
@@ -301,28 +322,123 @@ if [ $? -ne 0 ]; then
   exit 1
 fi
 
-# ==================== Find/Clone Primus ====================
+# ==================== Find Primus ====================
 PRIMUS_DIR=""
-SFT_CONFIG="primus/configs/modules/megatron_bridge/sft_trainer.yaml"
+MODULE_CONFIG=""
+NEW_CFG="primus/configs/modules/megatron_bridge/sft_trainer.yaml"
+OLD_CFG="primus/configs/modules/megatron_bridge/post_trainer.yaml"
 for p in /workspace/Primus %s; do
-  if [ -d "$p/runner" ] && [ -f "$p/$SFT_CONFIG" ]; then PRIMUS_DIR="$p"; break; fi
+  if [ -d "$p/runner" ]; then
+    if [ -f "$p/$NEW_CFG" ]; then
+      PRIMUS_DIR="$p"; MODULE_CONFIG="sft_trainer.yaml"; break
+    elif [ -f "$p/$OLD_CFG" ]; then
+      PRIMUS_DIR="$p"; MODULE_CONFIG="post_trainer.yaml"; break
+    fi
+  fi
 done
 if [ -z "$PRIMUS_DIR" ]; then
-  echo "Compatible Primus not found (missing $SFT_CONFIG), cloning compatible version (%s)..."
-  rm -rf %s
-  git clone %s %s
-  cd %s && git checkout %s && git submodule update --init --recursive && cd -
-  PRIMUS_DIR="%s"
+  echo "ERROR: No compatible Primus found in /workspace/Primus or %s"
+  exit 1
 fi
-echo "Using Primus at: $PRIMUS_DIR"
+echo "Using Primus at: $PRIMUS_DIR (module config: $MODULE_CONFIG)"
 cd "$PRIMUS_DIR"
 mkdir -p primus/configs/models/megatron_bridge
 cat > primus/configs/models/megatron_bridge/sft_custom_model.yaml << 'MODELEOF'
 %s
 MODELEOF
-cat > /tmp/sft_experiment.yaml << 'EXPEOF'
+sed "s/%%MODULE_CONFIG%%/$MODULE_CONFIG/g" > /tmp/sft_experiment.yaml << 'EXPEOF'
 %s
 EXPEOF
+mkdir -p "./output/${PRIMUS_TEAM:-amd}/${PRIMUS_USER:-root}/%s"
+
+# Prepare squad eval dataset cache from pre-downloaded data on PFS.
+# Primus qwen3 flavor calls load_dataset("squad", cache_dir=SQUAD_CACHE) for
+# evaluation. We pre-populate the cache by loading from the local PFS copy so
+# the later call finds cached arrow files and never hits the network.
+SQUAD_SRC="%s/datasets/rajpurkar/squad"
+SQUAD_CACHE="/root/.cache/nemo/datasets/squad"
+mkdir -p "$SQUAD_CACHE"
+SQUAD_CACHED_COUNT=$(find "$SQUAD_CACHE" -name "*.arrow" 2>/dev/null | wc -l)
+if [ -d "$SQUAD_SRC" ] && [ "$SQUAD_CACHED_COUNT" -eq 0 ]; then
+  echo "[SFT] Generating squad HF cache from local PFS data..."
+  python3 -c "
+from datasets import load_dataset
+ds = load_dataset('${SQUAD_SRC}', 'plain_text', cache_dir='${SQUAD_CACHE}', trust_remote_code=True)
+print(f'[SFT] squad cache ready: {len(ds[\"train\"])} train, {len(ds[\"validation\"])} val')
+" 2>&1 || echo "[SFT] WARNING: squad cache generation failed, evaluation may fail"
+elif [ "$SQUAD_CACHED_COUNT" -gt 0 ]; then
+  echo "[SFT] squad cache already exists ($SQUAD_CACHED_COUNT arrow files)"
+else
+  echo "[SFT] WARNING: squad data not found at $SQUAD_SRC, evaluation may fail"
+fi
+
+# Multi-node: redirect ./data and ./nemo_experiments to shared storage so all
+# nodes see the same HF cache, Megatron checkpoints, trained checkpoints, and
+# .done signal files. Also patch hooks and increase NCCL timeout.
+# Runtime-detect network backend from the actual node instead of inferring it
+# from workspace metadata. OCI/AINIC nodes expose ionic_* RDMA devices, while
+# TW/Project nodes typically expose Broadcom (bnxt/tw-eth) interfaces.
+if ls /sys/class/infiniband/ionic_* >/dev/null 2>&1 || ip link show | grep -q 'ionic_'; then
+  export USING_AINIC=1
+  export NCCL_IB_GID_INDEX=1
+  export NCCL_DMABUF_ENABLE=0
+  export NCCL_MAX_P2P_CHANNELS=56
+  export NET_OPTIONAL_RECV_COMPLETION=1
+  export NCCL_IB_USE_INLINE=1
+  export RCCL_GDR_FLUSH_GPU_MEM_NO_RELAXED_ORDERING=0
+  export NCCL_GDR_FLUSH_DISABLE=1
+  export NCCL_IGNORE_CPU_AFFINITY=1
+  export LD_LIBRARY_PATH="/opt/amd-anp/build:/opt/rccl/build/release:/opt/rocm/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+  if [ -z "${NCCL_IB_HCA:-}" ]; then
+    DETECTED_AINIC_HCA=$(ls -d /sys/class/infiniband/ionic_* 2>/dev/null | sed 's|.*/||' | awk '{printf "%%s:1,",$1}' | sed 's/,$//')
+    if [ -n "$DETECTED_AINIC_HCA" ]; then
+      export NCCL_IB_HCA="$DETECTED_AINIC_HCA"
+    fi
+  fi
+  AINIC_IFACE=$(ip -o link show | grep -oP 'ens\d+np\d+' | head -1)
+  if [ -n "$AINIC_IFACE" ]; then
+    export GLOO_SOCKET_IFNAME="${GLOO_SOCKET_IFNAME:-$AINIC_IFACE}"
+    export NCCL_SOCKET_IFNAME="${NCCL_SOCKET_IFNAME:-$AINIC_IFACE}"
+  fi
+  SELECT_ALG="/opt/venv/lib/python3.10/site-packages/torch/_inductor/select_algorithm.py"
+  if [ -f "$SELECT_ALG" ] && grep -q "duplicate" "$SELECT_ALG"; then
+    sed -i 's/assert.*duplicate.*/pass  # patched/' "$SELECT_ALG"
+    echo "[AINIC] Patched torch._inductor duplicate assert bug"
+  fi
+  echo "[NETWORK] AINIC final: USING_AINIC=$USING_AINIC NCCL_IB_GID_INDEX=$NCCL_IB_GID_INDEX NCCL_IB_HCA=${NCCL_IB_HCA:-unset} GLOO_SOCKET_IFNAME=${GLOO_SOCKET_IFNAME:-unset} NCCL_SOCKET_IFNAME=${NCCL_SOCKET_IFNAME:-unset}"
+elif ip link show | grep -qE 'bnxt|tw-eth' || lsmod | grep -q 'bnxt_re'; then
+  export NCCL_IB_GID_INDEX="${NCCL_IB_GID_INDEX:-3}"
+  echo "[NETWORK] Broadcom final: NCCL_IB_GID_INDEX=$NCCL_IB_GID_INDEX"
+fi
+
+NNODES="${NNODES:-1}"
+if [ "$NNODES" -gt 1 ] && [ -n "${DATA_PATH:-}" ]; then
+  mkdir -p "$DATA_PATH"
+  if [ -e data ] && [ ! -L data ]; then
+    rm -rf data
+  fi
+  ln -sfn "$DATA_PATH" data
+  echo "[MULTI-NODE] ./data -> $DATA_PATH (shared storage)"
+
+  # Redirect nemo_experiments to shared storage so distributed checkpoints
+  # are accessible by all nodes and persist after container exit for export
+  SHARED_CKPT_DIR="$DATA_PATH/nemo_experiments"
+  mkdir -p "$SHARED_CKPT_DIR"
+  rm -rf ./nemo_experiments
+  ln -sfn "$SHARED_CKPT_DIR" ./nemo_experiments
+  echo "[MULTI-NODE] ./nemo_experiments -> $SHARED_CKPT_DIR (shared checkpoints)"
+
+  HOOK_SCRIPT="runner/helpers/hooks/train/posttrain/megatron_bridge/01_convert_checkpoints.sh"
+  if [ -f "$HOOK_SCRIPT" ]; then
+    sed -i 's/timeout=600/timeout=3600/' "$HOOK_SCRIPT"
+    sed -i 's|python3 third_party/Megatron-Bridge/examples/conversion/convert_checkpoints.py import|WORLD_SIZE=1 RANK=0 LOCAL_RANK=0 MASTER_ADDR=127.0.0.1 MASTER_PORT=29599 python3 third_party/Megatron-Bridge/examples/conversion/convert_checkpoints.py import|' "$HOOK_SCRIPT"
+    echo "[MULTI-NODE] Patched hook: timeout=3600s + single-process conversion"
+  fi
+
+  export NCCL_TIMEOUT=1800000
+  echo "[MULTI-NODE] NCCL_TIMEOUT=1800000ms (30min)"
+fi
+
 ./runner/primus-cli direct -- train posttrain --config /tmp/sft_experiment.yaml
 TRAIN_EXIT_CODE=$?
 
@@ -349,22 +465,33 @@ if [ -d "$CKPT_BASE" ] && [ -f "$CKPT_BASE/latest_checkpointed_iteration.txt" ];
   for d in "$CKPT_BASE"/iter_*; do
     if [ -d "$d" ] && [ "$d" != "$LATEST_DIR" ]; then
       echo "  Removing $d"
-      rm -rf "$d"
+      rm -rf "$d" 2>/dev/null || echo "  Warning: best-effort cleanup failed for $d"
     fi
   done
 fi
 # Remove HF model cache (already converted to Megatron format)
-rm -rf data/huggingface/hub/models--* 2>/dev/null
+rm -rf data/huggingface/hub/models--* 2>/dev/null || true
 # For LoRA, keep pretrained Megatron checkpoint (needed for merge); for full SFT, remove it
 if [ "%s" = "none" ]; then
-  rm -rf data/megatron_checkpoints 2>/dev/null
+  rm -rf data/megatron_checkpoints 2>/dev/null || true
 fi
-echo "Cleanup done. Disk usage: $(du -sh . 2>/dev/null | cut -f1)"`,
+DISK_USAGE=$(du -sh . 2>/dev/null | cut -f1 || true)
+echo "Cleanup done. Disk usage: ${DISK_USAGE:-unknown}"`,
 		cfg.DatasetPath, preparedDatasetDir,
-		cfg.PrimusPath, PrimusGitCommit, cfg.PrimusPath, PrimusGitRepo, cfg.PrimusPath, cfg.PrimusPath, PrimusGitCommit, cfg.PrimusPath, modelYaml, expYaml,
+		cfg.PrimusPath, cfg.PrimusPath, modelYaml, expYaml, cfg.ExpName,
+		cfg.PfsBasePath,
 		cfg.TrainConfig.Peft)
 
 	if cfg.ExportModel {
+		script += `
+
+# Only master node (rank 0) performs export and model registration
+MY_RANK=${RANK:-${OMPI_COMM_WORLD_RANK:-0}}
+if [ "$MY_RANK" != "0" ] && [ "$MY_RANK" != "" ]; then
+  echo "Worker node (rank=$MY_RANK), skipping export."
+  exit 0
+fi
+`
 		script += buildExportScript(cfg)
 	}
 
@@ -375,7 +502,11 @@ echo "Cleanup done. Disk usage: $(du -sh . 2>/dev/null | cut -f1)"`,
 // to HuggingFace format, copy it to PFS, and register it as a new Model.
 // For LoRA training, an extra merge step is inserted before the HF conversion.
 func buildExportScript(cfg EntrypointConfig) string {
-	exportPath := fmt.Sprintf("/wekafs/custom/models/%s", cfg.SftJobId)
+	pfs := cfg.PfsBasePath
+	if pfs == "" {
+		pfs = "/wekafs"
+	}
+	exportPath := fmt.Sprintf("%s/custom/models/%s", pfs, cfg.SftJobId)
 	displayName := fmt.Sprintf("%s-finetuned", strings.ToLower(cfg.ExpName))
 	isLoRA := cfg.TrainConfig.Peft == "lora"
 
@@ -388,7 +519,7 @@ func buildExportScript(cfg EntrypointConfig) string {
 `)
 	fmt.Fprintf(&sb, "EXPORT_PATH=%q\n", exportPath)
 	sb.WriteString(`CKPT_DIR=""
-CKPT_SEARCH_DIRS="./nemo_experiments/default/checkpoints ./output/checkpoints ${PRIMUS_DIR}/nemo_experiments/default/checkpoints /tmp/primus/nemo_experiments/default/checkpoints"
+CKPT_SEARCH_DIRS="./nemo_experiments/default/checkpoints ${DATA_PATH:-/dev/null}/nemo_experiments/default/checkpoints ./output/checkpoints ${PRIMUS_DIR}/nemo_experiments/default/checkpoints /tmp/primus/nemo_experiments/default/checkpoints"
 
 # First pass: prefer dirs with latest_checkpointed_iteration.txt (real trained checkpoints)
 for d in ${CKPT_SEARCH_DIRS}; do
@@ -424,6 +555,9 @@ HF_EXPORT_PATH="${EXPORT_PATH}"
 mkdir -p "${HF_EXPORT_PATH}"
 
 export PYTHONPATH="${PRIMUS_DIR}/third_party/Megatron-Bridge/src:${PRIMUS_DIR}/third_party/Megatron-Bridge/3rdparty/Megatron-LM:${PYTHONPATH:-}"
+
+# Force single-process mode for checkpoint conversion/export to avoid DistStoreError
+export WORLD_SIZE=1 RANK=0 LOCAL_RANK=0 MASTER_ADDR=127.0.0.1 MASTER_PORT=29599
 `)
 
 	// --- LoRA: merge adapter into base model before export ---
@@ -435,7 +569,7 @@ export PYTHONPATH="${PRIMUS_DIR}/third_party/Megatron-Bridge/src:${PRIMUS_DIR}/t
 		fmt.Fprintf(&sb, `
 # ==================== LoRA: Merge Adapter into Base Model ====================
 PRETRAINED_CKPT=""
-PRETRAINED_SEARCH="./data/megatron_checkpoints/%s ./data/megatron_checkpoints"
+PRETRAINED_SEARCH="./data/megatron_checkpoints/%s ${DATA_PATH:-/dev/null}/megatron_checkpoints/%s ./data/megatron_checkpoints"
 for d in ${PRETRAINED_SEARCH}; do
   if [ -d "$d" ]; then PRETRAINED_CKPT="$d"; break; fi
 done
@@ -447,13 +581,30 @@ if [ -z "$PRETRAINED_CKPT" ]; then
 fi
 
 MERGED_CKPT="./merged_checkpoint"
+
+# Resolve the actual iter_* subdirectory (merge_lora.py needs the distributed checkpoint dir, not the parent)
+LORA_ITER_DIR=""
+if [ -f "${CKPT_DIR}/latest_checkpointed_iteration.txt" ]; then
+  _LORA_ITER=$(cat "${CKPT_DIR}/latest_checkpointed_iteration.txt" | tr -d '[:space:]')
+  if [ -n "$_LORA_ITER" ] && [ "$_LORA_ITER" != "0" ]; then
+    LORA_ITER_DIR="${CKPT_DIR}/iter_$(printf '%%07d' $_LORA_ITER)"
+  fi
+fi
+if [ -z "$LORA_ITER_DIR" ] || [ ! -d "$LORA_ITER_DIR" ]; then
+  LORA_ITER_DIR=$(ls -d ${CKPT_DIR}/iter_* 2>/dev/null | sort -t_ -k2 -n | tail -1)
+fi
+if [ -z "$LORA_ITER_DIR" ] || [ ! -d "$LORA_ITER_DIR" ]; then
+  echo "ERROR: No iter_* checkpoint found in ${CKPT_DIR} for LoRA merge."
+  exit 1
+fi
+
 echo "Merging LoRA adapter into base model..."
-echo "  LoRA checkpoint: ${CKPT_DIR}"
+echo "  LoRA checkpoint: ${LORA_ITER_DIR}"
 echo "  Pretrained base: ${PRETRAINED_CKPT}"
 echo "  Output:          ${MERGED_CKPT}"
 
-python3 "${PRIMUS_DIR}/third_party/Megatron-Bridge/examples/conversion/merge_lora.py" \
-  --lora-checkpoint "${CKPT_DIR}" \
+python3 "${PRIMUS_DIR}/third_party/Megatron-Bridge/examples/peft/merge_lora.py" \
+  --lora-checkpoint "${LORA_ITER_DIR}" \
   --pretrained "${PRETRAINED_CKPT}" \
   --hf-model-path "%s" \
   --output "${MERGED_CKPT}" 2>&1
@@ -470,7 +621,7 @@ else
   rm -rf "${PRETRAINED_CKPT}" 2>/dev/null
 fi
 echo "Disk usage after merge: $(du -sh . 2>/dev/null | cut -f1)"
-`, hfModelBasename, cfg.HfPath)
+`, hfModelBasename, hfModelBasename, cfg.HfPath)
 	} else {
 		sb.WriteString(`CONVERT_CKPT_DIR="${CKPT_DIR}"
 `)
@@ -570,7 +721,7 @@ func buildExperimentYaml(cfg EntrypointConfig) string {
 	sb.WriteString("modules:\n")
 	sb.WriteString("  post_trainer:\n")
 	sb.WriteString("    framework: megatron_bridge\n")
-	sb.WriteString("    config: sft_trainer.yaml\n")
+	sb.WriteString("    config: %MODULE_CONFIG%\n")
 	sb.WriteString("    model: sft_custom_model.yaml\n")
 	sb.WriteString("    overrides:\n")
 	sb.WriteString("      stderr_sink_level: DEBUG\n")
@@ -590,6 +741,13 @@ func buildExperimentYaml(cfg EntrypointConfig) string {
 
 	// PEFT
 	fmt.Fprintf(&sb, "      peft: \"%s\"\n", tc.Peft)
+	if tc.Peft == "lora" {
+		hfBasename := cfg.HfPath
+		if idx := strings.LastIndex(hfBasename, "/"); idx >= 0 {
+			hfBasename = hfBasename[idx+1:]
+		}
+		fmt.Fprintf(&sb, "      pretrained_checkpoint: ./data/megatron_checkpoints/%s\n", hfBasename)
+	}
 	if tc.Peft == "lora" || cfg.ModelSize == "32b" || cfg.ModelSize == "70b" {
 		fmt.Fprintf(&sb, "      packed_sequence: %v\n", tc.PackedSequence)
 	}

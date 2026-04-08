@@ -64,5 +64,9 @@ func InitInferenceRouters(e *gin.Engine, h *Handler) {
 
 		// SFT Training routes (List/Get/Stop/Delete reuse Training page)
 		group.POST("sft/jobs", middleware.Audit("sft"), h.CreateSftJob)
+
+		// RL Training routes (verl GRPO/PPO via RayJob)
+		group.GET("playground/models/:id/rl-config", h.GetRlConfig)
+		group.POST("rl/jobs", middleware.Audit("rl"), h.CreateRlJob)
 	}
 }
