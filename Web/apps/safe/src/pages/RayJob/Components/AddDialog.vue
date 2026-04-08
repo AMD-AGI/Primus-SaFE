@@ -904,6 +904,11 @@ const fetchFlavorAvail = async () => {
   if (!flavorId) return
   const res = await getNodeFlavorAvail(flavorId)
   flavorMaxVal.value = res
+  if (!res['amd.com/gpu']) {
+    form.header.gpu = ''
+    if (form.workers?.[0]) form.workers[0].gpu = ''
+    if (form.workers?.[1]) form.workers[1].gpu = ''
+  }
   rules['header.cpu'] = [
     { required: true, message: 'Please input cpu', trigger: 'blur' },
     createBetweenRule(1, res.cpu),
