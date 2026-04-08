@@ -15,5 +15,5 @@ export interface WorkspaceItem {
   clusterId?: string // Cluster the workspace belongs to
 }
 
-export const SCOPES_KEYS = ['Train', 'TorchFT', 'Monarch', 'Infer', 'Authoring', 'CICD', 'Ray'] as const
+export const SCOPES_KEYS = ['Train', 'Infer', 'Authoring', 'CICD', 'Ray'] as const
 export type ScopesKeys = (typeof SCOPES_KEYS)[number]
