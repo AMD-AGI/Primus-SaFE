@@ -235,3 +235,7 @@ Web/pnpm-debug.log*
 Web/apps/*/.env.development.local
 Web/apps/*/.env.production
 *.tsbuildinfo
+
+# ── Bootstrap ────────────────────────────────────────────────────
+Bootstrap/kubespray/
+Bootstrap/kubespray-venv/
