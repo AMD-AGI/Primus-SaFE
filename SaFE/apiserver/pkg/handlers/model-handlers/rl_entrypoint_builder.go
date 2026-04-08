@@ -285,6 +285,19 @@ export HYDRA_FULL_ERROR=1
 if ip link show | grep -q ionic; then
   export NCCL_IB_HCA=$(ip link show | grep -oP 'ionic_\d+' | sort -u | paste -sd, -)
   export NCCL_IB_GID_INDEX=1
+  export USING_AINIC=1
+  export NCCL_DMABUF_ENABLE="${NCCL_DMABUF_ENABLE:-0}"
+  export NCCL_MAX_P2P_CHANNELS="${NCCL_MAX_P2P_CHANNELS:-56}"
+  export NET_OPTIONAL_RECV_COMPLETION="${NET_OPTIONAL_RECV_COMPLETION:-1}"
+  export NCCL_IB_USE_INLINE="${NCCL_IB_USE_INLINE:-1}"
+  export RCCL_GDR_FLUSH_GPU_MEM_NO_RELAXED_ORDERING="${RCCL_GDR_FLUSH_GPU_MEM_NO_RELAXED_ORDERING:-0}"
+  export NCCL_GDR_FLUSH_DISABLE="${NCCL_GDR_FLUSH_DISABLE:-1}"
+  export NCCL_IGNORE_CPU_AFFINITY="${NCCL_IGNORE_CPU_AFFINITY:-1}"
+  AINIC_IFACE=$(ip -o link show | grep -oP 'ens\d+np\d+' | head -1)
+  if [ -n "$AINIC_IFACE" ]; then
+    export GLOO_SOCKET_IFNAME="${GLOO_SOCKET_IFNAME:-$AINIC_IFACE}"
+    export NCCL_SOCKET_IFNAME="${NCCL_SOCKET_IFNAME:-$AINIC_IFACE}"
+  fi
   echo "[RCCL] AINIC detected: NCCL_IB_HCA=$NCCL_IB_HCA"
 elif ip link show | grep -q bnxt; then
   echo "[RCCL] Broadcom RDMA detected, using default IB config"

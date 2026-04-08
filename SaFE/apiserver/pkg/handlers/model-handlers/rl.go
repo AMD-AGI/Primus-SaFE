@@ -115,6 +115,9 @@ func (h *Handler) createRlJob(c *gin.Context) (interface{}, error) {
 		"RL_TRAIN_BATCH_SIZE":    strconv.Itoa(req.TrainConfig.TrainBatchSize),
 		"RL_MINI_BATCH_SIZE":     strconv.Itoa(req.TrainConfig.MiniPatchSize),
 	}
+	if isSharedNfsPath(pfsBasePath) && req.GpuCount > 0 {
+		applyAinicWorkloadEnv(env)
+	}
 	for k, v := range req.Env {
 		env[k] = v
 	}

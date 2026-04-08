@@ -381,6 +381,14 @@ fi
 if [ "${USING_AINIC:-0}" = "1" ] || ls /sys/class/infiniband/ionic_* >/dev/null 2>&1; then
   export USING_AINIC=1
   export NCCL_IB_GID_INDEX="${NCCL_IB_GID_INDEX:-1}"
+  export NCCL_DMABUF_ENABLE="${NCCL_DMABUF_ENABLE:-0}"
+  export NCCL_MAX_P2P_CHANNELS="${NCCL_MAX_P2P_CHANNELS:-56}"
+  export NET_OPTIONAL_RECV_COMPLETION="${NET_OPTIONAL_RECV_COMPLETION:-1}"
+  export NCCL_IB_USE_INLINE="${NCCL_IB_USE_INLINE:-1}"
+  export RCCL_GDR_FLUSH_GPU_MEM_NO_RELAXED_ORDERING="${RCCL_GDR_FLUSH_GPU_MEM_NO_RELAXED_ORDERING:-0}"
+  export NCCL_GDR_FLUSH_DISABLE="${NCCL_GDR_FLUSH_DISABLE:-1}"
+  export NCCL_IGNORE_CPU_AFFINITY="${NCCL_IGNORE_CPU_AFFINITY:-1}"
+  export LD_LIBRARY_PATH="/opt/amd-anp/build:/opt/rccl/build/release:/opt/rocm/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
   if [ -z "${NCCL_IB_HCA:-}" ]; then
     DETECTED_AINIC_HCA=$(ls -d /sys/class/infiniband/ionic_* 2>/dev/null | sed 's|.*/||' | awk '{printf "%%s:1,",$1}' | sed 's/,$//')
     if [ -n "$DETECTED_AINIC_HCA" ]; then
