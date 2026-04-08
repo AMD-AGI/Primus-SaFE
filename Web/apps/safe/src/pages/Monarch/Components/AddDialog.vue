@@ -631,6 +631,10 @@ watch(
   { deep: true },
 )
 
+watch(() => form.replicaCount, (val) => {
+  if (val && !form.maxReplicaCount) form.maxReplicaCount = val
+})
+
 // If today is selected, auto-fill current time
 const midnightDefault = ref(new Date(2000, 0, 1, 0, 0, 0))
 watch(

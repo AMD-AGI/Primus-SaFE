@@ -678,6 +678,10 @@ const initialForm = () => ({
 const form = reactive({ ...initialForm() })
 const isRetry = ref(false) // isAutoRetry
 
+watch(() => form.replicaCount, (val) => {
+  if (val && !form.maxReplicaCount) form.maxReplicaCount = val
+})
+
 const clonedLastNodes = ref<string[]>([])
 watch(() => form.nodesAffinity, (newVal, oldVal) => {
   if (!clonedLastNodes.value.length) return
