@@ -1,30 +1,26 @@
 # Bootstrap Infrastructure Tests
 
-End-to-end tests for Bootstrap components using [Kyverno Chainsaw](https://kyverno.github.io/chainsaw/latest/).
+Infrastructure unit tests for Bootstrap components using [Kyverno Chainsaw](https://kyverno.github.io/chainsaw/latest/).
 
 ## Prerequisites
 
-Install Chainsaw: https://kyverno.github.io/chainsaw/latest/quick-start/install/
+Quickstart Chainsaw: https://kyverno.github.io/chainsaw/latest/quick-start/install/
 
 You also need `kubectl` configured with access to the target cluster.
 
 ## Running Tests
 
-From the repo root:
+From the `Bootstrap` directory:
 
 ```bash
-chainsaw test Bootstrap/tests/higress/ --config Bootstrap/tests/.chainsaw.yaml
-```
-
-Or with Docker:
-
-```bash
-docker run --rm --network=host \
-  -v $(pwd)/Bootstrap/tests:/chainsaw \
-  -v ${HOME}/.kube:/etc/kubeconfig \
-  -e KUBECONFIG=/etc/kubeconfig/config \
-  ghcr.io/kyverno/chainsaw:<version> \
-  test /chainsaw/higress --config /chainsaw/.chainsaw.yaml
+cd ~/Primus-SaFE/Bootstrap
+sudo nerdctl run --rm \
+    -v ./tests/:/chainsaw/ \
+    -v ${HOME}/.kube/:/etc/kubeconfig/ \
+    -e KUBECONFIG=/etc/kubeconfig/config \
+    --network=host \
+    ghcr.io/kyverno/chainsaw \
+    test /chainsaw --config /chainsaw/.chainsaw.yaml
 ```
 
 ## Test Structure
