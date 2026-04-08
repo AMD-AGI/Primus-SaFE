@@ -1,6 +1,6 @@
 # Bootstrap Infrastructure Tests
 
-Infrastructure unit tests for Bootstrap components using [Kyverno Chainsaw](https://kyverno.github.io/chainsaw/latest/).
+Infrastructure integration tests for Bootstrap components using [Kyverno Chainsaw](https://kyverno.github.io/chainsaw/latest/).
 
 ## Prerequisites
 
