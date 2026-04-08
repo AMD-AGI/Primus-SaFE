@@ -138,14 +138,102 @@ cleanup() {
 mkdir -p "$LOG_DIR"
 log_info "Log directory: $LOG_DIR"
 
-# Check and install dependencies
-if ! python3 -c "import datasets" 2>/dev/null; then
-    log_info "Installing required packages (this may take a few minutes)..."
-    pip3 install -r "$SCRIPT_DIR/requirements.txt" --break-system-packages || {
-        log_error "Failed to install dependencies"
+# NFS cache: use shared pip/HF cache when available to avoid N-node download storms
+PIP_CACHE_ARGS=""
+NFS_CACHE=""
+if [ -n "${SHARE_PATH:-}" ] && [ -d "${SHARE_PATH}" ]; then
+    NFS_CACHE="${SHARE_PATH}/cache"
+    mkdir -p "${NFS_CACHE}/pip" "${NFS_CACHE}/huggingface" "${NFS_CACHE}/datasets"
+    PIP_CACHE_ARGS="--cache-dir ${NFS_CACHE}/pip"
+    export HF_HOME="${NFS_CACHE}/huggingface"
+    export DATASET_CACHE_DIR="${NFS_CACHE}/datasets"
+    log_info "NFS cache enabled: pip=${NFS_CACHE}/pip HF_HOME=${HF_HOME} DATASET_CACHE_DIR=${DATASET_CACHE_DIR}"
+fi
+
+# ---------------------------------------------------------------------------
+# install_deps_and_prepare_dataset: pip install + HF model/dataset download
+# ---------------------------------------------------------------------------
+install_deps_and_prepare_dataset() {
+    if ! python3 -c "import datasets" 2>/dev/null; then
+        log_info "Installing required packages (this may take a few minutes)..."
+        pip3 install -r "$SCRIPT_DIR/requirements.txt" --break-system-packages ${PIP_CACHE_ARGS} || {
+            log_error "Failed to install dependencies"
+            return 1
+        }
+        log_info "Dependencies installed successfully!"
+    fi
+
+    export HF_HUB_DOWNLOAD_TIMEOUT="${HF_HUB_DOWNLOAD_TIMEOUT:-300}"
+    export HF_HUB_ETAG_TIMEOUT="${HF_HUB_ETAG_TIMEOUT:-60}"
+    log_info "Preparing dataset..."
+    cd "$SCRIPT_DIR"
+    for attempt in 1 2 3; do
+        if python3 prepare_dataset.py; then
+            return 0
+        fi
+        if [ $attempt -lt 3 ]; then
+            log_info "Dataset prepare failed (attempt $attempt/3), retrying in 10s..."
+            sleep 10
+        fi
+    done
+    log_error "Failed to prepare dataset after 3 attempts"
+    return 1
+}
+
+# ---------------------------------------------------------------------------
+# NFS barrier: coordinate first-ever download, skip barrier on cache hit
+# ---------------------------------------------------------------------------
+NFS_CACHE_SENTINEL=""
+CACHE_BARRIER_DIR=""
+if [ -n "${NFS_CACHE}" ] && [ -n "${WORKLOAD_ID:-}" ]; then
+    NFS_CACHE_SENTINEL="${NFS_CACHE}/deps_cached"
+    CACHE_BARRIER_DIR="${NFS_CACHE}/barrier/${WORKLOAD_ID}"
+    mkdir -p "${CACHE_BARRIER_DIR}"
+fi
+
+if [ -n "${NFS_CACHE_SENTINEL}" ] && [ -f "${NFS_CACHE_SENTINEL}" ]; then
+    log_info "NFS cache already populated (sentinel exists), installing from cache in parallel"
+    install_deps_and_prepare_dataset || exit 1
+elif [ -n "${CACHE_BARRIER_DIR}" ] && [ "${RANK:-0}" != "0" ]; then
+    READY_FILE="${CACHE_BARRIER_DIR}/cache_ready"
+    FAIL_FILE="${CACHE_BARRIER_DIR}/cache_failed"
+    BARRIER_TIMEOUT=${NFS_BARRIER_TIMEOUT:-600}
+    ELAPSED=0
+
+    log_info "Rank $RANK waiting for rank 0 to finish downloading dependencies..."
+    while [ ! -f "$READY_FILE" ] && [ ! -f "$FAIL_FILE" ]; do
+        if [ $ELAPSED -ge $BARRIER_TIMEOUT ]; then
+            log_info "Barrier timeout (${BARRIER_TIMEOUT}s), proceeding with local download"
+            break
+        fi
+        sleep 2
+        ELAPSED=$((ELAPSED + 2))
+    done
+
+    if [ -f "$FAIL_FILE" ]; then
+        log_info "Rank 0 reported cache failure, proceeding with local download"
+    elif [ -f "$READY_FILE" ]; then
+        log_info "Rank 0 cache ready (waited ${ELAPSED}s), proceeding with cached install"
+    fi
+
+    install_deps_and_prepare_dataset || exit 1
+else
+    install_deps_and_prepare_dataset
+    rc=$?
+
+    if [ -n "${CACHE_BARRIER_DIR}" ]; then
+        if [ $rc -eq 0 ]; then
+            touch "${NFS_CACHE_SENTINEL}"
+            touch "${CACHE_BARRIER_DIR}/cache_ready"
+            log_info "Rank 0 signaled cache_ready and wrote global sentinel"
+        else
+            touch "${CACHE_BARRIER_DIR}/cache_failed"
+            log_info "Rank 0 signaled cache_failed"
+            exit 1
+        fi
+    elif [ $rc -ne 0 ]; then
         exit 1
-    }
-    log_info "Dependencies installed successfully!"
+    fi
 fi
 
 # Detect GPUs (support both CUDA and ROCm)
@@ -175,25 +263,6 @@ else:
 [ "$NUM_GPUS" = "0" ] && { log_error "No GPUs detected"; exit 1; }
 
 log_info "Detected $NUM_GPUS GPU(s)"
-
-# Prepare dataset (set HF timeouts for slow/unstable networks; default 10s often causes ReadTimeout)
-export HF_HUB_DOWNLOAD_TIMEOUT="${HF_HUB_DOWNLOAD_TIMEOUT:-300}"
-export HF_HUB_ETAG_TIMEOUT="${HF_HUB_ETAG_TIMEOUT:-60}"
-# Optional: set HF_ENDPOINT=https://hf-mirror.com if huggingface.co is slow/blocked
-log_info "Preparing dataset..."
-cd "$SCRIPT_DIR"
-for attempt in 1 2 3; do
-  if python3 prepare_dataset.py; then
-    break
-  fi
-  if [ $attempt -lt 3 ]; then
-    log_info "Dataset prepare failed (attempt $attempt/3), retrying in 10s..."
-    sleep 10
-  else
-    log_error "Failed to prepare dataset after 3 attempts"
-    exit 1
-  fi
-done
 
 #############################################################################
 # Launch Training Processes

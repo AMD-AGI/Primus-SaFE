@@ -1,0 +1,55 @@
+- hosts: all
+  gather_facts: true
+  vars:
+    workspace: "{{ workspace | default('/opt/primus-bench') }}"
+    master_port: "{{ master_port | default('29500') }}"
+    container_env: "{{ container_env | default({}) }}"
+  tasks:
+    - name: Collect all node IPs from inventory
+      set_fact:
+        nodes: "{{ groups['all'] | list }}"
+
+    - name: Build final environment (container_env + overrides)
+      set_fact:
+        final_env: >-
+          {{
+            container_env | combine({
+              'WORLD_SIZE': nodes|length,
+              'NNODES': nodes|length,
+              'RANK': nodes.index(inventory_hostname),
+              'NODE_RANK': nodes.index(inventory_hostname),
+              'MASTER_ADDR': hostvars[nodes|first]['ansible_host'] | default(nodes|first),
+              'MASTER_PORT': master_port,
+              'OUTPUT_DIR': output_dir + '/' + inventory_hostname
+            })
+          }}
+
+    - name: Run model benchmark
+      shell: |
+        LOG={{ output_dir }}/{{ inventory_hostname }}
+        mkdir -p $LOG
+        bash run.sh 2>&1 | tee $LOG/model_benchmark.log
+      args:
+        chdir: "{{ workspace }}/benchmarks/model_benchmark"
+        executable: /bin/bash
+      environment: "{{ final_env }}"
+      async: 3600
+      poll: 15
+
+- name: Fetch Results
+  hosts: "{{ groups['all'][0] }}"
+  gather_facts: no
+  vars:
+    workspace: "{{ workspace | default('/opt/primus-bench') }}"
+  tasks:
+    - name: Check if results file exists
+      stat:
+        path: "{{ output_dir }}/{{ inventory_hostname }}/model_benchmark_results.json"
+      register: results_stat
+
+    - name: Fetch model_benchmark_results.json from first node
+      fetch:
+        src: "{{ output_dir }}/{{ inventory_hostname }}/model_benchmark_results.json"
+        dest: "{{ output_dir }}/"
+        flat: yes
+      when: results_stat.stat.exists
