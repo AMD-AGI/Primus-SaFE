@@ -34,7 +34,7 @@ func (c *Client) SubmitNotification(ctx context.Context, data *model.Notificatio
 // UpdateNotification updates the specified resource.
 func (c *Client) UpdateNotification(ctx context.Context, data *model.Notification) error {
 	q := dal.Use(c.gorm).Notification
-	err := q.WithContext(ctx).Where(q.ID.Eq(data.ID)).Save(data)
+	_, err := q.WithContext(ctx).Where(q.ID.Eq(data.ID)).Updates(map[string]interface{}{"sent_at": data.SentAt})
 	return err
 }
 

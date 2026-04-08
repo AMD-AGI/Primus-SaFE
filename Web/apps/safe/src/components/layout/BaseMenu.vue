@@ -253,7 +253,7 @@ watchEffect(() => {
     {
       index: '/torchft',
       name: 'TorchFT',
-      canAccess: canTrain.value, // Use same permissions as Training
+      canAccess: canTrain.value,
       tooltip: 'TorchFT has been disabled by the administrator.',
       icon: menuIcons.torchft,
     },
@@ -263,6 +263,13 @@ watchEffect(() => {
       canAccess: canRay.value,
       tooltip: 'RayJob has been disabled by the administrator.',
       icon: menuIcons.rayjob,
+    },
+    {
+      index: '/monarch',
+      name: 'Monarch',
+      canAccess: canTrain.value,
+      tooltip: 'Monarch has been disabled by the administrator.',
+      icon: menuIcons.monarch,
     },
     {
       index: '/authoring',

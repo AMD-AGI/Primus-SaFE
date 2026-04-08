@@ -46,8 +46,9 @@ const (
 	NodeLabelAction                 = NodePrefix + "label.action"
 	NodeAnnotationAction            = NodePrefix + "annotation.action"
 	NodeTemplateInstalledAnnotation = NodePrefix + "template.installed"
-	// The expected ephemeral storage for the node. Actual node storage may be larger than expected, but cannot be smaller, or it will trigger a fault.
-	NodeEphemeralStorageLabel = NodePrefix + "ephemeral.storage"
+	// disk.info: specifies the storage requirement with disk type (e.g., nvme) and expected block count.
+	// node-agent will validate that available blocks meet or exceed this expectation.
+	NodeDiskAnnotation        = NodePrefix + "disk.info"
 	NodeIdLabel               = NodePrefix + "id"
 	NodeManageRebootLabel     = "manage.reboot"
 	NodeUnmanageNoRebootLabel = "unmanage.noreboot"
@@ -108,7 +109,7 @@ const (
 	EnvToBeRemovedAnnotation          = WorkloadPrefix + "env.to.remove"
 	AdminControlPlaneAnnotation       = WorkloadPrefix + "admin.control.plane"
 	ResourceIdAnnotation              = WorkloadPrefix + "resource.id"
-	GroupIdAnnotation                 = WorkloadPrefix + "group.id"
+	GroupIdLabel                      = WorkloadPrefix + "group.id"
 	RootWorkloadIdLabel               = WorkloadPrefix + "root.id"
 	K8sObjectIdLabel                  = PrimusSafePrefix + "k8s.object.id"
 	UseWorkspaceStorageAnnotation     = WorkloadPrefix + "use.workspace.storage"
@@ -119,14 +120,16 @@ const (
 	NodesAffinityAnnotation        = PrimusSafePrefix + "nodes.affinity"
 
 	// user
-	UserPrefix              = PrimusSafePrefix + "user."
-	UserIdLabel             = UserPrefix + "id"
-	UserNameAnnotation      = UserPrefix + "name"
-	UserNameMd5Label        = UserPrefix + "name.md5"
-	UserEmailAnnotation     = UserPrefix + "email"
-	UserEmailMd5Label       = UserPrefix + "email.md5"
-	UserAvatarUrlAnnotation = UserPrefix + "avatar.url"
-	UserTypeLabel           = UserPrefix + "type"
+	UserPrefix                  = PrimusSafePrefix + "user."
+	UserIdLabel                 = UserPrefix + "id"
+	UserNameAnnotation          = UserPrefix + "name"
+	UserNameMd5Label            = UserPrefix + "name.md5"
+	UserEmailAnnotation         = UserPrefix + "email"
+	UserEmailMd5Label           = UserPrefix + "email.md5"
+	UserAvatarUrlAnnotation     = UserPrefix + "avatar.url"
+	UserTypeLabel               = UserPrefix + "type"
+	UserPreferredNameAnnotation      = UserPrefix + "preferred.name"
+	UserEnableNotificationAnnotation = UserPrefix + "enable.notification"
 
 	// secret
 	SecretPrefix    = PrimusSafePrefix + "secret."
@@ -137,13 +140,13 @@ const (
 	ExporterFinalizer = PrimusSafeDomain + "exporter.finalizer"
 
 	// job
-	OpsJobPrefix                    = PrimusSafePrefix + "ops.job."
-	OpsJobIdLabel                   = OpsJobPrefix + "id"
-	OpsJobTypeLabel                 = OpsJobPrefix + "type"
-	OpsJobSecurityUpgradeAnnotation = OpsJobPrefix + "security.upgrade"
-	OpsJobBatchCountAnnotation      = OpsJobPrefix + "batch.count"
-	OpsJobAvailRatioAnnotation      = OpsJobPrefix + "avail.ratio"
-	OpsJobFinalizer                 = PrimusSafeDomain + "ops.job.finalizer"
+	OpsJobPrefix                      = PrimusSafePrefix + "ops.job."
+	OpsJobIdLabel                     = OpsJobPrefix + "id"
+	OpsJobTypeLabel                   = OpsJobPrefix + "type"
+	OpsJobSecurityOperationAnnotation = OpsJobPrefix + "security.operation"
+	OpsJobBatchCountAnnotation        = OpsJobPrefix + "batch.count"
+	OpsJobAvailRatioAnnotation        = OpsJobPrefix + "avail.ratio"
+	OpsJobFinalizer                   = PrimusSafeDomain + "ops.job.finalizer"
 
 	// addon
 	AddonPrefix       = PrimusSafePrefix + "addon."
@@ -170,3 +173,11 @@ const (
 	SecretSSH     SecretType = "ssh"
 	SecretGeneral SecretType = "general"
 )
+
+type DiskInfo struct {
+	// disk type, e.g. "ssd", "sata", "nvme"
+	Type StorageType `json:"type,omitempty"`
+	// Number of disks when diskFlavor is set
+	Count            int   `json:"count,omitempty"`
+	EphemeralStorage int64 `json:"ephemeralStorage,omitempty"`
+}

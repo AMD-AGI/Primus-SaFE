@@ -118,9 +118,6 @@ func (m *WorkloadMutator) mutateOnCreation(ctx context.Context, workload *v1.Wor
 	m.mutateTTLSeconds(workload)
 	m.mutateCommon(ctx, nil, workload, workspace)
 	m.mutateTimeout(workload, workspace)
-	if commonworkload.IsRayJob(workload) {
-		m.mutateRayJob(workload)
-	}
 	return true
 }
 
@@ -142,6 +139,12 @@ func (m *WorkloadMutator) mutateCommon(ctx context.Context, oldWorkload, newWork
 		m.mutateAuthoring(newWorkload)
 	case common.CICDScaleRunnerSetKind:
 		m.mutateCICDScaleSet(newWorkload)
+	case common.MonarchJob:
+		m.mutateMonarchJob(newWorkload)
+	case common.RayJobKind:
+		m.mutateRayJob(newWorkload)
+	case common.TorchFTKind:
+		m.mutateTorchFT(newWorkload)
 	}
 	m.mutateHostPath(newWorkload, workspace)
 	m.mutatePriority(newWorkload)
@@ -405,6 +408,26 @@ func (m *WorkloadMutator) mutateCICDScaleSet(workload *v1.Workload) {
 	workload.Spec.Dependencies = nil
 }
 
+// mutateMonarchJob sets no-retry, disable Supervised
+func (m *WorkloadMutator) mutateMonarchJob(workload *v1.Workload) {
+	if len(workload.Spec.Resources) > 0 {
+		workload.Spec.Resources[0].Replica = 1
+	}
+	m.mutateTorchFT(workload)
+}
+
+func (m *WorkloadMutator) mutateTorchFT(workload *v1.Workload) {
+	group, _ := commonworkload.GetReplicaCount(workload, common.ReplicaCount)
+	_, err := commonworkload.GetReplicaCount(workload, common.MaxReplicaCount)
+	if err != nil {
+		workload.Spec.Env[common.MaxReplicaCount] = strconv.Itoa(group)
+	}
+	_, err = commonworkload.GetReplicaCount(workload, common.MinReplicaCount)
+	if err != nil {
+		workload.Spec.Env[common.MinReplicaCount] = "1"
+	}
+}
+
 // mutateImages handles image assignment for workload resources.
 // If no images are specified, it populates the Images slice with the default image from workload.Spec.Image
 // for each resource in the workload. Then it trims whitespace from each image name.
@@ -422,6 +445,14 @@ func (m *WorkloadMutator) mutateImages(workload *v1.Workload) {
 // mutateRayJob automatically add image, entrypoint and resource for submitter pod.
 // This is an internal behavior and is not exposed externally.
 func (m *WorkloadMutator) mutateRayJob(workload *v1.Workload) {
+	if len(workload.Spec.Resources) > 0 {
+		r := workload.Spec.Resources[0]
+		if r.Replica == 1 && r.CPU == common.RayJobSubmitterCpu &&
+			r.Memory == common.RayJobSubmitterMemory && r.EphemeralStorage == common.RayJobSubmitterStorage {
+			return
+		}
+	}
+
 	if len(workload.Spec.Images) > 0 {
 		images := make([]string, 0, len(workload.Spec.Images)+1)
 		images = append(images, workload.Spec.Images[0])
@@ -720,6 +751,8 @@ func (v *WorkloadValidator) validateCommon(ctx context.Context, newWorkload, old
 		err = v.validateTorchFT(newWorkload, oldWorkload)
 	case common.RayJobKind:
 		err = v.validateRayJob(newWorkload, oldWorkload)
+	case common.MonarchJob:
+		err = v.validateMonarchJob(newWorkload, oldWorkload)
 	}
 	if err != nil {
 		return err
@@ -771,11 +804,11 @@ func (v *WorkloadValidator) validateRequiredParams(workload *v1.Workload) error 
 		errs = append(errs, fmt.Errorf("the resources are empty"))
 	}
 	for _, res := range workload.Spec.Resources {
-		if err := v.validateResource(&res); err != nil {
+		if err := validateResource(&res, workload.Spec.Workspace); err != nil {
 			errs = append(errs, err)
 		}
 	}
-	if v1.GetOpsJobId(workload) == "" && !commonworkload.IsCICDScalingRunnerSet(workload) {
+	if v1.GetOpsJobId(workload) == "" && !commonworkload.IsCICDScalingRunnerSet(workload) && !commonworkload.IsMonarchJob(workload) {
 		if len(workload.Spec.Images) == 0 {
 			errs = append(errs, fmt.Errorf("the images are empty"))
 		} else if len(workload.Spec.Images) != len(workload.Spec.Resources) {
@@ -817,7 +850,7 @@ func (v *WorkloadValidator) validateCICDScalingRunnerSet(workload *v1.Workload) 
 	if err != nil {
 		return err
 	}
-	if err = v.validateResource(workloadResource); err != nil {
+	if err = validateResource(workloadResource, workload.Spec.Workspace); err != nil {
 		return err
 	}
 	if !v1.IsEnableWorkspaceStorage(workload) && workload.GetEnv(common.UnifiedJobEnable) == v1.TrueStr {
@@ -836,38 +869,46 @@ func (v *WorkloadValidator) validateTorchFT(newWorkload, oldWorkload *v1.Workloa
 	if len(v1.GetDisplayName(newWorkload)) > commonutils.MaxTorchFTNameLen {
 		return fmt.Errorf("the displayName is too long, maximum length is %d", commonutils.MaxTorchFTNameLen)
 	}
+	for i, img := range newWorkload.Spec.Images {
+		if img == "" {
+			return fmt.Errorf("images[%d] must not be empty", i)
+		}
+	}
+	return v.validateReplicaCount(newWorkload, oldWorkload)
+}
 
-	group, err := commonworkload.GetReplicaGroup(newWorkload, common.ReplicaGroup)
+func (v *WorkloadValidator) validateReplicaCount(newWorkload, oldWorkload *v1.Workload) error {
+	group, err := commonworkload.GetReplicaCount(newWorkload, common.ReplicaCount)
 	if err != nil {
 		return err
 	}
 	if group <= 0 || group > newWorkload.Spec.Resources[1].Replica ||
 		(newWorkload.Spec.Resources[1].Replica%group) != 0 {
 		return fmt.Errorf("the %s of workload environment is invalid: worker node count (%d) must be divisible by group count (%d)",
-			common.ReplicaGroup, newWorkload.Spec.Resources[1].Replica, group)
+			common.ReplicaCount, newWorkload.Spec.Resources[1].Replica, group)
 	}
 
-	maxGroup, err := commonworkload.GetReplicaGroup(newWorkload, common.MaxReplicaGroup)
+	maxGroup, err := commonworkload.GetReplicaCount(newWorkload, common.MaxReplicaCount)
 	if err != nil {
 		return err
 	}
-	minGroup, err := commonworkload.GetReplicaGroup(newWorkload, common.MinReplicaGroup)
+	minGroup, err := commonworkload.GetReplicaCount(newWorkload, common.MinReplicaCount)
 	if err != nil {
 		return err
 	}
 	if group < minGroup || group > maxGroup {
 		return fmt.Errorf("the %s of workload environment is invalid: group count (%d) must be between min group (%d) and max group (%d)",
-			common.ReplicaGroup, group, minGroup, maxGroup)
+			common.ReplicaCount, group, minGroup, maxGroup)
 	}
 	if oldWorkload != nil {
-		oldMaxGroup, _ := commonworkload.GetReplicaGroup(oldWorkload, common.MaxReplicaGroup)
-		oldMinGroup, _ := commonworkload.GetReplicaGroup(oldWorkload, common.MinReplicaGroup)
-		oldGroup, _ := commonworkload.GetReplicaGroup(oldWorkload, common.ReplicaGroup)
+		oldMaxGroup, _ := commonworkload.GetReplicaCount(oldWorkload, common.MaxReplicaCount)
+		oldMinGroup, _ := commonworkload.GetReplicaCount(oldWorkload, common.MinReplicaCount)
+		oldGroup, _ := commonworkload.GetReplicaCount(oldWorkload, common.ReplicaCount)
 		if maxGroup != oldMaxGroup {
-			return fmt.Errorf("the %s of workload environment can not be changed", common.MaxReplicaGroup)
+			return fmt.Errorf("the %s of workload environment can not be changed", common.MaxReplicaCount)
 		}
 		if minGroup != oldMinGroup {
-			return fmt.Errorf("the %s of workload environment can not be changed", common.MinReplicaGroup)
+			return fmt.Errorf("the %s of workload environment can not be changed", common.MinReplicaCount)
 		}
 
 		if (oldWorkload.Spec.Resources[1].Replica / oldGroup) != (newWorkload.Spec.Resources[1].Replica / group) {
@@ -889,16 +930,37 @@ func (v *WorkloadValidator) validateRayJob(newWorkload, _ *v1.Workload) error {
 		return fmt.Errorf("Expected at least 1 resource configurations (header), "+
 			"resources: %v", newWorkload.Spec.Resources)
 	}
+	for i, img := range newWorkload.Spec.Images {
+		if img == "" {
+			return fmt.Errorf("images[%d] must not be empty", i)
+		}
+	}
 	if val, ok := newWorkload.Spec.Env[common.RayJobEntrypoint]; !ok || val == "" {
 		return fmt.Errorf("RayJob entrypoint is missing(use 'RAY_JOB_ENTRYPOINT' environment variable)")
 	}
 	return nil
 }
 
+// validateMonarchJob validates Monarch workload configuration including environment variables and resource requirements.
+func (v *WorkloadValidator) validateMonarchJob(newWorkload, oldWorkload *v1.Workload) error {
+	// Monarch workloads require 2 resource configurations - one for client (index=0) and one for the MonarchMesh(worker)
+	if len(newWorkload.Spec.Resources) < 2 {
+		return fmt.Errorf("insufficient resources for Monarch: required 2 resource configurations (client and mesh worker), "+
+			"got %d, resources: %v", len(newWorkload.Spec.Resources), newWorkload.Spec.Resources)
+	}
+	if len(v1.GetDisplayName(newWorkload)) > commonutils.MaxMonarchJobNameLen {
+		return fmt.Errorf("the displayName is too long, maximum length is %d", commonutils.MaxMonarchJobNameLen)
+	}
+	if len(newWorkload.Spec.EntryPoints) == 0 || newWorkload.Spec.EntryPoints[0] == "" {
+		return fmt.Errorf("the entryPoint of client is empty")
+	}
+	return v.validateReplicaCount(newWorkload, oldWorkload)
+}
+
 // validateResource validates the basic fields of a WorkloadResource to ensure they are properly set
 // Checks that replica count, CPU, memory, and ephemeral storage are all specified and valid
 // Returns an error if any required field is missing or invalid
-func (v *WorkloadValidator) validateResource(resource *v1.WorkloadResource) error {
+func validateResource(resource *v1.WorkloadResource, workspaceName string) error {
 	var errs []error
 	if resource.Replica <= 0 {
 		errs = append(errs, fmt.Errorf("the replica is empty"))
@@ -911,6 +973,9 @@ func (v *WorkloadValidator) validateResource(resource *v1.WorkloadResource) erro
 	}
 	if resource.EphemeralStorage == "" {
 		errs = append(errs, fmt.Errorf("the ephemeralStorage is empty"))
+	}
+	if resource.GPU != "" && resource.GPUName == "" {
+		errs = append(errs, fmt.Errorf("This workspace %s has no GPU resources", workspaceName))
 	}
 	if err := utilerrors.NewAggregate(errs); err != nil {
 		return err

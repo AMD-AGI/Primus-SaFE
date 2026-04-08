@@ -169,6 +169,8 @@ type ModelInfo struct {
 	UpdatedAt       string            `json:"updatedAt,omitempty"`
 	DeletionTime    string            `json:"deletionTime,omitempty"`
 	IsDeleted       bool              `json:"isDeleted"`
+	HasInferenceX   bool              `json:"hasInferenceX"`
+	InferenceXModel string            `json:"inferenceXModel,omitempty"`
 }
 
 // LocalPathInfo represents local path status for a workspace.

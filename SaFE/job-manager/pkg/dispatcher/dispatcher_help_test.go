@@ -25,7 +25,7 @@ import (
 
 func checkResources(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workload, template *v1.ResourceSpec, replica, id int) {
 	path := append(template.PrePaths, template.ReplicasPaths...)
-	if !commonworkload.IsCICDScalingRunnerSet(workload) && replica > 0 {
+	if replica > 0 && len(template.ReplicasPaths) > 0 {
 		objReplica, found, err := jobutils.NestedInt64(obj.Object, path)
 		assert.Equal(t, found, true)
 		assert.NilError(t, err)
@@ -50,7 +50,8 @@ func checkResources(t *testing.T, obj *unstructured.Unstructured, workload *v1.W
 	}
 
 	path = append(template.PrePaths, template.TemplatePaths...)
-	path = append(path, "spec", "containers")
+	podSpec := getPodSpec(workload)
+	path = append(path, podSpec, "containers")
 	containers, found, err := jobutils.NestedSlice(obj.Object, path)
 	assert.NilError(t, err)
 	assert.Equal(t, found, true)
@@ -70,13 +71,14 @@ func checkResources(t *testing.T, obj *unstructured.Unstructured, workload *v1.W
 }
 
 func checkRaySubmitterPod(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workload) {
-	val, found, err := jobutils.NestedString(obj.Object, []string{"spec", "entrypoint"})
+	podSpec := getPodSpec(workload)
+	val, found, err := jobutils.NestedString(obj.Object, []string{podSpec, "entrypoint"})
 	assert.NilError(t, err)
 	assert.Equal(t, found, true)
 	assert.Equal(t, val, Launcher+fmt.Sprintf(" '%s'", workload.GetEnv(common.RayJobEntrypoint)))
 
-	path := []string{"spec", "submitterPodTemplate"}
-	path = append(path, "spec", "containers")
+	path := []string{podSpec, "submitterPodTemplate"}
+	path = append(path, podSpec, "containers")
 	containers, found, err := jobutils.NestedSlice(obj.Object, path)
 	assert.NilError(t, err)
 	assert.Equal(t, found, true)
@@ -92,7 +94,8 @@ func checkRaySubmitterPod(t *testing.T, obj *unstructured.Unstructured, workload
 
 func checkPorts(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workload, template *v1.ResourceSpec, id int) {
 	containerPath := append(template.PrePaths, template.TemplatePaths...)
-	containerPath = append(containerPath, "spec", "containers")
+	podPec := getPodSpec(workload)
+	containerPath = append(containerPath, podPec, "containers")
 
 	values, found, err := jobutils.NestedSlice(obj.Object, containerPath)
 	assert.NilError(t, err)
@@ -113,6 +116,12 @@ func checkPorts(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workl
 		assert.Equal(t, len(ports) >= 2, true)
 		findPort(t, ports, "gcs-server", 6379)
 		findPort(t, ports, "dashboard", 8265)
+	}
+	if commonworkload.IsMonarchMesh(workload) {
+		n, found, err := jobutils.NestedInt64(obj.Object, []string{"spec", "port"})
+		assert.NilError(t, err)
+		assert.Equal(t, found, true)
+		assert.Equal(t, n, int64(common.MonarchMeshPortNum))
 	}
 }
 
@@ -135,7 +144,7 @@ func findPort(t *testing.T, ports []interface{}, portName string, portValue int6
 }
 
 func checkEnvs(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workload, resourceSpec *v1.ResourceSpec, id int) {
-	envs := getEnvs(t, obj, resourceSpec)
+	envs := getEnvs(t, obj, workload, resourceSpec)
 	for key, val := range workload.Spec.Env {
 		ok := findEnv(envs, key, val)
 		assert.Equal(t, ok, true)
@@ -173,9 +182,10 @@ func findEnv(envs []interface{}, name, val string) bool {
 	return false
 }
 
-func checkVolumeMounts(t *testing.T, obj *unstructured.Unstructured, resourceSpec *v1.ResourceSpec) {
-	containerPath := append(resourceSpec.PrePaths, resourceSpec.TemplatePaths...)
-	containerPath = append(containerPath, "spec", "containers")
+func checkVolumeMounts(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workload, resourceSpec *v1.ResourceSpec) {
+	templatePath := append(resourceSpec.PrePaths, resourceSpec.TemplatePaths...)
+	podSpec := getPodSpec(workload)
+	containerPath := append(templatePath, podSpec, "containers")
 
 	values, found, err := jobutils.NestedSlice(obj.Object, containerPath)
 	assert.NilError(t, err)
@@ -225,7 +235,8 @@ func findVolumeMount(volumeMounts []interface{}, name string) map[string]interfa
 
 func checkVolumes(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workload, resourceSpec *v1.ResourceSpec, id int) {
 	volumesPath := append(resourceSpec.PrePaths, resourceSpec.TemplatePaths...)
-	volumesPath = append(volumesPath, "spec", "volumes")
+	podSpec := getPodSpec(workload)
+	volumesPath = append(volumesPath, podSpec, "volumes")
 
 	volumes, found, err := jobutils.NestedSlice(obj.Object, volumesPath)
 	assert.NilError(t, err)
@@ -275,7 +286,8 @@ func findVolume(volumes []interface{}, name string) map[string]interface{} {
 
 func checkRequiredNodeSelectorTerms(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workload, resourceSpec *v1.ResourceSpec) {
 	nodeSelectorPath := append(resourceSpec.PrePaths, resourceSpec.TemplatePaths...)
-	nodeSelectorPath = append(nodeSelectorPath, "spec", "affinity", "nodeAffinity",
+	podSpec := getPodSpec(workload)
+	nodeSelectorPath = append(nodeSelectorPath, podSpec, "affinity", "nodeAffinity",
 		"requiredDuringSchedulingIgnoredDuringExecution", "nodeSelectorTerms")
 
 	affinities, found, err := jobutils.NestedSlice(obj.Object, nodeSelectorPath)
@@ -317,7 +329,8 @@ func checkRequiredNodeSelectorTerms(t *testing.T, obj *unstructured.Unstructured
 
 func checkPreferredNodeSelectorTerms(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workload, resourceSpec *v1.ResourceSpec) {
 	nodeSelectorPath := append(resourceSpec.PrePaths, resourceSpec.TemplatePaths...)
-	nodeSelectorPath = append(nodeSelectorPath, "spec", "affinity", "nodeAffinity",
+	podSpec := getPodSpec(workload)
+	nodeSelectorPath = append(nodeSelectorPath, podSpec, "affinity", "nodeAffinity",
 		"preferredDuringSchedulingIgnoredDuringExecution")
 
 	preferenceSlice, found, err := jobutils.NestedSlice(obj.Object, nodeSelectorPath)
@@ -349,7 +362,8 @@ func checkPreferredNodeSelectorTerms(t *testing.T, obj *unstructured.Unstructure
 
 func checkPodAntiAffinity(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workload, resourceSpec *v1.ResourceSpec) {
 	podAntiAffinityPath := append(resourceSpec.PrePaths, resourceSpec.TemplatePaths...)
-	podAntiAffinityPath = append(podAntiAffinityPath, "spec", "affinity", "podAntiAffinity",
+	podSpec := getPodSpec(workload)
+	podAntiAffinityPath = append(podAntiAffinityPath, podSpec, "affinity", "podAntiAffinity",
 		"requiredDuringSchedulingIgnoredDuringExecution")
 
 	antiAffinities, found, err := jobutils.NestedSlice(obj.Object, podAntiAffinityPath)
@@ -373,9 +387,10 @@ func checkPodAntiAffinity(t *testing.T, obj *unstructured.Unstructured, workload
 	assert.Equal(t, matchLabels[v1.WorkloadIdLabel], workload.Name)
 }
 
-func checkImage(t *testing.T, obj *unstructured.Unstructured, inputImage string, resourceSpec *v1.ResourceSpec) {
+func checkImage(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workload, resourceSpec *v1.ResourceSpec, id int) {
 	containerPath := append(resourceSpec.PrePaths, resourceSpec.TemplatePaths...)
-	containerPath = append(containerPath, "spec", "containers")
+	podSpec := getPodSpec(workload)
+	containerPath = append(containerPath, podSpec, "containers")
 
 	values, found, err := jobutils.NestedSlice(obj.Object, containerPath)
 	assert.NilError(t, err)
@@ -386,22 +401,22 @@ func checkImage(t *testing.T, obj *unstructured.Unstructured, inputImage string,
 	image, found, err := jobutils.NestedString(mainContainer, []string{"image"})
 	assert.NilError(t, err)
 	assert.Equal(t, found, true)
-	assert.Equal(t, image, inputImage)
+	assert.Equal(t, image, workload.Spec.Images[id])
 }
 
 func checkHostNetwork(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workload, resourceSpec *v1.ResourceSpec, id int) {
-	path := append(resourceSpec.PrePaths, resourceSpec.TemplatePaths...)
-	path = append(path, "spec", "hostNetwork")
+	path := resourceSpec.GetTemplatePath()
+	path = append(path, getPodSpec(workload), "hostNetwork")
 
 	isHostNetWork, found, err := jobutils.NestedBool(obj.Object, path)
 	assert.NilError(t, err)
 	assert.Equal(t, found, true)
-	assert.Equal(t, isHostNetWork, workload.Spec.Resources[id].RdmaResource != "")
+	assert.Equal(t, isHostNetWork, (workload.Spec.Resources[id].RdmaResource != "" || v1.IsForceHostNetwork(workload)))
 }
 
 func checkHostPid(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workload, resourceSpec *v1.ResourceSpec) {
 	path := append(resourceSpec.PrePaths, resourceSpec.TemplatePaths...)
-	path = append(path, "spec", "hostPID")
+	path = append(path, getPodSpec(workload), "hostPID")
 
 	resp, found, err := jobutils.NestedBool(obj.Object, path)
 	assert.NilError(t, err)
@@ -433,7 +448,7 @@ func checkLabels(t *testing.T, obj *unstructured.Unstructured, workload *v1.Work
 }
 
 func checkSelector(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workload) {
-	path := []string{"spec", "selector", "matchLabels"}
+	path := []string{getPodSpec(workload), "selector", "matchLabels"}
 	labels, found, err := jobutils.NestedMap(obj.Object, path)
 	assert.NilError(t, err)
 	assert.Equal(t, found, true)
@@ -441,7 +456,7 @@ func checkSelector(t *testing.T, obj *unstructured.Unstructured, workload *v1.Wo
 }
 
 func checkStrategy(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workload) {
-	path := []string{"spec", "strategy", "rollingUpdate"}
+	path := []string{getPodSpec(workload), "strategy", "rollingUpdate"}
 	labels, found, err := jobutils.NestedMap(obj.Object, path)
 	assert.NilError(t, err)
 	assert.Equal(t, found, true)
@@ -451,7 +466,7 @@ func checkStrategy(t *testing.T, obj *unstructured.Unstructured, workload *v1.Wo
 
 func checkTolerations(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workload, resourceSpec *v1.ResourceSpec) {
 	path := append(resourceSpec.PrePaths, resourceSpec.TemplatePaths...)
-	path = append(path, "spec", "tolerations")
+	path = append(path, getPodSpec(workload), "tolerations")
 
 	tolerations, found, err := jobutils.NestedSlice(obj.Object, path)
 	assert.NilError(t, err)
@@ -484,7 +499,7 @@ func checkTolerations(t *testing.T, obj *unstructured.Unstructured, workload *v1
 
 func checkPriorityClass(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workload, resourceSpec *v1.ResourceSpec) {
 	path := append(resourceSpec.PrePaths, resourceSpec.TemplatePaths...)
-	path = append(path, "spec", "priorityClassName")
+	path = append(path, getPodSpec(workload), "priorityClassName")
 	priorityClassName, found, err := jobutils.NestedString(obj.Object, path)
 	assert.NilError(t, err)
 	assert.Equal(t, found, true)
@@ -493,7 +508,7 @@ func checkPriorityClass(t *testing.T, obj *unstructured.Unstructured, workload *
 
 func checkSecurityContext(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workload, template *v1.ResourceSpec) {
 	containerPath := append(template.PrePaths, template.TemplatePaths...)
-	containerPath = append(containerPath, "spec", "containers")
+	containerPath = append(containerPath, getPodSpec(workload), "containers")
 
 	values, found, err := jobutils.NestedSlice(obj.Object, containerPath)
 	assert.NilError(t, err)
@@ -523,9 +538,9 @@ func checkSecurityContext(t *testing.T, obj *unstructured.Unstructured, workload
 	}
 }
 
-func checkImageSecrets(t *testing.T, obj *unstructured.Unstructured, resourceSpec *v1.ResourceSpec) {
+func checkImageSecrets(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workload, resourceSpec *v1.ResourceSpec) {
 	secretPath := append(resourceSpec.PrePaths, resourceSpec.TemplatePaths...)
-	secretPath = append(secretPath, "spec", "imagePullSecrets")
+	secretPath = append(secretPath, getPodSpec(workload), "imagePullSecrets")
 
 	secrets, found, err := jobutils.NestedSlice(obj.Object, secretPath)
 	assert.NilError(t, err)
@@ -539,9 +554,10 @@ func checkImageSecrets(t *testing.T, obj *unstructured.Unstructured, resourceSpe
 	assert.Equal(t, name, "test-image")
 }
 
-func getEnvs(t *testing.T, obj *unstructured.Unstructured, resourceSpec *v1.ResourceSpec) []interface{} {
+func getEnvs(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workload, resourceSpec *v1.ResourceSpec) []interface{} {
 	containerPath := append(resourceSpec.PrePaths, resourceSpec.TemplatePaths...)
-	containerPath = append(containerPath, "spec", "containers")
+	podSpec := getPodSpec(workload)
+	containerPath = append(containerPath, podSpec, "containers")
 
 	values, found, err := jobutils.NestedSlice(obj.Object, containerPath)
 	assert.NilError(t, err)
@@ -556,9 +572,9 @@ func getEnvs(t *testing.T, obj *unstructured.Unstructured, resourceSpec *v1.Reso
 	return envs
 }
 
-func getContainer(obj *unstructured.Unstructured, name string, resourceSpec *v1.ResourceSpec) map[string]interface{} {
+func getContainer(obj *unstructured.Unstructured, name string, workload *v1.Workload, resourceSpec *v1.ResourceSpec) map[string]interface{} {
 	containerPath := append(resourceSpec.PrePaths, resourceSpec.TemplatePaths...)
-	containerPath = append(containerPath, "spec", "containers")
+	containerPath = append(containerPath, getPodSpec(workload), "containers")
 
 	values, found, err := jobutils.NestedSlice(obj.Object, containerPath)
 	if err != nil || !found {

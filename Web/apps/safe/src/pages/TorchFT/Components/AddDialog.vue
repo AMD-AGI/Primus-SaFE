@@ -124,7 +124,7 @@
             <el-row :gutter="16">
               <!-- replicas / nodes selection section -->
               <el-col :span="24" v-if="form.resourceType === 'replicas'">
-                <el-form-item label="groupNode" prop="resource.replica">
+                <el-form-item label="nodePerGroup" prop="resource.replica">
                   <el-input
                     v-model.number="form.resource.replica"
                     :placeholder="placeholders.replica"
@@ -147,8 +147,12 @@
                       :max-collapse-tags="5"
                       placeholder="Select or paste nodes (comma-separated)"
                       ref="nodeSelectRef"
+                      :loading="nodesLoading"
                       @visible-change="
-                        (visible: boolean) => handleNodesVisibleChange(nodeSelectRef, visible)
+                        async (visible: boolean) => {
+                          if (visible) await fetchNodesOnDropdown()
+                          handleNodesVisibleChange(nodeSelectRef, visible)
+                        }
                       "
                     >
                       <el-option
@@ -188,9 +192,12 @@
                     placeholder="Select or paste nodes to exclude (comma-separated)"
                     ref="excludedNodesSelectRef"
                     :filter-method="filterExcludedNodes"
+                    :loading="nodesLoading"
                     @visible-change="
-                      (visible: boolean) =>
+                      async (visible: boolean) => {
+                        if (visible) await fetchNodesOnDropdown()
                         handleExcludedNodesVisibleChange(excludedNodesSelectRef, visible)
+                      }
                     "
                   >
                     <el-option
@@ -223,24 +230,24 @@
               </el-col>
 
               <el-col :span="24">
-                <el-form-item label="replicaGroup" prop="replicaGroup">
-                  <el-input v-model.number="form.replicaGroup" placeholder="Replica Group" />
+                <el-form-item label="replicaCount" prop="replicaCount">
+                  <el-input v-model.number="form.replicaCount" placeholder="Replica Count" />
                 </el-form-item>
               </el-col>
               <el-col :span="12">
-                <el-form-item label="minReplicaGroup" prop="minReplicaGroup">
+                <el-form-item label="minReplicaCount" prop="minReplicaCount">
                   <el-input
-                    v-model.number="form.minReplicaGroup"
-                    placeholder="Min Replica Group"
+                    v-model.number="form.minReplicaCount"
+                    placeholder="Min Replica Count"
                     :disabled="isEdit"
                   />
                 </el-form-item>
               </el-col>
               <el-col :span="12">
-                <el-form-item label="maxReplicaGroup" prop="maxReplicaGroup">
+                <el-form-item label="maxReplicaCount" prop="maxReplicaCount">
                   <el-input
-                    v-model.number="form.maxReplicaGroup"
-                    placeholder="Max Replica Group"
+                    v-model.number="form.maxReplicaCount"
+                    placeholder="Max Replica Count"
                     :disabled="isEdit"
                   />
                 </el-form-item>
@@ -252,7 +259,7 @@
                   <el-input v-model="form.resource.cpu" :placeholder="placeholders.cpu" />
                 </el-form-item>
               </el-col>
-              <el-col :span="12">
+              <el-col :span="12" v-if="!flavorMaxVal || flavorMaxVal['amd.com/gpu']">
                 <el-form-item label="gpu">
                   <el-input v-model="form.resource.gpu" :placeholder="placeholders.gpu" />
                 </el-form-item>
@@ -577,6 +584,7 @@ const { secretOptions, fetchSecrets } = useSecrets('image')
 const nodeSelectRef = ref()
 const excludedNodesSelectRef = ref()
 const excludedNodesSearchQuery = ref('')
+const nodesLoading = ref(false)
 
 const AUTO_RETRY_INFO = 'automatically retry after workload failure'
 const TIMEOUT_INFO = 'timeout duration in seconds'
@@ -637,9 +645,9 @@ const initialForm = () => ({
     ephemeralStorage: '20',
   },
   // TorchFT specific fields
-  replicaGroup: undefined as number | undefined,
-  minReplicaGroup: undefined as number | undefined,
-  maxReplicaGroup: undefined as number | undefined,
+  replicaCount: undefined as number | undefined,
+  minReplicaCount: undefined as number | undefined,
+  maxReplicaCount: undefined as number | undefined,
 
   envList: [
     {
@@ -669,6 +677,10 @@ const initialForm = () => ({
 })
 const form = reactive({ ...initialForm() })
 const isRetry = ref(false) // isAutoRetry
+
+watch(() => form.replicaCount, (val) => {
+  if (val && !form.maxReplicaCount) form.maxReplicaCount = val
+})
 
 const clonedLastNodes = ref<string[]>([])
 watch(() => form.nodesAffinity, (newVal, oldVal) => {
@@ -739,11 +751,11 @@ const validateNodesDivisibility = (
   workerReplica: number,
   callback: (err?: Error) => void,
 ): void => {
-  const replicaGroup = Number(form.replicaGroup)
-  if (form.resourceType === 'nodes' && replicaGroup && workerReplica % replicaGroup !== 0) {
+  const replicaCount = Number(form.replicaCount)
+  if (form.resourceType === 'nodes' && replicaCount && workerReplica % replicaCount !== 0) {
     callback(
       new Error(
-        `Worker nodes count (${workerReplica}) must be divisible by REPLICA_GROUP (${replicaGroup})`,
+        `Worker nodes count (${workerReplica}) must be divisible by REPLICA_COUNT (${replicaCount})`,
       ),
     )
     return
@@ -751,8 +763,22 @@ const validateNodesDivisibility = (
   callback()
 }
 
+function createBetweenRule(min: number, max: number, unit?: string): FormItemRule {
+  return {
+    validator: (_rule: unknown, value: unknown, callback: (err?: Error) => void) => {
+      const num = Number(value)
+      if (isNaN(num) || num < min || num > max) {
+        callback(new Error(`Must be between ${min} and ${max}${unit ? ` ${unit}` : ''}`))
+      } else {
+        callback()
+      }
+    },
+    trigger: 'blur',
+  }
+}
+
 const ruleFormRef = ref<FormInstance>()
-const rules = reactive({
+const rules: Record<string, FormItemRule[]> = reactive({
   hostname: [
     { required: true, message: 'Please input activity name', trigger: 'blur' },
     { max: 64, message: 'Must be less than 64 characters', trigger: 'blur' },
@@ -769,7 +795,10 @@ const rules = reactive({
   entryPoint: [{ required: true, message: 'Please input entry point', trigger: 'blur' }],
   image: [{ required: true, message: 'Please input image', trigger: 'blur' }],
   // Worker Group
-  'resource.replica': [{ required: true, message: 'Please input groupNode', trigger: 'blur' }],
+  'resource.replica': [
+    { required: true, message: 'Please input nodePerGroup', trigger: 'blur' },
+    createBetweenRule(1, 999),
+  ],
   nodeList: [
     {
       type: 'array',
@@ -782,7 +811,7 @@ const rules = reactive({
         const nodeList = value as string[]
         const workerReplica = nodeList.length
 
-        // Validate whether node count is divisible by replicaGroup
+        // Validate whether node count is divisible by replicaCount
         validateNodesDivisibility(workerReplica, callback)
       },
       trigger: 'change',
@@ -807,45 +836,45 @@ const rules = reactive({
     { required: true, message: 'Please input lighthouse ephemeral storage', trigger: 'blur' },
   ],
   // TorchFT Specific
-  replicaGroup: [
-    { required: true, message: 'Please input replica group', trigger: 'blur' },
+  replicaCount: [
+    { required: true, message: 'Please input replica count', trigger: 'blur' },
     {
       validator: (_rule: unknown, value: unknown, callback: (err?: Error) => void) => {
-        const replicaGroup = Number(value)
-        const minReplicaGroup = Number(form.minReplicaGroup)
-        const maxReplicaGroup = Number(form.maxReplicaGroup)
+        const replicaCount = Number(value)
+        const minReplicaCount = Number(form.minReplicaCount)
+        const maxReplicaCount = Number(form.maxReplicaCount)
         const workerReplica = Number(form.resource.replica)
 
-        // Validate replicaGroup must be between min and max (inclusive)
+        // Validate replicaCount must be between min and max (inclusive)
         if (
-          minReplicaGroup &&
-          maxReplicaGroup &&
-          (replicaGroup < minReplicaGroup || replicaGroup > maxReplicaGroup)
+          minReplicaCount &&
+          maxReplicaCount &&
+          (replicaCount < minReplicaCount || replicaCount > maxReplicaCount)
         ) {
           callback(
             new Error(
-              `REPLICA_GROUP must be between MIN_REPLICA_GROUP (${minReplicaGroup}) and MAX_REPLICA_GROUP (${maxReplicaGroup})`,
+              `REPLICA_COUNT must be between MIN_REPLICA_COUNT (${minReplicaCount}) and MAX_REPLICA_COUNT (${maxReplicaCount})`,
             ),
           )
           return
         }
 
-        // Validate whether node count is divisible by replicaGroup
+        // Validate whether node count is divisible by replicaCount
         validateNodesDivisibility(workerReplica, callback)
       },
       trigger: 'blur',
     },
   ],
-  minReplicaGroup: [
-    { required: true, message: 'Please input min replica group', trigger: 'blur' },
+  minReplicaCount: [
+    { required: true, message: 'Please input min replica count', trigger: 'blur' },
     {
       validator: (_rule: unknown, value: unknown, callback: (err?: Error) => void) => {
-        const minReplicaGroup = Number(value)
-        const maxReplicaGroup = Number(form.maxReplicaGroup)
+        const minReplicaCount = Number(value)
+        const maxReplicaCount = Number(form.maxReplicaCount)
 
-        if (maxReplicaGroup && minReplicaGroup >= maxReplicaGroup) {
+        if (maxReplicaCount && minReplicaCount >= maxReplicaCount) {
           callback(
-            new Error(`MIN_REPLICA_GROUP must be less than MAX_REPLICA_GROUP (${maxReplicaGroup})`),
+            new Error(`MIN_REPLICA_COUNT must be less than MAX_REPLICA_COUNT (${maxReplicaCount})`),
           )
           return
         }
@@ -855,17 +884,20 @@ const rules = reactive({
       trigger: 'blur',
     },
   ],
-  maxReplicaGroup: [
-    { required: true, message: 'Please input max replica group', trigger: 'blur' },
+  maxReplicaCount: [
     {
       validator: (_rule: unknown, value: unknown, callback: (err?: Error) => void) => {
-        const maxReplicaGroup = Number(value)
-        const minReplicaGroup = Number(form.minReplicaGroup)
+        if (!value && value !== 0) {
+          callback()
+          return
+        }
+        const maxReplicaCount = Number(value)
+        const minReplicaCount = Number(form.minReplicaCount)
 
-        if (minReplicaGroup && maxReplicaGroup <= minReplicaGroup) {
+        if (minReplicaCount && maxReplicaCount <= minReplicaCount) {
           callback(
             new Error(
-              `MAX_REPLICA_GROUP must be greater than MIN_REPLICA_GROUP (${minReplicaGroup})`,
+              `MAX_REPLICA_COUNT must be greater than MIN_REPLICA_COUNT (${minReplicaCount})`,
             ),
           )
           return
@@ -877,6 +909,26 @@ const rules = reactive({
     },
   ],
 })
+
+const fetchFlavorAvail = async () => {
+  const flavorId = store.currentNodeFlavor
+  if (!flavorId) return
+  const res = await getNodeFlavorAvail(flavorId)
+  flavorMaxVal.value = res
+  const r = rules as unknown as Record<string, FormItemRule[]>
+  r['resource.cpu'] = [
+    { required: true, message: 'Please input cpu', trigger: 'blur' },
+    createBetweenRule(1, res.cpu),
+  ]
+  r['resource.memory'] = [
+    { required: true, message: 'Please input memory', trigger: 'blur' },
+    createBetweenRule(1, Number(byte2Gi(res.memory ?? 0, 0, false))),
+  ]
+  r['resource.ephemeralStorage'] = [
+    { required: true, message: 'Please input ephemeral storage', trigger: 'blur' },
+    createBetweenRule(1, Number(byte2Gi(res['ephemeral-storage'] ?? 0, 0, false))),
+  ]
+}
 
 const submitting = ref(false)
 const onSubmit = async (formEl: FormInstance | undefined) => {
@@ -907,9 +959,9 @@ const onSubmit = async (formEl: FormInstance | undefined) => {
       nodeList,
       resource,
       lighthouseResource,
-      replicaGroup,
-      minReplicaGroup,
-      maxReplicaGroup,
+      replicaCount,
+      minReplicaCount,
+      maxReplicaCount,
       entryPoint,
       schedulerTime,
       timeout,
@@ -927,11 +979,13 @@ const onSubmit = async (formEl: FormInstance | undefined) => {
       // Custom node mode: replica = nodeList.length
       actualReplica = form.nodeList.length
     } else {
-      // Replicas mode: replica = groupNode * replicaGroup
-      const groupNode = Number(form.resource.replica) || 1
-      const replicaGroup = Number(form.replicaGroup) || 1
-      actualReplica = groupNode * replicaGroup
+      // Replicas mode: replica = nodePerGroup * replicaCount
+      const nodePerGroup = Number(form.resource.replica) || 1
+      const replicaCount = Number(form.replicaCount) || 1
+      actualReplica = nodePerGroup * replicaCount
     }
+
+    if (!flavorMaxVal.value?.['amd.com/gpu']) form.resource.gpu = ''
 
     const workerResource = {
       cpu: form.resource.cpu,
@@ -964,9 +1018,9 @@ const onSubmit = async (formEl: FormInstance | undefined) => {
 
     // Add TorchFT specific fields to env
     const torchFTEnv = {
-      REPLICA_GROUP: String(form.replicaGroup),
-      MIN_REPLICA_GROUP: String(form.minReplicaGroup),
-      MAX_REPLICA_GROUP: String(form.maxReplicaGroup),
+      REPLICA_COUNT: String(form.replicaCount),
+      MIN_REPLICA_COUNT: String(form.minReplicaCount),
+      MAX_REPLICA_COUNT: String(form.maxReplicaCount ?? form.replicaCount),
     }
     const mergedEnv = { ...convertListToKeyValueMap(envList), ...torchFTEnv }
 
@@ -1040,38 +1094,6 @@ const cancelAdd = () => {
     Object.assign(form, initialForm())
   })
 }
-
-function createBetweenRule(min: number, max: number, unit?: string): FormItemRule {
-  return {
-    validator: (_rule: unknown, value: unknown, callback: (err?: Error) => void) => {
-      const num = Number(value)
-      if (isNaN(num) || num < min || num > max) {
-        callback(new Error(`Must be between ${min} and ${max}${unit ? ` ${unit}` : ''}`))
-      } else {
-        callback()
-      }
-    },
-    trigger: 'blur',
-  }
-}
-watch(
-  () => store.currentNodeFlavor,
-  async (flavorId) => {
-    if (!flavorId) return
-
-    const res = await getNodeFlavorAvail(flavorId)
-    flavorMaxVal.value = res
-    ;(rules['resource.replica'] as FormItemRule[]).push(createBetweenRule(1, 999))
-    ;(rules['resource.cpu'] as FormItemRule[]).push(createBetweenRule(1, res.cpu))
-    ;(rules['resource.memory'] as FormItemRule[]).push(
-      createBetweenRule(1, Number(byte2Gi(res.memory ?? 0, 0, false))),
-    )
-    ;(rules['resource.ephemeralStorage'] as FormItemRule[]).push(
-      createBetweenRule(1, Number(byte2Gi(res['ephemeral-storage'] ?? 0, 0, false))),
-    )
-  },
-  { immediate: true },
-)
 
 const setInitialFormValues = async () => {
   if (!props.wlid) return
@@ -1147,12 +1169,12 @@ const setInitialFormValues = async () => {
       form.resource.memory = workerRes.memory?.replace(/Gi$/i, '') ?? ''
       form.resource.ephemeralStorage = workerRes.ephemeralStorage?.replace(/Gi$/i, '') ?? ''
 
-      // If not custom nodes, calculate groupNode (needed for both edit and clone)
+      // If not custom nodes, calculate nodePerGroup (needed for both edit and clone)
       if (!isCustomNodes.value) {
-        // groupNode = replica / replicaGroup
-        const replicaGroup = res.env?.REPLICA_GROUP ? Number(res.env.REPLICA_GROUP) : 1
+        // nodePerGroup = replica / replicaCount
+        const replicaCount = res.env?.REPLICA_COUNT ? Number(res.env.REPLICA_COUNT) : 1
         form.resource.replica =
-          replicaGroup > 0 ? Math.round(workerReplica / replicaGroup) : workerReplica
+          replicaCount > 0 ? Math.round(workerReplica / replicaCount) : workerReplica
       } else {
         // Custom nodes use replica directly
         form.resource.replica = workerReplica
@@ -1162,14 +1184,14 @@ const setInitialFormValues = async () => {
 
   // Extract TorchFT specific fields from env
   const envCopy = { ...res.env }
-  form.replicaGroup = envCopy.REPLICA_GROUP ? Number(envCopy.REPLICA_GROUP) : undefined
-  form.minReplicaGroup = envCopy.MIN_REPLICA_GROUP ? Number(envCopy.MIN_REPLICA_GROUP) : undefined
-  form.maxReplicaGroup = envCopy.MAX_REPLICA_GROUP ? Number(envCopy.MAX_REPLICA_GROUP) : undefined
+  form.replicaCount = envCopy.REPLICA_COUNT ? Number(envCopy.REPLICA_COUNT) : undefined
+  form.minReplicaCount = envCopy.MIN_REPLICA_COUNT ? Number(envCopy.MIN_REPLICA_COUNT) : undefined
+  form.maxReplicaCount = envCopy.MAX_REPLICA_COUNT ? Number(envCopy.MAX_REPLICA_COUNT) : undefined
 
   // Remove these three fields from env, put the rest into envList
-  delete envCopy.REPLICA_GROUP
-  delete envCopy.MIN_REPLICA_GROUP
-  delete envCopy.MAX_REPLICA_GROUP
+  delete envCopy.REPLICA_COUNT
+  delete envCopy.MIN_REPLICA_COUNT
+  delete envCopy.MAX_REPLICA_COUNT
 
   form.envList = convertKeyValueMapToList(envCopy)
   form.labelList = convertKeyValueMapToList(res.customerLabels)
@@ -1210,6 +1232,16 @@ const fetchNodes = async () => {
     available: Boolean(n.available),
     internalIP: n.internalIP,
   }))
+}
+
+const fetchNodesOnDropdown = async () => {
+  if (nodesLoading.value) return
+  nodesLoading.value = true
+  try {
+    await fetchNodes()
+  } finally {
+    nodesLoading.value = false
+  }
 }
 
 // Filter excluded nodes based on search query
@@ -1290,7 +1322,7 @@ const onOpen = async () => {
   cachedUseWorkspaceStorage.value = undefined
   clonedLastNodes.value = []
   pendingWorkspaceId.value = store.currentWorkspaceId ?? store.firstWorkspace ?? ''
-  fetchNodes()
+  fetchFlavorAvail()
   fetchImage()
   fetchWlOptions()
   fetchSecrets()
@@ -1322,7 +1354,6 @@ const onOpen = async () => {
 </style>
 <style scoped>
 .drawer-body {
-  max-height: 83vh;
   overflow-y: auto;
   /* padding: 8px 24px 16px; */
 }

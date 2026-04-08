@@ -213,6 +213,7 @@ status:
   terminating: 0
   uncountedTerminatedPods: {}
 `
+
 	TestDeploymentData = `
 apiVersion: apps/v1
 kind: Deployment
@@ -743,6 +744,50 @@ var (
 				PrePaths:    []string{"status"},
 				ReplicaPath: "active",
 			},
+		},
+	}
+
+	TestMonarchClientResourceTemplate = &v1.ResourceTemplate{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "monarch-client",
+			Labels: map[string]string{
+				v1.WorkloadVersionLabel: common.DefaultVersion,
+			},
+			Annotations: map[string]string{
+				v1.WorkloadKindLabel: common.MonarchClient,
+			},
+		},
+		Spec: v1.ResourceTemplateSpec{
+			GroupVersionKind: v1.GroupVersionKind{
+				Version: common.DefaultVersion,
+				Kind:    common.PodKind,
+			},
+			ResourceSpecs: []v1.ResourceSpec{{
+				DefaultReplica: 1,
+			}},
+		},
+	}
+
+	TestMonarchMeshResourceTemplate = &v1.ResourceTemplate{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "monarch-mesh",
+			Labels: map[string]string{
+				v1.WorkloadVersionLabel: common.DefaultVersion,
+			},
+			Annotations: map[string]string{
+				v1.WorkloadKindLabel: common.MonarchMesh,
+			},
+		},
+		Spec: v1.ResourceTemplateSpec{
+			GroupVersionKind: v1.GroupVersionKind{
+				Group:   "monarch.pytorch.org",
+				Version: "v1alpha1",
+				Kind:    common.MonarchMesh,
+			},
+			ResourceSpecs: []v1.ResourceSpec{{
+				PrePaths:      []string{"spec"},
+				ReplicasPaths: []string{"replicas"},
+			}},
 		},
 	}
 

@@ -184,10 +184,10 @@ func (m *OpsJobMutator) removeDuplicates(job *v1.OpsJob) {
 	job.Spec.Inputs = uniqInputs
 }
 
-// filterUnhealthyNodes filters out unhealthy nodes from preflight job inputs.
+// filterUnhealthyNodes filters out unhealthy nodes from preflight/addon job inputs.
 // It removes nodes that are not ready, being deleted, or have inappropriate taints.
 func (m *OpsJobMutator) filterUnhealthyNodes(ctx context.Context, job *v1.OpsJob) {
-	if job.Spec.Type != v1.OpsJobPreflightType {
+	if job.Spec.Type != v1.OpsJobPreflightType && job.Spec.Type != v1.OpsJobAddonType {
 		return
 	}
 	newInputs := make([]v1.Parameter, 0, len(job.Spec.Inputs))
@@ -333,6 +333,11 @@ func (v *OpsJobValidator) validateRequiredParams(ctx context.Context, job *v1.Op
 	if job.Spec.Type == v1.OpsJobAddonType || job.Spec.Type == v1.OpsJobPreflightType || job.Spec.Type == v1.OpsJobRebootType {
 		if job.GetParameter(v1.ParameterNode) == nil {
 			errs = append(errs, fmt.Errorf("opsJob nodes are either empty or unhealthy"))
+		}
+	}
+	if job.Spec.Resource != nil {
+		if err := validateResource(job.Spec.Resource, v1.GetWorkspaceId(job)); err != nil {
+			errs = append(errs, err)
 		}
 	}
 	if err := utilerrors.NewAggregate(errs); err != nil {

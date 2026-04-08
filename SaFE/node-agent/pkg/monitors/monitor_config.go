@@ -41,6 +41,8 @@ type MonitorConfig struct {
 	// The following words are currently supported:
 	//   1. $Node: Node information, in json format, e.g. '{"nodeName": "testNode", "expectedGpuCount": 8, "observedGpuCount": 8}'
 	Arguments []string `json:"arguments,omitempty"`
+	// Mark whether the monitor is in debug mode
+	IsDebug bool `json:"isDebug,omitempty"`
 }
 
 // IsEnable returns whether the monitor is enabled.

@@ -92,9 +92,12 @@
                   placeholder="Select or paste nodes to exclude (comma-separated)"
                   ref="excludedNodesSelectRef"
                   :filter-method="filterExcludedNodes"
+                  :loading="nodesLoading"
                   @visible-change="
-                    (visible: boolean) =>
+                    async (visible: boolean) => {
+                      if (visible) await fetchNodesOnDropdown()
                       handleExcludedNodesVisibleChange(excludedNodesSelectRef, visible)
+                    }
                   "
                 >
                   <el-option
@@ -129,6 +132,8 @@
                   filterable
                   :disabled="isEdit"
                   placeholder="Select one node (required)"
+                  :loading="nodesLoading"
+                  @visible-change="async (visible: boolean) => { if (visible) await fetchNodesOnDropdown() }"
                 >
                   <el-option v-for="n in nodeOptions" :key="n.value" :label="n.label" :value="n.value">
                     <div class="flex items-center justify-between w-full">
@@ -146,7 +151,7 @@
                 <el-input v-model="form.resource.cpu" :placeholder="placeholders.cpu" />
               </el-form-item>
             </el-col>
-            <el-col :span="12">
+            <el-col :span="12" v-if="!flavorMaxVal || flavorMaxVal['amd.com/gpu']">
               <el-form-item label="gpu">
                 <el-input v-model="form.resource.gpu" :placeholder="placeholders.gpu" />
               </el-form-item>
@@ -352,6 +357,7 @@ const excludedNodeOptions = ref(
   [] as Array<{ nodeId: string; available: boolean; internalIP?: string }>,
 )
 const excludedNodesSearchQuery = ref('')
+const nodesLoading = ref(false)
 const excludedNodesSelectRef = ref()
 
 // Use composable to fetch secrets
@@ -448,7 +454,7 @@ const placeholders = computed(() => {
 const nameRegex = /^[a-z](?:[-a-z0-9]{0,42}[a-z0-9])?$/
 
 const ruleFormRef = ref<FormInstance>()
-const rules = reactive({
+const rules: Record<string, FormItemRule[]> = reactive({
   displayName: [
     { required: true, message: 'Please input name', trigger: 'blur' },
     {
@@ -482,6 +488,8 @@ const onSubmit = async (formEl: FormInstance | undefined) => {
     submitting.value = true
 
     const { envList, resourceType, nodeId, resource, excludedNodes, image, timeout, nodesAffinity: _nodesAffinity, ...addPayload } = form
+
+    if (!flavorMaxVal.value?.['amd.com/gpu']) form.resource.gpu = ''
 
     const baseResource = {
       cpu: form.resource.cpu,
@@ -581,23 +589,24 @@ function createBetweenRule(min: number, max: number, unit?: string): FormItemRul
     trigger: 'blur',
   }
 }
-watch(
-  () => store.currentNodeFlavor,
-  async (flavorId) => {
-    if (!flavorId) return
-
-    const res = await getNodeFlavorAvail(flavorId)
-    flavorMaxVal.value = res
-    ;(rules['resource.cpu'] as FormItemRule[]).push(createBetweenRule(1, res.cpu))
-    ;(rules['resource.memory'] as FormItemRule[]).push(
-      createBetweenRule(1, Number(byte2Gi(res.memory ?? 0, 0, false))),
-    )
-    ;(rules['resource.ephemeralStorage'] as FormItemRule[]).push(
-      createBetweenRule(1, Number(byte2Gi(res['ephemeral-storage'] ?? 0, 0, false))),
-    )
-  },
-  { immediate: true },
-)
+const fetchFlavorAvail = async () => {
+  const flavorId = store.currentNodeFlavor
+  if (!flavorId) return
+  const res = await getNodeFlavorAvail(flavorId)
+  flavorMaxVal.value = res
+  rules['resource.cpu'] = [
+    { required: true, message: 'Please input cpu', trigger: 'blur' },
+    createBetweenRule(1, res.cpu),
+  ]
+  rules['resource.memory'] = [
+    { required: true, message: 'Please input memory', trigger: 'blur' },
+    createBetweenRule(1, Number(byte2Gi(res.memory ?? 0, 0, false))),
+  ]
+  rules['resource.ephemeralStorage'] = [
+    { required: true, message: 'Please input ephemeral storage', trigger: 'blur' },
+    createBetweenRule(1, Number(byte2Gi(res['ephemeral-storage'] ?? 0, 0, false))),
+  ]
+}
 
 const setInitialFormValues = async () => {
   if (!props.wlid) return
@@ -701,6 +710,16 @@ const fetchNodes = async () => {
   )
 }
 
+const fetchNodesOnDropdown = async () => {
+  if (nodesLoading.value) return
+  nodesLoading.value = true
+  try {
+    await fetchNodes()
+  } finally {
+    nodesLoading.value = false
+  }
+}
+
 // Filter excluded nodes based on search query
 const filteredExcludedNodeOptions = computed(() => {
   if (!excludedNodesSearchQuery.value) {
@@ -761,8 +780,9 @@ const onOpen = async () => {
   cachedUseWorkspaceStorage.value = undefined
   clonedLastNodes.value = []
   pendingWorkspaceId.value = store.currentWorkspaceId ?? store.firstWorkspace ?? ''
+  fetchFlavorAvail()
 
-  const fetches = [fetchNodes(), fetchSecrets(), userStore.fetchEnvs(), fetchPersistentStoragePaths()]
+  const fetches = [fetchSecrets(), userStore.fetchEnvs(), fetchPersistentStoragePaths()]
 
   if (props.action !== 'Create') {
     fetches.push(setInitialFormValues())
@@ -794,7 +814,6 @@ const onOpen = async () => {
 </style>
 <style scoped>
 .drawer-body {
-  max-height: 83vh;
   overflow-y: auto;
 }
 

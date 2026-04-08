@@ -27,6 +27,8 @@ type VerifyTokenRequest struct {
 	UserType string `json:"userType,omitempty"`
 	// If true, returns the user's platform API key (GetOrCreate)
 	IncludePlatformKey bool `json:"includePlatformKey,omitempty"`
+	// If true, returns the user's LiteLLM virtual key (decrypted)
+	IncludeVirtualKey bool `json:"includeVirtualKey,omitempty"`
 }
 
 // VerifyTokenResponse represents the response body for token verification
@@ -37,6 +39,7 @@ type VerifyTokenResponse struct {
 	Exp         int64  `json:"exp"`
 	Type        string `json:"type"`
 	PlatformKey string `json:"platformKey,omitempty"`
+	VirtualKey  string `json:"virtualKey,omitempty"`
 }
 
 // VerifyToken validates a user token and returns user information
@@ -167,6 +170,21 @@ func VerifyToken(c *gin.Context) {
 			}
 		} else {
 			klog.Warning("API key auth not initialized, cannot provide platform key")
+		}
+	}
+
+	// Optionally include LiteLLM virtual key (decrypted from DB)
+	if req.IncludeVirtualKey && resp.Email != "" {
+		apiKeyToken := ApiKeyTokenInstance()
+		if apiKeyToken != nil {
+			virtualKey, err := apiKeyToken.GetVirtualKeyByEmail(c.Request.Context(), resp.Email)
+			if err != nil {
+				klog.ErrorS(err, "failed to get virtual key", "email", resp.Email)
+			} else if virtualKey != "" {
+				resp.VirtualKey = virtualKey
+			}
+		} else {
+			klog.Warning("API key auth not initialized, cannot provide virtual key")
 		}
 	}
 

@@ -477,7 +477,6 @@ func isConcernedLabelsEqual(obj1, obj2 metav1.Object) bool {
 // genFaultNodeByMessage creates a FaultNode object from a node queue message.
 func genFaultNodeByMessage(message *nodeQueueMessage) *v1.FaultNode {
 	return &v1.FaultNode{
-		K8sName:     message.k8sNodeName,
 		AdminName:   message.adminNodeName,
 		ClusterName: message.clusterName,
 	}

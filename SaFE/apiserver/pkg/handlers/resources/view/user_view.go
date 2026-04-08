@@ -80,6 +80,16 @@ type PatchUserRequest struct {
 	Email *string `json:"email,omitempty"`
 }
 
+type UserSettingsResponse struct {
+	// Whether email notification is enabled for this user
+	EnableNotification bool `json:"enableNotification"`
+}
+
+type UpdateUserSettingsRequest struct {
+	// Whether to enable email notification for workload status changes
+	EnableNotification *bool `json:"enableNotification,omitempty"`
+}
+
 type UserLoginRequest struct {
 	// User type, e.g. default
 	Type v1.UserType `json:"type,omitempty"`

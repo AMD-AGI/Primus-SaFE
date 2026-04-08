@@ -35,6 +35,8 @@ COPY --from=builder /workspace/primus-safe/dist ${APP_HOME}
 COPY ./SaFE/node-agent/installer/run.sh  ${APP_HOME}
 COPY ./SaFE/node-agent/pkg/monitors/scripts/*  ${APP_HOME}/scripts
 
+RUN mkdir -p "${APP_HOME}/tmp"
+
 RUN  ls  -l ${APP_HOME} && \
   echo 'umask 0027' | tee -a /etc/bashrc && \
   echo "export HISTSIZE=100" >> /etc/bashrc && \

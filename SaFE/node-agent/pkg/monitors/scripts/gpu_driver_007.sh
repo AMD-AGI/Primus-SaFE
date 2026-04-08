@@ -7,7 +7,9 @@
 
 set -o pipefail
 
-if [ ! -f "/tmp/rocm-smi" ]; then
+JSON_FILE="/tmp/rocm-smi.json"
+
+if [ ! -f "${JSON_FILE}" ]; then
   exit 0
 fi
 
@@ -20,12 +22,13 @@ fi
 IFS='.' read -ra parts <<< "$1"
 length=${#parts[@]}
 
-version=`nsenter --target 1 --mount --uts --ipc --net --pid -- /usr/bin/rocm-smi --showdriverversion |grep "^Driver version:"`
-if [ $? -ne 0 ]; then
-  echo "Error: failed to execute rocm-smi --showdriverversion"
+version=$(jq -r '.system["Driver version"] // empty' "${JSON_FILE}" 2>/dev/null)
+if [ -z "$version" ]; then
+  echo "Error: failed to parse driver version from ${JSON_FILE}"
   exit 1
 fi
-major_version=$(echo "$version" | cut -d ' ' -f 3 | cut -d '.' -f 1)
+
+major_version=$(echo "$version" | cut -d '.' -f 1)
 
 if [ $length -ge 1 ]; then
   if [ -n "${parts[0]}" ] && [ "$major_version" != "${parts[0]}" ]; then

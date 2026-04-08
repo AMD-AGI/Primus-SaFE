@@ -40,6 +40,7 @@ export interface MenuIcons {
   tools: IconSet
   llmGateway: IconSet
   a2a: IconSet
+  monarch: IconSet
 }
 
 const createIconSet = (name: string): IconSet => ({
@@ -81,4 +82,5 @@ export const menuIcons: MenuIcons = {
   tools: createIconSet('skill'), // Using addons icons as placeholder
   llmGateway: createIconSet('apikey'), // Using apikey icons as placeholder
   a2a: createIconSet('skill'), // Using skill icons as placeholder
+  monarch: createIconSet('monarch'),
 }

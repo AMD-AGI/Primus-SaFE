@@ -25,21 +25,23 @@ const (
 	CICDEphemeralRunnerKind = "EphemeralRunner"
 	UnifiedJobKind          = "UnifiedJob"
 	TorchFTKind             = "TorchFT"
+	MonarchJob              = "MonarchJob"
+	MonarchMesh             = "MonarchMesh"
+	MonarchClient           = "MonarchClient"
 	RayJobKind              = "RayJob"
-
-	PodKind            = "Pod"
-	EventKind          = "Event"
-	ConfigmapKind      = "ConfigMap"
-	ClusterRoleKind    = "ClusterRole"
-	ServiceAccountKind = "ServiceAccount"
+	PodKind                 = "Pod"
+	ConfigmapKind           = "ConfigMap"
+	ClusterRoleKind         = "ClusterRole"
+	ServiceAccountKind      = "ServiceAccount"
 
 	GithubConfigUrl   = "GITHUB_CONFIG_URL"
 	UnifiedJobEnable  = "UNIFIED_JOB_ENABLE"
 	ScaleRunnerSetID  = "SCALE_RUNNER_SET_ID"
 	ScaleRunnerID     = "SCALE_RUNNER_ID"
-	ReplicaGroup      = "REPLICA_GROUP"
-	MaxReplicaGroup   = "MAX_REPLICA_GROUP"
-	MinReplicaGroup   = "MIN_REPLICA_GROUP"
+	ReplicaCount      = "REPLICA_COUNT"
+	HostPerReplica    = "HOST_PER_REPLICA"
+	MaxReplicaCount   = "MAX_REPLICA_COUNT"
+	MinReplicaCount   = "MIN_REPLICA_COUNT"
 	TorchFTLightHouse = "TORCHFT_LIGHTHOUSE"
 	RayJobEntrypoint  = "RAY_JOB_ENTRYPOINT"
 	// for preflight job
@@ -68,6 +70,10 @@ const (
 	RayJobSubmitterStorage = "10Gi"
 	RayJobGcsServerPort    = 6379
 	RayJobDashboard        = 8265
+
+	MonarchMeshPortNum = 26600
+	MonarchPort        = "MONARCH_PORT"
+	MonarchMeshPrefix  = "MONARCH_MESH_PREFIX"
 
 	DefaultBurst          = 1000
 	DefaultQPS            = 1000

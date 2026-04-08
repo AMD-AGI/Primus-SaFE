@@ -27,6 +27,7 @@ import (
 	"k8s.io/klog/v2"
 
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
+	commoncrypto "github.com/AMD-AIG-AIMA/SAFE/common/pkg/crypto"
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 )
@@ -389,6 +390,35 @@ func (a *ApiKeyToken) GetOrCreatePlatformKey(ctx context.Context, userId, userNa
 
 	klog.Infof("created platform key for user %s, apiKeyId: %d", userId, newRecord.Id)
 	return apiKey, nil
+}
+
+// GetVirtualKeyByEmail returns the decrypted LiteLLM virtual key for a user.
+// Returns empty string if no binding exists.
+func (a *ApiKeyToken) GetVirtualKeyByEmail(ctx context.Context, email string) (string, error) {
+	if a.dbClient == nil {
+		return "", commonerrors.NewInternalError("database client not initialized")
+	}
+
+	binding, err := a.dbClient.GetLLMBindingByEmail(ctx, email)
+	if err != nil {
+		klog.ErrorS(err, "failed to query LLM binding", "email", email)
+		return "", commonerrors.NewInternalError("failed to query LLM binding")
+	}
+	if binding == nil {
+		return "", nil
+	}
+
+	crypto := commoncrypto.NewCrypto()
+	if crypto == nil {
+		return "", commonerrors.NewInternalError("crypto not initialized")
+	}
+
+	virtualKey, err := crypto.Decrypt(binding.LiteLLMVirtualKey)
+	if err != nil {
+		klog.ErrorS(err, "failed to decrypt virtual key", "email", email)
+		return "", commonerrors.NewInternalError("failed to decrypt virtual key")
+	}
+	return virtualKey, nil
 }
 
 // ExtractApiKeyFromRequest extracts API key from Authorization: Bearer header

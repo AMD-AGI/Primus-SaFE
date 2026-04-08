@@ -159,7 +159,7 @@ cpu=2000m
 memory=4Gi
 if [[ "$cluster_scale" == "medium" ]]; then
   replicas=2
-  cpu=8000m
+  cpu=4000m
   memory=8Gi
 elif [[ "$cluster_scale" == "large" ]]; then
   replicas=2
@@ -383,8 +383,9 @@ csi_volume_handle=$csi_volume_handle
 node_agent_gpu_driver=6.12.12
 node_agent_rocm_version=6.4
 node_agent_nfs_server=
-node_agent_nfs_path=
+node_agent_nfs_server_path=
 node_agent_nfs_mount=
+node_agent_all_nfs_path=
 node_agent_toggle_net_bnxt_load_204=off
 node_agent_toggle_net_ainic_load_205=off
 node_agent_toggle_net_ainic_devices_208=off

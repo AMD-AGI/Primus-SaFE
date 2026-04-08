@@ -41,6 +41,8 @@ type UserInfo struct {
 	Email string `json:"email,omitempty"`
 	// API Key ID (only set when authenticated via API key)
 	ApiKeyId int64 `json:"apiKeyId,omitempty"`
+	// Preferred username
+	PreferredUsername string `json:"preferred_username,omitempty"`
 }
 
 // TokenInterface defines the contract for token management operations

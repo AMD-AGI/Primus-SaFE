@@ -6,6 +6,10 @@
 package resources
 
 import (
+	"context"
+	"testing"
+
+	"gotest.tools/assert"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -13,6 +17,7 @@ import (
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
+	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/resources/view"
 )
 
 func genMockUser() *v1.User {
@@ -54,4 +59,73 @@ func createMockUser() (*v1.User, client.WithWatch) {
 
 	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(mockUser, mockRole).Build()
 	return mockUser, fakeClient
+}
+
+func TestIsUserEnableNotification(t *testing.T) {
+	t.Run("default is false", func(t *testing.T) {
+		user := genMockUser()
+		assert.Equal(t, v1.IsUserEnableNotification(user), false)
+	})
+
+	t.Run("returns true when annotation set", func(t *testing.T) {
+		user := genMockUser()
+		v1.SetAnnotation(user, v1.UserEnableNotificationAnnotation, v1.TrueStr)
+		assert.Equal(t, v1.IsUserEnableNotification(user), true)
+	})
+
+	t.Run("returns false after annotation removed", func(t *testing.T) {
+		user := genMockUser()
+		v1.SetAnnotation(user, v1.UserEnableNotificationAnnotation, v1.TrueStr)
+		v1.RemoveAnnotation(user, v1.UserEnableNotificationAnnotation)
+		assert.Equal(t, v1.IsUserEnableNotification(user), false)
+	})
+}
+
+func TestUserSettingsResponse(t *testing.T) {
+	t.Run("response reflects annotation off", func(t *testing.T) {
+		user := genMockUser()
+		resp := &view.UserSettingsResponse{
+			EnableNotification: v1.IsUserEnableNotification(user),
+		}
+		assert.Equal(t, resp.EnableNotification, false)
+	})
+
+	t.Run("response reflects annotation on", func(t *testing.T) {
+		user := genMockUser()
+		v1.SetAnnotation(user, v1.UserEnableNotificationAnnotation, v1.TrueStr)
+		resp := &view.UserSettingsResponse{
+			EnableNotification: v1.IsUserEnableNotification(user),
+		}
+		assert.Equal(t, resp.EnableNotification, true)
+	})
+}
+
+func TestUserSettingsAnnotationPersistence(t *testing.T) {
+	user := genMockUser()
+	s := runtime.NewScheme()
+	_ = v1.AddToScheme(s)
+	fakeClient := fake.NewClientBuilder().WithScheme(s).WithObjects(user).Build()
+	ctx := context.Background()
+
+	t.Run("enable persists to store", func(t *testing.T) {
+		v1.SetAnnotation(user, v1.UserEnableNotificationAnnotation, v1.TrueStr)
+		err := fakeClient.Update(ctx, user)
+		assert.NilError(t, err)
+
+		fetched := &v1.User{}
+		err = fakeClient.Get(ctx, client.ObjectKeyFromObject(user), fetched)
+		assert.NilError(t, err)
+		assert.Equal(t, v1.IsUserEnableNotification(fetched), true)
+	})
+
+	t.Run("disable persists to store", func(t *testing.T) {
+		v1.RemoveAnnotation(user, v1.UserEnableNotificationAnnotation)
+		err := fakeClient.Update(ctx, user)
+		assert.NilError(t, err)
+
+		fetched := &v1.User{}
+		err = fakeClient.Get(ctx, client.ObjectKeyFromObject(user), fetched)
+		assert.NilError(t, err)
+		assert.Equal(t, v1.IsUserEnableNotification(fetched), false)
+	})
 }

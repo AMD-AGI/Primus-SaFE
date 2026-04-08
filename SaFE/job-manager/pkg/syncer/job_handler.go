@@ -44,6 +44,9 @@ func (r *SyncerReconciler) handleJob(ctx context.Context,
 	if message.namespace != adminWorkload.Spec.Workspace {
 		return ctrlruntime.Result{}, nil
 	}
+	if commonworkload.IsMonarchJob(adminWorkload) && message.gvk.Kind != common.JobKind {
+		return ctrlruntime.Result{}, nil
+	}
 	if commonworkload.IsCICDScalingRunnerSet(adminWorkload) && message.gvk.Kind != common.CICDScaleRunnerSetKind {
 		return ctrlruntime.Result{}, nil
 	}
@@ -64,11 +67,8 @@ func (r *SyncerReconciler) handleJob(ctx context.Context,
 func (r *SyncerReconciler) handleJobImpl(ctx context.Context, message *resourceMessage,
 	adminWorkload *v1.Workload, clientSets *ClusterClientSets) (ctrlruntime.Result, error) {
 	if !adminWorkload.IsEnd() {
-		status, err := r.getK8sObjectStatus(ctx, message, clientSets, adminWorkload)
-		if err != nil {
-			return ctrlruntime.Result{}, err
-		}
-		adminWorkload, err = r.updateAdminWorkloadStatus(ctx, adminWorkload, status, message)
+		var err error
+		adminWorkload, err = r.updateAdminWorkloadByJob(ctx, clientSets, adminWorkload, message)
 		if err != nil {
 			klog.ErrorS(err, "failed to update admin workload status")
 			return ctrlruntime.Result{}, err
@@ -114,9 +114,8 @@ func (r *SyncerReconciler) getK8sObjectStatus(ctx context.Context, message *reso
 	}
 
 	var rt *v1.ResourceTemplate
-	if commonworkload.IsTorchFT(adminWorkload) {
-		// For TorchFT workloads, the Kubernetes object GVK matches the workload GVK directly
-		// So we can retrieve the resource template using the message GVK (which is the actual object GVK)
+	if commonworkload.IsTorchFT(adminWorkload) || commonworkload.IsMonarchJob(adminWorkload) {
+		// For TorchFT or MonarchJob workloads, the GVK of the K8s object is not the workload GVK, but we can retrieve it via the object's own GVK.
 		rt, err = commonworkload.GetResourceTemplateByGVK(ctx, r.Client, message.gvk)
 	} else {
 		// For other workloads, the resource template is associated with the workload GVK
@@ -150,12 +149,6 @@ func (r *SyncerReconciler) waitAllPodsDeleted(ctx context.Context,
 	message *resourceMessage, clientSets *ClusterClientSets) (bool, error) {
 	labelSelector := metav1.LabelSelector{
 		MatchLabels: map[string]string{v1.K8sObjectIdLabel: message.name},
-	}
-	// TODO: Keep old logic for compatibility; remove it later.
-	if len(message.selectorLabels) > 0 {
-		if _, ok := message.selectorLabels[v1.WorkloadIdLabel]; ok {
-			labelSelector.MatchLabels = map[string]string{v1.WorkloadIdLabel: message.workloadId}
-		}
 	}
 	listOptions := metav1.ListOptions{
 		LabelSelector: metav1.FormatLabelSelector(&labelSelector),
@@ -256,13 +249,16 @@ func (r *SyncerReconciler) shouldReSchedule(ctx context.Context,
 	return false, nil
 }
 
-// updateAdminWorkloadStatus updates the admin workload status based on resource status.
-// Manages workload phase transitions and condition updates.
-func (r *SyncerReconciler) updateAdminWorkloadStatus(ctx context.Context, originalWorkload *v1.Workload,
-	status *jobutils.K8sObjectStatus, message *resourceMessage) (*v1.Workload, error) {
-	if status == nil {
-		return originalWorkload, nil
+// updateAdminWorkloadByJob updates the admin workload status based on job message.
+// retrieve the status of the Kubernetes object associated with the workload
+// and update workload phase and condition.
+func (r *SyncerReconciler) updateAdminWorkloadByJob(ctx context.Context, clientSets *ClusterClientSets,
+	originalWorkload *v1.Workload, message *resourceMessage) (*v1.Workload, error) {
+	status, err := r.getK8sObjectStatus(ctx, message, clientSets, originalWorkload)
+	if err != nil || status == nil {
+		return originalWorkload, err
 	}
+
 	adminWorkload := originalWorkload.DeepCopy()
 	if commonworkload.IsCICDScalingRunnerSet(adminWorkload) && status.RunnerScaleSetId != "" {
 		if adminWorkload.Status.StartTime == nil {
@@ -296,6 +292,7 @@ func (r *SyncerReconciler) updateAdminWorkloadStatus(ctx context.Context, origin
 		return originalWorkload, nil
 	}
 	if err := r.Status().Update(ctx, adminWorkload); err != nil {
+		klog.ErrorS(err, "failed to update admin workload status", "name", adminWorkload.Name)
 		return nil, err
 	}
 	klog.Infof("update workload status, name: %s, phase: %s, dispatchCount: %d, k8s.status: %s",
@@ -406,16 +403,19 @@ func (r *SyncerReconciler) reSchedule(ctx context.Context, workload *v1.Workload
 }
 
 // updateWorkloadCondition updates workload conditions based on resource status.
-// Manages condition history and ensures proper condition tracking.
+// For all workload types, it searches the full condition list by Type+Reason
+// to prevent duplicate conditions from being appended.
 func updateWorkloadCondition(adminWorkload *v1.Workload, newCondition *metav1.Condition) {
-	if commonworkload.IsApplication(adminWorkload) {
-		lastCondition := adminWorkload.GetLastCondition()
-		if lastCondition != nil && newCondition.Type == lastCondition.Type && newCondition.Reason == lastCondition.Reason {
-			*lastCondition = *newCondition
-			return
+	currentCondition := jobutils.FindCondition(adminWorkload, newCondition)
+	if currentCondition != nil {
+		if currentCondition.Status != newCondition.Status ||
+			currentCondition.Message != newCondition.Message {
+			*currentCondition = *newCondition
 		}
-		adminWorkload.Status.Conditions = append(adminWorkload.Status.Conditions, *newCondition)
-		// Only keep the latest 30 conditions
+		return
+	}
+	adminWorkload.Status.Conditions = append(adminWorkload.Status.Conditions, *newCondition)
+	if commonworkload.IsApplication(adminWorkload) {
 		maxReserved := MaxConditionHistory
 		if l := len(adminWorkload.Status.Conditions); l > maxReserved {
 			begin := l - maxReserved
@@ -424,16 +424,6 @@ func updateWorkloadCondition(adminWorkload *v1.Workload, newCondition *metav1.Co
 				conditions = append(conditions, adminWorkload.Status.Conditions[i])
 			}
 			adminWorkload.Status.Conditions = conditions
-		}
-	} else {
-		currentCondition := jobutils.FindCondition(adminWorkload, newCondition)
-		if currentCondition != nil {
-			if currentCondition.Status != newCondition.Status ||
-				currentCondition.Message != newCondition.Message {
-				*currentCondition = *newCondition
-			}
-		} else {
-			adminWorkload.Status.Conditions = append(adminWorkload.Status.Conditions, *newCondition)
 		}
 	}
 }
@@ -476,7 +466,7 @@ func shouldWorkloadStopRetry(adminWorkload *v1.Workload, count int) bool {
 // otherwise: returns empty string.
 func handleTorchFTGroupStatus(adminWorkload *v1.Workload, groupIdStr string, phase v1.WorkloadPhase) v1.WorkloadPhase {
 	// Get total group count
-	totalGroups, err := commonworkload.GetReplicaGroup(adminWorkload, common.ReplicaGroup)
+	totalGroups, err := commonworkload.GetReplicaCount(adminWorkload, common.ReplicaCount)
 	if err != nil || totalGroups <= 0 {
 		// If we can't get total groups, treat as single group
 		return phase
@@ -491,7 +481,7 @@ func handleTorchFTGroupStatus(adminWorkload *v1.Workload, groupIdStr string, pha
 		return ""
 	}
 
-	minGroups, err := commonworkload.GetReplicaGroup(adminWorkload, common.MinReplicaGroup)
+	minGroups, err := commonworkload.GetReplicaCount(adminWorkload, common.MinReplicaCount)
 	if err != nil || minGroups <= 0 {
 		// If we can't get total groups, treat as single group
 		return phase
@@ -539,8 +529,8 @@ func handleTorchFTGroupStatus(adminWorkload *v1.Workload, groupIdStr string, pha
 // isTorchFTGroupFailed checks if the TorchFT workload should be considered as failed
 // if the number of remaining available worker groups falls below the minimum required groups
 func isTorchFTGroupFailed(adminWorkload *v1.Workload) bool {
-	totalGroups, _ := commonworkload.GetReplicaGroup(adminWorkload, common.ReplicaGroup)
-	minGroups, _ := commonworkload.GetReplicaGroup(adminWorkload, common.MinReplicaGroup)
+	totalGroups, _ := commonworkload.GetReplicaCount(adminWorkload, common.ReplicaCount)
+	minGroups, _ := commonworkload.GetReplicaCount(adminWorkload, common.MinReplicaCount)
 
 	failedCount := 0
 	for i := 1; i <= totalGroups; i++ {
@@ -574,7 +564,7 @@ func getFailedPodInfo(workload *v1.Workload) string {
 		}
 		info := FailedPodInfo{
 			Pod:     pod.PodId,
-			Node:    pod.K8sNodeName,
+			Node:    pod.AdminNodeName,
 			Message: pod.FailedMessage,
 		}
 		for _, c := range pod.Containers {

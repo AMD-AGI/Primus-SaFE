@@ -75,6 +75,89 @@ func (h *Handler) DeleteUser(c *gin.Context) {
 	handle(c, h.deleteUser)
 }
 
+// GetUserSettings returns the notification preferences for a user.
+func (h *Handler) GetUserSettings(c *gin.Context) {
+	handle(c, h.getUserSettings)
+}
+
+// UpdateUserSettings updates the notification preferences for a user.
+func (h *Handler) UpdateUserSettings(c *gin.Context) {
+	handle(c, h.updateUserSettings)
+}
+
+func (h *Handler) getUserSettings(c *gin.Context) (interface{}, error) {
+	requestUser, err := h.getAndSetUsername(c)
+	if err != nil {
+		return nil, err
+	}
+	targetUserId := c.GetString(common.Name)
+	var targetUser *v1.User
+	if targetUserId == common.UserSelf {
+		targetUser = requestUser
+	} else {
+		targetUser, err = h.getAdminUser(c.Request.Context(), targetUserId)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &view.UserSettingsResponse{
+		EnableNotification: v1.IsUserEnableNotification(targetUser),
+	}, nil
+}
+
+func (h *Handler) updateUserSettings(c *gin.Context) (interface{}, error) {
+	requestUser, err := h.getAndSetUsername(c)
+	if err != nil {
+		return nil, err
+	}
+	req := &view.UpdateUserSettingsRequest{}
+	if _, err = apiutils.ParseRequestBody(c.Request, req); err != nil {
+		return nil, err
+	}
+
+	targetUserId := c.GetString(common.Name)
+	var targetUser *v1.User
+	if targetUserId == common.UserSelf {
+		targetUser = requestUser
+		targetUserId = requestUser.Name
+	} else {
+		targetUser, err = h.getAdminUser(c.Request.Context(), targetUserId)
+		if err != nil {
+			return nil, err
+		}
+		roles := h.accessController.GetRoles(c.Request.Context(), requestUser)
+		if err = h.authUserAction(c, requestUser, targetUser,
+			commonuser.GetWorkspace(targetUser), authority.UserIdentityResource, roles, v1.UpdateVerb); err != nil {
+			return nil, err
+		}
+	}
+
+	if req.EnableNotification != nil {
+		if err = backoff.ConflictRetry(func() error {
+			if *req.EnableNotification {
+				v1.SetAnnotation(targetUser, v1.UserEnableNotificationAnnotation, v1.TrueStr)
+			} else {
+				v1.RemoveAnnotation(targetUser, v1.UserEnableNotificationAnnotation)
+			}
+			if innerError := h.Update(c.Request.Context(), targetUser); innerError == nil {
+				return nil
+			} else {
+				if apierrors.IsConflict(innerError) {
+					targetUser, _ = h.getAdminUser(c.Request.Context(), targetUserId)
+					if targetUser == nil {
+						return commonerrors.NewNotFoundWithMessage(fmt.Sprintf("user %s not found", targetUserId))
+					}
+				}
+				return innerError
+			}
+		}, defaultRetryCount, defaultRetryDelay); err != nil {
+			return nil, err
+		}
+	}
+	klog.Infof("update user settings, target.user: %s, request.user: %s", targetUserId, c.GetString(common.UserName))
+	return nil, nil
+}
+
 // Login handles user authentication and token generation.
 // Supports different login types and generates authentication tokens for successful logins.
 // Sets cookies for console-based logins.
@@ -290,7 +373,7 @@ func applyUserPatch(targetUser *v1.User, req *view.PatchUserRequest) {
 		targetUser.Spec.RestrictedType = *req.RestrictedType
 	}
 	if req.AvatarUrl != nil {
-		metav1.SetMetaDataAnnotation(&targetUser.ObjectMeta, v1.UserAvatarUrlAnnotation, *req.AvatarUrl)
+		v1.SetAnnotation(targetUser, v1.UserAvatarUrlAnnotation, *req.AvatarUrl)
 	}
 	if req.Password != nil && *req.Password != "" {
 		targetUser.Spec.Password = stringutil.Base64Encode(*req.Password)

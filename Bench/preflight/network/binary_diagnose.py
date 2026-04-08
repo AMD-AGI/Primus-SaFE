@@ -652,7 +652,6 @@ def parse_args() -> List[str]:
     else:
         MAX_BYTES = "1G"   # Tiny clusters (1-2 nodes): 1G
 
-    
     return nodes
 
 def main():
@@ -679,7 +678,11 @@ def main():
     
     # Get test name for logging
     test_name = "all_reduce_perf" if RCCL_TEST_TYPE == 0 else "alltoall_perf"
-    
+
+    if RCCL_TEST_TYPE == 1 and len(nodes) > 8:
+        log(f"[INFO] alltoall_perf skipped for {len(nodes)} nodes (only runs when <= 8 nodes)")
+        return
+
     # Log configuration details
     log(f"🔍 Starting diagnosis on {len(nodes)} nodes: {label_nodes(nodes)}, test={test_name}")
     if ENABLE_AINIC:

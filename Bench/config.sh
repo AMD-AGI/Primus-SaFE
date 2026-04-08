@@ -86,6 +86,7 @@ export ENGINE="${ENGINE:-psync}"
 export RUNTIME="${RUNTIME:-30}"
 export BNIC="${BNIC:-50}"
 export BXGMI="${BXGMI:-315}"
+export RUN_BENCHMARKS="${RUN_BENCHMARKS:-false}"
 
 # ==============================================================================
 # Path Configuration (must precede sections that reference PRIMUSBENCH_PATH)

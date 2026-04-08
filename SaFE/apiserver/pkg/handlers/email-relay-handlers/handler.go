@@ -59,10 +59,7 @@ func (h *Handler) Stream(c *gin.Context) {
 		klog.Errorf("failed to list pending outbox: %v", err)
 	} else {
 		for _, item := range pending {
-			h.sendSSEEvent(c, flusher, item)
-			if item.ID > lastSentID {
-				lastSentID = item.ID
-			}
+			h.dispatchAndSend(c, flusher, item, &lastSentID)
 		}
 	}
 
@@ -74,6 +71,10 @@ func (h *Handler) Stream(c *gin.Context) {
 	poll := time.NewTicker(5 * time.Second)
 	defer poll.Stop()
 
+	// Periodically reset entries stuck in "dispatched" (relay crashed before ack)
+	staleReset := time.NewTicker(2 * time.Minute)
+	defer staleReset.Stop()
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -83,10 +84,7 @@ func (h *Handler) Stream(c *gin.Context) {
 			if !ok {
 				return
 			}
-			h.sendSSEEvent(c, flusher, item)
-			if item.ID > lastSentID {
-				lastSentID = item.ID
-			}
+			h.dispatchAndSend(c, flusher, item, &lastSentID)
 		case <-poll.C:
 			newPending, err := h.dbClient.ListPendingEmailOutboxAfter(ctx, lastSentID, 100)
 			if err != nil {
@@ -94,10 +92,13 @@ func (h *Handler) Stream(c *gin.Context) {
 				continue
 			}
 			for _, item := range newPending {
-				h.sendSSEEvent(c, flusher, item)
-				if item.ID > lastSentID {
-					lastSentID = item.ID
-				}
+				h.dispatchAndSend(c, flusher, item, &lastSentID)
+			}
+		case <-staleReset.C:
+			if n, err := h.dbClient.ResetStaleDispatched(ctx, 5*time.Minute); err != nil {
+				klog.Errorf("failed to reset stale dispatched: %v", err)
+			} else if n > 0 {
+				klog.Infof("reset %d stale dispatched outbox entries back to pending", n)
 			}
 		case <-heartbeat.C:
 			c.SSEvent("heartbeat", "ping")
@@ -105,6 +106,27 @@ func (h *Handler) Stream(c *gin.Context) {
 				flusher.Flush()
 			}
 		}
+	}
+}
+
+// dispatchAndSend atomically marks the outbox entry as dispatched then pushes it via SSE.
+// If another SSE connection already dispatched this entry, it is skipped to prevent duplicates.
+func (h *Handler) dispatchAndSend(c *gin.Context, flusher interface{ Flush() }, item *dbModel.EmailOutbox, lastSentID *int32) {
+	affected, err := h.dbClient.DispatchEmailOutbox(c.Request.Context(), item.ID)
+	if err != nil {
+		klog.Errorf("failed to dispatch outbox id=%d: %v", item.ID, err)
+		return
+	}
+	if affected == 0 {
+		// Already dispatched by another connection or already acked — skip
+		if item.ID > *lastSentID {
+			*lastSentID = item.ID
+		}
+		return
+	}
+	h.sendSSEEvent(c, flusher, item)
+	if item.ID > *lastSentID {
+		*lastSentID = item.ID
 	}
 }
 
