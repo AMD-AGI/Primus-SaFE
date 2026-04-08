@@ -102,12 +102,13 @@ func (h *Handler) createRlJob(c *gin.Context) (interface{}, error) {
 	workerInit := BuildRlContainerEntrypoint("", false)
 	encodedHeadInit := base64.StdEncoding.EncodeToString([]byte(headInit))
 	encodedWorkerInit := base64.StdEncoding.EncodeToString([]byte(workerInit))
+	encodedRayJobEntrypoint := base64.StdEncoding.EncodeToString([]byte("bash /tmp/rl_train.sh"))
 
 	// Step 9: Build env
 	userId := c.GetString(common.UserId)
 	userName := c.GetString(common.UserName)
 	env := map[string]string{
-		common.RayJobEntrypoint:  "bash /tmp/rl_train.sh",
+		common.RayJobEntrypoint:  encodedRayJobEntrypoint,
 		"PYTORCH_HIP_ALLOC_CONF": "expandable_segments:True",
 		"RL_USER_ID":             userId,
 		"RL_USER_NAME":           userName,
