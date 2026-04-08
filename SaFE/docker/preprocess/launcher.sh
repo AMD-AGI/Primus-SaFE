@@ -33,13 +33,6 @@ if [ -z "$input" ]; then
     exit 0
 fi
 
-# Patch PyTorch inductor duplicate assertions for Monarch workloads
-case "${WORKLOAD_KIND}" in
-  *Monarch*)
-    /bin/sh /shared-data/patch_inductor.sh || true
-    ;;
-esac
-
 echo "$input" |base64 -d > ".run.sh"
 chmod +x ".run.sh"
 if [ -x /usr/bin/bash ]; then

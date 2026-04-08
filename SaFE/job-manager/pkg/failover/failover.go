@@ -313,7 +313,8 @@ func (r *FailoverReconciler) Reconcile(ctx context.Context, req ctrlruntime.Requ
 	if !workload.GetDeletionTimestamp().IsZero() || isDisableFailover(workload) {
 		return ctrlruntime.Result{}, nil
 	}
-	if commonworkload.IsTorchFT(workload) && !jobutils.FindFailedCondition(workload) {
+	if (commonworkload.IsTorchFT(workload) || commonworkload.IsMonarchJob(workload)) &&
+		!jobutils.FindFailedCondition(workload) {
 		return ctrlruntime.Result{}, nil
 	}
 	return r.handle(ctx, workload)

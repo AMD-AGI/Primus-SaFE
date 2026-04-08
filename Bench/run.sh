@@ -95,6 +95,13 @@ if [[ "$RANK" == "0" ]]; then
     HOSTS_INI="$OUTPUT_PATH/primusbench_hosts.ini"
     (echo "[all]"; cat "$HOSTS") > "$HOSTS_INI"
 
+    successed_nodes=()
+    successed_nodes_ip=()
+    failed_nodes=()
+    all_nodes=()
+    declare -A node_ip_map ip_node_map
+
+    if [ "${SKIP_NODE_CHECK}" != "true" ]; then
     preflight_node_logname="${OUTPUT_PATH}/preflight_node.log"
     log "🔍 Running node preflight check..."
     NODE_CHECK_MASTER_PORT=$((RANDOM % 9999 + 30001))
@@ -111,19 +118,15 @@ if [[ "$RANK" == "0" ]]; then
     TIMEOUT=60
     ELAPSED=0
     NODE_LOG=""
-    # Wait for directory and node.log to be created
     while [ -z "$NODE_LOG" ] || [ ! -f "$NODE_LOG" ]; do
-        # Check if ansible process is still running
         if ! kill -0 $ansible_pid 2>/dev/null; then
             warn "Ansible process exited before creating log file"
             break
         fi
-        # Check timeout
         if [ $ELAPSED -ge $TIMEOUT ]; then
             warn "Timeout waiting for node log file"
             break
         fi
-        # Try to find the first directory
         FIRST_DIR=$(find "$OUTPUT_PATH" -maxdepth 1 -type d ! -path "$OUTPUT_PATH" 2>/dev/null | head -1)
         if [ -n "$FIRST_DIR" ]; then
             NODE_LOG="$FIRST_DIR/node.log"
@@ -136,12 +139,6 @@ if [[ "$RANK" == "0" ]]; then
     fi
     wait $ansible_pid || true
 
-    successed_nodes=()
-    successed_nodes_ip=()
-    failed_nodes=()
-    all_nodes=()
-    declare -A node_ip_map ip_node_map
-    # Second pass: collect healthy nodes
     while IFS= read -r line; do
         status=true
         if [[ "$line" != *"All checks passed"* ]]; then
@@ -179,6 +176,26 @@ if [[ "$RANK" == "0" ]]; then
             failed_nodes+=("$node")
         fi
     done < "$preflight_node_logname"
+
+    else
+    log "⏭ Skipping node preflight check (SKIP_NODE_CHECK=true)..."
+    while IFS= read -r node || [ -n "$node" ]; do
+        [[ -z "$node" || "$node" =~ ^# ]] && continue
+        ip_addr=$(nsenter --target 1 --mount --uts --ipc --net --pid -- getent hosts "$node" | awk '{print $1; exit}')
+        if [[ "$ip_addr" == 127.* ]]; then
+            ip_addr=$(ip route get 8.8.8.8 | awk '{print $7}')
+        fi
+        if [[ -n "$ip_addr" ]] && [[ "$ip_addr" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            node_ip_map[$node]="$ip_addr"
+            ip_node_map[$ip_addr]="$node"
+            all_nodes+=("$node")
+            successed_nodes+=("$node")
+            successed_nodes_ip+=("$ip_addr")
+        else
+            echo "Warning: Cannot resolve '$node', skipping..." >&2
+        fi
+    done < "$HOSTS"
+    fi
 
         # Initialize bench report file
     BENCH_REPORT="${OUTPUT_PATH}/bench_report.txt"
@@ -312,6 +329,7 @@ if [[ "$RANK" == "0" ]]; then
     echo "ansible_ssh_port=${SSH_PORT}" >> $INVENTORY_FILE
     cat $INVENTORY_FILE
 
+    if [ "${RUN_BENCHMARKS}" = "true" ]; then
     log "🧠 Running Computation-Communication Overlap benchmark..."
     CCO_MASTER_PORT=$((RANDOM % 9999 + 30001))
     cco_logname="$OUTPUT_PATH/cco_ansible.log"
@@ -380,6 +398,7 @@ if [[ "$RANK" == "0" ]]; then
     echo
     log "📊 Kernel Launch Overhead results:"
     jq . < "${OUTPUT_PATH}/kernel_overhead_results.json"
+    fi
 
     ok "✅ PrimusBench completed successfully!"
 

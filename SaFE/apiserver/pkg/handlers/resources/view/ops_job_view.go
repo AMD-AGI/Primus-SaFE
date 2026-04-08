@@ -49,6 +49,8 @@ type CreatePreflightRequest struct {
 	ExcludedNodes []string `json:"excludedNodes,omitempty"`
 	// Indicates whether the job tolerates node taints. default false
 	IsTolerateAll bool `json:"isTolerateAll"`
+	// The number of nodes to be processed (when the workspace and cluster are specified)
+	Replica int `json:"replica,omitempty"`
 }
 
 type CreateAddonRequest struct {
