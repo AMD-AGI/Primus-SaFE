@@ -5,6 +5,7 @@ package clientsets
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"sync"
 	"time"
@@ -12,6 +13,7 @@ import (
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/errors"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/robust"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/tools/clientcmd"
 )
 
@@ -214,6 +216,9 @@ func (cm *ClusterManager) loadAllClusters(ctx context.Context) error {
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
 
+	// Auto-register Robust clients from cluster_config DB before building the cluster map.
+	cm.syncRobustClientsFromDB(ctx)
+
 	// Create new cluster map for remote clusters only
 	newClusters := make(map[string]*ClusterClientSet)
 
@@ -260,6 +265,79 @@ func (cm *ClusterManager) loadAllClusters(ctx context.Context) error {
 	cm.clusters = newClusters
 	log.Infof("Total clusters loaded: %d", len(cm.clusters))
 	return nil
+}
+
+// syncRobustClientsFromDB reads robust_endpoint from cluster_config and registers
+// any new Robust clients into the global Registry. Env-var-registered clients
+// (from ROBUST_API_URL) take precedence and are never overwritten.
+//
+// For clusters that have a K8S client but no robust_endpoint in the DB, it
+// probes the remote cluster for a robust-analyzer Service in primus-robust
+// namespace and auto-discovers the endpoint.
+func (cm *ClusterManager) syncRobustClientsFromDB(ctx context.Context) {
+	cpClientSet := GetControlPlaneClientSet()
+	if cpClientSet == nil || cpClientSet.Facade == nil {
+		return
+	}
+	configs, err := cpClientSet.Facade.ClusterConfig.List(ctx)
+	if err != nil {
+		log.Warnf("Failed to list cluster configs for Robust client sync: %v", err)
+		return
+	}
+
+	registry := robust.GetRegistry()
+	k8sClients := getAllClusterK8SClients()
+
+	for _, cfg := range configs {
+		if _, err := registry.GetClient(cfg.ClusterName); err == nil {
+			continue // already registered
+		}
+
+		endpoint := cfg.RobustEndpoint
+
+		// Auto-discover: probe remote K8S for robust-analyzer Service
+		if endpoint == "" {
+			if k8s, ok := k8sClients[cfg.ClusterName]; ok && k8s != nil && k8s.Clientsets != nil {
+				if discovered := discoverRobustEndpoint(ctx, k8s, cfg.ClusterName); discovered != "" {
+					endpoint = discovered
+					// Persist back to DB so next sync is instant
+					go func(name, ep string) {
+						if cpCS := GetControlPlaneClientSet(); cpCS != nil && cpCS.Facade != nil {
+							if c, e := cpCS.Facade.ClusterConfig.GetByName(context.Background(), name); e == nil {
+								c.RobustEndpoint = ep
+								_ = cpCS.Facade.ClusterConfig.Update(context.Background(), c)
+								log.Infof("[robust] Auto-discovered and saved robust_endpoint for cluster %q: %s", name, ep)
+							}
+						}
+					}(cfg.ClusterName, endpoint)
+				}
+			}
+		}
+
+		if endpoint == "" {
+			continue
+		}
+		registry.Register(cfg.ClusterName, endpoint)
+	}
+}
+
+// discoverRobustEndpoint probes a remote cluster for robust-analyzer Service
+// in the primus-robust namespace and returns an HTTP endpoint if found.
+func discoverRobustEndpoint(ctx context.Context, k8s *K8SClientSet, clusterName string) string {
+	svc, err := k8s.Clientsets.CoreV1().Services("primus-robust").Get(ctx, "robust-analyzer", metav1.GetOptions{})
+	if err != nil {
+		return ""
+	}
+	port := int32(robust.DefaultPort)
+	for _, p := range svc.Spec.Ports {
+		if p.Name == "http" || p.Port == int32(robust.DefaultPort) {
+			port = p.Port
+			break
+		}
+	}
+	endpoint := fmt.Sprintf("http://robust-analyzer.primus-robust.svc:%d", port)
+	log.Infof("[robust] Auto-discovered robust-analyzer Service in cluster %q: %s", clusterName, endpoint)
+	return endpoint
 }
 
 // startPeriodicSync starts periodic synchronization (multi-cluster mode)

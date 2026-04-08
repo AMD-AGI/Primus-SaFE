@@ -35,10 +35,12 @@ func GetRegistry() *Registry {
 	return globalRegistry
 }
 
-// initFromEnv creates clients from environment configuration.
-// ROBUST_API_URL can override the default in-cluster service address.
-// In control-plane mode, cluster-specific URLs can be set via
-// ROBUST_API_URL_<CLUSTER_NAME> (dashes replaced by underscores, uppercased).
+// initFromEnv creates a client from the ROBUST_API_URL environment variable.
+// This registers a single client for the current cluster (CLUSTER_NAME or "default").
+//
+// In multi-cluster deployments the remaining clusters are discovered dynamically
+// from the control-plane database (cluster_config.robust_endpoint) by
+// ClusterManager.syncRobustClientsFromDB during periodic sync.
 func (r *Registry) initFromEnv() {
 	if u := os.Getenv("ROBUST_API_URL"); u != "" {
 		clusterName := os.Getenv("CLUSTER_NAME")

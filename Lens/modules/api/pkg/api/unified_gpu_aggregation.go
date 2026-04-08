@@ -435,7 +435,10 @@ func handleGpuAggSnapshots(ctx context.Context, req *GpuAggSnapshotsListRequest)
 }
 
 // proxyGpuAggPaginated proxies a paginated GPU aggregation query to Robust.
+// The frontend expects all hourly data in a single page (legacy behavior used
+// PageSize=10000), so we override page_size regardless of the request value.
 func proxyGpuAggPaginated(ctx context.Context, rc *robust.Client, path string, p url.Values) (*PaginatedResponse, error) {
+	p.Set("page_size", "10000")
 	raw, err := rc.GetRaw(ctx, path, p)
 	if err != nil {
 		return nil, fmt.Errorf("robust %s: %w", path, err)

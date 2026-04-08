@@ -75,6 +75,7 @@ apps:
         cpu: "1"
         memory: "1Gi"
     config:
+      robustApiUrl: ""
       controller:
         leaderElectionId: "primus-safe-adapter"
         metricsPort: 19293

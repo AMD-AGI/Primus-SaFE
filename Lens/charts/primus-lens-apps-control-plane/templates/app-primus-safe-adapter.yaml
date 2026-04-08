@@ -78,6 +78,12 @@ spec:
           env:
             - name: CONFIG_PATH
               value: /etc/primus-safe-adapter/config.yaml
+            - name: CLUSTER_NAME
+              value: {{ .Values.global.clusterName | default "default" | quote }}
+            {{- if .Values.apps.primusSafeAdapter.config.robustApiUrl }}
+            - name: ROBUST_API_URL
+              value: {{ .Values.apps.primusSafeAdapter.config.robustApiUrl | quote }}
+            {{- end }}
           ports:
             - name: http
               containerPort: {{ .Values.apps.primusSafeAdapter.httpPort | default 8080 }}
