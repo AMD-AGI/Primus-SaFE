@@ -9,12 +9,9 @@
     <template #reference>
       <el-button class="user-card-btn w-full !h-auto !p-3 !justify-between" text>
         <div class="flex items-center gap-3 overflow-hidden">
-          <!-- Avatar (first letter) -->
           <div class="avatar">
             <span>{{ initial }}</span>
           </div>
-
-          <!-- Text -->
           <div class="flex-1 min-w-0 text-left">
             <div class="name ellipsis" :title="displayName">{{ displayName }}</div>
             <div class="subtle ellipsis" :title="roleDisplayText">
@@ -25,9 +22,9 @@
       </el-button>
     </template>
 
-    <!-- Popover content: block layout -->
+    <!-- Popover content -->
     <div class="space-y-3">
-      <!-- Top avatar + name -->
+      <!-- Header: avatar + name + logout -->
       <div class="flex justify-between items-center">
         <div class="flex items-center gap-3">
           <div class="avatar avatar-lg">
@@ -40,18 +37,11 @@
         </div>
 
         <div v-if="store.userId">
-          <el-tooltip content="change your password">
-            <el-button
-              size="small"
-              type="warning"
-              :icon="Key"
-              plain
-              @click="editPwdVisible = true"
-            />
-          </el-tooltip>
           <el-button size="small" type="danger" plain @click="onLogout">Logout</el-button>
         </div>
-        <el-button size="small" type="primary" plain @click="onLogin" v-else>Login</el-button>
+        <el-button size="small" type="primary" plain @click="router.push('/login')" v-else>
+          Login
+        </el-button>
       </div>
 
       <el-divider style="margin: 6px 0" v-if="store.userId" />
@@ -65,14 +55,7 @@
 
         <div class="key">
           Email
-          <template v-if="!emailEdit">
-            <div class="val truncate" :title="emailText">{{ emailText || '—' }}</div>
-            <el-link class="ml-2" :icon="Edit" @click="emailEdit = !emailEdit" />
-          </template>
-          <template v-else>
-            <el-input v-model="form.email" size="small" class="ml-2" />
-            <el-link class="ml-2" :icon="Check" @click="submitEditEmail" />
-          </template>
+          <div class="val truncate" :title="emailText">{{ emailText || '—' }}</div>
         </div>
 
         <div class="key">
@@ -84,63 +67,38 @@
           Role
           <div class="val">{{ store.displayRole }}</div>
         </div>
+      </div>
 
-        <div class="key">
-          My Public Keys
-          <el-button size="small" plain type="primary" class="ml-3" @click="onManageKey"
-            >Manage</el-button
-          >
-        </div>
+      <!-- Settings link -->
+      <div v-if="store.userId" class="pt-1">
+        <el-divider style="margin: 6px 0" />
+        <el-link type="primary" :underline="false" class="mt-1" @click="router.push('/settings')">
+          <el-icon class="mr-1"><Setting /></el-icon>Settings
+        </el-link>
       </div>
     </div>
   </el-popover>
-
-  <el-dialog
-    v-model="editPwdVisible"
-    title="Change password"
-    width="520px"
-    :close-on-click-modal="false"
-  >
-    <el-form :model="form" label-width="auto" style="max-width: 600px" class="p-5">
-      <el-form-item label="New Password">
-        <el-input v-model="form.password" />
-      </el-form-item>
-    </el-form>
-
-    <template #footer>
-      <el-button @click="editPwdVisible = false">Cancel</el-button>
-      <el-button type="primary" :loading="editLoading" @click="handleChangePwd">Confirm</el-button>
-    </template>
-  </el-dialog>
 </template>
 
 <script setup lang="ts">
-import { computed, ref, reactive, nextTick } from 'vue'
+import { computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useUserStore } from '@/stores/user'
 import { ElMessageBox, ElMessage } from 'element-plus'
-import { editUser } from '@/services'
-import { Edit, Check, Key } from '@element-plus/icons-vue'
+import { Setting } from '@element-plus/icons-vue'
 import { formatTimeStr } from '@/utils'
 
 const store = useUserStore()
 const router = useRouter()
 
-const editPwdVisible = ref(false)
-const editLoading = ref(false)
-const emailEdit = ref(false)
-
 const displayName = computed(
   () => (store.profile as any)?.name || (store.profile as any)?.username || store.userId || 'Guest',
 )
 const emailText = computed(() => (store.profile as any)?.email || '')
-
 const initial = computed(() => displayName.value?.charAt(0)?.toUpperCase() || 'U')
 
-// Simplify role display
 const roleDisplayText = computed(() => {
   const role = store.displayRole
-  // Simplify long role names
   const roleMap: Record<string, string> = {
     'system-admin': 'sys-admin',
     'system-admin-readonly': 'sys-admin (ro)',
@@ -149,65 +107,16 @@ const roleDisplayText = computed(() => {
   return roleMap[role] || role
 })
 
-const initialForm = () => ({
-  password: '',
-  email: store.profile?.email as string,
-})
-const form = reactive({ ...initialForm() })
-
 async function onLogout() {
-  ElMessageBox.confirm('Confirm sign out? You’ll be redirected to the sign-in page.', 'Warning', {
+  ElMessageBox.confirm('Confirm sign out? You will be redirected to the sign-in page.', 'Warning', {
     confirmButtonText: 'OK',
     cancelButtonText: 'Cancel',
     type: 'warning',
   }).then(async () => {
     await store.logout()
     router.replace('/login')
-    ElMessage({
-      type: 'success',
-      message: 'Logout completed',
-    })
+    ElMessage({ type: 'success', message: 'Logout completed' })
   })
-}
-
-const submitEditEmail = async () => {
-  await editUser(store.userId, { email: form.email })
-  ElMessage({ message: 'Edit successful', type: 'success' })
-  emailEdit.value = false
-  await store.fetchUser(true)
-  Object.assign(form, initialForm())
-}
-
-const handleChangePwd = async () => {
-  try {
-    editLoading.value = true
-
-    // Cache current name (prevent being cleared by logout)
-    const displayName = store.profile?.name ?? ''
-
-    await editUser(store.userId, { password: form.password })
-
-    ElMessage({
-      message: 'Password updated. Please sign in again.',
-      type: 'success',
-      duration: 2000,
-    })
-
-    await store.logout()
-    await nextTick()
-    router.push({ path: '/login', query: { name: displayName } })
-  } finally {
-    editPwdVisible.value = false
-    editLoading.value = false
-  }
-}
-
-const onLogin = () => {
-  router.push('/login')
-}
-
-const onManageKey = () => {
-  router.push('/publickeys')
 }
 </script>
 
@@ -232,7 +141,6 @@ const onManageKey = () => {
   white-space: nowrap;
 }
 
-/* Avatar */
 .avatar {
   flex: 0 0 auto;
   width: 32px;
@@ -251,7 +159,6 @@ const onManageKey = () => {
   font-size: 14px;
 }
 
-/* Text styles */
 .name {
   font-weight: 700;
   color: var(--el-text-color-primary);
@@ -262,7 +169,6 @@ const onManageKey = () => {
   color: var(--el-text-color-secondary);
 }
 
-/* More compact popover content */
 :global(.user-popover) {
   --el-popover-padding: 12px;
 }
