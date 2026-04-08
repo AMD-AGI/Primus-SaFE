@@ -148,14 +148,38 @@
             </el-input>
           </el-form-item>
         </el-col>
+        <el-col :span="24" v-if="form.inputsName === 'workspace'">
+          <el-form-item label="replica">
+            <el-input-number
+              v-model="form.replica"
+              :min="0"
+              :max="selectedWorkspaceNodeCount"
+            />
+            <el-text size="small" type="info" class="ml-2">
+              Optional. Max = workspace node count ({{ selectedWorkspaceNodeCount ?? '-' }})
+            </el-text>
+          </el-form-item>
+        </el-col>
       </el-row>
 
-      <el-form-item label="Toleration">
-        <el-switch v-model="form.isTolerateAll" class="m-r-2" />
-        <el-text class="mx-1" size="small" type="info"
-          ><el-icon class="m-r-1"><InfoFilled /></el-icon>{{ TOLERATE_INFO }}</el-text
-        >
-      </el-form-item>
+      <el-row :gutter="20">
+        <el-col :span="12">
+          <el-form-item label="Toleration">
+            <el-switch v-model="form.isTolerateAll" class="m-r-2" />
+            <el-text class="mx-1" size="small" type="info"
+              ><el-icon class="m-r-1"><InfoFilled /></el-icon>{{ TOLERATE_INFO }}</el-text
+            >
+          </el-form-item>
+        </el-col>
+        <el-col :span="12" v-if="form.inputsName === 'cluster' || form.inputsName === 'workspace'">
+          <el-form-item label="securityOperation">
+            <el-switch v-model="form.securityOperation" class="m-r-2" />
+            <el-text class="mx-1" size="small" type="info"
+              ><el-icon class="m-r-1"><InfoFilled /></el-icon>If enabled, skip nodes with workloads</el-text
+            >
+          </el-form-item>
+        </el-col>
+      </el-row>
       <el-form-item label="Timeout Second">
         <el-input-number v-model="form.timeoutSecond" />
       </el-form-item>
@@ -416,6 +440,8 @@ const initialForm = () => ({
   },
   excludedNodes: [],
   hostpath: [] as string[],
+  securityOperation: false,
+  replica: 0 as number | undefined,
 })
 const form = reactive({ ...initialForm() })
 
@@ -638,6 +664,13 @@ const options = computed<Option[]>(() => {
   }
 })
 
+const selectedWorkspaceNodeCount = computed(() => {
+  if (form.inputsName !== 'workspace') return undefined
+  const wsId = typeof form.inputsValue === 'string' ? form.inputsValue : undefined
+  if (!wsId) return undefined
+  return wsStore.items?.find((w) => w.workspaceId === wsId)?.currentNodeCount
+})
+
 const onCancel = () => {
   ruleFormRef.value?.clearValidate()
   emit('update:visible', false)
@@ -714,6 +747,8 @@ const onSubmit = async (formEl: FormInstance | undefined) => {
       ...(excludedNodesPayload ? { excludedNodes: excludedNodesPayload } : {}),
       ...(rest.hostpath?.length ? { hostpath: rest.hostpath } : {}),
       ...(workspaceId ? { workspaceId } : {}),
+      ...(form.securityOperation ? { securityOperation: true } : {}),
+      ...(form.replica ? { replica: form.replica } : {}),
       env: convertListToKeyValueMap(envList),
       entryPoint: encodeToBase64String(entryPoint),
     }
@@ -786,6 +821,8 @@ const setInitialFormValues = async () => {
     form.inputsValue = wsStore.currentWorkspaceId
   }
 
+  form.securityOperation = res.securityOperation ?? false
+  form.replica = res.replica ?? undefined
   form.envList = convertKeyValueMapToList(res.env ?? [])
 
   if (props.action === 'Clone') {

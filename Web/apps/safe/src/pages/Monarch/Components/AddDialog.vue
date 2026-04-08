@@ -71,8 +71,8 @@
                 </el-form-item>
               </el-col>
               <el-col :span="24">
-                <el-form-item label="entryPoint">
-                  <el-input v-model="form.client.entryPoint" type="textarea" :rows="2" placeholder="Client entrypoint (optional)" />
+                <el-form-item label="entryPoint" prop="client.entryPoint">
+                  <el-input v-model="form.client.entryPoint" type="textarea" :rows="2" placeholder="Client entrypoint" />
                 </el-form-item>
               </el-col>
 
@@ -119,28 +119,17 @@
               />
             </div>
             <el-row :gutter="16">
-              <el-col :span="24">
-                <el-form-item label="image" prop="mesh.image">
-                  <ImageInput v-model="form.mesh.image" />
-                </el-form-item>
-              </el-col>
-              <el-col :span="24">
-                <el-form-item label="entryPoint">
-                  <el-input v-model="form.mesh.entryPoint" type="textarea" :rows="2" placeholder="Mesh Group entrypoint (optional)" />
-                </el-form-item>
-              </el-col>
-
-              <!-- replicas mode: groupNode -->
+              <!-- replicas mode: nodePerGroup first -->
               <el-col :span="24" v-if="form.resourceType === 'replicas'">
-                <el-form-item label="groupNode" prop="mesh.groupNode">
+                <el-form-item label="nodePerGroup" prop="mesh.nodePerGroup">
                   <el-input
-                    v-model.number="form.mesh.groupNode"
+                    v-model.number="form.mesh.nodePerGroup"
                     :placeholder="placeholders.replica"
                   />
                 </el-form-item>
               </el-col>
 
-              <!-- nodes mode: node selection -->
+              <!-- nodes mode: node selection first -->
               <el-col :span="24" v-if="form.resourceType === 'nodes'">
                 <el-form-item label="nodes" prop="nodeList">
                   <div class="node-select-wrapper">
@@ -236,8 +225,29 @@
               </el-col>
 
               <el-col :span="24">
+                <el-form-item label="image" prop="mesh.image">
+                  <ImageInput v-model="form.mesh.image" />
+                </el-form-item>
+              </el-col>
+              <el-col :span="24">
+                <el-form-item label="entryPoint">
+                  <el-input v-model="form.mesh.entryPoint" type="textarea" :rows="2" placeholder="Mesh Group entrypoint (optional)" />
+                </el-form-item>
+              </el-col>
+
+              <el-col :span="24">
                 <el-form-item label="replicaCount" prop="replicaCount">
                   <el-input v-model.number="form.replicaCount" placeholder="Replica Count" />
+                </el-form-item>
+              </el-col>
+              <el-col :span="12">
+                <el-form-item label="minReplicaCount">
+                  <el-input v-model.number="form.minReplicaCount" placeholder="Min (default: 1, optional)" />
+                </el-form-item>
+              </el-col>
+              <el-col :span="12">
+                <el-form-item label="maxReplicaCount">
+                  <el-input v-model.number="form.maxReplicaCount" placeholder="Max (optional)" />
                 </el-form-item>
               </el-col>
 
@@ -569,10 +579,12 @@ const initialForm = () => ({
     ephemeralStorage: '',
     entryPoint: '',
     image: '',
-    groupNode: undefined as number | undefined,
+    nodePerGroup: undefined as number | undefined,
   },
   // TorchFT-style: replicaCount is top-level
   replicaCount: undefined as number | undefined,
+  minReplicaCount: 1 as number | undefined,
+  maxReplicaCount: undefined as number | undefined,
 
   envList: [{ key: '', value: '' }],
   labelList: [{ key: '', value: '' }],
@@ -613,11 +625,15 @@ watch(
   () => form.nodeList,
   (newList) => {
     if (form.resourceType === 'nodes') {
-      form.mesh.groupNode = newList.length || undefined
+      form.mesh.nodePerGroup = newList.length || undefined
     }
   },
   { deep: true },
 )
+
+watch(() => form.replicaCount, (val) => {
+  if (val && !form.maxReplicaCount) form.maxReplicaCount = val
+})
 
 // If today is selected, auto-fill current time
 const midnightDefault = ref(new Date(2000, 0, 1, 0, 0, 0))
@@ -685,20 +701,21 @@ const rules: Record<string, FormItemRule[]> = reactive({
     },
   ],
   // Client
-  'client.image': [{ required: true, message: 'Please input client image', trigger: 'blur' }],
+  'client.image': [],
   'client.cpu': [{ required: true, message: 'Please input client cpu', trigger: 'blur' }],
   'client.memory': [{ required: true, message: 'Please input client memory', trigger: 'blur' }],
   'client.ephemeralStorage': [
     { required: true, message: 'Please input client ephemeral storage', trigger: 'blur' },
   ],
+  'client.entryPoint': [{ required: true, message: 'Please input client entrypoint', trigger: 'blur' }],
   // Mesh Group
-  'mesh.image': [{ required: true, message: 'Please input mesh group image', trigger: 'blur' }],
+  'mesh.image': [],
   'mesh.cpu': [{ required: true, message: 'Please input mesh group cpu', trigger: 'blur' }],
   'mesh.memory': [{ required: true, message: 'Please input mesh group memory', trigger: 'blur' }],
   'mesh.ephemeralStorage': [
     { required: true, message: 'Please input mesh group ephemeral storage', trigger: 'blur' },
   ],
-  'mesh.groupNode': [{ required: true, message: 'Please input group node count', trigger: 'blur' }],
+  'mesh.nodePerGroup': [{ required: true, message: 'Please input nodePerGroup', trigger: 'blur' }],
   nodeList: [
     {
       type: 'array',
@@ -720,7 +737,7 @@ const rules: Record<string, FormItemRule[]> = reactive({
     {
       validator: (_rule: unknown, value: unknown, callback: (err?: Error) => void) => {
         const replicaCount = Number(value)
-        const workerReplica = Number(form.mesh.groupNode)
+        const workerReplica = Number(form.mesh.nodePerGroup)
         validateNodesDivisibility(workerReplica, callback)
         if (replicaCount < 1) {
           callback(new Error('Replica count must be at least 1'))
@@ -787,9 +804,9 @@ const onSubmit = async (formEl: FormInstance | undefined) => {
       meshActualReplica = form.nodeList.length
     } else {
       // Replicas mode: replica = groupNode * replicaCount
-      const groupNode = Number(mesh.groupNode) || 1
+      const nodePerGroup = Number(mesh.nodePerGroup) || 1
       const replicaCount = Number(form.replicaCount) || 1
-      meshActualReplica = groupNode * replicaCount
+      meshActualReplica = nodePerGroup * replicaCount
     }
 
     const meshRes = {
@@ -820,6 +837,8 @@ const onSubmit = async (formEl: FormInstance | undefined) => {
     // Add Monarch-specific fields to env
     const monarchEnv = {
       REPLICA_COUNT: String(form.replicaCount),
+      MIN_REPLICA_COUNT: String(form.minReplicaCount ?? 1),
+      MAX_REPLICA_COUNT: String(form.maxReplicaCount ?? form.replicaCount),
     }
     const mergedEnv = { ...convertListToKeyValueMap(envList), ...monarchEnv }
 
@@ -987,10 +1006,10 @@ const setInitialFormValues = async () => {
     if (!isCustomNodes.value) {
       // groupNode = replica / replicaCount
       const totalReplica = meshResData.replica ?? 1
-      form.mesh.groupNode = replicaCount > 0 ? Math.round(totalReplica / replicaCount) : totalReplica
+      form.mesh.nodePerGroup = replicaCount > 0 ? Math.round(totalReplica / replicaCount) : totalReplica
     } else {
       // Custom nodes use replica directly
-      form.mesh.groupNode = meshResData.replica
+      form.mesh.nodePerGroup = meshResData.replica
     }
     form.replicaCount = replicaCount || undefined
   }
@@ -999,7 +1018,11 @@ const setInitialFormValues = async () => {
 
   // Env (remove REPLICA_COUNT from env list)
   const envCopy = { ...(res.env || {}) }
+  form.minReplicaCount = envCopy.MIN_REPLICA_COUNT ? Number(envCopy.MIN_REPLICA_COUNT) : 1
+  form.maxReplicaCount = envCopy.MAX_REPLICA_COUNT ? Number(envCopy.MAX_REPLICA_COUNT) : undefined
   delete envCopy.REPLICA_COUNT
+  delete envCopy.MIN_REPLICA_COUNT
+  delete envCopy.MAX_REPLICA_COUNT
   form.envList = convertKeyValueMapToList(envCopy)
   form.labelList = convertKeyValueMapToList(res.customerLabels)
 
