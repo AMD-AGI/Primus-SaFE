@@ -82,5 +82,5 @@ export const menuIcons: MenuIcons = {
   tools: createIconSet('skill'), // Using addons icons as placeholder
   llmGateway: createIconSet('apikey'), // Using apikey icons as placeholder
   a2a: createIconSet('skill'), // Using skill icons as placeholder
-  monarch: createIconSet('training'), // Using training icons as placeholder
+  monarch: createIconSet('monarch'),
 }
