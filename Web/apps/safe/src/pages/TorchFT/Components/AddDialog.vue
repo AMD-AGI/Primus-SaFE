@@ -981,6 +981,8 @@ const onSubmit = async (formEl: FormInstance | undefined) => {
       actualReplica = nodePerGroup * replicaCount
     }
 
+    if (!flavorMaxVal.value?.['amd.com/gpu']) form.resource.gpu = ''
+
     const workerResource = {
       cpu: form.resource.cpu,
       gpu: Number(form.resource.gpu) === 0 ? '' : (form.resource.gpu ?? ''),

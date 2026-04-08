@@ -489,6 +489,8 @@ const onSubmit = async (formEl: FormInstance | undefined) => {
 
     const { envList, resourceType, nodeId, resource, excludedNodes, image, timeout, nodesAffinity: _nodesAffinity, ...addPayload } = form
 
+    if (!flavorMaxVal.value?.['amd.com/gpu']) form.resource.gpu = ''
+
     const baseResource = {
       cpu: form.resource.cpu,
       gpu: Number(form.resource.gpu) === 0 ? '' : (form.resource.gpu ?? ''),
