@@ -97,8 +97,10 @@ type (
 		// Origin indicates where the model came from:
 		//   - "external": downloaded from HuggingFace or connected via remote API (default)
 		//   - "fine_tuned": produced by SFT training within the platform
+		//   - "rl_trained": produced by RL training (GRPO/PPO) within the platform
 		Origin string `json:"origin,omitempty"`
-		// SftJobId is the workload ID of the SFT training job that produced this model (origin=fine_tuned only)
+		// SftJobId is the workload ID of the training job that produced this model
+		// (origin=fine_tuned for SFT, origin=rl_trained for RL)
 		SftJobId string `json:"sftJobId,omitempty"`
 		// BaseModel is the HuggingFace name of the base model used for fine-tuning (origin=fine_tuned only)
 		BaseModel string `json:"baseModel,omitempty"`
