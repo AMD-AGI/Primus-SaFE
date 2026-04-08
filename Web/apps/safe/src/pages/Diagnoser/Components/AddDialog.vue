@@ -225,6 +225,22 @@
         </el-select>
       </el-form-item>
 
+      <el-form-item label="securityOperation" v-if="form.inputsName === 'cluster' || form.inputsName === 'workspace'">
+        <el-switch v-model="form.securityOperation" />
+      </el-form-item>
+
+      <el-form-item label="replica" v-if="form.inputsName === 'workspace'" prop="replica">
+        <el-input-number
+          v-model="form.replica"
+          :min="1"
+          :max="selectedWorkspaceNodeCount"
+          :placeholder="`Max: ${selectedWorkspaceNodeCount ?? '-'}`"
+        />
+        <el-text size="small" type="info" class="ml-2">
+          Optional. Max = workspace node count ({{ selectedWorkspaceNodeCount ?? '-' }})
+        </el-text>
+      </el-form-item>
+
       <el-form-item label="Workspace" v-if="props.action === 'Clone'">
         <el-select v-model="targetWorkspaceId" class="w-[200px]" @change="onWorkspaceChange">
           <el-option
@@ -416,6 +432,8 @@ const initialForm = () => ({
   },
   excludedNodes: [],
   hostpath: [] as string[],
+  securityOperation: false,
+  replica: undefined as number | undefined,
 })
 const form = reactive({ ...initialForm() })
 
@@ -638,6 +656,13 @@ const options = computed<Option[]>(() => {
   }
 })
 
+const selectedWorkspaceNodeCount = computed(() => {
+  if (form.inputsName !== 'workspace') return undefined
+  const wsId = typeof form.inputsValue === 'string' ? form.inputsValue : undefined
+  if (!wsId) return undefined
+  return wsStore.items?.find((w) => w.workspaceId === wsId)?.currentNodeCount
+})
+
 const onCancel = () => {
   ruleFormRef.value?.clearValidate()
   emit('update:visible', false)
@@ -714,6 +739,8 @@ const onSubmit = async (formEl: FormInstance | undefined) => {
       ...(excludedNodesPayload ? { excludedNodes: excludedNodesPayload } : {}),
       ...(rest.hostpath?.length ? { hostpath: rest.hostpath } : {}),
       ...(workspaceId ? { workspaceId } : {}),
+      ...(form.securityOperation ? { securityOperation: true } : {}),
+      ...(form.replica ? { replica: form.replica } : {}),
       env: convertListToKeyValueMap(envList),
       entryPoint: encodeToBase64String(entryPoint),
     }
@@ -786,6 +813,8 @@ const setInitialFormValues = async () => {
     form.inputsValue = wsStore.currentWorkspaceId
   }
 
+  form.securityOperation = res.securityOperation ?? false
+  form.replica = res.replica ?? undefined
   form.envList = convertKeyValueMapToList(res.env ?? [])
 
   if (props.action === 'Clone') {
