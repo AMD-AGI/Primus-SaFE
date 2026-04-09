@@ -436,6 +436,8 @@ if [ "$NNODES" -gt 1 ] && [ -n "${DATA_PATH:-}" ]; then
   fi
 
   export NCCL_TIMEOUT=1800000
+  export TORCH_NCCL_TRACE_BUFFER_SIZE="${TORCH_NCCL_TRACE_BUFFER_SIZE:-1048576}"
+  export TORCH_NCCL_DUMP_ON_TIMEOUT="${TORCH_NCCL_DUMP_ON_TIMEOUT:-1}"
   echo "[MULTI-NODE] NCCL_TIMEOUT=1800000ms (30min)"
 fi
 
@@ -660,6 +662,22 @@ else
 fi
 rm -rf "${CONVERT_CKPT_DIR}" 2>/dev/null
 echo "Model exported to ${HF_EXPORT_PATH}"
+
+HF_HAS_TOKENIZER=0
+if [ -f "${HF_EXPORT_PATH}/tokenizer.json" ] || [ -f "${HF_EXPORT_PATH}/tokenizer_config.json" ]; then
+  HF_HAS_TOKENIZER=1
+fi
+HF_HAS_WEIGHTS=0
+if [ -f "${HF_EXPORT_PATH}/model.safetensors" ] || [ -f "${HF_EXPORT_PATH}/model.safetensors.index.json" ]; then
+  HF_HAS_WEIGHTS=1
+elif ls "${HF_EXPORT_PATH}"/*.safetensors >/dev/null 2>&1; then
+  HF_HAS_WEIGHTS=1
+fi
+if [ ! -f "${HF_EXPORT_PATH}/config.json" ] || [ "$HF_HAS_TOKENIZER" != "1" ] || [ "$HF_HAS_WEIGHTS" != "1" ]; then
+  echo "ERROR: HF export incomplete at ${HF_EXPORT_PATH}; refusing to register model."
+  find "${HF_EXPORT_PATH}" -maxdepth 5 \( -type d -o -type f \) | sed -n '1,80p'
+  exit 1
+fi
 `, cfg.HfPath)
 
 	// --- Register model ---
