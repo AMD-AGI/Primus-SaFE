@@ -194,17 +194,27 @@ func VerifyToken(c *gin.Context) {
 	}
 
 	// Optionally include LiteLLM virtual key (decrypted from DB)
-	if req.IncludeVirtualKey && resp.Email != "" {
-		apiKeyToken := ApiKeyTokenInstance()
-		if apiKeyToken != nil {
-			virtualKey, err := apiKeyToken.GetVirtualKeyByEmail(c.Request.Context(), resp.Email)
-			if err != nil {
-				klog.ErrorS(err, "failed to get virtual key", "email", resp.Email)
-			} else if virtualKey != "" {
-				resp.VirtualKey = virtualKey
+	if req.IncludeVirtualKey {
+		// If email is missing (e.g., API key auth), try to fetch from User CR
+		if resp.Email == "" {
+			if tokenInst := DefaultTokenInstance(); tokenInst != nil {
+				if user, err := getUserById(c.Request.Context(), tokenInst, userInfo.Id); err == nil {
+					resp.Email = v1.GetUserEmail(user)
+				}
 			}
-		} else {
-			klog.Warning("API key auth not initialized, cannot provide virtual key")
+		}
+		if resp.Email != "" {
+			apiKeyToken := ApiKeyTokenInstance()
+			if apiKeyToken != nil {
+				virtualKey, err := apiKeyToken.GetVirtualKeyByEmail(c.Request.Context(), resp.Email)
+				if err != nil {
+					klog.ErrorS(err, "failed to get virtual key", "email", resp.Email)
+				} else if virtualKey != "" {
+					resp.VirtualKey = virtualKey
+				}
+			} else {
+				klog.Warning("API key auth not initialized, cannot provide virtual key")
+			}
 		}
 	}
 

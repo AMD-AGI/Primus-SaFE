@@ -149,35 +149,32 @@ func TestVerifyToken_CookieAuth_Success(t *testing.T) {
 	defer cleanupToken()
 
 	token := generateTestToken(t, "user-100", "alice")
-	w := callVerifyToken(t, VerifyTokenRequest{
-		Cookie: "Token=" + token,
-	}, testInternalToken)
 
-	assert.Equal(t, http.StatusOK, w.Code)
-	var resp verifyResponse
-	assert.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
-	assert.Equal(t, 0, resp.Code)
-	assert.Equal(t, "user-100", resp.Data.Id)
-	assert.Equal(t, "alice", resp.Data.Name)
-	assert.Equal(t, string(v1.DefaultUserType), resp.Data.Type)
-}
+	t.Run("without userType in cookie", func(t *testing.T) {
+		w := callVerifyToken(t, VerifyTokenRequest{
+			Cookie: "Token=" + token,
+		}, testInternalToken)
 
-func TestVerifyToken_CookieAuth_WithUserType(t *testing.T) {
-	cleanup := setupInternalAuth(t)
-	defer cleanup()
-	cleanupToken := setupDefaultToken(t)
-	defer cleanupToken()
+		assert.Equal(t, http.StatusOK, w.Code)
+		var resp verifyResponse
+		assert.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+		assert.Equal(t, 0, resp.Code)
+		assert.Equal(t, "user-100", resp.Data.Id)
+		assert.Equal(t, "alice", resp.Data.Name)
+		assert.Empty(t, resp.Data.Type, "userType not in cookie so Type should be empty")
+	})
 
-	token := generateTestToken(t, "user-200", "bob")
-	w := callVerifyToken(t, VerifyTokenRequest{
-		Cookie: "Token=" + token + "; userType=default",
-	}, testInternalToken)
+	t.Run("with userType=default in cookie", func(t *testing.T) {
+		w := callVerifyToken(t, VerifyTokenRequest{
+			Cookie: "Token=" + token + "; userType=default",
+		}, testInternalToken)
 
-	assert.Equal(t, http.StatusOK, w.Code)
-	var resp verifyResponse
-	assert.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
-	assert.Equal(t, "user-200", resp.Data.Id)
-	assert.Equal(t, "default", resp.Data.Type)
+		assert.Equal(t, http.StatusOK, w.Code)
+		var resp verifyResponse
+		assert.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+		assert.Equal(t, "user-100", resp.Data.Id)
+		assert.Equal(t, string(v1.DefaultUserType), resp.Data.Type)
+	})
 }
 
 func TestVerifyToken_CookieAuth_InvalidFormat(t *testing.T) {
@@ -205,20 +202,19 @@ func TestVerifyToken_CookieAuth_InvalidToken(t *testing.T) {
 	assert.Equal(t, http.StatusUnauthorized, w.Code)
 }
 
-func TestVerifyToken_CookieAuth_TokenValidatorNil(t *testing.T) {
+func TestVerifyToken_CookieAuth_SSONotEnabled(t *testing.T) {
 	cleanup := setupInternalAuth(t)
 	defer cleanup()
 
-	old := defaultTokenInstance
-	defaultTokenInstance = nil
-	defer func() { defaultTokenInstance = old }()
+	commonconfig.SetValue("sso.enable", "false")
+	defer commonconfig.SetValue("sso.enable", "")
 
 	w := callVerifyToken(t, VerifyTokenRequest{
-		Cookie: "Token=some-token",
+		Cookie: "Token=some-token; userType=sso",
 	}, testInternalToken)
 
-	assert.Equal(t, http.StatusInternalServerError, w.Code)
-	assert.Contains(t, w.Body.String(), "token validator not available")
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Contains(t, w.Body.String(), "SSO is not enabled")
 }
 
 func TestVerifyToken_ApiKey_Success(t *testing.T) {
