@@ -1410,7 +1410,11 @@ func (h *Handler) generateEvaluationJob(c *gin.Context, body []byte) (*v1.OpsJob
 						judgeEndpoint = fmt.Sprintf("http://%s.%s.svc.cluster.local:8000/v1", judgeWorkload.WorkloadId, judgeWorkload.Workspace)
 
 						// Extract served model name from workload
-						judgeModelName = extractServedModelName(k8sWorkload.Spec.EntryPoint, judgeWorkload.EntryPoints)
+						entryPoint := ""
+						if len(k8sWorkload.Spec.EntryPoints) > 0 {
+							entryPoint = k8sWorkload.Spec.EntryPoints[0]
+						}
+						judgeModelName = extractServedModelName(entryPoint, judgeWorkload.EntryPoints)
 						if judgeModelName == "" {
 							judgeModelName = judgeWorkload.DisplayName
 						}

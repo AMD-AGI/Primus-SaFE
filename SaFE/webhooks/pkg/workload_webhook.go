@@ -17,7 +17,9 @@ import (
 	admissionv1 "k8s.io/api/admission/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	utilerrors "k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/apimachinery/pkg/util/validation/field"
@@ -82,27 +84,26 @@ func (m *WorkloadMutator) Handle(ctx context.Context, req admission.Request) adm
 		return admission.Allowed("")
 	}
 	workload := &v1.Workload{}
-	if err := m.decoder.Decode(req, workload); err != nil {
+	var err error
+	if err = m.decoder.Decode(req, workload); err != nil {
 		return handleError(v1.WorkloadKind, err)
 	}
 	if !workload.GetDeletionTimestamp().IsZero() {
 		return admission.Allowed("")
 	}
 
-	isChanged := false
 	switch req.Operation {
 	case admissionv1.Create:
-		isChanged = m.mutateOnCreation(ctx, workload)
+		err = m.mutateOnCreation(ctx, workload)
 	case admissionv1.Update:
 		oldObj := &v1.Workload{}
 		if m.decoder.DecodeRaw(req.OldObject, oldObj) == nil {
-			isChanged = m.mutateOnUpdate(ctx, oldObj, workload)
+			err = m.mutateOnUpdate(ctx, oldObj, workload)
 		}
 	}
-	if !isChanged {
-		return admission.Allowed("")
+	if err != nil {
+		return handleError(v1.WorkloadKind, err)
 	}
-
 	data, err := json.Marshal(workload)
 	if err != nil {
 		return handleError(v1.WorkloadKind, err)
@@ -111,26 +112,30 @@ func (m *WorkloadMutator) Handle(ctx context.Context, req admission.Request) adm
 }
 
 // mutateOnCreation applies default values and normalizations during creation.
-func (m *WorkloadMutator) mutateOnCreation(ctx context.Context, workload *v1.Workload) bool {
+func (m *WorkloadMutator) mutateOnCreation(ctx context.Context, workload *v1.Workload) error {
 	workspace, _ := getWorkspace(ctx, m.Client, workload.Spec.Workspace)
 	m.mutateGvk(workload)
 	m.mutateMeta(ctx, workload, workspace)
 	m.mutateTTLSeconds(workload)
-	m.mutateCommon(ctx, nil, workload, workspace)
+	if err := m.mutateCommon(ctx, nil, workload, workspace); err != nil {
+		return err
+	}
 	m.mutateTimeout(workload, workspace)
-	return true
+	return nil
 }
 
 // mutateOnUpdate applies mutations during updates.
-func (m *WorkloadMutator) mutateOnUpdate(ctx context.Context, oldWorkload, newWorkload *v1.Workload) bool {
+func (m *WorkloadMutator) mutateOnUpdate(ctx context.Context, oldWorkload, newWorkload *v1.Workload) error {
 	workspace, _ := getWorkspace(ctx, m.Client, newWorkload.Spec.Workspace)
-	m.mutateCommon(ctx, oldWorkload, newWorkload, workspace)
-	return true
+	if err := m.mutateCommon(ctx, oldWorkload, newWorkload, workspace); err != nil {
+		return err
+	}
+	return nil
 }
 
 // mutateCommon normalizes resources, hostpath, priority, image, entry point, host network and so on
-func (m *WorkloadMutator) mutateCommon(ctx context.Context, oldWorkload, newWorkload *v1.Workload, workspace *v1.Workspace) bool {
-	m.mutateResources(newWorkload, workspace)
+func (m *WorkloadMutator) mutateCommon(ctx context.Context, oldWorkload, newWorkload *v1.Workload, workspace *v1.Workspace) error {
+	m.mutateResources(ctx, newWorkload, workspace)
 
 	switch newWorkload.SpecKind() {
 	case common.DeploymentKind, common.StatefulSetKind:
@@ -145,6 +150,8 @@ func (m *WorkloadMutator) mutateCommon(ctx context.Context, oldWorkload, newWork
 		m.mutateRayJob(newWorkload)
 	case common.TorchFTKind:
 		m.mutateTorchFT(newWorkload)
+	case common.SandboxKind:
+		m.mutateSandbox(newWorkload)
 	}
 	m.mutateHostPath(newWorkload, workspace)
 	m.mutatePriority(newWorkload)
@@ -159,7 +166,7 @@ func (m *WorkloadMutator) mutateCommon(ctx context.Context, oldWorkload, newWork
 	m.mutateService(newWorkload)
 	m.mutateSecrets(ctx, newWorkload, workspace)
 	m.mutateStickNodes(ctx, newWorkload, workspace)
-	return true
+	return nil
 }
 
 // mutateMeta sets normalized name, ownership, labels, main container and finalizer.
@@ -248,40 +255,33 @@ func (m *WorkloadMutator) mutateGvk(workload *v1.Workload) {
 }
 
 // mutatePriority clamps priority within allowed bounds.
-func (m *WorkloadMutator) mutatePriority(workload *v1.Workload) bool {
-	isChanged := false
+func (m *WorkloadMutator) mutatePriority(workload *v1.Workload) {
 	if workload.Spec.Priority > common.HighPriorityInt {
 		workload.Spec.Priority = common.HighPriorityInt
-		isChanged = true
 	} else if workload.Spec.Priority < common.LowPriorityInt {
 		workload.Spec.Priority = common.LowPriorityInt
-		isChanged = true
 	}
-	return isChanged
 }
 
 // mutateResources sets GPU name, shared memory and default ephemeral storage.
-func (m *WorkloadMutator) mutateResources(workload *v1.Workload, workspace *v1.Workspace) bool {
-	isChanged := false
-
-	// Transition logic for backward compatibility.
-	if len(workload.Spec.Resources) == 0 {
-		workload.Spec.Resources = commonworkload.ConvertResourceToList(workload.Spec.Resource, workload.SpecKind())
-		isChanged = true
+func (m *WorkloadMutator) mutateResources(ctx context.Context, workload *v1.Workload, workspace *v1.Workspace) error {
+	if len(workload.Spec.Resources) == 0 && commonworkload.IsSandBox(workload) {
+		var err error
+		workload.Spec.Resources, err = m.getResourceFromSandBoxTemplate(ctx, workload)
+		if err != nil {
+			return err
+		}
 	}
 
 	newResources := make([]v1.WorkloadResource, 0, len(workload.Spec.Resources))
 	for _, res := range workload.Spec.Resources {
 		if res.Replica <= 0 {
-			isChanged = true
 			continue
 		}
 		if res.GPU == "0" {
 			res.GPU = ""
-			isChanged = true
 		} else if res.GPU != "" && workspace != nil {
 			res.GPUName = v1.GetGpuResourceName(workspace)
-			isChanged = true
 		}
 		if res.SharedMemory == "" && res.Memory != "" {
 			memQuantity, err := resource.ParseQuantity(res.Memory)
@@ -289,18 +289,17 @@ func (m *WorkloadMutator) mutateResources(workload *v1.Workload, workspace *v1.W
 				shareMemQuantity := resource.NewQuantity(memQuantity.Value()/2, memQuantity.Format)
 				if shareMemQuantity != nil {
 					res.SharedMemory = shareMemQuantity.String()
-					isChanged = true
 				}
 			}
 		}
 		if res.EphemeralStorage == "" {
 			res.EphemeralStorage = DefaultEphemeralStorage
-			isChanged = true
 		}
+
 		newResources = append(newResources, res)
 	}
 	workload.Spec.Resources = newResources
-	return isChanged
+	return nil
 }
 
 // mutateHostPath removes hostPath duplicated by the workspace; workloads inherit workspace hostPath.
@@ -426,17 +425,23 @@ func (m *WorkloadMutator) mutateTorchFT(workload *v1.Workload) {
 	if err != nil {
 		workload.Spec.Env[common.MinReplicaCount] = "1"
 	}
+	v1.SetAnnotation(workload, v1.WorkloadDisableFailoverAnnotation, v1.TrueStr)
+}
+
+func (m *WorkloadMutator) mutateSandbox(workload *v1.Workload) {
+	workload.Spec.IsSupervised = false
+	if len(workload.Spec.Resources) > 0 {
+		workload.Spec.Resources = workload.Spec.Resources[0:1]
+		workload.Spec.Resources[0].Replica = 1
+	}
+	v1.SetAnnotation(workload, v1.WorkloadDisableFailoverAnnotation, v1.TrueStr)
+	workload.Spec.Dependencies = nil
 }
 
 // mutateImages handles image assignment for workload resources.
 // If no images are specified, it populates the Images slice with the default image from workload.Spec.Image
 // for each resource in the workload. Then it trims whitespace from each image name.
 func (m *WorkloadMutator) mutateImages(workload *v1.Workload) {
-	if len(workload.Spec.Images) == 0 && workload.Spec.Image != "" {
-		for i := 0; i < len(workload.Spec.Resources); i++ {
-			workload.Spec.Images = append(workload.Spec.Images, workload.Spec.Image)
-		}
-	}
 	for i := 0; i < len(workload.Spec.Images); i++ {
 		workload.Spec.Images[i] = strings.TrimSpace(workload.Spec.Images[i])
 	}
@@ -521,11 +526,6 @@ func (m *WorkloadMutator) mutateTTLSeconds(workload *v1.Workload) {
 
 // mutateEntryPoints base64-encodes entry point for the required jobs.
 func (m *WorkloadMutator) mutateEntryPoints(workload *v1.Workload) {
-	if len(workload.Spec.EntryPoints) == 0 && workload.Spec.EntryPoint != "" {
-		for i := 0; i < len(workload.Spec.Resources); i++ {
-			workload.Spec.EntryPoints = append(workload.Spec.EntryPoints, workload.Spec.EntryPoint)
-		}
-	}
 	for i := 0; i < len(workload.Spec.EntryPoints); i++ {
 		workload.Spec.EntryPoints[i] = strings.TrimSpace(workload.Spec.EntryPoints[i])
 		if commonworkload.IsAuthoring(workload) || commonworkload.IsOpsJob(workload) {
@@ -642,7 +642,7 @@ func (m *WorkloadMutator) mutateStickNodes(ctx context.Context, workload *v1.Wor
 		}
 		gpuCountStr := strconv.Itoa(nf.GetGpuCount())
 		for _, res := range workload.Spec.Resources {
-			if res.GPU != gpuCountStr || res.GPU == "" {
+			if res.GPU != gpuCountStr || !res.HasGpu() {
 				return true
 			}
 		}
@@ -655,20 +655,76 @@ func (m *WorkloadMutator) mutateStickNodes(ctx context.Context, workload *v1.Wor
 	}
 }
 
-func (m *WorkloadMutator) mutateTimeout(workload *v1.Workload, workspace *v1.Workspace) bool {
+func (m *WorkloadMutator) mutateTimeout(workload *v1.Workload, workspace *v1.Workspace) {
 	if workspace == nil {
-		return false
+		return
 	}
 	scope := commonworkload.GetScope(workload)
 	maxRuntime := workspace.GetMaxRunTime(scope)
 	if maxRuntime <= 0 {
-		return false
+		return
 	}
 	if workload.Spec.Timeout == nil || *workload.Spec.Timeout > maxRuntime {
 		workload.Spec.Timeout = pointer.Int(maxRuntime)
-		return true
 	}
-	return false
+}
+
+// getResourceFromSandBoxTemplate extracts resource requests from SandboxTemplate's first container.
+// Returns nil if template not found or has no valid resources.
+func (m *WorkloadMutator) getResourceFromSandBoxTemplate(ctx context.Context, workload *v1.Workload) ([]v1.WorkloadResource, error) {
+	rt, err := commonworkload.GetResourceTemplateByGVK(ctx, m.Client,
+		schema.GroupVersionKind{Version: workload.Spec.Version, Kind: common.SandboxTemplateKind})
+	if err != nil {
+		return nil, err
+	}
+	if len(rt.Spec.ResourceSpecs) == 0 {
+		return nil, fmt.Errorf("the template has no valid resources")
+	}
+	podTemplatePath := rt.Spec.ResourceSpecs[0].TemplatePath()
+	if len(podTemplatePath) == 0 {
+		return nil, fmt.Errorf("the template has no valid resources")
+	}
+
+	templateId := v1.GetSandboxTemplateId(workload)
+	// TODO: Templates currently exist only within the admin plane.
+	obj := &unstructured.Unstructured{}
+	obj.SetGroupVersionKind(rt.ToSchemaGVK())
+	if err = m.Get(ctx, types.NamespacedName{Name: templateId, Namespace: "default"}, obj); err != nil {
+		klog.ErrorS(err, "failed to get SandboxTemplate", "name", templateId)
+		return nil, err
+	}
+
+	containerPath := append(podTemplatePath, "spec", "containers")
+	containers, found, err := unstructured.NestedSlice(obj.Object, containerPath...)
+	if err != nil || !found || len(containers) == 0 {
+		return nil, fmt.Errorf("failed to get container from template")
+	}
+	first, ok := containers[0].(map[string]interface{})
+	if !ok {
+		return nil, fmt.Errorf("failed to get container from template")
+	}
+	requests, found, err := unstructured.NestedMap(first, "resources", "requests")
+	if err != nil || !found {
+		return nil, fmt.Errorf("failed to get requests from container")
+	}
+
+	str := func(key string) string {
+		if v, ok := requests[key]; ok {
+			return fmt.Sprintf("%v", v)
+		}
+		return ""
+	}
+	gpuName := common.AmdGpu
+	if str(gpuName) == "" {
+		gpuName = common.NvidiaGpu
+	}
+	return []v1.WorkloadResource{{
+		Replica:          1,
+		CPU:              str(string(corev1.ResourceCPU)),
+		GPU:              str(gpuName),
+		Memory:           str(string(corev1.ResourceMemory)),
+		EphemeralStorage: str(string(corev1.ResourceEphemeralStorage)),
+	}}, nil
 }
 
 // WorkloadValidator validates Workload resources on create and update operations.
@@ -753,6 +809,8 @@ func (v *WorkloadValidator) validateCommon(ctx context.Context, newWorkload, old
 		err = v.validateRayJob(newWorkload, oldWorkload)
 	case common.MonarchJob:
 		err = v.validateMonarchJob(newWorkload, oldWorkload)
+	case common.SandboxKind:
+		err = v.validateSandbox(newWorkload)
 	}
 	if err != nil {
 		return err
@@ -808,14 +866,6 @@ func (v *WorkloadValidator) validateRequiredParams(workload *v1.Workload) error 
 			errs = append(errs, err)
 		}
 	}
-	if v1.GetOpsJobId(workload) == "" && !commonworkload.IsCICDScalingRunnerSet(workload) && !commonworkload.IsMonarchJob(workload) {
-		if len(workload.Spec.Images) == 0 {
-			errs = append(errs, fmt.Errorf("the images are empty"))
-		} else if len(workload.Spec.Images) != len(workload.Spec.Resources) {
-			errs = append(errs, fmt.Errorf("the number of images and resources is not equal"))
-		}
-	}
-
 	if err := utilerrors.NewAggregate(errs); err != nil {
 		return err
 	}
@@ -955,6 +1005,17 @@ func (v *WorkloadValidator) validateMonarchJob(newWorkload, oldWorkload *v1.Work
 		return fmt.Errorf("the entryPoint of client is empty")
 	}
 	return v.validateReplicaCount(newWorkload, oldWorkload)
+}
+
+// validateSandbox validates sandbox workload configuration.
+func (v *WorkloadValidator) validateSandbox(newWorkload *v1.Workload) error {
+	if len(v1.GetDisplayName(newWorkload)) > commonutils.MaxGeneratedNameLength {
+		return fmt.Errorf("the displayName is too long, maximum length is %d", commonutils.MaxGeneratedNameLength)
+	}
+	if v1.GetSandboxTemplateId(newWorkload) == "" {
+		return fmt.Errorf("the sandboxTemplateId is empty")
+	}
+	return nil
 }
 
 // validateResource validates the basic fields of a WorkloadResource to ensure they are properly set
@@ -1230,7 +1291,7 @@ func isHostNetworkEnabled(workload *v1.Workload, id int, nf *v1.NodeFlavor) bool
 		return false
 	}
 	res := workload.Spec.Resources[id]
-	if res.GPU == "" {
+	if !res.HasGpu() {
 		return false
 	}
 	n, err := strconv.Atoi(res.GPU)

@@ -123,19 +123,13 @@ type SecretEntity struct {
 }
 
 type WorkloadSpec struct {
-	// Deprecated: resource is old field, will be replaced by Resources
-	Resource WorkloadResource `json:"resource,omitempty"`
 	// Resource requirements, It may involve multiple resources, e.g., a PyTorchJob with master and worker roles.
 	Resources []WorkloadResource `json:"resources,omitempty"`
 	// Requested workspace id
 	Workspace string `json:"workspace"`
-	// Deprecated: resource is old field, will be replaced by Images
-	Image string `json:"image,omitempty"`
 	// The address of the image used by the workload
 	// It must match the length of resources.
 	Images []string `json:"images,omitempty"`
-	// Deprecated: resource is old field, will be replaced by Images
-	EntryPoint string `json:"entryPoint,omitempty"`
 	// Workload startup command, required in base64 encoding
 	// It must match the length of resources.
 	EntryPoints []string `json:"entryPoints,omitempty"`

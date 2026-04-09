@@ -1,5 +1,7 @@
-// Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
-// See LICENSE for license information.
+/*
+ * Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
+ * See LICENSE for license information.
+ */
 
 package reconciler
 
@@ -151,15 +153,6 @@ func (r *WorkloadReconciler) calculateGpuRequest(workload *primusSafeV1.Workload
 			continue
 		}
 		totalGpu += n * res.Replica
-	}
-
-	// Also check deprecated Resource field for backward compatibility
-	if totalGpu == 0 && workload.Spec.Resource.GPU != "" {
-		log.Debugf("  Using deprecated Resource field: GPU=%q, Replica=%d", workload.Spec.Resource.GPU, workload.Spec.Resource.Replica)
-		n, err := strconv.Atoi(workload.Spec.Resource.GPU)
-		if err == nil {
-			totalGpu = n * workload.Spec.Resource.Replica
-		}
 	}
 
 	log.Debugf("  Total GPU calculated: %d", totalGpu)

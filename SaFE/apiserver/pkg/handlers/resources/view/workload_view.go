@@ -48,6 +48,8 @@ type CreateWorkloadRequest struct {
 	// Whether to use host network forcibly.
 	// Default logic relies on task size: it triggers only for multi-node tasks using full GPU count
 	ForceHostNetwork *bool `json:"forceHostNetwork,omitempty"`
+	// The template of workload, only for sandbox
+	TemplateId string `json:"templateId,omitempty"`
 }
 
 func (req *CreateWorkloadRequest) GetNodesAffinity() string {

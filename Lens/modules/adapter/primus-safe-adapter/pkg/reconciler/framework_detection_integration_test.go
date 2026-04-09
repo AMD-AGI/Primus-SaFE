@@ -1,5 +1,7 @@
-// Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
-// See LICENSE for license information.
+/*
+ * Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
+ * See LICENSE for license information.
+ */
 
 package reconciler
 
@@ -50,8 +52,8 @@ func TestConvertToInternalWorkload(t *testing.T) {
 			},
 		},
 		Spec: primusSafeV1.WorkloadSpec{
-			Image:      "registry.example.com/primus:v1.2.3",
-			EntryPoint: "python train.py --config config.yaml",
+			Images:      []string{"registry.example.com/primus:v1.2.3"},
+			EntryPoints: []string{"python train.py --config config.yaml"},
 			Env: map[string]string{
 				"PRIMUS_CONFIG": "/config/primus.yaml",
 				"WORLD_SIZE":    "8",
@@ -77,8 +79,8 @@ func TestConvertToInternalWorkload(t *testing.T) {
 func TestExtractFunctions(t *testing.T) {
 	workload := &primusSafeV1.Workload{
 		Spec: primusSafeV1.WorkloadSpec{
-			Image:      "test-image:v1",
-			EntryPoint: "python --test",
+			Images:      []string{"test-image:v1"},
+			EntryPoints: []string{"python --test"},
 		},
 	}
 
@@ -91,7 +93,7 @@ func TestExtractFunctions(t *testing.T) {
 func TestExtractFunctionsEmptyContainer(t *testing.T) {
 	workload := &primusSafeV1.Workload{
 		Spec: primusSafeV1.WorkloadSpec{
-			Image: "",
+			Images: nil,
 		},
 	}
 
@@ -99,4 +101,3 @@ func TestExtractFunctionsEmptyContainer(t *testing.T) {
 	assert.Equal(t, []string{}, extractCommand(workload))
 	assert.Equal(t, []string{}, extractArgs(workload))
 }
-

@@ -120,7 +120,7 @@ func (m *OpsJobMutator) mutateJobSpec(ctx context.Context, job *v1.OpsJob) {
 		job.Spec.Inputs[i].Name = stringutil.NormalizeName(job.Spec.Inputs[i].Name)
 	}
 	if job.Spec.Resource != nil {
-		if job.Spec.Resource.GPU != "" {
+		if job.Spec.Resource.HasGpu() {
 			nf, err := getNodeFlavor(ctx, m.Client, v1.GetNodeFlavorId(job))
 			if err == nil && nf.HasGpu() {
 				job.Spec.Resource.GPUName = nf.Spec.Gpu.ResourceName

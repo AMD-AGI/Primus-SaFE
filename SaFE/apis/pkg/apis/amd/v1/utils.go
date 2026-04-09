@@ -383,6 +383,10 @@ func IsUserEnableNotification(obj metav1.Object) bool {
 	return GetAnnotation(obj, UserEnableNotificationAnnotation) == TrueStr
 }
 
+func GetSandboxTemplateId(obj metav1.Object) string {
+	return GetAnnotation(obj, SandboxTemplateIdAnnotation)
+}
+
 // atoi converts a string to an integer, returning 0 if conversion fails.
 func atoi(str string) int {
 	if str == "" {

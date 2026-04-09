@@ -15,7 +15,7 @@ import (
 type WorkspacePhase string
 type WorkspaceQueuePolicy string
 
-// +kubebuilder:validation:Enum=Train;Infer;Authoring;CICD;Ray
+// +kubebuilder:validation:Enum=Train;Infer;Authoring;CICD;Ray;Sandbox
 type WorkspaceScope string
 type FileSystemType string
 type VolumePurpose int
@@ -38,6 +38,7 @@ const (
 	AuthoringScope WorkspaceScope = "Authoring"
 	CICDScope      WorkspaceScope = "CICD"
 	RayScope       WorkspaceScope = "Ray"
+	SandboxScope   WorkspaceScope = "Sandbox"
 
 	HOSTPATH WorkspaceVolumeType = "hostpath"
 	PFS      WorkspaceVolumeType = "pfs"
@@ -73,6 +74,9 @@ type WorkspaceSpec struct {
 	ImageSecrets []corev1.ObjectReference `json:"imageSecrets,omitempty"`
 	// The maximum workload runtime of each scope, Unit: hours
 	MaxRuntime map[WorkspaceScope]int `json:"maxRuntime,omitempty"`
+	// Trigger workload processing after a period of workspace inactivity. The idletime of each scope, Unit: "12h0m0s"
+	// only for sandbox workload
+	IdleTime map[WorkspaceScope]string `json:"idleTime,omitempty"`
 }
 
 type WorkspaceVolume struct {
@@ -214,6 +218,14 @@ func (w *Workspace) GetMaxRunTime(scope WorkspaceScope) int {
 		return 0
 	}
 	return maxRunTime * 3600
+}
+
+func (w *Workspace) GetIdleTime(scope WorkspaceScope) string {
+	idleTime, ok := w.Spec.IdleTime[scope]
+	if !ok {
+		return ""
+	}
+	return idleTime
 }
 
 func (v *WorkspaceVolume) GenFullVolumeId() string {

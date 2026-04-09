@@ -49,6 +49,13 @@ spec:
                 description: Whether preemption is enabled. If enabled, higher-priority
                   workload will preempt the lower-priority one
                 type: boolean
+              idleTime:
+                additionalProperties:
+                  type: string
+                description: |-
+                  Trigger workload processing after a period of workspace inactivity. The idletime of each scope, Unit: "12h0m0s"
+                  only for sandbox workload
+                type: object
               imageSecrets:
                 description: Workspace image secret ID, used for downloading images
                 items:
@@ -138,6 +145,7 @@ spec:
                   - Authoring
                   - CICD
                   - Ray
+                  - Sandbox
                   type: string
                 type: array
               volumes:

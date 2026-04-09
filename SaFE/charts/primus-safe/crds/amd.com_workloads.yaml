@@ -75,10 +75,6 @@ spec:
                 items:
                   type: string
                 type: array
-              entryPoint:
-                description: 'Deprecated: resource is old field, will be replaced
-                  by Images'
-                type: string
               entryPoints:
                 description: |-
                   Workload startup command, required in base64 encoding
@@ -112,10 +108,6 @@ spec:
                 items:
                   type: string
                 type: array
-              image:
-                description: 'Deprecated: resource is old field, will be replaced
-                  by Images'
-                type: string
               images:
                 description: |-
                   The address of the image used by the workload
@@ -184,42 +176,6 @@ spec:
                 required:
                 - path
                 - port
-                type: object
-              resource:
-                description: 'Deprecated: resource is old field, will be replaced
-                  by Resources'
-                properties:
-                  cpu:
-                    description: Requested CPU core count (e.g., 128)
-                    type: string
-                  ephemeralStorage:
-                    description: Ephemeral-storage for pod. default 50Gi
-                    type: string
-                  gpu:
-                    description: Requested GPU card count (e.g., 8)
-                    type: string
-                  gpuName:
-                    description: This field is set internally. e.g. amd.com/gpu
-                    type: string
-                  memory:
-                    description: Requested Memory size (e.g., 128Gi)
-                    type: string
-                  rdmaResource:
-                    description: |-
-                      RDMA resource is effective only with hostNetwork enabled (default: 1).
-                      This field is set internally
-                    type: string
-                  replica:
-                    description: Number of requested nodes
-                    type: integer
-                  sharedMemory:
-                    description: 'Requested Shared Memory size (e.g., 128Gi). Used
-                      for sharing data between processes. default: Memory/2'
-                    type: string
-                required:
-                - cpu
-                - memory
-                - replica
                 type: object
               resources:
                 description: Resource requirements, It may involve multiple resources,

@@ -186,7 +186,12 @@ func TestUpdateDeployment(t *testing.T) {
 	adminWorkload := jobutils.TestWorkloadData.DeepCopy()
 	metav1.SetMetaDataAnnotation(&adminWorkload.ObjectMeta, v1.MainContainerAnnotation, "test")
 
-	err = applyWorkloadSpecToObject(context.Background(), nil, workloadObj, adminWorkload, nil, jobutils.TestDeploymentResourceTemplate)
+	scheme, err := genMockScheme()
+	assert.NilError(t, err)
+	adminClient := fake.NewClientBuilder().WithObjects().WithScheme(scheme).Build()
+	r := DispatcherReconciler{Client: adminClient}
+
+	err = r.applyWorkloadSpecToObject(context.Background(), nil, workloadObj, adminWorkload, nil, jobutils.TestDeploymentResourceTemplate)
 	assert.NilError(t, err)
 	deployment := &appsv1.Deployment{}
 	err = unstructuredutils.ConvertUnstructuredToObject(workloadObj, deployment)
@@ -234,7 +239,11 @@ func TestUpdatePytorchJob(t *testing.T) {
 	adminWorkload.Spec.Resources[1].Replica = 2
 
 	metav1.SetMetaDataAnnotation(&adminWorkload.ObjectMeta, v1.MainContainerAnnotation, "pytorch")
-	err = applyWorkloadSpecToObject(context.Background(), nil, workloadObj, adminWorkload, nil, jobutils.TestPytorchResourceTemplate)
+	scheme, err := genMockScheme()
+	assert.NilError(t, err)
+	adminClient := fake.NewClientBuilder().WithObjects().WithScheme(scheme).Build()
+	r := DispatcherReconciler{Client: adminClient}
+	err = r.applyWorkloadSpecToObject(context.Background(), nil, workloadObj, adminWorkload, nil, jobutils.TestPytorchResourceTemplate)
 	assert.NilError(t, err)
 
 	pytorchJob := &PytorchJob{}
@@ -276,7 +285,11 @@ func TestUpdatePytorchJobMaster(t *testing.T) {
 	adminWorkload := jobutils.TestWorkloadData.DeepCopy()
 	adminWorkload.Spec.Resources[0].RdmaResource = ""
 	metav1.SetMetaDataAnnotation(&adminWorkload.ObjectMeta, v1.MainContainerAnnotation, "pytorch")
-	err = applyWorkloadSpecToObject(context.Background(), nil, workloadObj, adminWorkload, nil, jobutils.TestPytorchResourceTemplate)
+	scheme, err := genMockScheme()
+	assert.NilError(t, err)
+	adminClient := fake.NewClientBuilder().WithObjects().WithScheme(scheme).Build()
+	r := DispatcherReconciler{Client: adminClient}
+	err = r.applyWorkloadSpecToObject(context.Background(), nil, workloadObj, adminWorkload, nil, jobutils.TestPytorchResourceTemplate)
 	assert.NilError(t, err)
 
 	pytorchJob := &PytorchJob{}
@@ -415,7 +428,11 @@ func TestUpdateDeploymentEnv(t *testing.T) {
 	adminWorkload := jobutils.TestWorkloadData.DeepCopy()
 	metav1.SetMetaDataAnnotation(&adminWorkload.ObjectMeta, v1.MainContainerAnnotation, "test")
 
-	err = applyWorkloadSpecToObject(context.Background(), nil, workloadObj, adminWorkload, nil, jobutils.TestDeploymentResourceTemplate)
+	scheme, err := genMockScheme()
+	assert.NilError(t, err)
+	adminClient := fake.NewClientBuilder().WithObjects().WithScheme(scheme).Build()
+	r := DispatcherReconciler{Client: adminClient}
+	err = r.applyWorkloadSpecToObject(context.Background(), nil, workloadObj, adminWorkload, nil, jobutils.TestDeploymentResourceTemplate)
 	assert.NilError(t, err)
 	envs, err := jobutils.GetEnv(workloadObj, jobutils.TestDeploymentResourceTemplate, 1)
 	assert.NilError(t, err)
@@ -437,7 +454,8 @@ func TestUpdateDeploymentEnv(t *testing.T) {
 		"NCCL_SOCKET_IFNAME": "eth1",
 		"key":                "val",
 	}
-	err = applyWorkloadSpecToObject(context.Background(), nil, workloadObj, adminWorkload, nil, jobutils.TestDeploymentResourceTemplate)
+
+	err = r.applyWorkloadSpecToObject(context.Background(), nil, workloadObj, adminWorkload, nil, jobutils.TestDeploymentResourceTemplate)
 	assert.NilError(t, err)
 	envs, err = jobutils.GetEnv(workloadObj, jobutils.TestDeploymentResourceTemplate, 1)
 	assert.NilError(t, err)
@@ -459,7 +477,8 @@ func TestUpdateDeploymentEnv(t *testing.T) {
 		"NCCL_SOCKET_IFNAME": "eth1",
 	}
 	v1.SetAnnotation(adminWorkload, v1.EnvToBeRemovedAnnotation, string(jsonutils.MarshalSilently([]string{"key"})))
-	err = applyWorkloadSpecToObject(context.Background(), nil, workloadObj, adminWorkload, nil, jobutils.TestDeploymentResourceTemplate)
+
+	err = r.applyWorkloadSpecToObject(context.Background(), nil, workloadObj, adminWorkload, nil, jobutils.TestDeploymentResourceTemplate)
 	assert.NilError(t, err)
 	envs, err = jobutils.GetEnv(workloadObj, jobutils.TestDeploymentResourceTemplate, 1)
 	assert.NilError(t, err)
@@ -1129,4 +1148,50 @@ func TestCreateMonarchMesh(t *testing.T) {
 	checkHostNetwork(t, obj, workload, &templates[0], 0)
 
 	// fmt.Println(unstructuredutils.ToString(obj))
+}
+
+func TestCreateSandbox(t *testing.T) {
+	commonconfig.SetValue("net.rdma_name", "rdma/hca")
+	defer commonconfig.SetValue("net.rdma_name", "")
+	workspace := jobutils.TestWorkspaceData.DeepCopy()
+	workspace.Spec.IdleTime = map[v1.WorkspaceScope]string{
+		common.SandboxKind: "12h0m0s",
+	}
+	workload := jobutils.TestWorkloadData.DeepCopy()
+	workload.Spec.Workspace = workspace.Name
+	workload.Spec.GroupVersionKind = v1.GroupVersionKind{
+		Version: common.DefaultVersion,
+		Kind:    common.SandboxKind,
+	}
+	workload.Spec.Images = nil
+	workload.Spec.EntryPoints = nil
+	workload.Spec.JobPort = 0
+	workload.Spec.Resources[0].RdmaResource = ""
+
+	configmap, err := parseConfigmap(TestSandboxConfig)
+	assert.NilError(t, err)
+	v1.SetAnnotation(workload, v1.MainContainerAnnotation, v1.GetMainContainer(configmap))
+
+	TestSandboxTemplate, err := jsonutils.ParseYamlToJson(TestSandboxTemplateData)
+	assert.NilError(t, err)
+	v1.SetAnnotation(workload, v1.SandboxTemplateIdAnnotation, TestSandboxTemplate.GetName())
+	scheme, err := genMockScheme()
+	assert.NilError(t, err)
+	adminClient := fake.NewClientBuilder().WithObjects(configmap, jobutils.TestSandboxResourceTemplate,
+		jobutils.TestSandboxTemplateResourceTemplate, TestSandboxTemplate, workspace).WithScheme(scheme).Build()
+
+	r := DispatcherReconciler{Client: adminClient}
+	obj, err := r.generateK8sObject(context.Background(), workload, nil)
+	assert.NilError(t, err)
+
+	templates := jobutils.TestSandboxResourceTemplate.Spec.ResourceSpecs
+	checkResources(t, obj, workload, &templates[0], 1, 0)
+	checkPorts(t, obj, workload, &templates[0], 0)
+	checkEnvs(t, obj, workload, &templates[0], 0)
+	checkVolumeMounts(t, obj, workload, &templates[0])
+	checkVolumes(t, obj, workload, &templates[0], 0)
+	checkRequiredNodeSelectorTerms(t, obj, workload, &templates[0])
+	checkImage(t, obj, workload, &templates[0], 0)
+	checkHostNetwork(t, obj, workload, &templates[0], 0)
+	checkSandboxTemplateCleaned(t, obj, &templates[0])
 }

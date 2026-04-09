@@ -284,6 +284,40 @@ func findVolume(volumes []interface{}, name string) map[string]interface{} {
 	return nil
 }
 
+// checkSandboxTemplateCleaned verifies that cleanSandboxPodTemplate correctly removed
+// hostPath, PVC, emptyDir(Memory) volumes and their mounts, as well as nodeSelector.
+func checkSandboxTemplateCleaned(t *testing.T, obj *unstructured.Unstructured, resourceSpec *v1.ResourceSpec) {
+	specPath := append(resourceSpec.TemplatePath(), "spec")
+	volumesPath := append(append([]string{}, specPath...), "volumes")
+	volumes, _, err := jobutils.NestedSlice(obj.Object, volumesPath)
+	assert.NilError(t, err)
+
+	// Template-origin volumes that should be removed
+	assert.Equal(t, findVolume(volumes, "dshm") == nil, true)
+	assert.Equal(t, findVolume(volumes, "shared-nfs") == nil, true)
+	assert.Equal(t, findVolume(volumes, "hyperloom") == nil, true)
+	// Retained: plain emptyDir and workload-constructed shared-memory
+	assert.Equal(t, findVolume(volumes, "envd-bin") != nil, true)
+	assert.Equal(t, findVolume(volumes, SharedMemoryVolume) != nil, true)
+
+	containersPath := append(append([]string{}, specPath...), "containers")
+	containers, _, err := jobutils.NestedSlice(obj.Object, containersPath)
+	assert.NilError(t, err)
+	assert.Equal(t, len(containers) > 0, true)
+	mounts := containers[0].(map[string]interface{})["volumeMounts"].([]interface{})
+
+	assert.Equal(t, findVolumeMount(mounts, "dshm") == nil, true)
+	assert.Equal(t, findVolumeMount(mounts, "shared-nfs") == nil, true)
+	assert.Equal(t, findVolumeMount(mounts, "hyperloom") == nil, true)
+	assert.Equal(t, findVolumeMount(mounts, "envd-bin") != nil, true)
+	assert.Equal(t, findVolumeMount(mounts, SharedMemoryVolume) != nil, true)
+
+	// nodeSelector should be removed
+	nodeSelectorPath := append(append([]string{}, specPath...), "nodeSelector")
+	_, found, _ := unstructured.NestedMap(obj.Object, nodeSelectorPath...)
+	assert.Equal(t, found, false)
+}
+
 func checkRequiredNodeSelectorTerms(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workload, resourceSpec *v1.ResourceSpec) {
 	nodeSelectorPath := append(resourceSpec.PrePaths, resourceSpec.TemplatePaths...)
 	podSpec := getPodSpec(workload)
@@ -398,14 +432,17 @@ func checkImage(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workl
 	assert.Equal(t, len(values) == 0, false)
 	mainContainer, err := runtime.DefaultUnstructuredConverter.ToUnstructured(&values[0])
 	assert.NilError(t, err)
-	image, found, err := jobutils.NestedString(mainContainer, []string{"image"})
-	assert.NilError(t, err)
-	assert.Equal(t, found, true)
-	assert.Equal(t, image, workload.Spec.Images[id])
+
+	if id < len(workload.Spec.Images) {
+		image, found, err := jobutils.NestedString(mainContainer, []string{"image"})
+		assert.NilError(t, err)
+		assert.Equal(t, found, true)
+		assert.Equal(t, image, workload.Spec.Images[id])
+	}
 }
 
 func checkHostNetwork(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workload, resourceSpec *v1.ResourceSpec, id int) {
-	path := resourceSpec.GetTemplatePath()
+	path := resourceSpec.TemplatePath()
 	path = append(path, getPodSpec(workload), "hostNetwork")
 
 	isHostNetWork, found, err := jobutils.NestedBool(obj.Object, path)
