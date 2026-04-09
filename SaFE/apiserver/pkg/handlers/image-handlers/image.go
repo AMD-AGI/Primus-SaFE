@@ -1194,7 +1194,7 @@ func (h *ImageHandler) checkImageExistsUsingLibrary(ctx context.Context, imageNa
 	if len(list) != 2 {
 		return commonerrors.NewBadRequest("invalid os/arch format")
 	}
-	hostName := strings.Split(imageInfo.SourceImageName, "/")[0]
+	hostName := extractRegistryHost(imageInfo.SourceImageName)
 	os, arch := list[0], list[1]
 
 	sysCtx, err := h.getImageSystemCtx(ctx, hostName, imageName, userSecret)
@@ -1765,4 +1765,21 @@ func (h *ImageHandler) getAndValidateImageSecret(ctx context.Context, secretId s
 	}
 
 	return secret, nil
+}
+
+// extractRegistryHost extracts the registry host from an image name.
+// For Docker Hub images without an explicit host (e.g. "rocm/image:tag" or "library/alpine"),
+// returns "docker.io". For images with an explicit registry (e.g. "ghcr.io/org/image:tag"),
+// returns the registry host. A path segment is considered a registry host if it contains
+// a dot or a colon (port).
+func extractRegistryHost(imageName string) string {
+	firstSlash := strings.Index(imageName, "/")
+	if firstSlash == -1 {
+		return "docker.io"
+	}
+	host := imageName[:firstSlash]
+	if strings.ContainsAny(host, ".:") {
+		return host
+	}
+	return "docker.io"
 }
