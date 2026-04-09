@@ -244,6 +244,11 @@ const router = createRouter({
           component: () => import('@/pages/PublicKeys/index.vue'),
         },
         {
+          path: '/settings',
+          name: 'UserSettings',
+          component: () => import('@/pages/Settings/index.vue'),
+        },
+        {
           path: '/addontemplate',
           name: 'AddonTemp',
           component: () => import('@/pages/AddonTemp/index.vue'),

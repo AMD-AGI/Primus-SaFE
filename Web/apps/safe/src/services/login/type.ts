@@ -64,3 +64,7 @@ export interface EnvsResp {
   // cd
   cdRequireApproval?: boolean
 }
+
+export interface UserSettings {
+  enableNotification: boolean
+}
