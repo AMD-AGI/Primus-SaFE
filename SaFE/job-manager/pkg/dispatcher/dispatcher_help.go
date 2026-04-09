@@ -310,13 +310,17 @@ func modifyVolumeMounts(container map[string]interface{}, workload *v1.Workload,
 	}
 
 	maxId := 0
+	readonly := false
+	if commonworkload.IsSandBox(workload) {
+		readonly = true
+	}
 	if workspace != nil && v1.IsEnableWorkspaceStorage(workload) {
 		for _, vol := range workspace.Spec.Volumes {
 			if vol.Id > maxId {
 				maxId = vol.Id
 			}
 			if vol.MountPath != "" {
-				volumeMount := buildVolumeMount(vol.GenFullVolumeId(), vol.MountPath, vol.SubPath, false)
+				volumeMount := buildVolumeMount(vol.GenFullVolumeId(), vol.MountPath, vol.SubPath, readonly)
 				volumeMounts = append(volumeMounts, volumeMount)
 			}
 		}
@@ -324,7 +328,7 @@ func modifyVolumeMounts(container map[string]interface{}, workload *v1.Workload,
 	for _, hostpath := range workload.Spec.Hostpath {
 		maxId++
 		volumeName := v1.GenFullVolumeId(v1.HOSTPATH, maxId)
-		volumeMount := buildVolumeMount(volumeName, hostpath, "", false)
+		volumeMount := buildVolumeMount(volumeName, hostpath, "", readonly)
 		volumeMounts = append(volumeMounts, volumeMount)
 	}
 	for _, secret := range workload.Spec.Secrets {
