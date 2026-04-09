@@ -68,10 +68,11 @@ type BenchmarkRow struct {
 }
 
 type BenchmarksResponse struct {
-	Items      []BenchmarkRow `json:"items"`
-	TotalCount int            `json:"totalCount"`
-	CSV        string         `json:"csv,omitempty"`
-	CachedAt   string         `json:"cachedAt"`
+	Items               []BenchmarkRow `json:"items"`
+	TotalCount          int            `json:"totalCount"`
+	AvailablePrecisions []string       `json:"availablePrecisions"`
+	CSV                 string         `json:"csv,omitempty"`
+	CachedAt            string         `json:"cachedAt"`
 }
 
 type FiltersResponse struct {
@@ -108,12 +109,24 @@ func (h *Handler) GetBenchmarks(c *gin.Context) {
 		return
 	}
 
-	filtered := filterRows(rows, gpu, c.Query("isl"), c.Query("osl"), c.Query("framework"), c.Query("precision"))
+	// Filter by gpu/isl/osl first (without precision) to extract available precisions
+	gpuFiltered := filterRows(rows, gpu, c.Query("isl"), c.Query("osl"), c.Query("framework"), "")
+	precSet := make(map[string]bool)
+	for _, r := range gpuFiltered {
+		precSet[r.Precision] = true
+	}
+
+	// Then apply precision filter if specified
+	filtered := gpuFiltered
+	if c.Query("precision") != "" {
+		filtered = filterRows(rows, gpu, c.Query("isl"), c.Query("osl"), c.Query("framework"), c.Query("precision"))
+	}
 
 	resp := BenchmarksResponse{
-		Items:      filtered,
-		TotalCount: len(filtered),
-		CachedAt:   cachedAt.Format(time.RFC3339),
+		Items:               filtered,
+		TotalCount:          len(filtered),
+		AvailablePrecisions: setToSlice(precSet),
+		CachedAt:            cachedAt.Format(time.RFC3339),
 	}
 
 	if c.Query("format") == "csv" {
