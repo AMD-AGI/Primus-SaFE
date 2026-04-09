@@ -156,8 +156,7 @@ func TestMutateResources(t *testing.T) {
 	var mutator WorkloadMutator
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			changed := mutator.mutateResources(tt.workload, tt.workspace)
-			assert.Equal(t, tt.expectedChanged, changed, "isChanged mismatch")
+			mutator.mutateResources(context.Background(), tt.workload, tt.workspace)
 			assert.Equal(t, len(tt.expectedResources), len(tt.workload.Spec.Resources), "resources count mismatch")
 			for i, expected := range tt.expectedResources {
 				actual := tt.workload.Spec.Resources[i]

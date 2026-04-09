@@ -664,7 +664,7 @@ func (m *WorkloadMutator) mutateTimeout(workload *v1.Workload, workspace *v1.Wor
 	if maxRuntime <= 0 {
 		return
 	}
-	if workload.Spec.Timeout == nil || *workload.Spec.Timeout > maxRuntime {
+	if workload.Spec.Timeout == nil {
 		workload.Spec.Timeout = pointer.Int(maxRuntime)
 	}
 }

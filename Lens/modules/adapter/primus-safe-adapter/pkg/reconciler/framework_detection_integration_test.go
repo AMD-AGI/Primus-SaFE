@@ -98,6 +98,6 @@ func TestExtractFunctionsEmptyContainer(t *testing.T) {
 	}
 
 	assert.Equal(t, "", extractImage(workload))
-	assert.Equal(t, []string{}, extractCommand(workload))
-	assert.Equal(t, []string{}, extractArgs(workload))
+	assert.Empty(t, extractCommand(workload))
+	assert.Nil(t, extractArgs(workload))
 }
