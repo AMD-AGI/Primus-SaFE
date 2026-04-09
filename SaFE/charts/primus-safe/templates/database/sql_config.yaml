@@ -211,6 +211,9 @@ data:
 
     alter table image add column if not exists secret_id varchar(64);
 
+    ALTER TABLE image ALTER COLUMN tag TYPE varchar(512);
+    ALTER TABLE image ALTER COLUMN source TYPE varchar(512);
+
     CREATE TABLE IF NOT EXISTS public_key (
        id BIGSERIAL PRIMARY KEY,
        user_id VARCHAR(64) NOT NULL,
