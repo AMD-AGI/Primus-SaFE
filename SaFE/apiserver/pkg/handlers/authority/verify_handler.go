@@ -21,10 +21,14 @@ import (
 type VerifyTokenRequest struct {
 	// Raw cookie header string from user request (e.g., "Token=xxx; UserType=sso")
 	Cookie string `json:"cookie,omitempty"`
-	// Alternative: Authorization header value (e.g., "Bearer xxx")
+	// Alternative: Authorization header value (e.g., "Bearer xxx" or "Bearer ak-xxx")
 	Authorization string `json:"authorization,omitempty"`
 	// User type when using authorization header
 	UserType string `json:"userType,omitempty"`
+	// API key for direct authentication (e.g., "ak-xxx")
+	ApiKey string `json:"apiKey,omitempty"`
+	// Original client IP, used for API key whitelist validation
+	ClientIP string `json:"clientIP,omitempty"`
 	// If true, returns the user's platform API key (GetOrCreate)
 	IncludePlatformKey bool `json:"includePlatformKey,omitempty"`
 	// If true, returns the user's LiteLLM virtual key (decrypted)
@@ -38,6 +42,7 @@ type VerifyTokenResponse struct {
 	Email       string `json:"email,omitempty"`
 	Exp         int64  `json:"exp"`
 	Type        string `json:"type"`
+	ApiKeyId    int64  `json:"apiKeyId,omitempty"`
 	PlatformKey string `json:"platformKey,omitempty"`
 	VirtualKey  string `json:"virtualKey,omitempty"`
 }
@@ -77,12 +82,12 @@ func VerifyToken(c *gin.Context) {
 		return
 	}
 
-	// Extract token and user type from request
+	// Authenticate: Cookie > ApiKey > Authorization (auto-detect ak- prefix)
+	var userInfo *UserInfo
 	var rawToken, userType string
 	var err error
 
 	if req.Cookie != "" {
-		// Parse cookie string to extract token and user type
 		rawToken, userType, err = parseCookieString(req.Cookie)
 		if err != nil {
 			klog.ErrorS(err, "failed to parse cookie string")
@@ -92,70 +97,85 @@ func VerifyToken(c *gin.Context) {
 			})
 			return
 		}
+	} else if req.ApiKey != "" {
+		userInfo, err = verifyApiKey(c, req.ApiKey, req.ClientIP)
+		if err != nil {
+			return
+		}
+		userType = UserTypeApiKey
 	} else if req.Authorization != "" {
-		// Extract token from Authorization header
-		rawToken = extractBearerToken(req.Authorization)
-		userType = req.UserType
-		if userType == "" {
-			userType = string(v1.DefaultUserType)
+		if apiKey := ExtractApiKeyFromRequest(req.Authorization); apiKey != "" {
+			userInfo, err = verifyApiKey(c, apiKey, req.ClientIP)
+			if err != nil {
+				return
+			}
+			userType = UserTypeApiKey
+		} else {
+			rawToken = extractBearerToken(req.Authorization)
+			userType = req.UserType
+			if userType == "" {
+				userType = string(v1.DefaultUserType)
+			}
 		}
 	} else {
 		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{
 			"code":    http.StatusBadRequest,
-			"message": "cookie or authorization is required",
+			"message": "cookie, apiKey, or authorization is required",
 		})
 		return
 	}
 
-	if rawToken == "" {
-		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
-			"code":    http.StatusUnauthorized,
-			"message": ErrInvalidToken,
-		})
-		return
-	}
-
-	// Get the appropriate token validator
-	var tokenInstance TokenInterface
-	if userType == string(v1.SSOUserType) {
-		if !commonconfig.IsSSOEnable() {
-			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{
-				"code":    http.StatusBadRequest,
-				"message": "SSO is not enabled",
+	// For cookie/bearer-token paths, validate the token to get userInfo
+	if userInfo == nil {
+		if rawToken == "" {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
+				"code":    http.StatusUnauthorized,
+				"message": ErrInvalidToken,
 			})
 			return
 		}
-		tokenInstance = SSOInstance()
-	} else {
-		tokenInstance = DefaultTokenInstance()
-	}
 
-	if tokenInstance == nil {
-		klog.Error("token validator not available")
-		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{
-			"code":    http.StatusInternalServerError,
-			"message": "token validator not available",
-		})
-		return
-	}
+		var tokenInstance TokenInterface
+		if userType == string(v1.SSOUserType) {
+			if !commonconfig.IsSSOEnable() {
+				c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{
+					"code":    http.StatusBadRequest,
+					"message": "SSO is not enabled",
+				})
+				return
+			}
+			tokenInstance = SSOInstance()
+		} else {
+			tokenInstance = DefaultTokenInstance()
+		}
 
-	// Validate token and get user info
-	userInfo, err := tokenInstance.Validate(c.Request.Context(), rawToken)
-	if err != nil {
-		klog.ErrorS(err, "failed to validate user token")
-		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
-			"code":    http.StatusUnauthorized,
-			"message": ErrInvalidToken,
-		})
-		return
+		if tokenInstance == nil {
+			klog.Error("token validator not available")
+			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{
+				"code":    http.StatusInternalServerError,
+				"message": "token validator not available",
+			})
+			return
+		}
+
+		userInfo, err = tokenInstance.Validate(c.Request.Context(), rawToken)
+		if err != nil {
+			klog.ErrorS(err, "failed to validate user token")
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
+				"code":    http.StatusUnauthorized,
+				"message": ErrInvalidToken,
+			})
+			return
+		}
 	}
 
 	resp := VerifyTokenResponse{
-		Id:    userInfo.Id,
-		Name:  userInfo.Name,
-		Email: userInfo.Email,
-		Exp:   userInfo.Exp,
-		Type:  userType,
+		Id:       userInfo.Id,
+		Name:     userInfo.Name,
+		Email:    userInfo.Email,
+		Exp:      userInfo.Exp,
+		Type:     userType,
+		ApiKeyId: userInfo.ApiKeyId,
 	}
 
 	// Optionally include platform API key (GetOrCreate)
@@ -192,6 +212,31 @@ func VerifyToken(c *gin.Context) {
 		"code": 0,
 		"data": resp,
 	})
+}
+
+// verifyApiKey validates an API key and returns user info.
+// Sends error response to gin context on failure.
+func verifyApiKey(c *gin.Context, apiKey, clientIP string) (*UserInfo, error) {
+	apiKeyToken := ApiKeyTokenInstance()
+	if apiKeyToken == nil {
+		klog.Error("API key auth not initialized")
+		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{
+			"code":    http.StatusInternalServerError,
+			"message": "API key authentication not available",
+		})
+		return nil, commonerrors.NewInternalError("API key auth not initialized")
+	}
+
+	userInfo, err := apiKeyToken.ValidateApiKey(c.Request.Context(), apiKey, clientIP)
+	if err != nil {
+		klog.ErrorS(err, "failed to validate API key")
+		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
+			"code":    http.StatusUnauthorized,
+			"message": "invalid API key",
+		})
+		return nil, err
+	}
+	return userInfo, nil
 }
 
 // parseCookieString parses raw cookie string and extracts token and userType
