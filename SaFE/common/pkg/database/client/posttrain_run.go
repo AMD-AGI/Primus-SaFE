@@ -240,7 +240,7 @@ func newPosttrainRunViewQuery(filter *PosttrainRunFilter) sqrl.SelectBuilder {
 		Where(sqrl.Eq{"p.is_deleted": false})
 
 	query = applyPosttrainRunFilters(query, filter)
-	orderExpr := "COALESCE(w.creation_time, p.created_at) DESC"
+	orderExpr := "COALESCE(w.creation_time, p.created_at)"
 	switch filter.SortBy {
 	case "createdAt":
 		orderExpr = "COALESCE(w.creation_time, p.created_at)"
