@@ -477,7 +477,7 @@ func (r *DispatcherReconciler) getSandboxTemplate(ctx context.Context, adminWork
 	templateId := v1.GetSandboxTemplateId(adminWorkload)
 	obj := &unstructured.Unstructured{}
 	obj.SetGroupVersionKind(rt.ToSchemaGVK())
-	if err = r.Get(ctx, apitypes.NamespacedName{Name: templateId, Namespace: "default"}, obj); err != nil {
+	if err = r.Get(ctx, apitypes.NamespacedName{Name: templateId, Namespace: adminWorkload.Spec.Workspace}, obj); err != nil {
 		klog.ErrorS(err, "failed to get SandboxTemplate", "name", templateId)
 		return nil, err
 	}

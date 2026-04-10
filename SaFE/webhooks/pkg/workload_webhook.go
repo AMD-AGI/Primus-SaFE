@@ -689,7 +689,7 @@ func (m *WorkloadMutator) getResourceFromSandBoxTemplate(ctx context.Context, wo
 	// TODO: Templates currently exist only within the admin plane.
 	obj := &unstructured.Unstructured{}
 	obj.SetGroupVersionKind(rt.ToSchemaGVK())
-	if err = m.Get(ctx, types.NamespacedName{Name: templateId, Namespace: "default"}, obj); err != nil {
+	if err = m.Get(ctx, types.NamespacedName{Name: templateId, Namespace: workload.Spec.Workspace}, obj); err != nil {
 		klog.ErrorS(err, "failed to get SandboxTemplate", "name", templateId)
 		return nil, err
 	}
@@ -849,7 +849,7 @@ func (v *WorkloadValidator) validateRequiredParams(workload *v1.Workload) error 
 	if err := validateDNSName(v1.GetDisplayName(workload), workload.SpecKind()); err != nil {
 		errs = append(errs, err)
 	}
-	if v1.GetClusterId(workload) == "" {
+	if v1.GetClusterId(workload) == "" && workload.Spec.Workspace != corev1.NamespaceDefault {
 		errs = append(errs, fmt.Errorf("the cluster is empty"))
 	}
 	if workload.Spec.Workspace == "" {
@@ -1022,7 +1022,7 @@ func (v *WorkloadValidator) validateSandbox(newWorkload *v1.Workload) error {
 // Checks that replica count, CPU, memory, and ephemeral storage are all specified and valid
 // Returns an error if any required field is missing or invalid
 func validateResource(resource *v1.WorkloadResource, workspaceName string) error {
-	if resource == nil {
+	if resource == nil || workspaceName == corev1.NamespaceDefault {
 		return nil
 	}
 	var errs []error
