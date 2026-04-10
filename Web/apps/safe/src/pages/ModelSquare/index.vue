@@ -21,6 +21,18 @@
         >
           Create Model
         </el-button>
+        <el-tooltip
+          :content="refreshPaused ? 'Resume auto-refresh' : 'Pause auto-refresh'"
+          placement="top"
+        >
+          <button class="refresh-pill mb-2" @click="toggleRefreshPause">
+            <el-icon :size="14" :class="{ 'is-loading': !refreshPaused && countdown <= 3 }">
+              <Refresh />
+            </el-icon>
+            <span v-if="refreshPaused" class="refresh-pill__text">Paused</span>
+            <span v-else class="refresh-pill__text">{{ countdown }}s</span>
+          </button>
+        </el-tooltip>
       </div>
 
       <!-- Right side filters -->
@@ -294,20 +306,8 @@
       </el-card>
     </div>
 
-    <!-- Pagination + Auto-refresh -->
+    <!-- Pagination -->
     <div v-if="!loading && models.length > 0" class="pagination-row">
-      <el-tooltip
-        :content="refreshPaused ? 'Resume auto-refresh' : 'Pause auto-refresh'"
-        placement="top"
-      >
-        <button class="refresh-pill" @click="toggleRefreshPause">
-          <el-icon :size="14" :class="{ 'is-loading': !refreshPaused && countdown <= 3 }">
-            <Refresh />
-          </el-icon>
-          <span v-if="refreshPaused" class="refresh-pill__text">Paused</span>
-          <span v-else class="refresh-pill__text">{{ countdown }}s</span>
-        </button>
-      </el-tooltip>
       <el-pagination
         v-model:current-page="currentPage"
         v-model:page-size="pageSize"
