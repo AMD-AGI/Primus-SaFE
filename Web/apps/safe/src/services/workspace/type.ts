@@ -71,6 +71,7 @@ export interface BaseSubmitWsData {
   managers?: string[]
   volumes?: Volume[]
   maxRuntime?: Record<string, number>
+  idleTime?: Record<string, string>
 }
 
 export interface SubmitWorkspaceRequest extends BaseSubmitWsData {

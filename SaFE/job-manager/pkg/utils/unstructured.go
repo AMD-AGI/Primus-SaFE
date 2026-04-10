@@ -542,7 +542,7 @@ func GetEnv(unstructuredObj *unstructured.Unstructured,
 		if i >= maxResource {
 			break
 		}
-		templatePath := t.GetTemplatePath()
+		templatePath := t.TemplatePath()
 		path := append(templatePath, "spec", "containers")
 		containers, found, err := NestedSlice(unstructuredObj.Object, path)
 		if err != nil {

@@ -209,10 +209,11 @@ const workloadPermissions = {
   canCICD: hasWorkloadScope('CICD'),
   canInfer: hasWorkloadScope('Infer'),
   canRay: hasWorkloadScope('Ray'),
+  canSandbox: hasWorkloadScope('Sandbox'),
 }
 
 // Destructure specific permission variables (maintain backward compatibility)
-const { canTrain, canAuthoring, canCICD, canInfer, canRay } = workloadPermissions
+const { canTrain, canAuthoring, canCICD, canInfer, canRay, canSandbox } = workloadPermissions
 
 // workspaceMenu and usersMenu:
 // Visible to system-admin, system-admin-readonly, or current workspace-admin
@@ -293,6 +294,13 @@ watchEffect(() => {
       tooltip: 'Infer has been disabled by the administrator.',
       icon: menuIcons.infer,
     },
+    {
+      index: '/sandbox-workload',
+      name: 'Sandbox',
+      canAccess: canSandbox.value,
+      tooltip: 'Sandbox has been disabled by the administrator.',
+      icon: menuIcons.sandbox,
+    },
   ]
 
   // Filter out menu items without permission, simply hide them
@@ -367,7 +375,7 @@ watchEffect(() => {
     {
       index: '/sandbox',
       name: 'Sandbox',
-      icon: menuIcons.playground,
+      icon: menuIcons.sandbox,
       canAccess: hasManagerAccess.value, // Admin only
     },
     {
