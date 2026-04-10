@@ -209,10 +209,11 @@ const workloadPermissions = {
   canCICD: hasWorkloadScope('CICD'),
   canInfer: hasWorkloadScope('Infer'),
   canRay: hasWorkloadScope('Ray'),
+  canSandbox: hasWorkloadScope('Sandbox'),
 }
 
 // Destructure specific permission variables (maintain backward compatibility)
-const { canTrain, canAuthoring, canCICD, canInfer, canRay } = workloadPermissions
+const { canTrain, canAuthoring, canCICD, canInfer, canRay, canSandbox } = workloadPermissions
 
 // workspaceMenu and usersMenu:
 // Visible to system-admin, system-admin-readonly, or current workspace-admin
@@ -292,6 +293,13 @@ watchEffect(() => {
       canAccess: canInfer.value,
       tooltip: 'Infer has been disabled by the administrator.',
       icon: menuIcons.infer,
+    },
+    {
+      index: '/sandbox-workload',
+      name: 'Sandbox',
+      canAccess: canSandbox.value,
+      tooltip: 'Sandbox has been disabled by the administrator.',
+      icon: menuIcons.playground,
     },
   ]
 
