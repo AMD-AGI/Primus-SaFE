@@ -41,6 +41,7 @@ export interface MenuIcons {
   llmGateway: IconSet
   a2a: IconSet
   monarch: IconSet
+  sandbox: IconSet
 }
 
 const createIconSet = (name: string): IconSet => ({
@@ -83,4 +84,5 @@ export const menuIcons: MenuIcons = {
   llmGateway: createIconSet('apikey'), // Using apikey icons as placeholder
   a2a: createIconSet('skill'), // Using skill icons as placeholder
   monarch: createIconSet('monarch'),
+  sandbox: createIconSet('sandbox'),
 }
