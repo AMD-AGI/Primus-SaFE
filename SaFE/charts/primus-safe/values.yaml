@@ -201,8 +201,7 @@ a2a:
   # A2A service discovery scanner
   scanner_enable: true
   scanner_interval: 60
-  scanner_namespaces:
-    - primus-lens
+  scanner_namespaces: []
 a2a_gateway:
   # A2A Gateway for Agent-to-Agent invocations
   enable: true
