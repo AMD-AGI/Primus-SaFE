@@ -36,21 +36,56 @@
         </el-checkbox-group>
       </el-form-item>
       <el-form-item label="Max Runtime" v-if="selectedScopes.length">
-        <div class="w-full">
-          <el-row v-for="scope in selectedScopes" :key="scope" :gutter="12" class="mb-2">
-            <el-col :span="12" class="flex items-center">
-              <span class="text-gray-600">{{ scope }}</span>
-            </el-col>
-            <el-col :span="12">
-              <el-input
-                v-model.number="form.maxRuntime[scope]"
-                type="number"
-                placeholder="Optional"
-              >
-                <template #append>hours</template>
-              </el-input>
-            </el-col>
-          </el-row>
+        <div class="limit-entries">
+          <div v-for="scope in runtimeConfiguredScopes" :key="scope" class="limit-row">
+            <el-tag closable effect="plain" @close="removeRuntimeScope(scope)">{{ scope }}</el-tag>
+            <el-input-number
+              v-model="form.maxRuntime[scope]"
+              :min="0"
+              :step="1"
+              :precision="0"
+              controls-position="right"
+              placeholder="hours"
+              size="small"
+              class="limit-input"
+            />
+            <span class="limit-unit">h</span>
+          </div>
+          <el-dropdown v-if="runtimeAvailableScopes.length" trigger="click" @command="addRuntimeScope">
+            <el-button size="small" text type="primary">+ Add</el-button>
+            <template #dropdown>
+              <el-dropdown-menu>
+                <el-dropdown-item v-for="s in runtimeAvailableScopes" :key="s" :command="s">{{ s }}</el-dropdown-item>
+              </el-dropdown-menu>
+            </template>
+          </el-dropdown>
+        </div>
+      </el-form-item>
+
+      <el-form-item label="Idle Time" v-if="selectedScopes.length">
+        <div class="limit-entries">
+          <div v-for="scope in idleTimeConfiguredScopes" :key="scope" class="limit-row">
+            <el-tag closable effect="plain" @close="removeIdleTimeScope(scope)">{{ scope }}</el-tag>
+            <el-input-number
+              v-model="form.idleTime[scope]"
+              :min="0"
+              :step="0.5"
+              :precision="1"
+              controls-position="right"
+              placeholder="hours"
+              size="small"
+              class="limit-input"
+            />
+            <span class="limit-unit">h</span>
+          </div>
+          <el-dropdown v-if="idleTimeAvailableScopes.length" trigger="click" @command="addIdleTimeScope">
+            <el-button size="small" text type="primary">+ Add</el-button>
+            <template #dropdown>
+              <el-dropdown-menu>
+                <el-dropdown-item v-for="s in idleTimeAvailableScopes" :key="s" :command="s">{{ s }}</el-dropdown-item>
+              </el-dropdown-menu>
+            </template>
+          </el-dropdown>
         </div>
       </el-form-item>
 
@@ -313,6 +348,7 @@ const initialForm = reactive({
   volumes: [] as Volume[],
   scopes: ['Train', 'Infer', 'Authoring'],
   maxRuntime: {} as Record<string, number | undefined>,
+  idleTime: {} as Record<string, number | undefined>,
 })
 
 const form = reactive({ ...initialForm })
@@ -399,12 +435,21 @@ const onSubmit = async (formEl: FormInstance | undefined) => {
     }) as unknown as Volume[]
 
     const maxRuntime: Record<string, number> = {}
-    selectedScopes.value.forEach((scope) => {
+    runtimeConfiguredScopes.value.forEach((scope) => {
       const value = form.maxRuntime?.[scope]
       if (typeof value === 'number' && Number.isFinite(value)) {
         maxRuntime[scope] = value
       }
     })
+
+    const idleTime: Record<string, string> = {}
+    idleTimeConfiguredScopes.value.forEach((scope) => {
+      const value = form.idleTime?.[scope]
+      if (typeof value === 'number' && Number.isFinite(value) && value > 0) {
+        idleTime[scope] = hoursToGoDuration(value)
+      }
+    })
+
     const { managers, ...payload } = form
 
     if (!isEdit.value) {
@@ -412,12 +457,13 @@ const onSubmit = async (formEl: FormInstance | undefined) => {
         ...payload,
         volumes: volumesPayload,
         maxRuntime,
+        idleTime,
       })
       ElMessage({ message: 'Create successful', type: 'success' })
     } else {
       const { name: _n, ...payload } = form
       if (!props.wsid) return
-      await editWorkspace(props.wsid, { ...payload, volumes: volumesPayload, maxRuntime })
+      await editWorkspace(props.wsid, { ...payload, volumes: volumesPayload, maxRuntime, idleTime })
       ElMessage({ message: 'Edit successful', type: 'success' })
     }
 
@@ -471,6 +517,14 @@ const setInitialFormValues = async () => {
   form.isDefault = res.isDefault
   form.managers = res.managers?.map((v: any) => v.id)
   form.maxRuntime = res.maxRuntime ?? {}
+
+  // Parse idleTime from Go duration strings to hours
+  const rawIdleTime = (res as any).idleTime ?? {}
+  const parsedIdleTime: Record<string, number | undefined> = {}
+  for (const [scope, dur] of Object.entries(rawIdleTime)) {
+    parsedIdleTime[scope] = goDurationToHours(dur as string)
+  }
+  form.idleTime = parsedIdleTime
 
   form.volumes = (res.volumes ?? []).map((v: any) => {
     if (v.type === 'hostpath')
@@ -573,6 +627,52 @@ const onOpen = async () => {
 
 const selectedScopes = computed(() => form.scopes ?? [])
 
+// Max Runtime: append-style helpers
+const runtimeConfiguredScopes = computed(() =>
+  selectedScopes.value.filter((s) => s in form.maxRuntime),
+)
+const runtimeAvailableScopes = computed(() =>
+  selectedScopes.value.filter((s) => !(s in form.maxRuntime)),
+)
+const addRuntimeScope = (scope: string) => {
+  form.maxRuntime[scope] = undefined
+}
+const removeRuntimeScope = (scope: string) => {
+  delete form.maxRuntime[scope]
+}
+
+// Idle Time: append-style helpers
+const idleTimeConfiguredScopes = computed(() =>
+  selectedScopes.value.filter((s) => s in form.idleTime),
+)
+const idleTimeAvailableScopes = computed(() =>
+  selectedScopes.value.filter((s) => !(s in form.idleTime)),
+)
+const addIdleTimeScope = (scope: string) => {
+  form.idleTime[scope] = undefined
+}
+const removeIdleTimeScope = (scope: string) => {
+  delete form.idleTime[scope]
+}
+
+// Convert hours (number) to Go duration string: 1.5 → "1h30m0s"
+const hoursToGoDuration = (hours: number): string => {
+  const totalMinutes = Math.round(hours * 60)
+  const h = Math.floor(totalMinutes / 60)
+  const m = totalMinutes % 60
+  return `${h}h${m}m0s`
+}
+
+// Convert Go duration string to hours: "1h30m0s" → 1.5
+const goDurationToHours = (dur: string): number | undefined => {
+  if (!dur) return undefined
+  const hMatch = dur.match(/(\d+)h/)
+  const mMatch = dur.match(/(\d+)m/)
+  const h = hMatch ? parseInt(hMatch[1], 10) : 0
+  const m = mMatch ? parseInt(mMatch[1], 10) : 0
+  return h + m / 60 || undefined
+}
+
 // Watch volumes strategy and KV changes
 watch(
   () => form.volumes,
@@ -592,3 +692,27 @@ watch(
   { deep: true, immediate: true },
 )
 </script>
+
+<style scoped>
+.limit-entries {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.limit-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.limit-input {
+  width: 100px;
+}
+
+.limit-unit {
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+}
+</style>
