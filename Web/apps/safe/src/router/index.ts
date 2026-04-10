@@ -84,6 +84,11 @@ const router = createRouter({
           component: () => import('../pages/Monarch/index.vue'),
         },
         {
+          path: '/sandbox-workload',
+          name: 'SandboxWorkload',
+          component: () => import('../pages/SandboxWorkload/index.vue'),
+        },
+        {
           path: '/authoring',
           name: 'Authoring',
           component: () => import('../pages/Authoring/index.vue'),
@@ -122,6 +127,11 @@ const router = createRouter({
           path: '/monarch/detail',
           name: 'MonarchDetail',
           component: () => import('../pages/Monarch/MonarchDetail.vue'),
+        },
+        {
+          path: '/sandbox-workload/detail',
+          name: 'SandboxWorkloadDetail',
+          component: () => import('../pages/Training/TrainingDetail.vue'),
         },
         {
           path: '/training/root-cause',
