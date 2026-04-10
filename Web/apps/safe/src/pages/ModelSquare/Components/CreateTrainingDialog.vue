@@ -22,9 +22,9 @@
           </div>
           <div>
             <div class="font-medium">{{ props.model?.displayName || props.model?.id }}</div>
-            <div class="text-xs text-gray-500 mt-1">
-              <el-tag size="small" type="success">{{ props.model?.phase }}</el-tag>
-              <el-tag size="small" type="primary" class="ml-1">{{ props.model?.accessMode }}</el-tag>
+            <div class="flex items-center gap-1 mt-1">
+              <span :class="['s-pill', `s-pill--${props.model?.phase?.toLowerCase()}`]">{{ props.model?.phase }}</span>
+              <span class="s-pill s-pill--muted">{{ props.model?.accessMode }}</span>
             </div>
           </div>
         </div>
@@ -36,10 +36,18 @@
         <span class="textx-15 font-medium">Training Type</span>
       </div>
 
-      <el-radio-group v-model="trainingType" class="m-b-4" :disabled="configLoading">
-        <el-radio-button value="sft">SFT</el-radio-button>
-        <el-radio-button value="rl">RL</el-radio-button>
-      </el-radio-group>
+      <div class="type-tabs m-b-4">
+        <button
+          v-for="t in (['sft', 'rl'] as const)"
+          :key="t"
+          class="type-tab"
+          :class="{ active: trainingType === t }"
+          :disabled="configLoading"
+          @click="trainingType = t"
+        >
+          {{ t === 'sft' ? 'SFT' : 'RL' }}
+        </button>
+      </div>
 
       <!-- Unsupported warning -->
       <el-alert
@@ -346,13 +354,17 @@
           <span class="textx-15 font-medium">Strategy</span>
         </div>
 
-        <el-form-item>
-          <el-radio-group v-model="rlForm.trainConfig.strategy">
-            <el-radio-button v-for="s in rlConfig?.options.strategyOptions" :key="s" :value="s">
-              {{ s === 'fsdp2' ? 'FSDP2 (8B-32B)' : 'Megatron (32B+)' }}
-            </el-radio-button>
-          </el-radio-group>
-        </el-form-item>
+        <div class="type-tabs m-b-2">
+          <button
+            v-for="s in rlConfig?.options.strategyOptions"
+            :key="s"
+            class="type-tab"
+            :class="{ active: rlForm.trainConfig.strategy === s }"
+            @click="rlForm.trainConfig.strategy = s"
+          >
+            {{ s === 'fsdp2' ? 'FSDP2 (8B-32B)' : 'Megatron (32B+)' }}
+          </button>
+        </div>
 
         <!-- Dataset -->
         <div class="flex items-center m-b-4 m-t-6">
@@ -1085,5 +1097,76 @@ const handleClose = () => {
 
 :deep(.el-form-item) {
   margin-bottom: 18px;
+}
+
+// Status pills (matching outer card style)
+.s-pill {
+  display: inline-block;
+  font-size: 11px;
+  line-height: 1;
+  padding: 3px 8px;
+  border-radius: 10px;
+  font-weight: 500;
+  border: 1px solid transparent;
+
+  &--ready, &--running {
+    color: #5cb77a;
+    background: rgba(92, 183, 122, 0.1);
+    border-color: rgba(92, 183, 122, 0.2);
+  }
+  &--pending {
+    color: #c8973e;
+    background: rgba(200, 151, 62, 0.1);
+    border-color: rgba(200, 151, 62, 0.2);
+  }
+  &--failed {
+    color: #cf6a6a;
+    background: rgba(207, 106, 106, 0.1);
+    border-color: rgba(207, 106, 106, 0.2);
+  }
+  &--muted {
+    color: #8c8f94;
+    background: rgba(140, 143, 148, 0.08);
+    border-color: rgba(140, 143, 148, 0.15);
+  }
+}
+
+// Training type / strategy tab buttons
+.type-tabs {
+  display: inline-flex;
+  gap: 0;
+  border-radius: 8px;
+  overflow: hidden;
+  border: 1px solid var(--el-border-color-lighter);
+}
+
+.type-tab {
+  padding: 7px 20px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  border: none;
+  background: transparent;
+  color: var(--el-text-color-secondary);
+  transition: all 0.2s;
+  position: relative;
+
+  & + .type-tab {
+    border-left: 1px solid var(--el-border-color-lighter);
+  }
+
+  &:hover:not(:disabled) {
+    color: var(--el-color-primary);
+  }
+
+  &.active {
+    background: var(--el-color-primary);
+    color: #fff;
+  }
+
+  &:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
 }
 </style>
