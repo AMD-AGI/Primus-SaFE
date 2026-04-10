@@ -52,3 +52,15 @@
   - ingresses
   verbs:
   - '*'
+- apiGroups:
+  - agents.x-k8s.io
+  resources:
+  - sandboxes
+  verbs:
+  - '*'
+- apiGroups:
+  - extensions.agents.x-k8s.io
+  resources:
+  - sandboxtemplates
+  verbs:
+  - '*'

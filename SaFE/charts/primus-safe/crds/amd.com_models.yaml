@@ -88,10 +88,12 @@ spec:
                   Origin indicates where the model came from:
                     - "external": downloaded from HuggingFace or connected via remote API (default)
                     - "fine_tuned": produced by SFT training within the platform
+                    - "rl_trained": produced by RL training (GRPO/PPO) within the platform
                 type: string
               sftJobId:
-                description: SftJobId is the workload ID of the SFT training job that
-                  produced this model (origin=fine_tuned only)
+                description: |-
+                  SftJobId is the workload ID of the training job that produced this model
+                  (origin=fine_tuned for SFT, origin=rl_trained for RL)
                 type: string
               source:
                 description: Source defines where to pull the model from

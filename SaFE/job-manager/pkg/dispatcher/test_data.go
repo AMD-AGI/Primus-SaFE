@@ -872,4 +872,173 @@ data:
             emptyDir: {}
         terminationGracePeriodSeconds: 5
 `
+
+	TestSandboxConfig = `
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: amd-sandbox-template
+  namespace: "primus-safe"
+  labels:
+    primus-safe.workload.version: v1
+    primus-safe.workload.kind: Sandbox
+  annotations:
+    # The main container name should match the configuration defined in the template below
+    primus-safe.main.container: codeinterpreter
+data:
+  template: |
+    apiVersion: agents.x-k8s.io/v1alpha1
+    kind: Sandbox
+`
+
+	TestSandboxTemplateData = `
+apiVersion: extensions.agents.x-k8s.io/v1alpha1
+kind: SandboxTemplate
+metadata:
+  annotations:
+    runtime.agent-sandbox.io/spec-hash: dfa4d9b9d908f0b19641895bce9592e8
+  creationTimestamp: "2026-04-07T08:05:21Z"
+  generation: 58
+  name: primus-claw-executor-gpu-a9563c537593c7
+  namespace: default
+  ownerReferences:
+  - apiVersion: runtime.agent-sandbox.io/v1alpha1
+    blockOwnerDeletion: true
+    controller: true
+    kind: CodeInterpreter
+    name: primus-claw-executor-gpu-a9563c537593c7
+    uid: 841b9e9e-4fa9-4769-95ed-7e33221f3859
+  resourceVersion: "195463510"
+  uid: 548c7a16-95a2-4ae7-9776-73eb42d3f8b4
+spec:
+  podTemplate:
+    metadata:
+      annotations:
+        description: Primus-Claw executor (FastAPI + Claude Agent SDK)
+      labels:
+        component: executor
+        team: primus-claw
+    spec:
+      containers:
+      - args:
+        - export PATH=/shared/bin:$PATH && mkdir -p /app && exec /shared/bin/envd
+          --port=8080 --workspace=/app
+        command:
+        - /bin/sh
+        - -c
+        env:
+        - name: ENGINE_TYPE
+          value: claude
+        - name: EXECUTOR_TYPE
+          value: ts
+        - name: ANTHROPIC_SKIP_TLS_VERIFY
+          value: "true"
+        - name: NODE_TLS_REJECT_UNAUTHORIZED
+          value: "0"
+        - name: PYTHONHTTPSVERIFY
+          value: "0"
+        - name: API_TIMEOUT_MS
+          value: "3000000"
+        - name: EXECUTOR_CLI_INITIALIZE_TIMEOUT_MS
+          value: "300000"
+        - name: CLAUDE_CODE_STREAM_CLOSE_TIMEOUT
+          value: "300000"
+        - name: CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC
+          value: "1"
+        - name: CLAUDE_THINKING_MODE
+          value: enabled
+        - name: CLAUDE_INCLUDE_PARTIAL_MESSAGES
+          value: "true"
+        - name: WORKSPACE_PATH
+          value: /workspace
+        - name: S3_BUCKET
+          value: claw
+        - name: S3_REGION
+          value: us
+        - name: S3_FORCE_PATH_STYLE
+          value: "true"
+        - name: PATH
+          value: /shared/bin:/home/sandbox/.local/bin:/usr/local/bin:/usr/bin:/bin:/sbin
+        - name: ENVD_AUTH_PUBLIC_KEY
+          value: |
+            -----BEGIN PUBLIC KEY-----
+            MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAysuW9+3nAQqjmekz49RN
+            CubMoGZrVghgg7Xu9yhoWgu2ytqrTk1PcGoxqaGOkd+hUoNF6qxSKHP5wPfIvlNL
+            PoLzQ5rVXxz5/5uQ1eaqvQyy3GBuCAu+DFZhP2McVsYYiLrznBZ9yIkJQjgckIU6
+            Tbzd3dpN4fzzPsnYynlOph5bf9N7P/3yoqjdFItSiyDvvRXj+vjZt00xSk4O/9ZX
+            cAXhmjUNcxdPG6nVw4BVDQ3iMnsTJff5Kw1ArfGdriYYrXB5BfNcorvrPlZ0X9z4
+            WPJvpXdJHzb+S7nzsDBJRLMmd7yXpNh6dhBdzEXdVpqxULq8V01Y11JThWsRZJQ6
+            hwIDAQAB
+            -----END PUBLIC KEY-----
+        - name: OPENAI_BASE_URL
+          value: https://oci-slc.primus-safe.amd.com/api/v1/llm-proxy/v1
+        - name: WORKLOAD_MANAGER_URL
+          value: http://workloadmanager.agent-sandbox-system.svc.cluster.local:8080
+        image: harbor.oci-slc.primus-safe.amd.com/sync/lmsysorg/sglang:v0.5.9-rocm700-mi35x
+        imagePullPolicy: IfNotPresent
+        name: codeinterpreter
+        readinessProbe:
+          failureThreshold: 30
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 1
+          periodSeconds: 2
+          successThreshold: 1
+          timeoutSeconds: 2
+        resources:
+          limits:
+            amd.com/gpu: "8"
+            cpu: "96"
+            ephemeral-storage: 1Ti
+            memory: 1Ti
+          requests:
+            amd.com/gpu: "8"
+            cpu: "96"
+            ephemeral-storage: 1Ti
+            memory: 1Ti
+        volumeMounts:
+        - mountPath: /shared/bin
+          name: envd-bin
+        - mountPath: /dev/shm
+          name: dshm
+        - mountPath: /shared_nfs
+          name: shared-nfs
+          readOnly: true
+        - mountPath: /hyperloom
+          name: hyperloom
+          readOnly: true
+      initContainers:
+      - command:
+        - sh
+        - -c
+        - cp /envd /shared/bin/envd && cp /tmux /shared/bin/tmux 2>/dev/null || true
+        image: harbor.oci-slc.primus-safe.amd.com/agent-sandbox/agent-sandbox-envd-injector:202604070913
+        imagePullPolicy: IfNotPresent
+        name: envd-injector
+        resources: {}
+        volumeMounts:
+        - mountPath: /shared/bin
+          name: envd-bin
+      nodeSelector:
+        primus-safe.workspace.id: control-plane-sandbox
+      restartPolicy: Never
+      tolerations:
+      - operator: Exists
+      volumes:
+      - emptyDir: {}
+        name: envd-bin
+      - emptyDir:
+          medium: Memory
+          sizeLimit: 16Gi
+        name: dshm
+      - hostPath:
+          path: /shared_nfs
+          type: Directory
+        name: shared-nfs
+      - hostPath:
+          path: /hyperloom
+          type: Directory
+        name: hyperloom
+`
 )

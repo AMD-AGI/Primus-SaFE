@@ -48,7 +48,7 @@ func initializeObject(obj *unstructured.Unstructured,
 	}
 
 	var err error
-	templatePath := resourceSpec.GetTemplatePath()
+	templatePath := resourceSpec.TemplatePath()
 	podSpec := getPodSpec(workload)
 
 	path := append(templatePath, podSpec,
@@ -310,13 +310,17 @@ func modifyVolumeMounts(container map[string]interface{}, workload *v1.Workload,
 	}
 
 	maxId := 0
+	readonly := false
+	if commonworkload.IsSandBox(workload) {
+		readonly = true
+	}
 	if workspace != nil && v1.IsEnableWorkspaceStorage(workload) {
 		for _, vol := range workspace.Spec.Volumes {
 			if vol.Id > maxId {
 				maxId = vol.Id
 			}
 			if vol.MountPath != "" {
-				volumeMount := buildVolumeMount(vol.GenFullVolumeId(), vol.MountPath, vol.SubPath, false)
+				volumeMount := buildVolumeMount(vol.GenFullVolumeId(), vol.MountPath, vol.SubPath, readonly)
 				volumeMounts = append(volumeMounts, volumeMount)
 			}
 		}
@@ -324,7 +328,7 @@ func modifyVolumeMounts(container map[string]interface{}, workload *v1.Workload,
 	for _, hostpath := range workload.Spec.Hostpath {
 		maxId++
 		volumeName := v1.GenFullVolumeId(v1.HOSTPATH, maxId)
-		volumeMount := buildVolumeMount(volumeName, hostpath, "", false)
+		volumeMount := buildVolumeMount(volumeName, hostpath, "", readonly)
 		volumeMounts = append(volumeMounts, volumeMount)
 	}
 	for _, secret := range workload.Spec.Secrets {
@@ -621,7 +625,7 @@ func buildPodAnnotations(workload *v1.Workload, resourceId int) map[string]inter
 // buildEnvironment creates environment variables for the workload container.
 func buildEnvironment(workload *v1.Workload, resourceId int) []interface{} {
 	var result []interface{}
-	if resourceId >= 0 && resourceId < len(workload.Spec.Resources) && workload.Spec.Resources[resourceId].GPU != "" {
+	if resourceId >= 0 && resourceId < len(workload.Spec.Resources) && workload.Spec.Resources[resourceId].HasGpu() {
 		if workload.GetEnv("AINIC_DRIVER_VERSION") != "" {
 			result = addEnvVar(result, workload, "NCCL_IB_GID_INDEX", "1")
 			result = addEnvVar(result, workload, "NCCL_DMABUF_ENABLE", "0")
@@ -1060,31 +1064,151 @@ func updateMonarchMesh(obj *unstructured.Unstructured, adminWorkload *v1.Workloa
 	return nil
 }
 
+// updateSandbox updates the sandbox-job configuration by sandbox template
+func (r *DispatcherReconciler) updateSandbox(ctx context.Context,
+	obj *unstructured.Unstructured, adminWorkload *v1.Workload, workspace *v1.Workspace, rt *v1.ResourceTemplate) error {
+	podTemplate, err := r.getSandboxTemplate(ctx, adminWorkload)
+	if err != nil {
+		return err
+	}
+	v1.SetLabel(adminWorkload, "runtime.agent-sandbox.io/user.id", v1.GetUserId(adminWorkload))
+	v1.SetLabel(adminWorkload, "runtime.agent-sandbox.io/sandbox-name", adminWorkload.Name)
+	v1.SetAnnotation(adminWorkload, "runtime.agent-sandbox.io/user.name", v1.GetUserName(adminWorkload))
+	v1.SetAnnotation(adminWorkload, "runtime.agent-sandbox.io/session-id", adminWorkload.Name)
+	scope := commonworkload.GetScope(adminWorkload)
+	if str := workspace.GetIdleTime(scope); str != "" {
+		v1.SetAnnotation(adminWorkload, "runtime.agent-sandbox.io/idle-timeout", str)
+	}
+	if len(rt.Spec.ResourceSpecs) == 0 {
+		return fmt.Errorf("no resource specs found")
+	}
+	path := rt.Spec.ResourceSpecs[0].TemplatePath()
+	if len(path) == 0 {
+		return fmt.Errorf("empty template path in resource spec")
+	}
+	cleanSandboxPodTemplate(podTemplate)
+	if err = jobutils.SetNestedField(obj.Object, podTemplate, path); err != nil {
+		return err
+	}
+	return nil
+}
+
+// cleanSandboxPodTemplate removes hostPath, persistentVolumeClaim, and emptyDir(Memory)
+// volumes from the podTemplate along with their corresponding volumeMounts in all containers.
+// This operates directly on the podTemplate map before it is written into the obj,
+// so subsequent deep-copy reads (e.g. NestedSlice) see the cleaned state.
+func cleanSandboxPodTemplate(podTemplate interface{}) {
+	pt, ok := podTemplate.(map[string]interface{})
+	if !ok {
+		return
+	}
+	spec, ok := pt["spec"].(map[string]interface{})
+	if !ok {
+		return
+	}
+	delete(spec, "nodeSelector")
+	volumesRaw, ok := spec["volumes"].([]interface{})
+	if !ok || len(volumesRaw) == 0 {
+		return
+	}
+
+	removed := sets.NewSet()
+	filtered := make([]interface{}, 0, len(volumesRaw))
+	for _, vol := range volumesRaw {
+		volMap, ok := vol.(map[string]interface{})
+		if !ok {
+			filtered = append(filtered, vol)
+			continue
+		}
+		_, hasHostPath := volMap["hostPath"]
+		_, hasPVC := volMap["persistentVolumeClaim"]
+		hasMemoryEmptyDir := false
+		if ed, ok := volMap["emptyDir"].(map[string]interface{}); ok {
+			hasMemoryEmptyDir = ed["medium"] == "Memory"
+		}
+		if hasHostPath || hasPVC || hasMemoryEmptyDir {
+			if name, ok := volMap["name"].(string); ok {
+				removed.Insert(name)
+			}
+			continue
+		}
+		filtered = append(filtered, vol)
+	}
+	if removed.Len() == 0 {
+		return
+	}
+	spec["volumes"] = filtered
+
+	cleanContainerMounts := func(key string) {
+		containers, ok := spec[key].([]interface{})
+		if !ok {
+			return
+		}
+		for _, c := range containers {
+			cMap, ok := c.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			mounts, ok := cMap["volumeMounts"].([]interface{})
+			if !ok || len(mounts) == 0 {
+				continue
+			}
+			kept := make([]interface{}, 0, len(mounts))
+			for _, m := range mounts {
+				mMap, ok := m.(map[string]interface{})
+				if !ok {
+					kept = append(kept, m)
+					continue
+				}
+				name, _ := mMap["name"].(string)
+				if !removed.Has(name) {
+					kept = append(kept, m)
+				}
+			}
+			cMap["volumeMounts"] = kept
+		}
+	}
+	cleanContainerMounts("containers")
+	cleanContainerMounts("initContainers")
+}
+
 // updateMetadata updates the template metadata annotations in the unstructured object.
 func updateMetadata(adminWorkload *v1.Workload,
 	obj *unstructured.Unstructured, resourceSpec v1.ResourceSpec, id int) error {
 	if commonworkload.IsMonarchMesh(adminWorkload) {
 		return nil
 	}
-	if len(resourceSpec.GetTemplatePath()) > 0 {
-		_, found, err := jobutils.NestedMap(obj.Object, resourceSpec.GetTemplatePath())
+	if len(resourceSpec.TemplatePath()) > 0 {
+		_, found, err := jobutils.NestedMap(obj.Object, resourceSpec.TemplatePath())
 		if err != nil || !found {
 			return err
 		}
 	}
 
-	labels := buildPodLabels(adminWorkload)
-	path := append(resourceSpec.GetTemplatePath(), "metadata", "labels")
-	if err := jobutils.SetNestedField(obj.Object, labels, path); err != nil {
+	labelsPath := append(resourceSpec.TemplatePath(), "metadata", "labels")
+	existing, _, _ := jobutils.NestedMap(obj.Object, labelsPath)
+	if existing == nil {
+		existing = make(map[string]interface{})
+	}
+	for k, v := range buildPodLabels(adminWorkload) {
+		existing[k] = v
+	}
+	if err := jobutils.SetNestedField(obj.Object, existing, labelsPath); err != nil {
 		return err
 	}
 
 	if id2, ok := v1.GetResourceId(adminWorkload); ok {
 		id = id2
 	}
-	annotations := buildPodAnnotations(adminWorkload, id)
-	path = append(resourceSpec.GetTemplatePath(), "metadata", "annotations")
-	if err := jobutils.SetNestedField(obj.Object, annotations, path); err != nil {
+	annoPath := append(resourceSpec.TemplatePath(), "metadata", "annotations")
+	existingAnno, _, _ := jobutils.NestedMap(obj.Object, annoPath)
+	if existingAnno == nil {
+		existingAnno = make(map[string]interface{})
+	}
+	for k, v := range buildPodAnnotations(adminWorkload, id) {
+		existingAnno[k] = v
+	}
+	if err := jobutils.SetNestedField(obj.Object, existingAnno, annoPath); err != nil {
 		return err
 	}
 	return nil
@@ -1236,7 +1360,7 @@ func updateSharedMemory(adminWorkload *v1.Workload, obj *unstructured.Unstructur
 // updateHostNetwork updates the host network configuration.
 func updateHostNetwork(adminWorkload *v1.Workload,
 	obj *unstructured.Unstructured, resourceSpec v1.ResourceSpec, resourceId int) error {
-	templatePath := resourceSpec.GetTemplatePath()
+	templatePath := resourceSpec.TemplatePath()
 	podSpec := getPodSpec(adminWorkload)
 	path := append(templatePath, podSpec, "hostNetwork")
 	return modifyHostNetwork(obj, adminWorkload, path, resourceId)
@@ -1245,7 +1369,7 @@ func updateHostNetwork(adminWorkload *v1.Workload,
 // updatePriorityClass updates the priority class configuration.
 func updatePriorityClass(adminWorkload *v1.Workload,
 	obj *unstructured.Unstructured, resourceSpec v1.ResourceSpec) error {
-	templatePath := resourceSpec.GetTemplatePath()
+	templatePath := resourceSpec.TemplatePath()
 	podSpec := getPodSpec(adminWorkload)
 	path := append(templatePath, podSpec, "priorityClassName")
 	return modifyPriorityClass(obj, adminWorkload, path)
@@ -1254,7 +1378,7 @@ func updatePriorityClass(adminWorkload *v1.Workload,
 // getContainers retrieves the containers slice and its path from the unstructured object based on the resource specification.
 // Returns the containers slice, the path to the containers field, and an error if the operation fails or no containers are found.
 func getContainers(adminWorkload *v1.Workload, obj *unstructured.Unstructured, resourceSpec v1.ResourceSpec) ([]interface{}, []string, error) {
-	templatePath := resourceSpec.GetTemplatePath()
+	templatePath := resourceSpec.TemplatePath()
 	podSpec := getPodSpec(adminWorkload)
 	path := append(templatePath, podSpec, "containers")
 	containers, found, err := jobutils.NestedSlice(obj.Object, path)

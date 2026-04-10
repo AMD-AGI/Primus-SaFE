@@ -9,12 +9,9 @@ package v1
 // WorkloadSpecApplyConfiguration represents a declarative configuration of the WorkloadSpec type for use
 // with apply.
 type WorkloadSpecApplyConfiguration struct {
-	Resource                            *WorkloadResourceApplyConfiguration  `json:"resource,omitempty"`
 	Resources                           []WorkloadResourceApplyConfiguration `json:"resources,omitempty"`
 	Workspace                           *string                              `json:"workspace,omitempty"`
-	Image                               *string                              `json:"image,omitempty"`
 	Images                              []string                             `json:"images,omitempty"`
-	EntryPoint                          *string                              `json:"entryPoint,omitempty"`
 	EntryPoints                         []string                             `json:"entryPoints,omitempty"`
 	JobPort                             *int                                 `json:"jobPort,omitempty"`
 	Env                                 map[string]string                    `json:"env,omitempty"`
@@ -41,14 +38,6 @@ func WorkloadSpec() *WorkloadSpecApplyConfiguration {
 	return &WorkloadSpecApplyConfiguration{}
 }
 
-// WithResource sets the Resource field in the declarative configuration to the given value
-// and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the Resource field is set to the value of the last call.
-func (b *WorkloadSpecApplyConfiguration) WithResource(value *WorkloadResourceApplyConfiguration) *WorkloadSpecApplyConfiguration {
-	b.Resource = value
-	return b
-}
-
 // WithResources adds the given value to the Resources field in the declarative configuration
 // and returns the receiver, so that objects can be build by chaining "With" function invocations.
 // If called multiple times, values provided by each call will be appended to the Resources field.
@@ -70,14 +59,6 @@ func (b *WorkloadSpecApplyConfiguration) WithWorkspace(value string) *WorkloadSp
 	return b
 }
 
-// WithImage sets the Image field in the declarative configuration to the given value
-// and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the Image field is set to the value of the last call.
-func (b *WorkloadSpecApplyConfiguration) WithImage(value string) *WorkloadSpecApplyConfiguration {
-	b.Image = &value
-	return b
-}
-
 // WithImages adds the given value to the Images field in the declarative configuration
 // and returns the receiver, so that objects can be build by chaining "With" function invocations.
 // If called multiple times, values provided by each call will be appended to the Images field.
@@ -85,14 +66,6 @@ func (b *WorkloadSpecApplyConfiguration) WithImages(values ...string) *WorkloadS
 	for i := range values {
 		b.Images = append(b.Images, values[i])
 	}
-	return b
-}
-
-// WithEntryPoint sets the EntryPoint field in the declarative configuration to the given value
-// and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the EntryPoint field is set to the value of the last call.
-func (b *WorkloadSpecApplyConfiguration) WithEntryPoint(value string) *WorkloadSpecApplyConfiguration {
-	b.EntryPoint = &value
 	return b
 }
 

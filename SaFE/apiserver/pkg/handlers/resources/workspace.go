@@ -314,6 +314,9 @@ func (h *Handler) applyWorkspacePatch(ctx context.Context,
 	if req.MaxRuntime != nil {
 		workspace.Spec.MaxRuntime = *req.MaxRuntime
 	}
+	if req.IdleTime != nil {
+		workspace.Spec.IdleTime = *req.IdleTime
+	}
 	return nil
 }
 
@@ -472,6 +475,7 @@ func (h *Handler) generateWorkspace(ctx context.Context,
 			EnablePreempt: req.EnablePreempt,
 			IsDefault:     req.IsDefault,
 			MaxRuntime:    req.MaxRuntime,
+			IdleTime:      req.IdleTime,
 		},
 	}
 	if len(workspace.Spec.Scopes) == 0 {
@@ -530,6 +534,7 @@ func (h *Handler) cvtToWorkspaceResponseItem(ctx context.Context, w *v1.Workspac
 		EnablePreempt:     w.Spec.EnablePreempt,
 		IsDefault:         w.Spec.IsDefault,
 		MaxRuntime:        w.Spec.MaxRuntime,
+		IdleTime:          w.Spec.IdleTime,
 	}
 	for _, m := range w.Spec.Managers {
 		user, err := h.getAdminUser(ctx, m)

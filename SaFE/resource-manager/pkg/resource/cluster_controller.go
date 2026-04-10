@@ -485,7 +485,7 @@ type PriorityClass struct {
 func genAllPriorityClass(clusterId string) []PriorityClass {
 	return []PriorityClass{
 		{name: commonutils.GenerateClusterPriorityClass(clusterId, common.HighPriority), value: 10000},
-		{name: commonutils.GenerateClusterPriorityClass(clusterId, common.MedPriority), value: -1},
+		{name: commonutils.GenerateClusterPriorityClass(clusterId, common.MedPriority), value: 0},
 		{name: commonutils.GenerateClusterPriorityClass(clusterId, common.LowPriority), value: -10000},
 	}
 }

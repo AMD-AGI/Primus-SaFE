@@ -1177,4 +1177,50 @@ var (
 			},
 		},
 	}
+
+	TestSandboxTemplateResourceTemplate = &v1.ResourceTemplate{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "sandbox-template",
+			Labels: map[string]string{
+				v1.WorkloadVersionLabel: "v1",
+			},
+			Annotations: map[string]string{
+				v1.WorkloadKindLabel: common.SandboxTemplateKind,
+			},
+		},
+		Spec: v1.ResourceTemplateSpec{
+			GroupVersionKind: v1.GroupVersionKind{
+				Group:   "extensions.agents.x-k8s.io",
+				Version: "v1alpha1",
+				Kind:    "SandboxTemplate",
+			},
+			ResourceSpecs: []v1.ResourceSpec{{
+				PrePaths:      []string{"spec"},
+				TemplatePaths: []string{"podTemplate"},
+			}},
+		},
+	}
+
+	TestSandboxResourceTemplate = &v1.ResourceTemplate{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "sandbox",
+			Labels: map[string]string{
+				v1.WorkloadVersionLabel: "v1",
+			},
+			Annotations: map[string]string{
+				v1.WorkloadKindLabel: common.SandboxKind,
+			},
+		},
+		Spec: v1.ResourceTemplateSpec{
+			GroupVersionKind: v1.GroupVersionKind{
+				Group:   "agents.x-k8s.io",
+				Version: "v1alpha1",
+				Kind:    "Sandbox",
+			},
+			ResourceSpecs: []v1.ResourceSpec{{
+				PrePaths:      []string{"spec"},
+				TemplatePaths: []string{"podTemplate"},
+			}},
+		},
+	}
 )
