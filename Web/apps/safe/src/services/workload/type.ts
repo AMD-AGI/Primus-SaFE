@@ -42,6 +42,7 @@ export enum WorkloadKind {
   Authoring = 'Authoring',
   TorchFT = 'TorchFT',
   RayJob = 'RayJob',
+  Sandbox = 'Sandbox',
 }
 // kind -> base path
 export const KindPathMap: Record<WorkloadKind, `/${string}`> = {
@@ -54,6 +55,7 @@ export const KindPathMap: Record<WorkloadKind, `/${string}`> = {
   [WorkloadKind.UnifiedJob]: '/cicd',
   [WorkloadKind.TorchFT]: '/torchft',
   [WorkloadKind.RayJob]: '/rayjob',
+  [WorkloadKind.Sandbox]: '/sandbox-workload',
 } as const
 
 export type PriorityValue = 0 | 1 | 2
