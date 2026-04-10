@@ -1,5 +1,7 @@
-// Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
-// See LICENSE for license information.
+/*
+ * Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
+ * See LICENSE for license information.
+ */
 
 package reconciler
 
@@ -207,15 +209,18 @@ func (f *FrameworkDetectionIntegration) analyzeWorkloadComponents(
 // convertToInternalWorkload Convert PrimusSafe Workload to internal workload type
 func convertToInternalWorkload(w *primusSafeV1.Workload) *framework.Workload {
 	// Extract image from workload spec
-	image := w.Spec.Image
+	image := ""
+	if len(w.Spec.Images) > 0 {
+		image = w.Spec.Images[0]
+	}
 
 	// Extract command and args from EntryPoint
 	command := []string{}
 	args := []string{}
-	if w.Spec.EntryPoint != "" {
+	if len(w.Spec.EntryPoints) > 0 {
 		// EntryPoint is base64 encoded, we can use it as a single command
 		command = []string{"sh", "-c"}
-		args = []string{w.Spec.EntryPoint}
+		args = []string{w.Spec.EntryPoints[0]}
 	}
 
 	// Extract environment variables
@@ -237,12 +242,15 @@ func convertToInternalWorkload(w *primusSafeV1.Workload) *framework.Workload {
 
 // extractImage Extract image from workload
 func extractImage(w *primusSafeV1.Workload) string {
-	return w.Spec.Image
+	if len(w.Spec.Images) == 0 {
+		return ""
+	}
+	return w.Spec.Images[0]
 }
 
 // extractCommand Extract command from workload
 func extractCommand(w *primusSafeV1.Workload) []string {
-	if w.Spec.EntryPoint != "" {
+	if len(w.Spec.EntryPoints) > 0 {
 		return []string{"sh", "-c"}
 	}
 	return []string{}
@@ -250,8 +258,5 @@ func extractCommand(w *primusSafeV1.Workload) []string {
 
 // extractArgs Extract args from workload
 func extractArgs(w *primusSafeV1.Workload) []string {
-	if w.Spec.EntryPoint != "" {
-		return []string{w.Spec.EntryPoint}
-	}
-	return []string{}
+	return w.Spec.EntryPoints
 }

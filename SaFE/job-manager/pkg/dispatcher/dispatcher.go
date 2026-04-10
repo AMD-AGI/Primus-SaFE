@@ -154,11 +154,12 @@ func (r *DispatcherReconciler) Reconcile(ctx context.Context, req ctrlruntime.Re
 	}
 
 	var result ctrlruntime.Result
-	if commonworkload.IsTorchFT(workload) {
+	switch {
+	case commonworkload.IsTorchFT(workload):
 		result, err = r.processTorchFTWorkload(ctx, workload)
-	} else if commonworkload.IsMonarchJob(workload) {
+	case commonworkload.IsMonarchJob(workload):
 		result, err = r.processMonarchWorkload(ctx, workload)
-	} else {
+	default:
 		result, err = r.processWorkload(ctx, workload)
 	}
 
@@ -396,7 +397,7 @@ func (r *DispatcherReconciler) generateK8sObject(ctx context.Context,
 		klog.Error(err.Error())
 		return nil, commonerrors.NewInternalError(err.Error())
 	}
-	if err = applyWorkloadSpecToObject(ctx, clientSets, result, adminWorkload, workspace, rt); err != nil {
+	if err = r.applyWorkloadSpecToObject(ctx, clientSets, result, adminWorkload, workspace, rt); err != nil {
 		return nil, commonerrors.NewInternalError(err.Error())
 	}
 	for i, t := range rt.Spec.ResourceSpecs {
@@ -449,7 +450,8 @@ func setK8sObjectMeta(result *unstructured.Unstructured, adminWorkload *v1.Workl
 }
 
 // getWorkloadTemplate retrieves the workload template configuration based on its version and kind.
-func (r *DispatcherReconciler) getWorkloadTemplate(ctx context.Context, adminWorkload *v1.Workload) (*unstructured.Unstructured, error) {
+func (r *DispatcherReconciler) getWorkloadTemplate(ctx context.Context,
+	adminWorkload *v1.Workload) (*unstructured.Unstructured, error) {
 	templateConfig, err := commonworkload.GetWorkloadTemplate(ctx, r.Client, adminWorkload.ToSchemaGVK())
 	if err != nil {
 		return nil, err
@@ -463,6 +465,29 @@ func (r *DispatcherReconciler) getWorkloadTemplate(ctx context.Context, adminWor
 		return nil, fmt.Errorf("failed to parse template: %v", err.Error())
 	}
 	return template, nil
+}
+
+func (r *DispatcherReconciler) getSandboxTemplate(ctx context.Context, adminWorkload *v1.Workload) (interface{}, error) {
+	rt, err := commonworkload.GetResourceTemplateByGVK(ctx, r.Client,
+		schema.GroupVersionKind{Version: adminWorkload.Spec.Version, Kind: common.SandboxTemplateKind})
+	if err != nil {
+		return nil, err
+	}
+	// TODO: Templates currently exist only within the admin plane.
+	templateId := v1.GetSandboxTemplateId(adminWorkload)
+	obj := &unstructured.Unstructured{}
+	obj.SetGroupVersionKind(rt.ToSchemaGVK())
+	if err = r.Get(ctx, apitypes.NamespacedName{Name: templateId, Namespace: adminWorkload.Spec.Workspace}, obj); err != nil {
+		klog.ErrorS(err, "failed to get SandboxTemplate", "name", templateId)
+		return nil, err
+	}
+	// The template has successfully passed the webhook check.
+	podTemplatePath := rt.Spec.ResourceSpecs[0].TemplatePath()
+	podTemplate, found, err := unstructured.NestedFieldCopy(obj.Object, podTemplatePath...)
+	if err != nil || !found {
+		return nil, fmt.Errorf("failed to get podTemplate from SandboxTemplate")
+	}
+	return podTemplate, nil
 }
 
 // markAsDispatched updates a workload's status to indicate it has been dispatched.
@@ -534,7 +559,7 @@ func (r *DispatcherReconciler) syncWorkloadToObject(ctx context.Context, adminWo
 	if err != nil {
 		return err
 	}
-	if err = applyWorkloadSpecToObject(ctx, clientSets, obj, adminWorkload, workspace, rt); err != nil {
+	if err = r.applyWorkloadSpecToObject(ctx, clientSets, obj, adminWorkload, workspace, rt); err != nil {
 		return commonerrors.NewBadRequest(err.Error())
 	}
 	if err = jobutils.UpdateObject(ctx, clientSets.ClientFactory(), obj); err != nil {
@@ -553,7 +578,7 @@ func (r *DispatcherReconciler) syncWorkloadToObject(ctx context.Context, adminWo
 func isResourceChanged(adminWorkload *v1.Workload, obj *unstructured.Unstructured, rt *v1.ResourceTemplate) bool {
 	gpuName := ""
 	for _, res := range adminWorkload.Spec.Resources {
-		if res.GPU != "" {
+		if res.HasGpu() {
 			gpuName = res.GPUName
 			break
 		}
@@ -681,7 +706,7 @@ func isGithubSecretChanged(adminWorkload *v1.Workload, obj *unstructured.Unstruc
 // applyWorkloadSpecToObject applies the workload specifications to the unstructured Kubernetes object.
 // It handles different workload types and updates various object properties including replicas,
 // network settings, containers, and volumes based on the workload specification.
-func applyWorkloadSpecToObject(ctx context.Context, clientSets *syncer.ClusterClientSets,
+func (r *DispatcherReconciler) applyWorkloadSpecToObject(ctx context.Context, clientSets *syncer.ClusterClientSets,
 	obj *unstructured.Unstructured, adminWorkload *v1.Workload, workspace *v1.Workspace, rt *v1.ResourceTemplate) error {
 
 	var err error
@@ -694,6 +719,8 @@ func applyWorkloadSpecToObject(ctx context.Context, clientSets *syncer.ClusterCl
 		err = updateRayJob(obj, adminWorkload)
 	case commonworkload.IsMonarchMesh(adminWorkload):
 		err = updateMonarchMesh(obj, adminWorkload)
+	case commonworkload.IsSandBox(adminWorkload):
+		err = r.updateSandbox(ctx, obj, adminWorkload, workspace, rt)
 	}
 	if err != nil {
 		return err
@@ -1085,7 +1112,7 @@ func (r *DispatcherReconciler) generateMonarchClient(ctx context.Context, rootWo
 	workload.Spec.Env[common.MonarchPort] = strconv.Itoa(common.MonarchMeshPortNum)
 	workload.Spec.Env[common.HostPerReplica] = strconv.Itoa(nodePerGroup)
 
-	if len(rootWorkload.Spec.Resources) >= 2 && rootWorkload.Spec.Resources[1].GPU != "" {
+	if len(rootWorkload.Spec.Resources) >= 2 && rootWorkload.Spec.Resources[1].HasGpu() {
 		workload.Spec.Env["GPUS_PER_NODE"] = rootWorkload.Spec.Resources[1].GPU
 	}
 

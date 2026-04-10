@@ -286,19 +286,19 @@ func (r *CDJobReconciler) generateSafeCDWorkload(job *v1.OpsJob, clusterID, depl
 			},
 		},
 		Spec: v1.WorkloadSpec{
-			Resource: v1.WorkloadResource{
+			Resources: []v1.WorkloadResource{{
 				Replica: 1,
 				CPU:     "2",
 				Memory:  "4Gi",
-			},
-			EntryPoint: entryPoint,
+			}},
+			EntryPoints: []string{entryPoint},
 			GroupVersionKind: v1.GroupVersionKind{
 				Version: common.DefaultVersion,
 				Kind:    common.JobKind,
 			},
 			Priority:  common.HighPriorityInt,
 			Workspace: corev1.NamespaceDefault,
-			Image:     commonconfig.GetCDJobImage(),
+			Images:    []string{commonconfig.GetCDJobImage()},
 			Env: map[string]string{
 				"REPO_URL":              PrimusSaFERepoURL,
 				"REPO_DIR":              ContainerMountPath + "/Primus-SaFE",
@@ -345,19 +345,19 @@ func (r *CDJobReconciler) generateLensCDWorkload(job *v1.OpsJob, clusterID, depl
 			},
 		},
 		Spec: v1.WorkloadSpec{
-			Resource: v1.WorkloadResource{
+			Resources: []v1.WorkloadResource{{
 				Replica: 1,
 				CPU:     "2",
 				Memory:  "4Gi",
-			},
-			EntryPoint: entryPoint,
+			}},
+			EntryPoints: []string{entryPoint},
 			GroupVersionKind: v1.GroupVersionKind{
 				Version: common.DefaultVersion,
 				Kind:    common.JobKind,
 			},
 			Priority:  common.HighPriorityInt,
 			Workspace: corev1.NamespaceDefault,
-			Image:     commonconfig.GetCDJobImage(),
+			Images:    []string{commonconfig.GetCDJobImage()},
 			Env: map[string]string{
 				"REPO_URL":              PrimusSaFERepoURL,
 				"REPO_DIR":              ContainerMountPath + "/Primus-SaFE",

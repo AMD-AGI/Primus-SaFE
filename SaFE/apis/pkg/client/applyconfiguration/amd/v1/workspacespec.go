@@ -25,6 +25,7 @@ type WorkspaceSpecApplyConfiguration struct {
 	IsDefault     *bool                               `json:"isDefault,omitempty"`
 	ImageSecrets  []corev1.ObjectReference            `json:"imageSecrets,omitempty"`
 	MaxRuntime    map[amdv1.WorkspaceScope]int        `json:"maxRuntime,omitempty"`
+	IdleTime      map[amdv1.WorkspaceScope]string     `json:"idleTime,omitempty"`
 }
 
 // WorkspaceSpecApplyConfiguration constructs a declarative configuration of the WorkspaceSpec type for use with
@@ -134,6 +135,20 @@ func (b *WorkspaceSpecApplyConfiguration) WithMaxRuntime(entries map[amdv1.Works
 	}
 	for k, v := range entries {
 		b.MaxRuntime[k] = v
+	}
+	return b
+}
+
+// WithIdleTime puts the entries into the IdleTime field in the declarative configuration
+// and returns the receiver, so that objects can be build by chaining "With" function invocations.
+// If called multiple times, the entries provided by each call will be put on the IdleTime field,
+// overwriting an existing map entries in IdleTime field with the same key.
+func (b *WorkspaceSpecApplyConfiguration) WithIdleTime(entries map[amdv1.WorkspaceScope]string) *WorkspaceSpecApplyConfiguration {
+	if b.IdleTime == nil && len(entries) > 0 {
+		b.IdleTime = make(map[amdv1.WorkspaceScope]string, len(entries))
+	}
+	for k, v := range entries {
+		b.IdleTime[k] = v
 	}
 	return b
 }

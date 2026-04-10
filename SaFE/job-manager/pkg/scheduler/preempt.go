@@ -134,7 +134,7 @@ func buildResourceWeight(workload *v1.Workload, resources corev1.ResourceList, n
 
 	gpuName := ""
 	for _, res := range workload.Spec.Resources {
-		if res.GPU != "" {
+		if res.HasGpu() {
 			gpuName = res.GPUName
 			break
 		}

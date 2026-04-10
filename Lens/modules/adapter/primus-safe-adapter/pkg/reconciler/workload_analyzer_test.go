@@ -1,5 +1,7 @@
-// Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
-// See LICENSE for license information.
+/*
+ * Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
+ * See LICENSE for license information.
+ */
 
 package reconciler
 
@@ -21,8 +23,8 @@ func TestWorkloadAnalyzer_Analyze_Primus(t *testing.T) {
 			Namespace: "default",
 		},
 		Spec: primusSafeV1.WorkloadSpec{
-			Image:      "registry.example.com/primus-training:v1.2.3",
-			EntryPoint: "python train.py",
+			Images:      []string{"registry.example.com/primus-training:v1.2.3"},
+			EntryPoints: []string{"python train.py"},
 			Env: map[string]string{
 				"PRIMUS_CONFIG": "/config/primus.yaml",
 			},
@@ -51,7 +53,7 @@ func TestWorkloadAnalyzer_Analyze_DeepSpeed(t *testing.T) {
 			Namespace: "default",
 		},
 		Spec: primusSafeV1.WorkloadSpec{
-			Image: "registry.example.com/deepspeed:v0.9.0",
+			Images: []string{"registry.example.com/deepspeed:v0.9.0"},
 			Env: map[string]string{
 				"DEEPSPEED_CONFIG": "/config/ds_config.json",
 			},
@@ -76,7 +78,7 @@ func TestWorkloadAnalyzer_Analyze_Megatron(t *testing.T) {
 			Namespace: "default",
 		},
 		Spec: primusSafeV1.WorkloadSpec{
-			Image: "registry.example.com/megatron-lm:v2.0",
+			Images: []string{"registry.example.com/megatron-lm:v2.0"},
 			Env: map[string]string{
 				"MEGATRON_CONFIG": "/config/megatron.yaml",
 			},
@@ -100,7 +102,7 @@ func TestWorkloadAnalyzer_Analyze_Unknown(t *testing.T) {
 			Namespace: "default",
 		},
 		Spec: primusSafeV1.WorkloadSpec{
-			Image: "registry.example.com/unknown:v1.0",
+			Images: []string{"registry.example.com/unknown:v1.0"},
 		},
 	}
 
@@ -122,8 +124,8 @@ func TestWorkloadAnalyzer_Analyze_CommandAndArgs(t *testing.T) {
 			Namespace: "default",
 		},
 		Spec: primusSafeV1.WorkloadSpec{
-			Image:      "registry.example.com/primus:v1.2.3",
-			EntryPoint: "python -u train.py --config config.yaml --epochs 100",
+			Images:      []string{"registry.example.com/primus:v1.2.3"},
+			EntryPoints: []string{"python -u train.py --config config.yaml --epochs 100"},
 			Env: map[string]string{
 				"PRIMUS_CONFIG": "/config/primus.yaml",
 			},
@@ -194,4 +196,3 @@ func TestGetSortedRules(t *testing.T) {
 		assert.GreaterOrEqual(t, rules[i].Priority, rules[i+1].Priority)
 	}
 }
-

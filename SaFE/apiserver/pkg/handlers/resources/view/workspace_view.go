@@ -42,6 +42,9 @@ type CreateWorkspaceRequest struct {
 	ImageSecretIds []string `json:"imageSecretIds,omitempty"`
 	// The maximum workload runtime of each scope, Unit: hours
 	MaxRuntime map[v1.WorkspaceScope]int `json:"maxRuntime,omitempty"`
+	// Trigger workload processing after a period of workspace inactivity. The idletime of each scope, Unit: "12h0m0s"
+	// only for sandbox workload
+	IdleTime map[v1.WorkspaceScope]string `json:"idleTime,omitempty"`
 	// User-defined labels, Keys cannot start with "primus-safe."
 	Labels map[string]string `json:"labels,omitempty"`
 }
@@ -100,6 +103,9 @@ type WorkspaceResponseItem struct {
 	IsDefault bool `json:"isDefault"`
 	// The maximum workload runtime of each scope, Unit: hours
 	MaxRuntime map[v1.WorkspaceScope]int `json:"maxRuntime,omitempty"`
+	// Trigger workload processing after a period of workspace inactivity. The idletime of each scope, Unit: "12h0m0s"
+	// only for sandbox workload
+	IdleTime map[v1.WorkspaceScope]string `json:"idleTime,omitempty"`
 }
 
 type GetWorkspaceResponse struct {
@@ -142,6 +148,9 @@ type PatchWorkspaceRequest struct {
 	ImageSecretIds *[]string `json:"imageSecretIds,omitempty"`
 	// The maximum workload runtime of each scope, Unit: hours
 	MaxRuntime *map[v1.WorkspaceScope]int `json:"maxRuntime,omitempty"`
+	// Trigger workload processing after a period of workspace inactivity. The idletime of each scope, Unit: "0h0m0s"
+	// only for sandbox workload
+	IdleTime *map[v1.WorkspaceScope]string `json:"idleTime,omitempty"`
 }
 
 type WorkspaceEntry struct {
