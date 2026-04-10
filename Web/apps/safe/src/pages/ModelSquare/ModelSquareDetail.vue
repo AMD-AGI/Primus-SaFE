@@ -24,7 +24,15 @@
             type="success"
             :effect="isDark ? 'dark' : 'plain'"
           >
-            SFT
+            Fine-tuned
+          </el-tag>
+          <el-tag
+            v-else-if="detailData.accessMode === 'local'"
+            size="small"
+            type="info"
+            :effect="isDark ? 'dark' : 'plain'"
+          >
+            Base
           </el-tag>
         </div>
       </div>
@@ -124,7 +132,7 @@
       <el-descriptions-item label="Version">{{ detailData.version || '-' }}</el-descriptions-item>
       <el-descriptions-item v-if="detailData.origin" label="Origin">
         <el-tag size="small" :type="detailData.origin === 'fine_tuned' ? 'success' : 'info'">
-          {{ detailData.origin === 'fine_tuned' ? 'SFT' : 'External' }}
+          {{ detailData.origin === 'fine_tuned' ? 'Fine-tuned' : 'Base' }}
         </el-tag>
       </el-descriptions-item>
       <el-descriptions-item v-if="detailData.userName" label="Owner">

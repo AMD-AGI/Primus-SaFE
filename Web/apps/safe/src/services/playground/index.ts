@@ -293,6 +293,10 @@ export interface ModelsListParams {
   accessMode?: string
   origin?: string
   workspace?: string
+  search?: string
+  userId?: string
+  page?: number
+  pageSize?: number
 }
 
 export interface ModelsListResp {
