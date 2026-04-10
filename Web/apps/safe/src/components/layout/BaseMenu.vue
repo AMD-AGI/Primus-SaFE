@@ -299,7 +299,7 @@ watchEffect(() => {
       name: 'Sandbox',
       canAccess: canSandbox.value,
       tooltip: 'Sandbox has been disabled by the administrator.',
-      icon: menuIcons.playground,
+      icon: menuIcons.sandbox,
     },
   ]
 
@@ -375,7 +375,7 @@ watchEffect(() => {
     {
       index: '/sandbox',
       name: 'Sandbox',
-      icon: menuIcons.playground,
+      icon: menuIcons.sandbox,
       canAccess: hasManagerAccess.value, // Admin only
     },
     {
