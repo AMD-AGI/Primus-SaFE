@@ -470,7 +470,11 @@ func (h *Handler) listModels(c *gin.Context) (interface{}, error) {
 				if queryArgs.Origin != "" && !matchModelOrigin(normalizeModelOrigin(dbModel.Origin), queryArgs.Origin) {
 					continue
 				}
-				items = append(items, cvtDBModelToInfo(dbModel))
+				info := cvtDBModelToInfo(dbModel)
+				if queryArgs.Search != "" && !strings.Contains(strings.ToLower(info.DisplayName), strings.ToLower(queryArgs.Search)) {
+					continue
+				}
+				items = append(items, info)
 			}
 
 			// Apply pagination (limit=0 means return all)
@@ -525,7 +529,11 @@ func (h *Handler) listModels(c *gin.Context) (interface{}, error) {
 			continue
 		}
 
-		items = append(items, h.convertK8sModelToInfo(&k8sModel))
+		info := h.convertK8sModelToInfo(&k8sModel)
+		if queryArgs.Search != "" && !strings.Contains(strings.ToLower(info.DisplayName), strings.ToLower(queryArgs.Search)) {
+			continue
+		}
+		items = append(items, info)
 	}
 
 	// Apply pagination (limit=0 means return all)
