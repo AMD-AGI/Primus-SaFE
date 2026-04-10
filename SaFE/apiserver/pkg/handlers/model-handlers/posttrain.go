@@ -108,6 +108,7 @@ func (h *Handler) getPosttrainRun(c *gin.Context) (interface{}, error) {
 		ParameterSnapshot: decodeJSONString(run.ParameterSnapshot),
 		ResourceSnapshot:  decodeJSONString(run.ResourceSnapshot),
 	}
+	resp.Message = h.resolvePosttrainWorkloadMessage(c.Request.Context(), run.WorkloadID)
 	return resp, nil
 }
 
@@ -569,6 +570,17 @@ func lossDataSource(loss *lossSummary) string {
 		return ""
 	}
 	return loss.DataSource
+}
+
+func (h *Handler) resolvePosttrainWorkloadMessage(ctx context.Context, workloadID string) string {
+	if workloadID == "" {
+		return ""
+	}
+	workload := &v1.Workload{}
+	if err := h.k8sClient.Get(ctx, ctrlclient.ObjectKey{Name: workloadID}, workload); err != nil {
+		return ""
+	}
+	return workload.Status.Message
 }
 
 func (h *Handler) resolvePosttrainDatasetName(ctx context.Context, datasetID string) string {

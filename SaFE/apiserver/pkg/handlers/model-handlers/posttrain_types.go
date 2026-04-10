@@ -52,6 +52,7 @@ type PosttrainRunItem struct {
 	ExportModel      bool     `json:"exportModel"`
 	OutputPath       string   `json:"outputPath,omitempty"`
 	Status           string   `json:"status"`
+	Message          string   `json:"message,omitempty"`
 	CreatedAt        string   `json:"createdAt,omitempty"`
 	StartTime        string   `json:"startTime,omitempty"`
 	EndTime          string   `json:"endTime,omitempty"`
