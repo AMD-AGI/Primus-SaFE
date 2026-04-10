@@ -53,6 +53,10 @@ Base Path: `/api/v1`
 
 - [WebShell API](./webshell.md) - Web terminal interface
 
+### 4. Training Notes
+
+- [Training Validation Status](./training-validation-status.md) - Current SFT/RL validation snapshot, historical failures, false-success cases, and pending reruns
+
 ## Common Response Format
 
 ### Success Response

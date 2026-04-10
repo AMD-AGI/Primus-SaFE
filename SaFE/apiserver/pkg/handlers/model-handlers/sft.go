@@ -229,6 +229,10 @@ func (h *Handler) createSftJob(c *gin.Context) (interface{}, error) {
 		return nil, commonerrors.NewInternalError(fmt.Sprintf("failed to create workload: %v", err))
 	}
 
+	datasetName := h.resolvePosttrainDatasetName(ctx, req.DatasetId)
+	clusterID := h.resolvePosttrainClusterID(ctx, req.Workspace)
+	h.maybeRecordSFTPosttrainRun(ctx, &req, workload.Name, clusterID, userId, userName, baseModelName, datasetName, fmt.Sprintf("%s/custom/models/%s", pfsBasePath, workloadName))
+
 	klog.InfoS("created SFT training job",
 		"workloadId", workload.Name,
 		"model", selectedModelName,

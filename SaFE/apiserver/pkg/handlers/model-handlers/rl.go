@@ -197,6 +197,10 @@ func (h *Handler) createRlJob(c *gin.Context) (interface{}, error) {
 		return nil, commonerrors.NewInternalError(fmt.Sprintf("failed to create workload: %v", err))
 	}
 
+	datasetName := h.resolvePosttrainDatasetName(ctx, req.DatasetId)
+	clusterID := h.resolvePosttrainClusterID(ctx, req.Workspace)
+	h.maybeRecordRLPosttrainRun(ctx, &req, workload.Name, clusterID, userId, userName, hfModelName, datasetName, exportPath)
+
 	klog.InfoS("created RL training job",
 		"workloadId", workload.Name,
 		"model", hfModelName,
