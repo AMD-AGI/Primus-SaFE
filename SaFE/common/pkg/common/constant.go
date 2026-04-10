@@ -30,6 +30,8 @@ const (
 	MonarchClient           = "MonarchClient"
 	RayJobKind              = "RayJob"
 	PodKind                 = "Pod"
+	SandboxKind             = "Sandbox"
+	SandboxTemplateKind     = "SandboxTemplate"
 	ConfigmapKind           = "ConfigMap"
 	ClusterRoleKind         = "ClusterRole"
 	ServiceAccountKind      = "ServiceAccount"

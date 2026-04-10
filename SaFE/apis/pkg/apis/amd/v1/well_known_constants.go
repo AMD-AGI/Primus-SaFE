@@ -118,16 +118,17 @@ const (
 	// Note: This feature is disabled when preemption is enabled
 	RetryOnOriginalNodesAnnotation = PrimusSafePrefix + "retry.on.original.nodes"
 	NodesAffinityAnnotation        = PrimusSafePrefix + "nodes.affinity"
+	SandboxTemplateIdAnnotation    = PrimusSafePrefix + "sandbox.template.id"
 
 	// user
-	UserPrefix                  = PrimusSafePrefix + "user."
-	UserIdLabel                 = UserPrefix + "id"
-	UserNameAnnotation          = UserPrefix + "name"
-	UserNameMd5Label            = UserPrefix + "name.md5"
-	UserEmailAnnotation         = UserPrefix + "email"
-	UserEmailMd5Label           = UserPrefix + "email.md5"
-	UserAvatarUrlAnnotation     = UserPrefix + "avatar.url"
-	UserTypeLabel               = UserPrefix + "type"
+	UserPrefix                       = PrimusSafePrefix + "user."
+	UserIdLabel                      = UserPrefix + "id"
+	UserNameAnnotation               = UserPrefix + "name"
+	UserNameMd5Label                 = UserPrefix + "name.md5"
+	UserEmailAnnotation              = UserPrefix + "email"
+	UserEmailMd5Label                = UserPrefix + "email.md5"
+	UserAvatarUrlAnnotation          = UserPrefix + "avatar.url"
+	UserTypeLabel                    = UserPrefix + "type"
 	UserPreferredNameAnnotation      = UserPrefix + "preferred.name"
 	UserEnableNotificationAnnotation = UserPrefix + "enable.notification"
 

@@ -1,5 +1,7 @@
-// Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
-// See LICENSE for license information.
+/*
+ * Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
+ * See LICENSE for license information.
+ */
 
 package reconciler
 
@@ -75,15 +77,18 @@ func (a *WorkloadAnalyzer) matchRule(
 	matchedEnvVars := make(map[string]string)
 
 	// Extract image, command, args, env from workload
-	image := workload.Spec.Image
+	image := ""
+	if len(workload.Spec.Images) > 0 {
+		image = workload.Spec.Images[0]
+	}
 	command := []string{}
 	args := []string{}
 	env := make(map[string]string)
 
 	// Extract command and args from EntryPoint
-	if workload.Spec.EntryPoint != "" {
+	if len(workload.Spec.EntryPoints) > 0 {
 		command = []string{"sh", "-c"}
-		args = []string{workload.Spec.EntryPoint}
+		args = workload.Spec.EntryPoints
 	}
 
 	// Extract environment variables
@@ -220,4 +225,3 @@ func (a *WorkloadAnalyzer) getSortedRules() []*FrameworkRule {
 
 	return rules
 }
-

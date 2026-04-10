@@ -255,6 +255,8 @@ func GetScope(w *v1.Workload) v1.WorkspaceScope {
 		return v1.CICDScope
 	case common.RayJobKind:
 		return v1.RayScope
+	case common.SandboxKind:
+		return v1.SandboxScope
 	default:
 		return ""
 	}
@@ -326,6 +328,13 @@ func IsMonarchJob(w *v1.Workload) bool {
 
 func IsMonarchMesh(w *v1.Workload) bool {
 	if w.SpecKind() == common.MonarchMesh {
+		return true
+	}
+	return false
+}
+
+func IsSandBox(w *v1.Workload) bool {
+	if w.SpecKind() == common.SandboxKind {
 		return true
 	}
 	return false

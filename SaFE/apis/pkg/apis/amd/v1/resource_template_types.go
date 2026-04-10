@@ -66,8 +66,8 @@ type ResourceSpec struct {
 	MinReplicasPaths []string `json:"minReplicasPaths,omitempty"`
 }
 
-// GetTemplatePath returns the path components for locating the resource template.
-func (t *ResourceSpec) GetTemplatePath() []string {
+// TemplatePath returns the path components for locating the resource template.
+func (t *ResourceSpec) TemplatePath() []string {
 	if t == nil {
 		return nil
 	}

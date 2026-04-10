@@ -178,9 +178,7 @@ func (r *FailoverReconciler) handleFaultEventImpl(ctx context.Context, fault *v1
 					return false
 				}
 			} else if isDisableFailover(workload) ||
-				workload.CreationTimestamp.After(fault.CreationTimestamp.Time) ||
-				// The torchft or monarch workload do not support failover triggered by a fault.
-				commonworkload.IsTorchFT(workload) || commonworkload.IsMonarchJob(workload) {
+				workload.CreationTimestamp.After(fault.CreationTimestamp.Time) {
 				return false
 			} else if r.addFailoverCondition(ctx, workload, message) == nil {
 				break
