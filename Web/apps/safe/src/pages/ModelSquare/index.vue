@@ -128,6 +128,12 @@
                     Fine-tuned
                   </span>
                   <span
+                    v-else-if="model.origin === 'rl_trained'"
+                    class="status-pill status-pill--rl"
+                  >
+                    RL
+                  </span>
+                  <span
                     v-else-if="model.accessMode === 'local'"
                     class="status-pill status-pill--base"
                   >
@@ -141,7 +147,7 @@
             </p>
             <!-- SFT model metadata -->
             <div
-              v-if="model.origin === 'fine_tuned'"
+              v-if="model.origin === 'fine_tuned' || model.origin === 'rl_trained'"
               class="text-xs text-gray-400 mt-1"
             >
               <span v-if="model.userName">By {{ model.userName }}</span>
@@ -257,15 +263,15 @@
                   <el-icon><VideoPause /></el-icon>
                 </el-button>
               </el-tooltip>
-              <!-- SFT button -->
+              <!-- Train button (SFT + RL) -->
               <el-tooltip
-                v-if="canSft(model)"
-                content="SFT"
+                v-if="canTrain(model)"
+                content="Train"
                 placement="top"
               >
                 <el-button
                   size="small"
-                  @click="handleCommand('sft', model)"
+                  @click="handleCommand('train', model)"
                   circle
                   class="btn-icon btn-sft"
                 >
@@ -353,11 +359,11 @@
       @confirm="handleInferSelected"
     />
 
-    <!-- Create SFT dialog -->
-    <CreateSftDialog
-      v-model:visible="showSftDialog"
-      :model="currentSftModel"
-      @success="handleSftSuccess"
+    <!-- Create Training dialog -->
+    <CreateTrainingDialog
+      v-model:visible="showTrainDialog"
+      :model="currentTrainModel"
+      @success="handleTrainSuccess"
     />
   </div>
 </template>
@@ -387,14 +393,14 @@ import {
   retryModel,
   getModelWorkloadConfig,
   isDeployableLocalModel,
-  canSft,
+  canTrain,
   type PlaygroundModel,
   type ModelsListParams,
   type ModelsListResp,
 } from '@/services/playground'
 import AddModelDialog from './Components/AddModelDialog.vue'
 import ToggleServiceDialog from './Components/ToggleServiceDialog.vue'
-import CreateSftDialog from './Components/CreateSftDialog.vue'
+import CreateTrainingDialog from './Components/CreateTrainingDialog.vue'
 import InferAddDialog from '@/pages/Infer/Components/AddDialog.vue'
 import SelectInferDialog from './Components/SelectInferDialog.vue'
 import { useWorkspaceStore } from '@/stores/workspace'
@@ -420,8 +426,8 @@ const inferAction = ref('Create')
 const inferPrefillData = ref<Record<string, unknown>>({})
 const showSelectInferDialog = ref(false)
 const currentSelectModel = ref<PlaygroundModel | null>(null)
-const showSftDialog = ref(false)
-const currentSftModel = ref<PlaygroundModel | null>(null)
+const showTrainDialog = ref(false)
+const currentTrainModel = ref<PlaygroundModel | null>(null)
 
 // Filter criteria
 const filters = reactive({
@@ -455,6 +461,7 @@ const originOptions = [
   { label: 'All', value: '' },
   { label: 'Base', value: 'external' },
   { label: 'Fine-tuned', value: 'fine_tuned' },
+  { label: 'RL', value: 'rl_trained' },
   { label: 'Remote API', value: 'remote_api' },
 ]
 
@@ -572,9 +579,9 @@ const handleCommand = async (command: string, model: PlaygroundModel) => {
     case 'delete':
       await handleDeleteModel(model)
       break
-    case 'sft':
-      currentSftModel.value = model
-      showSftDialog.value = true
+    case 'train':
+      currentTrainModel.value = model
+      showTrainDialog.value = true
       break
   }
 }
@@ -693,10 +700,10 @@ const handleInferSuccess = () => {
   })
 }
 
-// Handle SFT job creation success
-const handleSftSuccess = (workloadId: string) => {
-  showSftDialog.value = false
-  currentSftModel.value = null
+// Handle training job creation success
+const handleTrainSuccess = (workloadId: string) => {
+  showTrainDialog.value = false
+  currentTrainModel.value = null
   router.push({
     path: '/training/detail',
     query: { id: workloadId },
@@ -1318,6 +1325,11 @@ watch(
     color: #7a8ba8;
     background: rgba(122, 139, 168, 0.1);
     border-color: rgba(122, 139, 168, 0.2);
+  }
+  &--rl {
+    color: #b8862e;
+    background: rgba(184, 134, 46, 0.1);
+    border-color: rgba(184, 134, 46, 0.2);
   }
 }
 
