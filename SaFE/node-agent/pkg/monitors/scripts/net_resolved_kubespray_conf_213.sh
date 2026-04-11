@@ -11,9 +11,17 @@ export PATH="/usr/bin:/bin:${PATH:-}"
 NSENTER="nsenter --target 1 --mount --uts --ipc --net --pid --"
 CONF_PATH="/etc/systemd/resolved.conf.d/kubespray.conf"
 
-${NSENTER} test -f "$CONF_PATH" 2>/dev/null
-if [ $? -eq 0 ]; then
-  exit 0
+if [ -n "$1" ]; then
+  DOMAINS="~$1.primus-safe.amd.com default.svc.cluster.local svc.cluster.local"
+else
+  DOMAINS="default.svc.cluster.local svc.cluster.local"
+fi
+
+if ${NSENTER} test -f "$CONF_PATH" 2>/dev/null; then
+  current_domains=$(${NSENTER} grep -E '^Domains=' "$CONF_PATH" 2>/dev/null | sed 's/^Domains=//')
+  if [ "$current_domains" = "$DOMAINS" ]; then
+    exit 0
+  fi
 fi
 
 ${NSENTER} mkdir -p /etc/systemd/resolved.conf.d/ 2>/dev/null
@@ -22,11 +30,11 @@ if [ $? -ne 0 ]; then
   exit 1
 fi
 
-${NSENTER} tee "$CONF_PATH" > /dev/null <<'EOF'
+${NSENTER} tee "$CONF_PATH" > /dev/null <<EOF
 [Resolve]
 DNS=169.254.25.10
 FallbackDNS=
-Domains=default.svc.cluster.local svc.cluster.local
+Domains=${DOMAINS}
 DNSSEC=no
 Cache=no-negative
 EOF
