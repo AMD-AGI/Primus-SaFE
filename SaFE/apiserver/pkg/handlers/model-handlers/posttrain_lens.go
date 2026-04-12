@@ -6,18 +6,25 @@
 package model_handlers
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"os"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
+
+	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
+	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/timeutil"
 )
 
-const defaultLensAPIBaseURL = "http://primus-lens-api.primus-lens.svc.cluster.local:8989/api/v1"
+const defaultLensAPIBaseURL = "http://primus-lens-api.primus-lens.svc.cluster.local:8989/v1"
 
 var preferredLossMetricNames = []string{
 	"loss",
@@ -62,6 +69,38 @@ type lossSummary struct {
 	DataSource string
 }
 
+type lensResponseMeta struct {
+	Code    int    `json:"code"`
+	Message string `json:"message"`
+}
+
+type lensResponseEnvelope struct {
+	Meta    lensResponseMeta `json:"meta"`
+	Data    json.RawMessage  `json:"data"`
+	Tracing interface{}      `json:"tracing,omitempty"`
+}
+
+type lensWorkloadListResponse struct {
+	Data  []lensWorkloadListItem `json:"data"`
+	Total int                    `json:"total"`
+}
+
+type lensWorkloadListItem struct {
+	Kind      string `json:"kind"`
+	Name      string `json:"name"`
+	Namespace string `json:"namespace"`
+	UID       string `json:"uid"`
+	Status    string `json:"status"`
+	StartAt   int64  `json:"start_at"`
+	EndAt     int64  `json:"end_at"`
+}
+
+type lensTrainingPerformancePoint struct {
+	Metric    string  `json:"metric"`
+	Value     float64 `json:"value"`
+	Timestamp int64   `json:"timestamp"`
+}
+
 func getLensAPIBaseURL() string {
 	if v := strings.TrimSpace(os.Getenv("POSTTRAIN_LENS_API_URL")); v != "" {
 		return strings.TrimRight(v, "/")
@@ -69,86 +108,228 @@ func getLensAPIBaseURL() string {
 	return defaultLensAPIBaseURL
 }
 
-func fetchLensAvailableMetrics(ctx context.Context, workloadUID, cluster string) ([]string, error) {
-	var resp lensAvailableMetricsResponse
+func resolveLensWorkloadUID(ctx context.Context, workloadID, workspace, cluster, trainType string) (string, error) {
+	workloadID = strings.TrimSpace(workloadID)
+	if workloadID == "" {
+		return "", fmt.Errorf("workload id is empty")
+	}
+
 	params := url.Values{}
 	if cluster != "" {
 		params.Set("cluster", cluster)
 	}
-	if err := callLensAPI(ctx, fmt.Sprintf("/workloads/%s/metrics/available", url.PathEscape(workloadUID)), params, &resp); err != nil {
-		return nil, err
+	params.Set("name", workloadID)
+	params.Set("namespace", workspace)
+	params.Set("page_num", "1")
+	params.Set("page_size", "20")
+	kind := lensWorkloadKind(trainType)
+	if kind != "" {
+		params.Set("kind", kind)
 	}
-	metrics := make([]string, 0, len(resp.Metrics))
-	for _, item := range resp.Metrics {
-		if item.Name == "" {
-			continue
+
+	var resp lensWorkloadListResponse
+	if err := callLensAPI(ctx, "/workloads", params, &resp); err != nil {
+		return "", err
+	}
+	if uid := pickLensWorkloadUID(resp.Data, workloadID, workspace, kind); uid != "" {
+		return uid, nil
+	}
+
+	if kind != "" {
+		params.Del("kind")
+		resp = lensWorkloadListResponse{}
+		if err := callLensAPI(ctx, "/workloads", params, &resp); err != nil {
+			return "", err
 		}
-		metrics = append(metrics, item.Name)
+		if uid := pickLensWorkloadUID(resp.Data, workloadID, workspace, ""); uid != "" {
+			return uid, nil
+		}
 	}
-	sort.Strings(metrics)
-	return metrics, nil
+
+	return "", fmt.Errorf("lens workload uid not found for %s/%s", workspace, workloadID)
 }
 
-func fetchLensMetricData(ctx context.Context, workloadUID, cluster, metrics, dataSource, start, end string) ([]PosttrainMetricPoint, error) {
-	var resp lensMetricsDataResponse
+func lensWorkloadKind(trainType string) string {
+	switch strings.ToLower(strings.TrimSpace(trainType)) {
+	case "rl":
+		return common.RayJobKind
+	case "sft":
+		return common.PytorchJobKind
+	default:
+		return ""
+	}
+}
+
+func pickLensWorkloadUID(items []lensWorkloadListItem, workloadID, workspace, preferredKind string) string {
+	for _, item := range items {
+		if item.Name == workloadID && item.Namespace == workspace && (preferredKind == "" || item.Kind == preferredKind) {
+			return item.UID
+		}
+	}
+	for _, item := range items {
+		if item.Name == workloadID && item.Namespace == workspace {
+			return item.UID
+		}
+	}
+	return ""
+}
+
+func defaultLensTimeRange(startTime, endTime, createdAt time.Time) (string, string, error) {
+	start := startTime
+	if start.IsZero() {
+		start = createdAt
+	}
+	if start.IsZero() {
+		return "", "", fmt.Errorf("run start time is not available")
+	}
+
+	end := endTime
+	if end.IsZero() {
+		end = time.Now().UTC()
+	}
+	if end.Before(start) {
+		end = start
+	}
+
+	return strconv.FormatInt(start.UnixMilli(), 10), strconv.FormatInt(end.UnixMilli(), 10), nil
+}
+
+func defaultLensTimeRangeForRun(run *dbclient.PosttrainRunView) (string, string, error) {
+	if run == nil {
+		return "", "", fmt.Errorf("run is nil")
+	}
+	var start, end, created time.Time
+	if run.StartTime.Valid {
+		start = run.StartTime.Time
+	}
+	if run.EndTime.Valid {
+		end = run.EndTime.Time
+	}
+	if run.CreatedAt.Valid {
+		created = run.CreatedAt.Time
+	}
+	return defaultLensTimeRange(start, end, created)
+}
+
+func defaultLensTimeRangeForItem(item PosttrainRunItem) (string, string, error) {
+	var start, end, created time.Time
+	var err error
+	if item.StartTime != "" {
+		start, err = timeutil.CvtStrToRFC3339Milli(item.StartTime)
+		if err != nil {
+			start = time.Time{}
+		}
+	}
+	if item.EndTime != "" {
+		end, err = timeutil.CvtStrToRFC3339Milli(item.EndTime)
+		if err != nil {
+			end = time.Time{}
+		}
+	}
+	if item.CreatedAt != "" {
+		created, err = timeutil.CvtStrToRFC3339Milli(item.CreatedAt)
+		if err != nil {
+			created = time.Time{}
+		}
+	}
+	return defaultLensTimeRange(start, end, created)
+}
+
+func fetchLensTrainingPerformanceData(ctx context.Context, lensWorkloadUID, start, end string) ([]PosttrainMetricPoint, []string, error) {
+	var resp []lensTrainingPerformancePoint
 	params := url.Values{}
-	if cluster != "" {
-		params.Set("cluster", cluster)
+	if start == "" || end == "" {
+		return nil, nil, fmt.Errorf("start and end timestamps are required")
 	}
-	if metrics != "" {
-		params.Set("metrics", metrics)
-	}
-	if dataSource != "" {
-		params.Set("data_source", dataSource)
-	}
-	if start != "" && end != "" {
-		params.Set("start", start)
-		params.Set("end", end)
-	}
-	if err := callLensAPI(ctx, fmt.Sprintf("/workloads/%s/metrics/data", url.PathEscape(workloadUID)), params, &resp); err != nil {
-		return nil, err
-	}
-	points := make([]PosttrainMetricPoint, 0, len(resp.Data))
-	for _, point := range resp.Data {
-		points = append(points, PosttrainMetricPoint{
-			MetricName: point.MetricName,
-			Value:      point.Value,
-			Timestamp:  point.Timestamp,
-			Iteration:  point.Iteration,
-			DataSource: point.DataSource,
-		})
-	}
-	return points, nil
-}
-
-func fetchLatestLossSummary(ctx context.Context, workloadUID, cluster string) (*lossSummary, []string, error) {
-	availableMetrics, err := fetchLensAvailableMetrics(ctx, workloadUID, cluster)
-	if err != nil {
+	params.Set("start", start)
+	params.Set("end", end)
+	if err := callLensAPI(ctx, fmt.Sprintf("/workloads/%s/trainingPerformance", url.PathEscape(lensWorkloadUID)), params, &resp); err != nil {
 		return nil, nil, err
 	}
-	lossMetric := pickLossMetricName(availableMetrics)
-	if lossMetric == "" {
-		return nil, availableMetrics, nil
-	}
-	points, err := fetchLensMetricData(ctx, workloadUID, cluster, lossMetric, "", "", "")
-	if err != nil {
-		return nil, availableMetrics, err
-	}
-	if len(points) == 0 {
-		return nil, availableMetrics, nil
-	}
-	sort.Slice(points, func(i, j int) bool {
-		if points[i].Timestamp == points[j].Timestamp {
-			return points[i].Iteration < points[j].Iteration
+
+	points := make([]PosttrainMetricPoint, 0, len(resp))
+	metricSet := make(map[string]struct{}, len(resp))
+	for _, point := range resp {
+		if point.Metric == "" {
+			continue
 		}
-		return points[i].Timestamp < points[j].Timestamp
-	})
-	latest := points[len(points)-1]
+		points = append(points, PosttrainMetricPoint{
+			MetricName: point.Metric,
+			Value:      point.Value,
+			Timestamp:  point.Timestamp,
+			DataSource: "log",
+		})
+		metricSet[point.Metric] = struct{}{}
+	}
+
+	metrics := make([]string, 0, len(metricSet))
+	for metric := range metricSet {
+		metrics = append(metrics, metric)
+	}
+	sort.Strings(metrics)
+	return points, metrics, nil
+}
+
+func filterLensTrainingPerformancePoints(points []PosttrainMetricPoint, metricsExpr string) []PosttrainMetricPoint {
+	metricsExpr = strings.TrimSpace(metricsExpr)
+	if metricsExpr == "" || strings.EqualFold(metricsExpr, "all") {
+		return points
+	}
+
+	if strings.HasPrefix(metricsExpr, "{") && strings.HasSuffix(metricsExpr, "}") {
+		metricsExpr = metricsExpr[1 : len(metricsExpr)-1]
+	}
+	filterSet := make(map[string]struct{})
+	for _, metric := range strings.Split(metricsExpr, ",") {
+		metric = strings.TrimSpace(metric)
+		if metric == "" {
+			continue
+		}
+		filterSet[metric] = struct{}{}
+	}
+
+	filtered := make([]PosttrainMetricPoint, 0, len(points))
+	for _, point := range points {
+		if _, ok := filterSet[point.MetricName]; ok {
+			filtered = append(filtered, point)
+		}
+	}
+	return filtered
+}
+
+func latestLossSummaryFromPoints(points []PosttrainMetricPoint, metrics []string) *lossSummary {
+	lossMetric := pickLossMetricName(metrics)
+	if lossMetric == "" {
+		return nil
+	}
+
+	var latest *PosttrainMetricPoint
+	for i := range points {
+		point := points[i]
+		if point.MetricName != lossMetric {
+			continue
+		}
+		if latest == nil || point.Timestamp > latest.Timestamp || (point.Timestamp == latest.Timestamp && point.Iteration > latest.Iteration) {
+			latest = &point
+		}
+	}
+	if latest == nil {
+		return nil
+	}
+
 	return &lossSummary{
 		Value:      latest.Value,
 		MetricName: latest.MetricName,
 		DataSource: latest.DataSource,
-	}, availableMetrics, nil
+	}
+}
+
+func fetchLatestLossSummary(ctx context.Context, lensWorkloadUID, start, end string) (*lossSummary, []string, error) {
+	points, metrics, err := fetchLensTrainingPerformanceData(ctx, lensWorkloadUID, start, end)
+	if err != nil {
+		return nil, nil, err
+	}
+	return latestLossSummaryFromPoints(points, metrics), metrics, nil
 }
 
 func pickLossMetricName(metrics []string) string {
@@ -201,5 +382,32 @@ func callLensAPI(ctx context.Context, apiPath string, params url.Values, out int
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("lens api %s returned status %d", apiPath, resp.StatusCode)
 	}
-	return json.NewDecoder(resp.Body).Decode(out)
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return err
+	}
+	if len(bytes.TrimSpace(body)) == 0 {
+		return nil
+	}
+
+	var envelope lensResponseEnvelope
+	if err := json.Unmarshal(body, &envelope); err == nil && (envelope.Meta.Code != 0 || envelope.Data != nil) {
+		if envelope.Meta.Code != 0 && envelope.Meta.Code != 2000 {
+			message := strings.TrimSpace(envelope.Meta.Message)
+			if message == "" {
+				message = "unknown lens error"
+			}
+			return fmt.Errorf("lens api %s returned code %d: %s", apiPath, envelope.Meta.Code, message)
+		}
+		if out == nil || len(bytes.TrimSpace(envelope.Data)) == 0 || bytes.Equal(bytes.TrimSpace(envelope.Data), []byte("null")) {
+			return nil
+		}
+		return json.Unmarshal(envelope.Data, out)
+	}
+
+	if out == nil {
+		return nil
+	}
+	return json.Unmarshal(body, out)
 }

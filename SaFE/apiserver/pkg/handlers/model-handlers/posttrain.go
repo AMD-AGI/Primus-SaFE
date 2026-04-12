@@ -81,7 +81,7 @@ func (h *Handler) listPosttrainRuns(c *gin.Context) (interface{}, error) {
 		items = append(items, buildPosttrainRunItem(run, nil, nil))
 	}
 	if query.IncludeMetrics {
-		h.enrichPosttrainItemsWithLoss(c.Request.Context(), items)
+		h.enrichPosttrainItemsWithLoss(c.Request.Context(), runs, items)
 	}
 	return &ListPosttrainRunResponse{
 		Total: total,
@@ -129,24 +129,45 @@ func (h *Handler) getPosttrainRunMetrics(c *gin.Context) (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
-	workloadUID := nullStringValue(run.WorkloadUID)
-	if workloadUID == "" {
-		return nil, commonerrors.NewBadRequest("workload uid is not available yet")
+	start := query.Start
+	end := query.End
+	if start == "" || end == "" {
+		start, end, err = defaultLensTimeRangeForRun(run)
+		if err != nil {
+			return &PosttrainMetricsResponse{
+				RunID:       run.RunID,
+				WorkloadUID: nullStringValue(run.WorkloadUID),
+				Data:        []PosttrainMetricPoint{},
+			}, nil
+		}
 	}
-	availableMetrics, err := fetchLensAvailableMetrics(c.Request.Context(), workloadUID, run.Cluster)
+
+	lensWorkloadUID, err := resolveLensWorkloadUID(c.Request.Context(), run.WorkloadID, run.Workspace, run.Cluster, run.TrainType)
 	if err != nil {
-		return nil, commonerrors.NewInternalError("failed to query Lens available metrics: " + err.Error())
+		klog.V(4).Infof("failed to resolve Lens workload uid for run %s: %v", run.RunID, err)
+		return &PosttrainMetricsResponse{
+			RunID:       run.RunID,
+			WorkloadUID: nullStringValue(run.WorkloadUID),
+			Data:        []PosttrainMetricPoint{},
+		}, nil
 	}
-	points, err := fetchLensMetricData(c.Request.Context(), workloadUID, run.Cluster, query.Metrics, query.DataSource, query.Start, query.End)
+
+	points, availableMetrics, err := fetchLensTrainingPerformanceData(c.Request.Context(), lensWorkloadUID, start, end)
 	if err != nil {
-		return nil, commonerrors.NewInternalError("failed to query Lens metric data: " + err.Error())
+		klog.V(4).Infof("failed to query Lens training performance for run %s: %v", run.RunID, err)
+		return &PosttrainMetricsResponse{
+			RunID:       run.RunID,
+			WorkloadUID: nullStringValue(run.WorkloadUID),
+			Data:        []PosttrainMetricPoint{},
+		}, nil
 	}
-	loss, _, _ := h.getLatestLossForRun(c.Request.Context(), run)
+	filteredPoints := filterLensTrainingPerformancePoints(points, query.Metrics)
+	loss := latestLossSummaryFromPoints(points, availableMetrics)
 	return &PosttrainMetricsResponse{
 		RunID:            run.RunID,
-		WorkloadUID:      workloadUID,
+		WorkloadUID:      lensWorkloadUID,
 		AvailableMetrics: availableMetrics,
-		Data:             points,
+		Data:             filteredPoints,
 		LatestLoss:       lossValue(loss),
 		LossMetricName:   lossMetricName(loss),
 		LossDataSource:   lossDataSource(loss),
@@ -323,12 +344,12 @@ func buildPosttrainRunItem(run *dbclient.PosttrainRunView, loss *lossSummary, av
 	return item
 }
 
-func (h *Handler) enrichPosttrainItemsWithLoss(ctx context.Context, items []PosttrainRunItem) {
+func (h *Handler) enrichPosttrainItemsWithLoss(ctx context.Context, runs []*dbclient.PosttrainRunView, items []PosttrainRunItem) {
 	const maxConcurrent = 4
 	sem := make(chan struct{}, maxConcurrent)
 	var wg sync.WaitGroup
 	for i := range items {
-		if items[i].WorkloadUID == "" {
+		if i >= len(runs) || runs[i] == nil {
 			continue
 		}
 		wg.Add(1)
@@ -336,7 +357,20 @@ func (h *Handler) enrichPosttrainItemsWithLoss(ctx context.Context, items []Post
 			defer wg.Done()
 			sem <- struct{}{}
 			defer func() { <-sem }()
-			summary, availableMetrics, err := fetchLatestLossSummary(ctx, items[idx].WorkloadUID, items[idx].Cluster)
+
+			lensWorkloadUID, err := resolveLensWorkloadUID(ctx, runs[idx].WorkloadID, runs[idx].Workspace, runs[idx].Cluster, runs[idx].TrainType)
+			if err != nil {
+				klog.V(4).Infof("failed to resolve Lens workload uid for run %s: %v", items[idx].RunID, err)
+				return
+			}
+
+			start, end, err := defaultLensTimeRangeForRun(runs[idx])
+			if err != nil {
+				klog.V(4).Infof("failed to derive Lens time range for run %s: %v", items[idx].RunID, err)
+				return
+			}
+
+			summary, availableMetrics, err := fetchLatestLossSummary(ctx, lensWorkloadUID, start, end)
 			if err != nil {
 				klog.V(4).Infof("failed to enrich latest loss for run %s: %v", items[idx].RunID, err)
 				return
@@ -354,11 +388,15 @@ func (h *Handler) enrichPosttrainItemsWithLoss(ctx context.Context, items []Post
 }
 
 func (h *Handler) getLatestLossForRun(ctx context.Context, run *dbclient.PosttrainRunView) (*lossSummary, []string, error) {
-	workloadUID := nullStringValue(run.WorkloadUID)
-	if workloadUID == "" {
+	lensWorkloadUID, err := resolveLensWorkloadUID(ctx, run.WorkloadID, run.Workspace, run.Cluster, run.TrainType)
+	if err != nil {
 		return nil, nil, nil
 	}
-	return fetchLatestLossSummary(ctx, workloadUID, run.Cluster)
+	start, end, err := defaultLensTimeRangeForRun(run)
+	if err != nil {
+		return nil, nil, nil
+	}
+	return fetchLatestLossSummary(ctx, lensWorkloadUID, start, end)
 }
 
 func buildSFTSnapshots(req CreateSftJobRequest) (string, string, error) {
