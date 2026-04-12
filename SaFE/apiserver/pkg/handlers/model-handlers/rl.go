@@ -326,7 +326,7 @@ func (h *Handler) resolveModelLocalPath(ctx context.Context, modelId, workspace 
 	if err := h.k8sClient.Get(ctx, ctrlclient.ObjectKey{Name: modelId}, k8sModel); err != nil {
 		return "", fmt.Errorf("model %s not found in k8s: %v", modelId, err)
 	}
-	return resolveModelLocalPathFromK8sModel(k8sModel, workspace)
+	return h.resolveModelLocalPathFromK8sModel(k8sModel, workspace)
 }
 
 // inferModelSize guesses model size from name string for default parameter selection.

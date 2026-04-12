@@ -69,7 +69,7 @@ func (h *Handler) createSftJob(c *gin.Context) (interface{}, error) {
 		selectedModelName = k8sModel.Spec.DisplayName
 	}
 	baseModelName := resolveTrainingBaseModelNameFromK8sModel(k8sModel)
-	modelPath, err := resolveModelLocalPathFromK8sModel(k8sModel, req.Workspace)
+	modelPath, err := h.resolveModelLocalPathFromK8sModel(k8sModel, req.Workspace)
 	if err != nil {
 		return nil, commonerrors.NewBadRequest(fmt.Sprintf("model not available locally: %v", err))
 	}
@@ -300,6 +300,10 @@ func (h *Handler) getSftConfig(c *gin.Context) (interface{}, error) {
 		resp.Reason = fmt.Sprintf("model is not ready, current phase: %s", k8sModel.Status.Phase)
 		return resp, nil
 	}
+	if _, err := h.resolveModelLocalPathFromK8sModel(k8sModel, query.Workspace); err != nil {
+		resp.Reason = err.Error()
+		return resp, nil
+	}
 
 	recipe, err := InferModelRecipe(trainingModelName)
 	if err != nil {
@@ -345,24 +349,41 @@ func (h *Handler) resolveDatasetPath(ctx context.Context, datasetId, workspace s
 	if dataset.LocalPaths != "" {
 		var localPaths []dbclient.DatasetLocalPathDB
 		if json.Unmarshal([]byte(dataset.LocalPaths), &localPaths) == nil {
-			for _, lp := range localPaths {
-				if lp.Workspace == workspace && lp.Status == dbclient.DatasetStatusReady {
-					return lp.Path, nil
+			if workspace != "" {
+				accessiblePath := ""
+				for _, lp := range localPaths {
+					if lp.Status != dbclient.DatasetStatusReady {
+						continue
+					}
+					if lp.Workspace == workspace {
+						return lp.Path, nil
+					}
+					if accessiblePath == "" {
+						if accessible, _ := commonworkspace.IsPathAccessibleFromWorkspace(h.k8sClient, lp.Path, workspace); accessible {
+							accessiblePath = lp.Path
+						}
+					}
 				}
-			}
-			for _, lp := range localPaths {
-				if lp.Status == dbclient.DatasetStatusReady {
-					return lp.Path, nil
+				if accessiblePath != "" {
+					return accessiblePath, nil
+				}
+			} else {
+				for _, lp := range localPaths {
+					if lp.Status == dbclient.DatasetStatusReady {
+						return lp.Path, nil
+					}
 				}
 			}
 		}
 	}
 
-	if dataset.S3Path != "" {
-		return dataset.S3Path, nil
+	if workspace != "" {
+		return "", commonerrors.NewBadRequest(
+			fmt.Sprintf("dataset %s is not available locally in workspace %s", datasetId, workspace),
+		)
 	}
 
-	return "", commonerrors.NewBadRequest(fmt.Sprintf("dataset %s has no available path", datasetId))
+	return "", commonerrors.NewBadRequest(fmt.Sprintf("dataset %s has no available local path", datasetId))
 }
 
 func extractHfModelName(model *dbclient.Model) string {
@@ -389,26 +410,45 @@ func resolveTrainingBaseModelNameFromK8sModel(k8sModel *v1.Model) string {
 	return k8sModel.Spec.DisplayName
 }
 
-func resolveModelLocalPathFromK8sModel(k8sModel *v1.Model, workspace string) (string, error) {
+func (h *Handler) resolveModelLocalPathFromK8sModel(k8sModel *v1.Model, workspace string) (string, error) {
+	if workspace == "" {
+		if k8sModel.Spec.Source.AccessMode == v1.AccessModeLocalPath && k8sModel.Spec.Source.LocalPath != "" {
+			return k8sModel.Spec.Source.LocalPath, nil
+		}
+		for _, lp := range k8sModel.Status.LocalPaths {
+			if lp.Status == v1.LocalPathStatusReady {
+				return lp.Path, nil
+			}
+		}
+		return "", fmt.Errorf("no local path available for model %s", k8sModel.Name)
+	}
+
+	accessiblePath := ""
 	if k8sModel.Spec.Source.AccessMode == v1.AccessModeLocalPath && k8sModel.Spec.Source.LocalPath != "" {
-		return k8sModel.Spec.Source.LocalPath, nil
+		if accessible, _ := commonworkspace.IsPathAccessibleFromWorkspace(h.k8sClient, k8sModel.Spec.Source.LocalPath, workspace); accessible {
+			accessiblePath = k8sModel.Spec.Source.LocalPath
+		}
 	}
 
 	for _, lp := range k8sModel.Status.LocalPaths {
-		if lp.Status == v1.LocalPathStatusReady {
-			if lp.Workspace == workspace || workspace == "" {
-				return lp.Path, nil
+		if lp.Status != v1.LocalPathStatusReady {
+			continue
+		}
+		if lp.Workspace == workspace {
+			return lp.Path, nil
+		}
+		if accessiblePath == "" {
+			if accessible, _ := commonworkspace.IsPathAccessibleFromWorkspace(h.k8sClient, lp.Path, workspace); accessible {
+				accessiblePath = lp.Path
 			}
 		}
 	}
 
-	for _, lp := range k8sModel.Status.LocalPaths {
-		if lp.Status == v1.LocalPathStatusReady {
-			return lp.Path, nil
-		}
+	if accessiblePath != "" {
+		return accessiblePath, nil
 	}
 
-	return "", fmt.Errorf("no local path available for model %s in workspace %s", k8sModel.Name, workspace)
+	return "", fmt.Errorf("model %s is not available locally in workspace %s", k8sModel.Name, workspace)
 }
 
 func getSupportedDatasetFormats() []string {

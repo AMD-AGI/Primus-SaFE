@@ -444,18 +444,37 @@ fi
 ./runner/primus-cli direct -- train posttrain --config /tmp/sft_experiment.yaml
 TRAIN_EXIT_CODE=$?
 
-# Check if training actually produced checkpoints (torchrun may return non-zero
-# during distributed cleanup even when training completed successfully)
+# Verify that training produced a usable non-pretrained checkpoint. Distributed
+# launches can occasionally exit 0/1 without leaving a valid iter_* directory.
 CKPT_BASE="./nemo_experiments/default/checkpoints"
+VERIFIED_LATEST_ITER=""
+VERIFIED_LATEST_DIR=""
+if [ -f "$CKPT_BASE/latest_checkpointed_iteration.txt" ]; then
+  VERIFIED_LATEST_ITER=$(cat "$CKPT_BASE/latest_checkpointed_iteration.txt" 2>/dev/null | tr -d '[:space:]')
+  if [ -n "$VERIFIED_LATEST_ITER" ] && [ "$VERIFIED_LATEST_ITER" != "0" ]; then
+    VERIFIED_LATEST_DIR="$CKPT_BASE/iter_$(printf '%%07d' $VERIFIED_LATEST_ITER)"
+  fi
+fi
+if [ -z "$VERIFIED_LATEST_DIR" ] || [ ! -d "$VERIFIED_LATEST_DIR" ]; then
+  VERIFIED_LATEST_DIR=$(ls -d "$CKPT_BASE"/iter_* 2>/dev/null | sort -t_ -k2 -n | tail -1)
+  if [ -n "$VERIFIED_LATEST_DIR" ] && [ "$(basename "$VERIFIED_LATEST_DIR")" = "iter_0000000" ]; then
+    VERIFIED_LATEST_DIR=""
+  fi
+fi
 if [ $TRAIN_EXIT_CODE -ne 0 ]; then
-  if [ -f "$CKPT_BASE/latest_checkpointed_iteration.txt" ]; then
-    SAVED_ITER=$(cat "$CKPT_BASE/latest_checkpointed_iteration.txt" 2>/dev/null | tr -d '[:space:]')
-    echo "WARNING: primus-cli exited with code $TRAIN_EXIT_CODE, but checkpoint found at iteration $SAVED_ITER. Continuing with export."
+  if [ -n "$VERIFIED_LATEST_DIR" ] && [ -d "$VERIFIED_LATEST_DIR" ]; then
+    echo "WARNING: primus-cli exited with code $TRAIN_EXIT_CODE, but checkpoint found at ${VERIFIED_LATEST_DIR}. Continuing with export."
   else
-    echo "Training failed with exit code $TRAIN_EXIT_CODE and no checkpoint found. Skipping model export."
+    echo "Training failed with exit code $TRAIN_EXIT_CODE and no usable checkpoint found. Skipping model export."
     exit $TRAIN_EXIT_CODE
   fi
 fi
+if [ -z "$VERIFIED_LATEST_DIR" ] || [ ! -d "$VERIFIED_LATEST_DIR" ]; then
+  echo "ERROR: Training completed but no usable checkpoint was produced under $CKPT_BASE"
+  ls -la "$CKPT_BASE" 2>/dev/null || true
+  exit 1
+fi
+echo "Verified training checkpoint: ${VERIFIED_LATEST_DIR}"
 
 # Cleanup: remove intermediate checkpoints and HF cache to free ephemeral storage
 # Keep only the latest checkpoint (needed for export), delete everything else
@@ -521,17 +540,22 @@ func buildExportScript(cfg EntrypointConfig) string {
 `)
 	fmt.Fprintf(&sb, "EXPORT_PATH=%q\n", exportPath)
 	sb.WriteString(`CKPT_DIR=""
+if [ -n "${VERIFIED_LATEST_DIR:-}" ] && [ -d "${VERIFIED_LATEST_DIR}" ]; then
+  CKPT_DIR="$(dirname "${VERIFIED_LATEST_DIR}")"
+fi
 CKPT_SEARCH_DIRS="./nemo_experiments/default/checkpoints ${DATA_PATH:-/dev/null}/nemo_experiments/default/checkpoints ./output/checkpoints ${PRIMUS_DIR}/nemo_experiments/default/checkpoints /tmp/primus/nemo_experiments/default/checkpoints"
 
 # First pass: prefer dirs with latest_checkpointed_iteration.txt (real trained checkpoints)
-for d in ${CKPT_SEARCH_DIRS}; do
-  if [ -d "$d" ] && [ -f "$d/latest_checkpointed_iteration.txt" ]; then
-    ITER_VAL=$(cat "$d/latest_checkpointed_iteration.txt" 2>/dev/null | tr -d '[:space:]')
-    if [ -n "$ITER_VAL" ] && [ "$ITER_VAL" != "0" ]; then
-      CKPT_DIR="$d"; break
+if [ -z "$CKPT_DIR" ]; then
+  for d in ${CKPT_SEARCH_DIRS}; do
+    if [ -d "$d" ] && [ -f "$d/latest_checkpointed_iteration.txt" ]; then
+      ITER_VAL=$(cat "$d/latest_checkpointed_iteration.txt" 2>/dev/null | tr -d '[:space:]')
+      if [ -n "$ITER_VAL" ] && [ "$ITER_VAL" != "0" ]; then
+        CKPT_DIR="$d"; break
+      fi
     fi
-  fi
-done
+  done
+fi
 
 # Second pass: dirs with iter_* subdirectories (checkpoint saved but maybe no latest file)
 if [ -z "$CKPT_DIR" ]; then
@@ -685,7 +709,8 @@ fi
 # ==================== Register Model ====================
 APISERVER="http://primus-safe-apiserver.primus-safe.svc:8088"
 echo "Registering model in Model Square..."
-curl -s -X POST "${APISERVER}/api/v1/playground/models" \
+REGISTER_RESPONSE="/tmp/sft_register_model_response.json"
+curl -fsS -o "${REGISTER_RESPONSE}" -X POST "${APISERVER}/api/v1/playground/models" \
   -H "Content-Type: application/json" \
   -H "userId: ${SFT_USER_ID:-system}" \
   -H "userName: ${SFT_USER_NAME:-system}" \
@@ -701,7 +726,12 @@ curl -s -X POST "${APISERVER}/api/v1/playground/models" \
     "origin": "fine_tuned",
     "sftJobId": "%s",
     "baseModel": "%s"
-  }' || echo "Warning: failed to register model, but training output is saved at ${EXPORT_PATH}"
+  }'
+REGISTER_EXIT=$?
+if [ $REGISTER_EXIT -ne 0 ]; then
+  echo "ERROR: failed to register model after successful HF export."
+  exit $REGISTER_EXIT
+fi
 echo "Model export complete."`,
 		displayName,
 		cfg.BaseModel, cfg.SftJobId,
