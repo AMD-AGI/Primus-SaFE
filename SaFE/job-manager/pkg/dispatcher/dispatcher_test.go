@@ -1175,6 +1175,7 @@ func TestCreateSandbox(t *testing.T) {
 	TestSandboxTemplate, err := jsonutils.ParseYamlToJson(TestSandboxTemplateData)
 	assert.NilError(t, err)
 	v1.SetAnnotation(workload, v1.SandboxTemplateIdAnnotation, TestSandboxTemplate.GetName())
+	TestSandboxTemplate.SetNamespace(workload.Spec.Workspace)
 	scheme, err := genMockScheme()
 	assert.NilError(t, err)
 	adminClient := fake.NewClientBuilder().WithObjects(configmap, jobutils.TestSandboxResourceTemplate,
