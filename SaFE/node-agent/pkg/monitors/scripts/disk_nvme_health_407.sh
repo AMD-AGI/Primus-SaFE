@@ -83,6 +83,58 @@ for ctrl in $controllers; do
   fi
 done
 
+# NVMe list check: capacity anomaly and firmware consistency per model
+nvme_list_json=$(host nvme list -o json 2>/dev/null) || true
+
+if [ -n "$nvme_list_json" ]; then
+  device_count=$(echo "$nvme_list_json" | jq '.Devices | length' 2>/dev/null)
+
+  if [ -n "$device_count" ] && [ "$device_count" -gt 0 ] 2>/dev/null; then
+    # Pass 1: collect max capacity and unique firmware versions per model
+    model_stats=$(echo "$nvme_list_json" | jq -r '
+      [.Devices[] | {model: .ModelNumber, size: .PhysicalSize, fw: .Firmware}]
+      | group_by(.model)
+      | map({
+          model: .[0].model,
+          max_size: (map(.size) | max),
+          fw_versions: (map(.fw) | unique | join(","))
+        })
+      | .[]
+      | "\(.model)|\(.max_size)|\(.fw_versions)"
+    ' 2>/dev/null)
+
+    declare -A model_max_size
+    declare -A model_fw_versions
+    while IFS='|' read -r m_model m_max m_fws; do
+      [ -z "$m_model" ] && continue
+      model_max_size["$m_model"]=$m_max
+      model_fw_versions["$m_model"]=$m_fws
+    done <<< "$model_stats"
+
+    # Pass 2: check each device against its model group
+    device_lines=$(echo "$nvme_list_json" | jq -r '.Devices[] | "\(.DevicePath)|\(.ModelNumber)|\(.PhysicalSize)|\(.Firmware)"' 2>/dev/null)
+    while IFS='|' read -r d_path d_model d_size d_fw; do
+      [ -z "$d_path" ] && continue
+      ctrl=$(echo "$d_path" | sed 's|/dev/||; s|n[0-9]*$||')
+
+      # Capacity anomaly: device < 50% of the largest same-model peer
+      max=${model_max_size[$d_model]:-0}
+      if [ "$max" -gt 0 ] && [ "$d_size" -gt 0 ] 2>/dev/null; then
+        ratio=$((d_size * 100 / max))
+        if [ "$ratio" -lt 50 ]; then
+          append_error "${ctrl}: capacity anomaly, size=${d_size}B vs model-max=${max}B (${ratio}%)"
+        fi
+      fi
+
+      # Firmware consistency: flag if same model has mixed firmware versions
+      fw_list="${model_fw_versions[$d_model]}"
+      if echo "$fw_list" | grep -qF ","; then
+        append_error "${ctrl}: firmware mismatch, fw=${d_fw}, model '${d_model}' has versions [${fw_list}]"
+      fi
+    done <<< "$device_lines"
+  fi
+fi
+
 if [ "$has_error" -eq 1 ]; then
   echo "Error: NVMe health issues detected: ${error_messages}"
   exit 1
