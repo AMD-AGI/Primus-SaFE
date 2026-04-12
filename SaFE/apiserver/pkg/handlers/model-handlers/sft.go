@@ -129,6 +129,9 @@ func (h *Handler) createSftJob(c *gin.Context) (interface{}, error) {
 		"PYTORCH_HIP_ALLOC_CONF": "expandable_segments:True",
 		"GPUS_PER_NODE":          strconv.Itoa(req.GpuCount),
 	}
+	if req.NodeCount > 1 && req.GpuCount > 0 && strings.HasPrefix(pfsBasePath, "/shared_nfs") {
+		applyAinicSftWorkloadEnv(env)
+	}
 	if req.NodeCount > 1 {
 		env["NNODES"] = strconv.Itoa(req.NodeCount)
 		env["DATA_PATH"] = fmt.Sprintf("%s/sft-shared-data/%s", pfsBasePath, workloadName)
@@ -453,6 +456,19 @@ func (h *Handler) resolveModelLocalPathFromK8sModel(k8sModel *v1.Model, workspac
 
 func getSupportedDatasetFormats() []string {
 	return []string{"alpaca"}
+}
+
+func applyAinicSftWorkloadEnv(env map[string]string) {
+	env["USING_AINIC"] = "1"
+	env["NCCL_IB_GID_INDEX"] = "1"
+	env["NCCL_DMABUF_ENABLE"] = "0"
+	env["NCCL_MAX_P2P_CHANNELS"] = "56"
+	env["NET_OPTIONAL_RECV_COMPLETION"] = "1"
+	env["NCCL_IB_USE_INLINE"] = "1"
+	env["RCCL_GDR_FLUSH_GPU_MEM_NO_RELAXED_ORDERING"] = "0"
+	env["NCCL_GDR_FLUSH_DISABLE"] = "1"
+	env["NCCL_IGNORE_CPU_AFFINITY"] = "1"
+	env["LD_LIBRARY_PATH"] = "/opt/amd-anp/build:/opt/rccl/build/release:/opt/rocm/lib"
 }
 
 func getSupportedPeftOptions(modelSize string) []string {

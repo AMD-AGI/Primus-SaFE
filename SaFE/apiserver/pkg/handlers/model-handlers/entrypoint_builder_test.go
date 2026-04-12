@@ -202,6 +202,48 @@ func TestBuildEntrypointRequiresSuccessfulModelRegistration(t *testing.T) {
 	}
 }
 
+func TestBuildEntrypointUsesSharedSquadCacheAndHonorsPreInjectedAinic(t *testing.T) {
+	cfg := EntrypointConfig{
+		DatasetPath: "/shared_nfs/data/test",
+		PrimusPath:  "/tmp/primus",
+		ExpName:     "shared-squad-cache",
+		HfPath:      "/shared_nfs/models/Qwen/Qwen3-8B",
+		ModelSize:   "8b",
+		PfsBasePath: "/shared_nfs",
+		TrainConfig: SftTrainConfig{
+			TrainIters:                100,
+			GlobalBatchSize:           16,
+			MicroBatchSize:            1,
+			SeqLength:                 2048,
+			FinetuneLr:                5e-6,
+			TensorModelParallelSize:   1,
+			PipelineModelParallelSize: 1,
+			ContextParallelSize:       1,
+			LrWarmupIters:             5,
+			SaveInterval:              50,
+			Peft:                      "none",
+		},
+	}
+
+	script := BuildEntrypoint(cfg)
+
+	if !strings.Contains(script, `SHARED_SQUAD_CACHE="${DATA_PATH}/squad-cache"`) {
+		t.Error("script should place squad cache on shared DATA_PATH for multi-node SFT")
+	}
+
+	if !strings.Contains(script, `ln -sfn "$SHARED_SQUAD_CACHE" "$SQUAD_CACHE"`) {
+		t.Error("script should symlink local squad cache to shared cache")
+	}
+
+	if !strings.Contains(script, `if [ "${USING_AINIC:-0}" = "1" ] ||`) {
+		t.Error("entrypoint should honor pre-injected USING_AINIC=1")
+	}
+
+	if !strings.Contains(script, `export NCCL_IB_GID_INDEX="${NCCL_IB_GID_INDEX:-1}"`) {
+		t.Error("entrypoint should preserve pre-injected GID index")
+	}
+}
+
 func extractSection(s, marker string, lines int) string {
 	idx := strings.Index(s, marker)
 	if idx < 0 {

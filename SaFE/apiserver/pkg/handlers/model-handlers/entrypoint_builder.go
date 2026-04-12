@@ -357,7 +357,21 @@ mkdir -p "./output/${PRIMUS_TEAM:-amd}/${PRIMUS_USER:-root}/%s"
 # the later call finds cached arrow files and never hits the network.
 SQUAD_SRC="%s/datasets/rajpurkar/squad"
 SQUAD_CACHE="/root/.cache/nemo/datasets/squad"
-mkdir -p "$SQUAD_CACHE"
+SHARED_SQUAD_CACHE="${SHARED_SQUAD_CACHE_DIR:-}"
+if [ -z "$SHARED_SQUAD_CACHE" ] && [ -n "${DATA_PATH:-}" ]; then
+  SHARED_SQUAD_CACHE="${DATA_PATH}/squad-cache"
+fi
+if [ -n "$SHARED_SQUAD_CACHE" ]; then
+  mkdir -p "$(dirname "$SQUAD_CACHE")"
+  mkdir -p "$SHARED_SQUAD_CACHE"
+  if [ -e "$SQUAD_CACHE" ] && [ ! -L "$SQUAD_CACHE" ]; then
+    rm -rf "$SQUAD_CACHE"
+  fi
+  ln -sfn "$SHARED_SQUAD_CACHE" "$SQUAD_CACHE"
+  echo "[SFT] shared squad cache: $SQUAD_CACHE -> $SHARED_SQUAD_CACHE"
+else
+  mkdir -p "$SQUAD_CACHE"
+fi
 SQUAD_CACHED_COUNT=$(find "$SQUAD_CACHE" -name "*.arrow" 2>/dev/null | wc -l)
 if [ -d "$SQUAD_SRC" ] && [ "$SQUAD_CACHED_COUNT" -eq 0 ]; then
   echo "[SFT] Generating squad HF cache from local PFS data..."
@@ -375,19 +389,19 @@ fi
 # Multi-node: redirect ./data and ./nemo_experiments to shared storage so all
 # nodes see the same HF cache, Megatron checkpoints, trained checkpoints, and
 # .done signal files. Also patch hooks and increase NCCL timeout.
-# Runtime-detect network backend from the actual node instead of inferring it
-# from workspace metadata. OCI/AINIC nodes expose ionic_* RDMA devices, while
-# TW/Project nodes typically expose Broadcom (bnxt/tw-eth) interfaces.
-if ls /sys/class/infiniband/ionic_* >/dev/null 2>&1 || ip link show | grep -q 'ionic_'; then
+# Runtime-detect network backend from the actual node, but still honor an
+# explicit workload-level AINIC marker injected by the SFT API for OCI multi-node
+# jobs so job-manager defaults cannot pull the container back to GID=3.
+if [ "${USING_AINIC:-0}" = "1" ] || ls /sys/class/infiniband/ionic_* >/dev/null 2>&1 || ip link show | grep -q 'ionic_'; then
   export USING_AINIC=1
-  export NCCL_IB_GID_INDEX=1
-  export NCCL_DMABUF_ENABLE=0
-  export NCCL_MAX_P2P_CHANNELS=56
-  export NET_OPTIONAL_RECV_COMPLETION=1
-  export NCCL_IB_USE_INLINE=1
-  export RCCL_GDR_FLUSH_GPU_MEM_NO_RELAXED_ORDERING=0
-  export NCCL_GDR_FLUSH_DISABLE=1
-  export NCCL_IGNORE_CPU_AFFINITY=1
+  export NCCL_IB_GID_INDEX="${NCCL_IB_GID_INDEX:-1}"
+  export NCCL_DMABUF_ENABLE="${NCCL_DMABUF_ENABLE:-0}"
+  export NCCL_MAX_P2P_CHANNELS="${NCCL_MAX_P2P_CHANNELS:-56}"
+  export NET_OPTIONAL_RECV_COMPLETION="${NET_OPTIONAL_RECV_COMPLETION:-1}"
+  export NCCL_IB_USE_INLINE="${NCCL_IB_USE_INLINE:-1}"
+  export RCCL_GDR_FLUSH_GPU_MEM_NO_RELAXED_ORDERING="${RCCL_GDR_FLUSH_GPU_MEM_NO_RELAXED_ORDERING:-0}"
+  export NCCL_GDR_FLUSH_DISABLE="${NCCL_GDR_FLUSH_DISABLE:-1}"
+  export NCCL_IGNORE_CPU_AFFINITY="${NCCL_IGNORE_CPU_AFFINITY:-1}"
   export LD_LIBRARY_PATH="/opt/amd-anp/build:/opt/rccl/build/release:/opt/rocm/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
   if [ -z "${NCCL_IB_HCA:-}" ]; then
     DETECTED_AINIC_HCA=$(ls -d /sys/class/infiniband/ionic_* 2>/dev/null | sed 's|.*/||' | awk '{printf "%%s:1,",$1}' | sed 's/,$//')

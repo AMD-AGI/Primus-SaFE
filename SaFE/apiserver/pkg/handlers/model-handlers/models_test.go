@@ -734,6 +734,88 @@ func TestResolveDatasetPath_SharedLocalPathAccessible(t *testing.T) {
 	assert.Equal(t, path, "/shared/datasets/alpaca.jsonl")
 }
 
+func TestCreateSftJob_InjectsAinicEnvForSharedNfsMultinode(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockDB := mock_client.NewMockInterface(ctrl)
+	localPaths, err := json.Marshal([]dbclient.DatasetLocalPathDB{
+		{
+			Workspace: "ws1",
+			Path:      "/shared_nfs/datasets/alpaca",
+			Status:    dbclient.DatasetStatusReady,
+		},
+	})
+	assert.NilError(t, err)
+
+	mockDB.EXPECT().
+		GetDataset(gomock.Any(), "dataset-sft-ainic").
+		Return(&dbclient.Dataset{
+			DatasetId:  "dataset-sft-ainic",
+			LocalPaths: string(localPaths),
+		}, nil).
+		AnyTimes()
+
+	model := genMockLocalK8sModel("model-qwen-ainic", "ws1")
+	model.Spec.DisplayName = "Qwen/Qwen3-8B"
+	model.Spec.Source.URL = "https://huggingface.co/Qwen/Qwen3-8B"
+	model.Spec.Source.ModelName = "Qwen/Qwen3-8B"
+	model.Status.LocalPaths = []v1.ModelLocalPath{
+		{
+			Workspace: "ws1",
+			Path:      "/shared_nfs/models/Qwen/Qwen3-8B",
+			Status:    v1.LocalPathStatusReady,
+		},
+	}
+	ws1 := genMockWorkspace("ws1", "/shared_nfs")
+
+	k8sClient := fake.NewClientBuilder().
+		WithObjects(model, ws1).
+		WithScheme(scheme.Scheme).
+		Build()
+
+	h := newMockModelHandlerWithDB(k8sClient, mockDB)
+
+	exportModel := false
+	reqBody, err := json.Marshal(CreateSftJobRequest{
+		DisplayName:      "ainic-multinode-sft",
+		Workspace:        "ws1",
+		ModelId:          "model-qwen-ainic",
+		DatasetId:        "dataset-sft-ainic",
+		ExportModel:      &exportModel,
+		Image:            "test-image",
+		NodeCount:        2,
+		GpuCount:         8,
+		Cpu:              "80",
+		Memory:           "1000Gi",
+		SharedMemory:     "500Gi",
+		EphemeralStorage: "1000Gi",
+		TrainConfig: SftTrainConfig{
+			Peft: "none",
+		},
+	})
+	assert.NilError(t, err)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request, _ = http.NewRequest("POST", "/sft/jobs", bytes.NewReader(reqBody))
+	c.Request.Header.Set("Content-Type", "application/json")
+	c.Set(common.UserId, "user-1")
+	c.Set(common.UserName, "Test User")
+
+	result, err := h.createSftJob(c)
+	assert.NilError(t, err)
+
+	resp := result.(*CreateSftJobResponse)
+	workload := &v1.Workload{}
+	err = k8sClient.Get(context.Background(), client.ObjectKey{Name: resp.WorkloadId}, workload)
+	assert.NilError(t, err)
+
+	assert.Equal(t, workload.Spec.Env["USING_AINIC"], "1")
+	assert.Equal(t, workload.Spec.Env["NCCL_IB_GID_INDEX"], "1")
+	assert.Equal(t, workload.Spec.Env["DATA_PATH"], "/shared_nfs/sft-shared-data/"+resp.WorkloadId)
+}
+
 func TestGetSftConfig_UnsupportedModel(t *testing.T) {
 	model := genMockRemoteAPIK8sModel("remote-model")
 
