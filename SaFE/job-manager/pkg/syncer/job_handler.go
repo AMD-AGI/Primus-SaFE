@@ -444,7 +444,7 @@ func shouldTerminateWorkload(adminWorkload *v1.Workload, status *jobutils.K8sObj
 		if shouldWorkloadStopRetry(adminWorkload, count) {
 			return true
 		}
-	case v1.AddonDeleted:
+	case v1.K8sDeleted:
 		if shouldWorkloadStopRetry(adminWorkload, count) {
 			return true
 		}
