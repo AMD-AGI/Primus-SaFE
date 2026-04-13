@@ -26,6 +26,7 @@ spec:
     - sysctl-inotify
     - set-gpu-passthrough
     - set-gpu-perflevel-auto
+    - set-localdns
     {{- if eq (.Values.global.sub_domain | default "") "oci-slc" }}
     - set-oci-arp-ipv4
     - disable-oci-acs

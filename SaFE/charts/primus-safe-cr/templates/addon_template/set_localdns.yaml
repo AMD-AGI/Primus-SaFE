@@ -1,0 +1,20 @@
+#
+# Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
+# See LICENSE for license information.
+#
+
+{{- $systemHost := printf "%s.%s" .Values.global.sub_domain .Values.global.domain }}
+apiVersion: amd.com/v1
+kind: AddonTemplate
+metadata:
+  name: set-localdns
+  labels:
+    primus-safe.display.name: "set-localdns"
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    meta.helm.sh/release-name: {{ .Release.Name }}
+    meta.helm.sh/release-namespace: {{ .Release.Namespace }}
+spec:
+  required: true
+  description: Configure systemd-networkd to route the control-plane domain DNS queries through nodelocaldns.
+  action: {{ printf "CONF_PATH=\"/etc/systemd/network/99-nodelocaldns.network\"\nSYSTEM_HOST=\"%s\"\n\nif [ -f \"$CONF_PATH\" ]; then\n  current_domains=$(grep '^Domains=' \"$CONF_PATH\" 2>/dev/null | sed 's/^Domains=//')\n  expected_domains=\"~${SYSTEM_HOST}\"\n  if [ \"$current_domains\" = \"$expected_domains\" ]; then\n    exit 0\n  fi\nfi\n\ncat > \"$CONF_PATH\" << EOF\n[Match]\nName=nodelocaldns\n\n[Link]\nRequiredForOnline=no\nActivationPolicy=always-up\n\n[Network]\nConfigureWithoutCarrier=yes\nKeepConfiguration=yes\nDNS=169.254.25.10\nDomains=~${SYSTEM_HOST}\nDNSDefaultRoute=false\nEOF\n\nip link set nodelocaldns up\nnetworkctl reload\nexit $?\n" $systemHost | b64enc }}
