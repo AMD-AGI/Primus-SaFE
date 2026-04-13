@@ -290,8 +290,8 @@
             </span>
           </div>
           <div class="right">
-            <el-button type="danger" plain @click="onBatchDelete">Delete</el-button>
-            <el-button type="warning" plain @click="onBatchStop">Stop</el-button>
+            <el-button type="danger" plain :disabled="!canWrite" @click="onBatchDelete">Delete</el-button>
+            <el-button type="warning" plain :disabled="!canWrite" @click="onBatchStop">Stop</el-button>
           </div>
         </div>
       </transition>
@@ -322,6 +322,7 @@
 
 <script lang="ts" setup>
 import { ref, reactive, watch, nextTick, onMounted, onBeforeUnmount, h, computed, shallowRef } from 'vue'
+import { useWorkloadWriteGuard } from '@/composables/useWorkloadWriteGuard'
 import {
   getWorkloadsList,
   deleteWorkload,
@@ -361,6 +362,7 @@ const isDark = useDark()
 const router = useRouter()
 const wsStore = useWorkspaceStore()
 const userStore = useUserStore()
+const { canWrite } = useWorkloadWriteGuard()
 
 // ── Extract kind from groupVersionKind ──
 const getRowKind = (row: any): string => row.groupVersionKind?.kind || row.kind || ''
@@ -582,7 +584,7 @@ const getActions = (row: Row): Action[] => {
       label: 'SSH',
       icon: Link,
       btnClass: 'btn-primary-plain',
-      disabled: (r) => r.phase !== 'Running',
+      disabled: (r) => !canWrite.value || r.phase !== 'Running',
       onClick: (r) => openSSH(r),
     })
   }
@@ -593,7 +595,7 @@ const getActions = (row: Row): Action[] => {
       label: 'Resume',
       icon: VideoPlay,
       btnClass: 'btn-success-plain',
-      disabled: (r) => !['Stopped', 'Failed', 'Succeeded'].includes(r.phase),
+      disabled: (r) => !canWrite.value || !['Stopped', 'Failed', 'Succeeded'].includes(r.phase),
       onClick: (r) => {
         const endTime = (r as any).endTime
         if (endTime && dayjs().diff(dayjs.utc(endTime), 'second') < 15) {
@@ -611,7 +613,7 @@ const getActions = (row: Row): Action[] => {
       label: 'Edit',
       icon: Edit,
       btnClass: 'btn-primary-plain',
-      disabled: getEditDisabled,
+      disabled: (r) => !canWrite.value || getEditDisabled(r),
       tooltip: (r) => getEditDisabled(r) ? 'Edit is unavailable for this workload state' : 'Edit workload configuration',
       onClick: (r) => openDialog(r, 'Edit'),
     },
@@ -620,7 +622,7 @@ const getActions = (row: Row): Action[] => {
       label: 'Stop',
       icon: Close,
       btnClass: 'btn-warning-plain',
-      disabled: (r) => !['Running', 'Pending'].includes(r.phase),
+      disabled: (r) => !canWrite.value || !['Running', 'Pending'].includes(r.phase),
       onClick: async (r) => {
         const msg = h('span', null, [
           'Are you sure you want to stop workload: ',
@@ -642,6 +644,7 @@ const getActions = (row: Row): Action[] => {
       label: 'Delete',
       icon: Delete,
       btnClass: 'btn-danger-plain',
+      disabled: () => !canWrite.value,
       onClick: async (r) => {
         const msg = h('span', null, [
           'Are you sure you want to delete workload: ',
