@@ -5,4 +5,6 @@
 
 global:
   helm_registry: "registry-1.docker.io"
+  # Must match primus-safe global.domain when CR chart is installed with the same release values.
+  domain: "primus-safe.amd.com"
   sub_domain: ""
