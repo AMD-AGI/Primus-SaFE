@@ -8,6 +8,7 @@ package resource
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"strings"
 	"time"
 
@@ -321,6 +322,10 @@ func (r *ClusterReconciler) Reconcile(ctx context.Context, req ctrlruntime.Reque
 	}
 	if err = r.guaranteeForwardIngress(ctx, cluster); err != nil {
 		klog.ErrorS(err, "failed to guarantee ingress", "cluster", cluster.Name)
+		return ctrlruntime.Result{}, err
+	}
+	if err = r.guaranteeNodeLocalDNS(ctx, cluster); err != nil {
+		klog.ErrorS(err, "failed to guarantee node local dns", "cluster", cluster.Name)
 		return ctrlruntime.Result{}, err
 	}
 	return ctrlruntime.Result{}, nil
@@ -974,6 +979,102 @@ func (r *ClusterReconciler) deleteDataPlaneClusterRole(ctx context.Context, clus
 	}
 	klog.Infof("delete ClusterRole %s from cluster %s", targetName, cluster.Name)
 	return nil
+}
+
+// guaranteeNodeLocalDNS ensures the nodelocaldns ConfigMap in each data-plane cluster
+// contains a Corefile server block that resolves the control-plane subdomain to its IP.
+func (r *ClusterReconciler) guaranteeNodeLocalDNS(ctx context.Context, cluster *v1.Cluster) error {
+	dnsName := commonconfig.GetSystemHost()
+	if dnsName == "" {
+		return nil
+	}
+	if !cluster.IsReady() {
+		return nil
+	}
+
+	controlPlaneIP, err := r.getControlPlaneIP(ctx)
+	if err != nil {
+		return err
+	}
+
+	k8sClients, err := utils.GetK8sClientFactory(r.clientManager, cluster.Name)
+	if err != nil {
+		return err
+	}
+	clientSet := k8sClients.ClientSet()
+
+	cm, err := clientSet.CoreV1().ConfigMaps("kube-system").Get(ctx, "nodelocaldns", metav1.GetOptions{})
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			klog.V(4).Infof("nodelocaldns ConfigMap not found in cluster %s, skipping", cluster.Name)
+			return nil
+		}
+		return fmt.Errorf("failed to get nodelocaldns ConfigMap in cluster %s: %w", cluster.Name, err)
+	}
+
+	corefile, ok := cm.Data["Corefile"]
+	if !ok {
+		return fmt.Errorf("Corefile key not found in nodelocaldns ConfigMap in cluster %s", cluster.Name)
+	}
+
+	serverBlock := buildDNSServerBlock(dnsName, controlPlaneIP)
+	if strings.Contains(corefile, dnsName) {
+		klog.V(4).Infof("nodelocaldns Corefile in cluster %s already contains %s, skipping", cluster.Name, dnsName)
+		return nil
+	}
+
+	cm.Data["Corefile"] = corefile + "\n" + serverBlock
+	if _, err = clientSet.CoreV1().ConfigMaps("kube-system").Update(ctx, cm, metav1.UpdateOptions{}); err != nil {
+		return fmt.Errorf("failed to update nodelocaldns ConfigMap in cluster %s: %w", cluster.Name, err)
+	}
+	klog.Infof("updated nodelocaldns Corefile in cluster %s with %s -> %s", cluster.Name, dnsName, controlPlaneIP)
+	return nil
+}
+
+// getControlPlaneIP returns the IP address of the control-plane cluster's first endpoint.
+func (r *ClusterReconciler) getControlPlaneIP(ctx context.Context) (string, error) {
+	clusterList := &v1.ClusterList{}
+	if err := r.Client.List(ctx, clusterList, client.MatchingLabels{
+		v1.ClusterControlPlaneLabel: "",
+	}); err != nil {
+		return "", fmt.Errorf("failed to list clusters with control-plane label: %w", err)
+	}
+	if len(clusterList.Items) == 0 {
+		return "", fmt.Errorf("no cluster with control-plane label found")
+	}
+
+	cp := &clusterList.Items[0]
+	if len(cp.Status.ControlPlaneStatus.Endpoints) == 0 {
+		return "", fmt.Errorf("control-plane cluster %s has no endpoints", cp.Name)
+	}
+
+	endpoint := cp.Status.ControlPlaneStatus.Endpoints[0]
+	u, err := url.Parse(endpoint)
+	if err != nil {
+		return "", fmt.Errorf("failed to parse control-plane endpoint %q: %w", endpoint, err)
+	}
+	host := u.Hostname()
+	if host == "" {
+		return "", fmt.Errorf("no host found in control-plane endpoint %q", endpoint)
+	}
+	return host, nil
+}
+
+// buildDNSServerBlock generates a CoreDNS server block that resolves the given dnsName to the given IP.
+func buildDNSServerBlock(dnsName, ip string) string {
+	return fmt.Sprintf(`.:53 {
+    template IN A %s {
+        answer "{{ .Name }} 60 IN A %s"
+        fallthrough
+    }
+    errors
+    cache 30
+    reload
+    loop
+    bind 169.254.25.10
+    forward . /etc/resolv.conf
+    prometheus :9253
+}`, dnsName, ip)
 }
 
 // generateForwardName generates the name for forward resources by appending "-forward" to the cluster name.
