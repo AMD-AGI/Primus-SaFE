@@ -21,6 +21,8 @@ type CreateClusterRequest struct {
 	Labels map[string]string `json:"labels,omitempty"`
 	// Whether the cluster is under protection. When set to true, direct deletion is not allowed unless the label is removed
 	IsProtected bool `json:"isProtected,omitempty"`
+	// Whether the cluster is a control plane
+	IsControlPlane bool `json:"isControlPlane"`
 }
 
 type CreateClusterResponse struct {
@@ -43,6 +45,8 @@ type ClusterResponseItem struct {
 	Phase string `json:"phase"`
 	// Whether the cluster is under protection
 	IsProtected bool `json:"isProtected"`
+	// Whether the cluster is a control plane
+	IsControlPlane bool `json:"isControlPlane"`
 	// Cluster creation time(RFC3339Short), e.g. "2025-07-08T10:31:46"
 	CreationTime string `json:"creationTime"`
 }
@@ -103,6 +107,8 @@ type GetClusterPodLogResponse struct {
 type PatchClusterRequest struct {
 	// Whether Cluster is under protection, empty means do nothing
 	IsProtected *bool `json:"isProtected,omitempty"`
+	// Whether Cluster is a control plane, empty means do nothing
+	IsControlPlane *bool `json:"isControlPlane,omitempty"`
 	// User-defined labels. Keys cannot start with "primus-safe."
 	Labels *map[string]string `json:"labels,omitempty"`
 }
