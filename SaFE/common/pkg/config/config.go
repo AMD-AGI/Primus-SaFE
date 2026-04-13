@@ -391,12 +391,16 @@ func GetNotificationConfig() string {
 
 // GetSystemHost returns the host of the system. e.g. tw325.primus-safe.amd.com
 func GetSystemHost() string {
-	subDomainConfig := getString(subDomain, "")
+	subDomainConfig := GetSubDomain()
 	domainConfig := getString(domain, "")
 	if subDomainConfig == "" || domainConfig == "" {
 		return ""
 	}
 	return subDomainConfig + "." + domainConfig
+}
+
+func GetSubDomain() string {
+	return getString(subDomain, "")
 }
 
 // GetIngress returns the ingress class name of the system.
