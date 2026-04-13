@@ -191,9 +191,9 @@ Create a new workload.
   "maxRetry": 0,
   "env": {
      "NCCL_DEBUG": "INFO", 
-     "REPLICA_GROUP": "6",
-     "MAX_REPLICA_GROUP": "8",
-     "MIN_REPLICA_GROUP": "4"
+     "REPLICA_COUNT": "6",
+     "MAX_REPLICA_COUNT": "8",
+     "MIN_REPLICA_COUNT": "4"
   },
   "specifiedNodes": [],
   "isSupervised": false,
@@ -261,6 +261,43 @@ Create a new workload.
 }
 ```
 
+***MonarchJob Request Example***:
+```json
+{
+    "displayName": "my-monarch",
+    "groupVersionKind": {
+        "kind": "MonarchJob",
+        "version": "v1"
+    },
+    "entryPoints": [ "ZWNobyAiU3RhcnRpbmcgdHJhaW5pbmcgJFBPRF9JUCIKcHl0aG9uIC9zaGFyZWRfbmZzL3dlaWxlaS9jbGllbnQucHkgXAogICAtLW1vZGVsLWNvbmZpZyBsbGFtYTNfZnRfOGIgXAogICAtLXRva2VuaXplci1wYXRoIC9zaGFyZWRfbmZzL3dlaWxlaS90b3JjaHRpdGFuL2Fzc2V0cy9oZi9MbGFtYS0zLjEtOEIvIFwKICAgLS1kYXRhc2V0LXBhdGggL3NoYXJlZF9uZnMvd2VpbGVpL3RvcmNodGl0YW4vdGVzdHMvYXNzZXRzL2M0X3Rlc3QgXAogICAtLXRyYWluaW5nLXN0ZXBzIDE1MDAgXAogICAtLXdhbmRiLXByb2plY3QgbW9uYXJjaC1kZW1vIFwKICAgLS13YW5kYi1ncm91cCBydW4gXAogICAtLXdhbmRiLXJ1bi1wcmVmaXggcnVu",""],
+    "resources": [
+        {
+            "cpu": "2",
+            "memory": "16Gi",
+            "ephemeralStorage": "10Gi",
+            "replica": 1
+        },
+        {
+            "cpu": "160",
+            "memory": "2000Gi",
+            "gpu": "8",
+            "ephemeralStorage": "1000Gi",
+            "replica": 2
+        }
+    ],
+    "priority": 2,
+    "workspace": "my-workspace",
+    "env": {
+        "REPLICA_COUNT": "2",
+        "PYTHONUNBUFFERED": "1",
+        "TORCHINDUCTOR_DISABLE": "1",
+        "NCCL_DEBUG": "INFO",
+        "RUST_BACKTRACE": "1",
+        "NCCL_IB_GID_INDEX": "1"
+    }
+}
+```
+
 **Notes for RayJob**:
 
 RayJob uses two distinct entry point concepts:
@@ -285,27 +322,27 @@ For RayJob workloads, the `resources`, `entryPoints`, and `images` arrays must h
 - The `replica` field in `resources` specifies the number of pods for that role
 - **Head node replica should be 1** (`resources[0].replica = 1`)
 
-**Notes for TorchFT**:
+**Notes for TorchFT/MonarchJob**:
 
 TorchFT is a fault-tolerant distributed training framework that supports elastic scaling of replica groups. The following environment variables are **required** for TorchFT workloads:
 
 | Environment Variable | Type   | Required | Description |
 |---------------------|--------|----------|-------------|
-| `REPLICA_GROUP`     | string | Yes      | The initial number of replica groups to start with. Each group runs as an independent training process that can fail and recover independently. In the example above, `"6"` means 6 replica groups will be created initially. |
-| `MAX_REPLICA_GROUP` | string | Yes      | The maximum number of replica groups allowed. The system can scale up to this number when resources are available. Must be >= `REPLICA_GROUP`. |
-| `MIN_REPLICA_GROUP` | string | Yes      | The minimum number of replica groups required for the job to continue running. If the number of healthy groups falls below this threshold, the entire job will be marked as failed. Must be <= `REPLICA_GROUP`. |
+| `REPLICA_COUNT`     | string | Yes      | The initial number of replica groups to start with. Each group runs as an independent training process that can fail and recover independently. In the example above, `"6"` means 6 replica groups will be created initially. |
+| `MAX_REPLICA_COUNT` | string | Yes      | The maximum number of replica groups allowed. The system can scale up to this number when resources are available. Must be >= `REPLICA_COUNT`. |
+| `MIN_REPLICA_COUNT` | string | Yes      | The minimum number of replica groups required for the job to continue running. If the number of healthy groups falls below this threshold, the entire job will be marked as failed. Must be <= `REPLICA_COUNT`. |
 
 ***Key Concepts***:
 
 1. ***Replica Group***: A replica group is a logical unit of computation. Each group can fail and restart independently without affecting other groups, enabling fault-tolerant training.
 
-2. ***Elastic Scaling***: TorchFT supports dynamic scaling between `MIN_REPLICA_GROUP` and `MAX_REPLICA_GROUP`:
-   - **Scale Up**: When resources become available, new groups can be added up to `MAX_REPLICA_GROUP`
-   - **Scale Down**: When resources are needed elsewhere or groups fail, the job continues as long as at least `MIN_REPLICA_GROUP` groups are running
+2. ***Elastic Scaling***: TorchFT supports dynamic scaling between `MAX_REPLICA_COUNT` and `MAX_REPLICA_COUNT`:
+   - **Scale Up**: When resources become available, new groups can be added up to `MAX_REPLICA_COUNT`
+   - **Scale Down**: When resources are needed elsewhere or groups fail, the job continues as long as at least `MAX_REPLICA_COUNT` groups are running
 
 3. ***Resource Configuration***:
    - `resources[0]`: Resources for the **lighthouse** (coordinator) container - typically lightweight (1 replica)
-   - `resources[1]`: Resources for each **worker** container - this is multiplied by `REPLICA_GROUP`
+   - `resources[1]`: Resources for each **worker** container - this is multiplied by `REPLICA_COUNT`
    - **Note**: If `specifiedNodes` is provided, `resources[1].replica` must equal the number of specified nodes
 
 
@@ -434,6 +471,7 @@ Get workload list with filtering and pagination support.
 | order | string | No | Sort order: desc/asc, default desc                                                                                             |
 | scaleRunnerSet | string | No | Filter by Scale Runner Set ID. This is the ID of the CICD-created AutoscalingRunnerSet; lists all workloads associated with it |
 | scaleRunnerId | string | No | Filter by Github Action Runner ID.                                                                                             |
+
 
 **Response Example**:
 

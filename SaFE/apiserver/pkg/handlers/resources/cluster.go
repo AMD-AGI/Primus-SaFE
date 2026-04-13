@@ -151,6 +151,9 @@ func (h *Handler) generateCluster(ctx context.Context,
 	if req.IsProtected {
 		v1.SetLabel(cluster, v1.ProtectLabel, "")
 	}
+	if req.IsControlPlane {
+		v1.SetLabel(cluster, v1.ClusterControlPlaneLabel, "")
+	}
 
 	if cluster.Spec.ControlPlane.ImageSecret == nil && commonconfig.GetImageSecret() != "" {
 		imageSecret, err := h.getAndAuthorizeSecret(ctx, commonconfig.GetImageSecret(), "", requestUser, v1.GetVerb)
@@ -286,6 +289,14 @@ func applyClusterPatch(cluster *v1.Cluster, req *view.PatchClusterRequest) (bool
 			v1.SetLabel(cluster, v1.ProtectLabel, "")
 		} else {
 			v1.RemoveLabel(cluster, v1.ProtectLabel)
+		}
+		isChanged = true
+	}
+	if req.IsControlPlane != nil && *req.IsControlPlane != v1.HasLabel(cluster, v1.ClusterControlPlaneLabel) {
+		if *req.IsControlPlane {
+			v1.SetLabel(cluster, v1.ClusterControlPlaneLabel, "")
+		} else {
+			v1.RemoveLabel(cluster, v1.ClusterControlPlaneLabel)
 		}
 		isChanged = true
 	}
@@ -557,11 +568,12 @@ func parseProcessNodesRequest(c *gin.Context) (*view.ProcessNodesRequest, error)
 // Includes basic cluster information like ID, user, phase, protection status, and creation time.
 func cvtToClusterResponseItem(cluster *v1.Cluster) view.ClusterResponseItem {
 	result := view.ClusterResponseItem{
-		ClusterId:    cluster.Name,
-		UserId:       v1.GetUserId(cluster),
-		Phase:        string(cluster.Status.ControlPlaneStatus.Phase),
-		IsProtected:  v1.IsProtected(cluster),
-		CreationTime: timeutil.FormatRFC3339(cluster.CreationTimestamp.Time),
+		ClusterId:      cluster.Name,
+		UserId:         v1.GetUserId(cluster),
+		Phase:          string(cluster.Status.ControlPlaneStatus.Phase),
+		IsProtected:    v1.IsProtected(cluster),
+		IsControlPlane: v1.HasLabel(cluster, v1.ClusterControlPlaneLabel),
+		CreationTime:   timeutil.FormatRFC3339(cluster.CreationTimestamp.Time),
 	}
 	if !cluster.GetDeletionTimestamp().IsZero() {
 		result.Phase = string(v1.DeletingPhase)
