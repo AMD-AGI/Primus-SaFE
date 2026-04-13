@@ -15,20 +15,42 @@
         <span class="textx-15 font-medium">Base Model</span>
       </div>
 
-      <div class="model-info-card m-b-4">
+      <div v-if="props.model" class="model-info-card m-b-4">
         <div class="flex items-center gap-3">
-          <div v-if="props.model?.icon" class="model-icon">
+          <div v-if="props.model.icon" class="model-icon">
             <img :src="props.model.icon" alt="" class="w-10 h-10 rounded" />
           </div>
           <div>
-            <div class="font-medium">{{ props.model?.displayName || props.model?.id }}</div>
+            <div class="font-medium">{{ props.model.displayName || props.model.id }}</div>
             <div class="flex items-center gap-1 mt-1">
-              <span :class="['s-pill', `s-pill--${props.model?.phase?.toLowerCase()}`]">{{ props.model?.phase }}</span>
-              <span class="s-pill s-pill--muted">{{ props.model?.accessMode }}</span>
+              <span :class="['s-pill', `s-pill--${props.model.phase?.toLowerCase()}`]">{{ props.model.phase }}</span>
+              <span class="s-pill s-pill--muted">{{ props.model.accessMode }}</span>
             </div>
           </div>
         </div>
       </div>
+      <el-select
+        v-else
+        v-model="selectedModelId"
+        placeholder="Select a base model"
+        filterable
+        class="w-full m-b-4"
+        :loading="loadingModels"
+      >
+        <el-option
+          v-for="m in modelsList"
+          :key="m.id"
+          :label="m.displayName || m.id"
+          :value="m.id"
+        >
+          <div class="flex items-center justify-between">
+            <span>{{ m.displayName || m.id }}</span>
+            <el-tag size="small" :type="m.phase === 'Ready' ? 'success' : 'info'" effect="plain">
+              {{ m.phase }}
+            </el-tag>
+          </div>
+        </el-option>
+      </el-select>
 
       <!-- Training Type -->
       <div class="flex items-center m-b-4 m-t-6">
@@ -693,7 +715,7 @@
         type="primary"
         @click="handleSubmit"
         :loading="submitting"
-        :disabled="configLoading || (currentConfig != null && !currentConfig.supported)"
+        :disabled="configLoading || !effectiveModel || (currentConfig != null && !currentConfig.supported)"
       >
         {{ trainingType === 'sft' ? 'Create SFT Job' : 'Create RL Job' }}
       </el-button>
@@ -712,6 +734,7 @@ import { getRlConfig, createRlJob } from '@/services/rl'
 import type { RlConfigResponse, RlTrainConfig } from '@/services/rl'
 import { getDatasets } from '@/services/dataset'
 import type { DatasetItem } from '@/services/dataset/type'
+import { getModelsList, canTrain } from '@/services/playground'
 import type { PlaygroundModel } from '@/services/playground'
 import { useWorkspaceStore } from '@/stores/workspace'
 
@@ -726,6 +749,15 @@ const emit = defineEmits<{
 }>()
 
 const wsStore = useWorkspaceStore()
+
+const modelsList = ref<PlaygroundModel[]>([])
+const loadingModels = ref(false)
+const selectedModelId = ref('')
+
+const effectiveModel = computed<PlaygroundModel | null>(() => {
+  if (props.model) return props.model
+  return modelsList.value.find((m) => m.id === selectedModelId.value) || null
+})
 
 const dialogVisible = computed({
   get: () => props.visible,
@@ -857,8 +889,22 @@ const rlFormRules: FormRules = {
 
 // ── Config loading ──
 
+const fetchModels = async () => {
+  loadingModels.value = true
+  try {
+    const res = (await getModelsList({ workspace: wsStore.currentWorkspaceId })) as unknown as {
+      items: PlaygroundModel[]
+    }
+    modelsList.value = (res.items || []).filter(canTrain)
+  } catch {
+    ElMessage.error('Failed to load models')
+  } finally {
+    loadingModels.value = false
+  }
+}
+
 const loadConfig = async () => {
-  if (!props.visible || !props.model?.id) return
+  if (!props.visible || !effectiveModel.value?.id) return
 
   if (trainingType.value === 'sft') {
     if (!sftConfig.value) {
@@ -876,10 +922,10 @@ const loadConfig = async () => {
 }
 
 const loadSftConfig = async () => {
-  if (!props.model?.id) return
+  if (!effectiveModel.value?.id) return
   configLoading.value = true
   try {
-    const res = await getSftConfig(props.model.id, wsStore.currentWorkspaceId || '')
+    const res = await getSftConfig(effectiveModel.value.id, wsStore.currentWorkspaceId || '')
     sftConfig.value = res as unknown as SftConfigResponse
     if (sftConfig.value.supported) {
       const d = sftConfig.value.defaults
@@ -903,10 +949,10 @@ const loadSftConfig = async () => {
 }
 
 const loadRlConfig = async (strategy?: string) => {
-  if (!props.model?.id) return
+  if (!effectiveModel.value?.id) return
   configLoading.value = true
   try {
-    const res = await getRlConfig(props.model.id, {
+    const res = await getRlConfig(effectiveModel.value.id, {
       workspace: wsStore.currentWorkspaceId || '',
       strategy: strategy || rlForm.trainConfig.strategy,
     })
@@ -955,14 +1001,24 @@ const loadDatasets = async (filter: { datasetType: string; workspace: string }) 
 watch(
   () => props.visible,
   async (val) => {
-    if (val && props.model) {
+    if (!val) return
+    if (props.model) {
       await loadConfig()
+    } else {
+      await fetchModels()
     }
   },
 )
 
+watch(selectedModelId, async (id) => {
+  if (!id) return
+  sftConfig.value = null
+  rlConfig.value = null
+  await loadConfig()
+})
+
 watch(trainingType, async () => {
-  if (!props.visible || !props.model) return
+  if (!props.visible || !effectiveModel.value) return
   await loadConfig()
 })
 
@@ -991,14 +1047,14 @@ const handleSubmit = async () => {
 }
 
 const submitSftJob = async () => {
-  if (!sftFormRef.value || !props.model) return
+  if (!sftFormRef.value || !effectiveModel.value) return
   await sftFormRef.value.validate(async (valid) => {
     if (!valid) return
     submitting.value = true
     try {
       const res = await createSftJob({
         displayName: sftForm.displayName,
-        modelId: props.model!.id,
+        modelId: effectiveModel.value!.id,
         datasetId: sftForm.datasetId,
         workspace: wsStore.currentWorkspaceId || '',
         exportModel: sftForm.exportModel,
@@ -1027,14 +1083,14 @@ const submitSftJob = async () => {
 }
 
 const submitRlJob = async () => {
-  if (!rlFormRef.value || !props.model) return
+  if (!rlFormRef.value || !effectiveModel.value) return
   await rlFormRef.value.validate(async (valid) => {
     if (!valid) return
     submitting.value = true
     try {
       const res = await createRlJob({
         displayName: rlForm.displayName,
-        modelId: props.model!.id,
+        modelId: effectiveModel.value!.id,
         datasetId: rlForm.datasetId,
         workspace: wsStore.currentWorkspaceId || '',
         exportModel: rlForm.exportModel,
@@ -1068,6 +1124,8 @@ const handleClose = () => {
   rlConfig.value = null
   datasets.value = []
   trainingType.value = 'sft'
+  selectedModelId.value = ''
+  modelsList.value = []
   sftForm.displayName = ''
   sftForm.datasetId = ''
   rlForm.displayName = ''
