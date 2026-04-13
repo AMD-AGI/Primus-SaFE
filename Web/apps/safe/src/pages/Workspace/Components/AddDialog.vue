@@ -69,14 +69,14 @@
             <el-input-number
               v-model="form.idleTime[scope]"
               :min="0"
-              :step="0.5"
-              :precision="1"
+              :step="5"
+              :precision="0"
               controls-position="right"
-              placeholder="hours"
+              placeholder="minutes"
               size="small"
               class="limit-input"
             />
-            <span class="limit-unit">h</span>
+            <span class="limit-unit">min</span>
           </div>
           <el-dropdown v-if="idleTimeAvailableScopes.length" trigger="click" @command="addIdleTimeScope">
             <el-button size="small" text type="primary">+ Add</el-button>
@@ -446,7 +446,7 @@ const onSubmit = async (formEl: FormInstance | undefined) => {
     idleTimeConfiguredScopes.value.forEach((scope) => {
       const value = form.idleTime?.[scope]
       if (typeof value === 'number' && Number.isFinite(value) && value > 0) {
-        idleTime[scope] = hoursToGoDuration(value)
+        idleTime[scope] = minutesToGoDuration(value)
       }
     })
 
@@ -518,11 +518,11 @@ const setInitialFormValues = async () => {
   form.managers = res.managers?.map((v: any) => v.id)
   form.maxRuntime = res.maxRuntime ?? {}
 
-  // Parse idleTime from Go duration strings to hours
+  // Parse idleTime from Go duration strings to minutes
   const rawIdleTime = (res as any).idleTime ?? {}
   const parsedIdleTime: Record<string, number | undefined> = {}
   for (const [scope, dur] of Object.entries(rawIdleTime)) {
-    parsedIdleTime[scope] = goDurationToHours(dur as string)
+    parsedIdleTime[scope] = goDurationToMinutes(dur as string)
   }
   form.idleTime = parsedIdleTime
 
@@ -649,28 +649,27 @@ const idleTimeAvailableScopes = computed(() =>
   selectedScopes.value.filter((s) => !(s in form.idleTime)),
 )
 const addIdleTimeScope = (scope: string) => {
-  form.idleTime[scope] = undefined
+  form.idleTime[scope] = 15
 }
 const removeIdleTimeScope = (scope: string) => {
   delete form.idleTime[scope]
 }
 
-// Convert hours (number) to Go duration string: 1.5 → "1h30m0s"
-const hoursToGoDuration = (hours: number): string => {
-  const totalMinutes = Math.round(hours * 60)
-  const h = Math.floor(totalMinutes / 60)
-  const m = totalMinutes % 60
+// Convert minutes (number) to Go duration string: 15 → "0h15m0s", 90 → "1h30m0s"
+const minutesToGoDuration = (minutes: number): string => {
+  const h = Math.floor(minutes / 60)
+  const m = minutes % 60
   return `${h}h${m}m0s`
 }
 
-// Convert Go duration string to hours: "1h30m0s" → 1.5
-const goDurationToHours = (dur: string): number | undefined => {
+// Convert Go duration string to minutes: "0h15m0s" → 15, "1h30m0s" → 90
+const goDurationToMinutes = (dur: string): number | undefined => {
   if (!dur) return undefined
   const hMatch = dur.match(/(\d+)h/)
   const mMatch = dur.match(/(\d+)m/)
   const h = hMatch ? parseInt(hMatch[1], 10) : 0
   const m = mMatch ? parseInt(mMatch[1], 10) : 0
-  return h + m / 60 || undefined
+  return (h * 60 + m) || undefined
 }
 
 // Watch volumes strategy and KV changes
