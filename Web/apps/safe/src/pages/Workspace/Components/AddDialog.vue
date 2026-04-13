@@ -655,11 +655,11 @@ const removeIdleTimeScope = (scope: string) => {
   delete form.idleTime[scope]
 }
 
-// Convert minutes (number) to Go duration string: 15 → "0h15m0s", 90 → "1h30m0s"
+// Convert minutes (number) to Go duration string: 15 → "0h15m", 90 → "1h30m"
 const minutesToGoDuration = (minutes: number): string => {
   const h = Math.floor(minutes / 60)
   const m = minutes % 60
-  return `${h}h${m}m0s`
+  return `${h}h${m}m`
 }
 
 // Convert Go duration string to minutes: "0h15m0s" → 15, "1h30m0s" → 90
