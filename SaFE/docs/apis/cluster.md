@@ -43,7 +43,8 @@ Create a new Kubernetes cluster.
     "env": "production",
     "region": "us-west"
   },
-  "isProtected": true
+  "isProtected": true,
+  "isControlPlane": false
 }
 ```
 
@@ -64,6 +65,7 @@ Create a new Kubernetes cluster.
 | kubeApiServerArgs | object | No | additional arguments for Kubernetes, e.g. {"max-mutating-requests-inflight":"5000","max-requests-inflight":"10000"} |
 | labels | object | No | User-defined labels (key-value pairs). Keys cannot start with "primus-safe"                                           |
 | isProtected | bool | No | Whether protected (protected clusters cannot be deleted directly)                                                   |
+| isControlPlane | bool | No | Whether the cluster is a control plane                                                                              |
 
 **Response Example**:
 
@@ -100,6 +102,7 @@ Get all clusters list.
       "userId": "user-001",
       "phase": "Ready",
       "isProtected": true,
+      "isControlPlane": true,
       "creationTime": "2025-01-10T08:00:00"
     },
     {
@@ -107,6 +110,7 @@ Get all clusters list.
       "userId": "user-002",
       "phase": "Creating",
       "isProtected": false,
+      "isControlPlane": false,
       "creationTime": "2025-01-15T10:00:00"
     }
   ]
@@ -121,6 +125,7 @@ Get all clusters list.
 | userId | []string | User ID who created the cluster                        |
 | phase | string   | Cluster status, e.g. Ready,Creating,Failed,Deleting |
 | isProtected | bool     | Whether the cluster is under protection                |
+| isControlPlane | bool     | Whether the cluster is a control plane                 |
 | creationTime | string   | The cluster creation time. e.g. "2025-07-08T10:31:46"                       |
 
 
@@ -148,6 +153,7 @@ Get detailed information about a specific cluster.
   "userId": "user-001",
   "phase": "Ready",
   "isProtected": true,
+  "isControlPlane": true,
   "creationTime": "2025-01-10T08:00:00",
   "description": "Production environment cluster",
   "endpoint": "10.0.0.100:6443",
@@ -165,7 +171,7 @@ Get detailed information about a specific cluster.
   "labels": {
     "env": "production",
     "region": "us-west"
-  },
+  }
 }
 ```
 
@@ -177,6 +183,7 @@ Get detailed information about a specific cluster.
 | userId | string | User ID who created the cluster |
 | phase | string | Cluster status, such as Ready,Creating,Failed,Deleting |
 | isProtected | bool | Whether the cluster is under protection |
+| isControlPlane | bool | Whether the cluster is a control plane |
 | creationTime | string | The cluster creation time, e.g. "2025-01-10T08:00:00" |
 | description | string | Cluster description |
 | endpoint | string | Kubernetes API server endpoint (host:port) |
@@ -212,6 +219,7 @@ Update cluster configuration.
 ```json
 {
   "isProtected": false,
+  "isControlPlane": true,
   "labels": {
     "region": "us-east"
   }
@@ -223,6 +231,7 @@ Update cluster configuration.
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | isProtected | bool | No | Whether to protect the cluster |
+| isControlPlane | bool | No | Whether the cluster is a control plane; omit to leave unchanged |
 | labels | object | No | User-defined labels (key-value pairs). Keys cannot start with "primus-safe"
 
 **Response**: 200 OK with no response body

@@ -405,11 +405,20 @@ func (r *AddonJobReconciler) updateNodeTemplatePhase(ctx context.Context, job *v
 	return nil
 }
 
+// shellSingleQuote wraps s as one POSIX single-quoted shell word.
+func shellSingleQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", "'\"'\"'") + "'"
+}
+
 // executeCommand executes the addon action on the node via SSH.
 func executeCommand(sshClient *ssh.Client, addonName, command string) (string, error) {
+	// Root SSH session: unchanged pipeline. Non-root: run under root login shell via sudo su -.
+	whenRoot := fmt.Sprintf(`echo '%s' | /usr/bin/base64 -d | sudo /bin/bash`, command)
+	whenNonRoot := fmt.Sprintf(`echo '%s' | /usr/bin/base64 -d | /bin/bash`, command)
 	cmd := fmt.Sprintf(
-		`echo '%s' | /usr/bin/base64 -d | sudo /bin/bash`,
-		command,
+		`if [ "$(id -u)" -eq 0 ]; then %s; else sudo su - -c %s; fi`,
+		whenRoot,
+		shellSingleQuote(whenNonRoot),
 	)
 	session, err := sshClient.NewSession()
 	if err != nil {
