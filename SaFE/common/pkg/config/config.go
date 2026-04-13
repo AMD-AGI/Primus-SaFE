@@ -569,3 +569,7 @@ func IsMonarchEnable() bool {
 func GetMonarchClientRole() string {
 	return getString(monarchClientRole, "")
 }
+
+func IsSandboxPublic() bool {
+	return getBool(sandboxPublic, false)
+}
