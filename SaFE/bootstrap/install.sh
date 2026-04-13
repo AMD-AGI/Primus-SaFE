@@ -126,6 +126,20 @@ fi
 csi_volume_handle=$(get_input_with_default "Enter csi volume handle? (empty to disable pfs for workspace): " "")
 install_node_agent=$(get_input_with_default "install node-agent ? (y/n): " "n")
 
+helm_registry="registry-1.docker.io"
+proxy_image_registry=""
+if [[ -n "$sub_domain" ]]; then
+  harbor_host="harbor.${sub_domain}.primus-safe.amd.com"
+  if kubectl get ns harbor &>/dev/null && \
+     kubectl get ep -n harbor harbor-core -o jsonpath='{.subsets[0].addresses[0].ip}' &>/dev/null 2>&1; then
+    helm_registry="${harbor_host}/proxy"
+    proxy_image_registry="${harbor_host}/proxy"
+    echo "✅ Harbor detected at ${harbor_host}, using proxy cache mode"
+  else
+    echo "✅ Harbor not detected, using public registry mode"
+  fi
+fi
+
 echo "✅ Ethernet nic: \"$ethernet_nic\""
 echo "✅ Rdma nic: \"$rdma_nic\""
 echo "✅ Cluster Scale: \"$cluster_scale\""
@@ -153,6 +167,8 @@ if [[ "$sso_enable" == "true" ]]; then
   echo "✅ SSO Redirect URI: \"$sso_redirect_uri\""
 fi
 echo "✅ CSI Volume Handle: \"$csi_volume_handle\""
+echo "✅ Helm Registry: \"$helm_registry\""
+echo "✅ Image Registry: \"$proxy_image_registry\""
 
 replicas=1
 cpu=2000m
@@ -380,6 +396,8 @@ ingress=$ingress
 sub_domain=$sub_domain
 install_node_agent=$install_node_agent
 csi_volume_handle=$csi_volume_handle
+helm_registry=$helm_registry
+proxy_image_registry=$proxy_image_registry
 node_agent_gpu_driver=6.12.12
 node_agent_rocm_version=6.4
 node_agent_nfs_server=
