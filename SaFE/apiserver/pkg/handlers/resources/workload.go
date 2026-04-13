@@ -191,19 +191,19 @@ func (h *Handler) createWorkload(c *gin.Context) (interface{}, error) {
 func (h *Handler) createWorkloadImpl(c *gin.Context,
 	workload *v1.Workload, requestUser *v1.User, roles []*v1.Role) (*view.CreateWorkloadResponse, error) {
 	var err error
+
 	if v1.GetLabel(workload, v1.WorkloadKindLabel) != common.SandboxKind || !commonconfig.IsSandboxPublic() {
 		if err = h.authWorkloadAction(c, workload, v1.CreateVerb, v1.WorkloadKind, requestUser, roles); err != nil {
 			klog.ErrorS(err, "failed to auth workload", "workload", workload.Name,
 				"workspace", workload.Spec.Workspace, "user", c.GetString(common.UserName))
 			return nil, err
 		}
-	}
-
-	priorityKind := generatePriority(workload.Spec.Priority)
-	if err = h.authWorkloadAction(c, workload, v1.CreateVerb, priorityKind, requestUser, roles); err != nil {
-		klog.ErrorS(err, "failed to auth workload priority", "workload", workload.Name,
-			"priority", workload.Spec.Priority, "user", c.GetString(common.UserName))
-		return nil, err
+		priorityKind := generatePriority(workload.Spec.Priority)
+		if err = h.authWorkloadAction(c, workload, v1.CreateVerb, priorityKind, requestUser, roles); err != nil {
+			klog.ErrorS(err, "failed to auth workload priority", "workload", workload.Name,
+				"priority", workload.Spec.Priority, "user", c.GetString(common.UserName))
+			return nil, err
+		}
 	}
 
 	if v1.IsPrivileged(workload) {
