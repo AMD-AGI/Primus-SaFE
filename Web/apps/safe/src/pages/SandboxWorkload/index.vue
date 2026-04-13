@@ -265,8 +265,8 @@
             <span class="ml-2">Selected {{ selectedRows.length }} item{{ selectedRows.length === 1 ? '' : 's' }}</span>
           </div>
           <div class="right">
-            <el-button type="danger" plain @click="onBatchDelete">Delete</el-button>
-            <el-button type="warning" plain @click="onBatchStop">Stop</el-button>
+            <el-button type="danger" plain :disabled="!canWrite" @click="onBatchDelete">Delete</el-button>
+            <el-button type="warning" plain :disabled="!canWrite" @click="onBatchStop">Stop</el-button>
           </div>
         </div>
       </transition>
@@ -293,6 +293,7 @@
 
 <script lang="ts" setup>
 import { ref, reactive, watch, computed, nextTick, onMounted, onBeforeUnmount, h } from 'vue'
+import { useWorkloadWriteGuard } from '@/composables/useWorkloadWriteGuard'
 import {
   getWorkloadsList,
   deleteWorkload,
@@ -327,6 +328,7 @@ const route = useRoute()
 const router = useRouter()
 const store = useWorkspaceStore()
 const userStore = useUserStore()
+const { canWrite } = useWorkloadWriteGuard()
 
 const editVisible = ref(false)
 const editWlId = ref('')
@@ -460,7 +462,7 @@ const getActions = (_row: Row): Action[] => [
     label: 'Edit',
     icon: Edit,
     btnClass: 'btn-primary-plain',
-    disabled: (r: Row) => !['Running', 'Pending'].includes(r.phase),
+    disabled: (r: Row) => !canWrite.value || !['Running', 'Pending'].includes(r.phase),
     tooltip: (r: Row) =>
       ['Running', 'Pending'].includes(r.phase)
         ? 'Edit workload configuration'
@@ -475,6 +477,7 @@ const getActions = (_row: Row): Action[] => [
     label: 'Stop',
     icon: Close,
     btnClass: 'btn-warning-plain',
+    disabled: () => !canWrite.value,
     onClick: async (r: Row) => {
       const msg = h('span', null, [
         'Are you sure you want to stop workload: ',
@@ -496,6 +499,7 @@ const getActions = (_row: Row): Action[] => [
     label: 'Delete',
     icon: Delete,
     btnClass: 'btn-danger-plain',
+    disabled: () => !canWrite.value,
     onClick: async (r: Row) => {
       const msg = h('span', null, [
         'Are you sure you want to delete workload: ',

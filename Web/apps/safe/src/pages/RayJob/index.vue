@@ -8,6 +8,7 @@
         type="primary"
         round
         :icon="Plus"
+        :disabled="!canWrite"
         @click="
           () => {
             addVisible = true
@@ -328,8 +329,8 @@
           </div>
 
           <div class="right">
-            <el-button type="danger" plain @click="onBatchDelete">Delete</el-button>
-            <el-button type="warning" plain @click="onBatchStop">Stop</el-button>
+            <el-button type="danger" plain :disabled="!canWrite" @click="onBatchDelete">Delete</el-button>
+            <el-button type="warning" plain :disabled="!canWrite" @click="onBatchStop">Stop</el-button>
           </div>
         </div>
       </transition>
@@ -363,6 +364,7 @@
 </template>
 <script lang="ts" setup>
 import { ref, reactive, watch, nextTick, onMounted, onBeforeUnmount, h, computed } from 'vue'
+import { useWorkloadWriteGuard } from '@/composables/useWorkloadWriteGuard'
 import {
   getWorkloadsList,
   deleteWorkload,
@@ -414,6 +416,8 @@ const getTotalReplicas = (row: unknown) => {
 
 // Auto-refresh user info on page enter (permission-sensitive page)
 useAutoRefreshUserInfo({ immediate: true })
+
+const { canWrite } = useWorkloadWriteGuard()
 
 const addVisible = ref(false)
 // typed search params to avoid `any` casts around dateRange
@@ -634,6 +638,7 @@ const getActions = (_row: Row) => {
       label: 'Clone',
       icon: DocumentCopy,
       btnClass: 'btn-success-plain',
+      disabled: () => !canWrite.value,
       onClick: (r: Row) => {
         curAction.value = 'Clone'
         curWlId.value = r.workloadId
@@ -655,10 +660,10 @@ const getActions = (_row: Row) => {
 
         if (maxRetry > 0) {
           // maxRetry > 0: editable when Pending or Running
-          return !['Running', 'Pending'].includes(phase)
+          return !canWrite.value || !['Running', 'Pending'].includes(phase)
         } else {
           // maxRetry = 0: only editable when Pending and queuePosition > 0
-          return !(phase === 'Pending' && queuePosition > 0)
+          return !canWrite.value || !(phase === 'Pending' && queuePosition > 0)
         }
       },
       onClick: (r: Row) => {
@@ -673,6 +678,7 @@ const getActions = (_row: Row) => {
       label: 'Delete',
       icon: Delete,
       btnClass: 'btn-danger-plain',
+      disabled: () => !canWrite.value,
       onClick: async (r: Row) => {
         const msg = h('span', null, [
           'Are you sure you want to delete workload: ',
@@ -695,6 +701,7 @@ const getActions = (_row: Row) => {
       label: 'Stop',
       icon: Close,
       btnClass: 'btn-danger-plain',
+      disabled: () => !canWrite.value,
       onClick: async (r: Row) => {
         const msg = h('span', null, [
           'Are you sure you want to stop workload: ',
