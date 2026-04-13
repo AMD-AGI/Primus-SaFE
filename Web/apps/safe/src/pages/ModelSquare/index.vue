@@ -64,20 +64,6 @@
           class="mb-2 ghost-seg"
           style="background: none"
         />
-        <!-- Access mode filter -->
-        <el-select
-          v-model="filters.modelType"
-          placeholder="All Types"
-          clearable
-          @change="handleFilterChange"
-          style="width: 150px"
-          class="mb-2"
-        >
-          <el-option label="All Types" value="" />
-          <el-option label="Local" value="local" />
-          <el-option label="Local Path" value="local_path" />
-          <el-option label="Remote API" value="remote_api" />
-        </el-select>
       </div>
     </div>
 
@@ -135,9 +121,9 @@
                   </span>
                   <span
                     v-if="model.origin === 'fine_tuned'"
-                    class="status-pill status-pill--fine-tuned"
+                    class="status-pill status-pill--sft"
                   >
-                    Fine-tuned
+                    SFT
                   </span>
                   <span
                     v-else-if="model.origin === 'rl_trained'"
@@ -275,21 +261,6 @@
                   <el-icon><VideoPause /></el-icon>
                 </el-button>
               </el-tooltip>
-              <!-- Train button (SFT + RL) -->
-              <el-tooltip
-                v-if="canTrain(model)"
-                content="Train"
-                placement="top"
-              >
-                <el-button
-                  size="small"
-                  @click="handleCommand('train', model)"
-                  circle
-                  class="btn-icon btn-sft"
-                >
-                  <el-icon><MagicStick /></el-icon>
-                </el-button>
-              </el-tooltip>
               <el-tooltip content="Delete Model" placement="top">
                 <el-button
                   size="small"
@@ -359,12 +330,6 @@
       @confirm="handleInferSelected"
     />
 
-    <!-- Create Training dialog -->
-    <CreateTrainingDialog
-      v-model:visible="showTrainDialog"
-      :model="currentTrainModel"
-      @success="handleTrainSuccess"
-    />
   </div>
 </template>
 
@@ -382,7 +347,6 @@ import {
   VideoPause,
   Box,
   RefreshRight,
-  MagicStick,
   Refresh,
 } from '@element-plus/icons-vue'
 import { useDark, useDebounceFn } from '@vueuse/core'
@@ -393,14 +357,12 @@ import {
   retryModel,
   getModelWorkloadConfig,
   isDeployableLocalModel,
-  canTrain,
   type PlaygroundModel,
   type ModelsListParams,
   type ModelsListResp,
 } from '@/services/playground'
 import AddModelDialog from './Components/AddModelDialog.vue'
 import ToggleServiceDialog from './Components/ToggleServiceDialog.vue'
-import CreateTrainingDialog from './Components/CreateTrainingDialog.vue'
 import InferAddDialog from '@/pages/Infer/Components/AddDialog.vue'
 import SelectInferDialog from './Components/SelectInferDialog.vue'
 import { useWorkspaceStore } from '@/stores/workspace'
@@ -426,12 +388,8 @@ const inferAction = ref('Create')
 const inferPrefillData = ref<Record<string, unknown>>({})
 const showSelectInferDialog = ref(false)
 const currentSelectModel = ref<PlaygroundModel | null>(null)
-const showTrainDialog = ref(false)
-const currentTrainModel = ref<PlaygroundModel | null>(null)
-
 // Filter criteria
 const filters = reactive({
-  modelType: '',
   origin: '',
   owner: '',
   search: '',
@@ -460,7 +418,7 @@ const ownerOptions = [
 const originOptions = [
   { label: 'All', value: '' },
   { label: 'Base', value: 'external' },
-  { label: 'Fine-tuned', value: 'fine_tuned' },
+  { label: 'SFT', value: 'fine_tuned' },
   { label: 'RL', value: 'rl_trained' },
   { label: 'Remote API', value: 'remote_api' },
 ]
@@ -486,7 +444,6 @@ const fetchModels = async () => {
   try {
     const params: ModelsListParams = {}
 
-    if (filters.modelType) params.accessMode = filters.modelType
     if (filters.origin === 'remote_api') {
       params.accessMode = 'remote_api'
     } else if (filters.origin) {
@@ -578,10 +535,6 @@ const handleCommand = async (command: string, model: PlaygroundModel) => {
       break
     case 'delete':
       await handleDeleteModel(model)
-      break
-    case 'train':
-      currentTrainModel.value = model
-      showTrainDialog.value = true
       break
   }
 }
@@ -700,15 +653,6 @@ const handleInferSuccess = () => {
   })
 }
 
-// Handle training job creation success
-const handleTrainSuccess = (workloadId: string) => {
-  showTrainDialog.value = false
-  currentTrainModel.value = null
-  router.push({
-    path: '/training/detail',
-    query: { id: workloadId },
-  })
-}
 
 // Delete model
 const handleDeleteModel = async (model: PlaygroundModel) => {
@@ -1316,7 +1260,7 @@ watch(
     background: rgba(140, 143, 148, 0.08);
     border-color: rgba(140, 143, 148, 0.15);
   }
-  &--fine-tuned {
+  &--sft {
     color: #5b9e6f;
     background: rgba(91, 158, 111, 0.1);
     border-color: rgba(91, 158, 111, 0.2);

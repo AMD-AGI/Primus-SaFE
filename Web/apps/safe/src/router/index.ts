@@ -269,6 +269,11 @@ const router = createRouter({
           component: () => import('@/pages/Addons/index.vue'),
         },
         {
+          path: '/posttrain',
+          name: 'PostTrain',
+          component: () => import('@/pages/PostTrain/index.vue'),
+        },
+        {
           path: '/playground-agent',
           name: 'PlaygroundAgent',
           component: () => import('@/pages/PlaygroundAgent/index.vue'),

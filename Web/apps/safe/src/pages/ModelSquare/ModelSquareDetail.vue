@@ -24,7 +24,7 @@
             type="success"
             :effect="isDark ? 'dark' : 'plain'"
           >
-            Fine-tuned
+            SFT
           </el-tag>
           <el-tag
             v-else-if="detailData.accessMode === 'local'"
@@ -143,7 +143,7 @@
           size="small"
           :type="detailData.origin === 'fine_tuned' ? 'success' : detailData.origin === 'rl_trained' ? 'warning' : 'info'"
         >
-          {{ detailData.origin === 'fine_tuned' ? 'Fine-tuned' : detailData.origin === 'rl_trained' ? 'RL' : 'Base' }}
+          {{ detailData.origin === 'fine_tuned' ? 'SFT' : detailData.origin === 'rl_trained' ? 'RL' : 'Base' }}
         </el-tag>
       </el-descriptions-item>
       <el-descriptions-item v-if="detailData.userName" label="Owner">
