@@ -191,11 +191,14 @@ func (h *Handler) createWorkload(c *gin.Context) (interface{}, error) {
 func (h *Handler) createWorkloadImpl(c *gin.Context,
 	workload *v1.Workload, requestUser *v1.User, roles []*v1.Role) (*view.CreateWorkloadResponse, error) {
 	var err error
-	if err = h.authWorkloadAction(c, workload, v1.CreateVerb, v1.WorkloadKind, requestUser, roles); err != nil {
-		klog.ErrorS(err, "failed to auth workload", "workload", workload.Name,
-			"workspace", workload.Spec.Workspace, "user", c.GetString(common.UserName))
-		return nil, err
+	if v1.GetLabel(workload, v1.WorkloadKindLabel) != common.SandboxKind || !commonconfig.IsSandboxPublic() {
+		if err = h.authWorkloadAction(c, workload, v1.CreateVerb, v1.WorkloadKind, requestUser, roles); err != nil {
+			klog.ErrorS(err, "failed to auth workload", "workload", workload.Name,
+				"workspace", workload.Spec.Workspace, "user", c.GetString(common.UserName))
+			return nil, err
+		}
 	}
+
 	priorityKind := generatePriority(workload.Spec.Priority)
 	if err = h.authWorkloadAction(c, workload, v1.CreateVerb, priorityKind, requestUser, roles); err != nil {
 		klog.ErrorS(err, "failed to auth workload priority", "workload", workload.Name,
@@ -275,8 +278,10 @@ func (h *Handler) listWorkload(c *gin.Context) (interface{}, error) {
 		return nil, err
 	}
 	adminWorkload := generateWorkloadForAuth("", "", query.WorkspaceId, query.ClusterId)
-	if err = h.authWorkloadAction(c, adminWorkload, v1.ListVerb, v1.WorkloadKind, requestUser, roles); err != nil {
-		return nil, err
+	if query.Kind != common.SandboxKind || !commonconfig.IsSandboxPublic() {
+		if err = h.authWorkloadAction(c, adminWorkload, v1.ListVerb, v1.WorkloadKind, requestUser, roles); err != nil {
+			return nil, err
+		}
 	}
 
 	dbSql, orderBy := cvtToListWorkloadSql(query)
@@ -783,6 +788,7 @@ func (h *Handler) generateWorkload(ctx context.Context,
 	} else {
 		req.NodesAffinity = nil
 	}
+	v1.SetLabel(workload, v1.WorkloadKindLabel, workload.SpecKind())
 	v1.SetAnnotation(workload, v1.NodesAffinityAnnotation, req.GetNodesAffinity())
 	genCustomerLabelsByNodes(workload, req.SpecifiedNodes, common.SpecifiedNodes)
 	if len(req.SpecifiedNodes) == 0 || req.GetNodesAffinity() != common.NodesAffinityRequired {
@@ -870,6 +876,7 @@ func (h *Handler) createPreheatWorkload(c *gin.Context, mainWorkload *v1.Workloa
 			Annotations: map[string]string{
 				v1.DescriptionAnnotation:       v1.OpsJobKind,
 				v1.RequireNodeSpreadAnnotation: v1.TrueStr,
+				v1.WorkloadKindLabel:           mainWorkload.SpecKind(),
 			},
 		},
 		Spec: v1.WorkloadSpec{
