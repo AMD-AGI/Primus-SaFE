@@ -172,4 +172,8 @@ const (
 	monarchPrefix     = "monarch."
 	monarchEnable     = monarchPrefix + "enable"
 	monarchClientRole = monarchPrefix + "client_role"
+
+	// sandbox
+	sandboxPrefix = "sandbox."
+	sandboxPublic = sandboxPrefix + "public"
 )
