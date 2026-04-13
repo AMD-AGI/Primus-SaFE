@@ -21,3 +21,22 @@ spec:
   version: v1.4.0
   type: helm
   helmDefaultNamespace: kube-amd-gpu
+  helmDefaultValues: |
+    controllerManager:
+      manager:
+        tolerations:
+          - operator: Exists
+    deviceConfig:
+      spec:
+        devicePlugin:
+          devicePluginTolerations:
+            - operator: Exists
+          nodeLabellerTolerations:
+            - operator: Exists
+        metricsExporter:
+          tolerations:
+            - operator: Exists
+    node-feature-discovery:
+      worker:
+        tolerations:
+          - operator: Exists
