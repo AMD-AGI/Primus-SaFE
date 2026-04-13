@@ -59,15 +59,15 @@
           <el-tooltip
             v-if="showSsh"
             effect="dark"
-            content="Only available when Running"
-            :disabled="workloadPhase === 'Running'"
+            :content="props.disableSsh ? 'No permission' : 'Only available when Running'"
+            :disabled="!props.disableSsh && workloadPhase === 'Running'"
             placement="top"
           >
             <span style="display: inline-block">
               <el-button
                 type="text"
                 size="small"
-                :disabled="row.phase !== 'Running'"
+                :disabled="props.disableSsh || row.phase !== 'Running'"
                 @click="emit('openSsh', row.podId, row.sshCommand)"
               >
                 SSH
@@ -85,11 +85,12 @@ import { Refresh } from '@element-plus/icons-vue'
 import { WorkloadPhaseButtonType } from '@/services'
 import { formatTimeStr } from '@/utils'
 
-defineProps<{
+const props = defineProps<{
   pods?: any[]
   workloadPhase?: string
   showSsh?: boolean
   refreshLoading?: boolean
+  disableSsh?: boolean
 }>()
 
 const emit = defineEmits<{

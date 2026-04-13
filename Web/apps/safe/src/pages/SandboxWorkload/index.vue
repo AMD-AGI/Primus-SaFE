@@ -120,7 +120,7 @@
         <el-table-column
           prop="phase"
           label="Phase"
-          width="140"
+          width="180"
           column-key="phase"
           :filters="phaseFilters"
           :filter-multiple="true"
@@ -128,10 +128,35 @@
           :filter-method="passAll"
         >
           <template #default="{ row }">
-            <el-tag
-              :type="WorkloadPhaseButtonType[row.phase]?.type || 'info'"
-              :effect="isDark ? 'plain' : 'light'"
-            >{{ row.phase }}</el-tag>
+            <div class="flex flex-col gap-1">
+              <div class="flex items-center gap-2">
+                <el-tag
+                  :type="WorkloadPhaseButtonType[row.phase]?.type || 'info'"
+                  :effect="isDark ? 'plain' : 'light'"
+                >{{ row.phase }}</el-tag>
+                <el-tooltip
+                  v-if="row.phase === 'Pending'"
+                  :content="row.message ? `${row.message} - Click for Pending Cause Analysis` : 'Pending Cause Analysis'"
+                  placement="top"
+                >
+                  <el-icon
+                    class="pending-cause-icon"
+                    :size="18"
+                    @click.stop="
+                      router.push({ path: '/workload/pending-cause', query: { id: row.workloadId } })
+                    "
+                  >
+                    <InfoFilled />
+                  </el-icon>
+                </el-tooltip>
+              </div>
+              <div
+                class="text-sm"
+                v-if="row.phase === 'Pending' && !!row.queuePosition"
+              >
+                position in queue:{{ row.queuePosition }}
+              </div>
+            </div>
           </template>
         </el-table-column>
 
@@ -182,33 +207,54 @@
           </template>
         </el-table-column>
 
-        <el-table-column label="Actions" width="160" fixed="right">
+        <el-table-column label="Actions" width="180" fixed="right">
           <template #default="{ row }">
-            <el-tooltip content="Detail" placement="top">
-              <el-button
-                circle size="default" class="btn-primary-plain" :icon="View"
-                @click="router.push({ path: '/sandbox-workload/detail', query: { id: row.workloadId } })"
-              />
-            </el-tooltip>
-            <el-tooltip content="Edit" placement="top">
-              <el-button
-                circle size="default" class="btn-primary-plain" :icon="Edit"
-                :disabled="!['Running', 'Pending'].includes(row.phase)"
-                @click="openEdit(row.workloadId)"
-              />
-            </el-tooltip>
-            <el-tooltip content="Stop" placement="top">
-              <el-button
-                circle size="default" class="btn-danger-plain" :icon="Close"
-                @click="handleStop(row)"
-              />
-            </el-tooltip>
-            <el-tooltip content="Delete" placement="top">
-              <el-button
-                circle size="default" class="btn-danger-plain" :icon="Delete"
-                @click="handleDelete(row)"
-              />
-            </el-tooltip>
+            <template v-for="act in getActions(row).slice(0, 2)" :key="act.key">
+              <el-tooltip :content="act.tooltip?.(row) ?? act.label" placement="top">
+                <el-button
+                  circle
+                  size="default"
+                  :class="act.btnClass"
+                  :icon="act.icon"
+                  :disabled="act.disabled?.(row) ?? false"
+                  @click="act.onClick(row)"
+                />
+              </el-tooltip>
+            </template>
+
+            <el-popover
+              v-if="getActions(row).length > 2"
+              placement="bottom-start"
+              trigger="click"
+              :width="240"
+              :teleported="true"
+              :enterable="true"
+              popper-class="actions-menu"
+              :visible="moreOpenId === row.workloadId"
+              @hide="moreOpenId === row.workloadId && (moreOpenId = null)"
+            >
+              <template #reference>
+                <el-button
+                  circle
+                  class="btn-primary-plain"
+                  :icon="MoreFilled"
+                  size="default"
+                  @click.stop="toggleMore(row.workloadId)"
+                />
+              </template>
+
+              <ul class="menu-col">
+                <li
+                  v-for="act in getActions(row).slice(2)"
+                  :key="act.key"
+                  :class="['menu-item', { disabled: act.disabled?.(row) }]"
+                  @click.stop="handleMenuClick(act, row)"
+                >
+                  <component :is="act.icon" class="menu-ico" />
+                  <span class="menu-label">{{ act.label }}</span>
+                </li>
+              </ul>
+            </el-popover>
           </template>
         </el-table-column>
       </el-table>
@@ -219,8 +265,8 @@
             <span class="ml-2">Selected {{ selectedRows.length }} item{{ selectedRows.length === 1 ? '' : 's' }}</span>
           </div>
           <div class="right">
-            <el-button type="danger" plain @click="onBatchDelete">Delete</el-button>
-            <el-button type="warning" plain @click="onBatchStop">Stop</el-button>
+            <el-button type="danger" plain :disabled="!canWrite" @click="onBatchDelete">Delete</el-button>
+            <el-button type="warning" plain :disabled="!canWrite" @click="onBatchStop">Stop</el-button>
           </div>
         </div>
       </transition>
@@ -246,7 +292,8 @@
 </template>
 
 <script lang="ts" setup>
-import { ref, reactive, watch, computed, onMounted, onBeforeUnmount, h } from 'vue'
+import { ref, reactive, watch, computed, nextTick, onMounted, onBeforeUnmount, h } from 'vue'
+import { useWorkloadWriteGuard } from '@/composables/useWorkloadWriteGuard'
 import {
   getWorkloadsList,
   deleteWorkload,
@@ -261,7 +308,7 @@ import {
   phaseFilters,
   WorkloadPhaseButtonType,
 } from '@/services/workload/type'
-import { Search, Refresh, CopyDocument, Timer, View, Edit, Delete, Close } from '@element-plus/icons-vue'
+import { Search, Refresh, CopyDocument, Timer, Edit, Delete, Close, MoreFilled, InfoFilled } from '@element-plus/icons-vue'
 import ResetIcon from '@/components/icons/ResetIcon.vue'
 import { copyText, formatTimeStr } from '@/utils/index'
 import dayjs from 'dayjs'
@@ -281,6 +328,7 @@ const route = useRoute()
 const router = useRouter()
 const store = useWorkspaceStore()
 const userStore = useUserStore()
+const { canWrite } = useWorkloadWriteGuard()
 
 const editVisible = ref(false)
 const editWlId = ref('')
@@ -316,11 +364,6 @@ const tableHeight = computed(() => {
   const extra = hasBarSpace.value ? SELECTION_BAR_H : 0
   return `calc(100vh - ${BASE_OFFSET + extra}px)`
 })
-
-const openEdit = (id: string) => {
-  editWlId.value = id
-  editVisible.value = true
-}
 
 const fetchData = async (params?: WorkloadParams) => {
   try {
@@ -402,36 +445,99 @@ const onSearch = (options?: { resetPage?: boolean }) => {
   })
 }
 
-const handleStop = async (row: any) => {
-  const msg = h('span', null, [
-    'Are you sure you want to stop workload: ',
-    h('span', { style: 'color: var(--el-color-primary); font-weight: 600' }, row.workloadId),
-    ' ?',
-  ])
-  await ElMessageBox.confirm(msg, 'Stop workload', {
-    confirmButtonText: 'Stop',
-    cancelButtonText: 'Cancel',
-    type: 'warning',
-  })
-  await stopWorkload(row.workloadId)
-  ElMessage.success('Stop complete')
-  onSearch({ resetPage: false })
+type Row = { workloadId: string; phase: string; displayName?: string }
+type Action = {
+  key: string
+  label: string
+  icon: any
+  btnClass?: string
+  disabled?: (row: Row) => boolean
+  tooltip?: (row: Row) => string
+  onClick: (row: Row) => void | Promise<void>
 }
 
-const handleDelete = async (row: any) => {
-  const msg = h('span', null, [
-    'Are you sure you want to delete workload: ',
-    h('span', { style: 'color: var(--el-color-primary); font-weight: 600' }, row.workloadId),
-    ' ?',
-  ])
-  await ElMessageBox.confirm(msg, 'Delete workload', {
-    confirmButtonText: 'Delete',
-    cancelButtonText: 'Cancel',
-    type: 'warning',
-  })
-  await deleteWorkload(row.workloadId)
-  ElMessage.success('Deleted')
-  onSearch({ resetPage: false })
+const getActions = (_row: Row): Action[] => [
+  {
+    key: 'edit',
+    label: 'Edit',
+    icon: Edit,
+    btnClass: 'btn-primary-plain',
+    disabled: (r: Row) => !canWrite.value || !['Running', 'Pending'].includes(r.phase),
+    tooltip: (r: Row) =>
+      ['Running', 'Pending'].includes(r.phase)
+        ? 'Edit workload configuration'
+        : 'Edit is only available for Running or Pending workloads',
+    onClick: (r: Row) => {
+      editWlId.value = r.workloadId
+      editVisible.value = true
+    },
+  },
+  {
+    key: 'stop',
+    label: 'Stop',
+    icon: Close,
+    btnClass: 'btn-warning-plain',
+    disabled: () => !canWrite.value,
+    onClick: async (r: Row) => {
+      const msg = h('span', null, [
+        'Are you sure you want to stop workload: ',
+        h('span', { style: 'color: var(--el-color-primary); font-weight: 600' }, r.workloadId),
+        ' ?',
+      ])
+      await ElMessageBox.confirm(msg, 'Stop workload', {
+        confirmButtonText: 'Stop',
+        cancelButtonText: 'Cancel',
+        type: 'warning',
+      })
+      await stopWorkload(r.workloadId)
+      ElMessage.success('Stop complete')
+      onSearch({ resetPage: false })
+    },
+  },
+  {
+    key: 'delete',
+    label: 'Delete',
+    icon: Delete,
+    btnClass: 'btn-danger-plain',
+    disabled: () => !canWrite.value,
+    onClick: async (r: Row) => {
+      const msg = h('span', null, [
+        'Are you sure you want to delete workload: ',
+        h('span', { style: 'color: var(--el-color-primary); font-weight: 600' }, r.workloadId),
+        ' ?',
+      ])
+      await ElMessageBox.confirm(msg, 'Delete workload', {
+        confirmButtonText: 'Delete',
+        cancelButtonText: 'Cancel',
+        type: 'warning',
+      })
+      await deleteWorkload(r.workloadId)
+      ElMessage.success('Deleted')
+      onSearch({ resetPage: false })
+    },
+  },
+]
+
+const moreOpenId = ref<string | null>(null)
+
+const toggleMore = async (id: string) => {
+  if (moreOpenId.value === id) {
+    moreOpenId.value = null
+    return
+  }
+  moreOpenId.value = null
+  await nextTick()
+  moreOpenId.value = id
+}
+
+const closeMore = () => {
+  moreOpenId.value = null
+}
+
+const handleMenuClick = async (act: Action, row: Row) => {
+  if (act.disabled?.(row)) return
+  await act.onClick(row)
+  closeMore()
 }
 
 function previewIds(ids: string[], max = 5) {
@@ -472,6 +578,27 @@ const onBatchDelete = () => onBatch('delete')
 const onBatchStop = () => onBatch('stop')
 
 defineOptions({ name: 'SandboxWorkloadPage' })
+
+const onAnyScroll = () => closeMore()
+const onAnyPointerDown = (e: Event) => {
+  const el = e.target as HTMLElement
+  const inMenu = el.closest('.actions-menu') !== null
+  const inRefBtn = el.closest('.btn-primary-plain') !== null
+  if (!inMenu && !inRefBtn) closeMore()
+}
+
+onMounted(() => {
+  window.addEventListener('scroll', onAnyScroll, { passive: true, capture: true })
+  window.addEventListener('wheel', onAnyScroll, { passive: true, capture: true })
+  window.addEventListener('touchmove', onAnyScroll, { passive: true, capture: true })
+  window.addEventListener('pointerdown', onAnyPointerDown, { capture: true })
+})
+onBeforeUnmount(() => {
+  window.removeEventListener('scroll', onAnyScroll, { capture: true } as any)
+  window.removeEventListener('wheel', onAnyScroll, { capture: true } as any)
+  window.removeEventListener('touchmove', onAnyScroll, { capture: true } as any)
+  window.removeEventListener('pointerdown', onAnyPointerDown, { capture: true } as any)
+})
 
 function applyQueryToParams() {
   const q = route.query
@@ -556,5 +683,15 @@ watch(
 }
 .myself-seg .el-segmented__item.is-selected {
   color: var(--safe-primary) !important;
+}
+
+.pending-cause-icon {
+  cursor: pointer;
+  color: var(--el-color-warning);
+  transition: all 0.2s ease;
+}
+.pending-cause-icon:hover {
+  color: var(--el-color-primary);
+  transform: scale(1.2);
 }
 </style>
