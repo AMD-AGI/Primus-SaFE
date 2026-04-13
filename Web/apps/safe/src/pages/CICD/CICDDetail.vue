@@ -127,6 +127,7 @@
         :workload-phase="detailData?.phase"
         :refresh-loading="detailLoading"
         :show-ssh="true"
+        :disable-ssh="!canWrite"
         @open-log="openLog"
         @open-ssh="openSsh"
         @refresh="refreshPods"
@@ -204,6 +205,7 @@ import { useUserStore } from '@/stores/user'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { useWorkloadDetail } from '@/composables/useWorkloadDetail'
 import { usePodActions } from '@/composables/usePodActions'
+import { useWorkloadWriteGuard } from '@/composables/useWorkloadWriteGuard'
 
 const router = useRouter()
 const userStore = useUserStore()
@@ -217,6 +219,8 @@ const { workloadId, detailData, detailLoading, getDetail, onDelete, onStop, onRe
   })
 
 const { curPodId, curSshCommand, logVisible, sshVisible, openLog, openSsh } = usePodActions()
+
+const { canWrite } = useWorkloadWriteGuard()
 
 const activeTab = ref('overview')
 const addVisible = ref(false)

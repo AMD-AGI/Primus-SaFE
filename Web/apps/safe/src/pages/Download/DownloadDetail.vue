@@ -64,6 +64,7 @@
         :workload-phase="workloadDetail?.phase"
         :refresh-loading="workloadLoading"
         :show-ssh="false"
+        :disable-ssh="!canWrite"
         @open-log="openLog"
         @refresh="refreshPods"
       />
@@ -119,6 +120,7 @@ import { usePodActions } from '@/composables/usePodActions'
 import { useWorkloadDetail } from '@/composables/useWorkloadDetail'
 import { useUserStore } from '@/stores/user'
 import { calculateDefaultTime } from '@/utils'
+import { useWorkloadWriteGuard } from '@/composables/useWorkloadWriteGuard'
 
 interface InputItem {
   name?: string
@@ -172,6 +174,7 @@ const {
 })
 
 const { curPodId, curSshCommand, logVisible, sshVisible, openLog } = usePodActions()
+const { canWrite } = useWorkloadWriteGuard()
 
 const activeTab = ref('overview')
 

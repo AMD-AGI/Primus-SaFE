@@ -98,6 +98,7 @@
         :workload-phase="detailData?.phase"
         :refresh-loading="detailLoading"
         :show-ssh="true"
+        :disable-ssh="!canWrite"
         @open-log="openLog"
         @open-ssh="openSsh"
         @refresh="refreshPods"
@@ -248,6 +249,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { useUserStore } from '@/stores/user'
 import { useWorkloadDetail } from '@/composables/useWorkloadDetail'
 import { usePodActions } from '@/composables/usePodActions'
+import { useWorkloadWriteGuard } from '@/composables/useWorkloadWriteGuard'
 import type { TabsPaneContext } from 'element-plus'
 import saveIcon from '@/assets/icons/save.png'
 
@@ -261,6 +263,8 @@ const { workloadId, detailData, detailLoading, getDetail, onDelete, onStop, onRe
   })
 
 const { curPodId, curSshCommand, logVisible, sshVisible, openLog, openSsh } = usePodActions()
+
+const { canWrite } = useWorkloadWriteGuard()
 
 const activeTab = ref('overview')
 const addVisible = ref(false)
