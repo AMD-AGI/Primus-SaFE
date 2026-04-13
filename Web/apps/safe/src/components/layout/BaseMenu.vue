@@ -316,7 +316,7 @@ const modelLabMenuItems: MenuItem[] = [
   },
   {
     index: '/posttrain',
-    name: 'PostTrain',
+    name: 'Post Train',
     icon: menuIcons.training,
   },
   {
