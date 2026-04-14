@@ -12,7 +12,7 @@ import (
 	"sync"
 	"time"
 
-	"gopkg.in/yaml.v2"
+	sigsyaml "sigs.k8s.io/yaml"
 	"helm.sh/helm/v3/pkg/action"
 	"helm.sh/helm/v3/pkg/chart/loader"
 	"helm.sh/helm/v3/pkg/cli"
@@ -188,7 +188,7 @@ func (r *AddonController) helmInstall(ctx context.Context, addon *v1.Addon) erro
 	}
 	valuesMap := map[string]interface{}{}
 	if values != "" {
-		err = yaml.Unmarshal([]byte(values), valuesMap)
+		err = sigsyaml.Unmarshal([]byte(values), &valuesMap)
 		if err != nil {
 			return r.patchErrorStatus(ctx, addon, err)
 		}
@@ -281,7 +281,7 @@ func (r *AddonController) executeUpgrade(ctx context.Context, addon *v1.Addon, u
 
 	valuesMap := map[string]interface{}{}
 	if values != "" {
-		err = yaml.Unmarshal([]byte(values), valuesMap)
+		err = sigsyaml.Unmarshal([]byte(values), &valuesMap)
 		if err != nil {
 			return r.patchErrorStatus(ctx, addon, err)
 		}
