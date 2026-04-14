@@ -92,9 +92,6 @@ data:
     ops_job:
       # Opsjob download image version. used for download file
       download_image: "{{ .Values.global.image_registry }}/primussafe/{{ .Values.ops_job.download_image }}"
-    sandbox:
-      # Accessible to everyone
-      public: true
     cd:
       # Whether deployment requests require approval from another user
       require_approval: {{ default false (default .Values.cd).require_approval }}
