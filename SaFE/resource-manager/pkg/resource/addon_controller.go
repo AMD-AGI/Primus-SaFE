@@ -452,7 +452,8 @@ func (r *AddonController) configureHelmClient(ctx context.Context, actionConfig 
 		return err
 	}
 
-	if err = actionConfig.Init(getter, GetReleaseNamespace(addon), helmDriver, klog.Infof); err != nil {
+	releaseNamespace := GetReleaseNamespace(addon)
+	if err = actionConfig.Init(getter.WithNamespace(releaseNamespace), releaseNamespace, helmDriver, klog.Infof); err != nil {
 		return fmt.Errorf("helm initializ action failed %s", err)
 	}
 	settings.KubeInsecureSkipTLSVerify = true

@@ -8,6 +8,7 @@
         type="primary"
         round
         :icon="Plus"
+        :disabled="!canWrite"
         @click="
           () => {
             addVisible = true
@@ -373,7 +374,7 @@
           </div>
 
           <div class="right">
-            <el-button type="danger" plain @click="onBatchDelete">Delete</el-button>
+            <el-button type="danger" plain :disabled="!canWrite" @click="onBatchDelete">Delete</el-button>
           </div>
         </div>
       </transition>
@@ -585,6 +586,7 @@
 </template>
 <script lang="ts" setup>
 import { ref, reactive, watch, nextTick, onMounted, onBeforeUnmount, h, computed } from 'vue'
+import { useWorkloadWriteGuard } from '@/composables/useWorkloadWriteGuard'
 import {
   getWorkloadsList,
   getWorkloadDetail,
@@ -625,6 +627,8 @@ const userStore = useUserStore()
 
 // Auto refresh user info on page entry (permission-sensitive page)
 useAutoRefreshUserInfo({ immediate: true })
+
+const { canWrite } = useWorkloadWriteGuard()
 
 const addVisible = ref(false)
 const initialSearchParams = {
@@ -838,6 +842,7 @@ const getActions = (_row: Row): Action[] => [
     label: 'Clone',
     icon: DocumentCopy,
     btnClass: 'btn-success-plain',
+    disabled: () => !canWrite.value,
     onClick: (r: Row) => {
       curAction.value = 'Clone'
       curWlId.value = r.workloadId
@@ -849,7 +854,7 @@ const getActions = (_row: Row): Action[] => [
     label: 'Resume',
     icon: VideoPlay,
     btnClass: 'btn-primary-plain',
-    disabled: (r: Row) => !['Stopped', 'Failed', 'Succeeded'].includes(r.phase),
+    disabled: (r: Row) => !canWrite.value || !['Stopped', 'Failed', 'Succeeded'].includes(r.phase),
     onClick: (r: Row) => {
       const endTime = (r as any).endTime
       if (endTime && dayjs().diff(dayjs.utc(endTime), 'second') < 15) {
@@ -866,7 +871,7 @@ const getActions = (_row: Row): Action[] => [
     label: 'Edit',
     icon: Edit,
     btnClass: 'btn-primary-plain',
-    disabled: (r: Row) => !['Running', 'Pending'].includes(r.phase),
+    disabled: (r: Row) => !canWrite.value || !['Running', 'Pending'].includes(r.phase),
     onClick: (r: Row) => {
       curAction.value = 'Edit'
       curWlId.value = r.workloadId
@@ -878,6 +883,7 @@ const getActions = (_row: Row): Action[] => [
     label: 'Update PAT',
     icon: Key,
     btnClass: 'btn-warning-plain',
+    disabled: () => !canWrite.value,
     onClick: (r: Row) => {
       handleUpdatePAT(r)
     },
@@ -887,6 +893,7 @@ const getActions = (_row: Row): Action[] => [
     label: 'Delete',
     icon: Delete,
     btnClass: 'btn-danger-plain',
+    disabled: () => !canWrite.value,
     onClick: async (r: Row) => {
       const msg = h('span', null, [
         'Are you sure you want to delete workload: ',
@@ -909,6 +916,7 @@ const getActions = (_row: Row): Action[] => [
     label: 'Stop',
     icon: Close,
     btnClass: 'btn-danger-plain',
+    disabled: () => !canWrite.value,
     onClick: async (r: Row) => {
       const msg = h('span', null, [
         'Are you sure you want to stop workload: ',

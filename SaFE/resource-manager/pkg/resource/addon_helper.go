@@ -78,6 +78,14 @@ func (c *RESTClientGetter) setDefaults() {
 	}
 }
 
+// WithNamespace returns a shallow copy of the RESTClientGetter with the given namespace,
+// leaving the original getter unchanged so that cached instances are not mutated.
+func (c *RESTClientGetter) WithNamespace(ns string) *RESTClientGetter {
+	cpy := *c
+	cpy.namespace = ns
+	return &cpy
+}
+
 // NewRESTClientGetter returns a new RESTClientGetter.
 func NewRESTClientGetter(cfg *rest.Config, opts ...Option) *RESTClientGetter {
 	g := &RESTClientGetter{
