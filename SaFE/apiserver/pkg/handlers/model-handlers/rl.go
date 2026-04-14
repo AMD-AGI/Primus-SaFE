@@ -102,12 +102,13 @@ func (h *Handler) createRlJob(c *gin.Context) (interface{}, error) {
 	workerInit := BuildRlContainerEntrypoint("", false)
 	encodedHeadInit := base64.StdEncoding.EncodeToString([]byte(headInit))
 	encodedWorkerInit := base64.StdEncoding.EncodeToString([]byte(workerInit))
+	encodedRayJobEntrypoint := base64.StdEncoding.EncodeToString([]byte("bash /tmp/rl_train.sh"))
 
 	// Step 9: Build env
 	userId := c.GetString(common.UserId)
 	userName := c.GetString(common.UserName)
 	env := map[string]string{
-		common.RayJobEntrypoint:  "bash /tmp/rl_train.sh",
+		common.RayJobEntrypoint:  encodedRayJobEntrypoint,
 		"PYTORCH_HIP_ALLOC_CONF": "expandable_segments:True",
 		"RL_USER_ID":             userId,
 		"RL_USER_NAME":           userName,
@@ -146,15 +147,14 @@ func (h *Handler) createRlJob(c *gin.Context) (interface{}, error) {
 	headResource := nodeResource
 	headResource.Replica = 1
 
-	workerResource := nodeResource
-	workerResource.Replica = req.NodeCount - 1
-	if workerResource.Replica < 1 {
-		workerResource.Replica = 1
-	}
-
-	resources := []v1.WorkloadResource{headResource, workerResource}
-	images := []string{req.Image, req.Image}
-	entryPoints := []string{encodedHeadInit, encodedWorkerInit}
+	resources, images, entryPoints := buildRlRayJobPodTemplates(
+		headResource,
+		nodeResource,
+		req.NodeCount,
+		req.Image,
+		encodedHeadInit,
+		encodedWorkerInit,
+	)
 
 	// Step 12: Create RayJob workload
 	workload := &v1.Workload{}
@@ -197,6 +197,10 @@ func (h *Handler) createRlJob(c *gin.Context) (interface{}, error) {
 		return nil, commonerrors.NewInternalError(fmt.Sprintf("failed to create workload: %v", err))
 	}
 
+	datasetName := h.resolvePosttrainDatasetName(ctx, req.DatasetId)
+	clusterID := h.resolvePosttrainClusterID(ctx, req.Workspace)
+	h.maybeRecordRLPosttrainRun(ctx, &req, workload.Name, clusterID, userId, userName, hfModelName, datasetName, exportPath)
+
 	klog.InfoS("created RL training job",
 		"workloadId", workload.Name,
 		"model", hfModelName,
@@ -208,6 +212,29 @@ func (h *Handler) createRlJob(c *gin.Context) (interface{}, error) {
 	return &CreateRlJobResponse{
 		WorkloadId: workload.Name,
 	}, nil
+}
+
+func buildRlRayJobPodTemplates(
+	headResource v1.WorkloadResource,
+	nodeResource v1.WorkloadResource,
+	nodeCount int,
+	image string,
+	encodedHeadInit string,
+	encodedWorkerInit string,
+) ([]v1.WorkloadResource, []string, []string) {
+	resources := []v1.WorkloadResource{headResource}
+	images := []string{image}
+	entryPoints := []string{encodedHeadInit}
+	if nodeCount <= 1 {
+		return resources, images, entryPoints
+	}
+
+	workerResource := nodeResource
+	workerResource.Replica = nodeCount - 1
+	resources = append(resources, workerResource)
+	images = append(images, image)
+	entryPoints = append(entryPoints, encodedWorkerInit)
+	return resources, images, entryPoints
 }
 
 func (h *Handler) getRlConfig(c *gin.Context) (interface{}, error) {
@@ -299,7 +326,7 @@ func (h *Handler) resolveModelLocalPath(ctx context.Context, modelId, workspace 
 	if err := h.k8sClient.Get(ctx, ctrlclient.ObjectKey{Name: modelId}, k8sModel); err != nil {
 		return "", fmt.Errorf("model %s not found in k8s: %v", modelId, err)
 	}
-	return resolveModelLocalPathFromK8sModel(k8sModel, workspace)
+	return h.resolveModelLocalPathFromK8sModel(k8sModel, workspace)
 }
 
 // inferModelSize guesses model size from name string for default parameter selection.

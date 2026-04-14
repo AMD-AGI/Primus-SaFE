@@ -18,18 +18,18 @@ func TestBuildEntrypointMkdirContainsExpName(t *testing.T) {
 		HfPath:      "Qwen/Qwen3-8B",
 		ModelSize:   "8b",
 		TrainConfig: SftTrainConfig{
-			TrainIters:                 100,
-			GlobalBatchSize:            8,
-			MicroBatchSize:             1,
-			SeqLength:                  2048,
-			FinetuneLr:                 5e-6,
-			TensorModelParallelSize:    1,
-			PipelineModelParallelSize:  1,
-			ContextParallelSize:        1,
-			LrWarmupIters:              5,
-			SaveInterval:               50,
-			Peft:                       "lora",
-			PackedSequence:             false,
+			TrainIters:                100,
+			GlobalBatchSize:           8,
+			MicroBatchSize:            1,
+			SeqLength:                 2048,
+			FinetuneLr:                5e-6,
+			TensorModelParallelSize:   1,
+			PipelineModelParallelSize: 1,
+			ContextParallelSize:       1,
+			LrWarmupIters:             5,
+			SaveInterval:              50,
+			Peft:                      "lora",
+			PackedSequence:            false,
 		},
 	}
 
@@ -62,17 +62,17 @@ func TestBuildEntrypointFullSFT(t *testing.T) {
 		HfPath:      "Qwen/Qwen3-8B",
 		ModelSize:   "8b",
 		TrainConfig: SftTrainConfig{
-			TrainIters:                 100,
-			GlobalBatchSize:            8,
-			MicroBatchSize:             1,
-			SeqLength:                  2048,
-			FinetuneLr:                 5e-6,
-			TensorModelParallelSize:    1,
-			PipelineModelParallelSize:  1,
-			ContextParallelSize:        1,
-			LrWarmupIters:              5,
-			SaveInterval:               50,
-			Peft:                       "none",
+			TrainIters:                100,
+			GlobalBatchSize:           8,
+			MicroBatchSize:            1,
+			SeqLength:                 2048,
+			FinetuneLr:                5e-6,
+			TensorModelParallelSize:   1,
+			PipelineModelParallelSize: 1,
+			ContextParallelSize:       1,
+			LrWarmupIters:             5,
+			SaveInterval:              50,
+			Peft:                      "none",
 		},
 	}
 
@@ -100,17 +100,17 @@ func TestBuildEntrypointExpNameWithSpecialChars(t *testing.T) {
 		HfPath:      "Qwen/Qwen3-8B",
 		ModelSize:   "8b",
 		TrainConfig: SftTrainConfig{
-			TrainIters:                 1000,
-			GlobalBatchSize:            128,
-			MicroBatchSize:             1,
-			SeqLength:                  2048,
-			FinetuneLr:                 1e-4,
-			TensorModelParallelSize:    1,
-			PipelineModelParallelSize:  1,
-			ContextParallelSize:        1,
-			LrWarmupIters:              50,
-			SaveInterval:               500,
-			Peft:                       "lora",
+			TrainIters:                1000,
+			GlobalBatchSize:           128,
+			MicroBatchSize:            1,
+			SeqLength:                 2048,
+			FinetuneLr:                1e-4,
+			TensorModelParallelSize:   1,
+			PipelineModelParallelSize: 1,
+			ContextParallelSize:       1,
+			LrWarmupIters:             50,
+			SaveInterval:              500,
+			Peft:                      "lora",
 		},
 	}
 
@@ -123,6 +123,124 @@ func TestBuildEntrypointExpNameWithSpecialChars(t *testing.T) {
 
 	if !strings.Contains(script, "pretrained_checkpoint: ./data/megatron_checkpoints/Qwen3-8B") {
 		t.Error("LoRA config missing correct pretrained_checkpoint path")
+	}
+}
+
+func TestBuildEntrypointRequiresUsableCheckpoint(t *testing.T) {
+	cfg := EntrypointConfig{
+		DatasetPath: "/wekafs/data/test",
+		PrimusPath:  "/tmp/primus",
+		ExpName:     "checkpoint-guard",
+		HfPath:      "/wekafs/models/Qwen-Qwen3-8B",
+		ModelSize:   "8b",
+		ExportModel: true,
+		TrainConfig: SftTrainConfig{
+			TrainIters:                100,
+			GlobalBatchSize:           8,
+			MicroBatchSize:            1,
+			SeqLength:                 2048,
+			FinetuneLr:                5e-6,
+			TensorModelParallelSize:   1,
+			PipelineModelParallelSize: 1,
+			ContextParallelSize:       1,
+			LrWarmupIters:             5,
+			SaveInterval:              50,
+			Peft:                      "none",
+		},
+	}
+
+	script := BuildEntrypoint(cfg)
+
+	if !strings.Contains(script, "Training completed but no usable checkpoint was produced") {
+		t.Error("script should fail when no usable checkpoint is produced")
+	}
+
+	if !strings.Contains(script, "Verified training checkpoint:") {
+		t.Error("script should log the verified checkpoint before export")
+	}
+
+	if !strings.Contains(script, `CKPT_DIR="$(dirname "${VERIFIED_LATEST_DIR}")"`) {
+		t.Error("export should reuse the verified checkpoint directory")
+	}
+}
+
+func TestBuildEntrypointRequiresSuccessfulModelRegistration(t *testing.T) {
+	cfg := EntrypointConfig{
+		DatasetPath: "/wekafs/data/test",
+		PrimusPath:  "/tmp/primus",
+		ExpName:     "register-guard",
+		HfPath:      "/wekafs/models/Qwen-Qwen3-8B",
+		ModelSize:   "8b",
+		ExportModel: true,
+		TrainConfig: SftTrainConfig{
+			TrainIters:                100,
+			GlobalBatchSize:           8,
+			MicroBatchSize:            1,
+			SeqLength:                 2048,
+			FinetuneLr:                5e-6,
+			TensorModelParallelSize:   1,
+			PipelineModelParallelSize: 1,
+			ContextParallelSize:       1,
+			LrWarmupIters:             5,
+			SaveInterval:              50,
+			Peft:                      "none",
+		},
+	}
+
+	script := BuildEntrypoint(cfg)
+
+	if !strings.Contains(script, "ERROR: HF export incomplete") {
+		t.Error("script should refuse to register incomplete HF exports")
+	}
+
+	if !strings.Contains(script, `curl -fsS -o "${REGISTER_RESPONSE}" -X POST`) {
+		t.Error("model registration should fail on non-2xx HTTP responses")
+	}
+
+	if !strings.Contains(script, "ERROR: failed to register model after successful HF export.") {
+		t.Error("script should fail when model registration fails")
+	}
+}
+
+func TestBuildEntrypointUsesSharedSquadCacheAndHonorsPreInjectedAinic(t *testing.T) {
+	cfg := EntrypointConfig{
+		DatasetPath: "/shared_nfs/data/test",
+		PrimusPath:  "/tmp/primus",
+		ExpName:     "shared-squad-cache",
+		HfPath:      "/shared_nfs/models/Qwen/Qwen3-8B",
+		ModelSize:   "8b",
+		PfsBasePath: "/shared_nfs",
+		TrainConfig: SftTrainConfig{
+			TrainIters:                100,
+			GlobalBatchSize:           16,
+			MicroBatchSize:            1,
+			SeqLength:                 2048,
+			FinetuneLr:                5e-6,
+			TensorModelParallelSize:   1,
+			PipelineModelParallelSize: 1,
+			ContextParallelSize:       1,
+			LrWarmupIters:             5,
+			SaveInterval:              50,
+			Peft:                      "none",
+		},
+	}
+
+	script := BuildEntrypoint(cfg)
+
+	if !strings.Contains(script, `SHARED_SQUAD_CACHE="${DATA_PATH}/squad-cache"`) {
+		t.Error("script should place squad cache on shared DATA_PATH for multi-node SFT")
+	}
+
+	if !strings.Contains(script, `ln -sfn "$SHARED_SQUAD_CACHE" "$SQUAD_CACHE"`) {
+		t.Error("script should symlink local squad cache to shared cache")
+	}
+
+	if !strings.Contains(script, `if [ "${USING_AINIC:-0}" = "1" ] ||`) {
+		t.Error("entrypoint should honor pre-injected USING_AINIC=1")
+	}
+
+	if !strings.Contains(script, `export NCCL_IB_GID_INDEX="${NCCL_IB_GID_INDEX:-1}"`) {
+		t.Error("entrypoint should preserve pre-injected GID index")
 	}
 }
 
