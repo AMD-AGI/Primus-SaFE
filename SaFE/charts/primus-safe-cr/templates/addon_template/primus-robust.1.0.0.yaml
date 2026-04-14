@@ -26,12 +26,14 @@ spec:
   helmDefaultNamespace: primus-robust
   helmDefaultValues: |
     global:
-      storageClass: "storageclass-wekafs"
-    grafana:
-      enabled: false
-    fault-agent:
-      config:
-        detection:
-          params:
-            driver_version: "6.12.12"
-            rocm_version: "6.4"
+      storageClass: "default"
+    database:
+      storageSize: "50Gi"
+    metrics:
+      victoriametrics:
+        vmstorage:
+          size: 100Gi
+    logs:
+      opensearch:
+        nodePools:
+          - diskSize: 100Gi
