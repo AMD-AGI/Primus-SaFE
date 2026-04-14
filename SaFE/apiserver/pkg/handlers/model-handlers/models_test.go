@@ -8,13 +8,16 @@ package model_handlers
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/golang/mock/gomock"
 	"gotest.tools/assert"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -24,6 +27,8 @@ import (
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/apis/pkg/client/clientset/versioned/scheme"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
+	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
+	mock_client "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client/mock"
 )
 
 func init() {
@@ -35,6 +40,13 @@ func newMockModelHandler(k8sClient client.Client) *Handler {
 	return &Handler{
 		k8sClient: k8sClient,
 		dbClient:  nil, // No database client for unit tests
+	}
+}
+
+func newMockModelHandlerWithDB(k8sClient client.Client, dbClient dbclient.Interface) *Handler {
+	return &Handler{
+		k8sClient: k8sClient,
+		dbClient:  dbClient,
 	}
 }
 
@@ -88,6 +100,22 @@ func genMockLocalK8sModel(name string, workspace string) *v1.Model {
 		},
 	}
 	return model
+}
+
+func genMockWorkspace(name, mountPath string) *v1.Workspace {
+	return &v1.Workspace{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: name,
+		},
+		Spec: v1.WorkspaceSpec{
+			Volumes: []v1.WorkspaceVolume{
+				{
+					Type:      v1.PFS,
+					MountPath: mountPath,
+				},
+			},
+		},
+	}
 }
 
 // genMockWorkloadForModel generates a mock Workload associated with a model
@@ -599,6 +627,344 @@ func TestGetSftConfig_32BDefaults(t *testing.T) {
 	assert.Equal(t, resp.Defaults.TrainConfig.LrWarmupIters, 10)
 	assert.Equal(t, resp.Defaults.TrainConfig.SaveInterval, 500)
 	assert.Equal(t, resp.Defaults.TrainConfig.TensorModelParallelSize, 8)
+}
+
+func TestGetSftConfig_InferRecipeForGenericQwenModel(t *testing.T) {
+	model := genMockLocalK8sModel("model-qwen-generic", "ws1")
+	model.Spec.DisplayName = "Qwen/Qwen2.5-7B-Instruct"
+	model.Spec.Source.URL = "https://huggingface.co/Qwen/Qwen2.5-7B-Instruct"
+	model.Spec.Source.ModelName = "Qwen/Qwen2.5-7B-Instruct"
+
+	k8sClient := fake.NewClientBuilder().
+		WithObjects(model).
+		WithScheme(scheme.Scheme).
+		Build()
+
+	h := newMockModelHandler(k8sClient)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Params = gin.Params{{Key: "id", Value: "model-qwen-generic"}}
+	c.Request, _ = http.NewRequest("GET", "/models/model-qwen-generic/sft-config?workspace=ws1", nil)
+
+	result, err := h.getSftConfig(c)
+	assert.NilError(t, err)
+
+	resp := result.(*SftConfigResponse)
+	assert.Equal(t, resp.Supported, true)
+	assert.Assert(t, resp.Defaults != nil)
+	assert.Equal(t, resp.Defaults.Recipe, "qwen.qwen3")
+	assert.Equal(t, resp.Defaults.Flavor, "qwen3_8b_finetune_config")
+	assert.Equal(t, resp.Defaults.ModelSize, "8b")
+	assert.DeepEqual(t, resp.Options.PeftOptions, []string{"none", "lora"})
+}
+
+func TestGetSftConfig_OverrideAllowsUnknownModel(t *testing.T) {
+	model := genMockLocalK8sModel("model-custom", "ws1")
+	model.Spec.DisplayName = "Acme/Custom-9B"
+	model.Spec.Source.URL = "https://huggingface.co/Acme/Custom-9B"
+	model.Spec.Source.ModelName = "Acme/Custom-9B"
+
+	k8sClient := fake.NewClientBuilder().
+		WithObjects(model).
+		WithScheme(scheme.Scheme).
+		Build()
+
+	h := newMockModelHandler(k8sClient)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Params = gin.Params{{Key: "id", Value: "model-custom"}}
+	c.Request, _ = http.NewRequest(
+		"GET",
+		"/models/model-custom/sft-config?workspace=ws1&recipe=qwen.qwen3&flavor=qwen3_8b_finetune_config&modelSize=8b",
+		nil,
+	)
+
+	result, err := h.getSftConfig(c)
+	assert.NilError(t, err)
+
+	resp := result.(*SftConfigResponse)
+	assert.Equal(t, resp.Supported, true)
+	assert.Assert(t, resp.Defaults != nil)
+	assert.Equal(t, resp.Defaults.Recipe, "qwen.qwen3")
+	assert.Equal(t, resp.Defaults.Flavor, "qwen3_8b_finetune_config")
+	assert.Equal(t, resp.Defaults.ModelSize, "8b")
+}
+
+func TestGetSftConfig_SharedLocalPathAccessible(t *testing.T) {
+	model := genMockLocalK8sModel("model-qwen-shared-local", "ws2")
+	model.Spec.DisplayName = "Qwen/Qwen3-8B"
+	model.Spec.Source.URL = "https://huggingface.co/Qwen/Qwen3-8B"
+	model.Spec.Source.ModelName = "Qwen/Qwen3-8B"
+	model.Status.LocalPaths = []v1.ModelLocalPath{
+		{
+			Workspace: "ws2",
+			Path:      "/shared/models/qwen3-8b",
+			Status:    v1.LocalPathStatusReady,
+		},
+	}
+	ws1 := genMockWorkspace("ws1", "/shared")
+	ws2 := genMockWorkspace("ws2", "/shared")
+
+	k8sClient := fake.NewClientBuilder().
+		WithObjects(model, ws1, ws2).
+		WithScheme(scheme.Scheme).
+		Build()
+
+	h := newMockModelHandler(k8sClient)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Params = gin.Params{{Key: "id", Value: "model-qwen-shared-local"}}
+	c.Request, _ = http.NewRequest("GET", "/models/model-qwen-shared-local/sft-config?workspace=ws1", nil)
+
+	result, err := h.getSftConfig(c)
+	assert.NilError(t, err)
+
+	resp := result.(*SftConfigResponse)
+	assert.Equal(t, resp.Supported, true)
+	assert.Assert(t, resp.Defaults != nil)
+}
+
+func TestGetSftConfig_MissingLocalPathInWorkspace(t *testing.T) {
+	model := genMockLocalK8sModel("model-qwen-missing-local", "ws2")
+	model.Spec.DisplayName = "Qwen/Qwen3-8B"
+	model.Spec.Source.URL = "https://huggingface.co/Qwen/Qwen3-8B"
+	model.Spec.Source.ModelName = "Qwen/Qwen3-8B"
+	model.Status.LocalPaths = []v1.ModelLocalPath{
+		{
+			Workspace: "ws2",
+			Path:      "/apps/models/qwen3-8b",
+			Status:    v1.LocalPathStatusReady,
+		},
+	}
+	ws1 := genMockWorkspace("ws1", "/workspace-a")
+	ws2 := genMockWorkspace("ws2", "/workspace-b")
+
+	k8sClient := fake.NewClientBuilder().
+		WithObjects(model, ws1, ws2).
+		WithScheme(scheme.Scheme).
+		Build()
+
+	h := newMockModelHandler(k8sClient)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Params = gin.Params{{Key: "id", Value: "model-qwen-missing-local"}}
+	c.Request, _ = http.NewRequest("GET", "/models/model-qwen-missing-local/sft-config?workspace=ws1", nil)
+
+	result, err := h.getSftConfig(c)
+	assert.NilError(t, err)
+
+	resp := result.(*SftConfigResponse)
+	assert.Equal(t, resp.Supported, false)
+	assert.Assert(t, strings.Contains(resp.Reason, "not available locally"))
+	assert.Assert(t, resp.Defaults == nil)
+}
+
+func TestResolveDatasetPath_SharedLocalPathAccessible(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockDB := mock_client.NewMockInterface(ctrl)
+	localPaths, err := json.Marshal([]dbclient.DatasetLocalPathDB{
+		{
+			Workspace: "ws2",
+			Path:      "/shared/datasets/alpaca.jsonl",
+			Status:    dbclient.DatasetStatusReady,
+		},
+	})
+	assert.NilError(t, err)
+
+	mockDB.EXPECT().
+		GetDataset(gomock.Any(), "dataset-shared-local").
+		Return(&dbclient.Dataset{
+			DatasetId:  "dataset-shared-local",
+			LocalPaths: string(localPaths),
+		}, nil)
+
+	ws1 := genMockWorkspace("ws1", "/shared")
+	ws2 := genMockWorkspace("ws2", "/shared")
+	k8sClient := fake.NewClientBuilder().
+		WithObjects(ws1, ws2).
+		WithScheme(scheme.Scheme).
+		Build()
+
+	h := newMockModelHandlerWithDB(k8sClient, mockDB)
+
+	path, err := h.resolveDatasetPath(context.Background(), "dataset-shared-local", "ws1")
+	assert.NilError(t, err)
+	assert.Equal(t, path, "/shared/datasets/alpaca.jsonl")
+}
+
+func TestCreateSftJob_InjectsAinicEnvForSharedNfsMultinode(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockDB := mock_client.NewMockInterface(ctrl)
+	localPaths, err := json.Marshal([]dbclient.DatasetLocalPathDB{
+		{
+			Workspace: "ws1",
+			Path:      "/shared_nfs/datasets/alpaca",
+			Status:    dbclient.DatasetStatusReady,
+		},
+	})
+	assert.NilError(t, err)
+
+	mockDB.EXPECT().
+		GetDataset(gomock.Any(), "dataset-sft-ainic").
+		Return(&dbclient.Dataset{
+			DatasetId:  "dataset-sft-ainic",
+			LocalPaths: string(localPaths),
+		}, nil).
+		AnyTimes()
+
+	model := genMockLocalK8sModel("model-qwen-ainic", "ws1")
+	model.Spec.DisplayName = "Qwen/Qwen3-8B"
+	model.Spec.Source.URL = "https://huggingface.co/Qwen/Qwen3-8B"
+	model.Spec.Source.ModelName = "Qwen/Qwen3-8B"
+	model.Status.LocalPaths = []v1.ModelLocalPath{
+		{
+			Workspace: "ws1",
+			Path:      "/shared_nfs/models/Qwen/Qwen3-8B",
+			Status:    v1.LocalPathStatusReady,
+		},
+	}
+	ws1 := genMockWorkspace("ws1", "/shared_nfs")
+
+	k8sClient := fake.NewClientBuilder().
+		WithObjects(model, ws1).
+		WithScheme(scheme.Scheme).
+		Build()
+
+	h := newMockModelHandlerWithDB(k8sClient, mockDB)
+
+	exportModel := false
+	reqBody, err := json.Marshal(CreateSftJobRequest{
+		DisplayName:      "ainic-multinode-sft",
+		Workspace:        "ws1",
+		ModelId:          "model-qwen-ainic",
+		DatasetId:        "dataset-sft-ainic",
+		ExportModel:      &exportModel,
+		Image:            "test-image",
+		NodeCount:        2,
+		GpuCount:         8,
+		Cpu:              "80",
+		Memory:           "1000Gi",
+		SharedMemory:     "500Gi",
+		EphemeralStorage: "1000Gi",
+		TrainConfig: SftTrainConfig{
+			Peft: "none",
+		},
+	})
+	assert.NilError(t, err)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request, _ = http.NewRequest("POST", "/sft/jobs", bytes.NewReader(reqBody))
+	c.Request.Header.Set("Content-Type", "application/json")
+	c.Set(common.UserId, "user-1")
+	c.Set(common.UserName, "Test User")
+
+	result, err := h.createSftJob(c)
+	assert.NilError(t, err)
+
+	resp := result.(*CreateSftJobResponse)
+	workload := &v1.Workload{}
+	err = k8sClient.Get(context.Background(), client.ObjectKey{Name: resp.WorkloadId}, workload)
+	assert.NilError(t, err)
+
+	assert.Equal(t, workload.Spec.Env["USING_AINIC"], "1")
+	assert.Equal(t, workload.Spec.Env["NCCL_IB_GID_INDEX"], "1")
+	assert.Equal(t, workload.Spec.Env["DATA_PATH"], "/shared_nfs/sft-shared-data/"+resp.WorkloadId)
+}
+
+func TestCreateSftJob_OverrideAllowsUnknownModel(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockDB := mock_client.NewMockInterface(ctrl)
+	localPaths, err := json.Marshal([]dbclient.DatasetLocalPathDB{
+		{
+			Workspace: "ws1",
+			Path:      "/shared_nfs/datasets/custom-sft",
+			Status:    dbclient.DatasetStatusReady,
+		},
+	})
+	assert.NilError(t, err)
+
+	mockDB.EXPECT().
+		GetDataset(gomock.Any(), "dataset-custom-sft").
+		Return(&dbclient.Dataset{
+			DatasetId:  "dataset-custom-sft",
+			LocalPaths: string(localPaths),
+		}, nil).
+		AnyTimes()
+
+	model := genMockLocalK8sModel("model-custom-override", "ws1")
+	model.Spec.DisplayName = "Acme/Custom-9B"
+	model.Spec.Source.URL = "https://huggingface.co/Acme/Custom-9B"
+	model.Spec.Source.ModelName = "Acme/Custom-9B"
+	model.Status.LocalPaths = []v1.ModelLocalPath{
+		{
+			Workspace: "ws1",
+			Path:      "/shared_nfs/models/custom-9b",
+			Status:    v1.LocalPathStatusReady,
+		},
+	}
+	ws1 := genMockWorkspace("ws1", "/shared_nfs")
+
+	k8sClient := fake.NewClientBuilder().
+		WithObjects(model, ws1).
+		WithScheme(scheme.Scheme).
+		Build()
+
+	h := newMockModelHandlerWithDB(k8sClient, mockDB)
+
+	exportModel := false
+	reqBody, err := json.Marshal(CreateSftJobRequest{
+		DisplayName:      "custom-override-sft",
+		Workspace:        "ws1",
+		ModelId:          "model-custom-override",
+		DatasetId:        "dataset-custom-sft",
+		Recipe:           "qwen.qwen3",
+		Flavor:           "qwen3_8b_finetune_config",
+		ModelSize:        "8b",
+		ExportModel:      &exportModel,
+		Image:            "test-image",
+		NodeCount:        1,
+		GpuCount:         8,
+		Cpu:              "80",
+		Memory:           "1000Gi",
+		EphemeralStorage: "1000Gi",
+		TrainConfig: SftTrainConfig{
+			Peft: "lora",
+		},
+	})
+	assert.NilError(t, err)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request, _ = http.NewRequest("POST", "/sft/jobs", bytes.NewReader(reqBody))
+	c.Request.Header.Set("Content-Type", "application/json")
+	c.Set(common.UserId, "user-1")
+	c.Set(common.UserName, "Test User")
+
+	result, err := h.createSftJob(c)
+	assert.NilError(t, err)
+
+	resp := result.(*CreateSftJobResponse)
+	workload := &v1.Workload{}
+	err = k8sClient.Get(context.Background(), client.ObjectKey{Name: resp.WorkloadId}, workload)
+	assert.NilError(t, err)
+	assert.Equal(t, workload.Spec.Images[0], "test-image")
+
+	entrypoint, err := base64.StdEncoding.DecodeString(workload.Spec.EntryPoints[0])
+	assert.NilError(t, err)
+	assert.Assert(t, strings.Contains(string(entrypoint), "recipe: qwen.qwen3"))
+	assert.Assert(t, strings.Contains(string(entrypoint), "flavor: qwen3_8b_finetune_config"))
+	assert.Assert(t, strings.Contains(string(entrypoint), `peft: "lora"`))
 }
 
 func TestGetSftConfig_UnsupportedModel(t *testing.T) {

@@ -281,6 +281,101 @@ func (Model) TableName() string {
 	return "model"
 }
 
+type PosttrainRun struct {
+	ID                int64          `db:"id"`
+	RunID             string         `db:"run_id"`
+	WorkloadID        string         `db:"workload_id"`
+	DisplayName       string         `db:"display_name"`
+	TrainType         string         `db:"train_type"`
+	Strategy          string         `db:"strategy"`
+	Algorithm         sql.NullString `db:"algorithm"`
+	Workspace         string         `db:"workspace"`
+	Cluster           string         `db:"cluster"`
+	UserID            sql.NullString `db:"user_id"`
+	UserName          sql.NullString `db:"user_name"`
+	BaseModelID       string         `db:"base_model_id"`
+	BaseModelName     string         `db:"base_model_name"`
+	DatasetID         string         `db:"dataset_id"`
+	DatasetName       sql.NullString `db:"dataset_name"`
+	Image             sql.NullString `db:"image"`
+	NodeCount         sql.NullInt32  `db:"node_count"`
+	GpuPerNode        sql.NullInt32  `db:"gpu_per_node"`
+	Cpu               sql.NullString `db:"cpu"`
+	Memory            sql.NullString `db:"memory"`
+	SharedMemory      sql.NullString `db:"shared_memory"`
+	EphemeralStorage  sql.NullString `db:"ephemeral_storage"`
+	Priority          sql.NullInt32  `db:"priority"`
+	Timeout           sql.NullInt32  `db:"timeout"`
+	ExportModel       bool           `db:"export_model"`
+	OutputPath        sql.NullString `db:"output_path"`
+	Status            sql.NullString `db:"status"`
+	ParameterSnapshot sql.NullString `db:"parameter_snapshot"`
+	ResourceSnapshot  sql.NullString `db:"resource_snapshot"`
+	CreatedAt         pq.NullTime    `db:"created_at"`
+	UpdatedAt         pq.NullTime    `db:"updated_at"`
+	DeletionTime      pq.NullTime    `db:"deletion_time"`
+	IsDeleted         bool           `db:"is_deleted"`
+}
+
+func GetPosttrainRunFieldTags() map[string]string {
+	r := PosttrainRun{}
+	return getFieldTags(r)
+}
+
+type PosttrainRunFilter struct {
+	Workspace string
+	TrainType string
+	Strategy  string
+	Status    string
+	Search    string
+	UserID    string
+	Limit     int
+	Offset    int
+	SortBy    string
+	Order     string
+}
+
+type PosttrainRunView struct {
+	ID                int64          `db:"id"`
+	RunID             string         `db:"run_id"`
+	WorkloadID        string         `db:"workload_id"`
+	WorkloadUID       sql.NullString `db:"workload_uid"`
+	DisplayName       string         `db:"display_name"`
+	TrainType         string         `db:"train_type"`
+	Strategy          string         `db:"strategy"`
+	Algorithm         sql.NullString `db:"algorithm"`
+	Workspace         string         `db:"workspace"`
+	Cluster           string         `db:"cluster"`
+	UserID            sql.NullString `db:"user_id"`
+	UserName          sql.NullString `db:"user_name"`
+	BaseModelID       string         `db:"base_model_id"`
+	BaseModelName     string         `db:"base_model_name"`
+	DatasetID         string         `db:"dataset_id"`
+	DatasetName       sql.NullString `db:"dataset_name"`
+	Image             sql.NullString `db:"image"`
+	NodeCount         sql.NullInt32  `db:"node_count"`
+	GpuPerNode        sql.NullInt32  `db:"gpu_per_node"`
+	Cpu               sql.NullString `db:"cpu"`
+	Memory            sql.NullString `db:"memory"`
+	SharedMemory      sql.NullString `db:"shared_memory"`
+	EphemeralStorage  sql.NullString `db:"ephemeral_storage"`
+	Priority          sql.NullInt32  `db:"priority"`
+	Timeout           sql.NullInt32  `db:"timeout"`
+	ExportModel       bool           `db:"export_model"`
+	OutputPath        sql.NullString `db:"output_path"`
+	ParameterSnapshot sql.NullString `db:"parameter_snapshot"`
+	ResourceSnapshot  sql.NullString `db:"resource_snapshot"`
+	Status            sql.NullString `db:"status"`
+	CreatedAt         pq.NullTime    `db:"created_at"`
+	StartTime         pq.NullTime    `db:"start_time"`
+	EndTime           pq.NullTime    `db:"end_time"`
+	DeletionTime      pq.NullTime    `db:"deletion_time"`
+	ModelID           sql.NullString `db:"model_id"`
+	ModelDisplayName  sql.NullString `db:"model_display_name"`
+	ModelPhase        sql.NullString `db:"model_phase"`
+	ModelOrigin       sql.NullString `db:"model_origin"`
+}
+
 type DeploymentRequest struct {
 	Id              int64          `db:"id"`
 	DeployName      string         `db:"deploy_name"`
