@@ -126,7 +126,7 @@ func (r *AddonController) guaranteeHelmAddon(ctx context.Context, addon *v1.Addo
 		return commonutils.PatchObjectFinalizer(ctx, r.Client, addon)
 	}
 	if addon.Status.AddonSourceStatus.HelmRepositoryStatus == nil {
-		r.helmInstall(ctx, addon)
+		return r.helmInstall(ctx, addon)
 	}
 	return r.helmUpgrade(ctx, addon)
 }
@@ -193,7 +193,6 @@ func (r *AddonController) helmInstall(ctx context.Context, addon *v1.Addon) erro
 			return r.patchErrorStatus(ctx, addon, err)
 		}
 	}
-	valuesMap = replaceValues(valuesMap, chart.Values)
 
 	resp, err := installClient.RunWithContext(ctx, chart, valuesMap)
 	if err != nil {
@@ -287,7 +286,6 @@ func (r *AddonController) executeUpgrade(ctx context.Context, addon *v1.Addon, u
 			return r.patchErrorStatus(ctx, addon, err)
 		}
 	}
-	valuesMap = replaceValues(valuesMap, chart.Values)
 
 	resp, err := upgradeClient.RunWithContext(ctx, addon.Spec.AddonSource.HelmRepository.ReleaseName, chart, valuesMap)
 	if err != nil {
