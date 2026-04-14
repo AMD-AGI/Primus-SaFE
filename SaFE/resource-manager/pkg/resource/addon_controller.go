@@ -452,7 +452,7 @@ const (
 func (r *AddonController) registerRobustEndpointIfApplicable(ctx context.Context, addon *v1.Addon) {
 	templateName := ""
 	if addon.Spec.AddonSource.HelmRepository != nil {
-		templateName = addon.Spec.AddonSource.HelmRepository.ChartName
+		templateName = addon.Spec.AddonSource.HelmRepository.ReleaseName
 	}
 	if templateName == "" {
 		templateName = addon.Name
