@@ -6,248 +6,75 @@
 package opensearch
 
 import (
-	"context"
-	"fmt"
-	"time"
+	"sync"
 
-	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/klog/v2"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
-	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
-	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
-	commonclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/k8sclient"
-	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
-)
-
-const (
-	opensearchConfigNamespace  = "primus-safe"
-	opensearchConfigSecretName = "primus-safe-opensearch-config"
-	opensearchEndpointTemplate = "%s://%s.%s.svc.cluster.local:9200"
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/robustclient"
 )
 
 var (
+	mu                  sync.RWMutex
 	multiClusterClients = map[string]*SearchClient{}
+	robustClientRef     *robustclient.Client
+	defaultIndex        = "fluentbit-"
 )
 
-var schemes = &runtime.SchemeBuilder{
-	corev1.AddToScheme,
-	v1.AddToScheme,
-}
-
-var (
-	scheme *runtime.Scheme
-)
-
-// GetOpensearchClient retrieves or creates an OpenSearch client for the specified cluster.
 func GetOpensearchClient(clusterName string) *SearchClient {
-	if searchClient, exists := multiClusterClients[clusterName]; exists {
-		return searchClient
+	mu.RLock()
+	if sc, ok := multiClusterClients[clusterName]; ok {
+		mu.RUnlock()
+		return sc
 	}
-	return nil
+	mu.RUnlock()
+	return getOrCreateClient(clusterName)
 }
 
-// GetAnyOpensearchClient returns any available OpenSearch client.
-// Useful for querying logs from control plane pods that don't belong to a specific cluster.
 func GetAnyOpensearchClient() *SearchClient {
-	for _, searchClient := range multiClusterClients {
-		return searchClient
+	mu.RLock()
+	for _, sc := range multiClusterClients {
+		mu.RUnlock()
+		return sc
 	}
-	return nil
-}
+	mu.RUnlock()
 
-type opensearchSecretData struct {
-	NodePort int32  `json:"nodePort"`
-	Scheme   string `json:"scheme"`
-	Service  string `json:"service"`
-	Username string `json:"username"`
-	Password string `json:"password"`
-	Prefix   string `json:"index_prefix"`
-}
-
-// Validate checks if the search client configuration is valid.
-func (o opensearchSecretData) Validate() error {
-	if o.Service == "" || o.Scheme == "" || o.Username == "" || o.Password == "" || o.Prefix == "" {
-		return fmt.Errorf("invalid values for opensearch secret")
-	}
-	return nil
-}
-
-// StartDiscover starts the OpenSearch cluster discovery process.
-func StartDiscover(ctx context.Context) error {
-	if !commonconfig.IsOpenSearchEnable() {
+	if robustClientRef == nil {
 		return nil
 	}
-	scheme = runtime.NewScheme()
-	err := schemes.AddToScheme(scheme)
-	if err != nil {
-		return err
+	names := robustClientRef.ClusterNames()
+	if len(names) == 0 {
+		return nil
 	}
-	cfg, err := commonclient.GetRestConfigInCluster()
-	if err != nil {
-		return err
+	return getOrCreateClient(names[0])
+}
+
+func getOrCreateClient(clusterName string) *SearchClient {
+	if robustClientRef == nil {
+		return nil
 	}
-	controlPlaneClient, err := client.New(cfg, client.Options{
-		Scheme: scheme,
-	})
-	if err != nil {
-		return err
+	cc := robustClientRef.ForCluster(clusterName)
+	if cc == nil {
+		return nil
 	}
-	clientManager := commonutils.NewObjectManagerSingleton()
-	go func() {
-		syncLoop(ctx, controlPlaneClient, clientManager)
-	}()
+
+	mu.Lock()
+	defer mu.Unlock()
+	if sc, ok := multiClusterClients[clusterName]; ok {
+		return sc
+	}
+	sc := NewClient(SearchClientConfig{DefaultIndex: defaultIndex}, cc)
+	multiClusterClients[clusterName] = sc
+	return sc
+}
+
+func InitRobustClient(rc *robustclient.Client) {
+	mu.Lock()
+	defer mu.Unlock()
+	robustClientRef = rc
+	multiClusterClients = make(map[string]*SearchClient)
+	klog.V(2).Info("[opensearch] initialized with robust client proxy mode")
+}
+
+func StartDiscover(_ interface{}) error {
 	return nil
-}
-
-// syncLoop synchronizes Loop state with the desired configuration.
-func syncLoop(ctx context.Context, controlPlaneClient client.Client, clientManager *commonutils.ObjectManager) {
-	for {
-		err := doSync(ctx, controlPlaneClient, clientManager)
-		if err != nil {
-			klog.Errorf("Failed to sync opensearch clients, err: %v", err)
-		}
-		time.Sleep(5 * time.Second)
-	}
-}
-
-func doSync(ctx context.Context, controlPlaneClient client.Client, clientManager *commonutils.ObjectManager) error {
-	clusterList := &v1.ClusterList{}
-	err := controlPlaneClient.List(ctx, clusterList)
-	if err != nil {
-		klog.Errorf("Failed to list clusters, err: %v", err)
-		return err
-	}
-	newClients := map[string]*SearchClient{}
-	for _, cluster := range clusterList.Items {
-		k8sClients, err := commonutils.GetK8sClientFactory(clientManager, cluster.Name)
-		if err != nil {
-			klog.Errorf("Failed to get k8s client for cluster %s, err: %v", cluster.Name, err)
-			continue
-		}
-		controllerRuntimeClient, err := client.New(k8sClients.RestConfig(), client.Options{
-			Scheme: scheme,
-		})
-		if err != nil {
-			klog.Errorf("Failed to get controller runtime client for cluster %s, err: %v", cluster.Name, err)
-			continue
-		}
-		opensearchClient, err := initOpensearchClient(ctx, cluster.Name, controllerRuntimeClient, controlPlaneClient)
-		if err != nil {
-			klog.Errorf("Failed to init opensearch client for cluster %s, err: %v", cluster.Name, err)
-			continue
-		}
-		if opensearchClient == nil {
-			klog.Infof("Opensearch is not configured for cluster %s", cluster.Name)
-			continue
-		}
-		newClients[cluster.Name] = opensearchClient
-	}
-	multiClusterClients = newClients
-	return nil
-}
-
-// initOpensearchClient initializes OpensearchClient with default values.
-func initOpensearchClient(ctx context.Context, clusterName string, clusterClient client.Client, controlPlaneClient client.Client) (*SearchClient, error) {
-	if searchClient, exists := multiClusterClients[clusterName]; exists {
-		return searchClient, nil
-	}
-	cfg, err := syncOpensearchService(ctx, clusterName, clusterClient, controlPlaneClient)
-	if err != nil {
-		return nil, err
-	}
-	if cfg == nil {
-		return nil, nil
-	}
-	searchClient := NewClient(*cfg)
-	multiClusterClients[clusterName] = searchClient
-	return searchClient, nil
-}
-
-func syncOpensearchService(ctx context.Context, clusterName string, clusterClient, controlPlaneClient client.Client) (*SearchClientConfig, error) {
-	cfg, err := getOpensearchConfig(ctx, clusterClient)
-	if err != nil {
-		return nil, err
-	}
-	if cfg == nil {
-		return nil, nil
-	}
-	result := &SearchClientConfig{
-		Username:     cfg.Username,
-		Password:     cfg.Password,
-		Endpoint:     fmt.Sprintf(opensearchEndpointTemplate, cfg.Scheme, getServiceNameForClusterOpensearch(clusterName), opensearchConfigNamespace),
-		DefaultIndex: cfg.Prefix,
-	}
-	return result, nil
-}
-
-func getControlPlaneNode(ctx context.Context, c client.Client) ([]*corev1.Node, error) {
-	nodes := &corev1.NodeList{}
-	err := c.List(ctx, nodes)
-	if err != nil {
-		return nil, err
-	}
-	var controlPlaneNodes []*corev1.Node
-	for _, node := range nodes.Items {
-		if _, ok := node.Labels[common.KubernetesControlPlane]; ok {
-			controlPlaneNodes = append(controlPlaneNodes, &node)
-		}
-	}
-	return controlPlaneNodes, nil
-}
-func getServiceNameForClusterOpensearch(clusterName string) string {
-	return fmt.Sprintf("primus-safe-opensearch-%s", clusterName)
-}
-
-func getOpensearchConfig(ctx context.Context, clusterClient client.Client) (*opensearchSecretData, error) {
-	sec := &corev1.Secret{}
-	err := clusterClient.Get(ctx, types.NamespacedName{
-		Namespace: opensearchConfigNamespace,
-		Name:      opensearchConfigSecretName,
-	}, sec)
-	if err != nil {
-		if client.IgnoreNotFound(err) == nil {
-			return nil, nil
-		}
-		return nil, err
-	}
-	cfg, err := decodeOpensearchConfig(sec)
-	if err != nil {
-		return nil, err
-	}
-	return cfg, nil
-}
-
-func decodeOpensearchConfig(sec *corev1.Secret) (*opensearchSecretData, error) {
-	config := &opensearchSecretData{}
-	if username, ok := sec.Data["username"]; ok {
-		config.Username = string(username)
-	}
-	if password, ok := sec.Data["password"]; ok {
-		config.Password = string(password)
-	}
-	if prefix, ok := sec.Data["index_prefix"]; ok {
-		config.Prefix = string(prefix)
-	}
-	if service, ok := sec.Data["service"]; ok {
-		config.Service = string(service)
-	}
-	if scheme, ok := sec.Data["scheme"]; ok {
-		config.Scheme = string(scheme)
-	}
-	if nodePort, ok := sec.Data["nodePort"]; ok {
-		var n int
-		_, err := fmt.Sscanf(string(nodePort), "%d", &n)
-		if err != nil {
-			return nil, fmt.Errorf("invalid nodePort value: %v", err)
-		}
-		config.NodePort = int32(n)
-	}
-	if err := config.Validate(); err != nil {
-		return nil, err
-	}
-	return config, nil
 }

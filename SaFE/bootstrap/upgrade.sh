@@ -49,7 +49,8 @@ echo "✅ Ethernet nic: \"$ethernet_nic\""
 echo "✅ Rdma nic: \"$rdma_nic\""
 echo "✅ Cluster Scale: \"$cluster_scale\""
 echo "✅ Storage Class: \"$storage_class\""
-echo "✅ Support Primus-lens: \"$lens_enable\""
+lens_enable="false"
+echo "✅ Robust data-plane: managed via AddonTemplate"
 echo "✅ Support S3: \"$s3_enable\""
 echo "✅ Support SSO: \"$sso_enable\""
 echo "✅ Support Tracing: \"${tracing_enable:-false}\" (mode: ${tracing_mode:-error_only})"
@@ -110,16 +111,12 @@ sed -i "s/replicas: [0-9]*/replicas: $replicas/" "$values_yaml"
 sed -i "s/^.*cpu:.*/  cpu: $cpu/" "$values_yaml"
 sed -i "s/^.*memory:.*/  memory: $memory/" "$values_yaml"
 sed -i "s/^.*storage_class:.*/  storage_class: \"$storage_class\"/" "$values_yaml"
-sed -i '/opensearch:/,/^[a-z]/ s/enable: .*/enable: '"$lens_enable"'/' "$values_yaml"
+sed -i '/opensearch:/,/^[a-z]/ s/enable: .*/enable: true/' "$values_yaml"
 sed -i '/s3:/,/^[a-z]/ s/enable: .*/enable: '"$s3_enable"'/' "$values_yaml"
 if [[ "$s3_enable" == "true" ]]; then
   sed -i '/^s3:/,/^[a-z]/ s#secret: ".*"#secret: "'"$S3_SECRET"'"#' "$values_yaml"
 fi
-sed -i '/grafana:/,/^[a-z]/ s/enable: .*/enable: '"$lens_enable"'/' "$values_yaml"
-if [[ "$lens_enable" == "true" ]]; then
-  pg_password=$(kubectl get secret -n "primus-lens" primus-lens-pguser-primus-lens -o jsonpath="{.data.password}" | base64 -d)
-  sed -i '/^grafana:/,/^[a-z]/ s#password: ".*"#password: "'"$pg_password"'"#' "$values_yaml"
-fi
+sed -i '/grafana:/,/^[a-z]/ s/enable: .*/enable: false/' "$values_yaml"
 sed -i "s/image_pull_secret: \".*\"/image_pull_secret: \"$IMAGE_PULL_SECRET\"/" "$values_yaml"
 sed -i "s/ingress: \".*\"/ingress: \"$ingress\"/" "$values_yaml"
 sed -i '/sso:/,/^[a-z]/ s/enable: .*/enable: '"$sso_enable"'/' "$values_yaml"

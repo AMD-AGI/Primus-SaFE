@@ -11,7 +11,6 @@ import (
 	"path/filepath"
 
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/notification"
-	commonsearch "github.com/AMD-AIG-AIMA/SAFE/common/pkg/opensearch"
 	"github.com/AMD-AIG-AIMA/SAFE/resource-manager/pkg/informer"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
@@ -89,10 +88,6 @@ func (s *Server) init() error {
 	}
 	if err = exporter.SetupExporters(s.ctrlManager.ctx, s.ctrlManager.ctrlManager); err != nil {
 		klog.ErrorS(err, "failed to setup exporters")
-		return err
-	}
-	if err = commonsearch.StartDiscover(s.ctrlManager.ctx); err != nil {
-		klog.ErrorS(err, "failed to start opensearch discovery")
 		return err
 	}
 	if err = s.ctrlManager.ctrlManager.Add(&NotificationRunner{ctrlManager: s.ctrlManager}); err != nil {

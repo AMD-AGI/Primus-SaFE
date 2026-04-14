@@ -107,7 +107,7 @@ data:
       # Sampling ratio for exporting traces (0.0 to 1.0)
       sampling_ratio: {{ default 1.0 (default dict .Values.tracing).sampling_ratio }}
       # OTLP exporter endpoint (e.g., localhost:4317 for gRPC)
-      otlp_endpoint: {{ default "otel-collector-collector.primus-lens.svc.cluster.local:4317" (default dict .Values.tracing).otlp_endpoint }}
+      otlp_endpoint: {{ default "otel-collector-collector.primus-safe.svc.cluster.local:4317" (default dict .Values.tracing).otlp_endpoint }}
     {{- if .Values.a2a }}
     a2a:
       scanner:
@@ -117,7 +117,7 @@ data:
 {{- if hasKey .Values.a2a "scanner_namespaces" }}
 {{ toYaml .Values.a2a.scanner_namespaces | nindent 10 }}
 {{- else }}
-          - primus-lens
+          - primus-safe
 {{- end }}
         label_selector: "a2a.primus.io/enabled=true"
     {{- end }}

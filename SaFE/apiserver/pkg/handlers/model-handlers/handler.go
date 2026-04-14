@@ -16,14 +16,16 @@ import (
 	apiutils "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/utils"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/robustclient"
 	commons3 "github.com/AMD-AIG-AIMA/SAFE/common/pkg/s3"
 )
 
 // Handler handles HTTP requests for inference, playground, and dataset resources.
 type Handler struct {
-	k8sClient        client.Client // TODO Multi-cluster k8sclient
+	k8sClient        client.Client
 	dbClient         dbclient.Interface
-	s3Client         commons3.Interface // S3 client for dataset storage (may be nil if S3 is disabled)
+	s3Client         commons3.Interface
+	robustClient     *robustclient.Client
 	accessController *authority.AccessController
 }
 
@@ -44,6 +46,11 @@ func NewHandlerWithS3(k8sClient client.Client, dbClient dbclient.Interface, s3Cl
 		s3Client:         s3Client,
 		accessController: accessController,
 	}
+}
+
+// SetRobustClient injects the robust client for data-plane API calls.
+func (h *Handler) SetRobustClient(rc *robustclient.Client) {
+	h.robustClient = rc
 }
 
 // IsDatasetEnabled returns true if dataset operations are enabled (S3 client is configured).

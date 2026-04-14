@@ -400,6 +400,7 @@ func (r *AddonController) updateAddonHelmStatus(ctx context.Context, addon *v1.A
 	addon.Status.AddonSourceStatus.HelmRepositoryStatus.Values = addon.Spec.AddonSource.HelmRepository.Values
 	if addon.Status.AddonSourceStatus.HelmRepositoryStatus.Status == v1.AddonDeployed {
 		addon.Status.Phase = v1.AddonRunning
+		r.registerRobustEndpointIfApplicable(ctx, addon)
 	} else {
 		addon.Status.Phase = v1.AddonPhaseType(addon.Status.AddonSourceStatus.HelmRepositoryStatus.Status)
 	}
@@ -438,6 +439,59 @@ func (r *AddonController) getCluster(ctx context.Context, cluster *corev1.Object
 	}
 	restCfg.Insecure = true
 	return restCfg, err
+}
+
+const (
+	robustAddonPrefix         = "primus-robust"
+	annotationRobustEndpoint  = "primus-safe.amd.com/robust-api-endpoint"
+	defaultRobustAPIPort      = "8085"
+)
+
+// registerRobustEndpointIfApplicable annotates the Cluster CR with the robust-api
+// endpoint when a primus-robust addon is successfully deployed.
+func (r *AddonController) registerRobustEndpointIfApplicable(ctx context.Context, addon *v1.Addon) {
+	templateName := ""
+	if addon.Spec.AddonSource.HelmRepository != nil {
+		templateName = addon.Spec.AddonSource.HelmRepository.ChartName
+	}
+	if templateName == "" {
+		templateName = addon.Name
+	}
+	if !strings.HasPrefix(templateName, robustAddonPrefix) {
+		return
+	}
+
+	clusterRef := addon.Spec.Cluster
+	if clusterRef == nil {
+		return
+	}
+
+	cluster := &v1.Cluster{}
+	if err := r.Get(ctx, types.NamespacedName{Name: clusterRef.Name}, cluster); err != nil {
+		klog.Warningf("[addon] failed to get cluster %s for robust endpoint registration: %v", clusterRef.Name, err)
+		return
+	}
+
+	ns := "primus-robust"
+	if addon.Spec.AddonSource.HelmRepository != nil && addon.Spec.AddonSource.HelmRepository.Namespace != "" {
+		ns = addon.Spec.AddonSource.HelmRepository.Namespace
+	}
+	endpoint := fmt.Sprintf("http://robust-api.%s.svc:%s", ns, defaultRobustAPIPort)
+
+	if cluster.Annotations == nil {
+		cluster.Annotations = make(map[string]string)
+	}
+	if cluster.Annotations[annotationRobustEndpoint] == endpoint {
+		return
+	}
+
+	originalCluster := client.MergeFrom(cluster.DeepCopy())
+	cluster.Annotations[annotationRobustEndpoint] = endpoint
+	if err := r.Patch(ctx, cluster, originalCluster); err != nil {
+		klog.Warningf("[addon] failed to annotate cluster %s with robust endpoint: %v", clusterRef.Name, err)
+		return
+	}
+	klog.Infof("[addon] registered robust-api endpoint for cluster %s: %s", clusterRef.Name, endpoint)
 }
 
 // configureHelmClient configures the Helm client with registry and getter settings.

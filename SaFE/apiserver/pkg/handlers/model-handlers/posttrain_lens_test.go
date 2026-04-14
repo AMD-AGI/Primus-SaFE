@@ -6,95 +6,14 @@
 package model_handlers
 
 import (
-	"context"
-	"encoding/json"
-	"net/http"
-	"net/http/httptest"
 	"testing"
 	"time"
 
-	"gotest.tools/assert"
 	"github.com/lib/pq"
+	"gotest.tools/assert"
 
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
 )
-
-func TestResolveLensWorkloadUID_UnwrapsLensEnvelope(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		assert.Equal(t, r.URL.Path, "/workloads")
-		assert.Equal(t, r.URL.Query().Get("name"), "workload-123")
-		assert.Equal(t, r.URL.Query().Get("namespace"), "ws1")
-		assert.Equal(t, r.URL.Query().Get("kind"), "PyTorchJob")
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]interface{}{
-			"meta": map[string]interface{}{
-				"code":    2000,
-				"message": "OK",
-			},
-			"data": map[string]interface{}{
-				"data": []map[string]interface{}{
-					{
-						"kind":      "PyTorchJob",
-						"name":      "workload-123",
-						"namespace": "ws1",
-						"uid":       "lens-uid-123",
-					},
-				},
-				"total": 1,
-			},
-		})
-	}))
-	defer server.Close()
-
-	t.Setenv("POSTTRAIN_LENS_API_URL", server.URL)
-
-	uid, err := resolveLensWorkloadUID(context.Background(), "workload-123", "ws1", "control-plane", "sft")
-	assert.NilError(t, err)
-	assert.Equal(t, uid, "lens-uid-123")
-}
-
-func TestFetchLatestLossSummary_UsesTrainingPerformancePoints(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		assert.Equal(t, r.URL.Path, "/workloads/lens-uid-123/trainingPerformance")
-		assert.Equal(t, r.URL.Query().Get("start"), "1000")
-		assert.Equal(t, r.URL.Query().Get("end"), "2000")
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]interface{}{
-			"meta": map[string]interface{}{
-				"code":    2000,
-				"message": "OK",
-			},
-			"data": []map[string]interface{}{
-				{
-					"metric":    "tflops",
-					"value":     100.0,
-					"timestamp": 1100,
-				},
-				{
-					"metric":    "lm_loss",
-					"value":     2.3,
-					"timestamp": 1200,
-				},
-				{
-					"metric":    "lm_loss",
-					"value":     1.7,
-					"timestamp": 1300,
-				},
-			},
-		})
-	}))
-	defer server.Close()
-
-	t.Setenv("POSTTRAIN_LENS_API_URL", server.URL)
-
-	summary, metrics, err := fetchLatestLossSummary(context.Background(), "lens-uid-123", "1000", "2000")
-	assert.NilError(t, err)
-	assert.DeepEqual(t, metrics, []string{"lm_loss", "tflops"})
-	assert.Assert(t, summary != nil)
-	assert.Equal(t, summary.MetricName, "lm_loss")
-	assert.Equal(t, summary.Value, 1.7)
-	assert.Equal(t, summary.DataSource, "log")
-}
 
 func TestDefaultLensTimeRangeForRun_UsesStartAndEndTimes(t *testing.T) {
 	start := time.Date(2026, 4, 12, 8, 0, 0, 0, time.UTC)
@@ -111,4 +30,69 @@ func TestDefaultLensTimeRangeForRun_UsesStartAndEndTimes(t *testing.T) {
 	assert.NilError(t, err)
 	assert.Equal(t, startMs, "1775980800000")
 	assert.Equal(t, endMs, "1775982600000")
+}
+
+func TestPickLossMetricName_PreferredOrder(t *testing.T) {
+	tests := []struct {
+		name     string
+		metrics  []string
+		expected string
+	}{
+		{"exact loss match", []string{"tflops", "loss"}, "loss"},
+		{"lm_loss preferred", []string{"tflops", "lm_loss"}, "lm_loss"},
+		{"contains loss", []string{"tflops", "my_training_loss"}, "my_training_loss"},
+		{"no loss metric", []string{"tflops", "throughput"}, ""},
+		{"empty", []string{}, ""},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			result := pickLossMetricName(tc.metrics)
+			assert.Equal(t, result, tc.expected)
+		})
+	}
+}
+
+func TestLatestLossSummaryFromPoints(t *testing.T) {
+	points := []PosttrainMetricPoint{
+		{MetricName: "lm_loss", Value: 2.3, Timestamp: 1200, DataSource: "log"},
+		{MetricName: "lm_loss", Value: 1.7, Timestamp: 1300, DataSource: "log"},
+		{MetricName: "tflops", Value: 100.0, Timestamp: 1100, DataSource: "log"},
+	}
+	metrics := []string{"lm_loss", "tflops"}
+
+	summary := latestLossSummaryFromPoints(points, metrics)
+	assert.Assert(t, summary != nil)
+	assert.Equal(t, summary.MetricName, "lm_loss")
+	assert.Equal(t, summary.Value, 1.7)
+	assert.Equal(t, summary.DataSource, "log")
+}
+
+func TestFilterTrainingPerformancePoints(t *testing.T) {
+	points := []PosttrainMetricPoint{
+		{MetricName: "lm_loss", Value: 2.3},
+		{MetricName: "tflops", Value: 100.0},
+		{MetricName: "throughput", Value: 50.0},
+	}
+
+	filtered := filterTrainingPerformancePoints(points, "lm_loss,tflops")
+	assert.Equal(t, len(filtered), 2)
+
+	all := filterTrainingPerformancePoints(points, "all")
+	assert.Equal(t, len(all), 3)
+}
+
+func TestPickWorkloadUID(t *testing.T) {
+	items := []robustWorkloadListItem{
+		{Name: "workload-1", Namespace: "ws1", Kind: "PyTorchJob", UID: "uid-1"},
+		{Name: "workload-1", Namespace: "ws1", Kind: "RayJob", UID: "uid-2"},
+	}
+
+	uid := pickWorkloadUID(items, "workload-1", "ws1", "PyTorchJob")
+	assert.Equal(t, uid, "uid-1")
+
+	uid = pickWorkloadUID(items, "workload-1", "ws1", "")
+	assert.Equal(t, uid, "uid-1")
+
+	uid = pickWorkloadUID(items, "nonexistent", "ws1", "")
+	assert.Equal(t, uid, "")
 }

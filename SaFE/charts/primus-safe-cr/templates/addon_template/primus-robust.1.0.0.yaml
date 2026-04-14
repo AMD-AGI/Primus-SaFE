@@ -1,0 +1,35 @@
+#
+# Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
+# See LICENSE for license information.
+#
+
+apiVersion: amd.com/v1
+kind: AddonTemplate
+metadata:
+  labels:
+    primus-safe.display.name: "primus-robust.1.0.0"
+    app.kubernetes.io/managed-by: Helm
+    primus-safe.addon.default: ""
+  annotations:
+    meta.helm.sh/release-name: {{ .Release.Name }}
+    meta.helm.sh/release-namespace: {{ .Release.Namespace }}
+    primus-safe.amd.com/robust-api-service: "robust-api.primus-robust.svc"
+    primus-safe.amd.com/robust-api-port: "8085"
+  name: primus-robust.1.0.0
+spec:
+  category: system
+  description: AMD Primus Robust - Self-contained data-plane stack providing GPU fault management, observability (VictoriaMetrics, OpenSearch, FluentBit), workload analytics, and training performance monitoring.
+  url: oci://harbor.primus-safe.amd.com/charts/primus-robust
+  version: 1.0.0
+  type: helm
+  required: false
+  helmDefaultNamespace: primus-robust
+  helmDefaultValues: |
+    global:
+      storageClass: "storageclass-wekafs"
+    fault-agent:
+      config:
+        detection:
+          params:
+            driver_version: "6.12.12"
+            rocm_version: "6.4"

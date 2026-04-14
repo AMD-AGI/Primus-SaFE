@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -35,6 +36,7 @@ import (
 	commonklog "github.com/AMD-AIG-AIMA/SAFE/common/pkg/klog"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/opensearch"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/options"
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/robustclient"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/trace"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/netutil"
 )
@@ -96,10 +98,10 @@ func (s *Server) init() error {
 		klog.ErrorS(err, "failed to setup controllers")
 		return err
 	}
-	if err = opensearch.StartDiscover(s.ctx); err != nil {
-		klog.ErrorS(err, "failed to start opensearch discovery")
-		return err
-	}
+	rc := robustclient.NewClient(robustclient.DefaultClientConfig())
+	discovery := robustclient.NewDiscovery(s.ctrlManager.GetClient(), rc, 30*time.Second)
+	discovery.Start(s.ctx)
+	opensearch.InitRobustClient(rc)
 	if safeconfig.IsTracingEnable() {
 		if err = trace.InitTracer("primus-safe-apiserver"); err != nil {
 			klog.Warningf("Failed to init tracer: %v", err)
