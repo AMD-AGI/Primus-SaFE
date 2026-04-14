@@ -450,7 +450,7 @@ func (r *WorkspaceReconciler) getNodesForScalingUp(ctx context.Context, workspac
 		if !n.IsMachineReady() || !n.IsManaged() {
 			continue
 		}
-		if v1.GetWorkspaceId(&n) != "" {
+		if n.GetSpecWorkspace() != "" || v1.GetWorkspaceId(&n) != "" {
 			continue
 		}
 		if v1.GetNodeFlavorId(&n) != workspace.Spec.NodeFlavor {
@@ -591,19 +591,24 @@ func (r *WorkspaceReconciler) processNodesAction(ctx context.Context, workspace 
 	adminNodes := make([]*v1.Node, 0, len(actions))
 	for key, val := range actions {
 		node := &v1.Node{}
-		if err := r.Get(ctx, client.ObjectKey{Name: key}, node); client.IgnoreNotFound(err) != nil {
+		if err := r.Get(ctx, client.ObjectKey{Name: key}, node); err != nil {
+			if apierrors.IsNotFound(err) {
+				continue
+			}
 			return false, err
 		}
-		if node == nil || node.Name == "" || !node.GetDeletionTimestamp().IsZero() {
+		if !node.GetDeletionTimestamp().IsZero() {
 			continue
 		}
 		if val == v1.NodeActionRemove {
-			if v1.GetWorkspaceId(node) == "" {
+			// Desired state (spec) already unbound; label sync is handled elsewhere.
+			if node.GetSpecWorkspace() == "" {
 				continue
 			}
 			newActions[node.Name] = ""
 		} else {
-			if v1.GetWorkspaceId(node) == workspace.Name {
+			// Desired state (spec) already targets this workspace; no further action here.
+			if node.GetSpecWorkspace() == workspace.Name {
 				continue
 			}
 			newActions[node.Name] = workspace.Name

@@ -1447,7 +1447,7 @@ func (h *Handler) getWorkloadPodContainers(c *gin.Context) (interface{}, error) 
 		return nil, err
 	}
 	pod, err := k8sClients.ClientSet().CoreV1().Pods(
-		v1.GetWorkspaceId(adminWorkload)).Get(c.Request.Context(), podName, metav1.GetOptions{})
+		adminWorkload.Spec.Workspace).Get(c.Request.Context(), podName, metav1.GetOptions{})
 	if err != nil {
 		return nil, err
 	}

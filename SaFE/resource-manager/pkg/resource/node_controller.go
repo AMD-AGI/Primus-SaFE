@@ -97,6 +97,7 @@ func (r *NodeReconciler) relevantChangePredicate() predicate.Predicate {
 func (r *NodeReconciler) isNodeRelevantFieldChanged(oldNode, newNode *v1.Node) bool {
 	if v1.GetClusterId(oldNode) != v1.GetClusterId(newNode) ||
 		v1.GetWorkspaceId(oldNode) != v1.GetWorkspaceId(newNode) ||
+		oldNode.GetSpecWorkspace() != newNode.GetSpecWorkspace() ||
 		oldNode.Status.MachineStatus.Phase != newNode.Status.MachineStatus.Phase ||
 		oldNode.Status.ClusterStatus.Phase != newNode.Status.ClusterStatus.Phase ||
 		(v1.GetNodeLabelAction(oldNode) == "" && v1.GetNodeLabelAction(newNode) != "") ||
