@@ -7,14 +7,15 @@ package resource
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"sync"
 	"time"
 
-	sigsyaml "sigs.k8s.io/yaml"
 	"helm.sh/helm/v3/pkg/action"
 	"helm.sh/helm/v3/pkg/chart/loader"
+	"helm.sh/helm/v3/pkg/chartutil"
 	"helm.sh/helm/v3/pkg/cli"
 	"helm.sh/helm/v3/pkg/release"
 	corev1 "k8s.io/api/core/v1"
@@ -155,6 +156,28 @@ func (r *AddonController) getHelm(ctx context.Context, addon *v1.Addon) (string,
 	return addon.Spec.AddonSource.HelmRepository.URL, "", addon.Spec.AddonSource.HelmRepository.ChartVersion, addon.Spec.AddonSource.HelmRepository.Values, nil
 }
 
+// parseHelmValues parses a YAML values string into map[string]interface{} using
+// Helm's own ReadValues followed by a JSON round-trip to guarantee all nested
+// structures are pure map[string]interface{} (avoids copystructure type drift).
+func parseHelmValues(raw string) (map[string]interface{}, error) {
+	if raw == "" {
+		return map[string]interface{}{}, nil
+	}
+	vals, err := chartutil.ReadValues([]byte(raw))
+	if err != nil {
+		return nil, err
+	}
+	b, err := json.Marshal(vals)
+	if err != nil {
+		return nil, err
+	}
+	var out map[string]interface{}
+	if err := json.Unmarshal(b, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // helmInstall installs a Helm chart for the addon.
 func (r *AddonController) helmInstall(ctx context.Context, addon *v1.Addon) error {
 	name, url, version, values, err := r.getHelm(ctx, addon)
@@ -186,12 +209,9 @@ func (r *AddonController) helmInstall(ctx context.Context, addon *v1.Addon) erro
 	if err != nil {
 		return r.patchErrorStatus(ctx, addon, fmt.Errorf("helm install helm chart load %s", err))
 	}
-	valuesMap := map[string]interface{}{}
-	if values != "" {
-		err = sigsyaml.Unmarshal([]byte(values), &valuesMap)
-		if err != nil {
-			return r.patchErrorStatus(ctx, addon, err)
-		}
+	valuesMap, err := parseHelmValues(values)
+	if err != nil {
+		return r.patchErrorStatus(ctx, addon, err)
 	}
 
 	resp, err := installClient.RunWithContext(ctx, chart, valuesMap)
@@ -279,12 +299,9 @@ func (r *AddonController) executeUpgrade(ctx context.Context, addon *v1.Addon, u
 		return r.patchErrorStatus(ctx, addon, fmt.Errorf("helm install helm chart load failed %s", err))
 	}
 
-	valuesMap := map[string]interface{}{}
-	if values != "" {
-		err = sigsyaml.Unmarshal([]byte(values), &valuesMap)
-		if err != nil {
-			return r.patchErrorStatus(ctx, addon, err)
-		}
+	valuesMap, err := parseHelmValues(values)
+	if err != nil {
+		return r.patchErrorStatus(ctx, addon, err)
 	}
 
 	resp, err := upgradeClient.RunWithContext(ctx, addon.Spec.AddonSource.HelmRepository.ReleaseName, chart, valuesMap)
