@@ -1,7 +1,7 @@
 <template>
   <el-text class="block textx-18 font-500" tag="b">LLM Gateway</el-text>
   <p class="mt-2 text-gray-500 text-sm">
-    Manage your AMD LLM Subscription Key binding to enable LLM services.
+    Manage your AMD LLM API Key binding to enable LLM services.
   </p>
 
   <!-- Bound state -->
@@ -9,13 +9,13 @@
     <el-card class="mt-4 safe-card" shadow="never">
       <div class="status-banner status-bound">
         <el-icon :size="20"><CircleCheckFilled /></el-icon>
-        <span>AMD LLM Subscription Key is bound</span>
+        <span>AMD LLM API Key is bound</span>
       </div>
 
       <div class="bound-columns mt-6">
         <!-- Left: Binding info + update key -->
         <div class="bound-col-left">
-          <el-descriptions :column="1" border>
+          <el-descriptions :column="1" border class="mb-6">
             <el-descriptions-item label="Email">
               {{ binding.user_email }}
             </el-descriptions-item>
@@ -27,12 +27,12 @@
             </el-descriptions-item>
           </el-descriptions>
 
-          <el-text class="block font-500 mb-4 mt-4" tag="b">Update AMD LLM Subscription Key</el-text>
+          <el-text class="block font-500 mb-4" tag="b">Update AMD LLM API Key</el-text>
           <div class="key-input-row">
             <el-input
               v-model="apimKeyInput"
               type="password"
-              :placeholder="binding?.apim_key_hint ? `Current: ${binding.apim_key_hint}` : 'Enter new AMD LLM Subscription Key'"
+              :placeholder="binding?.apim_key_hint ? `Current: ${binding.apim_key_hint}` : 'Enter new AMD LLM API Key'"
               show-password
               clearable
               class="key-input"
@@ -341,7 +341,7 @@
         <template v-if="!pageLoading">
           <div v-if="binding" class="status-banner status-unbound">
             <el-icon :size="20"><WarningFilled /></el-icon>
-            <span>AMD LLM Subscription Key is not bound</span>
+            <span>AMD LLM API Key is not bound</span>
           </div>
 
           <el-descriptions v-if="binding" :column="1" border class="mt-6">
@@ -354,15 +354,21 @@
 
           <el-divider />
 
-          <el-text class="block font-500 mb-4" tag="b">Bind AMD LLM Subscription Key</el-text>
-          <el-text class="block mb-4 text-sm text-gray-500">
-            Please upload your AMD LLM Subscription Key to enable LLM services.
-          </el-text>
+          <el-text class="block font-500 mb-4" tag="b">Bind AMD LLM API Key</el-text>
+
+          <div class="bind-steps mb-4">
+            <ol class="bind-steps-list">
+              <li>Search for <b>Engineering-AI-Suite</b> in <b>Software Center</b> on your computer and install it.</li>
+              <li>In the left navigation bar of <b>Engineering-AI-Suite</b>, click <b>Credentials</b>, find the <b>LLM API Key</b> item, and click <b>Generate API Key</b>.</li>
+              <li>Paste the generated <b>LLM API Key</b> into the binding field below to complete the binding.</li>
+              <li>After binding, you can use any SaFE API Key to access our LiteLLM service, and view your usage, set budgets, and more on the SaFE platform.</li>
+            </ol>
+          </div>
           <div class="key-input-row">
             <el-input
               v-model="apimKeyInput"
               type="password"
-              placeholder="Enter your AMD LLM Subscription Key"
+              placeholder="Enter your AMD LLM API Key"
               show-password
               clearable
               class="key-input"
@@ -381,15 +387,15 @@
     </div>
   </el-card>
 
-  <!-- Virtual Key Success Dialog (hidden: no longer exposing virtual key to users)
+  <!-- SaFE API Key Success Dialog -->
   <el-dialog
-    v-model="virtualKeyVisible"
-    title="LLM Virtual Key Created Successfully"
+    v-model="apiKeyVisible"
+    title="SaFE API Key Created Successfully"
     width="600"
     :close-on-click-modal="false"
   >
     <el-alert
-      title="Important: Save your LLM Virtual Key"
+      title="Important: Save your SaFE API Key"
       type="warning"
       :closable="false"
       show-icon
@@ -397,24 +403,29 @@
     >
       <template #default>
         <div class="text-sm">
-          This is the only time you will see this Key. Please save it securely.
+          A SaFE API Key has been automatically created for you. This is the only time you will see the full key. Please save it securely.
         </div>
       </template>
     </el-alert>
 
     <el-form label-width="auto" class="p-3">
-      <el-form-item label="LLM Virtual Key">
+      <el-form-item label="Name">
+        <el-text>{{ createdApiKeyData?.name }}</el-text>
+      </el-form-item>
+      <el-form-item label="API Key">
         <div class="flex items-center gap-2 w-full">
-          <el-input :model-value="createdVirtualKey" readonly class="font-mono">
+          <el-input :model-value="createdApiKeyData?.apiKey" readonly class="font-mono">
             <template #append>
-              <el-button :icon="CopyDocument" @click="copyVirtualKey" />
+              <el-button :icon="CopyDocument" @click="copyApiKey" />
             </template>
           </el-input>
         </div>
       </el-form-item>
+      <el-form-item label="Expiration">
+        <el-text>{{ formatTimeStr(createdApiKeyData?.expirationTime) }}</el-text>
+      </el-form-item>
     </el-form>
   </el-dialog>
-  -->
 </template>
 
 <script lang="ts" setup>
@@ -428,6 +439,7 @@ import {
   getLLMGatewayBudget,
   updateLLMGatewayBudget,
   getLLMGatewayTagUsage,
+  createAPIKey,
 } from '@/services'
 import type {
   LLMGatewayBinding,
@@ -437,6 +449,7 @@ import type {
   LLMGatewayTagUsage,
   LLMGatewayTagItem,
   LLMGatewayTagUsageParams,
+  CreateAPIKeyResponse,
 } from '@/services'
 import { formatTimeStr, copyText } from '@/utils/index'
 import { ElMessage } from 'element-plus'
@@ -532,13 +545,25 @@ print(response.choices[0].message.content)`,
   windows: `irm https://raw.githubusercontent.com/AMD-AGI/Primus-SaFE/main/Scripts/setup-certs/setup.bat -OutFile $env:TEMP\\setup.bat; cmd /c $env:TEMP\\setup.bat`,
 }
 
-// ── Virtual Key Dialog ──
-const virtualKeyVisible = ref(false)
-const createdVirtualKey = ref('')
+// ── SaFE API Key Dialog ──
+const apiKeyVisible = ref(false)
+const createdApiKeyData = ref<CreateAPIKeyResponse | null>(null)
 
-// const copyVirtualKey = () => {
-//   copyText(createdVirtualKey.value)
-// }
+const copyApiKey = () => {
+  if (createdApiKeyData.value?.apiKey) {
+    copyText(createdApiKeyData.value.apiKey)
+  }
+}
+
+const autoCreateApiKey = async () => {
+  try {
+    const response = await createAPIKey({ name: 'llm', ttlDays: 365 })
+    createdApiKeyData.value = response
+    apiKeyVisible.value = true
+  } catch {
+    // Non-critical: don't block the user if API key creation fails
+  }
+}
 
 // ── Summary ──
 const summary = ref<LLMGatewaySummary | null>(null)
@@ -701,7 +726,8 @@ const modelRows = computed<ModelRow[]>(() => {
     .sort((a, b) => b.spend - a.spend)
 })
 
-const onQuickRangeChange = (days: number) => {
+const onQuickRangeChange = (val: string | number | boolean | undefined) => {
+  const days = Number(val) || 7
   dateRange.value = [
     dayjs().subtract(days - 1, 'day').format('YYYY-MM-DD'),
     dayjs().format('YYYY-MM-DD'),
@@ -848,16 +874,11 @@ const handleBind = async () => {
   if (!key) return
   try {
     submitLoading.value = true
-    const res = await createLLMGatewayBinding({ apim_key: key })
-    ElMessage.success('AMD LLM Subscription Key bound successfully')
+    await createLLMGatewayBinding({ apim_key: key })
+    ElMessage.success('AMD LLM API Key bound successfully')
     apimKeyInput.value = ''
-
-    if (res?.virtual_key) {
-      createdVirtualKey.value = res.virtual_key
-      virtualKeyVisible.value = true
-    }
-
     await fetchBinding()
+    await autoCreateApiKey()
   } catch (err: unknown) {
     if (typeof err === 'string' && err.includes('already exists')) {
       ElMessage.warning('Already bound. Please use the Update function.')
@@ -872,16 +893,11 @@ const handleUpdate = async () => {
   if (!key) return
   try {
     submitLoading.value = true
-    const res = await updateLLMGatewayBinding({ apim_key: key })
-    ElMessage.success('AMD LLM Subscription Key updated successfully')
+    await updateLLMGatewayBinding({ apim_key: key })
+    ElMessage.success('AMD LLM API Key updated successfully')
     apimKeyInput.value = ''
-
-    if (res?.virtual_key) {
-      createdVirtualKey.value = res.virtual_key
-      virtualKeyVisible.value = true
-    }
-
     await fetchBinding()
+    await autoCreateApiKey()
   } catch (err: unknown) {
     if (typeof err === 'string' && err.includes('no binding found')) {
       ElMessage.warning('Not bound yet. Please bind first.')
@@ -1174,6 +1190,24 @@ onBeforeUnmount(() => {
   .model-table :deep(.el-table__body td) {
     padding: 16px 0;
   }
+}
+
+/* Binding steps */
+.bind-steps {
+  background: var(--el-fill-color-light);
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 8px;
+  padding: 16px 16px 16px 20px;
+}
+.bind-steps-list {
+  margin: 0;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--el-text-color-regular);
 }
 
 /* Code block */

@@ -21,38 +21,56 @@
         >
           Create Model
         </el-button>
+        <el-tooltip
+          :content="refreshPaused ? 'Resume auto-refresh' : 'Pause auto-refresh'"
+          placement="top"
+        >
+          <button class="refresh-pill mb-2" @click="toggleRefreshPause">
+            <el-icon :size="14" :class="{ 'is-loading': !refreshPaused && countdown <= 3 }">
+              <Refresh />
+            </el-icon>
+            <span v-if="refreshPaused" class="refresh-pill__text">Paused</span>
+            <span v-else class="refresh-pill__text">{{ countdown }}s</span>
+          </button>
+        </el-tooltip>
       </div>
 
       <!-- Right side filters -->
-      <div class="flex flex-wrap items-center mt-2 mb-2 sm:mt-0 ml-auto gap-4">
+      <div class="flex flex-wrap items-center mt-2 mb-2 sm:mt-0 ml-auto gap-3">
+        <el-input
+          v-model="filters.search"
+          placeholder="Search models..."
+          clearable
+          :prefix-icon="Search"
+          style="width: 200px"
+          class="mb-2"
+          @input="handleSearchInput"
+          @clear="handleFilterChange"
+        />
+        <!-- Owner filter -->
+        <el-segmented
+          v-model="filters.owner"
+          :options="ownerOptions"
+          @change="handleFilterChange"
+          class="mb-2 ghost-seg"
+          style="background: none"
+        />
+        <span class="filter-divider"></span>
         <!-- Origin filter -->
         <el-segmented
           v-model="filters.origin"
           :options="originOptions"
           @change="handleFilterChange"
-          class="mb-2"
+          class="mb-2 ghost-seg"
+          style="background: none"
         />
-        <!-- Access mode filter -->
-        <el-select
-          v-model="filters.modelType"
-          placeholder="All Types"
-          clearable
-          @change="handleFilterChange"
-          style="width: 150px"
-          class="mb-2"
-        >
-          <el-option label="All Types" value="" />
-          <el-option label="Local" value="local" />
-          <el-option label="Local Path" value="local_path" />
-          <el-option label="Remote API" value="remote_api" />
-        </el-select>
       </div>
     </div>
 
     <!-- Model card grid -->
-    <div v-if="!loading && models.length > 0" class="model-grid">
+    <div v-if="!loading && paginatedModels.length > 0" class="model-grid">
       <el-card
-        v-for="model in models"
+        v-for="model in paginatedModels"
         :key="model.id"
         class="model-card"
         shadow="never"
@@ -95,28 +113,30 @@
               <div class="model-info-text">
                 <h3 class="model-name">{{ model.displayName || model.id }}</h3>
                 <div class="model-type">
-                  <el-tag
-                    :type="getStatusType(model.phase)"
-                    size="small"
-                    :effect="isDark ? 'dark' : 'light'"
-                  >
+                  <span :class="['status-pill', `status-pill--${model.phase?.toLowerCase()}`]">
                     {{ model.phase }}
-                  </el-tag>
-                  <el-tag
-                    size="small"
-                    :type="isDeployableLocalModel(model) ? 'primary' : 'warning'"
-                    :effect="isDark ? 'dark' : 'plain'"
-                  >
+                  </span>
+                  <span class="status-pill status-pill--muted">
                     {{ model.accessMode || 'Unknown' }}
-                  </el-tag>
-                  <el-tag
+                  </span>
+                  <span
                     v-if="model.origin === 'fine_tuned'"
-                    size="small"
-                    type="success"
-                    :effect="isDark ? 'dark' : 'plain'"
+                    class="status-pill status-pill--sft"
                   >
                     SFT
-                  </el-tag>
+                  </span>
+                  <span
+                    v-else-if="model.origin === 'rl_trained'"
+                    class="status-pill status-pill--rl"
+                  >
+                    RL
+                  </span>
+                  <span
+                    v-else-if="model.accessMode === 'local'"
+                    class="status-pill status-pill--base"
+                  >
+                    Base
+                  </span>
                 </div>
               </div>
             </div>
@@ -125,7 +145,7 @@
             </p>
             <!-- SFT model metadata -->
             <div
-              v-if="model.origin === 'fine_tuned'"
+              v-if="model.origin === 'fine_tuned' || model.origin === 'rl_trained'"
               class="text-xs text-gray-400 mt-1"
             >
               <span v-if="model.userName">By {{ model.userName }}</span>
@@ -184,15 +204,14 @@
 
           <!-- Action button area -->
           <div class="model-actions">
-            <el-button
-              size="small"
-              type="primary"
-              @click="openChat(model)"
+            <button
+              class="btn-chat"
               :disabled="model.phase !== 'Ready'"
+              @click="openChat(model)"
             >
-              <el-icon><ChatLineSquare /></el-icon>
+              <el-icon :size="14"><ChatLineSquare /></el-icon>
               Chat
-            </el-button>
+            </button>
             <div class="action-buttons">
               <el-tooltip content="View Details" placement="top">
                 <el-button
@@ -242,21 +261,6 @@
                   <el-icon><VideoPause /></el-icon>
                 </el-button>
               </el-tooltip>
-              <!-- SFT button -->
-              <el-tooltip
-                v-if="canSft(model)"
-                content="SFT"
-                placement="top"
-              >
-                <el-button
-                  size="small"
-                  @click="handleCommand('sft', model)"
-                  circle
-                  class="btn-icon btn-sft"
-                >
-                  <el-icon><MagicStick /></el-icon>
-                </el-button>
-              </el-tooltip>
               <el-tooltip content="Delete Model" placement="top">
                 <el-button
                   size="small"
@@ -271,6 +275,19 @@
           </div>
         </div>
       </el-card>
+    </div>
+
+    <!-- Pagination -->
+    <div v-if="!loading && models.length > 0" class="pagination-row">
+      <el-pagination
+        v-model:current-page="currentPage"
+        v-model:page-size="pageSize"
+        :total="models.length"
+        :page-sizes="[12, 24, 48]"
+        layout="total, sizes, prev, pager, next"
+        background
+        @size-change="currentPage = 1"
+      />
     </div>
 
     <!-- Empty state -->
@@ -313,21 +330,16 @@
       @confirm="handleInferSelected"
     />
 
-    <!-- Create SFT dialog -->
-    <CreateSftDialog
-      v-model:visible="showSftDialog"
-      :model="currentSftModel"
-      @success="handleSftSuccess"
-    />
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted, watch } from 'vue'
+import { ref, reactive, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   Plus,
+  Search,
   ChatLineSquare,
   View,
   Delete,
@@ -335,9 +347,9 @@ import {
   VideoPause,
   Box,
   RefreshRight,
-  MagicStick,
+  Refresh,
 } from '@element-plus/icons-vue'
-import { useDark } from '@vueuse/core'
+import { useDark, useDebounceFn } from '@vueuse/core'
 import { formatTimeStr } from '@/utils'
 import {
   getModelsList,
@@ -345,26 +357,28 @@ import {
   retryModel,
   getModelWorkloadConfig,
   isDeployableLocalModel,
-  canSft,
   type PlaygroundModel,
   type ModelsListParams,
   type ModelsListResp,
 } from '@/services/playground'
 import AddModelDialog from './Components/AddModelDialog.vue'
 import ToggleServiceDialog from './Components/ToggleServiceDialog.vue'
-import CreateSftDialog from './Components/CreateSftDialog.vue'
 import InferAddDialog from '@/pages/Infer/Components/AddDialog.vue'
 import SelectInferDialog from './Components/SelectInferDialog.vue'
 import { useWorkspaceStore } from '@/stores/workspace'
+import { useUserStore } from '@/stores/user'
 
 const router = useRouter()
-const isDark = useDark()
+const _isDark = useDark()
 const wsStore = useWorkspaceStore()
+const userStore = useUserStore()
 
 // State
 const loading = ref(false)
 const models = ref<PlaygroundModel[]>([])
 const total = ref(0)
+const currentPage = ref(1)
+const pageSize = ref(12)
 const showAddDialog = ref(false)
 const showToggleDialog = ref(false)
 const currentToggleModel = ref<PlaygroundModel | null>(null)
@@ -374,27 +388,12 @@ const inferAction = ref('Create')
 const inferPrefillData = ref<Record<string, unknown>>({})
 const showSelectInferDialog = ref(false)
 const currentSelectModel = ref<PlaygroundModel | null>(null)
-const showSftDialog = ref(false)
-const currentSftModel = ref<PlaygroundModel | null>(null)
-
 // Filter criteria
 const filters = reactive({
-  modelType: '',
   origin: '',
+  owner: '',
   search: '',
 })
-
-// Get status type
-const getStatusType = (phase: string) => {
-  const statusMap: Record<string, string> = {
-    Ready: 'success',
-    Running: 'success',
-    Stopped: 'info',
-    Pending: 'warning',
-    Failed: 'danger',
-  }
-  return statusMap[phase] || 'info'
-}
 
 // Map backend-returned color to Element Plus tag type
 const getTagColorType = (color: string) => {
@@ -409,11 +408,19 @@ const getTagColorType = (color: string) => {
   return colorMap[color.toLowerCase()] || 'info'
 }
 
+// Owner filter options
+const ownerOptions = [
+  { label: 'All', value: '' },
+  { label: 'Mine', value: 'mine' },
+]
+
 // Origin filter options
 const originOptions = [
   { label: 'All', value: '' },
-  { label: 'Imported', value: 'external' },
+  { label: 'Base', value: 'external' },
   { label: 'SFT', value: 'fine_tuned' },
+  { label: 'RL', value: 'rl_trained' },
+  { label: 'Remote API', value: 'remote_api' },
 ]
 
 // Handle image load error
@@ -425,14 +432,25 @@ const handleIconError = (event: Event, model: PlaygroundModel & { _iconLoadFaile
   model._iconLoadFailed = true
 }
 
+// Paginated models for display
+const paginatedModels = computed(() => {
+  const start = (currentPage.value - 1) * pageSize.value
+  return models.value.slice(start, start + pageSize.value)
+})
+
 // Fetch model list
 const fetchModels = async () => {
   loading.value = true
   try {
     const params: ModelsListParams = {}
 
-    if (filters.modelType) params.accessMode = filters.modelType
-    if (filters.origin) params.origin = filters.origin
+    if (filters.origin === 'remote_api') {
+      params.accessMode = 'remote_api'
+    } else if (filters.origin) {
+      params.origin = filters.origin
+    }
+    if (filters.search) params.search = filters.search
+    if (filters.owner === 'mine' && userStore.userId) params.userId = userStore.userId
     if (wsStore.currentWorkspaceId) params.workspace = wsStore.currentWorkspaceId
 
     const res = (await getModelsList(params)) as unknown as ModelsListResp
@@ -445,8 +463,15 @@ const fetchModels = async () => {
   }
 }
 
+// Debounced search handler
+const handleSearchInput = useDebounceFn(() => {
+  currentPage.value = 1
+  fetchModels()
+}, 400)
+
 // Handle filter change
 const handleFilterChange = () => {
+  currentPage.value = 1
   fetchModels()
 }
 
@@ -510,10 +535,6 @@ const handleCommand = async (command: string, model: PlaygroundModel) => {
       break
     case 'delete':
       await handleDeleteModel(model)
-      break
-    case 'sft':
-      currentSftModel.value = model
-      showSftDialog.value = true
       break
   }
 }
@@ -632,15 +653,6 @@ const handleInferSuccess = () => {
   })
 }
 
-// Handle SFT job creation success
-const handleSftSuccess = (workloadId: string) => {
-  showSftDialog.value = false
-  currentSftModel.value = null
-  router.push({
-    path: '/training/detail',
-    query: { id: workloadId },
-  })
-}
 
 // Delete model
 const handleDeleteModel = async (model: PlaygroundModel) => {
@@ -671,9 +683,48 @@ const handleAddSuccess = () => {
   fetchModels()
 }
 
+// Auto-refresh with visible countdown
+const REFRESH_SECONDS = 30
+const countdown = ref(REFRESH_SECONDS)
+const refreshPaused = ref(false)
+let tickTimer: ReturnType<typeof setInterval> | null = null
+
+const resetCountdown = () => {
+  countdown.value = REFRESH_SECONDS
+}
+
+const startTick = () => {
+  stopTick()
+  tickTimer = setInterval(() => {
+    if (refreshPaused.value) return
+    countdown.value--
+    if (countdown.value <= 0) {
+      resetCountdown()
+      fetchModels()
+    }
+  }, 1000)
+}
+
+const stopTick = () => {
+  if (tickTimer) {
+    clearInterval(tickTimer)
+    tickTimer = null
+  }
+}
+
+const toggleRefreshPause = () => {
+  refreshPaused.value = !refreshPaused.value
+  if (!refreshPaused.value) resetCountdown()
+}
+
 // Initialize
 onMounted(() => {
   fetchModels()
+  startTick()
+})
+
+onUnmounted(() => {
+  stopTick()
 })
 
 // Watch for workspace changes, auto refresh list
@@ -681,6 +732,7 @@ watch(
   () => wsStore.currentWorkspaceId,
   (newWorkspaceId, oldWorkspaceId) => {
     if (newWorkspaceId !== oldWorkspaceId) {
+      currentPage.value = 1
       fetchModels()
     }
   },
@@ -698,6 +750,16 @@ watch(
 
 .ml-auto {
   margin-left: auto;
+}
+
+.filter-divider {
+  display: inline-block;
+  width: 1px;
+  height: 16px;
+  background: var(--el-border-color);
+  opacity: 0.5;
+  margin: 0 4px;
+  align-self: center;
 }
 
 // Purple tag custom styles
@@ -1022,6 +1084,32 @@ watch(
       align-items: center;
       margin-top: auto;
 
+      .btn-chat {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        padding: 5px 14px;
+        border-radius: 14px;
+        border: 1px solid var(--el-color-primary-light-3);
+        background: transparent;
+        color: var(--el-color-primary);
+        font-size: 13px;
+        font-weight: 500;
+        cursor: pointer;
+        transition: all 0.2s;
+
+        &:hover:not(:disabled) {
+          background: var(--el-color-primary);
+          color: #fff;
+          border-color: var(--el-color-primary);
+        }
+
+        &:disabled {
+          opacity: 0.35;
+          cursor: not-allowed;
+        }
+      }
+
       .action-buttons {
         display: flex;
         gap: 6px;
@@ -1097,8 +1185,95 @@ watch(
     }
   }
 
+  .pagination-row {
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    gap: 12px;
+    margin-top: 20px;
+    padding: 8px 0;
+  }
+
+  .refresh-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 10px;
+    border-radius: 12px;
+    border: 1px solid var(--el-border-color-lighter);
+    background: transparent;
+    color: var(--el-text-color-secondary);
+    font-size: 12px;
+    cursor: pointer;
+    transition: all 0.2s;
+    white-space: nowrap;
+
+    &:hover {
+      border-color: var(--el-color-primary-light-5);
+      color: var(--el-color-primary);
+    }
+
+    &__text {
+      min-width: 36px;
+      text-align: center;
+    }
+  }
+
   .loading-container {
     padding: 40px;
+  }
+}
+
+// Soft status pills for model cards
+.status-pill {
+  display: inline-block;
+  font-size: 11px;
+  line-height: 1;
+  padding: 3px 8px;
+  border-radius: 10px;
+  font-weight: 500;
+  border: 1px solid transparent;
+
+  &--ready,
+  &--running {
+    color: #5cb77a;
+    background: rgba(92, 183, 122, 0.1);
+    border-color: rgba(92, 183, 122, 0.2);
+  }
+  &--pending {
+    color: #c8973e;
+    background: rgba(200, 151, 62, 0.1);
+    border-color: rgba(200, 151, 62, 0.2);
+  }
+  &--failed {
+    color: #cf6a6a;
+    background: rgba(207, 106, 106, 0.1);
+    border-color: rgba(207, 106, 106, 0.2);
+  }
+  &--stopped {
+    color: #8c8f94;
+    background: rgba(140, 143, 148, 0.1);
+    border-color: rgba(140, 143, 148, 0.2);
+  }
+  &--muted {
+    color: #8c8f94;
+    background: rgba(140, 143, 148, 0.08);
+    border-color: rgba(140, 143, 148, 0.15);
+  }
+  &--sft {
+    color: #5b9e6f;
+    background: rgba(91, 158, 111, 0.1);
+    border-color: rgba(91, 158, 111, 0.2);
+  }
+  &--base {
+    color: #7a8ba8;
+    background: rgba(122, 139, 168, 0.1);
+    border-color: rgba(122, 139, 168, 0.2);
+  }
+  &--rl {
+    color: #b8862e;
+    background: rgba(184, 134, 46, 0.1);
+    border-color: rgba(184, 134, 46, 0.2);
   }
 }
 
@@ -1156,5 +1331,43 @@ watch(
       border-top: 1px solid rgba(255, 255, 255, 0.05);
     }
   }
+}
+</style>
+<style>
+.ghost-seg.el-segmented {
+  --el-border-radius-base: 0;
+}
+.ghost-seg .el-segmented__group {
+  gap: 2px;
+}
+.ghost-seg .el-segmented__item-selected {
+  background: none !important;
+  box-shadow: none !important;
+}
+.ghost-seg .el-segmented__item {
+  position: relative;
+  padding: 4px 10px;
+  border-radius: 0 !important;
+  transition: color 0.2s;
+}
+.ghost-seg .el-segmented__item::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 20%;
+  right: 20%;
+  height: 2px;
+  border-radius: 1px;
+  background: transparent;
+  transition: all 0.25s ease;
+}
+.ghost-seg .el-segmented__item.is-selected {
+  color: var(--safe-primary, var(--el-color-primary)) !important;
+  font-weight: 600;
+}
+.ghost-seg .el-segmented__item.is-selected::after {
+  background: var(--safe-primary, var(--el-color-primary));
+  left: 10%;
+  right: 10%;
 }
 </style>
