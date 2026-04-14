@@ -38,17 +38,28 @@ import (
 // AddonController manages Helm addon installations and updates for clusters.
 type AddonController struct {
 	client.Client
-	clustersGetter *ClustersGetter
+	clustersGetter  *ClustersGetter
+	grafanaSyncer   *GrafanaDatasourceSyncer
 }
 
 // SetupAddonController initializes and registers the AddonController with the controller manager.
 func SetupAddonController(mgr manager.Manager) error {
+	var gs *GrafanaDatasourceSyncer
+	if restCfg := mgr.GetConfig(); restCfg != nil {
+		var err error
+		gs, err = NewGrafanaDatasourceSyncer(restCfg, "primus-safe")
+		if err != nil {
+			klog.Warningf("[addon] grafana datasource syncer init failed (non-blocking): %v", err)
+		}
+	}
+
 	addon := &AddonController{
 		Client: mgr.GetClient(),
 		clustersGetter: &ClustersGetter{
 			Mutex:  sync.Mutex{},
 			getter: map[string]*RESTClientGetter{},
 		},
+		grafanaSyncer: gs,
 	}
 	err := ctrlruntime.NewControllerManagedBy(mgr).
 		For(&v1.Addon{}, builder.WithPredicates(predicate.ResourceVersionChangedPredicate{})).Complete(addon)
@@ -103,6 +114,7 @@ func (r *AddonController) guaranteeHelmAddon(ctx context.Context, addon *v1.Addo
 		if err != nil {
 			return err
 		}
+		r.cleanupRobustGrafanaDatasources(ctx, addon)
 		addon.Status.Phase = v1.AddonDeleted
 		err = r.Status().Patch(ctx, addon, originalAddon)
 		if err != nil {
@@ -492,6 +504,31 @@ func (r *AddonController) registerRobustEndpointIfApplicable(ctx context.Context
 		return
 	}
 	klog.Infof("[addon] registered robust-api endpoint for cluster %s: %s", clusterRef.Name, endpoint)
+
+	if r.grafanaSyncer != nil {
+		r.grafanaSyncer.SyncClusterDatasources(ctx, clusterRef.Name, endpoint)
+	}
+}
+
+// cleanupRobustGrafanaDatasources removes Grafana datasources when a robust addon is deleted.
+func (r *AddonController) cleanupRobustGrafanaDatasources(ctx context.Context, addon *v1.Addon) {
+	if r.grafanaSyncer == nil {
+		return
+	}
+	templateName := ""
+	if addon.Spec.AddonSource.HelmRepository != nil {
+		templateName = addon.Spec.AddonSource.HelmRepository.ReleaseName
+	}
+	if templateName == "" {
+		templateName = addon.Name
+	}
+	if !strings.HasPrefix(templateName, robustAddonPrefix) {
+		return
+	}
+	if addon.Spec.Cluster == nil {
+		return
+	}
+	r.grafanaSyncer.RemoveClusterDatasources(ctx, addon.Spec.Cluster.Name)
 }
 
 // configureHelmClient configures the Helm client with registry and getter settings.

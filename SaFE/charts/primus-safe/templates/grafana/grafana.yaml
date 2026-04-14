@@ -35,6 +35,18 @@ spec:
       allow_embedding: "true"
     auth.anonymous:
       enabled: "true"
+    plugins:
+      allow_loading_unsigned_plugins: "marcusolsson-json-datasource"
+  deployment:
+    spec:
+      replicas: 1
+      template:
+        spec:
+          containers:
+            - name: grafana
+              env:
+                - name: GF_INSTALL_PLUGINS
+                  value: "marcusolsson-json-datasource"
   persistentVolumeClaim:
     spec:
       accessModes:
