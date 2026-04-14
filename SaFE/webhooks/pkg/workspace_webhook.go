@@ -177,12 +177,12 @@ func (m *WorkspaceMutator) mutateNodesAction(ctx context.Context, oldWorkspace, 
 			"workspace replica cannot be performed simultaneously")
 	}
 
-	actions, err := parseNodesAction(newWorkspace)
+	currentActions, err := parseNodesAction(newWorkspace)
 	if err != nil {
 		return err
 	}
 	newActions := make(map[string]string)
-	for key, val := range actions {
+	for key, val := range currentActions {
 		n, _ := getNode(ctx, m.Client, key)
 		if n == nil {
 			klog.ErrorS(err, "failed to get node")
@@ -194,11 +194,11 @@ func (m *WorkspaceMutator) mutateNodesAction(ctx context.Context, oldWorkspace, 
 			return err
 		}
 		if val == v1.NodeActionAdd {
-			if v1.GetWorkspaceId(n) == newWorkspace.Name {
+			if n.GetSpecWorkspace() == newWorkspace.Name {
 				continue
 			}
 		} else if val == v1.NodeActionRemove {
-			if v1.GetWorkspaceId(n) == "" {
+			if n.GetSpecWorkspace() == "" {
 				continue
 			}
 		} else {
@@ -233,7 +233,7 @@ func (m *WorkspaceMutator) mutateNodesAction(ctx context.Context, oldWorkspace, 
 			return commonerrors.NewResourceProcessing(fmt.Sprintf("another job(%s) is processing,"+
 				" please wait for it to complete", v1.GetWorkspaceNodesAction(oldWorkspace)))
 		}
-		if len(newActions) != len(actions) {
+		if len(newActions) != len(currentActions) {
 			v1.SetAnnotation(newWorkspace, v1.WorkspaceNodesAction, string(jsonutils.MarshalSilently(newActions)))
 		}
 	}
@@ -709,14 +709,13 @@ func (v *WorkspaceValidator) validateNodesAction(ctx context.Context, newWorkspa
 			return fmt.Errorf("the node %s and workspace %s are not in the same cluster", n.Name, newWorkspace.Name)
 		}
 		if val == v1.NodeActionAdd {
-			if v1.GetWorkspaceId(n) != "" {
-				return fmt.Errorf("the node(%s) is bound for %s. it can't be added",
-					key, v1.GetWorkspaceId(n))
+			if n.GetSpecWorkspace() != "" {
+				return fmt.Errorf("the node(%s) is bound for %s. it can't be added", key, n.GetSpecWorkspace())
 			}
 		} else if val == v1.NodeActionRemove {
-			if v1.GetWorkspaceId(n) != newWorkspace.Name {
+			if n.GetSpecWorkspace() != newWorkspace.Name {
 				return fmt.Errorf("the node(%s) belongs to workspace(%s). it can't be removed",
-					key, v1.GetWorkspaceId(n))
+					key, n.GetSpecWorkspace())
 			}
 			toRemoveNodes = append(toRemoveNodes, key)
 		}
