@@ -50,11 +50,26 @@
           <div class="param-item">
             <label class="param-label">
               Model Name
-              <el-tooltip content="Enter model name">
+              <el-tooltip content="Select or enter model name">
                 <el-icon class="ml-1 text-gray-400"><QuestionFilled /></el-icon>
               </el-tooltip>
             </label>
-            <el-input v-model="modelName" placeholder="Enter model name" />
+            <el-select
+              v-model="modelName"
+              placeholder="Select model name"
+              class="w-full"
+              filterable
+              allow-create
+              default-first-option
+              @change="chatParams.model = modelName"
+            >
+              <el-option
+                v-for="name in modelNameOptions"
+                :key="name"
+                :label="name"
+                :value="name"
+              />
+            </el-select>
           </div>
 
           <!-- System Prompt -->
@@ -131,6 +146,31 @@
                   </div>
                 </div>
               </el-option>
+            </el-select>
+          </div>
+
+          <!-- Secondary Model Name (for comparison) -->
+          <div class="param-item" v-if="compareMode">
+            <label class="param-label">
+              Compare Model Name
+              <el-tooltip content="Select or enter model name for the compare service">
+                <el-icon class="ml-1 text-gray-400"><QuestionFilled /></el-icon>
+              </el-tooltip>
+            </label>
+            <el-select
+              v-model="secondaryChatParams.model"
+              placeholder="Select model name"
+              class="w-full"
+              filterable
+              allow-create
+              default-first-option
+            >
+              <el-option
+                v-for="name in modelNameOptions"
+                :key="name"
+                :label="name"
+                :value="name"
+              />
             </el-select>
           </div>
 
@@ -1390,7 +1430,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, nextTick, watch } from 'vue'
+import { ref, computed, onMounted, nextTick, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Promotion, QuestionFilled, VideoPause } from '@element-plus/icons-vue'
@@ -1535,6 +1575,13 @@ const systemPrompt = ref('You are a helpful assistant.')
 // Services list (unified for both local infer and remote model)
 const servicesList = ref<PlaygroundService[]>([])
 const loadingServices = ref(false)
+
+const modelNameOptions = computed(() => {
+  const names = servicesList.value
+    .map((s) => s.modelName || s.displayName)
+    .filter(Boolean)
+  return [...new Set(names)]
+})
 
 const messages = ref<MessageWithChoices[]>([])
 const userInput = ref('')
