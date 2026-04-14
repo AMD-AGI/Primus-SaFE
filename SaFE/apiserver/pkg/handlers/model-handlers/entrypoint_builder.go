@@ -22,6 +22,12 @@ type ModelRecipe struct {
 	Size   string // "8b" | "32b" | "70b" — used to look up training presets
 }
 
+type ModelRecipeOverride struct {
+	Recipe string
+	Flavor string
+	Size   string
+}
+
 var modelRecipes = map[string]ModelRecipe{
 	"Qwen/Qwen3-8B":                 {Recipe: "qwen.qwen3", Flavor: "qwen3_8b_finetune_config", Size: "8b"},
 	"Qwen/Qwen3-32B":                {Recipe: "qwen.qwen3", Flavor: "qwen3_32b_finetune_config", Size: "32b"},
@@ -29,7 +35,7 @@ var modelRecipes = map[string]ModelRecipe{
 }
 
 // InferModelRecipe returns the Primus recipe for a given HF model name.
-// Falls back to fuzzy matching on common substrings.
+// Falls back to family/size inference for common model families.
 func InferModelRecipe(hfModelName string) (ModelRecipe, error) {
 	if r, ok := modelRecipes[hfModelName]; ok {
 		return r, nil
@@ -40,7 +46,89 @@ func InferModelRecipe(hfModelName string) (ModelRecipe, error) {
 			return r, nil
 		}
 	}
-	return ModelRecipe{}, fmt.Errorf("unsupported model: %s (supported: %s)", hfModelName, supportedModelNames())
+	return inferModelRecipeFromName(hfModelName)
+}
+
+func ResolveModelRecipe(hfModelName string, override ModelRecipeOverride) (ModelRecipe, error) {
+	overrideProvided := strings.TrimSpace(override.Recipe) != "" ||
+		strings.TrimSpace(override.Flavor) != "" ||
+		strings.TrimSpace(override.Size) != ""
+	if overrideProvided {
+		return normalizeModelRecipeOverride(override)
+	}
+	return InferModelRecipe(hfModelName)
+}
+
+func normalizeModelRecipeOverride(override ModelRecipeOverride) (ModelRecipe, error) {
+	recipe := strings.TrimSpace(override.Recipe)
+	flavor := strings.TrimSpace(override.Flavor)
+	size := strings.TrimSpace(override.Size)
+
+	if recipe == "" || flavor == "" || size == "" {
+		return ModelRecipe{}, fmt.Errorf(
+			"recipe, flavor and modelSize must be provided together for SFT override",
+		)
+	}
+
+	normalizedSize, err := normalizeModelSize(size)
+	if err != nil {
+		return ModelRecipe{}, err
+	}
+
+	return ModelRecipe{
+		Recipe: recipe,
+		Flavor: flavor,
+		Size:   normalizedSize,
+	}, nil
+}
+
+func inferModelRecipeFromName(hfModelName string) (ModelRecipe, error) {
+	lower := strings.ToLower(strings.TrimSpace(hfModelName))
+	size := inferModelSize(hfModelName)
+
+	if strings.Contains(lower, "qwen") {
+		switch size {
+		case "32b":
+			return ModelRecipe{
+				Recipe: "qwen.qwen3",
+				Flavor: "qwen3_32b_finetune_config",
+				Size:   "32b",
+			}, nil
+		case "8b":
+			return ModelRecipe{
+				Recipe: "qwen.qwen3",
+				Flavor: "qwen3_8b_finetune_config",
+				Size:   "8b",
+			}, nil
+		}
+	}
+
+	if strings.Contains(lower, "llama") && size == "70b" {
+		return ModelRecipe{
+			Recipe: "llama.llama3",
+			Flavor: "llama31_70b_finetune_config",
+			Size:   "70b",
+		}, nil
+	}
+
+	return ModelRecipe{}, fmt.Errorf(
+		"unsupported model: %s (supported defaults: %s; or pass recipe/flavor/modelSize overrides)",
+		hfModelName,
+		supportedModelNames(),
+	)
+}
+
+func normalizeModelSize(size string) (string, error) {
+	switch strings.ToLower(strings.TrimSpace(size)) {
+	case "7b", "8b":
+		return "8b", nil
+	case "30b", "32b", "34b":
+		return "32b", nil
+	case "65b", "70b", "72b":
+		return "70b", nil
+	default:
+		return "", fmt.Errorf("unsupported modelSize override: %s", size)
+	}
 }
 
 func supportedModelNames() string {

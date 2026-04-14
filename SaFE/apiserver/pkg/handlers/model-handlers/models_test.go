@@ -8,6 +8,7 @@ package model_handlers
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -628,6 +629,69 @@ func TestGetSftConfig_32BDefaults(t *testing.T) {
 	assert.Equal(t, resp.Defaults.TrainConfig.TensorModelParallelSize, 8)
 }
 
+func TestGetSftConfig_InferRecipeForGenericQwenModel(t *testing.T) {
+	model := genMockLocalK8sModel("model-qwen-generic", "ws1")
+	model.Spec.DisplayName = "Qwen/Qwen2.5-7B-Instruct"
+	model.Spec.Source.URL = "https://huggingface.co/Qwen/Qwen2.5-7B-Instruct"
+	model.Spec.Source.ModelName = "Qwen/Qwen2.5-7B-Instruct"
+
+	k8sClient := fake.NewClientBuilder().
+		WithObjects(model).
+		WithScheme(scheme.Scheme).
+		Build()
+
+	h := newMockModelHandler(k8sClient)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Params = gin.Params{{Key: "id", Value: "model-qwen-generic"}}
+	c.Request, _ = http.NewRequest("GET", "/models/model-qwen-generic/sft-config?workspace=ws1", nil)
+
+	result, err := h.getSftConfig(c)
+	assert.NilError(t, err)
+
+	resp := result.(*SftConfigResponse)
+	assert.Equal(t, resp.Supported, true)
+	assert.Assert(t, resp.Defaults != nil)
+	assert.Equal(t, resp.Defaults.Recipe, "qwen.qwen3")
+	assert.Equal(t, resp.Defaults.Flavor, "qwen3_8b_finetune_config")
+	assert.Equal(t, resp.Defaults.ModelSize, "8b")
+	assert.DeepEqual(t, resp.Options.PeftOptions, []string{"none", "lora"})
+}
+
+func TestGetSftConfig_OverrideAllowsUnknownModel(t *testing.T) {
+	model := genMockLocalK8sModel("model-custom", "ws1")
+	model.Spec.DisplayName = "Acme/Custom-9B"
+	model.Spec.Source.URL = "https://huggingface.co/Acme/Custom-9B"
+	model.Spec.Source.ModelName = "Acme/Custom-9B"
+
+	k8sClient := fake.NewClientBuilder().
+		WithObjects(model).
+		WithScheme(scheme.Scheme).
+		Build()
+
+	h := newMockModelHandler(k8sClient)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Params = gin.Params{{Key: "id", Value: "model-custom"}}
+	c.Request, _ = http.NewRequest(
+		"GET",
+		"/models/model-custom/sft-config?workspace=ws1&recipe=qwen.qwen3&flavor=qwen3_8b_finetune_config&modelSize=8b",
+		nil,
+	)
+
+	result, err := h.getSftConfig(c)
+	assert.NilError(t, err)
+
+	resp := result.(*SftConfigResponse)
+	assert.Equal(t, resp.Supported, true)
+	assert.Assert(t, resp.Defaults != nil)
+	assert.Equal(t, resp.Defaults.Recipe, "qwen.qwen3")
+	assert.Equal(t, resp.Defaults.Flavor, "qwen3_8b_finetune_config")
+	assert.Equal(t, resp.Defaults.ModelSize, "8b")
+}
+
 func TestGetSftConfig_SharedLocalPathAccessible(t *testing.T) {
 	model := genMockLocalK8sModel("model-qwen-shared-local", "ws2")
 	model.Spec.DisplayName = "Qwen/Qwen3-8B"
@@ -814,6 +878,93 @@ func TestCreateSftJob_InjectsAinicEnvForSharedNfsMultinode(t *testing.T) {
 	assert.Equal(t, workload.Spec.Env["USING_AINIC"], "1")
 	assert.Equal(t, workload.Spec.Env["NCCL_IB_GID_INDEX"], "1")
 	assert.Equal(t, workload.Spec.Env["DATA_PATH"], "/shared_nfs/sft-shared-data/"+resp.WorkloadId)
+}
+
+func TestCreateSftJob_OverrideAllowsUnknownModel(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockDB := mock_client.NewMockInterface(ctrl)
+	localPaths, err := json.Marshal([]dbclient.DatasetLocalPathDB{
+		{
+			Workspace: "ws1",
+			Path:      "/shared_nfs/datasets/custom-sft",
+			Status:    dbclient.DatasetStatusReady,
+		},
+	})
+	assert.NilError(t, err)
+
+	mockDB.EXPECT().
+		GetDataset(gomock.Any(), "dataset-custom-sft").
+		Return(&dbclient.Dataset{
+			DatasetId:  "dataset-custom-sft",
+			LocalPaths: string(localPaths),
+		}, nil).
+		AnyTimes()
+
+	model := genMockLocalK8sModel("model-custom-override", "ws1")
+	model.Spec.DisplayName = "Acme/Custom-9B"
+	model.Spec.Source.URL = "https://huggingface.co/Acme/Custom-9B"
+	model.Spec.Source.ModelName = "Acme/Custom-9B"
+	model.Status.LocalPaths = []v1.ModelLocalPath{
+		{
+			Workspace: "ws1",
+			Path:      "/shared_nfs/models/custom-9b",
+			Status:    v1.LocalPathStatusReady,
+		},
+	}
+	ws1 := genMockWorkspace("ws1", "/shared_nfs")
+
+	k8sClient := fake.NewClientBuilder().
+		WithObjects(model, ws1).
+		WithScheme(scheme.Scheme).
+		Build()
+
+	h := newMockModelHandlerWithDB(k8sClient, mockDB)
+
+	exportModel := false
+	reqBody, err := json.Marshal(CreateSftJobRequest{
+		DisplayName:      "custom-override-sft",
+		Workspace:        "ws1",
+		ModelId:          "model-custom-override",
+		DatasetId:        "dataset-custom-sft",
+		Recipe:           "qwen.qwen3",
+		Flavor:           "qwen3_8b_finetune_config",
+		ModelSize:        "8b",
+		ExportModel:      &exportModel,
+		Image:            "test-image",
+		NodeCount:        1,
+		GpuCount:         8,
+		Cpu:              "80",
+		Memory:           "1000Gi",
+		EphemeralStorage: "1000Gi",
+		TrainConfig: SftTrainConfig{
+			Peft: "lora",
+		},
+	})
+	assert.NilError(t, err)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request, _ = http.NewRequest("POST", "/sft/jobs", bytes.NewReader(reqBody))
+	c.Request.Header.Set("Content-Type", "application/json")
+	c.Set(common.UserId, "user-1")
+	c.Set(common.UserName, "Test User")
+
+	result, err := h.createSftJob(c)
+	assert.NilError(t, err)
+
+	resp := result.(*CreateSftJobResponse)
+	workload := &v1.Workload{}
+	err = k8sClient.Get(context.Background(), client.ObjectKey{Name: resp.WorkloadId}, workload)
+	assert.NilError(t, err)
+	assert.Equal(t, workload.Spec.Images[0], "test-image")
+
+	entrypoint, err := base64.StdEncoding.DecodeString(workload.Spec.EntryPoints[0])
+	assert.NilError(t, err)
+	assert.Assert(t, strings.Contains(string(entrypoint), "recipe: qwen.qwen3"))
+	assert.Assert(t, strings.Contains(string(entrypoint), "flavor: qwen3_8b_finetune_config"))
+	assert.Assert(t, strings.Contains(string(entrypoint), `peft: "lora"`))
 }
 
 func TestGetSftConfig_UnsupportedModel(t *testing.T) {

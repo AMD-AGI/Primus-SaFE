@@ -74,11 +74,18 @@ func (h *Handler) createSftJob(c *gin.Context) (interface{}, error) {
 		return nil, commonerrors.NewBadRequest(fmt.Sprintf("model not available locally: %v", err))
 	}
 
-	// Step 2: Infer recipe/flavor from model name
-	recipe, err := InferModelRecipe(baseModelName)
+	// Step 2: Resolve recipe/flavor from explicit override or model name
+	recipe, err := ResolveModelRecipe(baseModelName, ModelRecipeOverride{
+		Recipe: req.Recipe,
+		Flavor: req.Flavor,
+		Size:   req.ModelSize,
+	})
 	if err != nil {
 		return nil, commonerrors.NewBadRequest(err.Error())
 	}
+	req.Recipe = recipe.Recipe
+	req.Flavor = recipe.Flavor
+	req.ModelSize = recipe.Size
 
 	// Step 3: Fill smart defaults
 	FillSftDefaults(&req, recipe.Size)
@@ -241,6 +248,9 @@ func (h *Handler) createSftJob(c *gin.Context) (interface{}, error) {
 		"model", selectedModelName,
 		"modelPath", modelPath,
 		"baseModel", baseModelName,
+		"recipe", recipe.Recipe,
+		"flavor", recipe.Flavor,
+		"modelSize", recipe.Size,
 		"dataset", req.DatasetId,
 		"peft", req.TrainConfig.Peft,
 	)
@@ -308,7 +318,11 @@ func (h *Handler) getSftConfig(c *gin.Context) (interface{}, error) {
 		return resp, nil
 	}
 
-	recipe, err := InferModelRecipe(trainingModelName)
+	recipe, err := ResolveModelRecipe(trainingModelName, ModelRecipeOverride{
+		Recipe: query.Recipe,
+		Flavor: query.Flavor,
+		Size:   query.ModelSize,
+	})
 	if err != nil {
 		resp.Reason = err.Error()
 		return resp, nil
@@ -317,6 +331,9 @@ func (h *Handler) getSftConfig(c *gin.Context) (interface{}, error) {
 	defaultReq := CreateSftJobRequest{
 		Workspace: query.Workspace,
 		ModelId:   modelId,
+		Recipe:    recipe.Recipe,
+		Flavor:    recipe.Flavor,
+		ModelSize: recipe.Size,
 	}
 	if query.Peft != "" {
 		defaultReq.TrainConfig.Peft = query.Peft
@@ -327,6 +344,9 @@ func (h *Handler) getSftConfig(c *gin.Context) (interface{}, error) {
 	resp.Defaults = &SftConfigDefaults{
 		ExportModel:      *defaultReq.ExportModel,
 		Image:            defaultReq.Image,
+		Recipe:           recipe.Recipe,
+		Flavor:           recipe.Flavor,
+		ModelSize:        recipe.Size,
 		NodeCount:        defaultReq.NodeCount,
 		GpuCount:         defaultReq.GpuCount,
 		Cpu:              defaultReq.Cpu,
