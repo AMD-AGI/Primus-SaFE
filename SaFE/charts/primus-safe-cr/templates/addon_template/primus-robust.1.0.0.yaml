@@ -19,7 +19,7 @@ metadata:
 spec:
   category: system
   description: AMD Primus Robust - Self-contained data-plane stack providing GPU fault management, observability (VictoriaMetrics, OpenSearch, FluentBit), workload analytics, and training performance monitoring.
-  url: oci://harbor.primus-safe.amd.com/charts/primus-robust
+  url: oci://{{ .Values.global.helm_registry }}/primussafe/primus-robust
   version: 1.0.0
   type: helm
   required: false
@@ -27,6 +27,8 @@ spec:
   helmDefaultValues: |
     global:
       storageClass: "storageclass-wekafs"
+    grafana:
+      enabled: false
     fault-agent:
       config:
         detection:
