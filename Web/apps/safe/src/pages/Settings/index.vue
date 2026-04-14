@@ -242,42 +242,42 @@ onMounted(fetchSettings)
 .settings-wrapper {
   display: flex;
   justify-content: center;
-  padding-top: 12px;
+  padding: 16px 24px;
 }
 
 .settings-content {
   width: 100%;
-  max-width: 560px;
+  max-width: 780px;
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 18px;
 }
 
 .card-title {
   font-weight: 600;
-  font-size: 14px;
+  font-size: 15px;
 }
 
 /* Avatar */
 .avatar-circle {
   flex: 0 0 auto;
-  width: 48px;
-  height: 48px;
+  width: 56px;
+  height: 56px;
   border-radius: 999px;
   display: grid;
   place-items: center;
   background: var(--el-fill-color-dark);
   color: var(--el-text-color-primary);
   font-weight: 700;
-  font-size: 18px;
+  font-size: 20px;
 }
 
 /* Profile grid */
 .profile-grid {
   display: grid;
-  grid-template-columns: 72px 1fr;
-  gap: 8px 14px;
-  font-size: 13px;
+  grid-template-columns: 80px 1fr;
+  gap: 12px 18px;
+  font-size: 14px;
   align-items: center;
 }
 .profile-grid .label {
@@ -292,7 +292,7 @@ onMounted(fetchSettings)
 }
 .profile-grid .value.uid {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 12px;
+  font-size: 13px;
 }
 
 /* Setting row */
@@ -303,13 +303,13 @@ onMounted(fetchSettings)
   gap: 24px;
 }
 .setting-label {
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 500;
   color: var(--el-text-color-primary);
 }
 .setting-desc {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--el-text-color-secondary);
-  margin-top: 2px;
+  margin-top: 3px;
 }
 </style>

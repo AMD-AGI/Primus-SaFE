@@ -315,6 +315,11 @@ const modelLabMenuItems: MenuItem[] = [
     icon: menuIcons.modelSquare,
   },
   {
+    index: '/posttrain',
+    name: 'Post Train',
+    icon: menuIcons.training,
+  },
+  {
     index: '/playground-agent',
     name: 'Playground',
     icon: menuIcons.playground,
