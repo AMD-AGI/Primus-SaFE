@@ -68,5 +68,11 @@ func InitInferenceRouters(e *gin.Engine, h *Handler) {
 		// RL Training routes (verl GRPO/PPO via RayJob)
 		group.GET("playground/models/:id/rl-config", h.GetRlConfig)
 		group.POST("rl/jobs", middleware.Audit("rl"), h.CreateRlJob)
+
+		// PostTrain routes
+		group.GET("posttrain/runs", h.ListPosttrainRuns)
+		group.GET("posttrain/runs/:id", h.GetPosttrainRun)
+		group.GET("posttrain/runs/:id/metrics", h.GetPosttrainRunMetrics)
+		group.DELETE("posttrain/runs/:id", middleware.Audit("posttrain"), h.DeletePosttrainRun)
 	}
 }

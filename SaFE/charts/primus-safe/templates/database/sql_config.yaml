@@ -416,6 +416,51 @@ data:
 
     alter table model owner to "primus-safe";
 
+    create table if not exists posttrain_run
+    (
+        id SERIAL PRIMARY KEY,
+        run_id VARCHAR(64) NOT NULL UNIQUE,
+        workload_id VARCHAR(64) NOT NULL UNIQUE,
+        display_name VARCHAR(128) NOT NULL,
+        train_type VARCHAR(16) NOT NULL,
+        strategy VARCHAR(16) NOT NULL,
+        algorithm VARCHAR(32),
+        workspace VARCHAR(64) NOT NULL,
+        cluster VARCHAR(64) NOT NULL,
+        user_id VARCHAR(64),
+        user_name VARCHAR(128),
+        base_model_id VARCHAR(64) NOT NULL,
+        base_model_name VARCHAR(256) NOT NULL,
+        dataset_id VARCHAR(64) NOT NULL,
+        dataset_name VARCHAR(256),
+        image TEXT,
+        node_count INTEGER,
+        gpu_per_node INTEGER,
+        cpu VARCHAR(32),
+        memory VARCHAR(32),
+        shared_memory VARCHAR(32),
+        ephemeral_storage VARCHAR(32),
+        priority INTEGER,
+        timeout INTEGER,
+        export_model BOOLEAN DEFAULT TRUE,
+        output_path TEXT,
+        status VARCHAR(32) DEFAULT 'Pending',
+        parameter_snapshot TEXT,
+        resource_snapshot TEXT,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ,
+        deletion_time TIMESTAMPTZ,
+        is_deleted BOOLEAN DEFAULT FALSE
+    );
+
+    create index if not exists T_POSTTRAIN_RUN_CREATED_AT_INDEX on posttrain_run (created_at DESC);
+    create index if not exists T_POSTTRAIN_RUN_WORKSPACE_INDEX on posttrain_run (workspace, is_deleted);
+    create index if not exists T_POSTTRAIN_RUN_USER_ID_INDEX on posttrain_run (user_id, is_deleted);
+    create index if not exists T_POSTTRAIN_RUN_TRAIN_TYPE_INDEX on posttrain_run (train_type, strategy, is_deleted);
+    create index if not exists T_POSTTRAIN_RUN_WORKLOAD_ID_INDEX on posttrain_run (workload_id);
+
+    alter table posttrain_run owner to "primus-safe";
+
     create table if not exists deployment_requests
     (
         id SERIAL PRIMARY KEY,

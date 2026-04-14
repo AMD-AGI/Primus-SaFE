@@ -14,6 +14,9 @@ type CreateSftJobRequest struct {
 	Workspace   string `json:"workspace" binding:"required"`
 	ModelId     string `json:"modelId" binding:"required"`
 	DatasetId   string `json:"datasetId" binding:"required"`
+	Recipe      string `json:"recipe,omitempty"`
+	Flavor      string `json:"flavor,omitempty"`
+	ModelSize   string `json:"modelSize,omitempty"`
 
 	TrainConfig SftTrainConfig `json:"trainConfig"`
 
@@ -70,6 +73,9 @@ type CreateSftJobResponse struct {
 type GetSftConfigQuery struct {
 	Workspace string `form:"workspace" binding:"required"`
 	Peft      string `form:"peft"` // "none" (default, full finetune) | "lora"
+	Recipe    string `form:"recipe"`
+	Flavor    string `form:"flavor"`
+	ModelSize string `form:"modelSize"`
 }
 
 // SftConfigResponse contains frontend-facing defaults and options for the SFT form.
@@ -101,6 +107,9 @@ type SftConfigDatasetFilter struct {
 type SftConfigDefaults struct {
 	ExportModel      bool           `json:"exportModel"`
 	Image            string         `json:"image"`
+	Recipe           string         `json:"recipe,omitempty"`
+	Flavor           string         `json:"flavor,omitempty"`
+	ModelSize        string         `json:"modelSize,omitempty"`
 	NodeCount        int            `json:"nodeCount"`
 	GpuCount         int            `json:"gpuCount"`
 	Cpu              string         `json:"cpu"`

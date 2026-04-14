@@ -156,29 +156,40 @@ func FillRlDefaults(req *CreateRlJobRequest, modelSize string) {
 	}
 
 	tc.UseKlLoss = true
+	effectiveNodeCount := req.NodeCount
+	if effectiveNodeCount == 0 {
+		effectiveNodeCount = DefaultRlNodeCount
+	}
 
 	if tc.Strategy == "megatron" {
-		// Megatron defaults — based on Xiaofei's 235B 4-node config
+		// Megatron defaults — align 8B settings with historical successful scripts.
 		if !tc.ParamOffload {
 			tc.ParamOffload = true
 		}
 		if !tc.GradOffload {
 			tc.GradOffload = true
 		}
+		if !tc.GradientCheckpointing {
+			tc.GradientCheckpointing = true
+		}
 		if tc.MegatronTpSize == 0 {
-			switch modelSize {
-			case "70b":
+			switch {
+			case effectiveNodeCount <= 1:
+				tc.MegatronTpSize = 1
+			case modelSize == "70b":
 				tc.MegatronTpSize = 8
 			default:
 				tc.MegatronTpSize = 4
 			}
 		}
 		if tc.MegatronPpSize == 0 {
-			switch modelSize {
-			case "70b":
+			switch {
+			case effectiveNodeCount <= 1:
+				tc.MegatronPpSize = 1
+			case modelSize == "70b":
 				tc.MegatronPpSize = 4
 			default:
-				tc.MegatronPpSize = 8
+				tc.MegatronPpSize = 1
 			}
 		}
 		if tc.MegatronCpSize == 0 {
@@ -518,6 +529,10 @@ echo "Training config: NNODES=$NNODES, GPUS=$GPUS_PER_NODE, LR=$LR, BATCH=$TRAIN
 
 python3 -m verl.trainer.main_ppo \
 `, tc.TrainBatchSize, tc.MiniPatchSize)
+	if tc.Strategy == "megatron" {
+		// Hydra must see the Megatron config before any overrides.
+		sb.WriteString("  --config-name=ppo_megatron_trainer.yaml \\\n")
+	}
 
 	// Algorithm
 	advEstimator := "grpo"
@@ -544,11 +559,10 @@ python3 -m verl.trainer.main_ppo \
 	fmt.Fprintf(&sb, "  actor_rollout_ref.actor.kl_loss_coef=%.6f \\\n", tc.KlLossCoef)
 	sb.WriteString("  actor_rollout_ref.actor.kl_loss_type=low_var_kl \\\n")
 	sb.WriteString("  actor_rollout_ref.actor.entropy_coeff=0 \\\n")
-	fmt.Fprintf(&sb, "  actor_rollout_ref.actor.grad_clip=%.1f \\\n", tc.GradClip)
 
 	if tc.Strategy == "megatron" {
 		// Megatron actor strategy
-		sb.WriteString("  --config-name=ppo_megatron_trainer.yaml \\\n")
+		fmt.Fprintf(&sb, "  actor_rollout_ref.actor.optim.clip_grad=%.1f \\\n", tc.GradClip)
 		sb.WriteString("  actor_rollout_ref.actor.strategy=megatron \\\n")
 		fmt.Fprintf(&sb, "  actor_rollout_ref.actor.megatron.tensor_model_parallel_size=%d \\\n", tc.MegatronTpSize)
 		fmt.Fprintf(&sb, "  actor_rollout_ref.actor.megatron.pipeline_model_parallel_size=%d \\\n", tc.MegatronPpSize)
@@ -564,6 +578,7 @@ python3 -m verl.trainer.main_ppo \
 		fmt.Fprintf(&sb, "  actor_rollout_ref.model.enable_gradient_checkpointing=%v \\\n", tc.GradientCheckpointing)
 	} else {
 		// FSDP2 actor strategy
+		fmt.Fprintf(&sb, "  actor_rollout_ref.actor.grad_clip=%.1f \\\n", tc.GradClip)
 		sb.WriteString("  actor_rollout_ref.actor.strategy=fsdp2 \\\n")
 		sb.WriteString("  actor_rollout_ref.actor.fsdp_config.model_dtype=bf16 \\\n")
 		fmt.Fprintf(&sb, "  actor_rollout_ref.actor.fsdp_config.param_offload=%v \\\n", tc.ParamOffload)
@@ -581,6 +596,8 @@ python3 -m verl.trainer.main_ppo \
 	fmt.Fprintf(&sb, "  actor_rollout_ref.rollout.n=%d \\\n", tc.RolloutN)
 	if tc.Strategy == "megatron" {
 		sb.WriteString("  actor_rollout_ref.rollout.enforce_eager=True \\\n")
+	}
+	if cfg.NodeCount > 1 || tc.Strategy == "megatron" {
 		sb.WriteString("  actor_rollout_ref.nccl_timeout=3600 \\\n")
 	}
 
@@ -613,6 +630,9 @@ python3 -m verl.trainer.main_ppo \
 	fmt.Fprintf(&sb, "  trainer.experiment_name=%s \\\n", sanitizeForVerlConfig(cfg.RlJobId))
 	fmt.Fprintf(&sb, "  trainer.n_gpus_per_node=%d \\\n", cfg.GpuCount)
 	fmt.Fprintf(&sb, "  trainer.nnodes=%d \\\n", cfg.NodeCount)
+	if cfg.NodeCount > 1 {
+		sb.WriteString("  trainer.ray_wait_register_center_timeout=1800 \\\n")
+	}
 	fmt.Fprintf(&sb, "  trainer.save_freq=%d \\\n", tc.SaveFreq)
 	sb.WriteString("  trainer.default_local_dir=$SAVE_DIR \\\n")
 	fmt.Fprintf(&sb, "  trainer.test_freq=%d \\\n", tc.TestFreq)
@@ -776,6 +796,22 @@ CONVERT_HF
 
 echo "Export complete: $FINAL_MODEL_PATH"
 ls -lh "$FINAL_MODEL_PATH/" | head -20
+
+HF_HAS_TOKENIZER=0
+if [ -f "$FINAL_MODEL_PATH/tokenizer.json" ] || [ -f "$FINAL_MODEL_PATH/tokenizer_config.json" ]; then
+  HF_HAS_TOKENIZER=1
+fi
+HF_HAS_WEIGHTS=0
+if [ -f "$FINAL_MODEL_PATH/model.safetensors" ] || [ -f "$FINAL_MODEL_PATH/model.safetensors.index.json" ]; then
+  HF_HAS_WEIGHTS=1
+elif ls "$FINAL_MODEL_PATH"/*.safetensors >/dev/null 2>&1; then
+  HF_HAS_WEIGHTS=1
+fi
+if [ ! -f "$FINAL_MODEL_PATH/config.json" ] || [ "$HF_HAS_TOKENIZER" != "1" ] || [ "$HF_HAS_WEIGHTS" != "1" ]; then
+  echo "ERROR: RL HF export incomplete at $FINAL_MODEL_PATH; refusing to register model."
+  find "$FINAL_MODEL_PATH" -maxdepth 4 \( -type d -o -type f \) | sed -n '1,80p'
+  exit 1
+fi
 
 `)
 

@@ -22,6 +22,12 @@ type ModelRecipe struct {
 	Size   string // "8b" | "32b" | "70b" — used to look up training presets
 }
 
+type ModelRecipeOverride struct {
+	Recipe string
+	Flavor string
+	Size   string
+}
+
 var modelRecipes = map[string]ModelRecipe{
 	"Qwen/Qwen3-8B":                 {Recipe: "qwen.qwen3", Flavor: "qwen3_8b_finetune_config", Size: "8b"},
 	"Qwen/Qwen3-32B":                {Recipe: "qwen.qwen3", Flavor: "qwen3_32b_finetune_config", Size: "32b"},
@@ -29,7 +35,7 @@ var modelRecipes = map[string]ModelRecipe{
 }
 
 // InferModelRecipe returns the Primus recipe for a given HF model name.
-// Falls back to fuzzy matching on common substrings.
+// Falls back to family/size inference for common model families.
 func InferModelRecipe(hfModelName string) (ModelRecipe, error) {
 	if r, ok := modelRecipes[hfModelName]; ok {
 		return r, nil
@@ -40,7 +46,89 @@ func InferModelRecipe(hfModelName string) (ModelRecipe, error) {
 			return r, nil
 		}
 	}
-	return ModelRecipe{}, fmt.Errorf("unsupported model: %s (supported: %s)", hfModelName, supportedModelNames())
+	return inferModelRecipeFromName(hfModelName)
+}
+
+func ResolveModelRecipe(hfModelName string, override ModelRecipeOverride) (ModelRecipe, error) {
+	overrideProvided := strings.TrimSpace(override.Recipe) != "" ||
+		strings.TrimSpace(override.Flavor) != "" ||
+		strings.TrimSpace(override.Size) != ""
+	if overrideProvided {
+		return normalizeModelRecipeOverride(override)
+	}
+	return InferModelRecipe(hfModelName)
+}
+
+func normalizeModelRecipeOverride(override ModelRecipeOverride) (ModelRecipe, error) {
+	recipe := strings.TrimSpace(override.Recipe)
+	flavor := strings.TrimSpace(override.Flavor)
+	size := strings.TrimSpace(override.Size)
+
+	if recipe == "" || flavor == "" || size == "" {
+		return ModelRecipe{}, fmt.Errorf(
+			"recipe, flavor and modelSize must be provided together for SFT override",
+		)
+	}
+
+	normalizedSize, err := normalizeModelSize(size)
+	if err != nil {
+		return ModelRecipe{}, err
+	}
+
+	return ModelRecipe{
+		Recipe: recipe,
+		Flavor: flavor,
+		Size:   normalizedSize,
+	}, nil
+}
+
+func inferModelRecipeFromName(hfModelName string) (ModelRecipe, error) {
+	lower := strings.ToLower(strings.TrimSpace(hfModelName))
+	size := inferModelSize(hfModelName)
+
+	if strings.Contains(lower, "qwen") {
+		switch size {
+		case "32b":
+			return ModelRecipe{
+				Recipe: "qwen.qwen3",
+				Flavor: "qwen3_32b_finetune_config",
+				Size:   "32b",
+			}, nil
+		case "8b":
+			return ModelRecipe{
+				Recipe: "qwen.qwen3",
+				Flavor: "qwen3_8b_finetune_config",
+				Size:   "8b",
+			}, nil
+		}
+	}
+
+	if strings.Contains(lower, "llama") && size == "70b" {
+		return ModelRecipe{
+			Recipe: "llama.llama3",
+			Flavor: "llama31_70b_finetune_config",
+			Size:   "70b",
+		}, nil
+	}
+
+	return ModelRecipe{}, fmt.Errorf(
+		"unsupported model: %s (supported defaults: %s; or pass recipe/flavor/modelSize overrides)",
+		hfModelName,
+		supportedModelNames(),
+	)
+}
+
+func normalizeModelSize(size string) (string, error) {
+	switch strings.ToLower(strings.TrimSpace(size)) {
+	case "7b", "8b":
+		return "8b", nil
+	case "30b", "32b", "34b":
+		return "32b", nil
+	case "65b", "70b", "72b":
+		return "70b", nil
+	default:
+		return "", fmt.Errorf("unsupported modelSize override: %s", size)
+	}
 }
 
 func supportedModelNames() string {
@@ -357,7 +445,21 @@ mkdir -p "./output/${PRIMUS_TEAM:-amd}/${PRIMUS_USER:-root}/%s"
 # the later call finds cached arrow files and never hits the network.
 SQUAD_SRC="%s/datasets/rajpurkar/squad"
 SQUAD_CACHE="/root/.cache/nemo/datasets/squad"
-mkdir -p "$SQUAD_CACHE"
+SHARED_SQUAD_CACHE="${SHARED_SQUAD_CACHE_DIR:-}"
+if [ -z "$SHARED_SQUAD_CACHE" ] && [ -n "${DATA_PATH:-}" ]; then
+  SHARED_SQUAD_CACHE="${DATA_PATH}/squad-cache"
+fi
+if [ -n "$SHARED_SQUAD_CACHE" ]; then
+  mkdir -p "$(dirname "$SQUAD_CACHE")"
+  mkdir -p "$SHARED_SQUAD_CACHE"
+  if [ -e "$SQUAD_CACHE" ] && [ ! -L "$SQUAD_CACHE" ]; then
+    rm -rf "$SQUAD_CACHE"
+  fi
+  ln -sfn "$SHARED_SQUAD_CACHE" "$SQUAD_CACHE"
+  echo "[SFT] shared squad cache: $SQUAD_CACHE -> $SHARED_SQUAD_CACHE"
+else
+  mkdir -p "$SQUAD_CACHE"
+fi
 SQUAD_CACHED_COUNT=$(find "$SQUAD_CACHE" -name "*.arrow" 2>/dev/null | wc -l)
 if [ -d "$SQUAD_SRC" ] && [ "$SQUAD_CACHED_COUNT" -eq 0 ]; then
   echo "[SFT] Generating squad HF cache from local PFS data..."
@@ -375,19 +477,19 @@ fi
 # Multi-node: redirect ./data and ./nemo_experiments to shared storage so all
 # nodes see the same HF cache, Megatron checkpoints, trained checkpoints, and
 # .done signal files. Also patch hooks and increase NCCL timeout.
-# Runtime-detect network backend from the actual node instead of inferring it
-# from workspace metadata. OCI/AINIC nodes expose ionic_* RDMA devices, while
-# TW/Project nodes typically expose Broadcom (bnxt/tw-eth) interfaces.
-if ls /sys/class/infiniband/ionic_* >/dev/null 2>&1 || ip link show | grep -q 'ionic_'; then
+# Runtime-detect network backend from the actual node, but still honor an
+# explicit workload-level AINIC marker injected by the SFT API for OCI multi-node
+# jobs so job-manager defaults cannot pull the container back to GID=3.
+if [ "${USING_AINIC:-0}" = "1" ] || ls /sys/class/infiniband/ionic_* >/dev/null 2>&1 || ip link show | grep -q 'ionic_'; then
   export USING_AINIC=1
-  export NCCL_IB_GID_INDEX=1
-  export NCCL_DMABUF_ENABLE=0
-  export NCCL_MAX_P2P_CHANNELS=56
-  export NET_OPTIONAL_RECV_COMPLETION=1
-  export NCCL_IB_USE_INLINE=1
-  export RCCL_GDR_FLUSH_GPU_MEM_NO_RELAXED_ORDERING=0
-  export NCCL_GDR_FLUSH_DISABLE=1
-  export NCCL_IGNORE_CPU_AFFINITY=1
+  export NCCL_IB_GID_INDEX="${NCCL_IB_GID_INDEX:-1}"
+  export NCCL_DMABUF_ENABLE="${NCCL_DMABUF_ENABLE:-0}"
+  export NCCL_MAX_P2P_CHANNELS="${NCCL_MAX_P2P_CHANNELS:-56}"
+  export NET_OPTIONAL_RECV_COMPLETION="${NET_OPTIONAL_RECV_COMPLETION:-1}"
+  export NCCL_IB_USE_INLINE="${NCCL_IB_USE_INLINE:-1}"
+  export RCCL_GDR_FLUSH_GPU_MEM_NO_RELAXED_ORDERING="${RCCL_GDR_FLUSH_GPU_MEM_NO_RELAXED_ORDERING:-0}"
+  export NCCL_GDR_FLUSH_DISABLE="${NCCL_GDR_FLUSH_DISABLE:-1}"
+  export NCCL_IGNORE_CPU_AFFINITY="${NCCL_IGNORE_CPU_AFFINITY:-1}"
   export LD_LIBRARY_PATH="/opt/amd-anp/build:/opt/rccl/build/release:/opt/rocm/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
   if [ -z "${NCCL_IB_HCA:-}" ]; then
     DETECTED_AINIC_HCA=$(ls -d /sys/class/infiniband/ionic_* 2>/dev/null | sed 's|.*/||' | awk '{printf "%%s:1,",$1}' | sed 's/,$//')
@@ -436,24 +538,45 @@ if [ "$NNODES" -gt 1 ] && [ -n "${DATA_PATH:-}" ]; then
   fi
 
   export NCCL_TIMEOUT=1800000
+  export TORCH_NCCL_TRACE_BUFFER_SIZE="${TORCH_NCCL_TRACE_BUFFER_SIZE:-1048576}"
+  export TORCH_NCCL_DUMP_ON_TIMEOUT="${TORCH_NCCL_DUMP_ON_TIMEOUT:-1}"
   echo "[MULTI-NODE] NCCL_TIMEOUT=1800000ms (30min)"
 fi
 
 ./runner/primus-cli direct -- train posttrain --config /tmp/sft_experiment.yaml
 TRAIN_EXIT_CODE=$?
 
-# Check if training actually produced checkpoints (torchrun may return non-zero
-# during distributed cleanup even when training completed successfully)
+# Verify that training produced a usable non-pretrained checkpoint. Distributed
+# launches can occasionally exit 0/1 without leaving a valid iter_* directory.
 CKPT_BASE="./nemo_experiments/default/checkpoints"
+VERIFIED_LATEST_ITER=""
+VERIFIED_LATEST_DIR=""
+if [ -f "$CKPT_BASE/latest_checkpointed_iteration.txt" ]; then
+  VERIFIED_LATEST_ITER=$(cat "$CKPT_BASE/latest_checkpointed_iteration.txt" 2>/dev/null | tr -d '[:space:]')
+  if [ -n "$VERIFIED_LATEST_ITER" ] && [ "$VERIFIED_LATEST_ITER" != "0" ]; then
+    VERIFIED_LATEST_DIR="$CKPT_BASE/iter_$(printf '%%07d' $VERIFIED_LATEST_ITER)"
+  fi
+fi
+if [ -z "$VERIFIED_LATEST_DIR" ] || [ ! -d "$VERIFIED_LATEST_DIR" ]; then
+  VERIFIED_LATEST_DIR=$(ls -d "$CKPT_BASE"/iter_* 2>/dev/null | sort -t_ -k2 -n | tail -1)
+  if [ -n "$VERIFIED_LATEST_DIR" ] && [ "$(basename "$VERIFIED_LATEST_DIR")" = "iter_0000000" ]; then
+    VERIFIED_LATEST_DIR=""
+  fi
+fi
 if [ $TRAIN_EXIT_CODE -ne 0 ]; then
-  if [ -f "$CKPT_BASE/latest_checkpointed_iteration.txt" ]; then
-    SAVED_ITER=$(cat "$CKPT_BASE/latest_checkpointed_iteration.txt" 2>/dev/null | tr -d '[:space:]')
-    echo "WARNING: primus-cli exited with code $TRAIN_EXIT_CODE, but checkpoint found at iteration $SAVED_ITER. Continuing with export."
+  if [ -n "$VERIFIED_LATEST_DIR" ] && [ -d "$VERIFIED_LATEST_DIR" ]; then
+    echo "WARNING: primus-cli exited with code $TRAIN_EXIT_CODE, but checkpoint found at ${VERIFIED_LATEST_DIR}. Continuing with export."
   else
-    echo "Training failed with exit code $TRAIN_EXIT_CODE and no checkpoint found. Skipping model export."
+    echo "Training failed with exit code $TRAIN_EXIT_CODE and no usable checkpoint found. Skipping model export."
     exit $TRAIN_EXIT_CODE
   fi
 fi
+if [ -z "$VERIFIED_LATEST_DIR" ] || [ ! -d "$VERIFIED_LATEST_DIR" ]; then
+  echo "ERROR: Training completed but no usable checkpoint was produced under $CKPT_BASE"
+  ls -la "$CKPT_BASE" 2>/dev/null || true
+  exit 1
+fi
+echo "Verified training checkpoint: ${VERIFIED_LATEST_DIR}"
 
 # Cleanup: remove intermediate checkpoints and HF cache to free ephemeral storage
 # Keep only the latest checkpoint (needed for export), delete everything else
@@ -519,17 +642,22 @@ func buildExportScript(cfg EntrypointConfig) string {
 `)
 	fmt.Fprintf(&sb, "EXPORT_PATH=%q\n", exportPath)
 	sb.WriteString(`CKPT_DIR=""
+if [ -n "${VERIFIED_LATEST_DIR:-}" ] && [ -d "${VERIFIED_LATEST_DIR}" ]; then
+  CKPT_DIR="$(dirname "${VERIFIED_LATEST_DIR}")"
+fi
 CKPT_SEARCH_DIRS="./nemo_experiments/default/checkpoints ${DATA_PATH:-/dev/null}/nemo_experiments/default/checkpoints ./output/checkpoints ${PRIMUS_DIR}/nemo_experiments/default/checkpoints /tmp/primus/nemo_experiments/default/checkpoints"
 
 # First pass: prefer dirs with latest_checkpointed_iteration.txt (real trained checkpoints)
-for d in ${CKPT_SEARCH_DIRS}; do
-  if [ -d "$d" ] && [ -f "$d/latest_checkpointed_iteration.txt" ]; then
-    ITER_VAL=$(cat "$d/latest_checkpointed_iteration.txt" 2>/dev/null | tr -d '[:space:]')
-    if [ -n "$ITER_VAL" ] && [ "$ITER_VAL" != "0" ]; then
-      CKPT_DIR="$d"; break
+if [ -z "$CKPT_DIR" ]; then
+  for d in ${CKPT_SEARCH_DIRS}; do
+    if [ -d "$d" ] && [ -f "$d/latest_checkpointed_iteration.txt" ]; then
+      ITER_VAL=$(cat "$d/latest_checkpointed_iteration.txt" 2>/dev/null | tr -d '[:space:]')
+      if [ -n "$ITER_VAL" ] && [ "$ITER_VAL" != "0" ]; then
+        CKPT_DIR="$d"; break
+      fi
     fi
-  fi
-done
+  done
+fi
 
 # Second pass: dirs with iter_* subdirectories (checkpoint saved but maybe no latest file)
 if [ -z "$CKPT_DIR" ]; then
@@ -660,6 +788,22 @@ else
 fi
 rm -rf "${CONVERT_CKPT_DIR}" 2>/dev/null
 echo "Model exported to ${HF_EXPORT_PATH}"
+
+HF_HAS_TOKENIZER=0
+if [ -f "${HF_EXPORT_PATH}/tokenizer.json" ] || [ -f "${HF_EXPORT_PATH}/tokenizer_config.json" ]; then
+  HF_HAS_TOKENIZER=1
+fi
+HF_HAS_WEIGHTS=0
+if [ -f "${HF_EXPORT_PATH}/model.safetensors" ] || [ -f "${HF_EXPORT_PATH}/model.safetensors.index.json" ]; then
+  HF_HAS_WEIGHTS=1
+elif ls "${HF_EXPORT_PATH}"/*.safetensors >/dev/null 2>&1; then
+  HF_HAS_WEIGHTS=1
+fi
+if [ ! -f "${HF_EXPORT_PATH}/config.json" ] || [ "$HF_HAS_TOKENIZER" != "1" ] || [ "$HF_HAS_WEIGHTS" != "1" ]; then
+  echo "ERROR: HF export incomplete at ${HF_EXPORT_PATH}; refusing to register model."
+  find "${HF_EXPORT_PATH}" -maxdepth 5 \( -type d -o -type f \) | sed -n '1,80p'
+  exit 1
+fi
 `, cfg.HfPath)
 
 	// --- Register model ---
@@ -667,7 +811,8 @@ echo "Model exported to ${HF_EXPORT_PATH}"
 # ==================== Register Model ====================
 APISERVER="http://primus-safe-apiserver.primus-safe.svc:8088"
 echo "Registering model in Model Square..."
-curl -s -X POST "${APISERVER}/api/v1/playground/models" \
+REGISTER_RESPONSE="/tmp/sft_register_model_response.json"
+curl -fsS -o "${REGISTER_RESPONSE}" -X POST "${APISERVER}/api/v1/playground/models" \
   -H "Content-Type: application/json" \
   -H "userId: ${SFT_USER_ID:-system}" \
   -H "userName: ${SFT_USER_NAME:-system}" \
@@ -683,7 +828,12 @@ curl -s -X POST "${APISERVER}/api/v1/playground/models" \
     "origin": "fine_tuned",
     "sftJobId": "%s",
     "baseModel": "%s"
-  }' || echo "Warning: failed to register model, but training output is saved at ${EXPORT_PATH}"
+  }'
+REGISTER_EXIT=$?
+if [ $REGISTER_EXIT -ne 0 ]; then
+  echo "ERROR: failed to register model after successful HF export."
+  exit $REGISTER_EXIT
+fi
 echo "Model export complete."`,
 		displayName,
 		cfg.BaseModel, cfg.SftJobId,
