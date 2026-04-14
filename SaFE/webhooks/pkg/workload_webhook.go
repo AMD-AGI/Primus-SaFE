@@ -549,17 +549,32 @@ func (m *WorkloadMutator) mutateRdmaResource(ctx context.Context, workload *v1.W
 		return
 	}
 	rdmaName := commonconfig.GetRdmaName()
-	for i := range workload.Spec.Resources {
-		isEnableHostNetWork := isHostNetworkEnabled(workload, i, nf)
-		if isEnableHostNetWork && rdmaName != "" {
-			rdmaQuantity, ok := nf.Spec.ExtendResources[corev1.ResourceName(rdmaName)]
-			if ok {
-				workload.Spec.Resources[i].RdmaResource = rdmaQuantity.String()
-			} else {
-				workload.Spec.Resources[i].RdmaResource = "1"
+	totalGpuReplica := 0
+	isGpuPartiallyUsed := false
+	if rdmaName != "" {
+		for _, res := range workload.Spec.Resources {
+			if !res.HasGpu() {
+				continue
 			}
-		} else {
+			n, err := strconv.Atoi(res.GPU)
+			if err != nil || n != nf.GetGpuCount() {
+				isGpuPartiallyUsed = true
+				break
+			}
+			totalGpuReplica += res.Replica
+		}
+	}
+
+	for i, res := range workload.Spec.Resources {
+		if totalGpuReplica <= 1 || !res.HasGpu() || isGpuPartiallyUsed {
 			workload.Spec.Resources[i].RdmaResource = ""
+			continue
+		}
+		rdmaQuantity, ok := nf.Spec.ExtendResources[corev1.ResourceName(rdmaName)]
+		if ok {
+			workload.Spec.Resources[i].RdmaResource = rdmaQuantity.String()
+		} else {
+			workload.Spec.Resources[i].RdmaResource = "1"
 		}
 	}
 }
@@ -1272,36 +1287,6 @@ func (v *WorkloadValidator) validateCronJobs(workload *v1.Workload) error {
 		}
 	}
 	return nil
-}
-
-// isHostNetworkEnabled checks if host network should be enabled for a specific resource in the workload
-// Returns true when the workload uses multi-node with full GPU count
-func isHostNetworkEnabled(workload *v1.Workload, id int, nf *v1.NodeFlavor) bool {
-	if v1.IsForceHostNetwork(workload) {
-		return true
-	}
-	if workload == nil || nf == nil {
-		return false
-	}
-	if commonworkload.GetTotalReplica(workload) <= 1 {
-		return false
-	}
-
-	if id >= len(workload.Spec.Resources) {
-		return false
-	}
-	res := workload.Spec.Resources[id]
-	if !res.HasGpu() {
-		return false
-	}
-	n, err := strconv.Atoi(res.GPU)
-	if err != nil {
-		return false
-	}
-	if n != nf.GetGpuCount() {
-		return false
-	}
-	return true
 }
 
 // getWorkload retrieves a workload by ID
