@@ -571,7 +571,8 @@ func (r *NodeReconciler) cleanupTimeoutPods(ctx context.Context, node *v1.Node) 
 // It determines whether a node should be managed (added to a cluster) or unmanaged (removed from a cluster)
 // based on the node's cluster specification and current status. The function orchestrates the appropriate
 // management operation and updates the node's status accordingly.
-func (r *NodeReconciler) processNodeManagement(ctx context.Context, adminNode *v1.Node, k8sNode *corev1.Node) (ctrlruntime.Result, error) {
+func (r *NodeReconciler) processNodeManagement(ctx context.Context,
+	adminNode *v1.Node, k8sNode *corev1.Node) (ctrlruntime.Result, error) {
 	var err error
 	var result ctrlruntime.Result
 	if adminNode.GetSpecCluster() != "" {

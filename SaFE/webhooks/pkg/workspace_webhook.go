@@ -227,9 +227,15 @@ func (m *WorkspaceMutator) mutateNodesAction(ctx context.Context, oldWorkspace, 
 	if len(newActions) == 0 {
 		v1.RemoveAnnotation(newWorkspace, v1.WorkspaceNodesAction)
 		v1.RemoveAnnotation(newWorkspace, v1.WorkspaceForcedAction)
-	} else if len(newActions) != len(actions) {
-		v1.SetAnnotation(newWorkspace, v1.WorkspaceNodesAction,
-			string(jsonutils.MarshalSilently(newActions)))
+	} else {
+		oldActions, _ := parseNodesAction(oldWorkspace)
+		if len(oldActions) > 0 && !maps.EqualIgnoreOrder(oldActions, newActions) {
+			return commonerrors.NewResourceProcessing(fmt.Sprintf("another job(%s) is processing,"+
+				" please wait for it to complete", v1.GetWorkspaceNodesAction(oldWorkspace)))
+		}
+		if len(newActions) != len(actions) {
+			v1.SetAnnotation(newWorkspace, v1.WorkspaceNodesAction, string(jsonutils.MarshalSilently(newActions)))
+		}
 	}
 	return nil
 }

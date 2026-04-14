@@ -410,7 +410,8 @@ func (r *WorkspaceReconciler) scaleDown(ctx context.Context, workspace *v1.Works
 }
 
 // scaleUp handles scaling up a Workspace by binding new nodes.
-func (r *WorkspaceReconciler) scaleUp(ctx context.Context, workspace *v1.Workspace, k8sClients *commonclient.ClientFactory, count int) (ctrlruntime.Result, error) {
+func (r *WorkspaceReconciler) scaleUp(ctx context.Context,
+	workspace *v1.Workspace, k8sClients *commonclient.ClientFactory, count int) (ctrlruntime.Result, error) {
 	if workspace.Status.Phase == "" {
 		if err := r.updatePhase(ctx, workspace, v1.WorkspaceCreating); err != nil {
 			return ctrlruntime.Result{}, err
