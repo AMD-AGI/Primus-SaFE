@@ -83,17 +83,21 @@ func GetWorkspacesWithSamePath(k8sClient client.Client, basePath string) ([]stri
 // IsPathAccessibleFromWorkspace checks if a file path is accessible from the specified workspace.
 // This supports shared storage scenarios: even if LocalPaths records workspace B,
 // workspace A can still access the file if they share the same storage base path.
+// It checks ALL volumes mounted in the workspace, not just the primary PFS volume.
 func IsPathAccessibleFromWorkspace(k8sClient client.Client, filePath, workspace string) (bool, error) {
 	ws := &v1.Workspace{}
 	if err := k8sClient.Get(context.Background(), client.ObjectKey{Name: workspace}, ws); err != nil {
 		return false, err
 	}
 
-	wsBasePath := GetNfsPathFromWorkspace(ws)
-	if wsBasePath == "" {
-		return false, nil
+	for _, vol := range ws.Spec.Volumes {
+		mountPath := strings.TrimSpace(vol.MountPath)
+		if mountPath == "" {
+			mountPath = strings.TrimSpace(vol.HostPath)
+		}
+		if mountPath != "" && strings.HasPrefix(filePath, mountPath) {
+			return true, nil
+		}
 	}
-
-	// Check if the file path is under the workspace's storage base path
-	return strings.HasPrefix(filePath, wsBasePath), nil
+	return false, nil
 }

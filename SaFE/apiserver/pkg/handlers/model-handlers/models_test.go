@@ -692,6 +692,36 @@ func TestGetSftConfig_OverrideAllowsUnknownModel(t *testing.T) {
 	assert.Equal(t, resp.Defaults.ModelSize, "8b")
 }
 
+func TestGetSftConfig_UnknownModelFallsBackToDefaultRecipe(t *testing.T) {
+	model := genMockLocalK8sModel("model-generic-fallback", "ws1")
+	model.Spec.DisplayName = "Tongyi-MAI/Z-Image-Turbo"
+	model.Spec.Source.URL = "https://huggingface.co/Tongyi-MAI/Z-Image-Turbo"
+	model.Spec.Source.ModelName = "Tongyi-MAI/Z-Image-Turbo"
+
+	k8sClient := fake.NewClientBuilder().
+		WithObjects(model).
+		WithScheme(scheme.Scheme).
+		Build()
+
+	h := newMockModelHandler(k8sClient)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Params = gin.Params{{Key: "id", Value: "model-generic-fallback"}}
+	c.Request, _ = http.NewRequest("GET", "/models/model-generic-fallback/sft-config?workspace=ws1", nil)
+
+	result, err := h.getSftConfig(c)
+	assert.NilError(t, err)
+
+	resp := result.(*SftConfigResponse)
+	assert.Equal(t, resp.Supported, true)
+	assert.Assert(t, resp.Defaults != nil)
+	assert.Equal(t, resp.Defaults.Recipe, "qwen.qwen3")
+	assert.Equal(t, resp.Defaults.Flavor, "qwen3_8b_finetune_config")
+	assert.Equal(t, resp.Defaults.ModelSize, "8b")
+	assert.Equal(t, resp.Reason, "")
+}
+
 func TestGetSftConfig_SharedLocalPathAccessible(t *testing.T) {
 	model := genMockLocalK8sModel("model-qwen-shared-local", "ws2")
 	model.Spec.DisplayName = "Qwen/Qwen3-8B"
@@ -965,6 +995,88 @@ func TestCreateSftJob_OverrideAllowsUnknownModel(t *testing.T) {
 	assert.Assert(t, strings.Contains(string(entrypoint), "recipe: qwen.qwen3"))
 	assert.Assert(t, strings.Contains(string(entrypoint), "flavor: qwen3_8b_finetune_config"))
 	assert.Assert(t, strings.Contains(string(entrypoint), `peft: "lora"`))
+}
+
+func TestCreateSftJob_UnknownModelFallsBackToDefaultRecipe(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockDB := mock_client.NewMockInterface(ctrl)
+	localPaths, err := json.Marshal([]dbclient.DatasetLocalPathDB{
+		{
+			Workspace: "ws1",
+			Path:      "/shared_nfs/datasets/fallback-sft",
+			Status:    dbclient.DatasetStatusReady,
+		},
+	})
+	assert.NilError(t, err)
+
+	mockDB.EXPECT().
+		GetDataset(gomock.Any(), "dataset-fallback-sft").
+		Return(&dbclient.Dataset{
+			DatasetId:  "dataset-fallback-sft",
+			LocalPaths: string(localPaths),
+		}, nil).
+		AnyTimes()
+
+	model := genMockLocalK8sModel("model-fallback", "ws1")
+	model.Spec.DisplayName = "Tongyi-MAI/Z-Image-Turbo"
+	model.Spec.Source.URL = "https://huggingface.co/Tongyi-MAI/Z-Image-Turbo"
+	model.Spec.Source.ModelName = "Tongyi-MAI/Z-Image-Turbo"
+	model.Status.LocalPaths = []v1.ModelLocalPath{
+		{
+			Workspace: "ws1",
+			Path:      "/shared_nfs/models/z-image-turbo",
+			Status:    v1.LocalPathStatusReady,
+		},
+	}
+	ws1 := genMockWorkspace("ws1", "/shared_nfs")
+
+	k8sClient := fake.NewClientBuilder().
+		WithObjects(model, ws1).
+		WithScheme(scheme.Scheme).
+		Build()
+
+	h := newMockModelHandlerWithDB(k8sClient, mockDB)
+
+	exportModel := false
+	reqBody, err := json.Marshal(CreateSftJobRequest{
+		DisplayName:      "fallback-sft",
+		Workspace:        "ws1",
+		ModelId:          "model-fallback",
+		DatasetId:        "dataset-fallback-sft",
+		ExportModel:      &exportModel,
+		Image:            "test-image",
+		NodeCount:        1,
+		GpuCount:         8,
+		Cpu:              "80",
+		Memory:           "1000Gi",
+		EphemeralStorage: "1000Gi",
+		TrainConfig: SftTrainConfig{
+			Peft: "lora",
+		},
+	})
+	assert.NilError(t, err)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request, _ = http.NewRequest("POST", "/sft/jobs", bytes.NewReader(reqBody))
+	c.Request.Header.Set("Content-Type", "application/json")
+	c.Set(common.UserId, "user-1")
+	c.Set(common.UserName, "Test User")
+
+	result, err := h.createSftJob(c)
+	assert.NilError(t, err)
+
+	resp := result.(*CreateSftJobResponse)
+	workload := &v1.Workload{}
+	err = k8sClient.Get(context.Background(), client.ObjectKey{Name: resp.WorkloadId}, workload)
+	assert.NilError(t, err)
+
+	entrypoint, err := base64.StdEncoding.DecodeString(workload.Spec.EntryPoints[0])
+	assert.NilError(t, err)
+	assert.Assert(t, strings.Contains(string(entrypoint), "recipe: qwen.qwen3"))
+	assert.Assert(t, strings.Contains(string(entrypoint), "flavor: qwen3_8b_finetune_config"))
 }
 
 func TestGetSftConfig_UnsupportedModel(t *testing.T) {

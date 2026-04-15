@@ -19,8 +19,8 @@ import (
 	"strings"
 	"time"
 
-	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
+	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/timeutil"
 )
 
@@ -235,39 +235,193 @@ func defaultLensTimeRangeForItem(item PosttrainRunItem) (string, string, error) 
 	return defaultLensTimeRange(start, end, created)
 }
 
-func fetchLensTrainingPerformanceData(ctx context.Context, lensWorkloadUID, start, end string) ([]PosttrainMetricPoint, []string, error) {
-	var resp []lensTrainingPerformancePoint
+func fetchLensTrainingPerformanceData(ctx context.Context, lensWorkloadUID, start, end, metricsExpr, dataSource string) ([]PosttrainMetricPoint, []string, string, error) {
 	params := url.Values{}
 	if start == "" || end == "" {
-		return nil, nil, fmt.Errorf("start and end timestamps are required")
-	}
-	params.Set("start", start)
-	params.Set("end", end)
-	if err := callLensAPI(ctx, fmt.Sprintf("/workloads/%s/trainingPerformance", url.PathEscape(lensWorkloadUID)), params, &resp); err != nil {
-		return nil, nil, err
+		return nil, nil, "", fmt.Errorf("start and end timestamps are required")
 	}
 
-	points := make([]PosttrainMetricPoint, 0, len(resp))
-	metricSet := make(map[string]struct{}, len(resp))
-	for _, point := range resp {
-		if point.Metric == "" {
+	availableRows, err := fetchLensAvailableMetrics(ctx, lensWorkloadUID, dataSource)
+	if err != nil {
+		availableRows = nil
+	}
+	selectedSource := chooseLensMetricDataSource(availableRows, dataSource)
+
+	params.Set("start", start)
+	params.Set("end", end)
+	if metricsExpr != "" {
+		params.Set("metrics", metricsExpr)
+	}
+	if selectedSource != "" {
+		params.Set("data_source", selectedSource)
+	}
+
+	var resp lensMetricsDataResponse
+	if err := callLensAPI(ctx, fmt.Sprintf("/workloads/%s/metrics/data", url.PathEscape(lensWorkloadUID)), params, &resp); err != nil {
+		return nil, nil, "", err
+	}
+	if selectedSource == "" {
+		selectedSource = strings.TrimSpace(resp.DataSource)
+	}
+
+	points := make([]PosttrainMetricPoint, 0, len(resp.Data))
+	for _, point := range resp.Data {
+		if point.MetricName == "" {
 			continue
 		}
 		points = append(points, PosttrainMetricPoint{
-			MetricName: point.Metric,
+			MetricName: point.MetricName,
 			Value:      point.Value,
 			Timestamp:  point.Timestamp,
-			DataSource: "log",
+			Iteration:  point.Iteration,
+			DataSource: point.DataSource,
 		})
-		metricSet[point.Metric] = struct{}{}
+	}
+	sort.SliceStable(points, func(i, j int) bool {
+		if points[i].Timestamp == points[j].Timestamp {
+			return points[i].Iteration < points[j].Iteration
+		}
+		return points[i].Timestamp < points[j].Timestamp
+	})
+
+	metrics := availableMetricNamesForSource(availableRows, selectedSource)
+	if len(metrics) == 0 {
+		metricSet := make(map[string]struct{}, len(points))
+		for _, point := range points {
+			metricSet[point.MetricName] = struct{}{}
+		}
+		metrics = make([]string, 0, len(metricSet))
+		for metric := range metricSet {
+			metrics = append(metrics, metric)
+		}
+		sort.Strings(metrics)
+	}
+	if selectedSource == "" {
+		selectedSource = inferMetricDataSourceFromPoints(points)
+	}
+	return points, metrics, selectedSource, nil
+}
+
+func fetchLensAvailableMetrics(ctx context.Context, lensWorkloadUID, dataSource string) ([]lensAvailableMetricRow, error) {
+	params := url.Values{}
+	if strings.TrimSpace(dataSource) != "" {
+		params.Set("data_source", strings.TrimSpace(dataSource))
+	}
+	var resp lensAvailableMetricsResponse
+	if err := callLensAPI(ctx, fmt.Sprintf("/workloads/%s/metrics/available", url.PathEscape(lensWorkloadUID)), params, &resp); err != nil {
+		return nil, err
+	}
+	return resp.Metrics, nil
+}
+
+func chooseLensMetricDataSource(rows []lensAvailableMetricRow, requested string) string {
+	requested = strings.TrimSpace(requested)
+	if requested != "" {
+		return requested
 	}
 
+	lossMetric := pickLossMetricName(metricNamesFromAvailableRows(rows))
+	if lossMetric != "" {
+		for _, row := range rows {
+			if row.Name == lossMetric {
+				if source := preferredMetricDataSource(row.DataSource); source != "" {
+					return source
+				}
+			}
+		}
+	}
+
+	allSources := make([]string, 0)
+	seen := make(map[string]struct{})
+	for _, row := range rows {
+		for _, source := range row.DataSource {
+			source = strings.TrimSpace(source)
+			if source == "" {
+				continue
+			}
+			if _, ok := seen[source]; ok {
+				continue
+			}
+			seen[source] = struct{}{}
+			allSources = append(allSources, source)
+		}
+	}
+	return preferredMetricDataSource(allSources)
+}
+
+func preferredMetricDataSource(sources []string) string {
+	if len(sources) == 0 {
+		return ""
+	}
+	preferredOrder := []string{"log", "wandb", "tensorflow"}
+	normalized := make(map[string]string, len(sources))
+	for _, source := range sources {
+		trimmed := strings.TrimSpace(source)
+		if trimmed == "" {
+			continue
+		}
+		normalized[strings.ToLower(trimmed)] = trimmed
+	}
+	for _, candidate := range preferredOrder {
+		if source, ok := normalized[candidate]; ok {
+			return source
+		}
+	}
+	for _, source := range sources {
+		if trimmed := strings.TrimSpace(source); trimmed != "" {
+			return trimmed
+		}
+	}
+	return ""
+}
+
+func availableMetricNamesForSource(rows []lensAvailableMetricRow, dataSource string) []string {
+	metricSet := make(map[string]struct{})
+	for _, row := range rows {
+		if strings.TrimSpace(row.Name) == "" {
+			continue
+		}
+		if dataSource == "" || metricRowHasDataSource(row, dataSource) {
+			metricSet[row.Name] = struct{}{}
+		}
+	}
 	metrics := make([]string, 0, len(metricSet))
 	for metric := range metricSet {
 		metrics = append(metrics, metric)
 	}
 	sort.Strings(metrics)
-	return points, metrics, nil
+	return metrics
+}
+
+func metricNamesFromAvailableRows(rows []lensAvailableMetricRow) []string {
+	names := make([]string, 0, len(rows))
+	for _, row := range rows {
+		if strings.TrimSpace(row.Name) != "" {
+			names = append(names, row.Name)
+		}
+	}
+	return names
+}
+
+func metricRowHasDataSource(row lensAvailableMetricRow, dataSource string) bool {
+	if dataSource == "" {
+		return true
+	}
+	for _, source := range row.DataSource {
+		if strings.EqualFold(strings.TrimSpace(source), strings.TrimSpace(dataSource)) {
+			return true
+		}
+	}
+	return false
+}
+
+func inferMetricDataSourceFromPoints(points []PosttrainMetricPoint) string {
+	for _, point := range points {
+		if strings.TrimSpace(point.DataSource) != "" {
+			return point.DataSource
+		}
+	}
+	return ""
 }
 
 func filterLensTrainingPerformancePoints(points []PosttrainMetricPoint, metricsExpr string) []PosttrainMetricPoint {
@@ -295,6 +449,35 @@ func filterLensTrainingPerformancePoints(points []PosttrainMetricPoint, metricsE
 		}
 	}
 	return filtered
+}
+
+func buildPosttrainMetricSeries(points []PosttrainMetricPoint, lossMetric string) map[string][]PosttrainMetricSeriesPoint {
+	if len(points) == 0 {
+		return nil
+	}
+	series := make(map[string][]PosttrainMetricSeriesPoint)
+	for _, point := range points {
+		series[point.MetricName] = append(series[point.MetricName], PosttrainMetricSeriesPoint{
+			Step:      point.Iteration,
+			Value:     point.Value,
+			Timestamp: formatMetricTimestamp(point.Timestamp),
+		})
+	}
+	if lossMetric != "" {
+		if lossSeries, ok := series[lossMetric]; ok {
+			if _, exists := series["loss"]; !exists {
+				series["loss"] = append([]PosttrainMetricSeriesPoint(nil), lossSeries...)
+			}
+		}
+	}
+	return series
+}
+
+func formatMetricTimestamp(ts int64) string {
+	if ts <= 0 {
+		return ""
+	}
+	return time.UnixMilli(ts).UTC().Format(time.RFC3339)
 }
 
 func latestLossSummaryFromPoints(points []PosttrainMetricPoint, metrics []string) *lossSummary {
@@ -325,7 +508,7 @@ func latestLossSummaryFromPoints(points []PosttrainMetricPoint, metrics []string
 }
 
 func fetchLatestLossSummary(ctx context.Context, lensWorkloadUID, start, end string) (*lossSummary, []string, error) {
-	points, metrics, err := fetchLensTrainingPerformanceData(ctx, lensWorkloadUID, start, end)
+	points, metrics, _, err := fetchLensTrainingPerformanceData(ctx, lensWorkloadUID, start, end, "", "")
 	if err != nil {
 		return nil, nil, err
 	}
