@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
@@ -21,7 +22,15 @@ import (
 const (
 	// maxResponseBodySize is the maximum response body size to capture (4KB)
 	maxResponseBodySize = 4096
+	// proxyPathPrefix identifies reverse-proxy routes excluded from tracing
+	// because they stream SSE and have their own upstream observability.
+	proxyPathPrefix = "/api/v1/llm-proxy"
 )
+
+// isProxyRoute returns true for reverse-proxy paths excluded from tracing.
+func isProxyRoute(path string) bool {
+	return strings.HasPrefix(path, proxyPathPrefix)
+}
 
 // responseBodyWriter wraps gin.ResponseWriter to capture response body and inject headers
 type responseBodyWriter struct {
@@ -68,8 +77,8 @@ func HandleTracing() gin.HandlerFunc {
 // Every request will have a span created with full details.
 func HandleTracingAll() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		// Skip tracing if not enabled
-		if !config.IsTracingEnable() {
+		// Skip tracing if not enabled or for reverse-proxy routes
+		if !config.IsTracingEnable() || isProxyRoute(c.Request.URL.Path) {
 			c.Next()
 			return
 		}
@@ -155,8 +164,8 @@ func HandleTracingAll() gin.HandlerFunc {
 // The response body and traceId are captured for debugging purposes.
 func HandleTracingErrorOnly() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		// Skip tracing if not enabled
-		if !config.IsTracingEnable() {
+		// Skip tracing if not enabled or for reverse-proxy routes
+		if !config.IsTracingEnable() || isProxyRoute(c.Request.URL.Path) {
 			c.Next()
 			return
 		}
