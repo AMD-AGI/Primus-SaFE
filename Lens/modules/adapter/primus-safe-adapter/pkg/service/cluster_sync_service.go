@@ -116,34 +116,38 @@ func (s *ClusterSyncService) syncClusters(ctx context.Context) error {
 
 	log.Infof("Found %d clusters in Primus-SaFE", len(clusterList.Items))
 
-	// Track synced cluster IDs
-	syncedClusterIDs := make(map[string]bool)
+	// Track ALL existing cluster IDs for deletion detection (regardless of phase)
+	existingClusterIDs := make(map[string]bool)
+	for i := range clusterList.Items {
+		existingClusterIDs[clusterList.Items[i].Name] = true
+	}
 
-	// Sync each cluster
+	// Sync only Ready clusters
+	syncedCount := 0
 	for i := range clusterList.Items {
 		cluster := &clusterList.Items[i]
 
-		// Only sync Ready clusters
 		if !cluster.IsReady() {
-			log.Debugf("Skipping cluster %s: not ready (phase=%s)", 
+			log.Debugf("Skipping cluster %s for sync: not ready (phase=%s)",
 				cluster.Name, cluster.Status.ControlPlaneStatus.Phase)
 			continue
 		}
-
-		syncedClusterIDs[cluster.Name] = true
 
 		if err := s.syncCluster(ctx, cluster); err != nil {
 			log.Errorf("Failed to sync cluster %s: %v", cluster.Name, err)
 			continue
 		}
+		syncedCount++
 	}
 
-	// Mark deleted clusters (clusters in DB but not in Primus-SaFE)
-	if err := s.markDeletedClusters(ctx, syncedClusterIDs); err != nil {
+	// Use existingClusterIDs (all clusters, not just Ready) for deletion detection.
+	// A non-Ready cluster should NOT be deleted from DB — only clusters that no longer
+	// exist in the CRD at all should be marked as deleted.
+	if err := s.markDeletedClusters(ctx, existingClusterIDs); err != nil {
 		log.Errorf("Failed to mark deleted clusters: %v", err)
 	}
 
-	log.Debugf("Cluster sync completed: synced %d clusters", len(syncedClusterIDs))
+	log.Debugf("Cluster sync completed: synced %d Ready clusters out of %d total", syncedCount, len(existingClusterIDs))
 	return nil
 }
 
@@ -151,19 +155,37 @@ func (s *ClusterSyncService) syncClusters(ctx context.Context) error {
 func (s *ClusterSyncService) syncCluster(ctx context.Context, cluster *primusSafeV1.Cluster) error {
 	facade := cpdb.GetControlPlaneFacade()
 
-	// Check if cluster already exists
+	// Check if cluster already exists (active records only)
 	existing, err := facade.GetClusterConfig().GetByPrimusSafeID(ctx, cluster.Name)
 	if err != nil && err != gorm.ErrRecordNotFound {
 		return fmt.Errorf("failed to check existing cluster: %w", err)
 	}
 
-	if existing == nil {
-		// Create new cluster config
-		return s.createClusterConfig(ctx, cluster)
+	if existing != nil {
+		return s.updateClusterConfig(ctx, existing, cluster)
 	}
 
-	// Update existing cluster config if K8S connection changed
-	return s.updateClusterConfig(ctx, existing, cluster)
+	// No active record found — check if a deleted record exists (recoverable)
+	deleted, err := facade.GetClusterConfig().GetByPrimusSafeIDIncludeDeleted(ctx, cluster.Name)
+	if err != nil && err != gorm.ErrRecordNotFound {
+		return fmt.Errorf("failed to check deleted cluster: %w", err)
+	}
+
+	if deleted != nil && deleted.Status == model.ClusterStatusDeleted {
+		log.Infof("Restoring previously deleted cluster from Primus-SaFE: %s", cluster.Name)
+		if err := facade.GetClusterConfig().Restore(ctx, deleted.ClusterName); err != nil {
+			return fmt.Errorf("failed to restore cluster config: %w", err)
+		}
+		// Reload the restored record and update it
+		restored, err := facade.GetClusterConfig().GetByPrimusSafeID(ctx, cluster.Name)
+		if err != nil {
+			return fmt.Errorf("failed to reload restored cluster: %w", err)
+		}
+		return s.updateClusterConfig(ctx, restored, cluster)
+	}
+
+	// No record at all — create new
+	return s.createClusterConfig(ctx, cluster)
 }
 
 // createClusterConfig creates a new cluster config from Primus-SaFE cluster

@@ -21,7 +21,8 @@ type ClusterConfigRequest struct {
 	ClusterName   string `json:"cluster_name" binding:"required"`
 	DisplayName   string `json:"display_name"`
 	Description   string `json:"description"`
-	Source        string `json:"source"` // manual or primus-safe
+	Source        string `json:"source"`         // manual or primus-safe
+	PrimusSafeID  string `json:"primus_safe_id"` // required when source is primus-safe
 
 	// K8S Connection Config
 	K8SEndpoint           string `json:"k8s_endpoint"`
@@ -253,6 +254,10 @@ func CreateCluster(c *gin.Context) {
 	if source == "" {
 		source = model.ClusterSourceManual
 	}
+	primusSafeID := req.PrimusSafeID
+	if source == model.ClusterSourcePrimusSafe && primusSafeID == "" {
+		primusSafeID = req.ClusterName
+	}
 	storageMode := req.StorageMode
 	if storageMode == "" {
 		storageMode = "external"
@@ -271,6 +276,7 @@ func CreateCluster(c *gin.Context) {
 		DisplayName:         req.DisplayName,
 		Description:         req.Description,
 		Source:              source,
+		PrimusSafeID:        primusSafeID,
 		K8SEndpoint:         req.K8SEndpoint,
 		K8SCAData:           req.K8SCAData,
 		K8SCertData:         req.K8SCertData,

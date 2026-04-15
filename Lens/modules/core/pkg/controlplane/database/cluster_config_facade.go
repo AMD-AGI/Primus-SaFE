@@ -19,10 +19,14 @@ type ClusterConfigFacadeInterface interface {
 	Update(ctx context.Context, config *model.ClusterConfig) error
 	// Delete soft deletes a cluster config
 	Delete(ctx context.Context, clusterName string) error
+	// Restore restores a soft-deleted cluster config back to active
+	Restore(ctx context.Context, clusterName string) error
 	// GetByName gets a cluster config by name
 	GetByName(ctx context.Context, clusterName string) (*model.ClusterConfig, error)
 	// GetByPrimusSafeID gets a cluster config by primus-safe ID
 	GetByPrimusSafeID(ctx context.Context, primusSafeID string) (*model.ClusterConfig, error)
+	// GetByPrimusSafeIDIncludeDeleted gets a cluster config by primus-safe ID, including deleted records
+	GetByPrimusSafeIDIncludeDeleted(ctx context.Context, primusSafeID string) (*model.ClusterConfig, error)
 	// List lists all active cluster configs
 	List(ctx context.Context) ([]*model.ClusterConfig, error)
 	// ListBySource lists cluster configs by source
@@ -98,6 +102,19 @@ func (f *ClusterConfigFacade) Delete(ctx context.Context, clusterName string) er
 		}).Error
 }
 
+// Restore restores a soft-deleted cluster config back to active
+func (f *ClusterConfigFacade) Restore(ctx context.Context, clusterName string) error {
+	now := time.Now()
+	return f.db.WithContext(ctx).
+		Model(&model.ClusterConfig{}).
+		Where("cluster_name = ? AND status = ?", clusterName, model.ClusterStatusDeleted).
+		Updates(map[string]interface{}{
+			"status":     model.ClusterStatusActive,
+			"deleted_at": nil,
+			"updated_at": now,
+		}).Error
+}
+
 // GetByName gets a cluster config by name
 func (f *ClusterConfigFacade) GetByName(ctx context.Context, clusterName string) (*model.ClusterConfig, error) {
 	var config model.ClusterConfig
@@ -115,6 +132,18 @@ func (f *ClusterConfigFacade) GetByPrimusSafeID(ctx context.Context, primusSafeI
 	var config model.ClusterConfig
 	err := f.db.WithContext(ctx).
 		Where("primus_safe_id = ? AND status = ?", primusSafeID, model.ClusterStatusActive).
+		First(&config).Error
+	if err != nil {
+		return nil, err
+	}
+	return &config, nil
+}
+
+// GetByPrimusSafeIDIncludeDeleted gets a cluster config by primus-safe ID, including deleted records
+func (f *ClusterConfigFacade) GetByPrimusSafeIDIncludeDeleted(ctx context.Context, primusSafeID string) (*model.ClusterConfig, error) {
+	var config model.ClusterConfig
+	err := f.db.WithContext(ctx).
+		Where("primus_safe_id = ?", primusSafeID).
 		First(&config).Error
 	if err != nil {
 		return nil, err
