@@ -152,7 +152,7 @@ func (h *Handler) getPosttrainRunMetrics(c *gin.Context) (interface{}, error) {
 		}, nil
 	}
 
-	points, availableMetrics, err := fetchLensTrainingPerformanceData(c.Request.Context(), lensWorkloadUID, start, end)
+	points, availableMetrics, selectedSource, err := fetchLensTrainingPerformanceData(c.Request.Context(), lensWorkloadUID, start, end, query.Metrics, query.DataSource)
 	if err != nil {
 		klog.V(4).Infof("failed to query Lens training performance for run %s: %v", run.RunID, err)
 		return &PosttrainMetricsResponse{
@@ -163,12 +163,18 @@ func (h *Handler) getPosttrainRunMetrics(c *gin.Context) (interface{}, error) {
 	}
 	filteredPoints := filterLensTrainingPerformancePoints(points, query.Metrics)
 	loss := latestLossSummaryFromPoints(points, availableMetrics)
+	source := lossDataSource(loss)
+	if source == "" {
+		source = selectedSource
+	}
 	return &PosttrainMetricsResponse{
 		RunID:            run.RunID,
 		WorkloadUID:      lensWorkloadUID,
 		AvailableMetrics: availableMetrics,
 		Data:             filteredPoints,
 		LatestLoss:       lossValue(loss),
+		Source:           source,
+		Series:           buildPosttrainMetricSeries(filteredPoints, lossMetricName(loss)),
 		LossMetricName:   lossMetricName(loss),
 		LossDataSource:   lossDataSource(loss),
 	}, nil

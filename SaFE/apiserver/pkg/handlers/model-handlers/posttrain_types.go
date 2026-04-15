@@ -89,12 +89,20 @@ type PosttrainMetricPoint struct {
 	DataSource string  `json:"dataSource,omitempty"`
 }
 
+type PosttrainMetricSeriesPoint struct {
+	Step      int32   `json:"step"`
+	Value     float64 `json:"value"`
+	Timestamp string  `json:"timestamp,omitempty"`
+}
+
 type PosttrainMetricsResponse struct {
-	RunID            string                 `json:"runId"`
-	WorkloadUID      string                 `json:"workloadUid"`
-	AvailableMetrics []string               `json:"availableMetrics,omitempty"`
-	Data             []PosttrainMetricPoint `json:"data"`
-	LatestLoss       *float64               `json:"latestLoss,omitempty"`
-	LossMetricName   string                 `json:"lossMetricName,omitempty"`
-	LossDataSource   string                 `json:"lossDataSource,omitempty"`
+	RunID            string                                  `json:"runId"`
+	WorkloadUID      string                                  `json:"workloadUid"`
+	AvailableMetrics []string                                `json:"availableMetrics,omitempty"`
+	Data             []PosttrainMetricPoint                  `json:"data"`
+	LatestLoss       *float64                                `json:"latestLoss,omitempty"`
+	Source           string                                  `json:"source,omitempty"`
+	Series           map[string][]PosttrainMetricSeriesPoint `json:"series,omitempty"`
+	LossMetricName   string                                  `json:"lossMetricName,omitempty"`
+	LossDataSource   string                                  `json:"lossDataSource,omitempty"`
 }
