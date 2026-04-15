@@ -33,6 +33,7 @@ const (
 	NfsPathEnv           = "SAFE_NFS_PATH"
 	NfsInputEnv          = "SAFE_NFS_INPUT"
 	NfsOutputEnv         = "SAFE_NFS_OUTPUT"
+	ForcedHostNetworkEnv = "FORCED_HOST_NETWORK"
 )
 
 type K8sObjectStatus struct {
