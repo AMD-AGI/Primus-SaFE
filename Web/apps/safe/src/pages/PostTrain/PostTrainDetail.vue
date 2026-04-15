@@ -34,7 +34,7 @@
         <el-descriptions class="m-t-4" border :column="4" direction="vertical">
           <el-descriptions-item label="Run Name">{{ run.displayName }}</el-descriptions-item>
           <el-descriptions-item label="Run ID">
-            <span class="text-xs break-all">{{ run.runId }}</span>
+            <span class="break-all">{{ run.runId }}</span>
           </el-descriptions-item>
           <el-descriptions-item label="Train Type">
             <el-tag size="small" :type="run.trainType === 'sft' ? 'success' : 'warning'" effect="plain">
@@ -59,7 +59,7 @@
           <el-descriptions-item label="Base Model" :span="2">{{ run.baseModelName || '-' }}</el-descriptions-item>
           <el-descriptions-item label="Dataset" :span="2">{{ run.datasetName || '-' }}</el-descriptions-item>
           <el-descriptions-item label="Image" :span="4">
-            <span class="text-xs break-all">{{ run.image || '-' }}</span>
+            <span class="break-all">{{ run.image || '-' }}</span>
           </el-descriptions-item>
         </el-descriptions>
       </el-card>

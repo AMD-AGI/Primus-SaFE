@@ -35,7 +35,7 @@ var modelRecipes = map[string]ModelRecipe{
 }
 
 // InferModelRecipe returns the Primus recipe for a given HF model name.
-// Falls back to family/size inference for common model families.
+// Falls back to family/size inference and finally a size-based default.
 func InferModelRecipe(hfModelName string) (ModelRecipe, error) {
 	if r, ok := modelRecipes[hfModelName]; ok {
 		return r, nil
@@ -111,11 +111,30 @@ func inferModelRecipeFromName(hfModelName string) (ModelRecipe, error) {
 		}, nil
 	}
 
-	return ModelRecipe{}, fmt.Errorf(
-		"unsupported model: %s (supported defaults: %s; or pass recipe/flavor/modelSize overrides)",
-		hfModelName,
-		supportedModelNames(),
-	)
+	return defaultModelRecipeForSize(size), nil
+}
+
+func defaultModelRecipeForSize(size string) ModelRecipe {
+	switch size {
+	case "32b":
+		return ModelRecipe{
+			Recipe: "qwen.qwen3",
+			Flavor: "qwen3_32b_finetune_config",
+			Size:   "32b",
+		}
+	case "70b":
+		return ModelRecipe{
+			Recipe: "llama.llama3",
+			Flavor: "llama31_70b_finetune_config",
+			Size:   "70b",
+		}
+	default:
+		return ModelRecipe{
+			Recipe: "qwen.qwen3",
+			Flavor: "qwen3_8b_finetune_config",
+			Size:   "8b",
+		}
+	}
 }
 
 func normalizeModelSize(size string) (string, error) {
