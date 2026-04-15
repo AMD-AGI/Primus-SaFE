@@ -986,6 +986,9 @@ func updateCICDScaleSetEnvs(obj *unstructured.Unstructured,
 	envs[jobutils.AdminControlPlaneEnv] = v1.GetAdminControlPlane(adminWorkload)
 	envs[jobutils.GithubSecretEnv] = v1.GetGithubSecretId(adminWorkload)
 	envs[common.ScaleRunnerSetID] = adminWorkload.Name
+	if v1.IsForceHostNetwork(adminWorkload) {
+		envs[jobutils.ForcedHostNetworkEnv] = v1.TrueStr
+	}
 
 	val := ""
 	if len(adminWorkload.Spec.Env) > 0 {

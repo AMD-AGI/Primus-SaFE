@@ -48,6 +48,12 @@ def getenv_int(name: str, default: Optional[int] = None) -> Optional[int]:
     except ValueError:
         return default
 
+def getenv_bool(name: str, default: bool = False) -> bool:
+    val = getenv_str(name)
+    if val is None:
+        return default
+    return val.strip().lower() in {"1", "true", "yes", "y", "on"}
+
 def is_base64(s: str) -> bool:
     try:
         raw = s.strip()
@@ -154,6 +160,7 @@ def build_payload_from_input(inp: Dict[str, Any]) -> Dict[str, Any]:
         "timeout": DEFAULT_POLL_TIMEOUT_SECS,
         "priority": priority,
         "preheat": True,
+        "forceHostNetwork": getenv_bool("FORCED_HOST_NETWORK", False),
     }
     if isinstance(timeout, int) and timeout > 0:
         payload["timeout"] = timeout

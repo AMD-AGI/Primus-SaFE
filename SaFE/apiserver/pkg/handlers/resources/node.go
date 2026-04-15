@@ -674,6 +674,11 @@ func (h *Handler) deleteNodeImpl(c *gin.Context, name string, requestUser *v1.Us
 				fmt.Sprintf("The node is bound to cluster %s and needs to be unmanaged first", v1.GetClusterId(node)))
 		}
 	}
+	if node.GetSpecWorkspace() != "" {
+		if err = h.removeNodesFromWorkspace(c, []string{node.Name}, isForce); err != nil {
+			return nil, err
+		}
+	}
 	if err = h.Delete(ctx, node); err != nil {
 		klog.ErrorS(err, "failed to delete node")
 		return nil, err

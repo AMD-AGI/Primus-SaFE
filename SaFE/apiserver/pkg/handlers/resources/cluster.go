@@ -426,7 +426,7 @@ func (h *Handler) removeNodesFromWorkspace(c *gin.Context, allNodeIds []string, 
 		if err != nil {
 			return err
 		}
-		workspaceId := v1.GetWorkspaceId(node)
+		workspaceId := node.GetSpecWorkspace()
 		if workspaceId != "" {
 			ids, ok := nodeIdMap[workspaceId]
 			if !ok {

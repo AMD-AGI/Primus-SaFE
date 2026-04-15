@@ -253,6 +253,7 @@ def build_payload() -> Dict[str, Any]:
         "priority": priority,
         "timeout": timeout_secs,
         "ttlSecondsAfterFinished": 20,
+        "forceHostNetwork": getenv_bool("FORCED_HOST_NETWORK", False),
     }
     # Add user-defined labels and annotations if present
     if pod_labels:
