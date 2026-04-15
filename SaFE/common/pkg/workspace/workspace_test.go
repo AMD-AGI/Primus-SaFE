@@ -10,6 +10,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 )
@@ -193,4 +195,33 @@ func TestGetUniqueDownloadPaths(t *testing.T) {
 			assert.Equal(t, tt.expectedLen, len(result))
 		})
 	}
+}
+
+func TestIsPathAccessibleFromWorkspace_MultipleVolumes(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = v1.AddToScheme(scheme)
+
+	ws := &v1.Workspace{
+		ObjectMeta: metav1.ObjectMeta{Name: "ws-multi"},
+		Spec: v1.WorkspaceSpec{
+			Volumes: []v1.WorkspaceVolume{
+				{Type: v1.HOSTPATH, MountPath: "/shared_nfs", HostPath: "/shared_nfs"},
+				{Type: v1.HOSTPATH, MountPath: "/hyperloom", HostPath: "/hyperloom"},
+			},
+		},
+	}
+
+	k8sClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(ws).Build()
+
+	ok, err := IsPathAccessibleFromWorkspace(k8sClient, "/hyperloom/models/Qwen3-235B", "ws-multi")
+	assert.NoError(t, err)
+	assert.True(t, ok)
+
+	ok, err = IsPathAccessibleFromWorkspace(k8sClient, "/shared_nfs/models/Qwen3-8B", "ws-multi")
+	assert.NoError(t, err)
+	assert.True(t, ok)
+
+	ok, err = IsPathAccessibleFromWorkspace(k8sClient, "/other/path/model", "ws-multi")
+	assert.NoError(t, err)
+	assert.False(t, ok)
 }

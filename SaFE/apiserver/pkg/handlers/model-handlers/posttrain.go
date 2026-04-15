@@ -142,9 +142,9 @@ func (h *Handler) getPosttrainRunMetrics(c *gin.Context) (interface{}, error) {
 		}
 	}
 
-	lensWorkloadUID, err := resolveRobustWorkloadUID(c.Request.Context(), h.robustClient, run.WorkloadID, run.Workspace, run.Cluster, run.TrainType)
+	lensWorkloadUID, err := resolveLensWorkloadUID(c.Request.Context(), run.WorkloadID, run.Workspace, run.Cluster, run.TrainType)
 	if err != nil {
-		klog.V(4).Infof("failed to resolve workload uid for run %s: %v", run.RunID, err)
+		klog.V(4).Infof("failed to resolve Lens workload uid for run %s: %v", run.RunID, err)
 		return &PosttrainMetricsResponse{
 			RunID:       run.RunID,
 			WorkloadUID: nullStringValue(run.WorkloadUID),
@@ -152,23 +152,29 @@ func (h *Handler) getPosttrainRunMetrics(c *gin.Context) (interface{}, error) {
 		}, nil
 	}
 
-	points, availableMetrics, err := fetchTrainingPerformanceData(c.Request.Context(), h.robustClient, run.Cluster, lensWorkloadUID, start, end)
+	points, availableMetrics, selectedSource, err := fetchLensTrainingPerformanceData(c.Request.Context(), lensWorkloadUID, start, end, query.Metrics, query.DataSource)
 	if err != nil {
-		klog.V(4).Infof("failed to query training performance for run %s: %v", run.RunID, err)
+		klog.V(4).Infof("failed to query Lens training performance for run %s: %v", run.RunID, err)
 		return &PosttrainMetricsResponse{
 			RunID:       run.RunID,
 			WorkloadUID: nullStringValue(run.WorkloadUID),
 			Data:        []PosttrainMetricPoint{},
 		}, nil
 	}
-	filteredPoints := filterTrainingPerformancePoints(points, query.Metrics)
+	filteredPoints := filterLensTrainingPerformancePoints(points, query.Metrics)
 	loss := latestLossSummaryFromPoints(points, availableMetrics)
+	source := lossDataSource(loss)
+	if source == "" {
+		source = selectedSource
+	}
 	return &PosttrainMetricsResponse{
 		RunID:            run.RunID,
 		WorkloadUID:      lensWorkloadUID,
 		AvailableMetrics: availableMetrics,
 		Data:             filteredPoints,
 		LatestLoss:       lossValue(loss),
+		Source:           source,
+		Series:           buildPosttrainMetricSeries(filteredPoints, lossMetricName(loss)),
 		LossMetricName:   lossMetricName(loss),
 		LossDataSource:   lossDataSource(loss),
 	}, nil
@@ -358,19 +364,19 @@ func (h *Handler) enrichPosttrainItemsWithLoss(ctx context.Context, runs []*dbcl
 			sem <- struct{}{}
 			defer func() { <-sem }()
 
-			lensWorkloadUID, err := resolveRobustWorkloadUID(ctx, h.robustClient, runs[idx].WorkloadID, runs[idx].Workspace, runs[idx].Cluster, runs[idx].TrainType)
+			lensWorkloadUID, err := resolveLensWorkloadUID(ctx, runs[idx].WorkloadID, runs[idx].Workspace, runs[idx].Cluster, runs[idx].TrainType)
 			if err != nil {
-				klog.V(4).Infof("failed to resolve workload uid for run %s: %v", items[idx].RunID, err)
+				klog.V(4).Infof("failed to resolve Lens workload uid for run %s: %v", items[idx].RunID, err)
 				return
 			}
 
 			start, end, err := defaultLensTimeRangeForRun(runs[idx])
 			if err != nil {
-				klog.V(4).Infof("failed to derive time range for run %s: %v", items[idx].RunID, err)
+				klog.V(4).Infof("failed to derive Lens time range for run %s: %v", items[idx].RunID, err)
 				return
 			}
 
-			summary, availableMetrics, err := fetchLatestLossSummary(ctx, h.robustClient, runs[idx].Cluster, lensWorkloadUID, start, end)
+			summary, availableMetrics, err := fetchLatestLossSummary(ctx, lensWorkloadUID, start, end)
 			if err != nil {
 				klog.V(4).Infof("failed to enrich latest loss for run %s: %v", items[idx].RunID, err)
 				return
@@ -388,7 +394,7 @@ func (h *Handler) enrichPosttrainItemsWithLoss(ctx context.Context, runs []*dbcl
 }
 
 func (h *Handler) getLatestLossForRun(ctx context.Context, run *dbclient.PosttrainRunView) (*lossSummary, []string, error) {
-	lensWorkloadUID, err := resolveRobustWorkloadUID(ctx, h.robustClient, run.WorkloadID, run.Workspace, run.Cluster, run.TrainType)
+	lensWorkloadUID, err := resolveLensWorkloadUID(ctx, run.WorkloadID, run.Workspace, run.Cluster, run.TrainType)
 	if err != nil {
 		return nil, nil, nil
 	}
@@ -396,7 +402,7 @@ func (h *Handler) getLatestLossForRun(ctx context.Context, run *dbclient.Posttra
 	if err != nil {
 		return nil, nil, nil
 	}
-	return fetchLatestLossSummary(ctx, h.robustClient, run.Cluster, lensWorkloadUID, start, end)
+	return fetchLatestLossSummary(ctx, lensWorkloadUID, start, end)
 }
 
 func buildSFTSnapshots(req CreateSftJobRequest) (string, string, error) {

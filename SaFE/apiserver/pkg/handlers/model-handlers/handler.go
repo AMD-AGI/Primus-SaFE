@@ -16,7 +16,6 @@ import (
 	apiutils "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/utils"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
-	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/robustclient"
 	commons3 "github.com/AMD-AIG-AIMA/SAFE/common/pkg/s3"
 )
 
@@ -25,7 +24,6 @@ type Handler struct {
 	k8sClient        client.Client
 	dbClient         dbclient.Interface
 	s3Client         commons3.Interface
-	robustClient     *robustclient.Client
 	accessController *authority.AccessController
 }
 
@@ -46,11 +44,6 @@ func NewHandlerWithS3(k8sClient client.Client, dbClient dbclient.Interface, s3Cl
 		s3Client:         s3Client,
 		accessController: accessController,
 	}
-}
-
-// SetRobustClient injects the robust client for data-plane API calls.
-func (h *Handler) SetRobustClient(rc *robustclient.Client) {
-	h.robustClient = rc
 }
 
 // IsDatasetEnabled returns true if dataset operations are enabled (S3 client is configured).
