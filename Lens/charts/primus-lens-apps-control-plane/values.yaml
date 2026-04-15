@@ -61,7 +61,7 @@ apps:
         pprofPort: 19195
   
   primusSafeAdapter:
-    enabled: true
+    enabled: false
     image: "primussafe/primus-safe-adapter:202512111803"
     replicas: 1
     httpPort: 8080

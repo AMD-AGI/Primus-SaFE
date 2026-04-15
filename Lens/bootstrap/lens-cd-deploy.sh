@@ -17,18 +17,19 @@ DP_CHART="$REPO_DIR/Lens/charts/primus-lens-apps-dataplane"
 CONTROL_PLANE_LABEL="primus-safe.cluster.control-plane"
 
 echo "=== Lens CD Deployment ==="
-echo "ConfigMap: $LENS_CONFIGMAP_NAME"
+DEPLOY_CONFIGMAP_NAME="${DEPLOY_CONFIGMAP_NAME:-$LENS_CONFIGMAP_NAME}"
+echo "ConfigMap: $DEPLOY_CONFIGMAP_NAME"
 
 # Check ConfigMap
-if [ -z "$LENS_CONFIGMAP_NAME" ]; then
-    echo "Error: LENS_CONFIGMAP_NAME not set"
+if [ -z "$DEPLOY_CONFIGMAP_NAME" ]; then
+    echo "Error: DEPLOY_CONFIGMAP_NAME not set"
     exit 1
 fi
 
 # Read ConfigMap
-CM_JSON=$(kubectl get configmap "$LENS_CONFIGMAP_NAME" -n default -o json 2>/dev/null)
+CM_JSON=$(kubectl get configmap "$DEPLOY_CONFIGMAP_NAME" -n default -o json 2>/dev/null)
 if [ -z "$CM_JSON" ]; then
-    echo "Error: ConfigMap $LENS_CONFIGMAP_NAME not found"
+    echo "Error: ConfigMap $DEPLOY_CONFIGMAP_NAME not found"
     exit 1
 fi
 

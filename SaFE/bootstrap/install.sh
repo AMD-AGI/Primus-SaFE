@@ -78,8 +78,7 @@ ethernet_nic=$(get_input_with_default "Enter ethernet nic($default_ethernet_nic)
 rdma_nic=$(get_input_with_default "Enter rdma nic($default_rdma_nic): " "$default_rdma_nic")
 cluster_scale=$(get_input_with_default "Enter cluster scale, choose 'small/medium/large' ($default_cluster_scale): " "$default_cluster_scale")
 storage_class=$(get_input_with_default "Enter storage class($default_storage_class): " "$default_storage_class")
-support_lens=$(get_input_with_default "Support Primus-lens ? (y/n): " "n")
-lens_enable=$(convert_to_boolean "$support_lens")
+lens_enable="false"
 
 support_s3=$(get_input_with_default "Support S3 ? (y/n): " "n")
 s3_enable=$(convert_to_boolean "$support_s3")
@@ -144,7 +143,7 @@ echo "✅ Ethernet nic: \"$ethernet_nic\""
 echo "✅ Rdma nic: \"$rdma_nic\""
 echo "✅ Cluster Scale: \"$cluster_scale\""
 echo "✅ Storage Class: \"$storage_class\""
-echo "✅ Support Primus-lens: \"$lens_enable\""
+echo "✅ Robust data-plane: managed via AddonTemplate"
 echo "✅ Support Primus-s3: \"$s3_enable\""
 if [[ "$s3_enable" == "true" ]]; then
   echo "✅ S3 Endpoint: \"$s3_endpoint\""
@@ -284,15 +283,12 @@ sed -i "s/^.*cpu:.*/  cpu: $cpu/" "$values_yaml"
 sed -i "s/^.*memory:.*/  memory: $memory/" "$values_yaml"
 sed -i "s/^.*storage_class:.*/  storage_class: \"$storage_class\"/" "$values_yaml"
 sed -i "s/^.*sub_domain:.*/  sub_domain: \"$sub_domain\"/" "$values_yaml"
-sed -i '/opensearch:/,/^[a-z]/ s/enable: .*/enable: '"$lens_enable"'/' "$values_yaml"
+sed -i '/opensearch:/,/^[a-z]/ s/enable: .*/enable: true/' "$values_yaml"
 sed -i '/s3:/,/^[a-z]/ s/enable: .*/enable: '"$s3_enable"'/' "$values_yaml"
 if [[ "$s3_enable" == "true" ]]; then
   sed -i '/^s3:/,/^[a-z]/ s#secret: ".*"#secret: "'"$S3_SECRET"'"#' "$values_yaml"
 fi
-sed -i '/grafana:/,/^[a-z]/ s/enable: .*/enable: '"$lens_enable"'/' "$values_yaml"
-if [[ "$lens_enable" == "true" ]]; then
-  pg_password=$(kubectl get secret -n "primus-lens" primus-lens-pguser-primus-lens -o jsonpath="{.data.password}" | base64 -d)
-  sed -i '/^grafana:/,/^[a-z]/ s#password: ".*"#password: "'"$pg_password"'"#' "$values_yaml"
+sed -i '/grafana:/,/^[a-z]/ s/enable: .*/enable: false/' "$values_yaml"
 fi
 sed -i "s/image_pull_secret: \".*\"/image_pull_secret: \"$IMAGE_PULL_SECRET\"/" "$values_yaml"
 sed -i "s/ingress: \".*\"/ingress: \"$ingress\"/" "$values_yaml"
@@ -389,7 +385,7 @@ ethernet_nic=$ethernet_nic
 rdma_nic=$rdma_nic
 cluster_scale=$cluster_scale
 storage_class=$storage_class
-lens_enable=$lens_enable
+lens_enable=false
 s3_enable=$s3_enable
 sso_enable=$sso_enable
 ingress=$ingress

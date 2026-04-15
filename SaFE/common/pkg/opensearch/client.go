@@ -6,15 +6,16 @@
 package opensearch
 
 import (
+	"context"
+	"encoding/json"
 	"fmt"
-	"net/http"
 	"strings"
 	"time"
 
 	"k8s.io/klog/v2"
 
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
-	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/httpclient"
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/robustclient"
 )
 
 const (
@@ -22,48 +23,38 @@ const (
 )
 
 type SearchClientConfig struct {
-	Username     string
-	Password     string
-	Endpoint     string
 	DefaultIndex string
-}
-
-// Equals compares two SearchClientConfig instances for equality.
-func (s SearchClientConfig) Equals(other SearchClientConfig) bool {
-	return s.Username == other.Username &&
-		s.Password == other.Password &&
-		s.Endpoint == other.Endpoint &&
-		s.DefaultIndex == other.DefaultIndex
-}
-
-// Validate validates the input parameters.
-func (s SearchClientConfig) Validate() error {
-	if s.Endpoint == "" {
-		return fmt.Errorf("opensearch endpoint is empty")
-	}
-	if s.Username == "" {
-		return fmt.Errorf("opensearch username is empty")
-	}
-	if s.Password == "" {
-		return fmt.Errorf("opensearch password is empty")
-	}
-	return nil
 }
 
 type SearchClient struct {
 	SearchClientConfig
-	httpClient httpclient.Interface
+	clusterClient *robustclient.ClusterClient
 }
 
-// NewClient create or return the singleton instance of SearchClient.
-func NewClient(cfg SearchClientConfig) *SearchClient {
+func NewClient(cfg SearchClientConfig, cc *robustclient.ClusterClient) *SearchClient {
 	return &SearchClient{
 		SearchClientConfig: cfg,
-		httpClient:         httpclient.NewClient(),
+		clusterClient:      cc,
 	}
 }
 
-// SearchByTimeRange search openSearch data by time range.
+type logRawProxyRequest struct {
+	URI    string          `json:"uri"`
+	Method string          `json:"method"`
+	Body   json.RawMessage `json:"body"`
+}
+
+type logRawProxyEnvelope struct {
+	Meta struct {
+		Code    int    `json:"code"`
+		Message string `json:"message"`
+	} `json:"meta"`
+	Data struct {
+		StatusCode int             `json:"status_code"`
+		Body       json.RawMessage `json:"body"`
+	} `json:"data"`
+}
+
 func (c *SearchClient) SearchByTimeRange(sinceTime, untilTime time.Time, index, uri string, body []byte) ([]byte, error) {
 	if index == "" {
 		index = c.DefaultIndex
@@ -75,42 +66,54 @@ func (c *SearchClient) SearchByTimeRange(sinceTime, untilTime time.Time, index, 
 	if !strings.HasPrefix(uri, "/") {
 		uri = "/" + uri
 	}
-	return c.Request(indexPattern+uri, http.MethodPost, body)
+	return c.Request(indexPattern+uri, "POST", body)
 }
 
-// Request send HTTP request to OpenSearch.
 func (c *SearchClient) Request(uri, httpMethod string, body []byte) ([]byte, error) {
+	if c.clusterClient == nil {
+		return nil, commonerrors.NewInternalError("opensearch client not initialized")
+	}
 	if !strings.HasPrefix(uri, "/") {
 		uri = "/" + uri
 	}
-	url := c.Endpoint + uri
-	klog.Infof("request to openSearch, url: %s, body: %s", url, body)
-	req, err := httpclient.BuildRequest(url, httpMethod, body)
+
+	klog.V(4).Infof("proxying opensearch request via robust-api: %s %s", httpMethod, uri)
+
+	proxyReq := logRawProxyRequest{
+		URI:    uri,
+		Method: httpMethod,
+		Body:   json.RawMessage(body),
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+	defer cancel()
+
+	rawResp, err := c.clusterClient.RawPost(ctx, "/api/v1/logs/raw", proxyReq)
 	if err != nil {
-		return nil, commonerrors.NewBadRequest(err.Error())
+		return nil, fmt.Errorf("robust-api log proxy failed: %w", err)
 	}
-	req.SetBasicAuth(c.Username, c.Password)
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return nil, err
+
+	var envelope logRawProxyEnvelope
+	if err := json.Unmarshal(rawResp, &envelope); err != nil {
+		return nil, fmt.Errorf("parse robust-api response: %w", err)
 	}
-	if !resp.IsSuccess() {
-		return nil, fmt.Errorf("failed to request openSearch: %s", string(resp.Body))
+
+	if envelope.Meta.Code != 0 && envelope.Meta.Code != 2000 {
+		return nil, fmt.Errorf("robust-api log proxy error %d: %s", envelope.Meta.Code, envelope.Meta.Message)
 	}
-	return resp.Body, nil
+
+	if envelope.Data.StatusCode >= 400 {
+		return nil, fmt.Errorf("opensearch returned status %d", envelope.Data.StatusCode)
+	}
+
+	return []byte(envelope.Data.Body), nil
 }
 
-// generateIndexPattern generates the OpenSearch index name prefix based on the provided time range.
-// If the start and end times are equal, it returns the index concatenated with the formatted date.
-// If the time range exceeds 30 days, it uses a wildcard (*) to cover all indices.
-// For smaller ranges, it iterates through each day in the range and appends the formatted date to the index,
-// separating multiple indices with commas.
 func (c *SearchClient) generateIndexPattern(index string, sinceTime, untilTime time.Time) (string, error) {
 	if sinceTime.Equal(untilTime) {
 		return index + sinceTime.Format(IndexDateFormat), nil
 	}
 
-	// If the time range is too large, use the wildcard * directly
 	days := int(untilTime.Sub(sinceTime).Hours() / 24)
 	if days >= 30 {
 		return index + "*", nil

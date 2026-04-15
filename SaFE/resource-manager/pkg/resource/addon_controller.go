@@ -7,14 +7,15 @@ package resource
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"sync"
 	"time"
 
-	"gopkg.in/yaml.v2"
 	"helm.sh/helm/v3/pkg/action"
 	"helm.sh/helm/v3/pkg/chart/loader"
+	"helm.sh/helm/v3/pkg/chartutil"
 	"helm.sh/helm/v3/pkg/cli"
 	"helm.sh/helm/v3/pkg/release"
 	corev1 "k8s.io/api/core/v1"
@@ -38,17 +39,28 @@ import (
 // AddonController manages Helm addon installations and updates for clusters.
 type AddonController struct {
 	client.Client
-	clustersGetter *ClustersGetter
+	clustersGetter  *ClustersGetter
+	grafanaSyncer   *GrafanaDatasourceSyncer
 }
 
 // SetupAddonController initializes and registers the AddonController with the controller manager.
 func SetupAddonController(mgr manager.Manager) error {
+	var gs *GrafanaDatasourceSyncer
+	if restCfg := mgr.GetConfig(); restCfg != nil {
+		var err error
+		gs, err = NewGrafanaDatasourceSyncer(restCfg, "primus-safe")
+		if err != nil {
+			klog.Warningf("[addon] grafana datasource syncer init failed (non-blocking): %v", err)
+		}
+	}
+
 	addon := &AddonController{
 		Client: mgr.GetClient(),
 		clustersGetter: &ClustersGetter{
 			Mutex:  sync.Mutex{},
 			getter: map[string]*RESTClientGetter{},
 		},
+		grafanaSyncer: gs,
 	}
 	err := ctrlruntime.NewControllerManagedBy(mgr).
 		For(&v1.Addon{}, builder.WithPredicates(predicate.ResourceVersionChangedPredicate{})).Complete(addon)
@@ -103,6 +115,7 @@ func (r *AddonController) guaranteeHelmAddon(ctx context.Context, addon *v1.Addo
 		if err != nil {
 			return err
 		}
+		r.cleanupRobustGrafanaDatasources(ctx, addon)
 		addon.Status.Phase = v1.AddonDeleted
 		err = r.Status().Patch(ctx, addon, originalAddon)
 		if err != nil {
@@ -114,7 +127,7 @@ func (r *AddonController) guaranteeHelmAddon(ctx context.Context, addon *v1.Addo
 		return commonutils.PatchObjectFinalizer(ctx, r.Client, addon)
 	}
 	if addon.Status.AddonSourceStatus.HelmRepositoryStatus == nil {
-		r.helmInstall(ctx, addon)
+		return r.helmInstall(ctx, addon)
 	}
 	return r.helmUpgrade(ctx, addon)
 }
@@ -141,6 +154,28 @@ func (r *AddonController) getHelm(ctx context.Context, addon *v1.Addon) (string,
 		return template.Spec.URL[index+1:], template.Spec.URL[:index], template.Spec.Version, values, nil
 	}
 	return addon.Spec.AddonSource.HelmRepository.URL, "", addon.Spec.AddonSource.HelmRepository.ChartVersion, addon.Spec.AddonSource.HelmRepository.Values, nil
+}
+
+// parseHelmValues parses a YAML values string into map[string]interface{} using
+// Helm's own ReadValues followed by a JSON round-trip to guarantee all nested
+// structures are pure map[string]interface{} (avoids copystructure type drift).
+func parseHelmValues(raw string) (map[string]interface{}, error) {
+	if raw == "" {
+		return map[string]interface{}{}, nil
+	}
+	vals, err := chartutil.ReadValues([]byte(raw))
+	if err != nil {
+		return nil, err
+	}
+	b, err := json.Marshal(vals)
+	if err != nil {
+		return nil, err
+	}
+	var out map[string]interface{}
+	if err := json.Unmarshal(b, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 // helmInstall installs a Helm chart for the addon.
@@ -174,14 +209,10 @@ func (r *AddonController) helmInstall(ctx context.Context, addon *v1.Addon) erro
 	if err != nil {
 		return r.patchErrorStatus(ctx, addon, fmt.Errorf("helm install helm chart load %s", err))
 	}
-	valuesMap := map[string]interface{}{}
-	if values != "" {
-		err = yaml.Unmarshal([]byte(values), valuesMap)
-		if err != nil {
-			return r.patchErrorStatus(ctx, addon, err)
-		}
+	valuesMap, err := parseHelmValues(values)
+	if err != nil {
+		return r.patchErrorStatus(ctx, addon, err)
 	}
-	valuesMap = replaceValues(valuesMap, chart.Values)
 
 	resp, err := installClient.RunWithContext(ctx, chart, valuesMap)
 	if err != nil {
@@ -268,14 +299,10 @@ func (r *AddonController) executeUpgrade(ctx context.Context, addon *v1.Addon, u
 		return r.patchErrorStatus(ctx, addon, fmt.Errorf("helm install helm chart load failed %s", err))
 	}
 
-	valuesMap := map[string]interface{}{}
-	if values != "" {
-		err = yaml.Unmarshal([]byte(values), valuesMap)
-		if err != nil {
-			return r.patchErrorStatus(ctx, addon, err)
-		}
+	valuesMap, err := parseHelmValues(values)
+	if err != nil {
+		return r.patchErrorStatus(ctx, addon, err)
 	}
-	valuesMap = replaceValues(valuesMap, chart.Values)
 
 	resp, err := upgradeClient.RunWithContext(ctx, addon.Spec.AddonSource.HelmRepository.ReleaseName, chart, valuesMap)
 	if err != nil {
@@ -400,6 +427,7 @@ func (r *AddonController) updateAddonHelmStatus(ctx context.Context, addon *v1.A
 	addon.Status.AddonSourceStatus.HelmRepositoryStatus.Values = addon.Spec.AddonSource.HelmRepository.Values
 	if addon.Status.AddonSourceStatus.HelmRepositoryStatus.Status == v1.AddonDeployed {
 		addon.Status.Phase = v1.AddonRunning
+		r.registerRobustEndpointIfApplicable(ctx, addon)
 	} else {
 		addon.Status.Phase = v1.AddonPhaseType(addon.Status.AddonSourceStatus.HelmRepositoryStatus.Status)
 	}
@@ -438,6 +466,84 @@ func (r *AddonController) getCluster(ctx context.Context, cluster *corev1.Object
 	}
 	restCfg.Insecure = true
 	return restCfg, err
+}
+
+const (
+	robustAddonPrefix         = "primus-robust"
+	annotationRobustEndpoint  = "primus-safe.amd.com/robust-api-endpoint"
+	defaultRobustAPIPort      = "8085"
+)
+
+// registerRobustEndpointIfApplicable annotates the Cluster CR with the robust-api
+// endpoint when a primus-robust addon is successfully deployed.
+func (r *AddonController) registerRobustEndpointIfApplicable(ctx context.Context, addon *v1.Addon) {
+	templateName := ""
+	if addon.Spec.AddonSource.HelmRepository != nil {
+		templateName = addon.Spec.AddonSource.HelmRepository.ReleaseName
+	}
+	if templateName == "" {
+		templateName = addon.Name
+	}
+	if !strings.HasPrefix(templateName, robustAddonPrefix) {
+		return
+	}
+
+	clusterRef := addon.Spec.Cluster
+	if clusterRef == nil {
+		return
+	}
+
+	cluster := &v1.Cluster{}
+	if err := r.Get(ctx, types.NamespacedName{Name: clusterRef.Name}, cluster); err != nil {
+		klog.Warningf("[addon] failed to get cluster %s for robust endpoint registration: %v", clusterRef.Name, err)
+		return
+	}
+
+	ns := "primus-robust"
+	if addon.Spec.AddonSource.HelmRepository != nil && addon.Spec.AddonSource.HelmRepository.Namespace != "" {
+		ns = addon.Spec.AddonSource.HelmRepository.Namespace
+	}
+	endpoint := fmt.Sprintf("http://robust-api.%s.svc:%s", ns, defaultRobustAPIPort)
+
+	if cluster.Annotations == nil {
+		cluster.Annotations = make(map[string]string)
+	}
+	if cluster.Annotations[annotationRobustEndpoint] == endpoint {
+		return
+	}
+
+	originalCluster := client.MergeFrom(cluster.DeepCopy())
+	cluster.Annotations[annotationRobustEndpoint] = endpoint
+	if err := r.Patch(ctx, cluster, originalCluster); err != nil {
+		klog.Warningf("[addon] failed to annotate cluster %s with robust endpoint: %v", clusterRef.Name, err)
+		return
+	}
+	klog.Infof("[addon] registered robust-api endpoint for cluster %s: %s", clusterRef.Name, endpoint)
+
+	if r.grafanaSyncer != nil {
+		r.grafanaSyncer.SyncClusterDatasources(ctx, clusterRef.Name, endpoint)
+	}
+}
+
+// cleanupRobustGrafanaDatasources removes Grafana datasources when a robust addon is deleted.
+func (r *AddonController) cleanupRobustGrafanaDatasources(ctx context.Context, addon *v1.Addon) {
+	if r.grafanaSyncer == nil {
+		return
+	}
+	templateName := ""
+	if addon.Spec.AddonSource.HelmRepository != nil {
+		templateName = addon.Spec.AddonSource.HelmRepository.ReleaseName
+	}
+	if templateName == "" {
+		templateName = addon.Name
+	}
+	if !strings.HasPrefix(templateName, robustAddonPrefix) {
+		return
+	}
+	if addon.Spec.Cluster == nil {
+		return
+	}
+	r.grafanaSyncer.RemoveClusterDatasources(ctx, addon.Spec.Cluster.Name)
 }
 
 // configureHelmClient configures the Helm client with registry and getter settings.

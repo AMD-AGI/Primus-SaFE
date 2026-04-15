@@ -62,8 +62,7 @@ The script performs the following steps:
      - `replicas`, `cpu`, `memory`, `storage_class`
      - Image pull secret name (`primus-safe-image`)
      - Ingress selection; when `higress`, sets `sub_domain`
-     - `opensearch.enable` and `grafana.enable` based on `lens_enable`
-       - If enabled, injects Grafana password from `primus-lens` secret automatically
+     - `opensearch.enable` and `grafana.enable` are always set to `false` (data-plane observability is managed via Robust AddonTemplate)
      - `s3.enable` and `s3.secret` when S3 is enabled
      - `sso.enable` and `sso.secret` when SSO is enabled
      - `cd.require_approval` from `cd_require_approval`
@@ -101,7 +100,7 @@ Unlike [install.sh](../../bootstrap/install.sh), the upgrade script:
 - Custom images must be built and pushed before running the upgrade
 - Add `proxy_image_registry` to `.env` to use a custom image registry
 - If `ingress=higress`, `sub_domain` from `.env` is applied
-- If `lens_enable=true`, Grafana password is synced from the `primus-lens` secret automatically
+- Data-plane observability (OpenSearch, Grafana) is now managed via Robust AddonTemplate, not direct primus-lens integration
 - Backup your configuration before performing upgrades
 - Test upgrades in a non-production environment first
 
