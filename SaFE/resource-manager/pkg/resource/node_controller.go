@@ -97,6 +97,7 @@ func (r *NodeReconciler) relevantChangePredicate() predicate.Predicate {
 func (r *NodeReconciler) isNodeRelevantFieldChanged(oldNode, newNode *v1.Node) bool {
 	if v1.GetClusterId(oldNode) != v1.GetClusterId(newNode) ||
 		v1.GetWorkspaceId(oldNode) != v1.GetWorkspaceId(newNode) ||
+		oldNode.GetSpecWorkspace() != newNode.GetSpecWorkspace() ||
 		oldNode.Status.MachineStatus.Phase != newNode.Status.MachineStatus.Phase ||
 		oldNode.Status.ClusterStatus.Phase != newNode.Status.ClusterStatus.Phase ||
 		(v1.GetNodeLabelAction(oldNode) == "" && v1.GetNodeLabelAction(newNode) != "") ||
@@ -571,7 +572,8 @@ func (r *NodeReconciler) cleanupTimeoutPods(ctx context.Context, node *v1.Node) 
 // It determines whether a node should be managed (added to a cluster) or unmanaged (removed from a cluster)
 // based on the node's cluster specification and current status. The function orchestrates the appropriate
 // management operation and updates the node's status accordingly.
-func (r *NodeReconciler) processNodeManagement(ctx context.Context, adminNode *v1.Node, k8sNode *corev1.Node) (ctrlruntime.Result, error) {
+func (r *NodeReconciler) processNodeManagement(ctx context.Context,
+	adminNode *v1.Node, k8sNode *corev1.Node) (ctrlruntime.Result, error) {
 	var err error
 	var result ctrlruntime.Result
 	if adminNode.GetSpecCluster() != "" {
