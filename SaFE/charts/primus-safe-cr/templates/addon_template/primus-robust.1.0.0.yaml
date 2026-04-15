@@ -26,14 +26,24 @@ spec:
   helmDefaultNamespace: primus-robust
   helmDefaultValues: |
     global:
-      storageClass: "default"
-    database:
-      storageSize: "50Gi"
-    metrics:
-      victoriametrics:
-        vmstorage:
-          size: 100Gi
-    logs:
-      opensearch:
-        nodePools:
-          - diskSize: 100Gi
+      storageClass: ""
+      imageRegistry: ""
+      image:
+        registry: ""
+    primus-robust-stack:
+      database:
+        storageSize: "50Gi"
+      metrics:
+        victoriametrics:
+          vmstorage:
+            size: 100Gi
+      logs:
+        opensearch:
+          nodePools:
+            - name: "nodes"
+              replicas: 3
+              roles:
+                - master
+                - data
+                - ingest
+              diskSize: 100Gi
