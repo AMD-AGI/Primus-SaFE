@@ -21,9 +21,9 @@ import (
 
 // Handler handles HTTP requests for inference, playground, and dataset resources.
 type Handler struct {
-	k8sClient        client.Client // TODO Multi-cluster k8sclient
+	k8sClient        client.Client
 	dbClient         dbclient.Interface
-	s3Client         commons3.Interface // S3 client for dataset storage (may be nil if S3 is disabled)
+	s3Client         commons3.Interface
 	accessController *authority.AccessController
 }
 

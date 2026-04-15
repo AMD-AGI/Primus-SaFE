@@ -1,4 +1,4 @@
-{{- if .Values.apps.primusSafeAdapter.enabled }}
+{{- if and .Values.apps.primusSafeAdapter.enabled (not .Values.global.disableAdapter) }}
 ---
 apiVersion: v1
 kind: ConfigMap

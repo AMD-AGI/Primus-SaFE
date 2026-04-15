@@ -363,7 +363,7 @@ func (r *CDJobReconciler) generateLensCDWorkload(job *v1.OpsJob, clusterID, depl
 				"REPO_DIR":              ContainerMountPath + "/Primus-SaFE",
 				"MOUNT_DIR":             ContainerMountPath,
 				"DEPLOY_BRANCH":         deployBranch,
-				"LENS_CONFIGMAP_NAME":   configMapName,
+				"DEPLOY_CONFIGMAP_NAME": configMapName,
 				"DEPLOYMENT_REQUEST_ID": getParameterValue(job, v1.ParameterDeploymentRequestId, ""),
 			},
 		},

@@ -107,18 +107,14 @@ db:
   # Enable database for historical job queries, defaults to true
   enable: true
 opensearch:
-  # Enable Opensearch for log querying (part of primus-lens)
+  # Log search feature flag. When true, log search endpoints are available.
+  # Queries are proxied through robust-api on data clusters (no direct OpenSearch connection).
   enable: true
-  # Prefix for Opensearch nodes
-  prefix: "node-"
-  # Secret containing Opensearch credentials
-  secret: "primus-lens-logs-admin-password"
-  # Namespace where Opensearch secret is located
-  secret_namespace: "primus-lens"
-  # Path to mount Opensearch secret
-  secret_path: "/etc/secrets/opensearch"
-  # Opensearch endpoint address
-  endpoint: "primus-lens-logs-nodes.primus-lens.svc.cluster.local:9200"
+  prefix: "fluentbit-"
+  secret: ""
+  secret_namespace: ""
+  secret_path: ""
+  endpoint: ""
 ssh:
   # Enable SSH access to user containers
   enable: true
@@ -169,7 +165,7 @@ notification:
     # Enable email relay mode
     enable: true
 grafana:
-  # Enable Grafana for monitoring metrics display (requires primus-lens)
+  # Enable Grafana for monitoring metrics display
   enable: false
   # Grafana password
   password: ""
