@@ -110,11 +110,12 @@ ENV USE_HIPBLAS_COMPUTETYPE=1
 
 WORKDIR ${WORKSPACE}
 COPY playbooks ./playbooks
+COPY config.sh .
 COPY run.sh .
 # COPY default.yaml .
 # COPY rules.yaml .
 COPY benchmarks ./benchmarks
 RUN cd benchmarks && bash build.sh
 
-RUN chmod +x run.sh
+RUN chmod +x run.sh config.sh
 CMD ["/opt/primusbench/run.sh"]

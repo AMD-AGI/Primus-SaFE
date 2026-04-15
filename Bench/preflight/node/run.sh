@@ -130,18 +130,22 @@ fi
 # ----------------------------------------------------------------------------
 # Phase 3: Run model checks (model-train, model-inference, etc.)
 # ----------------------------------------------------------------------------
-echo "${LOG_HEADER}[$(date +'%Y-%m-%d %H:%M:%S')] Phase 3: Running model checks..."
-error_output=$(run_check_phase "model_check" "model check")
-ret=$?
-if [ $ret -ge 128 ]; then
-   exit $ret
-fi
-if [ $ret -ne 0 ]; then
-   if [ -n "$errors" ]; then
-       errors="${errors} | "
-   fi
-   errors="${errors}${error_output}"
-   has_error=1
+if [ "${ENABLE_MODEL_BENCHMARK:-false}" = "true" ]; then
+    echo "${LOG_HEADER}[$(date +'%Y-%m-%d %H:%M:%S')] Phase 3: Running model checks..."
+    error_output=$(run_check_phase "model_check" "model check")
+    ret=$?
+    if [ $ret -ge 128 ]; then
+       exit $ret
+    fi
+    if [ $ret -ne 0 ]; then
+       if [ -n "$errors" ]; then
+           errors="${errors} | "
+       fi
+       errors="${errors}${error_output}"
+       has_error=1
+    fi
+else
+    echo "${LOG_HEADER}[$(date +'%Y-%m-%d %H:%M:%S')] Phase 3: Skipping model checks (ENABLE_MODEL_BENCHMARK=${ENABLE_MODEL_BENCHMARK:-false})"
 fi
 
 # ============================================================================

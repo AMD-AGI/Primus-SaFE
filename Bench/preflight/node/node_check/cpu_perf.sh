@@ -9,13 +9,25 @@
 
 threshold=0.19
 
-if [ ! -x /usr/bin/perf ]; then
-  echo "Warning: /usr/bin/perf not found." >&2
+PERF_BIN=""
+if /usr/bin/perf --version >/dev/null 2>&1; then
+  PERF_BIN="/usr/bin/perf"
+else
+  for p in /usr/lib/linux-tools/*/perf; do
+    if [ -x "$p" ]; then
+      PERF_BIN="$p"
+      break
+    fi
+  done
+fi
+
+if [ -z "$PERF_BIN" ]; then
+  echo "Warning: no usable perf binary found." >&2
   exit 0
 fi
 
 LOG_FILE="/tmp/perf_cpu.log"
-/usr/bin/perf stat -e cycles,instructions,cache-misses -a -r 10 -- sleep 3 >$LOG_FILE 2>&1
+"$PERF_BIN" stat -e cycles,instructions,cache-misses -a -r 10 -- sleep 3 >$LOG_FILE 2>&1
 EXIT_CODE=$?
 
 if [ $EXIT_CODE -ne 0 ]; then

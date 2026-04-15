@@ -203,10 +203,11 @@ RUN cd /opt && \
     cd TransformerEngine && \
     git submodule update --init --recursive && \
     sed -i 's/ -Werror//' transformer_engine/common/ck_fused_attn/CMakeLists.txt && \
+    PIP_BREAK=""; if [ "${OS_VERSION}" = "24.04" ]; then PIP_BREAK="--break-system-packages"; fi && \
     PYTORCH_ROCM_ARCH="${GPU_ARCHS}" \
     CMAKE_HIP_ARCHITECTURES="${GPU_ARCHS}" \
     NVTE_FRAMEWORK=pytorch NVTE_BUILD_MAX_JOBS=16 \
-        pip3 install --no-build-isolation . \
+        pip3 install --no-build-isolation $PIP_BREAK . \
     && echo "Transformer Engine installed successfully" \
     || echo "WARNING: Transformer Engine build failed (non-fatal); Primus will use fallback kernels"; \
     cd /opt && rm -rf TransformerEngine
@@ -221,8 +222,9 @@ RUN set +e && \
     cd Primus-Turbo && \
     git checkout ${PRIMUS_TURBO_COMMIT} && \
     git submodule update --init --recursive && \
-    pip3 install -r requirements.txt && \
-    GPU_ARCHS="${GPU_ARCHS}" pip3 install --no-build-isolation .; \
+    PIP_BREAK=""; if [ "${OS_VERSION}" = "24.04" ]; then PIP_BREAK="--break-system-packages"; fi && \
+    pip3 install -r requirements.txt $PIP_BREAK && \
+    GPU_ARCHS="${GPU_ARCHS}" pip3 install --no-build-isolation $PIP_BREAK .; \
     _rc=$?; cd /opt; rm -rf Primus-Turbo; \
     if [ $_rc -eq 0 ]; then echo "Primus-Turbo installed successfully"; \
     else echo "WARNING: Primus-Turbo build failed (non-fatal)"; fi; \
@@ -242,9 +244,10 @@ RUN git clone --depth=1 --branch ${PRIMUS_BRANCH} \
     echo "Primus ${PRIMUS_BRANCH} pre-installed at ${PRIMUS_PREINSTALL_DIR}"
 
 # Primus Python dependencies (from Primus requirements.txt + extras)
-RUN pip3 install pybind11 && \
-    pip3 install -r ${PRIMUS_PREINSTALL_DIR}/requirements.txt && \
-    pip3 install \
+RUN PIP_ARGS=""; if [ "${OS_VERSION}" = "24.04" ]; then PIP_ARGS="--break-system-packages"; fi && \
+    pip3 install pybind11 $PIP_ARGS && \
+    pip3 install -r ${PRIMUS_PREINSTALL_DIR}/requirements.txt $PIP_ARGS && \
+    pip3 install $PIP_ARGS \
         loguru wandb expecttest nltk matplotlib markdown2 weasyprint \
         tyro torchao blobfile "torchdata>=0.8.0" "datasets>=3.6.0" \
         "mlflow==3.4.0" pyrsmi plotext

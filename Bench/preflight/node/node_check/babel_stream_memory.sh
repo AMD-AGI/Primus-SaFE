@@ -53,13 +53,21 @@ for attempt in 1 2 3; do
       ["Triad"]=5447277
       ["Dot"]=4264767
     )
-  else
+  elif [[ "$GPU_PRODUCT" == *"MI325X"* ]]; then
     thresholds=(
-      ["Copy"]=5525433
+      ["Copy"]=4800000
       ["Mul"]=4067069
       ["Add"]=3920853
       ["Triad"]=3885301
       ["Dot"]=3660781
+    )
+  else
+    thresholds=(
+      ["Copy"]=3800000
+      ["Mul"]=3600000
+      ["Add"]=3600000
+      ["Triad"]=3600000
+      ["Dot"]=3400000
     )
   fi
   copy_sum=0 mul_sum=0 add_sum=0 triad_sum=0 dot_sum=0

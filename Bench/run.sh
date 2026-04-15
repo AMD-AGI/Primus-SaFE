@@ -178,13 +178,13 @@ print(json.dumps({'hostname': '$(hostname)', 'ip': '${MY_IP}', 'status': 'failed
         for result_file in "${NFS_RESULTS_DIR}"/rank_*.json; do
             [ -f "$result_file" ] || continue
             eval "$(python3 -c "
-import json, sys
+import json, sys, shlex
 with open(sys.argv[1]) as f:
     d = json.load(f)
-print(f'_nh={d[\"hostname\"]}')
-print(f'_ni={d[\"ip\"]}')
-print(f'_ns={d[\"status\"]}')
-print(f'_ne={d.get(\"error\",\"\")}')
+print(f'_nh={shlex.quote(d[\"hostname\"])}')
+print(f'_ni={shlex.quote(d[\"ip\"])}')
+print(f'_ns={shlex.quote(d[\"status\"])}')
+print(f'_ne={shlex.quote(d.get(\"error\",\"\"))}')
 " "$result_file")"
 
             node="$_nh"
@@ -591,7 +591,19 @@ else
             log "Skipping node check (SKIP_NODE_CHECK=true)"
             while IFS= read -r node; do
                 [ -z "$node" ] && continue
-                ip_addr=$(nsenter --target 1 --mount --uts --ipc --net --pid -- getent hosts "$node" | awk '{print $1; exit}')
+                ip_addr=""
+                # Try SSH config first (most reliable in non-NFS mode)
+                if [ -f /root/.ssh/config ]; then
+                    ip_addr=$(awk -v h="$node" '$1=="Host" && $2==h {found=1; next} found && $1=="HostName" {print $2; exit}' /root/.ssh/config)
+                fi
+                # Fallback: nsenter (requires privileged)
+                if [ -z "$ip_addr" ]; then
+                    ip_addr=$(nsenter --target 1 --mount --uts --ipc --net --pid -- getent hosts "$node" 2>/dev/null | awk '{print $1; exit}')
+                fi
+                # Fallback: getent in container
+                if [ -z "$ip_addr" ]; then
+                    ip_addr=$(getent hosts "$node" 2>/dev/null | awk '{print $1; exit}')
+                fi
                 if [[ "$ip_addr" == 127.* ]]; then
                     ip_addr=$(ip route get 8.8.8.8 | awk '{print $7}')
                 fi

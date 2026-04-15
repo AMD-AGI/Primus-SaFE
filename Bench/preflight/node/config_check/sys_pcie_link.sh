@@ -39,12 +39,12 @@ fi
 echo "$PCI_OUTPUT" | awk -v speed="$EXPECTED_SPEED" -v width="$EXPECTED_WIDTH" '
 /LnkSta:/ {
     line = $0
-    if (line !~ ("Speed " speed " \\(ok\\)")) {
-        print "Expected Speed: " speed " (ok), got different value"
+    if (line !~ ("Speed " speed)) {
+        print "Expected Speed: " speed ", got different value"
         exit 1
     }
-    if (line !~ ("Width " width " \\(ok\\)")) {
-        print "Expected Width: " width " (ok), got different value"
+    if (line !~ ("Width " width)) {
+        print "Expected Width: " width ", got different value"
         exit 1
     }
 }

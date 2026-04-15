@@ -47,9 +47,10 @@ fi
 # Set GID index based on device type:
 # - ionic: GID 0 or 1 (RoCEv2)
 # - bnxt_re: GID 3
-NCCL_IB_GID_INDEX=${NCCL_IB_GID_INDEX:-3}
 if [[ "$ENABLE_AINIC" == "true" ]]; then
-  NCCL_IB_GID_INDEX=1
+  NCCL_IB_GID_INDEX=${NCCL_IB_GID_INDEX:-1}
+else
+  NCCL_IB_GID_INDEX=${NCCL_IB_GID_INDEX:-3}
 fi
 
 export NCCL_TIMEOUT=7200
