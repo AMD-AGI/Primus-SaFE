@@ -125,9 +125,9 @@ func TestScannerScanAcrossAllNamespacesWhenNamespacesEmpty(t *testing.T) {
 }
 
 func TestScannerScanUsesConfiguredNamespacesOnly(t *testing.T) {
-	setScannerConfig(t, []string{"primus-lens"}, "a2a.primus.io/enabled=true")
+	setScannerConfig(t, []string{"primus-safe"}, "a2a.primus.io/enabled=true")
 
-	svc1 := newA2AService("agent-in-scope", "primus-lens", true)
+	svc1 := newA2AService("agent-in-scope", "primus-safe", true)
 	svc2 := newA2AService("agent-out-of-scope", "other-ns", true)
 
 	ctrl := gomock.NewController(t)
@@ -148,7 +148,7 @@ func TestScannerScanUsesConfiguredNamespacesOnly(t *testing.T) {
 		Times(1).
 		DoAndReturn(func(_ context.Context, reg *dbclient.A2AServiceRegistry) error {
 			assert.Equal(t, "agent-in-scope", reg.ServiceName)
-			assert.Equal(t, "primus-lens", reg.K8sNamespace.String)
+			assert.Equal(t, "primus-safe", reg.K8sNamespace.String)
 			return nil
 		})
 

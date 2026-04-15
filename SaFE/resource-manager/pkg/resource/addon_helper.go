@@ -15,7 +15,7 @@ import (
 	"sync"
 	"time"
 
-	"gopkg.in/yaml.v2"
+	sigsyaml "sigs.k8s.io/yaml"
 	"helm.sh/helm/v3/pkg/cli"
 	"helm.sh/helm/v3/pkg/registry"
 	corev1 "k8s.io/api/core/v1"
@@ -310,10 +310,10 @@ func areValuesEqual(addon *v1.Addon) bool {
 	}
 
 	specValues := make(map[string]interface{})
-	_ = yaml.Unmarshal([]byte(addon.Spec.AddonSource.HelmRepository.Values), &specValues)
+	_ = sigsyaml.Unmarshal([]byte(addon.Spec.AddonSource.HelmRepository.Values), &specValues)
 
 	statusValues := make(map[string]interface{})
-	_ = yaml.Unmarshal([]byte(addon.Status.AddonSourceStatus.HelmRepositoryStatus.Values), &statusValues)
+	_ = sigsyaml.Unmarshal([]byte(addon.Status.AddonSourceStatus.HelmRepositoryStatus.Values), &statusValues)
 
 	return reflect.DeepEqual(specValues, statusValues)
 }
@@ -356,7 +356,7 @@ func replaceValues(values, base map[string]interface{}) map[string]interface{} {
 // rollbackValues merges rollback values with base values.
 func rollbackValues(str string, base map[string]interface{}) string {
 	values := make(map[string]interface{})
-	err := yaml.Unmarshal([]byte(str), &values)
+	err := sigsyaml.Unmarshal([]byte(str), &values)
 	if err != nil {
 		klog.Errorf("rollback values failed %+v", err)
 		return ""
@@ -378,7 +378,7 @@ func rollbackValues(str string, base map[string]interface{}) string {
 		}
 	}
 	rollback(values, base)
-	data, err := yaml.Marshal(values)
+	data, err := sigsyaml.Marshal(values)
 	if err != nil {
 		klog.Errorf("rollback values failed %+v", err)
 		return ""

@@ -10,6 +10,8 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/opensearch"
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/robustclient"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 )
 
@@ -59,5 +61,16 @@ func SetupControllers(ctx context.Context, mgr manager.Manager) error {
 	if err := SetupGitHubWorkflowController(mgr); err != nil {
 		return fmt.Errorf("failed to set up github workflow controller: %v", err)
 	}
+
+	rc := robustclient.NewClient(robustclient.DefaultClientConfig())
+	discovery := robustclient.NewDiscovery(mgr.GetClient(), rc, 30*time.Second)
+	discovery.Start(ctx)
+
+	opensearch.InitRobustClient(rc)
+
+	if err := SetupWorkloadRobustSyncer(mgr, rc); err != nil {
+		return fmt.Errorf("failed to set up workload robust syncer: %v", err)
+	}
+
 	return nil
 }
