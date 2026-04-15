@@ -78,6 +78,10 @@ spec:
           env:
             - name: CONFIG_PATH
               value: /etc/primus-safe-adapter/config.yaml
+            {{- if .Values.apps.primusSafeAdapter.robustAPIURL }}
+            - name: ROBUST_API_URL
+              value: {{ .Values.apps.primusSafeAdapter.robustAPIURL | quote }}
+            {{- end }}
           ports:
             - name: http
               containerPort: {{ .Values.apps.primusSafeAdapter.httpPort | default 8080 }}

@@ -18,6 +18,7 @@ import (
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/helper/metadata"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
 	primusSafeConstant "github.com/AMD-AGI/Primus-SaFE/Lens/primus-safe-adapter/pkg/constant"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/primus-safe-adapter/pkg/service"
 	primusSafeV1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -272,6 +273,9 @@ func (r *WorkloadReconciler) saveWorkloadToDB(ctx context.Context, workload *pri
 		log.Debugf("Successfully updated gpu_workload: name=%s, uid=%s", workload.Name, workload.UID)
 	}
 
+	// Notify robust-api so telemetry-gateway produces metrics under the SaFE CRD UID
+	r.callRobustLinkParent(ctx, workload)
+
 	// Link this Workload as the parent workload for related gpu_workloads
 	return r.linkChildrenWorkloads(ctx, workload, facade)
 }
@@ -379,4 +383,35 @@ func (r *WorkloadReconciler) copyChildPodReferencesToParent(ctx context.Context,
 	}
 
 	return nil
+}
+
+// callRobustLinkParent tells robust-api to set the SaFE CRD UID as the
+// parent of the corresponding K8s workload so that telemetry-gateway
+// generates metrics under both UIDs.
+func (r *WorkloadReconciler) callRobustLinkParent(ctx context.Context, workload *primusSafeV1.Workload) {
+	robustClient := service.GetRobustAPIClient()
+	if robustClient == nil {
+		return
+	}
+
+	if workload.DeletionTimestamp != nil {
+		return
+	}
+
+	req := &service.LinkParentRequest{
+		ParentInstanceID:   string(workload.UID),
+		ParentName:         workload.Name,
+		ParentGPUAllocated: r.calculateGpuRequest(workload),
+		ChildName:          workload.Name,
+		ChildNamespace:     workload.Spec.Workspace,
+	}
+
+	resp, err := robustClient.LinkParent(ctx, req)
+	if err != nil {
+		log.Debugf("robust link-parent for %s/%s: %v", workload.Spec.Workspace, workload.Name, err)
+		return
+	}
+	if resp.Linked {
+		log.Infof("robust link-parent: linked child %s to parent %s", resp.ChildInstanceID, resp.ParentInstanceID)
+	}
 }

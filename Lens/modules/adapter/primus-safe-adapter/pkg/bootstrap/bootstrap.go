@@ -71,6 +71,9 @@ func Init(ctx context.Context, cfg *config.Config) error {
 		}
 	}()
 
+	// Initialize robust-api client (reads ROBUST_API_URL env var; no-op if unset)
+	service.InitRobustAPIClient()
+
 	if err := RegisterController(ctx); err != nil {
 		return err
 	}

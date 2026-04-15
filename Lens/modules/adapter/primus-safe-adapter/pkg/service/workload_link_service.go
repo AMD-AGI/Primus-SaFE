@@ -41,6 +41,7 @@ func (s *WorkloadLinkService) Run(ctx context.Context) error {
 
 	linked := 0
 	copied := 0
+	robustLinked := 0
 	for i := range workloadList.Items {
 		wl := &workloadList.Items[i]
 
@@ -59,10 +60,14 @@ func (s *WorkloadLinkService) Run(ctx context.Context) error {
 		}
 		linked += l
 		copied += c
+
+		if s.callRobustLinkParent(ctx, wl) {
+			robustLinked++
+		}
 	}
 
-	if linked > 0 || copied > 0 {
-		log.Infof("workload-children-linker: linked %d children, copied %d pod refs", linked, copied)
+	if linked > 0 || copied > 0 || robustLinked > 0 {
+		log.Infof("workload-children-linker: linked %d children, copied %d pod refs, robust-linked %d", linked, copied, robustLinked)
 	}
 	return nil
 }
@@ -145,4 +150,28 @@ func (s *WorkloadLinkService) linkOne(ctx context.Context, workload *primusSafeV
 	}
 
 	return linkedCount, copiedCount, nil
+}
+
+// callRobustLinkParent notifies robust-api about the SaFE → K8s parent-child
+// relationship. Returns true when the API confirms a new link was made.
+func (s *WorkloadLinkService) callRobustLinkParent(ctx context.Context, workload *primusSafeV1.Workload) bool {
+	robustClient := GetRobustAPIClient()
+	if robustClient == nil {
+		return false
+	}
+
+	req := &LinkParentRequest{
+		ParentInstanceID: string(workload.UID),
+		ParentName:       workload.Name,
+		ChildName:        workload.Name,
+		ChildNamespace:   workload.Spec.Workspace,
+	}
+
+	resp, err := robustClient.LinkParent(ctx, req)
+	if err != nil {
+		log.Debugf("workload-children-linker: robust link-parent for %s/%s: %v",
+			workload.Spec.Workspace, workload.Name, err)
+		return false
+	}
+	return resp.Linked
 }
