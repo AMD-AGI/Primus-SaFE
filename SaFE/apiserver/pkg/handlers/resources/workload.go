@@ -820,7 +820,7 @@ func (h *Handler) generateWorkload(ctx context.Context,
 	} else {
 		v1.SetAnnotation(workload, v1.UseWorkspaceStorageAnnotation, v1.TrueStr)
 	}
-	if req.ForceHostNetwork != nil {
+	if req.ForceHostNetwork != nil && *req.ForceHostNetwork {
 		v1.SetAnnotation(workload, v1.ForceHostNetworkAnnotation, strconv.FormatBool(*req.ForceHostNetwork))
 	}
 	if req.TemplateId != "" {
@@ -1442,7 +1442,7 @@ func (h *Handler) getWorkloadPodContainers(c *gin.Context) (interface{}, error) 
 		return nil, err
 	}
 	pod, err := k8sClients.ClientSet().CoreV1().Pods(
-		v1.GetWorkspaceId(adminWorkload)).Get(c.Request.Context(), podName, metav1.GetOptions{})
+		adminWorkload.Spec.Workspace).Get(c.Request.Context(), podName, metav1.GetOptions{})
 	if err != nil {
 		return nil, err
 	}
