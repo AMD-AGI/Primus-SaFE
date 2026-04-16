@@ -111,8 +111,8 @@ opensearch:
   # Queries are proxied through robust-api on data clusters (no direct OpenSearch connection).
   enable: true
   prefix: "fluentbit-"
-  secret: ""
-  secret_namespace: ""
+  secret: "primus-safe-opensearch-config"
+  secret_namespace: "primus-safe"
   secret_path: ""
   endpoint: ""
 ssh:
