@@ -265,15 +265,11 @@ func (m *WorkloadMutator) mutatePriority(workload *v1.Workload) {
 
 // mutateResources sets GPU name, shared memory and default ephemeral storage.
 func (m *WorkloadMutator) mutateResources(ctx context.Context, workload *v1.Workload, workspace *v1.Workspace) error {
-	if commonworkload.IsSandBox(workload) {
-		if len(workload.Spec.Resources) > 0 {
-			v1.RemoveAnnotation(workload, v1.SandboxTemplateIdAnnotation)
-		} else {
-			var err error
-			workload.Spec.Resources, err = m.getResourceFromSandBoxTemplate(ctx, workload)
-			if err != nil {
-				return err
-			}
+	if commonworkload.IsSandBox(workload) && len(workload.Spec.Resources) == 0 {
+		var err error
+		workload.Spec.Resources, err = m.getResourceFromSandBoxTemplate(ctx, workload)
+		if err != nil {
+			return err
 		}
 	}
 
