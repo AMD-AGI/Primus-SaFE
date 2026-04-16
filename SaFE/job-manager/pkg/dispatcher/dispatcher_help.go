@@ -1070,13 +1070,10 @@ func updateMonarchMesh(obj *unstructured.Unstructured, adminWorkload *v1.Workloa
 	return nil
 }
 
-// updateSandbox updates the sandbox-job configuration by sandbox template
+// updateSandbox updates the sandbox-job configuration by sandbox template (legacy compatibility)
 func (r *DispatcherReconciler) updateSandbox(ctx context.Context,
 	obj *unstructured.Unstructured, adminWorkload *v1.Workload, workspace *v1.Workspace, rt *v1.ResourceTemplate) error {
-	podTemplate, err := r.getSandboxTemplate(ctx, adminWorkload)
-	if err != nil {
-		return err
-	}
+
 	v1.SetLabel(adminWorkload, "runtime.agent-sandbox.io/user.id", v1.GetUserId(adminWorkload))
 	v1.SetLabel(adminWorkload, "runtime.agent-sandbox.io/sandbox-name", adminWorkload.Name)
 	v1.SetAnnotation(adminWorkload, "runtime.agent-sandbox.io/user.name", v1.GetUserName(adminWorkload))
@@ -1088,9 +1085,17 @@ func (r *DispatcherReconciler) updateSandbox(ctx context.Context,
 	if len(rt.Spec.ResourceSpecs) == 0 {
 		return fmt.Errorf("no resource specs found")
 	}
+
+	if v1.GetSandboxTemplateId(adminWorkload) == "" {
+		return nil
+	}
 	path := rt.Spec.ResourceSpecs[0].TemplatePath()
 	if len(path) == 0 {
 		return fmt.Errorf("empty template path in resource spec")
+	}
+	podTemplate, err := r.getSandboxTemplate(ctx, adminWorkload)
+	if err != nil {
+		return err
 	}
 	cleanSandboxPodTemplate(podTemplate)
 	if err = jobutils.SetNestedField(obj.Object, podTemplate, path); err != nil {
