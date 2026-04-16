@@ -316,6 +316,9 @@ func modifyVolumeMounts(container map[string]interface{}, workload *v1.Workload,
 	}
 	if workspace != nil && v1.IsEnableWorkspaceStorage(workload) {
 		for _, vol := range workspace.Spec.Volumes {
+			if vol.AccessMode == corev1.ReadOnlyMany {
+				readonly = true
+			}
 			if vol.Id > maxId {
 				maxId = vol.Id
 			}
