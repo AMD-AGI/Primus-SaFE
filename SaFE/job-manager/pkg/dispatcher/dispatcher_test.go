@@ -7,7 +7,6 @@ package dispatcher
 
 import (
 	"context"
-	"fmt"
 	"strconv"
 	"strings"
 	"testing"
@@ -1197,7 +1196,7 @@ func TestCreateSandboxWithTemplate(t *testing.T) {
 	checkHostNetwork(t, obj, workload, &templates[0], 0)
 	checkSandboxTemplateCleaned(t, obj, &templates[0])
 
-	fmt.Println(unstructuredutils.ToString(obj))
+	// fmt.Println(unstructuredutils.ToString(obj))
 }
 
 func TestCreateSandboxWithResources(t *testing.T) {
