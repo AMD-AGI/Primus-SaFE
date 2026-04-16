@@ -113,8 +113,8 @@ opensearch:
   prefix: "fluentbit-"
   secret: "primus-safe-opensearch-config"
   secret_namespace: "primus-safe"
-  secret_path: ""
-  endpoint: ""
+  secret_path: "/etc/secrets/opensearch"
+  endpoint: "primus-lens-logs-nodes.primus-lens.svc.cluster.local:9200"
 ssh:
   # Enable SSH access to user containers
   enable: true
