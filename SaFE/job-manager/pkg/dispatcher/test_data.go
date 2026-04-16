@@ -889,6 +889,68 @@ data:
   template: |
     apiVersion: agents.x-k8s.io/v1alpha1
     kind: Sandbox
+    spec:
+      podTemplate:
+        spec:
+          containers:
+          - args:
+            - export PATH=/shared/bin:$PATH && mkdir -p /app && exec /shared/bin/envd
+              --port=8080 --workspace=/app
+            command:
+            - /bin/sh
+            - -c
+            env:
+            - name: PATH
+              value: /shared/bin:/home/sandbox/.local/bin:/usr/local/bin:/usr/bin:/bin:/sbin
+            - name: ENVD_AUTH_PUBLIC_KEY
+              value: |
+                -----BEGIN PUBLIC KEY-----
+                MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAysuW9+3nAQqjmekz49RN
+                CubMoGZrVghgg7Xu9yhoWgu2ytqrTk1PcGoxqaGOkd+hUoNF6qxSKHP5wPfIvlNL
+                PoLzQ5rVXxz5/5uQ1eaqvQyy3GBuCAu+DFZhP2McVsYYiLrznBZ9yIkJQjgckIU6
+                Tbzd3dpN4fzzPsnYynlOph5bf9N7P/3yoqjdFItSiyDvvRXj+vjZt00xSk4O/9ZX
+                cAXhmjUNcxdPG6nVw4BVDQ3iMnsTJff5Kw1ArfGdriYYrXB5BfNcorvrPlZ0X9z4
+                WPJvpXdJHzb+S7nzsDBJRLMmd7yXpNh6dhBdzEXdVpqxULq8V01Y11JThWsRZJQ6
+                hwIDAQAB
+                -----END PUBLIC KEY-----
+            - name: OPENAI_BASE_URL
+              value: https://oci-slc.primus-safe.amd.com/api/v1/llm-proxy/v1
+            - name: WORKLOAD_MANAGER_URL
+              value: http://workloadmanager.agent-sandbox-system.svc.cluster.local:8080
+            imagePullPolicy: IfNotPresent
+            name: codeinterpreter
+            readinessProbe:
+              failureThreshold: 30
+              httpGet:
+                path: /health
+                port: 8080
+              initialDelaySeconds: 1
+              periodSeconds: 2
+              successThreshold: 1
+              timeoutSeconds: 2
+            volumeMounts:
+            - mountPath: /shared/bin
+              name: envd-bin
+          initContainers:
+          - command:
+            - sh
+            - -c
+            - cp /envd /shared/bin/envd && (cp /tmux /shared/bin/tmux 2>/dev/null || true)
+              && (cp /iptables /shared/bin/iptables && cp /iptables /shared/bin/ip6tables
+              && ln -sf iptables /shared/bin/iptables-legacy && ln -sf ip6tables /shared/bin/ip6tables-legacy
+              && cp /musl-ld.so /shared/bin/ld-musl-x86_64.so.1 && ln -sf ld-musl-x86_64.so.1
+              /shared/bin/libc.musl-x86_64.so.1 2>/dev/null || true)
+            image: harbor.oci-slc.primus-safe.amd.com/agent-sandbox/agent-sandbox-envd-injector:202604141639
+            imagePullPolicy: IfNotPresent
+            name: envd-injector
+            resources: {}
+            volumeMounts:
+            - mountPath: /shared/bin
+              name: envd-bin
+          restartPolicy: Never
+          volumes:
+          - emptyDir: {}
+            name: envd-bin
 `
 
 	TestSandboxTemplateData = `
@@ -1023,8 +1085,6 @@ spec:
       nodeSelector:
         primus-safe.workspace.id: control-plane-sandbox
       restartPolicy: Never
-      tolerations:
-      - operator: Exists
       volumes:
       - emptyDir: {}
         name: envd-bin
