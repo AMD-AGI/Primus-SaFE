@@ -265,11 +265,15 @@ func (m *WorkloadMutator) mutatePriority(workload *v1.Workload) {
 
 // mutateResources sets GPU name, shared memory and default ephemeral storage.
 func (m *WorkloadMutator) mutateResources(ctx context.Context, workload *v1.Workload, workspace *v1.Workspace) error {
-	if len(workload.Spec.Resources) == 0 && commonworkload.IsSandBox(workload) {
-		var err error
-		workload.Spec.Resources, err = m.getResourceFromSandBoxTemplate(ctx, workload)
-		if err != nil {
-			return err
+	if commonworkload.IsSandBox(workload) {
+		if len(workload.Spec.Resources) > 0 {
+			v1.RemoveAnnotation(workload, v1.SandboxTemplateIdAnnotation)
+		} else {
+			var err error
+			workload.Spec.Resources, err = m.getResourceFromSandBoxTemplate(ctx, workload)
+			if err != nil {
+				return err
+			}
 		}
 	}
 
@@ -687,6 +691,10 @@ func (m *WorkloadMutator) mutateTimeout(workload *v1.Workload, workspace *v1.Wor
 // getResourceFromSandBoxTemplate extracts resource requests from SandboxTemplate's first container.
 // Returns nil if template not found or has no valid resources.
 func (m *WorkloadMutator) getResourceFromSandBoxTemplate(ctx context.Context, workload *v1.Workload) ([]v1.WorkloadResource, error) {
+	templateId := v1.GetSandboxTemplateId(workload)
+	if templateId == "" {
+		return nil, nil
+	}
 	rt, err := commonworkload.GetResourceTemplateByGVK(ctx, m.Client,
 		schema.GroupVersionKind{Version: workload.Spec.Version, Kind: common.SandboxTemplateKind})
 	if err != nil {
@@ -700,8 +708,6 @@ func (m *WorkloadMutator) getResourceFromSandBoxTemplate(ctx context.Context, wo
 		return nil, fmt.Errorf("the template has no valid resources")
 	}
 
-	templateId := v1.GetSandboxTemplateId(workload)
-	// TODO: Templates currently exist only within the admin plane.
 	obj := &unstructured.Unstructured{}
 	obj.SetGroupVersionKind(rt.ToSchemaGVK())
 	if err = m.Get(ctx, types.NamespacedName{Name: templateId, Namespace: workload.Spec.Workspace}, obj); err != nil {
@@ -1026,9 +1032,6 @@ func (v *WorkloadValidator) validateMonarchJob(newWorkload, oldWorkload *v1.Work
 func (v *WorkloadValidator) validateSandbox(newWorkload *v1.Workload) error {
 	if len(v1.GetDisplayName(newWorkload)) > commonutils.MaxGeneratedNameLength {
 		return fmt.Errorf("the displayName is too long, maximum length is %d", commonutils.MaxGeneratedNameLength)
-	}
-	if v1.GetSandboxTemplateId(newWorkload) == "" {
-		return fmt.Errorf("the sandboxTemplateId is empty")
 	}
 	return nil
 }
