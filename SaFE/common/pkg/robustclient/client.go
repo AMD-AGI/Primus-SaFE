@@ -140,6 +140,8 @@ func (cc *ClusterClient) Delete(ctx context.Context, path string, out interface{
 }
 
 // RawPost sends a POST with JSON body and returns the raw response body without envelope unwrapping.
+// Non-2xx responses are turned into an error including the response body prefix so callers
+// don't accidentally parse an HTML/plaintext error page as JSON.
 func (cc *ClusterClient) RawPost(ctx context.Context, path string, body interface{}) ([]byte, error) {
 	bodyBytes, err := json.Marshal(body)
 	if err != nil {
@@ -153,15 +155,11 @@ func (cc *ClusterClient) RawPost(ctx context.Context, path string, body interfac
 	}
 	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := cc.httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("robust-analyzer %s %s: %w", cc.clusterName, path, err)
-	}
-	defer resp.Body.Close()
-	return io.ReadAll(resp.Body)
+	return cc.doRaw(req, path)
 }
 
 // RawGet sends a GET and returns the raw response body without envelope unwrapping.
+// Non-2xx responses are turned into an error (see RawPost).
 func (cc *ClusterClient) RawGet(ctx context.Context, path string, query url.Values) ([]byte, error) {
 	reqURL := cc.baseURL + path
 	if len(query) > 0 {
@@ -171,12 +169,24 @@ func (cc *ClusterClient) RawGet(ctx context.Context, path string, query url.Valu
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
 	}
+	return cc.doRaw(req, path)
+}
+
+func (cc *ClusterClient) doRaw(req *http.Request, path string) ([]byte, error) {
 	resp, err := cc.httpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("robust-analyzer %s %s: %w", cc.clusterName, path, err)
 	}
 	defer resp.Body.Close()
-	return io.ReadAll(resp.Body)
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read robust-analyzer response: %w", err)
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("robust-analyzer %s %s returned HTTP %d: %s",
+			cc.clusterName, path, resp.StatusCode, truncate(string(respBody), 200))
+	}
+	return respBody, nil
 }
 
 // HealthCheck pings /healthz on the robust-analyzer. Returns nil if healthy.
