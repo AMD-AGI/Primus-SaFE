@@ -24,7 +24,7 @@ const (
 	annotationRobustEndpoint = "primus-safe.amd.com/robust-api-endpoint"
 )
 
-// Discovery watches Cluster CRs and auto-registers robust-api endpoints on the Client.
+// Discovery watches Cluster CRs and auto-registers robust-analyzer endpoints on the Client.
 type Discovery struct {
 	k8sClient client.Client
 	rc        *Client
@@ -107,7 +107,7 @@ func (d *Discovery) syncOnce(ctx context.Context) {
 	}
 }
 
-// resolveRobustEndpoint determines the robust-api endpoint for a cluster.
+// resolveRobustEndpoint determines the robust-analyzer endpoint for a cluster.
 // Priority:
 //  1. Annotation primus-safe.amd.com/robust-api-endpoint on the Cluster CR.
 //     Use this for cross-cluster setups where robust-analyzer is reachable
@@ -118,6 +118,8 @@ func (d *Discovery) syncOnce(ctx context.Context) {
 // Note: ControlPlaneStatus.Endpoints (K8s API server addresses) are NOT
 // used here. robust-analyzer is a regular pod behind a ClusterIP service,
 // not a hostNetwork process listening on the control-plane node IP.
+// The annotation key keeps the legacy "robust-api" name for backward
+// compatibility with already-deployed Cluster CRs.
 func resolveRobustEndpoint(cluster *v1.Cluster) string {
 	if ep, ok := cluster.Annotations[annotationRobustEndpoint]; ok && ep != "" {
 		return ep

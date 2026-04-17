@@ -19,7 +19,7 @@ import (
 	"k8s.io/klog/v2"
 )
 
-// Client manages per-cluster HTTP client connections to data-plane robust-api instances.
+// Client manages per-cluster HTTP client connections to data-plane robust-analyzer instances.
 // All SaFE modules (apiserver, resource-manager, etc.) share a single Client via DI.
 type Client struct {
 	mu       sync.RWMutex
@@ -87,7 +87,7 @@ func (c *Client) ClusterNames() []string {
 	return names
 }
 
-// ClusterClient wraps HTTP calls to a specific data cluster's robust-api.
+// ClusterClient wraps HTTP calls to a specific data cluster's robust-analyzer.
 type ClusterClient struct {
 	clusterName string
 	baseURL     string
@@ -97,7 +97,7 @@ type ClusterClient struct {
 func (cc *ClusterClient) ClusterName() string { return cc.clusterName }
 func (cc *ClusterClient) BaseURL() string     { return cc.baseURL }
 
-// Get sends a GET request to the robust-api and decodes the response envelope.
+// Get sends a GET request to the robust-analyzer and decodes the response envelope.
 func (cc *ClusterClient) Get(ctx context.Context, path string, query url.Values, out interface{}) error {
 	reqURL := cc.baseURL + path
 	if len(query) > 0 {
@@ -155,7 +155,7 @@ func (cc *ClusterClient) RawPost(ctx context.Context, path string, body interfac
 
 	resp, err := cc.httpClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("robust-api %s %s: %w", cc.clusterName, path, err)
+		return nil, fmt.Errorf("robust-analyzer %s %s: %w", cc.clusterName, path, err)
 	}
 	defer resp.Body.Close()
 	return io.ReadAll(resp.Body)
@@ -173,13 +173,13 @@ func (cc *ClusterClient) RawGet(ctx context.Context, path string, query url.Valu
 	}
 	resp, err := cc.httpClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("robust-api %s %s: %w", cc.clusterName, path, err)
+		return nil, fmt.Errorf("robust-analyzer %s %s: %w", cc.clusterName, path, err)
 	}
 	defer resp.Body.Close()
 	return io.ReadAll(resp.Body)
 }
 
-// HealthCheck pings /healthz on the robust-api. Returns nil if healthy.
+// HealthCheck pings /healthz on the robust-analyzer. Returns nil if healthy.
 func (cc *ClusterClient) HealthCheck(ctx context.Context) error {
 	reqURL := cc.baseURL + "/healthz"
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
@@ -200,7 +200,7 @@ func (cc *ClusterClient) HealthCheck(ctx context.Context) error {
 func (cc *ClusterClient) doAndDecode(req *http.Request, out interface{}) error {
 	resp, err := cc.httpClient.Do(req)
 	if err != nil {
-		return fmt.Errorf("robust-api %s %s %s: %w", cc.clusterName, req.Method, req.URL.Path, err)
+		return fmt.Errorf("robust-analyzer %s %s %s: %w", cc.clusterName, req.Method, req.URL.Path, err)
 	}
 	defer resp.Body.Close()
 
@@ -210,7 +210,7 @@ func (cc *ClusterClient) doAndDecode(req *http.Request, out interface{}) error {
 	}
 
 	if resp.StatusCode >= 400 {
-		return fmt.Errorf("robust-api %s returned %d: %s",
+		return fmt.Errorf("robust-analyzer %s returned %d: %s",
 			req.URL.Path, resp.StatusCode, truncate(string(body), 500))
 	}
 
@@ -225,7 +225,7 @@ func (cc *ClusterClient) doAndDecode(req *http.Request, out interface{}) error {
 			if msg == "" {
 				msg = "unknown error"
 			}
-			return fmt.Errorf("robust-api %s error code %d: %s", req.URL.Path, envelope.Meta.Code, msg)
+			return fmt.Errorf("robust-analyzer %s error code %d: %s", req.URL.Path, envelope.Meta.Code, msg)
 		}
 		if len(bytes.TrimSpace(envelope.Data)) == 0 || bytes.Equal(bytes.TrimSpace(envelope.Data), []byte("null")) {
 			return nil
