@@ -95,7 +95,10 @@ func (c *SearchClient) Request(uri, httpMethod string, body []byte) ([]byte, err
 
 	var envelope logRawProxyEnvelope
 	if err := json.Unmarshal(rawResp, &envelope); err != nil {
-		return nil, fmt.Errorf("parse robust-api response: %w", err)
+		klog.Errorf("[opensearch] failed to parse robust-api response (len=%d): %s",
+			len(rawResp), truncateForLog(rawResp, 1024))
+		return nil, fmt.Errorf("parse robust-api response: %w (response prefix: %q)",
+			err, truncateForLog(rawResp, 200))
 	}
 
 	if envelope.Meta.Code != 0 && envelope.Meta.Code != 2000 {
@@ -107,6 +110,13 @@ func (c *SearchClient) Request(uri, httpMethod string, body []byte) ([]byte, err
 	}
 
 	return []byte(envelope.Data.Body), nil
+}
+
+func truncateForLog(b []byte, maxLen int) string {
+	if len(b) <= maxLen {
+		return string(b)
+	}
+	return string(b[:maxLen]) + "...(truncated)"
 }
 
 func (c *SearchClient) generateIndexPattern(index string, sinceTime, untilTime time.Time) (string, error) {
