@@ -39,7 +39,7 @@ func DefaultClientConfig() ClientConfig {
 		Timeout:         120 * time.Second,
 		HealthInterval:  30 * time.Second,
 		DefaultPort:     8085,
-		ServiceTemplate: "http://robust-api.primus-robust.svc.cluster.local:8085",
+		ServiceTemplate: "http://robust-analyzer.primus-robust.svc.cluster.local:8085",
 	}
 }
 
