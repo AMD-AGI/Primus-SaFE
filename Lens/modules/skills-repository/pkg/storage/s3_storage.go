@@ -17,12 +17,13 @@ import (
 
 // S3Storage implements Storage interface for S3/MinIO
 type S3Storage struct {
-	client    *s3.Client
-	bucket    string
-	endpoint  string
-	publicURL string // Public URL for file access (optional, may include bucket path)
-	presigner *s3.PresignClient
-	urlExpiry time.Duration
+	client          *s3.Client
+	bucket          string
+	endpoint        string
+	publicURL       string // Public URL for file access (optional, may include bucket path)
+	presigner       *s3.PresignClient
+	publicPresigner *s3.PresignClient // Presigner configured with public URL for generating upload links
+	urlExpiry       time.Duration
 }
 
 // S3Config contains S3 configuration
@@ -75,13 +76,48 @@ func NewS3Storage(cfg S3Config) (*S3Storage, error) {
 		urlExpiry = 1 * time.Hour
 	}
 
+	// Create a separate presigner for public URLs if configured
+	var publicPresigner *s3.PresignClient
+	if cfg.PublicURL != "" {
+		// Extract the base URL from publicURL (remove the bucket part if it's there)
+		// e.g. https://oci-slc.primus-safe.amd.com/s3/tools -> https://oci-slc.primus-safe.amd.com/s3
+		publicEndpoint := cfg.PublicURL
+		if len(publicEndpoint) > len(cfg.Bucket)+1 && publicEndpoint[len(publicEndpoint)-len(cfg.Bucket)-1:] == "/"+cfg.Bucket {
+			publicEndpoint = publicEndpoint[:len(publicEndpoint)-len(cfg.Bucket)-1]
+		}
+
+		publicResolver := aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
+			return aws.Endpoint{
+				URL:               publicEndpoint,
+				HostnameImmutable: true,
+			}, nil
+		})
+
+		publicAwsCfg, _ := config.LoadDefaultConfig(context.Background(),
+			config.WithRegion(cfg.Region),
+			config.WithCredentialsProvider(credentials.NewStaticCredentialsProvider(
+				cfg.AccessKeyID,
+				cfg.SecretAccessKey,
+				"",
+			)),
+			config.WithEndpointResolverWithOptions(publicResolver),
+		)
+		publicClient := s3.NewFromConfig(publicAwsCfg, func(o *s3.Options) {
+			o.UsePathStyle = cfg.UsePathStyle
+		})
+		publicPresigner = s3.NewPresignClient(publicClient)
+	} else {
+		publicPresigner = s3.NewPresignClient(client)
+	}
+
 	return &S3Storage{
-		client:    client,
-		bucket:    cfg.Bucket,
-		endpoint:  cfg.Endpoint,
-		publicURL: cfg.PublicURL,
-		presigner: s3.NewPresignClient(client),
-		urlExpiry: urlExpiry,
+		client:          client,
+		bucket:          cfg.Bucket,
+		endpoint:        cfg.Endpoint,
+		publicURL:       cfg.PublicURL,
+		presigner:       s3.NewPresignClient(client),
+		publicPresigner: publicPresigner,
+		urlExpiry:       urlExpiry,
 	}, nil
 }
 
@@ -210,7 +246,7 @@ func (s *S3Storage) GetURL(ctx context.Context, key string) (string, error) {
 
 // GeneratePresignedUploadURL generates a presigned URL for uploading a file directly to S3
 func (s *S3Storage) GeneratePresignedUploadURL(ctx context.Context, key string, expire time.Duration) (string, error) {
-	req, err := s.presigner.PresignPutObject(ctx, &s3.PutObjectInput{
+	req, err := s.publicPresigner.PresignPutObject(ctx, &s3.PutObjectInput{
 		Bucket: aws.String(s.bucket),
 		Key:    aws.String(key),
 	}, func(opts *s3.PresignOptions) {
@@ -220,17 +256,7 @@ func (s *S3Storage) GeneratePresignedUploadURL(ctx context.Context, key string, 
 		return "", err
 	}
 
-	url := req.URL
-	if s.publicURL != "" {
-		// We need to replace the base URL (endpoint + bucket) with the public URL
-		// The original URL starts with: endpoint/bucket/
-		baseURL := s.endpoint + "/" + s.bucket
-		if len(url) > len(baseURL) && url[:len(baseURL)] == baseURL {
-			url = s.publicURL + url[len(baseURL):]
-		}
-	}
-
-	return url, nil
+	return req.URL, nil
 }
 
 // ListObjects lists all objects with the given prefix
