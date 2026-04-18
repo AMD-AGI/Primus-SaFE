@@ -104,6 +104,11 @@ func (s *LocalStorage) GetURL(ctx context.Context, key string) (string, error) {
 	return fmt.Sprintf("%s/%s", s.baseURL, key), nil
 }
 
+// GeneratePresignedUploadURL generates a presigned URL for uploading a file directly
+func (s *LocalStorage) GeneratePresignedUploadURL(ctx context.Context, key string, expire time.Duration) (string, error) {
+	return "", fmt.Errorf("presigned upload URL is not supported by local storage")
+}
+
 // ListObjects lists all objects with the given prefix
 func (s *LocalStorage) ListObjects(ctx context.Context, prefix string) ([]ObjectInfo, error) {
 	var objects []ObjectInfo

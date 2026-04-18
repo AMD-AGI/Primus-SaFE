@@ -36,6 +36,9 @@ type Storage interface {
 	// GetURL returns a presigned URL for the file (for S3-compatible storage)
 	GetURL(ctx context.Context, key string) (string, error)
 
+	// GeneratePresignedUploadURL generates a presigned URL for uploading a file directly to S3
+	GeneratePresignedUploadURL(ctx context.Context, key string, expire time.Duration) (string, error)
+
 	// ListObjects lists all objects with the given prefix
 	ListObjects(ctx context.Context, prefix string) ([]ObjectInfo, error)
 }

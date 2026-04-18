@@ -100,6 +100,7 @@ func RegisterRoutes(router *gin.Engine, h *Handler) {
 		// Generic file storage (?path=xxx)
 		auth.POST("/files", h.UploadFile)
 		auth.GET("/files", h.DownloadFile)
+		auth.GET("/files/presign", h.GetPresignedURL)
 
 		// Toolsets
 		auth.GET("/toolsets", h.ListToolsets)
@@ -596,6 +597,45 @@ func (h *Handler) UploadIcon(c *gin.Context) {
 
 	log.Printf("[UploadIcon] user=%s icon_url=%s success", userInfo.UserID, iconURL)
 	c.JSON(http.StatusOK, gin.H{"icon_url": iconURL})
+}
+
+// GetPresignedURL handles GET /files/presign?filename=xxx&path=yyy
+func (h *Handler) GetPresignedURL(c *gin.Context) {
+	if h.storage == nil {
+		respondWithError(c, http.StatusServiceUnavailable, "STORAGE_NOT_CONFIGURED", "Storage backend not configured")
+		return
+	}
+
+	filename := c.Query("filename")
+	if filename == "" {
+		respondInvalidParameter(c, "filename", "Query parameter 'filename' is required")
+		return
+	}
+
+	prefix := c.Query("path")
+	key := filename
+	if prefix != "" {
+		key = prefix + "/" + filename
+	}
+
+	userInfo := GetUserInfo(c)
+
+	// Generate presigned URL valid for 1 hour
+	uploadURL, err := h.storage.GeneratePresignedUploadURL(c.Request.Context(), key, time.Hour)
+	if err != nil {
+		log.Printf("[GetPresignedURL] user=%s key=%s error=%v", userInfo.UserID, key, err)
+		respondWithError(c, http.StatusInternalServerError, "PRESIGN_FAILED", err.Error())
+		return
+	}
+
+	downloadURL, _ := h.storage.GetURL(c.Request.Context(), key)
+
+	log.Printf("[GetPresignedURL] user=%s key=%s success", userInfo.UserID, key)
+	c.JSON(http.StatusOK, gin.H{
+		"upload_url":   uploadURL,
+		"download_url": downloadURL,
+		"key":          key,
+	})
 }
 
 // UploadFile handles POST /files?path=xxx - upload one or more files.

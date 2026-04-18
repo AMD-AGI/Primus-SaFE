@@ -208,6 +208,20 @@ func (s *S3Storage) GetURL(ctx context.Context, key string) (string, error) {
 	return url, nil
 }
 
+// GeneratePresignedUploadURL generates a presigned URL for uploading a file directly to S3
+func (s *S3Storage) GeneratePresignedUploadURL(ctx context.Context, key string, expire time.Duration) (string, error) {
+	req, err := s.presigner.PresignPutObject(ctx, &s3.PutObjectInput{
+		Bucket: aws.String(s.bucket),
+		Key:    aws.String(key),
+	}, func(opts *s3.PresignOptions) {
+		opts.Expires = expire
+	})
+	if err != nil {
+		return "", err
+	}
+	return req.URL, nil
+}
+
 // ListObjects lists all objects with the given prefix
 func (s *S3Storage) ListObjects(ctx context.Context, prefix string) ([]ObjectInfo, error) {
 	var objects []ObjectInfo
