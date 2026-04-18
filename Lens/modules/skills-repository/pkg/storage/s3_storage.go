@@ -7,6 +7,8 @@ import (
 	"bytes"
 	"context"
 	"io"
+	"net/url"
+	"strings"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -21,6 +23,7 @@ type S3Storage struct {
 	bucket          string
 	endpoint        string
 	publicURL       string // Public URL for file access (optional, may include bucket path)
+	publicURLPrefix string // Path prefix extracted from publicURL (e.g., "/s3")
 	presigner       *s3.PresignClient
 	publicPresigner *s3.PresignClient // Presigner configured with public URL for generating upload links
 	urlExpiry       time.Duration
@@ -78,34 +81,49 @@ func NewS3Storage(cfg S3Config) (*S3Storage, error) {
 
 	// Create a separate presigner for public URLs if configured
 	var publicPresigner *s3.PresignClient
+	var publicURLPrefix string
+
 	if cfg.PublicURL != "" {
-		// Extract the base URL from publicURL (remove the bucket part if it's there)
-		// e.g. https://oci-slc.primus-safe.amd.com/s3/tools -> https://oci-slc.primus-safe.amd.com/s3
-		publicEndpoint := cfg.PublicURL
-		if len(publicEndpoint) > len(cfg.Bucket)+1 && publicEndpoint[len(publicEndpoint)-len(cfg.Bucket)-1:] == "/"+cfg.Bucket {
-			publicEndpoint = publicEndpoint[:len(publicEndpoint)-len(cfg.Bucket)-1]
+		// Parse the public URL to extract the base endpoint and the prefix
+		// e.g. https://oci-slc.primus-safe.amd.com/s3/tools
+		u, err := url.Parse(cfg.PublicURL)
+		if err == nil {
+			// Base endpoint for signing MUST NOT include the prefix (e.g., /s3)
+			// otherwise the signature will be calculated for /s3/tools/... instead of /tools/...
+			publicEndpoint := u.Scheme + "://" + u.Host
+
+			// Extract the prefix (e.g., /s3)
+			path := u.Path
+			bucketSuffix := "/" + cfg.Bucket
+			if strings.HasSuffix(path, bucketSuffix) {
+				publicURLPrefix = strings.TrimSuffix(path, bucketSuffix)
+			} else if path == cfg.Bucket {
+				publicURLPrefix = ""
+			} else {
+				publicURLPrefix = path
+			}
+
+			publicResolver := aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
+				return aws.Endpoint{
+					URL:               publicEndpoint,
+					HostnameImmutable: true,
+				}, nil
+			})
+
+			publicAwsCfg, _ := config.LoadDefaultConfig(context.Background(),
+				config.WithRegion(cfg.Region),
+				config.WithCredentialsProvider(credentials.NewStaticCredentialsProvider(
+					cfg.AccessKeyID,
+					cfg.SecretAccessKey,
+					"",
+				)),
+				config.WithEndpointResolverWithOptions(publicResolver),
+			)
+			publicClient := s3.NewFromConfig(publicAwsCfg, func(o *s3.Options) {
+				o.UsePathStyle = cfg.UsePathStyle
+			})
+			publicPresigner = s3.NewPresignClient(publicClient)
 		}
-
-		publicResolver := aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
-			return aws.Endpoint{
-				URL:               publicEndpoint,
-				HostnameImmutable: true,
-			}, nil
-		})
-
-		publicAwsCfg, _ := config.LoadDefaultConfig(context.Background(),
-			config.WithRegion(cfg.Region),
-			config.WithCredentialsProvider(credentials.NewStaticCredentialsProvider(
-				cfg.AccessKeyID,
-				cfg.SecretAccessKey,
-				"",
-			)),
-			config.WithEndpointResolverWithOptions(publicResolver),
-		)
-		publicClient := s3.NewFromConfig(publicAwsCfg, func(o *s3.Options) {
-			o.UsePathStyle = cfg.UsePathStyle
-		})
-		publicPresigner = s3.NewPresignClient(publicClient)
 	} else {
 		publicPresigner = s3.NewPresignClient(client)
 	}
@@ -115,6 +133,7 @@ func NewS3Storage(cfg S3Config) (*S3Storage, error) {
 		bucket:          cfg.Bucket,
 		endpoint:        cfg.Endpoint,
 		publicURL:       cfg.PublicURL,
+		publicURLPrefix: publicURLPrefix,
 		presigner:       s3.NewPresignClient(client),
 		publicPresigner: publicPresigner,
 		urlExpiry:       urlExpiry,
@@ -256,7 +275,16 @@ func (s *S3Storage) GeneratePresignedUploadURL(ctx context.Context, key string, 
 		return "", err
 	}
 
-	return req.URL, nil
+	finalURL := req.URL
+	if s.publicURLPrefix != "" {
+		u, err := url.Parse(finalURL)
+		if err == nil {
+			u.Path = s.publicURLPrefix + u.Path
+			finalURL = u.String()
+		}
+	}
+
+	return finalURL, nil
 }
 
 // ListObjects lists all objects with the given prefix
