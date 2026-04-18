@@ -219,7 +219,18 @@ func (s *S3Storage) GeneratePresignedUploadURL(ctx context.Context, key string, 
 	if err != nil {
 		return "", err
 	}
-	return req.URL, nil
+
+	url := req.URL
+	if s.publicURL != "" {
+		// We need to replace the base URL (endpoint + bucket) with the public URL
+		// The original URL starts with: endpoint/bucket/
+		baseURL := s.endpoint + "/" + s.bucket
+		if len(url) > len(baseURL) && url[:len(baseURL)] == baseURL {
+			url = s.publicURL + url[len(baseURL):]
+		}
+	}
+
+	return url, nil
 }
 
 // ListObjects lists all objects with the given prefix
