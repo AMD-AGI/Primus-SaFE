@@ -606,46 +606,41 @@ func (h *Handler) UploadFile(c *gin.Context) {
 		return
 	}
 
-	userInfo := GetUserInfo(c)
-	prefix := c.Query("path")
-
-	// Stream multipart request directly to storage
-	// Avoids saving large files to local disk
-	reader, err := c.Request.MultipartReader()
-	if err != nil {
-		respondBadRequest(c, "Invalid multipart request", err.Error())
+	if err := c.Request.ParseMultipartForm(32 << 20); err != nil {
+		respondBadRequest(c, "Invalid multipart form", err.Error())
 		return
 	}
+
+	files := c.Request.MultipartForm.File["file"]
+	if len(files) == 0 {
+		respondInvalidParameter(c, "file", "At least one file is required")
+		return
+	}
+
+	userInfo := GetUserInfo(c)
+	prefix := c.Query("path")
 
 	type fileResult struct {
 		Key string `json:"key"`
 		URL string `json:"url"`
 	}
-	var results []fileResult
+	results := make([]fileResult, 0, len(files))
 
-	for {
-		part, err := reader.NextPart()
-		if err == io.EOF {
-			break
+	for _, header := range files {
+		key := header.Filename
+		if prefix != "" {
+			key = prefix + "/" + header.Filename
 		}
+
+		file, err := header.Open()
 		if err != nil {
-			log.Printf("[UploadFile] user=%s error reading part=%v", userInfo.UserID, err)
+			log.Printf("[UploadFile] user=%s key=%s open error=%v", userInfo.UserID, key, err)
 			respondWithError(c, http.StatusInternalServerError, "UPLOAD_FAILED", err.Error())
 			return
 		}
 
-		// Skip non-file parts
-		if part.FileName() == "" {
-			continue
-		}
-
-		key := part.FileName()
-		if prefix != "" {
-			key = prefix + "/" + key
-		}
-
-		// Stream directly to storage
-		err = h.storage.Upload(c.Request.Context(), key, part)
+		err = h.storage.Upload(c.Request.Context(), key, file)
+		file.Close()
 		if err != nil {
 			log.Printf("[UploadFile] user=%s key=%s error=%v", userInfo.UserID, key, err)
 			respondWithError(c, http.StatusInternalServerError, "UPLOAD_FAILED", err.Error())
@@ -654,12 +649,7 @@ func (h *Handler) UploadFile(c *gin.Context) {
 
 		url, _ := h.storage.GetURL(c.Request.Context(), key)
 		results = append(results, fileResult{Key: key, URL: url})
-		log.Printf("[UploadFile] user=%s key=%s success", userInfo.UserID, key)
-	}
-
-	if len(results) == 0 {
-		respondInvalidParameter(c, "file", "At least one file is required")
-		return
+		log.Printf("[UploadFile] user=%s key=%s size=%d success", userInfo.UserID, key, header.Size)
 	}
 
 	// Single file: flat response; multiple files: array response
