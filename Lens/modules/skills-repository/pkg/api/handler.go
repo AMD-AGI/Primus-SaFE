@@ -619,10 +619,18 @@ func (h *Handler) GetPresignedURL(c *gin.Context) {
 		key = prefix + "/" + filename
 	}
 
+	contentType := c.Query("content_type")
+	if contentType == "" {
+		contentType = c.Query("contentType")
+	}
+	if contentType == "" {
+		contentType = mime.TypeByExtension(filepath.Ext(filename))
+	}
+
 	userInfo := GetUserInfo(c)
 
 	// Generate presigned URL valid for 1 hour
-	uploadURL, err := h.storage.GeneratePresignedUploadURL(c.Request.Context(), key, time.Hour)
+	uploadURL, err := h.storage.GeneratePresignedUploadURL(c.Request.Context(), key, contentType, time.Hour)
 	if err != nil {
 		log.Printf("[GetPresignedURL] user=%s key=%s error=%v", userInfo.UserID, key, err)
 		respondWithError(c, http.StatusInternalServerError, "PRESIGN_FAILED", err.Error())

@@ -264,11 +264,16 @@ func (s *S3Storage) GetURL(ctx context.Context, key string) (string, error) {
 }
 
 // GeneratePresignedUploadURL generates a presigned URL for uploading a file directly to S3
-func (s *S3Storage) GeneratePresignedUploadURL(ctx context.Context, key string, expire time.Duration) (string, error) {
-	req, err := s.publicPresigner.PresignPutObject(ctx, &s3.PutObjectInput{
+func (s *S3Storage) GeneratePresignedUploadURL(ctx context.Context, key string, contentType string, expire time.Duration) (string, error) {
+	input := &s3.PutObjectInput{
 		Bucket: aws.String(s.bucket),
 		Key:    aws.String(key),
-	}, func(opts *s3.PresignOptions) {
+	}
+	if contentType != "" {
+		input.ContentType = aws.String(contentType)
+	}
+
+	req, err := s.publicPresigner.PresignPutObject(ctx, input, func(opts *s3.PresignOptions) {
 		opts.Expires = expire
 	})
 	if err != nil {

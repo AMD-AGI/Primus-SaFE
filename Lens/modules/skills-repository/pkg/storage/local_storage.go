@@ -106,7 +106,7 @@ func (s *LocalStorage) GetURL(ctx context.Context, key string) (string, error) {
 }
 
 // GeneratePresignedUploadURL generates a presigned URL for uploading a file directly
-func (s *LocalStorage) GeneratePresignedUploadURL(ctx context.Context, key string, expire time.Duration) (string, error) {
+func (s *LocalStorage) GeneratePresignedUploadURL(ctx context.Context, key string, contentType string, expire time.Duration) (string, error) {
 	return "", fmt.Errorf("presigned upload URL is not supported by local storage")
 }
 
