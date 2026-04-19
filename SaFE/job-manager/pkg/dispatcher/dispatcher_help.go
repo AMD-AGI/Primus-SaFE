@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -28,6 +29,7 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/maps"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/sets"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
+	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/timeutil"
 )
 
 const (
@@ -1084,6 +1086,15 @@ func (r *DispatcherReconciler) updateSandbox(ctx context.Context,
 	}
 	if len(rt.Spec.ResourceSpecs) == 0 {
 		return fmt.Errorf("no resource specs found")
+	}
+	if adminWorkload.GetTimeout() > 0 {
+		path := append(rt.Spec.ResourceSpecs[0].PrePaths, "shutdownTime")
+		timeoutSeconds := adminWorkload.GetTimeout() + 120
+		shutdownTime := time.Now().Add(time.Duration(timeoutSeconds) * time.Second)
+		shutdownTimeStr := shutdownTime.UTC().Format(timeutil.TimeRFC3339Milli)
+		if err := jobutils.SetNestedField(obj.Object, shutdownTimeStr, path); err != nil {
+			return err
+		}
 	}
 
 	if v1.GetSandboxTemplateId(adminWorkload) == "" {
