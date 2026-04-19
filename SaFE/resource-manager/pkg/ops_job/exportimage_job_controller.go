@@ -40,6 +40,19 @@ const (
 
 	// Registry project name
 	registryProject = "Custom"
+
+	// emptyHostsDir is used as --hosts-dir for nerdctl login/push/rmi to
+	// bypass /etc/containerd/certs.d/*/hosts.toml. On clusters that configure
+	// a Dragonfly (or similar) image-pull mirror there, nerdctl's login
+	// authorizer hits known host/port resolution bugs (see
+	// https://github.com/containerd/nerdctl/issues/3047,
+	// https://github.com/containerd/nerdctl/issues/3245) and fails with
+	// `rh.Authorizer.AddResponses: expected acArg to be "<host>:443", got
+	// "<host>"`. Pointing nerdctl at an empty hosts-dir avoids the problem
+	// for these registry-auth operations without affecting containerd's
+	// own pull path (kubelet + containerd still read the default hosts-dir,
+	// so Dragonfly P2P pull acceleration is preserved).
+	emptyHostsDir = "/opt/primus-safe-nerdctl-empty-hosts"
 )
 
 // RegistryAuth represents Docker registry authentication structure
@@ -428,8 +441,13 @@ func (r *ExportImageJobReconciler) loginHarbor(sshClient *ssh.Client, registry, 
 	klog.Infof("Logging into Harbor registry %s as user %s", registry, username)
 
 	// Use nerdctl login with password stdin for security
-	// Password won't appear in process list or command history
-	cmd := fmt.Sprintf("echo '%s' | sudo nerdctl login %s -u %s --password-stdin", password, registry, username)
+	// Password won't appear in process list or command history.
+	// --hosts-dir points at an empty dir (created on-demand) to bypass the
+	// system hosts.toml which may break nerdctl's login authorizer on
+	// clusters with Dragonfly/mirror configured. See emptyHostsDir doc.
+	cmd := fmt.Sprintf(
+		"sudo mkdir -p %s && echo '%s' | sudo nerdctl --hosts-dir %s login %s -u %s --password-stdin",
+		emptyHostsDir, password, emptyHostsDir, registry, username)
 
 	klog.V(4).Infof("Executing nerdctl login for registry %s", registry)
 
@@ -458,7 +476,7 @@ func (r *ExportImageJobReconciler) pushImage(sshClient *ssh.Client, imageName st
 	}
 	defer session.Close()
 
-	cmd := fmt.Sprintf("sudo nerdctl push %s", imageName)
+	cmd := fmt.Sprintf("sudo nerdctl --hosts-dir %s push %s", emptyHostsDir, imageName)
 	klog.V(4).Infof("Pushing image: %s", imageName)
 
 	output, err := session.CombinedOutput(cmd)
@@ -480,8 +498,9 @@ func (r *ExportImageJobReconciler) deleteImage(ctx context.Context, sshClient *s
 
 	klog.Infof("Deleting image: %s", imageName)
 
-	// Use nerdctl rmi to remove image
-	cmd := fmt.Sprintf("sudo nerdctl rmi %s", imageName)
+	// Use nerdctl rmi to remove image (same --hosts-dir workaround as login/push
+	// so that rmi does not trigger host.toml resolver bugs either).
+	cmd := fmt.Sprintf("sudo nerdctl --hosts-dir %s rmi %s", emptyHostsDir, imageName)
 	klog.V(4).Infof("Executing: %s", cmd)
 
 	output, err := session.CombinedOutput(cmd)
