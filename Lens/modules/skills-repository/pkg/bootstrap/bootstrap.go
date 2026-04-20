@@ -114,7 +114,7 @@ func (s *Server) Start() error {
 	}
 
 	// Create handler and register routes
-	handler := api.NewHandler(toolSvc, searchSvc, importSvc, runSvc, toolsetSvc, safeClient)
+	handler := api.NewHandler(toolSvc, searchSvc, importSvc, runSvc, toolsetSvc, safeClient, s.storage)
 	api.RegisterRoutes(router, handler)
 
 	s.httpServer = &http.Server{
