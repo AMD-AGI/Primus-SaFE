@@ -569,3 +569,50 @@ func IsMonarchEnable() bool {
 func GetMonarchClientRole() string {
 	return getString(monarchClientRole, "")
 }
+
+// ── Model Optimization (Hyperloom via PrimusClaw) ───────────────────────
+
+// IsModelOptimizationEnable reports whether the Model Optimization feature
+// (which orchestrates Hyperloom runs on PrimusClaw) should register its
+// REST + SSE routes and database-backed task store.
+func IsModelOptimizationEnable() bool {
+	return getBool(modelOptimizationEnable, false)
+}
+
+// GetModelOptimizationClawBaseURL returns the base URL used to reach the
+// PrimusClaw backend, e.g. "https://oci-slc.primus-safe.amd.com/claw-api/v1".
+// Precedence: direct config key > secret file "claw_base_url" > empty string.
+func GetModelOptimizationClawBaseURL() string {
+	if v := getString(modelOptimizationClawBaseURL, ""); v != "" {
+		return v
+	}
+	return getFromFile(modelOptimizationSecretPath, "claw_base_url")
+}
+
+// GetModelOptimizationClawAPIKey returns the bearer token used to authenticate
+// against PrimusClaw. Stored as a secret file entry "claw_api_key".
+func GetModelOptimizationClawAPIKey() string {
+	return getFromFile(modelOptimizationSecretPath, "claw_api_key")
+}
+
+// GetModelOptimizationClawAgentID returns the default Claw agent identifier.
+// Defaults to "agent_default" to match the Claw backend default.
+func GetModelOptimizationClawAgentID() string {
+	if v := getString(modelOptimizationClawAgentID, ""); v != "" {
+		return v
+	}
+	return "agent_default"
+}
+
+// GetModelOptimizationDefaultWorkspace returns the Claw workspace used for
+// sandbox scheduling when the client request omits a workspace hint.
+func GetModelOptimizationDefaultWorkspace() string {
+	return getString(modelOptimizationDefaultWS, "control-plane-sandbox")
+}
+
+// GetModelOptimizationMaxConcurrent returns the soft limit on how many
+// optimization tasks a single workspace can have running simultaneously.
+// Non-positive values disable the limit.
+func GetModelOptimizationMaxConcurrent() int {
+	return getInt(modelOptimizationConcurrency, 5)
+}
