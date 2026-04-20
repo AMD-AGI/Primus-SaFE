@@ -5,12 +5,17 @@ package api
 
 import (
 	"errors"
+	"io"
 	"log"
+	"mime"
 	"net/http"
+	"path/filepath"
 	"strconv"
+	"time"
 
 	"github.com/AMD-AGI/Primus-SaFE/Lens/skills-repository/pkg/safe"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/skills-repository/pkg/service"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/skills-repository/pkg/storage"
 	"github.com/gin-gonic/gin"
 )
 
@@ -22,6 +27,7 @@ type Handler struct {
 	runService     *service.RunService
 	toolsetService *service.ToolsetService
 	safeClient     *safe.UserClient
+	storage        storage.Storage
 }
 
 // NewHandler creates a new Handler
@@ -32,6 +38,7 @@ func NewHandler(
 	runSvc *service.RunService,
 	toolsetSvc *service.ToolsetService,
 	safeClient *safe.UserClient,
+	store storage.Storage,
 ) *Handler {
 	return &Handler{
 		toolService:    toolSvc,
@@ -40,6 +47,7 @@ func NewHandler(
 		runService:     runSvc,
 		toolsetService: toolsetSvc,
 		safeClient:     safeClient,
+		storage:        store,
 	}
 }
 
@@ -89,6 +97,11 @@ func RegisterRoutes(router *gin.Engine, h *Handler) {
 
 		// Get tool content (SKILL.md for skills)
 		auth.GET("/tools/:id/content", h.GetToolContent)
+
+		// Generic file storage (?path=xxx)
+		auth.POST("/files", h.UploadFile)
+		auth.GET("/files", h.DownloadFile)
+		auth.GET("/files/presign", h.GetPresignedURL)
 
 		// Toolsets
 		auth.GET("/toolsets", h.ListToolsets)
@@ -585,6 +598,150 @@ func (h *Handler) UploadIcon(c *gin.Context) {
 
 	log.Printf("[UploadIcon] user=%s icon_url=%s success", userInfo.UserID, iconURL)
 	c.JSON(http.StatusOK, gin.H{"icon_url": iconURL})
+}
+
+// GetPresignedURL handles GET /files/presign?filename=xxx&path=yyy
+func (h *Handler) GetPresignedURL(c *gin.Context) {
+	if h.storage == nil {
+		respondWithError(c, http.StatusServiceUnavailable, "STORAGE_NOT_CONFIGURED", "Storage backend not configured")
+		return
+	}
+
+	filename := c.Query("filename")
+	if filename == "" {
+		respondInvalidParameter(c, "filename", "Query parameter 'filename' is required")
+		return
+	}
+
+	prefix := c.Query("path")
+	key := filename
+	if prefix != "" {
+		key = prefix + "/" + filename
+	}
+
+	contentType := c.Query("content_type")
+	if contentType == "" {
+		contentType = c.Query("contentType")
+	}
+	if contentType == "" {
+		contentType = mime.TypeByExtension(filepath.Ext(filename))
+	}
+
+	userInfo := GetUserInfo(c)
+
+	// Generate presigned URL valid for 1 hour
+	uploadURL, err := h.storage.GeneratePresignedUploadURL(c.Request.Context(), key, contentType, time.Hour)
+	if err != nil {
+		log.Printf("[GetPresignedURL] user=%s key=%s error=%v", userInfo.UserID, key, err)
+		respondWithError(c, http.StatusInternalServerError, "PRESIGN_FAILED", err.Error())
+		return
+	}
+
+	downloadURL, _ := h.storage.GetURL(c.Request.Context(), key)
+
+	log.Printf("[GetPresignedURL] user=%s key=%s success", userInfo.UserID, key)
+	c.JSON(http.StatusOK, gin.H{
+		"upload_url":   uploadURL,
+		"download_url": downloadURL,
+		"key":          key,
+	})
+}
+
+// UploadFile handles POST /files?path=xxx - upload one or more files.
+// path is the directory prefix; filenames are taken from the uploaded files.
+func (h *Handler) UploadFile(c *gin.Context) {
+	if h.storage == nil {
+		respondWithError(c, http.StatusServiceUnavailable, "STORAGE_NOT_CONFIGURED", "Storage backend not configured")
+		return
+	}
+
+	if err := c.Request.ParseMultipartForm(32 << 20); err != nil {
+		respondBadRequest(c, "Invalid multipart form", err.Error())
+		return
+	}
+
+	files := c.Request.MultipartForm.File["file"]
+	if len(files) == 0 {
+		respondInvalidParameter(c, "file", "At least one file is required")
+		return
+	}
+
+	userInfo := GetUserInfo(c)
+	prefix := c.Query("path")
+
+	type fileResult struct {
+		Key string `json:"key"`
+		URL string `json:"url"`
+	}
+	results := make([]fileResult, 0, len(files))
+
+	for _, header := range files {
+		key := header.Filename
+		if prefix != "" {
+			key = prefix + "/" + header.Filename
+		}
+
+		file, err := header.Open()
+		if err != nil {
+			log.Printf("[UploadFile] user=%s key=%s open error=%v", userInfo.UserID, key, err)
+			respondWithError(c, http.StatusInternalServerError, "UPLOAD_FAILED", err.Error())
+			return
+		}
+
+		err = h.storage.Upload(c.Request.Context(), key, file)
+		file.Close()
+		if err != nil {
+			log.Printf("[UploadFile] user=%s key=%s error=%v", userInfo.UserID, key, err)
+			respondWithError(c, http.StatusInternalServerError, "UPLOAD_FAILED", err.Error())
+			return
+		}
+
+		url, _ := h.storage.GetURL(c.Request.Context(), key)
+		results = append(results, fileResult{Key: key, URL: url})
+		log.Printf("[UploadFile] user=%s key=%s size=%d success", userInfo.UserID, key, header.Size)
+	}
+
+	// Single file: flat response; multiple files: array response
+	if len(results) == 1 {
+		c.JSON(http.StatusOK, gin.H{"key": results[0].Key, "url": results[0].URL})
+	} else {
+		c.JSON(http.StatusOK, gin.H{"files": results})
+	}
+}
+
+// DownloadFile handles GET /files?path=xxx - download a file from storage
+func (h *Handler) DownloadFile(c *gin.Context) {
+	key := c.Query("path")
+	if key == "" {
+		respondInvalidParameter(c, "path", "Query parameter 'path' is required, e.g. ?path=models/weights.tar.gz")
+		return
+	}
+
+	if h.storage == nil {
+		respondWithError(c, http.StatusServiceUnavailable, "STORAGE_NOT_CONFIGURED", "Storage backend not configured")
+		return
+	}
+
+	userInfo := GetUserInfo(c)
+	log.Printf("[DownloadFile] user=%s key=%s", userInfo.UserID, key)
+
+	reader, err := h.storage.Download(c.Request.Context(), key)
+	if err != nil {
+		log.Printf("[DownloadFile] user=%s key=%s error=%v", userInfo.UserID, key, err)
+		respondWithError(c, http.StatusNotFound, "FILE_NOT_FOUND", err.Error())
+		return
+	}
+	defer reader.Close()
+
+	contentType := mime.TypeByExtension(filepath.Ext(key))
+	if contentType == "" {
+		contentType = "application/octet-stream"
+	}
+
+	c.Header("Content-Disposition", "inline; filename="+filepath.Base(key))
+	c.Header("Content-Type", contentType)
+	c.Status(http.StatusOK)
+	io.Copy(c.Writer, reader)
 }
 
 // GetToolContent handles GET /tools/:id/content - returns raw SKILL.md content

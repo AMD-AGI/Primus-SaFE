@@ -10,6 +10,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"time"
 )
 
 // LocalStorage implements Storage interface for local filesystem
@@ -102,6 +103,11 @@ func (s *LocalStorage) Exists(ctx context.Context, key string) (bool, error) {
 // GetURL returns a URL for the file
 func (s *LocalStorage) GetURL(ctx context.Context, key string) (string, error) {
 	return fmt.Sprintf("%s/%s", s.baseURL, key), nil
+}
+
+// GeneratePresignedUploadURL generates a presigned URL for uploading a file directly
+func (s *LocalStorage) GeneratePresignedUploadURL(ctx context.Context, key string, contentType string, expire time.Duration) (string, error) {
+	return "", fmt.Errorf("presigned upload URL is not supported by local storage")
 }
 
 // ListObjects lists all objects with the given prefix
