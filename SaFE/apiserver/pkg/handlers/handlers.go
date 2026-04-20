@@ -25,6 +25,7 @@ import (
 	llmgateway "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/llm-gateway"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/middleware"
 	model_handlers "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/model-handlers"
+	optimizationhandlers "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/optimization"
 	proxyhandlers "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/proxy-handlers"
 	reshandler "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/resources"
 	sshhandler "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/ssh-handlers"
@@ -147,6 +148,21 @@ func InitHttpHandlers(_ context.Context, mgr ctrlruntime.Manager) (*gin.Engine, 
 	// InferenceX benchmark data proxy (no DB required)
 	infxHandler := inferencexhandlers.NewHandler(24 * time.Hour)
 	inferencexhandlers.InitInferenceXRouters(engine, infxHandler)
+
+	// Model Optimization (Hyperloom via PrimusClaw). Requires DB for task
+	// persistence + event log; the feature flag gates registration so we
+	// don't register routes when no Claw endpoint is reachable.
+	if commonconfig.IsModelOptimizationEnable() && commonconfig.IsDBEnable() {
+		optDBClient := dbclient.NewClient()
+		if optDBClient != nil {
+			optHandler, optErr := optimizationhandlers.NewHandler(mgr.GetClient(), optDBClient)
+			if optErr != nil {
+				klog.ErrorS(optErr, "failed to initialize Model Optimization handler")
+			} else {
+				optimizationhandlers.InitRoutes(engine, optHandler)
+			}
+		}
+	}
 
 	return engine, nil
 }

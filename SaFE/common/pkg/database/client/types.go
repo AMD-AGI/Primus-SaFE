@@ -582,6 +582,96 @@ func GetA2AServiceRegistryFieldTags() map[string]string {
 	return getFieldTags(s)
 }
 
+// OptimizationTaskStatus is the lifecycle state of a Model Optimization task.
+type OptimizationTaskStatus string
+
+// OptimizationTask status constants.
+const (
+	OptimizationTaskStatusPending     OptimizationTaskStatus = "Pending"
+	OptimizationTaskStatusRunning     OptimizationTaskStatus = "Running"
+	OptimizationTaskStatusSucceeded   OptimizationTaskStatus = "Succeeded"
+	OptimizationTaskStatusFailed      OptimizationTaskStatus = "Failed"
+	OptimizationTaskStatusInterrupted OptimizationTaskStatus = "Interrupted"
+)
+
+// OptimizationTask represents a Model Optimization task backed by a PrimusClaw
+// session that runs the Hyperloom inference-optimization skill. Each task is a
+// first-class platform resource with user / workspace / model context so that
+// follow-up automations (audit, quotas, apply-to-workload) can reason about it.
+type OptimizationTask struct {
+	ID          string `gorm:"column:id;primaryKey" json:"id" db:"id"`
+	DisplayName string `gorm:"column:display_name" json:"displayName" db:"display_name"`
+	Workspace   string `gorm:"column:workspace" json:"workspace" db:"workspace"`
+	UserID      string `gorm:"column:user_id" json:"userId" db:"user_id"`
+	UserName    string `gorm:"column:user_name" json:"userName" db:"user_name"`
+
+	// Model association: the SaFE Model this task optimizes. ModelPath captures
+	// the localPath at submission time so later Model updates don't break the
+	// snapshot we already passed to Hyperloom.
+	ModelID   string `gorm:"column:model_id" json:"modelId" db:"model_id"`
+	ModelPath string `gorm:"column:model_path" json:"modelPath" db:"model_path"`
+
+	// Execution parameters forwarded to the Hyperloom skill prompt.
+	Mode        string `gorm:"column:mode" json:"mode" db:"mode"`
+	Framework   string `gorm:"column:framework" json:"framework" db:"framework"`
+	Precision   string `gorm:"column:precision" json:"precision" db:"precision"`
+	TP          int    `gorm:"column:tp" json:"tp" db:"tp"`
+	EP          int    `gorm:"column:ep" json:"ep" db:"ep"`
+	GPUType     string `gorm:"column:gpu_type" json:"gpuType" db:"gpu_type"`
+	ISL         int    `gorm:"column:isl" json:"isl" db:"isl"`
+	OSL         int    `gorm:"column:osl" json:"osl" db:"osl"`
+	Concurrency int    `gorm:"column:concurrency" json:"concurrency" db:"concurrency"`
+	// KernelBackends is a JSON-encoded []string.
+	KernelBackends string `gorm:"column:kernel_backends" json:"kernelBackends" db:"kernel_backends"`
+	GeakStepLimit  int    `gorm:"column:geak_step_limit" json:"geakStepLimit" db:"geak_step_limit"`
+	Image          string `gorm:"column:image" json:"image" db:"image"`
+	ResultsPath    string `gorm:"column:results_path" json:"resultsPath" db:"results_path"`
+
+	// Claw attachment: session id is the primary reference; the full prompt is
+	// stored so a restart can reattach to an already-running session.
+	ClawSessionID string `gorm:"column:claw_session_id" json:"clawSessionId" db:"claw_session_id"`
+	Prompt        string `gorm:"column:prompt" json:"prompt" db:"prompt"`
+
+	// Lifecycle / progress.
+	Status       OptimizationTaskStatus `gorm:"column:status" json:"status" db:"status"`
+	CurrentPhase int                    `gorm:"column:current_phase" json:"currentPhase" db:"current_phase"`
+	Message      string                 `gorm:"column:message" json:"message" db:"message"`
+
+	// Result artifacts (filled in on success; opaque JSON blobs).
+	FinalMetrics string `gorm:"column:final_metrics" json:"finalMetrics,omitempty" db:"final_metrics"`
+	ReportPath   string `gorm:"column:report_path" json:"reportPath,omitempty" db:"report_path"`
+
+	CreatedAt    pq.NullTime `gorm:"column:created_at;autoCreateTime" json:"createdAt" db:"created_at"`
+	UpdatedAt    pq.NullTime `gorm:"column:updated_at;autoUpdateTime" json:"updatedAt" db:"updated_at"`
+	StartedAt    pq.NullTime `gorm:"column:started_at" json:"startedAt,omitempty" db:"started_at"`
+	FinishedAt   pq.NullTime `gorm:"column:finished_at" json:"finishedAt,omitempty" db:"finished_at"`
+	DeletionTime pq.NullTime `gorm:"column:deletion_time" json:"deletionTime,omitempty" db:"deletion_time"`
+	IsDeleted    bool        `gorm:"column:is_deleted" json:"isDeleted" db:"is_deleted"`
+}
+
+// TableName sets the SQL table name for OptimizationTask.
+func (OptimizationTask) TableName() string {
+	return "optimization_task"
+}
+
+// OptimizationEvent is a persisted structured event produced by the SSE parser.
+// Storing events enables history replay, audit, and analytics across runs.
+type OptimizationEvent struct {
+	ID        int64       `gorm:"column:id;primaryKey;autoIncrement" json:"id" db:"id"`
+	EventID   string      `gorm:"column:event_id" json:"eventId" db:"event_id"`
+	TaskID    string      `gorm:"column:task_id;index" json:"taskId" db:"task_id"`
+	Type      string      `gorm:"column:type" json:"type" db:"type"`
+	Payload   string      `gorm:"column:payload" json:"payload" db:"payload"`
+	Seq       int64       `gorm:"column:seq" json:"seq" db:"seq"`
+	Timestamp int64       `gorm:"column:timestamp" json:"timestamp" db:"timestamp"`
+	CreatedAt pq.NullTime `gorm:"column:created_at;autoCreateTime" json:"createdAt" db:"created_at"`
+}
+
+// TableName sets the SQL table name for OptimizationEvent.
+func (OptimizationEvent) TableName() string {
+	return "optimization_event"
+}
+
 // A2ACallLog represents an A2A invocation log record.
 type A2ACallLog struct {
 	Id                int64          `db:"id"`
