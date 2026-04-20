@@ -50,9 +50,8 @@ type CreateTaskRequest struct {
 	ModelID   string `json:"modelId" binding:"required"`
 	Workspace string `json:"workspace" binding:"required"`
 
-	// Execution mode: "claw" runs on PrimusClaw sandbox via RayJob; "local"
-	// runs directly in a GPU sandbox. Empty defaults to "local" (same as
-	// Hyperloom-Web useInferOptTemplate).
+	// Execution mode: "claw" (default) runs on PrimusClaw sandbox via RayJob;
+	// "local" runs directly in a GPU sandbox.
 	Mode string `json:"mode"`
 
 	// Inference workload configuration. These are passed through the prompt
@@ -152,17 +151,8 @@ type BatchCreateTasksRequest struct {
 	Items []CreateTaskRequest `json:"items" binding:"required"`
 }
 
-// BatchCreateTaskResponseItem holds the result for a single item in a batch
-// create request. Error is non-empty when that item failed; ID and
-// ClawSessionID are populated on success.
-type BatchCreateTaskResponseItem struct {
-	ID            string `json:"id,omitempty"`
-	ClawSessionID string `json:"clawSessionId,omitempty"`
-	Error         string `json:"error,omitempty"`
-}
-
 type BatchCreateTasksResponse struct {
-	Items []BatchCreateTaskResponseItem `json:"items"`
+	Items []CreateTaskResponse `json:"items"`
 }
 
 // RetryTaskResponse returns the new session id after retrying a failed task.

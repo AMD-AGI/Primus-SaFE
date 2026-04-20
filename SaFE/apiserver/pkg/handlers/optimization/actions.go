@@ -24,10 +24,9 @@ import (
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 )
 
-// BatchCreateTasks creates multiple optimization tasks sequentially. Each item
-// is attempted independently — failures are recorded per-item rather than
-// aborting the whole batch. Callers should inspect the Error field on each
-// item to distinguish successes from failures.
+// BatchCreateTasks creates multiple optimization tasks sequentially. v1 keeps
+// the implementation intentionally simple and relies on the workspace-level
+// concurrency gate to reject over-subscription.
 func (h *Handler) BatchCreateTasks(c *gin.Context) {
 	var req BatchCreateTasksRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -38,30 +37,18 @@ func (h *Handler) BatchCreateTasks(c *gin.Context) {
 		apiutils.AbortWithApiError(c, commonerrors.NewBadRequest("items must not be empty"))
 		return
 	}
-	if len(req.Items) > 100 {
-		apiutils.AbortWithApiError(c, commonerrors.NewBadRequest("batch size must not exceed 100 items per request"))
-		return
-	}
 	userID := c.GetString(common.UserId)
 	userName := c.GetString(common.UserName)
-	bearer := clawBearerForGin(c)
-	// Use a detached context so that individual item failures or a slow Claw
-	// call on item N do not cancel remaining items via request timeout.
-	batchCtx := context.Background()
-	items := make([]BatchCreateTaskResponseItem, len(req.Items))
+	items := make([]CreateTaskResponse, 0, len(req.Items))
 	for i := range req.Items {
-		resp, err := h.submitTask(batchCtx, &req.Items[i], userID, userName, "", bearer)
+		resp, err := h.submitTask(c.Request.Context(), &req.Items[i], userID, userName, "")
 		if err != nil {
-			klog.ErrorS(err, "batch create task: item failed", "index", i, "model_id", req.Items[i].ModelID)
-			items[i] = BatchCreateTaskResponseItem{Error: err.Error()}
-		} else {
-			items[i] = BatchCreateTaskResponseItem{
-				ID:            resp.ID,
-				ClawSessionID: resp.ClawSessionID,
-			}
+			apiutils.AbortWithApiError(c, err)
+			return
 		}
+		items = append(items, *resp)
 	}
-	c.JSON(http.StatusMultiStatus, BatchCreateTasksResponse{Items: items})
+	c.JSON(http.StatusCreated, BatchCreateTasksResponse{Items: items})
 }
 
 // ListArtifacts returns the session artifacts Claw has stored for this task.
@@ -75,8 +62,7 @@ func (h *Handler) ListArtifacts(c *gin.Context) {
 		apiutils.AbortWithApiError(c, commonerrors.NewBadRequest("task has no Claw session"))
 		return
 	}
-	clawCtx := WithClawBearer(c.Request.Context(), clawBearerForGin(c))
-	items, err := h.clawClient.ListSessionFiles(clawCtx, task.ClawSessionID)
+	items, err := h.clawClient.ListSessionFiles(c.Request.Context(), task.ClawSessionID)
 	if err != nil {
 		klog.ErrorS(err, "list optimization artifacts", "task_id", task.ID)
 		apiutils.AbortWithApiError(c, commonerrors.NewInternalError("failed to list artifacts"))
@@ -118,14 +104,10 @@ func (h *Handler) DownloadArtifact(c *gin.Context) {
 		apiutils.AbortWithApiError(c, commonerrors.NewBadRequest("path query parameter is required"))
 		return
 	}
-	data, err := h.clawClient.ReadSessionFile(WithClawBearer(c.Request.Context(), clawBearerForGin(c)), task.ClawSessionID, path)
+	data, err := h.clawClient.ReadSessionFile(c.Request.Context(), task.ClawSessionID, path)
 	if err != nil {
 		klog.ErrorS(err, "download optimization artifact", "task_id", task.ID, "path", path)
-		if strings.Contains(err.Error(), "HTTP 404") {
-			apiutils.AbortWithApiError(c, commonerrors.NewNotFoundWithMessage("artifact not found: "+path))
-		} else {
-			apiutils.AbortWithApiError(c, commonerrors.NewInternalError("failed to download artifact"))
-		}
+		apiutils.AbortWithApiError(c, commonerrors.NewInternalError("failed to download artifact"))
 		return
 	}
 	filename := path
@@ -147,7 +129,7 @@ func (h *Handler) InterruptTask(c *gin.Context) {
 		apiutils.AbortWithApiError(c, commonerrors.NewBadRequest("task has no active Claw session"))
 		return
 	}
-	if err := h.clawClient.InterruptSession(WithClawBearer(c.Request.Context(), clawBearerForGin(c)), task.ClawSessionID); err != nil {
+	if err := h.clawClient.InterruptSession(c.Request.Context(), task.ClawSessionID); err != nil {
 		klog.ErrorS(err, "interrupt optimization task", "task_id", task.ID)
 		apiutils.AbortWithApiError(c, commonerrors.NewInternalError("failed to interrupt task"))
 		return
@@ -176,7 +158,7 @@ func (h *Handler) RetryTask(c *gin.Context) {
 	req := taskToCreateRequest(task)
 	userID := c.GetString(common.UserId)
 	userName := c.GetString(common.UserName)
-	resp, err := h.submitTask(c.Request.Context(), req, userID, userName, "", clawBearerForGin(c))
+	resp, err := h.submitTask(c.Request.Context(), req, userID, userName, "")
 	if err != nil {
 		apiutils.AbortWithApiError(c, err)
 		return

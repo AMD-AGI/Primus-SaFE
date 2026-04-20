@@ -55,8 +55,7 @@ func (h *Handler) ApplyTask(c *gin.Context) {
 		return
 	}
 
-	clawCtx := WithClawBearer(c.Request.Context(), clawBearerForGin(c))
-	reportPath, launchCommand, err := h.resolveLaunchCommand(clawCtx, task, model)
+	reportPath, launchCommand, err := h.resolveLaunchCommand(c.Request.Context(), task, model)
 	if err != nil {
 		apiutils.AbortWithApiError(c, commonerrors.NewInternalError("failed to resolve optimized launch command: "+err.Error()))
 		return
@@ -68,11 +67,7 @@ func (h *Handler) ApplyTask(c *gin.Context) {
 
 	workload, err := h.buildOptimizedWorkload(c.Request.Context(), task, model, launchCommand, req)
 	if err != nil {
-		if strings.Contains(err.Error(), "no image configured") {
-			apiutils.AbortWithApiError(c, commonerrors.NewBadRequest("failed to build workload: "+err.Error()))
-		} else {
-			apiutils.AbortWithApiError(c, commonerrors.NewInternalError("failed to build workload: "+err.Error()))
-		}
+		apiutils.AbortWithApiError(c, commonerrors.NewInternalError("failed to build workload: "+err.Error()))
 		return
 	}
 	if err := h.k8sClient.Create(c.Request.Context(), workload); err != nil {

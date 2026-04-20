@@ -28,10 +28,11 @@ const (
 	clawControlTimeout = 30 * time.Second
 	clawStreamTimeout  = 0 // 0 = no timeout; context cancels the stream
 
-	clawPathSessions       = "/sessions"
-	clawPathSessionMessage = "/sessions/%s/messages"
-	clawPathStream         = "/chat/sessions/%s/messages"
-	clawPathSessionFiles   = "/sessions/%s/files"
+	clawPathSessions        = "/sessions"
+	clawPathSessionMessage  = "/sessions/%s/messages"
+	clawPathStream          = "/chat/sessions/%s/messages"
+	clawPathInterrupt       = "/chat/sessions/%s/interrupt"
+	clawPathSessionFiles    = "/sessions/%s/files"
 	clawPathSessionDownload = "/sessions/%s/files/%s/download"
 	clawPathSessionStream   = "/sessions/%s/files/%s/stream"
 
@@ -46,15 +47,14 @@ const (
 // create sessions, send the Hyperloom prompt, and stream events back.
 type ClawClient struct {
 	baseURL       string
-	bearerToken        string
+	apiKey        string
 	controlClient *http.Client
 	streamClient  *http.Client
 }
 
 // NewClawClient wires a client for the given base URL. The base URL should be
-// the Claw v1 root, e.g. "https://.../claw-api/v1". bearerToken is an optional
-// default Bearer; per-request values override via WithClawBearer on context.
-func NewClawClient(baseURL, bearerToken string) *ClawClient {
+// the Claw v1 root, e.g. "https://.../claw-api/v1".
+func NewClawClient(baseURL, apiKey string) *ClawClient {
 	transport := &http.Transport{
 		// Claw is often fronted by self-signed / internal certs; reuse the
 		// same relaxed policy as the LiteLLM client.
@@ -62,7 +62,7 @@ func NewClawClient(baseURL, bearerToken string) *ClawClient {
 	}
 	return &ClawClient{
 		baseURL: strings.TrimRight(baseURL, "/"),
-		bearerToken:  bearerToken,
+		apiKey:  apiKey,
 		controlClient: &http.Client{
 			Timeout:   clawControlTimeout,
 			Transport: transport,
@@ -234,7 +234,7 @@ func (c *ClawClient) Stream(
 
 	url := c.baseURL + fmt.Sprintf(clawPathStream, sessionID)
 	if afterEventID != "" {
-		url += "?after=" + afterEventID
+		url += "?after_event_id=" + afterEventID
 	}
 
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
@@ -285,12 +285,28 @@ func (c *ClawClient) DeleteSession(ctx context.Context, sessionID string) error 
 }
 
 // InterruptSession asks Claw to stop the currently running task inside the
-// session's executor sandbox. Claw V2 exposes no dedicated interrupt endpoint;
-// interrupt is signalled by sending a message with messageType="interrupt".
+// session's executor sandbox. The session itself remains alive.
 func (c *ClawClient) InterruptSession(ctx context.Context, sessionID string) error {
-	return c.SendMessage(ctx, sessionID, &MessageRequest{
-		MessageType: "interrupt",
-	})
+	if sessionID == "" {
+		return fmt.Errorf("claw interrupt: empty session id")
+	}
+	req, err := http.NewRequestWithContext(
+		ctx, http.MethodPost, c.baseURL+fmt.Sprintf(clawPathInterrupt, sessionID), bytes.NewReader([]byte(`{}`)),
+	)
+	if err != nil {
+		return err
+	}
+	c.applyHeaders(req)
+	resp, err := c.controlClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("claw interrupt request failed: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		raw, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("claw interrupt HTTP %d: %s", resp.StatusCode, truncate(string(raw), 256))
+	}
+	return nil
 }
 
 // ListSessionFiles returns the flattened session artifact list Claw stores in S3.
@@ -392,19 +408,11 @@ func (c *ClawClient) DownloadProxyPath(ctx context.Context, sessionID, filePath 
 }
 
 // applyHeaders sets the authorization + content-type headers used by all
-// endpoints on the Claw control plane. Per-request bearer (via WithClawBearer
-// on req.Context()) overrides the static bearerToken from configuration.
+// endpoints on the Claw control plane.
 func (c *ClawClient) applyHeaders(req *http.Request) {
 	req.Header.Set("Content-Type", "application/json")
-	bearer := ""
-	if req != nil {
-		bearer = clawBearerFromContext(req.Context())
-	}
-	if bearer == "" {
-		bearer = c.bearerToken
-	}
-	if bearer != "" {
-		req.Header.Set("Authorization", "Bearer "+bearer)
+	if c.apiKey != "" {
+		req.Header.Set("Authorization", "Bearer "+c.apiKey)
 	}
 }
 
