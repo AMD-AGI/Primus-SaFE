@@ -178,5 +178,44 @@ export function postForm<TData = any>(
   })
 }
 
+// Tools service — separate backend with { code: 200, data: ... } response format
+const toolsRequest = axios.create({
+  baseURL: '/tools-api/v1',
+  timeout: 10000,
+  withCredentials: false,
+})
+
+const toolsApiKey = import.meta.env.VITE_TOOLS_API_KEY
+if (toolsApiKey) {
+  toolsRequest.interceptors.request.use((config) => {
+    config.headers.Authorization = `Bearer ${toolsApiKey}`
+    return config
+  })
+}
+
+toolsRequest.interceptors.response.use(
+  (response: AxiosResponse) => {
+    if (response.config.rawResponse === true) return response
+
+    const rawData = response.data
+    if (rawData && typeof rawData === 'object' && 'code' in rawData && rawData.code >= 200 && rawData.code < 300) {
+      return rawData.data
+    }
+
+    const msg = rawData?.message ?? rawData?.error ?? 'Tools API Error'
+    ElMessage({ type: 'error', message: msg })
+    return Promise.reject(msg)
+  },
+  async (error) => {
+    const status = error?.response?.status as number | undefined
+    if (status === 401) {
+      location.href = `/login?redirect=${encodeURIComponent(location.pathname + location.search)}`
+      return Promise.reject(error)
+    }
+    ElMessage({ type: 'error', message: error?.response?.data?.message || 'Tools request failed.' })
+    return Promise.reject(error)
+  },
+)
+
 export default request
-export { lensRequest, rootCauseRequest }
+export { lensRequest, rootCauseRequest, toolsRequest }

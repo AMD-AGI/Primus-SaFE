@@ -13,6 +13,7 @@ export default defineConfig(({ mode }) => {
   const API_TARGET = env.PROXY_API_TARGET || 'http://localhost:8088'
   const BACKEND_TARGET = env.PROXY_BACKEND_TARGET || API_TARGET
   const WS_TARGET = env.PROXY_WS_TARGET || API_TARGET.replace(/^http/, 'ws')
+  const TOOLS_TARGET = env.PROXY_TOOLS_TARGET || API_TARGET
   const MCP_TARGET = env.PROXY_MCP_TARGET || API_TARGET
   const MCP_REWRITE_PREFIX = env.PROXY_MCP_REWRITE_PREFIX || '/mcp'
   const DEV_DOMAIN = env.PROXY_DEV_DOMAIN || 'localhost'
@@ -95,6 +96,26 @@ export default defineConfig(({ mode }) => {
                     .replace(/;\s*SameSite=None/gi, '; SameSite=Lax'),
                 )
               }
+            })
+          },
+        },
+        '/tools-api': {
+          target: TOOLS_TARGET,
+          changeOrigin: true,
+          secure: false,
+          rewrite: (p) => p.replace(/^\/tools-api/, ''),
+          cookieDomainRewrite: { '*': DEV_DOMAIN },
+          configure(proxy) {
+            proxy.on('proxyReq', (proxyReq, req) => {
+              proxyReq.removeHeader('cookie')
+              console.log('[tools-api proxy]', req.method, req.url, '→', TOOLS_TARGET)
+              console.log('[tools-api proxy] Authorization:', proxyReq.getHeader('authorization'))
+            })
+            proxy.on('proxyRes', (proxyRes, req) => {
+              console.log('[tools-api proxy] response', proxyRes.statusCode, req.url)
+            })
+            proxy.on('error', (err, req) => {
+              console.error('[tools-api proxy] ERROR', req.url, err.message)
             })
           },
         },
