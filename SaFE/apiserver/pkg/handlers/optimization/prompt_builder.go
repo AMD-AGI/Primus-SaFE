@@ -15,11 +15,9 @@ import (
 // so that a task created via SaFE produces the same prompt as the same form
 // submitted through the Hyperloom UI.
 const (
-	// Defaults mirror Hyperloom-Web useInferOptTemplate.ts (initial refs +
-	// resetDefaults + DEFAULT_* constants). Update both sides together.
-	defaultMode           = ModeLocal
+	defaultMode           = ModeClaw
 	defaultFramework      = FrameworkSGLang
-	defaultPrecision      = "FP8"
+	defaultPrecision      = "FP4"
 	defaultGPUType        = "MI355X"
 	defaultISL            = 1024
 	defaultOSL            = 1024
@@ -35,8 +33,8 @@ const (
 	defaultRayMemoryGi    = 128
 	raySharedMemoryGi     = 500
 
-	defaultSGLangBaseImage = "lmsysorg/sglang:v0.5.10-rocm720-mi30x"
-	defaultVLLMBaseImage   = "primussafe/vllm-openai-rocm:202604030417"
+	defaultSGLangImage = "harbor.oci-slc.primus-safe.amd.com/custom/lmsysorg/sglang:latest"
+	defaultVLLMImage   = "harbor.oci-slc.primus-safe.amd.com/custom/vllm/vllm-openai-rocm:latest"
 )
 
 // Maps Hyperloom-Web's display string to the lowercased tag the skill expects.
@@ -62,11 +60,10 @@ type PromptConfig struct {
 	ISL            int
 	OSL            int
 	Concurrency    int
-	KernelBackends      []string
-	GeakStepLimit       int
-	Image               string
-	ProxyImageRegistry  string
-	InferenceXPath      string
+	KernelBackends []string
+	GeakStepLimit  int
+	Image          string
+	InferenceXPath string
 	Workspace      string
 	ResultsPath    string
 	RayReplica     int
@@ -76,8 +73,6 @@ type PromptConfig struct {
 	TargetGpu      string
 	BaselineCSV    string
 	BaselineCount  int
-	SafeAPIURL     string
-	SafeAPIKey     string
 }
 
 // NormalizePromptConfig fills zero-valued fields with sensible defaults.
@@ -121,14 +116,10 @@ func NormalizePromptConfig(cfg PromptConfig) PromptConfig {
 		cfg.ResultsPath = defaultResultsPath
 	}
 	if cfg.Image == "" {
-		base := defaultSGLangBaseImage
 		if cfg.Framework == FrameworkVLLM {
-			base = defaultVLLMBaseImage
-		}
-		if cfg.ProxyImageRegistry != "" {
-			cfg.Image = cfg.ProxyImageRegistry + "/" + base
+			cfg.Image = defaultVLLMImage
 		} else {
-			cfg.Image = base
+			cfg.Image = defaultSGLangImage
 		}
 	}
 	if cfg.RayReplica <= 0 {
@@ -147,7 +138,7 @@ func NormalizePromptConfig(cfg PromptConfig) PromptConfig {
 		cfg.RayMemoryGi = defaultRayMemoryGi
 	}
 	if len(cfg.KernelBackends) == 0 {
-		cfg.KernelBackends = []string{KernelBackendClaude}
+		cfg.KernelBackends = []string{KernelBackendGEAK, KernelBackendClaude}
 	}
 	return cfg
 }
@@ -246,12 +237,6 @@ func BuildHyperloomPrompt(cfg PromptConfig) string {
 	push("Requirements:")
 	push(fmt.Sprintf("Save all results and the optimization report to %s", cfg.ResultsPath))
 	push("Execute the full skill pipeline (Phase 0-10), including parameter sweep.")
-	push("Use python3 common/safe_submit.py (not node common/safe_submit.mjs) for all SaFE API calls — Node.js fetch does not honour NODE_TLS_REJECT_UNAUTHORIZED and will fail with self-signed certs.")
-	push("The Claw sandbox mounts /wekafs as read-only (hostPath). Workload pods submitted via SaFE API have a writable /wekafs via workspace PVC. Do not probe write access from the sandbox; trust that submitted workload pods can write to /wekafs.")
-	push(fmt.Sprintf("At the end of Phase 10, copy the final report and metrics from WekaFS into the sandbox workspace so they are saved as session artifacts: cp %soptimization_report.md /workspace/optimization_report.md && cp %sci_metrics.json /workspace/ci_metrics.json 2>/dev/null || true", cfg.ResultsPath, cfg.ResultsPath))
-	if cfg.SafeAPIURL != "" {
-		push(fmt.Sprintf("SaFE API credentials are pre-configured: export SAFE_API_URL=%s SAFE_API_KEY=%s — use these directly, do not read from pipeline_config.env or prompt the user.", cfg.SafeAPIURL, cfg.SafeAPIKey))
-	}
 
 	if cfg.TargetGpu != "" && cfg.BaselineCount > 0 && cfg.BaselineCSV != "" {
 		push("")

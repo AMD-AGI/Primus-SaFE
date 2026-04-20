@@ -338,9 +338,6 @@ func GetS3ExpireDay() int32 {
 
 func getFromFile(configPath, item string) string {
 	path := getString(configPath, "")
-	if path == "" {
-		return ""
-	}
 	data, err := os.ReadFile(filepath.Join(path, item))
 	if err != nil {
 		return ""
@@ -575,33 +572,25 @@ func GetMonarchClientRole() string {
 
 // ── Model Optimization (Hyperloom via PrimusClaw) ───────────────────────
 
+// IsModelOptimizationEnable reports whether the Model Optimization feature
+// (which orchestrates Hyperloom runs on PrimusClaw) should register its
+// REST + SSE routes and database-backed task store.
+func IsModelOptimizationEnable() bool {
+	return getBool(modelOptimizationEnable, false)
+}
+
 // GetModelOptimizationClawBaseURL returns the base URL used to reach the
 // PrimusClaw backend, e.g. "https://oci-slc.primus-safe.amd.com/claw-api/v1".
-// Precedence: direct config key > secret file "claw_base_url" > derived public
-// URL from global.sub_domain + global.domain + "/claw-api/v1" (same host as the
-// SaFE UI / browser) > empty string.
+// Precedence: direct config key > secret file "claw_base_url" > empty string.
 func GetModelOptimizationClawBaseURL() string {
 	if v := getString(modelOptimizationClawBaseURL, ""); v != "" {
 		return v
 	}
-	if v := getFromFile(modelOptimizationSecretPath, "claw_base_url"); v != "" {
-		return v
-	}
-	return modelOptimizationDerivedPublicClawBaseURL()
+	return getFromFile(modelOptimizationSecretPath, "claw_base_url")
 }
 
-func modelOptimizationDerivedPublicClawBaseURL() string {
-	host := GetSystemHost()
-	if host == "" {
-		return ""
-	}
-	return "https://" + host + "/claw-api/v1"
-}
-
-// GetModelOptimizationClawAPIKey returns an optional service-level bearer token for
-// PrimusClaw (file "claw_api_key" under model_optimization.secret_path). Used only
-// when the caller did not send ak-... and the platform could not resolve a per-user
-// platform key (e.g. automation). When secret_path is empty, this always returns "".
+// GetModelOptimizationClawAPIKey returns the bearer token used to authenticate
+// against PrimusClaw. Stored as a secret file entry "claw_api_key".
 func GetModelOptimizationClawAPIKey() string {
 	return getFromFile(modelOptimizationSecretPath, "claw_api_key")
 }
@@ -626,47 +615,4 @@ func GetModelOptimizationDefaultWorkspace() string {
 // Non-positive values disable the limit.
 func GetModelOptimizationMaxConcurrent() int {
 	return getInt(modelOptimizationConcurrency, 5)
-}
-
-// GetGlobalImageRegistry returns the cluster-wide image registry prefix
-// (global.image_registry), e.g. "harbor.core42.primus-safe.amd.com/proxy".
-// Defaults to "docker.io" when unset.
-func GetGlobalImageRegistry() string {
-	return getString(imageRegistry, "docker.io")
-}
-
-func GetSandboxNamespace() string {
-	return getString(sandboxNamespace, "")
-}
-
-func GetSandboxSecret() string {
-	return getString(sandboxSecret, "")
-}
-
-func IsSandboxEnable() bool {
-	return getBool(sandboxEnable, false)
-}
-
-// ── MCP (Model Context Protocol) ────────────────────────────────────────
-
-func IsMCPEnable() bool {
-	return getBool(mcpEnable, false)
-}
-
-func GetMCPBasePath() string {
-	return getString(mcpBasePath, "/api/v1/mcp")
-}
-
-func GetMCPInstructions() string {
-	return getString(mcpInstructions, "")
-}
-
-// GetMCPAllowedOrigins returns the CORS allowlist for the MCP HTTP transports.
-// Empty (default) means same-origin only: no Access-Control-Allow-Origin
-// header is set, so cross-origin browser requests are blocked. Add explicit
-// origins (e.g. "https://safe-ui.example.com") to opt in. Use "*" only if
-// you really mean it; bearer-token clients work but cookie-based browser
-// clients won't be able to call the API anyway.
-func GetMCPAllowedOrigins() []string {
-	return viper.GetStringSlice(mcpAllowedOrigins)
 }

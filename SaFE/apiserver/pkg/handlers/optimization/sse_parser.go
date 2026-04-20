@@ -11,8 +11,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-
-	"k8s.io/klog/v2"
 )
 
 // SSEParser translates raw Claw SSE events (which carry Claude Agent SDK
@@ -66,8 +64,6 @@ func (p *SSEParser) Parse(raw ClawSSEEvent) []ParsedEvent {
 		return p.parseStatusUpdate(raw)
 	case "plan_update":
 		return p.parsePlanUpdate(raw)
-	case "sandbox":
-		return p.parseSandboxStatus(raw)
 	case "error":
 		return []ParsedEvent{{
 			Type: EventTypeLog,
@@ -137,18 +133,8 @@ func (p *SSEParser) parseChat(raw ClawSSEEvent) []ParsedEvent {
 	})
 
 	// Look for phase headers in the new chunk.
-	matches := phaseHeaderRegex.FindAllStringSubmatch(text, -1)
-	if len(matches) == 0 && len(text) > 20 {
-		// Log at high verbosity so we can diagnose if the skill changes its
-		// header format without producing structured phase events.
-		klog.V(3).InfoS("sse_parser: chat text contained no phase header", "preview", truncate(text, 120))
-	}
-	for _, match := range matches {
-		phaseNum, err := strconv.Atoi(match[1])
-		if err != nil || phaseNum < 0 || phaseNum > 20 {
-			klog.V(2).InfoS("sse_parser: ignoring out-of-range phase number", "raw", match[1])
-			continue
-		}
+	for _, match := range phaseHeaderRegex.FindAllStringSubmatch(text, -1) {
+		phaseNum, _ := strconv.Atoi(match[1])
 		phaseLabel := strings.TrimSpace(match[2])
 		out = append(out, p.transitionPhase(phaseNum, phaseLabel)...)
 	}
@@ -477,30 +463,6 @@ func (p *SSEParser) parseKernelTool(env toolUsedEnvelope) []ParsedEvent {
 type statusEnv struct {
 	AgentStatus string `json:"agentStatus"`
 	Brief       string `json:"brief"`
-}
-
-type sandboxEnv struct {
-	Phase   string `json:"phase"`
-	Status  string `json:"status"`
-	Message string `json:"message"`
-}
-
-func (p *SSEParser) parseSandboxStatus(raw ClawSSEEvent) []ParsedEvent {
-	var env sandboxEnv
-	_ = json.Unmarshal([]byte(raw.Data), &env)
-	level := "info"
-	if env.Status == "failed" || env.Phase == "Failed" {
-		level = "warn"
-	}
-	msg := firstNonEmpty(env.Message, env.Status, env.Phase, raw.Data)
-	return []ParsedEvent{{
-		Type: EventTypeLog,
-		Payload: LogEventPayload{
-			Level:   level,
-			Source:  "claw",
-			Message: "sandbox phase=" + firstNonEmpty(env.Phase, env.Status) + " " + msg,
-		},
-	}}
 }
 
 func (p *SSEParser) parseStatusUpdate(raw ClawSSEEvent) []ParsedEvent {

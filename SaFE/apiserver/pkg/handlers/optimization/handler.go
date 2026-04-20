@@ -21,9 +21,7 @@ import (
 	"k8s.io/klog/v2"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 
-	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
 	apiutils "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/utils"
-	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
@@ -37,17 +35,13 @@ import (
 // of the apiserver process. All its fields are immutable after construction;
 // per-task state lives inside taskHub entries on the hubRegistry.
 type Handler struct {
-	dbClient           dbclient.Interface
-	k8sClient          ctrlclient.Client
-	clawClient         *ClawClient
-	clawAgentID        string
-	defaultWS          string
-	maxConcurrent      int
-	proxyImageRegistry string
-	hubs               *hubRegistry
-	// wsLocks serialises the concurrency-check + DB-insert pair per workspace
-	// so two simultaneous requests can't both pass the maxConcurrent gate.
-	wsLocks *workspaceLockMap
+	dbClient      dbclient.Interface
+	k8sClient     ctrlclient.Client
+	clawClient    *ClawClient
+	clawAgentID   string
+	defaultWS     string
+	maxConcurrent int
+	hubs          *hubRegistry
 }
 
 // NewHandler instantiates the handler. Returns nil and a log warning when
@@ -62,19 +56,17 @@ func NewHandler(k8sClient ctrlclient.Client, dbClient dbclient.Interface) (*Hand
 	}
 	baseURL := commonconfig.GetModelOptimizationClawBaseURL()
 	if baseURL == "" {
-		klog.Warning("model optimization: claw_base_url unset, global.domain/sub_domain could not derive https://<host>/claw-api/v1; create/stream will fail until configured")
+		klog.Warning("model optimization: claw_base_url not configured, routes will be registered but create/stream will return 503")
 	}
 	apiKey := commonconfig.GetModelOptimizationClawAPIKey()
 	return &Handler{
-		dbClient:           dbClient,
-		k8sClient:          k8sClient,
-		clawClient:         NewClawClient(baseURL, apiKey),
-		clawAgentID:        commonconfig.GetModelOptimizationClawAgentID(),
-		defaultWS:          commonconfig.GetModelOptimizationDefaultWorkspace(),
-		maxConcurrent:      commonconfig.GetModelOptimizationMaxConcurrent(),
-		proxyImageRegistry: commonconfig.GetGlobalImageRegistry(),
-		hubs:               newHubRegistry(),
-		wsLocks:            newWorkspaceLockMap(),
+		dbClient:      dbClient,
+		k8sClient:     k8sClient,
+		clawClient:    NewClawClient(baseURL, apiKey),
+		clawAgentID:   commonconfig.GetModelOptimizationClawAgentID(),
+		defaultWS:     commonconfig.GetModelOptimizationDefaultWorkspace(),
+		maxConcurrent: commonconfig.GetModelOptimizationMaxConcurrent(),
+		hubs:          newHubRegistry(),
 	}, nil
 }
 
@@ -91,7 +83,7 @@ func (h *Handler) CreateTask(c *gin.Context) {
 	}
 	userID := c.GetString(common.UserId)
 	userName := c.GetString(common.UserName)
-	resp, err := h.submitTask(c.Request.Context(), &req, userID, userName, "", clawBearerForGin(c))
+	resp, err := h.submitTask(c.Request.Context(), &req, userID, userName, "")
 	if err != nil {
 		apiutils.AbortWithApiError(c, err)
 		return
@@ -104,29 +96,15 @@ func (h *Handler) submitTask(
 	req *CreateTaskRequest,
 	userID, userName string,
 	fixedTaskID string,
-	clawBearer string,
 ) (*CreateTaskResponse, error) {
 	if h.clawClient == nil || h.clawClient.baseURL == "" {
 		return nil, commonerrors.NewInternalError("Claw base URL not configured; Model Optimization disabled")
-	}
-	if strings.TrimSpace(clawBearer) == "" {
-		return nil, commonerrors.NewUnauthorized(
-			"PrimusClaw authentication required: log in (platform key), send Authorization: Bearer ak-..., or configure model_optimization secret claw_api_key",
-		)
-	}
-	if err := validateCreateTaskRequest(req); err != nil {
-		return nil, err
 	}
 
 	workspace := req.Workspace
 	if workspace == "" {
 		workspace = h.defaultWS
 	}
-
-	// Serialize count+insert per workspace to prevent TOCTOU on the
-	// concurrency gate — two simultaneous requests cannot both sneak through.
-	unlock := h.wsLocks.lock(workspace)
-	defer unlock()
 
 	if h.maxConcurrent > 0 {
 		running, err := h.dbClient.CountRunningOptimizationTasks(ctx, workspace)
@@ -147,7 +125,7 @@ func (h *Handler) submitTask(
 		return nil, commonerrors.NewBadRequest(err.Error())
 	}
 
-	promptCfg := NormalizePromptConfig(h.promptConfigFromRequest(ctx, req, resolved, workspace, clawBearer))
+	promptCfg := promptConfigFromRequest(req, resolved, workspace)
 	prompt := BuildHyperloomPrompt(promptCfg)
 
 	taskID := fixedTaskID
@@ -190,12 +168,12 @@ func (h *Handler) submitTask(
 		return nil, commonerrors.NewInternalError("failed to persist task")
 	}
 
+	createCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
 	sessionName := fmt.Sprintf("safe-opt-%s-%s", resolved.DisplayName, taskID[len(taskID)-8:])
-	sessionID, err := withClawRetry(ctx, clawBearer, "create session", func(rctx context.Context) (string, error) {
-		return h.clawClient.CreateSession(rctx, &SessionRequest{
-			Name:    sessionName,
-			AgentID: h.clawAgentID,
-		})
+	sessionID, err := h.clawClient.CreateSession(createCtx, &SessionRequest{
+		Name:    sessionName,
+		AgentID: h.clawAgentID,
 	})
 	if err != nil {
 		klog.ErrorS(err, "create claw session", "task_id", taskID)
@@ -205,29 +183,25 @@ func (h *Handler) submitTask(
 	}
 	_ = h.dbClient.UpdateOptimizationTaskClawSession(ctx, taskID, sessionID)
 
-	_, sendErr := withClawRetry(ctx, clawBearer, "send message", func(rctx context.Context) (struct{}, error) {
-		return struct{}{}, h.clawClient.SendMessage(rctx, sessionID, &MessageRequest{
-			Content:     prompt,
-			MessageType: "text",
-			TaskMode:    "agent",
-			WorkspaceID: workspace,
-			Tools:       []int{16, 18},
-		})
-	})
-	if sendErr != nil {
-		klog.ErrorS(sendErr, "send hyperloom prompt", "task_id", taskID, "session_id", sessionID)
-		cleanupCtx, cleanupCancel := context.WithTimeout(WithClawBearer(context.Background(), clawBearer), 10*time.Second)
-		defer cleanupCancel()
-		_ = h.clawClient.DeleteSession(cleanupCtx, sessionID)
+	sendCtx, sendCancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer sendCancel()
+	if err := h.clawClient.SendMessage(sendCtx, sessionID, &MessageRequest{
+		Content:     prompt,
+		MessageType: "text",
+		TaskMode:    "agent",
+		WorkspaceID: workspace,
+	}); err != nil {
+		klog.ErrorS(err, "send hyperloom prompt", "task_id", taskID, "session_id", sessionID)
+		_ = h.clawClient.DeleteSession(context.Background(), sessionID)
 		_ = h.dbClient.UpdateOptimizationTaskStatus(ctx, taskID,
-			dbclient.OptimizationTaskStatusFailed, 0, "failed to send prompt: "+sendErr.Error())
+			dbclient.OptimizationTaskStatusFailed, 0, "failed to send prompt: "+err.Error())
 		return nil, commonerrors.NewInternalError("failed to submit task to Claw")
 	}
 
 	_ = h.dbClient.UpdateOptimizationTaskStatus(ctx, taskID,
 		dbclient.OptimizationTaskStatusRunning, 0, "")
 	hub, _ := h.hubs.getOrCreate(taskID, 0)
-	go h.consumeClawStream(taskID, sessionID, hub, clawBearer)
+	go h.consumeClawStream(taskID, sessionID, hub)
 
 	return &CreateTaskResponse{
 		ID:            taskID,
@@ -302,9 +276,7 @@ func (h *Handler) DeleteTask(c *gin.Context) {
 		return
 	}
 	if task.ClawSessionID != "" {
-		cleanupCtx, cleanupCancel := context.WithTimeout(WithClawBearer(context.Background(), clawBearerForGin(c)), 10*time.Second)
-		defer cleanupCancel()
-		_ = h.clawClient.DeleteSession(cleanupCtx, task.ClawSessionID)
+		_ = h.clawClient.DeleteSession(context.Background(), task.ClawSessionID)
 	}
 	h.hubs.remove(id)
 	if err := h.dbClient.DeleteOptimizationTask(c.Request.Context(), id); err != nil {
@@ -409,7 +381,7 @@ func (h *Handler) StreamEvents(c *gin.Context) {
 // SSE stream, parses it, persists events, and broadcasts them to live HTTP
 // subscribers. It runs until the stream ends or returns an error; either
 // way the task is transitioned to a terminal status.
-func (h *Handler) consumeClawStream(taskID, sessionID string, hub *taskHub, clawBearer string) {
+func (h *Handler) consumeClawStream(taskID, sessionID string, hub *taskHub) {
 	var streamErr error
 	defer func() {
 		if r := recover(); r != nil {
@@ -420,57 +392,28 @@ func (h *Handler) consumeClawStream(taskID, sessionID string, hub *taskHub, claw
 	}()
 
 	parser := NewSSEParser()
-	// Cap stream lifetime at 4 hours so a hung Claw session never leaks a
-	// goroutine forever. Hyperloom typically finishes in under 90 minutes.
-	ctx, cancel := context.WithTimeout(WithClawBearer(context.Background(), clawBearer), 4*time.Hour)
+	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+	// The stream loop runs for as long as Claw keeps the session alive, which
+	// for Hyperloom is typically 30-60 minutes. We rely on ctx to cancel on
+	// shutdown and on Claw to close the body when the agent finishes.
 	go func() {
 		<-hub.Done()
 		cancel()
 	}()
 
-	// Retry loop: on transient drops (EOF, network reset) resume from the
-	// last Claw event id using ?after=<id>. Give up after maxStreamRetries.
-	const maxStreamRetries = 10
-	lastClawEventID := ""
-	retryDelay := 3 * time.Second
-
-	for attempt := 0; attempt <= maxStreamRetries; attempt++ {
-		if attempt > 0 {
-			klog.InfoS("claw stream: reconnecting",
-				"task_id", taskID, "attempt", attempt, "after", lastClawEventID)
-			select {
-			case <-ctx.Done():
-				return
-			case <-time.After(retryDelay):
-			}
-			if retryDelay < 30*time.Second {
-				retryDelay *= 2
-			}
+	err := h.clawClient.Stream(ctx, sessionID, "", func(raw ClawSSEEvent) error {
+		parsed := parser.Parse(raw)
+		for _, p := range parsed {
+			ev := h.buildEvent(taskID, hub, p.Type, p.Payload)
+			h.persistAndBroadcast(taskID, hub, ev)
+			h.maybeUpdateTaskStatus(taskID, p)
 		}
-
-		err := h.clawClient.Stream(ctx, sessionID, lastClawEventID, func(raw ClawSSEEvent) error {
-			if raw.ID != "" {
-				lastClawEventID = raw.ID
-			}
-			parsed := parser.Parse(raw)
-			for _, p := range parsed {
-				ev := h.buildEvent(taskID, hub, p.Type, p.Payload)
-				h.persistAndBroadcast(taskID, hub, ev)
-				h.maybeUpdateTaskStatus(taskID, p)
-			}
-			return nil
-		})
-
-		if err == nil || errors.Is(err, context.Canceled) || ctx.Err() != nil {
-			return
-		}
-
-		klog.ErrorS(err, "claw stream dropped, will retry",
-			"task_id", taskID, "session_id", sessionID, "attempt", attempt)
-		if attempt == maxStreamRetries {
-			streamErr = err
-		}
+		return nil
+	})
+	if err != nil && !errors.Is(err, context.Canceled) {
+		klog.ErrorS(err, "claw stream ended", "task_id", taskID, "session_id", sessionID)
+		streamErr = err
 	}
 }
 
@@ -485,39 +428,22 @@ func (h *Handler) buildEvent(taskID string, hub *taskHub, evType EventType, payl
 	}
 }
 
-const maxEventPayloadBytes = 2048
-
 func (h *Handler) persistAndBroadcast(taskID string, hub *taskHub, ev Event) {
-	// Broadcast to live SSE subscribers first; persistence is best-effort.
-	hub.broadcast(ev)
-
-	// Skip high-volume read events (tool:read carries full skill file content
-	// that is static and can be very large; storing it fills the DB quickly).
-	if ev.Type == EventTypeLog {
-		var lp LogEventPayload
-		if err := json.Unmarshal(ev.Payload, &lp); err == nil && lp.Source == "tool:read" {
-			return
-		}
-	}
-
-	payload := string(ev.Payload)
-	if len(payload) > maxEventPayloadBytes {
-		payload = payload[:maxEventPayloadBytes]
-	}
-
+	// Persist in a best-effort manner; the live channel still gets the event.
 	seq := parseSeqFromEventID(ev.ID)
 	dbev := &dbclient.OptimizationEvent{
 		EventID:   ev.ID,
 		TaskID:    taskID,
 		Type:      string(ev.Type),
-		Payload:   payload,
+		Payload:   string(ev.Payload),
 		Seq:       seq,
 		Timestamp: ev.Timestamp,
 	}
 	if err := h.dbClient.AppendOptimizationEvent(context.Background(), dbev); err != nil {
-		klog.ErrorS(err, "persist optimization event failed",
-			"task_id", taskID, "seq", seq)
+		klog.V(4).InfoS("persist optimization event failed",
+			"task_id", taskID, "seq", seq, "error", err)
 	}
+	hub.broadcast(ev)
 }
 
 // maybeUpdateTaskStatus promotes the task's DB status when we see either a
@@ -572,44 +498,8 @@ func (h *Handler) finalizeTask(taskID string, hub *taskHub, streamErr error) {
 
 // ── Helpers ─────────────────────────────────────────────────────────────
 
-// clawBearerForGin resolves the Bearer token for outbound PrimusClaw calls. Order matches
-// Primus-Claw + SaFE /auth/verify semantics: explicit user API key, then per-user platform
-// key (same as Hyperloom cookie flows), then optional file-based service key.
-func clawBearerForGin(c *gin.Context) string {
-	if c != nil {
-		if k := authority.ExtractApiKeyFromRequest(c.GetHeader("Authorization")); k != "" {
-			return k
-		}
-		userID := c.GetString(common.UserId)
-		userName := c.GetString(common.UserName)
-		if userID != "" {
-			if tok := authority.ApiKeyTokenInstance(); tok != nil {
-				pk, err := tok.GetOrCreatePlatformKey(c.Request.Context(), userID, userName)
-				if err != nil {
-					klog.ErrorS(err, "model optimization: GetOrCreatePlatformKey for PrimusClaw",
-						"userId", userID)
-				} else if strings.TrimSpace(pk) != "" {
-					return pk
-				}
-			}
-		}
-	}
-	return commonconfig.GetModelOptimizationClawAPIKey()
-}
-
-func (h *Handler) promptConfigFromRequest(ctx context.Context, req *CreateTaskRequest, m *ResolvedModel, workspace, safeAPIKey string) PromptConfig {
-	safeAPIURL := ""
-	if host := commonconfig.GetSystemHost(); host != "" {
-		safeAPIURL = "https://" + host
-	}
-	gpuType := req.GPUType
-	if gpuType == "" {
-		gpuType = h.gpuTypeFromWorkspace(ctx, workspace)
-	}
+func promptConfigFromRequest(req *CreateTaskRequest, m *ResolvedModel, workspace string) PromptConfig {
 	return PromptConfig{
-		ProxyImageRegistry: h.proxyImageRegistry,
-		SafeAPIURL:         safeAPIURL,
-		SafeAPIKey:         safeAPIKey,
 		DisplayName:    firstNonEmpty(req.DisplayName, m.DisplayName),
 		ModelName:      m.ModelName,
 		ModelPath:      m.LocalPath,
@@ -618,7 +508,7 @@ func (h *Handler) promptConfigFromRequest(ctx context.Context, req *CreateTaskRe
 		Precision:      req.Precision,
 		TP:             req.TP,
 		EP:             req.EP,
-		GPUType:        gpuType,
+		GPUType:        req.GPUType,
 		ISL:            req.ISL,
 		OSL:            req.OSL,
 		Concurrency:    req.Concurrency,
@@ -636,18 +526,6 @@ func (h *Handler) promptConfigFromRequest(ctx context.Context, req *CreateTaskRe
 		BaselineCSV:    req.BaselineCSV,
 		BaselineCount:  req.BaselineCount,
 	}
-}
-
-// gpuTypeFromWorkspace reads the GPU product annotation from the k8s Workspace
-// resource and returns it as a GPU type string (e.g. "MI355X"). Returns ""
-// on any error so the caller can fall back to the hardcoded default.
-func (h *Handler) gpuTypeFromWorkspace(ctx context.Context, workspaceName string) string {
-	ws := &v1.Workspace{}
-	if err := h.k8sClient.Get(ctx, ctrlclient.ObjectKey{Name: workspaceName}, ws); err != nil {
-		klog.V(4).InfoS("gpuTypeFromWorkspace: failed to get workspace", "workspace", workspaceName, "err", err)
-		return ""
-	}
-	return v1.GetAnnotation(ws, v1.GpuProductAnnotation)
 }
 
 func taskInfoFromDB(t *dbclient.OptimizationTask, includePrompt bool) TaskInfo {
