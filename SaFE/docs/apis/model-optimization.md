@@ -19,15 +19,12 @@ Base path: `/api/v1/optimization`
 
 `POST /tasks`
 
-Omitted fields use the same defaults as Hyperloom-Web `useInferOptTemplate.ts`
-(`mode`: `local`, `kernelBackends`: `["Claude Code"]`, framework images, etc.).
-
 ```json
 {
   "displayName": "qwen3-opt",
   "modelId": "model-abc",
   "workspace": "control-plane-sandbox",
-  "mode": "local",
+  "mode": "claw",
   "framework": "sglang",
   "precision": "FP4",
   "tp": 1,
@@ -36,16 +33,13 @@ Omitted fields use the same defaults as Hyperloom-Web `useInferOptTemplate.ts`
   "isl": 1024,
   "osl": 1024,
   "concurrency": 64,
-  "kernelBackends": ["Claude Code"],
+  "kernelBackends": ["GEAK", "Codex"],
   "geakStepLimit": 100,
-  "image": "harbor.oci-slc.primus-safe.amd.com/custom/lmsysorg/sglang:202603270958",
+  "image": "harbor.example/sglang:latest",
   "inferencexPath": "/hyperloom/InferenceX",
   "resultsPath": "/workspace/hyperloom/"
 }
 ```
-
-Use `"mode": "claw"` when you want the RayJob / workspace submission block in the
-Hyperloom prompt (same as switching to claw in the UI).
 
 Response:
 
