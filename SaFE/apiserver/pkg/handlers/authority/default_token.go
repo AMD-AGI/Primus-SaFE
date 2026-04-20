@@ -141,7 +141,7 @@ func generateDefaultToken(userId string, expire int64, username string) (string,
 	return inst.Encrypt([]byte(tokenStr))
 }
 
-// getUserById retrieves a user resource by ID from the system.
+// getUserById retrieves a user resource by ID from the system.kn get pods
 // Returns an error if the user doesn't exist or the ID is empty.
 func getUserById(ctx context.Context, cli client.Client, userId string) (*v1.User, error) {
 	if userId == "" {
@@ -150,7 +150,7 @@ func getUserById(ctx context.Context, cli client.Client, userId string) (*v1.Use
 	user := &v1.User{}
 	err := cli.Get(ctx, client.ObjectKey{Name: userId}, user)
 	if err != nil {
-		klog.ErrorS(err, "failed to get user")
+		klog.ErrorS(err, "failed to get user", "userId", userId)
 		return nil, err
 	}
 	return user, nil

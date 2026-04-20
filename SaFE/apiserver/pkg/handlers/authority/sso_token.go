@@ -169,14 +169,6 @@ func (c *ssoToken) Validate(ctx context.Context, rawToken string) (*UserInfo, er
 		}
 		nowTime := time.Now().Unix()
 		dbSql = append(dbSql, sqrl.Gt{dbclient.GetFieldTag(dbTags, "ExpireTime"): nowTime})
-		if c == nil {
-			klog.Infof("failed to get sso instance")
-			return nil, commonerrors.NewInternalError("sso token is nil")
-		}
-		if c.dbClient == nil {
-			klog.Infof("failed to get db instance")
-			return nil, commonerrors.NewInternalError("db client is nil")
-		}
 		userToken, err := c.dbClient.SelectUserTokens(ctx, dbSql, nil, 1, 0)
 		if err != nil || len(userToken) == 0 {
 			return nil, commonerrors.NewUnauthorized("token not present")
