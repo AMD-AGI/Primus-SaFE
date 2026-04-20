@@ -43,7 +43,7 @@ higress-core:
           protocol: TCP
           targetPort: 2222
   downstream:
-    connectionBufferLimits: 10485760    # 10 MB (was 32KB; aligns with upstream)
+    connectionBufferLimits: 10485760    # 10 MB
     http2:
-      initialConnectionWindowSize: 16777216  # 16 MB (was 1 MB)
-      initialStreamWindowSize: 16777216      # 16 MB (was 64 KB)
+      initialConnectionWindowSize: 16777216  # 16 MB
+      initialStreamWindowSize: 16777216      # 16 MB
