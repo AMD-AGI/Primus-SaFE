@@ -42,15 +42,23 @@ if [ $? -ne 0 ]; then
   exit 1
 fi
 
+# lspci's "(ok)" / "(downgraded)" trailing annotations were added in pciutils
+# 3.11 (2023). Anything older (e.g. Ubuntu 22.04 default 3.7, Core42's 3.10)
+# just prints "Speed 32GT/s, Width x16". Match the speed/width tokens on
+# their own and treat a trailing "(downgraded)" as the only failure signal.
 echo "$PCI_OUTPUT" | awk -v speed="$EXPECTED_SPEED" -v width="$EXPECTED_WIDTH" '
 /LnkSta:/ {
     line = $0
-    if (line !~ ("Speed " speed " \\(ok\\)")) {
-        print "Expected Speed: " speed " (ok), got different value"
+    if (line !~ ("Speed " speed "(,| )")) {
+        print "Expected Speed: " speed ", got different value: " line
         exit 1
     }
-    if (line !~ ("Width " width " \\(ok\\)")) {
-        print "Expected Width: " width " (ok), got different value"
+    if (line !~ ("Width " width "($| |,)")) {
+        print "Expected Width: " width ", got different value: " line
+        exit 1
+    }
+    if (line ~ /\(downgraded\)/) {
+        print "PCIe link downgraded: " line
         exit 1
     }
 }
@@ -59,8 +67,8 @@ echo "$PCI_OUTPUT" | awk -v speed="$EXPECTED_SPEED" -v width="$EXPECTED_WIDTH" '
 RESULT=$?
 
 if [ $RESULT -eq 0 ]; then
-  echo "[OK] All checks passed: Link is ${EXPECTED_SPEED} ${EXPECTED_WIDTH} (ok)"
+  echo "[OK] All checks passed: Link is ${EXPECTED_SPEED} ${EXPECTED_WIDTH}"
 else
-  echo "Error: PCIe status check failed: Link speed/width not (ok) or mismatch."
+  echo "Error: PCIe status check failed: Link speed/width mismatch or downgraded."
   exit 1
 fi
