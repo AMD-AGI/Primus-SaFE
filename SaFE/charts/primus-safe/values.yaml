@@ -255,3 +255,11 @@ a2a_gateway:
 llm_gateway:
   enabled: true
   secret_path: "/etc/secrets/llm-gateway"
+# Model Optimization (Hyperloom via PrimusClaw). When enabled, apiserver registers /api/v1/optimization/* (requires db.enable).
+model_optimization:
+  enabled: true
+  claw_base_url: ""
+  claw_agent_id: "agent_default"
+  secret_path: "/etc/secrets/model-optimization"
+  default_workspace: "control-plane-sandbox"
+  max_concurrent: 5
