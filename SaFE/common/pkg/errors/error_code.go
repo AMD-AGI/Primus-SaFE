@@ -42,6 +42,14 @@ const (
 	ResourceProcessing    = PrimusPrefix + "00010"
 	UserNotRegistered     = PrimusPrefix + "00011"
 	StatusConflict        = PrimusPrefix + "00012"
+	// RobustAddonNotInstalled signals that the target data cluster doesn't
+	// have the primus-robust addon installed (or its Cluster CR lacks the
+	// robust-api endpoint annotation), so observability endpoints that
+	// depend on robust-analyzer can't be served. The frontend should treat
+	// this as a benign "feature unavailable on this cluster" rather than an
+	// error — typically by rendering an empty placeholder instead of a
+	// red toast.
+	RobustAddonNotInstalled = PrimusPrefix + "00050"
 )
 
 // workload: 01xxx
@@ -262,5 +270,21 @@ func NewNotImplemented(message string) *apierrors.StatusError {
 		Code:    http.StatusNotImplemented,
 		Reason:  NotImplemented,
 		Message: message,
+	}}
+}
+
+// NewRobustAddonNotInstalled creates a "robust addon not installed" error.
+// HTTP status is 404 so browsers / axios default to not-an-exception handling,
+// and the error code is unique enough for frontend special-casing.
+func NewRobustAddonNotInstalled(cluster string) *apierrors.StatusError {
+	msg := "primus-robust addon is not installed on this cluster; metrics and logs endpoints are unavailable"
+	if cluster != "" {
+		msg = fmt.Sprintf("primus-robust addon is not installed on cluster %q; metrics and logs endpoints are unavailable", cluster)
+	}
+	return &apierrors.StatusError{ErrStatus: metav1.Status{
+		Status:  metav1.StatusFailure,
+		Code:    http.StatusNotFound,
+		Reason:  RobustAddonNotInstalled,
+		Message: msg,
 	}}
 }

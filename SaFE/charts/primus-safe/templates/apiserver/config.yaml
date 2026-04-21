@@ -124,8 +124,13 @@ data:
     {{- if or .Values.proxy .Values.langfuse_proxy }}
     proxy:
       services:
-        {{- if .Values.proxy }}
-        {{- toYaml .Values.proxy.services | nindent 8 }}
+        {{- /* Render existing user-supplied services one item at a time so that
+              an empty list doesn't collapse to flow-style `[]`, which would
+              break syntax when langfuse appends to it. */}}
+        {{- if and .Values.proxy .Values.proxy.services }}
+        {{- range .Values.proxy.services }}
+        - {{ toYaml . | nindent 10 | trim }}
+        {{- end }}
         {{- end }}
         {{- if and .Values.langfuse_proxy .Values.langfuse_proxy.enable }}
         - name: langfuse

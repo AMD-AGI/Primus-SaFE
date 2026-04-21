@@ -18,6 +18,7 @@ import (
 	emailrelayhandlers "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/email-relay-handlers"
 	githubworkflow "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/github-workflow"
 	imagehandlers "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/image-handlers"
+	lenscompat "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/lens-compat"
 	llmgateway "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/llm-gateway"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/middleware"
 	model_handlers "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/model-handlers"
@@ -70,6 +71,13 @@ func InitHttpHandlers(_ context.Context, mgr ctrlruntime.Manager) (*gin.Engine, 
 		return nil, err
 	}
 	proxyhandlers.InitProxyRoutes(engine, proxyHandler)
+
+	// Dynamic lens-compat proxy: routes /lens/v1/* to the robust-analyzer of
+	// the cluster named by ?cluster=<name>. Uses the shared robustclient that
+	// is populated by resource-manager's Discovery controller, so adding a
+	// new data cluster only requires a Cluster CR + the addon endpoint
+	// annotation — no apiserver config or helm upgrade.
+	lenscompat.NewHandler(model_handlers.GetRobustClient()).Register(engine)
 
 	customHandler, err := reshandler.NewHandler(mgr)
 	if err != nil {

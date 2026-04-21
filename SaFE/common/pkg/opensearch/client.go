@@ -77,7 +77,7 @@ func (c *SearchClient) Request(uri, httpMethod string, body []byte) ([]byte, err
 		uri = "/" + uri
 	}
 
-	klog.V(4).Infof("proxying opensearch request via robust-api: %s %s", httpMethod, uri)
+	klog.V(4).Infof("proxying opensearch request via robust-analyzer: %s %s", httpMethod, uri)
 
 	proxyReq := logRawProxyRequest{
 		URI:    uri,
@@ -90,16 +90,19 @@ func (c *SearchClient) Request(uri, httpMethod string, body []byte) ([]byte, err
 
 	rawResp, err := c.clusterClient.RawPost(ctx, "/api/v1/logs/raw", proxyReq)
 	if err != nil {
-		return nil, fmt.Errorf("robust-api log proxy failed: %w", err)
+		return nil, fmt.Errorf("robust-analyzer log proxy failed: %w", err)
 	}
 
 	var envelope logRawProxyEnvelope
 	if err := json.Unmarshal(rawResp, &envelope); err != nil {
-		return nil, fmt.Errorf("parse robust-api response: %w", err)
+		klog.Errorf("[opensearch] failed to parse robust-analyzer response (len=%d): %s",
+			len(rawResp), truncateForLog(rawResp, 1024))
+		return nil, fmt.Errorf("parse robust-analyzer response: %w (response prefix: %q)",
+			err, truncateForLog(rawResp, 200))
 	}
 
 	if envelope.Meta.Code != 0 && envelope.Meta.Code != 2000 {
-		return nil, fmt.Errorf("robust-api log proxy error %d: %s", envelope.Meta.Code, envelope.Meta.Message)
+		return nil, fmt.Errorf("robust-analyzer log proxy error %d: %s", envelope.Meta.Code, envelope.Meta.Message)
 	}
 
 	if envelope.Data.StatusCode >= 400 {
@@ -107,6 +110,13 @@ func (c *SearchClient) Request(uri, httpMethod string, body []byte) ([]byte, err
 	}
 
 	return []byte(envelope.Data.Body), nil
+}
+
+func truncateForLog(b []byte, maxLen int) string {
+	if len(b) <= maxLen {
+		return string(b)
+	}
+	return string(b[:maxLen]) + "...(truncated)"
 }
 
 func (c *SearchClient) generateIndexPattern(index string, sinceTime, untilTime time.Time) (string, error) {
