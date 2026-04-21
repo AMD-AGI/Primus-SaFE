@@ -114,7 +114,13 @@ opensearch:
   # Log search feature flag. When true, log search endpoints are available.
   # Queries are proxied through robust-api on data clusters (no direct OpenSearch connection).
   enable: true
-  prefix: "fluentbit-"
+  # Index prefix used to build the date-scoped OpenSearch URIs for pod/node
+  # logs, e.g. "<prefix>2026.04.21". Must match the prefix fluentbit is
+  # actually writing to. The current primus-robust FluentBit config writes
+  # pod/node logs to `node-<date>` indices; the legacy "fluentbit-" prefix
+  # applied to the old primus-lens deployment and produced
+  # "no such index [fluentbit-2026.04.21]" 404s after the migration.
+  prefix: "node-"
   secret: "primus-safe-opensearch-config"
   secret_namespace: "primus-safe"
   secret_path: "/etc/secrets/opensearch"
