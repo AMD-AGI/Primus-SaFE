@@ -30,20 +30,24 @@
         >
           <div class="card-header">
             <span class="plugin-name">{{ item.name }}</span>
-            <el-tag v-if="!item.is_public" size="small" type="warning" effect="light">
-              Private
-            </el-tag>
+            <div class="header-tags">
+              <el-tag v-if="item.status === 'inactive'" size="small" type="info" effect="light">
+                Inactive
+              </el-tag>
+              <el-tag v-if="!item.is_public" size="small" type="warning" effect="light">
+                Private
+              </el-tag>
+            </div>
           </div>
           <p class="plugin-desc">{{ item.description || 'No description' }}</p>
 
-          <!-- Tool chips: type badge + name, hover for description -->
+          <!-- Tool chips: single-row, ellipsis, overflow fallback -->
           <div v-if="item.tools.length" class="tool-chips">
             <el-tooltip
-              v-for="t in item.tools.slice(0, 4)"
+              v-for="t in item.tools.slice(0, MAX_TOOL_CHIPS)"
               :key="t.id"
               placement="top"
               :show-after="300"
-              :disabled="!t.description"
             >
               <template #content>
                 <div style="max-width: 320px;">
@@ -61,29 +65,46 @@
                 <span class="tool-chip-name">{{ t.name || `#${t.id}` }}</span>
               </span>
             </el-tooltip>
-            <el-tag v-if="item.tools.length > 4" size="small" effect="light">
-              +{{ item.tools.length - 4 }}
-            </el-tag>
+            <el-tooltip
+              v-if="item.tools.length > MAX_TOOL_CHIPS"
+              placement="top"
+            >
+              <template #content>
+                <div style="max-width: 280px; font-size: 12px; line-height: 1.6;">
+                  <div style="font-weight: 600; margin-bottom: 4px;">
+                    +{{ item.tools.length - MAX_TOOL_CHIPS }} more tools
+                  </div>
+                  <div v-for="t in item.tools.slice(MAX_TOOL_CHIPS)" :key="t.id">
+                    [{{ t.type.toUpperCase() }}] {{ t.name || `#${t.id}` }}
+                  </div>
+                </div>
+              </template>
+              <span class="tool-chip tool-chip--more">
+                +{{ item.tools.length - MAX_TOOL_CHIPS }}
+              </span>
+            </el-tooltip>
           </div>
 
-          <!-- Resource chips -->
-          <div v-if="item.resources?.length" class="resource-chips">
-            <el-tag
-              v-for="r in item.resources"
-              :key="r.id"
-              size="small"
-              :type="r.type === 'gpu' ? 'success' : 'primary'"
-              effect="light"
-            >
-              {{ r.type.toUpperCase() }}{{ r.name ? ` · ${r.name}` : '' }}
-            </el-tag>
+          <!-- Resources: muted inline text -->
+          <div v-if="item.resources?.length" class="resource-line">
+            <span class="resource-label">Resources</span>
+            <span class="resource-names">
+              {{ item.resources.map(r => r.name || `#${r.id}`).join(' · ') }}
+            </span>
           </div>
 
           <div class="card-footer">
             <div class="footer-left">
               <el-tag size="small" effect="light" type="primary">v{{ item.version || '–' }}</el-tag>
               <span class="footer-author">{{ item.author || '–' }}</span>
-              <span class="footer-date">{{ formatDate(item.created_at) }}</span>
+              <el-tooltip
+                v-if="item.updated_at && item.updated_at !== item.created_at"
+                :content="`Updated ${formatDate(item.updated_at)}`"
+                placement="top"
+              >
+                <span class="footer-date">{{ formatDate(item.updated_at) }}</span>
+              </el-tooltip>
+              <span v-else class="footer-date">{{ formatDate(item.created_at) }}</span>
             </div>
             <button class="run-btn" @click.stop="handleRun(item)">
               <el-icon><VideoPlay /></el-icon>
@@ -148,6 +169,8 @@ const editId = ref<number | undefined>()
 const detailItem = ref<Plugin | null>(null)
 
 const pagination = reactive({ page: 1, pageSize: 12, total: 0 })
+
+const MAX_TOOL_CHIPS = 3
 
 const formatDate = (s: string) => s.split(' ')[0]
 
@@ -271,16 +294,42 @@ onMounted(fetchList)
     overflow: hidden;
   }
 
+  .header-tags {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+    flex-shrink: 0;
+  }
+
   .tool-chips {
     display: flex;
     gap: 6px;
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
+    overflow: hidden;
+    min-width: 0;
   }
 
-  .resource-chips {
+  .resource-line {
     display: flex;
-    gap: 4px;
-    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: var(--safe-muted, var(--el-text-color-secondary));
+    line-height: 1.4;
+    overflow: hidden;
+
+    .resource-label {
+      font-weight: 500;
+      opacity: 0.8;
+
+      &::after { content: ':'; }
+    }
+
+    .resource-names {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
   }
 
   .tool-chip {
@@ -293,6 +342,8 @@ onMounted(fetchList)
     overflow: hidden;
     border: 1px solid color-mix(in oklab, var(--safe-border, var(--el-border-color)) 60%, transparent 40%);
     background: var(--safe-card, var(--el-bg-color));
+    min-width: 0;
+    flex: 0 1 auto;
 
     .tool-chip-type {
       padding: 0 6px;
@@ -300,21 +351,30 @@ onMounted(fetchList)
       font-size: 10px;
       letter-spacing: 0.3px;
       color: #fff;
+      flex-shrink: 0;
     }
 
     .tool-chip-name {
       padding: 0 8px;
       color: var(--safe-text, var(--el-text-color-primary));
-      max-width: 140px;
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
+      min-width: 24px;
     }
 
     &.tool-chip--mcp .tool-chip-type { background: var(--el-color-success); }
     &.tool-chip--skill .tool-chip-type { background: var(--el-color-primary); }
     &.tool-chip--hooks .tool-chip-type { background: var(--el-color-warning); }
     &.tool-chip--rule .tool-chip-type { background: var(--el-color-info); }
+
+    &.tool-chip--more {
+      padding: 0 10px;
+      font-weight: 500;
+      color: var(--safe-muted, var(--el-text-color-secondary));
+      flex-shrink: 0;
+      cursor: help;
+    }
   }
 
   .card-footer {
