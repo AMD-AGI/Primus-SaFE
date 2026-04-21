@@ -278,7 +278,7 @@ func (h *Handler) listWorkload(c *gin.Context) (interface{}, error) {
 	if err = h.authWorkloadAction(c, adminWorkload, v1.ListVerb, v1.WorkloadKind, requestUser, roles); err != nil {
 		return nil, err
 	}
-	
+
 	dbSql, orderBy := cvtToListWorkloadSql(query)
 	ctx := c.Request.Context()
 	workloads, err := h.dbClient.SelectWorkloads(ctx, dbSql, orderBy, query.Limit, query.Offset)
@@ -822,9 +822,6 @@ func (h *Handler) generateWorkload(ctx context.Context,
 	}
 	if req.ForceHostNetwork != nil && *req.ForceHostNetwork {
 		v1.SetAnnotation(workload, v1.ForceHostNetworkAnnotation, strconv.FormatBool(*req.ForceHostNetwork))
-	}
-	if req.TemplateId != "" {
-		v1.SetAnnotation(workload, v1.SandboxTemplateIdAnnotation, req.TemplateId)
 	}
 	if commonworkload.IsMonarchJob(workload) && !commonconfig.IsMonarchEnable() {
 		return nil, commonerrors.NewNotImplemented("the Monarch is not enabled")

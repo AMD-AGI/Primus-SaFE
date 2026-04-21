@@ -467,29 +467,6 @@ func (r *DispatcherReconciler) getWorkloadTemplate(ctx context.Context,
 	return template, nil
 }
 
-func (r *DispatcherReconciler) getSandboxTemplate(ctx context.Context, adminWorkload *v1.Workload) (interface{}, error) {
-	rt, err := commonworkload.GetResourceTemplateByGVK(ctx, r.Client,
-		schema.GroupVersionKind{Version: adminWorkload.Spec.Version, Kind: common.SandboxTemplateKind})
-	if err != nil {
-		return nil, err
-	}
-	// TODO: Templates currently exist only within the admin plane.
-	templateId := v1.GetSandboxTemplateId(adminWorkload)
-	obj := &unstructured.Unstructured{}
-	obj.SetGroupVersionKind(rt.ToSchemaGVK())
-	if err = r.Get(ctx, apitypes.NamespacedName{Name: templateId, Namespace: adminWorkload.Spec.Workspace}, obj); err != nil {
-		klog.ErrorS(err, "failed to get SandboxTemplate", "name", templateId)
-		return nil, err
-	}
-	// The template has successfully passed the webhook check.
-	podTemplatePath := rt.Spec.ResourceSpecs[0].TemplatePath()
-	podTemplate, found, err := unstructured.NestedFieldCopy(obj.Object, podTemplatePath...)
-	if err != nil || !found {
-		return nil, fmt.Errorf("failed to get podTemplate from SandboxTemplate")
-	}
-	return podTemplate, nil
-}
-
 // markAsDispatched updates a workload's status to indicate it has been dispatched.
 func (r *DispatcherReconciler) markAsDispatched(ctx context.Context, workload *v1.Workload) error {
 	if v1.GetRootWorkloadId(workload) != "" {

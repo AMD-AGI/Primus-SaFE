@@ -118,7 +118,6 @@ const (
 	// Note: This feature is disabled when preemption is enabled
 	RetryOnOriginalNodesAnnotation = PrimusSafePrefix + "retry.on.original.nodes"
 	NodesAffinityAnnotation        = PrimusSafePrefix + "nodes.affinity"
-	SandboxTemplateIdAnnotation    = PrimusSafePrefix + "sandbox.template.id"
 
 	// user
 	UserPrefix                       = PrimusSafePrefix + "user."

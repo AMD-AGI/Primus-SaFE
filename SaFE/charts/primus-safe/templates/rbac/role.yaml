@@ -120,12 +120,6 @@ rules:
   - sandboxes
   verbs:
   - '*'
-- apiGroups:
-  - extensions.agents.x-k8s.io
-  resources:
-  - sandboxtemplates
-  verbs:
-  - '*'
 {{- if .Values.cicd.enable }}
 ---
 apiVersion: rbac.authorization.k8s.io/v1
