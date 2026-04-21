@@ -469,13 +469,30 @@ func (r *AddonController) getCluster(ctx context.Context, cluster *corev1.Object
 }
 
 const (
-	robustAddonPrefix         = "primus-robust"
-	annotationRobustEndpoint  = "primus-safe.amd.com/robust-api-endpoint"
-	defaultRobustAPIPort      = "8085"
+	robustAddonPrefix        = "primus-robust"
+	annotationRobustEndpoint = "primus-safe.amd.com/robust-api-endpoint"
+	// The primus-robust chart deploys a single Deployment called
+	// "robust-analyzer" that embeds the robust-api module on port 8085.
+	// There is no standalone "robust-api" Service — the previous default
+	// pointed at a DNS name that did not exist, which surfaced as
+	// "connection refused" on every cross-cluster call.
+	defaultRobustAPIService = "robust-analyzer"
+	defaultRobustAPIPort    = "8085"
 )
 
-// registerRobustEndpointIfApplicable annotates the Cluster CR with the robust-api
-// endpoint when a primus-robust addon is successfully deployed.
+// registerRobustEndpointIfApplicable annotates the Cluster CR with the
+// robust-api endpoint when a primus-robust addon is installed, but only
+// when the annotation is not already set.
+//
+// Why respect an existing annotation:
+//
+// The endpoint we can infer from the addon is a ClusterIP Service DNS name
+// that only resolves *inside* the data cluster. For a typical deployment
+// (SaFE management cluster dialing the data cluster's robust-analyzer) the
+// operator needs to override it with a NodePort / LoadBalancer / Ingress
+// address. Anyone overriding the annotation by hand expected it to stick;
+// unconditionally patching it back to the in-cluster DNS was the reason
+// operators kept seeing dial-tcp failures after a reconcile.
 func (r *AddonController) registerRobustEndpointIfApplicable(ctx context.Context, addon *v1.Addon) {
 	templateName := ""
 	if addon.Spec.AddonSource.HelmRepository != nil {
@@ -503,12 +520,18 @@ func (r *AddonController) registerRobustEndpointIfApplicable(ctx context.Context
 	if addon.Spec.AddonSource.HelmRepository != nil && addon.Spec.AddonSource.HelmRepository.Namespace != "" {
 		ns = addon.Spec.AddonSource.HelmRepository.Namespace
 	}
-	endpoint := fmt.Sprintf("http://robust-api.%s.svc:%s", ns, defaultRobustAPIPort)
+	endpoint := fmt.Sprintf("http://%s.%s.svc:%s", defaultRobustAPIService, ns, defaultRobustAPIPort)
 
 	if cluster.Annotations == nil {
 		cluster.Annotations = make(map[string]string)
 	}
-	if cluster.Annotations[annotationRobustEndpoint] == endpoint {
+	// Never overwrite an existing annotation; operators use this value to
+	// point the management plane at a NodePort / Ingress that is reachable
+	// across cluster boundaries. We only fill in a first-install default.
+	if existing, ok := cluster.Annotations[annotationRobustEndpoint]; ok && existing != "" {
+		if r.grafanaSyncer != nil {
+			r.grafanaSyncer.SyncClusterDatasources(ctx, clusterRef.Name, existing)
+		}
 		return
 	}
 

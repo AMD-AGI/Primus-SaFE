@@ -13,7 +13,14 @@ metadata:
   annotations:
     meta.helm.sh/release-name: {{ .Release.Name }}
     meta.helm.sh/release-namespace: {{ .Release.Namespace }}
-    primus-safe.amd.com/robust-api-service: "robust-api.primus-robust.svc"
+    # The data-plane robust stack ships a single binary (robust-analyzer)
+    # that exposes robust-api routes under /api/v1. There is no separate
+    # Service called "robust-api" — the SaFE resource-manager reads these
+    # annotations and copies them onto the Cluster CR as the
+    # primus-safe.amd.com/robust-api-endpoint, so pointing at a non-existent
+    # service means every cross-cluster call (logs proxy, posttrain lens,
+    # workload UID resolution, ...) fails with connection refused.
+    primus-safe.amd.com/robust-api-service: "robust-analyzer.primus-robust.svc"
     primus-safe.amd.com/robust-api-port: "8085"
   name: primus-robust.1.0.0
 spec:

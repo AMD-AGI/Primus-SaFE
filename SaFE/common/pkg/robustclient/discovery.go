@@ -7,7 +7,6 @@ package robustclient
 
 import (
 	"context"
-	"fmt"
 	"sync"
 	"time"
 
@@ -17,12 +16,15 @@ import (
 )
 
 const (
-	robustAPIPort            = 8085
-	robustAPIServiceTemplate = "http://robust-api.primus-robust.svc:8085"
+	// defaultRobustEndpoint is the in-cluster service DNS of robust-analyzer
+	// (which hosts the robust-api module). Used when no annotation is set on
+	// the Cluster CR and SaFE apiserver is co-located with robust-analyzer in
+	// the same K8s cluster.
+	defaultRobustEndpoint    = "http://robust-analyzer.primus-robust.svc:8085"
 	annotationRobustEndpoint = "primus-safe.amd.com/robust-api-endpoint"
 )
 
-// Discovery watches Cluster CRs and auto-registers robust-api endpoints on the Client.
+// Discovery watches Cluster CRs and auto-registers robust-analyzer endpoints on the Client.
 type Discovery struct {
 	k8sClient client.Client
 	rc        *Client
@@ -105,30 +107,22 @@ func (d *Discovery) syncOnce(ctx context.Context) {
 	}
 }
 
-// resolveRobustEndpoint determines the robust-api endpoint for a cluster.
-// Priority: annotation > status endpoints (port substitution) > default service template.
+// resolveRobustEndpoint determines the robust-analyzer endpoint for a cluster.
+// Priority:
+//  1. Annotation primus-safe.amd.com/robust-api-endpoint on the Cluster CR.
+//     Use this for cross-cluster setups where robust-analyzer is reachable
+//     via NodePort, LoadBalancer, or Ingress on the data cluster.
+//  2. In-cluster service DNS of robust-analyzer. This works when SaFE
+//     apiserver and robust-analyzer are deployed in the same K8s cluster.
+//
+// Note: ControlPlaneStatus.Endpoints (K8s API server addresses) are NOT
+// used here. robust-analyzer is a regular pod behind a ClusterIP service,
+// not a hostNetwork process listening on the control-plane node IP.
+// The annotation key keeps the legacy "robust-api" name for backward
+// compatibility with already-deployed Cluster CRs.
 func resolveRobustEndpoint(cluster *v1.Cluster) string {
 	if ep, ok := cluster.Annotations[annotationRobustEndpoint]; ok && ep != "" {
 		return ep
 	}
-
-	if eps := cluster.Status.ControlPlaneStatus.Endpoints; len(eps) > 0 {
-		return fmt.Sprintf("http://%s:%d", extractHost(eps[0]), robustAPIPort)
-	}
-
-	return ""
-}
-
-func extractHost(endpoint string) string {
-	if len(endpoint) > 8 && endpoint[:8] == "https://" {
-		endpoint = endpoint[8:]
-	} else if len(endpoint) > 7 && endpoint[:7] == "http://" {
-		endpoint = endpoint[7:]
-	}
-	for i, ch := range endpoint {
-		if ch == ':' || ch == '/' {
-			return endpoint[:i]
-		}
-	}
-	return endpoint
+	return defaultRobustEndpoint
 }
