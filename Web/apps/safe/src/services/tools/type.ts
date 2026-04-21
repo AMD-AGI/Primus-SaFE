@@ -110,6 +110,7 @@ export interface SkillCandidate {
   requires_name: boolean
   will_overwrite: boolean
   owned_by_other?: boolean
+  is_forbidden?: boolean
   // hooks-specific
   hooks_json_relative_path?: string
   scripts?: HooksScript[]

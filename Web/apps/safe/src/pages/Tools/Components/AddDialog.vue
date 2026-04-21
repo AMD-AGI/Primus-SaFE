@@ -303,7 +303,15 @@
                 </el-tag>
                 <template v-if="'will_overwrite' in candidate">
                   <el-tag
-                    v-if="isCandidateDisabled(candidate)"
+                    v-if="candidate.is_forbidden"
+                    type="danger"
+                    size="small"
+                    effect="plain"
+                  >
+                    No Permission
+                  </el-tag>
+                  <el-tag
+                    v-else-if="isCandidateDisabled(candidate)"
                     type="danger"
                     size="small"
                     effect="plain"
@@ -563,9 +571,18 @@ const paginatedCandidates = computed(() => {
   return allCandidates.value.slice(start, end)
 })
 
-// Calculate selected count
+const isCandidateDisabled = (candidate: ExtendedSkillCandidate) => {
+  // is_forbidden is an absolute backend signal (no one, including managers, can commit)
+  if (candidate.is_forbidden === true) return true
+  // Managers can bypass the owned_by_other restriction
+  if (userStore.isManager) return false
+  return candidate.owned_by_other === true
+}
+
 const selectedCount = computed(() => {
-  return allCandidates.value.filter(c => c.selected).length
+  return allCandidates.value.filter(
+    c => c.selected && !isCandidateDisabled(c),
+  ).length
 })
 
 const handleFileChange = (file: UploadFile) => {
@@ -644,14 +661,6 @@ const handleCreateMCP = async () => {
 const candidateTagType = (type: string) =>
   ({ skill: 'primary', mcp: 'success', hooks: 'warning', rule: '' } as Record<string, string>)[type] || ''
 
-// Check if candidate is disabled (regular users cannot overwrite others' skills)
-const isCandidateDisabled = (candidate: ExtendedSkillCandidate) => {
-  // Managers can bypass this restriction
-  if (userStore.isManager) return false
-  // Regular users: disabled if owned_by_other is true
-  return candidate.owned_by_other === true
-}
-
 const toggleCandidate = (candidate: ExtendedSkillCandidate) => {
   // If disabled, do not allow toggling
   if (isCandidateDisabled(candidate)) return
@@ -683,8 +692,10 @@ const handleDiscover = async () => {
     loading.value = true
     const result = await discoverImport(formData)
 
-    // Save all candidates (initialized as selected)
-    allCandidates.value = result.candidates.map(c => ({ ...c, selected: true }))
+    allCandidates.value = result.candidates.map(c => ({
+      ...c,
+      selected: c.is_forbidden !== true,
+    }))
 
     discoverResult.value = {
       archive_key: result.archive_key,
@@ -708,8 +719,9 @@ const handleDiscover = async () => {
 const handleCommit = async () => {
   if (!discoverResult.value) return
 
-  // Filter selected from all candidates
-  const selectedCandidates = allCandidates.value.filter(c => c.selected)
+  const selectedCandidates = allCandidates.value.filter(
+    c => c.selected && !isCandidateDisabled(c),
+  )
 
   if (selectedCandidates.length === 0) {
     ElMessage.warning('Please select at least one skill to import')
