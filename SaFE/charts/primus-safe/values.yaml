@@ -2,6 +2,10 @@
 # Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
 # See LICENSE for license information.
 #
+# Default chart values. Site-specific overrides (image registries, storage
+# classes, secret names, per-cluster endpoints, etc.) belong in a private
+# operations repo and should be applied via `helm upgrade ... -f ...`, not
+# committed to this chart.
 global:
   # Domain and sub_domain are mainly used for console access
   domain: "primus-safe.amd.com"
