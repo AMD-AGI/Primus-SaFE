@@ -24,9 +24,13 @@ metadata:
     meta.helm.sh/release-name: {{ .Release.Name }}
     meta.helm.sh/release-namespace: {{ .Release.Namespace }}
     higress.io/proxy-http-version: "1.1"
+    # DO NOT unconditionally inject Upgrade / Connection: upgrade here.
+    # Higress already auto-detects websocket handshakes via
+    # higress.io/websocket-enable below; hard-coding the headers on every
+    # request caused non-websocket upstreams (notably Grafana) to wait
+    # indefinitely for a ws handshake that never arrives, surfacing as a
+    # user-visible 504 on /lens/grafana/.
     higress.io/request-set-header: |
-      Upgrade $http_upgrade
-      Connection "upgrade"
       X-Forwarded-For $proxy_add_x_forwarded_for
       X-Forwarded-Proto $scheme
     higress.io/timeout: "3600"
