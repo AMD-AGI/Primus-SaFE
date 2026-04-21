@@ -867,3 +867,62 @@ data:
     create index if not exists idx_gwm_config on github_workflow_metrics (config_id);
     create index if not exists idx_gwm_timestamp on github_workflow_metrics (timestamp);
     alter table github_workflow_metrics owner to "primus-safe";
+
+    -- Model Optimization (Hyperloom via PrimusClaw): task + persisted SSE events.
+    -- Maps to common/pkg/database/client OptimizationTask / OptimizationEvent.
+    create table if not exists optimization_task
+    (
+        id               VARCHAR(64) PRIMARY KEY,
+        display_name     VARCHAR(256) NOT NULL,
+        workspace        VARCHAR(64) NOT NULL,
+        user_id          VARCHAR(64) NOT NULL,
+        user_name        VARCHAR(128),
+        model_id         VARCHAR(64) NOT NULL,
+        model_path       TEXT NOT NULL,
+        mode             VARCHAR(32) NOT NULL,
+        framework        VARCHAR(32) NOT NULL,
+        precision        VARCHAR(32) NOT NULL,
+        tp               INTEGER NOT NULL DEFAULT 1,
+        ep               INTEGER NOT NULL DEFAULT 1,
+        gpu_type         VARCHAR(64) NOT NULL,
+        isl              INTEGER NOT NULL DEFAULT 0,
+        osl              INTEGER NOT NULL DEFAULT 0,
+        concurrency      INTEGER NOT NULL DEFAULT 0,
+        kernel_backends  TEXT,
+        geak_step_limit  INTEGER NOT NULL DEFAULT 0,
+        image            TEXT,
+        results_path     TEXT,
+        claw_session_id  VARCHAR(128),
+        prompt           TEXT,
+        status           VARCHAR(32) NOT NULL,
+        current_phase    INTEGER NOT NULL DEFAULT 0,
+        message          TEXT,
+        final_metrics    TEXT,
+        report_path      TEXT,
+        created_at       TIMESTAMPTZ,
+        updated_at       TIMESTAMPTZ,
+        started_at       TIMESTAMPTZ,
+        finished_at      TIMESTAMPTZ,
+        deletion_time    TIMESTAMPTZ,
+        is_deleted       BOOLEAN NOT NULL DEFAULT FALSE
+    );
+    create index if not exists idx_optimization_task_workspace on optimization_task (workspace, is_deleted);
+    create index if not exists idx_optimization_task_status on optimization_task (status, is_deleted);
+    create index if not exists idx_optimization_task_created on optimization_task (created_at DESC);
+    create index if not exists idx_optimization_task_model on optimization_task (model_id, is_deleted);
+    alter table optimization_task owner to "primus-safe";
+
+    create table if not exists optimization_event
+    (
+        id         BIGSERIAL PRIMARY KEY,
+        event_id   VARCHAR(128) NOT NULL,
+        task_id    VARCHAR(64) NOT NULL,
+        type       VARCHAR(32) NOT NULL,
+        payload    TEXT NOT NULL,
+        seq        BIGINT NOT NULL,
+        timestamp  BIGINT NOT NULL,
+        created_at TIMESTAMPTZ
+    );
+    create unique index if not exists idx_optimization_event_event_id on optimization_event (event_id);
+    create index if not exists idx_optimization_event_task_seq on optimization_event (task_id, seq);
+    alter table optimization_event owner to "primus-safe";
