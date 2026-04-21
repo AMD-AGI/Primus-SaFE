@@ -28,8 +28,15 @@ spec:
     grafana_net:
       url: https://grafana.net
     server:
-      domain: "127.0.0.1"
-      root_url: "http://127.0.0.1:30183/grafana"
+      # Grafana sits behind primus-safe-web's nginx, which reverse-proxies
+      # ^~ /lens/grafana/ → grafana-service:3000/lens/grafana/ (see
+      # Web/apps/safe/nginx.conf). The sub-path and outward-facing host
+      # must match what the browser actually sees, otherwise Grafana emits
+      # 301 redirects to the wrong URL on every asset / API request and
+      # the nginx side stalls until proxy_read_timeout, surfacing as a
+      # 504. domain / root_url here drive those absolute URLs.
+      domain: {{ printf "%s.%s" .Values.global.sub_domain .Values.global.domain | quote }}
+      root_url: {{ printf "https://%s.%s/lens/grafana/" .Values.global.sub_domain .Values.global.domain | quote }}
       serve_from_sub_path: "true"
     security:
       allow_embedding: "true"
