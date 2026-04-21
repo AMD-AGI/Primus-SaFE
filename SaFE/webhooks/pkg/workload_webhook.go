@@ -17,9 +17,7 @@ import (
 	admissionv1 "k8s.io/api/admission/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/labels"
-	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	utilerrors "k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/apimachinery/pkg/util/validation/field"
@@ -264,19 +262,7 @@ func (m *WorkloadMutator) mutatePriority(workload *v1.Workload) {
 }
 
 // mutateResources sets GPU name, shared memory and default ephemeral storage.
-func (m *WorkloadMutator) mutateResources(ctx context.Context, workload *v1.Workload, workspace *v1.Workspace) error {
-	if commonworkload.IsSandBox(workload) {
-		if len(workload.Spec.Resources) > 0 {
-			v1.RemoveAnnotation(workload, v1.SandboxTemplateIdAnnotation)
-		} else {
-			var err error
-			workload.Spec.Resources, err = m.getResourceFromSandBoxTemplate(ctx, workload)
-			if err != nil {
-				return err
-			}
-		}
-	}
-
+func (m *WorkloadMutator) mutateResources(_ context.Context, workload *v1.Workload, workspace *v1.Workspace) error {
 	newResources := make([]v1.WorkloadResource, 0, len(workload.Spec.Resources))
 	for _, res := range workload.Spec.Resources {
 		if res.Replica <= 0 {
@@ -686,66 +672,6 @@ func (m *WorkloadMutator) mutateTimeout(workload *v1.Workload, workspace *v1.Wor
 	if workload.Spec.Timeout == nil {
 		workload.Spec.Timeout = pointer.Int(maxRuntime)
 	}
-}
-
-// getResourceFromSandBoxTemplate extracts resource requests from SandboxTemplate's first container.
-// Returns nil if template not found or has no valid resources.
-func (m *WorkloadMutator) getResourceFromSandBoxTemplate(ctx context.Context, workload *v1.Workload) ([]v1.WorkloadResource, error) {
-	templateId := v1.GetSandboxTemplateId(workload)
-	if templateId == "" {
-		return nil, nil
-	}
-	rt, err := commonworkload.GetResourceTemplateByGVK(ctx, m.Client,
-		schema.GroupVersionKind{Version: workload.Spec.Version, Kind: common.SandboxTemplateKind})
-	if err != nil {
-		return nil, err
-	}
-	if len(rt.Spec.ResourceSpecs) == 0 {
-		return nil, fmt.Errorf("the template has no valid resources")
-	}
-	podTemplatePath := rt.Spec.ResourceSpecs[0].TemplatePath()
-	if len(podTemplatePath) == 0 {
-		return nil, fmt.Errorf("the template has no valid resources")
-	}
-
-	obj := &unstructured.Unstructured{}
-	obj.SetGroupVersionKind(rt.ToSchemaGVK())
-	if err = m.Get(ctx, types.NamespacedName{Name: templateId, Namespace: workload.Spec.Workspace}, obj); err != nil {
-		klog.ErrorS(err, "failed to get SandboxTemplate", "name", templateId)
-		return nil, err
-	}
-
-	containerPath := append(podTemplatePath, "spec", "containers")
-	containers, found, err := unstructured.NestedSlice(obj.Object, containerPath...)
-	if err != nil || !found || len(containers) == 0 {
-		return nil, fmt.Errorf("failed to get container from template")
-	}
-	first, ok := containers[0].(map[string]interface{})
-	if !ok {
-		return nil, fmt.Errorf("failed to get container from template")
-	}
-	requests, found, err := unstructured.NestedMap(first, "resources", "requests")
-	if err != nil || !found {
-		return nil, fmt.Errorf("failed to get requests from container")
-	}
-
-	str := func(key string) string {
-		if v, ok := requests[key]; ok {
-			return fmt.Sprintf("%v", v)
-		}
-		return ""
-	}
-	gpuName := common.AmdGpu
-	if str(gpuName) == "" {
-		gpuName = common.NvidiaGpu
-	}
-	return []v1.WorkloadResource{{
-		Replica:          1,
-		CPU:              str(string(corev1.ResourceCPU)),
-		GPU:              str(gpuName),
-		Memory:           str(string(corev1.ResourceMemory)),
-		EphemeralStorage: str(string(corev1.ResourceEphemeralStorage)),
-	}}, nil
 }
 
 // WorkloadValidator validates Workload resources on create and update operations.
