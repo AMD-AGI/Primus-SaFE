@@ -42,25 +42,47 @@ if [ $? -ne 0 ]; then
   exit 1
 fi
 
-# lspci's "(ok)" / "(downgraded)" trailing annotations were added in pciutils
-# 3.11 (2023). Anything older (e.g. Ubuntu 22.04 default 3.7, Core42's 3.10)
-# just prints "Speed 32GT/s, Width x16". Match the speed/width tokens on
-# their own and treat a trailing "(downgraded)" as the only failure signal.
+# lspci's LnkSta: formatting varies across pciutils / kernel / platform:
+#
+#   1. pciutils >= 3.11 (2023+) annotates current values with explicit
+#      (ok) / (downgraded) markers, e.g.
+#          LnkSta: Speed 32GT/s (ok), Width x16 (ok)
+#      This is the most reliable signal and should match first.
+#
+#   2. pciutils < 3.11 (e.g. Ubuntu 22.04 ships 3.7, Core42's 3.10) omits
+#      (ok) entirely:
+#          LnkSta: Speed 32GT/s, Width x16
+#      For these we fall back to matching the speed/width tokens directly
+#      and treat a "(downgraded)" suffix as the failure signal.
+#
+# Deliberately keep the branches as a chain of explicit ifs — different
+# platforms / kernels produce slightly different whitespace, so a single
+# clever regex doesn't generalize. Add more branches here rather than
+# trying to make one pattern cover everything.
 echo "$PCI_OUTPUT" | awk -v speed="$EXPECTED_SPEED" -v width="$EXPECTED_WIDTH" '
 /LnkSta:/ {
     line = $0
-    if (line !~ ("Speed " speed "(,| )")) {
-        print "Expected Speed: " speed ", got different value: " line
-        exit 1
+
+    # Branch 1: pciutils >= 3.11 with explicit (ok) markers.
+    if ((line ~ ("Speed " speed " \\(ok\\)")) && \
+        (line ~ ("Width " width " \\(ok\\)"))) {
+        next
     }
-    if (line !~ ("Width " width "($| |,)")) {
-        print "Expected Width: " width ", got different value: " line
-        exit 1
-    }
+
+    # Branch 2: pciutils < 3.11. No (ok) marker — require matching speed
+    # and width tokens, and reject any line carrying a (downgraded) tag.
     if (line ~ /\(downgraded\)/) {
         print "PCIe link downgraded: " line
         exit 1
     }
+    if ((line ~ ("Speed " speed "(,| |$)")) && \
+        (line ~ ("Width " width "(,| |$)"))) {
+        next
+    }
+
+    # Fell through every branch — report the raw line for diagnosis.
+    print "LnkSta mismatch (expected Speed " speed " Width " width "): " line
+    exit 1
 }
 '
 
