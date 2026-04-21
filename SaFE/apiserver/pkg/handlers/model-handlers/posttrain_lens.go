@@ -6,14 +6,9 @@
 package model_handlers
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
-	"io"
-	"net/http"
 	"net/url"
-	"os"
 	"sort"
 	"strconv"
 	"strings"
@@ -21,10 +16,18 @@ import (
 
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/robustclient"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/timeutil"
 )
 
-const defaultLensAPIBaseURL = "http://primus-lens-api.primus-lens.svc.cluster.local:8989/v1"
+// Default robust-api path prefix used by Lens-compat training-performance queries.
+// The actual host is resolved per-cluster through robustclient (auto-registered
+// via Cluster CR annotation primus-safe.amd.com/robust-api-endpoint).
+const (
+	robustAPIPathWorkloads        = "/api/v1/workloads"
+	robustAPIPathTrainingAvail    = "/api/v1/training/%s/available"
+	robustAPIPathTrainingDataRoot = "/api/v1/training/%s/data"
+)
 
 var preferredLossMetricNames = []string{
 	"loss",
@@ -69,22 +72,6 @@ type lossSummary struct {
 	DataSource string
 }
 
-type lensResponseMeta struct {
-	Code    int    `json:"code"`
-	Message string `json:"message"`
-}
-
-type lensResponseEnvelope struct {
-	Meta    lensResponseMeta `json:"meta"`
-	Data    json.RawMessage  `json:"data"`
-	Tracing interface{}      `json:"tracing,omitempty"`
-}
-
-type lensWorkloadListResponse struct {
-	Data  []lensWorkloadListItem `json:"data"`
-	Total int                    `json:"total"`
-}
-
 type lensWorkloadListItem struct {
 	Kind      string `json:"kind"`
 	Name      string `json:"name"`
@@ -101,11 +88,28 @@ type lensTrainingPerformancePoint struct {
 	Timestamp int64   `json:"timestamp"`
 }
 
-func getLensAPIBaseURL() string {
-	if v := strings.TrimSpace(os.Getenv("POSTTRAIN_LENS_API_URL")); v != "" {
-		return strings.TrimRight(v, "/")
+// robustClientForCluster returns the robust-analyzer client for the given
+// data-plane cluster. cluster must be non-empty and registered in the
+// robustclient discovery (via Cluster CR annotation). Returns a typed error
+// when either the client or the cluster endpoint is missing so upstream
+// handlers can translate this into a 503 / clear user-facing message.
+func robustClientForCluster(cluster string) (*robustclient.ClusterClient, error) {
+	rc := GetRobustClient()
+	if rc == nil {
+		return nil, fmt.Errorf("robust-analyzer client is not configured; " +
+			"ensure apiserver is started with robustclient discovery and the " +
+			"target cluster has a registered robust-api endpoint")
 	}
-	return defaultLensAPIBaseURL
+	cluster = strings.TrimSpace(cluster)
+	if cluster == "" {
+		return nil, fmt.Errorf("cluster is required to resolve workload metrics")
+	}
+	cc := rc.ForCluster(cluster)
+	if cc == nil {
+		return nil, fmt.Errorf("no robust-api endpoint registered for cluster %q; "+
+			"check Cluster CR annotation primus-safe.amd.com/robust-api-endpoint", cluster)
+	}
+	return cc, nil
 }
 
 func resolveLensWorkloadUID(ctx context.Context, workloadID, workspace, cluster, trainType string) (string, error) {
@@ -114,39 +118,46 @@ func resolveLensWorkloadUID(ctx context.Context, workloadID, workspace, cluster,
 		return "", fmt.Errorf("workload id is empty")
 	}
 
-	params := url.Values{}
-	if cluster != "" {
-		params.Set("cluster", cluster)
+	cc, err := robustClientForCluster(cluster)
+	if err != nil {
+		return "", err
 	}
+
+	params := url.Values{}
 	params.Set("name", workloadID)
-	params.Set("namespace", workspace)
-	params.Set("page_num", "1")
-	params.Set("page_size", "20")
+	if workspace != "" {
+		params.Set("namespace", workspace)
+	}
 	kind := lensWorkloadKind(trainType)
 	if kind != "" {
 		params.Set("kind", kind)
 	}
 
-	var resp lensWorkloadListResponse
-	if err := callLensAPI(ctx, "/workloads", params, &resp); err != nil {
+	// robust-api GET /api/v1/workloads returns an envelope whose data field is
+	// a flat array of workload records. The client.Get helper already unwraps
+	// the {meta, data} envelope, so we only need the slice here.
+	var rows []lensWorkloadListItem
+	if err := cc.Get(ctx, robustAPIPathWorkloads, params, &rows); err != nil {
 		return "", err
 	}
-	if uid := pickLensWorkloadUID(resp.Data, workloadID, workspace, kind); uid != "" {
+	if uid := pickLensWorkloadUID(rows, workloadID, workspace, kind); uid != "" {
 		return uid, nil
 	}
 
+	// Fallback without kind filter (some infra types – e.g. Deployment – don't
+	// populate the kind column consistently).
 	if kind != "" {
 		params.Del("kind")
-		resp = lensWorkloadListResponse{}
-		if err := callLensAPI(ctx, "/workloads", params, &resp); err != nil {
+		rows = nil
+		if err := cc.Get(ctx, robustAPIPathWorkloads, params, &rows); err != nil {
 			return "", err
 		}
-		if uid := pickLensWorkloadUID(resp.Data, workloadID, workspace, ""); uid != "" {
+		if uid := pickLensWorkloadUID(rows, workloadID, workspace, ""); uid != "" {
 			return uid, nil
 		}
 	}
 
-	return "", fmt.Errorf("lens workload uid not found for %s/%s", workspace, workloadID)
+	return "", fmt.Errorf("robust workload uid not found for %s/%s (cluster=%s)", workspace, workloadID, cluster)
 }
 
 func lensWorkloadKind(trainType string) string {
@@ -235,47 +246,91 @@ func defaultLensTimeRangeForItem(item PosttrainRunItem) (string, string, error) 
 	return defaultLensTimeRange(start, end, created)
 }
 
-func fetchLensTrainingPerformanceData(ctx context.Context, lensWorkloadUID, start, end, metricsExpr, dataSource string) ([]PosttrainMetricPoint, []string, string, error) {
-	params := url.Values{}
+// robustTrainingAvailableResponse mirrors the envelope data returned by
+// robust-api GET /api/v1/training/:workload_id/available.
+type robustTrainingAvailableResponse struct {
+	WorkloadID string   `json:"workload_id"`
+	Metrics    []string `json:"metrics"`
+	Count      int      `json:"count"`
+}
+
+// robustTrainingDataResponse mirrors robust-api GET /api/v1/training/:workload_id/data.
+// Each point aggregates all metrics reported for a single iteration from one
+// data source; we fan it out into flat PosttrainMetricPoint rows.
+type robustTrainingDataResponse struct {
+	WorkloadID string                  `json:"workload_id"`
+	Points     []robustTrainingDataRow `json:"points"`
+	Total      int                     `json:"total"`
+}
+
+type robustTrainingDataRow struct {
+	Source    string             `json:"source"`
+	Iteration int32              `json:"iteration"`
+	Metrics   map[string]float64 `json:"metrics"`
+	Timestamp string             `json:"timestamp"`
+}
+
+func fetchLensTrainingPerformanceData(ctx context.Context, cluster, lensWorkloadUID, start, end, metricsExpr, dataSource string) ([]PosttrainMetricPoint, []string, string, error) {
 	if start == "" || end == "" {
 		return nil, nil, "", fmt.Errorf("start and end timestamps are required")
 	}
 
-	availableRows, err := fetchLensAvailableMetrics(ctx, lensWorkloadUID, dataSource)
+	availableRows, err := fetchLensAvailableMetrics(ctx, cluster, lensWorkloadUID, dataSource)
 	if err != nil {
 		availableRows = nil
 	}
 	selectedSource := chooseLensMetricDataSource(availableRows, dataSource)
 
-	params.Set("start", start)
-	params.Set("end", end)
-	if metricsExpr != "" {
-		params.Set("metrics", metricsExpr)
-	}
-	if selectedSource != "" {
-		params.Set("data_source", selectedSource)
-	}
-
-	var resp lensMetricsDataResponse
-	if err := callLensAPI(ctx, fmt.Sprintf("/workloads/%s/metrics/data", url.PathEscape(lensWorkloadUID)), params, &resp); err != nil {
+	cc, err := robustClientForCluster(cluster)
+	if err != nil {
 		return nil, nil, "", err
 	}
-	if selectedSource == "" {
-		selectedSource = strings.TrimSpace(resp.DataSource)
+
+	params := url.Values{}
+	// robust-api does not accept arbitrary start/end filters on this endpoint
+	// yet; we pass them via query for forward-compat but they are ignored by
+	// the current server, which paginates by iteration instead.
+	if start != "" {
+		params.Set("start", start)
+	}
+	if end != "" {
+		params.Set("end", end)
+	}
+	if selectedSource != "" {
+		params.Set("source", selectedSource)
+	}
+	params.Set("page_size", "1000")
+
+	var resp robustTrainingDataResponse
+	if err := cc.Get(ctx,
+		fmt.Sprintf(robustAPIPathTrainingDataRoot, url.PathEscape(lensWorkloadUID)),
+		params, &resp); err != nil {
+		return nil, nil, "", err
 	}
 
-	points := make([]PosttrainMetricPoint, 0, len(resp.Data))
-	for _, point := range resp.Data {
-		if point.MetricName == "" {
-			continue
+	// metricsExpr is a comma-separated allow-list from the caller. Keep it
+	// simple client-side since robust-api does not support metric filter yet.
+	allowed := parseMetricsAllowList(metricsExpr)
+	points := make([]PosttrainMetricPoint, 0, len(resp.Points)*4)
+	for _, row := range resp.Points {
+		ts := parseRobustTimestampMillis(row.Timestamp)
+		for name, value := range row.Metrics {
+			if name == "" {
+				continue
+			}
+			if len(allowed) > 0 {
+				if _, ok := allowed[name]; !ok {
+					continue
+				}
+			}
+			points = append(points, PosttrainMetricPoint{
+				MetricName: name,
+				Value:      value,
+				Timestamp:  ts,
+				Iteration:  row.Iteration,
+				DataSource: row.Source,
+			})
 		}
-		points = append(points, PosttrainMetricPoint{
-			MetricName: point.MetricName,
-			Value:      point.Value,
-			Timestamp:  point.Timestamp,
-			Iteration:  point.Iteration,
-			DataSource: point.DataSource,
-		})
 	}
 	sort.SliceStable(points, func(i, j int) bool {
 		if points[i].Timestamp == points[j].Timestamp {
@@ -302,16 +357,74 @@ func fetchLensTrainingPerformanceData(ctx context.Context, lensWorkloadUID, star
 	return points, metrics, selectedSource, nil
 }
 
-func fetchLensAvailableMetrics(ctx context.Context, lensWorkloadUID, dataSource string) ([]lensAvailableMetricRow, error) {
-	params := url.Values{}
-	if strings.TrimSpace(dataSource) != "" {
-		params.Set("data_source", strings.TrimSpace(dataSource))
-	}
-	var resp lensAvailableMetricsResponse
-	if err := callLensAPI(ctx, fmt.Sprintf("/workloads/%s/metrics/available", url.PathEscape(lensWorkloadUID)), params, &resp); err != nil {
+func fetchLensAvailableMetrics(ctx context.Context, cluster, lensWorkloadUID, dataSource string) ([]lensAvailableMetricRow, error) {
+	cc, err := robustClientForCluster(cluster)
+	if err != nil {
 		return nil, err
 	}
-	return resp.Metrics, nil
+
+	params := url.Values{}
+	if s := strings.TrimSpace(dataSource); s != "" {
+		params.Set("source", s)
+	}
+
+	var resp robustTrainingAvailableResponse
+	if err := cc.Get(ctx,
+		fmt.Sprintf(robustAPIPathTrainingAvail, url.PathEscape(lensWorkloadUID)),
+		params, &resp); err != nil {
+		return nil, err
+	}
+
+	// robust-api returns a flat []string, not per-source rows. Fold it into
+	// the Lens-shaped slice so downstream aggregation keeps working. Keep the
+	// originally requested data source label so chooseLensMetricDataSource
+	// picks it up.
+	sourceLabel := strings.TrimSpace(dataSource)
+	rows := make([]lensAvailableMetricRow, 0, len(resp.Metrics))
+	for _, name := range resp.Metrics {
+		if name == "" {
+			continue
+		}
+		row := lensAvailableMetricRow{Name: name, Count: 0}
+		if sourceLabel != "" {
+			row.DataSource = []string{sourceLabel}
+		}
+		rows = append(rows, row)
+	}
+	return rows, nil
+}
+
+// parseMetricsAllowList splits a comma-separated, user-supplied metric name
+// filter into a lookup set. Empty input means "allow everything".
+func parseMetricsAllowList(expr string) map[string]struct{} {
+	expr = strings.TrimSpace(expr)
+	if expr == "" {
+		return nil
+	}
+	out := map[string]struct{}{}
+	for _, part := range strings.Split(expr, ",") {
+		name := strings.TrimSpace(part)
+		if name != "" {
+			out[name] = struct{}{}
+		}
+	}
+	return out
+}
+
+// parseRobustTimestampMillis converts robust-api RFC3339 timestamps into the
+// millisecond epoch expected by PosttrainMetricPoint. Invalid strings fall
+// back to 0 so sorting/display doesn't crash.
+func parseRobustTimestampMillis(s string) int64 {
+	if s == "" {
+		return 0
+	}
+	if t, err := time.Parse(time.RFC3339Nano, s); err == nil {
+		return t.UnixMilli()
+	}
+	if t, err := time.Parse(time.RFC3339, s); err == nil {
+		return t.UnixMilli()
+	}
+	return 0
 }
 
 func chooseLensMetricDataSource(rows []lensAvailableMetricRow, requested string) string {
@@ -507,8 +620,8 @@ func latestLossSummaryFromPoints(points []PosttrainMetricPoint, metrics []string
 	}
 }
 
-func fetchLatestLossSummary(ctx context.Context, lensWorkloadUID, start, end string) (*lossSummary, []string, error) {
-	points, metrics, _, err := fetchLensTrainingPerformanceData(ctx, lensWorkloadUID, start, end, "", "")
+func fetchLatestLossSummary(ctx context.Context, cluster, lensWorkloadUID, start, end string) (*lossSummary, []string, error) {
+	points, metrics, _, err := fetchLensTrainingPerformanceData(ctx, cluster, lensWorkloadUID, start, end, "", "")
 	if err != nil {
 		return nil, nil, err
 	}
@@ -546,51 +659,3 @@ func normalizeMetricName(metric string) string {
 	return metric
 }
 
-func callLensAPI(ctx context.Context, apiPath string, params url.Values, out interface{}) error {
-	baseURL := getLensAPIBaseURL()
-	reqURL := baseURL + apiPath
-	if len(params) > 0 {
-		reqURL += "?" + params.Encode()
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
-	if err != nil {
-		return err
-	}
-	client := &http.Client{Timeout: 3 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("lens api %s returned status %d", apiPath, resp.StatusCode)
-	}
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return err
-	}
-	if len(bytes.TrimSpace(body)) == 0 {
-		return nil
-	}
-
-	var envelope lensResponseEnvelope
-	if err := json.Unmarshal(body, &envelope); err == nil && (envelope.Meta.Code != 0 || envelope.Data != nil) {
-		if envelope.Meta.Code != 0 && envelope.Meta.Code != 2000 {
-			message := strings.TrimSpace(envelope.Meta.Message)
-			if message == "" {
-				message = "unknown lens error"
-			}
-			return fmt.Errorf("lens api %s returned code %d: %s", apiPath, envelope.Meta.Code, message)
-		}
-		if out == nil || len(bytes.TrimSpace(envelope.Data)) == 0 || bytes.Equal(bytes.TrimSpace(envelope.Data), []byte("null")) {
-			return nil
-		}
-		return json.Unmarshal(envelope.Data, out)
-	}
-
-	if out == nil {
-		return nil
-	}
-	return json.Unmarshal(body, out)
-}
