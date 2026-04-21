@@ -208,17 +208,12 @@ proxy:
   #     target: http://qa-agent-service:8080
   #     enabled: true
 
-# lens_compat_proxy routes the legacy /lens/v1/* URL prefix (still used by
-# the SaFE web home page for gpu-aggregation endpoints) to a data-plane
-# robust-analyzer. The primus-lens-api service is gone; without this entry
-# every /lens/v1/... call returns Primus.00005 "not found". Set target to
-# an address reachable from the management cluster — NodePort on a data
-# cluster control-plane node, or an Ingress hostname.
-# When target is empty the entry is not registered.
-lens_compat_proxy:
-  enable: false
-  target: ""
-  prefix: "/lens/v1"
+# NOTE: the legacy /lens/v1/* URL prefix (gpu-aggregation, training, logs,
+# workloads) is now served by apiserver's built-in lens-compat handler.
+# The handler picks the target robust-analyzer dynamically from the Cluster
+# CR annotation (primus-safe.amd.com/robust-api-endpoint) of whichever
+# cluster the request's ?cluster=<name> query parameter names, so there is
+# no longer any lens_compat_proxy value to configure here.
 langfuse_proxy:
   # Langfuse proxy: unified Trace ingestion via SaFE API Key (ak-xxx)
   enable: false

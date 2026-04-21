@@ -121,12 +121,12 @@ data:
 {{- end }}
         label_selector: "a2a.primus.io/enabled=true"
     {{- end }}
-    {{- if or .Values.proxy .Values.langfuse_proxy .Values.lens_compat_proxy }}
+    {{- if or .Values.proxy .Values.langfuse_proxy }}
     proxy:
       services:
         {{- /* Render existing user-supplied services one item at a time so that
               an empty list doesn't collapse to flow-style `[]`, which would
-              break syntax when langfuse / lens-compat append to it. */}}
+              break syntax when langfuse appends to it. */}}
         {{- if and .Values.proxy .Values.proxy.services }}
         {{- range .Values.proxy.services }}
         - {{ toYaml . | nindent 10 | trim }}
@@ -136,13 +136,6 @@ data:
         - name: langfuse
           prefix: /api/v1/langfuse
           target: {{ .Values.langfuse_proxy.target }}
-          enabled: true
-        {{- end }}
-        {{- if and .Values.lens_compat_proxy .Values.lens_compat_proxy.enable .Values.lens_compat_proxy.target }}
-        # Lens-compat: route legacy /lens/v1/* to a data-plane robust-analyzer.
-        - name: lens-compat
-          prefix: {{ .Values.lens_compat_proxy.prefix | default "/lens/v1" }}
-          target: {{ .Values.lens_compat_proxy.target }}
           enabled: true
         {{- end }}
     {{- if and .Values.langfuse_proxy .Values.langfuse_proxy.enable }}
