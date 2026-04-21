@@ -16,8 +16,29 @@ import (
 	apiutils "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/utils"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/robustclient"
 	commons3 "github.com/AMD-AIG-AIMA/SAFE/common/pkg/s3"
 )
+
+// globalRobustClient is the process-wide robust-analyzer client used by
+// posttrain / Lens-compat handlers to talk to per-cluster robust-api.
+// Set once at startup via SetRobustClient; nil means posttrain Lens-style
+// features are disabled (they'll return an explicit error).
+var globalRobustClient *robustclient.Client
+
+// SetRobustClient wires the process-wide robust-analyzer client. Called from
+// apiserver.Init after the robustclient discovery is started. Safe to call
+// once, before any handler runs.
+func SetRobustClient(rc *robustclient.Client) {
+	globalRobustClient = rc
+}
+
+// GetRobustClient returns the process-wide robust-analyzer client. Handlers
+// should check for nil and return an error if Robust integration is not
+// configured.
+func GetRobustClient() *robustclient.Client {
+	return globalRobustClient
+}
 
 // Handler handles HTTP requests for inference, playground, and dataset resources.
 type Handler struct {

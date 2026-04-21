@@ -486,28 +486,6 @@ spec:
 apiVersion: amd.com/v1
 kind: ResourceTemplate
 metadata:
-  name: sandbox-template
-  labels:
-    app.kubernetes.io/managed-by: Helm
-    primus-safe.workload.version: v1
-  annotations:
-    primus-safe.workload.kind: "SandboxTemplate"
-    meta.helm.sh/release-name: {{ .Release.Name }}
-    meta.helm.sh/release-namespace: {{ .Release.Namespace }}
-spec:
-  groupVersionKind:
-    group: extensions.agents.x-k8s.io
-    version: v1alpha1
-    kind: SandboxTemplate
-  resourceSpecs:
-    - prePaths:
-        - spec
-      templatePaths:
-        - podTemplate
----
-apiVersion: amd.com/v1
-kind: ResourceTemplate
-metadata:
   name: sandbox
   labels:
     app.kubernetes.io/managed-by: Helm

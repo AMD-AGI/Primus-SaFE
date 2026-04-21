@@ -55,6 +55,7 @@ echo "✅ Support S3: \"$s3_enable\""
 echo "✅ Support SSO: \"$sso_enable\""
 echo "✅ Support Tracing: \"${tracing_enable:-false}\" (mode: ${tracing_mode:-error_only})"
 echo "✅ Support LLM Gateway: \"${llm_gateway_enable:-false}\""
+echo "✅ Grafana: enable=\"${grafana_enable:-true}\" (set grafana_enable=false in .env to disable)"
 echo "✅ Ingress Name: \"$ingress\""
 if [[ "$ingress" == "higress" ]]; then
   echo "✅ Cluster Name: \"$sub_domain\""
@@ -66,7 +67,7 @@ echo "✅ Install Node Agent: \"${install_node_agent:-y}\""
 echo "✅ CSI Volume Handle: \"$csi_volume_handle\""
 echo "✅ Node Agent GPU Driver: \"${node_agent_gpu_driver:-6.12.12}\""
 echo "✅ Node Agent ROCm Version: \"${node_agent_rocm_version:-6.4}\""
-echo "✅ Node Agent Toggles: net_bnxt_load_204=${node_agent_toggle_net_bnxt_load_204:-off}, net_ainic_load_205=${node_agent_toggle_net_ainic_load_205:-off}, net_ainic_devices_208=${node_agent_toggle_net_ainic_devices_208:-off}, sys_csi_wekafs_309=${node_agent_toggle_sys_csi_wekafs_309:-off}"
+echo "✅ Node Agent Toggles: net_bnxt_load_204=${node_agent_toggle_net_bnxt_load_204:-off}, net_ainic_load_205=${node_agent_toggle_net_ainic_load_205:-off}, net_ainic_devices_208=${node_agent_toggle_net_ainic_devices_208:-off}, sys_csi_wekafs_309=${node_agent_toggle_sys_csi_wekafs_309:-on}"
 
 echo
 
@@ -116,7 +117,15 @@ sed -i '/s3:/,/^[a-z]/ s/enable: .*/enable: '"$s3_enable"'/' "$values_yaml"
 if [[ "$s3_enable" == "true" ]]; then
   sed -i '/^s3:/,/^[a-z]/ s#secret: ".*"#secret: "'"$S3_SECRET"'"#' "$values_yaml"
 fi
-sed -i '/grafana:/,/^[a-z]/ s/enable: .*/enable: false/' "$values_yaml"
+# Grafana is required for the SaFE UI (training-workload dashboard, cluster
+# GPU heatmap, log-based alerts overview). Default it to "on"; only opt-out
+# when the operator explicitly sets grafana_enable=false in .env.
+# The previous hard-coded `enable: false` was the reason every CD run kept
+# deleting the live Grafana instance and left the /lens/grafana UI 504.
+sed -i '/grafana:/,/^[a-z]/ s/enable: .*/enable: '"${grafana_enable:-true}"'/' "$values_yaml"
+if [[ -n "${grafana_password:-}" ]]; then
+  sed -i '/grafana:/,/^[a-z]/ s/password: .*/password: "'"$grafana_password"'"/' "$values_yaml"
+fi
 sed -i "s/image_pull_secret: \".*\"/image_pull_secret: \"$IMAGE_PULL_SECRET\"/" "$values_yaml"
 sed -i "s/ingress: \".*\"/ingress: \"$ingress\"/" "$values_yaml"
 sed -i '/sso:/,/^[a-z]/ s/enable: .*/enable: '"$sso_enable"'/' "$values_yaml"
@@ -233,7 +242,11 @@ else
   sed -i "s/net_bnxt_load_204: \".*\"/net_bnxt_load_204: \"${node_agent_toggle_net_bnxt_load_204:-off}\"/" "$values_yaml"
   sed -i "s/net_ainic_load_205: \".*\"/net_ainic_load_205: \"${node_agent_toggle_net_ainic_load_205:-off}\"/" "$values_yaml"
   sed -i "s/net_ainic_devices_208: \".*\"/net_ainic_devices_208: \"${node_agent_toggle_net_ainic_devices_208:-off}\"/" "$values_yaml"
-  sed -i "s/sys_csi_wekafs_309: \".*\"/sys_csi_wekafs_309: \"${node_agent_toggle_sys_csi_wekafs_309:-off}\"/" "$values_yaml"
+  # WekaFS CSI container check defaults to "on" now that the script bug
+  # (matched pod name, not container name) has been fixed upstream. Sites
+  # that don't run WekaFS can disable it explicitly with
+  # node_agent_toggle_sys_csi_wekafs_309=off in .env.
+  sed -i "s/sys_csi_wekafs_309: \".*\"/sys_csi_wekafs_309: \"${node_agent_toggle_sys_csi_wekafs_309:-on}\"/" "$values_yaml"
   sed -i "s/disk_nfs_exist_check_402: \".*\"/disk_nfs_exist_check_402: \"${node_agent_toggle_disk_nfs_exist_check_402:-off}\"/" "$values_yaml"
 
   if [ -n "${node_agent_nfs_server:-}" ]; then

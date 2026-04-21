@@ -25,5 +25,10 @@ monitor:
     net_bnxt_load_204: "off"
     net_ainic_load_205: "off"
     net_ainic_devices_208: "off"
-    sys_csi_wekafs_309: "off"
+    # 309 verifies the three csi-wekafs-node containers are Running on nodes
+    # that mount WekaFS. It used to be "off" because the script mis-parsed
+    # crictl output (matched pod name, not container name). The monitor
+    # itself has been corrected, so enable by default and let operators
+    # explicitly turn it off on clusters without WekaFS.
+    sys_csi_wekafs_309: "on"
     disk_nfs_exist_check_402: "off"

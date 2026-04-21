@@ -2,6 +2,10 @@
 # Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
 # See LICENSE for license information.
 #
+# Default chart values. Site-specific overrides (image registries, storage
+# classes, secret names, per-cluster endpoints, etc.) belong in a private
+# operations repo and should be applied via `helm upgrade ... -f ...`, not
+# committed to this chart.
 global:
   # Domain and sub_domain are mainly used for console access
   domain: "primus-safe.amd.com"
@@ -110,11 +114,22 @@ opensearch:
   # Log search feature flag. When true, log search endpoints are available.
   # Queries are proxied through robust-api on data clusters (no direct OpenSearch connection).
   enable: true
-  prefix: "fluentbit-"
+  # Index prefix used to build the date-scoped OpenSearch URIs for pod/node
+  # logs, e.g. "<prefix>2026.04.21". Must match the prefix fluentbit is
+  # actually writing to. The current primus-robust FluentBit config writes
+  # pod/node logs to `node-<date>` indices; the legacy "fluentbit-" prefix
+  # applied to the old primus-lens deployment and produced
+  # "no such index [fluentbit-2026.04.21]" 404s after the migration.
+  prefix: "node-"
   secret: "primus-safe-opensearch-config"
   secret_namespace: "primus-safe"
   secret_path: "/etc/secrets/opensearch"
-  endpoint: "primus-lens-logs-nodes.primus-lens.svc.cluster.local:9200"
+  # Default points at the OpenSearch Service this project's robust stack
+  # provisions in each data cluster. SaFE apiserver doesn't dial this
+  # directly (queries always go through robust-analyzer), but the value is
+  # baked into the UI/envs response so keep it aligned with reality.
+  # Previous default pointed at the removed primus-lens service.
+  endpoint: "primus-robust-logs.primus-robust.svc.cluster.local:9200"
 ssh:
   # Enable SSH access to user containers
   enable: true
@@ -169,6 +184,26 @@ grafana:
   enable: false
   # Grafana password
   password: ""
+  # One entry per data cluster whose VictoriaMetrics should appear as a
+  # Grafana datasource. `name` becomes both the datasource uid and display
+  # name — dashboards resolve var-cluster=<name> against the uid, so the
+  # value MUST match the Cluster CR name that SaFE uses.
+  # `vmSelectUrl` should point to that cluster's vmselect (typically a
+  # NodePort on a control-plane node or an Ingress). Set isDefault: true on
+  # the cluster you want to see first in any Prometheus picker.
+  # Example:
+  #   dataClusters:
+  #     - name: core42
+  #       vmSelectUrl: http://10.245.129.5:32481/select/0/prometheus
+  #       isDefault: true
+  dataClusters: []
+  # URL of a robust-analyzer reachable from the management plane, used as
+  # the Lens-compat JSON datasource. Expected to answer /v1/workloads/...
+  # (the SaFE apiserver /lens/v1 proxy strips /lens and forwards the rest
+  # so the path lines up with robust-api). Leave empty to skip creating the
+  # datasource.
+  # Example: http://10.245.129.5:32626/api
+  lensApiUrl: ""
 addon:
   # Default components installed with the system
   default: cert-manager.v1.17.2,training-operator.1.9.2,network-operator.25.4.0,kube-scheduler-plugins-0.31.8,amd-gpu-operator-charts-v1.4.0,csi-wekafsplugin.2.7.7
@@ -182,6 +217,13 @@ proxy:
   #     prefix: /agent/qa
   #     target: http://qa-agent-service:8080
   #     enabled: true
+
+# NOTE: the legacy /lens/v1/* URL prefix (gpu-aggregation, training, logs,
+# workloads) is now served by apiserver's built-in lens-compat handler.
+# The handler picks the target robust-analyzer dynamically from the Cluster
+# CR annotation (primus-safe.amd.com/robust-api-endpoint) of whichever
+# cluster the request's ?cluster=<name> query parameter names, so there is
+# no longer any lens_compat_proxy value to configure here.
 langfuse_proxy:
   # Langfuse proxy: unified Trace ingestion via SaFE API Key (ak-xxx)
   enable: false
