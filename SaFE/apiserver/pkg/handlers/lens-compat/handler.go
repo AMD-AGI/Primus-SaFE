@@ -103,10 +103,13 @@ func (h *Handler) proxy(c *gin.Context) {
 
 	cc := h.rc.ForCluster(cluster)
 	if cc == nil {
-		apiutils.AbortWithApiError(c, commonerrors.NewNotFoundWithMessage(fmt.Sprintf(
-			"cluster %q is not registered in robustclient; ensure the Cluster CR "+
-				"is Ready and has annotation primus-safe.amd.com/robust-api-endpoint set",
-			cluster)))
+		// The cluster exists in K8s but robustclient discovery either hasn't
+		// seen it yet or its Cluster CR is missing the robust-api endpoint
+		// annotation (i.e. the primus-robust addon was never installed on
+		// this cluster). Surface that as a distinct error code so the
+		// frontend can render "Robust not installed on this cluster"
+		// instead of a generic red-toast error.
+		apiutils.AbortWithApiError(c, commonerrors.NewRobustAddonNotInstalled(cluster))
 		return
 	}
 
