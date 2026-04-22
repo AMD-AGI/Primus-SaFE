@@ -15,7 +15,9 @@ import (
 // so that a task created via SaFE produces the same prompt as the same form
 // submitted through the Hyperloom UI.
 const (
-	defaultMode           = ModeClaw
+	// Defaults mirror Hyperloom-Web useInferOptTemplate.ts (initial refs +
+	// resetDefaults + DEFAULT_* constants). Update both sides together.
+	defaultMode           = ModeLocal
 	defaultFramework      = FrameworkSGLang
 	defaultPrecision      = "FP4"
 	defaultGPUType        = "MI355X"
@@ -33,8 +35,8 @@ const (
 	defaultRayMemoryGi    = 128
 	raySharedMemoryGi     = 500
 
-	defaultSGLangImage = "harbor.oci-slc.primus-safe.amd.com/custom/lmsysorg/sglang:latest"
-	defaultVLLMImage   = "harbor.oci-slc.primus-safe.amd.com/custom/vllm/vllm-openai-rocm:latest"
+	defaultSGLangImage = "harbor.oci-slc.primus-safe.amd.com/custom/lmsysorg/sglang:202603270958"
+	defaultVLLMImage   = "harbor.oci-slc.primus-safe.amd.com/custom/vllm/vllm-openai-rocm:202604030417"
 )
 
 // Maps Hyperloom-Web's display string to the lowercased tag the skill expects.
@@ -138,7 +140,7 @@ func NormalizePromptConfig(cfg PromptConfig) PromptConfig {
 		cfg.RayMemoryGi = defaultRayMemoryGi
 	}
 	if len(cfg.KernelBackends) == 0 {
-		cfg.KernelBackends = []string{KernelBackendGEAK, KernelBackendClaude}
+		cfg.KernelBackends = []string{KernelBackendClaude}
 	}
 	return cfg
 }

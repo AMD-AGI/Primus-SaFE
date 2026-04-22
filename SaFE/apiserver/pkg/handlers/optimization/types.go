@@ -50,8 +50,9 @@ type CreateTaskRequest struct {
 	ModelID   string `json:"modelId" binding:"required"`
 	Workspace string `json:"workspace" binding:"required"`
 
-	// Execution mode: "claw" (default) runs on PrimusClaw sandbox via RayJob;
-	// "local" runs directly in a GPU sandbox.
+	// Execution mode: "claw" runs on PrimusClaw sandbox via RayJob; "local"
+	// runs directly in a GPU sandbox. Empty defaults to "local" (same as
+	// Hyperloom-Web useInferOptTemplate).
 	Mode string `json:"mode"`
 
 	// Inference workload configuration. These are passed through the prompt
