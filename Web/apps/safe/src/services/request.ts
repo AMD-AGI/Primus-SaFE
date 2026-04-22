@@ -178,5 +178,40 @@ export function postForm<TData = any>(
   })
 }
 
+// PrimusClaw service — shared backend for tools / plugins / resources.
+// Response envelope is `{ code, data }` (success: 200 ≤ code < 300), which the
+// global `request` interceptor does not unwrap — so we keep a dedicated
+// instance with its own unwrap + 401 redirect logic. Auth rides on the session
+// cookie via `withCredentials: true`, same as the main `request` instance.
+const clawRequest = axios.create({
+  baseURL: '/claw-api/v1',
+  timeout: 10000,
+  withCredentials: true,
+})
+
+clawRequest.interceptors.response.use(
+  (response: AxiosResponse) => {
+    if (response.config.rawResponse === true) return response
+
+    const rawData = response.data
+    if (rawData && typeof rawData === 'object' && 'code' in rawData && rawData.code >= 200 && rawData.code < 300) {
+      return rawData.data
+    }
+
+    const msg = rawData?.message ?? rawData?.error ?? 'Claw API Error'
+    ElMessage({ type: 'error', message: msg })
+    return Promise.reject(msg)
+  },
+  async (error) => {
+    const status = error?.response?.status as number | undefined
+    if (status === 401) {
+      location.href = `/login?redirect=${encodeURIComponent(location.pathname + location.search)}`
+      return Promise.reject(error)
+    }
+    ElMessage({ type: 'error', message: error?.response?.data?.message || 'Claw request failed.' })
+    return Promise.reject(error)
+  },
+)
+
 export default request
-export { lensRequest, rootCauseRequest }
+export { lensRequest, rootCauseRequest, clawRequest }
