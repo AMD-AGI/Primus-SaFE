@@ -61,7 +61,18 @@ func NewSshHandler(ctx context.Context, mgr ctrlruntime.Manager) (*SshHandler, e
 			}
 		}
 
-		config := &ssh.ServerConfig{}
+		config := &ssh.ServerConfig{
+			Config: ssh.Config{
+				// Explicitly allowlist strong MACs; exclude SHA-1 based MACs
+				// (hmac-sha1, hmac-sha1-96) flagged by security scans as weak.
+				MACs: []string{
+					"hmac-sha2-256-etm@openssh.com",
+					"hmac-sha2-512-etm@openssh.com",
+					"hmac-sha2-256",
+					"hmac-sha2-512",
+				},
+			},
+		}
 		privateData := commonconfig.GetSSHRsaPrivate()
 		if len(privateData) == 0 {
 			err = fmt.Errorf("id_rsa is empty")
