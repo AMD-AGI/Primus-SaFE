@@ -1,96 +1,60 @@
-import request from '@/services/request'
+import { clawRequest, request } from '@/services/request'
 import type {
   GetToolsParams,
   GetToolsResponse,
-  CreateMCPRequest,
-  UpdateMCPRequest,
+  UpsertToolRequest,
+  UpsertResponse,
+  UpdateToolRequest,
   ToolDetail,
-  SkillDiscoverResponse,
-  SkillCommitRequest,
-  SkillCommitResponse,
   SearchToolsParams,
-  SearchToolsResponse
+  SearchToolsResponse,
+  SkillDiscoverResponse,
+  ImportCommitRequest,
+  ImportCommitResponse,
+  GetPluginsParams,
+  GetPluginsResponse,
+  Plugin,
+  UpsertPluginRequest,
+  PluginUpdateRequest,
+  GetResourcesParams,
+  GetResourcesResponse,
+  Resource,
+  UpsertResourceRequest,
+  ResourceUpdateRequest,
 } from './type'
 
-// Fetch tool list
+// ─── Tools ───
+
 export const getTools = (params?: GetToolsParams): Promise<GetToolsResponse> =>
-  request.get('/tools/api/v1/tools', { params })
+  clawRequest.get('/tools', { params })
 
-// Search tools
+export const getMCPTools = (params?: GetToolsParams): Promise<GetToolsResponse> =>
+  clawRequest.get('/tools/mcp', { params })
+
 export const searchTools = (params: SearchToolsParams): Promise<SearchToolsResponse> =>
-  request.get('/tools/api/v1/tools/search', { params })
+  clawRequest.get('/tools/search', { params })
 
-// Fetch tool details
 export const getTool = (id: number): Promise<ToolDetail> =>
-  request.get(`/tools/api/v1/tools/${id}`)
+  clawRequest.get(`/tools/${id}`)
 
-// Create MCP
-export const createMCP = (data: CreateMCPRequest): Promise<{ id: number }> =>
-  request.post('/tools/api/v1/tools/mcp', data)
+export const upsertTool = (data: UpsertToolRequest): Promise<UpsertResponse> =>
+  clawRequest.post('/tools/upsert', data)
 
-// Update MCP
-export const updateMCP = (id: number, data: UpdateMCPRequest): Promise<void> =>
-  request.put(`/tools/api/v1/tools/${id}`, data, {
-    timeout: 3e4
-  })
+export const updateTool = (id: number, data: UpdateToolRequest): Promise<void> =>
+  clawRequest.put(`/tools/${id}`, data, { timeout: 3e4 })
 
-// Skills import - step 1: discover
-export const discoverSkills = (formData: FormData): Promise<SkillDiscoverResponse> =>
-  request.post('/tools/api/v1/tools/import/discover', formData, {
-    headers: { 'Content-Type': 'multipart/form-data' },
-    timeout: 3e4
-  })
-
-// Skills import - step 2: confirm
-export const commitSkills = (data: SkillCommitRequest): Promise<SkillCommitResponse> => {
-  return request.post('/tools/api/v1/tools/import/commit', data, {
-    timeout: 3e4
-  })
-}
-
-// Download tool
-export const downloadTool = async (id: number): Promise<void> => {
-  const response = await request.get(`/tools/api/v1/tools/${id}/download`, {
-    responseType: 'blob',
-    rawResponse: true,
-  })
-
-  // Get filename from response headers
-  const contentDisposition = response.headers['content-disposition']
-  let filename = `tool-${id}`
-
-  if (contentDisposition) {
-    const filenameMatch = contentDisposition.match(/filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/)
-    if (filenameMatch && filenameMatch[1]) {
-      filename = filenameMatch[1].replace(/['"]/g, '')
-    }
-  }
-
-  // Create download link
-  const blob = new Blob([response.data])
-  const url = window.URL.createObjectURL(blob)
-  const link = document.createElement('a')
-  link.href = url
-  link.download = filename
-  document.body.appendChild(link)
-  link.click()
-  document.body.removeChild(link)
-  window.URL.revokeObjectURL(url)
-}
-
-// Like tool
-export const likeTool = (id: number): Promise<void> =>
-  request.post(`/tools/api/v1/tools/${id}/like`)
-
-// Unlike tool
-export const unlikeTool = (id: number): Promise<void> =>
-  request.delete(`/tools/api/v1/tools/${id}/like`)
-
-// Delete tool
 export const deleteTool = (id: number): Promise<void> =>
-  request.delete(`/tools/api/v1/tools/${id}`)
+  clawRequest.delete(`/tools/${id}`)
 
-// Upload icon
+export const getToolContent = (id: number): Promise<string> =>
+  clawRequest.get(`/tools/${id}/content`, {
+    responseType: 'text',
+    rawResponse: false,
+  })
+
+// Upload an icon image and return its public URL. Goes through the legacy
+// `/tools/api/v1/tools/icon` endpoint (not claw) because icon storage lives
+// there today; swap to a claw endpoint once the backend exposes one.
 export const uploadIcon = async (file: File): Promise<{ icon_url: string }> => {
   const formData = new FormData()
   formData.append('file', file)
@@ -100,11 +64,61 @@ export const uploadIcon = async (file: File): Promise<{ icon_url: string }> => {
   })
 }
 
-// Get skill content (only for type = "skill")
-export const getSkillContent = (id: number): Promise<string> =>
-  request.get(`/tools/api/v1/tools/${id}/content`, {
-    responseType: 'text',
-    rawResponse: false,
+export const uploadSkill = (formData: FormData): Promise<{ id: number }> =>
+  clawRequest.post('/tools/skill/upload', formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+    timeout: 3e4,
   })
+
+export const uploadRule = (formData: FormData): Promise<{ id: number }> =>
+  clawRequest.post('/tools/rule/upload', formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+    timeout: 3e4,
+  })
+
+// ─── Import (zip / GitHub) ───
+
+export const discoverImport = (formData: FormData): Promise<SkillDiscoverResponse> =>
+  clawRequest.post('/tools/import/discover', formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+    timeout: 3e4,
+  })
+
+export const commitImport = (data: ImportCommitRequest): Promise<ImportCommitResponse> =>
+  clawRequest.post('/tools/import/commit', data, { timeout: 3e4 })
+
+// ─── Plugins ───
+
+export const getPlugins = (params?: GetPluginsParams): Promise<GetPluginsResponse> =>
+  clawRequest.get('/plugins', { params })
+
+export const getPlugin = (id: number): Promise<Plugin> =>
+  clawRequest.get(`/plugins/${id}`)
+
+export const upsertPlugin = (data: UpsertPluginRequest): Promise<UpsertResponse> =>
+  clawRequest.post('/plugins/upsert', data)
+
+export const updatePlugin = (id: number, data: PluginUpdateRequest): Promise<void> =>
+  clawRequest.put(`/plugins/${id}`, data)
+
+export const deletePlugin = (id: number): Promise<void> =>
+  clawRequest.delete(`/plugins/${id}`)
+
+// ─── Resources ───
+
+export const getResources = (params?: GetResourcesParams): Promise<GetResourcesResponse> =>
+  clawRequest.get('/resources', { params })
+
+export const getResource = (id: number): Promise<Resource> =>
+  clawRequest.get(`/resources/${id}`)
+
+export const upsertResource = (data: UpsertResourceRequest): Promise<UpsertResponse> =>
+  clawRequest.post('/resources/upsert', data)
+
+export const updateResource = (id: number, data: ResourceUpdateRequest): Promise<void> =>
+  clawRequest.put(`/resources/${id}`, data)
+
+export const deleteResource = (id: number): Promise<void> =>
+  clawRequest.delete(`/resources/${id}`)
 
 export * from './type'
