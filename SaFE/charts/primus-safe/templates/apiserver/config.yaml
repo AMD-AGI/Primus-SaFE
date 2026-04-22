@@ -148,6 +148,13 @@ data:
       enabled: {{ default true (default dict .Values.llm_gateway).enabled }}
       # Path to the secret directory containing litellm_admin_key, litellm_endpoint, litellm_team_id
       secret_path: {{ default "/etc/secrets/llm-gateway" (default dict .Values.llm_gateway).secret_path }}
+    model_optimization:
+      # PrimusClaw HTTP v1 root: explicit URL, or secret file claw_base_url, or derived https://<sub>.<domain>/claw-api/v1.
+      claw_base_url: "{{ default "" (default dict .Values.model_optimization).claw_base_url }}"
+      claw_agent_id: "{{ default "agent_default" (default dict .Values.model_optimization).claw_agent_id }}"
+      secret_path: {{ default "" (default dict .Values.model_optimization).secret_path | quote }}
+      default_workspace: "{{ default "control-plane-sandbox" (default dict .Values.model_optimization).default_workspace }}"
+      max_concurrent: {{ default 5 (default dict .Values.model_optimization).max_concurrent }}
 kind: ConfigMap
 metadata:
   name: {{ .Release.Name }}-apiserver
