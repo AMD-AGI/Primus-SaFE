@@ -12,6 +12,10 @@ export default defineConfig(({ mode }) => {
 
   const API_TARGET = env.PROXY_API_TARGET || 'http://localhost:8088'
   const BACKEND_TARGET = env.PROXY_BACKEND_TARGET || API_TARGET
+  // Allow pointing /claw-api at a different backend than /api. Useful when
+  // the main API target still hosts an older PrimusClaw build while a newer
+  // one lives on a separate environment (e.g. core42 vs. oci-slc).
+  const CLAW_TARGET = env.PROXY_CLAW_TARGET || API_TARGET
   const WS_TARGET = env.PROXY_WS_TARGET || API_TARGET.replace(/^http/, 'ws')
   const MCP_TARGET = env.PROXY_MCP_TARGET || API_TARGET
   const MCP_REWRITE_PREFIX = env.PROXY_MCP_REWRITE_PREFIX || '/mcp'
@@ -79,7 +83,7 @@ export default defineConfig(({ mode }) => {
           rewrite: (path) => path,
         },
         '/claw-api': {
-          target: API_TARGET,
+          target: CLAW_TARGET,
           changeOrigin: true,
           secure: false,
           timeout: 300000,
