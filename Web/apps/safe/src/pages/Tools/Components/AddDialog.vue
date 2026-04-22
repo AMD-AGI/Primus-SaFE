@@ -19,96 +19,76 @@
       ref="mcpFormRef"
       :model="mcpForm"
       :rules="mcpRules"
-      label-width="120px"
-      class="mt-4"
+      label-width="100px"
+      class="mt-3"
     >
-      <el-form-item label="Name" prop="name" required>
-        <el-input v-model="mcpForm.name" placeholder="e.g., howtocook-mcp" :disabled="isEditMode" />
-      </el-form-item>
+      <el-row :gutter="16">
+        <el-col :span="14">
+          <el-form-item label="Name" prop="name" required>
+            <el-input v-model="mcpForm.name" placeholder="e.g., howtocook-mcp" :disabled="isEditMode" />
+          </el-form-item>
+        </el-col>
+        <el-col :span="10">
+          <el-form-item label="Version" prop="version" required>
+            <el-input v-model="mcpForm.version" placeholder="1.0.0" />
+          </el-form-item>
+        </el-col>
+      </el-row>
 
       <el-form-item label="Description" prop="description" required>
         <el-input
           v-model="mcpForm.description"
           type="textarea"
-          :rows="3"
+          :rows="2"
           placeholder="Tool description"
         />
       </el-form-item>
 
-      <el-form-item label="Tags" prop="tags">
-        <div class="flex gap-2 flex-wrap items-center">
-          <el-tag
-            v-for="tag in mcpForm.tags"
-            :key="tag"
-            closable
-            :disable-transitions="false"
-            :effect="isDark ? 'plain' : 'light'"
-            @close="removeTag(tag)"
-          >
-            {{ tag }}
-          </el-tag>
-          <el-input
-            v-if="tagInputVisible"
-            ref="tagInputRef"
-            v-model="newTag"
-            class="tag-input-el"
-            size="small"
-            @keyup.enter="handleTagInputConfirm"
-            @blur="handleTagInputConfirm"
-          />
-          <el-button v-else class="button-new-tag" size="small" @click="showTagInput">
-            + New Tag
-          </el-button>
-        </div>
-      </el-form-item>
-
-      <el-form-item label="Icon" prop="icon_url">
-        <div class="icon-upload-area">
-          <div v-if="mcpForm.icon_url" class="icon-preview">
-            <img :src="mcpForm.icon_url" alt="Icon" />
-            <el-button
-              size="small"
-              text
-              type="danger"
-              @click="mcpForm.icon_url = ''"
-            >
-              Remove
-            </el-button>
-          </div>
-          <el-upload
-            v-else
-            :auto-upload="false"
-            :show-file-list="false"
-            :on-change="handleIconChange"
-            accept="image/png,image/jpeg,image/jpg,image/svg+xml,image/webp"
-            drag
-          >
-            <el-icon class="avatar-uploader-icon"><UploadFilled /></el-icon>
-            <div class="el-upload__text">
-              Drop icon here or <em>click to upload</em>
+      <el-row :gutter="16">
+        <el-col :span="18">
+          <el-form-item label="Tags" prop="tags">
+            <div class="flex gap-2 flex-wrap items-center w-full">
+              <el-tag
+                v-for="tag in mcpForm.tags"
+                :key="tag"
+                closable
+                :disable-transitions="false"
+                :effect="isDark ? 'plain' : 'light'"
+                @close="removeTag(tag)"
+              >
+                {{ tag }}
+              </el-tag>
+              <el-input
+                v-if="tagInputVisible"
+                ref="tagInputRef"
+                v-model="newTag"
+                class="tag-input-el"
+                size="small"
+                @keyup.enter="handleTagInputConfirm"
+                @blur="handleTagInputConfirm"
+              />
+              <el-button v-else class="button-new-tag" size="small" @click="showTagInput">
+                + New Tag
+              </el-button>
+              <span v-if="!mcpForm.tags.length" class="tag-hint">Add at least one</span>
             </div>
-            <template #tip>
-              <div class="el-upload__tip">
-                PNG, JPG, SVG, WEBP (max 2MB)
-              </div>
-            </template>
-          </el-upload>
-        </div>
-      </el-form-item>
+          </el-form-item>
+        </el-col>
+        <el-col :span="6">
+          <el-form-item label="Public">
+            <el-switch v-model="mcpForm.is_public" />
+          </el-form-item>
+        </el-col>
+      </el-row>
 
       <el-form-item label="" prop="configJson" required>
         <JsonEditor
           v-model="mcpForm.configJson"
           label="Config (JSON)"
-          placeholder='{\n  "mcpServers": {\n    "server-name": {\n      "command": "...",\n      "args": [...],\n      "env": {...}\n    }\n  }\n}'
+          placeholder='{\n  "mcpServers": {\n    "server-name": {\n      "url": "https://.../sse",\n      "headers": { "Authorization": "Bearer <token>" }\n    }\n  }\n}'
           @validate="handleJsonValidate"
         />
       </el-form-item>
-
-      <el-form-item label="Public" prop="is_public">
-        <el-switch v-model="mcpForm.is_public" />
-      </el-form-item>
-
     </el-form>
 
     <!-- Skill metadata edit form (Edit mode only) -->
@@ -117,8 +97,8 @@
       ref="mcpFormRef"
       :model="mcpForm"
       :rules="skillMetaRules"
-      label-width="120px"
-      class="mt-4"
+      label-width="100px"
+      class="mt-3"
     >
       <el-form-item label="Name" prop="name">
         <el-input v-model="mcpForm.name" disabled />
@@ -133,6 +113,19 @@
         />
       </el-form-item>
 
+      <el-row :gutter="16">
+        <el-col :span="14">
+          <el-form-item label="Version">
+            <el-input v-model="mcpForm.version" placeholder="1.0.0" />
+          </el-form-item>
+        </el-col>
+        <el-col :span="10">
+          <el-form-item label="Public">
+            <el-switch v-model="mcpForm.is_public" />
+          </el-form-item>
+        </el-col>
+      </el-row>
+
       <el-form-item label="Tags" prop="tags">
         <div class="flex gap-2 flex-wrap items-center">
           <el-tag
@@ -158,40 +151,6 @@
             + New Tag
           </el-button>
         </div>
-      </el-form-item>
-
-      <el-form-item label="Icon" prop="icon_url">
-        <div class="icon-upload-area">
-          <div v-if="mcpForm.icon_url" class="icon-preview">
-            <img :src="mcpForm.icon_url" alt="Icon" />
-            <el-button
-              size="small"
-              text
-              type="danger"
-              @click="mcpForm.icon_url = ''"
-            >
-              Remove
-            </el-button>
-          </div>
-          <div v-else class="skill-avatar-preview">
-            <LetterAvatar :name="mcpForm.name || 'Skill'" :size="64" />
-            <div class="upload-hint">
-              <el-upload
-                :auto-upload="false"
-                :show-file-list="false"
-                :on-change="handleIconChange"
-                accept="image/png,image/jpeg,image/jpg,image/svg+xml,image/webp"
-              >
-                <el-button size="small">Upload Custom Icon</el-button>
-              </el-upload>
-              <div class="hint-text">Or use auto-generated avatar</div>
-            </div>
-          </div>
-        </div>
-      </el-form-item>
-
-      <el-form-item label="Public" prop="is_public">
-        <el-switch v-model="mcpForm.is_public" />
       </el-form-item>
     </el-form>
 
@@ -220,7 +179,7 @@
             </div>
             <template #tip>
               <div class="el-upload__tip">
-                Support .md/.markdown (single skill) or .zip (multiple skills)
+                .md/.markdown for single skill or rule; .zip for all types (skill, mcp, hooks, rule)
               </div>
             </template>
           </el-upload>
@@ -239,15 +198,56 @@
               </svg></el-icon>
             </template>
           </el-input>
+          <el-input
+            v-model="githubToken"
+            placeholder="ghp_xxxx (optional, for private repos)"
+            class="mt-2"
+          >
+            <template #prepend>Token</template>
+          </el-input>
         </div>
       </div>
 
       <!-- Candidates found: selection list -->
       <div v-else class="candidates-list">
+        <!-- Shared tags + version for all imports -->
+        <div class="import-meta-row">
+          <el-form-item label="Tags" class="mb-0" label-width="70px" required>
+            <div class="flex gap-2 flex-wrap items-center">
+              <el-tag
+                v-for="tag in importTagsList"
+                :key="tag"
+                closable
+                :disable-transitions="false"
+                effect="light"
+                @close="importTagsList.splice(importTagsList.indexOf(tag), 1)"
+              >{{ tag }}</el-tag>
+              <el-input
+                v-model="importTagInput"
+                placeholder="add tag + Enter"
+                size="small"
+                style="width: 120px"
+                @keyup.enter="handleImportTagAdd"
+              />
+            </div>
+          </el-form-item>
+          <el-form-item label="Version" class="mb-0" label-width="70px">
+            <el-input v-model="importVersion" placeholder="1.0.0" style="width: 140px" />
+          </el-form-item>
+        </div>
+        <div class="flex gap-4 items-center mb-2 flex-wrap">
+          <el-text v-if="!importTagsList.length" size="small" type="warning">
+            At least one tag is required.
+          </el-text>
+          <el-text size="small" type="info">
+            Tools with same name + version will fail. Change version if re-importing.
+          </el-text>
+        </div>
+
         <div class="flex justify-between items-center mb-3">
           <div class="flex items-center gap-4">
             <span class="text-sm text-gray-600">
-              Found {{ allCandidates.length }} skill(s)
+              Found {{ allCandidates.length }} tool(s)
             </span>
             <el-divider direction="vertical" />
             <span class="text-sm font-600" :class="selectedCount > 0 ? 'text-primary' : 'text-gray-500'">
@@ -283,43 +283,71 @@
                     <el-input
                       v-if="candidate.requires_name"
                       v-model="candidate.name_override"
-                      placeholder="Enter skill name"
+                      placeholder="Enter name"
                       size="small"
                       :disabled="isCandidateDisabled(candidate)"
                       @click.stop
                     />
-                    <span v-else class="skill-name">{{ candidate.skill_name }}</span>
+                    <span v-else class="skill-name">{{ candidate.name || candidate.skill_name }}</span>
                   </div>
                 </div>
               </div>
-              <el-tag
-                v-if="isCandidateDisabled(candidate)"
-                type="danger"
-                size="small"
-                effect="plain"
-              >
-                Cannot Overwrite
-              </el-tag>
-              <el-tag
-                v-else-if="candidate.will_overwrite"
-                type="warning"
-                size="small"
-                effect="plain"
-              >
-                Overwrite
-              </el-tag>
-              <el-tag v-else type="success" size="small" effect="plain">
-                New
-              </el-tag>
+              <div class="candidate-tags">
+                <el-tag
+                  v-if="candidate.type"
+                  size="small"
+                  :type="candidateTagType(candidate.type)"
+                  effect="light"
+                >
+                  {{ candidate.type.toUpperCase() }}
+                </el-tag>
+                <template v-if="'will_overwrite' in candidate">
+                  <el-tag
+                    v-if="candidate.is_forbidden"
+                    type="danger"
+                    size="small"
+                    effect="plain"
+                  >
+                    No Permission
+                  </el-tag>
+                  <el-tag
+                    v-else-if="isCandidateDisabled(candidate)"
+                    type="danger"
+                    size="small"
+                    effect="plain"
+                  >
+                    Cannot Overwrite
+                  </el-tag>
+                  <el-tag
+                    v-else-if="candidate.will_overwrite"
+                    type="warning"
+                    size="small"
+                    effect="plain"
+                  >
+                    Overwrite
+                  </el-tag>
+                  <el-tag v-else type="success" size="small" effect="plain">
+                    New
+                  </el-tag>
+                </template>
+              </div>
             </div>
 
-            <div v-if="candidate.skill_description" class="candidate-description">
-              {{ candidate.skill_description }}
+            <div v-if="candidate.description || candidate.skill_description" class="candidate-description">
+              {{ candidate.description || candidate.skill_description }}
+            </div>
+
+            <!-- hooks: show scripts list -->
+            <div v-if="candidate.type === 'hooks' && candidate.scripts?.length" class="hooks-scripts">
+              <div v-for="s in candidate.scripts" :key="s.relative_path" class="hooks-script-item">
+                <span class="path-value">{{ s.name }}</span>
+                <span v-if="s.description" class="script-desc">{{ s.description }}</span>
+              </div>
             </div>
 
             <div class="candidate-path">
               <span class="path-label">Path:</span>
-              <span class="path-value">{{ candidate.relative_path }}</span>
+              <span class="path-value">{{ candidate.type === 'hooks' ? candidate.hooks_json_relative_path : candidate.relative_path }}</span>
             </div>
           </div>
         </div>
@@ -375,10 +403,18 @@ import { ref, reactive, nextTick, computed } from 'vue'
 import { ElMessage, type FormInstance, type FormRules, type UploadInstance, type UploadFile, type InputInstance } from 'element-plus'
 import { UploadFilled, RefreshLeft } from '@element-plus/icons-vue'
 import { useDark } from '@vueuse/core'
-import { createMCP, updateMCP, discoverSkills, commitSkills, uploadIcon, getTool, type SkillCandidate } from '@/services/tools'
+import {
+  upsertTool,
+  updateTool,
+  discoverImport,
+  commitImport,
+  getTool,
+  type SkillCandidate,
+  type ImportSelection,
+  type ToolType,
+} from '@/services/tools'
 import { useUserStore } from '@/stores/user'
 import JsonEditor from '@/components/Base/JsonEditor.vue'
-import LetterAvatar from '@/components/Base/LetterAvatar.vue'
 
 const isDark = useDark()
 const userStore = useUserStore()
@@ -432,15 +468,11 @@ const mcpFormRef = ref<FormInstance>()
 const mcpForm = reactive({
   name: '',
   description: '',
+  version: '1.0.0',
   tags: [] as string[],
   is_public: true,
-  icon_url: '',
-  configJson: '{\n  "mcpServers": {\n    \n  }\n}',
+  configJson: '{\n  "mcpServers": {\n    "server-name": {\n      "url": "",\n      "headers": {}\n    }\n  }\n}',
 })
-
-// Icon upload
-const iconUploading = ref(false)
-const iconFile = ref<File | null>(null)
 
 // Tags input related
 const tagInputVisible = ref(false)
@@ -470,36 +502,6 @@ const removeTag = (tag: string) => {
   }
 }
 
-// Handle icon upload
-const handleIconChange = async (uploadFile: UploadFile) => {
-  const file = uploadFile.raw
-  if (!file) return
-
-  // Validate file size
-  if (file.size > 2 * 1024 * 1024) {
-    ElMessage.error('Icon size must be less than 2MB')
-    return
-  }
-
-  // Validate file type
-  const validTypes = ['image/png', 'image/jpeg', 'image/jpg', 'image/svg+xml', 'image/webp']
-  if (!validTypes.includes(file.type)) {
-    ElMessage.error('Icon must be PNG, JPG, SVG or WEBP format')
-    return
-  }
-
-  try {
-    iconUploading.value = true
-    const result = await uploadIcon(file)
-    mcpForm.icon_url = result.icon_url
-    ElMessage.success('Icon uploaded successfully')
-  } catch (error) {
-    console.error('Upload icon failed:', error)
-  } finally {
-    iconUploading.value = false
-  }
-}
-
 const jsonError = ref('')
 
 // JSON editor validation callback
@@ -514,6 +516,7 @@ const handleJsonValidate = (isValid: boolean, error?: string) => {
 const mcpRules = computed<FormRules>(() => ({
   name: [{ required: !isEditMode.value, message: 'Please input name', trigger: 'blur' }],
   description: [{ required: true, message: 'Please input description', trigger: 'blur' }],
+  version: [{ required: true, message: 'Please input version', trigger: 'blur' }],
   configJson: [
     { required: true, message: 'Please input config JSON', trigger: 'blur' },
     {
@@ -549,6 +552,18 @@ const importMethodOptions = [
 const uploadRef = ref<UploadInstance>()
 const uploadedFile = ref<File | null>(null)
 const githubUrl = ref('')
+const githubToken = ref('')
+const importTagsList = ref<string[]>([])
+const importTagInput = ref('')
+const importVersion = ref('1.0.0')
+
+const handleImportTagAdd = () => {
+  const tag = importTagInput.value.trim()
+  if (tag && !importTagsList.value.includes(tag)) {
+    importTagsList.value.push(tag)
+  }
+  importTagInput.value = ''
+}
 const discoverResult = ref<{ archive_key: string; candidates: ExtendedSkillCandidate[] } | null>(null)
 const allCandidates = ref<ExtendedSkillCandidate[]>([])
 
@@ -565,9 +580,18 @@ const paginatedCandidates = computed(() => {
   return allCandidates.value.slice(start, end)
 })
 
-// Calculate selected count
+const isCandidateDisabled = (candidate: ExtendedSkillCandidate) => {
+  // is_forbidden is an absolute backend signal (no one, including managers, can commit)
+  if (candidate.is_forbidden === true) return true
+  // Managers can bypass the owned_by_other restriction
+  if (userStore.isManager) return false
+  return candidate.owned_by_other === true
+}
+
 const selectedCount = computed(() => {
-  return allCandidates.value.filter(c => c.selected).length
+  return allCandidates.value.filter(
+    c => c.selected && !isCandidateDisabled(c),
+  ).length
 })
 
 const handleFileChange = (file: UploadFile) => {
@@ -579,6 +603,10 @@ const resetDiscover = () => {
   allCandidates.value = []
   uploadedFile.value = null
   githubUrl.value = ''
+  githubToken.value = ''
+  importTagsList.value = []
+  importTagInput.value = ''
+  importVersion.value = '1.0.0'
   newTag.value = ''
   tagInputVisible.value = false
   candidatePagination.currentPage = 1
@@ -604,28 +632,28 @@ const handleCreateMCP = async () => {
       const data = {
         name: mcpForm.name,
         description: mcpForm.description,
+        version: mcpForm.version || undefined,
         config,
         tags: mcpForm.tags.length > 0 ? mcpForm.tags : undefined,
         is_public: mcpForm.is_public,
-        icon_url: mcpForm.icon_url || undefined,
       }
 
       if (isEditMode.value && props.toolId) {
         // Edit mode
-        await updateMCP(props.toolId, data)
+        await updateTool(props.toolId, data)
         ElMessage.success('Tool updated successfully')
       } else {
         // Create mode
-        await createMCP(data)
+        await upsertTool({ ...data, type: 'mcp' })
         ElMessage.success('MCP created successfully')
       }
     } else if (toolType.value === 'skill' && isEditMode.value && props.toolId) {
       // Skill metadata edit
-      await updateMCP(props.toolId, {
+      await updateTool(props.toolId, {
         description: mcpForm.description,
+        version: mcpForm.version || undefined,
         tags: mcpForm.tags.length > 0 ? mcpForm.tags : undefined,
         is_public: mcpForm.is_public,
-        icon_url: mcpForm.icon_url || undefined,
       })
       ElMessage.success('Skill metadata updated successfully')
     }
@@ -639,14 +667,8 @@ const handleCreateMCP = async () => {
   }
 }
 
-// Toggle candidate selection state
-// Check if candidate is disabled (regular users cannot overwrite others' skills)
-const isCandidateDisabled = (candidate: ExtendedSkillCandidate) => {
-  // Managers can bypass this restriction
-  if (userStore.isManager) return false
-  // Regular users: disabled if owned_by_other is true
-  return candidate.owned_by_other === true
-}
+const candidateTagType = (type: string) =>
+  ({ skill: 'primary', mcp: 'success', hooks: 'warning', rule: '' } as Record<string, string>)[type] || ''
 
 const toggleCandidate = (candidate: ExtendedSkillCandidate) => {
   // If disabled, do not allow toggling
@@ -670,14 +692,19 @@ const handleDiscover = async () => {
       return
     }
     formData.append('github_url', githubUrl.value)
+    if (githubToken.value.trim()) {
+      formData.append('github_token', githubToken.value.trim())
+    }
   }
 
   try {
     loading.value = true
-    const result = await discoverSkills(formData)
+    const result = await discoverImport(formData)
 
-    // Save all candidates (initialized as selected)
-    allCandidates.value = result.candidates.map(c => ({ ...c, selected: true }))
+    allCandidates.value = result.candidates.map(c => ({
+      ...c,
+      selected: c.is_forbidden !== true,
+    }))
 
     discoverResult.value = {
       archive_key: result.archive_key,
@@ -701,8 +728,9 @@ const handleDiscover = async () => {
 const handleCommit = async () => {
   if (!discoverResult.value) return
 
-  // Filter selected from all candidates
-  const selectedCandidates = allCandidates.value.filter(c => c.selected)
+  const selectedCandidates = allCandidates.value.filter(
+    c => c.selected && !isCandidateDisabled(c),
+  )
 
   if (selectedCandidates.length === 0) {
     ElMessage.warning('Please select at least one skill to import')
@@ -722,23 +750,49 @@ const handleCommit = async () => {
   try {
     loading.value = true
 
-    const selections = selectedCandidates.map(c => ({
-      relative_path: c.relative_path,
-      name_override: c.name_override,
-    }))
+    const selections: ImportSelection[] = selectedCandidates.map(c => {
+      const sel: ImportSelection = {
+        type: (c.type || 'skill') as ToolType,
+        name_override: c.name_override,
+      }
+      if (c.type === 'hooks') {
+        sel.hooks_json_relative_path = c.hooks_json_relative_path
+      } else {
+        sel.relative_path = c.relative_path
+      }
+      return sel
+    })
 
-    const result = await commitSkills({
+    // Auto-commit any pending tag input
+    const pendingTag = importTagInput.value.trim()
+    if (pendingTag && !importTagsList.value.includes(pendingTag)) {
+      importTagsList.value.push(pendingTag)
+      importTagInput.value = ''
+    }
+
+    if (importTagsList.value.length === 0) {
+      ElMessage.warning('Please add at least one tag before importing')
+      loading.value = false
+      return
+    }
+    const result = await commitImport({
       archive_key: discoverResult.value.archive_key,
+      version: importVersion.value || undefined,
+      tags: importTagsList.value.length > 0 ? [...importTagsList.value] : undefined,
       selections,
     })
 
-    const successCount = result.items.filter(i => i.status === 'success').length
-    const failCount = result.items.filter(i => i.status === 'failed').length
+    const okItems = result.items.filter(i => i.status === 'ok')
+    const failItems = result.items.filter(i => i.status === 'failed')
 
-    if (failCount === 0) {
-      ElMessage.success(`Successfully imported ${successCount} skill(s)`)
+    if (failItems.length === 0) {
+      ElMessage.success(`Successfully imported ${okItems.length} tool(s)`)
+    } else if (okItems.length === 0) {
+      const errors = failItems.map(i => `${i.name}: ${i.error}`).join('\n')
+      ElMessage.error({ message: `All ${failItems.length} tool(s) failed to import`, duration: 5000 })
+      console.warn('Import failures:', errors)
     } else {
-      ElMessage.warning(`Imported ${successCount} skill(s), ${failCount} failed`)
+      ElMessage.warning(`Imported ${okItems.length} tool(s), ${failItems.length} failed`)
     }
 
     emit('success')
@@ -755,15 +809,13 @@ const resetForm = () => {
   mcpFormRef.value?.resetFields()
   mcpForm.name = ''
   mcpForm.description = ''
+  mcpForm.version = '1.0.0'
   mcpForm.tags = []
   mcpForm.is_public = true
-  mcpForm.icon_url = ''
-  mcpForm.configJson = '{\n  "mcpServers": {\n    \n  }\n}'
+  mcpForm.configJson = '{\n  "mcpServers": {\n    "server-name": {\n      "url": "",\n      "headers": {}\n    }\n  }\n}'
   toolType.value = 'mcp'
   newTag.value = ''
   tagInputVisible.value = false
-  iconUploading.value = false
-  iconFile.value = null
   resetDiscover()
 }
 
@@ -775,22 +827,24 @@ const onOpen = async () => {
       loading.value = true
       const toolDetail = await getTool(props.toolId)
 
-      toolType.value = toolDetail.type
+      // AddDialog currently only supports mcp/skill editing; hooks/rule are
+      // not reachable from the UI yet, so we cast here and rely on the
+      // ToolsTab gating (`isEditable`) to prevent the unreachable states.
+      toolType.value = toolDetail.type as 'mcp' | 'skill'
 
       if (toolDetail.type === 'mcp') {
         mcpForm.name = toolDetail.name
         mcpForm.description = toolDetail.description
+        mcpForm.version = toolDetail.version || ''
         mcpForm.tags = [...(toolDetail.tags || [])]
         mcpForm.is_public = toolDetail.is_public
-        mcpForm.icon_url = toolDetail.icon_url || ''
         mcpForm.configJson = JSON.stringify(toolDetail.config || {}, null, 2)
       } else if (toolDetail.type === 'skill') {
-        // Skill edit mode - can only edit metadata
         mcpForm.name = toolDetail.name
         mcpForm.description = toolDetail.description
+        mcpForm.version = toolDetail.version || ''
         mcpForm.tags = [...(toolDetail.tags || [])]
         mcpForm.is_public = toolDetail.is_public
-        mcpForm.icon_url = toolDetail.icon_url || ''
       }
     } catch (error) {
       console.error('Load tool failed:', error)
@@ -810,7 +864,6 @@ const onOpen = async () => {
     mcpForm.description = props.cloneData.description
     mcpForm.tags = [...props.cloneData.tags]
     mcpForm.is_public = props.cloneData.is_public
-    mcpForm.icon_url = ''
     mcpForm.configJson = JSON.stringify(props.cloneData.config, null, 2)
   } else {
     // Create mode: reset form
@@ -833,21 +886,21 @@ defineOptions({
 
 <style scoped lang="scss">
 .type-selector {
-  margin-bottom: 24px;
+  margin-bottom: 20px;
 }
 
 .skills-section {
-  margin-top: 24px;
+  margin-top: 16px;
 }
 
 .import-method-selector {
-  margin-bottom: 24px;
+  margin-bottom: 20px;
 
   .selector-label {
-    font-size: 14px;
-    font-weight: 500;
-    color: var(--el-text-color-primary);
-    margin-bottom: 12px;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--safe-text, var(--el-text-color-primary));
+    margin-bottom: 10px;
   }
 }
 
@@ -859,62 +912,32 @@ defineOptions({
   height: 24px;
 }
 
-.icon-upload-area {
-  width: 100%;
-
-  .icon-preview {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-
-    img {
-      width: 64px;
-      height: 64px;
-      border-radius: 6px;
-      object-fit: cover;
-      border: 1px solid var(--el-border-color);
-    }
-  }
-
-  .skill-avatar-preview {
-    display: flex;
-    align-items: center;
-    gap: 16px;
-
-    .upload-hint {
-      display: flex;
-      flex-direction: column;
-      gap: 8px;
-
-      .hint-text {
-        font-size: 12px;
-        color: var(--el-text-color-secondary);
-      }
-    }
-  }
-
-  :deep(.el-upload) {
-    width: 100%;
-
-    .el-upload-dragger {
-      padding: 20px;
-      width: 100%;
-    }
-  }
-
-  .avatar-uploader-icon {
-    font-size: 28px;
-    color: var(--el-text-color-secondary);
-    margin-bottom: 8px;
-  }
+.tag-hint {
+  font-size: 12px;
+  color: var(--el-color-warning);
 }
 
 .upload-area {
-  margin: 20px 0;
+  margin: 16px 0;
+
+  :deep(.el-upload-dragger) {
+    padding: 24px 16px;
+  }
 }
 
 .github-input {
-  margin: 20px 0;
+  margin: 16px 0;
+}
+
+.import-meta-row {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  padding: 12px 16px;
+  margin-bottom: 12px;
+  border-radius: 8px;
+  background: var(--el-fill-color-lighter);
+  border: 1px solid var(--el-border-color-lighter);
 }
 
 .candidates-list {
@@ -1009,6 +1032,39 @@ defineOptions({
                 width: 100%;
               }
             }
+          }
+        }
+      }
+
+      .candidate-tags {
+        display: flex;
+        gap: 4px;
+        align-items: center;
+        flex-shrink: 0;
+      }
+
+      .hooks-scripts {
+        padding-left: 32px;
+        margin-bottom: 6px;
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+
+        .hooks-script-item {
+          font-size: 12px;
+          display: flex;
+          gap: 8px;
+          align-items: center;
+
+          .path-value {
+            font-family: 'Monaco', 'Menlo', 'Consolas', monospace;
+            color: var(--el-text-color-primary);
+          }
+          .script-desc {
+            color: var(--el-text-color-secondary);
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
           }
         }
       }
