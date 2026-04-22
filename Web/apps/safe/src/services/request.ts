@@ -194,8 +194,16 @@ clawRequest.interceptors.response.use(
     if (response.config.rawResponse === true) return response
 
     const rawData = response.data
-    if (rawData && typeof rawData === 'object' && 'code' in rawData && rawData.code >= 200 && rawData.code < 300) {
-      return rawData.data
+    if (rawData && typeof rawData === 'object') {
+      // Accept both envelope shapes: legacy `{ code, data }` (oci-slc) and
+      // the newer `{ ok, data }` (core42). Anything with a `data` field and
+      // either a 2xx `code` or a truthy `ok` is treated as success.
+      const codeOk = 'code' in rawData && typeof rawData.code === 'number'
+        && rawData.code >= 200 && rawData.code < 300
+      const okTrue = 'ok' in rawData && rawData.ok === true
+      if ((codeOk || okTrue) && 'data' in rawData) {
+        return rawData.data
+      }
     }
 
     const msg = rawData?.message ?? rawData?.error ?? 'Claw API Error'
