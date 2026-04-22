@@ -30,6 +30,37 @@
         <el-form-item label="Description">
           <el-input v-model="form.description" type="textarea" :rows="2" placeholder="Plugin description" />
         </el-form-item>
+
+        <!-- Icon upload. Create-only for now — updating an existing plugin's
+             icon is a follow-up once we decide on versioning semantics. -->
+        <el-form-item v-if="!isEdit" label="Icon">
+          <div class="icon-field">
+            <div v-if="form.icon_url" class="icon-preview">
+              <img :src="form.icon_url" alt="plugin icon" />
+              <el-button
+                :icon="Close"
+                circle
+                size="small"
+                class="icon-clear-btn"
+                title="Remove icon"
+                @click="form.icon_url = ''"
+              />
+            </div>
+            <el-upload
+              v-else
+              class="icon-uploader"
+              :show-file-list="false"
+              :before-upload="handleIconUpload"
+              accept="image/png,image/jpeg,image/svg+xml,image/webp"
+            >
+              <div v-loading="iconUploading" class="icon-upload-trigger">
+                <el-icon><Plus /></el-icon>
+                <span class="upload-hint">Upload</span>
+              </div>
+            </el-upload>
+            <span class="icon-hint">PNG / JPG / SVG / WebP, ≤2MB</span>
+          </div>
+        </el-form-item>
       </div>
 
       <!-- Tools -->
@@ -160,10 +191,10 @@
 <script setup lang="ts">
 import { ref, reactive, computed, watch } from 'vue'
 import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
-import { Plus, Delete } from '@element-plus/icons-vue'
+import { Plus, Delete, Close } from '@element-plus/icons-vue'
 import {
   upsertPlugin, updatePlugin, getPlugin,
-  getTools, getResources,
+  getTools, getResources, uploadIcon,
   type Tool, type Resource,
 } from '@/services/tools'
 import AddDialog from './AddDialog.vue'
@@ -194,9 +225,39 @@ const form = reactive({
   description: '',
   version: '1.0.0',
   is_public: true,
+  icon_url: '',
   tools: [] as { id: number | undefined }[],
   resources: [] as { id: number | undefined }[],
 })
+
+const iconUploading = ref(false)
+const ICON_MAX_BYTES = 2 * 1024 * 1024
+const ICON_ACCEPT_MIME = /^image\/(png|jpe?g|svg\+xml|webp)$/
+
+// `before-upload` returning `false` tells el-upload to skip its own POST. We
+// do the upload manually so the returned icon_url lands directly on `form`
+// without needing a hidden el-upload httpRequest override.
+const handleIconUpload = async (file: File) => {
+  if (!ICON_ACCEPT_MIME.test(file.type)) {
+    ElMessage.warning('Only PNG / JPG / SVG / WebP icons are allowed')
+    return false
+  }
+  if (file.size > ICON_MAX_BYTES) {
+    ElMessage.warning('Icon must be 2MB or smaller')
+    return false
+  }
+  iconUploading.value = true
+  try {
+    const res = await uploadIcon(file)
+    form.icon_url = res.icon_url
+    ElMessage.success('Icon uploaded')
+  } catch (e) {
+    ElMessage.error((e as Error).message || 'Icon upload failed')
+  } finally {
+    iconUploading.value = false
+  }
+  return false
+}
 
 const rules: FormRules = {
   name: [{ required: true, message: 'Name is required', trigger: 'blur' }],
@@ -225,6 +286,7 @@ const resetForm = () => {
   form.description = ''
   form.version = '1.0.0'
   form.is_public = true
+  form.icon_url = ''
   form.tools = []
   form.resources = pickDefaultResources()
 }
@@ -296,6 +358,7 @@ watch(() => props.visible, async (v) => {
       form.description = p.description
       form.version = p.version
       form.is_public = p.is_public
+      form.icon_url = p.icon_url || ''
       form.tools = (p.tools || []).map(t => ({ id: t.id }))
       form.resources = (p.resources || []).map(r => ({ id: r.id }))
       if (form.resources.length === 0) form.resources = pickDefaultResources()
@@ -402,6 +465,9 @@ const handleSave = async () => {
       tools: toolRefs,
       resources: resourceRefs,
       is_public: form.is_public,
+      // Only include icon_url when it's set so we don't accidentally clear it
+      // on updates that pre-date the icon upload feature.
+      ...(form.icon_url ? { icon_url: form.icon_url } : {}),
     }
 
     if (isEdit.value && props.pluginId) {
@@ -455,6 +521,74 @@ const handleClose = () => {
   gap: 8px;
   align-items: center;
   margin-bottom: 8px;
+}
+
+.icon-field {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  line-height: 1;
+
+  .icon-hint {
+    font-size: 12px;
+    color: var(--el-text-color-secondary);
+  }
+}
+
+.icon-preview {
+  position: relative;
+  width: 64px;
+  height: 64px;
+  border-radius: 10px;
+  overflow: visible;
+  border: 1px solid var(--el-border-color);
+  background: var(--el-fill-color-lighter);
+
+  img {
+    width: 100%;
+    height: 100%;
+    border-radius: 10px;
+    object-fit: cover;
+    display: block;
+  }
+
+  .icon-clear-btn {
+    position: absolute;
+    top: -8px;
+    right: -8px;
+  }
+}
+
+// Dropzone-style trigger. Matches the soft dashed uploaders the rest of the
+// project uses so it doesn't look out of place next to el-upload's defaults.
+.icon-uploader {
+  :deep(.el-upload) {
+    width: 64px;
+    height: 64px;
+  }
+
+  .icon-upload-trigger {
+    width: 64px;
+    height: 64px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    border-radius: 10px;
+    border: 1px dashed var(--el-border-color);
+    color: var(--el-text-color-secondary);
+    cursor: pointer;
+    transition: color 0.2s, border-color 0.2s, background 0.2s;
+
+    .upload-hint { font-size: 11px; }
+
+    &:hover {
+      color: var(--el-color-primary);
+      border-color: var(--el-color-primary);
+      background: color-mix(in oklab, var(--el-color-primary) 6%, transparent);
+    }
+  }
 }
 
 .add-btns {

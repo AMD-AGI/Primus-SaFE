@@ -1,4 +1,4 @@
-import { clawRequest } from '@/services/request'
+import { clawRequest, request } from '@/services/request'
 import type {
   GetToolsParams,
   GetToolsResponse,
@@ -51,6 +51,18 @@ export const getToolContent = (id: number): Promise<string> =>
     responseType: 'text',
     rawResponse: false,
   })
+
+// Upload an icon image and return its public URL. Goes through the legacy
+// `/tools/api/v1/tools/icon` endpoint (not claw) because icon storage lives
+// there today; swap to a claw endpoint once the backend exposes one.
+export const uploadIcon = async (file: File): Promise<{ icon_url: string }> => {
+  const formData = new FormData()
+  formData.append('file', file)
+
+  return request.post('/tools/api/v1/tools/icon', formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  })
+}
 
 export const uploadSkill = (formData: FormData): Promise<{ id: number }> =>
   clawRequest.post('/tools/skill/upload', formData, {

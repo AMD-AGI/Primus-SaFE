@@ -29,7 +29,18 @@
           @click="handleDetail(item)"
         >
           <div class="card-header">
-            <span class="plugin-name">{{ item.name }}</span>
+            <div class="card-header-left">
+              <div class="plugin-icon">
+                <img
+                  v-if="item.icon_url && !failedIcons.has(item.id)"
+                  :src="item.icon_url"
+                  :alt="`${item.name} icon`"
+                  @error="onIconError(item.id)"
+                />
+                <span v-else class="plugin-icon-fallback">{{ initialOf(item.name) }}</span>
+              </div>
+              <span class="plugin-name">{{ item.name }}</span>
+            </div>
             <div class="header-tags">
               <el-tag v-if="item.status === 'inactive'" size="small" type="info" effect="light">
                 Inactive
@@ -174,6 +185,14 @@ const MAX_TOOL_CHIPS = 3
 
 const formatDate = (s: string) => s.split(' ')[0]
 
+const initialOf = (name: string) => (name || '?').trim().charAt(0).toUpperCase()
+
+// Track icons that failed to load so we can fall back to the letter badge
+// instead of showing a broken-image glyph (happens when icon_url is stale
+// or S3 auth expires).
+const failedIcons = reactive(new Set<number>())
+const onIconError = (id: number) => failedIcons.add(id)
+
 const toolTagType = (type: string) =>
   ({ skill: 'primary', mcp: 'success', hooks: 'warning', rule: '' } as Record<string, string>)[type] || ''
 
@@ -271,6 +290,46 @@ onMounted(fetchList)
     display: flex;
     justify-content: space-between;
     align-items: center;
+    gap: 8px;
+  }
+
+  .card-header-left {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+    flex: 1;
+  }
+
+  // Compact 32px icon that sits flush-left of the plugin name. Fallback badge
+  // uses the first letter, color-accented so different plugins stay visually
+  // distinct even without a custom upload.
+  .plugin-icon {
+    width: 32px;
+    height: 32px;
+    border-radius: 8px;
+    overflow: hidden;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: color-mix(in oklab, var(--safe-primary, var(--el-color-primary)) 10%, var(--el-fill-color));
+    border: 1px solid var(--safe-border, var(--el-border-color-lighter));
+
+    img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+    }
+
+    .plugin-icon-fallback {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--safe-primary, var(--el-color-primary));
+      text-transform: uppercase;
+      line-height: 1;
+    }
   }
 
   .plugin-name {
@@ -280,6 +339,7 @@ onMounted(fetchList)
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+    min-width: 0;
   }
 
   .plugin-desc {

@@ -174,6 +174,7 @@ export interface Plugin {
   description: string
   version: string
   author?: string
+  icon_url?: string | null
   tools: PluginToolRef[]
   resources: PluginResourceRef[]
   is_public: boolean
@@ -186,6 +187,7 @@ export interface UpsertPluginRequest {
   name: string
   description?: string
   version?: string
+  icon_url?: string
   tools: { id: number; type: string; version: string }[]
   resources?: { id: number; type: string; version: string }[]
   is_public?: boolean
@@ -196,6 +198,7 @@ export interface PluginUpdateRequest {
   name?: string
   description?: string
   version?: string
+  icon_url?: string
   tools?: { id: number; type: string; version: string }[]
   resources?: { id: number; type: string; version: string }[]
   is_public?: boolean
