@@ -1,4 +1,4 @@
-import { toolsRequest } from '@/services/request'
+import { clawRequest } from '@/services/request'
 import type {
   GetToolsParams,
   GetToolsResponse,
@@ -26,40 +26,40 @@ import type {
 // ─── Tools ───
 
 export const getTools = (params?: GetToolsParams): Promise<GetToolsResponse> =>
-  toolsRequest.get('/tools', { params })
+  clawRequest.get('/tools', { params })
 
 export const getMCPTools = (params?: GetToolsParams): Promise<GetToolsResponse> =>
-  toolsRequest.get('/tools/mcp', { params })
+  clawRequest.get('/tools/mcp', { params })
 
 export const searchTools = (params: SearchToolsParams): Promise<SearchToolsResponse> =>
-  toolsRequest.get('/tools/search', { params })
+  clawRequest.get('/tools/search', { params })
 
 export const getTool = (id: number): Promise<ToolDetail> =>
-  toolsRequest.get(`/tools/${id}`)
+  clawRequest.get(`/tools/${id}`)
 
 export const upsertTool = (data: UpsertToolRequest): Promise<UpsertResponse> =>
-  toolsRequest.post('/tools/upsert', data)
+  clawRequest.post('/tools/upsert', data)
 
 export const updateTool = (id: number, data: UpdateToolRequest): Promise<void> =>
-  toolsRequest.put(`/tools/${id}`, data, { timeout: 3e4 })
+  clawRequest.put(`/tools/${id}`, data, { timeout: 3e4 })
 
 export const deleteTool = (id: number): Promise<void> =>
-  toolsRequest.delete(`/tools/${id}`)
+  clawRequest.delete(`/tools/${id}`)
 
 export const getToolContent = (id: number): Promise<string> =>
-  toolsRequest.get(`/tools/${id}/content`, {
+  clawRequest.get(`/tools/${id}/content`, {
     responseType: 'text',
     rawResponse: false,
   })
 
 export const uploadSkill = (formData: FormData): Promise<{ id: number }> =>
-  toolsRequest.post('/tools/skill/upload', formData, {
+  clawRequest.post('/tools/skill/upload', formData, {
     headers: { 'Content-Type': 'multipart/form-data' },
     timeout: 3e4,
   })
 
 export const uploadRule = (formData: FormData): Promise<{ id: number }> =>
-  toolsRequest.post('/tools/rule/upload', formData, {
+  clawRequest.post('/tools/rule/upload', formData, {
     headers: { 'Content-Type': 'multipart/form-data' },
     timeout: 3e4,
   })
@@ -67,46 +67,46 @@ export const uploadRule = (formData: FormData): Promise<{ id: number }> =>
 // ─── Import (zip / GitHub) ───
 
 export const discoverImport = (formData: FormData): Promise<SkillDiscoverResponse> =>
-  toolsRequest.post('/tools/import/discover', formData, {
+  clawRequest.post('/tools/import/discover', formData, {
     headers: { 'Content-Type': 'multipart/form-data' },
     timeout: 3e4,
   })
 
 export const commitImport = (data: ImportCommitRequest): Promise<ImportCommitResponse> =>
-  toolsRequest.post('/tools/import/commit', data, { timeout: 3e4 })
+  clawRequest.post('/tools/import/commit', data, { timeout: 3e4 })
 
 // ─── Plugins ───
 
 export const getPlugins = (params?: GetPluginsParams): Promise<GetPluginsResponse> =>
-  toolsRequest.get('/plugins', { params })
+  clawRequest.get('/plugins', { params })
 
 export const getPlugin = (id: number): Promise<Plugin> =>
-  toolsRequest.get(`/plugins/${id}`)
+  clawRequest.get(`/plugins/${id}`)
 
 export const upsertPlugin = (data: UpsertPluginRequest): Promise<UpsertResponse> =>
-  toolsRequest.post('/plugins/upsert', data)
+  clawRequest.post('/plugins/upsert', data)
 
 export const updatePlugin = (id: number, data: PluginUpdateRequest): Promise<void> =>
-  toolsRequest.put(`/plugins/${id}`, data)
+  clawRequest.put(`/plugins/${id}`, data)
 
 export const deletePlugin = (id: number): Promise<void> =>
-  toolsRequest.delete(`/plugins/${id}`)
+  clawRequest.delete(`/plugins/${id}`)
 
 // ─── Resources ───
 
 export const getResources = (params?: GetResourcesParams): Promise<GetResourcesResponse> =>
-  toolsRequest.get('/resources', { params })
+  clawRequest.get('/resources', { params })
 
 export const getResource = (id: number): Promise<Resource> =>
-  toolsRequest.get(`/resources/${id}`)
+  clawRequest.get(`/resources/${id}`)
 
 export const upsertResource = (data: UpsertResourceRequest): Promise<UpsertResponse> =>
-  toolsRequest.post('/resources/upsert', data)
+  clawRequest.post('/resources/upsert', data)
 
 export const updateResource = (id: number, data: ResourceUpdateRequest): Promise<void> =>
-  toolsRequest.put(`/resources/${id}`, data)
+  clawRequest.put(`/resources/${id}`, data)
 
 export const deleteResource = (id: number): Promise<void> =>
-  toolsRequest.delete(`/resources/${id}`)
+  clawRequest.delete(`/resources/${id}`)
 
 export * from './type'

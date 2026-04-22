@@ -178,22 +178,18 @@ export function postForm<TData = any>(
   })
 }
 
-// Tools service — separate backend with { code: 200, data: ... } response format
-const toolsRequest = axios.create({
-  baseURL: '/tools-api/v1',
+// PrimusClaw service — shared backend for tools / plugins / resources.
+// Response envelope is `{ code, data }` (success: 200 ≤ code < 300), which the
+// global `request` interceptor does not unwrap — so we keep a dedicated
+// instance with its own unwrap + 401 redirect logic. Auth rides on the session
+// cookie via `withCredentials: true`, same as the main `request` instance.
+const clawRequest = axios.create({
+  baseURL: '/claw-api/v1',
   timeout: 10000,
-  withCredentials: false,
+  withCredentials: true,
 })
 
-const toolsApiKey = import.meta.env.VITE_TOOLS_API_KEY
-if (toolsApiKey) {
-  toolsRequest.interceptors.request.use((config) => {
-    config.headers.Authorization = `Bearer ${toolsApiKey}`
-    return config
-  })
-}
-
-toolsRequest.interceptors.response.use(
+clawRequest.interceptors.response.use(
   (response: AxiosResponse) => {
     if (response.config.rawResponse === true) return response
 
@@ -202,7 +198,7 @@ toolsRequest.interceptors.response.use(
       return rawData.data
     }
 
-    const msg = rawData?.message ?? rawData?.error ?? 'Tools API Error'
+    const msg = rawData?.message ?? rawData?.error ?? 'Claw API Error'
     ElMessage({ type: 'error', message: msg })
     return Promise.reject(msg)
   },
@@ -212,10 +208,10 @@ toolsRequest.interceptors.response.use(
       location.href = `/login?redirect=${encodeURIComponent(location.pathname + location.search)}`
       return Promise.reject(error)
     }
-    ElMessage({ type: 'error', message: error?.response?.data?.message || 'Tools request failed.' })
+    ElMessage({ type: 'error', message: error?.response?.data?.message || 'Claw request failed.' })
     return Promise.reject(error)
   },
 )
 
 export default request
-export { lensRequest, rootCauseRequest, toolsRequest }
+export { lensRequest, rootCauseRequest, clawRequest }
