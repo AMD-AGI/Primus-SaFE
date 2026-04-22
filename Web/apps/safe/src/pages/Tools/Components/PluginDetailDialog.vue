@@ -222,11 +222,12 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch } from 'vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { h, ref, watch } from 'vue'
+import { ElCheckbox, ElMessage, ElMessageBox } from 'element-plus'
 import { ArrowDown, VideoPlay, User, Link } from '@element-plus/icons-vue'
 import {
   deletePlugin,
+  deleteTool,
   getPlugin,
   getTool,
   type Plugin,
@@ -333,22 +334,73 @@ const toggleToolExpand = async (t: PluginToolRef) => {
 
 const handleDelete = async () => {
   if (!detail.value) return
+  const plugin = detail.value
+  const tools = plugin.tools || []
+  // Off by default: deleting associated tools can cascade into other plugins
+  // that share them, so users opt-in explicitly.
+  const cascade = ref(false)
+
   try {
-    await ElMessageBox.confirm(
-      `Delete plugin "${detail.value.name}"? This cannot be undone.`,
-      'Delete Plugin',
-      { confirmButtonText: 'Delete', type: 'warning' },
-    )
-    deleting.value = true
-    await deletePlugin(detail.value.id)
+    await ElMessageBox({
+      title: 'Delete Plugin',
+      showCancelButton: true,
+      confirmButtonText: 'Delete',
+      cancelButtonText: 'Cancel',
+      type: 'warning',
+      message: () => h('div', { class: 'plugin-delete-confirm' }, [
+        h('p', { style: 'margin: 0 0 8px 0' }, `Delete plugin "${plugin.name}"? This cannot be undone.`),
+        tools.length
+          ? h(ElCheckbox, {
+              modelValue: cascade.value,
+              'onUpdate:modelValue': (v: boolean | string | number) => { cascade.value = Boolean(v) },
+            }, () => `Also delete ${tools.length} associated tool${tools.length > 1 ? 's' : ''}`)
+          : null,
+      ]),
+    })
+  } catch {
+    // User dismissed the dialog.
+    return
+  }
+
+  deleting.value = true
+  try {
+    await deletePlugin(plugin.id)
+  } catch (e) {
+    ElMessage.error((e as Error).message || 'Delete failed')
+    deleting.value = false
+    return
+  }
+
+  if (!cascade.value || !tools.length) {
     ElMessage.success('Plugin deleted')
     emit('deleted')
     handleClose()
-  } catch (e) {
-    if (e !== 'cancel') ElMessage.error((e as Error).message || 'Delete failed')
-  } finally {
     deleting.value = false
+    return
   }
+
+  // Plugin is already gone at this point. Cascade-delete tools in parallel and
+  // summarise at the end — per-tool failures are expected (another plugin may
+  // still reference the tool) and shouldn't roll back the plugin deletion.
+  const results = await Promise.allSettled(tools.map(t => deleteTool(t.id)))
+  const failed = results
+    .map((r, i) => (r.status === 'rejected' ? tools[i] : null))
+    .filter((t): t is PluginToolRef => t !== null)
+
+  if (failed.length === 0) {
+    ElMessage.success(`Plugin and ${tools.length} tool${tools.length > 1 ? 's' : ''} deleted`)
+  } else if (failed.length === tools.length) {
+    ElMessage.warning('Plugin deleted. Failed to delete any associated tools — clean up manually if needed.')
+  } else {
+    const names = failed.map(t => t.name).join(', ')
+    ElMessage.warning(
+      `Plugin deleted. ${failed.length} of ${tools.length} tools failed to delete: ${names}`,
+    )
+  }
+
+  emit('deleted')
+  handleClose()
+  deleting.value = false
 }
 
 const handleClose = () => {
