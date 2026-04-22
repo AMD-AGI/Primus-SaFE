@@ -70,6 +70,13 @@
                   <el-skeleton :rows="2" animated />
                 </div>
                 <template v-else>
+                  <!-- Display name (only when it's meaningfully different
+                       from the bare `name` key we already show in the header) -->
+                  <div
+                    v-if="toolDetails[t.id]?.display_name && toolDetails[t.id].display_name !== t.name"
+                    class="tool-item-display-name"
+                  >{{ toolDetails[t.id].display_name }}</div>
+
                   <p
                     v-if="resolveToolField(t, 'description')"
                     class="tool-item-desc"
@@ -84,6 +91,51 @@
                       effect="plain"
                       type="info"
                     >{{ tag }}</el-tag>
+                  </div>
+
+                  <!-- Meta chips: author / source link / privacy / dates.
+                       Only rendered once the detail has landed so we avoid
+                       partial noise when the plugin row alone is available. -->
+                  <div v-if="toolDetails[t.id]" class="tool-item-meta">
+                    <span v-if="toolDetails[t.id].author" class="meta-chip">
+                      <el-icon><User /></el-icon>
+                      {{ toolDetails[t.id].author }}
+                    </span>
+                    <a
+                      v-if="toolDetails[t.id].tool_source_url"
+                      class="meta-chip meta-link"
+                      :href="toolDetails[t.id].tool_source_url!"
+                      target="_blank"
+                      rel="noopener"
+                      @click.stop
+                    >
+                      <el-icon><Link /></el-icon>
+                      {{ sourceLabel(toolDetails[t.id].tool_source) }}
+                    </a>
+                    <span v-else-if="toolDetails[t.id].tool_source" class="meta-chip">
+                      <el-icon><Link /></el-icon>
+                      {{ sourceLabel(toolDetails[t.id].tool_source) }}
+                    </span>
+                    <el-tag
+                      v-if="!toolDetails[t.id].is_public"
+                      type="warning"
+                      size="small"
+                      effect="light"
+                    >Private</el-tag>
+                    <el-tag
+                      v-if="toolDetails[t.id].status === 'inactive'"
+                      type="info"
+                      size="small"
+                      effect="light"
+                    >Inactive</el-tag>
+                    <el-tooltip
+                      :content="`Created ${formatDate(toolDetails[t.id].created_at)}`"
+                      placement="top"
+                    >
+                      <span class="meta-chip meta-date">
+                        Updated {{ formatDate(toolDetails[t.id].updated_at) }}
+                      </span>
+                    </el-tooltip>
                   </div>
 
                   <!-- MCP servers -->
@@ -172,7 +224,7 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { ArrowDown, VideoPlay } from '@element-plus/icons-vue'
+import { ArrowDown, VideoPlay, User, Link } from '@element-plus/icons-vue'
 import {
   deletePlugin,
   getPlugin,
@@ -222,6 +274,14 @@ const toolTagType = (type: string): TagType => {
 // lightweight data embedded in the plugin response.
 const resolveToolField = (t: PluginToolRef, key: 'description') =>
   toolDetails.value[t.id]?.[key] ?? t[key]
+
+const formatDate = (s?: string) => (s || '').split(' ')[0] || (s || '')
+
+const sourceLabel = (src?: string) => {
+  if (src === 'github') return 'GitHub'
+  if (src === 'upload') return 'Upload'
+  return src || 'Source'
+}
 
 const resolveToolConfig = (t: PluginToolRef): Record<string, any> | undefined =>
   toolDetails.value[t.id]?.config ?? (t as any).config
@@ -396,6 +456,40 @@ watch(
     display: flex;
     flex-wrap: wrap;
     gap: 4px;
+  }
+
+  .tool-item-display-name {
+    font-size: 12px;
+    font-style: italic;
+    color: var(--el-text-color-secondary);
+    margin-top: -2px;
+  }
+
+  .tool-item-meta {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px 12px;
+    font-size: 12px;
+    color: var(--el-text-color-secondary);
+
+    .meta-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      line-height: 1;
+
+      .el-icon { font-size: 13px; }
+    }
+
+    .meta-link {
+      color: var(--el-color-primary);
+      text-decoration: none;
+
+      &:hover { text-decoration: underline; }
+    }
+
+    .meta-date { color: var(--el-text-color-placeholder); }
   }
 
   .tool-loading {
