@@ -1,52 +1,58 @@
 <template>
   <el-dialog
     :model-value="visible"
-    :title="plugin?.name || 'Plugin Details'"
+    :title="detail?.name || 'Plugin Details'"
     width="680px"
     @close="handleClose"
     :close-on-click-modal="false"
   >
-    <div v-if="plugin" class="detail-view">
+    <!-- Loading skeleton while the plugin detail is being fetched. -->
+    <div v-if="loading" class="detail-loading">
+      <el-skeleton :rows="6" animated />
+    </div>
+
+    <div v-else-if="detail" class="detail-view">
       <!-- Top info -->
       <div class="info-grid">
         <div class="info-item">
           <span class="label">Version</span>
-          <span class="value">{{ plugin.version || '–' }}</span>
+          <span class="value">{{ detail.version || '–' }}</span>
         </div>
         <div class="info-item">
           <span class="label">Author</span>
-          <span class="value">{{ plugin.author || '–' }}</span>
+          <span class="value">{{ detail.author || '–' }}</span>
         </div>
         <div class="info-item">
           <span class="label">Status</span>
-          <el-tag size="small" :type="plugin.status === 'active' ? 'success' : 'warning'" effect="light">
-            {{ plugin.status }}
+          <el-tag size="small" :type="detail.status === 'active' ? 'success' : 'warning'" effect="light">
+            {{ detail.status }}
           </el-tag>
         </div>
         <div class="info-item">
           <span class="label">Visibility</span>
-          <el-tag size="small" :type="plugin.is_public ? 'primary' : 'warning'" effect="light">
-            {{ plugin.is_public ? 'Public' : 'Private' }}
+          <el-tag size="small" :type="detail.is_public ? 'primary' : 'warning'" effect="light">
+            {{ detail.is_public ? 'Public' : 'Private' }}
           </el-tag>
         </div>
       </div>
 
-      <div v-if="plugin.description" class="section">
+      <div v-if="detail.description" class="section">
         <div class="section-title">Description</div>
-        <p class="desc">{{ plugin.description }}</p>
+        <p class="desc">{{ detail.description }}</p>
       </div>
 
-      <!-- Tools details -->
-      <div v-if="plugin.tools.length" class="section">
-        <div class="section-title">Tools ({{ plugin.tools.length }})</div>
+      <!-- Tools: header is lightweight (from plugin.tools), body lazy-loads
+           the full tool detail via getTool(id) the first time it expands. -->
+      <div v-if="detail.tools.length" class="section">
+        <div class="section-title">Tools ({{ detail.tools.length }})</div>
         <div class="tool-list">
           <div
-            v-for="t in plugin.tools"
+            v-for="t in detail.tools"
             :key="t.id"
             class="tool-item"
             :class="{ expanded: expandedTools.has(t.id) }"
           >
-            <div class="tool-item-header" @click="toggleToolExpand(t.id)">
+            <div class="tool-item-header" @click="toggleToolExpand(t)">
               <div class="tool-item-left">
                 <el-tag size="small" :type="toolTagType(t.type)" effect="light">
                   {{ t.type.toUpperCase() }}
@@ -60,17 +66,50 @@
             </div>
             <transition name="fade-slide">
               <div v-show="expandedTools.has(t.id)" class="tool-item-body">
-                <p v-if="t.description" class="tool-item-desc">{{ t.description }}</p>
-                <div v-if="t.config && t.type === 'mcp' && t.config.mcpServers" class="mcp-servers">
-                  <div class="mcp-servers-title">MCP Servers</div>
-                  <div v-for="(srv, srvName) in t.config.mcpServers" :key="srvName" class="mcp-server-item">
-                    <code class="server-name">{{ srvName }}</code>
-                    <code class="server-url">{{ (srv as any).url }}</code>
+                <div v-if="toolLoading[t.id]" class="tool-loading">
+                  <el-skeleton :rows="2" animated />
+                </div>
+                <template v-else>
+                  <p
+                    v-if="resolveToolField(t, 'description')"
+                    class="tool-item-desc"
+                  >{{ resolveToolField(t, 'description') }}</p>
+
+                  <!-- Tags (only available from the tool detail endpoint) -->
+                  <div v-if="toolDetails[t.id]?.tags?.length" class="tool-item-tags">
+                    <el-tag
+                      v-for="tag in toolDetails[t.id].tags"
+                      :key="tag"
+                      size="small"
+                      effect="plain"
+                      type="info"
+                    >{{ tag }}</el-tag>
                   </div>
-                </div>
-                <div v-else-if="t.config && t.type === 'skill' && t.config.s3_key" class="skill-info">
-                  <code>{{ t.config.s3_key }}</code>
-                </div>
+
+                  <!-- MCP servers -->
+                  <div
+                    v-if="t.type === 'mcp' && resolveToolConfig(t)?.mcpServers"
+                    class="mcp-servers"
+                  >
+                    <div class="mcp-servers-title">MCP Servers</div>
+                    <div
+                      v-for="(srv, srvName) in resolveToolConfig(t)!.mcpServers"
+                      :key="srvName"
+                      class="mcp-server-item"
+                    >
+                      <code class="server-name">{{ srvName }}</code>
+                      <code class="server-url">{{ (srv as any).url }}</code>
+                    </div>
+                  </div>
+
+                  <!-- Skill artifact -->
+                  <div
+                    v-else-if="t.type === 'skill' && resolveToolConfig(t)?.s3_key"
+                    class="skill-info"
+                  >
+                    <code>{{ resolveToolConfig(t)!.s3_key }}</code>
+                  </div>
+                </template>
               </div>
             </transition>
           </div>
@@ -78,11 +117,11 @@
       </div>
 
       <!-- Resources -->
-      <div v-if="plugin.resources.length" class="section">
-        <div class="section-title">Resources ({{ plugin.resources.length }})</div>
+      <div v-if="detail.resources.length" class="section">
+        <div class="section-title">Resources ({{ detail.resources.length }})</div>
         <div class="ref-tags">
           <el-tag
-            v-for="r in plugin.resources"
+            v-for="r in detail.resources"
             :key="r.id"
             :type="r.type === 'gpu' ? 'success' : 'primary'"
             class="mr-2 mb-1"
@@ -94,20 +133,36 @@
       </div>
 
       <div class="time-info">
-        <span>Created: {{ plugin.created_at.split(' ')[0] }}</span>
-        <span>Updated: {{ plugin.updated_at.split(' ')[0] }}</span>
+        <span>Created: {{ detail.created_at.split(' ')[0] }}</span>
+        <span>Updated: {{ detail.updated_at.split(' ')[0] }}</span>
       </div>
     </div>
 
+    <!-- Fetch failed. Keep the dialog open so the user can close it cleanly. -->
+    <el-empty v-else-if="error" :description="error" />
+
     <template #footer>
       <div class="flex justify-between w-full">
-        <el-button type="danger" plain @click="handleDelete" :loading="deleting">Delete</el-button>
+        <el-button
+          type="danger"
+          plain
+          :disabled="!detail"
+          @click="handleDelete"
+          :loading="deleting"
+        >Delete</el-button>
         <div class="flex gap-2">
           <el-button @click="handleClose">Close</el-button>
-          <el-button plain @click="emit('edit', plugin!.id); handleClose()">Edit</el-button>
-          <el-button type="primary" :icon="VideoPlay" @click="emit('run', plugin!); handleClose()">
-            Run
-          </el-button>
+          <el-button
+            plain
+            :disabled="!detail"
+            @click="detail && (emit('edit', detail.id), handleClose())"
+          >Edit</el-button>
+          <el-button
+            type="primary"
+            :icon="VideoPlay"
+            :disabled="!detail"
+            @click="detail && (emit('run', detail), handleClose())"
+          >Run</el-button>
         </div>
       </div>
     </template>
@@ -115,14 +170,21 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { ArrowDown, VideoPlay } from '@element-plus/icons-vue'
-import { deletePlugin, type Plugin } from '@/services/tools'
+import {
+  deletePlugin,
+  getPlugin,
+  getTool,
+  type Plugin,
+  type PluginToolRef,
+  type ToolDetail,
+} from '@/services/tools'
 
 const props = defineProps<{
   visible: boolean
-  plugin: Plugin | null
+  pluginId: number | null
 }>()
 
 const emit = defineEmits<{
@@ -132,29 +194,93 @@ const emit = defineEmits<{
   run: [plugin: Plugin]
 }>()
 
+const loading = ref(false)
+const detail = ref<Plugin | null>(null)
+const error = ref('')
 const deleting = ref(false)
+
 const expandedTools = ref(new Set<number>())
+// Cache of detailed tool info keyed by tool id. Populated lazily the first
+// time a tool row is expanded so the dialog doesn't N+1 up-front.
+const toolDetails = ref<Record<number, ToolDetail>>({})
+const toolLoading = ref<Record<number, boolean>>({})
 
-const toolTagType = (type: string) =>
-  ({ skill: 'primary', mcp: 'success', hooks: 'warning', rule: '' } as Record<string, string>)[type] || ''
+// el-tag type union. `rule` falls back to `info` because Element Plus has
+// no dedicated tag style for it.
+type TagType = 'primary' | 'success' | 'info' | 'warning' | 'danger' | undefined
+const toolTagType = (type: string): TagType => {
+  const map: Record<string, TagType> = {
+    skill: 'primary',
+    mcp: 'success',
+    hooks: 'warning',
+    rule: 'info',
+  }
+  return map[type]
+}
 
-const toggleToolExpand = (id: number) => {
+// Prefer the detailed tool field when available, otherwise fall back to the
+// lightweight data embedded in the plugin response.
+const resolveToolField = (t: PluginToolRef, key: 'description') =>
+  toolDetails.value[t.id]?.[key] ?? t[key]
+
+const resolveToolConfig = (t: PluginToolRef): Record<string, any> | undefined =>
+  toolDetails.value[t.id]?.config ?? (t as any).config
+
+const resetState = () => {
+  detail.value = null
+  error.value = ''
+  expandedTools.value = new Set()
+  toolDetails.value = {}
+  toolLoading.value = {}
+}
+
+const fetchDetail = async (id: number) => {
+  loading.value = true
+  error.value = ''
+  try {
+    detail.value = await getPlugin(id)
+  } catch (e) {
+    error.value = (e as Error).message || 'Failed to load plugin'
+    detail.value = null
+  } finally {
+    loading.value = false
+  }
+}
+
+const toggleToolExpand = async (t: PluginToolRef) => {
   const s = new Set(expandedTools.value)
-  if (s.has(id)) s.delete(id)
-  else s.add(id)
+  const wasOpen = s.has(t.id)
+  if (wasOpen) s.delete(t.id)
+  else s.add(t.id)
   expandedTools.value = s
+
+  // Only fetch the richer tool detail on first expansion and only if we
+  // don't already have it cached. Errors here shouldn't break the list, so
+  // fall back silently to the lightweight data already on the plugin.
+  if (!wasOpen && !toolDetails.value[t.id] && !toolLoading.value[t.id]) {
+    toolLoading.value = { ...toolLoading.value, [t.id]: true }
+    try {
+      const full = await getTool(t.id)
+      toolDetails.value = { ...toolDetails.value, [t.id]: full }
+    } catch (e) {
+      // Silent: user can still see the lightweight info; log for debugging.
+      console.warn('[PluginDetailDialog] getTool failed', t.id, e)
+    } finally {
+      toolLoading.value = { ...toolLoading.value, [t.id]: false }
+    }
+  }
 }
 
 const handleDelete = async () => {
-  if (!props.plugin) return
+  if (!detail.value) return
   try {
     await ElMessageBox.confirm(
-      `Delete plugin "${props.plugin.name}"? This cannot be undone.`,
+      `Delete plugin "${detail.value.name}"? This cannot be undone.`,
       'Delete Plugin',
       { confirmButtonText: 'Delete', type: 'warning' },
     )
     deleting.value = true
-    await deletePlugin(props.plugin.id)
+    await deletePlugin(detail.value.id)
     ElMessage.success('Plugin deleted')
     emit('deleted')
     handleClose()
@@ -166,9 +292,23 @@ const handleDelete = async () => {
 }
 
 const handleClose = () => {
-  expandedTools.value = new Set()
+  resetState()
   emit('update:visible', false)
 }
+
+// Kick off the fetch when the dialog opens with a valid id. Also refetch if
+// the selected plugin changes while the dialog is open.
+watch(
+  () => [props.visible, props.pluginId] as const,
+  ([vis, id]) => {
+    if (vis && typeof id === 'number') {
+      fetchDetail(id)
+    } else if (!vis) {
+      resetState()
+    }
+  },
+  { immediate: true },
+)
 </script>
 
 <style scoped lang="scss">
@@ -176,6 +316,10 @@ const handleClose = () => {
   display: flex;
   flex-direction: column;
   gap: 20px;
+}
+
+.detail-loading {
+  padding: 8px 4px;
 }
 
 .info-grid {
@@ -246,6 +390,16 @@ const handleClose = () => {
     color: var(--el-text-color-regular);
     line-height: 1.5;
     white-space: pre-wrap;
+  }
+
+  .tool-item-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+
+  .tool-loading {
+    padding: 4px 0;
   }
 }
 

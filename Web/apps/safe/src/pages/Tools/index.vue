@@ -22,6 +22,9 @@
     <!-- Plugins tab -->
     <PluginsTab v-if="activeTab === 'plugins'" />
 
+    <!-- Tools tab -->
+    <ToolsTab v-if="activeTab === 'tools'" />
+
     <!-- Resources tab -->
     <ResourcesTab v-if="activeTab === 'resources'" />
   </div>
@@ -30,11 +33,13 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import PluginsTab from './Components/PluginsTab.vue'
+import ToolsTab from './Components/ToolsTab.vue'
 import ResourcesTab from './Components/ResourcesTab.vue'
 
 const activeTab = ref('plugins')
 const tabOptions = [
   { label: 'Plugins', value: 'plugins' },
+  { label: 'Tools', value: 'tools' },
   { label: 'Resources', value: 'resources' },
 ]
 

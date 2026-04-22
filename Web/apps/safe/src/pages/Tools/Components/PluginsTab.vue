@@ -140,7 +140,7 @@
     <!-- Detail dialog -->
     <PluginDetailDialog
       v-model:visible="showDetail"
-      :plugin="detailItem"
+      :plugin-id="detailId"
       @edit="handleEdit"
       @deleted="fetchList"
       @run="handleRun"
@@ -166,7 +166,7 @@ const searchName = ref('')
 const showCreate = ref(false)
 const showDetail = ref(false)
 const editId = ref<number | undefined>()
-const detailItem = ref<Plugin | null>(null)
+const detailId = ref<number | null>(null)
 
 const pagination = reactive({ page: 1, pageSize: 12, total: 0 })
 
@@ -203,7 +203,7 @@ const handlePageSizeChange = () => {
 }
 
 const handleDetail = (item: Plugin) => {
-  detailItem.value = item
+  detailId.value = item.id
   showDetail.value = true
 }
 

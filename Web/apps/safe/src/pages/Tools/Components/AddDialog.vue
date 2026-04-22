@@ -403,7 +403,16 @@ import { ref, reactive, nextTick, computed } from 'vue'
 import { ElMessage, type FormInstance, type FormRules, type UploadInstance, type UploadFile, type InputInstance } from 'element-plus'
 import { UploadFilled, RefreshLeft } from '@element-plus/icons-vue'
 import { useDark } from '@vueuse/core'
-import { upsertTool, updateTool, discoverImport, commitImport, getTool, type SkillCandidate } from '@/services/tools'
+import {
+  upsertTool,
+  updateTool,
+  discoverImport,
+  commitImport,
+  getTool,
+  type SkillCandidate,
+  type ImportSelection,
+  type ToolType,
+} from '@/services/tools'
 import { useUserStore } from '@/stores/user'
 import JsonEditor from '@/components/Base/JsonEditor.vue'
 
@@ -741,9 +750,9 @@ const handleCommit = async () => {
   try {
     loading.value = true
 
-    const selections = selectedCandidates.map(c => {
-      const sel: Record<string, any> = {
-        type: c.type || 'skill',
+    const selections: ImportSelection[] = selectedCandidates.map(c => {
+      const sel: ImportSelection = {
+        type: (c.type || 'skill') as ToolType,
         name_override: c.name_override,
       }
       if (c.type === 'hooks') {
@@ -818,7 +827,10 @@ const onOpen = async () => {
       loading.value = true
       const toolDetail = await getTool(props.toolId)
 
-      toolType.value = toolDetail.type
+      // AddDialog currently only supports mcp/skill editing; hooks/rule are
+      // not reachable from the UI yet, so we cast here and rely on the
+      // ToolsTab gating (`isEditable`) to prevent the unreachable states.
+      toolType.value = toolDetail.type as 'mcp' | 'skill'
 
       if (toolDetail.type === 'mcp') {
         mcpForm.name = toolDetail.name
