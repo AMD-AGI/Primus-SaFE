@@ -67,3 +67,46 @@ func TestBuildHyperloomPromptLocalModeOmitsRaySection(t *testing.T) {
 	assert.Assert(t, !strings.Contains(prompt, "Task submission:"))
 	assert.Assert(t, !strings.Contains(prompt, "RayJob image:"))
 }
+
+// Defaults must stay aligned with Hyperloom-Web apps/hyperloom/src/composables/useInferOptTemplate.ts
+func TestNormalizePromptConfigDefaultsMirrorHyperloomWeb(t *testing.T) {
+	cfg := NormalizePromptConfig(PromptConfig{
+		DisplayName: "M",
+		ModelPath:   "/wekafs/models/x",
+		Workspace:   "ws-test",
+	})
+	assert.Equal(t, cfg.Mode, ModeLocal)
+	assert.Equal(t, cfg.Framework, FrameworkSGLang)
+	assert.Equal(t, cfg.Precision, "FP4")
+	assert.Equal(t, cfg.GPUType, "MI355X")
+	assert.Equal(t, cfg.ISL, 1024)
+	assert.Equal(t, cfg.OSL, 1024)
+	assert.Equal(t, cfg.Concurrency, 64)
+	assert.Equal(t, cfg.TP, 1)
+	assert.Equal(t, cfg.EP, 1)
+	assert.Equal(t, cfg.GeakStepLimit, 100)
+	assert.Equal(t, cfg.InferenceXPath, "/hyperloom/InferenceX")
+	assert.Equal(t, cfg.ResultsPath, "/workspace/hyperloom/")
+	assert.Equal(t, cfg.Image, defaultSGLangImage)
+	assert.DeepEqual(t, cfg.KernelBackends, []string{KernelBackendClaude})
+	assert.Equal(t, cfg.RayReplica, 1)
+	assert.Equal(t, cfg.RayGpu, 1)
+	assert.Equal(t, cfg.RayCpu, 32)
+	assert.Equal(t, cfg.RayMemoryGi, 128)
+
+	cfgV := NormalizePromptConfig(PromptConfig{DisplayName: "M", ModelPath: "/p", Workspace: "w", Framework: FrameworkVLLM})
+	assert.Equal(t, cfgV.Image, defaultVLLMImage)
+}
+
+func TestBuildHyperloomPromptEmptyRequestUsesLocalAndClaudeDefaultBackends(t *testing.T) {
+	prompt := BuildHyperloomPrompt(PromptConfig{
+		DisplayName: "TestModel",
+		ModelPath:   "/mnt/models/foo",
+		Workspace:   "core42-sandbox",
+	})
+	assert.Assert(t, strings.Contains(prompt, "mode: local"))
+	assert.Assert(t, strings.Contains(prompt, "SandboxImage: "+defaultSGLangImage))
+	assert.Assert(t, strings.Contains(prompt, "KERNEL_OPT_BACKENDS: claude"))
+	assert.Assert(t, !strings.Contains(prompt, "GEAK step_limit:"))
+	assert.Assert(t, !strings.Contains(prompt, "Task submission:"))
+}

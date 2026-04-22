@@ -150,9 +150,11 @@ func InitHttpHandlers(_ context.Context, mgr ctrlruntime.Manager) (*gin.Engine, 
 	inferencexhandlers.InitInferenceXRouters(engine, infxHandler)
 
 	// Model Optimization (Hyperloom via PrimusClaw). Requires DB for task
-	// persistence + event log; the feature flag gates registration so we
-	// don't register routes when no Claw endpoint is reachable.
-	if commonconfig.IsModelOptimizationEnable() && commonconfig.IsDBEnable() {
+	// persistence + event log. Routes register whenever DB is enabled; Claw base
+	// URL from model_optimization.claw_base_url or derived https://<global host>/claw-api/v1;
+	// auth: Bearer ak-... if sent, else per-user platform key (GetOrCreatePlatformKey, same
+	// idea as Primus-Claw + /auth/verify), else optional secret claw_api_key for service use.
+	if commonconfig.IsDBEnable() {
 		optDBClient := dbclient.NewClient()
 		if optDBClient != nil {
 			optHandler, optErr := optimizationhandlers.NewHandler(mgr.GetClient(), optDBClient)

@@ -175,7 +175,6 @@ const (
 
 	// model_optimization (hyperloom via primus-claw)
 	modelOptimizationPrefix      = "model_optimization."
-	modelOptimizationEnable      = modelOptimizationPrefix + "enabled"
 	modelOptimizationClawBaseURL = modelOptimizationPrefix + "claw_base_url"
 	modelOptimizationClawAgentID = modelOptimizationPrefix + "claw_agent_id"
 	modelOptimizationSecretPath  = modelOptimizationPrefix + "secret_path"

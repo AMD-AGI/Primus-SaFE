@@ -338,6 +338,9 @@ func GetS3ExpireDay() int32 {
 
 func getFromFile(configPath, item string) string {
 	path := getString(configPath, "")
+	if path == "" {
+		return ""
+	}
 	data, err := os.ReadFile(filepath.Join(path, item))
 	if err != nil {
 		return ""
@@ -572,25 +575,33 @@ func GetMonarchClientRole() string {
 
 // ── Model Optimization (Hyperloom via PrimusClaw) ───────────────────────
 
-// IsModelOptimizationEnable reports whether the Model Optimization feature
-// (which orchestrates Hyperloom runs on PrimusClaw) should register its
-// REST + SSE routes and database-backed task store.
-func IsModelOptimizationEnable() bool {
-	return getBool(modelOptimizationEnable, false)
-}
-
 // GetModelOptimizationClawBaseURL returns the base URL used to reach the
 // PrimusClaw backend, e.g. "https://oci-slc.primus-safe.amd.com/claw-api/v1".
-// Precedence: direct config key > secret file "claw_base_url" > empty string.
+// Precedence: direct config key > secret file "claw_base_url" > derived public
+// URL from global.sub_domain + global.domain + "/claw-api/v1" (same host as the
+// SaFE UI / browser) > empty string.
 func GetModelOptimizationClawBaseURL() string {
 	if v := getString(modelOptimizationClawBaseURL, ""); v != "" {
 		return v
 	}
-	return getFromFile(modelOptimizationSecretPath, "claw_base_url")
+	if v := getFromFile(modelOptimizationSecretPath, "claw_base_url"); v != "" {
+		return v
+	}
+	return modelOptimizationDerivedPublicClawBaseURL()
 }
 
-// GetModelOptimizationClawAPIKey returns the bearer token used to authenticate
-// against PrimusClaw. Stored as a secret file entry "claw_api_key".
+func modelOptimizationDerivedPublicClawBaseURL() string {
+	host := GetSystemHost()
+	if host == "" {
+		return ""
+	}
+	return "https://" + host + "/claw-api/v1"
+}
+
+// GetModelOptimizationClawAPIKey returns an optional service-level bearer token for
+// PrimusClaw (file "claw_api_key" under model_optimization.secret_path). Used only
+// when the caller did not send ak-... and the platform could not resolve a per-user
+// platform key (e.g. automation). When secret_path is empty, this always returns "".
 func GetModelOptimizationClawAPIKey() string {
 	return getFromFile(modelOptimizationSecretPath, "claw_api_key")
 }
