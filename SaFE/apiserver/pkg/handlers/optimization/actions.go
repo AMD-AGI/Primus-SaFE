@@ -41,7 +41,7 @@ func (h *Handler) BatchCreateTasks(c *gin.Context) {
 	userName := c.GetString(common.UserName)
 	items := make([]CreateTaskResponse, 0, len(req.Items))
 	for i := range req.Items {
-		resp, err := h.submitTask(c.Request.Context(), &req.Items[i], userID, userName, "")
+		resp, err := h.submitTask(c.Request.Context(), &req.Items[i], userID, userName, "", clawBearerForGin(c))
 		if err != nil {
 			apiutils.AbortWithApiError(c, err)
 			return
@@ -62,7 +62,8 @@ func (h *Handler) ListArtifacts(c *gin.Context) {
 		apiutils.AbortWithApiError(c, commonerrors.NewBadRequest("task has no Claw session"))
 		return
 	}
-	items, err := h.clawClient.ListSessionFiles(c.Request.Context(), task.ClawSessionID)
+	clawCtx := WithClawBearer(c.Request.Context(), clawBearerForGin(c))
+	items, err := h.clawClient.ListSessionFiles(clawCtx, task.ClawSessionID)
 	if err != nil {
 		klog.ErrorS(err, "list optimization artifacts", "task_id", task.ID)
 		apiutils.AbortWithApiError(c, commonerrors.NewInternalError("failed to list artifacts"))
@@ -104,7 +105,7 @@ func (h *Handler) DownloadArtifact(c *gin.Context) {
 		apiutils.AbortWithApiError(c, commonerrors.NewBadRequest("path query parameter is required"))
 		return
 	}
-	data, err := h.clawClient.ReadSessionFile(c.Request.Context(), task.ClawSessionID, path)
+	data, err := h.clawClient.ReadSessionFile(WithClawBearer(c.Request.Context(), clawBearerForGin(c)), task.ClawSessionID, path)
 	if err != nil {
 		klog.ErrorS(err, "download optimization artifact", "task_id", task.ID, "path", path)
 		apiutils.AbortWithApiError(c, commonerrors.NewInternalError("failed to download artifact"))
@@ -129,7 +130,7 @@ func (h *Handler) InterruptTask(c *gin.Context) {
 		apiutils.AbortWithApiError(c, commonerrors.NewBadRequest("task has no active Claw session"))
 		return
 	}
-	if err := h.clawClient.InterruptSession(c.Request.Context(), task.ClawSessionID); err != nil {
+	if err := h.clawClient.InterruptSession(WithClawBearer(c.Request.Context(), clawBearerForGin(c)), task.ClawSessionID); err != nil {
 		klog.ErrorS(err, "interrupt optimization task", "task_id", task.ID)
 		apiutils.AbortWithApiError(c, commonerrors.NewInternalError("failed to interrupt task"))
 		return
@@ -158,7 +159,7 @@ func (h *Handler) RetryTask(c *gin.Context) {
 	req := taskToCreateRequest(task)
 	userID := c.GetString(common.UserId)
 	userName := c.GetString(common.UserName)
-	resp, err := h.submitTask(c.Request.Context(), req, userID, userName, "")
+	resp, err := h.submitTask(c.Request.Context(), req, userID, userName, "", clawBearerForGin(c))
 	if err != nil {
 		apiutils.AbortWithApiError(c, err)
 		return

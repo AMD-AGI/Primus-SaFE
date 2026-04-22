@@ -21,6 +21,7 @@ import (
 	"k8s.io/klog/v2"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 
+	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
 	apiutils "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/utils"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
@@ -56,7 +57,7 @@ func NewHandler(k8sClient ctrlclient.Client, dbClient dbclient.Interface) (*Hand
 	}
 	baseURL := commonconfig.GetModelOptimizationClawBaseURL()
 	if baseURL == "" {
-		klog.Warning("model optimization: claw_base_url not configured, routes will be registered but create/stream will return 503")
+		klog.Warning("model optimization: claw_base_url unset, global.domain/sub_domain could not derive https://<host>/claw-api/v1; create/stream will fail until configured")
 	}
 	apiKey := commonconfig.GetModelOptimizationClawAPIKey()
 	return &Handler{
@@ -83,7 +84,7 @@ func (h *Handler) CreateTask(c *gin.Context) {
 	}
 	userID := c.GetString(common.UserId)
 	userName := c.GetString(common.UserName)
-	resp, err := h.submitTask(c.Request.Context(), &req, userID, userName, "")
+	resp, err := h.submitTask(c.Request.Context(), &req, userID, userName, "", clawBearerForGin(c))
 	if err != nil {
 		apiutils.AbortWithApiError(c, err)
 		return
@@ -96,9 +97,15 @@ func (h *Handler) submitTask(
 	req *CreateTaskRequest,
 	userID, userName string,
 	fixedTaskID string,
+	clawBearer string,
 ) (*CreateTaskResponse, error) {
 	if h.clawClient == nil || h.clawClient.baseURL == "" {
 		return nil, commonerrors.NewInternalError("Claw base URL not configured; Model Optimization disabled")
+	}
+	if strings.TrimSpace(clawBearer) == "" {
+		return nil, commonerrors.NewUnauthorized(
+			"PrimusClaw authentication required: log in (platform key), send Authorization: Bearer ak-..., or configure model_optimization secret claw_api_key",
+		)
 	}
 
 	workspace := req.Workspace
@@ -168,7 +175,7 @@ func (h *Handler) submitTask(
 		return nil, commonerrors.NewInternalError("failed to persist task")
 	}
 
-	createCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	createCtx, cancel := context.WithTimeout(WithClawBearer(context.Background(), clawBearer), 30*time.Second)
 	defer cancel()
 	sessionName := fmt.Sprintf("safe-opt-%s-%s", resolved.DisplayName, taskID[len(taskID)-8:])
 	sessionID, err := h.clawClient.CreateSession(createCtx, &SessionRequest{
@@ -183,7 +190,7 @@ func (h *Handler) submitTask(
 	}
 	_ = h.dbClient.UpdateOptimizationTaskClawSession(ctx, taskID, sessionID)
 
-	sendCtx, sendCancel := context.WithTimeout(context.Background(), 30*time.Second)
+	sendCtx, sendCancel := context.WithTimeout(WithClawBearer(context.Background(), clawBearer), 30*time.Second)
 	defer sendCancel()
 	if err := h.clawClient.SendMessage(sendCtx, sessionID, &MessageRequest{
 		Content:     prompt,
@@ -192,7 +199,7 @@ func (h *Handler) submitTask(
 		WorkspaceID: workspace,
 	}); err != nil {
 		klog.ErrorS(err, "send hyperloom prompt", "task_id", taskID, "session_id", sessionID)
-		_ = h.clawClient.DeleteSession(context.Background(), sessionID)
+		_ = h.clawClient.DeleteSession(WithClawBearer(context.Background(), clawBearer), sessionID)
 		_ = h.dbClient.UpdateOptimizationTaskStatus(ctx, taskID,
 			dbclient.OptimizationTaskStatusFailed, 0, "failed to send prompt: "+err.Error())
 		return nil, commonerrors.NewInternalError("failed to submit task to Claw")
@@ -201,7 +208,7 @@ func (h *Handler) submitTask(
 	_ = h.dbClient.UpdateOptimizationTaskStatus(ctx, taskID,
 		dbclient.OptimizationTaskStatusRunning, 0, "")
 	hub, _ := h.hubs.getOrCreate(taskID, 0)
-	go h.consumeClawStream(taskID, sessionID, hub)
+	go h.consumeClawStream(taskID, sessionID, hub, clawBearer)
 
 	return &CreateTaskResponse{
 		ID:            taskID,
@@ -276,7 +283,7 @@ func (h *Handler) DeleteTask(c *gin.Context) {
 		return
 	}
 	if task.ClawSessionID != "" {
-		_ = h.clawClient.DeleteSession(context.Background(), task.ClawSessionID)
+		_ = h.clawClient.DeleteSession(WithClawBearer(context.Background(), clawBearerForGin(c)), task.ClawSessionID)
 	}
 	h.hubs.remove(id)
 	if err := h.dbClient.DeleteOptimizationTask(c.Request.Context(), id); err != nil {
@@ -381,7 +388,7 @@ func (h *Handler) StreamEvents(c *gin.Context) {
 // SSE stream, parses it, persists events, and broadcasts them to live HTTP
 // subscribers. It runs until the stream ends or returns an error; either
 // way the task is transitioned to a terminal status.
-func (h *Handler) consumeClawStream(taskID, sessionID string, hub *taskHub) {
+func (h *Handler) consumeClawStream(taskID, sessionID string, hub *taskHub, clawBearer string) {
 	var streamErr error
 	defer func() {
 		if r := recover(); r != nil {
@@ -392,7 +399,7 @@ func (h *Handler) consumeClawStream(taskID, sessionID string, hub *taskHub) {
 	}()
 
 	parser := NewSSEParser()
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(WithClawBearer(context.Background(), clawBearer))
 	defer cancel()
 	// The stream loop runs for as long as Claw keeps the session alive, which
 	// for Hyperloom is typically 30-60 minutes. We rely on ctx to cancel on
@@ -497,6 +504,31 @@ func (h *Handler) finalizeTask(taskID string, hub *taskHub, streamErr error) {
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────
+
+// clawBearerForGin resolves the Bearer token for outbound PrimusClaw calls. Order matches
+// Primus-Claw + SaFE /auth/verify semantics: explicit user API key, then per-user platform
+// key (same as Hyperloom cookie flows), then optional file-based service key.
+func clawBearerForGin(c *gin.Context) string {
+	if c != nil {
+		if k := authority.ExtractApiKeyFromRequest(c.GetHeader("Authorization")); k != "" {
+			return k
+		}
+		userID := c.GetString(common.UserId)
+		userName := c.GetString(common.UserName)
+		if userID != "" {
+			if tok := authority.ApiKeyTokenInstance(); tok != nil {
+				pk, err := tok.GetOrCreatePlatformKey(c.Request.Context(), userID, userName)
+				if err != nil {
+					klog.ErrorS(err, "model optimization: GetOrCreatePlatformKey for PrimusClaw",
+						"userId", userID)
+				} else if strings.TrimSpace(pk) != "" {
+					return pk
+				}
+			}
+		}
+	}
+	return commonconfig.GetModelOptimizationClawAPIKey()
+}
 
 func promptConfigFromRequest(req *CreateTaskRequest, m *ResolvedModel, workspace string) PromptConfig {
 	return PromptConfig{
