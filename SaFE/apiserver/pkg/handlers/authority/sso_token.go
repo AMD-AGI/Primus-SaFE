@@ -202,6 +202,11 @@ func (c *ssoToken) validate(ctx context.Context, rawToken string) (*UserInfo, er
 		return nil, err
 	}
 	userInfo.Id = generateSSOUserId(userInfo.Sub, userInfo.Email)
+
+	user := &v1.User{}
+	if c.Get(ctx, client.ObjectKey{Name: userInfo.Id}, user) == nil {
+		userInfo.Roles = user.Spec.Roles
+	}
 	return userInfo, nil
 }
 
