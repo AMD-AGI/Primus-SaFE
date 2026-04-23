@@ -7,7 +7,12 @@ package api
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
+	"net/url"
+	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/clientsets"
@@ -428,7 +433,6 @@ func init() {
 
 // ===== Handler Implementations =====
 
-// handleAlertList handles alert list requests.
 func handleAlertList(ctx context.Context, req *AlertListRequest) (*AlertListResponse, error) {
 	clusterName := req.Cluster
 	if clusterName == "" {
@@ -444,150 +448,140 @@ func handleAlertList(ctx context.Context, req *AlertListRequest) (*AlertListResp
 		pageSize = 20
 	}
 
-	filter := &database.AlertEventsFilter{
-		Offset: (pageNum - 1) * pageSize,
-		Limit:  pageSize,
+	if clusterName == "all" {
+		return alertListFromAllRobustClusters(ctx, req, pageNum, pageSize)
 	}
 
-	if clusterName != "" && clusterName != "all" {
-		filter.ClusterName = &clusterName
-	}
-	if req.Source != "" {
-		filter.Source = &req.Source
-	}
-	if req.AlertName != "" {
-		filter.AlertName = &req.AlertName
-	}
-	if req.Severity != "" {
-		filter.Severity = &req.Severity
-	}
-	if req.Status != "" {
-		filter.Status = &req.Status
-	}
-	if req.WorkloadID != "" {
-		filter.WorkloadID = &req.WorkloadID
-	}
-	if req.PodName != "" {
-		filter.PodName = &req.PodName
-	}
-	if req.NodeName != "" {
-		filter.NodeName = &req.NodeName
-	}
-
-	facade := database.GetFacadeForCluster(clusterName).GetAlert()
-	alerts, total, err := facade.ListAlertEventss(ctx, filter)
+	rc, err := getRobustClient(clusterName)
 	if err != nil {
 		return nil, err
 	}
 
+	fetchLimit := pageNum * pageSize
+	if fetchLimit < pageSize {
+		fetchLimit = pageSize
+	}
+	if fetchLimit > 10000 {
+		fetchLimit = 10000
+	}
+
+	p := robustAlertListParams(req, fetchLimit)
+	raw, err := rc.GetRaw(ctx, "/alerts", p)
+	if err != nil {
+		return nil, fmt.Errorf("robust alerts list: %w", err)
+	}
+
+	alerts, _, err := decodeRobustAlertListPayload(raw)
+	if err != nil {
+		return nil, err
+	}
+	for _, a := range alerts {
+		if a.ClusterName == "" {
+			a.ClusterName = clusterName
+		}
+	}
+	alerts = filterAlertListClientSide(alerts, req)
+
+	total := int64(len(alerts))
+	start := (pageNum - 1) * pageSize
+	if start > len(alerts) {
+		start = len(alerts)
+	}
+	end := start + pageSize
+	if end > len(alerts) {
+		end = len(alerts)
+	}
+	page := alerts[start:end]
+
 	return &AlertListResponse{
-		Data:     alerts,
+		Data:     page,
 		Total:    total,
 		PageNum:  pageNum,
 		PageSize: pageSize,
 	}, nil
 }
 
-// handleAlertDetail handles alert detail requests.
 func handleAlertDetail(ctx context.Context, req *AlertDetailRequest) (*AlertDetailResponse, error) {
 	clusterName := req.Cluster
 	if clusterName == "" {
 		clusterName = clientsets.GetClusterManager().GetCurrentClusterName()
 	}
 
-	facade := database.GetFacadeForCluster(clusterName).GetAlert()
-	alert, err := facade.GetAlertEventsByID(ctx, req.ID)
+	rc, err := getRobustClient(clusterName)
+	if err != nil {
+		return nil, err
+	}
+
+	path := "/alerts/" + url.PathEscape(req.ID)
+	raw, err := rc.GetRaw(ctx, path, nil)
+	if err != nil {
+		return nil, fmt.Errorf("robust alert detail: %w", err)
+	}
+
+	alert, err := decodeRobustAlertObject(raw)
 	if err != nil {
 		return nil, err
 	}
 	if alert == nil {
 		return nil, errors.NewError().WithCode(errors.RequestDataNotExisted).WithMessage("alert not found")
 	}
+	if alert.ClusterName == "" {
+		alert.ClusterName = clusterName
+	}
 
 	return alert, nil
 }
 
-// handleAlertSummary handles alert summary requests.
 func handleAlertSummary(ctx context.Context, req *AlertSummaryRequest) (*AlertSummaryResponse, error) {
 	clusterName := req.Cluster
 	if clusterName == "" {
 		clusterName = clientsets.GetClusterManager().GetCurrentClusterName()
 	}
 
-	facade := database.GetFacadeForCluster(clusterName).GetAlert()
-	now := time.Now()
-	oneHourAgo := now.Add(-time.Hour)
-
-	// Get current firing alerts
-	currentFilter := &database.AlertEventsFilter{
-		Status: strPtr(AlertStatusFiring),
-		Limit:  10000,
-	}
-	if clusterName != "" && clusterName != "all" {
-		currentFilter.ClusterName = &clusterName
+	if clusterName == "all" {
+		return alertSummaryFromAllRobustClusters(ctx)
 	}
 
-	alerts, _, err := facade.ListAlertEventss(ctx, currentFilter)
+	rc, err := getRobustClient(clusterName)
 	if err != nil {
 		return nil, err
 	}
 
-	currentCounts := map[string]int{
-		SeverityCritical: 0,
-		SeverityHigh:     0,
-		SeverityWarning:  0,
-		SeverityInfo:     0,
-	}
-	for _, alert := range alerts {
-		currentCounts[alert.Severity]++
-	}
-
-	// Get historical counts
-	historicalFilter := &database.AlertEventsFilter{
-		Status:       strPtr(AlertStatusFiring),
-		StartsBefore: &oneHourAgo,
-		Limit:        10000,
-	}
-	if clusterName != "" && clusterName != "all" {
-		historicalFilter.ClusterName = &clusterName
-	}
-
-	historicalAlerts, _, err := facade.ListAlertEventss(ctx, historicalFilter)
+	raw, err := rc.GetRaw(ctx, "/alerts/summary", nil)
 	if err != nil {
-		log.Warnf("Failed to get historical alerts: %v", err)
+		return nil, fmt.Errorf("robust alerts summary: %w", err)
 	}
 
-	historicalCounts := map[string]int{
-		SeverityCritical: 0,
-		SeverityHigh:     0,
-		SeverityWarning:  0,
-		SeverityInfo:     0,
+	var payload struct {
+		FiringTotal int            `json:"firing_total"`
+		BySeverity  map[string]int `json:"by_severity"`
 	}
-	for _, alert := range historicalAlerts {
-		historicalCounts[alert.Severity]++
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		return nil, fmt.Errorf("decode alert summary: %w", err)
+	}
+
+	by := payload.BySeverity
+	if by == nil {
+		by = map[string]int{}
+	}
+
+	count := func(want string) int {
+		for k, v := range by {
+			if strings.EqualFold(k, want) {
+				return v
+			}
+		}
+		return 0
 	}
 
 	return &AlertSummaryResponse{
-		Critical: SeverityCount{
-			Count:  currentCounts[SeverityCritical],
-			Change: currentCounts[SeverityCritical] - historicalCounts[SeverityCritical],
-		},
-		High: SeverityCount{
-			Count:  currentCounts[SeverityHigh],
-			Change: currentCounts[SeverityHigh] - historicalCounts[SeverityHigh],
-		},
-		Warning: SeverityCount{
-			Count:  currentCounts[SeverityWarning],
-			Change: currentCounts[SeverityWarning] - historicalCounts[SeverityWarning],
-		},
-		Info: SeverityCount{
-			Count:  currentCounts[SeverityInfo],
-			Change: currentCounts[SeverityInfo] - historicalCounts[SeverityInfo],
-		},
+		Critical: SeverityCount{Count: count(SeverityCritical), Change: 0},
+		High:     SeverityCount{Count: count(SeverityHigh), Change: 0},
+		Warning:  SeverityCount{Count: count(SeverityWarning), Change: 0},
+		Info:     SeverityCount{Count: count(SeverityInfo), Change: 0},
 	}, nil
 }
 
-// handleAlertTrend handles alert trend requests.
 func handleAlertTrend(ctx context.Context, req *AlertTrendRequest) (*AlertTrendResponse, error) {
 	clusterName := req.Cluster
 	if clusterName == "" {
@@ -599,76 +593,92 @@ func handleAlertTrend(ctx context.Context, req *AlertTrendRequest) (*AlertTrendR
 		hours = 24
 	}
 
-	facade := database.GetFacadeForCluster(clusterName).GetAlert()
-	now := time.Now()
-	startTime := now.Add(-time.Duration(hours) * time.Hour)
-
-	filter := &database.AlertEventsFilter{
-		StartsAfter: &startTime,
-		Limit:       10000,
-	}
-	if clusterName != "" && clusterName != "all" {
-		filter.ClusterName = &clusterName
+	if clusterName == "all" {
+		return nil, fmt.Errorf("alert trend with cluster=all is not supported for Robust data plane")
 	}
 
-	alerts, _, err := facade.ListAlertEventss(ctx, filter)
+	rc, err := getRobustClient(clusterName)
 	if err != nil {
 		return nil, err
 	}
 
-	// Determine interval
-	var interval time.Duration
+	p := url.Values{}
+	p.Set("hours", strconv.Itoa(hours))
+	if req.GroupBy != "" {
+		p.Set("group_by", req.GroupBy)
+	}
+
+	raw, err := rc.GetRaw(ctx, "/alerts/trend", p)
+	if err != nil {
+		return nil, fmt.Errorf("robust alerts trend: %w", err)
+	}
+
+	var payload struct {
+		Trend []struct {
+			Hour     string `json:"hour"`
+			Severity string `json:"severity"`
+			Count    int    `json:"count"`
+		} `json:"trend"`
+	}
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		return nil, fmt.Errorf("decode alert trend: %w", err)
+	}
+
+	interval := time.Hour
 	if req.GroupBy == "day" {
 		interval = 24 * time.Hour
-	} else {
-		interval = time.Hour
 	}
 
-	// Create time buckets
+	now := time.Now()
+	startTime := now.Add(-time.Duration(hours) * time.Hour)
 	buckets := make(map[int64]*AlertTrendPoint)
-	current := startTime.Truncate(interval)
-	for current.Before(now) {
-		buckets[current.Unix()] = &AlertTrendPoint{
-			Timestamp: current,
-			Critical:  0,
-			High:      0,
-			Warning:   0,
-			Info:      0,
+
+	for _, row := range payload.Trend {
+		t, err := time.Parse(time.RFC3339, row.Hour)
+		if err != nil {
+			continue
 		}
-		current = current.Add(interval)
+		bucketKey := t.Truncate(interval).Unix()
+		pt, ok := buckets[bucketKey]
+		if !ok {
+			pt = &AlertTrendPoint{Timestamp: t.Truncate(interval)}
+			buckets[bucketKey] = pt
+		}
+		switch row.Severity {
+		case SeverityCritical:
+			pt.Critical += row.Count
+		case SeverityHigh:
+			pt.High += row.Count
+		case SeverityWarning:
+			pt.Warning += row.Count
+		case SeverityInfo:
+			pt.Info += row.Count
+		}
 	}
 
-	// Fill buckets
-	for _, alert := range alerts {
-		bucketTime := alert.StartsAt.Truncate(interval).Unix()
-		if bucket, ok := buckets[bucketTime]; ok {
-			switch alert.Severity {
-			case SeverityCritical:
-				bucket.Critical++
-			case SeverityHigh:
-				bucket.High++
-			case SeverityWarning:
-				bucket.Warning++
-			case SeverityInfo:
-				bucket.Info++
+	if len(buckets) == 0 {
+		cur := startTime.Truncate(interval)
+		for cur.Before(now) {
+			buckets[cur.Unix()] = &AlertTrendPoint{
+				Timestamp: cur,
 			}
+			cur = cur.Add(interval)
 		}
 	}
 
-	// Convert to sorted slice
-	result := make(AlertTrendResponse, 0, len(buckets))
-	current = startTime.Truncate(interval)
-	for current.Before(now) {
-		if bucket, ok := buckets[current.Unix()]; ok {
-			result = append(result, bucket)
-		}
-		current = current.Add(interval)
+	keys := make([]int64, 0, len(buckets))
+	for k := range buckets {
+		keys = append(keys, k)
 	}
+	sort.Slice(keys, func(i, j int) bool { return keys[i] < keys[j] })
 
-	return &result, nil
+	out := make(AlertTrendResponse, 0, len(keys))
+	for _, k := range keys {
+		out = append(out, buckets[k])
+	}
+	return &out, nil
 }
 
-// handleAlertTopSources handles top alert sources requests.
 func handleAlertTopSources(ctx context.Context, req *AlertTopSourcesRequest) (*AlertTopSourcesResponse, error) {
 	clusterName := req.Cluster
 	if clusterName == "" {
@@ -684,54 +694,41 @@ func handleAlertTopSources(ctx context.Context, req *AlertTopSourcesRequest) (*A
 		hours = 24
 	}
 
-	facade := database.GetFacadeForCluster(clusterName).GetAlert()
-	startTime := time.Now().Add(-time.Duration(hours) * time.Hour)
-
-	filter := &database.AlertEventsFilter{
-		StartsAfter: &startTime,
-		Limit:       10000,
-	}
-	if clusterName != "" && clusterName != "all" {
-		filter.ClusterName = &clusterName
+	if clusterName == "all" {
+		return nil, fmt.Errorf("alert top-sources with cluster=all is not supported for Robust data plane")
 	}
 
-	alerts, _, err := facade.ListAlertEventss(ctx, filter)
+	rc, err := getRobustClient(clusterName)
 	if err != nil {
 		return nil, err
 	}
 
-	// Count by alert name
-	counts := make(map[string]int)
-	for _, alert := range alerts {
-		counts[alert.AlertName]++
+	p := url.Values{}
+	p.Set("limit", strconv.Itoa(limit))
+	p.Set("hours", strconv.Itoa(hours))
+
+	raw, err := rc.GetRaw(ctx, "/alerts/top-sources", p)
+	if err != nil {
+		return nil, fmt.Errorf("robust alerts top-sources: %w", err)
 	}
 
-	// Sort and limit
-	sources := make(AlertTopSourcesResponse, 0, len(counts))
-	for name, count := range counts {
-		sources = append(sources, AlertSourceCount{
-			AlertName: name,
-			Count:     count,
-		})
+	var payload struct {
+		TopSources []struct {
+			AlertName string `json:"alert_name"`
+			Count     int    `json:"count"`
+		} `json:"top_sources"`
+	}
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		return nil, fmt.Errorf("decode top sources: %w", err)
 	}
 
-	// Sort by count descending
-	for i := 0; i < len(sources); i++ {
-		for j := i + 1; j < len(sources); j++ {
-			if sources[j].Count > sources[i].Count {
-				sources[i], sources[j] = sources[j], sources[i]
-			}
-		}
+	out := make(AlertTopSourcesResponse, 0, len(payload.TopSources))
+	for _, s := range payload.TopSources {
+		out = append(out, AlertSourceCount{AlertName: s.AlertName, Count: s.Count})
 	}
-
-	if len(sources) > limit {
-		sources = sources[:limit]
-	}
-
-	return &sources, nil
+	return &out, nil
 }
 
-// handleAlertsByCluster handles alerts by cluster requests.
 func handleAlertsByCluster(ctx context.Context, req *AlertsByClusterRequest) (*AlertsByClusterResponse, error) {
 	hours := req.Hours
 	if hours <= 0 {
@@ -740,114 +737,366 @@ func handleAlertsByCluster(ctx context.Context, req *AlertsByClusterRequest) (*A
 
 	clusterManager := clientsets.GetClusterManager()
 	clusterNames := clusterManager.GetClusterNames()
-	startTime := time.Now().Add(-time.Duration(hours) * time.Hour)
-
 	result := make(AlertsByClusterResponse, 0, len(clusterNames))
 
+	cutoff := time.Now().Add(-time.Duration(hours) * time.Hour)
 	for _, clusterName := range clusterNames {
-		facade := database.GetFacadeForCluster(clusterName).GetAlert()
-		filter := &database.AlertEventsFilter{
-			StartsAfter: &startTime,
-			Status:      strPtr(AlertStatusFiring),
-			ClusterName: &clusterName,
-			Limit:       10000,
+		rc, err := getRobustClient(clusterName)
+		if err != nil {
+			log.Warnf("Robust client for cluster %s: %v", clusterName, err)
+			continue
 		}
 
-		alerts, _, err := facade.ListAlertEventss(ctx, filter)
+		p := url.Values{}
+		p.Set("status", AlertStatusFiring)
+		p.Set("limit", "10000")
+
+		raw, err := rc.GetRaw(ctx, "/alerts", p)
 		if err != nil {
-			log.Warnf("Failed to get alerts for cluster %s: %v", clusterName, err)
+			log.Warnf("Failed to list alerts for cluster %s: %v", clusterName, err)
 			continue
+		}
+
+		alerts, _, err := decodeRobustAlertListPayload(raw)
+		if err != nil {
+			log.Warnf("Decode alerts for cluster %s: %v", clusterName, err)
+			continue
+		}
+
+		n := 0
+		for _, a := range alerts {
+			if a.StartsAt.After(cutoff) || a.StartsAt.Equal(cutoff) {
+				n++
+			}
 		}
 
 		result = append(result, ClusterAlertCount{
 			ClusterName: clusterName,
-			Count:       len(alerts),
+			Count:       n,
 		})
 	}
 
-	// Sort by count descending
-	for i := 0; i < len(result); i++ {
-		for j := i + 1; j < len(result); j++ {
-			if result[j].Count > result[i].Count {
-				result[i], result[j] = result[j], result[i]
-			}
-		}
-	}
-
+	sort.Slice(result, func(i, j int) bool { return result[i].Count > result[j].Count })
 	return &result, nil
 }
 
-// handleAlertCorrelations handles alert correlations requests.
 func handleAlertCorrelations(ctx context.Context, req *AlertCorrelationsRequest) (*AlertCorrelationsResponse, error) {
 	clusterName := req.Cluster
 	if clusterName == "" {
 		clusterName = clientsets.GetClusterManager().GetCurrentClusterName()
 	}
 
-	facade := database.GetFacadeForCluster(clusterName).GetAlert()
-	alert, err := facade.GetAlertEventsByID(ctx, req.ID)
+	rc, err := getRobustClient(clusterName)
 	if err != nil {
 		return nil, err
 	}
-	if alert == nil {
+
+	basePath := "/alerts/" + url.PathEscape(req.ID)
+	rawBase, err := rc.GetRaw(ctx, basePath, nil)
+	if err != nil {
+		return nil, fmt.Errorf("robust alert detail: %w", err)
+	}
+	baseAlert, err := decodeRobustAlertObject(rawBase)
+	if err != nil {
+		return nil, err
+	}
+	if baseAlert == nil {
 		return nil, errors.NewError().WithCode(errors.RequestDataNotExisted).WithMessage("alert not found")
 	}
 
-	// Find related alerts within time window
-	timeWindow := 30 * time.Minute
-	startTime := alert.StartsAt.Add(-timeWindow)
-	endTime := alert.StartsAt.Add(timeWindow)
-
-	filter := &database.AlertEventsFilter{
-		StartsAfter:  &startTime,
-		StartsBefore: &endTime,
-		Limit:        100,
-	}
-
-	if alert.WorkloadID != "" {
-		filter.WorkloadID = &alert.WorkloadID
-	} else if alert.PodName != "" {
-		filter.PodName = &alert.PodName
-	} else if alert.NodeName != "" {
-		filter.NodeName = &alert.NodeName
-	}
-
-	relatedAlerts, _, err := facade.ListAlertEventss(ctx, filter)
+	raw, err := rc.GetRaw(ctx, basePath+"/correlations", nil)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("robust alert correlations: %w", err)
 	}
 
-	correlations := make([]AlertCorrelation, 0)
-	for _, related := range relatedAlerts {
-		if related.ID == req.ID {
+	var payload struct {
+		Correlations []struct {
+			ID         int64  `json:"id"`
+			AlertName  string `json:"alert_name"`
+			Severity   string `json:"severity"`
+			NodeName   string `json:"node_name"`
+			WorkloadID string `json:"workload_id"`
+		} `json:"correlations"`
+	}
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		return nil, fmt.Errorf("decode correlations: %w", err)
+	}
+
+	correlations := make([]AlertCorrelation, 0, len(payload.Correlations))
+	for _, rel := range payload.Correlations {
+		rid := strconv.FormatInt(rel.ID, 10)
+		if rid == req.ID {
 			continue
 		}
-
 		correlationType := "time"
 		score := 0.5
-
-		if related.WorkloadID == alert.WorkloadID && alert.WorkloadID != "" {
+		if rel.WorkloadID != "" && rel.WorkloadID == baseAlert.WorkloadID {
 			correlationType = "workload"
 			score = 0.9
-		} else if related.PodName == alert.PodName && alert.PodName != "" {
-			correlationType = "pod"
-			score = 0.85
-		} else if related.NodeName == alert.NodeName && alert.NodeName != "" {
+		} else if rel.NodeName != "" && rel.NodeName == baseAlert.NodeName {
 			correlationType = "node"
 			score = 0.7
 		}
-
 		correlations = append(correlations, AlertCorrelation{
-			AlertID:         related.ID,
-			AlertName:       related.AlertName,
-			Severity:        related.Severity,
+			AlertID:         rid,
+			AlertName:       rel.AlertName,
+			Severity:        rel.Severity,
 			CorrelationType: correlationType,
 			Score:           score,
 		})
 	}
 
-	return &AlertCorrelationsResponse{
-		Correlations: correlations,
+	return &AlertCorrelationsResponse{Correlations: correlations}, nil
+}
+
+func robustAlertListParams(req *AlertListRequest, limit int) url.Values {
+	p := url.Values{}
+	if req.Status != "" {
+		p.Set("status", req.Status)
+	}
+	if req.Severity != "" {
+		p.Set("severity", req.Severity)
+	}
+	if req.NodeName != "" {
+		p.Set("node_name", req.NodeName)
+	}
+	if req.WorkloadID != "" {
+		p.Set("workload_id", req.WorkloadID)
+	}
+	if req.Source != "" {
+		p.Set("source", req.Source)
+	}
+	if req.AlertName != "" {
+		p.Set("alert_name", req.AlertName)
+	}
+	if req.PodName != "" {
+		p.Set("pod_name", req.PodName)
+	}
+	p.Set("limit", strconv.Itoa(limit))
+	return p
+}
+
+func decodeRobustAlertListPayload(raw json.RawMessage) ([]*dbmodel.AlertEvents, int, error) {
+	var top struct {
+		Alerts []json.RawMessage `json:"alerts"`
+		Count  int               `json:"count"`
+	}
+	if err := json.Unmarshal(raw, &top); err != nil {
+		return nil, 0, fmt.Errorf("decode alert list envelope: %w", err)
+	}
+	out := make([]*dbmodel.AlertEvents, 0, len(top.Alerts))
+	for _, item := range top.Alerts {
+		ev, err := decodeRobustAlertObject(item)
+		if err != nil || ev == nil {
+			continue
+		}
+		out = append(out, ev)
+	}
+	return out, top.Count, nil
+}
+
+func decodeRobustAlertObject(raw json.RawMessage) (*dbmodel.AlertEvents, error) {
+	if len(raw) == 0 {
+		return nil, nil
+	}
+	var m map[string]interface{}
+	if err := json.Unmarshal(raw, &m); err != nil {
+		return nil, fmt.Errorf("decode alert object: %w", err)
+	}
+	if len(m) == 0 {
+		return nil, nil
+	}
+
+	ev := &dbmodel.AlertEvents{
+		ID:          stringFromAny(m["id"]),
+		AlertName:   stringField(m, "alert_name"),
+		Severity:    stringField(m, "severity"),
+		Status:      stringField(m, "status"),
+		Source:      stringField(m, "source"),
+		WorkloadID:  stringField(m, "workload_id"),
+		PodName:     stringField(m, "pod_name"),
+		NodeName:    stringField(m, "node_name"),
+		ClusterName: stringField(m, "cluster_name"),
+	}
+
+	startStr := stringField(m, "starts_at")
+	if startStr == "" {
+		startStr = stringField(m, "fired_at")
+	}
+	if startStr != "" {
+		if t, err := time.Parse(time.RFC3339, startStr); err == nil {
+			ev.StartsAt = t
+		}
+	}
+	endStr := stringField(m, "ends_at")
+	if endStr == "" {
+		endStr = stringField(m, "resolved_at")
+	}
+	if endStr != "" {
+		if t, err := time.Parse(time.RFC3339, endStr); err == nil {
+			ev.EndsAt = t
+		}
+	}
+
+	if labels, ok := m["labels"]; ok && labels != nil {
+		b, _ := json.Marshal(labels)
+		_ = json.Unmarshal(b, &ev.Labels)
+	}
+	if ann, ok := m["annotations"]; ok && ann != nil {
+		b, _ := json.Marshal(ann)
+		_ = json.Unmarshal(b, &ev.Annotations)
+	}
+	if msg := stringField(m, "message"); msg != "" {
+		ev.RawData = dbmodel.ExtType{"message": msg}
+	}
+	return ev, nil
+}
+
+func stringField(m map[string]interface{}, key string) string {
+	v, ok := m[key]
+	if !ok || v == nil {
+		return ""
+	}
+	switch t := v.(type) {
+	case string:
+		return t
+	default:
+		return fmt.Sprint(t)
+	}
+}
+
+func stringFromAny(v interface{}) string {
+	if v == nil {
+		return ""
+	}
+	switch t := v.(type) {
+	case string:
+		return t
+	case float64:
+		return strconv.FormatInt(int64(t), 10)
+	case json.Number:
+		return t.String()
+	default:
+		return fmt.Sprint(t)
+	}
+}
+
+func filterAlertListClientSide(alerts []*dbmodel.AlertEvents, req *AlertListRequest) []*dbmodel.AlertEvents {
+	if req.Source == "" && req.AlertName == "" && req.PodName == "" {
+		return alerts
+	}
+	out := make([]*dbmodel.AlertEvents, 0, len(alerts))
+	for _, a := range alerts {
+		if req.Source != "" && a.Source != req.Source {
+			continue
+		}
+		if req.AlertName != "" && a.AlertName != req.AlertName {
+			continue
+		}
+		if req.PodName != "" && a.PodName != req.PodName {
+			continue
+		}
+		out = append(out, a)
+	}
+	return out
+}
+
+func alertListFromAllRobustClusters(ctx context.Context, req *AlertListRequest, pageNum, pageSize int) (*AlertListResponse, error) {
+	cm := clientsets.GetClusterManager()
+	names := cm.GetClusterNames()
+	merged := make([]*dbmodel.AlertEvents, 0)
+
+	fetchLimit := 2000
+	for _, name := range names {
+		rc, err := getRobustClient(name)
+		if err != nil {
+			log.Warnf("Robust client for cluster %s: %v", name, err)
+			continue
+		}
+		p := robustAlertListParams(req, fetchLimit)
+		raw, err := rc.GetRaw(ctx, "/alerts", p)
+		if err != nil {
+			log.Warnf("Robust alerts list for cluster %s: %v", name, err)
+			continue
+		}
+		alerts, _, err := decodeRobustAlertListPayload(raw)
+		if err != nil {
+			log.Warnf("Decode alerts for cluster %s: %v", name, err)
+			continue
+		}
+		for _, a := range alerts {
+			if a.ClusterName == "" {
+				a.ClusterName = name
+			}
+			merged = append(merged, a)
+		}
+	}
+
+	merged = filterAlertListClientSide(merged, req)
+	sort.Slice(merged, func(i, j int) bool { return merged[i].StartsAt.After(merged[j].StartsAt) })
+
+	total := int64(len(merged))
+	start := (pageNum - 1) * pageSize
+	if start > len(merged) {
+		start = len(merged)
+	}
+	end := start + pageSize
+	if end > len(merged) {
+		end = len(merged)
+	}
+	page := merged[start:end]
+
+	return &AlertListResponse{
+		Data:     page,
+		Total:    total,
+		PageNum:  pageNum,
+		PageSize: pageSize,
+	}, nil
+}
+
+func alertSummaryFromAllRobustClusters(ctx context.Context) (*AlertSummaryResponse, error) {
+	cm := clientsets.GetClusterManager()
+	names := cm.GetClusterNames()
+	totals := map[string]int{
+		SeverityCritical: 0,
+		SeverityHigh:     0,
+		SeverityWarning:  0,
+		SeverityInfo:     0,
+	}
+
+	for _, name := range names {
+		rc, err := getRobustClient(name)
+		if err != nil {
+			log.Warnf("Robust client for cluster %s: %v", name, err)
+			continue
+		}
+		raw, err := rc.GetRaw(ctx, "/alerts/summary", nil)
+		if err != nil {
+			log.Warnf("Robust alerts summary for cluster %s: %v", name, err)
+			continue
+		}
+		var payload struct {
+			BySeverity map[string]int `json:"by_severity"`
+		}
+		if err := json.Unmarshal(raw, &payload); err != nil {
+			log.Warnf("Decode alert summary for cluster %s: %v", name, err)
+			continue
+		}
+		for k, v := range payload.BySeverity {
+			for _, sev := range []string{SeverityCritical, SeverityHigh, SeverityWarning, SeverityInfo} {
+				if strings.EqualFold(k, sev) {
+					totals[sev] += v
+					break
+				}
+			}
+		}
+	}
+
+	return &AlertSummaryResponse{
+		Critical: SeverityCount{Count: totals[SeverityCritical], Change: 0},
+		High:     SeverityCount{Count: totals[SeverityHigh], Change: 0},
+		Warning:  SeverityCount{Count: totals[SeverityWarning], Change: 0},
+		Info:     SeverityCount{Count: totals[SeverityInfo], Change: 0},
 	}, nil
 }
 

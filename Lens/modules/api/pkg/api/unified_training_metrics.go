@@ -5,13 +5,12 @@ package api
 
 import (
 	"context"
+	"fmt"
+	"net/url"
 	"strconv"
 	"strings"
-	"time"
 
-	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/clientsets"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/errors"
-	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/helper/prom"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/mcp/unified"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/model"
@@ -513,9 +512,8 @@ func handleTrainingMetricsList(_ context.Context, req *TrainingMetricsListReques
 	}, nil
 }
 
-// handleTrainingMetricsData queries Prometheus for the requested training metrics.
+// handleTrainingMetricsData proxies training metrics range queries to the Robust data plane.
 func handleTrainingMetricsData(ctx context.Context, req *TrainingMetricsDataRequest) (*TrainingMetricsDataResponse, error) {
-	// Validate required fields
 	if req.WorkloadUID == "" {
 		return nil, errors.NewError().WithCode(errors.RequestParameterInvalid).WithMessage("workload_uid is required")
 	}
@@ -526,19 +524,15 @@ func handleTrainingMetricsData(ctx context.Context, req *TrainingMetricsDataRequ
 		return nil, errors.NewError().WithCode(errors.RequestParameterInvalid).WithMessage("start and end timestamps are required")
 	}
 
-	// Parse timestamps
-	startUnix, err := strconv.ParseInt(req.Start, 10, 64)
-	if err != nil {
+	if _, err := strconv.ParseInt(req.Start, 10, 64); err != nil {
 		return nil, errors.NewError().WithCode(errors.RequestParameterInvalid).WithMessage("invalid start timestamp")
 	}
-	endUnix, err := strconv.ParseInt(req.End, 10, 64)
-	if err != nil {
+	if _, err := strconv.ParseInt(req.End, 10, 64); err != nil {
 		return nil, errors.NewError().WithCode(errors.RequestParameterInvalid).WithMessage("invalid end timestamp")
 	}
-	startTime := time.Unix(startUnix, 0)
-	endTime := time.Unix(endUnix, 0)
 
 	step := 60
+	var err error
 	if req.Step != "" {
 		step, err = strconv.Atoi(req.Step)
 		if err != nil || step <= 0 {
@@ -546,7 +540,6 @@ func handleTrainingMetricsData(ctx context.Context, req *TrainingMetricsDataRequ
 		}
 	}
 
-	// Resolve metrics to query
 	var metricsToQuery []*TrainingMetricDef
 	if req.Metrics == "all" {
 		for i := range trainingMetricsDefs {
@@ -572,64 +565,23 @@ func handleTrainingMetricsData(ctx context.Context, req *TrainingMetricsDataRequ
 		return nil, errors.NewError().WithCode(errors.RequestParameterInvalid).WithMessage("no valid metrics specified")
 	}
 
-	// Resolve cluster and get storage client
-	clients, err := getClusterClientsForWorkload(ctx, req.WorkloadUID, req.Cluster)
+	rc, err := getRobustClient(req.Cluster)
 	if err != nil {
 		return nil, err
 	}
-	storageClient := clients.StorageClientSet
 
-	// Fallback to current cluster if storage not available
-	if storageClient == nil {
-		log.Warnf("[TrainingMetricsData] Cluster '%s' has no storage configuration, falling back to current cluster",
-			clients.ClusterName)
-		cm := clientsets.GetClusterManager()
-		currentClients := cm.GetCurrentClusterClients()
-		if currentClients == nil || currentClients.StorageClientSet == nil {
-			return nil, errors.NewError().WithCode(errors.InternalError).
-				WithMessage("No storage configuration available for metrics query")
-		}
-		storageClient = currentClients.StorageClientSet
+	params := url.Values{}
+	params.Set("workload_uid", req.WorkloadUID)
+	params.Set("metrics", req.Metrics)
+	params.Set("start", req.Start)
+	params.Set("end", req.End)
+	params.Set("step", strconv.Itoa(step))
+
+	var resp TrainingMetricsDataResponse
+	if err := rc.Get(ctx, "/training-metrics/data", params, &resp); err != nil {
+		log.Warnf("[TrainingMetricsData] Robust proxy failed for workload %s: %v", req.WorkloadUID, err)
+		return nil, fmt.Errorf("robust training-metrics/data: %w", err)
 	}
-
-	// Query each metric
-	results := make([]TrainingMetricResult, 0, len(metricsToQuery))
-	for _, metricDef := range metricsToQuery {
-		// Replace $workload_uid placeholder with actual UID
-		query := strings.ReplaceAll(metricDef.PromQL, "$workload_uid", req.WorkloadUID)
-
-		series, err := prom.QueryRange(ctx, storageClient, query, startTime, endTime, step, nil)
-		if err != nil {
-			log.Warnf("[TrainingMetricsData] Failed to query metric %s: %v", metricDef.Name, err)
-			// Add empty result instead of failing the entire request
-			results = append(results, TrainingMetricResult{
-				Name:        metricDef.Name,
-				DisplayName: metricDef.DisplayName,
-				Category:    metricDef.Category,
-				Unit:        metricDef.Unit,
-				AggLevel:    metricDef.AggLevel,
-				Series:      []model.MetricsSeries{},
-			})
-			continue
-		}
-
-		results = append(results, TrainingMetricResult{
-			Name:        metricDef.Name,
-			DisplayName: metricDef.DisplayName,
-			Category:    metricDef.Category,
-			Unit:        metricDef.Unit,
-			AggLevel:    metricDef.AggLevel,
-			Series:      series,
-		})
-	}
-
-	return &TrainingMetricsDataResponse{
-		WorkloadUID: req.WorkloadUID,
-		Start:       startUnix,
-		End:         endUnix,
-		Step:        step,
-		Results:     results,
-		TotalCount:  len(results),
-	}, nil
+	return &resp, nil
 }
 

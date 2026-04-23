@@ -5,23 +5,18 @@ package api
 
 import (
 	"context"
-	"errors"
+	"encoding/json"
 	"fmt"
 
-	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/clientsets"
-	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/helper/prom"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/mcp/unified"
-	promModel "github.com/prometheus/common/model"
 )
-
-var errComponentsProbeStorageNotAvailable = errors.New("Storage client not available for components probe (cannot query VictoriaMetrics)")
 
 // ComponentsProbeRequest is the request for the unified components probe endpoint.
 type ComponentsProbeRequest struct {
 	Cluster string `query:"cluster" json:"cluster"`
 }
 
-// KubeSystemProbePodItem represents one pod in kube-system probe result (optional; VM-based probe does not fill this).
+// KubeSystemProbePodItem represents one pod in kube-system probe result.
 type KubeSystemProbePodItem struct {
 	Name  string `json:"name"`
 	Node  string `json:"node"`
@@ -39,7 +34,7 @@ type KubeSystemProbeComponentItem struct {
 	Pods        []KubeSystemProbePodItem `json:"pods,omitempty"`
 }
 
-// PlatformComponentPodItem represents one pod in platform component probe result (optional; VM-based probe does not fill this).
+// PlatformComponentPodItem represents one pod in platform component probe result.
 type PlatformComponentPodItem struct {
 	Name  string `json:"name"`
 	Node  string `json:"node"`
@@ -73,133 +68,31 @@ type PlatformSection struct {
 
 // ComponentsProbeResponse is the response for the unified components probe endpoint.
 type ComponentsProbeResponse struct {
-	Cluster    string           `json:"cluster"`
+	Cluster    string            `json:"cluster"`
 	KubeSystem KubeSystemSection `json:"kubeSystem"`
-	Platform   PlatformSection  `json:"platform"`
+	Platform   PlatformSection   `json:"platform"`
 }
-
-const (
-	platformLabelKubeSystem = "kube_system"
-	platformLabelPrimusLens = "primus_lens"
-	platformLabelPrimusSafe = "primus_safe"
-)
 
 func handleComponentsProbe(ctx context.Context, req *ComponentsProbeRequest) (*ComponentsProbeResponse, error) {
-	cm := clientsets.GetClusterManager()
-	clients, err := cm.GetClusterClientsOrDefault(req.Cluster)
+	rc, err := getRobustClient(req.Cluster)
 	if err != nil {
 		return nil, err
 	}
-	if clients == nil || clients.StorageClientSet == nil {
-		return nil, errComponentsProbeStorageNotAvailable
-	}
-	storage := clients.StorageClientSet
-	clusterName := clients.ClusterName
-
-	resp := &ComponentsProbeResponse{
-		Cluster:    clusterName,
-		KubeSystem: KubeSystemSection{Components: nil},
-		Platform:   PlatformSection{},
-	}
-
-	// Query primus_component_* metrics from VictoriaMetrics (written by component-health-exporter)
-	healthyQuery := fmt.Sprintf(`primus_component_healthy{cluster=%q}`, clusterName)
-	desiredQuery := fmt.Sprintf(`primus_component_replicas_desired{cluster=%q}`, clusterName)
-	readyQuery := fmt.Sprintf(`primus_component_replicas_ready{cluster=%q}`, clusterName)
-
-	healthySamples, err := prom.QueryInstant(ctx, storage, healthyQuery)
+	raw, err := rc.GetRaw(ctx, "/components/health", nil)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("robust components health: %w", err)
 	}
-	desiredSamples, _ := prom.QueryInstant(ctx, storage, desiredQuery)
-	readySamples, _ := prom.QueryInstant(ctx, storage, readyQuery)
-
-	desiredByKey := sampleMapByLabels(desiredSamples)
-	readyByKey := sampleMapByLabels(readySamples)
-
-	for _, s := range healthySamples {
-		platform := string(s.Metric[promModel.LabelName("platform")])
-		appName := string(s.Metric[promModel.LabelName("app_name")])
-		namespace := string(s.Metric[promModel.LabelName("namespace")])
-		kind := string(s.Metric[promModel.LabelName("kind")])
-		healthy := s.Value == 1
-		key := labelKey(platform, appName, namespace, kind)
-		desired := int32(getSampleValue(desiredByKey[key]))
-		ready := int32(getSampleValue(readyByKey[key]))
-		total := int(desired)
-		if total < int(ready) {
-			total = int(ready)
-		}
-
-		switch platform {
-		case platformLabelKubeSystem:
-			displayName := appName
-			if appName == "coredns" {
-				displayName = "CoreDNS"
-			} else if appName == "node-local-dns" {
-				displayName = "NodeLocal DNS"
-			}
-			resp.KubeSystem.Components = append(resp.KubeSystem.Components, KubeSystemProbeComponentItem{
-				Name:        appName,
-				DisplayName: displayName,
-				Kind:        kind,
-				Desired:     desired,
-				Ready:       ready,
-				Healthy:     healthy,
-				Pods:        nil,
-			})
-		case platformLabelPrimusLens:
-			resp.Platform.PrimusLens.Components = append(resp.Platform.PrimusLens.Components, PlatformComponentItem{
-				AppName:   appName,
-				Namespace: namespace,
-				Total:     total,
-				Ready:     int(ready),
-				Healthy:   healthy,
-				Pods:      nil,
-			})
-		case platformLabelPrimusSafe:
-			resp.Platform.PrimusSafe.Components = append(resp.Platform.PrimusSafe.Components, PlatformComponentItem{
-				AppName:   appName,
-				Namespace: namespace,
-				Total:     total,
-				Ready:     int(ready),
-				Healthy:   healthy,
-				Pods:      nil,
-			})
-		}
+	var resp ComponentsProbeResponse
+	if err := json.Unmarshal(raw, &resp); err != nil {
+		return nil, fmt.Errorf("robust components health decode: %w", err)
 	}
-
-	return resp, nil
-}
-
-func labelKey(platform, appName, namespace, kind string) string {
-	return platform + "\t" + appName + "\t" + namespace + "\t" + kind
-}
-
-func sampleMapByLabels(samples []*promModel.Sample) map[string]*promModel.Sample {
-	m := make(map[string]*promModel.Sample)
-	for _, s := range samples {
-		m[labelKey(
-			string(s.Metric[promModel.LabelName("platform")]),
-			string(s.Metric[promModel.LabelName("app_name")]),
-			string(s.Metric[promModel.LabelName("namespace")]),
-			string(s.Metric[promModel.LabelName("kind")]),
-		)] = s
-	}
-	return m
-}
-
-func getSampleValue(s *promModel.Sample) float64 {
-	if s == nil {
-		return 0
-	}
-	return float64(s.Value)
+	return &resp, nil
 }
 
 func init() {
 	unified.Register(&unified.EndpointDef[ComponentsProbeRequest, ComponentsProbeResponse]{
 		Name:        "components_probe",
-		Description: "Get kube-system and platform component health from VictoriaMetrics (data from component-health-exporter)",
+		Description: "Get kube-system and platform component health from Robust API",
 		HTTPMethod:  "GET",
 		HTTPPath:    "/components/probe",
 		MCPToolName: "lens_components_probe",

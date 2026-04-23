@@ -1,22 +1,26 @@
 // Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
 // See LICENSE for license information.
 
+// Package api provides unified API endpoints for GPU aggregation operations.
+// All data-plane queries are delegated to the Robust API.
 package api
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
+	"net/url"
+	"strconv"
 	"time"
 
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/clientsets"
-	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database"
 	dbmodel "github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database/model"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/errors"
-	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/mcp/unified"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/robust"
 )
 
 func init() {
-	// GPU Aggregation: Metadata queries
 	unified.Register(&unified.EndpointDef[GpuAggClustersRequest, GpuAggClustersResponse]{
 		Name:        "gpu_agg_clusters",
 		Description: "Get list of all available clusters for GPU aggregation",
@@ -53,7 +57,6 @@ func init() {
 		Handler:     handleGpuAggDimensionValues,
 	})
 
-	// GPU Aggregation: Hourly stats
 	unified.Register(&unified.EndpointDef[GpuAggClusterHourlyStatsRequest, PaginatedResponse]{
 		Name:        "gpu_agg_cluster_stats",
 		Description: "Query cluster-level GPU hourly statistics",
@@ -90,7 +93,6 @@ func init() {
 		Handler:     handleGpuAggWorkloadHourlyStats,
 	})
 
-	// GPU Aggregation: Snapshots
 	unified.Register(&unified.EndpointDef[GpuAggSnapshotRequest, dbmodel.GpuAllocationSnapshots]{
 		Name:        "gpu_agg_latest_snapshot",
 		Description: "Get the latest GPU allocation snapshot",
@@ -137,8 +139,9 @@ type GpuAggDimensionValuesRequest struct {
 
 type GpuAggClusterHourlyStatsRequest struct {
 	Cluster        string `json:"cluster" query:"cluster" mcp:"description=Cluster name"`
-	StartTime      string `json:"start_time" query:"start_time" mcp:"description=Start time (RFC3339 format),required"`
-	EndTime        string `json:"end_time" query:"end_time" mcp:"description=End time (RFC3339 format),required"`
+	StartTime      string `json:"start_time" query:"start_time" mcp:"description=Start time (RFC3339 format)"`
+	EndTime        string `json:"end_time" query:"end_time" mcp:"description=End time (RFC3339 format)"`
+	Hours          int    `json:"hours" query:"hours" mcp:"description=Shortcut: query last N hours (used if start_time/end_time not set)"`
 	Page           int    `json:"page" query:"page" mcp:"description=Page number (default 1)"`
 	PageSize       int    `json:"page_size" query:"page_size" mcp:"description=Items per page (default 20 max 1000)"`
 	OrderBy        string `json:"order_by" query:"order_by" mcp:"description=Sort field: time or utilization"`
@@ -195,361 +198,262 @@ type GpuAggSnapshotsListRequest struct {
 // ======================== Response Types ========================
 
 type GpuAggClustersResponse []string
-
 type GpuAggNamespacesResponse []string
-
 type GpuAggDimensionKeysResponse []string
-
 type GpuAggDimensionValuesResponse []string
 
 // ======================== Handler Implementations ========================
 
-func handleGpuAggClusters(ctx context.Context, req *GpuAggClustersRequest) (*GpuAggClustersResponse, error) {
+func handleGpuAggClusters(_ context.Context, _ *GpuAggClustersRequest) (*GpuAggClustersResponse, error) {
+	seen := map[string]struct{}{}
 	cm := clientsets.GetClusterManager()
-	clusterNames := cm.GetClusterNames()
-
-	// Filter out "default" cluster
-	filteredClusters := make([]string, 0, len(clusterNames))
-	for _, name := range clusterNames {
+	for _, name := range cm.GetClusterNames() {
 		if name != "default" {
-			filteredClusters = append(filteredClusters, name)
+			seen[name] = struct{}{}
+		}
+	}
+	for _, name := range robust.GetRegistry().ListClusters() {
+		if name != "default" {
+			seen[name] = struct{}{}
 		}
 	}
 
-	result := GpuAggClustersResponse(filteredClusters)
+	clusters := make([]string, 0, len(seen))
+	for name := range seen {
+		clusters = append(clusters, name)
+	}
+	result := GpuAggClustersResponse(clusters)
 	return &result, nil
 }
 
 func handleGpuAggNamespaces(ctx context.Context, req *GpuAggNamespacesRequest) (*GpuAggNamespacesResponse, error) {
-	// Parse time
-	startTime, err := time.Parse(time.RFC3339, req.StartTime)
-	if err != nil {
-		return nil, errors.WrapError(err, "Invalid start_time format", errors.RequestParameterInvalid)
-	}
-
-	endTime, err := time.Parse(time.RFC3339, req.EndTime)
-	if err != nil {
-		return nil, errors.WrapError(err, "Invalid end_time format", errors.RequestParameterInvalid)
-	}
-
-	cm := clientsets.GetClusterManager()
-	clients, err := cm.GetClusterClientsOrDefault(req.Cluster)
+	rc, err := getRobustClient(req.Cluster)
 	if err != nil {
 		return nil, err
 	}
 
-	// Load config for namespace filtering
-	cfg, configErr := getGpuAggregationConfig(ctx, clients.ClusterName)
-	if configErr != nil {
-		log.Warnf("Failed to load GPU aggregation config for namespace filtering: %v", configErr)
-	}
-
-	excludeNamespaces := getExcludeNamespacesList(cfg)
-
-	namespaces, err := database.GetFacadeForCluster(clients.ClusterName).GetGpuAggregation().
-		GetDistinctNamespacesWithExclusion(ctx, startTime, endTime, excludeNamespaces)
+	resp, err := rc.GetGpuAggNamespaces(ctx, req.StartTime, req.EndTime)
 	if err != nil {
-		return nil, errors.WrapError(err, "Failed to get namespaces", errors.CodeDatabaseError)
+		return nil, fmt.Errorf("robust gpu agg namespaces: %w", err)
 	}
-
-	result := GpuAggNamespacesResponse(namespaces)
+	result := GpuAggNamespacesResponse(resp.Namespaces)
 	return &result, nil
 }
 
 func handleGpuAggDimensionKeys(ctx context.Context, req *GpuAggDimensionKeysRequest) (*GpuAggDimensionKeysResponse, error) {
-	startTime, err := time.Parse(time.RFC3339, req.StartTime)
-	if err != nil {
-		return nil, errors.WrapError(err, "Invalid start_time format", errors.RequestParameterInvalid)
-	}
-
-	endTime, err := time.Parse(time.RFC3339, req.EndTime)
-	if err != nil {
-		return nil, errors.WrapError(err, "Invalid end_time format", errors.RequestParameterInvalid)
-	}
-
-	cm := clientsets.GetClusterManager()
-	clients, err := cm.GetClusterClientsOrDefault(req.Cluster)
+	rc, err := getRobustClient(req.Cluster)
 	if err != nil {
 		return nil, err
 	}
 
-	keys, err := database.GetFacadeForCluster(clients.ClusterName).GetGpuAggregation().
-		GetDistinctDimensionKeys(ctx, req.DimensionType, startTime, endTime)
-	if err != nil {
-		return nil, errors.WrapError(err, "Failed to get dimension keys", errors.CodeDatabaseError)
+	p := url.Values{
+		"dimension_type": {req.DimensionType},
+		"start_time":     {req.StartTime},
+		"end_time":       {req.EndTime},
 	}
 
-	result := GpuAggDimensionKeysResponse(keys)
+	raw, err := rc.GetRaw(ctx, "/gpu-aggregation/dimension-keys", p)
+	if err != nil {
+		return nil, fmt.Errorf("robust gpu agg dimension keys: %w", err)
+	}
+
+	var resp robust.GpuAggDimensionKeysResp
+	if err := json.Unmarshal(raw, &resp); err != nil {
+		return nil, fmt.Errorf("decode dimension keys: %w", err)
+	}
+	result := GpuAggDimensionKeysResponse(resp.Keys)
 	return &result, nil
 }
 
 func handleGpuAggDimensionValues(ctx context.Context, req *GpuAggDimensionValuesRequest) (*GpuAggDimensionValuesResponse, error) {
-	startTime, err := time.Parse(time.RFC3339, req.StartTime)
-	if err != nil {
-		return nil, errors.WrapError(err, "Invalid start_time format", errors.RequestParameterInvalid)
-	}
-
-	endTime, err := time.Parse(time.RFC3339, req.EndTime)
-	if err != nil {
-		return nil, errors.WrapError(err, "Invalid end_time format", errors.RequestParameterInvalid)
-	}
-
-	cm := clientsets.GetClusterManager()
-	clients, err := cm.GetClusterClientsOrDefault(req.Cluster)
+	rc, err := getRobustClient(req.Cluster)
 	if err != nil {
 		return nil, err
 	}
 
-	values, err := database.GetFacadeForCluster(clients.ClusterName).GetGpuAggregation().
-		GetDistinctDimensionValues(ctx, req.DimensionType, req.DimensionKey, startTime, endTime)
-	if err != nil {
-		return nil, errors.WrapError(err, "Failed to get dimension values", errors.CodeDatabaseError)
+	p := url.Values{
+		"dimension_type": {req.DimensionType},
+		"dimension_key":  {req.DimensionKey},
+		"start_time":     {req.StartTime},
+		"end_time":       {req.EndTime},
 	}
 
-	result := GpuAggDimensionValuesResponse(values)
+	raw, err := rc.GetRaw(ctx, "/gpu-aggregation/dimension-values", p)
+	if err != nil {
+		return nil, fmt.Errorf("robust gpu agg dimension values: %w", err)
+	}
+
+	var resp robust.GpuAggDimensionValuesResp
+	if err := json.Unmarshal(raw, &resp); err != nil {
+		return nil, fmt.Errorf("decode dimension values: %w", err)
+	}
+	result := GpuAggDimensionValuesResponse(resp.Values)
 	return &result, nil
 }
 
 func handleGpuAggClusterHourlyStats(ctx context.Context, req *GpuAggClusterHourlyStatsRequest) (*PaginatedResponse, error) {
-	startTime, err := time.Parse(time.RFC3339, req.StartTime)
-	if err != nil {
-		return nil, errors.WrapError(err, "Invalid start_time format", errors.RequestParameterInvalid)
-	}
-
-	endTime, err := time.Parse(time.RFC3339, req.EndTime)
-	if err != nil {
-		return nil, errors.WrapError(err, "Invalid end_time format", errors.RequestParameterInvalid)
-	}
-
-	cm := clientsets.GetClusterManager()
-	clients, err := cm.GetClusterClientsOrDefault(req.Cluster)
+	rc, err := getRobustClient(req.Cluster)
 	if err != nil {
 		return nil, err
 	}
 
-	opts := database.PaginationOptions{
-		Page:           req.Page,
-		PageSize:       10000,
-		OrderBy:        req.OrderBy,
-		OrderDirection: req.OrderDirection,
+	startTime := req.StartTime
+	endTime := req.EndTime
+	if startTime == "" && endTime == "" && req.Hours > 0 {
+		now := time.Now().UTC()
+		endTime = now.Format(time.RFC3339)
+		startTime = now.Add(-time.Duration(req.Hours) * time.Hour).Format(time.RFC3339)
+	}
+	if startTime == "" || endTime == "" {
+		return nil, errors.NewError().WithCode(errors.RequestParameterInvalid).
+			WithMessage("start_time and end_time are required, or use hours parameter")
 	}
 
-	result, err := database.GetFacadeForCluster(clients.ClusterName).GetGpuAggregation().
-		GetClusterHourlyStatsPaginated(ctx, startTime, endTime, opts)
-	if err != nil {
-		return nil, errors.WrapError(err, "Failed to get cluster hourly stats", errors.CodeDatabaseError)
-	}
-
-	return &PaginatedResponse{
-		Total:      result.Total,
-		Page:       result.Page,
-		PageSize:   result.PageSize,
-		TotalPages: result.TotalPages,
-		Data:       result.Data,
-	}, nil
+	return proxyGpuAggPaginated(ctx, rc, "/gpu-aggregation/cluster/hourly-stats", url.Values{
+		"start_time":      {startTime},
+		"end_time":        {endTime},
+		"page":            {strconv.Itoa(req.Page)},
+		"page_size":       {strconv.Itoa(req.PageSize)},
+		"order_by":        {req.OrderBy},
+		"order_direction": {req.OrderDirection},
+	})
 }
 
 func handleGpuAggNamespaceHourlyStats(ctx context.Context, req *GpuAggNamespaceHourlyStatsRequest) (*PaginatedResponse, error) {
-	startTime, err := time.Parse(time.RFC3339, req.StartTime)
-	if err != nil {
-		return nil, errors.WrapError(err, "Invalid start_time format", errors.RequestParameterInvalid)
-	}
-
-	endTime, err := time.Parse(time.RFC3339, req.EndTime)
-	if err != nil {
-		return nil, errors.WrapError(err, "Invalid end_time format", errors.RequestParameterInvalid)
-	}
-
-	cm := clientsets.GetClusterManager()
-	clients, err := cm.GetClusterClientsOrDefault(req.Cluster)
+	rc, err := getRobustClient(req.Cluster)
 	if err != nil {
 		return nil, err
 	}
 
-	opts := database.PaginationOptions{
-		Page:           req.Page,
-		PageSize:       10000,
-		OrderBy:        req.OrderBy,
-		OrderDirection: req.OrderDirection,
+	p := url.Values{
+		"start_time":      {req.StartTime},
+		"end_time":        {req.EndTime},
+		"page":            {strconv.Itoa(req.Page)},
+		"page_size":       {strconv.Itoa(req.PageSize)},
+		"order_by":        {req.OrderBy},
+		"order_direction": {req.OrderDirection},
 	}
-
-	cfg, _ := getGpuAggregationConfig(ctx, clients.ClusterName)
-	excludeNamespaces := getExcludeNamespacesList(cfg)
-
-	var result *database.PaginatedResult
-	facade := database.GetFacadeForCluster(clients.ClusterName).GetGpuAggregation()
-
 	if req.Namespace != "" {
-		result, err = facade.GetNamespaceHourlyStatsPaginated(ctx, req.Namespace, startTime, endTime, opts)
-	} else {
-		result, err = facade.ListNamespaceHourlyStatsPaginatedWithExclusion(ctx, startTime, endTime, excludeNamespaces, opts)
+		p.Set("namespace", req.Namespace)
 	}
 
-	if err != nil {
-		return nil, errors.WrapError(err, "Failed to get namespace hourly stats", errors.CodeDatabaseError)
-	}
-
-	return &PaginatedResponse{
-		Total:      result.Total,
-		Page:       result.Page,
-		PageSize:   result.PageSize,
-		TotalPages: result.TotalPages,
-		Data:       result.Data,
-	}, nil
+	return proxyGpuAggPaginated(ctx, rc, "/gpu-aggregation/namespaces/hourly-stats", p)
 }
 
 func handleGpuAggLabelHourlyStats(ctx context.Context, req *GpuAggLabelHourlyStatsRequest) (*PaginatedResponse, error) {
-	startTime, err := time.Parse(time.RFC3339, req.StartTime)
-	if err != nil {
-		return nil, errors.WrapError(err, "Invalid start_time format", errors.RequestParameterInvalid)
-	}
-
-	endTime, err := time.Parse(time.RFC3339, req.EndTime)
-	if err != nil {
-		return nil, errors.WrapError(err, "Invalid end_time format", errors.RequestParameterInvalid)
-	}
-
-	cm := clientsets.GetClusterManager()
-	clients, err := cm.GetClusterClientsOrDefault(req.Cluster)
+	rc, err := getRobustClient(req.Cluster)
 	if err != nil {
 		return nil, err
 	}
 
-	opts := database.PaginationOptions{
-		Page:           req.Page,
-		PageSize:       10000,
-		OrderBy:        req.OrderBy,
-		OrderDirection: req.OrderDirection,
+	p := url.Values{
+		"dimension_type":  {req.DimensionType},
+		"dimension_key":   {req.DimensionKey},
+		"start_time":      {req.StartTime},
+		"end_time":        {req.EndTime},
+		"page":            {strconv.Itoa(req.Page)},
+		"page_size":       {strconv.Itoa(req.PageSize)},
+		"order_by":        {req.OrderBy},
+		"order_direction": {req.OrderDirection},
 	}
-
-	var result *database.PaginatedResult
-	facade := database.GetFacadeForCluster(clients.ClusterName).GetGpuAggregation()
-
 	if req.DimensionValue != "" {
-		result, err = facade.GetLabelHourlyStatsPaginated(ctx, req.DimensionType,
-			req.DimensionKey, req.DimensionValue, startTime, endTime, opts)
-	} else {
-		result, err = facade.ListLabelHourlyStatsByKeyPaginated(ctx, req.DimensionType,
-			req.DimensionKey, startTime, endTime, opts)
+		p.Set("dimension_value", req.DimensionValue)
 	}
 
-	if err != nil {
-		return nil, errors.WrapError(err, "Failed to get label hourly stats", errors.CodeDatabaseError)
-	}
-
-	return &PaginatedResponse{
-		Total:      result.Total,
-		Page:       result.Page,
-		PageSize:   result.PageSize,
-		TotalPages: result.TotalPages,
-		Data:       result.Data,
-	}, nil
+	return proxyGpuAggPaginated(ctx, rc, "/gpu-aggregation/labels/hourly-stats", p)
 }
 
 func handleGpuAggWorkloadHourlyStats(ctx context.Context, req *GpuAggWorkloadHourlyStatsRequest) (*PaginatedResponse, error) {
-	startTime, err := time.Parse(time.RFC3339, req.StartTime)
-	if err != nil {
-		return nil, errors.WrapError(err, "Invalid start_time format", errors.RequestParameterInvalid)
-	}
-
-	endTime, err := time.Parse(time.RFC3339, req.EndTime)
-	if err != nil {
-		return nil, errors.WrapError(err, "Invalid end_time format", errors.RequestParameterInvalid)
-	}
-
-	cm := clientsets.GetClusterManager()
-	clients, err := cm.GetClusterClientsOrDefault(req.Cluster)
+	rc, err := getRobustClient(req.Cluster)
 	if err != nil {
 		return nil, err
 	}
 
-	opts := database.PaginationOptions{
-		Page:           req.Page,
-		PageSize:       10000,
-		OrderBy:        req.OrderBy,
-		OrderDirection: req.OrderDirection,
+	p := url.Values{
+		"start_time":      {req.StartTime},
+		"end_time":        {req.EndTime},
+		"page":            {strconv.Itoa(req.Page)},
+		"page_size":       {strconv.Itoa(req.PageSize)},
+		"order_by":        {req.OrderBy},
+		"order_direction": {req.OrderDirection},
+	}
+	if req.Namespace != "" {
+		p.Set("namespace", req.Namespace)
+	}
+	if req.WorkloadName != "" {
+		p.Set("workload_name", req.WorkloadName)
+	}
+	if req.WorkloadType != "" {
+		p.Set("workload_type", req.WorkloadType)
 	}
 
-	cfg, _ := getGpuAggregationConfig(ctx, clients.ClusterName)
-
-	// Check if the requested namespace should be excluded
-	if req.Namespace != "" && cfg != nil && shouldExcludeNamespace(req.Namespace, cfg) {
-		return &PaginatedResponse{
-			Total:      0,
-			Page:       1,
-			PageSize:   opts.PageSize,
-			TotalPages: 0,
-			Data:       []*dbmodel.WorkloadGpuHourlyStats{},
-		}, nil
-	}
-
-	excludeNamespaces := getExcludeNamespacesList(cfg)
-
-	result, err := database.GetFacadeForCluster(clients.ClusterName).GetGpuAggregation().
-		GetWorkloadHourlyStatsPaginatedWithExclusion(ctx, req.Namespace, req.WorkloadName, req.WorkloadType, startTime, endTime, excludeNamespaces, opts)
-	if err != nil {
-		return nil, errors.WrapError(err, "Failed to get workload hourly stats", errors.CodeDatabaseError)
-	}
-
-	return &PaginatedResponse{
-		Total:      result.Total,
-		Page:       result.Page,
-		PageSize:   result.PageSize,
-		TotalPages: result.TotalPages,
-		Data:       result.Data,
-	}, nil
+	return proxyGpuAggPaginated(ctx, rc, "/gpu-aggregation/workloads/hourly-stats", p)
 }
 
 func handleGpuAggLatestSnapshot(ctx context.Context, req *GpuAggSnapshotRequest) (*dbmodel.GpuAllocationSnapshots, error) {
-	cm := clientsets.GetClusterManager()
-	clients, err := cm.GetClusterClientsOrDefault(req.Cluster)
+	rc, err := getRobustClient(req.Cluster)
 	if err != nil {
 		return nil, err
 	}
 
-	snapshot, err := database.GetFacadeForCluster(clients.ClusterName).GetGpuAggregation().
-		GetLatestSnapshot(ctx)
+	raw, err := rc.GetRaw(ctx, "/gpu-aggregation/snapshots/latest", nil)
 	if err != nil {
-		return nil, errors.WrapError(err, "Failed to get latest snapshot", errors.CodeDatabaseError)
+		return nil, fmt.Errorf("robust gpu agg latest snapshot: %w", err)
 	}
 
-	if snapshot == nil {
-		return nil, errors.NewError().WithCode(errors.RequestDataNotExisted).WithMessage("No snapshot found")
+	var result dbmodel.GpuAllocationSnapshots
+	if err := json.Unmarshal(raw, &result); err != nil {
+		return nil, fmt.Errorf("decode latest snapshot: %w", err)
 	}
-
-	return snapshot, nil
+	return &result, nil
 }
 
 func handleGpuAggSnapshots(ctx context.Context, req *GpuAggSnapshotsListRequest) (*[]*dbmodel.GpuAllocationSnapshots, error) {
-	cm := clientsets.GetClusterManager()
-	clients, err := cm.GetClusterClientsOrDefault(req.Cluster)
+	rc, err := getRobustClient(req.Cluster)
 	if err != nil {
 		return nil, err
 	}
 
-	// Default query last 24 hours
-	endTime := time.Now()
-	startTime := endTime.Add(-24 * time.Hour)
-
+	p := url.Values{}
 	if req.StartTime != "" {
-		startTime, err = time.Parse(time.RFC3339, req.StartTime)
-		if err != nil {
-			return nil, errors.WrapError(err, "Invalid start_time format", errors.RequestParameterInvalid)
-		}
+		p.Set("start_time", req.StartTime)
 	}
-
 	if req.EndTime != "" {
-		endTime, err = time.Parse(time.RFC3339, req.EndTime)
-		if err != nil {
-			return nil, errors.WrapError(err, "Invalid end_time format", errors.RequestParameterInvalid)
-		}
+		p.Set("end_time", req.EndTime)
 	}
 
-	snapshots, err := database.GetFacadeForCluster(clients.ClusterName).GetGpuAggregation().
-		ListSnapshots(ctx, startTime, endTime)
+	raw, err := rc.GetRaw(ctx, "/gpu-aggregation/snapshots", p)
 	if err != nil {
-		return nil, errors.WrapError(err, "Failed to list snapshots", errors.CodeDatabaseError)
+		return nil, fmt.Errorf("robust gpu agg snapshots: %w", err)
 	}
 
-	return &snapshots, nil
+	var result []*dbmodel.GpuAllocationSnapshots
+	if err := json.Unmarshal(raw, &result); err != nil {
+		return nil, fmt.Errorf("decode snapshots: %w", err)
+	}
+	return &result, nil
+}
+
+// proxyGpuAggPaginated proxies a paginated GPU aggregation query to Robust.
+// The frontend expects all hourly data in a single page (legacy behavior used
+// PageSize=10000), so we override page_size regardless of the request value.
+func proxyGpuAggPaginated(ctx context.Context, rc *robust.Client, path string, p url.Values) (*PaginatedResponse, error) {
+	p.Set("page_size", "10000")
+	raw, err := rc.GetRaw(ctx, path, p)
+	if err != nil {
+		return nil, fmt.Errorf("robust %s: %w", path, err)
+	}
+
+	var resp robust.GpuAggPaginatedResp
+	if err := json.Unmarshal(raw, &resp); err != nil {
+		return nil, fmt.Errorf("decode %s: %w", path, err)
+	}
+
+	return &PaginatedResponse{
+		Total:      int64(resp.Total),
+		Page:       resp.Page,
+		PageSize:   resp.PageSize,
+		TotalPages: resp.TotalPages,
+		Data:       resp.Data,
+	}, nil
 }

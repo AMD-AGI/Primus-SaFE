@@ -3,16 +3,16 @@
 
 // Package api provides unified API endpoints for realtime status operations.
 // These endpoints work for both HTTP REST and MCP protocols.
+// All data-plane queries are delegated to the Robust API.
 package api
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
-	"strings"
+	"net/url"
 	"time"
 
-	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/clientsets"
-	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/mcp/unified"
 )
 
@@ -69,88 +69,38 @@ func init() {
 
 // ===== Handler Implementations =====
 
-// handleRealtimeStatus handles realtime status requests.
-// Reuses: buildRealtimeStatus, filterRealtimeResponse, cache logic
 func handleRealtimeStatus(ctx context.Context, req *RealtimeStatusRequest) (*RealtimeStatusResult, error) {
-	cm := clientsets.GetClusterManager()
-	clients, err := cm.GetClientSetByClusterName(req.Cluster)
+	rc, err := getRobustClient(req.Cluster)
 	if err != nil {
 		return nil, err
 	}
-
-	// Parse include fields
-	includeMap := make(map[string]bool)
-	for _, field := range req.Include {
-		includeMap[strings.ToLower(field)] = true
-	}
-
-	// Try to get from cache first
-	cacheFacade := database.GetFacadeForCluster(clients.ClusterName).GetGenericCache()
-	cacheKey := fmt.Sprintf("realtime_status:%s", req.Cluster)
-
-	var response RealtimeStatusResponse
-	err = cacheFacade.Get(ctx, cacheKey, &response)
-	if err == nil && response.Cluster != "" && !response.Timestamp.IsZero() {
-		// Cache hit - apply include filters
-		filtered := filterRealtimeResponse(response, includeMap)
-		return &filtered, nil
-	}
-
-	// Cache miss - build response using existing helper
-	response, err = buildRealtimeStatus(ctx, clients.ClusterName, includeMap)
+	raw, err := rc.GetRaw(ctx, "/cluster/realtime", nil)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("robust realtime status: %w", err)
 	}
-
-	// Cache the result
-	expiresAt := time.Now().Add(30 * time.Second)
-	_ = cacheFacade.Set(ctx, cacheKey, response, &expiresAt)
-
-	return &response, nil
+	var resp RealtimeStatusResult
+	if err := json.Unmarshal(raw, &resp); err != nil {
+		return nil, fmt.Errorf("robust realtime decode: %w", err)
+	}
+	return &resp, nil
 }
 
-// handleRunningTasks handles running tasks requests.
 func handleRunningTasks(ctx context.Context, req *RunningTasksRequestUnified) (*RunningTasksResponseUnified, error) {
-	if req.Cluster == "" {
-		return nil, fmt.Errorf("cluster is required")
-	}
-
-	cm := clientsets.GetClusterManager()
-	clients, err := cm.GetClientSetByClusterName(req.Cluster)
+	rc, err := getRobustClient(req.Cluster)
 	if err != nil {
 		return nil, err
 	}
-
-	// Try to get from cache first
-	cacheFacade := database.GetFacadeForCluster(clients.ClusterName).GetGenericCache()
-	cacheKey := fmt.Sprintf("running_tasks:%s:%s", req.Cluster, req.Namespace)
-
-	var response RunningTasksResponse
-	err = cacheFacade.Get(ctx, cacheKey, &response)
-	if err == nil && response.Cluster != "" && !response.Timestamp.IsZero() {
-		// Cache hit
-		return &RunningTasksResponseUnified{
-			Cluster:    response.Cluster,
-			Timestamp:  response.Timestamp,
-			TotalTasks: response.TotalTasks,
-			Tasks:      response.Tasks,
-		}, nil
+	p := url.Values{"status": {"Running"}}
+	if req.Namespace != "" {
+		p.Set("namespace", req.Namespace)
 	}
-
-	// Cache miss - build response
-	response, err = buildRunningTasksResponse(ctx, clients.ClusterName, req.Namespace)
+	raw, err := rc.GetRaw(ctx, "/workloads", p)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("robust running tasks: %w", err)
 	}
-
-	// Cache the result
-	expiresAt := time.Now().Add(30 * time.Second)
-	_ = cacheFacade.Set(ctx, cacheKey, response, &expiresAt)
-
-	return &RunningTasksResponseUnified{
-		Cluster:    response.Cluster,
-		Timestamp:  response.Timestamp,
-		TotalTasks: response.TotalTasks,
-		Tasks:      response.Tasks,
-	}, nil
+	var resp RunningTasksResponseUnified
+	if err := json.Unmarshal(raw, &resp); err != nil {
+		return nil, fmt.Errorf("robust running tasks decode: %w", err)
+	}
+	return &resp, nil
 }

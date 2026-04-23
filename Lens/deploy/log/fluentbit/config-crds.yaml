@@ -42,6 +42,53 @@ spec:
 
 ---
 apiVersion: fluentbit.fluent.io/v1alpha2
+kind: ClusterInput
+metadata:
+  name: dmesg
+  labels:
+    fluentbit.fluent.io/enabled: "true"
+spec:
+  systemd:
+    tag: dmesg.*
+    path: /var/log/journal
+    db: /fluent-bit/tail/dmesg.db
+    dbSync: Normal
+    storageType: memory
+    stripUnderscores: "off"
+    systemdFilter:
+    - _TRANSPORT=kernel
+---
+apiVersion: fluentbit.fluent.io/v1alpha2
+kind: ClusterOutput
+metadata:
+  name: opensearch-dmesg
+  labels:
+    fluentbit.fluent.io/enabled: "true"
+spec:
+  match: dmesg.*
+  opensearch:
+    host: primus-lens-logs-nodes.primus-lens.svc.cluster.local
+    port: 9200
+    tls:
+      verify: false
+    logstashFormat: true
+    logstashPrefix: dmesg
+    suppressTypeName: true
+    traceError: true
+    replaceDots: true
+    timeKeyNanos: true
+    httpUser:
+      valueFrom:
+        secretKeyRef:
+          name: primus-lens-logs-admin-password
+          key: username
+    httpPassword:
+      valueFrom:
+        secretKeyRef:
+          name: primus-lens-logs-admin-password
+          key: password
+---
+apiVersion: fluentbit.fluent.io/v1alpha2
 kind: ClusterOutput
 metadata:
   name: opensearch
