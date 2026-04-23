@@ -13,7 +13,7 @@ import (
 type ListModelQuery struct {
 	Limit      int    `form:"limit" binding:"omitempty,min=1"`
 	Offset     int    `form:"offset" binding:"omitempty,min=0"`
-	AccessMode string `form:"accessMode" binding:"omitempty"` // Filter by access mode: "local", "remote_api", or "local_path"
+	AccessMode string `form:"accessMode" binding:"omitempty"` // Filter: "local", "remote_api", "local_path", "s3_sync" (s3_sync excludes plain HF local in cluster listing)
 	Workspace  string `form:"workspace" binding:"omitempty"`  // Filter by workspace (for local models)
 	Origin     string `form:"origin" binding:"omitempty"`     // Filter by origin: "external", "fine_tuned", "rl_trained", or "custom" (all non-external)
 	Search     string `form:"search" binding:"omitempty"`     // Fuzzy search by displayName (case-insensitive)
@@ -126,12 +126,25 @@ type CreateModelRequest struct {
 	Origin    string `json:"origin"`              // "external" (default) or "fine_tuned"
 	SftJobId  string `json:"sftJobId,omitempty"`  // SFT workload ID that produced this model
 	BaseModel string `json:"baseModel,omitempty"` // Base model HF name used for fine-tuning
+
+	// S3Source (used when accessMode=s3_sync): copy from user bucket/prefix to platform S3, then existing pipeline to PFS.
+	S3Source *S3SourceReq `json:"s3Source,omitempty"`
+}
+
+// S3SourceReq optional credentials to read the source object storage (S3-compatible).
+// Keys in the created Secret: access_key_id, secret_access_key, region, endpoint.
+type S3SourceReq struct {
+	URI                 string `json:"uri"` // required for s3_sync, e.g. s3://my-bucket/prefix
+	AccessKeyID         string `json:"accessKeyId,omitempty"`
+	SecretAccessKey     string `json:"secretAccessKey,omitempty"`
+	Region              string `json:"region,omitempty"`
+	Endpoint            string `json:"endpoint,omitempty"` // optional custom endpoint for source (MinIO, OSS, etc.)
 }
 
 // ModelSourceReq represents the model source configuration.
 type ModelSourceReq struct {
 	URL        string `json:"url"`        // Model URL (HuggingFace repo ID or API endpoint)
-	AccessMode string `json:"accessMode"` // "remote_api" | "local" | "local_path"
+	AccessMode string `json:"accessMode"` // "remote_api" | "local" | "local_path" | "s3_sync"
 	ModelName  string `json:"modelName"`  // Model name for API calls (required for remote_api)
 	Token      string `json:"token"`      // HuggingFace token for pulling private models (local mode)
 	ApiKey     string `json:"apiKey"`     // API key for remote API access (remote_api mode)

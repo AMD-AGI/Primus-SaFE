@@ -1,0 +1,127 @@
+# Model Square 前端实现说明
+
+本文档说明 **Web/apps/safe** 中「模型广场」应如何对接新增/既有能力：**登记已有共享路径**（`local_path`）、**从用户 S3 导入**（`s3_sync`），以及现有 **Hugging Face**、**Remote API**。  
+**后端实现位置**：分支/工作树 `feature/chenyyan/model-square-s3-pfs`（建议在本 worktree 上开发前端联调分支）。
+
+---
+
+## 1. 创建模型：四种模式对照
+
+| 模式 | `source.accessMode` | 必填与说明 |
+|------|---------------------|------------|
+| Hugging Face 下载 | `local` | `source.url` 为 HF 或 `org/model`；元数据由后端从 HF 拉取。 |
+| Remote API | `remote_api` | `displayName`、`source.modelName`、（建议）`apiKey` 等。 |
+| 已有共享盘路径 | `local_path` | `displayName`、`source.localPath`；**可传** `icon`、`label`、`tags`、`maxTokens`、`source.url`（留档）、`origin`（如 `external` / `fine_tuned`）。 |
+| 从用户 S3 拉取到平台 | `s3_sync` | 见下节；集群内仍表现为「本地部署」，但列表 `accessMode` 为 `s3_sync`。 |
+
+**统一入口**：`POST /api/v1/playground/models`（与现有「Create Model」一致）。
+
+---
+
+## 2. `local_path`（登记已有 PFS/NFS 路径）
+
+用户模型已在共享存储上时，不触发下载，**立即 Ready**。
+
+**请求体示例**：
+
+```json
+{
+  "displayName": "my-custom-llm",
+  "description": "optional",
+  "icon": "https://example.com/icon.png",
+  "label": "my-team",
+  "tags": ["text-generation"],
+  "maxTokens": 8192,
+  "source": {
+    "accessMode": "local_path",
+    "localPath": "/shared_aig/models/my-custom-llm",
+    "modelName": "my-team/my-custom-llm",
+    "url": "https://huggingface.co/optional/reference"
+  },
+  "workspace": "",
+  "origin": "external"
+}
+```
+
+**前端建议**：
+
+- 在「Create Model」中增加独立入口，例如 **「Use existing shared path / 使用已有共享路径」**。
+- 校验：`localPath` 非空；`displayName` 非空；说明与 HF 的 `local` 互斥（不要混在一个表单里不提示）。
+- 展示与过滤：列表项 `accessMode` 为 `local_path`；`phase` 一般为 `Ready`。
+
+---
+
+## 3. `s3_sync`（一键：用户 S3 → 平台桶 → 再落 PFS）
+
+**语义**：从用户提供的 `s3://bucket/prefix` 将对象 **同步到平台配置桶** 中该模型的前缀，之后与现有 **local** 模型相同，走 **Uploading → Downloading → Ready** 状态机；推理仍读 PFS 上的文件。
+
+**请求体示例（带源站凭证）**：
+
+```json
+{
+  "displayName": "imported-model",
+  "description": "optional",
+  "icon": "https://example.com/icon.png",
+  "label": "data-team",
+  "tags": ["llm"],
+  "source": {
+    "accessMode": "s3_sync",
+    "modelName": "imported-model"
+  },
+  "s3Source": {
+    "uri": "s3://my-bucket/models/llm-prefix",
+    "accessKeyId": "AKIA...",
+    "secretAccessKey": "....",
+    "region": "us-west-2",
+    "endpoint": "https://s3.us-west-2.amazonaws.com"
+  },
+  "workspace": "",
+  "origin": "external"
+}
+```
+
+**规则**：
+
+- `s3Source.uri`：必须以 `s3://` 开头。
+- `accessKeyId` / `secretAccessKey`：**要么成对出现，要么都省略**（省略时由 Job 使用**平台 S3 凭据**去拉源；仅当源对平台角色可读或公开读时才能成功，否则须填用户密钥）。
+- `modelName`：可省略，后端会由 `displayName` 归一化生成。
+- 列表/详情中 **`accessMode` 为 `s3_sync`**（与集群内 `local` + 标签区分，由后端在 JSON 中统一为 `s3_sync`）。
+
+**列表筛选**：
+
+- `GET /api/v1/playground/models?accessMode=s3_sync` 只显示 S3 导入类模型。
+- `accessMode=local` 在 K8s 回退列表路径下会 **排除** `s3_sync`（避免与纯 HF 下载混淆）。若你们主要走 DB 列表且 DB 中已存 `access_mode=s3_sync`，行为与库表一致即可。
+
+**阶段提示**：与 HF 的 `local` 一样，可能经历 `Pending` / `Uploading` / `Downloading` / `Ready` / `Failed`；可复用现有轮询与重试（`POST .../models/:id/retry`）交互。
+
+---
+
+## 4. UI/UX 建议（由产品定稿）
+
+1. **分步或 Tab**：`Hugging Face` | `Remote API` | `Existing path` | `Import from S3`（文案可英中双语）。
+2. **S3 表单**：`uri`、可选 AK/SK/Region/Endpoint；敏感字段密码框、禁止写入 localStorage 明文。
+3. **帮助文案**：说明数据会进入**平台桶**并再下载到工作区共享存储，与 [playground-models.md](./playground-models.md) 中「local 模型」部署一致。
+4. **错误提示**：直接展示后端 `error` 字符串（如重复 `s3` 源、凭据只填一半等）。
+
+---
+
+## 5. 与现有文件的关系
+
+- 请求封装：继续用 `@/services/playground` 中 `createModel` 或等价方法，仅扩展 `payload` 结构。
+- 参考页面：`Web/apps/safe/src/pages/ModelSquare/Components/AddModelDialog.vue`（**请在本 worktree/分支外由前端改 Vue**，本需求仅要求行为对齐本文与 OpenAPI/后端）。
+
+---
+
+## 6. 联调检查清单
+
+- [ ] `local_path` 创建后卡片展示 `icon` / `label` / `tags` 与预期一致。  
+- [ ] `s3_sync` 创建后 `accessMode` 为 `s3_sync`，阶段能从 Pending 进入 Ready（依赖集群 S3/Job 配置）。  
+- [ ] 列表 `accessMode=s3_sync` 与 `local` 筛选与产品预期一致。  
+- [ ] 删除 S3 导入模型后，无多余 Secret 泄漏（由后端清理；前端只调删除 API）。
+
+---
+
+## 7. 相关文档
+
+- 通用 API：[playground-models.md](./playground-models.md)  
+- 运营侧登记与路径说明：团队内 `model-square-ops` skill / 运维文档（若有）。
