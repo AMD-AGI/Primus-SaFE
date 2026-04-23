@@ -33,6 +33,10 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
 )
 
+// accessModeS3Sync is an API-only mode: stored in the cluster as v1.AccessModeLocal with s3:// URL and
+// label primus-safe.model.s3-import. Resource-manager runs s3-to-platform-bucket copy then the usual PFS path.
+const accessModeS3Sync = "s3_sync"
+
 // CreateModel handles the creation of a new playground model.
 func (h *Handler) CreateModel(c *gin.Context) {
 	handle(c, h.createModel)
@@ -84,6 +88,10 @@ func (h *Handler) createModel(c *gin.Context) (interface{}, error) {
 	userId := c.GetString(common.UserId)
 	userName := c.GetString(common.UserName)
 
+	// Import from user S3 (API-only s3_sync → cluster local + s3:// + label)
+	if req.Source.AccessMode == accessModeS3Sync {
+		return h.createModelFromS3Sync(ctx, &req, userId, userName)
+	}
 	// Handle local_path mode (SFT training output) — separate flow
 	if req.Source.AccessMode == string(v1.AccessModeLocalPath) {
 		return h.createModelFromLocalPath(ctx, &req, userId, userName)
@@ -96,7 +104,7 @@ func (h *Handler) createModel(c *gin.Context) (interface{}, error) {
 
 	// Validate AccessMode
 	if req.Source.AccessMode != string(v1.AccessModeLocal) && req.Source.AccessMode != string(v1.AccessModeRemoteAPI) {
-		return nil, commonerrors.NewBadRequest("accessMode must be 'local', 'remote_api', or 'local_path'")
+		return nil, commonerrors.NewBadRequest("accessMode must be 'local', 'remote_api', 'local_path', or 's3_sync'")
 	}
 
 	// For remote_api mode, modelName is required
@@ -392,7 +400,10 @@ func (h *Handler) createModelFromLocalPath(ctx context.Context, req *CreateModel
 	model.Spec = v1.ModelSpec{
 		DisplayName: req.DisplayName,
 		Description: req.Description,
+		Icon:        req.Icon,
+		Label:       req.Label,
 		Tags:        req.Tags,
+		MaxTokens:   req.MaxTokens,
 		Source: v1.ModelSource{
 			AccessMode: v1.AccessModeLocalPath,
 			LocalPath:  req.Source.LocalPath,
@@ -420,6 +431,11 @@ func (h *Handler) createModelFromLocalPath(ctx context.Context, req *CreateModel
 			ID:          modelId,
 			DisplayName: req.DisplayName,
 			Description: req.Description,
+			Icon:        req.Icon,
+			Label:       req.Label,
+			Tags:        tagsToDB(req.Tags),
+			MaxTokens:   req.MaxTokens,
+			SourceURL:   req.Source.URL,
 			AccessMode:  string(v1.AccessModeLocalPath),
 			Phase:       string(v1.ModelPhaseReady),
 			ModelName:   req.Source.ModelName,
@@ -446,6 +462,168 @@ func (h *Handler) createModelFromLocalPath(ctx context.Context, req *CreateModel
 	)
 
 	return &CreateResponse{ID: modelId}, nil
+}
+
+// createModelFromS3Sync creates a model whose weights are copied from a user s3:// URI into the
+// platform bucket (then the existing controller syncs to PFS). Cluster Model uses AccessMode local.
+func (h *Handler) createModelFromS3Sync(ctx context.Context, req *CreateModelRequest, userId, userName string) (interface{}, error) {
+	if req.S3Source == nil || strings.TrimSpace(req.S3Source.URI) == "" {
+		return nil, commonerrors.NewBadRequest("s3Source.uri is required for s3_sync mode")
+	}
+	if req.DisplayName == "" {
+		return nil, commonerrors.NewBadRequest("displayName is required for s3_sync mode")
+	}
+	uri := strings.TrimSuffix(strings.TrimSpace(req.S3Source.URI), "/")
+	if !strings.HasPrefix(uri, "s3://") {
+		return nil, commonerrors.NewBadRequest("s3Source.uri must start with s3://")
+	}
+	ak := strings.TrimSpace(req.S3Source.AccessKeyID)
+	sk := strings.TrimSpace(req.S3Source.SecretAccessKey)
+	if (ak != "" && sk == "") || (ak == "" && sk != "") {
+		return nil, commonerrors.NewBadRequest("for s3_sync, provide both accessKeyId and secretAccessKey, or omit both (use platform credentials on the job only if the source allows it)")
+	}
+
+	modelName := strings.TrimSpace(req.Source.ModelName)
+	if modelName == "" {
+		modelName = stringutil.NormalizeForDNS(req.DisplayName)
+	}
+	if modelName == "" {
+		return nil, commonerrors.NewBadRequest("modelName could not be derived; set source.modelName")
+	}
+
+	existing, _ := h.findModelBySourceURL(ctx, uri, req.Workspace)
+	if existing != nil {
+		return nil, commonerrors.NewBadRequest(fmt.Sprintf("a model with the same s3 source already exists (id: %s, phase: %s)", existing.ID, existing.Phase))
+	}
+
+	name := commonutils.GenerateName("model")
+	var s3SrcSecretName string
+	if ak != "" && sk != "" {
+		s3SrcSecretName = name + "-s3src"
+		region := strings.TrimSpace(req.S3Source.Region)
+		if region == "" {
+			region = "us-east-1"
+		}
+		endpoint := strings.TrimSpace(req.S3Source.Endpoint)
+		secret := &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      s3SrcSecretName,
+				Namespace: common.PrimusSafeNamespace,
+				Labels:    map[string]string{v1.ModelIdLabel: name},
+			},
+			StringData: map[string]string{
+				"access_key_id":     ak,
+				"secret_access_key": sk,
+				"region":            region,
+				"endpoint":          endpoint,
+			},
+			Type: corev1.SecretTypeOpaque,
+		}
+		if err := h.k8sClient.Create(ctx, secret); err != nil {
+			return nil, commonerrors.NewInternalError("failed to create S3 source secret: " + err.Error())
+		}
+	}
+
+	labels := map[string]string{
+		v1.DisplayNameLabel:    sanitizeLabelValue(req.DisplayName),
+		v1.ModelS3ImportLabel:  v1.TrueStr,
+	}
+	if userId != "" {
+		labels[v1.UserIdLabel] = userId
+	}
+	annotations := map[string]string{}
+	if s3SrcSecretName != "" {
+		annotations[v1.ModelS3SourceSecretAnn] = s3SrcSecretName
+	}
+	if userName != "" {
+		annotations[v1.UserNameAnnotation] = userName
+	}
+
+	origin := normalizeModelOrigin(req.Origin)
+	if origin == "" {
+		origin = "external"
+	}
+
+	k8sModel := &v1.Model{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:        name,
+			Labels:      labels,
+			Annotations: annotations,
+		},
+		Spec: v1.ModelSpec{
+			DisplayName: req.DisplayName,
+			Description: req.Description,
+			Icon:        req.Icon,
+			Label:       req.Label,
+			Tags:        req.Tags,
+			MaxTokens:   req.MaxTokens,
+			Workspace:   req.Workspace,
+			Origin:      origin,
+			Source: v1.ModelSource{
+				URL:        uri,
+				AccessMode: v1.AccessModeLocal,
+				ModelName:  modelName,
+			},
+		},
+		Status: v1.ModelStatus{
+			Phase:      v1.ModelPhasePending,
+			UpdateTime: &metav1.Time{Time: time.Now().UTC()},
+		},
+	}
+
+	if err := h.k8sClient.Create(ctx, k8sModel); err != nil {
+		if s3SrcSecretName != "" {
+			_ = h.k8sClient.Delete(ctx, &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{Name: s3SrcSecretName, Namespace: common.PrimusSafeNamespace},
+			})
+		}
+		return nil, commonerrors.NewInternalError("failed to create model: " + err.Error())
+	}
+
+	if h.dbClient != nil {
+		dbModel := &dbclient.Model{
+			ID:          name,
+			DisplayName: req.DisplayName,
+			Description: req.Description,
+			Icon:        req.Icon,
+			Label:       req.Label,
+			Tags:        tagsToDB(req.Tags),
+			MaxTokens:   req.MaxTokens,
+			SourceURL:   uri,
+			AccessMode:  accessModeS3Sync,
+			Phase:       string(v1.ModelPhasePending),
+			ModelName:   modelName,
+			Workspace:   req.Workspace,
+			Origin:      origin,
+			UserId:      userId,
+			UserName:    userName,
+		}
+		if err := h.dbClient.UpsertModel(ctx, dbModel); err != nil {
+			klog.ErrorS(err, "failed to insert s3_sync model into DB", "id", name)
+		}
+	}
+
+	return &CreateResponse{ID: name}, nil
+}
+
+func tagsToDB(tags []string) string {
+	if len(tags) == 0 {
+		return ""
+	}
+	return strings.Join(tags, ",")
+}
+
+func modelMatchesK8sAccessModeFilter(m *v1.Model, want string) bool {
+	if want == accessModeS3Sync {
+		return m.Labels != nil && m.Labels[v1.ModelS3ImportLabel] == v1.TrueStr
+	}
+	if want == string(v1.AccessModeLocal) {
+		if m.Labels != nil && m.Labels[v1.ModelS3ImportLabel] == v1.TrueStr {
+			return false
+		}
+		return m.Spec.Source.AccessMode == v1.AccessModeLocal
+	}
+	return string(m.Spec.Source.AccessMode) == want
 }
 
 // listModels implements the model listing logic.
@@ -518,8 +696,8 @@ func (h *Handler) listModels(c *gin.Context) (interface{}, error) {
 			continue
 		}
 
-		// Apply filters
-		if queryArgs.AccessMode != "" && string(k8sModel.Spec.Source.AccessMode) != queryArgs.AccessMode {
+		// Apply filters (s3_sync is API-only; cluster stores s3 imports as local + label)
+		if queryArgs.AccessMode != "" && !modelMatchesK8sAccessModeFilter(&k8sModel, queryArgs.AccessMode) {
 			continue
 		}
 		if queryArgs.Workspace != "" {
@@ -586,6 +764,11 @@ func (h *Handler) convertK8sModelToInfo(k8sModel *v1.Model) ModelInfo {
 	// Include unmatched tags for remote_api models
 	includeUnmatched := k8sModel.Spec.Source.AccessMode == v1.AccessModeRemoteAPI
 
+	access := string(k8sModel.Spec.Source.AccessMode)
+	if k8sModel.Labels != nil && k8sModel.Labels[v1.ModelS3ImportLabel] == v1.TrueStr {
+		access = accessModeS3Sync
+	}
+
 	return ModelInfo{
 		ID:              k8sModel.Name,
 		DisplayName:     k8sModel.Spec.DisplayName,
@@ -596,7 +779,7 @@ func (h *Handler) convertK8sModelToInfo(k8sModel *v1.Model) ModelInfo {
 		CategorizedTags: CategorizeTagString(tagsStr, includeUnmatched),
 		MaxTokens:       k8sModel.Spec.MaxTokens,
 		SourceURL:       k8sModel.Spec.Source.URL,
-		AccessMode:      string(k8sModel.Spec.Source.AccessMode),
+		AccessMode:      access,
 		ModelName:       k8sModel.Spec.Source.ModelName,
 		Phase:           string(k8sModel.Status.Phase),
 		Message:         k8sModel.Status.Message,
@@ -693,6 +876,21 @@ func (h *Handler) deleteModel(c *gin.Context) (interface{}, error) {
 				klog.ErrorS(err, "Failed to delete apiKey secret", "secret", apiKeySecretKey.Name)
 			} else {
 				klog.InfoS("ApiKey secret deleted", "secret", apiKeySecretKey.Name, "model", modelId)
+			}
+		}
+	}
+
+	// 5b. S3 import source Secret (s3_sync)
+	if k8sModel.Annotations != nil {
+		if sn := strings.TrimSpace(k8sModel.Annotations[v1.ModelS3SourceSecretAnn]); sn != "" {
+			s3src := &corev1.Secret{}
+			s3key := ctrlclient.ObjectKey{Name: sn, Namespace: common.PrimusSafeNamespace}
+			if err := h.k8sClient.Get(ctx, s3key, s3src); err == nil {
+				if err := h.k8sClient.Delete(ctx, s3src); err != nil && !errors.IsNotFound(err) {
+					klog.ErrorS(err, "Failed to delete s3 source secret", "secret", sn)
+				} else {
+					klog.InfoS("S3 source secret deleted", "secret", sn, "model", modelId)
+				}
 			}
 		}
 	}
