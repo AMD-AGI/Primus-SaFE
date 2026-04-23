@@ -193,6 +193,9 @@ func (r *ClusterClientSets) handleResource(_ context.Context, oldObj, newObj int
 		action:        action,
 		dispatchCount: 1,
 	}
+	klog.Infof("handle resource event, cluster: %s, name: %s, namespace: %s, uid: %s, gvk: %s, action: %s",
+		r.name, newUnstructured.GetName(), newUnstructured.GetNamespace(), newUnstructured.GetUID(),
+		newUnstructured.GroupVersionKind(), action)
 	if msg.action != ResourceDel && !newUnstructured.GetDeletionTimestamp().IsZero() {
 		msg.action = ResourceDeleting
 	}
