@@ -802,7 +802,131 @@ func (r *ModelReconciler) extractJobFailureReason(job *batchv1.Job) string {
 	return "Unknown error during download"
 }
 
+// constructS3ImportDownloadJob copies objects from a user s3:// URI to the platform model prefix in
+// the configured bucket (then the standard Uploading→Downloading flow pulls to PFS).
+func (r *ModelReconciler) constructS3ImportDownloadJob(model *v1.Model) (*batchv1.Job, error) {
+	if !commonconfig.IsS3Enable() {
+		return nil, fmt.Errorf("S3 storage is not enabled in system configuration")
+	}
+	s3Endpoint := commonconfig.GetS3Endpoint()
+	s3AccessKey := commonconfig.GetS3AccessKey()
+	s3SecretKey := commonconfig.GetS3SecretKey()
+	s3Bucket := commonconfig.GetS3Bucket()
+	if s3Endpoint == "" || s3AccessKey == "" || s3SecretKey == "" || s3Bucket == "" {
+		return nil, fmt.Errorf("S3 configuration is incomplete")
+	}
+	srcURI := strings.TrimSpace(model.Spec.Source.URL)
+	if !strings.HasPrefix(srcURI, "s3://") {
+		return nil, fmt.Errorf("s3 import requires spec.source.url to start with s3://")
+	}
+	destS3 := fmt.Sprintf("s3://%s/%s", s3Bucket, model.GetS3Path())
+
+	var envs []corev1.EnvVar
+	envs = append(envs,
+		corev1.EnvVar{Name: "S3_PLAT_AK", Value: s3AccessKey},
+		corev1.EnvVar{Name: "S3_PLAT_SK", Value: s3SecretKey},
+		corev1.EnvVar{Name: "S3_PLAT_EP", Value: s3Endpoint},
+	)
+	optional := true
+	if model.Annotations != nil {
+		if sn := strings.TrimSpace(model.Annotations[v1.ModelS3SourceSecretAnn]); sn != "" {
+			envs = append(envs,
+				corev1.EnvVar{
+					Name: "S3_SRC_AK",
+					ValueFrom: &corev1.EnvVarSource{
+						SecretKeyRef: &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: sn}, Key: "access_key_id"},
+					},
+				},
+				corev1.EnvVar{
+					Name: "S3_SRC_SK",
+					ValueFrom: &corev1.EnvVarSource{
+						SecretKeyRef: &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: sn}, Key: "secret_access_key"},
+					},
+				},
+				corev1.EnvVar{
+					Name: "S3_SRC_REGION",
+					ValueFrom: &corev1.EnvVarSource{
+						SecretKeyRef: &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: sn}, Key: "region", Optional: &optional},
+					},
+				},
+				corev1.EnvVar{
+					Name: "S3_SRC_EP",
+					ValueFrom: &corev1.EnvVarSource{
+						SecretKeyRef: &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: sn}, Key: "endpoint", Optional: &optional},
+					},
+				},
+			)
+		}
+	}
+
+	image := commonconfig.GetModelDownloaderImage()
+	script := fmt.Sprintf(`set -e
+SRC=%q
+DEST=%q
+mkdir -p /tmp/mdl
+if [ -n "${S3_SRC_AK:-}" ] && [ -n "${S3_SRC_SK:-}" ]; then
+  export AWS_ACCESS_KEY_ID="$S3_SRC_AK"
+  export AWS_SECRET_ACCESS_KEY="$S3_SRC_SK"
+  if [ -n "${S3_SRC_REGION:-}" ]; then export AWS_DEFAULT_REGION="$S3_SRC_REGION"; else export AWS_DEFAULT_REGION="us-east-1"; fi
+  EP_ARG=""
+  if [ -n "${S3_SRC_EP:-}" ]; then EP_ARG="--endpoint-url $S3_SRC_EP"; fi
+  aws s3 sync "$SRC" /tmp/mdl $EP_ARG || exit 1
+else
+  export AWS_ACCESS_KEY_ID="$S3_PLAT_AK"
+  export AWS_SECRET_ACCESS_KEY="$S3_PLAT_SK"
+  aws s3 sync "$SRC" /tmp/mdl --endpoint-url "$S3_PLAT_EP" || exit 1
+fi
+export AWS_ACCESS_KEY_ID="$S3_PLAT_AK"
+export AWS_SECRET_ACCESS_KEY="$S3_PLAT_SK"
+aws s3 sync /tmp/mdl "$DEST" --endpoint-url "$S3_PLAT_EP" || exit 1
+echo "S3 import to platform bucket completed"
+`, srcURI, destS3)
+	cmd := []string{"/bin/sh", "-c", script}
+	backoffLimit := int32(3)
+	ttlSeconds := int32(60)
+	jobName := stringutil.NormalizeForDNS(model.Name)
+	job := &batchv1.Job{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      jobName,
+			Namespace: common.PrimusSafeNamespace,
+			Labels: map[string]string{
+				"app":   "model-s3-import",
+				"model": model.Name,
+			},
+		},
+		Spec: batchv1.JobSpec{
+			BackoffLimit:            &backoffLimit,
+			TTLSecondsAfterFinished: &ttlSeconds,
+			Template: corev1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{
+					Labels: map[string]string{
+						"app":   "model-s3-import",
+						"model": model.Name,
+					},
+				},
+				Spec: corev1.PodSpec{
+					RestartPolicy: corev1.RestartPolicyOnFailure,
+					Containers: []corev1.Container{{
+						Name:            "s3-import",
+						Image:           image,
+						ImagePullPolicy: corev1.PullIfNotPresent,
+						Command:         cmd,
+						Env:             envs,
+					}},
+				},
+			},
+		},
+	}
+	if err := controllerutil.SetControllerReference(model, job, r.Scheme()); err != nil {
+		return nil, err
+	}
+	return job, nil
+}
+
 func (r *ModelReconciler) constructDownloadJob(model *v1.Model) (*batchv1.Job, error) {
+	if strings.HasPrefix(strings.TrimSpace(model.Spec.Source.URL), "s3://") {
+		return r.constructS3ImportDownloadJob(model)
+	}
 	var envs []corev1.EnvVar
 
 	if model.Spec.Source.URL == "" {
