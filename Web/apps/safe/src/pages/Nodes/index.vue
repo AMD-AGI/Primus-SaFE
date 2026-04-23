@@ -154,6 +154,7 @@
                 <el-icon class="wl-running-ico"><Loading /></el-icon>
               </span>
             </el-tooltip>
+            <!-- Batch-stop moved to Actions column; keep here commented for easy revert
             <el-tooltip content="Stop all workloads on this node" placement="top">
               <el-link
                 type="danger"
@@ -163,6 +164,7 @@
                 >Stop</el-link
               >
             </el-tooltip>
+            -->
           </div>
         </template>
       </el-table-column>
@@ -428,6 +430,7 @@ import {
   Refresh,
   RefreshRight,
   Download,
+  VideoPause,
 } from '@element-plus/icons-vue'
 import { copyText, byte2Gi } from '@/utils/index'
 import AddNodeDialog from './Components/AddNodeDialog.vue'
@@ -940,7 +943,14 @@ const handleMenuClick = async (act: Action, row: Row) => {
   closeMore()
 }
 
-type Row = { nodeId: string; phase: string; workspace: { id: string }; clusterId: string }
+type Row = {
+  nodeId: string
+  nodeName?: string
+  phase: string
+  workspace: { id: string }
+  clusterId: string
+  workloads?: Array<{ id: string; userId?: string }>
+}
 type Action = {
   key: string
   label: string
@@ -950,12 +960,21 @@ type Action = {
   onClick: (row: Row) => void | Promise<void>
   show?: boolean | ((r: Row) => boolean)
 }
-const isVisible = (act: Action) => act.show !== false
-const visibleActs = (row: Row) => getActions(row).filter(isVisible)
+const isVisible = (act: Action, row: Row) =>
+  typeof act.show === 'function' ? act.show(row) : act.show !== false
+const visibleActs = (row: Row) => getActions(row).filter((a) => isVisible(a, row))
 
 const isAssigned = (r: Row) => !!(r.workspace?.id && r.workspace.id !== 'UNASSIGNED')
 const isUnManage = (r: Row) => !!r.clusterId
 const getActions = (row: Row): Action[] => [
+  {
+    key: 'stopWorkloads',
+    label: 'Stop workloads',
+    icon: VideoPause,
+    btnClass: 'btn-warning-plain',
+    onClick: async (r: Row) => onStopAllWorkloads(r as unknown as UnknownRecord),
+    show: (r: Row) => (r.workloads?.length ?? 0) > 0,
+  },
   {
     key: 'delete',
     label: 'Delete',
