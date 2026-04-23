@@ -1,0 +1,44 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: higress-deployment-health
+spec:
+  description: Verify that the Higress gateway deployment is healthy after running Bootstrap/higress/higress.sh
+  steps:
+  # Step 1: higress-controller Deployment has ready replicas
+  - name: higress-controller-is-ready
+    try:
+    - assert:
+        resource:
+          apiVersion: apps/v1
+          kind: Deployment
+          metadata:
+            name: higress-controller
+            namespace: higress-system
+          status:
+            (readyReplicas > `0`): true
+
+  # Step 2: At least one higress-gateway pod is Running
+  - name: higress-gateway-pods-running
+    try:
+    - assert:
+        resource:
+          apiVersion: v1
+          kind: Pod
+          metadata:
+            namespace: higress-system
+            labels:
+              app: higress-gateway
+          status:
+            phase: Running
+
+  # Step 3: Gateway resource exists in the cluster
+  - name: gateway-resource-exists
+    try:
+    - assert:
+        resource:
+          apiVersion: gateway.networking.k8s.io/v1
+          kind: Gateway
+          metadata:
+            name: ssh-gateway
+            namespace: higress-system
