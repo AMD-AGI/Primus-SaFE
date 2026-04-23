@@ -487,15 +487,17 @@ const apimKeyInput = ref('')
 
 const activeTab = ref('safeKey')
 
-const codeSnippets = {
-  safeKey: `from openai import OpenAI
+const codeSnippets = computed(() => {
+  const origin = window.location.origin
+  return {
+    safeKey: `from openai import OpenAI
 import httpx
 
 http_client = httpx.Client(verify=False)
 
 client = OpenAI(
     api_key="ak-<your-safe-apikey>",
-    base_url="https://oci-slc.primus-safe.amd.com/api/v1/llm-proxy/v1",
+    base_url="${origin}/api/v1/llm-proxy/v1",
     http_client=http_client,
 )
 
@@ -504,18 +506,18 @@ for model in models.data:
     print(model.id)
 
 response = client.chat.completions.create(
-    model="openai/gpt-5.2",
+    model="claude-opus-4-7",
     messages=[{"role": "user", "content": "Hello!"}],
 )
 print(response.choices[0].message.content)`,
-  virtualKey: `from openai import OpenAI
+    virtualKey: `from openai import OpenAI
 import httpx
 
 http_client = httpx.Client(verify=False)
 
 client = OpenAI(
     api_key="sk-<your-llm-virtual-key>",
-    base_url="https://oci-slc.primus-safe.amd.com/llm-gateway/v1",
+    base_url="${origin}/llm-gateway/v1",
     http_client=http_client,
 )
 
@@ -524,26 +526,27 @@ for model in models.data:
     print(model.id)
 
 response = client.chat.completions.create(
-    model="openai/gpt-5.2",
+    model="claude-opus-4-7",
     messages=[{"role": "user", "content": "Hello!"}],
 )
 print(response.choices[0].message.content)`,
-  tagUsage: `from openai import OpenAI
+    tagUsage: `from openai import OpenAI
 
 client = OpenAI(
     api_key="ak-<your-safe-apikey>",
-    base_url="https://oci-slc.primus-safe.amd.com/api/v1/llm-proxy/v1",
+    base_url="${origin}/api/v1/llm-proxy/v1",
 )
 
 response = client.chat.completions.create(
-    model="openai/gpt-4.1",
+    model="claude-opus-4-7",
     messages=[{"role": "user", "content": "Hello!"}],
     extra_body={"tags": ["project-A"]}  # Tag is optional; omit to leave untagged
 )
 print(response.choices[0].message.content)`,
-  linux: `curl -fsSL https://raw.githubusercontent.com/AMD-AGI/Primus-SaFE/main/Scripts/setup-certs/setup.sh | bash`,
-  windows: `irm https://raw.githubusercontent.com/AMD-AGI/Primus-SaFE/main/Scripts/setup-certs/setup.bat -OutFile $env:TEMP\\setup.bat; cmd /c $env:TEMP\\setup.bat`,
-}
+    linux: `curl -fsSL https://raw.githubusercontent.com/AMD-AGI/Primus-SaFE/main/Scripts/setup-certs/setup.sh | bash`,
+    windows: `irm https://raw.githubusercontent.com/AMD-AGI/Primus-SaFE/main/Scripts/setup-certs/setup.bat -OutFile $env:TEMP\\setup.bat; cmd /c $env:TEMP\\setup.bat`,
+  }
+})
 
 // ── SaFE API Key Dialog ──
 const apiKeyVisible = ref(false)
