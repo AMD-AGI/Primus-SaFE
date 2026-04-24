@@ -216,7 +216,7 @@ data:
                     mountPath: /etc/podinfo
                     readOnly: true
                 ports:
-                  - containerPort: 19080      
+                  - containerPort: 18080
                     name: metrics
                     protocol: TCP
               schedulerName: kube-scheduler-plugins
@@ -292,6 +292,10 @@ data:
                     fieldRef:
                       apiVersion: v1
                       fieldPath: metadata.namespace
+                ports:
+                  - containerPort: 18080
+                    name: metrics
+                    protocol: TCP
                 imagePullPolicy: IfNotPresent
                 volumeMounts:
                   - name: shared-data
@@ -299,10 +303,6 @@ data:
                   - name: podinfo
                     mountPath: /etc/podinfo
                     readOnly: true
-                ports:
-                  - containerPort: 19080      
-                    name: metrics
-                    protocol: TCP
               schedulerName: kube-scheduler-plugins
               volumes:
                 - name: shared-data
