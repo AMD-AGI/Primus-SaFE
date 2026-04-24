@@ -98,6 +98,56 @@
         </div>
       </el-card>
 
+      <!-- Environment (admin only) -->
+      <el-card v-if="userStore.hasManagerAccess" class="safe-card" shadow="never">
+        <template #header>
+          <div class="flex items-center justify-between">
+            <span class="card-title">Environment</span>
+            <el-button size="small" text :icon="Refresh" :loading="envLoading" @click="refreshEnvs">
+              Refresh
+            </el-button>
+          </div>
+        </template>
+
+        <div v-if="userStore.envs" class="env-grid">
+          <span class="label">Log</span>
+          <el-tag :type="userStore.envs.enableLog ? 'success' : 'info'" size="small" effect="plain">
+            {{ userStore.envs.enableLog ? 'Enabled' : 'Disabled' }}
+          </el-tag>
+
+          <span class="label">Log Download</span>
+          <el-tag :type="userStore.envs.enableLogDownload ? 'success' : 'info'" size="small" effect="plain">
+            {{ userStore.envs.enableLogDownload ? 'Enabled' : 'Disabled' }}
+          </el-tag>
+
+          <span class="label">SSH</span>
+          <div class="flex items-center gap-2">
+            <el-tag :type="userStore.envs.enableSsh ? 'success' : 'info'" size="small" effect="plain">
+              {{ userStore.envs.enableSsh ? 'Enabled' : 'Disabled' }}
+            </el-tag>
+            <span v-if="userStore.envs.enableSsh && userStore.envs.sshIP" class="value mono">
+              {{ userStore.envs.sshIP }}{{ userStore.envs.sshPort ? `:${userStore.envs.sshPort}` : '' }}
+            </span>
+          </div>
+
+          <span class="label">SSO</span>
+          <el-tag :type="userStore.envs.ssoEnable ? 'success' : 'info'" size="small" effect="plain">
+            {{ userStore.envs.ssoEnable ? 'Enabled' : 'Disabled' }}
+          </el-tag>
+
+          <span class="label">CD Approval</span>
+          <el-tag :type="userStore.envs.cdRequireApproval ? 'warning' : 'info'" size="small" effect="plain">
+            {{ userStore.envs.cdRequireApproval ? 'Required' : 'Not Required' }}
+          </el-tag>
+
+          <template v-if="userStore.envs.authoringImage">
+            <span class="label">Authoring Image</span>
+            <span class="value mono truncate">{{ userStore.envs.authoringImage }}</span>
+          </template>
+        </div>
+        <el-empty v-else description="Environment data not available" :image-size="48" />
+      </el-card>
+
       <!-- Danger zone -->
       <el-card class="safe-card" shadow="never">
         <template #header>
@@ -142,7 +192,7 @@ import { useRouter } from 'vue-router'
 import { useUserStore } from '@/stores/user'
 import { editUser, getUserSettings, updateUserSettings } from '@/services'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Edit, Check, Close } from '@element-plus/icons-vue'
+import { Edit, Check, Close, Refresh } from '@element-plus/icons-vue'
 import { formatTimeStr } from '@/utils'
 
 defineOptions({ name: 'UserSettings' })
@@ -235,7 +285,24 @@ async function onLogout() {
   })
 }
 
-onMounted(fetchSettings)
+// ── Environment ──
+const envLoading = ref(false)
+async function refreshEnvs() {
+  envLoading.value = true
+  try {
+    await userStore.fetchEnvs()
+    ElMessage.success('Environment refreshed')
+  } catch {
+    ElMessage.error('Failed to fetch environment')
+  } finally {
+    envLoading.value = false
+  }
+}
+
+onMounted(() => {
+  fetchSettings()
+  if (!userStore.envs) userStore.fetchEnvs().catch(() => {})
+})
 </script>
 
 <style scoped>
@@ -311,5 +378,28 @@ onMounted(fetchSettings)
   font-size: 13px;
   color: var(--el-text-color-secondary);
   margin-top: 3px;
+}
+
+/* Environment grid */
+.env-grid {
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  gap: 12px 18px;
+  font-size: 14px;
+  align-items: center;
+}
+.env-grid .label {
+  color: var(--el-text-color-secondary);
+  white-space: nowrap;
+}
+.env-grid > :deep(.el-tag) {
+  justify-self: start;
+}
+.env-grid .value {
+  color: var(--el-text-color-primary);
+}
+.env-grid .mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 13px;
 }
 </style>
