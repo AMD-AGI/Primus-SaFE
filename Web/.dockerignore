@@ -1,0 +1,30 @@
+**/node_modules
+**/dist
+**/.git
+**/.pnpm
+**/.pnpm-store
+**/.vscode
+**/.idea
+**/.env*
+**/coverage
+**/*.log
+
+# Tests, docs and local-only assets aren't needed inside the image.
+**/tests
+**/__tests__
+**/docs
+apps/*/local-nginx
+apps/*/k8s
+apps/*/CONTRIBUTING.md
+apps/*/README.md
+apps/*/frontend-design.md
+apps/*/answer-feedback-api.md
+
+# Old per-app build files — superseded by Web/Dockerfile + Web/nginx.conf.
+# Keep them on disk for now (we may delete in a follow-up commit) but don't
+# ship them into the build context.
+apps/safe/Dockerfile
+apps/safe/nginx.conf
+apps/safe/start.sh
+apps/lens/Dockerfile
+apps/lens/nginx.conf
