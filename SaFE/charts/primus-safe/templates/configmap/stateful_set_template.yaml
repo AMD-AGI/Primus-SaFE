@@ -86,6 +86,6 @@ data:
                path: /var/log
            - name: shared-data
              emptyDir: {}
-         terminationGracePeriodSeconds: 5
+         terminationGracePeriodSeconds: 10
          restartPolicy: Always
          schedulerName: kube-scheduler-plugins
