@@ -1,167 +1,217 @@
 <template>
-  <el-dialog
+  <el-drawer
     :model-value="visible"
     :title="`${props.action} Workspace`"
-    width="600"
-    @close="emit('update:visible', false)"
     :close-on-click-modal="false"
+    size="820px"
+    direction="rtl"
     destroy-on-close
+    append-to-body
+    class="training-drawer"
+    @close="emit('update:visible', false)"
     @open="onOpen"
   >
-    <el-form
-      ref="ruleFormRef"
-      :model="form"
-      label-width="auto"
-      style="max-width: 600px"
-      class="p-5"
-      :rules="rules"
-    >
-      <el-form-item label="Name" prop="name">
-        <el-input v-model="form.name" :disabled="isEdit" />
-      </el-form-item>
-
-      <el-form-item label="Description">
-        <el-input v-model="form.description" :rows="2" type="textarea" />
-      </el-form-item>
-
-      <el-form-item label="Node Flavor" prop="flavorId">
-        <el-select v-model="form.flavorId" placeholder="please select flavor name">
-          <el-option v-for="item in state.flavorOptions" :key="item" :label="item" :value="item" />
-        </el-select>
-      </el-form-item>
-
-      <el-form-item label="Scopes" prop="scopes">
-        <el-checkbox-group v-model="form.scopes">
-          <el-checkbox v-for="item in SCOPES_KEYS" :key="item" :label="item" :value="item" />
-        </el-checkbox-group>
-      </el-form-item>
-      <el-form-item label="Max Runtime" v-if="selectedScopes.length">
-        <div class="limit-entries">
-          <div v-for="scope in runtimeConfiguredScopes" :key="scope" class="limit-row">
-            <el-tag closable effect="plain" @close="removeRuntimeScope(scope)">{{ scope }}</el-tag>
-            <el-input-number
-              v-model="form.maxRuntime[scope]"
-              :min="0"
-              :step="1"
-              :precision="0"
-              controls-position="right"
-              placeholder="hours"
-              size="small"
-              class="limit-input"
-            />
-            <span class="limit-unit">h</span>
+    <div class="drawer-body">
+      <el-form
+        ref="ruleFormRef"
+        :model="form"
+        label-width="120px"
+        :rules="rules"
+        :validate-on-rule-change="false"
+      >
+        <!-- ===== Basic Information ===== -->
+        <div class="section-card">
+          <div class="section-header">
+            <div class="section-bar"></div>
+            <div>
+              <div class="section-title">Basic Information</div>
+              <div class="section-subtitle">Name, description, and cluster assignment</div>
+            </div>
           </div>
-          <el-dropdown v-if="runtimeAvailableScopes.length" trigger="click" @command="addRuntimeScope">
-            <el-button size="small" text type="primary">+ Add</el-button>
-            <template #dropdown>
-              <el-dropdown-menu>
-                <el-dropdown-item v-for="s in runtimeAvailableScopes" :key="s" :command="s">{{ s }}</el-dropdown-item>
-              </el-dropdown-menu>
-            </template>
-          </el-dropdown>
-        </div>
-      </el-form-item>
 
-      <el-form-item label="Idle Time" v-if="selectedScopes.length">
-        <div class="limit-entries">
-          <div v-for="scope in idleTimeConfiguredScopes" :key="scope" class="limit-row">
-            <el-tag closable effect="plain" @close="removeIdleTimeScope(scope)">{{ scope }}</el-tag>
-            <el-input-number
-              v-model="form.idleTime[scope]"
-              :min="0"
-              :step="5"
-              :precision="0"
-              controls-position="right"
-              placeholder="minutes"
-              size="small"
-              class="limit-input"
-            />
-            <span class="limit-unit">min</span>
-          </div>
-          <el-dropdown v-if="idleTimeAvailableScopes.length" trigger="click" @command="addIdleTimeScope">
-            <el-button size="small" text type="primary">+ Add</el-button>
-            <template #dropdown>
-              <el-dropdown-menu>
-                <el-dropdown-item v-for="s in idleTimeAvailableScopes" :key="s" :command="s">{{ s }}</el-dropdown-item>
-              </el-dropdown-menu>
-            </template>
-          </el-dropdown>
-        </div>
-      </el-form-item>
+          <el-row :gutter="16">
+            <el-col :span="12">
+              <el-form-item label="Name" prop="name">
+                <el-input v-model="form.name" :disabled="isEdit" />
+              </el-form-item>
+            </el-col>
+            <el-col :span="12">
+              <el-form-item label="Cluster" prop="clusterId">
+                <el-select v-model="form.clusterId" placeholder="please select cluster">
+                  <el-option
+                    v-for="item in store.items"
+                    :key="item.clusterId"
+                    :label="item.clusterId"
+                    :value="item.clusterId"
+                  />
+                </el-select>
+              </el-form-item>
+            </el-col>
+          </el-row>
 
-      <el-form-item label="Cluster" prop="clusterId">
-        <el-select v-model="form.clusterId" placeholder="please select cluster">
-          <el-option
-            v-for="item in store.items"
-            :key="item.clusterId"
-            :label="item.clusterId"
-            :value="item.clusterId"
-          />
-        </el-select>
-      </el-form-item>
-
-      <el-form-item label="Image Secret">
-        <el-select
-          v-model="form.imageSecretIds"
-          multiple
-          clearable
-          placeholder="please select image secret(s)"
-        >
-          <el-option
-            v-for="item in state.imageSecretOptions"
-            :key="item"
-            :label="item"
-            :value="item"
-          />
-        </el-select>
-      </el-form-item>
-
-      <el-form-item label="Managers" v-if="isEdit">
-        <el-select v-model="form.managers" filterable placeholder="please select managers" multiple>
-          <el-option
-            v-for="item in state.userOptions"
-            :key="item.id"
-            :label="item.name"
-            :value="item.id"
-          />
-        </el-select>
-      </el-form-item>
-
-      <el-row :gutter="20">
-        <el-col :span="12">
-          <el-form-item label="Replica" prop="replica">
-            <el-input v-model.number="form.replica" />
+          <el-form-item label="Description">
+            <el-input v-model="form.description" :rows="2" type="textarea" />
           </el-form-item>
-        </el-col>
-        <el-col :span="12">
-          <el-form-item label="Queue Policy" prop="queuePolicy">
-            <el-select v-model="form.queuePolicy" placeholder="please select queue policy">
-              <el-option label="fifo" value="fifo" />
-              <el-option label="balance" value="balance" />
+
+          <el-row :gutter="16">
+            <el-col :span="12">
+              <el-form-item label="Node Flavor" prop="flavorId">
+                <el-select v-model="form.flavorId" placeholder="please select flavor name">
+                  <el-option v-for="item in state.flavorOptions" :key="item" :label="item" :value="item" />
+                </el-select>
+              </el-form-item>
+            </el-col>
+            <el-col :span="12">
+              <el-form-item label="Image Secret">
+                <el-select
+                  v-model="form.imageSecretIds"
+                  multiple
+                  clearable
+                  placeholder="please select image secret(s)"
+                >
+                  <el-option
+                    v-for="item in state.imageSecretOptions"
+                    :key="item"
+                    :label="item"
+                    :value="item"
+                  />
+                </el-select>
+              </el-form-item>
+            </el-col>
+          </el-row>
+
+          <el-form-item label="Managers" v-if="isEdit">
+            <el-select v-model="form.managers" filterable placeholder="please select managers" multiple>
+              <el-option
+                v-for="item in state.userOptions"
+                :key="item.id"
+                :label="item.name"
+                :value="item.id"
+              />
             </el-select>
           </el-form-item>
-        </el-col>
-      </el-row>
-      <el-row :gutter="20">
-        <el-col :span="12">
-          <el-form-item label="Preemption">
-            <el-switch v-model="form.enablePreempt" />
+        </div>
+
+        <!-- ===== Scheduling & Policy ===== -->
+        <div class="section-card">
+          <div class="section-header">
+            <div class="section-bar"></div>
+            <div>
+              <div class="section-title">Scheduling & Policy</div>
+              <div class="section-subtitle">Scopes, resource limits, and access policy</div>
+            </div>
+          </div>
+
+          <el-form-item label="Scopes" prop="scopes">
+            <el-checkbox-group v-model="form.scopes">
+              <el-checkbox v-for="item in SCOPES_KEYS" :key="item" :label="item" :value="item" />
+            </el-checkbox-group>
           </el-form-item>
-        </el-col>
-        <el-col :span="12">
-          <el-form-item label="Default Accessible">
-            <el-switch v-model="form.isDefault" />
+
+          <el-form-item label="Max Runtime" v-if="selectedScopes.length">
+            <div class="limit-entries">
+              <div v-for="scope in runtimeConfiguredScopes" :key="scope" class="limit-row">
+                <el-tag closable effect="plain" @close="removeRuntimeScope(scope)">{{ scope }}</el-tag>
+                <el-input-number
+                  v-model="form.maxRuntime[scope]"
+                  :min="0"
+                  :step="1"
+                  :precision="0"
+                  controls-position="right"
+                  placeholder="hours"
+                  size="small"
+                  class="limit-input"
+                />
+                <span class="limit-unit">h</span>
+              </div>
+              <el-dropdown v-if="runtimeAvailableScopes.length" trigger="click" @command="addRuntimeScope">
+                <el-button size="small" text type="primary">+ Add</el-button>
+                <template #dropdown>
+                  <el-dropdown-menu>
+                    <el-dropdown-item v-for="s in runtimeAvailableScopes" :key="s" :command="s">{{ s }}</el-dropdown-item>
+                  </el-dropdown-menu>
+                </template>
+              </el-dropdown>
+            </div>
           </el-form-item>
-        </el-col>
-      </el-row>
-      <el-form-item label="Volumes" label-position="top">
-        <div class="w-full">
-          <!-- {{ form.volumes }} -->
-          <el-card v-for="(v, i) in form.volumes" :key="v.uid" class="mb-3">
+
+          <el-form-item label="Idle Time" v-if="selectedScopes.length">
+            <div class="limit-entries">
+              <div v-for="scope in idleTimeConfiguredScopes" :key="scope" class="limit-row">
+                <el-tag closable effect="plain" @close="removeIdleTimeScope(scope)">{{ scope }}</el-tag>
+                <el-input-number
+                  v-model="form.idleTime[scope]"
+                  :min="0"
+                  :step="5"
+                  :precision="0"
+                  controls-position="right"
+                  placeholder="minutes"
+                  size="small"
+                  class="limit-input"
+                />
+                <span class="limit-unit">min</span>
+              </div>
+              <el-dropdown v-if="idleTimeAvailableScopes.length" trigger="click" @command="addIdleTimeScope">
+                <el-button size="small" text type="primary">+ Add</el-button>
+                <template #dropdown>
+                  <el-dropdown-menu>
+                    <el-dropdown-item v-for="s in idleTimeAvailableScopes" :key="s" :command="s">{{ s }}</el-dropdown-item>
+                  </el-dropdown-menu>
+                </template>
+              </el-dropdown>
+            </div>
+          </el-form-item>
+
+          <el-row :gutter="16">
+            <el-col :span="12">
+              <el-form-item label="Replica" prop="replica">
+                <el-input v-model.number="form.replica" />
+              </el-form-item>
+            </el-col>
+            <el-col :span="12">
+              <el-form-item label="Queue Policy" prop="queuePolicy">
+                <el-select v-model="form.queuePolicy" placeholder="please select queue policy">
+                  <el-option label="fifo" value="fifo" />
+                  <el-option label="balance" value="balance" />
+                </el-select>
+              </el-form-item>
+            </el-col>
+          </el-row>
+
+          <el-row :gutter="16">
+            <el-col :span="12">
+              <el-form-item label="Preemption" label-width="150px">
+                <el-switch v-model="form.enablePreempt" />
+              </el-form-item>
+            </el-col>
+            <el-col :span="12">
+              <el-form-item label="Default Accessible" label-width="150px">
+                <el-switch v-model="form.isDefault" />
+              </el-form-item>
+            </el-col>
+          </el-row>
+        </div>
+
+        <!-- ===== Volumes ===== -->
+        <div class="section-card">
+          <div class="section-header">
+            <div class="section-bar"></div>
+            <div class="flex-1 flex items-center justify-between">
+              <div>
+                <div class="section-title">Volumes</div>
+                <div class="section-subtitle">Persistent storage configuration</div>
+              </div>
+              <el-space wrap>
+                <el-button size="small" @click="addVolume('pfs')">+ PFS</el-button>
+                <el-button size="small" @click="addVolume('hostpath')">+ HostPath</el-button>
+              </el-space>
+            </div>
+          </div>
+
+          <el-card v-for="(v, i) in form.volumes" :key="v.uid" class="volume-card mb-3">
             <template #header>
               <div class="flex items-center justify-between">
                 <div>
-                  <!-- <b>{{ v.storageType?.toUpperCase() }}</b> -->
                   <b>{{ v.type?.toUpperCase() }}</b>
                   <span class="text-gray-500 ml-2">#{{ i + 1 }}</span>
                 </div>
@@ -169,7 +219,6 @@
               </div>
             </template>
 
-            <!-- Common: mountPath required -->
             <el-form-item
               :prop="`volumes.${i}.mountPath`"
               :rules="[{ required: true, message: 'mountPath is required', trigger: 'blur' }]"
@@ -178,8 +227,6 @@
               <el-input v-model="v.mountPath" :disabled="v.disabled" />
             </el-form-item>
 
-            <!-- hostpath Exclusive: hostPath is required -->
-            <!-- <template v-if="v.storageType === 'hostpath'"> -->
             <template v-if="v.type === 'hostpath'">
               <el-form-item
                 :prop="`volumes.${i}.hostPath`"
@@ -190,8 +237,6 @@
               </el-form-item>
             </template>
 
-            <!-- Non-hostpath: capacity / storageClass required, subPath optional -->
-            <!-- New form item provisioningStrategy for choosing between storageClass/PV Selector, where PV Selector is a key-value input -->
             <template v-else>
               <el-form-item
                 :prop="`volumes.${i}.capacity`"
@@ -199,10 +244,9 @@
                 label="Capacity"
               >
                 <el-input v-model="v.capacity" :disabled="v.disabled">
-                  <!-- Unit suffix optional, default Pi -->
                   <template #append>
                     <el-select v-model="v.capacityAppend" placeholder="Select" style="width: 85px">
-                      <el-option v-for="v in CAP_UNITS" :key="v" :label="v" :value="v" />
+                      <el-option v-for="u in CAP_UNITS" :key="u" :label="u" :value="u" />
                     </el-select>
                   </template>
                 </el-input>
@@ -257,36 +301,39 @@
               <el-form-item label="Sub Path" :prop="`volumes.${i}.subPath`">
                 <el-input v-model="v.subPath" :disabled="v.disabled" />
               </el-form-item>
-
-              <el-form-item label="Access Mode" :prop="`volumes.${i}.accessMode`">
-                <el-select v-model="v.accessMode" style="width: 220px" :disabled="v.disabled">
-                  <el-option label="ReadWriteOnce" value="ReadWriteOnce" />
-                  <el-option label="ReadOnlyMany" value="ReadOnlyMany" />
-                  <el-option label="ReadWriteMany" value="ReadWriteMany" />
-                  <el-option label="ReadWriteOncePod" value="ReadWriteOncePod" />
-                </el-select>
-              </el-form-item>
             </template>
+
+            <el-row :gutter="16">
+              <el-col :span="16">
+                <el-form-item label="Access Mode" :prop="`volumes.${i}.accessMode`">
+                  <el-select v-model="v.accessMode" style="width: 220px" :disabled="v.disabled">
+                    <el-option label="ReadWriteOnce" value="ReadWriteOnce" />
+                    <el-option label="ReadOnlyMany" value="ReadOnlyMany" />
+                    <el-option label="ReadWriteMany" value="ReadWriteMany" />
+                    <el-option label="ReadWriteOncePod" value="ReadWriteOncePod" />
+                  </el-select>
+                </el-form-item>
+              </el-col>
+              <el-col :span="8">
+                <el-form-item label="User Dir" :prop="`volumes.${i}.enableUserDir`">
+                  <el-switch v-model="v.enableUserDir" :disabled="v.disabled" />
+                </el-form-item>
+              </el-col>
+            </el-row>
           </el-card>
+
+          <el-empty v-if="!form.volumes.length" description="No volumes added" :image-size="48" />
         </div>
-      </el-form-item>
-      <el-space wrap class="m-t-[-20px]">
-        <el-button @click="addVolume('pfs')">+ PFS</el-button>
-        <el-button @click="addVolume('hostpath')">+ HostPath</el-button>
-      </el-space>
-    </el-form>
-    <!-- <el-button @click="addVolume('rbd')">+ RBD</el-button>
-    <el-button @click="addVolume('obs')">+ OBS</el-button>
-    <el-button @click="addVolume('cephfs')">+ CephFS</el-button> -->
-    <!-- <el-button @click="addVolume('juicefs')">+ JuiceFS</el-button> -->
+      </el-form>
+    </div>
 
     <template #footer>
-      <div class="dialog-footer">
+      <div class="drawer-footer">
         <el-button @click="emit('update:visible', false)">Cancel</el-button>
-        <el-button type="primary" @click="onSubmit(ruleFormRef)"> Confirm </el-button>
+        <el-button type="primary" @click="onSubmit(ruleFormRef)">Confirm</el-button>
       </div>
     </template>
-  </el-dialog>
+  </el-drawer>
 </template>
 
 <script lang="ts" setup>
@@ -365,15 +412,15 @@ const newVolume = (t: VolumeType): Volume => {
   if (t === 'hostpath') {
     return {
       uid: Date.now().toString(),
-      // storageType: 'hostpath',
       type: 'hostpath',
       mountPath: '',
       hostPath: '',
+      accessMode: 'ReadWriteMany',
+      enableUserDir: false,
     }
   }
   return {
     uid: Date.now().toString(),
-    // storageType: t,
     type: t,
     mountPath: '',
     subPath: '',
@@ -381,6 +428,7 @@ const newVolume = (t: VolumeType): Volume => {
     capacityAppend: 'Pi',
     storageClass: '',
     accessMode: 'ReadWriteMany',
+    enableUserDir: false,
     provisioningStrategy: 'storageClass',
     selectorKV: { key: '', value: '' },
   }
@@ -692,7 +740,97 @@ watch(
 )
 </script>
 
+<style>
+.el-drawer__header {
+  padding: 12px 24px 4px;
+  margin-bottom: 0;
+}
+.el-drawer__title {
+  font-size: 18px;
+  font-weight: 600;
+}
+.el-drawer__body {
+  padding-bottom: 0;
+}
+</style>
+
 <style scoped>
+.drawer-body {
+  overflow-y: auto;
+}
+
+.section-card {
+  background: var(--el-bg-color-overlay);
+  border-radius: 10px;
+  padding: 14px 16px 10px;
+  margin-bottom: 20px;
+  border: 1px solid var(--el-border-color-lighter);
+  box-shadow:
+    0 2px 8px rgba(0, 0, 0, 0.08),
+    0 1px 3px rgba(0, 0, 0, 0.04);
+}
+
+html.dark .section-card {
+  border: 1px solid rgba(255, 255, 255, 0.03);
+  box-shadow:
+    0 12px 35px rgba(0, 0, 0, 0.55),
+    0 0 0 1px rgba(0, 0, 0, 0.7);
+}
+
+.section-card:hover {
+  box-shadow:
+    0 4px 12px rgba(0, 0, 0, 0.12),
+    0 2px 6px rgba(0, 0, 0, 0.06);
+  transform: translateY(-1px);
+  transition: all 0.16s ease-out;
+}
+
+html.dark .section-card:hover {
+  box-shadow:
+    0 14px 40px rgba(0, 0, 0, 0.55),
+    0 0 1px rgba(0, 0, 0, 0.9);
+}
+
+.section-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.section-bar {
+  width: 4px;
+  height: 18px;
+  border-radius: 999px;
+  margin-top: 2px;
+  background-color: var(--safe-primary);
+}
+
+.section-title {
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+.section-subtitle {
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+}
+
+.volume-card {
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 8px;
+}
+
+.drawer-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  padding: 10px 24px;
+  border-top: 1px solid var(--el-border-color-lighter);
+}
+
 .limit-entries {
   display: flex;
   flex-wrap: wrap;
