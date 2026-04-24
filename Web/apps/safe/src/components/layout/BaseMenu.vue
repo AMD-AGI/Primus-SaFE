@@ -373,7 +373,7 @@ watchEffect(() => {
   const allAgentInfraItems = [
     {
       index: '/tools',
-      name: 'Tools',
+      name: 'Plugins',
       icon: menuIcons.tools,
       canAccess: true, // Open to all users
     },

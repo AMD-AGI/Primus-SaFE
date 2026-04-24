@@ -152,7 +152,7 @@ func (h *Handler) getPosttrainRunMetrics(c *gin.Context) (interface{}, error) {
 		}, nil
 	}
 
-	points, availableMetrics, selectedSource, err := fetchLensTrainingPerformanceData(c.Request.Context(), lensWorkloadUID, start, end, query.Metrics, query.DataSource)
+	points, availableMetrics, selectedSource, err := fetchLensTrainingPerformanceData(c.Request.Context(), run.Cluster, lensWorkloadUID, start, end, query.Metrics, query.DataSource)
 	if err != nil {
 		klog.V(4).Infof("failed to query Lens training performance for run %s: %v", run.RunID, err)
 		return &PosttrainMetricsResponse{
@@ -376,7 +376,7 @@ func (h *Handler) enrichPosttrainItemsWithLoss(ctx context.Context, runs []*dbcl
 				return
 			}
 
-			summary, availableMetrics, err := fetchLatestLossSummary(ctx, lensWorkloadUID, start, end)
+			summary, availableMetrics, err := fetchLatestLossSummary(ctx, runs[idx].Cluster, lensWorkloadUID, start, end)
 			if err != nil {
 				klog.V(4).Infof("failed to enrich latest loss for run %s: %v", items[idx].RunID, err)
 				return
@@ -402,7 +402,7 @@ func (h *Handler) getLatestLossForRun(ctx context.Context, run *dbclient.Posttra
 	if err != nil {
 		return nil, nil, nil
 	}
-	return fetchLatestLossSummary(ctx, lensWorkloadUID, start, end)
+	return fetchLatestLossSummary(ctx, run.Cluster, lensWorkloadUID, start, end)
 }
 
 func buildSFTSnapshots(req CreateSftJobRequest) (string, string, error) {

@@ -10,6 +10,7 @@ import (
 
 	"k8s.io/klog/v2"
 
+	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/robustclient"
 )
 
@@ -72,7 +73,10 @@ func InitRobustClient(rc *robustclient.Client) {
 	defer mu.Unlock()
 	robustClientRef = rc
 	multiClusterClients = make(map[string]*SearchClient)
-	klog.V(2).Info("[opensearch] initialized with robust client proxy mode")
+	if prefix := commonconfig.GetOpenSearchIndexPrefix(); prefix != "" {
+		defaultIndex = prefix
+	}
+	klog.Infof("[opensearch] initialized with robust client proxy mode (index prefix: %s)", defaultIndex)
 }
 
 func StartDiscover(_ interface{}) error {

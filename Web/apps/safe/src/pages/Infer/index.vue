@@ -516,18 +516,9 @@ type Action = {
 }
 
 const getActions = (_row: Row): Action[] => [
-  {
-    key: 'clone',
-    label: 'Clone',
-    icon: DocumentCopy,
-    btnClass: 'btn-success-plain',
-    disabled: () => !canWrite.value,
-    onClick: (r: Row) => {
-      curAction.value = 'Clone'
-      curWlId.value = r.workloadId
-      addVisible.value = true
-    },
-  },
+  // Resume leads the action row — the phase-gated restart is the most common
+  // action on a Stopped/Failed/Succeeded inference job, so Clone/Edit stay
+  // to its right rather than pushing Resume under the "..." menu.
   {
     key: 'resume',
     label: 'Resume',
@@ -541,6 +532,18 @@ const getActions = (_row: Row): Action[] => [
         return
       }
       curAction.value = 'Resume'
+      curWlId.value = r.workloadId
+      addVisible.value = true
+    },
+  },
+  {
+    key: 'clone',
+    label: 'Clone',
+    icon: DocumentCopy,
+    btnClass: 'btn-success-plain',
+    disabled: () => !canWrite.value,
+    onClick: (r: Row) => {
+      curAction.value = 'Clone'
       curWlId.value = r.workloadId
       addVisible.value = true
     },
