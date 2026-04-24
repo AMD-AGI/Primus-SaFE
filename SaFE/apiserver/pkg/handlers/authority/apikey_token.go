@@ -171,9 +171,11 @@ func (a *ApiKeyToken) ValidateApiKey(ctx context.Context, apiKey string, clientI
 		Exp:      record.ExpirationTime.Time.Unix(),
 		ApiKeyId: record.Id,
 	}
-	user := &v1.User{}
-	if a.Get(ctx, client.ObjectKey{Name: record.UserId}, user) == nil {
-		userInfo.Roles = user.Spec.Roles
+	if a.Client != nil {
+		user := &v1.User{}
+		if a.Get(ctx, client.ObjectKey{Name: record.UserId}, user) == nil {
+			userInfo.Roles = user.Spec.Roles
+		}
 	}
 	return userInfo, nil
 }

@@ -14,15 +14,16 @@ import (
 // WorkspaceVolumeApplyConfiguration represents a declarative configuration of the WorkspaceVolume type for use
 // with apply.
 type WorkspaceVolumeApplyConfiguration struct {
-	Id           *int                               `json:"id,omitempty"`
-	Type         *amdv1.WorkspaceVolumeType         `json:"type,omitempty"`
-	MountPath    *string                            `json:"mountPath,omitempty"`
-	HostPath     *string                            `json:"hostPath,omitempty"`
-	Capacity     *string                            `json:"capacity,omitempty"`
-	Selector     map[string]string                  `json:"selector,omitempty"`
-	StorageClass *string                            `json:"storageClass,omitempty"`
-	AccessMode   *corev1.PersistentVolumeAccessMode `json:"accessMode,omitempty"`
-	SubPath      *string                            `json:"subPath,omitempty"`
+	Id            *int                               `json:"id,omitempty"`
+	Type          *amdv1.WorkspaceVolumeType         `json:"type,omitempty"`
+	MountPath     *string                            `json:"mountPath,omitempty"`
+	EnableUserDir *bool                              `json:"enableUserDir,omitempty"`
+	AccessMode    *corev1.PersistentVolumeAccessMode `json:"accessMode,omitempty"`
+	SubPath       *string                            `json:"subPath,omitempty"`
+	HostPath      *string                            `json:"hostPath,omitempty"`
+	Capacity      *string                            `json:"capacity,omitempty"`
+	Selector      map[string]string                  `json:"selector,omitempty"`
+	StorageClass  *string                            `json:"storageClass,omitempty"`
 }
 
 // WorkspaceVolumeApplyConfiguration constructs a declarative configuration of the WorkspaceVolume type for use with
@@ -52,6 +53,30 @@ func (b *WorkspaceVolumeApplyConfiguration) WithType(value amdv1.WorkspaceVolume
 // If called multiple times, the MountPath field is set to the value of the last call.
 func (b *WorkspaceVolumeApplyConfiguration) WithMountPath(value string) *WorkspaceVolumeApplyConfiguration {
 	b.MountPath = &value
+	return b
+}
+
+// WithEnableUserDir sets the EnableUserDir field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the EnableUserDir field is set to the value of the last call.
+func (b *WorkspaceVolumeApplyConfiguration) WithEnableUserDir(value bool) *WorkspaceVolumeApplyConfiguration {
+	b.EnableUserDir = &value
+	return b
+}
+
+// WithAccessMode sets the AccessMode field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the AccessMode field is set to the value of the last call.
+func (b *WorkspaceVolumeApplyConfiguration) WithAccessMode(value corev1.PersistentVolumeAccessMode) *WorkspaceVolumeApplyConfiguration {
+	b.AccessMode = &value
+	return b
+}
+
+// WithSubPath sets the SubPath field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the SubPath field is set to the value of the last call.
+func (b *WorkspaceVolumeApplyConfiguration) WithSubPath(value string) *WorkspaceVolumeApplyConfiguration {
+	b.SubPath = &value
 	return b
 }
 
@@ -90,21 +115,5 @@ func (b *WorkspaceVolumeApplyConfiguration) WithSelector(entries map[string]stri
 // If called multiple times, the StorageClass field is set to the value of the last call.
 func (b *WorkspaceVolumeApplyConfiguration) WithStorageClass(value string) *WorkspaceVolumeApplyConfiguration {
 	b.StorageClass = &value
-	return b
-}
-
-// WithAccessMode sets the AccessMode field in the declarative configuration to the given value
-// and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the AccessMode field is set to the value of the last call.
-func (b *WorkspaceVolumeApplyConfiguration) WithAccessMode(value corev1.PersistentVolumeAccessMode) *WorkspaceVolumeApplyConfiguration {
-	b.AccessMode = &value
-	return b
-}
-
-// WithSubPath sets the SubPath field in the declarative configuration to the given value
-// and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the SubPath field is set to the value of the last call.
-func (b *WorkspaceVolumeApplyConfiguration) WithSubPath(value string) *WorkspaceVolumeApplyConfiguration {
-	b.SubPath = &value
 	return b
 }

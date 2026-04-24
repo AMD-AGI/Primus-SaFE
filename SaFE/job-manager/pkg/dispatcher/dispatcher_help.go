@@ -308,21 +308,23 @@ func modifyVolumeMounts(container map[string]interface{}, workload *v1.Workload,
 	}
 
 	if workload.Spec.Resources[resourceId].SharedMemory != "" {
-		volumeMounts = append(volumeMounts, buildVolumeMount(SharedMemoryVolume, "/dev/shm", "", false))
+		volumeMounts = append(volumeMounts, buildVolumeMount(SharedMemoryVolume, "", "/dev/shm",
+			"", false, false))
 	}
 
 	maxId := 0
 	if workspace != nil && v1.IsEnableWorkspaceStorage(workload) {
 		for _, vol := range workspace.Spec.Volumes {
 			readonly := false
-			if vol.AccessMode == corev1.ReadOnlyMany || commonworkload.IsSandBox(workload) {
+			if vol.AccessMode == corev1.ReadOnlyMany {
 				readonly = true
 			}
 			if vol.Id > maxId {
 				maxId = vol.Id
 			}
 			if vol.MountPath != "" {
-				volumeMount := buildVolumeMount(vol.GenFullVolumeId(), vol.MountPath, vol.SubPath, readonly)
+				volumeMount := buildVolumeMount(vol.GenFullVolumeId(), vol.MountPath, vol.SubPath,
+					v1.GetUserId(workload), readonly, vol.EnableUserDir)
 				volumeMounts = append(volumeMounts, volumeMount)
 			}
 		}
@@ -330,7 +332,8 @@ func modifyVolumeMounts(container map[string]interface{}, workload *v1.Workload,
 	for _, hostpath := range workload.Spec.Hostpath {
 		maxId++
 		volumeName := v1.GenFullVolumeId(v1.HOSTPATH, maxId)
-		volumeMount := buildVolumeMount(volumeName, hostpath, "", commonworkload.IsSandBox(workload))
+		volumeMount := buildVolumeMount(volumeName, hostpath, "", "",
+			commonworkload.IsSandBox(workload), false)
 		volumeMounts = append(volumeMounts, volumeMount)
 	}
 	for _, secret := range workload.Spec.Secrets {
@@ -338,7 +341,7 @@ func modifyVolumeMounts(container map[string]interface{}, workload *v1.Workload,
 			continue
 		}
 		mountPath := fmt.Sprintf("%s/%s", common.SecretPath, secret.Id)
-		volumeMount := buildVolumeMount(secret.Id, mountPath, "", true)
+		volumeMount := buildVolumeMount(secret.Id, mountPath, "", "", true, false)
 		volumeMounts = append(volumeMounts, volumeMount)
 	}
 	container["volumeMounts"] = volumeMounts
@@ -702,7 +705,16 @@ func buildHealthCheck(healthz *v1.HealthCheck) map[string]interface{} {
 }
 
 // buildVolumeMount creates a volume mount definition.
-func buildVolumeMount(name, mountPath, subPath string, readOnly bool) interface{} {
+func buildVolumeMount(name, mountPath, subPath, userId string, readOnly, enableUserDir bool) interface{} {
+	userDir := "users/" + userId
+	if enableUserDir {
+		if subPath == "" {
+			subPath = userDir
+		} else {
+			subPath += "/" + userDir
+		}
+		mountPath += "/" + userDir
+	}
 	volMount := map[string]interface{}{
 		"mountPath": mountPath,
 		"name":      name,
