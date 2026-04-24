@@ -7,7 +7,7 @@ on:
     tags:
       - '**'
     paths:
-      - 'Web/apps/safe/**'
+      - 'Web/**'
   workflow_dispatch:
 
 jobs:
@@ -43,8 +43,8 @@ jobs:
       - name: Build and push Docker image
         uses: docker/build-push-action@v5
         with:
-          context: ./Web/apps/safe
-          file: ./Web/apps/safe/Dockerfile
+          context: ./Web
+          file: ./Web/Dockerfile
           push: true
           tags: |
             docker.io/primussafe/primus-safe-web:${{ steps.tag.outputs.tag }}
@@ -59,6 +59,6 @@ jobs:
 
       - name: Output image info
         run: |
-          echo "Image pushed to Docker Hub and Quay.io"
+          echo "Image pushed to Docker Hub and Quay.io (unified: SaFE + Lens)"
           echo "Docker Hub: docker.io/primussafe/primus-safe-web:${{ steps.tag.outputs.tag }}"
           echo "Quay.io: quay.io/primussafe/primus-safe-web:${{ steps.tag.outputs.tag }}"
