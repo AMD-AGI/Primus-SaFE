@@ -107,7 +107,7 @@
             <div class="stat-label">Avg Allocation</div>
             <div class="stat-value stat-value--success">
               {{ gpuStats.avgAllocation }}
-              <span class="stat-unit">%</span>
+              <span v-if="!robustNotInstalled" class="stat-unit">%</span>
             </div>
           </div>
         </el-card>
@@ -119,7 +119,7 @@
             <div class="stat-label">Avg Utilization</div>
             <div class="stat-value stat-value--primary">
               {{ gpuStats.avgUtilization }}
-              <span class="stat-unit">%</span>
+              <span v-if="!robustNotInstalled" class="stat-unit">%</span>
             </div>
           </div>
         </el-card>
@@ -144,6 +144,7 @@ import { Right, Odometer, TrendCharts, List, WarningFilled } from '@element-plus
 import { useWorkspaceStore } from '@/stores/workspace'
 import { getWorkspaceDetail } from '@/services/workspace/index'
 import { getGPUAggregation } from '@/services/workload/index'
+import { isRobustAddonNotInstalled } from '@/services/request'
 import { byte2Gi } from '@/utils/index'
 import { useClusterStore } from '@/stores/cluster'
 
@@ -335,12 +336,16 @@ interface GPUAggregationItem {
 const gpuChartRef = ref<HTMLElement | null>(null)
 let gpuChart: echarts.ECharts | null = null
 const gpuLoading = ref(false)
+const robustNotInstalled = ref(false)
 const quickDateRange = ref(7) // Default to past 7 days
 const dateRange = ref<[Date, Date] | null>(null)
 const gpuData = ref<GPUAggregationItem[]>([])
 
 // GPU statistics
 const gpuStats = computed(() => {
+  if (robustNotInstalled.value) {
+    return { avgUtilization: '—', avgAllocation: '—', totalWorkloads: '—', lowUtilization: '—' }
+  }
   if (!gpuData.value || gpuData.value.length === 0) {
     return {
       avgUtilization: '0.0',
@@ -424,6 +429,7 @@ const fetchGPUData = async () => {
   if (!dateRange.value || !store.currentWorkspaceId) return
 
   gpuLoading.value = true
+  robustNotInstalled.value = false
   try {
     const [start, end] = dateRange.value
     const response = await getGPUAggregation({
@@ -440,7 +446,13 @@ const fetchGPUData = async () => {
     gpuData.value = response?.data?.data || []
     renderGPUChart()
   } catch (error) {
-    console.error('Failed to fetch GPU data:', error)
+    if (isRobustAddonNotInstalled(error)) {
+      robustNotInstalled.value = true
+      gpuData.value = []
+      renderGPUChart()
+    } else {
+      console.error('Failed to fetch GPU data:', error)
+    }
   } finally {
     gpuLoading.value = false
   }
@@ -459,12 +471,21 @@ const renderGPUChart = async () => {
     const emptyOption: echarts.EChartsOption = {
       title: {
         show: true,
-        text: 'No Data',
+        text: robustNotInstalled.value
+          ? 'Robust is not installed on this cluster'
+          : 'No Data',
+        subtext: robustNotInstalled.value
+          ? 'Install the primus-robust addon to see GPU utilization'
+          : '',
         left: 'center',
         top: 'center',
         textStyle: {
           color: '#999',
-          fontSize: 18,
+          fontSize: 16,
+        },
+        subtextStyle: {
+          color: '#bbb',
+          fontSize: 13,
         },
       },
     }

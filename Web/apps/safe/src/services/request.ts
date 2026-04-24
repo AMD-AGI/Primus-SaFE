@@ -11,6 +11,31 @@ declare module 'axios' {
   }
 }
 
+/** ---- Robust addon not-installed detection ---- **/
+export const ROBUST_ADDON_NOT_INSTALLED_CODE = 'Primus.00050'
+
+export function isRobustAddonNotInstalled(err: unknown): boolean {
+  if (!err || typeof err !== 'object') return false
+  const anyErr = err as any
+  if (anyErr.errorCode === ROBUST_ADDON_NOT_INSTALLED_CODE) return true
+  const data = anyErr?.response?.data
+  if (data && typeof data === 'object') {
+    if (data.errorCode === ROBUST_ADDON_NOT_INSTALLED_CODE) return true
+    if (data.code === ROBUST_ADDON_NOT_INSTALLED_CODE) return true
+  }
+  return false
+}
+
+function _rejectAsRobustNotInstalled(source: any): Promise<never> {
+  const data = source?.response?.data ?? source
+  const bizErr = new Error(
+    data?.errorMessage || data?.message || 'Robust addon not installed',
+  ) as any
+  bizErr.errorCode = ROBUST_ADDON_NOT_INSTALLED_CODE
+  bizErr.errorMessage = data?.errorMessage || data?.message || ''
+  return Promise.reject(bizErr)
+}
+
 /** ---- Flag to prevent concurrent 401 handling ---- **/
 let isHandling401 = false
 
@@ -30,6 +55,9 @@ function attachInterceptors(instance: AxiosInstance) {
       if (hasBizErr) {
         const code = rawData.errorCode ?? rawData.code
         const msg = rawData.errorMessage ?? rawData.message ?? 'API Error'
+        if (code === ROBUST_ADDON_NOT_INSTALLED_CODE) {
+          return _rejectAsRobustNotInstalled(response)
+        }
         if (response.config.skipErrorHandler) {
           const bizErr = new Error(msg) as any
           bizErr.errorCode = code
@@ -44,6 +72,10 @@ function attachInterceptors(instance: AxiosInstance) {
     async (error) => {
       if (error?.config?.skipErrorHandler) {
         return Promise.reject(error)
+      }
+
+      if (isRobustAddonNotInstalled(error)) {
+        return _rejectAsRobustNotInstalled(error)
       }
 
       const status = error?.response?.status as number | undefined

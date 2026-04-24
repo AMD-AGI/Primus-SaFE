@@ -17,7 +17,16 @@
       </div>
     </template>
 
+    <div v-if="notInstalled" class="flex items-center justify-center" style="height: 340px">
+      <el-empty description="Robust is not installed on this cluster" :image-size="120">
+        <template #description>
+          <p style="color: var(--el-text-color-secondary)">Robust is not installed on this cluster</p>
+          <p style="color: var(--el-text-color-placeholder); font-size: 13px">Install the primus-robust addon to see GPU utilization</p>
+        </template>
+      </el-empty>
+    </div>
     <div
+      v-else
       ref="el"
       v-loading="loading"
       element-loading-text="Loading..."
@@ -39,6 +48,7 @@ const props = defineProps<{
   loading?: boolean
   series: { x: string[]; avg: (number | null)[] }
   title?: string
+  notInstalled?: boolean
 }>()
 const emit = defineEmits(['update:visible'])
 

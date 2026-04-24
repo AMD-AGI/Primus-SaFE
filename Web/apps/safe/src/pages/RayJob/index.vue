@@ -360,6 +360,7 @@
     :loading="dialog.loading"
     :series="dialog.series"
     :title="dialog.title"
+    :not-installed="dialog.notInstalled"
   />
 </template>
 <script lang="ts" setup>
@@ -375,6 +376,7 @@ import {
   getWorkloadDetail,
   addWorkload,
 } from '@/services'
+import { isRobustAddonNotInstalled } from '@/services/request'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { WorkloadPhase, phaseFilters, WorkloadPhaseButtonType } from '@/services/workload/type'
 import { Search, Refresh, CopyDocument, Plus, Timer, InfoFilled } from '@element-plus/icons-vue'
@@ -484,6 +486,7 @@ const dialog = reactive({
   visible: false,
   title: '',
   loading: false,
+  notInstalled: false,
   series: { x: [] as string[], avg: [] as (number | null)[] },
 })
 
@@ -502,6 +505,7 @@ const viewChart = async (r: ChartRow) => {
   dialog.visible = true
   dialog.title = `${r.workspaceId}/${r.workloadId}`
   dialog.loading = true
+  dialog.notInstalled = false
   try {
     const { start_time, end_time } = last24hUtcExact()
     const res = await getLensHourlyStats({
@@ -527,6 +531,11 @@ const viewChart = async (r: ChartRow) => {
     })
 
     dialog.series = { x, avg }
+  } catch (error) {
+    if (isRobustAddonNotInstalled(error)) {
+      dialog.notInstalled = true
+      dialog.series = { x: [], avg: [] }
+    }
   } finally {
     dialog.loading = false
   }
