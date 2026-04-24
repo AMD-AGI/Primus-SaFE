@@ -91,7 +91,7 @@ func (t *defaultToken) Login(ctx context.Context, input TokenInput) (*v1.User, *
 
 // Validate validates a token string and extracts user information
 // Implements TokenInterface.Validate method
-func (t *defaultToken) Validate(_ context.Context, rawToken string) (*UserInfo, error) {
+func (t *defaultToken) Validate(ctx context.Context, rawToken string) (*UserInfo, error) {
 	inst := crypto.NewCrypto()
 	if inst == nil {
 		return nil, commonerrors.NewInternalError("failed to new crypto")
@@ -120,7 +120,12 @@ func (t *defaultToken) Validate(_ context.Context, rawToken string) (*UserInfo, 
 	if commonconfig.GetUserTokenExpire() > 0 && time.Now().Unix() > expire {
 		return nil, fmt.Errorf("%s", ErrTokenExpire)
 	}
-	return &UserInfo{Id: parts[0], Exp: expire, Name: parts[3]}, nil
+	userInfo := &UserInfo{Id: parts[0], Exp: expire, Name: parts[3]}
+	user := &v1.User{}
+	if t.Get(ctx, client.ObjectKey{Name: parts[0]}, user) == nil {
+		userInfo.Roles = user.Spec.Roles
+	}
+	return userInfo, nil
 }
 
 // generateDefaultToken generates an authentication token for a user with optional encryption.
@@ -141,7 +146,7 @@ func generateDefaultToken(userId string, expire int64, username string) (string,
 	return inst.Encrypt([]byte(tokenStr))
 }
 
-// getUserById retrieves a user resource by ID from the system.
+// getUserById retrieves a user resource by ID from the system.kn get pods
 // Returns an error if the user doesn't exist or the ID is empty.
 func getUserById(ctx context.Context, cli client.Client, userId string) (*v1.User, error) {
 	if userId == "" {
@@ -150,7 +155,7 @@ func getUserById(ctx context.Context, cli client.Client, userId string) (*v1.Use
 	user := &v1.User{}
 	err := cli.Get(ctx, client.ObjectKey{Name: userId}, user)
 	if err != nil {
-		klog.ErrorS(err, "failed to get user")
+		klog.ErrorS(err, "failed to get user", "userId", userId)
 		return nil, err
 	}
 	return user, nil

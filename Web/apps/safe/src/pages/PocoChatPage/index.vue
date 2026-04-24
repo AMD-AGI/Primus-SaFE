@@ -396,7 +396,7 @@ const fetchSessions = async () => {
 const fetchTools = async () => {
   loadingTools.value = true
   try {
-    const res = await getTools({ offset: 0, limit: 50, order: 'desc' })
+    const res = await getTools({ offset: 0, limit: 50, latest_per_name: true })
     tools.value = res.tools || []
   } catch (error) {
     console.error('Failed to fetch tools:', error)

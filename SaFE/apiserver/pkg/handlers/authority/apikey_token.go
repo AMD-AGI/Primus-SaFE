@@ -23,8 +23,10 @@ import (
 	"sync"
 	"time"
 
+	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/lib/pq"
 	"k8s.io/klog/v2"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	commoncrypto "github.com/AMD-AIG-AIMA/SAFE/common/pkg/crypto"
@@ -57,16 +59,18 @@ var (
 // ApiKeyToken implements ApiKeyInterface for API Key authentication
 type ApiKeyToken struct {
 	dbClient dbclient.Interface
+	client.Client
 }
 
 // Compile-time check to ensure ApiKeyToken implements ApiKeyInterface
 var _ ApiKeyInterface = (*ApiKeyToken)(nil)
 
 // NewApiKeyToken creates and returns a singleton instance of ApiKeyToken
-func NewApiKeyToken(dbClient dbclient.Interface) *ApiKeyToken {
+func NewApiKeyToken(dbClient dbclient.Interface, cli client.Client) *ApiKeyToken {
 	apiKeyTokenOnce.Do(func() {
 		apiKeyTokenInstance = &ApiKeyToken{
 			dbClient: dbClient,
+			Client:   cli,
 		}
 	})
 	return apiKeyTokenInstance
@@ -161,12 +165,17 @@ func (a *ApiKeyToken) ValidateApiKey(ctx context.Context, apiKey string, clientI
 		return nil, err
 	}
 
-	return &UserInfo{
+	userInfo := &UserInfo{
 		Id:       record.UserId,
 		Name:     record.UserName,
 		Exp:      record.ExpirationTime.Time.Unix(),
 		ApiKeyId: record.Id,
-	}, nil
+	}
+	user := &v1.User{}
+	if a.Get(ctx, client.ObjectKey{Name: record.UserId}, user) == nil {
+		userInfo.Roles = user.Spec.Roles
+	}
+	return userInfo, nil
 }
 
 // checkIPWhitelist checks if the client IP is allowed by the whitelist

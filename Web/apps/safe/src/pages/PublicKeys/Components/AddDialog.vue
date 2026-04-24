@@ -60,7 +60,11 @@ const onSubmit = async (formEl: FormInstance | undefined) => {
   if (!formEl) return
   try {
     await formEl.validate()
-    await addPublickey(form)
+    const payload = {
+      ...form,
+      publicKey: form.publicKey.replace(/[\r\n]+/g, '').trim(),
+    }
+    await addPublickey(payload)
     ElMessage({ message: 'Create successful', type: 'success' })
 
     emit('update:visible', false)
