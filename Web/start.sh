@@ -1,11 +1,10 @@
 #!/bin/bash
 set -e
 
-# Ensure log file and report directory exist
+# Ensure the analytics log file and report directory exist before goaccess
+# starts writing to them.
 touch /var/log/nginx/analytics.log
 mkdir -p /usr/share/nginx/html/__internal_analytics
-
-# Start goaccess (background daemon)
 
 : "${PUBLIC_HOST:=localhost}"
 : "${PUBLIC_SCHEME:=https}"
@@ -20,6 +19,7 @@ fi
 
 WS_URL="${WS_SCHEME}://${PUBLIC_HOST}:${WS_EXTERNAL_PORT}/__internal_analytics/ws"
 
+# Live HTML report fed by a long-running goaccess instance.
 goaccess /var/log/nginx/analytics.log \
   --log-format='%h [%d:%t %^] "%r" %s %b "%u" %e' \
   --date-format='%d/%b/%Y' \
@@ -30,7 +30,8 @@ goaccess /var/log/nginx/analytics.log \
   --ws-url="${WS_URL}" \
   -o /usr/share/nginx/html/__internal_analytics/report-live.html &
 
-  (
+# Periodic static snapshot (cheap fallback if the WebSocket pipe drops).
+(
   while true; do
     goaccess /var/log/nginx/analytics.log \
       --log-format='%h [%d:%t %^] "%r" %s %b "%u" %e' \
@@ -42,5 +43,4 @@ goaccess /var/log/nginx/analytics.log \
   done
 ) &
 
-# Start nginx (foreground, keeps container running)
 exec nginx -g 'daemon off;'
