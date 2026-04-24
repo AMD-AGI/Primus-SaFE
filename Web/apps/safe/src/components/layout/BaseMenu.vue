@@ -334,6 +334,11 @@ const modelLabMenuItems: MenuItem[] = [
     name: 'Evaluation',
     icon: menuIcons.evaluation,
   },
+  {
+    index: '/model-optimization',
+    name: 'Model Optimization',
+    icon: menuIcons.modelOptimization,
+  },
 ]
 
 // AI Agent submenu config - dynamic (partially open to regular users)

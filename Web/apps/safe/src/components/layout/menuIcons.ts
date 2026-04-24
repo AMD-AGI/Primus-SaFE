@@ -42,6 +42,7 @@ export interface MenuIcons {
   a2a: IconSet
   monarch: IconSet
   sandbox: IconSet
+  modelOptimization: IconSet
 }
 
 const createIconSet = (name: string): IconSet => ({
@@ -85,4 +86,5 @@ export const menuIcons: MenuIcons = {
   a2a: createIconSet('skill'), // Using skill icons as placeholder
   monarch: createIconSet('monarch'),
   sandbox: createIconSet('sandbox'),
+  modelOptimization: createIconSet('evaluation'),
 }
