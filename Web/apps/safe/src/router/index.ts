@@ -337,6 +337,17 @@ const router = createRouter({
           component: () => import('@/pages/Evaluation/EvaluationDetail.vue'),
         },
         {
+          path: '/model-optimization',
+          name: 'ModelOptimization',
+          component: () => import('@/pages/ModelOptimization/index.vue'),
+        },
+        {
+          path: '/model-optimization/:id',
+          name: 'ModelOptimizationDetail',
+          component: () => import('@/pages/ModelOptimization/Detail.vue'),
+          props: true,
+        },
+        {
           path: '/manageapikeys',
           name: 'APIKeys',
           component: () => import('@/pages/APIKeys/index.vue'),
