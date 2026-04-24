@@ -124,6 +124,9 @@ data:
                 - containerPort: 8265
                   name: dashboard
                   protocol: TCP
+                - containerPort: 18081
+                  name: metrics
+                  protocol: TCP
                 imagePullPolicy: IfNotPresent
                 volumeMounts:
                   - name: shared-data
@@ -205,6 +208,10 @@ data:
                     fieldRef:
                       apiVersion: v1
                       fieldPath: metadata.namespace
+                ports:                       
+                - containerPort: 18081
+                  name: metrics
+                  protocol: TCP
                 imagePullPolicy: IfNotPresent
                 volumeMounts:
                   - name: shared-data
@@ -285,6 +292,10 @@ data:
                     fieldRef:
                       apiVersion: v1
                       fieldPath: metadata.namespace
+                ports:                       
+                - containerPort: 18081
+                  name: metrics
+                  protocol: TCP
                 imagePullPolicy: IfNotPresent
                 volumeMounts:
                   - name: shared-data

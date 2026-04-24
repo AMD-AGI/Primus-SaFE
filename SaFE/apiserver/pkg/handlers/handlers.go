@@ -13,20 +13,21 @@ import (
 	"k8s.io/klog/v2"
 	ctrlruntime "sigs.k8s.io/controller-runtime"
 
+	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/a2a"
+	a2ahandlers "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/a2a-handlers"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
 	cdhandlers "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/cd-handlers"
 	emailrelayhandlers "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/email-relay-handlers"
 	githubworkflow "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/github-workflow"
 	imagehandlers "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/image-handlers"
+	inferencexhandlers "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/inferencex"
+	lenscompat "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/lens-compat"
 	llmgateway "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/llm-gateway"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/middleware"
 	model_handlers "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/model-handlers"
-	a2ahandlers "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/a2a-handlers"
-	inferencexhandlers "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/inferencex"
 	proxyhandlers "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/proxy-handlers"
 	reshandler "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/resources"
 	sshhandler "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/ssh-handlers"
-	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/a2a"
 	apiutils "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/utils"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
@@ -61,7 +62,7 @@ func InitHttpHandlers(_ context.Context, mgr ctrlruntime.Manager) (*gin.Engine, 
 	if commonconfig.IsDBEnable() {
 		dbClient := dbclient.NewClient()
 		if dbClient != nil {
-			authority.NewApiKeyToken(dbClient)
+			authority.NewApiKeyToken(dbClient, mgr.GetClient())
 		}
 	}
 	// Initialize proxy handlers first to avoid route conflicts with resource handlers
@@ -70,6 +71,13 @@ func InitHttpHandlers(_ context.Context, mgr ctrlruntime.Manager) (*gin.Engine, 
 		return nil, err
 	}
 	proxyhandlers.InitProxyRoutes(engine, proxyHandler)
+
+	// Dynamic lens-compat proxy: routes /lens/v1/* to the robust-analyzer of
+	// the cluster named by ?cluster=<name>. Uses the shared robustclient that
+	// is populated by resource-manager's Discovery controller, so adding a
+	// new data cluster only requires a Cluster CR + the addon endpoint
+	// annotation — no apiserver config or helm upgrade.
+	lenscompat.NewHandler(model_handlers.GetRobustClient()).Register(engine)
 
 	customHandler, err := reshandler.NewHandler(mgr)
 	if err != nil {

@@ -312,13 +312,10 @@ func modifyVolumeMounts(container map[string]interface{}, workload *v1.Workload,
 	}
 
 	maxId := 0
-	readonly := false
-	if commonworkload.IsSandBox(workload) {
-		readonly = true
-	}
 	if workspace != nil && v1.IsEnableWorkspaceStorage(workload) {
 		for _, vol := range workspace.Spec.Volumes {
-			if vol.AccessMode == corev1.ReadOnlyMany {
+			readonly := false
+			if vol.AccessMode == corev1.ReadOnlyMany || commonworkload.IsSandBox(workload) {
 				readonly = true
 			}
 			if vol.Id > maxId {
@@ -333,7 +330,7 @@ func modifyVolumeMounts(container map[string]interface{}, workload *v1.Workload,
 	for _, hostpath := range workload.Spec.Hostpath {
 		maxId++
 		volumeName := v1.GenFullVolumeId(v1.HOSTPATH, maxId)
-		volumeMount := buildVolumeMount(volumeName, hostpath, "", readonly)
+		volumeMount := buildVolumeMount(volumeName, hostpath, "", commonworkload.IsSandBox(workload))
 		volumeMounts = append(volumeMounts, volumeMount)
 	}
 	for _, secret := range workload.Spec.Secrets {
@@ -1073,7 +1070,7 @@ func updateMonarchMesh(obj *unstructured.Unstructured, adminWorkload *v1.Workloa
 }
 
 // updateSandbox updates the sandbox-job configuration by sandbox template (legacy compatibility)
-func (r *DispatcherReconciler) updateSandbox(ctx context.Context,
+func (r *DispatcherReconciler) updateSandbox(_ context.Context,
 	obj *unstructured.Unstructured, adminWorkload *v1.Workload, workspace *v1.Workspace, rt *v1.ResourceTemplate) error {
 
 	v1.SetLabel(adminWorkload, "runtime.agent-sandbox.io/user.id", v1.GetUserId(adminWorkload))
@@ -1096,102 +1093,7 @@ func (r *DispatcherReconciler) updateSandbox(ctx context.Context,
 			return err
 		}
 	}
-
-	if v1.GetSandboxTemplateId(adminWorkload) == "" {
-		return nil
-	}
-	path := rt.Spec.ResourceSpecs[0].TemplatePath()
-	if len(path) == 0 {
-		return fmt.Errorf("empty template path in resource spec")
-	}
-	podTemplate, err := r.getSandboxTemplate(ctx, adminWorkload)
-	if err != nil {
-		return err
-	}
-	cleanSandboxPodTemplate(podTemplate)
-	if err = jobutils.SetNestedField(obj.Object, podTemplate, path); err != nil {
-		return err
-	}
 	return nil
-}
-
-// cleanSandboxPodTemplate removes hostPath, persistentVolumeClaim, and emptyDir(Memory)
-// volumes from the podTemplate along with their corresponding volumeMounts in all containers.
-// This operates directly on the podTemplate map before it is written into the obj,
-// so subsequent deep-copy reads (e.g. NestedSlice) see the cleaned state.
-func cleanSandboxPodTemplate(podTemplate interface{}) {
-	pt, ok := podTemplate.(map[string]interface{})
-	if !ok {
-		return
-	}
-	spec, ok := pt["spec"].(map[string]interface{})
-	if !ok {
-		return
-	}
-	delete(spec, "nodeSelector")
-	volumesRaw, ok := spec["volumes"].([]interface{})
-	if !ok || len(volumesRaw) == 0 {
-		return
-	}
-
-	removed := sets.NewSet()
-	filtered := make([]interface{}, 0, len(volumesRaw))
-	for _, vol := range volumesRaw {
-		volMap, ok := vol.(map[string]interface{})
-		if !ok {
-			filtered = append(filtered, vol)
-			continue
-		}
-		_, hasHostPath := volMap["hostPath"]
-		_, hasPVC := volMap["persistentVolumeClaim"]
-		hasMemoryEmptyDir := false
-		if ed, ok := volMap["emptyDir"].(map[string]interface{}); ok {
-			hasMemoryEmptyDir = ed["medium"] == "Memory"
-		}
-		if hasHostPath || hasPVC || hasMemoryEmptyDir {
-			if name, ok := volMap["name"].(string); ok {
-				removed.Insert(name)
-			}
-			continue
-		}
-		filtered = append(filtered, vol)
-	}
-	if removed.Len() == 0 {
-		return
-	}
-	spec["volumes"] = filtered
-
-	cleanContainerMounts := func(key string) {
-		containers, ok := spec[key].([]interface{})
-		if !ok {
-			return
-		}
-		for _, c := range containers {
-			cMap, ok := c.(map[string]interface{})
-			if !ok {
-				continue
-			}
-			mounts, ok := cMap["volumeMounts"].([]interface{})
-			if !ok || len(mounts) == 0 {
-				continue
-			}
-			kept := make([]interface{}, 0, len(mounts))
-			for _, m := range mounts {
-				mMap, ok := m.(map[string]interface{})
-				if !ok {
-					kept = append(kept, m)
-					continue
-				}
-				name, _ := mMap["name"].(string)
-				if !removed.Has(name) {
-					kept = append(kept, m)
-				}
-			}
-			cMap["volumeMounts"] = kept
-		}
-	}
-	cleanContainerMounts("containers")
-	cleanContainerMounts("initContainers")
 }
 
 // updateMetadata updates the template metadata annotations in the unstructured object.

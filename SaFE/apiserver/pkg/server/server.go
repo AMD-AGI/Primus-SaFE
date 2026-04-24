@@ -31,6 +31,7 @@ import (
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/controllers"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers"
+	model_handlers "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/model-handlers"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	commonclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/k8sclient"
 	commonklog "github.com/AMD-AIG-AIMA/SAFE/common/pkg/klog"
@@ -102,6 +103,10 @@ func (s *Server) init() error {
 	discovery := robustclient.NewDiscovery(s.ctrlManager.GetClient(), rc, 30*time.Second)
 	discovery.Start(s.ctx)
 	opensearch.InitRobustClient(rc)
+	// Wire the robust-analyzer client into model handlers so posttrain /
+	// Lens-compat endpoints can resolve workload UID / metrics via robust-api
+	// instead of the deprecated primus-lens-api service.
+	model_handlers.SetRobustClient(rc)
 	if safeconfig.IsTracingEnable() {
 		if err = trace.InitTracer("primus-safe-apiserver"); err != nil {
 			klog.Warningf("Failed to init tracer: %v", err)

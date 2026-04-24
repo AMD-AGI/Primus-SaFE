@@ -2,9 +2,18 @@
 # Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
 # See LICENSE for license information.
 #
-# NOTE: Datasources now use the management plane's own DB for SaFE data.
-# Data-plane metrics (VictoriaMetrics, Postgres) are accessed via robust-api
-# proxy endpoints on each data cluster, not direct connections to primus-lens.
+# Datasources:
+#   - safe-postgresql: management-plane's own Postgres, used by SaFE-authored
+#     dashboards.
+#   - One Prometheus datasource per data cluster, uid = data cluster name.
+#     Dashboards (training-workload, etc.) pick the cluster via the URL
+#     variable var-cluster=<name>, which the Grafana variable system resolves
+#     against *datasource uid*. If these uids don't match the data cluster
+#     names, dashboards render "Datasource <name> was not found".
+#   - primus-lens-api: Lens-compat JSON datasource. Points at each data
+#     cluster's robust-analyzer so that dashboard variables pulling
+#     /v1/workloads/{uid}/metrics/sources (training_perf_datasource etc.)
+#     keep working without the removed primus-lens-api service.
 {{- if .Values.grafana.enable }}
 apiVersion: grafana.integreatly.org/v1beta1
 kind: GrafanaDatasource
@@ -21,6 +30,7 @@ spec:
     matchLabels:
       system: primus-safe
   datasource:
+    uid: safe-postgresql
     name: safe-postgresql
     type: postgres
     jsonData:
@@ -36,4 +46,58 @@ spec:
       password: {{ .Values.grafana.password }}
     url: {{ .Values.grafana.postgresUrl | default "primus-safe-ha.primus-safe.svc.cluster.local:5432" }}
     user: {{ .Values.grafana.user | default "primus-safe" }}
+{{- range $cluster := (default (list) .Values.grafana.dataClusters) }}
+---
+apiVersion: grafana.integreatly.org/v1beta1
+kind: GrafanaDatasource
+metadata:
+  name: vmselect-{{ $cluster.name }}
+  namespace: {{ $.Release.Namespace }}
+  labels:
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    meta.helm.sh/release-name: {{ $.Release.Name }}
+    meta.helm.sh/release-namespace: {{ $.Release.Namespace }}
+spec:
+  instanceSelector:
+    matchLabels:
+      system: primus-safe
+  datasource:
+    uid: {{ $cluster.name | quote }}
+    name: {{ $cluster.name | quote }}
+    type: prometheus
+    access: proxy
+    editable: true
+    isDefault: {{ default false $cluster.isDefault }}
+    url: {{ $cluster.vmSelectUrl | quote }}
+    jsonData:
+      tlsSkipVerify: true
+      timeInterval: "30s"
+{{- end }}
+{{- if .Values.grafana.lensApiUrl }}
+---
+apiVersion: grafana.integreatly.org/v1beta1
+kind: GrafanaDatasource
+metadata:
+  name: primus-lens-api
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    meta.helm.sh/release-name: {{ .Release.Name }}
+    meta.helm.sh/release-namespace: {{ .Release.Namespace }}
+spec:
+  instanceSelector:
+    matchLabels:
+      system: primus-safe
+  datasource:
+    uid: primus-lens-api
+    name: primus-lens-api
+    type: marcusolsson-json-datasource
+    access: proxy
+    editable: true
+    url: {{ .Values.grafana.lensApiUrl | quote }}
+    jsonData:
+      tlsSkipVerify: true
+{{- end }}
 {{- end }}

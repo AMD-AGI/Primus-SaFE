@@ -1150,55 +1150,6 @@ func TestCreateMonarchMesh(t *testing.T) {
 	// fmt.Println(unstructuredutils.ToString(obj))
 }
 
-func TestCreateSandboxWithTemplate(t *testing.T) {
-	commonconfig.SetValue("net.rdma_name", "rdma/hca")
-	defer commonconfig.SetValue("net.rdma_name", "")
-	workspace := jobutils.TestWorkspaceData.DeepCopy()
-	workspace.Spec.IdleTime = map[v1.WorkspaceScope]string{
-		common.SandboxKind: "12h0m0s",
-	}
-	workload := jobutils.TestWorkloadData.DeepCopy()
-	workload.Spec.Workspace = workspace.Name
-	workload.Spec.GroupVersionKind = v1.GroupVersionKind{
-		Version: common.DefaultVersion,
-		Kind:    common.SandboxKind,
-	}
-	workload.Spec.Images = nil
-	workload.Spec.EntryPoints = nil
-	workload.Spec.JobPort = 0
-	workload.Spec.Resources[0].RdmaResource = ""
-
-	configmap, err := parseConfigmap(TestSandboxConfig)
-	assert.NilError(t, err)
-	v1.SetAnnotation(workload, v1.MainContainerAnnotation, v1.GetMainContainer(configmap))
-
-	TestSandboxTemplate, err := jsonutils.ParseYamlToJson(TestSandboxTemplateData)
-	assert.NilError(t, err)
-	v1.SetAnnotation(workload, v1.SandboxTemplateIdAnnotation, TestSandboxTemplate.GetName())
-	TestSandboxTemplate.SetNamespace(workload.Spec.Workspace)
-	scheme, err := genMockScheme()
-	assert.NilError(t, err)
-	adminClient := fake.NewClientBuilder().WithObjects(configmap, jobutils.TestSandboxResourceTemplate,
-		jobutils.TestSandboxTemplateResourceTemplate, TestSandboxTemplate, workspace).WithScheme(scheme).Build()
-
-	r := DispatcherReconciler{Client: adminClient}
-	obj, err := r.generateK8sObject(context.Background(), workload, nil)
-	assert.NilError(t, err)
-
-	templates := jobutils.TestSandboxResourceTemplate.Spec.ResourceSpecs
-	checkResources(t, obj, workload, &templates[0], 1, 0)
-	checkPorts(t, obj, workload, &templates[0], 0)
-	checkEnvs(t, obj, workload, &templates[0], 0)
-	checkVolumeMounts(t, obj, workload, &templates[0])
-	checkVolumes(t, obj, workload, &templates[0], 0)
-	checkRequiredNodeSelectorTerms(t, obj, workload, &templates[0])
-	checkImage(t, obj, workload, &templates[0], 0)
-	checkHostNetwork(t, obj, workload, &templates[0], 0)
-	checkSandboxTemplateCleaned(t, obj, &templates[0])
-
-	// fmt.Println(unstructuredutils.ToString(obj))
-}
-
 func TestCreateSandboxWithResources(t *testing.T) {
 	commonconfig.SetValue("net.rdma_name", "rdma/hca")
 	defer commonconfig.SetValue("net.rdma_name", "")
@@ -1222,8 +1173,8 @@ func TestCreateSandboxWithResources(t *testing.T) {
 
 	scheme, err := genMockScheme()
 	assert.NilError(t, err)
-	adminClient := fake.NewClientBuilder().WithObjects(configmap, jobutils.TestSandboxResourceTemplate,
-		jobutils.TestSandboxTemplateResourceTemplate, workspace).WithScheme(scheme).Build()
+	adminClient := fake.NewClientBuilder().WithObjects(configmap,
+		jobutils.TestSandboxResourceTemplate, workspace).WithScheme(scheme).Build()
 
 	r := DispatcherReconciler{Client: adminClient}
 	obj, err := r.generateK8sObject(context.Background(), workload, nil)

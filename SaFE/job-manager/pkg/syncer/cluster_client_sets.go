@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"strconv"
 
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	apitypes "k8s.io/apimachinery/pkg/types"
@@ -141,9 +142,17 @@ func (r *ClusterClientSets) addResourceTemplate(gvk schema.GroupVersionKind) err
 	if r.resourceInformers.Has(gvk.String()) {
 		return nil
 	}
-	mapper, err := r.adminClient.RESTMapper().RESTMapping(gvk.GroupKind(), gvk.Version)
+	// Resolve GVR against the data-plane cluster: the informer targets the data plane,
+	// and the CRD may not be installed on the admin (management) cluster.
+	mapper, err := r.dataClientFactory.Mapper().RESTMapping(gvk.GroupKind(), gvk.Version)
 	if err != nil {
-		klog.ErrorS(err, "failed to do mapping", "gvk", gvk)
+		if apimeta.IsNoMatchError(err) {
+			// CRD is not installed on this cluster; skip silently (e.g. Sandbox on mgmt cluster).
+			klog.V(2).InfoS("skip resource template: CRD not installed on cluster",
+				"cluster", r.name, "gvk", gvk)
+			return nil
+		}
+		klog.ErrorS(err, "failed to do mapping", "cluster", r.name, "gvk", gvk)
 		return err
 	}
 	ctx, cancel := context.WithCancel(r.ctx)
