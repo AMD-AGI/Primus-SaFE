@@ -71,6 +71,8 @@ const (
 	RayJobSubmitterStorage = "10Gi"
 	RayJobGcsServerPort    = 6379
 	RayJobDashboard        = 8265
+	RayJobMetricsHead      = 18080
+	RayJobMetricsWorker    = 19080
 
 	MonarchMeshPortNum = 26600
 	MonarchPort        = "MONARCH_PORT"

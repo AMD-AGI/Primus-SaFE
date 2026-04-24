@@ -160,6 +160,10 @@ spec:
                         The following parameters are used for PVC creation. If using hostPath mounting, they are not required.
                         Capacity size, e.g. 100Gi. This is a required parameter when creating a PVC (PersistentVolumeClaim).
                       type: string
+                    enableUserDir:
+                      description: When enabled, this appends the {user_id} directory
+                        to the subPath and mounts it to {mount_path}/{user_id}
+                      type: boolean
                     hostPath:
                       description: Path on the host to mount. Required when volume
                         type is hostpath
