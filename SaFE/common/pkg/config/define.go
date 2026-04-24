@@ -139,6 +139,7 @@ const (
 	// Deployable components for CD
 	cdComponents = cdPrefix + "components"
 	cdJobImage   = cdPrefix + "job_image"
+	cdGpuType    = cdPrefix + "gpu_type"
 
 	// torchft
 	torchftPrefix     = "torchft."
