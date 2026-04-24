@@ -530,10 +530,9 @@ func GetUsedHostPorts(ctx context.Context, cli client.Client, clusterId string) 
 					ports[item.Spec.JobPort] = struct{}{}
 				}
 				if IsRayJob(&item) {
-					ports[common.RayJobDashboard] = struct{}{}
+					ports[common.RayJobDashboardPort] = struct{}{}
 					ports[common.RayJobGcsServerPort] = struct{}{}
-					ports[common.RayJobMetricsHead] = struct{}{}
-					ports[common.RayJobMetricsWorker] = struct{}{}
+					ports[common.RayJobMetricsPort] = struct{}{}
 				}
 				if IsMonarchJob(&item) {
 					ports[common.MonarchMeshPortNum] = struct{}{}
