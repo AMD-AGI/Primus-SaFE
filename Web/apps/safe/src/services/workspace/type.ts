@@ -10,14 +10,14 @@ export interface SelectorKV {
 export type UserT = { id: string; name: string }
 type VolumeCommon = {
   uid: string
-  // storageType: StorageType
   type: VolumeType
   mountPath: string
+  enableUserDir?: boolean
 }
 type VolumeHostPath = VolumeCommon & {
-  // storageType: 'hostpath'
   type: 'hostpath'
   hostPath: string
+  accessMode?: AccessMode
   disabled?: boolean
 }
 type VolumeBlock = VolumeCommon & {
