@@ -308,7 +308,7 @@ func modifyVolumeMounts(container map[string]interface{}, workload *v1.Workload,
 	}
 
 	if workload.Spec.Resources[resourceId].SharedMemory != "" {
-		volumeMounts = append(volumeMounts, buildVolumeMount(SharedMemoryVolume, "", "/dev/shm",
+		volumeMounts = append(volumeMounts, buildVolumeMount(SharedMemoryVolume, "/dev/shm", "",
 			"", false, false))
 	}
 
