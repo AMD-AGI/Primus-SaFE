@@ -440,6 +440,21 @@ func (m *WorkspaceMutator) mutateManagers(ctx context.Context, oldWorkspace, new
 	return nil
 }
 
+// mutateDefaultWorkspaceUsers adds workspace access to all users when marked as default.
+func (m *WorkspaceMutator) mutateGpuProduct(ctx context.Context, workspace *v1.Workspace) error {
+	if workspace.Spec.NodeFlavor == "" {
+		return nil
+	}
+	nf := &v1.NodeFlavor{}
+	if err := m.Get(ctx, client.ObjectKey{Name: workspace.Spec.NodeFlavor}, nf); err != nil {
+		return err
+	}
+	if nf.HasGpu() {
+		v1.SetAnnotation(workspace, v1.GpuProductAnnotation, string(nf.Spec.Gpu.Product))
+	}
+	return nil
+}
+
 // WorkspaceValidator validates Workspace resources on create and update operations.
 type WorkspaceValidator struct {
 	client.Client
