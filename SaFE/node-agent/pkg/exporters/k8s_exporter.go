@@ -87,7 +87,6 @@ func generateAddConditions(node *corev1.Node, msg *types.MonitorMessage) ([]core
 // generateDeleteConditions generates node conditions to remove a taint for successful monitors.
 func generateDeleteConditions(node *corev1.Node, msg *types.MonitorMessage) ([]corev1.NodeCondition, bool) {
 	key := commonfaults.GenerateTaintKey(msg.Id)
-	klog.Infof("gen deleting cond, key: %s", key)
 	found := false
 	for _, cond := range node.Status.Conditions {
 		if string(cond.Type) == key {

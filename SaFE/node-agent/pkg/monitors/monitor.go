@@ -149,9 +149,6 @@ func (m *Monitor) Run() {
 
 	timeout := time.Second * time.Duration(m.config.TimeoutSecond)
 	statusCode, output := utils.ExecuteScript(args, timeout)
-	if m.config.Id == "404" {
-		klog.Infof("404 statusCode :%d", statusCode)
-	}
 
 	// Only process OK(0) and Error(1); discard unknown, timeout, signal kills, etc.
 	if statusCode != types.StatusOk && statusCode != types.StatusError {
