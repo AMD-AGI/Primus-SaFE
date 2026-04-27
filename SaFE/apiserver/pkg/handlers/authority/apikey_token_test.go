@@ -61,30 +61,30 @@ func TestHashApiKey(t *testing.T) {
 	testSecret := []byte("test-secret-1234")
 
 	tests := []struct {
-		name   string
-		apiKey string
+		name string
+		key  string
 	}{
 		{
-			name:   "standard api key",
-			apiKey: "ak-dGVzdC1rZXktMTIzNDU2Nzg5MA",
+			name: "standard api key",
+			key:  "ak-dGVzdC1rZXktMTIzNDU2Nzg5MA",
 		},
 		{
-			name:   "short api key",
-			apiKey: "ak-abc",
+			name: "short api key",
+			key:  "ak-abc",
 		},
 		{
-			name:   "empty string",
-			apiKey: "",
+			name: "empty string",
+			key:  "",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			hash := HashApiKey(tt.apiKey, testSecret)
+			hash := HashApiKey(tt.key, testSecret)
 			// Hash should be 64 characters (HMAC-SHA-256 produces 32 bytes = 64 hex chars)
 			assert.Equal(t, 64, len(hash))
 			// Same input should produce same hash
-			assert.Equal(t, hash, HashApiKey(tt.apiKey, testSecret))
+			assert.Equal(t, hash, HashApiKey(tt.key, testSecret))
 		})
 	}
 
@@ -97,27 +97,27 @@ func TestHashApiKey(t *testing.T) {
 
 	// Test that hash is deterministic
 	t.Run("hash is deterministic", func(t *testing.T) {
-		apiKey := "ak-dGVzdC1rZXktMTIzNDU2Nzg5MA"
+		key := "ak-test1234xyz1"
 		for i := 0; i < 100; i++ {
-			assert.Equal(t, HashApiKey(apiKey, testSecret), HashApiKey(apiKey, testSecret))
+			assert.Equal(t, HashApiKey(key, testSecret), HashApiKey(key, testSecret))
 		}
 	})
 
 	// Test with nil secret (fallback to SHA-256)
 	t.Run("nil secret uses SHA-256 fallback", func(t *testing.T) {
-		apiKey := "ak-test-key"
-		hash := HashApiKey(apiKey, nil)
+		key := "ak-test-key"
+		hash := HashApiKey(key, nil)
 		assert.Equal(t, 64, len(hash))
-		assert.Equal(t, hash, HashApiKey(apiKey, nil))
+		assert.Equal(t, hash, HashApiKey(key, nil))
 	})
 
 	// Test that different secrets produce different hashes
 	t.Run("different secrets produce different hashes", func(t *testing.T) {
-		apiKey := "ak-test-key"
+		key := "ak-test-key"
 		secret1 := []byte("secret-1")
 		secret2 := []byte("secret-2")
-		hash1 := HashApiKey(apiKey, secret1)
-		hash2 := HashApiKey(apiKey, secret2)
+		hash1 := HashApiKey(key, secret1)
+		hash2 := HashApiKey(key, secret2)
 		assert.NotEqual(t, hash1, hash2)
 	})
 }
@@ -126,69 +126,69 @@ func TestHashApiKey(t *testing.T) {
 func TestGenerateKeyHint(t *testing.T) {
 	tests := []struct {
 		name     string
-		apiKey   string
+		key      string
 		expected string
 	}{
 		{
 			name:     "standard api key",
-			apiKey:   "ak-dGVzdC1rZXktMTIzNDU2Nzg5MA",
-			expected: "ak-dG****g5MA", // ak- + first 2 + **** + last 4
+			key:      "ak-1234abcdxyz1",
+			expected: "ak-12****xyz1", // ak- + first 2 + **** + last 4
 		},
 		{
 			name:     "short key body",
-			apiKey:   "ak-abc",
+			key:      "ak-abc",
 			expected: "ak-abc", // too short, just add prefix
 		},
 		{
 			name:     "minimum length key exactly 6 chars",
-			apiKey:   "ak-123456",
+			key:      "ak-123456",
 			expected: "ak-12****3456",
 		},
 		{
 			name:     "key with dash in last 4 chars",
-			apiKey:   "ak-gMG4VKwN-o8hlGgFjcjJj_a67HJbr8ZhjLSdCAXX-gY",
-			expected: "ak-gM****X-gY", // correctly handles dash in last 4
+			key:      "ak-12345abcdefghxyz1",
+			expected: "ak-12****xyz1", // correctly handles dash in last 4
 		},
 		{
 			name:     "key with underscore in body",
-			apiKey:   "ak-abc_def_ghi_jkl",
+			key:      "ak-abc_def_ghi_jkl",
 			expected: "ak-ab****_jkl", // correctly handles underscore
 		},
 		{
 			name:     "key with multiple dashes",
-			apiKey:   "ak-a-b-c-d-e-f-g",
+			key:      "ak-a-b-c-d-e-f-g",
 			expected: "ak-a-****-f-g", // multiple dashes
 		},
 		{
 			name:     "key ending with dash",
-			apiKey:   "ak-abcdefghij-",
+			key:      "ak-abcdefghij-",
 			expected: "ak-ab****hij-", // dash at end (last 4: h,i,j,-)
 		},
 		{
 			name:     "empty key body",
-			apiKey:   "ak-",
+			key:      "ak-",
 			expected: "ak-", // empty body
 		},
 		{
 			name:     "empty string",
-			apiKey:   "",
+			key:      "",
 			expected: "ak-", // empty input
 		},
 		{
 			name:     "5 char body (boundary)",
-			apiKey:   "ak-12345",
+			key:      "ak-12345",
 			expected: "ak-12345", // less than 6, return as-is with prefix
 		},
 		{
 			name:     "7 char body",
-			apiKey:   "ak-1234567",
+			key:      "ak-1234567",
 			expected: "ak-12****4567",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			hint := GenerateKeyHint(tt.apiKey)
+			hint := GenerateKeyHint(tt.key)
 			assert.Equal(t, tt.expected, hint)
 		})
 	}
@@ -418,34 +418,34 @@ func TestValidateAndDeduplicateWhitelist(t *testing.T) {
 func TestMaskApiKey(t *testing.T) {
 	tests := []struct {
 		name     string
-		apiKey   string
+		key      string
 		expected string
 	}{
 		{
 			name:     "normal length key",
-			apiKey:   "ak-dGVzdC1rZXktMTIzNDU2Nzg5MA",
-			expected: "ak-dGVzd***g5MA",
+			key:      "ak-1234abcdexyz1",
+			expected: "ak-1234a***xyz1",
 		},
 		{
 			name:     "short key",
-			apiKey:   "ak-abc",
+			key:      "ak-abc",
 			expected: "***",
 		},
 		{
 			name:     "very short key",
-			apiKey:   "ak-",
+			key:      "ak-",
 			expected: "***",
 		},
 		{
 			name:     "empty key",
-			apiKey:   "",
+			key:      "",
 			expected: "***",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := maskApiKey(tt.apiKey)
+			result := maskApiKey(tt.key)
 			assert.Equal(t, tt.expected, result)
 		})
 	}
@@ -459,7 +459,7 @@ func TestApiKeyTokenValidateApiKey(t *testing.T) {
 	mockDB := mock_client.NewMockInterface(ctrl)
 
 	// Create a test instance (bypass singleton for testing)
-	apiKeyToken := &ApiKeyToken{
+	inst := &ApiKeyToken{
 		dbClient: mockDB,
 	}
 
@@ -467,7 +467,7 @@ func TestApiKeyTokenValidateApiKey(t *testing.T) {
 
 	tests := []struct {
 		name      string
-		apiKey    string
+		key       string
 		clientIP  string
 		setupMock func()
 		expectErr bool
@@ -475,7 +475,7 @@ func TestApiKeyTokenValidateApiKey(t *testing.T) {
 	}{
 		{
 			name:     "valid api key without whitelist",
-			apiKey:   "ak-valid-key-123",
+			key:      "ak-valid-key-123",
 			clientIP: "192.168.1.100",
 			setupMock: func() {
 				// Database stores hashed key, so mock expects the hash
@@ -492,7 +492,7 @@ func TestApiKeyTokenValidateApiKey(t *testing.T) {
 		},
 		{
 			name:     "valid api key with matching IP in whitelist",
-			apiKey:   "ak-valid-key-456",
+			key:      "ak-valid-key-456",
 			clientIP: "192.168.1.100",
 			setupMock: func() {
 				mockDB.EXPECT().GetApiKeyByKey(gomock.Any(), HashApiKey("ak-valid-key-456", nil)).Return(&dbclient.ApiKey{
@@ -508,7 +508,7 @@ func TestApiKeyTokenValidateApiKey(t *testing.T) {
 		},
 		{
 			name:     "valid api key with matching CIDR in whitelist",
-			apiKey:   "ak-valid-key-789",
+			key:      "ak-valid-key-789",
 			clientIP: "10.0.0.50",
 			setupMock: func() {
 				mockDB.EXPECT().GetApiKeyByKey(gomock.Any(), HashApiKey("ak-valid-key-789", nil)).Return(&dbclient.ApiKey{
@@ -524,7 +524,7 @@ func TestApiKeyTokenValidateApiKey(t *testing.T) {
 		},
 		{
 			name:     "api key not found",
-			apiKey:   "ak-notfound",
+			key:      "ak-notfound",
 			clientIP: "192.168.1.100",
 			setupMock: func() {
 				mockDB.EXPECT().GetApiKeyByKey(gomock.Any(), HashApiKey("ak-notfound", nil)).Return(nil, sql.ErrNoRows)
@@ -534,7 +534,7 @@ func TestApiKeyTokenValidateApiKey(t *testing.T) {
 		},
 		{
 			name:     "deleted api key",
-			apiKey:   "ak-deleted",
+			key:      "ak-deleted",
 			clientIP: "192.168.1.100",
 			setupMock: func() {
 				mockDB.EXPECT().GetApiKeyByKey(gomock.Any(), HashApiKey("ak-deleted", nil)).Return(&dbclient.ApiKey{
@@ -551,7 +551,7 @@ func TestApiKeyTokenValidateApiKey(t *testing.T) {
 		},
 		{
 			name:     "expired api key",
-			apiKey:   "ak-expired",
+			key:      "ak-expired",
 			clientIP: "192.168.1.100",
 			setupMock: func() {
 				mockDB.EXPECT().GetApiKeyByKey(gomock.Any(), HashApiKey("ak-expired", nil)).Return(&dbclient.ApiKey{
@@ -568,7 +568,7 @@ func TestApiKeyTokenValidateApiKey(t *testing.T) {
 		},
 		{
 			name:     "ip not in whitelist",
-			apiKey:   "ak-ip-blocked",
+			key:      "ak-ip-blocked",
 			clientIP: "192.168.2.100",
 			setupMock: func() {
 				mockDB.EXPECT().GetApiKeyByKey(gomock.Any(), HashApiKey("ak-ip-blocked", nil)).Return(&dbclient.ApiKey{
@@ -585,7 +585,7 @@ func TestApiKeyTokenValidateApiKey(t *testing.T) {
 		},
 		{
 			name:     "empty whitelist allows all",
-			apiKey:   "ak-empty-whitelist",
+			key:      "ak-empty-whitelist",
 			clientIP: "1.2.3.4",
 			setupMock: func() {
 				mockDB.EXPECT().GetApiKeyByKey(gomock.Any(), HashApiKey("ak-empty-whitelist", nil)).Return(&dbclient.ApiKey{
@@ -601,7 +601,7 @@ func TestApiKeyTokenValidateApiKey(t *testing.T) {
 		},
 		{
 			name:     "null whitelist allows all",
-			apiKey:   "ak-null-whitelist",
+			key:      "ak-null-whitelist",
 			clientIP: "1.2.3.4",
 			setupMock: func() {
 				mockDB.EXPECT().GetApiKeyByKey(gomock.Any(), HashApiKey("ak-null-whitelist", nil)).Return(&dbclient.ApiKey{
@@ -620,7 +620,7 @@ func TestApiKeyTokenValidateApiKey(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			tt.setupMock()
-			userInfo, err := apiKeyToken.ValidateApiKey(context.Background(), tt.apiKey, tt.clientIP)
+			userInfo, err := inst.ValidateApiKey(context.Background(), tt.key, tt.clientIP)
 			if tt.expectErr {
 				assert.Error(t, err)
 				if tt.errMsg != "" {
@@ -637,7 +637,7 @@ func TestApiKeyTokenValidateApiKey(t *testing.T) {
 
 // TestApiKeyTokenCheckIPWhitelist tests the IP whitelist checking logic
 func TestApiKeyTokenCheckIPWhitelist(t *testing.T) {
-	apiKeyToken := &ApiKeyToken{}
+	inst := &ApiKeyToken{}
 
 	tests := []struct {
 		name          string
@@ -745,7 +745,7 @@ func TestApiKeyTokenCheckIPWhitelist(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := apiKeyToken.checkIPWhitelist(tt.whitelistJSON, tt.clientIP)
+			err := inst.checkIPWhitelist(tt.whitelistJSON, tt.clientIP)
 			if tt.expectErr {
 				assert.Error(t, err)
 			} else {
@@ -757,11 +757,11 @@ func TestApiKeyTokenCheckIPWhitelist(t *testing.T) {
 
 // TestApiKeyTokenNilDbClient tests behavior when database client is nil
 func TestApiKeyTokenNilDbClient(t *testing.T) {
-	apiKeyToken := &ApiKeyToken{
+	inst := &ApiKeyToken{
 		dbClient: nil,
 	}
 
-	userInfo, err := apiKeyToken.ValidateApiKey(context.Background(), "ak-test", "192.168.1.1")
+	userInfo, err := inst.ValidateApiKey(context.Background(), "ak-test", "192.168.1.1")
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "database client not initialized")
 	assert.Nil(t, userInfo)
@@ -772,7 +772,7 @@ func TestEncryptDecryptApiKey(t *testing.T) {
 	secret := []byte("test-secret-for-aes-encryption")
 
 	t.Run("roundtrip succeeds", func(t *testing.T) {
-		plaintext := "ak-dGVzdC1rZXktMTIzNDU2Nzg5MA"
+		plaintext := "ak-test"
 		encrypted, err := EncryptApiKey(plaintext, secret)
 		assert.NoError(t, err)
 		assert.NotEmpty(t, encrypted)
@@ -862,7 +862,7 @@ func TestValidateApiKeyPlatformKeySkipsExpiration(t *testing.T) {
 	defer ctrl.Finish()
 
 	mockDB := mock_client.NewMockInterface(ctrl)
-	apiKeyToken := &ApiKeyToken{dbClient: mockDB}
+	inst := &ApiKeyToken{dbClient: mockDB}
 
 	now := time.Now().UTC()
 
@@ -878,7 +878,7 @@ func TestValidateApiKeyPlatformKeySkipsExpiration(t *testing.T) {
 			KeyType:        KeyTypePlatform,
 		}, nil)
 
-		userInfo, err := apiKeyToken.ValidateApiKey(context.Background(), "ak-platform-expired", "192.168.1.1")
+		userInfo, err := inst.ValidateApiKey(context.Background(), "ak-platform-expired", "192.168.1.1")
 		assert.NoError(t, err)
 		assert.NotNil(t, userInfo)
 		assert.Equal(t, "user-platform", userInfo.Id)
@@ -895,7 +895,7 @@ func TestValidateApiKeyPlatformKeySkipsExpiration(t *testing.T) {
 			KeyType:        KeyTypeUser,
 		}, nil)
 
-		userInfo, err := apiKeyToken.ValidateApiKey(context.Background(), "ak-user-expired", "192.168.1.1")
+		userInfo, err := inst.ValidateApiKey(context.Background(), "ak-user-expired", "192.168.1.1")
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "API key expired")
 		assert.Nil(t, userInfo)
@@ -912,7 +912,7 @@ func TestValidateApiKeyPlatformKeySkipsExpiration(t *testing.T) {
 			KeyType:        KeyTypePlatform,
 		}, nil)
 
-		userInfo, err := apiKeyToken.ValidateApiKey(context.Background(), "ak-platform-deleted", "192.168.1.1")
+		userInfo, err := inst.ValidateApiKey(context.Background(), "ak-platform-deleted", "192.168.1.1")
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "Unavailable")
 		assert.Nil(t, userInfo)
@@ -935,7 +935,7 @@ func TestGetOrCreatePlatformKey(t *testing.T) {
 	})
 
 	t.Run("returns existing platform key", func(t *testing.T) {
-		plainKey := "ak-existing-platform-key-12345"
+		plainKey := "ak-test-12345"
 		encryptedKey, _ := EncryptApiKey(plainKey, nil)
 
 		mockDB.EXPECT().GetPlatformKeyByUserId(gomock.Any(), "user-existing").Return(&dbclient.ApiKey{
