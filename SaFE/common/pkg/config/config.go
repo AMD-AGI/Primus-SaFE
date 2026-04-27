@@ -484,6 +484,11 @@ func GetCDJobImage() string {
 	return getString(cdJobImage, "docker.io/primussafe/cd-job-runner:latest")
 }
 
+// GetCDGpuType returns the GPU type for this cluster (e.g. "MI300X", "MI325X").
+func GetCDGpuType() string {
+	return getString(cdGpuType, "MI300X")
+}
+
 // IsTracingEnable returns whether OpenTelemetry tracing is enabled.
 func IsTracingEnable() bool {
 	return getBool(tracingEnable, false)

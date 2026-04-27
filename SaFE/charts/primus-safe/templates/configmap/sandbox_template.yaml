@@ -36,6 +36,17 @@ data:
               value: /shared/bin:/home/sandbox/.local/bin:/usr/local/bin:/usr/bin:/bin:/sbin
             - name: ENVD_AUTH_PUBLIC_KEY
               value: |
+    {{ if eq .Values.global.sub_domain "core42" }}
+                -----BEGIN PUBLIC KEY-----
+                MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAqB5w9iVOWt7qVfu1QJf4
+                l0FEHiK3CSyO9S1NlocUXatMugBTk7JDT9sy4u9m77grQtWYc9xqg85bfoGgh9HE
+                9gGXsLoy4Hb8BMsMIA4vEb9jYCXw8um3K8eNswV/4FqiDtoJ/ax7IJ+lKIHIcOi1
+                +MFGU5esf0mcMEtZlevfiLLb2MeU5fwrBpn3rJONg8+uZxzQv0K+39W4LTRV4scz
+                lWf5/CHf34b1lI3JoNAAdmh2xckKaf8AZDQ7U8m8UFWB+1+bd+I8jTzs02pryK/2
+                Ap/Wwgrs+j2Etxr8hp8hG2dApJ26bHxJaUKMRPXL+ZaYgKb+5rK5pJO6HWj5XFgu
+                /QIDAQAB
+                -----END PUBLIC KEY-----
+    {{ else }}
                 -----BEGIN PUBLIC KEY-----
                 MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAysuW9+3nAQqjmekz49RN
                 CubMoGZrVghgg7Xu9yhoWgu2ytqrTk1PcGoxqaGOkd+hUoNF6qxSKHP5wPfIvlNL
@@ -45,6 +56,7 @@ data:
                 WPJvpXdJHzb+S7nzsDBJRLMmd7yXpNh6dhBdzEXdVpqxULq8V01Y11JThWsRZJQ6
                 hwIDAQAB
                 -----END PUBLIC KEY-----
+    {{ end }}
             - name: OPENAI_BASE_URL
               value: https://{{ .Values.global.sub_domain }}.{{ .Values.global.domain }}/api/v1/llm-proxy/v1
             - name: WORKLOAD_MANAGER_URL
@@ -72,7 +84,7 @@ data:
               && ln -sf iptables /shared/bin/iptables-legacy && ln -sf ip6tables /shared/bin/ip6tables-legacy
               && cp /musl-ld.so /shared/bin/ld-musl-x86_64.so.1 && ln -sf ld-musl-x86_64.so.1
               /shared/bin/libc.musl-x86_64.so.1 2>/dev/null || true)
-            image: harbor.oci-slc.primus-safe.amd.com/agent-sandbox/agent-sandbox-envd-injector:202604141639
+            image: harbor.{{ .Values.global.sub_domain }}.{{ .Values.global.domain }}/proxy/primussafe/agent-sandbox-envd-injector:202604171827
             imagePullPolicy: IfNotPresent
             name: envd-injector
             resources: {}

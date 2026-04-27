@@ -120,6 +120,7 @@ export const useUserStore = defineStore('user', {
 
         try {
           await this.fetchUser()
+          this.fetchEnvs().catch(() => {})
         } catch {
           this.session = 'anonymous'
           this.profile = null

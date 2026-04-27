@@ -43,6 +43,8 @@ type UserInfo struct {
 	ApiKeyId int64 `json:"apiKeyId,omitempty"`
 	// Preferred username
 	PreferredUsername string `json:"preferred_username,omitempty"`
+	// user's rols
+	Roles []v1.UserRole `json:"roles,omitempty"`
 }
 
 // TokenInterface defines the contract for token management operations
