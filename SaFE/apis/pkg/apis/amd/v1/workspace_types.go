@@ -88,6 +88,13 @@ type WorkspaceVolume struct {
 	// Mount path to be used, equivalent to 'mountPath' in Kubernetes volume mounts.
 	// +required
 	MountPath string `json:"mountPath"`
+	// When enabled, this appends the {user_id} directory to the subPath and mounts it to {mount_path}/{user_id}
+	EnableUserDir bool `json:"enableUserDir,omitempty"`
+	// access mode, default ReadWriteMany
+	AccessMode corev1.PersistentVolumeAccessMode `json:"accessMode,omitempty"`
+	// equivalent to 'subPath' in Kubernetes volume mounts
+	// +optional
+	SubPath string `json:"subPath,omitempty"`
 
 	// Path on the host to mount. Required when volume type is hostpath
 	HostPath string `json:"hostPath,omitempty"`
@@ -100,11 +107,6 @@ type WorkspaceVolume struct {
 	Selector map[string]string `json:"selector,omitempty"`
 	// Responsible for automatic PV creation
 	StorageClass string `json:"storageClass,omitempty"`
-	// access mode, default ReadWriteMany
-	AccessMode corev1.PersistentVolumeAccessMode `json:"accessMode,omitempty"`
-	// equivalent to 'subPath' in Kubernetes volume mounts
-	// +optional
-	SubPath string `json:"subPath,omitempty"`
 }
 
 type WorkspaceStatus struct {

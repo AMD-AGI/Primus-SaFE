@@ -136,30 +136,36 @@
           </el-tag>
         </template>
       </el-table-column>
-      <el-table-column prop="workloads" label="Workloads" width="130">
+      <el-table-column prop="workloads" label="Workloads" width="170">
         <template #default="{ row }">
-          <div v-if="!row.workloads">-</div>
-          <el-tooltip
-            v-else
-            placement="top"
-            :enterable="true"
-            :hide-after="0"
-            popper-class="wl-rich"
-          >
-            <template #content>
-              <ul class="wl-list">
-                <li v-for="(w, i) in row.workloads" :key="w.id ?? i">
-                  <span class="wl-id">workload: {{ w.id }}</span>
-                  <span class="wl-sub">user: {{ w.userId || '-' }}</span>
-                </li>
-              </ul>
-            </template>
-
-            <div v-if="row.workloads?.length" class="flex items-center">
-              running ({{ row.workloads?.length }})<el-icon class="mt-1 ml-1"><Loading /></el-icon>
-            </div>
-            <span v-else>-</span>
-          </el-tooltip>
+          <div v-if="!row.workloads?.length">-</div>
+          <div v-else class="wl-cell">
+            <el-tooltip placement="top" :enterable="true" :hide-after="0" popper-class="wl-rich">
+              <template #content>
+                <ul class="wl-list">
+                  <li v-for="(w, i) in row.workloads" :key="w.id ?? i">
+                    <span class="wl-id">workload: {{ w.id }}</span>
+                    <span class="wl-sub">user: {{ w.userId || '-' }}</span>
+                  </li>
+                </ul>
+              </template>
+              <span class="wl-running">
+                running ({{ row.workloads.length }})
+                <el-icon class="wl-running-ico"><Loading /></el-icon>
+              </span>
+            </el-tooltip>
+            <!-- Batch-stop moved to Actions column; keep here commented for easy revert
+            <el-tooltip content="Stop all workloads on this node" placement="top">
+              <el-link
+                type="danger"
+                :underline="false"
+                class="wl-stop-link"
+                @click.stop="onStopAllWorkloads(row)"
+                >Stop</el-link
+              >
+            </el-tooltip>
+            -->
+          </div>
         </template>
       </el-table-column>
 
@@ -410,6 +416,7 @@ import {
   rebootNodes,
   exportNodes,
   deleteNodes,
+  batchStopWorkload,
 } from '@/services'
 import type { NodesParams } from '@/services'
 import {
@@ -423,6 +430,7 @@ import {
   Refresh,
   RefreshRight,
   Download,
+  VideoPause,
 } from '@element-plus/icons-vue'
 import { copyText, byte2Gi } from '@/utils/index'
 import AddNodeDialog from './Components/AddNodeDialog.vue'
@@ -779,6 +787,47 @@ const handleReboot = async (isBatch: boolean, nodeId?: string) => {
     })
 }
 
+const onStopAllWorkloads = async (row: UnknownRecord) => {
+  const workloads = (row['workloads'] as Array<{ id: string; userId?: string }>) || []
+  const ids = workloads.map((w) => w?.id).filter(isNonEmptyString)
+  if (!ids.length) {
+    ElMessage.warning('No workloads to stop on this node.')
+    return
+  }
+
+  const nodeLabel = (row['nodeName'] as string) || (row['nodeId'] as string) || '-'
+  const msg = h('div', null, [
+    h('div', null, [
+      `Stop all ${ids.length} workload(s) running on node `,
+      h('span', { style: 'color: var(--el-color-primary); font-weight: 600' }, nodeLabel),
+      ' ?',
+    ]),
+    h(
+      'ul',
+      {
+        style:
+          'margin: 8px 0 0; padding-left: 20px; max-height: 180px; overflow-y: auto; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px;',
+      },
+      ids.map((id) => h('li', null, id)),
+    ),
+  ])
+
+  try {
+    await ElMessageBox.confirm(msg, 'Stop workloads', {
+      confirmButtonText: 'Stop',
+      cancelButtonText: 'Cancel',
+      type: 'warning',
+    })
+  } catch (err) {
+    if (err === 'cancel' || err === 'close') ElMessage.info('Stop canceled')
+    return
+  }
+
+  await batchStopWorkload({ workloadIds: ids })
+  ElMessage.success('Stop completed')
+  onSearch({ resetPage: false })
+}
+
 // Use Node Retry composable
 const { handleRetry } = useNodeRetry({
   onRefresh: () => onSearch({ resetPage: false }),
@@ -894,7 +943,14 @@ const handleMenuClick = async (act: Action, row: Row) => {
   closeMore()
 }
 
-type Row = { nodeId: string; phase: string; workspace: { id: string }; clusterId: string }
+type Row = {
+  nodeId: string
+  nodeName?: string
+  phase: string
+  workspace: { id: string }
+  clusterId: string
+  workloads?: Array<{ id: string; userId?: string }>
+}
 type Action = {
   key: string
   label: string
@@ -904,12 +960,21 @@ type Action = {
   onClick: (row: Row) => void | Promise<void>
   show?: boolean | ((r: Row) => boolean)
 }
-const isVisible = (act: Action) => act.show !== false
-const visibleActs = (row: Row) => getActions(row).filter(isVisible)
+const isVisible = (act: Action, row: Row) =>
+  typeof act.show === 'function' ? act.show(row) : act.show !== false
+const visibleActs = (row: Row) => getActions(row).filter((a) => isVisible(a, row))
 
 const isAssigned = (r: Row) => !!(r.workspace?.id && r.workspace.id !== 'UNASSIGNED')
 const isUnManage = (r: Row) => !!r.clusterId
 const getActions = (row: Row): Action[] => [
+  {
+    key: 'stopWorkloads',
+    label: 'Stop workloads',
+    icon: VideoPause,
+    btnClass: 'btn-warning-plain',
+    onClick: async (r: Row) => onStopAllWorkloads(r as unknown as UnknownRecord),
+    show: (r: Row) => (r.workloads?.length ?? 0) > 0,
+  },
   {
     key: 'delete',
     label: 'Delete',
@@ -1106,6 +1171,25 @@ defineOptions({
   vertical-align: bottom;
 }
 
+.wl-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  line-height: 1;
+}
+.wl-running {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  line-height: 1;
+}
+.wl-running-ico {
+  font-size: 14px;
+}
+.wl-stop-link {
+  font-size: 13px;
+  line-height: 1;
+}
 .wl-rich {
   max-width: 420px;
   padding: 8px 10px;

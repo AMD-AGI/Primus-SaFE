@@ -660,18 +660,9 @@ const getActions = (row: Row): Action[] => [
     onClick: (r: Row) => openSSH(r),
   },
 
-  {
-    key: 'clone',
-    label: 'Clone',
-    icon: DocumentCopy,
-    btnClass: 'btn-success-plain',
-    disabled: () => !canWrite.value,
-    onClick: (r: Row) => {
-      curAction.value = 'Clone'
-      curWlId.value = r.workloadId
-      addVisible.value = true
-    },
-  },
+  // Resume sits right after SSH so the two most common day-to-day actions
+  // (connect, restart) are always in the first visible slots, instead of
+  // getting pushed under the "..." menu by Clone/Edit.
   {
     key: 'resume',
     label: 'Resume',
@@ -685,6 +676,18 @@ const getActions = (row: Row): Action[] => [
         return
       }
       curAction.value = 'Resume'
+      curWlId.value = r.workloadId
+      addVisible.value = true
+    },
+  },
+  {
+    key: 'clone',
+    label: 'Clone',
+    icon: DocumentCopy,
+    btnClass: 'btn-success-plain',
+    disabled: () => !canWrite.value,
+    onClick: (r: Row) => {
+      curAction.value = 'Clone'
       curWlId.value = r.workloadId
       addVisible.value = true
     },

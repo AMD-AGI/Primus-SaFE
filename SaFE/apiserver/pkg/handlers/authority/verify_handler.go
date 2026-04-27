@@ -37,14 +37,15 @@ type VerifyTokenRequest struct {
 
 // VerifyTokenResponse represents the response body for token verification
 type VerifyTokenResponse struct {
-	Id          string `json:"id"`
-	Name        string `json:"name"`
-	Email       string `json:"email,omitempty"`
-	Exp         int64  `json:"exp"`
-	Type        string `json:"type"`
-	ApiKeyId    int64  `json:"apiKeyId,omitempty"`
-	PlatformKey string `json:"platformKey,omitempty"`
-	VirtualKey  string `json:"virtualKey,omitempty"`
+	Id          string        `json:"id"`
+	Name        string        `json:"name"`
+	Email       string        `json:"email,omitempty"`
+	Exp         int64         `json:"exp"`
+	Type        string        `json:"type"`
+	Roles       []v1.UserRole `json:"roles"`
+	ApiKeyId    int64         `json:"apiKeyId,omitempty"`
+	PlatformKey string        `json:"platformKey,omitempty"`
+	VirtualKey  string        `json:"virtualKey,omitempty"`
 }
 
 // VerifyToken validates a user token and returns user information
@@ -176,6 +177,7 @@ func VerifyToken(c *gin.Context) {
 		Exp:      userInfo.Exp,
 		Type:     userType,
 		ApiKeyId: userInfo.ApiKeyId,
+		Roles:    userInfo.Roles,
 	}
 
 	// Optionally include platform API key (GetOrCreate)
