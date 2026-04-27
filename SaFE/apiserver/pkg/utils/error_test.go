@@ -53,8 +53,3 @@ func TestError(t *testing.T) {
 		})
 	}
 }
-
-func TestBlockPassword(t *testing.T) {
-	hf_token := "hf_1234567890abcdefghijklmnopqrstuvwxyz"
-	fmt.Println(hf_token)
-}
