@@ -16,7 +16,7 @@ func TestBase64Encode(t *testing.T) {
 	str := "test"
 	encode := Base64Encode(str)
 	fmt.Println(encode)
-	assert.Equal(t, encode, "dGVzdAo=")
+	assert.Equal(t, encode, "dGVzdA==")
 }
 
 func TestMD5(t *testing.T) {
