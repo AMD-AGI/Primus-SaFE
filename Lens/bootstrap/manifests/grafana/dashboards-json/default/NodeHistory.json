@@ -110,7 +110,7 @@
             "uid": "${Datasource}"
           },
           "editorMode": "code",
-          "expr": "gpu_utilization{primus_lens_node_name=\"$node\"} ",
+          "expr": "gpu_utilization{node=\"$node\"} ",
           "legendFormat": "GPU {{gpu_id}}",
           "range": true,
           "refId": "A"
@@ -231,7 +231,7 @@
             "uid": "${Datasource}"
           },
           "editorMode": "code",
-          "expr": "100 - (gpu_package_power{primus_lens_node_name=\"$node\"}/gpu_total_vram{primus_lens_node_name=\"$node\"} * 100)",
+          "expr": "100 - (gpu_package_power{node=\"$node\"}/gpu_total_vram{node=\"$node\"} * 100)",
           "legendFormat": "GPU{{gpu_id}}",
           "range": true,
           "refId": "A"
@@ -329,7 +329,7 @@
             "uid": "${Datasource}"
           },
           "editorMode": "code",
-          "expr": "gpu_package_power{primus_lens_node_name=\"$node\"} ",
+          "expr": "gpu_package_power{node=\"$node\"} ",
           "legendFormat": "GPU {{gpu_id}}",
           "range": true,
           "refId": "A"
@@ -428,7 +428,7 @@
             "uid": "${Datasource}"
           },
           "editorMode": "code",
-          "expr": "gpu_total_vram{primus_lens_node_name=\"$node\"} - gpu_free_vram{primus_lens_node_name=\"$node\"}",
+          "expr": "gpu_total_vram{node=\"$node\"} - gpu_free_vram{node=\"$node\"}",
           "legendFormat": "GPU{{gpu_id}}",
           "range": true,
           "refId": "A"
@@ -439,7 +439,7 @@
             "uid": "${Datasource}"
           },
           "editorMode": "code",
-          "expr": "max(gpu_total_vram{primus_lens_node_name=\"$node\"} )",
+          "expr": "max(gpu_total_vram{node=\"$node\"} )",
           "hide": false,
           "instant": false,
           "legendFormat": "Vram Total",
@@ -538,7 +538,7 @@
             "uid": "${Datasource}"
           },
           "editorMode": "code",
-          "expr": "gpu_ecc_correct_athub{primus_lens_node_name=\"$node\"} > 0",
+          "expr": "gpu_ecc_correct_athub{node=\"$node\"} > 0",
           "legendFormat": "ECC Corret ATHUB GPU{{gpu_id}}",
           "range": true,
           "refId": "A"
@@ -549,7 +549,7 @@
             "uid": "${Datasource}"
           },
           "editorMode": "code",
-          "expr": "gpu_ecc_correct_bif{primus_lens_node_name=\"$node\"}> 0",
+          "expr": "gpu_ecc_correct_bif{node=\"$node\"}> 0",
           "hide": false,
           "legendFormat": "ECC Corret BIF GPU{{gpu_id}}",
           "range": true,
@@ -561,7 +561,7 @@
             "uid": "${Datasource}"
           },
           "editorMode": "code",
-          "expr": "gpu_ecc_correct_df{primus_lens_node_name=\"$node\"} > 0",
+          "expr": "gpu_ecc_correct_df{node=\"$node\"} > 0",
           "hide": false,
           "legendFormat": "ECC Corret DF GPU{{gpu_id}}",
           "range": true,
@@ -573,7 +573,7 @@
             "uid": "${Datasource}"
           },
           "editorMode": "code",
-          "expr": "gpu_ecc_correct_fuse{primus_lens_node_name=\"$node\"}> 0",
+          "expr": "gpu_ecc_correct_fuse{node=\"$node\"}> 0",
           "hide": false,
           "legendFormat": "ECC Corret FUSE GPU{{gpu_id}}",
           "range": true,
@@ -585,7 +585,7 @@
             "uid": "${Datasource}"
           },
           "editorMode": "code",
-          "expr": "gpu_ecc_correct_gfx{primus_lens_node_name=\"$node\"} > 0",
+          "expr": "gpu_ecc_correct_gfx{node=\"$node\"} > 0",
           "hide": false,
           "legendFormat": "ECC Corret GFX GPU{{gpu_id}}",
           "range": true,
@@ -597,7 +597,7 @@
             "uid": "${Datasource}"
           },
           "editorMode": "code",
-          "expr": "gpu_ecc_correct_hdp{primus_lens_node_name=\"$node\"}> 0",
+          "expr": "gpu_ecc_correct_hdp{node=\"$node\"}> 0",
           "hide": false,
           "legendFormat": "ECC Corret HDP GPU{{gpu_id}}",
           "range": true,
@@ -609,7 +609,7 @@
             "uid": "${Datasource}"
           },
           "editorMode": "code",
-          "expr": "gpu_ecc_correct_ih{primus_lens_node_name=\"$node\"} > 0",
+          "expr": "gpu_ecc_correct_ih{node=\"$node\"} > 0",
           "hide": false,
           "legendFormat": "ECC Corret IH GPU{{gpu_id}}",
           "range": true,
@@ -621,7 +621,7 @@
             "uid": "${Datasource}"
           },
           "editorMode": "code",
-          "expr": "gpu_ecc_correct_jpeg{primus_lens_node_name=\"$node\"} > 0",
+          "expr": "gpu_ecc_correct_jpeg{node=\"$node\"} > 0",
           "hide": false,
           "legendFormat": "ECC Corret JPEG GPU{{gpu_id}}",
           "range": true,
@@ -633,7 +633,7 @@
             "uid": "${Datasource}"
           },
           "editorMode": "code",
-          "expr": "gpu_ecc_correct_mca{primus_lens_node_name=\"$node\"} > 0",
+          "expr": "gpu_ecc_correct_mca{node=\"$node\"} > 0",
           "hide": false,
           "legendFormat": "ECC Corret MCA GPU{{gpu_id}}",
           "range": true,
@@ -645,7 +645,7 @@
             "uid": "${Datasource}"
           },
           "editorMode": "code",
-          "expr": "gpu_ecc_correct_mmhub{primus_lens_node_name=\"$node\"} > 0",
+          "expr": "gpu_ecc_correct_mmhub{node=\"$node\"} > 0",
           "hide": false,
           "legendFormat": "ECC Corret MMHUB GPU{{gpu_id}}",
           "range": true,
@@ -657,7 +657,7 @@
             "uid": "${Datasource}"
           },
           "editorMode": "code",
-          "expr": "gpu_ecc_correct_mp0{primus_lens_node_name=\"$node\"} > 0",
+          "expr": "gpu_ecc_correct_mp0{node=\"$node\"} > 0",
           "hide": false,
           "legendFormat": "ECC Corret MP0 GPU{{gpu_id}}",
           "range": true,
@@ -669,7 +669,7 @@
             "uid": "${Datasource}"
           },
           "editorMode": "code",
-          "expr": "gpu_ecc_correct_mp1{primus_lens_node_name=\"$node\"}> 0",
+          "expr": "gpu_ecc_correct_mp1{node=\"$node\"}> 0",
           "hide": false,
           "legendFormat": "ECC Corret MP1 GPU{{gpu_id}}",
           "range": true,
@@ -681,7 +681,7 @@
             "uid": "${Datasource}"
           },
           "editorMode": "code",
-          "expr": "gpu_ecc_correct_mpio{primus_lens_node_name=\"$node\"} > 0",
+          "expr": "gpu_ecc_correct_mpio{node=\"$node\"} > 0",
           "hide": false,
           "legendFormat": "ECC Corret MPIO GPU{{gpu_id}}",
           "range": true,
@@ -693,7 +693,7 @@
             "uid": "${Datasource}"
           },
           "editorMode": "code",
-          "expr": "gpu_ecc_correct_sdma{primus_lens_node_name=\"$node\"} > 0",
+          "expr": "gpu_ecc_correct_sdma{node=\"$node\"} > 0",
           "hide": false,
           "legendFormat": "ECC Corret SDMA GPU{{gpu_id}}",
           "range": true,
@@ -705,7 +705,7 @@
             "uid": "${Datasource}"
           },
           "editorMode": "code",
-          "expr": "gpu_ecc_correct_sem{primus_lens_node_name=\"$node\"} > 0",
+          "expr": "gpu_ecc_correct_sem{node=\"$node\"} > 0",
           "hide": false,
           "legendFormat": "ECC Corret SEM GPU{{gpu_id}}",
           "range": true,
@@ -717,7 +717,7 @@
             "uid": "${Datasource}"
           },
           "editorMode": "code",
-          "expr": "gpu_ecc_correct_smn{primus_lens_node_name=\"$node\"} > 0",
+          "expr": "gpu_ecc_correct_smn{node=\"$node\"} > 0",
           "hide": false,
           "legendFormat": "ECC Corret SMN GPU{{gpu_id}}",
           "range": true,
@@ -729,7 +729,7 @@
             "uid": "${Datasource}"
           },
           "editorMode": "code",
-          "expr": "sgpu_ecc_correct_total{primus_lens_node_name=\"$node\"} > 0",
+          "expr": "sgpu_ecc_correct_total{node=\"$node\"} > 0",
           "hide": false,
           "legendFormat": "ECC Corret Total GPU{{gpu_id}}",
           "range": true,
@@ -741,7 +741,7 @@
             "uid": "${Datasource}"
           },
           "editorMode": "code",
-          "expr": "gpu_ecc_correct_umc{primus_lens_node_name=\"$node\"} > 0",
+          "expr": "gpu_ecc_correct_umc{node=\"$node\"} > 0",
           "hide": false,
           "legendFormat": "ECC Corret UMC GPU{{gpu_id}}",
           "range": true,
@@ -753,7 +753,7 @@
             "uid": "${Datasource}"
           },
           "editorMode": "code",
-          "expr": "gpu_ecc_correct_vcn{primus_lens_node_name=\"$node\"} > 0",
+          "expr": "gpu_ecc_correct_vcn{node=\"$node\"} > 0",
           "hide": false,
           "legendFormat": "ECC Corret VCN GPU{{gpu_id}}",
           "range": true,
@@ -765,7 +765,7 @@
             "uid": "${Datasource}"
           },
           "editorMode": "code",
-          "expr": "gpu_ecc_correct_xgmi_wafl{primus_lens_node_name=\"$node\"} > 0",
+          "expr": "gpu_ecc_correct_xgmi_wafl{node=\"$node\"} > 0",
           "hide": false,
           "legendFormat": "ECC Corret WAFL GPU{{gpu_id}}",
           "range": true,
@@ -777,7 +777,7 @@
             "uid": "${Datasource}"
           },
           "editorMode": "code",
-          "expr": "gpu_ecc_uncorrect_athub{primus_lens_node_name=\"$node\"} > 0",
+          "expr": "gpu_ecc_uncorrect_athub{node=\"$node\"} > 0",
           "hide": false,
           "legendFormat": "ECC UnCorret ATHUB GPU{{gpu_id}}",
           "range": true,
@@ -789,7 +789,7 @@
             "uid": "${Datasource}"
           },
           "editorMode": "code",
-          "expr": "gpu_ecc_uncorrect_bif{primus_lens_node_name=\"$node\"} > 0",
+          "expr": "gpu_ecc_uncorrect_bif{node=\"$node\"} > 0",
           "hide": false,
           "legendFormat": "ECC UnCorret BIF GPU{{gpu_id}}",
           "range": true,
@@ -801,7 +801,7 @@
             "uid": "${Datasource}"
           },
           "editorMode": "code",
-          "expr": "gpu_ecc_uncorrect_df{primus_lens_node_name=\"$node\"} > 0",
+          "expr": "gpu_ecc_uncorrect_df{node=\"$node\"} > 0",
           "hide": false,
           "legendFormat": "ECC UnCorret DF GPU{{gpu_id}}",
           "range": true,
@@ -813,7 +813,7 @@
             "uid": "${Datasource}"
           },
           "editorMode": "code",
-          "expr": "gpu_ecc_uncorrect_fuse{primus_lens_node_name=\"$node\"} > 0",
+          "expr": "gpu_ecc_uncorrect_fuse{node=\"$node\"} > 0",
           "hide": false,
           "legendFormat": "ECC UnCorret FUSE GPU{{gpu_id}}",
           "range": true,
@@ -825,7 +825,7 @@
             "uid": "${Datasource}"
           },
           "editorMode": "code",
-          "expr": "gpu_ecc_uncorrect_gfx{primus_lens_node_name=\"$node\"} > 0",
+          "expr": "gpu_ecc_uncorrect_gfx{node=\"$node\"} > 0",
           "hide": false,
           "legendFormat": "ECC UnCorret GFX GPU{{gpu_id}}",
           "range": true,
@@ -837,7 +837,7 @@
             "uid": "${Datasource}"
           },
           "editorMode": "code",
-          "expr": "gpu_ecc_uncorrect_hdp{primus_lens_node_name=\"$node\"} > 0",
+          "expr": "gpu_ecc_uncorrect_hdp{node=\"$node\"} > 0",
           "hide": false,
           "legendFormat": "ECC UnCorret HDP GPU{{gpu_id}}",
           "range": true,
@@ -849,7 +849,7 @@
             "uid": "${Datasource}"
           },
           "editorMode": "code",
-          "expr": "gpu_ecc_uncorrect_ih{primus_lens_node_name=\"$node\"}> 0",
+          "expr": "gpu_ecc_uncorrect_ih{node=\"$node\"}> 0",
           "hide": false,
           "legendFormat": "ECC UnCorret IH GPU{{gpu_id}}",
           "range": true,
@@ -861,7 +861,7 @@
             "uid": "${Datasource}"
           },
           "editorMode": "code",
-          "expr": "gpu_ecc_uncorrect_jpeg{primus_lens_node_name=\"$node\"} > 0",
+          "expr": "gpu_ecc_uncorrect_jpeg{node=\"$node\"} > 0",
           "hide": false,
           "legendFormat": "ECC UnCorret JPEG GPU{{gpu_id}}",
           "range": true,
@@ -873,7 +873,7 @@
             "uid": "${Datasource}"
           },
           "editorMode": "code",
-          "expr": "gpu_ecc_uncorrect_mca{primus_lens_node_name=\"$node\"} > 0",
+          "expr": "gpu_ecc_uncorrect_mca{node=\"$node\"} > 0",
           "hide": false,
           "legendFormat": "ECC UnCorret MCA GPU{{gpu_id}}",
           "range": true,
@@ -885,7 +885,7 @@
             "uid": "${Datasource}"
           },
           "editorMode": "code",
-          "expr": "gpu_ecc_uncorrect_mmhub{primus_lens_node_name=\"$node\"} > 0",
+          "expr": "gpu_ecc_uncorrect_mmhub{node=\"$node\"} > 0",
           "hide": false,
           "legendFormat": "ECC UnCorret MMHUB GPU{{gpu_id}}",
           "range": true,
@@ -897,7 +897,7 @@
             "uid": "${Datasource}"
           },
           "editorMode": "code",
-          "expr": "gpu_ecc_uncorrect_mp0{primus_lens_node_name=\"$node\"}> 0",
+          "expr": "gpu_ecc_uncorrect_mp0{node=\"$node\"}> 0",
           "hide": false,
           "legendFormat": "ECC UnCorret MP0 GPU{{gpu_id}}",
           "range": true,
@@ -909,7 +909,7 @@
             "uid": "${Datasource}"
           },
           "editorMode": "code",
-          "expr": "gpu_ecc_uncorrect_mp1{primus_lens_node_name=\"$node\"} > 0",
+          "expr": "gpu_ecc_uncorrect_mp1{node=\"$node\"} > 0",
           "hide": false,
           "legendFormat": "ECC UnCorret MP1 GPU{{gpu_id}}",
           "range": true,
@@ -921,7 +921,7 @@
             "uid": "${Datasource}"
           },
           "editorMode": "code",
-          "expr": "gpu_ecc_uncorrect_mpio{primus_lens_node_name=\"$node\"}> 0",
+          "expr": "gpu_ecc_uncorrect_mpio{node=\"$node\"}> 0",
           "hide": false,
           "legendFormat": "ECC UnCorret MPIO GPU{{gpu_id}}",
           "range": true,
@@ -933,7 +933,7 @@
             "uid": "${Datasource}"
           },
           "editorMode": "code",
-          "expr": "gpu_ecc_uncorrect_sdma{primus_lens_node_name=\"$node\"}> 0",
+          "expr": "gpu_ecc_uncorrect_sdma{node=\"$node\"}> 0",
           "hide": false,
           "legendFormat": "ECC UnCorret SDMA GPU{{gpu_id}}",
           "range": true,
@@ -945,7 +945,7 @@
             "uid": "${Datasource}"
           },
           "editorMode": "code",
-          "expr": "gpu_ecc_uncorrect_sem{primus_lens_node_name=\"$node\"} > 0",
+          "expr": "gpu_ecc_uncorrect_sem{node=\"$node\"} > 0",
           "hide": false,
           "legendFormat": "ECC UnCorret SEM GPU{{gpu_id}}",
           "range": true,
@@ -957,7 +957,7 @@
             "uid": "${Datasource}"
           },
           "editorMode": "code",
-          "expr": "gpu_ecc_uncorrect_smn{primus_lens_node_name=\"$node\"} > 0",
+          "expr": "gpu_ecc_uncorrect_smn{node=\"$node\"} > 0",
           "hide": false,
           "legendFormat": "ECC UnCorret SMN GPU{{gpu_id}}",
           "range": true,
@@ -969,7 +969,7 @@
             "uid": "${Datasource}"
           },
           "editorMode": "code",
-          "expr": "gpu_ecc_uncorrect_total{primus_lens_node_name=\"$node\"} > 0",
+          "expr": "gpu_ecc_uncorrect_total{node=\"$node\"} > 0",
           "hide": false,
           "legendFormat": "ECC UnCorret Tota GPUl{{gpu_id}}",
           "range": true,
@@ -981,7 +981,7 @@
             "uid": "${Datasource}"
           },
           "editorMode": "code",
-          "expr": "gpu_ecc_uncorrect_umc{primus_lens_node_name=\"$node\"} > 0",
+          "expr": "gpu_ecc_uncorrect_umc{node=\"$node\"} > 0",
           "hide": false,
           "legendFormat": "ECC UnCorret UMC GPU{{gpu_id}}",
           "range": true,
@@ -993,7 +993,7 @@
             "uid": "${Datasource}"
           },
           "editorMode": "code",
-          "expr": "gpu_ecc_uncorrect_vcn{primus_lens_node_name=\"$node\"} > 0",
+          "expr": "gpu_ecc_uncorrect_vcn{node=\"$node\"} > 0",
           "hide": false,
           "legendFormat": "ECC UnCorret VCN GPU{{gpu_id}}",
           "range": true,
@@ -1005,7 +1005,7 @@
             "uid": "${Datasource}"
           },
           "editorMode": "code",
-          "expr": "gpu_ecc_uncorrect_xgmi_wafl{primus_lens_node_name=\"$node\"} > 0",
+          "expr": "gpu_ecc_uncorrect_xgmi_wafl{node=\"$node\"} > 0",
           "hide": false,
           "legendFormat": "ECC UnCorret WAFL GPU{{gpu_id}}",
           "range": true,
@@ -1099,7 +1099,7 @@
       "targets": [
         {
           "editorMode": "code",
-          "expr": "sum(rate(gpu_xgmi_link_tx{primus_lens_node_name=\"$node\"}[1m])) by (gpu_id)",
+          "expr": "sum(rate(gpu_xgmi_link_tx{node=\"$node\"}[1m])) by (gpu_id)",
           "legendFormat": "GPU {{gpu_id}} TX",
           "range": true,
           "refId": "A"
@@ -1110,7 +1110,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "sum(rate(gpu_xgmi_link_rx{primus_lens_node_name=\"$node\"}[1m])) by (gpu_id)",
+          "expr": "sum(rate(gpu_xgmi_link_rx{node=\"$node\"}[1m])) by (gpu_id)",
           "hide": false,
           "instant": false,
           "legendFormat": "GPU {{gpu_id}} RX",
@@ -1205,7 +1205,7 @@
       "targets": [
         {
           "editorMode": "code",
-          "expr": "sum(rate(pcie_bandwidth{primus_lens_node_name=\"$node\"}[1m])) by (gpu_id)",
+          "expr": "sum(rate(pcie_bandwidth{node=\"$node\"}[1m])) by (gpu_id)",
           "legendFormat": "GPU {{gpu_id}}",
           "range": true,
           "refId": "A"
@@ -1298,7 +1298,7 @@
       "targets": [
         {
           "editorMode": "code",
-          "expr": "rate(rdma_stat_tx_roce_only_bytes{primus_lens_node_name=\"$node\"}[1m])",
+          "expr": "rate(rdma_stat_tx_roce_only_bytes{node=\"$node\"}[1m])",
           "legendFormat": "{{device}} Tx",
           "range": true,
           "refId": "A"
@@ -1309,7 +1309,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "rate(rdma_stat_rx_roce_only_bytes{primus_lens_node_name=\"$node\"}[1m])",
+          "expr": "rate(rdma_stat_rx_roce_only_bytes{node=\"$node\"}[1m])",
           "hide": false,
           "legendFormat": "{{device}} Rx",
           "range": true,
@@ -1402,7 +1402,7 @@
       "targets": [
         {
           "editorMode": "code",
-          "expr": "rate(rdma_stat_tx_pkts{primus_lens_node_name=\"$node\"}[1m])",
+          "expr": "rate(rdma_stat_tx_pkts{node=\"$node\"}[1m])",
           "legendFormat": "{{device}} Tx",
           "range": true,
           "refId": "A"
@@ -1413,7 +1413,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "rate(rdma_stat_rx_pkts{primus_lens_node_name=\"$node\"}[1m])",
+          "expr": "rate(rdma_stat_rx_pkts{node=\"$node\"}[1m])",
           "hide": false,
           "legendFormat": "{{device}} Rx",
           "range": true,
@@ -1510,7 +1510,7 @@
             "uid": "${Datasource}"
           },
           "editorMode": "code",
-          "expr": "increase(rdma_stat_rx_roce_discards{primus_lens_node_name=\"$node\"}) > 0",
+          "expr": "increase(rdma_stat_rx_roce_discards{node=\"$node\"}) > 0",
           "legendFormat": "RX Roce Discards:{{device}}",
           "range": true,
           "refId": "A"
@@ -1521,7 +1521,7 @@
             "uid": "${Datasource}"
           },
           "editorMode": "code",
-          "expr": "increase(rdma_stat_tx_roce_discards{primus_lens_node_name=\"$node\"}) > 0",
+          "expr": "increase(rdma_stat_tx_roce_discards{node=\"$node\"}) > 0",
           "hide": false,
           "instant": false,
           "legendFormat": "TX Roce Discards:{{device}}",
@@ -1534,7 +1534,7 @@
             "uid": "${Datasource}"
           },
           "editorMode": "code",
-          "expr": "increase(rdma_stat_tx_roce_errors{primus_lens_node_name=\"$node\"}[1m]) > 0",
+          "expr": "increase(rdma_stat_tx_roce_errors{node=\"$node\"}[1m]) > 0",
           "hide": false,
           "instant": false,
           "legendFormat": "TX Roce Errors:{{device}}",
@@ -1547,7 +1547,7 @@
             "uid": "${Datasource}"
           },
           "editorMode": "code",
-          "expr": "increase(rdma_stat_rx_roce_errors{primus_lens_node_name=\"$node\"}[1m]) > 0",
+          "expr": "increase(rdma_stat_rx_roce_errors{node=\"$node\"}[1m]) > 0",
           "hide": false,
           "instant": false,
           "legendFormat": "RX Roce Errors:{{device}}",
@@ -1560,7 +1560,7 @@
             "uid": "${Datasource}"
           },
           "editorMode": "code",
-          "expr": "increase(rdma_stat_seq_err_naks_rcvd{primus_lens_node_name=\"$node\"}[1m]) > 0",
+          "expr": "increase(rdma_stat_seq_err_naks_rcvd{node=\"$node\"}[1m]) > 0",
           "hide": false,
           "instant": false,
           "legendFormat": "NAK(Seq err):{{device}}",
@@ -1573,7 +1573,7 @@
             "uid": "${Datasource}"
           },
           "editorMode": "code",
-          "expr": "increase(rdma_stat_rnr_naks_rcvd{primus_lens_node_name=\"$node\"}[1m]) > 0",
+          "expr": "increase(rdma_stat_rnr_naks_rcvd{node=\"$node\"}[1m]) > 0",
           "hide": false,
           "instant": false,
           "legendFormat": "NAK(RNR):{{device}}",
@@ -1586,7 +1586,7 @@
             "uid": "${Datasource}"
           },
           "editorMode": "code",
-          "expr": "increase(rdma_stat_missing_resp{primus_lens_node_name=\"$node\"}[1m]) > 0",
+          "expr": "increase(rdma_stat_missing_resp{node=\"$node\"}[1m]) > 0",
           "hide": false,
           "instant": false,
           "legendFormat": "Missing Resp:{{device}}",
@@ -1599,7 +1599,7 @@
             "uid": "${Datasource}"
           },
           "editorMode": "code",
-          "expr": "increase(rdma_stat_to_retransmits{primus_lens_node_name=\"$node\"}[1m]) > 0",
+          "expr": "increase(rdma_stat_to_retransmits{node=\"$node\"}[1m]) > 0",
           "hide": false,
           "instant": false,
           "legendFormat": "ReTransmit:{{device}}",
@@ -1612,7 +1612,7 @@
             "uid": "${Datasource}"
           },
           "editorMode": "code",
-          "expr": "increase(rdma_stat_max_retry_exceeded{primus_lens_node_name=\"$node\"}[1m]) > 0",
+          "expr": "increase(rdma_stat_max_retry_exceeded{node=\"$node\"}[1m]) > 0",
           "hide": false,
           "instant": false,
           "legendFormat": "MaxRetryExceeded:{{device}}",
@@ -1625,7 +1625,7 @@
             "uid": "${Datasource}"
           },
           "editorMode": "code",
-          "expr": "increase(rdma_stat_missing_resp{primus_lens_node_name=\"$node\"}[1m]) > 0",
+          "expr": "increase(rdma_stat_missing_resp{node=\"$node\"}[1m]) > 0",
           "hide": false,
           "instant": false,
           "legendFormat": "MissingResp:{{device}}",
@@ -1638,7 +1638,7 @@
             "uid": "${Datasource}"
           },
           "editorMode": "code",
-          "expr": "increase(rdma_stat_unrecoverable_err{primus_lens_node_name=\"$node\"}[1m]) > 0",
+          "expr": "increase(rdma_stat_unrecoverable_err{node=\"$node\"}[1m]) > 0",
           "hide": false,
           "instant": false,
           "legendFormat": "UnrecoverableErr:{{device}}",
@@ -1651,7 +1651,7 @@
             "uid": "${Datasource}"
           },
           "editorMode": "code",
-          "expr": "increase(rdma_stat_local_qp_op_err{primus_lens_node_name=\"$node\"}[1m]) > 0",
+          "expr": "increase(rdma_stat_local_qp_op_err{node=\"$node\"}[1m]) > 0",
           "hide": false,
           "instant": false,
           "legendFormat": "LocalQpOpErr:{{device}}",
@@ -1664,7 +1664,7 @@
             "uid": "${Datasource}"
           },
           "editorMode": "code",
-          "expr": "increase(rdma_stat_local_protection_err{primus_lens_node_name=\"$node\"}[1m]) > 0",
+          "expr": "increase(rdma_stat_local_protection_err{node=\"$node\"}[1m]) > 0",
           "hide": false,
           "instant": false,
           "legendFormat": "LocalProtectionErr:{{device}}",
@@ -1677,7 +1677,7 @@
             "uid": "${Datasource}"
           },
           "editorMode": "code",
-          "expr": "increase(rdma_stat_remote_access_err{primus_lens_node_name=\"$node\"}[1m]) > 0 ",
+          "expr": "increase(rdma_stat_remote_access_err{node=\"$node\"}[1m]) > 0 ",
           "hide": false,
           "instant": false,
           "legendFormat": "RemoteAccessErr:{{device}}",
@@ -1690,7 +1690,7 @@
             "uid": "${Datasource}"
           },
           "editorMode": "code",
-          "expr": "increase(rdma_stat_remote_invalid_req_err{primus_lens_node_name=\"$node\"}[1m]) > 0",
+          "expr": "increase(rdma_stat_remote_invalid_req_err{node=\"$node\"}[1m]) > 0",
           "hide": false,
           "instant": false,
           "legendFormat": "RemoteInvalidReqErr:{{device}}",
@@ -1703,7 +1703,7 @@
             "uid": "${Datasource}"
           },
           "editorMode": "code",
-          "expr": "increase(rdma_stat_remote_op_err{primus_lens_node_name=\"$node\"}[1m]) > 0 ",
+          "expr": "increase(rdma_stat_remote_op_err{node=\"$node\"}[1m]) > 0 ",
           "hide": false,
           "instant": false,
           "legendFormat": "RemoteOpErr:{{device}}",
@@ -1716,7 +1716,7 @@
             "uid": "${Datasource}"
           },
           "editorMode": "code",
-          "expr": "increase(rdma_stat_res_opcode_err{primus_lens_node_name=\"$node\"}[1m]) > 0 ",
+          "expr": "increase(rdma_stat_res_opcode_err{node=\"$node\"}[1m]) > 0 ",
           "hide": false,
           "instant": false,
           "legendFormat": "Res Opcode Err:{{device}}",
@@ -1729,7 +1729,7 @@
             "uid": "${Datasource}"
           },
           "editorMode": "code",
-          "expr": "increase(rdma_stat_res_rx_domain_err{primus_lens_node_name=\"$node\"}[1m]) > 0 ",
+          "expr": "increase(rdma_stat_res_rx_domain_err{node=\"$node\"}[1m]) > 0 ",
           "hide": false,
           "instant": false,
           "legendFormat": "Res Rx Domain Err:{{device}}",
@@ -1742,7 +1742,7 @@
             "uid": "${Datasource}"
           },
           "editorMode": "code",
-          "expr": "increase(rdma_stat_res_rx_no_perm{primus_lens_node_name=\"$node\"}[1m]) > 0 ",
+          "expr": "increase(rdma_stat_res_rx_no_perm{node=\"$node\"}[1m]) > 0 ",
           "hide": false,
           "instant": false,
           "legendFormat": "Res Rx No Perm:{{device}}",
@@ -1755,7 +1755,7 @@
             "uid": "${Datasource}"
           },
           "editorMode": "code",
-          "expr": "increase(rdma_stat_res_rx_range_err{primus_lens_node_name=\"$node\"}[1m]) > 0 ",
+          "expr": "increase(rdma_stat_res_rx_range_err{node=\"$node\"}[1m]) > 0 ",
           "hide": false,
           "instant": false,
           "legendFormat": "Res Rx Range Err:{{device}}",
@@ -1768,7 +1768,7 @@
             "uid": "${Datasource}"
           },
           "editorMode": "code",
-          "expr": "increase(rdma_stat_res_tx_domain_err{primus_lens_node_name=\"$node\"}[1m]) > 0 ",
+          "expr": "increase(rdma_stat_res_tx_domain_err{node=\"$node\"}[1m]) > 0 ",
           "hide": false,
           "instant": false,
           "legendFormat": "Res Tx Domain Err:{{device}}",
@@ -1781,7 +1781,7 @@
             "uid": "${Datasource}"
           },
           "editorMode": "code",
-          "expr": "increase(rdma_stat_res_tx_no_perm{primus_lens_node_name=\"$node\"}[1m]) > 0 ",
+          "expr": "increase(rdma_stat_res_tx_no_perm{node=\"$node\"}[1m]) > 0 ",
           "hide": false,
           "instant": false,
           "legendFormat": "Res Tx No Perm:{{device}}",
@@ -1794,7 +1794,7 @@
             "uid": "${Datasource}"
           },
           "editorMode": "code",
-          "expr": "increase(rdma_stat_res_tx_range_err{primus_lens_node_name=\"$node\"}[1m]) > 0 ",
+          "expr": "increase(rdma_stat_res_tx_range_err{node=\"$node\"}[1m]) > 0 ",
           "hide": false,
           "instant": false,
           "legendFormat": "Res Tx Range Err:{{device}}",
@@ -1807,7 +1807,7 @@
             "uid": "${Datasource}"
           },
           "editorMode": "code",
-          "expr": "increase(rdma_stat_res_rem_inv_err{primus_lens_node_name=\"$node\"}[1m]) > 0 ",
+          "expr": "increase(rdma_stat_res_rem_inv_err{node=\"$node\"}[1m]) > 0 ",
           "hide": false,
           "instant": false,
           "legendFormat": "Res Rem Inv Err:{{device}}",
@@ -1820,7 +1820,7 @@
             "uid": "${Datasource}"
           },
           "editorMode": "code",
-          "expr": "increase(rdma_stat_res_mem_err{primus_lens_node_name=\"$node\"}[1m]) > 0 ",
+          "expr": "increase(rdma_stat_res_mem_err{node=\"$node\"}[1m]) > 0 ",
           "hide": false,
           "instant": false,
           "legendFormat": "Res Mem Err:{{device}}",
@@ -1833,7 +1833,7 @@
             "uid": "${Datasource}"
           },
           "editorMode": "code",
-          "expr": "increase(rdma_stat_res_srq_err{primus_lens_node_name=\"$node\"}[1m]) > 0 ",
+          "expr": "increase(rdma_stat_res_srq_err{node=\"$node\"}[1m]) > 0 ",
           "hide": false,
           "instant": false,
           "legendFormat": "Res Srq Err:{{device}}",
@@ -1846,7 +1846,7 @@
             "uid": "${Datasource}"
           },
           "editorMode": "code",
-          "expr": "increase(rdma_stat_res_cmp_err{primus_lens_node_name=\"$node\"}[1m]) > 0 ",
+          "expr": "increase(rdma_stat_res_cmp_err{node=\"$node\"}[1m]) > 0 ",
           "hide": false,
           "instant": false,
           "legendFormat": "Res Cmp Err:{{device}}",
@@ -1859,7 +1859,7 @@
             "uid": "${Datasource}"
           },
           "editorMode": "code",
-          "expr": "increase(rdma_stat_res_wqe_format_err{primus_lens_node_name=\"$node\"}[1m]) > 0 ",
+          "expr": "increase(rdma_stat_res_wqe_format_err{node=\"$node\"}[1m]) > 0 ",
           "hide": false,
           "instant": false,
           "legendFormat": "Res Wqe Err:{{device}}",
@@ -1872,7 +1872,7 @@
             "uid": "${Datasource}"
           },
           "editorMode": "code",
-          "expr": "increase(rdma_stat_res_cq_load_err{primus_lens_node_name=\"$node\"}[1m]) > 0 ",
+          "expr": "increase(rdma_stat_res_cq_load_err{node=\"$node\"}[1m]) > 0 ",
           "hide": false,
           "instant": false,
           "legendFormat": "Res Cq Load Err:{{device}}",
@@ -1885,7 +1885,7 @@
             "uid": "${Datasource}"
           },
           "editorMode": "code",
-          "expr": "increase(rdma_stat_res_srq_load_err{primus_lens_node_name=\"$node\"}[1m]) > 0 ",
+          "expr": "increase(rdma_stat_res_srq_load_err{node=\"$node\"}[1m]) > 0 ",
           "hide": false,
           "instant": false,
           "legendFormat": "Res Srq Load Err:{{device}}",
@@ -1898,7 +1898,7 @@
             "uid": "${Datasource}"
           },
           "editorMode": "code",
-          "expr": "increase(rdma_stat_res_tx_pci_err{primus_lens_node_name=\"$node\"}[1m]) > 0 ",
+          "expr": "increase(rdma_stat_res_tx_pci_err{node=\"$node\"}[1m]) > 0 ",
           "hide": false,
           "instant": false,
           "legendFormat": "Res Tx Pci Err:{{device}}",
@@ -1911,7 +1911,7 @@
             "uid": "${Datasource}"
           },
           "editorMode": "code",
-          "expr": "increase(rdma_stat_res_rx_pci_err{primus_lens_node_name=\"$node\"}[1m]) > 0 ",
+          "expr": "increase(rdma_stat_res_rx_pci_err{node=\"$node\"}[1m]) > 0 ",
           "hide": false,
           "instant": false,
           "legendFormat": "Res Rx Pci Err:{{device}}",
@@ -2009,7 +2009,7 @@
             "uid": "${Datasource}"
           },
           "editorMode": "code",
-          "expr": "increase(rdma_stat_dup_req{primus_lens_node_name=\"$node\"}[1m]) > 0",
+          "expr": "increase(rdma_stat_dup_req{node=\"$node\"}[1m]) > 0",
           "legendFormat": "DupReq:{{device}}",
           "range": true,
           "refId": "A"
@@ -2020,7 +2020,7 @@
             "uid": "${Datasource}"
           },
           "editorMode": "code",
-          "expr": "increase(rdma_stat_res_exceed_max{primus_lens_node_name=\"$node\"}[1m]) > 0",
+          "expr": "increase(rdma_stat_res_exceed_max{node=\"$node\"}[1m]) > 0",
           "hide": false,
           "instant": false,
           "legendFormat": "ResExceedMax:{{device}}",
@@ -2033,7 +2033,7 @@
             "uid": "${Datasource}"
           },
           "editorMode": "code",
-          "expr": "increase(rdma_stat_res_length_mismatch{primus_lens_node_name=\"$node\"}[1m]) > 0",
+          "expr": "increase(rdma_stat_res_length_mismatch{node=\"$node\"}[1m]) > 0",
           "hide": false,
           "instant": false,
           "legendFormat": "ResLengthMismatch:{{device}}",
@@ -2046,7 +2046,7 @@
             "uid": "${Datasource}"
           },
           "editorMode": "code",
-          "expr": "increase(rdma_stat_res_exceeds_wqe{primus_lens_node_name=\"$node\"}[1m]) > 0",
+          "expr": "increase(rdma_stat_res_exceeds_wqe{node=\"$node\"}[1m]) > 0",
           "hide": false,
           "instant": false,
           "legendFormat": "ResExceedsWqe:{{device}}",
@@ -2059,7 +2059,7 @@
             "uid": "${Datasource}"
           },
           "editorMode": "code",
-          "expr": "increase(rdma_stat_res_rx_invalid_rkey{primus_lens_node_name=\"$node\"}[1m]) > 0",
+          "expr": "increase(rdma_stat_res_rx_invalid_rkey{node=\"$node\"}[1m]) > 0",
           "hide": false,
           "instant": false,
           "legendFormat": "Res Rx Invalid Rkey:{{device}}",
@@ -2072,7 +2072,7 @@
             "uid": "${Datasource}"
           },
           "editorMode": "code",
-          "expr": "increase(rdma_stat_res_tx_invalid_rkey{primus_lens_node_name=\"$node\"}[1m]) > 0",
+          "expr": "increase(rdma_stat_res_tx_invalid_rkey{node=\"$node\"}[1m]) > 0",
           "hide": false,
           "instant": false,
           "legendFormat": "Res Tx Invalid Rkey:{{device}}",
@@ -2085,7 +2085,7 @@
             "uid": "${Datasource}"
           },
           "editorMode": "code",
-          "expr": "increase(rdma_stat_res_irrq_oflow{primus_lens_node_name=\"$node\"}[1m]) > 0",
+          "expr": "increase(rdma_stat_res_irrq_oflow{node=\"$node\"}[1m]) > 0",
           "hide": false,
           "instant": false,
           "legendFormat": "Res Irrq Oflow:{{device}}",
@@ -2098,7 +2098,7 @@
             "uid": "${Datasource}"
           },
           "editorMode": "code",
-          "expr": "increase(rdma_stat_res_unsup_opcode{primus_lens_node_name=\"$node\"}[1m]) > 0",
+          "expr": "increase(rdma_stat_res_unsup_opcode{node=\"$node\"}[1m]) > 0",
           "hide": false,
           "instant": false,
           "legendFormat": "Res Unsupported OpCode:{{device}}",
@@ -2111,7 +2111,7 @@
             "uid": "${Datasource}"
           },
           "editorMode": "code",
-          "expr": "increase(rdma_stat_res_unaligned_atomic{primus_lens_node_name=\"$node\"}[1m]) > 0",
+          "expr": "increase(rdma_stat_res_unaligned_atomic{node=\"$node\"}[1m]) > 0",
           "hide": false,
           "instant": false,
           "legendFormat": "Res Unaligned Atomic:{{device}}",
@@ -2124,7 +2124,7 @@
             "uid": "${Datasource}"
           },
           "editorMode": "code",
-          "expr": "increase(rdma_stat_missing_resp{primus_lens_node_name=\"$node\"}[1m]) > 0",
+          "expr": "increase(rdma_stat_missing_resp{node=\"$node\"}[1m]) > 0",
           "hide": false,
           "instant": false,
           "legendFormat": "MissingResp:{{device}}",
@@ -2137,7 +2137,7 @@
             "uid": "${Datasource}"
           },
           "editorMode": "code",
-          "expr": "increase(rdma_stat_res_invalid_dup_rkey{primus_lens_node_name=\"$node\"}[1m]) > 0",
+          "expr": "increase(rdma_stat_res_invalid_dup_rkey{node=\"$node\"}[1m]) > 0",
           "hide": false,
           "instant": false,
           "legendFormat": "Res Invalid Dup Rkey:{{device}}",
@@ -2171,12 +2171,12 @@
           "text": "chi2531",
           "value": "chi2531"
         },
-        "definition": "label_values(gpu_health,primus_lens_node_name)",
+        "definition": "label_values(gpu_health,node)",
         "name": "node",
         "options": [],
         "query": {
           "qryType": 1,
-          "query": "label_values(gpu_health,primus_lens_node_name)",
+          "query": "label_values(gpu_health,node)",
           "refId": "PrometheusVariableQueryEditor-VariableQuery"
         },
         "refresh": 1,

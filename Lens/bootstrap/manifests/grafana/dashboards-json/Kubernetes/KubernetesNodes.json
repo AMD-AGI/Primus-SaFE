@@ -1050,13 +1050,13 @@
           "value": "10.32.16.27:9100"
         },
         "datasource": "${datasource}",
-        "definition": "label_values(node_boot_time_seconds{primus_lens_node_name=\"$node\"},instance)",
+        "definition": "label_values(node_boot_time_seconds{node=\"$node\"},instance)",
         "includeAll": false,
         "name": "server",
         "options": [],
         "query": {
           "qryType": 1,
-          "query": "label_values(node_boot_time_seconds{primus_lens_node_name=\"$node\"},instance)",
+          "query": "label_values(node_boot_time_seconds{node=\"$node\"},instance)",
           "refId": "PrometheusVariableQueryEditor-VariableQuery"
         },
         "refresh": 1,
