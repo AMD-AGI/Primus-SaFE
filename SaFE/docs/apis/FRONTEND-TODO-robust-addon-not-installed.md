@@ -92,8 +92,8 @@ Add a `robustNotInstalled` ref. In `fetchGPUData`:
 - Reset `robustNotInstalled.value = false` at the top.
 - On success: clear it and render as today.
 - On error: if `isRobustAddonNotInstalled(error)` is true, set it to
-  `true`, clear `gpuData.value`, re-render chart with the placeholder
-  branch. Otherwise fall through to the existing `console.error`.
+`true`, clear `gpuData.value`, re-render chart with the placeholder
+branch. Otherwise fall through to the existing `console.error`.
 
 In the chart empty state (`renderGPUChart` currently emits
 `text: 'No Data'`), swap in a longer message when `robustNotInstalled` is
@@ -106,22 +106,24 @@ Allocation / Avg Utilization / Low Utilization) that depend on the same
 data: show `—` with a small inline hint, don't show `0` which can be
 confused with "genuinely zero utilization".
 
-#### Other `/lens/v1/*` consumers
+#### Other `/lens/v1/`* consumers
 
 Run a search for `lensRequest.` to find every place that calls the
 lens-compat proxy. Each one should either:
 
 - Delegate to a wrapped API helper that already catches and re-exposes
-  the robust-not-installed signal, or
+the robust-not-installed signal, or
 - Handle it inline the same way the home page does.
 
 Minimum set to cover:
 
-| File | Feature |
-| ---- | ------- |
-| `Web/apps/safe/src/services/workload/index.ts` — `getGPUAggregation`, `getGPUAggregationByWorkload` | Home page GPU panels, Workload list GPU column |
-| `Web/apps/safe/src/pages/Training/TrainingDetail.vue`, `TorchFT/TorchFTDetail.vue`, `RayJob/RayJobDetail.vue`, etc. — anywhere that embeds the Grafana training-workload dashboard or reads `training_perf_*` variables | Training detail pages |
-| `Web/apps/lens/src/services/gpu-aggregation/index.ts` — Lens-only views | Standalone Lens app |
+
+| File                                                                                                                                                                                                                    | Feature                                        |
+| ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------- |
+| `Web/apps/safe/src/services/workload/index.ts` — `getGPUAggregation`, `getGPUAggregationByWorkload`                                                                                                                     | Home page GPU panels, Workload list GPU column |
+| `Web/apps/safe/src/pages/Training/TrainingDetail.vue`, `TorchFT/TorchFTDetail.vue`, `RayJob/RayJobDetail.vue`, etc. — anywhere that embeds the Grafana training-workload dashboard or reads `training_perf_`* variables | Training detail pages                          |
+| `Web/apps/lens/src/services/gpu-aggregation/index.ts` — Lens-only views                                                                                                                                                 | Standalone Lens app                            |
+
 
 For embedded Grafana dashboards the apiserver-side `lens-compat` handler
 already returns a clear JSON error; Grafana renders a panel-level error
@@ -137,7 +139,7 @@ the current cluster's "has robust" flag. A pragmatic way to do that
 without a new API:
 
 1. On workspace switch (`useWorkspaceStore.setCurrentWorkspace`), probe
-   `GET /lens/v1/health` (add a trivial robust-api endpoint that always
+  `GET /lens/v1/health` (add a trivial robust-api endpoint that always
    returns 200) with `skipErrorHandler: true`.
 2. Cache the outcome in the cluster store as `hasRobust: boolean`.
 3. Use that flag in route guards / tab visibility.
@@ -159,8 +161,9 @@ HTTP status:  404 (current default, do not assert on it)
 ## Out of scope for this task
 
 - Don't wire `?cluster=` into the Grafana iframe URL; the dashboard
-  variable already covers that path.
+variable already covers that path.
 - Don't try to auto-install the addon from the UI — provisioning is
-  handled by `resource-manager` via the AddonController.
+handled by `resource-manager` via the AddonController.
 - No backend changes needed beyond the apiserver bits already merged in
-  `fix/luochen/migrate-to-robust`.
+`fix/luochen/migrate-to-robust`.
+
