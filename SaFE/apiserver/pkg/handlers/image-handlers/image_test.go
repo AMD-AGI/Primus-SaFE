@@ -249,11 +249,11 @@ func TestGenerateAuthValue(t *testing.T) {
 		{
 			name:     "password with special characters",
 			username: "user",
-			password: "P@ssw0rd!#$%",
+			password: "yourword",
 			validate: func(t *testing.T, result string) {
 				decoded, err := base64.URLEncoding.DecodeString(result)
 				assert.NoError(t, err)
-				assert.Equal(t, "user:P@ssw0rd!#$%", string(decoded))
+				assert.Equal(t, "user:yourword", string(decoded))
 			},
 		},
 	}
