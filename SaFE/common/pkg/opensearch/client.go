@@ -66,6 +66,17 @@ func (c *SearchClient) SearchByTimeRange(sinceTime, untilTime time.Time, index, 
 	if !strings.HasPrefix(uri, "/") {
 		uri = "/" + uri
 	}
+	// When the multi-day path enumerates indexes (e.g. node-2026.04.15,
+	// node-2026.04.16,...), OpenSearch returns 404 if any one of them is
+	// missing. That happens right after a PVC reset or on a fresh cluster
+	// where only today's index exists yet. Telling OpenSearch to ignore
+	// missing / unavailable indexes makes the query degrade to "return what
+	// exists" instead of failing the whole request.
+	sep := "?"
+	if strings.Contains(uri, "?") {
+		sep = "&"
+	}
+	uri = uri + sep + "ignore_unavailable=true&allow_no_indices=true"
 	return c.Request(indexPattern+uri, "POST", body)
 }
 

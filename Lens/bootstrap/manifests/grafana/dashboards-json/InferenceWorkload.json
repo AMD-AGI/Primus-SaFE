@@ -2128,8 +2128,8 @@
             "uid": "${cluster}"
           },
           "editorMode": "code",
-          "expr": "avg(workload_gpu_utilization{workload_uid=\"$workload_uid\"}) by (primus_lens_node_name)",
-          "legendFormat": "{{primus_lens_node_name}}",
+          "expr": "avg(workload_gpu_utilization{workload_uid=\"$workload_uid\"}) by (node)",
+          "legendFormat": "{{node}}",
           "range": true,
           "refId": "A"
         }
@@ -2229,8 +2229,8 @@
             "uid": "${cluster}"
           },
           "editorMode": "code",
-          "expr": "100 - ((avg(workload_gpu_free_vram{workload_uid=\"$workload_uid\"}) by (primus_lens_node_name))/(avg(workload_gpu_total_vram{workload_uid=\"$workload_uid\"}) by (primus_lens_node_name)) * 100)",
-          "legendFormat": "{{primus_lens_node_name}}",
+          "expr": "100 - ((avg(workload_gpu_free_vram{workload_uid=\"$workload_uid\"}) by (node))/(avg(workload_gpu_total_vram{workload_uid=\"$workload_uid\"}) by (node)) * 100)",
+          "legendFormat": "{{node}}",
           "range": true,
           "refId": "A"
         }
@@ -2331,8 +2331,8 @@
             "uid": "${cluster}"
           },
           "editorMode": "code",
-          "expr": "avg(workload_gpu_socket_power_watts{workload_uid=\"$workload_uid\"}) by (primus_lens_node_name)",
-          "legendFormat": "{{primus_lens_node_name}}",
+          "expr": "avg(workload_gpu_socket_power_watts{workload_uid=\"$workload_uid\"}) by (node)",
+          "legendFormat": "{{node}}",
           "range": true,
           "refId": "A"
         }
@@ -2433,8 +2433,8 @@
             "uid": "${cluster}"
           },
           "editorMode": "code",
-          "expr": "(avg(workload_gpu_total_vram{workload_uid=\"$workload_uid\"}) by (primus_lens_node_name)) - (avg(workload_gpu_free_vram{workload_uid=\"$workload_uid\"}) by (primus_lens_node_name))",
-          "legendFormat": "{{primus_lens_node_name}}",
+          "expr": "(avg(workload_gpu_total_vram{workload_uid=\"$workload_uid\"}) by (node)) - (avg(workload_gpu_free_vram{workload_uid=\"$workload_uid\"}) by (node))",
+          "legendFormat": "{{node}}",
           "range": true,
           "refId": "A"
         }
@@ -2531,8 +2531,8 @@
             "uid": "${cluster}"
           },
           "editorMode": "code",
-          "expr": "sum(rate(workload_rdma_stat_tx_roce_only_bytes{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name) or sum(rate(workload_rdma_stat_tx_rdma_ucast_bytes{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name)",
-          "legendFormat": "{{primus_lens_node_name}}  TX",
+          "expr": "sum(rate(workload_rdma_stat_tx_bytes{workload_uid=\"$workload_uid\"}[1m])) by (node) or sum(rate(workload_rdma_stat_tx_bytes{workload_uid=\"$workload_uid\"}[1m])) by (node)",
+          "legendFormat": "{{node}}  TX",
           "range": true,
           "refId": "A"
         },
@@ -2542,10 +2542,10 @@
             "uid": "${cluster}"
           },
           "editorMode": "code",
-          "expr": "sum(rate(workload_rdma_stat_rx_roce_only_bytes{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name) or sum(rate(workload_rdma_stat_rx_rdma_ucast_bytes{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name)",
+          "expr": "sum(rate(workload_rdma_stat_rx_bytes{workload_uid=\"$workload_uid\"}[1m])) by (node) or sum(rate(workload_rdma_stat_rx_bytes{workload_uid=\"$workload_uid\"}[1m])) by (node)",
           "hide": false,
           "instant": false,
-          "legendFormat": "{{primus_lens_node_name}}  RX",
+          "legendFormat": "{{node}}  RX",
           "range": true,
           "refId": "B"
         }
@@ -2641,8 +2641,8 @@
             "uid": "${cluster}"
           },
           "editorMode": "code",
-          "expr": "sum(rate(workload_rdma_stat_tx_roce_only_pkts{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name) or sum(rate(workload_rdma_stat_tx_rdma_ucast_pkts{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name)",
-          "legendFormat": "{{primus_lens_node_name}}  TX",
+          "expr": "sum(rate(workload_rdma_stat_tx_pkts{workload_uid=\"$workload_uid\"}[1m])) by (node) or sum(rate(workload_rdma_stat_tx_pkts{workload_uid=\"$workload_uid\"}[1m])) by (node)",
+          "legendFormat": "{{node}}  TX",
           "range": true,
           "refId": "A"
         },
@@ -2652,10 +2652,10 @@
             "uid": "${cluster}"
           },
           "editorMode": "code",
-          "expr": "sum(rate(workload_rdma_stat_rx_roce_only_pkts{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name) or sum(rate(workload_rdma_stat_rx_rdma_ucast_pkts{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name)",
+          "expr": "sum(rate(workload_rdma_stat_rx_pkts{workload_uid=\"$workload_uid\"}[1m])) by (node) or sum(rate(workload_rdma_stat_rx_pkts{workload_uid=\"$workload_uid\"}[1m])) by (node)",
           "hide": false,
           "instant": false,
-          "legendFormat": "{{primus_lens_node_name}}  RX",
+          "legendFormat": "{{node}}  RX",
           "range": true,
           "refId": "B"
         }
@@ -2751,8 +2751,8 @@
             "uid": "${cluster}"
           },
           "editorMode": "code",
-          "expr": "sum(increase(workload_rdma_stat_rx_roce_discards{workload_uid=\"$workload_uid\"})) by (primus_lens_node_name)> 0 or sum(increase(workload_rdma_stat_rx_rdma_mtu_discard_pkts{workload_uid=\"$workload_uid\"})) by (primus_lens_node_name)> 0",
-          "legendFormat": "RX Roce Discards:{{primus_lens_node_name}}",
+          "expr": "sum(increase(workload_rdma_stat_rx_roce_discards{workload_uid=\"$workload_uid\"})) by (node)> 0 or sum(increase(workload_rdma_stat_rx_rdma_mtu_discard_pkts{workload_uid=\"$workload_uid\"})) by (node)> 0",
+          "legendFormat": "RX Roce Discards:{{node}}",
           "range": true,
           "refId": "A"
         },
@@ -2762,10 +2762,10 @@
             "uid": "${cluster}"
           },
           "editorMode": "code",
-          "expr": "sum(increase(workload_rdma_stat_tx_roce_discards{workload_uid=\"$workload_uid\"})) by (primus_lens_node_name)> 0 or sum(increase(workload_rdma_stat_tx_rdma_mtu_discard_pkts{workload_uid=\"$workload_uid\"})) by (primus_lens_node_name)> 0",
+          "expr": "sum(increase(workload_rdma_stat_tx_roce_discards{workload_uid=\"$workload_uid\"})) by (node)> 0 or sum(increase(workload_rdma_stat_tx_rdma_mtu_discard_pkts{workload_uid=\"$workload_uid\"})) by (node)> 0",
           "hide": false,
           "instant": false,
-          "legendFormat": "TX Roce Discards:{{primus_lens_node_name}}",
+          "legendFormat": "TX Roce Discards:{{node}}",
           "range": true,
           "refId": "B"
         },
@@ -2775,10 +2775,10 @@
             "uid": "${cluster}"
           },
           "editorMode": "code",
-          "expr": "sum(increase(workload_rdma_stat_tx_roce_errors{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name)> 0",
+          "expr": "sum(increase(workload_rdma_stat_tx_roce_errors{workload_uid=\"$workload_uid\"}[1m])) by (node)> 0",
           "hide": false,
           "instant": false,
-          "legendFormat": "TX Roce Errors:{{primus_lens_node_name}}",
+          "legendFormat": "TX Roce Errors:{{node}}",
           "range": true,
           "refId": "C"
         },
@@ -2788,10 +2788,10 @@
             "uid": "${cluster}"
           },
           "editorMode": "code",
-          "expr": "sum(increase(workload_rdma_stat_rx_roce_errors{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name)> 0",
+          "expr": "sum(increase(workload_rdma_stat_rx_roce_errors{workload_uid=\"$workload_uid\"}[1m])) by (node)> 0",
           "hide": false,
           "instant": false,
-          "legendFormat": "RX Roce Errors:{{primus_lens_node_name}}",
+          "legendFormat": "RX Roce Errors:{{node}}",
           "range": true,
           "refId": "D"
         },
@@ -2801,10 +2801,10 @@
             "uid": "${cluster}"
           },
           "editorMode": "code",
-          "expr": "sum(increase(workload_rdma_stat_seq_err_naks_rcvd{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name)> 0 or sum(increase(workload_rdma_stat_req_rx_pkt_seq_err{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name)> 0",
+          "expr": "sum(increase(workload_rdma_stat_seq_err_naks_rcvd{workload_uid=\"$workload_uid\"}[1m])) by (node)> 0 or sum(increase(workload_rdma_stat_req_rx_pkt_seq_err{workload_uid=\"$workload_uid\"}[1m])) by (node)> 0",
           "hide": false,
           "instant": false,
-          "legendFormat": "NAK(Seq err):{{primus_lens_node_name}}",
+          "legendFormat": "NAK(Seq err):{{node}}",
           "range": true,
           "refId": "E"
         },
@@ -2814,10 +2814,10 @@
             "uid": "${cluster}"
           },
           "editorMode": "code",
-          "expr": "sum(increase(workload_rdma_stat_rnr_naks_rcvd{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name)> 0 or sum(increase(workload_rdma_stat_req_rx_rnr_retry_err{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name)> 0",
+          "expr": "sum(increase(workload_rdma_stat_rnr_naks_rcvd{workload_uid=\"$workload_uid\"}[1m])) by (node)> 0 or sum(increase(workload_rdma_stat_req_rx_rnr_retry_err{workload_uid=\"$workload_uid\"}[1m])) by (node)> 0",
           "hide": false,
           "instant": false,
-          "legendFormat": "NAK(RNR):{{primus_lens_node_name}}",
+          "legendFormat": "NAK(RNR):{{node}}",
           "range": true,
           "refId": "F"
         },
@@ -2827,10 +2827,10 @@
             "uid": "${cluster}"
           },
           "editorMode": "code",
-          "expr": "sum(increase(workload_rdma_stat_missing_resp{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name)> 0 or sum(increase(workload_rdma_stat_resp_rx_outouf_seq{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name)> 0",
+          "expr": "sum(increase(workload_rdma_stat_missing_resp{workload_uid=\"$workload_uid\"}[1m])) by (node)> 0 or sum(increase(workload_rdma_stat_resp_rx_outouf_seq{workload_uid=\"$workload_uid\"}[1m])) by (node)> 0",
           "hide": false,
           "instant": false,
-          "legendFormat": "Missing Resp:{{primus_lens_node_name}}",
+          "legendFormat": "Missing Resp:{{node}}",
           "range": true,
           "refId": "G"
         },
@@ -2840,10 +2840,10 @@
             "uid": "${cluster}"
           },
           "editorMode": "code",
-          "expr": "sum(increase(workload_rdma_stat_to_retransmits{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name)> 0 or sum(increase(workload_rdma_stat_tx_rdma_retx_pkts{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name)> 0",
+          "expr": "sum(increase(workload_rdma_stat_to_retransmits{workload_uid=\"$workload_uid\"}[1m])) by (node)> 0 or sum(increase(workload_rdma_stat_tx_rdma_retx_pkts{workload_uid=\"$workload_uid\"}[1m])) by (node)> 0",
           "hide": false,
           "instant": false,
-          "legendFormat": "ReTransmit:{{primus_lens_node_name}}",
+          "legendFormat": "ReTransmit:{{node}}",
           "range": true,
           "refId": "H"
         },
@@ -2853,10 +2853,10 @@
             "uid": "${cluster}"
           },
           "editorMode": "code",
-          "expr": "sum(increase(workload_rdma_stat_max_retry_exceeded{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name)> 0 or sum(increase(workload_rdma_stat_req_tx_retry_excd_err{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name)> 0",
+          "expr": "sum(increase(workload_rdma_stat_max_retry_exceeded{workload_uid=\"$workload_uid\"}[1m])) by (node)> 0 or sum(increase(workload_rdma_stat_req_tx_retry_excd_err{workload_uid=\"$workload_uid\"}[1m])) by (node)> 0",
           "hide": false,
           "instant": false,
-          "legendFormat": "MaxRetryExceeded:{{primus_lens_node_name}}",
+          "legendFormat": "MaxRetryExceeded:{{node}}",
           "range": true,
           "refId": "I"
         },
@@ -2866,10 +2866,10 @@
             "uid": "${cluster}"
           },
           "editorMode": "code",
-          "expr": "sum(increase(workload_rdma_stat_missing_resp{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name)> 0 or sum(increase(workload_rdma_stat_resp_rx_outouf_seq{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name)> 0",
+          "expr": "sum(increase(workload_rdma_stat_missing_resp{workload_uid=\"$workload_uid\"}[1m])) by (node)> 0 or sum(increase(workload_rdma_stat_resp_rx_outouf_seq{workload_uid=\"$workload_uid\"}[1m])) by (node)> 0",
           "hide": false,
           "instant": false,
-          "legendFormat": "MissingResp:{{primus_lens_node_name}}",
+          "legendFormat": "MissingResp:{{node}}",
           "range": true,
           "refId": "J"
         },
@@ -2879,10 +2879,10 @@
             "uid": "${cluster}"
           },
           "editorMode": "code",
-          "expr": "sum(increase(workload_rdma_stat_unrecoverable_err{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name)> 0 or sum(increase(workload_rdma_stat_req_rx_cqe_err{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name)> 0",
+          "expr": "sum(increase(workload_rdma_stat_unrecoverable_err{workload_uid=\"$workload_uid\"}[1m])) by (node)> 0 or sum(increase(workload_rdma_stat_req_rx_cqe_err{workload_uid=\"$workload_uid\"}[1m])) by (node)> 0",
           "hide": false,
           "instant": false,
-          "legendFormat": "UnrecoverableErr:{{primus_lens_node_name}}",
+          "legendFormat": "UnrecoverableErr:{{node}}",
           "range": true,
           "refId": "K"
         },
@@ -2892,10 +2892,10 @@
             "uid": "${cluster}"
           },
           "editorMode": "code",
-          "expr": "sum(increase(workload_rdma_stat_local_qp_op_err{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name)> 0 or sum(increase(workload_rdma_stat_req_tx_loc_oper_err{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name)> 0",
+          "expr": "sum(increase(workload_rdma_stat_local_qp_op_err{workload_uid=\"$workload_uid\"}[1m])) by (node)> 0 or sum(increase(workload_rdma_stat_req_tx_loc_oper_err{workload_uid=\"$workload_uid\"}[1m])) by (node)> 0",
           "hide": false,
           "instant": false,
-          "legendFormat": "LocalQpOpErr:{{primus_lens_node_name}}",
+          "legendFormat": "LocalQpOpErr:{{node}}",
           "range": true,
           "refId": "L"
         },
@@ -2905,10 +2905,10 @@
             "uid": "${cluster}"
           },
           "editorMode": "code",
-          "expr": "sum(increase(workload_rdma_stat_local_protection_err{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name)> 0 or sum(increase(workload_rdma_stat_req_tx_loc_acc_err{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name)> 0",
+          "expr": "sum(increase(workload_rdma_stat_local_protection_err{workload_uid=\"$workload_uid\"}[1m])) by (node)> 0 or sum(increase(workload_rdma_stat_req_tx_loc_acc_err{workload_uid=\"$workload_uid\"}[1m])) by (node)> 0",
           "hide": false,
           "instant": false,
-          "legendFormat": "LocalProtectionErr:{{primus_lens_node_name}}",
+          "legendFormat": "LocalProtectionErr:{{node}}",
           "range": true,
           "refId": "M"
         },
@@ -2918,10 +2918,10 @@
             "uid": "${cluster}"
           },
           "editorMode": "code",
-          "expr": "sum(increase(workload_rdma_stat_remote_access_err{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name)> 0  or sum(increase(workload_rdma_stat_req_rx_rmt_acc_err{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name)> 0 ",
+          "expr": "sum(increase(workload_rdma_stat_remote_access_err{workload_uid=\"$workload_uid\"}[1m])) by (node)> 0  or sum(increase(workload_rdma_stat_req_rx_rmt_acc_err{workload_uid=\"$workload_uid\"}[1m])) by (node)> 0 ",
           "hide": false,
           "instant": false,
-          "legendFormat": "RemoteAccessErr:{{primus_lens_node_name}}",
+          "legendFormat": "RemoteAccessErr:{{node}}",
           "range": true,
           "refId": "N"
         },
@@ -2931,10 +2931,10 @@
             "uid": "${cluster}"
           },
           "editorMode": "code",
-          "expr": "sum(increase(workload_rdma_stat_remote_invalid_req_err{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name)> 0 or sum(increase(workload_rdma_stat_req_rx_rmt_req_err{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name)> 0",
+          "expr": "sum(increase(workload_rdma_stat_remote_invalid_req_err{workload_uid=\"$workload_uid\"}[1m])) by (node)> 0 or sum(increase(workload_rdma_stat_req_rx_rmt_req_err{workload_uid=\"$workload_uid\"}[1m])) by (node)> 0",
           "hide": false,
           "instant": false,
-          "legendFormat": "RemoteInvalidReqErr:{{primus_lens_node_name}}",
+          "legendFormat": "RemoteInvalidReqErr:{{node}}",
           "range": true,
           "refId": "O"
         },
@@ -2944,10 +2944,10 @@
             "uid": "${cluster}"
           },
           "editorMode": "code",
-          "expr": "sum(increase(workload_rdma_stat_remote_op_err{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name)> 0  or sum(increase(workload_rdma_stat_resp_tx_rmt_oper_err{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name)> 0 ",
+          "expr": "sum(increase(workload_rdma_stat_remote_op_err{workload_uid=\"$workload_uid\"}[1m])) by (node)> 0  or sum(increase(workload_rdma_stat_resp_tx_rmt_oper_err{workload_uid=\"$workload_uid\"}[1m])) by (node)> 0 ",
           "hide": false,
           "instant": false,
-          "legendFormat": "RemoteOpErr:{{primus_lens_node_name}}",
+          "legendFormat": "RemoteOpErr:{{node}}",
           "range": true,
           "refId": "P"
         },
@@ -2957,10 +2957,10 @@
             "uid": "${cluster}"
           },
           "editorMode": "code",
-          "expr": "sum(increase(workload_rdma_stat_res_opcode_err{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name)> 0 ",
+          "expr": "sum(increase(workload_rdma_stat_res_opcode_err{workload_uid=\"$workload_uid\"}[1m])) by (node)> 0 ",
           "hide": false,
           "instant": false,
-          "legendFormat": "Res Opcode Err:{{primus_lens_node_name}}",
+          "legendFormat": "Res Opcode Err:{{node}}",
           "range": true,
           "refId": "Q"
         },
@@ -2970,10 +2970,10 @@
             "uid": "${cluster}"
           },
           "editorMode": "code",
-          "expr": "sum(increase(workload_rdma_stat_res_rx_domain_err{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name)> 0 ",
+          "expr": "sum(increase(workload_rdma_stat_res_rx_domain_err{workload_uid=\"$workload_uid\"}[1m])) by (node)> 0 ",
           "hide": false,
           "instant": false,
-          "legendFormat": "Res Rx Domain Err:{{primus_lens_node_name}}",
+          "legendFormat": "Res Rx Domain Err:{{node}}",
           "range": true,
           "refId": "R"
         },
@@ -2983,10 +2983,10 @@
             "uid": "${cluster}"
           },
           "editorMode": "code",
-          "expr": "sum(increase(workload_rdma_stat_res_rx_no_perm{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name)> 0 ",
+          "expr": "sum(increase(workload_rdma_stat_res_rx_no_perm{workload_uid=\"$workload_uid\"}[1m])) by (node)> 0 ",
           "hide": false,
           "instant": false,
-          "legendFormat": "Res Rx No Perm:{{primus_lens_node_name}}",
+          "legendFormat": "Res Rx No Perm:{{node}}",
           "range": true,
           "refId": "S"
         },
@@ -2996,10 +2996,10 @@
             "uid": "${cluster}"
           },
           "editorMode": "code",
-          "expr": "sum(increase(workload_rdma_stat_res_rx_range_err{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name)> 0 ",
+          "expr": "sum(increase(workload_rdma_stat_res_rx_range_err{workload_uid=\"$workload_uid\"}[1m])) by (node)> 0 ",
           "hide": false,
           "instant": false,
-          "legendFormat": "Res Rx Range Err:{{primus_lens_node_name}}",
+          "legendFormat": "Res Rx Range Err:{{node}}",
           "range": true,
           "refId": "T"
         },
@@ -3009,10 +3009,10 @@
             "uid": "${cluster}"
           },
           "editorMode": "code",
-          "expr": "sum(increase(workload_rdma_stat_res_tx_domain_err{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name)> 0 ",
+          "expr": "sum(increase(workload_rdma_stat_res_tx_domain_err{workload_uid=\"$workload_uid\"}[1m])) by (node)> 0 ",
           "hide": false,
           "instant": false,
-          "legendFormat": "Res Tx Domain Err:{{primus_lens_node_name}}",
+          "legendFormat": "Res Tx Domain Err:{{node}}",
           "range": true,
           "refId": "U"
         },
@@ -3022,10 +3022,10 @@
             "uid": "${cluster}"
           },
           "editorMode": "code",
-          "expr": "sum(increase(workload_rdma_stat_res_tx_no_perm{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name)> 0 ",
+          "expr": "sum(increase(workload_rdma_stat_res_tx_no_perm{workload_uid=\"$workload_uid\"}[1m])) by (node)> 0 ",
           "hide": false,
           "instant": false,
-          "legendFormat": "Res Tx No Perm:{{primus_lens_node_name}}",
+          "legendFormat": "Res Tx No Perm:{{node}}",
           "range": true,
           "refId": "V"
         },
@@ -3035,10 +3035,10 @@
             "uid": "${cluster}"
           },
           "editorMode": "code",
-          "expr": "sum(increase(workload_rdma_stat_res_tx_range_err{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name)> 0 ",
+          "expr": "sum(increase(workload_rdma_stat_res_tx_range_err{workload_uid=\"$workload_uid\"}[1m])) by (node)> 0 ",
           "hide": false,
           "instant": false,
-          "legendFormat": "Res Tx Range Err:{{primus_lens_node_name}}",
+          "legendFormat": "Res Tx Range Err:{{node}}",
           "range": true,
           "refId": "W"
         },
@@ -3048,10 +3048,10 @@
             "uid": "${cluster}"
           },
           "editorMode": "code",
-          "expr": "sum(increase(workload_rdma_stat_res_rem_inv_err{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name)> 0  or sum(increase(workload_rdma_stat_resp_tx_rmt_inval_req_err{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name)> 0 ",
+          "expr": "sum(increase(workload_rdma_stat_res_rem_inv_err{workload_uid=\"$workload_uid\"}[1m])) by (node)> 0  or sum(increase(workload_rdma_stat_resp_tx_rmt_inval_req_err{workload_uid=\"$workload_uid\"}[1m])) by (node)> 0 ",
           "hide": false,
           "instant": false,
-          "legendFormat": "Res Rem Inv Err:{{primus_lens_node_name}}",
+          "legendFormat": "Res Rem Inv Err:{{node}}",
           "range": true,
           "refId": "X"
         },
@@ -3061,10 +3061,10 @@
             "uid": "${cluster}"
           },
           "editorMode": "code",
-          "expr": "sum(increase(workload_rdma_stat_res_mem_err{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name)> 0  or sum(increase(workload_rdma_stat_req_tx_mem_mgmt_err{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name)> 0 ",
+          "expr": "sum(increase(workload_rdma_stat_res_mem_err{workload_uid=\"$workload_uid\"}[1m])) by (node)> 0  or sum(increase(workload_rdma_stat_req_tx_mem_mgmt_err{workload_uid=\"$workload_uid\"}[1m])) by (node)> 0 ",
           "hide": false,
           "instant": false,
-          "legendFormat": "Res Mem Err:{{primus_lens_node_name}}",
+          "legendFormat": "Res Mem Err:{{node}}",
           "range": true,
           "refId": "Y"
         },
@@ -3074,10 +3074,10 @@
             "uid": "${cluster}"
           },
           "editorMode": "code",
-          "expr": "sum(increase(workload_rdma_stat_res_srq_err{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name)> 0 ",
+          "expr": "sum(increase(workload_rdma_stat_res_srq_err{workload_uid=\"$workload_uid\"}[1m])) by (node)> 0 ",
           "hide": false,
           "instant": false,
-          "legendFormat": "Res Srq Err:{{primus_lens_node_name}}",
+          "legendFormat": "Res Srq Err:{{node}}",
           "range": true,
           "refId": "Z"
         },
@@ -3087,10 +3087,10 @@
             "uid": "${cluster}"
           },
           "editorMode": "code",
-          "expr": "sum(increase(workload_rdma_stat_res_cmp_err{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name)> 0  or sum(increase(workload_rdma_stat_req_rx_cqe_err{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name)> 0 ",
+          "expr": "sum(increase(workload_rdma_stat_res_cmp_err{workload_uid=\"$workload_uid\"}[1m])) by (node)> 0  or sum(increase(workload_rdma_stat_req_rx_cqe_err{workload_uid=\"$workload_uid\"}[1m])) by (node)> 0 ",
           "hide": false,
           "instant": false,
-          "legendFormat": "Res Cmp Err:{{primus_lens_node_name}}",
+          "legendFormat": "Res Cmp Err:{{node}}",
           "range": true,
           "refId": "AA"
         },
@@ -3100,10 +3100,10 @@
             "uid": "${cluster}"
           },
           "editorMode": "code",
-          "expr": "sum(increase(workload_rdma_stat_res_wqe_format_err{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name)> 0 ",
+          "expr": "sum(increase(workload_rdma_stat_res_wqe_format_err{workload_uid=\"$workload_uid\"}[1m])) by (node)> 0 ",
           "hide": false,
           "instant": false,
-          "legendFormat": "Res Wqe Err:{{primus_lens_node_name}}",
+          "legendFormat": "Res Wqe Err:{{node}}",
           "range": true,
           "refId": "AB"
         },
@@ -3113,10 +3113,10 @@
             "uid": "${cluster}"
           },
           "editorMode": "code",
-          "expr": "sum(increase(workload_rdma_stat_res_cq_load_err{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name)> 0 ",
+          "expr": "sum(increase(workload_rdma_stat_res_cq_load_err{workload_uid=\"$workload_uid\"}[1m])) by (node)> 0 ",
           "hide": false,
           "instant": false,
-          "legendFormat": "Res Cq Load Err:{{primus_lens_node_name}}",
+          "legendFormat": "Res Cq Load Err:{{node}}",
           "range": true,
           "refId": "AC"
         },
@@ -3126,10 +3126,10 @@
             "uid": "${cluster}"
           },
           "editorMode": "code",
-          "expr": "sum(increase(workload_rdma_stat_res_srq_load_err{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name)> 0 ",
+          "expr": "sum(increase(workload_rdma_stat_res_srq_load_err{workload_uid=\"$workload_uid\"}[1m])) by (node)> 0 ",
           "hide": false,
           "instant": false,
-          "legendFormat": "Res Srq Load Err:{{primus_lens_node_name}}",
+          "legendFormat": "Res Srq Load Err:{{node}}",
           "range": true,
           "refId": "AD"
         },
@@ -3139,10 +3139,10 @@
             "uid": "${cluster}"
           },
           "editorMode": "code",
-          "expr": "sum(increase(workload_rdma_stat_res_tx_pci_err{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name)> 0 ",
+          "expr": "sum(increase(workload_rdma_stat_res_tx_pci_err{workload_uid=\"$workload_uid\"}[1m])) by (node)> 0 ",
           "hide": false,
           "instant": false,
-          "legendFormat": "Res Tx Pci Err:{{primus_lens_node_name}}",
+          "legendFormat": "Res Tx Pci Err:{{node}}",
           "range": true,
           "refId": "AE"
         },
@@ -3152,10 +3152,10 @@
             "uid": "${cluster}"
           },
           "editorMode": "code",
-          "expr": "sum(increase(workload_rdma_stat_res_rx_pci_err{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name)> 0 ",
+          "expr": "sum(increase(workload_rdma_stat_res_rx_pci_err{workload_uid=\"$workload_uid\"}[1m])) by (node)> 0 ",
           "hide": false,
           "instant": false,
-          "legendFormat": "Res Rx Pci Err:{{primus_lens_node_name}}",
+          "legendFormat": "Res Rx Pci Err:{{node}}",
           "range": true,
           "refId": "AF"
         },
@@ -3165,10 +3165,10 @@
             "uid": "${cluster}"
           },
           "editorMode": "code",
-          "expr": "sum(increase(workload_rdma_stat_tx_rdma_cnp_pkts{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name)> 0",
+          "expr": "sum(increase(workload_rdma_stat_tx_rdma_cnp_pkts{workload_uid=\"$workload_uid\"}[1m])) by (node)> 0",
           "hide": false,
           "instant": false,
-          "legendFormat": "TX CNP Pkts:{{primus_lens_node_name}}",
+          "legendFormat": "TX CNP Pkts:{{node}}",
           "range": true,
           "refId": "AG"
         },
@@ -3178,10 +3178,10 @@
             "uid": "${cluster}"
           },
           "editorMode": "code",
-          "expr": "sum(increase(workload_rdma_stat_rx_rdma_cnp_pkts{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name)> 0",
+          "expr": "sum(increase(workload_rdma_stat_rx_rdma_cnp_pkts{workload_uid=\"$workload_uid\"}[1m])) by (node)> 0",
           "hide": false,
           "instant": false,
-          "legendFormat": "RX CNP Pkts:{{primus_lens_node_name}}",
+          "legendFormat": "RX CNP Pkts:{{node}}",
           "range": true,
           "refId": "AH"
         },
@@ -3191,10 +3191,10 @@
             "uid": "${cluster}"
           },
           "editorMode": "code",
-          "expr": "sum(increase(workload_rdma_stat_rx_rdma_ecn_pkts{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name)> 0",
+          "expr": "sum(increase(workload_rdma_stat_rx_rdma_ecn_pkts{workload_uid=\"$workload_uid\"}[1m])) by (node)> 0",
           "hide": false,
           "instant": false,
-          "legendFormat": "RX ECN Pkts:{{primus_lens_node_name}}",
+          "legendFormat": "RX ECN Pkts:{{node}}",
           "range": true,
           "refId": "AI"
         },
@@ -3204,10 +3204,10 @@
             "uid": "${cluster}"
           },
           "editorMode": "code",
-          "expr": "sum(increase(workload_rdma_stat_tx_rdma_retx_bytes{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name)> 0",
+          "expr": "sum(increase(workload_rdma_stat_tx_rdma_retx_bytes{workload_uid=\"$workload_uid\"}[1m])) by (node)> 0",
           "hide": false,
           "instant": false,
-          "legendFormat": "TX Retransmit Bytes:{{primus_lens_node_name}}",
+          "legendFormat": "TX Retransmit Bytes:{{node}}",
           "range": true,
           "refId": "AJ"
         },
@@ -3217,10 +3217,10 @@
             "uid": "${cluster}"
           },
           "editorMode": "code",
-          "expr": "sum(increase(workload_rdma_stat_tx_rdma_ack_timeout{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name)> 0",
+          "expr": "sum(increase(workload_rdma_stat_tx_rdma_ack_timeout{workload_uid=\"$workload_uid\"}[1m])) by (node)> 0",
           "hide": false,
           "instant": false,
-          "legendFormat": "TX ACK Timeout:{{primus_lens_node_name}}",
+          "legendFormat": "TX ACK Timeout:{{node}}",
           "range": true,
           "refId": "AK"
         },
@@ -3230,10 +3230,10 @@
             "uid": "${cluster}"
           },
           "editorMode": "code",
-          "expr": "sum(increase(workload_rdma_stat_req_rx_oper_err{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name)> 0",
+          "expr": "sum(increase(workload_rdma_stat_req_rx_oper_err{workload_uid=\"$workload_uid\"}[1m])) by (node)> 0",
           "hide": false,
           "instant": false,
-          "legendFormat": "Req RX Oper Err:{{primus_lens_node_name}}",
+          "legendFormat": "Req RX Oper Err:{{node}}",
           "range": true,
           "refId": "AL"
         },
@@ -3243,10 +3243,10 @@
             "uid": "${cluster}"
           },
           "editorMode": "code",
-          "expr": "sum(increase(workload_rdma_stat_req_rx_impl_nak_seq_err{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name)> 0",
+          "expr": "sum(increase(workload_rdma_stat_req_rx_impl_nak_seq_err{workload_uid=\"$workload_uid\"}[1m])) by (node)> 0",
           "hide": false,
           "instant": false,
-          "legendFormat": "Req RX Implied NAK Seq Err:{{primus_lens_node_name}}",
+          "legendFormat": "Req RX Implied NAK Seq Err:{{node}}",
           "range": true,
           "refId": "AM"
         },
@@ -3256,10 +3256,10 @@
             "uid": "${cluster}"
           },
           "editorMode": "code",
-          "expr": "sum(increase(workload_rdma_stat_req_rx_cqe_flush{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name)> 0",
+          "expr": "sum(increase(workload_rdma_stat_req_rx_cqe_flush{workload_uid=\"$workload_uid\"}[1m])) by (node)> 0",
           "hide": false,
           "instant": false,
-          "legendFormat": "Req RX CQE Flush:{{primus_lens_node_name}}",
+          "legendFormat": "Req RX CQE Flush:{{node}}",
           "range": true,
           "refId": "AN"
         },
@@ -3269,10 +3269,10 @@
             "uid": "${cluster}"
           },
           "editorMode": "code",
-          "expr": "sum(increase(workload_rdma_stat_req_rx_dup_response{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name)> 0",
+          "expr": "sum(increase(workload_rdma_stat_req_rx_dup_response{workload_uid=\"$workload_uid\"}[1m])) by (node)> 0",
           "hide": false,
           "instant": false,
-          "legendFormat": "Req RX Dup Response:{{primus_lens_node_name}}",
+          "legendFormat": "Req RX Dup Response:{{node}}",
           "range": true,
           "refId": "AO"
         },
@@ -3282,10 +3282,10 @@
             "uid": "${cluster}"
           },
           "editorMode": "code",
-          "expr": "sum(increase(workload_rdma_stat_req_tx_loc_sgl_inv_err{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name)> 0",
+          "expr": "sum(increase(workload_rdma_stat_req_tx_loc_sgl_inv_err{workload_uid=\"$workload_uid\"}[1m])) by (node)> 0",
           "hide": false,
           "instant": false,
-          "legendFormat": "Req TX Local SGL Invalid:{{primus_lens_node_name}}",
+          "legendFormat": "Req TX Local SGL Invalid:{{node}}",
           "range": true,
           "refId": "AP"
         },
@@ -3295,10 +3295,10 @@
             "uid": "${cluster}"
           },
           "editorMode": "code",
-          "expr": "sum(increase(workload_rdma_stat_resp_rx_cqe_err{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name)> 0",
+          "expr": "sum(increase(workload_rdma_stat_resp_rx_cqe_err{workload_uid=\"$workload_uid\"}[1m])) by (node)> 0",
           "hide": false,
           "instant": false,
-          "legendFormat": "Resp RX CQE Err:{{primus_lens_node_name}}",
+          "legendFormat": "Resp RX CQE Err:{{node}}",
           "range": true,
           "refId": "AQ"
         },
@@ -3308,10 +3308,10 @@
             "uid": "${cluster}"
           },
           "editorMode": "code",
-          "expr": "sum(increase(workload_rdma_stat_resp_rx_cqe_flush{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name)> 0",
+          "expr": "sum(increase(workload_rdma_stat_resp_rx_cqe_flush{workload_uid=\"$workload_uid\"}[1m])) by (node)> 0",
           "hide": false,
           "instant": false,
-          "legendFormat": "Resp RX CQE Flush:{{primus_lens_node_name}}",
+          "legendFormat": "Resp RX CQE Flush:{{node}}",
           "range": true,
           "refId": "AR"
         },
@@ -3321,10 +3321,10 @@
             "uid": "${cluster}"
           },
           "editorMode": "code",
-          "expr": "sum(increase(workload_rdma_stat_resp_rx_inval_request{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name)> 0",
+          "expr": "sum(increase(workload_rdma_stat_resp_rx_inval_request{workload_uid=\"$workload_uid\"}[1m])) by (node)> 0",
           "hide": false,
           "instant": false,
-          "legendFormat": "Resp RX Invalid Request:{{primus_lens_node_name}}",
+          "legendFormat": "Resp RX Invalid Request:{{node}}",
           "range": true,
           "refId": "AS"
         },
@@ -3334,10 +3334,10 @@
             "uid": "${cluster}"
           },
           "editorMode": "code",
-          "expr": "sum(increase(workload_rdma_stat_resp_rx_loc_oper_err{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name)> 0",
+          "expr": "sum(increase(workload_rdma_stat_resp_rx_loc_oper_err{workload_uid=\"$workload_uid\"}[1m])) by (node)> 0",
           "hide": false,
           "instant": false,
-          "legendFormat": "Resp RX Local Oper Err:{{primus_lens_node_name}}",
+          "legendFormat": "Resp RX Local Oper Err:{{node}}",
           "range": true,
           "refId": "AT"
         },
@@ -3347,10 +3347,10 @@
             "uid": "${cluster}"
           },
           "editorMode": "code",
-          "expr": "sum(increase(workload_rdma_stat_resp_tx_pkt_seq_err{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name)> 0",
+          "expr": "sum(increase(workload_rdma_stat_resp_tx_pkt_seq_err{workload_uid=\"$workload_uid\"}[1m])) by (node)> 0",
           "hide": false,
           "instant": false,
-          "legendFormat": "Resp TX Pkt Seq Err:{{primus_lens_node_name}}",
+          "legendFormat": "Resp TX Pkt Seq Err:{{node}}",
           "range": true,
           "refId": "AU"
         },
@@ -3360,10 +3360,10 @@
             "uid": "${cluster}"
           },
           "editorMode": "code",
-          "expr": "sum(increase(workload_rdma_stat_resp_tx_rmt_acc_err{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name)> 0",
+          "expr": "sum(increase(workload_rdma_stat_resp_tx_rmt_acc_err{workload_uid=\"$workload_uid\"}[1m])) by (node)> 0",
           "hide": false,
           "instant": false,
-          "legendFormat": "Resp TX Remote Access Err:{{primus_lens_node_name}}",
+          "legendFormat": "Resp TX Remote Access Err:{{node}}",
           "range": true,
           "refId": "AV"
         },
@@ -3373,10 +3373,10 @@
             "uid": "${cluster}"
           },
           "editorMode": "code",
-          "expr": "sum(increase(workload_rdma_stat_resp_tx_rnr_retry_err{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name)> 0",
+          "expr": "sum(increase(workload_rdma_stat_resp_tx_rnr_retry_err{workload_uid=\"$workload_uid\"}[1m])) by (node)> 0",
           "hide": false,
           "instant": false,
-          "legendFormat": "Resp TX RNR Retry Err:{{primus_lens_node_name}}",
+          "legendFormat": "Resp TX RNR Retry Err:{{node}}",
           "range": true,
           "refId": "AW"
         },
@@ -3386,10 +3386,10 @@
             "uid": "${cluster}"
           },
           "editorMode": "code",
-          "expr": "sum(increase(workload_rdma_stat_resp_tx_loc_sgl_inv_err{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name)> 0",
+          "expr": "sum(increase(workload_rdma_stat_resp_tx_loc_sgl_inv_err{workload_uid=\"$workload_uid\"}[1m])) by (node)> 0",
           "hide": false,
           "instant": false,
-          "legendFormat": "Resp TX Local SGL Invalid:{{primus_lens_node_name}}",
+          "legendFormat": "Resp TX Local SGL Invalid:{{node}}",
           "range": true,
           "refId": "AX"
         },
@@ -3399,10 +3399,10 @@
             "uid": "${cluster}"
           },
           "editorMode": "code",
-          "expr": "sum(increase(workload_rdma_stat_resp_rx_s0_table_err{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name)> 0",
+          "expr": "sum(increase(workload_rdma_stat_resp_rx_s0_table_err{workload_uid=\"$workload_uid\"}[1m])) by (node)> 0",
           "hide": false,
           "instant": false,
-          "legendFormat": "Resp RX S0 Table Err:{{primus_lens_node_name}}",
+          "legendFormat": "Resp RX S0 Table Err:{{node}}",
           "range": true,
           "refId": "AY"
         }
@@ -3499,7 +3499,7 @@
           },
           "editorMode": "code",
           "expr": "increase(workload_rdma_stat_dup_req{workload_uid=\"$workload_uid\"}[1m]) > 0 or increase(workload_rdma_stat_resp_rx_dup_request{workload_uid=\"$workload_uid\"}[1m]) > 0",
-          "legendFormat": "DupReq:{{primus_lens_node_name}}:{{device}}",
+          "legendFormat": "DupReq:{{node}}:{{device}}",
           "range": true,
           "refId": "A"
         },
@@ -3512,7 +3512,7 @@
           "expr": "increase(workload_rdma_stat_res_exceed_max{workload_uid=\"$workload_uid\"}[1m]) > 0 or increase(workload_rdma_stat_req_tx_retry_excd_err{workload_uid=\"$workload_uid\"}[1m]) > 0",
           "hide": false,
           "instant": false,
-          "legendFormat": "ResExceedMax:{{primus_lens_node_name}}:{{device}}",
+          "legendFormat": "ResExceedMax:{{node}}:{{device}}",
           "range": true,
           "refId": "B"
         },
@@ -3525,7 +3525,7 @@
           "expr": "increase(workload_rdma_stat_res_length_mismatch{workload_uid=\"$workload_uid\"}[1m]) > 0 or increase(workload_rdma_stat_resp_rx_loc_len_err{workload_uid=\"$workload_uid\"}[1m]) > 0",
           "hide": false,
           "instant": false,
-          "legendFormat": "ResLengthMismatch:{{primus_lens_node_name}}:{{device}}",
+          "legendFormat": "ResLengthMismatch:{{node}}:{{device}}",
           "range": true,
           "refId": "C"
         },
@@ -3538,7 +3538,7 @@
           "expr": "increase(workload_rdma_stat_res_exceeds_wqe{workload_uid=\"$workload_uid\"}[1m]) > 0",
           "hide": false,
           "instant": false,
-          "legendFormat": "ResExceedsWqe:{{primus_lens_node_name}}:{{device}}",
+          "legendFormat": "ResExceedsWqe:{{node}}:{{device}}",
           "range": true,
           "refId": "D"
         },
@@ -3551,7 +3551,7 @@
           "expr": "increase(workload_rdma_stat_res_rx_invalid_rkey{workload_uid=\"$workload_uid\"}[1m]) > 0",
           "hide": false,
           "instant": false,
-          "legendFormat": "Res Rx Invalid Rkey:{{primus_lens_node_name}}:{{device}}",
+          "legendFormat": "Res Rx Invalid Rkey:{{node}}:{{device}}",
           "range": true,
           "refId": "E"
         },
@@ -3564,7 +3564,7 @@
           "expr": "increase(workload_rdma_stat_res_tx_invalid_rkey{workload_uid=\"$workload_uid\"}[1m]) > 0",
           "hide": false,
           "instant": false,
-          "legendFormat": "Res Tx Invalid Rkey:{{primus_lens_node_name}}:{{device}}",
+          "legendFormat": "Res Tx Invalid Rkey:{{node}}:{{device}}",
           "range": true,
           "refId": "F"
         },
@@ -3577,7 +3577,7 @@
           "expr": "increase(workload_rdma_stat_res_irrq_oflow{workload_uid=\"$workload_uid\"}[1m]) > 0 or increase(workload_rdma_stat_resp_rx_outof_buf{workload_uid=\"$workload_uid\"}[1m]) > 0",
           "hide": false,
           "instant": false,
-          "legendFormat": "Res Irrq Oflow:{{primus_lens_node_name}}:{{device}}",
+          "legendFormat": "Res Irrq Oflow:{{node}}:{{device}}",
           "range": true,
           "refId": "G"
         },
@@ -3590,7 +3590,7 @@
           "expr": "increase(workload_rdma_stat_res_unsup_opcode{workload_uid=\"$workload_uid\"}[1m]) > 0 or increase(workload_rdma_stat_req_rx_inval_pkts{workload_uid=\"$workload_uid\"}[1m]) > 0",
           "hide": false,
           "instant": false,
-          "legendFormat": "Res Unsupported OpCode:{{primus_lens_node_name}}:{{device}}",
+          "legendFormat": "Res Unsupported OpCode:{{node}}:{{device}}",
           "range": true,
           "refId": "H"
         },
@@ -3603,7 +3603,7 @@
           "expr": "increase(workload_rdma_stat_res_unaligned_atomic{workload_uid=\"$workload_uid\"}[1m]) > 0 or increase(workload_rdma_stat_resp_rx_outof_atomic{workload_uid=\"$workload_uid\"}[1m]) > 0",
           "hide": false,
           "instant": false,
-          "legendFormat": "Res Unaligned Atomic:{{primus_lens_node_name}}:{{device}}",
+          "legendFormat": "Res Unaligned Atomic:{{node}}:{{device}}",
           "range": true,
           "refId": "I"
         },
@@ -3616,7 +3616,7 @@
           "expr": "increase(workload_rdma_stat_missing_resp{workload_uid=\"$workload_uid\"}[1m]) > 0 or increase(workload_rdma_stat_resp_rx_outouf_seq{workload_uid=\"$workload_uid\"}[1m]) > 0",
           "hide": false,
           "instant": false,
-          "legendFormat": "MissingResp:{{primus_lens_node_name}}:{{device}}",
+          "legendFormat": "MissingResp:{{node}}:{{device}}",
           "range": true,
           "refId": "J"
         },
@@ -3629,7 +3629,7 @@
           "expr": "increase(workload_rdma_stat_res_invalid_dup_rkey{workload_uid=\"$workload_uid\"}[1m]) > 0",
           "hide": false,
           "instant": false,
-          "legendFormat": "Res Invalid Dup Rkey:{{primus_lens_node_name}}:{{device}}",
+          "legendFormat": "Res Invalid Dup Rkey:{{node}}:{{device}}",
           "range": true,
           "refId": "K"
         }
@@ -3726,8 +3726,8 @@
             "uid": "${cluster}"
           },
           "editorMode": "code",
-          "expr": "sum(rate(workload_gpu_xgmi_link_tx{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name)",
-          "legendFormat": "{{primus_lens_node_name}}  TX",
+          "expr": "sum(rate(workload_gpu_xgmi_link_tx{workload_uid=\"$workload_uid\"}[1m])) by (node)",
+          "legendFormat": "{{node}}  TX",
           "range": true,
           "refId": "A"
         },
@@ -3737,10 +3737,10 @@
             "uid": "${cluster}"
           },
           "editorMode": "code",
-          "expr": "sum(rate(gpu_xgmi_link_rx{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name)",
+          "expr": "sum(rate(gpu_xgmi_link_rx{workload_uid=\"$workload_uid\"}[1m])) by (node)",
           "hide": false,
           "instant": false,
-          "legendFormat": "{{primus_lens_node_name}}  RX",
+          "legendFormat": "{{node}}  RX",
           "range": true,
           "refId": "B"
         }
@@ -3837,7 +3837,7 @@
             "uid": "${cluster}"
           },
           "editorMode": "code",
-          "expr": "sum(rate(workload_gpu_pcie_bandwidth_mbs{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name)",
+          "expr": "sum(rate(workload_gpu_pcie_bandwidth_mbs{workload_uid=\"$workload_uid\"}[1m])) by (node)",
           "legendFormat": "__auto",
           "range": true,
           "refId": "A"
@@ -3952,7 +3952,7 @@
           },
           "editorMode": "code",
           "expr": "workload_gpu_utilization{workload_uid=\"$workload_uid\"}",
-          "legendFormat": "{{primus_lens_node_name}}-GPU{{gpu_id}}",
+          "legendFormat": "{{node}}-GPU{{gpu_id}}",
           "range": true,
           "refId": "A"
         }
@@ -4053,7 +4053,7 @@
           },
           "editorMode": "code",
           "expr": "100 - (workload_gpu_free_vram{workload_uid=\"$workload_uid\"}/workload_gpu_total_vram{workload_uid=\"$workload_uid\"} * 100)",
-          "legendFormat": "{{primus_lens_node_name}}-GPU{{gpu_id}}",
+          "legendFormat": "{{node}}-GPU{{gpu_id}}",
           "range": true,
           "refId": "A"
         }
@@ -4155,7 +4155,7 @@
           },
           "editorMode": "code",
           "expr": "workload_gpu_socket_power_watts{workload_uid=\"$workload_uid\"}",
-          "legendFormat": "{{primus_lens_node_name}}-GPU{{gpu_id}}",
+          "legendFormat": "{{node}}-GPU{{gpu_id}}",
           "range": true,
           "refId": "A"
         }
@@ -4257,7 +4257,7 @@
           },
           "editorMode": "code",
           "expr": "workload_gpu_total_vram{workload_uid=\"$workload_uid\"} - workload_gpu_free_vram{workload_uid=\"$workload_uid\"}",
-          "legendFormat": "{{primus_lens_node_name}}-GPU{{gpu_id}}",
+          "legendFormat": "{{node}}-GPU{{gpu_id}}",
           "range": true,
           "refId": "A"
         }
@@ -4354,8 +4354,8 @@
             "uid": "${cluster}"
           },
           "editorMode": "code",
-          "expr": "sum(rate(workload_rdma_stat_tx_roce_only_bytes{workload_uid=\"$workload_uid\"}[1m])) by (gpu_id,primus_lens_node_name) or sum(rate(workload_rdma_stat_tx_rdma_ucast_bytes{workload_uid=\"$workload_uid\"}[1m])) by (gpu_id,primus_lens_node_name)",
-          "legendFormat": "{{primus_lens_node_name}} GPU {{gpu_id}} TX",
+          "expr": "sum(rate(workload_rdma_stat_tx_bytes{workload_uid=\"$workload_uid\"}[1m])) by (gpu_id,node) or sum(rate(workload_rdma_stat_tx_bytes{workload_uid=\"$workload_uid\"}[1m])) by (gpu_id,node)",
+          "legendFormat": "{{node}} GPU {{gpu_id}} TX",
           "range": true,
           "refId": "A"
         },
@@ -4365,10 +4365,10 @@
             "uid": "${cluster}"
           },
           "editorMode": "code",
-          "expr": "sum(rate(workload_rdma_stat_rx_roce_only_bytes{workload_uid=\"$workload_uid\"}[1m])) by (gpu_id,primus_lens_node_name) or sum(rate(workload_rdma_stat_rx_rdma_ucast_bytes{workload_uid=\"$workload_uid\"}[1m])) by (gpu_id,primus_lens_node_name)",
+          "expr": "sum(rate(workload_rdma_stat_rx_bytes{workload_uid=\"$workload_uid\"}[1m])) by (gpu_id,node) or sum(rate(workload_rdma_stat_rx_bytes{workload_uid=\"$workload_uid\"}[1m])) by (gpu_id,node)",
           "hide": false,
           "instant": false,
-          "legendFormat": "{{primus_lens_node_name}} GPU {{gpu_id}} RX",
+          "legendFormat": "{{node}} GPU {{gpu_id}} RX",
           "range": true,
           "refId": "B"
         }
@@ -4464,8 +4464,8 @@
             "uid": "${cluster}"
           },
           "editorMode": "code",
-          "expr": "sum(rate(workload_rdma_stat_tx_roce_only_pkts{workload_uid=\"$workload_uid\"}[1m])) by (gpu_id,primus_lens_node_name) or sum(rate(workload_rdma_stat_tx_rdma_ucast_pkts{workload_uid=\"$workload_uid\"}[1m])) by (gpu_id,primus_lens_node_name)",
-          "legendFormat": "{{primus_lens_node_name}} GPU {{gpu_id}} TX",
+          "expr": "sum(rate(workload_rdma_stat_tx_pkts{workload_uid=\"$workload_uid\"}[1m])) by (gpu_id,node) or sum(rate(workload_rdma_stat_tx_pkts{workload_uid=\"$workload_uid\"}[1m])) by (gpu_id,node)",
+          "legendFormat": "{{node}} GPU {{gpu_id}} TX",
           "range": true,
           "refId": "A"
         },
@@ -4475,10 +4475,10 @@
             "uid": "${cluster}"
           },
           "editorMode": "code",
-          "expr": "sum(rate(workload_rdma_stat_rx_roce_only_pkts{workload_uid=\"$workload_uid\"}[1m])) by (gpu_id,primus_lens_node_name) or sum(rate(workload_rdma_stat_rx_rdma_ucast_pkts{workload_uid=\"$workload_uid\"}[1m])) by (gpu_id,primus_lens_node_name)",
+          "expr": "sum(rate(workload_rdma_stat_rx_pkts{workload_uid=\"$workload_uid\"}[1m])) by (gpu_id,node) or sum(rate(workload_rdma_stat_rx_pkts{workload_uid=\"$workload_uid\"}[1m])) by (gpu_id,node)",
           "hide": false,
           "instant": false,
-          "legendFormat": "{{primus_lens_node_name}} GPU {{gpu_id}} RX",
+          "legendFormat": "{{node}} GPU {{gpu_id}} RX",
           "range": true,
           "refId": "B"
         }
@@ -4574,8 +4574,8 @@
             "uid": "${cluster}"
           },
           "editorMode": "code",
-          "expr": "sum(increase(workload_rdma_stat_rx_roce_discards{workload_uid=\"$workload_uid\"})) by (primus_lens_node_name,device)> 0 or sum(increase(workload_rdma_stat_rx_rdma_mtu_discard_pkts{workload_uid=\"$workload_uid\"})) by (primus_lens_node_name,device)> 0",
-          "legendFormat": "RX Roce Discards:{{primus_lens_node_name}}-{{device}}",
+          "expr": "sum(increase(workload_rdma_stat_rx_roce_discards{workload_uid=\"$workload_uid\"})) by (node,device)> 0 or sum(increase(workload_rdma_stat_rx_rdma_mtu_discard_pkts{workload_uid=\"$workload_uid\"})) by (node,device)> 0",
+          "legendFormat": "RX Roce Discards:{{node}}-{{device}}",
           "range": true,
           "refId": "A"
         },
@@ -4585,10 +4585,10 @@
             "uid": "${cluster}"
           },
           "editorMode": "code",
-          "expr": "sum(increase(workload_rdma_stat_tx_roce_discards{workload_uid=\"$workload_uid\"})) by (primus_lens_node_name,device)> 0 or sum(increase(workload_rdma_stat_tx_rdma_mtu_discard_pkts{workload_uid=\"$workload_uid\"})) by (primus_lens_node_name,device)> 0",
+          "expr": "sum(increase(workload_rdma_stat_tx_roce_discards{workload_uid=\"$workload_uid\"})) by (node,device)> 0 or sum(increase(workload_rdma_stat_tx_rdma_mtu_discard_pkts{workload_uid=\"$workload_uid\"})) by (node,device)> 0",
           "hide": false,
           "instant": false,
-          "legendFormat": "TX Roce Discards:{{primus_lens_node_name}}-{{device}}",
+          "legendFormat": "TX Roce Discards:{{node}}-{{device}}",
           "range": true,
           "refId": "B"
         },
@@ -4598,10 +4598,10 @@
             "uid": "${cluster}"
           },
           "editorMode": "code",
-          "expr": "sum(increase(workload_rdma_stat_tx_roce_errors{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name,device)> 0",
+          "expr": "sum(increase(workload_rdma_stat_tx_roce_errors{workload_uid=\"$workload_uid\"}[1m])) by (node,device)> 0",
           "hide": false,
           "instant": false,
-          "legendFormat": "TX Roce Errors:{{primus_lens_node_name}}-{{device}}",
+          "legendFormat": "TX Roce Errors:{{node}}-{{device}}",
           "range": true,
           "refId": "C"
         },
@@ -4611,10 +4611,10 @@
             "uid": "${cluster}"
           },
           "editorMode": "code",
-          "expr": "sum(increase(workload_rdma_stat_rx_roce_errors{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name,device)> 0",
+          "expr": "sum(increase(workload_rdma_stat_rx_roce_errors{workload_uid=\"$workload_uid\"}[1m])) by (node,device)> 0",
           "hide": false,
           "instant": false,
-          "legendFormat": "RX Roce Errors:{{primus_lens_node_name}}-{{device}}",
+          "legendFormat": "RX Roce Errors:{{node}}-{{device}}",
           "range": true,
           "refId": "D"
         },
@@ -4624,10 +4624,10 @@
             "uid": "${cluster}"
           },
           "editorMode": "code",
-          "expr": "sum(increase(workload_rdma_stat_seq_err_naks_rcvd{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name,device)> 0 or sum(increase(workload_rdma_stat_req_rx_pkt_seq_err{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name,device)> 0",
+          "expr": "sum(increase(workload_rdma_stat_seq_err_naks_rcvd{workload_uid=\"$workload_uid\"}[1m])) by (node,device)> 0 or sum(increase(workload_rdma_stat_req_rx_pkt_seq_err{workload_uid=\"$workload_uid\"}[1m])) by (node,device)> 0",
           "hide": false,
           "instant": false,
-          "legendFormat": "NAK(Seq err):{{primus_lens_node_name}}-{{device}}",
+          "legendFormat": "NAK(Seq err):{{node}}-{{device}}",
           "range": true,
           "refId": "E"
         },
@@ -4637,10 +4637,10 @@
             "uid": "${cluster}"
           },
           "editorMode": "code",
-          "expr": "sum(increase(workload_rdma_stat_rnr_naks_rcvd{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name,device)> 0 or sum(increase(workload_rdma_stat_req_rx_rnr_retry_err{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name,device)> 0",
+          "expr": "sum(increase(workload_rdma_stat_rnr_naks_rcvd{workload_uid=\"$workload_uid\"}[1m])) by (node,device)> 0 or sum(increase(workload_rdma_stat_req_rx_rnr_retry_err{workload_uid=\"$workload_uid\"}[1m])) by (node,device)> 0",
           "hide": false,
           "instant": false,
-          "legendFormat": "NAK(RNR):{{primus_lens_node_name}}-{{device}}",
+          "legendFormat": "NAK(RNR):{{node}}-{{device}}",
           "range": true,
           "refId": "F"
         },
@@ -4650,10 +4650,10 @@
             "uid": "${cluster}"
           },
           "editorMode": "code",
-          "expr": "sum(increase(workload_rdma_stat_missing_resp{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name,device)> 0 or sum(increase(workload_rdma_stat_resp_rx_outouf_seq{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name,device)> 0",
+          "expr": "sum(increase(workload_rdma_stat_missing_resp{workload_uid=\"$workload_uid\"}[1m])) by (node,device)> 0 or sum(increase(workload_rdma_stat_resp_rx_outouf_seq{workload_uid=\"$workload_uid\"}[1m])) by (node,device)> 0",
           "hide": false,
           "instant": false,
-          "legendFormat": "Missing Resp:{{primus_lens_node_name}}-{{device}}",
+          "legendFormat": "Missing Resp:{{node}}-{{device}}",
           "range": true,
           "refId": "G"
         },
@@ -4663,10 +4663,10 @@
             "uid": "${cluster}"
           },
           "editorMode": "code",
-          "expr": "sum(increase(workload_rdma_stat_to_retransmits{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name,device)> 0 or sum(increase(workload_rdma_stat_tx_rdma_retx_pkts{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name,device)> 0",
+          "expr": "sum(increase(workload_rdma_stat_to_retransmits{workload_uid=\"$workload_uid\"}[1m])) by (node,device)> 0 or sum(increase(workload_rdma_stat_tx_rdma_retx_pkts{workload_uid=\"$workload_uid\"}[1m])) by (node,device)> 0",
           "hide": false,
           "instant": false,
-          "legendFormat": "ReTransmit:{{primus_lens_node_name}}-{{device}}",
+          "legendFormat": "ReTransmit:{{node}}-{{device}}",
           "range": true,
           "refId": "H"
         },
@@ -4676,10 +4676,10 @@
             "uid": "${cluster}"
           },
           "editorMode": "code",
-          "expr": "sum(increase(workload_rdma_stat_max_retry_exceeded{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name,device)> 0 or sum(increase(workload_rdma_stat_req_tx_retry_excd_err{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name,device)> 0",
+          "expr": "sum(increase(workload_rdma_stat_max_retry_exceeded{workload_uid=\"$workload_uid\"}[1m])) by (node,device)> 0 or sum(increase(workload_rdma_stat_req_tx_retry_excd_err{workload_uid=\"$workload_uid\"}[1m])) by (node,device)> 0",
           "hide": false,
           "instant": false,
-          "legendFormat": "MaxRetryExceeded:{{primus_lens_node_name}}-{{device}}",
+          "legendFormat": "MaxRetryExceeded:{{node}}-{{device}}",
           "range": true,
           "refId": "I"
         },
@@ -4689,10 +4689,10 @@
             "uid": "${cluster}"
           },
           "editorMode": "code",
-          "expr": "sum(increase(workload_rdma_stat_missing_resp{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name,device)> 0 or sum(increase(workload_rdma_stat_resp_rx_outouf_seq{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name,device)> 0",
+          "expr": "sum(increase(workload_rdma_stat_missing_resp{workload_uid=\"$workload_uid\"}[1m])) by (node,device)> 0 or sum(increase(workload_rdma_stat_resp_rx_outouf_seq{workload_uid=\"$workload_uid\"}[1m])) by (node,device)> 0",
           "hide": false,
           "instant": false,
-          "legendFormat": "MissingResp:{{primus_lens_node_name}}-{{device}}",
+          "legendFormat": "MissingResp:{{node}}-{{device}}",
           "range": true,
           "refId": "J"
         },
@@ -4702,10 +4702,10 @@
             "uid": "${cluster}"
           },
           "editorMode": "code",
-          "expr": "sum(increase(workload_rdma_stat_unrecoverable_err{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name,device)> 0 or sum(increase(workload_rdma_stat_req_rx_cqe_err{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name,device)> 0",
+          "expr": "sum(increase(workload_rdma_stat_unrecoverable_err{workload_uid=\"$workload_uid\"}[1m])) by (node,device)> 0 or sum(increase(workload_rdma_stat_req_rx_cqe_err{workload_uid=\"$workload_uid\"}[1m])) by (node,device)> 0",
           "hide": false,
           "instant": false,
-          "legendFormat": "UnrecoverableErr:{{primus_lens_node_name}}-{{device}}",
+          "legendFormat": "UnrecoverableErr:{{node}}-{{device}}",
           "range": true,
           "refId": "K"
         },
@@ -4715,10 +4715,10 @@
             "uid": "${cluster}"
           },
           "editorMode": "code",
-          "expr": "sum(increase(workload_rdma_stat_local_qp_op_err{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name,device)> 0 or sum(increase(workload_rdma_stat_req_tx_loc_oper_err{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name,device)> 0",
+          "expr": "sum(increase(workload_rdma_stat_local_qp_op_err{workload_uid=\"$workload_uid\"}[1m])) by (node,device)> 0 or sum(increase(workload_rdma_stat_req_tx_loc_oper_err{workload_uid=\"$workload_uid\"}[1m])) by (node,device)> 0",
           "hide": false,
           "instant": false,
-          "legendFormat": "LocalQpOpErr:{{primus_lens_node_name}}-{{device}}",
+          "legendFormat": "LocalQpOpErr:{{node}}-{{device}}",
           "range": true,
           "refId": "L"
         },
@@ -4728,10 +4728,10 @@
             "uid": "${cluster}"
           },
           "editorMode": "code",
-          "expr": "sum(increase(workload_rdma_stat_local_protection_err{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name,device)> 0 or sum(increase(workload_rdma_stat_req_tx_loc_acc_err{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name,device)> 0",
+          "expr": "sum(increase(workload_rdma_stat_local_protection_err{workload_uid=\"$workload_uid\"}[1m])) by (node,device)> 0 or sum(increase(workload_rdma_stat_req_tx_loc_acc_err{workload_uid=\"$workload_uid\"}[1m])) by (node,device)> 0",
           "hide": false,
           "instant": false,
-          "legendFormat": "LocalProtectionErr:{{primus_lens_node_name}}-{{device}}",
+          "legendFormat": "LocalProtectionErr:{{node}}-{{device}}",
           "range": true,
           "refId": "M"
         },
@@ -4741,10 +4741,10 @@
             "uid": "${cluster}"
           },
           "editorMode": "code",
-          "expr": "sum(increase(workload_rdma_stat_remote_access_err{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name,device)> 0  or sum(increase(workload_rdma_stat_req_rx_rmt_acc_err{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name,device)> 0 ",
+          "expr": "sum(increase(workload_rdma_stat_remote_access_err{workload_uid=\"$workload_uid\"}[1m])) by (node,device)> 0  or sum(increase(workload_rdma_stat_req_rx_rmt_acc_err{workload_uid=\"$workload_uid\"}[1m])) by (node,device)> 0 ",
           "hide": false,
           "instant": false,
-          "legendFormat": "RemoteAccessErr:{{primus_lens_node_name}}-{{device}}",
+          "legendFormat": "RemoteAccessErr:{{node}}-{{device}}",
           "range": true,
           "refId": "N"
         },
@@ -4754,10 +4754,10 @@
             "uid": "${cluster}"
           },
           "editorMode": "code",
-          "expr": "sum(increase(workload_rdma_stat_remote_invalid_req_err{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name,device)> 0 or sum(increase(workload_rdma_stat_req_rx_rmt_req_err{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name,device)> 0",
+          "expr": "sum(increase(workload_rdma_stat_remote_invalid_req_err{workload_uid=\"$workload_uid\"}[1m])) by (node,device)> 0 or sum(increase(workload_rdma_stat_req_rx_rmt_req_err{workload_uid=\"$workload_uid\"}[1m])) by (node,device)> 0",
           "hide": false,
           "instant": false,
-          "legendFormat": "RemoteInvalidReqErr:{{primus_lens_node_name}}-{{device}}",
+          "legendFormat": "RemoteInvalidReqErr:{{node}}-{{device}}",
           "range": true,
           "refId": "O"
         },
@@ -4767,10 +4767,10 @@
             "uid": "${cluster}"
           },
           "editorMode": "code",
-          "expr": "sum(increase(workload_rdma_stat_remote_op_err{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name,device)> 0  or sum(increase(workload_rdma_stat_resp_tx_rmt_oper_err{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name,device)> 0 ",
+          "expr": "sum(increase(workload_rdma_stat_remote_op_err{workload_uid=\"$workload_uid\"}[1m])) by (node,device)> 0  or sum(increase(workload_rdma_stat_resp_tx_rmt_oper_err{workload_uid=\"$workload_uid\"}[1m])) by (node,device)> 0 ",
           "hide": false,
           "instant": false,
-          "legendFormat": "RemoteOpErr:{{primus_lens_node_name}}-{{device}}",
+          "legendFormat": "RemoteOpErr:{{node}}-{{device}}",
           "range": true,
           "refId": "P"
         },
@@ -4780,10 +4780,10 @@
             "uid": "${cluster}"
           },
           "editorMode": "code",
-          "expr": "sum(increase(workload_rdma_stat_res_opcode_err{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name,device)> 0 ",
+          "expr": "sum(increase(workload_rdma_stat_res_opcode_err{workload_uid=\"$workload_uid\"}[1m])) by (node,device)> 0 ",
           "hide": false,
           "instant": false,
-          "legendFormat": "Res Opcode Err:{{primus_lens_node_name}}-{{device}}",
+          "legendFormat": "Res Opcode Err:{{node}}-{{device}}",
           "range": true,
           "refId": "Q"
         },
@@ -4793,10 +4793,10 @@
             "uid": "${cluster}"
           },
           "editorMode": "code",
-          "expr": "sum(increase(workload_rdma_stat_res_rx_domain_err{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name,device)> 0 ",
+          "expr": "sum(increase(workload_rdma_stat_res_rx_domain_err{workload_uid=\"$workload_uid\"}[1m])) by (node,device)> 0 ",
           "hide": false,
           "instant": false,
-          "legendFormat": "Res Rx Domain Err:{{primus_lens_node_name}}-{{device}}",
+          "legendFormat": "Res Rx Domain Err:{{node}}-{{device}}",
           "range": true,
           "refId": "R"
         },
@@ -4806,10 +4806,10 @@
             "uid": "${cluster}"
           },
           "editorMode": "code",
-          "expr": "sum(increase(workload_rdma_stat_res_rx_no_perm{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name,device)> 0 ",
+          "expr": "sum(increase(workload_rdma_stat_res_rx_no_perm{workload_uid=\"$workload_uid\"}[1m])) by (node,device)> 0 ",
           "hide": false,
           "instant": false,
-          "legendFormat": "Res Rx No Perm:{{primus_lens_node_name}}-{{device}}",
+          "legendFormat": "Res Rx No Perm:{{node}}-{{device}}",
           "range": true,
           "refId": "S"
         },
@@ -4819,10 +4819,10 @@
             "uid": "${cluster}"
           },
           "editorMode": "code",
-          "expr": "sum(increase(workload_rdma_stat_res_rx_range_err{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name,device)> 0 ",
+          "expr": "sum(increase(workload_rdma_stat_res_rx_range_err{workload_uid=\"$workload_uid\"}[1m])) by (node,device)> 0 ",
           "hide": false,
           "instant": false,
-          "legendFormat": "Res Rx Range Err:{{primus_lens_node_name}}-{{device}}",
+          "legendFormat": "Res Rx Range Err:{{node}}-{{device}}",
           "range": true,
           "refId": "T"
         },
@@ -4832,10 +4832,10 @@
             "uid": "${cluster}"
           },
           "editorMode": "code",
-          "expr": "sum(increase(workload_rdma_stat_res_tx_domain_err{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name,device)> 0 ",
+          "expr": "sum(increase(workload_rdma_stat_res_tx_domain_err{workload_uid=\"$workload_uid\"}[1m])) by (node,device)> 0 ",
           "hide": false,
           "instant": false,
-          "legendFormat": "Res Tx Domain Err:{{primus_lens_node_name}}-{{device}}",
+          "legendFormat": "Res Tx Domain Err:{{node}}-{{device}}",
           "range": true,
           "refId": "U"
         },
@@ -4845,10 +4845,10 @@
             "uid": "${cluster}"
           },
           "editorMode": "code",
-          "expr": "sum(increase(workload_rdma_stat_res_tx_no_perm{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name,device)> 0 ",
+          "expr": "sum(increase(workload_rdma_stat_res_tx_no_perm{workload_uid=\"$workload_uid\"}[1m])) by (node,device)> 0 ",
           "hide": false,
           "instant": false,
-          "legendFormat": "Res Tx No Perm:{{primus_lens_node_name}}-{{device}}",
+          "legendFormat": "Res Tx No Perm:{{node}}-{{device}}",
           "range": true,
           "refId": "V"
         },
@@ -4858,10 +4858,10 @@
             "uid": "${cluster}"
           },
           "editorMode": "code",
-          "expr": "sum(increase(workload_rdma_stat_res_tx_range_err{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name,device)> 0 ",
+          "expr": "sum(increase(workload_rdma_stat_res_tx_range_err{workload_uid=\"$workload_uid\"}[1m])) by (node,device)> 0 ",
           "hide": false,
           "instant": false,
-          "legendFormat": "Res Tx Range Err:{{primus_lens_node_name}}-{{device}}",
+          "legendFormat": "Res Tx Range Err:{{node}}-{{device}}",
           "range": true,
           "refId": "W"
         },
@@ -4871,10 +4871,10 @@
             "uid": "${cluster}"
           },
           "editorMode": "code",
-          "expr": "sum(increase(workload_rdma_stat_res_rem_inv_err{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name,device)> 0  or sum(increase(workload_rdma_stat_resp_tx_rmt_inval_req_err{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name,device)> 0 ",
+          "expr": "sum(increase(workload_rdma_stat_res_rem_inv_err{workload_uid=\"$workload_uid\"}[1m])) by (node,device)> 0  or sum(increase(workload_rdma_stat_resp_tx_rmt_inval_req_err{workload_uid=\"$workload_uid\"}[1m])) by (node,device)> 0 ",
           "hide": false,
           "instant": false,
-          "legendFormat": "Res Rem Inv Err:{{primus_lens_node_name}}-{{device}}",
+          "legendFormat": "Res Rem Inv Err:{{node}}-{{device}}",
           "range": true,
           "refId": "X"
         },
@@ -4884,10 +4884,10 @@
             "uid": "${cluster}"
           },
           "editorMode": "code",
-          "expr": "sum(increase(workload_rdma_stat_res_mem_err{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name,device)> 0  or sum(increase(workload_rdma_stat_req_tx_mem_mgmt_err{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name,device)> 0 ",
+          "expr": "sum(increase(workload_rdma_stat_res_mem_err{workload_uid=\"$workload_uid\"}[1m])) by (node,device)> 0  or sum(increase(workload_rdma_stat_req_tx_mem_mgmt_err{workload_uid=\"$workload_uid\"}[1m])) by (node,device)> 0 ",
           "hide": false,
           "instant": false,
-          "legendFormat": "Res Mem Err:{{primus_lens_node_name}}-{{device}}",
+          "legendFormat": "Res Mem Err:{{node}}-{{device}}",
           "range": true,
           "refId": "Y"
         },
@@ -4897,10 +4897,10 @@
             "uid": "${cluster}"
           },
           "editorMode": "code",
-          "expr": "sum(increase(workload_rdma_stat_res_srq_err{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name,device)> 0 ",
+          "expr": "sum(increase(workload_rdma_stat_res_srq_err{workload_uid=\"$workload_uid\"}[1m])) by (node,device)> 0 ",
           "hide": false,
           "instant": false,
-          "legendFormat": "Res Srq Err:{{primus_lens_node_name}}-{{device}}",
+          "legendFormat": "Res Srq Err:{{node}}-{{device}}",
           "range": true,
           "refId": "Z"
         },
@@ -4910,10 +4910,10 @@
             "uid": "${cluster}"
           },
           "editorMode": "code",
-          "expr": "sum(increase(workload_rdma_stat_res_cmp_err{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name,device)> 0  or sum(increase(workload_rdma_stat_req_rx_cqe_err{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name,device)> 0 ",
+          "expr": "sum(increase(workload_rdma_stat_res_cmp_err{workload_uid=\"$workload_uid\"}[1m])) by (node,device)> 0  or sum(increase(workload_rdma_stat_req_rx_cqe_err{workload_uid=\"$workload_uid\"}[1m])) by (node,device)> 0 ",
           "hide": false,
           "instant": false,
-          "legendFormat": "Res Cmp Err:{{primus_lens_node_name}}-{{device}}",
+          "legendFormat": "Res Cmp Err:{{node}}-{{device}}",
           "range": true,
           "refId": "AA"
         },
@@ -4923,10 +4923,10 @@
             "uid": "${cluster}"
           },
           "editorMode": "code",
-          "expr": "sum(increase(workload_rdma_stat_res_wqe_format_err{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name,device)> 0 ",
+          "expr": "sum(increase(workload_rdma_stat_res_wqe_format_err{workload_uid=\"$workload_uid\"}[1m])) by (node,device)> 0 ",
           "hide": false,
           "instant": false,
-          "legendFormat": "Res Wqe Err:{{primus_lens_node_name}}-{{device}}",
+          "legendFormat": "Res Wqe Err:{{node}}-{{device}}",
           "range": true,
           "refId": "AB"
         },
@@ -4936,10 +4936,10 @@
             "uid": "${cluster}"
           },
           "editorMode": "code",
-          "expr": "sum(increase(workload_rdma_stat_res_cq_load_err{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name,device)> 0 ",
+          "expr": "sum(increase(workload_rdma_stat_res_cq_load_err{workload_uid=\"$workload_uid\"}[1m])) by (node,device)> 0 ",
           "hide": false,
           "instant": false,
-          "legendFormat": "Res Cq Load Err:{{primus_lens_node_name}}-{{device}}",
+          "legendFormat": "Res Cq Load Err:{{node}}-{{device}}",
           "range": true,
           "refId": "AC"
         },
@@ -4949,10 +4949,10 @@
             "uid": "${cluster}"
           },
           "editorMode": "code",
-          "expr": "sum(increase(workload_rdma_stat_res_srq_load_err{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name,device)> 0 ",
+          "expr": "sum(increase(workload_rdma_stat_res_srq_load_err{workload_uid=\"$workload_uid\"}[1m])) by (node,device)> 0 ",
           "hide": false,
           "instant": false,
-          "legendFormat": "Res Srq Load Err:{{primus_lens_node_name}}-{{device}}",
+          "legendFormat": "Res Srq Load Err:{{node}}-{{device}}",
           "range": true,
           "refId": "AD"
         },
@@ -4962,10 +4962,10 @@
             "uid": "${cluster}"
           },
           "editorMode": "code",
-          "expr": "sum(increase(workload_rdma_stat_res_tx_pci_err{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name,device)> 0 ",
+          "expr": "sum(increase(workload_rdma_stat_res_tx_pci_err{workload_uid=\"$workload_uid\"}[1m])) by (node,device)> 0 ",
           "hide": false,
           "instant": false,
-          "legendFormat": "Res Tx Pci Err:{{primus_lens_node_name}}-{{device}}",
+          "legendFormat": "Res Tx Pci Err:{{node}}-{{device}}",
           "range": true,
           "refId": "AE"
         },
@@ -4975,10 +4975,10 @@
             "uid": "${cluster}"
           },
           "editorMode": "code",
-          "expr": "sum(increase(workload_rdma_stat_res_rx_pci_err{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name,device)> 0 ",
+          "expr": "sum(increase(workload_rdma_stat_res_rx_pci_err{workload_uid=\"$workload_uid\"}[1m])) by (node,device)> 0 ",
           "hide": false,
           "instant": false,
-          "legendFormat": "Res Rx Pci Err:{{primus_lens_node_name}}-{{device}}",
+          "legendFormat": "Res Rx Pci Err:{{node}}-{{device}}",
           "range": true,
           "refId": "AF"
         },
@@ -4988,10 +4988,10 @@
             "uid": "${cluster}"
           },
           "editorMode": "code",
-          "expr": "sum(increase(workload_rdma_stat_tx_rdma_cnp_pkts{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name,device)> 0",
+          "expr": "sum(increase(workload_rdma_stat_tx_rdma_cnp_pkts{workload_uid=\"$workload_uid\"}[1m])) by (node,device)> 0",
           "hide": false,
           "instant": false,
-          "legendFormat": "TX CNP Pkts:{{primus_lens_node_name}}",
+          "legendFormat": "TX CNP Pkts:{{node}}",
           "range": true,
           "refId": "AG"
         },
@@ -5001,10 +5001,10 @@
             "uid": "${cluster}"
           },
           "editorMode": "code",
-          "expr": "sum(increase(workload_rdma_stat_rx_rdma_cnp_pkts{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name,device)> 0",
+          "expr": "sum(increase(workload_rdma_stat_rx_rdma_cnp_pkts{workload_uid=\"$workload_uid\"}[1m])) by (node,device)> 0",
           "hide": false,
           "instant": false,
-          "legendFormat": "RX CNP Pkts:{{primus_lens_node_name}}",
+          "legendFormat": "RX CNP Pkts:{{node}}",
           "range": true,
           "refId": "AH"
         },
@@ -5014,10 +5014,10 @@
             "uid": "${cluster}"
           },
           "editorMode": "code",
-          "expr": "sum(increase(workload_rdma_stat_rx_rdma_ecn_pkts{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name,device)> 0",
+          "expr": "sum(increase(workload_rdma_stat_rx_rdma_ecn_pkts{workload_uid=\"$workload_uid\"}[1m])) by (node,device)> 0",
           "hide": false,
           "instant": false,
-          "legendFormat": "RX ECN Pkts:{{primus_lens_node_name}}",
+          "legendFormat": "RX ECN Pkts:{{node}}",
           "range": true,
           "refId": "AI"
         },
@@ -5027,10 +5027,10 @@
             "uid": "${cluster}"
           },
           "editorMode": "code",
-          "expr": "sum(increase(workload_rdma_stat_tx_rdma_retx_bytes{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name,device)> 0",
+          "expr": "sum(increase(workload_rdma_stat_tx_rdma_retx_bytes{workload_uid=\"$workload_uid\"}[1m])) by (node,device)> 0",
           "hide": false,
           "instant": false,
-          "legendFormat": "TX Retransmit Bytes:{{primus_lens_node_name}}",
+          "legendFormat": "TX Retransmit Bytes:{{node}}",
           "range": true,
           "refId": "AJ"
         },
@@ -5040,10 +5040,10 @@
             "uid": "${cluster}"
           },
           "editorMode": "code",
-          "expr": "sum(increase(workload_rdma_stat_tx_rdma_ack_timeout{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name,device)> 0",
+          "expr": "sum(increase(workload_rdma_stat_tx_rdma_ack_timeout{workload_uid=\"$workload_uid\"}[1m])) by (node,device)> 0",
           "hide": false,
           "instant": false,
-          "legendFormat": "TX ACK Timeout:{{primus_lens_node_name}}",
+          "legendFormat": "TX ACK Timeout:{{node}}",
           "range": true,
           "refId": "AK"
         },
@@ -5053,10 +5053,10 @@
             "uid": "${cluster}"
           },
           "editorMode": "code",
-          "expr": "sum(increase(workload_rdma_stat_req_rx_oper_err{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name,device)> 0",
+          "expr": "sum(increase(workload_rdma_stat_req_rx_oper_err{workload_uid=\"$workload_uid\"}[1m])) by (node,device)> 0",
           "hide": false,
           "instant": false,
-          "legendFormat": "Req RX Oper Err:{{primus_lens_node_name}}",
+          "legendFormat": "Req RX Oper Err:{{node}}",
           "range": true,
           "refId": "AL"
         },
@@ -5066,10 +5066,10 @@
             "uid": "${cluster}"
           },
           "editorMode": "code",
-          "expr": "sum(increase(workload_rdma_stat_req_rx_impl_nak_seq_err{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name,device)> 0",
+          "expr": "sum(increase(workload_rdma_stat_req_rx_impl_nak_seq_err{workload_uid=\"$workload_uid\"}[1m])) by (node,device)> 0",
           "hide": false,
           "instant": false,
-          "legendFormat": "Req RX Implied NAK Seq Err:{{primus_lens_node_name}}",
+          "legendFormat": "Req RX Implied NAK Seq Err:{{node}}",
           "range": true,
           "refId": "AM"
         },
@@ -5079,10 +5079,10 @@
             "uid": "${cluster}"
           },
           "editorMode": "code",
-          "expr": "sum(increase(workload_rdma_stat_req_rx_cqe_flush{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name,device)> 0",
+          "expr": "sum(increase(workload_rdma_stat_req_rx_cqe_flush{workload_uid=\"$workload_uid\"}[1m])) by (node,device)> 0",
           "hide": false,
           "instant": false,
-          "legendFormat": "Req RX CQE Flush:{{primus_lens_node_name}}",
+          "legendFormat": "Req RX CQE Flush:{{node}}",
           "range": true,
           "refId": "AN"
         },
@@ -5092,10 +5092,10 @@
             "uid": "${cluster}"
           },
           "editorMode": "code",
-          "expr": "sum(increase(workload_rdma_stat_req_rx_dup_response{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name,device)> 0",
+          "expr": "sum(increase(workload_rdma_stat_req_rx_dup_response{workload_uid=\"$workload_uid\"}[1m])) by (node,device)> 0",
           "hide": false,
           "instant": false,
-          "legendFormat": "Req RX Dup Response:{{primus_lens_node_name}}",
+          "legendFormat": "Req RX Dup Response:{{node}}",
           "range": true,
           "refId": "AO"
         },
@@ -5105,10 +5105,10 @@
             "uid": "${cluster}"
           },
           "editorMode": "code",
-          "expr": "sum(increase(workload_rdma_stat_req_tx_loc_sgl_inv_err{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name,device)> 0",
+          "expr": "sum(increase(workload_rdma_stat_req_tx_loc_sgl_inv_err{workload_uid=\"$workload_uid\"}[1m])) by (node,device)> 0",
           "hide": false,
           "instant": false,
-          "legendFormat": "Req TX Local SGL Invalid:{{primus_lens_node_name}}",
+          "legendFormat": "Req TX Local SGL Invalid:{{node}}",
           "range": true,
           "refId": "AP"
         },
@@ -5118,10 +5118,10 @@
             "uid": "${cluster}"
           },
           "editorMode": "code",
-          "expr": "sum(increase(workload_rdma_stat_resp_rx_cqe_err{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name,device)> 0",
+          "expr": "sum(increase(workload_rdma_stat_resp_rx_cqe_err{workload_uid=\"$workload_uid\"}[1m])) by (node,device)> 0",
           "hide": false,
           "instant": false,
-          "legendFormat": "Resp RX CQE Err:{{primus_lens_node_name}}",
+          "legendFormat": "Resp RX CQE Err:{{node}}",
           "range": true,
           "refId": "AQ"
         },
@@ -5131,10 +5131,10 @@
             "uid": "${cluster}"
           },
           "editorMode": "code",
-          "expr": "sum(increase(workload_rdma_stat_resp_rx_cqe_flush{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name,device)> 0",
+          "expr": "sum(increase(workload_rdma_stat_resp_rx_cqe_flush{workload_uid=\"$workload_uid\"}[1m])) by (node,device)> 0",
           "hide": false,
           "instant": false,
-          "legendFormat": "Resp RX CQE Flush:{{primus_lens_node_name}}",
+          "legendFormat": "Resp RX CQE Flush:{{node}}",
           "range": true,
           "refId": "AR"
         },
@@ -5144,10 +5144,10 @@
             "uid": "${cluster}"
           },
           "editorMode": "code",
-          "expr": "sum(increase(workload_rdma_stat_resp_rx_inval_request{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name,device)> 0",
+          "expr": "sum(increase(workload_rdma_stat_resp_rx_inval_request{workload_uid=\"$workload_uid\"}[1m])) by (node,device)> 0",
           "hide": false,
           "instant": false,
-          "legendFormat": "Resp RX Invalid Request:{{primus_lens_node_name}}",
+          "legendFormat": "Resp RX Invalid Request:{{node}}",
           "range": true,
           "refId": "AS"
         },
@@ -5157,10 +5157,10 @@
             "uid": "${cluster}"
           },
           "editorMode": "code",
-          "expr": "sum(increase(workload_rdma_stat_resp_rx_loc_oper_err{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name,device)> 0",
+          "expr": "sum(increase(workload_rdma_stat_resp_rx_loc_oper_err{workload_uid=\"$workload_uid\"}[1m])) by (node,device)> 0",
           "hide": false,
           "instant": false,
-          "legendFormat": "Resp RX Local Oper Err:{{primus_lens_node_name}}",
+          "legendFormat": "Resp RX Local Oper Err:{{node}}",
           "range": true,
           "refId": "AT"
         },
@@ -5170,10 +5170,10 @@
             "uid": "${cluster}"
           },
           "editorMode": "code",
-          "expr": "sum(increase(workload_rdma_stat_resp_tx_pkt_seq_err{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name,device)> 0",
+          "expr": "sum(increase(workload_rdma_stat_resp_tx_pkt_seq_err{workload_uid=\"$workload_uid\"}[1m])) by (node,device)> 0",
           "hide": false,
           "instant": false,
-          "legendFormat": "Resp TX Pkt Seq Err:{{primus_lens_node_name}}",
+          "legendFormat": "Resp TX Pkt Seq Err:{{node}}",
           "range": true,
           "refId": "AU"
         },
@@ -5183,10 +5183,10 @@
             "uid": "${cluster}"
           },
           "editorMode": "code",
-          "expr": "sum(increase(workload_rdma_stat_resp_tx_rmt_acc_err{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name,device)> 0",
+          "expr": "sum(increase(workload_rdma_stat_resp_tx_rmt_acc_err{workload_uid=\"$workload_uid\"}[1m])) by (node,device)> 0",
           "hide": false,
           "instant": false,
-          "legendFormat": "Resp TX Remote Access Err:{{primus_lens_node_name}}",
+          "legendFormat": "Resp TX Remote Access Err:{{node}}",
           "range": true,
           "refId": "AV"
         },
@@ -5196,10 +5196,10 @@
             "uid": "${cluster}"
           },
           "editorMode": "code",
-          "expr": "sum(increase(workload_rdma_stat_resp_tx_rnr_retry_err{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name,device)> 0",
+          "expr": "sum(increase(workload_rdma_stat_resp_tx_rnr_retry_err{workload_uid=\"$workload_uid\"}[1m])) by (node,device)> 0",
           "hide": false,
           "instant": false,
-          "legendFormat": "Resp TX RNR Retry Err:{{primus_lens_node_name}}",
+          "legendFormat": "Resp TX RNR Retry Err:{{node}}",
           "range": true,
           "refId": "AW"
         },
@@ -5209,10 +5209,10 @@
             "uid": "${cluster}"
           },
           "editorMode": "code",
-          "expr": "sum(increase(workload_rdma_stat_resp_tx_loc_sgl_inv_err{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name,device)> 0",
+          "expr": "sum(increase(workload_rdma_stat_resp_tx_loc_sgl_inv_err{workload_uid=\"$workload_uid\"}[1m])) by (node,device)> 0",
           "hide": false,
           "instant": false,
-          "legendFormat": "Resp TX Local SGL Invalid:{{primus_lens_node_name}}",
+          "legendFormat": "Resp TX Local SGL Invalid:{{node}}",
           "range": true,
           "refId": "AX"
         },
@@ -5222,10 +5222,10 @@
             "uid": "${cluster}"
           },
           "editorMode": "code",
-          "expr": "sum(increase(workload_rdma_stat_resp_rx_s0_table_err{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name,device)> 0",
+          "expr": "sum(increase(workload_rdma_stat_resp_rx_s0_table_err{workload_uid=\"$workload_uid\"}[1m])) by (node,device)> 0",
           "hide": false,
           "instant": false,
-          "legendFormat": "Resp RX S0 Table Err:{{primus_lens_node_name}}",
+          "legendFormat": "Resp RX S0 Table Err:{{node}}",
           "range": true,
           "refId": "AY"
         }
@@ -5322,8 +5322,8 @@
             "uid": "${cluster}"
           },
           "editorMode": "code",
-          "expr": "sum(rate(workload_gpu_xgmi_link_tx{workload_uid=\"$workload_uid\"}[1m])) by (gpu_id,primus_lens_node_name)",
-          "legendFormat": "{{primus_lens_node_name}} GPU {{gpu_id}} TX",
+          "expr": "sum(rate(workload_gpu_xgmi_link_tx{workload_uid=\"$workload_uid\"}[1m])) by (gpu_id,node)",
+          "legendFormat": "{{node}} GPU {{gpu_id}} TX",
           "range": true,
           "refId": "A"
         },
@@ -5333,10 +5333,10 @@
             "uid": "${cluster}"
           },
           "editorMode": "code",
-          "expr": "sum(rate(gpu_xgmi_link_rx{workload_uid=\"$workload_uid\"}[1m])) by (gpu_id,primus_lens_node_name)",
+          "expr": "sum(rate(gpu_xgmi_link_rx{workload_uid=\"$workload_uid\"}[1m])) by (gpu_id,node)",
           "hide": false,
           "instant": false,
-          "legendFormat": "{{primus_lens_node_name}} GPU {{gpu_id}} RX",
+          "legendFormat": "{{node}} GPU {{gpu_id}} RX",
           "range": true,
           "refId": "B"
         }
@@ -5433,7 +5433,7 @@
             "uid": "${cluster}"
           },
           "editorMode": "code",
-          "expr": "sum(rate(workload_gpu_pcie_bandwidth_mbs{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name,gpu_id)",
+          "expr": "sum(rate(workload_gpu_pcie_bandwidth_mbs{workload_uid=\"$workload_uid\"}[1m])) by (node,gpu_id)",
           "legendFormat": "GPU {{gpu_id}}",
           "range": true,
           "refId": "A"
@@ -5531,7 +5531,7 @@
           },
           "editorMode": "code",
           "expr": "increase(workload_rdma_stat_dup_req{workload_uid=\"$workload_uid\"}[1m]) > 0 or increase(workload_rdma_stat_resp_rx_dup_request{workload_uid=\"$workload_uid\"}[1m]) > 0",
-          "legendFormat": "DupReq:{{primus_lens_node_name}}:{{device}}",
+          "legendFormat": "DupReq:{{node}}:{{device}}",
           "range": true,
           "refId": "A"
         },
@@ -5544,7 +5544,7 @@
           "expr": "increase(workload_rdma_stat_res_exceed_max{workload_uid=\"$workload_uid\"}[1m]) > 0 or increase(workload_rdma_stat_req_tx_retry_excd_err{workload_uid=\"$workload_uid\"}[1m]) > 0",
           "hide": false,
           "instant": false,
-          "legendFormat": "ResExceedMax:{{primus_lens_node_name}}:{{device}}",
+          "legendFormat": "ResExceedMax:{{node}}:{{device}}",
           "range": true,
           "refId": "B"
         },
@@ -5557,7 +5557,7 @@
           "expr": "increase(workload_rdma_stat_res_length_mismatch{workload_uid=\"$workload_uid\"}[1m]) > 0 or increase(workload_rdma_stat_resp_rx_loc_len_err{workload_uid=\"$workload_uid\"}[1m]) > 0",
           "hide": false,
           "instant": false,
-          "legendFormat": "ResLengthMismatch:{{primus_lens_node_name}}:{{device}}",
+          "legendFormat": "ResLengthMismatch:{{node}}:{{device}}",
           "range": true,
           "refId": "C"
         },
@@ -5570,7 +5570,7 @@
           "expr": "increase(workload_rdma_stat_res_exceeds_wqe{workload_uid=\"$workload_uid\"}[1m]) > 0",
           "hide": false,
           "instant": false,
-          "legendFormat": "ResExceedsWqe:{{primus_lens_node_name}}:{{device}}",
+          "legendFormat": "ResExceedsWqe:{{node}}:{{device}}",
           "range": true,
           "refId": "D"
         },
@@ -5583,7 +5583,7 @@
           "expr": "increase(workload_rdma_stat_res_rx_invalid_rkey{workload_uid=\"$workload_uid\"}[1m]) > 0",
           "hide": false,
           "instant": false,
-          "legendFormat": "Res Rx Invalid Rkey:{{primus_lens_node_name}}:{{device}}",
+          "legendFormat": "Res Rx Invalid Rkey:{{node}}:{{device}}",
           "range": true,
           "refId": "E"
         },
@@ -5596,7 +5596,7 @@
           "expr": "increase(workload_rdma_stat_res_tx_invalid_rkey{workload_uid=\"$workload_uid\"}[1m]) > 0",
           "hide": false,
           "instant": false,
-          "legendFormat": "Res Tx Invalid Rkey:{{primus_lens_node_name}}:{{device}}",
+          "legendFormat": "Res Tx Invalid Rkey:{{node}}:{{device}}",
           "range": true,
           "refId": "F"
         },
@@ -5609,7 +5609,7 @@
           "expr": "increase(workload_rdma_stat_res_irrq_oflow{workload_uid=\"$workload_uid\"}[1m]) > 0 or increase(workload_rdma_stat_resp_rx_outof_buf{workload_uid=\"$workload_uid\"}[1m]) > 0",
           "hide": false,
           "instant": false,
-          "legendFormat": "Res Irrq Oflow:{{primus_lens_node_name}}:{{device}}",
+          "legendFormat": "Res Irrq Oflow:{{node}}:{{device}}",
           "range": true,
           "refId": "G"
         },
@@ -5622,7 +5622,7 @@
           "expr": "increase(workload_rdma_stat_res_unsup_opcode{workload_uid=\"$workload_uid\"}[1m]) > 0 or increase(workload_rdma_stat_req_rx_inval_pkts{workload_uid=\"$workload_uid\"}[1m]) > 0",
           "hide": false,
           "instant": false,
-          "legendFormat": "Res Unsupported OpCode:{{primus_lens_node_name}}:{{device}}",
+          "legendFormat": "Res Unsupported OpCode:{{node}}:{{device}}",
           "range": true,
           "refId": "H"
         },
@@ -5635,7 +5635,7 @@
           "expr": "increase(workload_rdma_stat_res_unaligned_atomic{workload_uid=\"$workload_uid\"}[1m]) > 0 or increase(workload_rdma_stat_resp_rx_outof_atomic{workload_uid=\"$workload_uid\"}[1m]) > 0",
           "hide": false,
           "instant": false,
-          "legendFormat": "Res Unaligned Atomic:{{primus_lens_node_name}}:{{device}}",
+          "legendFormat": "Res Unaligned Atomic:{{node}}:{{device}}",
           "range": true,
           "refId": "I"
         },
@@ -5648,7 +5648,7 @@
           "expr": "increase(workload_rdma_stat_missing_resp{workload_uid=\"$workload_uid\"}[1m]) > 0 or increase(workload_rdma_stat_resp_rx_outouf_seq{workload_uid=\"$workload_uid\"}[1m]) > 0",
           "hide": false,
           "instant": false,
-          "legendFormat": "MissingResp:{{primus_lens_node_name}}:{{device}}",
+          "legendFormat": "MissingResp:{{node}}:{{device}}",
           "range": true,
           "refId": "J"
         },
@@ -5661,7 +5661,7 @@
           "expr": "increase(workload_rdma_stat_res_invalid_dup_rkey{workload_uid=\"$workload_uid\"}[1m]) > 0",
           "hide": false,
           "instant": false,
-          "legendFormat": "Res Invalid Dup Rkey:{{primus_lens_node_name}}:{{device}}",
+          "legendFormat": "Res Invalid Dup Rkey:{{node}}:{{device}}",
           "range": true,
           "refId": "K"
         }
@@ -5738,7 +5738,7 @@
         },
         "datasource": {
           "type": "marcusolsson-json-datasource",
-          "uid": "primus-lens-api"
+          "uid": "${cluster}-robust-api"
         },
         "definition": "",
         "label": "Perf Datasource",
@@ -5772,7 +5772,7 @@
         },
         "datasource": {
           "type": "marcusolsson-json-datasource",
-          "uid": "primus-lens-api"
+          "uid": "${cluster}-robust-api"
         },
         "definition": "",
         "includeAll": true,

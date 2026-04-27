@@ -199,12 +199,13 @@ grafana:
   #       vmSelectUrl: http://10.245.129.5:32481/select/0/prometheus
   #       isDefault: true
   dataClusters: []
-  # URL of a robust-analyzer reachable from the management plane, used as
-  # the Lens-compat JSON datasource. Expected to answer /v1/workloads/...
-  # (the SaFE apiserver /lens/v1 proxy strips /lens and forwards the rest
-  # so the path lines up with robust-api). Leave empty to skip creating the
-  # datasource.
-  # Example: http://10.245.129.5:32626/api
+  # Legacy: a single chart-managed Lens-compat JSON datasource pointing at
+  # one robust-analyzer endpoint. Replaced by the resource-manager
+  # GrafanaDatasourceSyncer, which creates a per-cluster
+  # "<cluster>-robust-api" datasource (uid matches the data cluster name)
+  # whenever a primus-robust addon comes online. Kept on the values surface
+  # only so old override files don't error out; the field is no longer
+  # consumed by any template.
   lensApiUrl: ""
 addon:
   # Default components installed with the system
