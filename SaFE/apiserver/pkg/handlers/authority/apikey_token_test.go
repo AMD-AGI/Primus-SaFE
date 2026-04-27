@@ -66,7 +66,7 @@ func TestHashApiKey(t *testing.T) {
 	}{
 		{
 			name: "standard api key",
-			key:  "ak-dGVzdC1rZXktMTIzNDU2Nzg5MA",
+			key:  "ak-test1234xyz1",
 		},
 		{
 			name: "short api key",
@@ -208,7 +208,7 @@ func TestIsApiKey(t *testing.T) {
 		},
 		{
 			name:     "valid generated key",
-			token:    "ak-dGVzdC1rZXktMTIzNDU2Nzg5MA",
+			token:    "ak-test1234xyz1",
 			expected: true,
 		},
 		{
