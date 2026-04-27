@@ -82,7 +82,7 @@ func (s *GrafanaDatasourceSyncer) SyncClusterDatasources(ctx context.Context, cl
 
 	promName := clusterName + "-prometheus"
 	promURL := strings.TrimRight(robustEndpoint, "/") + "/api/v1/vm-proxy"
-	promDS := s.buildDatasource(promName, "prometheus", promURL, clusterName, map[string]interface{}{
+	promDS := s.buildDatasource(promName, "prometheus", promURL, clusterName, clusterName, map[string]interface{}{
 		"timeInterval":  "30s",
 		"tlsSkipVerify": true,
 	})
@@ -91,7 +91,8 @@ func (s *GrafanaDatasourceSyncer) SyncClusterDatasources(ctx context.Context, cl
 	}
 
 	jsonName := clusterName + "-robust-api"
-	jsonDS := s.buildDatasource(jsonName, "marcusolsson-json-datasource", robustEndpoint, clusterName, nil)
+	// Use the explicit name as UID for the JSON API to match future dashboard variables.
+	jsonDS := s.buildDatasource(jsonName, "marcusolsson-json-datasource", robustEndpoint, clusterName, jsonName, nil)
 	if err := s.applyDatasource(ctx, jsonDS); err != nil {
 		klog.Warningf("[grafana-syncer] sync json-api datasource for %s: %v", clusterName, err)
 	}
@@ -113,7 +114,7 @@ func (s *GrafanaDatasourceSyncer) RemoveClusterDatasources(ctx context.Context, 
 	}
 }
 
-func (s *GrafanaDatasourceSyncer) buildDatasource(name, dsType, url, clusterName string, jsonData map[string]interface{}) *unstructured.Unstructured {
+func (s *GrafanaDatasourceSyncer) buildDatasource(name, dsType, url, clusterName, uid string, jsonData map[string]interface{}) *unstructured.Unstructured {
 	if jsonData == nil {
 		jsonData = map[string]interface{}{}
 	}
@@ -141,6 +142,7 @@ func (s *GrafanaDatasourceSyncer) buildDatasource(name, dsType, url, clusterName
 				"datasource": map[string]interface{}{
 					"name":     name,
 					"type":     dsType,
+					"uid":      uid,
 					"access":   "proxy",
 					"url":      url,
 					"jsonData": jsonData,
