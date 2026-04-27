@@ -24,8 +24,8 @@ Create new SSH key or image registry secret.
   },
   "params": [
     {
-      "username": "root",
-      "password": "MyPassword123!",
+      "username": "test",
+      "password": "test",
       "privateKey": "",
       "publicKey": ""
     }
@@ -45,10 +45,10 @@ Create new SSH key or image registry secret.
   },
   "params": [
     {
-      "username": "root",
+      "username": "test",
       "password": "",
-      "privateKey": "LS0tLS1CRUdJTi...(Base64 encoded private key)",
-      "publicKey": "c3NoLXJzYSBBQUFB...(Base64 encoded public key)"
+      "privateKey": "dGVzdAo=...(Base64 encoded private key)",
+      "publicKey": "dGVzdAo=...(Base64 encoded public key)"
     }
   ]
 }
@@ -69,12 +69,12 @@ Create new SSH key or image registry secret.
     {
       "server": "harbor.example.com",
       "username": "admin",
-      "password": "SGFyYm9yMTIzNDU=(Base64 encoded password)"
+      "password": "dGVzdAo=(Base64 encoded password)"
     },
     {
       "server": "docker.io",
       "username": "dockeruser",
-      "password": "RG9ja2VyMTIzNDU=(Base64 encoded password)"
+      "password": "dGVzdAo=(Base64 encoded password)"
     }
   ]
 }
@@ -239,12 +239,12 @@ Get detailed information about a specific secret.
     {
       "server": "harbor.example.com",
       "username": "admin",
-      "password": "SGFyYm9yMTIzNDU=(Base64 encoded password)"
+      "password": "dGVzdAo=(Base64 encoded password)"
     },
     {
       "server": "docker.io",
       "username": "dockeruser",
-      "password": "RG9ja2VyMTIzNDU=(Base64 encoded password)"
+      "password": "dGVzdAo=(Base64 encoded password)"
     }
   ],
   "creationTime": "2025-01-10T10:00:00",
@@ -282,12 +282,12 @@ Update secret authentication information or binding settings.
     {
       "server": "harbor.example.com",
       "username": "newuser",
-      "password": "TmV3UGFzc3dvcmQ="
+      "password": "dGVzdAo="
     },
     {
       "server": "docker.io",
       "username": "dockeruser",
-      "password": "RG9ja2VyMTIzNDU="
+      "password": "dGVzdAo="
     }
   ],
   "workspaceIds": ["dev", "prod"]
