@@ -119,24 +119,19 @@ export CALLED_BY_CD=true
 /bin/bash ./upgrade.sh
 
 # Sync .env values to the apiserver ConfigMap AFTER helm upgrade so the new
-# template fields (e.g. gpu_type) are already present before we patch them.
+# template fields are already present before we patch them.
 # Using --type=merge avoids adding last-applied-configuration which would
 # conflict with subsequent helm upgrades.
 # Note: .env uses cd_require_approval; ConfigMap stores it as require_approval under cd:.
 APISERVER_CM="primus-safe-apiserver"
-if [ -n "${gpu_type:-}" ] || [ -n "${cd_require_approval:-}" ]; then
+if [ -n "${cd_require_approval:-}" ]; then
     echo "Syncing .env values to apiserver ConfigMap $APISERVER_CM..."
-    [ -n "${gpu_type:-}" ]             && echo "  gpu_type=${gpu_type}"
-    [ -n "${cd_require_approval:-}" ]  && echo "  require_approval=${cd_require_approval}"
 
     CURRENT_CONFIG=$(kubectl get configmap "$APISERVER_CM" -n "$NAMESPACE" \
         -o jsonpath='{.data.config\.yaml}' 2>/dev/null || echo "")
     if [ -n "$CURRENT_CONFIG" ]; then
         CM_TMP=$(mktemp /tmp/apiserver-config-XXXXXX.yaml)
         printf '%s' "$CURRENT_CONFIG" > "$CM_TMP"
-        if [ -n "${gpu_type:-}" ]; then
-            sed -i "s/\(gpu_type:\).*/\1 \"${gpu_type}\"/" "$CM_TMP"
-        fi
         if [ -n "${cd_require_approval:-}" ]; then
             sed -i "s/\(require_approval:\).*/\1 ${cd_require_approval}/" "$CM_TMP"
         fi

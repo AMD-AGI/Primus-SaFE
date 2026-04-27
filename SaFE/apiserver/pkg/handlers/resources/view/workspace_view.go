@@ -106,6 +106,8 @@ type WorkspaceResponseItem struct {
 	// Trigger workload processing after a period of workspace inactivity. The idletime of each scope, Unit: "12h0m0s"
 	// only for sandbox workload
 	IdleTime map[v1.WorkspaceScope]string `json:"idleTime,omitempty"`
+	// GPU product for this workspace (e.g. "MI300X", "MI325X"). The default is empty.
+	GpuProduct string `json:"gpuProduct,omitempty"`
 }
 
 type GetWorkspaceResponse struct {

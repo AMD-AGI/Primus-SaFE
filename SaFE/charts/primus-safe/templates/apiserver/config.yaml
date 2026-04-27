@@ -96,7 +96,6 @@ data:
       # Whether deployment requests require approval from another user
       require_approval: {{ default false (default .Values.cd).require_approval }}
       components: {{ .Values.cd.components }}
-      gpu_type: "{{ default "MI300X" (default .Values.cd).gpu_type }}"
     notification:
       enable: {{ or (and .Values.notification .Values.notification.email .Values.notification.email.smtp_host) (and .Values.notification .Values.notification.email_relay .Values.notification.email_relay.enable) | default false }}
       secret_path: /etc/secrets/notification

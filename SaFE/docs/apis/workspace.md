@@ -157,7 +157,8 @@ Get workspace list with cluster filtering support.
         }
       ],
       "isDefault": false,
-      "maxRuntime": {"Authoring": 168, "Infer": 720}
+      "maxRuntime": {"Authoring": 168, "Infer": 720},
+      "gpuProduct": "MI300X"
     }
   ]
 }
@@ -180,7 +181,7 @@ Only fields not already covered by "Create Workspace" are listed below. Other fi
 | phase    | string | The status of workspace, e.g. Creating, Running, Abnormal, Deleting |
 | creationTime  | string | The workspace creation time                                         |
 | maxRuntime  | Object | The maximum workload runtime of each scope, Unit: hours             |
-
+| gpuProduct  | string | GPU product for this workspace (e.g. "MI300X", "MI325X"). The default is empty.             |
 ---
 
 ### 3. Get Workspace Details
