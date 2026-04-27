@@ -8,7 +8,6 @@ package resources
 import (
 	"bytes"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -1564,9 +1563,4 @@ func createMockDefaultUser() (*v1.User, client.WithWatch) {
 
 	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(mockUser, mockRole).Build()
 	return mockUser, fakeClient
-}
-
-func TestBlockPassword(t *testing.T) {
-	hf_token := "hf_1234567890abcdefghijklmnopqrstuvwxyz"
-	fmt.Println(hf_token)
 }
