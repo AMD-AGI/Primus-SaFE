@@ -2,18 +2,23 @@
 # Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
 # See LICENSE for license information.
 #
-# Datasources:
+# Datasources owned by this chart:
 #   - safe-postgresql: management-plane's own Postgres, used by SaFE-authored
 #     dashboards.
-#   - One Prometheus datasource per data cluster, uid = data cluster name.
-#     Dashboards (training-workload, etc.) pick the cluster via the URL
-#     variable var-cluster=<name>, which the Grafana variable system resolves
-#     against *datasource uid*. If these uids don't match the data cluster
-#     names, dashboards render "Datasource <name> was not found".
-#   - primus-lens-api: Lens-compat JSON datasource. Points at each data
-#     cluster's robust-analyzer so that dashboard variables pulling
-#     /v1/workloads/{uid}/metrics/sources (training_perf_datasource etc.)
-#     keep working without the removed primus-lens-api service.
+#   - vmselect-<cluster>: one Prometheus datasource per data cluster declared
+#     under .Values.grafana.dataClusters, with uid == cluster name. Dashboards
+#     pick the cluster via the URL variable var-cluster=<name>, which the
+#     Grafana variable system resolves against *datasource uid*. If these
+#     uids don't match the data cluster names, dashboards render
+#     "Datasource <name> was not found".
+#
+# The Lens-compat JSON datasource (uid <cluster>-robust-api, type
+# marcusolsson-json-datasource, pointing at the data cluster's robust-analyzer)
+# is NOT created here on purpose. resource-manager's GrafanaDatasourceSyncer
+# creates one per cluster as soon as the primus-robust addon comes online,
+# so the JSON datasource follows whatever robust-api endpoint the operator
+# annotated on the Cluster CR (NodePort / LB / Ingress) instead of being
+# pinned to a chart value.
 {{- if .Values.grafana.enable }}
 apiVersion: grafana.integreatly.org/v1beta1
 kind: GrafanaDatasource
@@ -73,31 +78,5 @@ spec:
     jsonData:
       tlsSkipVerify: true
       timeInterval: "30s"
-{{- end }}
-{{- if .Values.grafana.lensApiUrl }}
----
-apiVersion: grafana.integreatly.org/v1beta1
-kind: GrafanaDatasource
-metadata:
-  name: primus-lens-api
-  namespace: {{ .Release.Namespace }}
-  labels:
-    app.kubernetes.io/managed-by: Helm
-  annotations:
-    meta.helm.sh/release-name: {{ .Release.Name }}
-    meta.helm.sh/release-namespace: {{ .Release.Namespace }}
-spec:
-  instanceSelector:
-    matchLabels:
-      system: primus-safe
-  datasource:
-    uid: primus-lens-api
-    name: primus-lens-api
-    type: marcusolsson-json-datasource
-    access: proxy
-    editable: true
-    url: {{ .Values.grafana.lensApiUrl | quote }}
-    jsonData:
-      tlsSkipVerify: true
 {{- end }}
 {{- end }}
