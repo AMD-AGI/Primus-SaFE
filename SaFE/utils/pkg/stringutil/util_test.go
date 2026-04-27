@@ -13,10 +13,10 @@ import (
 )
 
 func TestBase64Encode(t *testing.T) {
-	str := "tT5+uQ0^qF4,fL6{"
+	str := "test"
 	encode := Base64Encode(str)
 	fmt.Println(encode)
-	assert.Equal(t, encode, "dFQ1K3VRMF5xRjQsZkw2ew==")
+	assert.Equal(t, encode, "dGVzdAo=")
 }
 
 func TestMD5(t *testing.T) {
