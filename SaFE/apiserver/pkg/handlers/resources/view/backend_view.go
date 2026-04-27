@@ -22,6 +22,4 @@ type GetEnvResponse struct {
 	SSOAuthUrl string `json:"ssoAuthUrl"`
 	// Whether CD deployment requires approval from another user
 	CDRequireApproval bool `json:"cdRequireApproval"`
-	// GPU type for this cluster (e.g. "MI300X", "MI325X")
-	GpuType string `json:"gpuType"`
 }
