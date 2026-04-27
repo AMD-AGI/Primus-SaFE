@@ -2,8 +2,8 @@
   <div class="header-row">
     <h3 class="chart-title">Usage breakdown</h3>
     <div class="header-links">
-      <!-- Hyperloom entry - shown only in OCI environment -->
-      <el-button v-if="isOci" link @click="goToHyperloom" class="lens-link">
+      <!-- Hyperloom entry - shown only in production (same gating as Lens) -->
+      <el-button v-if="isProd" link @click="goToHyperloom" class="lens-link">
         Go to Hyperloom
         <el-icon class="ml-1"><Right /></el-icon>
       </el-button>
@@ -149,7 +149,6 @@ import { useClusterStore } from '@/stores/cluster'
 
 // Check if in production environment
 const isProd = import.meta.env.PROD
-const isOci = window.location.origin === 'https://oci-slc.primus-safe.amd.com'
 
 // Navigate to Lens system
 const goToLens = () => {
@@ -157,7 +156,7 @@ const goToLens = () => {
 }
 
 const goToHyperloom = () => {
-  window.open('https://oci-slc.primus-safe.amd.com/hyperloom/', '_blank')
+  window.open(`${location.origin}/hyperloom/`, '_blank')
 }
 
 const store = useWorkspaceStore()

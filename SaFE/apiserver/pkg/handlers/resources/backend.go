@@ -28,6 +28,7 @@ func (h *Handler) getEnvs(_ *gin.Context) (interface{}, error) {
 		SSHPort:           commonconfig.GetSSHServerPort(),
 		SSOEnable:         commonconfig.IsSSOEnable(),
 		CDRequireApproval: commonconfig.IsCDRequireApproval(),
+		GpuType:           commonconfig.GetCDGpuType(),
 	}
 	if resp.SSOEnable {
 		inst := authority.SSOInstance()
