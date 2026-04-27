@@ -19,7 +19,7 @@ func (h *Handler) GetEnvs(c *gin.Context) {
 }
 
 // getEnvs lists the environment variables supported by the backend.
-func (h *Handler) getEnvs(c *gin.Context) (interface{}, error) {
+func (h *Handler) getEnvs(_ *gin.Context) (interface{}, error) {
 	resp := view.GetEnvResponse{
 		EnableLog:         commonconfig.IsOpenSearchEnable(),
 		EnableLogDownload: commonconfig.IsS3Enable(),
