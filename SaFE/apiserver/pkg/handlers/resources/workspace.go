@@ -137,20 +137,14 @@ func (h *Handler) listWorkspace(c *gin.Context) (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
-
 	ctx := c.Request.Context()
-	workspaceList := &v1.WorkspaceList{}
-	if err = h.List(ctx, workspaceList, &client.ListOptions{LabelSelector: labelSelector}); err != nil {
+	workspaceItems, err := h.listAdminWorkspaces(ctx, labelSelector)
+	if err != nil {
 		return nil, err
-	}
-	if len(workspaceList.Items) > 1 {
-		sort.Slice(workspaceList.Items, func(i, j int) bool {
-			return workspaceList.Items[i].Name < workspaceList.Items[j].Name
-		})
 	}
 	roles := h.accessController.GetRoles(ctx, requestUser)
 	result := &view.ListWorkspaceResponse{}
-	for _, w := range workspaceList.Items {
+	for _, w := range workspaceItems {
 		if err = h.accessController.Authorize(authority.AccessInput{
 			Context:    ctx,
 			Resource:   &w,
@@ -166,6 +160,20 @@ func (h *Handler) listWorkspace(c *gin.Context) (interface{}, error) {
 	}
 	result.TotalCount = len(result.Items)
 	return result, nil
+}
+
+// listAdminWorkspaces lists workspaces with the given label selector and sorts them by name.
+func (h *Handler) listAdminWorkspaces(ctx context.Context, labelSelector labels.Selector) ([]v1.Workspace, error) {
+	workspaceList := &v1.WorkspaceList{}
+	if err := h.List(ctx, workspaceList, &client.ListOptions{LabelSelector: labelSelector}); err != nil {
+		return nil, err
+	}
+	if len(workspaceList.Items) > 1 {
+		sort.Slice(workspaceList.Items, func(i, j int) bool {
+			return workspaceList.Items[i].Name < workspaceList.Items[j].Name
+		})
+	}
+	return workspaceList.Items, nil
 }
 
 // getWorkspace implements the logic for retrieving a single workspace's detailed information.
@@ -535,6 +543,7 @@ func (h *Handler) cvtToWorkspaceResponseItem(ctx context.Context, w *v1.Workspac
 		IsDefault:         w.Spec.IsDefault,
 		MaxRuntime:        w.Spec.MaxRuntime,
 		IdleTime:          w.Spec.IdleTime,
+		GpuProduct:        v1.GetAnnotation(w, v1.GpuProductAnnotation),
 	}
 	for _, m := range w.Spec.Managers {
 		user, err := h.getAdminUser(ctx, m)

@@ -135,6 +135,9 @@ func (m *WorkspaceMutator) mutateCommon(ctx context.Context, oldWorkspace, newWo
 	if err := m.mutateDefaultWorkspaceUsers(ctx, oldWorkspace, newWorkspace); err != nil {
 		return err
 	}
+	if err := m.mutateGpuProduct(ctx, newWorkspace); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -436,6 +439,21 @@ func (m *WorkspaceMutator) mutateManagers(ctx context.Context, oldWorkspace, new
 				return err
 			}
 		}
+	}
+	return nil
+}
+
+// mutateDefaultWorkspaceUsers adds workspace access to all users when marked as default.
+func (m *WorkspaceMutator) mutateGpuProduct(ctx context.Context, workspace *v1.Workspace) error {
+	if workspace.Spec.NodeFlavor == "" || v1.HasAnnotation(workspace, v1.GpuProductAnnotation) {
+		return nil
+	}
+	nf := &v1.NodeFlavor{}
+	if err := m.Get(ctx, client.ObjectKey{Name: workspace.Spec.NodeFlavor}, nf); err != nil {
+		return err
+	}
+	if nf.HasGpu() {
+		v1.SetAnnotation(workspace, v1.GpuProductAnnotation, string(nf.Spec.Gpu.Product))
 	}
 	return nil
 }
