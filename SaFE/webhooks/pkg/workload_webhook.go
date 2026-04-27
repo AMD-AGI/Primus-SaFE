@@ -1103,8 +1103,8 @@ func validateResourceEnough(nf *v1.NodeFlavor, res *v1.WorkloadResource) error {
 		return err
 	}
 	if ok, key := quantity.IsSubResource(podResourceList, availNodeResourceList); !ok {
-		return commonerrors.NewQuotaInsufficient(
-			fmt.Sprintf("Insufficient resource: %s, request: %v, available: %v",
+		return commonerrors.NewForbidden(
+			fmt.Sprintf("Resource request exceeds maximum available: %s, requested: %v, max.available: %v",
 				key, podResourceList, availNodeResourceList))
 	}
 
@@ -1125,8 +1125,8 @@ func validateResourceEnough(nf *v1.NodeFlavor, res *v1.WorkloadResource) error {
 		maxEphemeralStoreQuantity, _ := quantity.GetMaxEphemeralStoreQuantity(nodeResources)
 		requestQuantity, ok := podResourceList[corev1.ResourceEphemeralStorage]
 		if ok && maxEphemeralStoreQuantity.Cmp(requestQuantity) < 0 {
-			return commonerrors.NewQuotaInsufficient(
-				fmt.Sprintf("Insufficient resource: %s, request: %v, max: %v",
+			return commonerrors.NewForbidden(
+				fmt.Sprintf("Resource request exceeds maximum available: %s, requested: %v, max.available: %v",
 					corev1.ResourceEphemeralStorage, requestQuantity, *maxEphemeralStoreQuantity))
 		}
 	}
