@@ -13,6 +13,7 @@ import (
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/config"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/errors"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/helper/workload"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/mcp/unified"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/snapshot"
@@ -73,7 +74,7 @@ func handleCodeSnapshotDownload(c *gin.Context) {
 
 	ctx := c.Request.Context()
 
-	clusterName, err := ResolveWorkloadCluster(ctx, uid, cluster)
+	clusterName, err := workload.ResolveWorkloadCluster(ctx, uid, cluster)
 	if err != nil {
 		_ = c.Error(err)
 		return

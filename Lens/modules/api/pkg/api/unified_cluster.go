@@ -2,47 +2,37 @@
 // See LICENSE for license information.
 
 // Package api provides unified API endpoints for cluster operations.
-// These endpoints work for both HTTP REST and MCP protocols.
+// All data-plane queries are delegated to the Robust API.
 package api
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
+	"strconv"
 
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/clientsets"
-	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database"
-	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/helper/cluster"
-	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/helper/fault"
-	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/helper/gpu"
-	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/helper/metadata"
-	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/helper/rdma"
-	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/helper/storage"
-	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/helper/workload"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/mcp/unified"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/model"
-	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/utils/sliceUtil"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/robust"
 )
 
 // ===== Cluster Overview =====
 
-// ClusterOverviewRequest represents the request for cluster overview.
 type ClusterOverviewRequest struct {
 	Cluster string `json:"cluster" query:"cluster" mcp:"cluster,description=Target cluster name (optional - uses default if not specified)"`
 }
 
-// ClusterOverviewResponse is the same as model.GpuClusterOverview for backward compatibility.
 type ClusterOverviewResponse = model.GpuClusterOverview
 
 // ===== Cluster Consumers =====
 
-// ClusterConsumersRequest represents the request for cluster consumers.
 type ClusterConsumersRequest struct {
 	Cluster  string `json:"cluster" query:"cluster" mcp:"cluster,description=Target cluster name (optional)"`
 	PageNum  int    `json:"page_num" query:"page_num" mcp:"page_num,description=Page number for pagination (default 1)"`
 	PageSize int    `json:"page_size" query:"page_size" mcp:"page_size,description=Number of items per page (default 10)"`
 }
 
-// ClusterConsumersResponse represents the cluster consumers response.
-// Matches original API: {data: [...], total: int}
 type ClusterConsumersResponse struct {
 	Data  []model.TopLevelGpuResource `json:"data"`
 	Total int                         `json:"total"`
@@ -50,12 +40,10 @@ type ClusterConsumersResponse struct {
 
 // ===== GPU Heatmap =====
 
-// ClusterGPUHeatmapRequest represents the request for GPU heatmap.
 type ClusterGPUHeatmapRequest struct {
 	Cluster string `json:"cluster" query:"cluster" mcp:"cluster,description=Target cluster name (optional)"`
 }
 
-// ClusterGPUHeatmapResponse represents the response for GPU heatmap.
 type ClusterGPUHeatmapResponse struct {
 	Power       model.Heatmap `json:"power"`
 	Temperature model.Heatmap `json:"temperature"`
@@ -65,7 +53,6 @@ type ClusterGPUHeatmapResponse struct {
 // ===== Register Cluster Endpoints =====
 
 func init() {
-	// Register cluster overview endpoint - replaces getClusterOverview in cluster.go
 	unified.Register(&unified.EndpointDef[ClusterOverviewRequest, ClusterOverviewResponse]{
 		Name:        "cluster_overview",
 		Description: "Get comprehensive GPU cluster overview including node counts, health status, allocation rate, utilization, storage and RDMA statistics. Returns total/healthy/faulty nodes, idle/busy breakdown, and resource utilization metrics.",
@@ -75,7 +62,6 @@ func init() {
 		Handler:     handleClusterOverview,
 	})
 
-	// Register cluster consumers endpoint - replaces getConsumerInfo in workload.go
 	unified.Register(&unified.EndpointDef[ClusterConsumersRequest, ClusterConsumersResponse]{
 		Name:        "cluster_consumers",
 		Description: "List GPU resource consumers (workloads) in the cluster with their GPU allocation and utilization. Shows which workloads are using GPU resources and their current utilization percentage.",
@@ -85,7 +71,6 @@ func init() {
 		Handler:     handleClusterConsumers,
 	})
 
-	// Register GPU heatmap endpoint - replaces getClusterGpuHeatmap in cluster.go
 	unified.Register(&unified.EndpointDef[ClusterGPUHeatmapRequest, ClusterGPUHeatmapResponse]{
 		Name:        "cluster_gpu_heatmap",
 		Description: "Get GPU heatmap data showing power, temperature and utilization for top K GPUs. Useful for visualizing cluster-wide GPU health.",
@@ -97,72 +82,29 @@ func init() {
 }
 
 // ===== Handler Implementations =====
-// These handlers reuse existing helper functions - no duplicate business logic
 
-// handleClusterOverview handles cluster overview requests.
-// Reuses: cluster.GetClusterOverviewFromCache, gpu.*, fault.*, storage.*, rdma.*
 func handleClusterOverview(ctx context.Context, req *ClusterOverviewRequest) (*ClusterOverviewResponse, error) {
-	cm := clientsets.GetClusterManager()
-	clients, err := cm.GetClusterClientsOrDefault(req.Cluster)
+	rc, err := getRobustClient(req.Cluster)
 	if err != nil {
 		return nil, err
 	}
 
-	// Try to get cached data first (reusing existing helper)
-	result, err := cluster.GetClusterOverviewFromCache(ctx, clients.ClusterName)
-	if err == nil && result != nil {
-		return result, nil
-	}
-
-	// Cache miss - fall back to real-time calculation (reusing existing helpers)
-	gpuNodes, err := gpu.GetGpuNodes(ctx, clients.K8SClientSet, metadata.GpuVendorAMD)
+	resp, err := rc.GetClusterOverview(ctx)
 	if err != nil {
-		return nil, err
-	}
-	faultyNodes, err := fault.GetFaultyNodes(ctx, clients.K8SClientSet, gpuNodes)
-	if err != nil {
-		return nil, err
-	}
-	idle, partialIdle, busy, err := gpu.GetGpuNodeIdleInfo(ctx, clients.K8SClientSet, clients.ClusterName, metadata.GpuVendorAMD)
-	if err != nil {
-		return nil, err
-	}
-	usage, err := gpu.CalculateGpuUsage(ctx, clients.StorageClientSet, metadata.GpuVendorAMD)
-	if err != nil {
-		return nil, err
-	}
-	allocationRate, err := gpu.GetClusterGpuAllocationRateFromDB(ctx, database.GetFacade().GetPod(), database.GetFacade().GetNode())
-	if err != nil {
-		return nil, err
-	}
-	storageStat, err := storage.GetStorageStat(ctx)
-	if err != nil {
-		return nil, err
-	}
-	rdmaStat, err := rdma.GetRdmaClusterStat(ctx, clients.StorageClientSet)
-	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("robust cluster overview: %w", err)
 	}
 
 	return &model.GpuClusterOverview{
-		RdmaClusterStat:    rdmaStat,
-		StorageStat:        *storageStat,
-		TotalNodes:         len(gpuNodes),
-		HealthyNodes:       len(gpuNodes) - len(faultyNodes),
-		FaultyNodes:        len(faultyNodes),
-		FullyIdleNodes:     idle,
-		PartiallyIdleNodes: partialIdle,
-		BusyNodes:          busy,
-		AllocationRate:     allocationRate,
-		Utilization:        usage,
+		TotalNodes:     resp.TotalNodes,
+		HealthyNodes:   resp.HealthyNodes,
+		FaultyNodes:    resp.FaultedNodes,
+		AllocationRate: resp.AllocationRate,
+		Utilization:    resp.AvgUtilization,
 	}, nil
 }
 
-// handleClusterConsumers handles cluster consumers requests.
-// Reuses: database.GetFacade().GetWorkload().ListRunningWorkload, workload.GetCurrentWorkloadGpuUtilization
 func handleClusterConsumers(ctx context.Context, req *ClusterConsumersRequest) (*ClusterConsumersResponse, error) {
-	cm := clientsets.GetClusterManager()
-	clients, err := cm.GetClusterClientsOrDefault(req.Cluster)
+	rc, err := getRobustClient(req.Cluster)
 	if err != nil {
 		return nil, err
 	}
@@ -176,86 +118,112 @@ func handleClusterConsumers(ctx context.Context, req *ClusterConsumersRequest) (
 		pageSize = 10
 	}
 
-	// Reuse existing database query
-	runningWorkload, err := database.GetFacadeForCluster(clients.ClusterName).GetWorkload().ListRunningWorkload(ctx)
+	raw, err := rc.GetRaw(ctx, "/workloads/ranking", map[string][]string{
+		"limit": {strconv.Itoa(pageNum * pageSize)},
+	})
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("robust workload ranking: %w", err)
 	}
 
-	result := []model.TopLevelGpuResource{}
-	for _, dbWorkload := range runningWorkload {
-		r := model.TopLevelGpuResource{
-			Kind:      dbWorkload.Kind,
-			Name:      dbWorkload.Name,
-			Namespace: dbWorkload.Namespace,
-			Uid:       dbWorkload.UID,
+	var rankResp struct {
+		Ranking []struct {
+			WorkloadID     string  `json:"workload_id"`
+			AvgUtilization float64 `json:"avg_utilization"`
+			P90Utilization float64 `json:"p90_utilization"`
+			GPUHours       float64 `json:"gpu_hours"`
+		} `json:"ranking"`
+		Count int `json:"count"`
+	}
+	if err := json.Unmarshal(raw, &rankResp); err != nil {
+		return nil, fmt.Errorf("decode ranking: %w", err)
+	}
+
+	start := (pageNum - 1) * pageSize
+	end := start + pageSize
+	if start > len(rankResp.Ranking) {
+		start = len(rankResp.Ranking)
+	}
+	if end > len(rankResp.Ranking) {
+		end = len(rankResp.Ranking)
+	}
+	page := rankResp.Ranking[start:end]
+
+	data := make([]model.TopLevelGpuResource, 0, len(page))
+	for _, r := range page {
+		data = append(data, model.TopLevelGpuResource{
+			Uid: r.WorkloadID,
 			Stat: model.GpuStat{
-				GpuRequest:     int(dbWorkload.GpuRequest),
-				GpuUtilization: 0,
+				GpuUtilization: r.AvgUtilization,
 			},
-			Pods:   nil,
-			Source: getSource(dbWorkload),
-		}
-		// Reuse existing helper for GPU utilization
-		r.Stat.GpuUtilization, _ = workload.GetCurrentWorkloadGpuUtilization(ctx, dbWorkload.UID, clients.StorageClientSet)
-		result = append(result, r)
+		})
 	}
-
-	// Reuse existing pagination helper
-	data, _, total, _ := sliceUtil.PaginateSlice(result, pageNum, pageSize)
 
 	return &ClusterConsumersResponse{
 		Data:  data,
-		Total: total,
+		Total: rankResp.Count,
 	}, nil
 }
 
-// handleClusterGPUHeatmap handles GPU heatmap requests.
-// Reuses: gpu.TopKGpuPowerInstant, gpu.TopKGpuUtilizationInstant, gpu.TopKGpuTemperatureInstant
 func handleClusterGPUHeatmap(ctx context.Context, req *ClusterGPUHeatmapRequest) (*ClusterGPUHeatmapResponse, error) {
-	k := 5 // Top K GPUs
-	cm := clientsets.GetClusterManager()
-	clients, err := cm.GetClusterClientsOrDefault(req.Cluster)
+	rc, err := getRobustClient(req.Cluster)
 	if err != nil {
 		return nil, err
 	}
 
-	// Reuse existing helpers
-	power, err := gpu.TopKGpuPowerInstant(ctx, k, clients.StorageClientSet)
+	heatmap, err := rc.GetClusterGPUHeatmap(ctx)
 	if err != nil {
-		return nil, err
-	}
-	util, err := gpu.TopKGpuUtilizationInstant(ctx, k, clients.StorageClientSet)
-	if err != nil {
-		return nil, err
-	}
-	temp, err := gpu.TopKGpuTemperatureInstant(ctx, k, clients.StorageClientSet)
-	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("robust gpu heatmap: %w", err)
 	}
 
+	return convertRobustHeatmap(heatmap), nil
+}
+
+func convertRobustHeatmap(src *robust.ClusterGPUHeatmapResp) *ClusterGPUHeatmapResponse {
+	var utilData, powerData, tempData []model.ClusterOverviewHeatmapItem
+	for _, node := range src.Nodes {
+		for _, g := range node.GPUs {
+			utilData = append(utilData, model.ClusterOverviewHeatmapItem{
+				NodeName: g.NodeName,
+				GpuId:    gpuIDToInt(g.GpuID),
+				Value:    g.Utilization,
+			})
+			powerData = append(powerData, model.ClusterOverviewHeatmapItem{
+				NodeName: g.NodeName,
+				GpuId:    gpuIDToInt(g.GpuID),
+				Value:    g.Power,
+			})
+		}
+	}
 	return &ClusterGPUHeatmapResponse{
 		Power: model.Heatmap{
-			Serial:   2,
-			Unit:     "W",
-			YAxisMax: 850,
-			YAxisMin: 0,
-			Data:     power,
+			Serial: 2, Unit: "W", YAxisMax: 850, YAxisMin: 0,
+			Data: powerData,
 		},
 		Temperature: model.Heatmap{
-			Serial:   3,
-			Unit:     "℃",
-			YAxisMax: 110,
-			YAxisMin: 20,
-			Data:     temp,
+			Serial: 3, Unit: "℃", YAxisMax: 110, YAxisMin: 20,
+			Data: tempData,
 		},
 		Utilization: model.Heatmap{
-			Serial:   1,
-			Unit:     "%",
-			YAxisMax: 100,
-			YAxisMin: 0,
-			Data:     util,
+			Serial: 1, Unit: "%", YAxisMax: 100, YAxisMin: 0,
+			Data: utilData,
 		},
-	}, nil
+	}
 }
 
+func gpuIDToInt(s string) int {
+	n, _ := strconv.Atoi(s)
+	return n
+}
+
+// getRobustClient resolves the Robust API client for the given cluster name.
+func getRobustClient(cluster string) (*robust.Client, error) {
+	cm := clientsets.GetClusterManager()
+	clients, err := cm.GetClusterClientsOrDefault(cluster)
+	if err != nil {
+		return nil, err
+	}
+	if clients.RobustClient == nil {
+		return nil, fmt.Errorf("no Robust client configured for cluster %q", clients.ClusterName)
+	}
+	return clients.RobustClient, nil
+}

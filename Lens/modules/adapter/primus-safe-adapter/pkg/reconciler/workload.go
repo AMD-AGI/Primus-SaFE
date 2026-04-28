@@ -19,6 +19,7 @@ import (
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database/model"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/helper/metadata"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/robust"
 	primusSafeConstant "github.com/AMD-AGI/Primus-SaFE/Lens/primus-safe-adapter/pkg/constant"
 	primusSafeV1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -48,10 +49,13 @@ func (r *WorkloadReconciler) Init(ctx context.Context) error {
 	frameworkDetection, err := NewFrameworkDetectionIntegration(facade.GetAiWorkloadMetadata())
 	if err != nil {
 		log.Errorf("Failed to initialize framework detection: %v", err)
-		// Don't fail, continue with degraded functionality
 	} else {
 		r.frameworkDetection = frameworkDetection
 		log.Info("Framework detection integration initialized")
+	}
+
+	if clusters := robust.GetRegistry().ListClusters(); len(clusters) > 0 {
+		log.Infof("Robust API integration enabled for clusters: %v", clusters)
 	}
 
 	return nil
@@ -104,6 +108,17 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req reconcile.Reques
 			log.Errorf("Failed to save workload to DB during deletion (non-blocking): %v", saveErr)
 		}
 		return reconcile.Result{}, nil
+	}
+
+	// Notify the target cluster's Robust instance so that telemetry-gateway can
+	// emit workload_* metrics under the SaFE UID.
+	// Runs independently of the Lens DB save (which may skip if the cluster is not loaded).
+	clusterID := primusSafeV1.GetClusterId(workload)
+	if rc, err := robust.GetRegistry().GetClientOrDefault(clusterID); err == nil {
+		if linkErr := r.linkParentToRobust(ctx, rc, workload); linkErr != nil {
+			log.Warnf("Robust link-parent failed for %s on cluster %s (non-blocking): %v",
+				workload.Name, rc.ClusterName(), linkErr)
+		}
 	}
 
 	// Handle create/update: save to DB first, then add finalizer
@@ -266,7 +281,11 @@ func (r *WorkloadReconciler) saveWorkloadToDB(ctx context.Context, workload *pri
 	}
 
 	// Link this Workload as the parent workload for related gpu_workloads
-	return r.linkChildrenWorkloads(ctx, workload, facade)
+	if err := r.linkChildrenWorkloads(ctx, workload, facade); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func (r *WorkloadReconciler) linkChildrenWorkloads(ctx context.Context, workload *primusSafeV1.Workload, facade database.FacadeInterface) error {
@@ -313,6 +332,27 @@ func (r *WorkloadReconciler) linkChildrenWorkloads(ctx context.Context, workload
 		// Don't fail the entire operation for pod reference copy errors
 	}
 
+	return nil
+}
+
+// linkParentToRobust calls the Robust API on the workload's target cluster to
+// set parent_id, enabling telemetry-gateway to emit workload_* metrics under
+// both the child UID and the SaFE UID.
+func (r *WorkloadReconciler) linkParentToRobust(ctx context.Context, rc *robust.Client, workload *primusSafeV1.Workload) error {
+	reqBody := map[string]interface{}{
+		"parent_instance_id": string(workload.UID),
+		"parent_name":        workload.Name,
+		"parent_namespace":   workload.Spec.Workspace,
+		"child_name":         workload.Name,
+		"child_namespace":    workload.Spec.Workspace,
+	}
+
+	if err := rc.Post(ctx, "/workloads/link-parent", reqBody, nil); err != nil {
+		return err
+	}
+
+	log.Debugf("Robust link-parent OK for workload %s on cluster %s (parent_uid=%s)",
+		workload.Name, rc.ClusterName(), workload.UID)
 	return nil
 }
 

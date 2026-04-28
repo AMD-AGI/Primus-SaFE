@@ -11,6 +11,7 @@ import (
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database"
 	dbModel "github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database/model"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/errors"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/helper/workload"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/mcp/unified"
 )
 
@@ -143,7 +144,7 @@ func handleWorkloadProfileGet(ctx context.Context, req *WorkloadProfileGetReques
 			WithMessage("workload_uid is required")
 	}
 
-	clusterName, err := ResolveWorkloadCluster(ctx, req.WorkloadUID, req.Cluster)
+	clusterName, err := workload.ResolveWorkloadCluster(ctx, req.WorkloadUID, req.Cluster)
 	if err != nil {
 		return nil, err
 	}
@@ -225,7 +226,7 @@ func handleWorkloadProfileAnalyze(ctx context.Context, req *WorkloadProfileAnaly
 			WithMessage("workload_uid is required")
 	}
 
-	clusterName, err := ResolveWorkloadCluster(ctx, req.WorkloadUID, req.Cluster)
+	clusterName, err := workload.ResolveWorkloadCluster(ctx, req.WorkloadUID, req.Cluster)
 	if err != nil {
 		return nil, err
 	}
@@ -251,7 +252,7 @@ func handleWorkloadProfileEvidence(ctx context.Context, req *WorkloadProfileEvid
 			WithMessage("workload_uid is required")
 	}
 
-	clusterName, err := ResolveWorkloadCluster(ctx, req.WorkloadUID, req.Cluster)
+	clusterName, err := workload.ResolveWorkloadCluster(ctx, req.WorkloadUID, req.Cluster)
 	if err != nil {
 		return nil, err
 	}
