@@ -367,6 +367,9 @@ EOF
               if [ -n "${node_agent_nfs_mount:-}" ]; then
                   sed -i "s|nfs_mount: \".*\"|nfs_mount: \"${node_agent_nfs_mount}\"|" "$NODE_AGENT_TMP_VALUES"
               fi
+              if [ -n "${node_agent_nfs_type:-}" ]; then
+                  sed -i "s|nfs_type: \".*\"|nfs_type: \"${node_agent_nfs_type}\"|" "$NODE_AGENT_TMP_VALUES"
+              fi
 
               if [ -n "${node_agent_all_nfs_path:-}" ]; then
                 sed -i "s|all_nfs_path: \".*\"|all_nfs_path: \"${node_agent_all_nfs_path}\"|" "$NODE_AGENT_TMP_VALUES"
