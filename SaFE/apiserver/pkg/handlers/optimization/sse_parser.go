@@ -11,6 +11,8 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+
+	"k8s.io/klog/v2"
 )
 
 // SSEParser translates raw Claw SSE events (which carry Claude Agent SDK
@@ -133,8 +135,18 @@ func (p *SSEParser) parseChat(raw ClawSSEEvent) []ParsedEvent {
 	})
 
 	// Look for phase headers in the new chunk.
-	for _, match := range phaseHeaderRegex.FindAllStringSubmatch(text, -1) {
-		phaseNum, _ := strconv.Atoi(match[1])
+	matches := phaseHeaderRegex.FindAllStringSubmatch(text, -1)
+	if len(matches) == 0 && len(text) > 20 {
+		// Log at high verbosity so we can diagnose if the skill changes its
+		// header format without producing structured phase events.
+		klog.V(3).InfoS("sse_parser: chat text contained no phase header", "preview", truncate(text, 120))
+	}
+	for _, match := range matches {
+		phaseNum, err := strconv.Atoi(match[1])
+		if err != nil || phaseNum < 0 || phaseNum > 20 {
+			klog.V(2).InfoS("sse_parser: ignoring out-of-range phase number", "raw", match[1])
+			continue
+		}
 		phaseLabel := strings.TrimSpace(match[2])
 		out = append(out, p.transitionPhase(phaseNum, phaseLabel)...)
 	}

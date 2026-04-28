@@ -152,8 +152,17 @@ type BatchCreateTasksRequest struct {
 	Items []CreateTaskRequest `json:"items" binding:"required"`
 }
 
+// BatchCreateTaskResponseItem holds the result for a single item in a batch
+// create request. Error is non-empty when that item failed; ID and
+// ClawSessionID are populated on success.
+type BatchCreateTaskResponseItem struct {
+	ID            string `json:"id,omitempty"`
+	ClawSessionID string `json:"clawSessionId,omitempty"`
+	Error         string `json:"error,omitempty"`
+}
+
 type BatchCreateTasksResponse struct {
-	Items []CreateTaskResponse `json:"items"`
+	Items []BatchCreateTaskResponseItem `json:"items"`
 }
 
 // RetryTaskResponse returns the new session id after retrying a failed task.
