@@ -29,6 +29,18 @@ data:
       submitterPodTemplate:
         spec:
           dnsPolicy: ClusterFirstWithHostNet
+          affinity:
+            podAffinity:
+              preferredDuringSchedulingIgnoredDuringExecution:
+              - weight: 100
+                podAffinityTerm:
+                  labelSelector:
+                    matchExpressions:
+                    - key: ray.io/node-type
+                      operator: In
+                      values:
+                      - head
+                  topologyKey: kubernetes.io/hostname
           initContainers:
             - name: preprocess
               image: {{ .Values.global.image_registry }}/primussafe/{{ .Values.preprocess.image }}
@@ -57,6 +69,9 @@ data:
       rayClusterSpec:
         headGroupSpec:
           template:
+            metadata:
+              labels:
+                primus-safe.amd.com/ray-role: head
             spec:
               dnsPolicy: ClusterFirstWithHostNet
               initContainers:
