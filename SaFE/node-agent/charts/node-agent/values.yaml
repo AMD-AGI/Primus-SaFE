@@ -17,6 +17,7 @@ monitor:
   nfs_server: ""
   nfs_server_path: ""
   nfs_mount: ""
+  nfs_type: ""
   all_nfs_path: ""
   resolv_search_domain: ""
   # Toggle switches for monitor scripts. Key matches config entry name (e.g., gpu_module_001).
