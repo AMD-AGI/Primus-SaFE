@@ -43,6 +43,9 @@ type Handler struct {
 	defaultWS     string
 	maxConcurrent int
 	hubs          *hubRegistry
+	// wsLocks serialises the concurrency-check + DB-insert pair per workspace
+	// so two simultaneous requests can't both pass the maxConcurrent gate.
+	wsLocks *workspaceLockMap
 }
 
 // NewHandler instantiates the handler. Returns nil and a log warning when
@@ -68,6 +71,7 @@ func NewHandler(k8sClient ctrlclient.Client, dbClient dbclient.Interface) (*Hand
 		defaultWS:     commonconfig.GetModelOptimizationDefaultWorkspace(),
 		maxConcurrent: commonconfig.GetModelOptimizationMaxConcurrent(),
 		hubs:          newHubRegistry(),
+		wsLocks:       newWorkspaceLockMap(),
 	}, nil
 }
 
@@ -107,11 +111,19 @@ func (h *Handler) submitTask(
 			"PrimusClaw authentication required: log in (platform key), send Authorization: Bearer ak-..., or configure model_optimization secret claw_api_key",
 		)
 	}
+	if err := validateCreateTaskRequest(req); err != nil {
+		return nil, err
+	}
 
 	workspace := req.Workspace
 	if workspace == "" {
 		workspace = h.defaultWS
 	}
+
+	// Serialize count+insert per workspace to prevent TOCTOU on the
+	// concurrency gate — two simultaneous requests cannot both sneak through.
+	unlock := h.wsLocks.lock(workspace)
+	defer unlock()
 
 	if h.maxConcurrent > 0 {
 		running, err := h.dbClient.CountRunningOptimizationTasks(ctx, workspace)
@@ -175,12 +187,12 @@ func (h *Handler) submitTask(
 		return nil, commonerrors.NewInternalError("failed to persist task")
 	}
 
-	createCtx, cancel := context.WithTimeout(WithClawBearer(context.Background(), clawBearer), 30*time.Second)
-	defer cancel()
 	sessionName := fmt.Sprintf("safe-opt-%s-%s", resolved.DisplayName, taskID[len(taskID)-8:])
-	sessionID, err := h.clawClient.CreateSession(createCtx, &SessionRequest{
-		Name:    sessionName,
-		AgentID: h.clawAgentID,
+	sessionID, err := withClawRetry(ctx, clawBearer, "create session", func(rctx context.Context) (string, error) {
+		return h.clawClient.CreateSession(rctx, &SessionRequest{
+			Name:    sessionName,
+			AgentID: h.clawAgentID,
+		})
 	})
 	if err != nil {
 		klog.ErrorS(err, "create claw session", "task_id", taskID)
@@ -190,18 +202,21 @@ func (h *Handler) submitTask(
 	}
 	_ = h.dbClient.UpdateOptimizationTaskClawSession(ctx, taskID, sessionID)
 
-	sendCtx, sendCancel := context.WithTimeout(WithClawBearer(context.Background(), clawBearer), 30*time.Second)
-	defer sendCancel()
-	if err := h.clawClient.SendMessage(sendCtx, sessionID, &MessageRequest{
-		Content:     prompt,
-		MessageType: "text",
-		TaskMode:    "agent",
-		WorkspaceID: workspace,
-	}); err != nil {
-		klog.ErrorS(err, "send hyperloom prompt", "task_id", taskID, "session_id", sessionID)
-		_ = h.clawClient.DeleteSession(WithClawBearer(context.Background(), clawBearer), sessionID)
+	_, sendErr := withClawRetry(ctx, clawBearer, "send message", func(rctx context.Context) (struct{}, error) {
+		return struct{}{}, h.clawClient.SendMessage(rctx, sessionID, &MessageRequest{
+			Content:     prompt,
+			MessageType: "text",
+			TaskMode:    "agent",
+			WorkspaceID: workspace,
+		})
+	})
+	if sendErr != nil {
+		klog.ErrorS(sendErr, "send hyperloom prompt", "task_id", taskID, "session_id", sessionID)
+		cleanupCtx, cleanupCancel := context.WithTimeout(WithClawBearer(context.Background(), clawBearer), 10*time.Second)
+		defer cleanupCancel()
+		_ = h.clawClient.DeleteSession(cleanupCtx, sessionID)
 		_ = h.dbClient.UpdateOptimizationTaskStatus(ctx, taskID,
-			dbclient.OptimizationTaskStatusFailed, 0, "failed to send prompt: "+err.Error())
+			dbclient.OptimizationTaskStatusFailed, 0, "failed to send prompt: "+sendErr.Error())
 		return nil, commonerrors.NewInternalError("failed to submit task to Claw")
 	}
 
@@ -283,7 +298,9 @@ func (h *Handler) DeleteTask(c *gin.Context) {
 		return
 	}
 	if task.ClawSessionID != "" {
-		_ = h.clawClient.DeleteSession(WithClawBearer(context.Background(), clawBearerForGin(c)), task.ClawSessionID)
+		cleanupCtx, cleanupCancel := context.WithTimeout(WithClawBearer(context.Background(), clawBearerForGin(c)), 10*time.Second)
+		defer cleanupCancel()
+		_ = h.clawClient.DeleteSession(cleanupCtx, task.ClawSessionID)
 	}
 	h.hubs.remove(id)
 	if err := h.dbClient.DeleteOptimizationTask(c.Request.Context(), id); err != nil {
@@ -399,11 +416,10 @@ func (h *Handler) consumeClawStream(taskID, sessionID string, hub *taskHub, claw
 	}()
 
 	parser := NewSSEParser()
-	ctx, cancel := context.WithCancel(WithClawBearer(context.Background(), clawBearer))
+	// Cap stream lifetime at 4 hours so a hung Claw session never leaks a
+	// goroutine forever. Hyperloom typically finishes in under 90 minutes.
+	ctx, cancel := context.WithTimeout(WithClawBearer(context.Background(), clawBearer), 4*time.Hour)
 	defer cancel()
-	// The stream loop runs for as long as Claw keeps the session alive, which
-	// for Hyperloom is typically 30-60 minutes. We rely on ctx to cancel on
-	// shutdown and on Claw to close the body when the agent finishes.
 	go func() {
 		<-hub.Done()
 		cancel()
@@ -447,8 +463,8 @@ func (h *Handler) persistAndBroadcast(taskID string, hub *taskHub, ev Event) {
 		Timestamp: ev.Timestamp,
 	}
 	if err := h.dbClient.AppendOptimizationEvent(context.Background(), dbev); err != nil {
-		klog.V(4).InfoS("persist optimization event failed",
-			"task_id", taskID, "seq", seq, "error", err)
+		klog.ErrorS(err, "persist optimization event failed",
+			"task_id", taskID, "seq", seq)
 	}
 	hub.broadcast(ev)
 }

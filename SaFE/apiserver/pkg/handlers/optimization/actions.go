@@ -24,9 +24,10 @@ import (
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 )
 
-// BatchCreateTasks creates multiple optimization tasks sequentially. v1 keeps
-// the implementation intentionally simple and relies on the workspace-level
-// concurrency gate to reject over-subscription.
+// BatchCreateTasks creates multiple optimization tasks sequentially. Each item
+// is attempted independently — failures are recorded per-item rather than
+// aborting the whole batch. Callers should inspect the Error field on each
+// item to distinguish successes from failures.
 func (h *Handler) BatchCreateTasks(c *gin.Context) {
 	var req BatchCreateTasksRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -37,18 +38,30 @@ func (h *Handler) BatchCreateTasks(c *gin.Context) {
 		apiutils.AbortWithApiError(c, commonerrors.NewBadRequest("items must not be empty"))
 		return
 	}
+	if len(req.Items) > 100 {
+		apiutils.AbortWithApiError(c, commonerrors.NewBadRequest("batch size must not exceed 100 items per request"))
+		return
+	}
 	userID := c.GetString(common.UserId)
 	userName := c.GetString(common.UserName)
-	items := make([]CreateTaskResponse, 0, len(req.Items))
+	bearer := clawBearerForGin(c)
+	// Use a detached context so that individual item failures or a slow Claw
+	// call on item N do not cancel remaining items via request timeout.
+	batchCtx := context.Background()
+	items := make([]BatchCreateTaskResponseItem, len(req.Items))
 	for i := range req.Items {
-		resp, err := h.submitTask(c.Request.Context(), &req.Items[i], userID, userName, "", clawBearerForGin(c))
+		resp, err := h.submitTask(batchCtx, &req.Items[i], userID, userName, "", bearer)
 		if err != nil {
-			apiutils.AbortWithApiError(c, err)
-			return
+			klog.ErrorS(err, "batch create task: item failed", "index", i, "model_id", req.Items[i].ModelID)
+			items[i] = BatchCreateTaskResponseItem{Error: err.Error()}
+		} else {
+			items[i] = BatchCreateTaskResponseItem{
+				ID:            resp.ID,
+				ClawSessionID: resp.ClawSessionID,
+			}
 		}
-		items = append(items, *resp)
 	}
-	c.JSON(http.StatusCreated, BatchCreateTasksResponse{Items: items})
+	c.JSON(http.StatusMultiStatus, BatchCreateTasksResponse{Items: items})
 }
 
 // ListArtifacts returns the session artifacts Claw has stored for this task.
