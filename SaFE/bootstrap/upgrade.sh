@@ -258,6 +258,9 @@ else
   if [ -n "${node_agent_nfs_mount:-}" ]; then
     sed -i "s|nfs_mount: \".*\"|nfs_mount: \"${node_agent_nfs_mount}\"|" "$values_yaml"
   fi
+  if [ -n "${node_agent_nfs_type:-}" ]; then
+    sed -i "s|nfs_type: \".*\"|nfs_type: \"${node_agent_nfs_type}\"|" "$values_yaml"
+  fi
   if [ -n "${node_agent_all_nfs_path:-}" ]; then
     sed -i "s|all_nfs_path: \".*\"|all_nfs_path: \"${node_agent_all_nfs_path}\"|" "$values_yaml"
   fi
