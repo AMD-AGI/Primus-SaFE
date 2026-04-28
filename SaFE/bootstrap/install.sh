@@ -399,6 +399,7 @@ node_agent_rocm_version=6.4
 node_agent_nfs_server=
 node_agent_nfs_server_path=
 node_agent_nfs_mount=
+node_agent_nfs_type=
 node_agent_all_nfs_path=
 node_agent_toggle_net_bnxt_load_204=off
 node_agent_toggle_net_ainic_load_205=off
