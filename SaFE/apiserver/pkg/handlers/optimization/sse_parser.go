@@ -66,6 +66,8 @@ func (p *SSEParser) Parse(raw ClawSSEEvent) []ParsedEvent {
 		return p.parseStatusUpdate(raw)
 	case "plan_update":
 		return p.parsePlanUpdate(raw)
+	case "sandbox":
+		return p.parseSandboxStatus(raw)
 	case "error":
 		return []ParsedEvent{{
 			Type: EventTypeLog,
@@ -475,6 +477,30 @@ func (p *SSEParser) parseKernelTool(env toolUsedEnvelope) []ParsedEvent {
 type statusEnv struct {
 	AgentStatus string `json:"agentStatus"`
 	Brief       string `json:"brief"`
+}
+
+type sandboxEnv struct {
+	Phase   string `json:"phase"`
+	Status  string `json:"status"`
+	Message string `json:"message"`
+}
+
+func (p *SSEParser) parseSandboxStatus(raw ClawSSEEvent) []ParsedEvent {
+	var env sandboxEnv
+	_ = json.Unmarshal([]byte(raw.Data), &env)
+	level := "info"
+	if env.Status == "failed" || env.Phase == "Failed" {
+		level = "warn"
+	}
+	msg := firstNonEmpty(env.Message, env.Status, env.Phase, raw.Data)
+	return []ParsedEvent{{
+		Type: EventTypeLog,
+		Payload: LogEventPayload{
+			Level:   level,
+			Source:  "claw",
+			Message: "sandbox phase=" + firstNonEmpty(env.Phase, env.Status) + " " + msg,
+		},
+	}}
 }
 
 func (p *SSEParser) parseStatusUpdate(raw ClawSSEEvent) []ParsedEvent {
