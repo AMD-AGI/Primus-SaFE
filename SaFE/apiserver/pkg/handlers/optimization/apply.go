@@ -68,7 +68,11 @@ func (h *Handler) ApplyTask(c *gin.Context) {
 
 	workload, err := h.buildOptimizedWorkload(c.Request.Context(), task, model, launchCommand, req)
 	if err != nil {
-		apiutils.AbortWithApiError(c, commonerrors.NewInternalError("failed to build workload: "+err.Error()))
+		if strings.Contains(err.Error(), "no image configured") {
+			apiutils.AbortWithApiError(c, commonerrors.NewBadRequest("failed to build workload: "+err.Error()))
+		} else {
+			apiutils.AbortWithApiError(c, commonerrors.NewInternalError("failed to build workload: "+err.Error()))
+		}
 		return
 	}
 	if err := h.k8sClient.Create(c.Request.Context(), workload); err != nil {
