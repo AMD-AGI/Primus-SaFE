@@ -739,6 +739,9 @@ func (v *WorkloadValidator) validateOnUpdate(ctx context.Context, newWorkload, o
 			return err
 		}
 	}
+	if err := v.validateSpecChanged(newWorkload, oldWorkload); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -782,9 +785,6 @@ func (v *WorkloadValidator) validateCommon(ctx context.Context, newWorkload, old
 		return err
 	}
 	if err = validateLabels(newWorkload.Spec.CustomerLabels); err != nil {
-		return err
-	}
-	if err = v.validateSpecChanged(newWorkload, oldWorkload); err != nil {
 		return err
 	}
 	return nil
