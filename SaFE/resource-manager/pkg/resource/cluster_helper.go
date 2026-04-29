@@ -482,6 +482,9 @@ func getKubeSprayEnv(cluster *v1.Cluster) string {
 	}
 	cmd = fmt.Sprintf("%s -e auto_renew_certificates=true -e nginx_image_repo=public.ecr.aws/docker/library/nginx", cmd)
 	cmd = fmt.Sprintf("%s -e kube_controller_node_monitor_grace_period=5m -e kube_apiserver_pod_eviction_not_ready_timeout_seconds=60 -e kube_apiserver_pod_eviction_unreachable_timeout_seconds=60", cmd)
+	// Set etcd quota to 8GB and enable auto-compaction (periodic mode, retain 1 hour)
+	// etcd_compaction_retention maps to ETCD_AUTO_COMPACTION_RETENTION; mode defaults to periodic in etcd
+	cmd = fmt.Sprintf("%s -e etcd_quota_backend_bytes=8589934592 -e etcd_compaction_retention=1h", cmd)
 	return cmd
 }
 
