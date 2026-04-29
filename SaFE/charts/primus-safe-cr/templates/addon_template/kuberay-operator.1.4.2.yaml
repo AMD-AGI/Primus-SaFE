@@ -21,3 +21,12 @@ spec:
   version: 1.4.2
   type: helm
   helmDefaultNamespace: ray-system
+  helmDefaultValues: |
+    # Disable KubeRay's default wait-gcs-ready init container injection on workers.
+    # Background: that init runs `ray health-check`, which on sglang images carrying
+    # click==8.3.x is incompatible with ray==2.44.1 (add_command_alias deepcopy
+    # triggers a Sentinel exception) and loops forever. We inject our own
+    # wait-gcs-ready (using bash /dev/tcp probe) in the RayJob template instead.
+    env:
+      - name: ENABLE_INIT_CONTAINER_INJECTION
+        value: "false"
