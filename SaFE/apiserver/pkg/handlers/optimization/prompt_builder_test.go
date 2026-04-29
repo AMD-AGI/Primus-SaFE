@@ -87,7 +87,7 @@ func TestNormalizePromptConfigDefaultsMirrorHyperloomWeb(t *testing.T) {
 	assert.Equal(t, cfg.GeakStepLimit, 100)
 	assert.Equal(t, cfg.InferenceXPath, "/hyperloom/InferenceX")
 	assert.Equal(t, cfg.ResultsPath, "/workspace/hyperloom/")
-	assert.Equal(t, cfg.Image, defaultSGLangImage)
+	assert.Equal(t, cfg.Image, defaultSGLangBaseImage)
 	assert.DeepEqual(t, cfg.KernelBackends, []string{KernelBackendClaude})
 	assert.Equal(t, cfg.RayReplica, 1)
 	assert.Equal(t, cfg.RayGpu, 1)
@@ -95,7 +95,7 @@ func TestNormalizePromptConfigDefaultsMirrorHyperloomWeb(t *testing.T) {
 	assert.Equal(t, cfg.RayMemoryGi, 128)
 
 	cfgV := NormalizePromptConfig(PromptConfig{DisplayName: "M", ModelPath: "/p", Workspace: "w", Framework: FrameworkVLLM})
-	assert.Equal(t, cfgV.Image, defaultVLLMImage)
+	assert.Equal(t, cfgV.Image, defaultVLLMBaseImage)
 }
 
 func TestBuildHyperloomPromptEmptyRequestUsesLocalAndClaudeDefaultBackends(t *testing.T) {
@@ -105,7 +105,7 @@ func TestBuildHyperloomPromptEmptyRequestUsesLocalAndClaudeDefaultBackends(t *te
 		Workspace:   "core42-sandbox",
 	})
 	assert.Assert(t, strings.Contains(prompt, "mode: local"))
-	assert.Assert(t, strings.Contains(prompt, "SandboxImage: "+defaultSGLangImage))
+	assert.Assert(t, strings.Contains(prompt, "SandboxImage: "+defaultSGLangBaseImage))
 	assert.Assert(t, strings.Contains(prompt, "KERNEL_OPT_BACKENDS: claude"))
 	assert.Assert(t, !strings.Contains(prompt, "GEAK step_limit:"))
 	assert.Assert(t, !strings.Contains(prompt, "Task submission:"))

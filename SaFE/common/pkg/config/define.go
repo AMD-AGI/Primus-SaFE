@@ -7,10 +7,11 @@ package config
 
 const (
 	// global
-	globalPrefix = "global."
-	imageSecret  = globalPrefix + "image_secret"
-	domain       = globalPrefix + "domain"
-	subDomain    = globalPrefix + "sub_domain"
+	globalPrefix   = "global."
+	imageSecret    = globalPrefix + "image_secret"
+	imageRegistry  = globalPrefix + "image_registry"
+	domain         = globalPrefix + "domain"
+	subDomain      = globalPrefix + "sub_domain"
 
 	netPrefix = "net."
 	rdmaName  = netPrefix + "rdma_name"
