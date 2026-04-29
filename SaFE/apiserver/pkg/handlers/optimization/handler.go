@@ -36,13 +36,14 @@ import (
 // of the apiserver process. All its fields are immutable after construction;
 // per-task state lives inside taskHub entries on the hubRegistry.
 type Handler struct {
-	dbClient      dbclient.Interface
-	k8sClient     ctrlclient.Client
-	clawClient    *ClawClient
-	clawAgentID   string
-	defaultWS     string
-	maxConcurrent int
-	hubs          *hubRegistry
+	dbClient           dbclient.Interface
+	k8sClient          ctrlclient.Client
+	clawClient         *ClawClient
+	clawAgentID        string
+	defaultWS          string
+	maxConcurrent      int
+	proxyImageRegistry string
+	hubs               *hubRegistry
 	// wsLocks serialises the concurrency-check + DB-insert pair per workspace
 	// so two simultaneous requests can't both pass the maxConcurrent gate.
 	wsLocks *workspaceLockMap
@@ -64,14 +65,15 @@ func NewHandler(k8sClient ctrlclient.Client, dbClient dbclient.Interface) (*Hand
 	}
 	apiKey := commonconfig.GetModelOptimizationClawAPIKey()
 	return &Handler{
-		dbClient:      dbClient,
-		k8sClient:     k8sClient,
-		clawClient:    NewClawClient(baseURL, apiKey),
-		clawAgentID:   commonconfig.GetModelOptimizationClawAgentID(),
-		defaultWS:     commonconfig.GetModelOptimizationDefaultWorkspace(),
-		maxConcurrent: commonconfig.GetModelOptimizationMaxConcurrent(),
-		hubs:          newHubRegistry(),
-		wsLocks:       newWorkspaceLockMap(),
+		dbClient:           dbClient,
+		k8sClient:          k8sClient,
+		clawClient:         NewClawClient(baseURL, apiKey),
+		clawAgentID:        commonconfig.GetModelOptimizationClawAgentID(),
+		defaultWS:          commonconfig.GetModelOptimizationDefaultWorkspace(),
+		maxConcurrent:      commonconfig.GetModelOptimizationMaxConcurrent(),
+		proxyImageRegistry: commonconfig.GetGlobalImageRegistry(),
+		hubs:               newHubRegistry(),
+		wsLocks:            newWorkspaceLockMap(),
 	}, nil
 }
 
@@ -144,7 +146,7 @@ func (h *Handler) submitTask(
 		return nil, commonerrors.NewBadRequest(err.Error())
 	}
 
-	promptCfg := promptConfigFromRequest(req, resolved, workspace)
+	promptCfg := h.promptConfigFromRequest(req, resolved, workspace)
 	prompt := BuildHyperloomPrompt(promptCfg)
 
 	taskID := fixedTaskID
@@ -546,8 +548,9 @@ func clawBearerForGin(c *gin.Context) string {
 	return commonconfig.GetModelOptimizationClawAPIKey()
 }
 
-func promptConfigFromRequest(req *CreateTaskRequest, m *ResolvedModel, workspace string) PromptConfig {
+func (h *Handler) promptConfigFromRequest(req *CreateTaskRequest, m *ResolvedModel, workspace string) PromptConfig {
 	return PromptConfig{
+		ProxyImageRegistry: h.proxyImageRegistry,
 		DisplayName:    firstNonEmpty(req.DisplayName, m.DisplayName),
 		ModelName:      m.ModelName,
 		ModelPath:      m.LocalPath,

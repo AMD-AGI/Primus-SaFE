@@ -35,8 +35,8 @@ const (
 	defaultRayMemoryGi    = 128
 	raySharedMemoryGi     = 500
 
-	defaultSGLangImage = "harbor.oci-slc.primus-safe.amd.com/custom/lmsysorg/sglang:202603270958"
-	defaultVLLMImage   = "harbor.oci-slc.primus-safe.amd.com/custom/vllm/vllm-openai-rocm:202604030417"
+	defaultSGLangBaseImage = "lmsysorg/sglang:202603270958"
+	defaultVLLMBaseImage   = "vllm/vllm-openai-rocm:202604030417"
 )
 
 // Maps Hyperloom-Web's display string to the lowercased tag the skill expects.
@@ -62,10 +62,11 @@ type PromptConfig struct {
 	ISL            int
 	OSL            int
 	Concurrency    int
-	KernelBackends []string
-	GeakStepLimit  int
-	Image          string
-	InferenceXPath string
+	KernelBackends      []string
+	GeakStepLimit       int
+	Image               string
+	ProxyImageRegistry  string
+	InferenceXPath      string
 	Workspace      string
 	ResultsPath    string
 	RayReplica     int
@@ -118,10 +119,14 @@ func NormalizePromptConfig(cfg PromptConfig) PromptConfig {
 		cfg.ResultsPath = defaultResultsPath
 	}
 	if cfg.Image == "" {
+		base := defaultSGLangBaseImage
 		if cfg.Framework == FrameworkVLLM {
-			cfg.Image = defaultVLLMImage
+			base = defaultVLLMBaseImage
+		}
+		if cfg.ProxyImageRegistry != "" {
+			cfg.Image = cfg.ProxyImageRegistry + "/" + base
 		} else {
-			cfg.Image = defaultSGLangImage
+			cfg.Image = base
 		}
 	}
 	if cfg.RayReplica <= 0 {
