@@ -186,7 +186,7 @@ func initMCPRoutes(engine *gin.Engine) {
 // routing layer without bringing up a full apiserver.
 func mountMCPRoutes(engine *gin.Engine, srv *mcpserver.Server, basePath string) {
 	if basePath == "" {
-		basePath = "/mcp"
+		basePath = "/api/v1/mcp"
 	}
 	cleanBase := strings.TrimRight(basePath, "/")
 
