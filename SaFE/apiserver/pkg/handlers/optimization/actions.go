@@ -121,7 +121,11 @@ func (h *Handler) DownloadArtifact(c *gin.Context) {
 	data, err := h.clawClient.ReadSessionFile(WithClawBearer(c.Request.Context(), clawBearerForGin(c)), task.ClawSessionID, path)
 	if err != nil {
 		klog.ErrorS(err, "download optimization artifact", "task_id", task.ID, "path", path)
-		apiutils.AbortWithApiError(c, commonerrors.NewInternalError("failed to download artifact"))
+		if strings.Contains(err.Error(), "HTTP 404") {
+			apiutils.AbortWithApiError(c, commonerrors.NewNotFoundWithMessage("artifact not found: "+path))
+		} else {
+			apiutils.AbortWithApiError(c, commonerrors.NewInternalError("failed to download artifact"))
+		}
 		return
 	}
 	filename := path
