@@ -150,7 +150,7 @@ data:
       secret_path: {{ default "/etc/secrets/llm-gateway" (default dict .Values.llm_gateway).secret_path }}
     mcp:
       # Whether to enable MCP (Model Context Protocol) server for AI assistant integration
-      enabled: {{ default false (default dict .Values.mcp).enabled }}
+      enabled: {{ default true (default dict .Values.mcp).enabled }}
       base_path: {{ default "/mcp" (default dict .Values.mcp).base_path }}
       instructions: {{ default "SaFE API Server - GPU Cluster Management Tools via MCP" (default dict .Values.mcp).instructions | quote }}
 kind: ConfigMap
