@@ -427,18 +427,48 @@ func (h *Handler) consumeClawStream(taskID, sessionID string, hub *taskHub, claw
 		cancel()
 	}()
 
-	err := h.clawClient.Stream(ctx, sessionID, "", func(raw ClawSSEEvent) error {
-		parsed := parser.Parse(raw)
-		for _, p := range parsed {
-			ev := h.buildEvent(taskID, hub, p.Type, p.Payload)
-			h.persistAndBroadcast(taskID, hub, ev)
-			h.maybeUpdateTaskStatus(taskID, p)
+	// Retry loop: on transient drops (EOF, network reset) resume from the
+	// last Claw event id using ?after=<id>. Give up after maxStreamRetries.
+	const maxStreamRetries = 10
+	lastClawEventID := ""
+	retryDelay := 3 * time.Second
+
+	for attempt := 0; attempt <= maxStreamRetries; attempt++ {
+		if attempt > 0 {
+			klog.InfoS("claw stream: reconnecting",
+				"task_id", taskID, "attempt", attempt, "after", lastClawEventID)
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(retryDelay):
+			}
+			if retryDelay < 30*time.Second {
+				retryDelay *= 2
+			}
 		}
-		return nil
-	})
-	if err != nil && !errors.Is(err, context.Canceled) {
-		klog.ErrorS(err, "claw stream ended", "task_id", taskID, "session_id", sessionID)
-		streamErr = err
+
+		err := h.clawClient.Stream(ctx, sessionID, lastClawEventID, func(raw ClawSSEEvent) error {
+			if raw.ID != "" {
+				lastClawEventID = raw.ID
+			}
+			parsed := parser.Parse(raw)
+			for _, p := range parsed {
+				ev := h.buildEvent(taskID, hub, p.Type, p.Payload)
+				h.persistAndBroadcast(taskID, hub, ev)
+				h.maybeUpdateTaskStatus(taskID, p)
+			}
+			return nil
+		})
+
+		if err == nil || errors.Is(err, context.Canceled) || ctx.Err() != nil {
+			return
+		}
+
+		klog.ErrorS(err, "claw stream dropped, will retry",
+			"task_id", taskID, "session_id", sessionID, "attempt", attempt)
+		if attempt == maxStreamRetries {
+			streamErr = err
+		}
 	}
 }
 
