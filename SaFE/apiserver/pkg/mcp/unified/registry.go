@@ -70,6 +70,7 @@ func (r *Registry) InitGinRoutes(group *gin.RouterGroup) error {
 		method := ep.GetHTTPMethod()
 		path := ep.GetHTTPPath()
 
+		registered := true
 		switch method {
 		case "GET":
 			group.GET(path, handler)
@@ -88,9 +89,12 @@ func (r *Registry) InitGinRoutes(group *gin.RouterGroup) error {
 		case "Any", "ANY", "any":
 			group.Any(path, handler)
 		default:
+			registered = false
 			klog.Warningf("Unknown HTTP method %s for endpoint %s", method, ep.GetName())
 		}
-		klog.Infof("Registered HTTP route: %s %s -> %s", method, path, ep.GetName())
+		if registered {
+			klog.Infof("Registered HTTP route: %s %s -> %s", method, path, ep.GetName())
+		}
 	}
 	return nil
 }
