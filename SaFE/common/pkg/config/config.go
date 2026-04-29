@@ -569,3 +569,17 @@ func IsMonarchEnable() bool {
 func GetMonarchClientRole() string {
 	return getString(monarchClientRole, "")
 }
+
+// ── MCP (Model Context Protocol) ────────────────────────────────────────
+
+func IsMCPEnable() bool {
+	return getBool(mcpEnable, false)
+}
+
+func GetMCPBasePath() string {
+	return getString(mcpBasePath, "/mcp")
+}
+
+func GetMCPInstructions() string {
+	return getString(mcpInstructions, "")
+}

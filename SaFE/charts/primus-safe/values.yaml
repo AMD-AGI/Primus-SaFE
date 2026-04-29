@@ -255,3 +255,7 @@ a2a_gateway:
 llm_gateway:
   enabled: true
   secret_path: "/etc/secrets/llm-gateway"
+mcp:
+  enabled: false
+  base_path: "/mcp"
+  instructions: "SaFE API Server - GPU Cluster Management Tools via MCP"
