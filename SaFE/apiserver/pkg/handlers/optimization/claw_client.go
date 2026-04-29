@@ -28,11 +28,10 @@ const (
 	clawControlTimeout = 30 * time.Second
 	clawStreamTimeout  = 0 // 0 = no timeout; context cancels the stream
 
-	clawPathSessions        = "/sessions"
-	clawPathSessionMessage  = "/sessions/%s/messages"
-	clawPathStream          = "/chat/sessions/%s/messages"
-	clawPathInterrupt       = "/chat/sessions/%s/interrupt"
-	clawPathSessionFiles    = "/sessions/%s/files"
+	clawPathSessions       = "/sessions"
+	clawPathSessionMessage = "/sessions/%s/messages"
+	clawPathStream         = "/chat/sessions/%s/messages"
+	clawPathSessionFiles   = "/sessions/%s/files"
 	clawPathSessionDownload = "/sessions/%s/files/%s/download"
 	clawPathSessionStream   = "/sessions/%s/files/%s/stream"
 
@@ -235,7 +234,7 @@ func (c *ClawClient) Stream(
 
 	url := c.baseURL + fmt.Sprintf(clawPathStream, sessionID)
 	if afterEventID != "" {
-		url += "?after_event_id=" + afterEventID
+		url += "?after=" + afterEventID
 	}
 
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
@@ -286,28 +285,12 @@ func (c *ClawClient) DeleteSession(ctx context.Context, sessionID string) error 
 }
 
 // InterruptSession asks Claw to stop the currently running task inside the
-// session's executor sandbox. The session itself remains alive.
+// session's executor sandbox. Claw V2 exposes no dedicated interrupt endpoint;
+// interrupt is signalled by sending a message with messageType="interrupt".
 func (c *ClawClient) InterruptSession(ctx context.Context, sessionID string) error {
-	if sessionID == "" {
-		return fmt.Errorf("claw interrupt: empty session id")
-	}
-	req, err := http.NewRequestWithContext(
-		ctx, http.MethodPost, c.baseURL+fmt.Sprintf(clawPathInterrupt, sessionID), bytes.NewReader([]byte(`{}`)),
-	)
-	if err != nil {
-		return err
-	}
-	c.applyHeaders(req)
-	resp, err := c.controlClient.Do(req)
-	if err != nil {
-		return fmt.Errorf("claw interrupt request failed: %w", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		raw, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("claw interrupt HTTP %d: %s", resp.StatusCode, truncate(string(raw), 256))
-	}
-	return nil
+	return c.SendMessage(ctx, sessionID, &MessageRequest{
+		MessageType: "interrupt",
+	})
 }
 
 // ListSessionFiles returns the flattened session artifact list Claw stores in S3.

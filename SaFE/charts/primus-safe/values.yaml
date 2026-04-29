@@ -262,4 +262,4 @@ model_optimization:
   # Empty: skip file-based claw_api_key / claw_base_url; use Bearer ak-... or set a mount path.
   secret_path: ""
   default_workspace: "control-plane-sandbox"
-  max_concurrent: 5
+  max_concurrent: 10
