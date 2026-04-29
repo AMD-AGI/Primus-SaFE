@@ -627,3 +627,10 @@ func GetModelOptimizationDefaultWorkspace() string {
 func GetModelOptimizationMaxConcurrent() int {
 	return getInt(modelOptimizationConcurrency, 5)
 }
+
+// GetGlobalImageRegistry returns the cluster-wide image registry prefix
+// (global.image_registry), e.g. "harbor.core42.primus-safe.amd.com/proxy".
+// Defaults to "docker.io" when unset.
+func GetGlobalImageRegistry() string {
+	return getString(imageRegistry, "docker.io")
+}
