@@ -89,6 +89,7 @@ ansible-playbook -i "../$CONFIG_FILE" cluster.yml --become --become-user=root \
   -e nginx_image_repo="$NGINX_IMAGE" \
   -e kube_network_plugin="$KUBE_NETWORK_PLUGIN" \
   -e etcd_quota_backend_bytes="8589934592" \
+  -e etcd_compaction_retention="1h" \
   -e etcd_memory_limit="8GB" \
   -v
 
