@@ -425,6 +425,21 @@ data:
                   mountPath: /shared-data
           containers:
             - name: ray-job-submitter
+              command: ["/bin/bash", "-ce", "--"]
+              args:
+                - |
+                  set -e
+                  echo '[wrapper] installing click<8.3.0 + ray[default] (skip if already satisfied)'
+                  pip install --quiet 'click<8.3.0' 'ray[default]==2.44.1' 2>/dev/null || true
+                  ADDR="http://${RAY_DASHBOARD_ADDRESS}"
+                  ENTRYPOINT="$(echo "${RAY_JOB_ENTRYPOINT}" | base64 -d)"
+                  echo "[wrapper] ADDR=${ADDR} SUB_ID=${RAY_JOB_SUBMISSION_ID}"
+                  echo "[wrapper] ENTRYPOINT=${ENTRYPOINT}"
+                  if ! ray job status --address "$ADDR" "$RAY_JOB_SUBMISSION_ID" >/dev/null 2>&1; then
+                    eval ray job submit --address "$ADDR" --no-wait \
+                      --submission-id "$RAY_JOB_SUBMISSION_ID" -- "$ENTRYPOINT"
+                  fi
+                  ray job logs --address "$ADDR" --follow "$RAY_JOB_SUBMISSION_ID"
               volumeMounts:
                 - name: shared-data
                   mountPath: /shared-data
@@ -539,6 +554,33 @@ data:
                 volumeMounts:
                   - name: shared-data
                     mountPath: /shared-data
+              - name: wait-gcs-ready
+                image: docker.io/primussafe/latest
+                imagePullPolicy: IfNotPresent
+                command: ["/usr/bin/bash", "-c"]
+                args:
+                  - |
+                    set -u
+                    HOST="${FQ_RAY_IP}"
+                    PORT=6379
+                    echo "waiting for GCS at ${HOST}:${PORT}"
+                    SECONDS=0
+                    while true; do
+                      if timeout 2 bash -c "exec 3<>/dev/tcp/${HOST}/${PORT}" 2>/dev/null; then
+                        echo "GCS is ready (TCP reachable after ${SECONDS}s)."
+                        break
+                      fi
+                      echo "${SECONDS}s elapsed: waiting for GCS to be ready..."
+                      SECONDS=$((SECONDS+5))
+                      sleep 5
+                    done
+                resources:
+                  requests:
+                    cpu: 100m
+                    memory: 64Mi
+                  limits:
+                    cpu: 200m
+                    memory: 128Mi
               containers:
               - name: main
                 env:
@@ -617,6 +659,33 @@ data:
                 volumeMounts:
                   - name: shared-data
                     mountPath: /shared-data
+              - name: wait-gcs-ready
+                image: docker.io/primussafe/latest
+                imagePullPolicy: IfNotPresent
+                command: ["/usr/bin/bash", "-c"]
+                args:
+                  - |
+                    set -u
+                    HOST="${FQ_RAY_IP}"
+                    PORT=6379
+                    echo "waiting for GCS at ${HOST}:${PORT}"
+                    SECONDS=0
+                    while true; do
+                      if timeout 2 bash -c "exec 3<>/dev/tcp/${HOST}/${PORT}" 2>/dev/null; then
+                        echo "GCS is ready (TCP reachable after ${SECONDS}s)."
+                        break
+                      fi
+                      echo "${SECONDS}s elapsed: waiting for GCS to be ready..."
+                      SECONDS=$((SECONDS+5))
+                      sleep 5
+                    done
+                resources:
+                  requests:
+                    cpu: 100m
+                    memory: 64Mi
+                  limits:
+                    cpu: 200m
+                    memory: 128Mi
               containers:
               - name: main
                 env:
