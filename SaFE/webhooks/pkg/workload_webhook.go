@@ -784,6 +784,9 @@ func (v *WorkloadValidator) validateCommon(ctx context.Context, newWorkload, old
 	if err = validateLabels(newWorkload.Spec.CustomerLabels); err != nil {
 		return err
 	}
+	if err = v.validateSpecChanged(newWorkload, oldWorkload); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -1214,6 +1217,35 @@ func (v *WorkloadValidator) validateCronJobs(workload *v1.Workload) error {
 		if err := parseCronJob(cj); err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+func (v *WorkloadValidator) validateSpecChanged(newWorkload, oldWorkload *v1.Workload) error {
+	if commonworkload.IsApplication(newWorkload) || commonworkload.IsCICDScalingRunnerSet(oldWorkload) {
+		return nil
+	}
+	if !v1.IsWorkloadDispatched(newWorkload) {
+		return nil
+	}
+	isServiceChanged := func(newWorkload, oldWorkload *v1.Workload) bool {
+		if newWorkload.Spec.Service == nil && oldWorkload.Spec.Service != nil {
+			return true
+		} else if oldWorkload.Spec.Service == nil && newWorkload.Spec.Service != nil {
+			return true
+		} else if newWorkload.Spec.Service != nil && oldWorkload.Spec.Service != nil &&
+			!reflect.DeepEqual(*newWorkload.Spec.Service, *oldWorkload.Spec.Service) {
+			return true
+		}
+		return false
+	}
+	if !reflect.DeepEqual(newWorkload.Spec.Resources, oldWorkload.Spec.Resources) ||
+		!reflect.DeepEqual(newWorkload.Spec.Images, oldWorkload.Spec.Images) ||
+		!reflect.DeepEqual(newWorkload.Spec.EntryPoints, oldWorkload.Spec.EntryPoints) ||
+		!reflect.DeepEqual(newWorkload.Spec.Env, oldWorkload.Spec.Env) ||
+		!reflect.DeepEqual(newWorkload.Spec.CustomerLabels, oldWorkload.Spec.CustomerLabels) ||
+		isServiceChanged(newWorkload, oldWorkload) {
+		return commonerrors.NewConflict("Cannot update resource for a dispatched workload")
 	}
 	return nil
 }
