@@ -34,7 +34,7 @@ import (
 
 const (
 	SharedMemoryVolume = "shared-memory"
-	Launcher           = "/bin/sh /shared-data/launcher.sh"
+	Launcher = "/bin/sh /shared-data/launcher.sh"
 )
 
 // initializeObject modifies various aspects of a Kubernetes object during workload creation.
@@ -539,7 +539,12 @@ func buildCommands(workload *v1.Workload, id int) []interface{} {
 	if commonworkload.IsRayJob(workload) {
 		return []interface{}{entryPoint}
 	}
-	return []interface{}{"/bin/sh", "-c", entryPoint}
+	// Only launcher workloads: exec so launcher.sh becomes PID 1 (see launcher.sh). CICD and
+	// other raw shell entrypoints must stay plain -c without exec to preserve multi-command scripts.
+	if workload.SpecKind() == common.CICDScaleRunnerSetKind {
+		return []interface{}{"/bin/sh", "-c", entryPoint}
+	}
+	return []interface{}{"/bin/sh", "-c", "exec " + entryPoint}
 }
 
 // buildEntryPoint constructs the command entry point for a workload.
@@ -561,21 +566,38 @@ func buildEntryPoint(workload *v1.Workload, id int) string {
 	return result
 }
 
+// launcherEntryPayload returns the argument after /shared-data/launcher.sh for launcher-style commands.
+// Accepts legacy "/bin/sh ..." and "exec /bin/bash ..." wrappers for rollout comparison.
+func launcherEntryPayload(ep string) (string, bool) {
+	const marker = "/shared-data/launcher.sh"
+	i := strings.Index(ep, marker)
+	if i < 0 {
+		return "", false
+	}
+	payload := strings.TrimSpace(ep[i+len(marker):])
+	payload = strings.Trim(payload, `'"`)
+	return payload, true
+}
+
 // entrypointsEqual compares two entrypoint strings, treating launcher-style
-// commands with quoted vs unquoted base64 payload as equivalent.
-// e.g. "/bin/sh /shared-data/launcher.sh 'c2xlZXAgaW5maW5pdHk='" equals
-// "/bin/sh /shared-data/launcher.sh c2xlZXAgaW5maW5pdHk="
+// commands with quoted vs unquoted base64 payload as equivalent, and
+// treating legacy /bin/sh launcher prefix the same as /bin/bash.
 func entrypointsEqual(newEp, oldEp string) bool {
 	if newEp == oldEp {
 		return true
 	}
-	prefix := Launcher + " "
-	if !strings.HasPrefix(newEp, prefix) || !strings.HasPrefix(oldEp, prefix) {
-		return false
+	pNew, okNew := launcherEntryPayload(newEp)
+	pOld, okOld := launcherEntryPayload(oldEp)
+	if okNew && okOld {
+		return pNew == pOld
 	}
-	newPayload := strings.Trim(strings.TrimPrefix(newEp, prefix), "'")
-	oldPayload := strings.Trim(strings.TrimPrefix(oldEp, prefix), "'")
-	return newPayload == oldPayload
+	prefix := Launcher + " "
+	if strings.HasPrefix(newEp, prefix) && strings.HasPrefix(oldEp, prefix) {
+		newPayload := strings.Trim(strings.TrimPrefix(newEp, prefix), "'")
+		oldPayload := strings.Trim(strings.TrimPrefix(oldEp, prefix), "'")
+		return newPayload == oldPayload
+	}
+	return false
 }
 
 // buildObjectLabels creates a map of labels for object tracking.
@@ -1057,7 +1079,8 @@ func updateRayJob(obj *unstructured.Unstructured, adminWorkload *v1.Workload) er
 	if !ok {
 		return fmt.Errorf("failed to find object with path: %v", path)
 	}
-	specObject["entrypoint"] = Launcher + " '" + jobEntryPoint + "'"
+	// Prefix exec so decoded ENTRYPOINT replaces the job driver shell as PID 1 (see launcher.sh).
+	specObject["entrypoint"] = "exec " + Launcher + " '" + jobEntryPoint + "'"
 	if err = jobutils.SetNestedField(obj.Object, specObject, path); err != nil {
 		return err
 	}

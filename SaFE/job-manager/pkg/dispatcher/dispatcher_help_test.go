@@ -75,7 +75,7 @@ func checkRaySubmitterPod(t *testing.T, obj *unstructured.Unstructured, workload
 	val, found, err := jobutils.NestedString(obj.Object, []string{podSpec, "entrypoint"})
 	assert.NilError(t, err)
 	assert.Equal(t, found, true)
-	assert.Equal(t, val, Launcher+fmt.Sprintf(" '%s'", workload.GetEnv(common.RayJobEntrypoint)))
+	assert.Equal(t, val, "exec "+Launcher+fmt.Sprintf(" '%s'", workload.GetEnv(common.RayJobEntrypoint)))
 
 	path := []string{podSpec, "submitterPodTemplate"}
 	path = append(path, podSpec, "containers")
