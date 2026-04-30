@@ -58,6 +58,44 @@ data:
                   mountPath: /shared-data
           containers:
             - name: ray-job-submitter
+              # Do NOT set image: SaFE injects the same main image (sglang) used
+              # by head/worker, which provides the ray CLI. Hard-coding the
+              # preprocess image would not have ray installed.
+              #
+              # We override command/args because some sglang images ship
+              # click==8.3.x, which is incompatible with ray==2.44.1's
+              # add_command_alias (copy.deepcopy of a Sentinel raises ValueError).
+              # As a side effect KubeRay 1.4 stops injecting its default
+              # `ray job submit ... && ray job logs --follow` flow once a user
+              # command exists, so we replicate it explicitly below.
+              #
+              # ray[default]==2.44.1 is required: the ray jobs CLI/SDK depend on
+              # the `default` extras and some sglang images do not ship them,
+              # which would otherwise raise:
+              #   RuntimeError: The Ray jobs CLI & SDK require the
+              #                 ray[default] installation
+              command: ["/bin/bash", "-ce", "--"]
+              args:
+                - |
+                  set -e
+                  echo '[wrapper] installing click<8.3.0 + ray[default] (skip if already satisfied)'
+                  pip install --quiet 'click<8.3.0' 'ray[default]==2.44.1' 2>/dev/null || true
+                  ADDR="http://${RAY_DASHBOARD_ADDRESS}"
+                  ENTRYPOINT="$(echo "${RAY_JOB_ENTRYPOINT}" | base64 -d)"
+                  # Job-manager sets spec.entrypoint with "exec " before launcher so Ray drivers
+                  # run launcher as PID 1 (see launcher.sh). If an older controller omits it,
+                  # prepend exec only for the standard launcher line.
+                  case "$ENTRYPOINT" in
+                    exec\ *) ;;
+                    /bin/sh\ /shared-data/launcher.sh*) ENTRYPOINT="exec ${ENTRYPOINT}" ;;
+                  esac
+                  echo "[wrapper] ADDR=${ADDR} SUB_ID=${RAY_JOB_SUBMISSION_ID}"
+                  echo "[wrapper] ENTRYPOINT=${ENTRYPOINT}"
+                  if ! ray job status --address "$ADDR" "$RAY_JOB_SUBMISSION_ID" >/dev/null 2>&1; then
+                    eval ray job submit --address "$ADDR" --no-wait \
+                      --submission-id "$RAY_JOB_SUBMISSION_ID" -- "$ENTRYPOINT"
+                  fi
+                  ray job logs --address "$ADDR" --follow "$RAY_JOB_SUBMISSION_ID"
               volumeMounts:
                 - name: shared-data
                   mountPath: /shared-data
@@ -180,6 +218,39 @@ data:
                 volumeMounts:
                   - name: shared-data
                     mountPath: /shared-data
+              # Replaces KubeRay's default wait-gcs-ready init (disabled via
+              # ENABLE_INIT_CONTAINER_INJECTION=false on the operator) because the
+              # default runs `ray health-check`, which loops forever on sglang
+              # images carrying click==8.3.x with ray==2.44.1. Name MUST stay
+              # wait-gcs-ready so that even if KubeRay re-enables injection later
+              # it skips the same-named container instead of duplicating it.
+              - name: wait-gcs-ready
+                image: {{ .Values.global.image_registry }}/primussafe/{{ .Values.preprocess.image }}
+                imagePullPolicy: IfNotPresent
+                command: ["/usr/bin/bash", "-c"]
+                args:
+                  - |
+                    set -u
+                    HOST="${FQ_RAY_IP}"
+                    PORT=6379
+                    echo "waiting for GCS at ${HOST}:${PORT}"
+                    SECONDS=0
+                    while true; do
+                      if timeout 2 bash -c "exec 3<>/dev/tcp/${HOST}/${PORT}" 2>/dev/null; then
+                        echo "GCS is ready (TCP reachable after ${SECONDS}s)."
+                        break
+                      fi
+                      echo "${SECONDS}s elapsed: waiting for GCS to be ready..."
+                      SECONDS=$((SECONDS+5))
+                      sleep 5
+                    done
+                resources:
+                  requests:
+                    cpu: 100m
+                    memory: 64Mi
+                  limits:
+                    cpu: 200m
+                    memory: 128Mi
               containers:
               - name: main
                 env:
@@ -264,6 +335,35 @@ data:
                 volumeMounts:
                   - name: shared-data
                     mountPath: /shared-data
+              # See groupName "1" comment above for why we inject our own
+              # wait-gcs-ready and why the name must stay exactly this.
+              - name: wait-gcs-ready
+                image: {{ .Values.global.image_registry }}/primussafe/{{ .Values.preprocess.image }}
+                imagePullPolicy: IfNotPresent
+                command: ["/usr/bin/bash", "-c"]
+                args:
+                  - |
+                    set -u
+                    HOST="${FQ_RAY_IP}"
+                    PORT=6379
+                    echo "waiting for GCS at ${HOST}:${PORT}"
+                    SECONDS=0
+                    while true; do
+                      if timeout 2 bash -c "exec 3<>/dev/tcp/${HOST}/${PORT}" 2>/dev/null; then
+                        echo "GCS is ready (TCP reachable after ${SECONDS}s)."
+                        break
+                      fi
+                      echo "${SECONDS}s elapsed: waiting for GCS to be ready..."
+                      SECONDS=$((SECONDS+5))
+                      sleep 5
+                    done
+                resources:
+                  requests:
+                    cpu: 100m
+                    memory: 64Mi
+                  limits:
+                    cpu: 200m
+                    memory: 128Mi
               containers:
               - name: main
                 env:
