@@ -73,9 +73,10 @@ func doRPC(t *testing.T, ts *httptest.Server, basePath string, payload any, head
 
 // TestMCPRoutes_DefaultBasePath verifies the standard MCP endpoints are
 // reachable through Gin when mounted under the default /mcp prefix:
-//   - SSE transport: GET /mcp/sse, POST /mcp/messages
-//   - Streamable HTTP transport: POST /mcp (and GET /mcp -> 405)
-//   - Auxiliary: GET /mcp/health, GET /mcp/info
+//   - SSE transport: GET /mcp/sse and GET /mcp both open SSE streams,
+//     POST /mcp/messages receives client-to-server JSON-RPC.
+//   - Streamable HTTP transport: POST /mcp.
+//   - Auxiliary: GET /mcp/health, GET /mcp/info.
 func TestMCPRoutes_DefaultBasePath(t *testing.T) {
 	srv := mcpserver.New()
 	ts := httptest.NewServer(newTestEngineWithMCP(t, srv, "/mcp"))
@@ -91,7 +92,7 @@ func TestMCPRoutes_DefaultBasePath(t *testing.T) {
 		{"info", http.MethodGet, "/mcp/info", nil, http.StatusOK},
 		{"health", http.MethodGet, "/mcp/health", nil, http.StatusOK},
 		{"streamable HTTP accepts POST at base", http.MethodPost, "/mcp", strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"ping"}`), http.StatusOK},
-		{"streamable HTTP base rejects GET (no notification stream yet)", http.MethodGet, "/mcp", nil, http.StatusMethodNotAllowed},
+		{"GET on base opens SSE stream (Cursor compat)", http.MethodGet, "/mcp", nil, http.StatusOK},
 		{"messages rejects missing session", http.MethodPost, "/mcp/messages", strings.NewReader("{}"), http.StatusBadRequest},
 	}
 	for _, c := range cases {
@@ -156,6 +157,47 @@ func TestMCPRoutes_CustomBasePath(t *testing.T) {
 	want := basePath + "/messages?session_id="
 	if !strings.Contains(string(buf[:n]), want) {
 		t.Fatalf("sse endpoint event did not contain %q; got: %q", want, string(buf[:n]))
+	}
+}
+
+// TestMCPRoutes_GETBaseOpensSSE is a regression test for Cursor's MCP client
+// (and any other client that treats the configured base URL as an SSE
+// endpoint). Such clients GET the base path and expect an SSE stream whose
+// first "endpoint" event tells them where to POST messages. Returning 405 on
+// GET base would break those clients with "Session not found" because they'd
+// never get a session_id.
+func TestMCPRoutes_GETBaseOpensSSE(t *testing.T) {
+	srv := mcpserver.New()
+	const basePath = "/mcp"
+	ts := httptest.NewServer(newTestEngineWithMCP(t, srv, basePath))
+	defer ts.Close()
+
+	req, err := http.NewRequest(http.MethodGet, ts.URL+basePath, nil)
+	if err != nil {
+		t.Fatalf("new request: %v", err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	req = req.WithContext(ctx)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("GET base: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET base status = %d, want 200", resp.StatusCode)
+	}
+	if got := resp.Header.Get("Content-Type"); !strings.HasPrefix(got, "text/event-stream") {
+		t.Fatalf("Content-Type = %q, want text/event-stream", got)
+	}
+
+	buf := make([]byte, 1024)
+	n, _ := resp.Body.Read(buf)
+	cancel()
+
+	want := basePath + "/messages?session_id="
+	if !strings.Contains(string(buf[:n]), want) {
+		t.Fatalf("endpoint event missing %q; got: %q", want, string(buf[:n]))
 	}
 }
 

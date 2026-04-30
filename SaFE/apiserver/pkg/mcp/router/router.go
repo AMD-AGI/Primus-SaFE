@@ -73,14 +73,14 @@ func MountRoutes(engine *gin.Engine, srv *mcpserver.Server, basePath string) {
 	sseTransport.MessageEndpointPath = cleanBase + "/messages"
 	streamableTransport := mcpserver.NewStreamableHTTPTransport(srv)
 
-	// Streamable HTTP transport: the base path itself is the endpoint per the
-	// 2025-03-26 spec. POST is the JSON-RPC endpoint; GET is reserved for
-	// optional server->client notifications (not implemented yet).
+	// Streamable HTTP transport (2025-03-26): POST on the base path is the
+	// JSON-RPC endpoint.
 	engine.POST(cleanBase, func(c *gin.Context) { streamableTransport.HandleRPC(c.Writer, c.Request) })
-	engine.GET(cleanBase, func(c *gin.Context) {
-		c.Header("Allow", "POST")
-		c.AbortWithStatus(http.StatusMethodNotAllowed)
-	})
+	// GET on the base path also opens an SSE stream so clients that treat the
+	// base URL as an SSE endpoint (e.g. Cursor's MCP client) work without
+	// pointing at the /sse subpath. This doubles as the "optional server->client
+	// notification stream" slot from the 2025-03-26 spec.
+	engine.GET(cleanBase, func(c *gin.Context) { sseTransport.HandleSSE(c.Writer, c.Request) })
 
 	mcpGroup := engine.Group(cleanBase)
 	{
