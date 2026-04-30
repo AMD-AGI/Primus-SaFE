@@ -244,6 +244,7 @@ func BuildHyperloomPrompt(cfg PromptConfig) string {
 	push("Requirements:")
 	push(fmt.Sprintf("Save all results and the optimization report to %s", cfg.ResultsPath))
 	push("Execute the full skill pipeline (Phase 0-10), including parameter sweep.")
+	push("Use python3 common/safe_submit.py (not node common/safe_submit.mjs) for all SaFE API calls — Node.js fetch does not honour NODE_TLS_REJECT_UNAUTHORIZED and will fail with self-signed certs.")
 
 	if cfg.TargetGpu != "" && cfg.BaselineCount > 0 && cfg.BaselineCSV != "" {
 		push("")
