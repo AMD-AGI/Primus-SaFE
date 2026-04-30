@@ -148,6 +148,16 @@ data:
       enabled: {{ default true (default dict .Values.llm_gateway).enabled }}
       # Path to the secret directory containing litellm_admin_key, litellm_endpoint, litellm_team_id
       secret_path: {{ default "/etc/secrets/llm-gateway" (default dict .Values.llm_gateway).secret_path }}
+    mcp:
+      # Whether to enable MCP (Model Context Protocol) server for AI assistant integration
+      enabled: {{ default true (default dict .Values.mcp).enabled }}
+      base_path: {{ default "/api/v1/mcp" (default dict .Values.mcp).base_path }}
+      instructions: {{ default "SaFE API Server - GPU Cluster Management Tools via MCP" (default dict .Values.mcp).instructions | quote }}
+      # CORS allowlist; empty = same-origin only.
+      allowed_origins:
+{{- range default (list) (default dict .Values.mcp).allowed_origins }}
+        - {{ . | quote }}
+{{- end }}
 kind: ConfigMap
 metadata:
   name: {{ .Release.Name }}-apiserver
