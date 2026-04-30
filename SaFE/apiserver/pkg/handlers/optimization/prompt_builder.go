@@ -35,8 +35,8 @@ const (
 	defaultRayMemoryGi    = 128
 	raySharedMemoryGi     = 500
 
-	defaultSGLangBaseImage = "lmsysorg/sglang:202603270958"
-	defaultVLLMBaseImage   = "vllm/vllm-openai-rocm:202604030417"
+	defaultSGLangBaseImage = "primussafe/sglang:202603270958"
+	defaultVLLMBaseImage   = "primussafe/vllm-openai-rocm:202604030417"
 )
 
 // Maps Hyperloom-Web's display string to the lowercased tag the skill expects.
