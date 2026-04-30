@@ -451,6 +451,68 @@ func TestSSETransport_Message(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, resp2.StatusCode)
 }
 
+// TestSSETransport_CORS verifies the same-origin-by-default policy and that
+// only Origins on the allowlist receive an Access-Control-Allow-Origin header.
+func TestSSETransport_CORS(t *testing.T) {
+	tests := []struct {
+		name     string
+		allowed  []string
+		origin   string
+		wantACAO string
+	}{
+		{name: "default empty = no header", allowed: nil, origin: "https://evil.com", wantACAO: ""},
+		{name: "matching origin echoed", allowed: []string{"https://safe-ui.example.com"}, origin: "https://safe-ui.example.com", wantACAO: "https://safe-ui.example.com"},
+		{name: "non-matching origin rejected", allowed: []string{"https://safe-ui.example.com"}, origin: "https://evil.com", wantACAO: ""},
+		{name: "wildcard echoed as star", allowed: []string{"*"}, origin: "https://anything.com", wantACAO: "*"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := New()
+			transport := NewSSETransport(srv)
+			transport.AllowedOrigins = tc.allowed
+
+			// Use HandleHealth: same applyCORS path, simpler than driving
+			// the full SSE handshake. Behaviour is identical for all
+			// SSETransport handlers.
+			req := httptest.NewRequest(http.MethodGet, "/health", nil)
+			if tc.origin != "" {
+				req.Header.Set("Origin", tc.origin)
+			}
+			rec := httptest.NewRecorder()
+			transport.HandleHealth(rec, req)
+
+			got := rec.Header().Get("Access-Control-Allow-Origin")
+			assert.Equal(t, tc.wantACAO, got)
+			if len(tc.allowed) > 0 {
+				assert.Equal(t, "Origin", rec.Header().Get("Vary"),
+					"Vary: Origin must be set whenever allowlist is non-empty")
+			}
+		})
+	}
+}
+
+// TestStreamableHTTPTransport_CORS sanity-checks that the streamable HTTP
+// transport shares the same CORS behaviour.
+func TestStreamableHTTPTransport_CORS(t *testing.T) {
+	srv := New()
+	transport := NewStreamableHTTPTransport(srv)
+	transport.AllowedOrigins = []string{"https://allowed.example"}
+
+	body, _ := json.Marshal(JSONRPCRequest{JSONRPC: JSONRPCVersion, ID: json.RawMessage(`1`), Method: MethodPing})
+
+	req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(body))
+	req.Header.Set("Origin", "https://allowed.example")
+	rec := httptest.NewRecorder()
+	transport.HandleRPC(rec, req)
+	assert.Equal(t, "https://allowed.example", rec.Header().Get("Access-Control-Allow-Origin"))
+
+	req2 := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(body))
+	req2.Header.Set("Origin", "https://evil.example")
+	rec2 := httptest.NewRecorder()
+	transport.HandleRPC(rec2, req2)
+	assert.Empty(t, rec2.Header().Get("Access-Control-Allow-Origin"))
+}
+
 // TestSSETransport_QueueFullReturns503 verifies that when an SSE consumer is
 // blocked and the per-session message channel is full, HandleMessage stops
 // silently dropping responses and returns 503 within SendQueueTimeout.

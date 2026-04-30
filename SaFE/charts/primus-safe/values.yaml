@@ -259,3 +259,9 @@ mcp:
   enabled: true
   base_path: "/api/v1/mcp"
   instructions: "SaFE API Server - GPU Cluster Management Tools via MCP"
+  # CORS allowlist for browser-based MCP clients. Empty (default) means
+  # same-origin only: no Access-Control-Allow-Origin header is emitted, so
+  # cross-origin fetch from arbitrary sites is blocked. Add explicit origins
+  # (e.g. "https://safe-ui.example.com") to opt in. Wildcard "*" supported
+  # but discouraged.
+  allowed_origins: []

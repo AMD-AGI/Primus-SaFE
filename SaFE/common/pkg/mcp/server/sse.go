@@ -38,6 +38,15 @@ type SSETransport struct {
 	// JSON-RPC response to a slow consumer. On expiry the request fails with
 	// 503 instead of silently dropping the response.
 	SendQueueTimeout time.Duration
+
+	// AllowedOrigins is the CORS allowlist for browser-based MCP clients.
+	// Empty (default) means same-origin only: no Access-Control-Allow-Origin
+	// header is emitted, so cross-origin fetch from arbitrary sites is
+	// blocked. Add explicit origins (e.g. "https://app.example.com") to
+	// opt in. The wildcard "*" is supported but discouraged because
+	// requests bearing cookies will then be rejected by browsers anyway,
+	// and any future flip to Allow-Credentials would open a CSRF hole.
+	AllowedOrigins []string
 }
 
 type sseSession struct {
@@ -107,7 +116,7 @@ func (t *SSETransport) HandleSSE(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
-	w.Header().Set("Access-Control-Allow-Origin", "*")
+	t.applyCORS(w, r)
 	w.Header().Set("X-Session-ID", sessionID)
 
 	endpointPath := t.MessageEndpointPath
@@ -141,6 +150,7 @@ cleanup:
 
 // HandleMessage handles POST /message?session_id=... JSON-RPC messages.
 func (t *SSETransport) HandleMessage(w http.ResponseWriter, r *http.Request) {
+	t.applyCORS(w, r)
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -210,6 +220,7 @@ func (t *SSETransport) HandleMessage(w http.ResponseWriter, r *http.Request) {
 
 // HandleHealth returns transport-level health info.
 func (t *SSETransport) HandleHealth(w http.ResponseWriter, r *http.Request) {
+	t.applyCORS(w, r)
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	resp := map[string]any{
@@ -219,6 +230,37 @@ func (t *SSETransport) HandleHealth(w http.ResponseWriter, r *http.Request) {
 		"initialized": t.server.IsInitialized(),
 	}
 	json.NewEncoder(w).Encode(resp)
+}
+
+// writeCORS sets Access-Control-Allow-Origin only when the inbound Origin
+// matches the allowlist (or "*" is explicitly configured). Empty allowlist =
+// same-origin only, so no header is emitted and browsers fall back to
+// same-origin enforcement. Vary: Origin is set whenever the allowlist is
+// non-empty to avoid cache poisoning.
+func writeCORS(w http.ResponseWriter, r *http.Request, allowed []string) {
+	if len(allowed) == 0 {
+		return
+	}
+	w.Header().Add("Vary", "Origin")
+	origin := r.Header.Get("Origin")
+	for _, a := range allowed {
+		if a == "*" {
+			w.Header().Set("Access-Control-Allow-Origin", "*")
+			return
+		}
+		if origin != "" && origin == a {
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+			return
+		}
+	}
+}
+
+func (t *SSETransport) applyCORS(w http.ResponseWriter, r *http.Request) {
+	writeCORS(w, r, t.AllowedOrigins)
+}
+
+func (t *StreamableHTTPTransport) applyCORS(w http.ResponseWriter, r *http.Request) {
+	writeCORS(w, r, t.AllowedOrigins)
 }
 
 func (t *SSETransport) sendEvent(session *sseSession, event, data string) error {
@@ -305,6 +347,10 @@ func (t *SSETransport) StartStandalone(ctx context.Context, addr string) error {
 // StreamableHTTPTransport provides a simpler HTTP request/response transport.
 type StreamableHTTPTransport struct {
 	server *Server
+
+	// AllowedOrigins behaves the same way as SSETransport.AllowedOrigins.
+	// Empty = same-origin only. See SSETransport.applyCORS for details.
+	AllowedOrigins []string
 }
 
 func NewStreamableHTTPTransport(server *Server) *StreamableHTTPTransport {
@@ -317,6 +363,7 @@ func (t *StreamableHTTPTransport) Handler() http.Handler {
 
 // HandleRPC processes a single JSON-RPC POST request and writes the JSON response.
 func (t *StreamableHTTPTransport) HandleRPC(w http.ResponseWriter, r *http.Request) {
+	t.applyCORS(w, r)
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return

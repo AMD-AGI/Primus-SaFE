@@ -69,9 +69,18 @@ func MountRoutes(engine *gin.Engine, srv *mcpserver.Server, basePath string) {
 	}
 	cleanBase := strings.TrimRight(basePath, "/")
 
+	allowedOrigins := commonconfig.GetMCPAllowedOrigins()
+
 	sseTransport := mcpserver.NewSSETransport(srv)
 	sseTransport.MessageEndpointPath = cleanBase + "/messages"
+	sseTransport.AllowedOrigins = allowedOrigins
 	streamableTransport := mcpserver.NewStreamableHTTPTransport(srv)
+	streamableTransport.AllowedOrigins = allowedOrigins
+	if len(allowedOrigins) > 0 {
+		klog.Infof("MCP Server: CORS allowed origins: %v", allowedOrigins)
+	} else {
+		klog.Infof("MCP Server: CORS disabled (same-origin only)")
+	}
 
 	// Streamable HTTP transport (2025-03-26): POST on the base path is the
 	// JSON-RPC endpoint.

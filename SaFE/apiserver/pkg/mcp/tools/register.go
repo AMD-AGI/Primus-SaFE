@@ -13,12 +13,25 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"time"
 
 	"k8s.io/klog/v2"
 
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	mcpserver "github.com/AMD-AIG-AIMA/SAFE/common/pkg/mcp/server"
 )
+
+// apiCallTimeout caps how long a single MCP-driven REST call may take.
+// Without this, a slow downstream handler would let goroutines pile up
+// behind LLM clients that have already given up, eventually exhausting
+// the apiserver's resources. Overridable in tests via APICallClient.
+const apiCallTimeout = 30 * time.Second
+
+// APICallClient is the http.Client used by APICall. Exposed so that tests
+// or callers needing to tune transport behaviour (e.g. shorter timeout in
+// test) can swap it out. Never use http.DefaultClient here: that one has
+// no timeout at all.
+var APICallClient = &http.Client{Timeout: apiCallTimeout}
 
 // extractErrorCode pulls out the SaFE-style errorCode field from a REST error
 // body, returning "" if the body isn't recognisable JSON. Used by APICall to
@@ -81,7 +94,7 @@ func APICall(ctx context.Context, method, relPath string, body any) (any, error)
 		}
 	}
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := APICallClient.Do(req)
 	if err != nil {
 		return nil, err
 	}

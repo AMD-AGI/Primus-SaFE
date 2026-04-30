@@ -13,6 +13,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	mcpserver "github.com/AMD-AIG-AIMA/SAFE/common/pkg/mcp/server"
@@ -152,6 +153,70 @@ func TestAPICall_ErrorBodySanitised(t *testing.T) {
 	}
 	if strings.Contains(msg, "SELECT") || strings.Contains(msg, "abcd") || strings.Contains(msg, "errorMessage") {
 		t.Fatalf("raw body must NOT leak to caller, got: %v", err)
+	}
+}
+
+// TestAPICall_HonoursClientTimeout verifies that the package-level client
+// has a finite timeout, so a hung downstream handler doesn't leak goroutines
+// behind departed LLM clients.
+//
+// Intentionally NOT t.Parallel: this test mutates the package-level
+// APICallClient and restores it on exit, which would race other parallel
+// APICall tests that share the same global.
+func TestAPICall_HonoursClientTimeout(t *testing.T) {
+	origClient := APICallClient
+	APICallClient = &http.Client{Timeout: 50 * time.Millisecond}
+	defer func() { APICallClient = origClient }()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Sleep longer than the client timeout so the call must abort.
+		time.Sleep(500 * time.Millisecond)
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	defer srv.Close()
+
+	req := newFakeReq(t, srv.URL)
+	ctx := mcpserver.ContextWithHTTPRequest(context.Background(), req)
+	start := time.Now()
+	_, err := APICall(ctx, http.MethodGet, "/slow", nil)
+	elapsed := time.Since(start)
+
+	if err == nil {
+		t.Fatal("expected timeout error")
+	}
+	if elapsed > 400*time.Millisecond {
+		t.Fatalf("call should fail fast around 50ms, took %v", elapsed)
+	}
+}
+
+// TestAPICall_HonoursContextCancel verifies APICall respects the caller's
+// ctx, so a client disconnect aborts the in-flight downstream call.
+func TestAPICall_HonoursContextCancel(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Wait for either the request ctx to die or 5s to pass.
+		select {
+		case <-r.Context().Done():
+		case <-time.After(5 * time.Second):
+		}
+	}))
+	defer srv.Close()
+
+	req := newFakeReq(t, srv.URL)
+	ctx, cancel := context.WithCancel(mcpserver.ContextWithHTTPRequest(context.Background(), req))
+	go func() {
+		time.Sleep(30 * time.Millisecond)
+		cancel()
+	}()
+	start := time.Now()
+	_, err := APICall(ctx, http.MethodGet, "/hang", nil)
+	elapsed := time.Since(start)
+
+	if err == nil {
+		t.Fatal("expected error from cancelled ctx")
+	}
+	if elapsed > 1*time.Second {
+		t.Fatalf("call should abort with ctx around 30ms, took %v", elapsed)
 	}
 }
 
