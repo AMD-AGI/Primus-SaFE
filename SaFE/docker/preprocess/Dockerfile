@@ -26,6 +26,9 @@ COPY ./SaFE/docker/preprocess/*.sh ${APP_HOME}/
 COPY ./SaFE/docker/preprocess/*.py ${APP_HOME}/
 COPY ./SaFE/docker/preprocess/scripts/*.sh ${APP_HOME}/scripts/
 
+# +x so ./launcher.sh works; exec /bin/sh /path/launcher.sh does not require +x on the script.
+RUN find "${APP_HOME}" -type f -name '*.sh' -exec chmod +x {} +
+
 # Copy bnxt driver if path is specified
 # Use shell with heredoc to handle conditional copy
 RUN --mount=type=bind,source=.,target=/build_context \
