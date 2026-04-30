@@ -7,7 +7,6 @@ package handlers
 
 import (
 	"context"
-	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -29,10 +28,8 @@ import (
 	proxyhandlers "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/proxy-handlers"
 	reshandler "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/resources"
 	sshhandler "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/ssh-handlers"
-	mcpserver "github.com/AMD-AIG-AIMA/SAFE/common/pkg/mcp/server"
-	mcptools "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/mcp/tools"
+	mcprouter "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/mcp/router"
 	apiutils "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/utils"
-	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/mcp/unified"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
@@ -154,77 +151,10 @@ func InitHttpHandlers(_ context.Context, mgr ctrlruntime.Manager) (*gin.Engine, 
 
 	// MCP (Model Context Protocol) server
 	if commonconfig.IsMCPEnable() {
-		initMCPRoutes(engine)
+		mcprouter.InitRoutes(engine)
 	}
 
 	return engine, nil
-}
-
-// initMCPRoutes initializes MCP server routes under the configured base path.
-func initMCPRoutes(engine *gin.Engine) {
-	srv := mcpserver.New()
-
-	unifiedTools := unified.GetRegistry().GetMCPTools()
-	srv.RegisterTools(unifiedTools)
-	klog.Infof("MCP Server: Registered %d tools from unified registry", len(unifiedTools))
-
-	builtinTools := mcptools.RegisterAllTools()
-	srv.RegisterTools(builtinTools)
-	klog.Infof("MCP Server: Registered %d built-in tools", len(builtinTools))
-
-	if instructions := commonconfig.GetMCPInstructions(); instructions != "" {
-		srv.SetInstructions(instructions)
-	} else {
-		srv.SetInstructions("SaFE API Server - GPU Cluster Management Tools via MCP")
-	}
-
-	mountMCPRoutes(engine, srv, commonconfig.GetMCPBasePath())
-}
-
-// mountMCPRoutes mounts SSE / streamable HTTP / health / index endpoints for the
-// given MCP server under basePath. Exported for tests so they can verify the
-// routing layer without bringing up a full apiserver.
-func mountMCPRoutes(engine *gin.Engine, srv *mcpserver.Server, basePath string) {
-	if basePath == "" {
-		basePath = "/api/v1/mcp"
-	}
-	cleanBase := strings.TrimRight(basePath, "/")
-
-	sseTransport := mcpserver.NewSSETransport(srv)
-	sseTransport.MessageEndpointPath = cleanBase + "/message"
-	streamableTransport := mcpserver.NewStreamableHTTPTransport(srv)
-
-	mcpGroup := engine.Group(basePath)
-	{
-		mcpGroup.GET("/sse", func(c *gin.Context) { sseTransport.HandleSSE(c.Writer, c.Request) })
-		mcpGroup.POST("/message", func(c *gin.Context) { sseTransport.HandleMessage(c.Writer, c.Request) })
-		mcpGroup.POST("/rpc", func(c *gin.Context) { streamableTransport.HandleRPC(c.Writer, c.Request) })
-
-		mcpGroup.GET("/health", func(c *gin.Context) {
-			c.JSON(200, gin.H{
-				"status":      "ok",
-				"server":      "SaFE MCP Server",
-				"version":     mcpserver.MCPVersion,
-				"total_tools": srv.ToolCount(),
-			})
-		})
-
-		mcpGroup.GET("/", func(c *gin.Context) {
-			toolNames := srv.GetToolNames()
-			c.JSON(200, gin.H{
-				"server":       "SaFE MCP Server",
-				"version":      mcpserver.MCPVersion,
-				"sse_endpoint": cleanBase + "/sse",
-				"rpc_endpoint": cleanBase + "/rpc",
-				"total_tools":  len(toolNames),
-				"tools":        toolNames,
-			})
-		})
-	}
-
-	klog.Infof("MCP Server: Routes registered under %s", basePath)
-	klog.Infof("MCP Server: SSE endpoint: %s/sse", cleanBase)
-	klog.Infof("MCP Server: RPC endpoint: %s/rpc (for testing)", cleanBase)
 }
 
 // InitModelHandlers initializes the model handlers for the API server.

@@ -1,7 +1,7 @@
 // Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
 // See LICENSE for license information.
 
-package handlers
+package router
 
 import (
 	"bytes"
@@ -35,7 +35,7 @@ func newTestEngineWithMCP(t *testing.T, srv *mcpserver.Server, basePath string) 
 		}
 		c.JSON(http.StatusOK, gin.H{"headers": hdrs, "ok": true})
 	})
-	mountMCPRoutes(engine, srv, basePath)
+	MountRoutes(engine, srv, basePath)
 	return engine
 }
 
