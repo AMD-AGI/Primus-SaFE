@@ -146,7 +146,7 @@ func (h *Handler) submitTask(
 		return nil, commonerrors.NewBadRequest(err.Error())
 	}
 
-	promptCfg := h.promptConfigFromRequest(req, resolved, workspace)
+	promptCfg := h.promptConfigFromRequest(req, resolved, workspace, clawBearer)
 	prompt := BuildHyperloomPrompt(promptCfg)
 
 	taskID := fixedTaskID
@@ -596,9 +596,15 @@ func clawBearerForGin(c *gin.Context) string {
 	return commonconfig.GetModelOptimizationClawAPIKey()
 }
 
-func (h *Handler) promptConfigFromRequest(req *CreateTaskRequest, m *ResolvedModel, workspace string) PromptConfig {
+func (h *Handler) promptConfigFromRequest(req *CreateTaskRequest, m *ResolvedModel, workspace, safeAPIKey string) PromptConfig {
+	safeAPIURL := ""
+	if host := commonconfig.GetSystemHost(); host != "" {
+		safeAPIURL = "https://" + host
+	}
 	return PromptConfig{
 		ProxyImageRegistry: h.proxyImageRegistry,
+		SafeAPIURL:         safeAPIURL,
+		SafeAPIKey:         safeAPIKey,
 		DisplayName:    firstNonEmpty(req.DisplayName, m.DisplayName),
 		ModelName:      m.ModelName,
 		ModelPath:      m.LocalPath,
