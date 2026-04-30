@@ -433,6 +433,13 @@ data:
                   pip install --quiet 'click<8.3.0' 'ray[default]==2.44.1' 2>/dev/null || true
                   ADDR="http://${RAY_DASHBOARD_ADDRESS}"
                   ENTRYPOINT="$(echo "${RAY_JOB_ENTRYPOINT}" | base64 -d)"
+                  # Job-manager sets spec.entrypoint with "exec " before launcher so Ray drivers
+                  # run launcher as PID 1 (see launcher.sh). If an older controller omits it,
+                  # prepend exec only for the standard launcher line.
+                  case "$ENTRYPOINT" in
+                    exec\ *) ;;
+                    /bin/sh\ /shared-data/launcher.sh*) ENTRYPOINT="exec ${ENTRYPOINT}" ;;
+                  esac
                   echo "[wrapper] ADDR=${ADDR} SUB_ID=${RAY_JOB_SUBMISSION_ID}"
                   echo "[wrapper] ENTRYPOINT=${ENTRYPOINT}"
                   if ! ray job status --address "$ADDR" "$RAY_JOB_SUBMISSION_ID" >/dev/null 2>&1; then

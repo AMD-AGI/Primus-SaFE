@@ -209,7 +209,7 @@ func TestUpdateDeployment(t *testing.T) {
 	assert.Equal(t, deployment.Spec.Template.Spec.PriorityClassName, commonworkload.GeneratePriorityClass(adminWorkload))
 	assert.Equal(t, len(deployment.Spec.Template.Spec.Containers[0].Command), 3)
 	cmd := buildEntryPoint(adminWorkload, 0)
-	assert.Equal(t, deployment.Spec.Template.Spec.Containers[0].Command[2], cmd)
+	assert.Equal(t, deployment.Spec.Template.Spec.Containers[0].Command[2], "exec "+cmd)
 
 	shareMemorySizes, err := jobutils.GetMemoryStorageSize(workloadObj, jobutils.TestDeploymentResourceTemplate, 1)
 	assert.NilError(t, err)
