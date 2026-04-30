@@ -5,6 +5,20 @@
 # See LICENSE for license information.
 #
 
+# When this script is container PID 1, reparented zombies (e.g. vLLM workers after python
+# exits) must be reaped here. If PID 1 is sh (common with /bin/sh -c exec ...), re-exec
+# under bash when available and reap on SIGCHLD; images without bash keep plain sh.
+if [ "$$" -eq 1 ] && [ -z "${BASH_VERSION:-}" ]; then
+  if [ -x /usr/bin/bash ]; then
+    exec /usr/bin/bash "$0" "$@"
+  elif [ -x /bin/bash ]; then
+    exec /bin/bash "$0" "$@"
+  fi
+fi
+if [ "$$" -eq 1 ] && [ -n "${BASH_VERSION:-}" ]; then
+  trap 'while wait -n 2>/dev/null; do :; done' CHLD
+fi
+
 input="$1"
 
 export NODE_RANK="${PET_NODE_RANK:-${NODE_RANK}}"
