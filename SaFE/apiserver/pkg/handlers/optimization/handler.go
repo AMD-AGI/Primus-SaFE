@@ -484,14 +484,32 @@ func (h *Handler) buildEvent(taskID string, hub *taskHub, evType EventType, payl
 	}
 }
 
+const maxEventPayloadBytes = 2048
+
 func (h *Handler) persistAndBroadcast(taskID string, hub *taskHub, ev Event) {
-	// Persist in a best-effort manner; the live channel still gets the event.
+	// Broadcast to live SSE subscribers first; persistence is best-effort.
+	hub.broadcast(ev)
+
+	// Skip high-volume read events (tool:read carries full skill file content
+	// that is static and can be very large; storing it fills the DB quickly).
+	if ev.Type == EventTypeLog {
+		var lp LogEventPayload
+		if err := json.Unmarshal(ev.Payload, &lp); err == nil && lp.Source == "tool:read" {
+			return
+		}
+	}
+
+	payload := string(ev.Payload)
+	if len(payload) > maxEventPayloadBytes {
+		payload = payload[:maxEventPayloadBytes]
+	}
+
 	seq := parseSeqFromEventID(ev.ID)
 	dbev := &dbclient.OptimizationEvent{
 		EventID:   ev.ID,
 		TaskID:    taskID,
 		Type:      string(ev.Type),
-		Payload:   string(ev.Payload),
+		Payload:   payload,
 		Seq:       seq,
 		Timestamp: ev.Timestamp,
 	}
@@ -499,7 +517,6 @@ func (h *Handler) persistAndBroadcast(taskID string, hub *taskHub, ev Event) {
 		klog.ErrorS(err, "persist optimization event failed",
 			"task_id", taskID, "seq", seq)
 	}
-	hub.broadcast(ev)
 }
 
 // maybeUpdateTaskStatus promotes the task's DB status when we see either a

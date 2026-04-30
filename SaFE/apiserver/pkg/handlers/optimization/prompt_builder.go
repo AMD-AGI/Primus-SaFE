@@ -19,7 +19,7 @@ const (
 	// resetDefaults + DEFAULT_* constants). Update both sides together.
 	defaultMode           = ModeLocal
 	defaultFramework      = FrameworkSGLang
-	defaultPrecision      = "FP4"
+	defaultPrecision      = "FP8"
 	defaultGPUType        = "MI355X"
 	defaultISL            = 1024
 	defaultOSL            = 1024
