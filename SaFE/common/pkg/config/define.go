@@ -181,4 +181,11 @@ const (
 	modelOptimizationSecretPath  = modelOptimizationPrefix + "secret_path"
 	modelOptimizationDefaultWS   = modelOptimizationPrefix + "default_workspace"
 	modelOptimizationConcurrency = modelOptimizationPrefix + "max_concurrent"
+
+	// mcp (Model Context Protocol)
+	mcpPrefix         = "mcp."
+	mcpEnable         = mcpPrefix + "enabled"
+	mcpBasePath       = mcpPrefix + "base_path"
+	mcpInstructions   = mcpPrefix + "instructions"
+	mcpAllowedOrigins = mcpPrefix + "allowed_origins"
 )

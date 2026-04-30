@@ -156,6 +156,16 @@ data:
       secret_path: {{ default "" (default dict .Values.model_optimization).secret_path | quote }}
       default_workspace: "{{ default "control-plane-sandbox" (default dict .Values.model_optimization).default_workspace }}"
       max_concurrent: {{ default 5 (default dict .Values.model_optimization).max_concurrent }}
+    mcp:
+      # Whether to enable MCP (Model Context Protocol) server for AI assistant integration
+      enabled: {{ default true (default dict .Values.mcp).enabled }}
+      base_path: {{ default "/api/v1/mcp" (default dict .Values.mcp).base_path }}
+      instructions: {{ default "SaFE API Server - GPU Cluster Management Tools via MCP" (default dict .Values.mcp).instructions | quote }}
+      # CORS allowlist; empty = same-origin only.
+      allowed_origins:
+{{- range default (list) (default dict .Values.mcp).allowed_origins }}
+        - {{ . | quote }}
+{{- end }}
 kind: ConfigMap
 metadata:
   name: {{ .Release.Name }}-apiserver
