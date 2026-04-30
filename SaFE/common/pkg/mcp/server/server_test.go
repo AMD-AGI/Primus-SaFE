@@ -28,6 +28,15 @@ type TestToolResponse struct {
 	Total   int    `json:"total"`
 }
 
+// authedCtx returns a context that carries an HTTP request with an
+// Authorization header, satisfying handleToolsCall's credential check
+// for unit tests that don't go through a real transport.
+func authedCtx() context.Context {
+	r, _ := http.NewRequest(http.MethodPost, "http://test/mcp", nil)
+	r.Header.Set("Authorization", "Bearer unit-test")
+	return ContextWithHTTPRequest(context.Background(), r)
+}
+
 func createTestTool() *MCPTool {
 	return &MCPTool{
 		Name:        "test_tool",
@@ -124,7 +133,7 @@ func TestServer_ToolsCall(t *testing.T) {
 		}),
 	}
 
-	resp := server.HandleRequest(context.Background(), &req)
+	resp := server.HandleRequest(authedCtx(), &req)
 	require.NotNil(t, resp)
 	assert.Nil(t, resp.Error)
 
@@ -154,7 +163,7 @@ func TestServer_ToolsCall_NotFound(t *testing.T) {
 		Params:  mustMarshal(ToolsCallParams{Name: "nonexistent_tool"}),
 	}
 
-	resp := server.HandleRequest(context.Background(), &req)
+	resp := server.HandleRequest(authedCtx(), &req)
 	require.NotNil(t, resp)
 	require.NotNil(t, resp.Error)
 	assert.Equal(t, ErrorCodeToolNotFound, resp.Error.Code)
@@ -171,6 +180,45 @@ func TestServer_MethodNotFound(t *testing.T) {
 	require.NotNil(t, resp)
 	require.NotNil(t, resp.Error)
 	assert.Equal(t, ErrorCodeMethodNotFound, resp.Error.Code)
+}
+
+// TestServer_ToolsCall_Unauthenticated verifies that tools/call is rejected
+// with ErrorCodeUnauthorized when no credentials reach the server, while
+// discovery methods (tools/list, initialize, ping) keep working anonymously.
+func TestServer_ToolsCall_Unauthenticated(t *testing.T) {
+	server := New()
+	server.RegisterTool(createTestTool())
+
+	callReq := JSONRPCRequest{
+		JSONRPC: JSONRPCVersion,
+		ID:      json.RawMessage(`100`),
+		Method:  MethodToolsCall,
+		Params:  mustMarshal(ToolsCallParams{Name: "test_tool", Arguments: map[string]any{}}),
+	}
+	resp := server.HandleRequest(context.Background(), &callReq)
+	require.NotNil(t, resp)
+	require.NotNil(t, resp.Error, "expected unauthorized error, got result %#v", resp.Result)
+	assert.Equal(t, ErrorCodeUnauthorized, resp.Error.Code)
+
+	// tools/list must remain reachable so the client can advertise tools.
+	listReq := JSONRPCRequest{
+		JSONRPC: JSONRPCVersion,
+		ID:      json.RawMessage(`101`),
+		Method:  MethodToolsList,
+	}
+	listResp := server.HandleRequest(context.Background(), &listReq)
+	require.NotNil(t, listResp)
+	assert.Nil(t, listResp.Error)
+
+	// A request bearing a Cookie (e.g. browser session) is treated as
+	// authenticated at the MCP layer; the downstream REST handlers do the
+	// real validation.
+	r, _ := http.NewRequest(http.MethodPost, "http://test/mcp", nil)
+	r.Header.Set("Cookie", "session=abc")
+	cookieCtx := ContextWithHTTPRequest(context.Background(), r)
+	cookieResp := server.HandleRequest(cookieCtx, &callReq)
+	require.NotNil(t, cookieResp)
+	assert.Nil(t, cookieResp.Error, "Cookie should satisfy credential check")
 }
 
 func TestServer_Ping(t *testing.T) {
@@ -249,6 +297,8 @@ func TestStreamableHTTPClient(t *testing.T) {
 	defer ts.Close()
 
 	client := NewStreamableHTTPClient(ts.URL)
+	// tools/call requires credentials; tests pass a stub Authorization header.
+	client.Headers = map[string]string{"Authorization": "Bearer test"}
 
 	resp, err := client.Call(context.Background(), MethodInitialize, InitializeParams{
 		ProtocolVersion: MCPProtocolVersion,
@@ -401,6 +451,50 @@ func TestSSETransport_Message(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, resp2.StatusCode)
 }
 
+// TestSSETransport_QueueFullReturns503 verifies that when an SSE consumer is
+// blocked and the per-session message channel is full, HandleMessage stops
+// silently dropping responses and returns 503 within SendQueueTimeout.
+func TestSSETransport_QueueFullReturns503(t *testing.T) {
+	server := New()
+	server.RegisterTool(createTestTool())
+
+	transport := NewSSETransport(server)
+	transport.SendQueueTimeout = 50 * time.Millisecond
+	ts := httptest.NewServer(transport.Handler())
+	defer ts.Close()
+
+	// Inject a session whose outbound channel is already full and has no
+	// reader, simulating a stuck SSE client.
+	sessionID := "stuck"
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	stuck := &sseSession{
+		id:         sessionID,
+		ctx:        ctx,
+		cancel:     cancel,
+		messages:   make(chan []byte, 1),
+		created:    time.Now(),
+		lastActive: time.Now(),
+	}
+	stuck.messages <- []byte("filler")
+	transport.sessions.Store(sessionID, stuck)
+
+	req := JSONRPCRequest{
+		JSONRPC: JSONRPCVersion,
+		ID:      json.RawMessage(`1`),
+		Method:  MethodPing,
+	}
+	reqBody, _ := json.Marshal(req)
+
+	start := time.Now()
+	resp, err := http.Post(ts.URL+"/message?session_id="+sessionID, "application/json", bytes.NewReader(reqBody))
+	require.NoError(t, err)
+	defer func() { io.Copy(io.Discard, resp.Body); resp.Body.Close() }()
+
+	assert.Equal(t, http.StatusServiceUnavailable, resp.StatusCode)
+	assert.Less(t, time.Since(start), 2*time.Second, "should fail fast, not hang")
+}
+
 func TestIntegration_FullFlow(t *testing.T) {
 	server := New()
 
@@ -436,6 +530,7 @@ func TestIntegration_FullFlow(t *testing.T) {
 	defer ts.Close()
 
 	client := NewStreamableHTTPClient(ts.URL)
+	client.Headers = map[string]string{"Authorization": "Bearer integration-test"}
 
 	resp, err := client.Call(context.Background(), MethodInitialize, InitializeParams{
 		ProtocolVersion: MCPProtocolVersion,

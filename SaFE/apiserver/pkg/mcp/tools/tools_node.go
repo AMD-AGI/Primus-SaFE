@@ -194,13 +194,12 @@ func nodeUpdate() *mcpserver.MCPTool {
 func nodeDelete() *mcpserver.MCPTool {
 	return &mcpserver.MCPTool{
 		Name:        "node_delete",
-		Description: "Delete a node",
+		Description: "Delete a node. Set force=true to bypass safety checks. Drain/grace-period are not supported by the SaFE REST API and are intentionally not exposed here.",
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
-				"node_id":      prop("string", "Node ID/name"),
-				"drain":        prop("boolean", "Whether to drain workloads first, default true"),
-				"grace_period": prop("integer", "Grace period in seconds"),
+				"node_id": prop("string", "Node ID/name"),
+				"force":   prop("boolean", "Bypass safety checks (default false). Maps to ?force= on the REST call."),
 			},
 			"required": []string{"node_id"},
 		},
@@ -214,11 +213,8 @@ func nodeDelete() *mcpserver.MCPTool {
 				return nil, fmt.Errorf("node_id is required")
 			}
 			q := url.Values{}
-			if drain, ok := getBool(p, "drain"); ok {
-				q.Set("force", strconv.FormatBool(drain))
-			}
-			if gp, ok := getInt(p, "grace_period"); ok {
-				q.Set("gracePeriod", strconv.Itoa(gp))
+			if force, ok := getBool(p, "force"); ok {
+				q.Set("force", strconv.FormatBool(force))
 			}
 			suffix := ""
 			if len(q) > 0 {

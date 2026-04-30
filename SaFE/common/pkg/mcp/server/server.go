@@ -26,6 +26,24 @@ func HTTPRequestFromContext(ctx context.Context) (*http.Request, bool) {
 	return r, ok && r != nil
 }
 
+// requestHasCredentials reports whether the inbound HTTP request carries
+// either an Authorization header or a Cookie. It does NOT validate them;
+// validation is delegated to the downstream REST handlers, but the presence
+// check stops anonymous tools/call traffic at the MCP layer.
+func requestHasCredentials(ctx context.Context) bool {
+	r, ok := HTTPRequestFromContext(ctx)
+	if !ok {
+		return false
+	}
+	if r.Header.Get("Authorization") != "" {
+		return true
+	}
+	if r.Header.Get("Cookie") != "" {
+		return true
+	}
+	return false
+}
+
 var ServerInfo = Implementation{
 	Name:    "SaFE MCP Server",
 	Version: "1.0.0",
@@ -148,6 +166,15 @@ func (s *Server) handleToolsCall(ctx context.Context, req *JSONRPCRequest) *JSON
 	var params ToolsCallParams
 	if err := json.Unmarshal(req.Params, &params); err != nil {
 		return NewErrorResponse(req.ID, ErrorCodeInvalidParams, "Invalid tools/call params", err.Error())
+	}
+
+	// Tools execute real backend calls, so they require authenticated
+	// requests. Discovery methods (initialize / tools/list / ping) stay
+	// anonymous to support standard MCP client handshakes.
+	if !requestHasCredentials(ctx) {
+		klog.Warningf("MCP Server: Rejecting tools/call %s: missing credentials", params.Name)
+		return NewErrorResponse(req.ID, ErrorCodeUnauthorized,
+			"authorization required: send a valid Authorization header or session cookie", nil)
 	}
 
 	klog.Infof("MCP Server: Calling tool %s", params.Name)

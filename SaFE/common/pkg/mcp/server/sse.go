@@ -33,6 +33,11 @@ type SSETransport struct {
 	// "endpoint" event so they know where to POST JSON-RPC messages. Defaults to
 	// "/mcp/message" but should be overridden when mounted under a custom prefix.
 	MessageEndpointPath string
+
+	// SendQueueTimeout caps how long HandleMessage blocks trying to enqueue a
+	// JSON-RPC response to a slow consumer. On expiry the request fails with
+	// 503 instead of silently dropping the response.
+	SendQueueTimeout time.Duration
 }
 
 type sseSession struct {
@@ -54,6 +59,7 @@ func NewSSETransport(server *Server) *SSETransport {
 		ReadTimeout:         60 * time.Second,
 		WriteTimeout:        10 * time.Second,
 		MessageEndpointPath: "/mcp/message",
+		SendQueueTimeout:    5 * time.Second,
 	}
 }
 
@@ -173,10 +179,27 @@ func (t *SSETransport) HandleMessage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if response != nil {
+		// Bounded wait so a slow / stalled SSE consumer can't silently drop
+		// JSON-RPC responses (the previous non-blocking send would return 202
+		// with the response thrown away). On overload, fail loudly with 503
+		// so the client can retry instead of hanging on a never-arriving id.
+		timeout := t.SendQueueTimeout
+		if timeout <= 0 {
+			timeout = 5 * time.Second
+		}
+		timer := time.NewTimer(timeout)
+		defer timer.Stop()
 		select {
 		case session.messages <- response:
-		default:
-			klog.Warningf("MCP SSE: Message queue full for session %s", sessionID)
+		case <-r.Context().Done():
+			return
+		case <-session.ctx.Done():
+			http.Error(w, "Session closed", http.StatusGone)
+			return
+		case <-timer.C:
+			klog.Errorf("MCP SSE: Dropping response for session %s after %s: queue full", sessionID, timeout)
+			http.Error(w, "Session message queue is full", http.StatusServiceUnavailable)
+			return
 		}
 	}
 
@@ -318,9 +341,12 @@ func (t *StreamableHTTPTransport) HandleRPC(w http.ResponseWriter, r *http.Reque
 }
 
 // StreamableHTTPClient is a simple client for the streamable HTTP transport.
+// Headers is optional and applied to every outgoing request, useful for tests
+// or scripts that need to attach Authorization etc.
 type StreamableHTTPClient struct {
 	BaseURL    string
 	HTTPClient *http.Client
+	Headers    map[string]string
 }
 
 func NewStreamableHTTPClient(baseURL string) *StreamableHTTPClient {
@@ -351,6 +377,9 @@ func (c *StreamableHTTPClient) Call(ctx context.Context, method string, params a
 		return nil, err
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
+	for k, v := range c.Headers {
+		httpReq.Header.Set(k, v)
+	}
 
 	httpResp, err := c.HTTPClient.Do(httpReq)
 	if err != nil {

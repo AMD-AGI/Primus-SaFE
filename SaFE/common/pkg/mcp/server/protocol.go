@@ -41,6 +41,10 @@ const (
 	ErrorCodeToolNotFound      = -32001
 	ErrorCodeToolExecutionFail = -32002
 	ErrorCodeResourceNotFound  = -32003
+	// ErrorCodeUnauthorized is returned by tools/call when the request is
+	// missing credentials. Discovery methods (initialize, tools/list, ping)
+	// stay anonymous so clients can advertise capabilities.
+	ErrorCodeUnauthorized = -32004
 )
 
 type JSONRPCRequest struct {

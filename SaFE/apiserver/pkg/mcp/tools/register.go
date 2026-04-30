@@ -14,9 +14,27 @@ import (
 	"strconv"
 	"strings"
 
+	"k8s.io/klog/v2"
+
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	mcpserver "github.com/AMD-AIG-AIMA/SAFE/common/pkg/mcp/server"
 )
+
+// extractErrorCode pulls out the SaFE-style errorCode field from a REST error
+// body, returning "" if the body isn't recognisable JSON. Used by APICall to
+// surface a stable error identifier without echoing the full body to LLMs.
+func extractErrorCode(body []byte) string {
+	if len(body) == 0 {
+		return ""
+	}
+	var probe struct {
+		ErrorCode string `json:"errorCode"`
+	}
+	if err := json.Unmarshal(body, &probe); err != nil {
+		return ""
+	}
+	return probe.ErrorCode
+}
 
 // APICall makes an internal HTTP request to the SaFE REST API, forwarding auth headers from the MCP context.
 func APICall(ctx context.Context, method, relPath string, body any) (any, error) {
@@ -51,7 +69,13 @@ func APICall(ctx context.Context, method, relPath string, body any) (any, error)
 	if body != nil {
 		req.Header.Set("Content-Type", common.JsonContentType)
 	}
-	for _, key := range []string{"Authorization", "Cookie", common.UserId, common.UserName} {
+	// Only forward credential-bearing headers. Identity headers like
+	// common.UserId / common.UserName are NEVER copied from the inbound
+	// request: they are reserved for the apiserver's own auth middleware
+	// to inject server-side, and accepting them from external callers
+	// would let an MCP client impersonate any user when the deployment
+	// runs with user.token_required=false.
+	for _, key := range []string{"Authorization", "Cookie"} {
 		if v := inReq.Header.Get(key); v != "" {
 			req.Header.Set(key, v)
 		}
@@ -67,7 +91,15 @@ func APICall(ctx context.Context, method, relPath string, body any) (any, error)
 		return nil, err
 	}
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
-		return nil, fmt.Errorf("api %s %s: %s: %s", method, relPath, resp.Status, strings.TrimSpace(string(respBody)))
+		// Don't echo the raw REST body to MCP clients (and therefore to LLM
+		// transcripts/logs): only pass through status + the apiserver's
+		// stable errorCode field. Full body still goes to klog for ops.
+		klog.Warningf("MCP APICall %s %s -> %s body=%s", method, relPath, resp.Status, strings.TrimSpace(string(respBody)))
+		errorCode := extractErrorCode(respBody)
+		if errorCode != "" {
+			return nil, fmt.Errorf("api %s %s: %s (%s)", method, relPath, resp.Status, errorCode)
+		}
+		return nil, fmt.Errorf("api %s %s: %s", method, relPath, resp.Status)
 	}
 	if len(respBody) == 0 {
 		return map[string]any{}, nil

@@ -127,6 +127,63 @@ func TestAPICall_Non2xx(t *testing.T) {
 	}
 }
 
+// TestAPICall_ErrorBodySanitised verifies that raw REST error bodies are
+// NOT echoed back to MCP/LLM callers. Only HTTP status and the apiserver's
+// errorCode field should reach the caller; secrets/PII in the body must stay
+// in server logs.
+func TestAPICall_ErrorBodySanitised(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusForbidden)
+		_, _ = w.Write([]byte(`{"errorCode":"Primus.00007","errorMessage":"sql: SELECT * FROM users WHERE token='abcd'"}`))
+	}))
+	defer srv.Close()
+
+	req := newFakeReq(t, srv.URL)
+	ctx := mcpserver.ContextWithHTTPRequest(context.Background(), req)
+	_, err := APICall(ctx, http.MethodGet, "/secret", nil)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, "403") || !strings.Contains(msg, "Primus.00007") {
+		t.Fatalf("error should expose status + errorCode, got: %v", err)
+	}
+	if strings.Contains(msg, "SELECT") || strings.Contains(msg, "abcd") || strings.Contains(msg, "errorMessage") {
+		t.Fatalf("raw body must NOT leak to caller, got: %v", err)
+	}
+}
+
+// TestAPICall_DropsIdentityHeaders verifies that client-controlled identity
+// headers (UserId/UserName) are NOT forwarded to the downstream REST API,
+// preventing identity spoofing when token validation is optional.
+func TestAPICall_DropsIdentityHeaders(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if v := r.Header.Get(common.UserId); v != "" {
+			t.Errorf("%s should NOT be forwarded, got %q", common.UserId, v)
+		}
+		if v := r.Header.Get(common.UserName); v != "" {
+			t.Errorf("%s should NOT be forwarded, got %q", common.UserName, v)
+		}
+		if v := r.Header.Get("Authorization"); v != "Bearer ok" {
+			t.Errorf("Authorization should be forwarded, got %q", v)
+		}
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	defer srv.Close()
+
+	req := newFakeReq(t, srv.URL)
+	req.Header.Set("Authorization", "Bearer ok")
+	req.Header.Set(common.UserId, "attacker-uid")
+	req.Header.Set(common.UserName, "root")
+	ctx := mcpserver.ContextWithHTTPRequest(context.Background(), req)
+	if _, err := APICall(ctx, http.MethodGet, "/x", nil); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestAPICall_Empty2xxBody(t *testing.T) {
 	t.Parallel()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
