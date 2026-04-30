@@ -76,6 +76,8 @@ type PromptConfig struct {
 	TargetGpu      string
 	BaselineCSV    string
 	BaselineCount  int
+	SafeAPIURL     string
+	SafeAPIKey     string
 }
 
 // NormalizePromptConfig fills zero-valued fields with sensible defaults.
@@ -246,6 +248,9 @@ func BuildHyperloomPrompt(cfg PromptConfig) string {
 	push("Execute the full skill pipeline (Phase 0-10), including parameter sweep.")
 	push("Use python3 common/safe_submit.py (not node common/safe_submit.mjs) for all SaFE API calls — Node.js fetch does not honour NODE_TLS_REJECT_UNAUTHORIZED and will fail with self-signed certs.")
 	push("The Claw sandbox mounts /wekafs as read-only (hostPath). Workload pods submitted via SaFE API have a writable /wekafs via workspace PVC. Do not probe write access from the sandbox; trust that submitted workload pods can write to /wekafs.")
+	if cfg.SafeAPIURL != "" {
+		push(fmt.Sprintf("SaFE API credentials are pre-configured: export SAFE_API_URL=%s SAFE_API_KEY=%s — use these directly, do not read from pipeline_config.env or prompt the user.", cfg.SafeAPIURL, cfg.SafeAPIKey))
+	}
 
 	if cfg.TargetGpu != "" && cfg.BaselineCount > 0 && cfg.BaselineCSV != "" {
 		push("")
