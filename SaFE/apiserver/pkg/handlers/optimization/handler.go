@@ -210,6 +210,7 @@ func (h *Handler) submitTask(
 			MessageType: "text",
 			TaskMode:    "agent",
 			WorkspaceID: workspace,
+			Tools:       []int{16, 18},
 		})
 	})
 	if sendErr != nil {
