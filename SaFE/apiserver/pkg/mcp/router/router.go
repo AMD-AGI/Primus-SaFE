@@ -4,11 +4,25 @@
  */
 
 // Package router wires the MCP server into the apiserver's Gin engine.
-// It exposes SSE, Streamable HTTP, health and index endpoints under the
-// configured base path (defaults to /api/v1/mcp).
+//
+// Two transports are exposed under the configured base path
+// (defaults to /api/v1/mcp), aligned with the MCP specification:
+//
+//   - SSE transport (2024-11-05 spec):
+//       GET  {base}/sse       -> server-sent events stream
+//       POST {base}/messages  -> client-to-server messages (session_id query)
+//
+//   - Streamable HTTP transport (2025-03-26 spec):
+//       POST {base}           -> single request/response (or streamed) JSON-RPC
+//
+// Auxiliary endpoints:
+//
+//       GET  {base}/health    -> liveness check
+//       GET  {base}/info      -> human-readable server info & tool list
 package router
 
 import (
+	"net/http"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -46,9 +60,9 @@ func InitRoutes(engine *gin.Engine) {
 	MountRoutes(engine, srv, commonconfig.GetMCPBasePath())
 }
 
-// MountRoutes mounts SSE / streamable HTTP / health / index endpoints for the
-// given MCP server under basePath. Exported so tests can verify the routing
-// layer without bringing up a full apiserver.
+// MountRoutes mounts the standard MCP transport endpoints (SSE + Streamable
+// HTTP) plus health/info onto engine under basePath. Exported so tests can
+// verify the routing layer without bringing up a full apiserver.
 func MountRoutes(engine *gin.Engine, srv *mcpserver.Server, basePath string) {
 	if basePath == "" {
 		basePath = defaultBasePath
@@ -56,17 +70,27 @@ func MountRoutes(engine *gin.Engine, srv *mcpserver.Server, basePath string) {
 	cleanBase := strings.TrimRight(basePath, "/")
 
 	sseTransport := mcpserver.NewSSETransport(srv)
-	sseTransport.MessageEndpointPath = cleanBase + "/message"
+	sseTransport.MessageEndpointPath = cleanBase + "/messages"
 	streamableTransport := mcpserver.NewStreamableHTTPTransport(srv)
 
-	mcpGroup := engine.Group(basePath)
+	// Streamable HTTP transport: the base path itself is the endpoint per the
+	// 2025-03-26 spec. POST is the JSON-RPC endpoint; GET is reserved for
+	// optional server->client notifications (not implemented yet).
+	engine.POST(cleanBase, func(c *gin.Context) { streamableTransport.HandleRPC(c.Writer, c.Request) })
+	engine.GET(cleanBase, func(c *gin.Context) {
+		c.Header("Allow", "POST")
+		c.AbortWithStatus(http.StatusMethodNotAllowed)
+	})
+
+	mcpGroup := engine.Group(cleanBase)
 	{
+		// SSE transport (2024-11-05 spec): /sse opens the stream, /messages
+		// receives client-to-server JSON-RPC messages.
 		mcpGroup.GET("/sse", func(c *gin.Context) { sseTransport.HandleSSE(c.Writer, c.Request) })
-		mcpGroup.POST("/message", func(c *gin.Context) { sseTransport.HandleMessage(c.Writer, c.Request) })
-		mcpGroup.POST("/rpc", func(c *gin.Context) { streamableTransport.HandleRPC(c.Writer, c.Request) })
+		mcpGroup.POST("/messages", func(c *gin.Context) { sseTransport.HandleMessage(c.Writer, c.Request) })
 
 		mcpGroup.GET("/health", func(c *gin.Context) {
-			c.JSON(200, gin.H{
+			c.JSON(http.StatusOK, gin.H{
 				"status":      "ok",
 				"server":      "SaFE MCP Server",
 				"version":     mcpserver.MCPVersion,
@@ -74,20 +98,20 @@ func MountRoutes(engine *gin.Engine, srv *mcpserver.Server, basePath string) {
 			})
 		})
 
-		mcpGroup.GET("/", func(c *gin.Context) {
+		mcpGroup.GET("/info", func(c *gin.Context) {
 			toolNames := srv.GetToolNames()
-			c.JSON(200, gin.H{
-				"server":       "SaFE MCP Server",
-				"version":      mcpserver.MCPVersion,
-				"sse_endpoint": cleanBase + "/sse",
-				"rpc_endpoint": cleanBase + "/rpc",
-				"total_tools":  len(toolNames),
-				"tools":        toolNames,
+			c.JSON(http.StatusOK, gin.H{
+				"server":                  "SaFE MCP Server",
+				"version":                 mcpserver.MCPVersion,
+				"sse_endpoint":            cleanBase + "/sse",
+				"streamable_http_endpoint": cleanBase,
+				"total_tools":             len(toolNames),
+				"tools":                   toolNames,
 			})
 		})
 	}
 
-	klog.Infof("MCP Server: Routes registered under %s", basePath)
+	klog.Infof("MCP Server: Routes registered under %s", cleanBase)
+	klog.Infof("MCP Server: Streamable HTTP endpoint: %s", cleanBase)
 	klog.Infof("MCP Server: SSE endpoint: %s/sse", cleanBase)
-	klog.Infof("MCP Server: RPC endpoint: %s/rpc (for testing)", cleanBase)
 }

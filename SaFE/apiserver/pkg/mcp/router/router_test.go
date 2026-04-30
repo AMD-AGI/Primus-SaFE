@@ -39,14 +39,15 @@ func newTestEngineWithMCP(t *testing.T, srv *mcpserver.Server, basePath string) 
 	return engine
 }
 
-// doRPC issues a JSON-RPC POST against the MCP /rpc endpoint and decodes the response.
+// doRPC issues a JSON-RPC POST against the MCP Streamable HTTP endpoint
+// (the base path itself per the 2025-03-26 spec) and decodes the response.
 func doRPC(t *testing.T, ts *httptest.Server, basePath string, payload any, headers map[string]string) (int, map[string]any) {
 	t.Helper()
 	body, err := json.Marshal(payload)
 	if err != nil {
 		t.Fatalf("marshal payload: %v", err)
 	}
-	req, err := http.NewRequest(http.MethodPost, ts.URL+strings.TrimRight(basePath, "/")+"/rpc", bytes.NewReader(body))
+	req, err := http.NewRequest(http.MethodPost, ts.URL+strings.TrimRight(basePath, "/"), bytes.NewReader(body))
 	if err != nil {
 		t.Fatalf("new request: %v", err)
 	}
@@ -70,8 +71,11 @@ func doRPC(t *testing.T, ts *httptest.Server, basePath string, payload any, head
 	return resp.StatusCode, out
 }
 
-// TestMCPRoutes_DefaultBasePath verifies the four routes are reachable through Gin
-// when mounted under the default /mcp prefix.
+// TestMCPRoutes_DefaultBasePath verifies the standard MCP endpoints are
+// reachable through Gin when mounted under the default /mcp prefix:
+//   - SSE transport: GET /mcp/sse, POST /mcp/messages
+//   - Streamable HTTP transport: POST /mcp (and GET /mcp -> 405)
+//   - Auxiliary: GET /mcp/health, GET /mcp/info
 func TestMCPRoutes_DefaultBasePath(t *testing.T) {
 	srv := mcpserver.New()
 	ts := httptest.NewServer(newTestEngineWithMCP(t, srv, "/mcp"))
@@ -84,10 +88,11 @@ func TestMCPRoutes_DefaultBasePath(t *testing.T) {
 		body   io.Reader
 		want   int
 	}{
-		{"index", http.MethodGet, "/mcp/", nil, http.StatusOK},
+		{"info", http.MethodGet, "/mcp/info", nil, http.StatusOK},
 		{"health", http.MethodGet, "/mcp/health", nil, http.StatusOK},
-		{"rpc accepts POST", http.MethodPost, "/mcp/rpc", strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"ping"}`), http.StatusOK},
-		{"message rejects missing session", http.MethodPost, "/mcp/message", strings.NewReader("{}"), http.StatusBadRequest},
+		{"streamable HTTP accepts POST at base", http.MethodPost, "/mcp", strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"ping"}`), http.StatusOK},
+		{"streamable HTTP base rejects GET (no notification stream yet)", http.MethodGet, "/mcp", nil, http.StatusMethodNotAllowed},
+		{"messages rejects missing session", http.MethodPost, "/mcp/messages", strings.NewReader("{}"), http.StatusBadRequest},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -148,7 +153,7 @@ func TestMCPRoutes_CustomBasePath(t *testing.T) {
 	n, _ := sseResp.Body.Read(buf)
 	cancel()
 
-	want := basePath + "/message?session_id="
+	want := basePath + "/messages?session_id="
 	if !strings.Contains(string(buf[:n]), want) {
 		t.Fatalf("sse endpoint event did not contain %q; got: %q", want, string(buf[:n]))
 	}
