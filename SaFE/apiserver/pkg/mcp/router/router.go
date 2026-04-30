@@ -84,10 +84,15 @@ func MountRoutes(engine *gin.Engine, srv *mcpserver.Server, basePath string) {
 
 	mcpGroup := engine.Group(cleanBase)
 	{
-		// SSE transport (2024-11-05 spec): /sse opens the stream, /messages
-		// receives client-to-server JSON-RPC messages.
+		// SSE transport (2024-11-05 spec): GET /sse opens the stream,
+		// POST /messages receives client-to-server JSON-RPC messages.
 		mcpGroup.GET("/sse", func(c *gin.Context) { sseTransport.HandleSSE(c.Writer, c.Request) })
 		mcpGroup.POST("/messages", func(c *gin.Context) { sseTransport.HandleMessage(c.Writer, c.Request) })
+
+		// Cursor's MCP client probes Streamable HTTP by POSTing to {base}/sse
+		// before falling back to SSE. Mirror the base POST handler here so
+		// that probe succeeds and Cursor stays on Streamable HTTP.
+		mcpGroup.POST("/sse", func(c *gin.Context) { streamableTransport.HandleRPC(c.Writer, c.Request) })
 
 		mcpGroup.GET("/health", func(c *gin.Context) {
 			c.JSON(http.StatusOK, gin.H{

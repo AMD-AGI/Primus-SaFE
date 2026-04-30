@@ -93,6 +93,7 @@ func TestMCPRoutes_DefaultBasePath(t *testing.T) {
 		{"health", http.MethodGet, "/mcp/health", nil, http.StatusOK},
 		{"streamable HTTP accepts POST at base", http.MethodPost, "/mcp", strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"ping"}`), http.StatusOK},
 		{"GET on base opens SSE stream (Cursor compat)", http.MethodGet, "/mcp", nil, http.StatusOK},
+		{"POST on /sse handled as Streamable HTTP (Cursor compat)", http.MethodPost, "/mcp/sse", strings.NewReader(`{"jsonrpc":"2.0","id":2,"method":"ping"}`), http.StatusOK},
 		{"messages rejects missing session", http.MethodPost, "/mcp/messages", strings.NewReader("{}"), http.StatusBadRequest},
 	}
 	for _, c := range cases {
