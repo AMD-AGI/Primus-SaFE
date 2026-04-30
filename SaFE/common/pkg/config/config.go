@@ -569,3 +569,27 @@ func IsMonarchEnable() bool {
 func GetMonarchClientRole() string {
 	return getString(monarchClientRole, "")
 }
+
+// ── MCP (Model Context Protocol) ────────────────────────────────────────
+
+func IsMCPEnable() bool {
+	return getBool(mcpEnable, false)
+}
+
+func GetMCPBasePath() string {
+	return getString(mcpBasePath, "/api/v1/mcp")
+}
+
+func GetMCPInstructions() string {
+	return getString(mcpInstructions, "")
+}
+
+// GetMCPAllowedOrigins returns the CORS allowlist for the MCP HTTP transports.
+// Empty (default) means same-origin only: no Access-Control-Allow-Origin
+// header is set, so cross-origin browser requests are blocked. Add explicit
+// origins (e.g. "https://safe-ui.example.com") to opt in. Use "*" only if
+// you really mean it; bearer-token clients work but cookie-based browser
+// clients won't be able to call the API anyway.
+func GetMCPAllowedOrigins() []string {
+	return viper.GetStringSlice(mcpAllowedOrigins)
+}
