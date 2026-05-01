@@ -178,4 +178,11 @@ const (
 	sandboxEnable    = sandboxPrefix + "enable"
 	sandboxNamespace = sandboxPrefix + "namespace"
 	sandboxSecret    = sandboxPrefix + "secret"
+
+	// mcp (Model Context Protocol)
+	mcpPrefix         = "mcp."
+	mcpEnable         = mcpPrefix + "enabled"
+	mcpBasePath       = mcpPrefix + "base_path"
+	mcpInstructions   = mcpPrefix + "instructions"
+	mcpAllowedOrigins = mcpPrefix + "allowed_origins"
 )
