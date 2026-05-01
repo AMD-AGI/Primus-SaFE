@@ -420,10 +420,12 @@ func (w *Workload) HasSpecifiedNodes() bool {
 // GetEnv retrieves the value of an environment variable by name from the workload's spec.
 // It returns the value if found, otherwise returns an empty string.
 func (w *Workload) GetEnv(name string) string {
-	for key, val := range w.Spec.Env {
-		if key == name {
-			return val
-		}
+	if len(w.Spec.Env) == 0 {
+		return ""
+	}
+	val, ok := w.Spec.Env[name]
+	if ok {
+		return val
 	}
 	return ""
 }
