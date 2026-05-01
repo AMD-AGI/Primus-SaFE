@@ -47,6 +47,7 @@ data:
       enable: {{ .Values.cicd.enable }}
       role_name: {{ .Values.cicd.role_name }}
     sandbox:
+      enable: {{ .Values.sandbox.enable }}
       namespace: {{ .Values.sandbox.namespace }}
       secret: {{ .Values.sandbox.secret }}
     torchft:
