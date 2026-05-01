@@ -99,6 +99,8 @@ data:
     notification:
       enable: {{ or (and .Values.notification .Values.notification.email .Values.notification.email.smtp_host) (and .Values.notification .Values.notification.email_relay .Values.notification.email_relay.enable) | default false }}
       secret_path: /etc/secrets/notification
+    sandbox:
+      enable: {{ .Values.sandbox.enable }}
     tracing:
       # Whether to enable OpenTelemetry tracing
       enable: {{ default true (default dict .Values.tracing).enable }}
