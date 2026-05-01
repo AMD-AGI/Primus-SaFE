@@ -635,6 +635,18 @@ func GetGlobalImageRegistry() string {
 	return getString(imageRegistry, "docker.io")
 }
 
+func GetSandboxNamespace() string {
+	return getString(sandboxNamespace, "")
+}
+
+func GetSandboxSecret() string {
+	return getString(sandboxSecret, "")
+}
+
+func IsSandboxEnable() bool {
+	return getBool(sandboxEnable, false)
+}
+
 // ── MCP (Model Context Protocol) ────────────────────────────────────────
 
 func IsMCPEnable() bool {

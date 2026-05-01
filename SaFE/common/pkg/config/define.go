@@ -182,6 +182,12 @@ const (
 	modelOptimizationDefaultWS   = modelOptimizationPrefix + "default_workspace"
 	modelOptimizationConcurrency = modelOptimizationPrefix + "max_concurrent"
 
+	// sandbox
+	sandboxPrefix    = "sandbox."
+	sandboxEnable    = sandboxPrefix + "enable"
+	sandboxNamespace = sandboxPrefix + "namespace"
+	sandboxSecret    = sandboxPrefix + "secret"
+
 	// mcp (Model Context Protocol)
 	mcpPrefix         = "mcp."
 	mcpEnable         = mcpPrefix + "enabled"

@@ -697,7 +697,7 @@ func (r *DispatcherReconciler) applyWorkloadSpecToObject(ctx context.Context, cl
 	case commonworkload.IsMonarchMesh(adminWorkload):
 		err = updateMonarchMesh(obj, adminWorkload)
 	case commonworkload.IsSandBox(adminWorkload):
-		err = r.updateSandbox(ctx, obj, adminWorkload, workspace, rt)
+		err = r.updateSandbox(ctx, clientSets, obj, adminWorkload, workspace, rt)
 	}
 	if err != nil {
 		return err

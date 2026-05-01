@@ -263,6 +263,10 @@ model_optimization:
   secret_path: ""
   default_workspace: "control-plane-sandbox"
   max_concurrent: 10
+sandbox:
+  enable: true
+  namespace: "agent-sandbox-system"
+  secret: "envd-router-identity"
 mcp:
   enabled: true
   base_path: "/api/v1/mcp"
