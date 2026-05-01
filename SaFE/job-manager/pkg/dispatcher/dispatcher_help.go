@@ -1110,6 +1110,9 @@ func updateMonarchMesh(obj *unstructured.Unstructured, adminWorkload *v1.Workloa
 
 // injectSandboxEnvdAuthPublicKey loads public PEM from a data-plane Secret (config: sandbox namespace/secret) into workload env.
 func injectSandboxEnvdAuthPublicKey(ctx context.Context, clientSets *syncer.ClusterClientSets, adminWorkload *v1.Workload) error {
+	if adminWorkload.GetEnv(sandboxAuthPublicKeyEnvName) != "" {
+		return nil
+	}
 	ns := commonconfig.GetSandboxNamespace()
 	secName := commonconfig.GetSandboxSecret()
 	if ns == "" || secName == "" {
