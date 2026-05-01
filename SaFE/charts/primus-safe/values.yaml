@@ -255,3 +255,7 @@ a2a_gateway:
 llm_gateway:
   enabled: true
   secret_path: "/etc/secrets/llm-gateway"
+sandbox:
+  enable: true
+  namespace: "agent-sandbox-system"
+  secret: "envd-router-identity"

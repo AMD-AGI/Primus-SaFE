@@ -569,3 +569,15 @@ func IsMonarchEnable() bool {
 func GetMonarchClientRole() string {
 	return getString(monarchClientRole, "")
 }
+
+func GetSandboxNamespace() string {
+	return getString(sandboxNamespace, "")
+}
+
+func GetSandboxSecret() string {
+	return getString(sandboxSecret, "")
+}
+
+func IsSandboxEnable() bool {
+	return getBool(sandboxEnable, false)
+}

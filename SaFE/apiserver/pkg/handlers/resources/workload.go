@@ -826,6 +826,9 @@ func (h *Handler) generateWorkload(ctx context.Context,
 	if commonworkload.IsMonarchJob(workload) && !commonconfig.IsMonarchEnable() {
 		return nil, commonerrors.NewNotImplemented("the Monarch is not enabled")
 	}
+	if commonworkload.IsSandBox(workload) && !commonconfig.IsSandboxEnable() {
+		return nil, commonerrors.NewNotImplemented("the Sandbox is not enabled")
+	}
 	return workload, nil
 }
 

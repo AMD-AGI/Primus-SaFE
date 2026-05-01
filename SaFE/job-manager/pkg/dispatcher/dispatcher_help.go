@@ -7,6 +7,7 @@ package dispatcher
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"strconv"
 	"strings"
@@ -34,7 +35,10 @@ import (
 
 const (
 	SharedMemoryVolume = "shared-memory"
-	Launcher = "/bin/sh /shared-data/launcher.sh"
+	Launcher           = "/bin/sh /shared-data/launcher.sh"
+
+	sandboxAuthPublicKeyEnvName = "ENVD_AUTH_PUBLIC_KEY"
+	sandboxSecretPublicPemKey   = "public.pem"
 )
 
 // initializeObject modifies various aspects of a Kubernetes object during workload creation.
@@ -1104,9 +1108,47 @@ func updateMonarchMesh(obj *unstructured.Unstructured, adminWorkload *v1.Workloa
 	return nil
 }
 
+// injectSandboxEnvdAuthPublicKey loads public PEM from a data-plane Secret (config: sandbox namespace/secret) into workload env.
+func injectSandboxEnvdAuthPublicKey(ctx context.Context, clientSets *syncer.ClusterClientSets, adminWorkload *v1.Workload) error {
+	ns := commonconfig.GetSandboxNamespace()
+	secName := commonconfig.GetSandboxSecret()
+	if ns == "" || secName == "" {
+		return fmt.Errorf("the sandbox is not enabled")
+	}
+	factory := clientSets.ClientFactory()
+	if factory == nil || !factory.IsValid() {
+		return fmt.Errorf("data plane client factory is not available")
+	}
+	secret, err := factory.ClientSet().CoreV1().Secrets(ns).Get(ctx, secName, metav1.GetOptions{})
+	if err != nil {
+		return fmt.Errorf("get sandbox auth secret %s/%s: %w", ns, secName, err)
+	}
+	raw, ok := secret.Data[sandboxSecretPublicPemKey]
+	if !ok || len(raw) == 0 {
+		return fmt.Errorf("secret %s/%s has no data key %q", ns, secName, sandboxSecretPublicPemKey)
+	}
+	pemStr := string(raw)
+	if !strings.HasPrefix(strings.TrimSpace(pemStr), "-----BEGIN") {
+		decoded, decErr := base64.StdEncoding.DecodeString(strings.TrimSpace(pemStr))
+		if decErr != nil {
+			return fmt.Errorf("decode %q in secret %s/%s: %w", sandboxSecretPublicPemKey, ns, secName, decErr)
+		}
+		pemStr = string(decoded)
+	}
+	if adminWorkload.Spec.Env == nil {
+		adminWorkload.Spec.Env = make(map[string]string)
+	}
+	adminWorkload.Spec.Env[sandboxAuthPublicKeyEnvName] = pemStr
+	return nil
+}
+
 // updateSandbox updates the sandbox-job configuration by sandbox template (legacy compatibility)
-func (r *DispatcherReconciler) updateSandbox(_ context.Context,
+func (r *DispatcherReconciler) updateSandbox(ctx context.Context, clientSets *syncer.ClusterClientSets,
 	obj *unstructured.Unstructured, adminWorkload *v1.Workload, workspace *v1.Workspace, rt *v1.ResourceTemplate) error {
+
+	if err := injectSandboxEnvdAuthPublicKey(ctx, clientSets, adminWorkload); err != nil {
+		return err
+	}
 
 	v1.SetLabel(adminWorkload, "runtime.agent-sandbox.io/user.id", v1.GetUserId(adminWorkload))
 	v1.SetLabel(adminWorkload, "runtime.agent-sandbox.io/sandbox-name", adminWorkload.Name)
