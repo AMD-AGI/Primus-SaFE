@@ -1166,6 +1166,7 @@ func TestCreateSandboxWithResources(t *testing.T) {
 	workload.Spec.JobPort = 0
 	workload.Spec.EntryPoints = nil
 	workload.Spec.Resources[0].RdmaResource = ""
+	workload.Spec.Env[sandboxAuthPublicKeyEnvName] = "test-public-key"
 
 	configmap, err := parseConfigmap(TestSandboxConfig)
 	assert.NilError(t, err)
