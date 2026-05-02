@@ -7,10 +7,11 @@ package config
 
 const (
 	// global
-	globalPrefix = "global."
-	imageSecret  = globalPrefix + "image_secret"
-	domain       = globalPrefix + "domain"
-	subDomain    = globalPrefix + "sub_domain"
+	globalPrefix   = "global."
+	imageSecret    = globalPrefix + "image_secret"
+	imageRegistry  = globalPrefix + "image_registry"
+	domain         = globalPrefix + "domain"
+	subDomain      = globalPrefix + "sub_domain"
 
 	netPrefix = "net."
 	rdmaName  = netPrefix + "rdma_name"
@@ -172,6 +173,14 @@ const (
 	monarchPrefix     = "monarch."
 	monarchEnable     = monarchPrefix + "enable"
 	monarchClientRole = monarchPrefix + "client_role"
+
+	// model_optimization (hyperloom via primus-claw)
+	modelOptimizationPrefix      = "model_optimization."
+	modelOptimizationClawBaseURL = modelOptimizationPrefix + "claw_base_url"
+	modelOptimizationClawAgentID = modelOptimizationPrefix + "claw_agent_id"
+	modelOptimizationSecretPath  = modelOptimizationPrefix + "secret_path"
+	modelOptimizationDefaultWS   = modelOptimizationPrefix + "default_workspace"
+	modelOptimizationConcurrency = modelOptimizationPrefix + "max_concurrent"
 
 	// sandbox
 	sandboxPrefix    = "sandbox."

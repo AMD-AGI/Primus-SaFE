@@ -255,6 +255,14 @@ a2a_gateway:
 llm_gateway:
   enabled: true
   secret_path: "/etc/secrets/llm-gateway"
+# Model Optimization (Hyperloom via PrimusClaw). Routes register when db.enable; set claw_base_url / secret for Claw.
+model_optimization:
+  claw_base_url: ""
+  claw_agent_id: "agent_default"
+  # Empty: skip file-based claw_api_key / claw_base_url; use Bearer ak-... or set a mount path.
+  secret_path: ""
+  default_workspace: "control-plane-sandbox"
+  max_concurrent: 10
 sandbox:
   enable: true
   namespace: "agent-sandbox-system"

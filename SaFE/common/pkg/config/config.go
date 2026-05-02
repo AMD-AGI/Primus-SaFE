@@ -338,6 +338,9 @@ func GetS3ExpireDay() int32 {
 
 func getFromFile(configPath, item string) string {
 	path := getString(configPath, "")
+	if path == "" {
+		return ""
+	}
 	data, err := os.ReadFile(filepath.Join(path, item))
 	if err != nil {
 		return ""
@@ -570,6 +573,68 @@ func GetMonarchClientRole() string {
 	return getString(monarchClientRole, "")
 }
 
+// ── Model Optimization (Hyperloom via PrimusClaw) ───────────────────────
+
+// GetModelOptimizationClawBaseURL returns the base URL used to reach the
+// PrimusClaw backend, e.g. "https://oci-slc.primus-safe.amd.com/claw-api/v1".
+// Precedence: direct config key > secret file "claw_base_url" > derived public
+// URL from global.sub_domain + global.domain + "/claw-api/v1" (same host as the
+// SaFE UI / browser) > empty string.
+func GetModelOptimizationClawBaseURL() string {
+	if v := getString(modelOptimizationClawBaseURL, ""); v != "" {
+		return v
+	}
+	if v := getFromFile(modelOptimizationSecretPath, "claw_base_url"); v != "" {
+		return v
+	}
+	return modelOptimizationDerivedPublicClawBaseURL()
+}
+
+func modelOptimizationDerivedPublicClawBaseURL() string {
+	host := GetSystemHost()
+	if host == "" {
+		return ""
+	}
+	return "https://" + host + "/claw-api/v1"
+}
+
+// GetModelOptimizationClawAPIKey returns an optional service-level bearer token for
+// PrimusClaw (file "claw_api_key" under model_optimization.secret_path). Used only
+// when the caller did not send ak-... and the platform could not resolve a per-user
+// platform key (e.g. automation). When secret_path is empty, this always returns "".
+func GetModelOptimizationClawAPIKey() string {
+	return getFromFile(modelOptimizationSecretPath, "claw_api_key")
+}
+
+// GetModelOptimizationClawAgentID returns the default Claw agent identifier.
+// Defaults to "agent_default" to match the Claw backend default.
+func GetModelOptimizationClawAgentID() string {
+	if v := getString(modelOptimizationClawAgentID, ""); v != "" {
+		return v
+	}
+	return "agent_default"
+}
+
+// GetModelOptimizationDefaultWorkspace returns the Claw workspace used for
+// sandbox scheduling when the client request omits a workspace hint.
+func GetModelOptimizationDefaultWorkspace() string {
+	return getString(modelOptimizationDefaultWS, "control-plane-sandbox")
+}
+
+// GetModelOptimizationMaxConcurrent returns the soft limit on how many
+// optimization tasks a single workspace can have running simultaneously.
+// Non-positive values disable the limit.
+func GetModelOptimizationMaxConcurrent() int {
+	return getInt(modelOptimizationConcurrency, 5)
+}
+
+// GetGlobalImageRegistry returns the cluster-wide image registry prefix
+// (global.image_registry), e.g. "harbor.core42.primus-safe.amd.com/proxy".
+// Defaults to "docker.io" when unset.
+func GetGlobalImageRegistry() string {
+	return getString(imageRegistry, "docker.io")
+}
+
 func GetSandboxNamespace() string {
 	return getString(sandboxNamespace, "")
 }
@@ -580,8 +645,9 @@ func GetSandboxSecret() string {
 
 func IsSandboxEnable() bool {
 	return getBool(sandboxEnable, false)
-
 }
+
+// ── MCP (Model Context Protocol) ────────────────────────────────────────
 
 func IsMCPEnable() bool {
 	return getBool(mcpEnable, false)
