@@ -146,7 +146,7 @@ func (h *Handler) submitTask(
 		return nil, commonerrors.NewBadRequest(err.Error())
 	}
 
-	promptCfg := h.promptConfigFromRequest(req, resolved, workspace, clawBearer)
+	promptCfg := NormalizePromptConfig(h.promptConfigFromRequest(req, resolved, workspace, clawBearer))
 	prompt := BuildHyperloomPrompt(promptCfg)
 
 	taskID := fixedTaskID
