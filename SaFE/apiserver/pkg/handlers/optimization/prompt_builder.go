@@ -35,7 +35,7 @@ const (
 	defaultRayMemoryGi    = 128
 	raySharedMemoryGi     = 500
 
-	defaultSGLangBaseImage = "primussafe/sglang:202603270958"
+	defaultSGLangBaseImage = "lmsysorg/sglang:v0.5.10-rocm720-mi30x"
 	defaultVLLMBaseImage   = "primussafe/vllm-openai-rocm:202604030417"
 )
 
