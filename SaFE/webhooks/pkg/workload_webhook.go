@@ -141,7 +141,7 @@ func (m *WorkloadMutator) mutateCommon(ctx context.Context, oldWorkload, newWork
 	case common.AuthoringKind:
 		m.mutateAuthoring(newWorkload)
 	case common.CICDScaleRunnerSetKind:
-		m.mutateCICDScaleSet(newWorkload)
+		m.mutateCICDScaleSet(newWorkload, workspace)
 	case common.MonarchJob:
 		m.mutateMonarchJob(newWorkload)
 	case common.RayJobKind:
@@ -388,13 +388,45 @@ func (m *WorkloadMutator) mutateAuthoring(workload *v1.Workload) {
 }
 
 // mutateCICDScaleSet sets one-replica, disable Supervised for cicd.
-func (m *WorkloadMutator) mutateCICDScaleSet(workload *v1.Workload) {
+func (m *WorkloadMutator) mutateCICDScaleSet(workload *v1.Workload, workspace *v1.Workspace) {
 	workload.Spec.IsSupervised = false
 	if len(workload.Spec.Resources) > 0 {
 		workload.Spec.Resources = workload.Spec.Resources[0:1]
 		workload.Spec.Resources[0].Replica = 1
 	}
 	workload.Spec.Dependencies = nil
+	mutateCICDResourcesEnv(workload, workspace)
+}
+
+// mutateCICDResourcesEnv mirrors mutateResources for the runner-template payload that CICD
+// AutoscalingRunnerSet workloads stash inside spec.env["RESOURCES"]. Without this, GPU-backed
+// CICD runners are admitted with an empty gpuName in env.RESOURCES and validateCICDScalingRunnerSet
+// rejects them with a misleading "workspace has no GPU resources" error.
+func mutateCICDResourcesEnv(workload *v1.Workload, workspace *v1.Workspace) {
+	if workspace == nil {
+		return
+	}
+	raw, ok := workload.Spec.Env[ResourcesEnv]
+	if !ok || raw == "" {
+		return
+	}
+	res := &v1.WorkloadResource{}
+	if err := json.Unmarshal([]byte(raw), res); err != nil {
+		return
+	}
+	if !res.HasGpu() || res.GPUName != "" {
+		return
+	}
+	gpuName := v1.GetGpuResourceName(workspace)
+	if gpuName == "" {
+		return
+	}
+	res.GPUName = gpuName
+	b, err := json.Marshal(res)
+	if err != nil {
+		return
+	}
+	workload.Spec.Env[ResourcesEnv] = string(b)
 }
 
 // mutateMonarchJob sets no-retry, disable Supervised
