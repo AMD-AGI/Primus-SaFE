@@ -1,0 +1,15 @@
+# Team slugs: https://github.com/orgs/AMD-AGI/teams
+# Syntax:     https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+# Last matching rule wins. Prefer GitHub Teams over individuals.
+# Default — every file requires project-team approval
+*                            @AMD-AGI/SAFE
+
+# Stricter paths — leads must approve
+.github/CODEOWNERS           @AMD-AGI/SAFE-leads
+/.github/workflows/          @AMD-AGI/SAFE-leads
+/SaFE/                       @AMD-AGI/SAFE-leads
+/Lens/                       @AMD-AGI/SAFE-leads
+/Bootstrap/                  @AMD-AGI/SAFE-leads
+/Bench/                      @AMD-AGI/SAFE-leads
+/Web/                        @AMD-AGI/SAFE-leads
+/Scheduler-Plugins/          @AMD-AGI/SAFE-leads
