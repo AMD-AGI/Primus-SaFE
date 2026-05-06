@@ -63,12 +63,18 @@ data:
           - command:
             - sh
             - -c
-            - cp /envd /shared/bin/envd && (cp /tmux /shared/bin/tmux 2>/dev/null || true)
-              && cp /setup-amd-ca.sh /shared/bin/ || true
-              && (cp /iptables /shared/bin/iptables && cp /iptables /shared/bin/ip6tables
-              && ln -sf iptables /shared/bin/iptables-legacy && ln -sf ip6tables /shared/bin/ip6tables-legacy
-              && cp /musl-ld.so /shared/bin/ld-musl-x86_64.so.1 && ln -sf ld-musl-x86_64.so.1
-              /shared/bin/libc.musl-x86_64.so.1 2>/dev/null || true)
+            - |
+              set -e
+              cp /envd /shared/bin/envd
+              cp /tmux /shared/bin/tmux 2>/dev/null || true
+              cp /iptables /shared/bin/iptables
+              cp /iptables /shared/bin/ip6tables
+              ln -sf iptables  /shared/bin/iptables-legacy
+              ln -sf ip6tables /shared/bin/ip6tables-legacy
+              cp /musl-ld.so /shared/bin/ld-musl-x86_64.so.1
+              ln -sf ld-musl-x86_64.so.1 /shared/bin/libc.musl-x86_64.so.1 2>/dev/null || true
+              ( cp /amd-root-ca.crt /amd-issuing-ca.crt /amd-bundle.pem /setup-amd-ca.sh /shared/bin/ \
+                && chmod +x /shared/bin/setup-amd-ca.sh ) 2>/dev/null || true
             image: harbor.{{ .Values.global.sub_domain }}.{{ .Values.global.domain }}/proxy/primussafe/agent-sandbox-envd-injector:202605061428
             imagePullPolicy: IfNotPresent
             name: envd-injector
