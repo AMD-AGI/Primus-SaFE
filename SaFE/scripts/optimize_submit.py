@@ -38,7 +38,7 @@ from typing import Optional
 # ── Configuration ──────────────────────────────────────────────────────────────
 
 API_URL  = os.environ.get("SAFE_API_URL", "https://core42.primus-safe.amd.com")
-API_KEY  = os.environ.get("SAFE_API_KEY", "")
+SAFE_TOKEN  = os.environ.get("SAFE_API_KEY", "")
 PROXY    = "harbor.core42.primus-safe.amd.com/proxy"
 WORKSPACE = "core42-sandbox"
 
@@ -240,13 +240,13 @@ def auto_detect(repo_id: str, hf_token: str = "") -> dict:
 # ── SaFE API helpers ────────────────────────────────────────────────────────────
 
 def safe_request(method: str, path: str, body: dict = None) -> dict:
-    if not API_KEY:
+    if not SAFE_TOKEN:
         raise RuntimeError("SAFE_API_KEY not set")
     url = f"{API_URL}/{path.lstrip('/')}"
     data = json.dumps(body).encode() if body else None
     req = urllib.request.Request(
         url, data=data,
-        headers={"Authorization": f"Bearer {API_KEY}",
+        headers={"Authorization": f"Bearer {SAFE_TOKEN}",
                  "Content-Type": "application/json"},
         method=method,
     )
@@ -439,10 +439,10 @@ def main():
     args = parser.parse_args()
 
     # Apply API key override
-    global API_KEY
+    global SAFE_TOKEN
     if args.api_key:
-        API_KEY = args.api_key
-    if not API_KEY:
+        SAFE_TOKEN = args.api_key
+    if not SAFE_TOKEN:
         print("Error: SAFE_API_KEY not set. Use --api-key or set SAFE_API_KEY env var.", file=sys.stderr)
         sys.exit(1)
 
