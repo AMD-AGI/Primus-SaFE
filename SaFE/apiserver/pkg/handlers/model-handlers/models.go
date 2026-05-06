@@ -474,6 +474,9 @@ func (h *Handler) listModels(c *gin.Context) (interface{}, error) {
 				if queryArgs.Search != "" && !strings.Contains(strings.ToLower(info.DisplayName), strings.ToLower(queryArgs.Search)) {
 					continue
 				}
+				if queryArgs.SourceURL != "" && !strings.EqualFold(strings.TrimRight(info.SourceURL, "/"), strings.TrimRight(queryArgs.SourceURL, "/")) {
+					continue
+				}
 				items = append(items, info)
 			}
 
@@ -531,6 +534,9 @@ func (h *Handler) listModels(c *gin.Context) (interface{}, error) {
 
 		info := h.convertK8sModelToInfo(&k8sModel)
 		if queryArgs.Search != "" && !strings.Contains(strings.ToLower(info.DisplayName), strings.ToLower(queryArgs.Search)) {
+			continue
+		}
+		if queryArgs.SourceURL != "" && !strings.EqualFold(strings.TrimRight(info.SourceURL, "/"), strings.TrimRight(queryArgs.SourceURL, "/")) {
 			continue
 		}
 		items = append(items, info)

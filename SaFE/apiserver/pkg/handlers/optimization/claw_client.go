@@ -46,15 +46,15 @@ const (
 // create sessions, send the Hyperloom prompt, and stream events back.
 type ClawClient struct {
 	baseURL       string
-	apiKey        string
+	bearerToken        string
 	controlClient *http.Client
 	streamClient  *http.Client
 }
 
 // NewClawClient wires a client for the given base URL. The base URL should be
-// the Claw v1 root, e.g. "https://.../claw-api/v1". apiKey is an optional
+// the Claw v1 root, e.g. "https://.../claw-api/v1". bearerToken is an optional
 // default Bearer; per-request values override via WithClawBearer on context.
-func NewClawClient(baseURL, apiKey string) *ClawClient {
+func NewClawClient(baseURL, bearerToken string) *ClawClient {
 	transport := &http.Transport{
 		// Claw is often fronted by self-signed / internal certs; reuse the
 		// same relaxed policy as the LiteLLM client.
@@ -62,7 +62,7 @@ func NewClawClient(baseURL, apiKey string) *ClawClient {
 	}
 	return &ClawClient{
 		baseURL: strings.TrimRight(baseURL, "/"),
-		apiKey:  apiKey,
+		bearerToken:  bearerToken,
 		controlClient: &http.Client{
 			Timeout:   clawControlTimeout,
 			Transport: transport,
@@ -393,7 +393,7 @@ func (c *ClawClient) DownloadProxyPath(ctx context.Context, sessionID, filePath 
 
 // applyHeaders sets the authorization + content-type headers used by all
 // endpoints on the Claw control plane. Per-request bearer (via WithClawBearer
-// on req.Context()) overrides the static apiKey from configuration.
+// on req.Context()) overrides the static bearerToken from configuration.
 func (c *ClawClient) applyHeaders(req *http.Request) {
 	req.Header.Set("Content-Type", "application/json")
 	bearer := ""
@@ -401,7 +401,7 @@ func (c *ClawClient) applyHeaders(req *http.Request) {
 		bearer = clawBearerFromContext(req.Context())
 	}
 	if bearer == "" {
-		bearer = c.apiKey
+		bearer = c.bearerToken
 	}
 	if bearer != "" {
 		req.Header.Set("Authorization", "Bearer "+bearer)
