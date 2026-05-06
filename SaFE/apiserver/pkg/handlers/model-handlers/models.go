@@ -491,6 +491,15 @@ func (h *Handler) createModelFromS3Sync(ctx context.Context, req *CreateModelReq
 	if bucket := strings.SplitN(rest, "/", 2)[0]; bucket == "" {
 		return nil, commonerrors.NewBadRequest("s3Source.uri must include a non-empty bucket")
 	}
+	// Enforce safe character set: avoid shell metacharacters reaching the Job script.
+	// S3 keys allow more characters in theory, but the import flow runs `aws s3 sync` with
+	// this URI, and we restrict to a safe subset for now.
+	if !isSafeS3URI(uri) {
+		return nil, commonerrors.NewBadRequest("s3Source.uri may only contain letters, digits, and characters .-_/:")
+	}
+	if req.S3Source.Endpoint != "" && !isSafeURL(req.S3Source.Endpoint) {
+		return nil, commonerrors.NewBadRequest("s3Source.endpoint contains unsupported characters")
+	}
 	ak := strings.TrimSpace(req.S3Source.AccessKeyID)
 	sk := strings.TrimSpace(req.S3Source.SecretAccessKey)
 	if (ak != "" && sk == "") || (ak == "" && sk != "") {
@@ -625,6 +634,41 @@ func tagsToDB(tags []string) string {
 		return ""
 	}
 	return strings.Join(tags, ",")
+}
+
+// isSafeS3URI returns true if the URI only contains characters considered safe to
+// pass through to a shell-invoked aws s3 sync. Limits to ASCII alphanumerics and
+// `._-/:` which is sufficient for the s3:// scheme + bucket + object key.
+func isSafeS3URI(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, r := range s {
+		switch {
+		case r >= 'a' && r <= 'z':
+		case r >= 'A' && r <= 'Z':
+		case r >= '0' && r <= '9':
+		case r == '.' || r == '-' || r == '_' || r == '/' || r == ':':
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+// isSafeURL is a permissive but injection-safe check for the optional source S3 endpoint URL.
+func isSafeURL(s string) bool {
+	for _, r := range s {
+		switch {
+		case r >= 'a' && r <= 'z':
+		case r >= 'A' && r <= 'Z':
+		case r >= '0' && r <= '9':
+		case r == '.' || r == '-' || r == '_' || r == '/' || r == ':':
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 func modelMatchesK8sAccessModeFilter(m *v1.Model, want string) bool {
