@@ -35,6 +35,37 @@ func GetNfsPathFromWorkspace(workspace *v1.Workspace) string {
 	return result
 }
 
+// GetVolumeMountPathByPreference returns the mountPath of the volume in the workspace whose
+// MountPath (or HostPath if MountPath is empty) equals `prefer`. Returns "" when not found.
+func GetVolumeMountPathByPreference(workspace *v1.Workspace, prefer string) string {
+	if prefer == "" {
+		return ""
+	}
+	prefer = strings.TrimSpace(prefer)
+	for _, vol := range workspace.Spec.Volumes {
+		mp := strings.TrimSpace(vol.MountPath)
+		if mp == "" {
+			mp = strings.TrimSpace(vol.HostPath)
+		}
+		if mp == prefer {
+			if vol.MountPath != "" {
+				return vol.MountPath
+			}
+			return vol.HostPath
+		}
+	}
+	return ""
+}
+
+// ResolveDownloadRoot returns the PFS root path the model downloader should write to:
+// if `prefer` matches a workspace volume, use it; otherwise fall back to the default selection.
+func ResolveDownloadRoot(workspace *v1.Workspace, prefer string) string {
+	if mp := GetVolumeMountPathByPreference(workspace, prefer); mp != "" {
+		return mp
+	}
+	return GetNfsPathFromWorkspace(workspace)
+}
+
 // GetUniqueDownloadPaths extracts unique download paths from workspaces.
 // It deduplicates by path - same path only creates one entry.
 func GetUniqueDownloadPaths(workspaces []v1.Workspace) []DownloadTarget {

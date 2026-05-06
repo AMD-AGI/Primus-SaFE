@@ -270,6 +270,7 @@ func (h *Handler) createModel(c *gin.Context) (interface{}, error) {
 	if userName != "" {
 		modelAnnotations[v1.UserNameAnnotation] = userName
 	}
+	targetVolume, targetSubpath := extractTarget(req.Target)
 	k8sModel := &v1.Model{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:        name,
@@ -277,14 +278,16 @@ func (h *Handler) createModel(c *gin.Context) (interface{}, error) {
 			Annotations: modelAnnotations,
 		},
 		Spec: v1.ModelSpec{
-			DisplayName: displayName,
-			Description: description,
-			Icon:        icon,
-			Label:       label,
-			Tags:        tags,
-			MaxTokens:   maxTokens,
-			Workspace:   req.Workspace, // Empty means public (available to all workspaces)
-			Origin:      normalizeModelOrigin(""),
+			DisplayName:   displayName,
+			Description:   description,
+			Icon:          icon,
+			Label:         label,
+			Tags:          tags,
+			MaxTokens:     maxTokens,
+			Workspace:     req.Workspace, // Empty means public (available to all workspaces)
+			Origin:        normalizeModelOrigin(""),
+			TargetVolume:  targetVolume,
+			TargetSubpath: targetSubpath,
 			Source: v1.ModelSource{
 				URL:        normalizedURL,
 				AccessMode: v1.AccessMode(req.Source.AccessMode),
@@ -404,13 +407,16 @@ func (h *Handler) createModelFromLocalPath(ctx context.Context, req *CreateModel
 			v1.UserNameAnnotation: userName,
 		}
 	}
+	targetVolumeLP, targetSubpathLP := extractTarget(req.Target)
 	model.Spec = v1.ModelSpec{
-		DisplayName: req.DisplayName,
-		Description: req.Description,
-		Icon:        req.Icon,
-		Label:       req.Label,
-		Tags:        req.Tags,
-		MaxTokens:   req.MaxTokens,
+		DisplayName:   req.DisplayName,
+		Description:   req.Description,
+		Icon:          req.Icon,
+		Label:         req.Label,
+		Tags:          req.Tags,
+		MaxTokens:     req.MaxTokens,
+		TargetVolume:  targetVolumeLP,
+		TargetSubpath: targetSubpathLP,
 		Source: v1.ModelSource{
 			AccessMode: v1.AccessModeLocalPath,
 			LocalPath:  req.Source.LocalPath,
@@ -528,6 +534,11 @@ func (h *Handler) createModelFromS3Sync(ctx context.Context, req *CreateModelReq
 			region = "us-east-1"
 		}
 		endpoint := strings.TrimSpace(req.S3Source.Endpoint)
+		// Write keys in both modern (access_key_id/secret_access_key) and legacy
+		// (access_key/secret_key) forms so the s3-downloader image — which reads
+		// the platform's primus-safe-s3 secret — can consume our per-model secret
+		// without modification. Bucket is derived from the URI by the downloader.
+		bucket := strings.SplitN(strings.TrimPrefix(uri, "s3://"), "/", 2)[0]
 		secret := &corev1.Secret{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      s3SrcSecretName,
@@ -537,8 +548,11 @@ func (h *Handler) createModelFromS3Sync(ctx context.Context, req *CreateModelReq
 			StringData: map[string]string{
 				"access_key_id":     ak,
 				"secret_access_key": sk,
+				"access_key":        ak,
+				"secret_key":        sk,
 				"region":            region,
 				"endpoint":          endpoint,
+				"bucket":            bucket,
 			},
 			Type: corev1.SecretTypeOpaque,
 		}
@@ -567,6 +581,7 @@ func (h *Handler) createModelFromS3Sync(ctx context.Context, req *CreateModelReq
 		origin = "external"
 	}
 
+	targetVolumeS3, targetSubpathS3 := extractTarget(req.Target)
 	k8sModel := &v1.Model{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:        name,
@@ -574,14 +589,16 @@ func (h *Handler) createModelFromS3Sync(ctx context.Context, req *CreateModelReq
 			Annotations: annotations,
 		},
 		Spec: v1.ModelSpec{
-			DisplayName: req.DisplayName,
-			Description: req.Description,
-			Icon:        req.Icon,
-			Label:       req.Label,
-			Tags:        req.Tags,
-			MaxTokens:   req.MaxTokens,
-			Workspace:   req.Workspace,
-			Origin:      origin,
+			DisplayName:   req.DisplayName,
+			Description:   req.Description,
+			Icon:          req.Icon,
+			Label:         req.Label,
+			Tags:          req.Tags,
+			MaxTokens:     req.MaxTokens,
+			Workspace:     req.Workspace,
+			Origin:        origin,
+			TargetVolume:  targetVolumeS3,
+			TargetSubpath: targetSubpathS3,
 			Source: v1.ModelSource{
 				URL:        uri,
 				AccessMode: v1.AccessModeLocal,
@@ -634,6 +651,14 @@ func tagsToDB(tags []string) string {
 		return ""
 	}
 	return strings.Join(tags, ",")
+}
+
+// extractTarget normalizes the optional ModelTargetReq into spec fields.
+func extractTarget(t *ModelTargetReq) (volume, subpath string) {
+	if t == nil {
+		return "", ""
+	}
+	return strings.TrimSpace(t.Volume), strings.TrimSpace(t.Subpath)
 }
 
 // isSafeS3URI returns true if the URI only contains characters considered safe to
@@ -710,9 +735,6 @@ func (h *Handler) listModels(c *gin.Context) (interface{}, error) {
 				if queryArgs.Search != "" && !strings.Contains(strings.ToLower(info.DisplayName), strings.ToLower(queryArgs.Search)) {
 					continue
 				}
-				if queryArgs.SourceURL != "" && !strings.EqualFold(strings.TrimRight(info.SourceURL, "/"), strings.TrimRight(queryArgs.SourceURL, "/")) {
-					continue
-				}
 				items = append(items, info)
 			}
 
@@ -770,9 +792,6 @@ func (h *Handler) listModels(c *gin.Context) (interface{}, error) {
 
 		info := h.convertK8sModelToInfo(&k8sModel)
 		if queryArgs.Search != "" && !strings.Contains(strings.ToLower(info.DisplayName), strings.ToLower(queryArgs.Search)) {
-			continue
-		}
-		if queryArgs.SourceURL != "" && !strings.EqualFold(strings.TrimRight(info.SourceURL, "/"), strings.TrimRight(queryArgs.SourceURL, "/")) {
 			continue
 		}
 		items = append(items, info)
@@ -847,6 +866,8 @@ func (h *Handler) convertK8sModelToInfo(k8sModel *v1.Model) ModelInfo {
 		Origin:          normalizeModelOrigin(k8sModel.Spec.Origin),
 		SftJobId:        k8sModel.Spec.SftJobId,
 		BaseModel:       k8sModel.Spec.BaseModel,
+		TargetVolume:    k8sModel.Spec.TargetVolume,
+		TargetSubpath:   k8sModel.Spec.TargetSubpath,
 		UserId:          v1.GetUserId(k8sModel),
 		UserName:        v1.GetUserName(k8sModel),
 		CreatedAt:       k8sModel.CreationTimestamp.Format(time.RFC3339),
@@ -1037,7 +1058,8 @@ func (h *Handler) patchModel(c *gin.Context) (interface{}, error) {
 	}
 
 	// Check if any field is provided
-	if req.ModelName == nil && req.DisplayName == nil && req.Description == nil {
+	if req.ModelName == nil && req.DisplayName == nil && req.Description == nil &&
+		req.Icon == nil && req.Label == nil && req.Tags == nil && req.MaxTokens == nil {
 		return nil, commonerrors.NewBadRequest("at least one field must be provided for update")
 	}
 
@@ -1065,16 +1087,60 @@ func (h *Handler) patchModel(c *gin.Context) (interface{}, error) {
 	if req.Description != nil {
 		k8sModel.Spec.Description = *req.Description
 	}
+	if req.Icon != nil {
+		k8sModel.Spec.Icon = *req.Icon
+	}
+	if req.Label != nil {
+		k8sModel.Spec.Label = *req.Label
+	}
+	if req.Tags != nil {
+		k8sModel.Spec.Tags = *req.Tags
+	}
+	if req.MaxTokens != nil {
+		k8sModel.Spec.MaxTokens = *req.MaxTokens
+	}
 
 	if err := h.k8sClient.Patch(ctx, k8sModel, patch); err != nil {
 		klog.ErrorS(err, "Failed to patch model", "model", modelId)
 		return nil, commonerrors.NewInternalError("failed to update model: " + err.Error())
 	}
 
+	// Sync mutable fields to DB so list/detail (DB-first path) sees the new values.
+	if h.dbClient != nil {
+		if dbModel, err := h.dbClient.GetModelByID(ctx, modelId); err == nil && dbModel != nil {
+			if req.ModelName != nil {
+				dbModel.ModelName = *req.ModelName
+			}
+			if req.DisplayName != nil {
+				dbModel.DisplayName = *req.DisplayName
+			}
+			if req.Description != nil {
+				dbModel.Description = *req.Description
+			}
+			if req.Icon != nil {
+				dbModel.Icon = *req.Icon
+			}
+			if req.Label != nil {
+				dbModel.Label = *req.Label
+			}
+			if req.Tags != nil {
+				dbModel.Tags = tagsToDB(*req.Tags)
+			}
+			if req.MaxTokens != nil {
+				dbModel.MaxTokens = *req.MaxTokens
+			}
+			if err := h.dbClient.UpsertModel(ctx, dbModel); err != nil {
+				klog.ErrorS(err, "Failed to sync patched model to DB", "model", modelId)
+			}
+		}
+	}
+
 	klog.InfoS("Model patched successfully", "model", modelId,
 		"modelName", req.ModelName,
 		"displayName", req.DisplayName,
-		"description", req.Description)
+		"description", req.Description,
+		"icon", req.Icon != nil, "label", req.Label != nil,
+		"tags", req.Tags != nil, "maxTokens", req.MaxTokens != nil)
 
 	return h.convertK8sModelToInfo(k8sModel), nil
 }
