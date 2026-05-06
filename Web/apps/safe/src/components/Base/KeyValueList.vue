@@ -7,6 +7,7 @@
           v-if="keyMode === 'input'"
           v-model="item.key"
           placeholder="Key"
+          :disabled="props.disabled"
           :class="{
             'is-error':
               props.validate && !props.valuePlaceholderFromKey && !!keyErrorsByUid[item._uid || ''],
@@ -16,6 +17,7 @@
           v-else
           v-model="item.key"
           placeholder="Key"
+          :disabled="props.disabled"
           :class="{
             'is-error':
               props.validate && !props.valuePlaceholderFromKey && !!keyErrorsByUid[item._uid || ''],
@@ -44,6 +46,7 @@
         <el-input
           v-model="item.value"
           :placeholder="props.valuePlaceholderFromKey ? 'Key' : 'Value'"
+          :disabled="props.disabled"
           :class="{
             'is-error':
               props.validate && props.valuePlaceholderFromKey && !!keyErrorsByUid[item._uid || ''],
@@ -60,7 +63,7 @@
         </el-text>
       </div>
 
-      <el-button type="danger" @click="handleDelete(index)">
+      <el-button type="danger" :disabled="props.disabled" @click="handleDelete(index)">
         {{ deleteButtonText || '-' }}
       </el-button>
     </div>
@@ -71,7 +74,7 @@
     </el-text> -->
   </div>
 
-  <el-button type="primary" @click="handleAdd" :disabled="list.length >= (max ?? 50)">
+  <el-button type="primary" @click="handleAdd" :disabled="props.disabled || list.length >= (max ?? 50)">
     {{ addButtonText || '+' }}
   </el-button>
 
@@ -104,9 +107,11 @@ const props = withDefaults(
     valuePlaceholderFromKey?: boolean
     /** Switch: validation and error display only when explicitly enabled */
     validate?: boolean
+    disabled?: boolean
   }>(),
   {
     validate: false,
+    disabled: false,
   },
 )
 
