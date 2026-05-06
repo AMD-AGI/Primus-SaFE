@@ -7,6 +7,7 @@ package webhooks
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -170,6 +171,72 @@ func TestMutateResources(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestMutateCICDScaleSet_GPURunnerPassesValidation is the regression test for the bug where
+// GPU-backed CICD AutoscalingRunnerSet workloads were rejected with a misleading
+// "workspace has no GPU resources" error. The UI sends a CPU-only fixed spec.resources[0]
+// alongside the user's actual GPU request encoded in env["RESOURCES"]; the mutator must
+// inject gpuName into env["RESOURCES"] so the CICD validator's resource check passes.
+func TestMutateCICDScaleSet_GPURunnerPassesValidation(t *testing.T) {
+	const (
+		gpuResourceName = "amd.com/gpu"
+		workspaceName   = "ws-1"
+	)
+
+	workspace := &v1.Workspace{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: workspaceName,
+			Annotations: map[string]string{
+				v1.GpuResourceNameAnnotation: gpuResourceName,
+			},
+		},
+	}
+
+	userResource := v1.WorkloadResource{
+		Replica:          1,
+		CPU:              "16",
+		GPU:              "8",
+		Memory:           "500Gi",
+		SharedMemory:     "250Gi",
+		EphemeralStorage: "1000Gi",
+	}
+	resourcesEnvJSON, err := json.Marshal(userResource)
+	assert.NilError(t, err)
+
+	workload := &v1.Workload{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "cicd-1",
+		},
+		Spec: v1.WorkloadSpec{
+			Workspace:        workspaceName,
+			GroupVersionKind: v1.GroupVersionKind{Kind: common.CICDScaleRunnerSetKind},
+			Resources: []v1.WorkloadResource{
+				{Replica: 1, CPU: "1", GPU: "0", Memory: "4Gi", EphemeralStorage: "10Gi"},
+			},
+			Env: map[string]string{
+				ResourcesEnv:           string(resourcesEnvJSON),
+				ImageEnv:               "ghcr.io/example/runner:latest",
+				EntrypointEnv:          "ZXhlYyAuL3J1bi5zaA==",
+				common.GithubConfigUrl: "https://github.com/example/repo",
+			},
+		},
+	}
+
+	var mutator WorkloadMutator
+	var validator WorkloadValidator
+
+	mutator.mutateCICDScaleSet(workload, workspace)
+	validateErr := validator.validateCICDScalingRunnerSet(workload)
+
+	mutated := &v1.WorkloadResource{}
+	assert.NilError(t, json.Unmarshal([]byte(workload.Spec.Env[ResourcesEnv]), mutated),
+		"env.RESOURCES should still be valid JSON after mutation")
+	assert.Equal(t, gpuResourceName, mutated.GPUName,
+		"mutator should inject the workspace's GPU resource name into env.RESOURCES")
+	assert.Equal(t, "8", mutated.GPU, "GPU count must be preserved through mutation")
+	assert.NilError(t, validateErr,
+		"a GPU-backed CICD runner should pass admission after mutation")
 }
 
 func newTestScheme(t *testing.T) *runtime.Scheme {
