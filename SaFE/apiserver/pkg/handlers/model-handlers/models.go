@@ -964,6 +964,14 @@ func (h *Handler) deleteModel(c *gin.Context) (interface{}, error) {
 		}
 	}
 
+	// 7. Soft-delete DB row so listModels (DB-first path) stops returning the model.
+	// Without this, the DB-first listing keeps showing the model after the K8s CR is gone.
+	if h.dbClient != nil {
+		if err := h.dbClient.DeleteModel(ctx, modelId); err != nil {
+			klog.ErrorS(err, "Failed to soft-delete model row in DB", "model", modelId)
+		}
+	}
+
 	klog.InfoS("Model deletion initiated", "model", modelId)
 
 	return gin.H{
