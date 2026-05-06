@@ -26,10 +26,10 @@ data:
         spec:
           containers:
           - args:
-              - export PATH=/shared/bin:$PATH && mkdir -p /app && /shared/bin/setup-amd-ca.sh && exec /shared/bin/envd --port=8080 --workspace=/app
+            - export PATH=/shared/bin:$PATH && mkdir -p /app && /shared/bin/setup-amd-ca.sh && exec /shared/bin/envd --port=8080 --workspace=/app
             command:
-              - /bin/sh
-              - -c
+            - /bin/sh
+            - -c
             env:
             - name: PATH
               value: /shared/bin:/home/sandbox/.local/bin:/usr/local/bin:/usr/bin:/bin:/sbin
