@@ -45,8 +45,9 @@
 
 **前端建议**：
 
-- 在「Create Model」中增加独立入口，例如 **「Use existing shared path / 使用已有共享路径」**。
-- 校验：`localPath` 非空；`displayName` 非空；说明与 HF 的 `local` 互斥（不要混在一个表单里不提示）。
+- 在「Create Model」中增加独立入口，例如 **「Use existing shared path / 使用已有共享路径」**，与 HF 的 `local` 表单**用 Tab 切换**，不要让用户在同一表单里既填 HF URL 又填本地路径。
+- 校验：`localPath` 非空；`displayName` 非空。
+- **`displayName` 用于生成 K8s 资源名**（前缀），实际命名建议**全小写、不含 `/` 和空格**（例如 `my-custom-llm`，避免 `My Custom/LLM`），否则会被后端拒绝。
 - 展示与过滤：列表项 `accessMode` 为 `local_path`；`phase` 一般为 `Ready`。
 
 ---
@@ -112,12 +113,19 @@
 
 ---
 
+## 5.1 已知限制
+
+- **`PATCH /api/v1/playground/models/:id`** 当前只支持更新 `displayName`、`description`、`modelName`；**不支持**修改 `icon` / `label` / `tags` / `maxTokens`。如需修改这些字段，需删除后重建模型；如必要，可单独提需求扩展 `PatchModelRequest`。
+
+---
+
 ## 6. 联调检查清单
 
-- [ ] `local_path` 创建后卡片展示 `icon` / `label` / `tags` 与预期一致。  
-- [ ] `s3_sync` 创建后 `accessMode` 为 `s3_sync`，阶段能从 Pending 进入 Ready（依赖集群 S3/Job 配置）。  
-- [ ] 列表 `accessMode=s3_sync` 与 `local` 筛选与产品预期一致。  
-- [ ] 删除 S3 导入模型后，无多余 Secret 泄漏（由后端清理；前端只调删除 API）。
+- [ ] `local_path` 创建后卡片展示 `icon` / `label` / `tags` / `maxTokens` 与预期一致；`origin` 不传时默认 `external`。
+- [ ] `s3_sync` 创建后 `accessMode` 为 `s3_sync`，阶段从 Pending → Uploading → Downloading → Ready（依赖集群 S3/Job 配置）。
+- [ ] `s3_sync` 处于 Failed 时，`POST /models/:id/retry` 能正常重试（与 HF `local` 行为一致）。
+- [ ] 列表 `accessMode=s3_sync` 与 `local` / `local_path` / `remote_api` 互不重叠。
+- [ ] 删除 S3 导入模型后，K8s 中的 user-S3 source Secret 与平台桶中的 prefix 都被清理（由后端处理；前端只调删除 API）。
 
 ---
 
