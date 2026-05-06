@@ -23,6 +23,7 @@ import (
 
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
 	apiutils "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/utils"
+	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
@@ -146,7 +147,7 @@ func (h *Handler) submitTask(
 		return nil, commonerrors.NewBadRequest(err.Error())
 	}
 
-	promptCfg := NormalizePromptConfig(h.promptConfigFromRequest(req, resolved, workspace, clawBearer))
+	promptCfg := NormalizePromptConfig(h.promptConfigFromRequest(ctx, req, resolved, workspace, clawBearer))
 	prompt := BuildHyperloomPrompt(promptCfg)
 
 	taskID := fixedTaskID
@@ -596,10 +597,14 @@ func clawBearerForGin(c *gin.Context) string {
 	return commonconfig.GetModelOptimizationClawAPIKey()
 }
 
-func (h *Handler) promptConfigFromRequest(req *CreateTaskRequest, m *ResolvedModel, workspace, safeAPIKey string) PromptConfig {
+func (h *Handler) promptConfigFromRequest(ctx context.Context, req *CreateTaskRequest, m *ResolvedModel, workspace, safeAPIKey string) PromptConfig {
 	safeAPIURL := ""
 	if host := commonconfig.GetSystemHost(); host != "" {
 		safeAPIURL = "https://" + host
+	}
+	gpuType := req.GPUType
+	if gpuType == "" {
+		gpuType = h.gpuTypeFromWorkspace(ctx, workspace)
 	}
 	return PromptConfig{
 		ProxyImageRegistry: h.proxyImageRegistry,
@@ -613,7 +618,7 @@ func (h *Handler) promptConfigFromRequest(req *CreateTaskRequest, m *ResolvedMod
 		Precision:      req.Precision,
 		TP:             req.TP,
 		EP:             req.EP,
-		GPUType:        req.GPUType,
+		GPUType:        gpuType,
 		ISL:            req.ISL,
 		OSL:            req.OSL,
 		Concurrency:    req.Concurrency,
@@ -631,6 +636,18 @@ func (h *Handler) promptConfigFromRequest(req *CreateTaskRequest, m *ResolvedMod
 		BaselineCSV:    req.BaselineCSV,
 		BaselineCount:  req.BaselineCount,
 	}
+}
+
+// gpuTypeFromWorkspace reads the GPU product annotation from the k8s Workspace
+// resource and returns it as a GPU type string (e.g. "MI355X"). Returns ""
+// on any error so the caller can fall back to the hardcoded default.
+func (h *Handler) gpuTypeFromWorkspace(ctx context.Context, workspaceName string) string {
+	ws := &v1.Workspace{}
+	if err := h.k8sClient.Get(ctx, ctrlclient.ObjectKey{Name: workspaceName}, ws); err != nil {
+		klog.V(4).InfoS("gpuTypeFromWorkspace: failed to get workspace", "workspace", workspaceName, "err", err)
+		return ""
+	}
+	return v1.GetAnnotation(ws, v1.GpuProductAnnotation)
 }
 
 func taskInfoFromDB(t *dbclient.OptimizationTask, includePrompt bool) TaskInfo {
