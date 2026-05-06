@@ -309,6 +309,7 @@
     v-model:visible="addVisible"
     :wlid="curWlId"
     :action="curAction"
+    :limited-edit="curLimitedEdit"
     @success="onSearch({ resetPage: false })"
   />
 </template>
@@ -384,6 +385,7 @@ const pagination = reactive({
 })
 const curWlId = ref()
 const curAction = ref<'Create' | 'Edit' | 'Clone' | 'Resume'>('Create')
+const curLimitedEdit = ref(false)
 
 /* ── Page Tours (tourId-driven from Quick Reference ?tour=<id>) ── */
 const { getDriver } = usePageTour((tourId) => {
@@ -701,6 +703,8 @@ const getActions = (row: Row): Action[] => [
     onClick: (r: Row) => {
       curAction.value = 'Edit'
       curWlId.value = r.workloadId
+      const queuePosition = (r as any).queuePosition ?? 0
+      curLimitedEdit.value = !((r as any).phase === 'Pending' && queuePosition > 0)
       addVisible.value = true
     },
   },
