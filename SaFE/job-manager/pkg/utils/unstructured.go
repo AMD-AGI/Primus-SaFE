@@ -30,6 +30,7 @@ const (
 	PriorityEnv          = "PRIORITY"
 	AdminControlPlaneEnv = "ADMIN_CONTROL_PLANE"
 	GithubSecretEnv      = "GITHUB_SECRET_ID"
+	UserDataEnv          = "USER_DATA_PATH"
 	NfsPathEnv           = "SAFE_NFS_PATH"
 	NfsInputEnv          = "SAFE_NFS_INPUT"
 	NfsOutputEnv         = "SAFE_NFS_OUTPUT"
