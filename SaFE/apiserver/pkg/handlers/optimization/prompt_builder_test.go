@@ -77,7 +77,7 @@ func TestNormalizePromptConfigDefaultsMirrorHyperloomWeb(t *testing.T) {
 	})
 	assert.Equal(t, cfg.Mode, ModeLocal)
 	assert.Equal(t, cfg.Framework, FrameworkSGLang)
-	assert.Equal(t, cfg.Precision, "FP4")
+	assert.Equal(t, cfg.Precision, "FP8")
 	assert.Equal(t, cfg.GPUType, "MI355X")
 	assert.Equal(t, cfg.ISL, 1024)
 	assert.Equal(t, cfg.OSL, 1024)
