@@ -201,7 +201,10 @@ func (h *Handler) createModel(c *gin.Context) (interface{}, error) {
 
 	// Validate target.volume early — before we create any secrets — so a misconfigured
 	// request never leaves orphaned secrets behind.
-	targetVolume, targetSubpath := extractTarget(req.Target)
+	targetVolume, targetSubpath, err := extractTarget(req.Target)
+	if err != nil {
+		return nil, err
+	}
 	if err := h.validateTargetVolumeForWorkspace(ctx, req.Workspace, targetVolume); err != nil {
 		return nil, err
 	}
@@ -413,7 +416,10 @@ func (h *Handler) createModelFromLocalPath(ctx context.Context, req *CreateModel
 			v1.UserNameAnnotation: userName,
 		}
 	}
-	targetVolumeLP, targetSubpathLP := extractTarget(req.Target)
+	targetVolumeLP, targetSubpathLP, err := extractTarget(req.Target)
+	if err != nil {
+		return nil, err
+	}
 	if err := h.validateTargetVolumeForWorkspace(ctx, req.Workspace, targetVolumeLP); err != nil {
 		return nil, err
 	}
@@ -544,7 +550,10 @@ func (h *Handler) createModelFromS3Sync(ctx context.Context, req *CreateModelReq
 	}
 
 	// Validate target.volume early — before any secret is materialized.
-	targetVolumeS3, targetSubpathS3 := extractTarget(req.Target)
+	targetVolumeS3, targetSubpathS3, err := extractTarget(req.Target)
+	if err != nil {
+		return nil, err
+	}
 	if err := h.validateTargetVolumeForWorkspace(ctx, req.Workspace, targetVolumeS3); err != nil {
 		return nil, err
 	}
@@ -680,12 +689,48 @@ func tagsToDB(tags []string) string {
 	return strings.Join(tags, ",")
 }
 
-// extractTarget normalizes the optional ModelTargetReq into spec fields.
-func extractTarget(t *ModelTargetReq) (volume, subpath string) {
+// extractTarget normalizes the optional ModelTargetReq into spec fields and validates
+// the subpath. The subpath is later joined into a filesystem path that the download
+// container writes to, so we must reject path-traversal patterns ("..") and any
+// absolute prefix; we also restrict to a conservative character set.
+func extractTarget(t *ModelTargetReq) (volume, subpath string, err error) {
 	if t == nil {
-		return "", ""
+		return "", "", nil
 	}
-	return strings.TrimSpace(t.Volume), strings.TrimSpace(t.Subpath)
+	volume = strings.TrimSpace(t.Volume)
+	subpath = strings.Trim(strings.TrimSpace(t.Subpath), "/")
+	if subpath == "" {
+		return volume, "", nil
+	}
+	if !isSafeSubpath(subpath) {
+		return "", "", commonerrors.NewBadRequest(
+			"target.subpath may only contain letters, digits, '.', '-', '_' and '/'; '..' segments are forbidden")
+	}
+	return volume, subpath, nil
+}
+
+// isSafeSubpath rejects path-traversal patterns and characters that would let a user
+// escape the workspace volume root.
+func isSafeSubpath(s string) bool {
+	if s == "" {
+		return true
+	}
+	for _, r := range s {
+		switch {
+		case r >= 'a' && r <= 'z':
+		case r >= 'A' && r <= 'Z':
+		case r >= '0' && r <= '9':
+		case r == '.' || r == '-' || r == '_' || r == '/':
+		default:
+			return false
+		}
+	}
+	for _, seg := range strings.Split(s, "/") {
+		if seg == ".." {
+			return false
+		}
+	}
+	return true
 }
 
 // validateTargetVolumeForWorkspace fails the request when target.volume is set on a private
