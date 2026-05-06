@@ -661,7 +661,7 @@ func TestListWorkspaces(t *testing.T) {
 
 	r := newMockModelReconciler(adminClient)
 
-	workspaces, err := r.listWorkspaces(context.Background())
+	workspaces, err := r.listWorkspaces(context.Background(), "")
 	assert.NilError(t, err)
 	assert.Equal(t, len(workspaces), 2)
 }
@@ -677,7 +677,7 @@ func TestGetWorkspace(t *testing.T) {
 
 	r := newMockModelReconciler(adminClient)
 
-	info, err := r.getWorkspace(context.Background(), "ws1")
+	info, err := r.getWorkspace(context.Background(), "ws1", "")
 	assert.NilError(t, err)
 	assert.Equal(t, info.ID, "ws1")
 	assert.Equal(t, info.PFSPath, "/apps")
@@ -691,7 +691,7 @@ func TestGetWorkspace_NotFound(t *testing.T) {
 
 	r := newMockModelReconciler(adminClient)
 
-	_, err := r.getWorkspace(context.Background(), "non-existent")
+	_, err := r.getWorkspace(context.Background(), "non-existent", "")
 	assert.ErrorContains(t, err, "not found")
 }
 

@@ -17,7 +17,6 @@ type ListModelQuery struct {
 	Workspace  string `form:"workspace" binding:"omitempty"`  // Filter by workspace (for local models)
 	Origin     string `form:"origin" binding:"omitempty"`     // Filter by origin: "external", "fine_tuned", "rl_trained", or "custom" (all non-external)
 	Search     string `form:"search" binding:"omitempty"`     // Fuzzy search by displayName (case-insensitive)
-	SourceURL  string `form:"sourceUrl" binding:"omitempty"`  // Exact match on HuggingFace source URL
 }
 
 // ChatRequest represents the unified request to chat with a model or workload.
@@ -129,6 +128,19 @@ type CreateModelRequest struct {
 
 	// S3Source (used when accessMode=s3_sync): copy from user bucket/prefix to platform S3, then existing pipeline to PFS.
 	S3Source *S3SourceReq `json:"s3Source,omitempty"`
+
+	// Target controls which workspace volume / subdirectory the download is placed under.
+	// Required when the resolved workspace has multiple volumes and the default first PFS
+	// is not what you want (e.g. workspace has both a read-only PFS and a writable HostPath).
+	Target *ModelTargetReq `json:"target,omitempty"`
+}
+
+// ModelTargetReq overrides where the download is placed inside the workspace.
+type ModelTargetReq struct {
+	// Volume is the workspace volume mountPath (or hostPath if mountPath is empty), e.g. "/wekafs".
+	Volume string `json:"volume,omitempty"`
+	// Subpath, if set, is the relative directory used under the volume in addition to "models/<safe-name>".
+	Subpath string `json:"subpath,omitempty"`
 }
 
 // S3SourceReq optional credentials to read the source object storage (S3-compatible).
@@ -186,6 +198,10 @@ type ModelInfo struct {
 	IsDeleted       bool              `json:"isDeleted"`
 	HasInferenceX   bool              `json:"hasInferenceX"`
 	InferenceXModel string            `json:"inferenceXModel,omitempty"`
+
+	// Optional download placement; mirrors Model.spec.targetVolume / spec.targetSubpath.
+	TargetVolume  string `json:"targetVolume,omitempty"`
+	TargetSubpath string `json:"targetSubpath,omitempty"`
 }
 
 // LocalPathInfo represents local path status for a workspace.
@@ -205,9 +221,13 @@ type ListModelResponse struct {
 // PatchModelRequest represents the request to update a model's mutable fields.
 // All fields are optional - only provided fields will be updated.
 type PatchModelRequest struct {
-	ModelName   *string `json:"modelName,omitempty"`   // Update model name for API calls
-	DisplayName *string `json:"displayName,omitempty"` // Update display name
-	Description *string `json:"description,omitempty"` // Update description
+	ModelName   *string   `json:"modelName,omitempty"`   // Update model name for API calls
+	DisplayName *string   `json:"displayName,omitempty"` // Update display name
+	Description *string   `json:"description,omitempty"` // Update description
+	Icon        *string   `json:"icon,omitempty"`        // Update card icon
+	Label       *string   `json:"label,omitempty"`       // Update card label/org
+	Tags        *[]string `json:"tags,omitempty"`        // Replace tag list
+	MaxTokens   *int      `json:"maxTokens,omitempty"`   // Update max context length
 }
 
 // --- Playground Services Types ---
