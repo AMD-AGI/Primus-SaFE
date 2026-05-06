@@ -33,7 +33,7 @@
             </el-col>
             <el-col :span="8">
               <el-form-item label="priority">
-                <el-select v-model="form.priority" placeholder="priority">
+                <el-select v-model="form.priority" placeholder="priority" :disabled="isLimited">
                   <el-option label="Low" :value="0" />
                   <el-option label="Medium" :value="1" />
                   <el-option
@@ -51,7 +51,7 @@
           </el-form-item>
 
           <el-form-item label="entryPoint">
-            <el-input v-model="form.jobEntrypoint" type="textarea" :rows="2" placeholder="RayJob entrypoint" />
+            <el-input v-model="form.jobEntrypoint" type="textarea" :rows="2" placeholder="RayJob entrypoint" :disabled="isLimited" />
             <el-text size="small" type="info" class="mt-1">
               <el-icon class="mr-1"><InfoFilled /></el-icon>
               {{ JOB_ENTRYPOINT_INFO }}
@@ -75,7 +75,7 @@
             <el-row :gutter="16">
               <el-col :span="24">
                 <el-form-item label="image" prop="header.image">
-                  <ImageInput v-model="form.header.image" />
+                  <ImageInput v-model="form.header.image" :disabled="isLimited" />
                 </el-form-item>
               </el-col>
               <el-col :span="24">
@@ -86,17 +86,17 @@
 
               <el-col :span="12">
                 <el-form-item label="cpu" prop="header.cpu">
-                  <el-input v-model="form.header.cpu" :placeholder="placeholders.cpu" />
+                  <el-input v-model="form.header.cpu" :placeholder="placeholders.cpu" :disabled="isLimited" />
                 </el-form-item>
               </el-col>
               <el-col :span="12" v-if="!flavorMaxVal || flavorMaxVal['amd.com/gpu']">
                 <el-form-item label="gpu">
-                  <el-input v-model="form.header.gpu" :placeholder="placeholders.gpu" />
+                  <el-input v-model="form.header.gpu" :placeholder="placeholders.gpu" :disabled="isLimited" />
                 </el-form-item>
               </el-col>
               <el-col :span="12">
                 <el-form-item label="memory" prop="header.memory">
-                  <el-input v-model="form.header.memory" :placeholder="placeholders.memory">
+                  <el-input v-model="form.header.memory" :placeholder="placeholders.memory" :disabled="isLimited">
                     <template #append>Gi</template>
                   </el-input>
                 </el-form-item>
@@ -106,6 +106,7 @@
                   <el-input
                     v-model="form.header.ephemeralStorage"
                     :placeholder="placeholders.ephemeralStorage"
+                    :disabled="isLimited"
                   >
                     <template #append>Gi</template>
                   </el-input>
@@ -153,7 +154,7 @@
                 <el-row :gutter="16">
                   <el-col :span="24">
                     <el-form-item :label="`image`" :prop="`workers.${idx}.image`">
-                      <ImageInput v-model="w.image" />
+                      <ImageInput v-model="w.image" :disabled="isLimited" />
                     </el-form-item>
                   </el-col>
                   <el-col :span="24">
@@ -490,6 +491,7 @@
                   :max="20"
                   keyMode="input"
                   info="Add up to 20 envs"
+                  :disabled="isLimited"
                 />
               </el-form-item>
             </div>
@@ -544,14 +546,16 @@ import { encodeToBase64String, decodeFromBase64String, toUTCISOString, decodeSch
 import { useDatetimeLimit } from '@/composables/useDatetimeLimit'
 import dayjs from 'dayjs'
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   visible: boolean
   wlid?: string
   action: string
-}>()
+  limitedEdit?: boolean
+}>(), { limitedEdit: false })
 const emit = defineEmits(['update:visible', 'success'])
 
 const isEdit = computed(() => props.action === 'Edit')
+const isLimited = computed(() => isEdit.value && props.limitedEdit)
 const isCustomNodes = ref(false) // Flag for custom nodes
 const cachedUseWorkspaceStorage = ref<boolean | undefined>(undefined)
 
@@ -845,19 +849,26 @@ const onSubmit = async (formEl: FormInstance | undefined) => {
     } else {
       if (!props.wlid) return
 
-      await editWorkload(props.wlid, {
-        description: form.description,
-        priority: form.priority,
-        resources,
-        env: mergedEnv,
-        maxRetry: isRetry.value ? form.maxRetry : 0,
-        entryPoints,
-        images,
-        ...(form.schedulerTime
-          ? { cronJobs: [{ schedule: form.schedulerTime, action: 'start' }] }
-          : {}),
-        ...(form.timeout !== undefined ? { timeout: form.timeout } : {}),
-      })
+      if (isLimited.value) {
+        await editWorkload(props.wlid, {
+          description: form.description,
+          ...(form.timeout !== undefined ? { timeout: form.timeout } : {}),
+        })
+      } else {
+        await editWorkload(props.wlid, {
+          description: form.description,
+          priority: form.priority,
+          resources,
+          env: mergedEnv,
+          maxRetry: isRetry.value ? form.maxRetry : 0,
+          entryPoints,
+          images,
+          ...(form.schedulerTime
+            ? { cronJobs: [{ schedule: form.schedulerTime, action: 'start' }] }
+            : {}),
+          ...(form.timeout !== undefined ? { timeout: form.timeout } : {}),
+        })
+      }
       ElMessage({ message: 'Edit successful', type: 'success' })
     }
 

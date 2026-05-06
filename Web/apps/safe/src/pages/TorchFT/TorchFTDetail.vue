@@ -198,6 +198,7 @@
     v-model:visible="addVisible"
     :wlid="workloadId"
     :action="addAction"
+    :limited-edit="limitedEdit"
     @success="addAction === 'Edit' ? getDetail() : router.push('/torchft')"
   />
   <SshConfigDialog
@@ -248,6 +249,14 @@ const editDisabled = computed(() => {
   const d = detailData.value
   if (!d) return true
   return !['Running', 'Pending'].includes(d.phase)
+})
+
+const limitedEdit = computed(() => {
+  const d = detailData.value
+  if (!d) return true
+  const queuePosition = d.queuePosition ?? 0
+  if (d.phase === 'Pending' && queuePosition > 0) return false
+  return true
 })
 
 const onEdit = () => {

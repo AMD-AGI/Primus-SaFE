@@ -33,7 +33,7 @@
             </el-col>
             <el-col :span="8">
               <el-form-item label="priority">
-                <el-select v-model="form.priority" placeholder="priority">
+                <el-select v-model="form.priority" placeholder="priority" :disabled="isLimited">
                   <el-option label="Low" :value="0" />
                   <el-option label="Medium" :value="1" />
                   <el-option
@@ -51,11 +51,11 @@
           </el-form-item>
 
           <el-form-item label="entryPoint" prop="entryPoint" data-tour="training-field-entrypoint">
-            <el-input v-model="form.entryPoint" type="textarea" :rows="2" />
+            <el-input v-model="form.entryPoint" type="textarea" :rows="2" :disabled="isLimited" />
           </el-form-item>
 
           <el-form-item label="image" prop="image" data-tour="training-field-image">
-            <ImageInput v-model="form.image" />
+            <ImageInput v-model="form.image" :disabled="isLimited" />
           </el-form-item>
         </div>
 
@@ -193,17 +193,17 @@
             <!-- Resource 2x2 grid -->
             <el-col :span="12">
               <el-form-item label="cpu" prop="resource.cpu">
-                <el-input v-model="form.resource.cpu" :placeholder="placeholders.cpu" />
+                <el-input v-model="form.resource.cpu" :placeholder="placeholders.cpu" :disabled="isLimited" />
               </el-form-item>
             </el-col>
             <el-col :span="12" v-if="!flavorMaxVal || flavorMaxVal['amd.com/gpu']">
               <el-form-item label="gpu">
-                <el-input v-model="form.resource.gpu" :placeholder="placeholders.gpu" />
+                <el-input v-model="form.resource.gpu" :placeholder="placeholders.gpu" :disabled="isLimited" />
               </el-form-item>
             </el-col>
             <el-col :span="12">
               <el-form-item label="memory" prop="resource.memory">
-                <el-input v-model="form.resource.memory" :placeholder="placeholders.memory">
+                <el-input v-model="form.resource.memory" :placeholder="placeholders.memory" :disabled="isLimited">
                   <template #append>Gi</template>
                 </el-input>
               </el-form-item>
@@ -213,6 +213,7 @@
                 <el-input
                   v-model="form.resource.ephemeralStorage"
                   :placeholder="placeholders.ephemeralStorage"
+                  :disabled="isLimited"
                 >
                   <template #append>Gi</template>
                 </el-input>
@@ -298,7 +299,7 @@
                 <!-- autoRecovery -->
                 <el-col :span="12">
                   <el-form-item label="autoRecovery">
-                    <el-switch v-model="isRetry" class="mr-2" />
+                    <el-switch v-model="isRetry" :disabled="isLimited" class="mr-2" />
                     <el-text size="small" type="info">
                       <el-icon class="mr-1"><InfoFilled /></el-icon>
                       {{ AUTO_RETRY_INFO }}
@@ -314,6 +315,7 @@
                       :min="0"
                       :max="50"
                       :step="1"
+                      :disabled="isLimited"
                       class="w-[120px] mr-2"
                     />
                     <el-text size="small" type="info">
@@ -357,6 +359,7 @@
                       :disabled-minutes="disabledMinutes"
                       :disabled-seconds="disabledSeconds"
                       :default-time="midnightDefault"
+                      :disabled="isLimited"
                     />
                     <el-text size="small" type="info" class="ml-2">
                       <el-icon class="mr-1"><InfoFilled /></el-icon>
@@ -443,6 +446,7 @@
                   :max="20"
                   keyMode="input"
                   info="Add up to 20 envs"
+                  :disabled="isLimited"
                 />
               </el-form-item>
             </div>
@@ -499,14 +503,16 @@ import { debounce } from 'lodash'
 import { useDatetimeLimit } from '@/composables/useDatetimeLimit'
 import dayjs from 'dayjs'
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   visible: boolean
   wlid?: string
   action: string
-}>()
+  limitedEdit?: boolean
+}>(), { limitedEdit: false })
 const emit = defineEmits(['update:visible', 'success'])
 
 const isEdit = computed(() => props.action === 'Edit')
+const isLimited = computed(() => isEdit.value && props.limitedEdit)
 const cachedUseWorkspaceStorage = ref<boolean | undefined>(undefined)
 
 const store = useWorkspaceStore()
@@ -798,21 +804,28 @@ const onSubmit = async (formEl: FormInstance | undefined) => {
     } else {
       if (!props.wlid) return
 
-      await editWorkload(props.wlid, {
-        description: form.description,
-        priority: form.priority,
-        resources,
-        env: convertListToKeyValueMap(form.envList),
-        maxRetry: isRetry.value ? form.maxRetry : 0,
-        entryPoints: Array.from({ length: resources.length }, () =>
-          encodeToBase64String(form.entryPoint),
-        ),
-        images: Array.from({ length: resources.length }, () => form.image),
-        ...(form.schedulerTime
-          ? { cronJobs: [{ schedule: form.schedulerTime, action: 'start' }] }
-          : {}),
-        ...(form.timeout !== undefined ? { timeout: form.timeout } : {}),
-      })
+      if (isLimited.value) {
+        await editWorkload(props.wlid, {
+          description: form.description,
+          ...(form.timeout !== undefined ? { timeout: form.timeout } : {}),
+        })
+      } else {
+        await editWorkload(props.wlid, {
+          description: form.description,
+          priority: form.priority,
+          resources,
+          env: convertListToKeyValueMap(form.envList),
+          maxRetry: isRetry.value ? form.maxRetry : 0,
+          entryPoints: Array.from({ length: resources.length }, () =>
+            encodeToBase64String(form.entryPoint),
+          ),
+          images: Array.from({ length: resources.length }, () => form.image),
+          ...(form.schedulerTime
+            ? { cronJobs: [{ schedule: form.schedulerTime, action: 'start' }] }
+            : {}),
+          ...(form.timeout !== undefined ? { timeout: form.timeout } : {}),
+        })
+      }
       ElMessage({ message: 'Edit successful', type: 'success' })
     }
 
