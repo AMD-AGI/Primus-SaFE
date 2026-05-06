@@ -172,6 +172,7 @@
     v-model:visible="addVisible"
     :wlid="workloadId"
     :action="addAction"
+    :limited-edit="limitedEdit"
     @success="addAction === 'Edit' ? getDetail() : router.push('/training')"
   />
   <SshConfigDialog
@@ -231,15 +232,15 @@ const envExpanded = ref(false)
 const editDisabled = computed(() => {
   const d = detailData.value
   if (!d) return true
-  const maxRetry = d.maxRetry ?? 0
-  const phase = d.phase
-  const queuePosition = d.queuePosition ?? 0
+  return !['Running', 'Pending'].includes(d.phase)
+})
 
-  if (maxRetry > 0) {
-    return !['Running', 'Pending'].includes(phase)
-  } else {
-    return !(phase === 'Pending' && queuePosition > 0)
-  }
+const limitedEdit = computed(() => {
+  const d = detailData.value
+  if (!d) return true
+  const queuePosition = d.queuePosition ?? 0
+  if (d.phase === 'Pending' && queuePosition > 0) return false
+  return true
 })
 
 const onEdit = () => {

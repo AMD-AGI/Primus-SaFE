@@ -376,12 +376,12 @@ const agentInfraMenuItems = shallowRef<MenuItem[]>([])
 
 watchEffect(() => {
   const allAgentInfraItems = [
-    {
-      index: '/tools',
-      name: 'Plugins',
-      icon: menuIcons.tools,
-      canAccess: true, // Open to all users
-    },
+    // {
+    //   index: '/tools',
+    //   name: 'Plugins',
+    //   icon: menuIcons.tools,
+    //   canAccess: true,
+    // },
     {
       index: '/sandbox',
       name: 'Sandbox',

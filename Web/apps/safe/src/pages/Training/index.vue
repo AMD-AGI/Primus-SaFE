@@ -352,6 +352,7 @@
     v-model:visible="addVisible"
     :wlid="curWlId"
     :action="curAction"
+    :limited-edit="curLimitedEdit"
     @success="onSearch({ resetPage: false })"
   />
 
@@ -434,6 +435,7 @@ const pagination = reactive({
 })
 const curWlId = ref()
 const curAction = ref<'Create' | 'Edit' | 'Clone'>('Create')
+const curLimitedEdit = ref(false)
 
 /* ── Page Tours (tourId-driven from Quick Reference ?tour=<id>) ── */
 const { getDriver } = usePageTour((tourId) => {
@@ -762,39 +764,16 @@ const getActions = (_row: Row) => {
       label: 'Edit',
       icon: Edit,
       btnClass: 'btn-primary-plain',
-      disabled: (r: Row) => {
-        const maxRetry = r.maxRetry ?? 0
-        const phase = r.phase
-        const queuePosition = r.queuePosition ?? 0
-
-        if (maxRetry > 0) {
-          // maxRetry > 0: editable when Pending or Running
-          return !canWrite.value || !['Running', 'Pending'].includes(phase)
-        } else {
-          // maxRetry = 0: only editable when Pending and queuePosition > 0
-          return !canWrite.value || !(phase === 'Pending' && queuePosition > 0)
-        }
-      },
+      disabled: (r: Row) => !canWrite.value || !['Running', 'Pending'].includes(r.phase),
       tooltip: (r: Row) => {
-        const maxRetry = r.maxRetry ?? 0
-        const phase = r.phase
-        const queuePosition = r.queuePosition ?? 0
-
-        if (maxRetry > 0) {
-          if (['Running', 'Pending'].includes(phase)) {
-            return 'Edit workload configuration'
-          }
-          return 'Edit is only available for Pending or Running workloads with auto-retry enabled'
-        } else {
-          if (phase === 'Pending' && queuePosition > 0) {
-            return 'Edit workload configuration'
-          }
-          return 'Edit is only available for Pending workloads in queue (without auto-retry)'
-        }
+        if (['Running', 'Pending'].includes(r.phase)) return 'Edit workload configuration'
+        return 'Edit is only available for Running or Pending workloads'
       },
       onClick: (r: Row) => {
         curAction.value = 'Edit'
         curWlId.value = r.workloadId
+        const queuePosition = r.queuePosition ?? 0
+        curLimitedEdit.value = !(r.phase === 'Pending' && queuePosition > 0)
         addVisible.value = true
       },
     },
