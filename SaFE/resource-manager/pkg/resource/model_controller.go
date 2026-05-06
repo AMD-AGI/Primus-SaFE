@@ -325,6 +325,19 @@ func (r *ModelReconciler) handlePending(ctx context.Context, model *v1.Model) (c
 		return ctrl.Result{}, r.Status().Update(ctx, model)
 	}
 
+	// s3_sync (S3 import) models skip the platform-bucket upload step entirely.
+	// We point the per-workspace download OpsJob INPUT_URL directly at the user's s3 URI,
+	// using the user-provided secret if present. This saves a full copy in size+time.
+	if isS3ImportModel(model) {
+		model.Status.Phase = v1.ModelPhaseDownloading
+		model.Status.Message = "S3 import: starting per-workspace download"
+		model.Status.UpdateTime = &metav1.Time{Time: time.Now().UTC()}
+		// Don't set Status.S3Path; downloads target user S3 directly.
+		model.Status.LocalPaths = r.initializeLocalPaths(ctx, model)
+		klog.InfoS("S3 import model: skipped Uploading phase", "model", model.Name, "url", model.Spec.Source.URL)
+		return ctrl.Result{}, r.Status().Update(ctx, model)
+	}
+
 	// For local models, start the upload job to S3
 	jobName := stringutil.NormalizeForDNS(model.Name)
 	job := &batchv1.Job{}
@@ -577,14 +590,18 @@ func (r *ModelReconciler) handleDownloading(ctx context.Context, model *v1.Model
 func (r *ModelReconciler) initializeLocalPaths(ctx context.Context, model *v1.Model) []v1.ModelLocalPath {
 	var paths []v1.ModelLocalPath
 	modelDir := model.GetSafeDisplayName()
+	subpath := strings.TrimSpace(model.Spec.TargetSubpath)
 
 	// Track unique paths to avoid duplicate downloads
 	// Key: PFS path, Value: list of workspace IDs sharing this path
 	seenPaths := make(map[string][]string)
 
+	prefer := strings.TrimSpace(model.Spec.TargetVolume)
+
 	if model.IsPublic() {
 		// Public model: download to all workspaces (but deduplicate same paths)
-		workspaces, err := r.listWorkspaces(ctx)
+		// Note: TargetVolume only takes effect for workspaces that actually expose that volume.
+		workspaces, err := r.listWorkspaces(ctx, prefer)
 		if err != nil {
 			klog.ErrorS(err, "Failed to list workspaces for public model", "model", model.Name)
 			return paths
@@ -596,7 +613,7 @@ func (r *ModelReconciler) initializeLocalPaths(ctx context.Context, model *v1.Mo
 				klog.InfoS("Skipping workspace without storage volume", "model", model.Name, "workspace", ws.ID)
 				continue
 			}
-			pfsPath := fmt.Sprintf("%s/models/%s", ws.PFSPath, modelDir)
+			pfsPath := buildLocalModelPath(ws.PFSPath, subpath, modelDir)
 			seenPaths[pfsPath] = append(seenPaths[pfsPath], ws.ID)
 		}
 
@@ -615,13 +632,13 @@ func (r *ModelReconciler) initializeLocalPaths(ctx context.Context, model *v1.Mo
 		}
 	} else {
 		// Private model: download only to specified workspace
-		ws, err := r.getWorkspace(ctx, model.Spec.Workspace)
+		ws, err := r.getWorkspace(ctx, model.Spec.Workspace, prefer)
 		if err != nil {
 			klog.ErrorS(err, "Failed to get workspace for model", "model", model.Name, "workspace", model.Spec.Workspace)
 			return paths
 		}
 
-		pfsPath := fmt.Sprintf("%s/models/%s", ws.PFSPath, modelDir)
+		pfsPath := buildLocalModelPath(ws.PFSPath, subpath, modelDir)
 		paths = append(paths, v1.ModelLocalPath{
 			Workspace: ws.ID,
 			Path:      pfsPath,
@@ -632,6 +649,16 @@ func (r *ModelReconciler) initializeLocalPaths(ctx context.Context, model *v1.Mo
 	return paths
 }
 
+// buildLocalModelPath assembles "<root>/[subpath/]models/<modelDir>".
+func buildLocalModelPath(root, subpath, modelDir string) string {
+	root = strings.TrimRight(root, "/")
+	subpath = strings.Trim(subpath, "/")
+	if subpath == "" {
+		return fmt.Sprintf("%s/models/%s", root, modelDir)
+	}
+	return fmt.Sprintf("%s/%s/models/%s", root, subpath, modelDir)
+}
+
 // WorkspaceInfo represents basic workspace information
 type WorkspaceInfo struct {
 	ID      string
@@ -639,7 +666,8 @@ type WorkspaceInfo struct {
 }
 
 // listWorkspaces returns all available workspaces
-func (r *ModelReconciler) listWorkspaces(ctx context.Context) ([]WorkspaceInfo, error) {
+// `preferVolume` is the optional model.spec.targetVolume that selects a non-default volume (mount path).
+func (r *ModelReconciler) listWorkspaces(ctx context.Context, preferVolume string) ([]WorkspaceInfo, error) {
 	// List Workspace CRs
 	workspaceList := &v1.WorkspaceList{}
 	if err := r.List(ctx, workspaceList); err != nil {
@@ -648,7 +676,7 @@ func (r *ModelReconciler) listWorkspaces(ctx context.Context) ([]WorkspaceInfo, 
 
 	var workspaces []WorkspaceInfo
 	for _, ws := range workspaceList.Items {
-		pfsPath := commonworkspace.GetNfsPathFromWorkspace(&ws)
+		pfsPath := commonworkspace.ResolveDownloadRoot(&ws, preferVolume)
 		workspaces = append(workspaces, WorkspaceInfo{
 			ID:      ws.Name,
 			PFSPath: pfsPath,
@@ -659,13 +687,13 @@ func (r *ModelReconciler) listWorkspaces(ctx context.Context) ([]WorkspaceInfo, 
 }
 
 // getWorkspace returns workspace info by ID
-func (r *ModelReconciler) getWorkspace(ctx context.Context, workspaceID string) (*WorkspaceInfo, error) {
+func (r *ModelReconciler) getWorkspace(ctx context.Context, workspaceID, preferVolume string) (*WorkspaceInfo, error) {
 	ws := &v1.Workspace{}
 	if err := r.Get(ctx, client.ObjectKey{Name: workspaceID}, ws); err != nil {
 		return nil, err
 	}
 
-	pfsPath := commonworkspace.GetNfsPathFromWorkspace(ws)
+	pfsPath := commonworkspace.ResolveDownloadRoot(ws, preferVolume)
 
 	return &WorkspaceInfo{
 		ID:      ws.Name,
@@ -709,25 +737,46 @@ func (r *ModelReconciler) constructLocalDownloadOpsJob(ctx context.Context, mode
 		}
 	}
 
-	// INPUT_URL: Full HTTP URL for the S3 object
-	// Format: {endpoint}/{bucket}/{path}
-	s3Path := fmt.Sprintf("%s/%s/%s/", s3Endpoint, s3Bucket, model.Status.S3Path)
+	// INPUT_URL/secret depend on whether this is a normal local model (HF→platform S3)
+	// or an s3_sync import (read directly from the user's bucket).
+	var inputURL, secretName string
+	if isS3ImportModel(model) {
+		userURL, err := buildHTTPURLFromS3URI(model.Spec.Source.URL)
+		if err != nil {
+			return nil, fmt.Errorf("s3 import: %w", err)
+		}
+		inputURL = userURL
+		if model.Annotations != nil {
+			if sn := strings.TrimSpace(model.Annotations[v1.ModelS3SourceSecretAnn]); sn != "" {
+				secretName = sn
+			}
+		}
+		if secretName == "" {
+			// Public bucket / IAM-permitted access: fall back to platform secret.
+			secretName = "primus-safe-s3"
+		}
+	} else {
+		inputURL = fmt.Sprintf("%s/%s/%s/", s3Endpoint, s3Bucket, model.Status.S3Path)
+		secretName = "primus-safe-s3"
+	}
 
 	// Use the OpsJob download image (configured in values.yaml)
 	image := commonconfig.GetDownloadJoImage()
 
 	// DEST_PATH: relative path (will be prefixed with workspace nfsPath by download_job_controller)
 	// e.g., "models/llama-2-7b" -> final path: "/wekafs/models/llama-2-7b"
+	subpath := strings.Trim(model.Spec.TargetSubpath, "/")
 	destPath := fmt.Sprintf("models/%s", model.GetSafeDisplayName())
+	if subpath != "" {
+		destPath = fmt.Sprintf("%s/models/%s", subpath, model.GetSafeDisplayName())
+	}
 
 	jobName := stringutil.NormalizeForDNS(fmt.Sprintf("%s-%s-%s", DownloadJobPrefix, model.Name, lp.Workspace))
 
 	displayName := strings.ToLower(model.GetSafeDisplayName())
 
-	// Use the global S3 secret (primus-safe-s3) which is already in primus-safe namespace
-	// This secret contains: access_key, secret_key, endpoint, bucket
-	// The secret name matches .Values.s3.secret in Helm values
-	secretName := "primus-safe-s3"
+	// s3Path placeholder so the existing log line still makes sense.
+	s3Path := inputURL
 
 	klog.InfoS("Constructing OpsJob for model download", "model", model.Name, "workspace", lp.Workspace,
 		"s3Path", s3Path, "destPath", destPath, "displayName", displayName,
@@ -753,8 +802,9 @@ func (r *ModelReconciler) constructLocalDownloadOpsJob(ctx context.Context, mode
 			TimeoutSecond:           10800, // 3 hours timeout for model download
 			TTLSecondsAfterFinished: 60,
 			Inputs: []v1.Parameter{
-				// INPUT_URL: S3 path as the source
-				{Name: v1.ParameterEndpoint, Value: s3Path},
+				// INPUT_URL: S3 path as the source (platform bucket for HF flow,
+				// user bucket for s3_sync flow).
+				{Name: v1.ParameterEndpoint, Value: inputURL},
 				// DEST_PATH: relative path (will be prefixed with nfsPath)
 				{Name: v1.ParameterDestPath, Value: destPath},
 				// SECRET: reference to the S3 credentials secret (mounted to /etc/secrets/<secret-name>/)
@@ -802,135 +852,43 @@ func (r *ModelReconciler) extractJobFailureReason(job *batchv1.Job) string {
 	return "Unknown error during download"
 }
 
-// constructS3ImportDownloadJob copies objects from a user s3:// URI to the platform model prefix in
-// the configured bucket (then the standard Uploading→Downloading flow pulls to PFS).
-func (r *ModelReconciler) constructS3ImportDownloadJob(model *v1.Model) (*batchv1.Job, error) {
-	if !commonconfig.IsS3Enable() {
-		return nil, fmt.Errorf("S3 storage is not enabled in system configuration")
-	}
-	s3Endpoint := commonconfig.GetS3Endpoint()
-	s3AccessKey := commonconfig.GetS3AccessKey()
-	s3SecretKey := commonconfig.GetS3SecretKey()
-	s3Bucket := commonconfig.GetS3Bucket()
-	if s3Endpoint == "" || s3AccessKey == "" || s3SecretKey == "" || s3Bucket == "" {
-		return nil, fmt.Errorf("S3 configuration is incomplete")
-	}
-	srcURI := strings.TrimSpace(model.Spec.Source.URL)
-	if !strings.HasPrefix(srcURI, "s3://") {
-		return nil, fmt.Errorf("s3 import requires spec.source.url to start with s3://")
-	}
-	destS3 := fmt.Sprintf("s3://%s/%s", s3Bucket, model.GetS3Path())
+// isS3ImportModel returns true if the Model was created via API accessMode s3_sync.
+// Such models carry the primus-safe.model.s3-import label and a s3:// source URL; we
+// route their per-workspace download OpsJob directly at the source URI.
+func isS3ImportModel(model *v1.Model) bool {
+	return model != nil && model.Labels != nil && model.Labels[v1.ModelS3ImportLabel] == v1.TrueStr
+}
 
-	var envs []corev1.EnvVar
-	envs = append(envs,
-		corev1.EnvVar{Name: "S3_PLAT_AK", Value: s3AccessKey},
-		corev1.EnvVar{Name: "S3_PLAT_SK", Value: s3SecretKey},
-		corev1.EnvVar{Name: "S3_PLAT_EP", Value: s3Endpoint},
-		// Pass user-controlled values via env to avoid shell injection through the script template.
-		corev1.EnvVar{Name: "SRC_URI", Value: srcURI},
-		corev1.EnvVar{Name: "DEST_URI", Value: destS3},
-	)
-	optional := true
-	if model.Annotations != nil {
-		if sn := strings.TrimSpace(model.Annotations[v1.ModelS3SourceSecretAnn]); sn != "" {
-			envs = append(envs,
-				corev1.EnvVar{
-					Name: "S3_SRC_AK",
-					ValueFrom: &corev1.EnvVarSource{
-						SecretKeyRef: &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: sn}, Key: "access_key_id"},
-					},
-				},
-				corev1.EnvVar{
-					Name: "S3_SRC_SK",
-					ValueFrom: &corev1.EnvVarSource{
-						SecretKeyRef: &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: sn}, Key: "secret_access_key"},
-					},
-				},
-				corev1.EnvVar{
-					Name: "S3_SRC_REGION",
-					ValueFrom: &corev1.EnvVarSource{
-						SecretKeyRef: &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: sn}, Key: "region", Optional: &optional},
-					},
-				},
-				corev1.EnvVar{
-					Name: "S3_SRC_EP",
-					ValueFrom: &corev1.EnvVarSource{
-						SecretKeyRef: &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: sn}, Key: "endpoint", Optional: &optional},
-					},
-				},
-			)
-		}
+// buildHTTPURLFromS3URI converts a "s3://bucket/prefix" URI into the http(s) form
+// that the s3-downloader image consumes. If the user provided a custom endpoint via
+// the source secret, we prefer that; otherwise we fall back to the platform endpoint.
+// The returned URL ends with "/" so the downloader treats it as a directory tree.
+func buildHTTPURLFromS3URI(uri string) (string, error) {
+	uri = strings.TrimSpace(uri)
+	if !strings.HasPrefix(uri, "s3://") {
+		return "", fmt.Errorf("not an s3 URI: %s", uri)
 	}
-
-	image := commonconfig.GetModelDownloaderImage()
-	// Read SRC/DEST from env to avoid any shell-injection through script template.
-	const script = `set -e
-mkdir -p /tmp/mdl
-if [ -n "${S3_SRC_AK:-}" ] && [ -n "${S3_SRC_SK:-}" ]; then
-  export AWS_ACCESS_KEY_ID="$S3_SRC_AK"
-  export AWS_SECRET_ACCESS_KEY="$S3_SRC_SK"
-  if [ -n "${S3_SRC_REGION:-}" ]; then export AWS_DEFAULT_REGION="$S3_SRC_REGION"; else export AWS_DEFAULT_REGION="us-east-1"; fi
-  if [ -n "${S3_SRC_EP:-}" ]; then
-    aws s3 sync "$SRC_URI" /tmp/mdl --endpoint-url "$S3_SRC_EP" || exit 1
-  else
-    aws s3 sync "$SRC_URI" /tmp/mdl || exit 1
-  fi
-else
-  export AWS_ACCESS_KEY_ID="$S3_PLAT_AK"
-  export AWS_SECRET_ACCESS_KEY="$S3_PLAT_SK"
-  aws s3 sync "$SRC_URI" /tmp/mdl --endpoint-url "$S3_PLAT_EP" || exit 1
-fi
-export AWS_ACCESS_KEY_ID="$S3_PLAT_AK"
-export AWS_SECRET_ACCESS_KEY="$S3_PLAT_SK"
-aws s3 sync /tmp/mdl "$DEST_URI" --endpoint-url "$S3_PLAT_EP" || exit 1
-echo "S3 import to platform bucket completed"
-`
-	cmd := []string{"/bin/sh", "-c", script}
-	backoffLimit := int32(3)
-	ttlSeconds := int32(60)
-	jobName := stringutil.NormalizeForDNS(model.Name)
-	job := &batchv1.Job{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      jobName,
-			Namespace: common.PrimusSafeNamespace,
-			Labels: map[string]string{
-				"app":   "model-s3-import",
-				"model": model.Name,
-			},
-		},
-		Spec: batchv1.JobSpec{
-			BackoffLimit:            &backoffLimit,
-			TTLSecondsAfterFinished: &ttlSeconds,
-			Template: corev1.PodTemplateSpec{
-				ObjectMeta: metav1.ObjectMeta{
-					Labels: map[string]string{
-						"app":   "model-s3-import",
-						"model": model.Name,
-					},
-				},
-				Spec: corev1.PodSpec{
-					RestartPolicy: corev1.RestartPolicyOnFailure,
-					Containers: []corev1.Container{{
-						Name:            "s3-import",
-						Image:           image,
-						ImagePullPolicy: corev1.PullIfNotPresent,
-						Command:         cmd,
-						Env:             envs,
-					}},
-				},
-			},
-		},
+	rest := strings.TrimPrefix(uri, "s3://")
+	if rest == "" {
+		return "", fmt.Errorf("s3 URI missing bucket")
 	}
-	if err := controllerutil.SetControllerReference(model, job, r.Scheme()); err != nil {
-		return nil, err
+	// rest = "<bucket>[/<prefix>]"
+	endpoint := strings.TrimSuffix(commonconfig.GetS3Endpoint(), "/")
+	if endpoint == "" {
+		return "", fmt.Errorf("platform s3 endpoint is not configured")
 	}
-	return job, nil
+	if !strings.HasPrefix(endpoint, "http://") && !strings.HasPrefix(endpoint, "https://") {
+		endpoint = "https://" + endpoint
+	}
+	url := fmt.Sprintf("%s/%s", endpoint, rest)
+	if !strings.HasSuffix(url, "/") {
+		url += "/"
+	}
+	return url, nil
 }
 
 func (r *ModelReconciler) constructDownloadJob(model *v1.Model) (*batchv1.Job, error) {
-	if strings.HasPrefix(strings.TrimSpace(model.Spec.Source.URL), "s3://") {
-		return r.constructS3ImportDownloadJob(model)
-	}
+	// s3 imports skip this Uploading step — handled directly in handlePending.
 	var envs []corev1.EnvVar
 
 	if model.Spec.Source.URL == "" {
