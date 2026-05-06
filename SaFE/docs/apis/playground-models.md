@@ -74,8 +74,6 @@ Playground Models API provides a model management interface for the AI Playgroun
 }
 ```
 
-**See also (zh)** — 登记**已有共享路径**（`local_path`）与**从用户 S3 导入**（`s3_sync`）的请求体、列表筛选与 UI 行为说明： [model-square-frontend.md](./model-square-frontend.md).
-
 **Request Body Parameters**:
 
 | Parameter | Type | Required | Description |
