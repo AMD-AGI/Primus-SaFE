@@ -741,7 +741,7 @@ func (r *ModelReconciler) constructLocalDownloadOpsJob(ctx context.Context, mode
 	// or an s3_sync import (read directly from the user's bucket).
 	var inputURL, secretName string
 	if isS3ImportModel(model) {
-		userURL, err := buildHTTPURLFromS3URI(model.Spec.Source.URL)
+		userURL, err := buildHTTPURLFromS3URI(model)
 		if err != nil {
 			return nil, fmt.Errorf("s3 import: %w", err)
 		}
@@ -763,12 +763,18 @@ func (r *ModelReconciler) constructLocalDownloadOpsJob(ctx context.Context, mode
 	// Use the OpsJob download image (configured in values.yaml)
 	image := commonconfig.GetDownloadJoImage()
 
-	// DEST_PATH: relative path (will be prefixed with workspace nfsPath by download_job_controller)
-	// e.g., "models/llama-2-7b" -> final path: "/wekafs/models/llama-2-7b"
+	// DEST_PATH: by default we send a relative path and the OpsJob webhook prefixes
+	// it with the workspace's default PFS root. When the caller pinned a specific
+	// volume via Spec.TargetVolume, we instead send the *absolute* path that we've
+	// already recorded in lp.Path; the webhook is updated to leave absolute values
+	// untouched.
 	subpath := strings.Trim(model.Spec.TargetSubpath, "/")
 	destPath := fmt.Sprintf("models/%s", model.GetSafeDisplayName())
 	if subpath != "" {
 		destPath = fmt.Sprintf("%s/models/%s", subpath, model.GetSafeDisplayName())
+	}
+	if strings.TrimSpace(model.Spec.TargetVolume) != "" && strings.HasPrefix(lp.Path, "/") {
+		destPath = lp.Path
 	}
 
 	jobName := stringutil.NormalizeForDNS(fmt.Sprintf("%s-%s-%s", DownloadJobPrefix, model.Name, lp.Workspace))
@@ -860,11 +866,12 @@ func isS3ImportModel(model *v1.Model) bool {
 }
 
 // buildHTTPURLFromS3URI converts a "s3://bucket/prefix" URI into the http(s) form
-// that the s3-downloader image consumes. If the user provided a custom endpoint via
-// the source secret, we prefer that; otherwise we fall back to the platform endpoint.
+// that the s3-downloader image consumes. If the model carries a user-provided endpoint
+// annotation, we use it; otherwise we fall back to the platform endpoint (i.e. the user's
+// bucket is hosted on the same MinIO/S3 the platform is using).
 // The returned URL ends with "/" so the downloader treats it as a directory tree.
-func buildHTTPURLFromS3URI(uri string) (string, error) {
-	uri = strings.TrimSpace(uri)
+func buildHTTPURLFromS3URI(model *v1.Model) (string, error) {
+	uri := strings.TrimSpace(model.Spec.Source.URL)
 	if !strings.HasPrefix(uri, "s3://") {
 		return "", fmt.Errorf("not an s3 URI: %s", uri)
 	}
@@ -872,11 +879,17 @@ func buildHTTPURLFromS3URI(uri string) (string, error) {
 	if rest == "" {
 		return "", fmt.Errorf("s3 URI missing bucket")
 	}
-	// rest = "<bucket>[/<prefix>]"
-	endpoint := strings.TrimSuffix(commonconfig.GetS3Endpoint(), "/")
-	if endpoint == "" {
-		return "", fmt.Errorf("platform s3 endpoint is not configured")
+	endpoint := ""
+	if model.Annotations != nil {
+		endpoint = strings.TrimSpace(model.Annotations[v1.ModelS3SourceEndpointAnn])
 	}
+	if endpoint == "" {
+		endpoint = strings.TrimSpace(commonconfig.GetS3Endpoint())
+	}
+	if endpoint == "" {
+		return "", fmt.Errorf("source endpoint is not configured")
+	}
+	endpoint = strings.TrimSuffix(endpoint, "/")
 	if !strings.HasPrefix(endpoint, "http://") && !strings.HasPrefix(endpoint, "https://") {
 		endpoint = "https://" + endpoint
 	}
