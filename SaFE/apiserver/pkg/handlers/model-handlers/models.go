@@ -369,9 +369,16 @@ func (h *Handler) createModelFromLocalPath(ctx context.Context, req *CreateModel
 		return nil, commonerrors.NewBadRequest("displayName is required for local_path mode")
 	}
 
-	origin := req.Origin
+	origin := strings.TrimSpace(req.Origin)
 	if origin == "" {
-		origin = "fine_tuned"
+		// Default rule: only auto-mark as fine_tuned when SFT/RL provides a sftJobId
+		// (its internal callers always set origin explicitly anyway). Otherwise treat as
+		// user-imported external model so it isn't filtered into the "custom" group.
+		if strings.TrimSpace(req.SftJobId) != "" {
+			origin = "fine_tuned"
+		} else {
+			origin = "external"
+		}
 	}
 
 	modelId := commonutils.GenerateName(req.DisplayName)
@@ -476,6 +483,13 @@ func (h *Handler) createModelFromS3Sync(ctx context.Context, req *CreateModelReq
 	uri := strings.TrimSuffix(strings.TrimSpace(req.S3Source.URI), "/")
 	if !strings.HasPrefix(uri, "s3://") {
 		return nil, commonerrors.NewBadRequest("s3Source.uri must start with s3://")
+	}
+	rest := strings.TrimPrefix(uri, "s3://")
+	if rest == "" {
+		return nil, commonerrors.NewBadRequest("s3Source.uri must include a bucket, e.g. s3://my-bucket/prefix")
+	}
+	if bucket := strings.SplitN(rest, "/", 2)[0]; bucket == "" {
+		return nil, commonerrors.NewBadRequest("s3Source.uri must include a non-empty bucket")
 	}
 	ak := strings.TrimSpace(req.S3Source.AccessKeyID)
 	sk := strings.TrimSpace(req.S3Source.SecretAccessKey)
