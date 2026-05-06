@@ -5,11 +5,11 @@
 *                            @AMD-AGI/SAFE
 
 # Stricter paths — leads must approve
-.github/CODEOWNERS           @AMD-AGI/SAFE-leads
-/.github/workflows/          @AMD-AGI/SAFE-leads
-/SaFE/                       @AMD-AGI/SAFE-leads
-/Lens/                       @AMD-AGI/SAFE-leads
-/Bootstrap/                  @AMD-AGI/SAFE-leads
-/Bench/                      @AMD-AGI/SAFE-leads
-/Web/                        @AMD-AGI/SAFE-leads
-/Scheduler-Plugins/          @AMD-AGI/SAFE-leads
+.github/CODEOWNERS           @AMD-AGI/SAFE
+/.github/workflows/          @AMD-AGI/SAFE
+/SaFE/                       @AMD-AGI/SAFE
+/Lens/                       @AMD-AGI/SAFE
+/Bootstrap/                  @AMD-AGI/SAFE
+/Bench/                      @AMD-AGI/SAFE
+/Web/                        @AMD-AGI/SAFE
+/Scheduler-Plugins/          @AMD-AGI/SAFE
