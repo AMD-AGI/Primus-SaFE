@@ -271,6 +271,20 @@ func (h *Handler) createModel(c *gin.Context) (interface{}, error) {
 		modelAnnotations[v1.UserNameAnnotation] = userName
 	}
 	targetVolume, targetSubpath := extractTarget(req.Target)
+	if err := h.validateTargetVolumeForWorkspace(ctx, req.Workspace, targetVolume); err != nil {
+		// best-effort cleanup of any pre-created secrets so we don't leak when validation fails
+		if tokenSecretRef != nil {
+			_ = h.k8sClient.Delete(ctx, &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{Name: tokenSecretRef.Name, Namespace: common.PrimusSafeNamespace},
+			})
+		}
+		if apiKeySecretRef != nil {
+			_ = h.k8sClient.Delete(ctx, &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{Name: apiKeySecretRef.Name, Namespace: common.PrimusSafeNamespace},
+			})
+		}
+		return nil, err
+	}
 	k8sModel := &v1.Model{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:        name,
@@ -408,6 +422,9 @@ func (h *Handler) createModelFromLocalPath(ctx context.Context, req *CreateModel
 		}
 	}
 	targetVolumeLP, targetSubpathLP := extractTarget(req.Target)
+	if err := h.validateTargetVolumeForWorkspace(ctx, req.Workspace, targetVolumeLP); err != nil {
+		return nil, err
+	}
 	model.Spec = v1.ModelSpec{
 		DisplayName:   req.DisplayName,
 		Description:   req.Description,
@@ -591,6 +608,14 @@ func (h *Handler) createModelFromS3Sync(ctx context.Context, req *CreateModelReq
 	}
 
 	targetVolumeS3, targetSubpathS3 := extractTarget(req.Target)
+	if err := h.validateTargetVolumeForWorkspace(ctx, req.Workspace, targetVolumeS3); err != nil {
+		if s3SrcSecretName != "" {
+			_ = h.k8sClient.Delete(ctx, &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{Name: s3SrcSecretName, Namespace: common.PrimusSafeNamespace},
+			})
+		}
+		return nil, err
+	}
 	k8sModel := &v1.Model{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:        name,
@@ -668,6 +693,40 @@ func extractTarget(t *ModelTargetReq) (volume, subpath string) {
 		return "", ""
 	}
 	return strings.TrimSpace(t.Volume), strings.TrimSpace(t.Subpath)
+}
+
+// validateTargetVolumeForWorkspace fails the request when target.volume is set on a private
+// (workspace-bound) model but no volume in that workspace exposes that mountPath / hostPath —
+// otherwise the controller silently falls back to the default volume and the user thinks the
+// pin worked.
+func (h *Handler) validateTargetVolumeForWorkspace(ctx context.Context, workspace, target string) error {
+	if workspace == "" || target == "" {
+		return nil
+	}
+	ws := &v1.Workspace{}
+	if err := h.k8sClient.Get(ctx, ctrlclient.ObjectKey{Name: workspace}, ws); err != nil {
+		if errors.IsNotFound(err) {
+			return commonerrors.NewBadRequest(fmt.Sprintf("workspace %q not found", workspace))
+		}
+		return commonerrors.NewInternalError("failed to load workspace: " + err.Error())
+	}
+	if commonworkspace.GetVolumeMountPathByPreference(ws, target) != "" {
+		return nil
+	}
+	available := make([]string, 0, len(ws.Spec.Volumes))
+	for _, v := range ws.Spec.Volumes {
+		mp := strings.TrimSpace(v.MountPath)
+		if mp == "" {
+			mp = strings.TrimSpace(v.HostPath)
+		}
+		if mp != "" {
+			available = append(available, mp)
+		}
+	}
+	return commonerrors.NewBadRequest(fmt.Sprintf(
+		"target.volume %q does not exist in workspace %q (available: %v)",
+		target, workspace, available,
+	))
 }
 
 // isSafeS3URI returns true if the URI only contains characters considered safe to
