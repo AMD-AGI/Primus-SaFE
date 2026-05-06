@@ -199,6 +199,13 @@ func (h *Handler) createModel(c *gin.Context) (interface{}, error) {
 		initialPhase = v1.ModelPhasePending
 	}
 
+	// Validate target.volume early — before we create any secrets — so a misconfigured
+	// request never leaves orphaned secrets behind.
+	targetVolume, targetSubpath := extractTarget(req.Target)
+	if err := h.validateTargetVolumeForWorkspace(ctx, req.Workspace, targetVolume); err != nil {
+		return nil, err
+	}
+
 	// Pre-create Secrets BEFORE creating Model to avoid concurrent update conflicts
 	// This way we can reference them directly in the Model spec during creation
 	var tokenSecretRef, apiKeySecretRef *corev1.LocalObjectReference
@@ -269,21 +276,6 @@ func (h *Handler) createModel(c *gin.Context) (interface{}, error) {
 	modelAnnotations := map[string]string{}
 	if userName != "" {
 		modelAnnotations[v1.UserNameAnnotation] = userName
-	}
-	targetVolume, targetSubpath := extractTarget(req.Target)
-	if err := h.validateTargetVolumeForWorkspace(ctx, req.Workspace, targetVolume); err != nil {
-		// best-effort cleanup of any pre-created secrets so we don't leak when validation fails
-		if tokenSecretRef != nil {
-			_ = h.k8sClient.Delete(ctx, &corev1.Secret{
-				ObjectMeta: metav1.ObjectMeta{Name: tokenSecretRef.Name, Namespace: common.PrimusSafeNamespace},
-			})
-		}
-		if apiKeySecretRef != nil {
-			_ = h.k8sClient.Delete(ctx, &corev1.Secret{
-				ObjectMeta: metav1.ObjectMeta{Name: apiKeySecretRef.Name, Namespace: common.PrimusSafeNamespace},
-			})
-		}
-		return nil, err
 	}
 	k8sModel := &v1.Model{
 		ObjectMeta: metav1.ObjectMeta{
@@ -551,6 +543,12 @@ func (h *Handler) createModelFromS3Sync(ctx context.Context, req *CreateModelReq
 		return nil, commonerrors.NewBadRequest(fmt.Sprintf("a model with the same s3 source already exists (id: %s, phase: %s)", existing.ID, existing.Phase))
 	}
 
+	// Validate target.volume early — before any secret is materialized.
+	targetVolumeS3, targetSubpathS3 := extractTarget(req.Target)
+	if err := h.validateTargetVolumeForWorkspace(ctx, req.Workspace, targetVolumeS3); err != nil {
+		return nil, err
+	}
+
 	name := commonutils.GenerateName("model")
 	var s3SrcSecretName string
 	if ak != "" && sk != "" {
@@ -609,15 +607,6 @@ func (h *Handler) createModelFromS3Sync(ctx context.Context, req *CreateModelReq
 		origin = "external"
 	}
 
-	targetVolumeS3, targetSubpathS3 := extractTarget(req.Target)
-	if err := h.validateTargetVolumeForWorkspace(ctx, req.Workspace, targetVolumeS3); err != nil {
-		if s3SrcSecretName != "" {
-			_ = h.k8sClient.Delete(ctx, &corev1.Secret{
-				ObjectMeta: metav1.ObjectMeta{Name: s3SrcSecretName, Namespace: common.PrimusSafeNamespace},
-			})
-		}
-		return nil, err
-	}
 	k8sModel := &v1.Model{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:        name,
