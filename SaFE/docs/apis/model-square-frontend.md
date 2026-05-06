@@ -83,7 +83,9 @@
 
 **规则**：
 
-- `s3Source.uri`：**必须**以 `s3://` 开头并含非空 bucket，例如 `s3://my-bucket/prefix`。
+- `s3Source.uri`：**必须**以 `s3://` 开头并含非空 bucket，例如 `s3://my-bucket/prefix`。  
+  仅允许以下字符：**字母 / 数字 / `.` / `-` / `_` / `/` / `:`**；其它字符（空格、引号、反引号、`$`、`?` 等）会被后端拒绝。
+- `s3Source.endpoint`：可选；若提供必须是同样字符集，例如 `https://s3.us-west-2.amazonaws.com`。
 - `accessKeyId` / `secretAccessKey`：**要么成对出现，要么都省略**（省略时由 Job 使用**平台 S3 凭据**去拉源；仅当源对平台角色可读或公开读时才能成功，否则须填用户密钥）。
 - `modelName`：可省略，后端会由 `displayName` 归一化生成。
 - 列表/详情中 **`accessMode` 字段返回 `s3_sync`**，前端按字符串识别即可。

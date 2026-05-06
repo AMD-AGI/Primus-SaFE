@@ -826,6 +826,9 @@ func (r *ModelReconciler) constructS3ImportDownloadJob(model *v1.Model) (*batchv
 		corev1.EnvVar{Name: "S3_PLAT_AK", Value: s3AccessKey},
 		corev1.EnvVar{Name: "S3_PLAT_SK", Value: s3SecretKey},
 		corev1.EnvVar{Name: "S3_PLAT_EP", Value: s3Endpoint},
+		// Pass user-controlled values via env to avoid shell injection through the script template.
+		corev1.EnvVar{Name: "SRC_URI", Value: srcURI},
+		corev1.EnvVar{Name: "DEST_URI", Value: destS3},
 	)
 	optional := true
 	if model.Annotations != nil {
@@ -860,27 +863,28 @@ func (r *ModelReconciler) constructS3ImportDownloadJob(model *v1.Model) (*batchv
 	}
 
 	image := commonconfig.GetModelDownloaderImage()
-	script := fmt.Sprintf(`set -e
-SRC=%q
-DEST=%q
+	// Read SRC/DEST from env to avoid any shell-injection through script template.
+	const script = `set -e
 mkdir -p /tmp/mdl
 if [ -n "${S3_SRC_AK:-}" ] && [ -n "${S3_SRC_SK:-}" ]; then
   export AWS_ACCESS_KEY_ID="$S3_SRC_AK"
   export AWS_SECRET_ACCESS_KEY="$S3_SRC_SK"
   if [ -n "${S3_SRC_REGION:-}" ]; then export AWS_DEFAULT_REGION="$S3_SRC_REGION"; else export AWS_DEFAULT_REGION="us-east-1"; fi
-  EP_ARG=""
-  if [ -n "${S3_SRC_EP:-}" ]; then EP_ARG="--endpoint-url $S3_SRC_EP"; fi
-  aws s3 sync "$SRC" /tmp/mdl $EP_ARG || exit 1
+  if [ -n "${S3_SRC_EP:-}" ]; then
+    aws s3 sync "$SRC_URI" /tmp/mdl --endpoint-url "$S3_SRC_EP" || exit 1
+  else
+    aws s3 sync "$SRC_URI" /tmp/mdl || exit 1
+  fi
 else
   export AWS_ACCESS_KEY_ID="$S3_PLAT_AK"
   export AWS_SECRET_ACCESS_KEY="$S3_PLAT_SK"
-  aws s3 sync "$SRC" /tmp/mdl --endpoint-url "$S3_PLAT_EP" || exit 1
+  aws s3 sync "$SRC_URI" /tmp/mdl --endpoint-url "$S3_PLAT_EP" || exit 1
 fi
 export AWS_ACCESS_KEY_ID="$S3_PLAT_AK"
 export AWS_SECRET_ACCESS_KEY="$S3_PLAT_SK"
-aws s3 sync /tmp/mdl "$DEST" --endpoint-url "$S3_PLAT_EP" || exit 1
+aws s3 sync /tmp/mdl "$DEST_URI" --endpoint-url "$S3_PLAT_EP" || exit 1
 echo "S3 import to platform bucket completed"
-`, srcURI, destS3)
+`
 	cmd := []string{"/bin/sh", "-c", script}
 	backoffLimit := int32(3)
 	ttlSeconds := int32(60)
