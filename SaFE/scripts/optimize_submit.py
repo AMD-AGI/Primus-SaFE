@@ -40,7 +40,8 @@ from typing import Optional
 API_URL  = os.environ.get("SAFE_API_URL", "https://core42.primus-safe.amd.com")
 SAFE_TOKEN  = os.environ.get("SAFE_API_KEY", "")
 PROXY    = "harbor.core42.primus-safe.amd.com/proxy"
-WORKSPACE = "core42-sandbox"
+WORKSPACE      = "core42-hyperloom"
+WEKAFS_VOLUME  = "/wekafs"
 
 DEFAULT_SGLANG_IMAGE = f"{PROXY}/lmsysorg/sglang:v0.5.10-rocm720-mi30x"
 DEFAULT_VLLM_IMAGE   = f"{PROXY}/vllm/vllm-openai-rocm:v0.18.0"
@@ -273,7 +274,7 @@ def find_safe_model(repo_id: str) -> Optional[dict]:
 
 def register_model(repo_id: str, hf_token: str = "") -> str:
     """Register a HuggingFace model in SaFE and return its model ID."""
-    print(f"  Registering {repo_id} in SaFE...")
+    print(f"  Registering {repo_id} in SaFE (workspace={WORKSPACE}, volume={WEKAFS_VOLUME})...")
     result = safe_request("POST", "api/v1/playground/models", {
         "source": {
             "url": repo_id,
@@ -281,6 +282,7 @@ def register_model(repo_id: str, hf_token: str = "") -> str:
             **({"token": hf_token} if hf_token else {}),
         },
         "workspace": WORKSPACE,
+        "target": {"volume": WEKAFS_VOLUME},
     })
     return result.get("id", "")
 
@@ -435,13 +437,17 @@ def main():
     parser.add_argument("--dry-run", action="store_true",
                         help="Print what would be submitted without actually submitting")
     parser.add_argument("--workspace", default=WORKSPACE)
+    parser.add_argument("--volume", default=WEKAFS_VOLUME,
+                        help="Workspace volume mountPath for model download (default: /wekafs)")
 
     args = parser.parse_args()
 
-    # Apply API key override
-    global SAFE_TOKEN
+    # Apply overrides
+    global SAFE_TOKEN, WORKSPACE, WEKAFS_VOLUME
     if args.api_key:
         SAFE_TOKEN = args.api_key
+    WORKSPACE     = args.workspace
+    WEKAFS_VOLUME = args.volume
     if not SAFE_TOKEN:
         print("Error: SAFE_API_KEY not set. Use --api-key or set SAFE_API_KEY env var.", file=sys.stderr)
         sys.exit(1)
