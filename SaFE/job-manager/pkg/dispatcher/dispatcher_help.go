@@ -228,7 +228,7 @@ func modifyContainers(obj *unstructured.Unstructured,
 		return fmt.Errorf("failed to find container with path: %v", path)
 	}
 
-	env := buildEnvironment(workload, resourceId)
+	env := buildEnvironment(workload, workspace, resourceId)
 	mainContainerName := commonworkload.GetMainContainer(workload, workload.Spec.Kind, resourceId)
 	for i := range containers {
 		container := containers[i].(map[string]interface{})
@@ -654,7 +654,7 @@ func buildPodAnnotations(workload *v1.Workload, resourceId int) map[string]inter
 }
 
 // buildEnvironment creates environment variables for the workload container.
-func buildEnvironment(workload *v1.Workload, resourceId int) []interface{} {
+func buildEnvironment(workload *v1.Workload, workspace *v1.Workspace, resourceId int) []interface{} {
 	var result []interface{}
 	if resourceId >= 0 && resourceId < len(workload.Spec.Resources) && workload.Spec.Resources[resourceId].HasGpu() {
 		if workload.GetEnv("AINIC_DRIVER_VERSION") != "" {
@@ -688,6 +688,15 @@ func buildEnvironment(workload *v1.Workload, resourceId int) []interface{} {
 	result = addEnvVar(result, workload, "DISPATCH_COUNT", strconv.Itoa(v1.GetWorkloadDispatchCnt(workload)+1))
 	if commonworkload.IsAuthoring(workload) {
 		result = addEnvVar(result, workload, jobutils.AdminControlPlaneEnv, v1.GetAdminControlPlane(workload))
+	}
+	if workspace != nil && v1.IsEnableWorkspaceStorage(workload) {
+		for _, vol := range workspace.Spec.Volumes {
+			if vol.EnableUserDir {
+				userDir := vol.MountPath + "/" + generateUserDir(v1.GetUserId(workload))
+				result = addEnvVar(result, workload, jobutils.UserDataEnv, userDir)
+				break
+			}
+		}
 	}
 	return result
 }
@@ -732,7 +741,7 @@ func buildHealthCheck(healthz *v1.HealthCheck) map[string]interface{} {
 
 // buildVolumeMount creates a volume mount definition.
 func buildVolumeMount(name, mountPath, subPath, userId string, readOnly, enableUserDir bool) interface{} {
-	userDir := "users/" + userId
+	userDir := generateUserDir(userId)
 	if enableUserDir {
 		if subPath == "" {
 			subPath = userDir
@@ -1161,6 +1170,7 @@ func (r *DispatcherReconciler) updateSandbox(ctx context.Context, clientSets *sy
 	if str := workspace.GetIdleTime(scope); str != "" {
 		v1.SetAnnotation(adminWorkload, "runtime.agent-sandbox.io/idle-timeout", str)
 	}
+
 	if len(rt.Spec.ResourceSpecs) == 0 {
 		return fmt.Errorf("no resource specs found")
 	}
@@ -1434,4 +1444,8 @@ func getPodSpec(w *v1.Workload) string {
 		podSpec = "podTemplate"
 	}
 	return podSpec
+}
+
+func generateUserDir(userId string) string {
+	return "users/" + userId
 }
