@@ -90,11 +90,27 @@ func (r *ModelReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 		return ctrl.Result{}, nil
 	}
 
-	// 4. Skip local_path models — they are already Ready on disk, no download needed
+	// 4. Skip local_path models — they are already Ready on disk, no download needed.
+	// We also backfill status.LocalPaths from spec.source.localPath when missing because
+	// the apiserver Create call cannot atomically populate the status subresource, so
+	// the array would otherwise stay empty in K8s/DB and the UI would not see a path.
 	if model.Spec.Source.AccessMode == v1.AccessModeLocalPath {
+		needsUpdate := false
 		if model.Status.Phase != v1.ModelPhaseReady {
 			model.Status.Phase = v1.ModelPhaseReady
 			model.Status.Message = "Model available from local path"
+			needsUpdate = true
+		}
+		if len(model.Status.LocalPaths) == 0 && strings.TrimSpace(model.Spec.Source.LocalPath) != "" {
+			model.Status.LocalPaths = []v1.ModelLocalPath{{
+				Workspace: model.Spec.Workspace,
+				Path:      model.Spec.Source.LocalPath,
+				Status:    v1.LocalPathStatusReady,
+				Message:   "Registered from local_path",
+			}}
+			needsUpdate = true
+		}
+		if needsUpdate {
 			model.Status.UpdateTime = &metav1.Time{Time: time.Now().UTC()}
 			if err := r.Status().Update(ctx, model); err != nil {
 				return ctrl.Result{}, err
