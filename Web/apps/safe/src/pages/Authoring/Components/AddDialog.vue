@@ -38,10 +38,10 @@
             <el-input v-model="form.description" :rows="2" type="textarea" />
           </el-form-item>
           <el-form-item label="image" prop="image" data-tour="authoring-field-image">
-            <ImageInput v-model="form.image" />
+            <ImageInput v-model="form.image" :disabled="isLimited" />
           </el-form-item>
           <el-form-item label="priority">
-            <el-select v-model="form.priority" placeholder="please select priority">
+            <el-select v-model="form.priority" placeholder="please select priority" :disabled="isLimited">
               <el-option label="Low" :value="0" />
               <el-option label="Medium" :value="1" />
               <el-option label="High" :value="2" v-if="isManager || store.isCurrentWorkspaceAdmin()" />
@@ -148,17 +148,17 @@
             </el-col>
             <el-col :span="12">
               <el-form-item label="cpu" prop="resource.cpu">
-                <el-input v-model="form.resource.cpu" :placeholder="placeholders.cpu" />
+                <el-input v-model="form.resource.cpu" :placeholder="placeholders.cpu" :disabled="isLimited" />
               </el-form-item>
             </el-col>
             <el-col :span="12" v-if="!flavorMaxVal || flavorMaxVal['amd.com/gpu']">
               <el-form-item label="gpu">
-                <el-input v-model="form.resource.gpu" :placeholder="placeholders.gpu" />
+                <el-input v-model="form.resource.gpu" :placeholder="placeholders.gpu" :disabled="isLimited" />
               </el-form-item>
             </el-col>
             <el-col :span="12">
               <el-form-item label="memory" prop="resource.memory">
-                <el-input v-model="form.resource.memory" :placeholder="placeholders.memory">
+                <el-input v-model="form.resource.memory" :placeholder="placeholders.memory" :disabled="isLimited">
                   <template #append>Gi</template>
                 </el-input>
               </el-form-item>
@@ -168,6 +168,7 @@
                 <el-input
                   v-model="form.resource.ephemeralStorage"
                   :placeholder="placeholders.ephemeralStorage"
+                  :disabled="isLimited"
                 >
                   <template #append>Gi</template>
                 </el-input>
@@ -285,7 +286,7 @@
               <el-divider border-style="dashed" class="kv-divider" />
 
               <el-form-item label="env vars" class="kv-full">
-                <KeyValueList v-model="form.envList" :max="20" keyMode="input" info="Add up to 20 envs" />
+                <KeyValueList v-model="form.envList" :max="20" keyMode="input" info="Add up to 20 envs" :disabled="isLimited" />
               </el-form-item>
             </div>
           </transition>
@@ -337,15 +338,17 @@ import type { FormItemRule } from 'element-plus'
 import { InfoFilled, ArrowRight } from '@element-plus/icons-vue'
 import { useUserStore } from '@/stores/user'
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   visible: boolean
   wlid?: string
   action: string
-}>()
+  limitedEdit?: boolean
+}>(), { limitedEdit: false })
 const emit = defineEmits(['update:visible', 'success'])
 
 const isEdit = computed(() => props.action === 'Edit')
 const isResume = computed(() => props.action === 'Resume')
+const isLimited = computed(() => isEdit.value && props.limitedEdit)
 const cachedUseWorkspaceStorage = ref<boolean | undefined>(undefined)
 
 const store = useWorkspaceStore()
@@ -533,14 +536,21 @@ const onSubmit = async (formEl: FormInstance | undefined) => {
     } else {
       if (!props.wlid) return
 
-      await editWorkload(props.wlid, {
-        description: form.description,
-        priority: form.priority,
-        images: [form.image],
-        resources,
-        env: convertListToKeyValueMap(form.envList),
-        ...(form.timeout !== undefined ? { timeout: form.timeout } : {}),
-      })
+      if (isLimited.value) {
+        await editWorkload(props.wlid, {
+          description: form.description,
+          ...(form.timeout !== undefined ? { timeout: form.timeout } : {}),
+        })
+      } else {
+        await editWorkload(props.wlid, {
+          description: form.description,
+          priority: form.priority,
+          images: [form.image],
+          resources,
+          env: convertListToKeyValueMap(form.envList),
+          ...(form.timeout !== undefined ? { timeout: form.timeout } : {}),
+        })
+      }
       ElMessage({ message: 'Edit successful', type: 'success' })
     }
 

@@ -316,6 +316,7 @@
     v-model:visible="addVisible"
     :wlid="curWlId"
     :action="curAction"
+    :limited-edit="curLimitedEdit"
     @success="onDialogSuccess"
   />
 </template>
@@ -414,6 +415,7 @@ const dialogImportMap: Record<string, () => Promise<any>> = {
 const addVisible = ref(false)
 const curWlId = ref('')
 const curAction = ref<'Edit' | 'Resume'>('Edit')
+const curLimitedEdit = ref(false)
 const activeDialogComp = shallowRef<any>(null)
 const savedWorkspaceId = ref<string>()
 
@@ -563,15 +565,26 @@ type Action = {
   onClick: (row: Row) => void | Promise<void>
 }
 
+const isCicdKind = (kind: string) =>
+  [WorkloadKind.AutoscalingRunnerSet, WorkloadKind.EphemeralRunner, WorkloadKind.UnifiedJob].includes(kind as WorkloadKind)
+
+const isInferKind = (kind: string) =>
+  [WorkloadKind.Deployment, WorkloadKind.StatefulSet].includes(kind as WorkloadKind)
+
 const getEditDisabled = (row: Row): boolean => {
   const kind = getRowKind(row)
-  if (kind === WorkloadKind.Deployment || kind === WorkloadKind.StatefulSet) return false
-  if (isTrainingLike(kind)) {
-    const maxRetry = row.maxRetry ?? 0
-    if (maxRetry > 0) return !['Running', 'Pending'].includes(row.phase)
-    return !(row.phase === 'Pending' && (row.queuePosition ?? 0) > 0)
-  }
+  if (isInferKind(kind)) return false
+  if (isCicdKind(kind)) return !['Running', 'Pending'].includes(row.phase)
   return !['Running', 'Pending'].includes(row.phase)
+}
+
+const getIsLimitedEdit = (row: Row): boolean => {
+  const kind = getRowKind(row)
+  if (isInferKind(kind) || isCicdKind(kind)) return false
+  const phase = row.phase
+  const queuePosition = row.queuePosition ?? 0
+  if (phase === 'Pending' && queuePosition > 0) return false
+  return true
 }
 
 const getActions = (row: Row): Action[] => {
@@ -696,6 +709,7 @@ const openDialog = async (row: Row, action: 'Edit' | 'Resume') => {
   const mod = await loader()
   curWlId.value = row.workloadId
   curAction.value = action
+  curLimitedEdit.value = action === 'Edit' ? getIsLimitedEdit(row) : false
   addVisible.value = false
   activeDialogComp.value = mod.default
   await nextTick()

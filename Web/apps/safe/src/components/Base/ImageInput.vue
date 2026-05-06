@@ -5,6 +5,7 @@
         size="small"
         :type="mode === 'select' ? 'primary' : 'default'"
         :plain="mode === 'select'"
+        :disabled="props.disabled"
         @click="mode = 'select'"
       >
         <el-icon class="mr-1"><Search /></el-icon>Select
@@ -13,6 +14,7 @@
         size="small"
         :type="mode === 'input' ? 'primary' : 'default'"
         :plain="mode === 'input'"
+        :disabled="props.disabled"
         @click="mode = 'input'"
       >
         <el-icon class="mr-1"><EditPen /></el-icon>Custom
@@ -27,6 +29,7 @@
         placeholder="Search and select image"
         clearable
         filterable
+        :disabled="props.disabled"
         :filter-method="filterImageOptions"
         class="flex-1"
         @visible-change="onSelectVisible"
@@ -45,6 +48,7 @@
         v-model="model"
         placeholder="Paste or type image address"
         clearable
+        :disabled="props.disabled"
         class="flex-1"
       />
 
@@ -70,12 +74,14 @@ defineOptions({ name: 'ImageInput' })
 
 const model = defineModel<string>({ default: '' })
 
-withDefaults(
+const props = withDefaults(
   defineProps<{
     showCopy?: boolean
+    disabled?: boolean
   }>(),
   {
     showCopy: true,
+    disabled: false,
   },
 )
 
