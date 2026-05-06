@@ -508,8 +508,15 @@ func (h *Handler) createModelFromS3Sync(ctx context.Context, req *CreateModelReq
 	}
 	ak := strings.TrimSpace(req.S3Source.AccessKeyID)
 	sk := strings.TrimSpace(req.S3Source.SecretAccessKey)
+	endpoint := strings.TrimSpace(req.S3Source.Endpoint)
 	if (ak != "" && sk == "") || (ak == "" && sk != "") {
 		return nil, commonerrors.NewBadRequest("for s3_sync, provide both accessKeyId and secretAccessKey, or omit both (use platform credentials on the job only if the source allows it)")
+	}
+	// If user supplies own credentials, they MUST also supply the endpoint —
+	// otherwise the download Job would point at the platform S3 endpoint and never
+	// find their bucket (silent 404s).
+	if ak != "" && sk != "" && endpoint == "" {
+		return nil, commonerrors.NewBadRequest("s3Source.endpoint is required when accessKeyId/secretAccessKey are provided (e.g. https://s3.us-west-2.amazonaws.com)")
 	}
 
 	modelName := strings.TrimSpace(req.Source.ModelName)
@@ -533,7 +540,6 @@ func (h *Handler) createModelFromS3Sync(ctx context.Context, req *CreateModelReq
 		if region == "" {
 			region = "us-east-1"
 		}
-		endpoint := strings.TrimSpace(req.S3Source.Endpoint)
 		// Write keys in both modern (access_key_id/secret_access_key) and legacy
 		// (access_key/secret_key) forms so the s3-downloader image — which reads
 		// the platform's primus-safe-s3 secret — can consume our per-model secret
@@ -571,6 +577,9 @@ func (h *Handler) createModelFromS3Sync(ctx context.Context, req *CreateModelReq
 	annotations := map[string]string{}
 	if s3SrcSecretName != "" {
 		annotations[v1.ModelS3SourceSecretAnn] = s3SrcSecretName
+	}
+	if endpoint != "" {
+		annotations[v1.ModelS3SourceEndpointAnn] = endpoint
 	}
 	if userName != "" {
 		annotations[v1.UserNameAnnotation] = userName
