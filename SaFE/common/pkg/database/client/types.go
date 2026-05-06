@@ -268,7 +268,9 @@ type Model struct {
 	LocalPaths   string      `gorm:"column:local_paths" json:"localPaths" db:"local_paths"`    // JSON array of ModelLocalPathDB
 	Origin       string      `gorm:"column:origin;default:external" json:"origin" db:"origin"` // "external" or "fine_tuned"
 	SftJobId     string      `gorm:"column:sft_job_id" json:"sftJobId" db:"sft_job_id"`        // SFT workload ID (origin=fine_tuned)
-	BaseModel    string      `gorm:"column:base_model" json:"baseModel" db:"base_model"`       // Base model HF name (origin=fine_tuned)
+	BaseModel     string     `gorm:"column:base_model" json:"baseModel" db:"base_model"`             // Base model HF name (origin=fine_tuned)
+	TargetVolume  string     `gorm:"column:target_volume" json:"targetVolume" db:"target_volume"`    // Optional volume (mountPath) selection for download
+	TargetSubpath string     `gorm:"column:target_subpath" json:"targetSubpath" db:"target_subpath"` // Optional sub-directory under volume
 	UserId       string      `gorm:"column:user_id" json:"userId" db:"user_id"`
 	UserName     string      `gorm:"column:user_name" json:"userName" db:"user_name"`
 	CreatedAt    pq.NullTime `gorm:"column:created_at;autoCreateTime" json:"createdAt" db:"created_at"`
