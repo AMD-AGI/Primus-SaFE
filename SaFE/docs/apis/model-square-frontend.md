@@ -11,7 +11,7 @@
 |------|---------------------|------------|
 | Hugging Face 下载 | `local` | `source.url` 为 HF 或 `org/model`；元数据由后端从 HF 拉取。 |
 | Remote API | `remote_api` | `displayName`、`source.modelName`、（建议）`apiKey` 等。 |
-| 已有共享盘路径 | `local_path` | `displayName`、`source.localPath`；**可传** `icon`、`label`、`tags`、`maxTokens`、`source.url`（留档）、`origin`（如 `external` / `fine_tuned`）。 |
+| 已有共享盘路径 | `local_path` | `displayName`、`source.localPath`；**可传** `icon`、`label`、`tags`、`maxTokens`、`source.url`（留档）、`origin`（如 `external` / `fine_tuned`）。**不传 `origin` 时**：若同时传 `sftJobId` 则视为 `fine_tuned`，否则默认 `external`（用户手工登记）。 |
 | 从用户 S3 拉取到平台 | `s3_sync` | 见下节；集群内仍表现为「本地部署」，但列表 `accessMode` 为 `s3_sync`。 |
 
 **统一入口**：`POST /api/v1/playground/models`（与现有「Create Model」一致）。
@@ -82,15 +82,15 @@
 
 **规则**：
 
-- `s3Source.uri`：必须以 `s3://` 开头。
+- `s3Source.uri`：**必须**以 `s3://` 开头并含非空 bucket，例如 `s3://my-bucket/prefix`。
 - `accessKeyId` / `secretAccessKey`：**要么成对出现，要么都省略**（省略时由 Job 使用**平台 S3 凭据**去拉源；仅当源对平台角色可读或公开读时才能成功，否则须填用户密钥）。
 - `modelName`：可省略，后端会由 `displayName` 归一化生成。
-- 列表/详情中 **`accessMode` 为 `s3_sync`**（与集群内 `local` + 标签区分，由后端在 JSON 中统一为 `s3_sync`）。
+- 列表/详情中 **`accessMode` 字段返回 `s3_sync`**，前端按字符串识别即可。
 
 **列表筛选**：
 
-- `GET /api/v1/playground/models?accessMode=s3_sync` 只显示 S3 导入类模型。
-- `accessMode=local` 在 K8s 回退列表路径下会 **排除** `s3_sync`（避免与纯 HF 下载混淆）。若你们主要走 DB 列表且 DB 中已存 `access_mode=s3_sync`，行为与库表一致即可。
+- `GET /api/v1/playground/models?accessMode=<value>`，`<value>` 取值：`local | remote_api | local_path | s3_sync`（不传 = 全部）。
+- `s3_sync` 与 `local`（HF 下载）在结果中是**互斥两组**，前端按字符串等值过滤即可，无需关心后端如何在 K8s 标签上区分。
 
 **阶段提示**：与 HF 的 `local` 一样，可能经历 `Pending` / `Uploading` / `Downloading` / `Ready` / `Failed`；可复用现有轮询与重试（`POST .../models/:id/retry`）交互。
 
