@@ -180,37 +180,37 @@
           <div class="el-form-item__tip">Final path: &lt;volume&gt;/[subpath/]models/&lt;name&gt;. Only A-Za-z0-9._-/ allowed, no '..' segments.</div>
         </el-form-item>
 
-        <div class="section-divider">
-          <div class="section-bar" />
-          <span class="section-title">S3 Credentials (optional)</span>
-        </div>
-        <div class="el-form-item__tip m-b-4">Leave empty to use platform S3 credentials for internal buckets.</div>
+        <el-collapse v-model="showS3Credentials" class="m-t-2 m-b-4">
+          <el-collapse-item title="S3 Credentials (optional)" name="s3cred">
+            <div class="el-form-item__tip m-b-4">Leave empty to use platform S3 credentials for internal buckets.</div>
 
-        <el-row :gutter="16">
-          <el-col :span="12">
-            <el-form-item label="Access Key ID">
-              <el-input v-model="form.s3AccessKeyId" placeholder="AKIA..." />
-            </el-form-item>
-          </el-col>
-          <el-col :span="12">
-            <el-form-item label="Secret Access Key">
-              <el-input v-model="form.s3SecretAccessKey" type="password" show-password placeholder="Secret..." />
-            </el-form-item>
-          </el-col>
-        </el-row>
+            <el-row :gutter="16">
+              <el-col :span="12">
+                <el-form-item label="Access Key ID">
+                  <el-input v-model="form.s3AccessKeyId" placeholder="AKIA..." />
+                </el-form-item>
+              </el-col>
+              <el-col :span="12">
+                <el-form-item label="Secret Access Key">
+                  <el-input v-model="form.s3SecretAccessKey" type="password" show-password placeholder="Secret..." />
+                </el-form-item>
+              </el-col>
+            </el-row>
 
-        <el-row :gutter="16">
-          <el-col :span="12">
-            <el-form-item label="Region">
-              <el-input v-model="form.s3Region" placeholder="e.g. us-west-2" />
-            </el-form-item>
-          </el-col>
-          <el-col :span="12">
-            <el-form-item :label="s3EndpointRequired ? 'Endpoint *' : 'Endpoint'" prop="s3Endpoint">
-              <el-input v-model="form.s3Endpoint" placeholder="e.g. https://s3.us-west-2.amazonaws.com" />
-            </el-form-item>
-          </el-col>
-        </el-row>
+            <el-row :gutter="16">
+              <el-col :span="12">
+                <el-form-item label="Region">
+                  <el-input v-model="form.s3Region" placeholder="e.g. us-west-2" />
+                </el-form-item>
+              </el-col>
+              <el-col :span="12">
+                <el-form-item :label="s3EndpointRequired ? 'Endpoint *' : 'Endpoint'" prop="s3Endpoint">
+                  <el-input v-model="form.s3Endpoint" placeholder="e.g. https://s3.us-west-2.amazonaws.com" />
+                </el-form-item>
+              </el-col>
+            </el-row>
+          </el-collapse-item>
+        </el-collapse>
 
         <el-collapse v-model="showOptionalFields" class="m-t-2 m-b-4">
           <el-collapse-item title="Optional Metadata" name="optional">
@@ -253,6 +253,7 @@ const formRef = ref<FormInstance>()
 const submitting = ref(false)
 const workspaceStore = useWorkspaceStore()
 const showOptionalFields = ref<string[]>([])
+const showS3Credentials = ref<string[]>([])
 
 const visible = computed({
   get: () => props.visible,
@@ -502,6 +503,7 @@ const handleClose = () => {
   Object.assign(form, initialForm())
   formRef.value?.resetFields()
   showOptionalFields.value = []
+  showS3Credentials.value = []
 }
 </script>
 

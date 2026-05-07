@@ -282,7 +282,7 @@
       <el-pagination
         v-model:current-page="currentPage"
         v-model:page-size="pageSize"
-        :total="models.length"
+        :total="total"
         :page-sizes="[12, 24, 48]"
         layout="total, sizes, prev, pager, next"
         background
@@ -453,9 +453,10 @@ const fetchModels = async () => {
     if (filters.owner === 'mine' && userStore.userId) params.userId = userStore.userId
     if (wsStore.currentWorkspaceId) params.workspace = wsStore.currentWorkspaceId
 
-    const res = (await getModelsList(params)) as unknown as ModelsListResp
-    models.value = res.items || []
-    total.value = res.total || 0
+    const raw = (await getModelsList(params)) as unknown as any
+    const res: ModelsListResp = raw?.data ?? raw
+    models.value = res?.items || []
+    total.value = res?.total || models.value.length
   } catch (_error) {
     ElMessage.error('Failed to load models')
   } finally {

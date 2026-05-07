@@ -26,12 +26,13 @@
   <!-- Table -->
   <el-card class="mt-6 safe-card" shadow="never">
     <el-table
-      :height="'calc(100vh - 295px)'"
+      :height="'calc(100vh - 245px)'"
       :data="tableData"
       size="large"
       class="m-t-2"
       v-loading="loading"
       :element-loading-text="$loadingText"
+      @filter-change="handleFilterChange"
     >
       <el-table-column prop="displayName" label="Display Name" min-width="180">
         <template #default="{ row }">
@@ -176,7 +177,7 @@ const fetchData = async () => {
     })
     const res = (raw as any)?.data ?? raw
     tableData.value = res?.items || []
-    pagination.total = res?.totalCount || 0
+    pagination.total = res?.total ?? res?.totalCount ?? 0
   } catch (e: any) {
     ElMessage.error(e?.message || 'Failed to load tasks')
   } finally {
