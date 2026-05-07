@@ -610,13 +610,24 @@ func IsModelOptimizationEnable() bool {
 }
 
 // GetModelOptimizationClawBaseURL returns the base URL used to reach the
-// PrimusClaw backend, e.g. "https://oci-slc.primus-safe.amd.com/claw-api/v1".
-// Precedence: direct config key > secret file "claw_base_url" > empty string.
+// PrimusClaw backend, e.g. "https://core42.primus-safe.amd.com/claw-api/v1".
+// Precedence: direct config key > secret file "claw_base_url" > derived from global.sub_domain + global.domain.
 func GetModelOptimizationClawBaseURL() string {
 	if v := getString(modelOptimizationClawBaseURL, ""); v != "" {
 		return v
 	}
-	return getFromFile(modelOptimizationSecretPath, "claw_base_url")
+	if v := getFromFile(modelOptimizationSecretPath, "claw_base_url"); v != "" {
+		return v
+	}
+	d := getString(domain, "")
+	if d == "" {
+		return ""
+	}
+	sub := getString(subDomain, "")
+	if sub != "" {
+		return "https://" + sub + "." + d + "/claw-api/v1"
+	}
+	return "https://" + d + "/claw-api/v1"
 }
 
 // GetModelOptimizationClawAPIKey returns the bearer token used to authenticate

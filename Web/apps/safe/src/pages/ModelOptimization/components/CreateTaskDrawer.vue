@@ -35,16 +35,6 @@
             </el-select>
           </el-form-item>
 
-          <el-form-item label="Workspace" prop="workspace">
-            <el-select v-model="form.workspace" placeholder="Select workspace" class="w-full" @change="handleWorkspaceChange">
-              <el-option
-                v-for="ws in wsStore.items"
-                :key="ws.workspaceId"
-                :label="ws.workspaceName"
-                :value="ws.workspaceId"
-              />
-            </el-select>
-          </el-form-item>
 
           <el-form-item label="Display Name" prop="displayName">
             <el-input v-model="form.displayName" placeholder="Optional display name" />
@@ -206,7 +196,6 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { createOptimizationTask } from '@/services/model-optimization'
 import type { CreateOptimizationTaskPayload } from '@/services/model-optimization/type'
 import { getModelsList } from '@/services/playground'
-import { useWorkspaceStore } from '@/stores/workspace'
 import { useRouter } from 'vue-router'
 
 const FRAMEWORK_OPTIONS = ['sglang', 'vllm']
@@ -224,7 +213,6 @@ const emit = defineEmits<{
   success: []
 }>()
 
-const wsStore = useWorkspaceStore()
 const router = useRouter()
 
 const formRef = ref<FormInstance>()
@@ -234,7 +222,7 @@ const readyModels = ref<Array<{ modelId: string; modelName: string }>>([])
 
 const defaultForm = (): CreateOptimizationTaskPayload => ({
   modelId: '',
-  workspace: wsStore.currentWorkspaceId || '',
+  workspace: 'sandbox',
   displayName: '',
   mode: 'local',
   framework: 'sglang',
@@ -259,35 +247,22 @@ const form = reactive(defaultForm())
 
 const rules: FormRules = {
   modelId: [{ required: true, message: 'Please select a model', trigger: 'change' }],
-  workspace: [{ required: true, message: 'Workspace is required', trigger: 'change' }],
 }
 
 watch(() => props.visible, (v) => {
   if (v) {
     Object.assign(form, defaultForm())
-    const ws = wsStore.items?.find((i: any) => i.workspaceId === form.workspace)
-    if (ws?.gpuProduct) form.gpuType = ws.gpuProduct
     loadModels()
   }
 })
 
-const handleWorkspaceChange = () => {
-  const ws = wsStore.items?.find((i: any) => i.workspaceId === form.workspace)
-  if (ws?.gpuProduct) form.gpuType = ws.gpuProduct
-  loadModels()
-}
-
 const loadModels = async () => {
   modelsLoading.value = true
   try {
-    const raw = await getModelsList({ workspace: form.workspace || wsStore.currentWorkspaceId })
+    const raw = await getModelsList({ workspace: 'sandbox' })
     const res = (raw as any)?.data ?? raw
     const items = res?.items || []
-    readyModels.value = items.filter(
-      (m: any) =>
-        m.phase === 'Ready' &&
-        (m.accessMode === 'local' || m.accessMode === 'local_path' || m.accessMode === 's3_sync'),
-    )
+    readyModels.value = items.filter((m: any) => m.phase === 'Ready')
   } catch {
     ElMessage.error('Failed to load models')
   } finally {

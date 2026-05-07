@@ -43,7 +43,11 @@
         </template>
       </el-table-column>
       <el-table-column prop="modelId" label="Model" min-width="200" />
-      <el-table-column prop="workspace" label="Workspace" width="160" />
+      <el-table-column label="Config" width="160">
+        <template #default="{ row }">
+          <span class="config-tag">{{ row.framework || '-' }} · {{ row.precision || '-' }} · TP{{ row.tp ?? 1 }}</span>
+        </template>
+      </el-table-column>
       <el-table-column prop="status" label="Status" width="130"
         column-key="statusFilter"
         :filters="statusFilters"
@@ -255,3 +259,11 @@ const handleDelete = async (row: OptimizationTask) => {
 
 onMounted(fetchData)
 </script>
+
+<style scoped>
+.config-tag {
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+  font-family: monospace;
+}
+</style>
