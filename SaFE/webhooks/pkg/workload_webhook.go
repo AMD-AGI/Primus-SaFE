@@ -288,10 +288,6 @@ func (m *WorkloadMutator) mutateResources(_ context.Context, workload *v1.Worklo
 
 		newResources = append(newResources, res)
 	}
-	if workspace != nil {
-		klog.Infof("workspace: %s, new resoruces: %s", workspace.Name, string(jsonutils.MarshalSilently(newResources)))
-	}
-
 	workload.Spec.Resources = newResources
 	return nil
 }
@@ -815,8 +811,6 @@ func (v *WorkloadValidator) validateRequiredParams(workload *v1.Workload) error 
 	if len(workload.Spec.Resources) == 0 {
 		errs = append(errs, fmt.Errorf("the resources are empty"))
 	}
-	klog.Infof("workload.spec.resources: %s, workspace: %s",
-		string(jsonutils.MarshalSilently(workload.Spec.Resources)), workload.Spec.Workspace)
 	for _, res := range workload.Spec.Resources {
 		if err := validateResource(&res, workload.Spec.Workspace); err != nil {
 			errs = append(errs, err)
@@ -990,9 +984,6 @@ func validateResource(resource *v1.WorkloadResource, workspaceName string) error
 	}
 	if resource.EphemeralStorage == "" {
 		errs = append(errs, fmt.Errorf("the ephemeralStorage is empty"))
-	}
-	if resource.HasGpu() && resource.GPUName == "" {
-		errs = append(errs, fmt.Errorf("This workspace %s has no GPU resources", workspaceName))
 	}
 	if err := utilerrors.NewAggregate(errs); err != nil {
 		return err
