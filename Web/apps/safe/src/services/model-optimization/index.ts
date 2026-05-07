@@ -53,5 +53,5 @@ export function subscribeTaskEvents(
   const baseURL = request.defaults.baseURL ?? ''
   let url = `${baseURL}${BASE}/tasks/${id}/events`
   if (afterEventId) url += `?after_event_id=${encodeURIComponent(afterEventId)}`
-  return new EventSource(url, { withCredentials: true })
+  return new EventSource(url)
 }
