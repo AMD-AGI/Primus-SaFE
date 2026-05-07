@@ -566,6 +566,36 @@ func IsMonarchEnable() bool {
 	return getBool(monarchEnable, false)
 }
 
+func IsSandboxEnable() bool {
+	return getBool(sandboxEnable, false)
+}
+
+func GetSandboxNamespace() string {
+	return getString(sandboxNamespace, "")
+}
+
+func GetSandboxSecret() string {
+	return getString(sandboxSecret, "")
+}
+
+// ── MCP (Model Context Protocol) ────────────────────────────────────────
+
+func IsMCPEnable() bool {
+	return getBool(mcpEnable, false)
+}
+
+func GetMCPBasePath() string {
+	return getString(mcpBasePath, "/api/v1/mcp")
+}
+
+func GetMCPInstructions() string {
+	return getString(mcpInstructions, "")
+}
+
+func GetMCPAllowedOrigins() []string {
+	return getStrings(mcpAllowedOrigins)
+}
+
 func GetMonarchClientRole() string {
 	return getString(monarchClientRole, "")
 }
