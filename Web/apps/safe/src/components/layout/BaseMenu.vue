@@ -336,7 +336,7 @@ const modelLabMenuItems: MenuItem[] = [
   },
   {
     index: '/model-optimization',
-    name: 'Model Optimization',
+    name: 'Optimization',
     icon: menuIcons.modelOptimization,
   },
 ]

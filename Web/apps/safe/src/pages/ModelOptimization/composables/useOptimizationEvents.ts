@@ -80,6 +80,7 @@ export function useOptimizationEvents(taskId: string) {
     es.onerror = () => {
       sseError.value = true
       close()
+      setTimeout(() => { if (!isDone.value) connect() }, 5000)
     }
   }
 

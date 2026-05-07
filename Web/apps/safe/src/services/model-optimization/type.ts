@@ -61,14 +61,32 @@ export interface OptimizationTask {
   clawSessionId?: string
   displayName: string
   modelId: string
+  modelPath?: string
   workspace: string
+  userId?: string
+  userName?: string
+  mode?: string
+  framework?: string
+  precision?: string
+  tp?: number
+  ep?: number
+  gpuType?: string
+  isl?: number
+  osl?: number
+  concurrency?: number
+  kernelBackends?: string[]
+  geakStepLimit?: number
+  image?: string
+  resultsPath?: string
   status: OptimizationStatus
   currentPhase?: number
   currentPhaseName?: string
   message?: string
+  prompt?: string
   createdAt: string
   updatedAt: string
-  [key: string]: unknown
+  startedAt?: string
+  finishedAt?: string
 }
 
 export interface OptimizationTaskListResponse {
