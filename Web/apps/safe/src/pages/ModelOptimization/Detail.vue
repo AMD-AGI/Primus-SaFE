@@ -10,17 +10,17 @@
       </div>
       <div class="w-right">
         <el-button
-          v-if="isRunning"
           type="warning"
           plain
           :icon="VideoPause"
+          :disabled="!isRunning"
           @click="handleInterrupt"
         >Interrupt</el-button>
         <el-button
-          v-if="canRetry"
           type="primary"
           plain
           :icon="RefreshRight"
+          :disabled="!canRetry"
           @click="handleRetry"
         >Retry</el-button>
       </div>
@@ -28,9 +28,52 @@
     <div class="w-meta">
       <span class="item"><span class="label">Model</span>{{ task.modelId }}</span>
       <span class="item"><span class="label">Workspace</span>{{ task.workspace }}</span>
+      <span class="item" v-if="task.userName"><span class="label">User</span>{{ task.userName }}</span>
       <span class="item"><span class="label">Created</span>{{ formatTimeStr(task.createdAt) }}</span>
+      <span class="item" v-if="task.finishedAt"><span class="label">Finished</span>{{ formatTimeStr(task.finishedAt) }}</span>
+    </div>
+    <div class="w-meta mt-2" v-if="task.message">
+      <span class="item"><span class="label">Message</span>{{ task.message }}</span>
     </div>
   </div>
+
+  <el-alert
+    v-if="sseError"
+    type="warning"
+    title="Realtime connection lost"
+    :closable="false"
+    style="margin-bottom: 12px"
+  >
+    <el-button link @click="connect()">Reconnect</el-button>
+  </el-alert>
+
+  <!-- Task Configuration -->
+  <el-card v-if="task" class="mt-4 safe-card" shadow="never">
+    <div class="section-header">
+      <span class="section-bar" />
+      <span class="section-title">Configuration</span>
+    </div>
+    <el-descriptions border :column="4" size="small">
+      <el-descriptions-item label="Mode">{{ task.mode || '-' }}</el-descriptions-item>
+      <el-descriptions-item label="Framework">{{ task.framework || '-' }}</el-descriptions-item>
+      <el-descriptions-item label="Precision">{{ task.precision || '-' }}</el-descriptions-item>
+      <el-descriptions-item label="GPU Type">{{ task.gpuType || '-' }}</el-descriptions-item>
+      <el-descriptions-item label="TP">{{ task.tp ?? '-' }}</el-descriptions-item>
+      <el-descriptions-item label="EP">{{ task.ep ?? '-' }}</el-descriptions-item>
+      <el-descriptions-item label="ISL">{{ task.isl ?? '-' }}</el-descriptions-item>
+      <el-descriptions-item label="OSL">{{ task.osl ?? '-' }}</el-descriptions-item>
+      <el-descriptions-item label="Concurrency">{{ task.concurrency ?? '-' }}</el-descriptions-item>
+      <el-descriptions-item label="GEAK Step Limit">{{ task.geakStepLimit ?? '-' }}</el-descriptions-item>
+      <el-descriptions-item label="Kernel Backends">{{ task.kernelBackends?.join(', ') || '-' }}</el-descriptions-item>
+      <el-descriptions-item label="Current Phase">{{ task.currentPhaseName || (task.currentPhase ?? '-') }}</el-descriptions-item>
+      <el-descriptions-item label="Model Path" :span="2">{{ task.modelPath || '-' }}</el-descriptions-item>
+      <el-descriptions-item label="Image" :span="2">
+        <span class="text-ellipsis">{{ task.image || '-' }}</span>
+      </el-descriptions-item>
+      <el-descriptions-item label="Results Path" :span="2">{{ task.resultsPath || '-' }}</el-descriptions-item>
+      <el-descriptions-item v-if="task.clawSessionId" label="Claw Session" :span="2">{{ task.clawSessionId }}</el-descriptions-item>
+    </el-descriptions>
+  </el-card>
 
   <!-- Phase Timeline -->
   <el-card v-if="phases.length" class="mt-4 safe-card" shadow="never">
@@ -205,7 +248,11 @@ const fetchDetail = async () => {
   if (!taskId.value) return
   detailLoading.value = true
   try {
-    task.value = await getOptimizationTask(taskId.value)
+    const res = await getOptimizationTask(taskId.value)
+    task.value = (res as any)?.data ?? res
+  } catch (e: any) {
+    console.error('[OptDetail] fetchDetail failed:', e)
+    ElMessage.error(e?.message || 'Failed to load task detail')
   } finally {
     detailLoading.value = false
   }
@@ -214,7 +261,8 @@ const fetchDetail = async () => {
 const fetchArtifacts = async () => {
   if (!taskId.value) return
   try {
-    artifacts.value = await listOptimizationArtifacts(taskId.value)
+    const res = await listOptimizationArtifacts(taskId.value)
+    artifacts.value = (res as any)?.items ?? res ?? []
   } catch {
     artifacts.value = []
   }
@@ -232,9 +280,11 @@ const handleInterrupt = async () => {
     })
     await interruptOptimizationTask(taskId.value)
     ElMessage.success('Task interrupted')
-    fetchDetail()
-  } catch (e) {
+  } catch (e: any) {
     if (e === 'cancel' || e === 'close') return
+    ElMessage.error(e?.message || 'Failed to interrupt task')
+  } finally {
+    fetchDetail()
   }
 }
 
@@ -247,10 +297,12 @@ const handleRetry = async () => {
     await retryOptimizationTask(taskId.value)
     ElMessage.success('Task retried')
     resetSSE()
-    fetchDetail()
     connect()
-  } catch (e) {
+  } catch (e: any) {
     if (e === 'cancel' || e === 'close') return
+    ElMessage.error(e?.message || 'Failed to retry task')
+  } finally {
+    fetchDetail()
   }
 }
 
@@ -271,10 +323,7 @@ watch(isDone, (v) => {
 onMounted(async () => {
   await fetchDetail()
   fetchArtifacts()
-  const status = task.value?.status
-  if (status === 'Running' || status === 'Pending') {
-    connect()
-  }
+  connect()
 })
 </script>
 
@@ -284,8 +333,10 @@ onMounted(async () => {
 .w-left { display: flex; align-items: center; gap: 4px; }
 .w-right { display: flex; gap: 8px; }
 .w-name { font-size: 20px; font-weight: 600; margin: 0; }
-.w-meta { display: flex; gap: 24px; margin-top: 8px; font-size: 13px; color: var(--el-text-color-secondary); }
+.w-meta { display: flex; flex-wrap: wrap; gap: 16px 24px; margin-top: 8px; font-size: 13px; color: var(--el-text-color-secondary); }
 .w-meta .label { font-weight: 500; margin-right: 6px; }
+.mt-2 { margin-top: 8px; }
+.text-ellipsis { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 400px; display: inline-block; vertical-align: bottom; }
 
 .section-header { display: flex; align-items: center; gap: 8px; margin-bottom: 16px; }
 .section-bar { width: 3px; height: 16px; border-radius: 2px; background: var(--safe-primary, var(--el-color-primary)); }

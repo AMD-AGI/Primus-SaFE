@@ -4,6 +4,13 @@ export interface ClusterItem {
   isProtected: boolean
 }
 
+export interface WorkspaceVolume {
+  id: number
+  type: string
+  mountPath: string
+  accessMode: string
+}
+
 export interface WorkspaceItem {
   workspaceName: string
   workspaceId: string
@@ -12,7 +19,9 @@ export interface WorkspaceItem {
   isDefault?: boolean
   managers?: string[]
   scopes: ScopesKeys[]
-  clusterId?: string // Cluster the workspace belongs to
+  clusterId?: string
+  gpuProduct?: string
+  volumes?: WorkspaceVolume[]
 }
 
 export const SCOPES_KEYS = ['Train', 'Infer', 'Authoring', 'CICD', 'Ray', 'Sandbox'] as const

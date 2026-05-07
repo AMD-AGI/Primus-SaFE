@@ -84,7 +84,6 @@
                     :key="g.value"
                     :label="g.label"
                     :value="g.value"
-                    :disabled="g.disabled"
                   />
                 </el-select>
               </el-form-item>
@@ -207,9 +206,9 @@ const FRAMEWORK_OPTIONS = ['sglang', 'vllm']
 const PRECISION_OPTIONS = ['FP4', 'FP8']
 const KERNEL_BACKEND_OPTIONS = ['GEAK', 'Claude Code', 'Codex']
 const GPU_TYPE_OPTIONS = [
-  { value: 'MI300X', label: 'MI300X', disabled: true },
-  { value: 'MI325X', label: 'MI325X', disabled: true },
-  { value: 'MI355X', label: 'MI355X', disabled: false },
+  { value: 'MI300X', label: 'MI300X' },
+  { value: 'MI325X', label: 'MI325X' },
+  { value: 'MI355X', label: 'MI355X' },
 ]
 
 const props = defineProps<{ visible: boolean }>()
@@ -259,6 +258,8 @@ const rules: FormRules = {
 watch(() => props.visible, (v) => {
   if (v) {
     Object.assign(form, defaultForm())
+    const ws = wsStore.items?.find((i: any) => i.workspaceId === form.workspace)
+    if (ws?.gpuProduct) form.gpuType = ws.gpuProduct
     loadModels()
   }
 })
@@ -275,6 +276,8 @@ const loadModels = async () => {
         m.phase === 'Ready' &&
         (m.accessMode === 'local' || m.accessMode === 'local_path'),
     )
+  } catch {
+    ElMessage.error('Failed to load models')
   } finally {
     modelsLoading.value = false
   }
@@ -309,6 +312,8 @@ const handleSubmit = async () => {
     emit('update:visible', false)
     emit('success')
     router.push(`/model-optimization/${task.id}`)
+  } catch (e: any) {
+    ElMessage.error(e?.message || 'Failed to create task')
   } finally {
     submitting.value = false
   }

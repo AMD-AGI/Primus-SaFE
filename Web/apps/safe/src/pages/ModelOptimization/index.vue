@@ -1,29 +1,27 @@
 <template>
   <div>
     <el-text class="block textx-18 font-500" tag="b">Model Optimization</el-text>
-    <el-button
-      type="primary"
-      round
-      :icon="Plus"
-      class="m-t-4 text-black"
-      @click="drawerVisible = true"
-    >
-      New Task
-    </el-button>
-  </div>
-
-  <!-- Filters -->
-  <el-row class="m-t-4" :gutter="20">
-    <el-col :span="6">
+    <div class="flex items-center m-t-4">
+      <el-button
+        type="primary"
+        round
+        :icon="Plus"
+        class="text-black"
+        @click="drawerVisible = true"
+      >
+        New Task
+      </el-button>
       <el-input
         v-model="searchParams.search"
         placeholder="Search by name or model"
         clearable
+        class="ml-auto"
+        style="width: 240px"
         @input="handleSearchInput"
         @clear="onSearch({ resetPage: true })"
       />
-    </el-col>
-  </el-row>
+    </div>
+  </div>
 
   <!-- Table -->
   <el-card class="mt-6 safe-card" shadow="never">
@@ -55,9 +53,9 @@
           <TaskStatusTag :status="row.status" />
         </template>
       </el-table-column>
-      <el-table-column prop="currentPhaseName" label="Current Phase" width="160">
+      <el-table-column label="Duration" width="130">
         <template #default="{ row }">
-          {{ row.currentPhaseName || '-' }}
+          {{ formatDuration(row.startedAt, row.finishedAt) }}
         </template>
       </el-table-column>
       <el-table-column prop="updatedAt" label="Updated" width="180" sortable>
@@ -66,32 +64,25 @@
         </template>
       </el-table-column>
 
-      <el-table-column label="Actions" width="200" fixed="right">
+      <el-table-column label="Actions" width="160" fixed="right">
         <template #default="{ row }">
-          <el-tooltip content="View detail" placement="top">
-            <el-button
-              circle
-              size="default"
-              class="btn-primary-plain"
-              :icon="View"
-              @click="router.push(`/model-optimization/${row.id}`)"
-            />
-          </el-tooltip>
-          <el-tooltip v-if="row.status === 'Running'" content="Interrupt" placement="top">
+          <el-tooltip content="Interrupt" placement="top">
             <el-button
               circle
               size="default"
               class="btn-warning-plain"
               :icon="VideoPause"
+              :disabled="row.status !== 'Running'"
               @click="handleInterrupt(row)"
             />
           </el-tooltip>
-          <el-tooltip v-if="row.status === 'Failed' || row.status === 'Interrupted'" content="Retry" placement="top">
+          <el-tooltip content="Retry" placement="top">
             <el-button
               circle
               size="default"
               class="btn-primary-plain"
               :icon="RefreshRight"
+              :disabled="row.status !== 'Failed' && row.status !== 'Interrupted'"
               @click="handleRetry(row)"
             />
           </el-tooltip>
@@ -129,7 +120,7 @@
 <script lang="ts" setup>
 import { ref, reactive, onMounted, h } from 'vue'
 import { useRouter } from 'vue-router'
-import { Plus, Delete, View, VideoPause, RefreshRight } from '@element-plus/icons-vue'
+import { Plus, Delete, VideoPause, RefreshRight } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   listOptimizationTasks,
@@ -142,6 +133,18 @@ import type { OptimizationTask } from '@/services/model-optimization/type'
 import { formatTimeStr } from '@/utils'
 import TaskStatusTag from './components/TaskStatusTag.vue'
 import CreateTaskDrawer from './components/CreateTaskDrawer.vue'
+
+const formatDuration = (start?: string, end?: string): string => {
+  if (!start || !end) return '-'
+  const ms = new Date(end).getTime() - new Date(start).getTime()
+  if (ms < 0) return '-'
+  const sec = Math.floor(ms / 1000)
+  if (sec < 60) return `${sec}s`
+  const min = Math.floor(sec / 60)
+  if (min < 60) return `${min}m ${sec % 60}s`
+  const hr = Math.floor(min / 60)
+  return `${hr}h ${min % 60}m`
+}
 
 defineOptions({ name: 'ModelOptimizationPage' })
 
@@ -165,14 +168,17 @@ const handleSearchInput = () => {
 const fetchData = async () => {
   loading.value = true
   try {
-    const res = await listOptimizationTasks({
+    const raw = await listOptimizationTasks({
       offset: (pagination.page - 1) * pagination.pageSize,
       limit: pagination.pageSize,
       ...(searchParams.search?.trim() ? { search: searchParams.search.trim() } : {}),
       ...(searchParams.status ? { status: searchParams.status } : {}),
     })
+    const res = (raw as any)?.data ?? raw
     tableData.value = res?.items || []
     pagination.total = res?.totalCount || 0
+  } catch (e: any) {
+    ElMessage.error(e?.message || 'Failed to load tasks')
   } finally {
     loading.value = false
   }
@@ -202,9 +208,11 @@ const handleInterrupt = async (row: OptimizationTask) => {
     )
     await interruptOptimizationTask(row.id)
     ElMessage.success('Task interrupted')
-    fetchData()
-  } catch (e) {
+  } catch (e: any) {
     if (e === 'cancel' || e === 'close') return
+    ElMessage.error(e?.message || 'Failed to interrupt task')
+  } finally {
+    fetchData()
   }
 }
 
@@ -217,9 +225,11 @@ const handleRetry = async (row: OptimizationTask) => {
     )
     await retryOptimizationTask(row.id)
     ElMessage.success('Task retried')
-    fetchData()
-  } catch (e) {
+  } catch (e: any) {
     if (e === 'cancel' || e === 'close') return
+    ElMessage.error(e?.message || 'Failed to retry task')
+  } finally {
+    fetchData()
   }
 }
 
