@@ -288,6 +288,7 @@ func (m *WorkloadMutator) mutateResources(_ context.Context, workload *v1.Worklo
 
 		newResources = append(newResources, res)
 	}
+	klog.Infof("new resoruces: %v", newResources)
 	workload.Spec.Resources = newResources
 	return nil
 }
@@ -811,6 +812,7 @@ func (v *WorkloadValidator) validateRequiredParams(workload *v1.Workload) error 
 	if len(workload.Spec.Resources) == 0 {
 		errs = append(errs, fmt.Errorf("the resources are empty"))
 	}
+	klog.Infof("workload.spec.resources: %v", workload.Spec.Resources)
 	for _, res := range workload.Spec.Resources {
 		if err := validateResource(&res, workload.Spec.Workspace); err != nil {
 			errs = append(errs, err)
