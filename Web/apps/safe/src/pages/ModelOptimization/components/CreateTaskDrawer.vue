@@ -36,7 +36,14 @@
           </el-form-item>
 
           <el-form-item label="Workspace" prop="workspace">
-            <el-input v-model="form.workspace" disabled />
+            <el-select v-model="form.workspace" placeholder="Select workspace" class="w-full" @change="handleWorkspaceChange">
+              <el-option
+                v-for="ws in wsStore.items"
+                :key="ws.workspaceId"
+                :label="ws.workspaceName"
+                :value="ws.workspaceId"
+              />
+            </el-select>
           </el-form-item>
 
           <el-form-item label="Display Name" prop="displayName">
@@ -198,9 +205,9 @@ import type { FormInstance, FormRules } from 'element-plus'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { createOptimizationTask } from '@/services/model-optimization'
 import type { CreateOptimizationTaskPayload } from '@/services/model-optimization/type'
+import { getModelsList } from '@/services/playground'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { useRouter } from 'vue-router'
-import request from '@/services/request'
 
 const FRAMEWORK_OPTIONS = ['sglang', 'vllm']
 const PRECISION_OPTIONS = ['FP4', 'FP8']
@@ -264,17 +271,22 @@ watch(() => props.visible, (v) => {
   }
 })
 
+const handleWorkspaceChange = () => {
+  const ws = wsStore.items?.find((i: any) => i.workspaceId === form.workspace)
+  if (ws?.gpuProduct) form.gpuType = ws.gpuProduct
+  loadModels()
+}
+
 const loadModels = async () => {
   modelsLoading.value = true
   try {
-    const res = await request.get('/models', {
-      params: { workspace: wsStore.currentWorkspaceId },
-    })
-    const items = (res as any)?.items || res || []
+    const raw = await getModelsList({ workspace: form.workspace || wsStore.currentWorkspaceId })
+    const res = (raw as any)?.data ?? raw
+    const items = res?.items || []
     readyModels.value = items.filter(
       (m: any) =>
         m.phase === 'Ready' &&
-        (m.accessMode === 'local' || m.accessMode === 'local_path'),
+        (m.accessMode === 'local' || m.accessMode === 'local_path' || m.accessMode === 's3_sync'),
     )
   } catch {
     ElMessage.error('Failed to load models')
@@ -347,5 +359,8 @@ const handleSubmit = async () => {
 .section-title {
   font-weight: 600;
   font-size: 14px;
+}
+.w-full {
+  width: 100%;
 }
 </style>
