@@ -28,9 +28,9 @@
             >
               <el-option
                 v-for="m in readyModels"
-                :key="m.modelId"
-                :label="m.modelName"
-                :value="m.modelId"
+                :key="m.id"
+                :label="m.displayName"
+                :value="m.id"
               />
             </el-select>
           </el-form-item>
@@ -218,7 +218,7 @@ const router = useRouter()
 const formRef = ref<FormInstance>()
 const submitting = ref(false)
 const modelsLoading = ref(false)
-const readyModels = ref<Array<{ modelId: string; modelName: string }>>([])
+const readyModels = ref<Array<{ id: string; displayName: string }>>([])
 
 const defaultForm = (): CreateOptimizationTaskPayload => ({
   modelId: '',
