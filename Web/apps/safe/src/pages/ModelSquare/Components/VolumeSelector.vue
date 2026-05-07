@@ -1,5 +1,5 @@
 <template>
-  <el-form-item v-if="writableVolumes.length > 1" label="Target Volume">
+  <el-form-item v-if="writableVolumes.length > 0" label="Target Volume">
     <el-select
       :model-value="modelValue"
       placeholder="Select target volume"
@@ -14,9 +14,6 @@
       />
     </el-select>
     <div class="tip">ReadOnlyMany volumes are hidden. Data will be written to the selected volume.</div>
-  </el-form-item>
-  <el-form-item v-else-if="writableVolumes.length === 1" label="Target Volume">
-    <el-input :model-value="`${writableVolumes[0].mountPath} (${writableVolumes[0].type})`" disabled />
   </el-form-item>
 </template>
 
