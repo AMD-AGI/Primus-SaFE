@@ -89,10 +89,12 @@ func (p *SSEParser) Parse(raw ClawSSEEvent) []ParsedEvent {
 // ── Chat path ────────────────────────────────────────────────────────────
 
 // phaseHeaderRegex matches markdown headers like "## Phase 2: Baseline" or
-// "# Phase 10 Report" in the assistant's streamed output. The skill is
-// trained to emit these at phase transitions, so they are the main source
-// of structured phase progression.
+// "# Phase 10 Report" in the assistant's streamed output.
 var phaseHeaderRegex = regexp.MustCompile(`(?m)^#{1,6}\s*Phase\s+(\d+)\s*[:\-\s]\s*([^\n]*)$`)
+
+// phaseBoldRegex matches bold-formatted phase markers like "**Phase 1: CLASSIFY**"
+// that some skill versions emit instead of markdown headers.
+var phaseBoldRegex = regexp.MustCompile(`\*\*Phase\s+(\d+)[:\s]+([^*\n]*)`)
 
 // chatEnvelope is the subset of the Claude/Claw chat payload we care about.
 // The skill's text reaches us either in content.content[].text (full message)
@@ -132,11 +134,22 @@ func (p *SSEParser) parseChat(raw ClawSSEEvent) []ParsedEvent {
 		},
 	})
 
-	// Look for phase headers in the new chunk.
+	// Look for phase headers in the new chunk (markdown ## and bold ** formats).
+	out = append(out, p.extractPhaseEvents(text)...)
+	return out
+}
+
+// extractPhaseEvents scans text for both markdown-header and bold-formatted
+// phase markers and returns the resulting transition events.
+func (p *SSEParser) extractPhaseEvents(text string) []ParsedEvent {
+	var out []ParsedEvent
 	for _, match := range phaseHeaderRegex.FindAllStringSubmatch(text, -1) {
 		phaseNum, _ := strconv.Atoi(match[1])
-		phaseLabel := strings.TrimSpace(match[2])
-		out = append(out, p.transitionPhase(phaseNum, phaseLabel)...)
+		out = append(out, p.transitionPhase(phaseNum, strings.TrimSpace(match[2]))...)
+	}
+	for _, match := range phaseBoldRegex.FindAllStringSubmatch(text, -1) {
+		phaseNum, _ := strconv.Atoi(match[1])
+		out = append(out, p.transitionPhase(phaseNum, strings.TrimSpace(match[2]))...)
 	}
 	return out
 }
@@ -236,7 +249,7 @@ func (p *SSEParser) parseToolUsed(raw ClawSSEEvent) []ParsedEvent {
 		if msg == "" {
 			msg = env.Tool
 		}
-		return []ParsedEvent{{
+		out := []ParsedEvent{{
 			Type: EventTypeLog,
 			Payload: LogEventPayload{
 				Level:   "info",
@@ -244,6 +257,20 @@ func (p *SSEParser) parseToolUsed(raw ClawSSEEvent) []ParsedEvent {
 				Message: msg,
 			},
 		}}
+		// For bash tool: scrape stdout for benchmark metrics and kernel file names.
+		// Hyperloom often runs benchmark_serving.py via bash rather than a named tool.
+		if tool == "bash" {
+			stdout := env.Desc
+			if stdout == "" && len(env.Result) > 0 {
+				stdout = string(env.Result)
+			}
+			if stdout != "" {
+				if evs := p.scrapeBashOutput(stdout); len(evs) > 0 {
+					out = append(out, evs...)
+				}
+			}
+		}
+		return out
 	}
 }
 
@@ -265,10 +292,15 @@ type benchmarkResultShape struct {
 // benchmarkTextRegex scrapes tok/s and tpot from Bash stdout in case the
 // skill invoked run_baseline.sh instead of the structured benchmark tool.
 // Matches lines like "Output throughput: 571.32 tok/s" or "mean TPOT: 6.78 ms".
+// Also used to extract metrics from bash tool stdout (tool:bash path).
 var (
-	benchTokRegex  = regexp.MustCompile(`(?i)(?:output\s+)?throughput[:\s]+([0-9]+(?:\.[0-9]+)?)\s*(?:tok(?:ens)?/s|t/s)`)
-	benchTPOTRegex = regexp.MustCompile(`(?i)(?:mean\s+)?tpot[:\s]+([0-9]+(?:\.[0-9]+)?)\s*ms`)
-	benchTTFTRegex = regexp.MustCompile(`(?i)(?:mean\s+)?ttft[:\s]+([0-9]+(?:\.[0-9]+)?)\s*ms`)
+	benchTokRegex  = regexp.MustCompile(`(?i)output_throughput[:\s]+([0-9]+(?:\.[0-9]+)?)`)
+	benchTPOTRegex = regexp.MustCompile(`(?i)mean_tpot_ms[:\s]+([0-9]+(?:\.[0-9]+)?)`)
+	benchTTFTRegex = regexp.MustCompile(`(?i)mean_ttft_ms[:\s]+([0-9]+(?:\.[0-9]+)?)`)
+	// fallback: human-readable format "Output throughput: 571.32 tok/s"
+	benchTokFallback = regexp.MustCompile(`(?i)(?:output\s+)?throughput[:\s]+([0-9]+(?:\.[0-9]+)?)\s*(?:tok(?:ens)?/s|t/s)`)
+	// kernel file pattern: matches SUCCESS lines or .py files under kernel_opt/
+	kernelFileRegex = regexp.MustCompile(`(?i)SUCCESS:.*?/([^/\s]+\.py)|kernel_opt/([^/\s]+\.py)`)
 )
 
 func (p *SSEParser) parseBenchmarkTool(env toolUsedEnvelope) []ParsedEvent {
@@ -340,6 +372,71 @@ func (p *SSEParser) parseBenchmarkTool(env toolUsedEnvelope) []ParsedEvent {
 		}}
 	}
 	return []ParsedEvent{{Type: EventTypeBenchmark, Payload: payload}}
+}
+
+// scrapeBashOutput extracts structured benchmark and kernel events from raw
+// bash stdout. Hyperloom often runs benchmark_serving.py via a plain bash
+// call rather than a named tool, so the metrics land in env.Desc instead of
+// a structured JSON result. Phase headers can also appear inside bash output.
+func (p *SSEParser) scrapeBashOutput(stdout string) []ParsedEvent {
+	var out []ParsedEvent
+
+	// 1. Phase headers inside bash output (## header and **bold** formats).
+	out = append(out, p.extractPhaseEvents(stdout)...)
+
+	// 2. Benchmark metrics — prefer underscore format (output_throughput: 309.94)
+	// then fall back to human-readable "Output throughput: 309.94 tok/s".
+	tokStr := ""
+	if m := benchTokRegex.FindStringSubmatch(stdout); m != nil {
+		tokStr = m[1]
+	} else if m := benchTokFallback.FindStringSubmatch(stdout); m != nil {
+		tokStr = m[1]
+	}
+	if tokStr != "" {
+		tok, err := strconv.ParseFloat(tokStr, 64)
+		if err == nil && tok > 0 {
+			payload := BenchmarkEventPayload{
+				Round:              p.nextRound(),
+				Label:              "benchmark-" + strconv.Itoa(p.round),
+				OutputTokensPerSec: tok,
+			}
+			if m := benchTPOTRegex.FindStringSubmatch(stdout); m != nil {
+				if v, e := strconv.ParseFloat(m[1], 64); e == nil {
+					payload.TPOTMs = v
+				}
+			}
+			if m := benchTTFTRegex.FindStringSubmatch(stdout); m != nil {
+				if v, e := strconv.ParseFloat(m[1], 64); e == nil {
+					payload.TTFTMs = v
+				}
+			}
+			out = append(out, ParsedEvent{Type: EventTypeBenchmark, Payload: payload})
+		}
+	}
+
+	// 3. Kernel files written by Claude/bash optimization (not GEAK tool).
+	// Matches "SUCCESS: N chars, Xs -> /path/kernel_opt/name_opt_iter1.py"
+	for _, match := range kernelFileRegex.FindAllStringSubmatch(stdout, -1) {
+		name := match[1]
+		if name == "" {
+			name = match[2]
+		}
+		name = strings.TrimSuffix(name, ".py")
+		if _, seen := p.kernelSeen[name]; seen {
+			continue
+		}
+		p.kernelSeen[name] = struct{}{}
+		out = append(out, ParsedEvent{
+			Type: EventTypeKernel,
+			Payload: KernelEventPayload{
+				Name:    name,
+				Backend: KernelBackendClaude,
+				Status:  "patched",
+			},
+		})
+	}
+
+	return out
 }
 
 func fillBenchmarkFromShape(p *BenchmarkEventPayload, s benchmarkResultShape) {
