@@ -985,9 +985,6 @@ func validateResource(resource *v1.WorkloadResource, workspaceName string) error
 	if resource.EphemeralStorage == "" {
 		errs = append(errs, fmt.Errorf("the ephemeralStorage is empty"))
 	}
-	if resource.HasGpu() && resource.GPUName == "" {
-		errs = append(errs, fmt.Errorf("This workspace %s has no GPU resources", workspaceName))
-	}
 	if err := utilerrors.NewAggregate(errs); err != nil {
 		return err
 	}
