@@ -62,7 +62,7 @@ func InitHttpHandlers(_ context.Context, mgr ctrlruntime.Manager) (*gin.Engine, 
 	if commonconfig.IsDBEnable() {
 		dbClient := dbclient.NewClient()
 		if dbClient != nil {
-			authority.NewApiKeyToken(dbClient)
+			authority.NewApiKeyToken(dbClient, mgr.GetClient())
 		}
 	}
 	// Initialize proxy handlers first to avoid route conflicts with resource handlers
