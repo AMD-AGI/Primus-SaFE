@@ -199,7 +199,7 @@ import { getModelsList } from '@/services/playground'
 import { useRouter } from 'vue-router'
 
 const FRAMEWORK_OPTIONS = ['sglang', 'vllm']
-const PRECISION_OPTIONS = ['FP4', 'FP8']
+const PRECISION_OPTIONS = ['FP4', 'FP8', 'INT4', 'BF16']
 const KERNEL_BACKEND_OPTIONS = ['GEAK', 'Claude Code', 'Codex']
 const GPU_TYPE_OPTIONS = [
   { value: 'MI300X', label: 'MI300X' },
@@ -259,7 +259,7 @@ watch(() => props.visible, (v) => {
 const loadModels = async () => {
   modelsLoading.value = true
   try {
-    const raw = await getModelsList({ workspace: 'sandbox' })
+    const raw = await getModelsList({})
     const res = (raw as any)?.data ?? raw
     const items = res?.items || []
     readyModels.value = items.filter((m: any) => m.phase === 'Ready')
