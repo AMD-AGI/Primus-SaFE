@@ -346,9 +346,18 @@ func (h *Handler) StreamEvents(c *gin.Context) {
 		klog.ErrorS(err, "replay optimization events", "task_id", id)
 	}
 	lastSeq := afterSeq
+	isTerminal := task.Status == dbclient.OptimizationTaskStatusSucceeded ||
+		task.Status == dbclient.OptimizationTaskStatusFailed ||
+		task.Status == dbclient.OptimizationTaskStatusInterrupted
 	for _, dbev := range events {
 		if dbev.Seq > lastSeq {
 			lastSeq = dbev.Seq
+		}
+		// For terminal tasks, skip persisted done events — we emit a fresh done
+		// at the very end so backfill benchmark/kernel events (which have higher
+		// synthetic seq numbers) are always delivered before the terminal marker.
+		if isTerminal && EventType(dbev.Type) == EventTypeDone {
+			continue
 		}
 		if err := writeFrame(dbEventToAPI(dbev)); err != nil {
 			return
@@ -357,13 +366,11 @@ func (h *Handler) StreamEvents(c *gin.Context) {
 
 	// If the task is already finished and no new events are coming, emit a
 	// terminal done frame and return.
-	if task.Status == dbclient.OptimizationTaskStatusSucceeded ||
-		task.Status == dbclient.OptimizationTaskStatusFailed ||
-		task.Status == dbclient.OptimizationTaskStatusInterrupted {
+	if isTerminal {
 		// For succeeded tasks: if the replay produced no benchmark events, the
 		// pipeline ran in orchestrator mode (sub-jobs). Try to backfill from
-		// Claw session artifacts (ci_metrics.json, kernel_candidates.json).
-		// This fires asynchronously; on the next page load the events are in DB.
+		// Claw session artifacts. This fires asynchronously; on the next page
+		// load the events are already in DB and will be replayed before done.
 		if task.Status == dbclient.OptimizationTaskStatusSucceeded && !hasBenchmarkEvents(events) {
 			go h.fetchAndInjectMetrics(context.Background(), task)
 		}
@@ -610,6 +617,71 @@ func (h *Handler) clawBearerForGin(c *gin.Context) string {
 		}
 	}
 	return commonconfig.GetModelOptimizationClawAPIKey()
+}
+
+// Start runs background recovery after the handler is registered. It should
+// be called once in a goroutine immediately after InitRoutes.
+// It reconnects in-progress Claw sessions that survived an apiserver restart
+// (tasks still Running in DB but no live goroutine).
+func (h *Handler) Start(ctx context.Context) {
+	// Give the HTTP server a moment to finish binding before we start making
+	// outbound Claw calls (avoids log noise during the startup race).
+	time.Sleep(5 * time.Second)
+
+	h.recoverRunningTasks(ctx)
+}
+
+// recoverRunningTasks reconnects Claw SSE streams for tasks that were Running
+// when the apiserver last exited. For each such task it queries the Claw
+// session: still active → restart consumeClawStream; terminal → finalize.
+func (h *Handler) recoverRunningTasks(ctx context.Context) {
+	tasks, _, err := h.dbClient.ListOptimizationTasks(ctx, dbclient.OptimizationTaskFilter{
+		Status: string(dbclient.OptimizationTaskStatusRunning),
+		Limit:  1000,
+	})
+	if err != nil {
+		klog.ErrorS(err, "recoverRunningTasks: list running tasks failed")
+		return
+	}
+	if len(tasks) == 0 {
+		return
+	}
+	klog.InfoS("recoverRunningTasks: found running tasks", "count", len(tasks))
+
+	clawBearer := h.clawClient.apiKey
+	clawCtx := WithClawBearer(ctx, clawBearer)
+
+	for _, task := range tasks {
+		if task.ClawSessionID == "" {
+			// No Claw session — mark failed so it doesn't block the concurrency limit.
+			_ = h.dbClient.UpdateOptimizationTaskStatus(ctx, task.ID,
+				dbclient.OptimizationTaskStatusFailed, task.CurrentPhase, "no claw session after restart")
+			continue
+		}
+
+		ss, err := h.clawClient.GetSession(clawCtx, task.ClawSessionID)
+		if err != nil {
+			klog.V(4).InfoS("recoverRunningTasks: get session failed, skipping",
+				"task_id", task.ID, "error", err)
+			continue
+		}
+
+		if ss.IsTerminal() {
+			status, msg := h.resolveStatusFromClaw(task.ClawSessionID, fmt.Errorf("apiserver restarted"))
+			_ = h.dbClient.UpdateOptimizationTaskStatus(ctx, task.ID, status, task.CurrentPhase, msg)
+			klog.InfoS("recoverRunningTasks: finalized terminal task",
+				"task_id", task.ID, "status", status)
+			if status == dbclient.OptimizationTaskStatusSucceeded {
+				go h.fetchAndInjectMetrics(ctx, task)
+			}
+		} else {
+			// Session still active — reconnect the stream.
+			hub, _ := h.hubs.getOrCreate(task.ID, 0)
+			go h.consumeClawStream(task.ID, task.ClawSessionID, hub, clawBearer)
+			klog.InfoS("recoverRunningTasks: reconnected stream",
+				"task_id", task.ID, "session_id", task.ClawSessionID)
+		}
+	}
 }
 
 // getLiteLLMKey returns the user's sk-xxx LiteLLM virtual key for use as
