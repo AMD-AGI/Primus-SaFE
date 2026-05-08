@@ -7,6 +7,7 @@ package llmgateway
 
 import (
 	"net/http"
+	"strings"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
@@ -87,10 +88,71 @@ func InitRoutes(engine *gin.Engine, handler *Handler) {
 	// Web proxy forwards as: /api/v1/llm-proxy/v1/chat/completions
 	// Director strips /api/v1/llm-proxy, forwards /v1/chat/completions to LiteLLM.
 	llmProxy := engine.Group(llmProxyPrefix)
-	llmProxy.Use(authMiddleware)
+	llmProxy.Use(llmProxyAuthMiddleware)
 	llmProxy.Any("/*proxyPath", handler.ProxyLLMRequest)
 
 	klog.Info("LLM Gateway: routes registered successfully (management + LLM proxy)")
+}
+
+const (
+	llmProxyAuthHeaderStyleKey = "llm_proxy_auth_header_style"
+	llmProxyAuthHeaderAuth     = "authorization"
+	llmProxyAuthHeaderXAPIKey  = "x-api-key"
+)
+
+type llmProxyAuthHeaderMapping struct {
+	style  string
+	header string
+}
+
+var llmProxyAuthHeaderMappings = []llmProxyAuthHeaderMapping{
+	{style: llmProxyAuthHeaderAuth, header: "Authorization"},
+	{style: llmProxyAuthHeaderXAPIKey, header: "X-Api-Key"},
+}
+
+func llmProxyAuthMiddleware(c *gin.Context) {
+	normalizeProxyAPIKeyHeader(c)
+	if err := authority.ParseToken(c); err != nil {
+		apiutils.AbortWithApiError(c, err)
+		return
+	}
+	c.Next()
+}
+
+func normalizeProxyAPIKeyHeader(c *gin.Context) {
+	mapping, apiKey, ok := selectProxyAuthHeader(c)
+	if !ok {
+		return
+	}
+	c.Set(llmProxyAuthHeaderStyleKey, mapping.style)
+	if mapping.style == llmProxyAuthHeaderXAPIKey {
+		c.Request.Header.Set("Authorization", "Bearer "+apiKey)
+	}
+}
+
+func selectProxyAuthHeader(c *gin.Context) (llmProxyAuthHeaderMapping, string, bool) {
+	mappings := llmProxyAuthHeaderMappings
+	if isAnthropicMessagesRequest(c) {
+		mappings = []llmProxyAuthHeaderMapping{
+			{style: llmProxyAuthHeaderXAPIKey, header: "X-Api-Key"},
+			{style: llmProxyAuthHeaderAuth, header: "Authorization"},
+		}
+	}
+	for _, mapping := range mappings {
+		value := c.GetHeader(mapping.header)
+		if value == "" {
+			continue
+		}
+		if mapping.style == llmProxyAuthHeaderAuth {
+			return mapping, authority.ExtractApiKeyFromRequest(value), true
+		}
+		return mapping, value, true
+	}
+	return llmProxyAuthHeaderMapping{}, "", false
+}
+
+func isAnthropicMessagesRequest(c *gin.Context) bool {
+	return strings.HasSuffix(c.Request.URL.Path, "/v1/messages")
 }
 
 // ── Handlers ──────────────────────────────────────────────────────────────
