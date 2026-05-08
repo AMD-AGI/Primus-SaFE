@@ -34,7 +34,7 @@ const (
 	raySharedMemoryGi     = 500
 
 	defaultSGLangImage = "harbor.core42.primus-safe.amd.com/sync/sglang:v0.5.11-rocm720-mi30x"
-	defaultVLLMImage   = "harbor.core42.primus-safe.amd.com/proxy/vllm/vllm-openai-rocm:v0.17.0"
+	defaultVLLMImage   = "harbor.core42.primus-safe.amd.com/proxy/vllm/vllm-openai-rocm:v0.19.0"
 )
 
 // Maps Hyperloom-Web's display string to the lowercased tag the skill expects.
@@ -132,10 +132,10 @@ func NormalizePromptConfig(cfg PromptConfig) PromptConfig {
 		}
 	}
 	if cfg.RayCpu <= 0 {
-		cfg.RayCpu = defaultRayCPU
+		cfg.RayCpu = rayCPUForTP(cfg.TP)
 	}
 	if cfg.RayMemoryGi <= 0 {
-		cfg.RayMemoryGi = defaultRayMemoryGi
+		cfg.RayMemoryGi = rayMemoryForTP(cfg.TP)
 	}
 	if len(cfg.KernelBackends) == 0 {
 		cfg.KernelBackends = []string{KernelBackendGEAK, KernelBackendClaude}
@@ -262,6 +262,38 @@ func firstNonEmpty(values ...string) string {
 		}
 	}
 	return ""
+}
+
+// rayCPUForTP mirrors Hyperloom-Web's GPU_RESOURCE_MAP CPU presets.
+func rayCPUForTP(tp int) int {
+	switch tp {
+	case 1:
+		return 32
+	case 2:
+		return 64
+	case 4:
+		return 96
+	case 8:
+		return 128
+	default:
+		return defaultRayCPU
+	}
+}
+
+// rayMemoryForTP mirrors Hyperloom-Web's GPU_RESOURCE_MAP memory presets (Gi).
+func rayMemoryForTP(tp int) int {
+	switch tp {
+	case 1:
+		return 128
+	case 2:
+		return 256
+	case 4:
+		return 512
+	case 8:
+		return 1024
+	default:
+		return defaultRayMemoryGi
+	}
 }
 
 // splitPath splits a filesystem path into its non-empty components, independent
