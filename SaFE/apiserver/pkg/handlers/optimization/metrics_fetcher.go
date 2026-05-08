@@ -9,6 +9,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"regexp"
+	"strconv"
 	"strings"
 	"sync/atomic"
 
@@ -17,45 +19,11 @@ import (
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
 )
 
-// ciMetrics is the schema written by the Hyperloom pipeline to ci_metrics.json.
-// Only the fields we display in the UI are decoded; the rest are ignored.
-type ciMetrics struct {
-	Baseline  *ciRun  `json:"baseline"`
-	Optimized *ciRun  `json:"optimized"`
-	Summary   *ciRun  `json:"summary"`
-	Framework string  `json:"framework"`
-	ISL       int     `json:"isl"`
-	OSL       int     `json:"osl"`
-	CONC      int     `json:"concurrency"`
-}
-
-type ciRun struct {
-	Label              string  `json:"label"`
-	OutputTokensPerSec float64 `json:"output_throughput"`
-	InputTokensPerSec  float64 `json:"input_throughput"`
-	TotalTokensPerSec  float64 `json:"total_throughput"`
-	TPOTMs             float64 `json:"mean_tpot_ms"`
-	TTFTMs             float64 `json:"mean_ttft_ms"`
-	Concurrency        int     `json:"concurrency"`
-	ISL                int     `json:"isl"`
-	OSL                int     `json:"osl"`
-	Framework          string  `json:"framework"`
-}
-
-// kernelCandidate maps to a single entry in kernel_candidates.json.
-type kernelCandidate struct {
-	Name        string  `json:"name"`
-	GPUPercent  float64 `json:"gpu_pct"`
-	Count       int     `json:"count"`
-	AvgUs       float64 `json:"avg_us"`
-	IsVendor    bool    `json:"is_vendor"`
-	IsCandidate bool    `json:"is_candidate"`
-}
-
-// fetchAndInjectMetrics is called after a task finishes. It walks the Claw
-// session artifact list looking for ci_metrics.json and kernel_candidates.json,
-// parses them, and injects synthetic benchmark/kernel events into the DB so
-// the Detail page can display them without requiring a live SSE session.
+// fetchAndInjectMetrics is called after a task finishes (or on first replay of
+// a succeeded task with no benchmark events). It reads the optimization report
+// from the Claw session artifacts, parses benchmark and kernel data from the
+// markdown tables, and injects them as synthetic events into the DB so the
+// Detail page can display them without requiring a live SSE session.
 //
 // Errors are logged but never returned — metrics are best-effort enrichment.
 func (h *Handler) fetchAndInjectMetrics(ctx context.Context, task *dbclient.OptimizationTask) {
@@ -65,148 +33,64 @@ func (h *Handler) fetchAndInjectMetrics(ctx context.Context, task *dbclient.Opti
 
 	clawCtx := WithClawBearer(ctx, h.clawClient.apiKey)
 
-	items, err := h.clawClient.ListSessionFiles(clawCtx, task.ClawSessionID)
-	if err != nil {
-		klog.V(4).InfoS("fetchAndInjectMetrics: list session files failed",
-			"task_id", task.ID, "error", err)
+	// Locate the optimization report in session artifacts.
+	reportPath := task.ReportPath
+	if reportPath == "" {
+		items, err := h.clawClient.ListSessionFiles(clawCtx, task.ClawSessionID)
+		if err != nil {
+			klog.V(4).InfoS("fetchAndInjectMetrics: list session files failed",
+				"task_id", task.ID, "error", err)
+			return
+		}
+		for _, item := range items {
+			if looksLikeOptimizationReport(item.Path) {
+				reportPath = item.Path
+				_ = h.dbClient.UpdateOptimizationTaskResult(context.Background(), task.ID, task.FinalMetrics, reportPath)
+				break
+			}
+		}
+	}
+	if reportPath == "" {
+		klog.V(4).InfoS("fetchAndInjectMetrics: no optimization report found",
+			"task_id", task.ID)
 		return
 	}
 
-	var ciPath, kernelPath string
-	for _, item := range items {
-		base := item.Path
-		if idx := strings.LastIndex(base, "/"); idx >= 0 {
-			base = base[idx+1:]
-		}
-		switch base {
-		case "ci_metrics.json":
-			if ciPath == "" {
-				ciPath = item.Path
-			}
-		case "kernel_candidates.json":
-			if kernelPath == "" {
-				kernelPath = item.Path
-			}
-		}
-	}
-
-	injected := false
-
-	if ciPath != "" {
-		if err := h.injectBenchmarkEvents(clawCtx, task, ciPath); err != nil {
-			klog.V(4).InfoS("fetchAndInjectMetrics: benchmark inject failed",
-				"task_id", task.ID, "path", ciPath, "error", err)
-		} else {
-			injected = true
-		}
-	}
-
-	if kernelPath != "" {
-		if err := h.injectKernelEvents(clawCtx, task, kernelPath); err != nil {
-			klog.V(4).InfoS("fetchAndInjectMetrics: kernel inject failed",
-				"task_id", task.ID, "path", kernelPath, "error", err)
-		} else {
-			injected = true
-		}
-	}
-
-	if injected {
-		klog.InfoS("fetchAndInjectMetrics: metrics injected",
-			"task_id", task.ID, "ci_path", ciPath, "kernel_path", kernelPath)
-	} else {
-		klog.V(4).InfoS("fetchAndInjectMetrics: no ci_metrics.json or kernel_candidates.json found",
-			"task_id", task.ID, "artifacts", len(items))
-	}
-}
-
-func (h *Handler) injectBenchmarkEvents(ctx context.Context, task *dbclient.OptimizationTask, path string) error {
-	content, err := h.clawClient.ReadSessionFile(ctx, task.ClawSessionID, path)
+	content, err := h.clawClient.ReadSessionFile(clawCtx, task.ClawSessionID, reportPath)
 	if err != nil {
-		return fmt.Errorf("read %s: %w", path, err)
+		klog.V(4).InfoS("fetchAndInjectMetrics: read report failed",
+			"task_id", task.ID, "path", reportPath, "error", err)
+		return
 	}
 
-	var m ciMetrics
-	if err := json.Unmarshal(content, &m); err != nil {
-		return fmt.Errorf("parse ci_metrics.json: %w", err)
-	}
+	injected := 0
+	report := string(content)
 
-	round := 1
-	for _, run := range []*ciRun{m.Baseline, m.Optimized, m.Summary} {
-		if run == nil {
-			continue
-		}
-		if run.OutputTokensPerSec == 0 && run.TotalTokensPerSec == 0 {
-			continue
-		}
-		label := run.Label
-		if label == "" {
-			switch round {
-			case 1:
-				label = "Baseline"
-			case 2:
-				label = "Optimized"
-			default:
-				label = fmt.Sprintf("Round %d", round)
-			}
-		}
-		fw := firstNonEmpty(run.Framework, m.Framework, task.Framework)
-		isl := run.ISL
-		if isl == 0 {
-			isl = firstPositive(m.ISL, task.ISL)
-		}
-		osl := run.OSL
-		if osl == 0 {
-			osl = firstPositive(m.OSL, task.OSL)
-		}
-		conc := run.Concurrency
-		if conc == 0 {
-			conc = firstPositive(m.CONC, task.Concurrency)
-		}
-		payload := BenchmarkEventPayload{
-			Round:              round,
-			Label:              label,
-			OutputTokensPerSec: run.OutputTokensPerSec,
-			InputTokensPerSec:  run.InputTokensPerSec,
-			TotalTokensPerSec:  run.TotalTokensPerSec,
-			TPOTMs:             run.TPOTMs,
-			TTFTMs:             run.TTFTMs,
-			Concurrency:        conc,
-			ISL:                isl,
-			OSL:                osl,
-			Framework:          fw,
-		}
+	for _, payload := range parseReportBenchmarks(report) {
 		if err := h.appendSyntheticEvent(task.ID, EventTypeBenchmark, payload); err != nil {
-			klog.V(4).InfoS("injectBenchmarkEvents: append failed", "task_id", task.ID, "error", err)
+			klog.V(4).InfoS("fetchAndInjectMetrics: append benchmark failed",
+				"task_id", task.ID, "error", err)
+		} else {
+			injected++
 		}
-		round++
-	}
-	return nil
-}
-
-func (h *Handler) injectKernelEvents(ctx context.Context, task *dbclient.OptimizationTask, path string) error {
-	content, err := h.clawClient.ReadSessionFile(ctx, task.ClawSessionID, path)
-	if err != nil {
-		return fmt.Errorf("read %s: %w", path, err)
 	}
 
-	var candidates []kernelCandidate
-	if err := json.Unmarshal(content, &candidates); err != nil {
-		return fmt.Errorf("parse kernel_candidates.json: %w", err)
-	}
-
-	for _, c := range candidates {
-		payload := KernelEventPayload{
-			Name:       c.Name,
-			GPUPercent: c.GPUPercent,
-			BaselineUs: c.AvgUs,
-			Backend:    firstNonEmpty(firstKernelBackend(task.KernelBackends), "Claude Code"),
-			Status:     "patched",
-		}
+	for _, payload := range parseReportKernels(report) {
 		if err := h.appendSyntheticEvent(task.ID, EventTypeKernel, payload); err != nil {
-			klog.V(4).InfoS("injectKernelEvents: append failed", "task_id", task.ID, "error", err)
+			klog.V(4).InfoS("fetchAndInjectMetrics: append kernel failed",
+				"task_id", task.ID, "error", err)
+		} else {
+			injected++
 		}
 	}
-	return nil
+
+	if injected > 0 {
+		klog.InfoS("fetchAndInjectMetrics: injected from report",
+			"task_id", task.ID, "count", injected, "report", reportPath)
+	} else {
+		klog.V(4).InfoS("fetchAndInjectMetrics: no metrics extracted from report",
+			"task_id", task.ID, "report", reportPath)
+	}
 }
 
 // appendSyntheticEvent persists a synthetic event to the DB only (no hub
@@ -228,21 +112,258 @@ func (h *Handler) appendSyntheticEvent(taskID string, evType EventType, payload 
 	return h.dbClient.AppendOptimizationEvent(context.Background(), dbev)
 }
 
+// ── Report parsing ────────────────────────────────────────────────────────────
+
+var mdTableSepRegex = regexp.MustCompile(`^\|[-:\s|]+\|$`)
+
+// splitTableRow splits "| a | b | c |" into ["a", "b", "c"].
+func splitTableRow(line string) []string {
+	line = strings.TrimSpace(line)
+	if !strings.HasPrefix(line, "|") || !strings.HasSuffix(line, "|") {
+		return nil
+	}
+	parts := strings.Split(line[1:len(line)-1], "|")
+	cells := make([]string, 0, len(parts))
+	for _, p := range parts {
+		cells = append(cells, strings.TrimSpace(p))
+	}
+	return cells
+}
+
+// parseCell extracts the first float from a markdown cell, stripping bold
+// markers, backticks, commas, and units (tok/s, ms, %, ~).
+func parseCell(cell string) float64 {
+	cell = strings.ReplaceAll(cell, "**", "")
+	cell = strings.ReplaceAll(cell, "`", "")
+	cell = strings.ReplaceAll(cell, ",", "")
+	cell = strings.ReplaceAll(cell, "~", "")
+	m := regexp.MustCompile(`([0-9]+(?:\.[0-9]+)?)`).FindStringSubmatch(cell)
+	if m == nil {
+		return 0
+	}
+	v, _ := strconv.ParseFloat(m[1], 64)
+	return v
+}
+
+func parseCellInt(cell string) int {
+	return int(parseCell(cell))
+}
+
+// parseReportBenchmarks extracts BenchmarkEventPayloads from the report.
+// It combines the Phase 1 key-value baseline table and the Phase 5 sweep table.
+func parseReportBenchmarks(content string) []BenchmarkEventPayload {
+	var results []BenchmarkEventPayload
+
+	if b := parseBaselineTable(content); b != nil {
+		results = append(results, *b)
+	}
+
+	sweepOffset := len(results) + 1
+	for i, s := range parseSweepTable(content) {
+		s.Round = sweepOffset + i
+		results = append(results, s)
+	}
+
+	return results
+}
+
+// parseBaselineTable finds the Phase 1 key-value benchmark table.
+// It looks for a table containing an "output_throughput" metric row.
+//
+//	| Metric              | Value          |
+//	| output_throughput   | 309.94 tok/s   |
+//	| mean_ttft_ms        | 1,365.65 ms    |
+//	| mean_tpot_ms        | 201.24 ms      |
+func parseBaselineTable(content string) *BenchmarkEventPayload {
+	var payload BenchmarkEventPayload
+	found := false
+
+	for _, line := range strings.Split(content, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if !strings.HasPrefix(trimmed, "|") || mdTableSepRegex.MatchString(trimmed) {
+			continue
+		}
+		cells := splitTableRow(trimmed)
+		if len(cells) < 2 {
+			continue
+		}
+		key := strings.ToLower(strings.ReplaceAll(cells[0], "**", ""))
+		val := cells[1]
+		switch {
+		case strings.Contains(key, "output_throughput"):
+			payload.OutputTokensPerSec = parseCell(val)
+			found = true
+		case strings.Contains(key, "input_throughput"):
+			payload.InputTokensPerSec = parseCell(val)
+		case strings.Contains(key, "total_throughput"):
+			payload.TotalTokensPerSec = parseCell(val)
+		case strings.Contains(key, "mean_tpot_ms"):
+			payload.TPOTMs = parseCell(val)
+		case strings.Contains(key, "mean_ttft_ms"):
+			payload.TTFTMs = parseCell(val)
+		}
+	}
+
+	if !found || payload.OutputTokensPerSec == 0 {
+		return nil
+	}
+	payload.Round = 1
+	payload.Label = "Baseline"
+	return &payload
+}
+
+// parseSweepTable finds the Phase 5 sweep table with columnar CONC/ISL/OSL/tok/s headers.
+//
+//	| CONC | ISL  | OSL  | tok/s      | tok/s/GPU | TTFT (ms) | TPOT (ms) |
+//	| 128  | 1024 | 1024 | **478.79** | ...       | 2,016     | 259       |
+func parseSweepTable(content string) []BenchmarkEventPayload {
+	var results []BenchmarkEventPayload
+	colConc, colISL, colOSL, colTok, colTTFT, colTPOT := -1, -1, -1, -1, -1, -1
+	headerFound := false
+
+	for _, line := range strings.Split(content, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if !strings.HasPrefix(trimmed, "|") {
+			if headerFound && len(results) > 0 {
+				break
+			}
+			continue
+		}
+		if mdTableSepRegex.MatchString(trimmed) {
+			continue
+		}
+		cells := splitTableRow(trimmed)
+		if len(cells) == 0 {
+			continue
+		}
+
+		if !headerFound {
+			for i, c := range cells {
+				cl := strings.ToLower(strings.ReplaceAll(c, "**", ""))
+				switch {
+				case strings.Contains(cl, "conc"):
+					colConc = i
+				case cl == "isl":
+					colISL = i
+				case cl == "osl":
+					colOSL = i
+				case strings.Contains(cl, "tok/s") && !strings.Contains(cl, "gpu"):
+					colTok = i
+				case strings.Contains(cl, "ttft"):
+					colTTFT = i
+				case strings.Contains(cl, "tpot"):
+					colTPOT = i
+				}
+			}
+			if colConc >= 0 && colTok >= 0 {
+				headerFound = true
+			}
+			continue
+		}
+
+		if colTok < 0 || len(cells) <= colTok {
+			continue
+		}
+		tok := parseCell(cells[colTok])
+		if tok <= 0 {
+			continue // OOM / failed row
+		}
+
+		payload := BenchmarkEventPayload{OutputTokensPerSec: tok}
+		if colConc >= 0 && len(cells) > colConc {
+			payload.Concurrency = parseCellInt(cells[colConc])
+		}
+		if colISL >= 0 && len(cells) > colISL {
+			payload.ISL = parseCellInt(cells[colISL])
+		}
+		if colOSL >= 0 && len(cells) > colOSL {
+			payload.OSL = parseCellInt(cells[colOSL])
+		}
+		if colTTFT >= 0 && len(cells) > colTTFT {
+			payload.TTFTMs = parseCell(cells[colTTFT])
+		}
+		if colTPOT >= 0 && len(cells) > colTPOT {
+			payload.TPOTMs = parseCell(cells[colTPOT])
+		}
+		if payload.Concurrency > 0 {
+			payload.Label = fmt.Sprintf("CONC=%d ISL=%d OSL=%d", payload.Concurrency, payload.ISL, payload.OSL)
+		}
+		results = append(results, payload)
+	}
+
+	return results
+}
+
+// parseReportKernels finds the Phase 4 kernel table.
+//
+//	| # | Kernel                       | File         | Est GPU% | Optimization Applied |
+//	| 1 | `fused_moe_kernel_gptq_awq`  | fused_moe.py | ~35%     | ...                  |
+func parseReportKernels(content string) []KernelEventPayload {
+	var results []KernelEventPayload
+	colKernel, colGPU := -1, -1
+	headerFound := false
+
+	for _, line := range strings.Split(content, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if !strings.HasPrefix(trimmed, "|") {
+			if headerFound && len(results) > 0 {
+				break
+			}
+			continue
+		}
+		if mdTableSepRegex.MatchString(trimmed) {
+			continue
+		}
+		cells := splitTableRow(trimmed)
+		if len(cells) == 0 {
+			continue
+		}
+
+		if !headerFound {
+			for i, c := range cells {
+				cl := strings.ToLower(c)
+				if cl == "kernel" || strings.Contains(cl, "kernel name") {
+					colKernel = i
+				} else if strings.Contains(cl, "gpu%") || strings.Contains(cl, "gpu pct") || strings.Contains(cl, "est gpu") {
+					colGPU = i
+				}
+			}
+			if colKernel >= 0 {
+				headerFound = true
+			}
+			continue
+		}
+
+		if len(cells) <= colKernel {
+			continue
+		}
+		name := strings.ReplaceAll(cells[colKernel], "`", "")
+		name = strings.ReplaceAll(name, "**", "")
+		name = strings.TrimSpace(name)
+		if name == "" || name == "-" {
+			continue
+		}
+
+		payload := KernelEventPayload{
+			Name:    name,
+			Backend: KernelBackendClaude,
+			Status:  "patched",
+		}
+		if colGPU >= 0 && len(cells) > colGPU {
+			payload.GPUPercent = parseCell(cells[colGPU])
+		}
+		results = append(results, payload)
+	}
+
+	return results
+}
+
 // ── small helpers ────────────────────────────────────────────────────────────
 
 var syntheticSeq atomic.Int64
 
 func nextSyntheticSeq() int64 {
 	return 1_000_000_000 + syntheticSeq.Add(1) // well above any live seq
-}
-
-func firstPositive(vals ...int) int {
-	for _, v := range vals {
-		if v > 0 {
-			return v
-		}
-	}
-	return 0
 }
 
 func hasBenchmarkEvents(events []*dbclient.OptimizationEvent) bool {
