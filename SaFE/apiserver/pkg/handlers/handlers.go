@@ -162,6 +162,7 @@ func InitHttpHandlers(_ context.Context, mgr ctrlruntime.Manager) (*gin.Engine, 
 				klog.ErrorS(optErr, "failed to initialize Model Optimization handler")
 			} else {
 				optimizationhandlers.InitRoutes(engine, optHandler)
+				go optHandler.Start(context.Background())
 			}
 		}
 	}
