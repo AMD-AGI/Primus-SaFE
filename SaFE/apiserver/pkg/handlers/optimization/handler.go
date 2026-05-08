@@ -21,7 +21,6 @@ import (
 	"k8s.io/klog/v2"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 
-	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
 	apiutils "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/utils"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
@@ -194,10 +193,11 @@ func (h *Handler) submitTask(
 	sendCtx, sendCancel := context.WithTimeout(WithClawBearer(context.Background(), clawBearer), 30*time.Second)
 	defer sendCancel()
 	if err := h.clawClient.SendMessage(sendCtx, sessionID, &MessageRequest{
-		Content:     prompt,
-		MessageType: "text",
-		TaskMode:    "agent",
-		WorkspaceID: workspace,
+		Content:      prompt,
+		MessageType:  "text",
+		TaskMode:     "agent",
+		WorkspaceID:  workspace,
+		SandboxImage: promptCfg.Image,
 	}); err != nil {
 		klog.ErrorS(err, "send hyperloom prompt", "task_id", taskID, "session_id", sessionID)
 		_ = h.clawClient.DeleteSession(WithClawBearer(context.Background(), clawBearer), sessionID)
@@ -523,46 +523,29 @@ func (h *Handler) finalizeTask(taskID string, hub *taskHub, streamErr error) {
 // clawBearerForGin resolves the Bearer token for outbound PrimusClaw calls.
 //
 // Priority:
-//  1. Explicit sk-xxx key in the request Authorization header.
-//  2. LiteLLM virtual key (sk-xxx) looked up by user email via GetVirtualKeyByEmail.
+//  1. Explicit user API key from the request Authorization header.
+//  2. Per-user platform key (ak-xxx) via GetOrCreatePlatformKey.
 //  3. File-based service key from model_optimization config.
-//
-// SaFE ak-xxx keys are NOT forwarded: the LLM gateway only accepts sk-xxx LiteLLM virtual keys.
 func (h *Handler) clawBearerForGin(c *gin.Context) string {
 	if c != nil {
-		if k := authority.ExtractApiKeyFromRequest(c.GetHeader("Authorization")); k != "" && strings.HasPrefix(k, "sk-") {
+		if k := authority.ExtractApiKeyFromRequest(c.GetHeader("Authorization")); k != "" {
 			return k
 		}
 		userID := c.GetString(common.UserId)
+		userName := c.GetString(common.UserName)
 		if userID != "" {
-			email := h.getUserEmail(c.Request.Context(), userID)
-			if email != "" {
-				if tok := authority.ApiKeyTokenInstance(); tok != nil {
-					sk, err := tok.GetVirtualKeyByEmail(c.Request.Context(), email)
-					if err != nil {
-						klog.ErrorS(err, "model optimization: GetVirtualKeyByEmail for PrimusClaw",
-							"userId", userID, "email", email)
-					} else if strings.TrimSpace(sk) != "" {
-						return sk
-					}
+			if tok := authority.ApiKeyTokenInstance(); tok != nil {
+				pk, err := tok.GetOrCreatePlatformKey(c.Request.Context(), userID, userName)
+				if err != nil {
+					klog.ErrorS(err, "model optimization: GetOrCreatePlatformKey for PrimusClaw",
+						"userId", userID)
+				} else if strings.TrimSpace(pk) != "" {
+					return pk
 				}
 			}
 		}
 	}
 	return commonconfig.GetModelOptimizationClawAPIKey()
-}
-
-// getUserEmail looks up the User CR by userId and returns the email annotation.
-// Falls back to empty string on any error.
-func (h *Handler) getUserEmail(ctx context.Context, userID string) string {
-	if h.k8sClient == nil || userID == "" {
-		return ""
-	}
-	user := &v1.User{}
-	if err := h.k8sClient.Get(ctx, ctrlclient.ObjectKey{Name: userID}, user); err != nil {
-		return ""
-	}
-	return v1.GetUserEmail(user)
 }
 
 func promptConfigFromRequest(req *CreateTaskRequest, m *ResolvedModel, workspace string) PromptConfig {
