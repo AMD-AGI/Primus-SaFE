@@ -99,7 +99,41 @@ func (h *Handler) ProxyLLMRequest(c *gin.Context) {
 		return
 	}
 
-	c.Request.Header.Set("Authorization", "Bearer "+virtualKey)
+	applyProxyVirtualKeyHeader(c, virtualKey)
 
 	h.proxy.ServeHTTP(c.Writer, c.Request)
+}
+
+func applyProxyVirtualKeyHeader(c *gin.Context, virtualKey string) {
+	style, _ := c.Get(llmProxyAuthHeaderStyleKey)
+	mapping := proxyAuthHeaderMappingByStyle(style)
+	if mapping.style == "" {
+		mapping = llmProxyAuthHeaderMappings[0]
+	}
+
+	clearProxyAuthHeaders(c)
+	if mapping.style == llmProxyAuthHeaderAuth {
+		c.Request.Header.Set(mapping.header, "Bearer "+virtualKey)
+		return
+	}
+	c.Request.Header.Set(mapping.header, virtualKey)
+}
+
+func proxyAuthHeaderMappingByStyle(style any) llmProxyAuthHeaderMapping {
+	styleString, ok := style.(string)
+	if !ok {
+		return llmProxyAuthHeaderMapping{}
+	}
+	for _, mapping := range llmProxyAuthHeaderMappings {
+		if mapping.style == styleString {
+			return mapping
+		}
+	}
+	return llmProxyAuthHeaderMapping{}
+}
+
+func clearProxyAuthHeaders(c *gin.Context) {
+	for _, mapping := range llmProxyAuthHeaderMappings {
+		c.Request.Header.Del(mapping.header)
+	}
 }
