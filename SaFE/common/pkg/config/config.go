@@ -657,3 +657,13 @@ func GetModelOptimizationDefaultWorkspace() string {
 func GetModelOptimizationMaxConcurrent() int {
 	return getInt(modelOptimizationConcurrency, 5)
 }
+
+// GetModelOptimizationClawPluginID returns the Claw plugin ID for the
+// Hyperloom GPU plugin. When set, the optimization handler attaches this
+// plugin_id to outgoing messages so that Claw resolves resource_gpu
+// (image, cpu, memory, GPU count) from the plugin definition instead of
+// requiring the caller to pass sandbox_image / resource_gpu explicitly.
+// Returns 0 when unconfigured (plugin attachment is skipped).
+func GetModelOptimizationClawPluginID() int {
+	return getInt(modelOptimizationClawPluginID, 4)
+}
