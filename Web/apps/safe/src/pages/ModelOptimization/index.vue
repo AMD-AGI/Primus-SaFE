@@ -43,7 +43,7 @@
         </template>
       </el-table-column>
       <el-table-column prop="modelId" label="Model" min-width="200" />
-      <el-table-column label="Config" width="160" align="center">
+      <el-table-column label="Config" width="160">
         <template #default="{ row }">
           <span class="config-tag">{{ row.framework || '-' }} · {{ row.precision || '-' }} · TP{{ row.tp ?? 1 }}</span>
         </template>
