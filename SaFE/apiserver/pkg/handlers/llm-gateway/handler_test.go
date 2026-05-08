@@ -55,6 +55,111 @@ func setUserContext(c *gin.Context, userId, userName string) {
 	c.Set(common.UserName, userName)
 }
 
+func TestNormalizeProxyAPIKeyHeader_Authorization(t *testing.T) {
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	req, _ := http.NewRequest("POST", "/api/v1/llm-proxy/v1/chat/completions", nil)
+	req.Header.Set("Authorization", "Bearer ak-auth")
+	c.Request = req
+
+	normalizeProxyAPIKeyHeader(c)
+
+	assert.Equal(t, "Bearer ak-auth", c.GetHeader("Authorization"))
+	style, exists := c.Get(llmProxyAuthHeaderStyleKey)
+	assert.True(t, exists)
+	assert.Equal(t, llmProxyAuthHeaderAuth, style)
+}
+
+func TestNormalizeProxyAPIKeyHeader_XAPIKey(t *testing.T) {
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	req, _ := http.NewRequest("POST", "/api/v1/llm-proxy/v1/messages", nil)
+	req.Header.Set("X-Api-Key", "ak-test")
+	c.Request = req
+
+	normalizeProxyAPIKeyHeader(c)
+
+	assert.Equal(t, "Bearer ak-test", c.GetHeader("Authorization"))
+	style, exists := c.Get(llmProxyAuthHeaderStyleKey)
+	assert.True(t, exists)
+	assert.Equal(t, llmProxyAuthHeaderXAPIKey, style)
+}
+
+func TestNormalizeProxyAPIKeyHeader_AuthorizationTakesPriority(t *testing.T) {
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	req, _ := http.NewRequest("POST", "/api/v1/llm-proxy/v1/chat/completions", nil)
+	req.Header.Set("Authorization", "Bearer ak-auth")
+	req.Header.Set("X-Api-Key", "ak-x-api-key")
+	c.Request = req
+
+	normalizeProxyAPIKeyHeader(c)
+
+	assert.Equal(t, "Bearer ak-auth", c.GetHeader("Authorization"))
+	style, exists := c.Get(llmProxyAuthHeaderStyleKey)
+	assert.True(t, exists)
+	assert.Equal(t, llmProxyAuthHeaderAuth, style)
+}
+
+func TestNormalizeProxyAPIKeyHeader_MessagesPrefersXAPIKey(t *testing.T) {
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	req, _ := http.NewRequest("POST", "/api/v1/llm-proxy/v1/messages", nil)
+	req.Header.Set("Authorization", "Bearer ak-auth")
+	req.Header.Set("X-Api-Key", "ak-x-api-key")
+	c.Request = req
+
+	normalizeProxyAPIKeyHeader(c)
+
+	assert.Equal(t, "Bearer ak-x-api-key", c.GetHeader("Authorization"))
+	style, exists := c.Get(llmProxyAuthHeaderStyleKey)
+	assert.True(t, exists)
+	assert.Equal(t, llmProxyAuthHeaderXAPIKey, style)
+}
+
+func TestNormalizeProxyAPIKeyHeader_NoSupportedHeader(t *testing.T) {
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	req, _ := http.NewRequest("POST", "/api/v1/llm-proxy/v1/chat/completions", nil)
+	c.Request = req
+
+	normalizeProxyAPIKeyHeader(c)
+
+	assert.Empty(t, c.GetHeader("Authorization"))
+	_, exists := c.Get(llmProxyAuthHeaderStyleKey)
+	assert.False(t, exists)
+}
+
+func TestApplyProxyVirtualKeyHeader_AuthorizationClearsOtherAuthHeaders(t *testing.T) {
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	req, _ := http.NewRequest("POST", "/api/v1/llm-proxy/v1/chat/completions", nil)
+	req.Header.Set("Authorization", "Bearer ak-auth")
+	req.Header.Set("X-Api-Key", "ak-x-api-key")
+	c.Request = req
+	c.Set(llmProxyAuthHeaderStyleKey, llmProxyAuthHeaderAuth)
+
+	applyProxyVirtualKeyHeader(c, "sk-test-virtual-key")
+
+	assert.Equal(t, "Bearer sk-test-virtual-key", c.GetHeader("Authorization"))
+	assert.Empty(t, c.GetHeader("X-Api-Key"))
+}
+
+func TestApplyProxyVirtualKeyHeader_XAPIKeyClearsOtherAuthHeaders(t *testing.T) {
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	req, _ := http.NewRequest("POST", "/api/v1/llm-proxy/v1/messages", nil)
+	req.Header.Set("Authorization", "Bearer ak-test")
+	req.Header.Set("X-Api-Key", "ak-test")
+	c.Request = req
+	c.Set(llmProxyAuthHeaderStyleKey, llmProxyAuthHeaderXAPIKey)
+
+	applyProxyVirtualKeyHeader(c, "sk-test-virtual-key")
+
+	assert.Empty(t, c.GetHeader("Authorization"))
+	assert.Equal(t, "sk-test-virtual-key", c.GetHeader("X-Api-Key"))
+}
+
 // ── maskKey tests ─────────────────────────────────────────────────────────
 
 func TestMaskKey(t *testing.T) {
@@ -416,6 +521,7 @@ func TestProxyLLMRequest_Success(t *testing.T) {
 	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		auth := r.Header.Get("Authorization")
 		assert.True(t, strings.HasPrefix(auth, "Bearer sk-"))
+		assert.Empty(t, r.Header.Get("X-Api-Key"))
 		assert.Equal(t, "/v1/chat/completions", r.URL.Path)
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte(`{"choices":[{"message":{"content":"hello"}}]}`))
@@ -449,6 +555,97 @@ func TestProxyLLMRequest_Success(t *testing.T) {
 	resp, err := http.Post(server.URL+"/api/v1/llm-proxy/v1/chat/completions",
 		"application/json",
 		strings.NewReader(`{"model":"gpt-4o","messages":[{"role":"user","content":"hi"}]}`))
+	assert.NoError(t, err)
+	defer resp.Body.Close()
+
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+}
+
+func TestProxyLLMRequest_XAPIKeyStyleForwardsVirtualKey(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockDB := mock_client.NewMockInterface(ctrl)
+
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Empty(t, r.Header.Get("Authorization"))
+		assert.Equal(t, "sk-test-virtual-key", r.Header.Get("X-Api-Key"))
+		assert.Equal(t, "/v1/messages", r.URL.Path)
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"content":[{"type":"text","text":"hello"}]}`))
+	}))
+	defer backend.Close()
+
+	handler := newTestHandler(t, mockDB, backend)
+
+	binding := &dbclient.LLMGatewayUserBinding{
+		UserEmail:         "test@amd.com",
+		LiteLLMVirtualKey: "sk-test-virtual-key",
+		LiteLLMKeyHash:    "hash123",
+	}
+	mockDB.EXPECT().GetLLMBindingByEmail(gomock.Any(), "test@amd.com").Return(binding, nil)
+
+	router := gin.New()
+	router.POST("/api/v1/llm-proxy/*proxyPath", func(c *gin.Context) {
+		setUserContext(c, "user1", "test@amd.com")
+		c.Set(llmProxyAuthHeaderStyleKey, llmProxyAuthHeaderXAPIKey)
+		handler.ProxyLLMRequest(c)
+	})
+
+	server := httptest.NewServer(router)
+	defer server.Close()
+
+	req, _ := http.NewRequest("POST", server.URL+"/api/v1/llm-proxy/v1/messages",
+		strings.NewReader(`{"model":"claude-opus-4-6","messages":[{"role":"user","content":"hi"}]}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Api-Key", "ak-test")
+	resp, err := http.DefaultClient.Do(req)
+	assert.NoError(t, err)
+	defer resp.Body.Close()
+
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+}
+
+func TestProxyLLMRequest_OOBDoubleHeaderMessagesForwardsXAPIKey(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockDB := mock_client.NewMockInterface(ctrl)
+
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Empty(t, r.Header.Get("Authorization"))
+		assert.Equal(t, "sk-test-virtual-key", r.Header.Get("X-Api-Key"))
+		assert.Equal(t, "/v1/messages", r.URL.Path)
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"content":[{"type":"text","text":"hello"}]}`))
+	}))
+	defer backend.Close()
+
+	handler := newTestHandler(t, mockDB, backend)
+
+	binding := &dbclient.LLMGatewayUserBinding{
+		UserEmail:         "test@amd.com",
+		LiteLLMVirtualKey: "sk-test-virtual-key",
+		LiteLLMKeyHash:    "hash123",
+	}
+	mockDB.EXPECT().GetLLMBindingByEmail(gomock.Any(), "test@amd.com").Return(binding, nil)
+
+	router := gin.New()
+	router.POST("/api/v1/llm-proxy/*proxyPath", func(c *gin.Context) {
+		normalizeProxyAPIKeyHeader(c)
+		setUserContext(c, "user1", "test@amd.com")
+		handler.ProxyLLMRequest(c)
+	})
+
+	server := httptest.NewServer(router)
+	defer server.Close()
+
+	req, _ := http.NewRequest("POST", server.URL+"/api/v1/llm-proxy/v1/messages",
+		strings.NewReader(`{"model":"claude-opus-4-6","messages":[{"role":"user","content":"hi"}]}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer ak-auth")
+	req.Header.Set("X-Api-Key", "ak-x-api-key")
+	resp, err := http.DefaultClient.Do(req)
 	assert.NoError(t, err)
 	defer resp.Body.Close()
 
