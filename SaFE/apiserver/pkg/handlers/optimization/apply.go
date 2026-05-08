@@ -55,7 +55,7 @@ func (h *Handler) ApplyTask(c *gin.Context) {
 		return
 	}
 
-	clawCtx := WithClawBearer(c.Request.Context(), clawBearerForGin(c))
+	clawCtx := WithClawBearer(c.Request.Context(), h.clawBearerForGin(c))
 	reportPath, launchCommand, err := h.resolveLaunchCommand(clawCtx, task, model)
 	if err != nil {
 		apiutils.AbortWithApiError(c, commonerrors.NewInternalError("failed to resolve optimized launch command: "+err.Error()))

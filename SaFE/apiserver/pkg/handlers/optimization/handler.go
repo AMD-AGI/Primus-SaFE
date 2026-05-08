@@ -21,6 +21,7 @@ import (
 	"k8s.io/klog/v2"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 
+	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
 	apiutils "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/utils"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
@@ -84,7 +85,7 @@ func (h *Handler) CreateTask(c *gin.Context) {
 	}
 	userID := c.GetString(common.UserId)
 	userName := c.GetString(common.UserName)
-	resp, err := h.submitTask(c.Request.Context(), &req, userID, userName, "", clawBearerForGin(c))
+	resp, err := h.submitTask(c.Request.Context(), &req, userID, userName, "", h.clawBearerForGin(c))
 	if err != nil {
 		apiutils.AbortWithApiError(c, err)
 		return
@@ -283,7 +284,7 @@ func (h *Handler) DeleteTask(c *gin.Context) {
 		return
 	}
 	if task.ClawSessionID != "" {
-		_ = h.clawClient.DeleteSession(WithClawBearer(context.Background(), clawBearerForGin(c)), task.ClawSessionID)
+		_ = h.clawClient.DeleteSession(WithClawBearer(context.Background(), h.clawBearerForGin(c)), task.ClawSessionID)
 	}
 	h.hubs.remove(id)
 	if err := h.dbClient.DeleteOptimizationTask(c.Request.Context(), id); err != nil {
@@ -347,6 +348,13 @@ func (h *Handler) StreamEvents(c *gin.Context) {
 	if task.Status == dbclient.OptimizationTaskStatusSucceeded ||
 		task.Status == dbclient.OptimizationTaskStatusFailed ||
 		task.Status == dbclient.OptimizationTaskStatusInterrupted {
+		// For succeeded tasks: if the replay produced no benchmark events, the
+		// pipeline ran in orchestrator mode (sub-jobs). Try to backfill from
+		// Claw session artifacts (ci_metrics.json, kernel_candidates.json).
+		// This fires asynchronously; on the next page load the events are in DB.
+		if task.Status == dbclient.OptimizationTaskStatusSucceeded && !hasBenchmarkEvents(events) {
+			go h.fetchAndInjectMetrics(context.Background(), task)
+		}
 		_ = writeFrame(makeDoneEvent(id, lastSeq+1, task.Status, task.Message))
 		return
 	}
@@ -501,36 +509,60 @@ func (h *Handler) finalizeTask(taskID string, hub *taskHub, streamErr error) {
 	done := makeDoneEvent(taskID, hub.nextSeq(), status, msg)
 	h.persistAndBroadcast(taskID, hub, done)
 	h.hubs.remove(taskID)
+
+	// Best-effort: pull ci_metrics.json + kernel_candidates.json from Claw
+	// session artifacts and inject them as synthetic events so the Detail page
+	// can display benchmark/kernel data even when the pipeline ran sub-jobs.
+	if task != nil && status == dbclient.OptimizationTaskStatusSucceeded {
+		go h.fetchAndInjectMetrics(context.Background(), task)
+	}
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────
 
-// clawBearerForGin resolves the Bearer token for outbound PrimusClaw calls. Order matches
-// Primus-Claw + SaFE /auth/verify semantics: explicit user API key, then per-user platform
-// key (same as Hyperloom cookie flows), then optional file-based service key.
+// clawBearerForGin resolves the Bearer token for outbound PrimusClaw calls.
 //
-// SaFE ak-xxx API keys are NOT forwarded to Claw: they are SaFE-internal credentials
-// that the LLM gateway does not accept. Only sk-xxx LiteLLM virtual keys are valid.
-func clawBearerForGin(c *gin.Context) string {
+// Priority:
+//  1. Explicit sk-xxx key in the request Authorization header.
+//  2. LiteLLM virtual key (sk-xxx) looked up by user email via GetVirtualKeyByEmail.
+//  3. File-based service key from model_optimization config.
+//
+// SaFE ak-xxx keys are NOT forwarded: the LLM gateway only accepts sk-xxx LiteLLM virtual keys.
+func (h *Handler) clawBearerForGin(c *gin.Context) string {
 	if c != nil {
 		if k := authority.ExtractApiKeyFromRequest(c.GetHeader("Authorization")); k != "" && strings.HasPrefix(k, "sk-") {
 			return k
 		}
 		userID := c.GetString(common.UserId)
-		userName := c.GetString(common.UserName)
 		if userID != "" {
-			if tok := authority.ApiKeyTokenInstance(); tok != nil {
-				pk, err := tok.GetOrCreatePlatformKey(c.Request.Context(), userID, userName)
-				if err != nil {
-					klog.ErrorS(err, "model optimization: GetOrCreatePlatformKey for PrimusClaw",
-						"userId", userID)
-				} else if strings.TrimSpace(pk) != "" {
-					return pk
+			email := h.getUserEmail(c.Request.Context(), userID)
+			if email != "" {
+				if tok := authority.ApiKeyTokenInstance(); tok != nil {
+					sk, err := tok.GetVirtualKeyByEmail(c.Request.Context(), email)
+					if err != nil {
+						klog.ErrorS(err, "model optimization: GetVirtualKeyByEmail for PrimusClaw",
+							"userId", userID, "email", email)
+					} else if strings.TrimSpace(sk) != "" {
+						return sk
+					}
 				}
 			}
 		}
 	}
 	return commonconfig.GetModelOptimizationClawAPIKey()
+}
+
+// getUserEmail looks up the User CR by userId and returns the email annotation.
+// Falls back to empty string on any error.
+func (h *Handler) getUserEmail(ctx context.Context, userID string) string {
+	if h.k8sClient == nil || userID == "" {
+		return ""
+	}
+	user := &v1.User{}
+	if err := h.k8sClient.Get(ctx, ctrlclient.ObjectKey{Name: userID}, user); err != nil {
+		return ""
+	}
+	return v1.GetUserEmail(user)
 }
 
 func promptConfigFromRequest(req *CreateTaskRequest, m *ResolvedModel, workspace string) PromptConfig {
