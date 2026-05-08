@@ -222,7 +222,7 @@ const readyModels = ref<Array<{ id: string; displayName: string }>>([])
 
 const defaultForm = (): CreateOptimizationTaskPayload => ({
   modelId: '',
-  workspace: 'sandbox',
+  workspace: 'core42-sandbox',
   displayName: '',
   mode: 'local',
   framework: 'sglang',
