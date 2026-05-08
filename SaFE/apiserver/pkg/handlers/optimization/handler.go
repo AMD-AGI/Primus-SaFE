@@ -21,6 +21,7 @@ import (
 	"k8s.io/klog/v2"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 
+	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
 	apiutils "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/utils"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
@@ -199,10 +200,14 @@ func (h *Handler) submitTask(
 		WorkspaceID:  workspace,
 		SandboxImage: promptCfg.Image,
 	}
-	if clawBearer != "" {
+	// Inject the user's LiteLLM virtual key (sk-xxx) as ANTHROPIC_API_KEY so
+	// the Hyperloom skill can authenticate to the LiteLLM gateway inside the
+	// GPU sandbox. This is separate from clawBearer (ak-xxx) which is used for
+	// Claw's own session API.
+	if anthropicKey := h.getLiteLLMKey(ctx, userID, userName); anthropicKey != "" {
 		msgReq.ResourceGpu = &ResourceGpuSpec{
 			Env: []ResourceGpuEnvVar{
-				{Key: "ANTHROPIC_API_KEY", Val: clawBearer},
+				{Key: "ANTHROPIC_API_KEY", Val: anthropicKey},
 			},
 		}
 	}
@@ -554,6 +559,37 @@ func (h *Handler) clawBearerForGin(c *gin.Context) string {
 		}
 	}
 	return commonconfig.GetModelOptimizationClawAPIKey()
+}
+
+// getLiteLLMKey returns the user's sk-xxx LiteLLM virtual key for use as
+// ANTHROPIC_API_KEY inside the GPU sandbox. Falls back to empty string on any error.
+func (h *Handler) getLiteLLMKey(ctx context.Context, userID, userName string) string {
+	email := h.getUserEmail(ctx, userID)
+	if email == "" {
+		return ""
+	}
+	tok := authority.ApiKeyTokenInstance()
+	if tok == nil {
+		return ""
+	}
+	sk, err := tok.GetVirtualKeyByEmail(ctx, email)
+	if err != nil {
+		klog.V(4).InfoS("getLiteLLMKey: GetVirtualKeyByEmail failed", "userId", userID, "error", err)
+		return ""
+	}
+	return strings.TrimSpace(sk)
+}
+
+// getUserEmail looks up the User CR by userId and returns the email annotation.
+func (h *Handler) getUserEmail(ctx context.Context, userID string) string {
+	if h.k8sClient == nil || userID == "" {
+		return ""
+	}
+	user := &v1.User{}
+	if err := h.k8sClient.Get(ctx, ctrlclient.ObjectKey{Name: userID}, user); err != nil {
+		return ""
+	}
+	return v1.GetUserEmail(user)
 }
 
 func promptConfigFromRequest(req *CreateTaskRequest, m *ResolvedModel, workspace string) PromptConfig {
