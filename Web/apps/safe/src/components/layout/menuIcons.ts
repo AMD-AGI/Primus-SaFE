@@ -86,5 +86,5 @@ export const menuIcons: MenuIcons = {
   a2a: createIconSet('skill'), // Using skill icons as placeholder
   monarch: createIconSet('monarch'),
   sandbox: createIconSet('sandbox'),
-  modelOptimization: createIconSet('evaluation'),
+  modelOptimization: createIconSet('optimization'),
 }
