@@ -37,13 +37,14 @@ import (
 // of the apiserver process. All its fields are immutable after construction;
 // per-task state lives inside taskHub entries on the hubRegistry.
 type Handler struct {
-	dbClient      dbclient.Interface
-	k8sClient     ctrlclient.Client
-	clawClient    *ClawClient
-	clawAgentID   string
-	defaultWS     string
-	maxConcurrent int
-	hubs          *hubRegistry
+	dbClient        dbclient.Interface
+	k8sClient       ctrlclient.Client
+	clawClient      *ClawClient
+	clawAgentID     string
+	defaultWS       string
+	maxConcurrent   int
+	hubs            *hubRegistry
+	hyperloomPlugin int // Claw plugin ID for GPU resource resolution (0 = disabled)
 }
 
 // NewHandler instantiates the handler. Returns nil and a log warning when
@@ -62,13 +63,14 @@ func NewHandler(k8sClient ctrlclient.Client, dbClient dbclient.Interface) (*Hand
 	}
 	apiKey := commonconfig.GetModelOptimizationClawAPIKey()
 	return &Handler{
-		dbClient:      dbClient,
-		k8sClient:     k8sClient,
-		clawClient:    NewClawClient(baseURL, apiKey),
-		clawAgentID:   commonconfig.GetModelOptimizationClawAgentID(),
-		defaultWS:     commonconfig.GetModelOptimizationDefaultWorkspace(),
-		maxConcurrent: commonconfig.GetModelOptimizationMaxConcurrent(),
-		hubs:          newHubRegistry(),
+		dbClient:        dbClient,
+		k8sClient:       k8sClient,
+		clawClient:      NewClawClient(baseURL, apiKey),
+		clawAgentID:     commonconfig.GetModelOptimizationClawAgentID(),
+		defaultWS:       commonconfig.GetModelOptimizationDefaultWorkspace(),
+		maxConcurrent:   commonconfig.GetModelOptimizationMaxConcurrent(),
+		hubs:            newHubRegistry(),
+		hyperloomPlugin: commonconfig.GetModelOptimizationClawPluginID(),
 	}, nil
 }
 
@@ -194,22 +196,19 @@ func (h *Handler) submitTask(
 	sendCtx, sendCancel := context.WithTimeout(WithClawBearer(context.Background(), clawBearer), 30*time.Second)
 	defer sendCancel()
 	msgReq := &MessageRequest{
-		Content:      prompt,
-		MessageType:  "text",
-		TaskMode:     "agent",
-		WorkspaceID:  workspace,
-		SandboxImage: promptCfg.Image,
+		Content:     prompt,
+		MessageType: "text",
+		TaskMode:    "agent",
+		WorkspaceID: workspace,
 	}
-	// Inject the user's LiteLLM virtual key (sk-xxx) as ANTHROPIC_API_KEY so
-	// the Hyperloom skill can authenticate to the LiteLLM gateway inside the
-	// GPU sandbox. This is separate from clawBearer (ak-xxx) which is used for
-	// Claw's own session API.
-	if anthropicKey := h.getLiteLLMKey(ctx, userID, userName); anthropicKey != "" {
-		msgReq.ResourceGpu = &ResourceGpuSpec{
-			Env: []ResourceGpuEnvVar{
-				{Key: "ANTHROPIC_API_KEY", Val: anthropicKey},
-			},
-		}
+	// Attach the Hyperloom plugin so Claw resolves resource_gpu (image, CPU,
+	// memory, GPU count) from the plugin definition. This is the correct path
+	// for GPU sandbox creation — sessions.ts reads plugin_id from the body and
+	// calls resolveSlimResourceForPluginTask, which populates resource_gpu with
+	// the plugin's image and resource spec. The user's sk-xxx LiteLLM key is
+	// already forwarded to Brain via llm_api_key (sessions.ts line 291).
+	if h.hyperloomPlugin > 0 {
+		msgReq.PluginID = h.hyperloomPlugin
 	}
 	if err := h.clawClient.SendMessage(sendCtx, sessionID, msgReq); err != nil {
 		klog.ErrorS(err, "send hyperloom prompt", "task_id", taskID, "session_id", sessionID)
