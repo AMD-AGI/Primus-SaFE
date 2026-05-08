@@ -130,10 +130,10 @@ func (h *Handler) InterruptTask(c *gin.Context) {
 		apiutils.AbortWithApiError(c, commonerrors.NewBadRequest("task has no active Claw session"))
 		return
 	}
+	// Best-effort: Claw may return an error if the session already finished.
+	// We still mark the task interrupted locally so the UI reflects the request.
 	if err := h.clawClient.InterruptSession(WithClawBearer(c.Request.Context(), h.clawBearerForGin(c)), task.ClawSessionID); err != nil {
-		klog.ErrorS(err, "interrupt optimization task", "task_id", task.ID)
-		apiutils.AbortWithApiError(c, commonerrors.NewInternalError("failed to interrupt task"))
-		return
+		klog.V(4).InfoS("interrupt claw session", "task_id", task.ID, "error", err)
 	}
 	_ = h.dbClient.UpdateOptimizationTaskStatus(c.Request.Context(), task.ID,
 		dbclient.OptimizationTaskStatusInterrupted, task.CurrentPhase, "interrupt requested")

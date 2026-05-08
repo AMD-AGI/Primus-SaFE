@@ -92,14 +92,15 @@ type SessionResponse struct {
 
 // MessageRequest maps to POST /sessions/{id}/messages.
 type MessageRequest struct {
-	Content     string                   `json:"content,omitempty"`
-	Contents    []MessageContent         `json:"contents,omitempty"`
-	MessageType string                   `json:"messageType,omitempty"`
-	TaskMode    string                   `json:"taskMode,omitempty"`
-	Attachments []map[string]interface{} `json:"attachments,omitempty"`
-	Tools       []int                    `json:"tools,omitempty"`
-	ExtData     map[string]interface{}   `json:"extData,omitempty"`
-	WorkspaceID string                   `json:"workspaceId,omitempty"`
+	Content      string                   `json:"content,omitempty"`
+	Contents     []MessageContent         `json:"contents,omitempty"`
+	MessageType  string                   `json:"messageType,omitempty"`
+	TaskMode     string                   `json:"taskMode,omitempty"`
+	Attachments  []map[string]interface{} `json:"attachments,omitempty"`
+	Tools        []int                    `json:"tools,omitempty"`
+	ExtData      map[string]interface{}   `json:"extData,omitempty"`
+	WorkspaceID  string                   `json:"workspaceId,omitempty"`
+	SandboxImage string                   `json:"sandbox_image,omitempty"`
 }
 
 // MessageContent is a single segment in a multi-part message payload.

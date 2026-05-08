@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"sync/atomic"
 
 	"k8s.io/klog/v2"
 
@@ -229,11 +230,10 @@ func (h *Handler) appendSyntheticEvent(taskID string, evType EventType, payload 
 
 // ── small helpers ────────────────────────────────────────────────────────────
 
-var syntheticSeq int64
+var syntheticSeq atomic.Int64
 
 func nextSyntheticSeq() int64 {
-	syntheticSeq++
-	return 1_000_000_000 + syntheticSeq // well above any live seq
+	return 1_000_000_000 + syntheticSeq.Add(1) // well above any live seq
 }
 
 func firstPositive(vals ...int) int {
