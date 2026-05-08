@@ -127,7 +127,7 @@ func (h *Handler) submitTask(
 		}
 	}
 
-	resolved, err := ResolveModelForOptimization(ctx, h.dbClient, req.ModelID, workspace)
+	resolved, err := ResolveModelForOptimization(ctx, h.dbClient, h.k8sClient, req.ModelID, workspace)
 	if err != nil {
 		return nil, commonerrors.NewBadRequest(err.Error())
 	}
@@ -508,9 +508,12 @@ func (h *Handler) finalizeTask(taskID string, hub *taskHub, streamErr error) {
 // clawBearerForGin resolves the Bearer token for outbound PrimusClaw calls. Order matches
 // Primus-Claw + SaFE /auth/verify semantics: explicit user API key, then per-user platform
 // key (same as Hyperloom cookie flows), then optional file-based service key.
+//
+// SaFE ak-xxx API keys are NOT forwarded to Claw: they are SaFE-internal credentials
+// that the LLM gateway does not accept. Only sk-xxx LiteLLM virtual keys are valid.
 func clawBearerForGin(c *gin.Context) string {
 	if c != nil {
-		if k := authority.ExtractApiKeyFromRequest(c.GetHeader("Authorization")); k != "" {
+		if k := authority.ExtractApiKeyFromRequest(c.GetHeader("Authorization")); k != "" && strings.HasPrefix(k, "sk-") {
 			return k
 		}
 		userID := c.GetString(common.UserId)

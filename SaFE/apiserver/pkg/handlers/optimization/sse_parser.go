@@ -56,13 +56,13 @@ func (p *SSEParser) Parse(raw ClawSSEEvent) []ParsedEvent {
 	defer p.mu.Unlock()
 
 	switch raw.Event {
-	case "", "chat", "chat_delta":
+	case "", "chat", "chat_delta", "AssistantMessage":
 		return p.parseChat(raw)
-	case "tool_used":
+	case "tool_used", "toolUsed":
 		return p.parseToolUsed(raw)
-	case "status_update":
+	case "status_update", "statusUpdate":
 		return p.parseStatusUpdate(raw)
-	case "plan_update":
+	case "plan_update", "planUpdate":
 		return p.parsePlanUpdate(raw)
 	case "error":
 		return []ParsedEvent{{
@@ -97,15 +97,23 @@ var phaseHeaderRegex = regexp.MustCompile(`(?m)^#{1,6}\s*Phase\s+(\d+)\s*[:\-\s]
 var phaseBoldRegex = regexp.MustCompile(`\*\*Phase\s+(\d+)[:\s]+([^*\n]*)`)
 
 // chatEnvelope is the subset of the Claude/Claw chat payload we care about.
-// The skill's text reaches us either in content.content[].text (full message)
-// or delta.content (streaming token delta) — handle both shapes.
+// Handles both old snake_case format (content.content[]._type) and new
+// camelCase AssistantMessage format (data.content[].type).
 type chatEnvelope struct {
+	// Old format: content.content[]
 	Content *struct {
 		Content []struct {
 			Type string `json:"_type"`
 			Text string `json:"text"`
 		} `json:"content"`
 	} `json:"content"`
+	// New AssistantMessage format: data.content[]
+	Data *struct {
+		Content []struct {
+			Type string `json:"type"`
+			Text string `json:"text"`
+		} `json:"content"`
+	} `json:"data"`
 	Delta *struct {
 		Content string `json:"content"`
 	} `json:"delta"`
@@ -611,7 +619,19 @@ func extractChatText(data string) string {
 	if err := json.Unmarshal([]byte(data), &env); err != nil {
 		return ""
 	}
-	// Preferred: full AssistantMessage content blocks.
+	// New AssistantMessage format: data.content[].type = "text"
+	if env.Data != nil {
+		parts := make([]string, 0, len(env.Data.Content))
+		for _, b := range env.Data.Content {
+			if strings.ToLower(b.Type) == "text" && strings.TrimSpace(b.Text) != "" {
+				parts = append(parts, b.Text)
+			}
+		}
+		if len(parts) > 0 {
+			return strings.Join(parts, "\n\n")
+		}
+	}
+	// Old format: content.content[]._type
 	if env.Content != nil {
 		parts := make([]string, 0, len(env.Content.Content))
 		for _, b := range env.Content.Content {

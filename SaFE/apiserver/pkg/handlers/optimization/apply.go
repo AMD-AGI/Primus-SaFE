@@ -49,7 +49,7 @@ func (h *Handler) ApplyTask(c *gin.Context) {
 		}
 	}
 
-	model, err := ResolveModelForOptimization(c.Request.Context(), h.dbClient, task.ModelID, firstNonEmpty(req.Workspace, task.Workspace))
+	model, err := ResolveModelForOptimization(c.Request.Context(), h.dbClient, h.k8sClient, task.ModelID, firstNonEmpty(req.Workspace, task.Workspace))
 	if err != nil {
 		apiutils.AbortWithApiError(c, commonerrors.NewBadRequest(err.Error()))
 		return
