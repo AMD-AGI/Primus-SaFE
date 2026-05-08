@@ -508,8 +508,10 @@ func (h *Handler) finalizeTask(taskID string, hub *taskHub, streamErr error) {
 			msg = task.Message
 		default:
 			if streamErr != nil {
-				status = dbclient.OptimizationTaskStatusFailed
-				msg = "claw stream error: " + streamErr.Error()
+				// The SSE connection dropped (e.g. network blip, LB timeout).
+				// The Claw session may still be running — query it before
+				// deciding the final status so we don't mark a live task Failed.
+				status, msg = h.resolveStatusFromClaw(task.ClawSessionID, streamErr)
 			} else {
 				msg = "completed"
 			}
@@ -518,16 +520,66 @@ func (h *Handler) finalizeTask(taskID string, hub *taskHub, streamErr error) {
 			)
 		}
 	}
+	// If the session is still running (stream dropped transiently), do not emit
+	// a terminal done frame and do not tear down the hub. The Detail page will
+	// see Running status on next poll and keep showing a live task.
+	if status == dbclient.OptimizationTaskStatusRunning {
+		h.hubs.remove(taskID)
+		return
+	}
+
 	done := makeDoneEvent(taskID, hub.nextSeq(), status, msg)
 	h.persistAndBroadcast(taskID, hub, done)
 	h.hubs.remove(taskID)
 
-	// Best-effort: pull ci_metrics.json + kernel_candidates.json from Claw
-	// session artifacts and inject them as synthetic events so the Detail page
-	// can display benchmark/kernel data even when the pipeline ran sub-jobs.
+	// Best-effort: pull optimization report from Claw session artifacts and
+	// inject benchmark/kernel events so the Detail page can display them even
+	// when the pipeline ran sub-jobs.
 	if task != nil && status == dbclient.OptimizationTaskStatusSucceeded {
 		go h.fetchAndInjectMetrics(context.Background(), task)
 	}
+}
+
+// resolveStatusFromClaw queries the Claw session to determine the true task
+// status when the SSE stream dropped unexpectedly. This prevents marking a
+// still-running Hyperloom session as Failed due to a transient connection drop.
+func (h *Handler) resolveStatusFromClaw(sessionID string, streamErr error) (dbclient.OptimizationTaskStatus, string) {
+	fallbackStatus := dbclient.OptimizationTaskStatusFailed
+	fallbackMsg := "claw stream error: " + streamErr.Error()
+
+	if sessionID == "" {
+		return fallbackStatus, fallbackMsg
+	}
+
+	ctx, cancel := context.WithTimeout(
+		WithClawBearer(context.Background(), h.clawClient.apiKey),
+		10*time.Second,
+	)
+	defer cancel()
+
+	ss, err := h.clawClient.GetSession(ctx, sessionID)
+	if err != nil {
+		klog.V(4).InfoS("resolveStatusFromClaw: get session failed, keeping stream error",
+			"session_id", sessionID, "error", err)
+		return fallbackStatus, fallbackMsg
+	}
+
+	klog.InfoS("resolveStatusFromClaw: claw session status",
+		"session_id", sessionID,
+		"status", ss.Status, "agent_status", ss.AgentStatus, "stream_err", streamErr)
+
+	if !ss.IsTerminal() {
+		// Session is still running — do not mark as Failed. Return Running so
+		// the caller skips writing a terminal status; the Detail page will show
+		// the task as still in progress.
+		klog.InfoS("resolveStatusFromClaw: session still active, not marking failed",
+			"session_id", sessionID, "agent_status", ss.AgentStatus)
+		return dbclient.OptimizationTaskStatusRunning, ""
+	}
+	if ss.Status == "failed" || ss.AgentStatus == "failed" {
+		return dbclient.OptimizationTaskStatusFailed, "claw session failed"
+	}
+	return dbclient.OptimizationTaskStatusSucceeded, "completed"
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────

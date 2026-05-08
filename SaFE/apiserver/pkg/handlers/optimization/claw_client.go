@@ -279,6 +279,72 @@ func (c *ClawClient) Stream(
 	return parseSSEStream(ctx, resp.Body, onEvent)
 }
 
+// SessionStatus mirrors the fields Claw returns in GET /sessions/{id}.data.
+// Claw uses two orthogonal status fields:
+//   - Status:      session lifecycle — "active" | "completed" | "stopped" | "failed"
+//   - AgentStatus: agent execution  — "idle"   | "running"   | "stopped" | "failed"
+type SessionStatus struct {
+	SessionID   string `json:"session_id"`
+	Status      string `json:"status"`
+	AgentStatus string `json:"agent_status"`
+}
+
+// IsTerminal reports whether the Claw session has finished (successfully or not).
+// Mirrors the completion logic in Hyperloom ci/claw_client.py:monitor_session.
+func (s *SessionStatus) IsTerminal() bool {
+	return s.AgentStatus == "stopped" ||
+		s.AgentStatus == "failed" ||
+		s.Status == "completed" ||
+		s.Status == "stopped" ||
+		s.Status == "failed"
+}
+
+// IsSucceeded reports whether the session completed successfully.
+func (s *SessionStatus) IsSucceeded() bool {
+	return s.AgentStatus == "stopped" && s.Status != "failed" ||
+		s.Status == "completed"
+}
+
+// GetSession fetches the current state of a Claw session. Used to reconcile
+// task status when the SSE stream drops unexpectedly.
+func (c *ClawClient) GetSession(ctx context.Context, sessionID string) (*SessionStatus, error) {
+	if sessionID == "" {
+		return nil, fmt.Errorf("claw get session: empty session id")
+	}
+	req, err := http.NewRequestWithContext(
+		ctx, http.MethodGet, c.baseURL+clawPathSessions+"/"+sessionID, nil,
+	)
+	if err != nil {
+		return nil, err
+	}
+	c.applyHeaders(req)
+	resp, err := c.controlClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("claw GET /sessions/%s: %w", sessionID, err)
+	}
+	defer resp.Body.Close()
+	raw, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("claw get session HTTP %d: %s", resp.StatusCode, truncate(string(raw), 256))
+	}
+	var env struct {
+		Data json.RawMessage `json:"data"`
+	}
+	if err := json.Unmarshal(raw, &env); err != nil {
+		return nil, fmt.Errorf("claw get session parse: %w", err)
+	}
+	var ss SessionStatus
+	if len(env.Data) > 0 {
+		if err := json.Unmarshal(env.Data, &ss); err != nil {
+			return nil, fmt.Errorf("claw get session parse data: %w", err)
+		}
+	}
+	if ss.SessionID == "" {
+		ss.SessionID = sessionID
+	}
+	return &ss, nil
+}
+
 // DeleteSession best-effort removes a Claw session. Failures are logged but
 // not fatal — a dangling session will time out upstream eventually.
 func (c *ClawClient) DeleteSession(ctx context.Context, sessionID string) error {
