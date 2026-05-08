@@ -192,13 +192,21 @@ func (h *Handler) submitTask(
 
 	sendCtx, sendCancel := context.WithTimeout(WithClawBearer(context.Background(), clawBearer), 30*time.Second)
 	defer sendCancel()
-	if err := h.clawClient.SendMessage(sendCtx, sessionID, &MessageRequest{
+	msgReq := &MessageRequest{
 		Content:      prompt,
 		MessageType:  "text",
 		TaskMode:     "agent",
 		WorkspaceID:  workspace,
 		SandboxImage: promptCfg.Image,
-	}); err != nil {
+	}
+	if clawBearer != "" {
+		msgReq.ResourceGpu = &ResourceGpuSpec{
+			Env: []ResourceGpuEnvVar{
+				{Key: "ANTHROPIC_API_KEY", Val: clawBearer},
+			},
+		}
+	}
+	if err := h.clawClient.SendMessage(sendCtx, sessionID, msgReq); err != nil {
 		klog.ErrorS(err, "send hyperloom prompt", "task_id", taskID, "session_id", sessionID)
 		_ = h.clawClient.DeleteSession(WithClawBearer(context.Background(), clawBearer), sessionID)
 		_ = h.dbClient.UpdateOptimizationTaskStatus(ctx, taskID,

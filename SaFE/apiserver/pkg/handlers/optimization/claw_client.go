@@ -90,6 +90,20 @@ type SessionResponse struct {
 	SessionID string `json:"session_id"`
 }
 
+// ResourceGpuEnvVar is a single environment variable entry for resource_gpu.env.
+// Claw's mergeWorkloadEnvLayers accepts {key/val} format.
+type ResourceGpuEnvVar struct {
+	Key string `json:"key"`
+	Val string `json:"val"`
+}
+
+// ResourceGpuSpec carries the GPU sandbox resource specification injected into
+// POST /sessions/{id}/messages. env entries are merged after Claw's base env
+// (AUTH_INTERNAL_TOKEN, CLAW_SESSION_ID, etc.) so they can override defaults.
+type ResourceGpuSpec struct {
+	Env []ResourceGpuEnvVar `json:"env,omitempty"`
+}
+
 // MessageRequest maps to POST /sessions/{id}/messages.
 type MessageRequest struct {
 	Content      string                   `json:"content,omitempty"`
@@ -101,6 +115,7 @@ type MessageRequest struct {
 	ExtData      map[string]interface{}   `json:"extData,omitempty"`
 	WorkspaceID  string                   `json:"workspaceId,omitempty"`
 	SandboxImage string                   `json:"sandbox_image,omitempty"`
+	ResourceGpu  *ResourceGpuSpec         `json:"resource_gpu,omitempty"`
 }
 
 // MessageContent is a single segment in a multi-part message payload.
