@@ -10,7 +10,10 @@ import (
 	"encoding/json"
 	"fmt"
 
+	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
+
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
+	commonworkspace "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workspace"
 )
 
 // ResolveModelForOptimization looks up the Model by id, validates that its
@@ -26,6 +29,7 @@ import (
 func ResolveModelForOptimization(
 	ctx context.Context,
 	db dbclient.ModelInterface,
+	k8sClient ctrlclient.Client,
 	modelID, workspace string,
 ) (*ResolvedModel, error) {
 	if db == nil {
@@ -59,7 +63,7 @@ func ResolveModelForOptimization(
 		)
 	}
 
-	localPath, chosenWS, err := selectLocalPath(m, workspace)
+	localPath, chosenWS, err := selectLocalPath(k8sClient, m, workspace)
 	if err != nil {
 		return nil, err
 	}
@@ -89,10 +93,12 @@ type ResolvedModel struct {
 // selectLocalPath parses Model.LocalPaths (JSON array of ModelLocalPathDB) and
 // returns the path ready to be used. Precedence:
 //  1. exact workspace match with status=Ready;
-//  2. any entry with status=Ready (only when the caller did not specify a
+//  2. path-accessible match: another Ready entry whose path is reachable from
+//     the requested workspace via shared storage (e.g. /wekafs);
+//  3. any entry with status=Ready (only when the caller did not specify a
 //     workspace explicitly — picking arbitrarily here would be surprising);
-//  3. otherwise error.
-func selectLocalPath(m *dbclient.Model, workspace string) (string, string, error) {
+//  4. otherwise error.
+func selectLocalPath(k8sClient ctrlclient.Client, m *dbclient.Model, workspace string) (string, string, error) {
 	if m.LocalPaths == "" {
 		return "", "", fmt.Errorf("model %q has no local paths recorded", m.ID)
 	}
@@ -103,9 +109,21 @@ func selectLocalPath(m *dbclient.Model, workspace string) (string, string, error
 	}
 
 	if workspace != "" {
+		// Stage 1: exact workspace match.
 		for _, e := range entries {
 			if e.Workspace == workspace && e.Status == "Ready" && e.Path != "" {
 				return e.Path, e.Workspace, nil
+			}
+		}
+		// Stage 2: path-accessible via shared storage (e.g. /wekafs mounted in both workspaces).
+		if k8sClient != nil {
+			for _, e := range entries {
+				if e.Status != "Ready" || e.Path == "" {
+					continue
+				}
+				if accessible, _ := commonworkspace.IsPathAccessibleFromWorkspace(k8sClient, e.Path, workspace); accessible {
+					return e.Path, e.Workspace, nil
+				}
 			}
 		}
 		return "", "", fmt.Errorf(
