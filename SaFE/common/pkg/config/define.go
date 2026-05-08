@@ -194,4 +194,5 @@ const (
 	modelOptimizationSecretPath  = modelOptimizationPrefix + "secret_path"
 	modelOptimizationDefaultWS   = modelOptimizationPrefix + "default_workspace"
 	modelOptimizationConcurrency = modelOptimizationPrefix + "max_concurrent"
+	modelOptimizationClawPluginID = modelOptimizationPrefix + "claw_plugin_id"
 )

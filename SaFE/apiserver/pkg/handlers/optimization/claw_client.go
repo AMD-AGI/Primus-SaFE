@@ -116,6 +116,10 @@ type MessageRequest struct {
 	WorkspaceID  string                   `json:"workspaceId,omitempty"`
 	SandboxImage string                   `json:"sandbox_image,omitempty"`
 	ResourceGpu  *ResourceGpuSpec         `json:"resource_gpu,omitempty"`
+	// PluginID attaches a Claw marketplace plugin to this message. When set,
+	// Claw resolves resource_gpu (image, cpu, memory, GPU count) from the
+	// plugin definition, replacing any sandbox_image / resource_gpu fields.
+	PluginID int `json:"pluginId,omitempty"`
 }
 
 // MessageContent is a single segment in a multi-part message payload.
