@@ -33,8 +33,8 @@ const (
 	defaultRayMemoryGi    = 128
 	raySharedMemoryGi     = 500
 
-	defaultSGLangImage = "harbor.oci-slc.primus-safe.amd.com/custom/lmsysorg/sglang:latest"
-	defaultVLLMImage   = "harbor.oci-slc.primus-safe.amd.com/custom/vllm/vllm-openai-rocm:latest"
+	defaultSGLangImage = "harbor.core42.primus-safe.amd.com/sync/sglang:v0.5.11-rocm720-mi30x"
+	defaultVLLMImage   = "harbor.core42.primus-safe.amd.com/proxy/vllm/vllm-openai-rocm:v0.17.0"
 )
 
 // Maps Hyperloom-Web's display string to the lowercased tag the skill expects.
