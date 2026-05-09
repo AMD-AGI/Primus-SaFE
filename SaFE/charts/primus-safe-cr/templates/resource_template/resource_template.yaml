@@ -236,7 +236,7 @@ spec:
       - matchExpressions:
           status: 'False'
           type: Available
-        phase: K8sFailed
+        phase: K8sNotReady
       - matchExpressions:
           reason: ReplicaSetUpdated
           status: 'True'
@@ -520,7 +520,7 @@ spec:
       - matchExpressions:
           status: 'False'
           type: Ready
-        phase: K8sFailed
+        phase: K8sNotReady
   activeReplica:
     prePaths:
       - status
