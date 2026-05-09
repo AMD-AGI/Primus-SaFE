@@ -135,7 +135,7 @@ func (h *Handler) submitTask(
 		return nil, commonerrors.NewBadRequest(err.Error())
 	}
 
-	promptCfg := promptConfigFromRequest(req, resolved, workspace)
+	promptCfg := NormalizePromptConfig(promptConfigFromRequest(req, resolved, workspace))
 	prompt := BuildHyperloomPrompt(promptCfg)
 
 	taskID := fixedTaskID
@@ -195,7 +195,6 @@ func (h *Handler) submitTask(
 
 	sendCtx, sendCancel := context.WithTimeout(WithClawBearer(context.Background(), clawBearer), 30*time.Second)
 	defer sendCancel()
-	promptCfg = NormalizePromptConfig(promptCfg)
 	gpuCount := promptCfg.TP * promptCfg.EP
 	if gpuCount <= 0 {
 		gpuCount = 1
