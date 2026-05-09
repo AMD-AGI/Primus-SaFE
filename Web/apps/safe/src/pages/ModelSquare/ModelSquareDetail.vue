@@ -46,6 +46,12 @@
       </div>
 
       <div class="w-actions">
+        <el-tooltip content="Edit" placement="top">
+          <el-button circle class="glass-btn glass-btn--primary" @click="editDialogVisible = true">
+            <el-icon><Edit /></el-icon>
+          </el-button>
+        </el-tooltip>
+
         <el-tooltip content="Chat" placement="top">
           <el-button circle class="glass-btn glass-btn--primary" @click="openChat">
             <el-icon><ChatDotRound /></el-icon>
@@ -276,6 +282,13 @@
     :model="detailData"
     @success="handleTrainSuccess"
   />
+
+  <!-- Edit Model Dialog -->
+  <EditModelDialog
+    v-model:visible="editDialogVisible"
+    :model="detailData"
+    @success="getDetail"
+  />
 </template>
 
 <script setup lang="ts">
@@ -292,11 +305,13 @@ import {
   Right,
   ArrowLeft,
   MagicStick,
+  Edit,
 } from '@element-plus/icons-vue'
 import { getModelDetail, deleteModel, isDeployableLocalModel, canTrain } from '@/services/playground'
 import { copyText, formatTimeStr } from '@/utils/index'
 import ToggleServiceDialog from './Components/ToggleServiceDialog.vue'
 import CreateTrainingDialog from './Components/CreateTrainingDialog.vue'
+import EditModelDialog from './Components/EditModelDialog.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -306,6 +321,7 @@ const modelId = computed(() => route.params.id as string)
 const detailData = ref<any>(null)
 const toggleDialogVisible = ref(false)
 const showTrainDialog = ref(false)
+const editDialogVisible = ref(false)
 
 const isDeployable = computed(() => {
   if (!detailData.value) return false
