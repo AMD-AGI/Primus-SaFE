@@ -179,10 +179,20 @@ const (
 	sandboxNamespace = sandboxPrefix + "namespace"
 	sandboxSecret    = sandboxPrefix + "secret"
 
-	// mcp (Model Context Protocol)
+	// mcp
 	mcpPrefix         = "mcp."
 	mcpEnable         = mcpPrefix + "enabled"
 	mcpBasePath       = mcpPrefix + "base_path"
 	mcpInstructions   = mcpPrefix + "instructions"
 	mcpAllowedOrigins = mcpPrefix + "allowed_origins"
+
+	// model_optimization (hyperloom via primus-claw)
+	modelOptimizationPrefix      = "model_optimization."
+	modelOptimizationEnable      = modelOptimizationPrefix + "enabled"
+	modelOptimizationClawBaseURL = modelOptimizationPrefix + "claw_base_url"
+	modelOptimizationClawAgentID = modelOptimizationPrefix + "claw_agent_id"
+	modelOptimizationSecretPath  = modelOptimizationPrefix + "secret_path"
+	modelOptimizationDefaultWS   = modelOptimizationPrefix + "default_workspace"
+	modelOptimizationConcurrency = modelOptimizationPrefix + "max_concurrent"
+	modelOptimizationClawPluginID = modelOptimizationPrefix + "claw_plugin_id"
 )

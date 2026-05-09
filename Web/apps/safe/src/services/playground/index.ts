@@ -225,15 +225,16 @@ export interface PlaygroundModel {
   id: string
   displayName: string
   description?: string
-  accessMode?: 'remote_api' | 'local' | 'local_path' | 'cloud'
-  phase: 'Ready' | 'Pending' | 'Failed' | 'Running' | 'Stopped'
+  accessMode?: 'remote_api' | 'local' | 'local_path' | 's3_sync' | 'cloud'
+  phase: 'Ready' | 'Pending' | 'Failed' | 'Running' | 'Stopped' | 'Downloading' | 'Uploading'
   message?: string
   icon?: string
-  tags?: string // Comma-separated string
+  tags?: string
   categorizedTags?: Array<{
     value: string
     color: string
   }>
+  maxTokens?: number
 
   // Resource configuration
   cpu?: string
@@ -251,6 +252,10 @@ export interface PlaygroundModel {
   downloadType?: string
   localPath?: string
   s3Config?: string
+
+  // Target volume info (returned by API for s3_sync / local models)
+  targetVolume?: string
+  targetSubpath?: string
 
   // Time related
   createdAt?: string
@@ -274,11 +279,59 @@ export interface PlaygroundModel {
   workspace?: string
 }
 
+// ── Create model payload (covers all 4 access modes) ──
+
+export interface CreateModelS3Source {
+  uri: string
+  accessKeyId?: string
+  secretAccessKey?: string
+  region?: string
+  endpoint?: string
+}
+
+export interface CreateModelTarget {
+  volume?: string
+  subpath?: string
+}
+
+export interface CreateModelPayload {
+  displayName?: string
+  description?: string
+  icon?: string
+  label?: string
+  tags?: string[]
+  maxTokens?: number
+  origin?: string
+  workspace?: string
+  source: {
+    accessMode: 'local' | 'remote_api' | 'local_path' | 's3_sync'
+    url?: string
+    token?: string
+    localPath?: string
+    modelName?: string
+    apiKey?: string
+  }
+  s3Source?: CreateModelS3Source
+  target?: CreateModelTarget
+}
+
+// ── Patch model payload ──
+
+export interface PatchModelPayload {
+  displayName?: string
+  description?: string
+  modelName?: string
+  icon?: string
+  label?: string
+  tags?: string[]
+  maxTokens?: number
+}
+
 /**
  * Whether the model is a deployable local model (supports both imported and SFT-produced).
  */
 export function isDeployableLocalModel(model: PlaygroundModel): boolean {
-  return model.accessMode === 'local' || model.accessMode === 'local_path'
+  return model.accessMode === 'local' || model.accessMode === 'local_path' || model.accessMode === 's3_sync'
 }
 
 /**
@@ -319,8 +372,12 @@ export function getModelDetail(id: string) {
   return request.get<PlaygroundModel>(`/playground/models/${id}`)
 }
 
-export function createModel(data: Partial<PlaygroundModel>) {
+export function createModel(data: Partial<PlaygroundModel> | CreateModelPayload) {
   return request.post<PlaygroundModel>(`/playground/models`, data)
+}
+
+export function patchModel(id: string, data: PatchModelPayload) {
+  return request.patch<PlaygroundModel>(`/playground/models/${id}`, data)
 }
 
 export function deleteModel(id: string) {

@@ -566,8 +566,8 @@ func IsMonarchEnable() bool {
 	return getBool(monarchEnable, false)
 }
 
-func GetMonarchClientRole() string {
-	return getString(monarchClientRole, "")
+func IsSandboxEnable() bool {
+	return getBool(sandboxEnable, false)
 }
 
 func GetSandboxNamespace() string {
@@ -578,10 +578,7 @@ func GetSandboxSecret() string {
 	return getString(sandboxSecret, "")
 }
 
-func IsSandboxEnable() bool {
-	return getBool(sandboxEnable, false)
-
-}
+// ── MCP (Model Context Protocol) ────────────────────────────────────────
 
 func IsMCPEnable() bool {
 	return getBool(mcpEnable, false)
@@ -595,12 +592,78 @@ func GetMCPInstructions() string {
 	return getString(mcpInstructions, "")
 }
 
-// GetMCPAllowedOrigins returns the CORS allowlist for the MCP HTTP transports.
-// Empty (default) means same-origin only: no Access-Control-Allow-Origin
-// header is set, so cross-origin browser requests are blocked. Add explicit
-// origins (e.g. "https://safe-ui.example.com") to opt in. Use "*" only if
-// you really mean it; bearer-token clients work but cookie-based browser
-// clients won't be able to call the API anyway.
 func GetMCPAllowedOrigins() []string {
-	return viper.GetStringSlice(mcpAllowedOrigins)
+	return getStrings(mcpAllowedOrigins)
+}
+
+func GetMonarchClientRole() string {
+	return getString(monarchClientRole, "")
+}
+
+// ── Model Optimization (Hyperloom via PrimusClaw) ───────────────────────
+
+// IsModelOptimizationEnable reports whether the Model Optimization feature
+// (which orchestrates Hyperloom runs on PrimusClaw) should register its
+// REST + SSE routes and database-backed task store.
+func IsModelOptimizationEnable() bool {
+	return getBool(modelOptimizationEnable, false)
+}
+
+// GetModelOptimizationClawBaseURL returns the base URL used to reach the
+// PrimusClaw backend, e.g. "https://core42.primus-safe.amd.com/claw-api/v1".
+// Precedence: direct config key > secret file "claw_base_url" > derived from global.sub_domain + global.domain.
+func GetModelOptimizationClawBaseURL() string {
+	if v := getString(modelOptimizationClawBaseURL, ""); v != "" {
+		return v
+	}
+	if v := getFromFile(modelOptimizationSecretPath, "claw_base_url"); v != "" {
+		return v
+	}
+	d := getString(domain, "")
+	if d == "" {
+		return ""
+	}
+	sub := getString(subDomain, "")
+	if sub != "" {
+		return "https://" + sub + "." + d + "/claw-api/v1"
+	}
+	return "https://" + d + "/claw-api/v1"
+}
+
+// GetModelOptimizationClawAPIKey returns the bearer token used to authenticate
+// against PrimusClaw. Stored as a secret file entry "claw_api_key".
+func GetModelOptimizationClawAPIKey() string {
+	return getFromFile(modelOptimizationSecretPath, "claw_api_key")
+}
+
+// GetModelOptimizationClawAgentID returns the default Claw agent identifier.
+// Defaults to "agent_default" to match the Claw backend default.
+func GetModelOptimizationClawAgentID() string {
+	if v := getString(modelOptimizationClawAgentID, ""); v != "" {
+		return v
+	}
+	return "agent_default"
+}
+
+// GetModelOptimizationDefaultWorkspace returns the Claw workspace used for
+// sandbox scheduling when the client request omits a workspace hint.
+func GetModelOptimizationDefaultWorkspace() string {
+	return getString(modelOptimizationDefaultWS, "control-plane-sandbox")
+}
+
+// GetModelOptimizationMaxConcurrent returns the soft limit on how many
+// optimization tasks a single workspace can have running simultaneously.
+// Non-positive values disable the limit.
+func GetModelOptimizationMaxConcurrent() int {
+	return getInt(modelOptimizationConcurrency, 5)
+}
+
+// GetModelOptimizationClawPluginID returns the Claw plugin ID for the
+// Hyperloom GPU plugin. When set, the optimization handler attaches this
+// plugin_id to outgoing messages so that Claw resolves resource_gpu
+// (image, cpu, memory, GPU count) from the plugin definition instead of
+// requiring the caller to pass sandbox_image / resource_gpu explicitly.
+// Returns 0 when unconfigured (plugin attachment is skipped).
+func GetModelOptimizationClawPluginID() int {
+	return getInt(modelOptimizationClawPluginID, 4)
 }

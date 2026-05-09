@@ -104,6 +104,14 @@ type (
 		SftJobId string `json:"sftJobId,omitempty"`
 		// BaseModel is the HuggingFace name of the base model used for fine-tuning (origin=fine_tuned only)
 		BaseModel string `json:"baseModel,omitempty"`
+		// TargetVolume optionally selects which volume of the workspace to download to
+		// when the workspace has multiple volumes (e.g. PFS+HostPath). Value is a volume's
+		// MountPath (or HostPath when MountPath is empty). If empty, the controller uses
+		// the workspace's first PFS volume (or first volume).
+		TargetVolume string `json:"targetVolume,omitempty"`
+		// TargetSubpath is an optional sub-directory under "<volume>/models/<safe-name>"
+		// to keep multiple imports of the same model separated. Empty = default layout.
+		TargetSubpath string `json:"targetSubpath,omitempty"`
 	}
 
 	// ModelSource describes the model storage location

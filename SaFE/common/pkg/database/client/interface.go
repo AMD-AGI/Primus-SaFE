@@ -38,6 +38,7 @@ type Interface interface {
 	A2AServiceRegistryInterface
 	A2ACallLogInterface
 	LLMGatewayInterface
+	OptimizationTaskInterface
 }
 
 type WorkloadInterface interface {
@@ -268,4 +269,22 @@ type A2ACallLogInterface interface {
 	InsertA2ACallLog(ctx context.Context, log *A2ACallLog) error
 	SelectA2ACallLogs(ctx context.Context, query sqrl.Sqlizer, orderBy []string, limit, offset int) ([]*A2ACallLog, error)
 	CountA2ACallLogs(ctx context.Context, query sqrl.Sqlizer) (int, error)
+}
+
+// OptimizationTaskInterface defines database operations for Model Optimization
+// tasks (persistent platform records that wrap a PrimusClaw session running
+// the Hyperloom inference-optimization skill).
+type OptimizationTaskInterface interface {
+	UpsertOptimizationTask(ctx context.Context, task *OptimizationTask) error
+	GetOptimizationTask(ctx context.Context, id string) (*OptimizationTask, error)
+	ListOptimizationTasks(ctx context.Context, filter OptimizationTaskFilter) ([]*OptimizationTask, int64, error)
+	UpdateOptimizationTaskStatus(ctx context.Context, id string, status OptimizationTaskStatus, currentPhase int, message string) error
+	UpdateOptimizationTaskClawSession(ctx context.Context, id string, sessionID string) error
+	UpdateOptimizationTaskResult(ctx context.Context, id string, finalMetrics, reportPath string) error
+	DeleteOptimizationTask(ctx context.Context, id string) error
+	CountRunningOptimizationTasks(ctx context.Context, workspace string) (int64, error)
+
+	AppendOptimizationEvent(ctx context.Context, event *OptimizationEvent) error
+	ListOptimizationEvents(ctx context.Context, taskID string, afterSeq int64, limit int) ([]*OptimizationEvent, error)
+	LatestOptimizationEventSeq(ctx context.Context, taskID string) (int64, error)
 }

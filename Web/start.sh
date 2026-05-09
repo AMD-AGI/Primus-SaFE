@@ -8,14 +8,15 @@ mkdir -p /usr/share/nginx/html/__internal_analytics
 
 # --- Dynamic DNS resolver injection ---
 # Read the first nameserver from /etc/resolv.conf (populated by kubelet)
-# and patch it into nginx.conf. This avoids hardcoding kube-dns/coredns
-# service names which differ across clusters.
+# and patch it into nginx.conf. We copy first because the original may be
+# a ConfigMap subPath mount (read-only to rename/sed-i).
 RESOLVER_IP=$(awk '/^nameserver/{print $2; exit}' /etc/resolv.conf)
 if [ -z "$RESOLVER_IP" ]; then
   echo "WARN: no nameserver found in /etc/resolv.conf, falling back to 10.96.0.10"
   RESOLVER_IP="10.96.0.10"
 fi
-sed -i "s/__RESOLVER__/${RESOLVER_IP}/g" /etc/nginx/nginx.conf
+cp /etc/nginx/nginx.conf /tmp/nginx.conf
+sed -i "s/__RESOLVER__/${RESOLVER_IP}/g" /tmp/nginx.conf
 
 : "${PUBLIC_HOST:=localhost}"
 : "${PUBLIC_SCHEME:=https}"
@@ -54,4 +55,4 @@ goaccess /var/log/nginx/analytics.log \
   done
 ) &
 
-exec nginx -g 'daemon off;'
+exec nginx -c /tmp/nginx.conf -g 'daemon off;'
