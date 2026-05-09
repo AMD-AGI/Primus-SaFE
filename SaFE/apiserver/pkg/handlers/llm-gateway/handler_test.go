@@ -42,7 +42,7 @@ func newTestHandler(t *testing.T, mockDB *mock_client.MockInterface, litellmServ
 
 	return &Handler{
 		dbClient:      mockDB,
-		litellmClient: NewLiteLLMClient(litellmServer.URL, "test_master_key", "test-team-id"),
+		litellmClient: NewLiteLLMClient(litellmServer.URL, "test-master-key", "test-team-id"),
 		crypto:        crypto,
 		proxy:         proxy,
 		// accessController is nil — getUserEmail will fallback to userName
