@@ -195,20 +195,35 @@ func (h *Handler) submitTask(
 
 	sendCtx, sendCancel := context.WithTimeout(WithClawBearer(context.Background(), clawBearer), 30*time.Second)
 	defer sendCancel()
+	promptCfg = NormalizePromptConfig(promptCfg)
+	gpuCount := promptCfg.TP * promptCfg.EP
+	if gpuCount <= 0 {
+		gpuCount = 1
+	}
 	msgReq := &MessageRequest{
 		Content:     prompt,
 		MessageType: "text",
 		TaskMode:    "agent",
 		WorkspaceID: workspace,
+		// Image is read by sessions.ts as body.image and takes priority over the
+		// plugin's default image, so the GPU sandbox uses the framework-correct
+		// container (vLLM or SGLang) rather than the plugin's fixed sglang image.
+		Image: promptCfg.Image,
 	}
-	// Attach the Hyperloom plugin so Claw resolves resource_gpu (image, CPU,
-	// memory, GPU count) from the plugin definition. This is the correct path
-	// for GPU sandbox creation — sessions.ts reads plugin_id from the body and
-	// calls resolveSlimResourceForPluginTask, which populates resource_gpu with
-	// the plugin's image and resource spec. The user's sk-xxx LiteLLM key is
-	// already forwarded to Brain via llm_api_key (sessions.ts line 291).
+	// Attach the Hyperloom plugin so Claw resolves resource_gpu from the plugin
+	// definition — required for GPU sandbox creation. The plugin provides the
+	// base resource spec; the resource_gpu.resources override below adjusts
+	// GPU/CPU/memory to match the actual TP×EP parallelism requested.
 	if h.hyperloomPlugin > 0 {
 		msgReq.PluginID = h.hyperloomPlugin
+	}
+	// Override resource with TP-based counts. Sessions.ts reads body.resource
+	// (line 407) and uses it as finalResources, overriding the plugin's fixed
+	// default of 8 GPUs with the actual TP×EP count.
+	msgReq.Resource = map[string]string{
+		"amd.com/gpu": fmt.Sprintf("%d", gpuCount),
+		"cpu":         fmt.Sprintf("%d", promptCfg.RayCpu),
+		"memory":      fmt.Sprintf("%dGi", promptCfg.RayMemoryGi),
 	}
 	if err := h.clawClient.SendMessage(sendCtx, sessionID, msgReq); err != nil {
 		klog.ErrorS(err, "send hyperloom prompt", "task_id", taskID, "session_id", sessionID)
