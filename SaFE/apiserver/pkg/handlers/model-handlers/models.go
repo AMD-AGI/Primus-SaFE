@@ -33,6 +33,10 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
 )
 
+// accessModeS3Sync is an API-only mode: stored in the cluster as v1.AccessModeLocal with s3:// URL and
+// label primus-safe.model.s3-import. Resource-manager runs s3-to-platform-bucket copy then the usual PFS path.
+const accessModeS3Sync = "s3_sync"
+
 // CreateModel handles the creation of a new playground model.
 func (h *Handler) CreateModel(c *gin.Context) {
 	handle(c, h.createModel)
@@ -84,6 +88,10 @@ func (h *Handler) createModel(c *gin.Context) (interface{}, error) {
 	userId := c.GetString(common.UserId)
 	userName := c.GetString(common.UserName)
 
+	// Import from user S3 (API-only s3_sync → cluster local + s3:// + label)
+	if req.Source.AccessMode == accessModeS3Sync {
+		return h.createModelFromS3Sync(ctx, &req, userId, userName)
+	}
 	// Handle local_path mode (SFT training output) — separate flow
 	if req.Source.AccessMode == string(v1.AccessModeLocalPath) {
 		return h.createModelFromLocalPath(ctx, &req, userId, userName)
@@ -96,7 +104,7 @@ func (h *Handler) createModel(c *gin.Context) (interface{}, error) {
 
 	// Validate AccessMode
 	if req.Source.AccessMode != string(v1.AccessModeLocal) && req.Source.AccessMode != string(v1.AccessModeRemoteAPI) {
-		return nil, commonerrors.NewBadRequest("accessMode must be 'local', 'remote_api', or 'local_path'")
+		return nil, commonerrors.NewBadRequest("accessMode must be 'local', 'remote_api', 'local_path', or 's3_sync'")
 	}
 
 	// For remote_api mode, modelName is required
@@ -191,6 +199,16 @@ func (h *Handler) createModel(c *gin.Context) (interface{}, error) {
 		initialPhase = v1.ModelPhasePending
 	}
 
+	// Validate target.volume early — before we create any secrets — so a misconfigured
+	// request never leaves orphaned secrets behind.
+	targetVolume, targetSubpath, err := extractTarget(req.Target)
+	if err != nil {
+		return nil, err
+	}
+	if err := h.validateTargetVolumeForWorkspace(ctx, req.Workspace, targetVolume); err != nil {
+		return nil, err
+	}
+
 	// Pre-create Secrets BEFORE creating Model to avoid concurrent update conflicts
 	// This way we can reference them directly in the Model spec during creation
 	var tokenSecretRef, apiKeySecretRef *corev1.LocalObjectReference
@@ -269,14 +287,16 @@ func (h *Handler) createModel(c *gin.Context) (interface{}, error) {
 			Annotations: modelAnnotations,
 		},
 		Spec: v1.ModelSpec{
-			DisplayName: displayName,
-			Description: description,
-			Icon:        icon,
-			Label:       label,
-			Tags:        tags,
-			MaxTokens:   maxTokens,
-			Workspace:   req.Workspace, // Empty means public (available to all workspaces)
-			Origin:      normalizeModelOrigin(""),
+			DisplayName:   displayName,
+			Description:   description,
+			Icon:          icon,
+			Label:         label,
+			Tags:          tags,
+			MaxTokens:     maxTokens,
+			Workspace:     req.Workspace, // Empty means public (available to all workspaces)
+			Origin:        normalizeModelOrigin(""),
+			TargetVolume:  targetVolume,
+			TargetSubpath: targetSubpath,
 			Source: v1.ModelSource{
 				URL:        normalizedURL,
 				AccessMode: v1.AccessMode(req.Source.AccessMode),
@@ -361,9 +381,16 @@ func (h *Handler) createModelFromLocalPath(ctx context.Context, req *CreateModel
 		return nil, commonerrors.NewBadRequest("displayName is required for local_path mode")
 	}
 
-	origin := req.Origin
+	origin := strings.TrimSpace(req.Origin)
 	if origin == "" {
-		origin = "fine_tuned"
+		// Default rule: only auto-mark as fine_tuned when SFT/RL provides a sftJobId
+		// (its internal callers always set origin explicitly anyway). Otherwise treat as
+		// user-imported external model so it isn't filtered into the "custom" group.
+		if strings.TrimSpace(req.SftJobId) != "" {
+			origin = "fine_tuned"
+		} else {
+			origin = "external"
+		}
 	}
 
 	modelId := commonutils.GenerateName(req.DisplayName)
@@ -389,10 +416,22 @@ func (h *Handler) createModelFromLocalPath(ctx context.Context, req *CreateModel
 			v1.UserNameAnnotation: userName,
 		}
 	}
+	targetVolumeLP, targetSubpathLP, err := extractTarget(req.Target)
+	if err != nil {
+		return nil, err
+	}
+	if err := h.validateTargetVolumeForWorkspace(ctx, req.Workspace, targetVolumeLP); err != nil {
+		return nil, err
+	}
 	model.Spec = v1.ModelSpec{
-		DisplayName: req.DisplayName,
-		Description: req.Description,
-		Tags:        req.Tags,
+		DisplayName:   req.DisplayName,
+		Description:   req.Description,
+		Icon:          req.Icon,
+		Label:         req.Label,
+		Tags:          req.Tags,
+		MaxTokens:     req.MaxTokens,
+		TargetVolume:  targetVolumeLP,
+		TargetSubpath: targetSubpathLP,
 		Source: v1.ModelSource{
 			AccessMode: v1.AccessModeLocalPath,
 			LocalPath:  req.Source.LocalPath,
@@ -417,18 +456,25 @@ func (h *Handler) createModelFromLocalPath(ctx context.Context, req *CreateModel
 	// Also insert into DB if available
 	if h.dbClient != nil {
 		dbModel := &dbclient.Model{
-			ID:          modelId,
-			DisplayName: req.DisplayName,
-			Description: req.Description,
-			AccessMode:  string(v1.AccessModeLocalPath),
-			Phase:       string(v1.ModelPhaseReady),
-			ModelName:   req.Source.ModelName,
-			Workspace:   req.Workspace,
-			Origin:      origin,
-			SftJobId:    req.SftJobId,
-			BaseModel:   req.BaseModel,
-			UserId:      userId,
-			UserName:    userName,
+			ID:            modelId,
+			DisplayName:   req.DisplayName,
+			Description:   req.Description,
+			Icon:          req.Icon,
+			Label:         req.Label,
+			Tags:          tagsToDB(req.Tags),
+			MaxTokens:     req.MaxTokens,
+			SourceURL:     req.Source.URL,
+			AccessMode:    string(v1.AccessModeLocalPath),
+			Phase:         string(v1.ModelPhaseReady),
+			ModelName:     req.Source.ModelName,
+			Workspace:     req.Workspace,
+			Origin:        origin,
+			SftJobId:      req.SftJobId,
+			BaseModel:     req.BaseModel,
+			TargetVolume:  targetVolumeLP,
+			TargetSubpath: targetSubpathLP,
+			UserId:        userId,
+			UserName:      userName,
 		}
 		if localPathsJSON, err := json.Marshal(localPaths); err == nil {
 			dbModel.LocalPaths = string(localPathsJSON)
@@ -446,6 +492,327 @@ func (h *Handler) createModelFromLocalPath(ctx context.Context, req *CreateModel
 	)
 
 	return &CreateResponse{ID: modelId}, nil
+}
+
+// createModelFromS3Sync creates a model whose weights are copied from a user s3:// URI into the
+// platform bucket (then the existing controller syncs to PFS). Cluster Model uses AccessMode local.
+func (h *Handler) createModelFromS3Sync(ctx context.Context, req *CreateModelRequest, userId, userName string) (interface{}, error) {
+	if req.S3Source == nil || strings.TrimSpace(req.S3Source.URI) == "" {
+		return nil, commonerrors.NewBadRequest("s3Source.uri is required for s3_sync mode")
+	}
+	if req.DisplayName == "" {
+		return nil, commonerrors.NewBadRequest("displayName is required for s3_sync mode")
+	}
+	uri := strings.TrimSuffix(strings.TrimSpace(req.S3Source.URI), "/")
+	if !strings.HasPrefix(uri, "s3://") {
+		return nil, commonerrors.NewBadRequest("s3Source.uri must start with s3://")
+	}
+	rest := strings.TrimPrefix(uri, "s3://")
+	if rest == "" {
+		return nil, commonerrors.NewBadRequest("s3Source.uri must include a bucket, e.g. s3://my-bucket/prefix")
+	}
+	if bucket := strings.SplitN(rest, "/", 2)[0]; bucket == "" {
+		return nil, commonerrors.NewBadRequest("s3Source.uri must include a non-empty bucket")
+	}
+	// Enforce safe character set: avoid shell metacharacters reaching the Job script.
+	// S3 keys allow more characters in theory, but the import flow runs `aws s3 sync` with
+	// this URI, and we restrict to a safe subset for now.
+	if !isSafeS3URI(uri) {
+		return nil, commonerrors.NewBadRequest("s3Source.uri may only contain letters, digits, and characters .-_/:")
+	}
+	if req.S3Source.Endpoint != "" && !isSafeURL(req.S3Source.Endpoint) {
+		return nil, commonerrors.NewBadRequest("s3Source.endpoint contains unsupported characters")
+	}
+	ak := strings.TrimSpace(req.S3Source.AccessKeyID)
+	sk := strings.TrimSpace(req.S3Source.SecretAccessKey)
+	endpoint := strings.TrimSpace(req.S3Source.Endpoint)
+	if (ak != "" && sk == "") || (ak == "" && sk != "") {
+		return nil, commonerrors.NewBadRequest("for s3_sync, provide both accessKeyId and secretAccessKey, or omit both (use platform credentials on the job only if the source allows it)")
+	}
+	// If user supplies own credentials, they MUST also supply the endpoint —
+	// otherwise the download Job would point at the platform S3 endpoint and never
+	// find their bucket (silent 404s).
+	if ak != "" && sk != "" && endpoint == "" {
+		return nil, commonerrors.NewBadRequest("s3Source.endpoint is required when accessKeyId/secretAccessKey are provided (e.g. https://s3.us-west-2.amazonaws.com)")
+	}
+
+	modelName := strings.TrimSpace(req.Source.ModelName)
+	if modelName == "" {
+		modelName = stringutil.NormalizeForDNS(req.DisplayName)
+	}
+	if modelName == "" {
+		return nil, commonerrors.NewBadRequest("modelName could not be derived; set source.modelName")
+	}
+
+	existing, _ := h.findModelBySourceURL(ctx, uri, req.Workspace)
+	if existing != nil {
+		return nil, commonerrors.NewBadRequest(fmt.Sprintf("a model with the same s3 source already exists (id: %s, phase: %s)", existing.ID, existing.Phase))
+	}
+
+	// Validate target.volume early — before any secret is materialized.
+	targetVolumeS3, targetSubpathS3, err := extractTarget(req.Target)
+	if err != nil {
+		return nil, err
+	}
+	if err := h.validateTargetVolumeForWorkspace(ctx, req.Workspace, targetVolumeS3); err != nil {
+		return nil, err
+	}
+
+	name := commonutils.GenerateName("model")
+	var s3SrcSecretName string
+	if ak != "" && sk != "" {
+		s3SrcSecretName = name + "-s3src"
+		region := strings.TrimSpace(req.S3Source.Region)
+		if region == "" {
+			region = "us-east-1"
+		}
+		// Write keys in both modern (access_key_id/secret_access_key) and legacy
+		// (access_key/secret_key) forms so the s3-downloader image — which reads
+		// the platform's primus-safe-s3 secret — can consume our per-model secret
+		// without modification. Bucket is derived from the URI by the downloader.
+		bucket := strings.SplitN(strings.TrimPrefix(uri, "s3://"), "/", 2)[0]
+		secret := &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      s3SrcSecretName,
+				Namespace: common.PrimusSafeNamespace,
+				Labels:    map[string]string{v1.ModelIdLabel: name},
+			},
+			StringData: map[string]string{
+				"access_key_id":     ak,
+				"secret_access_key": sk,
+				"access_key":        ak,
+				"secret_key":        sk,
+				"region":            region,
+				"endpoint":          endpoint,
+				"bucket":            bucket,
+			},
+			Type: corev1.SecretTypeOpaque,
+		}
+		if err := h.k8sClient.Create(ctx, secret); err != nil {
+			return nil, commonerrors.NewInternalError("failed to create S3 source secret: " + err.Error())
+		}
+	}
+
+	labels := map[string]string{
+		v1.DisplayNameLabel:    sanitizeLabelValue(req.DisplayName),
+		v1.ModelS3ImportLabel:  v1.TrueStr,
+	}
+	if userId != "" {
+		labels[v1.UserIdLabel] = userId
+	}
+	annotations := map[string]string{}
+	if s3SrcSecretName != "" {
+		annotations[v1.ModelS3SourceSecretAnn] = s3SrcSecretName
+	}
+	if endpoint != "" {
+		annotations[v1.ModelS3SourceEndpointAnn] = endpoint
+	}
+	if userName != "" {
+		annotations[v1.UserNameAnnotation] = userName
+	}
+
+	origin := normalizeModelOrigin(req.Origin)
+	if origin == "" {
+		origin = "external"
+	}
+
+	k8sModel := &v1.Model{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:        name,
+			Labels:      labels,
+			Annotations: annotations,
+		},
+		Spec: v1.ModelSpec{
+			DisplayName:   req.DisplayName,
+			Description:   req.Description,
+			Icon:          req.Icon,
+			Label:         req.Label,
+			Tags:          req.Tags,
+			MaxTokens:     req.MaxTokens,
+			Workspace:     req.Workspace,
+			Origin:        origin,
+			TargetVolume:  targetVolumeS3,
+			TargetSubpath: targetSubpathS3,
+			Source: v1.ModelSource{
+				URL:        uri,
+				AccessMode: v1.AccessModeLocal,
+				ModelName:  modelName,
+			},
+		},
+		Status: v1.ModelStatus{
+			Phase:      v1.ModelPhasePending,
+			UpdateTime: &metav1.Time{Time: time.Now().UTC()},
+		},
+	}
+
+	if err := h.k8sClient.Create(ctx, k8sModel); err != nil {
+		if s3SrcSecretName != "" {
+			_ = h.k8sClient.Delete(ctx, &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{Name: s3SrcSecretName, Namespace: common.PrimusSafeNamespace},
+			})
+		}
+		return nil, commonerrors.NewInternalError("failed to create model: " + err.Error())
+	}
+
+	if h.dbClient != nil {
+		dbModel := &dbclient.Model{
+			ID:            name,
+			DisplayName:   req.DisplayName,
+			Description:   req.Description,
+			Icon:          req.Icon,
+			Label:         req.Label,
+			Tags:          tagsToDB(req.Tags),
+			MaxTokens:     req.MaxTokens,
+			SourceURL:     uri,
+			AccessMode:    accessModeS3Sync,
+			Phase:         string(v1.ModelPhasePending),
+			ModelName:     modelName,
+			Workspace:     req.Workspace,
+			Origin:        origin,
+			TargetVolume:  targetVolumeS3,
+			TargetSubpath: targetSubpathS3,
+			UserId:        userId,
+			UserName:      userName,
+		}
+		if err := h.dbClient.UpsertModel(ctx, dbModel); err != nil {
+			klog.ErrorS(err, "failed to insert s3_sync model into DB", "id", name)
+		}
+	}
+
+	return &CreateResponse{ID: name}, nil
+}
+
+func tagsToDB(tags []string) string {
+	if len(tags) == 0 {
+		return ""
+	}
+	return strings.Join(tags, ",")
+}
+
+// extractTarget normalizes the optional ModelTargetReq into spec fields and validates
+// the subpath. The subpath is later joined into a filesystem path that the download
+// container writes to, so we must reject path-traversal patterns ("..") and any
+// absolute prefix; we also restrict to a conservative character set.
+func extractTarget(t *ModelTargetReq) (volume, subpath string, err error) {
+	if t == nil {
+		return "", "", nil
+	}
+	volume = strings.TrimSpace(t.Volume)
+	subpath = strings.Trim(strings.TrimSpace(t.Subpath), "/")
+	if subpath == "" {
+		return volume, "", nil
+	}
+	if !isSafeSubpath(subpath) {
+		return "", "", commonerrors.NewBadRequest(
+			"target.subpath may only contain letters, digits, '.', '-', '_' and '/'; '..' segments are forbidden")
+	}
+	return volume, subpath, nil
+}
+
+// isSafeSubpath rejects path-traversal patterns and characters that would let a user
+// escape the workspace volume root.
+func isSafeSubpath(s string) bool {
+	if s == "" {
+		return true
+	}
+	for _, r := range s {
+		switch {
+		case r >= 'a' && r <= 'z':
+		case r >= 'A' && r <= 'Z':
+		case r >= '0' && r <= '9':
+		case r == '.' || r == '-' || r == '_' || r == '/':
+		default:
+			return false
+		}
+	}
+	for _, seg := range strings.Split(s, "/") {
+		if seg == ".." {
+			return false
+		}
+	}
+	return true
+}
+
+// validateTargetVolumeForWorkspace fails the request when target.volume is set on a private
+// (workspace-bound) model but no volume in that workspace exposes that mountPath / hostPath —
+// otherwise the controller silently falls back to the default volume and the user thinks the
+// pin worked.
+func (h *Handler) validateTargetVolumeForWorkspace(ctx context.Context, workspace, target string) error {
+	if workspace == "" || target == "" {
+		return nil
+	}
+	ws := &v1.Workspace{}
+	if err := h.k8sClient.Get(ctx, ctrlclient.ObjectKey{Name: workspace}, ws); err != nil {
+		if errors.IsNotFound(err) {
+			return commonerrors.NewBadRequest(fmt.Sprintf("workspace %q not found", workspace))
+		}
+		return commonerrors.NewInternalError("failed to load workspace: " + err.Error())
+	}
+	if commonworkspace.GetVolumeMountPathByPreference(ws, target) != "" {
+		return nil
+	}
+	available := make([]string, 0, len(ws.Spec.Volumes))
+	for _, v := range ws.Spec.Volumes {
+		mp := strings.TrimSpace(v.MountPath)
+		if mp == "" {
+			mp = strings.TrimSpace(v.HostPath)
+		}
+		if mp != "" {
+			available = append(available, mp)
+		}
+	}
+	return commonerrors.NewBadRequest(fmt.Sprintf(
+		"target.volume %q does not exist in workspace %q (available: %v)",
+		target, workspace, available,
+	))
+}
+
+// isSafeS3URI returns true if the URI only contains characters considered safe to
+// pass through to a shell-invoked aws s3 sync. Limits to ASCII alphanumerics and
+// `._-/:` which is sufficient for the s3:// scheme + bucket + object key.
+func isSafeS3URI(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, r := range s {
+		switch {
+		case r >= 'a' && r <= 'z':
+		case r >= 'A' && r <= 'Z':
+		case r >= '0' && r <= '9':
+		case r == '.' || r == '-' || r == '_' || r == '/' || r == ':':
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+// isSafeURL is a permissive but injection-safe check for the optional source S3 endpoint URL.
+func isSafeURL(s string) bool {
+	for _, r := range s {
+		switch {
+		case r >= 'a' && r <= 'z':
+		case r >= 'A' && r <= 'Z':
+		case r >= '0' && r <= '9':
+		case r == '.' || r == '-' || r == '_' || r == '/' || r == ':':
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+func modelMatchesK8sAccessModeFilter(m *v1.Model, want string) bool {
+	if want == accessModeS3Sync {
+		return m.Labels != nil && m.Labels[v1.ModelS3ImportLabel] == v1.TrueStr
+	}
+	if want == string(v1.AccessModeLocal) {
+		if m.Labels != nil && m.Labels[v1.ModelS3ImportLabel] == v1.TrueStr {
+			return false
+		}
+		return m.Spec.Source.AccessMode == v1.AccessModeLocal
+	}
+	return string(m.Spec.Source.AccessMode) == want
 }
 
 // listModels implements the model listing logic.
@@ -515,8 +882,8 @@ func (h *Handler) listModels(c *gin.Context) (interface{}, error) {
 			continue
 		}
 
-		// Apply filters
-		if queryArgs.AccessMode != "" && string(k8sModel.Spec.Source.AccessMode) != queryArgs.AccessMode {
+		// Apply filters (s3_sync is API-only; cluster stores s3 imports as local + label)
+		if queryArgs.AccessMode != "" && !modelMatchesK8sAccessModeFilter(&k8sModel, queryArgs.AccessMode) {
 			continue
 		}
 		if queryArgs.Workspace != "" {
@@ -580,6 +947,11 @@ func (h *Handler) convertK8sModelToInfo(k8sModel *v1.Model) ModelInfo {
 	// Include unmatched tags for remote_api models
 	includeUnmatched := k8sModel.Spec.Source.AccessMode == v1.AccessModeRemoteAPI
 
+	access := string(k8sModel.Spec.Source.AccessMode)
+	if k8sModel.Labels != nil && k8sModel.Labels[v1.ModelS3ImportLabel] == v1.TrueStr {
+		access = accessModeS3Sync
+	}
+
 	return ModelInfo{
 		ID:              k8sModel.Name,
 		DisplayName:     k8sModel.Spec.DisplayName,
@@ -590,7 +962,7 @@ func (h *Handler) convertK8sModelToInfo(k8sModel *v1.Model) ModelInfo {
 		CategorizedTags: CategorizeTagString(tagsStr, includeUnmatched),
 		MaxTokens:       k8sModel.Spec.MaxTokens,
 		SourceURL:       k8sModel.Spec.Source.URL,
-		AccessMode:      string(k8sModel.Spec.Source.AccessMode),
+		AccessMode:      access,
 		ModelName:       k8sModel.Spec.Source.ModelName,
 		Phase:           string(k8sModel.Status.Phase),
 		Message:         k8sModel.Status.Message,
@@ -600,6 +972,8 @@ func (h *Handler) convertK8sModelToInfo(k8sModel *v1.Model) ModelInfo {
 		Origin:          normalizeModelOrigin(k8sModel.Spec.Origin),
 		SftJobId:        k8sModel.Spec.SftJobId,
 		BaseModel:       k8sModel.Spec.BaseModel,
+		TargetVolume:    k8sModel.Spec.TargetVolume,
+		TargetSubpath:   k8sModel.Spec.TargetSubpath,
 		UserId:          v1.GetUserId(k8sModel),
 		UserName:        v1.GetUserName(k8sModel),
 		CreatedAt:       k8sModel.CreationTimestamp.Format(time.RFC3339),
@@ -691,6 +1065,21 @@ func (h *Handler) deleteModel(c *gin.Context) (interface{}, error) {
 		}
 	}
 
+	// 5b. S3 import source Secret (s3_sync)
+	if k8sModel.Annotations != nil {
+		if sn := strings.TrimSpace(k8sModel.Annotations[v1.ModelS3SourceSecretAnn]); sn != "" {
+			s3src := &corev1.Secret{}
+			s3key := ctrlclient.ObjectKey{Name: sn, Namespace: common.PrimusSafeNamespace}
+			if err := h.k8sClient.Get(ctx, s3key, s3src); err == nil {
+				if err := h.k8sClient.Delete(ctx, s3src); err != nil && !errors.IsNotFound(err) {
+					klog.ErrorS(err, "Failed to delete s3 source secret", "secret", sn)
+				} else {
+					klog.InfoS("S3 source secret deleted", "secret", sn, "model", modelId)
+				}
+			}
+		}
+	}
+
 	// 6. Delete K8s Model CR
 	// The model controller finalizer will handle:
 	// - S3 storage cleanup
@@ -699,6 +1088,14 @@ func (h *Handler) deleteModel(c *gin.Context) (interface{}, error) {
 		if !errors.IsNotFound(err) {
 			klog.ErrorS(err, "Failed to delete model from K8s", "model", modelId)
 			return nil, commonerrors.NewInternalError("failed to delete model: " + err.Error())
+		}
+	}
+
+	// 7. Soft-delete DB row so listModels (DB-first path) stops returning the model.
+	// Without this, the DB-first listing keeps showing the model after the K8s CR is gone.
+	if h.dbClient != nil {
+		if err := h.dbClient.DeleteModel(ctx, modelId); err != nil {
+			klog.ErrorS(err, "Failed to soft-delete model row in DB", "model", modelId)
 		}
 	}
 
@@ -767,7 +1164,8 @@ func (h *Handler) patchModel(c *gin.Context) (interface{}, error) {
 	}
 
 	// Check if any field is provided
-	if req.ModelName == nil && req.DisplayName == nil && req.Description == nil {
+	if req.ModelName == nil && req.DisplayName == nil && req.Description == nil &&
+		req.Icon == nil && req.Label == nil && req.Tags == nil && req.MaxTokens == nil {
 		return nil, commonerrors.NewBadRequest("at least one field must be provided for update")
 	}
 
@@ -795,16 +1193,60 @@ func (h *Handler) patchModel(c *gin.Context) (interface{}, error) {
 	if req.Description != nil {
 		k8sModel.Spec.Description = *req.Description
 	}
+	if req.Icon != nil {
+		k8sModel.Spec.Icon = *req.Icon
+	}
+	if req.Label != nil {
+		k8sModel.Spec.Label = *req.Label
+	}
+	if req.Tags != nil {
+		k8sModel.Spec.Tags = *req.Tags
+	}
+	if req.MaxTokens != nil {
+		k8sModel.Spec.MaxTokens = *req.MaxTokens
+	}
 
 	if err := h.k8sClient.Patch(ctx, k8sModel, patch); err != nil {
 		klog.ErrorS(err, "Failed to patch model", "model", modelId)
 		return nil, commonerrors.NewInternalError("failed to update model: " + err.Error())
 	}
 
+	// Sync mutable fields to DB so list/detail (DB-first path) sees the new values.
+	if h.dbClient != nil {
+		if dbModel, err := h.dbClient.GetModelByID(ctx, modelId); err == nil && dbModel != nil {
+			if req.ModelName != nil {
+				dbModel.ModelName = *req.ModelName
+			}
+			if req.DisplayName != nil {
+				dbModel.DisplayName = *req.DisplayName
+			}
+			if req.Description != nil {
+				dbModel.Description = *req.Description
+			}
+			if req.Icon != nil {
+				dbModel.Icon = *req.Icon
+			}
+			if req.Label != nil {
+				dbModel.Label = *req.Label
+			}
+			if req.Tags != nil {
+				dbModel.Tags = tagsToDB(*req.Tags)
+			}
+			if req.MaxTokens != nil {
+				dbModel.MaxTokens = *req.MaxTokens
+			}
+			if err := h.dbClient.UpsertModel(ctx, dbModel); err != nil {
+				klog.ErrorS(err, "Failed to sync patched model to DB", "model", modelId)
+			}
+		}
+	}
+
 	klog.InfoS("Model patched successfully", "model", modelId,
 		"modelName", req.ModelName,
 		"displayName", req.DisplayName,
-		"description", req.Description)
+		"description", req.Description,
+		"icon", req.Icon != nil, "label", req.Label != nil,
+		"tags", req.Tags != nil, "maxTokens", req.MaxTokens != nil)
 
 	return h.convertK8sModelToInfo(k8sModel), nil
 }
@@ -1055,6 +1497,8 @@ func cvtDBModelToInfo(dbModel *dbclient.Model) ModelInfo {
 		Origin:          normalizeModelOrigin(dbModel.Origin),
 		SftJobId:        dbModel.SftJobId,
 		BaseModel:       dbModel.BaseModel,
+		TargetVolume:    dbModel.TargetVolume,
+		TargetSubpath:   dbModel.TargetSubpath,
 		UserId:          dbModel.UserId,
 		UserName:        dbModel.UserName,
 		CreatedAt:       formatNullTime(dbModel.CreatedAt),

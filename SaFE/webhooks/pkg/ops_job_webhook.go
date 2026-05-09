@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"path"
 	"reflect"
+	"strings"
 
 	commonjob "github.com/AMD-AIG-AIMA/SAFE/common/pkg/ops_job"
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
@@ -234,6 +235,11 @@ func (m *OpsJobMutator) generateDestPath(ctx context.Context, job *v1.OpsJob) er
 	workspace, err := getWorkspace(ctx, m.Client, workspaceParam.Value)
 	if err != nil {
 		return err
+	}
+	// If the caller already supplied an absolute path (e.g. model controller pinning
+	// a non-default volume), trust it as-is. Otherwise fall back to PFS prefix.
+	if strings.HasPrefix(destParam.Value, "/") {
+		return nil
 	}
 	nfsPath := getNfsPathFromWorkspace(workspace)
 	if nfsPath == "" {
