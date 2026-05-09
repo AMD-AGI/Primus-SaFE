@@ -13,7 +13,7 @@ import (
 type ListModelQuery struct {
 	Limit      int    `form:"limit" binding:"omitempty,min=1"`
 	Offset     int    `form:"offset" binding:"omitempty,min=0"`
-	AccessMode string `form:"accessMode" binding:"omitempty"` // Filter by access mode: "local", "remote_api", or "local_path"
+	AccessMode string `form:"accessMode" binding:"omitempty"` // Filter: "local", "remote_api", "local_path", "s3_sync" (s3_sync excludes plain HF local in cluster listing)
 	Workspace  string `form:"workspace" binding:"omitempty"`  // Filter by workspace (for local models)
 	Origin     string `form:"origin" binding:"omitempty"`     // Filter by origin: "external", "fine_tuned", "rl_trained", or "custom" (all non-external)
 	Search     string `form:"search" binding:"omitempty"`     // Fuzzy search by displayName (case-insensitive)
@@ -125,12 +125,38 @@ type CreateModelRequest struct {
 	Origin    string `json:"origin"`              // "external" (default) or "fine_tuned"
 	SftJobId  string `json:"sftJobId,omitempty"`  // SFT workload ID that produced this model
 	BaseModel string `json:"baseModel,omitempty"` // Base model HF name used for fine-tuning
+
+	// S3Source (used when accessMode=s3_sync): copy from user bucket/prefix to platform S3, then existing pipeline to PFS.
+	S3Source *S3SourceReq `json:"s3Source,omitempty"`
+
+	// Target controls which workspace volume / subdirectory the download is placed under.
+	// Required when the resolved workspace has multiple volumes and the default first PFS
+	// is not what you want (e.g. workspace has both a read-only PFS and a writable HostPath).
+	Target *ModelTargetReq `json:"target,omitempty"`
+}
+
+// ModelTargetReq overrides where the download is placed inside the workspace.
+type ModelTargetReq struct {
+	// Volume is the workspace volume mountPath (or hostPath if mountPath is empty), e.g. "/wekafs".
+	Volume string `json:"volume,omitempty"`
+	// Subpath, if set, is the relative directory used under the volume in addition to "models/<safe-name>".
+	Subpath string `json:"subpath,omitempty"`
+}
+
+// S3SourceReq optional credentials to read the source object storage (S3-compatible).
+// Keys in the created Secret: access_key_id, secret_access_key, region, endpoint.
+type S3SourceReq struct {
+	URI                 string `json:"uri"` // required for s3_sync, e.g. s3://my-bucket/prefix
+	AccessKeyID         string `json:"accessKeyId,omitempty"`
+	SecretAccessKey     string `json:"secretAccessKey,omitempty"`
+	Region              string `json:"region,omitempty"`
+	Endpoint            string `json:"endpoint,omitempty"` // optional custom endpoint for source (MinIO, OSS, etc.)
 }
 
 // ModelSourceReq represents the model source configuration.
 type ModelSourceReq struct {
 	URL        string `json:"url"`        // Model URL (HuggingFace repo ID or API endpoint)
-	AccessMode string `json:"accessMode"` // "remote_api" | "local" | "local_path"
+	AccessMode string `json:"accessMode"` // "remote_api" | "local" | "local_path" | "s3_sync"
 	ModelName  string `json:"modelName"`  // Model name for API calls (required for remote_api)
 	Token      string `json:"token"`      // HuggingFace token for pulling private models (local mode)
 	ApiKey     string `json:"apiKey"`     // API key for remote API access (remote_api mode)
@@ -172,6 +198,10 @@ type ModelInfo struct {
 	IsDeleted       bool              `json:"isDeleted"`
 	HasInferenceX   bool              `json:"hasInferenceX"`
 	InferenceXModel string            `json:"inferenceXModel,omitempty"`
+
+	// Optional download placement; mirrors Model.spec.targetVolume / spec.targetSubpath.
+	TargetVolume  string `json:"targetVolume,omitempty"`
+	TargetSubpath string `json:"targetSubpath,omitempty"`
 }
 
 // LocalPathInfo represents local path status for a workspace.
@@ -191,9 +221,13 @@ type ListModelResponse struct {
 // PatchModelRequest represents the request to update a model's mutable fields.
 // All fields are optional - only provided fields will be updated.
 type PatchModelRequest struct {
-	ModelName   *string `json:"modelName,omitempty"`   // Update model name for API calls
-	DisplayName *string `json:"displayName,omitempty"` // Update display name
-	Description *string `json:"description,omitempty"` // Update description
+	ModelName   *string   `json:"modelName,omitempty"`   // Update model name for API calls
+	DisplayName *string   `json:"displayName,omitempty"` // Update display name
+	Description *string   `json:"description,omitempty"` // Update description
+	Icon        *string   `json:"icon,omitempty"`        // Update card icon
+	Label       *string   `json:"label,omitempty"`       // Update card label/org
+	Tags        *[]string `json:"tags,omitempty"`        // Replace tag list
+	MaxTokens   *int      `json:"maxTokens,omitempty"`   // Update max context length
 }
 
 // --- Playground Services Types ---

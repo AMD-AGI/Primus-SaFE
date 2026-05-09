@@ -25,10 +25,10 @@ import (
 	llmgateway "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/llm-gateway"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/middleware"
 	model_handlers "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/model-handlers"
+	optimizationhandlers "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/optimization"
 	proxyhandlers "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/proxy-handlers"
 	reshandler "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/resources"
 	sshhandler "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/ssh-handlers"
-	mcprouter "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/mcp/router"
 	apiutils "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/utils"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
@@ -149,9 +149,22 @@ func InitHttpHandlers(_ context.Context, mgr ctrlruntime.Manager) (*gin.Engine, 
 	infxHandler := inferencexhandlers.NewHandler(24 * time.Hour)
 	inferencexhandlers.InitInferenceXRouters(engine, infxHandler)
 
-	// MCP (Model Context Protocol) server
-	if commonconfig.IsMCPEnable() {
-		mcprouter.InitRoutes(engine)
+	// Model Optimization (Hyperloom via PrimusClaw). Requires DB for task
+	// persistence + event log. Routes register whenever DB is enabled; Claw base
+	// URL from model_optimization.claw_base_url or derived https://<global host>/claw-api/v1;
+	// auth: Bearer ak-... if sent, else per-user platform key (GetOrCreatePlatformKey, same
+	// idea as Primus-Claw + /auth/verify), else optional secret claw_api_key for service use.
+	if commonconfig.IsDBEnable() {
+		optDBClient := dbclient.NewClient()
+		if optDBClient != nil {
+			optHandler, optErr := optimizationhandlers.NewHandler(mgr.GetClient(), optDBClient)
+			if optErr != nil {
+				klog.ErrorS(optErr, "failed to initialize Model Optimization handler")
+			} else {
+				optimizationhandlers.InitRoutes(engine, optHandler)
+				go optHandler.Start(context.Background())
+			}
+		}
 	}
 
 	return engine, nil

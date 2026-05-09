@@ -155,9 +155,12 @@ const (
 	AddonDefaultLabel = AddonPrefix + "default"
 
 	// model
-	ModelPrefix        = PrimusSafePrefix + "model."
-	ModelIdLabel       = ModelPrefix + "id"
-	SourceModelIdLabel = PrimusSafePrefix + "source-model"
+	ModelPrefix              = PrimusSafePrefix + "model."
+	ModelIdLabel             = ModelPrefix + "id"
+	ModelS3ImportLabel       = ModelPrefix + "s3-import"          // value "true": model created via API accessMode s3_sync
+	ModelS3SourceSecretAnn   = ModelPrefix + "s3-source-secret"   // annotation: Secret name in primus-safe namespace
+	ModelS3SourceEndpointAnn = ModelPrefix + "s3-source-endpoint" // annotation: user-provided HTTP(S) endpoint for the source bucket
+	SourceModelIdLabel       = PrimusSafePrefix + "source-model"
 )
 
 type SecretType string
