@@ -220,7 +220,8 @@ func (h *Handler) submitTask(
 	// (line 407) and uses it as finalResources, overriding the plugin's fixed
 	// default of 8 GPUs with the actual TP×EP count.
 	msgReq.Resource = map[string]string{
-		"amd.com/gpu": fmt.Sprintf("%d", gpuCount),
+		"gpu":         fmt.Sprintf("%d", gpuCount), // Brain reads "gpu" key in normalizeWorkloadResourcesEntry
+		"amd.com/gpu": fmt.Sprintf("%d", gpuCount), // SaFE workload API k8s resource key
 		"cpu":         fmt.Sprintf("%d", promptCfg.RayCpu),
 		"memory":      fmt.Sprintf("%dGi", promptCfg.RayMemoryGi),
 	}
