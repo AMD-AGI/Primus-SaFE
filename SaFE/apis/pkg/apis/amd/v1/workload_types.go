@@ -44,12 +44,14 @@ const (
 	K8sPending      WorkloadConditionType = "K8sPending"
 	K8sSucceeded    WorkloadConditionType = "K8sSucceeded"
 	K8sFailed       WorkloadConditionType = "K8sFailed"
-	K8sRunning      WorkloadConditionType = "K8sRunning"
-	K8sUpdating     WorkloadConditionType = "K8sUpdating"
-	K8sDeleted      WorkloadConditionType = "K8sDeleted"
-	AdminFailover   WorkloadConditionType = "AdminFailover"
-	AdminFailed     WorkloadConditionType = "AdminFailed"
-	AdminStopped    WorkloadConditionType = "AdminStopped"
+	// only for deployment/statefulSet/Sandbox
+	K8sNotReady   WorkloadConditionType = "K8sNotReady"
+	K8sRunning    WorkloadConditionType = "K8sRunning"
+	K8sUpdating   WorkloadConditionType = "K8sUpdating"
+	K8sDeleted    WorkloadConditionType = "K8sDeleted"
+	AdminFailover WorkloadConditionType = "AdminFailover"
+	AdminFailed   WorkloadConditionType = "AdminFailed"
+	AdminStopped  WorkloadConditionType = "AdminStopped"
 )
 
 type WorkloadResource struct {

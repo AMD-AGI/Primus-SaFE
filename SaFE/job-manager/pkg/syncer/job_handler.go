@@ -313,6 +313,8 @@ func (r *SyncerReconciler) updateAdminWorkloadPhase(adminWorkload *v1.Workload,
 			handleTorchFTGroupStatus(adminWorkload, message.groupId, v1.WorkloadSucceeded) == v1.WorkloadSucceeded {
 			adminWorkload.Status.Phase = v1.WorkloadSucceeded
 		}
+	case v1.K8sNotReady:
+		adminWorkload.Status.Phase = v1.WorkloadNotReady
 	case v1.K8sFailed:
 		if commonworkload.IsTorchFT(adminWorkload) {
 			if handleTorchFTGroupStatus(adminWorkload, message.groupId, v1.WorkloadFailed) != v1.WorkloadFailed {
@@ -321,8 +323,6 @@ func (r *SyncerReconciler) updateAdminWorkloadPhase(adminWorkload *v1.Workload,
 		}
 		if shouldTerminateWorkload(adminWorkload, status, message.dispatchCount) {
 			adminWorkload.Status.Phase = v1.WorkloadFailed
-		} else if commonworkload.IsApplication(adminWorkload) || commonworkload.IsSandBox(adminWorkload) {
-			adminWorkload.Status.Phase = v1.WorkloadNotReady
 		}
 	case v1.K8sDeleted:
 		if commonworkload.IsTorchFT(adminWorkload) {
@@ -437,14 +437,7 @@ func shouldTerminateWorkload(adminWorkload *v1.Workload, status *jobutils.K8sObj
 	switch v1.WorkloadConditionType(status.Phase) {
 	case v1.K8sSucceeded:
 		return true
-	case v1.K8sFailed:
-		if commonworkload.IsSandBox(adminWorkload) {
-			return false
-		}
-		if shouldWorkloadStopRetry(adminWorkload, count) {
-			return true
-		}
-	case v1.K8sDeleted:
+	case v1.K8sFailed, v1.K8sDeleted:
 		if shouldWorkloadStopRetry(adminWorkload, count) {
 			return true
 		}

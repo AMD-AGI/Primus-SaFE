@@ -128,7 +128,7 @@ func getStatefulSetStatus(obj map[string]interface{}, result *K8sObjectStatus) {
 		result.Phase = string(v1.K8sRunning)
 		result.Message = "the statefulSet is ready"
 	default:
-		result.Phase = string(v1.K8sFailed)
+		result.Phase = string(v1.K8sNotReady)
 		result.Message = "the statefulSet is not ready"
 	}
 }
