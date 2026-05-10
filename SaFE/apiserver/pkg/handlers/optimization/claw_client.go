@@ -90,19 +90,6 @@ type SessionResponse struct {
 	SessionID string `json:"session_id"`
 }
 
-// ResourceGpuEnvVar is a single environment variable entry for resource_gpu.env.
-// Claw's mergeWorkloadEnvLayers accepts {key/val} format.
-type ResourceGpuEnvVar struct {
-	Key string `json:"key"`
-	Val string `json:"val"`
-}
-
-// ResourceGpuSpec carries the GPU sandbox resource specification injected into
-// POST /sessions/{id}/messages. env entries are merged after Claw's base env
-// (AUTH_INTERNAL_TOKEN, CLAW_SESSION_ID, etc.) so they can override defaults.
-type ResourceGpuSpec struct {
-	Env []ResourceGpuEnvVar `json:"env,omitempty"`
-}
 
 // MessageRequest maps to POST /sessions/{id}/messages.
 type MessageRequest struct {
@@ -114,11 +101,16 @@ type MessageRequest struct {
 	Tools        []int                    `json:"tools,omitempty"`
 	ExtData      map[string]interface{}   `json:"extData,omitempty"`
 	WorkspaceID  string                   `json:"workspaceId,omitempty"`
-	SandboxImage string                   `json:"sandbox_image,omitempty"`
-	ResourceGpu  *ResourceGpuSpec         `json:"resource_gpu,omitempty"`
-	// PluginID attaches a Claw marketplace plugin to this message. When set,
-	// Claw resolves resource_gpu (image, cpu, memory, GPU count) from the
-	// plugin definition, replacing any sandbox_image / resource_gpu fields.
+	// Image is the container image forwarded to Claw as body.image. Sessions.ts
+	// reads this field (not sandbox_image) and uses it as finalSandboxImage,
+	// which Brain then treats as the GPU sandbox image.
+	Image       string           `json:"image,omitempty"`
+	// Resource overrides the plugin's default GPU/CPU/memory spec.
+	// Sessions.ts reads body.resource (not body.resource_gpu) at line 407.
+	Resource map[string]string `json:"resource,omitempty"`
+	// PluginID attaches a Claw marketplace plugin to this message. Sessions.ts
+	// uses it to resolve the base resource spec; body.image and body.resource
+	// take priority and override the plugin's defaults.
 	PluginID int `json:"pluginId,omitempty"`
 }
 
@@ -291,9 +283,11 @@ type SessionStatus struct {
 
 // IsTerminal reports whether the Claw session has finished (successfully or not).
 // Mirrors the completion logic in Hyperloom ci/claw_client.py:monitor_session.
+// agent_status "idle" means the agent finished its run and is waiting; treat as terminal.
 func (s *SessionStatus) IsTerminal() bool {
 	return s.AgentStatus == "stopped" ||
 		s.AgentStatus == "failed" ||
+		s.AgentStatus == "idle" ||
 		s.Status == "completed" ||
 		s.Status == "stopped" ||
 		s.Status == "failed"
@@ -301,7 +295,8 @@ func (s *SessionStatus) IsTerminal() bool {
 
 // IsSucceeded reports whether the session completed successfully.
 func (s *SessionStatus) IsSucceeded() bool {
-	return s.AgentStatus == "stopped" && s.Status != "failed" ||
+	return s.AgentStatus == "idle" ||
+		s.AgentStatus == "stopped" && s.Status != "failed" ||
 		s.Status == "completed"
 }
 
