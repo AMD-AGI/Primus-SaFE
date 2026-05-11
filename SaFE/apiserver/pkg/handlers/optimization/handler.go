@@ -485,7 +485,7 @@ func (h *Handler) consumeClawStream(taskID, sessionID string, hub *taskHub, claw
 		}
 	}()
 
-	err := h.clawClient.Stream(ctx, sessionID, "", func(raw ClawSSEEvent) error {
+	onEvent := func(raw ClawSSEEvent) error {
 		parsed := parser.Parse(raw)
 		for _, p := range parsed {
 			ev := h.buildEvent(taskID, hub, p.Type, p.Payload)
@@ -493,10 +493,35 @@ func (h *Handler) consumeClawStream(taskID, sessionID string, hub *taskHub, claw
 			h.maybeUpdateTaskStatus(taskID, p)
 		}
 		return nil
-	})
-	if err != nil && !errors.Is(err, context.Canceled) {
-		klog.ErrorS(err, "claw stream ended", "task_id", taskID, "session_id", sessionID)
-		streamErr = err
+	}
+
+	for {
+		err := h.clawClient.Stream(ctx, sessionID, "", onEvent)
+		if err == nil || errors.Is(err, context.Canceled) {
+			// Normal exit: stream EOF or context cancelled (agent idle / hub closed).
+			break
+		}
+		// Stream dropped unexpectedly (network blip, LB idle timeout, etc.).
+		// Check whether the session is still active before retrying.
+		klog.ErrorS(err, "claw stream dropped, checking session before retry",
+			"task_id", taskID, "session_id", sessionID)
+		checkCtx, checkCancel := context.WithTimeout(
+			WithClawBearer(context.Background(), clawBearer),
+			10*time.Second,
+		)
+		ss, getErr := h.clawClient.GetSession(checkCtx, sessionID)
+		checkCancel()
+		if getErr != nil || ss.IsTerminal() {
+			streamErr = err
+			break
+		}
+		// Session still running — wait briefly then reconnect.
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(5 * time.Second):
+		}
+		klog.InfoS("claw stream reconnecting", "task_id", taskID, "session_id", sessionID)
 	}
 }
 
