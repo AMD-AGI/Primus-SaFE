@@ -45,6 +45,12 @@ const (
 	MinReplicaCount   = "MIN_REPLICA_COUNT"
 	TorchFTLightHouse = "TORCHFT_LIGHTHOUSE"
 	RayJobEntrypoint  = "RAY_JOB_ENTRYPOINT"
+	// RayJobLongLived flips the RayJob template into a long-lived cluster:
+	// shutdownAfterJobFinishes=false + ttlSecondsAfterFinished=-1 + backoffLimit=0,
+	// so the head/worker pods (and on-pod caches like aiter JIT build) survive
+	// the driver entrypoint exiting. Used by inference-optimization sessions
+	// where vllm/sglang server is restarted many times across one optimizer run.
+	RayJobLongLived = "RAYJOB_LONG_LIVED"
 	// for preflight job
 	GPU_PRODUCT = "GPU_PRODUCT"
 

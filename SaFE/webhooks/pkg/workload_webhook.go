@@ -787,6 +787,39 @@ func (v *WorkloadValidator) validateCommon(ctx context.Context, newWorkload, old
 	if err = validateLabels(newWorkload.Spec.CustomerLabels); err != nil {
 		return err
 	}
+	if err = v.validateOwnerWorkload(ctx, newWorkload); err != nil {
+		return err
+	}
+	return nil
+}
+
+// validateOwnerWorkload checks Spec.OwnerWorkloadId references an existing
+// Workload in the same workspace and is not self-referential. The owner link
+// is a runtime cleanup binding (see workload_types.go) and the dispatcher
+// cascades stop on owner-end events; enforcing existence at admission time
+// avoids dangling references that would leak the dependent Workload.
+func (v *WorkloadValidator) validateOwnerWorkload(ctx context.Context, workload *v1.Workload) error {
+	ownerId := workload.GetOwnerWorkloadId()
+	if ownerId == "" {
+		return nil
+	}
+	if ownerId == workload.Name {
+		return commonerrors.NewBadRequest("ownerWorkloadId must not reference the workload itself")
+	}
+	owner := &v1.Workload{}
+	if err := v.Client.Get(ctx, client.ObjectKey{Name: ownerId}, owner); err != nil {
+		return commonerrors.NewBadRequest(
+			fmt.Sprintf("ownerWorkloadId %q not found: %v", ownerId, err))
+	}
+	if owner.Spec.Workspace != workload.Spec.Workspace {
+		return commonerrors.NewBadRequest(
+			fmt.Sprintf("ownerWorkloadId %q lives in workspace %q but this workload is in %q",
+				ownerId, owner.Spec.Workspace, workload.Spec.Workspace))
+	}
+	if owner.GetOwnerWorkloadId() == workload.Name {
+		return commonerrors.NewBadRequest(
+			fmt.Sprintf("ownerWorkloadId %q creates a cycle with this workload", ownerId))
+	}
 	return nil
 }
 
@@ -1154,6 +1187,9 @@ func (v *WorkloadValidator) validateImmutableFields(newWorkload, oldWorkload *v1
 	}
 	if newWorkload.Spec.GroupVersionKind != oldWorkload.Spec.GroupVersionKind {
 		return field.Forbidden(field.NewPath("spec").Key("gvk"), "immutable")
+	}
+	if newWorkload.GetOwnerWorkloadId() != oldWorkload.GetOwnerWorkloadId() {
+		return field.Forbidden(field.NewPath("labels").Key(v1.OwnerLabel), "immutable")
 	}
 	if commonworkload.IsCICDScalingRunnerSet(newWorkload) {
 		val1, _ := oldWorkload.Spec.Env[common.UnifiedJobEnable]

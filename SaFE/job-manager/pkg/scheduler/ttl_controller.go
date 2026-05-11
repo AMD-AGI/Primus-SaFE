@@ -114,7 +114,10 @@ func (r *WorkloadTTLController) handle(ctx context.Context, workload *v1.Workloa
 			result.RequeueAfter = time.Duration(ttlSeconds-elapsedSeconds) * time.Second
 		}
 	case workload.IsTimeout():
-		if err = jobutils.SetWorkloadTimeout(ctx, r.Client, workload, "the workload has timed out"); err != nil {
+		if err = jobutils.MarkWorkloadStopped(
+			ctx, r.Client, workload,
+			jobutils.StopReasonTimeout, "the workload has timed out",
+		); err != nil {
 			break
 		}
 		err = r.deleteWorkload(ctx, workload)
