@@ -2,14 +2,14 @@
 # Syntax:     https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
 # Last matching rule wins. Prefer GitHub Teams over individuals.
 # Default — every file requires project-team approval
-*                            @AMD-AGI/SAFE
+*                            @AMD-AGI/SaFE
 
 # Stricter paths — leads must approve
-.github/CODEOWNERS           @AMD-AGI/SAFE
-/.github/workflows/          @AMD-AGI/SAFE
-/SaFE/                       @AMD-AGI/SAFE
-/Lens/                       @AMD-AGI/SAFE
-/Bootstrap/                  @AMD-AGI/SAFE
-/Bench/                      @AMD-AGI/SAFE
-/Web/                        @AMD-AGI/SAFE
-/Scheduler-Plugins/          @AMD-AGI/SAFE
+.github/CODEOWNERS           @AMD-AGI/SaFE
+/.github/workflows/          @AMD-AGI/SaFE
+/SaFE/                       @AMD-AGI/SaFE
+/Lens/                       @AMD-AGI/SaFE
+/Bootstrap/                  @AMD-AGI/SaFE
+/Bench/                      @AMD-AGI/SaFE
+/Web/                        @AMD-AGI/SaFE
+/Scheduler-Plugins/          @AMD-AGI/SaFE

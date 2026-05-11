@@ -1,0 +1,16 @@
+go 1.25.0
+
+use (
+	./SaFE/a2a-gateway
+	./SaFE/apis
+	./SaFE/apiserver
+	./SaFE/common
+	./SaFE/job-manager
+	./SaFE/node-agent
+	./SaFE/resource-manager
+	./SaFE/tools/email-relay-service
+	./SaFE/tools/sync-image
+	./SaFE/utils
+	./SaFE/webhooks
+	./Scheduler-Plugins
+)
