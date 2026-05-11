@@ -1,6 +1,0 @@
-apiVersion: v2
-name: primus-lens-opensearch
-description: OpenSearch Cluster CR for Primus-Lens
-type: application
-version: 1.0.0
-appVersion: "2.11.0"

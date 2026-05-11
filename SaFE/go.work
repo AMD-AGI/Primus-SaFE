@@ -1,15 +1,15 @@
-go 1.24.7
+go 1.25.0
 
 use (
+	./a2a-gateway
 	./apis
 	./apiserver
-	./a2a-gateway
 	./common
+	./job-manager
 	./node-agent
 	./resource-manager
-	./job-manager
-	./webhooks
 	./utils
-	tools/sync-image
+	./webhooks
 	tools/email-relay-service
+	tools/sync-image
 )

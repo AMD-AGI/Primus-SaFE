@@ -32,12 +32,12 @@ import (
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/controller"
+	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/quantity"
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
 	"github.com/AMD-AIG-AIMA/SAFE/job-manager/pkg/syncer"
 	jobutils "github.com/AMD-AIG-AIMA/SAFE/job-manager/pkg/utils"
-	"github.com/AMD-AIG-AIMA/SAFE/resource-manager/pkg/utils"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/backoff"
 	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/timeutil"
@@ -295,7 +295,7 @@ func (r *SchedulerReconciler) start(ctx context.Context) {
 // It is the interface of the custom controller.
 func (r *SchedulerReconciler) Do(ctx context.Context, message *SchedulerMessage) (ctrlruntime.Result, error) {
 	err := r.scheduleWorkloads(ctx, message)
-	if utils.IsNonRetryableError(err) {
+	if commonerrors.IsNonRetryableError(err) {
 		err = nil
 	}
 	return ctrlruntime.Result{}, err

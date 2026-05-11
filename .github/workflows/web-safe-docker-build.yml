@@ -59,6 +59,6 @@ jobs:
 
       - name: Output image info
         run: |
-          echo "Image pushed to Docker Hub and Quay.io (unified: SaFE + Lens)"
+          echo "Image pushed to Docker Hub and Quay.io"
           echo "Docker Hub: docker.io/primussafe/primus-safe-web:${{ steps.tag.outputs.tag }}"
           echo "Quay.io: quay.io/primussafe/primus-safe-web:${{ steps.tag.outputs.tag }}"
