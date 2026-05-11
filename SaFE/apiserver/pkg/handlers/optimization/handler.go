@@ -451,6 +451,40 @@ func (h *Handler) consumeClawStream(taskID, sessionID string, hub *taskHub, claw
 		cancel()
 	}()
 
+	// Claw does not close the SSE stream when the agent goes idle — the
+	// goroutine would block on scanner.Scan() forever. Poll GetSession every
+	// 60 s and cancel the stream context once the session reaches a terminal
+	// state so finalizeTask runs promptly.
+	go func() {
+		ticker := time.NewTicker(60 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				pollCtx, pollCancel := context.WithTimeout(
+					WithClawBearer(context.Background(), clawBearer),
+					10*time.Second,
+				)
+				ss, err := h.clawClient.GetSession(pollCtx, sessionID)
+				pollCancel()
+				if err != nil {
+					klog.V(4).InfoS("consumeClawStream: poll session failed",
+						"task_id", taskID, "error", err)
+					continue
+				}
+				if ss.IsTerminal() {
+					klog.InfoS("consumeClawStream: session terminal, cancelling stream",
+						"task_id", taskID, "session_id", sessionID,
+						"status", ss.Status, "agent_status", ss.AgentStatus)
+					cancel()
+					return
+				}
+			}
+		}
+	}()
+
 	err := h.clawClient.Stream(ctx, sessionID, "", func(raw ClawSSEEvent) error {
 		parsed := parser.Parse(raw)
 		for _, p := range parsed {
