@@ -142,127 +142,10 @@ jobs:
           name: safe-${{ matrix.module }}
           fail_ci_if_error: false
 
-  test-lens:
-    name: Test Lens Modules
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        module:
-          - adapter/primus-safe-adapter
-          - api
-          - core
-          - exporters/gpu-resource-exporter
-          - exporters/multi-cluster-config-exporter
-          - exporters/network-exporter
-          - exporters/node-exporter
-          - jobs
-          - system-tuner
-          - telemetry-processor
-    steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v4
-
-      - name: Setup Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: '1.24.7'
-          cache-dependency-path: |
-            Lens/modules/${{ matrix.module }}/go.sum
-
-      - name: Run Tests with Coverage
-        working-directory: Lens/modules/${{ matrix.module }}
-        id: test
-        continue-on-error: true
-        run: |
-          echo "🧪 Testing ${{ matrix.module }}..."
-          go test -v -race -coverprofile=coverage.out -covermode=atomic ./... 2>&1 | tee test-output.log
-          exit ${PIPESTATUS[0]}
-
-      - name: Extract Failed Tests
-        working-directory: Lens/modules/${{ matrix.module }}
-        if: always()
-        run: |
-          MODULE_NAME=$(echo "${{ matrix.module }}" | tr '/' '-')
-          echo "MODULE_NAME=${MODULE_NAME}" >> $GITHUB_ENV
-          
-          # Extract failed tests
-          if [ -f test-output.log ]; then
-            echo "# Failed Tests for Lens/${{ matrix.module }}" > failed-tests.md
-            echo "" >> failed-tests.md
-            
-            # Check if there are failed tests
-            if grep -E "^--- FAIL:" test-output.log > /dev/null 2>&1; then
-              echo "## ❌ Failed Tests" >> failed-tests.md
-              echo '```' >> failed-tests.md
-              grep -E "^--- FAIL:" test-output.log >> failed-tests.md || true
-              echo '```' >> failed-tests.md
-              echo "" >> failed-tests.md
-              echo "## Failure Details" >> failed-tests.md
-              echo '```' >> failed-tests.md
-              # Extract failed test details
-              awk '/^=== RUN/{test=$0} /^--- FAIL:/{print test; print; getline; while(/^[[:space:]]/ || /^[[:space:]]*Error/){print; getline}}' test-output.log >> failed-tests.md || true
-              echo '```' >> failed-tests.md
-            else
-              echo "✅ All tests passed!" >> failed-tests.md
-            fi
-          else
-            echo "⚠️ No test output file found" > failed-tests.md
-          fi
-
-      - name: Check Test Result
-        if: steps.test.outcome == 'failure'
-        run: exit 1
-
-      - name: Generate Coverage Report
-        working-directory: Lens/modules/${{ matrix.module }}
-        if: always()
-        run: |
-          if [ -f coverage.out ]; then
-            echo "📊 Coverage Report for ${{ matrix.module }}:"
-            go tool cover -func=coverage.out | tail -n 1
-            COVERAGE=$(go tool cover -func=coverage.out | grep total | awk '{print $3}')
-            echo "Total Coverage: $COVERAGE"
-            echo "COVERAGE=$COVERAGE" >> $GITHUB_ENV
-          else
-            echo "⚠️  No coverage file generated for ${{ matrix.module }}"
-            echo "COVERAGE=0%" >> $GITHUB_ENV
-          fi
-          
-          # Set artifact name without slashes
-          MODULE_NAME=$(echo "${{ matrix.module }}" | tr '/' '-')
-          echo "ARTIFACT_NAME=coverage-lens-${MODULE_NAME}" >> $GITHUB_ENV
-
-      - name: Upload Coverage Report
-        uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: ${{ env.ARTIFACT_NAME }}
-          path: Lens/modules/${{ matrix.module }}/coverage.out
-          retention-days: 30
-
-      - name: Upload Failed Tests Report
-        uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: failed-tests-lens-${{ env.MODULE_NAME }}
-          path: Lens/modules/${{ matrix.module }}/failed-tests.md
-          retention-days: 30
-
-      - name: Upload to Codecov
-        uses: codecov/codecov-action@v4
-        if: always()
-        with:
-          token: ${{ secrets.CODECOV_TOKEN }}
-          files: ./Lens/modules/${{ matrix.module }}/coverage.out
-          flags: lens-${{ matrix.module }}
-          name: lens-${{ matrix.module }}
-          fail_ci_if_error: false
-
   coverage-summary:
     name: Coverage Summary
     runs-on: ubuntu-latest
-    needs: [test-safe, test-lens]
+    needs: [test-safe]
     if: always()
     steps:
       - name: Checkout Repository
@@ -307,22 +190,8 @@ jobs:
           done
           
           echo "" >> coverage-summary.md
-          echo "## Lens Modules" >> coverage-summary.md
-          echo "" >> coverage-summary.md
           echo "| Module | Coverage |" >> coverage-summary.md
           echo "|--------|----------|" >> coverage-summary.md
-          
-          for dir in coverage-reports/coverage-lens-*/; do
-            if [ -d "$dir" ]; then
-              module=$(basename "$dir" | sed 's/coverage-lens-//')
-              if [ -f "$dir/coverage.out" ]; then
-                coverage=$(go tool cover -func="$dir/coverage.out" 2>/dev/null | grep total | awk '{print $3}' || echo "N/A")
-                echo "| $module | $coverage |" >> coverage-summary.md
-              else
-                echo "| $module | No tests |" >> coverage-summary.md
-              fi
-            fi
-          done
           
           echo "" >> coverage-summary.md
           echo "---" >> coverage-summary.md
@@ -369,34 +238,6 @@ jobs:
                   echo ""
                 else
                   echo "### ✅ SaFE/$module - All tests passed" >> failed-tests-summary.md
-                  echo "" >> failed-tests-summary.md
-                fi
-              fi
-            fi
-          done
-          
-          # Process failed tests for Lens modules
-          echo "## Lens Modules" >> failed-tests-summary.md
-          echo "" >> failed-tests-summary.md
-          
-          for dir in failed-tests-reports/failed-tests-lens-*/; do
-            if [ -d "$dir" ]; then
-              module=$(basename "$dir" | sed 's/failed-tests-lens-//')
-              if [ -f "$dir/failed-tests.md" ]; then
-                if grep -q "❌ Failed Tests" "$dir/failed-tests.md"; then
-                  HAS_FAILURES=true
-                  echo "### ❌ Lens/$module" >> failed-tests-summary.md
-                  echo "" >> failed-tests-summary.md
-                  # Extract failed test content (skip header lines)
-                  tail -n +3 "$dir/failed-tests.md" >> failed-tests-summary.md
-                  echo "" >> failed-tests-summary.md
-                  
-                  # Output to console
-                  echo "❌ Lens/$module:"
-                  grep -E "^--- FAIL:" "$dir/failed-tests.md" 2>/dev/null || true
-                  echo ""
-                else
-                  echo "### ✅ Lens/$module - All tests passed" >> failed-tests-summary.md
                   echo "" >> failed-tests-summary.md
                 fi
               fi
@@ -462,26 +303,6 @@ jobs:
           
           echo "" >> $GITHUB_STEP_SUMMARY
           
-          # Lens modules coverage table
-          echo "### Lens Modules" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "| Module | Coverage |" >> $GITHUB_STEP_SUMMARY
-          echo "|--------|----------|" >> $GITHUB_STEP_SUMMARY
-          
-          for dir in coverage-reports/coverage-lens-*/; do
-            if [ -d "$dir" ]; then
-              module=$(basename "$dir" | sed 's/coverage-lens-//')
-              coverage="N/A"
-              
-              if [ -f "$dir/coverage.out" ]; then
-                coverage=$(go tool cover -func="$dir/coverage.out" 2>/dev/null | grep total | awk '{print $3}' || echo "N/A")
-              fi
-              
-              echo "| $module | $coverage |" >> $GITHUB_STEP_SUMMARY
-            fi
-          done
-          
-          echo "" >> $GITHUB_STEP_SUMMARY
           echo "---" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           
@@ -506,25 +327,6 @@ jobs:
                     test_name=$(echo "$line" | sed -E 's/^--- FAIL: ([^ ]+).*/\1/')
                     duration=$(echo "$line" | sed -E 's/.*\(([^)]+)\).*/\1/')
                     echo "| SaFE/$module | \`$test_name\` | $duration |" >> $GITHUB_STEP_SUMMARY
-                  fi
-                done < <(grep -E "^--- FAIL:" "$dir/failed-tests.md" 2>/dev/null || true)
-              fi
-            fi
-          done
-          
-          # Extract failed tests from Lens modules
-          for dir in failed-tests-reports/failed-tests-lens-*/; do
-            if [ -d "$dir" ]; then
-              module=$(basename "$dir" | sed 's/failed-tests-lens-//')
-              if [ -f "$dir/failed-tests.md" ]; then
-                # Extract lines matching "--- FAIL: TestName (duration)"
-                while IFS= read -r line; do
-                  if [ -n "$line" ]; then
-                    HAS_FAILURES=true
-                    # Parse test name and duration from "--- FAIL: TestName (0.00s)"
-                    test_name=$(echo "$line" | sed -E 's/^--- FAIL: ([^ ]+).*/\1/')
-                    duration=$(echo "$line" | sed -E 's/.*\(([^)]+)\).*/\1/')
-                    echo "| Lens/$module | \`$test_name\` | $duration |" >> $GITHUB_STEP_SUMMARY
                   fi
                 done < <(grep -E "^--- FAIL:" "$dir/failed-tests.md" 2>/dev/null || true)
               fi

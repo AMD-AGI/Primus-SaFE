@@ -18,7 +18,7 @@ Create a new user account.
 {
   "name": "zhangsan",
   "email": "zhangsan@example.com",
-  "password": "SecurePassword123!",
+  "password": "your-password",
   "avatarUrl": "https://example.com/avatar.jpg"
 }
 ```
@@ -54,7 +54,7 @@ User authentication and access token retrieval.
 ```json
 {
   "name": "zhangsan",
-  "password": "SecurePassword123!",
+  "password": "your-password",
   "type": "default"
 }
 ```

@@ -30,7 +30,6 @@ import (
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	commonsearch "github.com/AMD-AIG-AIMA/SAFE/common/pkg/opensearch"
 	commons3 "github.com/AMD-AIG-AIMA/SAFE/common/pkg/s3"
-	"github.com/AMD-AIG-AIMA/SAFE/resource-manager/pkg/utils"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/backoff"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/channel"
 	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
@@ -140,7 +139,7 @@ func (r *DumpLogJobReconciler) Do(ctx context.Context, jobId string) (ctrlruntim
 	result, err := r.processDumpLogJob(ctx, job)
 	if err != nil {
 		klog.ErrorS(err, "failed to handle job", "job", jobId)
-		if utils.IsNonRetryableError(err) {
+		if commonerrors.IsNonRetryableError(err) {
 			err = r.setJobCompleted(ctx, job, v1.OpsJobFailed, err.Error(), nil)
 		}
 	}

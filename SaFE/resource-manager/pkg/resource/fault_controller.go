@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
@@ -207,7 +208,7 @@ func (r *FaultReconciler) Reconcile(ctx context.Context, req ctrlruntime.Request
 // delete handles fault deletion by removing node taints and finalizers.
 func (r *FaultReconciler) delete(ctx context.Context, fault *v1.Fault) (ctrlruntime.Result, error) {
 	err := r.removeNodeTaint(ctx, fault)
-	if err != nil && !utils.IsNonRetryableError(err) {
+	if err != nil && !commonerrors.IsNonRetryableError(err) {
 		if result, err := r.retry(ctx, fault); err != nil || result.RequeueAfter > 0 {
 			return result, err
 		}
@@ -239,7 +240,7 @@ func (r *FaultReconciler) processFault(ctx context.Context, fault *v1.Fault) (ct
 		phase = v1.FaultPhaseSucceeded
 	} else {
 		klog.ErrorS(err, "failed to handle fault")
-		if !utils.IsNonRetryableError(err) {
+		if !commonerrors.IsNonRetryableError(err) {
 			// Stop after exceeding the maximum retry limit.
 			if result, err := r.retry(ctx, fault); err != nil || result.RequeueAfter > 0 {
 				return result, err

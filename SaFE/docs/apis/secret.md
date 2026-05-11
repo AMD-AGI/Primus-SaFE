@@ -92,7 +92,7 @@ Create new SSH key or image registry secret.
     "key2": "val2"
   },
   "params": [{
-        "github_token": "your github token"
+        "github_token": "your-github-stoken"
   }]
 }
 ```
