@@ -13,7 +13,6 @@ import (
 
 	"golang.org/x/crypto/ssh"
 	corev1 "k8s.io/api/core/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	apitypes "k8s.io/apimachinery/pkg/types"
@@ -76,20 +75,6 @@ func IncRetryCount(ctx context.Context, cli client.Client, obj client.Object, ma
 		return 0, client.IgnoreNotFound(err)
 	}
 	return count, nil
-}
-
-// IsNonRetryableError checks if an error is non-retryable (cannot be fixed by retrying).
-func IsNonRetryableError(err error) bool {
-	if err == nil {
-		return false
-	}
-	if commonerrors.IsBadRequest(err) || commonerrors.IsInternal(err) || commonerrors.IsNotFound(err) {
-		return true
-	}
-	if apierrors.IsForbidden(err) || apierrors.IsNotFound(err) {
-		return true
-	}
-	return false
 }
 
 // GetK8sClientFactory retrieves the Kubernetes client factory for the specified cluster.

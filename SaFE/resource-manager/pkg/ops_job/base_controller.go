@@ -72,7 +72,7 @@ func (r *OpsJobBaseReconciler) Reconcile(ctx context.Context, req ctrlruntime.Re
 	quit, err := component.observe(ctx, job)
 	if err != nil {
 		klog.ErrorS(err, "failed to observe job", "job", job.Name)
-		if utils.IsNonRetryableError(err) {
+		if commonerrors.IsNonRetryableError(err) {
 			err = r.setJobCompleted(ctx, job, v1.OpsJobFailed, err.Error(), nil)
 		}
 		return ctrlruntime.Result{}, err
@@ -86,7 +86,7 @@ func (r *OpsJobBaseReconciler) Reconcile(ctx context.Context, req ctrlruntime.Re
 	result, err := component.handle(ctx, job)
 	if err != nil {
 		klog.ErrorS(err, "failed to handle job", "job", job.Name)
-		if utils.IsNonRetryableError(err) {
+		if commonerrors.IsNonRetryableError(err) {
 			err = r.setJobCompleted(ctx, job, v1.OpsJobFailed, err.Error(), nil)
 		}
 	}

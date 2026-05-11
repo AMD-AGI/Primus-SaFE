@@ -298,7 +298,7 @@ func (r *NodeReconciler) processNode(ctx context.Context, adminNode *v1.Node, k8
 	if adminNode.IsManaged() && adminNode.GetSpecCluster() != "" {
 		if err := r.installAddons(ctx, adminNode); err != nil {
 			klog.ErrorS(err, "failed to install addons", "node", adminNode.Name)
-			if !utils.IsNonRetryableError(err) {
+			if !commonerrors.IsNonRetryableError(err) {
 				return ctrlruntime.Result{}, err
 			}
 		}
