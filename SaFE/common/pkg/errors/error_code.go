@@ -288,3 +288,17 @@ func NewRobustAddonNotInstalled(cluster string) *apierrors.StatusError {
 		Message: msg,
 	}}
 }
+
+// IsNonRetryableError checks if an error is non-retryable (cannot be fixed by retrying).
+func IsNonRetryableError(err error) bool {
+	if err == nil {
+		return false
+	}
+	if IsBadRequest(err) || IsInternal(err) || IsNotFound(err) {
+		return true
+	}
+	if apierrors.IsForbidden(err) || apierrors.IsNotFound(err) {
+		return true
+	}
+	return false
+}

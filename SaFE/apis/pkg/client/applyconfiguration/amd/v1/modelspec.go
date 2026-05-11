@@ -9,17 +9,19 @@ package v1
 // ModelSpecApplyConfiguration represents a declarative configuration of the ModelSpec type for use
 // with apply.
 type ModelSpecApplyConfiguration struct {
-	DisplayName *string                        `json:"displayName,omitempty"`
-	Description *string                        `json:"description,omitempty"`
-	Icon        *string                        `json:"icon,omitempty"`
-	Label       *string                        `json:"label,omitempty"`
-	Tags        []string                       `json:"tags,omitempty"`
-	MaxTokens   *int                           `json:"maxTokens,omitempty"`
-	Source      *ModelSourceApplyConfiguration `json:"source,omitempty"`
-	Workspace   *string                        `json:"workspace,omitempty"`
-	Origin      *string                        `json:"origin,omitempty"`
-	SftJobId    *string                        `json:"sftJobId,omitempty"`
-	BaseModel   *string                        `json:"baseModel,omitempty"`
+	DisplayName   *string                        `json:"displayName,omitempty"`
+	Description   *string                        `json:"description,omitempty"`
+	Icon          *string                        `json:"icon,omitempty"`
+	Label         *string                        `json:"label,omitempty"`
+	Tags          []string                       `json:"tags,omitempty"`
+	MaxTokens     *int                           `json:"maxTokens,omitempty"`
+	Source        *ModelSourceApplyConfiguration `json:"source,omitempty"`
+	Workspace     *string                        `json:"workspace,omitempty"`
+	Origin        *string                        `json:"origin,omitempty"`
+	SftJobId      *string                        `json:"sftJobId,omitempty"`
+	BaseModel     *string                        `json:"baseModel,omitempty"`
+	TargetVolume  *string                        `json:"targetVolume,omitempty"`
+	TargetSubpath *string                        `json:"targetSubpath,omitempty"`
 }
 
 // ModelSpecApplyConfiguration constructs a declarative configuration of the ModelSpec type for use with
@@ -115,5 +117,21 @@ func (b *ModelSpecApplyConfiguration) WithSftJobId(value string) *ModelSpecApply
 // If called multiple times, the BaseModel field is set to the value of the last call.
 func (b *ModelSpecApplyConfiguration) WithBaseModel(value string) *ModelSpecApplyConfiguration {
 	b.BaseModel = &value
+	return b
+}
+
+// WithTargetVolume sets the TargetVolume field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the TargetVolume field is set to the value of the last call.
+func (b *ModelSpecApplyConfiguration) WithTargetVolume(value string) *ModelSpecApplyConfiguration {
+	b.TargetVolume = &value
+	return b
+}
+
+// WithTargetSubpath sets the TargetSubpath field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the TargetSubpath field is set to the value of the last call.
+func (b *ModelSpecApplyConfiguration) WithTargetSubpath(value string) *ModelSpecApplyConfiguration {
+	b.TargetSubpath = &value
 	return b
 }

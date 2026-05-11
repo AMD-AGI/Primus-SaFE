@@ -46,7 +46,6 @@ Primus-SaFE transforms a collection of AMD GPU servers into a resilient, self-mo
 - [Core Modules](#core-modules)
   - [Primus-Bootstrap](#primus-bootstrap-rapid-cluster-deployment)
   - [Primus-SaFE Core](#primus-safe-core-intelligent-job-scheduling-and-fault-tolerance)
-  - [Primus-Lens](#primus-lens-full-stack-observability--visualization)
   - [Primus-Bench](#primus-bench-node-health-checks-and-performance-benchmarking)
   - [Scheduler Plugins](#scheduler-plugins-advanced-scheduling-capabilities)
   - [Web](#web-frontend-dashboards)
@@ -130,24 +129,7 @@ This deploys a production-grade Kubernetes cluster with:
 
 **See [Bootstrap/README.md](Bootstrap/README.md) for detailed configuration options.**
 
-### 3. Deploy Observability with Primus-Lens
-
-```bash
-cd ../Lens/bootstrap
-
-# Install Primus-Lens monitoring and logging components
-bash install.sh
-```
-
-This installs:
-- VictoriaMetrics for time-series metrics storage
-- Grafana for dashboards and visualization
-- OpenSearch for log aggregation
-- Custom exporters for GPU, network, and workload metrics
-
-**See [Lens/README.md](Lens/README.md) for configuration details.**
-
-### 4. Install the Primus-SaFE Platform Layer
+### 3. Install the Primus-SaFE Platform Layer
 
 ```bash
 cd ../../SaFE/bootstrap
@@ -165,7 +147,7 @@ This installs:
 
 **See [SaFE/README.md](SaFE/README.md) for detailed installation guide.**
 
-### 5. (Optional) Run Health Checks with Primus-Bench
+### 4. (Optional) Run Health Checks with Primus-Bench
 
 ```bash
 cd ../../Bench
@@ -246,49 +228,6 @@ bash install.sh
 ```
 
 **Learn More:** [SaFE/README.md](SaFE/README.md)
-
----
-
-### Primus-Lens: Full-Stack Observability & Visualization
-
-**Location:** [`Lens/`](Lens/)
-
-Primus-Lens provides comprehensive observability across infrastructure and training workloads with real-time metrics, logs, and interactive dashboards.
-
-**Components:**
-
-1. **Metrics Stack**:
-   - VictoriaMetrics cluster for high-performance time-series storage
-   - Custom exporters: GPU resources, network statistics, node hardware, workloads
-   - VMAgent for metrics collection and aggregation
-
-2. **Logging Stack**:
-   - OpenSearch for distributed log storage and search
-   - Fluent Bit for log collection and forwarding
-   - Structured logging with correlation to metrics
-
-3. **Visualization**:
-   - Grafana with pre-built dashboards for cluster, node, GPU, and job metrics
-   - Custom alerts and notifications
-   - Training toolkit integration for job-level telemetry
-
-4. **Storage**:
-   - PostgreSQL for metadata and configuration storage
-
-**Key Metrics:**
-- GPU utilization, memory, temperature, power
-- Network throughput, latency, packet loss, RDMA statistics
-- Storage I/O, filesystem performance
-- Training progress, throughput, loss curves, checkpoint timing
-- Pod lifecycle, resource allocation, scheduling latency
-
-**Usage:**
-```bash
-cd Lens/bootstrap
-bash install.sh
-```
-
-**Configuration:** Edit `bootstrap/manifests/*.yaml.tpl` templates before installation.
 
 ---
 
@@ -429,7 +368,6 @@ Web provides the browser-based management dashboards for the Primus-SaFE platfor
 | App | Description |
 |-----|-------------|
 | **Safe** (`Web/apps/safe`) | Control-plane & workload management UI — cluster overview, job scheduling, training/inference management, resource monitoring |
-| **Lens** (`Web/apps/lens`) | Observability UI — interactive dashboards, metrics visualization, log exploration, AI-powered diagnostics |
 
 **Tech Stack:**
 - Vue 3 + TypeScript + Vite
@@ -442,7 +380,6 @@ Web provides the browser-based management dashboards for the Primus-SaFE platfor
 cd Web
 pnpm install
 pnpm dev:safe   # Start Safe UI dev server
-pnpm dev:lens   # Start Lens UI dev server
 ```
 
 **Learn More:** [Web/README.md](Web/README.md)

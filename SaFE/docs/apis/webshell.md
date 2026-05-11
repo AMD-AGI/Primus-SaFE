@@ -43,7 +43,7 @@ Establish WebSocket connection to workload Pod.
 GET /api/v1/workloads/my-job-abc/pods/my-job-abc-worker-0/webshell?namespace=default&container=pytorch&cmd=bash&rows=40&cols=120
 Connection: Upgrade
 Upgrade: websocket
-Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==
+Sec-WebSocket-Key: dGVzdC1rZXkK
 Sec-WebSocket-Version: 13
 ```
 

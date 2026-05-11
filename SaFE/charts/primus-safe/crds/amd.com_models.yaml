@@ -160,16 +160,17 @@ spec:
                 items:
                   type: string
                 type: array
-              targetVolume:
-                description: |-
-                  TargetVolume optionally selects which workspace volume to download to
-                  when the workspace has multiple volumes (e.g. PFS+HostPath).
-                  Value is a volume's MountPath (or HostPath when MountPath is empty).
-                type: string
               targetSubpath:
                 description: |-
                   TargetSubpath is an optional sub-directory under "<volume>/models/<safe-name>"
-                  to keep multiple imports of the same model separated.
+                  to keep multiple imports of the same model separated. Empty = default layout.
+                type: string
+              targetVolume:
+                description: |-
+                  TargetVolume optionally selects which volume of the workspace to download to
+                  when the workspace has multiple volumes (e.g. PFS+HostPath). Value is a volume's
+                  MountPath (or HostPath when MountPath is empty). If empty, the controller uses
+                  the workspace's first PFS volume (or first volume).
                 type: string
               workspace:
                 description: |-
