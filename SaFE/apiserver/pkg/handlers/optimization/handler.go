@@ -793,7 +793,15 @@ func (h *Handler) recoverRunningTasks(ctx context.Context) {
 		}
 
 		if ss.IsTerminal() {
-			status, msg := h.resolveStatusFromClaw(task.ClawSessionID, fmt.Errorf("apiserver restarted"))
+			// Determine status directly from the SessionStatus we already fetched —
+			// avoids a second GetSession call inside resolveStatusFromClaw which would
+			// use the service key and fail for user-owned sessions.
+			status := dbclient.OptimizationTaskStatusSucceeded
+			msg := "completed"
+			if ss.AgentStatus == "failed" || ss.Status == "failed" {
+				status = dbclient.OptimizationTaskStatusFailed
+				msg = "claw session failed"
+			}
 			_ = h.dbClient.UpdateOptimizationTaskStatus(ctx, task.ID, status, task.CurrentPhase, msg)
 			klog.InfoS("recoverRunningTasks: finalized terminal task",
 				"task_id", task.ID, "status", status)
