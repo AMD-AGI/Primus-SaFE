@@ -698,6 +698,23 @@ func (h *Handler) hasOptimizationReport(sessionID string) bool {
 
 // ── Helpers ─────────────────────────────────────────────────────────────
 
+// clawBearerForTask resolves the Bearer token for a task owner using their
+// platform key. Used by recoverRunningTasks so it can access Claw sessions
+// that were created with a user-specific token rather than the service key.
+func (h *Handler) clawBearerForTask(ctx context.Context, userID, userName string) string {
+	if userID != "" {
+		if tok := authority.ApiKeyTokenInstance(); tok != nil {
+			pk, err := tok.GetOrCreatePlatformKey(ctx, userID, userName)
+			if err != nil {
+				klog.ErrorS(err, "clawBearerForTask: GetOrCreatePlatformKey failed", "userId", userID)
+			} else if strings.TrimSpace(pk) != "" {
+				return pk
+			}
+		}
+	}
+	return commonconfig.GetModelOptimizationClawAPIKey()
+}
+
 // clawBearerForGin resolves the Bearer token for outbound PrimusClaw calls.
 //
 // Priority:
@@ -755,9 +772,6 @@ func (h *Handler) recoverRunningTasks(ctx context.Context) {
 	}
 	klog.InfoS("recoverRunningTasks: found running tasks", "count", len(tasks))
 
-	clawBearer := h.clawClient.apiKey
-	clawCtx := WithClawBearer(ctx, clawBearer)
-
 	for _, task := range tasks {
 		if task.ClawSessionID == "" {
 			// No Claw session — mark failed so it doesn't block the concurrency limit.
@@ -766,10 +780,15 @@ func (h *Handler) recoverRunningTasks(ctx context.Context) {
 			continue
 		}
 
+		// Resolve a fresh bearer per task using the task owner's platform key so
+		// recoverRunningTasks can access sessions created with user-specific tokens.
+		clawBearer := h.clawBearerForTask(ctx, task.UserID, task.UserName)
+		clawCtx := WithClawBearer(ctx, clawBearer)
+
 		ss, err := h.clawClient.GetSession(clawCtx, task.ClawSessionID)
 		if err != nil {
-			klog.V(4).InfoS("recoverRunningTasks: get session failed, skipping",
-				"task_id", task.ID, "error", err)
+			klog.ErrorS(err, "recoverRunningTasks: get session failed, skipping",
+				"task_id", task.ID, "session_id", task.ClawSessionID)
 			continue
 		}
 
