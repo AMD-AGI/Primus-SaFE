@@ -569,7 +569,15 @@ func (h *Handler) finalizeTask(taskID string, hub *taskHub, streamErr error) {
 				// deciding the final status so we don't mark a live task Failed.
 				status, msg = h.resolveStatusFromClaw(task.ClawSessionID, streamErr)
 			} else {
-				msg = "completed"
+				// Agent went idle normally. Verify the skill ran to completion by
+				// checking for the optimization report — its absence means the skill
+				// exited early (e.g. sandbox_create_failed) even though Claw reports idle.
+				if task.ClawSessionID != "" && !h.hasOptimizationReport(task.ClawSessionID) {
+					status = dbclient.OptimizationTaskStatusFailed
+					msg = "optimization report not found; skill may have exited early"
+				} else {
+					msg = "completed"
+				}
 			}
 			_ = h.dbClient.UpdateOptimizationTaskStatus(
 				context.Background(), taskID, status, task.CurrentPhase, msg,
@@ -636,6 +644,31 @@ func (h *Handler) resolveStatusFromClaw(sessionID string, streamErr error) (dbcl
 		return dbclient.OptimizationTaskStatusFailed, "claw session failed"
 	}
 	return dbclient.OptimizationTaskStatusSucceeded, "completed"
+}
+
+// hasOptimizationReport checks whether the Claw session contains an
+// optimization_report.md artifact. A missing report means the skill exited
+// before Phase 10 (Save Results) and the task should be marked Failed.
+// Returns true on any listing error so transient failures don't flip a
+// genuinely-succeeded task to Failed.
+func (h *Handler) hasOptimizationReport(sessionID string) bool {
+	ctx, cancel := context.WithTimeout(
+		WithClawBearer(context.Background(), h.clawClient.apiKey),
+		15*time.Second,
+	)
+	defer cancel()
+	files, err := h.clawClient.ListSessionFiles(ctx, sessionID)
+	if err != nil {
+		klog.V(4).InfoS("hasOptimizationReport: list files failed, assuming present",
+			"session_id", sessionID, "error", err)
+		return true
+	}
+	for _, f := range files {
+		if strings.Contains(f.Path, "optimization_report.md") {
+			return true
+		}
+	}
+	return false
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────
