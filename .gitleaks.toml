@@ -37,3 +37,15 @@ paths = [
   # ----- This cleanup playbook itself (excluded by .git/info/exclude) -----
   '''^_security-cleanup/''',
 ]
+regexes = [
+  # Go package identifiers that gitleaks heuristics mis-classify as Secrets.
+  # Allowlist regex matches the captured Secret field, not the source line.
+  '''^v1\.[A-Z][A-Za-z]*Prefix$''',
+  '''^v1\.[A-Z][A-Za-z]*Default$''',
+]
+stopwords = [
+  # Suppress any finding whose Secret value contains these tokens.
+  "PrimusSafePrefix",
+  "PrimusTaintPrefix",
+  "SecretDefault",
+]
