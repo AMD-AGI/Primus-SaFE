@@ -105,6 +105,13 @@ type Service struct {
 	TargetPort int `json:"targetPort"`
 	// Service type, e.g. ClusterIP/NodePort
 	ServiceType corev1.ServiceType `json:"serviceType"`
+	// Extra label selectors merged on top of the default workload selector
+	// when dispatcher creates the K8s Service. Use case: a multi-pod workload
+	// (e.g. RayJob head + workers) where only one role actually listens on
+	// the target port — pass {primus-safe.amd.com/ray-role: head} to limit
+	// endpoints to the head pod, otherwise traffic round-robins to workers
+	// and hits connection refused.
+	ExtraSelectors map[string]string `json:"extraSelectors,omitempty"`
 	// Extended environment variable
 	Extends map[string]string `json:"extends,omitempty"`
 }

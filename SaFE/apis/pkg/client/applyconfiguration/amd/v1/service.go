@@ -13,12 +13,13 @@ import (
 // ServiceApplyConfiguration represents a declarative configuration of the Service type for use
 // with apply.
 type ServiceApplyConfiguration struct {
-	Protocol    *corev1.Protocol    `json:"protocol,omitempty"`
-	Port        *int                `json:"port,omitempty"`
-	NodePort    *int                `json:"nodePort,omitempty"`
-	TargetPort  *int                `json:"targetPort,omitempty"`
-	ServiceType *corev1.ServiceType `json:"serviceType,omitempty"`
-	Extends     map[string]string   `json:"extends,omitempty"`
+	Protocol       *corev1.Protocol    `json:"protocol,omitempty"`
+	Port           *int                `json:"port,omitempty"`
+	NodePort       *int                `json:"nodePort,omitempty"`
+	TargetPort     *int                `json:"targetPort,omitempty"`
+	ServiceType    *corev1.ServiceType `json:"serviceType,omitempty"`
+	ExtraSelectors map[string]string   `json:"extraSelectors,omitempty"`
+	Extends        map[string]string   `json:"extends,omitempty"`
 }
 
 // ServiceApplyConfiguration constructs a declarative configuration of the Service type for use with
@@ -64,6 +65,20 @@ func (b *ServiceApplyConfiguration) WithTargetPort(value int) *ServiceApplyConfi
 // If called multiple times, the ServiceType field is set to the value of the last call.
 func (b *ServiceApplyConfiguration) WithServiceType(value corev1.ServiceType) *ServiceApplyConfiguration {
 	b.ServiceType = &value
+	return b
+}
+
+// WithExtraSelectors puts the entries into the ExtraSelectors field in the declarative configuration
+// and returns the receiver, so that objects can be build by chaining "With" function invocations.
+// If called multiple times, the entries provided by each call will be put on the ExtraSelectors field,
+// overwriting an existing map entries in ExtraSelectors field with the same key.
+func (b *ServiceApplyConfiguration) WithExtraSelectors(entries map[string]string) *ServiceApplyConfiguration {
+	if b.ExtraSelectors == nil && len(entries) > 0 {
+		b.ExtraSelectors = make(map[string]string, len(entries))
+	}
+	for k, v := range entries {
+		b.ExtraSelectors[k] = v
+	}
 	return b
 }
 

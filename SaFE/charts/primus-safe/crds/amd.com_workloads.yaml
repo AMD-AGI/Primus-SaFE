@@ -239,6 +239,17 @@ spec:
                       type: string
                     description: Extended environment variable
                     type: object
+                  extraSelectors:
+                    additionalProperties:
+                      type: string
+                    description: |-
+                      Extra label selectors merged on top of the default workload selector
+                      when dispatcher creates the K8s Service. Use case: a multi-pod workload
+                      (e.g. RayJob head + workers) where only one role actually listens on
+                      the target port — pass {primus-safe.amd.com/ray-role: head} to limit
+                      endpoints to the head pod, otherwise traffic round-robins to workers
+                      and hits connection refused.
+                    type: object
                   nodePort:
                     description: Port of Host Node (for NodePort type)
                     type: integer
