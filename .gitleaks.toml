@@ -1,0 +1,39 @@
+# .gitleaks.toml -- project-specific gitleaks configuration.
+# Extends the default 8.x ruleset; does not disable any built-in rule.
+# Run with:
+#   gitleaks detect --config .gitleaks.toml --source . --no-git
+#
+# Single global [allowlist] (not [[allowlists]]) for cross-version
+# compatibility with gitleaks 8.18.x, where the new array-form allowlist
+# requires explicit targetRules to apply to inherited default rules
+# (see https://github.com/gitleaks/gitleaks/issues/1411).
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Project-wide allowlists -- documentation placeholders, test fixtures, lockfiles, IDE/local files"
+paths = [
+  # ----- Markdown documentation (curl/JSON examples use placeholder tokens) -----
+  '''(.*/)?docs/.*\.md$''',
+  '''(^|.*/)README\.md$''',
+  '''(^|.*/)SAFE_AUTH_VERIFY_BUG\.md$''',
+
+  # ----- Go test fixtures (*_test.go) use fake credentials as test data -----
+  '''.*_test\.go$''',
+
+  # ----- Example / sample configuration files -----
+  '''.*\.example$''',
+  '''.*\.env\.example$''',
+
+  # ----- Go dependency lock files (hashes, not credentials) -----
+  '''(^|.*/)go\.sum$''',
+  '''(^|.*/)go\.work\.sum$''',
+
+  # ----- IDE / local-only files (also covered by .gitignore) -----
+  '''^\.idea/''',
+  '''^\.vscode/''',
+
+  # ----- This cleanup playbook itself (excluded by .git/info/exclude) -----
+  '''^_security-cleanup/''',
+]
