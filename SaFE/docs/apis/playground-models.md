@@ -62,8 +62,8 @@ Playground Models API provides a model management interface for the AI Playgroun
       "endpoint": "https://s3.amazonaws.com",
       "bucket": "my-models-bucket",
       "region": "us-west-2",
-      "accessKeyID": "AKIAIOSFODNN7EXAMPLE",
-      "secretAccessKey": "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
+      "accessKeyID": "<your-ak-base64-encoded>",
+      "secretAccessKey": "<your-sk-base64-encoded>"
     }
   },
   "resources": {

@@ -1,0 +1,79 @@
+# Blocklist: full 40-char commit SHAs banned from being reintroduced into main.
+#
+# These commits were removed from main by `git filter-repo` after a security
+# audit (see REPORT_security_scan.pdf, Round 2). They are no longer reachable
+# from refs/heads/main, but may still be reachable from refs/pull/* on GitHub
+# or from a contributor's stale local main.
+#
+# If any of these SHAs becomes reachable from a PR head, the PR must be
+# rejected to prevent re-pollution of main history.
+#
+# Format: one full SHA per line; blank lines and lines starting with `#` are
+# ignored. SHAs are matched case-insensitively as exact 40-char strings.
+#
+# To add a new banned SHA: append a line with the full 40-char SHA and a
+# short comment describing why.
+
+# --- Original PDF-named leak commit ---
+a7f17aa1df29b0fbe136a18544538399e0c9a961  # weilei0120 2025-05-14 Feature/weilei/node controller (#5) -- PDF-named
+
+# --- PDF audit baseline HEAD (also includes downstream leaks) ---
+
+# --- 2025 leak commits no longer on main ---
+96bb9ebca0a8d7eced880f9bd3ab9d0f0349be12  # weilei0120 2025-05-06 Feature/weilei/node agent (#2)
+ab46dc75e03260ef853062a93bc56b6d502c1cca  # leiwei12 2025-05-06 add node agent
+ebfa2bf594e0c4abb46bd9bf9b58e7716378aa4b  # AMD\lzhang24 2025-05-07 cluster
+904c548850e68887d18d633888f1984549b95461  # lei.wei 2025-05-08 add init node-controller
+724918e44457acca8d67571e3c2518a2a5d7c0e0  # zhanglei-amd 2025-05-08 cluster (#4)
+9371418157fd66e8bf620cc37328c33a6b22a622  # AMD\lzhang24 2025-05-12 cluster
+b69e6f0903cfb6cf2af30b8769f3ebdd47d91362  # lei.wei 2025-05-14 add resouce manager
+ecc35850a2fee41cb59c3adf58992b9d4ef0cfb1  # zhanglei-amd 2025-05-14 cluster (#6)
+14084a2336460620cef12804af446d1fdc69fae1  # lei.wei 2025-05-26 support job-manager
+b33575497d2cd543eb27b735e04282c69e49da40  # lei.wei 2025-06-03 support sdk
+5a345c3c1bc688d1708a4bc3195c75b7c13b26c9  # chaojhou 2025-06-05 get user name cross the platform
+c578bd605f5056e72d5ecbe466cd00d0d9a37b82  # ulyssesk 2025-10-12 go work sum
+07d160d2ed07dbaa83cb37af4e4a47ce60c6a497  # xiaofei.zheng 2025-10-16 Merge main into feature/xiaofei/ssh
+9ab4e2fd4603fbc385482f0b38061b61de791466  # zhanglei-amd 2025-10-29 scheduler&bootstrap (#100)
+bc0ad1f383d2c6131fbbbec33d36d66d69959b0a  # AMD\lzhang24 2025-10-29 scheduler&bootstrap
+d1cf2b72f3559d42d91a4c21314987a947e582d0  # xiaofei-zheng 2025-10-29 Feature/weilei/cleanup after unmanage (#97)
+157853f7d88db76ced81840fe66d56597a8c949d  # xiaofei.zheng 2025-10-29 feat: api doc
+d2d2c6a266427fb2c9b09c17f70cec3037d0318e  # lei.wei 2025-10-30 Merge feature/weilei/format_code
+e4918dbf63d340bd88e63a4787e4d327d359642b  # weilei0120 2025-10-31 Feature/weilei/format code (#108)
+0b4a5bcd0ef2494439cd848c509f3cf8380b88b5  # haiskong 2025-11-13 test cases
+d061934fa4f4e0004b056eab134523fa467da6f6  # lei.wei 2025-11-13 supports: mount default secret of workload
+243ce759f6578998633072166f72dc0bec9400f8  # haishuok0525 2025-11-15 Feature/lens/unit tests (#154)
+c11b163253814317916f936445bf6cfec6de1b23  # chennyiiis 2025-11-25 fix some bug
+aa8f05d9c176a99a99088579a9fb173798d80709  # chennyiiis 2025-11-25 fix some bug
+127e422c752e827941a460b23bda3c1021cee376  # weilei0120 2025-11-26 Feature/weilei/supports cicd (#176)
+5576a977b4142e53b73a15ead68e7eee44f49016  # lei.wei 2025-11-26 update api document
+995068a0fe32c8fb11ff0c31b74d3a7099260b76  # chennyiiis 2025-11-26 add models_test
+ce192f69f476197a7a91765c9f62312293784234  # chennyiiis 2025-11-26 add models_test
+ec6331d5eecc68ba642204107d84e73cb7e6b205  # haishuok0525 2025-12-04 Feature/training tracing (#198)
+8ec5e0368a7f82e642835db1cad0a9cb3024f75d  # haiskong 2025-12-01 Merge main into feature/training-tracing
+8f446e27ad203028e28e3c94f2e816a0e4d3246f  # xiaofei-zheng 2025-12-08 feat: model square (#174)
+0b2ff992918dc1aa2588c0f1c30fdb7ba63bc446  # leiwei12 2025-12-25 support s3-download
+6ca9983fe316dac4542142f14fc70898e0bc2e92  # haishuok0525 2025-12-24 feat(lens): add auth middleware
+8a2d664d507cd6d2fd00ec66de5a1aa5df13acaa  # Haishuo.Kong 2025-12-24 feat(lens): add auth middleware
+
+# --- 2026 leak commits no longer on main ---
+82715d0ab65381c9cc1097163126edf8888926d5  # lishuoshuo-amd 2026-01-07 feat: add keyHint
+6c69c71e79406fd21a1781351a4d03629744fac2  # lishuoshuo-amd 2026-01-06 feat: apikey handle
+5bfe57e1a03e2625466d2af520f6438153a22ebd  # lishuoshuo-amd 2026-01-08 feat: apikey handle (#276)
+76f32d782be10d07fcf7aa705e24f45d9d723980  # haishuok0525 2026-01-08 feat(lens): Add Py-Spy Python profiling integration (#278)
+5f13e57416a60b153ad2533de8752b5c57a4e7a6  # lishuoshuo-amd 2026-01-08 fix: create keyhint (#280)
+abc48a9c69cd68d28e8c37ab28ce8b211503b3fe  # lishuoshuo-amd 2026-01-08 fix: create keyhint
+6700408c9f829a42cfa9705737d8c11c53bf1755  # haiskong 2026-01-08 feat(lens): add unit tests for py-spy
+ab957394fb0eb726da5409329bec44a40484bd14  # lishuoshuo-amd 2026-03-18 feat: supports accessing litellm via SaFE APIKey (#415)
+12d5be435c3fcd4ca4b862c54914c2461ac05ef2  # lishuoshuo-amd 2026-03-18 Merge origin into feature/shuoshuo
+cee5fa8e7353ff12f351ec5b5ced1107675fe3c2  # chenluo 2026-03-30 fix(telemetry-processor): fix email relay
+412f29d845f07841dfaa5477804e3b232662976e  # lishuoshuo-amd 2026-04-09 feat: add API key auth to VerifyToken
+337f54782981274f9bec12346265e7517dcc5924  # lishuoshuo-amd 2026-04-09 feat: add UT
+b036ebafebf01735ec234a6ee292c1f3e1118344  # leiwei12 2026-04-27 do test
+36dee030cf3d39a87c2005dfb8d9f0fd19f30a58  # chenluo 2026-04-27 Merge origin/main into fix/grafana
+463ef3475e528c3e9397d04f4ce6af42e457b092  # leiwei12 2026-04-27 do block-secret test
+55b60f6609eb5be5299400be2f2ece6b31d3aa28  # leiwei12 2026-04-27 Merge main into feature/weilei/20260425
+bdc8ffe5da48e316b6edebd26080754ad48c4be4  # leiwei12 2026-04-27 ---
+54a531e3759891a3969bb070b903e0cd94bb0be9  # leiwei12 2026-04-27 Remove API keys from sensitive tests
+67f1730bd49be4c98704299dfa2273acc7016e4b  # chennyiiis 2026-05-06 feat(optimization): gpuType from workspace
+538964b951f6894db33d9513091189aa659d0ab7  # leiwei12 2026-05-11 upgrade: go from 1.24 to 1.25
+2482c2b69c91b31f3df36ffd47e4436953663786  # weilei0120 2026-05-11 Feature/weilei/20260509 (#555)
