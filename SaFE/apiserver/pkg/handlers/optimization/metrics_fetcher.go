@@ -31,7 +31,7 @@ func (h *Handler) fetchAndInjectMetrics(ctx context.Context, task *dbclient.Opti
 		return
 	}
 
-	clawCtx := WithClawBearer(ctx, h.clawClient.apiKey)
+	clawCtx := WithClawBearer(ctx, h.clawBearerForTask(ctx, task.UserID, task.UserName))
 
 	// Locate the optimization report in session artifacts.
 	reportPath := task.ReportPath
