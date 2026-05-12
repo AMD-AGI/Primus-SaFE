@@ -1,11 +1,11 @@
 # Rejects PRs that would reintroduce historically-leaked commits removed from
 # main by `git filter-repo`. The blocklist of banned commit SHAs lives at
-# .github/security/old-leak-commits.blocklist.
+# .github/security/old-leaked-commits.blocklist.
 #
 # This is a defense-in-depth control: even if a contributor still has a stale
-# local main and merges old leak commits into a feature branch, this workflow
+# local main and merges old leaked commits into a feature branch, this workflow
 # fails the PR check so the merge is blocked by branch protection.
-name: Block Old Leak Commits
+name: Block Old Leaked Commits
 
 on:
   pull_request:
@@ -19,12 +19,12 @@ permissions:
   contents: read
 
 concurrency:
-  group: block-old-leak-commits-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  group: block-old-leaked-commits-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
-  block-old-leak-commits-scan:
-    name: Block Old Leak Commits Scan
+  block-old-leaked-commits-scan:
+    name: Block Old Leaked Commits Scan
     runs-on: ubuntu-latest
     steps:
       - name: Checkout (push)
@@ -64,7 +64,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          BLOCKLIST_FILE=".github/security/old-leak-commits.blocklist"
+          BLOCKLIST_FILE=".github/security/old-leaked-commits.blocklist"
           if [[ ! -f "$BLOCKLIST_FILE" ]]; then
             echo "::error::Blocklist file not found at $BLOCKLIST_FILE"
             exit 1
@@ -139,7 +139,7 @@ jobs:
             echo "  4) Force-push your feature branch and reopen the PR."
             echo ""
             echo "If you believe a blocked SHA was added in error, contact a repo"
-            echo "administrator to update .github/security/old-leak-commits.blocklist."
+            echo "administrator to update .github/security/old-leaked-commits.blocklist."
             exit 1
           fi
 
