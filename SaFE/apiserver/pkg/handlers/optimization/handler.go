@@ -437,7 +437,7 @@ func (h *Handler) consumeClawStream(taskID, sessionID string, hub *taskHub, claw
 			klog.ErrorS(fmt.Errorf("%v", r), "consume claw stream panicked", "task_id", taskID)
 			streamErr = fmt.Errorf("panic: %v", r)
 		}
-		h.finalizeTask(taskID, hub, streamErr)
+		h.finalizeTask(taskID, hub, streamErr, clawBearer)
 	}()
 
 	parser := NewSSEParser()
@@ -575,7 +575,7 @@ func (h *Handler) maybeUpdateTaskStatus(taskID string, p ParsedEvent) {
 // finalizeTask runs when the Claw stream ends; it marks the task succeeded
 // by default (the skill will emit a failed-terminal phase event if needed),
 // flushes a done frame, and tears down the hub.
-func (h *Handler) finalizeTask(taskID string, hub *taskHub, streamErr error) {
+func (h *Handler) finalizeTask(taskID string, hub *taskHub, streamErr error, clawBearer string) {
 	task, err := h.dbClient.GetOptimizationTask(context.Background(), taskID)
 	status := dbclient.OptimizationTaskStatusSucceeded
 	msg := ""
@@ -597,7 +597,7 @@ func (h *Handler) finalizeTask(taskID string, hub *taskHub, streamErr error) {
 				// Agent went idle normally. Verify the skill ran to completion by
 				// checking for the optimization report — its absence means the skill
 				// exited early (e.g. sandbox_create_failed) even though Claw reports idle.
-				if task.ClawSessionID != "" && !h.hasOptimizationReport(task.ClawSessionID) {
+				if task.ClawSessionID != "" && !h.hasOptimizationReport(task.ClawSessionID, clawBearer) {
 					status = dbclient.OptimizationTaskStatusFailed
 					msg = "optimization report not found; skill may have exited early"
 				} else {
@@ -676,9 +676,9 @@ func (h *Handler) resolveStatusFromClaw(sessionID string, streamErr error) (dbcl
 // before Phase 10 (Save Results) and the task should be marked Failed.
 // Returns true on any listing error so transient failures don't flip a
 // genuinely-succeeded task to Failed.
-func (h *Handler) hasOptimizationReport(sessionID string) bool {
+func (h *Handler) hasOptimizationReport(sessionID, clawBearer string) bool {
 	ctx, cancel := context.WithTimeout(
-		WithClawBearer(context.Background(), h.clawClient.apiKey),
+		WithClawBearer(context.Background(), clawBearer),
 		15*time.Second,
 	)
 	defer cancel()
