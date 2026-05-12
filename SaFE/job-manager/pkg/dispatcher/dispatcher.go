@@ -757,11 +757,9 @@ func (r *DispatcherReconciler) createService(ctx context.Context, adminWorkload 
 			},
 		},
 		Spec: corev1.ServiceSpec{
-			Selector: map[string]string{
-				v1.K8sObjectIdLabel: adminWorkload.Name,
-			},
-			Ports: generateServicePorts(specService),
-			Type:  specService.ServiceType,
+			Selector: buildServiceSelector(adminWorkload.Name, specService),
+			Ports:    generateServicePorts(specService),
+			Type:     specService.ServiceType,
 		},
 	}
 
@@ -828,6 +826,11 @@ func (r *DispatcherReconciler) updateService(ctx context.Context, adminWorkload 
 	isChanged := false
 	if existing.Spec.Type != specService.ServiceType {
 		existing.Spec.Type = specService.ServiceType
+		isChanged = true
+	}
+	newSelector := buildServiceSelector(adminWorkload.Name, specService)
+	if !reflect.DeepEqual(existing.Spec.Selector, newSelector) {
+		existing.Spec.Selector = newSelector
 		isChanged = true
 	}
 	newPorts := generateServicePorts(specService)
@@ -1136,6 +1139,28 @@ func generateServicePorts(specService *v1.Service) []corev1.ServicePort {
 		Port:       int32(specService.Port),
 		TargetPort: intstr.IntOrString{IntVal: int32(specService.TargetPort)},
 	}}
+}
+
+// buildServiceSelector composes the K8s Service selector for a workload.
+// The default selector matches every pod owned by this workload via the
+// SaFE-managed K8sObjectIdLabel. ExtraSelectors are user-supplied AND
+// constraints layered on top — the typical use case is restricting the
+// Service to one pod role inside a multi-pod workload (RayJob head only,
+// PyTorchJob master only, etc.) so traffic isn't load-balanced to pods
+// that don't actually listen on the target port.
+//
+// User-supplied keys MUST NOT override the K8sObjectIdLabel; if collide,
+// the SaFE-managed key wins to keep the workload-scoping invariant.
+func buildServiceSelector(workloadName string, specService *v1.Service) map[string]string {
+	selector := make(map[string]string, 1+len(specService.ExtraSelectors))
+	for k, v := range specService.ExtraSelectors {
+		if k == v1.K8sObjectIdLabel {
+			continue
+		}
+		selector[k] = v
+	}
+	selector[v1.K8sObjectIdLabel] = workloadName
+	return selector
 }
 
 // shouldDispatch checks if a workload is ready to be dispatched.
