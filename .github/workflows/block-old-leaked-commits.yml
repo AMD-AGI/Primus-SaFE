@@ -1,0 +1,146 @@
+# Rejects PRs that would reintroduce historically-leaked commits removed from
+# main by `git filter-repo`. The blocklist of banned commit SHAs lives at
+# .github/security/old-leaked-commits.blocklist.
+#
+# This is a defense-in-depth control: even if a contributor still has a stale
+# local main and merges old leaked commits into a feature branch, this workflow
+# fails the PR check so the merge is blocked by branch protection.
+name: Block Old Leaked Commits
+
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: block-old-leaked-commits-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  block-old-leaked-commits-scan:
+    name: Block Old Leaked Commits Scan
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout (push)
+        if: github.event_name == 'push'
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Checkout (PR head)
+        if: github.event_name == 'pull_request'
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          repository: ${{ github.event.pull_request.head.repo.full_name }}
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Fetch PR base commit (PR from fork may miss base SHA)
+        if: github.event_name == 'pull_request'
+        shell: bash
+        run: |
+          set -e
+          B="${{ github.event.pull_request.base.sha }}"
+          if ! git rev-parse -q --verify "$B" >/dev/null; then
+            echo "Fetching base $B from ${{ github.event.pull_request.base.repo.full_name }}"
+            git fetch --no-tags --depth=1 \
+              "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.event.pull_request.base.repo.full_name }}.git" \
+              "$B"
+          fi
+          if ! git rev-parse -q --verify "$B" >/dev/null; then
+            echo '::error::Base commit is not in local clone. Cannot run scan.'
+            exit 1
+          fi
+
+      - name: Reject if PR or push introduces blocklisted commit SHA
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          BLOCKLIST_FILE=".github/security/old-leaked-commits.blocklist"
+          if [[ ! -f "$BLOCKLIST_FILE" ]]; then
+            echo "::error::Blocklist file not found at $BLOCKLIST_FILE"
+            exit 1
+          fi
+
+          # Extract SHAs only (40 hex chars), drop comments/blanks, lowercase.
+          mapfile -t BLOCKED < <(
+            grep -oE '^[[:space:]]*[0-9a-fA-F]{40}' "$BLOCKLIST_FILE" \
+              | awk '{print tolower($1)}' \
+              | sort -u
+          )
+          if [[ ${#BLOCKED[@]} -eq 0 ]]; then
+            echo "::warning::Blocklist is empty; nothing to check."
+            exit 0
+          fi
+          echo "Loaded ${#BLOCKED[@]} blocked SHAs."
+
+          # Determine commit range introduced by this event.
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            BASE="${{ github.event.pull_request.base.sha }}"
+            HEAD="${{ github.event.pull_request.head.sha }}"
+            mapfile -t COMMITS < <(git rev-list "${BASE}..${HEAD}" || true)
+            EVENT_DESC="PR #${{ github.event.pull_request.number }}: ${BASE}..${HEAD}"
+          else
+            BEFORE="${{ github.event.before }}"
+            AFTER="${{ github.event.after }}"
+            if [[ -z "$BEFORE" || "$BEFORE" == 0000000000000000000000000000000000000000 ]]; then
+              mapfile -t COMMITS < <(git rev-list -n 50 "${AFTER}" || true)
+            else
+              mapfile -t COMMITS < <(git rev-list "${BEFORE}..${AFTER}" || true)
+            fi
+            EVENT_DESC="push: ${BEFORE}..${AFTER}"
+          fi
+          echo "Checking ${#COMMITS[@]} commit(s) introduced by ${EVENT_DESC}"
+
+          FAILED=0
+          declare -A HITS
+          for c in "${COMMITS[@]}"; do
+            [[ -n "$c" ]] || continue
+            cl=$(echo "$c" | awk '{print tolower($0)}')
+            for b in "${BLOCKED[@]}"; do
+              if [[ "$cl" == "$b" ]]; then
+                HITS[$cl]=1
+                FAILED=1
+                break
+              fi
+            done
+          done
+
+          if [[ "$FAILED" -ne 0 ]]; then
+            echo ""
+            echo "::error::This change reintroduces commits removed from main by a security cleanup."
+            echo ""
+            echo "The following blocklisted commit SHA(s) are reachable from the PR/push head:"
+            for sha in "${!HITS[@]}"; do
+              SUBJ=$(git log -1 --format='  %h %an <%ae>  %ad  %s' --date=short "$sha" 2>/dev/null || echo "  $sha (unable to read commit metadata)")
+              echo "$SUBJ"
+            done
+            echo ""
+            echo "Cause:"
+            echo "  Your branch was likely created from an old main that has since"
+            echo "  been rewritten by 'git filter-repo' to remove leaked secrets."
+            echo ""
+            echo "Fix:"
+            echo "  1) Save any uncommitted work."
+            echo "  2) Sync to the rewritten main:"
+            echo "       git fetch origin"
+            echo "       git checkout main && git reset --hard origin/main"
+            echo "  3) Recreate your feature branch from the new main:"
+            echo "       git checkout -b your-feature-branch"
+            echo "       # Re-apply your changes (cherry-pick, manual patch, etc.)"
+            echo "  4) Force-push your feature branch and reopen the PR."
+            echo ""
+            echo "If you believe a blocked SHA was added in error, contact a repo"
+            echo "administrator to update .github/security/old-leaked-commits.blocklist."
+            exit 1
+          fi
+
+          echo "No blocklisted commits reintroduced."
