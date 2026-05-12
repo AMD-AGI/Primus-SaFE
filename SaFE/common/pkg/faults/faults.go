@@ -25,7 +25,7 @@ func GenerateFaultId(adminNodeId, monitorId string) string {
 
 // GenerateTaintKey creates a taint key by prefixing the given ID with PrimusSafe prefix.
 func GenerateTaintKey(id string) string {
-	key := v1.PrimusSafePrefix + id
+	key := v1.PrimusSafePrefix + id // gitleaks:allow -- "key" is a taint key name, not a credential
 	key = stringutil.NormalizeName(key)
 	if len(key) > commonutils.MaxNameLength {
 		key = key[0:commonutils.MaxNameLength]
