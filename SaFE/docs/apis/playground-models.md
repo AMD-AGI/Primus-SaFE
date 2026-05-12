@@ -62,8 +62,8 @@ Playground Models API provides a model management interface for the AI Playgroun
       "endpoint": "https://s3.amazonaws.com",
       "bucket": "my-models-bucket",
       "region": "us-west-2",
-      "accessKeyID": "AKIAIOSFODNN7EXAMPLE",
-      "secretAccessKey": "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
+      "accessKeyID": "<your-ak>",
+      "secretAccessKey": "<your-sk>"
     }
   },
   "resources": {
@@ -94,8 +94,8 @@ Playground Models API provides a model management interface for the AI Playgroun
 | downloadTarget.s3Config.endpoint | string | Conditionally | S3 endpoint URL |
 | downloadTarget.s3Config.bucket | string | Conditionally | S3 bucket name |
 | downloadTarget.s3Config.region | string | Conditionally | S3 region |
-| downloadTarget.s3Config.accessKeyID | string | Conditionally | S3 access key ID |
-| downloadTarget.s3Config.secretAccessKey | string | Conditionally | S3 secret access key |
+| downloadTarget.s3Config.accessKeyID | string | Conditionally | S3 access key ID, base64 encoded |
+| downloadTarget.s3Config.secretAccessKey | string | Conditionally | S3 secret access key , base64 encoded|
 | resources | object | No | Resource requirements for inference service |
 | resources.cpu | string | No | CPU cores (e.g., "8", "16") |
 | resources.memory | string | No | Memory size (e.g., "32Gi", "64Gi") |
