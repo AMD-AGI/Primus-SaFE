@@ -86,6 +86,17 @@ type CreateTaskRequest struct {
 	TargetGpu     string `json:"targetGpu,omitempty"`
 	BaselineCSV   string `json:"baselineCSV,omitempty"`
 	BaselineCount int    `json:"baselineCount,omitempty"`
+
+	// Optional free-form text prepended / appended to the auto-generated
+	// prompt produced by BuildHyperloomPrompt. The Hyperloom CI batch job
+	// uses PromptPrefix to point the skill at an alternate SKILL.md
+	// (e.g. /wekafs/HyperloomV2/inference_optimizer/SKILL.md) and to chdir
+	// into the per-batch working directory before the main pipeline kicks
+	// off. PromptSuffix is symmetric for callers that need to append
+	// reminders. Both are empty by default and have no effect on
+	// Hyperloom-Web-submitted tasks.
+	PromptPrefix string `json:"promptPrefix,omitempty"`
+	PromptSuffix string `json:"promptSuffix,omitempty"`
 }
 
 // TaskInfo is the response shape for a single task (list item or detail).
