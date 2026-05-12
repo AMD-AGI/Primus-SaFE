@@ -274,7 +274,7 @@ func rayCPUForTP(tp int) int {
 	case 4:
 		return 96
 	case 8:
-		return 128
+		return 96
 	default:
 		return defaultRayCPU
 	}
