@@ -456,3 +456,14 @@ func IsWorkloadPhaseEnded(phase WorkloadPhase) bool {
 	}
 	return false
 }
+
+// HasOwnerWorkload reports whether this workload is bound to another Workload
+// via Spec.OwnerWorkloadId.
+func (w *Workload) HasOwnerWorkload() bool {
+	return GetLabel(w, OwnerLabel) != ""
+}
+
+// GetOwnerWorkloadId returns Spec.OwnerWorkloadId or empty string.
+func (w *Workload) GetOwnerWorkloadId() string {
+	return GetLabel(w, OwnerLabel)
+}

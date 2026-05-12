@@ -202,6 +202,14 @@ func (r *SchedulerReconciler) Reconcile(ctx context.Context, req ctrlruntime.Req
 
 // delete handles the deletion of a workload and its associated resources.
 func (r *SchedulerReconciler) delete(ctx context.Context, adminWorkload *v1.Workload) (ctrlruntime.Result, error) {
+	// Cascade-stop any child workloads (Spec.OwnerWorkloadId pointing here)
+	// before tearing down the data-plane object. This handles the deletion
+	// path; updateDependentsPhase + cascadeStopChildren in Reconcile cover
+	// the phase-end path. Both are idempotent.
+	if err := r.cascadeStopChildren(ctx, adminWorkload); err != nil {
+		return ctrlruntime.Result{}, err
+	}
+
 	clientSets, err := syncer.GetClusterClientSets(r.clusterClientSets, v1.GetClusterId(adminWorkload))
 	if err != nil {
 		klog.Errorf("failed to get cluster clientSets, clusterId: %s, workspaceId: %s, workloadId: %s",
@@ -660,6 +668,42 @@ func (r *SchedulerReconciler) updateDependentsPhase(ctx context.Context, workloa
 		if err := r.setDependencyPhase(ctx, workload, &depWorkload); err != nil && !apierrors.IsNotFound(err) {
 			klog.ErrorS(err, "failed to set dependency phase",
 				"workload", workload.Name, "depend", depWorkload.Name)
+			return err
+		}
+	}
+	return nil
+}
+
+// cascadeStopChildren stops every child workload that references this workload
+// via the OwnerLabel. Triggers when the owner reaches a terminal phase
+// (Succeeded/Failed/Stopped) or has a deletion timestamp set. Children that
+// are already ended are skipped, so it is safe to call multiple times.
+//
+// Use case: the "Sandbox + companion RayJob" pattern. Sandbox is the owner;
+// when the Sandbox session ends (idle-timeout, user-stop, crash) the
+// long-lived RayJob hosting vllm/sglang server tears itself down so GPU pods
+// don't leak.
+func (r *SchedulerReconciler) cascadeStopChildren(ctx context.Context, owner *v1.Workload) error {
+	var children v1.WorkloadList
+	selector := labels.SelectorFromSet(map[string]string{v1.OwnerLabel: owner.Name})
+	if err := r.List(ctx, &children, &client.ListOptions{LabelSelector: selector}); err != nil {
+		klog.Errorf("failed to list owner-children for workload %s: %v", owner.Name, err)
+		return err
+	}
+	for i := range children.Items {
+		child := &children.Items[i]
+		if child.IsEnd() {
+			continue
+		}
+		msg := fmt.Sprintf("owner workload %q ended; cascading stop on child %q",
+			owner.Name, child.Name)
+		klog.Info(msg)
+		if err := jobutils.MarkWorkloadStopped(
+			ctx, r.Client, child,
+			jobutils.StopReasonOwnerCascade, msg,
+		); err != nil && !apierrors.IsNotFound(err) {
+			klog.ErrorS(err, "owner cascade stop failed",
+				"owner", owner.Name, "child", child.Name)
 			return err
 		}
 	}
