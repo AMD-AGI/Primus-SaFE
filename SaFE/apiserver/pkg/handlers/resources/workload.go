@@ -829,6 +829,9 @@ func (h *Handler) generateWorkload(ctx context.Context,
 	if commonworkload.IsSandBox(workload) && !commonconfig.IsSandboxEnable() {
 		return nil, commonerrors.NewNotImplemented("the Sandbox is not enabled")
 	}
+	if req.OwnerId != "" {
+		v1.SetLabel(workload, v1.OwnerLabel, req.OwnerId)
+	}
 	return workload, nil
 }
 

@@ -80,8 +80,34 @@ func SetWorkloadFailed(ctx context.Context, cli client.Client, workload *v1.Work
 	return nil
 }
 
-// SetWorkloadTimeout sets the workload to timeout state and add a timeout condition
-func SetWorkloadTimeout(ctx context.Context, cli client.Client, workload *v1.Workload, message string) error {
+// StopReason describes why a workload was forcibly transitioned to the
+// Stopped phase. Surfaced in the AdminStopped condition message and the
+// klog line so operators can grep the reason without parsing free-form text.
+type StopReason string
+
+const (
+	StopReasonTimeout       StopReason = "timeout"
+	StopReasonOwnerCascade  StopReason = "owner_cascade"
+	StopReasonManual        StopReason = "manual"
+	StopReasonUnspecified   StopReason = "unspecified"
+)
+
+// MarkWorkloadStopped transitions a workload to the Stopped phase and
+// appends an AdminStopped condition. Idempotent: a no-op if the workload
+// is already Stopped.
+//
+// Use cases:
+//   - Timeout (ttl_controller.IsTimeout) — reason=StopReasonTimeout.
+//   - Owner cascade (scheduler.cascadeStopChildren) — reason=StopReasonOwnerCascade.
+//   - Future manual / API-driven stops — reason=StopReasonManual.
+//
+// Reason is also embedded in the log line so a single grep across cluster
+// logs can answer "why did workload X stop?" without crossreferencing
+// callsites.
+func MarkWorkloadStopped(
+	ctx context.Context, cli client.Client, workload *v1.Workload,
+	reason StopReason, message string,
+) error {
 	if workload.Status.Phase == v1.WorkloadStopped {
 		return nil
 	}
@@ -112,6 +138,15 @@ func SetWorkloadTimeout(ctx context.Context, cli client.Client, workload *v1.Wor
 		klog.ErrorS(err, "failed to patch workload phase", "workload", workload.Name)
 		return err
 	}
-	klog.Infof("the workload %s has timed out. timeout: %d", workload.Name, workload.GetTimeout())
+	klog.Infof("workload %s stopped: reason=%s msg=%q", workload.Name, reason, message)
 	return nil
+}
+
+// SetWorkloadTimeout is the legacy entrypoint for the timeout path. Kept for
+// callers outside this package; new code should prefer MarkWorkloadStopped
+// with an explicit StopReason.
+//
+// Deprecated: use MarkWorkloadStopped(ctx, cli, w, StopReasonTimeout, msg).
+func SetWorkloadTimeout(ctx context.Context, cli client.Client, workload *v1.Workload, message string) error {
+	return MarkWorkloadStopped(ctx, cli, workload, StopReasonTimeout, message)
 }
