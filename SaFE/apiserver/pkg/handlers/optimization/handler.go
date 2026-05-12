@@ -437,7 +437,7 @@ func (h *Handler) consumeClawStream(taskID, sessionID string, hub *taskHub, claw
 			klog.ErrorS(fmt.Errorf("%v", r), "consume claw stream panicked", "task_id", taskID)
 			streamErr = fmt.Errorf("panic: %v", r)
 		}
-		h.finalizeTask(taskID, hub, streamErr)
+		h.finalizeTask(taskID, hub, streamErr, clawBearer)
 	}()
 
 	parser := NewSSEParser()
@@ -451,7 +451,41 @@ func (h *Handler) consumeClawStream(taskID, sessionID string, hub *taskHub, claw
 		cancel()
 	}()
 
-	err := h.clawClient.Stream(ctx, sessionID, "", func(raw ClawSSEEvent) error {
+	// Claw does not close the SSE stream when the agent goes idle — the
+	// goroutine would block on scanner.Scan() forever. Poll GetSession every
+	// 60 s and cancel the stream context once the session reaches a terminal
+	// state so finalizeTask runs promptly.
+	go func() {
+		ticker := time.NewTicker(60 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				pollCtx, pollCancel := context.WithTimeout(
+					WithClawBearer(context.Background(), clawBearer),
+					10*time.Second,
+				)
+				ss, err := h.clawClient.GetSession(pollCtx, sessionID)
+				pollCancel()
+				if err != nil {
+					klog.V(4).InfoS("consumeClawStream: poll session failed",
+						"task_id", taskID, "error", err)
+					continue
+				}
+				if ss.IsTerminal() {
+					klog.InfoS("consumeClawStream: session terminal, cancelling stream",
+						"task_id", taskID, "session_id", sessionID,
+						"status", ss.Status, "agent_status", ss.AgentStatus)
+					cancel()
+					return
+				}
+			}
+		}
+	}()
+
+	onEvent := func(raw ClawSSEEvent) error {
 		parsed := parser.Parse(raw)
 		for _, p := range parsed {
 			ev := h.buildEvent(taskID, hub, p.Type, p.Payload)
@@ -459,10 +493,35 @@ func (h *Handler) consumeClawStream(taskID, sessionID string, hub *taskHub, claw
 			h.maybeUpdateTaskStatus(taskID, p)
 		}
 		return nil
-	})
-	if err != nil && !errors.Is(err, context.Canceled) {
-		klog.ErrorS(err, "claw stream ended", "task_id", taskID, "session_id", sessionID)
-		streamErr = err
+	}
+
+	for {
+		err := h.clawClient.Stream(ctx, sessionID, "", onEvent)
+		if err == nil || errors.Is(err, context.Canceled) {
+			// Normal exit: stream EOF or context cancelled (agent idle / hub closed).
+			break
+		}
+		// Stream dropped unexpectedly (network blip, LB idle timeout, etc.).
+		// Check whether the session is still active before retrying.
+		klog.ErrorS(err, "claw stream dropped, checking session before retry",
+			"task_id", taskID, "session_id", sessionID)
+		checkCtx, checkCancel := context.WithTimeout(
+			WithClawBearer(context.Background(), clawBearer),
+			10*time.Second,
+		)
+		ss, getErr := h.clawClient.GetSession(checkCtx, sessionID)
+		checkCancel()
+		if getErr != nil || ss.IsTerminal() {
+			streamErr = err
+			break
+		}
+		// Session still running — wait briefly then reconnect.
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(5 * time.Second):
+		}
+		klog.InfoS("claw stream reconnecting", "task_id", taskID, "session_id", sessionID)
 	}
 }
 
@@ -516,7 +575,7 @@ func (h *Handler) maybeUpdateTaskStatus(taskID string, p ParsedEvent) {
 // finalizeTask runs when the Claw stream ends; it marks the task succeeded
 // by default (the skill will emit a failed-terminal phase event if needed),
 // flushes a done frame, and tears down the hub.
-func (h *Handler) finalizeTask(taskID string, hub *taskHub, streamErr error) {
+func (h *Handler) finalizeTask(taskID string, hub *taskHub, streamErr error, clawBearer string) {
 	task, err := h.dbClient.GetOptimizationTask(context.Background(), taskID)
 	status := dbclient.OptimizationTaskStatusSucceeded
 	msg := ""
@@ -535,7 +594,15 @@ func (h *Handler) finalizeTask(taskID string, hub *taskHub, streamErr error) {
 				// deciding the final status so we don't mark a live task Failed.
 				status, msg = h.resolveStatusFromClaw(task.ClawSessionID, streamErr)
 			} else {
-				msg = "completed"
+				// Agent went idle normally. Verify the skill ran to completion by
+				// checking for the optimization report — its absence means the skill
+				// exited early (e.g. sandbox_create_failed) even though Claw reports idle.
+				if task.ClawSessionID != "" && !h.hasOptimizationReport(task.ClawSessionID, clawBearer) {
+					status = dbclient.OptimizationTaskStatusFailed
+					msg = "optimization report not found; skill may have exited early"
+				} else {
+					msg = "completed"
+				}
 			}
 			_ = h.dbClient.UpdateOptimizationTaskStatus(
 				context.Background(), taskID, status, task.CurrentPhase, msg,
@@ -604,7 +671,49 @@ func (h *Handler) resolveStatusFromClaw(sessionID string, streamErr error) (dbcl
 	return dbclient.OptimizationTaskStatusSucceeded, "completed"
 }
 
+// hasOptimizationReport checks whether the Claw session contains an
+// optimization_report.md artifact. A missing report means the skill exited
+// before Phase 10 (Save Results) and the task should be marked Failed.
+// Returns true on any listing error so transient failures don't flip a
+// genuinely-succeeded task to Failed.
+func (h *Handler) hasOptimizationReport(sessionID, clawBearer string) bool {
+	ctx, cancel := context.WithTimeout(
+		WithClawBearer(context.Background(), clawBearer),
+		15*time.Second,
+	)
+	defer cancel()
+	files, err := h.clawClient.ListSessionFiles(ctx, sessionID)
+	if err != nil {
+		klog.V(4).InfoS("hasOptimizationReport: list files failed, assuming present",
+			"session_id", sessionID, "error", err)
+		return true
+	}
+	for _, f := range files {
+		if strings.Contains(f.Path, "optimization_report.md") {
+			return true
+		}
+	}
+	return false
+}
+
 // ── Helpers ─────────────────────────────────────────────────────────────
+
+// clawBearerForTask resolves the Bearer token for a task owner using their
+// platform key. Used by recoverRunningTasks so it can access Claw sessions
+// that were created with a user-specific token rather than the service key.
+func (h *Handler) clawBearerForTask(ctx context.Context, userID, userName string) string {
+	if userID != "" {
+		if tok := authority.ApiKeyTokenInstance(); tok != nil {
+			pk, err := tok.GetOrCreatePlatformKey(ctx, userID, userName)
+			if err != nil {
+				klog.ErrorS(err, "clawBearerForTask: GetOrCreatePlatformKey failed", "userId", userID)
+			} else if strings.TrimSpace(pk) != "" {
+				return pk
+			}
+		}
+	}
+	return commonconfig.GetModelOptimizationClawAPIKey()
+}
 
 // clawBearerForGin resolves the Bearer token for outbound PrimusClaw calls.
 //
@@ -663,9 +772,6 @@ func (h *Handler) recoverRunningTasks(ctx context.Context) {
 	}
 	klog.InfoS("recoverRunningTasks: found running tasks", "count", len(tasks))
 
-	clawBearer := h.clawClient.apiKey
-	clawCtx := WithClawBearer(ctx, clawBearer)
-
 	for _, task := range tasks {
 		if task.ClawSessionID == "" {
 			// No Claw session — mark failed so it doesn't block the concurrency limit.
@@ -674,15 +780,28 @@ func (h *Handler) recoverRunningTasks(ctx context.Context) {
 			continue
 		}
 
+		// Resolve a fresh bearer per task using the task owner's platform key so
+		// recoverRunningTasks can access sessions created with user-specific tokens.
+		clawBearer := h.clawBearerForTask(ctx, task.UserID, task.UserName)
+		clawCtx := WithClawBearer(ctx, clawBearer)
+
 		ss, err := h.clawClient.GetSession(clawCtx, task.ClawSessionID)
 		if err != nil {
-			klog.V(4).InfoS("recoverRunningTasks: get session failed, skipping",
-				"task_id", task.ID, "error", err)
+			klog.ErrorS(err, "recoverRunningTasks: get session failed, skipping",
+				"task_id", task.ID, "session_id", task.ClawSessionID)
 			continue
 		}
 
 		if ss.IsTerminal() {
-			status, msg := h.resolveStatusFromClaw(task.ClawSessionID, fmt.Errorf("apiserver restarted"))
+			// Determine status directly from the SessionStatus we already fetched —
+			// avoids a second GetSession call inside resolveStatusFromClaw which would
+			// use the service key and fail for user-owned sessions.
+			status := dbclient.OptimizationTaskStatusSucceeded
+			msg := "completed"
+			if ss.AgentStatus == "failed" || ss.Status == "failed" {
+				status = dbclient.OptimizationTaskStatusFailed
+				msg = "claw session failed"
+			}
 			_ = h.dbClient.UpdateOptimizationTaskStatus(ctx, task.ID, status, task.CurrentPhase, msg)
 			klog.InfoS("recoverRunningTasks: finalized terminal task",
 				"task_id", task.ID, "status", status)
