@@ -73,6 +73,15 @@ type PromptConfig struct {
 	TargetGpu      string
 	BaselineCSV    string
 	BaselineCount  int
+
+	// PromptPrefix / PromptSuffix are optional free-form text snippets the
+	// caller can inject before / after the generated prompt body. They are
+	// emitted verbatim with a single blank line of separation. Used by the
+	// Hyperloom CI batch job to point the skill at an alternate SKILL.md
+	// (e.g. /wekafs/HyperloomV2/inference_optimizer/SKILL.md) before the
+	// pipeline starts.
+	PromptPrefix string
+	PromptSuffix string
 }
 
 // NormalizePromptConfig fills zero-valued fields with sensible defaults.
@@ -250,7 +259,22 @@ func BuildHyperloomPrompt(cfg PromptConfig) string {
 		))
 	}
 
-	return strings.Join(lines, "\n")
+	body := strings.Join(lines, "\n")
+
+	// Splice in the optional prefix / suffix with one blank line of padding
+	// on each side so the generated prompt still parses cleanly. We use
+	// TrimRight to avoid emitting trailing blank lines when only one side is
+	// set.
+	prefix := strings.TrimSpace(cfg.PromptPrefix)
+	suffix := strings.TrimSpace(cfg.PromptSuffix)
+	if prefix != "" {
+		body = prefix + "\n\n" + body
+	}
+	if suffix != "" {
+		body = body + "\n\n" + suffix
+	}
+
+	return body
 }
 
 // firstNonEmpty returns the first non-empty string in the argument list, or an

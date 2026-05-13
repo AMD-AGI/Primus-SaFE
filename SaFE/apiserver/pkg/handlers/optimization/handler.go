@@ -876,6 +876,8 @@ func promptConfigFromRequest(req *CreateTaskRequest, m *ResolvedModel, workspace
 		TargetGpu:      req.TargetGpu,
 		BaselineCSV:    req.BaselineCSV,
 		BaselineCount:  req.BaselineCount,
+		PromptPrefix:   req.PromptPrefix,
+		PromptSuffix:   req.PromptSuffix,
 	}
 }
 
