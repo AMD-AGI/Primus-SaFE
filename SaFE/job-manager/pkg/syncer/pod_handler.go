@@ -262,6 +262,7 @@ func (r *SyncerReconciler) buildWorkloadPodInfo(ctx context.Context, clientSets 
 		AdminNodeName: v1.GetNodeId(k8sNode),
 		Phase:         pod.Status.Phase,
 		HostIp:        pod.Status.HostIP,
+		PodIp:         pod.Status.PodIP,
 		Rank:          getMainContainerRank(mainContainerName, pod),
 		GroupId:       int8(groupId),
 	}
