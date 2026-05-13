@@ -685,6 +685,8 @@ func buildEnvironment(workload *v1.Workload, workspace *v1.Workspace, resourceId
 		commonworkload.GetMainContainer(workload, workload.SpecKind(), resourceId))
 	result = addEnvVar(result, workload, "WORKLOAD_KIND", workload.SpecKind())
 	result = addEnvVar(result, workload, "WORKSPACE", workload.Spec.Workspace)
+	result = addEnvVar(result, workload, "SAFE_WORKSPACE", workload.Spec.Workspace)
+	result = addEnvVar(result, workload, "DISPLAY_NAME", v1.GetDisplayName(workload))
 	result = addEnvVar(result, workload, "DISPATCH_COUNT", strconv.Itoa(v1.GetWorkloadDispatchCnt(workload)+1))
 	if commonworkload.IsAuthoring(workload) {
 		result = addEnvVar(result, workload, jobutils.AdminControlPlaneEnv, v1.GetAdminControlPlane(workload))
