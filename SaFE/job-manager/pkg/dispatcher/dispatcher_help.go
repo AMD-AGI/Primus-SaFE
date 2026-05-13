@@ -1104,7 +1104,6 @@ func updateRayJob(obj *unstructured.Unstructured, adminWorkload *v1.Workload) er
 	// ttlSecondsAfterFinished=10) the moment the driver process exits.
 	if strings.EqualFold(adminWorkload.GetEnv(common.RayJobLongLived), "true") {
 		specObject["shutdownAfterJobFinishes"] = false
-		specObject["ttlSecondsAfterFinished"] = int64(-1)
 		specObject["backoffLimit"] = int64(0)
 	}
 
