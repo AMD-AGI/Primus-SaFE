@@ -418,6 +418,10 @@ spec:
                       description: 'Pod status: Pending, Running, Succeeded, Failed,
                         Unknown'
                       type: string
+                    podIP:
+                      description: The Pod's own IP address inside the cluster Pod
+                        network.
+                      type: string
                     podId:
                       description: The podId
                       type: string
