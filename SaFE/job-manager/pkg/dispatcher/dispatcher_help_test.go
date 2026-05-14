@@ -448,7 +448,7 @@ func checkHostNetwork(t *testing.T, obj *unstructured.Unstructured, workload *v1
 	isHostNetWork, found, err := jobutils.NestedBool(obj.Object, path)
 	assert.NilError(t, err)
 	assert.Equal(t, found, true)
-	assert.Equal(t, isHostNetWork, (workload.Spec.Resources[id].RdmaResource != "" || v1.IsForceHostNetwork(workload)))
+	assert.Equal(t, isHostNetWork, commonworkload.IsEnabledHostNetwork(workload, id))
 }
 
 func checkHostPid(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workload, resourceSpec *v1.ResourceSpec) {
