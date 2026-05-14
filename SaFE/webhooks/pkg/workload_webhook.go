@@ -866,9 +866,6 @@ func (v *WorkloadValidator) validateAuthoring(workload *v1.Workload) error {
 
 // validateCICDScalingRunnerSet validates cicd runnerSet workload configuration including environment variables and resource requirements.
 func (v *WorkloadValidator) validateCICDScalingRunnerSet(workload *v1.Workload) error {
-	if len(v1.GetDisplayName(workload)) > commonutils.MaxCICDScaleSetNameLen {
-		return fmt.Errorf("the displayName is too long, maximum length is %d characters", commonutils.MaxCICDScaleSetNameLen)
-	}
 	if len(workload.Spec.Env) == 0 {
 		return fmt.Errorf("the environment variables of workload is empty")
 	}
@@ -898,9 +895,6 @@ func (v *WorkloadValidator) validateTorchFT(newWorkload, oldWorkload *v1.Workloa
 	if len(newWorkload.Spec.Resources) < 2 {
 		return fmt.Errorf("insufficient resources for TorchFT: expected at least 2 resource configurations (lighthouse and worker groups), "+
 			"got %d, resources: %v", len(newWorkload.Spec.Resources), newWorkload.Spec.Resources)
-	}
-	if len(v1.GetDisplayName(newWorkload)) > commonutils.MaxTorchFTNameLen {
-		return fmt.Errorf("the displayName is too long, maximum length is %d", commonutils.MaxTorchFTNameLen)
 	}
 	for i, img := range newWorkload.Spec.Images {
 		if img == "" {
@@ -980,9 +974,6 @@ func (v *WorkloadValidator) validateMonarchJob(newWorkload, oldWorkload *v1.Work
 	if len(newWorkload.Spec.Resources) < 2 {
 		return fmt.Errorf("insufficient resources for Monarch: required 2 resource configurations (client and mesh worker), "+
 			"got %d, resources: %v", len(newWorkload.Spec.Resources), newWorkload.Spec.Resources)
-	}
-	if len(v1.GetDisplayName(newWorkload)) > commonutils.MaxMonarchJobNameLen {
-		return fmt.Errorf("the displayName is too long, maximum length is %d", commonutils.MaxMonarchJobNameLen)
 	}
 	if len(newWorkload.Spec.EntryPoints) == 0 || newWorkload.Spec.EntryPoints[0] == "" {
 		return fmt.Errorf("the entryPoint of client is empty")
