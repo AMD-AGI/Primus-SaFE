@@ -65,6 +65,7 @@ rules:
     - list
     - update
     - delete
+    - resume
 - resources:
     - workload
     - workload/low-priority

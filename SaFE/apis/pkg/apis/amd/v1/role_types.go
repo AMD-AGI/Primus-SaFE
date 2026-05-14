@@ -19,6 +19,7 @@ const (
 	UpdateVerb RoleVerb = "update"
 	GetVerb    RoleVerb = "get"
 	ListVerb   RoleVerb = "list"
+	ResumeVerb RoleVerb = "resume"
 	AllVerb    RoleVerb = "*"
 )
 
