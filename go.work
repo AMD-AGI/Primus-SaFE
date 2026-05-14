@@ -14,3 +14,5 @@ use (
 	./SaFE/webhooks
 	./Scheduler-Plugins
 )
+
+replace github.com/ugorji/go => github.com/ugorji/go v1.2.12
