@@ -685,6 +685,8 @@ func buildEnvironment(workload *v1.Workload, workspace *v1.Workspace, resourceId
 		commonworkload.GetMainContainer(workload, workload.SpecKind(), resourceId))
 	result = addEnvVar(result, workload, "WORKLOAD_KIND", workload.SpecKind())
 	result = addEnvVar(result, workload, "WORKSPACE", workload.Spec.Workspace)
+	result = addEnvVar(result, workload, "SAFE_WORKSPACE", workload.Spec.Workspace)
+	result = addEnvVar(result, workload, "DISPLAY_NAME", v1.GetDisplayName(workload))
 	result = addEnvVar(result, workload, "DISPATCH_COUNT", strconv.Itoa(v1.GetWorkloadDispatchCnt(workload)+1))
 	if commonworkload.IsAuthoring(workload) {
 		result = addEnvVar(result, workload, jobutils.AdminControlPlaneEnv, v1.GetAdminControlPlane(workload))
@@ -1102,7 +1104,6 @@ func updateRayJob(obj *unstructured.Unstructured, adminWorkload *v1.Workload) er
 	// ttlSecondsAfterFinished=10) the moment the driver process exits.
 	if strings.EqualFold(adminWorkload.GetEnv(common.RayJobLongLived), "true") {
 		specObject["shutdownAfterJobFinishes"] = false
-		specObject["ttlSecondsAfterFinished"] = int64(-1)
 		specObject["backoffLimit"] = int64(0)
 	}
 
