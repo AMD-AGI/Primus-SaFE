@@ -151,6 +151,8 @@ export interface SubmitWorkloadRequest {
   useWorkspaceStorage?: boolean
 }
 
+export type ResumeWorkloadRequest = Omit<SubmitWorkloadRequest, 'workloadId'>
+
 // workload-detail-log
 export interface GetLogParams {
   since?: string

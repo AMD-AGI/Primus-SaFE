@@ -288,6 +288,7 @@ import {
   getNodeFlavorAvail,
   getWorkloadDetail,
   editWorkload,
+  resumeWorkload,
 } from '@/services/workload/index'
 import { getImagesList, getNodesList } from '@/services'
 import { useSecrets, useSelectPaste } from '@/composables'
@@ -484,11 +485,15 @@ const onSubmit = async (formEl: FormInstance | undefined) => {
         env: envMap,
         ...(excludedNodesPayload ? { excludedNodes: excludedNodesPayload } : {}),
         ...(secrets.length > 0 ? { secrets: secrets } : {}),
-        ...(props.action === 'Resume' ? { workloadId: props.wlid } : {}),
         ...(cachedUseWorkspaceStorage.value !== undefined ? { useWorkspaceStorage: cachedUseWorkspaceStorage.value } : {}),
       }
 
-      await addWorkload(payload)
+      if (isResume.value) {
+        if (!props.wlid) return
+        await resumeWorkload(props.wlid, payload)
+      } else {
+        await addWorkload(payload)
+      }
       ElMessage({ message: `${props.action} successful`, type: 'success' })
     } else {
       if (!props.wlid) return
