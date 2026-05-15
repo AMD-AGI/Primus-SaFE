@@ -15,3 +15,6 @@ use (
 )
 
 replace github.com/ugorji/go => github.com/ugorji/go v1.2.12
+
+// containers/storage expects root-level OpenInRoot/Reopen; v0.6 removed those aliases (deprecated_linux.go).
+replace github.com/cyphar/filepath-securejoin => github.com/cyphar/filepath-securejoin v0.5.2
