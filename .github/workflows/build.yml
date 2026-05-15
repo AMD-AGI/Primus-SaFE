@@ -227,6 +227,9 @@ jobs:
     needs: detect-changes
     runs-on: ubuntu-latest
     timeout-minutes: 120
+    # Toolchain for images that declare ARG GO_VERSION (see SaFE/*/installer/Dockerfile).
+    env:
+      GO_VERSION: '1.25.5'
     outputs:
       primary_tag: ${{ steps.build-and-push.outputs.primary_tag }}
     strategy:
@@ -281,6 +284,7 @@ jobs:
           buildah bud \
             --layers \
             --tls-verify=false \
+            --build-arg GO_VERSION=${GO_VERSION} \
             --build-arg GOPROXY=${{ secrets.GOPROXY }},direct \
             --build-arg BUILDPATH=${{ matrix.buildpath }} \
             --build-arg BASEPATH=${{ matrix.basepath }} \

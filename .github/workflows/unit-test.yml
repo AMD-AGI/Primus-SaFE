@@ -9,6 +9,10 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: false
 
+# Align with SaFE/go.work and module go.mod (go 1.25.5).
+env:
+  GO_VERSION: '1.25.5'
+
 jobs:
   test-safe:
     name: Test SaFE Modules
@@ -40,7 +44,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.25.0'
+          go-version: ${{ env.GO_VERSION }}
           cache-dependency-path: |
             SaFE/${{ matrix.module }}/go.sum
 
@@ -166,7 +170,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.25.0'
+          go-version: ${{ env.GO_VERSION }}
 
       - name: Generate Combined Coverage Summary
         run: |
