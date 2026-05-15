@@ -9,11 +9,16 @@ package v1
 // FaultSpecApplyConfiguration represents a declarative configuration of the FaultSpec type for use
 // with apply.
 type FaultSpecApplyConfiguration struct {
-	MonitorId           *string                      `json:"monitorId,omitempty"`
-	Message             *string                      `json:"message,omitempty"`
-	Node                *FaultNodeApplyConfiguration `json:"node,omitempty"`
-	Action              *string                      `json:"action,omitempty"`
-	IsAutoRepairEnabled *bool                        `json:"isAutoRepairEnabled,omitempty"`
+	// The id used by NodeAgent for monitoring.
+	MonitorId *string `json:"monitorId,omitempty"`
+	// Fault message
+	Message *string `json:"message,omitempty"`
+	// Node information related to the fault
+	Node *FaultNodeApplyConfiguration `json:"node,omitempty"`
+	// Handling actions for the fault. e.g. reboot,taint
+	Action *string `json:"action,omitempty"`
+	// Whether the fault is auto repaired or not. default true
+	IsAutoRepairEnabled *bool `json:"isAutoRepairEnabled,omitempty"`
 }
 
 // FaultSpecApplyConfiguration constructs a declarative configuration of the FaultSpec type for use with

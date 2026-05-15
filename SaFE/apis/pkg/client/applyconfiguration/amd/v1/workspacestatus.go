@@ -15,13 +15,20 @@ import (
 // WorkspaceStatusApplyConfiguration represents a declarative configuration of the WorkspaceStatus type for use
 // with apply.
 type WorkspaceStatusApplyConfiguration struct {
-	Phase              *amdv1.WorkspacePhase `json:"phase,omitempty"`
-	TotalResources     *corev1.ResourceList  `json:"totalResources,omitempty"`
-	AvailableResources *corev1.ResourceList  `json:"availableResources,omitempty"`
-	AbnormalResources  *corev1.ResourceList  `json:"abnormalResources,omitempty"`
-	AvailableReplica   *int                  `json:"availableReplica,omitempty"`
-	AbnormalReplica    *int                  `json:"abnormalReplica,omitempty"`
-	UpdateTime         *metav1.Time          `json:"updateTime,omitempty"`
+	// The status of workspace, e.g. Creating, Running, Abnormal, Deleting
+	Phase *amdv1.WorkspacePhase `json:"phase,omitempty"`
+	// The total resource of workspace
+	TotalResources *corev1.ResourceList `json:"totalResources,omitempty"`
+	// The available resource of workspace
+	AvailableResources *corev1.ResourceList `json:"availableResources,omitempty"`
+	// The abnormal resource of workspace
+	AbnormalResources *corev1.ResourceList `json:"abnormalResources,omitempty"`
+	// The available node count of workspace
+	AvailableReplica *int `json:"availableReplica,omitempty"`
+	// The abnormal node count of workspace
+	AbnormalReplica *int `json:"abnormalReplica,omitempty"`
+	// Last update time
+	UpdateTime *metav1.Time `json:"updateTime,omitempty"`
 }
 
 // WorkspaceStatusApplyConfiguration constructs a declarative configuration of the WorkspaceStatus type for use with

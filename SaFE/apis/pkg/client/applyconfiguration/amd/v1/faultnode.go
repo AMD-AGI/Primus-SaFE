@@ -9,8 +9,10 @@ package v1
 // FaultNodeApplyConfiguration represents a declarative configuration of the FaultNode type for use
 // with apply.
 type FaultNodeApplyConfiguration struct {
+	// The cluster which fault belongs to
 	ClusterName *string `json:"clusterName,omitempty"`
-	AdminName   *string `json:"adminName,omitempty"`
+	// Fault-associated admin node name
+	AdminName *string `json:"adminName,omitempty"`
 }
 
 // FaultNodeApplyConfiguration constructs a declarative configuration of the FaultNode type for use with

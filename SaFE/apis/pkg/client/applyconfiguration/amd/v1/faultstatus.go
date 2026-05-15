@@ -14,8 +14,10 @@ import (
 // FaultStatusApplyConfiguration represents a declarative configuration of the FaultStatus type for use
 // with apply.
 type FaultStatusApplyConfiguration struct {
-	Phase      *amdv1.FaultPhase `json:"phase,omitempty"`
-	UpdateTime *metav1.Time      `json:"updateTime,omitempty"`
+	// The status of fault, e.g. Succeeded, Failed
+	Phase *amdv1.FaultPhase `json:"phase,omitempty"`
+	// The last update time of fault
+	UpdateTime *metav1.Time `json:"updateTime,omitempty"`
 }
 
 // FaultStatusApplyConfiguration constructs a declarative configuration of the FaultStatus type for use with

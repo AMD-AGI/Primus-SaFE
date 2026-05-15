@@ -13,11 +13,18 @@ import (
 // UserSpecApplyConfiguration represents a declarative configuration of the UserSpec type for use
 // with apply.
 type UserSpecApplyConfiguration struct {
-	Type           *amdv1.UserType           `json:"type,omitempty"`
-	Password       *string                   `json:"password,omitempty"`
+	// User type, required. default/sso
+	Type *amdv1.UserType `json:"type,omitempty"`
+	// User password, base64 encoded, optional
+	Password *string `json:"password,omitempty"`
+	// 0: normal; 1 frozen. default: 0
 	RestrictedType *amdv1.UserRestrictedType `json:"restrictedType,omitempty"`
-	Roles          []amdv1.UserRole          `json:"roles,omitempty"`
-	Resources      map[string][]string       `json:"resources,omitempty"`
+	// User role, e.g. system-admin/default
+	// permission check passes if any single role is satisfied.
+	Roles []amdv1.UserRole `json:"roles,omitempty"`
+	// The key of resources is the name to be managed (e.g. workspace)
+	// values are its corresponding values(e.g. workspace-id)"
+	Resources map[string][]string `json:"resources,omitempty"`
 }
 
 // UserSpecApplyConfiguration constructs a declarative configuration of the UserSpec type for use with

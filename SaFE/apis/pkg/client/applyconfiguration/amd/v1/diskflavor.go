@@ -14,9 +14,12 @@ import (
 // DiskFlavorApplyConfiguration represents a declarative configuration of the DiskFlavor type for use
 // with apply.
 type DiskFlavorApplyConfiguration struct {
-	Type     *amdv1.StorageType `json:"type,omitempty"`
+	// disk type, e.g. "ssd", "sata", "nvme"
+	Type *amdv1.StorageType `json:"type,omitempty"`
+	// disk size (resource.Quantity) when diskFlavor is set
 	Quantity *resource.Quantity `json:"quantity,omitempty"`
-	Count    *int               `json:"count,omitempty"`
+	// Number of disks when diskFlavor is set
+	Count *int `json:"count,omitempty"`
 }
 
 // DiskFlavorApplyConfiguration constructs a declarative configuration of the DiskFlavor type for use with

@@ -15,18 +15,30 @@ import (
 // WorkloadStatusApplyConfiguration represents a declarative configuration of the WorkloadStatus type for use
 // with apply.
 type WorkloadStatusApplyConfiguration struct {
-	StartTime         *metav1.Time                                            `json:"startTime,omitempty"`
-	EndTime           *metav1.Time                                            `json:"endTime,omitempty"`
-	Conditions        []applyconfigurationsmetav1.ConditionApplyConfiguration `json:"conditions,omitempty"`
-	Phase             *amdv1.WorkloadPhase                                    `json:"phase,omitempty"`
-	Message           *string                                                 `json:"message,omitempty"`
-	QueuePosition     *int                                                    `json:"queuePosition,omitempty"`
-	Pods              []WorkloadPodApplyConfiguration                         `json:"pods,omitempty"`
-	Nodes             [][]string                                              `json:"nodes,omitempty"`
-	Ranks             [][]string                                              `json:"ranks,omitempty"`
-	RunnerScaleSetId  *string                                                 `json:"runnerScaleSetId,omitempty"`
-	DependenciesPhase map[string]amdv1.WorkloadPhase                          `json:"dependenciesPhase,omitempty"`
-	TorchFTPhase      map[string]amdv1.WorkloadPhase                          `json:"torchFTPhase,omitempty"`
+	// Workload start time. calculated from when the workload begins running.
+	StartTime *metav1.Time `json:"startTime,omitempty"`
+	// Workload end time
+	EndTime *metav1.Time `json:"endTime,omitempty"`
+	// Detailed processing workflow of the workload
+	Conditions []applyconfigurationsmetav1.ConditionApplyConfiguration `json:"conditions,omitempty"`
+	// The status of workload, e.g. Pending, Running, Succeeded, Failed, Stopped, Updating
+	Phase *amdv1.WorkloadPhase `json:"phase,omitempty"`
+	// Some status descriptions of the workload. only for pending
+	Message *string `json:"message,omitempty"`
+	// The current position of the workload in the queue, only for pending
+	QueuePosition *int `json:"queuePosition,omitempty"`
+	// Pod info related to the workload
+	Pods []WorkloadPodApplyConfiguration `json:"pods,omitempty"`
+	// The node used for each workload execution. If the workload is retried multiple times, there will be multiple entries.
+	Nodes [][]string `json:"nodes,omitempty"`
+	// The node's rank is only valid for the PyTorch job and corresponds one-to-one with the nodes listed above.
+	Ranks [][]string `json:"ranks,omitempty"`
+	// The corresponding ID applied to the cicd AutoscalingRunnerSet object.
+	RunnerScaleSetId *string `json:"runnerScaleSetId,omitempty"`
+	// The phase of each dependency workload.
+	DependenciesPhase map[string]amdv1.WorkloadPhase `json:"dependenciesPhase,omitempty"`
+	// The phase of each torchFT object. key is group-id
+	TorchFTPhase map[string]amdv1.WorkloadPhase `json:"torchFTPhase,omitempty"`
 }
 
 // WorkloadStatusApplyConfiguration constructs a declarative configuration of the WorkloadStatus type for use with

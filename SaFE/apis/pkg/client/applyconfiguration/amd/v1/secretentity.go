@@ -13,7 +13,9 @@ import (
 // SecretEntityApplyConfiguration represents a declarative configuration of the SecretEntity type for use
 // with apply.
 type SecretEntityApplyConfiguration struct {
-	Id   *string           `json:"id,omitempty"`
+	// Secret id, required
+	Id *string `json:"id,omitempty"`
+	// Secret type, optional. e.g. ssh/image/general
 	Type *amdv1.SecretType `json:"type,omitempty"`
 }
 

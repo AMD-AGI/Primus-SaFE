@@ -14,18 +14,38 @@ import (
 // WorkspaceSpecApplyConfiguration represents a declarative configuration of the WorkspaceSpec type for use
 // with apply.
 type WorkspaceSpecApplyConfiguration struct {
-	Cluster       *string                             `json:"cluster,omitempty"`
-	NodeFlavor    *string                             `json:"nodeFlavor,omitempty"`
-	Replica       *int                                `json:"replica,omitempty"`
-	QueuePolicy   *amdv1.WorkspaceQueuePolicy         `json:"queuePolicy,omitempty"`
-	Scopes        []amdv1.WorkspaceScope              `json:"scopes,omitempty"`
-	Volumes       []WorkspaceVolumeApplyConfiguration `json:"volumes,omitempty"`
-	EnablePreempt *bool                               `json:"enablePreempt,omitempty"`
-	Managers      []string                            `json:"managers,omitempty"`
-	IsDefault     *bool                               `json:"isDefault,omitempty"`
-	ImageSecrets  []corev1.ObjectReference            `json:"imageSecrets,omitempty"`
-	MaxRuntime    map[amdv1.WorkspaceScope]int        `json:"maxRuntime,omitempty"`
-	IdleTime      map[amdv1.WorkspaceScope]string     `json:"idleTime,omitempty"`
+	// The cluster that the workspace belongs to
+	Cluster *string `json:"cluster,omitempty"`
+	// The node flavor id of workspace, A workspace supports only one node flavor
+	NodeFlavor *string `json:"nodeFlavor,omitempty"`
+	// The expected number of nodes in the workspace
+	Replica *int `json:"replica,omitempty"`
+	// Queuing policy for workloads submitted in this workspace.
+	// All workloads currently share the same policy, supports fifo (default) and balance.
+	// 1. "Fifo" means first-in, first-out: the workload that enters the queue first is served first.
+	// If the front workload does not meet the conditions for dispatch, it will wait indefinitely,
+	// and other tasks in the queue will also be blocked waiting.
+	// 2. "Balance" allows any workload that meets the resource conditions to be dispatched,
+	// avoiding blockage by the front workload in the queue. However, it is still subject to priority constraints.
+	// If a higher-priority task cannot be dispatched, lower-priority tasks will wait.
+	QueuePolicy *amdv1.WorkspaceQueuePolicy `json:"queuePolicy,omitempty"`
+	// Service modules available in this space. support: Train/Infer/Authoring/CICD, No limitation if not specified
+	Scopes []amdv1.WorkspaceScope `json:"scopes,omitempty"`
+	// Volumes used in this workspace
+	Volumes []WorkspaceVolumeApplyConfiguration `json:"volumes,omitempty"`
+	// Whether preemption is enabled. If enabled, higher-priority workload will preempt the lower-priority one
+	EnablePreempt *bool `json:"enablePreempt,omitempty"`
+	// User id of the workspace administrator
+	Managers []string `json:"managers,omitempty"`
+	// Set the workspace as the default workspace (i.e., all users can access it)
+	IsDefault *bool `json:"isDefault,omitempty"`
+	// Workspace image secret ID, used for downloading images
+	ImageSecrets []corev1.ObjectReference `json:"imageSecrets,omitempty"`
+	// The maximum workload runtime of each scope, Unit: hours
+	MaxRuntime map[amdv1.WorkspaceScope]int `json:"maxRuntime,omitempty"`
+	// Trigger workload processing after a period of workspace inactivity. The idletime of each scope, Unit: "12h0m0s"
+	// only for sandbox workload
+	IdleTime map[amdv1.WorkspaceScope]string `json:"idleTime,omitempty"`
 }
 
 // WorkspaceSpecApplyConfiguration constructs a declarative configuration of the WorkspaceSpec type for use with

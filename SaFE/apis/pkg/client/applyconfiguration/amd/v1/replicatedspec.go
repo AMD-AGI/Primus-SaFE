@@ -8,8 +8,11 @@ package v1
 
 // ReplicatedSpecApplyConfiguration represents a declarative configuration of the ReplicatedSpec type for use
 // with apply.
+//
+// ReplicatedSpec represents the spec for replication in a pool
 type ReplicatedSpecApplyConfiguration struct {
-	Size                     *uint                                `json:"size,omitempty"`
+	Size *uint `json:"size,omitempty"`
+	// TargetSizeRatio          float64            `json:"targetSizeRatio,omitempty"`
 	RequireSafeReplicaSize   *bool                                `json:"requireSafeReplicaSize,omitempty"`
 	ReplicasPerFailureDomain *uint                                `json:"replicasPerFailureDomain,omitempty"`
 	SubFailureDomain         *string                              `json:"subFailureDomain,omitempty"`

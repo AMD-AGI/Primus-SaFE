@@ -13,13 +13,28 @@ import (
 
 // ModelSourceApplyConfiguration represents a declarative configuration of the ModelSource type for use
 // with apply.
+//
+// ModelSource describes the model storage location
 type ModelSourceApplyConfiguration struct {
-	URL        *string                      `json:"url,omitempty"`
-	AccessMode *amdv1.AccessMode            `json:"accessMode,omitempty"`
-	ModelName  *string                      `json:"modelName,omitempty"`
-	Token      *corev1.LocalObjectReference `json:"token,omitempty"`
-	ApiKey     *corev1.LocalObjectReference `json:"apiKey,omitempty"`
-	LocalPath  *string                      `json:"localPath,omitempty"`
+	// URL is the pull address (e.g., "meta-llama/Llama-2-7b", "s3://bucket/model", "https://api.openai.com")
+	URL *string `json:"url,omitempty"`
+	// AccessMode defines how to access the model:
+	// - "remote_api": Call external API directly (e.g., OpenAI, DeepSeek)
+	// - "local": Download model and run inference service locally
+	AccessMode *amdv1.AccessMode `json:"accessMode,omitempty"`
+	// ModelName is the model identifier used when calling the API
+	// Required for remote_api mode (e.g., "gpt-4", "deepseek-chat")
+	// For local mode, this is auto-extracted from URL or user-specified
+	ModelName *string `json:"modelName,omitempty"`
+	// Token references a Secret containing the auth token for pulling the model (HuggingFace token)
+	// Used for local mode to access private models
+	Token *corev1.LocalObjectReference `json:"token,omitempty"`
+	// ApiKey references a Secret containing the API key for remote API access
+	// Used for remote_api mode to authenticate with external services (e.g., OpenAI, DeepSeek)
+	ApiKey *corev1.LocalObjectReference `json:"apiKey,omitempty"`
+	// LocalPath is the NFS/PFS path where the model files already exist.
+	// Used for "local_path" access mode (SFT training output) — skips download entirely.
+	LocalPath *string `json:"localPath,omitempty"`
 }
 
 // ModelSourceApplyConfiguration constructs a declarative configuration of the ModelSource type for use with
