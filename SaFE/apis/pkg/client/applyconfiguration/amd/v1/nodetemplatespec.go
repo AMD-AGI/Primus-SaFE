@@ -9,6 +9,7 @@ package v1
 // NodeTemplateSpecApplyConfiguration represents a declarative configuration of the NodeTemplateSpec type for use
 // with apply.
 type NodeTemplateSpecApplyConfiguration struct {
+	// The list of Addon Template id
 	AddOnTemplates []string `json:"addOnTemplates,omitempty"`
 }
 

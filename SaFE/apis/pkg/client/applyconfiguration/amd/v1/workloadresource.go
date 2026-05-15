@@ -9,14 +9,23 @@ package v1
 // WorkloadResourceApplyConfiguration represents a declarative configuration of the WorkloadResource type for use
 // with apply.
 type WorkloadResourceApplyConfiguration struct {
-	Replica          *int    `json:"replica,omitempty"`
-	CPU              *string `json:"cpu,omitempty"`
-	GPU              *string `json:"gpu,omitempty"`
-	GPUName          *string `json:"gpuName,omitempty"`
-	Memory           *string `json:"memory,omitempty"`
-	SharedMemory     *string `json:"sharedMemory,omitempty"`
+	// Number of requested nodes
+	Replica *int `json:"replica,omitempty"`
+	// Requested CPU core count (e.g., 128)
+	CPU *string `json:"cpu,omitempty"`
+	// Requested GPU card count (e.g., 8)
+	GPU *string `json:"gpu,omitempty"`
+	// This field is set internally. e.g. amd.com/gpu
+	GPUName *string `json:"gpuName,omitempty"`
+	// Requested Memory size (e.g., 128Gi)
+	Memory *string `json:"memory,omitempty"`
+	// Requested Shared Memory size (e.g., 128Gi). Used for sharing data between processes. default: Memory/2
+	SharedMemory *string `json:"sharedMemory,omitempty"`
+	// Ephemeral-storage for pod. default 50Gi
 	EphemeralStorage *string `json:"ephemeralStorage,omitempty"`
-	RdmaResource     *string `json:"rdmaResource,omitempty"`
+	// RDMA resource is effective only with hostNetwork enabled (default: 1).
+	// This field is set internally
+	RdmaResource *string `json:"rdmaResource,omitempty"`
 }
 
 // WorkloadResourceApplyConfiguration constructs a declarative configuration of the WorkloadResource type for use with

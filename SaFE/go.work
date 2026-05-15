@@ -1,4 +1,4 @@
-go 1.25.0
+go 1.25.5
 
 use (
 	./a2a-gateway
@@ -13,3 +13,8 @@ use (
 	tools/email-relay-service
 	tools/sync-image
 )
+
+replace github.com/ugorji/go => github.com/ugorji/go v1.2.12
+
+// containers/storage expects root-level OpenInRoot/Reopen; v0.6 removed those aliases (deprecated_linux.go).
+replace github.com/cyphar/filepath-securejoin => github.com/cyphar/filepath-securejoin v0.5.2

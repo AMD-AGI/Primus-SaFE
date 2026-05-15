@@ -124,6 +124,12 @@ func (h *Handler) GetWorkloadPodContainers(c *gin.Context) {
 	handle(c, h.getWorkloadPodContainers)
 }
 
+// ResumeWorkload resumes an existing workload.
+// The workload must already exist in the system. User information from the original workload is preserved
+func (h *Handler) ResumeWorkload(c *gin.Context) {
+	handle(c, h.resumeWorkload)
+}
+
 // createWorkload implements the workload creation logic.
 // Parses the request, generates a workload object, and creates it in the system.
 func (h *Handler) createWorkload(c *gin.Context) (interface{}, error) {
@@ -138,6 +144,12 @@ func (h *Handler) createWorkload(c *gin.Context) (interface{}, error) {
 		return nil, err
 	}
 	roles := h.accessController.GetRoles(ctx, requestUser)
+	if req.UserEntity != nil {
+		if h.accessController.AuthorizeSystemAdmin(
+			authority.AccessInput{Context: ctx, User: requestUser}, false) != nil {
+			req.UserEntity = nil
+		}
+	}
 
 	mainWorkload, err := h.generateWorkload(ctx, req, body, requestUser)
 	if err != nil {
@@ -807,8 +819,7 @@ func (h *Handler) generateWorkload(ctx context.Context,
 			return nil, err
 		}
 	}
-	if req.UserEntity != nil && h.accessController.AuthorizeSystemAdmin(
-		authority.AccessInput{Context: ctx, User: requestUser}, false) == nil {
+	if req.UserEntity != nil {
 		v1.SetLabel(workload, v1.UserIdLabel, req.UserEntity.Id)
 		v1.SetAnnotation(workload, v1.UserNameAnnotation, req.UserEntity.Name)
 	}
@@ -1458,6 +1469,51 @@ func (h *Handler) getWorkloadPodContainers(c *gin.Context) (interface{}, error) 
 		Containers: containers,
 		Shells:     []string{"bash", "sh", "zsh"},
 	}, nil
+}
+
+func (h *Handler) resumeWorkload(c *gin.Context) (interface{}, error) {
+	if !commonconfig.IsDBEnable() {
+		return nil, commonerrors.NewBadRequest("DB is not enabled")
+	}
+	workloadId := c.GetString(common.Name)
+	if workloadId == "" {
+		return nil, commonerrors.NewBadRequest("workloadId is required")
+	}
+	requestUser, err := h.getAndSetUsername(c)
+	if err != nil {
+		return nil, err
+	}
+
+	ctx := c.Request.Context()
+	req := &view.CreateWorkloadRequest{}
+	body, err := apiutils.ParseRequestBody(c.Request, req)
+	if err != nil {
+		return nil, err
+	}
+
+	dbWorkload, err := h.dbClient.GetWorkload(ctx, workloadId)
+	if err != nil {
+		return nil, err
+	}
+	adminWorkload := generateWorkloadForAuth(workloadId,
+		dbutils.ParseNullString(dbWorkload.UserId), dbWorkload.Workspace, dbWorkload.Cluster)
+	if err = h.authWorkloadAction(c, adminWorkload, v1.ResumeVerb, v1.WorkloadKind, requestUser, nil); err != nil {
+		klog.ErrorS(err, "failed to auth workload", "workload", workloadId,
+			"workspace", dbWorkload.Workspace, "user", c.GetString(common.UserName))
+		return nil, err
+	}
+	req.WorkloadId = workloadId
+	req.UserEntity = &view.UserEntity{
+		Id:   dbutils.ParseNullString(dbWorkload.UserId),
+		Name: dbutils.ParseNullString(dbWorkload.UserName),
+	}
+
+	adminWorkload, err = h.generateWorkload(ctx, req, body, requestUser)
+	if err != nil {
+		return nil, commonerrors.NewBadRequest(err.Error())
+	}
+	roles := h.accessController.GetRoles(ctx, requestUser)
+	return h.createWorkloadImpl(c, adminWorkload, requestUser, roles)
 }
 
 func cvtToWorkloadResources(dbWorkload *dbclient.Workload, kind string) []v1.WorkloadResource {

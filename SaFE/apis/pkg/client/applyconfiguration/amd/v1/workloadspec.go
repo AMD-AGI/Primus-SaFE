@@ -9,27 +9,60 @@ package v1
 // WorkloadSpecApplyConfiguration represents a declarative configuration of the WorkloadSpec type for use
 // with apply.
 type WorkloadSpecApplyConfiguration struct {
-	Resources                           []WorkloadResourceApplyConfiguration `json:"resources,omitempty"`
-	Workspace                           *string                              `json:"workspace,omitempty"`
-	Images                              []string                             `json:"images,omitempty"`
-	EntryPoints                         []string                             `json:"entryPoints,omitempty"`
-	JobPort                             *int                                 `json:"jobPort,omitempty"`
-	Env                                 map[string]string                    `json:"env,omitempty"`
-	IsSupervised                        *bool                                `json:"isSupervised,omitempty"`
+	// Resource requirements, It may involve multiple resources, e.g., a PyTorchJob with master and worker roles.
+	Resources []WorkloadResourceApplyConfiguration `json:"resources,omitempty"`
+	// Requested workspace id
+	Workspace *string `json:"workspace,omitempty"`
+	// The address of the image used by the workload
+	// It must match the length of resources.
+	Images []string `json:"images,omitempty"`
+	// Workload startup command, required in base64 encoding
+	// It must match the length of resources.
+	EntryPoints []string `json:"entryPoints,omitempty"`
+	// The container port for workload(only for pytorch-job), This field is set internally
+	JobPort *int `json:"jobPort,omitempty"`
+	// Environment variable for workload
+	Env map[string]string `json:"env,omitempty"`
+	// Supervision flag for the workload. When enabled, it performs operations like hang detection
+	IsSupervised *bool `json:"isSupervised,omitempty"`
+	// Group: An extension field that is not currently in use
+	// Version: version of workload, default value is v1
+	// Kind: kind of workload, Valid values includes: PyTorchJob/Deployment/StatefulSet/Authoring/AutoscalingRunnerSet, default PyTorchJob
+	// AutoscalingRunnerSet is a CI/CD configuration, and if enabled, it requires NFS storage support.
 	*GroupVersionKindApplyConfiguration `json:"groupVersionKind,omitempty"`
-	MaxRetry                            *int                             `json:"maxRetry,omitempty"`
-	Priority                            *int                             `json:"priority,omitempty"`
-	TTLSecondsAfterFinished             *int                             `json:"ttlSecondsAfterFinished,omitempty"`
-	Timeout                             *int                             `json:"timeout,omitempty"`
-	CustomerLabels                      map[string]string                `json:"customerLabels,omitempty"`
-	Liveness                            *HealthCheckApplyConfiguration   `json:"liveness,omitempty"`
-	Readiness                           *HealthCheckApplyConfiguration   `json:"readiness,omitempty"`
-	Service                             *ServiceApplyConfiguration       `json:"service,omitempty"`
-	IsTolerateAll                       *bool                            `json:"isTolerateAll,omitempty"`
-	Hostpath                            []string                         `json:"hostpath,omitempty"`
-	Dependencies                        []string                         `json:"dependencies,omitempty"`
-	CronJobs                            []CronJobApplyConfiguration      `json:"cronJobs,omitempty"`
-	Secrets                             []SecretEntityApplyConfiguration `json:"secrets,omitempty"`
+	// Failure retry limit. default: 0
+	MaxRetry *int `json:"maxRetry,omitempty"`
+	// Workload scheduling priority. Defaults is 0, valid range: 0–2
+	Priority *int `json:"priority,omitempty"`
+	// The lifecycle of the workload after completion, in seconds. default 60.
+	TTLSecondsAfterFinished *int `json:"ttlSecondsAfterFinished,omitempty"`
+	// Workload timeout in seconds. default 0 (no timeout).
+	// The timeout is calculated from the moment the workload is dispatched.
+	// If the workload remains in the queue (not yet dispatched), the timeout is not considered.
+	Timeout *int `json:"timeout,omitempty"`
+	// The workload will run on nodes with the user-specified labels.
+	// If multiple labels are specified, all of them must be satisfied.
+	CustomerLabels map[string]string `json:"customerLabels,omitempty"`
+	// K8s liveness check. used for deployment/statefulSet
+	Liveness *HealthCheckApplyConfiguration `json:"liveness,omitempty"`
+	// K8s readiness check. used for deployment/statefulSet
+	Readiness *HealthCheckApplyConfiguration `json:"readiness,omitempty"`
+	// Service configuration
+	Service *ServiceApplyConfiguration `json:"service,omitempty"`
+	// Indicates whether the workload tolerates node taints
+	IsTolerateAll *bool `json:"isTolerateAll,omitempty"`
+	// The workload will automatically mount the volumes defined in the workspace,
+	// and you can also define specific hostPath for mounting.
+	Hostpath []string `json:"hostpath,omitempty"`
+	// Dependencies defines a list of other Workloads that must complete successfully
+	// before this Workload can start execution. If any dependency fails, this Workload
+	// will not be scheduled and is considered failed.
+	Dependencies []string `json:"dependencies,omitempty"`
+	// Cron Job configuration
+	CronJobs []CronJobApplyConfiguration `json:"cronJobs,omitempty"`
+	// The secrets used by the workload. Including some token secrets (only for CI/CD) and specified image secrets.
+	// Image secrets automatically use all image secrets bound to the workspace.
+	Secrets []SecretEntityApplyConfiguration `json:"secrets,omitempty"`
 }
 
 // WorkloadSpecApplyConfiguration constructs a declarative configuration of the WorkloadSpec type for use with

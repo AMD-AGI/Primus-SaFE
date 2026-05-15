@@ -14,16 +14,29 @@ import (
 // WorkspaceVolumeApplyConfiguration represents a declarative configuration of the WorkspaceVolume type for use
 // with apply.
 type WorkspaceVolumeApplyConfiguration struct {
-	Id            *int                               `json:"id,omitempty"`
-	Type          *amdv1.WorkspaceVolumeType         `json:"type,omitempty"`
-	MountPath     *string                            `json:"mountPath,omitempty"`
-	EnableUserDir *bool                              `json:"enableUserDir,omitempty"`
-	AccessMode    *corev1.PersistentVolumeAccessMode `json:"accessMode,omitempty"`
-	SubPath       *string                            `json:"subPath,omitempty"`
-	HostPath      *string                            `json:"hostPath,omitempty"`
-	Capacity      *string                            `json:"capacity,omitempty"`
-	Selector      map[string]string                  `json:"selector,omitempty"`
-	StorageClass  *string                            `json:"storageClass,omitempty"`
+	// The volume id, which is used to identify the volume. This field is set internally.
+	Id *int `json:"id,omitempty"`
+	// The volume type, valid values includes: pfs/hostpath
+	// If PFS is configured, a PVC will be automatically created in the workspace.
+	Type *amdv1.WorkspaceVolumeType `json:"type,omitempty"`
+	// Mount path to be used, equivalent to 'mountPath' in Kubernetes volume mounts.
+	MountPath *string `json:"mountPath,omitempty"`
+	// When enabled, this appends the {user_id} directory to the subPath and mounts it to {mount_path}/{user_id}
+	EnableUserDir *bool `json:"enableUserDir,omitempty"`
+	// access mode, default ReadWriteMany
+	AccessMode *corev1.PersistentVolumeAccessMode `json:"accessMode,omitempty"`
+	// equivalent to 'subPath' in Kubernetes volume mounts
+	SubPath *string `json:"subPath,omitempty"`
+	// Path on the host to mount. Required when volume type is hostpath
+	HostPath *string `json:"hostPath,omitempty"`
+	// The following parameters are used for PVC creation. If using hostPath mounting, they are not required.
+	// Capacity size, e.g. 100Gi. This is a required parameter when creating a PVC (PersistentVolumeClaim).
+	Capacity *string `json:"capacity,omitempty"`
+	// selector is a label query over volumes to consider for binding.
+	// It cannot be used together with storageClass. If both are set, the selector takes priority
+	Selector map[string]string `json:"selector,omitempty"`
+	// Responsible for automatic PV creation
+	StorageClass *string `json:"storageClass,omitempty"`
 }
 
 // WorkspaceVolumeApplyConfiguration constructs a declarative configuration of the WorkspaceVolume type for use with

@@ -13,13 +13,25 @@ import (
 // ServiceApplyConfiguration represents a declarative configuration of the Service type for use
 // with apply.
 type ServiceApplyConfiguration struct {
-	Protocol       *corev1.Protocol    `json:"protocol,omitempty"`
-	Port           *int                `json:"port,omitempty"`
-	NodePort       *int                `json:"nodePort,omitempty"`
-	TargetPort     *int                `json:"targetPort,omitempty"`
-	ServiceType    *corev1.ServiceType `json:"serviceType,omitempty"`
-	ExtraSelectors map[string]string   `json:"extraSelectors,omitempty"`
-	Extends        map[string]string   `json:"extends,omitempty"`
+	// Service protocol, e.g. TCP/UDP, default TCP
+	Protocol *corev1.Protocol `json:"protocol,omitempty"`
+	// Service port for external access, Defaults to targetPort.
+	Port *int `json:"port,omitempty"`
+	// Port of Host Node (for NodePort type)
+	NodePort *int `json:"nodePort,omitempty"`
+	// Target container port
+	TargetPort *int `json:"targetPort,omitempty"`
+	// Service type, e.g. ClusterIP/NodePort
+	ServiceType *corev1.ServiceType `json:"serviceType,omitempty"`
+	// Extra label selectors merged on top of the default workload selector
+	// when dispatcher creates the K8s Service. Use case: a multi-pod workload
+	// (e.g. RayJob head + workers) where only one role actually listens on
+	// the target port — pass {primus-safe.amd.com/ray-role: head} to limit
+	// endpoints to the head pod, otherwise traffic round-robins to workers
+	// and hits connection refused.
+	ExtraSelectors map[string]string `json:"extraSelectors,omitempty"`
+	// Extended environment variable
+	Extends map[string]string `json:"extends,omitempty"`
 }
 
 // ServiceApplyConfiguration constructs a declarative configuration of the Service type for use with

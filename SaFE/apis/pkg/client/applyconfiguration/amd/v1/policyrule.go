@@ -13,9 +13,17 @@ import (
 // PolicyRuleApplyConfiguration represents a declarative configuration of the PolicyRule type for use
 // with apply.
 type PolicyRuleApplyConfiguration struct {
-	Resources    []string         `json:"resources,omitempty"`
-	GrantedUsers []string         `json:"grantedUsers,omitempty"`
-	Verbs        []amdv1.RoleVerb `json:"verbs,omitempty"`
+	// Resources is a list of resources this rule applies to. '*' represents all resources.
+	// e.g. workload, workspace/dev
+	Resources []string `json:"resources,omitempty"`
+	// grantedUsers is a list of users permitted to access the resource.
+	// Setting 'owner' means that only the resource owner is allowed
+	// Setting 'workspace-user' means that users of the workspace are allowed
+	// '*' represents all users are allowed.
+	GrantedUsers []string `json:"grantedUsers,omitempty"`
+	// Verbs is a list of Verbs that apply to ALL the ResourceKinds contained in this rule.
+	// '*' represents all verbs.
+	Verbs []amdv1.RoleVerb `json:"verbs,omitempty"`
 }
 
 // PolicyRuleApplyConfiguration constructs a declarative configuration of the PolicyRule type for use with

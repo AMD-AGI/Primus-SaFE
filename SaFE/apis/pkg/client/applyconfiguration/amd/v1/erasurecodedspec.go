@@ -8,6 +8,8 @@ package v1
 
 // ErasureCodedSpecApplyConfiguration represents a declarative configuration of the ErasureCodedSpec type for use
 // with apply.
+//
+// ErasureCodedSpec represents the spec for erasure code in a pool
 type ErasureCodedSpecApplyConfiguration struct {
 	CodingChunks *uint   `json:"codingChunks,omitempty"`
 	DataChunks   *uint   `json:"dataChunks,omitempty"`

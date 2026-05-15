@@ -9,9 +9,12 @@ package v1
 // ContainerApplyConfiguration represents a declarative configuration of the Container type for use
 // with apply.
 type ContainerApplyConfiguration struct {
-	Name     *string `json:"name,omitempty"`
-	Message  *string `json:"message,omitempty"`
-	ExitCode *int32  `json:"exitCode,omitempty"`
+	// Container name
+	Name *string `json:"name,omitempty"`
+	// Message regarding the last termination of the container
+	Message *string `json:"message,omitempty"`
+	// Exit status from the last termination of the container
+	ExitCode *int32 `json:"exitCode,omitempty"`
 }
 
 // ContainerApplyConfiguration constructs a declarative configuration of the Container type for use with

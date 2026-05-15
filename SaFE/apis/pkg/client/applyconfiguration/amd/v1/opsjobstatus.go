@@ -15,11 +15,16 @@ import (
 // OpsJobStatusApplyConfiguration represents a declarative configuration of the OpsJobStatus type for use
 // with apply.
 type OpsJobStatusApplyConfiguration struct {
-	StartedAt  *metav1.Time                                            `json:"startedAt,omitempty"`
-	FinishedAt *metav1.Time                                            `json:"finishedAt,omitempty"`
+	// Opsjob start time
+	StartedAt *metav1.Time `json:"startedAt,omitempty"`
+	// Opsjob end time
+	FinishedAt *metav1.Time `json:"finishedAt,omitempty"`
+	// Description of the job execution process
 	Conditions []applyconfigurationsmetav1.ConditionApplyConfiguration `json:"conditions,omitempty"`
-	Phase      *amdv1.OpsJobPhase                                      `json:"phase,omitempty"`
-	Outputs    []ParameterApplyConfiguration                           `json:"outputs,omitempty"`
+	// The job status: Succeeded/Failed/Running/Pending
+	Phase *amdv1.OpsJobPhase `json:"phase,omitempty"`
+	// Opsjob output. For example, the download log URL or the preflight check results.
+	Outputs []ParameterApplyConfiguration `json:"outputs,omitempty"`
 }
 
 // OpsJobStatusApplyConfiguration constructs a declarative configuration of the OpsJobStatus type for use with
