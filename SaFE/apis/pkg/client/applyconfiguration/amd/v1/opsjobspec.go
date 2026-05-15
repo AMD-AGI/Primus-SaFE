@@ -13,17 +13,29 @@ import (
 // OpsJobSpecApplyConfiguration represents a declarative configuration of the OpsJobSpec type for use
 // with apply.
 type OpsJobSpecApplyConfiguration struct {
-	Type                    *amdv1.OpsJobType                   `json:"type,omitempty"`
-	Resource                *WorkloadResourceApplyConfiguration `json:"resource,omitempty"`
-	Image                   *string                             `json:"image,omitempty"`
-	EntryPoint              *string                             `json:"entryPoint,omitempty"`
-	Inputs                  []ParameterApplyConfiguration       `json:"inputs,omitempty"`
-	TTLSecondsAfterFinished *int                                `json:"ttlSecondsAfterFinished,omitempty"`
-	TimeoutSecond           *int                                `json:"timeoutSecond,omitempty"`
-	Env                     map[string]string                   `json:"env,omitempty"`
-	IsTolerateAll           *bool                               `json:"isTolerateAll,omitempty"`
-	Hostpath                []string                            `json:"hostpath,omitempty"`
-	ExcludedNodes           []string                            `json:"excludedNodes,omitempty"`
+	// The type of ops-job, valid values include: addon/preflight/dumplog
+	Type *amdv1.OpsJobType `json:"type,omitempty"`
+	// Opsjob resource requirements, only for preflight
+	Resource *WorkloadResourceApplyConfiguration `json:"resource,omitempty"`
+	// Opsjob image address, only for preflight
+	Image *string `json:"image,omitempty"`
+	// Opsjob entryPoint(startup command), required in base64, only for preflight
+	EntryPoint *string `json:"entryPoint,omitempty"`
+	// The resource objects to be processed, e.g., {{"name": "node", "value": "tus1-p8-g6"}}.
+	// Multiple entries will be processed sequentially.
+	Inputs []ParameterApplyConfiguration `json:"inputs,omitempty"`
+	// The lifecycle of ops-job after it finishes
+	TTLSecondsAfterFinished *int `json:"ttlSecondsAfterFinished,omitempty"`
+	// Opsjob Timeout (in seconds), Less than or equal to 0 means no timeout
+	TimeoutSecond *int `json:"timeoutSecond,omitempty"`
+	// Environment variables
+	Env map[string]string `json:"env,omitempty"`
+	// Indicates whether the job tolerates node taints. for preflight, default false
+	IsTolerateAll *bool `json:"isTolerateAll,omitempty"`
+	// The hostpath for opsjob mounting.
+	Hostpath []string `json:"hostpath,omitempty"`
+	// The nodes to be excluded, for preflight/addon
+	ExcludedNodes []string `json:"excludedNodes,omitempty"`
 }
 
 // OpsJobSpecApplyConfiguration constructs a declarative configuration of the OpsJobSpec type for use with

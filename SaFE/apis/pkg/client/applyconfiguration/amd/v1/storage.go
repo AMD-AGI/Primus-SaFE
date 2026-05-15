@@ -13,14 +13,16 @@ import (
 // StorageApplyConfiguration represents a declarative configuration of the Storage type for use
 // with apply.
 type StorageApplyConfiguration struct {
-	Name           *string                             `json:"name,omitempty"`
-	Type           *amdv1.StorageUseType               `json:"type,omitempty"`
-	StorageCluster *string                             `json:"storageCluster,omitempty"`
-	StorageClass   *string                             `json:"storageClass,omitempty"`
-	Secret         *string                             `json:"secret,omitempty"`
-	Namespace      *string                             `json:"namespace,omitempty"`
-	Replicated     *ReplicatedSpecApplyConfiguration   `json:"replicated,omitempty"`
-	ErasureCoded   *ErasureCodedSpecApplyConfiguration `json:"erasureCoded,omitempty"`
+	Name           *string               `json:"name,omitempty"`
+	Type           *amdv1.StorageUseType `json:"type,omitempty"`
+	StorageCluster *string               `json:"storageCluster,omitempty"`
+	StorageClass   *string               `json:"storageClass,omitempty"`
+	Secret         *string               `json:"secret,omitempty"`
+	Namespace      *string               `json:"namespace,omitempty"`
+	// The replication settings
+	Replicated *ReplicatedSpecApplyConfiguration `json:"replicated,omitempty"`
+	// The erasure code settings
+	ErasureCoded *ErasureCodedSpecApplyConfiguration `json:"erasureCoded,omitempty"`
 }
 
 // StorageApplyConfiguration constructs a declarative configuration of the Storage type for use with

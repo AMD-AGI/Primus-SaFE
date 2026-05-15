@@ -13,7 +13,9 @@ import (
 // CpuChipApplyConfiguration represents a declarative configuration of the CpuChip type for use
 // with apply.
 type CpuChipApplyConfiguration struct {
-	Product  *string            `json:"product,omitempty"`
+	// Cpu product name, e.g. AMD EPYC 9554
+	Product *string `json:"product,omitempty"`
+	// CPU cores (resource.Quantity), e.g. "256"
 	Quantity *resource.Quantity `json:"quantity,omitempty"`
 }
 

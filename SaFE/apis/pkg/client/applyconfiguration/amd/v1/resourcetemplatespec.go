@@ -9,10 +9,15 @@ package v1
 // ResourceTemplateSpecApplyConfiguration represents a declarative configuration of the ResourceTemplateSpec type for use
 // with apply.
 type ResourceTemplateSpecApplyConfiguration struct {
+	// Specifies the Group, Version, and Kind (GVK) for a Kubernetes object
+	// This GVK is not the same as the workload's GVK, which is defined in the label selector.
 	GroupVersionKind *GroupVersionKindApplyConfiguration `json:"groupVersionKind,omitempty"`
-	ResourceSpecs    []ResourceSpecApplyConfiguration    `json:"resourceSpecs,omitempty"`
-	ResourceStatus   *ResourceStatusApplyConfiguration   `json:"resourceStatus,omitempty"`
-	ActiveReplica    *ActiveReplicaApplyConfiguration    `json:"activeReplica,omitempty"`
+	// Definition used to retrieve the spec of a Kubernetes object
+	ResourceSpecs []ResourceSpecApplyConfiguration `json:"resourceSpecs,omitempty"`
+	// Definition used to retrieve the status of a Kubernetes object
+	ResourceStatus *ResourceStatusApplyConfiguration `json:"resourceStatus,omitempty"`
+	// Definition used to retrieve the active replica count of a Kubernetes object
+	ActiveReplica *ActiveReplicaApplyConfiguration `json:"activeReplica,omitempty"`
 }
 
 // ResourceTemplateSpecApplyConfiguration constructs a declarative configuration of the ResourceTemplateSpec type for use with

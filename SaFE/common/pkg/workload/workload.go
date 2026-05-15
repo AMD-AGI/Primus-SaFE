@@ -564,5 +564,14 @@ func IsEnabledHostNetwork(workload *v1.Workload, resourceId int) bool {
 	if resourceId >= len(workload.Spec.Resources) || resourceId < 0 {
 		return false
 	}
+	// RayJob submitterPodTemplate is resource index 0; headGroupSpec is index 1.
+	// When the head uses hostNetwork (non-empty RdmaResource), keep the submitter Job
+	// on hostNetwork too so a co-scheduled submitter can reach the Ray Dashboard without
+	// same-node Pod-CIDR -> node-primary-IP hairpin timeouts to :8265.
+	if IsRayJob(workload) && resourceId == 0 && len(workload.Spec.Resources) > 1 {
+		if workload.Spec.Resources[1].RdmaResource != "" {
+			return true
+		}
+	}
 	return workload.Spec.Resources[resourceId].RdmaResource != ""
 }

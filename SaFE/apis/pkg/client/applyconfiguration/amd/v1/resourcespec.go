@@ -9,11 +9,17 @@ package v1
 // ResourceSpecApplyConfiguration represents a declarative configuration of the ResourceSpec type for use
 // with apply.
 type ResourceSpecApplyConfiguration struct {
-	PrePaths         []string `json:"prePaths,omitempty"`
-	TemplatePaths    []string `json:"templatePaths,omitempty"`
-	ReplicasPaths    []string `json:"replicasPaths,omitempty"`
-	DefaultReplica   *int     `json:"defaultReplica,omitempty"`
+	// Pre-path to k8s object's spec
+	PrePaths []string `json:"prePaths,omitempty"`
+	// The relative path of pod template
+	TemplatePaths []string `json:"templatePaths,omitempty"`
+	// The relative path of pod replica
+	ReplicasPaths []string `json:"replicasPaths,omitempty"`
+	// Fits scenarios without a defined replica path but with actual replica values, such as ray-job.
+	DefaultReplica *int `json:"defaultReplica,omitempty"`
+	// The relative path of pod max-replica(only for ray-job), Commonly used for elasticity.
 	MaxReplicasPaths []string `json:"maxReplicasPaths,omitempty"`
+	// The relative path of pod min-replica(only for job and ray-job). for job, it's the pod completions
 	MinReplicasPaths []string `json:"minReplicasPaths,omitempty"`
 }
 

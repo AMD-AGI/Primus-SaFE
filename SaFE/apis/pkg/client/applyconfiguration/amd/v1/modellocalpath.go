@@ -12,11 +12,17 @@ import (
 
 // ModelLocalPathApplyConfiguration represents a declarative configuration of the ModelLocalPath type for use
 // with apply.
+//
+// ModelLocalPath represents the download status of a model in a specific workspace
 type ModelLocalPathApplyConfiguration struct {
-	Workspace *string                `json:"workspace,omitempty"`
-	Path      *string                `json:"path,omitempty"`
-	Status    *amdv1.LocalPathStatus `json:"status,omitempty"`
-	Message   *string                `json:"message,omitempty"`
+	// Workspace is the workspace ID
+	Workspace *string `json:"workspace,omitempty"`
+	// Path is the local file system path where the model is stored
+	Path *string `json:"path,omitempty"`
+	// Status is the download status for this workspace
+	Status *amdv1.LocalPathStatus `json:"status,omitempty"`
+	// Message contains additional status information
+	Message *string `json:"message,omitempty"`
 }
 
 // ModelLocalPathApplyConfiguration constructs a declarative configuration of the ModelLocalPath type for use with

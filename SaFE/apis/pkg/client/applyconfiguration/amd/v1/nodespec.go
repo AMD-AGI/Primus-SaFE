@@ -13,16 +13,29 @@ import (
 // NodeSpecApplyConfiguration represents a declarative configuration of the NodeSpec type for use
 // with apply.
 type NodeSpecApplyConfiguration struct {
-	Cluster      *string                 `json:"cluster,omitempty"`
-	Workspace    *string                 `json:"workspace,omitempty"`
-	NodeFlavor   *corev1.ObjectReference `json:"nodeFlavor,omitempty"`
+	// The cluster which the node belongs to.
+	// If a value is set, it indicates that the node should be managed within the specified cluster,
+	// Otherwise, if set to an empty value, it indicates that the node should be unmanaged from the cluster.
+	Cluster *string `json:"cluster,omitempty"`
+	// The workspace which the node belongs to. This is optional, a node can belong to no workspace.
+	// If a value is set, the node will be bound to the specified workspace; otherwise, it will be unbound.
+	Workspace *string `json:"workspace,omitempty"`
+	// Node flavor reference, required
+	NodeFlavor *corev1.ObjectReference `json:"nodeFlavor,omitempty"`
+	// Node template reference, required
 	NodeTemplate *corev1.ObjectReference `json:"nodeTemplate,omitempty"`
-	Hostname     *string                 `json:"hostname,omitempty"`
-	PrivateIP    *string                 `json:"privateIP,omitempty"`
-	PublicIP     *string                 `json:"publicIP,omitempty"`
-	Port         *int32                  `json:"port,omitempty"`
-	Taints       []corev1.Taint          `json:"taints,omitempty"`
-	SSHSecret    *corev1.ObjectReference `json:"secret,omitempty"`
+	// Node hostname
+	Hostname *string `json:"hostname,omitempty"`
+	// Node private ip, required
+	PrivateIP *string `json:"privateIP,omitempty"`
+	// Node public IP, accessible from external networks, optional
+	PublicIP *string `json:"publicIP,omitempty"`
+	// SSH port，default 22
+	Port *int32 `json:"port,omitempty"`
+	// The taint will be automatically synchronized to the Kubernetes node.
+	Taints []corev1.Taint `json:"taints,omitempty"`
+	// Secret for ssh
+	SSHSecret *corev1.ObjectReference `json:"secret,omitempty"`
 }
 
 // NodeSpecApplyConfiguration constructs a declarative configuration of the NodeSpec type for use with

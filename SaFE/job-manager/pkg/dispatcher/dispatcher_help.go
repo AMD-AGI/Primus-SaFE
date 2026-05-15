@@ -1096,17 +1096,6 @@ func updateRayJob(obj *unstructured.Unstructured, adminWorkload *v1.Workload) er
 	}
 	// Prefix exec so decoded ENTRYPOINT replaces the job driver shell as PID 1 (see launcher.sh).
 	specObject["entrypoint"] = "exec " + Launcher + " '" + jobEntryPoint + "'"
-
-	// Long-lived RayJob: caller (e.g. claw brain creating a companion server
-	// cluster for a Sandbox session) sets RAYJOB_LONG_LIVED=true to keep the
-	// RayCluster alive across many driver entrypoint restarts. KubeRay would
-	// otherwise tear it down (template default shutdownAfterJobFinishes=true,
-	// ttlSecondsAfterFinished=10) the moment the driver process exits.
-	if strings.EqualFold(adminWorkload.GetEnv(common.RayJobLongLived), "true") {
-		specObject["shutdownAfterJobFinishes"] = false
-		specObject["backoffLimit"] = int64(0)
-	}
-
 	if err = jobutils.SetNestedField(obj.Object, specObject, path); err != nil {
 		return err
 	}

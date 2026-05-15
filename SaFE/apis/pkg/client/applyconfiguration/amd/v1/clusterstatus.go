@@ -10,7 +10,8 @@ package v1
 // with apply.
 type ClusterStatusApplyConfiguration struct {
 	ControlPlaneStatus *ControlPlaneStatusApplyConfiguration `json:"controlPlaneStatus,omitempty"`
-	StorageStatus      []StorageStatusApplyConfiguration     `json:"storageStatus,omitempty"`
+	// Reserved field, logic not implemented currently.
+	StorageStatus []StorageStatusApplyConfiguration `json:"storageStatus,omitempty"`
 }
 
 // ClusterStatusApplyConfiguration constructs a declarative configuration of the ClusterStatus type for use with

@@ -13,13 +13,21 @@ import (
 
 // NodeFlavorSpecApplyConfiguration represents a declarative configuration of the NodeFlavorSpec type for use
 // with apply.
+//
+// NodeFlavorSpec defines the desired state of NodeFlavor
 type NodeFlavorSpecApplyConfiguration struct {
-	Cpu             *CpuChipApplyConfiguration    `json:"cpu,omitempty"`
-	Memory          *resource.Quantity            `json:"memory,omitempty"`
-	Gpu             *GpuChipApplyConfiguration    `json:"gpu,omitempty"`
-	RootDisk        *DiskFlavorApplyConfiguration `json:"rootDisk,omitempty"`
-	DataDisk        *DiskFlavorApplyConfiguration `json:"dataDisk,omitempty"`
-	ExtendResources *corev1.ResourceList          `json:"extendedResources,omitempty"`
+	// CPU configuration, required
+	Cpu *CpuChipApplyConfiguration `json:"cpu,omitempty"`
+	// Memory size (resource.Quantity), required, e.g. "1024Gi"
+	Memory *resource.Quantity `json:"memory,omitempty"`
+	// GPU configuration, optional
+	Gpu *GpuChipApplyConfiguration `json:"gpu,omitempty"`
+	// root disk configuration, optional, Usually this refers to the system disk size
+	RootDisk *DiskFlavorApplyConfiguration `json:"rootDisk,omitempty"`
+	// data disk configuration, optional, Usually this refers to the disk size mounted on the node, e.g. an NVMe disk.
+	DataDisk *DiskFlavorApplyConfiguration `json:"dataDisk,omitempty"`
+	// Extra resources map: key:string -> value:resource.Quantity
+	ExtendResources *corev1.ResourceList `json:"extendedResources,omitempty"`
 }
 
 // NodeFlavorSpecApplyConfiguration constructs a declarative configuration of the NodeFlavorSpec type for use with

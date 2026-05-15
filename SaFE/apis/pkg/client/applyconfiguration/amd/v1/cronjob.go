@@ -13,8 +13,11 @@ import (
 // CronJobApplyConfiguration represents a declarative configuration of the CronJob type for use
 // with apply.
 type CronJobApplyConfiguration struct {
-	Schedule *string           `json:"schedule,omitempty"`
-	Action   *amdv1.CronAction `json:"action,omitempty"`
+	// Scheduled execution time, e.g. "2025-09-30T16:04:00.000Z" or "0 3 * * *"
+	// Note: Only minute-level input is supported; seconds are not supported.
+	Schedule *string `json:"schedule,omitempty"`
+	// The action to take when the schedule is triggered. e.g. start or scale
+	Action *amdv1.CronAction `json:"action,omitempty"`
 }
 
 // CronJobApplyConfiguration constructs a declarative configuration of the CronJob type for use with

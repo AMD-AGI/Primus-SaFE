@@ -8,6 +8,8 @@ package v1
 
 // HybridStorageSpecApplyConfiguration represents a declarative configuration of the HybridStorageSpec type for use
 // with apply.
+//
+// HybridStorageSpec represents the settings for hybrid storage pool
 type HybridStorageSpecApplyConfiguration struct {
 	PrimaryDeviceClass   *string `json:"primaryDeviceClass,omitempty"`
 	SecondaryDeviceClass *string `json:"secondaryDeviceClass,omitempty"`

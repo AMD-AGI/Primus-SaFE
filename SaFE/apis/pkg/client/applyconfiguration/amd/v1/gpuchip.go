@@ -14,9 +14,12 @@ import (
 // GpuChipApplyConfiguration represents a declarative configuration of the GpuChip type for use
 // with apply.
 type GpuChipApplyConfiguration struct {
-	Product      *amdv1.GpuProduct  `json:"product,omitempty"`
-	ResourceName *string            `json:"resourceName,omitempty"`
-	Quantity     *resource.Quantity `json:"quantity,omitempty"`
+	// Gpu product name, e.g. MI300X/MI325X/MI355X
+	Product *amdv1.GpuProduct `json:"product,omitempty"`
+	// K8s resource name when gpu is set, e.g. "amd.com/gpu"
+	ResourceName *string `json:"resourceName,omitempty"`
+	// GPU count (resource.Quantity) when gpu is set, e.g. "8"
+	Quantity *resource.Quantity `json:"quantity,omitempty"`
 }
 
 // GpuChipApplyConfiguration constructs a declarative configuration of the GpuChip type for use with

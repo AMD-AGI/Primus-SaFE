@@ -10,7 +10,8 @@ package v1
 // with apply.
 type ClusterSpecApplyConfiguration struct {
 	ControlPlane *ControlPlaneApplyConfiguration `json:"controlPlane,omitempty"`
-	Storages     []StorageApplyConfiguration     `json:"storages,omitempty"`
+	// Reserved field, logic not implemented currently
+	Storages []StorageApplyConfiguration `json:"storages,omitempty"`
 }
 
 // ClusterSpecApplyConfiguration constructs a declarative configuration of the ClusterSpec type for use with

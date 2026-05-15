@@ -9,10 +9,14 @@ package v1
 // ResourceStatusApplyConfiguration represents a declarative configuration of the ResourceStatus type for use
 // with apply.
 type ResourceStatusApplyConfiguration struct {
-	PrePaths     []string                            `json:"prePaths,omitempty"`
-	MessagePaths []string                            `json:"messagePaths,omitempty"`
-	ReasonPaths  []string                            `json:"reasonPaths,omitempty"`
-	Phases       []PhaseExpressionApplyConfiguration `json:"phases,omitempty"`
+	// Prefix path for retrieving the object's phase, commonly referencing the status condition.
+	PrePaths []string `json:"prePaths,omitempty"`
+	// The relative path of message
+	MessagePaths []string `json:"messagePaths,omitempty"`
+	// The relative path of reason
+	ReasonPaths []string `json:"reasonPaths,omitempty"`
+	// Expression for retrieving the phase value.
+	Phases []PhaseExpressionApplyConfiguration `json:"phases,omitempty"`
 }
 
 // ResourceStatusApplyConfiguration constructs a declarative configuration of the ResourceStatus type for use with

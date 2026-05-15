@@ -26,6 +26,9 @@ data:
       ttlSecondsAfterFinished: 10
       backoffLimit: 3
       submissionMode: K8sJobMode
+      # submitterPodTemplate.spec.hostNetwork is set at dispatch time by the job-manager
+      # when rayClusterSpec.headGroupSpec uses hostNetwork (workload head RdmaResource):
+      # submitter must match so ray job submit can reach the dashboard on the same node.
       submitterPodTemplate:
         spec:
           dnsPolicy: ClusterFirstWithHostNet
