@@ -997,8 +997,16 @@ systemctl start kubelet 2>/dev/null || true`
 		klog.Warningf("failed to clean CNI interfaces on node %s: %v", node.Name, err)
 	}
 
-	// cleanup kubernetes files
-	resetNodeCmd := "chattr -i /etc/resolv.conf; kubeadm reset -f || true; rm -rf /etc/kubernetes/ ~/.kube || true"
+	// cleanup kubernetes files.
+	// Also remove stale kubelet client certs: kubeadm reset does NOT touch /var/lib/kubelet/pki/,
+	// so when a node was previously joined under a different hostname, the old client cert
+	// (CN=system:node:<old-name>) survives. The NodeRestriction admission then rejects the
+	// new kubelet with "can only create a node CSR with CN=system:node:<old-name>",
+	// trapping kubelet in an unrecoverable bootstrap loop.
+	resetNodeCmd := "chattr -i /etc/resolv.conf; kubeadm reset -f || true; " +
+		"rm -rf /etc/kubernetes/ ~/.kube " +
+		"/var/lib/kubelet/pki/kubelet-client-*.pem " +
+		"/var/lib/kubelet/pki/kubelet.crt /var/lib/kubelet/pki/kubelet.key 2>/dev/null || true"
 	if err = r.executeSSHCommand(sshClient, resetNodeCmd); err != nil {
 		return fmt.Errorf("failed to kubeadm reset node: %w", err)
 	}
