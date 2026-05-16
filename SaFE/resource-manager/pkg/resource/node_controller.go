@@ -732,7 +732,7 @@ func (r *NodeReconciler) authorizeClusterAccess(ctx context.Context, node *v1.No
 	if username == "" || username == "root" {
 		cmd = fmt.Sprintf("echo '\n %s' >> /root/.ssh/authorized_keys", pub)
 	} else {
-		cmd = fmt.Sprintf("mkdir -p /home/%s/.ssh && sudo chmod -R 700 /home/%s/.ssh && sudo echo '\n %s' >> /home/%s/.ssh/authorized_keys && sudo chmod -R 600 /home/%s/.ssh/authorized_keys",
+		cmd = fmt.Sprintf("mkdir -p /home/%s/.ssh && chmod -R 700 /home/%s/.ssh && echo '\n %s' >> /home/%s/.ssh/authorized_keys && chmod -R 600 /home/%s/.ssh/authorized_keys",
 			username, username, pub, username, username)
 	}
 	if err = r.executeSSHCommand(sshClient, cmd); err != nil {
@@ -966,7 +966,7 @@ func (r *NodeReconciler) rebootNode(ctx context.Context, node *v1.Node) {
 	}
 	defer sshClient.Close()
 
-	cmd := "sudo reboot"
+	cmd := "reboot"
 	if err = r.executeSSHCommand(sshClient, cmd); err != nil {
 		return
 	}
@@ -1183,9 +1183,9 @@ func (r *NodeReconciler) installHarborCert(ctx context.Context, sshClient *ssh.C
 	if !ok {
 		return false, nil
 	}
-	ubuntu := fmt.Sprintf("sudo touch %s && sudo chmod -R 666 %s && sudo echo \"%s\" > %s && sudo update-ca-certificates",
+	ubuntu := fmt.Sprintf("touch %s && chmod -R 666 %s && echo \"%s\" > %s && update-ca-certificates",
 		harborCACertPathUbuntu, harborCACertPathUbuntu, string(ca), harborCACertPathUbuntu)
-	centos := fmt.Sprintf("sudo touch %s && sudo chmod -R 666 %s && sudo echo \"%s\" > %s && sudo update-ca-trust",
+	centos := fmt.Sprintf("touch %s && chmod -R 666 %s && echo \"%s\" > %s && update-ca-trust",
 		harborCACertPathCentOS, harborCACertPathCentOS, string(ca), harborCACertPathCentOS)
 	cmd := fmt.Sprintf("command -v update-ca-certificates >/dev/null 2>&1 && (%s) || (%s)", ubuntu, centos)
 	if err = r.executeSSHCommand(sshClient, cmd); err != nil {
@@ -1276,6 +1276,17 @@ func bashRemoteScript(script string) string {
 }
 
 // executeSSHCommand executes a command via SSH on the specified node.
+//
+// All recipes here assume root privileges (systemctl, kubeadm reset, rm under
+// /etc/kubernetes, writing CA bundles, etc.). The SSH user provisioned for the
+// data plane is typically unprivileged but granted passwordless sudo by the
+// node-bootstrap step. Without the explicit sudo wrap below, every privileged
+// step in cleanCNICmd / resetNodeCmd / harbor CA install was silently swallowed
+// by the trailing `|| true`, leaving stale kubelet certs and /etc/kubernetes
+// content behind on rejoin and breaking kubeadm join preflight.
+//
+// We pipe the command through `base64 -d | bash` to avoid shell-quoting hazards
+// (commands may contain single quotes, heredocs, $vars, embedded newlines).
 func (r *NodeReconciler) executeSSHCommand(sshClient *ssh.Client, command string) error {
 	session, err := sshClient.NewSession()
 	if err != nil {
@@ -1286,7 +1297,10 @@ func (r *NodeReconciler) executeSSHCommand(sshClient *ssh.Client, command string
 	session.Stdout = &b
 	defer session.Close()
 
-	if err = session.Run(command); err != nil {
+	b64 := base64.StdEncoding.EncodeToString([]byte(command))
+	wrapped := fmt.Sprintf(`sudo -n bash -c "printf '%%s' '%s' | base64 -d | bash"`, b64)
+
+	if err = session.Run(wrapped); err != nil {
 		klog.ErrorS(err, "failed to execute command", "command", command)
 		return err
 	}
