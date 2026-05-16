@@ -421,11 +421,14 @@ func generateWorkerPod(action v1.ClusterManageAction, cluster *v1.Cluster, usern
 	return pod
 }
 
-// kubesprayPatchConntrackModprobeWhen patches node/tasks/main.yml before ansible-playbook.
-// Single-line sed (no heredoc) so bash -c in the worker Pod does not break on PYEOF boundaries.
-// The sed script is single-quoted so "| int" in the replacement is not interpreted as a shell pipe.
+// kubesprayPatchConntrackModprobeWhen fixes the conntrack modprobe loop when-clause before ansible-playbook.
+// The v2.24 .rc check breaks when register has no rc; the .get('rc',1) workaround still loops after success.
+// Upstream uses "not defined or is failed" so the loop stops after nf_conntrack loads on kernel 6.x.
 func kubesprayPatchConntrackModprobeWhen() string {
-	return `cd /kubespray && sed -i 's#(modprobe_conntrack_module|default({'"'"'rc'"'"': 1})).rc != 0#(modprobe_conntrack_module | default({})).get('"'"'rc'"'"', 1) | int != 0#g' roles/kubernetes/node/tasks/main.yml`
+	conntrackWhenFix := "modprobe_conntrack_module is not defined or modprobe_conntrack_module is failed"
+	return `cd /kubespray && ` +
+		`sed -i 's#(modprobe_conntrack_module|default({'"'"'rc'"'"': 1})).rc != 0#` + conntrackWhenFix + `#g' roles/kubernetes/node/tasks/main.yml && ` +
+		`sed -i 's#(modprobe_conntrack_module | default({})).get('"'"'rc'"'"', 1) | int != 0#` + conntrackWhenFix + `#g' roles/kubernetes/node/tasks/main.yml`
 }
 
 // generateScaleWorkerPod creates a worker pod for scaling operations.
@@ -475,6 +478,10 @@ func getKubeSprayEnv(cluster *v1.Cluster) string {
 	}
 	if cluster.Spec.ControlPlane.KubeProxyMode != nil {
 		cmd = fmt.Sprintf("%s -e kube_proxy_mode=%s", cmd, *cluster.Spec.ControlPlane.KubeProxyMode)
+		if *cluster.Spec.ControlPlane.KubeProxyMode == "ipvs" {
+			// nf_conntrack_ipv4 was removed on kernel 6.x; nf_conntrack is sufficient.
+			cmd = fmt.Sprintf(`%s -e '{"conntrack_modules":["nf_conntrack"]}'`, cmd)
+		}
 	}
 	if cluster.Spec.ControlPlane.KubeNetworkPlugin != nil {
 		cmd = fmt.Sprintf("%s -e kube_network_plugin=%s", cmd, *cluster.Spec.ControlPlane.KubeNetworkPlugin)
