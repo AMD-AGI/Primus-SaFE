@@ -322,6 +322,9 @@ func generateWorkerPod(action v1.ClusterManageAction, cluster *v1.Cluster, usern
 		kubeletArgs = fmt.Sprintf("%s \n  %s: %s", kubeletArgs, k, v)
 	}
 	cmd = fmt.Sprintf("sed -i \"/^kubelet_config_extra_args: /d\" roles/kubernetes/node/defaults/main.yml && echo \"%s\" >> roles/kubernetes/node/defaults/main.yml && %s", kubeletArgs, cmd)
+	if getKubesprayImage(cluster) == DefaultKubeSprayImage {
+		cmd = fmt.Sprintf("%s && %s", kubesprayPatchConntrackModprobeWhen(), cmd)
+	}
 
 	sshSecretName := cluster.Name
 	if cluster.Spec.ControlPlane.SSHSecret != nil {
@@ -417,6 +420,14 @@ func generateWorkerPod(action v1.ClusterManageAction, cluster *v1.Cluster, usern
 		}
 	}
 	return pod
+}
+
+// kubesprayPatchConntrackModprobeWhen fixes roles/kubernetes/node/tasks/main.yml in the default Kubespray image
+// (DefaultKubeSprayImage v2.24.0): the when-clause (modprobe_conntrack_module|default({'rc': 1})).rc != 0 fails
+// when the registered dict has no rc. Safe if the pattern is absent (sed exits 0). Only prepend when
+// getKubesprayImage(cluster) == DefaultKubeSprayImage; custom images must carry their own fix.
+func kubesprayPatchConntrackModprobeWhen() string {
+	return "sed -i \"s#(modprobe_conntrack_module|default({'rc': 1})).rc != 0#(modprobe_conntrack_module | default({})).get('rc', 1) | int != 0#g\" roles/kubernetes/node/tasks/main.yml"
 }
 
 // generateScaleWorkerPod creates a worker pod for scaling operations.
