@@ -421,18 +421,11 @@ func generateWorkerPod(action v1.ClusterManageAction, cluster *v1.Cluster, usern
 	return pod
 }
 
-// kubesprayPatchConntrackModprobeWhen patches node/tasks/main.yml before ansible-playbook when the broken
-// when-clause is present (e.g. Kubespray v2.24.x and primussafe/kubespray forks). No-op if already fixed.
+// kubesprayPatchConntrackModprobeWhen patches node/tasks/main.yml before ansible-playbook.
+// Single-line sed (no heredoc) so bash -c in the worker Pod does not break on PYEOF boundaries.
+// The sed script is single-quoted so "| int" in the replacement is not interpreted as a shell pipe.
 func kubesprayPatchConntrackModprobeWhen() string {
-	return `cd /kubespray && python3 <<'PYEOF'
-from pathlib import Path
-path = Path("/kubespray/roles/kubernetes/node/tasks/main.yml")
-text = path.read_text()
-old = "(modprobe_conntrack_module|default({'rc': 1})).rc != 0"
-new = "(modprobe_conntrack_module | default({})).get('rc', 1) | int != 0"
-if old in text:
-    path.write_text(text.replace(old, new, 1))
-PYEOF`
+	return `cd /kubespray && sed -i 's#(modprobe_conntrack_module|default({'"'"'rc'"'"': 1})).rc != 0#(modprobe_conntrack_module | default({})).get('"'"'rc'"'"', 1) | int != 0#g' roles/kubernetes/node/tasks/main.yml`
 }
 
 // generateScaleWorkerPod creates a worker pod for scaling operations.
