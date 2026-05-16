@@ -322,7 +322,7 @@ func generateWorkerPod(action v1.ClusterManageAction, cluster *v1.Cluster, usern
 		kubeletArgs = fmt.Sprintf("%s \n  %s: %s", kubeletArgs, k, v)
 	}
 	cmd = fmt.Sprintf("sed -i \"/^kubelet_config_extra_args: /d\" roles/kubernetes/node/defaults/main.yml && echo \"%s\" >> roles/kubernetes/node/defaults/main.yml && %s", kubeletArgs, cmd)
-	if getKubesprayImage(cluster) == DefaultKubeSprayImage {
+	if shouldApplyKubesprayConntrackModprobePatch(image) {
 		cmd = fmt.Sprintf("%s && %s", kubesprayPatchConntrackModprobeWhen(), cmd)
 	}
 
@@ -352,10 +352,11 @@ func generateWorkerPod(action v1.ClusterManageAction, cluster *v1.Cluster, usern
 		Spec: corev1.PodSpec{
 			Containers: []corev1.Container{
 				{
-					Name:    string(action),
-					Command: []string{"/bin/bash", "-c"},
-					Args:    []string{cmd},
-					Image:   image,
+					Name:       string(action),
+					Command:    []string{"/bin/bash", "-c"},
+					Args:       []string{cmd},
+					Image:      image,
+					WorkingDir: pointer.String("/kubespray"),
 					VolumeMounts: []corev1.VolumeMount{
 						{
 							Name:      ClusterKubeSprayHosts,
@@ -422,12 +423,29 @@ func generateWorkerPod(action v1.ClusterManageAction, cluster *v1.Cluster, usern
 	return pod
 }
 
-// kubesprayPatchConntrackModprobeWhen fixes roles/kubernetes/node/tasks/main.yml in the default Kubespray image
-// (DefaultKubeSprayImage v2.24.0): the when-clause (modprobe_conntrack_module|default({'rc': 1})).rc != 0 fails
-// when the registered dict has no rc. Safe if the pattern is absent (sed exits 0). Only prepend when
-// getKubesprayImage(cluster) == DefaultKubeSprayImage; custom images must carry their own fix.
+// shouldApplyKubesprayConntrackModprobePatch enables the v2.24.0 playbook fix (default image or same :v2.24.0 tag).
+func shouldApplyKubesprayConntrackModprobePatch(image string) bool {
+	if image == "" {
+		return false
+	}
+	return image == DefaultKubeSprayImage ||
+		strings.HasSuffix(image, ":v2.24.0") ||
+		strings.Contains(image, ":v2.24.0@")
+}
+
+// kubesprayPatchConntrackModprobeWhen patches Kubespray v2.24.0 node/tasks/main.yml before ansible-playbook.
+// Uses Python instead of sed so bash does not treat "| int" in the replacement as a shell pipe.
 func kubesprayPatchConntrackModprobeWhen() string {
-	return "sed -i \"s#(modprobe_conntrack_module|default({'rc': 1})).rc != 0#(modprobe_conntrack_module | default({})).get('rc', 1) | int != 0#g\" roles/kubernetes/node/tasks/main.yml"
+	return `cd /kubespray && python3 <<'PYEOF'
+from pathlib import Path
+path = Path("/kubespray/roles/kubernetes/node/tasks/main.yml")
+text = path.read_text()
+old = "(modprobe_conntrack_module|default({'rc': 1})).rc != 0"
+new = "(modprobe_conntrack_module | default({})).get('rc', 1) | int != 0"
+if old not in text:
+    raise SystemExit("kubespray conntrack modprobe patch: pattern not found in " + str(path))
+path.write_text(text.replace(old, new, 1))
+PYEOF`
 }
 
 // generateScaleWorkerPod creates a worker pod for scaling operations.
