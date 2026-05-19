@@ -29,7 +29,7 @@ const (
 	defaultGeakStepLimit  = 100
 	defaultRayReplica     = 1
 	defaultRayGpu         = 1
-	defaultRayCPU         = 32
+	defaultRayCPU         = 12
 	defaultRayMemoryGi    = 128
 	raySharedMemoryGi     = 500
 
@@ -288,15 +288,16 @@ func firstNonEmpty(values ...string) string {
 	return ""
 }
 
-// rayCPUForTP mirrors Hyperloom-Web's GPU_RESOURCE_MAP CPU presets.
+// rayCPUForTP returns the Ray CPU request for a given TP, using a linear
+// 12 CPU per GPU ratio (e.g. TP=1 → 12, TP=8 → 96).
 func rayCPUForTP(tp int) int {
 	switch tp {
 	case 1:
-		return 32
+		return 12
 	case 2:
-		return 64
+		return 24
 	case 4:
-		return 96
+		return 48
 	case 8:
 		return 96
 	default:
