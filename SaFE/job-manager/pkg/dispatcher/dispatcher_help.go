@@ -844,10 +844,19 @@ func buildSharedMemoryVolume(sizeLimit string) interface{} {
 
 // buildStrategy creates deployment strategy configuration.
 func buildStrategy(workload *v1.Workload) map[string]interface{} {
+	// Guard against nil Service: Workload.Spec.Service is *Service and
+	// many workload kinds (e.g. RayJob without an externally-exposed
+	// service) omit it entirely. Dereferencing a nil Service panics
+	// the workload controller's reconcile loop.
+	if workload == nil || workload.Spec.Service == nil {
+		return nil
+	}
 	keys := []string{"maxSurge", "maxUnavailable"}
 	rollingUpdate := make(map[string]interface{})
 	for _, key := range keys {
-		rollingUpdate[key] = workload.Spec.Service.Extends[key]
+		if v, ok := workload.Spec.Service.Extends[key]; ok && v != "" {
+			rollingUpdate[key] = v
+		}
 	}
 	if len(rollingUpdate) == 0 {
 		return nil
