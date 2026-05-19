@@ -76,7 +76,7 @@ data:
   # Disk: 4XX
   disk_nfs_mount_401: '{"script":"disk_nfs_mount_401.sh","id":"401","cronjob":"@every 300s","timeoutSecond":250,"toggle":"on","chip":"amd","arguments":["{{ .Values.monitor.nfs_mount }}","{{ .Values.monitor.nfs_server }}","{{ .Values.monitor.nfs_server_path }}","{{ .Values.monitor.nfs_type }}"]}'
   disk_nfs_exist_check_402: '{"script":"disk_nfs_exist_check_402.sh","id":"402","cronjob":"@every 300s","timeoutSecond":250,"toggle":"{{ .Values.monitor.toggles.disk_nfs_exist_check_402 }}","chip":"amd","arguments":["{{ .Values.monitor.all_nfs_path }}"]}'
-  disk_wekafs_dstuck_restart_403: '{"script":"disk_wekafs_dstuck_restart_403.sh","id":"403","cronjob":"@every 600s","timeoutSecond":60,"toggle":"on","chip":"amd","arguments":["{{ .Values.monitor.nfs_type }}"]}'
+  disk_wekafs_dstuck_restart_403: '{"script":"disk_wekafs_dstuck_restart_403.sh","id":"403","cronjob":"@every 600s","timeoutSecond":60,"toggle":"off","consecutiveCount":2,"chip":"amd","arguments":["{{ .Values.monitor.nfs_type }}"]}'
   disk_ephemeral_storage_404: '{"script":"disk_ephemeral_storage_404.sh","id":"404","cronjob":"@every 300s","timeoutSecond":250,"toggle":"on","chip":"amd","arguments":["$Node"]}'
   disk_oci_bind_mount_405: '{"script":"disk_oci_bind_mount_405.sh","id":"405","cronjob":"@every 300s","timeoutSecond":250,"toggle":"on","chip":"amd","arguments":["{{ .Values.node_agent.sub_domain }}"]}'
   disk_nvme_count_406: '{"script":"disk_nvme_count_406.sh","id":"406","cronjob":"@every 300s","timeoutSecond":250,"toggle":"on","chip":"amd","arguments":["$Node"]}'
