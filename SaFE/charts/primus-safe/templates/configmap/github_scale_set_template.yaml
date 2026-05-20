@@ -46,6 +46,10 @@ data:
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.name
+            - name: HOSTNAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
           volumeMounts:
           - name: podinfo
             mountPath: /etc/podinfo
