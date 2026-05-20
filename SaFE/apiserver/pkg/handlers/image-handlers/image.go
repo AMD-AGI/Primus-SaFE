@@ -551,7 +551,11 @@ func (h *ImageHandler) getImportingLogs(c *gin.Context) (interface{}, error) {
 	untilTime := time.Now().UTC()
 
 	searchBody := buildImportLogSearchBody(importImage.JobName, sinceTime, untilTime, limit, order)
-	return opensearchClient.SearchByTimeRange(sinceTime, untilTime, "", "/_search", searchBody)
+	resp, err := opensearchClient.SearchByTimeRange(sinceTime, untilTime, "", "/_search", searchBody)
+	if err != nil {
+		return nil, err
+	}
+	return commonsearch.NormalizeLogResponseMessage(resp), nil
 }
 
 // buildImportLogSearchBody builds the OpenSearch query body for import job logs.
@@ -561,7 +565,8 @@ func buildImportLogSearchBody(jobName string, sinceTime, untilTime time.Time, li
 		From: 0,
 		Size: limit,
 		Source: []string{
-			commonsearch.TimeField, commonsearch.MessageField, commonsearch.StreamField,
+			commonsearch.TimeField, commonsearch.MessageField, commonsearch.LogField,
+			commonsearch.StreamField,
 			"kubernetes.pod_name", "kubernetes.host", "kubernetes.container_name",
 		},
 	}

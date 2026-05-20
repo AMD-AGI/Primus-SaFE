@@ -873,6 +873,7 @@ func TestAddContextDoc(t *testing.T) {
 							Timestamp  string `json:"@timestamp"`
 							Stream     string `json:"stream,omitempty"`
 							Message    string `json:"message,omitempty"`
+							Log        string `json:"log,omitempty"`
 							Line       int    `json:"line,omitempty"`
 							Kubernetes struct {
 								PodName string `json:"pod_name,omitempty"`
@@ -907,6 +908,7 @@ func TestAddContextDoc(t *testing.T) {
 							Timestamp  string `json:"@timestamp"`
 							Stream     string `json:"stream,omitempty"`
 							Message    string `json:"message,omitempty"`
+							Log        string `json:"log,omitempty"`
 							Line       int    `json:"line,omitempty"`
 							Kubernetes struct {
 								PodName string `json:"pod_name,omitempty"`
@@ -925,6 +927,7 @@ func TestAddContextDoc(t *testing.T) {
 							Timestamp  string `json:"@timestamp"`
 							Stream     string `json:"stream,omitempty"`
 							Message    string `json:"message,omitempty"`
+							Log        string `json:"log,omitempty"`
 							Line       int    `json:"line,omitempty"`
 							Kubernetes struct {
 								PodName string `json:"pod_name,omitempty"`
@@ -943,6 +946,7 @@ func TestAddContextDoc(t *testing.T) {
 							Timestamp  string `json:"@timestamp"`
 							Stream     string `json:"stream,omitempty"`
 							Message    string `json:"message,omitempty"`
+							Log        string `json:"log,omitempty"`
 							Line       int    `json:"line,omitempty"`
 							Kubernetes struct {
 								PodName string `json:"pod_name,omitempty"`

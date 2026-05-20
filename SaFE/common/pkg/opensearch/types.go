@@ -6,8 +6,15 @@
 package opensearch
 
 const (
-	TimeField       = "@timestamp"
-	MessageField    = "message"
+	TimeField    = "@timestamp"
+	MessageField = "message"
+	// LogField is the raw text field produced by fluent-bit's `cri` parser before
+	// any rename filter. We treat it as the authoritative fallback whenever the
+	// preferred `message` field is missing in OpenSearch documents — for example
+	// on clusters whose FluentBit pipeline has not been migrated to the
+	// `Rename log message` modify filter yet. Read paths must request both
+	// fields and prefer `message` when present.
+	LogField        = "log"
 	StreamField     = "stream"
 	MaxDocsPerQuery = 10000
 )
@@ -49,6 +56,10 @@ type OpenSearchLogDoc struct {
 		Timestamp string `json:"@timestamp"`
 		Stream    string `json:"stream,omitempty"`
 		Message   string `json:"message,omitempty"`
+		// Log is the raw text field written by fluent-bit's `cri` parser when
+		// the cluster's pipeline has not renamed it to `message`. Consumers
+		// must read it through EffectiveMessage to handle both pipelines.
+		Log string `json:"log,omitempty"`
 		// for context search
 		Line       int `json:"line,omitempty"`
 		Kubernetes struct {
@@ -79,6 +90,33 @@ type OpenSearchLogResponse struct {
 	// Total number of returned documents
 	Hits     OpenSearchLogHits `json:"hits"`
 	ScrollId string            `json:"_scroll_id,omitempty"`
+}
+
+// EffectiveMessage returns the canonical message body for a hit, falling back to
+// the raw `log` field when the cluster's fluent-bit pipeline did not rename it
+// to `message`. Always use this instead of reading Source.Message directly so
+// callers behave consistently across heterogeneous pipelines.
+func (d *OpenSearchLogDoc) EffectiveMessage() string {
+	if d.Source.Message != "" {
+		return d.Source.Message
+	}
+	return d.Source.Log
+}
+
+// NormalizeMessages copies the raw `log` field into `Message` for every hit
+// whose `Message` is empty. Use it whenever a typed response is returned to a
+// client that expects the canonical `message` key, so heterogeneous fluent-bit
+// pipelines are transparent to consumers.
+func (r *OpenSearchLogResponse) NormalizeMessages() {
+	if r == nil {
+		return
+	}
+	for i := range r.Hits.Hits {
+		doc := &r.Hits.Hits[i]
+		if doc.Source.Message == "" && doc.Source.Log != "" {
+			doc.Source.Message = doc.Source.Log
+		}
+	}
 }
 
 type OpenSearchEventDoc struct {
