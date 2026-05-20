@@ -344,6 +344,14 @@ data:
               value: "1"
             - name: APISERVER_NODE_PORT
               value: "32495"
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: HOSTNAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
           image: docker.io/primussafe/cicd-runner-proxy:latest
           name: runner
           resources:
