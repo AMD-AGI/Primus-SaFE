@@ -846,6 +846,35 @@ func TestProxyLLMRequest_NoBinding(t *testing.T) {
 	assert.Equal(t, http.StatusForbidden, w.Code)
 }
 
+func TestRecoverReverseProxyAbortSuppressesErrAbortHandler(t *testing.T) {
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	req, _ := http.NewRequest(http.MethodPost, "/api/v1/llm-proxy/v1/messages", nil)
+	c.Request = req
+
+	assert.NotPanics(t, func() {
+		func() {
+			defer recoverReverseProxyAbort(c)
+			panic(http.ErrAbortHandler)
+		}()
+	})
+	assert.True(t, c.IsAborted())
+}
+
+func TestRecoverReverseProxyAbortRePanicsUnexpectedPanic(t *testing.T) {
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	req, _ := http.NewRequest(http.MethodPost, "/api/v1/llm-proxy/v1/messages", nil)
+	c.Request = req
+
+	assert.Panics(t, func() {
+		func() {
+			defer recoverReverseProxyAbort(c)
+			panic("unexpected")
+		}()
+	})
+}
+
 // ── GetUsage tests ────────────────────────────────────────────────────────
 
 func TestGetUsage_Success(t *testing.T) {

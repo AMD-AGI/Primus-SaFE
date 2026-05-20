@@ -36,14 +36,14 @@ type BudgetResponse struct {
 
 // ── Tag Usage Response types ──────────────────────────────────────────────
 type TagUsageResponse struct {
-	UserEmail               string              `json:"user_email"`
-	StartDate               string              `json:"start_date"`
-	EndDate                 string              `json:"end_date"`
-	TotalSpend              float64             `json:"total_spend"`
-	TotalRequests           int64               `json:"total_requests"`
-	TotalSuccessfulRequests int64               `json:"total_successful_requests"`
-	TotalFailedRequests     int64               `json:"total_failed_requests"`
-	TotalTokens             int64               `json:"total_tokens"`
+	UserEmail               string               `json:"user_email"`
+	StartDate               string               `json:"start_date"`
+	EndDate                 string               `json:"end_date"`
+	TotalSpend              float64              `json:"total_spend"`
+	TotalRequests           int64                `json:"total_requests"`
+	TotalSuccessfulRequests int64                `json:"total_successful_requests"`
+	TotalFailedRequests     int64                `json:"total_failed_requests"`
+	TotalTokens             int64                `json:"total_tokens"`
 	Daily                   []TagUsageDailyEntry `json:"daily"`
 	Tags                    []TagUsageItem       `json:"tags"`
 	Page                    int                  `json:"page"`
@@ -58,13 +58,13 @@ type TagUsageDailyEntry struct {
 }
 
 type TagUsageItem struct {
-	TagName          *string `json:"tag_name"`
-	Spend            float64 `json:"spend"`
-	APIRequests      int64   `json:"api_requests"`
-	SuccessfulRequests int64 `json:"successful_requests"`
-	FailedRequests   int64   `json:"failed_requests"`
-	PromptTokens     int64   `json:"prompt_tokens"`
-	CompletionTokens int64   `json:"completion_tokens"`
+	TagName            *string `json:"tag_name"`
+	Spend              float64 `json:"spend"`
+	APIRequests        int64   `json:"api_requests"`
+	SuccessfulRequests int64   `json:"successful_requests"`
+	FailedRequests     int64   `json:"failed_requests"`
+	PromptTokens       int64   `json:"prompt_tokens"`
+	CompletionTokens   int64   `json:"completion_tokens"`
 }
 
 const (
