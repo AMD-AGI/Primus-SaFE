@@ -192,31 +192,13 @@ func TestAggregateByTag_WithFilter(t *testing.T) {
 	assert.Len(t, result.tags, 2)
 }
 
-func TestGetTagUsage_SuccessPaginationAndSorting(t *testing.T) {
+func TestGetTagUsage_ReturnsEmptyWithoutCallingLiteLLM(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
 	mockDB := mock_client.NewMockInterface(ctrl)
 	litellm := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		assert.Equal(t, "/spend/logs/v2", r.URL.Path)
-		assert.Equal(t, "test@amd.com", r.URL.Query().Get("user_id"))
-		assert.Equal(t, "2026-03-01", r.URL.Query().Get("start_date"))
-		assert.Equal(t, "2026-03-10", r.URL.Query().Get("end_date"))
-		assert.Equal(t, "1", r.URL.Query().Get("page"))
-		assert.Equal(t, "100", r.URL.Query().Get("page_size"))
-
-		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(SpendLogsResponse{
-			Data: []SpendLogEntry{
-				{Spend: 1.0, RequestTags: json.RawMessage(`["alpha"]`)},
-				{Spend: 5.0, RequestTags: json.RawMessage(`["beta"]`)},
-				{Spend: 3.0, RequestTags: json.RawMessage(`["alpha","User-Agent:SAFE"]`)},
-				{Spend: 2.0, RequestTags: json.RawMessage(`[]`)},
-			},
-			Page:       1,
-			PageSize:   100,
-			TotalPages: 1,
-		})
+		t.Fatalf("tag usage should not call LiteLLM, got path: %s", r.URL.Path)
 	}))
 	defer litellm.Close()
 
@@ -241,21 +223,13 @@ func TestGetTagUsage_SuccessPaginationAndSorting(t *testing.T) {
 	err := json.Unmarshal(w.Body.Bytes(), &resp)
 	assert.NoError(t, err)
 	assert.Equal(t, "test@amd.com", resp.UserEmail)
-	assert.Equal(t, 11.0, resp.TotalSpend)
-	assert.Equal(t, int64(4), resp.TotalRequests)
+	assert.Equal(t, 0.0, resp.TotalSpend)
+	assert.Equal(t, int64(0), resp.TotalRequests)
 	assert.Equal(t, 2, resp.PageSize)
-	assert.Equal(t, 3, resp.Total)
-	assert.Equal(t, 2, resp.TotalPages)
-	if assert.Len(t, resp.Tags, 2) {
-		if assert.NotNil(t, resp.Tags[0].TagName) {
-			assert.Equal(t, "beta", *resp.Tags[0].TagName)
-		}
-		assert.Equal(t, 5.0, resp.Tags[0].Spend)
-		if assert.NotNil(t, resp.Tags[1].TagName) {
-			assert.Equal(t, "alpha", *resp.Tags[1].TagName)
-		}
-		assert.Equal(t, 4.0, resp.Tags[1].Spend)
-	}
+	assert.Equal(t, 0, resp.Total)
+	assert.Equal(t, 0, resp.TotalPages)
+	assert.Empty(t, resp.Daily)
+	assert.Empty(t, resp.Tags)
 }
 
 func TestGetTagUsage_MissingDates(t *testing.T) {
@@ -288,15 +262,7 @@ func TestGetTagUsage_UsesDefaultAndMaxPaginationBounds(t *testing.T) {
 
 	mockDB := mock_client.NewMockInterface(ctrl)
 	litellm := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(SpendLogsResponse{
-			Data: []SpendLogEntry{
-				{Spend: 2.0, RequestTags: json.RawMessage(`["alpha"]`)},
-			},
-			Page:       1,
-			PageSize:   100,
-			TotalPages: 1,
-		})
+		t.Fatalf("tag usage should not call LiteLLM, got path: %s", r.URL.Path)
 	}))
 	defer litellm.Close()
 
