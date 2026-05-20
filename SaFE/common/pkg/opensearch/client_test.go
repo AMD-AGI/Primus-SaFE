@@ -6,6 +6,7 @@
 package opensearch
 
 import (
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -67,4 +68,109 @@ func TestQueryIndex(t *testing.T) {
 			assert.Equal(t, result, test.result)
 		})
 	}
+}
+
+func TestNormalizeLogResponseMessage(t *testing.T) {
+	tests := []struct {
+		name        string
+		input       string
+		expectMsg   []string
+		expectChange bool
+	}{
+		{
+			name: "fills empty message from log field",
+			input: `{"took":1,"hits":{"total":{"value":2},"hits":[
+				{"_id":"a","_source":{"@timestamp":"t1","log":"hello from log"}},
+				{"_id":"b","_source":{"@timestamp":"t2","message":"already set","log":"shadowed"}}
+			]}}`,
+			expectMsg:    []string{"hello from log", "already set"},
+			expectChange: true,
+		},
+		{
+			name: "no change when message present and log absent",
+			input: `{"took":1,"hits":{"total":{"value":1},"hits":[
+				{"_id":"a","_source":{"@timestamp":"t1","message":"only message"}}
+			]}}`,
+			expectMsg:    []string{"only message"},
+			expectChange: false,
+		},
+		{
+			name: "treats null message as missing",
+			input: `{"took":1,"hits":{"total":{"value":1},"hits":[
+				{"_id":"a","_source":{"@timestamp":"t1","message":null,"log":"from log"}}
+			]}}`,
+			expectMsg:    []string{"from log"},
+			expectChange: true,
+		},
+		{
+			name: "treats empty-string message as missing",
+			input: `{"took":1,"hits":{"total":{"value":1},"hits":[
+				{"_id":"a","_source":{"@timestamp":"t1","message":"","log":"from log"}}
+			]}}`,
+			expectMsg:    []string{"from log"},
+			expectChange: true,
+		},
+		{
+			name: "skips hit when both fields missing",
+			input: `{"took":1,"hits":{"total":{"value":1},"hits":[
+				{"_id":"a","_source":{"@timestamp":"t1","stream":"stdout"}}
+			]}}`,
+			expectMsg:    []string{""},
+			expectChange: false,
+		},
+		{
+			name: "tolerates empty body",
+			input: ``,
+			expectMsg:    nil,
+			expectChange: false,
+		},
+		{
+			name: "tolerates malformed body",
+			input: `{"hits":`,
+			expectMsg:    nil,
+			expectChange: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			out := NormalizeLogResponseMessage([]byte(tt.input))
+			if !tt.expectChange {
+				assert.Equal(t, string(out), tt.input)
+				return
+			}
+			var parsed struct {
+				Hits struct {
+					Hits []struct {
+						Source struct {
+							Message string `json:"message"`
+						} `json:"_source"`
+					} `json:"hits"`
+				} `json:"hits"`
+			}
+			assert.NilError(t, json.Unmarshal(out, &parsed))
+			assert.Equal(t, len(parsed.Hits.Hits), len(tt.expectMsg))
+			for i, want := range tt.expectMsg {
+				assert.Equal(t, parsed.Hits.Hits[i].Source.Message, want)
+			}
+		})
+	}
+}
+
+func TestEffectiveMessageAndNormalize(t *testing.T) {
+	resp := &OpenSearchLogResponse{}
+	resp.Hits.Hits = make([]OpenSearchLogDoc, 3)
+	resp.Hits.Hits[0].Source.Message = "primary"
+	resp.Hits.Hits[0].Source.Log = "fallback ignored"
+	resp.Hits.Hits[1].Source.Log = "fallback used"
+	// hit [2] has neither field.
+
+	assert.Equal(t, resp.Hits.Hits[0].EffectiveMessage(), "primary")
+	assert.Equal(t, resp.Hits.Hits[1].EffectiveMessage(), "fallback used")
+	assert.Equal(t, resp.Hits.Hits[2].EffectiveMessage(), "")
+
+	resp.NormalizeMessages()
+	assert.Equal(t, resp.Hits.Hits[0].Source.Message, "primary")
+	assert.Equal(t, resp.Hits.Hits[1].Source.Message, "fallback used")
+	assert.Equal(t, resp.Hits.Hits[2].Source.Message, "")
 }
