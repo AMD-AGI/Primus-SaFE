@@ -1128,6 +1128,223 @@ func updateMonarchMesh(obj *unstructured.Unstructured, adminWorkload *v1.Workloa
 	return nil
 }
 
+// normalizeDynamoDGD finalizes a freshly-rendered DGD object so the upstream
+// Dynamo operator accepts it. The dispatcher's generic flow populates the five
+// role-agnostic slots (services.role0..role4) with image / env / resources /
+// replicas; this function reshapes those slots into the role-aware structure
+// the operator expects.
+//
+// Concretely it:
+//   - renames services.role<i> -> services.<role-based key> based on the
+//     primus-safe.dynamo.service-roles annotation
+//   - injects componentType / subComponentType / role-specific env per role
+//   - moves containers[name=main] into extraPodSpec.mainContainer because the
+//     DGD operator treats containers[] as sidecars and only mainContainer
+//     overrides image/command/args/env on the framework-generated container
+//     (see dynamo/deploy/operator/internal/dynamo/graph.go line ~1014)
+//   - injects multinode.numberOfNodes when annotation
+//     primus-safe.dynamo.multinode.<role> is set
+//   - propagates backendFramework from annotation to spec.backendFramework
+//
+// Errors here imply a programming bug or a corrupt rendered object; the webhook
+// (validateDynamoDeployment) rejects malformed inputs before they reach the
+// dispatcher.
+func normalizeDynamoDGD(obj *unstructured.Unstructured, adminWorkload *v1.Workload) error {
+	roles := commonworkload.GetDynamoServiceRoles(adminWorkload)
+	if len(roles) == 0 {
+		return fmt.Errorf("dynamo deployment %s has no service roles", adminWorkload.Name)
+	}
+	kvBackend := commonworkload.GetDynamoKVTransferBackend(adminWorkload)
+	backendFramework := commonworkload.GetDynamoBackendFramework(adminWorkload)
+
+	if err := jobutils.SetNestedField(obj.Object, backendFramework,
+		[]string{"spec", "backendFramework"}); err != nil {
+		return fmt.Errorf("set spec.backendFramework: %w", err)
+	}
+
+	services, found, err := jobutils.NestedMap(obj.Object, []string{"spec", "services"})
+	if err != nil {
+		return fmt.Errorf("get spec.services: %w", err)
+	}
+	if !found {
+		return fmt.Errorf("spec.services not found in rendered DGD %s", adminWorkload.Name)
+	}
+
+	for i, role := range roles {
+		slotKey := "role" + strconv.Itoa(i)
+		slot, ok := services[slotKey].(map[string]interface{})
+		if !ok {
+			return fmt.Errorf("dynamo slot %s missing or wrong type", slotKey)
+		}
+
+		applyDynamoRoleFields(slot, role, kvBackend)
+
+		if err := convertContainersToMainContainer(slot); err != nil {
+			return fmt.Errorf("convert containers->mainContainer for role %s: %w", role, err)
+		}
+
+		if n := commonworkload.GetDynamoMultinode(adminWorkload, role); n > 1 {
+			slot["multinode"] = map[string]interface{}{
+				"numberOfNodes": int64(n),
+			}
+		}
+
+		// Rename slot key last so the operations above never lose track of the
+		// active map reference.
+		if targetKey := dynamoServiceKey(role); targetKey != slotKey {
+			services[targetKey] = slot
+			delete(services, slotKey)
+		}
+	}
+	if err := jobutils.SetNestedField(obj.Object, services,
+		[]string{"spec", "services"}); err != nil {
+		return fmt.Errorf("set spec.services: %w", err)
+	}
+	return nil
+}
+
+// dynamoServiceKey maps the SaFE role string to the conventional DGD service
+// key. The casing mirrors the upstream sglang examples (dynamo/examples/sglang)
+// and is what the operator's frontend sidecar logic / rolling-update
+// controller expect when discovering services by name.
+func dynamoServiceKey(role string) string {
+	switch role {
+	case common.DynamoRoleFrontend:
+		return "Frontend"
+	case common.DynamoRoleWorker:
+		return "Worker"
+	case common.DynamoRolePrefill:
+		return "PrefillWorker"
+	case common.DynamoRoleDecode:
+		return "DecodeWorker"
+	case common.DynamoRolePlanner:
+		return "Planner"
+	case common.DynamoRoleEpp:
+		return "Epp"
+	default:
+		return role
+	}
+}
+
+// applyDynamoRoleFields sets componentType / subComponentType / role-specific
+// env on a DGD service slot. componentType drives the operator's per-service
+// logic (Frontend gets a Service + HTTP probe, Main gets a worker Deployment,
+// Planner gets the autoscaling planner, etc.). subComponentType distinguishes
+// prefill vs decode within the Main type and triggers the operator's
+// disaggregation wiring.
+func applyDynamoRoleFields(slot map[string]interface{}, role, kvBackend string) {
+	switch role {
+	case common.DynamoRoleFrontend:
+		slot["componentType"] = "Frontend"
+		delete(slot, "subComponentType")
+	case common.DynamoRoleWorker:
+		slot["componentType"] = "Main"
+		delete(slot, "subComponentType")
+	case common.DynamoRolePrefill:
+		slot["componentType"] = "Main"
+		slot["subComponentType"] = "prefill"
+		injectSglangDisaggEnv(slot, "prefill", kvBackend)
+	case common.DynamoRoleDecode:
+		slot["componentType"] = "Main"
+		slot["subComponentType"] = "decode"
+		injectSglangDisaggEnv(slot, "decode", kvBackend)
+	case common.DynamoRolePlanner:
+		slot["componentType"] = "Planner"
+		delete(slot, "subComponentType")
+	case common.DynamoRoleEpp:
+		slot["componentType"] = "EPP"
+		delete(slot, "subComponentType")
+	}
+}
+
+// injectSglangDisaggEnv adds SGLANG disaggregation env vars to the main
+// container (still under containers[] at this point;
+// convertContainersToMainContainer relocates them shortly after). The variable
+// names follow sglang upstream's disaggregation worker; see
+// dynamo/examples/sglang/disagg/ for the canonical example.
+func injectSglangDisaggEnv(slot map[string]interface{}, mode, kvBackend string) {
+	extra, _ := slot["extraPodSpec"].(map[string]interface{})
+	if extra == nil {
+		return
+	}
+	containers, _ := extra["containers"].([]interface{})
+	for i, c := range containers {
+		m, ok := c.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		if name, _ := m["name"].(string); name != "main" {
+			continue
+		}
+		env, _ := m["env"].([]interface{})
+		env = appendDynamoEnvOnce(env, "SGLANG_DISAGGREGATION_MODE", mode)
+		env = appendDynamoEnvOnce(env, "SGLANG_DISAGGREGATION_BOOTSTRAP_PORT",
+			strconv.Itoa(common.DynamoBootstrapPort))
+		env = appendDynamoEnvOnce(env, "SGLANG_DISAGGREGATION_TRANSFER_BACKEND", kvBackend)
+		m["env"] = env
+		containers[i] = m
+	}
+	extra["containers"] = containers
+	slot["extraPodSpec"] = extra
+}
+
+// appendDynamoEnvOnce appends a {name,value} entry only when the same name is
+// not already present. An existing entry wins (user override or webhook
+// injection takes precedence over the dispatcher defaults).
+func appendDynamoEnvOnce(env []interface{}, name, value string) []interface{} {
+	for _, e := range env {
+		m, ok := e.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		if n, _ := m["name"].(string); n == name {
+			return env
+		}
+	}
+	return append(env, map[string]interface{}{
+		"name":  name,
+		"value": value,
+	})
+}
+
+// convertContainersToMainContainer moves the main container (the one named
+// "main" produced by the SaFE template) into extraPodSpec.mainContainer.
+// The DGD operator treats extraPodSpec.containers[] as additional sidecars and
+// only inspects mainContainer to override image / command / args / env on the
+// framework-generated primary container. See dynamo/deploy/operator/internal/
+// dynamo/graph.go around line 1014.
+func convertContainersToMainContainer(slot map[string]interface{}) error {
+	extra, _ := slot["extraPodSpec"].(map[string]interface{})
+	if extra == nil {
+		return nil
+	}
+	containers, _ := extra["containers"].([]interface{})
+	var main map[string]interface{}
+	remaining := make([]interface{}, 0, len(containers))
+	for _, c := range containers {
+		m, ok := c.(map[string]interface{})
+		if !ok {
+			remaining = append(remaining, c)
+			continue
+		}
+		if name, _ := m["name"].(string); name == "main" && main == nil {
+			main = m
+			continue
+		}
+		remaining = append(remaining, c)
+	}
+	if main != nil {
+		extra["mainContainer"] = main
+	}
+	if len(remaining) == 0 {
+		delete(extra, "containers")
+	} else {
+		extra["containers"] = remaining
+	}
+	slot["extraPodSpec"] = extra
+	return nil
+}
+
 // injectSandboxEnvdAuthPublicKey loads public PEM from a data-plane Secret (config: sandbox namespace/secret) into workload env.
 func injectSandboxEnvdAuthPublicKey(ctx context.Context, clientSets *syncer.ClusterClientSets, adminWorkload *v1.Workload) error {
 	if adminWorkload.GetEnv(sandboxAuthPublicKeyEnvName) != "" {
@@ -1405,7 +1622,15 @@ func updatePriorityClass(adminWorkload *v1.Workload,
 func getContainers(adminWorkload *v1.Workload, obj *unstructured.Unstructured, resourceSpec v1.ResourceSpec) ([]interface{}, []string, error) {
 	templatePath := resourceSpec.TemplatePath()
 	podSpec := getPodSpec(adminWorkload)
-	path := append(templatePath, podSpec, "containers")
+	var path []string
+	// DGD ExtraPodSpec embeds PodSpec inline, so containers live directly under
+	// extraPodSpec (no nested "spec" wrapper). PyTorchJob / Deployment / RayJob
+	// all wrap pods in template.spec.containers and keep the "spec" segment.
+	if podSpec == "" {
+		path = append(templatePath, "containers")
+	} else {
+		path = append(templatePath, podSpec, "containers")
+	}
 	containers, found, err := jobutils.NestedSlice(obj.Object, path)
 	if err != nil {
 		return nil, nil, err
@@ -1450,11 +1675,17 @@ func buildDispatchCount(w *v1.Workload) string {
 }
 
 func getPodSpec(w *v1.Workload) string {
-	podSpec := "spec"
 	if commonworkload.IsMonarchMesh(w) {
-		podSpec = "podTemplate"
+		return "podTemplate"
 	}
-	return podSpec
+	// DGD `extraPodSpec` embeds PodSpec inline (see dynamo
+	// operator/api/v1alpha1/common.go::ExtraPodSpec), so the rendered yaml has
+	// containers directly under extraPodSpec rather than under the standard
+	// pyt./dep./ray "template.spec.containers" path.
+	if commonworkload.IsDynamoDeployment(w) {
+		return ""
+	}
+	return "spec"
 }
 
 func generateUserDir(userId string) string {

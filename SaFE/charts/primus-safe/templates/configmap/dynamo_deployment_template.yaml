@@ -1,0 +1,165 @@
+#
+# Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
+# See LICENSE for license information.
+#
+# DynamoDeployment template — wraps the upstream nvidia.com/v1alpha1
+# DynamoGraphDeployment (DGD) CR. The dispatcher renders this template into a
+# concrete DGD object per Workload using ResourceTemplate path expressions.
+#
+# Design (Phase 2 step 7 of the dynamo integration plan):
+#
+#   The DGD `spec.services` map exposes user-configurable services (Frontend,
+#   Worker, PrefillWorker, DecodeWorker, Planner, ...). SaFE expresses these
+#   via the `primus-safe.dynamo.service-roles` annotation in any order. The
+#   dispatcher's generic flow maps user Resources[i] to ResourceTemplate
+#   ResourceSpecs[i] strictly by index, so the template uses five role-agnostic
+#   "slot" service entries (role0..role4) that share the same pod template via
+#   the `dynamo.serviceSlot` helm macro defined below.
+#
+#   After the generic flow renders Resources[i] into spec.services.role<i>,
+#   `dispatcher_help.go::normalizeDynamoDGD()` rewrites each slot:
+#     - rename services.role<i> -> services.<actual key>
+#       (frontend -> Frontend, worker -> Worker, prefill -> PrefillWorker,
+#        decode -> DecodeWorker, planner -> Planner, epp -> Epp)
+#     - inject componentType / subComponentType / role-specific ports / env
+#     - convert containers: [{name: main, ...}] to extraPodSpec.mainContainer
+#       single object (DGD operator expects this form)
+#
+#   The two-step (generic render then normalize) keeps dispatcher.go zero-touch
+#   while supporting arbitrary role combinations. See plan §"Sub-task F" for
+#   the rewrite logic.
+#
+
+{{- define "dynamo.serviceSlot" -}}
+# Placeholder componentType / subComponentType. normalizeDynamoDGD overrides
+# them based on the role at this slot index.
+componentType: worker
+subComponentType: null
+envs: []
+sharedMemory:
+  size: 80Gi
+extraPodSpec:
+  dnsPolicy: ClusterFirstWithHostNet
+  initContainers:
+    - name: preprocess
+      image: {{ .Values.global.image_registry }}/primussafe/{{ .Values.preprocess.image }}
+      imagePullPolicy: IfNotPresent
+      command: ["/bin/sh", "-c", "cp -r /preprocess/* /shared-data/"]
+      securityContext:
+        capabilities:
+          add: ["IPC_LOCK"]
+      resources:
+        limits:
+          cpu: 1000m
+          memory: 128Mi
+      volumeMounts:
+        - name: shared-data
+          mountPath: /shared-data
+  containers:
+    - name: main
+      imagePullPolicy: IfNotPresent
+      workingDir: /workspace
+      env:
+        # NCCL / GLOO networking (reuses SaFE Helm values for cluster RDMA)
+        - name: NCCL_SOCKET_IFNAME
+          value: "{{ .Values.net.nccl_socket_ifname }}"
+        - name: GLOO_SOCKET_IFNAME
+          value: "{{ .Values.net.nccl_socket_ifname }}"
+        - name: NCCL_IB_HCA
+          value: "{{ .Values.net.nccl_ib_hca }}"
+        - name: NCCL_IB_TIMEOUT
+          value: "23"
+        - name: NCCL_IB_RETRY_CNT
+          value: "11"
+        - name: NCCL_IB_QPS_PER_CONNECTION
+          value: "1"
+        - name: NCCL_CROSS_NIC
+          value: "0"
+        - name: NCCL_CHECKS_DISABLE
+          value: "1"
+        - name: NCCL_IB_SL
+          value: "0"
+        - name: HSA_ENABLE_SDMA
+          value: "1"
+        # Dynamo discovery and AMD ROCm runtime defaults
+        - name: NATS_SERVER
+          value: "nats://nats.primus-safe.svc:4222"
+        - name: DYN_DISCOVERY_BACKEND
+          value: "kubernetes"
+        - name: SGLANG_USE_AITER
+          value: "1"
+        - name: RCCL_MSCCL_ENABLE
+          value: "0"
+        # Downward API for pod identity
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: POD_IP
+          valueFrom:
+            fieldRef:
+              fieldPath: status.podIP
+        - name: POD_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+      securityContext:
+        capabilities:
+          add: ["IPC_LOCK", "SYS_PTRACE", "SYS_RESOURCE"]
+      volumeMounts:
+        - name: varlog
+          mountPath: /var/log
+        - name: shared-data
+          mountPath: /shared-data
+        - name: podinfo
+          mountPath: /etc/podinfo
+          readOnly: true
+  schedulerName: kube-scheduler-plugins
+  volumes:
+    - name: varlog
+      hostPath:
+        path: /var/log
+    - name: shared-data
+      emptyDir: {}
+    - name: podinfo
+      downwardAPI:
+        items:
+          - path: "labels"
+            fieldRef:
+              fieldPath: metadata.labels
+  terminationGracePeriodSeconds: 30
+{{- end -}}
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: amd-dynamo-deployment-template
+  namespace: {{ .Release.Namespace }}
+  labels:
+    primus-safe.workload.version: v1
+    primus-safe.workload.kind: DynamoDeployment
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    # main container name (used by dispatcher_help.go::modifyContainers)
+    primus-safe.main.container: main
+    meta.helm.sh/release-name: {{ .Release.Name }}
+    meta.helm.sh/release-namespace: {{ .Release.Namespace }}
+data:
+  template: |
+    apiVersion: nvidia.com/v1alpha1
+    kind: DynamoGraphDeployment
+    spec:
+      # backendFramework is set by the webhook based on
+      # primus-safe.dynamo.backend-framework annotation (default: sglang)
+      backendFramework: sglang
+      services:
+        role0:
+{{ include "dynamo.serviceSlot" . | indent 10 }}
+        role1:
+{{ include "dynamo.serviceSlot" . | indent 10 }}
+        role2:
+{{ include "dynamo.serviceSlot" . | indent 10 }}
+        role3:
+{{ include "dynamo.serviceSlot" . | indent 10 }}
+        role4:
+{{ include "dynamo.serviceSlot" . | indent 10 }}

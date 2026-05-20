@@ -13,6 +13,7 @@ import (
 	commonfaults "github.com/AMD-AIG-AIMA/SAFE/common/pkg/faults"
 	"gotest.tools/assert"
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 
@@ -833,4 +834,293 @@ func TestModifyHostPid(t *testing.T) {
 			}
 		})
 	}
+}
+
+// buildFakeDGD constructs the unstructured DGD object the dispatcher's generic
+// flow would produce: spec.services holds numRoles role-agnostic slots
+// (role0..role(numRoles-1)), each carrying a placeholder pod template with a
+// container named "main" containing one preexisting NCCL env var. Real
+// dispatcher runs would also leave a placeholder componentType=worker; tests
+// rely on normalizeDynamoDGD to overwrite it per role.
+func buildFakeDGD(numRoles int) *unstructured.Unstructured {
+	services := map[string]interface{}{}
+	for i := 0; i < numRoles; i++ {
+		services["role"+strconv.Itoa(i)] = map[string]interface{}{
+			"componentType":    "worker",
+			"subComponentType": nil,
+			"replicas":         int64(1),
+			"extraPodSpec": map[string]interface{}{
+				"containers": []interface{}{
+					map[string]interface{}{
+						"name":  "main",
+						"image": "test-image:latest",
+						"env": []interface{}{
+							map[string]interface{}{
+								"name":  "NCCL_SOCKET_IFNAME",
+								"value": "eno0",
+							},
+						},
+					},
+				},
+			},
+		}
+	}
+	return &unstructured.Unstructured{
+		Object: map[string]interface{}{
+			"apiVersion": "nvidia.com/v1alpha1",
+			"kind":       "DynamoGraphDeployment",
+			"metadata":   map[string]interface{}{"name": "test-dgd"},
+			"spec": map[string]interface{}{
+				"backendFramework": "sglang",
+				"services":         services,
+			},
+		},
+	}
+}
+
+// buildDynamoTestWorkload constructs a minimal SaFE Workload typed as
+// DynamoDeployment with the given comma-separated service-roles. extra
+// annotations (e.g. multinode.<role>=N) are merged in.
+func buildDynamoTestWorkload(roles string, extraAnnotations map[string]string) *v1.Workload {
+	annotations := map[string]string{
+		v1.DynamoServiceRolesAnnotation: roles,
+	}
+	for k, v := range extraAnnotations {
+		annotations[k] = v
+	}
+	// Resources count must equal the number of roles; values are placeholders
+	// since normalizeDynamoDGD only reads annotation and len(Resources).
+	roleList := []string{}
+	for _, r := range splitNonEmpty(roles, ",") {
+		roleList = append(roleList, r)
+	}
+	resources := make([]v1.WorkloadResource, len(roleList))
+	for i := range resources {
+		resources[i] = v1.WorkloadResource{Replica: 1, CPU: "1", Memory: "1Gi"}
+	}
+	return &v1.Workload{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:        "test-dgd",
+			Annotations: annotations,
+		},
+		Spec: v1.WorkloadSpec{
+			GroupVersionKind: v1.GroupVersionKind{
+				Kind:    common.DynamoDeploymentKind,
+				Version: common.DefaultVersion,
+			},
+			Resources: resources,
+		},
+	}
+}
+
+// splitNonEmpty splits sep-delimited strings and drops empty fragments.
+func splitNonEmpty(s, sep string) []string {
+	out := []string{}
+	for _, p := range splitS(s, sep) {
+		if p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+func splitS(s, sep string) []string {
+	if s == "" {
+		return nil
+	}
+	parts := []string{}
+	cur := ""
+	for _, c := range s {
+		if string(c) == sep {
+			parts = append(parts, cur)
+			cur = ""
+			continue
+		}
+		cur += string(c)
+	}
+	parts = append(parts, cur)
+	return parts
+}
+
+// findDynamoEnv finds an env var in a slice of {name,value} maps. Returns the
+// value and whether it was found.
+func findDynamoEnv(env []interface{}, name string) (string, bool) {
+	for _, e := range env {
+		m, ok := e.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		if n, _ := m["name"].(string); n == name {
+			v, _ := m["value"].(string)
+			return v, true
+		}
+	}
+	return "", false
+}
+
+// getDynamoService retrieves the rewritten DGD service map at
+// spec.services[key]; fails the test if the key is missing.
+func getDynamoService(t *testing.T, obj *unstructured.Unstructured, key string) map[string]interface{} {
+	t.Helper()
+	svc, found, err := jobutils.NestedMap(obj.Object, []string{"spec", "services", key})
+	assert.NilError(t, err)
+	assert.Equal(t, found, true, "service %s should be present", key)
+	return svc
+}
+
+// getDynamoMainContainer returns the rewritten extraPodSpec.mainContainer for
+// the given service key. Verifies the conversion from containers[0] also
+// removed the original containers entry (or kept only sidecars).
+func getDynamoMainContainer(t *testing.T, obj *unstructured.Unstructured, svcKey string) map[string]interface{} {
+	t.Helper()
+	main, found, err := jobutils.NestedMap(obj.Object,
+		[]string{"spec", "services", svcKey, "extraPodSpec", "mainContainer"})
+	assert.NilError(t, err)
+	assert.Equal(t, found, true, "service %s mainContainer should exist", svcKey)
+	return main
+}
+
+// TestNormalizeDynamoDGD_AggregatedMinimal covers the 2-resource shape
+// `[Frontend, Worker]` produced by the default annotation inference. Asserts
+// slot rename + componentType assignment + mainContainer conversion + no
+// leftover role* keys.
+func TestNormalizeDynamoDGD_AggregatedMinimal(t *testing.T) {
+	obj := buildFakeDGD(2)
+	workload := buildDynamoTestWorkload("frontend,worker", nil)
+
+	err := normalizeDynamoDGD(obj, workload)
+	assert.NilError(t, err)
+
+	services, _, err := jobutils.NestedMap(obj.Object, []string{"spec", "services"})
+	assert.NilError(t, err)
+	assert.Equal(t, len(services), 2, "should have exactly Frontend + Worker")
+	_, hasRole0 := services["role0"]
+	assert.Equal(t, hasRole0, false, "role0 slot should be renamed away")
+	_, hasRole1 := services["role1"]
+	assert.Equal(t, hasRole1, false, "role1 slot should be renamed away")
+
+	fe := getDynamoService(t, obj, "Frontend")
+	assert.Equal(t, fe["componentType"], "Frontend")
+	_, hasSubComp := fe["subComponentType"]
+	assert.Equal(t, hasSubComp, false, "Frontend must not have subComponentType")
+
+	feMain := getDynamoMainContainer(t, obj, "Frontend")
+	assert.Equal(t, feMain["name"], "main")
+	feExtra := fe["extraPodSpec"].(map[string]interface{})
+	_, hasContainers := feExtra["containers"]
+	assert.Equal(t, hasContainers, false, "containers should be removed after mainContainer conversion")
+
+	wk := getDynamoService(t, obj, "Worker")
+	assert.Equal(t, wk["componentType"], "Main")
+	_, hasSubCompWk := wk["subComponentType"]
+	assert.Equal(t, hasSubCompWk, false, "Worker must not have subComponentType")
+
+	// Aggregated mode never injects sglang disagg env.
+	wkMain := getDynamoMainContainer(t, obj, "Worker")
+	wkEnv := wkMain["env"].([]interface{})
+	_, hasMode := findDynamoEnv(wkEnv, "SGLANG_DISAGGREGATION_MODE")
+	assert.Equal(t, hasMode, false, "aggregated worker must not carry disagg env")
+}
+
+// TestNormalizeDynamoDGD_DisaggMinimal covers `[Frontend, PrefillWorker,
+// DecodeWorker]` and verifies subComponentType + sglang disagg envs land on
+// the right services with the right bootstrap port and transfer backend.
+func TestNormalizeDynamoDGD_DisaggMinimal(t *testing.T) {
+	obj := buildFakeDGD(3)
+	workload := buildDynamoTestWorkload("frontend,prefill,decode", nil)
+
+	err := normalizeDynamoDGD(obj, workload)
+	assert.NilError(t, err)
+
+	pf := getDynamoService(t, obj, "PrefillWorker")
+	assert.Equal(t, pf["componentType"], "Main")
+	assert.Equal(t, pf["subComponentType"], "prefill")
+
+	pfMain := getDynamoMainContainer(t, obj, "PrefillWorker")
+	pfEnv := pfMain["env"].([]interface{})
+	mode, ok := findDynamoEnv(pfEnv, "SGLANG_DISAGGREGATION_MODE")
+	assert.Equal(t, ok, true)
+	assert.Equal(t, mode, "prefill")
+	port, ok := findDynamoEnv(pfEnv, "SGLANG_DISAGGREGATION_BOOTSTRAP_PORT")
+	assert.Equal(t, ok, true)
+	assert.Equal(t, port, strconv.Itoa(common.DynamoBootstrapPort))
+	backend, ok := findDynamoEnv(pfEnv, "SGLANG_DISAGGREGATION_TRANSFER_BACKEND")
+	assert.Equal(t, ok, true)
+	assert.Equal(t, backend, common.DynamoKVBackendNixl)
+
+	dec := getDynamoService(t, obj, "DecodeWorker")
+	assert.Equal(t, dec["componentType"], "Main")
+	assert.Equal(t, dec["subComponentType"], "decode")
+
+	decMain := getDynamoMainContainer(t, obj, "DecodeWorker")
+	decEnv := decMain["env"].([]interface{})
+	mode, ok = findDynamoEnv(decEnv, "SGLANG_DISAGGREGATION_MODE")
+	assert.Equal(t, ok, true)
+	assert.Equal(t, mode, "decode")
+
+	// Frontend in disagg mode is still a normal Frontend (no disagg envs).
+	feMain := getDynamoMainContainer(t, obj, "Frontend")
+	feEnv := feMain["env"].([]interface{})
+	_, hasMode := findDynamoEnv(feEnv, "SGLANG_DISAGGREGATION_MODE")
+	assert.Equal(t, hasMode, false)
+}
+
+// TestNormalizeDynamoDGD_DisaggWithPlanner verifies the 4-resource shape
+// `[Frontend, PrefillWorker, DecodeWorker, Planner]` and asserts the planner
+// service gets componentType=Planner without disagg env contamination.
+func TestNormalizeDynamoDGD_DisaggWithPlanner(t *testing.T) {
+	obj := buildFakeDGD(4)
+	workload := buildDynamoTestWorkload("frontend,prefill,decode,planner", nil)
+
+	err := normalizeDynamoDGD(obj, workload)
+	assert.NilError(t, err)
+
+	services, _, err := jobutils.NestedMap(obj.Object, []string{"spec", "services"})
+	assert.NilError(t, err)
+	assert.Equal(t, len(services), 4)
+
+	plan := getDynamoService(t, obj, "Planner")
+	assert.Equal(t, plan["componentType"], "Planner")
+	_, hasSubComp := plan["subComponentType"]
+	assert.Equal(t, hasSubComp, false)
+
+	planMain := getDynamoMainContainer(t, obj, "Planner")
+	planEnv := planMain["env"].([]interface{})
+	_, hasMode := findDynamoEnv(planEnv, "SGLANG_DISAGGREGATION_MODE")
+	assert.Equal(t, hasMode, false, "planner must not carry disagg env")
+
+	// Disagg pair still in place.
+	pf := getDynamoService(t, obj, "PrefillWorker")
+	assert.Equal(t, pf["subComponentType"], "prefill")
+	dec := getDynamoService(t, obj, "DecodeWorker")
+	assert.Equal(t, dec["subComponentType"], "decode")
+}
+
+// TestNormalizeDynamoDGD_MultiNodeTP verifies the multinode annotation lifts
+// the PrefillWorker service to LeaderWorkerSet topology (numberOfNodes > 1)
+// while leaving the other services single-node.
+func TestNormalizeDynamoDGD_MultiNodeTP(t *testing.T) {
+	obj := buildFakeDGD(3)
+	workload := buildDynamoTestWorkload(
+		"frontend,prefill,decode",
+		map[string]string{
+			v1.DynamoMultinodePrefix + "prefill": "2",
+		},
+	)
+
+	err := normalizeDynamoDGD(obj, workload)
+	assert.NilError(t, err)
+
+	pf := getDynamoService(t, obj, "PrefillWorker")
+	mn, ok := pf["multinode"].(map[string]interface{})
+	assert.Equal(t, ok, true, "PrefillWorker should have multinode block")
+	assert.Equal(t, mn["numberOfNodes"], int64(2))
+
+	dec := getDynamoService(t, obj, "DecodeWorker")
+	_, hasMn := dec["multinode"]
+	assert.Equal(t, hasMn, false, "DecodeWorker must remain single-node (no annotation)")
+
+	fe := getDynamoService(t, obj, "Frontend")
+	_, hasMnFe := fe["multinode"]
+	assert.Equal(t, hasMnFe, false, "Frontend must remain single-node")
 }

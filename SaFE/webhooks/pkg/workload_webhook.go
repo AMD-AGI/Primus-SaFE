@@ -150,6 +150,8 @@ func (m *WorkloadMutator) mutateCommon(ctx context.Context, oldWorkload, newWork
 		m.mutateTorchFT(newWorkload)
 	case common.SandboxKind:
 		m.mutateSandbox(newWorkload)
+	case common.DynamoDeploymentKind:
+		m.mutateDynamoDeployment(newWorkload)
 	}
 	m.mutateHostPath(newWorkload, workspace)
 	m.mutatePriority(newWorkload)
@@ -426,6 +428,45 @@ func (m *WorkloadMutator) mutateSandbox(workload *v1.Workload) {
 	}
 	v1.SetAnnotation(workload, v1.WorkloadDisableFailoverAnnotation, v1.TrueStr)
 	workload.Spec.Dependencies = nil
+}
+
+// mutateDynamoDeployment normalizes DynamoDeployment workloads.
+// It sets default dynamo annotations (backend-framework, kv-transfer-backend,
+// service-roles inference) and injects the shared NATS / discovery / namespace
+// envs that every dynamo pod consumes. Role-specific envs (e.g. SGLANG
+// disaggregation flags, frontend HTTP port) and entrypoint command lines are
+// injected later by the dispatcher's normalizeDynamoDGD step, because the
+// SaFE WorkloadSpec only carries a single global Env map and the
+// per-Resources Envs field does not exist.
+func (m *WorkloadMutator) mutateDynamoDeployment(workload *v1.Workload) {
+	if v1.GetAnnotation(workload, v1.DynamoBackendFrameworkAnnotation) == "" {
+		v1.SetAnnotation(workload, v1.DynamoBackendFrameworkAnnotation,
+			common.DynamoDefaultBackendFramework)
+	}
+	if v1.GetAnnotation(workload, v1.DynamoKVTransferBackendAnnotation) == "" {
+		v1.SetAnnotation(workload, v1.DynamoKVTransferBackendAnnotation,
+			common.DynamoDefaultKVBackend)
+	}
+	// Inference covers the two most common shapes (2/3 resources). Other
+	// counts require an explicit annotation; the validator enforces this.
+	if v1.GetAnnotation(workload, v1.DynamoServiceRolesAnnotation) == "" {
+		if roles := commonworkload.GetDynamoServiceRoles(workload); len(roles) > 0 {
+			v1.SetAnnotation(workload, v1.DynamoServiceRolesAnnotation,
+				strings.Join(roles, ","))
+		}
+	}
+	if workload.Spec.Env == nil {
+		workload.Spec.Env = map[string]string{}
+	}
+	if _, ok := workload.Spec.Env["NATS_SERVER"]; !ok {
+		workload.Spec.Env["NATS_SERVER"] = common.DynamoDefaultNatsURL
+	}
+	if _, ok := workload.Spec.Env["DYN_DISCOVERY_BACKEND"]; !ok {
+		workload.Spec.Env["DYN_DISCOVERY_BACKEND"] = common.DynamoDefaultDiscoveryBackend
+	}
+	if _, ok := workload.Spec.Env["DYN_NAMESPACE"]; !ok {
+		workload.Spec.Env["DYN_NAMESPACE"] = workload.Name
+	}
 }
 
 // mutateImages handles image assignment for workload resources.
@@ -761,6 +802,8 @@ func (v *WorkloadValidator) validateCommon(ctx context.Context, newWorkload, old
 		err = v.validateMonarchJob(newWorkload, oldWorkload)
 	case common.SandboxKind:
 		err = v.validateSandbox(newWorkload)
+	case common.DynamoDeploymentKind:
+		err = v.validateDynamoDeployment(newWorkload)
 	}
 	if err != nil {
 		return err
@@ -979,6 +1022,101 @@ func (v *WorkloadValidator) validateMonarchJob(newWorkload, oldWorkload *v1.Work
 		return fmt.Errorf("the entryPoint of client is empty")
 	}
 	return v.validateReplicaCount(newWorkload, oldWorkload)
+}
+
+// validateDynamoDeployment enforces dynamo-specific invariants on the
+// workload spec: legal role names, role/Resources length match (1:1 by index),
+// mandatory frontend, mutually exclusive worker vs prefill/decode, matched
+// prefill/decode pairs, and well-formed annotation enums (backend-framework,
+// kv-transfer-backend, multinode.<role>).
+func (v *WorkloadValidator) validateDynamoDeployment(workload *v1.Workload) error {
+	if len(workload.Spec.Resources) == 0 {
+		return commonerrors.NewBadRequest(
+			"DynamoDeployment requires at least one resource (frontend)")
+	}
+
+	var errs []error
+
+	switch val := commonworkload.GetDynamoBackendFramework(workload); val {
+	case "sglang", "vllm", "trtllm":
+	default:
+		errs = append(errs, fmt.Errorf(
+			"unknown backend-framework %q (allowed: sglang|vllm|trtllm)", val))
+	}
+
+	switch val := commonworkload.GetDynamoKVTransferBackend(workload); val {
+	case common.DynamoKVBackendNixl, common.DynamoKVBackendMori,
+		common.DynamoKVBackendMooncake:
+	default:
+		errs = append(errs, fmt.Errorf(
+			"unknown kv-transfer-backend %q (allowed: nixl|mori|mooncake)", val))
+	}
+
+	roles := commonworkload.GetDynamoServiceRoles(workload)
+	if len(roles) == 0 {
+		return commonerrors.NewBadRequest(fmt.Sprintf(
+			"DynamoDeployment with %d resources requires explicit %s annotation",
+			len(workload.Spec.Resources), v1.DynamoServiceRolesAnnotation))
+	}
+	if len(roles) != len(workload.Spec.Resources) {
+		errs = append(errs, fmt.Errorf(
+			"service-roles length (%d) must equal Resources length (%d)",
+			len(roles), len(workload.Spec.Resources)))
+	}
+
+	roleCounts := map[string]int{}
+	for _, r := range roles {
+		switch r {
+		case common.DynamoRoleFrontend, common.DynamoRoleWorker,
+			common.DynamoRolePrefill, common.DynamoRoleDecode,
+			common.DynamoRolePlanner, common.DynamoRoleEpp:
+			roleCounts[r]++
+		default:
+			errs = append(errs, fmt.Errorf(
+				"unknown service-role %q (allowed: frontend|worker|prefill|decode|planner|epp)", r))
+		}
+	}
+
+	if roleCounts[common.DynamoRoleFrontend] != 1 {
+		errs = append(errs, fmt.Errorf(
+			"service-roles must contain exactly one 'frontend' (got %d)",
+			roleCounts[common.DynamoRoleFrontend]))
+	}
+	if roleCounts[common.DynamoRolePlanner] > 1 {
+		errs = append(errs, fmt.Errorf(
+			"service-roles must contain at most one 'planner' (got %d)",
+			roleCounts[common.DynamoRolePlanner]))
+	}
+	if roleCounts[common.DynamoRoleWorker] > 0 &&
+		(roleCounts[common.DynamoRolePrefill] > 0 || roleCounts[common.DynamoRoleDecode] > 0) {
+		errs = append(errs, fmt.Errorf(
+			"service-roles cannot mix 'worker' (aggregated) with 'prefill'/'decode' (disaggregated)"))
+	}
+	// Disagg requires both prefill and decode; the operator routes KV
+	// transfers between paired workers and a missing side hangs requests.
+	if roleCounts[common.DynamoRolePrefill] != roleCounts[common.DynamoRoleDecode] {
+		errs = append(errs, fmt.Errorf(
+			"service-roles must declare matching 'prefill' and 'decode' counts (got prefill=%d decode=%d)",
+			roleCounts[common.DynamoRolePrefill], roleCounts[common.DynamoRoleDecode]))
+	}
+
+	for k := range workload.Annotations {
+		if !strings.HasPrefix(k, v1.DynamoMultinodePrefix) {
+			continue
+		}
+		role := strings.TrimPrefix(k, v1.DynamoMultinodePrefix)
+		if roleCounts[role] == 0 {
+			errs = append(errs, fmt.Errorf(
+				"multinode annotation %s references undeclared role %q", k, role))
+		}
+		raw := v1.GetAnnotation(workload, k)
+		if n, parseErr := strconv.Atoi(raw); parseErr != nil || n < 1 {
+			errs = append(errs, fmt.Errorf(
+				"multinode annotation %s has invalid value %q (must be int >= 1)", k, raw))
+		}
+	}
+
+	return utilerrors.NewAggregate(errs)
 }
 
 // validateSandbox validates sandbox workload configuration.

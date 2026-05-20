@@ -247,7 +247,7 @@ func GetScope(w *v1.Workload) v1.WorkspaceScope {
 	switch w.SpecKind() {
 	case common.PytorchJobKind, common.UnifiedJobKind, common.JobKind, common.TorchFTKind, common.MonarchJob:
 		return v1.TrainScope
-	case common.DeploymentKind, common.StatefulSetKind:
+	case common.DeploymentKind, common.StatefulSetKind, common.DynamoDeploymentKind:
 		return v1.InferScope
 	case common.AuthoringKind:
 		return v1.AuthoringScope
@@ -262,10 +262,14 @@ func GetScope(w *v1.Workload) v1.WorkspaceScope {
 	}
 }
 
-// IsApplication returns true if the workload is an application type (Deployment or StatefulSet).
+// IsApplication returns true if the workload follows the "create-once + sync update"
+// lifecycle handled by syncWorkloadToObject (Deployment, StatefulSet, DynamoDeployment).
+// DynamoDeployment is included because its underlying DGD CR is reconciled by the
+// Dynamo operator and supports in-place spec updates without re-creation.
 func IsApplication(w *v1.Workload) bool {
 	if w.SpecKind() == common.DeploymentKind ||
-		w.SpecKind() == common.StatefulSetKind {
+		w.SpecKind() == common.StatefulSetKind ||
+		w.SpecKind() == common.DynamoDeploymentKind {
 		return true
 	}
 	return false
@@ -317,6 +321,86 @@ func IsRayJob(w *v1.Workload) bool {
 		return true
 	}
 	return false
+}
+
+// IsDynamoDeployment returns true if the workload is a DynamoDeployment type.
+// DynamoDeployment wraps the upstream DynamoGraphDeployment (DGD) CR managed by
+// the Dynamo operator. See plan Phase 2 for the full design.
+func IsDynamoDeployment(w *v1.Workload) bool {
+	return w.SpecKind() == common.DynamoDeploymentKind
+}
+
+// GetDynamoServiceRoles returns the parsed service roles for a DynamoDeployment.
+// Each element corresponds positionally to one Workload.Spec.Resources entry.
+//
+// Source of truth:
+//  1. annotation primus-safe.dynamo.service-roles (comma separated, e.g. "frontend,prefill,decode,planner")
+//  2. fallback inference based on len(Resources):
+//     - 2 -> ["frontend", "worker"]              (aggregated minimal)
+//     - 3 -> ["frontend", "worker", "planner"]   (aggregated + planner)
+//     - other counts -> nil (the webhook should reject these; defensive return)
+//
+// Returns nil for non-DynamoDeployment workloads.
+func GetDynamoServiceRoles(w *v1.Workload) []string {
+	if !IsDynamoDeployment(w) {
+		return nil
+	}
+	val := v1.GetAnnotation(w, v1.DynamoServiceRolesAnnotation)
+	if val != "" {
+		roles := make([]string, 0, 4)
+		for _, r := range strings.Split(val, ",") {
+			if r = strings.TrimSpace(r); r != "" {
+				roles = append(roles, r)
+			}
+		}
+		return roles
+	}
+	switch len(w.Spec.Resources) {
+	case 2:
+		return []string{common.DynamoRoleFrontend, common.DynamoRoleWorker}
+	case 3:
+		return []string{common.DynamoRoleFrontend, common.DynamoRoleWorker, common.DynamoRolePlanner}
+	default:
+		return nil
+	}
+}
+
+// GetDynamoKVTransferBackend returns the KV transfer backend for disaggregated
+// serving (nixl / mori / mooncake). Returns the default (nixl) when annotation
+// is missing or empty.
+func GetDynamoKVTransferBackend(w *v1.Workload) string {
+	val := v1.GetAnnotation(w, v1.DynamoKVTransferBackendAnnotation)
+	if val == "" {
+		return common.DynamoDefaultKVBackend
+	}
+	return val
+}
+
+// GetDynamoMultinode returns the multinode nodeCount for a given service role.
+// Example: annotation "primus-safe.dynamo.multinode.prefill: 2" with role
+// "prefill" returns 2 (the PrefillWorker service spans 2 nodes via LeaderWorkerSet).
+// Returns 1 when annotation is missing, unparseable, or below 1.
+func GetDynamoMultinode(w *v1.Workload, role string) int {
+	val := v1.GetAnnotation(w, v1.DynamoMultinodePrefix+role)
+	if val == "" {
+		return 1
+	}
+	n, err := strconv.Atoi(val)
+	if err != nil || n < 1 {
+		return 1
+	}
+	return n
+}
+
+// GetDynamoBackendFramework returns the chosen backend framework
+// (sglang / vllm / trtllm). Returns the default (sglang) when annotation
+// is missing or empty.
+func GetDynamoBackendFramework(w *v1.Workload) string {
+	val := v1.GetAnnotation(w, v1.DynamoBackendFrameworkAnnotation)
+	if val == "" {
+		return common.DynamoDefaultBackendFramework
+	}
+	return val
 }
 
 func IsMonarchJob(w *v1.Workload) bool {

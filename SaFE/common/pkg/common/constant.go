@@ -31,6 +31,7 @@ const (
 	RayJobKind              = "RayJob"
 	PodKind                 = "Pod"
 	SandboxKind             = "Sandbox"
+	DynamoDeploymentKind    = "DynamoDeployment"
 	ConfigmapKind           = "ConfigMap"
 	ClusterRoleKind         = "ClusterRole"
 	ServiceAccountKind      = "ServiceAccount"
@@ -117,4 +118,57 @@ const (
 const (
 	NodesAffinityRequired  = "required"
 	NodesAffinityPreferred = "preferred"
+)
+
+// Dynamo deployment constants. Used by the DynamoDeployment workload kind
+// (see Phase 2 of the dynamo integration plan). Grouped in a dedicated block
+// to keep the main constants block focused on cross-kind shared values.
+const (
+	// Service ports. Consumed by webhook (Service.TargetPort defaults) and
+	// dispatcher when reserving host ports for hostNetwork pods.
+	DynamoFrontendPort  = 8000
+	DynamoNatsPort      = 4222
+	DynamoFPMPort       = 20380
+	DynamoBootstrapPort = 30001
+
+	// NOTE: dynamo annotation keys (service-roles, kv-transfer-backend,
+	// multinode.<role>, backend-framework) live in apis/pkg/apis/amd/v1/
+	// well_known_constants.go alongside the rest of the primus-safe.* annotation
+	// namespace. Reference them via v1.DynamoServiceRolesAnnotation etc.
+
+	// Service role values for the service-roles annotation. The order in the
+	// annotation must match the order of Workload.Spec.Resources.
+	DynamoRoleFrontend = "frontend"
+	DynamoRoleWorker   = "worker"
+	DynamoRolePrefill  = "prefill"
+	DynamoRoleDecode   = "decode"
+	DynamoRolePlanner  = "planner"
+	DynamoRoleEpp      = "epp"
+
+	// KV transfer backend values. nixl is the default on MI300X + IB; mori
+	// and mooncake are reserved for MI355X + ionic NIC scenarios.
+	DynamoKVBackendNixl     = "nixl"
+	DynamoKVBackendMori     = "mori"
+	DynamoKVBackendMooncake = "mooncake"
+
+	// DGD CRD kind on the K8s side. SaFE's Workload.Spec.Kind is
+	// DynamoDeploymentKind (a SaFE-level abstraction); the dispatcher renders
+	// it into a DynamoGraphDeployment object whose actual K8s kind matches
+	// the constant below. The syncer must register this kind to feed DGD
+	// status events back into the admin workload.
+	DynamoGraphDeploymentKind = "DynamoGraphDeployment"
+
+	// Defaults applied when the corresponding annotation is missing.
+	DynamoDefaultKVBackend        = DynamoKVBackendNixl
+	DynamoDefaultBackendFramework = "sglang"
+
+	// Cluster-wide infrastructure addresses installed by the Phase 1 SaFE
+	// addon. The dispatcher and webhook inject these into every dynamo pod
+	// so user-supplied yaml does not need to hard-code them. The dispatcher
+	// template ConfigMap (charts/primus-safe/templates/configmap/
+	// dynamo_deployment_template.yaml) also references the same defaults to
+	// keep the rendered DGD object self-contained when no Workload override
+	// is provided.
+	DynamoDefaultNatsURL          = "nats://nats.primus-safe.svc:4222"
+	DynamoDefaultDiscoveryBackend = "kubernetes"
 )

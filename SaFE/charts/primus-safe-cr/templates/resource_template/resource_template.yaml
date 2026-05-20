@@ -483,6 +483,107 @@ spec:
       - status
     replicaPath: succeeded
 ---
+# DynamoDeployment — wraps the upstream nvidia.com/v1alpha1 DynamoGraphDeployment
+# (DGD) CR. The dispatcher's generic flow renders the user's Workload.Spec.Resources
+# into the five role-agnostic service slots (role0..role4) declared by the
+# matching ConfigMap template (charts/primus-safe/templates/configmap/
+# dynamo_deployment_template.yaml). After the generic flow, dispatcher_help.go::
+# normalizeDynamoDGD() rewrites each slot's key (role<i> -> Frontend / Worker /
+# PrefillWorker / DecodeWorker / Planner / Epp) based on the user's
+# `primus-safe.dynamo.service-roles` annotation and injects role-specific
+# componentType / subComponentType / ports / env / disagg args.
+#
+# Phase matching uses the top-level `status.state` enum (initializing | pending |
+# successful | failed) exposed by the DGD controller — this is the most stable
+# DGD-wide signal. The per-condition `Ready` and detailed reason strings vary
+# across DGD operator versions and are dynamic, so they are intentionally not
+# consumed here. activeReplica is left unset because DGD does not expose a
+# top-level numeric aggregate; SaFE upstream layers aggregate per-service replica
+# counts from `status.services[*]` when needed.
+apiVersion: amd.com/v1
+kind: ResourceTemplate
+metadata:
+  name: dynamo-deployment
+  labels:
+    app.kubernetes.io/managed-by: Helm
+    primus-safe.workload.version: v1
+  annotations:
+    primus-safe.workload.kind: "DynamoDeployment"
+    meta.helm.sh/release-name: {{ .Release.Name }}
+    meta.helm.sh/release-namespace: {{ .Release.Namespace }}
+spec:
+  groupVersionKind:
+    group: nvidia.com
+    version: v1alpha1
+    kind: DynamoGraphDeployment
+  # Five role-agnostic slots. The dispatcher's generic flow maps user Resources[i]
+  # to slot[i] strictly by index. ResourceSpecs with index >= len(Resources) are
+  # auto-removed by the dispatcher (RemoveNestedField). normalizeDynamoDGD then
+  # renames the surviving role<i> keys to the user-requested service roles.
+  resourceSpecs:
+    - prePaths:
+        - spec
+        - services
+        - role0
+      templatePaths:
+        - extraPodSpec
+      replicasPaths:
+        - replicas
+    - prePaths:
+        - spec
+        - services
+        - role1
+      templatePaths:
+        - extraPodSpec
+      replicasPaths:
+        - replicas
+    - prePaths:
+        - spec
+        - services
+        - role2
+      templatePaths:
+        - extraPodSpec
+      replicasPaths:
+        - replicas
+    - prePaths:
+        - spec
+        - services
+        - role3
+      templatePaths:
+        - extraPodSpec
+      replicasPaths:
+        - replicas
+    - prePaths:
+        - spec
+        - services
+        - role4
+      templatePaths:
+        - extraPodSpec
+      replicasPaths:
+        - replicas
+  resourceStatus:
+    # Match the top-level DGD status object (single map, not an array).
+    # The matcher walks `phases` top-down and picks the first match.
+    prePaths:
+      - status
+    messagePaths:
+      - state
+    reasonPaths:
+      - state
+    phases:
+      - matchExpressions:
+          state: 'successful'
+        phase: K8sRunning
+      - matchExpressions:
+          state: 'failed'
+        phase: K8sFailed
+      - matchExpressions:
+          state: 'pending'
+        phase: K8sPending
+      - matchExpressions:
+          state: 'initializing'
+        phase: K8sPending
+---
 apiVersion: amd.com/v1
 kind: ResourceTemplate
 metadata:

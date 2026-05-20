@@ -731,6 +731,16 @@ func (r *DispatcherReconciler) applyWorkloadSpecToObject(ctx context.Context, cl
 			return err
 		}
 	}
+	// Post-process: kind-specific normalization that runs *after* the generic
+	// flow has populated image / env / resources / replicas and after surplus
+	// ResourceSpec paths have been removed. Some CRDs (e.g. DGD) have a
+	// non-standard pod template shape that needs a rewrite step before the
+	// object is applied to the data plane.
+	if commonworkload.IsDynamoDeployment(adminWorkload) {
+		if err = normalizeDynamoDGD(obj, adminWorkload); err != nil {
+			return fmt.Errorf("failed to normalize dynamo DGD: %v", err.Error())
+		}
+	}
 	return nil
 }
 
