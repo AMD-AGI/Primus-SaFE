@@ -6,8 +6,12 @@
 package llmgateway
 
 import (
+	"context"
+	"errors"
+	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
@@ -20,6 +24,15 @@ import (
 	"github.com/gin-gonic/gin"
 	"k8s.io/klog/v2"
 )
+
+const (
+	createBindingOperationTimeout = 30 * time.Second
+	litellmRollbackTimeout        = 15 * time.Second
+)
+
+type llmBindingAdvisoryLocker interface {
+	WithLLMBindingAdvisoryLock(ctx context.Context, email string, fn func(context.Context) error) error
+}
 
 // NewHandler creates a new LLM Gateway handler.
 func NewHandler(accessController *authority.AccessController, dbClient dbclient.Interface) (*Handler, error) {
@@ -171,44 +184,74 @@ func (h *Handler) CreateBinding(c *gin.Context) {
 		return
 	}
 
-	existing, err := h.dbClient.GetLLMBindingByEmail(c.Request.Context(), email)
+	opCtx, cancel := context.WithTimeout(context.Background(), createBindingOperationTimeout)
+	defer cancel()
+
+	var response BindingResponse
+	if err := h.withLLMBindingAdvisoryLock(opCtx, email, func(lockedCtx context.Context) error {
+		resp, err := h.createBindingLocked(lockedCtx, email, req.ApimKey)
+		if err != nil {
+			return err
+		}
+		response = *resp
+		return nil
+	}); err != nil {
+		if errors.Is(err, dbclient.ErrLLMBindingLockBusy) {
+			apiutils.AbortWithApiError(c, commonerrors.NewConflict("LLM binding operation already in progress, please retry"))
+			return
+		}
+		apiutils.AbortWithApiError(c, err)
+		return
+	}
+
+	c.JSON(http.StatusCreated, response)
+}
+
+func (h *Handler) withLLMBindingAdvisoryLock(ctx context.Context, email string, fn func(context.Context) error) error {
+	locker, ok := h.dbClient.(llmBindingAdvisoryLocker)
+	if !ok {
+		return fn(ctx)
+	}
+	return locker.WithLLMBindingAdvisoryLock(ctx, email, fn)
+}
+
+func (h *Handler) createBindingLocked(ctx context.Context, email, apimKey string) (*BindingResponse, error) {
+	existing, err := h.dbClient.GetLLMBindingByEmail(ctx, email)
 	if err != nil {
 		klog.ErrorS(err, "CreateBinding: DB query failed", "email", email)
-		apiutils.AbortWithApiError(c, commonerrors.NewInternalError("service temporarily unavailable, please try again later"))
-		return
+		return nil, commonerrors.NewInternalError("service temporarily unavailable, please try again later")
 	}
 	if existing != nil {
-		apiutils.AbortWithApiError(c, commonerrors.NewAlreadyExist("APIM Key already bound for "+email+", use PUT to update"))
-		return
+		return nil, commonerrors.NewAlreadyExist("APIM Key already bound for " + email + ", use PUT to update")
 	}
 
-	apimKeyHash := dbclient.ComputeApimKeyHash(req.ApimKey)
+	apimKeyHash := dbclient.ComputeApimKeyHash(apimKey)
 
-	encryptedApimKey, err := h.crypto.Encrypt([]byte(req.ApimKey))
+	encryptedApimKey, err := h.crypto.Encrypt([]byte(apimKey))
 	if err != nil {
 		klog.ErrorS(err, "CreateBinding: failed to encrypt APIM Key", "email", email)
-		apiutils.AbortWithApiError(c, commonerrors.NewInternalError("service temporarily unavailable, please try again later"))
-		return
+		return nil, commonerrors.NewInternalError("service temporarily unavailable, please try again later")
 	}
 
-	if err := h.litellmClient.CreateUser(c.Request.Context(), email); err != nil {
+	if err := h.litellmClient.CreateUser(ctx, email); err != nil {
 		klog.ErrorS(err, "CreateBinding: LiteLLM create user failed", "email", email)
-		apiutils.AbortWithApiError(c, commonerrors.NewInternalError("LLM service unavailable, please try again later"))
-		return
+		return nil, commonerrors.NewInternalError("LLM service unavailable, please try again later")
 	}
 
-	litellmResp, err := h.litellmClient.CreateKey(c.Request.Context(), email, req.ApimKey)
+	litellmResp, err := h.createLiteLLMKeyWithRecovery(ctx, email, apimKey)
 	if err != nil {
 		klog.ErrorS(err, "CreateBinding: LiteLLM create key failed", "email", email)
-		apiutils.AbortWithApiError(c, commonerrors.NewInternalError("LLM service unavailable, please try again later"))
-		return
+		if commonerrors.IsPrimus(err) {
+			return nil, err
+		}
+		return nil, commonerrors.NewInternalError("LLM service unavailable, please try again later")
 	}
 
 	encryptedVKey, err := h.crypto.Encrypt([]byte(litellmResp.Key))
 	if err != nil {
 		klog.ErrorS(err, "CreateBinding: failed to encrypt Virtual Key", "email", email)
-		apiutils.AbortWithApiError(c, commonerrors.NewInternalError("service temporarily unavailable, please try again later"))
-		return
+		h.rollbackLiteLLMKeyByHash(litellmResp.TokenID, email, "virtual key encryption failed")
+		return nil, commonerrors.NewInternalError("service temporarily unavailable, please try again later")
 	}
 
 	binding := &dbclient.LLMGatewayUserBinding{
@@ -220,21 +263,62 @@ func (h *Handler) CreateBinding(c *gin.Context) {
 		KeyAlias:          email,
 	}
 
-	if err := h.dbClient.CreateLLMBinding(c.Request.Context(), binding); err != nil {
+	if err := h.dbClient.CreateLLMBinding(ctx, binding); err != nil {
 		klog.ErrorS(err, "CreateBinding: DB save failed, rolling back LiteLLM key", "email", email)
-		_ = h.litellmClient.DeleteKey(c.Request.Context(), litellmResp.TokenID, email)
-		apiutils.AbortWithApiError(c, commonerrors.NewInternalError("failed to save binding, please try again later"))
-		return
+		h.rollbackLiteLLMKeyByHash(litellmResp.TokenID, email, "DB save failed")
+		return nil, commonerrors.NewInternalError("failed to save binding, please try again later")
 	}
 
 	klog.Infof("LLM Gateway: binding created for %s", email)
-	c.JSON(http.StatusCreated, BindingResponse{
+	return &BindingResponse{
 		UserEmail:  email,
 		KeyAlias:   email,
 		HasAPIMKey: true,
 		VirtualKey: litellmResp.Key,
 		CreatedAt:  binding.CreatedAt.Format("2006-01-02T15:04:05Z"),
-	})
+	}, nil
+}
+
+func (h *Handler) createLiteLLMKeyWithRecovery(ctx context.Context, email, apimKey string) (*CreateKeyResponse, error) {
+	resp, err := h.litellmClient.CreateKey(ctx, email, apimKey)
+	if err == nil {
+		return resp, nil
+	}
+
+	if !isKeyAliasExistsErr(err) && !isUncertainLiteLLMWriteErr(err) {
+		return nil, err
+	}
+
+	if isKeyAliasExistsErr(err) {
+		existing, dbErr := h.dbClient.GetLLMBindingByEmail(ctx, email)
+		if dbErr != nil {
+			return nil, fmt.Errorf("failed to recheck LLM binding after alias conflict: %w", dbErr)
+		}
+		if existing != nil {
+			return nil, commonerrors.NewAlreadyExist("APIM Key already bound for " + email + ", use PUT to update")
+		}
+	}
+
+	klog.Warningf("CreateBinding: cleaning up possible orphan LiteLLM key for %s after create error: %v", email, err)
+	if cleanupErr := h.deleteLiteLLMKeyByAlias(email); cleanupErr != nil {
+		return nil, fmt.Errorf("failed to clean orphan LiteLLM key alias %s: %w (original error: %v)", email, cleanupErr, err)
+	}
+
+	return h.litellmClient.CreateKey(ctx, email, apimKey)
+}
+
+func (h *Handler) rollbackLiteLLMKeyByHash(tokenHash, email, reason string) {
+	cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), litellmRollbackTimeout)
+	defer cleanupCancel()
+	if err := h.litellmClient.DeleteKeyByHash(cleanupCtx, tokenHash); err != nil {
+		klog.Warningf("CreateBinding: failed to rollback LiteLLM key by hash for %s after %s: %v", email, reason, err)
+	}
+}
+
+func (h *Handler) deleteLiteLLMKeyByAlias(email string) error {
+	cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), litellmRollbackTimeout)
+	defer cleanupCancel()
+	return h.litellmClient.DeleteKeyByAlias(cleanupCtx, email)
 }
 
 // UpdateBinding handles PUT /api/v1/llm-gateway/binding

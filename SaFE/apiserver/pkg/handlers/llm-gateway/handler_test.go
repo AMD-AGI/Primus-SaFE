@@ -8,6 +8,7 @@ package llmgateway
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -397,6 +398,172 @@ func TestCreateBinding_LiteLLMUserAlreadyExists(t *testing.T) {
 	router.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusCreated, w.Code)
+}
+
+func TestCreateBinding_CleansOrphanAliasAndRetries(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockDB := mock_client.NewMockInterface(ctrl)
+
+	keyGenerateCalls := 0
+	deleteAliasCalls := 0
+	litellm := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/user/new":
+			w.WriteHeader(http.StatusConflict)
+			w.Write([]byte(`{"error":"user already exists"}`))
+		case "/key/generate":
+			keyGenerateCalls++
+			if keyGenerateCalls == 1 {
+				w.WriteHeader(http.StatusBadRequest)
+				w.Write([]byte(`{"error":{"message":"Key with alias 'test@amd.com' already exists. Unique key aliases across all keys are required.","type":"bad_request_error","param":"key_alias","code":"400"}}`))
+				return
+			}
+			w.WriteHeader(http.StatusOK)
+			json.NewEncoder(w).Encode(CreateKeyResponse{
+				Key:     "recovered_virtual_key",
+				TokenID: "recoveredhash123",
+			})
+		case "/key/delete":
+			deleteAliasCalls++
+			var body DeleteKeyRequest
+			assert.NoError(t, json.NewDecoder(r.Body).Decode(&body))
+			assert.Empty(t, body.Keys)
+			assert.Equal(t, []string{"test@amd.com"}, body.KeyAliases)
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(`{"deleted_keys":["test@amd.com"]}`))
+		default:
+			t.Fatalf("unexpected LiteLLM path: %s", r.URL.Path)
+		}
+	}))
+	defer litellm.Close()
+
+	handler := newTestHandler(t, mockDB, litellm)
+
+	mockDB.EXPECT().GetLLMBindingByEmail(gomock.Any(), "test@amd.com").Return(nil, nil).Times(2)
+	mockDB.EXPECT().CreateLLMBinding(gomock.Any(), gomock.Any()).Return(nil)
+
+	router := gin.New()
+	router.POST("/binding", func(c *gin.Context) {
+		setUserContext(c, "user1", "test@amd.com")
+		handler.CreateBinding(c)
+	})
+
+	body := `{"apim_key":"test-apim-key"}`
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("POST", "/binding", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusCreated, w.Code)
+	assert.Equal(t, 2, keyGenerateCalls)
+	assert.Equal(t, 1, deleteAliasCalls)
+
+	var resp BindingResponse
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	assert.Equal(t, "recovered_virtual_key", resp.VirtualKey)
+	assert.Equal(t, "test@amd.com", resp.KeyAlias)
+}
+
+func TestCreateBinding_AliasExistsButBindingAppearsDoesNotDelete(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockDB := mock_client.NewMockInterface(ctrl)
+
+	deleteAliasCalls := 0
+	litellm := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/user/new":
+			w.WriteHeader(http.StatusConflict)
+			w.Write([]byte(`{"error":"user already exists"}`))
+		case "/key/generate":
+			w.WriteHeader(http.StatusBadRequest)
+			w.Write([]byte(`{"error":{"message":"Key with alias 'test@amd.com' already exists. Unique key aliases across all keys are required.","type":"bad_request_error","param":"key_alias","code":"400"}}`))
+		case "/key/delete":
+			deleteAliasCalls++
+			w.WriteHeader(http.StatusOK)
+		default:
+			t.Fatalf("unexpected LiteLLM path: %s", r.URL.Path)
+		}
+	}))
+	defer litellm.Close()
+
+	handler := newTestHandler(t, mockDB, litellm)
+
+	existing := &dbclient.LLMGatewayUserBinding{UserEmail: "test@amd.com"}
+	gomock.InOrder(
+		mockDB.EXPECT().GetLLMBindingByEmail(gomock.Any(), "test@amd.com").Return(nil, nil),
+		mockDB.EXPECT().GetLLMBindingByEmail(gomock.Any(), "test@amd.com").Return(existing, nil),
+	)
+
+	router := gin.New()
+	router.POST("/binding", func(c *gin.Context) {
+		setUserContext(c, "user1", "test@amd.com")
+		handler.CreateBinding(c)
+	})
+
+	body := `{"apim_key":"test-apim-key"}`
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("POST", "/binding", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusConflict, w.Code)
+	assert.Equal(t, 0, deleteAliasCalls)
+}
+
+func TestCreateBinding_DBSaveFailureRollsBackByHashOnly(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockDB := mock_client.NewMockInterface(ctrl)
+
+	deleteCalls := 0
+	litellm := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/user/new":
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(`{"user_id":"test@amd.com"}`))
+		case "/key/generate":
+			w.WriteHeader(http.StatusOK)
+			json.NewEncoder(w).Encode(CreateKeyResponse{
+				Key:     "virtual_key_test",
+				TokenID: "hash123",
+			})
+		case "/key/delete":
+			deleteCalls++
+			var body DeleteKeyRequest
+			assert.NoError(t, json.NewDecoder(r.Body).Decode(&body))
+			assert.Equal(t, []string{"hash123"}, body.Keys)
+			assert.Empty(t, body.KeyAliases)
+			w.WriteHeader(http.StatusOK)
+		default:
+			t.Fatalf("unexpected LiteLLM path: %s", r.URL.Path)
+		}
+	}))
+	defer litellm.Close()
+
+	handler := newTestHandler(t, mockDB, litellm)
+
+	mockDB.EXPECT().GetLLMBindingByEmail(gomock.Any(), "test@amd.com").Return(nil, nil)
+	mockDB.EXPECT().CreateLLMBinding(gomock.Any(), gomock.Any()).Return(errors.New("db unavailable"))
+
+	router := gin.New()
+	router.POST("/binding", func(c *gin.Context) {
+		setUserContext(c, "user1", "test@amd.com")
+		handler.CreateBinding(c)
+	})
+
+	body := `{"apim_key":"test-apim-key"}`
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("POST", "/binding", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+	assert.Equal(t, 1, deleteCalls)
 }
 
 // ── DeleteBinding tests ───────────────────────────────────────────────────
