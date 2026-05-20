@@ -6,6 +6,7 @@
 package opensearch
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -128,6 +129,109 @@ func truncateForLog(b []byte, maxLen int) string {
 		return string(b)
 	}
 	return string(b[:maxLen]) + "...(truncated)"
+}
+
+// NormalizeLogResponseMessage rewrites a raw `_search` response so every hit
+// exposes a non-empty `message` field even when the source document only has
+// the legacy `log` field (clusters whose fluent-bit pipeline did not rename
+// `log` -> `message`). The function preserves all other fields and tolerates
+// arbitrary unknown keys.
+//
+// It is intentionally tolerant: malformed input is returned as-is so callers
+// can hand the original payload back to the requester for diagnosis instead
+// of erroring out.
+func NormalizeLogResponseMessage(raw []byte) []byte {
+	if len(raw) == 0 {
+		return raw
+	}
+	var envelope map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &envelope); err != nil {
+		return raw
+	}
+	hitsRaw, ok := envelope["hits"]
+	if !ok {
+		return raw
+	}
+	var hitsLevel map[string]json.RawMessage
+	if err := json.Unmarshal(hitsRaw, &hitsLevel); err != nil {
+		return raw
+	}
+	innerRaw, ok := hitsLevel["hits"]
+	if !ok {
+		return raw
+	}
+	var hits []map[string]json.RawMessage
+	if err := json.Unmarshal(innerRaw, &hits); err != nil {
+		return raw
+	}
+
+	changed := false
+	for i, hit := range hits {
+		sourceRaw, ok := hit["_source"]
+		if !ok {
+			continue
+		}
+		var source map[string]json.RawMessage
+		if err := json.Unmarshal(sourceRaw, &source); err != nil {
+			continue
+		}
+		if !sourceNeedsFallback(source) {
+			continue
+		}
+		logRaw, ok := source["log"]
+		if !ok || isEmptyJSONString(logRaw) {
+			continue
+		}
+		source["message"] = logRaw
+		patched, err := json.Marshal(source)
+		if err != nil {
+			continue
+		}
+		hit["_source"] = patched
+		hits[i] = hit
+		changed = true
+	}
+	if !changed {
+		return raw
+	}
+
+	patchedHits, err := json.Marshal(hits)
+	if err != nil {
+		return raw
+	}
+	hitsLevel["hits"] = patchedHits
+	patchedHitsLevel, err := json.Marshal(hitsLevel)
+	if err != nil {
+		return raw
+	}
+	envelope["hits"] = patchedHitsLevel
+	out, err := json.Marshal(envelope)
+	if err != nil {
+		return raw
+	}
+	return out
+}
+
+func sourceNeedsFallback(source map[string]json.RawMessage) bool {
+	msgRaw, ok := source["message"]
+	if !ok {
+		return true
+	}
+	return isEmptyJSONString(msgRaw)
+}
+
+func isEmptyJSONString(raw json.RawMessage) bool {
+	trimmed := bytes.TrimSpace(raw)
+	if len(trimmed) == 0 {
+		return true
+	}
+	if bytes.Equal(trimmed, []byte("null")) {
+		return true
+	}
+	if bytes.Equal(trimmed, []byte(`""`)) {
+		return true
+	}
+	return false
 }
 
 func (c *SearchClient) generateIndexPattern(index string, sinceTime, untilTime time.Time) (string, error) {
