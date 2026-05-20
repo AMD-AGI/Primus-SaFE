@@ -103,8 +103,12 @@ func (h *Handler) getWorkloadLog(c *gin.Context) (interface{}, error) {
 	if opensearchClient == nil {
 		return nil, commonerrors.NewInternalError("There is no OpenSearch in cluster " + clusterId)
 	}
-	return opensearchClient.SearchByTimeRange(query.SinceTime, query.UntilTime,
+	resp, err := opensearchClient.SearchByTimeRange(query.SinceTime, query.UntilTime,
 		"", "/_search", buildSearchBody(query, workload.Name))
+	if err != nil {
+		return nil, err
+	}
+	return commonsearch.NormalizeLogResponseMessage(resp), nil
 }
 
 func (h *Handler) getCICDArcLog(c *gin.Context) (interface{}, error) {
@@ -145,8 +149,12 @@ func (h *Handler) getServiceLog(c *gin.Context) (interface{}, error) {
 	if opensearchClient == nil {
 		return nil, commonerrors.NewInternalError("There is no OpenSearch in cluster " + "")
 	}
-	return opensearchClient.SearchByTimeRange(query.SinceTime, query.UntilTime,
+	resp, err := opensearchClient.SearchByTimeRange(query.SinceTime, query.UntilTime,
 		"", "/_search", buildSearchBody(query, ""))
+	if err != nil {
+		return nil, err
+	}
+	return commonsearch.NormalizeLogResponseMessage(resp), nil
 }
 
 // getWorkloadEvent retrieves events for a specific workload from OpenSearch.
@@ -256,6 +264,7 @@ func (h *Handler) searchContextLog(queries []view.ListContextLogRequest,
 		return nil, err
 	}
 	result.Took = time.Since(startTime).Milliseconds()
+	result.NormalizeMessages()
 	return result, nil
 }
 
@@ -288,6 +297,7 @@ func (h *Handler) searchCICDLog(queries []view.ListLogRequest, workload *v1.Work
 		if err = json.Unmarshal(resp, &result[id]); err != nil {
 			return err
 		}
+		result[id].NormalizeMessages()
 		return nil
 	})
 	if err != nil {
@@ -389,33 +399,51 @@ func buildKeywords(req *commonsearch.OpenSearchRequest, query *view.ListLogReque
 		if len(words) == 0 {
 			continue
 		}
+		var phrase string
+		var slop int
 		if len(words) == 1 {
 			// match_phrase slop 0: terms must be adjacent, preserving order.
 			// /123/456 matches /123/456/789 (123,456 adjacent) but NOT /123/789/456 (789 between).
 			// Single token (e.g. "error") works as usual.
-			req.Query.Bool.Must = append(req.Query.Bool.Must, commonsearch.OpenSearchField{
-				"match_phrase": map[string]interface{}{
-					commonsearch.MessageField: map[string]interface{}{
-						"query": normalize(words[0]),
-						"slop":  0,
-					},
-				},
-			})
+			phrase = normalize(words[0])
+			slop = 0
 		} else {
 			// match_phrase with slop: preserve order but allow gaps between terms
 			normalized := make([]string, len(words))
 			for i, w := range words {
 				normalized[i] = normalize(w)
 			}
-			req.Query.Bool.Must = append(req.Query.Bool.Must, commonsearch.OpenSearchField{
-				"match_phrase": map[string]interface{}{
-					commonsearch.MessageField: map[string]interface{}{
-						"query": strings.Join(normalized, " "),
-						"slop":  100,
-					},
-				},
-			})
+			phrase = strings.Join(normalized, " ")
+			slop = 100
 		}
+		req.Query.Bool.Must = append(req.Query.Bool.Must, keywordMatchAnyField(phrase, slop))
+	}
+}
+
+// keywordMatchAnyField builds a should-clause that matches the phrase against
+// either the canonical `message` field or the raw `log` field. This keeps
+// keyword search working on clusters that have not yet been migrated to the
+// fluent-bit `Rename log message` filter and on historical documents indexed
+// before the migration.
+func keywordMatchAnyField(phrase string, slop int) commonsearch.OpenSearchField {
+	matchOn := func(field string) commonsearch.OpenSearchField {
+		return commonsearch.OpenSearchField{
+			"match_phrase": map[string]interface{}{
+				field: map[string]interface{}{
+					"query": phrase,
+					"slop":  slop,
+				},
+			},
+		}
+	}
+	return commonsearch.OpenSearchField{
+		"bool": map[string]interface{}{
+			"should": []commonsearch.OpenSearchField{
+				matchOn(commonsearch.MessageField),
+				matchOn(commonsearch.LogField),
+			},
+			"minimum_should_match": 1,
+		},
 	}
 }
 
@@ -428,8 +456,11 @@ func buildOutput(req *commonsearch.OpenSearchRequest, query *view.ListLogRequest
 	if query.DisableOutput {
 		return
 	}
+	// Ask for both `message` and `log` so the response normalizer can fall
+	// back to `log` for clusters whose pipeline did not rename it. Extra
+	// _source fields are cheap; OpenSearch silently ignores unknown ones.
 	req.Source = []string{
-		commonsearch.TimeField, commonsearch.MessageField,
+		commonsearch.TimeField, commonsearch.MessageField, commonsearch.LogField,
 	}
 	if !query.UseK8sLabel {
 		return
@@ -665,8 +696,12 @@ func addContextDoc(result *commonsearch.OpenSearchLogResponse,
 	count := 0
 	for ; id < len(response.Hits.Hits) && count < query.Limit; id++ {
 		doc := &response.Hits.Hits[id]
-		if doc.Source.Message == "" {
+		msg := doc.EffectiveMessage()
+		if msg == "" {
 			continue
+		}
+		if doc.Source.Message == "" {
+			doc.Source.Message = msg
 		}
 		count++
 		if isAsc {
