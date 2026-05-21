@@ -128,7 +128,7 @@ extraPodSpec:
             fieldRef:
               fieldPath: metadata.labels
   terminationGracePeriodSeconds: 30
-{{- end -}}
+{{- end }}
 
 apiVersion: v1
 kind: ConfigMap
