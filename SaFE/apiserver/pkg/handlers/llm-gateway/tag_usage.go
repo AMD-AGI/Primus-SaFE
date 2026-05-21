@@ -8,7 +8,6 @@ package llmgateway
 import (
 	"encoding/json"
 	"net/http"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -41,13 +40,10 @@ func (h *Handler) GetTagUsage(c *gin.Context) {
 		return
 	}
 
-	loc, err := resolveTimezone(c.Query("timezone"))
-	if err != nil {
+	if _, err := resolveTimezone(c.Query("timezone")); err != nil {
 		apiutils.AbortWithApiError(c, commonerrors.NewBadRequest(err.Error()))
 		return
 	}
-
-	tagFilters := splitTags(c.Query("tag"))
 
 	page := parseIntParam(c.Query("page"), 1)
 	pageSize := parseIntParam(c.Query("page_size"), defaultTagPageSize)
@@ -72,56 +68,23 @@ func (h *Handler) GetTagUsage(c *gin.Context) {
 		return
 	}
 
-	adjStart, adjEnd := expandDateRangeForTimezone(startDate, endDate, loc)
-	allLogs, err := h.litellmClient.GetAllSpendLogs(c.Request.Context(), email, adjStart, adjEnd, maxSpendLogPages)
-	if err != nil {
-		klog.ErrorS(err, "GetTagUsage: LiteLLM query failed", "email", email)
-		c.JSON(http.StatusBadGateway, gin.H{"errorMessage": "tag usage data temporarily unavailable, please try again later"})
-		return
-	}
-
-	allLogs = filterLogsByLocalDate(allLogs, startDate, endDate, loc)
-
-	if len(tagFilters) > 0 {
-		allLogs = filterLogsByTags(allLogs, tagFilters)
-	}
-
-	result := aggregateByTag(allLogs, loc, tagFilters)
-
-	sort.Slice(result.tags, func(i, j int) bool {
-		return result.tags[i].Spend > result.tags[j].Spend
-	})
-
-	sort.Slice(result.daily, func(i, j int) bool {
-		return result.daily[i].Date < result.daily[j].Date
-	})
-
-	total := len(result.tags)
-	totalPages := (total + pageSize - 1) / pageSize
-	start := (page - 1) * pageSize
-	end := start + pageSize
-	if start > total {
-		start = total
-	}
-	if end > total {
-		end = total
-	}
+	klog.InfoS("GetTagUsage: tag usage disabled, returning empty result", "email", email)
 
 	c.JSON(http.StatusOK, TagUsageResponse{
 		UserEmail:               email,
 		StartDate:               startDate,
 		EndDate:                 endDate,
-		TotalSpend:              result.totalSpend,
-		TotalRequests:           result.totalRequests,
-		TotalSuccessfulRequests: result.totalSuccessful,
-		TotalFailedRequests:     result.totalFailed,
-		TotalTokens:             result.totalTokens,
-		Daily:                   result.daily,
-		Tags:                    result.tags[start:end],
+		TotalSpend:              0,
+		TotalRequests:           0,
+		TotalSuccessfulRequests: 0,
+		TotalFailedRequests:     0,
+		TotalTokens:             0,
+		Daily:                   []TagUsageDailyEntry{},
+		Tags:                    []TagUsageItem{},
 		Page:                    page,
 		PageSize:                pageSize,
-		Total:                   total,
-		TotalPages:              totalPages,
+		Total:                   0,
+		TotalPages:              0,
 	})
 }
 
@@ -193,13 +156,13 @@ func filterLogsByTags(logs []SpendLogEntry, tags []string) []SpendLogEntry {
 // ── Tag aggregation logic ─────────────────────────────────────────────────
 
 type tagAggResult struct {
-	totalSpend    float64
-	totalRequests int64
+	totalSpend      float64
+	totalRequests   int64
 	totalSuccessful int64
 	totalFailed     int64
 	totalTokens     int64
-	daily         []TagUsageDailyEntry
-	tags          []TagUsageItem
+	daily           []TagUsageDailyEntry
+	tags            []TagUsageItem
 }
 
 type tagAccum struct {
@@ -309,13 +272,13 @@ func aggregateByTag(logs []SpendLogEntry, loc *time.Location, tagFilters []strin
 	}
 
 	return tagAggResult{
-		totalSpend:    totalSpend,
-		totalRequests: totalRequests,
+		totalSpend:      totalSpend,
+		totalRequests:   totalRequests,
 		totalSuccessful: totalSuccessful,
 		totalFailed:     totalFailed,
 		totalTokens:     totalTokens,
-		daily:         daily,
-		tags:          items,
+		daily:           daily,
+		tags:            items,
 	}
 }
 
