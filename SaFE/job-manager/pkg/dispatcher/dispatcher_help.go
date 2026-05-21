@@ -57,50 +57,50 @@ func initializeObject(obj *unstructured.Unstructured,
 	templatePath := resourceSpec.TemplatePath()
 	podSpec := getPodSpec(workload)
 
-	path := append(templatePath, podSpec,
+	path := buildPodSpecPath(templatePath, podSpec,
 		"affinity", "nodeAffinity", "requiredDuringSchedulingIgnoredDuringExecution", "nodeSelectorTerms")
 	if err = modifyRequiredNodeAffinity(obj, workload, path); err != nil {
 		return fmt.Errorf("failed to modify nodeSelectorTerms: %v", err.Error())
 	}
 	if v1.IsRetryingOnOriginal(workload) || v1.GetNodesAffinity(workload) == common.NodesAffinityPreferred {
-		path = append(templatePath, podSpec,
+		path = buildPodSpecPath(templatePath, podSpec,
 			"affinity", "nodeAffinity", "preferredDuringSchedulingIgnoredDuringExecution")
 		if err = modifyPreferredNodeAffinity(obj, workload, path); err != nil {
 			return fmt.Errorf("failed to modify preferredNodeAffinity: %v", err.Error())
 		}
 	}
 	if v1.IsRequireNodeSpread(workload) {
-		path = append(templatePath, podSpec,
+		path = buildPodSpecPath(templatePath, podSpec,
 			"affinity", "podAntiAffinity", "requiredDuringSchedulingIgnoredDuringExecution")
 		if err = modifyPodAntiAffinity(obj, workload, path); err != nil {
 			return fmt.Errorf("failed to modify podAntiAffinity: %v", err.Error())
 		}
 	}
-	path = append(templatePath, podSpec, "containers")
+	path = buildPodSpecPath(templatePath, podSpec, "containers")
 	if err = modifyContainers(obj, workload, workspace, path, resourceId); err != nil {
 		return fmt.Errorf("failed to modify main container: %v", err.Error())
 	}
-	path = append(templatePath, podSpec, "volumes")
+	path = buildPodSpecPath(templatePath, podSpec, "volumes")
 	if err = modifyVolumes(obj, workload, workspace, path); err != nil {
 		return fmt.Errorf("failed to modify volumes: %v", err.Error())
 	}
-	path = append(templatePath, podSpec, "imagePullSecrets")
+	path = buildPodSpecPath(templatePath, podSpec, "imagePullSecrets")
 	if err = modifyImageSecrets(obj, workload, path); err != nil {
 		return fmt.Errorf("failed to modify image secrets: %v", err.Error())
 	}
-	path = append(templatePath, podSpec, "priorityClassName")
+	path = buildPodSpecPath(templatePath, podSpec, "priorityClassName")
 	if err = modifyPriorityClass(obj, workload, path); err != nil {
 		return fmt.Errorf("failed to modify priority: %v", err.Error())
 	}
-	path = append(templatePath, podSpec, "serviceAccountName")
+	path = buildPodSpecPath(templatePath, podSpec, "serviceAccountName")
 	if err = modifyServiceAccountName(obj, workload, path); err != nil {
 		return fmt.Errorf("failed to modify sa: %v", err.Error())
 	}
-	path = append(templatePath, podSpec, "hostNetwork")
+	path = buildPodSpecPath(templatePath, podSpec, "hostNetwork")
 	if err = modifyHostNetwork(obj, workload, path, resourceId); err != nil {
 		return fmt.Errorf("failed to modify host network: %v", err.Error())
 	}
-	path = append(templatePath, podSpec, "tolerations")
+	path = buildPodSpecPath(templatePath, podSpec, "tolerations")
 	if err = modifyTolerations(obj, workload, path); err != nil {
 		return fmt.Errorf("failed to modify tolerations: %v", err.Error())
 	}
@@ -468,11 +468,11 @@ func modifyHostPid(obj *unstructured.Unstructured, workload *v1.Workload, templa
 		return nil
 	}
 	podSpec := getPodSpec(workload)
-	path := append(templatePath, podSpec, "hostPID")
+	path := buildPodSpecPath(templatePath, podSpec, "hostPID")
 	if err := jobutils.SetNestedField(obj.Object, true, path); err != nil {
 		return err
 	}
-	path = append(templatePath, podSpec, "hostIPC")
+	path = buildPodSpecPath(templatePath, podSpec, "hostIPC")
 	if err := jobutils.SetNestedField(obj.Object, true, path); err != nil {
 		return err
 	}
@@ -1616,7 +1616,7 @@ func updateHostNetwork(adminWorkload *v1.Workload,
 	obj *unstructured.Unstructured, resourceSpec v1.ResourceSpec, resourceId int) error {
 	templatePath := resourceSpec.TemplatePath()
 	podSpec := getPodSpec(adminWorkload)
-	path := append(templatePath, podSpec, "hostNetwork")
+	path := buildPodSpecPath(templatePath, podSpec, "hostNetwork")
 	return modifyHostNetwork(obj, adminWorkload, path, resourceId)
 }
 
@@ -1625,7 +1625,7 @@ func updatePriorityClass(adminWorkload *v1.Workload,
 	obj *unstructured.Unstructured, resourceSpec v1.ResourceSpec) error {
 	templatePath := resourceSpec.TemplatePath()
 	podSpec := getPodSpec(adminWorkload)
-	path := append(templatePath, podSpec, "priorityClassName")
+	path := buildPodSpecPath(templatePath, podSpec, "priorityClassName")
 	return modifyPriorityClass(obj, adminWorkload, path)
 }
 
@@ -1634,15 +1634,11 @@ func updatePriorityClass(adminWorkload *v1.Workload,
 func getContainers(adminWorkload *v1.Workload, obj *unstructured.Unstructured, resourceSpec v1.ResourceSpec) ([]interface{}, []string, error) {
 	templatePath := resourceSpec.TemplatePath()
 	podSpec := getPodSpec(adminWorkload)
-	var path []string
 	// DGD ExtraPodSpec embeds PodSpec inline, so containers live directly under
 	// extraPodSpec (no nested "spec" wrapper). PyTorchJob / Deployment / RayJob
 	// all wrap pods in template.spec.containers and keep the "spec" segment.
-	if podSpec == "" {
-		path = append(templatePath, "containers")
-	} else {
-		path = append(templatePath, podSpec, "containers")
-	}
+	// buildPodSpecPath omits the empty podSpec segment automatically.
+	path := buildPodSpecPath(templatePath, podSpec, "containers")
 	containers, found, err := jobutils.NestedSlice(obj.Object, path)
 	if err != nil {
 		return nil, nil, err
@@ -1698,6 +1694,26 @@ func getPodSpec(w *v1.Workload) string {
 		return ""
 	}
 	return "spec"
+}
+
+// buildPodSpecPath constructs a path of the form
+// [templatePath..., podSpec, fields...] but omits podSpec when it is empty.
+//
+// CRDs like DGD have ExtraPodSpec embedding PodSpec inline; their
+// ResourceTemplate.templatePaths already points at the pod spec so there is
+// no extra "spec" / "podTemplate" wrapper to traverse. getPodSpec returns ""
+// for these kinds. Using this helper everywhere keeps callers from
+// accidentally emitting "" as a path segment (which would write to or look
+// up a non-existent map key named "" — causing CRD schema warnings and
+// dispatcher path-not-found failures).
+func buildPodSpecPath(templatePath []string, podSpec string, fields ...string) []string {
+	out := make([]string, 0, len(templatePath)+1+len(fields))
+	out = append(out, templatePath...)
+	if podSpec != "" {
+		out = append(out, podSpec)
+	}
+	out = append(out, fields...)
+	return out
 }
 
 func generateUserDir(userId string) string {
