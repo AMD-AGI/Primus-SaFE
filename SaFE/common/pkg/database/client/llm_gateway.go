@@ -10,6 +10,8 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
+	"strings"
 	"time"
 
 	"gorm.io/gorm"
@@ -36,6 +38,8 @@ func ComputeApimKeyHash(apimKey string) string {
 
 const TLLMGatewayUserBinding = "llm_gateway_user_binding"
 
+var ErrLLMBindingLockBusy = errors.New("llm binding operation already in progress")
+
 // LLMGatewayUserBinding represents a user's APIM Key -> LiteLLM Virtual Key binding.
 type LLMGatewayUserBinding struct {
 	UserEmail         string    `gorm:"column:user_email;primaryKey" json:"user_email"`
@@ -50,6 +54,26 @@ type LLMGatewayUserBinding struct {
 
 func (LLMGatewayUserBinding) TableName() string {
 	return TLLMGatewayUserBinding
+}
+
+// WithLLMBindingAdvisoryLock serializes LLM binding mutations for one email.
+func (c *Client) WithLLMBindingAdvisoryLock(ctx context.Context, email string, fn func(context.Context) error) error {
+	db, err := c.GetGormDB()
+	if err != nil {
+		return err
+	}
+
+	lockKey := strings.ToLower(email)
+	return db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var locked bool
+		if err := tx.Raw("SELECT pg_try_advisory_xact_lock(hashtext(?))", lockKey).Scan(&locked).Error; err != nil {
+			return err
+		}
+		if !locked {
+			return ErrLLMBindingLockBusy
+		}
+		return fn(ctx)
+	})
 }
 
 // CreateLLMBinding creates a new LLM Gateway user binding.

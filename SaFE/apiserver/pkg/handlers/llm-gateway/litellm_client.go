@@ -10,9 +10,11 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"k8s.io/klog/v2"
@@ -117,7 +119,7 @@ func (c *LiteLLMClient) CreateKey(ctx context.Context, email, apimKey string) (*
 	if resp.StatusCode != http.StatusOK {
 		klog.ErrorS(nil, "LiteLLM create key failed",
 			"status", resp.StatusCode, "body", string(respBody))
-		return nil, fmt.Errorf("LiteLLM returned HTTP %d: %s", resp.StatusCode, string(respBody))
+		return nil, &litellmError{StatusCode: resp.StatusCode, Body: string(respBody)}
 	}
 
 	var result CreateKeyResponse
@@ -169,8 +171,25 @@ func (c *LiteLLMClient) UpdateKeyMetadata(ctx context.Context, tokenHash string,
 		return fmt.Errorf("LiteLLM returned HTTP %d: %s", resp.StatusCode, string(respBody))
 	}
 
-	klog.Infof("LiteLLM: updated key metadata for token_hash=%s", tokenHash[:16]+"...")
+	klog.Infof("LiteLLM: updated key metadata for token_hash=%s", shortTokenHash(tokenHash))
 	return nil
+}
+
+// DeleteKeyByHash removes a Virtual Key by token hash only, treating 404 as already cleaned up.
+func (c *LiteLLMClient) DeleteKeyByHash(ctx context.Context, tokenHash string) error {
+	if tokenHash == "" {
+		return nil
+	}
+	err := c.doDeleteKey(ctx, DeleteKeyRequest{Keys: []string{tokenHash}})
+	if err == nil {
+		klog.Infof("LiteLLM: deleted key by hash, token_hash=%s", shortTokenHash(tokenHash))
+		return nil
+	}
+	if isNotFoundErr(err) {
+		klog.Warningf("LiteLLM: key not found by hash during rollback, token_hash=%s", shortTokenHash(tokenHash))
+		return nil
+	}
+	return err
 }
 
 // DeleteKey deletes a Virtual Key by its token hash.
@@ -179,7 +198,7 @@ func (c *LiteLLMClient) UpdateKeyMetadata(ctx context.Context, tokenHash string,
 func (c *LiteLLMClient) DeleteKey(ctx context.Context, tokenHash string, keyAlias string) error {
 	err := c.doDeleteKey(ctx, DeleteKeyRequest{Keys: []string{tokenHash}})
 	if err == nil {
-		klog.Infof("LiteLLM: deleted key by hash, token_hash=%s", tokenHash[:16]+"...")
+		klog.Infof("LiteLLM: deleted key by hash, token_hash=%s", shortTokenHash(tokenHash))
 		return nil
 	}
 
@@ -188,7 +207,7 @@ func (c *LiteLLMClient) DeleteKey(ctx context.Context, tokenHash string, keyAlia
 	}
 
 	if keyAlias == "" {
-		klog.Warningf("LiteLLM: key not found by hash and no alias to fallback, token_hash=%s", tokenHash[:16]+"...")
+		klog.Warningf("LiteLLM: key not found by hash and no alias to fallback, token_hash=%s", shortTokenHash(tokenHash))
 		return nil
 	}
 
@@ -199,6 +218,21 @@ func (c *LiteLLMClient) DeleteKey(ctx context.Context, tokenHash string, keyAlia
 
 	klog.Infof("LiteLLM: deleted key by alias=%s", keyAlias)
 	return nil
+}
+
+// DeleteKeyByAlias removes a Virtual Key by key_alias, treating 404 as already cleaned up.
+func (c *LiteLLMClient) DeleteKeyByAlias(ctx context.Context, keyAlias string) error {
+	if keyAlias == "" {
+		return nil
+	}
+	err := c.doDeleteKey(ctx, DeleteKeyRequest{KeyAliases: []string{keyAlias}})
+	if err == nil || isNotFoundErr(err) {
+		if err == nil {
+			klog.Infof("LiteLLM: deleted key by alias=%s", keyAlias)
+		}
+		return nil
+	}
+	return err
 }
 
 func (c *LiteLLMClient) doDeleteKey(ctx context.Context, reqBody DeleteKeyRequest) error {
@@ -242,6 +276,39 @@ func isNotFoundErr(err error) bool {
 		return e.StatusCode == http.StatusNotFound
 	}
 	return false
+}
+
+func isKeyAliasExistsErr(err error) bool {
+	if e, ok := err.(*litellmError); ok && e.StatusCode == http.StatusBadRequest {
+		body := strings.ToLower(e.Body)
+		return strings.Contains(body, "key with alias") &&
+			strings.Contains(body, "already exists")
+	}
+	return false
+}
+
+func isUncertainLiteLLMWriteErr(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, context.Canceled) ||
+		errors.Is(err, context.DeadlineExceeded) ||
+		errors.Is(err, io.EOF) {
+		return true
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "context canceled") ||
+		strings.Contains(msg, "deadline exceeded") ||
+		strings.Contains(msg, "eof") ||
+		strings.Contains(msg, "connection reset") ||
+		strings.Contains(msg, "server closed idle connection")
+}
+
+func shortTokenHash(tokenHash string) string {
+	if len(tokenHash) <= 16 {
+		return tokenHash
+	}
+	return tokenHash[:16] + "..."
 }
 
 // ── Budget & Tag API Methods ──────────────────────────────────────────────
