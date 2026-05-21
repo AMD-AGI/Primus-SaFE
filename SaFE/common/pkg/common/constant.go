@@ -164,6 +164,18 @@ const (
 	// is on the parent DGD CR but the Operator-generated Deployments/Pods
 	// inherit a different label set, so a generic primus-safe-keyed selector
 	// matches zero endpoints. See dispatcher.buildServiceSelector.
+	//
+	// IMPORTANT: these strings are a cross-binary contract with the upstream
+	// Dynamo Operator (see dynamo/deploy/operator/internal/consts/consts.go:
+	// KubeLabelDynamoGraphDeploymentName / KubeLabelDynamoComponentType).
+	// They live in an `internal/` package over there, so the operator does
+	// NOT expose them as helm chart values — they're hard-coded const
+	// strings stamped on every pod the operator creates.
+	//
+	// On every dynamo-operator major-version bump (or AMD fork rebase),
+	// re-verify these two strings still match the operator's consts; if
+	// upstream renames them the SaFE Service selector silently produces
+	// zero endpoints (NOT a build-time error).
 	DynamoOperatorGraphDeploymentNameLabel = "nvidia.com/dynamo-graph-deployment-name"
 	DynamoOperatorComponentTypeLabel       = "nvidia.com/dynamo-component-type"
 
