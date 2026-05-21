@@ -324,6 +324,7 @@
 <script lang="ts" setup>
 import { ref, reactive, watch, nextTick, onMounted, onBeforeUnmount, h, computed, shallowRef } from 'vue'
 import { useWorkloadWriteGuard } from '@/composables/useWorkloadWriteGuard'
+import { useWorkloadResumePermission } from '@/composables/useWorkloadResumePermission'
 import {
   getWorkloadsList,
   deleteWorkload,
@@ -351,7 +352,6 @@ import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Delete, Edit, Close, MoreFilled, VideoPlay, Link } from '@element-plus/icons-vue'
 import { type WorkloadParams, type PriorityValue, PRIORITY_LABEL_MAP } from '@/services'
-import { useUserStore } from '@/stores/user'
 import { useDark } from '@vueuse/core'
 
 dayjs.extend(utc)
@@ -362,8 +362,8 @@ const tableRef = ref()
 const isDark = useDark()
 const router = useRouter()
 const wsStore = useWorkspaceStore()
-const userStore = useUserStore()
 const { canWrite } = useWorkloadWriteGuard()
+const { getResumeDisabled, getResumeTooltip, getRowWorkspaceId } = useWorkloadResumePermission(canWrite)
 
 // ── Extract kind from groupVersionKind ──
 const getRowKind = (row: any): string => row.groupVersionKind?.kind || row.kind || ''
@@ -548,7 +548,10 @@ type Row = {
   phase: string
   groupVersionKind?: { kind: string; version?: string }
   kind?: string
-  workspaceId: string
+  workspaceId?: string
+  workspace?: string
+  userId?: string
+  userName?: string
   maxRetry?: number
   queuePosition?: number
   displayName?: string
@@ -608,7 +611,8 @@ const getActions = (row: Row): Action[] => {
       label: 'Resume',
       icon: VideoPlay,
       btnClass: 'btn-success-plain',
-      disabled: (r) => !canWrite.value || !['Stopped', 'Failed', 'Succeeded'].includes(r.phase),
+      disabled: getResumeDisabled,
+      tooltip: getResumeTooltip,
       onClick: (r) => {
         const endTime = (r as any).endTime
         if (endTime && dayjs().diff(dayjs.utc(endTime), 'second') < 15) {
@@ -701,8 +705,9 @@ const openDialog = async (row: Row, action: 'Edit' | 'Resume') => {
     return
   }
   savedWorkspaceId.value = wsStore.currentWorkspaceId
-  if (row.workspaceId && row.workspaceId !== wsStore.currentWorkspaceId) {
-    await wsStore.setCurrentWorkspace(row.workspaceId)
+  const rowWorkspaceId = getRowWorkspaceId(row)
+  if (rowWorkspaceId && rowWorkspaceId !== wsStore.currentWorkspaceId) {
+    await wsStore.setCurrentWorkspace(rowWorkspaceId)
   }
 
   // Load the dialog component chunk, then mount with visible=false first
