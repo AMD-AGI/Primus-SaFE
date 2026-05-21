@@ -329,7 +329,8 @@ func buildSearchBody(job *v1.OpsJob, workload *workloadInfo) []byte {
 
 	dispatchCntKey := strings.ReplaceAll(v1.WorkloadDispatchCntLabel, ".", "_")
 	searchRequest.Source = []string{
-		commonsearch.TimeField, commonsearch.MessageField, commonsearch.StreamField, "kubernetes.host", "kubernetes.pod_name",
+		commonsearch.TimeField, commonsearch.MessageField, commonsearch.LogField,
+		commonsearch.StreamField, "kubernetes.host", "kubernetes.pod_name",
 		"kubernetes.labels.training_kubeflow_org/replica-index", "kubernetes.labels.training_kubeflow_org/replica-type",
 		fmt.Sprintf("kubernetes.labels.%s", dispatchCntKey),
 	}
@@ -504,7 +505,7 @@ func serializeSearchResponse(data *commonsearch.OpenSearchLogResponse) string {
 		}
 		logBuffer.WriteString(doc.Source.Kubernetes.Labels.DispatchCount)
 		logBuffer.WriteString(" ")
-		logBuffer.WriteString(doc.Source.Message)
+		logBuffer.WriteString(doc.EffectiveMessage())
 		logBuffer.WriteString("\n")
 	}
 	return logBuffer.String()
