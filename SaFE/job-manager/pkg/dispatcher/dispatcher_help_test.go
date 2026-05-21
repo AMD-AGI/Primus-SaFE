@@ -982,8 +982,9 @@ func getDynamoMainContainer(t *testing.T, obj *unstructured.Unstructured, svcKey
 
 // TestNormalizeDynamoDGD_AggregatedMinimal covers the 2-resource shape
 // `[Frontend, Worker]` produced by the default annotation inference. Asserts
-// slot rename + componentType assignment + mainContainer conversion + no
-// leftover role* keys.
+// slot keys remain role0/role1 (NOT renamed — dispatcher reconcile relies
+// on stable map keys), serviceName field tags the role, componentType is
+// set, mainContainer conversion happens.
 func TestNormalizeDynamoDGD_AggregatedMinimal(t *testing.T) {
 	obj := buildFakeDGD(2)
 	workload := buildDynamoTestWorkload("frontend,worker", nil)
@@ -993,30 +994,32 @@ func TestNormalizeDynamoDGD_AggregatedMinimal(t *testing.T) {
 
 	services, _, err := jobutils.NestedMap(obj.Object, []string{"spec", "services"})
 	assert.NilError(t, err)
-	assert.Equal(t, len(services), 2, "should have exactly Frontend + Worker")
+	assert.Equal(t, len(services), 2, "should have exactly role0 + role1")
 	_, hasRole0 := services["role0"]
-	assert.Equal(t, hasRole0, false, "role0 slot should be renamed away")
+	assert.Equal(t, hasRole0, true, "role0 slot key must be preserved")
 	_, hasRole1 := services["role1"]
-	assert.Equal(t, hasRole1, false, "role1 slot should be renamed away")
+	assert.Equal(t, hasRole1, true, "role1 slot key must be preserved")
 
-	fe := getDynamoService(t, obj, "Frontend")
+	fe := getDynamoService(t, obj, "role0")
 	assert.Equal(t, fe["componentType"], "Frontend")
+	assert.Equal(t, fe["serviceName"], "Frontend")
 	_, hasSubComp := fe["subComponentType"]
 	assert.Equal(t, hasSubComp, false, "Frontend must not have subComponentType")
 
-	feMain := getDynamoMainContainer(t, obj, "Frontend")
+	feMain := getDynamoMainContainer(t, obj, "role0")
 	assert.Equal(t, feMain["name"], "main")
 	feExtra := fe["extraPodSpec"].(map[string]interface{})
 	_, hasContainers := feExtra["containers"]
 	assert.Equal(t, hasContainers, false, "containers should be removed after mainContainer conversion")
 
-	wk := getDynamoService(t, obj, "Worker")
+	wk := getDynamoService(t, obj, "role1")
 	assert.Equal(t, wk["componentType"], "Main")
+	assert.Equal(t, wk["serviceName"], "Worker")
 	_, hasSubCompWk := wk["subComponentType"]
 	assert.Equal(t, hasSubCompWk, false, "Worker must not have subComponentType")
 
 	// Aggregated mode never injects sglang disagg env.
-	wkMain := getDynamoMainContainer(t, obj, "Worker")
+	wkMain := getDynamoMainContainer(t, obj, "role1")
 	wkEnv := wkMain["env"].([]interface{})
 	_, hasMode := findDynamoEnv(wkEnv, "SGLANG_DISAGGREGATION_MODE")
 	assert.Equal(t, hasMode, false, "aggregated worker must not carry disagg env")
@@ -1032,11 +1035,12 @@ func TestNormalizeDynamoDGD_DisaggMinimal(t *testing.T) {
 	err := normalizeDynamoDGD(obj, workload)
 	assert.NilError(t, err)
 
-	pf := getDynamoService(t, obj, "PrefillWorker")
+	pf := getDynamoService(t, obj, "role1")
 	assert.Equal(t, pf["componentType"], "Main")
 	assert.Equal(t, pf["subComponentType"], "prefill")
+	assert.Equal(t, pf["serviceName"], "PrefillWorker")
 
-	pfMain := getDynamoMainContainer(t, obj, "PrefillWorker")
+	pfMain := getDynamoMainContainer(t, obj, "role1")
 	pfEnv := pfMain["env"].([]interface{})
 	mode, ok := findDynamoEnv(pfEnv, "SGLANG_DISAGGREGATION_MODE")
 	assert.Equal(t, ok, true)
@@ -1048,18 +1052,19 @@ func TestNormalizeDynamoDGD_DisaggMinimal(t *testing.T) {
 	assert.Equal(t, ok, true)
 	assert.Equal(t, backend, common.DynamoKVBackendNixl)
 
-	dec := getDynamoService(t, obj, "DecodeWorker")
+	dec := getDynamoService(t, obj, "role2")
 	assert.Equal(t, dec["componentType"], "Main")
 	assert.Equal(t, dec["subComponentType"], "decode")
+	assert.Equal(t, dec["serviceName"], "DecodeWorker")
 
-	decMain := getDynamoMainContainer(t, obj, "DecodeWorker")
+	decMain := getDynamoMainContainer(t, obj, "role2")
 	decEnv := decMain["env"].([]interface{})
 	mode, ok = findDynamoEnv(decEnv, "SGLANG_DISAGGREGATION_MODE")
 	assert.Equal(t, ok, true)
 	assert.Equal(t, mode, "decode")
 
 	// Frontend in disagg mode is still a normal Frontend (no disagg envs).
-	feMain := getDynamoMainContainer(t, obj, "Frontend")
+	feMain := getDynamoMainContainer(t, obj, "role0")
 	feEnv := feMain["env"].([]interface{})
 	_, hasMode := findDynamoEnv(feEnv, "SGLANG_DISAGGREGATION_MODE")
 	assert.Equal(t, hasMode, false)
@@ -1079,21 +1084,24 @@ func TestNormalizeDynamoDGD_DisaggWithPlanner(t *testing.T) {
 	assert.NilError(t, err)
 	assert.Equal(t, len(services), 4)
 
-	plan := getDynamoService(t, obj, "Planner")
+	plan := getDynamoService(t, obj, "role3")
 	assert.Equal(t, plan["componentType"], "Planner")
+	assert.Equal(t, plan["serviceName"], "Planner")
 	_, hasSubComp := plan["subComponentType"]
 	assert.Equal(t, hasSubComp, false)
 
-	planMain := getDynamoMainContainer(t, obj, "Planner")
+	planMain := getDynamoMainContainer(t, obj, "role3")
 	planEnv := planMain["env"].([]interface{})
 	_, hasMode := findDynamoEnv(planEnv, "SGLANG_DISAGGREGATION_MODE")
 	assert.Equal(t, hasMode, false, "planner must not carry disagg env")
 
 	// Disagg pair still in place.
-	pf := getDynamoService(t, obj, "PrefillWorker")
+	pf := getDynamoService(t, obj, "role1")
 	assert.Equal(t, pf["subComponentType"], "prefill")
-	dec := getDynamoService(t, obj, "DecodeWorker")
+	assert.Equal(t, pf["serviceName"], "PrefillWorker")
+	dec := getDynamoService(t, obj, "role2")
 	assert.Equal(t, dec["subComponentType"], "decode")
+	assert.Equal(t, dec["serviceName"], "DecodeWorker")
 }
 
 // TestNormalizeDynamoDGD_MultiNodeTP verifies the multinode annotation lifts
@@ -1111,16 +1119,19 @@ func TestNormalizeDynamoDGD_MultiNodeTP(t *testing.T) {
 	err := normalizeDynamoDGD(obj, workload)
 	assert.NilError(t, err)
 
-	pf := getDynamoService(t, obj, "PrefillWorker")
+	pf := getDynamoService(t, obj, "role1")
+	assert.Equal(t, pf["serviceName"], "PrefillWorker")
 	mn, ok := pf["multinode"].(map[string]interface{})
 	assert.Equal(t, ok, true, "PrefillWorker should have multinode block")
 	assert.Equal(t, mn["numberOfNodes"], int64(2))
 
-	dec := getDynamoService(t, obj, "DecodeWorker")
+	dec := getDynamoService(t, obj, "role2")
+	assert.Equal(t, dec["serviceName"], "DecodeWorker")
 	_, hasMn := dec["multinode"]
 	assert.Equal(t, hasMn, false, "DecodeWorker must remain single-node (no annotation)")
 
-	fe := getDynamoService(t, obj, "Frontend")
+	fe := getDynamoService(t, obj, "role0")
+	assert.Equal(t, fe["serviceName"], "Frontend")
 	_, hasMnFe := fe["multinode"]
 	assert.Equal(t, hasMnFe, false, "Frontend must remain single-node")
 }

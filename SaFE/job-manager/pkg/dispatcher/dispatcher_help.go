@@ -1135,8 +1135,10 @@ func updateMonarchMesh(obj *unstructured.Unstructured, adminWorkload *v1.Workloa
 // the operator expects.
 //
 // Concretely it:
-//   - renames services.role<i> -> services.<role-based key> based on the
-//     primus-safe.dynamo.service-roles annotation
+//   - sets services.role<i>.serviceName to the role-based key (Frontend /
+//     Worker / PrefillWorker / DecodeWorker / Planner / Epp) so kubectl
+//     and downstream observability can identify the role without renaming
+//     the map key
 //   - injects componentType / subComponentType / role-specific env per role
 //   - moves containers[name=main] into extraPodSpec.mainContainer because the
 //     DGD operator treats containers[] as sidecars and only mainContainer
@@ -1145,6 +1147,15 @@ func updateMonarchMesh(obj *unstructured.Unstructured, adminWorkload *v1.Workloa
 //   - injects multinode.numberOfNodes when annotation
 //     primus-safe.dynamo.multinode.<role> is set
 //   - propagates backendFramework from annotation to spec.backendFramework
+//
+// NB: we intentionally do NOT rename services.role<i> map keys to the
+// role-based key. The dispatcher's syncWorkloadToObject path (reconcile after
+// a status conflict) re-fetches the K8s DGD and walks ResourceTemplate
+// prePaths (which are hard-coded to role0..role4). Renaming the slot makes
+// dispatcher unable to find the slot on subsequent reconciles, producing
+// "failed to find container with path: [spec services role0 extraPodSpec
+// containers]" errors. The DGD operator treats spec.services as a free-form
+// map and uses componentType / serviceName, not the key, to route logic.
 //
 // Errors here imply a programming bug or a corrupt rendered object; the webhook
 // (validateDynamoDeployment) rejects malformed inputs before they reach the
@@ -1177,6 +1188,12 @@ func normalizeDynamoDGD(obj *unstructured.Unstructured, adminWorkload *v1.Worklo
 			return fmt.Errorf("dynamo slot %s missing or wrong type", slotKey)
 		}
 
+		// Tag the slot with its role-based name via the DGD ServiceName field
+		// (DynamoComponentDeploymentSharedSpec.ServiceName). This preserves
+		// human-readable role naming in kubectl/dashboards without renaming
+		// the map key (which would break dispatcher reconcile, see above).
+		slot["serviceName"] = dynamoServiceKey(role)
+
 		applyDynamoRoleFields(slot, role, kvBackend)
 
 		if err := convertContainersToMainContainer(slot); err != nil {
@@ -1189,12 +1206,7 @@ func normalizeDynamoDGD(obj *unstructured.Unstructured, adminWorkload *v1.Worklo
 			}
 		}
 
-		// Rename slot key last so the operations above never lose track of the
-		// active map reference.
-		if targetKey := dynamoServiceKey(role); targetKey != slotKey {
-			services[targetKey] = slot
-			delete(services, slotKey)
-		}
+		services[slotKey] = slot
 	}
 	if err := jobutils.SetNestedField(obj.Object, services,
 		[]string{"spec", "services"}); err != nil {
