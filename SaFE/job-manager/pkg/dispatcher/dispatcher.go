@@ -529,6 +529,18 @@ func (r *DispatcherReconciler) syncWorkloadToObject(ctx context.Context, adminWo
 		return nil
 	}
 
+	// DynamoDeployment lifecycle is handed off to the Dynamo Operator after
+	// the initial create; SaFE does not patch user spec changes back into the
+	// running DGD. The generic sync flow (isXxxChanged + applyWorkloadSpecToObject)
+	// assumes containers[] is still in place, but normalizeDynamoDGD already
+	// rewrote it into extraPodSpec.mainContainer when the object was created.
+	// Skipping the sync path here is the simplest correct behavior for the
+	// Phase 2 MVP — to change image/env/resources users delete and recreate
+	// the Workload.
+	if commonworkload.IsDynamoDeployment(adminWorkload) {
+		return nil
+	}
+
 	functions := []func(adminWorkload *v1.Workload, obj *unstructured.Unstructured, rt *v1.ResourceTemplate) bool{
 		isResourceChanged, isImagesChanged, isEntrypointChanged, isSharedMemoryChanged,
 		isEnvChanged, isPriorityClassChanged, isGithubSecretChanged,
