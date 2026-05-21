@@ -785,7 +785,7 @@ func (r *DispatcherReconciler) createService(ctx context.Context, adminWorkload 
 			},
 		},
 		Spec: corev1.ServiceSpec{
-			Selector: buildServiceSelector(adminWorkload.Name, specService),
+			Selector: buildServiceSelector(adminWorkload, specService),
 			Ports:    generateServicePorts(specService),
 			Type:     specService.ServiceType,
 		},
@@ -856,7 +856,7 @@ func (r *DispatcherReconciler) updateService(ctx context.Context, adminWorkload 
 		existing.Spec.Type = specService.ServiceType
 		isChanged = true
 	}
-	newSelector := buildServiceSelector(adminWorkload.Name, specService)
+	newSelector := buildServiceSelector(adminWorkload, specService)
 	if !reflect.DeepEqual(existing.Spec.Selector, newSelector) {
 		existing.Spec.Selector = newSelector
 		isChanged = true
@@ -1177,9 +1177,36 @@ func generateServicePorts(specService *v1.Service) []corev1.ServicePort {
 // PyTorchJob master only, etc.) so traffic isn't load-balanced to pods
 // that don't actually listen on the target port.
 //
-// User-supplied keys MUST NOT override the K8sObjectIdLabel; if collide,
-// the SaFE-managed key wins to keep the workload-scoping invariant.
-func buildServiceSelector(workloadName string, specService *v1.Service) map[string]string {
+// User-supplied keys MUST NOT override the workload-scoping label; if they
+// collide, the SaFE-managed key wins.
+//
+// Special case for DynamoDeployment: the pods are produced by the upstream
+// Dynamo Operator (DGD -> DCD -> Deployment -> Pod) and never carry SaFE's
+// primus-safe.k8s.object.id label — the Operator stamps its own
+// nvidia.com/dynamo-* labels instead. Use those for the selector and add
+// component-type=Frontend so the Service only targets the HTTP-serving
+// component (Worker / Planner / etc. listen on internal endpoints, not on
+// the user-facing port the SaFE Service exposes).
+func buildServiceSelector(workload *v1.Workload, specService *v1.Service) map[string]string {
+	// DGD pods are owned by the Dynamo Operator; SaFE's k8s.object.id label
+	// is on the DGD CR, not the pods, so use the operator's own labels.
+	if commonworkload.IsDynamoDeployment(workload) {
+		selector := make(map[string]string, 2+len(specService.ExtraSelectors))
+		for k, v := range specService.ExtraSelectors {
+			if k == common.DynamoOperatorGraphDeploymentNameLabel ||
+				k == common.DynamoOperatorComponentTypeLabel {
+				continue
+			}
+			selector[k] = v
+		}
+		selector[common.DynamoOperatorGraphDeploymentNameLabel] = workload.Name
+		// Frontend is the only DGD service that listens on a user-facing
+		// HTTP port; Worker / Prefill / Decode / Planner expose only
+		// internal endpoints registered via the discovery backend.
+		selector[common.DynamoOperatorComponentTypeLabel] = "Frontend"
+		return selector
+	}
+
 	selector := make(map[string]string, 1+len(specService.ExtraSelectors))
 	for k, v := range specService.ExtraSelectors {
 		if k == v1.K8sObjectIdLabel {
@@ -1187,7 +1214,7 @@ func buildServiceSelector(workloadName string, specService *v1.Service) map[stri
 		}
 		selector[k] = v
 	}
-	selector[v1.K8sObjectIdLabel] = workloadName
+	selector[v1.K8sObjectIdLabel] = workload.Name
 	return selector
 }
 

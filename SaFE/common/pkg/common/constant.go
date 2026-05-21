@@ -158,6 +158,15 @@ const (
 	// status events back into the admin workload.
 	DynamoGraphDeploymentKind = "DynamoGraphDeployment"
 
+	// Pod labels written by the upstream Dynamo Operator on every pod it
+	// produces from a DGD. SaFE uses these as the Service selector for
+	// DynamoDeployment workloads — SaFE's own primus-safe.k8s.object.id label
+	// is on the parent DGD CR but the Operator-generated Deployments/Pods
+	// inherit a different label set, so a generic primus-safe-keyed selector
+	// matches zero endpoints. See dispatcher.buildServiceSelector.
+	DynamoOperatorGraphDeploymentNameLabel = "nvidia.com/dynamo-graph-deployment-name"
+	DynamoOperatorComponentTypeLabel       = "nvidia.com/dynamo-component-type"
+
 	// Defaults applied when the corresponding annotation is missing.
 	DynamoDefaultKVBackend        = DynamoKVBackendNixl
 	DynamoDefaultBackendFramework = "sglang"

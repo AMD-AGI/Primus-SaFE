@@ -1135,3 +1135,51 @@ func TestNormalizeDynamoDGD_MultiNodeTP(t *testing.T) {
 	_, hasMnFe := fe["multinode"]
 	assert.Equal(t, hasMnFe, false, "Frontend must remain single-node")
 }
+
+// TestBuildServiceSelector_DynamoUsesOperatorLabels verifies the dynamo
+// special-case: K8s Service for a DynamoDeployment workload must select
+// pods via nvidia.com/dynamo-graph-deployment-name (set by the Dynamo
+// Operator) plus dynamo-component-type=Frontend to avoid routing user HTTP
+// traffic to Worker / Planner pods.
+func TestBuildServiceSelector_DynamoUsesOperatorLabels(t *testing.T) {
+	workload := buildDynamoTestWorkload("frontend,worker", nil)
+	specService := &v1.Service{Port: 8000}
+
+	selector := buildServiceSelector(workload, specService)
+
+	assert.Equal(t, selector[common.DynamoOperatorGraphDeploymentNameLabel], "test-dgd",
+		"DGD pods select by nvidia.com/dynamo-graph-deployment-name=<workload name>")
+	assert.Equal(t, selector[common.DynamoOperatorComponentTypeLabel], "Frontend",
+		"only Frontend exposes the user HTTP port; other components must not be matched")
+	_, hasK8sObjectId := selector[v1.K8sObjectIdLabel]
+	assert.Equal(t, hasK8sObjectId, false,
+		"primus-safe.k8s.object.id is on the DGD CR, not the pods — must not be in the selector")
+}
+
+// TestBuildServiceSelector_NonDynamoKeepsK8sObjectIdLabel verifies the
+// non-dynamo path is unchanged: pods inherit primus-safe.k8s.object.id from
+// the dispatcher-managed template and the Service targets them by name.
+func TestBuildServiceSelector_NonDynamoKeepsK8sObjectIdLabel(t *testing.T) {
+	workload := &v1.Workload{
+		ObjectMeta: metav1.ObjectMeta{Name: "pyt-job-1"},
+		Spec: v1.WorkloadSpec{
+			GroupVersionKind: v1.GroupVersionKind{Kind: common.PytorchJobKind, Version: common.DefaultVersion},
+		},
+	}
+	specService := &v1.Service{
+		Port: 8000,
+		ExtraSelectors: map[string]string{
+			"primus-safe.amd.com/pytorch-role": "master",
+		},
+	}
+
+	selector := buildServiceSelector(workload, specService)
+
+	assert.Equal(t, selector[v1.K8sObjectIdLabel], "pyt-job-1",
+		"non-dynamo path keeps the SaFE-managed K8sObjectIdLabel selector")
+	assert.Equal(t, selector["primus-safe.amd.com/pytorch-role"], "master",
+		"ExtraSelectors merge through to the final selector")
+	_, hasDgdLabel := selector[common.DynamoOperatorGraphDeploymentNameLabel]
+	assert.Equal(t, hasDgdLabel, false,
+		"non-dynamo workloads must not get the dynamo-operator selector")
+}
