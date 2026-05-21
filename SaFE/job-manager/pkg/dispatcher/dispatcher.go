@@ -408,6 +408,17 @@ func (r *DispatcherReconciler) generateK8sObject(ctx context.Context,
 			return nil, commonerrors.NewInternalError(err.Error())
 		}
 	}
+	// Kind-specific post-processing AFTER all generic dispatcher operations
+	// finished (applyWorkloadSpecToObject + initializeObject). Doing it
+	// earlier would, for DGD, convert containers[main] -> extraPodSpec.
+	// mainContainer before initializeObject's modifyContainers can read it,
+	// causing "failed to find container" errors.
+	if commonworkload.IsDynamoDeployment(adminWorkload) {
+		if err = normalizeDynamoDGD(result, adminWorkload); err != nil {
+			return nil, commonerrors.NewInternalError(
+				fmt.Sprintf("failed to normalize dynamo DGD: %v", err.Error()))
+		}
+	}
 	setK8sObjectMeta(result, adminWorkload)
 	return result, nil
 }
@@ -731,16 +742,11 @@ func (r *DispatcherReconciler) applyWorkloadSpecToObject(ctx context.Context, cl
 			return err
 		}
 	}
-	// Post-process: kind-specific normalization that runs *after* the generic
-	// flow has populated image / env / resources / replicas and after surplus
-	// ResourceSpec paths have been removed. Some CRDs (e.g. DGD) have a
-	// non-standard pod template shape that needs a rewrite step before the
-	// object is applied to the data plane.
-	if commonworkload.IsDynamoDeployment(adminWorkload) {
-		if err = normalizeDynamoDGD(obj, adminWorkload); err != nil {
-			return fmt.Errorf("failed to normalize dynamo DGD: %v", err.Error())
-		}
-	}
+	// NB: kind-specific normalization (e.g. normalizeDynamoDGD which converts
+	// containers[main] -> extraPodSpec.mainContainer) runs in
+	// generateK8sObject after the per-ResourceSpec initializeObject loop,
+	// NOT here. Running it inside applyWorkloadSpecToObject would delete the
+	// containers[] field before initializeObject's modifyContainers sees it.
 	return nil
 }
 
