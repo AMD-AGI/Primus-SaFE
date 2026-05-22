@@ -1255,11 +1255,11 @@ func applyDynamoRoleFields(slot map[string]interface{}, role, kvBackend string) 
 	case common.DynamoRolePrefill:
 		slot["componentType"] = "Main"
 		slot["subComponentType"] = "prefill"
-		injectSglangDisaggEnv(slot, "prefill", kvBackend)
+		appendSglangDisaggArgs(slot, "prefill", kvBackend)
 	case common.DynamoRoleDecode:
 		slot["componentType"] = "Main"
 		slot["subComponentType"] = "decode"
-		injectSglangDisaggEnv(slot, "decode", kvBackend)
+		appendSglangDisaggArgs(slot, "decode", kvBackend)
 	case common.DynamoRolePlanner:
 		slot["componentType"] = "Planner"
 		delete(slot, "subComponentType")
@@ -1269,12 +1269,24 @@ func applyDynamoRoleFields(slot map[string]interface{}, role, kvBackend string) 
 	}
 }
 
-// injectSglangDisaggEnv adds SGLANG disaggregation env vars to the main
-// container (still under containers[] at this point;
-// convertContainersToMainContainer relocates them shortly after). The variable
-// names follow sglang upstream's disaggregation worker; see
-// dynamo/examples/sglang/disagg/ for the canonical example.
-func injectSglangDisaggEnv(slot map[string]interface{}, mode, kvBackend string) {
+// appendSglangDisaggArgs appends the sglang disaggregation flags
+// (--disaggregation-mode/--disaggregation-transfer-backend/
+// --disaggregation-bootstrap-port) to the main container's launcher-encoded
+// command. dynamo.sglang parses these via argparse; it does NOT read
+// SGLANG_DISAGGREGATION_* env vars (only SGLANG_DISAGGREGATION_IB_DEVICE is
+// env-driven). Env-only injection therefore leaves disaggregation_mode='null'
+// and silently degrades to aggregated.
+//
+// The container command is already in launcher form at this point
+// (`/bin/sh -c "exec /bin/sh /shared-data/launcher.sh <base64>"`) because
+// normalizeDynamoDGD runs after initializeObject/buildCommands. We rewrite
+// only the trailing base64 payload, leaving the launcher prefix untouched.
+//
+// Idempotency: if the user already declared --disaggregation-mode (or
+// --disaggregation-transfer-backend / --disaggregation-bootstrap-port) we
+// preserve their value verbatim. dynamo.sglang's argparse rejects duplicates
+// and would crash the worker on startup otherwise.
+func appendSglangDisaggArgs(slot map[string]interface{}, mode, kvBackend string) {
 	extra, _ := slot["extraPodSpec"].(map[string]interface{})
 	if extra == nil {
 		return
@@ -1288,35 +1300,60 @@ func injectSglangDisaggEnv(slot map[string]interface{}, mode, kvBackend string) 
 		if name, _ := m["name"].(string); name != "main" {
 			continue
 		}
-		env, _ := m["env"].([]interface{})
-		env = appendDynamoEnvOnce(env, "SGLANG_DISAGGREGATION_MODE", mode)
-		env = appendDynamoEnvOnce(env, "SGLANG_DISAGGREGATION_BOOTSTRAP_PORT",
-			strconv.Itoa(common.DynamoBootstrapPort))
-		env = appendDynamoEnvOnce(env, "SGLANG_DISAGGREGATION_TRANSFER_BACKEND", kvBackend)
-		m["env"] = env
+		cmd, _ := m["command"].([]interface{})
+		newCmd, ok := appendLauncherArgs(cmd, sglangDisaggFlags(mode, kvBackend))
+		if !ok {
+			continue
+		}
+		m["command"] = newCmd
 		containers[i] = m
 	}
 	extra["containers"] = containers
 	slot["extraPodSpec"] = extra
 }
 
-// appendDynamoEnvOnce appends a {name,value} entry only when the same name is
-// not already present. An existing entry wins (user override or webhook
-// injection takes precedence over the dispatcher defaults).
-func appendDynamoEnvOnce(env []interface{}, name, value string) []interface{} {
-	for _, e := range env {
-		m, ok := e.(map[string]interface{})
-		if !ok {
-			continue
-		}
-		if n, _ := m["name"].(string); n == name {
-			return env
-		}
+// sglangDisaggFlags formats the sglang disaggregation flags as a single
+// argument string ready to be appended after a user-supplied entry. Bootstrap
+// port is the SaFE-wide convention (common.DynamoBootstrapPort).
+func sglangDisaggFlags(mode, kvBackend string) string {
+	return fmt.Sprintf(
+		"--disaggregation-mode %s --disaggregation-transfer-backend %s --disaggregation-bootstrap-port %d",
+		mode, kvBackend, common.DynamoBootstrapPort,
+	)
+}
+
+// appendLauncherArgs appends extraFlags to the base64 payload of a
+// launcher-style command slice (produced by buildCommands). Returns the
+// updated command and true on success. Returns (nil, false) when the command
+// is not in launcher form (e.g. CICD raw shell), letting the caller skip the
+// slot without error. Existing --disaggregation-mode in the payload short-
+// circuits to avoid duplicate flag injection.
+func appendLauncherArgs(cmd []interface{}, extraFlags string) ([]interface{}, bool) {
+	if len(cmd) < 3 {
+		return nil, false
 	}
-	return append(env, map[string]interface{}{
-		"name":  name,
-		"value": value,
-	})
+	full, ok := cmd[2].(string)
+	if !ok {
+		return nil, false
+	}
+	payload, ok := launcherEntryPayload(full)
+	if !ok || payload == "" {
+		return nil, false
+	}
+	decoded := stringutil.Base64Decode(payload)
+	if decoded == "" {
+		return nil, false
+	}
+	if strings.Contains(decoded, "--disaggregation-mode") {
+		return cmd, true
+	}
+	decoded = strings.TrimRight(decoded, "\n")
+	newPayload := stringutil.Base64Encode(decoded + " " + extraFlags)
+	prefix := full[:strings.LastIndex(full, payload)]
+	out := make([]interface{}, len(cmd))
+	copy(out, cmd)
+	out[2] = prefix + newPayload
+	return out, true
 }
 
 // convertContainersToMainContainer moves the main container (the one named
