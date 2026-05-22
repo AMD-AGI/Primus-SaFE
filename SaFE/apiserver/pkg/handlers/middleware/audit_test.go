@@ -85,6 +85,21 @@ func TestSanitizeBody(t *testing.T) {
 			expected: `{"name": "test", "[REDACTED]"}`,
 		},
 		{
+			name:     "privateKey_field",
+			input:    `{"githubAuth": {"type": "github_app", "appId": "123", "installationId": "456", "privateKey": "pem-data"}}`,
+			expected: `{"githubAuth": {"type": "github_app", "appId": "123", "installationId": "456", "[REDACTED]"}}`,
+		},
+		{
+			name:     "private_key_field",
+			input:    `{"name": "test", "private_key": "pem-data"}`,
+			expected: `{"name": "test", "[REDACTED]"}`,
+		},
+		{
+			name:     "github_app_private_key_field",
+			input:    `{"github_app_id": "123", "github_app_private_key": "pem-data"}`,
+			expected: `{"github_app_id": "123", "[REDACTED]"}`,
+		},
+		{
 			name:     "token_field",
 			input:    `{"userId": "123", "token": "jwt-token-here"}`,
 			expected: `{"userId": "123", "[REDACTED]"}`,
@@ -128,6 +143,11 @@ func TestSanitizeBody(t *testing.T) {
 			name:     "form_data_token",
 			input:    `userId=123&token=jwt-token&action=login`,
 			expected: `userId=123&token=[REDACTED]&action=login`,
+		},
+		{
+			name:     "form_data_privateKey",
+			input:    `type=github_app&privateKey=pem-data&appId=123`,
+			expected: `type=github_app&privateKey=[REDACTED]&appId=123`,
 		},
 	}
 
