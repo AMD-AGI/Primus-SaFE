@@ -149,6 +149,16 @@ func TestSanitizeBody(t *testing.T) {
 			input:    `type=github_app&privateKey=` + `pem-data&appId=123`,
 			expected: `type=github_app&privateKey=[REDACTED]&appId=123`,
 		},
+		{
+			name:     "form_data_private_key",
+			input:    `type=github_app&private_key=` + `pem-data&appId=123`,
+			expected: `type=github_app&private_key=[REDACTED]&appId=123`,
+		},
+		{
+			name:     "form_data_github_app_private_key",
+			input:    `type=github_app&github_app_private_key=` + `pem-data&appId=123`,
+			expected: `type=github_app&github_app_private_key=[REDACTED]&appId=123`,
+		},
 	}
 
 	for _, tt := range tests {
