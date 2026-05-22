@@ -329,9 +329,10 @@ func sanitizeBody(body string) string {
 		result = pattern.ReplaceAllString(result, `"[REDACTED]"`)
 	}
 
-	// Form-urlencoded format: password=value or password=value&
+	// Form-urlencoded format: field=value or field=value&
+	sensitiveFormFields := `password|token|secret|apiKey|api_key|privateKey|private_key|github_app_private_key`
 	formPatterns := []*regexp.Regexp{
-		regexp.MustCompile(`(^|&)(password|token|secret|apiKey|api_key|privateKey|private_key|github_app_private_key)=[^&]*`),
+		regexp.MustCompile(`(^|&)(` + sensitiveFormFields + `)=[^&]*`),
 	}
 	for _, pattern := range formPatterns {
 		result = pattern.ReplaceAllString(result, `$1$2=[REDACTED]`)
