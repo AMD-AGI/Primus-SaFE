@@ -99,17 +99,32 @@ func TestGitHubTokenSourcePAT(t *testing.T) {
 
 func TestGitHubTokenSourceGitHubApp(t *testing.T) {
 	privateKey := testRSAPrivateKeyPEM(t)
-	requestSeen := false
+	requestSeen := make(chan struct{}, 1)
+	handlerErr := make(chan string, 1)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		requestSeen = true
+		select {
+		case requestSeen <- struct{}{}:
+		default:
+		}
+		recordHandlerError := func(message string) {
+			select {
+			case handlerErr <- message:
+			default:
+			}
+			http.Error(w, message, http.StatusBadRequest)
+		}
+
 		if r.Method != http.MethodPost {
-			t.Fatalf("method = %s, want POST", r.Method)
+			recordHandlerError("method = " + r.Method + ", want POST")
+			return
 		}
 		if r.URL.Path != "/app/installations/456/access_tokens" {
-			t.Fatalf("path = %s, want installation token path", r.URL.Path)
+			recordHandlerError("path = " + r.URL.Path + ", want installation token path")
+			return
 		}
 		if auth := r.Header.Get("Authorization"); !strings.HasPrefix(auth, "Bearer ") {
-			t.Fatalf("Authorization = %q, want bearer JWT", auth)
+			recordHandlerError("Authorization header does not contain bearer JWT")
+			return
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"token":"installation-token"}`))
@@ -132,7 +147,14 @@ func TestGitHubTokenSourceGitHubApp(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Token() error = %v", err)
 	}
-	if !requestSeen {
+	select {
+	case message := <-handlerErr:
+		t.Fatal(message)
+	default:
+	}
+	select {
+	case <-requestSeen:
+	default:
 		t.Fatal("Token() did not call installation token endpoint")
 	}
 	if token != "installation-token" {
