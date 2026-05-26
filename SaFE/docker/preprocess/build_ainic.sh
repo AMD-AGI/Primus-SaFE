@@ -46,22 +46,34 @@ fi
 
 echo "Mapped AINIC driver version ${AINIC_DRIVER_VERSION} -> ANP: ${AMD_ANP_VERSION}, ROCM: ${ROCM_VERSION}, LIBIONIC: ${LIBIONIC_VERSION}"
 
-# Search for matching driver file in /shared-data/drivers/
-DRIVERS_DIR="/shared-data/drivers"
-if [ ! -d "${DRIVERS_DIR}" ]; then
-  echo "Error: Drivers directory ${DRIVERS_DIR} does not exist."
-  exit 1
-fi
+# Resolve AINIC driver tarball path.
+# Precedence: env var PATH_TO_AINIC_TAR_PACKAGE > auto-discover in /shared-data/drivers/.
+# Caller can pre-set PATH_TO_AINIC_TAR_PACKAGE to point at a tarball outside
+# the default DRIVERS_DIR (e.g. a per-build mounted path); we only validate
+# the file exists and skip the directory scan in that case.
+if [ -n "${PATH_TO_AINIC_TAR_PACKAGE}" ]; then
+  if [ ! -f "${PATH_TO_AINIC_TAR_PACKAGE}" ]; then
+    echo "Error: PATH_TO_AINIC_TAR_PACKAGE=${PATH_TO_AINIC_TAR_PACKAGE} is set but file does not exist."
+    exit 1
+  fi
+  echo "Using AINIC driver tarball from PATH_TO_AINIC_TAR_PACKAGE env: ${PATH_TO_AINIC_TAR_PACKAGE}"
+else
+  # Auto-discover: search for a tarball matching the driver version under DRIVERS_DIR.
+  DRIVERS_DIR="/shared-data/drivers"
+  if [ ! -d "${DRIVERS_DIR}" ]; then
+    echo "Error: Drivers directory ${DRIVERS_DIR} does not exist."
+    exit 1
+  fi
 
-# Find tarball matching the driver version
-PATH_TO_AINIC_TAR_PACKAGE=$(ls ${DRIVERS_DIR}/*${AINIC_DRIVER_VERSION}*.tar.gz 2>/dev/null | head -n 1)
-if [ -z "${PATH_TO_AINIC_TAR_PACKAGE}" ] || [ ! -f "${PATH_TO_AINIC_TAR_PACKAGE}" ]; then
-  echo "Error: No AINIC driver tarball found matching version ${AINIC_DRIVER_VERSION} in ${DRIVERS_DIR}"
-  echo "Available files:"
-  ls -la ${DRIVERS_DIR}/ 2>/dev/null || echo "  (directory empty or not accessible)"
-  exit 1
+  PATH_TO_AINIC_TAR_PACKAGE=$(ls ${DRIVERS_DIR}/*${AINIC_DRIVER_VERSION}*.tar.gz 2>/dev/null | head -n 1)
+  if [ -z "${PATH_TO_AINIC_TAR_PACKAGE}" ] || [ ! -f "${PATH_TO_AINIC_TAR_PACKAGE}" ]; then
+    echo "Error: No AINIC driver tarball found matching version ${AINIC_DRIVER_VERSION} in ${DRIVERS_DIR}"
+    echo "Available files:"
+    ls -la ${DRIVERS_DIR}/ 2>/dev/null || echo "  (directory empty or not accessible)"
+    exit 1
+  fi
+  echo "Found AINIC driver tarball: ${PATH_TO_AINIC_TAR_PACKAGE}"
 fi
-echo "Found AINIC driver tarball: ${PATH_TO_AINIC_TAR_PACKAGE}"
 
 . /shared-data/utils.sh
 _start=$(date +%s)
