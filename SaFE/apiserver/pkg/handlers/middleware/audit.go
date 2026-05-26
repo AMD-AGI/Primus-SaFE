@@ -321,9 +321,9 @@ func sanitizeBody(body string) string {
 		regexp.MustCompile(`"secret"\s*:\s*"[^"]*"`),
 		regexp.MustCompile(`"apiKey"\s*:\s*"[^"]*"`),
 		regexp.MustCompile(`"api_key"\s*:\s*"[^"]*"`),
-		regexp.MustCompile(`"privateKey"\s*:\s*"[^"]*"`),
-		regexp.MustCompile(`"private_key"\s*:\s*"[^"]*"`),
-		regexp.MustCompile(`"github_app_private_key"\s*:\s*"[^"]*"`),
+		regexp.MustCompile(`"privateKey"\s*:\s*"[^"]*(?:"|$)`),
+		regexp.MustCompile(`"private_key"\s*:\s*"[^"]*(?:"|$)`),
+		regexp.MustCompile(`"github_app_private_key"\s*:\s*"[^"]*(?:"|$)`),
 	}
 	for _, pattern := range jsonPatterns {
 		result = pattern.ReplaceAllString(result, `"[REDACTED]"`)
