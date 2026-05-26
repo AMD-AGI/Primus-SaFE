@@ -88,7 +88,14 @@ func (s *GitHubTokenSource) createInstallationToken(ctx context.Context, credent
 	}
 	defer resp.Body.Close()
 
-	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 4096))
+	if err != nil {
+		partialBody := strings.TrimSpace(string(body))
+		if partialBody != "" {
+			return "", fmt.Errorf("github app installation token response read: %w: %s", err, partialBody)
+		}
+		return "", fmt.Errorf("github app installation token response read: %w", err)
+	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return "", fmt.Errorf("github app installation token: status %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
 	}
