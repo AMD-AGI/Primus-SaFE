@@ -182,6 +182,25 @@ func findEnv(envs []interface{}, name, val string) bool {
 	return false
 }
 
+func findEnvFieldRef(envs []interface{}, name, fieldPath string) bool {
+	for _, env := range envs {
+		obj, err := runtime.DefaultUnstructuredConverter.ToUnstructured(&env)
+		if err != nil {
+			continue
+		}
+		name2, ok := obj["name"]
+		if !ok || name != name2 {
+			continue
+		}
+		fieldPath2, found, err := jobutils.NestedString(obj, []string{"valueFrom", "fieldRef", "fieldPath"})
+		if err != nil || !found {
+			continue
+		}
+		return fieldPath2 == fieldPath
+	}
+	return false
+}
+
 func checkVolumeMounts(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workload, resourceSpec *v1.ResourceSpec) {
 	templatePath := append(resourceSpec.PrePaths, resourceSpec.TemplatePaths...)
 	podSpec := getPodSpec(workload)
