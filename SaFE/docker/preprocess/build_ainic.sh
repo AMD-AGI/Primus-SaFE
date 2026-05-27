@@ -5,11 +5,52 @@
 # See LICENSE for license information.
 #
 
-# Check if AINIC_DRIVER_VERSION is specified
-# You can use 'ibv_devinfo' on the host node to check the driver version. like 1.117.5-a-56
-if [ -z "${AINIC_DRIVER_VERSION}" ]; then
-  echo "AINIC_DRIVER_VERSION not specified, skipping AINIC installation."
-  exit 0
+# ---------------------------------------------------------------------------
+# Inputs: at least one of the two env vars below must be supplied.
+#   AINIC_DRIVER_VERSION       e.g. 1.117.5-a-56 (check via `ibv_devinfo` on host).
+#                              When set alone, the tarball is auto-discovered
+#                              under /shared-data/drivers/.
+#   PATH_TO_AINIC_TAR_PACKAGE  Absolute path to an AINIC bundle tarball.
+#                              When set alone, AINIC_DRIVER_VERSION is derived
+#                              from the filename (fixed layout
+#                              `ainic_bundle_<version>.tar.gz`).
+# When both are supplied the explicit AINIC_DRIVER_VERSION wins; the filename
+# is not re-parsed (caller is trusted).
+# When neither is supplied the install step is skipped (exit 0).
+# ---------------------------------------------------------------------------
+
+if [ -n "${PATH_TO_AINIC_TAR_PACKAGE}" ]; then
+  if [ ! -f "${PATH_TO_AINIC_TAR_PACKAGE}" ]; then
+    echo "Error: PATH_TO_AINIC_TAR_PACKAGE=${PATH_TO_AINIC_TAR_PACKAGE} is set but file does not exist."
+    exit 1
+  fi
+  if [ -z "${AINIC_DRIVER_VERSION}" ]; then
+    # Derive version from the tarball filename. Rule: strip the `.tar.gz`
+    # suffix, then take everything starting from the first `-`, `_` or `.`
+    # that is immediately followed by a digit -- that digit marks the start
+    # of the version string. Tolerates any prefix layout, e.g.:
+    #   ainic_bundle_1.117.5-a-56.tar.gz  -> 1.117.5-a-56
+    #   ainic-release-2.0.5_b_3.tar.gz    -> 2.0.5_b_3
+    #   foo.bar.1.0.tar.gz                -> 1.0
+    _ainic_basename=$(basename "${PATH_TO_AINIC_TAR_PACKAGE}")
+    case "${_ainic_basename}" in
+      *.tar.gz) _ainic_stem="${_ainic_basename%.tar.gz}" ;;
+      *)
+        echo "Error: tarball filename '${_ainic_basename}' does not end with .tar.gz."
+        exit 1
+        ;;
+    esac
+    AINIC_DRIVER_VERSION=$(printf '%s\n' "${_ainic_stem}" \
+      | awk 'match($0, /[-_.][0-9]/) { print substr($0, RSTART + 1) }')
+    if [ -z "${AINIC_DRIVER_VERSION}" ]; then
+      echo "Error: cannot derive AINIC_DRIVER_VERSION from filename '${_ainic_basename}'."
+      echo "       Expected one of '-', '_' or '.' followed by a digit somewhere in the name,"
+      echo "       e.g. 'ainic_bundle_1.2.3.tar.gz'. Or set AINIC_DRIVER_VERSION explicitly."
+      exit 1
+    fi
+    echo "Derived AINIC_DRIVER_VERSION=${AINIC_DRIVER_VERSION} from tarball filename '${_ainic_basename}'."
+    unset _ainic_basename _ainic_stem
+  fi
 fi
 
 echo "============== begin to install AMD AINIC (version: ${AINIC_DRIVER_VERSION}) =============="
@@ -21,8 +62,13 @@ set -e
 # ---------------------------------------------------------------------------
 set_versions_from_driver() {
   _driver_version="$1"
+  # Patterns are shell globs, matched as prefix: any driver version whose
+  # string starts with the listed prefix is mapped to the same ANP / libionic
+  # pair. Loose matching is intentional so vendor-suffixed builds (e.g.
+  # `1.117.5-a-56`, `1.117.5-b-1`) share one mapping; tighten only if a
+  # specific suffix needs a different pair.
   case "${_driver_version}" in
-    1.117.5-a-56)
+    1.117.5*)
       AMD_ANP_VERSION="v1.3.0"
       LIBIONIC_VERSION="54.0-184"
       ;;
@@ -46,19 +92,9 @@ fi
 
 echo "Mapped AINIC driver version ${AINIC_DRIVER_VERSION} -> ANP: ${AMD_ANP_VERSION}, ROCM: ${ROCM_VERSION}, LIBIONIC: ${LIBIONIC_VERSION}"
 
-# Resolve AINIC driver tarball path.
-# Precedence: env var PATH_TO_AINIC_TAR_PACKAGE > auto-discover in /shared-data/drivers/.
-# Caller can pre-set PATH_TO_AINIC_TAR_PACKAGE to point at a tarball outside
-# the default DRIVERS_DIR (e.g. a per-build mounted path); we only validate
-# the file exists and skip the directory scan in that case.
-if [ -n "${PATH_TO_AINIC_TAR_PACKAGE}" ]; then
-  if [ ! -f "${PATH_TO_AINIC_TAR_PACKAGE}" ]; then
-    echo "Error: PATH_TO_AINIC_TAR_PACKAGE=${PATH_TO_AINIC_TAR_PACKAGE} is set but file does not exist."
-    exit 1
-  fi
-  echo "Using AINIC driver tarball from PATH_TO_AINIC_TAR_PACKAGE env: ${PATH_TO_AINIC_TAR_PACKAGE}"
-else
-  # Auto-discover: search for a tarball matching the driver version under DRIVERS_DIR.
+# When PATH_TO_AINIC_TAR_PACKAGE was not pre-set above, auto-discover a
+# matching tarball under /shared-data/drivers/ using AINIC_DRIVER_VERSION.
+if [ -z "${PATH_TO_AINIC_TAR_PACKAGE}" ]; then
   DRIVERS_DIR="/shared-data/drivers"
   if [ ! -d "${DRIVERS_DIR}" ]; then
     echo "Error: Drivers directory ${DRIVERS_DIR} does not exist."
@@ -73,6 +109,8 @@ else
     exit 1
   fi
   echo "Found AINIC driver tarball: ${PATH_TO_AINIC_TAR_PACKAGE}"
+else
+  echo "Using AINIC driver tarball from PATH_TO_AINIC_TAR_PACKAGE env: ${PATH_TO_AINIC_TAR_PACKAGE}"
 fi
 
 . /shared-data/utils.sh
