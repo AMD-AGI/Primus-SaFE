@@ -820,12 +820,17 @@ const handleUpdatePAT = async (row: Row) => {
     })
 
     const { value } = (await messageBox) as { value: string }
+    const token = value.trim()
+    if (!token) {
+      ElMessage.error('PAT cannot be empty')
+      return
+    }
 
     // Call workload edit API
     await editWorkload(row.workloadId, {
       githubAuth: {
         type: 'pat',
-        token: value,
+        token,
       },
     })
 
