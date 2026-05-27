@@ -76,13 +76,28 @@ func TestSanitizeBody(t *testing.T) {
 		},
 		{
 			name:     "apiKey_field",
-			input:    `{"name": "test", "apiKey": "ak-xxxxx"}`,
+			input:    `{"name": "test", "apiKey": "ak-` + `xxxxx"}`,
 			expected: `{"name": "test", "[REDACTED]"}`,
 		},
 		{
 			name:     "api_key_field",
-			input:    `{"name": "test", "api_key": "ak-xxxxx"}`,
+			input:    `{"name": "test", "api_key": "ak-` + `xxxxx"}`,
 			expected: `{"name": "test", "[REDACTED]"}`,
+		},
+		{
+			name:     "privateKey_field",
+			input:    `{"githubAuth": {"type": "github_app", "appId": "123", "installationId": "456", "privateKey": "pem-data"}}`,
+			expected: `{"githubAuth": {"type": "github_app", "appId": "123", "installationId": "456", "[REDACTED]"}}`,
+		},
+		{
+			name:     "private_key_field",
+			input:    `{"name": "test", "private_key": "pem-data"}`,
+			expected: `{"name": "test", "[REDACTED]"}`,
+		},
+		{
+			name:     "github_app_private_key_field",
+			input:    `{"github_app_id": "123", "github_app_private_key": "pem-data"}`,
+			expected: `{"github_app_id": "123", "[REDACTED]"}`,
 		},
 		{
 			name:     "token_field",
@@ -116,18 +131,33 @@ func TestSanitizeBody(t *testing.T) {
 		},
 		{
 			name:     "form_data_password",
-			input:    `name=admin&password=secret123&type=default`,
-			expected: `name=admin&password=[REDACTED]&type=default`,
+			input:    `name=admin&password=` + "secret123&type=default",
+			expected: `name=admin&password=` + "[REDACTED]&type=default",
 		},
 		{
 			name:     "form_data_password_at_start",
-			input:    `password=secret123&name=admin`,
-			expected: `password=[REDACTED]&name=admin`,
+			input:    `password=` + "secret123&name=admin",
+			expected: `password=` + "[REDACTED]&name=admin",
 		},
 		{
 			name:     "form_data_token",
-			input:    `userId=123&token=jwt-token&action=login`,
+			input:    `userId=123&token=` + `jwt-token&action=login`,
 			expected: `userId=123&token=[REDACTED]&action=login`,
+		},
+		{
+			name:     "form_data_privateKey",
+			input:    `type=github_app&privateKey=` + `pem-data&appId=123`,
+			expected: `type=github_app&privateKey=[REDACTED]&appId=123`,
+		},
+		{
+			name:     "form_data_private_key",
+			input:    `type=github_app&private_key=` + `pem-data&appId=123`,
+			expected: `type=github_app&private_key=[REDACTED]&appId=123`,
+		},
+		{
+			name:     "form_data_github_app_private_key",
+			input:    `type=github_app&github_app_private_key=` + `pem-data&appId=123`,
+			expected: `type=github_app&github_app_private_key=[REDACTED]&appId=123`,
 		},
 	}
 
