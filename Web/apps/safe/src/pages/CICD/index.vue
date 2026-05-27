@@ -62,12 +62,12 @@
           :icon="ResetIcon"
           size="default"
           @click="
-          () => {
-            const { onlyMyself, userId } = searchParams
-            Object.assign(searchParams, initialSearchParams, { onlyMyself, userId })
-            pagination.page = 1
-            onSearch({ resetPage: true })
-          }
+            () => {
+              const { onlyMyself, userId } = searchParams
+              Object.assign(searchParams, initialSearchParams, { onlyMyself, userId })
+              pagination.page = 1
+              onSearch({ resetPage: true })
+            }
           "
         ></el-button>
       </el-tooltip>
@@ -108,7 +108,10 @@
               <el-table :data="subTableDataMap[row.workloadId] || []" size="small">
                 <el-table-column prop="workloadId" label="Name/ID" min-width="180">
                   <template #default="{ row: subRow }">
-                    <el-link type="primary" v-route="{ path: '/cicd/detail', query: { id: subRow.workloadId } }">
+                    <el-link
+                      type="primary"
+                      v-route="{ path: '/cicd/detail', query: { id: subRow.workloadId } }"
+                    >
                       {{ subRow.displayName }}
                     </el-link>
                     <div class="text-[12px] text-gray-400">
@@ -235,9 +238,11 @@
         <el-table-column prop="workloadId" label="Name/ID" min-width="200" :fixed="true">
           <template #default="{ row }">
             <div class="flex flex-col items-start">
-              <el-link type="primary" v-route="{ path: '/cicd/detail', query: { id: row.workloadId } }">{{
-                row.displayName
-              }}</el-link>
+              <el-link
+                type="primary"
+                v-route="{ path: '/cicd/detail', query: { id: row.workloadId } }"
+                >{{ row.displayName }}</el-link
+              >
               <div class="text-[13px] text-gray-400">
                 {{ row.workloadId }}
                 <el-icon
@@ -374,7 +379,9 @@
           </div>
 
           <div class="right">
-            <el-button type="danger" plain :disabled="!canWrite" @click="onBatchDelete">Delete</el-button>
+            <el-button type="danger" plain :disabled="!canWrite" @click="onBatchDelete"
+              >Delete</el-button
+            >
           </div>
         </div>
       </transition>
@@ -453,7 +460,10 @@
     >
       <el-table-column prop="workloadId" label="Name/ID" min-width="180">
         <template #default="{ row: subRow }">
-          <el-link type="primary" v-route="{ path: '/cicd/detail', query: { id: subRow.workloadId } }">
+          <el-link
+            type="primary"
+            v-route="{ path: '/cicd/detail', query: { id: subRow.workloadId } }"
+          >
             {{ subRow.displayName }}
           </el-link>
           <div class="text-[12px] text-gray-400">
@@ -608,7 +618,15 @@ import { useRoute, useRouter } from 'vue-router'
 import { useRouteAction, ROUTE_ACTIONS } from '@/composables/useRouteAction'
 import AddDialog from './Components/AddDialog.vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Delete, DocumentCopy, MoreFilled, Close, Edit, Key, VideoPlay } from '@element-plus/icons-vue'
+import {
+  Delete,
+  DocumentCopy,
+  MoreFilled,
+  Close,
+  Edit,
+  Key,
+  VideoPlay,
+} from '@element-plus/icons-vue'
 import { type WorkloadParams, PRIORITY_LABEL_MAP, type PriorityValue } from '@/services'
 import { encodeToBase64String } from '@/utils'
 import { useUserStore } from '@/stores/user'
@@ -782,9 +800,6 @@ type Row = { workloadId: string; phase: string; pods: { podId?: string }[]; disp
 
 const handleUpdatePAT = async (row: Row) => {
   try {
-    // First get the current workload details
-    const workloadDetail = await getWorkloadDetail(row.workloadId)
-
     // Show dialog to input new PAT
     const messageBox = ElMessageBox.prompt('', 'Update PAT', {
       confirmButtonText: 'Update',
@@ -805,16 +820,18 @@ const handleUpdatePAT = async (row: Row) => {
     })
 
     const { value } = (await messageBox) as { value: string }
-
-    // Get all existing env vars and update GITHUB_PAT
-    const updatedEnv = {
-      ...workloadDetail.env,
-      GITHUB_PAT: value,
+    const token = value.trim()
+    if (!token) {
+      ElMessage.error('PAT cannot be empty')
+      return
     }
 
     // Call workload edit API
     await editWorkload(row.workloadId, {
-      env: updatedEnv,
+      githubAuth: {
+        type: 'pat',
+        token,
+      },
     })
 
     ElMessage.success('GitHub PAT updated successfully')
@@ -1304,7 +1321,9 @@ const onAnyPointerDown = (e: Event) => {
   if (!inMenu && !inRefBtn) closeMore()
 }
 useRouteAction({
-  [ROUTE_ACTIONS.CREATE]: () => { addVisible.value = true },
+  [ROUTE_ACTIONS.CREATE]: () => {
+    addVisible.value = true
+  },
 })
 
 onMounted(() => {
