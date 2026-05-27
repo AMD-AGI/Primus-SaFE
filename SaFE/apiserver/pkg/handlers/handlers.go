@@ -169,8 +169,8 @@ func InitHttpHandlers(_ context.Context, mgr ctrlruntime.Manager) (*gin.Engine, 
 	}
 
 	// MCP (Model Context Protocol) server: opt-in via mcp.enabled (default true
-	// in Helm chart). Mounts SSE + Streamable HTTP transports under
-	// mcp.base_path (default /api/v1/mcp) so AI clients can drive the apiserver.
+	// in Helm chart). Mounts SSE + Streamable HTTP transports under the path
+	// configured by mcp.base_path so AI clients can drive the apiserver.
 	if commonconfig.IsMCPEnable() {
 		mcprouter.InitRoutes(engine)
 	}

@@ -6,7 +6,7 @@
 // Package router wires the MCP server into the apiserver's Gin engine.
 //
 // Two transports are exposed under the configured base path
-// (defaults to /api/v1/mcp), aligned with the MCP specification:
+// (defaults to /api/v1/safe-mcp/mcp), aligned with the MCP specification:
 //
 //   - SSE transport (2024-11-05 spec):
 //       GET  {base}/sse       -> server-sent events stream
@@ -34,8 +34,11 @@ import (
 	mcpserver "github.com/AMD-AIG-AIMA/SAFE/common/pkg/mcp/server"
 )
 
-// defaultBasePath is used when mcp.base_path is unset.
-const defaultBasePath = "/api/v1/mcp"
+// defaultBasePath is used when mcp.base_path is unset. Keep in sync with
+// charts/primus-safe/values.yaml and templates/apiserver/config.yaml so the
+// chart default and the code fallback do not diverge. The "safe-mcp" prefix
+// disambiguates this MCP endpoint from any other future /api/v1/* MCP route.
+const defaultBasePath = "/api/v1/safe-mcp/mcp"
 
 // InitRoutes builds an MCP server pre-loaded with the unified registry tools
 // plus the built-in tool set, then mounts it on engine under the configured

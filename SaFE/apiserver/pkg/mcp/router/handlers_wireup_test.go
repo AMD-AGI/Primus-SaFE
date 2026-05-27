@@ -23,7 +23,8 @@ import (
 // The follow-up fix 73834fa4 "restore MCP config..." only restored the
 // commonconfig helpers (IsMCPEnable, GetMCPBasePath, ...) but missed the
 // call site in handlers.go, leaving every freshly built apiserver image
-// silently shipping without /api/v1/mcp routes despite mcp.enabled=true.
+// silently shipping without any MCP routes under mcp.base_path despite
+// mcp.enabled=true in the Helm chart.
 //
 // The test lives here (not in pkg/handlers) so it can run without pulling in
 // the apiserver's containers/storage dependency tree (libbtrfs-dev). It uses
