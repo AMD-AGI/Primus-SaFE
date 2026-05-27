@@ -24,11 +24,14 @@ input="$1"
 export NODE_RANK="${PET_NODE_RANK:-${NODE_RANK}}"
 export NNODES="${PET_NNODES:-${NNODES}}"
 
-# Build AINIC driver
-if [ -n "${AINIC_DRIVER_VERSION}" ]; then
+# Build AINIC driver if either input is provided. build_ainic.sh accepts
+# AINIC_DRIVER_VERSION and/or PATH_TO_AINIC_TAR_PACKAGE; one of them is
+# sufficient (the script derives the version from the tarball filename
+# when only PATH_TO_AINIC_TAR_PACKAGE is set).
+if [ -n "${AINIC_DRIVER_VERSION}" ] || [ -n "${PATH_TO_AINIC_TAR_PACKAGE}" ]; then
   /bin/sh /shared-data/build_ainic.sh
   if [ $? -ne 0 ]; then
-    echo "ERROR: Failed to build AINIC with driver version ${AINIC_DRIVER_VERSION}. Please check input or remove installation"
+    echo "ERROR: Failed to build AINIC (AINIC_DRIVER_VERSION=${AINIC_DRIVER_VERSION:-<unset>}, PATH_TO_AINIC_TAR_PACKAGE=${PATH_TO_AINIC_TAR_PACKAGE:-<unset>}). Please check input or remove installation."
     exit 1
   fi
   export USING_AINIC=1
