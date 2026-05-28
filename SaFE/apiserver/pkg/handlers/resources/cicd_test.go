@@ -7,6 +7,7 @@ package resources
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
@@ -24,9 +25,26 @@ import (
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	k8sfake "k8s.io/client-go/kubernetes/fake"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
+	k8stesting "k8s.io/client-go/testing"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	ctrlruntimefake "sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
+
+func patAuth(token string) *view.GitHubAuthRequest {
+	return &view.GitHubAuthRequest{
+		Type:  GitHubAuthTypePAT,
+		Token: token,
+	}
+}
+
+func githubAppAuth(appId, installationId, privateKey string) *view.GitHubAuthRequest {
+	return &view.GitHubAuthRequest{
+		Type:           GitHubAuthTypeApp,
+		AppId:          appId,
+		InstallationId: installationId,
+		PrivateKey:     privateKey,
+	}
+}
 
 // Test_createCICDSecret tests the createCICDSecret function with token encoding
 func Test_createCICDSecret(t *testing.T) {
@@ -105,7 +123,7 @@ func Test_updateCICDSecret_TokenUnchanged(t *testing.T) {
 	}
 
 	// Call updateCICDSecret with same token
-	err := h.updateCICDSecret(ctx, workload, user, oldToken)
+	err := h.updateCICDSecret(ctx, workload, user, patAuth(oldToken))
 
 	// Should return nil without error (optimization kicks in)
 	assert.NilError(t, err)
@@ -168,7 +186,7 @@ func Test_updateCICDSecret_TokenChanged(t *testing.T) {
 	}
 
 	// Call updateCICDSecret with new token
-	err := h.updateCICDSecret(ctx, workload, user, newToken)
+	err := h.updateCICDSecret(ctx, workload, user, patAuth(newToken))
 
 	// Should succeed
 	assert.NilError(t, err)
@@ -215,7 +233,7 @@ func Test_createCICDSecret_Success(t *testing.T) {
 	}
 
 	// Call createCICDSecret
-	secret, err := h.createCICDSecret(ctx, workload, user, token)
+	secret, err := h.createCICDSecret(ctx, workload, user, patAuth(token))
 
 	// Should succeed
 	assert.NilError(t, err)
@@ -320,6 +338,83 @@ func Test_updateWorkload_GithubPATHandling(t *testing.T) {
 	assert.Equal(t, string(newSecret.Data[GitHubToken]), newToken, "new secret should contain new token")
 
 	// Verify old secret was deleted (using clientSet, not controller-runtime client)
+	_, err = fakeClientSet.CoreV1().Secrets(common.PrimusSafeNamespace).Get(ctx, oldSecretName, metav1.GetOptions{})
+	assert.Assert(t, apierrors.IsNotFound(err), "old secret should be deleted")
+}
+
+func Test_updateWorkload_GitHubAppAuthHandling(t *testing.T) {
+	ctx := context.Background()
+	clusterId := "test-cluster"
+	workspaceId := "test-workspace"
+
+	workload := genMockWorkload(clusterId, workspaceId)
+	workload.Spec.Kind = common.CICDScaleRunnerSetKind
+	workload.Spec.Env = map[string]string{
+		"EXISTING_VAR": "existing_value",
+	}
+	user := genMockUser()
+	role := genMockRole()
+
+	oldSecretName := "old-secret-id"
+	oldSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      oldSecretName,
+			Namespace: common.PrimusSafeNamespace,
+			Labels: map[string]string{
+				v1.SecretTypeLabel: string(v1.SecretGeneral),
+				v1.UserIdLabel:     user.Name,
+				v1.OwnerLabel:      workload.Name,
+			},
+		},
+		Data: map[string][]byte{
+			GitHubToken: []byte("old_token_123"),
+		},
+		Type: corev1.SecretTypeOpaque,
+	}
+	v1.SetAnnotation(workload, v1.GithubSecretIdAnnotation, oldSecretName)
+
+	testScheme := runtime.NewScheme()
+	utilruntime.Must(clientgoscheme.AddToScheme(testScheme))
+	utilruntime.Must(scheme.AddToScheme(testScheme))
+
+	fakeCtrlClient := ctrlruntimefake.NewClientBuilder().
+		WithObjects(workload, user, role).
+		WithScheme(testScheme).
+		Build()
+
+	fakeClientSet := k8sfake.NewSimpleClientset(oldSecret)
+
+	h := Handler{
+		Client:           fakeCtrlClient,
+		clientSet:        fakeClientSet,
+		accessController: authority.NewAccessController(fakeCtrlClient),
+	}
+
+	newAuth := githubAppAuth("12345", "67890", "private-key")
+	req := &view.PatchWorkloadRequest{
+		GitHubAuth: newAuth,
+	}
+
+	err := h.updateWorkload(ctx, workload, user, req)
+
+	assert.NilError(t, err, "updateWorkload should succeed")
+
+	updatedWorkload := &v1.Workload{}
+	err = fakeCtrlClient.Get(ctx, client.ObjectKey{Name: workload.Name}, updatedWorkload)
+	assert.NilError(t, err, "should retrieve updated workload")
+
+	newSecretId := v1.GetGithubSecretId(updatedWorkload)
+	assert.Assert(t, newSecretId != "", "New secret ID should be set")
+	assert.Assert(t, newSecretId != oldSecretName, "New secret ID should be different from old")
+
+	newSecret, err := fakeClientSet.CoreV1().Secrets(common.PrimusSafeNamespace).Get(ctx, newSecretId, metav1.GetOptions{})
+	assert.NilError(t, err, "new secret should be created")
+	assert.Equal(t, string(newSecret.Data[GitHubAppId]), newAuth.AppId)
+	assert.Equal(t, string(newSecret.Data[GitHubAppInstallationId]), newAuth.InstallationId)
+	assert.Equal(t, string(newSecret.Data[GitHubAppPrivateKey]), newAuth.PrivateKey)
+	_, hasPAT := newSecret.Data[GitHubToken]
+	assert.Assert(t, !hasPAT, "GitHub App update should not contain PAT key")
+
 	_, err = fakeClientSet.CoreV1().Secrets(common.PrimusSafeNamespace).Get(ctx, oldSecretName, metav1.GetOptions{})
 	assert.Assert(t, apierrors.IsNotFound(err), "old secret should be deleted")
 }
@@ -449,7 +544,7 @@ func Test_updateCICDSecret_NoOldSecret(t *testing.T) {
 	}
 
 	// Call updateCICDSecret with new token
-	err := h.updateCICDSecret(ctx, workload, user, newToken)
+	err := h.updateCICDSecret(ctx, workload, user, patAuth(newToken))
 
 	// Should succeed
 	assert.NilError(t, err)
@@ -462,6 +557,70 @@ func Test_updateCICDSecret_NoOldSecret(t *testing.T) {
 	newSecret, err := fakeClientSet.CoreV1().Secrets(common.PrimusSafeNamespace).Get(ctx, newSecretId, metav1.GetOptions{})
 	assert.NilError(t, err, "New secret should exist")
 	assert.Equal(t, string(newSecret.Data[GitHubToken]), newToken, "New secret should contain new token")
+}
+
+func Test_updateCICDSecret_MissingAnnotatedOldSecret(t *testing.T) {
+	ctx := context.Background()
+	clusterId := "test-cluster"
+	workspaceId := "test-workspace"
+
+	workload := genMockWorkload(clusterId, workspaceId)
+	user := genMockUser()
+	role := genMockRole()
+	newToken := "new_token_123"
+	v1.SetAnnotation(workload, v1.GithubSecretIdAnnotation, "missing-secret")
+
+	fakeCtrlClient := ctrlruntimefake.NewClientBuilder().
+		WithObjects(workload, user, role).
+		WithScheme(scheme.Scheme).
+		Build()
+	fakeClientSet := k8sfake.NewSimpleClientset()
+
+	h := Handler{
+		Client:           fakeCtrlClient,
+		clientSet:        fakeClientSet,
+		accessController: authority.NewAccessController(fakeCtrlClient),
+	}
+
+	err := h.updateCICDSecret(ctx, workload, user, patAuth(newToken))
+	assert.NilError(t, err)
+
+	newSecretId := v1.GetGithubSecretId(workload)
+	assert.Assert(t, newSecretId != "", "New secret ID should be set")
+	assert.Assert(t, newSecretId != "missing-secret", "New secret ID should replace stale annotation")
+	newSecret, err := fakeClientSet.CoreV1().Secrets(common.PrimusSafeNamespace).Get(ctx, newSecretId, metav1.GetOptions{})
+	assert.NilError(t, err, "New secret should exist")
+	assert.Equal(t, string(newSecret.Data[GitHubToken]), newToken, "New secret should contain new token")
+}
+
+func Test_updateCICDSecret_OldSecretLookupError(t *testing.T) {
+	ctx := context.Background()
+	clusterId := "test-cluster"
+	workspaceId := "test-workspace"
+
+	workload := genMockWorkload(clusterId, workspaceId)
+	user := genMockUser()
+	role := genMockRole()
+	v1.SetAnnotation(workload, v1.GithubSecretIdAnnotation, "old-secret-id")
+
+	fakeCtrlClient := ctrlruntimefake.NewClientBuilder().
+		WithObjects(workload, user, role).
+		WithScheme(scheme.Scheme).
+		Build()
+	fakeClientSet := k8sfake.NewSimpleClientset()
+	fakeClientSet.Fake.PrependReactor("get", "secrets", func(action k8stesting.Action) (bool, runtime.Object, error) {
+		return true, nil, errors.New("api unavailable")
+	})
+
+	h := Handler{
+		Client:           fakeCtrlClient,
+		clientSet:        fakeClientSet,
+		accessController: authority.NewAccessController(fakeCtrlClient),
+	}
+
+	err := h.updateCICDSecret(ctx, workload, user, patAuth("new_token_123"))
+	assert.ErrorContains(t, err, "failed to get existing CICD GitHub secret")
+	assert.Equal(t, v1.GetGithubSecretId(workload), "old-secret-id")
 }
 
 // Test_generateCICDScaleRunnerSet tests generating CICD scale runner set configuration
@@ -497,7 +656,7 @@ func Test_generateCICDScaleRunnerSet(t *testing.T) {
 	}
 
 	// Call generateCICDScaleRunnerSet
-	err := h.generateCICDScaleRunnerSet(ctx, workload, user)
+	err := h.generateCICDScaleRunnerSet(ctx, workload, user, nil)
 
 	// Should succeed
 	assert.NilError(t, err)
@@ -515,6 +674,53 @@ func Test_generateCICDScaleRunnerSet(t *testing.T) {
 	secret, err := fakeClientSet.CoreV1().Secrets(common.PrimusSafeNamespace).Get(ctx, secretId, metav1.GetOptions{})
 	assert.NilError(t, err)
 	assert.Assert(t, secret != nil, "Secret should be created")
+}
+
+func Test_generateCICDScaleRunnerSet_GitHubApp(t *testing.T) {
+	commonconfig.SetValue("cicd.enable", "true")
+	defer commonconfig.SetValue("cicd.enable", "")
+
+	ctx := context.Background()
+	clusterId := "test-cluster"
+	workspaceId := "test-workspace"
+	auth := githubAppAuth("12345", "67890", "private-key")
+
+	workload := genMockWorkload(clusterId, workspaceId)
+	workload.Spec.Env = map[string]string{
+		"OTHER_VAR": "other_value",
+	}
+
+	user := genMockUser()
+	role := genMockRole()
+
+	fakeCtrlClient := ctrlruntimefake.NewClientBuilder().
+		WithObjects(workload, user, role).
+		WithScheme(scheme.Scheme).
+		Build()
+
+	fakeClientSet := k8sfake.NewSimpleClientset()
+
+	h := Handler{
+		Client:           fakeCtrlClient,
+		clientSet:        fakeClientSet,
+		accessController: authority.NewAccessController(fakeCtrlClient),
+	}
+
+	err := h.generateCICDScaleRunnerSet(ctx, workload, user, auth)
+
+	assert.NilError(t, err)
+	assert.Equal(t, workload.Spec.Env["OTHER_VAR"], "other_value", "Other env vars should remain")
+
+	secretId := v1.GetGithubSecretId(workload)
+	assert.Assert(t, secretId != "", "Secret ID annotation should be set")
+
+	secret, err := fakeClientSet.CoreV1().Secrets(common.PrimusSafeNamespace).Get(ctx, secretId, metav1.GetOptions{})
+	assert.NilError(t, err)
+	assert.Equal(t, string(secret.Data[GitHubAppId]), auth.AppId)
+	assert.Equal(t, string(secret.Data[GitHubAppInstallationId]), auth.InstallationId)
+	assert.Equal(t, string(secret.Data[GitHubAppPrivateKey]), auth.PrivateKey)
+	_, hasPAT := secret.Data[GitHubToken]
+	assert.Assert(t, !hasPAT, "GitHub App secret should not contain PAT key")
 }
 
 // Test_cleanupCICDSecrets_CICDWorkload tests cleanup deletes secret for CICD workload

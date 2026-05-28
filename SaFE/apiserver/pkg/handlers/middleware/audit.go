@@ -321,14 +321,18 @@ func sanitizeBody(body string) string {
 		regexp.MustCompile(`"secret"\s*:\s*"[^"]*"`),
 		regexp.MustCompile(`"apiKey"\s*:\s*"[^"]*"`),
 		regexp.MustCompile(`"api_key"\s*:\s*"[^"]*"`),
+		regexp.MustCompile(`"privateKey"\s*:\s*"[^"]*(?:"|$)`),
+		regexp.MustCompile(`"private_key"\s*:\s*"[^"]*(?:"|$)`),
+		regexp.MustCompile(`"github_app_private_key"\s*:\s*"[^"]*(?:"|$)`),
 	}
 	for _, pattern := range jsonPatterns {
 		result = pattern.ReplaceAllString(result, `"[REDACTED]"`)
 	}
 
-	// Form-urlencoded format: password=value or password=value&
+	// Form-urlencoded format: field=value or field=value&
+	sensitiveFormFields := `password|token|secret|apiKey|api_key|privateKey|private_key|github_app_private_key`
 	formPatterns := []*regexp.Regexp{
-		regexp.MustCompile(`(^|&)(password|token|secret|apiKey|api_key)=[^&]*`),
+		regexp.MustCompile(`(^|&)(` + sensitiveFormFields + `)=[^&]*`),
 	}
 	for _, pattern := range formPatterns {
 		result = pattern.ReplaceAllString(result, `$1$2=[REDACTED]`)
