@@ -50,6 +50,40 @@ type CreateWorkloadRequest struct {
 	ForceHostNetwork *bool `json:"forceHostNetwork,omitempty"`
 	// The owner workload ID
 	OwnerId string `json:"ownerId,omitempty"`
+	// DynamoOptions carries DynamoDeployment-specific configuration that would
+	// otherwise have to be passed as primus-safe.dynamo.* annotations. The
+	// generic API path strips reserved-prefix annotations, so this struct is
+	// the only supported channel to express role layout / multinode for the
+	// DynamoDeployment kind via the API. See docs/apis/dynamo-options-design.md.
+	DynamoOptions *DynamoOptions `json:"dynamoOptions,omitempty"`
+}
+
+// DynamoOptions describes the dynamo-specific knobs that the API server
+// converts into primus-safe.dynamo.* annotations on the resulting Workload CR.
+// Leaving any field unset keeps the existing webhook auto-inference behavior
+// (e.g. 2 resources -> "frontend,worker", 3 resources -> PD); set fields
+// override the auto-inference. All validation is performed by the existing
+// validateDynamoDeployment webhook, no duplicate checks are added here.
+type DynamoOptions struct {
+	// Backend framework. One of "sglang" | "vllm" | "trtllm". Empty falls back
+	// to the cluster default (sglang).
+	BackendFramework string `json:"backendFramework,omitempty"`
+
+	// KV-cache transfer plane. One of "nixl" | "mori" | "mooncake". Only
+	// effective when ServiceRoles contains both prefill and decode.
+	KVTransferBackend string `json:"kvTransferBackend,omitempty"`
+
+	// Explicit service role per Resources[] slot. Length must equal
+	// len(Resources). Allowed values: frontend|worker|prefill|decode|planner|epp.
+	// Example: ["frontend","worker"] (aggregated) or
+	// ["frontend","prefill","decode"] (disaggregated).
+	ServiceRoles []string `json:"serviceRoles,omitempty"`
+
+	// Multinode role -> node count. Lifts the matching role into a
+	// LeaderWorkerSet group rather than a plain Deployment. The role name
+	// must appear in ServiceRoles. Example: {"worker": 2} or
+	// {"prefill": 2, "decode": 2}.
+	Multinode map[string]int `json:"multinode,omitempty"`
 }
 
 func (req *CreateWorkloadRequest) GetNodesAffinity() string {

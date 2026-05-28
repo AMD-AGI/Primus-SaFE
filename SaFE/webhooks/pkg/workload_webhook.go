@@ -582,8 +582,18 @@ func (m *WorkloadMutator) mutateRdmaResource(ctx context.Context, workload *v1.W
 	rdmaName := commonconfig.GetRdmaName()
 	totalGpuReplica := 0
 	isGpuPartiallyUsed := false
+	// Multinode DynamoDeployment resources expand to nodeCount pods downstream
+	// (e.g. multinode.worker=2 -> 1 LWS group of 2 pods), but res.Replica
+	// only counts the K8s replica set and stays at 1. Without this factor,
+	// such workloads are misclassified as single-node and the RDMA injection
+	// below is skipped. Non-dynamo workloads see dynamoRoles=nil and the
+	// nodeFactor stays at 1, preserving existing behavior.
+	var dynamoRoles []string
+	if commonworkload.IsDynamoDeployment(workload) {
+		dynamoRoles = commonworkload.GetDynamoServiceRoles(workload)
+	}
 	if rdmaName != "" {
-		for _, res := range workload.Spec.Resources {
+		for i, res := range workload.Spec.Resources {
 			if !res.HasGpu() {
 				continue
 			}
@@ -592,7 +602,11 @@ func (m *WorkloadMutator) mutateRdmaResource(ctx context.Context, workload *v1.W
 				isGpuPartiallyUsed = true
 				break
 			}
-			totalGpuReplica += res.Replica
+			nodeFactor := 1
+			if i < len(dynamoRoles) {
+				nodeFactor = commonworkload.GetDynamoMultinode(workload, dynamoRoles[i])
+			}
+			totalGpuReplica += res.Replica * nodeFactor
 		}
 	}
 
@@ -1033,6 +1047,17 @@ func (v *WorkloadValidator) validateDynamoDeployment(workload *v1.Workload) erro
 	if len(workload.Spec.Resources) == 0 {
 		return commonerrors.NewBadRequest(
 			"DynamoDeployment requires at least one resource (frontend)")
+	}
+	// The "dynamo-deployment" ResourceTemplate exposes five service-role slots
+	// (role0..role4); the dispatcher's normalizeDynamoDGD step drops any slot
+	// beyond len(Resources). Reject inputs that exceed this hard limit at
+	// admission time so the API contract is explicit and errors surface here
+	// rather than as silent truncation in the data plane.
+	const maxDynamoResources = 5
+	if len(workload.Spec.Resources) > maxDynamoResources {
+		return commonerrors.NewBadRequest(fmt.Sprintf(
+			"DynamoDeployment resources length %d exceeds maximum %d (role0..role4 slots)",
+			len(workload.Spec.Resources), maxDynamoResources))
 	}
 
 	var errs []error
