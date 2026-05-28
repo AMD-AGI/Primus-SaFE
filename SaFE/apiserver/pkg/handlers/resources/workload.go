@@ -533,7 +533,7 @@ func (h *Handler) patchWorkload(c *gin.Context) (interface{}, error) {
 		return nil, err
 	}
 	klog.Infof("update workload, name: %s, request: %s, request.user: %s",
-		name, string(jsonutils.MarshalSilently(*req)), c.GetString(common.UserId))
+		name, string(jsonutils.MarshalSilently(sanitizePatchWorkloadRequestForLog(req))), c.GetString(common.UserId))
 	return nil, nil
 }
 
@@ -567,8 +567,7 @@ func (h *Handler) authWorkloadUpdate(c *gin.Context, adminWorkload *v1.Workload,
 	return nil
 }
 
-// updateWorkload updates the workload in the system and handles CICD secret updates
-// if a new GitHub PAT token is provided in the request
+// updateWorkload updates the workload in the system and handles CICD auth secret updates.
 func (h *Handler) updateWorkload(ctx context.Context,
 	adminWorkload *v1.Workload, requestUser *v1.User, req *view.PatchWorkloadRequest) error {
 	err := h.Update(ctx, adminWorkload)
@@ -576,10 +575,10 @@ func (h *Handler) updateWorkload(ctx context.Context,
 		return err
 	}
 
-	if req.Env != nil && commonworkload.IsCICDScalingRunnerSet(adminWorkload) {
-		if newToken := (*req.Env)[GithubPAT]; newToken != "" {
+	if commonworkload.IsCICDScalingRunnerSet(adminWorkload) {
+		if auth := normalizeCICDGitHubAuth(req.GitHubAuth, requestEnv(req)); auth != nil {
 			patch := client.MergeFrom(adminWorkload.DeepCopy())
-			if err = h.updateCICDSecret(ctx, adminWorkload, requestUser, newToken); err != nil {
+			if err = h.updateCICDSecret(ctx, adminWorkload, requestUser, auth); err != nil {
 				klog.ErrorS(err, "failed to update cicd secret")
 				return err
 			}
@@ -815,7 +814,7 @@ func (h *Handler) generateWorkload(ctx context.Context,
 		}
 	}
 	if commonworkload.IsCICDScalingRunnerSet(workload) {
-		if err = h.generateCICDScaleRunnerSet(ctx, workload, requestUser); err != nil {
+		if err = h.generateCICDScaleRunnerSet(ctx, workload, requestUser, req.GitHubAuth); err != nil {
 			return nil, err
 		}
 	}
@@ -1235,6 +1234,31 @@ func applyWorkloadPatch(adminWorkload *v1.Workload, req *view.PatchWorkloadReque
 		adminWorkload.Spec.Service = req.Service
 	}
 	return nil
+}
+
+func requestEnv(req *view.PatchWorkloadRequest) map[string]string {
+	if req.Env == nil {
+		return nil
+	}
+	return *req.Env
+}
+
+func sanitizePatchWorkloadRequestForLog(req *view.PatchWorkloadRequest) view.PatchWorkloadRequest {
+	if req == nil {
+		return view.PatchWorkloadRequest{}
+	}
+	sanitized := *req
+	if sanitized.GitHubAuth != nil {
+		auth := *sanitized.GitHubAuth
+		auth.Token = ""
+		auth.PrivateKey = ""
+		sanitized.GitHubAuth = &auth
+	}
+	if sanitized.Env != nil {
+		env := maputil.Copy(*sanitized.Env, GithubPAT)
+		sanitized.Env = &env
+	}
+	return sanitized
 }
 
 // cvtDBWorkloadToResponseItem converts a database workload record to a response item format.

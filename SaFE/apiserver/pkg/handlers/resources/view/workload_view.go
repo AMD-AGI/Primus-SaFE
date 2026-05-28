@@ -14,6 +14,9 @@ import (
 
 type CreateWorkloadRequest struct {
 	v1.WorkloadSpec
+	// GitHubAuth carries CICD runner authentication material. It is used to create
+	// the ARC githubConfigSecret and must not be persisted on the workload env.
+	GitHubAuth *GitHubAuthRequest `json:"githubAuth,omitempty"`
 	// SpecifiedNodes defines the list of node names where the workload should run.
 	SpecifiedNodes []string `json:"specifiedNodes,omitempty"`
 	// NodesAffinity controls how strictly the workload adheres to SpecifiedNodes.
@@ -84,6 +87,14 @@ type DynamoOptions struct {
 	// must appear in ServiceRoles. Example: {"worker": 2} or
 	// {"prefill": 2, "decode": 2}.
 	Multinode map[string]int `json:"multinode,omitempty"`
+}
+
+type GitHubAuthRequest struct {
+	Type           string `json:"type,omitempty"`
+	Token          string `json:"token,omitempty"`
+	AppId          string `json:"appId,omitempty"`
+	InstallationId string `json:"installationId,omitempty"`
+	PrivateKey     string `json:"privateKey,omitempty"`
 }
 
 func (req *CreateWorkloadRequest) GetNodesAffinity() string {
@@ -258,6 +269,8 @@ type WorkloadPodWrapper struct {
 }
 
 type PatchWorkloadRequest struct {
+	// GitHubAuth carries updated CICD runner authentication material.
+	GitHubAuth *GitHubAuthRequest `json:"githubAuth,omitempty"`
 	// Workload scheduling Priority (0-2), default 0
 	Priority *int `json:"priority,omitempty"`
 	// Workload resource requirements

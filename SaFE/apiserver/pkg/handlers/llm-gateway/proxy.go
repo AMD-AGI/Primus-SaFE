@@ -101,7 +101,19 @@ func (h *Handler) ProxyLLMRequest(c *gin.Context) {
 
 	applyProxyVirtualKeyHeader(c, virtualKey)
 
+	defer recoverReverseProxyAbort(c)
 	h.proxy.ServeHTTP(c.Writer, c.Request)
+}
+
+func recoverReverseProxyAbort(c *gin.Context) {
+	if r := recover(); r != nil {
+		if r == http.ErrAbortHandler {
+			klog.V(4).InfoS("LLM Proxy: client aborted response stream", "path", c.Request.URL.Path)
+			c.Abort()
+			return
+		}
+		panic(r)
+	}
 }
 
 func applyProxyVirtualKeyHeader(c *gin.Context, virtualKey string) {

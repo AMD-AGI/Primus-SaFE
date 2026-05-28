@@ -36,7 +36,7 @@ export enum WorkloadKind {
 
   AutoscalingRunnerSet = 'AutoscalingRunnerSet',
   EphemeralRunner = 'EphemeralRunner',
-  UnifiedJob='UnifiedJob',
+  UnifiedJob = 'UnifiedJob',
 
   PyTorchJob = 'PyTorchJob',
   Authoring = 'Authoring',
@@ -97,6 +97,7 @@ export interface GetWorkloadPodLogResponse {
 }
 // Edit + Create
 export interface EditWorkloadRequest {
+  githubAuth?: GitHubAuthPayload
   description?: string
   entryPoint?: string
   entryPoints?: string[]
@@ -116,8 +117,21 @@ export interface EditWorkloadRequest {
   privileged?: boolean
 }
 
+export type GitHubAuthPayload =
+  | {
+      type: 'github_app'
+      appId: string
+      installationId: string
+      privateKey: string
+    }
+  | {
+      type: 'pat'
+      token: string
+    }
+
 export interface SubmitWorkloadRequest {
   workspace: string
+  githubAuth?: GitHubAuthPayload
   displayName: string
   groupVersionKind: {
     kind: string

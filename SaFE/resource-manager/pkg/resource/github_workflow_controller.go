@@ -54,7 +54,7 @@ func SetupGitHubWorkflowController(mgr manager.Manager) error {
 	store := githubpkg.NewStore(sqlDB)
 	tracker := githubpkg.NewWorkflowTracker(store)
 
-	syncJob := githubpkg.NewSyncJob(store, 20, 30*time.Second)
+	syncJob := githubpkg.NewSyncJob(store, mgr.GetClient(), 20, 30*time.Second)
 	go syncJob.Start(context.Background())
 
 	r := &GitHubWorkflowReconciler{
