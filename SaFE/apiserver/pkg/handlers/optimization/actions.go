@@ -206,6 +206,7 @@ func taskToCreateRequest(task *dbclient.OptimizationTask) *CreateTaskRequest {
 		KernelBackends: kernelBackends,
 		GeakStepLimit:  task.GeakStepLimit,
 		MaxHours:       defaultMaxHours,
+		TargetGain:     defaultTargetGain,
 		Image:          task.Image,
 		ResultsPath:    task.ResultsPath,
 	}

@@ -30,6 +30,7 @@ const (
 	defaultResultsPath    = "/workspace/hyperloom/"
 	defaultGeakStepLimit  = 100
 	defaultMaxHours       = 3.0
+	defaultTargetGain     = 30.0
 	defaultRayReplica     = 1
 	defaultRayGpu         = 1
 	defaultRayCPU         = 12
@@ -66,6 +67,7 @@ type PromptConfig struct {
 	KernelBackends []string
 	GeakStepLimit  int
 	MaxHours       float64
+	TargetGain     float64
 	Image          string
 	InferenceXPath string
 	OOBPath        string
@@ -126,6 +128,9 @@ func NormalizePromptConfig(cfg PromptConfig) PromptConfig {
 	}
 	if cfg.MaxHours <= 0 {
 		cfg.MaxHours = defaultMaxHours
+	}
+	if cfg.TargetGain <= 0 {
+		cfg.TargetGain = defaultTargetGain
 	}
 	if cfg.InferenceXPath == "" {
 		cfg.InferenceXPath = defaultInferenceXPath
@@ -225,7 +230,7 @@ func BuildHyperloomPrompt(cfg PromptConfig) string {
 	push("")
 
 	push("Run time:")
-	push(fmt.Sprintf("When launching inference_optimizer optimize, pass --max-hours %.1f", cfg.MaxHours))
+	push(fmt.Sprintf("When launching inference_optimizer optimize, pass --max-hours %.1f and --target-gain %g", cfg.MaxHours, cfg.TargetGain))
 	push("Do not rely on the V2 cli default max-hours.")
 	push("")
 

@@ -866,6 +866,7 @@ func promptConfigFromRequest(req *CreateTaskRequest, m *ResolvedModel, workspace
 		KernelBackends: req.KernelBackends,
 		GeakStepLimit:  req.GeakStepLimit,
 		MaxHours:       req.MaxHours,
+		TargetGain:     req.TargetGain,
 		Image:          req.Image,
 		InferenceXPath: req.InferenceXPath,
 		OOBPath:        req.OOBPath,
