@@ -25,8 +25,11 @@ const (
 	defaultTP             = 1
 	defaultEP             = 1
 	defaultInferenceXPath = "/hyperloom/InferenceX"
+	defaultOOBPath        = "/hyperloom/OOB"
+	defaultTraceLensRoot  = "/hyperloom/TraceLens-internal"
 	defaultResultsPath    = "/workspace/hyperloom/"
 	defaultGeakStepLimit  = 100
+	defaultMaxHours       = 3.0
 	defaultRayReplica     = 1
 	defaultRayGpu         = 1
 	defaultRayCPU         = 12
@@ -62,8 +65,11 @@ type PromptConfig struct {
 	Concurrency    int
 	KernelBackends []string
 	GeakStepLimit  int
+	MaxHours       float64
 	Image          string
 	InferenceXPath string
+	OOBPath        string
+	TraceLensRoot  string
 	Workspace      string
 	ResultsPath    string
 	RayReplica     int
@@ -118,8 +124,17 @@ func NormalizePromptConfig(cfg PromptConfig) PromptConfig {
 	if cfg.GeakStepLimit <= 0 {
 		cfg.GeakStepLimit = defaultGeakStepLimit
 	}
+	if cfg.MaxHours <= 0 {
+		cfg.MaxHours = defaultMaxHours
+	}
 	if cfg.InferenceXPath == "" {
 		cfg.InferenceXPath = defaultInferenceXPath
+	}
+	if cfg.OOBPath == "" {
+		cfg.OOBPath = defaultOOBPath
+	}
+	if cfg.TraceLensRoot == "" {
+		cfg.TraceLensRoot = defaultTraceLensRoot
 	}
 	if cfg.ResultsPath == "" {
 		cfg.ResultsPath = defaultResultsPath
@@ -205,6 +220,13 @@ func BuildHyperloomPrompt(cfg PromptConfig) string {
 	push(fmt.Sprintf("TP=%d, EP=%d", cfg.TP, cfg.EP))
 	push(fmt.Sprintf("GPU type: %s", cfg.GPUType))
 	push(fmt.Sprintf("InferenceX path: %s", cfg.InferenceXPath))
+	push(fmt.Sprintf("OOB path: %s", cfg.OOBPath))
+	push(fmt.Sprintf("TraceLens path: %s", cfg.TraceLensRoot))
+	push("")
+
+	push("Run time:")
+	push(fmt.Sprintf("When launching inference_optimizer optimize, pass --max-hours %.1f", cfg.MaxHours))
+	push("Do not rely on the V2 cli default max-hours.")
 	push("")
 
 	if cfg.Mode == ModeLocal {
@@ -245,6 +267,9 @@ func BuildHyperloomPrompt(cfg PromptConfig) string {
 
 	push("Requirements:")
 	push(fmt.Sprintf("Save all results and the optimization report to %s", cfg.ResultsPath))
+	if cfg.ResultsPath == "$RESULT_DIR" {
+		push("Respect the RESULT_DIR exported earlier by CI; do not hard-code /workspace/hyperloom/.")
+	}
 	push("Execute the full skill pipeline (Phase 0-10), including parameter sweep.")
 
 	if cfg.TargetGpu != "" && cfg.BaselineCount > 0 && cfg.BaselineCSV != "" {
