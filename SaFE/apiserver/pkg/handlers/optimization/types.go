@@ -70,6 +70,7 @@ type CreateTaskRequest struct {
 	KernelBackends []string `json:"kernelBackends"`
 	GeakStepLimit  int      `json:"geakStepLimit"`
 	MaxHours       float64  `json:"maxHours"`
+	TargetGain     float64  `json:"targetGain"`
 
 	// Sandbox / framework image used for the benchmark and kernel opt runs.
 	Image          string `json:"image"`

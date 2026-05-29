@@ -48,6 +48,7 @@ func TestBuildHyperloomPromptClawMode(t *testing.T) {
 	assert.Assert(t, strings.Contains(prompt, "InferenceX path: /hyperloom/InferenceX"))
 	assert.Assert(t, strings.Contains(prompt, "OOB path: /hyperloom/OOB"))
 	assert.Assert(t, strings.Contains(prompt, "TraceLens path: /hyperloom/TraceLens-internal"))
+	assert.Assert(t, strings.Contains(prompt, "--target-gain 30"))
 	assert.Assert(t, strings.Contains(prompt, "KERNEL_OPT_BACKENDS: geak, codex"))
 	assert.Assert(t, strings.Contains(prompt, "GEAK step_limit: 120"))
 	assert.Assert(t, strings.Contains(prompt, "RayJob image: harbor.example/sglang:test"))
