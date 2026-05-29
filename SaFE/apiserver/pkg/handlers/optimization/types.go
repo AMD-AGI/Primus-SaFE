@@ -69,10 +69,13 @@ type CreateTaskRequest struct {
 	// Kernel optimization controls.
 	KernelBackends []string `json:"kernelBackends"`
 	GeakStepLimit  int      `json:"geakStepLimit"`
+	MaxHours       float64  `json:"maxHours"`
 
 	// Sandbox / framework image used for the benchmark and kernel opt runs.
 	Image          string `json:"image"`
 	InferenceXPath string `json:"inferencexPath"`
+	OOBPath        string `json:"oobPath"`
+	TraceLensRoot  string `json:"tracelensRoot"`
 	ResultsPath    string `json:"resultsPath"`
 
 	// RayJob resource sizing (only used in claw mode).
