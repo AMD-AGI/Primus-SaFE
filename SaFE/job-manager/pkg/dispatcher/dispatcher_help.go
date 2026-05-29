@@ -1282,10 +1282,12 @@ func applyDynamoRoleFields(slot map[string]interface{}, role, kvBackend string) 
 // normalizeDynamoDGD runs after initializeObject/buildCommands. We rewrite
 // only the trailing base64 payload, leaving the launcher prefix untouched.
 //
-// Idempotency: if the user already declared --disaggregation-mode (or
-// --disaggregation-transfer-backend / --disaggregation-bootstrap-port) we
-// preserve their value verbatim. dynamo.sglang's argparse rejects duplicates
-// and would crash the worker on startup otherwise.
+// Idempotency is enforced per-flag inside appendLauncherArgs via
+// stripUserDeclaredFlags: any of --disaggregation-mode /
+// --disaggregation-transfer-backend / --disaggregation-bootstrap-port already
+// supplied by the user is preserved verbatim, and only the remaining flags
+// are appended. dynamo.sglang's argparse rejects duplicates and would crash
+// the worker on startup otherwise.
 func appendSglangDisaggArgs(slot map[string]interface{}, mode, kvBackend string) {
 	extra, _ := slot["extraPodSpec"].(map[string]interface{})
 	if extra == nil {
@@ -1326,8 +1328,9 @@ func sglangDisaggFlags(mode, kvBackend string) string {
 // launcher-style command slice (produced by buildCommands). Returns the
 // updated command and true on success. Returns (nil, false) when the command
 // is not in launcher form (e.g. CICD raw shell), letting the caller skip the
-// slot without error. Existing --disaggregation-mode in the payload short-
-// circuits to avoid duplicate flag injection.
+// slot without error. Per-flag dedup via stripUserDeclaredFlags drops any
+// "--name value" pair from extraFlags whose --name already appears in the
+// user payload, so the caller can pass the full flag set unconditionally.
 func appendLauncherArgs(cmd []interface{}, extraFlags string) ([]interface{}, bool) {
 	if len(cmd) < 3 {
 		return nil, false
@@ -1344,16 +1347,45 @@ func appendLauncherArgs(cmd []interface{}, extraFlags string) ([]interface{}, bo
 	if decoded == "" {
 		return nil, false
 	}
-	if strings.Contains(decoded, "--disaggregation-mode") {
+	filtered := stripUserDeclaredFlags(extraFlags, decoded)
+	if filtered == "" {
 		return cmd, true
 	}
 	decoded = strings.TrimRight(decoded, "\n")
-	newPayload := stringutil.Base64Encode(decoded + " " + extraFlags)
+	newPayload := stringutil.Base64Encode(decoded + " " + filtered)
 	prefix := full[:strings.LastIndex(full, payload)]
 	out := make([]interface{}, len(cmd))
 	copy(out, cmd)
 	out[2] = prefix + newPayload
 	return out, true
+}
+
+// stripUserDeclaredFlags returns extraFlags with any "--name value" pair
+// removed when --name is already present in payload. Both inputs are
+// space-separated argparse-style strings; long-form flags are assumed to
+// take exactly one value, which is sufficient for the disaggregation flags
+// SaFE injects today (--disaggregation-mode / --disaggregation-transfer-backend
+// / --disaggregation-bootstrap-port). dynamo.sglang's argparse rejects
+// duplicate flags and would crash on startup, so this dedup is required to
+// safely handle users who supply only some of the disagg flags.
+func stripUserDeclaredFlags(extraFlags, payload string) string {
+	fields := strings.Fields(extraFlags)
+	kept := make([]string, 0, len(fields))
+	for i := 0; i < len(fields); i++ {
+		name := fields[i]
+		if strings.HasPrefix(name, "--") && i+1 < len(fields) {
+			if strings.Contains(payload, name+" ") ||
+				strings.HasSuffix(strings.TrimSpace(payload), name) {
+				i++
+				continue
+			}
+			kept = append(kept, name, fields[i+1])
+			i++
+			continue
+		}
+		kept = append(kept, name)
+	}
+	return strings.Join(kept, " ")
 }
 
 // convertContainersToMainContainer moves the main container (the one named

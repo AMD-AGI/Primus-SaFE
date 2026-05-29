@@ -1156,18 +1156,16 @@ func TestNormalizeDynamoDGD_DisaggMinimal(t *testing.T) {
 	assert.Equal(t, strings.Contains(feEntry, "--disaggregation-mode"), false)
 }
 
-// TestNormalizeDynamoDGD_DisaggIdempotent verifies that if the user already
-// declared --disaggregation-mode in their entry (overriding the dispatcher
-// default) the normalizer keeps their value and does not append duplicate
-// flags. dynamo.sglang's argparse rejects duplicated --disaggregation-* args,
-// so duplication would crash the worker on startup.
+// TestNormalizeDynamoDGD_DisaggIdempotent verifies per-flag dedup: the user
+// declared --disaggregation-mode and --disaggregation-bootstrap-port but left
+// --disaggregation-transfer-backend out. The normalizer must keep the two
+// user values verbatim and inject only the missing transfer-backend flag.
+// dynamo.sglang's argparse rejects duplicated --disaggregation-* args, so
+// duplication would crash the worker on startup.
 func TestNormalizeDynamoDGD_DisaggIdempotent(t *testing.T) {
 	obj := buildFakeDGD(3)
 	workload := buildDynamoTestWorkload("frontend,prefill,decode", nil)
 
-	// User already passed --disaggregation-mode prefill explicitly on the
-	// prefill slot; the dispatcher must not append a second one. Mutate the
-	// fixture in place because NestedMap returns deep copies.
 	userEntry := "python3 -m dynamo.sglang --model-path /tmp/m --tp-size 1 " +
 		"--disaggregation-mode prefill --disaggregation-bootstrap-port 9999"
 	setFakeDGDCommand(t, obj, "role1", userEntry)
@@ -1176,12 +1174,106 @@ func TestNormalizeDynamoDGD_DisaggIdempotent(t *testing.T) {
 	assert.NilError(t, err)
 
 	pfEntry := decodeLauncherEntry(mainContainerCommand(t, obj, "role1"))
-	assert.Equal(t, pfEntry, userEntry,
-		"user-supplied disaggregation flags must be preserved verbatim")
+	assert.Equal(t, strings.Contains(pfEntry, "--disaggregation-mode prefill"), true,
+		"user-supplied --disaggregation-mode value must be preserved")
+	assert.Equal(t, strings.Contains(pfEntry, "--disaggregation-bootstrap-port 9999"), true,
+		"user-supplied --disaggregation-bootstrap-port value must be preserved")
+	assert.Equal(t, strings.Contains(pfEntry,
+		"--disaggregation-transfer-backend "+common.DynamoKVBackendNixl), true,
+		"missing --disaggregation-transfer-backend must be injected with the default backend")
 	assert.Equal(t, strings.Count(pfEntry, "--disaggregation-mode"), 1,
 		"dispatcher must not append a second --disaggregation-mode flag")
 	assert.Equal(t, strings.Count(pfEntry, "--disaggregation-bootstrap-port"), 1,
 		"dispatcher must not append a second --disaggregation-bootstrap-port flag")
+	assert.Equal(t, strings.Count(pfEntry, "--disaggregation-transfer-backend"), 1,
+		"dispatcher must not append a second --disaggregation-transfer-backend flag")
+}
+
+// TestNormalizeDynamoDGD_DisaggDedupeOnlyTransferBackend verifies that if the
+// user supplied only --disaggregation-transfer-backend (non-default value),
+// the dispatcher keeps that value verbatim and injects only the missing
+// --disaggregation-mode and --disaggregation-bootstrap-port. Without per-flag
+// dedup, the dispatcher would re-append --disaggregation-transfer-backend
+// nixl, producing a duplicate that crashes dynamo.sglang's argparse.
+func TestNormalizeDynamoDGD_DisaggDedupeOnlyTransferBackend(t *testing.T) {
+	obj := buildFakeDGD(3)
+	workload := buildDynamoTestWorkload("frontend,prefill,decode", nil)
+
+	userEntry := "python3 -m dynamo.sglang --model-path /tmp/m --tp-size 1 " +
+		"--disaggregation-transfer-backend " + common.DynamoKVBackendMooncake
+	setFakeDGDCommand(t, obj, "role1", userEntry)
+
+	err := normalizeDynamoDGD(obj, workload)
+	assert.NilError(t, err)
+
+	pfEntry := decodeLauncherEntry(mainContainerCommand(t, obj, "role1"))
+	assert.Equal(t, strings.Count(pfEntry, "--disaggregation-transfer-backend"), 1,
+		"dispatcher must not append a second --disaggregation-transfer-backend flag")
+	assert.Equal(t, strings.Contains(pfEntry,
+		"--disaggregation-transfer-backend "+common.DynamoKVBackendMooncake), true,
+		"user-supplied --disaggregation-transfer-backend value must be preserved")
+	assert.Equal(t, strings.Count(pfEntry, "--disaggregation-mode"), 1,
+		"missing --disaggregation-mode must be injected exactly once")
+	assert.Equal(t, strings.Contains(pfEntry, "--disaggregation-mode prefill"), true,
+		"injected --disaggregation-mode must match the role (prefill)")
+	assert.Equal(t, strings.Count(pfEntry, "--disaggregation-bootstrap-port"), 1,
+		"missing --disaggregation-bootstrap-port must be injected exactly once")
+}
+
+// TestNormalizeDynamoDGD_DisaggDedupeOnlyBootstrapPort verifies that if the
+// user supplied only --disaggregation-bootstrap-port (non-default value),
+// the dispatcher keeps that value verbatim and injects only the missing
+// --disaggregation-mode and --disaggregation-transfer-backend. Without
+// per-flag dedup the dispatcher would re-append --disaggregation-bootstrap-port
+// with the SaFE convention port and crash dynamo.sglang's argparse.
+func TestNormalizeDynamoDGD_DisaggDedupeOnlyBootstrapPort(t *testing.T) {
+	obj := buildFakeDGD(3)
+	workload := buildDynamoTestWorkload("frontend,prefill,decode", nil)
+
+	const userPort = "7777"
+	userEntry := "python3 -m dynamo.sglang --model-path /tmp/m --tp-size 1 " +
+		"--disaggregation-bootstrap-port " + userPort
+	setFakeDGDCommand(t, obj, "role2", userEntry)
+
+	err := normalizeDynamoDGD(obj, workload)
+	assert.NilError(t, err)
+
+	decEntry := decodeLauncherEntry(mainContainerCommand(t, obj, "role2"))
+	assert.Equal(t, strings.Count(decEntry, "--disaggregation-bootstrap-port"), 1,
+		"dispatcher must not append a second --disaggregation-bootstrap-port flag")
+	assert.Equal(t, strings.Contains(decEntry, "--disaggregation-bootstrap-port "+userPort), true,
+		"user-supplied --disaggregation-bootstrap-port value must be preserved")
+	assert.Equal(t, strings.Count(decEntry, "--disaggregation-mode"), 1,
+		"missing --disaggregation-mode must be injected exactly once")
+	assert.Equal(t, strings.Contains(decEntry, "--disaggregation-mode decode"), true,
+		"injected --disaggregation-mode must match the role (decode)")
+	assert.Equal(t, strings.Count(decEntry, "--disaggregation-transfer-backend"), 1,
+		"missing --disaggregation-transfer-backend must be injected exactly once")
+}
+
+// TestNormalizeDynamoDGD_DisaggDedupeAllUserProvided verifies the fully-
+// overridden case: the user declared all three disagg flags. The dispatcher
+// must not append anything (every flag count stays at 1, every user value
+// is preserved verbatim).
+func TestNormalizeDynamoDGD_DisaggDedupeAllUserProvided(t *testing.T) {
+	obj := buildFakeDGD(3)
+	workload := buildDynamoTestWorkload("frontend,prefill,decode", nil)
+
+	userEntry := "python3 -m dynamo.sglang --model-path /tmp/m --tp-size 1 " +
+		"--disaggregation-mode prefill " +
+		"--disaggregation-transfer-backend " + common.DynamoKVBackendMooncake + " " +
+		"--disaggregation-bootstrap-port 5555"
+	setFakeDGDCommand(t, obj, "role1", userEntry)
+
+	err := normalizeDynamoDGD(obj, workload)
+	assert.NilError(t, err)
+
+	pfEntry := decodeLauncherEntry(mainContainerCommand(t, obj, "role1"))
+	assert.Equal(t, pfEntry, userEntry,
+		"every disagg flag is user-supplied; dispatcher must not append anything")
+	assert.Equal(t, strings.Count(pfEntry, "--disaggregation-mode"), 1)
+	assert.Equal(t, strings.Count(pfEntry, "--disaggregation-transfer-backend"), 1)
+	assert.Equal(t, strings.Count(pfEntry, "--disaggregation-bootstrap-port"), 1)
 }
 
 // TestNormalizeDynamoDGD_DisaggWithPlanner verifies the 4-resource shape
