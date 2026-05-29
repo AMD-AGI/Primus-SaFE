@@ -601,7 +601,9 @@ func SetMainContainerViaTemplate(ctx context.Context, cli client.Client, workloa
 }
 
 // GetUsedHostPorts returns a set of all host ports currently in use by workloads in the specified cluster.
-// It collects: (1) JobPort and SSHPort from RDMA workloads (hostNetwork pods); (2) Service.NodePort. (3) GcsServer and Dashboard Port for RayJob.
+// It collects: (1) JobPort and SSHPort from RDMA workloads (hostNetwork pods); (2) Service.NodePort;
+// (3) GcsServer and Dashboard Port for RayJob; (4) DynamoFrontendPort for DGD when any worker uses RDMA
+// (Frontend is promoted to hostNetwork in IsEnabledHostNetwork to dodge the same-node Pod->hostIP hairpin).
 // The returned map acts as a set where keys are port numbers and values are empty structs.
 func GetUsedHostPorts(ctx context.Context, cli client.Client, clusterId string) map[int]struct{} {
 	ports := make(map[int]struct{})
@@ -620,6 +622,9 @@ func GetUsedHostPorts(ctx context.Context, cli client.Client, clusterId string) 
 				}
 				if IsMonarchJob(&item) {
 					ports[common.MonarchMeshPortNum] = struct{}{}
+				}
+				if IsDynamoDeployment(&item) {
+					ports[common.DynamoFrontendPort] = struct{}{}
 				}
 			}
 			if item.Spec.Service != nil && item.Spec.Service.NodePort > 0 {
@@ -655,6 +660,18 @@ func IsEnabledHostNetwork(workload *v1.Workload, resourceId int) bool {
 	if IsRayJob(workload) && resourceId == 0 && len(workload.Spec.Resources) > 1 {
 		if workload.Spec.Resources[1].RdmaResource != "" {
 			return true
+		}
+	}
+	// DGD: Resources[0] is the Frontend service; Resources[1..N-1] are workers
+	// (Worker / PrefillWorker / DecodeWorker / Planner / Epp). When any worker uses
+	// hostNetwork (non-empty RdmaResource), keep the Frontend on hostNetwork too so a
+	// co-scheduled Frontend can reach worker hostIPs without same-node Pod-CIDR ->
+	// node-primary-IP hairpin timeouts on dynamo TCP request plane ports.
+	if IsDynamoDeployment(workload) && resourceId == 0 && len(workload.Spec.Resources) > 1 {
+		for i := 1; i < len(workload.Spec.Resources); i++ {
+			if workload.Spec.Resources[i].RdmaResource != "" {
+				return true
+			}
 		}
 	}
 	return workload.Spec.Resources[resourceId].RdmaResource != ""

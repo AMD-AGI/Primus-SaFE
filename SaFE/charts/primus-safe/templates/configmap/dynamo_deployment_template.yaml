@@ -40,6 +40,25 @@ sharedMemory:
   size: 80Gi
 extraPodSpec:
   dnsPolicy: ClusterFirstWithHostNet
+  # Pack each pod onto any node already running a Main worker (prefill / decode / worker).
+  # Goal: keep a CPU-only Frontend from monopolizing a whole GPU node, and let Frontend
+  # reach the co-located worker over loopback when both run on hostNetwork.
+  # Soft preference only: a Frontend on a non-worker node still schedules and remains
+  # correct because IsEnabledHostNetwork promotes Frontend to hostNetwork as well.
+  # Workers are unaffected in practice: when IsRequireNodeSpread is set the dispatcher
+  # injects a required podAntiAffinity spread that dominates this preferred rule.
+  affinity:
+    podAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 100
+          podAffinityTerm:
+            labelSelector:
+              matchExpressions:
+                - key: nvidia.com/dynamo-component-type
+                  operator: In
+                  values:
+                    - Main
+            topologyKey: kubernetes.io/hostname
   initContainers:
     - name: preprocess
       image: {{ .Values.global.image_registry }}/primussafe/{{ .Values.preprocess.image }}
