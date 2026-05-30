@@ -582,18 +582,14 @@ func (m *WorkloadMutator) mutateRdmaResource(ctx context.Context, workload *v1.W
 	rdmaName := commonconfig.GetRdmaName()
 	totalGpuReplica := 0
 	isGpuPartiallyUsed := false
-	// Multinode DynamoDeployment resources expand to nodeCount pods downstream
-	// (e.g. multinode.worker=2 -> 1 LWS group of 2 pods), but res.Replica
-	// only counts the K8s replica set and stays at 1. Without this factor,
-	// such workloads are misclassified as single-node and the RDMA injection
-	// below is skipped. Non-dynamo workloads see dynamoRoles=nil and the
-	// nodeFactor stays at 1, preserving existing behavior.
-	var dynamoRoles []string
-	if commonworkload.IsDynamoDeployment(workload) {
-		dynamoRoles = commonworkload.GetDynamoServiceRoles(workload)
-	}
+	// Multi-node and multi-replica DynamoDeployment roles both expand to
+	// res.Replica pods: a multinode role's Replica is its LWS node count, a
+	// plain role's Replica is its Deployment replica count. Either way
+	// res.Replica is the per-resource pod count used for RDMA classification,
+	// so no extra multinode factor is needed. Non-dynamo workloads are
+	// unaffected (Replica is their plain replica count).
 	if rdmaName != "" {
-		for i, res := range workload.Spec.Resources {
+		for _, res := range workload.Spec.Resources {
 			if !res.HasGpu() {
 				continue
 			}
@@ -602,11 +598,7 @@ func (m *WorkloadMutator) mutateRdmaResource(ctx context.Context, workload *v1.W
 				isGpuPartiallyUsed = true
 				break
 			}
-			nodeFactor := 1
-			if i < len(dynamoRoles) {
-				nodeFactor = commonworkload.GetDynamoMultinode(workload, dynamoRoles[i])
-			}
-			totalGpuReplica += res.Replica * nodeFactor
+			totalGpuReplica += res.Replica
 		}
 	}
 
@@ -1125,19 +1117,13 @@ func (v *WorkloadValidator) validateDynamoDeployment(workload *v1.Workload) erro
 			roleCounts[common.DynamoRolePrefill], roleCounts[common.DynamoRoleDecode]))
 	}
 
-	for k := range workload.Annotations {
-		if !strings.HasPrefix(k, v1.DynamoMultinodePrefix) {
-			continue
-		}
-		role := strings.TrimPrefix(k, v1.DynamoMultinodePrefix)
+	// multinode-roles: every listed role must be declared in service-roles.
+	// The per-role node count comes from Resources[i].Replica (validated >0 by
+	// validateResource), so no separate integer check is needed here.
+	for _, role := range commonworkload.GetDynamoMultinodeRoles(workload) {
 		if roleCounts[role] == 0 {
 			errs = append(errs, fmt.Errorf(
-				"multinode annotation %s references undeclared role %q", k, role))
-		}
-		raw := v1.GetAnnotation(workload, k)
-		if n, parseErr := strconv.Atoi(raw); parseErr != nil || n < 1 {
-			errs = append(errs, fmt.Errorf(
-				"multinode annotation %s has invalid value %q (must be int >= 1)", k, raw))
+				"multinode-roles references undeclared role %q (not in service-roles)", role))
 		}
 	}
 

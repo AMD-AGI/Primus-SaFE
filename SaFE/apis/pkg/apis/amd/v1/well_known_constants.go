@@ -172,10 +172,12 @@ const (
 	DynamoServiceRolesAnnotation = DynamoPrefix + "service-roles"
 	// kv-transfer-backend: nixl|mori|mooncake; default nixl.
 	DynamoKVTransferBackendAnnotation = DynamoPrefix + "kv-transfer-backend"
-	// multinode.<role>: integer node count for multi-node tensor parallel,
-	// e.g. "primus-safe.dynamo.multinode.prefill: 2" sets PrefillWorker to
-	// span 2 nodes via LeaderWorkerSet.
-	DynamoMultinodePrefix = DynamoPrefix + "multinode."
+	// multinode-roles: comma-separated role names that run as a multi-node
+	// LeaderWorkerSet (tensor parallel spanning multiple nodes), e.g.
+	// "primus-safe.dynamo.multinode-roles: worker". For a role listed here the
+	// node count is taken from that role's Resources[i].Replica; a role not
+	// listed uses Replica as plain Deployment replica count instead.
+	DynamoMultinodeRolesAnnotation = DynamoPrefix + "multinode-roles"
 	// backend-framework: sglang|vllm|trtllm; default sglang.
 	DynamoBackendFrameworkAnnotation = DynamoPrefix + "backend-framework"
 )

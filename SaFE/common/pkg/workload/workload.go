@@ -376,20 +376,34 @@ func GetDynamoKVTransferBackend(w *v1.Workload) string {
 	return val
 }
 
-// GetDynamoMultinode returns the multinode nodeCount for a given service role.
-// Example: annotation "primus-safe.dynamo.multinode.prefill: 2" with role
-// "prefill" returns 2 (the PrefillWorker service spans 2 nodes via LeaderWorkerSet).
-// Returns 1 when annotation is missing, unparseable, or below 1.
-func GetDynamoMultinode(w *v1.Workload, role string) int {
-	val := v1.GetAnnotation(w, v1.DynamoMultinodePrefix+role)
+// GetDynamoMultinodeRoles returns the set of service roles that run as a
+// multi-node LeaderWorkerSet, parsed from the multinode-roles annotation
+// (comma-separated). For a role in this set the node count is its
+// Resources[i].Replica. Returns nil when the annotation is absent.
+func GetDynamoMultinodeRoles(w *v1.Workload) []string {
+	val := v1.GetAnnotation(w, v1.DynamoMultinodeRolesAnnotation)
 	if val == "" {
-		return 1
+		return nil
 	}
-	n, err := strconv.Atoi(val)
-	if err != nil || n < 1 {
-		return 1
+	roles := make([]string, 0, 2)
+	for _, r := range strings.Split(val, ",") {
+		if r = strings.TrimSpace(r); r != "" {
+			roles = append(roles, r)
+		}
 	}
-	return n
+	return roles
+}
+
+// IsDynamoMultinodeRole reports whether the given role is configured to run as
+// a multi-node LeaderWorkerSet. When true, the role's Resources[i].Replica is
+// the LeaderWorkerSet node count rather than a Deployment replica count.
+func IsDynamoMultinodeRole(w *v1.Workload, role string) bool {
+	for _, r := range GetDynamoMultinodeRoles(w) {
+		if r == role {
+			return true
+		}
+	}
+	return false
 }
 
 // GetDynamoBackendFramework returns the chosen backend framework

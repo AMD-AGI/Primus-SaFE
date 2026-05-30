@@ -130,6 +130,9 @@ const (
 	DynamoNatsPort      = 4222
 	DynamoFPMPort       = 20380
 	DynamoBootstrapPort = 30001
+	// DynamoMultinodeDistInitPort is the fixed rendezvous port appended to
+	// --dist-init-addr for multi-node (LeaderWorkerSet) sglang workers.
+	DynamoMultinodeDistInitPort = 5000
 
 	// NOTE: dynamo annotation keys (service-roles, kv-transfer-backend,
 	// multinode.<role>, backend-framework) live in apis/pkg/apis/amd/v1/

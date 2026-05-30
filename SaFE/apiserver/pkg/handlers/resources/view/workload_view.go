@@ -82,11 +82,14 @@ type DynamoOptions struct {
 	// ["frontend","prefill","decode"] (disaggregated).
 	ServiceRoles []string `json:"serviceRoles,omitempty"`
 
-	// Multinode role -> node count. Lifts the matching role into a
-	// LeaderWorkerSet group rather than a plain Deployment. The role name
-	// must appear in ServiceRoles. Example: {"worker": 2} or
-	// {"prefill": 2, "decode": 2}.
-	Multinode map[string]int `json:"multinode,omitempty"`
+	// MultinodeRoles lists the roles that run as a multi-node LeaderWorkerSet
+	// (tensor parallel spanning multiple nodes). For a role listed here, the
+	// node count is taken from that role's Resources[i].Replica, and the
+	// dispatcher injects --nnodes / --node-rank / --dist-init-addr into the
+	// sglang entrypoint automatically. A role NOT listed here treats Replica as
+	// a plain Deployment replica count (independent scale-out). Each listed role
+	// must also appear in ServiceRoles. Example: ["worker"] or ["prefill","decode"].
+	MultinodeRoles []string `json:"multinodeRoles,omitempty"`
 }
 
 type GitHubAuthRequest struct {

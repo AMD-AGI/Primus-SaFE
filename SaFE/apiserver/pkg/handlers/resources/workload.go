@@ -868,8 +868,9 @@ func applyDynamoOptions(workload *v1.Workload, opts *view.DynamoOptions) {
 		v1.SetAnnotation(workload, v1.DynamoServiceRolesAnnotation,
 			strings.Join(opts.ServiceRoles, ","))
 	}
-	for role, count := range opts.Multinode {
-		v1.SetAnnotation(workload, v1.DynamoMultinodePrefix+role, strconv.Itoa(count))
+	if len(opts.MultinodeRoles) > 0 {
+		v1.SetAnnotation(workload, v1.DynamoMultinodeRolesAnnotation,
+			strings.Join(opts.MultinodeRoles, ","))
 	}
 }
 

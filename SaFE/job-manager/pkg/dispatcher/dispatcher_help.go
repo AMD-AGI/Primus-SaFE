@@ -1196,14 +1196,32 @@ func normalizeDynamoDGD(obj *unstructured.Unstructured, adminWorkload *v1.Worklo
 
 		applyDynamoRoleFields(slot, role, kvBackend)
 
+		// Multi-node: for a role listed in multinode-roles, the node count is
+		// Resources[i].Replica. Inject sglang multi-node flags into the launcher
+		// payload BEFORE containers are folded into mainContainer (same ordering
+		// as appendSglangDisaggArgs).
+		multinodeNodes := 0
+		if commonworkload.IsDynamoMultinodeRole(adminWorkload, role) &&
+			i < len(adminWorkload.Spec.Resources) {
+			if n := adminWorkload.Spec.Resources[i].Replica; n > 1 {
+				multinodeNodes = n
+				appendSglangMultinodeArgs(slot, n)
+			}
+		}
+
 		if err := convertContainersToMainContainer(slot); err != nil {
 			return fmt.Errorf("convert containers->mainContainer for role %s: %w", role, err)
 		}
 
-		if n := commonworkload.GetDynamoMultinode(adminWorkload, role); n > 1 {
+		// A multi-node role becomes one LeaderWorkerSet group of numberOfNodes
+		// pods, so force replicas=1: the generic flow set replicas to the
+		// per-role Replica, which for a multinode role means node count (carried
+		// by numberOfNodes), not Deployment group count.
+		if multinodeNodes > 1 {
 			slot["multinode"] = map[string]interface{}{
-				"numberOfNodes": int64(n),
+				"numberOfNodes": int64(multinodeNodes),
 			}
+			slot["replicas"] = int64(1)
 		}
 
 		services[slotKey] = slot
@@ -1321,6 +1339,52 @@ func sglangDisaggFlags(mode, kvBackend string) string {
 	return fmt.Sprintf(
 		"--disaggregation-mode %s --disaggregation-transfer-backend %s --disaggregation-bootstrap-port %d",
 		mode, kvBackend, common.DynamoBootstrapPort,
+	)
+}
+
+// appendSglangMultinodeArgs appends the sglang multi-node flags
+// (--nnodes/--node-rank/--dist-init-addr) to the main container's
+// launcher-encoded command, mirroring appendSglangDisaggArgs. The LWS
+// environment variables $LWS_WORKER_INDEX / $LWS_LEADER_ADDRESS are left as
+// literal shell references: launcher.sh decodes the payload into .run.sh and
+// runs it with bash, so the shell expands them at container start (the kubelet
+// $(VAR) form would not work because the names are hidden inside the base64
+// payload). Per-flag dedup in appendLauncherArgs preserves any of these flags
+// the user already supplied.
+func appendSglangMultinodeArgs(slot map[string]interface{}, numNodes int) {
+	extra, _ := slot["extraPodSpec"].(map[string]interface{})
+	if extra == nil {
+		return
+	}
+	containers, _ := extra["containers"].([]interface{})
+	for i, c := range containers {
+		m, ok := c.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		if name, _ := m["name"].(string); name != "main" {
+			continue
+		}
+		cmd, _ := m["command"].([]interface{})
+		newCmd, ok := appendLauncherArgs(cmd, sglangMultinodeFlags(numNodes))
+		if !ok {
+			continue
+		}
+		m["command"] = newCmd
+		containers[i] = m
+	}
+	extra["containers"] = containers
+	slot["extraPodSpec"] = extra
+}
+
+// sglangMultinodeFlags formats the sglang multi-node flags. node-rank and the
+// leader address are LWS-injected env vars expanded by the launcher's bash;
+// the rendezvous port is the SaFE-wide convention
+// (common.DynamoMultinodeDistInitPort).
+func sglangMultinodeFlags(numNodes int) string {
+	return fmt.Sprintf(
+		"--nnodes %d --node-rank $LWS_WORKER_INDEX --dist-init-addr $LWS_LEADER_ADDRESS:%d",
+		numNodes, common.DynamoMultinodeDistInitPort,
 	)
 }
 

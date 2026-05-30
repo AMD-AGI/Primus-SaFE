@@ -982,7 +982,8 @@ func setFakeDGDCommand(t *testing.T, obj *unstructured.Unstructured, svcKey, ent
 
 // buildDynamoTestWorkload constructs a minimal SaFE Workload typed as
 // DynamoDeployment with the given comma-separated service-roles. extra
-// annotations (e.g. multinode.<role>=N) are merged in.
+// annotations (e.g. multinode-roles=worker) are merged in. Callers that need a
+// non-default node/replica count set Resources[i].Replica after construction.
 func buildDynamoTestWorkload(roles string, extraAnnotations map[string]string) *v1.Workload {
 	annotations := map[string]string{
 		v1.DynamoServiceRolesAnnotation: roles,
@@ -1309,17 +1310,20 @@ func TestNormalizeDynamoDGD_DisaggWithPlanner(t *testing.T) {
 	assert.Equal(t, dec["serviceName"], "DecodeWorker")
 }
 
-// TestNormalizeDynamoDGD_MultiNodeTP verifies the multinode annotation lifts
-// the PrefillWorker service to LeaderWorkerSet topology (numberOfNodes > 1)
-// while leaving the other services single-node.
+// TestNormalizeDynamoDGD_MultiNodeTP verifies that a role listed in
+// multinode-roles is lifted to LeaderWorkerSet topology: node count comes from
+// Resources[i].Replica (numberOfNodes), replicas is forced to 1, and the
+// sglang multi-node flags are injected. Roles not listed stay single-node.
 func TestNormalizeDynamoDGD_MultiNodeTP(t *testing.T) {
 	obj := buildFakeDGD(3)
 	workload := buildDynamoTestWorkload(
 		"frontend,prefill,decode",
 		map[string]string{
-			v1.DynamoMultinodePrefix + "prefill": "2",
+			v1.DynamoMultinodeRolesAnnotation: "prefill",
 		},
 	)
+	// prefill (index 1) is multinode: its Replica is the node count.
+	workload.Spec.Resources[1].Replica = 2
 
 	err := normalizeDynamoDGD(obj, workload)
 	assert.NilError(t, err)
@@ -1329,11 +1333,23 @@ func TestNormalizeDynamoDGD_MultiNodeTP(t *testing.T) {
 	mn, ok := pf["multinode"].(map[string]interface{})
 	assert.Equal(t, ok, true, "PrefillWorker should have multinode block")
 	assert.Equal(t, mn["numberOfNodes"], int64(2))
+	assert.Equal(t, pf["replicas"], int64(1),
+		"multinode role must force replicas=1 (one LWS group; node count in multinode)")
+	pfEntry := decodeLauncherEntry(mainContainerCommand(t, obj, "role1"))
+	assert.Equal(t, strings.Contains(pfEntry, "--nnodes 2"), true,
+		"prefill multinode entry must carry --nnodes 2")
+	assert.Equal(t, strings.Contains(pfEntry, "--node-rank $LWS_WORKER_INDEX"), true,
+		"prefill multinode entry must carry --node-rank $LWS_WORKER_INDEX")
+	assert.Equal(t, strings.Contains(pfEntry, "--dist-init-addr $LWS_LEADER_ADDRESS:5000"), true,
+		"prefill multinode entry must carry --dist-init-addr $LWS_LEADER_ADDRESS:5000")
 
 	dec := getDynamoService(t, obj, "role2")
 	assert.Equal(t, dec["serviceName"], "DecodeWorker")
 	_, hasMn := dec["multinode"]
-	assert.Equal(t, hasMn, false, "DecodeWorker must remain single-node (no annotation)")
+	assert.Equal(t, hasMn, false, "DecodeWorker must remain single-node (not in multinode-roles)")
+	decEntry := decodeLauncherEntry(mainContainerCommand(t, obj, "role2"))
+	assert.Equal(t, strings.Contains(decEntry, "--nnodes"), false,
+		"decode must not get multinode flags")
 
 	fe := getDynamoService(t, obj, "role0")
 	assert.Equal(t, fe["serviceName"], "Frontend")
