@@ -1194,6 +1194,26 @@ func normalizeDynamoDGD(obj *unstructured.Unstructured, adminWorkload *v1.Worklo
 		// the map key (which would break dispatcher reconcile, see above).
 		slot["serviceName"] = dynamoServiceKey(role)
 
+		// Stamp SaFE pod-tracking labels (incl. WorkloadIdLabel) onto the
+		// per-service Labels (DynamoComponentDeploymentSharedSpec.Labels). The
+		// Dynamo operator copies component.Labels onto the generated
+		// deployment and its pods (see operator graph.go), so the job-manager
+		// pod syncer can associate DGD child pods (role0/role1/...) to this
+		// workload via WorkloadIdLabel and populate Status.Pods ->
+		// GetWorkload.pods. Without this the pods carry only nvidia.com/*
+		// labels and never appear in GetWorkload.pods, so the multi_node
+		// Dynamo backend cannot discover worker pod IPs. (updateMetadata
+		// writes the same labels under <templatePath>/metadata/labels, but the
+		// operator does not turn that into pod labels for DGD.)
+		slotLabels, _ := slot["labels"].(map[string]interface{})
+		if slotLabels == nil {
+			slotLabels = map[string]interface{}{}
+		}
+		for k, v := range buildPodLabels(adminWorkload) {
+			slotLabels[k] = v
+		}
+		slot["labels"] = slotLabels
+
 		applyDynamoRoleFields(slot, role, kvBackend)
 
 		// Multi-node: for a role listed in multinode-roles, the node count is
