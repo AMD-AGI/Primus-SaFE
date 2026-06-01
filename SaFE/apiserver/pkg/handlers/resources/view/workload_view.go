@@ -53,6 +53,43 @@ type CreateWorkloadRequest struct {
 	ForceHostNetwork *bool `json:"forceHostNetwork,omitempty"`
 	// The owner workload ID
 	OwnerId string `json:"ownerId,omitempty"`
+	// DynamoOptions carries DynamoDeployment-specific configuration that would
+	// otherwise have to be passed as primus-safe.dynamo.* annotations. The
+	// generic API path strips reserved-prefix annotations, so this struct is
+	// the only supported channel to express role layout / multinode for the
+	// DynamoDeployment kind via the API. See docs/apis/dynamo-options-design.md.
+	DynamoOptions *DynamoOptions `json:"dynamoOptions,omitempty"`
+}
+
+// DynamoOptions describes the dynamo-specific knobs that the API server
+// converts into primus-safe.dynamo.* annotations on the resulting Workload CR.
+// Leaving any field unset keeps the existing webhook auto-inference behavior
+// (e.g. 2 resources -> "frontend,worker", 3 resources -> PD); set fields
+// override the auto-inference. All validation is performed by the existing
+// validateDynamoDeployment webhook, no duplicate checks are added here.
+type DynamoOptions struct {
+	// Backend framework. One of "sglang" | "vllm" | "trtllm". Empty falls back
+	// to the cluster default (sglang).
+	BackendFramework string `json:"backendFramework,omitempty"`
+
+	// KV-cache transfer plane. One of "nixl" | "mori" | "mooncake". Only
+	// effective when ServiceRoles contains both prefill and decode.
+	KVTransferBackend string `json:"kvTransferBackend,omitempty"`
+
+	// Explicit service role per Resources[] slot. Length must equal
+	// len(Resources). Allowed values: frontend|worker|prefill|decode|planner|epp.
+	// Example: ["frontend","worker"] (aggregated) or
+	// ["frontend","prefill","decode"] (disaggregated).
+	ServiceRoles []string `json:"serviceRoles,omitempty"`
+
+	// MultinodeRoles lists the roles that run as a multi-node LeaderWorkerSet
+	// (tensor parallel spanning multiple nodes). For a role listed here, the
+	// node count is taken from that role's Resources[i].Replica, and the
+	// dispatcher injects --nnodes / --node-rank / --dist-init-addr into the
+	// sglang entrypoint automatically. A role NOT listed here treats Replica as
+	// a plain Deployment replica count (independent scale-out). Each listed role
+	// must also appear in ServiceRoles. Example: ["worker"] or ["prefill","decode"].
+	MultinodeRoles []string `json:"multinodeRoles,omitempty"`
 }
 
 type GitHubAuthRequest struct {

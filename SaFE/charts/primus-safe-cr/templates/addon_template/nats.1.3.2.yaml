@@ -1,0 +1,127 @@
+#
+# Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
+# See LICENSE for license information.
+#
+# NATS messaging server for SaFE Phase 3 — cluster-wide bus for the dynamo
+# DistributedRuntime request plane and KV events (dynamo.frontend, dynamo.sglang,
+# dynamo.planner all hard-connect to NATS at startup regardless of
+# DYN_DISCOVERY_BACKEND value).
+#
+# Notes (read before deploy):
+#   1. Installs nats v1.3.2 chart (same version dynamo-platform 1.1.0 depends
+#      on; see dynamo/deploy/helm/charts/platform/Chart.yaml line ~34).
+#   2. Single-node JetStream layout — production can later bump
+#      `config.cluster.replicas` to 3 for HA, but Phase 2 e2e validation only
+#      needs one server. JetStream is enabled (Phase 0 K2 / K7 require it for
+#      KV events).
+#   3. Harbor mirror requirements (ops to mirror before this Addon is applied;
+#      <helm_registry> / <image_registry> are taken from values.global.* at
+#      chart render time):
+#         Helm chart: nats-1.3.2 from https://nats-io.github.io/k8s/helm/charts/
+#                  -> oci://<helm_registry>/primussafe/nats:1.3.2
+#         Images (DockerHub):
+#              docker.io/library/nats:2.11.1-binary-alpine
+#                     -> <image_registry>/primussafe/nats:2.11.1-binary-alpine
+#              docker.io/natsio/nats-server-config-reloader:0.17.1
+#                     -> <image_registry>/primussafe/nats-server-config-reloader:0.17.1
+#              docker.io/natsio/nats-box:0.17.0 (optional sidecar tool pod)
+#                     -> <image_registry>/primussafe/nats-box:0.17.0
+#   4. Persistent JetStream storage uses 10Gi PVC on the cluster default
+#      StorageClass. Increase if KV event volume grows beyond Phase 2 smoke
+#      loads.
+#   5. dynamo webhook (Phase 2) injects NATS_SERVER=nats://nats.primus-safe.svc:4222
+#      into every dynamo pod, which matches the Service this chart creates
+#      (svc/nats:4222 in namespace=primus-safe).
+#
+# Default-addon: every registered Cluster auto-installs NATS via
+# `ClusterReconciler.guaranteeDefaultAddon` (resource-manager). No per-cluster
+# Addon YAML is needed; deploy the AddonTemplate once on the management plane
+# and SaFE federates the helm install to every dataplane on Cluster register.
+#
+
+apiVersion: amd.com/v1
+kind: AddonTemplate
+metadata:
+  labels:
+    primus-safe.display.name: "nats.1.3.2"
+    app.kubernetes.io/managed-by: Helm
+    # Marks this template as a default addon: SaFE's ClusterReconciler picks it
+    # up via label selector and synthesises an `Addon` instance for every
+    # registered Cluster, triggering federated helm install. Override per
+    # cluster by hand-writing an Addon CR with the same release name (the
+    # auto-created one will yield to the named-addon convention).
+    primus-safe.addon.default: ""
+  annotations:
+    meta.helm.sh/release-name: {{ .Release.Name }}
+    meta.helm.sh/release-namespace: {{ .Release.Namespace }}
+  name: nats.1.3.2
+spec:
+  category: plugin
+  description: NATS messaging server (JetStream-enabled, single-node). Required by the dynamo DistributedRuntime request plane. Installed in primus-safe namespace alongside SaFE control-plane components so the chart-rendered Service short DNS `nats.primus-safe.svc:4222` resolves out of the box for dynamo workloads.
+  # OCI helm chart mirrored on SaFE Harbor (ops to mirror, see header note 3).
+  # Upstream source: github.com/nats-io/k8s/helm/charts/nats version 1.3.2
+  url: oci://{{ .Values.global.helm_registry }}/primussafe/nats
+  version: 1.3.2
+  type: helm
+  helmDefaultNamespace: primus-safe
+  helmDefaultValues: |
+    # ---------------- Core NATS server ----------------
+    container:
+      image:
+        # Mirrored on Harbor (source: docker.io/library/nats:2.11.1-binary-alpine)
+        repository: {{ .Values.global.image_registry }}/primussafe/nats
+        tag: "2.11.1-binary-alpine"
+        pullPolicy: IfNotPresent
+
+    config:
+      # Single-node deployment (Phase 2 baseline). Flip cluster.enabled=true +
+      # cluster.replicas=3 later for HA.
+      cluster:
+        enabled: false
+
+      # JetStream is required by dynamo for KV events + durable streams.
+      jetstream:
+        enabled: true
+        fileStore:
+          enabled: true
+          pvc:
+            enabled: true
+            size: 10Gi
+            # storageClassName: <use cluster default; override if the cluster
+            # default doesn't support ReadWriteOnce PVCs for stateful pods>.
+
+      # No mTLS for Phase 2 baseline. Re-evaluate when multi-tenant traffic
+      # shares the same NATS instance.
+
+    # ---------------- Config reloader sidecar ----------------
+    reloader:
+      enabled: true
+      image:
+        # Mirrored on Harbor (source: docker.io/natsio/nats-server-config-reloader:0.17.1)
+        repository: {{ .Values.global.image_registry }}/primussafe/nats-server-config-reloader
+        tag: "0.17.1"
+        pullPolicy: IfNotPresent
+
+    # ---------------- Optional nats-box debug pod ----------------
+    # Useful for `nats stream ls` from a shell inside the cluster, no cost on a
+    # Phase 2 cluster; disable to save 50 MiB if running a stricter footprint.
+    natsBox:
+      enabled: true
+      container:
+        image:
+          # Mirrored on Harbor (source: docker.io/natsio/nats-box:0.17.0)
+          repository: {{ .Values.global.image_registry }}/primussafe/nats-box
+          tag: "0.17.0"
+          pullPolicy: IfNotPresent
+
+    # ---------------- Service ----------------
+    # Defaults already create a ClusterIP svc named "nats" with port 4222 —
+    # matches dynamo webhook-injected NATS_SERVER=nats://nats.primus-safe.svc:4222.
+    # Override only if a NodePort or LoadBalancer is needed for off-cluster reach.
+
+    # ---------------- Image pull secrets ----------------
+    # SaFE Harbor allows anonymous pull for primussafe/* repos (Phase 1
+    # dynamo-operator addon ran without a secret). Restore this list when
+    # Harbor auth is later enforced.
+    imagePullSecrets: []
+

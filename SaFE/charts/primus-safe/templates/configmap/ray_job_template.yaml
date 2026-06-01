@@ -115,6 +115,18 @@ data:
                 primus-safe.amd.com/ray-role: head
             spec:
               dnsPolicy: ClusterFirstWithHostNet
+              # KubeRay operator (ray-system, Pod network) polls the Ray dashboard on the
+              # head Pod (hostNetwork). On the same node that path can exceed the operator's
+              # 2s HTTP timeout, so status.jobStatus is never written to the RayJob CR.
+              affinity:
+                podAntiAffinity:
+                  requiredDuringSchedulingIgnoredDuringExecution:
+                  - labelSelector:
+                      matchLabels:
+                        app.kubernetes.io/name: kuberay-operator
+                    namespaces:
+                    - ray-system
+                    topologyKey: kubernetes.io/hostname
               initContainers:
               - name: preprocess
                 image: {{ .Values.global.image_registry }}/primussafe/{{ .Values.preprocess.image }}
