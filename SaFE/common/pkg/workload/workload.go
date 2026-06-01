@@ -247,7 +247,7 @@ func GetScope(w *v1.Workload) v1.WorkspaceScope {
 	switch w.SpecKind() {
 	case common.PytorchJobKind, common.UnifiedJobKind, common.JobKind, common.TorchFTKind, common.MonarchJob:
 		return v1.TrainScope
-	case common.DeploymentKind, common.StatefulSetKind:
+	case common.DeploymentKind, common.StatefulSetKind, common.DynamoDeploymentKind:
 		return v1.InferScope
 	case common.AuthoringKind:
 		return v1.AuthoringScope
@@ -262,10 +262,14 @@ func GetScope(w *v1.Workload) v1.WorkspaceScope {
 	}
 }
 
-// IsApplication returns true if the workload is an application type (Deployment or StatefulSet).
+// IsApplication returns true if the workload follows the "create-once + sync update"
+// lifecycle handled by syncWorkloadToObject (Deployment, StatefulSet, DynamoDeployment).
+// DynamoDeployment is included because its underlying DGD CR is reconciled by the
+// Dynamo operator and supports in-place spec updates without re-creation.
 func IsApplication(w *v1.Workload) bool {
 	if w.SpecKind() == common.DeploymentKind ||
-		w.SpecKind() == common.StatefulSetKind {
+		w.SpecKind() == common.StatefulSetKind ||
+		w.SpecKind() == common.DynamoDeploymentKind {
 		return true
 	}
 	return false
@@ -317,6 +321,100 @@ func IsRayJob(w *v1.Workload) bool {
 		return true
 	}
 	return false
+}
+
+// IsDynamoDeployment returns true if the workload is a DynamoDeployment type.
+// DynamoDeployment wraps the upstream DynamoGraphDeployment (DGD) CR managed by
+// the Dynamo operator. See plan Phase 2 for the full design.
+func IsDynamoDeployment(w *v1.Workload) bool {
+	return w.SpecKind() == common.DynamoDeploymentKind
+}
+
+// GetDynamoServiceRoles returns the parsed service roles for a DynamoDeployment.
+// Each element corresponds positionally to one Workload.Spec.Resources entry.
+//
+// Source of truth:
+//  1. annotation primus-safe.dynamo.service-roles (comma separated, e.g. "frontend,prefill,decode,planner")
+//  2. fallback inference based on len(Resources):
+//     - 2 -> ["frontend", "worker"]              (aggregated minimal)
+//     - 3 -> ["frontend", "worker", "planner"]   (aggregated + planner)
+//     - other counts -> nil (the webhook should reject these; defensive return)
+//
+// Returns nil for non-DynamoDeployment workloads.
+func GetDynamoServiceRoles(w *v1.Workload) []string {
+	if !IsDynamoDeployment(w) {
+		return nil
+	}
+	val := v1.GetAnnotation(w, v1.DynamoServiceRolesAnnotation)
+	if val != "" {
+		roles := make([]string, 0, 4)
+		for _, r := range strings.Split(val, ",") {
+			if r = strings.TrimSpace(r); r != "" {
+				roles = append(roles, r)
+			}
+		}
+		return roles
+	}
+	switch len(w.Spec.Resources) {
+	case 2:
+		return []string{common.DynamoRoleFrontend, common.DynamoRoleWorker}
+	case 3:
+		return []string{common.DynamoRoleFrontend, common.DynamoRoleWorker, common.DynamoRolePlanner}
+	default:
+		return nil
+	}
+}
+
+// GetDynamoKVTransferBackend returns the KV transfer backend for disaggregated
+// serving (nixl / mori / mooncake). Returns the default (nixl) when annotation
+// is missing or empty.
+func GetDynamoKVTransferBackend(w *v1.Workload) string {
+	val := v1.GetAnnotation(w, v1.DynamoKVTransferBackendAnnotation)
+	if val == "" {
+		return common.DynamoDefaultKVBackend
+	}
+	return val
+}
+
+// GetDynamoMultinodeRoles returns the set of service roles that run as a
+// multi-node LeaderWorkerSet, parsed from the multinode-roles annotation
+// (comma-separated). For a role in this set the node count is its
+// Resources[i].Replica. Returns nil when the annotation is absent.
+func GetDynamoMultinodeRoles(w *v1.Workload) []string {
+	val := v1.GetAnnotation(w, v1.DynamoMultinodeRolesAnnotation)
+	if val == "" {
+		return nil
+	}
+	roles := make([]string, 0, 2)
+	for _, r := range strings.Split(val, ",") {
+		if r = strings.TrimSpace(r); r != "" {
+			roles = append(roles, r)
+		}
+	}
+	return roles
+}
+
+// IsDynamoMultinodeRole reports whether the given role is configured to run as
+// a multi-node LeaderWorkerSet. When true, the role's Resources[i].Replica is
+// the LeaderWorkerSet node count rather than a Deployment replica count.
+func IsDynamoMultinodeRole(w *v1.Workload, role string) bool {
+	for _, r := range GetDynamoMultinodeRoles(w) {
+		if r == role {
+			return true
+		}
+	}
+	return false
+}
+
+// GetDynamoBackendFramework returns the chosen backend framework
+// (sglang / vllm / trtllm). Returns the default (sglang) when annotation
+// is missing or empty.
+func GetDynamoBackendFramework(w *v1.Workload) string {
+	val := v1.GetAnnotation(w, v1.DynamoBackendFrameworkAnnotation)
+	if val == "" {
+		return common.DynamoDefaultBackendFramework
+	}
+	return val
 }
 
 func IsMonarchJob(w *v1.Workload) bool {
@@ -517,7 +615,9 @@ func SetMainContainerViaTemplate(ctx context.Context, cli client.Client, workloa
 }
 
 // GetUsedHostPorts returns a set of all host ports currently in use by workloads in the specified cluster.
-// It collects: (1) JobPort and SSHPort from RDMA workloads (hostNetwork pods); (2) Service.NodePort. (3) GcsServer and Dashboard Port for RayJob.
+// It collects: (1) JobPort and SSHPort from RDMA workloads (hostNetwork pods); (2) Service.NodePort;
+// (3) GcsServer and Dashboard Port for RayJob; (4) DynamoFrontendPort for DGD when any worker uses RDMA
+// (Frontend is promoted to hostNetwork in IsEnabledHostNetwork to dodge the same-node Pod->hostIP hairpin).
 // The returned map acts as a set where keys are port numbers and values are empty structs.
 func GetUsedHostPorts(ctx context.Context, cli client.Client, clusterId string) map[int]struct{} {
 	ports := make(map[int]struct{})
@@ -536,6 +636,9 @@ func GetUsedHostPorts(ctx context.Context, cli client.Client, clusterId string) 
 				}
 				if IsMonarchJob(&item) {
 					ports[common.MonarchMeshPortNum] = struct{}{}
+				}
+				if IsDynamoDeployment(&item) {
+					ports[common.DynamoFrontendPort] = struct{}{}
 				}
 			}
 			if item.Spec.Service != nil && item.Spec.Service.NodePort > 0 {
@@ -571,6 +674,18 @@ func IsEnabledHostNetwork(workload *v1.Workload, resourceId int) bool {
 	if IsRayJob(workload) && resourceId == 0 && len(workload.Spec.Resources) > 1 {
 		if workload.Spec.Resources[1].RdmaResource != "" {
 			return true
+		}
+	}
+	// DGD: Resources[0] is the Frontend service; Resources[1..N-1] are workers
+	// (Worker / PrefillWorker / DecodeWorker / Planner / Epp). When any worker uses
+	// hostNetwork (non-empty RdmaResource), keep the Frontend on hostNetwork too so a
+	// co-scheduled Frontend can reach worker hostIPs without same-node Pod-CIDR ->
+	// node-primary-IP hairpin timeouts on dynamo TCP request plane ports.
+	if IsDynamoDeployment(workload) && resourceId == 0 && len(workload.Spec.Resources) > 1 {
+		for i := 1; i < len(workload.Spec.Resources); i++ {
+			if workload.Spec.Resources[i].RdmaResource != "" {
+				return true
+			}
 		}
 	}
 	return workload.Spec.Resources[resourceId].RdmaResource != ""

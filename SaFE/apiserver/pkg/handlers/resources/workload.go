@@ -842,7 +842,36 @@ func (h *Handler) generateWorkload(ctx context.Context,
 	if req.OwnerId != "" {
 		v1.SetLabel(workload, v1.OwnerLabel, req.OwnerId)
 	}
+	applyDynamoOptions(workload, req.DynamoOptions)
 	return workload, nil
+}
+
+// applyDynamoOptions translates the structured DynamoOptions API field into
+// the primus-safe.dynamo.* annotations that the dispatcher / webhook already
+// consume. This is the only sanctioned path to set those annotations through
+// the REST API because generateWorkload strips primus-safe-prefixed keys from
+// the freeform Annotations map. All semantic checks (role enum, role/Resources
+// length match, multinode-key references, kv-transfer-backend enum, etc.) are
+// performed by validateDynamoDeployment in the validating webhook so this
+// helper stays as a pure translation step.
+func applyDynamoOptions(workload *v1.Workload, opts *view.DynamoOptions) {
+	if opts == nil {
+		return
+	}
+	if opts.BackendFramework != "" {
+		v1.SetAnnotation(workload, v1.DynamoBackendFrameworkAnnotation, opts.BackendFramework)
+	}
+	if opts.KVTransferBackend != "" {
+		v1.SetAnnotation(workload, v1.DynamoKVTransferBackendAnnotation, opts.KVTransferBackend)
+	}
+	if len(opts.ServiceRoles) > 0 {
+		v1.SetAnnotation(workload, v1.DynamoServiceRolesAnnotation,
+			strings.Join(opts.ServiceRoles, ","))
+	}
+	if len(opts.MultinodeRoles) > 0 {
+		v1.SetAnnotation(workload, v1.DynamoMultinodeRolesAnnotation,
+			strings.Join(opts.MultinodeRoles, ","))
+	}
 }
 
 // createPreheatWorkloads create all preheat workloads based on the main workload images configuration

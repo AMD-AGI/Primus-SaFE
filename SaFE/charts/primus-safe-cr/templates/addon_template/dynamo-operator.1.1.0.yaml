@@ -1,0 +1,150 @@
+#
+# Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
+# See LICENSE for license information.
+#
+# Dynamo Operator (NVIDIA AI Dynamo) for SaFE — draft for Phase 1 review.
+#
+# Notes (read before deploy):
+#   1. Installs ONLY the `dynamo-operator` sub-chart, not the umbrella `dynamo-platform`
+#      chart, because Phase 3 of the integration plan already provides cluster-level
+#      NATS in primus-safe namespace. We skip the bundled etcd / kai-scheduler / grove
+#      / nats sub-charts to keep the install minimal.
+#   2. Webhook TLS cert is managed by cert-manager (cert-manager.v1.17.2 addon
+#      is a default SaFE addon, so this is a safe dependency). Operator will
+#      look up an Issuer/Certificate resource provisioned by cert-manager and
+#      inject the caBundle into webhook configurations via cert-manager
+#      annotation `cert-manager.io/inject-ca-from`. **Dependency**: enable
+#      `cert-manager.v1.17.2` addon BEFORE this one.
+#   3. Mirrored artifacts on SaFE Harbor (ops to mirror before this Addon is
+#      applied; <helm_registry> / <image_registry> are taken from
+#      values.global.* at chart render time):
+#          Image: <image_registry>/primussafe/dynamo-kubernetes-operator:1.1.0
+#                 (source: nvcr.io/nvidia/ai-dynamo/kubernetes-operator:1.1.0)
+#          Helm chart (OCI): oci://<helm_registry>/primussafe/dynamo-operator:1.1.0
+#                 (source: dynamo/deploy/helm/charts/platform/components/operator)
+#   4. CRDs are managed by the operator's `upgradeCRD: true` mode (init container
+#      runs server-side apply at pre-install/pre-upgrade), which is compatible with
+#      SaFE addon helm install flow.
+#
+# Default-addon: every registered Cluster auto-installs the dynamo-operator
+# via `ClusterReconciler.guaranteeDefaultAddon` (resource-manager). No
+# per-cluster Addon YAML is needed; deploy this AddonTemplate once on the
+# management plane and SaFE federates the helm install to every dataplane on
+# Cluster register. Assumes the SaFE deployment runs on inference-bearing
+# clusters where DGD / DCD CRDs are wanted everywhere.
+#
+
+apiVersion: amd.com/v1
+kind: AddonTemplate
+metadata:
+  labels:
+    primus-safe.display.name: "dynamo-operator.1.1.0"
+    app.kubernetes.io/managed-by: Helm
+    # Marks this template as a default addon: SaFE's ClusterReconciler picks it
+    # up via label selector and synthesises an `Addon` instance for every
+    # registered Cluster, triggering federated helm install. Override per
+    # cluster by hand-writing an Addon CR with the same release name.
+    primus-safe.addon.default: ""
+  annotations:
+    meta.helm.sh/release-name: {{ .Release.Name }}
+    meta.helm.sh/release-namespace: {{ .Release.Namespace }}
+  name: dynamo-operator.1.1.0
+spec:
+  category: plugin
+  description: NVIDIA Dynamo Operator. Manages DynamoGraphDeployment (DGD), DynamoComponentDeployment (DCD), DynamoGraphDeploymentRequest (DGDR), DynamoModel, DynamoCheckpoint, DynamoGraphDeploymentScalingAdapter, and DynamoWorkerMetadata CRDs. SaFE uses DGD (v1alpha1) as the underlying resource for the new DynamoDeployment workload kind.
+  # OCI helm chart mirrored on SaFE Harbor (ops to mirror, see header note 3).
+  # Upstream source path: github.com/ai-dynamo/dynamo/deploy/helm/charts/platform/components/operator
+  url: oci://{{ .Values.global.helm_registry }}/primussafe/dynamo-operator
+  version: 1.1.0
+  type: helm
+  helmDefaultNamespace: dynamo-system
+  helmDefaultValues: |
+    # ---------------- Service Discovery (MUST be set; chart _validation.tpl enforces) ----------------
+    # Aligns with Phase 1 plan decision (P3 risk ④): use K8s native EndpointSlice for
+    # service discovery, skip etcd entirely. Empty/missing field will fail chart install
+    # with "VALIDATION ERROR: discoveryBackend must be 'kubernetes' (default) or 'etcd'".
+    discoveryBackend: kubernetes
+
+    # ---------------- External NATS / etcd endpoints ----------------
+    # Phase 3 of plan will deploy cluster-level NATS in primus-safe namespace.
+    # Leave empty for now — operator will use defaults / fail soft until P3 lands.
+    # Once P3 NATS is up: natsAddr: "nats://nats.primus-safe.svc:4222"
+    natsAddr: ""
+    etcdAddr: ""
+
+    # ---------------- NATS sub-chart (we don't use it; P3 brings own NATS) ----------------
+    nats:
+      enabled: false
+
+    # ---------------- CRD management ----------------
+    # Operator runs an init container that applies CRDs via server-side apply.
+    # Set false if CRDs are managed externally (GitOps).
+    upgradeCRD: true
+
+    # ---------------- Operator deployment ----------------
+    controllerManager:
+      replicas: 1
+      manager:
+        image:
+          # Mirrored on SaFE Harbor (ops to mirror, see header note 3).
+          # Source: nvcr.io/nvidia/ai-dynamo/kubernetes-operator:1.1.0
+          repository: {{ .Values.global.image_registry }}/primussafe/dynamo-kubernetes-operator
+          tag: "1.1.0-coscheduling-0826"
+        resources:
+          limits:
+            cpu: 1024m
+            memory: 2Gi
+          requests:
+            cpu: 512m
+            memory: 1Gi
+      leaderElection:
+        # Empty defaults to "dynamo.nvidia.com" — keep default unless multiple operators
+        id: ""
+        namespace: ""  # defaults to kube-system
+
+    # ---------------- Webhook ----------------
+    webhook:
+      # cert-manager mode (chosen Phase 1 decision). Operator template adds
+      # `cert-manager.io/inject-ca-from` annotation on webhook configurations;
+      # cert-manager auto-injects caBundle from the issued Certificate.
+      # **Dependency**: cert-manager.v1.17.2 SaFE addon must be enabled first.
+      certManager:
+        enabled: true
+      # failurePolicy=Fail means webhook outage blocks DGD create/update — production-safe.
+      # Use Ignore only for debugging.
+      failurePolicy: Fail
+      timeoutSeconds: 10
+      # No special namespaceSelector — operator handles all DGD/DCD/DynamoModel across the cluster.
+
+    # ---------------- DEPRECATED knobs (kept false) ----------------
+    namespaceRestriction:
+      enabled: false   # cluster-wide mode (the recommended default)
+    gpuDiscovery:
+      enabled: false   # only relevant to namespace-restricted mode (deprecated)
+
+    # ---------------- Service Discovery ----------------
+    # Operator routes its own DGD ↔ pod orchestration via in-cluster K8s API only.
+    # The DGD pods themselves use DYN_DISCOVERY_BACKEND=kubernetes (injected by SaFE
+    # webhook at Phase 2), and NATS endpoint from cluster-level Phase 3 service.
+    # No etcd dependency.
+
+    # ---------------- Image pull secrets ----------------
+    # Intentionally empty: SaFE Harbor allows anonymous pull for primussafe/* images
+    # (verified 2026-05-20: dataplane pulled dynamo-kubernetes-operator:1.1.0 in 15s
+    # without a secret). Previous attempt referenced `primus-safe-image-import-reg-cred`
+    # which only exists in primus-safe namespace, not in dynamo-system, causing a
+    # cosmetic `FailedToRetrieveImagePullSecret` warning event without blocking install.
+    # If Harbor auth requirement changes in the future, the secret must also be
+    # propagated to the dynamo-system namespace before re-enabling this list.
+    imagePullSecrets: []
+
+    # ---------------- Optional integrations (all disabled for SaFE baseline) ----------------
+    dynamo:
+      # Optional: integrate with Grove for multi-node orchestration. SaFE plan
+      # does not use Grove (gang scheduling is handled by kube-scheduler-plugins).
+      grove:
+        enabled: false
+      # Optional: integrate with Kai scheduler. SaFE uses kube-scheduler-plugins.
+      kaiScheduler:
+        enabled: false
+

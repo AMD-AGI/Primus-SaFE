@@ -161,6 +161,25 @@ const (
 	ModelS3SourceSecretAnn   = ModelPrefix + "s3-source-secret"   // annotation: Secret name in primus-safe namespace
 	ModelS3SourceEndpointAnn = ModelPrefix + "s3-source-endpoint" // annotation: user-provided HTTP(S) endpoint for the source bucket
 	SourceModelIdLabel       = PrimusSafePrefix + "source-model"
+
+	// dynamo (DynamoDeployment workload kind; see Phase 2 of the dynamo
+	// integration plan). Webhook/dispatcher read these to decide deployment
+	// shape (aggregated / disagg / multi-node TP) without extending the
+	// Workload CRD schema.
+	DynamoPrefix = PrimusSafePrefix + "dynamo."
+	// service-roles: comma-separated role names, positionally matching
+	// Workload.Spec.Resources, e.g. "frontend,prefill,decode,planner".
+	DynamoServiceRolesAnnotation = DynamoPrefix + "service-roles"
+	// kv-transfer-backend: nixl|mori|mooncake; default nixl.
+	DynamoKVTransferBackendAnnotation = DynamoPrefix + "kv-transfer-backend"
+	// multinode-roles: comma-separated role names that run as a multi-node
+	// LeaderWorkerSet (tensor parallel spanning multiple nodes), e.g.
+	// "primus-safe.dynamo.multinode-roles: worker". For a role listed here the
+	// node count is taken from that role's Resources[i].Replica; a role not
+	// listed uses Replica as plain Deployment replica count instead.
+	DynamoMultinodeRolesAnnotation = DynamoPrefix + "multinode-roles"
+	// backend-framework: sglang|vllm|trtllm; default sglang.
+	DynamoBackendFrameworkAnnotation = DynamoPrefix + "backend-framework"
 )
 
 type SecretType string
