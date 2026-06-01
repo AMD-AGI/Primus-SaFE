@@ -1,18 +1,29 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+REPO_RAW="https://raw.githubusercontent.com/AMD-AGI/Primus-SaFE/main/Scripts/setup-certs"
+
 # Re-exec as root if needed, so the `curl ... | bash` one-liner still works
-# on hosts where the user is not root but has sudo.
+# for non-root users who have sudo. Handles both invocation styles:
+#   - file:  bash setup.sh        -> $0 is the script path, re-exec it
+#   - piped: curl ... | bash      -> $0 is "bash" (no file), re-fetch under sudo
 if [ "$(id -u)" -ne 0 ]; then
     if command -v sudo >/dev/null 2>&1; then
         echo "Not running as root, re-executing with sudo..."
-        exec sudo -E bash "$0" "$@"
+        if [ -f "$0" ]; then
+            exec sudo -E bash "$0" "$@"
+        fi
+        # Piped via stdin (curl ... | bash): no file to re-exec, so re-fetch
+        # the script and hand it to sudo. Guard against a failed download.
+        _self="$(curl -fsSL "$REPO_RAW/setup.sh")" || {
+            echo "ERROR: failed to re-download script for sudo re-exec." >&2
+            exit 1
+        }
+        exec sudo -E bash -c "$_self" -- "$@"
     fi
     echo "ERROR: this script must run as root, and sudo is not available." >&2
     exit 1
 fi
-
-REPO_RAW="https://raw.githubusercontent.com/AMD-AGI/Primus-SaFE/main/Scripts/setup-certs"
 
 # Detect the distro family and pick the matching trust-store layout. Debian and
 # RHEL families use different anchor dirs, update tools, and Node CA bundles.
