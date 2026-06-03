@@ -30,6 +30,7 @@ const (
 	MainContainerAnnotation     = PrimusSafePrefix + "main.container"
 	OwnerLabel                  = PrimusSafePrefix + "owner"
 	RequireNodeSpreadAnnotation = PrimusSafePrefix + "require.node.spread"
+	kubePodsSubnetAnnotation   = PrimusSafePrefix + "kube.pods.subnet"
 
 	// cicd
 	CICDScaleSetIdAnnotation = "runner-scale-set-id"

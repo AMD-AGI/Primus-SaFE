@@ -62,6 +62,11 @@ data:
   # script around for one release in case some site relies on it, then
   # remove entirely.
   net_search_domain_214: '{"script":"net_search_domain_214.sh","id":"214","cronjob":"@every 300s","timeoutSecond":250,"toggle":"off","arguments":["{{ .Values.monitor.resolv_search_domain }}"]}'
+  # 215 ensures same-node Pod -> host-IP routing: re-applies the high-priority
+  # "ip rule to <pod_cidr> lookup main" when missing (e.g. after reboot). The
+  # Pod CIDR is read from the kubePodsSubnet field of the $Node JSON; if that
+  # field is empty/absent the script is a no-op.
+  net_pod_route_rule_215: '{"script":"net_pod_route_rule_215.sh","id":"215","cronjob":"@every 600s","timeoutSecond":60,"toggle":"on","arguments":["$Node"]}'
   # System: 3XX
   sys_timezone_301: '{"script":"sys_timezone_301.sh","id":"301","cronjob":"@every 60s","timeoutSecond":50,"toggle":"on"}'
   sys_hostname_302: '{"script":"sys_hostname_302.sh","id":"302","cronjob":"@every 60s","timeoutSecond":50,"toggle":"on"}'

@@ -659,34 +659,3 @@ func GetSpecifiedNodes(workload *v1.Workload) []string {
 	}
 	return nil
 }
-
-func IsEnabledHostNetwork(workload *v1.Workload, resourceId int) bool {
-	if v1.IsForceHostNetwork(workload) {
-		return true
-	}
-	if resourceId >= len(workload.Spec.Resources) || resourceId < 0 {
-		return false
-	}
-	// RayJob submitterPodTemplate is resource index 0; headGroupSpec is index 1.
-	// When the head uses hostNetwork (non-empty RdmaResource), keep the submitter Job
-	// on hostNetwork too so a co-scheduled submitter can reach the Ray Dashboard without
-	// same-node Pod-CIDR -> node-primary-IP hairpin timeouts to :8265.
-	if IsRayJob(workload) && resourceId == 0 && len(workload.Spec.Resources) > 1 {
-		if workload.Spec.Resources[1].RdmaResource != "" {
-			return true
-		}
-	}
-	// DGD: Resources[0] is the Frontend service; Resources[1..N-1] are workers
-	// (Worker / PrefillWorker / DecodeWorker / Planner / Epp). When any worker uses
-	// hostNetwork (non-empty RdmaResource), keep the Frontend on hostNetwork too so a
-	// co-scheduled Frontend can reach worker hostIPs without same-node Pod-CIDR ->
-	// node-primary-IP hairpin timeouts on dynamo TCP request plane ports.
-	if IsDynamoDeployment(workload) && resourceId == 0 && len(workload.Spec.Resources) > 1 {
-		for i := 1; i < len(workload.Spec.Resources); i++ {
-			if workload.Spec.Resources[i].RdmaResource != "" {
-				return true
-			}
-		}
-	}
-	return workload.Spec.Resources[resourceId].RdmaResource != ""
-}

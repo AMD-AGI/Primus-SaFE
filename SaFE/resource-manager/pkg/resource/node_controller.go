@@ -822,6 +822,7 @@ func (r *NodeReconciler) syncLabelsToK8sNode(ctx context.Context,
 	}
 	annotations := map[string]string{
 		v1.NodeDiskAnnotation: v1.GetAnnotation(adminNode, v1.NodeDiskAnnotation),
+		v1.NodeSubnetAnnotation: v1.GetAnnotation(adminNode, v1.NodeSubnetAnnotation),
 	}
 
 	metadata := map[string]interface{}{

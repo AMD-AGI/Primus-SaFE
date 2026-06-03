@@ -181,7 +181,7 @@ func (r *SyncerReconciler) waitJobDeleted(ctx context.Context,
 	}
 
 	for _, obj := range unstructuredObjs {
-		klog.Infof("wait for object(%s/%s) to be deleted, workload: %s", obj.GetNamespace(), obj.GetName(), message.workloadId)
+		// klog.Infof("wait for object(%s/%s) to be deleted, workload: %s", obj.GetNamespace(), obj.GetName(), message.workloadId)
 		if ts := obj.GetDeletionTimestamp(); ts != nil && !ts.IsZero() &&
 			time.Since(ts.Time) >= time.Duration(ForceDeleteDelaySeconds)*time.Second {
 			patchObj := map[string]any{
