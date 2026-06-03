@@ -30,12 +30,15 @@ export interface MenuIcons {
   deploy: IconSet
   download: IconSet
   infer: IconSet
+  deployment: IconSet
+  dynamo: IconSet
   modelSquare: IconSet
   preflight: IconSet
   qabase: IconSet
   playground: IconSet
   apikey: IconSet
   chatbot: IconSet
+  pytorch: IconSet
   rayjob: IconSet
   tools: IconSet
   llmGateway: IconSet
@@ -72,6 +75,8 @@ export const menuIcons: MenuIcons = {
   deploy: createIconSet('deploy'),
   download: createIconSet('deploy'), // Using deploy icons as placeholder
   infer: createIconSet('infer'),
+  deployment: createIconSet('deployment'),
+  dynamo: createIconSet('dynamo'),
   dataset: createIconSet('dataset'),
   evaluation: createIconSet('evaluation'),
   modelSquare: createIconSet('model'),
@@ -80,6 +85,7 @@ export const menuIcons: MenuIcons = {
   playground: createIconSet('infer'), // Using infer icons as placeholder
   apikey: createIconSet('apikey'),
   chatbot: createIconSet('sparkles'),
+  pytorch: createIconSet('pytorch'),
   rayjob: createIconSet('ray'),
   tools: createIconSet('skill'), // Using addons icons as placeholder
   llmGateway: createIconSet('apikey'), // Using apikey icons as placeholder
