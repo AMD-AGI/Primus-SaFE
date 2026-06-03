@@ -130,7 +130,8 @@ export type GitHubAuthPayload =
     }
 
 export interface SubmitWorkloadRequest {
-  workspace: string
+  workspace?: string
+  workspaceId?: string
   githubAuth?: GitHubAuthPayload
   displayName: string
   groupVersionKind: {

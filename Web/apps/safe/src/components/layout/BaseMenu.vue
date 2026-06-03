@@ -246,7 +246,7 @@ const workloadGroupRoutes = [
   { group: 'workloads-infer', paths: ['/infer', '/dynamo'] },
   {
     group: 'workloads-training',
-    paths: ['/training', '/torchft', '/rayjob', '/monarch', '/sandbox-workload'],
+    paths: ['/training', '/torchft', '/rayjob', '/monarch'],
   },
 ]
 const activeWorkloadGroup = computed(
@@ -284,17 +284,17 @@ watchEffect(() => {
   const inferChildren: MenuItem[] = [
     {
       index: '/infer',
-      name: 'Standard Infer',
+      name: 'Deployment',
       canAccess: canInfer.value,
-      tooltip: 'Infer has been disabled by the administrator.',
-      icon: menuIcons.infer,
+      tooltip: 'Deployment has been disabled by the administrator.',
+      icon: menuIcons.deployment,
     },
     {
       index: '/dynamo',
       name: 'Dynamo',
       canAccess: canInfer.value,
       tooltip: 'Dynamo has been disabled by the administrator.',
-      icon: menuIcons.infer,
+      icon: menuIcons.dynamo,
     },
   ].filter((item) => item.canAccess !== false)
 
@@ -304,7 +304,7 @@ watchEffect(() => {
       name: 'PyTorch',
       canAccess: canTrain.value,
       tooltip: 'PyTorch has been disabled by the administrator.',
-      icon: menuIcons.training,
+      icon: menuIcons.pytorch,
       dataTour: 'menu-training',
     },
     {
@@ -327,13 +327,6 @@ watchEffect(() => {
       canAccess: canTrain.value,
       tooltip: 'Monarch has been disabled by the administrator.',
       icon: menuIcons.monarch,
-    },
-    {
-      index: '/sandbox-workload',
-      name: 'Sandbox',
-      canAccess: canSandbox.value,
-      tooltip: 'Sandbox has been disabled by the administrator.',
-      icon: menuIcons.sandbox,
     },
   ].filter((item) => item.canAccess !== false)
 
@@ -365,6 +358,13 @@ watchEffect(() => {
       tooltip: 'Authoring has been disabled by the administrator.',
       icon: menuIcons.authoring,
       dataTour: 'menu-authoring',
+    },
+    {
+      index: '/sandbox-workload',
+      name: 'Sandbox',
+      canAccess: canSandbox.value,
+      tooltip: 'Sandbox has been disabled by the administrator.',
+      icon: menuIcons.sandbox,
     },
     {
       index: '/cicd',
