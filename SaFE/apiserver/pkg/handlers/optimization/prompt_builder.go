@@ -272,8 +272,8 @@ func BuildHyperloomPrompt(cfg PromptConfig) string {
 
 	push("Requirements:")
 	push(fmt.Sprintf("Save all results and the optimization report to %s", cfg.ResultsPath))
-	if cfg.ResultsPath == "$RESULT_DIR" {
-		push("Respect the RESULT_DIR exported earlier by CI; do not hard-code /workspace/hyperloom/.")
+	if cfg.ResultsPath == "$USER_DATA_PATH" || cfg.ResultsPath == "$RESULT_DIR" {
+		push("Respect the path exported earlier by the platform / CI; do not hard-code /workspace/hyperloom/.")
 	}
 	push("Execute the full skill pipeline (Phase 0-10), including parameter sweep.")
 
