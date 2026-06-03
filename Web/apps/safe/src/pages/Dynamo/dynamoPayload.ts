@@ -14,6 +14,7 @@ export interface DynamoRoleResourceForm {
   cpu: string
   gpu?: string
   memory: string
+  ephemeralStorage?: string
   sharedMemory?: string
   rdmaResource?: string
   tpSize?: number
@@ -76,6 +77,7 @@ export interface DynamoResourcePayload {
   cpu: string
   gpu?: string
   memory: string
+  ephemeralStorage: string
   sharedMemory?: string
   rdmaResource?: string
 }
@@ -85,11 +87,13 @@ export const DYNAMO_DEFAULT_IMAGE =
 
 export const DYNAMO_FRONTEND_ENTRYPOINT =
   'python3 -m dynamo.frontend --http-port 8000 --router-mode round-robin'
+const DYNAMO_DEFAULT_EPHEMERAL_STORAGE = '100Gi'
 
 const FRONTEND_RESOURCE: DynamoResourcePayload = {
   replica: 1,
   cpu: '4',
   memory: '16Gi',
+  ephemeralStorage: DYNAMO_DEFAULT_EPHEMERAL_STORAGE,
 }
 
 export const DYNAMO_SERVICE = {
@@ -125,6 +129,7 @@ export function createDefaultDynamoForm(): DynamoFormModel {
       cpu: '64',
       gpu: '8',
       memory: '256',
+      ephemeralStorage: '100',
       sharedMemory: '200',
       tpSize: 8,
       epSize: 8,
@@ -134,6 +139,7 @@ export function createDefaultDynamoForm(): DynamoFormModel {
       cpu: '64',
       gpu: '8',
       memory: '512',
+      ephemeralStorage: '100',
       sharedMemory: '300',
       tpSize: 8,
       epSize: 8,
@@ -143,6 +149,7 @@ export function createDefaultDynamoForm(): DynamoFormModel {
       cpu: '64',
       gpu: '8',
       memory: '512',
+      ephemeralStorage: '100',
       sharedMemory: '300',
       tpSize: 8,
       epSize: 8,
@@ -300,6 +307,7 @@ function toResourcePayload(resource: DynamoRoleResourceForm): DynamoResourcePayl
     cpu: resource.cpu,
     ...(resource.gpu && Number(resource.gpu) !== 0 ? { gpu: resource.gpu } : {}),
     memory: withGi(resource.memory),
+    ephemeralStorage: withGi(resource.ephemeralStorage || DYNAMO_DEFAULT_EPHEMERAL_STORAGE),
     ...(resource.sharedMemory ? { sharedMemory: withGi(resource.sharedMemory) } : {}),
     ...(resource.rdmaResource ? { rdmaResource: resource.rdmaResource } : {}),
   }

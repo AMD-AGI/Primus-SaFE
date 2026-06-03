@@ -104,6 +104,11 @@ const router = createRouter({
           component: () => import('../pages/Infer/index.vue'),
         },
         {
+          path: '/dynamo',
+          name: 'Dynamo',
+          component: () => import('../pages/Dynamo/index.vue'),
+        },
+        {
           path: '/cicd/detail',
           name: 'CICDDetail',
           component: () => import('../pages/CICD/CICDDetail.vue'),
@@ -152,6 +157,11 @@ const router = createRouter({
           path: '/infer/detail',
           name: 'InferDetail',
           component: () => import('../pages/Infer/InferDetail.vue'),
+        },
+        {
+          path: '/dynamo/detail',
+          name: 'DynamoDetail',
+          component: () => import('../pages/Dynamo/DynamoDetail.vue'),
         },
         {
           path: '/workspace',

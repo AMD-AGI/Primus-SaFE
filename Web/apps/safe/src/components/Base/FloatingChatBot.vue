@@ -952,8 +952,8 @@ const checkAgentHealthStatus = async () => {
 }
 
 // Health check interval
-let healthCheckInterval: number | null = null
-let agentHealthCheckInterval: number | null = null
+let healthCheckInterval: ReturnType<typeof setInterval> | null = null
+let agentHealthCheckInterval: ReturnType<typeof setInterval> | null = null
 
 const startAskHealthCheck = () => {
   if (healthCheckInterval) {

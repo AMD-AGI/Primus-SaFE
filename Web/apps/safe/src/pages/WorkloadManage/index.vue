@@ -181,10 +181,7 @@
 
         <el-table-column prop="replica" label="Replicas" min-width="90">
           <template #default="{ row }">
-            {{
-              (row.resources?.[0]?.replica || 0) + (row.resources?.[1]?.replica || 0) ||
-              row.resource?.replica || 0
-            }}
+            {{ getWorkloadReplicaCount(row) }}
           </template>
         </el-table-column>
 
@@ -367,6 +364,13 @@ const { canWrite } = useWorkloadWriteGuard()
 
 // ── Extract kind from groupVersionKind ──
 const getRowKind = (row: any): string => row.groupVersionKind?.kind || row.kind || ''
+const getWorkloadReplicaCount = (row: {
+  resources?: Array<{ replica?: number | string }>
+  resource?: { replica?: number | string }
+}) => {
+  const total = row.resources?.reduce((sum, item) => sum + (Number(item?.replica) || 0), 0) || 0
+  return total || row.resource?.replica || 0
+}
 
 // ── Kind config (includes extra types only visible in admin page) ──
 const ALL_KINDS = [...Object.values(WorkloadKind), 'Job']
@@ -374,7 +378,9 @@ const kindFilters = ALL_KINDS.map((k) => ({ text: k, value: k }))
 const filterSelectedKind = ref<string[]>([])
 
 const isTrainingLike = (kind: string) =>
-  [WorkloadKind.PyTorchJob, WorkloadKind.TorchFT, WorkloadKind.RayJob].includes(kind as WorkloadKind)
+  [WorkloadKind.PyTorchJob, WorkloadKind.TorchFT, WorkloadKind.RayJob, WorkloadKind.DynamoDeployment].includes(
+    kind as WorkloadKind,
+  )
 
 const hasResume = (kind: string) =>
   [WorkloadKind.Authoring, WorkloadKind.Deployment, WorkloadKind.StatefulSet,
@@ -404,6 +410,7 @@ const dialogImportMap: Record<string, () => Promise<any>> = {
   Authoring: () => import('@/pages/Authoring/Components/AddDialog.vue'),
   TorchFT: () => import('@/pages/TorchFT/Components/AddDialog.vue'),
   RayJob: () => import('@/pages/RayJob/Components/AddDialog.vue'),
+  DynamoDeployment: () => import('@/pages/Dynamo/Components/AddDialog.vue'),
   Deployment: () => import('@/pages/Infer/Components/AddDialog.vue'),
   StatefulSet: () => import('@/pages/Infer/Components/AddDialog.vue'),
   AutoscalingRunnerSet: () => import('@/pages/CICD/Components/AddDialog.vue'),
