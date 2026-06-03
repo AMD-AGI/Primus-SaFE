@@ -25,13 +25,12 @@ describe('dynamoPayload', () => {
     expect(payload.groupVersionKind).toEqual({ kind: 'DynamoDeployment', version: 'v1' })
     expect(payload.images).toEqual([form.image, form.image])
     expect(payload.resources).toEqual([
-      { replica: 1, cpu: '4', memory: '16Gi', ephemeralStorage: '100Gi' },
+      { replica: 1, cpu: '4', memory: '16Gi' },
       {
         replica: 1,
         cpu: '64',
         gpu: '8',
         memory: '256Gi',
-        ephemeralStorage: '100Gi',
         sharedMemory: '200Gi',
       },
     ])
@@ -55,16 +54,6 @@ describe('dynamoPayload', () => {
     expect(payload.env).toEqual({})
   })
 
-  it('includes ephemeral storage for every resource', () => {
-    const form = createDefaultDynamoForm()
-    form.displayName = 'dynamo-with-storage'
-    form.enablePd = true
-
-    const payload = buildDynamoCreatePayload(form, 'core42-hyperloom')
-
-    expect(payload.resources.every((resource) => Boolean(resource.ephemeralStorage))).toBe(true)
-  })
-
   it('builds an aggregation payload with worker multinodeRoles and default tp size', () => {
     const form = createDefaultDynamoForm()
     form.displayName = 'dynamo-ds-r1-2node'
@@ -82,7 +71,6 @@ describe('dynamoPayload', () => {
       cpu: '64',
       gpu: '8',
       memory: '256Gi',
-      ephemeralStorage: '100Gi',
       sharedMemory: '200Gi',
       rdmaResource: '1',
     })
@@ -151,13 +139,12 @@ describe('dynamoPayload', () => {
 
     expect(payload.images).toEqual([form.image, form.image, form.image])
     expect(payload.resources).toEqual([
-      { replica: 1, cpu: '4', memory: '16Gi', ephemeralStorage: '100Gi' },
+      { replica: 1, cpu: '4', memory: '16Gi' },
       {
         replica: 2,
         cpu: '64',
         gpu: '8',
         memory: '512Gi',
-        ephemeralStorage: '100Gi',
         sharedMemory: '300Gi',
       },
       {
@@ -165,7 +152,6 @@ describe('dynamoPayload', () => {
         cpu: '64',
         gpu: '8',
         memory: '512Gi',
-        ephemeralStorage: '100Gi',
         sharedMemory: '300Gi',
       },
     ])
