@@ -530,6 +530,7 @@ function mergeResource(
     cpu: String(source.cpu ?? base.cpu),
     gpu: source.gpu ?? base.gpu,
     memory: stripGi(source.memory ?? base.memory),
+    ephemeralStorage: source.ephemeralStorage ? stripGi(source.ephemeralStorage) : base.ephemeralStorage,
     sharedMemory: source.sharedMemory ? stripGi(source.sharedMemory) : base.sharedMemory,
     rdmaResource: source.rdmaResource ?? base.rdmaResource,
   }
