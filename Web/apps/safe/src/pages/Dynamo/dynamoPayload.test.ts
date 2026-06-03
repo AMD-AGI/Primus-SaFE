@@ -25,12 +25,13 @@ describe('dynamoPayload', () => {
     expect(payload.groupVersionKind).toEqual({ kind: 'DynamoDeployment', version: 'v1' })
     expect(payload.images).toEqual([form.image, form.image])
     expect(payload.resources).toEqual([
-      { replica: 1, cpu: '4', memory: '16Gi' },
+      { replica: 1, cpu: '4', memory: '16Gi', ephemeralStorage: '100Gi' },
       {
         replica: 1,
         cpu: '64',
         gpu: '8',
         memory: '256Gi',
+        ephemeralStorage: '100Gi',
         sharedMemory: '200Gi',
       },
     ])
@@ -81,6 +82,7 @@ describe('dynamoPayload', () => {
       cpu: '64',
       gpu: '8',
       memory: '256Gi',
+      ephemeralStorage: '100Gi',
       sharedMemory: '200Gi',
       rdmaResource: '1',
     })
@@ -149,12 +151,13 @@ describe('dynamoPayload', () => {
 
     expect(payload.images).toEqual([form.image, form.image, form.image])
     expect(payload.resources).toEqual([
-      { replica: 1, cpu: '4', memory: '16Gi' },
+      { replica: 1, cpu: '4', memory: '16Gi', ephemeralStorage: '100Gi' },
       {
         replica: 2,
         cpu: '64',
         gpu: '8',
         memory: '512Gi',
+        ephemeralStorage: '100Gi',
         sharedMemory: '300Gi',
       },
       {
@@ -162,6 +165,7 @@ describe('dynamoPayload', () => {
         cpu: '64',
         gpu: '8',
         memory: '512Gi',
+        ephemeralStorage: '100Gi',
         sharedMemory: '300Gi',
       },
     ])
