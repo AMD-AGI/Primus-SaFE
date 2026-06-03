@@ -183,7 +183,6 @@ func BuildHyperloomPrompt(cfg PromptConfig) string {
 	displayName := firstNonEmpty(cfg.DisplayName, cfg.ModelName, "(TBD)")
 	modelPath := firstNonEmpty(cfg.ModelPath, "(TBD)")
 
-	backendValues := make([]string, 0, len(cfg.KernelBackends))
 	hasGEAK := false
 	for _, b := range cfg.KernelBackends {
 		tag, ok := kernelBackendPromptMap[b]
@@ -193,7 +192,6 @@ func BuildHyperloomPrompt(cfg PromptConfig) string {
 		if tag == "geak" {
 			hasGEAK = true
 		}
-		backendValues = append(backendValues, tag)
 	}
 
 	sharedRoot := "/hyperloom"
@@ -234,11 +232,6 @@ func BuildHyperloomPrompt(cfg PromptConfig) string {
 	push("Do not rely on the V2 cli default max-hours.")
 	push("")
 
-	if cfg.Mode == ModeLocal {
-		push(fmt.Sprintf("SandboxImage: %s", cfg.Image))
-		push("")
-	}
-
 	if cfg.Mode == ModeClaw {
 		push("Environment:")
 		push(fmt.Sprintf("The current runtime (Claw client) cannot access %s directly", sharedRoot))
@@ -260,22 +253,10 @@ func BuildHyperloomPrompt(cfg PromptConfig) string {
 		push("")
 	}
 
-	push("Kernel Optimization:")
-	push(fmt.Sprintf("KERNEL_OPT_BACKENDS: %s", strings.Join(backendValues, ", ")))
-	push(fmt.Sprintf("KERNEL_OPT_IMAGE: %s", cfg.Image))
-	push(fmt.Sprintf("KERNEL_OPT_WORKSPACE: %s", cfg.Workspace))
-	if hasGEAK {
-		push(fmt.Sprintf("GEAK step_limit: %d", cfg.GeakStepLimit))
-	}
-	push("Must optimize at least 5 kernels")
-	push("")
-
 	push("Requirements:")
-	push(fmt.Sprintf("Save all results and the optimization report to %s", cfg.ResultsPath))
-	if cfg.ResultsPath == "$USER_DATA_PATH" || cfg.ResultsPath == "$RESULT_DIR" {
-		push("Respect the path exported earlier by the platform / CI; do not hard-code /workspace/hyperloom/.")
-	}
-	push("Execute the full skill pipeline (Phase 0-10), including parameter sweep.")
+	push(fmt.Sprintf("1. Install packages and save all artifacts and the optimization report under %s (the platform-exported persistent root); do not hard-code /workspace/hyperloom/.", cfg.ResultsPath))
+	push("2. Report the session ID, log path, PID, and initial health check result.")
+	push("3. Monitor the process every 300s until the run is done.")
 
 	if cfg.TargetGpu != "" && cfg.BaselineCount > 0 && cfg.BaselineCSV != "" {
 		push("")

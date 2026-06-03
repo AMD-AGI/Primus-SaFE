@@ -49,11 +49,12 @@ func TestBuildHyperloomPromptClawMode(t *testing.T) {
 	assert.Assert(t, strings.Contains(prompt, "OOB path: /hyperloom/OOB"))
 	assert.Assert(t, strings.Contains(prompt, "TraceLens path: /hyperloom/TraceLens-internal"))
 	assert.Assert(t, strings.Contains(prompt, "--target-gain 30"))
-	assert.Assert(t, strings.Contains(prompt, "KERNEL_OPT_BACKENDS: geak, codex"))
-	assert.Assert(t, strings.Contains(prompt, "GEAK step_limit: 120"))
 	assert.Assert(t, strings.Contains(prompt, "RayJob image: harbor.example/sglang:test"))
 	assert.Assert(t, strings.Contains(prompt, "Target GPU: b300"))
 	assert.Assert(t, strings.Contains(prompt, "model,gpu,tps"))
+	assert.Assert(t, strings.Contains(prompt, "Report the session ID, log path, PID"))
+	assert.Assert(t, strings.Contains(prompt, "Monitor the process every 300s"))
+	assert.Assert(t, !strings.Contains(prompt, "Kernel Optimization:"))
 }
 
 func TestBuildHyperloomPromptLocalModeOmitsRaySection(t *testing.T) {
@@ -66,8 +67,9 @@ func TestBuildHyperloomPromptLocalModeOmitsRaySection(t *testing.T) {
 	})
 
 	assert.Assert(t, strings.Contains(prompt, "mode: local"))
-	assert.Assert(t, strings.Contains(prompt, "SandboxImage:"))
-	assert.Assert(t, strings.Contains(prompt, "KERNEL_OPT_BACKENDS: claude"))
+	assert.Assert(t, strings.Contains(prompt, "Monitor the process every 300s"))
+	assert.Assert(t, !strings.Contains(prompt, "SandboxImage:"))
+	assert.Assert(t, !strings.Contains(prompt, "Kernel Optimization:"))
 	assert.Assert(t, !strings.Contains(prompt, "Task submission:"))
 	assert.Assert(t, !strings.Contains(prompt, "RayJob image:"))
 }
