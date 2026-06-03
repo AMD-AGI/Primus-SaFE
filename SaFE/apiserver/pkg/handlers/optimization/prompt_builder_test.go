@@ -53,7 +53,7 @@ func TestBuildHyperloomPromptClawMode(t *testing.T) {
 	assert.Assert(t, strings.Contains(prompt, "Target GPU: b300"))
 	assert.Assert(t, strings.Contains(prompt, "model,gpu,tps"))
 	assert.Assert(t, strings.Contains(prompt, "Report the session ID, log path, PID"))
-	assert.Assert(t, strings.Contains(prompt, "Monitor the process every 300s"))
+	assert.Assert(t, strings.Contains(prompt, "Then monitor the process every 300s"))
 	assert.Assert(t, !strings.Contains(prompt, "Kernel Optimization:"))
 }
 
@@ -67,7 +67,7 @@ func TestBuildHyperloomPromptLocalModeOmitsRaySection(t *testing.T) {
 	})
 
 	assert.Assert(t, strings.Contains(prompt, "mode: local"))
-	assert.Assert(t, strings.Contains(prompt, "Monitor the process every 300s"))
+	assert.Assert(t, strings.Contains(prompt, "Then monitor the process every 300s"))
 	assert.Assert(t, !strings.Contains(prompt, "SandboxImage:"))
 	assert.Assert(t, !strings.Contains(prompt, "Kernel Optimization:"))
 	assert.Assert(t, !strings.Contains(prompt, "Task submission:"))

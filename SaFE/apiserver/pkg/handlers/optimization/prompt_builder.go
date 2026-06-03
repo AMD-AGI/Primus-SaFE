@@ -254,9 +254,9 @@ func BuildHyperloomPrompt(cfg PromptConfig) string {
 	}
 
 	push("Requirements:")
-	push(fmt.Sprintf("1. Install packages and save all artifacts and the optimization report under %s (the platform-exported persistent root); do not hard-code /workspace/hyperloom/.", cfg.ResultsPath))
+	push("1. Install packages and save artifacts to writable folder.")
 	push("2. Report the session ID, log path, PID, and initial health check result.")
-	push("3. Monitor the process every 300s until the run is done.")
+	push("3. Then monitor the process every 300s, until work is done.")
 
 	if cfg.TargetGpu != "" && cfg.BaselineCount > 0 && cfg.BaselineCSV != "" {
 		push("")
