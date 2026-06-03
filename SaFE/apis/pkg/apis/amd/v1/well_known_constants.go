@@ -30,7 +30,6 @@ const (
 	MainContainerAnnotation     = PrimusSafePrefix + "main.container"
 	OwnerLabel                  = PrimusSafePrefix + "owner"
 	RequireNodeSpreadAnnotation = PrimusSafePrefix + "require.node.spread"
-	kubePodsSubnetAnnotation   = PrimusSafePrefix + "kube.pods.subnet"
 
 	// cicd
 	CICDScaleSetIdAnnotation = "runner-scale-set-id"
@@ -48,6 +47,7 @@ const (
 	NodeLabelAction                 = NodePrefix + "label.action"
 	NodeAnnotationAction            = NodePrefix + "annotation.action"
 	NodeTemplateInstalledAnnotation = NodePrefix + "template.installed"
+	NodeSubnetAnnotation            = NodePrefix + "subnet"
 	// disk.info: specifies the storage requirement with disk type (e.g., nvme) and expected block count.
 	// node-agent will validate that available blocks meet or exceed this expectation.
 	NodeDiskAnnotation        = NodePrefix + "disk.info"
