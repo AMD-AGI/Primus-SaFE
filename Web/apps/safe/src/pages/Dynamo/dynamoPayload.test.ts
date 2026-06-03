@@ -54,6 +54,16 @@ describe('dynamoPayload', () => {
     expect(payload.env).toEqual({})
   })
 
+  it('includes ephemeral storage for every resource', () => {
+    const form = createDefaultDynamoForm()
+    form.displayName = 'dynamo-with-storage'
+    form.enablePd = true
+
+    const payload = buildDynamoCreatePayload(form, 'core42-hyperloom')
+
+    expect(payload.resources.every((resource) => Boolean(resource.ephemeralStorage))).toBe(true)
+  })
+
   it('builds an aggregation payload with worker multinodeRoles and default tp size', () => {
     const form = createDefaultDynamoForm()
     form.displayName = 'dynamo-ds-r1-2node'

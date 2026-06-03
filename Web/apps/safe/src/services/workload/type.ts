@@ -43,6 +43,7 @@ export enum WorkloadKind {
   TorchFT = 'TorchFT',
   RayJob = 'RayJob',
   Sandbox = 'Sandbox',
+  DynamoDeployment = 'DynamoDeployment',
 }
 // kind -> base path
 export const KindPathMap: Record<WorkloadKind, `/${string}`> = {
@@ -56,6 +57,7 @@ export const KindPathMap: Record<WorkloadKind, `/${string}`> = {
   [WorkloadKind.TorchFT]: '/torchft',
   [WorkloadKind.RayJob]: '/rayjob',
   [WorkloadKind.Sandbox]: '/sandbox-workload',
+  [WorkloadKind.DynamoDeployment]: '/dynamo',
 } as const
 
 export type PriorityValue = 0 | 1 | 2
@@ -108,10 +110,25 @@ export interface EditWorkloadRequest {
   resources?: Array<{
     replica?: number
     cpu: string
-    gpu: string
+    gpu?: string
     memory: string
-    ephemeralStorage: string
+    ephemeralStorage?: string
+    sharedMemory?: string
+    rdmaResource?: string
   }>
+  service?: {
+    protocol: string
+    port: number | null
+    targetPort: number | null
+    serviceType: string
+    nodePort?: number | null
+  }
+  dynamoOptions?: {
+    backendFramework?: string
+    kvTransferBackend?: string
+    serviceRoles?: string[]
+    multinodeRoles?: string[]
+  }
   maxRetry?: number
   excludedNodes?: string[]
   privileged?: boolean
@@ -149,10 +166,25 @@ export interface SubmitWorkloadRequest {
   resources?: Array<{
     replica?: number
     cpu: string
-    gpu: string
+    gpu?: string
     memory: string
-    ephemeralStorage: string
+    ephemeralStorage?: string
+    sharedMemory?: string
+    rdmaResource?: string
   }>
+  service?: {
+    protocol: string
+    port: number | null
+    targetPort: number | null
+    serviceType: string
+    nodePort?: number | null
+  }
+  dynamoOptions?: {
+    backendFramework?: string
+    kvTransferBackend?: string
+    serviceRoles?: string[]
+    multinodeRoles?: string[]
+  }
   specifiedNodes?: string[]
   env?: Record<string, string>
   customerLabels?: Record<string, string>
