@@ -29,6 +29,7 @@ export interface DynamoFormModel {
   backendEngine: DynamoBackendEngine
   attentionBackend: string
   memFractionStatic: string
+  workerEntrypoint: string
   enablePd: boolean
   enableAggregation: boolean
   pdAggregationRoles: DynamoPdAggregationRole[]
@@ -109,6 +110,7 @@ export function createDefaultDynamoForm(): DynamoFormModel {
     backendEngine: 'sglang',
     attentionBackend: 'aiter',
     memFractionStatic: '0.75',
+    workerEntrypoint: '',
     enablePd: false,
     enableAggregation: false,
     pdAggregationRoles: ['prefill', 'decode'],
@@ -130,7 +132,7 @@ export function createDefaultDynamoForm(): DynamoFormModel {
       epSize: 8,
     },
     prefill: {
-      replica: 2,
+      replica: 1,
       cpu: '64',
       gpu: '8',
       memory: '512',
@@ -139,7 +141,7 @@ export function createDefaultDynamoForm(): DynamoFormModel {
       epSize: 8,
     },
     decode: {
-      replica: 2,
+      replica: 1,
       cpu: '64',
       gpu: '8',
       memory: '512',
@@ -226,7 +228,13 @@ export function buildDynamoCreatePayload(form: DynamoFormModel, workspace: strin
   validateDynamoForm(form)
 
   const rawWorkerEntryPoint = buildDynamoWorkerEntrypoint(form, form.worker)
-  const workerEntryPoint = encodeToBase64String(form.enablePd ? `${rawWorkerEntryPoint}\n` : rawWorkerEntryPoint)
+  const hasCustomWorkerEntrypoint = Boolean(form.workerEntrypoint.trim())
+  const resolvedWorkerEntryPoint = hasCustomWorkerEntrypoint
+    ? form.workerEntrypoint
+    : form.enablePd
+      ? `${rawWorkerEntryPoint}\n`
+      : rawWorkerEntryPoint
+  const workerEntryPoint = encodeToBase64String(resolvedWorkerEntryPoint)
   const frontendEntryPoint = encodeToBase64String(DYNAMO_FRONTEND_ENTRYPOINT)
 
   if (form.enablePd) {
@@ -264,6 +272,7 @@ export function buildDynamoCreatePayload(form: DynamoFormModel, workspace: strin
     service: { ...DYNAMO_SERVICE },
     dynamoOptions: {
       serviceRoles: ['frontend', 'worker'],
+      kvTransferBackend: form.kvTransferBackend || 'nixl',
       ...(form.enableAggregation ? { multinodeRoles: ['worker'] } : {}),
     },
   }

@@ -34,7 +34,10 @@ describe('dynamoPayload', () => {
         sharedMemory: '200Gi',
       },
     ])
-    expect(payload.dynamoOptions).toEqual({ serviceRoles: ['frontend', 'worker'] })
+    expect(payload.dynamoOptions).toEqual({
+      serviceRoles: ['frontend', 'worker'],
+      kvTransferBackend: 'nixl',
+    })
     expect(payload.service).toEqual({
       protocol: 'TCP',
       port: 8000,
@@ -52,6 +55,37 @@ describe('dynamoPayload', () => {
 
     expect(form.env).toEqual({})
     expect(payload.env).toEqual({})
+  })
+
+  it('uses replica 1 for PD roles by default', () => {
+    const form = createDefaultDynamoForm()
+
+    expect(form.prefill.replica).toBe(1)
+    expect(form.decode.replica).toBe(1)
+  })
+
+  it('includes the selected KV backend in default mode options', () => {
+    const form = createDefaultDynamoForm()
+    form.kvTransferBackend = 'mooncake'
+
+    const payload = buildDynamoCreatePayload(form, 'core42-hyperloom')
+
+    expect(payload.dynamoOptions).toEqual({
+      serviceRoles: ['frontend', 'worker'],
+      kvTransferBackend: 'mooncake',
+    })
+    expect(decodeFromBase64String(payload.entryPoints[1])).not.toContain(
+      '--disaggregation-transfer-backend mooncake',
+    )
+  })
+
+  it('uses a custom worker entrypoint when the full command is edited', () => {
+    const form = createDefaultDynamoForm()
+    form.workerEntrypoint = 'exec python3 -m dynamo.vllm --model-path /models/custom --tp-size 4\n'
+
+    const payload = buildDynamoCreatePayload(form, 'core42-hyperloom')
+
+    expect(decodeFromBase64String(payload.entryPoints[1])).toBe(form.workerEntrypoint)
   })
 
   it('builds an aggregation payload with worker multinodeRoles and default tp size', () => {
@@ -76,6 +110,7 @@ describe('dynamoPayload', () => {
     })
     expect(payload.dynamoOptions).toEqual({
       serviceRoles: ['frontend', 'worker'],
+      kvTransferBackend: 'nixl',
       multinodeRoles: ['worker'],
     })
     expect(decodeFromBase64String(payload.entryPoints[1])).toContain('--tp-size 16')
@@ -90,7 +125,10 @@ describe('dynamoPayload', () => {
 
     const payload = buildDynamoCreatePayload(form, 'core42-hyperloom')
 
-    expect(payload.dynamoOptions).toEqual({ serviceRoles: ['frontend', 'worker'] })
+    expect(payload.dynamoOptions).toEqual({
+      serviceRoles: ['frontend', 'worker'],
+      kvTransferBackend: 'nixl',
+    })
     expect(decodeFromBase64String(payload.entryPoints[1])).toContain('--enable-dp-attention')
   })
 
