@@ -65,7 +65,7 @@ const router = createRouter({
         },
         {
           path: '/training',
-          name: 'Training',
+          name: 'PyTorch',
           component: () => import('../pages/Training/index.vue'),
         },
         {
@@ -115,7 +115,7 @@ const router = createRouter({
         },
         {
           path: '/training/detail',
-          name: 'TrainingDetail',
+          name: 'PyTorchDetail',
           component: () => import('../pages/Training/TrainingDetail.vue'),
         },
         {
@@ -140,7 +140,7 @@ const router = createRouter({
         },
         {
           path: '/training/root-cause',
-          name: 'TrainingRootCause',
+          name: 'PyTorchRootCause',
           component: () => import('../pages/Training/TrainingRootCauseDetail.vue'),
         },
         {
