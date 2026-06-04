@@ -54,44 +54,14 @@
         </div>
 
         <div class="section-card">
-          <div class="section-header">
+          <div class="section-header section-header--split">
             <div class="section-bar"></div>
-            <div>
-              <div class="section-title">Dynamo Mode</div>
-              <div class="section-subtitle">Choose PD disaggregation or aggregation mode</div>
-            </div>
-          </div>
-
-          <el-row :gutter="16">
-            <el-col :span="12">
-              <el-form-item label="PD">
-                <el-switch v-model="form.enablePd" active-text="Enabled" inactive-text="Disabled" />
-              </el-form-item>
-            </el-col>
-            <el-col :span="12" v-if="form.enablePd">
-              <el-form-item label="KV Backend">
-                <el-select v-model="form.kvTransferBackend">
-                  <el-option label="nixl" value="nixl" />
-                  <el-option label="mooncake" value="mooncake" />
-                </el-select>
-              </el-form-item>
-            </el-col>
-          </el-row>
-
-          <el-alert
-            :closable="false"
-            type="info"
-            show-icon
-            :title="modeHint"
-          />
-        </div>
-
-        <div class="section-card">
-          <div class="section-header">
-            <div class="section-bar"></div>
-            <div>
-              <div class="section-title">Resources</div>
-              <div class="section-subtitle">Configure backend role resources</div>
+            <div class="section-header-content">
+              <div>
+                <div class="section-title">Resources</div>
+                <div class="section-subtitle">Configure backend role resources</div>
+              </div>
+              <el-segmented v-model="modeValue" :options="['Default', 'PD']" />
             </div>
           </div>
 
@@ -101,16 +71,19 @@
               <div>
                 <div class="resource-title">{{ section.title }}</div>
                 <el-text
-                  v-if="shouldShowRoleAggregationTip(section.key)"
+                  v-if="getAggregationWarning(section.key)"
                   size="small"
                   type="warning"
                   class="block mt-1"
                 >
-                  TP size is greater than 8. Enable Aggregation for this role if it should span nodes.
+                  {{ getAggregationWarning(section.key) }}
                 </el-text>
               </div>
               <div class="resource-aggregation">
                 <span class="text-sm text-[var(--el-text-color-regular)]">Aggregation</span>
+                <el-tooltip :content="getAggregationHint(section.key)" placement="top">
+                  <el-icon class="aggregation-info"><InfoFilled /></el-icon>
+                </el-tooltip>
                 <el-switch
                   :model-value="isRoleAggregated(section.key)"
                   :disabled="isRoleAggregationDisabled(section.key)"
@@ -202,24 +175,57 @@
             </el-col>
           </el-row>
 
-          <pre class="entry-preview"><template
-              v-for="(token, index) in backendPreviewTokens"
-              :key="`${index}-${token.text}`"
-            ><span :class="{ 'entry-preview-token--editable': token.editable }">{{ token.text }}</span></template></pre>
+          <div class="entry-editor-toolbar">
+            <el-text size="small" type="info">
+              Edit the full command directly, or reset it from the options above.
+            </el-text>
+            <el-button size="small" @click="resetWorkerEntrypointFromOptions">
+              Reset from options
+            </el-button>
+          </div>
+          <el-input
+            v-model="form.workerEntrypoint"
+            type="textarea"
+            :autosize="{ minRows: 4, maxRows: 8 }"
+            class="entry-editor"
+            @input="markWorkerEntrypointCustomized"
+          />
         </div>
 
         <div class="section-card">
-          <div class="section-header">
+          <div
+            class="section-header section-header--clickable"
+            @click="advancedOpen = !advancedOpen"
+          >
             <div class="section-bar"></div>
-            <div>
-              <div class="section-title">Environment</div>
-              <div class="section-subtitle">Additional environment variables for Dynamo roles</div>
+            <div class="flex-1">
+              <div class="section-title">Advanced Options</div>
+              <div class="section-subtitle">KV backend and environment variables</div>
             </div>
+            <el-icon :class="['section-chevron', { 'is-open': advancedOpen }]">
+              <ArrowRight />
+            </el-icon>
           </div>
 
-          <el-form-item label="env vars" class="kv-full">
-            <KeyValueList v-model="envList" :max="20" keyMode="input" info="Add up to 20 envs" />
-          </el-form-item>
+          <transition name="fade-slide">
+            <div v-show="advancedOpen" class="advanced-body">
+              <el-row :gutter="16">
+                <el-col :span="12">
+                  <el-form-item label="KV Backend">
+                    <el-select v-model="form.kvTransferBackend">
+                      <el-option label="nixl" value="nixl" />
+                      <el-option label="mooncake" value="mooncake" />
+                    </el-select>
+                  </el-form-item>
+                </el-col>
+                <el-col :span="24">
+                  <el-form-item label="env vars" class="kv-full">
+                    <KeyValueList v-model="envList" :max="20" keyMode="input" info="Add up to 20 envs" />
+                  </el-form-item>
+                </el-col>
+              </el-row>
+            </div>
+          </transition>
         </div>
       </el-form>
     </div>
@@ -243,6 +249,7 @@ import KeyValueList from '@/components/Base/KeyValueList.vue'
 import { addWorkload, editWorkload, getWorkloadDetail } from '@/services/workload'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { useUserStore } from '@/stores/user'
+import { ArrowRight, InfoFilled } from '@element-plus/icons-vue'
 import {
   convertKeyValueMapToList,
   convertListToKeyValueMap,
@@ -250,13 +257,11 @@ import {
 } from '@/utils'
 import {
   DYNAMO_SERVICE,
-  buildDynamoEntrypointPreviewTokens,
   buildDynamoCreatePayload,
   buildDynamoWorkerEntrypoint,
   createDefaultDynamoForm,
   getDynamoDefaultTpSize,
   type DynamoBackendEngine,
-  type DynamoEntrypointPreviewToken,
   type DynamoFormModel,
   type DynamoKvTransferBackend,
   type DynamoPdAggregationRole,
@@ -281,6 +286,8 @@ const form = reactive<DynamoFormModel>(createDefaultDynamoForm())
 const envList = ref(convertKeyValueMapToList(form.env))
 const loading = ref(false)
 const submitting = ref(false)
+const isWorkerEntrypointCustomized = ref(false)
+const advancedOpen = ref(false)
 
 const nameRegex = /^[a-z](?:[-a-z0-9]{0,38}[a-z0-9])?$/
 const required = (message: string) => ({ required: true, message, trigger: 'blur' })
@@ -341,20 +348,14 @@ interface DynamoDetail {
   }
 }
 
-const backendPreview = computed(() => buildDynamoWorkerEntrypoint(form, form.worker))
-const backendPreviewTokens = computed<DynamoEntrypointPreviewToken[]>(() =>
-  buildDynamoEntrypointPreviewTokens(backendPreview.value),
-)
-
-const modeHint = computed(() => {
-  if (form.enablePd) {
-    return 'PD mode submits frontend, prefill and decode roles. Aggregation can target prefill, decode, or both when their replicas are greater than 1.'
-  }
-  if (form.enableAggregation) {
-    return 'Aggregation mode marks worker as multinodeRoles. TP size defaults to GPU x replica and must be greater than 8.'
-  }
-  return 'Non-PD mode submits frontend and worker roles. Replica > 1 creates independent worker replicas unless Aggregation is enabled.'
+const modeValue = computed({
+  get: () => (form.enablePd ? 'PD' : 'Default'),
+  set: (value: string) => {
+    form.enablePd = value === 'PD'
+  },
 })
+
+const backendPreview = computed(() => buildDynamoWorkerEntrypoint(form, form.worker))
 
 const resourceSections = computed(() => {
   if (form.enablePd) {
@@ -366,8 +367,26 @@ const resourceSections = computed(() => {
   return [{ key: 'worker', title: 'Worker', resource: form.worker }]
 })
 
-const shouldShowRoleAggregationTip = (role: string) => {
-  return Number(form.worker.tpSize || 0) > 8 && !isRoleAggregated(role)
+const getAggregationHint = (role: string) => {
+  if (role === 'worker') {
+    return 'Replica > 1 creates independent worker replicas unless Aggregation is enabled.'
+  }
+  return 'Replica > 1 creates independent role replicas unless Aggregation is enabled.'
+}
+
+const getRoleReplica = (role: string) => {
+  if (role === 'prefill') return Number(form.prefill.replica || 0)
+  if (role === 'decode') return Number(form.decode.replica || 0)
+  return Number(form.worker.replica || 0)
+}
+
+const getAggregationWarning = (role: string) => {
+  if (isRoleAggregated(role)) return ''
+  if (getRoleReplica(role) <= 1) return ''
+  if (Number(form.worker.tpSize || 0) <= 8) {
+    return 'Set TP size greater than 8 before enabling Aggregation.'
+  }
+  return 'Replica > 1 creates independent replicas unless Aggregation is enabled.'
 }
 
 const isRoleAggregated = (role: string) => {
@@ -378,10 +397,7 @@ const isRoleAggregated = (role: string) => {
 }
 
 const isRoleAggregationDisabled = (role: string) => {
-  if (role === 'worker') return Number(form.worker.replica || 0) <= 1
-  if (role === 'prefill') return Number(form.prefill.replica || 0) <= 1
-  if (role === 'decode') return Number(form.decode.replica || 0) <= 1
-  return true
+  return getRoleReplica(role) <= 1
 }
 
 const setRoleAggregation = (role: string, enabled: boolean) => {
@@ -430,6 +446,16 @@ watch(
   },
 )
 
+watch(
+  backendPreview,
+  (command) => {
+    if (!isWorkerEntrypointCustomized.value) {
+      form.workerEntrypoint = command
+    }
+  },
+  { immediate: true },
+)
+
 const onOpen = async () => {
   resetForm()
   if (!props.wlid) return
@@ -474,6 +500,9 @@ function resetForm() {
   const next = createDefaultDynamoForm()
   Object.assign(form, next)
   envList.value = convertKeyValueMapToList(next.env)
+  isWorkerEntrypointCustomized.value = false
+  advancedOpen.value = false
+  resetWorkerEntrypointFromOptions()
 }
 
 function hydrateFormFromDetail(detail: DynamoDetail) {
@@ -499,6 +528,7 @@ function hydrateFormFromDetail(detail: DynamoDetail) {
 
   const entryPoint = detail.entryPoints?.[1] ? decodeFromBase64String(detail.entryPoints[1]) : ''
   applyEntrypointToForm(next, entryPoint)
+  next.workerEntrypoint = entryPoint || buildDynamoWorkerEntrypoint(next, next.worker)
 
   next.service = { ...DYNAMO_SERVICE }
 
@@ -511,6 +541,16 @@ function hydrateFormFromDetail(detail: DynamoDetail) {
 
   Object.assign(form, next)
   envList.value = convertKeyValueMapToList(next.env)
+  isWorkerEntrypointCustomized.value = Boolean(entryPoint)
+}
+
+function markWorkerEntrypointCustomized() {
+  isWorkerEntrypointCustomized.value = form.workerEntrypoint !== backendPreview.value
+}
+
+function resetWorkerEntrypointFromOptions() {
+  form.workerEntrypoint = backendPreview.value
+  isWorkerEntrypointCustomized.value = false
 }
 
 function inferServiceRoles(resources?: unknown[]) {
@@ -566,9 +606,12 @@ function readBackendEngine(command: string): DynamoBackendEngine | '' {
 
 <style scoped>
 .drawer-body {
-  max-height: calc(100vh - 140px);
-  overflow-y: auto;
   padding-right: 4px;
+}
+
+:deep(.dynamo-drawer .el-drawer__body) {
+  overflow-y: auto;
+  padding-bottom: 0;
 }
 
 .section-card {
@@ -610,6 +653,23 @@ html.dark .section-card:hover {
   margin-bottom: 10px;
 }
 
+.section-header--split {
+  align-items: center;
+}
+
+.section-header--clickable {
+  cursor: pointer;
+  user-select: none;
+}
+
+.section-header-content {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
 .section-bar {
   width: 4px;
   height: 18px;
@@ -630,6 +690,20 @@ html.dark .section-card:hover {
   color: var(--el-text-color-secondary);
 }
 
+.section-chevron {
+  transition: transform 0.18s ease-out;
+  font-size: 16px;
+  color: var(--el-text-color-secondary);
+}
+
+.section-chevron.is-open {
+  transform: rotate(90deg);
+}
+
+.advanced-body {
+  margin-top: 4px;
+}
+
 .resource-title {
   font-size: calc(14px * var(--scale, 1));
   font-weight: 600;
@@ -647,27 +721,30 @@ html.dark .section-card:hover {
 .resource-aggregation {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   white-space: nowrap;
+}
+
+.aggregation-info {
+  color: var(--el-text-color-secondary);
+  cursor: help;
 }
 
 .fixed-role {
   margin-bottom: 8px;
 }
 
-.entry-preview {
-  white-space: pre-wrap;
-  word-break: break-word;
-  padding: 12px;
-  margin: 0;
-  border-radius: 8px;
-  background: var(--el-fill-color-light);
-  color: var(--el-text-color-primary);
+.entry-editor-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
 }
 
-.entry-preview-token--editable {
-  color: var(--safe-primary);
-  font-weight: 700;
+.entry-editor :deep(.el-textarea__inner) {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New',
+    monospace;
 }
 
 .drawer-footer {
