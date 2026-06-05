@@ -32,6 +32,7 @@ const (
 	PodKind                 = "Pod"
 	SandboxKind             = "Sandbox"
 	DynamoDeploymentKind    = "DynamoDeployment"
+	OptimusDeploymentKind   = "OptimusDeployment"
 	ConfigmapKind           = "ConfigMap"
 	ClusterRoleKind         = "ClusterRole"
 	ServiceAccountKind      = "ServiceAccount"
@@ -185,6 +186,17 @@ const (
 	// Defaults applied when the corresponding annotation is missing.
 	DynamoDefaultKVBackend        = DynamoKVBackendNixl
 	DynamoDefaultBackendFramework = "sglang"
+
+	// Optimus (OptimusDeployment) — RocServe analogue of the Dynamo block.
+	// Role / KV-backend / framework values are identical strings, so the
+	// Optimus helpers reuse the Dynamo* role and KV constants; only the SaFE
+	// workload kind and the rendered CR kind differ. RocServeDeploymentKind is
+	// the K8s CR the dispatcher renders for an OptimusDeployment workload, and
+	// is reconciled by the standalone RocServe operator (rocserve.amd.com).
+	RocServeDeploymentKind         = "RocServeDeployment"
+	OptimusFrontendPort            = DynamoFrontendPort
+	OptimusDefaultKVBackend        = DynamoKVBackendNixl
+	OptimusDefaultBackendFramework = "sglang"
 
 	// Cluster-wide infrastructure addresses installed by the Phase 1 SaFE
 	// addon. The dispatcher and webhook inject these into every dynamo pod

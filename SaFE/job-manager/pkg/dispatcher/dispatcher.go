@@ -419,6 +419,12 @@ func (r *DispatcherReconciler) generateK8sObject(ctx context.Context,
 				fmt.Sprintf("failed to normalize dynamo DGD: %v", err.Error()))
 		}
 	}
+	if commonworkload.IsOptimusDeployment(adminWorkload) {
+		if err = normalizeOptimusRSD(result, adminWorkload); err != nil {
+			return nil, commonerrors.NewInternalError(
+				fmt.Sprintf("failed to normalize optimus RSD: %v", err.Error()))
+		}
+	}
 	setK8sObjectMeta(result, adminWorkload)
 	return result, nil
 }

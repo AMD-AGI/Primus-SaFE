@@ -843,7 +843,31 @@ func (h *Handler) generateWorkload(ctx context.Context,
 		v1.SetLabel(workload, v1.OwnerLabel, req.OwnerId)
 	}
 	applyDynamoOptions(workload, req.DynamoOptions)
+	applyOptimusOptions(workload, req.OptimusOptions)
 	return workload, nil
+}
+
+// applyOptimusOptions translates the structured OptimusOptions API field into
+// primus-safe.optimus.* annotations, the RocServe analogue of
+// applyDynamoOptions. Semantic checks are performed by the validating webhook.
+func applyOptimusOptions(workload *v1.Workload, opts *view.DynamoOptions) {
+	if opts == nil {
+		return
+	}
+	if opts.BackendFramework != "" {
+		v1.SetAnnotation(workload, v1.OptimusBackendFrameworkAnnotation, opts.BackendFramework)
+	}
+	if opts.KVTransferBackend != "" {
+		v1.SetAnnotation(workload, v1.OptimusKVTransferBackendAnnotation, opts.KVTransferBackend)
+	}
+	if len(opts.ServiceRoles) > 0 {
+		v1.SetAnnotation(workload, v1.OptimusServiceRolesAnnotation,
+			strings.Join(opts.ServiceRoles, ","))
+	}
+	if len(opts.MultinodeRoles) > 0 {
+		v1.SetAnnotation(workload, v1.OptimusMultinodeRolesAnnotation,
+			strings.Join(opts.MultinodeRoles, ","))
+	}
 }
 
 // applyDynamoOptions translates the structured DynamoOptions API field into

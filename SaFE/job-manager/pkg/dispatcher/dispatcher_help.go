@@ -1253,6 +1253,119 @@ func normalizeDynamoDGD(obj *unstructured.Unstructured, adminWorkload *v1.Worklo
 	return nil
 }
 
+// normalizeOptimusRSD is the Optimus/RocServe analogue of normalizeDynamoDGD.
+// It finalizes a freshly-rendered RocServeDeployment (rocserve.amd.com/v1alpha1)
+// so the standalone RocServe operator can reconcile it. Like the dynamo path
+// it operates on the role-agnostic slots services.role0..role4 produced by the
+// generic dispatcher flow, rewriting each slot in place.
+//
+// Differences from normalizeDynamoDGD (driven by the RSD CRD shape, see
+// deploy/operator/api/v1alpha1/rocservedeployment_types.go):
+//   - componentType is the RSD enum server|worker (not Frontend/Main); the
+//     disaggregation role is the flat field `role` (mixed|prefill|decode),
+//     there is no subComponentType.
+//   - multi-node uses the flat field `numberOfNodes` (not multinode.numberOfNodes).
+//   - the per-service pod is carried verbatim in extraPodSpec.containers
+//     (ServiceSpec.ExtraPodSpec is a core/v1 PodSpec consumed as-is by the
+//     operator), so we do NOT fold containers -> mainContainer.
+//
+// The map key role<i> is intentionally preserved (renaming it would break the
+// dispatcher's path-based child tracking, identical rationale to the dynamo
+// path); the operator names child workloads <rsd>-role<i>.
+func normalizeOptimusRSD(obj *unstructured.Unstructured, adminWorkload *v1.Workload) error {
+	roles := commonworkload.GetOptimusServiceRoles(adminWorkload)
+	if len(roles) == 0 {
+		return fmt.Errorf("optimus deployment %s has no service roles", adminWorkload.Name)
+	}
+	kvBackend := commonworkload.GetOptimusKVTransferBackend(adminWorkload)
+	backendFramework := commonworkload.GetOptimusBackendFramework(adminWorkload)
+
+	if err := jobutils.SetNestedField(obj.Object, backendFramework,
+		[]string{"spec", "backendFramework"}); err != nil {
+		return fmt.Errorf("set spec.backendFramework: %w", err)
+	}
+
+	services, found, err := jobutils.NestedMap(obj.Object, []string{"spec", "services"})
+	if err != nil {
+		return fmt.Errorf("get spec.services: %w", err)
+	}
+	if !found {
+		return fmt.Errorf("spec.services not found in rendered RSD %s", adminWorkload.Name)
+	}
+
+	for i, role := range roles {
+		slotKey := "role" + strconv.Itoa(i)
+		slot, ok := services[slotKey].(map[string]interface{})
+		if !ok {
+			return fmt.Errorf("optimus slot %s missing or wrong type", slotKey)
+		}
+
+		// Stamp SaFE pod-tracking labels onto the verbatim pod template so the
+		// job-manager pod syncer can associate RSD child pods to this workload
+		// (the operator copies pod template labels onto its Deployments/LWS).
+		if extra, ok := slot["extraPodSpec"].(map[string]interface{}); ok {
+			meta, _ := extra["metadata"].(map[string]interface{})
+			if meta == nil {
+				meta = map[string]interface{}{}
+			}
+			lbls, _ := meta["labels"].(map[string]interface{})
+			if lbls == nil {
+				lbls = map[string]interface{}{}
+			}
+			for k, v := range buildPodLabels(adminWorkload) {
+				lbls[k] = v
+			}
+			meta["labels"] = lbls
+			extra["metadata"] = meta
+			slot["extraPodSpec"] = extra
+		}
+
+		applyOptimusRoleFields(slot, role, kvBackend)
+
+		// Multi-node: node count is Resources[i].Replica, carried by the flat
+		// numberOfNodes field; force replicas=1 (one LeaderWorkerSet group).
+		if commonworkload.IsOptimusMultinodeRole(adminWorkload, role) &&
+			i < len(adminWorkload.Spec.Resources) {
+			if n := adminWorkload.Spec.Resources[i].Replica; n > 1 {
+				appendSglangMultinodeArgs(slot, n)
+				slot["numberOfNodes"] = int64(n)
+				slot["replicas"] = int64(1)
+			}
+		}
+
+		services[slotKey] = slot
+	}
+	if err := jobutils.SetNestedField(obj.Object, services,
+		[]string{"spec", "services"}); err != nil {
+		return fmt.Errorf("set spec.services: %w", err)
+	}
+	return nil
+}
+
+// applyOptimusRoleFields sets the RSD componentType (server|worker) and the
+// worker disaggregation role (mixed|prefill|decode) on a slot, and appends the
+// sglang disaggregation flags for prefill/decode (reusing the dynamo helper,
+// which operates on extraPodSpec.containers[main] — the same pre-fold shape the
+// RSD operator consumes).
+func applyOptimusRoleFields(slot map[string]interface{}, role, kvBackend string) {
+	switch role {
+	case common.DynamoRoleFrontend:
+		slot["componentType"] = "server"
+		delete(slot, "role")
+	case common.DynamoRoleWorker:
+		slot["componentType"] = "worker"
+		slot["role"] = "mixed"
+	case common.DynamoRolePrefill:
+		slot["componentType"] = "worker"
+		slot["role"] = "prefill"
+		appendSglangDisaggArgs(slot, "prefill", kvBackend)
+	case common.DynamoRoleDecode:
+		slot["componentType"] = "worker"
+		slot["role"] = "decode"
+		appendSglangDisaggArgs(slot, "decode", kvBackend)
+	}
+}
+
 // dynamoServiceKey maps the SaFE role string to the conventional DGD service
 // key. The casing mirrors the upstream sglang examples (dynamo/examples/sglang)
 // and is what the operator's frontend sidecar logic / rolling-update
@@ -1842,8 +1955,13 @@ func getPodSpec(w *v1.Workload) string {
 	// DGD `extraPodSpec` embeds PodSpec inline (see dynamo
 	// operator/api/v1alpha1/common.go::ExtraPodSpec), so the rendered yaml has
 	// containers directly under extraPodSpec rather than under the standard
-	// pyt./dep./ray "template.spec.containers" path.
-	if commonworkload.IsDynamoDeployment(w) {
+	// pyt./dep./ray "template.spec.containers" path. RocServeDeployment
+	// (OptimusDeployment) uses the same inline-PodSpec shape (ServiceSpec.
+	// ExtraPodSpec is a core/v1 PodSpec), so it resolves identically. This
+	// single branch makes the entire generic flow (container/env/resource
+	// injection, volume mounts, hostNetwork, sharedMemory, ...) target
+	// extraPodSpec.* for both kinds.
+	if commonworkload.IsDynamoDeployment(w) || commonworkload.IsOptimusDeployment(w) {
 		return ""
 	}
 	return "spec"

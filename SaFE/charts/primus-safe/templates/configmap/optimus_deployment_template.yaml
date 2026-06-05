@@ -1,0 +1,194 @@
+#
+# Copyright (C) 2026, Advanced Micro Devices, Inc. All rights reserved.
+# See LICENSE for license information.
+#
+# OptimusDeployment template — the Optimus (RocServe) analogue of
+# dynamo_deployment_template.yaml. It wraps the rocserve.amd.com/v1alpha1
+# RocServeDeployment (RSD) CR, which the standalone RocServe operator
+# reconciles into Deployments / LeaderWorkerSets (Optimus is self-contained
+# and does NOT require the upstream nvidia.com dynamo operator).
+#
+# Integration mirrors the dynamo path exactly so the create-workload API is
+# identical except for kind:
+#
+#   POST /workloads { groupVersionKind: { kind: "OptimusDeployment", version: "v1" },
+#                     images: [...], entryPoints: [<base64 cmd>...],
+#                     resources: [...], env: {...}, service: {...},
+#                     optimusOptions: { serviceRoles: [...], kvTransferBackend: "nixl" } }
+#
+# entryPoints are role-ordered, e.g.:
+#   role0 frontend: python3 -m rocserve.server  --host 0.0.0.0 --port 8000 --router-tokenizer-path <m>
+#   role1 prefill : python3 -m rocserve.engine.sglang --model-path <m> --tp-size 8 ... --host 0.0.0.0
+#   role2 decode  : python3 -m rocserve.engine.sglang --model-path <m> --tp-size 8 ... --host 0.0.0.0
+#
+# The dispatcher's generic flow maps user Resources[i] / images[i] /
+# entryPoints[i] to ResourceTemplate ResourceSpecs[i] (the role<i> slots) by
+# index, injecting into containers[{name: main}]. A normalizeOptimusRSD() in
+# dispatcher_help.go (parallel to normalizeDynamoDGD) then rewrites each slot:
+#   - rename services.role<i> -> services.<role>            (frontend/prefill/decode/...)
+#   - set componentType (server|worker) + role (mixed|prefill|decode)
+#   - append --disaggregation-mode / --disaggregation-transfer-backend=<kvBackend>
+#     to the launcher payload for prefill/decode (rocserve.engine.sglang argparse)
+#   - fold containers:[{name: main}] -> the RSD per-service container fields
+#   - multinode role: numberOfNodes = Resources[i].Replica, replicas = 1
+#
+
+{{- define "optimus.serviceSlot" -}}
+# Placeholder componentType/role; normalizeOptimusRSD overrides per slot index.
+# These keys map to rocserve.amd.com RocServeDeployment ServiceSpec fields.
+componentType: worker
+role: mixed
+extraPodSpec:
+  dnsPolicy: ClusterFirstWithHostNet
+  # Soft-pack non-GPU services (server) onto nodes already running a worker so
+  # they can reach it over loopback when both run hostNetwork.
+  affinity:
+    podAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 100
+          podAffinityTerm:
+            labelSelector:
+              matchExpressions:
+                - key: rocserve.amd.com/component-type
+                  operator: In
+                  values:
+                    - worker
+            topologyKey: kubernetes.io/hostname
+  initContainers:
+    - name: preprocess
+      image: {{ .Values.global.image_registry }}/primussafe/{{ .Values.preprocess.image }}
+      imagePullPolicy: IfNotPresent
+      command: ["/bin/sh", "-c", "cp -r /preprocess/* /shared-data/"]
+      securityContext:
+        capabilities:
+          add: ["IPC_LOCK"]
+      resources:
+        limits:
+          cpu: 1000m
+          memory: 128Mi
+      volumeMounts:
+        - name: shared-data
+          mountPath: /shared-data
+  containers:
+    - name: main
+      imagePullPolicy: IfNotPresent
+      workingDir: /workspace
+      env:
+        # NCCL / GLOO networking (reuses SaFE Helm values for cluster RDMA)
+        - name: NCCL_SOCKET_IFNAME
+          value: "{{ .Values.net.nccl_socket_ifname }}"
+        - name: GLOO_SOCKET_IFNAME
+          value: "{{ .Values.net.nccl_socket_ifname }}"
+        - name: NCCL_IB_HCA
+          value: "{{ .Values.net.nccl_ib_hca }}"
+        - name: NCCL_IB_TIMEOUT
+          value: "23"
+        - name: NCCL_IB_RETRY_CNT
+          value: "11"
+        - name: NCCL_IB_QPS_PER_CONNECTION
+          value: "1"
+        - name: NCCL_CROSS_NIC
+          value: "0"
+        - name: NCCL_CHECKS_DISABLE
+          value: "1"
+        - name: NCCL_IB_SL
+          value: "0"
+        - name: HSA_ENABLE_SDMA
+          value: "1"
+        # RocServe KV-event plane (NATS) + AMD ROCm runtime defaults.
+        # rocserve reads NATS_SERVER for --kv-event-transport nats.
+        - name: NATS_SERVER
+          value: "nats://nats.primus-safe.svc:4222"
+        - name: SGLANG_USE_AITER
+          value: "1"
+        - name: RCCL_MSCCL_ENABLE
+          value: "0"
+        # Downward API for pod identity
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: POD_IP
+          valueFrom:
+            fieldRef:
+              fieldPath: status.podIP
+        - name: POD_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+      securityContext:
+        capabilities:
+          add: ["IPC_LOCK", "SYS_PTRACE", "SYS_RESOURCE"]
+      volumeMounts:
+        - name: varlog
+          mountPath: /var/log
+        - name: shared-data
+          mountPath: /shared-data
+        - name: podinfo
+          mountPath: /etc/podinfo
+          readOnly: true
+        # NOTE: the /dev/shm mount + its memory-backed "shared-memory" volume
+        # (sized from Resources[i].sharedMemory) are injected automatically by
+        # the dispatcher's generic flow (modifyVolumeMounts + updateSharedMemory)
+        # for every kind whose getPodSpec resolves extraPodSpec inline, so we do
+        # NOT declare them here to avoid a duplicate /dev/shm mount.
+  schedulerName: kube-scheduler-plugins
+  volumes:
+    - name: varlog
+      hostPath:
+        path: /var/log
+    - name: shared-data
+      emptyDir: {}
+    - name: podinfo
+      downwardAPI:
+        items:
+          - path: "labels"
+            fieldRef:
+              fieldPath: metadata.labels
+  terminationGracePeriodSeconds: 30
+{{- end }}
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: amd-optimus-deployment-template
+  namespace: {{ .Release.Namespace }}
+  labels:
+    primus-safe.workload.version: v1
+    primus-safe.workload.kind: OptimusDeployment
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    # main container name (used by dispatcher_help.go::modifyContainers)
+    primus-safe.main.container: main
+    meta.helm.sh/release-name: {{ .Release.Name }}
+    meta.helm.sh/release-namespace: {{ .Release.Namespace }}
+data:
+  template: |
+    apiVersion: rocserve.amd.com/v1alpha1
+    kind: RocServeDeployment
+    spec:
+      # backendFramework set by the webhook from the
+      # primus-safe.optimus.backend-framework annotation (default: sglang).
+      backendFramework: sglang
+      # Kubernetes-native discovery: the server watches worker Pods via the
+      # in-cluster API server and the operator provisions a ServiceAccount +
+      # Role so workers self-register into their Pod annotation. No external
+      # etcd. (The entryPoints must pass --discovery-backend kubernetes; the
+      # operator injects ROCSERVE_K8S_LABEL_SELECTOR into the server pod.)
+      discoveryBackend: kubernetes
+      # Reuse the cluster NATS (nats.1.3.2 addon @ nats.primus-safe.svc:4222);
+      # the per-pod NATS_SERVER env in the slot points there. deploy=false tells
+      # the operator NOT to create a redundant per-deployment NATS StatefulSet.
+      nats:
+        deploy: false
+      services:
+        role0:
+{{ include "optimus.serviceSlot" . | indent 10 }}
+        role1:
+{{ include "optimus.serviceSlot" . | indent 10 }}
+        role2:
+{{ include "optimus.serviceSlot" . | indent 10 }}
+        role3:
+{{ include "optimus.serviceSlot" . | indent 10 }}
+        role4:
+{{ include "optimus.serviceSlot" . | indent 10 }}
