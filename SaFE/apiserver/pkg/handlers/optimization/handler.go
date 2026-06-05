@@ -868,7 +868,6 @@ func promptConfigFromRequest(req *CreateTaskRequest, m *ResolvedModel, workspace
 		MaxHours:       req.MaxHours,
 		TargetGain:     req.TargetGain,
 		Image:          req.Image,
-		InferenceXPath: req.InferenceXPath,
 		OOBPath:        req.OOBPath,
 		TraceLensRoot:  req.TraceLensRoot,
 		Workspace:      workspace,
