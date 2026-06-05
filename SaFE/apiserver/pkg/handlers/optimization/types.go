@@ -73,10 +73,17 @@ type CreateTaskRequest struct {
 	TargetGain     float64  `json:"targetGain"`
 
 	// Sandbox / framework image used for the benchmark and kernel opt runs.
-	Image         string `json:"image"`
-	OOBPath       string `json:"oobPath"`
-	TraceLensRoot string `json:"tracelensRoot"`
-	ResultsPath   string `json:"resultsPath"`
+	Image string `json:"image"`
+	// InferenceXPath is accepted for backward compatibility with older
+	// Hyperloom CI clients that still send it, but it is intentionally
+	// ignored: the sandbox-side Hyperloom runtime owns the InferenceX
+	// checkout path, so SaFE no longer injects it into the generated prompt.
+	// Kept here only so strict JSON decoding (DisallowUnknownFields) does
+	// not reject those requests.
+	InferenceXPath string `json:"inferencexPath"`
+	OOBPath        string `json:"oobPath"`
+	TraceLensRoot  string `json:"tracelensRoot"`
+	ResultsPath    string `json:"resultsPath"`
 
 	// RayJob resource sizing (only used in claw mode).
 	RayReplica int `json:"rayReplica"`
