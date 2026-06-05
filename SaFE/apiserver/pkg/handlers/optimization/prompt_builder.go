@@ -25,8 +25,6 @@ const (
 	defaultTP             = 1
 	defaultEP             = 1
 	defaultInferenceXPath = "/hyperloom/InferenceX"
-	defaultOOBPath        = "/hyperloom/OOB"
-	defaultTraceLensRoot  = "/hyperloom/TraceLens-internal"
 	defaultResultsPath    = "/workspace/hyperloom/"
 	defaultGeakStepLimit  = 100
 	defaultMaxHours       = 3.0
@@ -135,12 +133,6 @@ func NormalizePromptConfig(cfg PromptConfig) PromptConfig {
 	if cfg.InferenceXPath == "" {
 		cfg.InferenceXPath = defaultInferenceXPath
 	}
-	if cfg.OOBPath == "" {
-		cfg.OOBPath = defaultOOBPath
-	}
-	if cfg.TraceLensRoot == "" {
-		cfg.TraceLensRoot = defaultTraceLensRoot
-	}
 	if cfg.ResultsPath == "" {
 		cfg.ResultsPath = defaultResultsPath
 	}
@@ -223,8 +215,6 @@ func BuildHyperloomPrompt(cfg PromptConfig) string {
 	push(fmt.Sprintf("TP=%d, EP=%d", cfg.TP, cfg.EP))
 	push(fmt.Sprintf("GPU type: %s", cfg.GPUType))
 	push(fmt.Sprintf("InferenceX path: %s", cfg.InferenceXPath))
-	push(fmt.Sprintf("OOB path: %s", cfg.OOBPath))
-	push(fmt.Sprintf("TraceLens path: %s", cfg.TraceLensRoot))
 	push("")
 
 	push("Run time:")
@@ -269,6 +259,13 @@ func BuildHyperloomPrompt(cfg PromptConfig) string {
 			cfg.TargetGpu, cfg.Framework, strings.ToLower(cfg.GPUType),
 		))
 	}
+
+	push("")
+	push("4. One session only. After the first launch, NEVER start a new `optimize`")
+	push("   (no `--model`, no \"Launch a New Optimization\") — that spawns a new <UTC_ts>")
+	push("   session and is forbidden. A `stop_reason` in state.json (e.g.")
+	push("   `baseline_failed`) is final: stop and exit. To recover an unexpected crash,")
+	push("   ONLY `optimize --resume` (same session dir).")
 
 	body := strings.Join(lines, "\n")
 
