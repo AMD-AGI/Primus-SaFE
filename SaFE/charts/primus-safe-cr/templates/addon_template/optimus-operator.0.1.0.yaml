@@ -22,8 +22,9 @@
 #      <helm_registry> / <image_registry> come from values.global.* at render):
 #         Helm chart (OCI): oci://<helm_registry>/primussafe/optimus-operator:0.1.0
 #                 (source: Optimus/deploy/operator/helm/optimus-operator)
-#         Image: <image_registry>/primussafe/optimus-operator:0.1.0
+#         Image: <image_registry>/primussafe/optimus-kubernetes-operator:0.1.0
 #                 (build: `make docker-build` in Optimus/deploy/operator)
+#                 (distinct repo from the chart to avoid OCI tag collision)
 #   3. CRD (rocserve.amd.com_rocservedeployments) is shipped in the chart's
 #      crds/ directory and installed by helm before the operator Deployment.
 #   4. No etcd: the OptimusDeployment template uses discoveryBackend=kubernetes,
@@ -62,8 +63,19 @@ spec:
     replicaCount: 1
 
     image:
-      # Mirrored on SaFE Harbor (build from Optimus/deploy/operator).
-      repository: {{ .Values.global.image_registry }}/primussafe/optimus-operator
+      # Registry host resolution: the primus-safe-cr chart only defines
+      # global.helm_registry (see its values.yaml); global.image_registry is
+      # NOT a cr-chart value, so referencing it alone renders an empty host
+      # (that was the original InvalidImageName bug). Fall back to helm_registry
+      # — the same host the chart `url` below uses and the one reliably set on
+      # the management plane (harbor.core42.primus-safe.amd.com; chart default
+      # registry-1.docker.io, where the image is also mirrored).
+      #
+      # NOTE: image repo is optimus-kubernetes-operator (NOT optimus-operator):
+      # the helm chart OCI artifact lives at primussafe/optimus-operator, so the
+      # image must use a distinct repo name or the chart push clobbers it
+      # (mirrors dynamo: image=dynamo-kubernetes-operator, chart=dynamo-operator).
+      repository: {{ .Values.global.image_registry | default .Values.global.helm_registry }}/primussafe/optimus-kubernetes-operator
       tag: "0.1.0"
       pullPolicy: IfNotPresent
 

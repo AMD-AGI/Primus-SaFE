@@ -139,6 +139,14 @@ extraPodSpec:
         path: /var/log
     - name: shared-data
       emptyDir: {}
+    # /dev/shm volume matching the "shared-memory" mount the dispatcher injects
+    # (modifyVolumeMounts) when Resources[i].sharedMemory is set. Pre-declared
+    # here so the mount always resolves; updateSharedMemory sets its sizeLimit
+    # from Resources[i].sharedMemory. Name MUST be "shared-memory" (SaFE's
+    # SharedMemoryVolume constant).
+    - name: shared-memory
+      emptyDir:
+        medium: Memory
     - name: podinfo
       downwardAPI:
         items:

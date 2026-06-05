@@ -1845,10 +1845,15 @@ func updateSharedMemory(adminWorkload *v1.Workload, obj *unstructured.Unstructur
 	if adminWorkload.Spec.Resources[id].SharedMemory == "" {
 		return nil
 	}
-	path := resourceSpec.PrePaths
-	path = append(path, resourceSpec.TemplatePaths...)
+	// Build [<prePaths>, <templatePaths>, <podSpec?>, volumes] via buildPodSpecPath
+	// so the empty podSpec segment is omitted for kinds whose extraPodSpec embeds
+	// PodSpec inline (DGD / RocServeDeployment, getPodSpec == ""). Appending
+	// podSpec raw inserted a "" path segment, writing the shared-memory volume to
+	// extraPodSpec."".volumes instead of extraPodSpec.volumes — leaving the
+	// container's /dev/shm mount dangling ("shared-memory" volume Not found).
+	templatePath := append(append([]string{}, resourceSpec.PrePaths...), resourceSpec.TemplatePaths...)
 	podSpec := getPodSpec(adminWorkload)
-	path = append(path, podSpec, "volumes")
+	path := buildPodSpecPath(templatePath, podSpec, "volumes")
 	volumes, found, err := jobutils.NestedSlice(obj.Object, path)
 	if err != nil {
 		return err
