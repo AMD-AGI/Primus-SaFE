@@ -28,7 +28,6 @@ func TestBuildHyperloomPromptClawMode(t *testing.T) {
 		KernelBackends: []string{KernelBackendGEAK, KernelBackendCodex},
 		GeakStepLimit:  120,
 		Image:          "harbor.example/sglang:test",
-		InferenceXPath: "/hyperloom/InferenceX",
 		Workspace:      "control-plane-sandbox",
 		ResultsPath:    "/workspace/hyperloom/",
 		RayReplica:     1,
@@ -45,7 +44,6 @@ func TestBuildHyperloomPromptClawMode(t *testing.T) {
 	assert.Assert(t, strings.Contains(prompt, "mode: claw"))
 	assert.Assert(t, strings.Contains(prompt, "Model path: /shared_nfs/models/Qwen3-30B-A3B"))
 	assert.Assert(t, strings.Contains(prompt, "Framework: sglang"))
-	assert.Assert(t, strings.Contains(prompt, "InferenceX path: /hyperloom/InferenceX"))
 	assert.Assert(t, !strings.Contains(prompt, "OOB path:"))
 	assert.Assert(t, !strings.Contains(prompt, "TraceLens path:"))
 	assert.Assert(t, strings.Contains(prompt, "--target-gain 30"))
