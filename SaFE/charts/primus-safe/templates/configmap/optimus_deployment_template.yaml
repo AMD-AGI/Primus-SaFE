@@ -71,7 +71,11 @@ extraPodSpec:
           mountPath: /shared-data
   containers:
     - name: main
-      imagePullPolicy: IfNotPresent
+      # Always pull: the rocserve image tag (e.g. 0.1.0-rocm) is mutable and
+      # has drifted across nodes before (same tag -> different digests), which
+      # left stale cached layers serving old code under IfNotPresent. Always
+      # forces kubelet to resolve the current registry digest on every (re)start.
+      imagePullPolicy: Always
       workingDir: /workspace
       env:
         # NCCL / GLOO networking (reuses SaFE Helm values for cluster RDMA)
