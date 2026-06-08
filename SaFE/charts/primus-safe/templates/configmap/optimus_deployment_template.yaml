@@ -103,6 +103,23 @@ extraPodSpec:
         # rocserve reads NATS_SERVER for --kv-event-transport nats.
         - name: NATS_SERVER
           value: "nats://nats.primus-safe.svc:4222"
+        # Optional per-instance NATS request throttle. 0 = OFF (default): the
+        # request path stays pure core-NATS. Set >0 on both server and worker
+        # pods to make requests JetStream-backed and have the router return 429
+        # once a worker's in-NATS backlog reaches this many messages.
+        - name: ROCSERVE_NATS_REQ_MAX_PENDING
+          value: "0"
+        # NATS request inactivity timeout (seconds): the router waits at most
+        # this long for the next reply chunk (covers first-byte + inter-chunk
+        # stalls); on expiry it returns 504 and signals the worker to abort the
+        # in-flight generation. Default 900 (15 min); set 0 to wait forever.
+        - name: ROCSERVE_NATS_REQ_TIMEOUT
+          value: "900"
+        # Backstop hard cap (seconds) the worker enforces per request, aborting
+        # even if the engine is still emitting bytes — safety net for a lost
+        # cancel signal. 0 = off (default; honors inactivity-only timeout).
+        - name: ROCSERVE_NATS_REQ_MAX_DURATION
+          value: "0"
         - name: SGLANG_USE_AITER
           value: "1"
         - name: RCCL_MSCCL_ENABLE
