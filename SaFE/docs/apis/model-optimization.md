@@ -36,7 +36,6 @@ Base path: `/api/v1/optimization`
   "kernelBackends": ["GEAK", "Codex"],
   "geakStepLimit": 100,
   "image": "harbor.example/sglang:latest",
-  "inferencexPath": "/hyperloom/InferenceX",
   "resultsPath": "/workspace/hyperloom/"
 }
 ```

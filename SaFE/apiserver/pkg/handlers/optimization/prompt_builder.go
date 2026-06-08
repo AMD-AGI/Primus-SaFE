@@ -15,27 +15,24 @@ import (
 // so that a task created via SaFE produces the same prompt as the same form
 // submitted through the Hyperloom UI.
 const (
-	defaultMode           = ModeClaw
-	defaultFramework      = FrameworkSGLang
-	defaultPrecision      = "FP4"
-	defaultGPUType        = "MI355X"
-	defaultISL            = 1024
-	defaultOSL            = 1024
-	defaultConcurrency    = 64
-	defaultTP             = 1
-	defaultEP             = 1
-	defaultInferenceXPath = "/hyperloom/InferenceX"
-	defaultOOBPath        = "/hyperloom/OOB"
-	defaultTraceLensRoot  = "/hyperloom/TraceLens-internal"
-	defaultResultsPath    = "/workspace/hyperloom/"
-	defaultGeakStepLimit  = 100
-	defaultMaxHours       = 3.0
-	defaultTargetGain     = 30.0
-	defaultRayReplica     = 1
-	defaultRayGpu         = 1
-	defaultRayCPU         = 12
-	defaultRayMemoryGi    = 128
-	raySharedMemoryGi     = 500
+	defaultMode          = ModeClaw
+	defaultFramework     = FrameworkSGLang
+	defaultPrecision     = "FP4"
+	defaultGPUType       = "MI355X"
+	defaultISL           = 1024
+	defaultOSL           = 1024
+	defaultConcurrency   = 64
+	defaultTP            = 1
+	defaultEP            = 1
+	defaultResultsPath   = "/workspace/hyperloom/"
+	defaultGeakStepLimit = 100
+	defaultMaxHours      = 3.0
+	defaultTargetGain    = 30.0
+	defaultRayReplica    = 1
+	defaultRayGpu        = 1
+	defaultRayCPU        = 12
+	defaultRayMemoryGi   = 128
+	raySharedMemoryGi    = 500
 
 	defaultSGLangImage = "harbor.core42.primus-safe.amd.com/sync/sglang:v0.5.11-rocm720-mi30x"
 	defaultVLLMImage   = "harbor.core42.primus-safe.amd.com/proxy/vllm/vllm-openai-rocm:v0.19.0"
@@ -69,7 +66,6 @@ type PromptConfig struct {
 	MaxHours       float64
 	TargetGain     float64
 	Image          string
-	InferenceXPath string
 	OOBPath        string
 	TraceLensRoot  string
 	Workspace      string
@@ -132,15 +128,6 @@ func NormalizePromptConfig(cfg PromptConfig) PromptConfig {
 	if cfg.TargetGain <= 0 {
 		cfg.TargetGain = defaultTargetGain
 	}
-	if cfg.InferenceXPath == "" {
-		cfg.InferenceXPath = defaultInferenceXPath
-	}
-	if cfg.OOBPath == "" {
-		cfg.OOBPath = defaultOOBPath
-	}
-	if cfg.TraceLensRoot == "" {
-		cfg.TraceLensRoot = defaultTraceLensRoot
-	}
 	if cfg.ResultsPath == "" {
 		cfg.ResultsPath = defaultResultsPath
 	}
@@ -183,7 +170,6 @@ func BuildHyperloomPrompt(cfg PromptConfig) string {
 	displayName := firstNonEmpty(cfg.DisplayName, cfg.ModelName, "(TBD)")
 	modelPath := firstNonEmpty(cfg.ModelPath, "(TBD)")
 
-	backendValues := make([]string, 0, len(cfg.KernelBackends))
 	hasGEAK := false
 	for _, b := range cfg.KernelBackends {
 		tag, ok := kernelBackendPromptMap[b]
@@ -193,7 +179,6 @@ func BuildHyperloomPrompt(cfg PromptConfig) string {
 		if tag == "geak" {
 			hasGEAK = true
 		}
-		backendValues = append(backendValues, tag)
 	}
 
 	sharedRoot := "/hyperloom"
@@ -224,20 +209,12 @@ func BuildHyperloomPrompt(cfg PromptConfig) string {
 	push(fmt.Sprintf("Inference params: ISL=%d, OSL=%d, CONC=%d", cfg.ISL, cfg.OSL, cfg.Concurrency))
 	push(fmt.Sprintf("TP=%d, EP=%d", cfg.TP, cfg.EP))
 	push(fmt.Sprintf("GPU type: %s", cfg.GPUType))
-	push(fmt.Sprintf("InferenceX path: %s", cfg.InferenceXPath))
-	push(fmt.Sprintf("OOB path: %s", cfg.OOBPath))
-	push(fmt.Sprintf("TraceLens path: %s", cfg.TraceLensRoot))
 	push("")
 
 	push("Run time:")
 	push(fmt.Sprintf("When launching inference_optimizer optimize, pass --max-hours %.1f and --target-gain %g", cfg.MaxHours, cfg.TargetGain))
 	push("Do not rely on the V2 cli default max-hours.")
 	push("")
-
-	if cfg.Mode == ModeLocal {
-		push(fmt.Sprintf("SandboxImage: %s", cfg.Image))
-		push("")
-	}
 
 	if cfg.Mode == ModeClaw {
 		push("Environment:")
@@ -260,22 +237,10 @@ func BuildHyperloomPrompt(cfg PromptConfig) string {
 		push("")
 	}
 
-	push("Kernel Optimization:")
-	push(fmt.Sprintf("KERNEL_OPT_BACKENDS: %s", strings.Join(backendValues, ", ")))
-	push(fmt.Sprintf("KERNEL_OPT_IMAGE: %s", cfg.Image))
-	push(fmt.Sprintf("KERNEL_OPT_WORKSPACE: %s", cfg.Workspace))
-	if hasGEAK {
-		push(fmt.Sprintf("GEAK step_limit: %d", cfg.GeakStepLimit))
-	}
-	push("Must optimize at least 5 kernels")
-	push("")
-
 	push("Requirements:")
-	push(fmt.Sprintf("Save all results and the optimization report to %s", cfg.ResultsPath))
-	if cfg.ResultsPath == "$RESULT_DIR" {
-		push("Respect the RESULT_DIR exported earlier by CI; do not hard-code /workspace/hyperloom/.")
-	}
-	push("Execute the full skill pipeline (Phase 0-10), including parameter sweep.")
+	push("1. Install packages and save artifacts to writable folder.")
+	push("2. Report the session ID, log path, PID, and initial health check result.")
+	push("3. Then monitor the process every 300s, until work is done.")
 
 	if cfg.TargetGpu != "" && cfg.BaselineCount > 0 && cfg.BaselineCSV != "" {
 		push("")
@@ -288,6 +253,13 @@ func BuildHyperloomPrompt(cfg PromptConfig) string {
 			cfg.TargetGpu, cfg.Framework, strings.ToLower(cfg.GPUType),
 		))
 	}
+
+	push("")
+	push("4. One session only. After the first launch, NEVER start a new `optimize`")
+	push("   (no `--model`, no \"Launch a New Optimization\") — that spawns a new <UTC_ts>")
+	push("   session and is forbidden. A `stop_reason` in state.json (e.g.")
+	push("   `baseline_failed`) is final: stop and exit. To recover an unexpected crash,")
+	push("   ONLY `optimize --resume` (same session dir).")
 
 	body := strings.Join(lines, "\n")
 

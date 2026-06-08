@@ -28,7 +28,6 @@ func TestBuildHyperloomPromptClawMode(t *testing.T) {
 		KernelBackends: []string{KernelBackendGEAK, KernelBackendCodex},
 		GeakStepLimit:  120,
 		Image:          "harbor.example/sglang:test",
-		InferenceXPath: "/hyperloom/InferenceX",
 		Workspace:      "control-plane-sandbox",
 		ResultsPath:    "/workspace/hyperloom/",
 		RayReplica:     1,
@@ -45,15 +44,17 @@ func TestBuildHyperloomPromptClawMode(t *testing.T) {
 	assert.Assert(t, strings.Contains(prompt, "mode: claw"))
 	assert.Assert(t, strings.Contains(prompt, "Model path: /shared_nfs/models/Qwen3-30B-A3B"))
 	assert.Assert(t, strings.Contains(prompt, "Framework: sglang"))
-	assert.Assert(t, strings.Contains(prompt, "InferenceX path: /hyperloom/InferenceX"))
-	assert.Assert(t, strings.Contains(prompt, "OOB path: /hyperloom/OOB"))
-	assert.Assert(t, strings.Contains(prompt, "TraceLens path: /hyperloom/TraceLens-internal"))
+	assert.Assert(t, !strings.Contains(prompt, "OOB path:"))
+	assert.Assert(t, !strings.Contains(prompt, "TraceLens path:"))
 	assert.Assert(t, strings.Contains(prompt, "--target-gain 30"))
-	assert.Assert(t, strings.Contains(prompt, "KERNEL_OPT_BACKENDS: geak, codex"))
-	assert.Assert(t, strings.Contains(prompt, "GEAK step_limit: 120"))
 	assert.Assert(t, strings.Contains(prompt, "RayJob image: harbor.example/sglang:test"))
 	assert.Assert(t, strings.Contains(prompt, "Target GPU: b300"))
 	assert.Assert(t, strings.Contains(prompt, "model,gpu,tps"))
+	assert.Assert(t, strings.Contains(prompt, "Report the session ID, log path, PID"))
+	assert.Assert(t, strings.Contains(prompt, "Then monitor the process every 300s"))
+	assert.Assert(t, strings.Contains(prompt, "One session only. After the first launch"))
+	assert.Assert(t, strings.Contains(prompt, "ONLY `optimize --resume` (same session dir)."))
+	assert.Assert(t, !strings.Contains(prompt, "Kernel Optimization:"))
 }
 
 func TestBuildHyperloomPromptLocalModeOmitsRaySection(t *testing.T) {
@@ -66,8 +67,10 @@ func TestBuildHyperloomPromptLocalModeOmitsRaySection(t *testing.T) {
 	})
 
 	assert.Assert(t, strings.Contains(prompt, "mode: local"))
-	assert.Assert(t, strings.Contains(prompt, "SandboxImage:"))
-	assert.Assert(t, strings.Contains(prompt, "KERNEL_OPT_BACKENDS: claude"))
+	assert.Assert(t, strings.Contains(prompt, "Then monitor the process every 300s"))
+	assert.Assert(t, strings.Contains(prompt, "One session only. After the first launch"))
+	assert.Assert(t, !strings.Contains(prompt, "SandboxImage:"))
+	assert.Assert(t, !strings.Contains(prompt, "Kernel Optimization:"))
 	assert.Assert(t, !strings.Contains(prompt, "Task submission:"))
 	assert.Assert(t, !strings.Contains(prompt, "RayJob image:"))
 }
