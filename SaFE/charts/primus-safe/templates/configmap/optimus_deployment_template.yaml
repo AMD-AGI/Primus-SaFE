@@ -109,15 +109,18 @@ extraPodSpec:
         # once a worker's in-NATS backlog reaches this many messages.
         - name: ROCSERVE_NATS_REQ_MAX_PENDING
           value: "0"
-        # NATS request inactivity timeout (seconds): the router waits at most
-        # this long for the next reply chunk (covers first-byte + inter-chunk
-        # stalls); on expiry it returns 504 and signals the worker to abort the
-        # in-flight generation. Default 900 (15 min); set 0 to wait forever.
-        - name: ROCSERVE_NATS_REQ_TIMEOUT
+        # Timeout #1 - IDLE (inactivity / stall): router waits at most this long
+        # for the NEXT reply chunk (covers first-byte + inter-chunk stalls; reset
+        # per chunk, so a steadily-streaming long request never trips it; NOT an
+        # overall deadline). On expiry it returns 504 and signals the worker to
+        # abort. Default 900 (15 min); set 0 to wait forever.
+        - name: ROCSERVE_NATS_REQ_IDLE_TIMEOUT
           value: "900"
-        # Backstop hard cap (seconds) the worker enforces per request, aborting
-        # even if the engine is still emitting bytes — safety net for a lost
-        # cancel signal. 0 = off (default; honors inactivity-only timeout).
+        # Timeout #2 - TOTAL (overall): hard wall-clock cap (seconds) for the
+        # whole request regardless of token flow, for runaway / very long
+        # requests. On expiry the router interrupts the stream, returns no result
+        # (504) and cancels the worker (worker also enforces it locally). 0 = OFF
+        # (default); set >0 to enable.
         - name: ROCSERVE_NATS_REQ_MAX_DURATION
           value: "0"
         - name: SGLANG_USE_AITER
