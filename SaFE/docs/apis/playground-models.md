@@ -133,10 +133,13 @@ Playground Models API provides a model management interface for the AI Playgroun
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| limit | int | No | Records per page, default 10 |
+| limit | int | No | Records per page (limit=0 or omitted returns all matching records) |
 | offset | int | No | Pagination offset, default 0 |
-| inferenceStatus | string | No | Filter by inference status (e.g., "Running", "Pending", "Stopped") |
-| accessMode | string | No | Filter by access mode: "remote_api" or "local" |
+| accessMode | string | No | Filter by access mode: "local", "remote_api", "local_path", "s3_sync" |
+| workspace | string | No | Filter by workspace (public models with empty workspace are always included) |
+| origin | string | No | Filter by origin: "external", "fine_tuned", "rl_trained", or "custom" (all non-external) |
+| search | string | No | Fuzzy search by displayName (case-insensitive) |
+| phase | string | No | Filter by model phase: "Pending", "Uploading", "Downloading", "Ready", "Failed" (case-insensitive) |
 
 **Response Example**:
 ```json
