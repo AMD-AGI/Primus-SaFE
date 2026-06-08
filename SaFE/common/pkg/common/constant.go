@@ -183,6 +183,16 @@ const (
 	DynamoOperatorGraphDeploymentNameLabel = "nvidia.com/dynamo-graph-deployment-name"
 	DynamoOperatorComponentTypeLabel       = "nvidia.com/dynamo-component-type"
 
+	// RocServe operator pod labels — the Optimus analogue. Like the Dynamo
+	// operator, the standalone RocServe operator owns the pods and stamps its
+	// own labels (NOT SaFE's primus-safe.k8s.object.id), so the SaFE Service
+	// selector for an OptimusDeployment must target these instead. The
+	// deployment label value is the RSD name (== workload name); the service
+	// label value is the per-role slot key ("role0", "role1", ...). Keep in sync
+	// with Optimus/deploy/operator/internal/controller/builders.go::labelsFor.
+	RocServeOperatorDeploymentLabel = "rocserve.amd.com/deployment"
+	RocServeOperatorServiceLabel    = "rocserve.amd.com/service"
+
 	// Defaults applied when the corresponding annotation is missing.
 	DynamoDefaultKVBackend        = DynamoKVBackendNixl
 	DynamoDefaultBackendFramework = "sglang"
