@@ -17,6 +17,7 @@ type ListModelQuery struct {
 	Workspace  string `form:"workspace" binding:"omitempty"`  // Filter by workspace (for local models)
 	Origin     string `form:"origin" binding:"omitempty"`     // Filter by origin: "external", "fine_tuned", "rl_trained", or "custom" (all non-external)
 	Search     string `form:"search" binding:"omitempty"`     // Fuzzy search by displayName (case-insensitive)
+	Phase      string `form:"phase" binding:"omitempty"`      // Filter by phase: "Pending", "Uploading", "Downloading", "Ready", "Failed" (case-insensitive)
 }
 
 // ChatRequest represents the unified request to chat with a model or workload.
