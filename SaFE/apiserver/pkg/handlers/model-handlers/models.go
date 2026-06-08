@@ -837,6 +837,9 @@ func (h *Handler) listModels(c *gin.Context) (interface{}, error) {
 				if queryArgs.Origin != "" && !matchModelOrigin(normalizeModelOrigin(dbModel.Origin), queryArgs.Origin) {
 					continue
 				}
+				if queryArgs.Phase != "" && !strings.EqualFold(dbModel.Phase, queryArgs.Phase) {
+					continue
+				}
 				info := cvtDBModelToInfo(dbModel)
 				if queryArgs.Search != "" && !strings.Contains(strings.ToLower(info.DisplayName), strings.ToLower(queryArgs.Search)) {
 					continue
@@ -893,6 +896,9 @@ func (h *Handler) listModels(c *gin.Context) (interface{}, error) {
 			}
 		}
 		if queryArgs.Origin != "" && !matchModelOrigin(normalizeModelOrigin(k8sModel.Spec.Origin), queryArgs.Origin) {
+			continue
+		}
+		if queryArgs.Phase != "" && !strings.EqualFold(string(k8sModel.Status.Phase), queryArgs.Phase) {
 			continue
 		}
 
