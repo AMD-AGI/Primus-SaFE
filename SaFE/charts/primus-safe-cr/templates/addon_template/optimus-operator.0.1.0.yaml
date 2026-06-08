@@ -76,7 +76,9 @@ spec:
       # image must use a distinct repo name or the chart push clobbers it
       # (mirrors dynamo: image=dynamo-kubernetes-operator, chart=dynamo-operator).
       repository: {{ .Values.global.image_registry | default .Values.global.helm_registry }}/primussafe/optimus-kubernetes-operator
-      tag: "0.1.0"
+      # Operator image tag. 0.1.3 = surge-free RollingUpdate (maxSurge=0,
+      # maxUnavailable=1) for GPU workers instead of Recreate.
+      tag: "0.1.3"
       pullPolicy: IfNotPresent
 
     leaderElection:
