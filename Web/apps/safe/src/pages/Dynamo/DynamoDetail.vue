@@ -13,7 +13,7 @@
       <el-card class="mt-2 safe-card" shadow="never">
         <div class="section-heading">
           <div class="section-bar"></div>
-          <span class="textx-15 font-medium">Dynamo Configuration</span>
+          <span class="textx-15 font-medium">{{ workloadConfig.label }} Configuration</span>
         </div>
         <el-descriptions v-if="detailData" class="m-t-4" border :column="4" direction="vertical">
           <el-descriptions-item label="kind">
@@ -26,7 +26,7 @@
             {{ PRIORITY_LABEL_MAP[detailData.priority as PriorityValue] ?? '-' }}
           </el-descriptions-item>
           <el-descriptions-item label="kvTransferBackend">
-            {{ detailData.dynamoOptions?.kvTransferBackend ?? '-' }}
+            {{ workloadOptions?.kvTransferBackend ?? '-' }}
           </el-descriptions-item>
           <el-descriptions-item label="serviceRoles" :span="2">
             <div class="flex flex-wrap gap-1">
@@ -135,7 +135,8 @@
     v-model:visible="addVisible"
     :wlid="workloadId"
     :action="addAction"
-    @success="router.push('/dynamo')"
+    :workload-type="props.workloadType"
+    @success="router.push(workloadConfig.listPath)"
   />
   <SshConfigDialog
     v-model:visible="sshVisible"
@@ -164,8 +165,27 @@ import { decodeFromBase64String } from '@/utils'
 
 const router = useRouter()
 const userStore = useUserStore()
+
+const props = withDefaults(defineProps<{
+  workloadType?: 'dynamo' | 'optimus'
+}>(), {
+  workloadType: 'dynamo',
+})
+
+const workloadConfig = computed(() =>
+  props.workloadType === 'optimus'
+    ? {
+        label: 'Optimus',
+        listPath: '/optimus',
+      }
+    : {
+        label: 'Dynamo',
+        listPath: '/dynamo',
+      },
+)
+
 const { workloadId, detailData, detailLoading, getDetail, onDelete, onStop } = useWorkloadDetail({
-  redirectPath: '/dynamo',
+  redirectPath: workloadConfig.value.listPath,
   extractFailedNodes: true,
 })
 const { curPodId, curSshCommand, logVisible, sshVisible, openLog, openSsh } = usePodActions()
@@ -199,6 +219,11 @@ interface DynamoDetailShape {
     multinodeRoles?: string[]
     kvTransferBackend?: string
   }
+  optimusOptions?: {
+    serviceRoles?: string[]
+    multinodeRoles?: string[]
+    kvTransferBackend?: string
+  }
 }
 
 const serviceData = ref<ServiceData | null>(null)
@@ -223,21 +248,29 @@ const decodedEntryPoints = computed(() =>
 )
 
 const serviceRoles = computed(() => {
-  const roles = (detailData.value as DynamoDetailShape | undefined)?.dynamoOptions?.serviceRoles
+  const roles = workloadOptions.value?.serviceRoles
   if (Array.isArray(roles) && roles.length) return roles
   const count = detailData.value?.resources?.length ?? 0
   return count === 3 ? ['frontend', 'prefill', 'decode'] : ['frontend', 'worker']
 })
 
 const multinodeRoles = computed(() => {
-  const roles = (detailData.value as DynamoDetailShape | undefined)?.dynamoOptions?.multinodeRoles
+  const roles = workloadOptions.value?.multinodeRoles
   return Array.isArray(roles) ? roles : []
 })
 
 const mode = computed(() => {
   if (serviceRoles.value.includes('prefill')) return 'PD'
   if (multinodeRoles.value.includes('worker')) return 'Aggregation'
+  if (props.workloadType === 'optimus' && Number(detailData.value?.resources?.[1]?.replica || 0) > 1) {
+    return 'Aggregation'
+  }
   return 'Standard'
+})
+
+const workloadOptions = computed(() => {
+  const detail = detailData.value as DynamoDetailShape | undefined
+  return props.workloadType === 'optimus' ? detail?.optimusOptions : detail?.dynamoOptions
 })
 
 const roleRows = computed(() => {

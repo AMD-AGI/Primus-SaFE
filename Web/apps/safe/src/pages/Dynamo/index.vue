@@ -1,5 +1,5 @@
 <template>
-  <el-text class="block textx-18 font-500" tag="b">Dynamo</el-text>
+  <el-text class="block textx-18 font-500" tag="b">{{ workloadConfig.label }}</el-text>
 
   <div class="flex flex-wrap items-center justify-between gap-2 mt-4">
     <div class="flex flex-wrap items-center gap-2">
@@ -11,7 +11,7 @@
         class="text-black"
         @click="openCreate"
       >
-        Create Dynamo
+        Create {{ workloadConfig.label }}
       </el-button>
       <el-segmented
         v-model="searchParams.onlyMyself"
@@ -70,7 +70,7 @@
           <template #default="{ row }">
             <div class="flex flex-col items-start">
               <div class="flex items-center">
-                <el-link type="primary" v-route="{ path: '/dynamo/detail', query: { id: row.workloadId } }">
+                <el-link type="primary" v-route="{ path: workloadConfig.detailPath, query: { id: row.workloadId } }">
                   {{ row.displayName }}
                 </el-link>
                 <el-tooltip
@@ -216,6 +216,7 @@
     v-model:visible="addVisible"
     :wlid="curWlId"
     :action="curAction"
+    :workload-type="props.workloadType"
     @success="onSearch({ resetPage: false })"
   />
 </template>
@@ -263,6 +264,26 @@ dayjs.extend(utc)
 
 defineOptions({ name: 'dynamoPage' })
 
+const props = withDefaults(defineProps<{
+  workloadType?: 'dynamo' | 'optimus'
+}>(), {
+  workloadType: 'dynamo',
+})
+
+const workloadConfig = computed(() =>
+  props.workloadType === 'optimus'
+    ? {
+        label: 'Optimus',
+        kind: WorkloadKind.OptimusDeployment,
+        detailPath: '/optimus/detail',
+      }
+    : {
+        label: 'Dynamo',
+        kind: WorkloadKind.DynamoDeployment,
+        detailPath: '/dynamo/detail',
+      },
+)
+
 const router = useRouter()
 const store = useWorkspaceStore()
 const userStore = useUserStore()
@@ -291,6 +312,10 @@ interface DynamoRow {
   secondsUntilTimeout?: number
   resources?: Array<{ replica?: number | string }>
   dynamoOptions?: {
+    serviceRoles?: string[]
+    multinodeRoles?: string[]
+  }
+  optimusOptions?: {
     serviceRoles?: string[]
     multinodeRoles?: string[]
   }
@@ -324,7 +349,7 @@ const fetchData = async (params?: WorkloadParams) => {
       workspaceId: store.currentWorkspaceId,
       offset: (pagination.page - 1) * pagination.pageSize,
       limit: pagination.pageSize,
-      kind: WorkloadKind.DynamoDeployment,
+      kind: workloadConfig.value.kind,
       ...params,
     })
     tableData.value = res?.items || []
@@ -384,7 +409,7 @@ const handlePageSizeChange = (newSize: number) => {
 }
 
 const getRoles = (row: DynamoRow) => {
-  const roles = row.dynamoOptions?.serviceRoles
+  const roles = getWorkloadOptions(row)?.serviceRoles
   if (Array.isArray(roles) && roles.length) return roles
   return row.resources?.length === 3 ? ['frontend', 'prefill', 'decode'] : ['frontend', 'worker']
 }
@@ -392,9 +417,13 @@ const getRoles = (row: DynamoRow) => {
 const getMode = (row: DynamoRow) => {
   const roles = getRoles(row)
   if (roles.includes('prefill')) return 'PD'
-  if (row.dynamoOptions?.multinodeRoles?.includes('worker')) return 'Aggregation'
+  if (getWorkloadOptions(row)?.multinodeRoles?.includes('worker')) return 'Aggregation'
+  if (props.workloadType === 'optimus' && Number(row.resources?.[1]?.replica || 0) > 1) return 'Aggregation'
   return 'Standard'
 }
+
+const getWorkloadOptions = (row: DynamoRow) =>
+  props.workloadType === 'optimus' ? row.optimusOptions : row.dynamoOptions
 
 const getTotalReplicas = (row: DynamoRow) => {
   const resources = Array.isArray(row.resources) ? row.resources : []
@@ -511,7 +540,7 @@ onMounted(() => {
   window.addEventListener('touchmove', onAnyScroll, { passive: true, capture: true })
   window.addEventListener('pointerdown', onAnyPointerDown, { capture: true })
   userStore.fetchEnvs()
-  router.replace({ query: { ...router.currentRoute.value.query, kind: WorkloadKind.DynamoDeployment } })
+  router.replace({ query: { ...router.currentRoute.value.query, kind: workloadConfig.value.kind } })
   onSearch({ resetPage: true })
 })
 

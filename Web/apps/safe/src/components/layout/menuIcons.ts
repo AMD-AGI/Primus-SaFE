@@ -32,6 +32,7 @@ export interface MenuIcons {
   infer: IconSet
   deployment: IconSet
   dynamo: IconSet
+  optimus: IconSet
   modelSquare: IconSet
   preflight: IconSet
   qabase: IconSet
@@ -77,6 +78,7 @@ export const menuIcons: MenuIcons = {
   infer: createIconSet('infer'),
   deployment: createIconSet('deployment'),
   dynamo: createIconSet('dynamo'),
+  optimus: createIconSet('optimus'),
   dataset: createIconSet('dataset'),
   evaluation: createIconSet('evaluation'),
   modelSquare: createIconSet('model'),

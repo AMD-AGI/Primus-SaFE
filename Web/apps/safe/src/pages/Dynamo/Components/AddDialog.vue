@@ -1,7 +1,7 @@
 <template>
   <el-drawer
     :model-value="visible"
-    :title="`${props.action} Dynamo`"
+    :title="`${props.action} ${workloadLabel}`"
     :close-on-click-modal="false"
     size="860px"
     destroy-on-close
@@ -213,8 +213,12 @@
                 <el-col :span="12">
                   <el-form-item label="KV Backend">
                     <el-select v-model="form.kvTransferBackend">
-                      <el-option label="nixl" value="nixl" />
-                      <el-option label="mooncake" value="mooncake" />
+                  <el-option
+                    v-for="option in kvBackendOptions"
+                    :key="option"
+                    :label="option"
+                    :value="option"
+                  />
                     </el-select>
                   </el-form-item>
                 </el-col>
@@ -267,12 +271,21 @@ import {
   type DynamoPdAggregationRole,
   type DynamoRoleResourceForm,
 } from '../dynamoPayload'
+import {
+  OPTIMUS_SERVICE,
+  buildOptimusCreatePayload,
+  buildOptimusWorkerEntrypoint,
+  createDefaultOptimusForm,
+} from '@/pages/Optimus/optimusPayload'
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   visible: boolean
   wlid?: string
   action: string
-}>()
+  workloadType?: 'dynamo' | 'optimus'
+}>(), {
+  workloadType: 'dynamo',
+})
 
 const emit = defineEmits(['update:visible', 'success'])
 
@@ -280,6 +293,11 @@ const store = useWorkspaceStore()
 const userStore = useUserStore()
 const isManager = computed(() => userStore.isManager)
 const isEdit = computed(() => props.action === 'Edit')
+const isOptimus = computed(() => props.workloadType === 'optimus')
+const workloadLabel = computed(() => (isOptimus.value ? 'Optimus' : 'Dynamo'))
+const workloadDefaultName = computed(() => (isOptimus.value ? 'optimus' : 'dynamo'))
+const workloadService = computed(() => (isOptimus.value ? OPTIMUS_SERVICE : DYNAMO_SERVICE))
+const kvBackendOptions = computed(() => (isOptimus.value ? ['mori'] : ['nixl', 'mooncake']))
 
 const ruleFormRef = ref<FormInstance>()
 const form = reactive<DynamoFormModel>(createDefaultDynamoForm())
@@ -308,7 +326,7 @@ const rules = reactive<FormRules>({
     required('Please input TP size'),
     {
       validator: (_rule, value, callback) => {
-        if (form.enableAggregation && Number(value) <= 8) {
+        if (!isOptimus.value && form.enableAggregation && Number(value) <= 8) {
           callback(new Error('Aggregation TP size must be greater than 8'))
           return
         }
@@ -344,7 +362,12 @@ interface DynamoDetail {
   dynamoOptions?: {
     serviceRoles?: string[]
     multinodeRoles?: string[]
-    kvTransferBackend?: DynamoKvTransferBackend
+    kvTransferBackend?: DynamoKvTransferBackend | string
+  }
+  optimusOptions?: {
+    serviceRoles?: string[]
+    multinodeRoles?: string[]
+    kvTransferBackend?: string
   }
 }
 
@@ -355,7 +378,7 @@ const modeValue = computed({
   },
 })
 
-const backendPreview = computed(() => buildDynamoWorkerEntrypoint(form, form.worker))
+const backendPreview = computed(() => buildWorkerEntrypoint(form, form.worker))
 
 const resourceSections = computed(() => {
   if (form.enablePd) {
@@ -383,7 +406,7 @@ const getRoleReplica = (role: string) => {
 const getAggregationWarning = (role: string) => {
   if (isRoleAggregated(role)) return ''
   if (getRoleReplica(role) <= 1) return ''
-  if (Number(form.worker.tpSize || 0) <= 8) {
+  if (!isOptimus.value && Number(form.worker.tpSize || 0) <= 8) {
     return 'Set TP size greater than 8 before enabling Aggregation.'
   }
   return 'Replica > 1 creates independent replicas unless Aggregation is enabled.'
@@ -439,7 +462,7 @@ watch(
 watch(
   () => [form.enableAggregation, form.worker.replica, form.worker.gpu] as const,
   ([enabled]) => {
-    if (!enabled) return
+    if (!enabled || isOptimus.value) return
     const nextTpSize = getDynamoDefaultTpSize(form.worker)
     form.worker.tpSize = nextTpSize
     form.worker.epSize = nextTpSize
@@ -477,7 +500,7 @@ const onSubmit = async (formEl: FormInstance | undefined) => {
     submitting.value = true
     form.env = convertListToKeyValueMap(envList.value)
 
-    const payload = buildDynamoCreatePayload(form, store.currentWorkspaceId)
+    const payload = buildCreatePayload(form, store.currentWorkspaceId)
     if (isEdit.value) {
       if (!props.wlid) return
       const { workspaceId: _workspaceId, displayName: _displayName, groupVersionKind: _gvk, ...editPayload } = payload
@@ -497,7 +520,7 @@ const onSubmit = async (formEl: FormInstance | undefined) => {
 }
 
 function resetForm() {
-  const next = createDefaultDynamoForm()
+  const next = createDefaultForm()
   Object.assign(form, next)
   envList.value = convertKeyValueMapToList(next.env)
   isWorkerEntrypointCustomized.value = false
@@ -506,17 +529,17 @@ function resetForm() {
 }
 
 function hydrateFormFromDetail(detail: DynamoDetail) {
-  const next = createDefaultDynamoForm()
+  const next = createDefaultForm()
   next.displayName =
     props.action === 'Clone'
-      ? `${String(detail.displayName || detail.workloadId || 'dynamo')}-clone`.slice(0, 40)
+      ? `${String(detail.displayName || detail.workloadId || workloadDefaultName.value)}-clone`.slice(0, 40)
       : String(detail.displayName || '')
   next.description = String(detail.description || '')
   next.priority = Number(detail.priority ?? next.priority)
   next.image = detail.images?.[0] || detail.image || next.image
   next.env = detail.env || next.env
 
-  const dynamoOptions = detail.dynamoOptions || {}
+  const dynamoOptions = getDetailOptions(detail)
   const serviceRoles = dynamoOptions.serviceRoles || inferServiceRoles(detail.resources)
   const multinodeRoles = dynamoOptions.multinodeRoles || []
   next.enablePd = serviceRoles.includes('prefill') && serviceRoles.includes('decode')
@@ -524,13 +547,13 @@ function hydrateFormFromDetail(detail: DynamoDetail) {
   next.pdAggregationRoles = multinodeRoles.filter(
     (role): role is DynamoPdAggregationRole => role === 'prefill' || role === 'decode',
   )
-  next.kvTransferBackend = dynamoOptions.kvTransferBackend || next.kvTransferBackend
+  next.kvTransferBackend = (dynamoOptions.kvTransferBackend || next.kvTransferBackend) as DynamoKvTransferBackend
 
   const entryPoint = detail.entryPoints?.[1] ? decodeFromBase64String(detail.entryPoints[1]) : ''
   applyEntrypointToForm(next, entryPoint)
-  next.workerEntrypoint = entryPoint || buildDynamoWorkerEntrypoint(next, next.worker)
+  next.workerEntrypoint = entryPoint || buildWorkerEntrypoint(next, next.worker)
 
-  next.service = { ...DYNAMO_SERVICE }
+  next.service = { ...workloadService.value }
 
   if (next.enablePd) {
     next.prefill = mergeResource(next.prefill, detail.resources?.[1])
@@ -551,6 +574,26 @@ function markWorkerEntrypointCustomized() {
 function resetWorkerEntrypointFromOptions() {
   form.workerEntrypoint = backendPreview.value
   isWorkerEntrypointCustomized.value = false
+}
+
+function createDefaultForm(): DynamoFormModel {
+  return (isOptimus.value ? createDefaultOptimusForm() : createDefaultDynamoForm()) as DynamoFormModel
+}
+
+function buildCreatePayload(target: DynamoFormModel, workspace: string) {
+  return isOptimus.value
+    ? buildOptimusCreatePayload(target as any, workspace)
+    : buildDynamoCreatePayload(target, workspace)
+}
+
+function buildWorkerEntrypoint(target: DynamoFormModel, resource: DynamoRoleResourceForm) {
+  return isOptimus.value
+    ? buildOptimusWorkerEntrypoint(target as any, resource)
+    : buildDynamoWorkerEntrypoint(target, resource)
+}
+
+function getDetailOptions(detail: DynamoDetail) {
+  return isOptimus.value ? detail.optimusOptions || {} : detail.dynamoOptions || {}
 }
 
 function inferServiceRoles(resources?: unknown[]) {
@@ -598,7 +641,7 @@ function readFlag(command: string, flag: string) {
 }
 
 function readBackendEngine(command: string): DynamoBackendEngine | '' {
-  const match = command.match(/\bdynamo\.(sglang|vllm)\b/)
+  const match = command.match(/\b(?:dynamo|rocserve\.engine)\.(sglang|vllm)\b/)
   return (match?.[1] as DynamoBackendEngine | undefined) || ''
 }
 
