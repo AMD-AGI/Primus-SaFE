@@ -378,9 +378,13 @@ const kindFilters = ALL_KINDS.map((k) => ({ text: k, value: k }))
 const filterSelectedKind = ref<string[]>([])
 
 const isTrainingLike = (kind: string) =>
-  [WorkloadKind.PyTorchJob, WorkloadKind.TorchFT, WorkloadKind.RayJob, WorkloadKind.DynamoDeployment].includes(
-    kind as WorkloadKind,
-  )
+  [
+    WorkloadKind.PyTorchJob,
+    WorkloadKind.TorchFT,
+    WorkloadKind.RayJob,
+    WorkloadKind.DynamoDeployment,
+    WorkloadKind.OptimusDeployment,
+  ].includes(kind as WorkloadKind)
 
 const hasResume = (kind: string) =>
   [WorkloadKind.Authoring, WorkloadKind.Deployment, WorkloadKind.StatefulSet,
@@ -411,6 +415,7 @@ const dialogImportMap: Record<string, () => Promise<any>> = {
   TorchFT: () => import('@/pages/TorchFT/Components/AddDialog.vue'),
   RayJob: () => import('@/pages/RayJob/Components/AddDialog.vue'),
   DynamoDeployment: () => import('@/pages/Dynamo/Components/AddDialog.vue'),
+  OptimusDeployment: () => import('@/pages/Optimus/Components/AddDialog.vue'),
   Deployment: () => import('@/pages/Infer/Components/AddDialog.vue'),
   StatefulSet: () => import('@/pages/Infer/Components/AddDialog.vue'),
   AutoscalingRunnerSet: () => import('@/pages/CICD/Components/AddDialog.vue'),

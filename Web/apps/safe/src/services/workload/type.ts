@@ -44,6 +44,7 @@ export enum WorkloadKind {
   RayJob = 'RayJob',
   Sandbox = 'Sandbox',
   DynamoDeployment = 'DynamoDeployment',
+  OptimusDeployment = 'OptimusDeployment',
 }
 // kind -> base path
 export const KindPathMap: Record<WorkloadKind, `/${string}`> = {
@@ -58,6 +59,7 @@ export const KindPathMap: Record<WorkloadKind, `/${string}`> = {
   [WorkloadKind.RayJob]: '/rayjob',
   [WorkloadKind.Sandbox]: '/sandbox-workload',
   [WorkloadKind.DynamoDeployment]: '/dynamo',
+  [WorkloadKind.OptimusDeployment]: '/optimus',
 } as const
 
 export type PriorityValue = 0 | 1 | 2
@@ -129,6 +131,11 @@ export interface EditWorkloadRequest {
     serviceRoles?: string[]
     multinodeRoles?: string[]
   }
+  optimusOptions?: {
+    kvTransferBackend?: string
+    serviceRoles?: string[]
+    multinodeRoles?: string[]
+  }
   maxRetry?: number
   excludedNodes?: string[]
   privileged?: boolean
@@ -181,6 +188,11 @@ export interface SubmitWorkloadRequest {
   }
   dynamoOptions?: {
     backendFramework?: string
+    kvTransferBackend?: string
+    serviceRoles?: string[]
+    multinodeRoles?: string[]
+  }
+  optimusOptions?: {
     kvTransferBackend?: string
     serviceRoles?: string[]
     multinodeRoles?: string[]
