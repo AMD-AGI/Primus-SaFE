@@ -412,3 +412,72 @@ func TestSortWorkloadPodsRayJob(t *testing.T) {
 			"Pod at index %d should be %s", i, expectedPodId)
 	}
 }
+
+// TestGetRayJobPodSlotKey tests RayJob pod slot key extraction
+func TestGetRayJobPodSlotKey(t *testing.T) {
+	tests := []struct {
+		podId    string
+		expected string
+	}{
+		{"rdma-bench-sleep-fwlts-zqndk", "submitter"},
+		{"rdma-bench-sleep-fwlts-rfz2g-head-4cbqm", "head"},
+		{"rdma-bench-sleep-fwlts-rfz2g-1-worker-jddbx", "worker-1"},
+		{"rdma-bench-sleep-fwlts-rfz2g-2-worker-jddbx", "worker-2"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.podId, func(t *testing.T) {
+			assert.Equal(t, tt.expected, getRayJobPodSlotKey(tt.podId))
+		})
+	}
+}
+
+// TestPruneStaleRayJobPods tests removal of historical RayJob pods after restart
+func TestPruneStaleRayJobPods(t *testing.T) {
+	tests := []struct {
+		name          string
+		inputPods     []v1.WorkloadPod
+		expectedPodIds []string
+	}{
+		{
+			name: "keep running head over failed head",
+			inputPods: []v1.WorkloadPod{
+				{PodId: "job-rfz2g-head-old123", Phase: corev1.PodFailed, StartTime: "2025-01-01T00:00:00Z"},
+				{PodId: "job-rfz2g-head-new456", Phase: corev1.PodRunning, StartTime: "2025-01-01T01:00:00Z"},
+				{PodId: "job-submitter", Phase: corev1.PodRunning},
+			},
+			expectedPodIds: []string{"job-rfz2g-head-new456", "job-submitter"},
+		},
+		{
+			name: "keep pending worker over failed worker in same slot",
+			inputPods: []v1.WorkloadPod{
+				{PodId: "job-rfz2g-1-worker-old", Phase: corev1.PodFailed, StartTime: "2025-01-01T00:00:00Z"},
+				{PodId: "job-rfz2g-1-worker-new", Phase: corev1.PodPending},
+				{PodId: "job-rfz2g-2-worker-abc", Phase: corev1.PodRunning},
+			},
+			expectedPodIds: []string{"job-rfz2g-1-worker-new", "job-rfz2g-2-worker-abc"},
+		},
+		{
+			name: "no pruning when each slot has one pod",
+			inputPods: []v1.WorkloadPod{
+				{PodId: "job-submitter", Phase: corev1.PodRunning},
+				{PodId: "job-rfz2g-head-abc", Phase: corev1.PodRunning},
+				{PodId: "job-rfz2g-1-worker-abc", Phase: corev1.PodRunning},
+			},
+			expectedPodIds: []string{"job-submitter", "job-rfz2g-head-abc", "job-rfz2g-1-worker-abc"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := pruneStaleRayJobPods(tt.inputPods)
+			assert.Equal(t, len(tt.expectedPodIds), len(result))
+			resultIds := make(map[string]bool)
+			for _, pod := range result {
+				resultIds[pod.PodId] = true
+			}
+			for _, expectedId := range tt.expectedPodIds {
+				assert.True(t, resultIds[expectedId], "expected pod %s to be kept", expectedId)
+			}
+		})
+	}
+}

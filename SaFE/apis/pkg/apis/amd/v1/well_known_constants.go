@@ -47,6 +47,7 @@ const (
 	NodeLabelAction                 = NodePrefix + "label.action"
 	NodeAnnotationAction            = NodePrefix + "annotation.action"
 	NodeTemplateInstalledAnnotation = NodePrefix + "template.installed"
+	NodeSubnetAnnotation            = NodePrefix + "subnet"
 	// disk.info: specifies the storage requirement with disk type (e.g., nvme) and expected block count.
 	// node-agent will validate that available blocks meet or exceed this expectation.
 	NodeDiskAnnotation        = NodePrefix + "disk.info"
@@ -180,6 +181,22 @@ const (
 	DynamoMultinodeRolesAnnotation = DynamoPrefix + "multinode-roles"
 	// backend-framework: sglang|vllm|trtllm; default sglang.
 	DynamoBackendFrameworkAnnotation = DynamoPrefix + "backend-framework"
+
+	// optimus (OptimusDeployment workload kind). The Optimus/RocServe analogue
+	// of the dynamo.* annotations above: same semantics, but the dispatcher
+	// renders a rocserve.amd.com/v1alpha1 RocServeDeployment reconciled by the
+	// standalone RocServe operator (no upstream nvidia.com dynamo operator).
+	OptimusPrefix = PrimusSafePrefix + "optimus."
+	// service-roles: comma-separated role names positionally matching
+	// Workload.Spec.Resources, e.g. "frontend,prefill,decode".
+	OptimusServiceRolesAnnotation = OptimusPrefix + "service-roles"
+	// kv-transfer-backend: nixl|mori|mooncake; default nixl.
+	OptimusKVTransferBackendAnnotation = OptimusPrefix + "kv-transfer-backend"
+	// multinode-roles: comma-separated roles that run as a multi-node
+	// LeaderWorkerSet (node count = that role's Resources[i].Replica).
+	OptimusMultinodeRolesAnnotation = OptimusPrefix + "multinode-roles"
+	// backend-framework: sglang|vllm; default sglang.
+	OptimusBackendFrameworkAnnotation = OptimusPrefix + "backend-framework"
 )
 
 type SecretType string

@@ -31,6 +31,12 @@ data:
             - /bin/sh
             - -c
             env:
+            - name: NCCL_SOCKET_IFNAME
+              value: "{{ .Values.net.nccl_socket_ifname }}"
+            - name: GLOO_SOCKET_IFNAME
+              value: "{{ .Values.net.nccl_socket_ifname }}"
+            - name: NCCL_IB_HCA
+              value: "{{ .Values.net.nccl_ib_hca }}"
             - name: PATH
               value: /shared/bin:/home/sandbox/.local/bin:/usr/local/bin:/usr/bin:/bin:/sbin
             - name: OPENAI_BASE_URL
