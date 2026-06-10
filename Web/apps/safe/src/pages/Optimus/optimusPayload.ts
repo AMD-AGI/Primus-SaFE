@@ -143,7 +143,6 @@ export function buildOptimusWorkerEntrypoint(
     '--host 0.0.0.0',
     '--discovery-backend kubernetes',
     '--request-transport nats',
-    '--enable-kv-events',
     '--kv-event-transport nats',
     form.enablePd ? '--disaggregation-ib-device rocep29s0' : '',
   ].filter(Boolean)
