@@ -271,6 +271,7 @@ import {
   buildOptimusCreatePayload,
   buildOptimusWorkerEntrypoint,
   createDefaultOptimusForm,
+  getOptimusDefaultTpSize,
 } from '@/pages/Optimus/optimusPayload'
 
 const props = withDefaults(defineProps<{
@@ -456,8 +457,10 @@ watch(
 watch(
   () => [form.enableAggregation, form.worker.replica, form.worker.gpu] as const,
   ([enabled]) => {
-    if (!enabled || isOptimus.value) return
-    const nextTpSize = getDynamoDefaultTpSize(form.worker)
+    if (!enabled) return
+    const nextTpSize = isOptimus.value
+      ? getOptimusDefaultTpSize(form.worker)
+      : getDynamoDefaultTpSize(form.worker)
     form.worker.tpSize = nextTpSize
     form.worker.epSize = nextTpSize
   },
