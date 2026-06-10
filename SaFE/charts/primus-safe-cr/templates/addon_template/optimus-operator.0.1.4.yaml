@@ -1,0 +1,64 @@
+#
+# Copyright (C) 2026, Advanced Micro Devices, Inc. All rights reserved.
+# See LICENSE for license information.
+#
+# RocServe (Optimus) operator addon — reconciles RocServeDeployment
+# (rocserve.amd.com/v1alpha1) into Deployments / LeaderWorkerSets for the
+# OptimusDeployment workload kind. Standalone (no NVIDIA dynamo operator).
+#
+# Notes:
+#   - Reuses cluster addons: nats.1.3.2 (KV-event plane; the workload template
+#     sets nats.deploy=false + NATS_SERVER) and lws.0.8.0 (multi-node only).
+#   - Ops must mirror to Harbor: chart oci://<helm_registry>/primussafe/
+#     optimus-operator and image <registry>/primussafe/optimus-kubernetes-operator
+#     (distinct repos to avoid an OCI tag clash; build via make docker-build).
+#   - CRD ships in the chart crds/; kubernetes-native discovery (no etcd).
+#   - Default addon (auto-installed per cluster); drop the
+#     primus-safe.addon.default label to make it opt-in.
+#
+
+apiVersion: amd.com/v1
+kind: AddonTemplate
+metadata:
+  labels:
+    primus-safe.display.name: "optimus-operator.0.1.4"
+    app.kubernetes.io/managed-by: Helm
+    primus-safe.addon.default: ""
+  annotations:
+    meta.helm.sh/release-name: {{ .Release.Name }}
+    meta.helm.sh/release-namespace: {{ .Release.Namespace }}
+  name: optimus-operator.0.1.4
+spec:
+  category: plugin
+  description: RocServe (Optimus) Kubernetes operator. Reconciles RocServeDeployment (rocserve.amd.com/v1alpha1) into Deployments / LeaderWorkerSets for aggregated and disaggregated (prefill/decode) LLM serving on AMD MI300X. Underlying resource for the OptimusDeployment workload kind. Self-contained — does not require the NVIDIA dynamo operator; reuses the cluster NATS (nats.1.3.2) and, for multi-node, the LWS controller (lws.0.8.0).
+  # OCI helm chart mirrored on SaFE Harbor (ops to mirror, see header note 2).
+  # Upstream source path: Optimus/deploy/operator/helm/optimus-operator
+  url: oci://{{ .Values.global.helm_registry }}/primussafe/optimus-operator
+  version: 0.1.4
+  type: helm
+  helmDefaultNamespace: optimus-system
+  helmDefaultValues: |
+    replicaCount: 1
+
+    image:
+      tag: "0.1.4"
+      pullPolicy: IfNotPresent
+
+    leaderElection:
+      enabled: true
+
+    resources:
+      limits:
+        cpu: 1000m
+        memory: 1Gi
+      requests:
+        cpu: 200m
+        memory: 256Mi
+
+    rbac:
+      create: true
+    serviceAccount:
+      create: true
+
+    # SaFE Harbor allows anonymous pull for primussafe/* repos.
+    imagePullSecrets: []
