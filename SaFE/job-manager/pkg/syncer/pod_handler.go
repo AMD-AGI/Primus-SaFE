@@ -10,6 +10,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -47,6 +48,8 @@ const (
 	scaleSetListener = "runner-scale-set-listener"
 	monarchMeshLabel = "monarch.pytorch.org/mesh-name"
 )
+
+var rayJobWorkerIndexPattern = regexp.MustCompile(`-(\d+)-worker-`)
 
 // handlePod processes Pod resource events (add, update, delete).
 // Manages the synchronization of pod status between data plane and admin plane.
@@ -236,6 +239,13 @@ func (r *SyncerReconciler) updateWorkloadNodeAndPods(ctx context.Context, client
 	} else {
 		adminWorkload.Status.Pods = append(adminWorkload.Status.Pods, podInfo)
 		needUpdateNode = true
+	}
+	if commonworkload.IsRayJob(adminWorkload) {
+		prunedPods := pruneStaleRayJobPods(adminWorkload.Status.Pods)
+		if len(prunedPods) != len(adminWorkload.Status.Pods) {
+			adminWorkload.Status.Pods = prunedPods
+			needUpdateNode = true
+		}
 	}
 	if needUpdateNode {
 		r.updateWorkloadNodes(adminWorkload)
@@ -617,6 +627,111 @@ func getRayJobPodTier(podId string) int {
 		return 2
 	}
 	return 0 // submitter or other
+}
+
+// getRayJobPodSlotKey returns the stable slot key for a RayJob pod.
+// RayJob recreates pods with new random suffixes on restart; the slot key groups replacements.
+func getRayJobPodSlotKey(podId string) string {
+	if strings.Contains(podId, "-head-") {
+		return "head"
+	}
+	if matches := rayJobWorkerIndexPattern.FindStringSubmatch(podId); len(matches) >= 2 {
+		return "worker-" + matches[1]
+	}
+	if strings.Contains(podId, "-worker-") {
+		return podId
+	}
+	return "submitter"
+}
+
+// pruneStaleRayJobPods keeps only the current pod for each RayJob role slot.
+func pruneStaleRayJobPods(pods []v1.WorkloadPod) []v1.WorkloadPod {
+	if len(pods) <= 1 {
+		return pods
+	}
+	slots := make(map[string][]v1.WorkloadPod)
+	for _, pod := range pods {
+		key := getRayJobPodSlotKey(pod.PodId)
+		slots[key] = append(slots[key], pod)
+	}
+	result := make([]v1.WorkloadPod, 0, len(slots))
+	for _, group := range slots {
+		result = append(result, selectCurrentRayJobPod(group))
+	}
+	return result
+}
+
+// selectCurrentRayJobPod picks the active pod from candidates sharing the same RayJob slot.
+func selectCurrentRayJobPod(pods []v1.WorkloadPod) v1.WorkloadPod {
+	if len(pods) == 1 {
+		return pods[0]
+	}
+	candidates := pods
+	active := make([]v1.WorkloadPod, 0, len(pods))
+	for i := range pods {
+		if !v1.IsPodTerminated(&pods[i]) {
+			active = append(active, pods[i])
+		}
+	}
+	if len(active) > 0 {
+		candidates = active
+	}
+	sort.Slice(candidates, func(i, j int) bool {
+		return compareRayJobPodPriority(candidates[i], candidates[j]) > 0
+	})
+	return candidates[0]
+}
+
+// compareRayJobPodPriority returns positive when pod a is preferred over pod b.
+func compareRayJobPodPriority(a, b v1.WorkloadPod) int {
+	if phaseDiff := rayJobPodPhasePriority(a.Phase) - rayJobPodPhasePriority(b.Phase); phaseDiff != 0 {
+		return phaseDiff
+	}
+	timeA, hasTimeA := parseRayJobPodStartTime(a.StartTime)
+	timeB, hasTimeB := parseRayJobPodStartTime(b.StartTime)
+	if hasTimeA && hasTimeB && !timeA.Equal(timeB) {
+		if timeA.After(timeB) {
+			return 1
+		}
+		return -1
+	}
+	if hasTimeA != hasTimeB {
+		if hasTimeA {
+			return 1
+		}
+		return -1
+	}
+	if a.PodId > b.PodId {
+		return 1
+	}
+	if a.PodId < b.PodId {
+		return -1
+	}
+	return 0
+}
+
+func rayJobPodPhasePriority(phase corev1.PodPhase) int {
+	switch phase {
+	case corev1.PodRunning:
+		return 3
+	case corev1.PodPending:
+		return 2
+	case corev1.PodUnknown:
+		return 1
+	default:
+		return 0
+	}
+}
+
+func parseRayJobPodStartTime(startTime string) (time.Time, bool) {
+	if startTime == "" {
+		return time.Time{}, false
+	}
+	parsed, err := time.Parse(timeutil.TimeRFC3339Short, startTime)
+	if err != nil {
+		return time.Time{}, false
+	}
+	return parsed, true
 }
 
 // comparePodsByIPAndID sort by hostIp and podId

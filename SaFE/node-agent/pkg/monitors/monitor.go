@@ -64,6 +64,8 @@ type NodeInfo struct {
 	ClusterId string `json:"clusterId"`
 	// The rdma count observed by the k8s node
 	ObserveRdmaCount int `json:"observeRdmaCount"`
+	// The pod subnet bound to the node
+	KubePodsSubnet   string `json:"kubePodsSubnet"`
 }
 
 // NewMonitor creates a new Monitor instance with the given configuration.
@@ -202,6 +204,7 @@ func (m *Monitor) generateNodeInfo() *NodeInfo {
 		ExpectedEphemeralStorage: diskInfo.EphemeralStorage,
 		ExpectedDiskType:         string(diskInfo.Type),
 		ExpectedDiskCount:        diskInfo.Count,
+		KubePodsSubnet:           v1.GetAnnotation(m.node.GetK8sNode(), v1.NodeSubnetAnnotation),
 	}
 	gpuQuantity := m.node.GetGpuQuantity()
 	if !gpuQuantity.IsZero() {

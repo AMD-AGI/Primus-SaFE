@@ -116,6 +116,9 @@ func (m *NodeMutator) mutateOnUpdate(ctx context.Context, newNode, oldNode *v1.N
 	if v1.GetAnnotation(newNode, v1.NodeDiskAnnotation) != v1.GetAnnotation(oldNode, v1.NodeDiskAnnotation) {
 		nodesAnnotationAction[v1.NodeDiskAnnotation] = v1.NodeActionAdd
 	}
+	if v1.GetAnnotation(newNode, v1.NodeSubnetAnnotation) != v1.GetAnnotation(oldNode, v1.NodeSubnetAnnotation) {
+		nodesAnnotationAction[v1.NodeSubnetAnnotation] = v1.NodeActionAdd
+	}
 	if len(nodesLabelAction) > 0 {
 		v1.SetAnnotation(newNode, v1.NodeLabelAction, string(jsonutils.MarshalSilently(nodesLabelAction)))
 		isChanged = true
@@ -153,7 +156,7 @@ func (m *NodeMutator) mutateMeta(_ context.Context, node *v1.Node) {
 // mutateCommon syncs labels, flavor-derived fields and taints.
 func (m *NodeMutator) mutateCommon(ctx context.Context, node *v1.Node) bool {
 	isChanged := false
-	if m.mutateLabels(node) {
+	if m.mutateLabels(ctx, node) {
 		isChanged = true
 	}
 	if m.mutateByNodeFlavor(ctx, node) {
@@ -166,7 +169,7 @@ func (m *NodeMutator) mutateCommon(ctx context.Context, node *v1.Node) bool {
 }
 
 // mutateLabels updates flavor/cluster/workspace labels and clears reset flags.
-func (m *NodeMutator) mutateLabels(node *v1.Node) bool {
+func (m *NodeMutator) mutateLabels(ctx context.Context, node *v1.Node) bool {
 	isChanged := false
 	if node.Spec.NodeFlavor != nil {
 		if v1.SetLabel(node, v1.NodeFlavorIdLabel, node.Spec.NodeFlavor.Name) {
@@ -181,6 +184,19 @@ func (m *NodeMutator) mutateLabels(node *v1.Node) bool {
 	}
 	if node.GetSpecHostName() != "" && v1.SetLabel(node, v1.NodeHostnameLabel, node.GetSpecHostName()) {
 		isChanged = true
+	}
+	if node.GetSpecCluster() != "" {
+		if cluster, err := getCluster(ctx, m.Client, node.GetSpecCluster()); err == nil {
+			if cluster.Spec.ControlPlane.KubePodsSubnet != nil {
+				if v1.SetAnnotation(node, v1.NodeSubnetAnnotation, *cluster.Spec.ControlPlane.KubePodsSubnet) {
+					isChanged = true
+				}
+			} else {
+				if v1.RemoveAnnotation(node, v1.NodeSubnetAnnotation) {
+					isChanged = true
+				}
+			}
+		}
 	}
 	return isChanged
 }

@@ -247,7 +247,7 @@ func GetScope(w *v1.Workload) v1.WorkspaceScope {
 	switch w.SpecKind() {
 	case common.PytorchJobKind, common.UnifiedJobKind, common.JobKind, common.TorchFTKind, common.MonarchJob:
 		return v1.TrainScope
-	case common.DeploymentKind, common.StatefulSetKind, common.DynamoDeploymentKind:
+	case common.DeploymentKind, common.StatefulSetKind, common.DynamoDeploymentKind, common.OptimusDeploymentKind:
 		return v1.InferScope
 	case common.AuthoringKind:
 		return v1.AuthoringScope
@@ -269,7 +269,8 @@ func GetScope(w *v1.Workload) v1.WorkspaceScope {
 func IsApplication(w *v1.Workload) bool {
 	if w.SpecKind() == common.DeploymentKind ||
 		w.SpecKind() == common.StatefulSetKind ||
-		w.SpecKind() == common.DynamoDeploymentKind {
+		w.SpecKind() == common.DynamoDeploymentKind ||
+		w.SpecKind() == common.OptimusDeploymentKind {
 		return true
 	}
 	return false
@@ -413,6 +414,90 @@ func GetDynamoBackendFramework(w *v1.Workload) string {
 	val := v1.GetAnnotation(w, v1.DynamoBackendFrameworkAnnotation)
 	if val == "" {
 		return common.DynamoDefaultBackendFramework
+	}
+	return val
+}
+
+// IsOptimusDeployment returns true if the workload is an OptimusDeployment.
+// OptimusDeployment renders a rocserve.amd.com/v1alpha1 RocServeDeployment
+// reconciled by the standalone RocServe operator (the Optimus analogue of
+// DynamoDeployment). Roles/KV-backend/framework reuse the Dynamo constants.
+func IsOptimusDeployment(w *v1.Workload) bool {
+	return w.SpecKind() == common.OptimusDeploymentKind
+}
+
+// GetOptimusServiceRoles returns the parsed service roles for an
+// OptimusDeployment, positionally matching Workload.Spec.Resources.
+// Source: annotation primus-safe.optimus.service-roles (comma-separated);
+// fallback by len(Resources): 2 -> [frontend,worker], 3 -> [frontend,prefill,decode].
+// Returns nil for non-OptimusDeployment workloads.
+func GetOptimusServiceRoles(w *v1.Workload) []string {
+	if !IsOptimusDeployment(w) {
+		return nil
+	}
+	val := v1.GetAnnotation(w, v1.OptimusServiceRolesAnnotation)
+	if val != "" {
+		roles := make([]string, 0, 4)
+		for _, r := range strings.Split(val, ",") {
+			if r = strings.TrimSpace(r); r != "" {
+				roles = append(roles, r)
+			}
+		}
+		return roles
+	}
+	switch len(w.Spec.Resources) {
+	case 2:
+		return []string{common.DynamoRoleFrontend, common.DynamoRoleWorker}
+	case 3:
+		return []string{common.DynamoRoleFrontend, common.DynamoRolePrefill, common.DynamoRoleDecode}
+	default:
+		return nil
+	}
+}
+
+// GetOptimusKVTransferBackend returns the KV transfer backend (nixl/mori/
+// mooncake) for disaggregated serving; default nixl when annotation absent.
+func GetOptimusKVTransferBackend(w *v1.Workload) string {
+	val := v1.GetAnnotation(w, v1.OptimusKVTransferBackendAnnotation)
+	if val == "" {
+		return common.OptimusDefaultKVBackend
+	}
+	return val
+}
+
+// GetOptimusMultinodeRoles returns the roles that run as a multi-node
+// LeaderWorkerSet (node count = that role's Resources[i].Replica).
+func GetOptimusMultinodeRoles(w *v1.Workload) []string {
+	val := v1.GetAnnotation(w, v1.OptimusMultinodeRolesAnnotation)
+	if val == "" {
+		return nil
+	}
+	roles := make([]string, 0, 2)
+	for _, r := range strings.Split(val, ",") {
+		if r = strings.TrimSpace(r); r != "" {
+			roles = append(roles, r)
+		}
+	}
+	return roles
+}
+
+// IsOptimusMultinodeRole reports whether the given role runs as a multi-node
+// LeaderWorkerSet.
+func IsOptimusMultinodeRole(w *v1.Workload, role string) bool {
+	for _, r := range GetOptimusMultinodeRoles(w) {
+		if r == role {
+			return true
+		}
+	}
+	return false
+}
+
+// GetOptimusBackendFramework returns the chosen backend framework
+// (sglang/vllm); default sglang when annotation absent.
+func GetOptimusBackendFramework(w *v1.Workload) string {
+	val := v1.GetAnnotation(w, v1.OptimusBackendFrameworkAnnotation)
+	if val == "" {
+		return common.OptimusDefaultBackendFramework
 	}
 	return val
 }
@@ -637,7 +722,7 @@ func GetUsedHostPorts(ctx context.Context, cli client.Client, clusterId string) 
 				if IsMonarchJob(&item) {
 					ports[common.MonarchMeshPortNum] = struct{}{}
 				}
-				if IsDynamoDeployment(&item) {
+				if IsDynamoDeployment(&item) || IsOptimusDeployment(&item) {
 					ports[common.DynamoFrontendPort] = struct{}{}
 				}
 			}
@@ -681,7 +766,7 @@ func IsEnabledHostNetwork(workload *v1.Workload, resourceId int) bool {
 	// hostNetwork (non-empty RdmaResource), keep the Frontend on hostNetwork too so a
 	// co-scheduled Frontend can reach worker hostIPs without same-node Pod-CIDR ->
 	// node-primary-IP hairpin timeouts on dynamo TCP request plane ports.
-	if IsDynamoDeployment(workload) && resourceId == 0 && len(workload.Spec.Resources) > 1 {
+	if (IsDynamoDeployment(workload) || IsOptimusDeployment(workload)) && resourceId == 0 && len(workload.Spec.Resources) > 1 {
 		for i := 1; i < len(workload.Spec.Resources); i++ {
 			if workload.Spec.Resources[i].RdmaResource != "" {
 				return true

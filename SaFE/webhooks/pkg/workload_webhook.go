@@ -152,6 +152,8 @@ func (m *WorkloadMutator) mutateCommon(ctx context.Context, oldWorkload, newWork
 		m.mutateSandbox(newWorkload)
 	case common.DynamoDeploymentKind:
 		m.mutateDynamoDeployment(newWorkload)
+	case common.OptimusDeploymentKind:
+		m.mutateOptimusDeployment(newWorkload)
 	}
 	m.mutateHostPath(newWorkload, workspace)
 	m.mutatePriority(newWorkload)
@@ -467,6 +469,121 @@ func (m *WorkloadMutator) mutateDynamoDeployment(workload *v1.Workload) {
 	if _, ok := workload.Spec.Env["DYN_NAMESPACE"]; !ok {
 		workload.Spec.Env["DYN_NAMESPACE"] = workload.Name
 	}
+}
+
+// mutateOptimusDeployment normalizes OptimusDeployment workloads, the RocServe
+// analogue of mutateDynamoDeployment: it defaults the primus-safe.optimus.*
+// annotations (backend-framework, kv-transfer-backend, service-roles inference)
+// and seeds NATS_SERVER for the KV-event plane. Role-specific entrypoint flags
+// (sglang disaggregation / multi-node) are injected later by the dispatcher's
+// normalizeOptimusRSD step.
+func (m *WorkloadMutator) mutateOptimusDeployment(workload *v1.Workload) {
+	if v1.GetAnnotation(workload, v1.OptimusBackendFrameworkAnnotation) == "" {
+		v1.SetAnnotation(workload, v1.OptimusBackendFrameworkAnnotation,
+			common.OptimusDefaultBackendFramework)
+	}
+	if v1.GetAnnotation(workload, v1.OptimusKVTransferBackendAnnotation) == "" {
+		v1.SetAnnotation(workload, v1.OptimusKVTransferBackendAnnotation,
+			common.OptimusDefaultKVBackend)
+	}
+	if v1.GetAnnotation(workload, v1.OptimusServiceRolesAnnotation) == "" {
+		if roles := commonworkload.GetOptimusServiceRoles(workload); len(roles) > 0 {
+			v1.SetAnnotation(workload, v1.OptimusServiceRolesAnnotation,
+				strings.Join(roles, ","))
+		}
+	}
+	if workload.Spec.Env == nil {
+		workload.Spec.Env = map[string]string{}
+	}
+	if _, ok := workload.Spec.Env["NATS_SERVER"]; !ok {
+		workload.Spec.Env["NATS_SERVER"] = common.DynamoDefaultNatsURL
+	}
+}
+
+// validateOptimusDeployment enforces OptimusDeployment invariants: legal role
+// names (frontend|worker|prefill|decode — RocServe componentType is server or
+// worker, so no planner/epp), exactly one frontend, role/Resources length
+// match, mutually exclusive worker vs prefill/decode, matched prefill/decode
+// pairs, well-formed enums, and multinode-roles referencing declared roles.
+func (v *WorkloadValidator) validateOptimusDeployment(workload *v1.Workload) error {
+	if len(workload.Spec.Resources) == 0 {
+		return commonerrors.NewBadRequest(
+			"OptimusDeployment requires at least one resource (frontend)")
+	}
+	// The optimus template exposes five role slots (role0..role4); the
+	// dispatcher's normalizeOptimusRSD drops slots beyond len(Resources).
+	const maxOptimusResources = 5
+	if len(workload.Spec.Resources) > maxOptimusResources {
+		return commonerrors.NewBadRequest(fmt.Sprintf(
+			"OptimusDeployment resources length %d exceeds maximum %d (role0..role4 slots)",
+			len(workload.Spec.Resources), maxOptimusResources))
+	}
+
+	var errs []error
+
+	switch val := commonworkload.GetOptimusBackendFramework(workload); val {
+	case "sglang", "vllm":
+	default:
+		errs = append(errs, fmt.Errorf(
+			"unknown backend-framework %q (allowed: sglang|vllm)", val))
+	}
+
+	switch val := commonworkload.GetOptimusKVTransferBackend(workload); val {
+	case common.DynamoKVBackendNixl, common.DynamoKVBackendMori,
+		common.DynamoKVBackendMooncake:
+	default:
+		errs = append(errs, fmt.Errorf(
+			"unknown kv-transfer-backend %q (allowed: nixl|mori|mooncake)", val))
+	}
+
+	roles := commonworkload.GetOptimusServiceRoles(workload)
+	if len(roles) == 0 {
+		return commonerrors.NewBadRequest(fmt.Sprintf(
+			"OptimusDeployment with %d resources requires explicit %s annotation",
+			len(workload.Spec.Resources), v1.OptimusServiceRolesAnnotation))
+	}
+	if len(roles) != len(workload.Spec.Resources) {
+		errs = append(errs, fmt.Errorf(
+			"service-roles length (%d) must equal Resources length (%d)",
+			len(roles), len(workload.Spec.Resources)))
+	}
+
+	roleCounts := map[string]int{}
+	for _, r := range roles {
+		switch r {
+		case common.DynamoRoleFrontend, common.DynamoRoleWorker,
+			common.DynamoRolePrefill, common.DynamoRoleDecode:
+			roleCounts[r]++
+		default:
+			errs = append(errs, fmt.Errorf(
+				"unknown service-role %q (allowed: frontend|worker|prefill|decode)", r))
+		}
+	}
+
+	if roleCounts[common.DynamoRoleFrontend] != 1 {
+		errs = append(errs, fmt.Errorf(
+			"service-roles must contain exactly one 'frontend' (got %d)",
+			roleCounts[common.DynamoRoleFrontend]))
+	}
+	if roleCounts[common.DynamoRoleWorker] > 0 &&
+		(roleCounts[common.DynamoRolePrefill] > 0 || roleCounts[common.DynamoRoleDecode] > 0) {
+		errs = append(errs, fmt.Errorf(
+			"service-roles cannot mix 'worker' (aggregated) with 'prefill'/'decode' (disaggregated)"))
+	}
+	if roleCounts[common.DynamoRolePrefill] != roleCounts[common.DynamoRoleDecode] {
+		errs = append(errs, fmt.Errorf(
+			"service-roles must declare matching 'prefill' and 'decode' counts (got prefill=%d decode=%d)",
+			roleCounts[common.DynamoRolePrefill], roleCounts[common.DynamoRoleDecode]))
+	}
+
+	for _, role := range commonworkload.GetOptimusMultinodeRoles(workload) {
+		if roleCounts[role] == 0 {
+			errs = append(errs, fmt.Errorf(
+				"multinode-roles references undeclared role %q (not in service-roles)", role))
+		}
+	}
+
+	return utilerrors.NewAggregate(errs)
 }
 
 // mutateImages handles image assignment for workload resources.
@@ -810,6 +927,8 @@ func (v *WorkloadValidator) validateCommon(ctx context.Context, newWorkload, old
 		err = v.validateSandbox(newWorkload)
 	case common.DynamoDeploymentKind:
 		err = v.validateDynamoDeployment(newWorkload)
+	case common.OptimusDeploymentKind:
+		err = v.validateOptimusDeployment(newWorkload)
 	}
 	if err != nil {
 		return err
