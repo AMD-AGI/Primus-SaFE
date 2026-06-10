@@ -68,7 +68,7 @@ export interface OptimusResourcePayload {
 }
 
 export const OPTIMUS_DEFAULT_IMAGE =
-  'harbor.core42.primus-safe.amd.com/primussafe/rocserve-sglang:0.1.0-rocm-defaults'
+  'harbor.core42.primus-safe.amd.com/primussafe/rocserve-sglang:0.1.0-rocm-20260610'
 
 export const OPTIMUS_FRONTEND_ENTRYPOINT =
   'python3 -m rocserve.server --host 0.0.0.0 --port 8000 --router-policy kv-aware --router-tokenizer-path /wekafs/models/DeepSeek-R1-0528 --discovery-backend kubernetes --request-transport nats --kv-event-transport nats'

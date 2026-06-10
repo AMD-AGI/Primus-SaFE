@@ -17,7 +17,7 @@ describe('optimusPayload', () => {
     const form = createDefaultOptimusForm()
 
     expect(form.image).toBe(
-      'harbor.core42.primus-safe.amd.com/primussafe/rocserve-sglang:0.1.0-rocm-defaults',
+      'harbor.core42.primus-safe.amd.com/primussafe/rocserve-sglang:0.1.0-rocm-20260610',
     )
   })
 
