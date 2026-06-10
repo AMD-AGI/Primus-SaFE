@@ -5,13 +5,27 @@ import {
   createDefaultOptimusForm,
 } from './optimusPayload'
 
+const OPTIMUS_FRONTEND_ENTRYPOINT =
+  'cHl0aG9uMyAtbSByb2NzZXJ2ZS5zZXJ2ZXIgLS1ob3N0IDAuMC4wLjAgLS1wb3J0IDgwMDAgLS1yb3V0ZXItcG9saWN5IGt2LWF3YXJlIC0tcm91dGVyLXRva2VuaXplci1wYXRoIC93ZWthZnMvbW9kZWxzL0RlZXBTZWVrLVIxLTA1MjggLS1kaXNjb3ZlcnktYmFja2VuZCBrdWJlcm5ldGVzIC0tcmVxdWVzdC10cmFuc3BvcnQgbmF0cyAtLWt2LWV2ZW50LXRyYW5zcG9ydCBuYXRz'
+const OPTIMUS_WORKER_ENTRYPOINT =
+  'ZXhlYyBweXRob24zIC1tIHJvY3NlcnZlLmVuZ2luZS5zZ2xhbmcgLS1tb2RlbC1wYXRoIC93ZWthZnMvbW9kZWxzL0RlZXBTZWVrLVIxLTA1MjggLS10cC1zaXplIDggLS1lcC1zaXplIDggLS1hdHRlbnRpb24tYmFja2VuZCBhaXRlciAtLXRydXN0LXJlbW90ZS1jb2RlIC0tbWVtLWZyYWN0aW9uLXN0YXRpYyAwLjc1IC0taG9zdCAwLjAuMC4wIC0tZGlzY292ZXJ5LWJhY2tlbmQga3ViZXJuZXRlcyAtLXJlcXVlc3QtdHJhbnNwb3J0IG5hdHMgLS1lbmFibGUta3YtZXZlbnRzIC0ta3YtZXZlbnQtdHJhbnNwb3J0IG5hdHM='
+const OPTIMUS_PD_WORKER_ENTRYPOINT =
+  'ZXhlYyBweXRob24zIC1tIHJvY3NlcnZlLmVuZ2luZS5zZ2xhbmcgLS1tb2RlbC1wYXRoIC93ZWthZnMvbW9kZWxzL0RlZXBTZWVrLVIxLTA1MjggLS10cC1zaXplIDggLS1lcC1zaXplIDggLS1hdHRlbnRpb24tYmFja2VuZCBhaXRlciAtLXRydXN0LXJlbW90ZS1jb2RlIC0tbWVtLWZyYWN0aW9uLXN0YXRpYyAwLjc1IC0taG9zdCAwLjAuMC4wIC0tZGlzY292ZXJ5LWJhY2tlbmQga3ViZXJuZXRlcyAtLXJlcXVlc3QtdHJhbnNwb3J0IG5hdHMgLS1lbmFibGUta3YtZXZlbnRzIC0ta3YtZXZlbnQtdHJhbnNwb3J0IG5hdHMgLS1kaXNhZ2dyZWdhdGlvbi1pYi1kZXZpY2Ugcm9jZXAyOXMw'
+
 describe('optimusPayload', () => {
+  it('uses the Optimus defaults image by default', () => {
+    const form = createDefaultOptimusForm()
+
+    expect(form.image).toBe(
+      'harbor.core42.primus-safe.amd.com/primussafe/rocserve-sglang:0.1.0-rocm-defaults',
+    )
+  })
+
   it('builds an aggregation Optimus payload with frontend and worker roles', () => {
     const form = createDefaultOptimusForm()
     form.displayName = 'optimus-ds-r1-agg-nats'
     form.enableAggregation = true
     form.worker.replica = 2
-    form.env = { HF_HOME: '/data/hf-cache', NCCL_DEBUG: 'INFO' }
 
     const payload = buildOptimusCreatePayload(form, 'core42-hyperloom')
 
@@ -38,20 +52,15 @@ describe('optimusPayload', () => {
       targetPort: 8000,
       serviceType: 'ClusterIP',
     })
+    expect(payload.entryPoints).toEqual([OPTIMUS_FRONTEND_ENTRYPOINT, OPTIMUS_WORKER_ENTRYPOINT])
 
-    const frontendEntrypoint = decodeFromBase64String(payload.entryPoints[0])
     const workerEntrypoint = decodeFromBase64String(payload.entryPoints[1])
-    expect(frontendEntrypoint).toContain('python3 -m rocserve.server')
-    expect(frontendEntrypoint).not.toContain('--router-policy')
-    expect(frontendEntrypoint).not.toContain('--discovery-backend')
-    expect(frontendEntrypoint).not.toContain('--request-transport')
-    expect(frontendEntrypoint).not.toContain('--kv-event-transport')
     expect(workerEntrypoint).toContain('exec python3 -m rocserve.engine.sglang')
     expect(workerEntrypoint).toContain('--tp-size 8')
     expect(workerEntrypoint).toContain('--ep-size 8')
-    expect(workerEntrypoint).not.toContain('--discovery-backend')
-    expect(workerEntrypoint).not.toContain('--request-transport')
-    expect(workerEntrypoint).not.toContain('--kv-event-transport')
+    expect(workerEntrypoint).toContain('--discovery-backend kubernetes')
+    expect(workerEntrypoint).toContain('--request-transport nats')
+    expect(workerEntrypoint).toContain('--kv-event-transport nats')
     expect(workerEntrypoint).toContain('--enable-kv-events')
     expect(workerEntrypoint).not.toContain('--disaggregation-ib-device')
   })
@@ -60,6 +69,7 @@ describe('optimusPayload', () => {
     const form = createDefaultOptimusForm()
     form.displayName = 'optimus-ds-r1-pd-nats'
     form.enablePd = true
+    form.image = 'harbor.core42.primus-safe.amd.com/primussafe/rocserve-sglang:0.1.0-rocm-v5'
     form.kvTransferBackend = 'mori'
 
     const payload = buildOptimusCreatePayload(form, 'core42-hyperloom')
@@ -86,10 +96,14 @@ describe('optimusPayload', () => {
       serviceRoles: ['frontend', 'prefill', 'decode'],
       kvTransferBackend: 'mori',
     })
-    expect(payload.entryPoints).toHaveLength(3)
-    expect(payload.entryPoints[1]).toBe(payload.entryPoints[2])
+    expect(payload.env).toEqual({ HF_HOME: '/data/hf-cache', NCCL_DEBUG: 'INFO' })
+    expect(payload.entryPoints).toEqual([
+      OPTIMUS_FRONTEND_ENTRYPOINT,
+      OPTIMUS_PD_WORKER_ENTRYPOINT,
+      OPTIMUS_PD_WORKER_ENTRYPOINT,
+    ])
     expect(decodeFromBase64String(payload.entryPoints[1])).toContain(
-      '--disaggregation-ib-device roceP29s0',
+      '--disaggregation-ib-device rocep29s0',
     )
   })
 
