@@ -6,11 +6,11 @@ import {
 } from './optimusPayload'
 
 const OPTIMUS_FRONTEND_ENTRYPOINT =
-  'cHl0aG9uMyAtbSByb2NzZXJ2ZS5zZXJ2ZXIgLS1ob3N0IDAuMC4wLjAgLS1wb3J0IDgwMDAgLS1yb3V0ZXItcG9saWN5IGt2LWF3YXJlIC0tcm91dGVyLXRva2VuaXplci1wYXRoIC93ZWthZnMvbW9kZWxzL0RlZXBTZWVrLVIxLTA1MjggLS1kaXNjb3ZlcnktYmFja2VuZCBrdWJlcm5ldGVzIC0tcmVxdWVzdC10cmFuc3BvcnQgbmF0cyAtLWt2LWV2ZW50LXRyYW5zcG9ydCBuYXRz'
+  'cHl0aG9uMyAtbSByb2NzZXJ2ZS5zZXJ2ZXIgLS1ob3N0IDAuMC4wLjAgLS1wb3J0IDgwMDAgLS1yb3V0ZXItdG9rZW5pemVyLXBhdGggL3dla2Fmcy9tb2RlbHMvRGVlcFNlZWstUjEtMDUyOA=='
 const OPTIMUS_WORKER_ENTRYPOINT =
-  'ZXhlYyBweXRob24zIC1tIHJvY3NlcnZlLmVuZ2luZS5zZ2xhbmcgLS1tb2RlbC1wYXRoIC93ZWthZnMvbW9kZWxzL0RlZXBTZWVrLVIxLTA1MjggLS10cC1zaXplIDggLS1lcC1zaXplIDggLS1hdHRlbnRpb24tYmFja2VuZCBhaXRlciAtLXRydXN0LXJlbW90ZS1jb2RlIC0tbWVtLWZyYWN0aW9uLXN0YXRpYyAwLjc1IC0taG9zdCAwLjAuMC4wIC0tZGlzY292ZXJ5LWJhY2tlbmQga3ViZXJuZXRlcyAtLXJlcXVlc3QtdHJhbnNwb3J0IG5hdHMgLS1rdi1ldmVudC10cmFuc3BvcnQgbmF0cw=='
-const OPTIMUS_PD_WORKER_ENTRYPOINT =
-  'ZXhlYyBweXRob24zIC1tIHJvY3NlcnZlLmVuZ2luZS5zZ2xhbmcgLS1tb2RlbC1wYXRoIC93ZWthZnMvbW9kZWxzL0RlZXBTZWVrLVIxLTA1MjggLS10cC1zaXplIDggLS1lcC1zaXplIDggLS1hdHRlbnRpb24tYmFja2VuZCBhaXRlciAtLXRydXN0LXJlbW90ZS1jb2RlIC0tbWVtLWZyYWN0aW9uLXN0YXRpYyAwLjc1IC0taG9zdCAwLjAuMC4wIC0tZGlzY292ZXJ5LWJhY2tlbmQga3ViZXJuZXRlcyAtLXJlcXVlc3QtdHJhbnNwb3J0IG5hdHMgLS1rdi1ldmVudC10cmFuc3BvcnQgbmF0cyAtLWRpc2FnZ3JlZ2F0aW9uLWliLWRldmljZSByb2NlcDI5czA='
+  'cHl0aG9uMyAtbSByb2NzZXJ2ZS5lbmdpbmUuc2dsYW5nIC0tbW9kZWwtcGF0aCAvd2VrYWZzL21vZGVscy9EZWVwU2Vlay1SMS0wNTI4IC0tdHAtc2l6ZSA4IC0tZXAtc2l6ZSA4IC0tZW5hYmxlLWRwLWF0dGVudGlvbiAtLWF0dGVudGlvbi1iYWNrZW5kIGFpdGVyIC0tdHJ1c3QtcmVtb3RlLWNvZGUgLS1tZW0tZnJhY3Rpb24tc3RhdGljIDAuNzUgLS1ob3N0IDAuMC4wLjA='
+const OPTIMUS_AGG_WORKER_ENTRYPOINT =
+  'cHl0aG9uMyAtbSByb2NzZXJ2ZS5lbmdpbmUuc2dsYW5nIC0tbW9kZWwtcGF0aCAvd2VrYWZzL21vZGVscy9EZWVwU2Vlay1SMS0wNTI4IC0tdHAtc2l6ZSAxNiAtLWVwLXNpemUgMTYgLS1lbmFibGUtZHAtYXR0ZW50aW9uIC0tYXR0ZW50aW9uLWJhY2tlbmQgYWl0ZXIgLS10cnVzdC1yZW1vdGUtY29kZSAtLW1lbS1mcmFjdGlvbi1zdGF0aWMgMC43NSAtLWhvc3QgMC4wLjAuMA=='
 
 describe('optimusPayload', () => {
   it('uses the Optimus defaults image by default', () => {
@@ -19,6 +19,29 @@ describe('optimusPayload', () => {
     expect(form.image).toBe(
       'harbor.core42.primus-safe.amd.com/primussafe/rocserve-sglang:0.1.0-rocm-20260610',
     )
+  })
+
+  it('builds a single-node Optimus payload with the standard worker entrypoint', () => {
+    const form = createDefaultOptimusForm()
+    form.displayName = 'optimus-ds-r1-single'
+
+    const payload = buildOptimusCreatePayload(form, 'core42-hyperloom')
+
+    expect(payload.images).toEqual([form.image, form.image])
+    expect(payload.resources).toEqual([
+      { replica: 1, cpu: '4', memory: '16Gi' },
+      {
+        replica: 1,
+        cpu: '64',
+        gpu: '8',
+        memory: '256Gi',
+        sharedMemory: '200Gi',
+      },
+    ])
+    expect(payload.optimusOptions).toEqual({
+      serviceRoles: ['frontend', 'worker'],
+    })
+    expect(payload.entryPoints).toEqual([OPTIMUS_FRONTEND_ENTRYPOINT, OPTIMUS_WORKER_ENTRYPOINT])
   })
 
   it('builds an aggregation Optimus payload with frontend and worker roles', () => {
@@ -52,16 +75,16 @@ describe('optimusPayload', () => {
       targetPort: 8000,
       serviceType: 'ClusterIP',
     })
-    expect(payload.entryPoints).toEqual([OPTIMUS_FRONTEND_ENTRYPOINT, OPTIMUS_WORKER_ENTRYPOINT])
+    expect(payload.entryPoints).toEqual([OPTIMUS_FRONTEND_ENTRYPOINT, OPTIMUS_AGG_WORKER_ENTRYPOINT])
 
     const workerEntrypoint = decodeFromBase64String(payload.entryPoints[1])
-    expect(workerEntrypoint).toContain('exec python3 -m rocserve.engine.sglang')
-    expect(workerEntrypoint).toContain('--tp-size 8')
-    expect(workerEntrypoint).toContain('--ep-size 8')
-    expect(workerEntrypoint).toContain('--discovery-backend kubernetes')
-    expect(workerEntrypoint).toContain('--request-transport nats')
-    expect(workerEntrypoint).toContain('--kv-event-transport nats')
-    expect(workerEntrypoint).not.toContain('--enable-kv-events')
+    expect(workerEntrypoint).toContain('python3 -m rocserve.engine.sglang')
+    expect(workerEntrypoint).toContain('--tp-size 16')
+    expect(workerEntrypoint).toContain('--ep-size 16')
+    expect(workerEntrypoint).toContain('--enable-dp-attention')
+    expect(workerEntrypoint).not.toContain('--discovery-backend')
+    expect(workerEntrypoint).not.toContain('--request-transport')
+    expect(workerEntrypoint).not.toContain('--kv-event-transport')
     expect(workerEntrypoint).not.toContain('--disaggregation-ib-device')
   })
 
@@ -99,12 +122,14 @@ describe('optimusPayload', () => {
     expect(payload.env).toEqual({ HF_HOME: '/data/hf-cache', NCCL_DEBUG: 'INFO' })
     expect(payload.entryPoints).toEqual([
       OPTIMUS_FRONTEND_ENTRYPOINT,
-      OPTIMUS_PD_WORKER_ENTRYPOINT,
-      OPTIMUS_PD_WORKER_ENTRYPOINT,
+      OPTIMUS_WORKER_ENTRYPOINT,
+      OPTIMUS_WORKER_ENTRYPOINT,
     ])
-    expect(decodeFromBase64String(payload.entryPoints[1])).toContain(
-      '--disaggregation-ib-device rocep29s0',
-    )
+    const workerEntrypoint = decodeFromBase64String(payload.entryPoints[1])
+    expect(workerEntrypoint).toContain('--tp-size 8')
+    expect(workerEntrypoint).toContain('--ep-size 8')
+    expect(workerEntrypoint).toContain('--enable-dp-attention')
+    expect(workerEntrypoint).not.toContain('--disaggregation-ib-device')
   })
 
   it('uses a custom worker entrypoint when the full command is edited', () => {

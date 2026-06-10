@@ -71,7 +71,7 @@ export const OPTIMUS_DEFAULT_IMAGE =
   'harbor.core42.primus-safe.amd.com/primussafe/rocserve-sglang:0.1.0-rocm-20260610'
 
 export const OPTIMUS_FRONTEND_ENTRYPOINT =
-  'python3 -m rocserve.server --host 0.0.0.0 --port 8000 --router-policy kv-aware --router-tokenizer-path /wekafs/models/DeepSeek-R1-0528 --discovery-backend kubernetes --request-transport nats --kv-event-transport nats'
+  'python3 -m rocserve.server --host 0.0.0.0 --port 8000 --router-tokenizer-path /wekafs/models/DeepSeek-R1-0528'
 
 const FRONTEND_RESOURCE: OptimusResourcePayload = {
   replica: 1,
@@ -129,22 +129,23 @@ export function buildOptimusWorkerEntrypoint(
     | 'attentionBackend'
     | 'memFractionStatic'
     | 'enablePd'
+    | 'enableAggregation'
   >,
   resource: OptimusRoleResourceForm,
 ) {
+  const defaultTpSize = getOptimusDefaultTpSize(resource)
+  const tpSize = form.enableAggregation && !form.enablePd ? defaultTpSize : resource.tpSize || 8
+  const epSize = form.enableAggregation && !form.enablePd ? defaultTpSize : resource.epSize || tpSize
   const args = [
-    `exec python3 -m rocserve.engine.${form.backendEngine || 'sglang'}`,
+    `python3 -m rocserve.engine.${form.backendEngine || 'sglang'}`,
     `--model-path ${form.modelPath}`,
-    `--tp-size ${resource.tpSize || 8}`,
-    `--ep-size ${resource.epSize || resource.tpSize || 8}`,
+    `--tp-size ${tpSize}`,
+    `--ep-size ${epSize}`,
+    '--enable-dp-attention',
     `--attention-backend ${form.attentionBackend}`,
     '--trust-remote-code',
     `--mem-fraction-static ${form.memFractionStatic || '0.75'}`,
     '--host 0.0.0.0',
-    '--discovery-backend kubernetes',
-    '--request-transport nats',
-    '--kv-event-transport nats',
-    form.enablePd ? '--disaggregation-ib-device rocep29s0' : '',
   ].filter(Boolean)
 
   return args.join(' ')
@@ -155,11 +156,7 @@ export function buildOptimusFrontendEntrypoint(form: Pick<OptimusFormModel, 'mod
     'python3 -m rocserve.server',
     '--host 0.0.0.0',
     '--port 8000',
-    '--router-policy kv-aware',
     `--router-tokenizer-path ${form.modelPath}`,
-    '--discovery-backend kubernetes',
-    '--request-transport nats',
-    '--kv-event-transport nats',
   ].join(' ')
 }
 
