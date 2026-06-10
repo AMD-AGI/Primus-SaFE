@@ -68,10 +68,10 @@ export interface OptimusResourcePayload {
 }
 
 export const OPTIMUS_DEFAULT_IMAGE =
-  'harbor.core42.primus-safe.amd.com/primussafe/rocserve-sglang:0.1.0-rocm'
+  'harbor.core42.primus-safe.amd.com/primussafe/rocserve-sglang:0.1.0-rocm-defaults'
 
 export const OPTIMUS_FRONTEND_ENTRYPOINT =
-  'python3 -m rocserve.server --host 0.0.0.0 --port 8000 --router-tokenizer-path /wekafs/models/DeepSeek-R1-0528'
+  'python3 -m rocserve.server --host 0.0.0.0 --port 8000 --router-policy kv-aware --router-tokenizer-path /wekafs/models/DeepSeek-R1-0528 --discovery-backend kubernetes --request-transport nats --kv-event-transport nats'
 
 const FRONTEND_RESOURCE: OptimusResourcePayload = {
   replica: 1,
@@ -101,7 +101,10 @@ export function createDefaultOptimusForm(): OptimusFormModel {
     enableAggregation: false,
     pdAggregationRoles: ['prefill', 'decode'],
     kvTransferBackend: 'mori',
-    env: {},
+    env: {
+      HF_HOME: '/data/hf-cache',
+      NCCL_DEBUG: 'INFO',
+    },
     service: {
       protocol: 'TCP',
       port: 8000,
@@ -138,11 +141,27 @@ export function buildOptimusWorkerEntrypoint(
     '--trust-remote-code',
     `--mem-fraction-static ${form.memFractionStatic || '0.75'}`,
     '--host 0.0.0.0',
+    '--discovery-backend kubernetes',
+    '--request-transport nats',
     '--enable-kv-events',
-    form.enablePd ? '--disaggregation-ib-device roceP29s0' : '',
+    '--kv-event-transport nats',
+    form.enablePd ? '--disaggregation-ib-device rocep29s0' : '',
   ].filter(Boolean)
 
   return args.join(' ')
+}
+
+export function buildOptimusFrontendEntrypoint(form: Pick<OptimusFormModel, 'modelPath'>) {
+  return [
+    'python3 -m rocserve.server',
+    '--host 0.0.0.0',
+    '--port 8000',
+    '--router-policy kv-aware',
+    `--router-tokenizer-path ${form.modelPath}`,
+    '--discovery-backend kubernetes',
+    '--request-transport nats',
+    '--kv-event-transport nats',
+  ].join(' ')
 }
 
 export function buildOptimusCreatePayload(form: OptimusFormModel, workspace: string): OptimusCreatePayload {
@@ -154,7 +173,7 @@ export function buildOptimusCreatePayload(form: OptimusFormModel, workspace: str
     ? form.workerEntrypoint
     : rawWorkerEntryPoint
   const workerEntryPoint = encodeToBase64String(resolvedWorkerEntryPoint)
-  const frontendEntryPoint = encodeToBase64String(OPTIMUS_FRONTEND_ENTRYPOINT)
+  const frontendEntryPoint = encodeToBase64String(buildOptimusFrontendEntrypoint(form))
 
   if (form.enablePd) {
     return {

@@ -168,11 +168,6 @@
                 <el-input-number v-model="form.worker.epSize" :min="1" controls-position="right" class="w-full" />
               </el-form-item>
             </el-col>
-            <el-col :span="12">
-              <el-form-item label="memFraction" prop="memFractionStatic">
-                <el-input v-model="form.memFractionStatic" />
-              </el-form-item>
-            </el-col>
           </el-row>
 
           <div class="entry-editor-toolbar">
@@ -213,12 +208,12 @@
                 <el-col :span="12">
                   <el-form-item label="KV Backend">
                     <el-select v-model="form.kvTransferBackend">
-                  <el-option
-                    v-for="option in kvBackendOptions"
-                    :key="option"
-                    :label="option"
-                    :value="option"
-                  />
+                      <el-option
+                        v-for="option in kvBackendOptions"
+                        :key="option"
+                        :label="option"
+                        :value="option"
+                      />
                     </el-select>
                   </el-form-item>
                 </el-col>
@@ -321,7 +316,6 @@ const rules = reactive<FormRules>({
   ],
   image: [required('Please input image')],
   modelPath: [required('Please input model path')],
-  memFractionStatic: [required('Please input mem fraction')],
   'worker.tpSize': [
     required('Please input TP size'),
     {
