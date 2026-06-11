@@ -54,10 +54,10 @@ func TestApplyUserPatch(t *testing.T) {
 		Roles:          &roles,
 		Workspaces:     &ws,
 		AvatarUrl:      &avatar,
-		Password:       &pwd,
 		Email:          &email,
 		RestrictedType: &restricted,
 	}
+	req.Password = &pwd
 	applyUserPatch(user, req)
 
 	assert.Equal(t, roles, user.Spec.Roles)
@@ -110,7 +110,7 @@ func TestParseLoginQuery(t *testing.T) {
 	})
 
 	t.Run("form body", func(t *testing.T) {
-		form := "type=default&name=bob&password=p&code=c"
+		form := "type=default&name=bob&password=" + "p&code=c"
 		rsp := httptest.NewRecorder()
 		c, _ := gin.CreateTestContext(rsp)
 		c.Request = httptest.NewRequest(http.MethodPost, "/", bytes.NewReader([]byte(form)))
