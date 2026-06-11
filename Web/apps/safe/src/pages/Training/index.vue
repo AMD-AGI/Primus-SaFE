@@ -1,5 +1,5 @@
 <template>
-  <el-text class="block textx-18 font-500" tag="b">Training</el-text>
+  <el-text class="block textx-18 font-500" tag="b">PyTorch</el-text>
 
   <div class="flex flex-wrap items-center justify-between gap-2 mt-4">
     <!-- Left actions -->
@@ -19,7 +19,7 @@
         "
         class="text-black"
       >
-        Create Training
+        Create PyTorch Job
       </el-button>
       <el-segmented
         v-model="searchParams.onlyMyself"
@@ -440,16 +440,16 @@ const curLimitedEdit = ref(false)
 /* ── Page Tours (tourId-driven from Quick Reference ?tour=<id>) ── */
 const { getDriver } = usePageTour((tourId) => {
   switch (tourId) {
-    /* ─ "Launch training" — full create-form walkthrough ─ */
+    /* ─ "Launch PyTorch job" — full create-form walkthrough ─ */
     case 'create':
     default:
       return [
         {
           element: '[data-tour="training-create-btn"]',
           popover: {
-            title: 'Create Training',
+            title: 'Create PyTorch Job',
             description:
-              'Click here to create a new training job. You can also clone an existing one from the table.',
+              'Click here to create a new PyTorch job. You can also clone an existing one from the table.',
             side: 'bottom' as const,
             align: 'start' as const,
           },
@@ -458,7 +458,7 @@ const { getDriver } = usePageTour((tourId) => {
           element: '[data-tour="training-filters"]',
           popover: {
             title: 'Search & Filter',
-            description: 'Filter training jobs by date range, name, or workload ID.',
+            description: 'Filter PyTorch jobs by date range, name, or workload ID.',
             side: 'bottom' as const,
             align: 'end' as const,
           },
@@ -466,9 +466,9 @@ const { getDriver } = usePageTour((tourId) => {
         {
           element: '[data-tour="training-table"]',
           popover: {
-            title: 'Training Jobs',
+            title: 'PyTorch Jobs',
             description:
-              'All training workloads in your workspace. Click a name to view details, or use row actions to stop / clone / delete.',
+              'All PyTorch workloads in your workspace. Click a name to view details, or use row actions to stop / clone / delete.',
             side: 'top' as const,
           },
         },
@@ -491,8 +491,8 @@ const { getDriver } = usePageTour((tourId) => {
         {
           element: '[data-tour="training-field-name"]',
           popover: {
-            title: 'Training Name',
-            description: 'Give your training job a descriptive name.',
+            title: 'PyTorch Job Name',
+            description: 'Give your PyTorch job a descriptive name.',
             side: 'left' as const,
             align: 'start' as const,
           },
@@ -512,7 +512,7 @@ const { getDriver } = usePageTour((tourId) => {
           popover: {
             title: 'Entry Point',
             description:
-              'The command to execute inside the container — e.g. your training script.',
+              'The command to execute inside the container — e.g. your PyTorch script.',
             side: 'left' as const,
             align: 'start' as const,
           },
@@ -541,7 +541,7 @@ const { getDriver } = usePageTour((tourId) => {
           popover: {
             title: 'Find Your Job',
             description:
-              'Locate the training job whose logs you want to inspect. Use the search bar above to filter by name or ID.',
+              'Locate the PyTorch job whose logs you want to inspect. Use the search bar above to filter by name or ID.',
             side: 'top' as const,
           },
         },
@@ -911,7 +911,7 @@ const handleMenuClick = async (act: Action, row: Row) => {
 }
 
 defineOptions({
-  name: 'trainingPage',
+  name: 'pytorchPage',
 })
 
 // Close popover on any scroll or click outside
