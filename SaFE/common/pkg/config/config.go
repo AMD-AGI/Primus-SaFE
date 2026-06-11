@@ -585,7 +585,7 @@ func IsMCPEnable() bool {
 }
 
 func GetMCPBasePath() string {
-	return getString(mcpBasePath, "/api/v1/mcp")
+	return getString(mcpBasePath, "/api/v1/safe-mcp/mcp")
 }
 
 func GetMCPInstructions() string {
