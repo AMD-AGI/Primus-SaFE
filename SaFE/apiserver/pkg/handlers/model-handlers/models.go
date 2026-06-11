@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 
@@ -816,6 +817,48 @@ func modelMatchesK8sAccessModeFilter(m *v1.Model, want string) bool {
 }
 
 // listModels implements the model listing logic.
+// sortModelItems sorts the model list in place according to the sort key.
+// Supported keys (case-insensitive prefix "-" means descending):
+//   - "name" / "-name": by displayName, case-insensitive
+//   - "createdAt" / "-createdAt": by creation time
+//
+// When sortKey is empty the original ordering is preserved (DB returns
+// created_at DESC; the K8s fallback keeps the API's natural order), so callers
+// that want an alphabetical model picker must opt in with sort=name.
+func sortModelItems(items []ModelInfo, sortKey string) {
+	if sortKey == "" {
+		return
+	}
+
+	desc := strings.HasPrefix(sortKey, "-")
+	key := strings.ToLower(strings.TrimPrefix(sortKey, "-"))
+
+	switch key {
+	case "createdat", "created_at", "createtime":
+		sort.SliceStable(items, func(i, j int) bool {
+			if items[i].CreatedAt == items[j].CreatedAt {
+				return strings.ToLower(items[i].DisplayName) < strings.ToLower(items[j].DisplayName)
+			}
+			if desc {
+				return items[i].CreatedAt > items[j].CreatedAt
+			}
+			return items[i].CreatedAt < items[j].CreatedAt
+		})
+	case "name":
+		sort.SliceStable(items, func(i, j int) bool {
+			ni := strings.ToLower(items[i].DisplayName)
+			nj := strings.ToLower(items[j].DisplayName)
+			if ni == nj {
+				return items[i].ID < items[j].ID // stable tie-breaker
+			}
+			if desc {
+				return ni > nj
+			}
+			return ni < nj
+		})
+	}
+}
+
 func (h *Handler) listModels(c *gin.Context) (interface{}, error) {
 	queryArgs, err := parseListModelQuery(c)
 	if err != nil {
@@ -846,6 +889,9 @@ func (h *Handler) listModels(c *gin.Context) (interface{}, error) {
 				}
 				items = append(items, info)
 			}
+
+			// Optional sort before pagination (e.g. sort=name for alphabetical)
+			sortModelItems(items, queryArgs.Sort)
 
 			// Apply pagination (limit=0 means return all)
 			total := int64(len(items))
@@ -908,6 +954,9 @@ func (h *Handler) listModels(c *gin.Context) (interface{}, error) {
 		}
 		items = append(items, info)
 	}
+
+	// Optional sort before pagination (e.g. sort=name for alphabetical)
+	sortModelItems(items, queryArgs.Sort)
 
 	// Apply pagination (limit=0 means return all)
 	total := int64(len(items))
