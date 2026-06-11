@@ -29,7 +29,7 @@ import (
 
 var (
 	reportCommandFence = regexp.MustCompile("(?s)```bash\\s*(.*?)```")
-	portFlagRegex      = regexp.MustCompile(`(?:^|\\s)--port(?:=|\\s+)(\\d+)`)
+	portFlagRegex      = regexp.MustCompile(`(?:^|\s)--port(?:=|\s+)(\d+)`)
 )
 
 // ApplyTask materializes the optimization result into an actual SaFE Workload.
