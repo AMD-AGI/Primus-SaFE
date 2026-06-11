@@ -272,7 +272,9 @@ function createDefaultBackendResource(replica: number): OptimusRoleResourceForm 
 }
 
 function resolveFrontendEntrypoint(form: OptimusFormModel) {
-  return buildOptimusFrontendEntrypoint(form)
+  return form.frontendEntrypoint.trim()
+    ? form.frontendEntrypoint
+    : buildOptimusFrontendEntrypoint(form)
 }
 
 function resolveBackendEntrypoint(

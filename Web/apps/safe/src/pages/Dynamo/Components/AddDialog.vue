@@ -160,17 +160,22 @@
                   <div>
                     <div class="role-subsection-title">Advanced command override</div>
                   </div>
-                  <el-icon :class="['section-chevron', { 'is-open': commandOverrideOpen.frontend }]">
-                    <ArrowRight />
-                  </el-icon>
+                  <div class="command-override-actions">
+                    <el-button size="small" @click.stop="resetFrontendEntrypointFromOptions">
+                      Reset from options
+                    </el-button>
+                    <el-icon :class="['section-chevron', { 'is-open': commandOverrideOpen.frontend }]">
+                      <ArrowRight />
+                    </el-icon>
+                  </div>
                 </div>
                 <el-input
                   v-show="commandOverrideOpen.frontend"
-                  :model-value="frontendPreview"
+                  :model-value="getFrontendEntrypoint()"
                   type="textarea"
-                  readonly
-                  :autosize="{ minRows: 3, maxRows: 6 }"
+                  :autosize="{ minRows: 4, maxRows: 8 }"
                   class="entry-editor"
+                  @input="setFrontendEntrypoint"
                 />
               </template>
 
@@ -495,7 +500,8 @@ const envList = ref(convertKeyValueMapToList(form.env))
 const loading = ref(false)
 const submitting = ref(false)
 const isWorkerEntrypointCustomized = ref(false)
-const customizedEntrypoints = reactive<Record<OptimusBackendRole, boolean>>({
+const customizedEntrypoints = reactive<Record<OptimusRoleKey, boolean>>({
+  frontend: false,
   worker: false,
   prefill: false,
   decode: false,
@@ -709,12 +715,14 @@ watch(
   () =>
     [
       isOptimus.value,
+      buildOptimusFrontendEntrypoint(form),
       buildWorkerEntrypoint(form, form.worker, 'worker'),
       buildWorkerEntrypoint(form, form.prefill, 'prefill'),
       buildWorkerEntrypoint(form, form.decode, 'decode'),
     ] as const,
-  ([optimus, workerCommand, prefillCommand, decodeCommand]) => {
+  ([optimus, frontendCommand, workerCommand, prefillCommand, decodeCommand]) => {
     if (!optimus) return
+    if (!customizedEntrypoints.frontend) form.frontendEntrypoint = frontendCommand
     if (!customizedEntrypoints.worker) form.workerEntrypoint = workerCommand
     if (!customizedEntrypoints.prefill) form.prefillEntrypoint = prefillCommand
     if (!customizedEntrypoints.decode) form.decodeEntrypoint = decodeCommand
@@ -806,6 +814,8 @@ function hydrateFormFromDetail(detail: DynamoDetail) {
     next.routerPolicy =
       (readFlag(frontendEntryPoint, '--router-policy') as OptimusRouterPolicy) || next.routerPolicy
     next.frontendEntrypoint = frontendEntryPoint || buildOptimusFrontendEntrypoint(next)
+    customizedEntrypoints.frontend =
+      Boolean(frontendEntryPoint) && frontendEntryPoint !== buildOptimusFrontendEntrypoint(next)
 
     if (next.enablePd) {
       const prefillEntryPoint = detail.entryPoints?.[1]
@@ -862,6 +872,20 @@ function resetWorkerEntrypointFromOptions() {
   isWorkerEntrypointCustomized.value = false
 }
 
+function getFrontendEntrypoint() {
+  return form.frontendEntrypoint
+}
+
+function setFrontendEntrypoint(value: string) {
+  form.frontendEntrypoint = value
+  customizedEntrypoints.frontend = value !== frontendPreview.value
+}
+
+function resetFrontendEntrypointFromOptions() {
+  form.frontendEntrypoint = frontendPreview.value
+  customizedEntrypoints.frontend = false
+}
+
 function getRoleEntrypoint(role: OptimusBackendRole) {
   if (role === 'prefill') return form.prefillEntrypoint
   if (role === 'decode') return form.decodeEntrypoint
@@ -897,6 +921,7 @@ function setRoleBackendEngine(role: OptimusBackendRole, value: string) {
 }
 
 function resetAllRoleEntrypointsFromOptions() {
+  resetFrontendEntrypointFromOptions()
   resetRoleEntrypointFromOptions('worker')
   resetRoleEntrypointFromOptions('prefill')
   resetRoleEntrypointFromOptions('decode')
@@ -904,6 +929,7 @@ function resetAllRoleEntrypointsFromOptions() {
 
 function resetEntrypointCustomization() {
   isWorkerEntrypointCustomized.value = false
+  customizedEntrypoints.frontend = false
   customizedEntrypoints.worker = false
   customizedEntrypoints.prefill = false
   customizedEntrypoints.decode = false
@@ -1031,33 +1057,13 @@ function readBackendEngine(command: string): DynamoBackendEngine | '' {
 .section-card {
   background: var(--el-bg-color-overlay);
   border-radius: 10px;
-  padding: 14px 16px 10px;
-  margin-bottom: 20px;
+  padding: 14px 16px 8px;
+  margin-bottom: 16px;
   border: 1px solid var(--el-border-color-lighter);
-  box-shadow:
-    0 2px 8px rgba(0, 0, 0, 0.08),
-    0 1px 3px rgba(0, 0, 0, 0.04);
 }
 
 html.dark .section-card {
-  border: 1px solid rgba(255, 255, 255, 0.03);
-  box-shadow:
-    0 12px 35px rgba(0, 0, 0, 0.55),
-    0 0 0 1px rgba(0, 0, 0, 0.7);
-}
-
-.section-card:hover {
-  box-shadow:
-    0 4px 12px rgba(0, 0, 0, 0.12),
-    0 2px 6px rgba(0, 0, 0, 0.06);
-  transform: translateY(-1px);
-  transition: all 0.16s ease-out;
-}
-
-html.dark .section-card:hover {
-  box-shadow:
-    0 14px 40px rgba(0, 0, 0, 0.55),
-    0 0 1px rgba(0, 0, 0, 0.9);
+  border-color: rgba(255, 255, 255, 0.06);
 }
 
 .section-header {
@@ -1145,15 +1151,16 @@ html.dark .section-card:hover {
 }
 
 .optimus-role-card {
-  border: 1px solid var(--el-border-color);
-  border-radius: 8px;
-  padding: 14px 14px 12px;
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 10px;
+  padding: 14px 14px 10px;
   margin-top: 14px;
   background: var(--el-fill-color-blank);
 }
 
 html.dark .optimus-role-card {
-  background: rgba(255, 255, 255, 0.02);
+  border-color: rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.025);
 }
 
 .role-subsection-title {
@@ -1180,13 +1187,14 @@ html.dark .optimus-role-card {
 
 .command-override-toggle {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: 12px;
   margin: 12px 0 8px;
-  padding: 10px 12px;
+  padding: 8px 10px;
   border-radius: 8px;
-  background: var(--el-fill-color-light);
+  border: 1px solid var(--el-border-color-lighter);
+  background: transparent;
   cursor: pointer;
 }
 
