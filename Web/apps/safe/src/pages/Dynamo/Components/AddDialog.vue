@@ -68,7 +68,7 @@
           </div>
 
           <template v-if="isOptimus">
-            <el-form-item label="modelPath" prop="modelPath">
+            <el-form-item label="Model Path" prop="modelPath">
               <el-input v-model="form.modelPath" />
             </el-form-item>
 
@@ -146,14 +146,26 @@
               </el-row>
 
               <template v-if="section.key === 'frontend'">
-                <div class="role-subsection-title">Entrypoint</div>
-                <el-form-item label="routerPolicy">
+                <div class="role-subsection-title">Entrypoint Parameters</div>
+                <el-form-item label="Router Policy">
                   <el-select v-model="form.routerPolicy">
                     <el-option label="kv-aware" value="kv-aware" />
                     <el-option label="round-robin" value="round-robin" />
                   </el-select>
                 </el-form-item>
+                <div
+                  class="command-override-toggle"
+                  @click="commandOverrideOpen.frontend = !commandOverrideOpen.frontend"
+                >
+                  <div>
+                    <div class="role-subsection-title">Advanced command override</div>
+                  </div>
+                  <el-icon :class="['section-chevron', { 'is-open': commandOverrideOpen.frontend }]">
+                    <ArrowRight />
+                  </el-icon>
+                </div>
                 <el-input
+                  v-show="commandOverrideOpen.frontend"
                   :model-value="frontendPreview"
                   type="textarea"
                   readonly
@@ -163,20 +175,10 @@
               </template>
 
               <template v-else>
-                <div class="role-subsection-header">
-                  <div>
-                    <div class="role-subsection-title">EntryPoint Parameters</div>
-                    <el-text size="small" type="info">
-                      Edit parameters here, or edit the full command below.
-                    </el-text>
-                  </div>
-                  <el-button size="small" @click="resetRoleEntrypointFromOptions(section.key)">
-                    Reset from options
-                  </el-button>
-                </div>
+                <div class="role-subsection-title">EntryPoint Parameters</div>
                 <el-row :gutter="16">
                   <el-col :span="12">
-                    <el-form-item label="backend">
+                    <el-form-item label="Backend">
                       <el-select
                         :model-value="getRoleBackendEngine(section.key)"
                         @update:model-value="(value: string) => setRoleBackendEngine(section.key, value)"
@@ -187,7 +189,7 @@
                     </el-form-item>
                   </el-col>
                   <el-col :span="12">
-                    <el-form-item label="tpSize" :prop="`${section.key}.tpSize`">
+                    <el-form-item label="TP Size" :prop="`${section.key}.tpSize`">
                       <el-input-number
                         v-model="section.resource.tpSize"
                         :min="1"
@@ -197,7 +199,7 @@
                     </el-form-item>
                   </el-col>
                   <el-col :span="12">
-                    <el-form-item label="epSize" :prop="`${section.key}.epSize`">
+                    <el-form-item label="EP Size" :prop="`${section.key}.epSize`">
                       <el-input-number
                         v-model="section.resource.epSize"
                         :min="1"
@@ -207,7 +209,24 @@
                     </el-form-item>
                   </el-col>
                 </el-row>
+                <div
+                  class="command-override-toggle"
+                  @click="commandOverrideOpen[section.key] = !commandOverrideOpen[section.key]"
+                >
+                  <div>
+                    <div class="role-subsection-title">Advanced command override</div>
+                  </div>
+                  <div class="command-override-actions">
+                    <el-button size="small" @click.stop="resetRoleEntrypointFromOptions(section.key)">
+                      Reset from options
+                    </el-button>
+                    <el-icon :class="['section-chevron', { 'is-open': commandOverrideOpen[section.key] }]">
+                      <ArrowRight />
+                    </el-icon>
+                  </div>
+                </div>
                 <el-input
+                  v-show="commandOverrideOpen[section.key]"
                   :model-value="getRoleEntrypoint(section.key)"
                   type="textarea"
                   :autosize="{ minRows: 4, maxRows: 8 }"
@@ -433,6 +452,7 @@ import {
 } from '@/pages/Optimus/optimusPayload'
 
 type OptimusBackendRole = 'worker' | 'prefill' | 'decode'
+type OptimusRoleKey = 'frontend' | OptimusBackendRole
 type WorkloadFormModel = Omit<DynamoFormModel, 'kvTransferBackend'> & {
   frontend: DynamoRoleResourceForm
   routerPolicy: OptimusRouterPolicy
@@ -476,6 +496,12 @@ const loading = ref(false)
 const submitting = ref(false)
 const isWorkerEntrypointCustomized = ref(false)
 const customizedEntrypoints = reactive<Record<OptimusBackendRole, boolean>>({
+  worker: false,
+  prefill: false,
+  decode: false,
+})
+const commandOverrideOpen = reactive<Record<OptimusRoleKey, boolean>>({
+  frontend: false,
   worker: false,
   prefill: false,
   decode: false,
@@ -742,6 +768,7 @@ function resetForm() {
   envList.value = convertKeyValueMapToList(next.env)
   isWorkerEntrypointCustomized.value = false
   resetEntrypointCustomization()
+  resetCommandOverrideOpen()
   advancedOpen.value = false
   resetWorkerEntrypointFromOptions()
 }
@@ -880,6 +907,13 @@ function resetEntrypointCustomization() {
   customizedEntrypoints.worker = false
   customizedEntrypoints.prefill = false
   customizedEntrypoints.decode = false
+}
+
+function resetCommandOverrideOpen() {
+  commandOverrideOpen.frontend = false
+  commandOverrideOpen.worker = false
+  commandOverrideOpen.prefill = false
+  commandOverrideOpen.decode = false
 }
 
 function createDefaultForm(): WorkloadFormModel {
@@ -1142,6 +1176,28 @@ html.dark .optimus-role-card {
 
 .role-subsection-header .role-subsection-title {
   margin: 0 0 2px;
+}
+
+.command-override-toggle {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 12px 0 8px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--el-fill-color-light);
+  cursor: pointer;
+}
+
+.command-override-toggle .role-subsection-title {
+  margin: 0 0 2px;
+}
+
+.command-override-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .fixed-role {

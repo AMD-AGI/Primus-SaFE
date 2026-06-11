@@ -9,7 +9,7 @@ describe('Dynamo/Optimus AddDialog', () => {
   })
 
   it('exposes Optimus router policy and role-specific entrypoint editors', () => {
-    expect(dialogSource).toContain('label="routerPolicy"')
+    expect(dialogSource).toContain('label="Router Policy"')
     expect(dialogSource).toContain('value="round-robin"')
     expect(dialogSource).toContain('optimusRoleSections')
     expect(dialogSource).toContain('setRoleEntrypoint')
@@ -21,6 +21,23 @@ describe('Dynamo/Optimus AddDialog', () => {
     expect(dialogSource).toContain('optimus-role-card')
     expect(dialogSource).toContain('EntryPoint Parameters')
     expect(dialogSource).toContain('v-if="!isOptimus"')
+  })
+
+  it('keeps Optimus mode switching compact', () => {
+    expect(dialogSource).toContain('<el-segmented v-model="modeValue"')
+    expect(dialogSource).not.toContain('Standard Serving')
+    expect(dialogSource).not.toContain('PD Disaggregation')
+  })
+
+  it('does not show a separate Optimus creation summary', () => {
+    expect(dialogSource).not.toContain('Creation Summary')
+    expect(dialogSource).not.toContain('summaryItems')
+  })
+
+  it('hides role command editors behind an advanced override disclosure', () => {
+    expect(dialogSource).toContain('Advanced command override')
+    expect(dialogSource).toContain('commandOverrideOpen')
+    expect(dialogSource).not.toContain('Preview the generated frontend command.')
   })
 
   it('does not keep unreachable Optimus entrypoint preview code in the Dynamo-only section', () => {
