@@ -1300,25 +1300,22 @@ func normalizeOptimusRSD(obj *unstructured.Unstructured, adminWorkload *v1.Workl
 			return fmt.Errorf("optimus slot %s missing or wrong type", slotKey)
 		}
 
-		// Stamp SaFE pod-tracking labels onto the verbatim pod template so the
-		// job-manager pod syncer can associate RSD child pods to this workload
-		// (the operator copies pod template labels onto its Deployments/LWS).
-		if extra, ok := slot["extraPodSpec"].(map[string]interface{}); ok {
-			meta, _ := extra["metadata"].(map[string]interface{})
-			if meta == nil {
-				meta = map[string]interface{}{}
+		// Stamp SaFE pod-tracking labels so the job-manager pod syncer can
+		// associate RSD child pods to this workload. The RSD ExtraPodSpec is a
+		// bare corev1.PodSpec (no metadata), so labels set under
+		// extraPodSpec.metadata are pruned by the CRD schema and never reach the
+		// pod. Carry them on the RSD ServiceSpec.podLabels field instead; the
+		// operator merges podLabels onto the rendered pod template.
+		labels := map[string]interface{}{}
+		if existing, ok := slot["podLabels"].(map[string]interface{}); ok {
+			for k, v := range existing {
+				labels[k] = v
 			}
-			lbls, _ := meta["labels"].(map[string]interface{})
-			if lbls == nil {
-				lbls = map[string]interface{}{}
-			}
-			for k, v := range buildPodLabels(adminWorkload) {
-				lbls[k] = v
-			}
-			meta["labels"] = lbls
-			extra["metadata"] = meta
-			slot["extraPodSpec"] = extra
 		}
+		for k, v := range buildPodLabels(adminWorkload) {
+			labels[k] = v
+		}
+		slot["podLabels"] = labels
 
 		applyOptimusRoleFields(slot, role, kvBackend)
 

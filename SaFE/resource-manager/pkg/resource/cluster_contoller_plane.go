@@ -782,6 +782,31 @@ func (r *ClusterReconciler) guaranteeDefaultAddon(ctx context.Context, cluster *
 				continue
 			}
 			klog.Errorf("get addon template %s failed %+v", name, err)
+			continue
+		}
+		// Addon already exists: re-point it at the current AddonTemplate when the
+		// template name changed (a version bump renames the template, e.g.
+		// optimus-operator.0.1.4 -> optimus-operator.0.1.5). guaranteeDefaultAddon
+		// historically only created Addons and never updated an existing one, so a
+		// bumped template left the Addon referencing a now-deleted template name;
+		// the AddonController's getHelm then failed to find it and never upgraded.
+		// Patching the template ref bumps the Addon's resourceVersion, which the
+		// AddonController watches, triggering a Helm upgrade to the new chart
+		// version / default values. User-set spec values are left untouched.
+		if hr := addon.Spec.AddonSource.HelmRepository; hr != nil && hr.Template != nil &&
+			hr.Template.Name != template.Name {
+			original := client.MergeFrom(addon.DeepCopy())
+			hr.Template.Kind = template.Kind
+			hr.Template.APIVersion = template.APIVersion
+			hr.Template.Namespace = template.Namespace
+			hr.Template.Name = template.Name
+			hr.Template.UID = template.UID
+			hr.Template.ResourceVersion = template.ResourceVersion
+			if err = r.Patch(ctx, addon, original); err != nil {
+				return reconcile.Result{}, fmt.Errorf("update addon %s template ref to %s failed %+v",
+					name, template.Name, err)
+			}
+			klog.Infof("[addon] re-pointed addon %s template ref -> %s", name, template.Name)
 		}
 	}
 	return reconcile.Result{}, nil

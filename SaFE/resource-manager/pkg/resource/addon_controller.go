@@ -425,6 +425,14 @@ func (r *AddonController) updateAddonHelmStatus(ctx context.Context, addon *v1.A
 	addon.Status.AddonSourceStatus.HelmRepositoryStatus.Status = string(resp.Info.Status)
 	addon.Status.AddonSourceStatus.HelmRepositoryStatus.Version = resp.Version
 	addon.Status.AddonSourceStatus.HelmRepositoryStatus.Values = addon.Spec.AddonSource.HelmRepository.Values
+	// Record the AddonTemplate the release was deployed from so a later version
+	// bump (which renames the template, e.g. optimus-operator.0.1.4 ->
+	// optimus-operator.0.1.5) is detectable by isTemplateVersionEqual and not
+	// silently ignored by shouldIgnoreUpgrade.
+	if addon.Spec.AddonSource.HelmRepository.Template != nil {
+		addon.Status.AddonSourceStatus.HelmRepositoryStatus.Template =
+			addon.Spec.AddonSource.HelmRepository.Template.DeepCopy()
+	}
 	if addon.Status.AddonSourceStatus.HelmRepositoryStatus.Status == v1.AddonDeployed {
 		addon.Status.Phase = v1.AddonRunning
 		r.registerRobustEndpointIfApplicable(ctx, addon)
