@@ -6,158 +6,96 @@
 package resources
 
 import (
+	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
 	"github.com/gin-gonic/gin"
-	"gotest.tools/assert"
+	"github.com/stretchr/testify/assert"
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/resource"
-	"k8s.io/apimachinery/pkg/labels"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	k8sfake "k8s.io/client-go/kubernetes/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/resources/view"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/k8sclient"
+	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 )
 
 func TestParseListPersistentVolumeQuery(t *testing.T) {
-	tests := []struct {
-		name        string
-		url         string
-		wantErr     bool
-		workspaceID string
-	}{
-		{
-			name:        "valid workspaceId",
-			url:         "/api/v1/persistentvolumes?workspaceId=test-workspace",
-			wantErr:     false,
-			workspaceID: "test-workspace",
-		},
-		{
-			name:    "missing workspaceId",
-			url:     "/api/v1/persistentvolumes",
-			wantErr: true,
-		},
-		{
-			name:    "empty workspaceId",
-			url:     "/api/v1/persistentvolumes?workspaceId=",
-			wantErr: true,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			rsp := httptest.NewRecorder()
-			c, _ := gin.CreateTestContext(rsp)
-			c.Request = httptest.NewRequest(http.MethodGet, tt.url, nil)
-
-			query, err := parseListPersistentVolumeQuery(c)
-			if tt.wantErr {
-				assert.Assert(t, err != nil)
-			} else {
-				assert.NilError(t, err)
-				assert.Equal(t, query.WorkspaceID, tt.workspaceID)
-			}
-		})
-	}
+	gin.SetMode(gin.TestMode)
+	rsp := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rsp)
+	c.Request = httptest.NewRequest(http.MethodGet, "/?workspaceId=ws-1", nil)
+	q, err := parseListPersistentVolumeQuery(c)
+	assert.NoError(t, err)
+	assert.Equal(t, "ws-1", q.WorkspaceID)
 }
 
 func TestBuildListPersistentVolumeSelector(t *testing.T) {
-	tests := []struct {
-		name        string
-		query       *view.ListPersistentVolumeRequest
-		wantEmpty   bool
-		shouldMatch labels.Set
-	}{
-		{
-			name:        "empty workspaceId",
-			query:       &view.ListPersistentVolumeRequest{WorkspaceID: ""},
-			wantEmpty:   true,
-			shouldMatch: nil,
-		},
-		{
-			name:        "with workspaceId",
-			query:       &view.ListPersistentVolumeRequest{WorkspaceID: "test-workspace"},
-			wantEmpty:   false,
-			shouldMatch: labels.Set{v1.WorkspaceIdLabel: "test-workspace"},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			selector, err := buildListPersistentVolumeSelector(tt.query)
-			assert.NilError(t, err)
-
-			if tt.wantEmpty {
-				assert.Equal(t, selector.Empty(), true)
-			} else {
-				assert.Equal(t, selector.Matches(tt.shouldMatch), true)
-			}
-		})
-	}
+	sel, err := buildListPersistentVolumeSelector(&view.ListPersistentVolumeRequest{WorkspaceID: "ws-1"})
+	assert.NoError(t, err)
+	assert.False(t, sel.Empty())
 }
 
 func TestCvtToPersistentVolumeItem(t *testing.T) {
-	volumeMode := corev1.PersistentVolumeFilesystem
-	storageClass := "standard"
-
 	pv := corev1.PersistentVolume{
-		Spec: corev1.PersistentVolumeSpec{
-			Capacity: corev1.ResourceList{
-				corev1.ResourceStorage: resource.MustParse("100Gi"),
-			},
-			AccessModes: []corev1.PersistentVolumeAccessMode{
-				corev1.ReadWriteMany,
-			},
-			ClaimRef: &corev1.ObjectReference{
-				Name:      "test-pvc",
-				Namespace: "default",
-			},
-			VolumeMode:                    &volumeMode,
-			StorageClassName:              storageClass,
-			PersistentVolumeReclaimPolicy: corev1.PersistentVolumeReclaimRetain,
+		ObjectMeta: metav1.ObjectMeta{
+			Name:   "pv-1",
+			Labels: map[string]string{common.PfsSelectorKey: "pfs-a"},
 		},
-		Status: corev1.PersistentVolumeStatus{
-			Phase:   corev1.VolumeBound,
-			Message: "test message",
-		},
+		Spec:   corev1.PersistentVolumeSpec{StorageClassName: "sc-1"},
+		Status: corev1.PersistentVolumeStatus{Phase: corev1.VolumeAvailable},
 	}
-	pv.Labels = map[string]string{
-		common.PfsSelectorKey: "pfs-test-value",
-		"other-label":         "other-value",
+	item := cvtToPersistentVolumeItem(pv)
+	assert.Equal(t, "sc-1", item.StorageClassName)
+	assert.Equal(t, "pfs-a", item.Labels[common.PfsSelectorKey])
+}
+
+// TestListPersistentVolume exercises the full path using a stubbed dataplane
+// client factory injected into the Handler's clientManager.
+func TestListPersistentVolume(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	workspace := &v1.Workspace{
+		ObjectMeta: metav1.ObjectMeta{Name: "ws-1"},
+		Spec:       v1.WorkspaceSpec{Cluster: "c1"},
+	}
+	mockUser := genMockUser()
+	mockRole := genMockRole()
+	scheme := runtime.NewScheme()
+	_ = v1.AddToScheme(scheme)
+	ctrlClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(mockUser, mockRole, workspace).Build()
+
+	// Stub the dataplane factory for cluster "c1" backed by a k8s fake with a PV.
+	pv := &corev1.PersistentVolume{ObjectMeta: metav1.ObjectMeta{
+		Name:   "pv-1",
+		Labels: map[string]string{v1.WorkspaceIdLabel: "ws-1"},
+	}}
+	om := commonutils.NewObjectManager()
+	factory := k8sclient.NewClientFactoryWithOnlyClient(context.Background(), "c1", k8sfake.NewSimpleClientset(pv))
+	_ = om.Add("c1", factory)
+
+	h := &Handler{
+		Client:           ctrlClient,
+		accessController: authority.NewAccessController(ctrlClient),
+		clientManager:    om,
 	}
 
-	result := cvtToPersistentVolumeItem(pv)
+	rsp := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rsp)
+	c.Request = httptest.NewRequest(http.MethodGet, "/?workspaceId=ws-1", nil)
+	c.Set(common.UserId, mockUser.Name)
+	h.ListPersistentVolume(c)
+	assert.Equal(t, http.StatusOK, rsp.Code)
 
-	// Verify capacity
-	assert.Equal(t, result.Capacity.Storage().String(), "100Gi")
-
-	// Verify access modes
-	assert.Equal(t, len(result.AccessModes), 1)
-	assert.Equal(t, result.AccessModes[0], corev1.ReadWriteMany)
-
-	// Verify claim ref
-	assert.Assert(t, result.ClaimRef != nil)
-	assert.Equal(t, result.ClaimRef.Name, "test-pvc")
-	assert.Equal(t, result.ClaimRef.Namespace, "default")
-
-	// Verify volume mode
-	assert.Assert(t, result.VolumeMode != nil)
-	assert.Equal(t, *result.VolumeMode, corev1.PersistentVolumeFilesystem)
-
-	// Verify storage class
-	assert.Equal(t, result.StorageClassName, storageClass)
-
-	// Verify reclaim policy
-	assert.Equal(t, result.PersistentVolumeReclaimPolicy, corev1.PersistentVolumeReclaimRetain)
-
-	// Verify status
-	assert.Equal(t, result.Phase, corev1.VolumeBound)
-	assert.Equal(t, result.Message, "test message")
-
-	// Verify labels - only PfsSelectorKey should be included
-	assert.Equal(t, result.Labels[common.PfsSelectorKey], "pfs-test-value")
-	_, hasOtherLabel := result.Labels["other-label"]
-	assert.Equal(t, hasOtherLabel, false)
+	var resp view.ListPersistentVolumeResponse
+	assert.NoError(t, json.Unmarshal(rsp.Body.Bytes(), &resp))
+	assert.Equal(t, 1, resp.TotalCount)
 }

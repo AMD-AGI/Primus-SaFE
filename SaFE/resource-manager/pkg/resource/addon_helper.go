@@ -320,8 +320,16 @@ func areValuesEqual(addon *v1.Addon) bool {
 
 // isTemplateVersionEqual checks if template version matches.
 func isTemplateVersionEqual(addon *v1.Addon) bool {
-	if addon.Spec.AddonSource.HelmRepository.Template == nil || addon.Status.AddonSourceStatus.HelmRepositoryStatus == nil || addon.Status.AddonSourceStatus.HelmRepositoryStatus.Template == nil {
+	// Not a template-based addon, or no release recorded yet: nothing to compare.
+	if addon.Spec.AddonSource.HelmRepository.Template == nil || addon.Status.AddonSourceStatus.HelmRepositoryStatus == nil {
 		return true
+	}
+	// Template-based addon whose deployed release didn't record which template
+	// it came from: treat as out-of-date so a version bump (template rename) is
+	// not silently ignored. updateAddonHelmStatus now records the template, so
+	// this only forces a single reconciling upgrade for legacy releases.
+	if addon.Status.AddonSourceStatus.HelmRepositoryStatus.Template == nil {
+		return false
 	}
 	return addon.Spec.AddonSource.HelmRepository.Template.Name == addon.Status.AddonSourceStatus.HelmRepositoryStatus.Template.Name
 }
