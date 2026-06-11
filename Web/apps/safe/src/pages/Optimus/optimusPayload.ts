@@ -3,6 +3,7 @@ import type { DynamoPdAggregationRole, DynamoRoleResourceForm } from '../Dynamo/
 
 export type OptimusKvTransferBackend = 'mori'
 export type OptimusBackendEngine = 'sglang' | 'vllm'
+export type OptimusRouterPolicy = 'kv-aware' | 'round-robin'
 export type OptimusPdAggregationRole = DynamoPdAggregationRole
 export type OptimusRoleResourceForm = DynamoRoleResourceForm
 
@@ -15,7 +16,11 @@ export interface OptimusFormModel {
   backendEngine: OptimusBackendEngine
   attentionBackend: string
   memFractionStatic: string
+  routerPolicy: OptimusRouterPolicy
+  frontendEntrypoint: string
   workerEntrypoint: string
+  prefillEntrypoint: string
+  decodeEntrypoint: string
   enablePd: boolean
   enableAggregation: boolean
   pdAggregationRoles: OptimusPdAggregationRole[]
@@ -27,6 +32,7 @@ export interface OptimusFormModel {
     targetPort: number
     serviceType: string
   }
+  frontend: OptimusRoleResourceForm
   worker: OptimusRoleResourceForm
   prefill: OptimusRoleResourceForm
   decode: OptimusRoleResourceForm
@@ -96,7 +102,11 @@ export function createDefaultOptimusForm(): OptimusFormModel {
     backendEngine: 'sglang',
     attentionBackend: 'aiter',
     memFractionStatic: '0.75',
+    routerPolicy: 'kv-aware',
+    frontendEntrypoint: '',
     workerEntrypoint: '',
+    prefillEntrypoint: '',
+    decodeEntrypoint: '',
     enablePd: false,
     enableAggregation: false,
     pdAggregationRoles: ['prefill', 'decode'],
@@ -111,6 +121,7 @@ export function createDefaultOptimusForm(): OptimusFormModel {
       targetPort: 8000,
       serviceType: 'ClusterIP',
     },
+    frontend: createDefaultFrontendResource(),
     worker: createDefaultBackendResource(1),
     prefill: createDefaultBackendResource(1),
     decode: createDefaultBackendResource(1),
@@ -151,11 +162,14 @@ export function buildOptimusWorkerEntrypoint(
   return args.join(' ')
 }
 
-export function buildOptimusFrontendEntrypoint(form: Pick<OptimusFormModel, 'modelPath'>) {
+export function buildOptimusFrontendEntrypoint(
+  form: Pick<OptimusFormModel, 'modelPath' | 'routerPolicy'>,
+) {
   return [
     'python3 -m rocserve.server',
     '--host 0.0.0.0',
     '--port 8000',
+    `--router-policy ${form.routerPolicy || 'kv-aware'}`,
     `--router-tokenizer-path ${form.modelPath}`,
   ].join(' ')
 }
@@ -163,13 +177,16 @@ export function buildOptimusFrontendEntrypoint(form: Pick<OptimusFormModel, 'mod
 export function buildOptimusCreatePayload(form: OptimusFormModel, workspace: string): OptimusCreatePayload {
   validateOptimusForm(form)
 
-  const rawWorkerEntryPoint = buildOptimusWorkerEntrypoint(form, form.worker)
-  const hasCustomWorkerEntrypoint = Boolean(form.workerEntrypoint.trim())
-  const resolvedWorkerEntryPoint = hasCustomWorkerEntrypoint
-    ? form.workerEntrypoint
-    : rawWorkerEntryPoint
-  const workerEntryPoint = encodeToBase64String(resolvedWorkerEntryPoint)
-  const frontendEntryPoint = encodeToBase64String(buildOptimusFrontendEntrypoint(form))
+  const frontendEntryPoint = encodeToBase64String(resolveFrontendEntrypoint(form))
+  const workerEntryPoint = encodeToBase64String(
+    resolveBackendEntrypoint(form, form.worker, form.workerEntrypoint),
+  )
+  const prefillEntryPoint = encodeToBase64String(
+    resolveBackendEntrypoint(form, form.prefill, form.prefillEntrypoint),
+  )
+  const decodeEntryPoint = encodeToBase64String(
+    resolveBackendEntrypoint(form, form.decode, form.decodeEntrypoint),
+  )
 
   if (form.enablePd) {
     return {
@@ -179,8 +196,8 @@ export function buildOptimusCreatePayload(form: OptimusFormModel, workspace: str
       ...(form.description ? { description: form.description } : {}),
       priority: form.priority,
       images: [form.image, form.image, form.image],
-      entryPoints: [frontendEntryPoint, workerEntryPoint, workerEntryPoint],
-      resources: [FRONTEND_RESOURCE, toResourcePayload(form.prefill), toResourcePayload(form.decode)],
+      entryPoints: [frontendEntryPoint, prefillEntryPoint, decodeEntryPoint],
+      resources: [toResourcePayload(form.frontend), toResourcePayload(form.prefill), toResourcePayload(form.decode)],
       env: form.env,
       service: { ...OPTIMUS_SERVICE },
       optimusOptions: {
@@ -198,7 +215,7 @@ export function buildOptimusCreatePayload(form: OptimusFormModel, workspace: str
     priority: form.priority,
     images: [form.image, form.image],
     entryPoints: [frontendEntryPoint, workerEntryPoint],
-    resources: [FRONTEND_RESOURCE, toResourcePayload(form.worker)],
+    resources: [toResourcePayload(form.frontend), toResourcePayload(form.worker)],
     env: form.env,
     service: { ...OPTIMUS_SERVICE },
     optimusOptions: {
@@ -228,6 +245,14 @@ export function validateOptimusForm(form: OptimusFormModel) {
   }
 }
 
+function createDefaultFrontendResource(): OptimusRoleResourceForm {
+  return {
+    replica: FRONTEND_RESOURCE.replica,
+    cpu: FRONTEND_RESOURCE.cpu,
+    memory: '16',
+  }
+}
+
 function createDefaultBackendResource(replica: number): OptimusRoleResourceForm {
   return {
     replica,
@@ -238,6 +263,26 @@ function createDefaultBackendResource(replica: number): OptimusRoleResourceForm 
     tpSize: 8,
     epSize: 8,
   }
+}
+
+function resolveFrontendEntrypoint(form: OptimusFormModel) {
+  return buildOptimusFrontendEntrypoint(form)
+}
+
+function resolveBackendEntrypoint(
+  form: Pick<
+    OptimusFormModel,
+    | 'modelPath'
+    | 'backendEngine'
+    | 'attentionBackend'
+    | 'memFractionStatic'
+    | 'enablePd'
+    | 'enableAggregation'
+  >,
+  resource: OptimusRoleResourceForm,
+  customEntrypoint: string,
+) {
+  return customEntrypoint.trim() ? customEntrypoint : buildOptimusWorkerEntrypoint(form, resource)
 }
 
 function toResourcePayload(resource: OptimusRoleResourceForm): OptimusResourcePayload {
