@@ -177,7 +177,10 @@
                 <el-row :gutter="16">
                   <el-col :span="12">
                     <el-form-item label="backend">
-                      <el-select v-model="form.backendEngine">
+                      <el-select
+                        :model-value="getRoleBackendEngine(section.key)"
+                        @update:model-value="(value: string) => setRoleBackendEngine(section.key, value)"
+                      >
                         <el-option label="sglang" value="sglang" />
                         <el-option label="vllm" value="vllm" />
                       </el-select>
@@ -322,63 +325,21 @@
             </el-col>
           </el-row>
 
-          <template v-if="isOptimus">
-            <el-divider />
-            <div class="entry-role-title">Frontend</div>
-            <el-form-item label="routerPolicy">
-              <el-select v-model="form.routerPolicy">
-                <el-option label="kv-aware" value="kv-aware" />
-                <el-option label="round-robin" value="round-robin" />
-              </el-select>
-            </el-form-item>
-            <el-input
-              :model-value="frontendPreview"
-              type="textarea"
-              readonly
-              :autosize="{ minRows: 3, maxRows: 6 }"
-              class="entry-editor"
-            />
-
-            <template v-for="section in optimusBackendEntrySections" :key="section.key">
-              <el-divider />
-              <div class="entry-editor-toolbar">
-                <div>
-                  <div class="entry-role-title">{{ section.title }}</div>
-                  <el-text size="small" type="info">
-                    Edit this role command directly, or reset it from the options above.
-                  </el-text>
-                </div>
-                <el-button size="small" @click="resetRoleEntrypointFromOptions(section.key)">
-                  Reset from options
-                </el-button>
-              </div>
-              <el-input
-                :model-value="getRoleEntrypoint(section.key)"
-                type="textarea"
-                :autosize="{ minRows: 4, maxRows: 8 }"
-                class="entry-editor"
-                @input="(value: string) => setRoleEntrypoint(section.key, value)"
-              />
-            </template>
-          </template>
-
-          <template v-else>
-            <div class="entry-editor-toolbar">
-              <el-text size="small" type="info">
-                Edit the full command directly, or reset it from the options above.
-              </el-text>
-              <el-button size="small" @click="resetWorkerEntrypointFromOptions">
-                Reset from options
-              </el-button>
-            </div>
-            <el-input
-              v-model="form.workerEntrypoint"
-              type="textarea"
-              :autosize="{ minRows: 4, maxRows: 8 }"
-              class="entry-editor"
-              @input="markWorkerEntrypointCustomized"
-            />
-          </template>
+          <div class="entry-editor-toolbar">
+            <el-text size="small" type="info">
+              Edit the full command directly, or reset it from the options above.
+            </el-text>
+            <el-button size="small" @click="resetWorkerEntrypointFromOptions">
+              Reset from options
+            </el-button>
+          </div>
+          <el-input
+            v-model="form.workerEntrypoint"
+            type="textarea"
+            :autosize="{ minRows: 4, maxRows: 8 }"
+            class="entry-editor"
+            @input="markWorkerEntrypointCustomized"
+          />
         </div>
 
         <div class="section-card">
@@ -475,6 +436,9 @@ type OptimusBackendRole = 'worker' | 'prefill' | 'decode'
 type WorkloadFormModel = Omit<DynamoFormModel, 'kvTransferBackend'> & {
   frontend: DynamoRoleResourceForm
   routerPolicy: OptimusRouterPolicy
+  workerBackendEngine: DynamoBackendEngine
+  prefillBackendEngine: DynamoBackendEngine
+  decodeBackendEngine: DynamoBackendEngine
   frontendEntrypoint: string
   workerEntrypoint: string
   prefillEntrypoint: string
@@ -624,16 +588,6 @@ const optimusRoleSections = computed(() => {
   ]
 })
 
-const optimusBackendEntrySections = computed(() => {
-  if (form.enablePd) {
-    return [
-      { key: 'prefill' as const, title: 'Prefill', resource: form.prefill },
-      { key: 'decode' as const, title: 'Decode', resource: form.decode },
-    ]
-  }
-  return [{ key: 'worker' as const, title: 'Worker', resource: form.worker }]
-})
-
 const getAggregationHint = (role: string) => {
   if (role === 'worker') {
     return 'Replica > 1 creates independent worker replicas unless Aggregation is enabled.'
@@ -729,9 +683,9 @@ watch(
   () =>
     [
       isOptimus.value,
-      buildWorkerEntrypoint(form, form.worker),
-      buildWorkerEntrypoint(form, form.prefill),
-      buildWorkerEntrypoint(form, form.decode),
+      buildWorkerEntrypoint(form, form.worker, 'worker'),
+      buildWorkerEntrypoint(form, form.prefill, 'prefill'),
+      buildWorkerEntrypoint(form, form.decode, 'decode'),
     ] as const,
   ([optimus, workerCommand, prefillCommand, decodeCommand]) => {
     if (!optimus) return
@@ -835,10 +789,10 @@ function hydrateFormFromDetail(detail: DynamoDetail) {
         : ''
       next.prefill = mergeResource(next.prefill, detail.resources?.[1])
       next.decode = mergeResource(next.decode, detail.resources?.[2])
-      applyEntrypointToResource(next, next.prefill, prefillEntryPoint)
-      applyEntrypointToResource(next, next.decode, decodeEntryPoint)
-      next.prefillEntrypoint = prefillEntryPoint || buildWorkerEntrypoint(next, next.prefill)
-      next.decodeEntrypoint = decodeEntryPoint || buildWorkerEntrypoint(next, next.decode)
+      applyEntrypointToResource(next, next.prefill, prefillEntryPoint, 'prefill')
+      applyEntrypointToResource(next, next.decode, decodeEntryPoint, 'decode')
+      next.prefillEntrypoint = prefillEntryPoint || buildWorkerEntrypoint(next, next.prefill, 'prefill')
+      next.decodeEntrypoint = decodeEntryPoint || buildWorkerEntrypoint(next, next.decode, 'decode')
       customizedEntrypoints.prefill = Boolean(prefillEntryPoint)
       customizedEntrypoints.decode = Boolean(decodeEntryPoint)
     } else {
@@ -846,8 +800,8 @@ function hydrateFormFromDetail(detail: DynamoDetail) {
         ? decodeFromBase64String(detail.entryPoints[1])
         : ''
       next.worker = mergeResource(next.worker, detail.resources?.[1])
-      applyEntrypointToResource(next, next.worker, workerEntryPoint)
-      next.workerEntrypoint = workerEntryPoint || buildWorkerEntrypoint(next, next.worker)
+      applyEntrypointToResource(next, next.worker, workerEntryPoint, 'worker')
+      next.workerEntrypoint = workerEntryPoint || buildWorkerEntrypoint(next, next.worker, 'worker')
       customizedEntrypoints.worker = Boolean(workerEntryPoint)
     }
   } else if (next.enablePd) {
@@ -891,15 +845,28 @@ function setRoleEntrypoint(role: OptimusBackendRole, value: string) {
   if (role === 'prefill') form.prefillEntrypoint = value
   else if (role === 'decode') form.decodeEntrypoint = value
   else form.workerEntrypoint = value
-  customizedEntrypoints[role] = value !== buildWorkerEntrypoint(form, form[role])
+  customizedEntrypoints[role] = value !== buildWorkerEntrypoint(form, form[role], role)
 }
 
 function resetRoleEntrypointFromOptions(role: OptimusBackendRole) {
-  const command = buildWorkerEntrypoint(form, form[role])
+  const command = buildWorkerEntrypoint(form, form[role], role)
   if (role === 'prefill') form.prefillEntrypoint = command
   else if (role === 'decode') form.decodeEntrypoint = command
   else form.workerEntrypoint = command
   customizedEntrypoints[role] = false
+}
+
+function getRoleBackendEngine(role: OptimusBackendRole) {
+  if (role === 'prefill') return form.prefillBackendEngine
+  if (role === 'decode') return form.decodeBackendEngine
+  return form.workerBackendEngine
+}
+
+function setRoleBackendEngine(role: OptimusBackendRole, value: string) {
+  const backendEngine = (value === 'vllm' ? 'vllm' : 'sglang') as DynamoBackendEngine
+  if (role === 'prefill') form.prefillBackendEngine = backendEngine
+  else if (role === 'decode') form.decodeBackendEngine = backendEngine
+  else form.workerBackendEngine = backendEngine
 }
 
 function resetAllRoleEntrypointsFromOptions() {
@@ -925,10 +892,20 @@ function buildCreatePayload(target: WorkloadFormModel, workspace: string) {
     : buildDynamoCreatePayload(target as DynamoFormModel, workspace)
 }
 
-function buildWorkerEntrypoint(target: WorkloadFormModel, resource: DynamoRoleResourceForm) {
+function buildWorkerEntrypoint(
+  target: WorkloadFormModel,
+  resource: DynamoRoleResourceForm,
+  role?: OptimusBackendRole,
+) {
   return isOptimus.value
-    ? buildOptimusWorkerEntrypoint(target as any, resource)
+    ? buildOptimusWorkerEntrypoint(target as any, resource, role ? getTargetRoleBackendEngine(target, role) : 'sglang')
     : buildDynamoWorkerEntrypoint(target as DynamoFormModel, resource)
+}
+
+function getTargetRoleBackendEngine(target: WorkloadFormModel, role: OptimusBackendRole) {
+  if (role === 'prefill') return target.prefillBackendEngine
+  if (role === 'decode') return target.decodeBackendEngine
+  return target.workerBackendEngine
 }
 
 function getDetailOptions(detail: DynamoDetail) {
@@ -977,9 +954,17 @@ function applyEntrypointToResource(
   target: WorkloadFormModel,
   resource: DynamoRoleResourceForm,
   command: string,
+  role?: OptimusBackendRole,
 ) {
   if (!command) return
-  target.backendEngine = readBackendEngine(command) || target.backendEngine
+  const backendEngine = readBackendEngine(command)
+  if (role && backendEngine) {
+    if (role === 'prefill') target.prefillBackendEngine = backendEngine
+    else if (role === 'decode') target.decodeBackendEngine = backendEngine
+    else target.workerBackendEngine = backendEngine
+  } else {
+    target.backendEngine = backendEngine || target.backendEngine
+  }
   target.modelPath = readFlag(command, '--model-path') || target.modelPath
   resource.tpSize = Number(readFlag(command, '--tp-size') || resource.tpSize)
   resource.epSize = Number(readFlag(command, '--ep-size') || resource.epSize)

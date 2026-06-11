@@ -14,6 +14,9 @@ export interface OptimusFormModel {
   image: string
   modelPath: string
   backendEngine: OptimusBackendEngine
+  workerBackendEngine: OptimusBackendEngine
+  prefillBackendEngine: OptimusBackendEngine
+  decodeBackendEngine: OptimusBackendEngine
   attentionBackend: string
   memFractionStatic: string
   routerPolicy: OptimusRouterPolicy
@@ -100,6 +103,9 @@ export function createDefaultOptimusForm(): OptimusFormModel {
     image: OPTIMUS_DEFAULT_IMAGE,
     modelPath: '/wekafs/models/DeepSeek-R1-0528',
     backendEngine: 'sglang',
+    workerBackendEngine: 'sglang',
+    prefillBackendEngine: 'sglang',
+    decodeBackendEngine: 'sglang',
     attentionBackend: 'aiter',
     memFractionStatic: '0.75',
     routerPolicy: 'kv-aware',
@@ -136,19 +142,19 @@ export function buildOptimusWorkerEntrypoint(
   form: Pick<
     OptimusFormModel,
     | 'modelPath'
-    | 'backendEngine'
     | 'attentionBackend'
     | 'memFractionStatic'
     | 'enablePd'
     | 'enableAggregation'
   >,
   resource: OptimusRoleResourceForm,
+  backendEngine: OptimusBackendEngine = 'sglang',
 ) {
   const defaultTpSize = getOptimusDefaultTpSize(resource)
   const tpSize = form.enableAggregation && !form.enablePd ? defaultTpSize : resource.tpSize || 8
   const epSize = form.enableAggregation && !form.enablePd ? defaultTpSize : resource.epSize || tpSize
   const args = [
-    `python3 -m rocserve.engine.${form.backendEngine || 'sglang'}`,
+    `python3 -m rocserve.engine.${backendEngine || 'sglang'}`,
     `--model-path ${form.modelPath}`,
     `--tp-size ${tpSize}`,
     `--ep-size ${epSize}`,
@@ -179,13 +185,13 @@ export function buildOptimusCreatePayload(form: OptimusFormModel, workspace: str
 
   const frontendEntryPoint = encodeToBase64String(resolveFrontendEntrypoint(form))
   const workerEntryPoint = encodeToBase64String(
-    resolveBackendEntrypoint(form, form.worker, form.workerEntrypoint),
+    resolveBackendEntrypoint(form, form.worker, form.workerEntrypoint, form.workerBackendEngine),
   )
   const prefillEntryPoint = encodeToBase64String(
-    resolveBackendEntrypoint(form, form.prefill, form.prefillEntrypoint),
+    resolveBackendEntrypoint(form, form.prefill, form.prefillEntrypoint, form.prefillBackendEngine),
   )
   const decodeEntryPoint = encodeToBase64String(
-    resolveBackendEntrypoint(form, form.decode, form.decodeEntrypoint),
+    resolveBackendEntrypoint(form, form.decode, form.decodeEntrypoint, form.decodeBackendEngine),
   )
 
   if (form.enablePd) {
@@ -273,7 +279,6 @@ function resolveBackendEntrypoint(
   form: Pick<
     OptimusFormModel,
     | 'modelPath'
-    | 'backendEngine'
     | 'attentionBackend'
     | 'memFractionStatic'
     | 'enablePd'
@@ -281,8 +286,11 @@ function resolveBackendEntrypoint(
   >,
   resource: OptimusRoleResourceForm,
   customEntrypoint: string,
+  backendEngine: OptimusBackendEngine,
 ) {
-  return customEntrypoint.trim() ? customEntrypoint : buildOptimusWorkerEntrypoint(form, resource)
+  return customEntrypoint.trim()
+    ? customEntrypoint
+    : buildOptimusWorkerEntrypoint(form, resource, backendEngine)
 }
 
 function toResourcePayload(resource: OptimusRoleResourceForm): OptimusResourcePayload {
