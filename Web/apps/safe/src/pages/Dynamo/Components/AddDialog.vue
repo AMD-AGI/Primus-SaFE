@@ -58,84 +58,236 @@
             <div class="section-bar"></div>
             <div class="section-header-content">
               <div>
-                <div class="section-title">Resources</div>
-                <div class="section-subtitle">Configure backend role resources</div>
+                <div class="section-title">{{ isOptimus ? 'Role Configuration' : 'Resources' }}</div>
+                <div class="section-subtitle">
+                  {{ isOptimus ? 'Configure each role resources and entrypoint together' : 'Configure role resources' }}
+                </div>
               </div>
               <el-segmented v-model="modeValue" :options="['Default', 'PD']" />
             </div>
           </div>
 
-          <template v-for="(section, index) in resourceSections" :key="section.key">
-            <el-divider v-if="index > 0" />
-            <div class="resource-title-row">
-              <div>
-                <div class="resource-title">{{ section.title }}</div>
-                <el-text
-                  v-if="getAggregationWarning(section.key)"
-                  size="small"
-                  type="warning"
-                  class="block mt-1"
-                >
-                  {{ getAggregationWarning(section.key) }}
-                </el-text>
-              </div>
-              <div class="resource-aggregation">
-                <span class="text-sm text-[var(--el-text-color-regular)]">Aggregation</span>
-                <el-tooltip :content="getAggregationHint(section.key)" placement="top">
-                  <el-icon class="aggregation-info"><InfoFilled /></el-icon>
-                </el-tooltip>
-                <el-switch
-                  :model-value="isRoleAggregated(section.key)"
-                  :disabled="isRoleAggregationDisabled(section.key)"
-                  @update:model-value="(value: boolean) => setRoleAggregation(section.key, value)"
-                />
-              </div>
-            </div>
-            <el-row :gutter="16">
-              <el-col :span="12">
-                <el-form-item label="replicas" :prop="`${section.key}.replica`">
-                  <el-input-number
-                    v-model="section.resource.replica"
-                    :min="1"
-                    controls-position="right"
-                    class="w-full"
+          <template v-if="isOptimus">
+            <el-form-item label="modelPath" prop="modelPath">
+              <el-input v-model="form.modelPath" />
+            </el-form-item>
+
+            <div
+              v-for="section in optimusRoleSections"
+              :key="section.key"
+              class="optimus-role-card"
+            >
+              <div class="resource-title-row">
+                <div>
+                  <div class="resource-title">{{ section.title }}</div>
+                  <el-text
+                    v-if="section.key !== 'frontend' && getAggregationWarning(section.key)"
+                    size="small"
+                    type="warning"
+                    class="block mt-1"
+                  >
+                    {{ getAggregationWarning(section.key) }}
+                  </el-text>
+                </div>
+                <div v-if="section.key !== 'frontend'" class="resource-aggregation">
+                  <span class="text-sm text-[var(--el-text-color-regular)]">Aggregation</span>
+                  <el-tooltip :content="getAggregationHint(section.key)" placement="top">
+                    <el-icon class="aggregation-info"><InfoFilled /></el-icon>
+                  </el-tooltip>
+                  <el-switch
+                    :model-value="isRoleAggregated(section.key)"
+                    :disabled="isRoleAggregationDisabled(section.key)"
+                    @update:model-value="(value: boolean) => setRoleAggregation(section.key, value)"
                   />
+                </div>
+              </div>
+
+              <div class="role-subsection-title">Resources</div>
+              <el-row :gutter="16">
+                <el-col :span="12">
+                  <el-form-item label="replicas" :prop="`${section.key}.replica`">
+                    <el-input-number
+                      v-model="section.resource.replica"
+                      :min="1"
+                      controls-position="right"
+                      class="w-full"
+                    />
+                  </el-form-item>
+                </el-col>
+                <el-col :span="12">
+                  <el-form-item label="cpu" :prop="`${section.key}.cpu`">
+                    <el-input v-model="section.resource.cpu" />
+                  </el-form-item>
+                </el-col>
+                <el-col v-if="section.key !== 'frontend'" :span="12">
+                  <el-form-item label="gpu">
+                    <el-input v-model="section.resource.gpu" />
+                  </el-form-item>
+                </el-col>
+                <el-col :span="12">
+                  <el-form-item label="memory" :prop="`${section.key}.memory`">
+                    <el-input v-model="section.resource.memory" placeholder="256">
+                      <template #append>Gi</template>
+                    </el-input>
+                  </el-form-item>
+                </el-col>
+                <el-col v-if="section.key !== 'frontend'" :span="12">
+                  <el-form-item label="rdmaResource">
+                    <el-input v-model="section.resource.rdmaResource" placeholder="Leave empty if not needed" />
+                  </el-form-item>
+                </el-col>
+                <el-col v-if="section.key !== 'frontend'" :span="12">
+                  <el-form-item label="sharedMemory">
+                    <el-input v-model="section.resource.sharedMemory" placeholder="200">
+                      <template #append>Gi</template>
+                    </el-input>
+                  </el-form-item>
+                </el-col>
+              </el-row>
+
+              <template v-if="section.key === 'frontend'">
+                <div class="role-subsection-title">Entrypoint</div>
+                <el-form-item label="routerPolicy">
+                  <el-select v-model="form.routerPolicy">
+                    <el-option label="kv-aware" value="kv-aware" />
+                    <el-option label="round-robin" value="round-robin" />
+                  </el-select>
                 </el-form-item>
-              </el-col>
-              <el-col :span="12">
-                <el-form-item label="cpu" :prop="`${section.key}.cpu`">
-                  <el-input v-model="section.resource.cpu" />
-                </el-form-item>
-              </el-col>
-              <el-col :span="12">
-                <el-form-item label="gpu">
-                  <el-input v-model="section.resource.gpu" />
-                </el-form-item>
-              </el-col>
-              <el-col :span="12">
-                <el-form-item label="memory" :prop="`${section.key}.memory`">
-                  <el-input v-model="section.resource.memory" placeholder="256">
-                    <template #append>Gi</template>
-                  </el-input>
-                </el-form-item>
-              </el-col>
-              <el-col :span="12">
-                <el-form-item label="rdmaResource">
-                  <el-input v-model="section.resource.rdmaResource" placeholder="Leave empty if not needed" />
-                </el-form-item>
-              </el-col>
-              <el-col :span="12">
-                <el-form-item label="sharedMemory">
-                  <el-input v-model="section.resource.sharedMemory" placeholder="200">
-                    <template #append>Gi</template>
-                  </el-input>
-                </el-form-item>
-              </el-col>
-            </el-row>
+                <el-input
+                  :model-value="frontendPreview"
+                  type="textarea"
+                  readonly
+                  :autosize="{ minRows: 3, maxRows: 6 }"
+                  class="entry-editor"
+                />
+              </template>
+
+              <template v-else>
+                <div class="role-subsection-header">
+                  <div>
+                    <div class="role-subsection-title">EntryPoint Parameters</div>
+                    <el-text size="small" type="info">
+                      Edit parameters here, or edit the full command below.
+                    </el-text>
+                  </div>
+                  <el-button size="small" @click="resetRoleEntrypointFromOptions(section.key)">
+                    Reset from options
+                  </el-button>
+                </div>
+                <el-row :gutter="16">
+                  <el-col :span="12">
+                    <el-form-item label="backend">
+                      <el-select v-model="form.backendEngine">
+                        <el-option label="sglang" value="sglang" />
+                        <el-option label="vllm" value="vllm" />
+                      </el-select>
+                    </el-form-item>
+                  </el-col>
+                  <el-col :span="12">
+                    <el-form-item label="tpSize" :prop="`${section.key}.tpSize`">
+                      <el-input-number
+                        v-model="section.resource.tpSize"
+                        :min="1"
+                        controls-position="right"
+                        class="w-full"
+                      />
+                    </el-form-item>
+                  </el-col>
+                  <el-col :span="12">
+                    <el-form-item label="epSize" :prop="`${section.key}.epSize`">
+                      <el-input-number
+                        v-model="section.resource.epSize"
+                        :min="1"
+                        controls-position="right"
+                        class="w-full"
+                      />
+                    </el-form-item>
+                  </el-col>
+                </el-row>
+                <el-input
+                  :model-value="getRoleEntrypoint(section.key)"
+                  type="textarea"
+                  :autosize="{ minRows: 4, maxRows: 8 }"
+                  class="entry-editor"
+                  @input="(value: string) => setRoleEntrypoint(section.key, value)"
+                />
+              </template>
+            </div>
+          </template>
+
+          <template v-else>
+            <template v-for="(section, index) in resourceSections" :key="section.key">
+              <el-divider v-if="index > 0" />
+              <div class="resource-title-row">
+                <div>
+                  <div class="resource-title">{{ section.title }}</div>
+                  <el-text
+                    v-if="section.key !== 'frontend' && getAggregationWarning(section.key)"
+                    size="small"
+                    type="warning"
+                    class="block mt-1"
+                  >
+                    {{ getAggregationWarning(section.key) }}
+                  </el-text>
+                </div>
+                <div v-if="section.key !== 'frontend'" class="resource-aggregation">
+                  <span class="text-sm text-[var(--el-text-color-regular)]">Aggregation</span>
+                  <el-tooltip :content="getAggregationHint(section.key)" placement="top">
+                    <el-icon class="aggregation-info"><InfoFilled /></el-icon>
+                  </el-tooltip>
+                  <el-switch
+                    :model-value="isRoleAggregated(section.key)"
+                    :disabled="isRoleAggregationDisabled(section.key)"
+                    @update:model-value="(value: boolean) => setRoleAggregation(section.key, value)"
+                  />
+                </div>
+              </div>
+              <el-row :gutter="16">
+                <el-col :span="12">
+                  <el-form-item label="replicas" :prop="`${section.key}.replica`">
+                    <el-input-number
+                      v-model="section.resource.replica"
+                      :min="1"
+                      controls-position="right"
+                      class="w-full"
+                    />
+                  </el-form-item>
+                </el-col>
+                <el-col :span="12">
+                  <el-form-item label="cpu" :prop="`${section.key}.cpu`">
+                    <el-input v-model="section.resource.cpu" />
+                  </el-form-item>
+                </el-col>
+                <el-col v-if="section.key !== 'frontend'" :span="12">
+                  <el-form-item label="gpu">
+                    <el-input v-model="section.resource.gpu" />
+                  </el-form-item>
+                </el-col>
+                <el-col :span="12">
+                  <el-form-item label="memory" :prop="`${section.key}.memory`">
+                    <el-input v-model="section.resource.memory" placeholder="256">
+                      <template #append>Gi</template>
+                    </el-input>
+                  </el-form-item>
+                </el-col>
+                <el-col v-if="section.key !== 'frontend'" :span="12">
+                  <el-form-item label="rdmaResource">
+                    <el-input v-model="section.resource.rdmaResource" placeholder="Leave empty if not needed" />
+                  </el-form-item>
+                </el-col>
+                <el-col v-if="section.key !== 'frontend'" :span="12">
+                  <el-form-item label="sharedMemory">
+                    <el-input v-model="section.resource.sharedMemory" placeholder="200">
+                      <template #append>Gi</template>
+                    </el-input>
+                  </el-form-item>
+                </el-col>
+              </el-row>
+            </template>
           </template>
         </div>
 
-        <div class="section-card">
+        <div v-if="!isOptimus" class="section-card">
           <div class="section-header">
             <div class="section-bar"></div>
             <div>
@@ -158,33 +310,75 @@
                 </el-select>
               </el-form-item>
             </el-col>
-            <el-col :span="12">
+            <el-col v-if="!isOptimus" :span="12">
               <el-form-item label="tpSize" prop="worker.tpSize">
                 <el-input-number v-model="form.worker.tpSize" :min="1" controls-position="right" class="w-full" />
               </el-form-item>
             </el-col>
-            <el-col :span="12">
+            <el-col v-if="!isOptimus" :span="12">
               <el-form-item label="epSize" prop="worker.epSize">
                 <el-input-number v-model="form.worker.epSize" :min="1" controls-position="right" class="w-full" />
               </el-form-item>
             </el-col>
           </el-row>
 
-          <div class="entry-editor-toolbar">
-            <el-text size="small" type="info">
-              Edit the full command directly, or reset it from the options above.
-            </el-text>
-            <el-button size="small" @click="resetWorkerEntrypointFromOptions">
-              Reset from options
-            </el-button>
-          </div>
-          <el-input
-            v-model="form.workerEntrypoint"
-            type="textarea"
-            :autosize="{ minRows: 4, maxRows: 8 }"
-            class="entry-editor"
-            @input="markWorkerEntrypointCustomized"
-          />
+          <template v-if="isOptimus">
+            <el-divider />
+            <div class="entry-role-title">Frontend</div>
+            <el-form-item label="routerPolicy">
+              <el-select v-model="form.routerPolicy">
+                <el-option label="kv-aware" value="kv-aware" />
+                <el-option label="round-robin" value="round-robin" />
+              </el-select>
+            </el-form-item>
+            <el-input
+              :model-value="frontendPreview"
+              type="textarea"
+              readonly
+              :autosize="{ minRows: 3, maxRows: 6 }"
+              class="entry-editor"
+            />
+
+            <template v-for="section in optimusBackendEntrySections" :key="section.key">
+              <el-divider />
+              <div class="entry-editor-toolbar">
+                <div>
+                  <div class="entry-role-title">{{ section.title }}</div>
+                  <el-text size="small" type="info">
+                    Edit this role command directly, or reset it from the options above.
+                  </el-text>
+                </div>
+                <el-button size="small" @click="resetRoleEntrypointFromOptions(section.key)">
+                  Reset from options
+                </el-button>
+              </div>
+              <el-input
+                :model-value="getRoleEntrypoint(section.key)"
+                type="textarea"
+                :autosize="{ minRows: 4, maxRows: 8 }"
+                class="entry-editor"
+                @input="(value: string) => setRoleEntrypoint(section.key, value)"
+              />
+            </template>
+          </template>
+
+          <template v-else>
+            <div class="entry-editor-toolbar">
+              <el-text size="small" type="info">
+                Edit the full command directly, or reset it from the options above.
+              </el-text>
+              <el-button size="small" @click="resetWorkerEntrypointFromOptions">
+                Reset from options
+              </el-button>
+            </div>
+            <el-input
+              v-model="form.workerEntrypoint"
+              type="textarea"
+              :autosize="{ minRows: 4, maxRows: 8 }"
+              class="entry-editor"
+              @input="markWorkerEntrypointCustomized"
+            />
+          </template>
         </div>
 
         <div class="section-card">
@@ -269,10 +463,24 @@ import {
 import {
   OPTIMUS_SERVICE,
   buildOptimusCreatePayload,
+  buildOptimusFrontendEntrypoint,
   buildOptimusWorkerEntrypoint,
   createDefaultOptimusForm,
   getOptimusDefaultTpSize,
+  type OptimusKvTransferBackend,
+  type OptimusRouterPolicy,
 } from '@/pages/Optimus/optimusPayload'
+
+type OptimusBackendRole = 'worker' | 'prefill' | 'decode'
+type WorkloadFormModel = Omit<DynamoFormModel, 'kvTransferBackend'> & {
+  frontend: DynamoRoleResourceForm
+  routerPolicy: OptimusRouterPolicy
+  frontendEntrypoint: string
+  workerEntrypoint: string
+  prefillEntrypoint: string
+  decodeEntrypoint: string
+  kvTransferBackend: DynamoKvTransferBackend | OptimusKvTransferBackend
+}
 
 const props = withDefaults(defineProps<{
   visible: boolean
@@ -296,11 +504,18 @@ const workloadService = computed(() => (isOptimus.value ? OPTIMUS_SERVICE : DYNA
 const kvBackendOptions = computed(() => (isOptimus.value ? ['mori'] : ['nixl', 'mooncake']))
 
 const ruleFormRef = ref<FormInstance>()
-const form = reactive<DynamoFormModel>(createDefaultDynamoForm())
+const form = reactive<WorkloadFormModel>(
+  (props.workloadType === 'optimus' ? createDefaultOptimusForm() : createDefaultDynamoForm()) as WorkloadFormModel,
+)
 const envList = ref(convertKeyValueMapToList(form.env))
 const loading = ref(false)
 const submitting = ref(false)
 const isWorkerEntrypointCustomized = ref(false)
+const customizedEntrypoints = reactive<Record<OptimusBackendRole, boolean>>({
+  worker: false,
+  prefill: false,
+  decode: false,
+})
 const advancedOpen = ref(false)
 
 const nameRegex = /^[a-z](?:[-a-z0-9]{0,38}[a-z0-9])?$/
@@ -333,6 +548,9 @@ const rules = reactive<FormRules>({
   'worker.replica': [required('Please input replica')],
   'worker.cpu': [required('Please input cpu')],
   'worker.memory': [required('Please input memory')],
+  'frontend.replica': [required('Please input replica')],
+  'frontend.cpu': [required('Please input cpu')],
+  'frontend.memory': [required('Please input memory')],
   'prefill.replica': [required('Please input replica')],
   'prefill.cpu': [required('Please input cpu')],
   'prefill.memory': [required('Please input memory')],
@@ -353,7 +571,7 @@ interface DynamoDetail {
   env?: Record<string, string>
   entryPoints?: string[]
   resources?: Array<Partial<DynamoRoleResourceForm>>
-  service?: Partial<DynamoFormModel['service']>
+  service?: Partial<WorkloadFormModel['service']>
   dynamoOptions?: {
     serviceRoles?: string[]
     multinodeRoles?: string[]
@@ -374,15 +592,46 @@ const modeValue = computed({
 })
 
 const backendPreview = computed(() => buildWorkerEntrypoint(form, form.worker))
+const frontendPreview = computed(() => buildOptimusFrontendEntrypoint(form))
 
 const resourceSections = computed(() => {
   if (form.enablePd) {
-    return [
+    const sections = [
       { key: 'prefill', title: 'Prefill', resource: form.prefill },
       { key: 'decode', title: 'Decode', resource: form.decode },
     ]
+    return isOptimus.value
+      ? [{ key: 'frontend', title: 'Frontend', resource: form.frontend }, ...sections]
+      : sections
   }
-  return [{ key: 'worker', title: 'Worker', resource: form.worker }]
+  const sections = [{ key: 'worker', title: 'Worker', resource: form.worker }]
+  return isOptimus.value
+    ? [{ key: 'frontend', title: 'Frontend', resource: form.frontend }, ...sections]
+    : sections
+})
+
+const optimusRoleSections = computed(() => {
+  if (form.enablePd) {
+    return [
+      { key: 'frontend' as const, title: 'Frontend', resource: form.frontend },
+      { key: 'prefill' as const, title: 'Prefill', resource: form.prefill },
+      { key: 'decode' as const, title: 'Decode', resource: form.decode },
+    ]
+  }
+  return [
+    { key: 'frontend' as const, title: 'Frontend', resource: form.frontend },
+    { key: 'worker' as const, title: 'Worker', resource: form.worker },
+  ]
+})
+
+const optimusBackendEntrySections = computed(() => {
+  if (form.enablePd) {
+    return [
+      { key: 'prefill' as const, title: 'Prefill', resource: form.prefill },
+      { key: 'decode' as const, title: 'Decode', resource: form.decode },
+    ]
+  }
+  return [{ key: 'worker' as const, title: 'Worker', resource: form.worker }]
 })
 
 const getAggregationHint = (role: string) => {
@@ -469,9 +718,26 @@ watch(
 watch(
   backendPreview,
   (command) => {
-    if (!isWorkerEntrypointCustomized.value) {
+    if (!isOptimus.value && !isWorkerEntrypointCustomized.value) {
       form.workerEntrypoint = command
     }
+  },
+  { immediate: true },
+)
+
+watch(
+  () =>
+    [
+      isOptimus.value,
+      buildWorkerEntrypoint(form, form.worker),
+      buildWorkerEntrypoint(form, form.prefill),
+      buildWorkerEntrypoint(form, form.decode),
+    ] as const,
+  ([optimus, workerCommand, prefillCommand, decodeCommand]) => {
+    if (!optimus) return
+    if (!customizedEntrypoints.worker) form.workerEntrypoint = workerCommand
+    if (!customizedEntrypoints.prefill) form.prefillEntrypoint = prefillCommand
+    if (!customizedEntrypoints.decode) form.decodeEntrypoint = decodeCommand
   },
   { immediate: true },
 )
@@ -521,6 +787,7 @@ function resetForm() {
   Object.assign(form, next)
   envList.value = convertKeyValueMapToList(next.env)
   isWorkerEntrypointCustomized.value = false
+  resetEntrypointCustomization()
   advancedOpen.value = false
   resetWorkerEntrypointFromOptions()
 }
@@ -544,24 +811,61 @@ function hydrateFormFromDetail(detail: DynamoDetail) {
   next.pdAggregationRoles = multinodeRoles.filter(
     (role): role is DynamoPdAggregationRole => role === 'prefill' || role === 'decode',
   )
-  next.kvTransferBackend = (dynamoOptions.kvTransferBackend || next.kvTransferBackend) as DynamoKvTransferBackend
-
-  const entryPoint = detail.entryPoints?.[1] ? decodeFromBase64String(detail.entryPoints[1]) : ''
-  applyEntrypointToForm(next, entryPoint)
-  next.workerEntrypoint = entryPoint || buildWorkerEntrypoint(next, next.worker)
+  next.kvTransferBackend = (
+    dynamoOptions.kvTransferBackend || next.kvTransferBackend
+  ) as WorkloadFormModel['kvTransferBackend']
 
   next.service = { ...workloadService.value }
 
-  if (next.enablePd) {
+  if (isOptimus.value) {
+    const frontendEntryPoint = detail.entryPoints?.[0]
+      ? decodeFromBase64String(detail.entryPoints[0])
+      : ''
+    next.frontend = mergeResource(next.frontend, detail.resources?.[0])
+    next.routerPolicy =
+      (readFlag(frontendEntryPoint, '--router-policy') as OptimusRouterPolicy) || next.routerPolicy
+    next.frontendEntrypoint = frontendEntryPoint || buildOptimusFrontendEntrypoint(next)
+
+    if (next.enablePd) {
+      const prefillEntryPoint = detail.entryPoints?.[1]
+        ? decodeFromBase64String(detail.entryPoints[1])
+        : ''
+      const decodeEntryPoint = detail.entryPoints?.[2]
+        ? decodeFromBase64String(detail.entryPoints[2])
+        : ''
+      next.prefill = mergeResource(next.prefill, detail.resources?.[1])
+      next.decode = mergeResource(next.decode, detail.resources?.[2])
+      applyEntrypointToResource(next, next.prefill, prefillEntryPoint)
+      applyEntrypointToResource(next, next.decode, decodeEntryPoint)
+      next.prefillEntrypoint = prefillEntryPoint || buildWorkerEntrypoint(next, next.prefill)
+      next.decodeEntrypoint = decodeEntryPoint || buildWorkerEntrypoint(next, next.decode)
+      customizedEntrypoints.prefill = Boolean(prefillEntryPoint)
+      customizedEntrypoints.decode = Boolean(decodeEntryPoint)
+    } else {
+      const workerEntryPoint = detail.entryPoints?.[1]
+        ? decodeFromBase64String(detail.entryPoints[1])
+        : ''
+      next.worker = mergeResource(next.worker, detail.resources?.[1])
+      applyEntrypointToResource(next, next.worker, workerEntryPoint)
+      next.workerEntrypoint = workerEntryPoint || buildWorkerEntrypoint(next, next.worker)
+      customizedEntrypoints.worker = Boolean(workerEntryPoint)
+    }
+  } else if (next.enablePd) {
+    const entryPoint = detail.entryPoints?.[1] ? decodeFromBase64String(detail.entryPoints[1]) : ''
+    applyEntrypointToForm(next, entryPoint)
+    next.workerEntrypoint = entryPoint || buildWorkerEntrypoint(next, next.worker)
     next.prefill = mergeResource(next.prefill, detail.resources?.[1])
     next.decode = mergeResource(next.decode, detail.resources?.[2])
   } else {
+    const entryPoint = detail.entryPoints?.[1] ? decodeFromBase64String(detail.entryPoints[1]) : ''
+    applyEntrypointToForm(next, entryPoint)
+    next.workerEntrypoint = entryPoint || buildWorkerEntrypoint(next, next.worker)
     next.worker = mergeResource(next.worker, detail.resources?.[1])
   }
 
   Object.assign(form, next)
   envList.value = convertKeyValueMapToList(next.env)
-  isWorkerEntrypointCustomized.value = Boolean(entryPoint)
+  isWorkerEntrypointCustomized.value = !isOptimus.value && Boolean(detail.entryPoints?.[1])
 }
 
 function markWorkerEntrypointCustomized() {
@@ -569,24 +873,62 @@ function markWorkerEntrypointCustomized() {
 }
 
 function resetWorkerEntrypointFromOptions() {
+  if (isOptimus.value) {
+    resetAllRoleEntrypointsFromOptions()
+    return
+  }
   form.workerEntrypoint = backendPreview.value
   isWorkerEntrypointCustomized.value = false
 }
 
-function createDefaultForm(): DynamoFormModel {
-  return (isOptimus.value ? createDefaultOptimusForm() : createDefaultDynamoForm()) as DynamoFormModel
+function getRoleEntrypoint(role: OptimusBackendRole) {
+  if (role === 'prefill') return form.prefillEntrypoint
+  if (role === 'decode') return form.decodeEntrypoint
+  return form.workerEntrypoint
 }
 
-function buildCreatePayload(target: DynamoFormModel, workspace: string) {
+function setRoleEntrypoint(role: OptimusBackendRole, value: string) {
+  if (role === 'prefill') form.prefillEntrypoint = value
+  else if (role === 'decode') form.decodeEntrypoint = value
+  else form.workerEntrypoint = value
+  customizedEntrypoints[role] = value !== buildWorkerEntrypoint(form, form[role])
+}
+
+function resetRoleEntrypointFromOptions(role: OptimusBackendRole) {
+  const command = buildWorkerEntrypoint(form, form[role])
+  if (role === 'prefill') form.prefillEntrypoint = command
+  else if (role === 'decode') form.decodeEntrypoint = command
+  else form.workerEntrypoint = command
+  customizedEntrypoints[role] = false
+}
+
+function resetAllRoleEntrypointsFromOptions() {
+  resetRoleEntrypointFromOptions('worker')
+  resetRoleEntrypointFromOptions('prefill')
+  resetRoleEntrypointFromOptions('decode')
+}
+
+function resetEntrypointCustomization() {
+  isWorkerEntrypointCustomized.value = false
+  customizedEntrypoints.worker = false
+  customizedEntrypoints.prefill = false
+  customizedEntrypoints.decode = false
+}
+
+function createDefaultForm(): WorkloadFormModel {
+  return (isOptimus.value ? createDefaultOptimusForm() : createDefaultDynamoForm()) as WorkloadFormModel
+}
+
+function buildCreatePayload(target: WorkloadFormModel, workspace: string) {
   return isOptimus.value
     ? buildOptimusCreatePayload(target as any, workspace)
-    : buildDynamoCreatePayload(target, workspace)
+    : buildDynamoCreatePayload(target as DynamoFormModel, workspace)
 }
 
-function buildWorkerEntrypoint(target: DynamoFormModel, resource: DynamoRoleResourceForm) {
+function buildWorkerEntrypoint(target: WorkloadFormModel, resource: DynamoRoleResourceForm) {
   return isOptimus.value
     ? buildOptimusWorkerEntrypoint(target as any, resource)
-    : buildDynamoWorkerEntrypoint(target, resource)
+    : buildDynamoWorkerEntrypoint(target as DynamoFormModel, resource)
 }
 
 function getDetailOptions(detail: DynamoDetail) {
@@ -619,17 +961,30 @@ function stripGi(value: string) {
   return String(value).replace(/Gi$/i, '')
 }
 
-function applyEntrypointToForm(target: DynamoFormModel, command: string) {
+function applyEntrypointToForm(target: WorkloadFormModel, command: string) {
   if (!command) return
   target.backendEngine = readBackendEngine(command) || target.backendEngine
   target.modelPath = readFlag(command, '--model-path') || target.modelPath
-  target.worker.tpSize = Number(readFlag(command, '--tp-size') || target.worker.tpSize)
-  target.worker.epSize = Number(readFlag(command, '--ep-size') || target.worker.epSize)
+  applyEntrypointToResource(target, target.worker, command)
   target.attentionBackend = readFlag(command, '--attention-backend') || target.attentionBackend
   target.memFractionStatic = readFlag(command, '--mem-fraction-static') || target.memFractionStatic
   target.kvTransferBackend =
-    (readFlag(command, '--disaggregation-transfer-backend') as DynamoFormModel['kvTransferBackend']) ||
+    (readFlag(command, '--disaggregation-transfer-backend') as WorkloadFormModel['kvTransferBackend']) ||
     target.kvTransferBackend
+}
+
+function applyEntrypointToResource(
+  target: WorkloadFormModel,
+  resource: DynamoRoleResourceForm,
+  command: string,
+) {
+  if (!command) return
+  target.backendEngine = readBackendEngine(command) || target.backendEngine
+  target.modelPath = readFlag(command, '--model-path') || target.modelPath
+  resource.tpSize = Number(readFlag(command, '--tp-size') || resource.tpSize)
+  resource.epSize = Number(readFlag(command, '--ep-size') || resource.epSize)
+  target.attentionBackend = readFlag(command, '--attention-backend') || target.attentionBackend
+  target.memFractionStatic = readFlag(command, '--mem-fraction-static') || target.memFractionStatic
 }
 
 function readFlag(command: string, flag: string) {
@@ -768,6 +1123,40 @@ html.dark .section-card:hover {
 .aggregation-info {
   color: var(--el-text-color-secondary);
   cursor: help;
+}
+
+.optimus-role-card {
+  border: 1px solid var(--el-border-color);
+  border-radius: 8px;
+  padding: 14px 14px 12px;
+  margin-top: 14px;
+  background: var(--el-fill-color-blank);
+}
+
+html.dark .optimus-role-card {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.role-subsection-title {
+  margin: 12px 0 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--el-text-color-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.role-subsection-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 12px;
+  margin-bottom: 8px;
+}
+
+.role-subsection-header .role-subsection-title {
+  margin: 0 0 2px;
 }
 
 .fixed-role {

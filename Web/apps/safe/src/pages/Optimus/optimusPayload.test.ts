@@ -5,13 +5,6 @@ import {
   createDefaultOptimusForm,
 } from './optimusPayload'
 
-const OPTIMUS_FRONTEND_ENTRYPOINT =
-  'cHl0aG9uMyAtbSByb2NzZXJ2ZS5zZXJ2ZXIgLS1ob3N0IDAuMC4wLjAgLS1wb3J0IDgwMDAgLS1yb3V0ZXItdG9rZW5pemVyLXBhdGggL3dla2Fmcy9tb2RlbHMvRGVlcFNlZWstUjEtMDUyOA=='
-const OPTIMUS_WORKER_ENTRYPOINT =
-  'cHl0aG9uMyAtbSByb2NzZXJ2ZS5lbmdpbmUuc2dsYW5nIC0tbW9kZWwtcGF0aCAvd2VrYWZzL21vZGVscy9EZWVwU2Vlay1SMS0wNTI4IC0tdHAtc2l6ZSA4IC0tZXAtc2l6ZSA4IC0tZW5hYmxlLWRwLWF0dGVudGlvbiAtLWF0dGVudGlvbi1iYWNrZW5kIGFpdGVyIC0tdHJ1c3QtcmVtb3RlLWNvZGUgLS1tZW0tZnJhY3Rpb24tc3RhdGljIDAuNzUgLS1ob3N0IDAuMC4wLjA='
-const OPTIMUS_AGG_WORKER_ENTRYPOINT =
-  'cHl0aG9uMyAtbSByb2NzZXJ2ZS5lbmdpbmUuc2dsYW5nIC0tbW9kZWwtcGF0aCAvd2VrYWZzL21vZGVscy9EZWVwU2Vlay1SMS0wNTI4IC0tdHAtc2l6ZSAxNiAtLWVwLXNpemUgMTYgLS1lbmFibGUtZHAtYXR0ZW50aW9uIC0tYXR0ZW50aW9uLWJhY2tlbmQgYWl0ZXIgLS10cnVzdC1yZW1vdGUtY29kZSAtLW1lbS1mcmFjdGlvbi1zdGF0aWMgMC43NSAtLWhvc3QgMC4wLjAuMA=='
-
 describe('optimusPayload', () => {
   it('uses the Optimus defaults image by default', () => {
     const form = createDefaultOptimusForm()
@@ -19,6 +12,21 @@ describe('optimusPayload', () => {
     expect(form.image).toBe(
       'harbor.core42.primus-safe.amd.com/primussafe/rocserve-sglang:0.1.0-rocm-20260610',
     )
+  })
+
+  it('uses kv-aware as the default router policy and allows round-robin', () => {
+    const form = createDefaultOptimusForm()
+    expect(form.routerPolicy).toBe('kv-aware')
+
+    form.routerPolicy = 'round-robin'
+    const payload = buildOptimusCreatePayload(form, 'core42-hyperloom')
+
+    const frontendEntrypoint = decodeFromBase64String(payload.entryPoints[0])
+    expect(frontendEntrypoint).toBe(
+      'python3 -m rocserve.server --host 0.0.0.0 --port 8000 --router-policy round-robin --router-tokenizer-path /wekafs/models/DeepSeek-R1-0528',
+    )
+    expect(frontendEntrypoint).not.toContain('--discovery-backend')
+    expect(frontendEntrypoint).not.toContain('--request-transport')
   })
 
   it('builds a single-node Optimus payload with the standard worker entrypoint', () => {
@@ -41,7 +49,11 @@ describe('optimusPayload', () => {
     expect(payload.optimusOptions).toEqual({
       serviceRoles: ['frontend', 'worker'],
     })
-    expect(payload.entryPoints).toEqual([OPTIMUS_FRONTEND_ENTRYPOINT, OPTIMUS_WORKER_ENTRYPOINT])
+    const frontendEntrypoint = decodeFromBase64String(payload.entryPoints[0])
+    const workerEntrypoint = decodeFromBase64String(payload.entryPoints[1])
+    expect(frontendEntrypoint).toContain('--router-policy kv-aware')
+    expect(workerEntrypoint).toContain('--tp-size 8')
+    expect(workerEntrypoint).toContain('--ep-size 8')
   })
 
   it('builds an aggregation Optimus payload with frontend and worker roles', () => {
@@ -75,8 +87,6 @@ describe('optimusPayload', () => {
       targetPort: 8000,
       serviceType: 'ClusterIP',
     })
-    expect(payload.entryPoints).toEqual([OPTIMUS_FRONTEND_ENTRYPOINT, OPTIMUS_AGG_WORKER_ENTRYPOINT])
-
     const workerEntrypoint = decodeFromBase64String(payload.entryPoints[1])
     expect(workerEntrypoint).toContain('python3 -m rocserve.engine.sglang')
     expect(workerEntrypoint).toContain('--tp-size 16')
@@ -88,12 +98,16 @@ describe('optimusPayload', () => {
     expect(workerEntrypoint).not.toContain('--disaggregation-ib-device')
   })
 
-  it('builds a PD Optimus payload with copied worker entrypoints and mori KV backend', () => {
+  it('builds a PD Optimus payload with role-specific entrypoints and mori KV backend', () => {
     const form = createDefaultOptimusForm()
     form.displayName = 'optimus-ds-r1-pd-nats'
     form.enablePd = true
     form.image = 'harbor.core42.primus-safe.amd.com/primussafe/rocserve-sglang:0.1.0-rocm-v5'
     form.kvTransferBackend = 'mori'
+    form.prefill.tpSize = 8
+    form.prefill.epSize = 8
+    form.decode.tpSize = 4
+    form.decode.epSize = 4
 
     const payload = buildOptimusCreatePayload(form, 'core42-hyperloom')
 
@@ -120,24 +134,28 @@ describe('optimusPayload', () => {
       kvTransferBackend: 'mori',
     })
     expect(payload.env).toEqual({ HF_HOME: '/data/hf-cache', NCCL_DEBUG: 'INFO' })
-    expect(payload.entryPoints).toEqual([
-      OPTIMUS_FRONTEND_ENTRYPOINT,
-      OPTIMUS_WORKER_ENTRYPOINT,
-      OPTIMUS_WORKER_ENTRYPOINT,
-    ])
-    const workerEntrypoint = decodeFromBase64String(payload.entryPoints[1])
-    expect(workerEntrypoint).toContain('--tp-size 8')
-    expect(workerEntrypoint).toContain('--ep-size 8')
-    expect(workerEntrypoint).toContain('--enable-dp-attention')
-    expect(workerEntrypoint).not.toContain('--disaggregation-ib-device')
+    const prefillEntrypoint = decodeFromBase64String(payload.entryPoints[1])
+    const decodeEntrypoint = decodeFromBase64String(payload.entryPoints[2])
+    expect(prefillEntrypoint).toContain('--tp-size 8')
+    expect(prefillEntrypoint).toContain('--ep-size 8')
+    expect(decodeEntrypoint).toContain('--tp-size 4')
+    expect(decodeEntrypoint).toContain('--ep-size 4')
+    expect(prefillEntrypoint).not.toBe(decodeEntrypoint)
+    expect(prefillEntrypoint).toContain('--enable-dp-attention')
+    expect(decodeEntrypoint).toContain('--enable-dp-attention')
+    expect(prefillEntrypoint).not.toContain('--disaggregation-ib-device')
+    expect(decodeEntrypoint).not.toContain('--disaggregation-ib-device')
   })
 
-  it('uses a custom worker entrypoint when the full command is edited', () => {
+  it('uses custom Optimus role entrypoints independently', () => {
     const form = createDefaultOptimusForm()
-    form.workerEntrypoint = 'exec python3 -m rocserve.engine.sglang --model-path /models/custom\n'
+    form.enablePd = true
+    form.prefillEntrypoint = 'python3 -m rocserve.engine.sglang --model-path /models/prefill\n'
+    form.decodeEntrypoint = 'python3 -m rocserve.engine.sglang --model-path /models/decode\n'
 
     const payload = buildOptimusCreatePayload(form, 'core42-hyperloom')
 
-    expect(decodeFromBase64String(payload.entryPoints[1])).toBe(form.workerEntrypoint)
+    expect(decodeFromBase64String(payload.entryPoints[1])).toBe(form.prefillEntrypoint)
+    expect(decodeFromBase64String(payload.entryPoints[2])).toBe(form.decodeEntrypoint)
   })
 })
