@@ -30,6 +30,10 @@ type SearchClientConfig struct {
 type SearchClient struct {
 	SearchClientConfig
 	clusterClient *robustclient.ClusterClient
+	// searchFunc, when non-nil, overrides SearchByTimeRange. It is only set by
+	// test hooks (see testhook.go) and is always nil in production, so it has
+	// no effect on the real data-plane request path.
+	searchFunc func(sinceTime, untilTime time.Time, index, uri string, body []byte) ([]byte, error)
 }
 
 func NewClient(cfg SearchClientConfig, cc *robustclient.ClusterClient) *SearchClient {
@@ -57,6 +61,9 @@ type logRawProxyEnvelope struct {
 }
 
 func (c *SearchClient) SearchByTimeRange(sinceTime, untilTime time.Time, index, uri string, body []byte) ([]byte, error) {
+	if c.searchFunc != nil {
+		return c.searchFunc(sinceTime, untilTime, index, uri, body)
+	}
 	if index == "" {
 		index = c.DefaultIndex
 	}

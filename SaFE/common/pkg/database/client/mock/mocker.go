@@ -51,6 +51,20 @@ func (mr *MockInterfaceMockRecorder) AckEmailOutbox(ctx, id interface{}) *gomock
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AckEmailOutbox", reflect.TypeOf((*MockInterface)(nil).AckEmailOutbox), ctx, id)
 }
 
+// AppendOptimizationEvent mocks base method.
+func (m *MockInterface) AppendOptimizationEvent(ctx context.Context, event *client.OptimizationEvent) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "AppendOptimizationEvent", ctx, event)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// AppendOptimizationEvent indicates an expected call of AppendOptimizationEvent.
+func (mr *MockInterfaceMockRecorder) AppendOptimizationEvent(ctx, event interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AppendOptimizationEvent", reflect.TypeOf((*MockInterface)(nil).AppendOptimizationEvent), ctx, event)
+}
+
 // BatchInsertAuditLogs mocks base method.
 func (m *MockInterface) BatchInsertAuditLogs(ctx context.Context, auditLogs []*client.AuditLog) error {
 	m.ctrl.T.Helper()
@@ -243,6 +257,21 @@ func (m *MockInterface) CountPublicKeys(ctx context.Context, query squirrel.Sqli
 func (mr *MockInterfaceMockRecorder) CountPublicKeys(ctx, query interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountPublicKeys", reflect.TypeOf((*MockInterface)(nil).CountPublicKeys), ctx, query)
+}
+
+// CountRunningOptimizationTasks mocks base method.
+func (m *MockInterface) CountRunningOptimizationTasks(ctx context.Context, workspace string) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CountRunningOptimizationTasks", ctx, workspace)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CountRunningOptimizationTasks indicates an expected call of CountRunningOptimizationTasks.
+func (mr *MockInterfaceMockRecorder) CountRunningOptimizationTasks(ctx, workspace interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountRunningOptimizationTasks", reflect.TypeOf((*MockInterface)(nil).CountRunningOptimizationTasks), ctx, workspace)
 }
 
 // CountWorkloads mocks base method.
@@ -456,6 +485,20 @@ func (m *MockInterface) DeleteNodeStatisticsByCluster(ctx context.Context, clust
 func (mr *MockInterfaceMockRecorder) DeleteNodeStatisticsByCluster(ctx, cluster interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteNodeStatisticsByCluster", reflect.TypeOf((*MockInterface)(nil).DeleteNodeStatisticsByCluster), ctx, cluster)
+}
+
+// DeleteOptimizationTask mocks base method.
+func (m *MockInterface) DeleteOptimizationTask(ctx context.Context, id string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteOptimizationTask", ctx, id)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteOptimizationTask indicates an expected call of DeleteOptimizationTask.
+func (mr *MockInterfaceMockRecorder) DeleteOptimizationTask(ctx, id interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteOptimizationTask", reflect.TypeOf((*MockInterface)(nil).DeleteOptimizationTask), ctx, id)
 }
 
 // DeletePublicKey mocks base method.
@@ -933,6 +976,21 @@ func (mr *MockInterfaceMockRecorder) GetOpsJob(ctx, jobId interface{}) *gomock.C
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetOpsJob", reflect.TypeOf((*MockInterface)(nil).GetOpsJob), ctx, jobId)
 }
 
+// GetOptimizationTask mocks base method.
+func (m *MockInterface) GetOptimizationTask(ctx context.Context, id string) (*client.OptimizationTask, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetOptimizationTask", ctx, id)
+	ret0, _ := ret[0].(*client.OptimizationTask)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetOptimizationTask indicates an expected call of GetOptimizationTask.
+func (mr *MockInterfaceMockRecorder) GetOptimizationTask(ctx, id interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetOptimizationTask", reflect.TypeOf((*MockInterface)(nil).GetOptimizationTask), ctx, id)
+}
+
 // GetPlatformKeyByUserId mocks base method.
 func (m *MockInterface) GetPlatformKeyByUserId(ctx context.Context, userId string) (*client.ApiKey, error) {
 	m.ctrl.T.Helper()
@@ -1213,6 +1271,21 @@ func (mr *MockInterfaceMockRecorder) InsertSshSessionRecord(ctx, record interfac
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "InsertSshSessionRecord", reflect.TypeOf((*MockInterface)(nil).InsertSshSessionRecord), ctx, record)
 }
 
+// LatestOptimizationEventSeq mocks base method.
+func (m *MockInterface) LatestOptimizationEventSeq(ctx context.Context, taskID string) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "LatestOptimizationEventSeq", ctx, taskID)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// LatestOptimizationEventSeq indicates an expected call of LatestOptimizationEventSeq.
+func (mr *MockInterfaceMockRecorder) LatestOptimizationEventSeq(ctx, taskID interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "LatestOptimizationEventSeq", reflect.TypeOf((*MockInterface)(nil).LatestOptimizationEventSeq), ctx, taskID)
+}
+
 // ListActiveA2AServices mocks base method.
 func (m *MockInterface) ListActiveA2AServices(ctx context.Context) ([]*client.A2AServiceRegistry, error) {
 	m.ctrl.T.Helper()
@@ -1292,6 +1365,37 @@ func (mr *MockInterfaceMockRecorder) ListModels(ctx, accessMode, workspace, isDe
 	mr.mock.ctrl.T.Helper()
 	varargs := append([]interface{}{ctx, accessMode, workspace, isDeleted}, origin...)
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListModels", reflect.TypeOf((*MockInterface)(nil).ListModels), varargs...)
+}
+
+// ListOptimizationEvents mocks base method.
+func (m *MockInterface) ListOptimizationEvents(ctx context.Context, taskID string, afterSeq int64, limit int) ([]*client.OptimizationEvent, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListOptimizationEvents", ctx, taskID, afterSeq, limit)
+	ret0, _ := ret[0].([]*client.OptimizationEvent)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListOptimizationEvents indicates an expected call of ListOptimizationEvents.
+func (mr *MockInterfaceMockRecorder) ListOptimizationEvents(ctx, taskID, afterSeq, limit interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListOptimizationEvents", reflect.TypeOf((*MockInterface)(nil).ListOptimizationEvents), ctx, taskID, afterSeq, limit)
+}
+
+// ListOptimizationTasks mocks base method.
+func (m *MockInterface) ListOptimizationTasks(ctx context.Context, filter client.OptimizationTaskFilter) ([]*client.OptimizationTask, int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListOptimizationTasks", ctx, filter)
+	ret0, _ := ret[0].([]*client.OptimizationTask)
+	ret1, _ := ret[1].(int64)
+	ret2, _ := ret[2].(error)
+	return ret0, ret1, ret2
+}
+
+// ListOptimizationTasks indicates an expected call of ListOptimizationTasks.
+func (mr *MockInterfaceMockRecorder) ListOptimizationTasks(ctx, filter interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListOptimizationTasks", reflect.TypeOf((*MockInterface)(nil).ListOptimizationTasks), ctx, filter)
 }
 
 // ListPendingEmailOutbox mocks base method.
@@ -1913,6 +2017,48 @@ func (mr *MockInterfaceMockRecorder) UpdateNotification(ctx, data interface{}) *
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateNotification", reflect.TypeOf((*MockInterface)(nil).UpdateNotification), ctx, data)
 }
 
+// UpdateOptimizationTaskClawSession mocks base method.
+func (m *MockInterface) UpdateOptimizationTaskClawSession(ctx context.Context, id, sessionID string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateOptimizationTaskClawSession", ctx, id, sessionID)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpdateOptimizationTaskClawSession indicates an expected call of UpdateOptimizationTaskClawSession.
+func (mr *MockInterfaceMockRecorder) UpdateOptimizationTaskClawSession(ctx, id, sessionID interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateOptimizationTaskClawSession", reflect.TypeOf((*MockInterface)(nil).UpdateOptimizationTaskClawSession), ctx, id, sessionID)
+}
+
+// UpdateOptimizationTaskResult mocks base method.
+func (m *MockInterface) UpdateOptimizationTaskResult(ctx context.Context, id, finalMetrics, reportPath string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateOptimizationTaskResult", ctx, id, finalMetrics, reportPath)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpdateOptimizationTaskResult indicates an expected call of UpdateOptimizationTaskResult.
+func (mr *MockInterfaceMockRecorder) UpdateOptimizationTaskResult(ctx, id, finalMetrics, reportPath interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateOptimizationTaskResult", reflect.TypeOf((*MockInterface)(nil).UpdateOptimizationTaskResult), ctx, id, finalMetrics, reportPath)
+}
+
+// UpdateOptimizationTaskStatus mocks base method.
+func (m *MockInterface) UpdateOptimizationTaskStatus(ctx context.Context, id string, status client.OptimizationTaskStatus, currentPhase int, message string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateOptimizationTaskStatus", ctx, id, status, currentPhase, message)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpdateOptimizationTaskStatus indicates an expected call of UpdateOptimizationTaskStatus.
+func (mr *MockInterfaceMockRecorder) UpdateOptimizationTaskStatus(ctx, id, status, currentPhase, message interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateOptimizationTaskStatus", reflect.TypeOf((*MockInterface)(nil).UpdateOptimizationTaskStatus), ctx, id, status, currentPhase, message)
+}
+
 // UpdatePlaygroundSession mocks base method.
 func (m *MockInterface) UpdatePlaygroundSession(ctx context.Context, session *client.PlaygroundSession) error {
 	m.ctrl.T.Helper()
@@ -2079,6 +2225,20 @@ func (m *MockInterface) UpsertNodeStatistic(ctx context.Context, stat *model.Nod
 func (mr *MockInterfaceMockRecorder) UpsertNodeStatistic(ctx, stat interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpsertNodeStatistic", reflect.TypeOf((*MockInterface)(nil).UpsertNodeStatistic), ctx, stat)
+}
+
+// UpsertOptimizationTask mocks base method.
+func (m *MockInterface) UpsertOptimizationTask(ctx context.Context, task *client.OptimizationTask) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpsertOptimizationTask", ctx, task)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpsertOptimizationTask indicates an expected call of UpsertOptimizationTask.
+func (mr *MockInterfaceMockRecorder) UpsertOptimizationTask(ctx, task interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpsertOptimizationTask", reflect.TypeOf((*MockInterface)(nil).UpsertOptimizationTask), ctx, task)
 }
 
 // UpsertRegistryInfo mocks base method.
@@ -4787,4 +4947,187 @@ func (m *MockA2ACallLogInterface) SelectA2ACallLogs(ctx context.Context, query s
 func (mr *MockA2ACallLogInterfaceMockRecorder) SelectA2ACallLogs(ctx, query, orderBy, limit, offset interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SelectA2ACallLogs", reflect.TypeOf((*MockA2ACallLogInterface)(nil).SelectA2ACallLogs), ctx, query, orderBy, limit, offset)
+}
+
+// MockOptimizationTaskInterface is a mock of OptimizationTaskInterface interface.
+type MockOptimizationTaskInterface struct {
+	ctrl     *gomock.Controller
+	recorder *MockOptimizationTaskInterfaceMockRecorder
+}
+
+// MockOptimizationTaskInterfaceMockRecorder is the mock recorder for MockOptimizationTaskInterface.
+type MockOptimizationTaskInterfaceMockRecorder struct {
+	mock *MockOptimizationTaskInterface
+}
+
+// NewMockOptimizationTaskInterface creates a new mock instance.
+func NewMockOptimizationTaskInterface(ctrl *gomock.Controller) *MockOptimizationTaskInterface {
+	mock := &MockOptimizationTaskInterface{ctrl: ctrl}
+	mock.recorder = &MockOptimizationTaskInterfaceMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockOptimizationTaskInterface) EXPECT() *MockOptimizationTaskInterfaceMockRecorder {
+	return m.recorder
+}
+
+// AppendOptimizationEvent mocks base method.
+func (m *MockOptimizationTaskInterface) AppendOptimizationEvent(ctx context.Context, event *client.OptimizationEvent) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "AppendOptimizationEvent", ctx, event)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// AppendOptimizationEvent indicates an expected call of AppendOptimizationEvent.
+func (mr *MockOptimizationTaskInterfaceMockRecorder) AppendOptimizationEvent(ctx, event interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AppendOptimizationEvent", reflect.TypeOf((*MockOptimizationTaskInterface)(nil).AppendOptimizationEvent), ctx, event)
+}
+
+// CountRunningOptimizationTasks mocks base method.
+func (m *MockOptimizationTaskInterface) CountRunningOptimizationTasks(ctx context.Context, workspace string) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CountRunningOptimizationTasks", ctx, workspace)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CountRunningOptimizationTasks indicates an expected call of CountRunningOptimizationTasks.
+func (mr *MockOptimizationTaskInterfaceMockRecorder) CountRunningOptimizationTasks(ctx, workspace interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountRunningOptimizationTasks", reflect.TypeOf((*MockOptimizationTaskInterface)(nil).CountRunningOptimizationTasks), ctx, workspace)
+}
+
+// DeleteOptimizationTask mocks base method.
+func (m *MockOptimizationTaskInterface) DeleteOptimizationTask(ctx context.Context, id string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteOptimizationTask", ctx, id)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteOptimizationTask indicates an expected call of DeleteOptimizationTask.
+func (mr *MockOptimizationTaskInterfaceMockRecorder) DeleteOptimizationTask(ctx, id interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteOptimizationTask", reflect.TypeOf((*MockOptimizationTaskInterface)(nil).DeleteOptimizationTask), ctx, id)
+}
+
+// GetOptimizationTask mocks base method.
+func (m *MockOptimizationTaskInterface) GetOptimizationTask(ctx context.Context, id string) (*client.OptimizationTask, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetOptimizationTask", ctx, id)
+	ret0, _ := ret[0].(*client.OptimizationTask)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetOptimizationTask indicates an expected call of GetOptimizationTask.
+func (mr *MockOptimizationTaskInterfaceMockRecorder) GetOptimizationTask(ctx, id interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetOptimizationTask", reflect.TypeOf((*MockOptimizationTaskInterface)(nil).GetOptimizationTask), ctx, id)
+}
+
+// LatestOptimizationEventSeq mocks base method.
+func (m *MockOptimizationTaskInterface) LatestOptimizationEventSeq(ctx context.Context, taskID string) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "LatestOptimizationEventSeq", ctx, taskID)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// LatestOptimizationEventSeq indicates an expected call of LatestOptimizationEventSeq.
+func (mr *MockOptimizationTaskInterfaceMockRecorder) LatestOptimizationEventSeq(ctx, taskID interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "LatestOptimizationEventSeq", reflect.TypeOf((*MockOptimizationTaskInterface)(nil).LatestOptimizationEventSeq), ctx, taskID)
+}
+
+// ListOptimizationEvents mocks base method.
+func (m *MockOptimizationTaskInterface) ListOptimizationEvents(ctx context.Context, taskID string, afterSeq int64, limit int) ([]*client.OptimizationEvent, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListOptimizationEvents", ctx, taskID, afterSeq, limit)
+	ret0, _ := ret[0].([]*client.OptimizationEvent)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListOptimizationEvents indicates an expected call of ListOptimizationEvents.
+func (mr *MockOptimizationTaskInterfaceMockRecorder) ListOptimizationEvents(ctx, taskID, afterSeq, limit interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListOptimizationEvents", reflect.TypeOf((*MockOptimizationTaskInterface)(nil).ListOptimizationEvents), ctx, taskID, afterSeq, limit)
+}
+
+// ListOptimizationTasks mocks base method.
+func (m *MockOptimizationTaskInterface) ListOptimizationTasks(ctx context.Context, filter client.OptimizationTaskFilter) ([]*client.OptimizationTask, int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListOptimizationTasks", ctx, filter)
+	ret0, _ := ret[0].([]*client.OptimizationTask)
+	ret1, _ := ret[1].(int64)
+	ret2, _ := ret[2].(error)
+	return ret0, ret1, ret2
+}
+
+// ListOptimizationTasks indicates an expected call of ListOptimizationTasks.
+func (mr *MockOptimizationTaskInterfaceMockRecorder) ListOptimizationTasks(ctx, filter interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListOptimizationTasks", reflect.TypeOf((*MockOptimizationTaskInterface)(nil).ListOptimizationTasks), ctx, filter)
+}
+
+// UpdateOptimizationTaskClawSession mocks base method.
+func (m *MockOptimizationTaskInterface) UpdateOptimizationTaskClawSession(ctx context.Context, id, sessionID string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateOptimizationTaskClawSession", ctx, id, sessionID)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpdateOptimizationTaskClawSession indicates an expected call of UpdateOptimizationTaskClawSession.
+func (mr *MockOptimizationTaskInterfaceMockRecorder) UpdateOptimizationTaskClawSession(ctx, id, sessionID interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateOptimizationTaskClawSession", reflect.TypeOf((*MockOptimizationTaskInterface)(nil).UpdateOptimizationTaskClawSession), ctx, id, sessionID)
+}
+
+// UpdateOptimizationTaskResult mocks base method.
+func (m *MockOptimizationTaskInterface) UpdateOptimizationTaskResult(ctx context.Context, id, finalMetrics, reportPath string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateOptimizationTaskResult", ctx, id, finalMetrics, reportPath)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpdateOptimizationTaskResult indicates an expected call of UpdateOptimizationTaskResult.
+func (mr *MockOptimizationTaskInterfaceMockRecorder) UpdateOptimizationTaskResult(ctx, id, finalMetrics, reportPath interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateOptimizationTaskResult", reflect.TypeOf((*MockOptimizationTaskInterface)(nil).UpdateOptimizationTaskResult), ctx, id, finalMetrics, reportPath)
+}
+
+// UpdateOptimizationTaskStatus mocks base method.
+func (m *MockOptimizationTaskInterface) UpdateOptimizationTaskStatus(ctx context.Context, id string, status client.OptimizationTaskStatus, currentPhase int, message string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateOptimizationTaskStatus", ctx, id, status, currentPhase, message)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpdateOptimizationTaskStatus indicates an expected call of UpdateOptimizationTaskStatus.
+func (mr *MockOptimizationTaskInterfaceMockRecorder) UpdateOptimizationTaskStatus(ctx, id, status, currentPhase, message interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateOptimizationTaskStatus", reflect.TypeOf((*MockOptimizationTaskInterface)(nil).UpdateOptimizationTaskStatus), ctx, id, status, currentPhase, message)
+}
+
+// UpsertOptimizationTask mocks base method.
+func (m *MockOptimizationTaskInterface) UpsertOptimizationTask(ctx context.Context, task *client.OptimizationTask) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpsertOptimizationTask", ctx, task)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpsertOptimizationTask indicates an expected call of UpsertOptimizationTask.
+func (mr *MockOptimizationTaskInterfaceMockRecorder) UpsertOptimizationTask(ctx, task interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpsertOptimizationTask", reflect.TypeOf((*MockOptimizationTaskInterface)(nil).UpsertOptimizationTask), ctx, task)
 }
