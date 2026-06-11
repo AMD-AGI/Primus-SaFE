@@ -40,6 +40,13 @@ describe('Dynamo/Optimus AddDialog', () => {
     expect(dialogSource).not.toContain('Preview the generated frontend command.')
   })
 
+  it('allows overriding the Optimus frontend command', () => {
+    expect(dialogSource).toContain('setFrontendEntrypoint')
+    expect(dialogSource).toContain('resetFrontendEntrypointFromOptions')
+    expect(dialogSource).toContain('getFrontendEntrypoint')
+    expect(dialogSource).not.toContain(':model-value="frontendPreview"\n                  type="textarea"\n                  readonly')
+  })
+
   it('does not keep unreachable Optimus entrypoint preview code in the Dynamo-only section', () => {
     expect(dialogSource).not.toContain('optimusBackendEntrySections')
   })

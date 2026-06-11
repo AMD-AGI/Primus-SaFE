@@ -162,4 +162,13 @@ describe('optimusPayload', () => {
     expect(decodeFromBase64String(payload.entryPoints[1])).toBe(form.prefillEntrypoint)
     expect(decodeFromBase64String(payload.entryPoints[2])).toBe(form.decodeEntrypoint)
   })
+
+  it('uses a custom Optimus frontend entrypoint when provided', () => {
+    const form = createDefaultOptimusForm()
+    form.frontendEntrypoint = 'python3 -m rocserve.server --host 0.0.0.0 --port 9000 --router-tokenizer-path /models/custom\n'
+
+    const payload = buildOptimusCreatePayload(form, 'core42-hyperloom')
+
+    expect(decodeFromBase64String(payload.entryPoints[0])).toBe(form.frontendEntrypoint)
+  })
 })
