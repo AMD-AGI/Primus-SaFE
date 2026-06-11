@@ -19,8 +19,6 @@ import (
 
 	"github.com/containers/common/pkg/retry"
 	"github.com/containers/image/v5/copy"
-	"github.com/containers/image/v5/directory"
-	"github.com/containers/image/v5/docker"
 	"github.com/containers/image/v5/manifest"
 	"github.com/containers/image/v5/pkg/cli"
 	"github.com/containers/image/v5/pkg/cli/sigstore"
@@ -238,16 +236,7 @@ func (opts *syncOptions) run(args []string, stdout io.Writer) (retErr error) {
 				if !ok {
 					return
 				}
-				data.Data[p.Artifact.Digest.String()] = p
-				switch p.Event {
-				case types.ProgressEventSkipped, types.ProgressEventDone:
-					if p.Event == types.ProgressEventSkipped {
-						data.SkipLayerCount++
-						data.SyncLayerCount++
-					} else {
-						data.ComplexLayerCount++
-						data.SyncLayerCount++
-					}
+				if data.applyProgress(p) {
 					if err := upstreamData(opts.UpstreamDomain, destination, data); err != nil {
 						logrus.WithError(err).Error("Error sending upsteam data")
 					}
@@ -262,24 +251,8 @@ func (opts *syncOptions) run(args []string, stdout io.Writer) (retErr error) {
 	for _, srcRepo := range srcRepoList {
 		options.SourceCtx = srcRepo.Context
 		for counter, ref := range srcRepo.ImageRefs {
-			var destSuffix string
 			var manifestBytes []byte
-			switch ref.Transport() {
-			case docker.Transport:
-				// docker -> dir or docker -> docker
-				destSuffix = ref.DockerReference().String()
-			case directory.Transport:
-				// dir -> docker (we don't allow `dir` -> `dir` sync operations)
-				destSuffix = strings.TrimPrefix(ref.StringWithinTransport(), srcRepo.DirBasePath)
-				if destSuffix == "" {
-					// if source is a full path to an image, have destPath scoped to repo:tag
-					destSuffix = path.Base(srcRepo.DirBasePath)
-				}
-			}
-
-			if !opts.Scoped {
-				destSuffix = path.Base(destSuffix)
-			}
+			destSuffix := computeDestSuffix(ref, srcRepo.DirBasePath, opts.Scoped)
 
 			var destRef types.ImageReference
 			if strings.HasSuffix(destination, destSuffix) { // e.g: harbor.my.domain/my-repo/test/ollama/ollama:latest

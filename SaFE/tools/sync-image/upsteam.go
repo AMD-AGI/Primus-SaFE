@@ -42,6 +42,23 @@ type UpstreamEvent struct {
 	SkipLayerCount    int                                 `json:"skipLayerCount"`
 }
 
+// applyProgress records a progress event and updates layer counters.
+// It returns true when the event is terminal (skipped or done) and should be reported upstream.
+func (e *UpstreamEvent) applyProgress(p types.ProgressProperties) bool {
+	e.Data[p.Artifact.Digest.String()] = p
+	switch p.Event {
+	case types.ProgressEventSkipped:
+		e.SkipLayerCount++
+		e.SyncLayerCount++
+		return true
+	case types.ProgressEventDone:
+		e.ComplexLayerCount++
+		e.SyncLayerCount++
+		return true
+	}
+	return false
+}
+
 func upstreamData(domain, imageName string, data *UpstreamEvent) error {
 	jsonData, err := json.Marshal(data)
 	if err != nil {
