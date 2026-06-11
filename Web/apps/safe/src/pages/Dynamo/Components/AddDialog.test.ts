@@ -13,11 +13,17 @@ describe('Dynamo/Optimus AddDialog', () => {
     expect(dialogSource).toContain('value="round-robin"')
     expect(dialogSource).toContain('optimusRoleSections')
     expect(dialogSource).toContain('setRoleEntrypoint')
+    expect(dialogSource).toContain('getRoleBackendEngine')
+    expect(dialogSource).toContain('setRoleBackendEngine')
   })
 
   it('groups Optimus resource and entrypoint fields by role card', () => {
     expect(dialogSource).toContain('optimus-role-card')
     expect(dialogSource).toContain('EntryPoint Parameters')
     expect(dialogSource).toContain('v-if="!isOptimus"')
+  })
+
+  it('does not keep unreachable Optimus entrypoint preview code in the Dynamo-only section', () => {
+    expect(dialogSource).not.toContain('optimusBackendEntrySections')
   })
 })

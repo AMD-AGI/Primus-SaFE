@@ -104,6 +104,8 @@ describe('optimusPayload', () => {
     form.enablePd = true
     form.image = 'harbor.core42.primus-safe.amd.com/primussafe/rocserve-sglang:0.1.0-rocm-v5'
     form.kvTransferBackend = 'mori'
+    form.prefillBackendEngine = 'vllm'
+    form.decodeBackendEngine = 'sglang'
     form.prefill.tpSize = 8
     form.prefill.epSize = 8
     form.decode.tpSize = 4
@@ -136,6 +138,8 @@ describe('optimusPayload', () => {
     expect(payload.env).toEqual({ HF_HOME: '/data/hf-cache', NCCL_DEBUG: 'INFO' })
     const prefillEntrypoint = decodeFromBase64String(payload.entryPoints[1])
     const decodeEntrypoint = decodeFromBase64String(payload.entryPoints[2])
+    expect(prefillEntrypoint).toContain('python3 -m rocserve.engine.vllm')
+    expect(decodeEntrypoint).toContain('python3 -m rocserve.engine.sglang')
     expect(prefillEntrypoint).toContain('--tp-size 8')
     expect(prefillEntrypoint).toContain('--ep-size 8')
     expect(decodeEntrypoint).toContain('--tp-size 4')
