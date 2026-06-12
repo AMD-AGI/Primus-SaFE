@@ -52,8 +52,8 @@ func TestBuildHyperloomPromptClawMode(t *testing.T) {
 	assert.Assert(t, strings.Contains(prompt, "model,gpu,tps"))
 	assert.Assert(t, strings.Contains(prompt, "Report the session ID, log path, PID"))
 	assert.Assert(t, strings.Contains(prompt, "Then monitor the process every 300s"))
-	assert.Assert(t, strings.Contains(prompt, "One session only. After the first launch"))
-	assert.Assert(t, strings.Contains(prompt, "ONLY `optimize --resume` (same session dir)."))
+	assert.Assert(t, strings.Contains(prompt, "ONLY DO `optimize --resume` (same session"))
+	assert.Assert(t, strings.Contains(prompt, "current session state.json is final: stop and exit."))
 	assert.Assert(t, !strings.Contains(prompt, "Kernel Optimization:"))
 }
 
@@ -68,7 +68,7 @@ func TestBuildHyperloomPromptLocalModeOmitsRaySection(t *testing.T) {
 
 	assert.Assert(t, strings.Contains(prompt, "mode: local"))
 	assert.Assert(t, strings.Contains(prompt, "Then monitor the process every 300s"))
-	assert.Assert(t, strings.Contains(prompt, "One session only. After the first launch"))
+	assert.Assert(t, strings.Contains(prompt, "ONLY DO `optimize --resume` (same session"))
 	assert.Assert(t, !strings.Contains(prompt, "SandboxImage:"))
 	assert.Assert(t, !strings.Contains(prompt, "Kernel Optimization:"))
 	assert.Assert(t, !strings.Contains(prompt, "Task submission:"))
