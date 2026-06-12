@@ -846,8 +846,8 @@ func sortModelItems(items []ModelInfo, sortKey string) {
 		})
 	case "name":
 		sort.SliceStable(items, func(i, j int) bool {
-			ni := strings.ToLower(items[i].DisplayName)
-			nj := strings.ToLower(items[j].DisplayName)
+			ni := modelNameSortKey(items[i].DisplayName)
+			nj := modelNameSortKey(items[j].DisplayName)
 			if ni == nj {
 				return items[i].ID < items[j].ID // stable tie-breaker
 			}
@@ -857,6 +857,18 @@ func sortModelItems(items []ModelInfo, sortKey string) {
 			return ni < nj
 		})
 	}
+}
+
+// modelNameSortKey returns the case-insensitive sort key for a model displayName.
+// HuggingFace-style names carry an org/author prefix (e.g. "amd/MiniMax-M2.5-MXFP4",
+// "deepseek-ai/DeepSeek-R1-0528"); we sort by the part after the last "/" so models
+// are ordered by their actual model name rather than grouped by org prefix.
+func modelNameSortKey(displayName string) string {
+	name := displayName
+	if idx := strings.LastIndex(name, "/"); idx >= 0 {
+		name = name[idx+1:]
+	}
+	return strings.ToLower(strings.TrimSpace(name))
 }
 
 func (h *Handler) listModels(c *gin.Context) (interface{}, error) {
