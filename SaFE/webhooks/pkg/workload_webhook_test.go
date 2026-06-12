@@ -12,10 +12,13 @@ import (
 
 	"gotest.tools/assert"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
@@ -177,6 +180,102 @@ func newTestScheme(t *testing.T) *runtime.Scheme {
 	err := v1.AddToScheme(s)
 	assert.NilError(t, err)
 	return s
+}
+
+func newWorkloadWithOwner(name, workspace, ownerId string) *v1.Workload {
+	w := &v1.Workload{
+		ObjectMeta: metav1.ObjectMeta{Name: name},
+		Spec:       v1.WorkloadSpec{Workspace: workspace},
+	}
+	if ownerId != "" {
+		v1.SetLabel(w, v1.OwnerLabel, ownerId)
+	}
+	return w
+}
+
+func TestValidateOwnerWorkload(t *testing.T) {
+	ctx := context.TODO()
+	scheme := newTestScheme(t)
+
+	tests := []struct {
+		name      string
+		workload  *v1.Workload
+		objects   []client.Object
+		expectErr bool
+	}{
+		{
+			name:      "no owner label is allowed",
+			workload:  newWorkloadWithOwner("child", "ws1", ""),
+			expectErr: false,
+		},
+		{
+			name:      "self reference is rejected",
+			workload:  newWorkloadWithOwner("child", "ws1", "child"),
+			expectErr: true,
+		},
+		{
+			// Regression test for issue #588: the apiserver creates an
+			// owner-labeled preheat child before its owner workload is
+			// persisted, so a missing owner must not block admission.
+			name:      "missing owner is tolerated",
+			workload:  newWorkloadWithOwner("child", "ws1", "owner-not-yet-created"),
+			expectErr: false,
+		},
+		{
+			name:     "existing owner in same workspace is allowed",
+			workload: newWorkloadWithOwner("child", "ws1", "owner"),
+			objects: []client.Object{
+				newWorkloadWithOwner("owner", "ws1", ""),
+			},
+			expectErr: false,
+		},
+		{
+			name:     "owner in different workspace is rejected",
+			workload: newWorkloadWithOwner("child", "ws1", "owner"),
+			objects: []client.Object{
+				newWorkloadWithOwner("owner", "ws2", ""),
+			},
+			expectErr: true,
+		},
+		{
+			name:     "cycle is rejected",
+			workload: newWorkloadWithOwner("child", "ws1", "owner"),
+			objects: []client.Object{
+				newWorkloadWithOwner("owner", "ws1", "child"),
+			},
+			expectErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			k8sClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(tt.objects...).Build()
+			v := &WorkloadValidator{Client: k8sClient}
+			err := v.validateOwnerWorkload(ctx, tt.workload)
+			assert.Equal(t, tt.expectErr, err != nil)
+		})
+	}
+}
+
+// TestValidateOwnerWorkload_LookupError ensures that a non-NotFound owner
+// lookup error (e.g. RBAC/connection) fails closed instead of silently
+// skipping the workspace/cycle checks.
+func TestValidateOwnerWorkload_LookupError(t *testing.T) {
+	ctx := context.TODO()
+	scheme := newTestScheme(t)
+
+	k8sClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Get: func(_ context.Context, _ client.WithWatch, _ client.ObjectKey, _ client.Object, _ ...client.GetOption) error {
+				return apierrors.NewServiceUnavailable("apiserver unreachable")
+			},
+		}).
+		Build()
+	v := &WorkloadValidator{Client: k8sClient}
+
+	err := v.validateOwnerWorkload(ctx, newWorkloadWithOwner("child", "ws1", "owner"))
+	assert.Assert(t, err != nil)
 }
 
 func TestMutateStickyNodes_EnablePreempt(t *testing.T) {

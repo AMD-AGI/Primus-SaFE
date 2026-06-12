@@ -16,6 +16,7 @@ import (
 
 	admissionv1 "k8s.io/api/admission/v1"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
@@ -842,11 +843,19 @@ func (v *WorkloadValidator) validateCommon(ctx context.Context, newWorkload, old
 	return nil
 }
 
-// validateOwnerWorkload checks Spec.OwnerWorkloadId references an existing
-// Workload in the same workspace and is not self-referential. The owner link
-// is a runtime cleanup binding (see workload_types.go) and the dispatcher
-// cascades stop on owner-end events; enforcing existence at admission time
-// avoids dangling references that would leak the dependent Workload.
+// validateOwnerWorkload checks Spec.OwnerWorkloadId is not self-referential and,
+// when the owner exists, that it lives in the same workspace and does not form a
+// cycle. The owner link is a best-effort runtime cleanup binding (see
+// workload_types.go); it is not a correctness requirement.
+//
+// A NotFound owner must not block admission: the apiserver may create an
+// owner-labeled child (e.g. a preheat workload) before its owner workload is
+// persisted, so the owner can legitimately not exist yet at admission time and
+// becomes valid moments later (see issue #588). That case is tolerated.
+//
+// Any other lookup error (RBAC, connection, timeout) means we cannot verify the
+// owner; we fail closed with an InternalError rather than silently bypassing the
+// workspace/cycle checks.
 func (v *WorkloadValidator) validateOwnerWorkload(ctx context.Context, workload *v1.Workload) error {
 	ownerId := workload.GetOwnerWorkloadId()
 	if ownerId == "" {
@@ -857,8 +866,13 @@ func (v *WorkloadValidator) validateOwnerWorkload(ctx context.Context, workload 
 	}
 	owner := &v1.Workload{}
 	if err := v.Client.Get(ctx, client.ObjectKey{Name: ownerId}, owner); err != nil {
-		return commonerrors.NewBadRequest(
-			fmt.Sprintf("ownerWorkloadId %q not found: %v", ownerId, err))
+		if apierrors.IsNotFound(err) {
+			klog.Warningf("skipping owner validation for workload %q: ownerWorkloadId %q not found yet",
+				workload.Name, ownerId)
+			return nil
+		}
+		return commonerrors.NewInternalError(
+			fmt.Sprintf("failed to verify ownerWorkloadId %q: %v", ownerId, err))
 	}
 	if owner.Spec.Workspace != workload.Spec.Workspace {
 		return commonerrors.NewBadRequest(
