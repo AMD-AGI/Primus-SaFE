@@ -151,6 +151,12 @@ type ListWorkloadRequest struct {
 	ScaleRunnerSet string `form:"scaleRunnerSet" binding:"omitempty,max=64"`
 	// Filter by GitHub action runner id.
 	ScaleRunnerId string `form:"scaleRunnerId" binding:"omitempty,max=64"`
+	// Filter by environment variable key. When set without envValue, filters
+	// workloads that contain this env key.
+	EnvKey string `form:"envKey" binding:"omitempty,max=256"`
+	// Filter by environment variable value. Only effective together with
+	// envKey, matching the exact value of that key.
+	EnvValue string `form:"envValue" binding:"omitempty,max=1024"`
 }
 
 type ListWorkloadResponse struct {
