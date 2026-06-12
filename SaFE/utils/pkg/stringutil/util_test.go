@@ -7,6 +7,7 @@ package stringutil
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 
 	"gotest.tools/assert"
@@ -43,4 +44,42 @@ func TestConvertToString(t *testing.T) {
 
 	value = struct{ name string }{}
 	assert.Equal(t, ConvertToString(value), "")
+}
+
+func TestBase64Decode(t *testing.T) {
+	assert.Equal(t, Base64Decode("dGVzdA=="), "test")
+	assert.Equal(t, Base64Decode(""), "")
+	assert.Equal(t, Base64Decode("not base64!!!"), "")
+}
+
+func TestIsBase64(t *testing.T) {
+	assert.Equal(t, IsBase64("dGVzdA=="), true)
+	assert.Equal(t, IsBase64("!!!"), false)
+}
+
+func TestNormalizeName(t *testing.T) {
+	assert.Equal(t, NormalizeName(""), "")
+	assert.Equal(t, NormalizeName("  Hello_World\n\r"), "hello-world")
+}
+
+func TestNormalizeForDNS(t *testing.T) {
+	assert.Equal(t, NormalizeForDNS("My_Model.v1/test"), "my-model-v1-test")
+	assert.Equal(t, NormalizeForDNS("123abc"), "n123abc")
+	assert.Equal(t, NormalizeForDNS("!!!"), "model")
+	assert.Equal(t, len(NormalizeForDNS(strings.Repeat("a", 60))) <= 45, true)
+}
+
+func TestStrCaseEqual(t *testing.T) {
+	assert.Equal(t, StrCaseEqual("ABC", "abc"), true)
+	assert.Equal(t, StrCaseEqual("a", "b"), false)
+}
+
+func TestExtractNumber(t *testing.T) {
+	assert.Equal(t, ExtractNumber("node-12-3"), int64(123))
+	assert.Equal(t, ExtractNumber("nonum"), int64(0))
+}
+
+func TestSplit(t *testing.T) {
+	assert.Equal(t, len(Split("", ",")), 0)
+	assert.DeepEqual(t, Split("a, b , ,c", ","), []string{"a", "b", "c"})
 }
