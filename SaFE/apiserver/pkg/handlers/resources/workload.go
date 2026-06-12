@@ -1184,8 +1184,30 @@ func cvtToListWorkloadSql(query *view.ListWorkloadRequest) (sqrl.Sqlizer, []stri
 	if scaleRunnerId := strings.TrimSpace(query.ScaleRunnerId); scaleRunnerId != "" {
 		dbSql = append(dbSql, sqrl.Eq{dbclient.GetFieldTag(dbTags, "ScaleRunnerId"): scaleRunnerId})
 	}
+	if envCond := buildEnvFilter(query.EnvKey, query.EnvValue, dbTags); envCond != nil {
+		dbSql = append(dbSql, envCond)
+	}
 	orderBy := buildOrderBy(query.SortBy, query.Order, dbTags)
 	return dbSql, orderBy
+}
+
+// buildEnvFilter builds a SQL condition to filter workloads by an environment
+// variable stored as a JSON object in the env column. When only the key is
+// provided, it matches workloads that contain the key; when both key and value
+// are provided, it matches the exact value of that key. NULLIF guards against
+// NULL/empty env so the jsonb cast never fails. Returns nil when no key is set.
+func buildEnvFilter(envKey, envValue string, dbTags map[string]string) sqrl.Sqlizer {
+	key := strings.TrimSpace(envKey)
+	if key == "" {
+		return nil
+	}
+	envField := dbclient.GetFieldTag(dbTags, "Env")
+	if envValue == "" {
+		expr := fmt.Sprintf("NULLIF(%s, '')::jsonb ->> ? IS NOT NULL", envField)
+		return sqrl.Expr(expr, key)
+	}
+	expr := fmt.Sprintf("NULLIF(%s, '')::jsonb ->> ? = ?", envField)
+	return sqrl.Expr(expr, key, envValue)
 }
 
 // buildOrderBy constructs ORDER BY clause for input parameters.
