@@ -255,11 +255,10 @@ func BuildHyperloomPrompt(cfg PromptConfig) string {
 	}
 
 	push("")
-	push("4. One session only. After the first launch, NEVER start a new `optimize`")
-	push("   (no `--model`, no \"Launch a New Optimization\") — that spawns a new <UTC_ts>")
-	push("   session and is forbidden. A `stop_reason` in state.json (e.g.")
-	push("   `baseline_failed`) is final: stop and exit. To recover an unexpected crash,")
-	push("   ONLY `optimize --resume` (same session dir).")
+	push("4. To recover an unexpected crash, ONLY DO `optimize --resume` (same session")
+	push("   dir). Which means, after the first launch, NEVER start a new `optimize` —")
+	push("   that spawns a new <UTC_ts> session and is forbidden. If a `stop_reason` in")
+	push("   current session state.json is final: stop and exit.")
 
 	body := strings.Join(lines, "\n")
 
