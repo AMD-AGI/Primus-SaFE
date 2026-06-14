@@ -655,7 +655,7 @@ func GetModelOptimizationDefaultWorkspace() string {
 // optimization tasks a single workspace can have running simultaneously.
 // Non-positive values disable the limit.
 func GetModelOptimizationMaxConcurrent() int {
-	return getInt(modelOptimizationConcurrency, 5)
+	return getInt(modelOptimizationConcurrency, 1024)
 }
 
 // GetModelOptimizationClawPluginID returns the Claw plugin ID for the
