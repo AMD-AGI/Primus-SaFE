@@ -48,14 +48,14 @@ type auditResponseWriter struct {
 // auditLogBuffer is a singleton buffer for batching audit logs
 type auditLogBuffer struct {
 	ch     chan *dbclient.AuditLog
-	client *dbclient.Client
+	client dbclient.Interface
 	once   sync.Once
 }
 
 var auditBuffer *auditLogBuffer
 
 // initAuditBuffer initializes the audit log buffer and starts the background worker
-func initAuditBuffer(client *dbclient.Client) *auditLogBuffer {
+func initAuditBuffer(client dbclient.Interface) *auditLogBuffer {
 	buf := &auditLogBuffer{
 		ch:     make(chan *dbclient.AuditLog, auditBufferSize),
 		client: client,
