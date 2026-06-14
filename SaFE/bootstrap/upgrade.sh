@@ -134,6 +134,13 @@ if [[ "$sso_enable" == "true" ]]; then
 fi
 sed -i '/^cd:/,/^[a-z]/ s/require_approval: .*/require_approval: '"$cd_require_approval"'/' "$values_yaml"
 
+# Per-workspace optimization-task concurrency cap. Only override the chart
+# default (1024) when cd_max_concurrent is explicitly set in .env so a missing
+# key leaves the default untouched.
+if [[ -n "${cd_max_concurrent:-}" ]]; then
+  sed -i '/^model_optimization:/,/^[a-z]/ s/max_concurrent: .*/max_concurrent: '"$cd_max_concurrent"'/' "$values_yaml"
+fi
+
 # Configure metrics port if defined in .env
 if [[ -n "${metrics_port:-}" ]]; then
   sed -i '/^job_manager:/,/^[a-z]/ s/metrics_port: .*/metrics_port: '"$metrics_port"'/' "$values_yaml"
