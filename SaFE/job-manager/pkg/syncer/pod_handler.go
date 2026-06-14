@@ -10,7 +10,6 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -48,8 +47,6 @@ const (
 	scaleSetListener = "runner-scale-set-listener"
 	monarchMeshLabel = "monarch.pytorch.org/mesh-name"
 )
-
-var rayJobWorkerIndexPattern = regexp.MustCompile(`-(\d+)-worker-`)
 
 // handlePod processes Pod resource events (add, update, delete).
 // Manages the synchronization of pod status between data plane and admin plane.
@@ -630,13 +627,17 @@ func getRayJobPodTier(podId string) int {
 }
 
 // getRayJobPodSlotKey returns the stable slot key for a RayJob pod.
-// RayJob recreates pods with new random suffixes on restart; the slot key groups replacements.
+// Head and submitter are single-instance per generation, so they share a fixed
+// slot to dedup stale pods across RayJob restarts. Worker pods, however, may
+// have multiple concurrent replicas within one worker group (e.g. ray.io/group
+// "1" with 8 replicas, all named "<cluster>-1-worker-<random>"); keying them by
+// the group index would collapse those distinct replicas into one slot and drop
+// all but one from the status. Each worker pod therefore gets its own slot
+// (full pod name); stale workers from a previous generation are pruned via pod
+// deletion events (removeWorkloadPod), not by this slot dedup.
 func getRayJobPodSlotKey(podId string) string {
 	if strings.Contains(podId, "-head-") {
 		return "head"
-	}
-	if matches := rayJobWorkerIndexPattern.FindStringSubmatch(podId); len(matches) >= 2 {
-		return "worker-" + matches[1]
 	}
 	if strings.Contains(podId, "-worker-") {
 		return podId

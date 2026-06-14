@@ -471,6 +471,8 @@ Get workload list with filtering and pagination support.
 | order | string | No | Sort order: desc/asc, default desc                                                                                             |
 | scaleRunnerSet | string | No | Filter by Scale Runner Set ID. This is the ID of the CICD-created AutoscalingRunnerSet; lists all workloads associated with it |
 | scaleRunnerId | string | No | Filter by Github Action Runner ID.                                                                                             |
+| envKey | string | No | Filter by environment variable key. When provided without `envValue`, returns workloads that contain this env key. Applies to historical workloads stored in the database. |
+| envValue | string | No | Filter by environment variable value (exact match). Only effective together with `envKey`; matches workloads whose `envKey` equals this value. |
 
 
 **Response Example**:
