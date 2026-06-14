@@ -135,10 +135,10 @@ fi
 sed -i '/^cd:/,/^[a-z]/ s/require_approval: .*/require_approval: '"$cd_require_approval"'/' "$values_yaml"
 
 # Per-workspace optimization-task concurrency cap. Only override the chart
-# default (1024) when cd_max_concurrent is explicitly set in .env so a missing
-# key leaves the default untouched.
-if [[ -n "${cd_max_concurrent:-}" ]]; then
-  sed -i '/^model_optimization:/,/^[a-z]/ s/max_concurrent: .*/max_concurrent: '"$cd_max_concurrent"'/' "$values_yaml"
+# default (1024) when optimize_max_concurrent is explicitly set in .env so a
+# missing key leaves the default untouched.
+if [[ -n "${optimize_max_concurrent:-}" ]]; then
+  sed -i '/^model_optimization:/,/^[a-z]/ s/max_concurrent: .*/max_concurrent: '"$optimize_max_concurrent"'/' "$values_yaml"
 fi
 
 # Configure metrics port if defined in .env
