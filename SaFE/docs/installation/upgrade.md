@@ -38,7 +38,7 @@ For additional upgrade-specific behavior, you may add these optional keys to `.e
 | `proxy_image_registry` | Image registry for management components (overrides chart default) |
 | `helm_registry` | Helm chart registry for addons (e.g. `registry-1.docker.io`) |
 | `cd_require_approval` | CD deployment approval: `true` or `false` |
-| `cd_max_concurrent` | Per-workspace cap on concurrently running optimization tasks (integer, e.g. `1024`). Defaults to chart value `1024` when unset. Synced into both `values.yaml` and the live apiserver ConfigMap. |
+| `optimize_max_concurrent` | Per-workspace cap on concurrently running optimization tasks (integer, e.g. `1024`). Defaults to chart value `1024` when unset. Synced into both `values.yaml` and the live apiserver ConfigMap. |
 | `tracing_enable` | Enable OpenTelemetry tracing: `true` or `false` |
 | `tracing_mode` | Tracing mode: `all` or `error_only` |
 | `tracing_sampling_ratio` | Sampling ratio (e.g. `1.0`) |
@@ -67,7 +67,7 @@ The script performs the following steps:
      - `s3.enable` and `s3.secret` when S3 is enabled
      - `sso.enable` and `sso.secret` when SSO is enabled
      - `cd.require_approval` from `cd_require_approval`
-     - `model_optimization.max_concurrent` from `cd_max_concurrent` (when set)
+     - `model_optimization.max_concurrent` from `optimize_max_concurrent` (when set)
      - Tracing config when `tracing_enable=true`
      - `proxy.services` when `proxy_services` is set
    - If `primus-safe` is already installed: replaces CRDs, RBAC role, and webhooks manifests

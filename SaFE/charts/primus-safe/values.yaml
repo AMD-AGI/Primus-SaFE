@@ -263,7 +263,7 @@ model_optimization:
   secret_path: ""
   default_workspace: "control-plane-sandbox"
   # Per-workspace cap on concurrently running optimization tasks. Overridable
-  # per-deploy via .env `cd_max_concurrent` (synced into values.yaml by
+  # per-deploy via .env `optimize_max_concurrent` (synced into values.yaml by
   # upgrade.sh and into the live apiserver ConfigMap by cd-deploy.sh).
   max_concurrent: 1024
 sandbox:
