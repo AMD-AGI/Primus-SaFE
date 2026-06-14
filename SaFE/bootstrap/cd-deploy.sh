@@ -123,8 +123,10 @@ export CALLED_BY_CD=true
 # Using --type=merge avoids adding last-applied-configuration which would
 # conflict with subsequent helm upgrades.
 # Note: .env uses cd_require_approval; ConfigMap stores it as require_approval under cd:.
+#       .env uses cd_max_concurrent; ConfigMap stores it as max_concurrent under
+#       model_optimization: (per-workspace optimization-task concurrency cap).
 APISERVER_CM="primus-safe-apiserver"
-if [ -n "${cd_require_approval:-}" ]; then
+if [ -n "${cd_require_approval:-}" ] || [ -n "${cd_max_concurrent:-}" ]; then
     echo "Syncing .env values to apiserver ConfigMap $APISERVER_CM..."
 
     CURRENT_CONFIG=$(kubectl get configmap "$APISERVER_CM" -n "$NAMESPACE" \
@@ -134,6 +136,9 @@ if [ -n "${cd_require_approval:-}" ]; then
         printf '%s' "$CURRENT_CONFIG" > "$CM_TMP"
         if [ -n "${cd_require_approval:-}" ]; then
             sed -i "s/\(require_approval:\).*/\1 ${cd_require_approval}/" "$CM_TMP"
+        fi
+        if [ -n "${cd_max_concurrent:-}" ]; then
+            sed -i "s/\(max_concurrent:\).*/\1 ${cd_max_concurrent}/" "$CM_TMP"
         fi
         NEW_CONFIG_JSON=$(jq -Rs . < "$CM_TMP")
         rm -f "$CM_TMP"

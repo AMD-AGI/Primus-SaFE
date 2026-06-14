@@ -157,7 +157,7 @@ data:
       claw_agent_id: "{{ default "agent_default" (default dict .Values.model_optimization).claw_agent_id }}"
       secret_path: {{ default "" (default dict .Values.model_optimization).secret_path | quote }}
       default_workspace: "{{ default "control-plane-sandbox" (default dict .Values.model_optimization).default_workspace }}"
-      max_concurrent: {{ default 256 (default dict .Values.model_optimization).max_concurrent }}
+      max_concurrent: {{ default 1024 (default dict .Values.model_optimization).max_concurrent }}
     mcp:
       # Whether to enable MCP (Model Context Protocol) server for AI assistant integration
       enabled: {{ default true (default dict .Values.mcp).enabled }}
