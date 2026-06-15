@@ -138,6 +138,15 @@ def build_payload_from_input(inp: Dict[str, Any]) -> Dict[str, Any]:
     if val is not None:
         env_map["SCALE_RUNNER_ID"] = val
 
+    # The workload API expects images/entryPoints to align with resources.
+    # For multi-node jobs convert_resources_to_array() expands a single resource
+    # config into multiple entries (e.g. Master + Worker), so every resource
+    # entry must get a matching image and entrypoint. Otherwise the Worker
+    # replica is generated without a container image and the Kubeflow admission
+    # webhook rejects the PyTorchJob.
+    resource_count = max(len(resources), 1)
+    entry_point = ensure_base64(command)
+
     workspace_id = getenv_str(WORKSPACE_ID_ENV)
     gvk_kind = "UnifiedJob"
     gvk_version = "v1"
@@ -151,8 +160,8 @@ def build_payload_from_input(inp: Dict[str, Any]) -> Dict[str, Any]:
         "displayName": display_name,
         "workspaceId": workspace_id,
         "resources": resources,
-        "images": [image],
-        "entryPoints": [ensure_base64(command)],
+        "images": [image] * resource_count,
+        "entryPoints": [entry_point] * resource_count,
         "env": env_map,
         "groupVersionKind": {"kind": gvk_kind, "version": gvk_version},
         "description": description,
