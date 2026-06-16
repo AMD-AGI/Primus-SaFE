@@ -28,7 +28,7 @@ jobs:
           - node-agent
           - resource-manager
           - utils
-          - tools
+          - tools/email-relay-service
           - webhooks
         race:
           - true
