@@ -12,9 +12,39 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	"github.com/AMD-AIG-AIMA/SAFE/apis/pkg/client/clientset/versioned/scheme"
 )
+
+func TestEvaluationHandle(t *testing.T) {
+	t.Run("pending init", func(t *testing.T) {
+		job := &v1.OpsJob{
+			ObjectMeta: metav1.ObjectMeta{Name: "ej-pending"},
+			Spec:       v1.OpsJobSpec{Type: v1.OpsJobEvaluationType},
+		}
+		cl := fake.NewClientBuilder().WithScheme(scheme.Scheme).
+			WithStatusSubresource(&v1.OpsJob{}).WithObjects(job).Build()
+		r := &EvaluationJobReconciler{OpsJobBaseReconciler: &OpsJobBaseReconciler{Client: cl}}
+		_, err := r.handle(context.Background(), job)
+		assert.NoError(t, err)
+	})
+
+	t.Run("workload already exists", func(t *testing.T) {
+		job := &v1.OpsJob{
+			ObjectMeta: metav1.ObjectMeta{Name: "ej-run"},
+			Spec:       v1.OpsJobSpec{Type: v1.OpsJobEvaluationType},
+			Status:     v1.OpsJobStatus{Phase: v1.OpsJobRunning},
+		}
+		wl := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "ej-run"}}
+		cl := fake.NewClientBuilder().WithScheme(scheme.Scheme).
+			WithStatusSubresource(&v1.OpsJob{}).WithObjects(job, wl).Build()
+		r := &EvaluationJobReconciler{OpsJobBaseReconciler: &OpsJobBaseReconciler{Client: cl}}
+		_, err := r.handle(context.Background(), job)
+		assert.NoError(t, err)
+	})
+}
 
 func TestIsEvaluationWorkload(t *testing.T) {
 	tests := []struct {

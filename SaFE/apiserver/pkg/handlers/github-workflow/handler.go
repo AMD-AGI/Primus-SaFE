@@ -36,7 +36,9 @@ func RegisterRoutes(router *gin.RouterGroup) {
 	gh.GET("/repositories/:owner/:repo", handleGetRepository)
 }
 
-func getDB() *sql.DB {
+// getDB resolves the SQL handle used by all handlers. It is a package variable
+// so unit tests can inject a mock database connection.
+var getDB = func() *sql.DB {
 	gormDB, err := dbclient.NewClient().GetGormDB()
 	if err != nil {
 		return nil
