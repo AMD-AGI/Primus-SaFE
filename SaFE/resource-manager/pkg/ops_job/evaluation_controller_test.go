@@ -294,7 +294,7 @@ func TestBuildSingleEvalCommand(t *testing.T) {
 			datasetName:     "alpaca_eval",
 			datasetDir:      "/wekafs/datasets/alpaca_eval",
 			limit:           0,
-			outputDir:       "/outputs/task-judge",
+			outputDir:       "/outputs/job-judge",
 			judgeModel:      "gpt-4",
 			judgeEndpoint:   "https://api.openai.com/v1",
 			judgeApiKey:     "test-judge-api-key",
