@@ -9,6 +9,7 @@ import (
 	"bytes"
 	"context"
 	"io"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -22,7 +23,7 @@ type fakeChannel struct {
 	written  bytes.Buffer
 	reqOK    bool
 	reqErr   error
-	closed   bool
+	closed   atomic.Bool
 	readData []byte
 	readErr  error
 }
@@ -39,7 +40,7 @@ func (c *fakeChannel) Read(p []byte) (int, error) {
 	return n, nil
 }
 func (c *fakeChannel) Write(p []byte) (int, error) { return c.written.Write(p) }
-func (c *fakeChannel) Close() error                { c.closed = true; return nil }
+func (c *fakeChannel) Close() error                { c.closed.Store(true); return nil }
 func (c *fakeChannel) CloseWrite() error           { return nil }
 func (c *fakeChannel) SendRequest(name string, wantReply bool, payload []byte) (bool, error) {
 	return c.reqOK, c.reqErr
@@ -99,7 +100,7 @@ func TestSessionExit(t *testing.T) {
 	ch := &fakeChannel{reqOK: true}
 	s := newTestSession(ch)
 	assert.NoError(t, s.Exit(0))
-	assert.True(t, ch.closed)
+	assert.True(t, ch.closed.Load())
 
 	// Second exit returns error.
 	assert.Error(t, s.Exit(0))
@@ -209,7 +210,7 @@ func TestSessionHandleShellOrExecRequest(t *testing.T) {
 	s2.handleShellOrExecRequest(&ssh.Request{Type: sshReqExec, Payload: ssh.Marshal(&p)})
 	assert.Equal(t, "ls", s2.rawCmd)
 	<-done
-	assert.Eventually(t, func() bool { return ch.closed }, time.Second, 10*time.Millisecond)
+	assert.Eventually(t, func() bool { return ch.closed.Load() }, time.Second, 10*time.Millisecond)
 
 	// Malformed exec payload -> reply false.
 	s3 := newTestSession(&fakeChannel{})

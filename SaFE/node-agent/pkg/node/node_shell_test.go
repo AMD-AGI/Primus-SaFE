@@ -6,34 +6,49 @@
 package node
 
 import (
+	"runtime"
 	"testing"
 	"time"
 
 	"gotest.tools/assert"
 )
 
-// TestGetLocationFailsWithoutShell reports an error when host commands are unavailable.
-func TestGetLocationFailsWithoutShell(t *testing.T) {
+// failingNSENTERPrefix forces the shell pipeline to exit non-zero before host tools run.
+// Empty NSENTER runs commands on the local host; CI runners often have timedatectl/uptime,
+// so we cannot assert failure from an empty prefix.
+const failingNSENTERPrefix = `false && `
+
+// TestGetLocationFailsWhenHostCommandFails returns an error when the wrapped command fails.
+func TestGetLocationFailsWhenHostCommandFails(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("requires unix shell commands")
+	}
 	saved := NSENTER
-	NSENTER = ""
+	NSENTER = failingNSENTERPrefix
 	defer func() { NSENTER = saved }()
 	_, err := getLocation()
 	assert.Assert(t, err != nil)
 }
 
-// TestGetUptimeFailsWithoutShell reports an error when uptime command is unavailable.
-func TestGetUptimeFailsWithoutShell(t *testing.T) {
+// TestGetUptimeFailsWhenHostCommandFails returns an error when uptime cannot be read.
+func TestGetUptimeFailsWhenHostCommandFails(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("requires unix shell commands")
+	}
 	saved := NSENTER
-	NSENTER = ""
+	NSENTER = failingNSENTERPrefix
 	defer func() { NSENTER = saved }()
 	_, err := getUptime(time.UTC)
 	assert.Assert(t, err != nil)
 }
 
-// TestUpdateStartTimeFailsWithoutShell propagates shell command failures.
-func TestUpdateStartTimeFailsWithoutShell(t *testing.T) {
+// TestUpdateStartTimeFailsWhenHostCommandFails propagates failures from getLocation/getUptime.
+func TestUpdateStartTimeFailsWhenHostCommandFails(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("requires unix shell commands")
+	}
 	saved := NSENTER
-	NSENTER = ""
+	NSENTER = failingNSENTERPrefix
 	defer func() { NSENTER = saved }()
 	n, _ := newNode(t)
 	err := n.updateStartTime()
