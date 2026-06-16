@@ -1,7 +1,7 @@
 <template>
   <el-drawer
     :model-value="visible"
-    :title="`${props.action} Training`"
+    :title="`${props.action} PyTorch Job`"
     :close-on-click-modal="false"
     size="820px"
     :before-close="cancelAdd"
@@ -751,7 +751,7 @@ const onSubmit = async (formEl: FormInstance | undefined) => {
       ephemeralStorage: `${form.resource.ephemeralStorage}Gi`,
     }
 
-    // Build resources array - Training requires special split logic
+    // Build resources array - PyTorch jobs require special split logic
     const buildResources = () => {
       const totalReplica = resourceType === 'replicas' ? form.resource.replica : nodeList.length
 
@@ -932,7 +932,7 @@ const setInitialFormValues = async () => {
     clonedLastNodes.value = lastNodes
   }
 
-  // resources changed to array; Training sums replica from index 0 and 1, other fields from index 0
+  // resources changed to array; PyTorch jobs sum replica from index 0 and 1, other fields from index 0
   const firstResource = res.resources?.[0] || res.resource || {}
   const secondResource = res.resources?.[1] || {}
   const { gpuName, rdmaResource, ...clearResource } = firstResource

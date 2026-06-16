@@ -75,4 +75,41 @@ func TestFormatDuration(t *testing.T) {
 	sec = 0
 	str = FormatDuration(int64(sec))
 	assert.Equal(t, str, "0s")
+
+	assert.Equal(t, FormatDuration(-1), "")
+}
+
+func TestFormatRFC3339(t *testing.T) {
+	assert.Equal(t, FormatRFC3339(time.Time{}), "")
+	tm := time.Date(2025, 9, 30, 16, 4, 0, 0, time.UTC)
+	assert.Equal(t, FormatRFC3339(tm), "2025-09-30T16:04:00")
+}
+
+func TestCvtStrUnixToTime(t *testing.T) {
+	assert.Equal(t, CvtStrUnixToTime("").IsZero(), true)
+	assert.Equal(t, CvtStrUnixToTime("abc").IsZero(), true)
+	assert.Equal(t, CvtStrUnixToTime("1700000000").Unix(), int64(1700000000))
+}
+
+func TestCvtTimeOnlyToCronStandard(t *testing.T) {
+	scheduleStr, _, err := CvtTimeOnlyToCronStandard("15:04:05")
+	assert.NilError(t, err)
+	assert.Equal(t, scheduleStr, "4 15 * * *")
+
+	_, _, err = CvtTimeOnlyToCronStandard("bad")
+	assert.Assert(t, err != nil)
+}
+
+func TestParseCronStandardError(t *testing.T) {
+	_, err := ParseCronStandard("")
+	assert.Assert(t, err != nil)
+	_, err = ParseCronStandard("invalid spec")
+	assert.Assert(t, err != nil)
+}
+
+func TestCvtStrToRFC3339MilliError(t *testing.T) {
+	_, err := CvtStrToRFC3339Milli("")
+	assert.Assert(t, err != nil)
+	_, err = CvtStrToRFC3339Milli("not-a-time")
+	assert.Assert(t, err != nil)
 }

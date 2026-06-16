@@ -15,13 +15,15 @@
     <!-- Middle menu items scroll area -->
     <div class="menu-scroll flex-1 overflow-y-auto">
       <el-menu
+        ref="menuRef"
         class="ws-menu relative flex-1 overflow-y-auto p-2"
         :ellipsis="false"
         :default-active="route.path"
         router
         active-text-color="var(--safe-primary)"
-        :default-openeds="['workloads', 'artifacts']"
+        :default-openeds="defaultOpeneds"
         style="border: none"
+        @open="handleMenuOpen"
       >
         <el-menu-item-group title="Workspace">
           <div class="p-x-3 p-y-2">
@@ -42,7 +44,7 @@
             match="prefix"
           />Quick Start
         </el-menu-item>
-        <el-sub-menu index="workloads" v-if="workloadMenuItems.length">
+        <el-sub-menu index="workloads" class="workload-menu" v-if="workloadMenuItems.length">
           <template #title>
             <span style="color: var(--safe-primary)">Workloads</span>
           </template>
@@ -175,13 +177,12 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, nextTick, ref, shallowRef, watch, watchEffect, type Component } from 'vue'
 import { useRoute } from 'vue-router'
 import WorkspaceSelect from '../Base/WorkspaceSelect.vue'
 import UserInfo from '../Base/UserInfo.vue'
 import { House } from '@element-plus/icons-vue'
 
-import { type Component, shallowRef, watchEffect } from 'vue'
 import { toggleDark } from '@/composables'
 import MenuItemIcon from '@/components/Base/MenuItemIcon.vue'
 import MenuItem from './MenuItem.vue'
@@ -196,6 +197,7 @@ const route = useRoute()
 const userStore = useUserStore()
 const wsStore = useWorkspaceStore()
 const hasManagerAccess = computed(() => userStore.hasManagerAccess)
+const menuRef = ref()
 
 // Elegant permission check function
 const hasWorkloadScope = (scope: ScopesKeys) => {
@@ -239,16 +241,77 @@ interface MenuItem {
 
 // Workload menu config - use shallowRef to avoid deep reactivity
 const workloadMenuItems = shallowRef<MenuItem[]>([])
+const workloadGroupIndexes = ['workloads-infer', 'workloads-training']
+const workloadGroupRoutes = [
+  { group: 'workloads-infer', paths: ['/infer', '/dynamo', '/optimus'] },
+  {
+    group: 'workloads-training',
+    paths: ['/training', '/torchft', '/rayjob', '/monarch'],
+  },
+]
+const activeWorkloadGroup = computed(
+  () => workloadGroupRoutes.find(({ paths }) => paths.some((path) => route.path.startsWith(path)))?.group,
+)
+const defaultOpeneds = computed(() => [
+  'workloads',
+  'artifacts',
+  ...(activeWorkloadGroup.value ? [activeWorkloadGroup.value] : []),
+])
+
+const syncOpenWorkloadGroup = async () => {
+  await nextTick()
+  const currentGroup = activeWorkloadGroup.value
+  workloadGroupIndexes.forEach((index) => {
+    if (index === currentGroup) {
+      menuRef.value?.open(index)
+      return
+    }
+    menuRef.value?.close(index)
+  })
+}
+
+const handleMenuOpen = (index: string) => {
+  if (!workloadGroupIndexes.includes(index)) return
+  workloadGroupIndexes.forEach((groupIndex) => {
+    if (groupIndex !== index) menuRef.value?.close(groupIndex)
+  })
+}
+
+watch(() => route.path, syncOpenWorkloadGroup, { immediate: true })
 
 // Only update menu config when permissions change
 watchEffect(() => {
-  const allWorkloadItems = [
+  const inferChildren: MenuItem[] = [
+    {
+      index: '/infer',
+      name: 'Deployment',
+      canAccess: canInfer.value,
+      tooltip: 'Deployment has been disabled by the administrator.',
+      icon: menuIcons.deployment,
+    },
+    {
+      index: '/dynamo',
+      name: 'Dynamo',
+      canAccess: canInfer.value,
+      tooltip: 'Dynamo has been disabled by the administrator.',
+      icon: menuIcons.dynamo,
+    },
+    {
+      index: '/optimus',
+      name: 'Optimus',
+      canAccess: canInfer.value,
+      tooltip: 'Optimus has been disabled by the administrator.',
+      icon: menuIcons.optimus,
+    },
+  ].filter((item) => item.canAccess !== false)
+
+  const trainingChildren: MenuItem[] = [
     {
       index: '/training',
-      name: 'Training',
+      name: 'PyTorch',
       canAccess: canTrain.value,
-      tooltip: 'Training has been disabled by the administrator.',
-      icon: menuIcons.training,
+      tooltip: 'PyTorch has been disabled by the administrator.',
+      icon: menuIcons.pytorch,
       dataTour: 'menu-training',
     },
     {
@@ -272,6 +335,29 @@ watchEffect(() => {
       tooltip: 'Monarch has been disabled by the administrator.',
       icon: menuIcons.monarch,
     },
+  ].filter((item) => item.canAccess !== false)
+
+  const allWorkloadItems: MenuItem[] = [
+    ...(inferChildren.length
+      ? [
+          {
+            index: 'workloads-infer',
+            name: 'Infer',
+            icon: menuIcons.infer,
+            children: inferChildren,
+          },
+        ]
+      : []),
+    ...(trainingChildren.length
+      ? [
+          {
+            index: 'workloads-training',
+            name: 'Training',
+            icon: menuIcons.training,
+            children: trainingChildren,
+          },
+        ]
+      : []),
     {
       index: '/authoring',
       name: 'Authoring',
@@ -281,25 +367,18 @@ watchEffect(() => {
       dataTour: 'menu-authoring',
     },
     {
-      index: '/cicd',
-      name: 'CICD',
-      canAccess: canCICD.value,
-      tooltip: 'CICD has been disabled by the administrator.',
-      icon: menuIcons.cicd,
-    },
-    {
-      index: '/infer',
-      name: 'Infer',
-      canAccess: canInfer.value,
-      tooltip: 'Infer has been disabled by the administrator.',
-      icon: menuIcons.infer,
-    },
-    {
       index: '/sandbox-workload',
       name: 'Sandbox',
       canAccess: canSandbox.value,
       tooltip: 'Sandbox has been disabled by the administrator.',
       icon: menuIcons.sandbox,
+    },
+    {
+      index: '/cicd',
+      name: 'CICD',
+      canAccess: canCICD.value,
+      tooltip: 'CICD has been disabled by the administrator.',
+      icon: menuIcons.cicd,
     },
   ]
 
@@ -534,6 +613,10 @@ const workspaceAdminMenuItems: MenuItem[] = [
   color: var(--safe-primary) !important;
 }
 
+.el-menu :deep(.workload-menu .menu-branch.is-active > .el-sub-menu__title span) {
+  color: var(--el-menu-text-color) !important;
+}
+
 /* Nested sub-menu icon should not be blue when inactive */
 .el-menu :deep(.el-sub-menu .el-sub-menu__title .menu-icon) {
   filter: none !important;
@@ -579,5 +662,71 @@ const workspaceAdminMenuItems: MenuItem[] = [
 .ws-menu .el-sub-menu .el-sub-menu__title {
   margin: 4px 8px;
   border-radius: 8px;
+}
+
+/* Workload type groups stay lighter than route leaves. */
+.ws-menu .workload-menu .menu-branch > .el-sub-menu__title {
+  margin: 4px 8px;
+  padding-left: 20px !important;
+  color: var(--el-menu-text-color);
+  border-radius: 8px;
+}
+
+.ws-menu .workload-menu .menu-branch.is-opened > .el-sub-menu__title {
+  background: transparent;
+}
+
+.ws-menu .workload-menu .menu-branch.is-active > .el-sub-menu__title {
+  color: var(--el-menu-text-color);
+  background: transparent;
+}
+
+.ws-menu .workload-menu .menu-branch.is-active.is-opened > .el-sub-menu__title {
+  background: transparent;
+}
+
+.ws-menu .workload-menu .menu-branch.is-opened > .el-sub-menu__title .el-sub-menu__icon-arrow {
+  color: var(--safe-primary);
+}
+
+.ws-menu .workload-menu .menu-branch > .el-menu {
+  position: relative;
+  margin: 2px 0 10px;
+}
+
+.ws-menu .workload-menu .menu-branch > .el-menu::before {
+  content: '';
+  position: absolute;
+  top: 6px;
+  bottom: 6px;
+  left: 36px;
+  width: 1px;
+  background: color-mix(in srgb, var(--el-text-color-secondary) 18%, transparent);
+}
+
+.ws-menu .workload-menu .menu-branch > .el-menu > .el-menu-item {
+  height: 40px;
+  line-height: 40px;
+  margin: 4px 10px 4px 44px;
+  padding-left: 18px !important;
+  font-size: 15px;
+  border-radius: 8px;
+  position: relative;
+}
+
+.ws-menu .workload-menu .menu-branch > .el-menu > .el-menu-item.is-active {
+  color: var(--safe-primary);
+  background: color-mix(in srgb, var(--safe-primary) 14%, transparent);
+}
+
+.ws-menu .workload-menu .menu-branch > .el-menu > .el-menu-item.is-active::before {
+  content: '';
+  position: absolute;
+  left: 8px;
+  top: 10px;
+  bottom: 10px;
+  width: 2px;
+  border-radius: 999px;
+  background: var(--safe-primary);
 }
 </style>

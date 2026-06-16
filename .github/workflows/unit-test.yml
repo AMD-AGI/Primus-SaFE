@@ -21,21 +21,35 @@ jobs:
       fail-fast: false
       matrix:
         module:
-          - apis
+          - a2a-gateway
           - apiserver
           - common
           - job-manager
           - node-agent
           - resource-manager
           - utils
+          - tools/email-relay-service
           - webhooks
         race:
           - true
         exclude:
+          # node-agent, job-manager and resource-manager run without the race
+          # detector:
+          # - node-agent: depends on cgo/btrfs bindings
+          # - job-manager / resource-manager: use gomonkey, which is incompatible
+          #   with -race (function patching trips the race detector / checkptr)
           - module: node-agent
+            race: true
+          - module: job-manager
+            race: true
+          - module: resource-manager
             race: true
         include:
           - module: node-agent
+            race: false
+          - module: job-manager
+            race: false
+          - module: resource-manager
             race: false
     steps:
       - name: Checkout Repository
@@ -59,12 +73,28 @@ jobs:
         continue-on-error: true
         run: |
           echo "🧪 Testing ${{ matrix.module }}..."
-          if [ "${{ matrix.race }}" = "false" ]; then
-            go test -v -coverprofile=coverage.out ./... 2>&1 | tee test-output.log
-          else
-            go test -v -race -coverprofile=coverage.out -covermode=atomic ./... 2>&1 | tee test-output.log
+          # job-manager and resource-manager use gomonkey for function patching,
+          # which requires inlining to be disabled (-gcflags=all=-l) so the patch
+          # targets exist.
+          GCFLAGS=""
+          if [ "${{ matrix.module }}" = "job-manager" ] || [ "${{ matrix.module }}" = "resource-manager" ]; then
+            GCFLAGS="-gcflags=all=-l"
           fi
-          exit ${PIPESTATUS[0]}
+          if [ "${{ matrix.race }}" = "false" ]; then
+            go test -v ${GCFLAGS} -coverprofile=coverage.out ./... 2>&1 | tee test-output.log
+          else
+            go test -v -race ${GCFLAGS} -coverprofile=coverage.out -covermode=atomic ./... 2>&1 | tee test-output.log
+          fi
+          TEST_RC=${PIPESTATUS[0]}
+
+          # Exclude generated / mock database packages from coverage statistics
+          # (gorm-gen DAL/models and gomock mocks are generated code, not unit
+          # tested). Only affects the common module; other modules keep all lines.
+          if [ -f coverage.out ]; then
+            grep -vE '/pkg/database/(client/(mock|dal|model)|gen)/' coverage.out > coverage.filtered || true
+            mv coverage.filtered coverage.out
+          fi
+          exit ${TEST_RC}
 
       - name: Extract Failed Tests
         working-directory: SaFE/${{ matrix.module }}
@@ -192,11 +222,48 @@ jobs:
               fi
             fi
           done
-          
+
+          # Whole-repository aggregate: sum covered/total statements across every
+          # module's coverage.out (mode line skipped). Profiles differ in mode
+          # (set vs atomic) but statement counts are comparable.
+          OVERALL=$(awk '
+            /^mode:/ { next }
+            { n=$(NF-1); c=$NF; total+=n; if (c+0>0) covered+=n }
+            END { if (total>0) printf "%.1f%%", covered*100.0/total; else printf "N/A" }
+          ' coverage-reports/coverage-safe-*/coverage.out 2>/dev/null || echo "N/A")
+
           echo "" >> coverage-summary.md
-          echo "| Module | Coverage |" >> coverage-summary.md
-          echo "|--------|----------|" >> coverage-summary.md
-          
+          echo "**Overall (all SaFE modules combined): ${OVERALL}**" >> coverage-summary.md
+
+          # Per-package (directory) breakdown for each module.
+          echo "" >> coverage-summary.md
+          echo "## Per-package coverage" >> coverage-summary.md
+          for dir in coverage-reports/coverage-safe-*/; do
+            [ -d "$dir" ] || continue
+            module=$(basename "$dir" | sed 's/coverage-safe-//')
+            [ -f "$dir/coverage.out" ] || continue
+            echo "" >> coverage-summary.md
+            echo "<details><summary>${module}</summary>" >> coverage-summary.md
+            echo "" >> coverage-summary.md
+            echo "| Package | Coverage |" >> coverage-summary.md
+            echo "|---------|----------|" >> coverage-summary.md
+            awk '
+              /^mode:/ { next }
+              {
+                p=index($1, ":"); file=substr($1, 1, p-1);
+                pos=0; for (i=length(file); i>0; i--) { if (substr(file,i,1)=="/") { pos=i; break } }
+                d=substr(file, 1, pos-1);
+                n=$(NF-1); c=$NF; tot[d]+=n; if (c+0>0) cov[d]+=n;
+              }
+              END { for (d in tot) printf "%s %.1f%%\n", d, cov[d]*100.0/tot[d] }
+            ' "$dir/coverage.out" \
+              | sed "s#github.com/AMD-AIG-AIMA/SAFE/##" \
+              | sort \
+              | while read -r pkg pct; do echo "| \`$pkg\` | $pct |" >> coverage-summary.md; done
+            echo "" >> coverage-summary.md
+            echo "</details>" >> coverage-summary.md
+          done
+
           echo "" >> coverage-summary.md
           echo "---" >> coverage-summary.md
           echo "*Generated at: $(date -u '+%Y-%m-%d %H:%M:%S UTC')*" >> coverage-summary.md
@@ -304,9 +371,47 @@ jobs:
               echo "| $module | $coverage |" >> $GITHUB_STEP_SUMMARY
             fi
           done
-          
+
+          # Whole-repository aggregate across all modules' coverage.out.
+          OVERALL=$(awk '
+            /^mode:/ { next }
+            { n=$(NF-1); c=$NF; total+=n; if (c+0>0) covered+=n }
+            END { if (total>0) printf "%.1f%%", covered*100.0/total; else printf "N/A" }
+          ' coverage-reports/coverage-safe-*/coverage.out 2>/dev/null || echo "N/A")
           echo "" >> $GITHUB_STEP_SUMMARY
-          
+          echo "**Overall (all SaFE modules combined): ${OVERALL}**" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # Per-package (directory) breakdown for each module, folded to keep the
+          # summary compact.
+          echo "### Per-package coverage" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          for dir in coverage-reports/coverage-safe-*/; do
+            [ -d "$dir" ] || continue
+            module=$(basename "$dir" | sed 's/coverage-safe-//')
+            [ -f "$dir/coverage.out" ] || continue
+            echo "<details><summary>${module}</summary>" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "| Package | Coverage |" >> $GITHUB_STEP_SUMMARY
+            echo "|---------|----------|" >> $GITHUB_STEP_SUMMARY
+            awk '
+              /^mode:/ { next }
+              {
+                p=index($1, ":"); file=substr($1, 1, p-1);
+                pos=0; for (i=length(file); i>0; i--) { if (substr(file,i,1)=="/") { pos=i; break } }
+                d=substr(file, 1, pos-1);
+                n=$(NF-1); c=$NF; tot[d]+=n; if (c+0>0) cov[d]+=n;
+              }
+              END { for (d in tot) printf "%s %.1f%%\n", d, cov[d]*100.0/tot[d] }
+            ' "$dir/coverage.out" \
+              | sed "s#github.com/AMD-AIG-AIMA/SAFE/##" \
+              | sort \
+              | while read -r pkg pct; do echo "| \`$pkg\` | $pct |" >> $GITHUB_STEP_SUMMARY; done
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "</details>" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+          done
+
           echo "---" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           

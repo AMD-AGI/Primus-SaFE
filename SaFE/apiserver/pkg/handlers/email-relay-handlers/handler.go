@@ -6,6 +6,7 @@
 package emailrelayhandlers
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -22,8 +23,20 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/notification/channel"
 )
 
+// emailOutboxStore is the subset of the database client used by the email relay
+// handler. Declaring it as an interface lets unit tests inject a mock store.
+type emailOutboxStore interface {
+	CreateEmailOutbox(ctx context.Context, outbox *dbModel.EmailOutbox) error
+	ListPendingEmailOutbox(ctx context.Context, limit int) ([]*dbModel.EmailOutbox, error)
+	ListPendingEmailOutboxAfter(ctx context.Context, afterID int32, limit int) ([]*dbModel.EmailOutbox, error)
+	DispatchEmailOutbox(ctx context.Context, id int32) (int64, error)
+	AckEmailOutbox(ctx context.Context, id int32) error
+	FailEmailOutbox(ctx context.Context, id int32, errMsg string) error
+	ResetStaleDispatched(ctx context.Context, olderThan time.Duration) (int64, error)
+}
+
 type Handler struct {
-	dbClient *dbClient.Client
+	dbClient emailOutboxStore
 }
 
 func NewHandler() (*Handler, error) {
