@@ -1,3 +1,5 @@
+//go:build !windows
+
 /*
  * Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
  * See LICENSE for license information.
@@ -6,6 +8,7 @@
 package utils
 
 import (
+	"context"
 	"os"
 	"strings"
 	"testing"
@@ -15,6 +18,14 @@ import (
 
 	"github.com/AMD-AIG-AIMA/SAFE/node-agent/pkg/types"
 )
+
+// TestExec builds a command with process-group cancellation on Unix.
+func TestExec(t *testing.T) {
+	ctx := context.Background()
+	cmd := Exec(ctx, "true")
+	assert.Assert(t, cmd != nil)
+	assert.Equal(t, cmd.WaitDelay, 5*time.Second)
+}
 
 func TestExecScript(t *testing.T) {
 	path := "./test.sh"
