@@ -21,13 +21,14 @@ jobs:
       fail-fast: false
       matrix:
         module:
-          - apis
+          - a2a-gateway
           - apiserver
           - common
           - job-manager
           - node-agent
           - resource-manager
           - utils
+          - tools
           - webhooks
         race:
           - true
@@ -84,7 +85,16 @@ jobs:
           else
             go test -v -race ${GCFLAGS} -coverprofile=coverage.out -covermode=atomic ./... 2>&1 | tee test-output.log
           fi
-          exit ${PIPESTATUS[0]}
+          TEST_RC=${PIPESTATUS[0]}
+
+          # Exclude generated / mock database packages from coverage statistics
+          # (gorm-gen DAL/models and gomock mocks are generated code, not unit
+          # tested). Only affects the common module; other modules keep all lines.
+          if [ -f coverage.out ]; then
+            grep -vE '/pkg/database/(client/(mock|dal|model)|gen)/' coverage.out > coverage.filtered || true
+            mv coverage.filtered coverage.out
+          fi
+          exit ${TEST_RC}
 
       - name: Extract Failed Tests
         working-directory: SaFE/${{ matrix.module }}
