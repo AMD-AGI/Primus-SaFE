@@ -48,18 +48,21 @@ import { ref, computed } from 'vue'
 import { useRoute } from 'vue-router'
 import BaseMenu from '@/components/layout/BaseMenu.vue'
 import FloatingChatBot from '@/components/Base/FloatingChatBot.vue'
+import { useClusterStore } from '@/stores/cluster'
+import { isOciClusterId } from '@/utils'
 
 const STORAGE_KEY = 'core42-migration-notice-dismissed'
 const route = useRoute()
+const clusterStore = useClusterStore()
 
-const isOciDomain = !window.location.hostname.includes('core42')
 const dismissed = ref(localStorage.getItem(STORAGE_KEY) === '1')
+const isOciCluster = computed(() => isOciClusterId(clusterStore.currentClusterId))
 
 const isQuickStartPage = computed(() =>
   ['/quickstart', '/userquickstart'].includes(route.path),
 )
 
-const showNotice = computed(() => isOciDomain && !dismissed.value && !isQuickStartPage.value)
+const showNotice = computed(() => isOciCluster.value && !dismissed.value && !isQuickStartPage.value)
 
 function dismissNotice() {
   dismissed.value = true
