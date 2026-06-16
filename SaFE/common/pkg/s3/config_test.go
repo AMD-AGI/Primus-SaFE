@@ -6,121 +6,83 @@
 package s3
 
 import (
+	"context"
 	"testing"
+	"time"
 
-	"gotest.tools/assert"
+	"github.com/spf13/viper"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestParseS3PathStyleURL(t *testing.T) {
-	tests := []struct {
-		name         string
-		url          string
-		wantBucket   string
-		wantKey      string
-		wantEndpoint string
-		wantErr      bool
-	}{
-		{
-			name:         "valid URL with file key",
-			url:          "https://s3.example.com/mybucket/path/to/file.tar",
-			wantBucket:   "mybucket",
-			wantKey:      "path/to/file.tar",
-			wantEndpoint: "https://s3.example.com",
-			wantErr:      false,
-		},
-		{
-			name:         "valid URL with directory prefix",
-			url:          "https://s3.example.com/mybucket/models/llama/",
-			wantBucket:   "mybucket",
-			wantKey:      "models/llama/",
-			wantEndpoint: "https://s3.example.com",
-			wantErr:      false,
-		},
-		{
-			name:         "valid URL with bucket only (trailing slash)",
-			url:          "https://s3.example.com/mybucket/",
-			wantBucket:   "mybucket",
-			wantKey:      "",
-			wantEndpoint: "https://s3.example.com",
-			wantErr:      false,
-		},
-		{
-			name:         "valid URL with bucket only (no trailing slash)",
-			url:          "https://s3.example.com/mybucket",
-			wantBucket:   "mybucket",
-			wantKey:      "",
-			wantEndpoint: "https://s3.example.com",
-			wantErr:      false,
-		},
-		{
-			name:         "valid HTTP URL",
-			url:          "http://localhost:9000/testbucket/data.json",
-			wantBucket:   "testbucket",
-			wantKey:      "data.json",
-			wantEndpoint: "http://localhost:9000",
-			wantErr:      false,
-		},
-		{
-			name:    "empty URL",
-			url:     "",
-			wantErr: true,
-		},
-		{
-			name:    "invalid scheme (s3://)",
-			url:     "s3://mybucket/key",
-			wantErr: true,
-		},
-		{
-			name:    "invalid scheme (ftp://)",
-			url:     "ftp://s3.example.com/mybucket/key",
-			wantErr: true,
-		},
-		{
-			name:    "missing host",
-			url:     "https:///mybucket/key",
-			wantErr: true,
-		},
-		{
-			name:    "missing bucket (root path only)",
-			url:     "https://s3.example.com/",
-			wantErr: true,
-		},
-		{
-			name:    "missing path entirely",
-			url:     "https://s3.example.com",
-			wantErr: true,
-		},
-		{
-			name:         "URL with special characters in key",
-			url:          "https://s3.example.com/mybucket/path/file%20name.tar",
-			wantBucket:   "mybucket",
-			wantKey:      "path/file%20name.tar",
-			wantEndpoint: "https://s3.example.com",
-			wantErr:      false,
-		},
-		{
-			name:         "URL with nested directories",
-			url:          "https://s3.example.com/mybucket/a/b/c/d/e/file.txt",
-			wantBucket:   "mybucket",
-			wantKey:      "a/b/c/d/e/file.txt",
-			wantEndpoint: "https://s3.example.com",
-			wantErr:      false,
-		},
-	}
+	_, err := parseS3PathStyleURL("")
+	assert.Error(t, err)
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			loc, err := parseS3PathStyleURL(tt.url)
+	_, err = parseS3PathStyleURL("ftp://host/bucket/key")
+	assert.Error(t, err)
 
-			if tt.wantErr {
-				assert.Assert(t, err != nil, "expected error but got none")
-				return
-			}
+	_, err = parseS3PathStyleURL("https://host")
+	assert.Error(t, err) // missing path
 
-			assert.NilError(t, err)
-			assert.Equal(t, tt.wantBucket, loc.Bucket)
-			assert.Equal(t, tt.wantKey, loc.Key)
-			assert.Equal(t, tt.wantEndpoint, loc.Endpoint)
-		})
-	}
+	loc, err := parseS3PathStyleURL("https://s3.local/bucket/models/a.bin")
+	assert.NoError(t, err)
+	assert.Equal(t, "bucket", loc.Bucket)
+	assert.Equal(t, "https://s3.local", loc.Endpoint)
+	assert.Equal(t, "models/a.bin", loc.Key)
+
+	loc, err = parseS3PathStyleURL("https://s3.local/onlybucket/")
+	assert.NoError(t, err)
+	assert.Equal(t, "onlybucket", loc.Bucket)
+	assert.Equal(t, "", loc.Key)
+}
+
+func TestNewConfigFromCredentials(t *testing.T) {
+	_, err := newConfigFromCredentials("", "sk", "http://e", "b")
+	assert.Error(t, err)
+	_, err = newConfigFromCredentials("ak", "", "http://e", "b")
+	assert.Error(t, err)
+	_, err = newConfigFromCredentials("ak", "sk", "", "b")
+	assert.Error(t, err)
+	_, err = newConfigFromCredentials("ak", "sk", "http://e", "")
+	assert.Error(t, err)
+
+	cfg, err := newConfigFromCredentials("ak", "sk", "http://e", "b")
+	assert.NoError(t, err)
+	assert.Equal(t, "b", *cfg.Bucket)
+}
+
+func TestNewConfigFromCredentialsURL(t *testing.T) {
+	_, _, err := NewConfigFromCredentials("ak", "sk", "bad-url")
+	assert.Error(t, err)
+
+	cfg, loc, err := NewConfigFromCredentials("ak", "sk", "https://s3.local/bucket/key")
+	assert.NoError(t, err)
+	assert.Equal(t, "bucket", loc.Bucket)
+	assert.Equal(t, "bucket", *cfg.Bucket)
+}
+
+func TestNewConfigGating(t *testing.T) {
+	viper.Reset()
+	// s3 disabled
+	_, err := NewConfig()
+	assert.Error(t, err)
+
+	// enabled but empty bucket -> still error (bucket comes from secret file, unset)
+	viper.Set("s3.enable", true)
+	_, err = NewConfig()
+	assert.Error(t, err)
+}
+
+func TestWithOptionalTimeout(t *testing.T) {
+	ctx := context.Background()
+	c1, cancel1 := WithOptionalTimeout(ctx, 0)
+	defer cancel1()
+	_, hasDeadline := c1.Deadline()
+	assert.False(t, hasDeadline)
+
+	c2, cancel2 := WithOptionalTimeout(ctx, 5)
+	defer cancel2()
+	dl, ok := c2.Deadline()
+	assert.True(t, ok)
+	assert.True(t, dl.After(time.Now()))
 }

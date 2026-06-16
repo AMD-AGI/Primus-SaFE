@@ -92,3 +92,22 @@ func TestAddStrings(t *testing.T) {
 	assert.Equal(t, reflect.DeepEqual(resp, []string{"1", "2", "3", "4"}), true)
 	assert.Equal(t, ok, true)
 }
+
+func TestEqualIgnoreOrder(t *testing.T) {
+	assert.Equal(t, EqualIgnoreOrder([]string{"1", "2"}, []string{"2", "1"}), true)
+	assert.Equal(t, EqualIgnoreOrder([]string{}, []string{}), true)
+	assert.Equal(t, EqualIgnoreOrder([]string{"1"}, []string{"1", "2"}), false)
+	assert.Equal(t, EqualIgnoreOrder([]string{"1", "2"}, []string{"1", "3"}), false)
+}
+
+func TestCopy(t *testing.T) {
+	assert.Equal(t, Copy([]string{"1", "2"}, -1) == nil, true)
+	assert.Equal(t, Copy([]string{}, 2) == nil, true)
+	assert.Equal(t, reflect.DeepEqual(Copy([]string{"1", "2", "3"}, 2), []string{"1", "2"}), true)
+	assert.Equal(t, reflect.DeepEqual(Copy([]string{"1", "2"}, 5), []string{"1", "2"}), true)
+}
+
+func TestContains(t *testing.T) {
+	assert.Equal(t, Contains([]int{1, 2, 3}, 2), true)
+	assert.Equal(t, Contains([]string{"a"}, "b"), false)
+}
