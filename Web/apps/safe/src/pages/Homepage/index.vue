@@ -15,137 +15,96 @@
     </div>
   </div>
 
-  <!-- Template -->
-  <div class="stat-grid mb-6">
-    <el-card
-      v-for="(s, i) in statCards"
-      :key="s.key"
-      shadow="never"
-      class="stat-card"
-      :class="{ 'stat-card--tall': i === 0 }"
-      :style="{
-        '--accent': PIE_COLORS[0] || '#16a34a',
-        '--accent-bad': PIE_COLORS[1] || '#ef4444',
-        '--accent-used': PIE_COLORS[2] || '#3b82f6',
-      }"
-    >
-      <div class="stat-header">
-        <div class="stat-title">{{ s.title }}</div>
-        <div class="stat-total">
-          <span class="stat-total__num">{{ s.total }}</span>
+  <div class="usage-dashboard">
+    <div class="stat-grid">
+      <el-card
+        v-for="(s, i) in statCards"
+        :key="s.key"
+        shadow="never"
+        class="stat-card safe-card"
+        :class="[{ 'stat-card--tall': i === 0 }, `stat-card--tone-${s.tone}`]"
+        :style="{
+          '--accent': PIE_COLORS[0] || '#6f9f7a',
+          '--accent-bad': PIE_COLORS[1] || '#b66a6a',
+          '--accent-used': PIE_COLORS[2] || '#0d9488',
+        }"
+      >
+        <div class="stat-header">
+          <div>
+            <div class="stat-kicker">{{ s.kicker }}</div>
+            <div class="stat-title">{{ s.title }}</div>
+          </div>
+          <div class="stat-total">
+            <span class="stat-total__num">{{ s.total }}</span>
+          </div>
+        </div>
+
+        <div class="stat-bottom">
+          <div class="stat-details">
+            <div class="stat-badges">
+              <span class="badge badge--state badge--ok" v-if="s.avail !== undefined">
+                <i class="dot" :style="{ background: PIE_COLORS[0] || '' }"></i>
+                <span class="badge-text">Available {{ s.avail }}</span>
+              </span>
+              <span class="badge badge--state badge--bad">
+                <i class="dot" :style="{ background: PIE_COLORS[1] || '' }"></i>
+                <span class="badge-text">Abnormal {{ s.abnormal }}</span>
+              </span>
+              <span class="badge badge--state badge--used" v-if="s.used !== undefined">
+                <i class="dot" :style="{ background: PIE_COLORS[2] || '' }"></i>
+                <span class="badge-text">Used {{ s.used }}</span>
+              </span>
+            </div>
+
+            <div class="stat-meter" aria-hidden="true">
+              <span class="stat-meter__ok" :style="{ width: s.availPercent }"></span>
+              <span class="stat-meter__bad" :style="{ width: s.abnormalPercent }"></span>
+              <span class="stat-meter__used" :style="{ width: s.usedPercent }"></span>
+            </div>
+            <div class="stat-caption" v-if="i === 0">{{ s.caption }}</div>
+          </div>
+
+          <div v-if="i === 0" class="small-pie-box" :ref="(el) => (nodePieRef = el as any)" />
+        </div>
+      </el-card>
+    </div>
+
+    <el-card shadow="never" class="capacity-map-card safe-card">
+      <div class="capacity-map-copy">
+        <span class="capacity-eyebrow">Workspace Capacity</span>
+        <h3>Capacity overview</h3>
+        <p>
+          Current quota, availability, and usage by resource pool. This section stays intentionally
+          quiet so the status cards remain the focus.
+        </p>
+        <div class="capacity-tags">
+          <span>Total nodes {{ nodeNumbers.total }}</span>
+          <span>{{ RES_KEYS.length }} resource pools</span>
+          <span>{{ nodeNumbers.avail }} available nodes</span>
         </div>
       </div>
 
-      <div class="stat-bottom">
-        <div class="stat-badges">
-          <span class="badge badge--bling badge--ok" v-if="s.avail !== undefined">
-            <i class="dot" :style="{ background: PIE_COLORS[0] || '' }"></i>
-            <span class="badge-text">Available {{ s.avail }}</span>
-          </span>
-          <span class="badge badge--bling badge--bad">
-            <i class="dot" :style="{ background: PIE_COLORS[1] || '' }"></i>
-            <span class="badge-text">Abnormal {{ s.abnormal }}</span>
-          </span>
-          <span class="badge badge--bling badge--used" v-if="s.used !== undefined">
-            <i class="dot" :style="{ background: PIE_COLORS[2] || '' }"></i>
-            <span class="badge-text">Used {{ s.used }}</span>
-          </span>
-        </div>
-
-        <!-- Only add a small pie chart to Nodes card -->
-        <div v-if="i === 0" class="small-pie-box" :ref="(el) => (nodePieRef = el as any)" />
+      <div class="capacity-illustration" aria-hidden="true">
+        <div class="orbit orbit--outer"></div>
+        <div class="orbit orbit--middle"></div>
+        <div class="orbit orbit--inner"></div>
+        <div class="core-node"></div>
+        <span class="satellite satellite--gpu">GPU</span>
+        <span class="satellite satellite--cpu">CPU</span>
+        <span class="satellite satellite--mem">MEM</span>
+        <span class="satellite satellite--net">RDMA</span>
       </div>
     </el-card>
-  </div>
-
-  <!-- GPU resource utilization line chart -->
-  <div class="gpu-chart-section">
-    <div class="header-row mb-4">
-      <h3 class="chart-title">GPU Utilization & Allocation</h3>
-      <div class="chart-filters">
-        <el-radio-group v-model="quickDateRange" @change="onQuickDateChange">
-          <el-radio-button :value="1">Past 1 Day</el-radio-button>
-          <el-radio-button :value="7">Past 7 Days</el-radio-button>
-          <el-radio-button :value="30">Past 30 Days</el-radio-button>
-          <el-radio-button :value="0">Custom</el-radio-button>
-        </el-radio-group>
-        <el-date-picker
-          v-model="dateRange"
-          type="datetimerange"
-          range-separator="To"
-          start-placeholder="Start time"
-          end-placeholder="End time"
-          :disabled="quickDateRange !== 0"
-          @change="onDateRangeChange"
-          class="ml-3"
-        />
-      </div>
-    </div>
-
-    <div class="gpu-layout">
-      <!-- Left side line chart -->
-      <el-card shadow="never" class="gpu-chart-card" v-loading="gpuLoading">
-        <div class="gpu-chart-box" ref="gpuChartRef" />
-      </el-card>
-
-      <!-- Right side statistics -->
-      <div class="gpu-stats-panel">
-        <el-card shadow="never" class="gpu-stat-card">
-          <div class="stat-icon stat-icon--info">
-            <el-icon><List /></el-icon>
-          </div>
-          <div class="stat-content">
-            <div class="stat-label">Total Workloads</div>
-            <div class="stat-value stat-value--info">{{ gpuStats.totalWorkloads }}</div>
-          </div>
-        </el-card>
-        <el-card shadow="never" class="gpu-stat-card">
-          <div class="stat-icon stat-icon--success">
-            <el-icon><TrendCharts /></el-icon>
-          </div>
-          <div class="stat-content">
-            <div class="stat-label">Avg Allocation</div>
-            <div class="stat-value stat-value--success">
-              {{ gpuStats.avgAllocation }}
-              <span class="stat-unit">%</span>
-            </div>
-          </div>
-        </el-card>
-        <el-card shadow="never" class="gpu-stat-card">
-          <div class="stat-icon stat-icon--primary">
-            <el-icon><Odometer /></el-icon>
-          </div>
-          <div class="stat-content">
-            <div class="stat-label">Avg Utilization</div>
-            <div class="stat-value stat-value--primary">
-              {{ gpuStats.avgUtilization }}
-              <span class="stat-unit">%</span>
-            </div>
-          </div>
-        </el-card>
-        <el-card shadow="never" class="gpu-stat-card">
-          <div class="stat-icon stat-icon--warning">
-            <el-icon><WarningFilled /></el-icon>
-          </div>
-          <div class="stat-content">
-            <div class="stat-label">Low Utilization</div>
-            <div class="stat-value stat-value--warning">{{ gpuStats.lowUtilization }}</div>
-          </div>
-        </el-card>
-      </div>
-    </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, nextTick, onBeforeUnmount, onMounted } from 'vue'
+import { ref, computed, watch, nextTick, onBeforeUnmount } from 'vue'
 import * as echarts from 'echarts'
-import { Right, Odometer, TrendCharts, List, WarningFilled } from '@element-plus/icons-vue'
+import { Right } from '@element-plus/icons-vue'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { getWorkspaceDetail } from '@/services/workspace/index'
-import { getGPUAggregation } from '@/services/workload/index'
 import { byte2Gi } from '@/utils/index'
-import { useClusterStore } from '@/stores/cluster'
 
 // Check if in production environment
 const isProd = import.meta.env.PROD
@@ -160,8 +119,7 @@ const goToHyperloom = () => {
 }
 
 const store = useWorkspaceStore()
-const clusterStore = useClusterStore()
-const PIE_COLORS = ['#67C23A', '#F56C6C', '#00e5e5'] as const
+const PIE_COLORS = ['#6f9f7a', '#b66a6a', '#0d9488'] as const
 
 const detailData = ref<any>(null)
 const RES_KEYS = ['amd.com/gpu', 'rdma/hca', 'cpu', 'memory'] as const
@@ -247,39 +205,64 @@ function renderAllCharts() {
 
 type StatCard = {
   key: string
+  tone: string
+  kicker: string
   title: string
   total: string
   avail?: string
   abnormal?: string
   used?: string
+  availPercent: string
+  abnormalPercent: string
+  usedPercent: string
+  caption: string
 }
 const fmt = (v: number, u: string) => (u ? `${v} ${u}` : String(v))
+const toPercent = (value: number, total: number) =>
+  total > 0 ? `${Math.min(Math.max((value / total) * 100, 0), 100).toFixed(2)}%` : '0%'
+const toneOf = (key: string) => {
+  if (key === 'amd.com/gpu') return 'compute'
+  if (key === 'rdma/hca') return 'network'
+  if (key === 'memory') return 'memory'
+  return 'compute'
+}
 const statCards = computed<StatCard[]>(() => {
   const res = RES_KEYS.map<StatCard>((k, i) => {
     const unit = unitOf(k)
+    const total = normalized.value.total[i] ?? 0
+    const avail = normalized.value.avail[i] ?? 0
+    const abnormal = normalized.value.abnormal[i] ?? 0
+    const used = usedNormal.value[i] ?? 0
     return {
       key: k as string,
+      tone: toneOf(k),
+      kicker: 'Resource Pool',
       title: `${k}${unit ? ` (${unit})` : ''}`,
-      total: fmt(normalized.value.total[i] ?? 0, unit),
-      avail: fmt(normalized.value.avail[i] ?? 0, unit),
-      abnormal: fmt(normalized.value.abnormal[i] ?? 0, unit),
-      used: fmt(usedNormal.value[i] ?? 0, unit),
+      total: fmt(total, unit),
+      avail: fmt(avail, unit),
+      abnormal: fmt(abnormal, unit),
+      used: fmt(used, unit),
+      availPercent: toPercent(avail, total),
+      abnormalPercent: toPercent(abnormal, total),
+      usedPercent: toPercent(used, total),
+      caption: total > 0 ? 'Capacity split' : 'No capacity yet',
     }
   })
 
+  const nodes = nodeNumbers.value
   res.unshift({
     key: 'nodes',
+    tone: 'nodes',
+    kicker: 'Cluster Health',
     title: 'Nodes',
-    avail: String(
-      detailData.value?.currentNodeCount
-        ? detailData.value?.currentNodeCount -
-            detailData.value?.usedNodeCount -
-            detailData.value?.abnormalNodeCount
-        : '0',
-    ),
-    total: String(detailData.value?.currentNodeCount ?? 0),
-    abnormal: String(detailData.value?.abnormalNodeCount ?? 0),
-    used: String(detailData.value?.usedNodeCount ?? 0),
+    avail: String(nodes.avail),
+    total: String(nodes.total),
+    abnormal: String(nodes.abnormal),
+    used: String(nodes.used),
+    availPercent: toPercent(nodes.avail, nodes.total),
+    abnormalPercent: toPercent(nodes.abnormal, nodes.total),
+    usedPercent: toPercent(nodes.used, nodes.total),
+    caption: nodes.total > 0 ? `${nodes.avail} nodes ready` : 'No node capacity reported',
   })
 
   return res
@@ -302,10 +285,6 @@ onBeforeUnmount(() => {
     nodePieChart.dispose()
     nodePieChart = null
   }
-  if (gpuChart) {
-    gpuChart.dispose()
-    gpuChart = null
-  }
 })
 
 watch(
@@ -317,403 +296,6 @@ watch(
   },
 )
 
-// ========== GPU resource utilization line chart related ==========
-interface GPUAggregationItem {
-  id: number
-  cluster_name: string
-  namespace: string
-  stat_hour: string
-  avg_utilization: number
-  allocation_rate: number
-  allocated_gpu_count: number
-  active_workload_count: number
-  total_gpu_capacity: number
-  created_at: string
-  updated_at: string
-}
-
-const gpuChartRef = ref<HTMLElement | null>(null)
-let gpuChart: echarts.ECharts | null = null
-const gpuLoading = ref(false)
-const quickDateRange = ref(7) // Default to past 7 days
-const dateRange = ref<[Date, Date] | null>(null)
-const gpuData = ref<GPUAggregationItem[]>([])
-
-// GPU statistics
-const gpuStats = computed(() => {
-  if (!gpuData.value || gpuData.value.length === 0) {
-    return {
-      avgUtilization: '0.0',
-      avgAllocation: '0.0',
-      totalWorkloads: 0,
-      lowUtilization: 0,
-    }
-  }
-
-  // Data is in descending order, so the first item is the latest
-  const latest = gpuData.value[0]
-  const avgUtil =
-    gpuData.value.reduce((sum, item) => sum + (item.avg_utilization || 0), 0) / gpuData.value.length
-  const avgAlloc =
-    gpuData.value.reduce((sum, item) => sum + (item.allocation_rate || 0), 0) / gpuData.value.length
-
-  // Calculate Total Workloads - use the latest active_workload_count
-  const totalWorkloads = latest.active_workload_count || 0
-
-  // Calculate Low Utilization - count data points with utilization below 30%
-  const lowUtilization = gpuData.value.filter((item) => item.avg_utilization < 30).length
-
-  return {
-    avgUtilization: avgUtil.toFixed(1),
-    avgAllocation: avgAlloc.toFixed(1),
-    totalWorkloads: totalWorkloads,
-    lowUtilization: lowUtilization,
-  }
-})
-
-// Calculate date range
-const getDateRange = (days: number): [Date, Date] => {
-  const end = new Date()
-  const start = new Date()
-  start.setDate(start.getDate() - days)
-  return [start, end]
-}
-
-// Initialize date range
-const initDateRange = () => {
-  if (quickDateRange.value > 0) {
-    dateRange.value = getDateRange(quickDateRange.value)
-  }
-}
-
-// Quick date range switch
-const onQuickDateChange = (val: number) => {
-  if (val > 0) {
-    dateRange.value = getDateRange(val)
-    fetchGPUData()
-  }
-}
-
-// Custom date range switch
-const onDateRangeChange = () => {
-  if (dateRange.value) {
-    fetchGPUData()
-  }
-}
-
-// Format time with timezone: 2025-11-01T00:00:00+08:00
-const formatDateWithTimezone = (date: Date): string => {
-  const year = date.getFullYear()
-  const month = String(date.getMonth() + 1).padStart(2, '0')
-  const day = String(date.getDate()).padStart(2, '0')
-  const hours = String(date.getHours()).padStart(2, '0')
-  const minutes = String(date.getMinutes()).padStart(2, '0')
-  const seconds = String(date.getSeconds()).padStart(2, '0')
-
-  // Get timezone offset (in minutes)
-  const timezoneOffset = -date.getTimezoneOffset()
-  const offsetHours = String(Math.floor(Math.abs(timezoneOffset) / 60)).padStart(2, '0')
-  const offsetMinutes = String(Math.abs(timezoneOffset) % 60).padStart(2, '0')
-  const offsetSign = timezoneOffset >= 0 ? '+' : '-'
-
-  return `${year}-${month}-${day}T${hours}:${minutes}:${seconds}${offsetSign}${offsetHours}:${offsetMinutes}`
-}
-
-// Fetch GPU data
-const fetchGPUData = async () => {
-  if (!dateRange.value || !store.currentWorkspaceId) return
-
-  gpuLoading.value = true
-  try {
-    const [start, end] = dateRange.value
-    const response = await getGPUAggregation({
-      cluster: clusterStore.currentClusterId ?? '',
-      namespace: store.currentWorkspaceId,
-      start_time: formatDateWithTimezone(start),
-      end_time: formatDateWithTimezone(end),
-      page: 1,
-      page_size: 20,
-      order_by: 'time',
-      order_direction: 'desc',
-    })
-
-    gpuData.value = response?.data?.data || []
-    renderGPUChart()
-  } catch (error) {
-    console.error('Failed to fetch GPU data:', error)
-  } finally {
-    gpuLoading.value = false
-  }
-}
-
-// Render GPU line chart
-const renderGPUChart = async () => {
-  await nextTick()
-  if (!gpuChartRef.value) return
-
-  if (!gpuChart) {
-    gpuChart = echarts.init(gpuChartRef.value)
-  }
-
-  if (gpuData.value.length === 0) {
-    const emptyOption: echarts.EChartsOption = {
-      title: {
-        show: true,
-        text: 'No Data',
-        left: 'center',
-        top: 'center',
-        textStyle: {
-          color: '#999',
-          fontSize: 18,
-        },
-      },
-    }
-    gpuChart.setOption(emptyOption, true)
-    return
-  }
-
-  // Process data - descending order needs to be reversed
-  const sortedData = [...gpuData.value].reverse()
-
-  const times = sortedData.map((item) => {
-    const date = new Date(item.stat_hour)
-    return date.toLocaleString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-    })
-  })
-
-  const avgUtilization = sortedData.map((item) =>
-    item.avg_utilization ? Number(item.avg_utilization.toFixed(2)) : 0,
-  )
-
-  const allocationRate = sortedData.map((item) =>
-    item.allocation_rate ? Number(item.allocation_rate.toFixed(2)) : 0,
-  )
-
-  // Calculate appropriate X-axis label interval to avoid overcrowding
-  const calculateInterval = (dataLength: number): number => {
-    if (dataLength <= 24) return 0 // 24 data points or fewer — show all
-    if (dataLength <= 48) return 1 // Show every other one
-    if (dataLength <= 168) return Math.floor(dataLength / 12) // Show about 12 labels
-    return Math.floor(dataLength / 10) // Show about 10 labels
-  }
-
-  // Detect dark mode
-  const isDark =
-    document.documentElement.classList.contains('dark') ||
-    (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches)
-
-  // Theme color palette
-  const colorText = isDark ? '#E5EAF3' : '#303133'
-  const colorSubtext = isDark ? '#C8CDD5' : '#606266'
-  const colorAxis = isDark ? '#FFFFFF33' : '#00000026'
-  const colorGrid = isDark ? '#FFFFFF1F' : '#00000012'
-  const tooltipBg = isDark ? 'rgba(17,24,39,0.95)' : '#fff'
-  const tooltipBorder = isDark ? 'rgba(255,255,255,0.18)' : '#ebeef5'
-  const pointerColor = isDark ? '#FFFFFF3D' : '#0000003d'
-
-  const option: echarts.EChartsOption = {
-    animation: false,
-    tooltip: {
-      trigger: 'axis',
-      confine: true,
-      backgroundColor: tooltipBg,
-      borderColor: tooltipBorder,
-      borderWidth: 1,
-      padding: 12,
-      textStyle: {
-        color: colorText,
-        fontSize: 13,
-      },
-      axisPointer: {
-        type: 'line',
-        lineStyle: {
-          color: pointerColor,
-          width: 2,
-          type: 'solid',
-        },
-      },
-      formatter: (params: unknown) => {
-        const items = params as Array<{
-          axisValue: string
-          seriesName: string
-          value: number
-          color: string
-        }>
-        let result = `<div style="padding: 4px 0;">
-          <div style="font-weight: 600; margin-bottom: 8px; font-size: 14px;">${items[0].axisValue}</div>`
-        items.forEach((item) => {
-          result += `
-            <div style="margin: 6px 0; display: flex; align-items: center; justify-content: space-between; gap: 16px;">
-              <span style="display: flex; align-items: center;">
-                <span style="display: inline-block; width: 12px; height: 12px; border-radius: 50%; background: ${item.color}; margin-right: 8px; box-shadow: 0 0 4px ${item.color}50;"></span>
-                <span style="opacity: 0.9;">${item.seriesName}</span>
-              </span>
-              <span style="font-weight: 600; font-size: 14px;">${item.value}%</span>
-            </div>
-          `
-        })
-        result += '</div>'
-        return result
-      },
-    },
-    legend: {
-      data: ['Avg Utilization', 'Allocation Rate'],
-      top: 12,
-      textStyle: {
-        color: colorText,
-        fontSize: 13,
-        padding: [0, 8, 0, 0],
-      },
-      itemWidth: 28,
-      itemHeight: 14,
-      itemGap: 20,
-    },
-    grid: {
-      left: '2%',
-      right: '1%',
-      bottom: '8%',
-      top: '16%',
-      containLabel: true,
-    },
-    xAxis: {
-      type: 'category',
-      boundaryGap: false,
-      data: times,
-      axisTick: {
-        show: false,
-      },
-      axisLine: {
-        lineStyle: {
-          color: colorAxis,
-          width: 1.5,
-        },
-      },
-      axisLabel: {
-        color: colorSubtext,
-        fontSize: 12,
-        rotate: 45,
-        interval: calculateInterval(times.length),
-        margin: 12,
-        fontWeight: 500,
-      },
-    },
-    yAxis: {
-      type: 'value',
-      name: 'Percentage (%)',
-      nameTextStyle: {
-        color: colorText,
-        fontSize: 13,
-        fontWeight: 600,
-        padding: [0, 0, 8, 0],
-      },
-      min: 0,
-      max: 100,
-      axisLine: {
-        show: true,
-        lineStyle: {
-          color: colorAxis,
-          width: 1.5,
-        },
-      },
-      axisLabel: {
-        color: colorSubtext,
-        fontSize: 12,
-        formatter: '{value}%',
-        fontWeight: 500,
-      },
-      splitLine: {
-        lineStyle: {
-          color: colorGrid,
-          width: 1,
-        },
-      },
-    },
-    series: [
-      {
-        name: 'Avg Utilization',
-        type: 'line',
-        data: avgUtilization,
-        smooth: true,
-        symbol: 'circle',
-        symbolSize: 6,
-        showSymbol: false,
-        lineStyle: {
-          width: 2.5,
-          color: '#409EFF',
-        },
-        itemStyle: {
-          color: '#409EFF',
-          borderColor: '#fff',
-          borderWidth: 2,
-        },
-        emphasis: {
-          scale: true,
-          focus: 'series',
-        },
-        areaStyle: {
-          color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
-            { offset: 0, color: 'rgba(64, 158, 255, 0.4)' },
-            { offset: 0.5, color: 'rgba(64, 158, 255, 0.2)' },
-            { offset: 1, color: 'rgba(64, 158, 255, 0.05)' },
-          ]),
-        },
-      },
-      {
-        name: 'Allocation Rate',
-        type: 'line',
-        data: allocationRate,
-        smooth: true,
-        symbol: 'circle',
-        symbolSize: 6,
-        showSymbol: false,
-        lineStyle: {
-          width: 2.5,
-          color: '#67C23A',
-        },
-        itemStyle: {
-          color: '#67C23A',
-          borderColor: '#fff',
-          borderWidth: 2,
-        },
-        emphasis: {
-          scale: true,
-          focus: 'series',
-        },
-        areaStyle: {
-          color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
-            { offset: 0, color: 'rgba(103, 194, 58, 0.4)' },
-            { offset: 0.5, color: 'rgba(103, 194, 58, 0.2)' },
-            { offset: 1, color: 'rgba(103, 194, 58, 0.05)' },
-          ]),
-        },
-      },
-    ],
-  }
-
-  gpuChart.setOption(option, true)
-}
-
-// Watch for workspace changes
-watch(
-  () => store.currentWorkspaceId,
-  (id) => {
-    if (id) {
-      fetchGPUData()
-    }
-  },
-)
-
-// Initialize
-onMounted(() => {
-  initDateRange()
-  if (store.currentWorkspaceId) {
-    fetchGPUData()
-  }
-})
 </script>
 
 <style scoped>
@@ -745,271 +327,19 @@ onMounted(() => {
   color: var(--el-color-primary-light-3);
 }
 
-/* GPU chart section */
-.gpu-chart-section {
-  margin-top: 32px;
-  margin-bottom: 24px;
-}
-
-.gpu-layout {
+.usage-dashboard {
   display: grid;
-  grid-template-columns: 1fr 280px;
   gap: 16px;
-  align-items: stretch;
-}
-
-@media (max-width: 1280px) {
-  .gpu-layout {
-    grid-template-columns: 1fr;
-  }
-
-  .gpu-stats-panel {
-    display: grid !important;
-    grid-template-columns: repeat(2, 1fr) !important;
-    grid-template-rows: repeat(2, 1fr) !important;
-    gap: 12px !important;
-    flex-direction: unset !important;
-  }
-
-  .gpu-stat-card {
-    flex: unset !important;
-  }
-}
-
-.chart-filters {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 14px;
-}
-
-.chart-filters :deep(.el-radio-group) {
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
-  border-radius: 8px;
-  overflow: hidden;
-}
-
-.chart-filters :deep(.el-radio-button__inner) {
-  border: none;
-  border-radius: 0;
-  padding: 10px 18px;
-  font-weight: 500;
-  transition: all 0.3s ease;
-  background: var(--el-fill-color-blank);
-  color: var(--el-text-color-regular);
-}
-
-.chart-filters :deep(.el-radio-button__inner:hover) {
-  color: var(--el-color-primary);
-  background: var(--el-color-primary-light-9);
-}
-
-.chart-filters :deep(.el-radio-button:first-child .el-radio-button__inner) {
-  border-radius: 8px 0 0 8px;
-}
-
-.chart-filters :deep(.el-radio-button:last-child .el-radio-button__inner) {
-  border-radius: 0 8px 8px 0;
-}
-
-.chart-filters :deep(.el-radio-button__original-radio:checked + .el-radio-button__inner) {
-  background: var(--el-color-primary);
-  color: #fff;
-  box-shadow: 0 2px 6px var(--el-color-primary-light-5);
-}
-
-.chart-filters :deep(.el-date-editor) {
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
-  border-radius: 8px;
-  border: 1px solid var(--el-border-color-light);
-  transition: all 0.3s ease;
-}
-
-.chart-filters :deep(.el-date-editor:hover) {
-  border-color: var(--el-color-primary);
-  box-shadow: 0 2px 12px rgba(64, 158, 255, 0.15);
-}
-
-.gpu-chart-card {
-  border-radius: 16px;
-  background: linear-gradient(135deg, rgba(255, 255, 255, 0.08) 0%, rgba(255, 255, 255, 0.02) 100%)
-    var(--el-bg-color);
-  border: 1px solid var(--el-border-color-lighter);
-  box-shadow:
-    0 4px 16px rgba(0, 0, 0, 0.04),
-    0 1px 3px rgba(0, 0, 0, 0.02),
-    inset 0 1px 0 rgba(255, 255, 255, 0.06);
-  backdrop-filter: blur(10px);
-  transition: all 0.3s ease;
-  overflow: hidden;
-  position: relative;
-  height: 100%;
-  display: flex;
-  flex-direction: column;
-}
-
-.gpu-chart-card::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 2px;
-  background: linear-gradient(
-    90deg,
-    transparent 0%,
-    rgba(64, 158, 255, 0.5) 20%,
-    rgba(103, 194, 58, 0.5) 50%,
-    rgba(245, 108, 108, 0.5) 80%,
-    transparent 100%
-  );
-  opacity: 0.6;
-}
-
-.gpu-chart-card:hover {
-  box-shadow:
-    0 8px 24px rgba(0, 0, 0, 0.08),
-    0 2px 6px rgba(0, 0, 0, 0.04),
-    inset 0 1px 0 rgba(255, 255, 255, 0.08);
-  transform: translateY(-2px);
-}
-
-.gpu-chart-card :deep(.el-card__body) {
-  padding: clamp(16px, 1.5vw, 24px);
-  background: transparent;
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-}
-
-.gpu-chart-box {
-  width: 100%;
-  flex: 1;
-  min-height: 320px;
-  position: relative;
-}
-
-/* Right side stats panel */
-.gpu-stats-panel {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  height: 100%;
-}
-
-.gpu-stat-card {
-  flex: 1;
-  border-radius: 12px;
-  background: linear-gradient(135deg, rgba(255, 255, 255, 0.08) 0%, rgba(255, 255, 255, 0.02) 100%)
-    var(--el-bg-color);
-  border: 1px solid var(--el-border-color-lighter);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
-  transition: all 0.3s ease;
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
-}
-
-.gpu-stat-card:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
-  border-color: var(--el-border-color);
-}
-
-.gpu-stat-card :deep(.el-card__body) {
-  padding: 20px;
-  flex: 1;
-  display: flex;
-  align-items: center;
-  gap: 16px;
-}
-
-.stat-icon {
-  width: 48px;
-  height: 48px;
-  border-radius: 12px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 24px;
-  flex-shrink: 0;
-  transition: all 0.3s ease;
-}
-
-.stat-icon--primary {
-  background: linear-gradient(135deg, rgba(64, 158, 255, 0.15), rgba(64, 158, 255, 0.05));
-  color: #409eff;
-}
-
-.stat-icon--success {
-  background: linear-gradient(135deg, rgba(103, 194, 58, 0.15), rgba(103, 194, 58, 0.05));
-  color: #67c23a;
-}
-
-.stat-icon--info {
-  background: linear-gradient(135deg, rgba(0, 177, 166, 0.15), rgba(0, 177, 166, 0.05));
-  color: #00b1a6;
-}
-
-.stat-icon--warning {
-  background: linear-gradient(135deg, rgba(230, 162, 60, 0.15), rgba(230, 162, 60, 0.05));
-  color: #e6a23c;
-}
-
-.gpu-stat-card:hover .stat-icon {
-  transform: scale(1.1) rotate(5deg);
-}
-
-.stat-content {
-  flex: 1;
-  min-width: 0;
-}
-
-.stat-label {
-  font-size: 13px;
-  color: var(--el-text-color-secondary);
-  margin-bottom: 8px;
-  font-weight: 500;
-}
-
-.stat-value {
-  font-size: 32px;
-  font-weight: 800;
-  line-height: 1;
-  background-clip: text;
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-}
-
-.stat-value--primary {
-  background-image: linear-gradient(135deg, #409eff 0%, #79bbff 100%);
-}
-
-.stat-value--success {
-  background-image: linear-gradient(135deg, #67c23a 0%, #95d475 100%);
-}
-
-.stat-value--info {
-  background-image: linear-gradient(135deg, #00b1a6 0%, #00e5e5 100%);
-}
-
-.stat-value--warning {
-  background-image: linear-gradient(135deg, #e6a23c 0%, #f3d19e 100%);
-}
-
-.stat-unit {
-  font-size: 18px;
-  margin-left: 2px;
 }
 
 /* Small pie chart (inside Nodes card) */
 .small-pie-box {
-  flex: 0 0 280px;
-  max-width: 360px;
+  flex: 0 0 min(38%, 220px);
+  max-width: 260px;
   margin-left: auto;
   aspect-ratio: 1 / 1;
-  min-height: 200px;
-  max-height: 280px;
+  min-height: 160px;
+  max-height: 220px;
 }
 
 .chart-title {
@@ -1025,7 +355,7 @@ onMounted(() => {
   display: grid;
   gap: 16px;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  grid-auto-rows: 200px;
+  grid-auto-rows: 232px;
 }
 
 /* Small screen responsive: two columns / one column */
@@ -1066,12 +396,13 @@ onMounted(() => {
 
 /* ===== Card body ===== */
 .stat-card {
+  --tone: var(--safe-primary);
   position: relative;
-  border-radius: 12px;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.02))
-    var(--el-bg-color);
-  border: 1px solid var(--el-border-color-lighter);
-  box-shadow: 0 6px 24px rgba(17, 24, 39, 0.06);
+  min-width: 0;
+  border-radius: var(--safe-radius-xl);
+  background: var(--safe-card);
+  border: 1px solid var(--safe-border);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
   overflow: hidden;
   transition:
     transform 0.25s ease,
@@ -1080,6 +411,29 @@ onMounted(() => {
 
   display: flex;
   flex-direction: column;
+}
+
+.stat-card::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: linear-gradient(180deg, color-mix(in oklab, var(--safe-primary) 7%, transparent), transparent 54%);
+  pointer-events: none;
+}
+
+.stat-card::after {
+  display: none;
+}
+
+.stat-card--tone-nodes {
+  --tone: var(--safe-primary);
+}
+
+.stat-card--tone-compute,
+.stat-card--tone-network,
+.stat-card--tone-memory {
+  --tone: var(--safe-primary);
 }
 
 /* First card spans two rows vertically */
@@ -1094,14 +448,20 @@ onMounted(() => {
 
 .stat-card:hover {
   transform: translateY(-2px);
-  box-shadow: 0 10px 32px rgba(17, 24, 39, 0.12);
+  border-color: color-mix(in oklab, var(--safe-border) 55%, var(--safe-primary) 45%);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
 }
 
 /* el-card inner layer */
 .stat-card :deep(.el-card__body) {
+  position: relative;
+  z-index: 1;
   display: flex;
   flex-direction: column;
-  padding: clamp(18px, 1.5vw, 32px);
+  height: 100%;
+  box-sizing: border-box;
+  overflow: hidden !important;
+  padding: 18px;
 }
 
 /* ===== Header: title + large number in top right ===== */
@@ -1109,8 +469,17 @@ onMounted(() => {
   display: grid;
   grid-template-columns: 1fr auto;
   align-items: start;
-  gap: 10px;
-  padding-bottom: 6px;
+  gap: 14px;
+  padding-bottom: 10px;
+}
+
+.stat-kicker {
+  margin-bottom: 6px;
+  color: var(--safe-muted);
+  font-size: calc(10px * var(--scale));
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
 }
 
 .stat-title {
@@ -1119,7 +488,7 @@ onMounted(() => {
   text-overflow: ellipsis;
   white-space: nowrap;
 
-  font-size: calc(clamp(15px, 0.7vw + 11px, 18px) * var(--scale));
+  font-size: calc(clamp(14px, 0.55vw + 11px, 17px) * var(--scale));
   font-weight: 700;
   line-height: 1.4;
   color: var(--el-text-color-primary);
@@ -1131,21 +500,17 @@ onMounted(() => {
 }
 /* Prominent total in top right (gradient text) */
 .stat-total__num {
+  color: var(--safe-primary);
   font-weight: 800;
-  font-size: calc(clamp(18px, 0.7vw + 12px, 24px) * var(--scale));
+  font-size: calc(clamp(22px, 0.9vw + 14px, 30px) * var(--scale));
   line-height: 1;
 
-  background-image: linear-gradient(
-    180deg,
-    color-mix(in oklab, #00b1a6 92%, #c2edfd 8%),
-    color-mix(in oklab, #00b1a6 62%, #003932 12%)
-  );
+  background-image: none;
   -webkit-background-clip: text;
   background-clip: text;
 
-  -webkit-text-fill-color: transparent;
-  /* Keep a very light shadow for depth effect */
-  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.06);
+  -webkit-text-fill-color: currentColor;
+  text-shadow: none;
 }
 @container (max-width: 420px) {
   .stat-total__num {
@@ -1160,11 +525,20 @@ onMounted(() => {
   display: flex;
   align-items: flex-start;
   gap: 12px;
-  margin-top: 10px;
+  margin-top: auto;
 }
+
+.stat-details {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  flex-direction: column;
+  gap: 12px;
+}
+
 .stat-badges {
   display: flex;
-  gap: 10px;
+  gap: 8px;
   flex-wrap: wrap;
   flex: 1 1 auto;
 }
@@ -1173,12 +547,12 @@ onMounted(() => {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  font-size: calc(13px * var(--scale));
+  font-size: calc(11px * var(--scale));
   color: var(--el-text-color-secondary);
-  padding: 5px 10px;
+  padding: 4px 8px;
   border-radius: 999px;
-  background: color-mix(in oklab, var(--el-fill-color-lighter) 80%, white 20%);
-  box-shadow: inset 0 0 0 1px var(--el-border-color-lighter);
+  background: var(--safe-card-2);
+  box-shadow: inset 0 0 0 1px var(--safe-border);
   white-space: nowrap;
   min-width: 0;
   max-width: 100%;
@@ -1186,103 +560,286 @@ onMounted(() => {
   text-overflow: ellipsis;
 }
 .dot {
-  width: 11px;
-  height: 11px;
+  width: 9px;
+  height: 9px;
   border-radius: 999px;
   display: inline-block;
 }
 
-/* ---------- Bling text ---------- */
-/* Three states base colors */
+.stat-meter {
+  display: flex;
+  width: 100%;
+  height: 8px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--safe-card-2);
+  box-shadow: inset 0 0 0 1px var(--safe-border);
+}
+
+.stat-meter span {
+  transition: width 0.25s ease;
+}
+
+.stat-meter__ok {
+  background: #6f9f7a;
+}
+
+.stat-meter__bad {
+  background: #b66a6a;
+}
+
+.stat-meter__used {
+  background: var(--safe-primary);
+}
+
+.stat-caption {
+  color: var(--el-text-color-secondary);
+  font-size: calc(12px * var(--scale));
+  line-height: 1.45;
+}
+
+.capacity-map-card {
+  position: relative;
+  min-height: 220px;
+  overflow: hidden;
+  border-radius: var(--safe-radius-xl);
+  background: var(--safe-card);
+  border: 1px solid var(--safe-border);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
+}
+
+.capacity-map-card :deep(.el-card__body) {
+  display: grid;
+  min-height: 220px;
+  box-sizing: border-box;
+  overflow: hidden;
+  grid-template-columns: minmax(0, 0.9fr) minmax(360px, 1.1fr);
+  align-items: center;
+  gap: 24px;
+  padding: 28px;
+}
+
+.capacity-map-copy {
+  position: relative;
+  z-index: 1;
+  max-width: 560px;
+}
+
+.capacity-eyebrow {
+  display: inline-flex;
+  margin-bottom: 10px;
+  border-radius: 999px;
+  padding: 6px 12px;
+  color: var(--safe-primary);
+  background: var(--safe-primary-plain-bg);
+  box-shadow: inset 0 0 0 1px var(--safe-primary-plain-border);
+  font-size: calc(12px * var(--scale));
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.capacity-map-copy h3 {
+  margin: 0 0 10px;
+  color: var(--el-text-color-primary);
+  font-size: calc(clamp(22px, 1.1vw + 18px, 34px) * var(--scale));
+  line-height: 1.15;
+  font-weight: 700;
+}
+
+.capacity-map-copy p {
+  margin: 0;
+  max-width: 520px;
+  color: var(--safe-muted);
+  font-size: calc(14px * var(--scale));
+  line-height: 1.7;
+}
+
+.capacity-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 20px;
+}
+
+.capacity-tags span {
+  border-radius: 999px;
+  padding: 7px 12px;
+  color: var(--safe-muted);
+  background: var(--safe-card-2);
+  box-shadow: inset 0 0 0 1px var(--safe-border);
+  font-size: calc(12px * var(--scale));
+  font-weight: 700;
+}
+
+.capacity-illustration {
+  position: relative;
+  height: 190px;
+  min-width: 320px;
+}
+
+.orbit {
+  position: absolute;
+  inset: 50% auto auto 50%;
+  border: 1px solid color-mix(in oklab, var(--safe-border) 70%, var(--safe-primary) 30%);
+  border-radius: 999px;
+  transform: translate(-50%, -50%);
+}
+
+.orbit--outer {
+  width: 430px;
+  height: 146px;
+}
+
+.orbit--middle {
+  width: 320px;
+  height: 104px;
+  border-color: var(--safe-border);
+}
+
+.orbit--inner {
+  width: 210px;
+  height: 70px;
+  border-color: var(--safe-border);
+}
+
+.core-node {
+  position: absolute;
+  inset: 50% auto auto 50%;
+  width: 76px;
+  height: 76px;
+  border-radius: 22px;
+  background: var(--safe-primary);
+  box-shadow:
+    0 16px 36px color-mix(in oklab, var(--safe-primary) 18%, transparent 82%),
+    inset 0 1px 0 rgba(255, 255, 255, 0.28);
+  transform: translate(-50%, -50%) rotate(45deg);
+}
+
+.satellite {
+  position: absolute;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 64px;
+  height: 34px;
+  border-radius: 999px;
+  color: var(--safe-muted);
+  background: var(--safe-card-2);
+  box-shadow:
+    inset 0 0 0 1px var(--safe-border),
+    0 8px 18px rgba(0, 0, 0, 0.08);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.satellite--gpu {
+  top: 14px;
+  left: 54%;
+}
+
+.satellite--cpu {
+  top: 86px;
+  right: 7%;
+}
+
+.satellite--mem {
+  bottom: 18px;
+  left: 42%;
+}
+
+.satellite--net {
+  top: 72px;
+  left: 10%;
+}
+
+@media (max-width: 1024px) {
+  .capacity-map-card :deep(.el-card__body) {
+    grid-template-columns: 1fr;
+  }
+
+  .capacity-illustration {
+    min-width: 0;
+  }
+}
+
+@media (max-width: 640px) {
+  .capacity-map-card :deep(.el-card__body) {
+    padding: 20px;
+  }
+
+  .capacity-illustration {
+    height: 150px;
+  }
+
+  .orbit--outer {
+    width: 300px;
+    height: 112px;
+  }
+
+  .orbit--middle {
+    width: 228px;
+    height: 82px;
+  }
+
+  .orbit--inner {
+    width: 150px;
+    height: 54px;
+  }
+
+  .satellite {
+    min-width: 52px;
+    height: 30px;
+    font-size: 11px;
+  }
+}
+
 .badge--ok {
-  --c: #67c23a;
+  --c: #6f9f7a;
 }
 .badge--bad {
-  --c: #f56c6c;
+  --c: #b66a6a;
 }
 .badge--used {
-  --c: #00e5e5;
+  --c: var(--safe-primary);
 }
-/* Default state: brighter gradient + slight glow */
-.badge--bling .badge-text {
+
+.badge--state .badge-text {
   display: inline-block;
   font-weight: 700;
-
-  /* Gradient fill: slightly brighter than before */
-  --g1: color-mix(in oklab, var(--c) 96%, white 4%);
-  --g2: color-mix(in oklab, var(--c) 70%, #003932 10%);
-  background-image: linear-gradient(180deg, var(--g1), var(--g2));
-  background-clip: text;
-  -webkit-background-clip: text;
-  color: transparent;
-  -webkit-text-fill-color: transparent;
-
-  /* Glow convergence: smaller radius, lower opacity */
-  text-shadow:
-    0 1px 0 rgba(0, 0, 0, 0.08),
-    0 0 6px color-mix(in oklab, var(--c) 28%, transparent 72%);
+  color: var(--c);
+  -webkit-text-fill-color: currentColor;
+  text-shadow: none;
 
   transition:
-    filter 0.2s ease,
     color 0.2s ease,
-    -webkit-text-fill-color 0.2s ease,
-    background 0.2s ease;
+    opacity 0.2s ease;
 }
 
-/* Hover: switch text to solid primary color, no gradient, clearer and bolder */
-.badge--bling:hover .badge-text {
-  background: none;
-  color: color-mix(in oklab, var(--c) 94%, white 6%) !important;
-  -webkit-text-fill-color: color-mix(in oklab, var(--c) 94%, white 6%) !important;
-  text-shadow:
-    0 1px 0 rgba(0, 0, 0, 0.1),
-    0 0 8px color-mix(in oklab, var(--c) 35%, transparent 65%);
-  filter: brightness(1.05);
+.badge--state:hover .badge-text {
+  opacity: 0.86;
 }
 
-/* Badge outline: light by default, slightly brighter on hover */
-.badge--bling {
-  position: relative; /* For sweep light effect */
-  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--c) 30%, var(--el-border-color-lighter) 70%);
-  overflow: hidden; /* Prevent sweep light overflow */
+.badge--state {
+  position: relative;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+  overflow: hidden;
 }
-.badge--bling:hover {
-  box-shadow:
-    inset 0 0 0 1px color-mix(in oklab, var(--c) 55%, var(--el-border-color-lighter) 45%),
-    0 0 10px -4px color-mix(in oklab, var(--c) 32%, transparent 68%);
+.badge--state:hover {
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.12);
 }
 
-/* Extra flair: a sweep-light effect passes through on hover */
-.badge--bling::after {
-  content: '';
-  position: absolute;
-  top: -40%;
-  bottom: -40%;
-  left: -60%;
-  width: 60px;
-  background: linear-gradient(
-    120deg,
-    transparent 0%,
-    rgba(255, 255, 255, 0.1) 18%,
-    rgba(255, 255, 255, 0.28) 35%,
-    rgba(255, 255, 255, 0.1) 52%,
-    transparent 70%
-  );
-  transform: translateX(-120%) rotate(20deg);
-  transition: transform 0.6s ease;
-  pointer-events: none;
-}
-.badge--bling:hover::after {
-  transform: translateX(140%) rotate(20deg);
+.badge--state::after {
+  display: none;
 }
 
 /* With reduced motion preference, keep only color transitions */
 @media (prefers-reduced-motion: reduce) {
-  .badge--bling::after {
+  .badge--state::after {
     transition: none;
     display: none;
   }
-  .badge--bling .badge-text {
+  .badge--state .badge-text {
     transition: none;
   }
 }
