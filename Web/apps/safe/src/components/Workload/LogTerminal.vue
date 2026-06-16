@@ -76,7 +76,7 @@
             placement="top"
           >
             <el-button
-              v-if="isDownload"
+              v-if="canDownloadLogs"
               :icon="Download"
               :loading="downloadLoading"
               size="default"
@@ -179,6 +179,7 @@ import { computed, nextTick, ref, toRef, watch } from 'vue'
 import { InfoFilled, Search, Download, Top, Bottom } from '@element-plus/icons-vue'
 import { useLogTable, type RowData } from '@/composables/useLogTable'
 import LogContextDialog from '@/components/Workload/LogContextDialog.vue'
+import { isLogDownloadEnabledForHost } from '@/utils'
 
 const props = defineProps<{
   wlid: string
@@ -193,6 +194,9 @@ const props = defineProps<{
 const hasRank = (r: unknown) => r !== null && r !== undefined && r !== ''
 const wordWrap = ref(true)
 const nodeSearch = ref('')
+const canDownloadLogs = computed(() =>
+  isLogDownloadEnabledForHost(props.isDownload, window.location.hostname),
+)
 const filteredTableRows = computed(() => {
   const kw = nodeSearch.value.trim().toLowerCase()
   if (!kw) return tableRows.value
