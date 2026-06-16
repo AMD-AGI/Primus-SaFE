@@ -17,7 +17,8 @@ import (
 func TestMonitorRunSkipsUnknownStatus(t *testing.T) {
 	dir := t.TempDir()
 	script := filepath.Join(dir, "unknown.sh")
-	assert.NilError(t, os.WriteFile(script, []byte("#!/bin/sh\nexit 0"), 0777))
+	// exit 2 maps to StatusUnknown, which Run must discard (only Ok/Error are reported).
+	assert.NilError(t, os.WriteFile(script, []byte("#!/bin/sh\nexit 2"), 0777))
 
 	q := unitTestQueue(t)
 	n := unitTestNode(t)
@@ -48,5 +49,6 @@ func TestMonitorRunProcessesArguments(t *testing.T) {
 		node:       n,
 	}
 	m.Run()
-	assert.Equal(t, q.Len(), 0)
+	// exit 0 maps to StatusOk, so a single result message is enqueued.
+	assert.Equal(t, q.Len(), 1)
 }
