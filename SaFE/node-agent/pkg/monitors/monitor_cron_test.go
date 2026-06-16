@@ -27,6 +27,7 @@ func TestStartCronJobInvalidSchedule(t *testing.T) {
 	n := unitTestNode(t)
 	conf := newMonitorConfig("safe.bad-cron", "unit-bad-cron.sh")
 	conf.Cronjob = "invalid cron"
+	conf.IsDebug = true
 	m := NewMonitor(conf, &q, n, ".")
 	assert.Assert(t, m != nil)
 	m.tomb = channel.NewTomb()
