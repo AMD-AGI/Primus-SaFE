@@ -24,8 +24,8 @@
         class="stat-card safe-card"
         :class="[{ 'stat-card--tall': i === 0 }, `stat-card--tone-${s.tone}`]"
         :style="{
-          '--accent': PIE_COLORS[0] || '#6f9f7a',
-          '--accent-bad': PIE_COLORS[1] || '#b66a6a',
+          '--accent': PIE_COLORS[0] || '#47b881',
+          '--accent-bad': PIE_COLORS[1] || '#d65f68',
           '--accent-used': PIE_COLORS[2] || '#0d9488',
         }"
       >
@@ -119,7 +119,7 @@ const goToHyperloom = () => {
 }
 
 const store = useWorkspaceStore()
-const PIE_COLORS = ['#6f9f7a', '#b66a6a', '#0d9488'] as const
+const PIE_COLORS = ['#47b881', '#d65f68', '#0d9488'] as const
 
 const detailData = ref<any>(null)
 const RES_KEYS = ['amd.com/gpu', 'rdma/hca', 'cpu', 'memory'] as const
@@ -581,11 +581,11 @@ watch(
 }
 
 .stat-meter__ok {
-  background: #6f9f7a;
+  background: #47b881;
 }
 
 .stat-meter__bad {
-  background: #b66a6a;
+  background: #d65f68;
 }
 
 .stat-meter__used {
@@ -795,10 +795,10 @@ watch(
 }
 
 .badge--ok {
-  --c: #6f9f7a;
+  --c: #47b881;
 }
 .badge--bad {
-  --c: #b66a6a;
+  --c: #d65f68;
 }
 .badge--used {
   --c: var(--safe-primary);
