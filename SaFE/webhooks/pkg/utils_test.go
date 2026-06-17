@@ -6,6 +6,7 @@
 package webhooks
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -149,4 +150,63 @@ func TestValidateDisplayName(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestGeneratePaths verifies mutate/validate webhook path generation.
+func TestGeneratePaths(t *testing.T) {
+	assert.Equal(t, "/mutate-"+WebhookPathPrefix+"cluster", generateMutatePath("Cluster"))
+	assert.Equal(t, "/validate-"+WebhookPathPrefix+"cluster", generateValidatePath("Cluster"))
+}
+
+// TestHandleError verifies error responses for nil and non-nil errors.
+func TestHandleError(t *testing.T) {
+	resp := handleError("test", nil)
+	assert.Assert(t, resp.Allowed)
+
+	resp = handleError("test", fmt.Errorf("boom"))
+	assert.Assert(t, !resp.Allowed)
+
+	resp = handleError("test", commonerrors.NewBadRequest("bad"))
+	assert.Assert(t, !resp.Allowed)
+}
+
+// TestValidateDNSName verifies DNS name validation rules.
+func TestValidateDNSName(t *testing.T) {
+	assert.NilError(t, validateDNSName("", common.DeploymentKind))
+	assert.NilError(t, validateDNSName("my-app1", common.DeploymentKind))
+	assert.Assert(t, validateDNSName("my.app", common.DeploymentKind) != nil)
+	assert.Assert(t, validateDNSName("-bad", common.DeploymentKind) != nil)
+}
+
+// TestGetMaxNameLength verifies max name length resolution per workload kind.
+func TestGetMaxNameLength(t *testing.T) {
+	assert.Equal(t, commonutils.MaxPytorchJobNameLen, getMaxNameLength(common.PytorchJobKind))
+	assert.Equal(t, commonutils.MaxDeploymentNameLen, getMaxNameLength(common.DeploymentKind))
+	assert.Equal(t, commonutils.MaxTorchFTNameLen, getMaxNameLength(common.TorchFTKind))
+	assert.Equal(t, commonutils.MaxCICDScaleSetNameLen, getMaxNameLength(common.CICDScaleRunnerSetKind))
+	assert.Equal(t, commonutils.MaxRayJobNameLen, getMaxNameLength(common.RayJobKind))
+	assert.Equal(t, commonutils.MaxMonarchJobNameLen, getMaxNameLength(common.MonarchJob))
+	assert.Equal(t, commonutils.MaxGeneratedNameLength, getMaxNameLength("Unknown"))
+}
+
+// TestValidateLabels verifies label map validation.
+func TestValidateLabels(t *testing.T) {
+	assert.NilError(t, validateLabels(map[string]string{"key": "value"}))
+	assert.Assert(t, validateLabels(map[string]string{"": "value"}) != nil)
+}
+
+// TestValidateLabelKey verifies label key validation including '/' handling.
+func TestValidateLabelKey(t *testing.T) {
+	assert.NilError(t, validateLabelKey("valid-key"))
+	assert.NilError(t, validateLabelKey("prefix/name"))
+	assert.Assert(t, validateLabelKey("") != nil)
+	assert.Assert(t, validateLabelKey("a/b/c") != nil)
+	assert.Assert(t, validateLabelKey("/bad") != nil)
+}
+
+// TestValidatePort verifies port range validation.
+func TestValidatePort(t *testing.T) {
+	assert.NilError(t, validatePort("svc", 8080))
+	assert.Assert(t, validatePort("svc", 0) != nil)
+	assert.Assert(t, validatePort("svc", 70000) != nil)
 }

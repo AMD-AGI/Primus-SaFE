@@ -110,3 +110,27 @@ func TestCopy(t *testing.T) {
 	assert.DeepEqual(t, len(m2), 1)
 	assert.DeepEqual(t, m2["key2"], "value2")
 }
+
+func TestRemoveValue(t *testing.T) {
+	m := map[string]string{
+		"key1": "value1",
+		"key2": "value2",
+		"key3": "value1",
+	}
+	result := RemoveValue(m, "value1")
+	assert.DeepEqual(t, result, map[string]string{
+		"key2": "value2",
+	})
+}
+
+func TestEqualIgnoreOrder(t *testing.T) {
+	assert.Equal(t, EqualIgnoreOrder(map[string]string{"a": "1"}, map[string]string{"a": "1"}), true)
+	assert.Equal(t, EqualIgnoreOrder(map[string]string{"a": "1"}, map[string]string{}), false)
+	assert.Equal(t, EqualIgnoreOrder(map[string]string{"a": "1"}, map[string]string{"b": "1"}), false)
+	assert.Equal(t, EqualIgnoreOrder(map[string]string{"a": "1"}, map[string]string{"a": "2"}), false)
+}
+
+func TestContainEmpty(t *testing.T) {
+	assert.Equal(t, Contain(map[string]string{}, map[string]string{}), true)
+	assert.Equal(t, Contain(map[string]string{"a": "1"}, map[string]string{}), false)
+}

@@ -17,4 +17,5 @@ func TestFloatEqual(t *testing.T) {
 	}
 	r := Ratio{}
 	assert.Equal(t, FloatEqual(r.ratio, 0), true)
+	assert.Equal(t, FloatEqual(1.0, 2.0), false)
 }

@@ -509,3 +509,17 @@ export function calculateDefaultTime(
     return [start, 'now']
   }
 }
+
+const LOG_DOWNLOAD_DISABLED_HOSTS = new Set(['core42.primus-safe.amd.com'])
+
+export function isLogDownloadEnabledForHost(enabled: boolean | undefined, hostname: string) {
+  if (!enabled) return false
+  return !LOG_DOWNLOAD_DISABLED_HOSTS.has(hostname.toLowerCase())
+}
+
+export function isOciClusterId(clusterId: string | undefined | null): boolean {
+  const normalized = clusterId?.trim().toLowerCase()
+  if (!normalized) return false
+
+  return /(^|[-_])oci($|[-_])/.test(normalized)
+}

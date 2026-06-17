@@ -13,6 +13,7 @@ import (
 
 	"golang.org/x/crypto/ssh"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	apitypes "k8s.io/apimachinery/pkg/types"
@@ -46,21 +47,45 @@ func RemoveOwnerReferences(references []metav1.OwnerReference, uid types.UID) []
 }
 
 // RemoveFinalizer removes specified finalizers from the object and updates it.
+// Re-fetches the object on ResourceVersion conflict so patches succeed under concurrent status updates.
 func RemoveFinalizer(ctx context.Context, cli client.Client, obj client.Object, finalizer ...string) error {
-	isChanged := false
-	for _, val := range finalizer {
-		if controllerutil.RemoveFinalizer(obj, val) {
-			isChanged = true
+	key := client.ObjectKeyFromObject(obj)
+	var lastErr error
+	for range 5 {
+		cp := obj.DeepCopyObject()
+		if cp == nil {
+			return fmt.Errorf("RemoveFinalizer: DeepCopyObject returned nil")
+		}
+		latest, ok := cp.(client.Object)
+		if !ok {
+			return fmt.Errorf("RemoveFinalizer: unexpected deep copy type %T", cp)
+		}
+		if err := cli.Get(ctx, key, latest); err != nil {
+			return client.IgnoreNotFound(err)
+		}
+		changed := false
+		for _, val := range finalizer {
+			if controllerutil.RemoveFinalizer(latest, val) {
+				changed = true
+			}
+		}
+		if !changed {
+			return nil
+		}
+		patchErr := commonutils.PatchObjectFinalizer(ctx, cli, latest)
+		if patchErr == nil {
+			obj.SetFinalizers(latest.GetFinalizers())
+			obj.SetResourceVersion(latest.GetResourceVersion())
+			return nil
+		}
+		lastErr = patchErr
+		if !apierrors.IsConflict(patchErr) {
+			klog.ErrorS(patchErr, "failed to remove finalizer")
+			return client.IgnoreNotFound(patchErr)
 		}
 	}
-	if !isChanged {
-		return nil
-	}
-	if err := commonutils.PatchObjectFinalizer(ctx, cli, obj); err != nil {
-		klog.ErrorS(err, "failed to remove finalizer")
-		return client.IgnoreNotFound(err)
-	}
-	return nil
+	klog.ErrorS(lastErr, "failed to remove finalizer after retries")
+	return lastErr
 }
 
 // IncRetryCount increments the retry count annotation on the object and updates it.

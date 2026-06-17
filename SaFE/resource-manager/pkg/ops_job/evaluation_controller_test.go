@@ -12,9 +12,39 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	"github.com/AMD-AIG-AIMA/SAFE/apis/pkg/client/clientset/versioned/scheme"
 )
+
+func TestEvaluationHandle(t *testing.T) {
+	t.Run("pending init", func(t *testing.T) {
+		job := &v1.OpsJob{
+			ObjectMeta: metav1.ObjectMeta{Name: "ej-pending"},
+			Spec:       v1.OpsJobSpec{Type: v1.OpsJobEvaluationType},
+		}
+		cl := fake.NewClientBuilder().WithScheme(scheme.Scheme).
+			WithStatusSubresource(&v1.OpsJob{}).WithObjects(job).Build()
+		r := &EvaluationJobReconciler{OpsJobBaseReconciler: &OpsJobBaseReconciler{Client: cl}}
+		_, err := r.handle(context.Background(), job)
+		assert.NoError(t, err)
+	})
+
+	t.Run("workload already exists", func(t *testing.T) {
+		job := &v1.OpsJob{
+			ObjectMeta: metav1.ObjectMeta{Name: "ej-run"},
+			Spec:       v1.OpsJobSpec{Type: v1.OpsJobEvaluationType},
+			Status:     v1.OpsJobStatus{Phase: v1.OpsJobRunning},
+		}
+		wl := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "ej-run"}}
+		cl := fake.NewClientBuilder().WithScheme(scheme.Scheme).
+			WithStatusSubresource(&v1.OpsJob{}).WithObjects(job, wl).Build()
+		r := &EvaluationJobReconciler{OpsJobBaseReconciler: &OpsJobBaseReconciler{Client: cl}}
+		_, err := r.handle(context.Background(), job)
+		assert.NoError(t, err)
+	})
+}
 
 func TestIsEvaluationWorkload(t *testing.T) {
 	tests := []struct {
@@ -244,7 +274,7 @@ func TestBuildSingleEvalCommand(t *testing.T) {
 			name:            "evaluation with api key",
 			modelEndpoint:   "https://api.openai.com/v1",
 			modelName:       "gpt-4",
-			modelApiKey:     "sk-xxx",
+			modelApiKey:     "test-model-api-key",
 			datasetName:     "humaneval",
 			datasetDir:      "/wekafs/datasets/humaneval",
 			limit:           0,
@@ -254,7 +284,7 @@ func TestBuildSingleEvalCommand(t *testing.T) {
 			judgeApiKey:     "",
 			timeoutSecond:   7200,
 			concurrency:     32,
-			expectedContain: []string{"--api-key", "sk-xxx"},
+			expectedContain: []string{"--api-key", "test-model-api-key"},
 		},
 		{
 			name:            "evaluation with judge model",
@@ -264,10 +294,10 @@ func TestBuildSingleEvalCommand(t *testing.T) {
 			datasetName:     "alpaca_eval",
 			datasetDir:      "/wekafs/datasets/alpaca_eval",
 			limit:           0,
-			outputDir:       "/outputs/task-judge",
+			outputDir:       "/outputs/job-judge",
 			judgeModel:      "gpt-4",
 			judgeEndpoint:   "https://api.openai.com/v1",
-			judgeApiKey:     "sk-judge-key",
+			judgeApiKey:     "test-judge-api-key",
 			timeoutSecond:   7200,
 			concurrency:     32,
 			expectedContain: []string{"--judge-model-args", "gpt-4", "--judge-worker-num", "32"},
