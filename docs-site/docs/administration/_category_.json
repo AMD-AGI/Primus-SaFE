@@ -1,0 +1,8 @@
+{
+  "label": "Administration",
+  "position": 7,
+  "link": {
+    "type": "generated-index",
+    "description": "Scenario-based guides for cluster administrators: stand up a cluster, manage access and quota, manage nodes, run pre-flight checks, monitor in-flight, and upgrade."
+  }
+}
