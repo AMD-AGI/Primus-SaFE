@@ -44,9 +44,10 @@ func TestWorkloadValidateCommonStepErrors(t *testing.T) {
 	lbl.Spec.CustomerLabels = map[string]string{"Bad Key": "v"}
 	assert.Assert(t, v.validateCommon(ctx, lbl, nil) != nil)
 
-	// owner workload missing
+	// owner self-reference (a NotFound owner is intentionally tolerated per
+	// issue #588, so use a self-referential owner to hit the error branch).
 	owner := fullValidWorkload()
-	v1.SetLabel(owner, v1.OwnerLabel, "missing")
+	v1.SetLabel(owner, v1.OwnerLabel, owner.Name)
 	assert.Assert(t, v.validateCommon(ctx, owner, nil) != nil)
 }
 
