@@ -1,0 +1,120 @@
+#
+# Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
+# See LICENSE for license information.
+#
+# kGateway — the Kubernetes Inference Gateway implementation that backs the
+# Gateway API Inference Extension (GAIE). Front-ends Optimus/RocServe (and
+# dynamo) inference behind an InferencePool + Endpoint Picker (EPP) so the
+# gateway routes by the engine's kv-aware / PD policy instead of a plain L4 LB.
+#
+# What this Addon installs (helm):
+#   kgateway v2.1.1 with inferenceExtension.enabled=true, into kgateway-system.
+#   Upstream: oci://cr.kgateway.dev/kgateway-dev/charts/kgateway:v2.1.1
+#
+# PREREQUISITE CRDs (NOT installed by this helm chart — apply ONCE per cluster
+# before/with this Addon; they are plain manifests, not helm releases):
+#   1. Gateway API (standard) v1.4.1:
+#        kubectl apply -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.4.1/standard-install.yaml
+#   2. GAIE Inference Extension CRDs v1.2.1
+#      (InferencePool / InferenceModel / EndpointPickerConfig):
+#        kubectl apply -f https://github.com/kubernetes-sigs/gateway-api-inference-extension/releases/download/v1.2.1/manifests.yaml
+#   3. kgateway CRDs v2.1.1 (helm chart; can be a companion Addon or applied by ops):
+#        helm upgrade -i --namespace kgateway-system --version v2.1.1 \
+#          kgateway-crds oci://cr.kgateway.dev/kgateway-dev/charts/kgateway-crds
+#
+# Harbor mirror requirements (ops to mirror before this Addon is applied;
+# <helm_registry> / <image_registry> are taken from values.global.* at chart
+# render time):
+#   Helm charts (OCI):
+#     oci://cr.kgateway.dev/kgateway-dev/charts/kgateway:v2.1.1
+#        -> oci://<helm_registry>/primussafe/kgateway:v2.1.1
+#     oci://cr.kgateway.dev/kgateway-dev/charts/kgateway-crds:v2.1.1
+#        -> oci://<helm_registry>/primussafe/kgateway-crds:v2.1.1
+#   Images mirrored (all single-arch amd64 / MI300X). NOTE the controller is
+#   renamed to `kgateway-controller` to avoid clashing with the chart's own OCI
+#   coordinate primussafe/kgateway:v2.1.1 (an image and a chart pushed to the
+#   same repo:tag overwrite each other). Single-level repo names are used so the
+#   same names work on both Harbor and Docker Hub (Docker Hub rejects
+#   multi-segment repos like kgateway-dev/kgateway):
+#     cr.kgateway.dev/kgateway-dev/kgateway:v2.1.1       (controller)
+#        -> <image_registry>/primussafe/kgateway-controller:v2.1.1
+#     cr.kgateway.dev/kgateway-dev/envoy-wrapper:v2.1.1  (data-plane proxy)
+#        -> <image_registry>/primussafe/envoy-wrapper:v2.1.1
+#     cr.kgateway.dev/kgateway-dev/sds:v2.1.1            (data-plane SDS sidecar)
+#        -> <image_registry>/primussafe/sds:v2.1.1
+#   The data-plane images (envoy-wrapper + sds) are NOT referenced by the chart
+#   directly; the controller injects them into the gateway proxy pod it creates,
+#   using KGW_DEFAULT_IMAGE_REGISTRY / KGW_DEFAULT_IMAGE_TAG, both derived from
+#   image.registry / chart version. So the image.registry override under
+#   helmDefaultValues below redirects the data-plane images too (default repo
+#   names), and controller.image.repository renames just the controller -- no
+#   separate Addon or GatewayParameters override is needed for the standard
+#   kgateway GatewayClass.
+#
+# After install, create a Gateway named `inference-gateway` (the operator's
+# RocServeDeployment spec.gaie.gatewayName default) in the namespace where you
+# run workloads, and set its gatewayClassName to `kgateway`:
+#   kubectl apply -f https://raw.githubusercontent.com/kubernetes-sigs/gateway-api-inference-extension/refs/tags/v1.2.1/config/manifests/gateway/kgateway/gateway.yaml -n <ns>
+#   kubectl patch gateway inference-gateway -n <ns> --type='json' \
+#     -p='[{"op":"replace","path":"/spec/gatewayClassName","value":"kgateway"}]'
+#
+# Default addon: labeled primus-safe.addon.default, so SaFE's ClusterReconciler
+# synthesises an Addon instance for every registered Cluster (same as lws/nats)
+# on Cluster reconcile. NOTE the prerequisite CRDs above are NOT installed by
+# this addon — every target cluster must have the Gateway API + GAIE CRDs first,
+# or the kgateway controller CrashLoops. To restrict the gateway to specific
+# clusters instead, drop the primus-safe.addon.default label (opt-in) and
+# hand-write an Addon CR per cluster.
+#
+apiVersion: amd.com/v1
+kind: AddonTemplate
+metadata:
+  name: kgateway.2.1.1
+  labels:
+    primus-safe.display.name: "inference-gateway"
+    app.kubernetes.io/managed-by: Helm
+    # Default addon: SaFE's ClusterReconciler synthesises an Addon instance for
+    # every registered Cluster (like lws/nats). Drop this label to make the
+    # gateway opt-in (only the clusters you hand-write an Addon CR for).
+    primus-safe.addon.default: ""
+  annotations:
+    meta.helm.sh/release-name: {{ .Release.Name }}
+    meta.helm.sh/release-namespace: {{ .Release.Namespace }}
+spec:
+  category: plugin
+  description: kGateway v2.1.1 inference gateway (third-party Gateway API Inference Extension implementation). Used as the GAIE front-end for Optimus/RocServe inference -- routes traffic via an InferencePool + Endpoint Picker so the gateway selects workers by the engine's kv-aware / PD policy. Generic component (not Optimus-specific); the Optimus-specific routing lives in the EPP deployed by optimus-operator. Requires the Gateway API + GAIE + kgateway CRDs (see header) installed first.
+  # OCI helm chart mirrored on SaFE Harbor (ops to mirror, see header note).
+  # Upstream source: cr.kgateway.dev/kgateway-dev/charts/kgateway version v2.1.1
+  url: oci://{{ .Values.global.helm_registry }}/primussafe/kgateway
+  version: "v2.1.1"
+  type: helm
+  required: false
+  helmDefaultNamespace: kgateway-system
+  helmDefaultValues: |
+    # Enable the Gateway API Inference Extension support in kgateway: this is
+    # what makes the gateway honour InferencePool + the Endpoint Picker (EPP)
+    # contract. Without it, kgateway behaves as a plain Gateway API gateway and
+    # GAIE routing does not work.
+    inferenceExtension:
+      enabled: true
+
+    # Pull images from the internal mirror instead of upstream cr.kgateway.dev.
+    # `image.registry` is the default registry for ALL kgateway images; the
+    # controller also derives KGW_DEFAULT_IMAGE_REGISTRY from it, so the
+    # data-plane proxy (envoy-wrapper) + sds are pulled from the same prefix
+    # under their default repo names (no clash):
+    #   <image_registry>/primussafe/envoy-wrapper:v2.1.1
+    #   <image_registry>/primussafe/sds:v2.1.1
+    # The CONTROLLER's default repo is "kgateway", which would collide with the
+    # helm chart's own OCI coordinate <helm_registry>/primussafe/kgateway:v2.1.1
+    # (an image pushed to the same repo:tag as the chart overwrites it ->
+    # CreateContainerError "no command specified"). So the controller repo is
+    # overridden to "kgateway-controller". This single-level naming works on
+    # both Harbor and Docker Hub (Docker Hub does not allow multi-segment repos
+    # like kgateway-dev/kgateway).
+    image:
+      registry: {{ .Values.global.image_registry }}/primussafe
+      pullPolicy: IfNotPresent
+    controller:
+      image:
+        repository: kgateway-controller
