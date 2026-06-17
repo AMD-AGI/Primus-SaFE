@@ -61,11 +61,11 @@ func (m *FaultMutator) Handle(ctx context.Context, req admission.Request) admiss
 // mutateOnCreation applies default values and normalizations during creation.
 func (m *FaultMutator) mutateOnCreation(ctx context.Context, fault *v1.Fault) {
 	fault.Name = stringutil.NormalizeName(fault.Name)
-	v1.SetLabel(fault, v1.ClusterIdLabel, fault.Spec.Node.ClusterName)
 	v1.SetLabel(fault, v1.FaultMonitorId, fault.Spec.MonitorId)
 	controllerutil.AddFinalizer(fault, v1.FaultFinalizer)
 
 	if fault.Spec.Node != nil {
+		v1.SetLabel(fault, v1.ClusterIdLabel, fault.Spec.Node.ClusterName)
 		if v1.GetNodeId(fault) == "" {
 			v1.SetLabel(fault, v1.NodeIdLabel, fault.Spec.Node.AdminName)
 		}

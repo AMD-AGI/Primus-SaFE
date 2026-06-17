@@ -1,86 +1,90 @@
 <template>
-  <div v-for="(item, index) in list" :key="item._uid ?? index" class="flex flex-col w-full mb-2">
-    <div class="flex gap-2 w-full">
-      <!-- Key area: show red border and hint only when validating key -->
-      <div class="flex-1 flex flex-col">
-        <el-input
-          v-if="keyMode === 'input'"
-          v-model="item.key"
-          placeholder="Key"
-          :disabled="props.disabled"
-          :class="{
-            'is-error':
-              props.validate && !props.valuePlaceholderFromKey && !!keyErrorsByUid[item._uid || ''],
-          }"
-        />
-        <el-select
-          v-else
-          v-model="item.key"
-          placeholder="Key"
-          :disabled="props.disabled"
-          :class="{
-            'is-error':
-              props.validate && !props.valuePlaceholderFromKey && !!keyErrorsByUid[item._uid || ''],
-          }"
-        >
-          <el-option
-            v-for="opt in KeyOptions"
-            :key="opt.value"
-            :label="opt.label"
-            :value="opt.value"
+  <div class="key-value-list-root">
+    <div v-for="(item, index) in list" :key="item._uid ?? index" class="flex flex-col w-full mb-2">
+      <div class="flex gap-2 w-full">
+        <!-- Key area: show red border and hint only when validating key -->
+        <div class="flex-1 flex flex-col">
+          <el-input
+            v-if="keyMode === 'input'"
+            v-model="item.key"
+            placeholder="Key"
+            :disabled="props.disabled"
+            :class="{
+              'is-error':
+                props.validate && !props.valuePlaceholderFromKey && !!keyErrorsByUid[item._uid || ''],
+            }"
           />
-        </el-select>
-        <!-- Error message aligned to Key -->
-        <el-text
-          v-if="props.validate && !props.valuePlaceholderFromKey && keyErrorsByUid[item._uid || '']"
-          type="danger"
-          size="small"
-          class="w-full !text-left"
-        >
-          {{ keyErrorsByUid[item._uid || ''] }}
-        </el-text>
+          <el-select
+            v-else
+            v-model="item.key"
+            placeholder="Key"
+            :disabled="props.disabled"
+            :class="{
+              'is-error':
+                props.validate && !props.valuePlaceholderFromKey && !!keyErrorsByUid[item._uid || ''],
+            }"
+          >
+            <el-option
+              v-for="opt in KeyOptions"
+              :key="opt.value"
+              :label="opt.label"
+              :value="opt.value"
+            />
+          </el-select>
+          <!-- Error message aligned to Key -->
+          <el-text
+            v-if="props.validate && !props.valuePlaceholderFromKey && keyErrorsByUid[item._uid || '']"
+            type="danger"
+            size="small"
+            class="w-full !text-left"
+          >
+            {{ keyErrorsByUid[item._uid || ''] }}
+          </el-text>
+        </div>
+
+        <!-- Value area: show red border and hint only when validating value (Taints) -->
+        <div class="flex-1 flex flex-col">
+          <el-input
+            v-model="item.value"
+            :placeholder="props.valuePlaceholderFromKey ? 'Key' : 'Value'"
+            :disabled="props.disabled"
+            :class="{
+              'is-error':
+                props.validate && props.valuePlaceholderFromKey && !!keyErrorsByUid[item._uid || ''],
+            }"
+          />
+          <!-- Error message aligned to Value -->
+          <el-text
+            v-if="props.validate && props.valuePlaceholderFromKey && keyErrorsByUid[item._uid || '']"
+            type="danger"
+            size="small"
+            class="w-full !text-left"
+          >
+            {{ keyErrorsByUid[item._uid || ''] }}
+          </el-text>
+        </div>
+
+        <el-button type="danger" :disabled="props.disabled" @click="handleDelete(index)">
+          {{ deleteButtonText || '-' }}
+        </el-button>
       </div>
 
-      <!-- Value area: show red border and hint only when validating value (Taints) -->
-      <div class="flex-1 flex flex-col">
-        <el-input
-          v-model="item.value"
-          :placeholder="props.valuePlaceholderFromKey ? 'Key' : 'Value'"
-          :disabled="props.disabled"
-          :class="{
-            'is-error':
-              props.validate && props.valuePlaceholderFromKey && !!keyErrorsByUid[item._uid || ''],
-          }"
-        />
-        <!-- Error message aligned to Value -->
-        <el-text
-          v-if="props.validate && props.valuePlaceholderFromKey && keyErrorsByUid[item._uid || '']"
-          type="danger"
-          size="small"
-          class="w-full !text-left"
-        >
-          {{ keyErrorsByUid[item._uid || ''] }}
-        </el-text>
-      </div>
+      <!-- Validation error message -->
+      <!-- <el-text v-if="keyErrorsByUid[item._uid || '']" type="danger" size="small" class="mt-1">
+        {{ keyErrorsByUid[item._uid || ''] }}
+      </el-text> -->
+    </div>
 
-      <el-button type="danger" :disabled="props.disabled" @click="handleDelete(index)">
-        {{ deleteButtonText || '-' }}
+    <div class="key-value-list-actions">
+      <el-button type="primary" @click="handleAdd" :disabled="props.disabled || list.length >= (max ?? 50)">
+        {{ addButtonText || '+' }}
       </el-button>
     </div>
 
-    <!-- Validation error message -->
-    <!-- <el-text v-if="keyErrorsByUid[item._uid || '']" type="danger" size="small" class="mt-1">
-      {{ keyErrorsByUid[item._uid || ''] }}
-    </el-text> -->
+    <el-text size="small" type="info" class="key-value-list-info">
+      {{ info || `Add up to ${max ?? 50} tags` }}
+    </el-text>
   </div>
-
-  <el-button type="primary" @click="handleAdd" :disabled="props.disabled || list.length >= (max ?? 50)">
-    {{ addButtonText || '+' }}
-  </el-button>
-
-  <el-text size="small" type="info" class="w-full mt-1">
-    {{ info || `Add up to ${max ?? 50} tags` }}
-  </el-text>
 </template>
 <script setup lang="ts">
 import { ref, onMounted, watch, nextTick, computed } from 'vue'
@@ -197,6 +201,20 @@ watch(
 )
 </script>
 <style scoped>
+.key-value-list-root {
+  width: 100%;
+}
+
+.key-value-list-actions {
+  display: block;
+}
+
+.key-value-list-info {
+  display: block;
+  width: 100%;
+  margin-top: 4px;
+}
+
 .is-error :deep(.el-input__wrapper),
 .is-error :deep(.el-select .el-input__wrapper) {
   box-shadow: 0 0 0 1px var(--el-color-danger) inset !important;

@@ -20,6 +20,9 @@
   --log-message-color: #333; /* log-默认深灰，light 模式 */
 
   --button-bg-color: rgba(255, 255, 255, 0.65);
+  --safe-button-hover-bg: color-mix(in oklab, var(--safe-card) 76%, var(--safe-primary) 24%);
+  --safe-button-hover-border: color-mix(in oklab, var(--safe-border) 55%, var(--safe-primary) 45%);
+  --safe-button-hover-text: color-mix(in oklab, var(--safe-text) 82%, var(--safe-primary) 18%);
 
   /* Element Plus 主色同步（用 color-mix 自动生成阶梯色） */
   --el-color-primary: var(--safe-primary);
@@ -74,6 +77,9 @@ html.dark {
   --log-message-color: #ddd;
 
   --button-bg-color: rgba(255, 255, 255, 0.06);
+  --safe-button-hover-bg: color-mix(in oklab, var(--safe-card-2) 72%, var(--safe-primary) 28%);
+  --safe-button-hover-border: color-mix(in oklab, var(--safe-border) 45%, var(--safe-primary) 55%);
+  --safe-button-hover-text: var(--safe-text);
 
   /* 暗色下 EL 主色阶梯也做一版，避免太亮/太灰 */
   --el-color-primary: var(--safe-primary);
@@ -319,6 +325,13 @@ a:hover {
   box-shadow: none !important;
   opacity: 1;
   cursor: not-allowed;
+}
+
+.el-button:not(.el-button--primary):not(.el-button--success):not(.el-button--warning):not(.el-button--danger):not(.el-button--info):not(.btn-primary-plain):not(.btn-danger-plain):not(.btn-success-plain):not(.btn-neutral-plain):not(.is-disabled):hover,
+.el-button:not(.el-button--primary):not(.el-button--success):not(.el-button--warning):not(.el-button--danger):not(.el-button--info):not(.btn-primary-plain):not(.btn-danger-plain):not(.btn-success-plain):not(.btn-neutral-plain):not(.is-disabled):focus {
+  background-color: var(--safe-button-hover-bg) !important;
+  border-color: var(--safe-button-hover-border) !important;
+  color: var(--safe-button-hover-text) !important;
 }
 
 /* 原生 el-descriptions 透玻璃效果 */

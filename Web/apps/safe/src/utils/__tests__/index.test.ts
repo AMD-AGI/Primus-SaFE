@@ -19,6 +19,8 @@ import {
   decodeFromBase64String,
   formatNodeInfo,
   calculateDefaultTime,
+  isLogDownloadEnabledForHost,
+  isOciClusterId,
 } from '../index'
 
 // ---------------------------------------------------------------------------
@@ -397,5 +399,34 @@ describe('calculateDefaultTime', () => {
   it('returns [start, start] when end < start', () => {
     const result = calculateDefaultTime('2024-06-01 12:00:00', '2024-01-01 00:00:00')
     expect(result![0].getTime()).toBe(result![1].getTime())
+  })
+})
+
+describe('isLogDownloadEnabledForHost', () => {
+  it('disables log download on the Core42 public domain', () => {
+    expect(isLogDownloadEnabledForHost(true, 'core42.primus-safe.amd.com')).toBe(false)
+  })
+
+  it('keeps log download disabled when backend config is disabled', () => {
+    expect(isLogDownloadEnabledForHost(false, 'safe.example.com')).toBe(false)
+  })
+
+  it('keeps log download enabled for non-Core42 domains when backend config is enabled', () => {
+    expect(isLogDownloadEnabledForHost(true, 'safe.example.com')).toBe(true)
+  })
+})
+
+describe('isOciClusterId', () => {
+  it('matches OCI cluster identifiers only', () => {
+    expect(isOciClusterId('oci')).toBe(true)
+    expect(isOciClusterId('oci-slc')).toBe(true)
+    expect(isOciClusterId('prod_oci')).toBe(true)
+  })
+
+  it('does not treat every non-Core42 identifier as OCI', () => {
+    expect(isOciClusterId('core42')).toBe(false)
+    expect(isOciClusterId('safe.example.com')).toBe(false)
+    expect(isOciClusterId('local-dev')).toBe(false)
+    expect(isOciClusterId('')).toBe(false)
   })
 })

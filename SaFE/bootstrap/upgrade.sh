@@ -141,6 +141,15 @@ if [[ -n "${optimize_max_concurrent:-}" ]]; then
   sed -i '/^model_optimization:/,/^[a-z]/ s/max_concurrent: .*/max_concurrent: '"$optimize_max_concurrent"'/' "$values_yaml"
 fi
 
+# CICD runner concurrency (maxRunners per AutoscalingRunnerSet). Only override
+# the chart default when cicd_max_runners is explicitly set in .env so a missing
+# key leaves the chart default untouched. Takes effect for AutoscalingRunnerSets
+# rendered/rebuilt after this deploy (job-manager re-renders from the template
+# configmap); already-running runner sets keep their current cap until rebuild.
+if [[ -n "${cicd_max_runners:-}" ]]; then
+  sed -i '/^cicd:/,/^[a-z]/ s/max_runners: .*/max_runners: '"$cicd_max_runners"'/' "$values_yaml"
+fi
+
 # Configure metrics port if defined in .env
 if [[ -n "${metrics_port:-}" ]]; then
   sed -i '/^job_manager:/,/^[a-z]/ s/metrics_port: .*/metrics_port: '"$metrics_port"'/' "$values_yaml"
