@@ -1,0 +1,57 @@
+#
+# Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
+# See LICENSE for license information.
+#
+# kgateway-crds — the CustomResourceDefinitions (NOT credentials) that the
+# kgateway controller needs. kGateway ships its CRDs in a SEPARATE helm chart
+# from the controller because Helm does not manage CRDs on `helm upgrade`; the
+# split lets CRDs be installed/upgraded independently and BEFORE the controller.
+#
+# Install order (both into kgateway-system):
+#   1. kgateway-crds  (this Addon)   <- must come first
+#   2. kgateway       (kgateway.2.1.1 Addon, inferenceExtension.enabled=true)
+#
+# This is the companion to kgateway.2.1.1.yaml. It only covers kgateway's OWN
+# CRDs. The other two CRD sets GAIE needs are plain manifests (not helm), apply
+# them once per cluster:
+#   - Gateway API (standard) v1.4.1:
+#       kubectl apply -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.4.1/standard-install.yaml
+#   - GAIE Inference Extension CRDs v1.2.1 (InferencePool / EndpointPickerConfig):
+#       kubectl apply -f https://github.com/kubernetes-sigs/gateway-api-inference-extension/releases/download/v1.2.1/manifests.yaml
+#
+# Harbor mirror requirement (ops to mirror before this Addon is applied;
+# <helm_registry> is taken from values.global.helm_registry at render time):
+#   oci://cr.kgateway.dev/kgateway-dev/charts/kgateway-crds:v2.1.1
+#      -> oci://<helm_registry>/primussafe/kgateway-crds:v2.1.1
+# This chart ships only CRD YAML; it pulls no images.
+#
+# Default addon (same as kgateway.2.1.1): labeled primus-safe.addon.default, so
+# SaFE synthesises an Addon for every Cluster. Because guaranteeDefaultAddon does
+# not order addons, the kgateway controller chart may install before these CRDs
+# land; the controller simply retries until the CRDs exist, so this is benign.
+# Drop the label on both templates to make the gateway opt-in instead.
+#
+apiVersion: amd.com/v1
+kind: AddonTemplate
+metadata:
+  name: kgateway-crds.2.1.1
+  labels:
+    primus-safe.display.name: "inference-gateway-crds"
+    app.kubernetes.io/managed-by: Helm
+    # Default addon: auto-synthesised per Cluster by SaFE (drop to make opt-in).
+    primus-safe.addon.default: ""
+  annotations:
+    meta.helm.sh/release-name: {{ .Release.Name }}
+    meta.helm.sh/release-namespace: {{ .Release.Namespace }}
+spec:
+  category: plugin
+  description: kGateway v2.1.1 CustomResourceDefinitions (third-party kgateway, generic -- not Optimus-specific). Companion to the kgateway controller for the Optimus/RocServe GAIE front-end. Install BEFORE the kgateway controller (kgateway.2.1.1). CRDs only, no images. Does not cover the Gateway API standard CRDs or the GAIE inference-extension CRDs (apply those plain manifests separately, see header).
+  # OCI helm chart mirrored on SaFE Harbor (ops to mirror, see header note).
+  # Upstream source: cr.kgateway.dev/kgateway-dev/charts/kgateway-crds version v2.1.1
+  url: oci://{{ .Values.global.helm_registry }}/primussafe/kgateway-crds
+  version: "v2.1.1"
+  type: helm
+  required: false
+  helmDefaultNamespace: kgateway-system
+  # CRD-only chart: no values to override (it ships no images / Deployments).
+  helmDefaultValues: ""
