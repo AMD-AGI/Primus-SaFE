@@ -164,10 +164,16 @@ func TestWorkloadOwnerWorkloadBranches(t *testing.T) {
 	v1.SetLabel(w, v1.OwnerLabel, "owner")
 	assert.Assert(t, v.validateOwnerWorkload(context.Background(), w) != nil)
 
-	// owner not found
+	// owner not found is tolerated: admission must not block when the owner
+	// workload is not yet persisted (issue #588).
 	w2 := validWorkload()
 	v1.SetLabel(w2, v1.OwnerLabel, "missing")
-	assert.Assert(t, v.validateOwnerWorkload(context.Background(), w2) != nil)
+	assert.NilError(t, v.validateOwnerWorkload(context.Background(), w2))
+
+	// self-referential owner is rejected
+	w3 := validWorkload()
+	v1.SetLabel(w3, v1.OwnerLabel, w3.Name)
+	assert.Assert(t, v.validateOwnerWorkload(context.Background(), w3) != nil)
 }
 
 // TestWorkloadAuthoringBranch covers authoring multi-node rejection.
