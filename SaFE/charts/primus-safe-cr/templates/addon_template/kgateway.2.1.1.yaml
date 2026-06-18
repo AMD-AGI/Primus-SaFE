@@ -22,26 +22,28 @@
 #        helm upgrade -i --namespace kgateway-system --version v2.1.1 \
 #          kgateway-crds oci://cr.kgateway.dev/kgateway-dev/charts/kgateway-crds
 #
-# Harbor mirror requirements (ops to mirror before this Addon is applied;
-# <helm_registry> / <image_registry> are taken from values.global.* at chart
-# render time):
-#   Helm charts (OCI):
+# Mirror requirements (ops to mirror before this Addon is applied). Two distinct
+# registries from values.global.*:
+#   - helm_registry        (e.g. harbor.../) : Harbor, hosts the CHARTS directly.
+#   - proxy_image_registry (e.g. harbor.../proxy) : Harbor proxy-cache fronting
+#     Docker Hub, so IMAGE pulls resolve from docker.io/primussafe/*.
+#   Helm charts (OCI) -> pushed to Harbor primussafe:
 #     oci://cr.kgateway.dev/kgateway-dev/charts/kgateway:v2.1.1
 #        -> oci://<helm_registry>/primussafe/kgateway:v2.1.1
 #     oci://cr.kgateway.dev/kgateway-dev/charts/kgateway-crds:v2.1.1
 #        -> oci://<helm_registry>/primussafe/kgateway-crds:v2.1.1
-#   Images mirrored (all single-arch amd64 / MI300X). NOTE the controller is
-#   renamed to `kgateway-controller` to avoid clashing with the chart's own OCI
-#   coordinate primussafe/kgateway:v2.1.1 (an image and a chart pushed to the
-#   same repo:tag overwrite each other). Single-level repo names are used so the
-#   same names work on both Harbor and Docker Hub (Docker Hub rejects
-#   multi-segment repos like kgateway-dev/kgateway):
+#   Images (single-arch amd64 / MI300X) -> pushed to docker.io/primussafe, pulled
+#   through the proxy cache. The controller is renamed to `kgateway-controller`
+#   to avoid clashing with the chart's OCI coordinate primussafe/kgateway:v2.1.1
+#   (an image and a chart on the same repo:tag overwrite each other). Single-level
+#   repo names are used (Docker Hub rejects multi-segment repos):
 #     cr.kgateway.dev/kgateway-dev/kgateway:v2.1.1       (controller)
-#        -> <image_registry>/primussafe/kgateway-controller:v2.1.1
+#        -> docker.io/primussafe/kgateway-controller:v2.1.1
+#        -> pulled as <proxy_image_registry>/primussafe/kgateway-controller:v2.1.1
 #     cr.kgateway.dev/kgateway-dev/envoy-wrapper:v2.1.1  (data-plane proxy)
-#        -> <image_registry>/primussafe/envoy-wrapper:v2.1.1
+#        -> docker.io/primussafe/envoy-wrapper:v2.1.1
 #     cr.kgateway.dev/kgateway-dev/sds:v2.1.1            (data-plane SDS sidecar)
-#        -> <image_registry>/primussafe/sds:v2.1.1
+#        -> docker.io/primussafe/sds:v2.1.1
 #   The data-plane images (envoy-wrapper + sds) are NOT referenced by the chart
 #   directly; the controller injects them into the gateway proxy pod it creates,
 #   using KGW_DEFAULT_IMAGE_REGISTRY / KGW_DEFAULT_IMAGE_TAG, both derived from
@@ -98,22 +100,23 @@ spec:
     inferenceExtension:
       enabled: true
 
-    # Pull images from the internal mirror instead of upstream cr.kgateway.dev.
-    # `image.registry` is the default registry for ALL kgateway images; the
-    # controller also derives KGW_DEFAULT_IMAGE_REGISTRY from it, so the
-    # data-plane proxy (envoy-wrapper) + sds are pulled from the same prefix
-    # under their default repo names (no clash):
-    #   <image_registry>/primussafe/envoy-wrapper:v2.1.1
-    #   <image_registry>/primussafe/sds:v2.1.1
+    # Pull images via the Harbor proxy-cache registry (proxy_image_registry,
+    # e.g. harbor.../proxy) which fronts Docker Hub, so the images resolve from
+    # docker.io/primussafe/* (mirrored there). `image.registry` is the default
+    # registry for ALL kgateway images; the controller also derives
+    # KGW_DEFAULT_IMAGE_REGISTRY from it, so the data-plane proxy (envoy-wrapper)
+    # + sds are pulled from the same prefix under their default repo names:
+    #   <proxy_image_registry>/primussafe/envoy-wrapper:v2.1.1
+    #   <proxy_image_registry>/primussafe/sds:v2.1.1
     # The CONTROLLER's default repo is "kgateway", which would collide with the
     # helm chart's own OCI coordinate <helm_registry>/primussafe/kgateway:v2.1.1
     # (an image pushed to the same repo:tag as the chart overwrites it ->
     # CreateContainerError "no command specified"). So the controller repo is
-    # overridden to "kgateway-controller". This single-level naming works on
-    # both Harbor and Docker Hub (Docker Hub does not allow multi-segment repos
+    # overridden to "kgateway-controller". Single-level repo names are used so
+    # they work through Docker Hub too (Docker Hub rejects multi-segment repos
     # like kgateway-dev/kgateway).
     image:
-      registry: {{ .Values.global.image_registry }}/primussafe
+      registry: {{ .Values.global.proxy_image_registry }}/primussafe
       pullPolicy: IfNotPresent
     controller:
       image:
