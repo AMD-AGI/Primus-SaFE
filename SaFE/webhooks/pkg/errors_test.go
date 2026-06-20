@@ -164,8 +164,9 @@ func TestWorkloadOwnerWorkloadBranches(t *testing.T) {
 	v1.SetLabel(w, v1.OwnerLabel, "owner")
 	assert.Assert(t, v.validateOwnerWorkload(context.Background(), w) != nil)
 
-	// owner not found is tolerated: admission must not block when the owner
-	// workload is not yet persisted (issue #588).
+	// owner not found is tolerated (issue #588): the apiserver may create an
+	// owner-labeled child before its owner workload is persisted, so a NotFound
+	// owner must not block admission.
 	w2 := validWorkload()
 	v1.SetLabel(w2, v1.OwnerLabel, "missing")
 	assert.NilError(t, v.validateOwnerWorkload(context.Background(), w2))

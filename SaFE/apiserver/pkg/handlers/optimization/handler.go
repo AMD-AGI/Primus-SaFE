@@ -505,17 +505,21 @@ func (h *Handler) consumeClawStream(taskID, sessionID string, hub *taskHub, claw
 		// Check whether the session is still active before retrying.
 		klog.ErrorS(err, "claw stream dropped, checking session before retry",
 			"task_id", taskID, "session_id", sessionID)
-		checkCtx, checkCancel := context.WithTimeout(
-			WithClawBearer(context.Background(), clawBearer),
-			10*time.Second,
-		)
-		ss, getErr := h.clawClient.GetSession(checkCtx, sessionID)
-		checkCancel()
-		if getErr != nil || ss.IsTerminal() {
+		// Confirm the session is genuinely dead before giving up. Retry on
+		// transient GetSession failures so a brief Claw control-plane blip is
+		// not mistaken for a finished session — only break out as Failed when
+		// we can positively confirm a terminal state. When GetSession keeps
+		// failing (Claw unreachable) we fall through and reconnect instead of
+		// flipping a possibly-live task to Failed; the 60s poll goroutine
+		// cancels ctx once the session truly reaches terminal, which exits
+		// this loop via context.Canceled.
+		ss, getErr := h.getSessionWithRetry(ctx, sessionID, clawBearer)
+		if getErr == nil && ss.IsTerminal() {
 			streamErr = err
 			break
 		}
-		// Session still running — wait briefly then reconnect.
+		// Session still running, or Claw transiently unreachable — wait
+		// briefly then reconnect.
 		select {
 		case <-ctx.Done():
 			return
@@ -629,6 +633,41 @@ func (h *Handler) finalizeTask(taskID string, hub *taskHub, streamErr error, cla
 	}
 }
 
+// getSessionWithRetry fetches the Claw session status, retrying on transient
+// errors with exponential backoff (2s, 4s). A brief Claw control-plane blip
+// (5xx, EOF, read timeout) must NOT be mistaken for a dead session, which
+// would otherwise flip a still-running task to Failed. Returns the session on
+// the first success, or the last error after all attempts are exhausted. The
+// ctx only gates the inter-attempt backoff; each GetSession call uses its own
+// 10s timeout so a single hung call cannot block the whole budget.
+func (h *Handler) getSessionWithRetry(ctx context.Context, sessionID, clawBearer string) (*SessionStatus, error) {
+	const attempts = 3
+	var lastErr error
+	for i := 0; i < attempts; i++ {
+		if i > 0 {
+			backoff := time.Duration(int64(1)<<uint(i-1)) * 2 * time.Second // 2s, 4s
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case <-time.After(backoff):
+			}
+		}
+		callCtx, cancel := context.WithTimeout(
+			WithClawBearer(context.Background(), clawBearer),
+			10*time.Second,
+		)
+		ss, err := h.clawClient.GetSession(callCtx, sessionID)
+		cancel()
+		if err == nil {
+			return ss, nil
+		}
+		lastErr = err
+		klog.V(4).InfoS("getSessionWithRetry: transient get-session failure",
+			"session_id", sessionID, "attempt", i+1, "error", err)
+	}
+	return nil, lastErr
+}
+
 // resolveStatusFromClaw queries the Claw session to determine the true task
 // status when the SSE stream dropped unexpectedly. This prevents marking a
 // still-running Hyperloom session as Failed due to a transient connection drop.
@@ -640,15 +679,11 @@ func (h *Handler) resolveStatusFromClaw(sessionID string, streamErr error) (dbcl
 		return fallbackStatus, fallbackMsg
 	}
 
-	ctx, cancel := context.WithTimeout(
-		WithClawBearer(context.Background(), h.clawClient.apiKey),
-		10*time.Second,
-	)
-	defer cancel()
-
-	ss, err := h.clawClient.GetSession(ctx, sessionID)
+	// Retry on transient failures: a brief Claw blip must not flip a task to
+	// Failed when the underlying session may still be alive.
+	ss, err := h.getSessionWithRetry(context.Background(), sessionID, h.clawClient.apiKey)
 	if err != nil {
-		klog.V(4).InfoS("resolveStatusFromClaw: get session failed, keeping stream error",
+		klog.V(4).InfoS("resolveStatusFromClaw: get session failed after retries, keeping stream error",
 			"session_id", sessionID, "error", err)
 		return fallbackStatus, fallbackMsg
 	}

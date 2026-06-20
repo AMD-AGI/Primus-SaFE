@@ -88,7 +88,7 @@ spec:
         image:
           # Mirrored on SaFE Harbor (ops to mirror, see header note 3).
           # Source: nvcr.io/nvidia/ai-dynamo/kubernetes-operator:1.1.0
-          repository: {{ .Values.global.image_registry }}/primussafe/dynamo-kubernetes-operator
+          repository: {{ .Values.global.proxy_image_registry }}/primussafe/dynamo-kubernetes-operator
           tag: "1.1.0-coscheduling-0826"
         resources:
           limits:
