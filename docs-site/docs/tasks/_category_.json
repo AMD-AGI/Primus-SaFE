@@ -1,0 +1,8 @@
+{
+  "label": "Tasks",
+  "position": 4,
+  "link": {
+    "type": "generated-index",
+    "description": "Goal-oriented how-tos. Each task offers UI, API, and Agent options."
+  }
+}

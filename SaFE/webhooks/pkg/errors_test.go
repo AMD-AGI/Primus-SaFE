@@ -170,6 +170,11 @@ func TestWorkloadOwnerWorkloadBranches(t *testing.T) {
 	w2 := validWorkload()
 	v1.SetLabel(w2, v1.OwnerLabel, "missing")
 	assert.NilError(t, v.validateOwnerWorkload(context.Background(), w2))
+
+	// self-referential owner is rejected
+	w3 := validWorkload()
+	v1.SetLabel(w3, v1.OwnerLabel, w3.Name)
+	assert.Assert(t, v.validateOwnerWorkload(context.Background(), w3) != nil)
 }
 
 // TestWorkloadAuthoringBranch covers authoring multi-node rejection.
