@@ -139,8 +139,7 @@ Create a new workload.
 
 ```json
 {
-  "workspaceId": "cluster-workspace",
-  "displayName": "test-cicd",
+  "displayName": "your-name",
   "groupVersionKind": {
     "kind": "AutoscalingRunnerSet",
     "version": "v1"
@@ -151,13 +150,17 @@ Create a new workload.
     "memory": "4Gi",
     "ephemeralStorage": "10Gi"
   }],
+  "workspace": "your-workspace",
   "env": {
-    "ENTRYPOINT": "ZXhlYyAvaG9tZS9ydW5uZXIvYWN0aW9ucy1ydW5uZXIvcnVuLnNo",
-    "IMAGE": "primussafe/buildah-runner:v2.329.0-3",
-    "RESOURCES": "{\"replica\":1,\"cpu\":\"2\",\"gpu\":\"0\",\"memory\":\"8Gi\",\"sharedMemory\":\"4Gi\",\"ephemeralStorage\":\"100Gi\"}",
     "UNIFIED_JOB_ENABLE": "false",
-    "GITHUB_CONFIG_URL": "https://github.com/AMD-AGI/Primus-SaFE",
-    "GITHUB_PAT": "your token"
+    "GITHUB_CONFIG_URL": "https://github.com/OWNER/REPO",
+    "RESOURCES": "{\"replica\":1,\"cpu\":\"4\",\"gpu\":\"0\",\"memory\":\"16Gi\",\"sharedMemory\":\"8Gi\",\"ephemeralStorage\":\"100Gi\"}",
+    "IMAGE": "primussafe/buildah-runner:v2.329.0-3",
+    "ENTRYPOINT": "L2FjdGlvbnMtcnVubmVyL3J1bi5zaA=="
+  },
+  "githubAuth": {
+    "type": "pat",
+    "token": "your-token"
   }
 }
 ```
@@ -346,23 +349,7 @@ TorchFT is a fault-tolerant distributed training framework that supports elastic
    - **Note**: If `specifiedNodes` is provided, `resources[1].replica` must equal the number of specified nodes
 
 
-**Notes for CICD (AutoscalingRunnerSet)**:
-
-1. **Resource Configuration Structure**:
-   - `resources` field (lines 141-146): Specifies resources for the **workload proxy container itself** (not the runner)
-   - `env.RESOURCES` (line 150): JSON string defining resources for the **actual GitHub runner** that executes workflows
-   - `env.IMAGE` (line 149): Docker image for the **actual GitHub runner** container
-   - `env.ENTRYPOINT` (line 148): Base64-encoded entrypoint command for the **actual GitHub runner**
-
-2. **GitHub Integration Requirements**:
-   - Only GitHub is supported for CICD integration at this time. Other providers are not supported.
-   - Required env: `GITHUB_CONFIG_URL` must be set in `env` to the GitHub repository/organization URL.
-   - Required env: `GITHUB_PAT` must be provided in `env` (GitHub Personal Access Token). The system will automatically create a secret (with key `github_token`) from this PAT and attach it to the workload (its lifecycle is also controlled by the workload).
-
-3. **Multi-node Evaluation**:
-   - Set `"UNIFIED_JOB_ENABLE": "true"` in `env` to enable multi-node evaluation in CICD.
-   - Required NFS storage: CICD workloads require NFS storage support enabled in the workspace. This is especially important when `UNIFIED_JOB_ENABLE` is set to `true` for multi-node evaluation scenarios.
-
+**Notes for CICD (`AutoscalingRunnerSet`)**: For runner image, Workload API create payload, proxy vs runner resources, GitHub auth (`githubAuth` vs legacy `GITHUB_PAT`), and multi-node unified jobs (`UNIFIED_JOB_ENABLE`, NFS), see **[SaFE CICD quickstart](./cicd-quickstart.md)**.
 
 **Field Description**:
 
@@ -385,6 +372,7 @@ TorchFT is a fault-tolerant distributed training framework that supports elastic
 | timeout                      | int      | No       | Timeout in seconds, 0 means no timeout, 	The timeout is calculated from the moment the workload is dispatched.                                                                                            |
 | maxRetry                     | int      | No       | Maximum retry count, default 0                                                                                                                                                                            |
 | env                          | object   | No       | Environment variable key-value pairs                                                                                                                                                                      |
+| githubAuth                   | object   | No       | CICD (`AutoscalingRunnerSet`) only: GitHub credentials. `type`=`pat` with `token`, or `type`=`github_app` with `appId`, `installationId`, `privateKey`. Preferred over `GITHUB_PAT` in `env`.                |
 | specifiedNodes               | []string | No       | List of nodes to run on                                                                                                                                                                                   |
 | nodesAffinity                | string   | No       | How strictly scheduling follows `specifiedNodes`: `required` (hard: must run on listed nodes) or `preferred` (soft: prefer listed nodes but may use others). If omitted and `specifiedNodes` is non-empty, defaults to `required`. Ignored when `specifiedNodes` is empty. |
 | excludedNodes                | []string | No       | List of nodes to avoid running on. If `specifiedNodes` is provided, this field will be ignored.                                                                                                           |                                                                                                  
@@ -791,10 +779,9 @@ Partially update workload configuration (only when running).
    - Example: If updating `env`, include all environment variables you want to keep, not just new/changed ones
    - Example: If updating `cronJobs`, include all cron jobs you want, not just new ones
 
-2. **Updating CICD GitHub PAT**: For CICD (AutoscalingRunnerSet) workloads, to update the GitHub Personal Access Token:
-   - Include `GITHUB_PAT` with the new token value in the `env` field
-   - The system will automatically create a new Kubernetes secret and update the workload annotation
-   - The old secret will be deleted after successful update
+2. **Updating CICD GitHub PAT**: For CICD (AutoscalingRunnerSet) workloads, to update GitHub credentials:
+   - **Preferred**: send `githubAuth` on `PATCH` with the new PAT or GitHub App fields. The server creates a new Kubernetes secret, updates the workload annotation, and deletes the old secret when appropriate.
+   - **Alternative**: include `GITHUB_PAT` with the new token inside the **full** `env` object you are patching (same rules as any full-field `env` update).
 
 **Field Description**: All fields are optional; only provided fields will be updated
 
@@ -808,6 +795,7 @@ Partially update workload configuration (only when running).
 | timeout             | int       | No | Timeout in seconds; 0 means no timeout                           |
 | maxRetry            | int       | No | Failure retry limit                                              |
 | env                 | object    | No | Environment variable key-value pairs                             |
+| githubAuth          | object    | No | CICD (`AutoscalingRunnerSet`) only: new PAT (`type`/`token`) or GitHub App credentials; preferred over embedding `GITHUB_PAT` in `env` when rotating tokens |
 | cronJobs[].schedule | string    | No | Scheduled trigger time (RFC3339), e.g. "2025-09-30T16:04:00.000Z" |
 | cronJobs[].action   | string    | No | Action to perform, e.g. "start"                                  |
 | service.protocol    | string    | No | Service protocol, e.g. TCP/UDP, default TCP                      |
