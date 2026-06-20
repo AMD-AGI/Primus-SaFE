@@ -55,7 +55,7 @@ spec:
     # internal harbor mirror. All other defaults from the upstream chart
     # are left in place (1 replica, internal cert, no metrics scrape).
     image:
-      repository: {{ .Values.global.image_registry }}/primussafe/lws
+      repository: {{ .Values.global.proxy_image_registry }}/primussafe/lws
       tag: v0.8.0
       pullPolicy: IfNotPresent
 

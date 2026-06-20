@@ -1,5 +1,7 @@
 # Build stage
-FROM golang:1.24-alpine AS builder
+# go 1.25.5 to match the go.mod `go 1.25.5` directive (1.24 fails `go mod
+# download` with GOTOOLCHAIN=local). Matches the other SaFE Dockerfiles.
+FROM golang:1.25.5-alpine AS builder
 
 WORKDIR /build
 

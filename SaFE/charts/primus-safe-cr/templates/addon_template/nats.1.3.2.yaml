@@ -69,7 +69,7 @@ spec:
     container:
       image:
         # Mirrored on Harbor (source: docker.io/library/nats:2.11.1-binary-alpine)
-        repository: {{ .Values.global.image_registry }}/primussafe/nats
+        repository: {{ .Values.global.proxy_image_registry }}/primussafe/nats
         tag: "2.11.1-binary-alpine"
         pullPolicy: IfNotPresent
 
@@ -98,7 +98,7 @@ spec:
       enabled: true
       image:
         # Mirrored on Harbor (source: docker.io/natsio/nats-server-config-reloader:0.17.1)
-        repository: {{ .Values.global.image_registry }}/primussafe/nats-server-config-reloader
+        repository: {{ .Values.global.proxy_image_registry }}/primussafe/nats-server-config-reloader
         tag: "0.17.1"
         pullPolicy: IfNotPresent
 
@@ -110,7 +110,7 @@ spec:
       container:
         image:
           # Mirrored on Harbor (source: docker.io/natsio/nats-box:0.17.0)
-          repository: {{ .Values.global.image_registry }}/primussafe/nats-box
+          repository: {{ .Values.global.proxy_image_registry }}/primussafe/nats-box
           tag: "0.17.0"
           pullPolicy: IfNotPresent
 
