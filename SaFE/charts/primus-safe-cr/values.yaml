@@ -5,6 +5,11 @@
 
 global:
   helm_registry: "registry-1.docker.io"
+  # Registry that fronts the container images (addon image pulls use
+  # {{ .Values.global.proxy_image_registry }}/primussafe/...). Defaults to
+  # Docker Hub; the bootstrap scripts (install.sh / upgrade.sh) override it to
+  # the Harbor proxy-cache (<harbor>/proxy) when deploying against Harbor.
+  proxy_image_registry: "registry-1.docker.io"
   # Must match primus-safe global.domain when CR chart is installed with the same release values.
   domain: "primus-safe.amd.com"
   sub_domain: ""

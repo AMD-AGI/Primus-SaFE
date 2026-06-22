@@ -25,10 +25,11 @@
 #      -> oci://<helm_registry>/primussafe/kgateway-crds:v2.1.1
 # This chart ships only CRD YAML; it pulls no images.
 #
-# Opt-in addon (same rationale as kgateway.2.1.1): not labeled
-# primus-safe.addon.default, since the inference gateway is only needed where
-# GAIE-fronted inference runs. Instantiate via an Addon CR referencing this
-# template, ahead of the kgateway Addon.
+# Default addon (same as kgateway.2.1.1): labeled primus-safe.addon.default, so
+# SaFE synthesises an Addon for every Cluster. Because guaranteeDefaultAddon does
+# not order addons, the kgateway controller chart may install before these CRDs
+# land; the controller simply retries until the CRDs exist, so this is benign.
+# Drop the label on both templates to make the gateway opt-in instead.
 #
 apiVersion: amd.com/v1
 kind: AddonTemplate
@@ -37,6 +38,8 @@ metadata:
   labels:
     primus-safe.display.name: "inference-gateway-crds"
     app.kubernetes.io/managed-by: Helm
+    # Default addon: auto-synthesised per Cluster by SaFE (drop to make opt-in).
+    primus-safe.addon.default: ""
   annotations:
     meta.helm.sh/release-name: {{ .Release.Name }}
     meta.helm.sh/release-namespace: {{ .Release.Namespace }}
