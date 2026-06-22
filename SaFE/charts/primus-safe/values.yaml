@@ -153,7 +153,7 @@ sso:
 workspace:
   # Reserved system resources for management components
   mem_reserve_percent: 0.05
-  cpu_reserve_percent: 0.1
+  cpu_reserve_percent: 0.08
   ephemeral_store_reserve_percent: 0.05
 s3:
   # Enable S3 service access, mainly used for log downloading
