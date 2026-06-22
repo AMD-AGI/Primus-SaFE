@@ -292,6 +292,9 @@ func firstNonEmpty(values ...string) string {
 // rayCPUForTP returns the Ray CPU request for a given TP, using a linear
 // 12 CPU per GPU ratio (e.g. TP=1 → 12, TP=8 → 96).
 func rayCPUForTP(tp int) int {
+	if tp <= 0 {
+		return defaultRayCPU
+	}
 	switch tp {
 	case 1:
 		return 12
@@ -302,12 +305,17 @@ func rayCPUForTP(tp int) int {
 	case 8:
 		return 96
 	default:
-		return defaultRayCPU
+		// Non-power-of-two TP (3/5/6/7): scale linearly at 12 CPU per GPU
+		// rather than collapsing to the fixed default.
+		return defaultRayCPU * tp
 	}
 }
 
 // rayMemoryForTP mirrors Hyperloom-Web's GPU_RESOURCE_MAP memory presets (Gi).
 func rayMemoryForTP(tp int) int {
+	if tp <= 0 {
+		return defaultRayMemoryGi
+	}
 	switch tp {
 	case 1:
 		return 128
@@ -318,7 +326,9 @@ func rayMemoryForTP(tp int) int {
 	case 8:
 		return 1024
 	default:
-		return defaultRayMemoryGi
+		// Non-power-of-two TP (3/5/6/7): scale linearly at 128Gi per GPU
+		// rather than collapsing to the fixed default.
+		return defaultRayMemoryGi * tp
 	}
 }
 
