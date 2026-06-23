@@ -109,11 +109,15 @@ func (r *WorkloadTTLController) handle(ctx context.Context, workload *v1.Workloa
 			elapsedSeconds = int(nowTime.Sub(workload.Status.EndTime.Time).Seconds())
 		}
 		if elapsedSeconds >= ttlSeconds {
+			klog.Infof("TTL controller deleting workload %s: ended (phase: %s) and TTL elapsed (%d >= %d seconds)",
+				workload.Name, workload.Status.Phase, elapsedSeconds, ttlSeconds)
 			err = r.deleteWorkload(ctx, workload)
 		} else {
 			result.RequeueAfter = time.Duration(ttlSeconds-elapsedSeconds) * time.Second
 		}
 	case workload.IsTimeout():
+		klog.Infof("TTL controller stopping and deleting workload %s: timed out (timeout: %d seconds, phase: %s)",
+			workload.Name, workload.GetTimeout(), workload.Status.Phase)
 		if err = jobutils.MarkWorkloadStopped(
 			ctx, r.Client, workload,
 			jobutils.StopReasonTimeout, "the workload has timed out",

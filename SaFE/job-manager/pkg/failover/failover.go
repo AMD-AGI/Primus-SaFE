@@ -325,6 +325,13 @@ func (r *FailoverReconciler) handle(ctx context.Context, workload *v1.Workload) 
 		return ctrlruntime.Result{RequeueAfter: time.Second}, nil
 	}
 
+	// Log the failover decision before deleting data-plane objects so the trigger
+	// (preemption vs failed condition) and retry budget are observable. This is the
+	// point where a CICD scaling runner set's whole runner pool gets torn down.
+	klog.Infof("failover deleting data-plane objects of workload %s, kind: %s, preempted: %t, failedCondition: %t, dispatchCnt: %d, maxRetry: %d",
+		workload.Name, workload.SpecKind(), v1.IsWorkloadPreempted(workload), jobutils.FindFailedCondition(workload),
+		v1.GetWorkloadDispatchCnt(workload), workload.Spec.MaxRetry)
+
 	if _, err := jobutils.DeleteObjectsByWorkload(ctx, r.Client, clusterClientSets.ClientFactory(), workload); err != nil {
 		return ctrlruntime.Result{}, err
 	}

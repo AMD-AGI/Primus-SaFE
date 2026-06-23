@@ -297,6 +297,12 @@ func updateCICDScalingRunnerSetPhase(adminWorkload *v1.Workload, pod *corev1.Pod
 	case corev1.PodPending:
 		adminWorkload.Status.Phase = v1.WorkloadPending
 	default:
+		// The listener pod left Running/Pending; the runner set becomes NotReady.
+		// This is the usual precursor to failover/deletion, so log the transition.
+		if adminWorkload.Status.Phase != v1.WorkloadNotReady {
+			klog.Infof("CICD scaling runner set %s phase -> NotReady (listener pod %s phase: %s)",
+				adminWorkload.Name, pod.Name, pod.Status.Phase)
+		}
 		adminWorkload.Status.Phase = v1.WorkloadNotReady
 	}
 }
