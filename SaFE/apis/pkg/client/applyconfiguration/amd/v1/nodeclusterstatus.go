@@ -13,8 +13,12 @@ import (
 // NodeClusterStatusApplyConfiguration represents a declarative configuration of the NodeClusterStatus type for use
 // with apply.
 type NodeClusterStatusApplyConfiguration struct {
-	Phase         *amdv1.NodePhase                  `json:"phase,omitempty"`
-	Cluster       *string                           `json:"cluster,omitempty"`
+	// The status of nodes in the cluster, e.g. Ready, Managing, Managed, ManagedFailed, Unmanaging, Unmanaged, UnmanagedFailed
+	Phase *amdv1.NodePhase `json:"phase,omitempty"`
+	// The result of cluster binding (note that the cluster in spec represents the desired state,
+	// while this field represents the actual outcome of the operation).
+	Cluster *string `json:"cluster,omitempty"`
+	// The execution result of each install command.
 	CommandStatus []CommandStatusApplyConfiguration `json:"commandStatus,omitempty"`
 }
 

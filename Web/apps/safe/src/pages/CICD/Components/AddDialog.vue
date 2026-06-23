@@ -38,7 +38,12 @@
             <el-input v-model="form.description" :rows="2" type="textarea" />
           </el-form-item>
           <el-form-item label="entryPoint" prop="entryPoint">
-            <el-input v-model="form.entryPoint" :rows="2" type="textarea" placeholder="If multi-line, it is best to save them in a file on NFS, and then execute it. e.g. bash run.sh" />
+            <el-input
+              v-model="form.entryPoint"
+              :rows="2"
+              type="textarea"
+              placeholder="If multi-line, it is best to save them in a file on NFS, and then execute it. e.g. bash run.sh"
+            />
           </el-form-item>
           <el-form-item label="image" prop="image">
             <ImageInput v-model="form.image" />
@@ -47,7 +52,11 @@
             <el-select v-model="form.priority" placeholder="please select priority">
               <el-option label="Low" :value="0" />
               <el-option label="Medium" :value="1" />
-              <el-option label="High" :value="2" v-if="isManager || store.isCurrentWorkspaceAdmin()" />
+              <el-option
+                label="High"
+                :value="2"
+                v-if="isManager || store.isCurrentWorkspaceAdmin()"
+              />
             </el-select>
           </el-form-item>
         </div>
@@ -106,7 +115,11 @@
                           ({{ n.internalIP }})
                         </span>
                       </div>
-                      <el-tag :type="n.available ? 'success' : 'danger'" size="small" effect="plain">
+                      <el-tag
+                        :type="n.available ? 'success' : 'danger'"
+                        size="small"
+                        effect="plain"
+                      >
                         {{ n.available ? 'Available' : 'Unavailable' }}
                       </el-tag>
                     </div>
@@ -204,7 +217,12 @@
                 </el-col>
                 <el-col :span="12">
                   <el-form-item label="secret" prop="secretIds">
-                    <el-select v-model="form.secretIds" multiple :disabled="isEdit" placeholder="Please select secrets">
+                    <el-select
+                      v-model="form.secretIds"
+                      multiple
+                      :disabled="isEdit"
+                      placeholder="Please select secrets"
+                    >
                       <el-option
                         v-for="item in secretOptions"
                         :key="item.value"
@@ -226,7 +244,6 @@
                     </el-select>
                   </el-form-item>
                 </el-col>
-
               </el-row>
 
               <el-form-item label="GitHubConfigURL" prop="githubConfigUrl">
@@ -237,34 +254,64 @@
                 />
               </el-form-item>
 
-              <el-form-item label="GitHubPAT" prop="githubPAT" v-if="!isEdit">
-                <div class="flex items-center gap-2 w-full">
-                  <el-input
-                    v-model="form.githubPAT"
-                    placeholder="Enter GitHub PAT"
-                    type="password"
-                    class="flex-1"
-                  />
-                  <el-tooltip placement="top" raw-content>
-                    <template #content>
-                      <div>
-                        To create a PAT, visit
-                        <a
-                          href="https://app.docker.com/settings"
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          style="color: #409eff; text-decoration: underline"
-                        >
-                          https://app.docker.com/settings
-                        </a>
-                      </div>
-                    </template>
-                    <el-icon class="text-gray-500 cursor-help">
-                      <InfoFilled />
-                    </el-icon>
-                  </el-tooltip>
-                </div>
-              </el-form-item>
+              <template v-if="!isEdit">
+                <el-form-item label="GitHubAuth" prop="githubAuthType">
+                  <el-radio-group v-model="form.githubAuthType">
+                    <el-radio-button label="github_app">GitHub App (recommended)</el-radio-button>
+                    <el-radio-button label="pat">Personal Access Token (legacy)</el-radio-button>
+                  </el-radio-group>
+                </el-form-item>
+
+                <template v-if="form.githubAuthType === 'github_app'">
+                  <el-form-item label="App ID" prop="githubAppId">
+                    <el-input v-model="form.githubAppId" placeholder="Enter GitHub App ID" />
+                  </el-form-item>
+                  <el-form-item label="Installation ID" prop="githubAppInstallationId">
+                    <el-input
+                      v-model="form.githubAppInstallationId"
+                      placeholder="Enter GitHub App installation ID"
+                    />
+                  </el-form-item>
+                  <el-form-item label="Private Key" prop="githubAppPrivateKey">
+                    <div class="w-full">
+                      <el-input
+                        v-model="form.githubAppPrivateKey"
+                        :rows="5"
+                        type="textarea"
+                        placeholder="Paste the GitHub App private key PEM"
+                        show-word-limit
+                      />
+                      <input
+                        class="pem-file-input"
+                        type="file"
+                        accept=".pem,.key,text/plain"
+                        @change="onPrivateKeyFileChange"
+                      />
+                    </div>
+                  </el-form-item>
+                </template>
+
+                <el-form-item label="GitHubPAT" prop="githubPAT" v-else>
+                  <div class="flex items-center gap-2 w-full">
+                    <el-input
+                      v-model="form.githubPAT"
+                      placeholder="Enter legacy GitHub PAT"
+                      type="password"
+                      class="flex-1"
+                    />
+                    <el-tooltip placement="top" raw-content>
+                      <template #content>
+                        <div>
+                          Legacy PAT authentication is still supported for existing workflows.
+                        </div>
+                      </template>
+                      <el-icon class="text-gray-500 cursor-help">
+                        <InfoFilled />
+                      </el-icon>
+                    </el-tooltip>
+                  </div>
+                </el-form-item>
+              </template>
             </div>
           </transition>
         </div>
@@ -301,6 +348,7 @@ import { debounce } from 'lodash'
 import { useUserStore } from '@/stores/user'
 import { InfoFilled, CopyDocument, ArrowRight } from '@element-plus/icons-vue'
 import ImageInput from '@/components/Base/ImageInput.vue'
+import { buildGitHubAuthPayload, validateGitHubAuthForm, type GitHubAuthType } from './githubAuth'
 
 const props = defineProps<{
   visible: boolean
@@ -358,6 +406,10 @@ const initialForm = () => ({
   priority: 1,
   unifiedJobEnable: false,
   githubConfigUrl: '',
+  githubAuthType: 'github_app' as GitHubAuthType,
+  githubAppId: '',
+  githubAppInstallationId: '',
+  githubAppPrivateKey: '',
   githubPAT: '',
   resource: {
     replica: 1,
@@ -412,7 +464,42 @@ const rules: Record<string, FormItemRule[]> = reactive({
     { required: true, message: 'Please input ephemeral storage', trigger: 'blur' },
   ],
   githubConfigUrl: [{ required: true, message: 'Please input GitHub config URL', trigger: 'blur' }],
-  githubPAT: [{ required: true, message: 'Please input GitHub PAT', trigger: 'blur' }],
+  githubAppId: [
+    {
+      validator: (_rule, _value, callback) => {
+        const [message] = validateGitHubAuthForm(form).filter((msg) => msg.includes('App ID'))
+        callback(message ? new Error(message) : undefined)
+      },
+      trigger: 'blur',
+    },
+  ],
+  githubAppInstallationId: [
+    {
+      validator: (_rule, _value, callback) => {
+        const [message] = validateGitHubAuthForm(form).filter((msg) => msg.includes('installation'))
+        callback(message ? new Error(message) : undefined)
+      },
+      trigger: 'blur',
+    },
+  ],
+  githubAppPrivateKey: [
+    {
+      validator: (_rule, _value, callback) => {
+        const [message] = validateGitHubAuthForm(form).filter((msg) => msg.includes('private key'))
+        callback(message ? new Error(message) : undefined)
+      },
+      trigger: 'blur',
+    },
+  ],
+  githubPAT: [
+    {
+      validator: (_rule, _value, callback) => {
+        const [message] = validateGitHubAuthForm(form)
+        callback(message ? new Error(message) : undefined)
+      },
+      trigger: 'blur',
+    },
+  ],
 })
 
 const onSubmit = async (formEl: FormInstance | undefined) => {
@@ -427,6 +514,10 @@ const onSubmit = async (formEl: FormInstance | undefined) => {
       timeout,
       unifiedJobEnable,
       githubConfigUrl,
+      githubAuthType,
+      githubAppId,
+      githubAppInstallationId,
+      githubAppPrivateKey,
       githubPAT,
       image,
       ...addPayload
@@ -462,12 +553,6 @@ const onSubmit = async (formEl: FormInstance | undefined) => {
       ENTRYPOINT: encodeToBase64String(entryPoint),
     }
 
-    // Handle GitHubPAT
-    // During Create/Clone, add PAT directly to env; backend will auto-create secret
-    if (!isEdit.value && githubPAT) {
-      envMap.GITHUB_PAT = githubPAT
-    }
-
     // Build secrets array
     const secrets = form.secretIds.map((id) => ({ id }))
 
@@ -483,9 +568,18 @@ const onSubmit = async (formEl: FormInstance | undefined) => {
         resources: [fixedResource],
         workspace: props.action === 'Clone' ? pendingWorkspaceId.value : store.currentWorkspaceId!,
         env: envMap,
+        githubAuth: buildGitHubAuthPayload({
+          githubAuthType,
+          githubAppId,
+          githubAppInstallationId,
+          githubAppPrivateKey,
+          githubPAT,
+        }),
         ...(excludedNodesPayload ? { excludedNodes: excludedNodesPayload } : {}),
         ...(secrets.length > 0 ? { secrets: secrets } : {}),
-        ...(cachedUseWorkspaceStorage.value !== undefined ? { useWorkspaceStorage: cachedUseWorkspaceStorage.value } : {}),
+        ...(cachedUseWorkspaceStorage.value !== undefined
+          ? { useWorkspaceStorage: cachedUseWorkspaceStorage.value }
+          : {}),
       }
 
       if (isResume.value) {
@@ -547,6 +641,15 @@ const cancelAdd = () => {
   })
 }
 
+const onPrivateKeyFileChange = async (event: Event) => {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  if (!file) return
+  form.githubAppPrivateKey = await file.text()
+  input.value = ''
+  ruleFormRef.value?.validateField('githubAppPrivateKey')
+}
+
 function createBetweenRule(min: number, max: number, unit?: string): FormItemRule {
   return {
     validator: (_rule: unknown, value: unknown, callback: (err?: Error) => void) => {
@@ -568,6 +671,18 @@ watch(
     }
   },
   { immediate: true },
+)
+
+watch(
+  () => form.githubAuthType,
+  () => {
+    ruleFormRef.value?.clearValidate([
+      'githubAppId',
+      'githubAppInstallationId',
+      'githubAppPrivateKey',
+      'githubPAT',
+    ])
+  },
 )
 
 const fetchFlavorAvail = async () => {
@@ -672,6 +787,9 @@ const setInitialFormValues = async () => {
     // Clear sensitive info during Clone/Resume so users can re-select
     form.secretIds = []
     form.githubPAT = ''
+    form.githubAppId = ''
+    form.githubAppInstallationId = ''
+    form.githubAppPrivateKey = ''
   }
 
   if (props.action === 'Clone') {
@@ -862,6 +980,11 @@ html.dark .section-card:hover {
 /* Leave some space at the top of advanced expanded content */
 .advanced-body {
   margin-top: 4px;
+}
+
+.pem-file-input {
+  margin-top: 8px;
+  font-size: 12px;
 }
 
 /* Drawer footer */

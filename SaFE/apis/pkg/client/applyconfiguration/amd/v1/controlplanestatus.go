@@ -13,11 +13,17 @@ import (
 // ControlPlaneStatusApplyConfiguration represents a declarative configuration of the ControlPlaneStatus type for use
 // with apply.
 type ControlPlaneStatusApplyConfiguration struct {
-	Phase     *amdv1.ClusterPhase `json:"phase,omitempty"`
-	CertData  *string             `json:"certData,omitempty"`
-	KeyData   *string             `json:"keyData,omitempty"`
-	CAData    *string             `json:"CAData,omitempty"`
-	Endpoints []string            `json:"endpoints,omitempty"`
+	Phase *amdv1.ClusterPhase `json:"phase,omitempty"`
+	// CertData holds PEM-encoded bytes (typically read from a client certificate file).
+	// CertData takes precedence over CertFile
+	CertData *string `json:"certData,omitempty"`
+	// KeyData holds PEM-encoded bytes (typically read from a client certificate key file).
+	// KeyData takes precedence over KeyFile
+	KeyData *string `json:"keyData,omitempty"`
+	// CAData holds PEM-encoded bytes (typically read from a root certificates bundle).
+	// CAData takes precedence over CAFile
+	CAData    *string  `json:"CAData,omitempty"`
+	Endpoints []string `json:"endpoints,omitempty"`
 }
 
 // ControlPlaneStatusApplyConfiguration constructs a declarative configuration of the ControlPlaneStatus type for use with

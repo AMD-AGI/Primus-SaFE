@@ -57,50 +57,50 @@ func initializeObject(obj *unstructured.Unstructured,
 	templatePath := resourceSpec.TemplatePath()
 	podSpec := getPodSpec(workload)
 
-	path := append(templatePath, podSpec,
+	path := buildPodSpecPath(templatePath, podSpec,
 		"affinity", "nodeAffinity", "requiredDuringSchedulingIgnoredDuringExecution", "nodeSelectorTerms")
 	if err = modifyRequiredNodeAffinity(obj, workload, path); err != nil {
 		return fmt.Errorf("failed to modify nodeSelectorTerms: %v", err.Error())
 	}
 	if v1.IsRetryingOnOriginal(workload) || v1.GetNodesAffinity(workload) == common.NodesAffinityPreferred {
-		path = append(templatePath, podSpec,
+		path = buildPodSpecPath(templatePath, podSpec,
 			"affinity", "nodeAffinity", "preferredDuringSchedulingIgnoredDuringExecution")
 		if err = modifyPreferredNodeAffinity(obj, workload, path); err != nil {
 			return fmt.Errorf("failed to modify preferredNodeAffinity: %v", err.Error())
 		}
 	}
 	if v1.IsRequireNodeSpread(workload) {
-		path = append(templatePath, podSpec,
+		path = buildPodSpecPath(templatePath, podSpec,
 			"affinity", "podAntiAffinity", "requiredDuringSchedulingIgnoredDuringExecution")
 		if err = modifyPodAntiAffinity(obj, workload, path); err != nil {
 			return fmt.Errorf("failed to modify podAntiAffinity: %v", err.Error())
 		}
 	}
-	path = append(templatePath, podSpec, "containers")
+	path = buildPodSpecPath(templatePath, podSpec, "containers")
 	if err = modifyContainers(obj, workload, workspace, path, resourceId); err != nil {
 		return fmt.Errorf("failed to modify main container: %v", err.Error())
 	}
-	path = append(templatePath, podSpec, "volumes")
+	path = buildPodSpecPath(templatePath, podSpec, "volumes")
 	if err = modifyVolumes(obj, workload, workspace, path); err != nil {
 		return fmt.Errorf("failed to modify volumes: %v", err.Error())
 	}
-	path = append(templatePath, podSpec, "imagePullSecrets")
+	path = buildPodSpecPath(templatePath, podSpec, "imagePullSecrets")
 	if err = modifyImageSecrets(obj, workload, path); err != nil {
 		return fmt.Errorf("failed to modify image secrets: %v", err.Error())
 	}
-	path = append(templatePath, podSpec, "priorityClassName")
+	path = buildPodSpecPath(templatePath, podSpec, "priorityClassName")
 	if err = modifyPriorityClass(obj, workload, path); err != nil {
 		return fmt.Errorf("failed to modify priority: %v", err.Error())
 	}
-	path = append(templatePath, podSpec, "serviceAccountName")
+	path = buildPodSpecPath(templatePath, podSpec, "serviceAccountName")
 	if err = modifyServiceAccountName(obj, workload, path); err != nil {
 		return fmt.Errorf("failed to modify sa: %v", err.Error())
 	}
-	path = append(templatePath, podSpec, "hostNetwork")
+	path = buildPodSpecPath(templatePath, podSpec, "hostNetwork")
 	if err = modifyHostNetwork(obj, workload, path, resourceId); err != nil {
 		return fmt.Errorf("failed to modify host network: %v", err.Error())
 	}
-	path = append(templatePath, podSpec, "tolerations")
+	path = buildPodSpecPath(templatePath, podSpec, "tolerations")
 	if err = modifyTolerations(obj, workload, path); err != nil {
 		return fmt.Errorf("failed to modify tolerations: %v", err.Error())
 	}
@@ -468,11 +468,11 @@ func modifyHostPid(obj *unstructured.Unstructured, workload *v1.Workload, templa
 		return nil
 	}
 	podSpec := getPodSpec(workload)
-	path := append(templatePath, podSpec, "hostPID")
+	path := buildPodSpecPath(templatePath, podSpec, "hostPID")
 	if err := jobutils.SetNestedField(obj.Object, true, path); err != nil {
 		return err
 	}
-	path = append(templatePath, podSpec, "hostIPC")
+	path = buildPodSpecPath(templatePath, podSpec, "hostIPC")
 	if err := jobutils.SetNestedField(obj.Object, true, path); err != nil {
 		return err
 	}
@@ -844,10 +844,19 @@ func buildSharedMemoryVolume(sizeLimit string) interface{} {
 
 // buildStrategy creates deployment strategy configuration.
 func buildStrategy(workload *v1.Workload) map[string]interface{} {
+	// Guard against nil Service: Workload.Spec.Service is *Service and
+	// many workload kinds (e.g. RayJob without an externally-exposed
+	// service) omit it entirely. Dereferencing a nil Service panics
+	// the workload controller's reconcile loop.
+	if workload == nil || workload.Spec.Service == nil {
+		return nil
+	}
 	keys := []string{"maxSurge", "maxUnavailable"}
 	rollingUpdate := make(map[string]interface{})
 	for _, key := range keys {
-		rollingUpdate[key] = workload.Spec.Service.Extends[key]
+		if v, ok := workload.Spec.Service.Extends[key]; ok && v != "" {
+			rollingUpdate[key] = v
+		}
 	}
 	if len(rollingUpdate) == 0 {
 		return nil
@@ -1096,17 +1105,6 @@ func updateRayJob(obj *unstructured.Unstructured, adminWorkload *v1.Workload) er
 	}
 	// Prefix exec so decoded ENTRYPOINT replaces the job driver shell as PID 1 (see launcher.sh).
 	specObject["entrypoint"] = "exec " + Launcher + " '" + jobEntryPoint + "'"
-
-	// Long-lived RayJob: caller (e.g. claw brain creating a companion server
-	// cluster for a Sandbox session) sets RAYJOB_LONG_LIVED=true to keep the
-	// RayCluster alive across many driver entrypoint restarts. KubeRay would
-	// otherwise tear it down (template default shutdownAfterJobFinishes=true,
-	// ttlSecondsAfterFinished=10) the moment the driver process exits.
-	if strings.EqualFold(adminWorkload.GetEnv(common.RayJobLongLived), "true") {
-		specObject["shutdownAfterJobFinishes"] = false
-		specObject["backoffLimit"] = int64(0)
-	}
-
 	if err = jobutils.SetNestedField(obj.Object, specObject, path); err != nil {
 		return err
 	}
@@ -1127,6 +1125,498 @@ func updateMonarchMesh(obj *unstructured.Unstructured, adminWorkload *v1.Workloa
 	if err = jobutils.SetNestedField(obj.Object, specObject, path); err != nil {
 		return err
 	}
+	return nil
+}
+
+// normalizeDynamoDGD finalizes a freshly-rendered DGD object so the upstream
+// Dynamo operator accepts it. The dispatcher's generic flow populates the five
+// role-agnostic slots (services.role0..role4) with image / env / resources /
+// replicas; this function reshapes those slots into the role-aware structure
+// the operator expects.
+//
+// Concretely it:
+//   - sets services.role<i>.serviceName to the role-based key (Frontend /
+//     Worker / PrefillWorker / DecodeWorker / Planner / Epp) so kubectl
+//     and downstream observability can identify the role without renaming
+//     the map key
+//   - injects componentType / subComponentType / role-specific env per role
+//   - moves containers[name=main] into extraPodSpec.mainContainer because the
+//     DGD operator treats containers[] as sidecars and only mainContainer
+//     overrides image/command/args/env on the framework-generated container
+//     (see dynamo/deploy/operator/internal/dynamo/graph.go line ~1014)
+//   - injects multinode.numberOfNodes when annotation
+//     primus-safe.dynamo.multinode.<role> is set
+//   - propagates backendFramework from annotation to spec.backendFramework
+//
+// NB: we intentionally do NOT rename services.role<i> map keys to the
+// role-based key. The dispatcher's syncWorkloadToObject path (reconcile after
+// a status conflict) re-fetches the K8s DGD and walks ResourceTemplate
+// prePaths (which are hard-coded to role0..role4). Renaming the slot makes
+// dispatcher unable to find the slot on subsequent reconciles, producing
+// "failed to find container with path: [spec services role0 extraPodSpec
+// containers]" errors. The DGD operator treats spec.services as a free-form
+// map and uses componentType / serviceName, not the key, to route logic.
+//
+// Errors here imply a programming bug or a corrupt rendered object; the webhook
+// (validateDynamoDeployment) rejects malformed inputs before they reach the
+// dispatcher.
+func normalizeDynamoDGD(obj *unstructured.Unstructured, adminWorkload *v1.Workload) error {
+	roles := commonworkload.GetDynamoServiceRoles(adminWorkload)
+	if len(roles) == 0 {
+		return fmt.Errorf("dynamo deployment %s has no service roles", adminWorkload.Name)
+	}
+	kvBackend := commonworkload.GetDynamoKVTransferBackend(adminWorkload)
+	backendFramework := commonworkload.GetDynamoBackendFramework(adminWorkload)
+
+	if err := jobutils.SetNestedField(obj.Object, backendFramework,
+		[]string{"spec", "backendFramework"}); err != nil {
+		return fmt.Errorf("set spec.backendFramework: %w", err)
+	}
+
+	services, found, err := jobutils.NestedMap(obj.Object, []string{"spec", "services"})
+	if err != nil {
+		return fmt.Errorf("get spec.services: %w", err)
+	}
+	if !found {
+		return fmt.Errorf("spec.services not found in rendered DGD %s", adminWorkload.Name)
+	}
+
+	for i, role := range roles {
+		slotKey := "role" + strconv.Itoa(i)
+		slot, ok := services[slotKey].(map[string]interface{})
+		if !ok {
+			return fmt.Errorf("dynamo slot %s missing or wrong type", slotKey)
+		}
+
+		// Tag the slot with its role-based name via the DGD ServiceName field
+		// (DynamoComponentDeploymentSharedSpec.ServiceName). This preserves
+		// human-readable role naming in kubectl/dashboards without renaming
+		// the map key (which would break dispatcher reconcile, see above).
+		slot["serviceName"] = dynamoServiceKey(role)
+
+		// Stamp SaFE pod-tracking labels (incl. WorkloadIdLabel) onto the
+		// per-service Labels (DynamoComponentDeploymentSharedSpec.Labels). The
+		// Dynamo operator copies component.Labels onto the generated
+		// deployment and its pods (see operator graph.go), so the job-manager
+		// pod syncer can associate DGD child pods (role0/role1/...) to this
+		// workload via WorkloadIdLabel and populate Status.Pods ->
+		// GetWorkload.pods. Without this the pods carry only nvidia.com/*
+		// labels and never appear in GetWorkload.pods, so the multi_node
+		// Dynamo backend cannot discover worker pod IPs. (updateMetadata
+		// writes the same labels under <templatePath>/metadata/labels, but the
+		// operator does not turn that into pod labels for DGD.)
+		slotLabels, _ := slot["labels"].(map[string]interface{})
+		if slotLabels == nil {
+			slotLabels = map[string]interface{}{}
+		}
+		for k, v := range buildPodLabels(adminWorkload) {
+			slotLabels[k] = v
+		}
+		slot["labels"] = slotLabels
+
+		applyDynamoRoleFields(slot, role, kvBackend)
+
+		// Multi-node: for a role listed in multinode-roles, the node count is
+		// Resources[i].Replica. Inject sglang multi-node flags into the launcher
+		// payload BEFORE containers are folded into mainContainer (same ordering
+		// as appendSglangDisaggArgs).
+		multinodeNodes := 0
+		if commonworkload.IsDynamoMultinodeRole(adminWorkload, role) &&
+			i < len(adminWorkload.Spec.Resources) {
+			if n := adminWorkload.Spec.Resources[i].Replica; n > 1 {
+				multinodeNodes = n
+				appendSglangMultinodeArgs(slot, n)
+			}
+		}
+
+		if err := convertContainersToMainContainer(slot); err != nil {
+			return fmt.Errorf("convert containers->mainContainer for role %s: %w", role, err)
+		}
+
+		// A multi-node role becomes one LeaderWorkerSet group of numberOfNodes
+		// pods, so force replicas=1: the generic flow set replicas to the
+		// per-role Replica, which for a multinode role means node count (carried
+		// by numberOfNodes), not Deployment group count.
+		if multinodeNodes > 1 {
+			slot["multinode"] = map[string]interface{}{
+				"numberOfNodes": int64(multinodeNodes),
+			}
+			slot["replicas"] = int64(1)
+		}
+
+		services[slotKey] = slot
+	}
+	if err := jobutils.SetNestedField(obj.Object, services,
+		[]string{"spec", "services"}); err != nil {
+		return fmt.Errorf("set spec.services: %w", err)
+	}
+	return nil
+}
+
+// normalizeOptimusRSD is the Optimus/RocServe analogue of normalizeDynamoDGD.
+// It finalizes a freshly-rendered RocServeDeployment (rocserve.amd.com/v1alpha1)
+// so the standalone RocServe operator can reconcile it. Like the dynamo path
+// it operates on the role-agnostic slots services.role0..role4 produced by the
+// generic dispatcher flow, rewriting each slot in place.
+//
+// Differences from normalizeDynamoDGD (driven by the RSD CRD shape, see
+// deploy/operator/api/v1alpha1/rocservedeployment_types.go):
+//   - componentType is the RSD enum server|worker (not Frontend/Main); the
+//     disaggregation role is the flat field `role` (mixed|prefill|decode),
+//     there is no subComponentType.
+//   - multi-node uses the flat field `numberOfNodes` (not multinode.numberOfNodes).
+//   - the per-service pod is carried verbatim in extraPodSpec.containers
+//     (ServiceSpec.ExtraPodSpec is a core/v1 PodSpec consumed as-is by the
+//     operator), so we do NOT fold containers -> mainContainer.
+//
+// The map key role<i> is intentionally preserved (renaming it would break the
+// dispatcher's path-based child tracking, identical rationale to the dynamo
+// path); the operator names child workloads <rsd>-role<i>.
+func normalizeOptimusRSD(obj *unstructured.Unstructured, adminWorkload *v1.Workload) error {
+	roles := commonworkload.GetOptimusServiceRoles(adminWorkload)
+	if len(roles) == 0 {
+		return fmt.Errorf("optimus deployment %s has no service roles", adminWorkload.Name)
+	}
+	kvBackend := commonworkload.GetOptimusKVTransferBackend(adminWorkload)
+	backendFramework := commonworkload.GetOptimusBackendFramework(adminWorkload)
+
+	if err := jobutils.SetNestedField(obj.Object, backendFramework,
+		[]string{"spec", "backendFramework"}); err != nil {
+		return fmt.Errorf("set spec.backendFramework: %w", err)
+	}
+
+	services, found, err := jobutils.NestedMap(obj.Object, []string{"spec", "services"})
+	if err != nil {
+		return fmt.Errorf("get spec.services: %w", err)
+	}
+	if !found {
+		return fmt.Errorf("spec.services not found in rendered RSD %s", adminWorkload.Name)
+	}
+
+	for i, role := range roles {
+		slotKey := "role" + strconv.Itoa(i)
+		slot, ok := services[slotKey].(map[string]interface{})
+		if !ok {
+			return fmt.Errorf("optimus slot %s missing or wrong type", slotKey)
+		}
+
+		// Stamp SaFE pod-tracking labels so the job-manager pod syncer can
+		// associate RSD child pods to this workload. The RSD ExtraPodSpec is a
+		// bare corev1.PodSpec (no metadata), so labels set under
+		// extraPodSpec.metadata are pruned by the CRD schema and never reach the
+		// pod. Carry them on the RSD ServiceSpec.podLabels field instead; the
+		// operator merges podLabels onto the rendered pod template.
+		labels := map[string]interface{}{}
+		if existing, ok := slot["podLabels"].(map[string]interface{}); ok {
+			for k, v := range existing {
+				labels[k] = v
+			}
+		}
+		for k, v := range buildPodLabels(adminWorkload) {
+			labels[k] = v
+		}
+		slot["podLabels"] = labels
+
+		applyOptimusRoleFields(slot, role, kvBackend)
+
+		// Multi-node: node count is Resources[i].Replica, carried by the flat
+		// numberOfNodes field; force replicas=1 (one LeaderWorkerSet group).
+		if commonworkload.IsOptimusMultinodeRole(adminWorkload, role) &&
+			i < len(adminWorkload.Spec.Resources) {
+			if n := adminWorkload.Spec.Resources[i].Replica; n > 1 {
+				appendSglangMultinodeArgs(slot, n)
+				slot["numberOfNodes"] = int64(n)
+				slot["replicas"] = int64(1)
+			}
+		}
+
+		services[slotKey] = slot
+	}
+	if err := jobutils.SetNestedField(obj.Object, services,
+		[]string{"spec", "services"}); err != nil {
+		return fmt.Errorf("set spec.services: %w", err)
+	}
+	return nil
+}
+
+// applyOptimusRoleFields sets the RSD componentType (server|worker) and the
+// worker disaggregation role (mixed|prefill|decode) on a slot, and appends the
+// sglang disaggregation flags for prefill/decode (reusing the dynamo helper,
+// which operates on extraPodSpec.containers[main] — the same pre-fold shape the
+// RSD operator consumes).
+func applyOptimusRoleFields(slot map[string]interface{}, role, kvBackend string) {
+	switch role {
+	case common.DynamoRoleFrontend:
+		slot["componentType"] = "server"
+		delete(slot, "role")
+	case common.DynamoRoleWorker:
+		slot["componentType"] = "worker"
+		slot["role"] = "mixed"
+	case common.DynamoRolePrefill:
+		slot["componentType"] = "worker"
+		slot["role"] = "prefill"
+		appendSglangDisaggArgs(slot, "prefill", kvBackend)
+	case common.DynamoRoleDecode:
+		slot["componentType"] = "worker"
+		slot["role"] = "decode"
+		appendSglangDisaggArgs(slot, "decode", kvBackend)
+	}
+}
+
+// dynamoServiceKey maps the SaFE role string to the conventional DGD service
+// key. The casing mirrors the upstream sglang examples (dynamo/examples/sglang)
+// and is what the operator's frontend sidecar logic / rolling-update
+// controller expect when discovering services by name.
+func dynamoServiceKey(role string) string {
+	switch role {
+	case common.DynamoRoleFrontend:
+		return "Frontend"
+	case common.DynamoRoleWorker:
+		return "Worker"
+	case common.DynamoRolePrefill:
+		return "PrefillWorker"
+	case common.DynamoRoleDecode:
+		return "DecodeWorker"
+	case common.DynamoRolePlanner:
+		return "Planner"
+	case common.DynamoRoleEpp:
+		return "Epp"
+	default:
+		return role
+	}
+}
+
+// applyDynamoRoleFields sets componentType / subComponentType / role-specific
+// env on a DGD service slot. componentType drives the operator's per-service
+// logic (Frontend gets a Service + HTTP probe, Main gets a worker Deployment,
+// Planner gets the autoscaling planner, etc.). subComponentType distinguishes
+// prefill vs decode within the Main type and triggers the operator's
+// disaggregation wiring.
+func applyDynamoRoleFields(slot map[string]interface{}, role, kvBackend string) {
+	switch role {
+	case common.DynamoRoleFrontend:
+		slot["componentType"] = "Frontend"
+		delete(slot, "subComponentType")
+	case common.DynamoRoleWorker:
+		slot["componentType"] = "Main"
+		delete(slot, "subComponentType")
+	case common.DynamoRolePrefill:
+		slot["componentType"] = "Main"
+		slot["subComponentType"] = "prefill"
+		appendSglangDisaggArgs(slot, "prefill", kvBackend)
+	case common.DynamoRoleDecode:
+		slot["componentType"] = "Main"
+		slot["subComponentType"] = "decode"
+		appendSglangDisaggArgs(slot, "decode", kvBackend)
+	case common.DynamoRolePlanner:
+		slot["componentType"] = "Planner"
+		delete(slot, "subComponentType")
+	case common.DynamoRoleEpp:
+		slot["componentType"] = "EPP"
+		delete(slot, "subComponentType")
+	}
+}
+
+// appendSglangDisaggArgs appends the sglang disaggregation flags
+// (--disaggregation-mode/--disaggregation-transfer-backend/
+// --disaggregation-bootstrap-port) to the main container's launcher-encoded
+// command. dynamo.sglang parses these via argparse; it does NOT read
+// SGLANG_DISAGGREGATION_* env vars (only SGLANG_DISAGGREGATION_IB_DEVICE is
+// env-driven). Env-only injection therefore leaves disaggregation_mode='null'
+// and silently degrades to aggregated.
+//
+// The container command is already in launcher form at this point
+// (`/bin/sh -c "exec /bin/sh /shared-data/launcher.sh <base64>"`) because
+// normalizeDynamoDGD runs after initializeObject/buildCommands. We rewrite
+// only the trailing base64 payload, leaving the launcher prefix untouched.
+//
+// Idempotency is enforced per-flag inside appendLauncherArgs via
+// stripUserDeclaredFlags: any of --disaggregation-mode /
+// --disaggregation-transfer-backend / --disaggregation-bootstrap-port already
+// supplied by the user is preserved verbatim, and only the remaining flags
+// are appended. dynamo.sglang's argparse rejects duplicates and would crash
+// the worker on startup otherwise.
+func appendSglangDisaggArgs(slot map[string]interface{}, mode, kvBackend string) {
+	extra, _ := slot["extraPodSpec"].(map[string]interface{})
+	if extra == nil {
+		return
+	}
+	containers, _ := extra["containers"].([]interface{})
+	for i, c := range containers {
+		m, ok := c.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		if name, _ := m["name"].(string); name != "main" {
+			continue
+		}
+		cmd, _ := m["command"].([]interface{})
+		newCmd, ok := appendLauncherArgs(cmd, sglangDisaggFlags(mode, kvBackend))
+		if !ok {
+			continue
+		}
+		m["command"] = newCmd
+		containers[i] = m
+	}
+	extra["containers"] = containers
+	slot["extraPodSpec"] = extra
+}
+
+// sglangDisaggFlags formats the sglang disaggregation flags as a single
+// argument string ready to be appended after a user-supplied entry. Bootstrap
+// port is the SaFE-wide convention (common.DynamoBootstrapPort).
+func sglangDisaggFlags(mode, kvBackend string) string {
+	return fmt.Sprintf(
+		"--disaggregation-mode %s --disaggregation-transfer-backend %s --disaggregation-bootstrap-port %d",
+		mode, kvBackend, common.DynamoBootstrapPort,
+	)
+}
+
+// appendSglangMultinodeArgs appends the sglang multi-node flags
+// (--nnodes/--node-rank/--dist-init-addr) to the main container's
+// launcher-encoded command, mirroring appendSglangDisaggArgs. The LWS
+// environment variables $LWS_WORKER_INDEX / $LWS_LEADER_ADDRESS are left as
+// literal shell references: launcher.sh decodes the payload into .run.sh and
+// runs it with bash, so the shell expands them at container start (the kubelet
+// $(VAR) form would not work because the names are hidden inside the base64
+// payload). Per-flag dedup in appendLauncherArgs preserves any of these flags
+// the user already supplied.
+func appendSglangMultinodeArgs(slot map[string]interface{}, numNodes int) {
+	extra, _ := slot["extraPodSpec"].(map[string]interface{})
+	if extra == nil {
+		return
+	}
+	containers, _ := extra["containers"].([]interface{})
+	for i, c := range containers {
+		m, ok := c.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		if name, _ := m["name"].(string); name != "main" {
+			continue
+		}
+		cmd, _ := m["command"].([]interface{})
+		newCmd, ok := appendLauncherArgs(cmd, sglangMultinodeFlags(numNodes))
+		if !ok {
+			continue
+		}
+		m["command"] = newCmd
+		containers[i] = m
+	}
+	extra["containers"] = containers
+	slot["extraPodSpec"] = extra
+}
+
+// sglangMultinodeFlags formats the sglang multi-node flags. node-rank and the
+// leader address are LWS-injected env vars expanded by the launcher's bash;
+// the rendezvous port is the SaFE-wide convention
+// (common.DynamoMultinodeDistInitPort).
+func sglangMultinodeFlags(numNodes int) string {
+	return fmt.Sprintf(
+		"--nnodes %d --node-rank $LWS_WORKER_INDEX --dist-init-addr $LWS_LEADER_ADDRESS:%d",
+		numNodes, common.DynamoMultinodeDistInitPort,
+	)
+}
+
+// appendLauncherArgs appends extraFlags to the base64 payload of a
+// launcher-style command slice (produced by buildCommands). Returns the
+// updated command and true on success. Returns (nil, false) when the command
+// is not in launcher form (e.g. CICD raw shell), letting the caller skip the
+// slot without error. Per-flag dedup via stripUserDeclaredFlags drops any
+// "--name value" pair from extraFlags whose --name already appears in the
+// user payload, so the caller can pass the full flag set unconditionally.
+func appendLauncherArgs(cmd []interface{}, extraFlags string) ([]interface{}, bool) {
+	if len(cmd) < 3 {
+		return nil, false
+	}
+	full, ok := cmd[2].(string)
+	if !ok {
+		return nil, false
+	}
+	payload, ok := launcherEntryPayload(full)
+	if !ok || payload == "" {
+		return nil, false
+	}
+	decoded := stringutil.Base64Decode(payload)
+	if decoded == "" {
+		return nil, false
+	}
+	filtered := stripUserDeclaredFlags(extraFlags, decoded)
+	if filtered == "" {
+		return cmd, true
+	}
+	decoded = strings.TrimRight(decoded, "\n")
+	newPayload := stringutil.Base64Encode(decoded + " " + filtered)
+	prefix := full[:strings.LastIndex(full, payload)]
+	out := make([]interface{}, len(cmd))
+	copy(out, cmd)
+	out[2] = prefix + newPayload
+	return out, true
+}
+
+// stripUserDeclaredFlags returns extraFlags with any "--name value" pair
+// removed when --name is already present in payload. Both inputs are
+// space-separated argparse-style strings; long-form flags are assumed to
+// take exactly one value, which is sufficient for the disaggregation flags
+// SaFE injects today (--disaggregation-mode / --disaggregation-transfer-backend
+// / --disaggregation-bootstrap-port). dynamo.sglang's argparse rejects
+// duplicate flags and would crash on startup, so this dedup is required to
+// safely handle users who supply only some of the disagg flags.
+func stripUserDeclaredFlags(extraFlags, payload string) string {
+	fields := strings.Fields(extraFlags)
+	kept := make([]string, 0, len(fields))
+	for i := 0; i < len(fields); i++ {
+		name := fields[i]
+		if strings.HasPrefix(name, "--") && i+1 < len(fields) {
+			if strings.Contains(payload, name+" ") ||
+				strings.HasSuffix(strings.TrimSpace(payload), name) {
+				i++
+				continue
+			}
+			kept = append(kept, name, fields[i+1])
+			i++
+			continue
+		}
+		kept = append(kept, name)
+	}
+	return strings.Join(kept, " ")
+}
+
+// convertContainersToMainContainer moves the main container (the one named
+// "main" produced by the SaFE template) into extraPodSpec.mainContainer.
+// The DGD operator treats extraPodSpec.containers[] as additional sidecars and
+// only inspects mainContainer to override image / command / args / env on the
+// framework-generated primary container. See dynamo/deploy/operator/internal/
+// dynamo/graph.go around line 1014.
+func convertContainersToMainContainer(slot map[string]interface{}) error {
+	extra, _ := slot["extraPodSpec"].(map[string]interface{})
+	if extra == nil {
+		return nil
+	}
+	containers, _ := extra["containers"].([]interface{})
+	var main map[string]interface{}
+	remaining := make([]interface{}, 0, len(containers))
+	for _, c := range containers {
+		m, ok := c.(map[string]interface{})
+		if !ok {
+			remaining = append(remaining, c)
+			continue
+		}
+		if name, _ := m["name"].(string); name == "main" && main == nil {
+			main = m
+			continue
+		}
+		remaining = append(remaining, c)
+	}
+	if main != nil {
+		extra["mainContainer"] = main
+	}
+	if len(remaining) == 0 {
+		delete(extra, "containers")
+	} else {
+		extra["containers"] = remaining
+	}
+	slot["extraPodSpec"] = extra
 	return nil
 }
 
@@ -1352,10 +1842,15 @@ func updateSharedMemory(adminWorkload *v1.Workload, obj *unstructured.Unstructur
 	if adminWorkload.Spec.Resources[id].SharedMemory == "" {
 		return nil
 	}
-	path := resourceSpec.PrePaths
-	path = append(path, resourceSpec.TemplatePaths...)
+	// Build [<prePaths>, <templatePaths>, <podSpec?>, volumes] via buildPodSpecPath
+	// so the empty podSpec segment is omitted for kinds whose extraPodSpec embeds
+	// PodSpec inline (DGD / RocServeDeployment, getPodSpec == ""). Appending
+	// podSpec raw inserted a "" path segment, writing the shared-memory volume to
+	// extraPodSpec."".volumes instead of extraPodSpec.volumes — leaving the
+	// container's /dev/shm mount dangling ("shared-memory" volume Not found).
+	templatePath := append(append([]string{}, resourceSpec.PrePaths...), resourceSpec.TemplatePaths...)
 	podSpec := getPodSpec(adminWorkload)
-	path = append(path, podSpec, "volumes")
+	path := buildPodSpecPath(templatePath, podSpec, "volumes")
 	volumes, found, err := jobutils.NestedSlice(obj.Object, path)
 	if err != nil {
 		return err
@@ -1389,7 +1884,7 @@ func updateHostNetwork(adminWorkload *v1.Workload,
 	obj *unstructured.Unstructured, resourceSpec v1.ResourceSpec, resourceId int) error {
 	templatePath := resourceSpec.TemplatePath()
 	podSpec := getPodSpec(adminWorkload)
-	path := append(templatePath, podSpec, "hostNetwork")
+	path := buildPodSpecPath(templatePath, podSpec, "hostNetwork")
 	return modifyHostNetwork(obj, adminWorkload, path, resourceId)
 }
 
@@ -1398,7 +1893,7 @@ func updatePriorityClass(adminWorkload *v1.Workload,
 	obj *unstructured.Unstructured, resourceSpec v1.ResourceSpec) error {
 	templatePath := resourceSpec.TemplatePath()
 	podSpec := getPodSpec(adminWorkload)
-	path := append(templatePath, podSpec, "priorityClassName")
+	path := buildPodSpecPath(templatePath, podSpec, "priorityClassName")
 	return modifyPriorityClass(obj, adminWorkload, path)
 }
 
@@ -1407,7 +1902,11 @@ func updatePriorityClass(adminWorkload *v1.Workload,
 func getContainers(adminWorkload *v1.Workload, obj *unstructured.Unstructured, resourceSpec v1.ResourceSpec) ([]interface{}, []string, error) {
 	templatePath := resourceSpec.TemplatePath()
 	podSpec := getPodSpec(adminWorkload)
-	path := append(templatePath, podSpec, "containers")
+	// DGD ExtraPodSpec embeds PodSpec inline, so containers live directly under
+	// extraPodSpec (no nested "spec" wrapper). PyTorchJob / Deployment / RayJob
+	// all wrap pods in template.spec.containers and keep the "spec" segment.
+	// buildPodSpecPath omits the empty podSpec segment automatically.
+	path := buildPodSpecPath(templatePath, podSpec, "containers")
 	containers, found, err := jobutils.NestedSlice(obj.Object, path)
 	if err != nil {
 		return nil, nil, err
@@ -1452,11 +1951,42 @@ func buildDispatchCount(w *v1.Workload) string {
 }
 
 func getPodSpec(w *v1.Workload) string {
-	podSpec := "spec"
 	if commonworkload.IsMonarchMesh(w) {
-		podSpec = "podTemplate"
+		return "podTemplate"
 	}
-	return podSpec
+	// DGD `extraPodSpec` embeds PodSpec inline (see dynamo
+	// operator/api/v1alpha1/common.go::ExtraPodSpec), so the rendered yaml has
+	// containers directly under extraPodSpec rather than under the standard
+	// pyt./dep./ray "template.spec.containers" path. RocServeDeployment
+	// (OptimusDeployment) uses the same inline-PodSpec shape (ServiceSpec.
+	// ExtraPodSpec is a core/v1 PodSpec), so it resolves identically. This
+	// single branch makes the entire generic flow (container/env/resource
+	// injection, volume mounts, hostNetwork, sharedMemory, ...) target
+	// extraPodSpec.* for both kinds.
+	if commonworkload.IsDynamoDeployment(w) || commonworkload.IsOptimusDeployment(w) {
+		return ""
+	}
+	return "spec"
+}
+
+// buildPodSpecPath constructs a path of the form
+// [templatePath..., podSpec, fields...] but omits podSpec when it is empty.
+//
+// CRDs like DGD have ExtraPodSpec embedding PodSpec inline; their
+// ResourceTemplate.templatePaths already points at the pod spec so there is
+// no extra "spec" / "podTemplate" wrapper to traverse. getPodSpec returns ""
+// for these kinds. Using this helper everywhere keeps callers from
+// accidentally emitting "" as a path segment (which would write to or look
+// up a non-existent map key named "" — causing CRD schema warnings and
+// dispatcher path-not-found failures).
+func buildPodSpecPath(templatePath []string, podSpec string, fields ...string) []string {
+	out := make([]string, 0, len(templatePath)+1+len(fields))
+	out = append(out, templatePath...)
+	if podSpec != "" {
+		out = append(out, podSpec)
+	}
+	out = append(out, fields...)
+	return out
 }
 
 func generateUserDir(userId string) string {

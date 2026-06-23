@@ -13,7 +13,9 @@ import (
 // CommandStatusApplyConfiguration represents a declarative configuration of the CommandStatus type for use
 // with apply.
 type CommandStatusApplyConfiguration struct {
-	Name  *string             `json:"name,omitempty"`
+	// Operational command, e.g. authorize
+	Name *string `json:"name,omitempty"`
+	// Operation result. e.g. Succeeded and Failed
 	Phase *amdv1.CommandPhase `json:"phase,omitempty"`
 }
 

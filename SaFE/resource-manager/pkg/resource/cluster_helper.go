@@ -322,6 +322,7 @@ func generateWorkerPod(action v1.ClusterManageAction, cluster *v1.Cluster, usern
 		kubeletArgs = fmt.Sprintf("%s \n  %s: %s", kubeletArgs, k, v)
 	}
 	cmd = fmt.Sprintf("sed -i \"/^kubelet_config_extra_args: /d\" roles/kubernetes/node/defaults/main.yml && echo \"%s\" >> roles/kubernetes/node/defaults/main.yml && %s", kubeletArgs, cmd)
+	cmd = fmt.Sprintf("%s && %s", kubesprayPatchConntrackModprobeWhen(), cmd)
 
 	sshSecretName := cluster.Name
 	if cluster.Spec.ControlPlane.SSHSecret != nil {
@@ -349,10 +350,11 @@ func generateWorkerPod(action v1.ClusterManageAction, cluster *v1.Cluster, usern
 		Spec: corev1.PodSpec{
 			Containers: []corev1.Container{
 				{
-					Name:    string(action),
-					Command: []string{"/bin/bash", "-c"},
-					Args:    []string{cmd},
-					Image:   image,
+					Name:       string(action),
+					Command:    []string{"/bin/bash", "-c"},
+					Args:       []string{cmd},
+					Image:      image,
+					WorkingDir: "/kubespray",
 					VolumeMounts: []corev1.VolumeMount{
 						{
 							Name:      ClusterKubeSprayHosts,
@@ -419,6 +421,16 @@ func generateWorkerPod(action v1.ClusterManageAction, cluster *v1.Cluster, usern
 	return pod
 }
 
+// kubesprayPatchConntrackModprobeWhen fixes the conntrack modprobe loop when-clause before ansible-playbook.
+// The v2.24 .rc check breaks when register has no rc; the .get('rc',1) workaround still loops after success.
+// Upstream uses "not defined or is failed" so the loop stops after nf_conntrack loads on kernel 6.x.
+func kubesprayPatchConntrackModprobeWhen() string {
+	conntrackWhenFix := "modprobe_conntrack_module is not defined or modprobe_conntrack_module is failed"
+	return `cd /kubespray && ` +
+		`sed -i 's#(modprobe_conntrack_module|default({'"'"'rc'"'"': 1})).rc != 0#` + conntrackWhenFix + `#g' roles/kubernetes/node/tasks/main.yml && ` +
+		`sed -i 's#(modprobe_conntrack_module | default({})).get('"'"'rc'"'"', 1) | int != 0#` + conntrackWhenFix + `#g' roles/kubernetes/node/tasks/main.yml`
+}
+
 // generateScaleWorkerPod creates a worker pod for scaling operations.
 func generateScaleWorkerPod(action v1.ClusterManageAction, cluster *v1.Cluster, node *v1.Node, useName, cmd, image, config string, hostsContent *HostTemplateContent) *corev1.Pod {
 	pod := generateWorkerPod(action, cluster, useName, cmd, image, config, hostsContent)
@@ -466,6 +478,10 @@ func getKubeSprayEnv(cluster *v1.Cluster) string {
 	}
 	if cluster.Spec.ControlPlane.KubeProxyMode != nil {
 		cmd = fmt.Sprintf("%s -e kube_proxy_mode=%s", cmd, *cluster.Spec.ControlPlane.KubeProxyMode)
+		if *cluster.Spec.ControlPlane.KubeProxyMode == "ipvs" {
+			// nf_conntrack_ipv4 was removed on kernel 6.x; nf_conntrack is sufficient.
+			cmd = fmt.Sprintf(`%s -e '{"conntrack_modules":["nf_conntrack"]}'`, cmd)
+		}
 	}
 	if cluster.Spec.ControlPlane.KubeNetworkPlugin != nil {
 		cmd = fmt.Sprintf("%s -e kube_network_plugin=%s", cmd, *cluster.Spec.ControlPlane.KubeNetworkPlugin)

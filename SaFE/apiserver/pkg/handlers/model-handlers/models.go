@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 
@@ -816,6 +817,60 @@ func modelMatchesK8sAccessModeFilter(m *v1.Model, want string) bool {
 }
 
 // listModels implements the model listing logic.
+// sortModelItems sorts the model list in place according to the sort key.
+// Supported keys (case-insensitive prefix "-" means descending):
+//   - "name" / "-name": by displayName, case-insensitive
+//   - "createdAt" / "-createdAt": by creation time
+//
+// When sortKey is empty the original ordering is preserved (DB returns
+// created_at DESC; the K8s fallback keeps the API's natural order), so callers
+// that want an alphabetical model picker must opt in with sort=name.
+func sortModelItems(items []ModelInfo, sortKey string) {
+	if sortKey == "" {
+		return
+	}
+
+	desc := strings.HasPrefix(sortKey, "-")
+	key := strings.ToLower(strings.TrimPrefix(sortKey, "-"))
+
+	switch key {
+	case "createdat", "created_at", "createtime":
+		sort.SliceStable(items, func(i, j int) bool {
+			if items[i].CreatedAt == items[j].CreatedAt {
+				return strings.ToLower(items[i].DisplayName) < strings.ToLower(items[j].DisplayName)
+			}
+			if desc {
+				return items[i].CreatedAt > items[j].CreatedAt
+			}
+			return items[i].CreatedAt < items[j].CreatedAt
+		})
+	case "name":
+		sort.SliceStable(items, func(i, j int) bool {
+			ni := modelNameSortKey(items[i].DisplayName)
+			nj := modelNameSortKey(items[j].DisplayName)
+			if ni == nj {
+				return items[i].ID < items[j].ID // stable tie-breaker
+			}
+			if desc {
+				return ni > nj
+			}
+			return ni < nj
+		})
+	}
+}
+
+// modelNameSortKey returns the case-insensitive sort key for a model displayName.
+// HuggingFace-style names carry an org/author prefix (e.g. "amd/MiniMax-M2.5-MXFP4",
+// "deepseek-ai/DeepSeek-R1-0528"); we sort by the part after the last "/" so models
+// are ordered by their actual model name rather than grouped by org prefix.
+func modelNameSortKey(displayName string) string {
+	name := displayName
+	if idx := strings.LastIndex(name, "/"); idx >= 0 {
+		name = name[idx+1:]
+	}
+	return strings.ToLower(strings.TrimSpace(name))
+}
+
 func (h *Handler) listModels(c *gin.Context) (interface{}, error) {
 	queryArgs, err := parseListModelQuery(c)
 	if err != nil {
@@ -837,12 +892,18 @@ func (h *Handler) listModels(c *gin.Context) (interface{}, error) {
 				if queryArgs.Origin != "" && !matchModelOrigin(normalizeModelOrigin(dbModel.Origin), queryArgs.Origin) {
 					continue
 				}
+				if queryArgs.Phase != "" && !strings.EqualFold(dbModel.Phase, queryArgs.Phase) {
+					continue
+				}
 				info := cvtDBModelToInfo(dbModel)
 				if queryArgs.Search != "" && !strings.Contains(strings.ToLower(info.DisplayName), strings.ToLower(queryArgs.Search)) {
 					continue
 				}
 				items = append(items, info)
 			}
+
+			// Optional sort before pagination (e.g. sort=name for alphabetical)
+			sortModelItems(items, queryArgs.Sort)
 
 			// Apply pagination (limit=0 means return all)
 			total := int64(len(items))
@@ -895,6 +956,9 @@ func (h *Handler) listModels(c *gin.Context) (interface{}, error) {
 		if queryArgs.Origin != "" && !matchModelOrigin(normalizeModelOrigin(k8sModel.Spec.Origin), queryArgs.Origin) {
 			continue
 		}
+		if queryArgs.Phase != "" && !strings.EqualFold(string(k8sModel.Status.Phase), queryArgs.Phase) {
+			continue
+		}
 
 		info := h.convertK8sModelToInfo(&k8sModel)
 		if queryArgs.Search != "" && !strings.Contains(strings.ToLower(info.DisplayName), strings.ToLower(queryArgs.Search)) {
@@ -902,6 +966,9 @@ func (h *Handler) listModels(c *gin.Context) (interface{}, error) {
 		}
 		items = append(items, info)
 	}
+
+	// Optional sort before pagination (e.g. sort=name for alphabetical)
+	sortModelItems(items, queryArgs.Sort)
 
 	// Apply pagination (limit=0 means return all)
 	total := int64(len(items))

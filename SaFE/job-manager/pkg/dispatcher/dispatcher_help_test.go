@@ -8,11 +8,13 @@ package dispatcher
 import (
 	"fmt"
 	"strconv"
+	"strings"
 	"testing"
 
 	commonfaults "github.com/AMD-AIG-AIMA/SAFE/common/pkg/faults"
 	"gotest.tools/assert"
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 
@@ -21,6 +23,7 @@ import (
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
 	jobutils "github.com/AMD-AIG-AIMA/SAFE/job-manager/pkg/utils"
+	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
 )
 
 func checkResources(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workload, template *v1.ResourceSpec, replica, id int) {
@@ -178,6 +181,25 @@ func findEnv(envs []interface{}, name, val string) bool {
 			continue
 		}
 		return true
+	}
+	return false
+}
+
+func findEnvFieldRef(envs []interface{}, name, fieldPath string) bool {
+	for _, env := range envs {
+		obj, err := runtime.DefaultUnstructuredConverter.ToUnstructured(&env)
+		if err != nil {
+			continue
+		}
+		name2, ok := obj["name"]
+		if !ok || name != name2 {
+			continue
+		}
+		fieldPath2, found, err := jobutils.NestedString(obj, []string{"valueFrom", "fieldRef", "fieldPath"})
+		if err != nil || !found {
+			continue
+		}
+		return fieldPath2 == fieldPath
 	}
 	return false
 }
@@ -448,7 +470,7 @@ func checkHostNetwork(t *testing.T, obj *unstructured.Unstructured, workload *v1
 	isHostNetWork, found, err := jobutils.NestedBool(obj.Object, path)
 	assert.NilError(t, err)
 	assert.Equal(t, found, true)
-	assert.Equal(t, isHostNetWork, (workload.Spec.Resources[id].RdmaResource != "" || v1.IsForceHostNetwork(workload)))
+	assert.Equal(t, isHostNetWork, commonworkload.IsEnabledHostNetwork(workload, id))
 }
 
 func checkHostPid(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workload, resourceSpec *v1.ResourceSpec) {
@@ -833,4 +855,552 @@ func TestModifyHostPid(t *testing.T) {
 			}
 		})
 	}
+}
+
+// buildFakeDGD constructs the unstructured DGD object the dispatcher's generic
+// flow would produce: spec.services holds numRoles role-agnostic slots
+// (role0..role(numRoles-1)), each carrying a placeholder pod template with a
+// container named "main" containing one preexisting NCCL env var and a
+// launcher-style command mimicking what buildCommands produces in production
+// (`/bin/sh -c "exec /bin/sh /shared-data/launcher.sh <base64>"`). Real
+// dispatcher runs would also leave a placeholder componentType=worker; tests
+// rely on normalizeDynamoDGD to overwrite it per role.
+func buildFakeDGD(numRoles int) *unstructured.Unstructured {
+	services := map[string]interface{}{}
+	for i := 0; i < numRoles; i++ {
+		services["role"+strconv.Itoa(i)] = map[string]interface{}{
+			"componentType":    "worker",
+			"subComponentType": nil,
+			"replicas":         int64(1),
+			"extraPodSpec": map[string]interface{}{
+				"containers": []interface{}{
+					map[string]interface{}{
+						"name":    "main",
+						"image":   "test-image:latest",
+						"command": buildLauncherCommand(defaultRoleEntry(i)),
+						"env": []interface{}{
+							map[string]interface{}{
+								"name":  "NCCL_SOCKET_IFNAME",
+								"value": "eno0",
+							},
+						},
+					},
+				},
+			},
+		}
+	}
+	return &unstructured.Unstructured{
+		Object: map[string]interface{}{
+			"apiVersion": "nvidia.com/v1alpha1",
+			"kind":       "DynamoGraphDeployment",
+			"metadata":   map[string]interface{}{"name": "test-dgd"},
+			"spec": map[string]interface{}{
+				"backendFramework": "sglang",
+				"services":         services,
+			},
+		},
+	}
+}
+
+// defaultRoleEntry returns the placeholder sglang entry script used by
+// buildFakeDGD for slot index `i`. role0 mirrors the dynamo frontend and the
+// remaining roles mirror dynamo.sglang worker entries. The strings are only
+// used to verify the dispatcher's launcher-payload rewrite leaves user args
+// intact while appending disaggregation flags where appropriate.
+func defaultRoleEntry(i int) string {
+	if i == 0 {
+		return "python3 -m dynamo.frontend --http-port 8000"
+	}
+	return "python3 -m dynamo.sglang --model-path /tmp/m --tp-size 1"
+}
+
+// buildLauncherCommand wraps `entry` exactly like dispatcher.buildCommands +
+// buildEntryPoint produce for non-CICD launcher workloads:
+// ["/bin/sh","-c","exec /bin/sh /shared-data/launcher.sh <base64(entry)>"].
+func buildLauncherCommand(entry string) []interface{} {
+	payload := stringutil.Base64Encode(entry)
+	return []interface{}{
+		"/bin/sh",
+		"-c",
+		"exec " + Launcher + " " + payload,
+	}
+}
+
+// decodeLauncherEntry decodes the base64 launcher payload from a container's
+// command slice and returns the original sglang entry string. Returns an
+// empty string if cmd is not launcher-shaped.
+func decodeLauncherEntry(cmd []interface{}) string {
+	if len(cmd) < 3 {
+		return ""
+	}
+	s, _ := cmd[2].(string)
+	const marker = "/shared-data/launcher.sh"
+	idx := strings.Index(s, marker)
+	if idx < 0 {
+		return ""
+	}
+	return stringutil.Base64Decode(strings.TrimSpace(s[idx+len(marker):]))
+}
+
+// mainContainerCommand pulls the command slice from the rewritten
+// extraPodSpec.mainContainer at the given service key.
+func mainContainerCommand(t *testing.T, obj *unstructured.Unstructured, svcKey string) []interface{} {
+	t.Helper()
+	main := getDynamoMainContainer(t, obj, svcKey)
+	cmd, _ := main["command"].([]interface{})
+	return cmd
+}
+
+// setFakeDGDCommand replaces the launcher payload on the "main" container of
+// the given slot. Mutates obj.Object directly because the test fixture
+// pre-conversion still keeps "main" inside extraPodSpec.containers and
+// jobutils.NestedMap returns deep copies that would not propagate back.
+func setFakeDGDCommand(t *testing.T, obj *unstructured.Unstructured, svcKey, entry string) {
+	t.Helper()
+	spec, ok := obj.Object["spec"].(map[string]interface{})
+	assert.Equal(t, ok, true, "spec must be a map")
+	services, ok := spec["services"].(map[string]interface{})
+	assert.Equal(t, ok, true, "spec.services must be a map")
+	slot, ok := services[svcKey].(map[string]interface{})
+	assert.Equal(t, ok, true, "service %s must be a map", svcKey)
+	extra, ok := slot["extraPodSpec"].(map[string]interface{})
+	assert.Equal(t, ok, true, "extraPodSpec must be a map")
+	containers, ok := extra["containers"].([]interface{})
+	assert.Equal(t, ok, true, "extraPodSpec.containers must be a slice")
+	for _, c := range containers {
+		m, ok := c.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		if name, _ := m["name"].(string); name == "main" {
+			m["command"] = buildLauncherCommand(entry)
+			return
+		}
+	}
+	t.Fatalf("main container not found in slot %s", svcKey)
+}
+
+// buildDynamoTestWorkload constructs a minimal SaFE Workload typed as
+// DynamoDeployment with the given comma-separated service-roles. extra
+// annotations (e.g. multinode-roles=worker) are merged in. Callers that need a
+// non-default node/replica count set Resources[i].Replica after construction.
+func buildDynamoTestWorkload(roles string, extraAnnotations map[string]string) *v1.Workload {
+	annotations := map[string]string{
+		v1.DynamoServiceRolesAnnotation: roles,
+	}
+	for k, v := range extraAnnotations {
+		annotations[k] = v
+	}
+	// Resources count must equal the number of roles; values are placeholders
+	// since normalizeDynamoDGD only reads annotation and len(Resources).
+	roleList := []string{}
+	for _, r := range splitNonEmpty(roles, ",") {
+		roleList = append(roleList, r)
+	}
+	resources := make([]v1.WorkloadResource, len(roleList))
+	for i := range resources {
+		resources[i] = v1.WorkloadResource{Replica: 1, CPU: "1", Memory: "1Gi"}
+	}
+	return &v1.Workload{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:        "test-dgd",
+			Annotations: annotations,
+		},
+		Spec: v1.WorkloadSpec{
+			GroupVersionKind: v1.GroupVersionKind{
+				Kind:    common.DynamoDeploymentKind,
+				Version: common.DefaultVersion,
+			},
+			Resources: resources,
+		},
+	}
+}
+
+// splitNonEmpty splits sep-delimited strings and drops empty fragments.
+func splitNonEmpty(s, sep string) []string {
+	out := []string{}
+	for _, p := range splitS(s, sep) {
+		if p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+func splitS(s, sep string) []string {
+	if s == "" {
+		return nil
+	}
+	parts := []string{}
+	cur := ""
+	for _, c := range s {
+		if string(c) == sep {
+			parts = append(parts, cur)
+			cur = ""
+			continue
+		}
+		cur += string(c)
+	}
+	parts = append(parts, cur)
+	return parts
+}
+
+// getDynamoService retrieves the rewritten DGD service map at
+// spec.services[key]; fails the test if the key is missing.
+func getDynamoService(t *testing.T, obj *unstructured.Unstructured, key string) map[string]interface{} {
+	t.Helper()
+	svc, found, err := jobutils.NestedMap(obj.Object, []string{"spec", "services", key})
+	assert.NilError(t, err)
+	assert.Equal(t, found, true, "service %s should be present", key)
+	return svc
+}
+
+// getDynamoMainContainer returns the rewritten extraPodSpec.mainContainer for
+// the given service key. Verifies the conversion from containers[0] also
+// removed the original containers entry (or kept only sidecars).
+func getDynamoMainContainer(t *testing.T, obj *unstructured.Unstructured, svcKey string) map[string]interface{} {
+	t.Helper()
+	main, found, err := jobutils.NestedMap(obj.Object,
+		[]string{"spec", "services", svcKey, "extraPodSpec", "mainContainer"})
+	assert.NilError(t, err)
+	assert.Equal(t, found, true, "service %s mainContainer should exist", svcKey)
+	return main
+}
+
+// TestNormalizeDynamoDGD_AggregatedMinimal covers the 2-resource shape
+// `[Frontend, Worker]` produced by the default annotation inference. Asserts
+// slot keys remain role0/role1 (NOT renamed — dispatcher reconcile relies
+// on stable map keys), serviceName field tags the role, componentType is
+// set, mainContainer conversion happens.
+func TestNormalizeDynamoDGD_AggregatedMinimal(t *testing.T) {
+	obj := buildFakeDGD(2)
+	workload := buildDynamoTestWorkload("frontend,worker", nil)
+
+	err := normalizeDynamoDGD(obj, workload)
+	assert.NilError(t, err)
+
+	services, _, err := jobutils.NestedMap(obj.Object, []string{"spec", "services"})
+	assert.NilError(t, err)
+	assert.Equal(t, len(services), 2, "should have exactly role0 + role1")
+	_, hasRole0 := services["role0"]
+	assert.Equal(t, hasRole0, true, "role0 slot key must be preserved")
+	_, hasRole1 := services["role1"]
+	assert.Equal(t, hasRole1, true, "role1 slot key must be preserved")
+
+	fe := getDynamoService(t, obj, "role0")
+	assert.Equal(t, fe["componentType"], "Frontend")
+	assert.Equal(t, fe["serviceName"], "Frontend")
+	_, hasSubComp := fe["subComponentType"]
+	assert.Equal(t, hasSubComp, false, "Frontend must not have subComponentType")
+
+	feMain := getDynamoMainContainer(t, obj, "role0")
+	assert.Equal(t, feMain["name"], "main")
+	feExtra := fe["extraPodSpec"].(map[string]interface{})
+	_, hasContainers := feExtra["containers"]
+	assert.Equal(t, hasContainers, false, "containers should be removed after mainContainer conversion")
+
+	wk := getDynamoService(t, obj, "role1")
+	assert.Equal(t, wk["componentType"], "Main")
+	assert.Equal(t, wk["serviceName"], "Worker")
+	_, hasSubCompWk := wk["subComponentType"]
+	assert.Equal(t, hasSubCompWk, false, "Worker must not have subComponentType")
+
+	// Aggregated worker keeps its user-supplied entry verbatim; the
+	// dispatcher must NOT inject sglang disaggregation flags here.
+	wkEntry := decodeLauncherEntry(mainContainerCommand(t, obj, "role1"))
+	assert.Equal(t, strings.Contains(wkEntry, "--disaggregation-mode"), false,
+		"aggregated worker entry must not carry --disaggregation-mode")
+	assert.Equal(t, strings.Contains(wkEntry, "--disaggregation-transfer-backend"), false,
+		"aggregated worker entry must not carry --disaggregation-transfer-backend")
+}
+
+// TestNormalizeDynamoDGD_DisaggMinimal covers `[Frontend, PrefillWorker,
+// DecodeWorker]` and verifies subComponentType + sglang disagg envs land on
+// the right services with the right bootstrap port and transfer backend.
+func TestNormalizeDynamoDGD_DisaggMinimal(t *testing.T) {
+	obj := buildFakeDGD(3)
+	workload := buildDynamoTestWorkload("frontend,prefill,decode", nil)
+
+	err := normalizeDynamoDGD(obj, workload)
+	assert.NilError(t, err)
+
+	pf := getDynamoService(t, obj, "role1")
+	assert.Equal(t, pf["componentType"], "Main")
+	assert.Equal(t, pf["subComponentType"], "prefill")
+	assert.Equal(t, pf["serviceName"], "PrefillWorker")
+
+	// Prefill entry gets sglang disaggregation flags appended after the
+	// user-supplied entry. dynamo.sglang parses argparse, not env vars, so
+	// flags must reach the command line.
+	pfEntry := decodeLauncherEntry(mainContainerCommand(t, obj, "role1"))
+	assert.Equal(t, strings.HasPrefix(pfEntry,
+		"python3 -m dynamo.sglang --model-path /tmp/m --tp-size 1"), true,
+		"user entry must be preserved at the head of the command")
+	assert.Equal(t, strings.Contains(pfEntry, "--disaggregation-mode prefill"), true)
+	assert.Equal(t, strings.Contains(pfEntry,
+		"--disaggregation-transfer-backend "+common.DynamoKVBackendNixl), true)
+	assert.Equal(t, strings.Contains(pfEntry,
+		"--disaggregation-bootstrap-port "+strconv.Itoa(common.DynamoBootstrapPort)), true)
+
+	dec := getDynamoService(t, obj, "role2")
+	assert.Equal(t, dec["componentType"], "Main")
+	assert.Equal(t, dec["subComponentType"], "decode")
+	assert.Equal(t, dec["serviceName"], "DecodeWorker")
+
+	decEntry := decodeLauncherEntry(mainContainerCommand(t, obj, "role2"))
+	assert.Equal(t, strings.Contains(decEntry, "--disaggregation-mode decode"), true)
+	assert.Equal(t, strings.Contains(decEntry,
+		"--disaggregation-transfer-backend "+common.DynamoKVBackendNixl), true)
+
+	// Frontend in disagg mode is still a normal Frontend (no disagg flags).
+	feEntry := decodeLauncherEntry(mainContainerCommand(t, obj, "role0"))
+	assert.Equal(t, strings.Contains(feEntry, "--disaggregation-mode"), false)
+}
+
+// TestNormalizeDynamoDGD_DisaggIdempotent verifies per-flag dedup: the user
+// declared --disaggregation-mode and --disaggregation-bootstrap-port but left
+// --disaggregation-transfer-backend out. The normalizer must keep the two
+// user values verbatim and inject only the missing transfer-backend flag.
+// dynamo.sglang's argparse rejects duplicated --disaggregation-* args, so
+// duplication would crash the worker on startup.
+func TestNormalizeDynamoDGD_DisaggIdempotent(t *testing.T) {
+	obj := buildFakeDGD(3)
+	workload := buildDynamoTestWorkload("frontend,prefill,decode", nil)
+
+	userEntry := "python3 -m dynamo.sglang --model-path /tmp/m --tp-size 1 " +
+		"--disaggregation-mode prefill --disaggregation-bootstrap-port 9999"
+	setFakeDGDCommand(t, obj, "role1", userEntry)
+
+	err := normalizeDynamoDGD(obj, workload)
+	assert.NilError(t, err)
+
+	pfEntry := decodeLauncherEntry(mainContainerCommand(t, obj, "role1"))
+	assert.Equal(t, strings.Contains(pfEntry, "--disaggregation-mode prefill"), true,
+		"user-supplied --disaggregation-mode value must be preserved")
+	assert.Equal(t, strings.Contains(pfEntry, "--disaggregation-bootstrap-port 9999"), true,
+		"user-supplied --disaggregation-bootstrap-port value must be preserved")
+	assert.Equal(t, strings.Contains(pfEntry,
+		"--disaggregation-transfer-backend "+common.DynamoKVBackendNixl), true,
+		"missing --disaggregation-transfer-backend must be injected with the default backend")
+	assert.Equal(t, strings.Count(pfEntry, "--disaggregation-mode"), 1,
+		"dispatcher must not append a second --disaggregation-mode flag")
+	assert.Equal(t, strings.Count(pfEntry, "--disaggregation-bootstrap-port"), 1,
+		"dispatcher must not append a second --disaggregation-bootstrap-port flag")
+	assert.Equal(t, strings.Count(pfEntry, "--disaggregation-transfer-backend"), 1,
+		"dispatcher must not append a second --disaggregation-transfer-backend flag")
+}
+
+// TestNormalizeDynamoDGD_DisaggDedupeOnlyTransferBackend verifies that if the
+// user supplied only --disaggregation-transfer-backend (non-default value),
+// the dispatcher keeps that value verbatim and injects only the missing
+// --disaggregation-mode and --disaggregation-bootstrap-port. Without per-flag
+// dedup, the dispatcher would re-append --disaggregation-transfer-backend
+// nixl, producing a duplicate that crashes dynamo.sglang's argparse.
+func TestNormalizeDynamoDGD_DisaggDedupeOnlyTransferBackend(t *testing.T) {
+	obj := buildFakeDGD(3)
+	workload := buildDynamoTestWorkload("frontend,prefill,decode", nil)
+
+	userEntry := "python3 -m dynamo.sglang --model-path /tmp/m --tp-size 1 " +
+		"--disaggregation-transfer-backend " + common.DynamoKVBackendMooncake
+	setFakeDGDCommand(t, obj, "role1", userEntry)
+
+	err := normalizeDynamoDGD(obj, workload)
+	assert.NilError(t, err)
+
+	pfEntry := decodeLauncherEntry(mainContainerCommand(t, obj, "role1"))
+	assert.Equal(t, strings.Count(pfEntry, "--disaggregation-transfer-backend"), 1,
+		"dispatcher must not append a second --disaggregation-transfer-backend flag")
+	assert.Equal(t, strings.Contains(pfEntry,
+		"--disaggregation-transfer-backend "+common.DynamoKVBackendMooncake), true,
+		"user-supplied --disaggregation-transfer-backend value must be preserved")
+	assert.Equal(t, strings.Count(pfEntry, "--disaggregation-mode"), 1,
+		"missing --disaggregation-mode must be injected exactly once")
+	assert.Equal(t, strings.Contains(pfEntry, "--disaggregation-mode prefill"), true,
+		"injected --disaggregation-mode must match the role (prefill)")
+	assert.Equal(t, strings.Count(pfEntry, "--disaggregation-bootstrap-port"), 1,
+		"missing --disaggregation-bootstrap-port must be injected exactly once")
+}
+
+// TestNormalizeDynamoDGD_DisaggDedupeOnlyBootstrapPort verifies that if the
+// user supplied only --disaggregation-bootstrap-port (non-default value),
+// the dispatcher keeps that value verbatim and injects only the missing
+// --disaggregation-mode and --disaggregation-transfer-backend. Without
+// per-flag dedup the dispatcher would re-append --disaggregation-bootstrap-port
+// with the SaFE convention port and crash dynamo.sglang's argparse.
+func TestNormalizeDynamoDGD_DisaggDedupeOnlyBootstrapPort(t *testing.T) {
+	obj := buildFakeDGD(3)
+	workload := buildDynamoTestWorkload("frontend,prefill,decode", nil)
+
+	const userPort = "7777"
+	userEntry := "python3 -m dynamo.sglang --model-path /tmp/m --tp-size 1 " +
+		"--disaggregation-bootstrap-port " + userPort
+	setFakeDGDCommand(t, obj, "role2", userEntry)
+
+	err := normalizeDynamoDGD(obj, workload)
+	assert.NilError(t, err)
+
+	decEntry := decodeLauncherEntry(mainContainerCommand(t, obj, "role2"))
+	assert.Equal(t, strings.Count(decEntry, "--disaggregation-bootstrap-port"), 1,
+		"dispatcher must not append a second --disaggregation-bootstrap-port flag")
+	assert.Equal(t, strings.Contains(decEntry, "--disaggregation-bootstrap-port "+userPort), true,
+		"user-supplied --disaggregation-bootstrap-port value must be preserved")
+	assert.Equal(t, strings.Count(decEntry, "--disaggregation-mode"), 1,
+		"missing --disaggregation-mode must be injected exactly once")
+	assert.Equal(t, strings.Contains(decEntry, "--disaggregation-mode decode"), true,
+		"injected --disaggregation-mode must match the role (decode)")
+	assert.Equal(t, strings.Count(decEntry, "--disaggregation-transfer-backend"), 1,
+		"missing --disaggregation-transfer-backend must be injected exactly once")
+}
+
+// TestNormalizeDynamoDGD_DisaggDedupeAllUserProvided verifies the fully-
+// overridden case: the user declared all three disagg flags. The dispatcher
+// must not append anything (every flag count stays at 1, every user value
+// is preserved verbatim).
+func TestNormalizeDynamoDGD_DisaggDedupeAllUserProvided(t *testing.T) {
+	obj := buildFakeDGD(3)
+	workload := buildDynamoTestWorkload("frontend,prefill,decode", nil)
+
+	userEntry := "python3 -m dynamo.sglang --model-path /tmp/m --tp-size 1 " +
+		"--disaggregation-mode prefill " +
+		"--disaggregation-transfer-backend " + common.DynamoKVBackendMooncake + " " +
+		"--disaggregation-bootstrap-port 5555"
+	setFakeDGDCommand(t, obj, "role1", userEntry)
+
+	err := normalizeDynamoDGD(obj, workload)
+	assert.NilError(t, err)
+
+	pfEntry := decodeLauncherEntry(mainContainerCommand(t, obj, "role1"))
+	assert.Equal(t, pfEntry, userEntry,
+		"every disagg flag is user-supplied; dispatcher must not append anything")
+	assert.Equal(t, strings.Count(pfEntry, "--disaggregation-mode"), 1)
+	assert.Equal(t, strings.Count(pfEntry, "--disaggregation-transfer-backend"), 1)
+	assert.Equal(t, strings.Count(pfEntry, "--disaggregation-bootstrap-port"), 1)
+}
+
+// TestNormalizeDynamoDGD_DisaggWithPlanner verifies the 4-resource shape
+// `[Frontend, PrefillWorker, DecodeWorker, Planner]` and asserts the planner
+// service gets componentType=Planner without disagg env contamination.
+func TestNormalizeDynamoDGD_DisaggWithPlanner(t *testing.T) {
+	obj := buildFakeDGD(4)
+	workload := buildDynamoTestWorkload("frontend,prefill,decode,planner", nil)
+
+	err := normalizeDynamoDGD(obj, workload)
+	assert.NilError(t, err)
+
+	services, _, err := jobutils.NestedMap(obj.Object, []string{"spec", "services"})
+	assert.NilError(t, err)
+	assert.Equal(t, len(services), 4)
+
+	plan := getDynamoService(t, obj, "role3")
+	assert.Equal(t, plan["componentType"], "Planner")
+	assert.Equal(t, plan["serviceName"], "Planner")
+	_, hasSubComp := plan["subComponentType"]
+	assert.Equal(t, hasSubComp, false)
+
+	planEntry := decodeLauncherEntry(mainContainerCommand(t, obj, "role3"))
+	assert.Equal(t, strings.Contains(planEntry, "--disaggregation-mode"), false,
+		"planner entry must not carry --disaggregation-mode")
+
+	// Disagg pair still in place.
+	pf := getDynamoService(t, obj, "role1")
+	assert.Equal(t, pf["subComponentType"], "prefill")
+	assert.Equal(t, pf["serviceName"], "PrefillWorker")
+	dec := getDynamoService(t, obj, "role2")
+	assert.Equal(t, dec["subComponentType"], "decode")
+	assert.Equal(t, dec["serviceName"], "DecodeWorker")
+}
+
+// TestNormalizeDynamoDGD_MultiNodeTP verifies that a role listed in
+// multinode-roles is lifted to LeaderWorkerSet topology: node count comes from
+// Resources[i].Replica (numberOfNodes), replicas is forced to 1, and the
+// sglang multi-node flags are injected. Roles not listed stay single-node.
+func TestNormalizeDynamoDGD_MultiNodeTP(t *testing.T) {
+	obj := buildFakeDGD(3)
+	workload := buildDynamoTestWorkload(
+		"frontend,prefill,decode",
+		map[string]string{
+			v1.DynamoMultinodeRolesAnnotation: "prefill",
+		},
+	)
+	// prefill (index 1) is multinode: its Replica is the node count.
+	workload.Spec.Resources[1].Replica = 2
+
+	err := normalizeDynamoDGD(obj, workload)
+	assert.NilError(t, err)
+
+	pf := getDynamoService(t, obj, "role1")
+	assert.Equal(t, pf["serviceName"], "PrefillWorker")
+	mn, ok := pf["multinode"].(map[string]interface{})
+	assert.Equal(t, ok, true, "PrefillWorker should have multinode block")
+	assert.Equal(t, mn["numberOfNodes"], int64(2))
+	assert.Equal(t, pf["replicas"], int64(1),
+		"multinode role must force replicas=1 (one LWS group; node count in multinode)")
+	pfEntry := decodeLauncherEntry(mainContainerCommand(t, obj, "role1"))
+	assert.Equal(t, strings.Contains(pfEntry, "--nnodes 2"), true,
+		"prefill multinode entry must carry --nnodes 2")
+	assert.Equal(t, strings.Contains(pfEntry, "--node-rank $LWS_WORKER_INDEX"), true,
+		"prefill multinode entry must carry --node-rank $LWS_WORKER_INDEX")
+	assert.Equal(t, strings.Contains(pfEntry, "--dist-init-addr $LWS_LEADER_ADDRESS:5000"), true,
+		"prefill multinode entry must carry --dist-init-addr $LWS_LEADER_ADDRESS:5000")
+
+	dec := getDynamoService(t, obj, "role2")
+	assert.Equal(t, dec["serviceName"], "DecodeWorker")
+	_, hasMn := dec["multinode"]
+	assert.Equal(t, hasMn, false, "DecodeWorker must remain single-node (not in multinode-roles)")
+	decEntry := decodeLauncherEntry(mainContainerCommand(t, obj, "role2"))
+	assert.Equal(t, strings.Contains(decEntry, "--nnodes"), false,
+		"decode must not get multinode flags")
+
+	fe := getDynamoService(t, obj, "role0")
+	assert.Equal(t, fe["serviceName"], "Frontend")
+	_, hasMnFe := fe["multinode"]
+	assert.Equal(t, hasMnFe, false, "Frontend must remain single-node")
+}
+
+// TestBuildServiceSelector_DynamoUsesOperatorLabels verifies the dynamo
+// special-case: K8s Service for a DynamoDeployment workload must select
+// pods via nvidia.com/dynamo-graph-deployment-name (set by the Dynamo
+// Operator) plus dynamo-component-type=Frontend to avoid routing user HTTP
+// traffic to Worker / Planner pods.
+func TestBuildServiceSelector_DynamoUsesOperatorLabels(t *testing.T) {
+	workload := buildDynamoTestWorkload("frontend,worker", nil)
+	specService := &v1.Service{Port: 8000}
+
+	selector := buildServiceSelector(workload, specService)
+
+	assert.Equal(t, selector[common.DynamoOperatorGraphDeploymentNameLabel], "test-dgd",
+		"DGD pods select by nvidia.com/dynamo-graph-deployment-name=<workload name>")
+	assert.Equal(t, selector[common.DynamoOperatorComponentTypeLabel], "Frontend",
+		"only Frontend exposes the user HTTP port; other components must not be matched")
+	_, hasK8sObjectId := selector[v1.K8sObjectIdLabel]
+	assert.Equal(t, hasK8sObjectId, false,
+		"primus-safe.k8s.object.id is on the DGD CR, not the pods — must not be in the selector")
+}
+
+// TestBuildServiceSelector_NonDynamoKeepsK8sObjectIdLabel verifies the
+// non-dynamo path is unchanged: pods inherit primus-safe.k8s.object.id from
+// the dispatcher-managed template and the Service targets them by name.
+func TestBuildServiceSelector_NonDynamoKeepsK8sObjectIdLabel(t *testing.T) {
+	workload := &v1.Workload{
+		ObjectMeta: metav1.ObjectMeta{Name: "pyt-job-1"},
+		Spec: v1.WorkloadSpec{
+			GroupVersionKind: v1.GroupVersionKind{Kind: common.PytorchJobKind, Version: common.DefaultVersion},
+		},
+	}
+	specService := &v1.Service{
+		Port: 8000,
+		ExtraSelectors: map[string]string{
+			"primus-safe.amd.com/pytorch-role": "master",
+		},
+	}
+
+	selector := buildServiceSelector(workload, specService)
+
+	assert.Equal(t, selector[v1.K8sObjectIdLabel], "pyt-job-1",
+		"non-dynamo path keeps the SaFE-managed K8sObjectIdLabel selector")
+	assert.Equal(t, selector["primus-safe.amd.com/pytorch-role"], "master",
+		"ExtraSelectors merge through to the final selector")
+	_, hasDgdLabel := selector[common.DynamoOperatorGraphDeploymentNameLabel]
+	assert.Equal(t, hasDgdLabel, false,
+		"non-dynamo workloads must not get the dynamo-operator selector")
 }

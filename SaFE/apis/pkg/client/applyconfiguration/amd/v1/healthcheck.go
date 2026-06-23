@@ -9,11 +9,16 @@ package v1
 // HealthCheckApplyConfiguration represents a declarative configuration of the HealthCheck type for use
 // with apply.
 type HealthCheckApplyConfiguration struct {
-	Path                *string `json:"path,omitempty"`
-	Port                *int    `json:"port,omitempty"`
-	InitialDelaySeconds *int    `json:"initialDelaySeconds,omitempty"`
-	PeriodSeconds       *int    `json:"periodSeconds,omitempty"`
-	FailureThreshold    *int    `json:"failureThreshold,omitempty"`
+	// Liveness probe HTTP path
+	Path *string `json:"path,omitempty"`
+	// Liveness probe port
+	Port *int `json:"port,omitempty"`
+	// Initial delay seconds. default 600s
+	InitialDelaySeconds *int `json:"initialDelaySeconds,omitempty"`
+	// Period check interval. default 3s
+	PeriodSeconds *int `json:"periodSeconds,omitempty"`
+	// Failure retry limit. default 3
+	FailureThreshold *int `json:"failureThreshold,omitempty"`
 }
 
 // HealthCheckApplyConfiguration constructs a declarative configuration of the HealthCheck type for use with

@@ -14,11 +14,16 @@ import (
 // MachineStatusApplyConfiguration represents a declarative configuration of the MachineStatus type for use
 // with apply.
 type MachineStatusApplyConfiguration struct {
-	HostName      *string                           `json:"hostName,omitempty"`
-	Phase         *amdv1.NodePhase                  `json:"phase,omitempty"`
-	PrivateIP     *string                           `json:"privateIP,omitempty"`
+	// The hostname of k8s node
+	HostName *string `json:"hostName,omitempty"`
+	// The status of the physical node, e.g. Ready, SSHFailed, HostnameFailed
+	Phase *amdv1.NodePhase `json:"phase,omitempty"`
+	// The internalIP of k8s node
+	PrivateIP *string `json:"privateIP,omitempty"`
+	// Reserved field, currently unused.
 	CommandStatus []CommandStatusApplyConfiguration `json:"commandStatus,omitempty"`
-	UpdateTime    *metav1.Time                      `json:"updateTime,omitempty"`
+	// Last update time
+	UpdateTime *metav1.Time `json:"updateTime,omitempty"`
 }
 
 // MachineStatusApplyConfiguration constructs a declarative configuration of the MachineStatus type for use with

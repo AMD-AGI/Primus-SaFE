@@ -14,12 +14,20 @@ import (
 // HelmRepositoryStatusApplyConfiguration represents a declarative configuration of the HelmRepositoryStatus type for use
 // with apply.
 type HelmRepositoryStatusApplyConfiguration struct {
-	FirstDeployed   *metav1.Time            `json:"firstDeployed,omitempty"`
-	LastDeployed    *metav1.Time            `json:"lastDeployed,omitempty"`
-	Deleted         *metav1.Time            `json:"deleted,omitempty"`
-	Description     *string                 `json:"description,omitempty"`
-	Status          *string                 `json:"status,omitempty"`
-	Notes           *string                 `json:"notes,omitempty"`
+	// FirstDeployed is when the release was first deployed.
+	FirstDeployed *metav1.Time `json:"firstDeployed,omitempty"`
+	// LastDeployed is when the release was last deployed.
+	LastDeployed *metav1.Time `json:"lastDeployed,omitempty"`
+	// Deleted tracks when this object was deleted.
+	Deleted *metav1.Time `json:"deleted,omitempty"`
+	// Description is human-friendly "log entry" about this release.
+	Description *string `json:"description,omitempty"`
+	// Status is the current state of the release
+	Status *string `json:"status,omitempty"`
+	// Contains the rendered templates/NOTES.txt if available
+	Notes *string `json:"notes,omitempty"`
+	// Contains the deployed resources information
+	// Resources    map[string][]runtime.Object `json:"resources,omitempty"`
 	Version         *int                    `json:"version,omitempty"`
 	ChartVersion    *string                 `json:"chartVersion,omitempty"`
 	Values          *string                 `json:"values,omitempty"`

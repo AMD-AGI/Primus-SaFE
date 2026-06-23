@@ -13,12 +13,19 @@ import (
 
 // ModelStatusApplyConfiguration represents a declarative configuration of the ModelStatus type for use
 // with apply.
+//
+// ModelStatus defines the observed state of Model
 type ModelStatusApplyConfiguration struct {
-	Phase      *amdv1.ModelPhase                  `json:"phase,omitempty"`
-	Message    *string                            `json:"message,omitempty"`
-	S3Path     *string                            `json:"s3Path,omitempty"`
+	// Phase is the current phase of the model
+	Phase *amdv1.ModelPhase `json:"phase,omitempty"`
+	// Message contains additional status information
+	Message *string `json:"message,omitempty"`
+	// S3Path is the S3 storage path for the model (for local models)
+	S3Path *string `json:"s3Path,omitempty"`
+	// LocalPaths contains the download status for each workspace (for local models)
 	LocalPaths []ModelLocalPathApplyConfiguration `json:"localPaths,omitempty"`
-	UpdateTime *metav1.Time                       `json:"updateTime,omitempty"`
+	// UpdateTime is the last update time
+	UpdateTime *metav1.Time `json:"updateTime,omitempty"`
 }
 
 // ModelStatusApplyConfiguration constructs a declarative configuration of the ModelStatus type for use with

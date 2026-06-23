@@ -10,22 +10,21 @@ import (
 	"encoding/json"
 	"time"
 
-	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/client-go/kubernetes"
 	"k8s.io/klog/v2"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 // SyncJob fetches GitHub API data for unsynced workflow runs and stores it in SaFE DB.
 // It runs periodically in job-manager.
 type SyncJob struct {
-	store       *Store
-	k8sClients  map[string]kubernetes.Interface
-	batchSize   int
-	interval    time.Duration
+	store              *Store
+	credentialResolver *GitHubCredentialResolver
+	tokenSource        gitHubTokenProvider
+	batchSize          int
+	interval           time.Duration
 }
 
-func NewSyncJob(store *Store, batchSize int, interval time.Duration) *SyncJob {
+func NewSyncJob(store *Store, k8sClient client.Client, batchSize int, interval time.Duration) *SyncJob {
 	if batchSize <= 0 {
 		batchSize = 20
 	}
@@ -33,15 +32,12 @@ func NewSyncJob(store *Store, batchSize int, interval time.Duration) *SyncJob {
 		interval = 30 * time.Second
 	}
 	return &SyncJob{
-		store:      store,
-		k8sClients: make(map[string]kubernetes.Interface),
-		batchSize:  batchSize,
-		interval:   interval,
+		store:              store,
+		credentialResolver: NewGitHubCredentialResolver(k8sClient),
+		tokenSource:        NewGitHubTokenSource(),
+		batchSize:          batchSize,
+		interval:           interval,
 	}
-}
-
-func (j *SyncJob) RegisterK8sClient(cluster string, client kubernetes.Interface) {
-	j.k8sClients[cluster] = client
 }
 
 func (j *SyncJob) Start(ctx context.Context) {
@@ -78,7 +74,7 @@ func (j *SyncJob) syncBatch(ctx context.Context) {
 			continue
 		}
 
-		token := j.getGitHubToken(ctx, run.Cluster, run.GithubOwner, run.GithubRepo)
+		token := j.getGitHubToken(ctx, &run)
 		client := NewGitHubClient(token)
 
 		synced := true
@@ -170,27 +166,23 @@ func (j *SyncJob) syncJobs(ctx context.Context, client *GitHubClient, run *Workf
 	return nil
 }
 
-// getGitHubToken retrieves the GitHub token from K8s Secret in the target cluster.
-func (j *SyncJob) getGitHubToken(ctx context.Context, cluster, owner, repo string) string {
-	k8sClient, ok := j.k8sClients[cluster]
-	if !ok {
-		return ""
+// getGitHubToken resolves the token for the workload that produced this GitHub run.
+func (j *SyncJob) getGitHubToken(ctx context.Context, run *WorkflowRunRecord) string {
+	workloadID := ""
+	if run != nil {
+		workloadID = run.WorkloadID
 	}
 
-	secrets, err := k8sClient.CoreV1().Secrets("").List(ctx, metav1.ListOptions{})
+	credential, err := j.credentialResolver.Resolve(ctx, run)
 	if err != nil {
+		klog.V(1).Infof("[github-sync] resolve github credential for workload %s: %v", workloadID, err)
 		return ""
 	}
 
-	for _, secret := range secrets.Items {
-		if secret.Type != corev1.SecretTypeOpaque {
-			continue
-		}
-		for _, key := range []string{"github_token", "token", "GITHUB_TOKEN"} {
-			if v, ok := secret.Data[key]; ok {
-				return string(v)
-			}
-		}
+	token, err := j.tokenSource.Token(ctx, credential)
+	if err != nil {
+		klog.V(1).Infof("[github-sync] create github token for workload %s: %v", workloadID, err)
+		return ""
 	}
-	return ""
+	return token
 }

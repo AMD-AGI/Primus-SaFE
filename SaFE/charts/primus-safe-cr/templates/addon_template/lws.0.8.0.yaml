@@ -1,0 +1,61 @@
+#
+# LeaderWorkerSet (LWS) controller for SaFE Phase 4 -- required by the
+# dynamo operator's multinode orchestrator path.
+#
+# Why we need it:
+#   The dynamo-operator (1.1.0) detects LWS CRD presence at startup; without
+#   it, every DynamoGraphDeployment with `multinode.numberOfNodes > 1` fails
+#   reconciliation with "no multinode orchestrator available". MoE models
+#   like GLM-5 (1.4 TB bf16) cannot fit on a single 8x MI300X node and need
+#   cross-node TP, which goes through LWS.
+#
+# Notes (read before deploy):
+#   1. Upstream chart: registry.k8s.io/lws/charts/lws:0.8.0 (released
+#      2026-01-26). See https://lws.sigs.k8s.io/docs/installation.
+#   2. Single-controller deployment; no PVC, low resource footprint.
+#   3. Harbor mirrors required (ops to mirror before this Addon is applied;
+#      <helm_registry> / <image_registry> are taken from values.global.* at
+#      chart render time):
+#        oci://<helm_registry>/primussafe/lws:0.8.0 (chart)
+#        <image_registry>/primussafe/lws:v0.8.0    (image)
+#   4. Installs into the chart's default namespace `lws-system`.
+#   5. After deploy, restart dynamo-operator so it re-detects the LWS CRD:
+#        kubectl -n dynamo-system rollout restart deploy dynamo-operator-controller-manager
+#
+# Default-addon: every registered Cluster auto-installs LWS via
+# `ClusterReconciler.guaranteeDefaultAddon` (resource-manager). No per-cluster
+# Addon YAML is needed; deploy this AddonTemplate once on the management plane
+# and SaFE federates the helm install to every dataplane on Cluster register.
+#
+apiVersion: amd.com/v1
+kind: AddonTemplate
+metadata:
+  name: lws.0.8.0
+  labels:
+    primus-safe.display.name: leaderworkerset
+    app.kubernetes.io/managed-by: Helm
+    # Marks this template as a default addon: SaFE's ClusterReconciler picks it
+    # up via label selector and synthesises an `Addon` instance for every
+    # registered Cluster, triggering federated helm install. Override per
+    # cluster by hand-writing an Addon CR with the same release name.
+    primus-safe.addon.default: ""
+  annotations:
+    meta.helm.sh/release-name: {{ .Release.Name }}
+    meta.helm.sh/release-namespace: {{ .Release.Namespace }}
+spec:
+  category: system
+  description: LeaderWorkerSet controller -- required for dynamo multinode orchestrator
+  version: "v0.8.0"
+  type: helm
+  required: false
+  helmDefaultNamespace: lws-system
+  url: oci://{{ .Values.global.helm_registry }}/primussafe/lws
+  helmDefaultValues: |
+    # Override only the image reference so the controller pulls from the
+    # internal harbor mirror. All other defaults from the upstream chart
+    # are left in place (1 replica, internal cert, no metrics scrape).
+    image:
+      repository: {{ .Values.global.proxy_image_registry }}/primussafe/lws
+      tag: v0.8.0
+      pullPolicy: IfNotPresent
+

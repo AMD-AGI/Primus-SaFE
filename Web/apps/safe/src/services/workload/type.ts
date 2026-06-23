@@ -36,13 +36,15 @@ export enum WorkloadKind {
 
   AutoscalingRunnerSet = 'AutoscalingRunnerSet',
   EphemeralRunner = 'EphemeralRunner',
-  UnifiedJob='UnifiedJob',
+  UnifiedJob = 'UnifiedJob',
 
   PyTorchJob = 'PyTorchJob',
   Authoring = 'Authoring',
   TorchFT = 'TorchFT',
   RayJob = 'RayJob',
   Sandbox = 'Sandbox',
+  DynamoDeployment = 'DynamoDeployment',
+  OptimusDeployment = 'OptimusDeployment',
 }
 // kind -> base path
 export const KindPathMap: Record<WorkloadKind, `/${string}`> = {
@@ -56,6 +58,8 @@ export const KindPathMap: Record<WorkloadKind, `/${string}`> = {
   [WorkloadKind.TorchFT]: '/torchft',
   [WorkloadKind.RayJob]: '/rayjob',
   [WorkloadKind.Sandbox]: '/sandbox-workload',
+  [WorkloadKind.DynamoDeployment]: '/dynamo',
+  [WorkloadKind.OptimusDeployment]: '/optimus',
 } as const
 
 export type PriorityValue = 0 | 1 | 2
@@ -97,6 +101,7 @@ export interface GetWorkloadPodLogResponse {
 }
 // Edit + Create
 export interface EditWorkloadRequest {
+  githubAuth?: GitHubAuthPayload
   description?: string
   entryPoint?: string
   entryPoints?: string[]
@@ -107,17 +112,51 @@ export interface EditWorkloadRequest {
   resources?: Array<{
     replica?: number
     cpu: string
-    gpu: string
+    gpu?: string
     memory: string
-    ephemeralStorage: string
+    ephemeralStorage?: string
+    sharedMemory?: string
+    rdmaResource?: string
   }>
+  service?: {
+    protocol: string
+    port: number | null
+    targetPort: number | null
+    serviceType: string
+    nodePort?: number | null
+  }
+  dynamoOptions?: {
+    backendFramework?: string
+    kvTransferBackend?: string
+    serviceRoles?: string[]
+    multinodeRoles?: string[]
+  }
+  optimusOptions?: {
+    kvTransferBackend?: string
+    serviceRoles?: string[]
+    multinodeRoles?: string[]
+  }
   maxRetry?: number
   excludedNodes?: string[]
   privileged?: boolean
 }
 
+export type GitHubAuthPayload =
+  | {
+      type: 'github_app'
+      appId: string
+      installationId: string
+      privateKey: string
+    }
+  | {
+      type: 'pat'
+      token: string
+    }
+
 export interface SubmitWorkloadRequest {
-  workspace: string
+  workspace?: string
+  workspaceId?: string
+  githubAuth?: GitHubAuthPayload
   displayName: string
   groupVersionKind: {
     kind: string
@@ -134,10 +173,30 @@ export interface SubmitWorkloadRequest {
   resources?: Array<{
     replica?: number
     cpu: string
-    gpu: string
+    gpu?: string
     memory: string
-    ephemeralStorage: string
+    ephemeralStorage?: string
+    sharedMemory?: string
+    rdmaResource?: string
   }>
+  service?: {
+    protocol: string
+    port: number | null
+    targetPort: number | null
+    serviceType: string
+    nodePort?: number | null
+  }
+  dynamoOptions?: {
+    backendFramework?: string
+    kvTransferBackend?: string
+    serviceRoles?: string[]
+    multinodeRoles?: string[]
+  }
+  optimusOptions?: {
+    kvTransferBackend?: string
+    serviceRoles?: string[]
+    multinodeRoles?: string[]
+  }
   specifiedNodes?: string[]
   env?: Record<string, string>
   customerLabels?: Record<string, string>

@@ -412,3 +412,105 @@ func TestSortWorkloadPodsRayJob(t *testing.T) {
 			"Pod at index %d should be %s", i, expectedPodId)
 	}
 }
+
+// TestGetRayJobPodSlotKey tests RayJob pod slot key extraction
+func TestGetRayJobPodSlotKey(t *testing.T) {
+	tests := []struct {
+		podId    string
+		expected string
+	}{
+		{"rdma-bench-sleep-fwlts-zqndk", "submitter"},
+		{"rdma-bench-sleep-fwlts-rfz2g-head-4cbqm", "head"},
+		// Each worker pod owns its slot (full pod name) so concurrent replicas
+		// in the same worker group are never collapsed into one slot.
+		{"rdma-bench-sleep-fwlts-rfz2g-1-worker-jddbx", "rdma-bench-sleep-fwlts-rfz2g-1-worker-jddbx"},
+		{"rdma-bench-sleep-fwlts-rfz2g-1-worker-abcde", "rdma-bench-sleep-fwlts-rfz2g-1-worker-abcde"},
+		{"rdma-bench-sleep-fwlts-rfz2g-2-worker-jddbx", "rdma-bench-sleep-fwlts-rfz2g-2-worker-jddbx"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.podId, func(t *testing.T) {
+			assert.Equal(t, tt.expected, getRayJobPodSlotKey(tt.podId))
+		})
+	}
+}
+
+// TestPruneStaleRayJobPods tests removal of historical RayJob pods after restart
+func TestPruneStaleRayJobPods(t *testing.T) {
+	tests := []struct {
+		name           string
+		inputPods      []v1.WorkloadPod
+		expectedPodIds []string
+	}{
+		{
+			name: "keep running head over failed head",
+			inputPods: []v1.WorkloadPod{
+				{PodId: "job-rfz2g-head-old123", Phase: corev1.PodFailed, StartTime: "2025-01-01T00:00:00Z"},
+				{PodId: "job-rfz2g-head-new456", Phase: corev1.PodRunning, StartTime: "2025-01-01T01:00:00Z"},
+				{PodId: "job-submitter", Phase: corev1.PodRunning},
+			},
+			expectedPodIds: []string{"job-rfz2g-head-new456", "job-submitter"},
+		},
+		{
+			// Worker pods each own their slot, so distinct workers are never
+			// collapsed (even those sharing the same worker-group index).
+			name: "keep all distinct workers, dedup only head",
+			inputPods: []v1.WorkloadPod{
+				{PodId: "job-rfz2g-head-old123", Phase: corev1.PodFailed, StartTime: "2025-01-01T00:00:00Z"},
+				{PodId: "job-rfz2g-head-new456", Phase: corev1.PodRunning, StartTime: "2025-01-01T01:00:00Z"},
+				{PodId: "job-rfz2g-1-worker-aaa", Phase: corev1.PodRunning},
+				{PodId: "job-rfz2g-1-worker-bbb", Phase: corev1.PodRunning},
+				{PodId: "job-rfz2g-2-worker-abc", Phase: corev1.PodRunning},
+			},
+			expectedPodIds: []string{
+				"job-rfz2g-head-new456",
+				"job-rfz2g-1-worker-aaa",
+				"job-rfz2g-1-worker-bbb",
+				"job-rfz2g-2-worker-abc",
+			},
+		},
+		{
+			// Regression for #590: a single worker group with many replicas
+			// (all named "<cluster>-1-worker-<random>") must keep every pod.
+			name: "multi-replica worker group keeps all replicas",
+			inputPods: []v1.WorkloadPod{
+				{PodId: "miles-9node-fn4lb-2964j-head-8dx95", Phase: corev1.PodRunning},
+				{PodId: "miles-9node-fn4lb-2964j-1-worker-2kfz5", Phase: corev1.PodRunning},
+				{PodId: "miles-9node-fn4lb-2964j-1-worker-2q4dq", Phase: corev1.PodRunning},
+				{PodId: "miles-9node-fn4lb-2964j-1-worker-b9f2m", Phase: corev1.PodRunning},
+				{PodId: "miles-9node-fn4lb-2964j-1-worker-bvspp", Phase: corev1.PodRunning},
+				{PodId: "miles-9node-fn4lb-wd9sd", Phase: corev1.PodRunning},
+			},
+			expectedPodIds: []string{
+				"miles-9node-fn4lb-2964j-head-8dx95",
+				"miles-9node-fn4lb-2964j-1-worker-2kfz5",
+				"miles-9node-fn4lb-2964j-1-worker-2q4dq",
+				"miles-9node-fn4lb-2964j-1-worker-b9f2m",
+				"miles-9node-fn4lb-2964j-1-worker-bvspp",
+				"miles-9node-fn4lb-wd9sd",
+			},
+		},
+		{
+			name: "no pruning when each slot has one pod",
+			inputPods: []v1.WorkloadPod{
+				{PodId: "job-submitter", Phase: corev1.PodRunning},
+				{PodId: "job-rfz2g-head-abc", Phase: corev1.PodRunning},
+				{PodId: "job-rfz2g-1-worker-abc", Phase: corev1.PodRunning},
+			},
+			expectedPodIds: []string{"job-submitter", "job-rfz2g-head-abc", "job-rfz2g-1-worker-abc"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := pruneStaleRayJobPods(tt.inputPods)
+			assert.Equal(t, len(tt.expectedPodIds), len(result))
+			resultIds := make(map[string]bool)
+			for _, pod := range result {
+				resultIds[pod.PodId] = true
+			}
+			for _, expectedId := range tt.expectedPodIds {
+				assert.True(t, resultIds[expectedId], "expected pod %s to be kept", expectedId)
+			}
+		})
+	}
+}

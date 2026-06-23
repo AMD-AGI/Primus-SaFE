@@ -1,6 +1,6 @@
 module github.com/AMD-AIG-AIMA/SAFE/tools/email-relay-service
 
-go 1.25.0
+go 1.25.5
 
 require gopkg.in/yaml.v3 v3.0.1
 

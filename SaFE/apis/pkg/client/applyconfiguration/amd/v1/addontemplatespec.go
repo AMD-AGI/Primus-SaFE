@@ -13,17 +13,28 @@ import (
 // AddonTemplateSpecApplyConfiguration represents a declarative configuration of the AddonTemplateSpec type for use
 // with apply.
 type AddonTemplateSpecApplyConfiguration struct {
-	Type                 *amdv1.AddonTemplateType `json:"type,omitempty"`
-	Category             *string                  `json:"category,omitempty"`
-	URL                  *string                  `json:"url,omitempty"`
-	Version              *string                  `json:"version,omitempty"`
-	Description          *string                  `json:"description,omitempty"`
-	Action               *string                  `json:"action,omitempty"`
-	Icon                 *string                  `json:"icon,omitempty"`
-	GpuChip              *amdv1.GpuChipType       `json:"gpuChip,omitempty"`
-	Required             *bool                    `json:"required,omitempty"`
-	HelmDefaultValues    *string                  `json:"helmDefaultValues,omitempty"`
-	HelmDefaultNamespace *string                  `json:"helmDefaultNamespace,omitempty"`
+	// Type of template
+	Type *amdv1.AddonTemplateType `json:"type,omitempty"`
+	// Category of template. e.g. system/gpu
+	Category *string `json:"category,omitempty"`
+	// The address for template, only for helm
+	URL *string `json:"url,omitempty"`
+	// Version of template
+	Version *string `json:"version,omitempty"`
+	// The description of template
+	Description *string `json:"description,omitempty"`
+	// The installation action for this template (base64 encoded)
+	Action *string `json:"action,omitempty"`
+	// Icon url, base64 encoded
+	Icon *string `json:"icon,omitempty"`
+	// Target gpu chip(amd or nvidia), If left empty, it applies to all chip.
+	GpuChip *amdv1.GpuChipType `json:"gpuChip,omitempty"`
+	// If it is true, installation failure will terminate the installation of other packages and raise an error.
+	// If it is false, only an error log will be printed and the failure can be ignored.
+	Required *bool `json:"required,omitempty"`
+	// The default value for helm install
+	HelmDefaultValues    *string `json:"helmDefaultValues,omitempty"`
+	HelmDefaultNamespace *string `json:"helmDefaultNamespace,omitempty"`
 }
 
 // AddonTemplateSpecApplyConfiguration constructs a declarative configuration of the AddonTemplateSpec type for use with

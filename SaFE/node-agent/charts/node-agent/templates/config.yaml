@@ -62,6 +62,11 @@ data:
   # script around for one release in case some site relies on it, then
   # remove entirely.
   net_search_domain_214: '{"script":"net_search_domain_214.sh","id":"214","cronjob":"@every 300s","timeoutSecond":250,"toggle":"off","arguments":["{{ .Values.monitor.resolv_search_domain }}"]}'
+  # 215 ensures same-node Pod -> host-IP routing: re-applies the high-priority
+  # "ip rule to <pod_cidr> lookup main" when missing (e.g. after reboot). The
+  # Pod CIDR is read from the kubePodsSubnet field of the $Node JSON; if that
+  # field is empty/absent the script is a no-op.
+  net_pod_route_rule_215: '{"script":"net_pod_route_rule_215.sh","id":"215","cronjob":"@every 600s","timeoutSecond":60,"toggle":"on","arguments":["$Node"]}'
   # System: 3XX
   sys_timezone_301: '{"script":"sys_timezone_301.sh","id":"301","cronjob":"@every 60s","timeoutSecond":50,"toggle":"on"}'
   sys_hostname_302: '{"script":"sys_hostname_302.sh","id":"302","cronjob":"@every 60s","timeoutSecond":50,"toggle":"on"}'
@@ -76,7 +81,7 @@ data:
   # Disk: 4XX
   disk_nfs_mount_401: '{"script":"disk_nfs_mount_401.sh","id":"401","cronjob":"@every 300s","timeoutSecond":250,"toggle":"on","chip":"amd","arguments":["{{ .Values.monitor.nfs_mount }}","{{ .Values.monitor.nfs_server }}","{{ .Values.monitor.nfs_server_path }}","{{ .Values.monitor.nfs_type }}"]}'
   disk_nfs_exist_check_402: '{"script":"disk_nfs_exist_check_402.sh","id":"402","cronjob":"@every 300s","timeoutSecond":250,"toggle":"{{ .Values.monitor.toggles.disk_nfs_exist_check_402 }}","chip":"amd","arguments":["{{ .Values.monitor.all_nfs_path }}"]}'
-  disk_wekafs_dstuck_restart_403: '{"script":"disk_wekafs_dstuck_restart_403.sh","id":"403","cronjob":"@every 600s","timeoutSecond":60,"toggle":"on","chip":"amd","arguments":["{{ .Values.monitor.nfs_type }}"]}'
+  disk_wekafs_dstuck_restart_403: '{"script":"disk_wekafs_dstuck_restart_403.sh","id":"403","cronjob":"@every 600s","timeoutSecond":60,"toggle":"off","consecutiveCount":2,"chip":"amd","arguments":["{{ .Values.monitor.nfs_type }}"]}'
   disk_ephemeral_storage_404: '{"script":"disk_ephemeral_storage_404.sh","id":"404","cronjob":"@every 300s","timeoutSecond":250,"toggle":"on","chip":"amd","arguments":["$Node"]}'
   disk_oci_bind_mount_405: '{"script":"disk_oci_bind_mount_405.sh","id":"405","cronjob":"@every 300s","timeoutSecond":250,"toggle":"on","chip":"amd","arguments":["{{ .Values.node_agent.sub_domain }}"]}'
   disk_nvme_count_406: '{"script":"disk_nvme_count_406.sh","id":"406","cronjob":"@every 300s","timeoutSecond":250,"toggle":"on","chip":"amd","arguments":["$Node"]}'

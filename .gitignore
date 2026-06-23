@@ -235,3 +235,11 @@ Web/apps/*/.env.production
 # ── Bootstrap ────────────────────────────────────────────────────
 Bootstrap/kubespray/
 Bootstrap/kubespray-venv/
+
+# ── Go build artifacts ───────────────────────────────────────────
+# Compiled binaries must never be committed (accidental local builds).
+*.exe
+*.exe~
+*.test
+*.out
+SaFE/tools/sync-image/syncimage

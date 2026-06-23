@@ -14,6 +14,9 @@ import (
 
 type CreateWorkloadRequest struct {
 	v1.WorkloadSpec
+	// GitHubAuth carries CICD runner authentication material. It is used to create
+	// the ARC githubConfigSecret and must not be persisted on the workload env.
+	GitHubAuth *GitHubAuthRequest `json:"githubAuth,omitempty"`
 	// SpecifiedNodes defines the list of node names where the workload should run.
 	SpecifiedNodes []string `json:"specifiedNodes,omitempty"`
 	// NodesAffinity controls how strictly the workload adheres to SpecifiedNodes.
@@ -50,6 +53,56 @@ type CreateWorkloadRequest struct {
 	ForceHostNetwork *bool `json:"forceHostNetwork,omitempty"`
 	// The owner workload ID
 	OwnerId string `json:"ownerId,omitempty"`
+	// DynamoOptions carries DynamoDeployment-specific configuration that would
+	// otherwise have to be passed as primus-safe.dynamo.* annotations. The
+	// generic API path strips reserved-prefix annotations, so this struct is
+	// the only supported channel to express role layout / multinode for the
+	// DynamoDeployment kind via the API. See docs/apis/dynamo-options-design.md.
+	DynamoOptions *DynamoOptions `json:"dynamoOptions,omitempty"`
+	// OptimusOptions carries OptimusDeployment-specific configuration, the
+	// RocServe analogue of DynamoOptions. It reuses the same struct (identical
+	// role / kv-backend / multinode knobs) and is converted into
+	// primus-safe.optimus.* annotations on the resulting Workload CR.
+	OptimusOptions *DynamoOptions `json:"optimusOptions,omitempty"`
+}
+
+// DynamoOptions describes the dynamo-specific knobs that the API server
+// converts into primus-safe.dynamo.* annotations on the resulting Workload CR.
+// Leaving any field unset keeps the existing webhook auto-inference behavior
+// (e.g. 2 resources -> "frontend,worker", 3 resources -> PD); set fields
+// override the auto-inference. All validation is performed by the existing
+// validateDynamoDeployment webhook, no duplicate checks are added here.
+type DynamoOptions struct {
+	// Backend framework. One of "sglang" | "vllm" | "trtllm". Empty falls back
+	// to the cluster default (sglang).
+	BackendFramework string `json:"backendFramework,omitempty"`
+
+	// KV-cache transfer plane. One of "nixl" | "mori" | "mooncake". Only
+	// effective when ServiceRoles contains both prefill and decode.
+	KVTransferBackend string `json:"kvTransferBackend,omitempty"`
+
+	// Explicit service role per Resources[] slot. Length must equal
+	// len(Resources). Allowed values: frontend|worker|prefill|decode|planner|epp.
+	// Example: ["frontend","worker"] (aggregated) or
+	// ["frontend","prefill","decode"] (disaggregated).
+	ServiceRoles []string `json:"serviceRoles,omitempty"`
+
+	// MultinodeRoles lists the roles that run as a multi-node LeaderWorkerSet
+	// (tensor parallel spanning multiple nodes). For a role listed here, the
+	// node count is taken from that role's Resources[i].Replica, and the
+	// dispatcher injects --nnodes / --node-rank / --dist-init-addr into the
+	// sglang entrypoint automatically. A role NOT listed here treats Replica as
+	// a plain Deployment replica count (independent scale-out). Each listed role
+	// must also appear in ServiceRoles. Example: ["worker"] or ["prefill","decode"].
+	MultinodeRoles []string `json:"multinodeRoles,omitempty"`
+}
+
+type GitHubAuthRequest struct {
+	Type           string `json:"type,omitempty"`
+	Token          string `json:"token,omitempty"`
+	AppId          string `json:"appId,omitempty"`
+	InstallationId string `json:"installationId,omitempty"`
+	PrivateKey     string `json:"privateKey,omitempty"`
 }
 
 func (req *CreateWorkloadRequest) GetNodesAffinity() string {
@@ -98,6 +151,12 @@ type ListWorkloadRequest struct {
 	ScaleRunnerSet string `form:"scaleRunnerSet" binding:"omitempty,max=64"`
 	// Filter by GitHub action runner id.
 	ScaleRunnerId string `form:"scaleRunnerId" binding:"omitempty,max=64"`
+	// Filter by environment variable key. When set without envValue, filters
+	// workloads that contain this env key.
+	EnvKey string `form:"envKey" binding:"omitempty,max=256"`
+	// Filter by environment variable value. Only effective together with
+	// envKey, matching the exact value of that key.
+	EnvValue string `form:"envValue" binding:"omitempty,max=1024"`
 }
 
 type ListWorkloadResponse struct {
@@ -224,6 +283,8 @@ type WorkloadPodWrapper struct {
 }
 
 type PatchWorkloadRequest struct {
+	// GitHubAuth carries updated CICD runner authentication material.
+	GitHubAuth *GitHubAuthRequest `json:"githubAuth,omitempty"`
 	// Workload scheduling Priority (0-2), default 0
 	Priority *int `json:"priority,omitempty"`
 	// Workload resource requirements

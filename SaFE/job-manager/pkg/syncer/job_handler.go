@@ -109,6 +109,15 @@ func (r *SyncerReconciler) getK8sObjectStatus(ctx context.Context, message *reso
 	}
 	k8sObject, err := jobutils.GetObject(ctx, clientSets.ClientFactory(), message.name, message.namespace, message.gvk)
 	if err != nil {
+		if apierrors.IsNotFound(err) {
+			klog.Infof("k8s object not found, treated as deleted: %s %s/%s, workload: %s, original action: %s",
+				message.gvk.Kind, message.namespace, message.name, adminWorkload.Name, message.action)
+			message.action = ResourceDel
+			return &jobutils.K8sObjectStatus{
+				Phase:   string(v1.K8sDeleted),
+				Message: fmt.Sprintf("%s %s is not found", message.gvk.Kind, message.name),
+			}, nil
+		}
 		klog.ErrorS(err, "failed to get k8s object", "name", message.name, "namespace", message.namespace)
 		return nil, err
 	}
@@ -181,7 +190,7 @@ func (r *SyncerReconciler) waitJobDeleted(ctx context.Context,
 	}
 
 	for _, obj := range unstructuredObjs {
-		klog.Infof("wait for object(%s/%s) to be deleted, workload: %s", obj.GetNamespace(), obj.GetName(), message.workloadId)
+		// klog.Infof("wait for object(%s/%s) to be deleted, workload: %s", obj.GetNamespace(), obj.GetName(), message.workloadId)
 		if ts := obj.GetDeletionTimestamp(); ts != nil && !ts.IsZero() &&
 			time.Since(ts.Time) >= time.Duration(ForceDeleteDelaySeconds)*time.Second {
 			patchObj := map[string]any{
@@ -233,6 +242,8 @@ func (r *SyncerReconciler) shouldReSchedule(ctx context.Context,
 		return false, nil
 	}
 	if message.action == ResourceDel {
+		klog.Infof("workload %s should reschedule: k8s object %s/%s deleted (ResourceDel), phase: %s, dispatchCnt: %d",
+			adminWorkload.Name, message.gvk.Kind, message.name, adminWorkload.Status.Phase, message.dispatchCount)
 		return true, nil
 	}
 	// The additional IsWorkloadPreempted check prevents issues when the service restarts during
@@ -272,6 +283,14 @@ func (r *SyncerReconciler) updateAdminWorkloadByJob(ctx context.Context, clientS
 			}
 		}
 		return adminWorkload, nil
+	}
+	if commonworkload.IsCICDScalingRunnerSet(adminWorkload) {
+		// A CICD scaling runner set reaching the generic phase logic means its
+		// RunnerScaleSetId is empty (ARS not yet/again reconciled by ARC, or being
+		// deleted). The generic path may mark it Failed/Stopped and lead to deletion,
+		// so make this dangerous fall-through observable.
+		klog.Infof("CICD scaling runner set %s entered generic phase handling (empty RunnerScaleSetId), k8s.phase: %s, action: %s, dispatchCnt: %d",
+			adminWorkload.Name, status.Phase, message.action, message.dispatchCount)
 	}
 	if status.Phase != "" {
 		r.updateAdminWorkloadPhase(adminWorkload, status, message)
@@ -322,6 +341,8 @@ func (r *SyncerReconciler) updateAdminWorkloadPhase(adminWorkload *v1.Workload,
 			}
 		}
 		if shouldTerminateWorkload(adminWorkload, status, message.dispatchCount) {
+			klog.Infof("workload %s phase -> Failed (k8s failed, kind: %s, dispatchCnt: %d, message: %s)",
+				adminWorkload.Name, adminWorkload.SpecKind(), message.dispatchCount, status.Message)
 			adminWorkload.Status.Phase = v1.WorkloadFailed
 		}
 	case v1.K8sDeleted:
@@ -337,6 +358,8 @@ func (r *SyncerReconciler) updateAdminWorkloadPhase(adminWorkload *v1.Workload,
 				// refer: actions-runner-controller/ephemeralrunner_controller.go: 374-381
 				adminWorkload.Status.Phase = v1.WorkloadSucceeded
 			} else {
+				klog.Infof("workload %s phase -> Stopped (k8s object %s deleted, kind: %s, dispatchCnt: %d)",
+					adminWorkload.Name, message.name, adminWorkload.SpecKind(), message.dispatchCount)
 				adminWorkload.Status.Phase = v1.WorkloadStopped
 			}
 		} else if commonworkload.IsApplication(adminWorkload) {

@@ -8,20 +8,45 @@ package v1
 
 // ModelSpecApplyConfiguration represents a declarative configuration of the ModelSpec type for use
 // with apply.
+//
+// ModelSpec defines the desired state of Model
 type ModelSpecApplyConfiguration struct {
-	DisplayName   *string                        `json:"displayName,omitempty"`
-	Description   *string                        `json:"description,omitempty"`
-	Icon          *string                        `json:"icon,omitempty"`
-	Label         *string                        `json:"label,omitempty"`
-	Tags          []string                       `json:"tags,omitempty"`
-	MaxTokens     *int                           `json:"maxTokens,omitempty"`
-	Source        *ModelSourceApplyConfiguration `json:"source,omitempty"`
-	Workspace     *string                        `json:"workspace,omitempty"`
-	Origin        *string                        `json:"origin,omitempty"`
-	SftJobId      *string                        `json:"sftJobId,omitempty"`
-	BaseModel     *string                        `json:"baseModel,omitempty"`
-	TargetVolume  *string                        `json:"targetVolume,omitempty"`
-	TargetSubpath *string                        `json:"targetSubpath,omitempty"`
+	// DisplayName is the friendly name shown in the UI
+	DisplayName *string `json:"displayName,omitempty"`
+	// Description describes the model
+	Description *string `json:"description,omitempty"`
+	// Icon is the URL or Base64 of the model icon
+	Icon *string `json:"icon,omitempty"`
+	// Label is the model label
+	Label *string `json:"label,omitempty"`
+	// Tags are used for search and classification (e.g. "LLM", "CV", "ASR")
+	Tags []string `json:"tags,omitempty"`
+	// MaxTokens is the maximum context length of the model (from config.json max_position_embeddings)
+	MaxTokens *int `json:"maxTokens,omitempty"`
+	// Source defines where to pull the model from
+	Source *ModelSourceApplyConfiguration `json:"source,omitempty"`
+	// Workspace specifies which workspace this model belongs to (for local models only)
+	// Empty string means "public" - the model will be downloaded to all workspaces
+	// Non-empty means the model is private to a specific workspace
+	Workspace *string `json:"workspace,omitempty"`
+	// Origin indicates where the model came from:
+	// - "external": downloaded from HuggingFace or connected via remote API (default)
+	// - "fine_tuned": produced by SFT training within the platform
+	// - "rl_trained": produced by RL training (GRPO/PPO) within the platform
+	Origin *string `json:"origin,omitempty"`
+	// SftJobId is the workload ID of the training job that produced this model
+	// (origin=fine_tuned for SFT, origin=rl_trained for RL)
+	SftJobId *string `json:"sftJobId,omitempty"`
+	// BaseModel is the HuggingFace name of the base model used for fine-tuning (origin=fine_tuned only)
+	BaseModel *string `json:"baseModel,omitempty"`
+	// TargetVolume optionally selects which volume of the workspace to download to
+	// when the workspace has multiple volumes (e.g. PFS+HostPath). Value is a volume's
+	// MountPath (or HostPath when MountPath is empty). If empty, the controller uses
+	// the workspace's first PFS volume (or first volume).
+	TargetVolume *string `json:"targetVolume,omitempty"`
+	// TargetSubpath is an optional sub-directory under "<volume>/models/<safe-name>"
+	// to keep multiple imports of the same model separated. Empty = default layout.
+	TargetSubpath *string `json:"targetSubpath,omitempty"`
 }
 
 // ModelSpecApplyConfiguration constructs a declarative configuration of the ModelSpec type for use with

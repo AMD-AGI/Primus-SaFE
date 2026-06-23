@@ -124,6 +124,12 @@ func (h *Handler) GetWorkloadPodContainers(c *gin.Context) {
 	handle(c, h.getWorkloadPodContainers)
 }
 
+// ResumeWorkload resumes an existing workload.
+// The workload must already exist in the system. User information from the original workload is preserved
+func (h *Handler) ResumeWorkload(c *gin.Context) {
+	handle(c, h.resumeWorkload)
+}
+
 // createWorkload implements the workload creation logic.
 // Parses the request, generates a workload object, and creates it in the system.
 func (h *Handler) createWorkload(c *gin.Context) (interface{}, error) {
@@ -138,6 +144,12 @@ func (h *Handler) createWorkload(c *gin.Context) (interface{}, error) {
 		return nil, err
 	}
 	roles := h.accessController.GetRoles(ctx, requestUser)
+	if req.UserEntity != nil {
+		if h.accessController.AuthorizeSystemAdmin(
+			authority.AccessInput{Context: ctx, User: requestUser}, false) != nil {
+			req.UserEntity = nil
+		}
+	}
 
 	mainWorkload, err := h.generateWorkload(ctx, req, body, requestUser)
 	if err != nil {
@@ -521,7 +533,7 @@ func (h *Handler) patchWorkload(c *gin.Context) (interface{}, error) {
 		return nil, err
 	}
 	klog.Infof("update workload, name: %s, request: %s, request.user: %s",
-		name, string(jsonutils.MarshalSilently(*req)), c.GetString(common.UserId))
+		name, string(jsonutils.MarshalSilently(sanitizePatchWorkloadRequestForLog(req))), c.GetString(common.UserId))
 	return nil, nil
 }
 
@@ -555,8 +567,7 @@ func (h *Handler) authWorkloadUpdate(c *gin.Context, adminWorkload *v1.Workload,
 	return nil
 }
 
-// updateWorkload updates the workload in the system and handles CICD secret updates
-// if a new GitHub PAT token is provided in the request
+// updateWorkload updates the workload in the system and handles CICD auth secret updates.
 func (h *Handler) updateWorkload(ctx context.Context,
 	adminWorkload *v1.Workload, requestUser *v1.User, req *view.PatchWorkloadRequest) error {
 	err := h.Update(ctx, adminWorkload)
@@ -564,10 +575,10 @@ func (h *Handler) updateWorkload(ctx context.Context,
 		return err
 	}
 
-	if req.Env != nil && commonworkload.IsCICDScalingRunnerSet(adminWorkload) {
-		if newToken := (*req.Env)[GithubPAT]; newToken != "" {
+	if commonworkload.IsCICDScalingRunnerSet(adminWorkload) {
+		if auth := normalizeCICDGitHubAuth(req.GitHubAuth, requestEnv(req)); auth != nil {
 			patch := client.MergeFrom(adminWorkload.DeepCopy())
-			if err = h.updateCICDSecret(ctx, adminWorkload, requestUser, newToken); err != nil {
+			if err = h.updateCICDSecret(ctx, adminWorkload, requestUser, auth); err != nil {
 				klog.ErrorS(err, "failed to update cicd secret")
 				return err
 			}
@@ -803,12 +814,11 @@ func (h *Handler) generateWorkload(ctx context.Context,
 		}
 	}
 	if commonworkload.IsCICDScalingRunnerSet(workload) {
-		if err = h.generateCICDScaleRunnerSet(ctx, workload, requestUser); err != nil {
+		if err = h.generateCICDScaleRunnerSet(ctx, workload, requestUser, req.GitHubAuth); err != nil {
 			return nil, err
 		}
 	}
-	if req.UserEntity != nil && h.accessController.AuthorizeSystemAdmin(
-		authority.AccessInput{Context: ctx, User: requestUser}, false) == nil {
+	if req.UserEntity != nil {
 		v1.SetLabel(workload, v1.UserIdLabel, req.UserEntity.Id)
 		v1.SetAnnotation(workload, v1.UserNameAnnotation, req.UserEntity.Name)
 	}
@@ -832,7 +842,60 @@ func (h *Handler) generateWorkload(ctx context.Context,
 	if req.OwnerId != "" {
 		v1.SetLabel(workload, v1.OwnerLabel, req.OwnerId)
 	}
+	applyDynamoOptions(workload, req.DynamoOptions)
+	applyOptimusOptions(workload, req.OptimusOptions)
 	return workload, nil
+}
+
+// applyOptimusOptions translates the structured OptimusOptions API field into
+// primus-safe.optimus.* annotations, the RocServe analogue of
+// applyDynamoOptions. Semantic checks are performed by the validating webhook.
+func applyOptimusOptions(workload *v1.Workload, opts *view.DynamoOptions) {
+	if opts == nil {
+		return
+	}
+	if opts.BackendFramework != "" {
+		v1.SetAnnotation(workload, v1.OptimusBackendFrameworkAnnotation, opts.BackendFramework)
+	}
+	if opts.KVTransferBackend != "" {
+		v1.SetAnnotation(workload, v1.OptimusKVTransferBackendAnnotation, opts.KVTransferBackend)
+	}
+	if len(opts.ServiceRoles) > 0 {
+		v1.SetAnnotation(workload, v1.OptimusServiceRolesAnnotation,
+			strings.Join(opts.ServiceRoles, ","))
+	}
+	if len(opts.MultinodeRoles) > 0 {
+		v1.SetAnnotation(workload, v1.OptimusMultinodeRolesAnnotation,
+			strings.Join(opts.MultinodeRoles, ","))
+	}
+}
+
+// applyDynamoOptions translates the structured DynamoOptions API field into
+// the primus-safe.dynamo.* annotations that the dispatcher / webhook already
+// consume. This is the only sanctioned path to set those annotations through
+// the REST API because generateWorkload strips primus-safe-prefixed keys from
+// the freeform Annotations map. All semantic checks (role enum, role/Resources
+// length match, multinode-key references, kv-transfer-backend enum, etc.) are
+// performed by validateDynamoDeployment in the validating webhook so this
+// helper stays as a pure translation step.
+func applyDynamoOptions(workload *v1.Workload, opts *view.DynamoOptions) {
+	if opts == nil {
+		return
+	}
+	if opts.BackendFramework != "" {
+		v1.SetAnnotation(workload, v1.DynamoBackendFrameworkAnnotation, opts.BackendFramework)
+	}
+	if opts.KVTransferBackend != "" {
+		v1.SetAnnotation(workload, v1.DynamoKVTransferBackendAnnotation, opts.KVTransferBackend)
+	}
+	if len(opts.ServiceRoles) > 0 {
+		v1.SetAnnotation(workload, v1.DynamoServiceRolesAnnotation,
+			strings.Join(opts.ServiceRoles, ","))
+	}
+	if len(opts.MultinodeRoles) > 0 {
+		v1.SetAnnotation(workload, v1.DynamoMultinodeRolesAnnotation,
+			strings.Join(opts.MultinodeRoles, ","))
+	}
 }
 
 // createPreheatWorkloads create all preheat workloads based on the main workload images configuration
@@ -1121,8 +1184,30 @@ func cvtToListWorkloadSql(query *view.ListWorkloadRequest) (sqrl.Sqlizer, []stri
 	if scaleRunnerId := strings.TrimSpace(query.ScaleRunnerId); scaleRunnerId != "" {
 		dbSql = append(dbSql, sqrl.Eq{dbclient.GetFieldTag(dbTags, "ScaleRunnerId"): scaleRunnerId})
 	}
+	if envCond := buildEnvFilter(query.EnvKey, query.EnvValue, dbTags); envCond != nil {
+		dbSql = append(dbSql, envCond)
+	}
 	orderBy := buildOrderBy(query.SortBy, query.Order, dbTags)
 	return dbSql, orderBy
+}
+
+// buildEnvFilter builds a SQL condition to filter workloads by an environment
+// variable stored as a JSON object in the env column. When only the key is
+// provided, it matches workloads that contain the key; when both key and value
+// are provided, it matches the exact value of that key. NULLIF guards against
+// NULL/empty env so the jsonb cast never fails. Returns nil when no key is set.
+func buildEnvFilter(envKey, envValue string, dbTags map[string]string) sqrl.Sqlizer {
+	key := strings.TrimSpace(envKey)
+	if key == "" {
+		return nil
+	}
+	envField := dbclient.GetFieldTag(dbTags, "Env")
+	if envValue == "" {
+		expr := fmt.Sprintf("NULLIF(%s, '')::jsonb ->> ? IS NOT NULL", envField)
+		return sqrl.Expr(expr, key)
+	}
+	expr := fmt.Sprintf("NULLIF(%s, '')::jsonb ->> ? = ?", envField)
+	return sqrl.Expr(expr, key, envValue)
 }
 
 // buildOrderBy constructs ORDER BY clause for input parameters.
@@ -1196,6 +1281,31 @@ func applyWorkloadPatch(adminWorkload *v1.Workload, req *view.PatchWorkloadReque
 		adminWorkload.Spec.Service = req.Service
 	}
 	return nil
+}
+
+func requestEnv(req *view.PatchWorkloadRequest) map[string]string {
+	if req.Env == nil {
+		return nil
+	}
+	return *req.Env
+}
+
+func sanitizePatchWorkloadRequestForLog(req *view.PatchWorkloadRequest) view.PatchWorkloadRequest {
+	if req == nil {
+		return view.PatchWorkloadRequest{}
+	}
+	sanitized := *req
+	if sanitized.GitHubAuth != nil {
+		auth := *sanitized.GitHubAuth
+		auth.Token = ""
+		auth.PrivateKey = ""
+		sanitized.GitHubAuth = &auth
+	}
+	if sanitized.Env != nil {
+		env := maputil.Copy(*sanitized.Env, GithubPAT)
+		sanitized.Env = &env
+	}
+	return sanitized
 }
 
 // cvtDBWorkloadToResponseItem converts a database workload record to a response item format.
@@ -1458,6 +1568,51 @@ func (h *Handler) getWorkloadPodContainers(c *gin.Context) (interface{}, error) 
 		Containers: containers,
 		Shells:     []string{"bash", "sh", "zsh"},
 	}, nil
+}
+
+func (h *Handler) resumeWorkload(c *gin.Context) (interface{}, error) {
+	if !commonconfig.IsDBEnable() {
+		return nil, commonerrors.NewBadRequest("DB is not enabled")
+	}
+	workloadId := c.GetString(common.Name)
+	if workloadId == "" {
+		return nil, commonerrors.NewBadRequest("workloadId is required")
+	}
+	requestUser, err := h.getAndSetUsername(c)
+	if err != nil {
+		return nil, err
+	}
+
+	ctx := c.Request.Context()
+	req := &view.CreateWorkloadRequest{}
+	body, err := apiutils.ParseRequestBody(c.Request, req)
+	if err != nil {
+		return nil, err
+	}
+
+	dbWorkload, err := h.dbClient.GetWorkload(ctx, workloadId)
+	if err != nil {
+		return nil, err
+	}
+	adminWorkload := generateWorkloadForAuth(workloadId,
+		dbutils.ParseNullString(dbWorkload.UserId), dbWorkload.Workspace, dbWorkload.Cluster)
+	if err = h.authWorkloadAction(c, adminWorkload, v1.ResumeVerb, v1.WorkloadKind, requestUser, nil); err != nil {
+		klog.ErrorS(err, "failed to auth workload", "workload", workloadId,
+			"workspace", dbWorkload.Workspace, "user", c.GetString(common.UserName))
+		return nil, err
+	}
+	req.WorkloadId = workloadId
+	req.UserEntity = &view.UserEntity{
+		Id:   dbutils.ParseNullString(dbWorkload.UserId),
+		Name: dbutils.ParseNullString(dbWorkload.UserName),
+	}
+
+	adminWorkload, err = h.generateWorkload(ctx, req, body, requestUser)
+	if err != nil {
+		return nil, commonerrors.NewBadRequest(err.Error())
+	}
+	roles := h.accessController.GetRoles(ctx, requestUser)
+	return h.createWorkloadImpl(c, adminWorkload, requestUser, roles)
 }
 
 func cvtToWorkloadResources(dbWorkload *dbclient.Workload, kind string) []v1.WorkloadResource {

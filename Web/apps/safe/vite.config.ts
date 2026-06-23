@@ -20,6 +20,7 @@ export default defineConfig(({ mode }) => {
   const MCP_TARGET = env.PROXY_MCP_TARGET || API_TARGET
   const MCP_REWRITE_PREFIX = env.PROXY_MCP_REWRITE_PREFIX || '/mcp'
   const DEV_DOMAIN = env.PROXY_DEV_DOMAIN || 'localhost'
+  const ALLOWED_DEV_HOSTS = Array.from(new Set([DEV_DOMAIN, 'app.safe-primus.ai']))
 
   return {
     // Set envDir to current directory so Vite reads .env files from apps/safe/
@@ -33,7 +34,7 @@ export default defineConfig(({ mode }) => {
     server: {
       host: '0.0.0.0',
       port: 5173,
-      allowedHosts: [DEV_DOMAIN],
+      allowedHosts: ALLOWED_DEV_HOSTS,
       proxy: {
         '/api': {
           target: API_TARGET,

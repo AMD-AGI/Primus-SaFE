@@ -12,13 +12,21 @@ import (
 
 // NodeStatusApplyConfiguration represents a declarative configuration of the NodeStatus type for use
 // with apply.
+//
+// NodeStatus defines the observed state of Node.
 type NodeStatusApplyConfiguration struct {
-	MachineStatus *MachineStatusApplyConfiguration     `json:"machineStatus,omitempty"`
+	// The status of the physical node
+	MachineStatus *MachineStatusApplyConfiguration `json:"machineStatus,omitempty"`
+	// The status of nodes in the cluster
 	ClusterStatus *NodeClusterStatusApplyConfiguration `json:"clusterStatus,omitempty"`
-	Unschedulable *bool                                `json:"unschedulable,omitempty"`
-	Taints        []corev1.Taint                       `json:"taints,omitempty"`
-	Resources     *corev1.ResourceList                 `json:"resources,omitempty"`
-	Conditions    []corev1.NodeCondition               `json:"conditions,omitempty"`
+	// Indicates whether the node is unschedulable
+	Unschedulable *bool `json:"unschedulable,omitempty"`
+	// Taint automatically synchronized from the Kubernetes node
+	Taints []corev1.Taint `json:"taints,omitempty"`
+	// All resource information of the node
+	Resources *corev1.ResourceList `json:"resources,omitempty"`
+	// Node condition, automatically synchronized from the Kubernetes node
+	Conditions []corev1.NodeCondition `json:"conditions,omitempty"`
 }
 
 // NodeStatusApplyConfiguration constructs a declarative configuration of the NodeStatus type for use with

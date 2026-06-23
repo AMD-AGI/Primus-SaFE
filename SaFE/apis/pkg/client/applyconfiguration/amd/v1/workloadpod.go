@@ -13,18 +13,33 @@ import (
 // WorkloadPodApplyConfiguration represents a declarative configuration of the WorkloadPod type for use
 // with apply.
 type WorkloadPodApplyConfiguration struct {
-	PodId         *string                       `json:"podId,omitempty"`
-	ResourceId    *byte                         `json:"resourceId,omitempty"`
-	AdminNodeName *string                       `json:"adminNodeName,omitempty"`
-	Phase         *corev1.PodPhase              `json:"phase,omitempty"`
-	HostIp        *string                       `json:"hostIP,omitempty"`
-	PodIp         *string                       `json:"podIP,omitempty"`
-	Rank          *string                       `json:"rank,omitempty"`
-	StartTime     *string                       `json:"startTime,omitempty"`
-	EndTime       *string                       `json:"endTime,omitempty"`
-	FailedMessage *string                       `json:"failedMessage,omitempty"`
-	Containers    []ContainerApplyConfiguration `json:"containers,omitempty"`
-	GroupId       *byte                         `json:"groupId,omitempty"`
+	// The podId
+	PodId *string `json:"podId,omitempty"`
+	// The id of workload resources that the pod is bound to.
+	// If the value is less than 0, it means the pod does not belong to any resource.
+	ResourceId *byte `json:"resourceId,omitempty"`
+	// The admin node that the Pod is scheduled on
+	AdminNodeName *string `json:"adminNodeName,omitempty"`
+	// Pod status: Pending, Running, Succeeded, Failed, Unknown
+	Phase *corev1.PodPhase `json:"phase,omitempty"`
+	// The node's IP address where the Pod is running
+	HostIp *string `json:"hostIP,omitempty"`
+	// The Pod's own IP address inside the cluster Pod network.
+	PodIp *string `json:"podIP,omitempty"`
+	// The rank of pod, only for pytorch-job
+	Rank *string `json:"rank,omitempty"`
+	// Pod start time
+	StartTime *string `json:"startTime,omitempty"`
+	// Pod end time
+	EndTime *string `json:"endTime,omitempty"`
+	// Pod failed reason. may be empty
+	FailedMessage *string `json:"failedMessage,omitempty"`
+	// The Container info of pod
+	Containers []ContainerApplyConfiguration `json:"containers,omitempty"`
+	// The group id of pod
+	// for torchft. 0 lighthouse, > 0 worker
+	// for monarch. -1 client, >= 0 mesh
+	GroupId *byte `json:"groupId,omitempty"`
 }
 
 // WorkloadPodApplyConfiguration constructs a declarative configuration of the WorkloadPod type for use with

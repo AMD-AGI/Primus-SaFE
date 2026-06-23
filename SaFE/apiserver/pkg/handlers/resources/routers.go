@@ -28,6 +28,7 @@ func InitCustomRouters(e *gin.Engine, h *Handler) {
 			workloads.POST("/delete", middleware.Audit("workload", "delete"), h.DeleteWorkloads)
 			workloads.POST("/stop", middleware.Audit("workload", "stop"), h.StopWorkloads)
 			workloads.POST(fmt.Sprintf("/:%s/stop", common.Name), middleware.Audit("workload", "stop"), h.StopWorkload)
+			workloads.POST(fmt.Sprintf("/:%s/resume", common.Name), middleware.Audit("workload", "resume"), h.ResumeWorkload)
 			workloads.DELETE(fmt.Sprintf("/:%s", common.Name), middleware.Audit("workload"), h.DeleteWorkload)
 			workloads.PATCH(fmt.Sprintf("/:%s", common.Name), middleware.Audit("workload"), h.PatchWorkload)
 			workloads.GET("", h.ListWorkload)

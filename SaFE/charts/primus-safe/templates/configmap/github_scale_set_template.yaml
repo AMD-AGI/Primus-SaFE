@@ -30,7 +30,7 @@ data:
       app.kubernetes.io/version: 0.13.0
   spec:
     minRunners: 0
-    maxRunners: 20
+    maxRunners: {{ .Values.cicd.max_runners | default 20 }}
     template:
       spec:
         containers:
@@ -46,6 +46,10 @@ data:
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.name
+            - name: HOSTNAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
           volumeMounts:
           - name: podinfo
             mountPath: /etc/podinfo

@@ -289,7 +289,6 @@ if [[ "$s3_enable" == "true" ]]; then
   sed -i '/^s3:/,/^[a-z]/ s#secret: ".*"#secret: "'"$S3_SECRET"'"#' "$values_yaml"
 fi
 sed -i '/grafana:/,/^[a-z]/ s/enable: .*/enable: false/' "$values_yaml"
-fi
 sed -i "s/image_pull_secret: \".*\"/image_pull_secret: \"$IMAGE_PULL_SECRET\"/" "$values_yaml"
 sed -i "s/ingress: \".*\"/ingress: \"$ingress\"/" "$values_yaml"
 sed -i '/sso:/,/^[a-z]/ s/enable: .*/enable: '"$sso_enable"'/' "$values_yaml"
@@ -341,6 +340,10 @@ cp "$src_values_yaml" "${values_yaml}"
 
 if [[ -n "${helm_registry:-}" ]]; then
   sed -i '/global:/,/^[a-z]/ s/helm_registry: .*/helm_registry: "'"$helm_registry"'"/' "$values_yaml"
+fi
+# proxy_image_registry may contain '/', so use '|' as the sed delimiter.
+if [[ -n "${proxy_image_registry:-}" ]]; then
+  sed -i '/global:/,/^[a-z]/ s|proxy_image_registry: .*|proxy_image_registry: "'"$proxy_image_registry"'"|' "$values_yaml"
 fi
 sed -i '/global:/,/^[a-z]/ s/sub_domain: .*/sub_domain: "'"$sub_domain"'"/' "$values_yaml"
 

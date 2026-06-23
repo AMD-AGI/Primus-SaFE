@@ -237,6 +237,13 @@ func (r *SyncerReconciler) updateWorkloadNodeAndPods(ctx context.Context, client
 		adminWorkload.Status.Pods = append(adminWorkload.Status.Pods, podInfo)
 		needUpdateNode = true
 	}
+	if commonworkload.IsRayJob(adminWorkload) {
+		prunedPods := pruneStaleRayJobPods(adminWorkload.Status.Pods)
+		if len(prunedPods) != len(adminWorkload.Status.Pods) {
+			adminWorkload.Status.Pods = prunedPods
+			needUpdateNode = true
+		}
+	}
 	if needUpdateNode {
 		r.updateWorkloadNodes(adminWorkload)
 	}
@@ -290,6 +297,12 @@ func updateCICDScalingRunnerSetPhase(adminWorkload *v1.Workload, pod *corev1.Pod
 	case corev1.PodPending:
 		adminWorkload.Status.Phase = v1.WorkloadPending
 	default:
+		// The listener pod left Running/Pending; the runner set becomes NotReady.
+		// This is the usual precursor to failover/deletion, so log the transition.
+		if adminWorkload.Status.Phase != v1.WorkloadNotReady {
+			klog.Infof("CICD scaling runner set %s phase -> NotReady (listener pod %s phase: %s)",
+				adminWorkload.Name, pod.Name, pod.Status.Phase)
+		}
 		adminWorkload.Status.Phase = v1.WorkloadNotReady
 	}
 }
@@ -617,6 +630,115 @@ func getRayJobPodTier(podId string) int {
 		return 2
 	}
 	return 0 // submitter or other
+}
+
+// getRayJobPodSlotKey returns the stable slot key for a RayJob pod.
+// Head and submitter are single-instance per generation, so they share a fixed
+// slot to dedup stale pods across RayJob restarts. Worker pods, however, may
+// have multiple concurrent replicas within one worker group (e.g. ray.io/group
+// "1" with 8 replicas, all named "<cluster>-1-worker-<random>"); keying them by
+// the group index would collapse those distinct replicas into one slot and drop
+// all but one from the status. Each worker pod therefore gets its own slot
+// (full pod name); stale workers from a previous generation are pruned via pod
+// deletion events (removeWorkloadPod), not by this slot dedup.
+func getRayJobPodSlotKey(podId string) string {
+	if strings.Contains(podId, "-head-") {
+		return "head"
+	}
+	if strings.Contains(podId, "-worker-") {
+		return podId
+	}
+	return "submitter"
+}
+
+// pruneStaleRayJobPods keeps only the current pod for each RayJob role slot.
+func pruneStaleRayJobPods(pods []v1.WorkloadPod) []v1.WorkloadPod {
+	if len(pods) <= 1 {
+		return pods
+	}
+	slots := make(map[string][]v1.WorkloadPod)
+	for _, pod := range pods {
+		key := getRayJobPodSlotKey(pod.PodId)
+		slots[key] = append(slots[key], pod)
+	}
+	result := make([]v1.WorkloadPod, 0, len(slots))
+	for _, group := range slots {
+		result = append(result, selectCurrentRayJobPod(group))
+	}
+	return result
+}
+
+// selectCurrentRayJobPod picks the active pod from candidates sharing the same RayJob slot.
+func selectCurrentRayJobPod(pods []v1.WorkloadPod) v1.WorkloadPod {
+	if len(pods) == 1 {
+		return pods[0]
+	}
+	candidates := pods
+	active := make([]v1.WorkloadPod, 0, len(pods))
+	for i := range pods {
+		if !v1.IsPodTerminated(&pods[i]) {
+			active = append(active, pods[i])
+		}
+	}
+	if len(active) > 0 {
+		candidates = active
+	}
+	sort.Slice(candidates, func(i, j int) bool {
+		return compareRayJobPodPriority(candidates[i], candidates[j]) > 0
+	})
+	return candidates[0]
+}
+
+// compareRayJobPodPriority returns positive when pod a is preferred over pod b.
+func compareRayJobPodPriority(a, b v1.WorkloadPod) int {
+	if phaseDiff := rayJobPodPhasePriority(a.Phase) - rayJobPodPhasePriority(b.Phase); phaseDiff != 0 {
+		return phaseDiff
+	}
+	timeA, hasTimeA := parseRayJobPodStartTime(a.StartTime)
+	timeB, hasTimeB := parseRayJobPodStartTime(b.StartTime)
+	if hasTimeA && hasTimeB && !timeA.Equal(timeB) {
+		if timeA.After(timeB) {
+			return 1
+		}
+		return -1
+	}
+	if hasTimeA != hasTimeB {
+		if hasTimeA {
+			return 1
+		}
+		return -1
+	}
+	if a.PodId > b.PodId {
+		return 1
+	}
+	if a.PodId < b.PodId {
+		return -1
+	}
+	return 0
+}
+
+func rayJobPodPhasePriority(phase corev1.PodPhase) int {
+	switch phase {
+	case corev1.PodRunning:
+		return 3
+	case corev1.PodPending:
+		return 2
+	case corev1.PodUnknown:
+		return 1
+	default:
+		return 0
+	}
+}
+
+func parseRayJobPodStartTime(startTime string) (time.Time, bool) {
+	if startTime == "" {
+		return time.Time{}, false
+	}
+	parsed, err := time.Parse(timeutil.TimeRFC3339Short, startTime)
+	if err != nil {
+		return time.Time{}, false
+	}
+	return parsed, true
 }
 
 // comparePodsByIPAndID sort by hostIp and podId

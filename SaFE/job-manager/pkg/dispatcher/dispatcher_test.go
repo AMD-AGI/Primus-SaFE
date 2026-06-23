@@ -574,6 +574,7 @@ func TestCreateCICDScaleSet(t *testing.T) {
 	checkHostNetwork(t, obj, workload, &templates[0], 0)
 	envs := getEnvs(t, obj, workload, &templates[0])
 	checkCICDEnvs(t, envs, workload)
+	checkCICDRunnerEnvFieldRefs(t, envs)
 
 	assert.Equal(t, getContainer(obj, "runner", workload, &templates[0]) != nil, true)
 	assert.Equal(t, getContainer(obj, "unified_job", workload, &templates[0]) != nil, false)
@@ -646,6 +647,9 @@ func checkCICDContainer(t *testing.T, obj *unstructured.Unstructured, workload *
 	assert.NilError(t, err)
 	assert.Equal(t, found, true)
 	checkCICDEnvs(t, envs, workload)
+	if containerName == "runner" {
+		checkCICDRunnerEnvFieldRefs(t, envs)
+	}
 }
 
 func checkCICDEnvs(t *testing.T, envs []interface{}, workload *v1.Workload) {
@@ -666,6 +670,13 @@ func checkCICDEnvs(t *testing.T, envs []interface{}, workload *v1.Workload) {
 		ok = findEnv(envs, jobutils.NfsOutputEnv, UnifiedJobOutput)
 		assert.Equal(t, ok, true)
 	}
+}
+
+func checkCICDRunnerEnvFieldRefs(t *testing.T, envs []interface{}) {
+	ok := findEnvFieldRef(envs, "POD_NAME", "metadata.name")
+	assert.Equal(t, ok, true)
+	ok = findEnvFieldRef(envs, "HOSTNAME", "spec.nodeName")
+	assert.Equal(t, ok, true)
 }
 
 func TestUpdateContainerEnv(t *testing.T) {
