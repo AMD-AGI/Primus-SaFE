@@ -29,6 +29,7 @@ import (
 	proxyhandlers "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/proxy-handlers"
 	reshandler "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/resources"
 	sshhandler "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/ssh-handlers"
+	mcprouter "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/mcp/router"
 	apiutils "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/utils"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
@@ -165,6 +166,13 @@ func InitHttpHandlers(_ context.Context, mgr ctrlruntime.Manager) (*gin.Engine, 
 				go optHandler.Start(context.Background())
 			}
 		}
+	}
+
+	// MCP (Model Context Protocol) server: opt-in via mcp.enabled (default true
+	// in Helm chart). Mounts SSE + Streamable HTTP transports under the path
+	// configured by mcp.base_path so AI clients can drive the apiserver.
+	if commonconfig.IsMCPEnable() {
+		mcprouter.InitRoutes(engine)
 	}
 
 	return engine, nil
