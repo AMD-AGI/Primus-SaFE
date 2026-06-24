@@ -3,6 +3,7 @@ import { lensRequest, rootCauseRequest } from '@/services/request'
 import type {
   WorkloadParams,
   SubmitWorkloadRequest,
+  ResumeWorkloadRequest,
   GetLogParams,
   GetLogResponse,
   LogTableResult,
@@ -91,6 +92,9 @@ export const getWorkloadLogsByPod = (
 
 export const addWorkload = (data: SubmitWorkloadRequest): Promise<any> =>
   request.post('/workloads', data, { timeout: LONG_TIMEOUT })
+
+export const resumeWorkload = (id: string, data: ResumeWorkloadRequest): Promise<any> =>
+  request.post(`/workloads/${id}/resume`, data, { timeout: LONG_TIMEOUT })
 
 export const getNodeFlavorAvail = (id: string): Promise<any> =>
   request.get(`/nodeflavors/${id}/avail`)

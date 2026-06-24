@@ -318,7 +318,7 @@
           <template #default="{ row }">
             <!-- First 3 inline -->
             <template v-for="act in getActions(row).slice(0, 2)" :key="act.key">
-              <el-tooltip :content="act.label" placement="top">
+              <el-tooltip :content="act.tooltip?.(row) ?? act.label" placement="top">
                 <el-button
                   circle
                   size="default"
@@ -632,6 +632,7 @@ import { encodeToBase64String } from '@/utils'
 import { useUserStore } from '@/stores/user'
 import { useDark, useDebounceFn } from '@vueuse/core'
 import { useAutoRefreshUserInfo } from '@/composables/useAutoRefreshUserInfo'
+import { useWorkloadResumePermission } from '@/composables/useWorkloadResumePermission'
 // import SshConfigDialog from './Components/SshConfigDialog.vue'
 
 dayjs.extend(utc)
@@ -647,6 +648,7 @@ const userStore = useUserStore()
 useAutoRefreshUserInfo({ immediate: true })
 
 const { canWrite } = useWorkloadWriteGuard()
+const { getResumeDisabled, getResumeTooltip } = useWorkloadResumePermission(canWrite)
 
 const addVisible = ref(false)
 const initialSearchParams = {
@@ -796,7 +798,15 @@ const onSearch = (options?: { resetPage?: boolean }) => {
   })
 }
 
-type Row = { workloadId: string; phase: string; pods: { podId?: string }[]; displayName: string }
+type Row = {
+  workloadId: string
+  phase: string
+  pods: { podId?: string }[]
+  displayName: string
+  workspaceId?: string
+  workspace?: string
+  userId?: string
+}
 
 const handleUpdatePAT = async (row: Row) => {
   try {
@@ -851,6 +861,7 @@ type Action = {
   icon: any
   btnClass?: string
   disabled?: (row: Row) => boolean
+  tooltip?: (row: Row) => string
   onClick: (row: Row) => void | Promise<void>
 }
 const getActions = (_row: Row): Action[] => [
@@ -862,7 +873,8 @@ const getActions = (_row: Row): Action[] => [
     label: 'Resume',
     icon: VideoPlay,
     btnClass: 'btn-primary-plain',
-    disabled: (r: Row) => !canWrite.value || !['Stopped', 'Failed', 'Succeeded'].includes(r.phase),
+    disabled: getResumeDisabled,
+    tooltip: getResumeTooltip,
     onClick: (r: Row) => {
       const endTime = (r as any).endTime
       if (endTime && dayjs().diff(dayjs.utc(endTime), 'second') < 15) {

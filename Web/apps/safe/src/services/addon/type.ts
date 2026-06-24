@@ -33,6 +33,7 @@ export interface AddonTemplateDetail {
 export interface AddonStatus {
   status?: string
   version?: number
+  values?: string
 }
 
 export interface AddonsData {
@@ -41,7 +42,7 @@ export interface AddonsData {
   template: string
   namespace: string
   cluster: string
-  status: AddonStatus[]
+  status?: AddonStatus
 }
 
 export interface AddonTemp {
