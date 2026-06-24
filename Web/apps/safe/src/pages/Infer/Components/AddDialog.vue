@@ -449,6 +449,7 @@ import {
   getNodeFlavorAvail,
   getWorkloadDetail,
   editWorkload,
+  resumeWorkload,
 } from '@/services/workload/index'
 import { WorkloadKind } from '@/services/workload/type'
 import { getNodesList, getImagesList, getWorkloadsList } from '@/services'
@@ -769,7 +770,7 @@ const onSubmit = async (formEl: FormInstance | undefined) => {
         : {}
 
     if (!isEdit.value) {
-      await addWorkload({
+      const payload = {
         ...addPayload,
         ...nodeListPayload,
         resources,
@@ -784,9 +785,15 @@ const onSubmit = async (formEl: FormInstance | undefined) => {
         ...healthCheckPayload,
         ...(excludedNodesPayload ? { excludedNodes: excludedNodesPayload } : {}),
         ...(form.nodesAffinity ? { nodesAffinity: form.nodesAffinity as 'required' | 'preferred' } : {}),
-        ...(props.action === 'Resume' ? { workloadId: props.wlid } : {}),
         ...(cachedUseWorkspaceStorage.value !== undefined ? { useWorkspaceStorage: cachedUseWorkspaceStorage.value } : {}),
-      })
+      }
+
+      if (isResume.value) {
+        if (!props.wlid) return
+        await resumeWorkload(props.wlid, payload)
+      } else {
+        await addWorkload(payload)
+      }
       ElMessage({ message: `${props.action} successful`, type: 'success' })
     } else {
       if (!props.wlid) return
