@@ -70,17 +70,25 @@
       </div>
 
       <el-form-item label="values">
-        <div class="w-full">
+        <div class="w-full" v-loading="valuesLoading" element-loading-text="Loading values...">
           <div class="flex items-center justify-between mb-2">
             <el-text type="info">
               Helm values (YAML). Values replace template defaults instead of merging. Select a
               template to load its complete defaults; leave empty to use template defaults.
             </el-text>
             <div class="flex gap-2">
-              <el-button link type="primary" @click="resetValues">Reset</el-button>
+              <el-button link type="primary" :disabled="valuesLoading" @click="resetValues">
+                Reset
+              </el-button>
             </div>
           </div>
-          <el-input v-model="form.values" type="textarea" :rows="20" placeholder="# key: value" />
+          <el-input
+            v-model="form.values"
+            type="textarea"
+            :rows="20"
+            :disabled="valuesLoading"
+            placeholder="# key: value"
+          />
         </div>
       </el-form-item>
     </el-form>
@@ -152,6 +160,18 @@ const rules: FormRules = {
 
 const ruleFormRef = ref<FormInstance>()
 const submitting = ref(false)
+const valuesLoading = ref(false)
+let valuesLoadingCount = 0
+
+const startValuesLoading = () => {
+  valuesLoadingCount += 1
+  valuesLoading.value = true
+}
+
+const stopValuesLoading = () => {
+  valuesLoadingCount = Math.max(0, valuesLoadingCount - 1)
+  valuesLoading.value = valuesLoadingCount > 0
+}
 
 function resetValues() {
   form.values = detail.value ? getTemplateDefaultValues(detail.value) : ''
@@ -180,6 +200,7 @@ const getAddonDetailValues = (addon: AddonDetailData) => {
 const applyTemplateDefaults = async (templateId: string, overwriteValues = true) => {
   if (!templateId) return null
 
+  startValuesLoading()
   try {
     const res = (await getAddontempDetail(templateId)) as AddonTemplateDetail
     detail.value = res
@@ -194,6 +215,8 @@ const applyTemplateDefaults = async (templateId: string, overwriteValues = true)
   } catch (e) {
     ElMessage.error((e as Error).message || 'Failed to load template detail')
     return null
+  } finally {
+    stopValuesLoading()
   }
 }
 
@@ -230,6 +253,7 @@ const onOpen = async () => {
   if (props.name && isEdit.value) {
     // Edit
     await fetchTemps()
+    startValuesLoading()
     try {
       const res = (await getAddonDetail(
         clusterStore.currentClusterId ?? '',
@@ -248,6 +272,8 @@ const onOpen = async () => {
       }
     } catch (e) {
       ElMessage.error((e as Error).message || 'Failed to load addon detail')
+    } finally {
+      stopValuesLoading()
     }
   } else if (props.id) {
     // Create from template

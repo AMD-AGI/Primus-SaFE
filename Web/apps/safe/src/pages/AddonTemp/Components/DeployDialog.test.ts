@@ -38,6 +38,13 @@ describe('Addon DeployDialog values handling', () => {
     expect(dialogSource).toContain('form.values = getTemplateDefaultValues(templateDetail)')
   })
 
+  it('shows loading state while addon values are being loaded', () => {
+    expect(dialogSource).toContain('v-loading="valuesLoading"')
+    expect(dialogSource).toContain('element-loading-text="Loading values..."')
+    expect(dialogSource).toContain('const valuesLoading = ref(false)')
+    expect(dialogSource).toContain(':disabled="valuesLoading"')
+  })
+
   it('requires a second confirmation before submitting replacement values', () => {
     expect(dialogSource).toContain('ElMessageBox.confirm')
     expect(dialogSource).toContain('values replace the template defaults')
