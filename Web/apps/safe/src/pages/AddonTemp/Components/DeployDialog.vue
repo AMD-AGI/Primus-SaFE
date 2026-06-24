@@ -154,7 +154,7 @@ const ruleFormRef = ref<FormInstance>()
 const submitting = ref(false)
 
 function resetValues() {
-  form.values = detail.value?.helmStatus?.valuesYaml ?? detail.value?.helmDefaultValues ?? ''
+  form.values = detail.value ? getTemplateDefaultValues(detail.value) : ''
   ElMessage.success('Reset to default values')
 }
 
@@ -171,8 +171,14 @@ const getTemplateDefaultValues = (templateDetail: AddonTemplateDetail) => {
   return templateDetail.helmStatus?.valuesYaml ?? statusValues ?? templateDetail.helmDefaultValues ?? ''
 }
 
+const getAddonDetailValues = (addon: AddonDetailData) => {
+  const statusValues =
+    typeof addon.status?.values === 'string' ? addon.status.values : undefined
+  return addon.values || statusValues || ''
+}
+
 const applyTemplateDefaults = async (templateId: string, overwriteValues = true) => {
-  if (!templateId) return
+  if (!templateId) return null
 
   try {
     const res = (await getAddontempDetail(templateId)) as AddonTemplateDetail
@@ -184,8 +190,10 @@ const applyTemplateDefaults = async (templateId: string, overwriteValues = true)
     if (overwriteValues) {
       form.values = getTemplateDefaultValues(res)
     }
+    return res
   } catch (e) {
     ElMessage.error((e as Error).message || 'Failed to load template detail')
+    return null
   }
 }
 
@@ -230,11 +238,14 @@ const onOpen = async () => {
 
       form.template = res.template
       form.namespace = res.namespace ?? 'default'
-      form.values = res.values ?? ''
+      form.values = getAddonDetailValues(res)
       form.releaseName = res.releaseName ?? ''
       form.description = res.description ?? ''
       curCluster.value = res.cluster
-      await applyTemplateDefaults(res.template, false)
+      const templateDetail = await applyTemplateDefaults(res.template, false)
+      if (!form.values && templateDetail) {
+        form.values = getTemplateDefaultValues(templateDetail)
+      }
     } catch (e) {
       ElMessage.error((e as Error).message || 'Failed to load addon detail')
     }

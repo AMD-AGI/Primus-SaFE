@@ -26,6 +26,18 @@ describe('Addon DeployDialog values handling', () => {
     expect(dialogSource).toContain('await applyTemplateDefaults(res.template, false)')
   })
 
+  it('prefills edit values from addon status when top-level values are empty', () => {
+    expect(dialogSource).toContain('const getAddonDetailValues = (addon: AddonDetailData) =>')
+    expect(dialogSource).toContain('addon.values || statusValues ||')
+    expect(dialogSource).toContain('form.values = getAddonDetailValues(res)')
+  })
+
+  it('prefills edit values from template detail when the addon has no saved values', () => {
+    expect(dialogSource).toContain('const templateDetail = await applyTemplateDefaults(res.template, false)')
+    expect(dialogSource).toContain('if (!form.values && templateDetail) {')
+    expect(dialogSource).toContain('form.values = getTemplateDefaultValues(templateDetail)')
+  })
+
   it('requires a second confirmation before submitting replacement values', () => {
     expect(dialogSource).toContain('ElMessageBox.confirm')
     expect(dialogSource).toContain('values replace the template defaults')
