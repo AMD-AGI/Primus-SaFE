@@ -1,8 +1,19 @@
 // MCP server configuration
 // Local dev: /mcp-proxy (proxied by Vite dev server)
-// Production: set via VITE_MCP_BASE_URL env var, or add /mcp-proxy in nginx
-const MCP_SERVER_URL =
-import.meta.env.VITE_MCP_BASE_URL || '/mcp-proxy'
+// Production: set via VITE_MCP_BASE_URL env var, or use the same-origin SSO MCP path.
+const GLOBAL_SAFE_HOST = 'global.primus-safe.amd.com'
+const GLOBAL_SSO_MCP_PATH = '/sso-mcp/mcp'
+const LEGACY_OCI_SSO_MCP_URL = 'oci-slc.primus-safe.amd.com/control-plane/control-plane-dev/sso-mcp-q242x/mcp'
+
+function getMCPServerUrl() {
+  const configuredUrl = import.meta.env.VITE_MCP_BASE_URL || GLOBAL_SSO_MCP_PATH
+  if (window.location.hostname === GLOBAL_SAFE_HOST && configuredUrl.includes(LEGACY_OCI_SSO_MCP_URL)) {
+    return `${window.location.origin}${GLOBAL_SSO_MCP_PATH}`
+  }
+  return configuredUrl
+}
+
+const MCP_SERVER_URL = getMCPServerUrl()
 const API_KEY = import.meta.env.VITE_MCP_API_KEY || ''
 
 // Session ID for MCP protocol session management
