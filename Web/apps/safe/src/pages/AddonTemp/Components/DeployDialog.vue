@@ -35,7 +35,7 @@
         </el-text>
       </el-form-item>
 
-      <el-form-item label="Template" prop="template" v-if="props.name">
+      <el-form-item label="Template" prop="template" v-if="canSelectTemplate">
         <el-select v-model="form.template" @change="onTemplateChange">
           <el-option v-for="v in tempOptions" :key="v" :label="v" :value="v" />
         </el-select>
@@ -121,6 +121,7 @@ const props = defineProps<{
 }>()
 
 const isEdit = computed(() => props.action === 'Edit')
+const canSelectTemplate = computed(() => !props.id)
 const detail = ref<AddonTemplateDetail | null>(null)
 const tempOptions = ref([] as string[])
 const curCluster = ref('')
@@ -162,8 +163,13 @@ const fetchTemps = async () => {
   tempOptions.value = (res?.items ?? []).map((n: AddonTemp) => n.addonTemplateId)
 }
 
-const getTemplateDefaultValues = (templateDetail: AddonTemplateDetail) =>
-  templateDetail.helmStatus?.valuesYaml ?? templateDetail.helmDefaultValues ?? ''
+const getTemplateDefaultValues = (templateDetail: AddonTemplateDetail) => {
+  const statusValues =
+    typeof templateDetail.helmStatus?.values === 'string'
+      ? templateDetail.helmStatus.values
+      : undefined
+  return templateDetail.helmStatus?.valuesYaml ?? statusValues ?? templateDetail.helmDefaultValues ?? ''
+}
 
 const applyTemplateDefaults = async (templateId: string, overwriteValues = true) => {
   if (!templateId) return
@@ -235,6 +241,8 @@ const onOpen = async () => {
   } else if (props.id) {
     // Create from template
     await applyTemplateDefaults(props.id, true)
+  } else {
+    await fetchTemps()
   }
 
   await nextTick()
