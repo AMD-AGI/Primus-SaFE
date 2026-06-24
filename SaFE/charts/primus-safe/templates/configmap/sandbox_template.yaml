@@ -24,6 +24,7 @@ data:
     spec:
       podTemplate:
         spec:
+          schedulerName: kube-scheduler-plugins
           containers:
           - args:
             - export PATH=/shared/bin:$PATH && mkdir -p /app && /shared/bin/setup-amd-ca.sh && exec /shared/bin/envd --port=8080 --workspace=/app
