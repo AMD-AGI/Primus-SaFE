@@ -112,6 +112,10 @@ cicd:
   # Max concurrent ephemeral runners per AutoscalingRunnerSet (CI concurrency).
   # Can be overridden per deploy via cd-deploy.sh COMPONENT_TAGS="cicd.max_runners=<n>".
   max_runners: 1024
+  # Min warm ephemeral runners per AutoscalingRunnerSet. Must be >0 so the entry
+  # job (Build matrix / Dispatch) is never acquired by a cold-starting runner
+  # that dies before reporting — which orphans the job and stalls the whole run.
+  min_runners: 2
 db:
   # Enable database for historical job queries, defaults to true
   enable: true

@@ -29,7 +29,10 @@ data:
       app.kubernetes.io/part-of: gha-rs
       app.kubernetes.io/version: 0.13.0
   spec:
-    minRunners: 0
+    # Keep a few warm runners (min>0) so an incoming job is never acquired by a
+    # cold-starting runner that may die before it reports — which leaves the job
+    # acquired-but-orphaned (GitHub never re-dispatches it -> stuck queued).
+    minRunners: {{ .Values.cicd.min_runners | default 1 }}
     maxRunners: {{ .Values.cicd.max_runners | default 20 }}
     template:
       spec:
