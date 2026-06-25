@@ -530,10 +530,29 @@ func (h *Handler) buildListNodeResponse(ctx context.Context,
 	result := &view.ListNodeResponse{
 		TotalCount: totalCount,
 	}
+	// Cache each workspace's node flavor so abnormal / flavor-mismatched nodes
+	// report zero available, consistent with the workspace available quota,
+	// without re-fetching the same workspace per node.
+	workspaceFlavors := make(map[string]string)
+	resolveWorkspaceFlavor := func(workspaceId string) string {
+		if workspaceId == "" {
+			return ""
+		}
+		if flavor, ok := workspaceFlavors[workspaceId]; ok {
+			return flavor
+		}
+		flavor := ""
+		if workspace, wsErr := h.getAdminWorkspace(ctx, workspaceId); wsErr == nil {
+			flavor = workspace.Spec.NodeFlavor
+		}
+		workspaceFlavors[workspaceId] = flavor
+		return flavor
+	}
 	for i, n := range nodes {
 		var item view.NodeResponseItem
 		usedResource, _ := allUsedResource[n.Name]
-		item = cvtToNodeResponseItem(n, usedResource)
+		contributesAvail := nodeContributesAvailable(n, resolveWorkspaceFlavor(v1.GetWorkspaceId(n)))
+		item = cvtToNodeResponseItem(n, usedResource, contributesAvail)
 
 		// Add GPU utilization from node_statistic if available
 		if gpuUtil, ok := nodeGpuUtilization[n.Name]; ok {
@@ -578,7 +597,15 @@ func (h *Handler) getNode(c *gin.Context) (interface{}, error) {
 		klog.ErrorS(err, "failed to get used resource", "node", node.Name)
 		return nil, err
 	}
-	result := cvtToGetNodeResponse(node, usedResource)
+	// Resolve the node's workspace flavor so an abnormal or flavor-mismatched
+	// node reports zero available, consistent with the workspace quota.
+	workspaceFlavor := ""
+	if workspaceId := v1.GetWorkspaceId(node); workspaceId != "" {
+		if workspace, wsErr := h.getAdminWorkspace(ctx, workspaceId); wsErr == nil {
+			workspaceFlavor = workspace.Spec.NodeFlavor
+		}
+	}
+	result := cvtToGetNodeResponse(node, usedResource, nodeContributesAvailable(node, workspaceFlavor))
 	if result.Workspace.Id != "" {
 		if result.Workspace.Name, err = h.getWorkspaceDisplayName(ctx, result.Workspace.Id); err != nil {
 			klog.ErrorS(err, "failed to get workspace display name", "workspaceId", result.Workspace.Id)
@@ -1111,9 +1138,27 @@ func generateNodeLabelAction(node *v1.Node, req *view.PatchNodeRequest) map[stri
 	return nodesLabelAction
 }
 
+// nodeContributesAvailable reports whether a node exposes available resources.
+// It mirrors the inclusion rule of the workspace available quota
+// (getWorkspaceAvailQuota): an unavailable (abnormal) node, or a node whose
+// flavor no longer matches its workspace flavor, contributes no schedulable
+// capacity and therefore reports zero available, so the per-node view sums up
+// to the workspace available quota. workspaceFlavor is the node's workspace
+// NodeFlavor; it is empty when the node has no workspace or the flavor is
+// unknown, in which case only node availability is considered.
+func nodeContributesAvailable(node *v1.Node, workspaceFlavor string) bool {
+	if !node.IsAvailable(false) {
+		return false
+	}
+	if workspaceFlavor == "" {
+		return true
+	}
+	return v1.GetNodeFlavorId(node) == workspaceFlavor
+}
+
 // cvtToNodeResponseItem converts a node object to a response item format.
 // Includes resource availability, phase information, and workload details.
-func cvtToNodeResponseItem(node *v1.Node, usedResource *resourceInfo) view.NodeResponseItem {
+func cvtToNodeResponseItem(node *v1.Node, usedResource *resourceInfo, contributesAvail bool) view.NodeResponseItem {
 	result := view.NodeResponseItem{
 		NodeBriefResponseItem: convertToNodeBriefResponse(node),
 		ClusterId:             v1.GetClusterId(node),
@@ -1124,23 +1169,30 @@ func cvtToNodeResponseItem(node *v1.Node, usedResource *resourceInfo) view.NodeR
 		IsAddonsInstalled:     v1.IsNodeTemplateInstalled(node),
 	}
 	result.Workspace.Id = v1.GetWorkspaceId(node)
-	var availResource corev1.ResourceList
+	// Available resources are the node allocatable with the system reserve
+	// removed (GetAvailableResource) minus the resources in use on the node,
+	// clamped to a minimum of zero so an over-committed node reports 0 rather
+	// than a negative value. A node that contributes no schedulable capacity to
+	// its workspace -- an abnormal node, or one whose flavor no longer matches
+	// its workspace -- reports zero available, keeping the per-node view
+	// consistent with the workspace available quota (getWorkspaceAvailQuota).
+	availResource := quantity.GetAvailableResource(node.Status.Resources)
 	if usedResource != nil && len(usedResource.resource) > 0 {
-		availResource = quantity.GetAvailableResource(node.Status.Resources)
 		availResource = quantity.SubResource(availResource, usedResource.resource)
 		result.Workloads = usedResource.workloads
-	} else {
-		availResource = quantity.GetAvailableResource(node.Status.Resources)
 	}
-	result.AvailResources = cvtToResourceList(availResource)
+	if !contributesAvail {
+		availResource = quantity.MultiResource(node.Status.Resources, 0)
+	}
+	result.AvailResources = cvtToResourceList(quantity.NonNegative(availResource))
 	return result
 }
 
 // cvtToGetNodeResponse converts a node object to a detailed response format.
 // Includes all node details, taints, labels, and template information.
-func cvtToGetNodeResponse(n *v1.Node, usedResource *resourceInfo) view.GetNodeResponse {
+func cvtToGetNodeResponse(n *v1.Node, usedResource *resourceInfo, contributesAvail bool) view.GetNodeResponse {
 	result := view.GetNodeResponse{
-		NodeResponseItem: cvtToNodeResponseItem(n, usedResource),
+		NodeResponseItem: cvtToNodeResponseItem(n, usedResource, contributesAvail),
 	}
 	result.FlavorId = v1.GetNodeFlavorId(n)
 	result.Taints = getPrimusTaints(n.Status.Taints)

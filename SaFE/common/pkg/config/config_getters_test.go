@@ -85,7 +85,7 @@ func TestGettersDefaults(t *testing.T) {
 	assert.Equal(t, "", GetSandboxNamespace())
 	assert.Equal(t, "", GetSandboxSecret())
 	assert.False(t, IsMCPEnable())
-	assert.Equal(t, "/api/v1/mcp", GetMCPBasePath())
+	assert.Equal(t, "/api/v1/safe-mcp/mcp", GetMCPBasePath())
 	assert.Equal(t, "", GetMCPInstructions())
 	assert.Equal(t, "", GetMonarchClientRole())
 	assert.False(t, IsModelOptimizationEnable())

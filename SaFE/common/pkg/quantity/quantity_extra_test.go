@@ -87,6 +87,24 @@ func TestNegativeAndSubMissing(t *testing.T) {
 	assert.NotNil(t, SubResource(rl("2", ""), rl("", "")))
 }
 
+func TestNonNegative(t *testing.T) {
+	// nil/empty input is returned as-is.
+	assert.Nil(t, NonNegative(nil))
+
+	in := corev1.ResourceList{
+		corev1.ResourceCPU:              resource.MustParse("-4"),  // negative -> clamped to 0
+		corev1.ResourceMemory:           resource.MustParse("8Gi"), // positive -> kept
+		corev1.ResourceEphemeralStorage: resource.MustParse("0"),   // zero -> kept as 0
+	}
+	out := NonNegative(in)
+	assert.Equal(t, int64(0), qval(out, corev1.ResourceCPU))
+	assert.Equal(t, int64(8*1024*1024*1024), qval(out, corev1.ResourceMemory))
+	assert.Equal(t, int64(0), qval(out, corev1.ResourceEphemeralStorage))
+
+	// input is not mutated.
+	assert.Equal(t, int64(-4), qval(in, corev1.ResourceCPU))
+}
+
 func TestFormat(t *testing.T) {
 	assert.Equal(t, "2 Gi", Format(string(corev1.ResourceMemory), resource.MustParse("2Gi")))
 	assert.Equal(t, "4 Gi", Format(string(corev1.ResourceEphemeralStorage), resource.MustParse("4Gi")))

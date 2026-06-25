@@ -111,6 +111,12 @@ func TestListNodes(t *testing.T) {
 	adminNode1.Status.Resources = genMockNodeResource(64, 2*1024*1024*1024, 8)
 	adminNode2.Name = "node2"
 	adminNode2.Status.Resources = adminNode1.Status.Resources
+	// Mark both nodes ready/managed so they are available and contribute their
+	// available resources (an abnormal node reports zero available).
+	for _, n := range []*v1.Node{adminNode1, adminNode2} {
+		n.Status.MachineStatus.Phase = v1.NodeReady
+		n.Status.ClusterStatus.Phase = v1.NodeManaged
+	}
 	workload1 := genMockWorkload(clusterId, workspace.Name)
 	workload2 := genMockWorkload(clusterId, workspace.Name)
 	workload1.Status.Pods = []v1.WorkloadPod{{
@@ -556,4 +562,97 @@ func TestListNodes_SearchCombinedWithOtherFilters(t *testing.T) {
 	err := json.Unmarshal(rsp.Body.Bytes(), &result)
 	assert.NilError(t, err)
 	assert.Equal(t, result.TotalCount, 2) // Only gpu-node-001 and gpu-node-002 in cluster-1
+}
+
+// genAvailableNode builds a ready + managed (i.e. available) node bound to the
+// given workspace/flavor with the provided status resources.
+func genAvailableNode(name, clusterId, workspaceId, flavorId string, res corev1.ResourceList) *v1.Node {
+	n := genMockAdminNode(clusterId, workspaceId, flavorId)
+	n.Name = name
+	n.Status.Resources = res
+	n.Status.MachineStatus.Phase = v1.NodeReady
+	n.Status.ClusterStatus.Phase = v1.NodeManaged
+	return n
+}
+
+func TestNodeContributesAvailable(t *testing.T) {
+	clusterId := "c1"
+	wsId := "ws1"
+	flavor := "f1"
+	available := genAvailableNode("n1", clusterId, wsId, flavor, genMockNodeResource(8, 1<<30, 4))
+
+	// Available node whose flavor matches the workspace flavor contributes.
+	assert.Equal(t, true, nodeContributesAvailable(available, flavor))
+	// Available node whose flavor differs from the workspace flavor does not.
+	assert.Equal(t, false, nodeContributesAvailable(available, "other-flavor"))
+	// Unknown workspace flavor falls back to availability only.
+	assert.Equal(t, true, nodeContributesAvailable(available, ""))
+
+	// Abnormal node (machine not ready) does not contribute even if flavor matches.
+	notReady := genAvailableNode("n2", clusterId, wsId, flavor, genMockNodeResource(8, 1<<30, 4))
+	notReady.Status.MachineStatus.Phase = ""
+	assert.Equal(t, false, nodeContributesAvailable(notReady, flavor))
+
+	// Abnormal node (not managed) does not contribute.
+	notManaged := genAvailableNode("n3", clusterId, wsId, flavor, genMockNodeResource(8, 1<<30, 4))
+	notManaged.Status.ClusterStatus.Phase = ""
+	assert.Equal(t, false, nodeContributesAvailable(notManaged, flavor))
+}
+
+func TestCvtToNodeResponseItemZerosWhenNotContributing(t *testing.T) {
+	node := genAvailableNode("n1", "c1", "ws1", "f1", genMockNodeResource(64, 2*1024*1024*1024, 8))
+
+	// Contributing node reports allocatable minus in-use (reserve is 0 in tests).
+	item := cvtToNodeResponseItem(node, nil, true)
+	assert.Equal(t, item.AvailResources["cpu"], int64(64))
+	assert.Equal(t, item.AvailResources[common.AmdGpu], int64(8))
+
+	// Non-contributing (abnormal / flavor-mismatched) node reports zero, never
+	// negative, while totalResources is unchanged.
+	item = cvtToNodeResponseItem(node, nil, false)
+	assert.Equal(t, item.TotalResources["cpu"], int64(64))
+	assert.Equal(t, item.AvailResources["cpu"], int64(0))
+	assert.Equal(t, item.AvailResources[common.AmdGpu], int64(0))
+}
+
+func TestGetWorkspaceAvailQuota(t *testing.T) {
+	clusterId := "test-cluster"
+	flavor := "test-flavor"
+	workspace := genMockWorkspace(clusterId, flavor)
+	wsName := workspace.Name
+
+	// nodeA: available + flavor match, lightly used -> contributes positive avail.
+	nodeA := genAvailableNode("node-a", clusterId, wsName, flavor, genMockNodeResource(64, 2*1024*1024*1024, 8))
+	// nodeB: available + flavor match, over-committed -> clamps to 0 (not negative).
+	nodeB := genAvailableNode("node-b", clusterId, wsName, flavor, genMockNodeResource(8, 1*1024*1024*1024, 4))
+	// nodeC: flavor match but abnormal (machine not ready) -> excluded.
+	nodeC := genAvailableNode("node-c", clusterId, wsName, flavor, genMockNodeResource(64, 2*1024*1024*1024, 8))
+	nodeC.Status.MachineStatus.Phase = ""
+	// nodeD: available but flavor mismatch -> excluded.
+	nodeD := genAvailableNode("node-d", clusterId, wsName, "other-flavor", genMockNodeResource(64, 2*1024*1024*1024, 8))
+
+	// One running pod per used node (per-pod request = cpu 16, gpu 4, mem 1Gi).
+	wlA := genMockWorkload(clusterId, wsName)
+	wlA.Status.Pods = []v1.WorkloadPod{{AdminNodeName: nodeA.Name}}
+	wlB := genMockWorkload(clusterId, wsName)
+	wlB.Status.Pods = []v1.WorkloadPod{{AdminNodeName: nodeB.Name}}
+
+	fakeClient := fake.NewClientBuilder().
+		WithObjects(workspace, nodeA, nodeB, nodeC, nodeD, wlA, wlB).
+		WithStatusSubresource(wlA, wlB).
+		WithScheme(scheme.Scheme).Build()
+	h := Handler{Client: fakeClient}
+
+	avail, err := h.getWorkspaceAvailQuota(context.Background(), workspace)
+	assert.NilError(t, err)
+
+	// nodeA: cpu 64-16=48, gpu 8-4=4, mem 2Gi-1Gi=1Gi.
+	// nodeB: cpu 8-16<0 -> 0, gpu 4-4=0, mem 1Gi-1Gi=0.
+	// nodeC (abnormal) and nodeD (flavor mismatch) excluded.
+	cpu := avail[corev1.ResourceCPU]
+	gpu := avail[common.AmdGpu]
+	mem := avail[corev1.ResourceMemory]
+	assert.Equal(t, int64(48), cpu.Value())
+	assert.Equal(t, int64(4), gpu.Value())
+	assert.Equal(t, int64(1*1024*1024*1024), mem.Value())
 }

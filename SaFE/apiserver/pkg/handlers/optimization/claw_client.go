@@ -112,6 +112,11 @@ type MessageRequest struct {
 	// uses it to resolve the base resource spec; body.image and body.resource
 	// take priority and override the plugin's defaults.
 	PluginID int `json:"pluginId,omitempty"`
+	// Timeout is the GPU sandbox run timeout in SECONDS, forwarded to Claw as
+	// body.timeout. Derived from the optimizer budget (maxHours * 3600) so the
+	// sandbox lifetime matches the requested --max-hours instead of relying on
+	// the plugin's default.
+	Timeout int `json:"timeout,omitempty"`
 }
 
 // MessageContent is a single segment in a multi-part message payload.
