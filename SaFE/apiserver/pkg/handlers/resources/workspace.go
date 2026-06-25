@@ -586,8 +586,17 @@ func (h *Handler) cvtToGetWorkspaceResponse(ctx context.Context, workspace *v1.W
 	}
 	result.UsedQuota = cvtToResourceList(usedQuota)
 	result.UsedNodeCount = usedNodeCount
-	result.AvailQuota = cvtToResourceList(quantity.SubResource(
-		workspace.Status.AvailableResources, usedQuota))
+	// Available quota is summed from each node's non-negative available
+	// resources (allocatable minus system reserve minus in-use) instead of
+	// subtracting the aggregate used from the aggregate available. Clamping per
+	// node keeps an over-committed node from contributing a negative value that
+	// would cancel spare capacity on other nodes, and matches the GetNode /
+	// ListNode per-node available so the two views stay consistent.
+	availQuota, err := h.getWorkspaceAvailQuota(ctx, workspace)
+	if err != nil {
+		return nil, err
+	}
+	result.AvailQuota = cvtToResourceList(availQuota)
 	for _, s := range workspace.Spec.ImageSecrets {
 		result.ImageSecretIds = append(result.ImageSecretIds, s.Name)
 	}
@@ -628,4 +637,45 @@ func (h *Handler) getWorkspaceUsedQuota(ctx context.Context, workspace *v1.Works
 		}
 	}
 	return usedQuota, len(nodeSet), nil
+}
+
+// getWorkspaceAvailQuota computes the workspace available quota as the sum of
+// each available node's non-negative available resources. Each node's
+// available is its allocatable with the system reserve removed (via
+// GetAvailableResource, the same as the GetNode/ListNode response) minus the
+// resources in use by running pods on that node, clamped to a minimum of zero.
+// Clamping per node (rather than on the workspace aggregate) prevents an
+// over-committed node from producing a negative value that would cancel spare
+// capacity on other nodes, so the workspace available never goes negative and
+// stays consistent with the per-node view.
+func (h *Handler) getWorkspaceAvailQuota(ctx context.Context, workspace *v1.Workspace) (corev1.ResourceList, error) {
+	nodes, err := commonnodes.GetNodesOfWorkspaces(ctx, h.Client, []string{workspace.Name}, commonnodes.FilterDeletingNode)
+	if err != nil {
+		return nil, err
+	}
+	workloads, err := h.getRunningWorkloads(ctx, workspace.Spec.Cluster, []string{workspace.Name})
+	if err != nil {
+		return nil, err
+	}
+	usedPerNode := make(map[string]corev1.ResourceList)
+	for _, w := range workloads {
+		resourcePerNode, err := commonworkload.GetResourcesPerNode(w, "")
+		if err != nil {
+			return nil, err
+		}
+		for nodeName, resList := range resourcePerNode {
+			usedPerNode[nodeName] = quantity.AddResource(usedPerNode[nodeName], resList)
+		}
+	}
+	var availQuota corev1.ResourceList
+	for i := range nodes {
+		node := &nodes[i]
+		if v1.GetNodeFlavorId(node) != workspace.Spec.NodeFlavor || !node.IsAvailable(false) {
+			continue
+		}
+		nodeAvail := quantity.GetAvailableResource(node.Status.Resources)
+		nodeAvail = quantity.SubResource(nodeAvail, usedPerNode[node.Name])
+		availQuota = quantity.AddResource(availQuota, quantity.NonNegative(nodeAvail))
+	}
+	return availQuota, nil
 }

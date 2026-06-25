@@ -93,6 +93,24 @@ func Negative(rl corev1.ResourceList) corev1.ResourceList {
 	return result
 }
 
+// NonNegative clamps every quantity to a minimum of zero. It is used to drop
+// the negative values produced when an over-committed node's in-use resources
+// exceed its available resources, so per-node available never goes below zero.
+func NonNegative(rl corev1.ResourceList) corev1.ResourceList {
+	if len(rl) == 0 {
+		return rl
+	}
+	result := corev1.ResourceList{}
+	for k, v := range rl {
+		if v.Sign() < 0 {
+			result[k] = *resource.NewQuantity(0, v.Format)
+		} else {
+			result[k] = v.DeepCopy()
+		}
+	}
+	return result
+}
+
 // Copy creates a deep copy of a resource list.
 func Copy(rl corev1.ResourceList) corev1.ResourceList {
 	if len(rl) == 0 {
