@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Masterminds/semver/v3"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -719,7 +720,7 @@ func (r *ClusterReconciler) guaranteeDefaultAddon(ctx context.Context, cluster *
 	if err != nil {
 		return reconcile.Result{}, fmt.Errorf("list addon templates failed %+v", err)
 	}
-	for _, template := range templates.Items {
+	for _, template := range latestDefaultTemplates(templates.Items) {
 		component := getComponentName(template.Name)
 		name := fmt.Sprintf("%s-%s", cluster.Name, component)
 		addon := new(v1.Addon)
@@ -784,30 +785,44 @@ func (r *ClusterReconciler) guaranteeDefaultAddon(ctx context.Context, cluster *
 			klog.Errorf("get addon template %s failed %+v", name, err)
 			continue
 		}
-		// Addon already exists: re-point it at the current AddonTemplate when the
-		// template name changed (a version bump renames the template, e.g.
-		// optimus-operator.0.1.4 -> optimus-operator.0.1.5). guaranteeDefaultAddon
-		// historically only created Addons and never updated an existing one, so a
-		// bumped template left the Addon referencing a now-deleted template name;
-		// the AddonController's getHelm then failed to find it and never upgraded.
-		// Patching the template ref bumps the Addon's resourceVersion, which the
-		// AddonController watches, triggering a Helm upgrade to the new chart
-		// version / default values. User-set spec values are left untouched.
-		if hr := addon.Spec.AddonSource.HelmRepository; hr != nil && hr.Template != nil &&
-			hr.Template.Name != template.Name {
-			original := client.MergeFrom(addon.DeepCopy())
-			hr.Template.Kind = template.Kind
-			hr.Template.APIVersion = template.APIVersion
-			hr.Template.Namespace = template.Namespace
-			hr.Template.Name = template.Name
-			hr.Template.UID = template.UID
-			hr.Template.ResourceVersion = template.ResourceVersion
-			if err = r.Patch(ctx, addon, original); err != nil {
-				return reconcile.Result{}, fmt.Errorf("update addon %s template ref to %s failed %+v",
-					name, template.Name, err)
-			}
-			klog.Infof("[addon] re-pointed addon %s template ref -> %s", name, template.Name)
+		// Addon already exists. Respect the deployed version: a resource-manager
+		// reconcile/restart must NOT change the deployment state of an existing
+		// addon (an operator may have intentionally pinned an older version).
+		//
+		// Therefore only repair a *dangling* template reference — when the
+		// template the addon points at no longer exists (e.g. a version bump
+		// that renamed and removed the old template). In that case re-point to
+		// the highest available version so the AddonController can still resolve
+		// a chart. If the referenced template still exists, leave the addon
+		// untouched (no auto-upgrade).
+		hr := addon.Spec.AddonSource.HelmRepository
+		if hr == nil || hr.Template == nil || hr.Template.Name == template.Name {
+			continue
 		}
+		existing := new(v1.AddonTemplate)
+		getErr := r.Get(ctx, types.NamespacedName{Name: hr.Template.Name}, existing)
+		if getErr == nil {
+			// Referenced template still exists → respect the deployed version.
+			continue
+		}
+		if !apierrors.IsNotFound(getErr) {
+			klog.Errorf("[addon] check template %s for addon %s failed %+v", hr.Template.Name, name, getErr)
+			continue
+		}
+		// Dangling reference: the addon's template was removed. Recover by
+		// re-pointing to the highest available version of this component.
+		original := client.MergeFrom(addon.DeepCopy())
+		hr.Template.Kind = template.Kind
+		hr.Template.APIVersion = template.APIVersion
+		hr.Template.Namespace = template.Namespace
+		hr.Template.Name = template.Name
+		hr.Template.UID = template.UID
+		hr.Template.ResourceVersion = template.ResourceVersion
+		if err = r.Patch(ctx, addon, original); err != nil {
+			return reconcile.Result{}, fmt.Errorf("recover addon %s dangling template ref to %s failed %+v",
+				name, template.Name, err)
+		}
+		klog.Infof("[addon] recovered addon %s dangling template ref -> %s", name, template.Name)
 	}
 	return reconcile.Result{}, nil
 }
@@ -818,4 +833,62 @@ func getComponentName(name string) string {
 		return name[:index]
 	}
 	return name
+}
+
+// latestDefaultTemplates collapses the default-addon AddonTemplate list to a
+// single template per component: the one with the highest semantic version.
+//
+// The default-addon label is carried by every historical template version of a
+// component (e.g. primus-robust.1.0.0 .. primus-robust.1.0.5), and the API list
+// order is not deterministic. Iterating all of them in guaranteeDefaultAddon
+// re-points an existing Addon to whichever version was processed last, which
+// randomly downgrades an installed addon (and its Helm release) on every
+// reconcile / controller restart. Selecting the highest version per component
+// makes the desired template deterministic.
+func latestDefaultTemplates(items []v1.AddonTemplate) []v1.AddonTemplate {
+	type pick struct {
+		tmpl v1.AddonTemplate
+		ver  *semver.Version
+	}
+	best := map[string]pick{}
+	for i := range items {
+		t := items[i]
+		component := getComponentName(t.Name)
+		v := templateSemver(t)
+		cur, ok := best[component]
+		switch {
+		case !ok:
+			best[component] = pick{tmpl: t, ver: v}
+		case v != nil && (cur.ver == nil || v.GreaterThan(cur.ver)):
+			best[component] = pick{tmpl: t, ver: v}
+		case v == nil && cur.ver == nil && t.Name > cur.tmpl.Name:
+			// Neither version parses: deterministic fallback by template name.
+			best[component] = pick{tmpl: t, ver: v}
+		}
+	}
+	out := make([]v1.AddonTemplate, 0, len(best))
+	for _, p := range best {
+		out = append(out, p.tmpl)
+	}
+	return out
+}
+
+// templateSemver extracts an AddonTemplate's semantic version, preferring
+// Spec.Version and falling back to the suffix after the first '.' in the name
+// (e.g. "primus-robust.1.0.5" -> "1.0.5"). Returns nil if it cannot be parsed.
+func templateSemver(t v1.AddonTemplate) *semver.Version {
+	raw := t.Spec.Version
+	if raw == "" {
+		if i := strings.Index(t.Name, "."); i > 0 && i+1 < len(t.Name) {
+			raw = t.Name[i+1:]
+		}
+	}
+	if raw == "" {
+		return nil
+	}
+	v, err := semver.NewVersion(raw)
+	if err != nil {
+		return nil
+	}
+	return v
 }
