@@ -10,6 +10,7 @@
         () => {
           state.showDialog = true
           state.curAction = 'Create'
+          state.curName = ''
         }
       "
     >

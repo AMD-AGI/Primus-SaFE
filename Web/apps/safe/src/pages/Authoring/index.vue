@@ -225,7 +225,7 @@
           <template #default="{ row }">
             <!-- First 2 inline actions -->
             <template v-for="act in getActions(row).slice(0, 2)" :key="act.key">
-              <el-tooltip :content="act.label" placement="top">
+              <el-tooltip :content="act.tooltip?.(row) ?? act.label" placement="top">
                 <el-button
                   circle
                   size="default"
@@ -316,6 +316,7 @@
 <script lang="ts" setup>
 import { ref, reactive, watch, nextTick, onMounted, onBeforeUnmount, h, computed } from 'vue'
 import { useWorkloadWriteGuard } from '@/composables/useWorkloadWriteGuard'
+import { useWorkloadResumePermission } from '@/composables/useWorkloadResumePermission'
 import {
   getWorkloadsList,
   deleteWorkload,
@@ -363,6 +364,7 @@ const router = useRouter()
 const store = useWorkspaceStore()
 const userStore = useUserStore()
 const { canWrite } = useWorkloadWriteGuard()
+const { getResumeDisabled, getResumeTooltip } = useWorkloadResumePermission(canWrite)
 
 const addVisible = ref(false)
 const initialSearchParams = {
@@ -642,13 +644,22 @@ const onSearch = (options?: { resetPage?: boolean }) => {
   })
 }
 
-type Row = { workloadId: string; phase: string; pods: { podId?: string }[]; displayName?: string }
+type Row = {
+  workloadId: string
+  phase: string
+  pods: { podId?: string }[]
+  displayName?: string
+  workspaceId?: string
+  workspace?: string
+  userId?: string
+}
 type Action = {
   key: string
   label: string
   icon: any
   btnClass?: string
   disabled?: (row: Row) => boolean
+  tooltip?: (row: Row) => string
   onClick: (row: Row) => void | Promise<void>
 }
 
@@ -670,7 +681,8 @@ const getActions = (row: Row): Action[] => [
     label: 'Resume',
     icon: VideoPlay,
     btnClass: 'btn-success-plain',
-    disabled: (r: Row) => !canWrite.value || !['Stopped','Failed','Succeeded'].includes((r as any).phase),
+    disabled: getResumeDisabled,
+    tooltip: getResumeTooltip,
     onClick: (r: Row) => {
       const endTime = (r as any).endTime
       if (endTime && dayjs().diff(dayjs.utc(endTime), 'second') < 15) {

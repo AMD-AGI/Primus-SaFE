@@ -35,8 +35,8 @@
         </el-text>
       </el-form-item>
 
-      <el-form-item label="Template" prop="template" v-if="props.name">
-        <el-select v-model="form.template">
+      <el-form-item label="Template" prop="template" v-if="canSelectTemplate">
+        <el-select v-model="form.template" @change="onTemplateChange">
           <el-option v-for="v in tempOptions" :key="v" :label="v" :value="v" />
         </el-select>
       </el-form-item>
@@ -70,14 +70,25 @@
       </div>
 
       <el-form-item label="values">
-        <div class="w-full">
+        <div class="w-full" v-loading="valuesLoading" element-loading-text="Loading values...">
           <div class="flex items-center justify-between mb-2">
-            <el-text type="info">Helm values (YAML). Leave empty to use template defaults.</el-text>
+            <el-text type="info">
+              Helm values (YAML). Values replace template defaults instead of merging. Select a
+              template to load its complete defaults; leave empty to use template defaults.
+            </el-text>
             <div class="flex gap-2">
-              <el-button link type="primary" @click="resetValues">Reset</el-button>
+              <el-button link type="primary" :disabled="valuesLoading" @click="resetValues">
+                Reset
+              </el-button>
             </div>
           </div>
-          <el-input v-model="form.values" type="textarea" :rows="20" placeholder="# key: value" />
+          <el-input
+            v-model="form.values"
+            type="textarea"
+            :rows="20"
+            :disabled="valuesLoading"
+            placeholder="# key: value"
+          />
         </div>
       </el-form-item>
     </el-form>
@@ -95,7 +106,7 @@
 
 <script lang="ts" setup>
 import { defineProps, defineEmits, reactive, ref, nextTick, computed } from 'vue'
-import { ElMessage, type FormInstance, type FormRules } from 'element-plus'
+import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
 import { useClusterStore } from '@/stores/cluster'
 import {
   createAddon,
@@ -118,7 +129,8 @@ const props = defineProps<{
 }>()
 
 const isEdit = computed(() => props.action === 'Edit')
-const detail = ref<any>(null)
+const canSelectTemplate = computed(() => !props.id)
+const detail = ref<AddonTemplateDetail | null>(null)
 const tempOptions = ref([] as string[])
 const curCluster = ref('')
 
@@ -148,15 +160,85 @@ const rules: FormRules = {
 
 const ruleFormRef = ref<FormInstance>()
 const submitting = ref(false)
+const valuesLoading = ref(false)
+let valuesLoadingCount = 0
+
+const startValuesLoading = () => {
+  valuesLoadingCount += 1
+  valuesLoading.value = true
+}
+
+const stopValuesLoading = () => {
+  valuesLoadingCount = Math.max(0, valuesLoadingCount - 1)
+  valuesLoading.value = valuesLoadingCount > 0
+}
 
 function resetValues() {
-  form.values = detail.value?.helmStatus?.valuesYaml ?? detail.value?.helmDefaultValues ?? ''
+  form.values = detail.value ? getTemplateDefaultValues(detail.value) : ''
   ElMessage.success('Reset to default values')
 }
 
 const fetchTemps = async () => {
   const res = await getAddontemps({}).catch(() => ({ items: [] }))
   tempOptions.value = (res?.items ?? []).map((n: AddonTemp) => n.addonTemplateId)
+}
+
+const getTemplateDefaultValues = (templateDetail: AddonTemplateDetail) => {
+  const statusValues =
+    typeof templateDetail.helmStatus?.values === 'string'
+      ? templateDetail.helmStatus.values
+      : undefined
+  return templateDetail.helmStatus?.valuesYaml ?? statusValues ?? templateDetail.helmDefaultValues ?? ''
+}
+
+const getAddonDetailValues = (addon: AddonDetailData) => {
+  const statusValues =
+    typeof addon.status?.values === 'string' ? addon.status.values : undefined
+  return addon.values || statusValues || ''
+}
+
+const applyTemplateDefaults = async (templateId: string, overwriteValues = true) => {
+  if (!templateId) return null
+
+  startValuesLoading()
+  try {
+    const res = (await getAddontempDetail(templateId)) as AddonTemplateDetail
+    detail.value = res
+    form.template = res.addonTemplateId || templateId
+    if (!isEdit.value) {
+      form.namespace = res.helmDefaultNamespace || 'default'
+    }
+    if (overwriteValues) {
+      form.values = getTemplateDefaultValues(res)
+    }
+    return res
+  } catch (e) {
+    ElMessage.error((e as Error).message || 'Failed to load template detail')
+    return null
+  } finally {
+    stopValuesLoading()
+  }
+}
+
+const onTemplateChange = (templateId: string) => {
+  void applyTemplateDefaults(templateId, true)
+}
+
+const confirmValuesReplacement = async () => {
+  try {
+    await ElMessageBox.confirm(
+      'These values replace the template defaults instead of merging with them. Please confirm this is the complete values YAML before continuing.',
+      'Confirm addon values',
+      {
+        confirmButtonText: 'Confirm',
+        cancelButtonText: 'Cancel',
+        type: 'warning',
+      },
+    )
+    return true
+  } catch {
+    return false
+  }
 }
 
 const onOpen = async () => {
@@ -170,35 +252,34 @@ const onOpen = async () => {
 
   if (props.name && isEdit.value) {
     // Edit
-    fetchTemps()
+    await fetchTemps()
+    startValuesLoading()
     try {
       const res = (await getAddonDetail(
         clusterStore.currentClusterId ?? '',
         props.name,
       )) as AddonDetailData
-      detail.value = res
 
       form.template = res.template
       form.namespace = res.namespace ?? 'default'
-      form.values = res.values ?? ''
+      form.values = getAddonDetailValues(res)
       form.releaseName = res.releaseName ?? ''
       form.description = res.description ?? ''
       curCluster.value = res.cluster
+      const templateDetail = await applyTemplateDefaults(res.template, false)
+      if (!form.values && templateDetail) {
+        form.values = getTemplateDefaultValues(templateDetail)
+      }
     } catch (e) {
       ElMessage.error((e as Error).message || 'Failed to load addon detail')
+    } finally {
+      stopValuesLoading()
     }
   } else if (props.id) {
     // Create from template
-    try {
-      const res = (await getAddontempDetail(props.id)) as AddonTemplateDetail
-      detail.value = res
-
-      form.template = res.addonTemplateId || ''
-      form.namespace = res.helmDefaultNamespace || 'default'
-      form.values = res.helmStatus?.valuesYaml ?? res.helmDefaultValues ?? ''
-    } catch (e) {
-      ElMessage.error((e as Error).message || 'Failed to load template detail')
-    }
+    await applyTemplateDefaults(props.id, true)
+  } else {
+    await fetchTemps()
   }
 
   await nextTick()
@@ -209,6 +290,8 @@ const onSubmit = async (formEl: FormInstance | undefined) => {
 
   try {
     await formEl.validate()
+    const confirmed = await confirmValuesReplacement()
+    if (!confirmed) return
 
     submitting.value = true
 

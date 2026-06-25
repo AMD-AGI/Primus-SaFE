@@ -795,7 +795,12 @@ func (r *ModelReconciler) constructLocalDownloadOpsJob(ctx context.Context, mode
 
 	jobName := stringutil.NormalizeForDNS(fmt.Sprintf("%s-%s-%s", DownloadJobPrefix, model.Name, lp.Workspace))
 
-	displayName := strings.ToLower(model.GetSafeDisplayName())
+	// Sanitize to a DNS-style label: GetSafeDisplayName can contain '_' (and
+	// other chars) that the OpsJob webhook's DisplayName rule rejects
+	// (^[a-z][-a-z0-9.]*[a-z0-9]$), which previously left the download OpsJob
+	// uncreatable and the model stuck in Failed. NormalizeForDNS maps '_', '/',
+	// '.', etc. to '-' so the label always validates.
+	displayName := stringutil.NormalizeForDNS(model.GetSafeDisplayName())
 
 	// s3Path placeholder so the existing log line still makes sense.
 	s3Path := inputURL
