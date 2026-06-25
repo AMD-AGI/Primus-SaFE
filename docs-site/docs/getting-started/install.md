@@ -8,7 +8,12 @@ title: Install
 > **Status:** Draft · **Owner:** _unassigned_ · **Source:** `Bootstrap/README.md`,
 > `SaFE/docs/installation/install.md`, `Bench/README.md`
 
-Start with a single cluster — that is the path most teams need. Scale to a multi-cluster
+:::note this page needs rework
+it's missing a lots of steps. we should follow an actual setup routine based on the current code base
+
+:::
+
+Start with a single cluster — that is the path fits most users. Scale to a multi-cluster
 fleet only when one control plane has to manage several GPU clusters.
 
 ## Single cluster (the common path)
@@ -22,7 +27,7 @@ with your nodes and roles (control plane, etcd, workers), then run:
 bash bootstrap.sh
 ```
 
-This stands up Kubernetes (via Kubespray) and installs the core add-ons. If you already have
+This brings up Kubernetes (via Kubespray) and installs the core add-ons. If you already have
 a Kubernetes 1.21+ cluster, skip this step.
 
 ### 2. Install the platform
