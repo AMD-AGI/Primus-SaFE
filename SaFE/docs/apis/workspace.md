@@ -279,7 +279,7 @@ Only fields not already covered by "List Workspace" are listed below. Other fiel
 | Field         | Type   | Description                                                           |
 |---------------|--------|-----------------------------------------------------------------------|
 | totalQuota    | object | Total resources in the workspace: resource names and their quantities |
-| availQuota   | object | The available resource of workspace                                   |
+| availQuota   | object | The available resource of workspace: the sum of each available node's available resources (each clamped to a minimum of 0), so it never goes negative |
 | abnormalQuota | object | The abnormal resources of workspace                                   |
 | usedQuota        | object | The used resources of workspace                                       |
 | usedNodeCount | int    | The node currently in use has workloads running on it                 |
@@ -428,7 +428,14 @@ Add or remove nodes from a workspace.
 ## Resource Quota
 
 - **totalQuota**: Total workspace quota (number of nodes × node flavor)
-- **availQuota**: Available quota (total quota - used quota - abnormal quota)
+- **availQuota**: Available quota. Computed as the sum over the workspace's
+  available nodes (whose flavor matches the workspace flavor) of each node's
+  available resources, where a node's available = node allocatable − system
+  reserve (e.g. `cpu_reserve_percent`) − resources in use on that node, clamped
+  to a minimum of 0. Clamping per node (instead of subtracting the aggregate
+  used from the aggregate available) keeps an over-committed node from
+  cancelling spare capacity on other nodes, so this value never goes negative
+  and equals the sum of the per-node available reported by the node APIs.
 - **usedQuota**: Quota used by workloads
 - **abnormalQuota**: Quota occupied by abnormal nodes
 
