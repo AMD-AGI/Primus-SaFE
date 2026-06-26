@@ -27,7 +27,7 @@ the platform manages its full lifecycle. All kinds share the same submit flow �
 **Authoring** is a first-class workload kind for interactive development: a single-replica pod
 that the platform keeps alive so you can work in it like a remote machine. You reach it via
 the console's WebShell or over SSH. The hands-on how-to is in
-[Tasks → Develop with an Authoring dev box](/tasks/authoring-dev-box).
+[Tasks → Authoring dev box](/tasks/interact-with-your-job#authoring-a-personal-dev-box).
 
 ## Which type should I pick?
 

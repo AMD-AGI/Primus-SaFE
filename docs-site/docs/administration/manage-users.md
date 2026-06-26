@@ -19,6 +19,24 @@ A brand-new account (however it was created) can do almost nothing until an admi
 workspace access — the only exception is a [default/public workspace](/concepts/workspace),
 which every user can see.
 
+<!-- @test
+scope: page
+mode: contract
+priority: P0
+personas: [admin, member]
+preconditions: [running-cluster]
+do: follow this page's "From the console (UI)" steps to create a default user (unique name), then sign out and sign in as them
+expect:
+  - the new user can sign in
+  - as that default user: no System admin section in the nav; Nodes/Clusters/Users not reachable; only public/granted workspaces listed
+  - after an admin freezes them (row action), they can no longer sign in
+cleanup: as admin, delete the user via its row action
+-->
+<!-- @test todo:
+  - "Doc does not state the exact non-admin behavior on System pages (hidden nav vs redirect); make the prose explicit so the expect can be precise."
+  - "Add the positive path: grant the user a workspace, then confirm they can act in it."
+-->
+
 ## The identity model
 
 Every account has a **type** and a set of **roles**.
