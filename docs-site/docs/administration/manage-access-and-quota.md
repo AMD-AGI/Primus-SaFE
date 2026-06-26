@@ -44,6 +44,9 @@ API keys authenticate automation without a login session. Each key:
 - Has a TTL of 1–366 days, and an optional **IP whitelist** (IPs or CIDRs).
 - Inherits the creating user's permissions.
 
+In the console, go to **API Keys → Create**, set a name, a TTL (1–366 days), and an optional IP
+allowlist. The key value is shown **once** at creation — copy it then. The equivalent API call:
+
 ```bash
 curl -X POST https://<your-console>/api/v1/apikeys \
   -H "Authorization: Bearer <user-token>" \
@@ -55,6 +58,18 @@ curl -X POST https://<your-console>/api/v1/apikeys \
 The `apiKey` value is returned **only once**, at creation. Store it securely — it cannot be
 retrieved again (only a masked `keyHint` is shown afterward). Deletion is a soft delete.
 :::
+
+<!-- @test
+scope: page
+mode: behavior
+priority: P1
+personas: [member]
+preconditions: [running-cluster]
+do: in the console open API Keys > Create and create a key with a short TTL (do not print the key value)
+expect:
+  - the new key appears in the API Keys list, shown only as a masked hint (not the full secret)
+cleanup: delete the created API key
+-->
 
 ## SSH public keys (to shell into pods)
 
