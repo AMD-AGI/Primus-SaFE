@@ -31,8 +31,7 @@ cluster's API):
   cluster add-on.
 - **High-speed networking for multi-node jobs** — RDMA / InfiniBand interfaces if you intend
   to run distributed training across nodes.
-- **Shared filesystem (optional)** — a CSI volume for workspace persistent storage (PFS). You
-  can enable this at install time or leave it disabled to start.
+- **Shared filesystem (optional)** — a high-performance Parallel File System (PFS) to support a production system.
 
 ## Choose your starting point
 

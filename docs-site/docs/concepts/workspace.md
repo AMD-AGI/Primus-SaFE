@@ -8,9 +8,7 @@ title: Workspace
 > **Status:** Draft · **Owner:** _unassigned_ · **Source:** `SaFE/docs/apis/workspace.md`,
 > `node-flavor.md`
 
-A **workspace** is the multi-tenant unit of the platform: an isolated environment with its
-own quota, storage, and access control. Every workload is submitted to a workspace, and its
-ID is `{clusterId}-{name}` (e.g. `prod-cluster-ai-team`).
+A **workspace** provides multi-tenant isolation on the platform: an isolated environment with its own quota, storage, and access control.
 
 ## What a workspace gives you
 
@@ -18,7 +16,7 @@ ID is `{clusterId}-{name}` (e.g. `prod-cluster-ai-team`).
 - **Isolation** — workloads, secrets, and storage are scoped to the workspace (it maps to a
   Kubernetes namespace).
 - **Access** — members can use it; managers (workspace-admins) administer it.
-- **Scopes** — which kinds of work are allowed: `Train`, `Infer`, `Authoring`, `CICD`.
+- **Scopes** — which kinds of workloads are allowed: `Train`, `Infer`, `Authoring`, `CICD`.
 
 ## Quota and node flavor
 
@@ -34,8 +32,7 @@ effectively **number of nodes × the node flavor**:
 | `abnormalQuota` | Resources stuck on unhealthy nodes. |
 
 You **pick** a flavor when creating a workspace; **admins define** flavors. One workspace
-cannot mix flavors. The system may reserve a small portion of a node's resources, so the
-schedulable amount is slightly below the raw flavor totals.
+cannot mix flavors. The system may reserve a small portion of a node's resources to run administrative tasks, so the schedulable amount is slightly below the raw flavor totals.
 
 ## Scheduling within a workspace
 
@@ -43,7 +40,8 @@ schedulable amount is slightly below the raw flavor totals.
   `balance` (any job that fits can run; still honors priority).
 - **Preemption** — when `enablePreempt` is on, a higher-priority workload can preempt a
   lower-priority one in the same workspace.
-- **Max runtime** — optional per-scope time caps (e.g. `Authoring: 168` hours).
+- **Max runtime** — optional per-scope time caps when the workload is automatically terminated (e.g. `Authoring: 168` hours).
+- **Idle time** - optional per-scope time caps of of no activity before workload is terminated.
 
 ## Access model (brief)
 
