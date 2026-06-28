@@ -40,7 +40,8 @@ cannot mix flavors. The system may reserve a small portion of a node's resources
   `balance` (any job that fits can run; still honors priority).
 - **Preemption** — when `enablePreempt` is on, a higher-priority workload can preempt a
   lower-priority one in the same workspace.
-- **Max runtime** — optional per-scope time caps (e.g. `Authoring: 168` hours).
+- **Max runtime** — optional per-scope time caps when the workload is automatically terminated (e.g. `Authoring: 168` hours).
+- **Idle time** - optional per-scope time caps of of no activity before workload is terminated.
 
 ## Access model (brief)
 
