@@ -7,10 +7,14 @@ package client
 
 import (
 	"context"
+	"errors"
 	"time"
 
+	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
+
+var ErrOptimizationEventDuplicate = errors.New("optimization event already exists")
 
 // OptimizationTaskFilter encapsulates optional filter predicates for listing
 // optimization tasks. Zero-valued fields are ignored at query time.
@@ -224,18 +228,44 @@ func (c *Client) AppendOptimizationEvent(
 	if err != nil {
 		return err
 	}
-	// event_id is unique. Stream reconnects and apiserver restarts replay Claw
-	// history from the beginning, so already-persisted events are produced again
-	// with the same event_id. Treat the insert as idempotent and skip on conflict
-	// instead of erroring out — otherwise every replayed event spams "duplicate
-	// key value violates unique constraint" (SQLSTATE 23505). Note: this relies on
-	// the hub seq being re-seeded from the last persisted seq on reconnect (see
-	// recoverRunningTasks); otherwise a 0-based counter would re-mint live events
-	// onto existing ids and they would be silently dropped here.
-	return db.WithContext(ctx).Clauses(clause.OnConflict{
+	// event_id is unique. Stream reconnects and apiserver restarts may replay
+	// already-persisted Claw history; treat that as an idempotent duplicate
+	// instead of surfacing PostgreSQL 23505 noise.
+	result := db.WithContext(ctx).Clauses(clause.OnConflict{
 		Columns:   []clause.Column{{Name: "event_id"}},
 		DoNothing: true,
-	}).Create(event).Error
+	}).Create(event)
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return ErrOptimizationEventDuplicate
+	}
+	return nil
+}
+
+// OptimizationEventSeq returns the persisted sequence for an event id.
+func (c *Client) OptimizationEventSeq(
+	ctx context.Context,
+	taskID string,
+	eventID string,
+) (int64, bool, error) {
+	db, err := c.GetGormDB()
+	if err != nil {
+		return 0, false, err
+	}
+	var event OptimizationEvent
+	err = db.WithContext(ctx).
+		Select("seq").
+		Where("task_id = ? AND event_id = ?", taskID, eventID).
+		Take(&event).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return 0, false, nil
+	}
+	if err != nil {
+		return 0, false, err
+	}
+	return event.Seq, true, nil
 }
 
 // ListOptimizationEvents returns events for a task starting after a given
