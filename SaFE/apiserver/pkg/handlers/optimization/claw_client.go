@@ -80,31 +80,44 @@ type SessionRequest struct {
 	Name         string                 `json:"name,omitempty"`
 	AgentID      string                 `json:"agent_id,omitempty"`
 	SystemPrompt string                 `json:"system_prompt,omitempty"`
+	Mode         string                 `json:"mode,omitempty"`
 	Config       map[string]interface{} `json:"config,omitempty"`
+	Message      *MessageRequest        `json:"message,omitempty"`
 }
 
 // SessionResponse wraps the common response envelope for session-creation.
 // Claw returns { code, data: { session_id, ... }, request_id }. We parse
 // defensively: fall back to top-level session_id if the server changes shape.
 type SessionResponse struct {
-	SessionID string `json:"session_id"`
+	SessionID   string `json:"session_id"`
+	AgentStatus string `json:"agent_status"`
+	Message     struct {
+		MessageID  string `json:"message_id"`
+		Dispatched bool   `json:"dispatched"`
+	} `json:"message"`
 }
 
+type CreateSessionResult struct {
+	SessionID   string
+	AgentStatus string
+	MessageID   string
+	Dispatched  bool
+}
 
 // MessageRequest maps to POST /sessions/{id}/messages.
 type MessageRequest struct {
-	Content      string                   `json:"content,omitempty"`
-	Contents     []MessageContent         `json:"contents,omitempty"`
-	MessageType  string                   `json:"messageType,omitempty"`
-	TaskMode     string                   `json:"taskMode,omitempty"`
-	Attachments  []map[string]interface{} `json:"attachments,omitempty"`
-	Tools        []int                    `json:"tools,omitempty"`
-	ExtData      map[string]interface{}   `json:"extData,omitempty"`
-	WorkspaceID  string                   `json:"workspaceId,omitempty"`
+	Content     string                   `json:"content,omitempty"`
+	Contents    []MessageContent         `json:"contents,omitempty"`
+	MessageType string                   `json:"messageType,omitempty"`
+	TaskMode    string                   `json:"taskMode,omitempty"`
+	Attachments []map[string]interface{} `json:"attachments,omitempty"`
+	Tools       []int                    `json:"tools,omitempty"`
+	ExtData     map[string]interface{}   `json:"extData,omitempty"`
+	WorkspaceID string                   `json:"workspaceId,omitempty"`
 	// Image is the container image forwarded to Claw as body.image. Sessions.ts
 	// reads this field (not sandbox_image) and uses it as finalSandboxImage,
 	// which Brain then treats as the GPU sandbox image.
-	Image       string           `json:"image,omitempty"`
+	Image string `json:"image,omitempty"`
 	// Resource overrides the plugin's default GPU/CPU/memory spec.
 	// Sessions.ts reads body.resource (not body.resource_gpu) at line 407.
 	Resource map[string]string `json:"resource,omitempty"`
@@ -149,22 +162,45 @@ type ClawArtifact struct {
 // CreateSession creates a new Claw session. AgentID defaults to the value
 // configured for the Model Optimization feature if empty.
 func (c *ClawClient) CreateSession(ctx context.Context, req *SessionRequest) (string, error) {
+	result, err := c.createSession(ctx, req)
+	if err != nil {
+		return "", err
+	}
+	return result.SessionID, nil
+}
+
+func (c *ClawClient) CreateSessionWithMessage(ctx context.Context, req *SessionRequest) (CreateSessionResult, error) {
+	if req == nil || req.Message == nil {
+		return CreateSessionResult{}, fmt.Errorf("claw create session with message: message is required")
+	}
+	normalizeMessageDefaults(req.Message)
+	result, err := c.createSession(ctx, req)
+	if err != nil {
+		return CreateSessionResult{}, err
+	}
+	if !result.Dispatched {
+		return CreateSessionResult{}, fmt.Errorf("claw create session: first message was not dispatched")
+	}
+	return result, nil
+}
+
+func (c *ClawClient) createSession(ctx context.Context, req *SessionRequest) (CreateSessionResult, error) {
 	body, err := json.Marshal(req)
 	if err != nil {
-		return "", fmt.Errorf("marshal session request: %w", err)
+		return CreateSessionResult{}, fmt.Errorf("marshal session request: %w", err)
 	}
 
 	httpReq, err := http.NewRequestWithContext(
 		ctx, http.MethodPost, c.baseURL+clawPathSessions, bytes.NewReader(body),
 	)
 	if err != nil {
-		return "", err
+		return CreateSessionResult{}, err
 	}
 	c.applyHeaders(httpReq)
 
 	resp, err := c.controlClient.Do(httpReq)
 	if err != nil {
-		return "", fmt.Errorf("claw POST /sessions: %w", err)
+		return CreateSessionResult{}, fmt.Errorf("claw POST /sessions: %w", err)
 	}
 	defer resp.Body.Close()
 
@@ -172,31 +208,37 @@ func (c *ClawClient) CreateSession(ctx context.Context, req *SessionRequest) (st
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		klog.ErrorS(nil, "claw: create session failed",
 			"status", resp.StatusCode, "body", truncate(string(raw), 512))
-		return "", fmt.Errorf("claw returned HTTP %d: %s", resp.StatusCode, truncate(string(raw), 512))
+		return CreateSessionResult{}, fmt.Errorf("claw returned HTTP %d: %s", resp.StatusCode, truncate(string(raw), 512))
 	}
 
 	var envelope struct {
 		Code int             `json:"code"`
 		Data json.RawMessage `json:"data"`
 		// Older Claw versions return fields at the top level.
-		SessionID string `json:"session_id"`
+		SessionID   string `json:"session_id"`
+		AgentStatus string `json:"agent_status"`
 	}
 	if err := json.Unmarshal(raw, &envelope); err != nil {
-		return "", fmt.Errorf("claw create session: parse response: %w", err)
+		return CreateSessionResult{}, fmt.Errorf("claw create session: parse response: %w", err)
 	}
 	if envelope.SessionID != "" {
-		return envelope.SessionID, nil
+		return CreateSessionResult{SessionID: envelope.SessionID, AgentStatus: envelope.AgentStatus}, nil
 	}
 	var data SessionResponse
 	if len(envelope.Data) > 0 {
 		if err := json.Unmarshal(envelope.Data, &data); err != nil {
-			return "", fmt.Errorf("claw create session: parse data: %w", err)
+			return CreateSessionResult{}, fmt.Errorf("claw create session: parse data: %w", err)
 		}
 	}
 	if data.SessionID == "" {
-		return "", fmt.Errorf("claw create session: empty session id in response: %s", truncate(string(raw), 256))
+		return CreateSessionResult{}, fmt.Errorf("claw create session: empty session id in response: %s", truncate(string(raw), 256))
 	}
-	return data.SessionID, nil
+	return CreateSessionResult{
+		SessionID:   data.SessionID,
+		AgentStatus: data.AgentStatus,
+		MessageID:   data.Message.MessageID,
+		Dispatched:  data.Message.Dispatched,
+	}, nil
 }
 
 // SendMessage fires a message into an existing Claw session. This is a
@@ -205,12 +247,7 @@ func (c *ClawClient) SendMessage(ctx context.Context, sessionID string, req *Mes
 	if sessionID == "" {
 		return fmt.Errorf("claw send message: empty session id")
 	}
-	if req.MessageType == "" {
-		req.MessageType = "text"
-	}
-	if req.TaskMode == "" {
-		req.TaskMode = "agent"
-	}
+	normalizeMessageDefaults(req)
 
 	body, err := json.Marshal(req)
 	if err != nil {
@@ -291,23 +328,72 @@ type SessionStatus struct {
 	AgentStatus string `json:"agent_status"`
 }
 
-// IsTerminal reports whether the Claw session has finished (successfully or not).
-// Mirrors the completion logic in Hyperloom ci/claw_client.py:monitor_session.
-// agent_status "idle" means the agent finished its run and is waiting; treat as terminal.
+const (
+	clawAgentStatusRunning   = "running"
+	clawAgentStatusIdle      = "idle"
+	clawAgentStatusStopped   = "stopped"
+	clawAgentStatusFailed    = "failed"
+	clawAgentStatusCancelled = "cancelled"
+)
+
+// IsTerminal is kept for legacy callers that already know the session has left
+// its initial idle state. New optimize code should use IsTerminalAfterRunning.
 func (s *SessionStatus) IsTerminal() bool {
-	return s.AgentStatus == "stopped" ||
-		s.AgentStatus == "failed" ||
-		s.AgentStatus == "idle" ||
-		s.Status == "completed" ||
-		s.Status == "stopped" ||
-		s.Status == "failed"
+	return s.IsTerminalAfterRunning(true)
 }
 
 // IsSucceeded reports whether the session completed successfully.
 func (s *SessionStatus) IsSucceeded() bool {
-	return s.AgentStatus == "idle" ||
-		s.AgentStatus == "stopped" && s.Status != "failed" ||
-		s.Status == "completed"
+	return s.IsTerminalAfterRunning(true) && !s.IsFailedTerminal()
+}
+
+func (s *SessionStatus) IsAgentRunning() bool {
+	return strings.ToLower(strings.TrimSpace(s.AgentStatus)) == clawAgentStatusRunning
+}
+
+func (s *SessionStatus) IsAgentIdle() bool {
+	return strings.ToLower(strings.TrimSpace(s.AgentStatus)) == clawAgentStatusIdle
+}
+
+func (s *SessionStatus) IsHardTerminal() bool {
+	switch strings.ToLower(strings.TrimSpace(s.AgentStatus)) {
+	case clawAgentStatusStopped, clawAgentStatusFailed, clawAgentStatusCancelled:
+		return true
+	}
+	switch strings.ToLower(strings.TrimSpace(s.Status)) {
+	case clawAgentStatusStopped, clawAgentStatusFailed:
+		return true
+	default:
+		return false
+	}
+}
+
+func (s *SessionStatus) IsFailedTerminal() bool {
+	as := strings.ToLower(strings.TrimSpace(s.AgentStatus))
+	st := strings.ToLower(strings.TrimSpace(s.Status))
+	return as == clawAgentStatusFailed || as == clawAgentStatusCancelled || st == clawAgentStatusFailed
+}
+
+func (s *SessionStatus) IsTerminalAfterRunning(sawRunning bool) bool {
+	if s == nil {
+		return false
+	}
+	if s.IsHardTerminal() {
+		return true
+	}
+	return sawRunning && s.IsAgentIdle()
+}
+
+func normalizeMessageDefaults(req *MessageRequest) {
+	if req == nil {
+		return
+	}
+	if req.MessageType == "" {
+		req.MessageType = "text"
+	}
+	if req.TaskMode == "" {
+		req.TaskMode = "agent"
+	}
 }
 
 // GetSession fetches the current state of a Claw session. Used to reconcile

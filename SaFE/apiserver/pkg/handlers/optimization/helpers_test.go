@@ -13,9 +13,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/assert"
 	"github.com/lib/pq"
+	"github.com/stretchr/testify/assert"
 
+	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
 )
 
@@ -151,13 +152,26 @@ func TestEscapeClawFilePath(t *testing.T) {
 	assert.Equal(t, "x/y", escapeClawFilePath("x\\y"))
 }
 
+func TestOptimizationActiveSandboxWorkloadSql(t *testing.T) {
+	sql, args, err := optimizationActiveSandboxWorkloadSql().ToSql()
+	assert.NoError(t, err)
+	assert.Contains(t, sql, "is_deleted")
+	assert.Contains(t, sql, "gvk")
+	assert.Contains(t, sql, "phase")
+	assert.Contains(t, args, false)
+	assert.Contains(t, args, string(v1.WorkloadRunning))
+	assert.Contains(t, args, string(v1.WorkloadPending))
+}
+
 func TestSessionStatusTerminalSucceeded(t *testing.T) {
 	assert.True(t, (&SessionStatus{AgentStatus: "failed"}).IsTerminal())
-	assert.True(t, (&SessionStatus{Status: "completed"}).IsTerminal())
+	assert.False(t, (&SessionStatus{Status: "completed"}).IsTerminal())
 	assert.False(t, (&SessionStatus{AgentStatus: "running"}).IsTerminal())
+	assert.False(t, (&SessionStatus{AgentStatus: "idle"}).IsTerminalAfterRunning(false))
+	assert.True(t, (&SessionStatus{AgentStatus: "idle"}).IsTerminalAfterRunning(true))
 
 	assert.True(t, (&SessionStatus{AgentStatus: "idle"}).IsSucceeded())
-	assert.True(t, (&SessionStatus{Status: "completed"}).IsSucceeded())
+	assert.False(t, (&SessionStatus{Status: "completed"}).IsSucceeded())
 	assert.False(t, (&SessionStatus{Status: "failed"}).IsSucceeded())
 }
 

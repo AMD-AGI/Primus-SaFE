@@ -24,7 +24,7 @@ func newClawTestServer(t *testing.T) (*ClawClient, *httptest.Server) {
 	// GET/DELETE /sessions/{id} -> status / delete.
 	// GET /sessions/{id}/files -> list artifacts.
 	mux.HandleFunc("/sessions", func(w http.ResponseWriter, r *http.Request) {
-		_, _ = w.Write([]byte(`{"code":0,"data":{"session_id":"sess-1"}}`))
+		_, _ = w.Write([]byte(`{"code":0,"data":{"session_id":"sess-1","agent_status":"running","message":{"message_id":"msg-1","dispatched":true}}}`))
 	})
 	mux.HandleFunc("/sessions/", func(w http.ResponseWriter, r *http.Request) {
 		switch {
@@ -58,6 +58,19 @@ func TestClawCreateSession(t *testing.T) {
 	id, err := c.CreateSession(context.Background(), &SessionRequest{Name: "opt"})
 	assert.NoError(t, err)
 	assert.Equal(t, "sess-1", id)
+}
+
+func TestClawCreateSessionWithMessage(t *testing.T) {
+	c, _ := newClawTestServer(t)
+	res, err := c.CreateSessionWithMessage(context.Background(), &SessionRequest{
+		Name:    "opt",
+		Message: &MessageRequest{Content: "hi"},
+	})
+	assert.NoError(t, err)
+	assert.Equal(t, "sess-1", res.SessionID)
+	assert.Equal(t, "running", res.AgentStatus)
+	assert.Equal(t, "msg-1", res.MessageID)
+	assert.True(t, res.Dispatched)
 }
 
 func TestClawSendMessage(t *testing.T) {

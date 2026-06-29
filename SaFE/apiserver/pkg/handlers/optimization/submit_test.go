@@ -78,7 +78,7 @@ func TestSubmitTaskBranches(t *testing.T) {
 
 	// concurrency limit exceeded -> bad request.
 	mockDB := mock_client.NewMockInterface(ctrl)
-	mockDB.EXPECT().CountRunningOptimizationTasks(gomock.Any(), gomock.Any()).Return(int64(5), nil)
+	mockDB.EXPECT().CountWorkloads(gomock.Any(), gomock.Any()).Return(5, nil)
 	h3 := &Handler{
 		clawClient:    NewClawClient("https://claw", ""),
 		dbClient:      mockDB,
