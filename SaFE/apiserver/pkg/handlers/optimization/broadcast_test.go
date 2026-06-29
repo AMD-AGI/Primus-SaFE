@@ -8,9 +8,14 @@ package optimization
 import (
 	"context"
 	"errors"
+	"net/http"
+	"net/http/httptest"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/gin-gonic/gin"
 	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/assert"
 
@@ -96,6 +101,62 @@ func TestResolveAfterSeqFallsBackToLegacyID(t *testing.T) {
 
 	h := &Handler{dbClient: mockDB}
 	assert.Equal(t, int64(7), h.resolveAfterSeq(context.Background(), "t1", "t1-7"))
+}
+
+func TestStreamEventsReplaysAllPagesForTerminalTask(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	mockDB := mock_client.NewMockInterface(ctrl)
+
+	page1 := make([]*dbclient.OptimizationEvent, 10000)
+	for i := range page1 {
+		seq := int64(i + 1)
+		evType := EventTypeLog
+		if i == 0 {
+			evType = EventTypeBenchmark
+		}
+		page1[i] = &dbclient.OptimizationEvent{
+			EventID:   "t1-c-" + strconv.FormatInt(seq, 10),
+			TaskID:    "t1",
+			Type:      string(evType),
+			Payload:   `{"message":"event"}`,
+			Seq:       seq,
+			Timestamp: seq,
+		}
+	}
+	page2 := []*dbclient.OptimizationEvent{{
+		EventID:   "t1-c-10001",
+		TaskID:    "t1",
+		Type:      string(EventTypeLog),
+		Payload:   `{"message":"last"}`,
+		Seq:       10001,
+		Timestamp: 10001,
+	}}
+
+	mockDB.EXPECT().GetOptimizationTask(gomock.Any(), "t1").Return(&dbclient.OptimizationTask{
+		ID:     "t1",
+		Status: dbclient.OptimizationTaskStatusSucceeded,
+	}, nil)
+	gomock.InOrder(
+		mockDB.EXPECT().ListOptimizationEvents(gomock.Any(), "t1", int64(0), 10000).Return(page1, nil),
+		mockDB.EXPECT().ListOptimizationEvents(gomock.Any(), "t1", int64(10000), 10000).Return(page2, nil),
+	)
+
+	h := &Handler{dbClient: mockDB, hubs: newHubRegistry()}
+	rsp := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rsp)
+	c.Request = httptest.NewRequest(http.MethodGet, "/events", nil)
+	c.Params = gin.Params{{Key: "id", Value: "t1"}}
+
+	h.StreamEvents(c)
+
+	body := rsp.Body.String()
+	assert.Equal(t, http.StatusOK, rsp.Code)
+	assert.Equal(t, "text/event-stream", rsp.Header().Get("Content-Type"))
+	assert.Contains(t, body, "id: t1-c-10001")
+	assert.Contains(t, body, "id: t1-10002")
+	assert.True(t, strings.Index(body, "id: t1-c-10001") < strings.Index(body, "id: t1-10002"))
 }
 
 func TestMaybeUpdateTaskStatus(t *testing.T) {
