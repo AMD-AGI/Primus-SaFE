@@ -120,7 +120,7 @@ exposes it via `GET /api/v1/envs`:
 When `ssoEnable` is true, the console's `/login` page redirects straight to the IdP. The flow
 is standard OIDC authorization-code (scopes `openid profile email`):
 
-1. User clicks **Continue with AMD** (or is auto-redirected) → authenticates at the IdP.
+1. User goes through IdP's authentication process.
 2. The IdP redirects back with a `code`; the console exchanges it (`POST /api/v1/login` with
    `type: sso`).
 3. **First time only:** the platform auto-provisions a `sso` user from the ID-token claims
