@@ -35,14 +35,22 @@ func sessionServer(t *testing.T, status, agentStatus string) *httptest.Server {
 func TestResolveStatusFromClawSucceeded(t *testing.T) {
 	srv := sessionServer(t, "completed", "idle")
 	h := clawHandler(srv.URL)
-	status, _ := h.resolveStatusFromClaw("s1", errors.New("transient"))
+	status, _ := h.resolveStatusFromClaw("s1", errors.New("transient"), "bearer", true)
 	assert.Equal(t, dbclient.OptimizationTaskStatusSucceeded, status)
+}
+
+func TestResolveStatusFromClawInitialIdleStillRunning(t *testing.T) {
+	srv := sessionServer(t, "active", "idle")
+	h := clawHandler(srv.URL)
+	status, msg := h.resolveStatusFromClaw("s1", errors.New("transient"), "bearer", false)
+	assert.Equal(t, dbclient.OptimizationTaskStatusRunning, status)
+	assert.Empty(t, msg)
 }
 
 func TestResolveStatusFromClawFailed(t *testing.T) {
 	srv := sessionServer(t, "failed", "failed")
 	h := clawHandler(srv.URL)
-	status, msg := h.resolveStatusFromClaw("s1", errors.New("transient"))
+	status, msg := h.resolveStatusFromClaw("s1", errors.New("transient"), "bearer", false)
 	assert.Equal(t, dbclient.OptimizationTaskStatusFailed, status)
 	assert.Equal(t, "claw session failed", msg)
 }
@@ -50,7 +58,7 @@ func TestResolveStatusFromClawFailed(t *testing.T) {
 func TestResolveStatusFromClawStillRunning(t *testing.T) {
 	srv := sessionServer(t, "running", "busy")
 	h := clawHandler(srv.URL)
-	status, _ := h.resolveStatusFromClaw("s1", errors.New("transient"))
+	status, _ := h.resolveStatusFromClaw("s1", errors.New("transient"), "bearer", false)
 	assert.Equal(t, dbclient.OptimizationTaskStatusRunning, status)
 }
 
@@ -61,8 +69,19 @@ func TestResolveStatusFromClawGetSessionError(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 	h := clawHandler(srv.URL)
-	status, _ := h.resolveStatusFromClaw("s1", errors.New("stream broke"))
+	status, _ := h.resolveStatusFromClaw("s1", errors.New("stream broke"), "bearer", false)
 	assert.Equal(t, dbclient.OptimizationTaskStatusFailed, status)
+}
+
+func TestResolveStatusFromClawCleanEOFGetSessionErrorKeepsRunning(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	t.Cleanup(srv.Close)
+	h := clawHandler(srv.URL)
+	status, msg := h.resolveStatusFromClaw("s1", nil, "bearer", false)
+	assert.Equal(t, dbclient.OptimizationTaskStatusRunning, status)
+	assert.Empty(t, msg)
 }
 
 func TestHasOptimizationReport(t *testing.T) {
