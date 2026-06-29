@@ -253,7 +253,7 @@ func (h *Handler) submitTask(
 		klog.InfoS("optimization: forwarding session env to claw",
 			"task_id", taskID, "session_name", sessionName, "env", req.Env)
 	}
-	createResult, err := h.createClawSessionWithRetry(clawBearer, taskID, &SessionRequest{
+	createResult, err := h.createClawSessionWithRetry(ctx, clawBearer, taskID, &SessionRequest{
 		Name:    sessionName,
 		AgentID: h.clawAgentID,
 		// Env MUST be top-level: Claw's POST /sessions reads session_env from
@@ -265,7 +265,11 @@ func (h *Handler) submitTask(
 	})
 	if err != nil {
 		klog.ErrorS(err, "create and dispatch claw session", "task_id", taskID)
-		_ = h.dbClient.UpdateOptimizationTaskStatus(ctx, taskID,
+		statusCtx := ctx
+		if ctx.Err() != nil {
+			statusCtx = context.WithoutCancel(ctx)
+		}
+		_ = h.dbClient.UpdateOptimizationTaskStatus(statusCtx, taskID,
 			dbclient.OptimizationTaskStatusFailed, 0, "failed to create and dispatch Claw session: "+err.Error())
 		return nil, commonerrors.NewInternalError("failed to submit task to Claw")
 	}
@@ -285,14 +289,21 @@ func (h *Handler) submitTask(
 }
 
 func (h *Handler) createClawSessionWithRetry(
+	ctx context.Context,
 	clawBearer string,
 	taskID string,
 	req *SessionRequest,
 ) (CreateSessionResult, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	deadline := time.Now().Add(clawCreateSessionTotalTimeout)
 	var lastErr error
 	attempt := 0
 	for {
+		if err := ctx.Err(); err != nil {
+			return CreateSessionResult{}, fmt.Errorf("create and dispatch claw session canceled: %w", err)
+		}
 		attempt++
 		remaining := time.Until(deadline)
 		if remaining <= 0 {
@@ -303,7 +314,7 @@ func (h *Handler) createClawSessionWithRetry(
 			attemptTimeout = remaining
 		}
 		createCtx, cancel := context.WithTimeout(
-			WithClawBearer(context.Background(), clawBearer),
+			WithClawBearer(ctx, clawBearer),
 			attemptTimeout,
 		)
 		result, err := h.clawClient.CreateSessionWithMessage(createCtx, req)
@@ -316,6 +327,9 @@ func (h *Handler) createClawSessionWithRetry(
 			return result, nil
 		}
 		lastErr = err
+		if err := ctx.Err(); err != nil {
+			return CreateSessionResult{}, fmt.Errorf("create and dispatch claw session canceled: %w", err)
+		}
 		if !isRetryableClawCreateSessionError(err) {
 			return CreateSessionResult{}, err
 		}
@@ -325,7 +339,18 @@ func (h *Handler) createClawSessionWithRetry(
 		}
 		klog.Warningf("create and dispatch claw session failed; retrying task_id=%s attempt=%d timeout=%s error=%v",
 			taskID, attempt, attemptTimeout, err)
-		time.Sleep(clawCreateSessionRetryInterval)
+		timer := time.NewTimer(clawCreateSessionRetryInterval)
+		select {
+		case <-timer.C:
+		case <-ctx.Done():
+			if !timer.Stop() {
+				select {
+				case <-timer.C:
+				default:
+				}
+			}
+			return CreateSessionResult{}, fmt.Errorf("create and dispatch claw session canceled: %w", ctx.Err())
+		}
 	}
 	if lastErr == nil {
 		lastErr = context.DeadlineExceeded
