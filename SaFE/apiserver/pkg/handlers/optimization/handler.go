@@ -38,6 +38,7 @@ import (
 var (
 	clawCreateSessionAttemptTimeout = 30 * time.Second
 	clawCreateSessionRetryInterval  = 5 * time.Second
+	clawCreateSessionLookupTimeout  = 5 * time.Second
 	clawCreateSessionTotalTimeout   = 3 * time.Minute
 )
 
@@ -333,6 +334,9 @@ func (h *Handler) createClawSessionWithRetry(
 		if !isRetryableClawCreateSessionError(err) {
 			return CreateSessionResult{}, err
 		}
+		if result, ok := h.findExistingClawSessionByName(ctx, clawBearer, taskID, req.Name); ok {
+			return result, nil
+		}
 		remaining = time.Until(deadline)
 		if remaining <= clawCreateSessionRetryInterval {
 			break
@@ -363,6 +367,35 @@ func (h *Handler) createClawSessionWithRetry(
 	)
 }
 
+func (h *Handler) findExistingClawSessionByName(
+	ctx context.Context,
+	clawBearer string,
+	taskID string,
+	name string,
+) (CreateSessionResult, bool) {
+	if strings.TrimSpace(name) == "" {
+		return CreateSessionResult{}, false
+	}
+	lookupCtx, cancel := context.WithTimeout(WithClawBearer(ctx, clawBearer), clawCreateSessionLookupTimeout)
+	defer cancel()
+
+	ss, err := h.clawClient.FindSessionByName(lookupCtx, name)
+	if err != nil {
+		klog.Warningf("find existing claw session by name failed; continuing retry task_id=%s name=%q error=%v",
+			taskID, name, err)
+		return CreateSessionResult{}, false
+	}
+	if ss == nil || strings.TrimSpace(ss.SessionID) == "" {
+		return CreateSessionResult{}, false
+	}
+	klog.InfoS("reusing existing claw session after create retryable error",
+		"task_id", taskID, "session_name", name, "session_id", ss.SessionID, "agent_status", ss.AgentStatus)
+	return CreateSessionResult{
+		SessionID:   ss.SessionID,
+		AgentStatus: ss.AgentStatus,
+	}, true
+}
+
 func isRetryableClawCreateSessionError(err error) bool {
 	if err == nil {
 		return false
@@ -377,10 +410,6 @@ func isRetryableClawCreateSessionError(err error) bool {
 		"http 425",
 		"http 429",
 		"http 499",
-		"http 500",
-		"http 502",
-		"http 503",
-		"http 504",
 		"connection reset",
 		"connection refused",
 		"eof",

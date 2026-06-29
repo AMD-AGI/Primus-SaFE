@@ -112,6 +112,12 @@ type CreateSessionResult struct {
 	Dispatched *bool
 }
 
+type sessionListEnvelope struct {
+	Data     json.RawMessage `json:"data"`
+	Items    []SessionStatus `json:"items"`
+	Sessions []SessionStatus `json:"sessions"`
+}
+
 // MessageRequest maps to POST /sessions/{id}/messages.
 type MessageRequest struct {
 	Content     string                   `json:"content,omitempty"`
@@ -262,6 +268,92 @@ func (c *ClawClient) createSession(ctx context.Context, req *SessionRequest) (Cr
 	}, nil
 }
 
+func (c *ClawClient) FindSessionByName(ctx context.Context, name string) (*SessionStatus, error) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return nil, fmt.Errorf("claw find session: empty name")
+	}
+	req, err := http.NewRequestWithContext(
+		ctx, http.MethodGet, c.baseURL+clawPathSessions+"?name="+url.QueryEscape(name), nil,
+	)
+	if err != nil {
+		return nil, err
+	}
+	c.applyHeaders(req)
+
+	resp, err := c.controlClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("claw GET /sessions by name: %w", err)
+	}
+	defer resp.Body.Close()
+
+	raw, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusMethodNotAllowed {
+		return nil, nil
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("claw find session HTTP %d: %s", resp.StatusCode, truncate(string(raw), 256))
+	}
+	sessions, err := parseSessionList(raw)
+	if err != nil {
+		return nil, err
+	}
+	for i := range sessions {
+		if strings.TrimSpace(sessions[i].SessionID) == "" {
+			continue
+		}
+		if strings.EqualFold(strings.TrimSpace(sessions[i].Name), name) {
+			return &sessions[i], nil
+		}
+	}
+	return nil, nil
+}
+
+func parseSessionList(raw []byte) ([]SessionStatus, error) {
+	var directItems []SessionStatus
+	if err := json.Unmarshal(raw, &directItems); err == nil {
+		return directItems, nil
+	}
+	var directSession SessionStatus
+	if err := json.Unmarshal(raw, &directSession); err == nil && directSession.SessionID != "" {
+		return []SessionStatus{directSession}, nil
+	}
+
+	var env sessionListEnvelope
+	if err := json.Unmarshal(raw, &env); err != nil {
+		return nil, fmt.Errorf("claw list sessions parse envelope: %w", err)
+	}
+	if len(env.Items) > 0 {
+		return env.Items, nil
+	}
+	if len(env.Sessions) > 0 {
+		return env.Sessions, nil
+	}
+	if len(env.Data) == 0 {
+		return nil, nil
+	}
+
+	var items []SessionStatus
+	if err := json.Unmarshal(env.Data, &items); err == nil {
+		return items, nil
+	}
+	var data sessionListEnvelope
+	if err := json.Unmarshal(env.Data, &data); err != nil {
+		return nil, fmt.Errorf("claw list sessions parse data: %w", err)
+	}
+	if len(data.Items) > 0 {
+		return data.Items, nil
+	}
+	if len(data.Sessions) > 0 {
+		return data.Sessions, nil
+	}
+	var session SessionStatus
+	if err := json.Unmarshal(env.Data, &session); err == nil && session.SessionID != "" {
+		return []SessionStatus{session}, nil
+	}
+	return nil, nil
+}
+
 // SendMessage fires a message into an existing Claw session. This is a
 // fire-and-forget request — actual model output comes back via Stream.
 func (c *ClawClient) SendMessage(ctx context.Context, sessionID string, req *MessageRequest) error {
@@ -345,6 +437,7 @@ func (c *ClawClient) Stream(
 //   - AgentStatus: agent execution  — "idle"   | "running"   | "stopped" | "failed"
 type SessionStatus struct {
 	SessionID   string `json:"session_id"`
+	Name        string `json:"name"`
 	Status      string `json:"status"`
 	AgentStatus string `json:"agent_status"`
 }
