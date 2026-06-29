@@ -1008,11 +1008,22 @@ func (h *Handler) recoverRunningTasks(ctx context.Context) {
 				go h.fetchAndInjectMetrics(ctx, task)
 			}
 		} else {
-			// Session still active — reconnect the stream.
-			hub, _ := h.hubs.getOrCreate(task.ID, 0)
+			// Session still active — reconnect the stream. Seed the hub from the
+			// highest persisted seq instead of restarting at 0: after an apiserver
+			// restart the in-memory counter is gone, and a 0-based counter would
+			// re-mint event_ids that already exist in the DB. Those collisions are
+			// now swallowed by the ON CONFLICT DO NOTHING insert, so newly produced
+			// events would be silently dropped until the counter caught up.
+			lastSeq, seqErr := h.dbClient.LatestOptimizationEventSeq(ctx, task.ID)
+			if seqErr != nil {
+				klog.ErrorS(seqErr, "recoverRunningTasks: get latest event seq failed, seeding 0",
+					"task_id", task.ID)
+				lastSeq = 0
+			}
+			hub, _ := h.hubs.getOrCreate(task.ID, lastSeq)
 			go h.consumeClawStream(task.ID, task.ClawSessionID, hub, clawBearer, assumeRunning)
 			klog.InfoS("recoverRunningTasks: reconnected stream",
-				"task_id", task.ID, "session_id", task.ClawSessionID)
+				"task_id", task.ID, "session_id", task.ClawSessionID, "last_seq", lastSeq)
 		}
 	}
 }
