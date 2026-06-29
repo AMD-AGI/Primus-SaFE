@@ -107,6 +107,18 @@ type CreateTaskRequest struct {
 	// Hyperloom-Web-submitted tasks.
 	PromptPrefix string `json:"promptPrefix,omitempty"`
 	PromptSuffix string `json:"promptSuffix,omitempty"`
+
+	// Env is an optional set of session-scoped environment variables forwarded
+	// verbatim to the PrimusClaw sandbox (as the message body's `env` /
+	// session_env). Claw validates each key with isUserEnvKeyAllowed and merges
+	// them at the highest precedence (sessionEnv) into the sandbox env, so they
+	// are visible to the inference_optimizer process. Use it to override the
+	// orchestration model per task, e.g.
+	//   {"CLAUDE_MODEL": "claude-opus-4-8",
+	//    "INFERENCE_OPTIMIZER_ALLOW_CUSTOM_ORCH_MODEL": "1"}
+	// Keys reserved by Claw (CLAW_*, SAFE_API_KEY, PATH, ...) are rejected by
+	// Claw and must not be set here.
+	Env map[string]string `json:"env,omitempty"`
 }
 
 // TaskInfo is the response shape for a single task (list item or detail).
