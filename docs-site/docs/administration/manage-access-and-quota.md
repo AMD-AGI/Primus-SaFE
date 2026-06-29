@@ -55,8 +55,8 @@ curl -X POST https://<your-console>/api/v1/apikeys \
 ```
 
 :::warning
-The `apiKey` value is returned **only once**, at creation. Store it securely — it cannot be
-retrieved again (only a masked `keyHint` is shown afterward). Deletion is a soft delete.
+The `apiKey` value is displayed **only once**, at creation. Store it securely — it cannot be
+retrieved again (only a masked `keyHint` is shown afterward).
 :::
 
 <!-- @test
