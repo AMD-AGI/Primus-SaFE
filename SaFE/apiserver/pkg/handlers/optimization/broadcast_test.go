@@ -63,7 +63,7 @@ func TestMaybeUpdateTaskStatus(t *testing.T) {
 
 func TestResolveStatusFromClawEmptySession(t *testing.T) {
 	h := &Handler{clawClient: NewClawClient("", "")}
-	status, msg := h.resolveStatusFromClaw("", errors.New("stream dropped"))
+	status, msg := h.resolveStatusFromClaw("", errors.New("stream dropped"), "bearer", false)
 	assert.Equal(t, dbclient.OptimizationTaskStatusFailed, status)
 	assert.Contains(t, msg, "stream dropped")
 }
