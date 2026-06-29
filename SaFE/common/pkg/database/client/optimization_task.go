@@ -224,7 +224,15 @@ func (c *Client) AppendOptimizationEvent(
 	if err != nil {
 		return err
 	}
-	return db.WithContext(ctx).Create(event).Error
+	// event_id is unique. Stream reconnects and apiserver restarts replay Claw
+	// history from the beginning (the hub seq resets to 0), so the same event_id
+	// can be produced more than once. Treat the insert as idempotent and skip on
+	// conflict instead of erroring out — otherwise every replayed event spams
+	// "duplicate key value violates unique constraint" (SQLSTATE 23505).
+	return db.WithContext(ctx).Clauses(clause.OnConflict{
+		Columns:   []clause.Column{{Name: "event_id"}},
+		DoNothing: true,
+	}).Create(event).Error
 }
 
 // ListOptimizationEvents returns events for a task starting after a given
