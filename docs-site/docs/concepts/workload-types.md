@@ -1,9 +1,9 @@
 ---
 sidebar_position: 2
-title: Workload types
+title: Workloads
 ---
 
-# Workload types
+# Workloads
 
 > **Status:** Draft · **Owner:** _unassigned_ · **Source:** `SaFE/docs/apis/workload.md`
 
