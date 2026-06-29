@@ -178,23 +178,6 @@ func (h *Handler) submitTask(
 		return nil, commonerrors.NewInternalError("failed to persist task")
 	}
 
-	createCtx, cancel := context.WithTimeout(WithClawBearer(context.Background(), clawBearer), 30*time.Second)
-	defer cancel()
-	sessionName := fmt.Sprintf("safe-opt-%s-%s", resolved.DisplayName, taskID[len(taskID)-8:])
-	sessionID, err := h.clawClient.CreateSession(createCtx, &SessionRequest{
-		Name:    sessionName,
-		AgentID: h.clawAgentID,
-	})
-	if err != nil {
-		klog.ErrorS(err, "create claw session", "task_id", taskID)
-		_ = h.dbClient.UpdateOptimizationTaskStatus(ctx, taskID,
-			dbclient.OptimizationTaskStatusFailed, 0, "failed to create Claw session: "+err.Error())
-		return nil, commonerrors.NewInternalError("failed to create Claw session")
-	}
-	_ = h.dbClient.UpdateOptimizationTaskClawSession(ctx, taskID, sessionID)
-
-	sendCtx, sendCancel := context.WithTimeout(WithClawBearer(context.Background(), clawBearer), 30*time.Second)
-	defer sendCancel()
 	gpuCount := promptCfg.TP * promptCfg.EP
 	if gpuCount <= 0 {
 		gpuCount = 1
@@ -237,13 +220,22 @@ func (h *Handler) submitTask(
 		"cpu":         fmt.Sprintf("%d", promptCfg.RayCpu),
 		"memory":      fmt.Sprintf("%dGi", promptCfg.RayMemoryGi),
 	}
-	if err := h.clawClient.SendMessage(sendCtx, sessionID, msgReq); err != nil {
-		klog.ErrorS(err, "send hyperloom prompt", "task_id", taskID, "session_id", sessionID)
-		_ = h.clawClient.DeleteSession(WithClawBearer(context.Background(), clawBearer), sessionID)
+
+	createCtx, cancel := context.WithTimeout(WithClawBearer(context.Background(), clawBearer), 30*time.Second)
+	defer cancel()
+	sessionName := fmt.Sprintf("safe-opt-%s-%s", resolved.DisplayName, taskID[len(taskID)-8:])
+	sessionID, err := h.clawClient.CreateSession(createCtx, &SessionRequest{
+		Name:    sessionName,
+		AgentID: h.clawAgentID,
+		Message: msgReq,
+	})
+	if err != nil {
+		klog.ErrorS(err, "create and dispatch claw session", "task_id", taskID)
 		_ = h.dbClient.UpdateOptimizationTaskStatus(ctx, taskID,
-			dbclient.OptimizationTaskStatusFailed, 0, "failed to send prompt: "+err.Error())
+			dbclient.OptimizationTaskStatusFailed, 0, "failed to create/dispatch Claw session: "+err.Error())
 		return nil, commonerrors.NewInternalError("failed to submit task to Claw")
 	}
+	_ = h.dbClient.UpdateOptimizationTaskClawSession(ctx, taskID, sessionID)
 
 	_ = h.dbClient.UpdateOptimizationTaskStatus(ctx, taskID,
 		dbclient.OptimizationTaskStatusRunning, 0, "")

@@ -75,12 +75,14 @@ func NewClawClient(baseURL, apiKey string) *ClawClient {
 	}
 }
 
-// SessionRequest mirrors Claw's POST /sessions body.
+// SessionRequest mirrors Claw's POST /sessions body. When Message is present,
+// Claw creates the session and immediately dispatches the message in one call.
 type SessionRequest struct {
 	Name         string                 `json:"name,omitempty"`
 	AgentID      string                 `json:"agent_id,omitempty"`
 	SystemPrompt string                 `json:"system_prompt,omitempty"`
 	Config       map[string]interface{} `json:"config,omitempty"`
+	Message      *MessageRequest        `json:"message,omitempty"`
 }
 
 // SessionResponse wraps the common response envelope for session-creation.
@@ -90,21 +92,21 @@ type SessionResponse struct {
 	SessionID string `json:"session_id"`
 }
 
-
-// MessageRequest maps to POST /sessions/{id}/messages.
+// MessageRequest maps to POST /sessions/{id}/messages and to the nested
+// `message` payload accepted by POST /sessions.
 type MessageRequest struct {
-	Content      string                   `json:"content,omitempty"`
-	Contents     []MessageContent         `json:"contents,omitempty"`
-	MessageType  string                   `json:"messageType,omitempty"`
-	TaskMode     string                   `json:"taskMode,omitempty"`
-	Attachments  []map[string]interface{} `json:"attachments,omitempty"`
-	Tools        []int                    `json:"tools,omitempty"`
-	ExtData      map[string]interface{}   `json:"extData,omitempty"`
-	WorkspaceID  string                   `json:"workspaceId,omitempty"`
+	Content     string                   `json:"content,omitempty"`
+	Contents    []MessageContent         `json:"contents,omitempty"`
+	MessageType string                   `json:"messageType,omitempty"`
+	TaskMode    string                   `json:"taskMode,omitempty"`
+	Attachments []map[string]interface{} `json:"attachments,omitempty"`
+	Tools       []int                    `json:"tools,omitempty"`
+	ExtData     map[string]interface{}   `json:"extData,omitempty"`
+	WorkspaceID string                   `json:"workspaceId,omitempty"`
 	// Image is the container image forwarded to Claw as body.image. Sessions.ts
 	// reads this field (not sandbox_image) and uses it as finalSandboxImage,
 	// which Brain then treats as the GPU sandbox image.
-	Image       string           `json:"image,omitempty"`
+	Image string `json:"image,omitempty"`
 	// Resource overrides the plugin's default GPU/CPU/memory spec.
 	// Sessions.ts reads body.resource (not body.resource_gpu) at line 407.
 	Resource map[string]string `json:"resource,omitempty"`
@@ -149,6 +151,9 @@ type ClawArtifact struct {
 // CreateSession creates a new Claw session. AgentID defaults to the value
 // configured for the Model Optimization feature if empty.
 func (c *ClawClient) CreateSession(ctx context.Context, req *SessionRequest) (string, error) {
+	if req != nil {
+		normalizeMessageRequest(req.Message)
+	}
 	body, err := json.Marshal(req)
 	if err != nil {
 		return "", fmt.Errorf("marshal session request: %w", err)
@@ -205,12 +210,7 @@ func (c *ClawClient) SendMessage(ctx context.Context, sessionID string, req *Mes
 	if sessionID == "" {
 		return fmt.Errorf("claw send message: empty session id")
 	}
-	if req.MessageType == "" {
-		req.MessageType = "text"
-	}
-	if req.TaskMode == "" {
-		req.TaskMode = "agent"
-	}
+	normalizeMessageRequest(req)
 
 	body, err := json.Marshal(req)
 	if err != nil {
@@ -239,6 +239,18 @@ func (c *ClawClient) SendMessage(ctx context.Context, sessionID string, req *Mes
 	// Drain so the connection can be reused.
 	_, _ = io.Copy(io.Discard, resp.Body)
 	return nil
+}
+
+func normalizeMessageRequest(req *MessageRequest) {
+	if req == nil {
+		return
+	}
+	if req.MessageType == "" {
+		req.MessageType = "text"
+	}
+	if req.TaskMode == "" {
+		req.TaskMode = "agent"
+	}
 }
 
 // Stream subscribes to a Claw session's event stream. onEvent is invoked once

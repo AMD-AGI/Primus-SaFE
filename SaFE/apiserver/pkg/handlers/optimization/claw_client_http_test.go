@@ -7,6 +7,7 @@ package optimization
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -58,6 +59,31 @@ func TestClawCreateSession(t *testing.T) {
 	id, err := c.CreateSession(context.Background(), &SessionRequest{Name: "opt"})
 	assert.NoError(t, err)
 	assert.Equal(t, "sess-1", id)
+}
+
+func TestClawCreateSessionWithMessageDispatch(t *testing.T) {
+	var captured map[string]interface{}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, http.MethodPost, r.Method)
+		assert.Equal(t, "/sessions", r.URL.Path)
+		assert.NoError(t, json.NewDecoder(r.Body).Decode(&captured))
+		_, _ = w.Write([]byte(`{"code":0,"data":{"session_id":"sess-1"}}`))
+	}))
+	t.Cleanup(srv.Close)
+
+	c := NewClawClient(srv.URL, "test-key")
+	id, err := c.CreateSession(context.Background(), &SessionRequest{
+		Name:    "opt",
+		Message: &MessageRequest{Content: "hi"},
+	})
+	assert.NoError(t, err)
+	assert.Equal(t, "sess-1", id)
+
+	message, ok := captured["message"].(map[string]interface{})
+	assert.True(t, ok)
+	assert.Equal(t, "hi", message["content"])
+	assert.Equal(t, "text", message["messageType"])
+	assert.Equal(t, "agent", message["taskMode"])
 }
 
 func TestClawSendMessage(t *testing.T) {
