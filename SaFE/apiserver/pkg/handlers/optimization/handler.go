@@ -7,6 +7,8 @@ package optimization
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -370,7 +372,7 @@ func (h *Handler) StreamEvents(c *gin.Context) {
 		return
 	}
 
-	afterSeq := parseAfterSeq(c.Query("after_event_id"))
+	afterSeq := h.resolveAfterSeq(c.Request.Context(), id, c.Query("after_event_id"))
 
 	// Prepare SSE headers before any write.
 	c.Writer.Header().Set("Content-Type", "text/event-stream")
@@ -389,27 +391,40 @@ func (h *Handler) StreamEvents(c *gin.Context) {
 		return writeSSEEvent(c.Writer, flusher, ev)
 	}
 
-	// 1. Replay.
-	events, err := h.dbClient.ListOptimizationEvents(ctx, id, afterSeq, 10000)
-	if err != nil {
-		klog.ErrorS(err, "replay optimization events", "task_id", id)
-	}
 	lastSeq := afterSeq
 	isTerminal := task.Status == dbclient.OptimizationTaskStatusSucceeded ||
 		task.Status == dbclient.OptimizationTaskStatusFailed ||
 		task.Status == dbclient.OptimizationTaskStatusInterrupted
-	for _, dbev := range events {
-		if dbev.Seq > lastSeq {
-			lastSeq = dbev.Seq
+	hasBenchmark := false
+	const replayPageSize = 10000
+	for {
+		events, err := h.dbClient.ListOptimizationEvents(ctx, id, lastSeq, replayPageSize)
+		if err != nil {
+			klog.ErrorS(err, "replay optimization events", "task_id", id, "after_seq", lastSeq)
+			break
 		}
-		// For terminal tasks, skip persisted done events — we emit a fresh done
-		// at the very end so backfill benchmark/kernel events (which have higher
-		// synthetic seq numbers) are always delivered before the terminal marker.
-		if isTerminal && EventType(dbev.Type) == EventTypeDone {
-			continue
+		if len(events) == 0 {
+			break
 		}
-		if err := writeFrame(dbEventToAPI(dbev)); err != nil {
-			return
+		if hasBenchmarkEvents(events) {
+			hasBenchmark = true
+		}
+		for _, dbev := range events {
+			if dbev.Seq > lastSeq {
+				lastSeq = dbev.Seq
+			}
+			// For terminal tasks, skip persisted done events — we emit a fresh done
+			// at the very end so backfill benchmark/kernel events (which have higher
+			// synthetic seq numbers) are always delivered before the terminal marker.
+			if isTerminal && EventType(dbev.Type) == EventTypeDone {
+				continue
+			}
+			if err := writeFrame(dbEventToAPI(dbev)); err != nil {
+				return
+			}
+		}
+		if len(events) < replayPageSize {
+			break
 		}
 	}
 
@@ -420,7 +435,7 @@ func (h *Handler) StreamEvents(c *gin.Context) {
 		// pipeline ran in orchestrator mode (sub-jobs). Try to backfill from
 		// Claw session artifacts. This fires asynchronously; on the next page
 		// load the events are already in DB and will be replayed before done.
-		if task.Status == dbclient.OptimizationTaskStatusSucceeded && !hasBenchmarkEvents(events) {
+		if task.Status == dbclient.OptimizationTaskStatusSucceeded && !hasBenchmark {
 			go h.fetchAndInjectMetrics(context.Background(), task)
 		}
 		_ = writeFrame(makeDoneEvent(id, lastSeq+1, task.Status, task.Message))
@@ -569,18 +584,23 @@ func (h *Handler) consumeClawStream(taskID, sessionID string, hub *taskHub, claw
 		}
 	}()
 
+	var lastClawEventID string
 	onEvent := func(raw ClawSSEEvent) error {
 		parsed := parser.Parse(raw)
-		for _, p := range parsed {
-			ev := h.buildEvent(taskID, hub, p.Type, p.Payload)
-			h.persistAndBroadcast(taskID, hub, ev)
-			h.maybeUpdateTaskStatus(taskID, p)
+		for i, p := range parsed {
+			ev := h.buildEventFromClaw(taskID, hub, raw, i, p.Type, p.Payload)
+			if h.persistAndBroadcast(taskID, hub, ev) {
+				h.maybeUpdateTaskStatus(taskID, p)
+			}
+		}
+		if raw.ID != "" {
+			lastClawEventID = raw.ID
 		}
 		return nil
 	}
 
 	for {
-		err := h.clawClient.Stream(ctx, sessionID, "", onEvent)
+		err := h.clawClient.Stream(ctx, sessionID, lastClawEventID, onEvent)
 		if errors.Is(err, context.Canceled) {
 			// Normal exit: poll goroutine confirmed terminal, or hub closed.
 			break
@@ -637,25 +657,57 @@ func (h *Handler) buildEvent(taskID string, hub *taskHub, evType EventType, payl
 		Type:      evType,
 		Timestamp: nowMillis(),
 		Payload:   marshalPayload(payload),
+		Seq:       seq,
 	}
 }
 
-func (h *Handler) persistAndBroadcast(taskID string, hub *taskHub, ev Event) {
+func (h *Handler) buildEventFromClaw(
+	taskID string,
+	hub *taskHub,
+	raw ClawSSEEvent,
+	parsedIndex int,
+	evType EventType,
+	payload interface{},
+) Event {
+	seq := hub.nextSeq()
+	eventID := fmt.Sprintf("%s-%d", taskID, seq)
+	if raw.ID != "" {
+		eventID = stableClawEventID(taskID, raw.ID, parsedIndex)
+	}
+	return Event{
+		ID:        eventID,
+		TaskID:    taskID,
+		Type:      evType,
+		Timestamp: nowMillis(),
+		Payload:   marshalPayload(payload),
+		Seq:       seq,
+	}
+}
+
+func stableClawEventID(taskID, clawEventID string, parsedIndex int) string {
+	sum := sha256.Sum256([]byte(clawEventID))
+	return fmt.Sprintf("%s-c-%s-%d", taskID, hex.EncodeToString(sum[:8]), parsedIndex)
+}
+
+func (h *Handler) persistAndBroadcast(taskID string, hub *taskHub, ev Event) bool {
 	// Persist in a best-effort manner; the live channel still gets the event.
-	seq := parseSeqFromEventID(ev.ID)
 	dbev := &dbclient.OptimizationEvent{
 		EventID:   ev.ID,
 		TaskID:    taskID,
 		Type:      string(ev.Type),
 		Payload:   string(ev.Payload),
-		Seq:       seq,
+		Seq:       ev.Seq,
 		Timestamp: ev.Timestamp,
 	}
 	if err := h.dbClient.AppendOptimizationEvent(context.Background(), dbev); err != nil {
+		if errors.Is(err, dbclient.ErrOptimizationEventDuplicate) {
+			return false
+		}
 		klog.V(4).InfoS("persist optimization event failed",
-			"task_id", taskID, "seq", seq, "error", err)
+			"task_id", taskID, "seq", ev.Seq, "error", err)
 	}
 	hub.broadcast(ev)
+	return true
 }
 
 // maybeUpdateTaskStatus promotes the task's DB status when we see either a
@@ -1009,11 +1061,10 @@ func (h *Handler) recoverRunningTasks(ctx context.Context) {
 			}
 		} else {
 			// Session still active — reconnect the stream. Seed the hub from the
-			// highest persisted seq instead of restarting at 0: after an apiserver
-			// restart the in-memory counter is gone, and a 0-based counter would
-			// re-mint event_ids that already exist in the DB. Those collisions are
-			// now swallowed by the ON CONFLICT DO NOTHING insert, so newly produced
-			// events would be silently dropped until the counter caught up.
+			// highest persisted seq instead of restarting at 0 so API event order
+			// continues after an apiserver restart. Stable Claw-derived event_ids
+			// make replayed upstream history idempotent even when no in-memory
+			// Claw resume cursor survived the restart.
 			lastSeq, seqErr := h.dbClient.LatestOptimizationEventSeq(ctx, task.ID)
 			if seqErr != nil {
 				klog.ErrorS(seqErr, "recoverRunningTasks: get latest event seq failed, seeding 0",
@@ -1158,7 +1209,25 @@ func dbEventToAPI(dbev *dbclient.OptimizationEvent) Event {
 		Type:      EventType(dbev.Type),
 		Timestamp: dbev.Timestamp,
 		Payload:   json.RawMessage(dbev.Payload),
+		Seq:       dbev.Seq,
 	}
+}
+
+func (h *Handler) resolveAfterSeq(ctx context.Context, taskID, afterEventID string) int64 {
+	if afterEventID == "" {
+		return 0
+	}
+	seq, ok, err := h.dbClient.OptimizationEventSeq(ctx, taskID, afterEventID)
+	if err != nil {
+		klog.V(4).InfoS("resolve after event seq failed",
+			"task_id", taskID, "event_id", afterEventID, "error", err)
+	}
+	if ok {
+		return seq
+	}
+	// Backward compatibility for legacy taskID-seq ids and fresh terminal done
+	// frames emitted by StreamEvents without an already persisted DB row.
+	return parseAfterSeq(afterEventID)
 }
 
 func parseAfterSeq(afterEventID string) int64 {
@@ -1195,6 +1264,7 @@ func makeDoneEvent(taskID string, seq int64, status dbclient.OptimizationTaskSta
 		Type:      EventTypeDone,
 		Timestamp: nowMillis(),
 		Payload:   marshalPayload(payload),
+		Seq:       seq,
 	}
 }
 

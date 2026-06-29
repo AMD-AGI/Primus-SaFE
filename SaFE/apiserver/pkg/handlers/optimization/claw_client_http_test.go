@@ -188,7 +188,9 @@ func TestClawDownloadProxyPath(t *testing.T) {
 func TestClawStream(t *testing.T) {
 	// Dedicated server returning an SSE stream.
 	mux := http.NewServeMux()
+	var gotAfterEventID string
 	mux.HandleFunc("/chat/sessions/sess-1/messages", func(w http.ResponseWriter, r *http.Request) {
+		gotAfterEventID = r.URL.Query().Get("after_event_id")
 		w.Header().Set("Content-Type", "text/event-stream")
 		_, _ = w.Write([]byte("id: 1\nevent: phase\ndata: {\"phase\":1}\n\n"))
 	})
@@ -204,6 +206,14 @@ func TestClawStream(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Len(t, events, 1)
 	assert.Equal(t, "phase", events[0].Event)
+
+	events = nil
+	err = c.Stream(context.Background(), "sess-1", "event+1/2", func(e ClawSSEEvent) error {
+		events = append(events, e)
+		return nil
+	})
+	assert.NoError(t, err)
+	assert.Equal(t, "event+1/2", gotAfterEventID)
 
 	// Empty session id -> error.
 	assert.Error(t, c.Stream(context.Background(), "", "", func(ClawSSEEvent) error { return nil }))

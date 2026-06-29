@@ -8,6 +8,7 @@ package optimization
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"regexp"
 	"strconv"
@@ -109,7 +110,13 @@ func (h *Handler) appendSyntheticEvent(taskID string, evType EventType, payload 
 		Seq:       seq,
 		Timestamp: nowMillis(),
 	}
-	return h.dbClient.AppendOptimizationEvent(context.Background(), dbev)
+	if err := h.dbClient.AppendOptimizationEvent(context.Background(), dbev); err != nil {
+		if errors.Is(err, dbclient.ErrOptimizationEventDuplicate) {
+			return nil
+		}
+		return err
+	}
+	return nil
 }
 
 // ── Report parsing ────────────────────────────────────────────────────────────
