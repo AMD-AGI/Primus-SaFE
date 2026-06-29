@@ -10,7 +10,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 )
@@ -120,6 +122,67 @@ func TestClawCreateSessionWithMessageExplicitNotDispatched(t *testing.T) {
 		Message: &MessageRequest{Content: "hi"},
 	})
 	assert.Error(t, err)
+}
+
+func TestCreateClawSessionWithRetryTransientFailures(t *testing.T) {
+	oldAttemptTimeout := clawCreateSessionAttemptTimeout
+	oldRetryInterval := clawCreateSessionRetryInterval
+	oldTotalTimeout := clawCreateSessionTotalTimeout
+	clawCreateSessionAttemptTimeout = 100 * time.Millisecond
+	clawCreateSessionRetryInterval = time.Millisecond
+	clawCreateSessionTotalTimeout = time.Second
+	t.Cleanup(func() {
+		clawCreateSessionAttemptTimeout = oldAttemptTimeout
+		clawCreateSessionRetryInterval = oldRetryInterval
+		clawCreateSessionTotalTimeout = oldTotalTimeout
+	})
+
+	var calls atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		n := calls.Add(1)
+		if n < 3 {
+			w.WriteHeader(499)
+			_, _ = w.Write([]byte(`{"ok":false,"error":"client_closed_request"}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"code":0,"data":{"session_id":"sess-1","agent_status":"running","message":{"message_id":"msg-1","dispatched":true}}}`))
+	}))
+	defer srv.Close()
+
+	h := &Handler{clawClient: NewClawClient(srv.URL, "test-key")}
+	res, err := h.createClawSessionWithRetry("bearer", "task-1", &SessionRequest{
+		Name:    "opt",
+		Message: &MessageRequest{Content: "hi"},
+	})
+	assert.NoError(t, err)
+	assert.Equal(t, "sess-1", res.SessionID)
+	assert.Equal(t, int32(3), calls.Load())
+}
+
+func TestCreateClawSessionWithRetryDoesNotRetryBusinessFailure(t *testing.T) {
+	oldRetryInterval := clawCreateSessionRetryInterval
+	oldTotalTimeout := clawCreateSessionTotalTimeout
+	clawCreateSessionRetryInterval = time.Millisecond
+	clawCreateSessionTotalTimeout = time.Second
+	t.Cleanup(func() {
+		clawCreateSessionRetryInterval = oldRetryInterval
+		clawCreateSessionTotalTimeout = oldTotalTimeout
+	})
+
+	var calls atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		_, _ = w.Write([]byte(`{"code":0,"data":{"session_id":"sess-1","agent_status":"idle","message":{"message_id":"msg-1","dispatched":false}}}`))
+	}))
+	defer srv.Close()
+
+	h := &Handler{clawClient: NewClawClient(srv.URL, "test-key")}
+	_, err := h.createClawSessionWithRetry("bearer", "task-1", &SessionRequest{
+		Name:    "opt",
+		Message: &MessageRequest{Content: "hi"},
+	})
+	assert.Error(t, err)
+	assert.Equal(t, int32(1), calls.Load())
 }
 
 func TestClawSendMessage(t *testing.T) {
