@@ -250,6 +250,7 @@ type Event struct {
 	Type      EventType       `json:"type"`
 	Timestamp int64           `json:"timestamp"`
 	Payload   json.RawMessage `json:"payload"`
+	Seq       int64           `json:"-"`
 }
 
 // PhaseEventPayload maps to Hyperloom's Phase 0..10 progression.

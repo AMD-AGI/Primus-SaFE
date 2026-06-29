@@ -7,10 +7,14 @@ package client
 
 import (
 	"context"
+	"errors"
 	"time"
 
+	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
+
+var ErrOptimizationEventDuplicate = errors.New("optimization event already exists")
 
 // OptimizationTaskFilter encapsulates optional filter predicates for listing
 // optimization tasks. Zero-valued fields are ignored at query time.
@@ -224,7 +228,44 @@ func (c *Client) AppendOptimizationEvent(
 	if err != nil {
 		return err
 	}
-	return db.WithContext(ctx).Create(event).Error
+	// event_id is unique. Stream reconnects and apiserver restarts may replay
+	// already-persisted Claw history; treat that as an idempotent duplicate
+	// instead of surfacing PostgreSQL 23505 noise.
+	result := db.WithContext(ctx).Clauses(clause.OnConflict{
+		Columns:   []clause.Column{{Name: "event_id"}},
+		DoNothing: true,
+	}).Create(event)
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return ErrOptimizationEventDuplicate
+	}
+	return nil
+}
+
+// OptimizationEventSeq returns the persisted sequence for an event id.
+func (c *Client) OptimizationEventSeq(
+	ctx context.Context,
+	taskID string,
+	eventID string,
+) (int64, bool, error) {
+	db, err := c.GetGormDB()
+	if err != nil {
+		return 0, false, err
+	}
+	var event OptimizationEvent
+	err = db.WithContext(ctx).
+		Select("seq").
+		Where("task_id = ? AND event_id = ?", taskID, eventID).
+		Take(&event).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return 0, false, nil
+	}
+	if err != nil {
+		return 0, false, err
+	}
+	return event.Seq, true, nil
 }
 
 // ListOptimizationEvents returns events for a task starting after a given

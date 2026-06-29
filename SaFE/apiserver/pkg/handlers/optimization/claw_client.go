@@ -77,10 +77,10 @@ func NewClawClient(baseURL, apiKey string) *ClawClient {
 
 // SessionRequest mirrors Claw's POST /sessions body.
 type SessionRequest struct {
-	Name         string                 `json:"name,omitempty"`
-	AgentID      string                 `json:"agent_id,omitempty"`
-	SystemPrompt string                 `json:"system_prompt,omitempty"`
-	Mode         string                 `json:"mode,omitempty"`
+	Name         string `json:"name,omitempty"`
+	AgentID      string `json:"agent_id,omitempty"`
+	SystemPrompt string `json:"system_prompt,omitempty"`
+	Mode         string `json:"mode,omitempty"`
 	// Env is the session-scoped environment forwarded as the TOP-LEVEL body.env.
 	// Claw's POST /sessions parses session_env from body.env (parseSessionEnv),
 	// NOT from message.env — so per-task overrides like CLAUDE_MODEL must be set
@@ -313,12 +313,12 @@ func (c *ClawClient) Stream(
 		return fmt.Errorf("claw stream: empty session id")
 	}
 
-	url := c.baseURL + fmt.Sprintf(clawPathStream, sessionID)
+	streamURL := c.baseURL + fmt.Sprintf(clawPathStream, sessionID)
 	if afterEventID != "" {
-		url += "?after_event_id=" + afterEventID
+		streamURL += "?after_event_id=" + url.QueryEscape(afterEventID)
 	}
 
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, streamURL, nil)
 	if err != nil {
 		return err
 	}

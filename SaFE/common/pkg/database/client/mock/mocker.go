@@ -65,6 +65,22 @@ func (mr *MockInterfaceMockRecorder) AppendOptimizationEvent(ctx, event interfac
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AppendOptimizationEvent", reflect.TypeOf((*MockInterface)(nil).AppendOptimizationEvent), ctx, event)
 }
 
+// OptimizationEventSeq mocks base method.
+func (m *MockInterface) OptimizationEventSeq(ctx context.Context, taskID, eventID string) (int64, bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "OptimizationEventSeq", ctx, taskID, eventID)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(bool)
+	ret2, _ := ret[2].(error)
+	return ret0, ret1, ret2
+}
+
+// OptimizationEventSeq indicates an expected call of OptimizationEventSeq.
+func (mr *MockInterfaceMockRecorder) OptimizationEventSeq(ctx, taskID, eventID interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "OptimizationEventSeq", reflect.TypeOf((*MockInterface)(nil).OptimizationEventSeq), ctx, taskID, eventID)
+}
+
 // BatchInsertAuditLogs mocks base method.
 func (m *MockInterface) BatchInsertAuditLogs(ctx context.Context, auditLogs []*client.AuditLog) error {
 	m.ctrl.T.Helper()
@@ -4984,6 +5000,22 @@ func (m *MockOptimizationTaskInterface) AppendOptimizationEvent(ctx context.Cont
 func (mr *MockOptimizationTaskInterfaceMockRecorder) AppendOptimizationEvent(ctx, event interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AppendOptimizationEvent", reflect.TypeOf((*MockOptimizationTaskInterface)(nil).AppendOptimizationEvent), ctx, event)
+}
+
+// OptimizationEventSeq mocks base method.
+func (m *MockOptimizationTaskInterface) OptimizationEventSeq(ctx context.Context, taskID, eventID string) (int64, bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "OptimizationEventSeq", ctx, taskID, eventID)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(bool)
+	ret2, _ := ret[2].(error)
+	return ret0, ret1, ret2
+}
+
+// OptimizationEventSeq indicates an expected call of OptimizationEventSeq.
+func (mr *MockOptimizationTaskInterfaceMockRecorder) OptimizationEventSeq(ctx, taskID, eventID interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "OptimizationEventSeq", reflect.TypeOf((*MockOptimizationTaskInterface)(nil).OptimizationEventSeq), ctx, taskID, eventID)
 }
 
 // CountRunningOptimizationTasks mocks base method.
