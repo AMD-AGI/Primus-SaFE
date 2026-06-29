@@ -81,8 +81,13 @@ type SessionRequest struct {
 	AgentID      string                 `json:"agent_id,omitempty"`
 	SystemPrompt string                 `json:"system_prompt,omitempty"`
 	Mode         string                 `json:"mode,omitempty"`
-	Config       map[string]interface{} `json:"config,omitempty"`
-	Message      *MessageRequest        `json:"message,omitempty"`
+	// Env is the session-scoped environment forwarded as the TOP-LEVEL body.env.
+	// Claw's POST /sessions parses session_env from body.env (parseSessionEnv),
+	// NOT from message.env — so per-task overrides like CLAUDE_MODEL must be set
+	// here to actually reach the sandbox as session_env (highest precedence).
+	Env     map[string]string      `json:"env,omitempty"`
+	Config  map[string]interface{} `json:"config,omitempty"`
+	Message *MessageRequest        `json:"message,omitempty"`
 }
 
 // SessionResponse wraps the common response envelope for session-creation.
