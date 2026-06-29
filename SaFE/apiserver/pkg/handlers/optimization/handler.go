@@ -488,6 +488,15 @@ func (t *sessionCompletionTracker) terminalStatus() *SessionStatus {
 	return &cp
 }
 
+func (t *sessionCompletionTracker) sawRunningStatus() bool {
+	if t == nil {
+		return false
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.sawRunning
+}
+
 // consumeClawStream is the per-task goroutine that pulls the upstream Claw
 // SSE stream, parses it, persists events, and broadcasts them to live HTTP
 // subscribers. It runs until the stream ends or returns an error; either
@@ -500,7 +509,7 @@ func (h *Handler) consumeClawStream(taskID, sessionID string, hub *taskHub, claw
 			klog.ErrorS(fmt.Errorf("%v", r), "consume claw stream panicked", "task_id", taskID)
 			streamErr = fmt.Errorf("panic: %v", r)
 		}
-		h.finalizeTask(taskID, hub, streamErr, clawBearer, tracker.terminalStatus())
+		h.finalizeTask(taskID, hub, streamErr, clawBearer, tracker.terminalStatus(), tracker.sawRunningStatus())
 	}()
 
 	parser := NewSSEParser()
@@ -560,9 +569,25 @@ func (h *Handler) consumeClawStream(taskID, sessionID string, hub *taskHub, claw
 
 	for {
 		err := h.clawClient.Stream(ctx, sessionID, "", onEvent)
-		if err == nil || errors.Is(err, context.Canceled) {
-			// Normal exit: stream EOF or context cancelled (agent idle / hub closed).
+		if errors.Is(err, context.Canceled) {
+			// Normal exit: poll goroutine confirmed terminal, or hub closed.
 			break
+		}
+		if err == nil {
+			// Upstream EOF is only terminal if Claw status confirms it. Otherwise
+			// reconnect so a transient stream close doesn't strand the task.
+			ss, getErr := h.getSessionWithRetry(ctx, sessionID, clawBearer)
+			if getErr == nil && tracker.observe(ss) {
+				break
+			}
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(5 * time.Second):
+			}
+			klog.InfoS("claw stream EOF before terminal status, reconnecting",
+				"task_id", taskID, "session_id", sessionID)
+			continue
 		}
 		// Stream dropped unexpectedly (network blip, LB idle timeout, etc.).
 		// Check whether the session is still active before retrying.
@@ -647,6 +672,7 @@ func (h *Handler) finalizeTask(
 	streamErr error,
 	clawBearer string,
 	terminalStatus *SessionStatus,
+	sawRunning bool,
 ) {
 	task, err := h.dbClient.GetOptimizationTask(context.Background(), taskID)
 	status := dbclient.OptimizationTaskStatusSucceeded
@@ -671,21 +697,24 @@ func (h *Handler) finalizeTask(
 				// The SSE connection dropped (e.g. network blip, LB timeout).
 				// The Claw session may still be running — query it before
 				// deciding the final status so we don't mark a live task Failed.
-				status, msg = h.resolveStatusFromClaw(task.ClawSessionID, streamErr)
+				status, msg = h.resolveStatusFromClaw(task.ClawSessionID, streamErr, clawBearer, sawRunning)
 			} else {
-				// Agent went idle normally. Verify the skill ran to completion by
-				// checking for the optimization report — its absence means the skill
-				// exited early (e.g. sandbox_create_failed) even though Claw reports idle.
-				if task.ClawSessionID != "" && !h.hasOptimizationReport(task.ClawSessionID, clawBearer) {
-					status = dbclient.OptimizationTaskStatusFailed
-					msg = "optimization report not found; skill may have exited early"
-				} else {
-					msg = "completed"
+				// A clean stream EOF is not itself a completion signal. Poll Claw
+				// once before writing any terminal state; initial idle must still
+				// wait for a running -> idle edge.
+				status, msg = h.resolveStatusFromClaw(task.ClawSessionID, nil, clawBearer, sawRunning)
+				if status == dbclient.OptimizationTaskStatusSucceeded {
+					if task.ClawSessionID != "" && !h.hasOptimizationReport(task.ClawSessionID, clawBearer) {
+						status = dbclient.OptimizationTaskStatusFailed
+						msg = "optimization report not found; skill may have exited early"
+					}
 				}
 			}
-			_ = h.dbClient.UpdateOptimizationTaskStatus(
-				context.Background(), taskID, status, task.CurrentPhase, msg,
-			)
+			if status != dbclient.OptimizationTaskStatusRunning {
+				_ = h.dbClient.UpdateOptimizationTaskStatus(
+					context.Background(), taskID, status, task.CurrentPhase, msg,
+				)
+			}
 		}
 	}
 	// If the session is still running (stream dropped transiently), do not emit
@@ -765,9 +794,18 @@ func (h *Handler) getSessionWithRetry(ctx context.Context, sessionID, clawBearer
 // resolveStatusFromClaw queries the Claw session to determine the true task
 // status when the SSE stream dropped unexpectedly. This prevents marking a
 // still-running Hyperloom session as Failed due to a transient connection drop.
-func (h *Handler) resolveStatusFromClaw(sessionID string, streamErr error) (dbclient.OptimizationTaskStatus, string) {
-	fallbackStatus := dbclient.OptimizationTaskStatusFailed
-	fallbackMsg := "claw stream error: " + streamErr.Error()
+func (h *Handler) resolveStatusFromClaw(
+	sessionID string,
+	streamErr error,
+	clawBearer string,
+	sawRunning bool,
+) (dbclient.OptimizationTaskStatus, string) {
+	fallbackStatus := dbclient.OptimizationTaskStatusRunning
+	fallbackMsg := ""
+	if streamErr != nil {
+		fallbackStatus = dbclient.OptimizationTaskStatusFailed
+		fallbackMsg = "claw stream error: " + streamErr.Error()
+	}
 
 	if sessionID == "" {
 		return fallbackStatus, fallbackMsg
@@ -775,7 +813,7 @@ func (h *Handler) resolveStatusFromClaw(sessionID string, streamErr error) (dbcl
 
 	// Retry on transient failures: a brief Claw blip must not flip a task to
 	// Failed when the underlying session may still be alive.
-	ss, err := h.getSessionWithRetry(context.Background(), sessionID, h.clawClient.apiKey)
+	ss, err := h.getSessionWithRetry(context.Background(), sessionID, clawBearer)
 	if err != nil {
 		klog.V(4).InfoS("resolveStatusFromClaw: get session failed after retries, keeping stream error",
 			"session_id", sessionID, "error", err)
@@ -786,7 +824,8 @@ func (h *Handler) resolveStatusFromClaw(sessionID string, streamErr error) (dbcl
 		"session_id", sessionID,
 		"status", ss.Status, "agent_status", ss.AgentStatus, "stream_err", streamErr)
 
-	if !ss.IsTerminal() {
+	tracker := newSessionCompletionTracker(sawRunning)
+	if !tracker.observe(ss) {
 		// Session is still running — do not mark as Failed. Return Running so
 		// the caller skips writing a terminal status; the Detail page will show
 		// the task as still in progress.
@@ -794,10 +833,7 @@ func (h *Handler) resolveStatusFromClaw(sessionID string, streamErr error) (dbcl
 			"session_id", sessionID, "agent_status", ss.AgentStatus)
 		return dbclient.OptimizationTaskStatusRunning, ""
 	}
-	if ss.Status == "failed" || ss.AgentStatus == "failed" {
-		return dbclient.OptimizationTaskStatusFailed, "claw session failed"
-	}
-	return dbclient.OptimizationTaskStatusSucceeded, "completed"
+	return taskStatusFromClawSession(tracker.terminalStatus())
 }
 
 // hasOptimizationReport checks whether the Claw session contains an

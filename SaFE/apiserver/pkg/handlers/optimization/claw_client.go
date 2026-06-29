@@ -217,12 +217,21 @@ func (c *ClawClient) createSession(ctx context.Context, req *SessionRequest) (Cr
 		// Older Claw versions return fields at the top level.
 		SessionID   string `json:"session_id"`
 		AgentStatus string `json:"agent_status"`
+		Message     struct {
+			MessageID  string `json:"message_id"`
+			Dispatched bool   `json:"dispatched"`
+		} `json:"message"`
 	}
 	if err := json.Unmarshal(raw, &envelope); err != nil {
 		return CreateSessionResult{}, fmt.Errorf("claw create session: parse response: %w", err)
 	}
 	if envelope.SessionID != "" {
-		return CreateSessionResult{SessionID: envelope.SessionID, AgentStatus: envelope.AgentStatus}, nil
+		return CreateSessionResult{
+			SessionID:   envelope.SessionID,
+			AgentStatus: envelope.AgentStatus,
+			MessageID:   envelope.Message.MessageID,
+			Dispatched:  envelope.Message.Dispatched,
+		}, nil
 	}
 	var data SessionResponse
 	if len(envelope.Data) > 0 {
