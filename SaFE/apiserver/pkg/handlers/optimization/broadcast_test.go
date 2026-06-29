@@ -83,6 +83,27 @@ func TestPersistAndBroadcastSkipsDuplicate(t *testing.T) {
 	}
 }
 
+func TestAppendSyntheticEventPersistsAndSkipsDuplicate(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	mockDB := mock_client.NewMockInterface(ctrl)
+	mockDB.EXPECT().AppendOptimizationEvent(gomock.Any(), gomock.AssignableToTypeOf(&dbclient.OptimizationEvent{})).
+		DoAndReturn(func(_ context.Context, ev *dbclient.OptimizationEvent) error {
+			assert.Equal(t, "t1", ev.TaskID)
+			assert.Equal(t, string(EventTypeKernel), ev.Type)
+			assert.Contains(t, ev.EventID, "t1-m-")
+			assert.True(t, ev.Seq > 0)
+			assert.Contains(t, ev.Payload, "GEAK")
+			return nil
+		})
+	mockDB.EXPECT().AppendOptimizationEvent(gomock.Any(), gomock.AssignableToTypeOf(&dbclient.OptimizationEvent{})).
+		Return(dbclient.ErrOptimizationEventDuplicate)
+
+	h := &Handler{dbClient: mockDB}
+	assert.NoError(t, h.appendSyntheticEvent("t1", EventTypeKernel, KernelEventPayload{Backend: "GEAK"}))
+	assert.NoError(t, h.appendSyntheticEvent("t1", EventTypeKernel, KernelEventPayload{Backend: "GEAK"}))
+}
+
 func TestResolveAfterSeqUsesPersistedEventID(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()

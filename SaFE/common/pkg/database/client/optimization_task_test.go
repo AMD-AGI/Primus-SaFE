@@ -7,7 +7,10 @@ package client
 
 import (
 	"context"
+	"errors"
 	"testing"
+
+	"github.com/DATA-DOG/go-sqlmock"
 )
 
 func TestOptimizationTaskCRUD(t *testing.T) {
@@ -39,5 +42,42 @@ func TestOptimizationTaskGormNotInitialized(t *testing.T) {
 	_, err := c.GetOptimizationTask(ctx, "t1")
 	if err == nil {
 		t.Fatal("expected error when gorm not initialized")
+	}
+}
+
+func TestAppendOptimizationEventDuplicate(t *testing.T) {
+	c, mock := newMockClient(t)
+	mock.ExpectQuery("INSERT INTO .*optimization_event").
+		WillReturnRows(sqlmock.NewRows([]string{"id"}))
+
+	err := c.AppendOptimizationEvent(context.Background(), &OptimizationEvent{
+		EventID: "event-1",
+		TaskID:  "t1",
+		Type:    "log",
+		Payload: "{}",
+		Seq:     1,
+	})
+	if !errors.Is(err, ErrOptimizationEventDuplicate) {
+		t.Fatalf("expected duplicate sentinel, got %v", err)
+	}
+}
+
+func TestOptimizationEventSeqFoundAndMissing(t *testing.T) {
+	ctx := context.Background()
+
+	c, mock := newMockClient(t)
+	mock.ExpectQuery("SELECT .*seq.* FROM .*optimization_event").
+		WillReturnRows(sqlmock.NewRows([]string{"seq"}).AddRow(int64(42)))
+	seq, ok, err := c.OptimizationEventSeq(ctx, "t1", "event-1")
+	if err != nil || !ok || seq != 42 {
+		t.Fatalf("expected seq=42 ok=true err=nil, got seq=%d ok=%v err=%v", seq, ok, err)
+	}
+
+	c2, mock2 := newMockClient(t)
+	mock2.ExpectQuery("SELECT .*seq.* FROM .*optimization_event").
+		WillReturnRows(sqlmock.NewRows([]string{"seq"}))
+	seq, ok, err = c2.OptimizationEventSeq(ctx, "t1", "missing")
+	if err != nil || ok || seq != 0 {
+		t.Fatalf("expected missing event to return seq=0 ok=false err=nil, got seq=%d ok=%v err=%v", seq, ok, err)
 	}
 }
