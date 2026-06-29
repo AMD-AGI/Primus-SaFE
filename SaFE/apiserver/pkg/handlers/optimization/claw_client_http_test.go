@@ -70,7 +70,7 @@ func TestClawCreateSessionWithMessage(t *testing.T) {
 	assert.Equal(t, "sess-1", res.SessionID)
 	assert.Equal(t, "running", res.AgentStatus)
 	assert.Equal(t, "msg-1", res.MessageID)
-	assert.True(t, res.Dispatched)
+	assert.True(t, res.Dispatched != nil && *res.Dispatched)
 }
 
 func TestClawCreateSessionWithMessageTopLevelEnvelope(t *testing.T) {
@@ -86,7 +86,40 @@ func TestClawCreateSessionWithMessageTopLevelEnvelope(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, "sess-1", res.SessionID)
 	assert.Equal(t, "msg-1", res.MessageID)
-	assert.True(t, res.Dispatched)
+	assert.True(t, res.Dispatched != nil && *res.Dispatched)
+}
+
+// TestClawCreateSessionWithMessageNoDispatchedField verifies that an older
+// Claw build which omits the `dispatched` field is accepted (we cannot prove
+// non-dispatch, and a session was created), rather than failing every submit.
+func TestClawCreateSessionWithMessageNoDispatchedField(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"code":0,"data":{"session_id":"sess-1","agent_status":"running","message":{"message_id":"msg-1"}}}`))
+	}))
+	defer srv.Close()
+	c := NewClawClient(srv.URL, "test-key")
+	res, err := c.CreateSessionWithMessage(context.Background(), &SessionRequest{
+		Name:    "opt",
+		Message: &MessageRequest{Content: "hi"},
+	})
+	assert.NoError(t, err)
+	assert.Equal(t, "sess-1", res.SessionID)
+	assert.Nil(t, res.Dispatched)
+}
+
+// TestClawCreateSessionWithMessageExplicitNotDispatched verifies that an
+// explicit dispatched:false is still treated as a hard failure.
+func TestClawCreateSessionWithMessageExplicitNotDispatched(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"code":0,"data":{"session_id":"sess-1","agent_status":"idle","message":{"message_id":"msg-1","dispatched":false}}}`))
+	}))
+	defer srv.Close()
+	c := NewClawClient(srv.URL, "test-key")
+	_, err := c.CreateSessionWithMessage(context.Background(), &SessionRequest{
+		Name:    "opt",
+		Message: &MessageRequest{Content: "hi"},
+	})
+	assert.Error(t, err)
 }
 
 func TestClawSendMessage(t *testing.T) {
