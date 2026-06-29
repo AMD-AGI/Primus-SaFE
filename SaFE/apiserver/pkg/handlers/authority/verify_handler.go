@@ -29,7 +29,10 @@ type VerifyTokenRequest struct {
 	ApiKey string `json:"apiKey,omitempty"`
 	// Original client IP, used for API key whitelist validation
 	ClientIP string `json:"clientIP,omitempty"`
-	// If true, returns the user's platform API key (GetOrCreate)
+	// If true, returns the user's platform API key (GetOrCreate).
+	// NOTE: this platform key is effectively a "shadow" of the user's API key:
+	// it is a stable per-user ak-... minted/fetched via GetOrCreate and is NOT
+	// the specific ak-... presented for this verification.
 	IncludePlatformKey bool `json:"includePlatformKey,omitempty"`
 	// If true, returns the user's LiteLLM virtual key (decrypted)
 	IncludeVirtualKey bool `json:"includeVirtualKey,omitempty"`
