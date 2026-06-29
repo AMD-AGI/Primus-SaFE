@@ -37,8 +37,20 @@ from typing import Optional
 
 # ── Configuration ──────────────────────────────────────────────────────────────
 
+def env_int(name: str, default: int) -> int:
+    raw = os.environ.get(name, "")
+    if not raw:
+        return default
+    try:
+        return int(raw)
+    except ValueError:
+        print(f"  [warn] Invalid {name}={raw!r}; using {default}", file=sys.stderr)
+        return default
+
+
 API_URL  = os.environ.get("SAFE_API_URL", "https://core42.primus-safe.amd.com")
 SAFE_TOKEN  = os.environ.get("SAFE_API_KEY", "")
+SAFE_API_TIMEOUT_SECONDS = env_int("SAFE_API_TIMEOUT_SECONDS", 240)
 PROXY    = "harbor.core42.primus-safe.amd.com/proxy"
 WORKSPACE      = "core42-hyperloom"
 WEKAFS_VOLUME  = "/wekafs"
@@ -240,7 +252,7 @@ def auto_detect(repo_id: str, hf_token: str = "") -> dict:
 
 # ── SaFE API helpers ────────────────────────────────────────────────────────────
 
-def safe_request(method: str, path: str, body: dict = None) -> dict:
+def safe_request(method: str, path: str, body: dict = None, timeout: int = SAFE_API_TIMEOUT_SECONDS) -> dict:
     if not SAFE_TOKEN:
         raise RuntimeError("SAFE_API_KEY not set")
     url = f"{API_URL}/{path.lstrip('/')}"
@@ -252,7 +264,7 @@ def safe_request(method: str, path: str, body: dict = None) -> dict:
         method=method,
     )
     try:
-        with urllib.request.urlopen(req, context=_ssl_ctx, timeout=30) as r:
+        with urllib.request.urlopen(req, context=_ssl_ctx, timeout=timeout) as r:
             return json.load(r)
     except urllib.error.HTTPError as e:
         raise RuntimeError(f"HTTP {e.code}: {e.read().decode()}")
@@ -400,6 +412,8 @@ def process_model(repo_id: str, args) -> bool:
 
 
 def main():
+    global SAFE_TOKEN, WORKSPACE, WEKAFS_VOLUME
+
     parser = argparse.ArgumentParser(
         description="Submit SaFE inference optimization tasks",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -443,7 +457,6 @@ def main():
     args = parser.parse_args()
 
     # Apply overrides
-    global SAFE_TOKEN, WORKSPACE, WEKAFS_VOLUME
     if args.api_key:
         SAFE_TOKEN = args.api_key
     WORKSPACE     = args.workspace

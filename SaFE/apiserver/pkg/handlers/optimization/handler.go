@@ -35,6 +35,12 @@ import (
 	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
 )
 
+var (
+	clawCreateSessionAttemptTimeout = 30 * time.Second
+	clawCreateSessionRetryInterval  = 5 * time.Second
+	clawCreateSessionTotalTimeout   = 3 * time.Minute
+)
+
 // Handler is the HTTP entry point for Model Optimization. It orchestrates
 // DB persistence, Claw session management, and the per-task event hub.
 //
@@ -239,8 +245,6 @@ func (h *Handler) submitTask(
 		"memory":      fmt.Sprintf("%dGi", promptCfg.RayMemoryGi),
 	}
 
-	createCtx, cancel := context.WithTimeout(WithClawBearer(context.Background(), clawBearer), 30*time.Second)
-	defer cancel()
 	sessionName := fmt.Sprintf("safe-opt-%s-%s", resolved.DisplayName, taskID[len(taskID)-8:])
 	// Log the session-scoped env we forward to Claw so it can be verified from
 	// the apiserver log alone (mirrors the Hyperloom-side submit log). Only
@@ -249,7 +253,7 @@ func (h *Handler) submitTask(
 		klog.InfoS("optimization: forwarding session env to claw",
 			"task_id", taskID, "session_name", sessionName, "env", req.Env)
 	}
-	createResult, err := h.clawClient.CreateSessionWithMessage(createCtx, &SessionRequest{
+	createResult, err := h.createClawSessionWithRetry(clawBearer, taskID, &SessionRequest{
 		Name:    sessionName,
 		AgentID: h.clawAgentID,
 		// Env MUST be top-level: Claw's POST /sessions reads session_env from
@@ -278,6 +282,92 @@ func (h *Handler) submitTask(
 		ID:            taskID,
 		ClawSessionID: sessionID,
 	}, nil
+}
+
+func (h *Handler) createClawSessionWithRetry(
+	clawBearer string,
+	taskID string,
+	req *SessionRequest,
+) (CreateSessionResult, error) {
+	deadline := time.Now().Add(clawCreateSessionTotalTimeout)
+	var lastErr error
+	attempt := 0
+	for {
+		attempt++
+		remaining := time.Until(deadline)
+		if remaining <= 0 {
+			break
+		}
+		attemptTimeout := clawCreateSessionAttemptTimeout
+		if remaining < attemptTimeout {
+			attemptTimeout = remaining
+		}
+		createCtx, cancel := context.WithTimeout(
+			WithClawBearer(context.Background(), clawBearer),
+			attemptTimeout,
+		)
+		result, err := h.clawClient.CreateSessionWithMessage(createCtx, req)
+		cancel()
+		if err == nil {
+			if attempt > 1 {
+				klog.InfoS("create and dispatch claw session succeeded after retry",
+					"task_id", taskID, "attempt", attempt)
+			}
+			return result, nil
+		}
+		lastErr = err
+		if !isRetryableClawCreateSessionError(err) {
+			return CreateSessionResult{}, err
+		}
+		remaining = time.Until(deadline)
+		if remaining <= clawCreateSessionRetryInterval {
+			break
+		}
+		klog.Warningf("create and dispatch claw session failed; retrying task_id=%s attempt=%d timeout=%s error=%v",
+			taskID, attempt, attemptTimeout, err)
+		time.Sleep(clawCreateSessionRetryInterval)
+	}
+	if lastErr == nil {
+		lastErr = context.DeadlineExceeded
+	}
+	return CreateSessionResult{}, fmt.Errorf(
+		"create and dispatch claw session failed after %d attempts over %s: %w",
+		attempt,
+		clawCreateSessionTotalTimeout,
+		lastErr,
+	)
+}
+
+func isRetryableClawCreateSessionError(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+		return true
+	}
+	msg := strings.ToLower(err.Error())
+	retryableFragments := []string{
+		"client_closed_request",
+		"http 408",
+		"http 425",
+		"http 429",
+		"http 499",
+		"http 500",
+		"http 502",
+		"http 503",
+		"http 504",
+		"connection reset",
+		"connection refused",
+		"eof",
+		"timeout",
+		"temporary",
+	}
+	for _, fragment := range retryableFragments {
+		if strings.Contains(msg, fragment) {
+			return true
+		}
+	}
+	return false
 }
 
 // ── ListTasks / GetTask / DeleteTask ────────────────────────────────────
