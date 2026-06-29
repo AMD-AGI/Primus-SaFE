@@ -225,10 +225,13 @@ func (c *Client) AppendOptimizationEvent(
 		return err
 	}
 	// event_id is unique. Stream reconnects and apiserver restarts replay Claw
-	// history from the beginning (the hub seq resets to 0), so the same event_id
-	// can be produced more than once. Treat the insert as idempotent and skip on
-	// conflict instead of erroring out — otherwise every replayed event spams
-	// "duplicate key value violates unique constraint" (SQLSTATE 23505).
+	// history from the beginning, so already-persisted events are produced again
+	// with the same event_id. Treat the insert as idempotent and skip on conflict
+	// instead of erroring out — otherwise every replayed event spams "duplicate
+	// key value violates unique constraint" (SQLSTATE 23505). Note: this relies on
+	// the hub seq being re-seeded from the last persisted seq on reconnect (see
+	// recoverRunningTasks); otherwise a 0-based counter would re-mint live events
+	// onto existing ids and they would be silently dropped here.
 	return db.WithContext(ctx).Clauses(clause.OnConflict{
 		Columns:   []clause.Column{{Name: "event_id"}},
 		DoNothing: true,
