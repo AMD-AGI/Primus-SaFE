@@ -12,8 +12,10 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
+	sqrl "github.com/Masterminds/squirrel"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/lib/pq"
@@ -28,6 +30,7 @@ import (
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
+	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
 )
 
 // Handler is the HTTP entry point for Model Optimization. It orchestrates
@@ -95,6 +98,19 @@ func (h *Handler) CreateTask(c *gin.Context) {
 	c.JSON(http.StatusCreated, resp)
 }
 
+func optimizationActiveSandboxWorkloadSql() sqrl.Sqlizer {
+	dbTags := dbclient.GetWorkloadFieldTags()
+	sandboxGVK := v1.GroupVersionKind{Kind: "Sandbox", Version: common.DefaultVersion}
+	return sqrl.And{
+		sqrl.Eq{dbclient.GetFieldTag(dbTags, "IsDeleted"): false},
+		sqrl.Eq{dbclient.GetFieldTag(dbTags, "GVK"): string(jsonutils.MarshalSilently(sandboxGVK))},
+		sqrl.Or{
+			sqrl.Eq{dbclient.GetFieldTag(dbTags, "Phase"): string(v1.WorkloadRunning)},
+			sqrl.Eq{dbclient.GetFieldTag(dbTags, "Phase"): string(v1.WorkloadPending)},
+		},
+	}
+}
+
 func (h *Handler) submitTask(
 	ctx context.Context,
 	req *CreateTaskRequest,
@@ -117,15 +133,15 @@ func (h *Handler) submitTask(
 	}
 
 	if h.maxConcurrent > 0 {
-		running, err := h.dbClient.CountRunningOptimizationTasks(ctx, workspace)
+		running, err := h.dbClient.CountWorkloads(ctx, optimizationActiveSandboxWorkloadSql())
 		if err != nil {
-			klog.ErrorS(err, "count running optimization tasks", "workspace", workspace)
+			klog.ErrorS(err, "count active optimization sandboxes")
 			return nil, commonerrors.NewInternalError("failed to enforce concurrency limit")
 		}
-		if int(running) >= h.maxConcurrent {
+		if running >= h.maxConcurrent {
 			return nil, commonerrors.NewBadRequest(
-				fmt.Sprintf("workspace %q already has %d running optimization tasks (limit=%d)",
-					workspace, running, h.maxConcurrent),
+				fmt.Sprintf("already has %d active optimization sandboxes (limit=%d)",
+					running, h.maxConcurrent),
 			)
 		}
 	}
@@ -178,23 +194,6 @@ func (h *Handler) submitTask(
 		return nil, commonerrors.NewInternalError("failed to persist task")
 	}
 
-	createCtx, cancel := context.WithTimeout(WithClawBearer(context.Background(), clawBearer), 30*time.Second)
-	defer cancel()
-	sessionName := fmt.Sprintf("safe-opt-%s-%s", resolved.DisplayName, taskID[len(taskID)-8:])
-	sessionID, err := h.clawClient.CreateSession(createCtx, &SessionRequest{
-		Name:    sessionName,
-		AgentID: h.clawAgentID,
-	})
-	if err != nil {
-		klog.ErrorS(err, "create claw session", "task_id", taskID)
-		_ = h.dbClient.UpdateOptimizationTaskStatus(ctx, taskID,
-			dbclient.OptimizationTaskStatusFailed, 0, "failed to create Claw session: "+err.Error())
-		return nil, commonerrors.NewInternalError("failed to create Claw session")
-	}
-	_ = h.dbClient.UpdateOptimizationTaskClawSession(ctx, taskID, sessionID)
-
-	sendCtx, sendCancel := context.WithTimeout(WithClawBearer(context.Background(), clawBearer), 30*time.Second)
-	defer sendCancel()
 	gpuCount := promptCfg.TP * promptCfg.EP
 	if gpuCount <= 0 {
 		gpuCount = 1
@@ -237,18 +236,29 @@ func (h *Handler) submitTask(
 		"cpu":         fmt.Sprintf("%d", promptCfg.RayCpu),
 		"memory":      fmt.Sprintf("%dGi", promptCfg.RayMemoryGi),
 	}
-	if err := h.clawClient.SendMessage(sendCtx, sessionID, msgReq); err != nil {
-		klog.ErrorS(err, "send hyperloom prompt", "task_id", taskID, "session_id", sessionID)
-		_ = h.clawClient.DeleteSession(WithClawBearer(context.Background(), clawBearer), sessionID)
+
+	createCtx, cancel := context.WithTimeout(WithClawBearer(context.Background(), clawBearer), 30*time.Second)
+	defer cancel()
+	sessionName := fmt.Sprintf("safe-opt-%s-%s", resolved.DisplayName, taskID[len(taskID)-8:])
+	createResult, err := h.clawClient.CreateSessionWithMessage(createCtx, &SessionRequest{
+		Name:    sessionName,
+		AgentID: h.clawAgentID,
+		Message: msgReq,
+	})
+	if err != nil {
+		klog.ErrorS(err, "create and dispatch claw session", "task_id", taskID)
 		_ = h.dbClient.UpdateOptimizationTaskStatus(ctx, taskID,
-			dbclient.OptimizationTaskStatusFailed, 0, "failed to send prompt: "+err.Error())
+			dbclient.OptimizationTaskStatusFailed, 0, "failed to create and dispatch Claw session: "+err.Error())
 		return nil, commonerrors.NewInternalError("failed to submit task to Claw")
 	}
+	sessionID := createResult.SessionID
+	_ = h.dbClient.UpdateOptimizationTaskClawSession(ctx, taskID, sessionID)
 
 	_ = h.dbClient.UpdateOptimizationTaskStatus(ctx, taskID,
 		dbclient.OptimizationTaskStatusRunning, 0, "")
 	hub, _ := h.hubs.getOrCreate(taskID, 0)
-	go h.consumeClawStream(taskID, sessionID, hub, clawBearer)
+	go h.consumeClawStream(taskID, sessionID, hub, clawBearer,
+		strings.EqualFold(createResult.AgentStatus, clawAgentStatusRunning))
 
 	return &CreateTaskResponse{
 		ID:            taskID,
@@ -438,18 +448,59 @@ func (h *Handler) StreamEvents(c *gin.Context) {
 
 // ── Background consumer ─────────────────────────────────────────────────
 
+type sessionCompletionTracker struct {
+	mu          sync.Mutex
+	sawRunning  bool
+	terminalHit *SessionStatus
+}
+
+func newSessionCompletionTracker(assumeRunning bool) *sessionCompletionTracker {
+	return &sessionCompletionTracker{sawRunning: assumeRunning}
+}
+
+func (t *sessionCompletionTracker) observe(ss *SessionStatus) bool {
+	if t == nil || ss == nil {
+		return false
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if ss.IsAgentRunning() {
+		t.sawRunning = true
+	}
+	if !ss.IsTerminalAfterRunning(t.sawRunning) {
+		return false
+	}
+	cp := *ss
+	t.terminalHit = &cp
+	return true
+}
+
+func (t *sessionCompletionTracker) terminalStatus() *SessionStatus {
+	if t == nil {
+		return nil
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.terminalHit == nil {
+		return nil
+	}
+	cp := *t.terminalHit
+	return &cp
+}
+
 // consumeClawStream is the per-task goroutine that pulls the upstream Claw
 // SSE stream, parses it, persists events, and broadcasts them to live HTTP
 // subscribers. It runs until the stream ends or returns an error; either
 // way the task is transitioned to a terminal status.
-func (h *Handler) consumeClawStream(taskID, sessionID string, hub *taskHub, clawBearer string) {
+func (h *Handler) consumeClawStream(taskID, sessionID string, hub *taskHub, clawBearer string, assumeRunning bool) {
 	var streamErr error
+	tracker := newSessionCompletionTracker(assumeRunning)
 	defer func() {
 		if r := recover(); r != nil {
 			klog.ErrorS(fmt.Errorf("%v", r), "consume claw stream panicked", "task_id", taskID)
 			streamErr = fmt.Errorf("panic: %v", r)
 		}
-		h.finalizeTask(taskID, hub, streamErr, clawBearer)
+		h.finalizeTask(taskID, hub, streamErr, clawBearer, tracker.terminalStatus())
 	}()
 
 	parser := NewSSEParser()
@@ -486,7 +537,7 @@ func (h *Handler) consumeClawStream(taskID, sessionID string, hub *taskHub, claw
 						"task_id", taskID, "error", err)
 					continue
 				}
-				if ss.IsTerminal() {
+				if tracker.observe(ss) {
 					klog.InfoS("consumeClawStream: session terminal, cancelling stream",
 						"task_id", taskID, "session_id", sessionID,
 						"status", ss.Status, "agent_status", ss.AgentStatus)
@@ -526,7 +577,7 @@ func (h *Handler) consumeClawStream(taskID, sessionID string, hub *taskHub, claw
 		// cancels ctx once the session truly reaches terminal, which exits
 		// this loop via context.Canceled.
 		ss, getErr := h.getSessionWithRetry(ctx, sessionID, clawBearer)
-		if getErr == nil && ss.IsTerminal() {
+		if getErr == nil && tracker.observe(ss) {
 			streamErr = err
 			break
 		}
@@ -588,10 +639,15 @@ func (h *Handler) maybeUpdateTaskStatus(taskID string, p ParsedEvent) {
 	)
 }
 
-// finalizeTask runs when the Claw stream ends; it marks the task succeeded
-// by default (the skill will emit a failed-terminal phase event if needed),
-// flushes a done frame, and tears down the hub.
-func (h *Handler) finalizeTask(taskID string, hub *taskHub, streamErr error, clawBearer string) {
+// finalizeTask runs when the Claw stream ends; it uses agent_status terminal
+// edges when available, flushes a done frame, and tears down the hub.
+func (h *Handler) finalizeTask(
+	taskID string,
+	hub *taskHub,
+	streamErr error,
+	clawBearer string,
+	terminalStatus *SessionStatus,
+) {
 	task, err := h.dbClient.GetOptimizationTask(context.Background(), taskID)
 	status := dbclient.OptimizationTaskStatusSucceeded
 	msg := ""
@@ -604,7 +660,14 @@ func (h *Handler) finalizeTask(taskID string, hub *taskHub, streamErr error, cla
 			status = task.Status
 			msg = task.Message
 		default:
-			if streamErr != nil {
+			if terminalStatus != nil {
+				status, msg = taskStatusFromClawSession(terminalStatus)
+				if status == dbclient.OptimizationTaskStatusSucceeded &&
+					task.ClawSessionID != "" && !h.hasOptimizationReport(task.ClawSessionID, clawBearer) {
+					status = dbclient.OptimizationTaskStatusFailed
+					msg = "optimization report not found; skill may have exited early"
+				}
+			} else if streamErr != nil {
 				// The SSE connection dropped (e.g. network blip, LB timeout).
 				// The Claw session may still be running — query it before
 				// deciding the final status so we don't mark a live task Failed.
@@ -643,6 +706,25 @@ func (h *Handler) finalizeTask(taskID string, hub *taskHub, streamErr error, cla
 	if task != nil && status == dbclient.OptimizationTaskStatusSucceeded {
 		go h.fetchAndInjectMetrics(context.Background(), task)
 	}
+}
+
+func taskStatusFromClawSession(ss *SessionStatus) (dbclient.OptimizationTaskStatus, string) {
+	if ss != nil && ss.IsFailedTerminal() {
+		return dbclient.OptimizationTaskStatusFailed, "claw session failed"
+	}
+	return dbclient.OptimizationTaskStatusSucceeded, "completed"
+}
+
+const clawResumeAssumeRunningAfter = time.Hour
+
+func assumeSessionAlreadyRan(task *dbclient.OptimizationTask) bool {
+	if task == nil {
+		return false
+	}
+	if task.CurrentPhase > 0 {
+		return true
+	}
+	return task.StartedAt.Valid && time.Since(task.StartedAt.Time) > clawResumeAssumeRunningAfter
 }
 
 // getSessionWithRetry fetches the Claw session status, retrying on transient
@@ -839,15 +921,16 @@ func (h *Handler) recoverRunningTasks(ctx context.Context) {
 			continue
 		}
 
-		if ss.IsTerminal() {
+		assumeRunning := assumeSessionAlreadyRan(task)
+		if newSessionCompletionTracker(assumeRunning).observe(ss) {
 			// Determine status directly from the SessionStatus we already fetched —
 			// avoids a second GetSession call inside resolveStatusFromClaw which would
 			// use the service key and fail for user-owned sessions.
-			status := dbclient.OptimizationTaskStatusSucceeded
-			msg := "completed"
-			if ss.AgentStatus == "failed" || ss.Status == "failed" {
+			status, msg := taskStatusFromClawSession(ss)
+			if status == dbclient.OptimizationTaskStatusSucceeded &&
+				!h.hasOptimizationReport(task.ClawSessionID, clawBearer) {
 				status = dbclient.OptimizationTaskStatusFailed
-				msg = "claw session failed"
+				msg = "optimization report not found; skill may have exited early"
 			}
 			_ = h.dbClient.UpdateOptimizationTaskStatus(ctx, task.ID, status, task.CurrentPhase, msg)
 			klog.InfoS("recoverRunningTasks: finalized terminal task",
@@ -858,7 +941,7 @@ func (h *Handler) recoverRunningTasks(ctx context.Context) {
 		} else {
 			// Session still active — reconnect the stream.
 			hub, _ := h.hubs.getOrCreate(task.ID, 0)
-			go h.consumeClawStream(task.ID, task.ClawSessionID, hub, clawBearer)
+			go h.consumeClawStream(task.ID, task.ClawSessionID, hub, clawBearer, assumeRunning)
 			klog.InfoS("recoverRunningTasks: reconnected stream",
 				"task_id", task.ID, "session_id", task.ClawSessionID)
 		}
