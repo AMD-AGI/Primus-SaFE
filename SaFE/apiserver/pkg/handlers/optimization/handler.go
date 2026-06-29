@@ -717,12 +717,25 @@ func (h *Handler) finalizeTask(
 			}
 		}
 	}
-	// If the session is still running (stream dropped transiently), do not emit
-	// a terminal done frame and do not tear down the hub. The Detail page will
-	// see Running status on next poll and keep showing a live task.
+	// If the session is still running (stream dropped transiently and Claw was
+	// unreachable) we normally leave the task Running for the next reconnect /
+	// recoverRunningTasks pass instead of tearing it down. But if the task has
+	// already outlived any plausible sandbox lifetime, the session is certainly
+	// dead — finalize it as Failed so it does not linger as a phantom Running
+	// forever, which a clean EOF plus a persistently failing GetSession could
+	// otherwise cause.
 	if status == dbclient.OptimizationTaskStatusRunning {
-		h.hubs.remove(taskID)
-		return
+		if task != nil && clawSessionLikelyExpired(task) {
+			status = dbclient.OptimizationTaskStatusFailed
+			msg = "claw session unreachable and task exceeded max lifetime; marking failed"
+			_ = h.dbClient.UpdateOptimizationTaskStatus(
+				context.Background(), taskID, status, task.CurrentPhase, msg,
+			)
+			// Fall through to emit a terminal done frame and tear down the hub.
+		} else {
+			h.hubs.remove(taskID)
+			return
+		}
 	}
 
 	done := makeDoneEvent(taskID, hub.nextSeq(), status, msg)
@@ -744,16 +757,18 @@ func taskStatusFromClawSession(ss *SessionStatus) (dbclient.OptimizationTaskStat
 	return dbclient.OptimizationTaskStatusSucceeded, "completed"
 }
 
-const clawResumeAssumeRunningAfter = time.Hour
+// clawSessionMaxLifetime is an upper bound on how long an optimization Claw
+// session can plausibly stay alive. The GPU sandbox enforces its own timeout
+// (typically <= 25h), so a task still Running well past this — with a Claw
+// session we can no longer reach — is treated as dead rather than left as a
+// phantom Running forever.
+const clawSessionMaxLifetime = 48 * time.Hour
 
-func assumeSessionAlreadyRan(task *dbclient.OptimizationTask) bool {
-	if task == nil {
+func clawSessionLikelyExpired(task *dbclient.OptimizationTask) bool {
+	if task == nil || !task.StartedAt.Valid {
 		return false
 	}
-	if task.CurrentPhase > 0 {
-		return true
-	}
-	return task.StartedAt.Valid && time.Since(task.StartedAt.Time) > clawResumeAssumeRunningAfter
+	return time.Since(task.StartedAt.Time) > clawSessionMaxLifetime
 }
 
 // getSessionWithRetry fetches the Claw session status, retrying on transient
@@ -957,7 +972,13 @@ func (h *Handler) recoverRunningTasks(ctx context.Context) {
 			continue
 		}
 
-		assumeRunning := assumeSessionAlreadyRan(task)
+		// A task only reaches recoverRunningTasks if it was persisted as
+		// Running, which means submitTask had already created the session and
+		// dispatched its first message — the agent has run at least once. Treat
+		// the session as having been running so a current idle state correctly
+		// reads as "completed" rather than "never started" (which would force a
+		// needless reconnect and could strand a genuinely-finished task).
+		assumeRunning := true
 		if newSessionCompletionTracker(assumeRunning).observe(ss) {
 			// Determine status directly from the SessionStatus we already fetched —
 			// avoids a second GetSession call inside resolveStatusFromClaw which would

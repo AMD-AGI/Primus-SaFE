@@ -92,8 +92,10 @@ type SessionResponse struct {
 	SessionID   string `json:"session_id"`
 	AgentStatus string `json:"agent_status"`
 	Message     struct {
-		MessageID  string `json:"message_id"`
-		Dispatched bool   `json:"dispatched"`
+		MessageID string `json:"message_id"`
+		// Dispatched is a pointer so we can tell "field absent" (older Claw
+		// builds that omit it) apart from an explicit dispatched:false.
+		Dispatched *bool `json:"dispatched"`
 	} `json:"message"`
 }
 
@@ -101,7 +103,8 @@ type CreateSessionResult struct {
 	SessionID   string
 	AgentStatus string
 	MessageID   string
-	Dispatched  bool
+	// Dispatched is nil when Claw did not report the field at all.
+	Dispatched *bool
 }
 
 // MessageRequest maps to POST /sessions/{id}/messages.
@@ -178,7 +181,11 @@ func (c *ClawClient) CreateSessionWithMessage(ctx context.Context, req *SessionR
 	if err != nil {
 		return CreateSessionResult{}, err
 	}
-	if !result.Dispatched {
+	// Only reject when Claw explicitly reports the first message was NOT
+	// dispatched. Older Claw versions omit the `dispatched` field entirely; in
+	// that case (Dispatched == nil) we accept as long as a session was created,
+	// consistent with the defensive response parsing used elsewhere here.
+	if result.Dispatched != nil && !*result.Dispatched {
 		return CreateSessionResult{}, fmt.Errorf("claw create session: first message was not dispatched")
 	}
 	return result, nil
@@ -219,7 +226,7 @@ func (c *ClawClient) createSession(ctx context.Context, req *SessionRequest) (Cr
 		AgentStatus string `json:"agent_status"`
 		Message     struct {
 			MessageID  string `json:"message_id"`
-			Dispatched bool   `json:"dispatched"`
+			Dispatched *bool  `json:"dispatched"`
 		} `json:"message"`
 	}
 	if err := json.Unmarshal(raw, &envelope); err != nil {
