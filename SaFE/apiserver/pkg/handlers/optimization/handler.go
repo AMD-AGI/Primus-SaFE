@@ -240,9 +240,21 @@ func (h *Handler) submitTask(
 	createCtx, cancel := context.WithTimeout(WithClawBearer(context.Background(), clawBearer), 30*time.Second)
 	defer cancel()
 	sessionName := fmt.Sprintf("safe-opt-%s-%s", resolved.DisplayName, taskID[len(taskID)-8:])
+	// Log the session-scoped env we forward to Claw so it can be verified from
+	// the apiserver log alone (mirrors the Hyperloom-side submit log). Only
+	// emitted when env is set; values are non-secret overrides like CLAUDE_MODEL.
+	if len(req.Env) > 0 {
+		klog.InfoS("optimization: forwarding session env to claw",
+			"task_id", taskID, "session_name", sessionName, "env", req.Env)
+	}
 	createResult, err := h.clawClient.CreateSessionWithMessage(createCtx, &SessionRequest{
 		Name:    sessionName,
 		AgentID: h.clawAgentID,
+		// Env MUST be top-level: Claw's POST /sessions reads session_env from
+		// body.env, not from message.env (the inlined first message does not
+		// carry env). Without this the CLAUDE_MODEL override never reaches the
+		// sandbox. Keep msgReq.Env too (harmless) for forward-compat.
+		Env:     req.Env,
 		Message: msgReq,
 	})
 	if err != nil {

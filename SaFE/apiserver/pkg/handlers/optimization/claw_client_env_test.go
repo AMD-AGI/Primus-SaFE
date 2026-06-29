@@ -62,6 +62,32 @@ func TestSendMessageForwardsEnv(t *testing.T) {
 	assert.Equal(t, "1", envMap["INFERENCE_OPTIMIZER_ALLOW_CUSTOM_ORCH_MODEL"])
 }
 
+// TestCreateSessionForwardsTopLevelEnv asserts CreateSessionWithMessage puts
+// the session Env on the TOP-LEVEL POST /sessions body as `env`. Claw's
+// POST /sessions parses session_env from body.env (not message.env), so the
+// override only reaches the sandbox when set at the top level.
+func TestCreateSessionForwardsTopLevelEnv(t *testing.T) {
+	var captured map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		_ = json.Unmarshal(body, &captured)
+		_, _ = w.Write([]byte(`{"session_id":"sess-1","agent_status":"running","message":{"message_id":"m1","dispatched":true}}`))
+	}))
+	t.Cleanup(srv.Close)
+
+	client := NewClawClient(srv.URL, "test-key")
+	_, err := client.CreateSessionWithMessage(context.Background(), &SessionRequest{
+		Name:    "opt",
+		Env:     map[string]string{"CLAUDE_MODEL": "claude-opus-4-8"},
+		Message: &MessageRequest{Content: "prompt"},
+	})
+	assert.NoError(t, err)
+
+	envMap, ok := captured["env"].(map[string]any)
+	assert.True(t, ok, "POST /sessions body must carry a top-level env object")
+	assert.Equal(t, "claude-opus-4-8", envMap["CLAUDE_MODEL"])
+}
+
 // TestSendMessageOmitsEnvWhenUnset asserts a message without Env sends no `env`
 // field, so Claw treats it as an empty session_env.
 func TestSendMessageOmitsEnvWhenUnset(t *testing.T) {
