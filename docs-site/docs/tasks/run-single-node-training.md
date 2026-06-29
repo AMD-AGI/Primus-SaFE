@@ -13,7 +13,7 @@ The **web console** is the primary way to submit; a REST API is available for au
 
 ## Before you start
 
-- You belong to a **workspace** with GPU quota — this is your job's target. See
+- You have access to a **workspace** with GPU quota — this is your job's target. See
   [Workspace](/concepts/workspace).
 - You have a **container image** to run — a public image, or one in your registry (see
   [Your image](#your-image)).
@@ -29,11 +29,11 @@ The **web console** is the primary way to submit; a REST API is available for au
    - **Entry point** — the command to run, e.g. `python train.py`.
    - **Priority** — Low / Medium / High (higher priorities may require permission).
 4. **Resources** — this is where you size the job onto a node:
-   - Keep the mode on **replicas** and set **replicas = 1** for a single node (one pod).
    - Set the per-replica **GPU**, **CPU**, **memory**, and **ephemeral storage**. To use a whole
      GPU node, set **GPU** to the node's full GPU count (e.g. `8`); for a smaller dev job, request
      fewer. Each field shows the range allowed by your workspace flavor and free quota.
-   - **(Optional) Excluded nodes** — keep the job off specific nodes.
+   - Keep the mode on **replicas** and set **replicas = 1** for a single node (one pod). Or click **nodes** to select a specific node as the target.
+   - **(Optional) Excluded nodes** — keep the job off specific nodes. **Include/Exclude** nodes simulates the behavior of Slurm jobs.
 5. **(Optional) Advanced** — auto-recovery / failover, hang detection, a run timeout, and other
    settings. Leave the defaults for a first run.
 6. **Submit.** The job appears in the PyTorch list; open its row to watch status and logs — see
