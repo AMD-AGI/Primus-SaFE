@@ -94,18 +94,15 @@ helm list -A
 ### 2. Set up a storage class — required
 
 The platform stores persistent state — its database, message queue, and backups — on Kubernetes
-**PersistentVolumes**, which need a default **StorageClass**. Without one those volumes never
-bind and the install stalls. Create one before installing; choose based on your needs:
+**PersistentVolumes**, which need a default **StorageClass**. Create one based on your needs before proceeding:
 
 - **Local path** — simplest, and what most evaluations use. Backs each volume with a directory
-  on the node where the pod runs (no replication; data is tied to that node):
+  on the host. It provides no replication and data is tied to that node:
 
   ```bash
   cd Primus-SaFE/Bootstrap/storage/local-path
   bash local-path.sh        # prompts for the directory to use, e.g. /data
   ```
-
-  Installs the local-path provisioner and a `local-path` StorageClass.
 
 - **Rook-Ceph** — production-grade replicated block storage (and an optional S3 endpoint). Use
   this when you need replication, shared (RWX) volumes, or object storage. Requires spare raw
@@ -116,29 +113,20 @@ bind and the install stalls. Create one before installing; choose based on your 
   bash ceph.sh
   ```
 
-In short: **local-path** is simple and fine for evaluation and single-node durability;
-**Rook-Ceph** (or any production CSI) replicates across nodes, survives a node failure, and adds
-shared (RWX) volumes and S3. Any CSI that provides a default StorageClass works. Note the name —
-you give it to the installer in step 4.
+You can choose any storage providers that supports StorageClass. Also save the StorageClass name, which
+will be needed in Step 4.
 
 ### 3. Gateway and private registry — optional
 
 Skip this step for a quick start: the platform works with built-in NodePort access and public
 images. Add these when you want domain-based access or an in-cluster registry.
 
-**Higress gateway** — serves the console (and SSH-to-pods on port `2222`) on a **domain** instead
-of a node port. It is a two-part setup:
-
-1. Install the gateway here, once:
+**Higress gateway** — provides a complete Ingress/Gateway solution for production-grade clusters.
 
    ```bash
    cd Primus-SaFE/Bootstrap/higress
    bash higress.sh
    ```
-
-2. Then, in step 4, choose `higress` as the ingress and enter a cluster name; the installer
-   publishes the console through this gateway at your domain. (If you choose `nginx` instead, you
-   skip Higress entirely and reach the console on NodePort `30183`.)
 
 **Harbor registry** — an in-cluster container registry, useful for private images and to cache
 public ones close to the cluster. It needs a StorageClass (step 2), cert-manager (installed by
@@ -182,7 +170,7 @@ The script is interactive. The prompts you are most likely to set:
 | `ethernet nic` | The Ethernet interface distributed jobs use for NCCL/RCCL control traffic and TCP fallback (sets `NCCL_SOCKET_IFNAME`). Default `eno0`. |
 | `rdma nic` | The RDMA/RoCE devices distributed jobs use for high-speed GPU-to-GPU transfers (sets `NCCL_IB_HCA`). Default `rdma0,…,rdma7`. |
 | `storage_class` | The StorageClass from step 2 (default `local-path`; must already exist). |
-| `ingress` | `nginx` (console on NodePort `30183`) or `higress` (domain-based; requires step 3). |
+| `ingress` | `nginx` (console on NodePort `30183`) or `higress` (requires step 3). |
 | Image pull secret | Credentials for a private registry, or an empty placeholder. |
 | `cluster_scale` | `small` / `medium` / `large` — sizes the control-plane replicas and resources. |
 | S3 storage | Optional — endpoint, bucket, and keys for log download and object features. |
@@ -203,13 +191,12 @@ override the NCCL variables per workload if a node differs).
 
 The installer creates the required secrets, deploys the admin-plane services (apiserver,
 webhooks, controllers, database operator), applies the custom resources, and writes a `.env`
-file so future upgrades reuse your answers.
+file that persists the current settings that can be reused future upgrades.
 
 ### 5. Access the console
 
 - **nginx ingress:** open `http://<any-node-ip>:30183`.
-- **higress ingress:** open `https://<your-cluster-domain>` (if DNS for the domain is not set up
-  yet, the web service is also reachable on its NodePort).
+- **higress ingress:** open `https://<your-cluster-domain>` (Set up your DNS entry to point the IP to the Higress Gateway).
 
 Log in with the seeded admin account **`root` / `root`** (role `system-admin`).
 **Change this password immediately.**
