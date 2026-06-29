@@ -208,6 +208,12 @@ func (h *Handler) submitTask(
 		// plugin's default image, so the GPU sandbox uses the framework-correct
 		// container (vLLM or SGLang) rather than the plugin's fixed sglang image.
 		Image: promptCfg.Image,
+		// Env forwards caller-supplied session-scoped env to Claw (body.env →
+		// session_env), injected into the sandbox at highest precedence. Lets a
+		// task override e.g. CLAUDE_MODEL for the inference_optimizer process.
+		// Claw rejects reserved keys (CLAW_*, SAFE_API_KEY, ...), so this cannot
+		// clobber the auth/MCP plumbing.
+		Env: req.Env,
 	}
 	// Attach the Hyperloom plugin so Claw resolves resource_gpu from the plugin
 	// definition — required for GPU sandbox creation. The plugin provides the

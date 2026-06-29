@@ -112,6 +112,11 @@ type MessageRequest struct {
 	// uses it to resolve the base resource spec; body.image and body.resource
 	// take priority and override the plugin's defaults.
 	PluginID int `json:"pluginId,omitempty"`
+	// Env is forwarded to Claw as the message body's `env`. Claw validates each
+	// key (isUserEnvKeyAllowed) via parseSessionEnv and injects them as
+	// session_env at the highest precedence into the sandbox env. Used to pass
+	// per-task overrides such as CLAUDE_MODEL to the inference_optimizer process.
+	Env map[string]string `json:"env,omitempty"`
 }
 
 // MessageContent is a single segment in a multi-part message payload.
