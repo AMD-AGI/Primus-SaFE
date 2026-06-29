@@ -6,9 +6,16 @@
 package optimization
 
 import (
+	"context"
 	"errors"
+	"net/http"
+	"net/http/httptest"
+	"strconv"
+	"strings"
 	"testing"
+	"time"
 
+	"github.com/gin-gonic/gin"
 	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/assert"
 
@@ -21,8 +28,23 @@ func TestBuildEvent(t *testing.T) {
 	hub := newTaskHub("t1", 0)
 	ev := h.buildEvent("t1", hub, EventTypePhase, PhaseEventPayload{Phase: 3, PhaseName: "Profile"})
 	assert.Equal(t, "t1-1", ev.ID)
+	assert.Equal(t, int64(1), ev.Seq)
 	assert.Equal(t, EventTypePhase, ev.Type)
 	assert.Contains(t, string(ev.Payload), "Profile")
+}
+
+func TestBuildEventFromClawUsesStableID(t *testing.T) {
+	h := &Handler{}
+	raw := ClawSSEEvent{ID: "claw-event-1", Event: "tool_used", Data: "{}"}
+
+	ev1 := h.buildEventFromClaw("t1", newTaskHub("t1", 0), raw, 0, EventTypeLog, LogEventPayload{Message: "a"})
+	ev2 := h.buildEventFromClaw("t1", newTaskHub("t1", 99), raw, 0, EventTypeLog, LogEventPayload{Message: "a"})
+	ev3 := h.buildEventFromClaw("t1", newTaskHub("t1", 0), raw, 1, EventTypeLog, LogEventPayload{Message: "a"})
+
+	assert.Equal(t, ev1.ID, ev2.ID)
+	assert.NotEqual(t, ev1.ID, ev3.ID)
+	assert.Equal(t, int64(1), ev1.Seq)
+	assert.Equal(t, int64(100), ev2.Seq)
 }
 
 func TestPersistAndBroadcast(t *testing.T) {
@@ -35,11 +57,106 @@ func TestPersistAndBroadcast(t *testing.T) {
 	hub := newTaskHub("t1", 0)
 	ch, _ := hub.subscribe("s", 0)
 
-	ev := Event{ID: "t1-1", TaskID: "t1", Type: EventTypeLog}
-	h.persistAndBroadcast("t1", hub, ev)
+	ev := Event{ID: "t1-1", TaskID: "t1", Type: EventTypeLog, Seq: 1}
+	assert.True(t, h.persistAndBroadcast("t1", hub, ev))
 
 	got := <-ch
 	assert.Equal(t, "t1-1", got.ID)
+}
+
+func TestPersistAndBroadcastSkipsDuplicate(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	mockDB := mock_client.NewMockInterface(ctrl)
+	mockDB.EXPECT().AppendOptimizationEvent(gomock.Any(), gomock.Any()).Return(dbclient.ErrOptimizationEventDuplicate)
+
+	h := &Handler{dbClient: mockDB}
+	hub := newTaskHub("t1", 0)
+	ch, _ := hub.subscribe("s", 0)
+
+	ev := Event{ID: "t1-c-dup-0", TaskID: "t1", Type: EventTypeLog, Seq: 2}
+	assert.False(t, h.persistAndBroadcast("t1", hub, ev))
+	select {
+	case got := <-ch:
+		t.Fatalf("duplicate event should not broadcast, got %#v", got)
+	case <-time.After(10 * time.Millisecond):
+	}
+}
+
+func TestResolveAfterSeqUsesPersistedEventID(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	mockDB := mock_client.NewMockInterface(ctrl)
+	mockDB.EXPECT().OptimizationEventSeq(gomock.Any(), "t1", "stable-id").Return(int64(42), true, nil)
+
+	h := &Handler{dbClient: mockDB}
+	assert.Equal(t, int64(42), h.resolveAfterSeq(context.Background(), "t1", "stable-id"))
+}
+
+func TestResolveAfterSeqFallsBackToLegacyID(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	mockDB := mock_client.NewMockInterface(ctrl)
+	mockDB.EXPECT().OptimizationEventSeq(gomock.Any(), "t1", "t1-7").Return(int64(0), false, nil)
+
+	h := &Handler{dbClient: mockDB}
+	assert.Equal(t, int64(7), h.resolveAfterSeq(context.Background(), "t1", "t1-7"))
+}
+
+func TestStreamEventsReplaysAllPagesForTerminalTask(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	mockDB := mock_client.NewMockInterface(ctrl)
+
+	page1 := make([]*dbclient.OptimizationEvent, 10000)
+	for i := range page1 {
+		seq := int64(i + 1)
+		evType := EventTypeLog
+		if i == 0 {
+			evType = EventTypeBenchmark
+		}
+		page1[i] = &dbclient.OptimizationEvent{
+			EventID:   "t1-c-" + strconv.FormatInt(seq, 10),
+			TaskID:    "t1",
+			Type:      string(evType),
+			Payload:   `{"message":"event"}`,
+			Seq:       seq,
+			Timestamp: seq,
+		}
+	}
+	page2 := []*dbclient.OptimizationEvent{{
+		EventID:   "t1-c-10001",
+		TaskID:    "t1",
+		Type:      string(EventTypeLog),
+		Payload:   `{"message":"last"}`,
+		Seq:       10001,
+		Timestamp: 10001,
+	}}
+
+	mockDB.EXPECT().GetOptimizationTask(gomock.Any(), "t1").Return(&dbclient.OptimizationTask{
+		ID:     "t1",
+		Status: dbclient.OptimizationTaskStatusSucceeded,
+	}, nil)
+	gomock.InOrder(
+		mockDB.EXPECT().ListOptimizationEvents(gomock.Any(), "t1", int64(0), 10000).Return(page1, nil),
+		mockDB.EXPECT().ListOptimizationEvents(gomock.Any(), "t1", int64(10000), 10000).Return(page2, nil),
+	)
+
+	h := &Handler{dbClient: mockDB, hubs: newHubRegistry()}
+	rsp := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rsp)
+	c.Request = httptest.NewRequest(http.MethodGet, "/events", nil)
+	c.Params = gin.Params{{Key: "id", Value: "t1"}}
+
+	h.StreamEvents(c)
+
+	body := rsp.Body.String()
+	assert.Equal(t, http.StatusOK, rsp.Code)
+	assert.Equal(t, "text/event-stream", rsp.Header().Get("Content-Type"))
+	assert.Contains(t, body, "id: t1-c-10001")
+	assert.Contains(t, body, "id: t1-10002")
+	assert.True(t, strings.Index(body, "id: t1-c-10001") < strings.Index(body, "id: t1-10002"))
 }
 
 func TestMaybeUpdateTaskStatus(t *testing.T) {

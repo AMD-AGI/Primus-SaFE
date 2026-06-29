@@ -286,5 +286,6 @@ type OptimizationTaskInterface interface {
 
 	AppendOptimizationEvent(ctx context.Context, event *OptimizationEvent) error
 	ListOptimizationEvents(ctx context.Context, taskID string, afterSeq int64, limit int) ([]*OptimizationEvent, error)
+	OptimizationEventSeq(ctx context.Context, taskID string, eventID string) (int64, bool, error)
 	LatestOptimizationEventSeq(ctx context.Context, taskID string) (int64, error)
 }

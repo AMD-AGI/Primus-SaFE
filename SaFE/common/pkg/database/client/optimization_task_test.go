@@ -29,6 +29,7 @@ func TestOptimizationTaskCRUD(t *testing.T) {
 	_, _ = c.CountRunningOptimizationTasks(ctx, "ws")
 	_ = c.AppendOptimizationEvent(ctx, &OptimizationEvent{TaskID: "t1"})
 	_, _ = c.ListOptimizationEvents(ctx, "t1", 0, 10)
+	_, _, _ = c.OptimizationEventSeq(ctx, "t1", "t1-1")
 	_, _ = c.LatestOptimizationEventSeq(ctx, "t1")
 }
 
