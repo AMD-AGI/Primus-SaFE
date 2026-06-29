@@ -215,6 +215,12 @@ func (h *Handler) submitTask(
 		// clobber the auth/MCP plumbing.
 		Env: req.Env,
 	}
+	// Forward the optimizer budget as the sandbox run timeout (seconds) so the
+	// GPU sandbox lifetime matches the requested --max-hours instead of using
+	// Claw's plugin default. promptCfg.MaxHours is already defaulted upstream.
+	if promptCfg.MaxHours > 0 {
+		msgReq.Timeout = int(promptCfg.MaxHours * 3600)
+	}
 	// Attach the Hyperloom plugin so Claw resolves resource_gpu from the plugin
 	// definition — required for GPU sandbox creation. The plugin provides the
 	// base resource spec; the resource_gpu.resources override below adjusts

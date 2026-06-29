@@ -7,6 +7,7 @@ package utils
 
 import (
 	"context"
+	"strings"
 	"time"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -32,6 +33,12 @@ func IsUnrecoverableError(err error) bool {
 	}
 	// K8s API errors that are unrecoverable
 	if apierrors.IsNotFound(err) || apierrors.IsInvalid(err) || apierrors.IsForbidden(err) {
+		return true
+	}
+	// "etcdserver: request is too large" (HTTP 413): the object has outgrown
+	// etcd's max request size, so retrying the same oversized write can never
+	// succeed and only hot-loops. Treat it as unrecoverable.
+	if apierrors.IsRequestEntityTooLargeError(err) || strings.Contains(err.Error(), "request is too large") {
 		return true
 	}
 	return false

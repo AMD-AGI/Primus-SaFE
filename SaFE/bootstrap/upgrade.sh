@@ -80,7 +80,7 @@ if [[ "$cluster_scale" == "medium" ]]; then
   memory=8Gi
 elif [[ "$cluster_scale" == "large" ]]; then
   replicas=2
-  cpu=32000m
+  cpu=8000m
   memory=16Gi
 fi
 IMAGE_PULL_SECRET="$NAMESPACE-image"

@@ -179,7 +179,7 @@ GET /api/v1/nodes?search=test&clusterId=safe-cluster&workspaceId=ai-team
 | available               | bool | Whether the node is schedulable                                                               |
 | message                 | string | Reason when unavailable (empty if available)                                                  |
 | totalResources          | object | Total resources map (key:string → value:int64)                                                |
-| availResources          | object | Available resources map with the same semantics as totalResources                             |
+| availResources          | object | Available resources (allocatable − system reserve − in-use), clamped to a minimum of 0. An abnormal node, or one whose flavor does not match its workspace, reports 0 |
 | creationTime            | string | Creation time (RFC3339Short)                                                                  |
 | workloads[].id          | string | Running workload ID on this node                                                              |
 | workloads[].userId      | string | Submitter user ID of the workload                                                             |
@@ -640,7 +640,13 @@ Taints are used to control Pod scheduling. Common Effect types:
 ## Resource Statistics
 
 - **totalResources**: Total node resources (defined by node flavor)
-- **availResources**: Available resources (total resources - used resources)
+- **availResources**: Available resources = node allocatable − system reserve
+  (e.g. `cpu_reserve_percent`) − resources in use on the node, clamped to a
+  minimum of 0 (never negative even when the node is over-committed). A node
+  that contributes no schedulable capacity to its workspace — an abnormal
+  (unavailable) node, or one whose flavor no longer matches its workspace
+  flavor — reports 0 here, so the per-node values sum up to the workspace
+  `availQuota`.
 - **workloads**: List of workloads currently running on this node
 
 ## Notes

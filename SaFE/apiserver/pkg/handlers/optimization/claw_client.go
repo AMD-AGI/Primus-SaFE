@@ -117,6 +117,11 @@ type MessageRequest struct {
 	// session_env at the highest precedence into the sandbox env. Used to pass
 	// per-task overrides such as CLAUDE_MODEL to the inference_optimizer process.
 	Env map[string]string `json:"env,omitempty"`
+	// Timeout is the GPU sandbox run timeout in SECONDS, forwarded to Claw as
+	// body.timeout. Derived from the optimizer budget (maxHours * 3600) so the
+	// sandbox lifetime matches the requested --max-hours instead of relying on
+	// the plugin's default.
+	Timeout int `json:"timeout,omitempty"`
 }
 
 // MessageContent is a single segment in a multi-part message payload.
