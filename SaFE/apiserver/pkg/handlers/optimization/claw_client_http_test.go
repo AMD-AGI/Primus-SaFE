@@ -7,10 +7,13 @@ package optimization
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 )
@@ -120,6 +123,238 @@ func TestClawCreateSessionWithMessageExplicitNotDispatched(t *testing.T) {
 		Message: &MessageRequest{Content: "hi"},
 	})
 	assert.Error(t, err)
+}
+
+func TestCreateClawSessionWithRetryTransientFailures(t *testing.T) {
+	oldAttemptTimeout := clawCreateSessionAttemptTimeout
+	oldRetryInterval := clawCreateSessionRetryInterval
+	oldTotalTimeout := clawCreateSessionTotalTimeout
+	clawCreateSessionAttemptTimeout = 100 * time.Millisecond
+	clawCreateSessionRetryInterval = time.Millisecond
+	clawCreateSessionTotalTimeout = time.Second
+	t.Cleanup(func() {
+		clawCreateSessionAttemptTimeout = oldAttemptTimeout
+		clawCreateSessionRetryInterval = oldRetryInterval
+		clawCreateSessionTotalTimeout = oldTotalTimeout
+	})
+
+	var calls atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			_, _ = w.Write([]byte(`{"data":[]}`))
+			return
+		}
+		var body struct {
+			Name string `json:"name"`
+		}
+		assert.NoError(t, json.NewDecoder(r.Body).Decode(&body))
+		assert.Equal(t, "opt", body.Name)
+
+		n := calls.Add(1)
+		if n < 3 {
+			w.WriteHeader(499)
+			_, _ = w.Write([]byte(`{"ok":false,"error":"client_closed_request"}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"code":0,"data":{"session_id":"sess-1","agent_status":"running","message":{"message_id":"msg-1","dispatched":true}}}`))
+	}))
+	defer srv.Close()
+
+	h := &Handler{clawClient: NewClawClient(srv.URL, "test-key")}
+	res, err := h.createClawSessionWithRetry(context.Background(), "bearer", "task-1", &SessionRequest{
+		Name:    "opt",
+		Message: &MessageRequest{Content: "hi"},
+	})
+	assert.NoError(t, err)
+	assert.Equal(t, "sess-1", res.SessionID)
+	assert.Equal(t, int32(3), calls.Load())
+}
+
+func TestCreateClawSessionWithRetryReusesExistingSessionByName(t *testing.T) {
+	oldRetryInterval := clawCreateSessionRetryInterval
+	oldTotalTimeout := clawCreateSessionTotalTimeout
+	oldLookupTimeout := clawCreateSessionLookupTimeout
+	clawCreateSessionRetryInterval = time.Millisecond
+	clawCreateSessionTotalTimeout = time.Second
+	clawCreateSessionLookupTimeout = time.Second
+	t.Cleanup(func() {
+		clawCreateSessionRetryInterval = oldRetryInterval
+		clawCreateSessionTotalTimeout = oldTotalTimeout
+		clawCreateSessionLookupTimeout = oldLookupTimeout
+	})
+
+	var postCalls atomic.Int32
+	var lookupCalls atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			lookupCalls.Add(1)
+			assert.Equal(t, "opt", r.URL.Query().Get("name"))
+			_, _ = w.Write([]byte(`{"data":{"items":[{"session_id":"sess-existing","name":"opt","agent_status":"running"}]}}`))
+		case http.MethodPost:
+			postCalls.Add(1)
+			w.WriteHeader(499)
+			_, _ = w.Write([]byte(`{"ok":false,"error":"client_closed_request"}`))
+		default:
+			w.WriteHeader(http.StatusMethodNotAllowed)
+		}
+	}))
+	defer srv.Close()
+
+	h := &Handler{clawClient: NewClawClient(srv.URL, "test-key")}
+	res, err := h.createClawSessionWithRetry(context.Background(), "bearer", "task-1", &SessionRequest{
+		Name:    "opt",
+		Message: &MessageRequest{Content: "hi"},
+	})
+	assert.NoError(t, err)
+	assert.Equal(t, "sess-existing", res.SessionID)
+	assert.Equal(t, "running", res.AgentStatus)
+	assert.Equal(t, int32(1), postCalls.Load())
+	assert.Equal(t, int32(1), lookupCalls.Load())
+}
+
+func TestCreateClawSessionWithRetryDispatchesExistingIdleSession(t *testing.T) {
+	oldRetryInterval := clawCreateSessionRetryInterval
+	oldTotalTimeout := clawCreateSessionTotalTimeout
+	oldLookupTimeout := clawCreateSessionLookupTimeout
+	clawCreateSessionRetryInterval = time.Millisecond
+	clawCreateSessionTotalTimeout = time.Second
+	clawCreateSessionLookupTimeout = time.Second
+	t.Cleanup(func() {
+		clawCreateSessionRetryInterval = oldRetryInterval
+		clawCreateSessionTotalTimeout = oldTotalTimeout
+		clawCreateSessionLookupTimeout = oldLookupTimeout
+	})
+
+	var createCalls atomic.Int32
+	var lookupCalls atomic.Int32
+	var getCalls atomic.Int32
+	var messageCalls atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/sessions":
+			lookupCalls.Add(1)
+			assert.Equal(t, "opt", r.URL.Query().Get("name"))
+			_, _ = w.Write([]byte(`{"data":{"items":[{"session_id":"sess-existing","name":"opt","agent_status":"idle"}]}}`))
+		case r.Method == http.MethodGet && r.URL.Path == "/sessions/sess-existing":
+			n := getCalls.Add(1)
+			agentStatus := "idle"
+			if n > 1 {
+				agentStatus = "running"
+			}
+			_, _ = w.Write([]byte(`{"data":{"session_id":"sess-existing","name":"opt","agent_status":"` + agentStatus + `"}}`))
+		case r.Method == http.MethodPost && r.URL.Path == "/sessions/sess-existing/messages":
+			messageCalls.Add(1)
+			var body struct {
+				Content string `json:"content"`
+			}
+			assert.NoError(t, json.NewDecoder(r.Body).Decode(&body))
+			assert.Equal(t, "hi", body.Content)
+			_, _ = w.Write([]byte(`{"code":0}`))
+		case r.Method == http.MethodPost && r.URL.Path == "/sessions":
+			createCalls.Add(1)
+			w.WriteHeader(499)
+			_, _ = w.Write([]byte(`{"ok":false,"error":"client_closed_request"}`))
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer srv.Close()
+
+	h := &Handler{clawClient: NewClawClient(srv.URL, "test-key")}
+	res, err := h.createClawSessionWithRetry(context.Background(), "bearer", "task-1", &SessionRequest{
+		Name:    "opt",
+		Message: &MessageRequest{Content: "hi"},
+	})
+	assert.NoError(t, err)
+	assert.Equal(t, "sess-existing", res.SessionID)
+	assert.Equal(t, "running", res.AgentStatus)
+	assert.Equal(t, int32(1), createCalls.Load())
+	assert.Equal(t, int32(1), lookupCalls.Load())
+	assert.Equal(t, int32(2), getCalls.Load())
+	assert.Equal(t, int32(1), messageCalls.Load())
+}
+
+func TestCreateClawSessionWithRetryDoesNotRetryBusinessFailure(t *testing.T) {
+	oldRetryInterval := clawCreateSessionRetryInterval
+	oldTotalTimeout := clawCreateSessionTotalTimeout
+	clawCreateSessionRetryInterval = time.Millisecond
+	clawCreateSessionTotalTimeout = time.Second
+	t.Cleanup(func() {
+		clawCreateSessionRetryInterval = oldRetryInterval
+		clawCreateSessionTotalTimeout = oldTotalTimeout
+	})
+
+	var calls atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		_, _ = w.Write([]byte(`{"code":0,"data":{"session_id":"sess-1","agent_status":"idle","message":{"message_id":"msg-1","dispatched":false}}}`))
+	}))
+	defer srv.Close()
+
+	h := &Handler{clawClient: NewClawClient(srv.URL, "test-key")}
+	_, err := h.createClawSessionWithRetry(context.Background(), "bearer", "task-1", &SessionRequest{
+		Name:    "opt",
+		Message: &MessageRequest{Content: "hi"},
+	})
+	assert.Error(t, err)
+	assert.Equal(t, int32(1), calls.Load())
+}
+
+func TestCreateClawSessionWithRetryDoesNotRetryServerError(t *testing.T) {
+	oldRetryInterval := clawCreateSessionRetryInterval
+	oldTotalTimeout := clawCreateSessionTotalTimeout
+	clawCreateSessionRetryInterval = time.Millisecond
+	clawCreateSessionTotalTimeout = time.Second
+	t.Cleanup(func() {
+		clawCreateSessionRetryInterval = oldRetryInterval
+		clawCreateSessionTotalTimeout = oldTotalTimeout
+	})
+
+	var calls atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		w.WriteHeader(599)
+		_, _ = w.Write([]byte(`{"ok":false,"error":"upstream timeout"}`))
+	}))
+	defer srv.Close()
+
+	h := &Handler{clawClient: NewClawClient(srv.URL, "test-key")}
+	_, err := h.createClawSessionWithRetry(context.Background(), "bearer", "task-1", &SessionRequest{
+		Name:    "opt",
+		Message: &MessageRequest{Content: "hi"},
+	})
+	assert.Error(t, err)
+	assert.Equal(t, int32(1), calls.Load())
+}
+
+func TestCreateClawSessionWithRetryStopsOnParentCancellation(t *testing.T) {
+	oldRetryInterval := clawCreateSessionRetryInterval
+	oldTotalTimeout := clawCreateSessionTotalTimeout
+	clawCreateSessionRetryInterval = 50 * time.Millisecond
+	clawCreateSessionTotalTimeout = time.Second
+	t.Cleanup(func() {
+		clawCreateSessionRetryInterval = oldRetryInterval
+		clawCreateSessionTotalTimeout = oldTotalTimeout
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	var calls atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		cancel()
+		w.WriteHeader(499)
+		_, _ = w.Write([]byte(`{"ok":false,"error":"client_closed_request"}`))
+	}))
+	defer srv.Close()
+
+	h := &Handler{clawClient: NewClawClient(srv.URL, "test-key")}
+	_, err := h.createClawSessionWithRetry(ctx, "bearer", "task-1", &SessionRequest{
+		Name:    "opt",
+		Message: &MessageRequest{Content: "hi"},
+	})
+	assert.ErrorIs(t, err, context.Canceled)
+	assert.Equal(t, int32(1), calls.Load())
 }
 
 func TestClawSendMessage(t *testing.T) {

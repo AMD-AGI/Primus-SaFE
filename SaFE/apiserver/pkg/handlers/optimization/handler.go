@@ -13,6 +13,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -33,6 +34,13 @@ import (
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
+)
+
+var (
+	clawCreateSessionAttemptTimeout = 30 * time.Second
+	clawCreateSessionRetryInterval  = 5 * time.Second
+	clawCreateSessionLookupTimeout  = 5 * time.Second
+	clawCreateSessionTotalTimeout   = 3 * time.Minute
 )
 
 // Handler is the HTTP entry point for Model Optimization. It orchestrates
@@ -239,8 +247,6 @@ func (h *Handler) submitTask(
 		"memory":      fmt.Sprintf("%dGi", promptCfg.RayMemoryGi),
 	}
 
-	createCtx, cancel := context.WithTimeout(WithClawBearer(context.Background(), clawBearer), 30*time.Second)
-	defer cancel()
 	sessionName := fmt.Sprintf("safe-opt-%s-%s", resolved.DisplayName, taskID[len(taskID)-8:])
 	// Log the session-scoped env we forward to Claw so it can be verified from
 	// the apiserver log alone (mirrors the Hyperloom-side submit log). Only
@@ -249,7 +255,7 @@ func (h *Handler) submitTask(
 		klog.InfoS("optimization: forwarding session env to claw",
 			"task_id", taskID, "session_name", sessionName, "env", req.Env)
 	}
-	createResult, err := h.clawClient.CreateSessionWithMessage(createCtx, &SessionRequest{
+	createResult, err := h.createClawSessionWithRetry(ctx, clawBearer, taskID, &SessionRequest{
 		Name:    sessionName,
 		AgentID: h.clawAgentID,
 		// Env MUST be top-level: Claw's POST /sessions reads session_env from
@@ -261,7 +267,11 @@ func (h *Handler) submitTask(
 	})
 	if err != nil {
 		klog.ErrorS(err, "create and dispatch claw session", "task_id", taskID)
-		_ = h.dbClient.UpdateOptimizationTaskStatus(ctx, taskID,
+		statusCtx := ctx
+		if ctx.Err() != nil {
+			statusCtx = context.WithoutCancel(ctx)
+		}
+		_ = h.dbClient.UpdateOptimizationTaskStatus(statusCtx, taskID,
 			dbclient.OptimizationTaskStatusFailed, 0, "failed to create and dispatch Claw session: "+err.Error())
 		return nil, commonerrors.NewInternalError("failed to submit task to Claw")
 	}
@@ -278,6 +288,204 @@ func (h *Handler) submitTask(
 		ID:            taskID,
 		ClawSessionID: sessionID,
 	}, nil
+}
+
+func (h *Handler) createClawSessionWithRetry(
+	ctx context.Context,
+	clawBearer string,
+	taskID string,
+	req *SessionRequest,
+) (CreateSessionResult, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	deadline := time.Now().Add(clawCreateSessionTotalTimeout)
+	var lastErr error
+	attempt := 0
+	for {
+		if err := ctx.Err(); err != nil {
+			return CreateSessionResult{}, fmt.Errorf("create and dispatch claw session canceled: %w", err)
+		}
+		attempt++
+		remaining := time.Until(deadline)
+		if remaining <= 0 {
+			break
+		}
+		attemptTimeout := clawCreateSessionAttemptTimeout
+		if remaining < attemptTimeout {
+			attemptTimeout = remaining
+		}
+		createCtx, cancel := context.WithTimeout(
+			WithClawBearer(ctx, clawBearer),
+			attemptTimeout,
+		)
+		result, err := h.clawClient.CreateSessionWithMessage(createCtx, req)
+		cancel()
+		if err == nil {
+			if attempt > 1 {
+				klog.InfoS("create and dispatch claw session succeeded after retry",
+					"task_id", taskID, "attempt", attempt)
+			}
+			return result, nil
+		}
+		lastErr = err
+		if err := ctx.Err(); err != nil {
+			return CreateSessionResult{}, fmt.Errorf("create and dispatch claw session canceled: %w", err)
+		}
+		if !isRetryableClawCreateSessionError(err) {
+			return CreateSessionResult{}, err
+		}
+		result, reused, reuseErr := h.reuseExistingClawSessionByName(ctx, clawBearer, taskID, req)
+		if reuseErr != nil {
+			return CreateSessionResult{}, reuseErr
+		}
+		if reused {
+			return result, nil
+		}
+		remaining = time.Until(deadline)
+		if remaining <= clawCreateSessionRetryInterval {
+			break
+		}
+		klog.Warningf("create and dispatch claw session failed; retrying task_id=%s attempt=%d timeout=%s error=%v",
+			taskID, attempt, attemptTimeout, err)
+		timer := time.NewTimer(clawCreateSessionRetryInterval)
+		select {
+		case <-timer.C:
+		case <-ctx.Done():
+			if !timer.Stop() {
+				select {
+				case <-timer.C:
+				default:
+				}
+			}
+			return CreateSessionResult{}, fmt.Errorf("create and dispatch claw session canceled: %w", ctx.Err())
+		}
+	}
+	if lastErr == nil {
+		lastErr = context.DeadlineExceeded
+	}
+	return CreateSessionResult{}, fmt.Errorf(
+		"create and dispatch claw session failed after %d attempts over %s: %w",
+		attempt,
+		clawCreateSessionTotalTimeout,
+		lastErr,
+	)
+}
+
+func (h *Handler) reuseExistingClawSessionByName(
+	ctx context.Context,
+	clawBearer string,
+	taskID string,
+	req *SessionRequest,
+) (CreateSessionResult, bool, error) {
+	if req == nil {
+		return CreateSessionResult{}, false, nil
+	}
+	name := req.Name
+	if strings.TrimSpace(name) == "" {
+		return CreateSessionResult{}, false, nil
+	}
+	lookupCtx, cancel := context.WithTimeout(WithClawBearer(ctx, clawBearer), clawCreateSessionLookupTimeout)
+	defer cancel()
+
+	ss, err := h.clawClient.FindSessionByName(lookupCtx, name)
+	if err != nil {
+		klog.Warningf("find existing claw session by name failed; continuing retry task_id=%s name=%q error=%v",
+			taskID, name, err)
+		return CreateSessionResult{}, false, nil
+	}
+	if ss == nil || strings.TrimSpace(ss.SessionID) == "" {
+		return CreateSessionResult{}, false, nil
+	}
+	if !ss.IsAgentRunning() {
+		confirmCtx, confirmCancel := context.WithTimeout(WithClawBearer(ctx, clawBearer), clawCreateSessionLookupTimeout)
+		confirmed, err := h.clawClient.GetSession(confirmCtx, ss.SessionID)
+		confirmCancel()
+		if err != nil {
+			klog.Warningf("confirm existing claw session failed; continuing with list status task_id=%s session_id=%s error=%v",
+				taskID, ss.SessionID, err)
+		} else if confirmed != nil {
+			ss = confirmed
+		}
+	}
+	if !ss.IsAgentRunning() {
+		if req.Message == nil {
+			return CreateSessionResult{}, false, fmt.Errorf("existing claw session %s is not running and original message is missing", ss.SessionID)
+		}
+		sendCtx, sendCancel := context.WithTimeout(WithClawBearer(ctx, clawBearer), clawCreateSessionAttemptTimeout)
+		err := h.clawClient.SendMessage(sendCtx, ss.SessionID, req.Message)
+		sendCancel()
+		if err != nil {
+			return CreateSessionResult{}, false, fmt.Errorf("dispatch prompt to existing claw session %s: %w", ss.SessionID, err)
+		}
+		confirmCtx, confirmCancel := context.WithTimeout(WithClawBearer(ctx, clawBearer), clawCreateSessionLookupTimeout)
+		confirmed, err := h.clawClient.GetSession(confirmCtx, ss.SessionID)
+		confirmCancel()
+		if err != nil {
+			klog.Warningf("confirm existing claw session after dispatch failed; reusing last known status task_id=%s session_id=%s error=%v",
+				taskID, ss.SessionID, err)
+		} else if confirmed != nil {
+			ss = confirmed
+		}
+		klog.InfoS("dispatched prompt to existing claw session after create retryable error",
+			"task_id", taskID, "session_name", name, "session_id", ss.SessionID, "agent_status", ss.AgentStatus)
+	}
+	klog.InfoS("reusing existing claw session after create retryable error",
+		"task_id", taskID, "session_name", name, "session_id", ss.SessionID, "agent_status", ss.AgentStatus)
+	return CreateSessionResult{
+		SessionID:   ss.SessionID,
+		AgentStatus: ss.AgentStatus,
+	}, true, nil
+}
+
+func isRetryableClawCreateSessionError(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+		return true
+	}
+	msg := strings.ToLower(err.Error())
+	if containsHTTP5xx(msg) {
+		return false
+	}
+	retryableFragments := []string{
+		"client_closed_request",
+		"http 408",
+		"http 425",
+		"http 429",
+		"http 499",
+		"connection reset",
+		"connection refused",
+		"eof",
+		"timeout",
+		"temporary",
+	}
+	for _, fragment := range retryableFragments {
+		if strings.Contains(msg, fragment) {
+			return true
+		}
+	}
+	return false
+}
+
+func containsHTTP5xx(msg string) bool {
+	for i := 0; i < len(msg); i++ {
+		idx := strings.Index(msg[i:], "http ")
+		if idx < 0 {
+			return false
+		}
+		start := i + idx + len("http ")
+		if start+3 > len(msg) {
+			return false
+		}
+		code, err := strconv.Atoi(msg[start : start+3])
+		if err == nil && code >= 500 && code < 600 {
+			return true
+		}
+		i = start
+	}
+	return false
 }
 
 // ── ListTasks / GetTask / DeleteTask ────────────────────────────────────
