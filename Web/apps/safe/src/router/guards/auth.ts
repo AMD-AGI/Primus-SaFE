@@ -24,6 +24,21 @@ function isPublicRoute(to: any) {
   )
 }
 
+function getBridgeRedirectFromState(state?: string) {
+  if (!state) return ''
+
+  const parts = state.split(':')
+  if (parts.length < 3) return ''
+
+  try {
+    const redirect = decodeURIComponent(parts.slice(2).join(':'))
+    const url = new URL(redirect)
+    return url.protocol === 'http:' || url.protocol === 'https:' ? url.toString() : ''
+  } catch {
+    return ''
+  }
+}
+
 export default function setupAuthGuard(router: Router) {
   router.beforeEach(async (to, _from, next) => {
     const user = useUserStore()
@@ -33,17 +48,12 @@ export default function setupAuthGuard(router: Router) {
     if (code) {
       const state = to.query.state as string | undefined
 
-      // Check if this is an SSO request from another app (Lens / Hyperloom / Pulse)
+      // Check if this is an SSO request from another app.
       // State format: {app}:{csrfToken}:{encodeURIComponent(bridgeUrl)}
-      const APP_PREFIXES = ['lens:', 'hyperloom:', 'pulse:'] as const
-      const matchedPrefix = APP_PREFIXES.find((p) => state?.startsWith(p))
-      if (matchedPrefix && state) {
-        const parts = state.split(':')
-        if (parts.length >= 3) {
-          const appRedirect = decodeURIComponent(parts.slice(2).join(':'))
-          window.location.href = `${appRedirect}?code=${code}&state=${encodeURIComponent(state)}`
-          return
-        }
+      const bridgeRedirect = getBridgeRedirectFromState(state)
+      if (bridgeRedirect && state) {
+        window.location.href = `${bridgeRedirect}?code=${code}&state=${encodeURIComponent(state)}`
+        return
       }
 
       const saved = sessionStorage.getItem(OAUTH_STATE_KEY)
