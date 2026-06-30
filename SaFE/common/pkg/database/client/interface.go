@@ -39,6 +39,8 @@ type Interface interface {
 	A2ACallLogInterface
 	LLMGatewayInterface
 	OptimizationTaskInterface
+	WorkloadPodInterface
+	WorkloadDispatchNodeInterface
 }
 
 type WorkloadInterface interface {
@@ -49,6 +51,24 @@ type WorkloadInterface interface {
 	SetWorkloadDeleted(ctx context.Context, workloadId string) error
 	SetWorkloadStopped(ctx context.Context, workloadId string) error
 	SetWorkloadDescription(ctx context.Context, workloadId, description string) error
+}
+
+// WorkloadPodInterface defines DB operations for per-pod workload detail
+// offloaded from the etcd Workload status (WorkloadStatus.Pods).
+type WorkloadPodInterface interface {
+	UpsertWorkloadPod(ctx context.Context, pod *WorkloadPod) error
+	BatchUpsertWorkloadPods(ctx context.Context, pods []*WorkloadPod) error
+	ListWorkloadPods(ctx context.Context, workloadId string) ([]*WorkloadPod, error)
+	DeleteWorkloadPods(ctx context.Context, workloadId string) error
+	DeleteWorkloadPodsNotIn(ctx context.Context, workloadId string, keepPodIds []string) error
+}
+
+// WorkloadDispatchNodeInterface defines DB operations for per-dispatch node/rank
+// history offloaded from the etcd Workload status (WorkloadStatus.Nodes/.Ranks).
+type WorkloadDispatchNodeInterface interface {
+	UpsertWorkloadDispatchNode(ctx context.Context, dn *WorkloadDispatchNode) error
+	ListWorkloadDispatchNodes(ctx context.Context, workloadId string) ([]*WorkloadDispatchNode, error)
+	DeleteWorkloadDispatchNodes(ctx context.Context, workloadId string) error
 }
 
 type FaultInterface interface {

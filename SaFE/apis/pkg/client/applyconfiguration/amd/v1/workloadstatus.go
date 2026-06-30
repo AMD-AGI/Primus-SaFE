@@ -39,6 +39,14 @@ type WorkloadStatusApplyConfiguration struct {
 	DependenciesPhase map[string]amdv1.WorkloadPhase `json:"dependenciesPhase,omitempty"`
 	// The phase of each torchFT object. key is group-id
 	TorchFTPhase map[string]amdv1.WorkloadPhase `json:"torchFTPhase,omitempty"`
+	// NodeUsage is an O(node) aggregate of this workload's pods grouped by admin
+	// node, replacing the per-pod Pods array for the resource/scheduling hot
+	// path so very large workloads (>10k pods) do not exceed the etcd object
+	// size limit. Full per-pod detail (incl. containers/failedMessage) and the
+	// Nodes/Ranks history live in the DB (workload_pod / workload_dispatch_node).
+	// Pods/Nodes/Ranks above are retained for backward compatibility during the
+	// migration and are read as a fallback when NodeUsage is empty.
+	NodeUsage []NodePodUsageApplyConfiguration `json:"nodeUsage,omitempty"`
 }
 
 // WorkloadStatusApplyConfiguration constructs a declarative configuration of the WorkloadStatus type for use with
@@ -165,6 +173,19 @@ func (b *WorkloadStatusApplyConfiguration) WithTorchFTPhase(entries map[string]a
 	}
 	for k, v := range entries {
 		b.TorchFTPhase[k] = v
+	}
+	return b
+}
+
+// WithNodeUsage adds the given value to the NodeUsage field in the declarative configuration
+// and returns the receiver, so that objects can be build by chaining "With" function invocations.
+// If called multiple times, values provided by each call will be appended to the NodeUsage field.
+func (b *WorkloadStatusApplyConfiguration) WithNodeUsage(values ...*NodePodUsageApplyConfiguration) *WorkloadStatusApplyConfiguration {
+	for i := range values {
+		if values[i] == nil {
+			panic("nil value passed to WithNodeUsage")
+		}
+		b.NodeUsage = append(b.NodeUsage, *values[i])
 	}
 	return b
 }
