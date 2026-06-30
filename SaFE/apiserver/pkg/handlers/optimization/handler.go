@@ -437,6 +437,11 @@ func isRetryableClawCreateSessionError(err error) bool {
 		return true
 	}
 	msg := strings.ToLower(err.Error())
+	for _, fragment := range []string{"http 500", "http 501", "http 502", "http 503", "http 504", "http 505", "http 506", "http 507", "http 508", "http 510", "http 511"} {
+		if strings.Contains(msg, fragment) {
+			return false
+		}
+	}
 	retryableFragments := []string{
 		"client_closed_request",
 		"http 408",
