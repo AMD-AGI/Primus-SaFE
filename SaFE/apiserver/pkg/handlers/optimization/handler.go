@@ -13,6 +13,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -437,10 +438,8 @@ func isRetryableClawCreateSessionError(err error) bool {
 		return true
 	}
 	msg := strings.ToLower(err.Error())
-	for _, fragment := range []string{"http 500", "http 501", "http 502", "http 503", "http 504", "http 505", "http 506", "http 507", "http 508", "http 510", "http 511"} {
-		if strings.Contains(msg, fragment) {
-			return false
-		}
+	if containsHTTP5xx(msg) {
+		return false
 	}
 	retryableFragments := []string{
 		"client_closed_request",
@@ -458,6 +457,25 @@ func isRetryableClawCreateSessionError(err error) bool {
 		if strings.Contains(msg, fragment) {
 			return true
 		}
+	}
+	return false
+}
+
+func containsHTTP5xx(msg string) bool {
+	for i := 0; i < len(msg); i++ {
+		idx := strings.Index(msg[i:], "http ")
+		if idx < 0 {
+			return false
+		}
+		start := i + idx + len("http ")
+		if start+3 > len(msg) {
+			return false
+		}
+		code, err := strconv.Atoi(msg[start : start+3])
+		if err == nil && code >= 500 && code < 600 {
+			return true
+		}
+		i = start
 	}
 	return false
 }
