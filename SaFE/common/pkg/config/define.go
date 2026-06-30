@@ -157,6 +157,7 @@ const (
 
 	// a2a
 	a2aPrefix            = "a2a."
+	a2aEnable            = a2aPrefix + "enabled"
 	a2aScannerPrefix     = a2aPrefix + "scanner."
 	a2aScannerEnable     = a2aScannerPrefix + "enable"
 	a2aScannerInterval   = a2aScannerPrefix + "interval_seconds"
@@ -187,12 +188,12 @@ const (
 	mcpAllowedOrigins = mcpPrefix + "allowed_origins"
 
 	// model_optimization (hyperloom via primus-claw)
-	modelOptimizationPrefix      = "model_optimization."
-	modelOptimizationEnable      = modelOptimizationPrefix + "enabled"
-	modelOptimizationClawBaseURL = modelOptimizationPrefix + "claw_base_url"
-	modelOptimizationClawAgentID = modelOptimizationPrefix + "claw_agent_id"
-	modelOptimizationSecretPath  = modelOptimizationPrefix + "secret_path"
-	modelOptimizationDefaultWS   = modelOptimizationPrefix + "default_workspace"
-	modelOptimizationConcurrency = modelOptimizationPrefix + "max_concurrent"
+	modelOptimizationPrefix       = "model_optimization."
+	modelOptimizationEnable       = modelOptimizationPrefix + "enabled"
+	modelOptimizationClawBaseURL  = modelOptimizationPrefix + "claw_base_url"
+	modelOptimizationClawAgentID  = modelOptimizationPrefix + "claw_agent_id"
+	modelOptimizationSecretPath   = modelOptimizationPrefix + "secret_path"
+	modelOptimizationDefaultWS    = modelOptimizationPrefix + "default_workspace"
+	modelOptimizationConcurrency  = modelOptimizationPrefix + "max_concurrent"
 	modelOptimizationClawPluginID = modelOptimizationPrefix + "claw_plugin_id"
 )

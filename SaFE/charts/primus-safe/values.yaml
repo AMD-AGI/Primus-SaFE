@@ -250,7 +250,8 @@ langfuse_proxy:
   public_key: ""
   secret_key: ""
 a2a:
-  # A2A service discovery scanner. GA v1.0.0: experimental, disabled by default.
+  # A2A REST API + service discovery scanner. GA v1.0.0: experimental, disabled by default.
+  enable: false
   scanner_enable: false
   scanner_interval: 60
   scanner_namespaces: []

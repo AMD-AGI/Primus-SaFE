@@ -102,8 +102,8 @@ func InitHttpHandlers(_ context.Context, mgr ctrlruntime.Manager) (*gin.Engine, 
 	modelHandler := InitModelHandlers(context.Background(), mgr)
 	model_handlers.InitInferenceRouters(engine, modelHandler)
 
-	// Initialize A2A handlers if database is enabled
-	if commonconfig.IsDBEnable() {
+	// Initialize A2A handlers (experimental; GA-disabled by default via a2a.enabled).
+	if commonconfig.IsA2AEnable() && commonconfig.IsDBEnable() {
 		a2aDbClient := dbclient.NewClient()
 		if a2aDbClient != nil {
 			a2aHandler := a2ahandlers.NewHandler(a2aDbClient)

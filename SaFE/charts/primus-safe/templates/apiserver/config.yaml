@@ -113,6 +113,8 @@ data:
       otlp_endpoint: {{ default "otel-collector-collector.primus-safe.svc.cluster.local:4317" (default dict .Values.tracing).otlp_endpoint }}
     {{- if .Values.a2a }}
     a2a:
+      # A2A REST API gate (experimental, GA-disabled by default).
+      enabled: {{ default false .Values.a2a.enable }}
       scanner:
         enable: {{ default false .Values.a2a.scanner_enable }}
         interval_seconds: {{ default 60 .Values.a2a.scanner_interval }}

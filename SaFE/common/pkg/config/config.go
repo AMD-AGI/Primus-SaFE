@@ -514,6 +514,10 @@ func GetLangfuseProxySecretKey() string {
 	return getFromFile(langfuseProxySecretPath, "secret_key")
 }
 
+// IsA2AEnable reports whether the A2A REST API (registry / topology /
+// invocations) should register its routes. Experimental, GA-disabled by default.
+func IsA2AEnable() bool { return getBool(a2aEnable, false) }
+
 // IsA2AScannerEnable returns whether the A2A service scanner is enabled.
 func IsA2AScannerEnable() bool { return getBool(a2aScannerEnable, false) }
 
