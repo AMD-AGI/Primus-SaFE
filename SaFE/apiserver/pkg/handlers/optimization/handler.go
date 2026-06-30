@@ -334,7 +334,11 @@ func (h *Handler) createClawSessionWithRetry(
 		if !isRetryableClawCreateSessionError(err) {
 			return CreateSessionResult{}, err
 		}
-		if result, ok := h.findExistingClawSessionByName(ctx, clawBearer, taskID, req.Name); ok {
+		result, reused, reuseErr := h.reuseExistingClawSessionByName(ctx, clawBearer, taskID, req)
+		if reuseErr != nil {
+			return CreateSessionResult{}, reuseErr
+		}
+		if reused {
 			return result, nil
 		}
 		remaining = time.Until(deadline)
@@ -367,14 +371,18 @@ func (h *Handler) createClawSessionWithRetry(
 	)
 }
 
-func (h *Handler) findExistingClawSessionByName(
+func (h *Handler) reuseExistingClawSessionByName(
 	ctx context.Context,
 	clawBearer string,
 	taskID string,
-	name string,
-) (CreateSessionResult, bool) {
+	req *SessionRequest,
+) (CreateSessionResult, bool, error) {
+	if req == nil {
+		return CreateSessionResult{}, false, nil
+	}
+	name := req.Name
 	if strings.TrimSpace(name) == "" {
-		return CreateSessionResult{}, false
+		return CreateSessionResult{}, false, nil
 	}
 	lookupCtx, cancel := context.WithTimeout(WithClawBearer(ctx, clawBearer), clawCreateSessionLookupTimeout)
 	defer cancel()
@@ -383,17 +391,42 @@ func (h *Handler) findExistingClawSessionByName(
 	if err != nil {
 		klog.Warningf("find existing claw session by name failed; continuing retry task_id=%s name=%q error=%v",
 			taskID, name, err)
-		return CreateSessionResult{}, false
+		return CreateSessionResult{}, false, nil
 	}
 	if ss == nil || strings.TrimSpace(ss.SessionID) == "" {
-		return CreateSessionResult{}, false
+		return CreateSessionResult{}, false, nil
+	}
+	if !ss.IsAgentRunning() {
+		confirmCtx, confirmCancel := context.WithTimeout(WithClawBearer(ctx, clawBearer), clawCreateSessionLookupTimeout)
+		confirmed, err := h.clawClient.GetSession(confirmCtx, ss.SessionID)
+		confirmCancel()
+		if err != nil {
+			klog.Warningf("confirm existing claw session failed; continuing with list status task_id=%s session_id=%s error=%v",
+				taskID, ss.SessionID, err)
+		} else if confirmed != nil {
+			ss = confirmed
+		}
+	}
+	if !ss.IsAgentRunning() {
+		if req.Message == nil {
+			return CreateSessionResult{}, false, fmt.Errorf("existing claw session %s is not running and original message is missing", ss.SessionID)
+		}
+		sendCtx, sendCancel := context.WithTimeout(WithClawBearer(ctx, clawBearer), clawCreateSessionAttemptTimeout)
+		err := h.clawClient.SendMessage(sendCtx, ss.SessionID, req.Message)
+		sendCancel()
+		if err != nil {
+			return CreateSessionResult{}, false, fmt.Errorf("dispatch prompt to existing claw session %s: %w", ss.SessionID, err)
+		}
+		ss.AgentStatus = clawAgentStatusRunning
+		klog.InfoS("dispatched prompt to existing claw session after create retryable error",
+			"task_id", taskID, "session_name", name, "session_id", ss.SessionID)
 	}
 	klog.InfoS("reusing existing claw session after create retryable error",
 		"task_id", taskID, "session_name", name, "session_id", ss.SessionID, "agent_status", ss.AgentStatus)
 	return CreateSessionResult{
 		SessionID:   ss.SessionID,
 		AgentStatus: ss.AgentStatus,
-	}, true
+	}, true, nil
 }
 
 func isRetryableClawCreateSessionError(err error) bool {

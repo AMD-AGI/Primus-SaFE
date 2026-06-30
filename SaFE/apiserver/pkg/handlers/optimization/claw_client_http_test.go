@@ -213,6 +213,64 @@ func TestCreateClawSessionWithRetryReusesExistingSessionByName(t *testing.T) {
 	assert.Equal(t, int32(1), lookupCalls.Load())
 }
 
+func TestCreateClawSessionWithRetryDispatchesExistingIdleSession(t *testing.T) {
+	oldRetryInterval := clawCreateSessionRetryInterval
+	oldTotalTimeout := clawCreateSessionTotalTimeout
+	oldLookupTimeout := clawCreateSessionLookupTimeout
+	clawCreateSessionRetryInterval = time.Millisecond
+	clawCreateSessionTotalTimeout = time.Second
+	clawCreateSessionLookupTimeout = time.Second
+	t.Cleanup(func() {
+		clawCreateSessionRetryInterval = oldRetryInterval
+		clawCreateSessionTotalTimeout = oldTotalTimeout
+		clawCreateSessionLookupTimeout = oldLookupTimeout
+	})
+
+	var createCalls atomic.Int32
+	var lookupCalls atomic.Int32
+	var getCalls atomic.Int32
+	var messageCalls atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/sessions":
+			lookupCalls.Add(1)
+			assert.Equal(t, "opt", r.URL.Query().Get("name"))
+			_, _ = w.Write([]byte(`{"data":{"items":[{"session_id":"sess-existing","name":"opt","agent_status":"idle"}]}}`))
+		case r.Method == http.MethodGet && r.URL.Path == "/sessions/sess-existing":
+			getCalls.Add(1)
+			_, _ = w.Write([]byte(`{"data":{"session_id":"sess-existing","name":"opt","agent_status":"idle"}}`))
+		case r.Method == http.MethodPost && r.URL.Path == "/sessions/sess-existing/messages":
+			messageCalls.Add(1)
+			var body struct {
+				Content string `json:"content"`
+			}
+			assert.NoError(t, json.NewDecoder(r.Body).Decode(&body))
+			assert.Equal(t, "hi", body.Content)
+			_, _ = w.Write([]byte(`{"code":0}`))
+		case r.Method == http.MethodPost && r.URL.Path == "/sessions":
+			createCalls.Add(1)
+			w.WriteHeader(499)
+			_, _ = w.Write([]byte(`{"ok":false,"error":"client_closed_request"}`))
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer srv.Close()
+
+	h := &Handler{clawClient: NewClawClient(srv.URL, "test-key")}
+	res, err := h.createClawSessionWithRetry(context.Background(), "bearer", "task-1", &SessionRequest{
+		Name:    "opt",
+		Message: &MessageRequest{Content: "hi"},
+	})
+	assert.NoError(t, err)
+	assert.Equal(t, "sess-existing", res.SessionID)
+	assert.Equal(t, "running", res.AgentStatus)
+	assert.Equal(t, int32(1), createCalls.Load())
+	assert.Equal(t, int32(1), lookupCalls.Load())
+	assert.Equal(t, int32(1), getCalls.Load())
+	assert.Equal(t, int32(1), messageCalls.Load())
+}
+
 func TestCreateClawSessionWithRetryDoesNotRetryBusinessFailure(t *testing.T) {
 	oldRetryInterval := clawCreateSessionRetryInterval
 	oldTotalTimeout := clawCreateSessionTotalTimeout
