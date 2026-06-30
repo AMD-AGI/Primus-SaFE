@@ -5,12 +5,11 @@ title: Prerequisites
 
 # Prerequisites
 
-> **Status:** Draft · **Owner:** _unassigned_ · **Source:** `SaFE/README.md`,
-> `SaFE/docs/installation/install.md`, `Bootstrap/README.md`
-
 What you need before installing Primus-SaFE, and which install path to take. If you already
 run Kubernetes, you can skip straight to [Install](/getting-started/install). If you are
 starting from bare-metal servers, you will provision a cluster first.
+
+<!-- @test none: static reference page (tooling/requirements). Nothing for the agent to exercise. -->
 
 ## Tooling
 
@@ -32,8 +31,7 @@ cluster's API):
   cluster add-on.
 - **High-speed networking for multi-node jobs** — RDMA / InfiniBand interfaces if you intend
   to run distributed training across nodes.
-- **Shared filesystem (optional)** — a CSI volume for workspace persistent storage (PFS). You
-  can enable this at install time or leave it disabled to start.
+- **Shared filesystem (optional)** — a high-performance Parallel File System (PFS) to support a production system.
 
 ## Choose your starting point
 
@@ -49,10 +47,11 @@ vendor-agnostic Kubernetes, but the health checks and [Primus-Bench](/getting-st
 benchmarks are ROCm-specific.
 
 :::note
-NVIDIA and managed-cloud support tiers are a pending product decision. Treat non-AMD
-platforms as community/experimental for now.
+AMD GPUs with ROCm are the primary, validated target. Treat other platforms (e.g. NVIDIA or
+managed cloud) as community/experimental for now.
 :::
 
-> **Not yet covered (capture so we don't lose it after consolidation):**
-> - [ ] Minimum CPU/memory sizing per control-plane scale (`small`/`medium`/`large`).
-> - [ ] Exact RDMA NIC naming conventions expected by the installer.
+<!-- @test todo:
+  - "Add minimum CPU/memory sizing per control-plane scale (small/medium/large)."
+  - "Document the expected RDMA NIC naming so this page can state it precisely."
+-->
