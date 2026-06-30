@@ -1,18 +1,6 @@
 <template>
   <div class="header-row">
     <h3 class="chart-title">Usage breakdown</h3>
-    <div class="header-links">
-      <!-- Hyperloom entry - shown only in production (same gating as Lens) -->
-      <el-button v-if="isProd" link @click="goToHyperloom" class="lens-link">
-        Go to Hyperloom
-        <el-icon class="ml-1"><Right /></el-icon>
-      </el-button>
-      <!-- Lens entry - shown only in production -->
-      <el-button v-if="isProd" link @click="goToLens" class="lens-link">
-        Go to Lens
-        <el-icon class="ml-1"><Right /></el-icon>
-      </el-button>
-    </div>
   </div>
 
   <div class="usage-dashboard">
@@ -143,7 +131,10 @@
 <script setup lang="ts">
 import { ref, computed, watch, nextTick, onBeforeUnmount, onMounted } from 'vue'
 import * as echarts from 'echarts'
+<<<<<<< HEAD
 import { List, Odometer, Right, TrendCharts, WarningFilled } from '@element-plus/icons-vue'
+=======
+>>>>>>> c14e0528 (feat(ga): drop the Lens SPA from the release build (keep lens-compat + Grafana))
 import { useWorkspaceStore } from '@/stores/workspace'
 import { useClusterStore } from '@/stores/cluster'
 import { getWorkspaceDetail } from '@/services/workspace/index'
@@ -157,18 +148,6 @@ import {
   unwrapGpuAggregationRows,
   type GPUAggregationItem,
 } from './gpuUsage'
-
-// Check if in production environment
-const isProd = import.meta.env.PROD
-
-// Navigate to Lens system
-const goToLens = () => {
-  window.open(`${location.origin}/lens`, '_blank')
-}
-
-const goToHyperloom = () => {
-  window.open(`${location.origin}/hyperloom/`, '_blank')
-}
 
 const store = useWorkspaceStore()
 const clusterStore = useClusterStore()
