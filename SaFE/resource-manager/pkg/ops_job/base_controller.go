@@ -22,6 +22,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
+	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	commonfaults "github.com/AMD-AIG-AIMA/SAFE/common/pkg/faults"
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
@@ -409,7 +411,14 @@ func (r *OpsJobBaseReconciler) getWorkloadCompletionMessage(ctx context.Context,
 			}
 		} else {
 			mainContainerName := commonworkload.GetMainContainer(workload, workload.SpecKind(), 0)
-			for _, pod := range workload.Status.Pods {
+			// Prefer the DB workload_pod table (P3 source of truth), falling back
+			// to the etcd Status.Pods. NewClient returns a singleton, so this is
+			// cheap and race-free.
+			var db dbclient.Interface
+			if commonconfig.IsDBEnable() {
+				db = dbclient.NewClient()
+			}
+			for _, pod := range commonworkload.PodsOf(ctx, db, workload) {
 				for _, container := range pod.Containers {
 					if container.Name == mainContainerName && container.Message != "" {
 						return container.Message
