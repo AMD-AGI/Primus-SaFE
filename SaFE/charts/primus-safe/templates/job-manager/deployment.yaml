@@ -64,6 +64,11 @@ spec:
               mountPath: {{ default "/etc/secrets/ssh" (default .Values.ssh).secret_path }}
               readOnly: true
             {{- end }}
+            {{- if .Values.db.enable }}
+            - name: db-secret
+              mountPath: {{ default "/etc/secrets/db" (default .Values.db).secret_path }}
+              readOnly: true
+            {{- end }}
           ports:
             - name: metrics
               containerPort: {{ default 8000 (default .Values.job_manager).metrics_port }}
@@ -100,6 +105,11 @@ spec:
         - name: ssh-proxy
           secret:
             secretName: {{ .Release.Name }}-ssh-proxy
+        {{- end }}
+        {{- if .Values.db.enable }}
+        - name: db-secret
+          secret:
+            secretName: {{ .Release.Name }}-pguser-{{ .Release.Name }}
         {{- end }}
       {{- if .Values.global.image_pull_secret }}
       imagePullSecrets:
