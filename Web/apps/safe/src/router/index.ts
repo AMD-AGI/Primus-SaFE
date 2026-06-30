@@ -74,49 +74,14 @@ const router = createRouter({
           component: () => import('../pages/TorchFT/index.vue'),
         },
         {
-          path: '/rayjob',
-          name: 'RayJob',
-          component: () => import('../pages/RayJob/index.vue'),
-        },
-        {
-          path: '/monarch',
-          name: 'Monarch',
-          component: () => import('../pages/Monarch/index.vue'),
-        },
-        {
-          path: '/sandbox-workload',
-          name: 'SandboxWorkload',
-          component: () => import('../pages/SandboxWorkload/index.vue'),
-        },
-        {
           path: '/authoring',
           name: 'Authoring',
           component: () => import('../pages/Authoring/index.vue'),
         },
         {
-          path: '/cicd',
-          name: 'CICD',
-          component: () => import('../pages/CICD/index.vue'),
-        },
-        {
           path: '/infer',
           name: 'Infer',
           component: () => import('../pages/Infer/index.vue'),
-        },
-        {
-          path: '/dynamo',
-          name: 'Dynamo',
-          component: () => import('../pages/Dynamo/index.vue'),
-        },
-        {
-          path: '/optimus',
-          name: 'Optimus',
-          component: () => import('../pages/Optimus/index.vue'),
-        },
-        {
-          path: '/cicd/detail',
-          name: 'CICDDetail',
-          component: () => import('../pages/CICD/CICDDetail.vue'),
         },
         {
           path: '/training/detail',
@@ -127,21 +92,6 @@ const router = createRouter({
           path: '/torchft/detail',
           name: 'TorchFTDetail',
           component: () => import('../pages/TorchFT/TorchFTDetail.vue'),
-        },
-        {
-          path: '/rayjob/detail',
-          name: 'RayJobDetail',
-          component: () => import('../pages/RayJob/RayJobDetail.vue'),
-        },
-        {
-          path: '/monarch/detail',
-          name: 'MonarchDetail',
-          component: () => import('../pages/Monarch/MonarchDetail.vue'),
-        },
-        {
-          path: '/sandbox-workload/detail',
-          name: 'SandboxWorkloadDetail',
-          component: () => import('../pages/Training/TrainingDetail.vue'),
         },
         {
           path: '/training/root-cause',
@@ -162,16 +112,6 @@ const router = createRouter({
           path: '/infer/detail',
           name: 'InferDetail',
           component: () => import('../pages/Infer/InferDetail.vue'),
-        },
-        {
-          path: '/dynamo/detail',
-          name: 'DynamoDetail',
-          component: () => import('../pages/Dynamo/DynamoDetail.vue'),
-        },
-        {
-          path: '/optimus/detail',
-          name: 'OptimusDetail',
-          component: () => import('../pages/Optimus/OptimusDetail.vue'),
         },
         {
           path: '/workspace',
@@ -289,43 +229,6 @@ const router = createRouter({
           component: () => import('@/pages/Addons/index.vue'),
         },
         {
-          path: '/posttrain',
-          name: 'PostTrain',
-          component: () => import('@/pages/PostTrain/index.vue'),
-        },
-        {
-          path: '/posttrain/detail',
-          name: 'PostTrainDetail',
-          component: () => import('@/pages/PostTrain/PostTrainDetail.vue'),
-        },
-        {
-          path: '/playground-agent',
-          name: 'PlaygroundAgent',
-          component: () => import('@/pages/PlaygroundAgent/index.vue'),
-        },
-        {
-          path: '/model-square',
-          name: 'ModelSquare',
-          component: () => import('@/pages/ModelSquare/index.vue'),
-        },
-        {
-          path: '/model-square/detail/:id',
-          name: 'ModelSquareDetail',
-          component: () => import('@/pages/ModelSquare/ModelSquareDetail.vue'),
-        },
-        {
-          path: '/chatbot',
-          name: 'ChatbotFullPage',
-          component: () => import('@/pages/ChatbotFullPage/index.vue'),
-          meta: { hideInMenu: true },
-        },
-        {
-          path: '/qabase',
-          name: 'QABase',
-          component: () => import('@/pages/QABase/index.vue'),
-          meta: { requiresWorkspaceAdmin: true },
-        },
-        {
           path: '/deploy',
           name: 'Deploy',
           component: () => import('@/pages/Deploy/index.vue'),
@@ -334,38 +237,6 @@ const router = createRouter({
           path: '/deploy/detail',
           name: 'DeployDetail',
           component: () => import('@/pages/Deploy/DeployDetail.vue'),
-        },
-        {
-          path: '/feedback-management',
-          name: 'FeedbackManagement',
-          component: () => import('@/pages/FeedbackManagement/index.vue'),
-          meta: { requiresWorkspaceAdmin: true },
-        },
-        {
-          path: '/dataset',
-          name: 'Dataset',
-          component: () => import('@/pages/Dataset/index.vue'),
-        },
-        {
-          path: '/evaluation',
-          name: 'Evaluation',
-          component: () => import('@/pages/Evaluation/index.vue'),
-        },
-        {
-          path: '/evaluation/:taskId',
-          name: 'EvaluationDetail',
-          component: () => import('@/pages/Evaluation/EvaluationDetail.vue'),
-        },
-        {
-          path: '/model-optimization',
-          name: 'ModelOptimization',
-          component: () => import('@/pages/ModelOptimization/index.vue'),
-        },
-        {
-          path: '/model-optimization/:id',
-          name: 'ModelOptimizationDetail',
-          component: () => import('@/pages/ModelOptimization/Detail.vue'),
-          props: true,
         },
         {
           path: '/manageapikeys',
@@ -383,37 +254,10 @@ const router = createRouter({
           component: () => import('@/pages/UserGroup/index.vue'),
         },
         {
-          path: '/tools',
-          name: 'Tools',
-          component: () => import('@/pages/Tools/index.vue'),
-        },
-        {
-          path: '/sandbox',
-          name: 'Sandbox',
-          component: () => import('@/pages/Sandbox/index.vue'),
-          meta: { requiresWorkspaceAdmin: true },
-        },
-        {
           path: '/workload-manage',
           name: 'WorkloadManage',
           component: () => import('@/pages/WorkloadManage/index.vue'),
           meta: { requiresWorkspaceAdmin: true },
-        },
-        {
-          path: '/litellm-gateway',
-          name: 'LLMGateway',
-          component: () => import('@/pages/LLMGateway/index.vue'),
-        },
-        {
-          path: '/a2a',
-          name: 'A2AProtocol',
-          component: () => import('@/pages/A2A/index.vue'),
-        },
-        {
-          path: '/claw',
-          name: 'PrimusClaw',
-          component: () => import('@/pages/PocoChatPage/index.vue'),
-          meta: { hideInMenu: true },
         },
       ],
     },

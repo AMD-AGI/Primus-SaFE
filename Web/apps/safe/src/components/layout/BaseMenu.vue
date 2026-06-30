@@ -109,7 +109,7 @@
         </el-sub-menu>
 
         <!-- Model Lab Menu -->
-        <el-sub-menu index="model-lab" v-if="hasManagerAccess">
+        <el-sub-menu index="model-lab" v-if="hasManagerAccess && modelLabMenuItems.length">
           <template #title>
             <span style="color: var(--safe-primary)">Model Lab</span>
           </template>
@@ -208,14 +208,11 @@ const hasWorkloadScope = (scope: ScopesKeys) => {
 const workloadPermissions = {
   canTrain: hasWorkloadScope('Train'),
   canAuthoring: hasWorkloadScope('Authoring'),
-  canCICD: hasWorkloadScope('CICD'),
   canInfer: hasWorkloadScope('Infer'),
-  canRay: hasWorkloadScope('Ray'),
-  canSandbox: hasWorkloadScope('Sandbox'),
 }
 
 // Destructure specific permission variables (maintain backward compatibility)
-const { canTrain, canAuthoring, canCICD, canInfer, canRay, canSandbox } = workloadPermissions
+const { canTrain, canAuthoring, canInfer } = workloadPermissions
 
 // workspaceMenu and usersMenu:
 // Visible to system-admin, system-admin-readonly, or current workspace-admin
@@ -289,20 +286,6 @@ watchEffect(() => {
       tooltip: 'Deployment has been disabled by the administrator.',
       icon: menuIcons.deployment,
     },
-    {
-      index: '/dynamo',
-      name: 'Dynamo',
-      canAccess: canInfer.value,
-      tooltip: 'Dynamo has been disabled by the administrator.',
-      icon: menuIcons.dynamo,
-    },
-    {
-      index: '/optimus',
-      name: 'Optimus',
-      canAccess: canInfer.value,
-      tooltip: 'Optimus has been disabled by the administrator.',
-      icon: menuIcons.optimus,
-    },
   ].filter((item) => item.canAccess !== false)
 
   const trainingChildren: MenuItem[] = [
@@ -320,20 +303,6 @@ watchEffect(() => {
       canAccess: canTrain.value,
       tooltip: 'TorchFT has been disabled by the administrator.',
       icon: menuIcons.torchft,
-    },
-    {
-      index: '/rayjob',
-      name: 'RayJob',
-      canAccess: canRay.value,
-      tooltip: 'RayJob has been disabled by the administrator.',
-      icon: menuIcons.rayjob,
-    },
-    {
-      index: '/monarch',
-      name: 'Monarch',
-      canAccess: canTrain.value,
-      tooltip: 'Monarch has been disabled by the administrator.',
-      icon: menuIcons.monarch,
     },
   ].filter((item) => item.canAccess !== false)
 
@@ -366,123 +335,20 @@ watchEffect(() => {
       icon: menuIcons.authoring,
       dataTour: 'menu-authoring',
     },
-    {
-      index: '/sandbox-workload',
-      name: 'Sandbox',
-      canAccess: canSandbox.value,
-      tooltip: 'Sandbox has been disabled by the administrator.',
-      icon: menuIcons.sandbox,
-    },
-    {
-      index: '/cicd',
-      name: 'CICD',
-      canAccess: canCICD.value,
-      tooltip: 'CICD has been disabled by the administrator.',
-      icon: menuIcons.cicd,
-    },
   ]
 
   // Filter out menu items without permission, simply hide them
   workloadMenuItems.value = allWorkloadItems.filter((item) => item.canAccess !== false)
 })
 
-// Model Lab submenu config - static
-const modelLabMenuItems: MenuItem[] = [
-  {
-    index: '/model-square',
-    name: 'Model Square',
-    icon: menuIcons.modelSquare,
-  },
-  {
-    index: '/posttrain',
-    name: 'Post Train',
-    icon: menuIcons.training,
-  },
-  {
-    index: '/playground-agent',
-    name: 'Playground',
-    icon: menuIcons.playground,
-  },
-  {
-    index: '/dataset',
-    name: 'Dataset',
-    icon: menuIcons.dataset,
-  },
-  {
-    index: '/evaluation',
-    name: 'Evaluation',
-    icon: menuIcons.evaluation,
-  },
-  {
-    index: '/model-optimization',
-    name: 'Optimization',
-    icon: menuIcons.modelOptimization,
-  },
-]
+// Model Lab submenu - excluded from GA v1.0.0 (experimental; routes removed)
+const modelLabMenuItems: MenuItem[] = []
 
-// AI Agent submenu config - dynamic (partially open to regular users)
+// AI Agent submenu - excluded from GA v1.0.0 (experimental; routes removed)
 const aiAgentMenuItems = shallowRef<MenuItem[]>([])
 
-// Watch permission changes, dynamically update AI Agent menu
-watchEffect(() => {
-  const allAiAgentItems = [
-    {
-      index: '/chatbot',
-      name: 'Chatbot',
-      icon: menuIcons.chatbot,
-      canAccess: true, // Open to all users
-    },
-    {
-      index: '/qabase',
-      name: 'QA Base',
-      icon: menuIcons.qabase,
-      canAccess: hasManagerAccess.value, // Admin only
-    },
-    {
-      index: '/feedback-management',
-      name: 'Feedback',
-      icon: menuIcons.usermanage,
-      canAccess: hasManagerAccess.value, // Admin only
-    },
-  ]
-
-  // Filter out menu items without permission
-  aiAgentMenuItems.value = allAiAgentItems.filter((item) => item.canAccess !== false)
-})
-
-// Agent Infra submenu config - dynamic
+// Agent Infra submenu - excluded from GA v1.0.0 (experimental; routes removed)
 const agentInfraMenuItems = shallowRef<MenuItem[]>([])
-
-watchEffect(() => {
-  const allAgentInfraItems = [
-    // {
-    //   index: '/tools',
-    //   name: 'Plugins',
-    //   icon: menuIcons.tools,
-    //   canAccess: true,
-    // },
-    {
-      index: '/sandbox',
-      name: 'Sandbox',
-      icon: menuIcons.sandbox,
-      canAccess: hasManagerAccess.value, // Admin only
-    },
-    {
-      index: '/litellm-gateway',
-      name: 'LLM Gateway',
-      icon: menuIcons.llmGateway,
-      canAccess: true, // Open to all users
-    },
-    {
-      index: '/a2a',
-      name: 'A2A Protocol',
-      icon: menuIcons.a2a,
-      canAccess: true, // Open to all users
-    },
-  ]
-
-  agentInfraMenuItems.value = allAgentInfraItems.filter((item) => item.canAccess !== false)
-})
 
 // System submenu config - dynamic (partially open to regular users)
 const systemMenuItems = shallowRef<MenuItem[]>([])
