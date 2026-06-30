@@ -1,5 +1,6 @@
-# Unified frontend image: serves both SaFE (at /) and Lens (at /lens/)
-# from a single nginx container.
+# Frontend image: serves the SaFE console (at /) from a single nginx container.
+# GA v1.0.0 excludes the Lens SPA from the build; the Lens API proxy
+# (/lens/v1/*) and Grafana embeds (/lens/grafana/*) remain served by nginx.
 #
 # Build context MUST be the Web/ directory (the pnpm workspace root):
 #   docker build -f Web/Dockerfile -t primus-web:<tag> Web/
@@ -33,10 +34,11 @@ ENV VITE_MCP_BASE_URL=${VITE_MCP_BASE_URL}
 ENV VITE_MCP_API_KEY=${VITE_MCP_API_KEY}
 
 COPY apps/safe ./apps/safe
-COPY apps/lens ./apps/lens
 
-RUN pnpm --filter ./apps/safe build \
- && pnpm --filter ./apps/lens build
+# GA v1.0.0: the Lens SPA is excluded from the release build. Its workspace
+# package.json is still installed (lockfile integrity) but the app is neither
+# built nor shipped. The Lens API proxy and Grafana embeds remain served by nginx.
+RUN pnpm --filter ./apps/safe build
 
 # ---------- Stage 3: nginx runtime ----------
 FROM nginx:${NGINX_VERSION} AS runtime
@@ -52,7 +54,6 @@ RUN mkdir -p /usr/share/nginx/html/__internal_analytics \
 # vite `base: '/lens/'` configuration. The two dist trees never collide
 # because Lens emits all asset URLs as /lens/assets/*.
 COPY --from=builder /workspace/apps/safe/dist/ /usr/share/nginx/html/
-COPY --from=builder /workspace/apps/lens/dist/ /usr/share/nginx/html/lens/
 
 COPY nginx.conf /etc/nginx/nginx.conf
 COPY start.sh /start.sh

@@ -1,18 +1,6 @@
 <template>
   <div class="header-row">
     <h3 class="chart-title">Usage breakdown</h3>
-    <div class="header-links">
-      <!-- Hyperloom entry - shown only in production (same gating as Lens) -->
-      <el-button v-if="isProd" link @click="goToHyperloom" class="lens-link">
-        Go to Hyperloom
-        <el-icon class="ml-1"><Right /></el-icon>
-      </el-button>
-      <!-- Lens entry - shown only in production -->
-      <el-button v-if="isProd" link @click="goToLens" class="lens-link">
-        Go to Lens
-        <el-icon class="ml-1"><Right /></el-icon>
-      </el-button>
-    </div>
   </div>
 
   <div class="usage-dashboard">
@@ -101,22 +89,9 @@
 <script setup lang="ts">
 import { ref, computed, watch, nextTick, onBeforeUnmount } from 'vue'
 import * as echarts from 'echarts'
-import { Right } from '@element-plus/icons-vue'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { getWorkspaceDetail } from '@/services/workspace/index'
 import { byte2Gi } from '@/utils/index'
-
-// Check if in production environment
-const isProd = import.meta.env.PROD
-
-// Navigate to Lens system
-const goToLens = () => {
-  window.open(`${location.origin}/lens`, '_blank')
-}
-
-const goToHyperloom = () => {
-  window.open(`${location.origin}/hyperloom/`, '_blank')
-}
 
 const store = useWorkspaceStore()
 const PIE_COLORS = ['#47b881', '#d65f68', '#0d9488'] as const
