@@ -843,6 +843,13 @@ func (h *Handler) excludeBusyNodes(ctx context.Context, job *v1.OpsJob) error {
 
 	usingNodesSet := sets.NewSet()
 	for _, w := range workloads {
+		// Dual-read: prefer the etcd NodePodUsage aggregate; fall back to Status.Pods.
+		if len(w.Status.NodeUsage) > 0 {
+			for _, u := range w.Status.NodeUsage {
+				usingNodesSet.Insert(u.Node)
+			}
+			continue
+		}
 		for _, p := range w.Status.Pods {
 			usingNodesSet.Insert(p.AdminNodeName)
 		}
