@@ -21,6 +21,7 @@ import (
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
+	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
 	commonfaults "github.com/AMD-AIG-AIMA/SAFE/common/pkg/faults"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/quantity"
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
@@ -152,6 +153,37 @@ func modifyRequiredNodeAffinity(obj *unstructured.Unstructured, workload *v1.Wor
 	return nil
 }
 
+// dispatchNodeReadTimeout bounds the best-effort DB read for previous-dispatch
+// nodes so dispatching never blocks on the database.
+const dispatchNodeReadTimeout = 5 * time.Second
+
+// dispatchNodesAt returns the admin nodes assigned at the given dispatch index,
+// preferring the DB workload_dispatch_node table (P3 source of truth) and
+// falling back to the etcd Status.Nodes. Best-effort: a missing db client (e.g.
+// DB disabled) or any query error falls back to Status.Nodes.
+func dispatchNodesAt(workload *v1.Workload, idx int) []string {
+	if idx < 0 {
+		return nil
+	}
+	if commonconfig.IsDBEnable() {
+		if db := dbclient.NewClient(); db != nil {
+			ctx, cancel := context.WithTimeout(context.Background(), dispatchNodeReadTimeout)
+			defer cancel()
+			if rows, err := db.ListWorkloadDispatchNodes(ctx, workload.Name); err == nil && len(rows) > 0 {
+				all := dbclient.DispatchNodesToV1(rows)
+				if idx < len(all) {
+					return all[idx]
+				}
+				return nil
+			}
+		}
+	}
+	if idx < len(workload.Status.Nodes) {
+		return workload.Status.Nodes[idx]
+	}
+	return nil
+}
+
 // modifyPreferredNodeAffinity adds preferredDuringSchedulingIgnoredDuringExecution to prefer
 // nodes from the previous dispatch attempt. This helps workloads to be rescheduled on the same nodes.
 func modifyPreferredNodeAffinity(obj *unstructured.Unstructured, workload *v1.Workload, path []string) error {
@@ -160,8 +192,8 @@ func modifyPreferredNodeAffinity(obj *unstructured.Unstructured, workload *v1.Wo
 		nodes = commonworkload.GetSpecifiedNodes(workload)
 	} else if v1.IsRetryingOnOriginal(workload) {
 		dispatchCnt := v1.GetWorkloadDispatchCnt(workload)
-		if dispatchCnt > 0 && len(workload.Status.Nodes) >= dispatchCnt {
-			nodes = workload.Status.Nodes[dispatchCnt-1]
+		if dispatchCnt > 0 {
+			nodes = dispatchNodesAt(workload, dispatchCnt-1)
 		}
 	}
 	if len(nodes) == 0 {
