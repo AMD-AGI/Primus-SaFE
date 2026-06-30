@@ -22,6 +22,7 @@ The Primus-SaFE platform layer comprises five services that run on the control p
 |---------|----------------|
 | **API Server** | The single entry point — resource and workload management, authentication and RBAC, and SSH access to pods. |
 | **Job Manager** | The full workload lifecycle: queuing, scheduling, priority and preemption, automatic retry and failover, and log indexing. |
+| **Web** | A Web UI that users interact with the platform |
 | **Resource Manager** | Central management of clusters, nodes, workspaces, storage, and operational jobs. |
 | **Webhooks** | Kubernetes admission control — validates and mutates resources as they are created or changed. |
 | **Node Agent** | Runs on GPU nodes for continuous health monitoring, fault detection, automatic reporting, and self-healing. |
@@ -65,17 +66,16 @@ distinction rarely matters in everyday use. At larger scale, a single control pl
 manage many data-plane GPU clusters as a fleet. Both topologies are covered in
 [Getting Started → Install](/getting-started/install).
 
-## Modules & what you install
+## Modules & what to install
 
 Primus-SaFE consists of several modules that can be adopted independently:
 
 | Module | Role | Requirement |
 |--------|------|-------------|
-| **Bootstrap** | Provisions a production Kubernetes cluster and its infrastructure | Bare-metal hosts (optional — you may bring your own cluster) |
+| **Bootstrap** | Provisions a production Kubernetes cluster and its infrastructure | Bare-metal hosts, or optionally, you may bring your own Kubernetes cluster |
 | **Primus-SaFE** | The platform layer (the five services plus the console) | Any Kubernetes 1.21+ cluster |
 | **Primus-Bench** | Node health checks and performance benchmarking | Runs standalone (bare-metal / SLURM / local / Kubernetes) |
 | **Scheduler-Plugins** | Custom kube-scheduler (topology-aware, gang) | Installed automatically by Primus-SaFE per cluster |
-| **Web** | The browser console | Included in the Primus-SaFE install |
 
 The typical path is: optionally Bootstrap a cluster, install Primus-SaFE, optionally validate
 nodes with Primus-Bench, then run jobs. The web console is included in the Primus-SaFE
