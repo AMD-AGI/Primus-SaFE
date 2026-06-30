@@ -33,9 +33,9 @@ export default function setupAuthGuard(router: Router) {
     if (code) {
       const state = to.query.state as string | undefined
 
-      // Check if this is an SSO request from another app (Lens / Hyperloom)
+      // Check if this is an SSO request from another app (Lens / Hyperloom / Pulse)
       // State format: {app}:{csrfToken}:{encodeURIComponent(bridgeUrl)}
-      const APP_PREFIXES = ['lens:', 'hyperloom:'] as const
+      const APP_PREFIXES = ['lens:', 'hyperloom:', 'pulse:'] as const
       const matchedPrefix = APP_PREFIXES.find((p) => state?.startsWith(p))
       if (matchedPrefix && state) {
         const parts = state.split(':')
