@@ -163,13 +163,13 @@ test, write content first.
 | administration/manage-access-and-quota | behavior · P1 | Rich | **Done** |
 | administration/manage-nodes | contract · P1 | Rich | **Done** (read-only; mutating ops TODO) |
 | administration/preflight-and-monitoring | behavior + contract · P1 | Rich | **Done** (pre-flight submit + faults read-only) |
-| administration/upgrading | n/a (CLI procedure) | Rich | n/a |
+| administration/upgrading | verify · P2 | Rich | **Done** (System → Deploy UI presence; create/approve/rollback are destructive — TODO on a disposable env) |
 | tasks/run-single-node-training | n/a (submit covered by first-training-job) | Rich | n/a |
 | tasks/run-multi-node-training | behavior · P1 | Rich | **Done** (needs ≥2 ready nodes) |
 | tasks/interact-with-your-job (incl. Authoring) | behavior · P0 | Rich | **Done** |
 | tasks/speed-up-startup | behavior · P2 | Rich | **Done** (import + preheat; gated on harbor-registry) |
 | tasks/beyond-training | n/a (overview/hub) | Rich | n/a |
-| concepts/workspace | verify · P2 | Rich | TODO (assert named artifacts only) |
+| concepts/workspace | verify · P2 | Rich | **Done** (object model: Clusters/Nodes/Workspaces pages + relationships) |
 | concepts/workload-types | verify · P2 | Rich | TODO (assert named artifacts only) |
 | concepts/fault-tolerance | verify · P2 | Draft | TODO |
 | concepts/storage-and-data | verify · P2 | Draft | TODO |
