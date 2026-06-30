@@ -310,7 +310,7 @@ func TestCreateClawSessionWithRetryDoesNotRetryServerError(t *testing.T) {
 	var calls atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		calls.Add(1)
-		w.WriteHeader(http.StatusInternalServerError)
+		w.WriteHeader(599)
 		_, _ = w.Write([]byte(`{"ok":false,"error":"upstream timeout"}`))
 	}))
 	defer srv.Close()
