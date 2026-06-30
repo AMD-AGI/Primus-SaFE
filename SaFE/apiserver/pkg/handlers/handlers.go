@@ -7,7 +7,6 @@ package handlers
 
 import (
 	"context"
-	"time"
 
 	"github.com/gin-gonic/gin"
 	"k8s.io/klog/v2"
@@ -20,7 +19,6 @@ import (
 	emailrelayhandlers "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/email-relay-handlers"
 	githubworkflow "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/github-workflow"
 	imagehandlers "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/image-handlers"
-	inferencexhandlers "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/inferencex"
 	lenscompat "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/lens-compat"
 	llmgateway "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/llm-gateway"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/middleware"
@@ -146,16 +144,13 @@ func InitHttpHandlers(_ context.Context, mgr ctrlruntime.Manager) (*gin.Engine, 
 		githubworkflow.RegisterRoutes(engine.Group(common.PrimusRouterCustomRootPath))
 	}
 
-	// InferenceX benchmark data proxy (no DB required)
-	infxHandler := inferencexhandlers.NewHandler(24 * time.Hour)
-	inferencexhandlers.InitInferenceXRouters(engine, infxHandler)
-
-	// Model Optimization (Hyperloom via PrimusClaw). Requires DB for task
-	// persistence + event log. Routes register whenever DB is enabled; Claw base
-	// URL from model_optimization.claw_base_url or derived https://<global host>/claw-api/v1;
+	// Model Optimization (Hyperloom via PrimusClaw). Experimental, GA-disabled by
+	// default: routes register only when model_optimization.enabled is true (and DB
+	// is on for task persistence + event log). Claw base URL from
+	// model_optimization.claw_base_url or derived https://<global host>/claw-api/v1;
 	// auth: Bearer ak-... if sent, else per-user platform key (GetOrCreatePlatformKey, same
 	// idea as Primus-Claw + /auth/verify), else optional secret claw_api_key for service use.
-	if commonconfig.IsDBEnable() {
+	if commonconfig.IsModelOptimizationEnable() && commonconfig.IsDBEnable() {
 		optDBClient := dbclient.NewClient()
 		if optDBClient != nil {
 			optHandler, optErr := optimizationhandlers.NewHandler(mgr.GetClient(), optDBClient)

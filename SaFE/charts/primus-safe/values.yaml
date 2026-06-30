@@ -94,7 +94,8 @@ preprocess:
   # Preprocessing component image version. used for pytorch-job etc.
   image: "preprocess:latest"
 monarch:
-  enable: true
+  # GA v1.0.0: experimental, disabled by default.
+  enable: false
   image: "monarch:latest"
   client_role: "monarch-client"
 ops_job:
@@ -246,13 +247,13 @@ langfuse_proxy:
   public_key: ""
   secret_key: ""
 a2a:
-  # A2A service discovery scanner
-  scanner_enable: true
+  # A2A service discovery scanner. GA v1.0.0: experimental, disabled by default.
+  scanner_enable: false
   scanner_interval: 60
   scanner_namespaces: []
 a2a_gateway:
-  # A2A Gateway for Agent-to-Agent invocations
-  enable: true
+  # A2A Gateway for Agent-to-Agent invocations. GA v1.0.0: experimental, disabled by default.
+  enable: false
   image: "a2a-gateway:latest"
   replicas: 1
   cpu: 500m
@@ -260,10 +261,14 @@ a2a_gateway:
   port: 8089
   metrics_port: 9090
 llm_gateway:
-  enabled: true
+  # GA v1.0.0: experimental, disabled by default.
+  enabled: false
   secret_path: "/etc/secrets/llm-gateway"
-# Model Optimization (Hyperloom via PrimusClaw). Routes register when db.enable; set claw_base_url / secret for Claw.
+# Model Optimization (Hyperloom via PrimusClaw). GA v1.0.0: experimental, disabled by default.
+# Routes register only when enabled AND db.enable; set claw_base_url / secret for Claw.
 model_optimization:
+  # Feature flag for the Model Optimization REST + SSE routes (default off for GA).
+  enabled: false
   claw_base_url: ""
   claw_agent_id: "agent_default"
   # Empty: skip file-based claw_api_key / claw_base_url; use Bearer ak-... or set a mount path.
@@ -274,11 +279,13 @@ model_optimization:
   # upgrade.sh and into the live apiserver ConfigMap by cd-deploy.sh).
   max_concurrent: 1024
 sandbox:
-  enable: true
+  # GA v1.0.0: experimental, disabled by default.
+  enable: false
   namespace: "agent-sandbox-system"
   secret: "envd-router-identity"
 mcp:
-  enabled: true
+  # GA v1.0.0: experimental, disabled by default.
+  enabled: false
   base_path: "/api/v1/safe-mcp/mcp"
   instructions: "SaFE API Server - GPU Cluster Management Tools via MCP"
   # CORS allowlist for browser-based MCP clients. Empty (default) means
