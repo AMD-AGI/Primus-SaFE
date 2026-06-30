@@ -418,9 +418,17 @@ func (h *Handler) reuseExistingClawSessionByName(
 		if err != nil {
 			return CreateSessionResult{}, false, fmt.Errorf("dispatch prompt to existing claw session %s: %w", ss.SessionID, err)
 		}
-		ss.AgentStatus = clawAgentStatusRunning
+		confirmCtx, confirmCancel := context.WithTimeout(WithClawBearer(ctx, clawBearer), clawCreateSessionLookupTimeout)
+		confirmed, err := h.clawClient.GetSession(confirmCtx, ss.SessionID)
+		confirmCancel()
+		if err != nil {
+			klog.Warningf("confirm existing claw session after dispatch failed; reusing last known status task_id=%s session_id=%s error=%v",
+				taskID, ss.SessionID, err)
+		} else if confirmed != nil {
+			ss = confirmed
+		}
 		klog.InfoS("dispatched prompt to existing claw session after create retryable error",
-			"task_id", taskID, "session_name", name, "session_id", ss.SessionID)
+			"task_id", taskID, "session_name", name, "session_id", ss.SessionID, "agent_status", ss.AgentStatus)
 	}
 	klog.InfoS("reusing existing claw session after create retryable error",
 		"task_id", taskID, "session_name", name, "session_id", ss.SessionID, "agent_status", ss.AgentStatus)
