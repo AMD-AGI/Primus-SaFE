@@ -152,6 +152,8 @@ data:
       # Path to the secret directory containing litellm_admin_key, litellm_endpoint, litellm_team_id
       secret_path: {{ default "/etc/secrets/llm-gateway" (default dict .Values.llm_gateway).secret_path }}
     model_optimization:
+      # Experimental, GA-disabled by default. Routes register only when enabled (and db.enable).
+      enabled: {{ default false (default dict .Values.model_optimization).enabled }}
       # PrimusClaw HTTP v1 root: explicit URL, or secret file claw_base_url, or derived https://<sub>.<domain>/claw-api/v1.
       claw_base_url: "{{ default "" (default dict .Values.model_optimization).claw_base_url }}"
       claw_agent_id: "{{ default "agent_default" (default dict .Values.model_optimization).claw_agent_id }}"
