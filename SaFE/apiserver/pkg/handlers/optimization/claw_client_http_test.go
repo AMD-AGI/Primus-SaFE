@@ -237,8 +237,12 @@ func TestCreateClawSessionWithRetryDispatchesExistingIdleSession(t *testing.T) {
 			assert.Equal(t, "opt", r.URL.Query().Get("name"))
 			_, _ = w.Write([]byte(`{"data":{"items":[{"session_id":"sess-existing","name":"opt","agent_status":"idle"}]}}`))
 		case r.Method == http.MethodGet && r.URL.Path == "/sessions/sess-existing":
-			getCalls.Add(1)
-			_, _ = w.Write([]byte(`{"data":{"session_id":"sess-existing","name":"opt","agent_status":"idle"}}`))
+			n := getCalls.Add(1)
+			agentStatus := "idle"
+			if n > 1 {
+				agentStatus = "running"
+			}
+			_, _ = w.Write([]byte(`{"data":{"session_id":"sess-existing","name":"opt","agent_status":"` + agentStatus + `"}}`))
 		case r.Method == http.MethodPost && r.URL.Path == "/sessions/sess-existing/messages":
 			messageCalls.Add(1)
 			var body struct {
@@ -267,7 +271,7 @@ func TestCreateClawSessionWithRetryDispatchesExistingIdleSession(t *testing.T) {
 	assert.Equal(t, "running", res.AgentStatus)
 	assert.Equal(t, int32(1), createCalls.Load())
 	assert.Equal(t, int32(1), lookupCalls.Load())
-	assert.Equal(t, int32(1), getCalls.Load())
+	assert.Equal(t, int32(2), getCalls.Load())
 	assert.Equal(t, int32(1), messageCalls.Load())
 }
 
