@@ -34,25 +34,8 @@ Currently the following monitors are supported:
 |           | Monitor PCIe error | 308 |
 |           | Monitor Wekafs CSI status * | 309 |
 |File System| Check NFS mount  | 401 |
-|System reserved| Addon installation or runtime failure * | 501 |
+|Platform   | Addon installation or runtime failure | 501 |
 
 
 
 *Kubernetes only
-
-## 501 — Addon installation or runtime failure
-
-Applied while addons are installed/updated on a node (taint key `primus-safe.501`); cleared automatically once the addon job succeeds. "Addons Installed" shows `false` while it is set.
-
-**Common symptom:** on a re-imaged node, addon DaemonSets stay in `ImagePullBackOff` with image-pull errors referencing a registry/DNS failure (the node can't resolve the Harbor hostname).
-
-**Remediation:**
-
-- Hotfix — add a static registry entry on the affected node to bypass the broken resolver, then verify:
-
-```bash
-echo "<ingress-vip> harbor.<cluster-domain>" | sudo tee -a /etc/hosts
-getent hosts harbor.<cluster-domain>
-```
-
-- Long-term — make re-imaged nodes use NodeLocal DNS (`nodelocaldns`) instead of the `systemd-resolved` stub: point `/etc/resolv.conf` at the node-local resolver and have onboard/bootstrap reapply the NodeLocal DNS plumbing. Ideally the onboard automation adds the hosts entry idempotently as a safety net.
