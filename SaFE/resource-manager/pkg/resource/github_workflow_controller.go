@@ -7,6 +7,7 @@ package resource
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -40,10 +41,14 @@ func SetupGitHubWorkflowController(mgr manager.Manager) error {
 		return nil
 	}
 
-	gormDB, err := dbclient.NewClient().GetGormDB()
+	// NewClient() returns nil when DB initialization fails; fail fast to avoid a nil deref panic.
+	dbClient := dbclient.NewClient()
+	if dbClient == nil {
+		return fmt.Errorf("[github-workflow] DB client not initialized")
+	}
+	gormDB, err := dbClient.GetGormDB()
 	if err != nil {
-		klog.Warningf("[github-workflow] DB init failed, controller disabled: %v", err)
-		return nil
+		return fmt.Errorf("[github-workflow] failed to get gorm DB: %w", err)
 	}
 	sqlDB, err := gormDB.DB()
 	if err != nil {
