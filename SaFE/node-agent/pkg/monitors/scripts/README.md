@@ -34,7 +34,7 @@ Currently the following monitors are supported:
 |           | Monitor PCIe error | 308 |
 |           | Monitor Wekafs CSI status * | 309 |
 |File System| Check NFS mount  | 401 |
-|Platform   | Addon installation or runtime failure | 501 |
+|Platform   | Addon installation error | 501 |
 
 
 
