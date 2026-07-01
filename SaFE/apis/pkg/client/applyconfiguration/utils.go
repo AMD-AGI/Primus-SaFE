@@ -102,6 +102,8 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &amdv1.NodeFlavorApplyConfiguration{}
 	case v1.SchemeGroupVersion.WithKind("NodeFlavorSpec"):
 		return &amdv1.NodeFlavorSpecApplyConfiguration{}
+	case v1.SchemeGroupVersion.WithKind("NodePodUsage"):
+		return &amdv1.NodePodUsageApplyConfiguration{}
 	case v1.SchemeGroupVersion.WithKind("NodeSpec"):
 		return &amdv1.NodeSpecApplyConfiguration{}
 	case v1.SchemeGroupVersion.WithKind("NodeStatus"):

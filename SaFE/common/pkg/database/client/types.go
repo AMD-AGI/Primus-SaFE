@@ -79,6 +79,53 @@ func GetWorkloadFieldTags() map[string]string {
 	return getFieldTags(w)
 }
 
+// WorkloadPod is one pod of a workload, offloaded from the etcd Workload status
+// (WorkloadStatus.Pods) so very large workloads do not exceed the etcd object
+// size limit. Written by the job-manager syncer (single writer); read by the
+// apiserver for workload detail / log / ops paths. The etcd status keeps only an
+// O(node) aggregate (WorkloadStatus.NodeUsage) for the scheduling hot path.
+type WorkloadPod struct {
+	WorkloadId    string         `db:"workload_id"`
+	PodId         string         `db:"pod_id"`
+	ResourceId    int            `db:"resource_id"`
+	AdminNodeName sql.NullString `db:"admin_node_name"`
+	HostIP        sql.NullString `db:"host_ip"`
+	PodIP         sql.NullString `db:"pod_ip"`
+	Rank          sql.NullString `db:"rank"`
+	GroupId       int            `db:"group_id"`
+	Phase         sql.NullString `db:"phase"`
+	StartTime     sql.NullString `db:"start_time"`
+	EndTime       sql.NullString `db:"end_time"`
+	FailedMessage sql.NullString `db:"failed_message"`
+	Containers    sql.NullString `db:"containers"` // JSON-encoded []ContainerStatus
+	DispatchCount int            `db:"dispatch_count"`
+	UpdatedAt     pq.NullTime    `db:"updated_at"`
+}
+
+// GetWorkloadPodFieldTags returns the WorkloadPod field tags.
+func GetWorkloadPodFieldTags() map[string]string {
+	p := WorkloadPod{}
+	return getFieldTags(p)
+}
+
+// WorkloadDispatchNode is one dispatch's node/rank assignment of a workload,
+// offloaded from the etcd Workload status (WorkloadStatus.Nodes / .Ranks which
+// were append-only per retry). One row per dispatch index. Written by the
+// job-manager syncer; read by the dispatcher (latest dispatch) and ops/detail.
+type WorkloadDispatchNode struct {
+	WorkloadId    string         `db:"workload_id"`
+	DispatchIndex int            `db:"dispatch_index"`
+	Nodes         sql.NullString `db:"nodes"` // JSON-encoded []string
+	Ranks         sql.NullString `db:"ranks"` // JSON-encoded []string
+	UpdatedAt     pq.NullTime    `db:"updated_at"`
+}
+
+// GetWorkloadDispatchNodeFieldTags returns the WorkloadDispatchNode field tags.
+func GetWorkloadDispatchNodeFieldTags() map[string]string {
+	d := WorkloadDispatchNode{}
+	return getFieldTags(d)
+}
+
 type Fault struct {
 	Id             int64          `db:"id"`
 	Uid            string         `db:"uid"`

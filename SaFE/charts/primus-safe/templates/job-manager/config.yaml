@@ -50,6 +50,13 @@ data:
       enable: {{ .Values.sandbox.enable }}
       namespace: {{ .Values.sandbox.namespace }}
       secret: {{ .Values.sandbox.secret }}
+    db:
+      # Whether to enable database, The database will store some historical data regarding workloads, faults, and ops jobs.
+      enable: {{ .Values.db.enable }}
+      # The path of database secret
+      secret_path: {{ default "/etc/secrets/db" (default .Values.db).secret_path }}
+      # The ssl mode of db
+      ssl_mode: {{ default "require" (default .Values.db).ssl_mode }}
     torchft:
       lighthouse: cGlwIGluc3RhbGwgInRvcmNoZnQtbmlnaHRseT09MjAyNS4xMi4xNiIgIm9wZW50ZWxlbWV0cnktc2RrPT0xLjM3LjAiICJvcGVudGVsZW1ldHJ5LWV4cG9ydGVyLW90bHAtcHJvdG8tY29tbW9uPT0xLjM3LjAiICJvcGVudGVsZW1ldHJ5LWV4cG9ydGVyLW90bHAtcHJvdG8taHR0cD09MS4zNy4wIiAmJiBSVVNUX0JBQ0tUUkFDRT0xIHRvcmNoZnRfbGlnaHRob3VzZSAtLXF1b3J1bV90aWNrX21zIDEwMCAtLWpvaW5fdGltZW91dF9tcyAxMDAwMDA=
 kind: ConfigMap

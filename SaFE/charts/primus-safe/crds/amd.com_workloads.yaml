@@ -359,6 +359,56 @@ spec:
               message:
                 description: Some status descriptions of the workload. only for pending
                 type: string
+              nodeUsage:
+                description: |-
+                  NodeUsage is an O(node) aggregate of this workload's pods grouped by admin
+                  node, used by the resource/scheduling hot path in place of the per-pod Pods
+                  array so very large workloads (>10k pods) do not exceed the etcd object
+                  size limit. Full per-pod detail (incl. containers/failedMessage) and the
+                  Nodes/Ranks history live in the DB (workload_pod / workload_dispatch_node).
+                  Pods/Nodes/Ranks above are retained for backward compatibility and are read
+                  as a fallback when NodeUsage is empty.
+                items:
+                  description: "NodePodUsage aggregates a workload's pods on a single
+                    admin node, bucketed by
+the workload resource index (resourceId).
+                    It lets the resource/scheduling
+hot path compute usage without
+                    per-pod records:
+
+	usage(node) = sum over rid of count * perPodResource[rid]
+
+Running
+                    counts pods in the Running phase (current actual usage); Active
+                    counts
+non-terminated pods (Pending/Running/Unknown — reserved
+                    usage used by quota /
+scheduling). Terminated pods (Succeeded/Failed)
+                    are excluded from both."
+                  properties:
+                    active:
+                      additionalProperties:
+                        type: integer
+                      description: |-
+                        Active maps resourceId (decimal string) -> number of non-terminated pods
+                        of that resource on this node.
+                      type: object
+                    node:
+                      description: Node is the admin node name these pods are scheduled
+                        on.
+                      type: string
+                    running:
+                      additionalProperties:
+                        type: integer
+                      description: |-
+                        Running maps resourceId (decimal string, e.g. "0") -> number of running
+                        pods of that resource on this node. CRD/OpenAPI map keys must be strings,
+                        so the int8 resourceId is encoded as its decimal string.
+                      type: object
+                  required:
+                  - node
+                  type: object
+                type: array
               nodes:
                 description: The node used for each workload execution. If the workload
                   is retried multiple times, there will be multiple entries.

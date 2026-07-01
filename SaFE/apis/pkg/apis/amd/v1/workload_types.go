@@ -213,6 +213,35 @@ type WorkloadStatus struct {
 	DependenciesPhase map[string]WorkloadPhase `json:"dependenciesPhase,omitempty"`
 	// The phase of each torchFT object. key is group-id
 	TorchFTPhase map[string]WorkloadPhase `json:"torchFTPhase,omitempty"`
+	// NodeUsage is an O(node) aggregate of this workload's pods grouped by admin
+	// node, used by the resource/scheduling hot path in place of the per-pod Pods
+	// array so very large workloads (>10k pods) do not exceed the etcd object
+	// size limit. Full per-pod detail (incl. containers/failedMessage) and the
+	// Nodes/Ranks history live in the DB (workload_pod / workload_dispatch_node).
+	// Pods/Nodes/Ranks above are retained for backward compatibility and are read
+	// as a fallback when NodeUsage is empty.
+	NodeUsage []NodePodUsage `json:"nodeUsage,omitempty"`
+}
+
+// NodePodUsage aggregates a workload's pods on a single admin node, bucketed by
+// the workload resource index (resourceId). It lets the resource/scheduling
+// hot path compute usage without per-pod records:
+//
+//	usage(node) = sum over rid of count * perPodResource[rid]
+//
+// Running counts pods in the Running phase (current actual usage); Active counts
+// non-terminated pods (Pending/Running/Unknown — reserved usage used by quota /
+// scheduling). Terminated pods (Succeeded/Failed) are excluded from both.
+type NodePodUsage struct {
+	// Node is the admin node name these pods are scheduled on.
+	Node string `json:"node"`
+	// Running maps resourceId (decimal string, e.g. "0") -> number of running
+	// pods of that resource on this node. CRD/OpenAPI map keys must be strings,
+	// so the int8 resourceId is encoded as its decimal string.
+	Running map[string]int `json:"running,omitempty"`
+	// Active maps resourceId (decimal string) -> number of non-terminated pods
+	// of that resource on this node.
+	Active map[string]int `json:"active,omitempty"`
 }
 
 type WorkloadPod struct {
