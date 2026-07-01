@@ -39,13 +39,6 @@ const (
 
 	sandboxAuthPublicKeyEnvName = "ENVD_AUTH_PUBLIC_KEY"
 	sandboxSecretPublicPemKey   = "public.pem"
-
-	// DindContainerName is the name of the Docker-in-Docker sidecar in the
-	// CICD EphemeralRunner template. It runs as a native sidecar init container
-	// (restartPolicy: Always) and hosts the Docker daemon that resolves
-	// `docker run -v <path>` bind mounts, so it needs the same persistent
-	// shared-filesystem mounts as the runner container.
-	DindContainerName = "dind"
 )
 
 // initializeObject modifies various aspects of a Kubernetes object during workload creation.
@@ -91,14 +84,13 @@ func initializeObject(obj *unstructured.Unstructured,
 	if err = modifyVolumes(obj, workload, workspace, path); err != nil {
 		return fmt.Errorf("failed to modify volumes: %v", err.Error())
 	}
-	// Mirror the persistent shared-filesystem mounts onto the CICD `dind`
-	// sidecar so the Docker daemon can resolve `docker run -v <path>` bind
-	// mounts. The matching pod-level volumes were just added by modifyVolumes;
-	// only the volumeMounts need to be applied to the init container. This is a
-	// no-op for every workload kind whose initContainers do not include a dind
-	// sidecar.
+	// Mirror the persistent shared-filesystem mounts onto the pod's init
+	// containers so a Docker daemon running as an init container (the CICD dind
+	// sidecar) can resolve `docker run -v <path>` bind mounts. The matching
+	// pod-level volumes were just added by modifyVolumes; only the volumeMounts
+	// need to be applied here. This is a no-op for kinds without init containers.
 	path = buildPodSpecPath(templatePath, podSpec, "initContainers")
-	if err = modifyDindVolumeMounts(obj, workload, workspace, path); err != nil {
+	if err = modifyInitContainerVolumeMounts(obj, workload, workspace, path); err != nil {
 		return fmt.Errorf("failed to modify init containers: %v", err.Error())
 	}
 	path = buildPodSpecPath(templatePath, podSpec, "imagePullSecrets")
@@ -383,35 +375,37 @@ func buildPersistentVolumeMounts(workload *v1.Workload, workspace *v1.Workspace)
 	return volumeMounts
 }
 
-// modifyDindVolumeMounts re-applies the persistent shared-filesystem volume
-// mounts to the CICD runner's `dind` sidecar. On containerized (dind /
-// Docker-out-of-Docker) runners the Docker daemon runs in the dind init
-// container and resolves `docker run -v <host-path>:<ctr>` bind mounts against
-// its own filesystem. The dispatcher injects workspace/hostPath volumes into
-// spec.containers and pod-level spec.volumes but not into spec.initContainers,
-// so without this the daemon cannot see /apps, /wekafs, JuiceFS, etc. and bind
-// mounts silently resolve to empty directories.
+// modifyInitContainerVolumeMounts mirrors the persistent shared-filesystem
+// volume mounts onto every init container in the pod. On containerized (dind /
+// Docker-out-of-Docker) CICD runners the Docker daemon runs as an init
+// container (the dind sidecar) and resolves `docker run -v <host-path>:<ctr>`
+// bind mounts against its own filesystem. The dispatcher injects
+// workspace/hostPath volumes into spec.containers and pod-level spec.volumes
+// but not into spec.initContainers, so without this the daemon cannot see
+// /apps, /wekafs, JuiceFS, etc. and bind mounts silently resolve to empty
+// directories.
 //
-// Only the container named "dind" is touched (guarded by name), so this is a
-// no-op for every other workload kind (whose initContainers never contain a
-// dind sidecar) and for runner pods that have no persistent volumes to mount.
 // The matching pod-level volumes are added by modifyVolumes; here we only add
 // the volumeMounts. Ephemeral mounts (/dev/shm) and secrets are intentionally
-// skipped — the daemon does not need them.
-func modifyDindVolumeMounts(obj *unstructured.Unstructured,
+// skipped — the daemon does not need them. Kinds without init containers are a
+// no-op. Duplicate mounts are not de-duplicated: the API server will reject the
+// pod so the misconfiguration surfaces loudly instead of being masked.
+func modifyInitContainerVolumeMounts(obj *unstructured.Unstructured,
 	workload *v1.Workload, workspace *v1.Workspace, path []string) error {
 	initContainers, found, err := jobutils.NestedSlice(obj.Object, path)
-	if err != nil || !found {
+	if err != nil {
+		return err
+	}
+	if !found {
 		return nil
 	}
 	persistentMounts := buildPersistentVolumeMounts(workload, workspace)
 	if len(persistentMounts) == 0 {
 		return nil
 	}
-	changed := false
 	for i := range initContainers {
 		c, ok := initContainers[i].(map[string]interface{})
-		if !ok || jobutils.NestedStringSilently(c, []string{"name"}) != DindContainerName {
+		if !ok {
 			continue
 		}
 		var volumeMounts []interface{}
@@ -421,10 +415,6 @@ func modifyDindVolumeMounts(obj *unstructured.Unstructured,
 		volumeMounts = append(volumeMounts, persistentMounts...)
 		c["volumeMounts"] = volumeMounts
 		initContainers[i] = c
-		changed = true
-	}
-	if !changed {
-		return nil
 	}
 	return jobutils.SetNestedField(obj.Object, initContainers, path)
 }
