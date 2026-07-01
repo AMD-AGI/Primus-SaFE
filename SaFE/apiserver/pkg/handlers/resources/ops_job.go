@@ -1193,7 +1193,7 @@ func (h *Handler) generateEvaluationJob(c *gin.Context, body []byte) (*v1.OpsJob
 	taskId := fmt.Sprintf("eval-task-%s", uuid.New().String()[:8])
 
 	// Get service info and construct endpoint
-	var serviceName, modelEndpoint, modelName, modelApiKey, clusterId string
+	var serviceName, modelEndpoint, modelName, modelAPIKey, clusterId string
 	if serviceType == "remote_api" {
 		// Get model from database for basic info
 		dbModel, err := h.dbClient.GetModelByID(ctx, serviceId)
@@ -1216,7 +1216,7 @@ func (h *Handler) generateEvaluationJob(c *gin.Context, body []byte) (*v1.OpsJob
 				// Try different possible key names in secret data
 				for _, key := range []string{"api-key", "apiKey", "token", "api_key"} {
 					if val, ok := secret.Data[key]; ok && len(val) > 0 {
-						modelApiKey = string(val)
+						modelAPIKey = string(val)
 						break
 					}
 				}
@@ -1361,8 +1361,8 @@ func (h *Handler) generateEvaluationJob(c *gin.Context, body []byte) (*v1.OpsJob
 		{Name: v1.ParameterModelName, Value: modelName},
 	}
 	// Add model API key for remote_api type
-	if modelApiKey != "" {
-		inputs = append(inputs, v1.Parameter{Name: v1.ParameterModelApiKey, Value: modelApiKey})
+	if modelAPIKey != "" {
+		inputs = append(inputs, v1.Parameter{Name: v1.ParameterModelApiKey, Value: modelAPIKey})
 	}
 	if clusterId != "" {
 		inputs = append(inputs, v1.Parameter{Name: v1.ParameterCluster, Value: clusterId})
@@ -1377,7 +1377,7 @@ func (h *Handler) generateEvaluationJob(c *gin.Context, body []byte) (*v1.OpsJob
 			ServiceType string `json:"serviceType"` // "remote_api" or "local_workload"
 		}
 		if err := json.Unmarshal([]byte(judgeJSON), &judgeConfig); err == nil && judgeConfig.ServiceId != "" {
-			var judgeModelName, judgeEndpoint, judgeApiKey string
+			var judgeModelName, judgeEndpoint, judgeAPIKey string
 
 			if judgeConfig.ServiceType == "remote_api" {
 				// Remote API model - get from Model table
@@ -1399,7 +1399,7 @@ func (h *Handler) generateEvaluationJob(c *gin.Context, body []byte) (*v1.OpsJob
 						} else {
 							for _, key := range []string{"api-key", "apiKey", "token", "api_key"} {
 								if val, ok := secret.Data[key]; ok && len(val) > 0 {
-									judgeApiKey = string(val)
+									judgeAPIKey = string(val)
 									klog.InfoS("got judge model API key from secret", "serviceId", judgeConfig.ServiceId)
 									break
 								}
@@ -1443,8 +1443,8 @@ func (h *Handler) generateEvaluationJob(c *gin.Context, body []byte) (*v1.OpsJob
 			if judgeEndpoint != "" {
 				inputs = append(inputs, v1.Parameter{Name: v1.ParameterJudgeEndpoint, Value: judgeEndpoint})
 			}
-			if judgeApiKey != "" {
-				inputs = append(inputs, v1.Parameter{Name: v1.ParameterJudgeApiKey, Value: judgeApiKey})
+			if judgeAPIKey != "" {
+				inputs = append(inputs, v1.Parameter{Name: v1.ParameterJudgeApiKey, Value: judgeAPIKey})
 			}
 		}
 	}
