@@ -42,6 +42,28 @@ func (c *Client) GetWorkloadStatisticByWorkloadID(ctx context.Context, workloadI
 	return item, nil
 }
 
+// GetWorkloadStatisticsByWorkloadIDs returns a workloadID -> statistic map for the
+// given ids in a single query, replacing per-row lookups in list paths. When a
+// workload has multiple statistic rows the first one encountered is kept, mirroring
+// the single-row GetWorkloadStatisticByWorkloadID behavior.
+func (c *Client) GetWorkloadStatisticsByWorkloadIDs(ctx context.Context, workloadIDs []string) (map[string]*model.WorkloadStatistic, error) {
+	result := make(map[string]*model.WorkloadStatistic, len(workloadIDs))
+	if len(workloadIDs) == 0 {
+		return result, nil
+	}
+	q := dal.Use(c.gorm).WorkloadStatistic
+	items, err := q.WithContext(ctx).Where(q.WorkloadID.In(workloadIDs...)).Find()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get workload statistics by workload ids: %w", err)
+	}
+	for _, item := range items {
+		if _, ok := result[item.WorkloadID]; !ok {
+			result[item.WorkloadID] = item
+		}
+	}
+	return result, nil
+}
+
 // GetWorkloadStatisticsByWorkloadID returns all WorkloadStatistics by workload ID.
 func (c *Client) GetWorkloadStatisticsByWorkloadID(ctx context.Context, workloadID string) ([]*model.WorkloadStatistic, error) {
 	q := dal.Use(c.gorm).WorkloadStatistic

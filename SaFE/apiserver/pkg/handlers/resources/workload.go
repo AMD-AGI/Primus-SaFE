@@ -293,7 +293,7 @@ func (h *Handler) listWorkload(c *gin.Context) (interface{}, error) {
 
 	dbSql, orderBy := cvtToListWorkloadSql(query)
 	ctx := c.Request.Context()
-	workloads, err := h.dbClient.SelectWorkloads(ctx, dbSql, orderBy, query.Limit, query.Offset)
+	workloads, err := h.dbClient.SelectWorkloadsForList(ctx, dbSql, orderBy, query.Limit, query.Offset)
 	if err != nil {
 		return nil, err
 	}
@@ -302,24 +302,41 @@ func (h *Handler) listWorkload(c *gin.Context) (interface{}, error) {
 	if result.TotalCount, err = h.dbClient.CountWorkloads(ctx, dbSql); err != nil {
 		return nil, err
 	}
+
+	// Batch-fetch GPU usage statistics for the page in one query to avoid an
+	// N+1 lookup per workload.
+	workloadIds := make([]string, 0, len(workloads))
 	for _, w := range workloads {
-		workload := h.cvtDBWorkloadToResponseItem(ctx, w)
-
-		// Query workload statistics to get GPU usage
-		stat, err := h.dbClient.GetWorkloadStatisticByWorkloadID(ctx, w.WorkloadId)
-		if err != nil {
-			klog.V(4).InfoS("failed to get workload statistic", "workloadId", w.WorkloadId, "error", err)
-			workload.AvgGpuUsage = -1
-		} else if stat == nil {
-			// No statistics available
-			workload.AvgGpuUsage = -1
-		} else {
-			// Use the average GPU usage from statistics
-			workload.AvgGpuUsage = stat.AvgGpuUsage3H
-		}
-
-		result.Items = append(result.Items, workload)
+		workloadIds = append(workloadIds, w.WorkloadId)
 	}
+	stats, err := h.dbClient.GetWorkloadStatisticsByWorkloadIDs(ctx, workloadIds)
+	if err != nil {
+		klog.V(4).InfoS("failed to batch get workload statistics", "error", err)
+		stats = nil
+	}
+
+	// cvtDBWorkloadToResponseItem does a per-Pending-row etcd Get with no
+	// inter-row dependency, so build the page items concurrently and write each
+	// back to its original index to preserve the response order.
+	items := make([]view.WorkloadResponseItem, len(workloads))
+	idxCh := make(chan int, len(workloads))
+	defer close(idxCh)
+	for i := range workloads {
+		idxCh <- i
+	}
+	_, _ = concurrent.Exec(len(workloads), func() error {
+		i := <-idxCh
+		w := workloads[i]
+		item := h.cvtDBWorkloadToResponseItem(ctx, w)
+		if stat := stats[w.WorkloadId]; stat != nil {
+			item.AvgGpuUsage = stat.AvgGpuUsage3H
+		} else {
+			item.AvgGpuUsage = -1
+		}
+		items[i] = item
+		return nil
+	})
+	result.Items = items
 	return result, nil
 }
 

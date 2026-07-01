@@ -612,10 +612,9 @@ func Test_listWorkload(t *testing.T) {
 		},
 	}
 
-	mockDBClient.EXPECT().SelectWorkloads(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(mockWorkloads, nil).AnyTimes()
+	mockDBClient.EXPECT().SelectWorkloadsForList(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(mockWorkloads, nil).AnyTimes()
 	mockDBClient.EXPECT().CountWorkloads(gomock.Any(), gomock.Any()).Return(2, nil).AnyTimes()
-	mockDBClient.EXPECT().GetWorkloadStatisticByWorkloadID(gomock.Any(), "workload-1").Return(nil, nil).AnyTimes()
-	mockDBClient.EXPECT().GetWorkloadStatisticByWorkloadID(gomock.Any(), "workload-2").Return(nil, nil).AnyTimes()
+	mockDBClient.EXPECT().GetWorkloadStatisticsByWorkloadIDs(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
 
 	// Create gin context
 	w := httptest.NewRecorder()

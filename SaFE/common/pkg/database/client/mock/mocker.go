@@ -1227,6 +1227,21 @@ func (mr *MockInterfaceMockRecorder) GetWorkloadStatisticsByWorkloadID(ctx, work
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetWorkloadStatisticsByWorkloadID", reflect.TypeOf((*MockInterface)(nil).GetWorkloadStatisticsByWorkloadID), ctx, workloadID)
 }
 
+// GetWorkloadStatisticsByWorkloadIDs mocks base method.
+func (m *MockInterface) GetWorkloadStatisticsByWorkloadIDs(ctx context.Context, workloadIDs []string) (map[string]*model.WorkloadStatistic, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetWorkloadStatisticsByWorkloadIDs", ctx, workloadIDs)
+	ret0, _ := ret[0].(map[string]*model.WorkloadStatistic)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetWorkloadStatisticsByWorkloadIDs indicates an expected call of GetWorkloadStatisticsByWorkloadIDs.
+func (mr *MockInterfaceMockRecorder) GetWorkloadStatisticsByWorkloadIDs(ctx, workloadIDs interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetWorkloadStatisticsByWorkloadIDs", reflect.TypeOf((*MockInterface)(nil).GetWorkloadStatisticsByWorkloadIDs), ctx, workloadIDs)
+}
+
 // GetWorkloadStatisticsByWorkloadUID mocks base method.
 func (m *MockInterface) GetWorkloadStatisticsByWorkloadUID(ctx context.Context, workloadUID string) ([]*model.WorkloadStatistic, error) {
 	m.ctrl.T.Helper()
@@ -1723,6 +1738,21 @@ func (m *MockInterface) SelectWorkloads(ctx context.Context, query squirrel.Sqli
 func (mr *MockInterfaceMockRecorder) SelectWorkloads(ctx, query, orderBy, limit, offset interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SelectWorkloads", reflect.TypeOf((*MockInterface)(nil).SelectWorkloads), ctx, query, orderBy, limit, offset)
+}
+
+// SelectWorkloadsForList mocks base method.
+func (m *MockInterface) SelectWorkloadsForList(ctx context.Context, query squirrel.Sqlizer, orderBy []string, limit, offset int) ([]*client.Workload, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SelectWorkloadsForList", ctx, query, orderBy, limit, offset)
+	ret0, _ := ret[0].([]*client.Workload)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// SelectWorkloadsForList indicates an expected call of SelectWorkloadsForList.
+func (mr *MockInterfaceMockRecorder) SelectWorkloadsForList(ctx, query, orderBy, limit, offset interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SelectWorkloadsForList", reflect.TypeOf((*MockInterface)(nil).SelectWorkloadsForList), ctx, query, orderBy, limit, offset)
 }
 
 // SetA2AServiceDeleted mocks base method.
@@ -2477,6 +2507,21 @@ func (m *MockWorkloadInterface) SelectWorkloads(ctx context.Context, query squir
 func (mr *MockWorkloadInterfaceMockRecorder) SelectWorkloads(ctx, query, orderBy, limit, offset interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SelectWorkloads", reflect.TypeOf((*MockWorkloadInterface)(nil).SelectWorkloads), ctx, query, orderBy, limit, offset)
+}
+
+// SelectWorkloadsForList mocks base method.
+func (m *MockWorkloadInterface) SelectWorkloadsForList(ctx context.Context, query squirrel.Sqlizer, orderBy []string, limit, offset int) ([]*client.Workload, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SelectWorkloadsForList", ctx, query, orderBy, limit, offset)
+	ret0, _ := ret[0].([]*client.Workload)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// SelectWorkloadsForList indicates an expected call of SelectWorkloadsForList.
+func (mr *MockWorkloadInterfaceMockRecorder) SelectWorkloadsForList(ctx, query, orderBy, limit, offset interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SelectWorkloadsForList", reflect.TypeOf((*MockWorkloadInterface)(nil).SelectWorkloadsForList), ctx, query, orderBy, limit, offset)
 }
 
 // SetWorkloadDeleted mocks base method.
@@ -3732,6 +3777,21 @@ func (m *MockWorkloadStatisticInterface) GetWorkloadStatisticsByWorkloadID(ctx c
 func (mr *MockWorkloadStatisticInterfaceMockRecorder) GetWorkloadStatisticsByWorkloadID(ctx, workloadID interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetWorkloadStatisticsByWorkloadID", reflect.TypeOf((*MockWorkloadStatisticInterface)(nil).GetWorkloadStatisticsByWorkloadID), ctx, workloadID)
+}
+
+// GetWorkloadStatisticsByWorkloadIDs mocks base method.
+func (m *MockWorkloadStatisticInterface) GetWorkloadStatisticsByWorkloadIDs(ctx context.Context, workloadIDs []string) (map[string]*model.WorkloadStatistic, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetWorkloadStatisticsByWorkloadIDs", ctx, workloadIDs)
+	ret0, _ := ret[0].(map[string]*model.WorkloadStatistic)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetWorkloadStatisticsByWorkloadIDs indicates an expected call of GetWorkloadStatisticsByWorkloadIDs.
+func (mr *MockWorkloadStatisticInterfaceMockRecorder) GetWorkloadStatisticsByWorkloadIDs(ctx, workloadIDs interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetWorkloadStatisticsByWorkloadIDs", reflect.TypeOf((*MockWorkloadStatisticInterface)(nil).GetWorkloadStatisticsByWorkloadIDs), ctx, workloadIDs)
 }
 
 // GetWorkloadStatisticsByWorkloadUID mocks base method.

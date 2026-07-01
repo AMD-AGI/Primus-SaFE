@@ -52,10 +52,10 @@ func TestListWorkloadWrapper(t *testing.T) {
 	defer ctrl.Finish()
 
 	h, user, mockDB := newWorkloadDBHandler(t, ctrl)
-	mockDB.EXPECT().SelectWorkloads(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+	mockDB.EXPECT().SelectWorkloadsForList(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 		Return([]*dbclient.Workload{{WorkloadId: "wl-1", Workspace: "ws-1", Cluster: "c1"}}, nil).AnyTimes()
 	mockDB.EXPECT().CountWorkloads(gomock.Any(), gomock.Any()).Return(1, nil).AnyTimes()
-	mockDB.EXPECT().GetWorkloadStatisticByWorkloadID(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
+	mockDB.EXPECT().GetWorkloadStatisticsByWorkloadIDs(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
 
 	rsp := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(rsp)

@@ -46,6 +46,7 @@ type Interface interface {
 type WorkloadInterface interface {
 	UpsertWorkload(ctx context.Context, workload *Workload) error
 	SelectWorkloads(ctx context.Context, query sqrl.Sqlizer, orderBy []string, limit, offset int) ([]*Workload, error)
+	SelectWorkloadsForList(ctx context.Context, query sqrl.Sqlizer, orderBy []string, limit, offset int) ([]*Workload, error)
 	GetWorkload(ctx context.Context, workloadId string) (*Workload, error)
 	CountWorkloads(ctx context.Context, query sqrl.Sqlizer) (int, error)
 	SetWorkloadDeleted(ctx context.Context, workloadId string) error
@@ -149,6 +150,7 @@ type EmailOutboxInterface interface {
 type WorkloadStatisticInterface interface {
 	GetWorkloadStatisticByID(ctx context.Context, id int32) (*model.WorkloadStatistic, error)
 	GetWorkloadStatisticByWorkloadID(ctx context.Context, workloadID string) (*model.WorkloadStatistic, error)
+	GetWorkloadStatisticsByWorkloadIDs(ctx context.Context, workloadIDs []string) (map[string]*model.WorkloadStatistic, error)
 	GetWorkloadStatisticsByWorkloadID(ctx context.Context, workloadID string) ([]*model.WorkloadStatistic, error)
 	GetWorkloadStatisticByWorkloadUID(ctx context.Context, workloadUID string) (*model.WorkloadStatistic, error)
 	GetWorkloadStatisticsByWorkloadUID(ctx context.Context, workloadUID string) ([]*model.WorkloadStatistic, error)
