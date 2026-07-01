@@ -343,9 +343,10 @@ func modifyVolumeMounts(container map[string]interface{}, workload *v1.Workload,
 // and Spec.Hostpath entries. It mirrors the persistent subset of
 // modifyVolumeMounts (the ephemeral /dev/shm mount and secrets are omitted) and
 // deliberately reuses the same volume-name id generation so the mounts it
-// produces match the pod-level volumes added by modifyVolumes exactly. This is
-// shared with modifyDindVolumeMounts so the Docker daemon sidecar sees the same
-// bind-mount sources as the runner container.
+// produces match the pod-level volumes added by modifyVolumes exactly. It is
+// shared between the main containers (modifyVolumeMounts) and the init
+// containers (modifyInitContainerVolumeMounts) so both see the same persistent
+// bind-mount sources.
 func buildPersistentVolumeMounts(workload *v1.Workload, workspace *v1.Workspace) []interface{} {
 	var volumeMounts []interface{}
 	maxId := 0
