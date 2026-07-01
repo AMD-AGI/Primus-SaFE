@@ -11,6 +11,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/klog/v2"
@@ -108,9 +109,30 @@ func workloadMapper(obj *unstructured.Unstructured) *dbclient.Workload {
 	if len(workload.Spec.Env) > 0 {
 		result.Env = dbutils.NullString(string(jsonutils.MarshalSilently(workload.Spec.Env)))
 	}
-	// Per-pod detail and dispatch history are written directly to the
-	// workload_pod / workload_dispatch_node tables by the job-manager syncer, so
-	// they are no longer mirrored into the workload row columns here.
+	// Offloaded workloads store per-pod detail and dispatch history directly in
+	// the workload_pod / workload_dispatch_node tables via the job-manager syncer,
+	// so they are not mirrored into the row columns. Legacy (pre-offload) workloads
+	// still live on etcd, so keep mirroring their status arrays so the apiserver
+	// detail read can fall back to these columns and stay fresh.
+	if !v1.IsWorkloadStatusOffloadEnabled(workload) {
+		if len(workload.Status.Pods) > 0 {
+			if !workload.GetDeletionTimestamp().IsZero() {
+				for i := range workload.Status.Pods {
+					if workload.Status.Pods[i].Phase != corev1.PodSucceeded &&
+						workload.Status.Pods[i].Phase != corev1.PodFailed {
+						workload.Status.Pods[i].Phase = corev1.PodPhase(v1.WorkloadStopped)
+					}
+				}
+			}
+			result.Pods = dbutils.NullString(string(jsonutils.MarshalSilently(workload.Status.Pods)))
+		}
+		if len(workload.Status.Nodes) > 0 {
+			result.Nodes = dbutils.NullString(string(jsonutils.MarshalSilently(workload.Status.Nodes)))
+		}
+		if len(workload.Status.Ranks) > 0 {
+			result.Ranks = dbutils.NullString(string(jsonutils.MarshalSilently(workload.Status.Ranks)))
+		}
+	}
 	if len(workload.Spec.CustomerLabels) > 0 {
 		result.CustomerLabels = dbutils.NullString(string(jsonutils.MarshalSilently(workload.Spec.CustomerLabels)))
 	}
