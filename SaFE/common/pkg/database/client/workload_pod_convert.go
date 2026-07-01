@@ -136,6 +136,31 @@ func DispatchNodesToV1(rows []*WorkloadDispatchNode) [][]string {
 	return out
 }
 
+// DispatchRanksToV1 rebuilds the [][]string dispatch-rank history (ordered by
+// dispatch index) from DB rows.
+func DispatchRanksToV1(rows []*WorkloadDispatchNode) [][]string {
+	if len(rows) == 0 {
+		return nil
+	}
+	maxIdx := -1
+	for _, r := range rows {
+		if r != nil && r.DispatchIndex > maxIdx {
+			maxIdx = r.DispatchIndex
+		}
+	}
+	if maxIdx < 0 {
+		return nil
+	}
+	out := make([][]string, maxIdx+1)
+	for _, r := range rows {
+		if r == nil || r.DispatchIndex < 0 || r.DispatchIndex > maxIdx {
+			continue
+		}
+		out[r.DispatchIndex] = decodeStringSlice(r.Ranks)
+	}
+	return out
+}
+
 // LatestDispatchNodes returns the node list of the highest dispatch index row.
 func LatestDispatchNodes(rows []*WorkloadDispatchNode) []string {
 	var latest *WorkloadDispatchNode

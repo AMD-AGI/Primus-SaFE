@@ -80,6 +80,7 @@ func SetWorkloadFailed(ctx context.Context, cli client.Client, workload *v1.Work
 	}
 	condition := NewCondition(string(v1.AdminFailed), message, commonworkload.GenerateDispatchReason(dispatchCount))
 	workload.Status.Conditions = append(workload.Status.Conditions, *condition)
+	commonworkload.StripOffloadedStatus(workload)
 	if err := cli.Status().Update(ctx, workload); err != nil {
 		klog.ErrorS(err, "failed to update workload status", "name", workload.Name)
 		return err

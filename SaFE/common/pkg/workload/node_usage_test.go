@@ -172,3 +172,28 @@ func uniqueStrings(in []string) []string {
 	}
 	return out
 }
+
+func TestStripOffloadedStatus(t *testing.T) {
+	// nil workload is a no-op.
+	StripOffloadedStatus(nil)
+
+	// Not offloaded (no NodeUsage) -> pods are kept.
+	w := &v1.Workload{Status: v1.WorkloadStatus{
+		Pods: []v1.WorkloadPod{{PodId: "p1"}},
+	}}
+	StripOffloadedStatus(w)
+	assert.Equal(t, len(w.Status.Pods), 1)
+
+	// Offloaded (NodeUsage present) -> large arrays are cleared.
+	w = &v1.Workload{Status: v1.WorkloadStatus{
+		NodeUsage: []v1.NodePodUsage{{Node: "n1"}},
+		Pods:      []v1.WorkloadPod{{PodId: "p1", Phase: corev1.PodRunning}},
+		Nodes:     [][]string{{"n1"}},
+		Ranks:     [][]string{{"0"}},
+	}}
+	StripOffloadedStatus(w)
+	assert.Equal(t, len(w.Status.NodeUsage), 1)
+	assert.Assert(t, w.Status.Pods == nil)
+	assert.Assert(t, w.Status.Nodes == nil)
+	assert.Assert(t, w.Status.Ranks == nil)
+}

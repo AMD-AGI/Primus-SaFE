@@ -137,3 +137,16 @@ func workloadResourceUsageFromUsage(usage []v1.NodePodUsage, allPodResources []c
 	}
 	return totalResource, availableResource, availableNodes
 }
+
+// StripOffloadedStatus removes large per-pod status arrays before a status
+// update that does not rebuild them. It applies only when NodeUsage is already
+// populated, meaning the workload has been offloaded to DB; workloads that still
+// rely on etcd pod detail are left unchanged.
+func StripOffloadedStatus(w *v1.Workload) {
+	if w == nil || len(w.Status.NodeUsage) == 0 {
+		return
+	}
+	w.Status.Pods = nil
+	w.Status.Nodes = nil
+	w.Status.Ranks = nil
+}
