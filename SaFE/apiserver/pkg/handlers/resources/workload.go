@@ -1395,18 +1395,28 @@ func (h *Handler) cvtDBWorkloadToGetResponse(ctx context.Context,
 	if str := dbutils.ParseNullString(dbWorkload.Conditions); str != "" {
 		json.Unmarshal([]byte(str), &result.Conditions)
 	}
-	if str := dbutils.ParseNullString(dbWorkload.Pods); str != "" {
+	// Pods: prefer the workload_pod table (status offload), fall back to the
+	// legacy pods column so pre-offload workloads still render.
+	if pods := h.listOffloadedPods(ctx, dbWorkload.WorkloadId); len(pods) > 0 {
+		result.Pods = pods
+	} else if str := dbutils.ParseNullString(dbWorkload.Pods); str != "" {
 		json.Unmarshal([]byte(str), &result.Pods)
-		for i, p := range result.Pods {
-			result.Pods[i].SSHCommand = h.buildSSHCommand(ctx,
-				&p.WorkloadPod, user.Name, result.WorkspaceId, result.GroupVersionKind)
+	}
+	for i := range result.Pods {
+		result.Pods[i].SSHCommand = h.buildSSHCommand(ctx,
+			&result.Pods[i].WorkloadPod, user.Name, result.WorkspaceId, result.GroupVersionKind)
+	}
+	// Nodes/Ranks: prefer the workload_dispatch_node table, fall back to columns.
+	if rows := h.listOffloadedDispatchNodes(ctx, dbWorkload.WorkloadId); len(rows) > 0 {
+		result.Nodes = dbclient.DispatchNodesToV1(rows)
+		result.Ranks = dbclient.DispatchRanksToV1(rows)
+	} else {
+		if str := dbutils.ParseNullString(dbWorkload.Nodes); str != "" {
+			json.Unmarshal([]byte(str), &result.Nodes)
 		}
-	}
-	if str := dbutils.ParseNullString(dbWorkload.Nodes); str != "" {
-		json.Unmarshal([]byte(str), &result.Nodes)
-	}
-	if str := dbutils.ParseNullString(dbWorkload.Ranks); str != "" {
-		json.Unmarshal([]byte(str), &result.Ranks)
+		if str := dbutils.ParseNullString(dbWorkload.Ranks); str != "" {
+			json.Unmarshal([]byte(str), &result.Ranks)
+		}
 	}
 	if str := dbutils.ParseNullString(dbWorkload.CustomerLabels); str != "" {
 		var customerLabels map[string]string
@@ -1454,6 +1464,38 @@ func (h *Handler) cvtDBWorkloadToGetResponse(ctx context.Context,
 		}
 	}
 	return result
+}
+
+// listOffloadedPods returns a workload's pods from the workload_pod table as
+// response wrappers, or nil when the DB is unavailable, errors, or has no rows
+// so the caller can fall back to the legacy pods column without erroring.
+func (h *Handler) listOffloadedPods(ctx context.Context, workloadId string) []view.WorkloadPodWrapper {
+	if h.dbClient == nil {
+		return nil
+	}
+	rows, err := h.dbClient.ListWorkloadPods(ctx, workloadId)
+	if err != nil || len(rows) == 0 {
+		return nil
+	}
+	pods := dbclient.WorkloadPodsToV1(rows)
+	wrappers := make([]view.WorkloadPodWrapper, 0, len(pods))
+	for i := range pods {
+		wrappers = append(wrappers, view.WorkloadPodWrapper{WorkloadPod: pods[i]})
+	}
+	return wrappers
+}
+
+// listOffloadedDispatchNodes returns a workload's dispatch rows, or nil when the
+// DB is unavailable or errors so the caller can fall back to legacy columns.
+func (h *Handler) listOffloadedDispatchNodes(ctx context.Context, workloadId string) []*dbclient.WorkloadDispatchNode {
+	if h.dbClient == nil {
+		return nil
+	}
+	rows, err := h.dbClient.ListWorkloadDispatchNodes(ctx, workloadId)
+	if err != nil {
+		return nil
+	}
+	return rows
 }
 
 // parseCustomerLabels separates user-defined labels from node selection labels.
