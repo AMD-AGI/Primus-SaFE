@@ -56,35 +56,35 @@ func TestBuildRequiredMatchExpression(t *testing.T) {
 
 func TestModifyInitContainerVolumeMounts(t *testing.T) {
 	path := []string{"spec", "spec", "initContainers"}
+	existingMount := map[string]interface{}{"mountPath": "/pre-existing", "name": "pre-existing"}
 	obj := &unstructured.Unstructured{Object: map[string]interface{}{
 		"spec": map[string]interface{}{
 			"spec": map[string]interface{}{
 				"initContainers": []interface{}{
 					map[string]interface{}{
-						"name": "dind",
-						"volumeMounts": []interface{}{
-							map[string]interface{}{"mountPath": "/home/runner/_work", "name": "work"},
-						},
+						"name":         "an-init-container",
+						"volumeMounts": []interface{}{existingMount},
 					},
 				},
 			},
 		},
 	}}
 	w := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "runner"}}
-	w.Spec.Hostpath = []string{"/apps", "/wekafs"}
+	// Two arbitrary persistent host paths; the test does not assume any
+	// particular volume name or mount path, only that whatever
+	// buildPersistentVolumeMounts produces is appended to the init container.
+	w.Spec.Hostpath = []string{"/data-a", "/data-b"}
 
 	err := modifyInitContainerVolumeMounts(obj, w, nil, path)
 	assert.NilError(t, err)
 
+	// The init container's mounts must be its original mounts followed by
+	// exactly the workload's persistent mounts (nothing dropped, nothing extra).
+	expected := append([]interface{}{existingMount}, buildPersistentVolumeMounts(w, nil)...)
 	initContainers, _, err := jobutils.NestedSlice(obj.Object, path)
 	assert.NilError(t, err)
-	mounts := initContainers[0].(map[string]interface{})["volumeMounts"].([]interface{})
-	var paths []string
-	for _, m := range mounts {
-		paths = append(paths, m.(map[string]interface{})["mountPath"].(string))
-	}
-	// Existing mount preserved; persistent host paths appended so the daemon sees them.
-	assert.DeepEqual(t, paths, []string{"/home/runner/_work", "/apps", "/wekafs"})
+	got := initContainers[0].(map[string]interface{})["volumeMounts"].([]interface{})
+	assert.DeepEqual(t, got, expected)
 }
 
 func TestBuildRequiredMatchExpressionExcludedNodes(t *testing.T) {
