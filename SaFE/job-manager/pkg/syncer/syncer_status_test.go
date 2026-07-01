@@ -57,7 +57,11 @@ func TestPersistWorkloadStatus_Offload(t *testing.T) {
 	mockDB.EXPECT().UpsertWorkloadDispatchNode(gomock.Any(), gomock.Any()).Return(nil)
 
 	w := &v1.Workload{
-		ObjectMeta: metav1.ObjectMeta{Name: "w1", Labels: map[string]string{v1.WorkloadDispatchCntLabel: "1"}},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:        "w1",
+			Labels:      map[string]string{v1.WorkloadDispatchCntLabel: "1"},
+			Annotations: map[string]string{v1.WorkloadStatusOffloadAnnotation: v1.TrueStr},
+		},
 		Spec: v1.WorkloadSpec{
 			Resources: []v1.WorkloadResource{{Replica: 1, CPU: "1", GPU: "1", Memory: "1Gi"}},
 		},
@@ -74,6 +78,7 @@ func TestPersistWorkloadStatus_Offload(t *testing.T) {
 	require.NoError(t, cl.Get(context.Background(), ctrlclient.ObjectKey{Name: "w1"}, fresh))
 	fresh.Status = w.Status
 	fresh.Labels = w.Labels
+	fresh.Annotations = w.Annotations
 	err := r.persistWorkloadStatus(context.Background(), fresh)
 	require.NoError(t, err)
 
@@ -96,7 +101,10 @@ func TestHydrateWorkloadStatusFromDB(t *testing.T) {
 		{WorkloadId: "w1", DispatchIndex: 0},
 	}, nil)
 
-	w := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "w1"}}
+	w := &v1.Workload{ObjectMeta: metav1.ObjectMeta{
+		Name:        "w1",
+		Annotations: map[string]string{v1.WorkloadStatusOffloadAnnotation: v1.TrueStr},
+	}}
 	cl := ctrlfake.NewClientBuilder().WithScheme(syncerScheme(t)).WithObjects(w).Build()
 	r := &SyncerReconciler{Client: cl, dbClient: mockDB}
 

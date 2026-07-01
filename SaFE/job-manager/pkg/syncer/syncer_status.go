@@ -21,7 +21,7 @@ import (
 // the in-memory workload when status offload is enabled. DB rows override etcd
 // only when present so workloads not yet migrated keep their etcd detail.
 func (r *SyncerReconciler) hydrateWorkloadStatusFromDB(ctx context.Context, workloadId string, w *v1.Workload) {
-	if !commonconfig.IsDBEnable() || r.dbClient == nil || w == nil {
+	if !commonconfig.IsDBEnable() || r.dbClient == nil || w == nil || !v1.IsWorkloadStatusOffloadEnabled(w) {
 		return
 	}
 	pods, err := r.dbClient.ListWorkloadPods(ctx, workloadId)
@@ -43,7 +43,7 @@ func (r *SyncerReconciler) hydrateWorkloadStatusFromDB(ctx context.Context, work
 // it mirrors pod/dispatch detail to DB, stores the O(node) NodeUsage aggregate in
 // etcd, and clears the large per-pod arrays from etcd.
 func (r *SyncerReconciler) persistWorkloadStatus(ctx context.Context, w *v1.Workload) error {
-	if !commonconfig.IsDBEnable() || r.dbClient == nil {
+	if !commonconfig.IsDBEnable() || r.dbClient == nil || !v1.IsWorkloadStatusOffloadEnabled(w) {
 		return r.Status().Update(ctx, w)
 	}
 	if err := r.writeWorkloadStatusToDB(ctx, w); err != nil {
