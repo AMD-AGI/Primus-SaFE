@@ -11,9 +11,11 @@ import (
 	"gotest.tools/assert"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
+	jobutils "github.com/AMD-AIG-AIMA/SAFE/job-manager/pkg/utils"
 )
 
 func TestBuildSecretVolume(t *testing.T) {
@@ -50,6 +52,81 @@ func TestBuildRequiredMatchExpression(t *testing.T) {
 	w2.Spec.Workspace = corev1.NamespaceDefault
 	exprs2 := buildRequiredMatchExpression(w2)
 	assert.Equal(t, len(exprs2), 0)
+}
+
+func dindInitContainerMountPaths(t *testing.T, obj *unstructured.Unstructured, path []string) []string {
+	t.Helper()
+	initContainers, found, err := jobutils.NestedSlice(obj.Object, path)
+	assert.NilError(t, err)
+	assert.Equal(t, found, true)
+	var paths []string
+	for _, ic := range initContainers {
+		c := ic.(map[string]interface{})
+		if c["name"] != DindContainerName {
+			continue
+		}
+		mounts, _ := c["volumeMounts"].([]interface{})
+		for _, m := range mounts {
+			paths = append(paths, m.(map[string]interface{})["mountPath"].(string))
+		}
+	}
+	return paths
+}
+
+func newRunnerObject() (*unstructured.Unstructured, []string) {
+	path := []string{"spec", "spec", "initContainers"}
+	obj := &unstructured.Unstructured{Object: map[string]interface{}{
+		"spec": map[string]interface{}{
+			"spec": map[string]interface{}{
+				"initContainers": []interface{}{
+					map[string]interface{}{
+						"name": "init-dind-externals",
+					},
+					map[string]interface{}{
+						"name": DindContainerName,
+						"volumeMounts": []interface{}{
+							map[string]interface{}{"mountPath": "/home/runner/_work", "name": "work"},
+						},
+					},
+				},
+			},
+		},
+	}}
+	return obj, path
+}
+
+func TestModifyDindVolumeMountsAddsHostpath(t *testing.T) {
+	obj, path := newRunnerObject()
+	w := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "runner"}}
+	w.Spec.Hostpath = []string{"/apps", "/wekafs"}
+
+	err := modifyDindVolumeMounts(obj, w, nil, path)
+	assert.NilError(t, err)
+
+	paths := dindInitContainerMountPaths(t, obj, path)
+	// Original mount is preserved and the two host paths are appended to the daemon sidecar.
+	assert.DeepEqual(t, paths, []string{"/home/runner/_work", "/apps", "/wekafs"})
+}
+
+func TestModifyDindVolumeMountsNoPersistentVolumesIsNoop(t *testing.T) {
+	obj, path := newRunnerObject()
+	w := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "runner"}}
+
+	err := modifyDindVolumeMounts(obj, w, nil, path)
+	assert.NilError(t, err)
+
+	paths := dindInitContainerMountPaths(t, obj, path)
+	assert.DeepEqual(t, paths, []string{"/home/runner/_work"})
+}
+
+func TestModifyDindVolumeMountsMissingInitContainersIsNoop(t *testing.T) {
+	obj := &unstructured.Unstructured{Object: map[string]interface{}{"spec": map[string]interface{}{}}}
+	w := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "job"}}
+	w.Spec.Hostpath = []string{"/apps"}
+
+	// No initContainers in the object (non-CICD kinds): must not error or mutate.
+	err := modifyDindVolumeMounts(obj, w, nil, []string{"spec", "spec", "initContainers"})
+	assert.NilError(t, err)
 }
 
 func TestBuildRequiredMatchExpressionExcludedNodes(t *testing.T) {
