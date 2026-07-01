@@ -40,12 +40,12 @@ type WorkloadStatusApplyConfiguration struct {
 	// The phase of each torchFT object. key is group-id
 	TorchFTPhase map[string]amdv1.WorkloadPhase `json:"torchFTPhase,omitempty"`
 	// NodeUsage is an O(node) aggregate of this workload's pods grouped by admin
-	// node, replacing the per-pod Pods array for the resource/scheduling hot
-	// path so very large workloads (>10k pods) do not exceed the etcd object
+	// node, used by the resource/scheduling hot path in place of the per-pod Pods
+	// array so very large workloads (>10k pods) do not exceed the etcd object
 	// size limit. Full per-pod detail (incl. containers/failedMessage) and the
 	// Nodes/Ranks history live in the DB (workload_pod / workload_dispatch_node).
-	// Pods/Nodes/Ranks above are retained for backward compatibility during the
-	// migration and are read as a fallback when NodeUsage is empty.
+	// Pods/Nodes/Ranks above are retained for backward compatibility and are read
+	// as a fallback when NodeUsage is empty.
 	NodeUsage []NodePodUsageApplyConfiguration `json:"nodeUsage,omitempty"`
 }
 

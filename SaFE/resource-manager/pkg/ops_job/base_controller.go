@@ -411,9 +411,9 @@ func (r *OpsJobBaseReconciler) getWorkloadCompletionMessage(ctx context.Context,
 			}
 		} else {
 			mainContainerName := commonworkload.GetMainContainer(workload, workload.SpecKind(), 0)
-			// Prefer the DB workload_pod table (P3 source of truth), falling back
-			// to the etcd Status.Pods. NewClient returns a singleton, so this is
-			// cheap and race-free.
+			// Prefer the DB workload_pod table, falling back to the etcd
+			// Status.Pods. NewClient returns a singleton, so this is cheap and
+			// race-free.
 			var db dbclient.Interface
 			if commonconfig.IsDBEnable() {
 				db = dbclient.NewClient()

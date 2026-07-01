@@ -15,9 +15,9 @@ import (
 	dbutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/utils"
 )
 
-// WorkloadPodFromV1 maps an etcd Workload status pod into its DB row. It is the
-// single serialization contract shared by the writer (job-manager syncer, P3)
-// and the readers (P2b), so the round-trip with ToV1 stays lossless.
+// WorkloadPodFromV1 maps a Workload status pod into its DB row. It is the single
+// serialization contract shared by the writer and readers so the round-trip with
+// ToV1 stays lossless.
 func WorkloadPodFromV1(workloadId string, dispatchCount int, p *v1.WorkloadPod) *WorkloadPod {
 	if p == nil {
 		return nil
@@ -87,7 +87,7 @@ func WorkloadPodsToV1(rows []*WorkloadPod) []v1.WorkloadPod {
 }
 
 // WorkloadDispatchNodesFromV1 maps the per-dispatch Nodes/Ranks history into DB
-// rows (one row per dispatch index). It is the writer-side (P3) contract.
+// rows (one row per dispatch index).
 func WorkloadDispatchNodesFromV1(workloadId string, nodes, ranks [][]string) []*WorkloadDispatchNode {
 	n := len(nodes)
 	if len(ranks) > n {

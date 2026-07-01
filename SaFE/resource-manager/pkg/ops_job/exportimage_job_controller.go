@@ -189,8 +189,8 @@ func (r *ExportImageJobReconciler) Do(ctx context.Context, jobName string) (ctrl
 		return ctrlruntime.Result{}, r.setJobCompleted(ctx, job, v1.OpsJobFailed, "failed to get workload", nil)
 	}
 
-	// Get node information from workload pods. Prefer the DB workload_pod table
-	// (P3 source of truth), falling back to the etcd Status.Pods.
+	// Get node information from workload pods. Prefer the DB workload_pod table,
+	// falling back to the etcd Status.Pods.
 	pods := commonworkload.PodsOf(ctx, r.dbClient, workload)
 	if len(pods) == 0 {
 		err := commonerrors.NewBadRequest("workload has no pods")

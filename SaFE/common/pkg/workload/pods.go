@@ -13,9 +13,8 @@ import (
 )
 
 // PodsOf returns a workload's per-pod detail, preferring the DB workload_pod
-// table (the P3 source of truth once the writer offloads pods from etcd) and
-// falling back to the etcd Status.Pods. A nil db, a query error, or an empty
-// table all fall back to Status.Pods so reads never regress during migration.
+// table and falling back to the etcd Status.Pods. A nil db, a query error, or an
+// empty table all fall back to Status.Pods so reads never regress.
 func PodsOf(ctx context.Context, db dbclient.Interface, w *v1.Workload) []v1.WorkloadPod {
 	if w == nil {
 		return nil

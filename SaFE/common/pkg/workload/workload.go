@@ -41,8 +41,8 @@ func GetTotalReplica(w *v1.Workload) int {
 
 // GetTotalNodeCount returns the total number of unique nodes where the workload's pods are running.
 func GetTotalNodeCount(w *v1.Workload) int {
-	// Dual-read: prefer the etcd NodePodUsage aggregate; fall back to Status.Pods
-	// when it is absent (pre-migration objects / before the writer switch).
+	// Prefer the etcd NodePodUsage aggregate; fall back to Status.Pods when it is
+	// absent.
 	if len(w.Status.NodeUsage) > 0 {
 		return totalNodeCountFromUsage(w.Status.NodeUsage)
 	}

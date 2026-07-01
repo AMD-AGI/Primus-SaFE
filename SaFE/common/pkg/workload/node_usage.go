@@ -34,8 +34,8 @@ func parseRid(key string) (int, bool) {
 // are excluded. Active counts non-terminated pods per resourceId; Running counts
 // pods in the actual Running phase. Unscheduled non-terminated pods (no admin
 // node yet) are bucketed under the empty node key so resource totals stay exact.
-// This is the canonical producer used by the syncer (P3) and by the read-path
-// fallback so the NodeUsage-derived results match the legacy Pods-derived ones.
+// It is the canonical producer of NodeUsage so the NodeUsage-derived results
+// match the Status.Pods-derived ones.
 func BuildNodeUsage(w *v1.Workload) []v1.NodePodUsage {
 	if w == nil || len(w.Status.Pods) == 0 {
 		return nil

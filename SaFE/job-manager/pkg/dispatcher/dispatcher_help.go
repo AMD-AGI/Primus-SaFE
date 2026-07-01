@@ -158,9 +158,9 @@ func modifyRequiredNodeAffinity(obj *unstructured.Unstructured, workload *v1.Wor
 const dispatchNodeReadTimeout = 5 * time.Second
 
 // dispatchNodesAt returns the admin nodes assigned at the given dispatch index,
-// preferring the DB workload_dispatch_node table (P3 source of truth) and
-// falling back to the etcd Status.Nodes. Best-effort: a missing db client (e.g.
-// DB disabled) or any query error falls back to Status.Nodes.
+// preferring the DB workload_dispatch_node table and falling back to the etcd
+// Status.Nodes. Best-effort: a missing db client (e.g. DB disabled) or any query
+// error falls back to Status.Nodes.
 func dispatchNodesAt(workload *v1.Workload, idx int) []string {
 	if idx < 0 {
 		return nil
