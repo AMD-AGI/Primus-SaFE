@@ -79,6 +79,8 @@ func TestGetWorkloadWrapper(t *testing.T) {
 		UserId:      sql.NullString{String: user.Name, Valid: true},
 		GVK:         `{"group":"kubeflow.org","version":"v1","kind":"PyTorchJob"}`,
 	}, nil).AnyTimes()
+	mockDB.EXPECT().ListWorkloadPods(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
+	mockDB.EXPECT().ListWorkloadDispatchNodes(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
 
 	rsp := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(rsp)

@@ -697,6 +697,8 @@ func Test_getWorkload(t *testing.T) {
 	}
 
 	mockDBClient.EXPECT().GetWorkload(gomock.Any(), workloadId).Return(mockDBWorkload, nil).AnyTimes()
+	mockDBClient.EXPECT().ListWorkloadPods(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
+	mockDBClient.EXPECT().ListWorkloadDispatchNodes(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
 
 	// Create gin context
 	w := httptest.NewRecorder()
