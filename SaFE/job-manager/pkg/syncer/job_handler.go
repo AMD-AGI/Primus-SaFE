@@ -311,7 +311,7 @@ func (r *SyncerReconciler) updateAdminWorkloadByJob(ctx context.Context, clientS
 		return originalWorkload, nil
 	}
 	commonworkload.StripOffloadedStatus(adminWorkload)
-	if err := r.Status().Update(ctx, adminWorkload); err != nil {
+	if err := jobutils.UpdateWorkloadStatusWithRetry(ctx, r.Client, adminWorkload); err != nil {
 		klog.ErrorS(err, "failed to update admin workload status", "name", adminWorkload.Name)
 		return nil, err
 	}

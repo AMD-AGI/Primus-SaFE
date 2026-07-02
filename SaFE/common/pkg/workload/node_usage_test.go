@@ -127,8 +127,8 @@ func TestNodeUsageDualReadEquivalence(t *testing.T) {
 	wUsage := mixedPodsWorkload()
 	wUsage.Status.NodeUsage = BuildNodeUsage(wUsage)
 
-	// GetTotalNodeCount
-	assert.Equal(t, GetTotalNodeCount(wPods), GetTotalNodeCount(wUsage))
+	// GetInUseNodeCount
+	assert.Equal(t, GetInUseNodeCount(wPods), GetInUseNodeCount(wUsage))
 
 	// GetResourcesPerNode
 	rpnPods, err := GetResourcesPerNode(wPods, "")
@@ -156,6 +156,25 @@ func TestNodeUsageDualReadEquivalence(t *testing.T) {
 	assert.Equal(t, quantity.Equal(totPods, totUsage), true)
 	assert.Equal(t, quantity.Equal(availPods, availUsage), true)
 	assert.DeepEqual(t, sortedNodes(uniqueStrings(nodesPods)), sortedNodes(uniqueStrings(nodesUsage)))
+}
+
+// TestGetInUseNodeCountExcludesTerminatedOnlyNode verifies a node holding only
+// terminated pods is not counted (it no longer occupies the node), and that the
+// Status.Pods and NodeUsage paths agree on this. mixedPodsWorkload does not cover
+// it because there the terminated pod shares a node with an active one.
+func TestGetInUseNodeCountExcludesTerminatedOnlyNode(t *testing.T) {
+	w := &v1.Workload{Status: v1.WorkloadStatus{Pods: []v1.WorkloadPod{
+		{AdminNodeName: "n1", Phase: corev1.PodRunning},
+		{AdminNodeName: "n2", Phase: corev1.PodSucceeded}, // terminated-only node
+		{AdminNodeName: "n3", Phase: corev1.PodFailed},    // terminated-only node
+	}}}
+	// Only n1 holds a non-terminated pod.
+	assert.Equal(t, GetInUseNodeCount(w), 1)
+
+	wUsage := w.DeepCopy()
+	wUsage.Status.NodeUsage = BuildNodeUsage(wUsage)
+	assert.Equal(t, GetInUseNodeCount(wUsage), 1)
+	assert.Equal(t, GetInUseNodeCount(w), GetInUseNodeCount(wUsage))
 }
 
 // uniqueStrings de-dupes (the available-node list may repeat a node per pod on

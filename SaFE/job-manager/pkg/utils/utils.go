@@ -14,6 +14,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	apitypes "k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/util/retry"
 	"k8s.io/klog/v2"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -81,11 +82,36 @@ func SetWorkloadFailed(ctx context.Context, cli client.Client, workload *v1.Work
 	condition := NewCondition(string(v1.AdminFailed), message, commonworkload.GenerateDispatchReason(dispatchCount))
 	workload.Status.Conditions = append(workload.Status.Conditions, *condition)
 	commonworkload.StripOffloadedStatus(workload)
-	if err := cli.Status().Update(ctx, workload); err != nil {
+	if err := UpdateWorkloadStatusWithRetry(ctx, cli, workload); err != nil {
 		klog.ErrorS(err, "failed to update workload status", "name", workload.Name)
 		return err
 	}
 	return nil
+}
+
+// UpdateWorkloadStatusWithRetry writes workload.Status to etcd, retrying on
+// optimistic-lock conflicts by re-reading the latest object and re-applying the
+// computed status. The job-manager syncer is the sole writer of workload .status,
+// while other controllers frequently mutate .metadata/.spec and bump the
+// resourceVersion; without a retry those unrelated writes turn every status
+// update into a conflict, which on hot objects (e.g. CICD runner sets) livelocks
+// the single-worker syncer queue. Re-applying the computed status onto the latest
+// object is safe precisely because nobody else writes .status.
+func UpdateWorkloadStatusWithRetry(ctx context.Context, cli client.Client, workload *v1.Workload) error {
+	key := client.ObjectKeyFromObject(workload)
+	status := workload.Status
+	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		latest := &v1.Workload{}
+		if err := cli.Get(ctx, key, latest); err != nil {
+			return err
+		}
+		status.DeepCopyInto(&latest.Status)
+		if err := cli.Status().Update(ctx, latest); err != nil {
+			return err
+		}
+		workload.ResourceVersion = latest.ResourceVersion
+		return nil
+	})
 }
 
 // StopReason describes why a workload was forcibly transitioned to the

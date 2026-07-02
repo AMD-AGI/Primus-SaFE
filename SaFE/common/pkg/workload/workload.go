@@ -39,16 +39,22 @@ func GetTotalReplica(w *v1.Workload) int {
 	return n
 }
 
-// GetTotalNodeCount returns the total number of unique nodes where the workload's pods are running.
-func GetTotalNodeCount(w *v1.Workload) int {
+// GetInUseNodeCount returns the number of unique nodes currently in use by the
+// workload's non-terminated pods. Terminated pods (Succeeded/Failed) release
+// their node and are excluded, matching the paired used-quota computation and the
+// NodePodUsage aggregate (also built from non-terminated pods only).
+func GetInUseNodeCount(w *v1.Workload) int {
 	// Prefer the etcd NodePodUsage aggregate; fall back to Status.Pods when it is
 	// absent.
 	if len(w.Status.NodeUsage) > 0 {
 		return totalNodeCountFromUsage(w.Status.NodeUsage)
 	}
 	uniqNodeSet := sets.NewSet()
-	for _, p := range w.Status.Pods {
-		uniqNodeSet.Insert(p.AdminNodeName)
+	for i := range w.Status.Pods {
+		if v1.IsPodTerminated(&w.Status.Pods[i]) {
+			continue
+		}
+		uniqNodeSet.Insert(w.Status.Pods[i].AdminNodeName)
 	}
 	return uniqNodeSet.Len()
 }
