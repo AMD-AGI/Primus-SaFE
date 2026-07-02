@@ -269,6 +269,11 @@ func (h *Handler) cleanUpWorkloads(ctx context.Context, mainWorkload *v1.Workloa
 	}
 }
 
+// maxListBuildConcurrency caps how many workload list items are built in
+// parallel. query.Limit is client-controlled and unbounded, so a fixed worker
+// pool keeps a large page from spawning one goroutine / etcd Get per row.
+const maxListBuildConcurrency = 16
+
 // listWorkload implements the workload listing logic.
 // Parses query parameters, builds database or etcd queries,
 // and returns workloads matching the criteria.
@@ -317,23 +322,30 @@ func (h *Handler) listWorkload(c *gin.Context) (interface{}, error) {
 
 	// cvtDBWorkloadToResponseItem does a per-Pending-row etcd Get with no
 	// inter-row dependency, so build the page items concurrently and write each
-	// back to its original index to preserve the response order.
+	// back to its original index to preserve the response order. Concurrency is
+	// capped by a fixed worker pool (query.Limit is client-controlled and has no
+	// upper bound) so a huge page cannot spawn one goroutine / etcd Get per row.
 	items := make([]view.WorkloadResponseItem, len(workloads))
 	idxCh := make(chan int, len(workloads))
-	defer close(idxCh)
 	for i := range workloads {
 		idxCh <- i
 	}
-	_, _ = concurrent.Exec(len(workloads), func() error {
-		i := <-idxCh
-		w := workloads[i]
-		item := h.cvtDBWorkloadToResponseItem(ctx, w)
-		if stat := stats[w.WorkloadId]; stat != nil {
-			item.AvgGpuUsage = stat.AvgGpuUsage3H
-		} else {
-			item.AvgGpuUsage = -1
+	close(idxCh)
+	workers := len(workloads)
+	if workers > maxListBuildConcurrency {
+		workers = maxListBuildConcurrency
+	}
+	_, _ = concurrent.Exec(workers, func() error {
+		for i := range idxCh {
+			w := workloads[i]
+			item := h.cvtDBWorkloadToResponseItem(ctx, w)
+			if stat := stats[w.WorkloadId]; stat != nil {
+				item.AvgGpuUsage = stat.AvgGpuUsage3H
+			} else {
+				item.AvgGpuUsage = -1
+			}
+			items[i] = item
 		}
-		items[i] = item
 		return nil
 	})
 	result.Items = items
