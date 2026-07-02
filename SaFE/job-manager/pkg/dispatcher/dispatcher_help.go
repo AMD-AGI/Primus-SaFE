@@ -84,6 +84,15 @@ func initializeObject(obj *unstructured.Unstructured,
 	if err = modifyVolumes(obj, workload, workspace, path); err != nil {
 		return fmt.Errorf("failed to modify volumes: %v", err.Error())
 	}
+	// Mirror the persistent shared-filesystem mounts onto the pod's init
+	// containers so a Docker daemon running as an init container (the CICD dind
+	// sidecar) can resolve `docker run -v <path>` bind mounts. The matching
+	// pod-level volumes were just added by modifyVolumes; only the volumeMounts
+	// need to be applied here. This is a no-op for kinds without init containers.
+	path = buildPodSpecPath(templatePath, podSpec, "initContainers")
+	if err = modifyInitContainerVolumeMounts(obj, workload, workspace, path); err != nil {
+		return fmt.Errorf("failed to modify init containers: %v", err.Error())
+	}
 	path = buildPodSpecPath(templatePath, podSpec, "imagePullSecrets")
 	if err = modifyImageSecrets(obj, workload, path); err != nil {
 		return fmt.Errorf("failed to modify image secrets: %v", err.Error())
@@ -316,6 +325,30 @@ func modifyVolumeMounts(container map[string]interface{}, workload *v1.Workload,
 			"", false, false))
 	}
 
+	volumeMounts = append(volumeMounts, buildPersistentVolumeMounts(workload, workspace)...)
+
+	for _, secret := range workload.Spec.Secrets {
+		if secret.Type != v1.SecretGeneral {
+			continue
+		}
+		mountPath := fmt.Sprintf("%s/%s", common.SecretPath, secret.Id)
+		volumeMount := buildVolumeMount(secret.Id, mountPath, "", "", true, false)
+		volumeMounts = append(volumeMounts, volumeMount)
+	}
+	container["volumeMounts"] = volumeMounts
+}
+
+// buildPersistentVolumeMounts returns the volume mounts for the persistent
+// shared filesystems attached to a workload: workspace PVC/hostPath volumes
+// and Spec.Hostpath entries. It mirrors the persistent subset of
+// modifyVolumeMounts (the ephemeral /dev/shm mount and secrets are omitted) and
+// deliberately reuses the same volume-name id generation so the mounts it
+// produces match the pod-level volumes added by modifyVolumes exactly. It is
+// shared between the main containers (modifyVolumeMounts) and the init
+// containers (modifyInitContainerVolumeMounts) so both see the same persistent
+// bind-mount sources.
+func buildPersistentVolumeMounts(workload *v1.Workload, workspace *v1.Workspace) []interface{} {
+	var volumeMounts []interface{}
 	maxId := 0
 	if workspace != nil && v1.IsEnableWorkspaceStorage(workload) {
 		for _, vol := range workspace.Spec.Volumes {
@@ -340,15 +373,51 @@ func modifyVolumeMounts(container map[string]interface{}, workload *v1.Workload,
 			commonworkload.IsSandBox(workload), false)
 		volumeMounts = append(volumeMounts, volumeMount)
 	}
-	for _, secret := range workload.Spec.Secrets {
-		if secret.Type != v1.SecretGeneral {
+	return volumeMounts
+}
+
+// modifyInitContainerVolumeMounts mirrors the persistent shared-filesystem
+// volume mounts onto every init container in the pod. On containerized (dind /
+// Docker-out-of-Docker) CICD runners the Docker daemon runs as an init
+// container (the dind sidecar) and resolves `docker run -v <host-path>:<ctr>`
+// bind mounts against its own filesystem. The dispatcher injects
+// workspace/hostPath volumes into spec.containers and pod-level spec.volumes
+// but not into spec.initContainers, so without this the daemon cannot see
+// /apps, /wekafs, JuiceFS, etc. and bind mounts silently resolve to empty
+// directories.
+//
+// The matching pod-level volumes are added by modifyVolumes; here we only add
+// the volumeMounts. Ephemeral mounts (/dev/shm) and secrets are intentionally
+// skipped — the daemon does not need them. Kinds without init containers are a
+// no-op. Duplicate mounts are not de-duplicated: the API server will reject the
+// pod so the misconfiguration surfaces loudly instead of being masked.
+func modifyInitContainerVolumeMounts(obj *unstructured.Unstructured,
+	workload *v1.Workload, workspace *v1.Workspace, path []string) error {
+	initContainers, found, err := jobutils.NestedSlice(obj.Object, path)
+	if err != nil {
+		return err
+	}
+	if !found {
+		return nil
+	}
+	persistentMounts := buildPersistentVolumeMounts(workload, workspace)
+	if len(persistentMounts) == 0 {
+		return nil
+	}
+	for i := range initContainers {
+		c, ok := initContainers[i].(map[string]interface{})
+		if !ok {
 			continue
 		}
-		mountPath := fmt.Sprintf("%s/%s", common.SecretPath, secret.Id)
-		volumeMount := buildVolumeMount(secret.Id, mountPath, "", "", true, false)
-		volumeMounts = append(volumeMounts, volumeMount)
+		var volumeMounts []interface{}
+		if existing, ok := c["volumeMounts"].([]interface{}); ok {
+			volumeMounts = existing
+		}
+		volumeMounts = append(volumeMounts, persistentMounts...)
+		c["volumeMounts"] = volumeMounts
+		initContainers[i] = c
 	}
-	container["volumeMounts"] = volumeMounts
+	return jobutils.SetNestedField(obj.Object, initContainers, path)
 }
 
 // modifyVolumes adds volume definitions to the Kubernetes object based on workspace and workload specifications.
