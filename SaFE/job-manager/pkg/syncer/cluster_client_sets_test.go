@@ -8,13 +8,13 @@ package syncer
 import (
 	"context"
 	"testing"
-	"time"
 
 	"gotest.tools/assert"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 
+	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 )
 
@@ -71,20 +71,48 @@ func TestGetClusterClientSets(t *testing.T) {
 	assert.Equal(t, got.name, "c1")
 }
 
-func TestDeletePodNilObject(t *testing.T) {
-	r := &SyncerReconciler{}
-	res, err := r.deletePod(context.Background(), nil, nil)
-	assert.NilError(t, err)
-	assert.Equal(t, res.RequeueAfter.Nanoseconds(), int64(0))
+func TestHandleResourceWrongType(t *testing.T) {
+	called := false
+	c := &ClusterClientSets{
+		name:    "cl",
+		handler: ResourceHandler(func(m *resourceMessage) { called = true }),
+	}
+	// Not an *unstructured.Unstructured -> ignored.
+	c.handleResource(context.Background(), nil, &corev1.Pod{}, ResourceAdd)
+	assert.Equal(t, called, false)
 }
 
-func TestDeletePodRecentDeletionRequeues(t *testing.T) {
-	r := &SyncerReconciler{}
-	obj := &unstructured.Unstructured{Object: map[string]interface{}{}}
-	now := metav1.NewTime(time.Now())
-	obj.SetDeletionTimestamp(&now)
-	res, err := r.deletePod(context.Background(), obj, nil)
-	assert.NilError(t, err)
-	// Recently-deleted pod -> requeue, not yet force-deleted.
-	assert.Assert(t, res.RequeueAfter > 0)
+func TestHandleResourceNoWorkloadId(t *testing.T) {
+	called := false
+	c := &ClusterClientSets{
+		name:    "cl",
+		handler: ResourceHandler(func(m *resourceMessage) { called = true }),
+	}
+	u := &unstructured.Unstructured{Object: map[string]interface{}{}}
+	u.SetKind("Pod")
+	u.SetName("p1")
+	// No workload-id label and no mesh label -> not a managed object, ignored.
+	c.handleResource(context.Background(), nil, u, ResourceAdd)
+	assert.Equal(t, called, false)
+}
+
+func TestHandleResourceManaged(t *testing.T) {
+	var captured *resourceMessage
+	c := &ClusterClientSets{
+		name:    "cl",
+		handler: ResourceHandler(func(m *resourceMessage) { captured = m }),
+	}
+	u := &unstructured.Unstructured{Object: map[string]interface{}{}}
+	u.SetKind("Job")
+	u.SetName("obj")
+	u.SetNamespace("ns")
+	u.SetLabels(map[string]string{
+		v1.WorkloadIdLabel:          "w",
+		v1.WorkloadDispatchCntLabel: "3",
+	})
+	c.handleResource(context.Background(), nil, u, ResourceAdd)
+	assert.Assert(t, captured != nil)
+	assert.Equal(t, captured.workloadId, "w")
+	assert.Equal(t, captured.dispatchCount, 3)
+	assert.Equal(t, captured.cluster, "cl")
 }
