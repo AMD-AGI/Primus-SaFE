@@ -234,7 +234,7 @@ func TestRemoveWorkloadPodNotInList(t *testing.T) {
 	assert.NilError(t, err)
 }
 
-func TestRemoveWorkloadPodRemoves(t *testing.T) {
+func TestRemoveWorkloadPodStopsLivePod(t *testing.T) {
 	w := &v1.Workload{ObjectMeta: metav1.ObjectMeta{
 		Name:        "w",
 		Annotations: map[string]string{v1.WorkloadDispatchedAnnotation: "true"},
@@ -253,8 +253,12 @@ func TestRemoveWorkloadPodRemoves(t *testing.T) {
 
 	got := &v1.Workload{}
 	assert.NilError(t, cl.Get(context.Background(), ctrlclient.ObjectKey{Name: "w"}, got))
-	assert.Equal(t, len(got.Status.Pods), 1)
-	assert.Equal(t, got.Status.Pods[0].PodId, "p2")
+	// Non-application workload: the pod entry is kept and a still-live pod is
+	// flipped to Stopped instead of being removed.
+	assert.Equal(t, len(got.Status.Pods), 2)
+	assert.Equal(t, got.Status.Pods[0].PodId, "p1")
+	assert.Equal(t, got.Status.Pods[0].Phase, corev1.PodPhase(v1.WorkloadStopped))
+	assert.Equal(t, got.Status.Pods[1].PodId, "p2")
 }
 
 func TestHandleRaySubmitterTimeoutNonRayJob(t *testing.T) {
