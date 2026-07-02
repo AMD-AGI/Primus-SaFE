@@ -7,6 +7,7 @@ package syncer
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/golang/mock/gomock"
@@ -14,9 +15,12 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 	ctrlfake "sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
@@ -44,6 +48,51 @@ func TestPersistWorkloadStatus_DBDisabled(t *testing.T) {
 	require.NoError(t, cl.Get(context.Background(), ctrlclient.ObjectKey{Name: "w1"}, got))
 	assert.Len(t, got.Status.Pods, 1)
 	assert.Empty(t, got.Status.NodeUsage)
+}
+
+// TestPersistWorkloadStatus_RetriesOnConflict verifies that an optimistic-lock
+// conflict on the status update (caused by a concurrent metadata/spec write on a
+// hot object) is retried instead of surfaced as an error, so the single-worker
+// syncer queue does not livelock.
+func TestPersistWorkloadStatus_RetriesOnConflict(t *testing.T) {
+	viper.Reset()
+	defer viper.Reset()
+
+	w := &v1.Workload{
+		ObjectMeta: metav1.ObjectMeta{Name: "w1"},
+		Status:     v1.WorkloadStatus{Phase: v1.WorkloadRunning},
+	}
+	var updates int
+	cl := ctrlfake.NewClientBuilder().
+		WithScheme(syncerScheme(t)).
+		WithObjects(w.DeepCopy()).
+		WithStatusSubresource(w).
+		WithInterceptorFuncs(interceptor.Funcs{
+			SubResourceUpdate: func(ctx context.Context, c ctrlclient.Client, subResourceName string,
+				obj ctrlclient.Object, opts ...ctrlclient.SubResourceUpdateOption) error {
+				updates++
+				if updates == 1 {
+					// Simulate a stale resourceVersion on the first attempt.
+					return apierrors.NewConflict(
+						schema.GroupResource{Group: "amd.com", Resource: "workloads"},
+						obj.GetName(), fmt.Errorf("object has been modified"))
+				}
+				return c.Status().Update(ctx, obj, opts...)
+			},
+		}).
+		Build()
+	r := &SyncerReconciler{Client: cl}
+
+	fresh := &v1.Workload{}
+	require.NoError(t, cl.Get(context.Background(), ctrlclient.ObjectKey{Name: "w1"}, fresh))
+	fresh.Status.Phase = v1.WorkloadSucceeded
+	require.NoError(t, r.persistWorkloadStatus(context.Background(), fresh))
+	// First attempt conflicts, second succeeds.
+	assert.GreaterOrEqual(t, updates, 2)
+
+	got := &v1.Workload{}
+	require.NoError(t, cl.Get(context.Background(), ctrlclient.ObjectKey{Name: "w1"}, got))
+	assert.Equal(t, v1.WorkloadSucceeded, got.Status.Phase)
 }
 
 func TestPersistWorkloadStatus_Offload(t *testing.T) {

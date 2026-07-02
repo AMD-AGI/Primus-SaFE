@@ -357,7 +357,7 @@ func (r *SyncerReconciler) removeWorkloadPod(ctx context.Context, message *resou
 		return nil
 	}
 	adminWorkload, err := r.getAdminWorkload(ctx, message.workloadId)
-	if adminWorkload == nil || !adminWorkload.GetDeletionTimestamp().IsZero() {
+	if adminWorkload == nil {
 		return err
 	}
 
@@ -373,14 +373,15 @@ func (r *SyncerReconciler) removeWorkloadPod(ctx context.Context, message *resou
 	}
 
 	if commonworkload.IsApplication(adminWorkload) {
-		// Application: drop the pod entry and refresh node assignment.
+		// Application: drop the pod entry and refresh node assignment so the status
+		// tracks the current replica set (no per-pod history is kept for these).
 		adminWorkload.Status.Pods = append(adminWorkload.Status.Pods[:id], adminWorkload.Status.Pods[id+1:]...)
 		r.updateWorkloadNodes(adminWorkload)
 	} else {
-		// Non-application: keep the pod entry and node assignment untouched. Only
-		// flip a still-live pod to Stopped; persistWorkloadStatus then refreshes the
-		// NodeUsage aggregate in etcd. Terminal (or already Stopped) pods are left as
-		// is to keep their final phase and avoid redundant writes on repeat events.
+		// Keep the pod entry (history) and only flip a still-live pod to Stopped;
+		// persistWorkloadStatus then refreshes the NodeUsage aggregate in etcd.
+		// Terminal (or already Stopped) pods are left as is to keep their final
+		// phase and avoid redundant writes on repeat events.
 		p := &adminWorkload.Status.Pods[id]
 		if v1.IsPodTerminated(p) || p.Phase == corev1.PodPhase(v1.WorkloadStopped) {
 			return nil

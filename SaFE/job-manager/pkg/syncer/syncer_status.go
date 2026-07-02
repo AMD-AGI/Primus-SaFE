@@ -9,7 +9,9 @@ import (
 	"context"
 	"fmt"
 
+	"k8s.io/client-go/util/retry"
 	"k8s.io/klog/v2"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
@@ -44,7 +46,7 @@ func (r *SyncerReconciler) hydrateWorkloadStatusFromDB(ctx context.Context, work
 // etcd, and clears the large per-pod arrays from etcd.
 func (r *SyncerReconciler) persistWorkloadStatus(ctx context.Context, w *v1.Workload) error {
 	if !commonconfig.IsDBEnable() || r.dbClient == nil || !v1.IsWorkloadStatusOffloadEnabled(w) {
-		return r.Status().Update(ctx, w)
+		return r.updateWorkloadStatusWithRetry(ctx, w)
 	}
 	if err := r.writeWorkloadStatusToDB(ctx, w); err != nil {
 		return err
@@ -53,7 +55,32 @@ func (r *SyncerReconciler) persistWorkloadStatus(ctx context.Context, w *v1.Work
 	w.Status.Pods = nil
 	w.Status.Nodes = nil
 	w.Status.Ranks = nil
-	return r.Status().Update(ctx, w)
+	return r.updateWorkloadStatusWithRetry(ctx, w)
+}
+
+// updateWorkloadStatusWithRetry writes w.Status to etcd, retrying on optimistic
+// lock conflicts. The syncer is the sole writer of workload .status, while other
+// controllers (e.g. github annotation sync) frequently mutate .metadata/.spec and
+// bump the resourceVersion. Without a retry those unrelated writes turn every
+// status update into a conflict, and because the syncer runs a single worker the
+// queue livelocks on hot objects (CICD runner sets), starving other workloads.
+// Re-reading the latest object and re-applying the computed status is safe
+// precisely because nobody else writes .status.
+func (r *SyncerReconciler) updateWorkloadStatusWithRetry(ctx context.Context, w *v1.Workload) error {
+	key := client.ObjectKeyFromObject(w)
+	status := w.Status
+	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		latest := &v1.Workload{}
+		if err := r.Get(ctx, key, latest); err != nil {
+			return err
+		}
+		status.DeepCopyInto(&latest.Status)
+		if err := r.Status().Update(ctx, latest); err != nil {
+			return err
+		}
+		w.ResourceVersion = latest.ResourceVersion
+		return nil
+	})
 }
 
 // writeWorkloadStatusToDB upserts the live pod set and dispatch history rows.

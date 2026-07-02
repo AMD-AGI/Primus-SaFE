@@ -261,6 +261,72 @@ func TestRemoveWorkloadPodStopsLivePod(t *testing.T) {
 	assert.Equal(t, got.Status.Pods[1].PodId, "p2")
 }
 
+func TestRemoveWorkloadPodStopsLivePodDuringTeardown(t *testing.T) {
+	now := metav1.Now()
+	w := &v1.Workload{ObjectMeta: metav1.ObjectMeta{
+		Name:              "w",
+		Annotations:       map[string]string{v1.WorkloadDispatchedAnnotation: "true"},
+		DeletionTimestamp: &now,
+		Finalizers:        []string{"test/keep"},
+	}}
+	w.Spec.MaxRetry = 3
+	w.Status.Pods = []v1.WorkloadPod{
+		{PodId: "p1", Phase: corev1.PodRunning},
+		{PodId: "p2", Phase: corev1.PodRunning},
+	}
+	cl := ctrlfake.NewClientBuilder().
+		WithScheme(syncerScheme(t)).
+		WithObjects(w).
+		WithStatusSubresource(&v1.Workload{}).
+		Build()
+	r := &SyncerReconciler{Client: cl}
+	err := r.removeWorkloadPod(context.Background(),
+		&resourceMessage{workloadId: "w", name: "p1", dispatchCount: 1})
+	assert.NilError(t, err)
+
+	got := &v1.Workload{}
+	assert.NilError(t, cl.Get(context.Background(), ctrlclient.ObjectKey{Name: "w"}, got))
+	// Even while the workload is being torn down, the pod row is kept as history
+	// and the still-live pod is recorded as Stopped rather than left at Running.
+	assert.Equal(t, len(got.Status.Pods), 2)
+	assert.Equal(t, got.Status.Pods[0].PodId, "p1")
+	assert.Equal(t, got.Status.Pods[0].Phase, corev1.PodPhase(v1.WorkloadStopped))
+}
+
+func TestRemoveWorkloadPodKeepsHistoryOnTeardown(t *testing.T) {
+	w := &v1.Workload{ObjectMeta: metav1.ObjectMeta{
+		Name:        "w",
+		Finalizers:  []string{"test/keep"},
+		Annotations: map[string]string{v1.WorkloadDispatchedAnnotation: "true"},
+	}}
+	w.Spec.MaxRetry = 3
+	w.Status.Pods = []v1.WorkloadPod{
+		{PodId: "p1", Phase: corev1.PodRunning},
+		{PodId: "p2", Phase: corev1.PodFailed},
+	}
+	cl := ctrlfake.NewClientBuilder().
+		WithScheme(syncerScheme(t)).
+		WithObjects(w).
+		WithStatusSubresource(&v1.Workload{}).
+		Build()
+	// The finalizer keeps the object around with a deletion timestamp set,
+	// simulating workload teardown.
+	assert.NilError(t, cl.Delete(context.Background(), w.DeepCopy()))
+
+	r := &SyncerReconciler{Client: cl}
+	err := r.removeWorkloadPod(context.Background(),
+		&resourceMessage{workloadId: "w", name: "p1", dispatchCount: 1})
+	assert.NilError(t, err)
+
+	got := &v1.Workload{}
+	assert.NilError(t, cl.Get(context.Background(), ctrlclient.ObjectKey{Name: "w"}, got))
+	// History is preserved during teardown: both entries remain, the live pod is
+	// flipped to Stopped, the already-terminal pod keeps its final phase.
+	assert.Equal(t, len(got.Status.Pods), 2)
+	assert.Equal(t, got.Status.Pods[0].Phase, corev1.PodPhase(v1.WorkloadStopped))
+	assert.Equal(t, got.Status.Pods[1].Phase, corev1.PodFailed)
+}
+
 func TestHandleRaySubmitterTimeoutNonRayJob(t *testing.T) {
 	r := &SyncerReconciler{}
 	w := &v1.Workload{}
