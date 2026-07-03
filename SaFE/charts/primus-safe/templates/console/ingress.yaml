@@ -53,5 +53,5 @@ spec:
   tls:
     - hosts:
         - {{ .Values.global.sub_domain }}.{{ .Values.global.domain }}
-      secretName: default
+      secretName: {{ .Values.global.tls_secret }}
 {{- end }}

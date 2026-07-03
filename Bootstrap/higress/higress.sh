@@ -5,9 +5,10 @@
 # Description: Automated deployment of Higress cloud-native gateway and Gateway API configuration
 # Features:
 #   1. Add Higress Helm repository
-#   2. Install/Upgrade Higress gateway
-#   3. Deploy Kubernetes Gateway API CRDs
-#   4. Apply custom Gateway configuration
+#   2. Deploy Kubernetes Gateway API CRDs
+#   3. Install/Upgrade Higress gateway
+#   4. Apply custom Gateway API RBAC
+#   5. Apply custom Gateway configuration
 ################################################################################
 
 set -euo pipefail  # Strict mode: exit on error, error on undefined variables, propagate pipe errors
@@ -80,10 +81,19 @@ install_higress() {
     # --namespace: specify the installation namespace
     # --create-namespace: create namespace if it doesn't exist
     # -f: specify custom configuration file
-    helm upgrade --install higress higress.io/higress \
-        --namespace higress-system --version 2.2.0 \
-        --create-namespace \
+    local helm_args=(
+        upgrade --install higress higress.io/higress
+        --namespace higress-system --version 2.2.1
+        --create-namespace
         -f "${SCRIPT_DIR}/values.yaml"
+    )
+
+    if [ -n "${HIGRESS_GLOBAL_HUB:-}" ]; then
+        log_info "Using Higress image hub: ${HIGRESS_GLOBAL_HUB}"
+        helm_args+=(--set "global.hub=${HIGRESS_GLOBAL_HUB}")
+    fi
+
+    helm "${helm_args[@]}"
     
     log_info "Higress gateway deployment completed"
 }
@@ -94,7 +104,31 @@ install_gateway_api() {
     
     kubectl apply --server-side -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.4.0/experimental-install.yaml
     
+    local gateway_api_crds
+    gateway_api_crds="$(kubectl get crd -o name | sed -n '/\.gateway\.networking\.k8s\.io$/p; /\.gateway\.networking\.x-k8s\.io$/p')"
+    if [ -z "${gateway_api_crds}" ]; then
+        log_error "Gateway API CRDs were not found after apply"
+        exit 1
+    fi
+
+    log_info "Waiting for Gateway API CRDs to be Established..."
+    kubectl wait --for=condition=Established --timeout=120s ${gateway_api_crds}
+
     log_info "Gateway API CRDs deployment completed"
+}
+
+# Apply Gateway API experimental RBAC required by Higress controller
+apply_gateway_api_rbac() {
+    log_info "Applying Higress Gateway API RBAC..."
+
+    if [ ! -f "${SCRIPT_DIR}/rbac-gatewayapi-x.yaml" ]; then
+        log_error "RBAC file not found: ${SCRIPT_DIR}/rbac-gatewayapi-x.yaml"
+        exit 1
+    fi
+
+    kubectl apply -f "${SCRIPT_DIR}/rbac-gatewayapi-x.yaml"
+
+    log_info "Higress Gateway API RBAC applied successfully"
 }
 
 # Apply custom Gateway configuration
@@ -140,8 +174,9 @@ main() {
     # Execute deployment steps
     check_dependencies
     add_helm_repo
-    install_higress
     install_gateway_api
+    apply_gateway_api_rbac
+    install_higress
     apply_gateway_config
     verify_deployment
     

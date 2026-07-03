@@ -1,0 +1,33 @@
+################################################################################
+# Higress Gateway API Experimental RBAC
+# Description: Allow the Higress controller to watch experimental Gateway API
+# resources such as XListenerSet from gateway.networking.x-k8s.io.
+################################################################################
+
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: higress-controller-gatewayapi-x
+rules:
+  - apiGroups:
+      - gateway.networking.x-k8s.io
+    resources:
+      - "*"
+    verbs:
+      - get
+      - list
+      - watch
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: higress-controller-gatewayapi-x
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: higress-controller-gatewayapi-x
+subjects:
+  - kind: ServiceAccount
+    name: higress-controller
+    namespace: higress-system
