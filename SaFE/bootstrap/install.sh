@@ -35,6 +35,20 @@ get_input_with_default() {
   fi
 }
 
+get_secret_input_with_default() {
+  local prompt="$1"
+  local default_value="$2"
+  local input
+  read -rsp "$prompt" input
+  printf '\n' >&2
+  input=$(echo "$input" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+  if [ -z "$input" ]; then
+      echo "$default_value"
+  else
+      echo "$input"
+  fi
+}
+
 convert_to_boolean() {
   local value="$1"
   if [[ "$value" == "y" ]]; then
@@ -42,6 +56,86 @@ convert_to_boolean() {
   else
       echo "false"
   fi
+}
+
+ensure_opensearch_secret() {
+  local secret_name="$1"
+  local username="$2"
+  local password="$3"
+
+  if kubectl get secret "$secret_name" -n "$NAMESPACE" >/dev/null 2>&1; then
+    echo "⚠️ OpenSearch secret $secret_name already exists in namespace \"$NAMESPACE\", keeping existing secret."
+    return
+  fi
+
+  kubectl create secret generic "$secret_name" \
+    --namespace="$NAMESPACE" \
+    --from-literal=username="$username" \
+    --from-literal=password="$password" \
+    --dry-run=client -o yaml | kubectl apply -f - \
+    && kubectl label secret "$secret_name" -n "$NAMESPACE" primus-safe.secret.type=opensearch primus-safe.display.name="$secret_name" --overwrite
+  echo "✅ OpenSearch secret($secret_name) created in namespace \"$NAMESPACE\""
+}
+
+ensure_higress_tls_secret() {
+  if [[ "$ingress" != "higress" ]] || [[ -z "$sub_domain" ]]; then
+    return
+  fi
+
+  local tls_secret="default"
+  local domain="primus-safe.amd.com"
+  local console_host="${sub_domain}.${domain}"
+  local apiserver_host="apiserver.${console_host}"
+  local tls_crt=""
+  local tls_key=""
+
+  if kubectl get secret "$tls_secret" -n "$NAMESPACE" >/dev/null 2>&1; then
+    tls_crt=$(kubectl get secret "$tls_secret" -n "$NAMESPACE" -o jsonpath='{.data.tls\.crt}' 2>/dev/null || true)
+    tls_key=$(kubectl get secret "$tls_secret" -n "$NAMESPACE" -o jsonpath='{.data.tls\.key}' 2>/dev/null || true)
+    if [[ -n "$tls_crt" ]] && [[ -n "$tls_key" ]]; then
+      echo "⚠️ TLS secret $tls_secret already exists in namespace \"$NAMESPACE\", keeping existing certificate."
+      return
+    fi
+    echo "⚠️ TLS secret $tls_secret exists but is missing tls.crt or tls.key, regenerating..."
+  fi
+
+  if ! command -v openssl &> /dev/null; then
+    echo "Error: openssl command not found. It is required to generate Higress TLS secret '$tls_secret'."
+    exit 1
+  fi
+
+  local tmpdir
+  tmpdir=$(mktemp -d)
+  cat > "$tmpdir/openssl.cnf" <<EOF
+[req]
+distinguished_name = req_distinguished_name
+prompt = no
+
+[req_distinguished_name]
+CN = ${console_host}
+
+[v3_req]
+subjectAltName = @alt_names
+
+[alt_names]
+DNS.1 = ${console_host}
+DNS.2 = ${apiserver_host}
+EOF
+
+  openssl req -x509 -nodes -newkey rsa:2048 -days 3650 \
+    -keyout "$tmpdir/tls.key" \
+    -out "$tmpdir/tls.crt" \
+    -subj "/CN=${console_host}" \
+    -config "$tmpdir/openssl.cnf" \
+    -extensions v3_req >/dev/null 2>&1
+
+  kubectl create secret tls "$tls_secret" \
+    --namespace="$NAMESPACE" \
+    --cert="$tmpdir/tls.crt" \
+    --key="$tmpdir/tls.key" \
+    --dry-run=client -o yaml | kubectl apply -f -
+  rm -rf "$tmpdir"
+  echo "✅ TLS secret($tls_secret) created for ${console_host} and ${apiserver_host}"
 }
 
 install_or_upgrade_helm_chart() {
@@ -122,6 +216,10 @@ if [[ "$sso_enable" == "true" ]]; then
   sso_redirect_uri=$(get_input_with_default "Enter SSO redirect uri(empty to disable SSO): " "")
 fi
 
+opensearch_secret="primus-safe-opensearch-config"
+opensearch_username=$(get_input_with_default "Enter OpenSearch username (empty if not required): " "")
+opensearch_password=$(get_secret_input_with_default "Enter OpenSearch password (empty if not required): " "")
+
 csi_volume_handle=$(get_input_with_default "Enter csi volume handle? (empty to disable pfs for workspace): " "")
 install_node_agent=$(get_input_with_default "install node-agent ? (y/n): " "n")
 
@@ -165,6 +263,7 @@ if [[ "$sso_enable" == "true" ]]; then
   echo "✅ SSO Client Secret: \"$sso_client_secret\""
   echo "✅ SSO Redirect URI: \"$sso_redirect_uri\""
 fi
+echo "✅ OpenSearch Secret: \"$opensearch_secret\""
 echo "✅ CSI Volume Handle: \"$csi_volume_handle\""
 echo "✅ Helm Registry: \"$helm_registry\""
 echo "✅ Image Registry: \"$proxy_image_registry\""
@@ -243,6 +342,9 @@ if [[ "$sso_enable" == "true" ]] && [[ -n "$sso_endpoint" ]] && [[ -n "$sso_clie
 else
   sso_enable="false"
 fi
+
+ensure_opensearch_secret "$opensearch_secret" "$opensearch_username" "$opensearch_password"
+ensure_higress_tls_secret
 
 echo
 echo "========================================="
@@ -339,7 +441,7 @@ values_yaml="primus-safe-cr/.values.yaml"
 cp "$src_values_yaml" "${values_yaml}"
 
 if [[ -n "${helm_registry:-}" ]]; then
-  sed -i '/global:/,/^[a-z]/ s/helm_registry: .*/helm_registry: "'"$helm_registry"'"/' "$values_yaml"
+  sed -i '/global:/,/^[a-z]/ s|helm_registry: .*|helm_registry: "'"$helm_registry"'"|' "$values_yaml"
 fi
 # proxy_image_registry may contain '/', so use '|' as the sed delimiter.
 if [[ -n "${proxy_image_registry:-}" ]]; then

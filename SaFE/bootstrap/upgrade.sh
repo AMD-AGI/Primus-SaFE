@@ -220,7 +220,7 @@ values_yaml="primus-safe-cr/.values.yaml"
 cp "$src_values_yaml" "${values_yaml}"
 
 if [[ -n "${helm_registry:-}" ]]; then
-  sed -i '/global:/,/^[a-z]/ s/helm_registry: .*/helm_registry: "'"$helm_registry"'"/' "$values_yaml"
+  sed -i '/global:/,/^[a-z]/ s|helm_registry: .*|helm_registry: "'"$helm_registry"'"|' "$values_yaml"
 fi
 # proxy_image_registry may contain '/', so use '|' as the sed delimiter.
 if [[ -n "${proxy_image_registry:-}" ]]; then
