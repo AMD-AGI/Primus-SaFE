@@ -198,6 +198,14 @@ func IsWorkloadScheduled(obj metav1.Object) bool {
 	return HasAnnotation(obj, WorkloadScheduledAnnotation)
 }
 
+// IsWorkloadStatusOffloadEnabled reports whether the workload opts into storing
+// large status fields (per-pod detail, dispatch history) in the database. The
+// marker is stamped at creation time, so workloads created before this feature
+// have no marker and stay on the pure-etcd path.
+func IsWorkloadStatusOffloadEnabled(obj metav1.Object) bool {
+	return HasAnnotation(obj, WorkloadStatusOffloadAnnotation)
+}
+
 // IsControlPlane checks if a node is a control plane node.
 func IsControlPlane(obj metav1.Object) bool {
 	return HasLabel(obj, KubernetesControlPlane)

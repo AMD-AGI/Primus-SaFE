@@ -107,6 +107,7 @@ const (
 	WorkloadDisableFailoverAnnotation = WorkloadPrefix + "disable.failover"
 	WorkloadEnablePreemptAnnotation   = WorkloadPrefix + "enable.preempt"
 	WorkloadPrivilegedAnnotation      = WorkloadPrefix + "privileged"
+	WorkloadStatusOffloadAnnotation   = WorkloadPrefix + "status.offload"
 	CronJobTimestampAnnotation        = WorkloadPrefix + "cronjob"
 	EnvToBeRemovedAnnotation          = WorkloadPrefix + "env.to.remove"
 	AdminControlPlaneAnnotation       = WorkloadPrefix + "admin.control.plane"

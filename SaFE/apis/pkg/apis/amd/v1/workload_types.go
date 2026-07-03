@@ -201,11 +201,24 @@ type WorkloadStatus struct {
 	Message string `json:"message,omitempty"`
 	// The current position of the workload in the queue, only for pending
 	QueuePosition int `json:"queuePosition,omitempty"`
-	// Pod info related to the workload
+	// Pod info related to the workload.
+	//
+	// Deprecated: kept only for backward compatibility with pre-offload workloads.
+	// For offloaded workloads per-pod detail lives in the DB (workload_pod) and
+	// etcd keeps only the NodeUsage aggregate; this field will be removed once all
+	// workloads have migrated. Do not add new readers/writers of it.
 	Pods []WorkloadPod `json:"pods,omitempty"`
 	// The node used for each workload execution. If the workload is retried multiple times, there will be multiple entries.
+	//
+	// Deprecated: kept only for backward compatibility with pre-offload workloads.
+	// The per-dispatch node history now lives in the DB (workload_dispatch_node);
+	// this field will be removed once all workloads have migrated.
 	Nodes [][]string `json:"nodes,omitempty"`
 	// The node's rank is only valid for the PyTorch job and corresponds one-to-one with the nodes listed above.
+	//
+	// Deprecated: kept only for backward compatibility with pre-offload workloads.
+	// The per-dispatch rank history now lives in the DB (workload_dispatch_node);
+	// this field will be removed once all workloads have migrated.
 	Ranks [][]string `json:"ranks,omitempty"`
 	// The corresponding ID applied to the cicd AutoscalingRunnerSet object.
 	RunnerScaleSetId string `json:"runnerScaleSetId,omitempty"`
@@ -213,6 +226,35 @@ type WorkloadStatus struct {
 	DependenciesPhase map[string]WorkloadPhase `json:"dependenciesPhase,omitempty"`
 	// The phase of each torchFT object. key is group-id
 	TorchFTPhase map[string]WorkloadPhase `json:"torchFTPhase,omitempty"`
+	// NodeUsage is an O(node) aggregate of this workload's pods grouped by admin
+	// node, used by the resource/scheduling hot path in place of the per-pod Pods
+	// array so very large workloads (>10k pods) do not exceed the etcd object
+	// size limit. Full per-pod detail (incl. containers/failedMessage) and the
+	// Nodes/Ranks history live in the DB (workload_pod / workload_dispatch_node).
+	// Pods/Nodes/Ranks above are retained for backward compatibility and are read
+	// as a fallback when NodeUsage is empty.
+	NodeUsage []NodePodUsage `json:"nodeUsage,omitempty"`
+}
+
+// NodePodUsage aggregates a workload's pods on a single admin node, bucketed by
+// the workload resource index (resourceId). It lets the resource/scheduling
+// hot path compute usage without per-pod records:
+//
+//	usage(node) = sum over rid of count * perPodResource[rid]
+//
+// Running counts pods in the Running phase (current actual usage); Active counts
+// non-terminated pods (Pending/Running/Unknown — reserved usage used by quota /
+// scheduling). Terminated pods (Succeeded/Failed) are excluded from both.
+type NodePodUsage struct {
+	// Node is the admin node name these pods are scheduled on.
+	Node string `json:"node"`
+	// Running maps resourceId (decimal string, e.g. "0") -> number of running
+	// pods of that resource on this node. CRD/OpenAPI map keys must be strings,
+	// so the int8 resourceId is encoded as its decimal string.
+	Running map[string]int `json:"running,omitempty"`
+	// Active maps resourceId (decimal string) -> number of non-terminated pods
+	// of that resource on this node.
+	Active map[string]int `json:"active,omitempty"`
 }
 
 type WorkloadPod struct {

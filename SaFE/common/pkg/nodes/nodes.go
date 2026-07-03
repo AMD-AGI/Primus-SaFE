@@ -188,13 +188,24 @@ func GetIdleNodesOfWorkspace(ctx context.Context, cli client.Client, name string
 		return nil, err
 	}
 	usedNodesSet := sets.NewSet()
-	for _, w := range workloadList.Items {
+	for i := range workloadList.Items {
+		w := &workloadList.Items[i]
 		if w.IsEnd() {
 			continue
 		}
-		for _, p := range w.Status.Pods {
-			if v1.IsPodRunning(&p) {
-				usedNodesSet.Insert(p.AdminNodeName)
+		// Dual-read: prefer the etcd NodePodUsage aggregate (running = scheduled,
+		// non-terminated); fall back to Status.Pods.
+		if len(w.Status.NodeUsage) > 0 {
+			for _, u := range w.Status.NodeUsage {
+				if u.Node != "" {
+					usedNodesSet.Insert(u.Node)
+				}
+			}
+		} else {
+			for _, p := range w.Status.Pods {
+				if v1.IsPodRunning(&p) {
+					usedNodesSet.Insert(p.AdminNodeName)
+				}
 			}
 		}
 	}
@@ -216,12 +227,20 @@ func GetUsingNodesOfCluster(ctx context.Context, cli client.Client, clusterId st
 		return nil, err
 	}
 	result := sets.NewSet()
-	for _, w := range workloadList.Items {
+	for i := range workloadList.Items {
+		w := &workloadList.Items[i]
 		if w.IsEnd() {
 			continue
 		}
-		for _, p := range w.Status.Pods {
-			result.Insert(p.AdminNodeName)
+		// Dual-read: prefer the etcd NodePodUsage aggregate; fall back to Status.Pods.
+		if len(w.Status.NodeUsage) > 0 {
+			for _, u := range w.Status.NodeUsage {
+				result.Insert(u.Node)
+			}
+		} else {
+			for _, p := range w.Status.Pods {
+				result.Insert(p.AdminNodeName)
+			}
 		}
 	}
 	return result, nil

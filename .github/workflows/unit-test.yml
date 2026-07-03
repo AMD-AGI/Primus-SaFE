@@ -138,7 +138,7 @@ jobs:
           if [ -f coverage.out ]; then
             echo "📊 Coverage Report for ${{ matrix.module }}:"
             go tool cover -func=coverage.out | tail -n 1
-            COVERAGE=$(go tool cover -func=coverage.out | grep total | awk '{print $3}')
+            COVERAGE=$(go tool cover -func=coverage.out | grep '^total:' | awk '{print $3}')
             echo "Total Coverage: $COVERAGE"
             echo "COVERAGE=$COVERAGE" >> $GITHUB_ENV
           else
@@ -215,7 +215,7 @@ jobs:
             if [ -d "$dir" ]; then
               module=$(basename "$dir" | sed 's/coverage-safe-//')
               if [ -f "$dir/coverage.out" ]; then
-                coverage=$(go tool cover -func="$dir/coverage.out" 2>/dev/null | grep total | awk '{print $3}' || echo "N/A")
+                coverage=$(go tool cover -func="$dir/coverage.out" 2>/dev/null | grep '^total:' | awk '{print $3}' || echo "N/A")
                 echo "| $module | $coverage |" >> coverage-summary.md
               else
                 echo "| $module | No tests |" >> coverage-summary.md
@@ -365,7 +365,7 @@ jobs:
               coverage="N/A"
               
               if [ -f "$dir/coverage.out" ]; then
-                coverage=$(go tool cover -func="$dir/coverage.out" 2>/dev/null | grep total | awk '{print $3}' || echo "N/A")
+                coverage=$(go tool cover -func="$dir/coverage.out" 2>/dev/null | grep '^total:' | awk '{print $3}' || echo "N/A")
               fi
               
               echo "| $module | $coverage |" >> $GITHUB_STEP_SUMMARY

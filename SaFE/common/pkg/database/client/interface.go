@@ -39,16 +39,37 @@ type Interface interface {
 	A2ACallLogInterface
 	LLMGatewayInterface
 	OptimizationTaskInterface
+	WorkloadPodInterface
+	WorkloadDispatchNodeInterface
 }
 
 type WorkloadInterface interface {
 	UpsertWorkload(ctx context.Context, workload *Workload) error
 	SelectWorkloads(ctx context.Context, query sqrl.Sqlizer, orderBy []string, limit, offset int) ([]*Workload, error)
+	SelectWorkloadsForList(ctx context.Context, query sqrl.Sqlizer, orderBy []string, limit, offset int) ([]*Workload, error)
 	GetWorkload(ctx context.Context, workloadId string) (*Workload, error)
 	CountWorkloads(ctx context.Context, query sqrl.Sqlizer) (int, error)
 	SetWorkloadDeleted(ctx context.Context, workloadId string) error
 	SetWorkloadStopped(ctx context.Context, workloadId string) error
 	SetWorkloadDescription(ctx context.Context, workloadId, description string) error
+}
+
+// WorkloadPodInterface defines DB operations for per-pod workload detail
+// offloaded from the etcd Workload status (WorkloadStatus.Pods).
+type WorkloadPodInterface interface {
+	UpsertWorkloadPod(ctx context.Context, pod *WorkloadPod) error
+	BatchUpsertWorkloadPods(ctx context.Context, pods []*WorkloadPod) error
+	ListWorkloadPods(ctx context.Context, workloadId string) ([]*WorkloadPod, error)
+	DeleteWorkloadPods(ctx context.Context, workloadId string) error
+	DeleteWorkloadPodsNotIn(ctx context.Context, workloadId string, keepPodIds []string) error
+}
+
+// WorkloadDispatchNodeInterface defines DB operations for per-dispatch node/rank
+// history offloaded from the etcd Workload status (WorkloadStatus.Nodes/.Ranks).
+type WorkloadDispatchNodeInterface interface {
+	UpsertWorkloadDispatchNode(ctx context.Context, dn *WorkloadDispatchNode) error
+	ListWorkloadDispatchNodes(ctx context.Context, workloadId string) ([]*WorkloadDispatchNode, error)
+	DeleteWorkloadDispatchNodes(ctx context.Context, workloadId string) error
 }
 
 type FaultInterface interface {
@@ -129,6 +150,7 @@ type EmailOutboxInterface interface {
 type WorkloadStatisticInterface interface {
 	GetWorkloadStatisticByID(ctx context.Context, id int32) (*model.WorkloadStatistic, error)
 	GetWorkloadStatisticByWorkloadID(ctx context.Context, workloadID string) (*model.WorkloadStatistic, error)
+	GetWorkloadStatisticsByWorkloadIDs(ctx context.Context, workloadIDs []string) (map[string]*model.WorkloadStatistic, error)
 	GetWorkloadStatisticsByWorkloadID(ctx context.Context, workloadID string) ([]*model.WorkloadStatistic, error)
 	GetWorkloadStatisticByWorkloadUID(ctx context.Context, workloadUID string) (*model.WorkloadStatistic, error)
 	GetWorkloadStatisticsByWorkloadUID(ctx context.Context, workloadUID string) ([]*model.WorkloadStatistic, error)

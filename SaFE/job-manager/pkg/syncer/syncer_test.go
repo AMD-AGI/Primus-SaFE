@@ -7,8 +7,10 @@ package syncer
 
 import (
 	"context"
+	"reflect"
 	"testing"
 
+	"github.com/agiledragon/gomonkey/v2"
 	"gotest.tools/assert"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -85,4 +87,43 @@ func TestSyncerResourceTemplateHandler(t *testing.T) {
 	h.Create(context.Background(), event.CreateEvent{Object: rt}, nil)
 	h.Delete(context.Background(), event.DeleteEvent{Object: rt}, nil)
 	_ = common.PodKind
+}
+
+func TestGetAdminWorkload(t *testing.T) {
+	w := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "w"}}
+	cl := ctrlfake.NewClientBuilder().WithScheme(syncerScheme(t)).WithObjects(w).Build()
+	r := &SyncerReconciler{Client: cl}
+
+	got, err := r.getAdminWorkload(context.Background(), "w")
+	assert.NilError(t, err)
+	assert.Assert(t, got != nil)
+
+	// Missing workload -> (nil, nil).
+	got2, err := r.getAdminWorkload(context.Background(), "missing")
+	assert.NilError(t, err)
+	assert.Assert(t, got2 == nil)
+}
+
+// TestDoRoutesToHandlers patches GetClusterClientSets + handleJob/handlePod so Do's
+// routing switch is exercised for both Job-like and Pod kinds.
+func TestDoRoutesToHandlers(t *testing.T) {
+	patches := gomonkey.NewPatches()
+	defer patches.Reset()
+	cs := monkeyClientSets()
+	patches.ApplyFunc(GetClusterClientSets,
+		func(*commonutils.ObjectManager, string) (*ClusterClientSets, error) { return cs, nil })
+	patches.ApplyPrivateMethod(reflect.TypeOf(&SyncerReconciler{}), "handleJob",
+		func(_ *SyncerReconciler, _ context.Context, _ *resourceMessage, _ *ClusterClientSets) (ctrlruntime.Result, error) {
+			return ctrlruntime.Result{}, nil
+		})
+	patches.ApplyPrivateMethod(reflect.TypeOf(&SyncerReconciler{}), "handlePod",
+		func(_ *SyncerReconciler, _ context.Context, _ *resourceMessage, _ *ClusterClientSets) (ctrlruntime.Result, error) {
+			return ctrlruntime.Result{}, nil
+		})
+
+	r := &SyncerReconciler{}
+	_, err := r.Do(context.Background(), &resourceMessage{cluster: "c", gvk: schema.GroupVersionKind{Kind: "Job"}})
+	assert.NilError(t, err)
+	_, err = r.Do(context.Background(), &resourceMessage{cluster: "c", gvk: schema.GroupVersionKind{Kind: "Pod"}})
+	assert.NilError(t, err)
 }
