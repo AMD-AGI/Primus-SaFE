@@ -39,11 +39,22 @@ func GetTotalReplica(w *v1.Workload) int {
 	return n
 }
 
-// GetTotalNodeCount returns the total number of unique nodes where the workload's pods are running.
-func GetTotalNodeCount(w *v1.Workload) int {
+// GetInUseNodeCount returns the number of unique nodes currently in use by the
+// workload's non-terminated pods. Terminated pods (Succeeded/Failed) release
+// their node and are excluded, matching the paired used-quota computation and the
+// NodePodUsage aggregate (also built from non-terminated pods only).
+func GetInUseNodeCount(w *v1.Workload) int {
+	// Prefer the etcd NodePodUsage aggregate; fall back to Status.Pods when it is
+	// absent.
+	if len(w.Status.NodeUsage) > 0 {
+		return totalNodeCountFromUsage(w.Status.NodeUsage)
+	}
 	uniqNodeSet := sets.NewSet()
-	for _, p := range w.Status.Pods {
-		uniqNodeSet.Insert(p.AdminNodeName)
+	for i := range w.Status.Pods {
+		if v1.IsPodTerminated(&w.Status.Pods[i]) {
+			continue
+		}
+		uniqNodeSet.Insert(w.Status.Pods[i].AdminNodeName)
 	}
 	return uniqNodeSet.Len()
 }
@@ -104,6 +115,11 @@ func GetResourcesPerNode(workload *v1.Workload, adminNodeName string) (map[strin
 		return nil, err
 	}
 
+	// Dual-read: prefer the etcd NodePodUsage aggregate; fall back to Status.Pods.
+	if len(workload.Status.NodeUsage) > 0 {
+		return resourcesPerNodeFromUsage(workload.Status.NodeUsage, allPodResources, adminNodeName), nil
+	}
+
 	result := map[string]corev1.ResourceList{}
 	for _, pod := range workload.Status.Pods {
 		if !v1.IsPodRunning(&pod) || pod.ResourceId >= int8(len(allPodResources)) {
@@ -143,12 +159,19 @@ func GetMainContainerByPod(obj metav1.Object, kind, podName string) string {
 // It filters out terminated pods and applies node filtering criteria.
 func GetWorkloadResourceUsage(workload *v1.Workload, filterNode func(nodeName string) bool) (
 	corev1.ResourceList, corev1.ResourceList, []string, error) {
-	if GetTotalReplica(workload) == 0 || len(workload.Status.Pods) == 0 {
+	if GetTotalReplica(workload) == 0 ||
+		(len(workload.Status.Pods) == 0 && len(workload.Status.NodeUsage) == 0) {
 		return nil, nil, nil, nil
 	}
 	allPodResources, err := toPodResourceLists(workload)
 	if err != nil {
 		return nil, nil, nil, err
+	}
+
+	// Dual-read: prefer the etcd NodePodUsage aggregate; fall back to Status.Pods.
+	if len(workload.Status.NodeUsage) > 0 {
+		total, avail, nodes := workloadResourceUsageFromUsage(workload.Status.NodeUsage, allPodResources, filterNode)
+		return total, avail, nodes, nil
 	}
 
 	type input struct {

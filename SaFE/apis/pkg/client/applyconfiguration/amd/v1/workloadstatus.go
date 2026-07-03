@@ -27,11 +27,24 @@ type WorkloadStatusApplyConfiguration struct {
 	Message *string `json:"message,omitempty"`
 	// The current position of the workload in the queue, only for pending
 	QueuePosition *int `json:"queuePosition,omitempty"`
-	// Pod info related to the workload
+	// Pod info related to the workload.
+	//
+	// Deprecated: kept only for backward compatibility with pre-offload workloads.
+	// For offloaded workloads per-pod detail lives in the DB (workload_pod) and
+	// etcd keeps only the NodeUsage aggregate; this field will be removed once all
+	// workloads have migrated. Do not add new readers/writers of it.
 	Pods []WorkloadPodApplyConfiguration `json:"pods,omitempty"`
 	// The node used for each workload execution. If the workload is retried multiple times, there will be multiple entries.
+	//
+	// Deprecated: kept only for backward compatibility with pre-offload workloads.
+	// The per-dispatch node history now lives in the DB (workload_dispatch_node);
+	// this field will be removed once all workloads have migrated.
 	Nodes [][]string `json:"nodes,omitempty"`
 	// The node's rank is only valid for the PyTorch job and corresponds one-to-one with the nodes listed above.
+	//
+	// Deprecated: kept only for backward compatibility with pre-offload workloads.
+	// The per-dispatch rank history now lives in the DB (workload_dispatch_node);
+	// this field will be removed once all workloads have migrated.
 	Ranks [][]string `json:"ranks,omitempty"`
 	// The corresponding ID applied to the cicd AutoscalingRunnerSet object.
 	RunnerScaleSetId *string `json:"runnerScaleSetId,omitempty"`
@@ -39,6 +52,14 @@ type WorkloadStatusApplyConfiguration struct {
 	DependenciesPhase map[string]amdv1.WorkloadPhase `json:"dependenciesPhase,omitempty"`
 	// The phase of each torchFT object. key is group-id
 	TorchFTPhase map[string]amdv1.WorkloadPhase `json:"torchFTPhase,omitempty"`
+	// NodeUsage is an O(node) aggregate of this workload's pods grouped by admin
+	// node, used by the resource/scheduling hot path in place of the per-pod Pods
+	// array so very large workloads (>10k pods) do not exceed the etcd object
+	// size limit. Full per-pod detail (incl. containers/failedMessage) and the
+	// Nodes/Ranks history live in the DB (workload_pod / workload_dispatch_node).
+	// Pods/Nodes/Ranks above are retained for backward compatibility and are read
+	// as a fallback when NodeUsage is empty.
+	NodeUsage []NodePodUsageApplyConfiguration `json:"nodeUsage,omitempty"`
 }
 
 // WorkloadStatusApplyConfiguration constructs a declarative configuration of the WorkloadStatus type for use with
@@ -165,6 +186,19 @@ func (b *WorkloadStatusApplyConfiguration) WithTorchFTPhase(entries map[string]a
 	}
 	for k, v := range entries {
 		b.TorchFTPhase[k] = v
+	}
+	return b
+}
+
+// WithNodeUsage adds the given value to the NodeUsage field in the declarative configuration
+// and returns the receiver, so that objects can be build by chaining "With" function invocations.
+// If called multiple times, values provided by each call will be appended to the NodeUsage field.
+func (b *WorkloadStatusApplyConfiguration) WithNodeUsage(values ...*NodePodUsageApplyConfiguration) *WorkloadStatusApplyConfiguration {
+	for i := range values {
+		if values[i] == nil {
+			panic("nil value passed to WithNodeUsage")
+		}
+		b.NodeUsage = append(b.NodeUsage, *values[i])
 	}
 	return b
 }

@@ -121,6 +121,59 @@ func (c *Client) SelectWorkloads(ctx context.Context, query sqrl.Sqlizer, orderB
 	return workloads, err
 }
 
+// workloadListColumns are the columns the workload list endpoint renders. It
+// deliberately excludes the large TEXT columns (pods/nodes/ranks/conditions/env/
+// customer_labels/service/liveness/readiness/dependencies/cron_jobs/secrets/
+// images/entrypoints) that the list response never reads, so listing large
+// workloads does not pull megabyte-scale pod JSON per row.
+var workloadListColumns = []string{
+	"id", "workload_id", "display_name", "workspace", "cluster",
+	"resource", "resources", "gvk", "phase", "username",
+	"creation_time", "start_time", "end_time", "deletion_time",
+	"is_tolerate_all", "priority", "max_retry", "queue_position",
+	"dispatch_count", "timeout", "description", "user_id",
+	"workload_uid", "scale_runner_set", "scale_runner_id",
+}
+
+// SelectWorkloadsForList is SelectWorkloads restricted to the columns the list
+// endpoint renders. It avoids the large TEXT columns for performance; callers
+// that need full detail (e.g. the single-workload GET) must use SelectWorkloads
+// or GetWorkload instead.
+func (c *Client) SelectWorkloadsForList(ctx context.Context, query sqrl.Sqlizer, orderBy []string, limit, offset int) ([]*Workload, error) {
+	startTime := time.Now().UTC()
+	defer func() {
+		if query != nil {
+			strQuery := dbutils.CvtToSqlStr(query)
+			klog.Infof("select workload for list, query: %s, orderBy: %v, limit: %d, offset: %d, cost (%v)",
+				strQuery, orderBy, limit, offset, time.Since(startTime))
+		}
+	}()
+	db, err := c.getDB()
+	if err != nil {
+		return nil, err
+	}
+
+	sql, args, err := sqrl.Select(workloadListColumns...).PlaceholderFormat(sqrl.Dollar).
+		From(TWorkload).
+		Where(query).
+		OrderBy(orderBy...).
+		Limit(uint64(limit)).
+		Offset(uint64(offset)).ToSql()
+	if err != nil {
+		return nil, err
+	}
+
+	var workloads []*Workload
+	if c.RequestTimeout > 0 {
+		ctx2, cancel := context.WithTimeout(ctx, c.RequestTimeout)
+		defer cancel()
+		err = db.SelectContext(ctx2, &workloads, sql, args...)
+	} else {
+		err = db.SelectContext(ctx, &workloads, sql, args...)
+	}
+	return workloads, err
+}
+
 // CountWorkloads returns the total count of workloads matching the criteria.
 func (c *Client) CountWorkloads(ctx context.Context, query sqrl.Sqlizer) (int, error) {
 	db, err := c.getDB()

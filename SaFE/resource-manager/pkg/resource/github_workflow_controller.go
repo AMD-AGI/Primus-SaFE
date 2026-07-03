@@ -40,9 +40,17 @@ func SetupGitHubWorkflowController(mgr manager.Manager) error {
 		return nil
 	}
 
-	gormDB, err := dbclient.NewClient().GetGormDB()
+	// NewClient() returns nil when DB initialization fails. DB is not a hard
+	// dependency, so degrade gracefully (disable this controller) instead of
+	// failing startup; the nil check also avoids a nil-deref panic on GetGormDB.
+	dbClient := dbclient.NewClient()
+	if dbClient == nil {
+		klog.Warning("[github-workflow] DB client not initialized, controller disabled")
+		return nil
+	}
+	gormDB, err := dbClient.GetGormDB()
 	if err != nil {
-		klog.Warningf("[github-workflow] DB init failed, controller disabled: %v", err)
+		klog.Warningf("[github-workflow] failed to get gorm DB, controller disabled: %v", err)
 		return nil
 	}
 	sqlDB, err := gormDB.DB()

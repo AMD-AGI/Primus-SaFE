@@ -929,3 +929,46 @@ data:
     create unique index if not exists idx_optimization_event_event_id on optimization_event (event_id);
     create index if not exists idx_optimization_event_task_seq on optimization_event (task_id, seq);
     alter table optimization_event owner to "primus-safe";
+
+    -- Per-pod detail for a workload, offloaded from the etcd Workload status so
+    -- very large workloads (>10k pods) do not exceed the etcd object size limit.
+    -- One row per pod; written by the job-manager syncer (single writer), read
+    -- by the apiserver for workload detail/log/ops paths. The etcd status keeps
+    -- only an O(node) aggregate (nodeUsage) for the scheduling hot path.
+    create table if not exists workload_pod
+    (
+        workload_id      VARCHAR(64) NOT NULL,
+        pod_id           VARCHAR(128) NOT NULL,
+        resource_id      SMALLINT NOT NULL DEFAULT 0,
+        admin_node_name  VARCHAR(128),
+        host_ip          VARCHAR(64),
+        pod_ip           VARCHAR(64),
+        rank             VARCHAR(32),
+        group_id         SMALLINT NOT NULL DEFAULT 0,
+        phase            VARCHAR(32),
+        start_time       VARCHAR(64),
+        end_time         VARCHAR(64),
+        failed_message   TEXT,
+        containers       TEXT,
+        dispatch_count   INTEGER NOT NULL DEFAULT 0,
+        updated_at       TIMESTAMPTZ,
+        PRIMARY KEY (workload_id, pod_id)
+    );
+    create index if not exists idx_workload_pod_workload on workload_pod (workload_id);
+    create index if not exists idx_workload_pod_node on workload_pod (admin_node_name);
+    alter table workload_pod owner to "primus-safe";
+
+    -- Per-dispatch node/rank history for a workload (Nodes/Ranks were append-only
+    -- per retry in the etcd status). One row per dispatch index; written by the
+    -- job-manager syncer, read by dispatcher (last 1-2 dispatches) and ops/detail.
+    create table if not exists workload_dispatch_node
+    (
+        workload_id     VARCHAR(64) NOT NULL,
+        dispatch_index  INTEGER NOT NULL,
+        nodes           TEXT,
+        ranks           TEXT,
+        updated_at      TIMESTAMPTZ,
+        PRIMARY KEY (workload_id, dispatch_index)
+    );
+    create index if not exists idx_workload_dispatch_node_workload on workload_dispatch_node (workload_id);
+    alter table workload_dispatch_node owner to "primus-safe";
