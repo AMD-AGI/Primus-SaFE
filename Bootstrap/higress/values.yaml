@@ -8,6 +8,9 @@ global:
   # Enable Kubernetes Gateway API support
   # Allows using standard APIs like Gateway, HTTPRoute, TCPRoute, etc.
   enableGatewayAPI: true
+  # Optional: override the Higress image hub when the default Aliyun Hangzhou
+  # registry is unavailable. This can also be set with HIGRESS_GLOBAL_HUB.
+  # hub: "registry.example.com/higress"
 
 # Higress core component configuration
 higress-core:

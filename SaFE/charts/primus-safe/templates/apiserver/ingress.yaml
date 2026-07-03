@@ -35,4 +35,8 @@ spec:
                   number: {{ default 8088 (default .Values.apiserver).port }}
             path: /
             pathType: Prefix
+  tls:
+    - hosts:
+        - apiserver.{{ .Values.global.sub_domain }}.{{ .Values.global.domain }}
+      secretName: {{ .Values.global.tls_secret }}
 {{- end }}

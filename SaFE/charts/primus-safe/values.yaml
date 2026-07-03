@@ -14,6 +14,9 @@ global:
   image_registry: "docker.io"
   # Secret used for image downloading, created via install.sh
   image_pull_secret: "primus-safe-image"
+  # TLS secret used by Higress Ingress. install.sh creates this secret when
+  # Higress ingress is selected.
+  tls_secret: "default"
   # Kubernetes storage class for persistent storage
   storage_class: "local-path"
   # csi volume handle name for wekafs
