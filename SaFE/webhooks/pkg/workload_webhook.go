@@ -120,6 +120,9 @@ func (m *WorkloadMutator) mutateOnCreation(ctx context.Context, workload *v1.Wor
 		return err
 	}
 	m.mutateTimeout(workload, workspace)
+	// Stamp the status-offload marker so only workloads created by this version
+	// store large status fields in DB; pre-existing workloads stay on etcd.
+	v1.SetAnnotation(workload, v1.WorkloadStatusOffloadAnnotation, v1.TrueStr)
 	return nil
 }
 

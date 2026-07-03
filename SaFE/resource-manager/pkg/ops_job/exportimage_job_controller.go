@@ -31,6 +31,7 @@ import (
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
+	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
 	rmutils "github.com/AMD-AIG-AIMA/SAFE/resource-manager/pkg/utils"
 )
 
@@ -188,14 +189,16 @@ func (r *ExportImageJobReconciler) Do(ctx context.Context, jobName string) (ctrl
 		return ctrlruntime.Result{}, r.setJobCompleted(ctx, job, v1.OpsJobFailed, "failed to get workload", nil)
 	}
 
-	// Get node information from workload pods
-	if len(workload.Status.Pods) == 0 {
+	// Get node information from workload pods. Prefer the DB workload_pod table,
+	// falling back to the etcd Status.Pods.
+	pods := commonworkload.PodsOf(ctx, r.dbClient, workload)
+	if len(pods) == 0 {
 		err := commonerrors.NewBadRequest("workload has no pods")
 		return ctrlruntime.Result{}, r.setJobCompleted(ctx, job, v1.OpsJobFailed, err.Error(), nil)
 	}
 
 	// Use the first pod's admin node name
-	adminNodeName := workload.Status.Pods[0].AdminNodeName
+	adminNodeName := pods[0].AdminNodeName
 	if adminNodeName == "" {
 		err := commonerrors.NewBadRequest("workload pod is not scheduled to any node")
 		return ctrlruntime.Result{}, r.setJobCompleted(ctx, job, v1.OpsJobFailed, err.Error(), nil)
@@ -236,7 +239,7 @@ func (r *ExportImageJobReconciler) Do(ctx context.Context, jobName string) (ctrl
 	}
 
 	// Get Pod name and namespace from workload
-	podName := workload.Status.Pods[0].PodId
+	podName := pods[0].PodId
 	if podName == "" {
 		err := commonerrors.NewBadRequest("workload pod name is empty")
 		return ctrlruntime.Result{}, r.setJobCompleted(ctx, job, v1.OpsJobFailed, err.Error(), nil)

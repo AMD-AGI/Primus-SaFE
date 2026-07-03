@@ -141,7 +141,7 @@ func (r *SyncerReconciler) updateAdminWorkloadByPod(ctx context.Context, clientS
 	if commonworkload.IsCICDScalingRunnerSet(adminWorkload) {
 		updateCICDScalingRunnerSetPhase(adminWorkload, pod)
 	}
-	if err = r.Status().Update(ctx, adminWorkload); err != nil {
+	if err = r.persistWorkloadStatus(ctx, adminWorkload); err != nil {
 		klog.ErrorS(err, "failed to update admin workload status", "name", adminWorkload.Name)
 		return ctrlruntime.Result{}, err
 	}
@@ -357,11 +357,8 @@ func (r *SyncerReconciler) removeWorkloadPod(ctx context.Context, message *resou
 		return nil
 	}
 	adminWorkload, err := r.getAdminWorkload(ctx, message.workloadId)
-	if adminWorkload == nil || adminWorkload.IsEnd() {
+	if adminWorkload == nil {
 		return err
-	}
-	if !commonworkload.IsApplication(adminWorkload) && shouldWorkloadStopRetry(adminWorkload, message.dispatchCount) {
-		return nil
 	}
 
 	id := -1
@@ -374,12 +371,25 @@ func (r *SyncerReconciler) removeWorkloadPod(ctx context.Context, message *resou
 	if id < 0 {
 		return nil
 	}
-	newPods := append(adminWorkload.Status.Pods[:id], adminWorkload.Status.Pods[id+1:]...)
-	adminWorkload.Status.Pods = newPods
+
 	if commonworkload.IsApplication(adminWorkload) {
+		// Application: drop the pod entry and refresh node assignment so the status
+		// tracks the current replica set (no per-pod history is kept for these).
+		adminWorkload.Status.Pods = append(adminWorkload.Status.Pods[:id], adminWorkload.Status.Pods[id+1:]...)
 		r.updateWorkloadNodes(adminWorkload)
+	} else {
+		// Keep the pod entry (history) and only flip a still-live pod to Stopped;
+		// persistWorkloadStatus then refreshes the NodeUsage aggregate in etcd.
+		// Terminal (or already Stopped) pods are left as is to keep their final
+		// phase and avoid redundant writes on repeat events.
+		p := &adminWorkload.Status.Pods[id]
+		if v1.IsPodTerminated(p) || p.Phase == corev1.PodPhase(v1.WorkloadStopped) {
+			return nil
+		}
+		p.Phase = corev1.PodPhase(v1.WorkloadStopped)
 	}
-	if err = r.Status().Update(ctx, adminWorkload); err != nil {
+
+	if err = r.persistWorkloadStatus(ctx, adminWorkload); err != nil {
 		klog.ErrorS(err, "failed to update workload status", "name", adminWorkload.Name)
 		return err
 	}

@@ -269,6 +269,11 @@ func (h *Handler) cleanUpWorkloads(ctx context.Context, mainWorkload *v1.Workloa
 	}
 }
 
+// maxListBuildConcurrency caps how many workload list items are built in
+// parallel. query.Limit is client-controlled and unbounded, so a fixed worker
+// pool keeps a large page from spawning one goroutine / etcd Get per row.
+const maxListBuildConcurrency = 16
+
 // listWorkload implements the workload listing logic.
 // Parses query parameters, builds database or etcd queries,
 // and returns workloads matching the criteria.
@@ -293,7 +298,7 @@ func (h *Handler) listWorkload(c *gin.Context) (interface{}, error) {
 
 	dbSql, orderBy := cvtToListWorkloadSql(query)
 	ctx := c.Request.Context()
-	workloads, err := h.dbClient.SelectWorkloads(ctx, dbSql, orderBy, query.Limit, query.Offset)
+	workloads, err := h.dbClient.SelectWorkloadsForList(ctx, dbSql, orderBy, query.Limit, query.Offset)
 	if err != nil {
 		return nil, err
 	}
@@ -302,24 +307,48 @@ func (h *Handler) listWorkload(c *gin.Context) (interface{}, error) {
 	if result.TotalCount, err = h.dbClient.CountWorkloads(ctx, dbSql); err != nil {
 		return nil, err
 	}
+
+	// Batch-fetch GPU usage statistics for the page in one query to avoid an
+	// N+1 lookup per workload.
+	workloadIds := make([]string, 0, len(workloads))
 	for _, w := range workloads {
-		workload := h.cvtDBWorkloadToResponseItem(ctx, w)
-
-		// Query workload statistics to get GPU usage
-		stat, err := h.dbClient.GetWorkloadStatisticByWorkloadID(ctx, w.WorkloadId)
-		if err != nil {
-			klog.V(4).InfoS("failed to get workload statistic", "workloadId", w.WorkloadId, "error", err)
-			workload.AvgGpuUsage = -1
-		} else if stat == nil {
-			// No statistics available
-			workload.AvgGpuUsage = -1
-		} else {
-			// Use the average GPU usage from statistics
-			workload.AvgGpuUsage = stat.AvgGpuUsage3H
-		}
-
-		result.Items = append(result.Items, workload)
+		workloadIds = append(workloadIds, w.WorkloadId)
 	}
+	stats, err := h.dbClient.GetWorkloadStatisticsByWorkloadIDs(ctx, workloadIds)
+	if err != nil {
+		klog.V(4).InfoS("failed to batch get workload statistics", "error", err)
+		stats = nil
+	}
+
+	// cvtDBWorkloadToResponseItem does a per-Pending-row etcd Get with no
+	// inter-row dependency, so build the page items concurrently and write each
+	// back to its original index to preserve the response order. Concurrency is
+	// capped by a fixed worker pool (query.Limit is client-controlled and has no
+	// upper bound) so a huge page cannot spawn one goroutine / etcd Get per row.
+	items := make([]view.WorkloadResponseItem, len(workloads))
+	idxCh := make(chan int, len(workloads))
+	for i := range workloads {
+		idxCh <- i
+	}
+	close(idxCh)
+	workers := len(workloads)
+	if workers > maxListBuildConcurrency {
+		workers = maxListBuildConcurrency
+	}
+	_, _ = concurrent.Exec(workers, func() error {
+		for i := range idxCh {
+			w := workloads[i]
+			item := h.cvtDBWorkloadToResponseItem(ctx, w)
+			if stat := stats[w.WorkloadId]; stat != nil {
+				item.AvgGpuUsage = stat.AvgGpuUsage3H
+			} else {
+				item.AvgGpuUsage = -1
+			}
+			items[i] = item
+		}
+		return nil
+	})
+	result.Items = items
 	return result, nil
 }
 
@@ -1395,18 +1424,28 @@ func (h *Handler) cvtDBWorkloadToGetResponse(ctx context.Context,
 	if str := dbutils.ParseNullString(dbWorkload.Conditions); str != "" {
 		json.Unmarshal([]byte(str), &result.Conditions)
 	}
-	if str := dbutils.ParseNullString(dbWorkload.Pods); str != "" {
+	// Pods: prefer the workload_pod table (status offload), fall back to the
+	// legacy pods column so pre-offload workloads still render.
+	if pods := h.listOffloadedPods(ctx, dbWorkload.WorkloadId); len(pods) > 0 {
+		result.Pods = pods
+	} else if str := dbutils.ParseNullString(dbWorkload.Pods); str != "" {
 		json.Unmarshal([]byte(str), &result.Pods)
-		for i, p := range result.Pods {
-			result.Pods[i].SSHCommand = h.buildSSHCommand(ctx,
-				&p.WorkloadPod, user.Name, result.WorkspaceId, result.GroupVersionKind)
+	}
+	for i := range result.Pods {
+		result.Pods[i].SSHCommand = h.buildSSHCommand(ctx,
+			&result.Pods[i].WorkloadPod, user.Name, result.WorkspaceId, result.GroupVersionKind)
+	}
+	// Nodes/Ranks: prefer the workload_dispatch_node table, fall back to columns.
+	if rows := h.listOffloadedDispatchNodes(ctx, dbWorkload.WorkloadId); len(rows) > 0 {
+		result.Nodes = dbclient.DispatchNodesToV1(rows)
+		result.Ranks = dbclient.DispatchRanksToV1(rows)
+	} else {
+		if str := dbutils.ParseNullString(dbWorkload.Nodes); str != "" {
+			json.Unmarshal([]byte(str), &result.Nodes)
 		}
-	}
-	if str := dbutils.ParseNullString(dbWorkload.Nodes); str != "" {
-		json.Unmarshal([]byte(str), &result.Nodes)
-	}
-	if str := dbutils.ParseNullString(dbWorkload.Ranks); str != "" {
-		json.Unmarshal([]byte(str), &result.Ranks)
+		if str := dbutils.ParseNullString(dbWorkload.Ranks); str != "" {
+			json.Unmarshal([]byte(str), &result.Ranks)
+		}
 	}
 	if str := dbutils.ParseNullString(dbWorkload.CustomerLabels); str != "" {
 		var customerLabels map[string]string
@@ -1454,6 +1493,38 @@ func (h *Handler) cvtDBWorkloadToGetResponse(ctx context.Context,
 		}
 	}
 	return result
+}
+
+// listOffloadedPods returns a workload's pods from the workload_pod table as
+// response wrappers, or nil when the DB is unavailable, errors, or has no rows
+// so the caller can fall back to the legacy pods column without erroring.
+func (h *Handler) listOffloadedPods(ctx context.Context, workloadId string) []view.WorkloadPodWrapper {
+	if h.dbClient == nil {
+		return nil
+	}
+	rows, err := h.dbClient.ListWorkloadPods(ctx, workloadId)
+	if err != nil || len(rows) == 0 {
+		return nil
+	}
+	pods := dbclient.WorkloadPodsToV1(rows)
+	wrappers := make([]view.WorkloadPodWrapper, 0, len(pods))
+	for i := range pods {
+		wrappers = append(wrappers, view.WorkloadPodWrapper{WorkloadPod: pods[i]})
+	}
+	return wrappers
+}
+
+// listOffloadedDispatchNodes returns a workload's dispatch rows, or nil when the
+// DB is unavailable or errors so the caller can fall back to legacy columns.
+func (h *Handler) listOffloadedDispatchNodes(ctx context.Context, workloadId string) []*dbclient.WorkloadDispatchNode {
+	if h.dbClient == nil {
+		return nil
+	}
+	rows, err := h.dbClient.ListWorkloadDispatchNodes(ctx, workloadId)
+	if err != nil {
+		return nil
+	}
+	return rows
 }
 
 // parseCustomerLabels separates user-defined labels from node selection labels.
