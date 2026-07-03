@@ -177,6 +177,40 @@ func TestGetInUseNodeCountExcludesTerminatedOnlyNode(t *testing.T) {
 	assert.Equal(t, GetInUseNodeCount(w), GetInUseNodeCount(wUsage))
 }
 
+// TestNodeUsageNodeSetEquivalence locks the scheduling-relevant equivalence that
+// the node-set readers (nodes.GetIdleNodesOfWorkspace, ops_job.excludeBusyNodes,
+// workspace webhook) depend on: the set of non-empty nodes in BuildNodeUsage
+// equals the set of admin nodes over IsPodRunning (scheduled, non-terminated)
+// pods. A node holding only terminated pods is excluded by both paths.
+func TestNodeUsageNodeSetEquivalence(t *testing.T) {
+	w := &v1.Workload{Status: v1.WorkloadStatus{Pods: []v1.WorkloadPod{
+		{AdminNodeName: "n1", Phase: corev1.PodRunning},               // scheduled running
+		{AdminNodeName: "n1", Phase: corev1.PodPending},               // scheduled pending (still "running" set)
+		{AdminNodeName: "n2", Phase: corev1.PodRunning},               // scheduled running
+		{AdminNodeName: "n2", Phase: corev1.PodSucceeded},             // terminated, shares n2
+		{AdminNodeName: "n3", Phase: corev1.PodFailed},                // terminated-only node -> excluded
+		{AdminNodeName: "", Phase: corev1.PodPending},                 // unscheduled -> no node
+	}}}
+
+	legacy := map[string]bool{}
+	for i := range w.Status.Pods {
+		if v1.IsPodRunning(&w.Status.Pods[i]) {
+			legacy[w.Status.Pods[i].AdminNodeName] = true
+		}
+	}
+	usage := map[string]bool{}
+	for _, u := range BuildNodeUsage(w) {
+		if u.Node != "" {
+			usage[u.Node] = true
+		}
+	}
+	// Both paths yield exactly {n1, n2}; n3 (terminated-only) and "" are excluded.
+	assert.DeepEqual(t, legacy, usage)
+	assert.Equal(t, len(usage), 2)
+	assert.Equal(t, usage["n1"] && usage["n2"], true)
+	assert.Equal(t, usage["n3"], false)
+}
+
 // uniqueStrings de-dupes (the available-node list may repeat a node per pod on
 // the legacy path; callers only use the distinct set).
 func uniqueStrings(in []string) []string {
