@@ -807,7 +807,7 @@ func (h *Handler) generatePreflightNodesInput(ctx context.Context, job *v1.OpsJo
 // It queries either the database or k8s cluster based on configuration to get node information.
 // the workspaceId is also returned
 func (h *Handler) getNodesOfWorkload(ctx context.Context, workloadId string) ([]string, string, error) {
-	if commonconfig.IsDBEnable() {
+	if commonconfig.IsDBEnable() && h.dbClient != nil {
 		workload, err := h.dbClient.GetWorkload(ctx, workloadId)
 		if err != nil {
 			return nil, "", err
