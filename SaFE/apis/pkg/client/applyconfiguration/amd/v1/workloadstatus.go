@@ -27,11 +27,24 @@ type WorkloadStatusApplyConfiguration struct {
 	Message *string `json:"message,omitempty"`
 	// The current position of the workload in the queue, only for pending
 	QueuePosition *int `json:"queuePosition,omitempty"`
-	// Pod info related to the workload
+	// Pod info related to the workload.
+	//
+	// Deprecated: kept only for backward compatibility with pre-offload workloads.
+	// For offloaded workloads per-pod detail lives in the DB (workload_pod) and
+	// etcd keeps only the NodeUsage aggregate; this field will be removed once all
+	// workloads have migrated. Do not add new readers/writers of it.
 	Pods []WorkloadPodApplyConfiguration `json:"pods,omitempty"`
 	// The node used for each workload execution. If the workload is retried multiple times, there will be multiple entries.
+	//
+	// Deprecated: kept only for backward compatibility with pre-offload workloads.
+	// The per-dispatch node history now lives in the DB (workload_dispatch_node);
+	// this field will be removed once all workloads have migrated.
 	Nodes [][]string `json:"nodes,omitempty"`
 	// The node's rank is only valid for the PyTorch job and corresponds one-to-one with the nodes listed above.
+	//
+	// Deprecated: kept only for backward compatibility with pre-offload workloads.
+	// The per-dispatch rank history now lives in the DB (workload_dispatch_node);
+	// this field will be removed once all workloads have migrated.
 	Ranks [][]string `json:"ranks,omitempty"`
 	// The corresponding ID applied to the cicd AutoscalingRunnerSet object.
 	RunnerScaleSetId *string `json:"runnerScaleSetId,omitempty"`
