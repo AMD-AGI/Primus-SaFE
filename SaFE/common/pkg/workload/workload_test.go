@@ -7,6 +7,7 @@ package workload
 
 import (
 	"context"
+	"reflect"
 	"testing"
 
 	"gotest.tools/assert"
@@ -403,4 +404,124 @@ func TestMigrateResourceToResources(t *testing.T) {
 			}
 		})
 	}
+}
+
+func wlKind(kind string) *v1.Workload {
+	w := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "w", Annotations: map[string]string{}, Labels: map[string]string{}}}
+	w.Spec.GroupVersionKind.Kind = kind
+	return w
+}
+
+func TestGetScope(t *testing.T) {
+	assert.Equal(t, GetScope(wlKind(common.PytorchJobKind)), v1.TrainScope)
+	assert.Equal(t, GetScope(wlKind(common.DeploymentKind)), v1.InferScope)
+	assert.Equal(t, GetScope(wlKind(common.AuthoringKind)), v1.AuthoringScope)
+	assert.Equal(t, GetScope(wlKind(common.CICDScaleRunnerSetKind)), v1.CICDScope)
+	assert.Equal(t, GetScope(wlKind(common.RayJobKind)), v1.RayScope)
+	assert.Equal(t, GetScope(wlKind(common.SandboxKind)), v1.SandboxScope)
+	assert.Equal(t, GetScope(wlKind("Unknown")), v1.WorkspaceScope(""))
+}
+
+func TestKindPredicates(t *testing.T) {
+	assert.Assert(t, IsApplication(wlKind(common.DeploymentKind)))
+	assert.Assert(t, IsApplication(wlKind(common.StatefulSetKind)))
+	assert.Assert(t, !IsApplication(wlKind(common.JobKind)))
+	assert.Assert(t, IsAuthoring(wlKind(common.AuthoringKind)))
+	assert.Assert(t, !IsAuthoring(wlKind(common.JobKind)))
+	assert.Assert(t, IsCICD(wlKind(common.CICDScaleRunnerSetKind)))
+	assert.Assert(t, IsCICD(wlKind(common.CICDEphemeralRunnerKind)))
+	assert.Assert(t, !IsCICD(wlKind(common.JobKind)))
+	assert.Assert(t, IsCICDScalingRunnerSet(wlKind(common.CICDScaleRunnerSetKind)))
+	assert.Assert(t, !IsCICDScalingRunnerSet(wlKind(common.JobKind)))
+	assert.Assert(t, IsCICDEphemeralRunner(wlKind(common.CICDEphemeralRunnerKind)))
+	assert.Assert(t, !IsCICDEphemeralRunner(wlKind(common.JobKind)))
+	assert.Assert(t, IsTorchFT(wlKind(common.TorchFTKind)))
+	assert.Assert(t, !IsTorchFT(wlKind(common.JobKind)))
+	assert.Assert(t, IsRayJob(wlKind(common.RayJobKind)))
+	assert.Assert(t, !IsRayJob(wlKind(common.JobKind)))
+	assert.Assert(t, IsDynamoDeployment(wlKind(common.DynamoDeploymentKind)))
+	assert.Assert(t, IsOptimusDeployment(wlKind(common.OptimusDeploymentKind)))
+	assert.Assert(t, IsMonarchJob(wlKind(common.MonarchJob)))
+	assert.Assert(t, !IsMonarchJob(wlKind(common.JobKind)))
+	assert.Assert(t, IsMonarchMesh(wlKind(common.MonarchMesh)))
+	assert.Assert(t, !IsMonarchMesh(wlKind(common.JobKind)))
+	assert.Assert(t, IsSandBox(wlKind(common.SandboxKind)))
+	assert.Assert(t, !IsSandBox(wlKind(common.JobKind)))
+}
+
+func TestIsOpsJob(t *testing.T) {
+	w := wlKind(common.JobKind)
+	assert.Assert(t, !IsOpsJob(w))
+	v1.SetLabel(w, v1.OpsJobIdLabel, "job-1")
+	assert.Assert(t, IsOpsJob(w))
+}
+
+func TestDynamoHelpers(t *testing.T) {
+	// non-dynamo -> nil roles
+	assert.Assert(t, GetDynamoServiceRoles(wlKind(common.JobKind)) == nil)
+
+	d := wlKind(common.DynamoDeploymentKind)
+	// annotation-driven roles
+	v1.SetAnnotation(d, v1.DynamoServiceRolesAnnotation, "frontend, worker , planner")
+	assert.Assert(t, reflect.DeepEqual(GetDynamoServiceRoles(d), []string{"frontend", "worker", "planner"}))
+
+	// fallback by resource count
+	d2 := wlKind(common.DynamoDeploymentKind)
+	d2.Spec.Resources = []v1.WorkloadResource{{}, {}}
+	assert.Equal(t, len(GetDynamoServiceRoles(d2)), 2)
+	d3 := wlKind(common.DynamoDeploymentKind)
+	d3.Spec.Resources = []v1.WorkloadResource{{}, {}, {}}
+	assert.Equal(t, len(GetDynamoServiceRoles(d3)), 3)
+	d4 := wlKind(common.DynamoDeploymentKind)
+	d4.Spec.Resources = []v1.WorkloadResource{{}}
+	assert.Assert(t, GetDynamoServiceRoles(d4) == nil)
+
+	// backends / frameworks default + set
+	assert.Equal(t, GetDynamoKVTransferBackend(d2), common.DynamoDefaultKVBackend)
+	v1.SetAnnotation(d, v1.DynamoKVTransferBackendAnnotation, "mori")
+	assert.Equal(t, GetDynamoKVTransferBackend(d), "mori")
+	assert.Equal(t, GetDynamoBackendFramework(d2), common.DynamoDefaultBackendFramework)
+	v1.SetAnnotation(d, v1.DynamoBackendFrameworkAnnotation, "vllm")
+	assert.Equal(t, GetDynamoBackendFramework(d), "vllm")
+
+	// multinode roles
+	assert.Assert(t, GetDynamoMultinodeRoles(d2) == nil)
+	v1.SetAnnotation(d, v1.DynamoMultinodeRolesAnnotation, "worker")
+	assert.Assert(t, reflect.DeepEqual(GetDynamoMultinodeRoles(d), []string{"worker"}))
+	assert.Assert(t, IsDynamoMultinodeRole(d, "worker"))
+	assert.Assert(t, !IsDynamoMultinodeRole(d, "frontend"))
+}
+
+func TestOptimusHelpers(t *testing.T) {
+	assert.Assert(t, GetOptimusServiceRoles(wlKind(common.JobKind)) == nil)
+	o := wlKind(common.OptimusDeploymentKind)
+	v1.SetAnnotation(o, v1.OptimusServiceRolesAnnotation, "frontend,prefill,decode")
+	assert.Equal(t, len(GetOptimusServiceRoles(o)), 3)
+
+	o2 := wlKind(common.OptimusDeploymentKind)
+	o2.Spec.Resources = []v1.WorkloadResource{{}, {}}
+	assert.Equal(t, len(GetOptimusServiceRoles(o2)), 2)
+	o3 := wlKind(common.OptimusDeploymentKind)
+	o3.Spec.Resources = []v1.WorkloadResource{{}, {}, {}}
+	assert.Equal(t, len(GetOptimusServiceRoles(o3)), 3)
+
+	assert.Equal(t, GetOptimusKVTransferBackend(o2), common.OptimusDefaultKVBackend)
+	v1.SetAnnotation(o, v1.OptimusKVTransferBackendAnnotation, "nixl")
+	assert.Equal(t, GetOptimusKVTransferBackend(o), "nixl")
+	assert.Equal(t, GetOptimusBackendFramework(o2), common.OptimusDefaultBackendFramework)
+	v1.SetAnnotation(o, v1.OptimusBackendFrameworkAnnotation, "sglang")
+	assert.Equal(t, GetOptimusBackendFramework(o), "sglang")
+
+	assert.Assert(t, GetOptimusMultinodeRoles(o2) == nil)
+	v1.SetAnnotation(o, v1.OptimusMultinodeRolesAnnotation, "decode")
+	assert.Assert(t, IsOptimusMultinodeRole(o, "decode"))
+	assert.Assert(t, !IsOptimusMultinodeRole(o, "frontend"))
+}
+
+func TestGeneratePriorityAndReason(t *testing.T) {
+	assert.Equal(t, GenerateDispatchReason(3), "run_3_times")
+	assert.Equal(t, GeneratePriority(common.HighPriorityInt), common.HighPriority)
+	assert.Equal(t, GeneratePriority(common.MedPriorityInt), common.MedPriority)
+	assert.Equal(t, GeneratePriority(-100), common.LowPriority)
+	assert.Assert(t, GeneratePriorityClass(wlKind(common.JobKind)) != "")
 }

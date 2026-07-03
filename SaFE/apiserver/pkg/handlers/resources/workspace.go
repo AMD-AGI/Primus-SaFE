@@ -574,7 +574,7 @@ func (h *Handler) cvtToGetWorkspaceResponse(ctx context.Context, workspace *v1.W
 			if err != nil {
 				return nil, err
 			}
-			usedNodeCount = commonworkload.GetTotalNodeCount(sourceWorkload)
+			usedNodeCount = commonworkload.GetInUseNodeCount(sourceWorkload)
 		}
 	}
 	if usedNodeCount == 0 {

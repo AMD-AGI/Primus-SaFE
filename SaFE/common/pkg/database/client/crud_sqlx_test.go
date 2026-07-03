@@ -81,6 +81,32 @@ func TestWorkloadCRUD(t *testing.T) {
 	_, _ = c.GetWorkload(ctx, "w1")
 }
 
+func TestWorkloadPodCRUD(t *testing.T) {
+	c, mock := newLooseMockClient(t)
+	arm(mock, 60)
+	ctx := context.Background()
+
+	_ = c.UpsertWorkloadPod(ctx, &WorkloadPod{WorkloadId: "w1", PodId: "p1"})
+	_ = c.BatchUpsertWorkloadPods(ctx, []*WorkloadPod{
+		{WorkloadId: "w1", PodId: "p1"},
+		{WorkloadId: "w1", PodId: "p2"},
+	})
+	_, _ = c.ListWorkloadPods(ctx, "w1")
+	_ = c.DeleteWorkloadPods(ctx, "w1")
+	_ = c.DeleteWorkloadPodsNotIn(ctx, "w1", []string{"p1", "p2"})
+	_ = c.DeleteWorkloadPodsNotIn(ctx, "w1", nil)
+}
+
+func TestWorkloadDispatchNodeCRUD(t *testing.T) {
+	c, mock := newLooseMockClient(t)
+	arm(mock, 60)
+	ctx := context.Background()
+
+	_ = c.UpsertWorkloadDispatchNode(ctx, &WorkloadDispatchNode{WorkloadId: "w1", DispatchIndex: 0})
+	_, _ = c.ListWorkloadDispatchNodes(ctx, "w1")
+	_ = c.DeleteWorkloadDispatchNodes(ctx, "w1")
+}
+
 func TestFaultCRUD(t *testing.T) {
 	c, mock := newLooseMockClient(t)
 	arm(mock, 60)

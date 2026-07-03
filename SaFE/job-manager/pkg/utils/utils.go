@@ -14,6 +14,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	apitypes "k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/util/retry"
 	"k8s.io/klog/v2"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -80,11 +81,65 @@ func SetWorkloadFailed(ctx context.Context, cli client.Client, workload *v1.Work
 	}
 	condition := NewCondition(string(v1.AdminFailed), message, commonworkload.GenerateDispatchReason(dispatchCount))
 	workload.Status.Conditions = append(workload.Status.Conditions, *condition)
-	if err := cli.Status().Update(ctx, workload); err != nil {
+	commonworkload.StripOffloadedStatus(workload)
+	if err := UpdateWorkloadStatusWithRetry(ctx, cli, workload); err != nil {
 		klog.ErrorS(err, "failed to update workload status", "name", workload.Name)
 		return err
 	}
 	return nil
+}
+
+// UpdateWorkloadStatusWithRetry writes workload.Status to etcd, retrying on
+// optimistic-lock conflicts by re-reading the latest object and re-applying the
+// computed status. Without a retry, unrelated concurrent writes to .metadata/
+// .spec bump the resourceVersion and turn every status update into a conflict,
+// which on hot objects (e.g. CICD runner sets) livelocks the single-worker
+// syncer queue.
+//
+// Workload .status is written mostly by the syncer, but a few other controllers
+// (e.g. failover's AdminFailover condition) also append conditions. Re-applying
+// the computed status wholesale would drop such concurrently-added conditions,
+// so the freshly-read conditions are merged back in by (Type, Reason). Other
+// status fields (phase, pods, nodes, ...) are owned by the syncer and are
+// overwritten with the computed value.
+func UpdateWorkloadStatusWithRetry(ctx context.Context, cli client.Client, workload *v1.Workload) error {
+	key := client.ObjectKeyFromObject(workload)
+	status := workload.Status
+	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		latest := &v1.Workload{}
+		if err := cli.Get(ctx, key, latest); err != nil {
+			return err
+		}
+		// Snapshot conditions already in etcd (may include ones added
+		// concurrently by other controllers) before overwriting status.
+		concurrentConditions := latest.Status.Conditions
+		status.DeepCopyInto(&latest.Status)
+		latest.Status.Conditions = mergeConditions(latest.Status.Conditions, concurrentConditions)
+		if err := cli.Status().Update(ctx, latest); err != nil {
+			return err
+		}
+		workload.ResourceVersion = latest.ResourceVersion
+		return nil
+	})
+}
+
+// mergeConditions returns base plus any conditions from extra not already
+// present by (Type, Reason). It preserves conditions added concurrently by other
+// controllers when a status write overwrites the condition list.
+func mergeConditions(base, extra []metav1.Condition) []metav1.Condition {
+	for i := range extra {
+		found := false
+		for j := range base {
+			if base[j].Type == extra[i].Type && base[j].Reason == extra[i].Reason {
+				found = true
+				break
+			}
+		}
+		if !found {
+			base = append(base, extra[i])
+		}
+	}
+	return base
 }
 
 // StopReason describes why a workload was forcibly transitioned to the

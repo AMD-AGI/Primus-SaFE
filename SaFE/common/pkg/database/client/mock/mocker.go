@@ -95,6 +95,20 @@ func (mr *MockInterfaceMockRecorder) BatchInsertAuditLogs(ctx, auditLogs interfa
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "BatchInsertAuditLogs", reflect.TypeOf((*MockInterface)(nil).BatchInsertAuditLogs), ctx, auditLogs)
 }
 
+// BatchUpsertWorkloadPods mocks base method.
+func (m *MockInterface) BatchUpsertWorkloadPods(ctx context.Context, pods []*client.WorkloadPod) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "BatchUpsertWorkloadPods", ctx, pods)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// BatchUpsertWorkloadPods indicates an expected call of BatchUpsertWorkloadPods.
+func (mr *MockInterfaceMockRecorder) BatchUpsertWorkloadPods(ctx, pods interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "BatchUpsertWorkloadPods", reflect.TypeOf((*MockInterface)(nil).BatchUpsertWorkloadPods), ctx, pods)
+}
+
 // CheckDatasetNameExists mocks base method.
 func (m *MockInterface) CheckDatasetNameExists(ctx context.Context, displayName string) (bool, error) {
 	m.ctrl.T.Helper()
@@ -543,6 +557,48 @@ func (m *MockInterface) DeleteRegistryInfo(ctx context.Context, id int32) error 
 func (mr *MockInterfaceMockRecorder) DeleteRegistryInfo(ctx, id interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteRegistryInfo", reflect.TypeOf((*MockInterface)(nil).DeleteRegistryInfo), ctx, id)
+}
+
+// DeleteWorkloadDispatchNodes mocks base method.
+func (m *MockInterface) DeleteWorkloadDispatchNodes(ctx context.Context, workloadId string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteWorkloadDispatchNodes", ctx, workloadId)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteWorkloadDispatchNodes indicates an expected call of DeleteWorkloadDispatchNodes.
+func (mr *MockInterfaceMockRecorder) DeleteWorkloadDispatchNodes(ctx, workloadId interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteWorkloadDispatchNodes", reflect.TypeOf((*MockInterface)(nil).DeleteWorkloadDispatchNodes), ctx, workloadId)
+}
+
+// DeleteWorkloadPods mocks base method.
+func (m *MockInterface) DeleteWorkloadPods(ctx context.Context, workloadId string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteWorkloadPods", ctx, workloadId)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteWorkloadPods indicates an expected call of DeleteWorkloadPods.
+func (mr *MockInterfaceMockRecorder) DeleteWorkloadPods(ctx, workloadId interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteWorkloadPods", reflect.TypeOf((*MockInterface)(nil).DeleteWorkloadPods), ctx, workloadId)
+}
+
+// DeleteWorkloadPodsNotIn mocks base method.
+func (m *MockInterface) DeleteWorkloadPodsNotIn(ctx context.Context, workloadId string, keepPodIds []string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteWorkloadPodsNotIn", ctx, workloadId, keepPodIds)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteWorkloadPodsNotIn indicates an expected call of DeleteWorkloadPodsNotIn.
+func (mr *MockInterfaceMockRecorder) DeleteWorkloadPodsNotIn(ctx, workloadId, keepPodIds interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteWorkloadPodsNotIn", reflect.TypeOf((*MockInterface)(nil).DeleteWorkloadPodsNotIn), ctx, workloadId, keepPodIds)
 }
 
 // DeleteWorkloadStatistic mocks base method.
@@ -1187,6 +1243,21 @@ func (mr *MockInterfaceMockRecorder) GetWorkloadStatisticsByWorkloadID(ctx, work
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetWorkloadStatisticsByWorkloadID", reflect.TypeOf((*MockInterface)(nil).GetWorkloadStatisticsByWorkloadID), ctx, workloadID)
 }
 
+// GetWorkloadStatisticsByWorkloadIDs mocks base method.
+func (m *MockInterface) GetWorkloadStatisticsByWorkloadIDs(ctx context.Context, workloadIDs []string) (map[string]*model.WorkloadStatistic, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetWorkloadStatisticsByWorkloadIDs", ctx, workloadIDs)
+	ret0, _ := ret[0].(map[string]*model.WorkloadStatistic)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetWorkloadStatisticsByWorkloadIDs indicates an expected call of GetWorkloadStatisticsByWorkloadIDs.
+func (mr *MockInterfaceMockRecorder) GetWorkloadStatisticsByWorkloadIDs(ctx, workloadIDs interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetWorkloadStatisticsByWorkloadIDs", reflect.TypeOf((*MockInterface)(nil).GetWorkloadStatisticsByWorkloadIDs), ctx, workloadIDs)
+}
+
 // GetWorkloadStatisticsByWorkloadUID mocks base method.
 func (m *MockInterface) GetWorkloadStatisticsByWorkloadUID(ctx context.Context, workloadUID string) ([]*model.WorkloadStatistic, error) {
 	m.ctrl.T.Helper()
@@ -1459,6 +1530,36 @@ func (mr *MockInterfaceMockRecorder) ListUnprocessedNotifications(ctx interface{
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListUnprocessedNotifications", reflect.TypeOf((*MockInterface)(nil).ListUnprocessedNotifications), ctx)
 }
 
+// ListWorkloadDispatchNodes mocks base method.
+func (m *MockInterface) ListWorkloadDispatchNodes(ctx context.Context, workloadId string) ([]*client.WorkloadDispatchNode, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListWorkloadDispatchNodes", ctx, workloadId)
+	ret0, _ := ret[0].([]*client.WorkloadDispatchNode)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListWorkloadDispatchNodes indicates an expected call of ListWorkloadDispatchNodes.
+func (mr *MockInterfaceMockRecorder) ListWorkloadDispatchNodes(ctx, workloadId interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListWorkloadDispatchNodes", reflect.TypeOf((*MockInterface)(nil).ListWorkloadDispatchNodes), ctx, workloadId)
+}
+
+// ListWorkloadPods mocks base method.
+func (m *MockInterface) ListWorkloadPods(ctx context.Context, workloadId string) ([]*client.WorkloadPod, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListWorkloadPods", ctx, workloadId)
+	ret0, _ := ret[0].([]*client.WorkloadPod)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListWorkloadPods indicates an expected call of ListWorkloadPods.
+func (mr *MockInterfaceMockRecorder) ListWorkloadPods(ctx, workloadId interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListWorkloadPods", reflect.TypeOf((*MockInterface)(nil).ListWorkloadPods), ctx, workloadId)
+}
+
 // SelectA2ACallLogs mocks base method.
 func (m *MockInterface) SelectA2ACallLogs(ctx context.Context, query squirrel.Sqlizer, orderBy []string, limit, offset int) ([]*client.A2ACallLog, error) {
 	m.ctrl.T.Helper()
@@ -1653,6 +1754,21 @@ func (m *MockInterface) SelectWorkloads(ctx context.Context, query squirrel.Sqli
 func (mr *MockInterfaceMockRecorder) SelectWorkloads(ctx, query, orderBy, limit, offset interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SelectWorkloads", reflect.TypeOf((*MockInterface)(nil).SelectWorkloads), ctx, query, orderBy, limit, offset)
+}
+
+// SelectWorkloadsForList mocks base method.
+func (m *MockInterface) SelectWorkloadsForList(ctx context.Context, query squirrel.Sqlizer, orderBy []string, limit, offset int) ([]*client.Workload, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SelectWorkloadsForList", ctx, query, orderBy, limit, offset)
+	ret0, _ := ret[0].([]*client.Workload)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// SelectWorkloadsForList indicates an expected call of SelectWorkloadsForList.
+func (mr *MockInterfaceMockRecorder) SelectWorkloadsForList(ctx, query, orderBy, limit, offset interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SelectWorkloadsForList", reflect.TypeOf((*MockInterface)(nil).SelectWorkloadsForList), ctx, query, orderBy, limit, offset)
 }
 
 // SetA2AServiceDeleted mocks base method.
@@ -2299,6 +2415,34 @@ func (mr *MockInterfaceMockRecorder) UpsertWorkload(ctx, workload interface{}) *
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpsertWorkload", reflect.TypeOf((*MockInterface)(nil).UpsertWorkload), ctx, workload)
 }
 
+// UpsertWorkloadDispatchNode mocks base method.
+func (m *MockInterface) UpsertWorkloadDispatchNode(ctx context.Context, dn *client.WorkloadDispatchNode) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpsertWorkloadDispatchNode", ctx, dn)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpsertWorkloadDispatchNode indicates an expected call of UpsertWorkloadDispatchNode.
+func (mr *MockInterfaceMockRecorder) UpsertWorkloadDispatchNode(ctx, dn interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpsertWorkloadDispatchNode", reflect.TypeOf((*MockInterface)(nil).UpsertWorkloadDispatchNode), ctx, dn)
+}
+
+// UpsertWorkloadPod mocks base method.
+func (m *MockInterface) UpsertWorkloadPod(ctx context.Context, pod *client.WorkloadPod) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpsertWorkloadPod", ctx, pod)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpsertWorkloadPod indicates an expected call of UpsertWorkloadPod.
+func (mr *MockInterfaceMockRecorder) UpsertWorkloadPod(ctx, pod interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpsertWorkloadPod", reflect.TypeOf((*MockInterface)(nil).UpsertWorkloadPod), ctx, pod)
+}
+
 // UpsertWorkloadStatistic mocks base method.
 func (m *MockInterface) UpsertWorkloadStatistic(ctx context.Context, stat *model.WorkloadStatistic) error {
 	m.ctrl.T.Helper()
@@ -2381,6 +2525,21 @@ func (mr *MockWorkloadInterfaceMockRecorder) SelectWorkloads(ctx, query, orderBy
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SelectWorkloads", reflect.TypeOf((*MockWorkloadInterface)(nil).SelectWorkloads), ctx, query, orderBy, limit, offset)
 }
 
+// SelectWorkloadsForList mocks base method.
+func (m *MockWorkloadInterface) SelectWorkloadsForList(ctx context.Context, query squirrel.Sqlizer, orderBy []string, limit, offset int) ([]*client.Workload, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SelectWorkloadsForList", ctx, query, orderBy, limit, offset)
+	ret0, _ := ret[0].([]*client.Workload)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// SelectWorkloadsForList indicates an expected call of SelectWorkloadsForList.
+func (mr *MockWorkloadInterfaceMockRecorder) SelectWorkloadsForList(ctx, query, orderBy, limit, offset interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SelectWorkloadsForList", reflect.TypeOf((*MockWorkloadInterface)(nil).SelectWorkloadsForList), ctx, query, orderBy, limit, offset)
+}
+
 // SetWorkloadDeleted mocks base method.
 func (m *MockWorkloadInterface) SetWorkloadDeleted(ctx context.Context, workloadId string) error {
 	m.ctrl.T.Helper()
@@ -2435,6 +2594,166 @@ func (m *MockWorkloadInterface) UpsertWorkload(ctx context.Context, workload *cl
 func (mr *MockWorkloadInterfaceMockRecorder) UpsertWorkload(ctx, workload interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpsertWorkload", reflect.TypeOf((*MockWorkloadInterface)(nil).UpsertWorkload), ctx, workload)
+}
+
+// MockWorkloadPodInterface is a mock of WorkloadPodInterface interface.
+type MockWorkloadPodInterface struct {
+	ctrl     *gomock.Controller
+	recorder *MockWorkloadPodInterfaceMockRecorder
+}
+
+// MockWorkloadPodInterfaceMockRecorder is the mock recorder for MockWorkloadPodInterface.
+type MockWorkloadPodInterfaceMockRecorder struct {
+	mock *MockWorkloadPodInterface
+}
+
+// NewMockWorkloadPodInterface creates a new mock instance.
+func NewMockWorkloadPodInterface(ctrl *gomock.Controller) *MockWorkloadPodInterface {
+	mock := &MockWorkloadPodInterface{ctrl: ctrl}
+	mock.recorder = &MockWorkloadPodInterfaceMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockWorkloadPodInterface) EXPECT() *MockWorkloadPodInterfaceMockRecorder {
+	return m.recorder
+}
+
+// BatchUpsertWorkloadPods mocks base method.
+func (m *MockWorkloadPodInterface) BatchUpsertWorkloadPods(ctx context.Context, pods []*client.WorkloadPod) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "BatchUpsertWorkloadPods", ctx, pods)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// BatchUpsertWorkloadPods indicates an expected call of BatchUpsertWorkloadPods.
+func (mr *MockWorkloadPodInterfaceMockRecorder) BatchUpsertWorkloadPods(ctx, pods interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "BatchUpsertWorkloadPods", reflect.TypeOf((*MockWorkloadPodInterface)(nil).BatchUpsertWorkloadPods), ctx, pods)
+}
+
+// DeleteWorkloadPods mocks base method.
+func (m *MockWorkloadPodInterface) DeleteWorkloadPods(ctx context.Context, workloadId string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteWorkloadPods", ctx, workloadId)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteWorkloadPods indicates an expected call of DeleteWorkloadPods.
+func (mr *MockWorkloadPodInterfaceMockRecorder) DeleteWorkloadPods(ctx, workloadId interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteWorkloadPods", reflect.TypeOf((*MockWorkloadPodInterface)(nil).DeleteWorkloadPods), ctx, workloadId)
+}
+
+// DeleteWorkloadPodsNotIn mocks base method.
+func (m *MockWorkloadPodInterface) DeleteWorkloadPodsNotIn(ctx context.Context, workloadId string, keepPodIds []string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteWorkloadPodsNotIn", ctx, workloadId, keepPodIds)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteWorkloadPodsNotIn indicates an expected call of DeleteWorkloadPodsNotIn.
+func (mr *MockWorkloadPodInterfaceMockRecorder) DeleteWorkloadPodsNotIn(ctx, workloadId, keepPodIds interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteWorkloadPodsNotIn", reflect.TypeOf((*MockWorkloadPodInterface)(nil).DeleteWorkloadPodsNotIn), ctx, workloadId, keepPodIds)
+}
+
+// ListWorkloadPods mocks base method.
+func (m *MockWorkloadPodInterface) ListWorkloadPods(ctx context.Context, workloadId string) ([]*client.WorkloadPod, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListWorkloadPods", ctx, workloadId)
+	ret0, _ := ret[0].([]*client.WorkloadPod)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListWorkloadPods indicates an expected call of ListWorkloadPods.
+func (mr *MockWorkloadPodInterfaceMockRecorder) ListWorkloadPods(ctx, workloadId interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListWorkloadPods", reflect.TypeOf((*MockWorkloadPodInterface)(nil).ListWorkloadPods), ctx, workloadId)
+}
+
+// UpsertWorkloadPod mocks base method.
+func (m *MockWorkloadPodInterface) UpsertWorkloadPod(ctx context.Context, pod *client.WorkloadPod) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpsertWorkloadPod", ctx, pod)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpsertWorkloadPod indicates an expected call of UpsertWorkloadPod.
+func (mr *MockWorkloadPodInterfaceMockRecorder) UpsertWorkloadPod(ctx, pod interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpsertWorkloadPod", reflect.TypeOf((*MockWorkloadPodInterface)(nil).UpsertWorkloadPod), ctx, pod)
+}
+
+// MockWorkloadDispatchNodeInterface is a mock of WorkloadDispatchNodeInterface interface.
+type MockWorkloadDispatchNodeInterface struct {
+	ctrl     *gomock.Controller
+	recorder *MockWorkloadDispatchNodeInterfaceMockRecorder
+}
+
+// MockWorkloadDispatchNodeInterfaceMockRecorder is the mock recorder for MockWorkloadDispatchNodeInterface.
+type MockWorkloadDispatchNodeInterfaceMockRecorder struct {
+	mock *MockWorkloadDispatchNodeInterface
+}
+
+// NewMockWorkloadDispatchNodeInterface creates a new mock instance.
+func NewMockWorkloadDispatchNodeInterface(ctrl *gomock.Controller) *MockWorkloadDispatchNodeInterface {
+	mock := &MockWorkloadDispatchNodeInterface{ctrl: ctrl}
+	mock.recorder = &MockWorkloadDispatchNodeInterfaceMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockWorkloadDispatchNodeInterface) EXPECT() *MockWorkloadDispatchNodeInterfaceMockRecorder {
+	return m.recorder
+}
+
+// DeleteWorkloadDispatchNodes mocks base method.
+func (m *MockWorkloadDispatchNodeInterface) DeleteWorkloadDispatchNodes(ctx context.Context, workloadId string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteWorkloadDispatchNodes", ctx, workloadId)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteWorkloadDispatchNodes indicates an expected call of DeleteWorkloadDispatchNodes.
+func (mr *MockWorkloadDispatchNodeInterfaceMockRecorder) DeleteWorkloadDispatchNodes(ctx, workloadId interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteWorkloadDispatchNodes", reflect.TypeOf((*MockWorkloadDispatchNodeInterface)(nil).DeleteWorkloadDispatchNodes), ctx, workloadId)
+}
+
+// ListWorkloadDispatchNodes mocks base method.
+func (m *MockWorkloadDispatchNodeInterface) ListWorkloadDispatchNodes(ctx context.Context, workloadId string) ([]*client.WorkloadDispatchNode, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListWorkloadDispatchNodes", ctx, workloadId)
+	ret0, _ := ret[0].([]*client.WorkloadDispatchNode)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListWorkloadDispatchNodes indicates an expected call of ListWorkloadDispatchNodes.
+func (mr *MockWorkloadDispatchNodeInterfaceMockRecorder) ListWorkloadDispatchNodes(ctx, workloadId interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListWorkloadDispatchNodes", reflect.TypeOf((*MockWorkloadDispatchNodeInterface)(nil).ListWorkloadDispatchNodes), ctx, workloadId)
+}
+
+// UpsertWorkloadDispatchNode mocks base method.
+func (m *MockWorkloadDispatchNodeInterface) UpsertWorkloadDispatchNode(ctx context.Context, dn *client.WorkloadDispatchNode) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpsertWorkloadDispatchNode", ctx, dn)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpsertWorkloadDispatchNode indicates an expected call of UpsertWorkloadDispatchNode.
+func (mr *MockWorkloadDispatchNodeInterfaceMockRecorder) UpsertWorkloadDispatchNode(ctx, dn interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpsertWorkloadDispatchNode", reflect.TypeOf((*MockWorkloadDispatchNodeInterface)(nil).UpsertWorkloadDispatchNode), ctx, dn)
 }
 
 // MockFaultInterface is a mock of FaultInterface interface.
@@ -3474,6 +3793,21 @@ func (m *MockWorkloadStatisticInterface) GetWorkloadStatisticsByWorkloadID(ctx c
 func (mr *MockWorkloadStatisticInterfaceMockRecorder) GetWorkloadStatisticsByWorkloadID(ctx, workloadID interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetWorkloadStatisticsByWorkloadID", reflect.TypeOf((*MockWorkloadStatisticInterface)(nil).GetWorkloadStatisticsByWorkloadID), ctx, workloadID)
+}
+
+// GetWorkloadStatisticsByWorkloadIDs mocks base method.
+func (m *MockWorkloadStatisticInterface) GetWorkloadStatisticsByWorkloadIDs(ctx context.Context, workloadIDs []string) (map[string]*model.WorkloadStatistic, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetWorkloadStatisticsByWorkloadIDs", ctx, workloadIDs)
+	ret0, _ := ret[0].(map[string]*model.WorkloadStatistic)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetWorkloadStatisticsByWorkloadIDs indicates an expected call of GetWorkloadStatisticsByWorkloadIDs.
+func (mr *MockWorkloadStatisticInterfaceMockRecorder) GetWorkloadStatisticsByWorkloadIDs(ctx, workloadIDs interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetWorkloadStatisticsByWorkloadIDs", reflect.TypeOf((*MockWorkloadStatisticInterface)(nil).GetWorkloadStatisticsByWorkloadIDs), ctx, workloadIDs)
 }
 
 // GetWorkloadStatisticsByWorkloadUID mocks base method.

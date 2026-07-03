@@ -21,7 +21,9 @@ import (
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
+	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/controller"
+	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 	jobutils "github.com/AMD-AIG-AIMA/SAFE/job-manager/pkg/utils"
 )
@@ -34,16 +36,22 @@ type SyncerReconciler struct {
 	// clusterClientSets manages client sets for different clusters
 	// Key: cluster name, Value: *ClusterClientSets instance
 	clusterClientSets *commonutils.ObjectManager
+	dbClient          dbclient.Interface
 	*controller.Controller[*resourceMessage]
 }
 
 // SetupSyncerController initializes and registers the syncer controller with the manager.
 // Sets up watches for Cluster and ResourceTemplate resources.
 func SetupSyncerController(ctx context.Context, mgr manager.Manager) error {
+	var dbCli dbclient.Interface
+	if commonconfig.IsDBEnable() {
+		dbCli = dbclient.NewClient()
+	}
 	r := &SyncerReconciler{
 		ctx:               ctx,
 		Client:            mgr.GetClient(),
 		clusterClientSets: commonutils.NewObjectManagerSingleton(),
+		dbClient:          dbCli,
 	}
 	r.Controller = controller.NewController[*resourceMessage](r, 1)
 	if err := r.start(ctx); err != nil {
@@ -196,5 +204,7 @@ func (r *SyncerReconciler) getAdminWorkload(ctx context.Context, workloadId stri
 		}
 		return nil, err
 	}
-	return adminWorkload.DeepCopy(), nil
+	copy := adminWorkload.DeepCopy()
+	r.hydrateWorkloadStatusFromDB(ctx, workloadId, copy)
+	return copy, nil
 }
