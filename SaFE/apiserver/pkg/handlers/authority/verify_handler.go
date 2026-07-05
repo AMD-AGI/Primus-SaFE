@@ -40,15 +40,18 @@ type VerifyTokenRequest struct {
 
 // VerifyTokenResponse represents the response body for token verification
 type VerifyTokenResponse struct {
-	Id          string        `json:"id"`
-	Name        string        `json:"name"`
-	Email       string        `json:"email,omitempty"`
-	Exp         int64         `json:"exp"`
-	Type        string        `json:"type"`
-	Roles       []v1.UserRole `json:"roles"`
-	ApiKeyId    int64         `json:"apiKeyId,omitempty"`
-	PlatformKey string        `json:"platformKey,omitempty"`
-	VirtualKey  string        `json:"virtualKey,omitempty"`
+	Id    string `json:"id"`
+	Name  string `json:"name"`
+	Email string `json:"email,omitempty"`
+	// PreferredName is the SSO preferred username (e.g. "chaojhou@amd.com").
+	// Downstream services derive the AMD NTID from it for LLM-gateway requests.
+	PreferredName string        `json:"preferredName,omitempty"`
+	Exp           int64         `json:"exp"`
+	Type          string        `json:"type"`
+	Roles         []v1.UserRole `json:"roles"`
+	ApiKeyId      int64         `json:"apiKeyId,omitempty"`
+	PlatformKey   string        `json:"platformKey,omitempty"`
+	VirtualKey    string        `json:"virtualKey,omitempty"`
 }
 
 // VerifyToken validates a user token and returns user information
@@ -174,13 +177,24 @@ func VerifyToken(c *gin.Context) {
 	}
 
 	resp := VerifyTokenResponse{
-		Id:       userInfo.Id,
-		Name:     userInfo.Name,
-		Email:    userInfo.Email,
-		Exp:      userInfo.Exp,
-		Type:     userType,
-		ApiKeyId: userInfo.ApiKeyId,
-		Roles:    userInfo.Roles,
+		Id:            userInfo.Id,
+		Name:          userInfo.Name,
+		Email:         userInfo.Email,
+		PreferredName: userInfo.PreferredUsername,
+		Exp:           userInfo.Exp,
+		Type:          userType,
+		ApiKeyId:      userInfo.ApiKeyId,
+		Roles:         userInfo.Roles,
+	}
+
+	// Backfill preferred name (NTID source) from the User CR when the auth path
+	// (e.g. API key) didn't carry it. Mirrors the email backfill below.
+	if resp.PreferredName == "" {
+		if tokenInst := DefaultTokenInstance(); tokenInst != nil {
+			if user, err := getUserById(c.Request.Context(), tokenInst, userInfo.Id); err == nil {
+				resp.PreferredName = v1.GetAnnotation(user, v1.UserPreferredNameAnnotation)
+			}
+		}
 	}
 
 	// Optionally include platform API key (GetOrCreate)
