@@ -14,7 +14,6 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	apitypes "k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/util/retry"
 	"k8s.io/klog/v2"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -82,100 +81,15 @@ func SetWorkloadFailed(ctx context.Context, cli client.Client, workload *v1.Work
 	condition := NewCondition(string(v1.AdminFailed), message, commonworkload.GenerateDispatchReason(dispatchCount))
 	workload.Status.Conditions = append(workload.Status.Conditions, *condition)
 	commonworkload.StripOffloadedStatus(workload)
-	if err := UpdateWorkloadStatusWithRetry(ctx, cli, workload); err != nil {
+	// Single attempt with the caller's own resourceVersion: a conflict means the
+	// object changed under us, so we return the error and let the controller
+	// requeue and recompute from fresh state instead of clobbering the concurrent
+	// writer.
+	if err := cli.Status().Update(ctx, workload); err != nil {
 		klog.ErrorS(err, "failed to update workload status", "name", workload.Name)
 		return err
 	}
 	return nil
-}
-
-// UpdateWorkloadStatusWithRetry writes workload.Status to etcd, retrying on
-// optimistic-lock conflicts by re-reading the latest object and re-applying the
-// computed status. Without a retry, unrelated concurrent writes to .metadata/
-// .spec bump the resourceVersion and turn every status update into a conflict,
-// which on hot objects (e.g. CICD runner sets) livelocks the single-worker
-// syncer queue.
-//
-// Workload .status is written mostly by the syncer, but a few other controllers
-// (e.g. failover's AdminFailover condition) also append conditions. Re-applying
-// the computed status wholesale would drop such concurrently-added conditions,
-// so the freshly-read conditions are merged back in by (Type, Reason). Other
-// status fields (phase, pods, nodes, ...) are owned by the syncer and are
-// overwritten with the computed value.
-func UpdateWorkloadStatusWithRetry(ctx context.Context, cli client.Client, workload *v1.Workload) error {
-	return updateWorkloadStatus(ctx, cli, workload, false)
-}
-
-// UpdateWorkloadStatusPreservePhase persists a workload's detail fields
-// (pods/nodes/ranks/nodeUsage) while leaving the phase-owner's fields
-// (phase/endTime/dependenciesPhase) exactly as they are in etcd. It is for
-// reconcilers that do NOT own the phase (e.g. the Pod-event handler): they must
-// update pod/node detail without ever writing status.phase, which keeps phase a
-// single-writer field and prevents the multi-writer lost-update from resurrecting
-// a finished workload to Running. Concurrently-added conditions are still merged.
-func UpdateWorkloadStatusPreservePhase(ctx context.Context, cli client.Client, workload *v1.Workload) error {
-	return updateWorkloadStatus(ctx, cli, workload, true)
-}
-
-// updateWorkloadStatus is the shared implementation for the two status writers.
-// When preservePhase is true the phase-owned fields are restored from the latest
-// etcd copy after the computed status is applied, so a non-owner never mutates
-// them.
-func updateWorkloadStatus(ctx context.Context, cli client.Client, workload *v1.Workload, preservePhase bool) error {
-	key := client.ObjectKeyFromObject(workload)
-	status := workload.Status
-	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
-		latest := &v1.Workload{}
-		if err := cli.Get(ctx, key, latest); err != nil {
-			return err
-		}
-		// Snapshot the phase-owned fields as currently persisted in etcd.
-		persistedPhase := latest.Status.Phase
-		persistedEndTime := latest.Status.EndTime
-		persistedDependenciesPhase := latest.Status.DependenciesPhase
-		// Monotonic phase guard (phase-owner path only): once a workload has reached
-		// a terminal phase in etcd its status is final, so skip a stale write that
-		// would resurrect it. Because Status().Update is resourceVersion-guarded,
-		// `latest` reflects the true current state, so this decision is authoritative.
-		if !preservePhase && !AllowPhaseTransition(persistedPhase, status.Phase) {
-			return nil
-		}
-		// Snapshot conditions already in etcd (may include ones added
-		// concurrently by other controllers) before overwriting status.
-		concurrentConditions := latest.Status.Conditions
-		status.DeepCopyInto(&latest.Status)
-		latest.Status.Conditions = mergeConditions(latest.Status.Conditions, concurrentConditions)
-		if preservePhase {
-			// Non-owner write: keep the phase-owned fields untouched.
-			latest.Status.Phase = persistedPhase
-			latest.Status.EndTime = persistedEndTime
-			latest.Status.DependenciesPhase = persistedDependenciesPhase
-		}
-		if err := cli.Status().Update(ctx, latest); err != nil {
-			return err
-		}
-		workload.ResourceVersion = latest.ResourceVersion
-		return nil
-	})
-}
-
-// mergeConditions returns base plus any conditions from extra not already
-// present by (Type, Reason). It preserves conditions added concurrently by other
-// controllers when a status write overwrites the condition list.
-func mergeConditions(base, extra []metav1.Condition) []metav1.Condition {
-	for i := range extra {
-		found := false
-		for j := range base {
-			if base[j].Type == extra[i].Type && base[j].Reason == extra[i].Reason {
-				found = true
-				break
-			}
-		}
-		if !found {
-			base = append(base, extra[i])
-		}
-	}
-	return base
 }
 
 // StopReason describes why a workload was forcibly transitioned to the
@@ -239,23 +153,6 @@ func MarkWorkloadStopped(
 // Deprecated: use MarkWorkloadStopped(ctx, cli, w, StopReasonTimeout, msg).
 func SetWorkloadTimeout(ctx context.Context, cli client.Client, workload *v1.Workload, message string) error {
 	return MarkWorkloadStopped(ctx, cli, workload, StopReasonTimeout, message)
-}
-
-// AllowPhaseTransition enforces phase monotonicity: once a workload has reached
-// a terminal phase (Succeeded/Failed/Stopped), it must not be moved back to a
-// non-terminal phase (Running/Pending/NotReady/Updating). This is the guard
-// against the multi-writer "lost update" where a reconciler holding a stale
-// Workload copy (phase=Running) writes it back on top of a copy that the
-// event-driven syncer already advanced to a terminal phase after the underlying
-// Pod/Sandbox was deleted. Transitions to the same phase are always allowed.
-func AllowPhaseTransition(current, next v1.WorkloadPhase) bool {
-	if current == next {
-		return true
-	}
-	if v1.IsWorkloadPhaseEnded(current) && !v1.IsWorkloadPhaseEnded(next) {
-		return false
-	}
-	return true
 }
 
 // PatchWorkloadStatusFields applies a resourceVersion-guarded JSON merge patch to

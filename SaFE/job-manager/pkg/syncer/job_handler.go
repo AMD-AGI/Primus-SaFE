@@ -311,7 +311,7 @@ func (r *SyncerReconciler) updateAdminWorkloadByJob(ctx context.Context, clientS
 		return originalWorkload, nil
 	}
 	commonworkload.StripOffloadedStatus(adminWorkload)
-	if err := jobutils.UpdateWorkloadStatusWithRetry(ctx, r.Client, adminWorkload); err != nil {
+	if err := r.Status().Update(ctx, adminWorkload); err != nil {
 		klog.ErrorS(err, "failed to update admin workload status", "name", adminWorkload.Name)
 		return nil, err
 	}
@@ -408,8 +408,7 @@ func (r *SyncerReconciler) reSchedule(ctx context.Context, workload *v1.Workload
 		isStatusChanged = true
 	}
 	if isStatusChanged {
-		// reSchedule owns the phase transition (-> Pending), so it must write phase.
-		if err := r.persistWorkloadStatus(ctx, workload, false); err != nil {
+		if err := r.persistWorkloadStatus(ctx, workload); err != nil {
 			return err
 		}
 	}
