@@ -14,6 +14,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/client-go/kubernetes"
@@ -30,6 +31,7 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
+	commonuser "github.com/AMD-AIG-AIMA/SAFE/common/pkg/user"
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/timeutil"
 )
@@ -174,35 +176,107 @@ func (h *Handler) generateCluster(ctx context.Context,
 }
 
 // listCluster implements the cluster listing logic.
-// Retrieves all clusters, sorts them by name, and converts them to response items.
+// System admins (including read-only) see every cluster; other users are scoped
+// to the clusters that host a workspace they belong to, so a non-admin cannot
+// enumerate the whole fleet.
 func (h *Handler) listCluster(c *gin.Context) (interface{}, error) {
 	ctx := c.Request.Context()
+	requestUser, err := h.getAndSetUsername(c)
+	if err != nil {
+		return nil, err
+	}
+
 	clusterList := &v1.ClusterList{}
 	if err := h.List(ctx, clusterList, &client.ListOptions{}); err != nil {
 		return nil, err
 	}
-
-	result := view.ListClusterResponse{}
 	if len(clusterList.Items) > 0 {
 		sort.Slice(clusterList.Items, func(i, j int) bool {
 			return clusterList.Items[i].Name < clusterList.Items[j].Name
 		})
 	}
-	for _, item := range clusterList.Items {
-		result.Items = append(result.Items, cvtToClusterResponseItem(&item))
+
+	isAdmin := isSystemAdmin(requestUser)
+	var accessibleClusters map[string]struct{}
+	if !isAdmin {
+		if accessibleClusters, err = h.getUserAccessibleClusters(ctx, requestUser); err != nil {
+			return nil, err
+		}
+	}
+
+	result := view.ListClusterResponse{}
+	for i := range clusterList.Items {
+		item := &clusterList.Items[i]
+		if !isAdmin {
+			if _, ok := accessibleClusters[item.Name]; !ok {
+				continue
+			}
+		}
+		result.Items = append(result.Items, cvtToClusterResponseItem(item))
 	}
 	result.TotalCount = len(result.Items)
 	return result, nil
 }
 
 // getCluster implements the logic for retrieving a single cluster's detailed information.
-// Gets the cluster by ID and converts it to a detailed response format.
+// Gets the cluster by ID and converts it to a detailed response format. Non-admin
+// users may only read a cluster that hosts a workspace they belong to.
 func (h *Handler) getCluster(c *gin.Context) (interface{}, error) {
-	cluster, err := h.getAdminCluster(c.Request.Context(), c.GetString(common.Name))
+	ctx := c.Request.Context()
+	requestUser, err := h.getAndSetUsername(c)
 	if err != nil {
 		return nil, err
 	}
-	return cvtToGetClusterResponse(c.Request.Context(), h.Client, cluster), nil
+	cluster, err := h.getAdminCluster(ctx, c.GetString(common.Name))
+	if err != nil {
+		return nil, err
+	}
+	if !isSystemAdmin(requestUser) {
+		accessibleClusters, err := h.getUserAccessibleClusters(ctx, requestUser)
+		if err != nil {
+			return nil, err
+		}
+		if _, ok := accessibleClusters[cluster.Name]; !ok {
+			return nil, commonerrors.NewForbidden(
+				fmt.Sprintf("the user is not allowed to access cluster %s", cluster.Name))
+		}
+	}
+	return cvtToGetClusterResponse(ctx, h.Client, cluster), nil
+}
+
+// isSystemAdmin reports whether the user has full or read-only system admin
+// privileges, both of which are allowed to view every cluster.
+func isSystemAdmin(user *v1.User) bool {
+	return user != nil && (user.IsSystemAdmin() || user.IsSystemAdminReadonly())
+}
+
+// getUserAccessibleClusters returns the set of cluster IDs that host a workspace
+// the user belongs to (as a member or a manager). It scopes cluster reads for
+// non-admin users so they cannot enumerate clusters they have no access to.
+func (h *Handler) getUserAccessibleClusters(ctx context.Context, user *v1.User) (map[string]struct{}, error) {
+	clusters := make(map[string]struct{})
+	if user == nil {
+		return clusters, nil
+	}
+	workspaceNames := make([]string, 0)
+	workspaceNames = append(workspaceNames, commonuser.GetWorkspace(user)...)
+	workspaceNames = append(workspaceNames, commonuser.GetManagedWorkspace(user)...)
+	for _, name := range workspaceNames {
+		if name == "" {
+			continue
+		}
+		workspace := &v1.Workspace{}
+		if err := h.Get(ctx, client.ObjectKey{Name: name}, workspace); err != nil {
+			if apierrors.IsNotFound(err) {
+				continue
+			}
+			return nil, err
+		}
+		if workspace.Spec.Cluster != "" {
+			clusters[workspace.Spec.Cluster] = struct{}{}
+		}
+	}
+	return clusters, nil
 }
 
 // deleteCluster handles the deletion of a cluster resource.

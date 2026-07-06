@@ -18,6 +18,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/resources/view"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 )
@@ -71,6 +72,64 @@ func TestListClusterHandler(t *testing.T) {
 	assert.NoError(t, json.Unmarshal(rsp.Body.Bytes(), &resp))
 	assert.Equal(t, 2, resp.TotalCount)
 	assert.Equal(t, "a-cluster", resp.Items[0].ClusterId)
+}
+
+func TestListClusterHandlerNonAdminScoped(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	// A non-admin member of a workspace hosted on "a-cluster" must only see
+	// that cluster, not the whole fleet.
+	nonAdmin := &v1.User{
+		ObjectMeta: metav1.ObjectMeta{Name: "member-1"},
+		Spec: v1.UserSpec{
+			Type:      v1.DefaultUserType,
+			Roles:     []v1.UserRole{v1.DefaultRole},
+			Resources: map[string][]string{common.UserWorkspaces: {"ws-a"}},
+		},
+	}
+	ws := &v1.Workspace{
+		ObjectMeta: metav1.ObjectMeta{Name: "ws-a"},
+		Spec:       v1.WorkspaceSpec{Cluster: "a-cluster"},
+	}
+	h, _ := newAdminHandlerWithObjects(
+		&v1.Cluster{ObjectMeta: metav1.ObjectMeta{Name: "a-cluster"}},
+		&v1.Cluster{ObjectMeta: metav1.ObjectMeta{Name: "b-cluster"}},
+		nonAdmin,
+		ws,
+	)
+	// NewAccessController is a process-wide singleton, so rebind it to this
+	// test's client so the non-admin user/workspace can be resolved.
+	h.accessController = &authority.AccessController{Client: h.Client}
+
+	rsp := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rsp)
+	c.Request = httptest.NewRequest(http.MethodGet, "/", nil)
+	c.Set(common.UserId, nonAdmin.Name)
+	h.ListCluster(c)
+	assert.Equal(t, http.StatusOK, rsp.Code)
+
+	var resp view.ListClusterResponse
+	assert.NoError(t, json.Unmarshal(rsp.Body.Bytes(), &resp))
+	assert.Equal(t, 1, resp.TotalCount)
+	assert.Equal(t, "a-cluster", resp.Items[0].ClusterId)
+}
+
+func TestGetClusterHandlerNonAdminForbidden(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	// A non-admin with no workspace on the cluster must not read it.
+	nonAdmin := &v1.User{
+		ObjectMeta: metav1.ObjectMeta{Name: "member-2"},
+		Spec:       v1.UserSpec{Type: v1.DefaultUserType, Roles: []v1.UserRole{v1.DefaultRole}},
+	}
+	h, _ := newAdminHandlerWithObjects(&v1.Cluster{ObjectMeta: metav1.ObjectMeta{Name: "c1"}}, nonAdmin)
+	h.accessController = &authority.AccessController{Client: h.Client}
+
+	rsp := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rsp)
+	c.Request = httptest.NewRequest(http.MethodGet, "/", nil)
+	c.Set(common.UserId, nonAdmin.Name)
+	c.Set(common.Name, "c1")
+	h.GetCluster(c)
+	assert.NotEqual(t, http.StatusOK, rsp.Code)
 }
 
 func TestGetClusterHandler(t *testing.T) {

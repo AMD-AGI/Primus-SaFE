@@ -101,6 +101,8 @@ func InitCustomRouters(e *gin.Engine, h *Handler) {
 		clusters := authGroup.Group("/clusters")
 		{
 			clusters.POST("", middleware.Audit("cluster"), h.CreateCluster)
+			clusters.GET("", h.ListCluster)
+			clusters.GET(fmt.Sprintf("/:%s", common.Name), h.GetCluster)
 			clusters.POST(fmt.Sprintf("/:%s/nodes", common.Name), middleware.Audit("cluster", "process-nodes"), h.ProcessClusterNodes)
 			clusters.DELETE(fmt.Sprintf("/:%s", common.Name), middleware.Audit("cluster"), h.DeleteCluster)
 			clusters.PATCH(fmt.Sprintf("/:%s", common.Name), middleware.Audit("cluster"), h.PatchCluster)
@@ -185,8 +187,6 @@ func InitCustomRouters(e *gin.Engine, h *Handler) {
 	// Public routes without authentication
 	noAuthGroup := e.Group(common.PrimusRouterCustomRootPath, middleware.Preprocess())
 	{
-		noAuthGroup.GET("/clusters", h.ListCluster)
-		noAuthGroup.GET(fmt.Sprintf("/clusters/:%s", common.Name), h.GetCluster)
 		noAuthGroup.POST("/login", middleware.Audit("auth", "login"), h.Login)
 		noAuthGroup.POST("/users", middleware.Audit("user", "register"), h.CreateUser)
 		noAuthGroup.GET("/envs", h.GetEnvs)
