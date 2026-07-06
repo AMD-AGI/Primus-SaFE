@@ -29,7 +29,7 @@ export function useWorkloadResumePermission(canWrite?: MaybeRefOrGetter<boolean>
     !!row.userId && !!userStore.userId && row.userId === userStore.userId
 
   const canResumeWorkload = (row: ResumePermissionRow): boolean =>
-    isManagedWorkspace(row) || isWorkloadOwner(row)
+    userStore.isManager || isManagedWorkspace(row) || isWorkloadOwner(row)
 
   const getResumeDisabled = (row: ResumePermissionRow): boolean =>
     (canWrite !== undefined && !toValue(canWrite)) ||
