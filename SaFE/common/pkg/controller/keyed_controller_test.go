@@ -163,18 +163,21 @@ func TestKeyedControllerRetriesOnError(t *testing.T) {
 
 // TestKeyedControllerSerializesSameKey verifies the core safety property that
 // enables running multiple workers: the same key is never processed by two
-// workers concurrently, even when re-enqueued while in flight.
+// workers concurrently, even when re-enqueued while in flight. A self-sustaining
+// re-enqueue chain drives a fixed number of processings; if serialization were
+// broken the concurrent-run counter would exceed 1.
 func TestKeyedControllerSerializesSameKey(t *testing.T) {
+	const target = 6
 	var running, maxRunning, calls int32
 	var c *KeyedController[*kmsg]
 	h := fnHandler{fn: func(m *kmsg) {
 		recordMax(&maxRunning, atomic.AddInt32(&running, 1))
-		// Re-enqueue the same key a few times while processing to exercise the
-		// workqueue's in-flight dirty/requeue path.
-		if atomic.AddInt32(&calls, 1) <= 5 {
+		time.Sleep(10 * time.Millisecond)
+		// Re-enqueue the same key while still in flight (running not yet
+		// decremented) to exercise the workqueue's dirty/requeue path.
+		if atomic.AddInt32(&calls, 1) < target {
 			c.Add(&kmsg{key: "same"})
 		}
-		time.Sleep(10 * time.Millisecond)
 		atomic.AddInt32(&running, -1)
 	}}
 	c = NewKeyedController[*kmsg](h, kmsgKey, nil, 4)
@@ -184,18 +187,11 @@ func TestKeyedControllerSerializesSameKey(t *testing.T) {
 		c.Run(ctx)
 	}
 
-	var wg sync.WaitGroup
-	for i := 0; i < 20; i++ {
-		wg.Add(1)
-		go func(v int) { defer wg.Done(); c.Add(&kmsg{key: "same", val: v}) }(i)
-	}
-	wg.Wait()
-
+	c.Add(&kmsg{key: "same"})
 	assert.Eventually(t, func() bool {
-		return c.GetQueueSize() == 0 && atomic.LoadInt32(&running) == 0
-	}, 3*time.Second, 10*time.Millisecond)
-	// At least a few processings happened, and none overlapped.
-	assert.GreaterOrEqual(t, atomic.LoadInt32(&calls), int32(5))
+		return atomic.LoadInt32(&calls) >= target
+	}, 3*time.Second, 5*time.Millisecond)
+	// Multiple processings happened, and none overlapped.
 	assert.Equal(t, int32(1), atomic.LoadInt32(&maxRunning))
 }
 
