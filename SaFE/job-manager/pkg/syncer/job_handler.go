@@ -408,7 +408,8 @@ func (r *SyncerReconciler) reSchedule(ctx context.Context, workload *v1.Workload
 		isStatusChanged = true
 	}
 	if isStatusChanged {
-		if err := r.persistWorkloadStatus(ctx, workload); err != nil {
+		// reSchedule owns the phase transition (-> Pending), so it must write phase.
+		if err := r.persistWorkloadStatus(ctx, workload, false); err != nil {
 			return err
 		}
 	}

@@ -43,9 +43,17 @@ func (r *SyncerReconciler) hydrateWorkloadStatusFromDB(ctx context.Context, work
 // persistWorkloadStatus writes workload status to etcd. When offload is enabled
 // it mirrors pod/dispatch detail to DB, stores the O(node) NodeUsage aggregate in
 // etcd, and clears the large per-pod arrays from etcd.
-func (r *SyncerReconciler) persistWorkloadStatus(ctx context.Context, w *v1.Workload) error {
+//
+// preservePhase must be true for callers that do NOT own status.phase (the
+// Pod-event handler): they update pod/node detail only and must never write the
+// phase, keeping it a single-writer field owned by the job/sandbox handler.
+func (r *SyncerReconciler) persistWorkloadStatus(ctx context.Context, w *v1.Workload, preservePhase bool) error {
+	writeFn := jobutils.UpdateWorkloadStatusWithRetry
+	if preservePhase {
+		writeFn = jobutils.UpdateWorkloadStatusPreservePhase
+	}
 	if !commonconfig.IsDBEnable() || r.dbClient == nil || !v1.IsWorkloadStatusOffloadEnabled(w) {
-		return jobutils.UpdateWorkloadStatusWithRetry(ctx, r.Client, w)
+		return writeFn(ctx, r.Client, w)
 	}
 	if err := r.writeWorkloadStatusToDB(ctx, w); err != nil {
 		return err
@@ -54,7 +62,7 @@ func (r *SyncerReconciler) persistWorkloadStatus(ctx context.Context, w *v1.Work
 	w.Status.Pods = nil
 	w.Status.Nodes = nil
 	w.Status.Ranks = nil
-	return jobutils.UpdateWorkloadStatusWithRetry(ctx, r.Client, w)
+	return writeFn(ctx, r.Client, w)
 }
 
 // writeWorkloadStatusToDB upserts the live pod set and dispatch history rows.

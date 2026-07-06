@@ -18,7 +18,6 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/labels"
-	apitypes "k8s.io/apimachinery/pkg/types"
 	"k8s.io/klog/v2"
 	ctrlruntime "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
@@ -462,7 +461,12 @@ func (r *SchedulerReconciler) checkWorkloadDependencies(ctx context.Context, wor
 		}
 	}
 	if isChange {
-		if err := r.Status().Update(ctx, workload); err != nil {
+		// Patch ONLY dependenciesPhase (the field this reconciler owns) with an
+		// optimistic-lock guard. A full Status().Update() here would write back
+		// this reconciler's possibly-stale status.phase and clobber the phase the
+		// event-driven syncer owns (multi-writer lost-update).
+		if err := jobutils.PatchWorkloadStatusFields(ctx, r.Client, workload,
+			map[string]any{"dependenciesPhase": workload.Status.DependenciesPhase}); err != nil {
 			return isReady, err
 		}
 	}
@@ -598,17 +602,7 @@ func (r *SchedulerReconciler) updateStatus(ctx context.Context, workload *v1.Wor
 	}
 	statusPatch["message"] = ""
 	statusPatch["conditions"] = append(workload.Status.Conditions, *cond)
-	patchObj := map[string]any{
-		"metadata": map[string]any{
-			"resourceVersion": workload.ResourceVersion,
-		},
-		"status": statusPatch,
-	}
-	p := jsonutils.MarshalSilently(patchObj)
-	if err := r.Status().Patch(ctx, workload, client.RawPatch(apitypes.MergePatchType, p)); err != nil {
-		return err
-	}
-	return nil
+	return jobutils.PatchWorkloadStatusFields(ctx, r.Client, workload, statusPatch)
 }
 
 // updateUnScheduled updates the status of unscheduled workloads with ordering and reasons.
@@ -720,5 +714,9 @@ func (r *SchedulerReconciler) setDependencyPhase(ctx context.Context, workload, 
 		}
 		return nil
 	}
-	return r.Status().Update(ctx, depWorkload)
+	// Dependency succeeded: persist ONLY dependenciesPhase with an optimistic-lock
+	// guard, never the whole status — a full Status().Update() would write back a
+	// possibly-stale status.phase and clobber the phase owned by the syncer.
+	return jobutils.PatchWorkloadStatusFields(ctx, r.Client, depWorkload,
+		map[string]any{"dependenciesPhase": depWorkload.Status.DependenciesPhase})
 }

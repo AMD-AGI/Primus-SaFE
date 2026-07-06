@@ -19,7 +19,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
-	apitypes "k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/apimachinery/pkg/util/rand"
 	"k8s.io/klog/v2"
@@ -497,14 +496,7 @@ func (r *DispatcherReconciler) markAsDispatched(ctx context.Context, workload *v
 			statusPatch["phase"] = v1.WorkloadPending
 		}
 		statusPatch["conditions"] = append(workload.Status.Conditions, *cond)
-		patchObj := map[string]any{
-			"metadata": map[string]any{
-				"resourceVersion": workload.ResourceVersion,
-			},
-			"status": statusPatch,
-		}
-		p := jsonutils.MarshalSilently(patchObj)
-		if err := r.Status().Patch(ctx, workload, client.RawPatch(apitypes.MergePatchType, p)); err != nil {
+		if err := jobutils.PatchWorkloadStatusFields(ctx, r.Client, workload, statusPatch); err != nil {
 			return err
 		}
 	}

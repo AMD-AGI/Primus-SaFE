@@ -41,7 +41,7 @@ func TestPersistWorkloadStatus_DBDisabled(t *testing.T) {
 	fresh := &v1.Workload{}
 	require.NoError(t, cl.Get(context.Background(), ctrlclient.ObjectKey{Name: "w1"}, fresh))
 	fresh.Status = w.Status
-	err := r.persistWorkloadStatus(context.Background(), fresh)
+	err := r.persistWorkloadStatus(context.Background(), fresh, true)
 	require.NoError(t, err)
 
 	got := &v1.Workload{}
@@ -86,7 +86,7 @@ func TestPersistWorkloadStatus_RetriesOnConflict(t *testing.T) {
 	fresh := &v1.Workload{}
 	require.NoError(t, cl.Get(context.Background(), ctrlclient.ObjectKey{Name: "w1"}, fresh))
 	fresh.Status.Phase = v1.WorkloadSucceeded
-	require.NoError(t, r.persistWorkloadStatus(context.Background(), fresh))
+	require.NoError(t, r.persistWorkloadStatus(context.Background(), fresh, false))
 	// First attempt conflicts, second succeeds.
 	assert.GreaterOrEqual(t, updates, 2)
 
@@ -128,7 +128,7 @@ func TestPersistWorkloadStatus_Offload(t *testing.T) {
 	fresh.Status = w.Status
 	fresh.Labels = w.Labels
 	fresh.Annotations = w.Annotations
-	err := r.persistWorkloadStatus(context.Background(), fresh)
+	err := r.persistWorkloadStatus(context.Background(), fresh, true)
 	require.NoError(t, err)
 
 	got := &v1.Workload{}

@@ -15,7 +15,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
-	apitypes "k8s.io/apimachinery/pkg/types"
 	"k8s.io/klog/v2"
 	ctrlruntime "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
@@ -34,7 +33,6 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/job-manager/pkg/syncer"
 	jobutils "github.com/AMD-AIG-AIMA/SAFE/job-manager/pkg/utils"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/backoff"
-	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
 )
 
 const (
@@ -220,20 +218,8 @@ func (r *FailoverReconciler) addFailoverCondition(ctx context.Context, workload 
 	}
 
 	workload.Status.Conditions = append(workload.Status.Conditions, *cond)
-	patchObj := map[string]any{
-		"metadata": map[string]any{
-			"resourceVersion": workload.ResourceVersion,
-		},
-		"status": map[string]any{
-			"conditions": workload.Status.Conditions,
-		},
-	}
-	p := jsonutils.MarshalSilently(patchObj)
-	if err := r.Status().Patch(ctx, workload, client.RawPatch(apitypes.MergePatchType, p)); err != nil {
-		klog.ErrorS(err, "failed to patch workload status")
-		return err
-	}
-	return nil
+	return jobutils.PatchWorkloadStatusFields(ctx, r.Client, workload,
+		map[string]any{"conditions": workload.Status.Conditions})
 }
 
 // getWorkloadsOnFaultNode retrieves workloads running on a faulty node.
