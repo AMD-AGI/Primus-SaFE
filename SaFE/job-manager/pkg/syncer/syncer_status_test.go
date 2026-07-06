@@ -50,11 +50,11 @@ func TestPersistWorkloadStatus_DBDisabled(t *testing.T) {
 	assert.Empty(t, got.Status.NodeUsage)
 }
 
-// TestPersistWorkloadStatus_RetriesOnConflict verifies that an optimistic-lock
-// conflict on the status update (caused by a concurrent metadata/spec write on a
-// hot object) is retried instead of surfaced as an error, so the single-worker
-// syncer queue does not livelock.
-func TestPersistWorkloadStatus_RetriesOnConflict(t *testing.T) {
+// TestPersistWorkloadStatus_ReturnsConflict verifies that an optimistic-lock
+// conflict on the status update is surfaced as an error (not retried in place),
+// so the controller requeues and re-reconciles from fresh state instead of
+// re-applying a stale snapshot.
+func TestPersistWorkloadStatus_ReturnsConflict(t *testing.T) {
 	viper.Reset()
 	defer viper.Reset()
 
@@ -71,13 +71,10 @@ func TestPersistWorkloadStatus_RetriesOnConflict(t *testing.T) {
 			SubResourceUpdate: func(ctx context.Context, c ctrlclient.Client, subResourceName string,
 				obj ctrlclient.Object, opts ...ctrlclient.SubResourceUpdateOption) error {
 				updates++
-				if updates == 1 {
-					// Simulate a stale resourceVersion on the first attempt.
-					return apierrors.NewConflict(
-						schema.GroupResource{Group: "amd.com", Resource: "workloads"},
-						obj.GetName(), fmt.Errorf("object has been modified"))
-				}
-				return c.Status().Update(ctx, obj, opts...)
+				// Always conflict to prove there is no in-place retry.
+				return apierrors.NewConflict(
+					schema.GroupResource{Group: "amd.com", Resource: "workloads"},
+					obj.GetName(), fmt.Errorf("object has been modified"))
 			},
 		}).
 		Build()
@@ -86,13 +83,11 @@ func TestPersistWorkloadStatus_RetriesOnConflict(t *testing.T) {
 	fresh := &v1.Workload{}
 	require.NoError(t, cl.Get(context.Background(), ctrlclient.ObjectKey{Name: "w1"}, fresh))
 	fresh.Status.Phase = v1.WorkloadSucceeded
-	require.NoError(t, r.persistWorkloadStatus(context.Background(), fresh))
-	// First attempt conflicts, second succeeds.
-	assert.GreaterOrEqual(t, updates, 2)
-
-	got := &v1.Workload{}
-	require.NoError(t, cl.Get(context.Background(), ctrlclient.ObjectKey{Name: "w1"}, got))
-	assert.Equal(t, v1.WorkloadSucceeded, got.Status.Phase)
+	err := r.persistWorkloadStatus(context.Background(), fresh)
+	require.Error(t, err)
+	assert.True(t, apierrors.IsConflict(err))
+	// Exactly one attempt: no in-place retry loop.
+	assert.Equal(t, 1, updates)
 }
 
 func TestPersistWorkloadStatus_Offload(t *testing.T) {

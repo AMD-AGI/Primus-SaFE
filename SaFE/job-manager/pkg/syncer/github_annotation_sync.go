@@ -11,7 +11,9 @@ import (
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
+	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	apitypes "k8s.io/apimachinery/pkg/types"
 	"k8s.io/klog/v2"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -71,25 +73,33 @@ func (r *ClusterClientSets) syncGithubAnnotations(newObj *unstructured.Unstructu
 	}
 
 	existing := wl.GetAnnotations()
-	if existing == nil {
+	if len(existing) == 0 {
 		existing = make(map[string]string)
 	}
 
-	changed := false
+	// Collect only the annotations that actually change.
+	delta := map[string]any{}
 	for k, v := range toSync {
 		if existing[k] != v {
-			existing[k] = v
-			changed = true
+			delta[k] = v
 		}
 	}
-
-	if !changed {
+	if len(delta) == 0 {
 		return
 	}
 
-	wl.SetAnnotations(existing)
-	if err := r.adminClient.Update(ctx, wl); err != nil {
-		klog.V(1).Infof("[github-sync] update workload %s annotations: %v", workloadID, err)
+	// Patch only the changed annotation keys with a resourceVersion-guarded JSON
+	// merge patch (same pattern as scheduler.updateStatus): a stale copy conflicts
+	// instead of clobbering a concurrent spec/status write via a full-object Update.
+	patchObj := map[string]any{
+		"metadata": map[string]any{
+			"resourceVersion": wl.ResourceVersion,
+			"annotations":     delta,
+		},
+	}
+	p := jsonutils.MarshalSilently(patchObj)
+	if err := r.adminClient.Patch(ctx, wl, client.RawPatch(apitypes.MergePatchType, p)); err != nil {
+		klog.V(1).Infof("[github-sync] patch workload %s annotations: %v", workloadID, err)
 		return
 	}
 

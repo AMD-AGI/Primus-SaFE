@@ -14,7 +14,6 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	apitypes "k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/util/retry"
 	"k8s.io/klog/v2"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -80,66 +79,21 @@ func SetWorkloadFailed(ctx context.Context, cli client.Client, workload *v1.Work
 		dispatchCount = 1
 	}
 	condition := NewCondition(string(v1.AdminFailed), message, commonworkload.GenerateDispatchReason(dispatchCount))
-	workload.Status.Conditions = append(workload.Status.Conditions, *condition)
+	// Dedup by (Type, Reason) so repeated reconciles (e.g. after a status conflict
+	// requeue) do not accumulate duplicate AdminFailed conditions.
+	if FindCondition(workload, condition) == nil {
+		workload.Status.Conditions = append(workload.Status.Conditions, *condition)
+	}
 	commonworkload.StripOffloadedStatus(workload)
-	if err := UpdateWorkloadStatusWithRetry(ctx, cli, workload); err != nil {
+	// Single attempt with the caller's own resourceVersion: a conflict means the
+	// object changed under us, so we return the error and let the controller
+	// requeue and recompute from fresh state instead of clobbering the concurrent
+	// writer.
+	if err := cli.Status().Update(ctx, workload); err != nil {
 		klog.ErrorS(err, "failed to update workload status", "name", workload.Name)
 		return err
 	}
 	return nil
-}
-
-// UpdateWorkloadStatusWithRetry writes workload.Status to etcd, retrying on
-// optimistic-lock conflicts by re-reading the latest object and re-applying the
-// computed status. Without a retry, unrelated concurrent writes to .metadata/
-// .spec bump the resourceVersion and turn every status update into a conflict,
-// which on hot objects (e.g. CICD runner sets) livelocks the single-worker
-// syncer queue.
-//
-// Workload .status is written mostly by the syncer, but a few other controllers
-// (e.g. failover's AdminFailover condition) also append conditions. Re-applying
-// the computed status wholesale would drop such concurrently-added conditions,
-// so the freshly-read conditions are merged back in by (Type, Reason). Other
-// status fields (phase, pods, nodes, ...) are owned by the syncer and are
-// overwritten with the computed value.
-func UpdateWorkloadStatusWithRetry(ctx context.Context, cli client.Client, workload *v1.Workload) error {
-	key := client.ObjectKeyFromObject(workload)
-	status := workload.Status
-	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
-		latest := &v1.Workload{}
-		if err := cli.Get(ctx, key, latest); err != nil {
-			return err
-		}
-		// Snapshot conditions already in etcd (may include ones added
-		// concurrently by other controllers) before overwriting status.
-		concurrentConditions := latest.Status.Conditions
-		status.DeepCopyInto(&latest.Status)
-		latest.Status.Conditions = mergeConditions(latest.Status.Conditions, concurrentConditions)
-		if err := cli.Status().Update(ctx, latest); err != nil {
-			return err
-		}
-		workload.ResourceVersion = latest.ResourceVersion
-		return nil
-	})
-}
-
-// mergeConditions returns base plus any conditions from extra not already
-// present by (Type, Reason). It preserves conditions added concurrently by other
-// controllers when a status write overwrites the condition list.
-func mergeConditions(base, extra []metav1.Condition) []metav1.Condition {
-	for i := range extra {
-		found := false
-		for j := range base {
-			if base[j].Type == extra[i].Type && base[j].Reason == extra[i].Reason {
-				found = true
-				break
-			}
-		}
-		if !found {
-			base = append(base, extra[i])
-		}
-	}
-	return base
 }
 
 // StopReason describes why a workload was forcibly transitioned to the
@@ -148,10 +102,10 @@ func mergeConditions(base, extra []metav1.Condition) []metav1.Condition {
 type StopReason string
 
 const (
-	StopReasonTimeout       StopReason = "timeout"
-	StopReasonOwnerCascade  StopReason = "owner_cascade"
-	StopReasonManual        StopReason = "manual"
-	StopReasonUnspecified   StopReason = "unspecified"
+	StopReasonTimeout      StopReason = "timeout"
+	StopReasonOwnerCascade StopReason = "owner_cascade"
+	StopReasonManual       StopReason = "manual"
+	StopReasonUnspecified  StopReason = "unspecified"
 )
 
 // MarkWorkloadStopped transitions a workload to the Stopped phase and
@@ -189,15 +143,7 @@ func MarkWorkloadStopped(
 		statusPatch["conditions"] = workload.Status.Conditions
 	}
 
-	patchObj := map[string]any{
-		"metadata": map[string]any{
-			"resourceVersion": workload.ResourceVersion,
-		},
-		"status": statusPatch,
-	}
-	p := jsonutils.MarshalSilently(patchObj)
-	if err := cli.Status().Patch(ctx, workload, client.RawPatch(apitypes.MergePatchType, p)); err != nil {
-		klog.ErrorS(err, "failed to patch workload phase", "workload", workload.Name)
+	if err := PatchWorkloadStatusFields(ctx, cli, workload, statusPatch); err != nil {
 		return err
 	}
 	klog.Infof("workload %s stopped: reason=%s msg=%q", workload.Name, reason, message)
@@ -211,4 +157,33 @@ func MarkWorkloadStopped(
 // Deprecated: use MarkWorkloadStopped(ctx, cli, w, StopReasonTimeout, msg).
 func SetWorkloadTimeout(ctx context.Context, cli client.Client, workload *v1.Workload, message string) error {
 	return MarkWorkloadStopped(ctx, cli, workload, StopReasonTimeout, message)
+}
+
+// PatchWorkloadStatusFields applies a resourceVersion-guarded JSON merge patch to
+// the workload status subresource, writing ONLY the provided fields. Including
+// metadata.resourceVersion turns the write into an optimistic-lock update: a
+// stale local copy is rejected with a Conflict instead of silently clobbering
+// fields owned by other reconcilers (notably status.phase). Callers that do not
+// own status.phase must never include it in statusFields.
+//
+// Note (JSON merge patch semantics, RFC 7386): object fields (e.g.
+// dependenciesPhase) are merged key-by-key, while array fields (e.g. pods,
+// nodes, conditions) are replaced wholesale — pass the full desired slice.
+func PatchWorkloadStatusFields(ctx context.Context, cli client.Client,
+	workload *v1.Workload, statusFields map[string]any) error {
+	if len(statusFields) == 0 {
+		return nil
+	}
+	patchObj := map[string]any{
+		"metadata": map[string]any{
+			"resourceVersion": workload.ResourceVersion,
+		},
+		"status": statusFields,
+	}
+	p := jsonutils.MarshalSilently(patchObj)
+	if err := cli.Status().Patch(ctx, workload, client.RawPatch(apitypes.MergePatchType, p)); err != nil {
+		klog.ErrorS(err, "failed to patch workload status fields", "workload", workload.Name)
+		return err
+	}
+	return nil
 }

@@ -15,11 +15,11 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
-	apitypes "k8s.io/apimachinery/pkg/types"
 	"k8s.io/klog/v2"
 	ctrlruntime "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
@@ -34,7 +34,6 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/job-manager/pkg/syncer"
 	jobutils "github.com/AMD-AIG-AIMA/SAFE/job-manager/pkg/utils"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/backoff"
-	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
 )
 
 const (
@@ -60,6 +59,9 @@ func SetupFailoverController(mgr manager.Manager) error {
 		For(&v1.Workload{}, builder.WithPredicates(relevantChangePredicate{})).
 		Watches(&v1.Fault{}, r.handleFaultEvent()).
 		Watches(&corev1.ConfigMap{}, r.handleConfigmapEvent()).
+		// Different workloads reconcile in parallel; controller-runtime still
+		// serializes reconciles of the same object by key.
+		WithOptions(controller.Options{MaxConcurrentReconciles: 5}).
 		Complete(r)
 	if err != nil {
 		return err
@@ -220,20 +222,8 @@ func (r *FailoverReconciler) addFailoverCondition(ctx context.Context, workload 
 	}
 
 	workload.Status.Conditions = append(workload.Status.Conditions, *cond)
-	patchObj := map[string]any{
-		"metadata": map[string]any{
-			"resourceVersion": workload.ResourceVersion,
-		},
-		"status": map[string]any{
-			"conditions": workload.Status.Conditions,
-		},
-	}
-	p := jsonutils.MarshalSilently(patchObj)
-	if err := r.Status().Patch(ctx, workload, client.RawPatch(apitypes.MergePatchType, p)); err != nil {
-		klog.ErrorS(err, "failed to patch workload status")
-		return err
-	}
-	return nil
+	return jobutils.PatchWorkloadStatusFields(ctx, r.Client, workload,
+		map[string]any{"conditions": workload.Status.Conditions})
 }
 
 // getWorkloadsOnFaultNode retrieves workloads running on a faulty node.

@@ -15,7 +15,6 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
-	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 	ctrlfake "sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
@@ -67,66 +66,6 @@ func TestSetWorkloadFailed(t *testing.T) {
 	assert.Equal(t, w.Status.Phase, v1.WorkloadFailed)
 	assert.Assert(t, w.Status.EndTime != nil)
 	assert.Assert(t, len(w.Status.Conditions) > 0)
-}
-
-// TestUpdateWorkloadStatusWithRetryPreservesConcurrentConditions verifies that a
-// status write does not drop a condition added concurrently by another
-// controller (e.g. failover's AdminFailover), while still applying the caller's
-// own status.
-func TestUpdateWorkloadStatusWithRetryPreservesConcurrentConditions(t *testing.T) {
-	stored := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "w"}}
-	// A condition written concurrently by another controller, present in etcd but
-	// not in the caller's in-memory object.
-	stored.Status.Conditions = []metav1.Condition{*NewCondition("AdminFailover", "node failed", "r1")}
-	cl := ctrlfake.NewClientBuilder().
-		WithScheme(utilsScheme(t)).
-		WithObjects(stored).
-		WithStatusSubresource(&v1.Workload{}).
-		Build()
-
-	w := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "w"}}
-	w.Status.Phase = v1.WorkloadRunning
-	w.Status.Conditions = []metav1.Condition{*NewCondition("K8sRunning", "running", "dispatch-1")}
-
-	err := UpdateWorkloadStatusWithRetry(context.Background(), cl, w)
-	assert.NilError(t, err)
-
-	got := &v1.Workload{}
-	assert.NilError(t, cl.Get(context.Background(), ctrlclient.ObjectKey{Name: "w"}, got))
-	// Syncer-owned status is applied.
-	assert.Equal(t, got.Status.Phase, v1.WorkloadRunning)
-	// Both the caller's condition and the concurrently-added one survive.
-	assert.Assert(t, FindCondition(got, NewCondition("K8sRunning", "", "dispatch-1")) != nil)
-	assert.Assert(t, FindCondition(got, NewCondition("AdminFailover", "", "r1")) != nil)
-}
-
-// TestUpdateWorkloadStatusWithRetryIdempotent verifies that applying the same
-// computed status repeatedly does not duplicate or grow conditions (merge is by
-// (Type, Reason)), and that a concurrently-added condition stays exactly once.
-func TestUpdateWorkloadStatusWithRetryIdempotent(t *testing.T) {
-	stored := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "w"}}
-	stored.Status.Conditions = []metav1.Condition{*NewCondition("AdminFailover", "node failed", "r1")}
-	cl := ctrlfake.NewClientBuilder().
-		WithScheme(utilsScheme(t)).
-		WithObjects(stored).
-		WithStatusSubresource(&v1.Workload{}).
-		Build()
-
-	w := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "w"}}
-	w.Status.Phase = v1.WorkloadRunning
-	w.Status.Conditions = []metav1.Condition{*NewCondition("K8sRunning", "running", "dispatch-1")}
-
-	assert.NilError(t, UpdateWorkloadStatusWithRetry(context.Background(), cl, w))
-	first := &v1.Workload{}
-	assert.NilError(t, cl.Get(context.Background(), ctrlclient.ObjectKey{Name: "w"}, first))
-	assert.Equal(t, len(first.Status.Conditions), 2)
-
-	// Re-apply the identical computed status; conditions must stay at 2.
-	assert.NilError(t, UpdateWorkloadStatusWithRetry(context.Background(), cl, w))
-	second := &v1.Workload{}
-	assert.NilError(t, cl.Get(context.Background(), ctrlclient.ObjectKey{Name: "w"}, second))
-	assert.Equal(t, len(second.Status.Conditions), 2)
-	assert.Equal(t, second.Status.Phase, v1.WorkloadRunning)
 }
 
 func TestMarkWorkloadStopped(t *testing.T) {
