@@ -11,6 +11,7 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -19,7 +20,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
-	apitypes "k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/apimachinery/pkg/util/rand"
 	"k8s.io/klog/v2"
@@ -27,6 +27,7 @@ import (
 	ctrlruntime "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
@@ -57,6 +58,10 @@ const (
 type DispatcherReconciler struct {
 	client.Client
 	clusterClientSets *commonutils.ObjectManager
+	// portMu serializes host-port allocation. With MaxConcurrentReconciles > 1,
+	// two workloads could otherwise read the same "used ports" snapshot and pick
+	// the same host port before either is persisted.
+	portMu sync.Mutex
 }
 
 // SetupDispatcherController initializes and registers the dispatcher controller with the manager.
@@ -67,6 +72,9 @@ func SetupDispatcherController(mgr manager.Manager) error {
 	}
 	err := ctrlruntime.NewControllerManagedBy(mgr).
 		For(&v1.Workload{}, builder.WithPredicates(relevantChangePredicate{})).
+		// Different workloads dispatch in parallel; controller-runtime still
+		// serializes reconciles of the same object by key.
+		WithOptions(controller.Options{MaxConcurrentReconciles: 5}).
 		Complete(r)
 	if err != nil {
 		return err
@@ -145,7 +153,7 @@ func (r *DispatcherReconciler) Reconcile(ctx context.Context, req ctrlruntime.Re
 	if err = r.Get(ctx, req.NamespacedName, workload); err != nil {
 		return ctrlruntime.Result{}, client.IgnoreNotFound(err)
 	}
-	if !workload.GetDeletionTimestamp().IsZero() {
+	if !workload.GetDeletionTimestamp().IsZero() || workload.IsEnd() {
 		return ctrlruntime.Result{}, nil
 	}
 	// To prevent port conflicts when retrying, the port must be regenerated each time
@@ -365,6 +373,10 @@ func (r *DispatcherReconciler) generateJobPort(ctx context.Context, workload *v1
 			ports = make(map[int]struct{})
 		} else {
 			// In hostNetwork mode, ensure port uniqueness to avoid conflicts with previous tasks that may not have successfully released the port.
+			// Serialize the read-select-persist so concurrent reconciles cannot
+			// pick the same host port from the same "used ports" snapshot.
+			r.portMu.Lock()
+			defer r.portMu.Unlock()
 			ports = commonworkload.GetUsedHostPorts(ctx, r.Client, v1.GetClusterId(workload))
 		}
 		workload.Spec.JobPort = generateRandomPort(ports)
@@ -497,14 +509,7 @@ func (r *DispatcherReconciler) markAsDispatched(ctx context.Context, workload *v
 			statusPatch["phase"] = v1.WorkloadPending
 		}
 		statusPatch["conditions"] = append(workload.Status.Conditions, *cond)
-		patchObj := map[string]any{
-			"metadata": map[string]any{
-				"resourceVersion": workload.ResourceVersion,
-			},
-			"status": statusPatch,
-		}
-		p := jsonutils.MarshalSilently(patchObj)
-		if err := r.Status().Patch(ctx, workload, client.RawPatch(apitypes.MergePatchType, p)); err != nil {
+		if err := jobutils.PatchWorkloadStatusFields(ctx, r.Client, workload, statusPatch); err != nil {
 			return err
 		}
 	}
@@ -1256,6 +1261,9 @@ func buildServiceSelector(workload *v1.Workload, specService *v1.Service) map[st
 
 // shouldDispatch checks if a workload is ready to be dispatched.
 func shouldDispatch(workload *v1.Workload) bool {
+	if workload.IsEnd() {
+		return false
+	}
 	if v1.IsWorkloadScheduled(workload) && !v1.IsWorkloadDispatched(workload) {
 		return true
 	}

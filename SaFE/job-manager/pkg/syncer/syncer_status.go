@@ -15,7 +15,6 @@ import (
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
 	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
-	jobutils "github.com/AMD-AIG-AIMA/SAFE/job-manager/pkg/utils"
 )
 
 // hydrateWorkloadStatusFromDB loads per-pod and dispatch history from DB into
@@ -43,9 +42,13 @@ func (r *SyncerReconciler) hydrateWorkloadStatusFromDB(ctx context.Context, work
 // persistWorkloadStatus writes workload status to etcd. When offload is enabled
 // it mirrors pod/dispatch detail to DB, stores the O(node) NodeUsage aggregate in
 // etcd, and clears the large per-pod arrays from etcd.
+//
+// The write uses the workload's own resourceVersion: a conflict is returned so
+// the controller requeues and recomputes from fresh state, rather than clobbering
+// a concurrent writer with a stale snapshot.
 func (r *SyncerReconciler) persistWorkloadStatus(ctx context.Context, w *v1.Workload) error {
 	if !commonconfig.IsDBEnable() || r.dbClient == nil || !v1.IsWorkloadStatusOffloadEnabled(w) {
-		return jobutils.UpdateWorkloadStatusWithRetry(ctx, r.Client, w)
+		return r.Status().Update(ctx, w)
 	}
 	if err := r.writeWorkloadStatusToDB(ctx, w); err != nil {
 		return err
@@ -54,7 +57,7 @@ func (r *SyncerReconciler) persistWorkloadStatus(ctx context.Context, w *v1.Work
 	w.Status.Pods = nil
 	w.Status.Nodes = nil
 	w.Status.Ranks = nil
-	return jobutils.UpdateWorkloadStatusWithRetry(ctx, r.Client, w)
+	return r.Status().Update(ctx, w)
 }
 
 // writeWorkloadStatusToDB upserts the live pod set and dispatch history rows.

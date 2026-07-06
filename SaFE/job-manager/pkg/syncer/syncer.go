@@ -37,7 +37,28 @@ type SyncerReconciler struct {
 	// Key: cluster name, Value: *ClusterClientSets instance
 	clusterClientSets *commonutils.ObjectManager
 	dbClient          dbclient.Interface
-	*controller.Controller[*resourceMessage]
+	*controller.KeyedController[*resourceMessage]
+}
+
+// syncerWorkers is the number of concurrent workers for the event queue. The
+// queue is keyed by object identity, so the same object is still processed
+// serially while different objects fan out across workers.
+const syncerWorkers = 8
+
+// resourceMessageKey identifies the k8s object a message is about. Messages with
+// the same key are serialized and coalesced by the KeyedController.
+func resourceMessageKey(m *resourceMessage) string {
+	return m.cluster + "|" + m.gvk.String() + "|" + m.namespace + "|" + m.name
+}
+
+// mergeResourceMessage keeps the latest event for a key, except that a pending
+// delete is never overwritten by a non-delete: once an object is known deleted,
+// a late add/update event must not resurrect its processing.
+func mergeResourceMessage(existing *resourceMessage, existingOK bool, incoming *resourceMessage) *resourceMessage {
+	if existingOK && existing.action == ResourceDel && incoming.action != ResourceDel {
+		return existing
+	}
+	return incoming
 }
 
 // SetupSyncerController initializes and registers the syncer controller with the manager.
@@ -53,7 +74,7 @@ func SetupSyncerController(ctx context.Context, mgr manager.Manager) error {
 		clusterClientSets: commonutils.NewObjectManagerSingleton(),
 		dbClient:          dbCli,
 	}
-	r.Controller = controller.NewController[*resourceMessage](r, 1)
+	r.KeyedController = controller.NewKeyedController[*resourceMessage](r, resourceMessageKey, mergeResourceMessage, syncerWorkers)
 	if err := r.start(ctx); err != nil {
 		return err
 	}
