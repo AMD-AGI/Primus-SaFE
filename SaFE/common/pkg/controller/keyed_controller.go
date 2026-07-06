@@ -85,13 +85,21 @@ func (c *KeyedController[T]) stage(message T) string {
 	return key
 }
 
-// restage re-stores a payload for a requeued key only when nothing newer is
-// pending, so an in-flight retry never overwrites a freshly-arrived event.
+// restage re-stores the payload of a requeued (retried) key. If a newer event
+// arrived while it was being processed, the two are combined via mergeFn with the
+// retried message treated as the prior state, so merge invariants (e.g.
+// delete-priority) still hold; without a mergeFn the newer pending wins.
 func (c *KeyedController[T]) restage(key string, message T) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if _, ok := c.pending[key]; !ok {
+	existing, ok := c.pending[key]
+	if !ok {
 		c.pending[key] = message
+		return
+	}
+	if c.mergeFn != nil {
+		// message is older (it was in-flight); existing is the newer incoming.
+		c.pending[key] = c.mergeFn(message, true, existing)
 	}
 }
 

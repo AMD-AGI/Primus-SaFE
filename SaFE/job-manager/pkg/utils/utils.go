@@ -79,7 +79,11 @@ func SetWorkloadFailed(ctx context.Context, cli client.Client, workload *v1.Work
 		dispatchCount = 1
 	}
 	condition := NewCondition(string(v1.AdminFailed), message, commonworkload.GenerateDispatchReason(dispatchCount))
-	workload.Status.Conditions = append(workload.Status.Conditions, *condition)
+	// Dedup by (Type, Reason) so repeated reconciles (e.g. after a status conflict
+	// requeue) do not accumulate duplicate AdminFailed conditions.
+	if FindCondition(workload, condition) == nil {
+		workload.Status.Conditions = append(workload.Status.Conditions, *condition)
+	}
 	commonworkload.StripOffloadedStatus(workload)
 	// Single attempt with the caller's own resourceVersion: a conflict means the
 	// object changed under us, so we return the error and let the controller
