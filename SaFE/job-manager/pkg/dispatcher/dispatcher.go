@@ -26,6 +26,7 @@ import (
 	ctrlruntime "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
@@ -66,6 +67,9 @@ func SetupDispatcherController(mgr manager.Manager) error {
 	}
 	err := ctrlruntime.NewControllerManagedBy(mgr).
 		For(&v1.Workload{}, builder.WithPredicates(relevantChangePredicate{})).
+		// Different workloads dispatch in parallel; controller-runtime still
+		// serializes reconciles of the same object by key.
+		WithOptions(controller.Options{MaxConcurrentReconciles: 5}).
 		Complete(r)
 	if err != nil {
 		return err
@@ -144,7 +148,7 @@ func (r *DispatcherReconciler) Reconcile(ctx context.Context, req ctrlruntime.Re
 	if err = r.Get(ctx, req.NamespacedName, workload); err != nil {
 		return ctrlruntime.Result{}, client.IgnoreNotFound(err)
 	}
-	if !workload.GetDeletionTimestamp().IsZero() {
+	if !workload.GetDeletionTimestamp().IsZero() || workload.IsEnd() {
 		return ctrlruntime.Result{}, nil
 	}
 	// To prevent port conflicts when retrying, the port must be regenerated each time
@@ -1248,6 +1252,9 @@ func buildServiceSelector(workload *v1.Workload, specService *v1.Service) map[st
 
 // shouldDispatch checks if a workload is ready to be dispatched.
 func shouldDispatch(workload *v1.Workload) bool {
+	if workload.IsEnd() {
+		return false
+	}
 	if v1.IsWorkloadScheduled(workload) && !v1.IsWorkloadDispatched(workload) {
 		return true
 	}

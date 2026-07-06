@@ -659,6 +659,9 @@ func (r *SchedulerReconciler) updateDependentsPhase(ctx context.Context, workloa
 		return err
 	}
 	for _, depWorkload := range dependentWorkloads.Items {
+		if depWorkload.IsEnd() {
+			continue
+		}
 		if err := r.setDependencyPhase(ctx, workload, &depWorkload); err != nil && !apierrors.IsNotFound(err) {
 			klog.ErrorS(err, "failed to set dependency phase",
 				"workload", workload.Name, "depend", depWorkload.Name)

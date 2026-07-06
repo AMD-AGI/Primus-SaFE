@@ -19,6 +19,7 @@ import (
 	ctrlruntime "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
@@ -58,6 +59,9 @@ func SetupFailoverController(mgr manager.Manager) error {
 		For(&v1.Workload{}, builder.WithPredicates(relevantChangePredicate{})).
 		Watches(&v1.Fault{}, r.handleFaultEvent()).
 		Watches(&corev1.ConfigMap{}, r.handleConfigmapEvent()).
+		// Different workloads reconcile in parallel; controller-runtime still
+		// serializes reconciles of the same object by key.
+		WithOptions(controller.Options{MaxConcurrentReconciles: 5}).
 		Complete(r)
 	if err != nil {
 		return err
