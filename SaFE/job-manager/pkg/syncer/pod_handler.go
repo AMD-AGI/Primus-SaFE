@@ -138,10 +138,14 @@ func (r *SyncerReconciler) updateAdminWorkloadByPod(ctx context.Context, clientS
 			return ctrlruntime.Result{}, err
 		}
 	}
-	if commonworkload.IsCICDScalingRunnerSet(adminWorkload) {
+	// The Pod handler owns pod/node detail, not status.phase, so it persists with
+	// preservePhase=true. The sole exception is a CICD scaling runner set, whose
+	// phase is legitimately derived from its listener pod here.
+	isCICDScaleSet := commonworkload.IsCICDScalingRunnerSet(adminWorkload)
+	if isCICDScaleSet {
 		updateCICDScalingRunnerSetPhase(adminWorkload, pod)
 	}
-	if err = r.persistWorkloadStatus(ctx, adminWorkload); err != nil {
+	if err = r.persistWorkloadStatus(ctx, adminWorkload, !isCICDScaleSet); err != nil {
 		klog.ErrorS(err, "failed to update admin workload status", "name", adminWorkload.Name)
 		return ctrlruntime.Result{}, err
 	}
@@ -389,7 +393,8 @@ func (r *SyncerReconciler) removeWorkloadPod(ctx context.Context, message *resou
 		p.Phase = corev1.PodPhase(v1.WorkloadStopped)
 	}
 
-	if err = r.persistWorkloadStatus(ctx, adminWorkload); err != nil {
+	// Pod removal only touches pod/node detail — never status.phase.
+	if err = r.persistWorkloadStatus(ctx, adminWorkload, true); err != nil {
 		klog.ErrorS(err, "failed to update workload status", "name", adminWorkload.Name)
 		return err
 	}

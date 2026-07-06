@@ -149,6 +149,93 @@ func TestMarkWorkloadStoppedAlreadyStopped(t *testing.T) {
 	assert.NilError(t, err)
 }
 
+// TestUpdateWorkloadStatusPreservePhaseNeverWritesPhase verifies the non-owner
+// writer (Pod-event handler path) updates detail fields (pods) but never mutates
+// the phase-owned fields, for both terminal and non-terminal persisted phases.
+func TestUpdateWorkloadStatusPreservePhaseNeverWritesPhase(t *testing.T) {
+	cases := []struct {
+		name      string
+		persisted v1.WorkloadPhase
+	}{
+		{"terminal", v1.WorkloadStopped},
+		{"nonterminal", v1.WorkloadRunning},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			stored := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "w"}}
+			stored.Status.Phase = tc.persisted
+			cl := ctrlfake.NewClientBuilder().
+				WithScheme(utilsScheme(t)).
+				WithObjects(stored).
+				WithStatusSubresource(&v1.Workload{}).
+				Build()
+
+			// A stale non-owner copy with a different phase and new pod detail.
+			w := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "w"}}
+			w.Status.Phase = v1.WorkloadPending
+			w.Status.Pods = []v1.WorkloadPod{{PodId: "p1"}}
+
+			assert.NilError(t, UpdateWorkloadStatusPreservePhase(context.Background(), cl, w))
+
+			got := &v1.Workload{}
+			assert.NilError(t, cl.Get(context.Background(), ctrlclient.ObjectKey{Name: "w"}, got))
+			// Phase stays exactly as persisted; the pod detail is applied.
+			assert.Equal(t, got.Status.Phase, tc.persisted)
+			assert.Equal(t, len(got.Status.Pods), 1)
+		})
+	}
+}
+
+// TestAllowPhaseTransition covers the monotonic phase guard truth table.
+func TestAllowPhaseTransition(t *testing.T) {
+	// terminal -> non-terminal is vetoed (the lost-update we are guarding against).
+	assert.Equal(t, AllowPhaseTransition(v1.WorkloadStopped, v1.WorkloadRunning), false)
+	assert.Equal(t, AllowPhaseTransition(v1.WorkloadFailed, v1.WorkloadPending), false)
+	assert.Equal(t, AllowPhaseTransition(v1.WorkloadSucceeded, v1.WorkloadNotReady), false)
+	// non-terminal -> terminal is allowed (normal completion).
+	assert.Equal(t, AllowPhaseTransition(v1.WorkloadRunning, v1.WorkloadStopped), true)
+	// same phase is always allowed.
+	assert.Equal(t, AllowPhaseTransition(v1.WorkloadStopped, v1.WorkloadStopped), true)
+	// non-terminal -> non-terminal is allowed.
+	assert.Equal(t, AllowPhaseTransition(v1.WorkloadPending, v1.WorkloadRunning), true)
+}
+
+// TestUpdateWorkloadStatusWithRetryVetoesTerminalDowngrade reproduces the
+// multi-writer lost-update: a workload already advanced to a terminal phase
+// (Stopped) with a K8sDeleted condition in etcd must NOT be resurrected to
+// Running by a stale computed copy (as a lagging Pod-event reconciler produces).
+// Without the monotonic guard this test fails (phase becomes Running while the
+// K8sDeleted condition remains — the exact reported fingerprint).
+func TestUpdateWorkloadStatusWithRetryVetoesTerminalDowngrade(t *testing.T) {
+	stored := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "w"}}
+	stored.Status.Phase = v1.WorkloadStopped
+	stored.Status.Conditions = []metav1.Condition{*NewCondition("K8sDeleted", "sandbox deleted", "dispatch-1")}
+	cl := ctrlfake.NewClientBuilder().
+		WithScheme(utilsScheme(t)).
+		WithObjects(stored).
+		WithStatusSubresource(&v1.Workload{}).
+		Build()
+
+	// A lagging reconciler still holds a copy that believes the workload is Running.
+	stale := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "w"}}
+	stale.Status.Phase = v1.WorkloadRunning
+	stale.Status.Conditions = []metav1.Condition{*NewCondition("K8sRunning", "running", "dispatch-1")}
+
+	assert.NilError(t, UpdateWorkloadStatusWithRetry(context.Background(), cl, stale))
+
+	got := &v1.Workload{}
+	assert.NilError(t, cl.Get(context.Background(), ctrlclient.ObjectKey{Name: "w"}, got))
+	// Phase must stay terminal; the K8sDeleted condition must be preserved.
+	assert.Equal(t, got.Status.Phase, v1.WorkloadStopped)
+	foundDeleted := false
+	for _, c := range got.Status.Conditions {
+		if c.Type == "K8sDeleted" {
+			foundDeleted = true
+		}
+	}
+	assert.Assert(t, foundDeleted)
+}
+
 func TestSetWorkloadTimeout(t *testing.T) {
 	w := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "w"}}
 	cl := ctrlfake.NewClientBuilder().

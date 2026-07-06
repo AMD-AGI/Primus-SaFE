@@ -103,6 +103,25 @@ func SetWorkloadFailed(ctx context.Context, cli client.Client, workload *v1.Work
 // status fields (phase, pods, nodes, ...) are owned by the syncer and are
 // overwritten with the computed value.
 func UpdateWorkloadStatusWithRetry(ctx context.Context, cli client.Client, workload *v1.Workload) error {
+	return updateWorkloadStatus(ctx, cli, workload, false)
+}
+
+// UpdateWorkloadStatusPreservePhase persists a workload's detail fields
+// (pods/nodes/ranks/nodeUsage) while leaving the phase-owner's fields
+// (phase/endTime/dependenciesPhase) exactly as they are in etcd. It is for
+// reconcilers that do NOT own the phase (e.g. the Pod-event handler): they must
+// update pod/node detail without ever writing status.phase, which keeps phase a
+// single-writer field and prevents the multi-writer lost-update from resurrecting
+// a finished workload to Running. Concurrently-added conditions are still merged.
+func UpdateWorkloadStatusPreservePhase(ctx context.Context, cli client.Client, workload *v1.Workload) error {
+	return updateWorkloadStatus(ctx, cli, workload, true)
+}
+
+// updateWorkloadStatus is the shared implementation for the two status writers.
+// When preservePhase is true the phase-owned fields are restored from the latest
+// etcd copy after the computed status is applied, so a non-owner never mutates
+// them.
+func updateWorkloadStatus(ctx context.Context, cli client.Client, workload *v1.Workload, preservePhase bool) error {
 	key := client.ObjectKeyFromObject(workload)
 	status := workload.Status
 	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
@@ -110,11 +129,28 @@ func UpdateWorkloadStatusWithRetry(ctx context.Context, cli client.Client, workl
 		if err := cli.Get(ctx, key, latest); err != nil {
 			return err
 		}
+		// Snapshot the phase-owned fields as currently persisted in etcd.
+		persistedPhase := latest.Status.Phase
+		persistedEndTime := latest.Status.EndTime
+		persistedDependenciesPhase := latest.Status.DependenciesPhase
+		// Monotonic phase guard (phase-owner path only): once a workload has reached
+		// a terminal phase in etcd its status is final, so skip a stale write that
+		// would resurrect it. Because Status().Update is resourceVersion-guarded,
+		// `latest` reflects the true current state, so this decision is authoritative.
+		if !preservePhase && !AllowPhaseTransition(persistedPhase, status.Phase) {
+			return nil
+		}
 		// Snapshot conditions already in etcd (may include ones added
 		// concurrently by other controllers) before overwriting status.
 		concurrentConditions := latest.Status.Conditions
 		status.DeepCopyInto(&latest.Status)
 		latest.Status.Conditions = mergeConditions(latest.Status.Conditions, concurrentConditions)
+		if preservePhase {
+			// Non-owner write: keep the phase-owned fields untouched.
+			latest.Status.Phase = persistedPhase
+			latest.Status.EndTime = persistedEndTime
+			latest.Status.DependenciesPhase = persistedDependenciesPhase
+		}
 		if err := cli.Status().Update(ctx, latest); err != nil {
 			return err
 		}
@@ -148,10 +184,10 @@ func mergeConditions(base, extra []metav1.Condition) []metav1.Condition {
 type StopReason string
 
 const (
-	StopReasonTimeout       StopReason = "timeout"
-	StopReasonOwnerCascade  StopReason = "owner_cascade"
-	StopReasonManual        StopReason = "manual"
-	StopReasonUnspecified   StopReason = "unspecified"
+	StopReasonTimeout      StopReason = "timeout"
+	StopReasonOwnerCascade StopReason = "owner_cascade"
+	StopReasonManual       StopReason = "manual"
+	StopReasonUnspecified  StopReason = "unspecified"
 )
 
 // MarkWorkloadStopped transitions a workload to the Stopped phase and
@@ -189,15 +225,7 @@ func MarkWorkloadStopped(
 		statusPatch["conditions"] = workload.Status.Conditions
 	}
 
-	patchObj := map[string]any{
-		"metadata": map[string]any{
-			"resourceVersion": workload.ResourceVersion,
-		},
-		"status": statusPatch,
-	}
-	p := jsonutils.MarshalSilently(patchObj)
-	if err := cli.Status().Patch(ctx, workload, client.RawPatch(apitypes.MergePatchType, p)); err != nil {
-		klog.ErrorS(err, "failed to patch workload phase", "workload", workload.Name)
+	if err := PatchWorkloadStatusFields(ctx, cli, workload, statusPatch); err != nil {
 		return err
 	}
 	klog.Infof("workload %s stopped: reason=%s msg=%q", workload.Name, reason, message)
@@ -211,4 +239,50 @@ func MarkWorkloadStopped(
 // Deprecated: use MarkWorkloadStopped(ctx, cli, w, StopReasonTimeout, msg).
 func SetWorkloadTimeout(ctx context.Context, cli client.Client, workload *v1.Workload, message string) error {
 	return MarkWorkloadStopped(ctx, cli, workload, StopReasonTimeout, message)
+}
+
+// AllowPhaseTransition enforces phase monotonicity: once a workload has reached
+// a terminal phase (Succeeded/Failed/Stopped), it must not be moved back to a
+// non-terminal phase (Running/Pending/NotReady/Updating). This is the guard
+// against the multi-writer "lost update" where a reconciler holding a stale
+// Workload copy (phase=Running) writes it back on top of a copy that the
+// event-driven syncer already advanced to a terminal phase after the underlying
+// Pod/Sandbox was deleted. Transitions to the same phase are always allowed.
+func AllowPhaseTransition(current, next v1.WorkloadPhase) bool {
+	if current == next {
+		return true
+	}
+	if v1.IsWorkloadPhaseEnded(current) && !v1.IsWorkloadPhaseEnded(next) {
+		return false
+	}
+	return true
+}
+
+// PatchWorkloadStatusFields applies a resourceVersion-guarded JSON merge patch to
+// the workload status subresource, writing ONLY the provided fields. Including
+// metadata.resourceVersion turns the write into an optimistic-lock update: a
+// stale local copy is rejected with a Conflict instead of silently clobbering
+// fields owned by other reconcilers (notably status.phase). Callers that do not
+// own status.phase must never include it in statusFields.
+//
+// Note (JSON merge patch semantics, RFC 7386): object fields (e.g.
+// dependenciesPhase) are merged key-by-key, while array fields (e.g. pods,
+// nodes, conditions) are replaced wholesale — pass the full desired slice.
+func PatchWorkloadStatusFields(ctx context.Context, cli client.Client,
+	workload *v1.Workload, statusFields map[string]any) error {
+	if len(statusFields) == 0 {
+		return nil
+	}
+	patchObj := map[string]any{
+		"metadata": map[string]any{
+			"resourceVersion": workload.ResourceVersion,
+		},
+		"status": statusFields,
+	}
+	p := jsonutils.MarshalSilently(patchObj)
+	if err := cli.Status().Patch(ctx, workload, client.RawPatch(apitypes.MergePatchType, p)); err != nil {
+		klog.ErrorS(err, "failed to patch workload status fields", "workload", workload.Name)
+		return err
+	}
+	return nil
 }
