@@ -11,6 +11,7 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -57,6 +58,10 @@ const (
 type DispatcherReconciler struct {
 	client.Client
 	clusterClientSets *commonutils.ObjectManager
+	// portMu serializes host-port allocation. With MaxConcurrentReconciles > 1,
+	// two workloads could otherwise read the same "used ports" snapshot and pick
+	// the same host port before either is persisted.
+	portMu sync.Mutex
 }
 
 // SetupDispatcherController initializes and registers the dispatcher controller with the manager.
@@ -368,6 +373,10 @@ func (r *DispatcherReconciler) generateJobPort(ctx context.Context, workload *v1
 			ports = make(map[int]struct{})
 		} else {
 			// In hostNetwork mode, ensure port uniqueness to avoid conflicts with previous tasks that may not have successfully released the port.
+			// Serialize the read-select-persist so concurrent reconciles cannot
+			// pick the same host port from the same "used ports" snapshot.
+			r.portMu.Lock()
+			defer r.portMu.Unlock()
 			ports = commonworkload.GetUsedHostPorts(ctx, r.Client, v1.GetClusterId(workload))
 		}
 		workload.Spec.JobPort = generateRandomPort(ports)

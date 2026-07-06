@@ -8,13 +8,35 @@ package controller
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	ctrlruntime "sigs.k8s.io/controller-runtime"
 )
+
+// fnHandler adapts a func into a Handler for tests.
+type fnHandler struct {
+	fn func(m *kmsg)
+}
+
+func (h fnHandler) Do(_ context.Context, m *kmsg) (ctrlruntime.Result, error) {
+	h.fn(m)
+	return ctrlruntime.Result{}, nil
+}
+
+// recordMax bumps *max to n if n is larger (lock-free).
+func recordMax(max *int32, n int32) {
+	for {
+		old := atomic.LoadInt32(max)
+		if n <= old || atomic.CompareAndSwapInt32(max, old, n) {
+			return
+		}
+	}
+}
 
 type kmsg struct {
 	key string
@@ -137,4 +159,67 @@ func TestKeyedControllerRetriesOnError(t *testing.T) {
 		}
 		return count >= 2 // first errors, retry succeeds
 	}, 3*time.Second, 10*time.Millisecond)
+}
+
+// TestKeyedControllerSerializesSameKey verifies the core safety property that
+// enables running multiple workers: the same key is never processed by two
+// workers concurrently, even when re-enqueued while in flight.
+func TestKeyedControllerSerializesSameKey(t *testing.T) {
+	var running, maxRunning, calls int32
+	var c *KeyedController[*kmsg]
+	h := fnHandler{fn: func(m *kmsg) {
+		recordMax(&maxRunning, atomic.AddInt32(&running, 1))
+		// Re-enqueue the same key a few times while processing to exercise the
+		// workqueue's in-flight dirty/requeue path.
+		if atomic.AddInt32(&calls, 1) <= 5 {
+			c.Add(&kmsg{key: "same"})
+		}
+		time.Sleep(10 * time.Millisecond)
+		atomic.AddInt32(&running, -1)
+	}}
+	c = NewKeyedController[*kmsg](h, kmsgKey, nil, 4)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	for i := 0; i < c.MaxConcurrent; i++ {
+		c.Run(ctx)
+	}
+
+	var wg sync.WaitGroup
+	for i := 0; i < 20; i++ {
+		wg.Add(1)
+		go func(v int) { defer wg.Done(); c.Add(&kmsg{key: "same", val: v}) }(i)
+	}
+	wg.Wait()
+
+	assert.Eventually(t, func() bool {
+		return c.GetQueueSize() == 0 && atomic.LoadInt32(&running) == 0
+	}, 3*time.Second, 10*time.Millisecond)
+	// At least a few processings happened, and none overlapped.
+	assert.GreaterOrEqual(t, atomic.LoadInt32(&calls), int32(5))
+	assert.Equal(t, int32(1), atomic.LoadInt32(&maxRunning))
+}
+
+// TestKeyedControllerParallelDifferentKeys verifies distinct keys are processed
+// concurrently across workers.
+func TestKeyedControllerParallelDifferentKeys(t *testing.T) {
+	var running, maxRunning int32
+	h := fnHandler{fn: func(m *kmsg) {
+		recordMax(&maxRunning, atomic.AddInt32(&running, 1))
+		time.Sleep(50 * time.Millisecond)
+		atomic.AddInt32(&running, -1)
+	}}
+	c := NewKeyedController[*kmsg](h, kmsgKey, nil, 4)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	for i := 0; i < c.MaxConcurrent; i++ {
+		c.Run(ctx)
+	}
+
+	for i := 0; i < 4; i++ {
+		c.Add(&kmsg{key: fmt.Sprintf("k%d", i)})
+	}
+	// Distinct keys must overlap across workers.
+	assert.Eventually(t, func() bool {
+		return atomic.LoadInt32(&maxRunning) >= 2
+	}, 2*time.Second, 5*time.Millisecond)
 }
