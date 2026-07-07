@@ -14,6 +14,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	ctrlruntime "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	ctrlfake "sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/controller"
@@ -21,7 +22,7 @@ import (
 
 // countingHandler records how many times Do runs per workspace key.
 type countingHandler struct {
-	client ctrlruntime.Client
+	client client.Client
 	mu     sync.Mutex
 	counts map[string]int
 }
@@ -104,6 +105,8 @@ func TestSchedulerKeyedParallelWorkspaces(t *testing.T) {
 	assert.GreaterOrEqual(t, int(atomic.LoadInt32(&maxParallel)), 2)
 	assert.Equal(t, 1, h.get("c1|ws-a"))
 	assert.Equal(t, 1, h.get("c1|ws-b"))
+	assert.Equal(t, 1, h.get("c1|ws-c"))
+	assert.Equal(t, 1, h.get("c1|ws-d"))
 }
 
 type parallelHandler struct {

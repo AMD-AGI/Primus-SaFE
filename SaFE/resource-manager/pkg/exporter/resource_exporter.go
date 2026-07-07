@@ -51,7 +51,7 @@ type ResourceExporter struct {
 // exporterWorkers is the number of concurrent export workers per GVK. The queue
 // is keyed by object identity, so the same resource is processed serially
 // (finalizer + DB upsert) while distinct objects fan out across workers.
-const exporterWorkers = 4
+const exporterWorkers = 8
 
 // namespacedNameKey identifies the object an export message refers to.
 func namespacedNameKey(nn types.NamespacedName) string {
