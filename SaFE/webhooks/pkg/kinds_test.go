@@ -39,7 +39,7 @@ func TestWorkloadMutateCommonAllKinds(t *testing.T) {
 		common.DeploymentKind, common.StatefulSetKind, common.AuthoringKind,
 		common.CICDScaleRunnerSetKind, common.MonarchJob, common.RayJobKind,
 		common.TorchFTKind, common.SandboxKind, common.DynamoDeploymentKind,
-		common.OptimusDeploymentKind,
+		common.InferaDeploymentKind,
 	}
 	for _, k := range kinds {
 		w := workloadOfKind(k)
@@ -54,7 +54,7 @@ func TestWorkloadValidateCommonAllKinds(t *testing.T) {
 	kinds := []string{
 		common.AuthoringKind, common.CICDScaleRunnerSetKind, common.TorchFTKind,
 		common.RayJobKind, common.MonarchJob, common.SandboxKind,
-		common.DynamoDeploymentKind, common.OptimusDeploymentKind,
+		common.DynamoDeploymentKind, common.InferaDeploymentKind,
 	}
 	for _, k := range kinds {
 		w := workloadOfKind(k)

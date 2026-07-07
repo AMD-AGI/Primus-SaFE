@@ -25,17 +25,17 @@ func TestBuildSecretVolume(t *testing.T) {
 	assert.Equal(t, secret["secretName"], "my-secret")
 }
 
-func TestApplyOptimusRoleFields(t *testing.T) {
+func TestApplyInferaRoleFields(t *testing.T) {
 	// Frontend -> server component, role removed.
 	frontend := map[string]interface{}{"role": "old"}
-	applyOptimusRoleFields(frontend, common.DynamoRoleFrontend, "nixl")
+	applyInferaRoleFields(frontend, common.DynamoRoleFrontend, "nixl")
 	assert.Equal(t, frontend["componentType"], "server")
 	_, hasRole := frontend["role"]
 	assert.Equal(t, hasRole, false)
 
 	// Worker -> worker component with mixed role.
 	worker := map[string]interface{}{}
-	applyOptimusRoleFields(worker, common.DynamoRoleWorker, "nixl")
+	applyInferaRoleFields(worker, common.DynamoRoleWorker, "nixl")
 	assert.Equal(t, worker["componentType"], "worker")
 	assert.Equal(t, worker["role"], "mixed")
 }

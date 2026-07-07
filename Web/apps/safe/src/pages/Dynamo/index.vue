@@ -265,17 +265,17 @@ dayjs.extend(utc)
 defineOptions({ name: 'dynamoPage' })
 
 const props = withDefaults(defineProps<{
-  workloadType?: 'dynamo' | 'optimus'
+  workloadType?: 'dynamo' | 'infera'
 }>(), {
   workloadType: 'dynamo',
 })
 
 const workloadConfig = computed(() =>
-  props.workloadType === 'optimus'
+  props.workloadType === 'infera'
     ? {
-        label: 'Optimus',
-        kind: WorkloadKind.OptimusDeployment,
-        detailPath: '/optimus/detail',
+        label: 'Infera',
+        kind: WorkloadKind.InferaDeployment,
+        detailPath: '/infera/detail',
       }
     : {
         label: 'Dynamo',
@@ -315,7 +315,7 @@ interface DynamoRow {
     serviceRoles?: string[]
     multinodeRoles?: string[]
   }
-  optimusOptions?: {
+  inferaOptions?: {
     serviceRoles?: string[]
     multinodeRoles?: string[]
   }
@@ -418,12 +418,12 @@ const getMode = (row: DynamoRow) => {
   const roles = getRoles(row)
   if (roles.includes('prefill')) return 'PD'
   if (getWorkloadOptions(row)?.multinodeRoles?.includes('worker')) return 'Aggregation'
-  if (props.workloadType === 'optimus' && Number(row.resources?.[1]?.replica || 0) > 1) return 'Aggregation'
+  if (props.workloadType === 'infera' && Number(row.resources?.[1]?.replica || 0) > 1) return 'Aggregation'
   return 'Standard'
 }
 
 const getWorkloadOptions = (row: DynamoRow) =>
-  props.workloadType === 'optimus' ? row.optimusOptions : row.dynamoOptions
+  props.workloadType === 'infera' ? row.inferaOptions : row.dynamoOptions
 
 const getTotalReplicas = (row: DynamoRow) => {
   const resources = Array.isArray(row.resources) ? row.resources : []

@@ -440,7 +440,7 @@ func TestKindPredicates(t *testing.T) {
 	assert.Assert(t, IsRayJob(wlKind(common.RayJobKind)))
 	assert.Assert(t, !IsRayJob(wlKind(common.JobKind)))
 	assert.Assert(t, IsDynamoDeployment(wlKind(common.DynamoDeploymentKind)))
-	assert.Assert(t, IsOptimusDeployment(wlKind(common.OptimusDeploymentKind)))
+	assert.Assert(t, IsInferaDeployment(wlKind(common.InferaDeploymentKind)))
 	assert.Assert(t, IsMonarchJob(wlKind(common.MonarchJob)))
 	assert.Assert(t, !IsMonarchJob(wlKind(common.JobKind)))
 	assert.Assert(t, IsMonarchMesh(wlKind(common.MonarchMesh)))
@@ -492,30 +492,30 @@ func TestDynamoHelpers(t *testing.T) {
 	assert.Assert(t, !IsDynamoMultinodeRole(d, "frontend"))
 }
 
-func TestOptimusHelpers(t *testing.T) {
-	assert.Assert(t, GetOptimusServiceRoles(wlKind(common.JobKind)) == nil)
-	o := wlKind(common.OptimusDeploymentKind)
-	v1.SetAnnotation(o, v1.OptimusServiceRolesAnnotation, "frontend,prefill,decode")
-	assert.Equal(t, len(GetOptimusServiceRoles(o)), 3)
+func TestInferaHelpers(t *testing.T) {
+	assert.Assert(t, GetInferaServiceRoles(wlKind(common.JobKind)) == nil)
+	o := wlKind(common.InferaDeploymentKind)
+	v1.SetAnnotation(o, v1.InferaServiceRolesAnnotation, "frontend,prefill,decode")
+	assert.Equal(t, len(GetInferaServiceRoles(o)), 3)
 
-	o2 := wlKind(common.OptimusDeploymentKind)
+	o2 := wlKind(common.InferaDeploymentKind)
 	o2.Spec.Resources = []v1.WorkloadResource{{}, {}}
-	assert.Equal(t, len(GetOptimusServiceRoles(o2)), 2)
-	o3 := wlKind(common.OptimusDeploymentKind)
+	assert.Equal(t, len(GetInferaServiceRoles(o2)), 2)
+	o3 := wlKind(common.InferaDeploymentKind)
 	o3.Spec.Resources = []v1.WorkloadResource{{}, {}, {}}
-	assert.Equal(t, len(GetOptimusServiceRoles(o3)), 3)
+	assert.Equal(t, len(GetInferaServiceRoles(o3)), 3)
 
-	assert.Equal(t, GetOptimusKVTransferBackend(o2), common.OptimusDefaultKVBackend)
-	v1.SetAnnotation(o, v1.OptimusKVTransferBackendAnnotation, "nixl")
-	assert.Equal(t, GetOptimusKVTransferBackend(o), "nixl")
-	assert.Equal(t, GetOptimusBackendFramework(o2), common.OptimusDefaultBackendFramework)
-	v1.SetAnnotation(o, v1.OptimusBackendFrameworkAnnotation, "sglang")
-	assert.Equal(t, GetOptimusBackendFramework(o), "sglang")
+	assert.Equal(t, GetInferaKVTransferBackend(o2), common.InferaDefaultKVBackend)
+	v1.SetAnnotation(o, v1.InferaKVTransferBackendAnnotation, "nixl")
+	assert.Equal(t, GetInferaKVTransferBackend(o), "nixl")
+	assert.Equal(t, GetInferaBackendFramework(o2), common.InferaDefaultBackendFramework)
+	v1.SetAnnotation(o, v1.InferaBackendFrameworkAnnotation, "sglang")
+	assert.Equal(t, GetInferaBackendFramework(o), "sglang")
 
-	assert.Assert(t, GetOptimusMultinodeRoles(o2) == nil)
-	v1.SetAnnotation(o, v1.OptimusMultinodeRolesAnnotation, "decode")
-	assert.Assert(t, IsOptimusMultinodeRole(o, "decode"))
-	assert.Assert(t, !IsOptimusMultinodeRole(o, "frontend"))
+	assert.Assert(t, GetInferaMultinodeRoles(o2) == nil)
+	v1.SetAnnotation(o, v1.InferaMultinodeRolesAnnotation, "decode")
+	assert.Assert(t, IsInferaMultinodeRole(o, "decode"))
+	assert.Assert(t, !IsInferaMultinodeRole(o, "frontend"))
 }
 
 func TestGeneratePriorityAndReason(t *testing.T) {

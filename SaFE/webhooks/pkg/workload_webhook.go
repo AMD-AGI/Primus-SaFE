@@ -156,8 +156,8 @@ func (m *WorkloadMutator) mutateCommon(ctx context.Context, oldWorkload, newWork
 		m.mutateSandbox(newWorkload)
 	case common.DynamoDeploymentKind:
 		m.mutateDynamoDeployment(newWorkload)
-	case common.OptimusDeploymentKind:
-		m.mutateOptimusDeployment(newWorkload)
+	case common.InferaDeploymentKind:
+		m.mutateInferaDeployment(newWorkload)
 	}
 	m.mutateHostPath(newWorkload, workspace)
 	m.mutatePriority(newWorkload)
@@ -475,24 +475,24 @@ func (m *WorkloadMutator) mutateDynamoDeployment(workload *v1.Workload) {
 	}
 }
 
-// mutateOptimusDeployment normalizes OptimusDeployment workloads, the RocServe
-// analogue of mutateDynamoDeployment: it defaults the primus-safe.optimus.*
+// mutateInferaDeployment normalizes InferaDeployment workloads, the Infera
+// analogue of mutateDynamoDeployment: it defaults the primus-safe.infera.*
 // annotations (backend-framework, kv-transfer-backend, service-roles inference)
 // and seeds NATS_SERVER for the KV-event plane. Role-specific entrypoint flags
 // (sglang disaggregation / multi-node) are injected later by the dispatcher's
-// normalizeOptimusRSD step.
-func (m *WorkloadMutator) mutateOptimusDeployment(workload *v1.Workload) {
-	if v1.GetAnnotation(workload, v1.OptimusBackendFrameworkAnnotation) == "" {
-		v1.SetAnnotation(workload, v1.OptimusBackendFrameworkAnnotation,
-			common.OptimusDefaultBackendFramework)
+// normalizeInferaIDEP step.
+func (m *WorkloadMutator) mutateInferaDeployment(workload *v1.Workload) {
+	if v1.GetAnnotation(workload, v1.InferaBackendFrameworkAnnotation) == "" {
+		v1.SetAnnotation(workload, v1.InferaBackendFrameworkAnnotation,
+			common.InferaDefaultBackendFramework)
 	}
-	if v1.GetAnnotation(workload, v1.OptimusKVTransferBackendAnnotation) == "" {
-		v1.SetAnnotation(workload, v1.OptimusKVTransferBackendAnnotation,
-			common.OptimusDefaultKVBackend)
+	if v1.GetAnnotation(workload, v1.InferaKVTransferBackendAnnotation) == "" {
+		v1.SetAnnotation(workload, v1.InferaKVTransferBackendAnnotation,
+			common.InferaDefaultKVBackend)
 	}
-	if v1.GetAnnotation(workload, v1.OptimusServiceRolesAnnotation) == "" {
-		if roles := commonworkload.GetOptimusServiceRoles(workload); len(roles) > 0 {
-			v1.SetAnnotation(workload, v1.OptimusServiceRolesAnnotation,
+	if v1.GetAnnotation(workload, v1.InferaServiceRolesAnnotation) == "" {
+		if roles := commonworkload.GetInferaServiceRoles(workload); len(roles) > 0 {
+			v1.SetAnnotation(workload, v1.InferaServiceRolesAnnotation,
 				strings.Join(roles, ","))
 		}
 	}
@@ -504,35 +504,35 @@ func (m *WorkloadMutator) mutateOptimusDeployment(workload *v1.Workload) {
 	}
 }
 
-// validateOptimusDeployment enforces OptimusDeployment invariants: legal role
-// names (frontend|worker|prefill|decode — RocServe componentType is server or
+// validateInferaDeployment enforces InferaDeployment invariants: legal role
+// names (frontend|worker|prefill|decode — Infera componentType is server or
 // worker, so no planner/epp), exactly one frontend, role/Resources length
 // match, mutually exclusive worker vs prefill/decode, matched prefill/decode
 // pairs, well-formed enums, and multinode-roles referencing declared roles.
-func (v *WorkloadValidator) validateOptimusDeployment(workload *v1.Workload) error {
+func (v *WorkloadValidator) validateInferaDeployment(workload *v1.Workload) error {
 	if len(workload.Spec.Resources) == 0 {
 		return commonerrors.NewBadRequest(
-			"OptimusDeployment requires at least one resource (frontend)")
+			"InferaDeployment requires at least one resource (frontend)")
 	}
-	// The optimus template exposes five role slots (role0..role4); the
-	// dispatcher's normalizeOptimusRSD drops slots beyond len(Resources).
-	const maxOptimusResources = 5
-	if len(workload.Spec.Resources) > maxOptimusResources {
+	// The infera template exposes five role slots (role0..role4); the
+	// dispatcher's normalizeInferaIDEP drops slots beyond len(Resources).
+	const maxInferaResources = 5
+	if len(workload.Spec.Resources) > maxInferaResources {
 		return commonerrors.NewBadRequest(fmt.Sprintf(
-			"OptimusDeployment resources length %d exceeds maximum %d (role0..role4 slots)",
-			len(workload.Spec.Resources), maxOptimusResources))
+			"InferaDeployment resources length %d exceeds maximum %d (role0..role4 slots)",
+			len(workload.Spec.Resources), maxInferaResources))
 	}
 
 	var errs []error
 
-	switch val := commonworkload.GetOptimusBackendFramework(workload); val {
+	switch val := commonworkload.GetInferaBackendFramework(workload); val {
 	case "sglang", "vllm":
 	default:
 		errs = append(errs, fmt.Errorf(
 			"unknown backend-framework %q (allowed: sglang|vllm)", val))
 	}
 
-	switch val := commonworkload.GetOptimusKVTransferBackend(workload); val {
+	switch val := commonworkload.GetInferaKVTransferBackend(workload); val {
 	case common.DynamoKVBackendNixl, common.DynamoKVBackendMori,
 		common.DynamoKVBackendMooncake:
 	default:
@@ -540,11 +540,11 @@ func (v *WorkloadValidator) validateOptimusDeployment(workload *v1.Workload) err
 			"unknown kv-transfer-backend %q (allowed: nixl|mori|mooncake)", val))
 	}
 
-	roles := commonworkload.GetOptimusServiceRoles(workload)
+	roles := commonworkload.GetInferaServiceRoles(workload)
 	if len(roles) == 0 {
 		return commonerrors.NewBadRequest(fmt.Sprintf(
-			"OptimusDeployment with %d resources requires explicit %s annotation",
-			len(workload.Spec.Resources), v1.OptimusServiceRolesAnnotation))
+			"InferaDeployment with %d resources requires explicit %s annotation",
+			len(workload.Spec.Resources), v1.InferaServiceRolesAnnotation))
 	}
 	if len(roles) != len(workload.Spec.Resources) {
 		errs = append(errs, fmt.Errorf(
@@ -580,7 +580,7 @@ func (v *WorkloadValidator) validateOptimusDeployment(workload *v1.Workload) err
 			roleCounts[common.DynamoRolePrefill], roleCounts[common.DynamoRoleDecode]))
 	}
 
-	for _, role := range commonworkload.GetOptimusMultinodeRoles(workload) {
+	for _, role := range commonworkload.GetInferaMultinodeRoles(workload) {
 		if roleCounts[role] == 0 {
 			errs = append(errs, fmt.Errorf(
 				"multinode-roles references undeclared role %q (not in service-roles)", role))
@@ -931,8 +931,8 @@ func (v *WorkloadValidator) validateCommon(ctx context.Context, newWorkload, old
 		err = v.validateSandbox(newWorkload)
 	case common.DynamoDeploymentKind:
 		err = v.validateDynamoDeployment(newWorkload)
-	case common.OptimusDeploymentKind:
-		err = v.validateOptimusDeployment(newWorkload)
+	case common.InferaDeploymentKind:
+		err = v.validateInferaDeployment(newWorkload)
 	}
 	if err != nil {
 		return err
