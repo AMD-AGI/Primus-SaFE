@@ -6,8 +6,6 @@ title: Overview
 
 # Primus-SaFE
 
-> **Status:** Draft · **Owner:** _unassigned_ · **Source:** root `README.md`, `SaFE/README.md`
-
 **Primus-SaFE** (Stability and Fault Endurance) is AMD's full-stack platform for
 large-scale model training and inference on AMD GPU clusters. It runs on top of Kubernetes
 and the ROCm software stack, turning a fleet of GPU servers into a resilient, self-monitoring

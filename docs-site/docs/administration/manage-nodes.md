@@ -5,9 +5,6 @@ title: Manage nodes
 
 # Manage nodes
 
-> **Status:** Draft · **Owner:** _unassigned_ · **Source:** `SaFE/docs/apis/node.md`,
-> `ops-job.md`, `workspace.md`
-
 Day-2 node operations: bring capacity into the platform, move it between workspaces, take
 nodes safely in and out of service, and clean up. Quota is **nodes × node flavor**, so most
 node operations directly change how much compute a workspace has — see

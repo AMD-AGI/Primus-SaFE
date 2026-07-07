@@ -5,9 +5,6 @@ title: Run GitHub Actions runners (CI/CD)
 
 # Run GitHub Actions runners (CI/CD)
 
-> **Status:** Draft · **Owner:** _unassigned_ · **Source:**
-> `SaFE/docs/apis/cicd-quickstart.md`, `workload.md`
-
 Primus-SaFE can host **GitHub Actions self-hosted runners** as an autoscaling **runner scale set**:
 GitHub triggers the workflow, and the platform spins up runner pods on your GPU cluster to execute
 the jobs, then scales them back down. A runner scale set is a workload of kind

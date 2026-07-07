@@ -5,9 +5,6 @@ title: Storage & data
 
 # Storage & data
 
-> **Status:** Draft · **Owner:** _unassigned_ · **Source:** `SaFE/docs/apis/workspace.md`,
-> `persistent-volume.md`
-
 During the life-cycle of AI workloads, there are differnt types of data involved including code, datasets, checkpoints and logs. These data has differnt characteristics of requirement such as capacity, performance, isolation, and various life cycles. Primus-SaFE include multiple storage solutions to accommondate the various data requirements.
 
 Primus-SaFE has native support for Kubernetes ephemeral storage that users can specify from the UI when starting a workload. Such storage is backed up locally-attached writeable devices on the host that has the same life-cycle as the workloads, therefore it's only suited for temporary data such as logs. Also keep in mind that if there are multiple drives on the host, they can be used for both ephemeral storage and forming a distributed file system such as Ceph. Plan ahead of time to balance between large scrape space and shared storage. 
