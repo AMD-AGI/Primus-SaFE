@@ -30,7 +30,7 @@ data:
           - -r
           - /home/runner/externals/.
           - /home/runner/tmpDir/
-          image: ghcr.io/actions/actions-runner:latest
+          image: ghcr.io/actions/actions-runner:2.335.1
           volumeMounts:
           - mountPath: /home/runner/tmpDir
             name: dind-externals
