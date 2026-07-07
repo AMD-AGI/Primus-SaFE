@@ -786,7 +786,7 @@ func (r *ClusterReconciler) guaranteeDefaultAddon(ctx context.Context, cluster *
 		}
 		// Addon already exists: re-point it at the current AddonTemplate when the
 		// template name changed (a version bump renames the template, e.g.
-		// optimus-operator.0.1.4 -> optimus-operator.0.1.5). guaranteeDefaultAddon
+		// infera-operator.0.1.0 -> infera-operator.0.1.1). guaranteeDefaultAddon
 		// historically only created Addons and never updated an existing one, so a
 		// bumped template left the Addon referencing a now-deleted template name;
 		// the AddonController's getHelm then failed to find it and never upgraded.

@@ -3,33 +3,33 @@ import { readFileSync } from 'node:fs'
 
 const dialogSource = readFileSync(new URL('./AddDialog.vue', import.meta.url), 'utf-8')
 
-describe('Dynamo/Optimus AddDialog', () => {
+describe('Dynamo/Infera AddDialog', () => {
   it('does not expose a separate memFraction input field', () => {
     expect(dialogSource).not.toContain('label="memFraction"')
   })
 
-  it('exposes Optimus router policy and role-specific entrypoint editors', () => {
+  it('exposes Infera router policy and role-specific entrypoint editors', () => {
     expect(dialogSource).toContain('label="Router Policy"')
     expect(dialogSource).toContain('value="round-robin"')
-    expect(dialogSource).toContain('optimusRoleSections')
+    expect(dialogSource).toContain('inferaRoleSections')
     expect(dialogSource).toContain('setRoleEntrypoint')
     expect(dialogSource).toContain('getRoleBackendEngine')
     expect(dialogSource).toContain('setRoleBackendEngine')
   })
 
-  it('groups Optimus resource and entrypoint fields by role card', () => {
-    expect(dialogSource).toContain('optimus-role-card')
+  it('groups Infera resource and entrypoint fields by role card', () => {
+    expect(dialogSource).toContain('infera-role-card')
     expect(dialogSource).toContain('EntryPoint Parameters')
-    expect(dialogSource).toContain('v-if="!isOptimus"')
+    expect(dialogSource).toContain('v-if="!isInfera"')
   })
 
-  it('keeps Optimus mode switching compact', () => {
+  it('keeps Infera mode switching compact', () => {
     expect(dialogSource).toContain('<el-segmented v-model="modeValue"')
     expect(dialogSource).not.toContain('Standard Serving')
     expect(dialogSource).not.toContain('PD Disaggregation')
   })
 
-  it('does not show a separate Optimus creation summary', () => {
+  it('does not show a separate Infera creation summary', () => {
     expect(dialogSource).not.toContain('Creation Summary')
     expect(dialogSource).not.toContain('summaryItems')
   })
@@ -40,14 +40,14 @@ describe('Dynamo/Optimus AddDialog', () => {
     expect(dialogSource).not.toContain('Preview the generated frontend command.')
   })
 
-  it('allows overriding the Optimus frontend command', () => {
+  it('allows overriding the Infera frontend command', () => {
     expect(dialogSource).toContain('setFrontendEntrypoint')
     expect(dialogSource).toContain('resetFrontendEntrypointFromOptions')
     expect(dialogSource).toContain('getFrontendEntrypoint')
     expect(dialogSource).not.toContain(':model-value="frontendPreview"\n                  type="textarea"\n                  readonly')
   })
 
-  it('does not keep unreachable Optimus entrypoint preview code in the Dynamo-only section', () => {
-    expect(dialogSource).not.toContain('optimusBackendEntrySections')
+  it('does not keep unreachable Infera entrypoint preview code in the Dynamo-only section', () => {
+    expect(dialogSource).not.toContain('inferaBackendEntrySections')
   })
 })

@@ -183,21 +183,21 @@ const (
 	// backend-framework: sglang|vllm|trtllm; default sglang.
 	DynamoBackendFrameworkAnnotation = DynamoPrefix + "backend-framework"
 
-	// optimus (OptimusDeployment workload kind). The Optimus/RocServe analogue
+	// infera (InferaDeployment workload kind). The Infera analogue
 	// of the dynamo.* annotations above: same semantics, but the dispatcher
-	// renders a rocserve.amd.com/v1alpha1 RocServeDeployment reconciled by the
-	// standalone RocServe operator (no upstream nvidia.com dynamo operator).
-	OptimusPrefix = PrimusSafePrefix + "optimus."
+	// renders a infera.amd.com/v1alpha1 InferaDeployment reconciled by the
+	// standalone Infera operator (no upstream nvidia.com dynamo operator).
+	InferaPrefix = PrimusSafePrefix + "infera."
 	// service-roles: comma-separated role names positionally matching
 	// Workload.Spec.Resources, e.g. "frontend,prefill,decode".
-	OptimusServiceRolesAnnotation = OptimusPrefix + "service-roles"
+	InferaServiceRolesAnnotation = InferaPrefix + "service-roles"
 	// kv-transfer-backend: nixl|mori|mooncake; default nixl.
-	OptimusKVTransferBackendAnnotation = OptimusPrefix + "kv-transfer-backend"
+	InferaKVTransferBackendAnnotation = InferaPrefix + "kv-transfer-backend"
 	// multinode-roles: comma-separated roles that run as a multi-node
 	// LeaderWorkerSet (node count = that role's Resources[i].Replica).
-	OptimusMultinodeRolesAnnotation = OptimusPrefix + "multinode-roles"
+	InferaMultinodeRolesAnnotation = InferaPrefix + "multinode-roles"
 	// backend-framework: sglang|vllm; default sglang.
-	OptimusBackendFrameworkAnnotation = OptimusPrefix + "backend-framework"
+	InferaBackendFrameworkAnnotation = InferaPrefix + "backend-framework"
 )
 
 type SecretType string

@@ -58,24 +58,24 @@
             <div class="section-bar"></div>
             <div class="section-header-content">
               <div>
-                <div class="section-title">{{ isOptimus ? 'Role Configuration' : 'Resources' }}</div>
+                <div class="section-title">{{ isInfera ? 'Role Configuration' : 'Resources' }}</div>
                 <div class="section-subtitle">
-                  {{ isOptimus ? 'Configure each role resources and entrypoint together' : 'Configure role resources' }}
+                  {{ isInfera ? 'Configure each role resources and entrypoint together' : 'Configure role resources' }}
                 </div>
               </div>
               <el-segmented v-model="modeValue" :options="['Default', 'PD']" />
             </div>
           </div>
 
-          <template v-if="isOptimus">
+          <template v-if="isInfera">
             <el-form-item label="Model Path" prop="modelPath">
               <el-input v-model="form.modelPath" />
             </el-form-item>
 
             <div
-              v-for="section in optimusRoleSections"
+              v-for="section in inferaRoleSections"
               :key="section.key"
-              class="optimus-role-card"
+              class="infera-role-card"
             >
               <div class="resource-title-row">
                 <div>
@@ -314,7 +314,7 @@
           </template>
         </div>
 
-        <div v-if="!isOptimus" class="section-card">
+        <div v-if="!isInfera" class="section-card">
           <div class="section-header">
             <div class="section-bar"></div>
             <div>
@@ -337,12 +337,12 @@
                 </el-select>
               </el-form-item>
             </el-col>
-            <el-col v-if="!isOptimus" :span="12">
+            <el-col v-if="!isInfera" :span="12">
               <el-form-item label="tpSize" prop="worker.tpSize">
                 <el-input-number v-model="form.worker.tpSize" :min="1" controls-position="right" class="w-full" />
               </el-form-item>
             </el-col>
-            <el-col v-if="!isOptimus" :span="12">
+            <el-col v-if="!isInfera" :span="12">
               <el-form-item label="epSize" prop="worker.epSize">
                 <el-input-number v-model="form.worker.epSize" :min="1" controls-position="right" class="w-full" />
               </el-form-item>
@@ -446,21 +446,21 @@ import {
   type DynamoRoleResourceForm,
 } from '../dynamoPayload'
 import {
-  OPTIMUS_SERVICE,
-  buildOptimusCreatePayload,
-  buildOptimusFrontendEntrypoint,
-  buildOptimusWorkerEntrypoint,
-  createDefaultOptimusForm,
-  getOptimusDefaultTpSize,
-  type OptimusKvTransferBackend,
-  type OptimusRouterPolicy,
-} from '@/pages/Optimus/optimusPayload'
+  INFERA_SERVICE,
+  buildInferaCreatePayload,
+  buildInferaFrontendEntrypoint,
+  buildInferaWorkerEntrypoint,
+  createDefaultInferaForm,
+  getInferaDefaultTpSize,
+  type InferaKvTransferBackend,
+  type InferaRouterPolicy,
+} from '@/pages/Infera/inferaPayload'
 
-type OptimusBackendRole = 'worker' | 'prefill' | 'decode'
-type OptimusRoleKey = 'frontend' | OptimusBackendRole
+type InferaBackendRole = 'worker' | 'prefill' | 'decode'
+type InferaRoleKey = 'frontend' | InferaBackendRole
 type WorkloadFormModel = Omit<DynamoFormModel, 'kvTransferBackend'> & {
   frontend: DynamoRoleResourceForm
-  routerPolicy: OptimusRouterPolicy
+  routerPolicy: InferaRouterPolicy
   workerBackendEngine: DynamoBackendEngine
   prefillBackendEngine: DynamoBackendEngine
   decodeBackendEngine: DynamoBackendEngine
@@ -468,14 +468,14 @@ type WorkloadFormModel = Omit<DynamoFormModel, 'kvTransferBackend'> & {
   workerEntrypoint: string
   prefillEntrypoint: string
   decodeEntrypoint: string
-  kvTransferBackend: DynamoKvTransferBackend | OptimusKvTransferBackend
+  kvTransferBackend: DynamoKvTransferBackend | InferaKvTransferBackend
 }
 
 const props = withDefaults(defineProps<{
   visible: boolean
   wlid?: string
   action: string
-  workloadType?: 'dynamo' | 'optimus'
+  workloadType?: 'dynamo' | 'infera'
 }>(), {
   workloadType: 'dynamo',
 })
@@ -486,27 +486,27 @@ const store = useWorkspaceStore()
 const userStore = useUserStore()
 const isManager = computed(() => userStore.isManager)
 const isEdit = computed(() => props.action === 'Edit')
-const isOptimus = computed(() => props.workloadType === 'optimus')
-const workloadLabel = computed(() => (isOptimus.value ? 'Optimus' : 'Dynamo'))
-const workloadDefaultName = computed(() => (isOptimus.value ? 'optimus' : 'dynamo'))
-const workloadService = computed(() => (isOptimus.value ? OPTIMUS_SERVICE : DYNAMO_SERVICE))
-const kvBackendOptions = computed(() => (isOptimus.value ? ['mori'] : ['nixl', 'mooncake']))
+const isInfera = computed(() => props.workloadType === 'infera')
+const workloadLabel = computed(() => (isInfera.value ? 'Infera' : 'Dynamo'))
+const workloadDefaultName = computed(() => (isInfera.value ? 'infera' : 'dynamo'))
+const workloadService = computed(() => (isInfera.value ? INFERA_SERVICE : DYNAMO_SERVICE))
+const kvBackendOptions = computed(() => (isInfera.value ? ['mori'] : ['nixl', 'mooncake']))
 
 const ruleFormRef = ref<FormInstance>()
 const form = reactive<WorkloadFormModel>(
-  (props.workloadType === 'optimus' ? createDefaultOptimusForm() : createDefaultDynamoForm()) as WorkloadFormModel,
+  (props.workloadType === 'infera' ? createDefaultInferaForm() : createDefaultDynamoForm()) as WorkloadFormModel,
 )
 const envList = ref(convertKeyValueMapToList(form.env))
 const loading = ref(false)
 const submitting = ref(false)
 const isWorkerEntrypointCustomized = ref(false)
-const customizedEntrypoints = reactive<Record<OptimusRoleKey, boolean>>({
+const customizedEntrypoints = reactive<Record<InferaRoleKey, boolean>>({
   frontend: false,
   worker: false,
   prefill: false,
   decode: false,
 })
-const commandOverrideOpen = reactive<Record<OptimusRoleKey, boolean>>({
+const commandOverrideOpen = reactive<Record<InferaRoleKey, boolean>>({
   frontend: false,
   worker: false,
   prefill: false,
@@ -532,7 +532,7 @@ const rules = reactive<FormRules>({
     required('Please input TP size'),
     {
       validator: (_rule, value, callback) => {
-        if (!isOptimus.value && form.enableAggregation && Number(value) <= 8) {
+        if (!isInfera.value && form.enableAggregation && Number(value) <= 8) {
           callback(new Error('Aggregation TP size must be greater than 8'))
           return
         }
@@ -573,7 +573,7 @@ interface DynamoDetail {
     multinodeRoles?: string[]
     kvTransferBackend?: DynamoKvTransferBackend | string
   }
-  optimusOptions?: {
+  inferaOptions?: {
     serviceRoles?: string[]
     multinodeRoles?: string[]
     kvTransferBackend?: string
@@ -588,7 +588,7 @@ const modeValue = computed({
 })
 
 const backendPreview = computed(() => buildWorkerEntrypoint(form, form.worker))
-const frontendPreview = computed(() => buildOptimusFrontendEntrypoint(form))
+const frontendPreview = computed(() => buildInferaFrontendEntrypoint(form))
 
 const resourceSections = computed(() => {
   if (form.enablePd) {
@@ -596,17 +596,17 @@ const resourceSections = computed(() => {
       { key: 'prefill', title: 'Prefill', resource: form.prefill },
       { key: 'decode', title: 'Decode', resource: form.decode },
     ]
-    return isOptimus.value
+    return isInfera.value
       ? [{ key: 'frontend', title: 'Frontend', resource: form.frontend }, ...sections]
       : sections
   }
   const sections = [{ key: 'worker', title: 'Worker', resource: form.worker }]
-  return isOptimus.value
+  return isInfera.value
     ? [{ key: 'frontend', title: 'Frontend', resource: form.frontend }, ...sections]
     : sections
 })
 
-const optimusRoleSections = computed(() => {
+const inferaRoleSections = computed(() => {
   if (form.enablePd) {
     return [
       { key: 'frontend' as const, title: 'Frontend', resource: form.frontend },
@@ -636,7 +636,7 @@ const getRoleReplica = (role: string) => {
 const getAggregationWarning = (role: string) => {
   if (isRoleAggregated(role)) return ''
   if (getRoleReplica(role) <= 1) return ''
-  if (!isOptimus.value && Number(form.worker.tpSize || 0) <= 8) {
+  if (!isInfera.value && Number(form.worker.tpSize || 0) <= 8) {
     return 'Set TP size greater than 8 before enabling Aggregation.'
   }
   return 'Replica > 1 creates independent replicas unless Aggregation is enabled.'
@@ -693,8 +693,8 @@ watch(
   () => [form.enableAggregation, form.worker.replica, form.worker.gpu] as const,
   ([enabled]) => {
     if (!enabled) return
-    const nextTpSize = isOptimus.value
-      ? getOptimusDefaultTpSize(form.worker)
+    const nextTpSize = isInfera.value
+      ? getInferaDefaultTpSize(form.worker)
       : getDynamoDefaultTpSize(form.worker)
     form.worker.tpSize = nextTpSize
     form.worker.epSize = nextTpSize
@@ -704,7 +704,7 @@ watch(
 watch(
   backendPreview,
   (command) => {
-    if (!isOptimus.value && !isWorkerEntrypointCustomized.value) {
+    if (!isInfera.value && !isWorkerEntrypointCustomized.value) {
       form.workerEntrypoint = command
     }
   },
@@ -714,14 +714,14 @@ watch(
 watch(
   () =>
     [
-      isOptimus.value,
-      buildOptimusFrontendEntrypoint(form),
+      isInfera.value,
+      buildInferaFrontendEntrypoint(form),
       buildWorkerEntrypoint(form, form.worker, 'worker'),
       buildWorkerEntrypoint(form, form.prefill, 'prefill'),
       buildWorkerEntrypoint(form, form.decode, 'decode'),
     ] as const,
-  ([optimus, frontendCommand, workerCommand, prefillCommand, decodeCommand]) => {
-    if (!optimus) return
+  ([infera, frontendCommand, workerCommand, prefillCommand, decodeCommand]) => {
+    if (!infera) return
     if (!customizedEntrypoints.frontend) form.frontendEntrypoint = frontendCommand
     if (!customizedEntrypoints.worker) form.workerEntrypoint = workerCommand
     if (!customizedEntrypoints.prefill) form.prefillEntrypoint = prefillCommand
@@ -806,16 +806,16 @@ function hydrateFormFromDetail(detail: DynamoDetail) {
 
   next.service = { ...workloadService.value }
 
-  if (isOptimus.value) {
+  if (isInfera.value) {
     const frontendEntryPoint = detail.entryPoints?.[0]
       ? decodeFromBase64String(detail.entryPoints[0])
       : ''
     next.frontend = mergeResource(next.frontend, detail.resources?.[0])
     next.routerPolicy =
-      (readFlag(frontendEntryPoint, '--router-policy') as OptimusRouterPolicy) || next.routerPolicy
-    next.frontendEntrypoint = frontendEntryPoint || buildOptimusFrontendEntrypoint(next)
+      (readFlag(frontendEntryPoint, '--router-policy') as InferaRouterPolicy) || next.routerPolicy
+    next.frontendEntrypoint = frontendEntryPoint || buildInferaFrontendEntrypoint(next)
     customizedEntrypoints.frontend =
-      Boolean(frontendEntryPoint) && frontendEntryPoint !== buildOptimusFrontendEntrypoint(next)
+      Boolean(frontendEntryPoint) && frontendEntryPoint !== buildInferaFrontendEntrypoint(next)
 
     if (next.enablePd) {
       const prefillEntryPoint = detail.entryPoints?.[1]
@@ -856,7 +856,7 @@ function hydrateFormFromDetail(detail: DynamoDetail) {
 
   Object.assign(form, next)
   envList.value = convertKeyValueMapToList(next.env)
-  isWorkerEntrypointCustomized.value = !isOptimus.value && Boolean(detail.entryPoints?.[1])
+  isWorkerEntrypointCustomized.value = !isInfera.value && Boolean(detail.entryPoints?.[1])
 }
 
 function markWorkerEntrypointCustomized() {
@@ -864,7 +864,7 @@ function markWorkerEntrypointCustomized() {
 }
 
 function resetWorkerEntrypointFromOptions() {
-  if (isOptimus.value) {
+  if (isInfera.value) {
     resetAllRoleEntrypointsFromOptions()
     return
   }
@@ -886,20 +886,20 @@ function resetFrontendEntrypointFromOptions() {
   customizedEntrypoints.frontend = false
 }
 
-function getRoleEntrypoint(role: OptimusBackendRole) {
+function getRoleEntrypoint(role: InferaBackendRole) {
   if (role === 'prefill') return form.prefillEntrypoint
   if (role === 'decode') return form.decodeEntrypoint
   return form.workerEntrypoint
 }
 
-function setRoleEntrypoint(role: OptimusBackendRole, value: string) {
+function setRoleEntrypoint(role: InferaBackendRole, value: string) {
   if (role === 'prefill') form.prefillEntrypoint = value
   else if (role === 'decode') form.decodeEntrypoint = value
   else form.workerEntrypoint = value
   customizedEntrypoints[role] = value !== buildWorkerEntrypoint(form, form[role], role)
 }
 
-function resetRoleEntrypointFromOptions(role: OptimusBackendRole) {
+function resetRoleEntrypointFromOptions(role: InferaBackendRole) {
   const command = buildWorkerEntrypoint(form, form[role], role)
   if (role === 'prefill') form.prefillEntrypoint = command
   else if (role === 'decode') form.decodeEntrypoint = command
@@ -907,13 +907,13 @@ function resetRoleEntrypointFromOptions(role: OptimusBackendRole) {
   customizedEntrypoints[role] = false
 }
 
-function getRoleBackendEngine(role: OptimusBackendRole) {
+function getRoleBackendEngine(role: InferaBackendRole) {
   if (role === 'prefill') return form.prefillBackendEngine
   if (role === 'decode') return form.decodeBackendEngine
   return form.workerBackendEngine
 }
 
-function setRoleBackendEngine(role: OptimusBackendRole, value: string) {
+function setRoleBackendEngine(role: InferaBackendRole, value: string) {
   const backendEngine = (value === 'vllm' ? 'vllm' : 'sglang') as DynamoBackendEngine
   if (role === 'prefill') form.prefillBackendEngine = backendEngine
   else if (role === 'decode') form.decodeBackendEngine = backendEngine
@@ -943,33 +943,33 @@ function resetCommandOverrideOpen() {
 }
 
 function createDefaultForm(): WorkloadFormModel {
-  return (isOptimus.value ? createDefaultOptimusForm() : createDefaultDynamoForm()) as WorkloadFormModel
+  return (isInfera.value ? createDefaultInferaForm() : createDefaultDynamoForm()) as WorkloadFormModel
 }
 
 function buildCreatePayload(target: WorkloadFormModel, workspace: string) {
-  return isOptimus.value
-    ? buildOptimusCreatePayload(target as any, workspace)
+  return isInfera.value
+    ? buildInferaCreatePayload(target as any, workspace)
     : buildDynamoCreatePayload(target as DynamoFormModel, workspace)
 }
 
 function buildWorkerEntrypoint(
   target: WorkloadFormModel,
   resource: DynamoRoleResourceForm,
-  role?: OptimusBackendRole,
+  role?: InferaBackendRole,
 ) {
-  return isOptimus.value
-    ? buildOptimusWorkerEntrypoint(target as any, resource, role ? getTargetRoleBackendEngine(target, role) : 'sglang')
+  return isInfera.value
+    ? buildInferaWorkerEntrypoint(target as any, resource, role ? getTargetRoleBackendEngine(target, role) : 'sglang')
     : buildDynamoWorkerEntrypoint(target as DynamoFormModel, resource)
 }
 
-function getTargetRoleBackendEngine(target: WorkloadFormModel, role: OptimusBackendRole) {
+function getTargetRoleBackendEngine(target: WorkloadFormModel, role: InferaBackendRole) {
   if (role === 'prefill') return target.prefillBackendEngine
   if (role === 'decode') return target.decodeBackendEngine
   return target.workerBackendEngine
 }
 
 function getDetailOptions(detail: DynamoDetail) {
-  return isOptimus.value ? detail.optimusOptions || {} : detail.dynamoOptions || {}
+  return isInfera.value ? detail.inferaOptions || {} : detail.dynamoOptions || {}
 }
 
 function inferServiceRoles(resources?: unknown[]) {
@@ -1014,7 +1014,7 @@ function applyEntrypointToResource(
   target: WorkloadFormModel,
   resource: DynamoRoleResourceForm,
   command: string,
-  role?: OptimusBackendRole,
+  role?: InferaBackendRole,
 ) {
   if (!command) return
   const backendEngine = readBackendEngine(command)
@@ -1038,7 +1038,7 @@ function readFlag(command: string, flag: string) {
 }
 
 function readBackendEngine(command: string): DynamoBackendEngine | '' {
-  const match = command.match(/\b(?:dynamo|rocserve\.engine)\.(sglang|vllm)\b/)
+  const match = command.match(/\b(?:dynamo|infera\.engine)\.(sglang|vllm)\b/)
   return (match?.[1] as DynamoBackendEngine | undefined) || ''
 }
 
@@ -1150,7 +1150,7 @@ html.dark .section-card {
   cursor: help;
 }
 
-.optimus-role-card {
+.infera-role-card {
   border: 1px solid var(--el-border-color-lighter);
   border-radius: 10px;
   padding: 14px 14px 10px;
@@ -1158,7 +1158,7 @@ html.dark .section-card {
   background: var(--el-fill-color-blank);
 }
 
-html.dark .optimus-role-card {
+html.dark .infera-role-card {
   border-color: rgba(255, 255, 255, 0.08);
   background: rgba(255, 255, 255, 0.025);
 }
