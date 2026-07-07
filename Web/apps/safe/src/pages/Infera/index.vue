@@ -1,9 +1,9 @@
 <template>
-  <DynamoPage workload-type="optimus" />
+  <DynamoPage workload-type="infera" />
 </template>
 
 <script lang="ts" setup>
 import DynamoPage from '@/pages/Dynamo/index.vue'
 
-defineOptions({ name: 'optimusPage' })
+defineOptions({ name: 'inferaPage' })
 </script>

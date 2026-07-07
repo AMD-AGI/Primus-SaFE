@@ -3,7 +3,7 @@
 # See LICENSE for license information.
 #
 # kGateway — the Kubernetes Inference Gateway implementation that backs the
-# Gateway API Inference Extension (GAIE). Front-ends Optimus/RocServe (and
+# Gateway API Inference Extension (GAIE). Front-ends Infera (and
 # dynamo) inference behind an InferencePool + Endpoint Picker (EPP) so the
 # gateway routes by the engine's kv-aware / PD policy instead of a plain L4 LB.
 #
@@ -54,7 +54,7 @@
 #   kgateway GatewayClass.
 #
 # After install, create a Gateway named `inference-gateway` (the operator's
-# RocServeDeployment spec.gaie.gatewayName default) in the namespace where you
+# InferaDeployment spec.gaie.gatewayName default) in the namespace where you
 # run workloads, and set its gatewayClassName to `kgateway`:
 #   kubectl apply -f https://raw.githubusercontent.com/kubernetes-sigs/gateway-api-inference-extension/refs/tags/v1.2.1/config/manifests/gateway/kgateway/gateway.yaml -n <ns>
 #   kubectl patch gateway inference-gateway -n <ns> --type='json' \
@@ -84,7 +84,7 @@ metadata:
     meta.helm.sh/release-namespace: {{ .Release.Namespace }}
 spec:
   category: plugin
-  description: kGateway v2.1.1 inference gateway (third-party Gateway API Inference Extension implementation). Used as the GAIE front-end for Optimus/RocServe inference -- routes traffic via an InferencePool + Endpoint Picker so the gateway selects workers by the engine's kv-aware / PD policy. Generic component (not Optimus-specific); the Optimus-specific routing lives in the EPP deployed by optimus-operator. Requires the Gateway API + GAIE + kgateway CRDs (see header) installed first.
+  description: kGateway v2.1.1 inference gateway (third-party Gateway API Inference Extension implementation). Used as the GAIE front-end for Infera inference -- routes traffic via an InferencePool + Endpoint Picker so the gateway selects workers by the engine's kv-aware / PD policy. Generic component (not Infera-specific); the Infera-specific routing lives in the EPP deployed by infera-operator. Requires the Gateway API + GAIE + kgateway CRDs (see header) installed first.
   # OCI helm chart mirrored on SaFE Harbor (ops to mirror, see header note).
   # Upstream source: cr.kgateway.dev/kgateway-dev/charts/kgateway version v2.1.1
   url: oci://{{ .Values.global.helm_registry }}/primussafe/kgateway

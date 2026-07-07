@@ -584,33 +584,33 @@ spec:
           state: 'initializing'
         phase: K8sPending
 ---
-# OptimusDeployment — RocServe analogue of the DynamoDeployment ResourceTemplate
-# above. Wraps the rocserve.amd.com/v1alpha1 RocServeDeployment (RSD) CR
-# reconciled by the standalone RocServe operator. The dispatcher's generic flow
+# InferaDeployment — Infera analogue of the DynamoDeployment ResourceTemplate
+# above. Wraps the infera.amd.com/v1alpha1 InferaDeployment (IDEP) CR
+# reconciled by the standalone Infera operator. The dispatcher's generic flow
 # renders Workload.Spec.Resources into the five role slots (role0..role4) of the
 # matching ConfigMap template (charts/primus-safe/templates/configmap/
-# optimus_deployment_template.yaml), injecting image/entrypoint/resources into
+# infera_deployment_template.yaml), injecting image/entrypoint/resources into
 # spec.services.role<i>.extraPodSpec.containers[main]. dispatcher_help.go::
-# normalizeOptimusRSD() then rewrites each slot's componentType (server|worker)
-# and role (mixed|prefill|decode) from the primus-safe.optimus.service-roles
-# annotation. Phase matching uses the RSD top-level status.state enum
-# (initializing | pending | ready | failed) exposed by the RocServe operator.
+# normalizeInferaIDEP() then rewrites each slot's componentType (server|worker)
+# and role (mixed|prefill|decode) from the primus-safe.infera.service-roles
+# annotation. Phase matching uses the IDEP top-level status.state enum
+# (initializing | pending | ready | failed) exposed by the Infera operator.
 apiVersion: amd.com/v1
 kind: ResourceTemplate
 metadata:
-  name: optimus-deployment
+  name: infera-deployment
   labels:
     app.kubernetes.io/managed-by: Helm
     primus-safe.workload.version: v1
   annotations:
-    primus-safe.workload.kind: "OptimusDeployment"
+    primus-safe.workload.kind: "InferaDeployment"
     meta.helm.sh/release-name: {{ .Release.Name }}
     meta.helm.sh/release-namespace: {{ .Release.Namespace }}
 spec:
   groupVersionKind:
-    group: rocserve.amd.com
+    group: infera.amd.com
     version: v1alpha1
-    kind: RocServeDeployment
+    kind: InferaDeployment
   resourceSpecs:
     - prePaths:
         - spec

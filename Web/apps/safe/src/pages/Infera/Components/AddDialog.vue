@@ -3,7 +3,7 @@
     :visible="visible"
     :wlid="wlid"
     :action="action"
-    workload-type="optimus"
+    workload-type="infera"
     @update:visible="(value) => emit('update:visible', value)"
     @success="emit('success')"
   />

@@ -431,10 +431,10 @@ func (r *DispatcherReconciler) generateK8sObject(ctx context.Context,
 				fmt.Sprintf("failed to normalize dynamo DGD: %v", err.Error()))
 		}
 	}
-	if commonworkload.IsOptimusDeployment(adminWorkload) {
-		if err = normalizeOptimusRSD(result, adminWorkload); err != nil {
+	if commonworkload.IsInferaDeployment(adminWorkload) {
+		if err = normalizeInferaIDEP(result, adminWorkload); err != nil {
 			return nil, commonerrors.NewInternalError(
-				fmt.Sprintf("failed to normalize optimus RSD: %v", err.Error()))
+				fmt.Sprintf("failed to normalize infera IDEP: %v", err.Error()))
 		}
 	}
 	setK8sObjectMeta(result, adminWorkload)
@@ -1218,33 +1218,33 @@ func buildServiceSelector(workload *v1.Workload, specService *v1.Service) map[st
 		return selector
 	}
 
-	// OptimusDeployment: pods are produced by the standalone RocServe operator
-	// (RSD -> Deployment/LeaderWorkerSet -> Pod) and carry rocserve.amd.com/*
+	// InferaDeployment: pods are produced by the standalone Infera operator
+	// (IDEP -> Deployment/LeaderWorkerSet -> Pod) and carry infera.amd.com/*
 	// labels, NOT SaFE's primus-safe.k8s.object.id — same situation as Dynamo.
 	// Select the frontend role's pods (the only role on the user-facing HTTP
 	// port; workers/prefill/decode listen on internal endpoints registered via
 	// the discovery backend).
-	if commonworkload.IsOptimusDeployment(workload) {
+	if commonworkload.IsInferaDeployment(workload) {
 		selector := make(map[string]string, 2+len(specService.ExtraSelectors))
 		for k, v := range specService.ExtraSelectors {
-			if k == common.RocServeOperatorDeploymentLabel ||
-				k == common.RocServeOperatorServiceLabel {
+			if k == common.InferaOperatorDeploymentLabel ||
+				k == common.InferaOperatorServiceLabel {
 				continue
 			}
 			selector[k] = v
 		}
-		selector[common.RocServeOperatorDeploymentLabel] = workload.Name
-		// The operator labels each pod by its RSD slot key (role0, role1, ...).
+		selector[common.InferaOperatorDeploymentLabel] = workload.Name
+		// The operator labels each pod by its IDEP slot key (role0, role1, ...).
 		// The frontend is the server role; find its slot by its index in
 		// service-roles (default role0 when unset).
 		frontendSlot := "role0"
-		for i, r := range commonworkload.GetOptimusServiceRoles(workload) {
+		for i, r := range commonworkload.GetInferaServiceRoles(workload) {
 			if r == common.DynamoRoleFrontend {
 				frontendSlot = fmt.Sprintf("role%d", i)
 				break
 			}
 		}
-		selector[common.RocServeOperatorServiceLabel] = frontendSlot
+		selector[common.InferaOperatorServiceLabel] = frontendSlot
 		return selector
 	}
 
