@@ -40,12 +40,22 @@ type ResourceHandler func(ctx context.Context, object *unstructured.Unstructured
 type ResourceExporter struct {
 	// Kubernetes client for API operations
 	client.Client
-	// work queue
-	*commonctrl.Controller[types.NamespacedName]
+	// work queue keyed by namespaced name
+	*commonctrl.KeyedController[types.NamespacedName]
 	// GroupVersionKind of the resource being exported
 	gvk schema.GroupVersionKind
 	// Handler function for processing resource objects
 	handler ResourceHandler
+}
+
+// exporterWorkers is the number of concurrent export workers per GVK. The queue
+// is keyed by object identity, so the same resource is processed serially
+// (finalizer + DB upsert) while distinct objects fan out across workers.
+const exporterWorkers = 4
+
+// namespacedNameKey identifies the object an export message refers to.
+func namespacedNameKey(nn types.NamespacedName) string {
+	return nn.String()
 }
 
 // addExporter creates and registers a new ResourceExporter with the controller manager.
@@ -63,7 +73,7 @@ func addExporter(ctx context.Context, mgr manager.Manager, gvk schema.GroupVersi
 		gvk:     gvk,
 		handler: resourceHandler,
 	}
-	exporter.Controller = commonctrl.NewController[types.NamespacedName](exporter, 1)
+	exporter.KeyedController = commonctrl.NewKeyedController[types.NamespacedName](exporter, namespacedNameKey, nil, exporterWorkers)
 	if err := exporter.start(ctx); err != nil {
 		return err
 	}
@@ -110,7 +120,7 @@ func addExporter(ctx context.Context, mgr manager.Manager, gvk schema.GroupVersi
 
 // Reconcile adds the resource to the processing queue when a change is detected.
 func (r *ResourceExporter) Reconcile(_ context.Context, req ctrlruntime.Request) (ctrlruntime.Result, error) {
-	r.Controller.Add(req.NamespacedName)
+	r.KeyedController.Add(req.NamespacedName)
 	return ctrlruntime.Result{}, nil
 }
 

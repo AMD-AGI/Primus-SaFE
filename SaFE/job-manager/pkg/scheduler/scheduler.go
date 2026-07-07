@@ -54,12 +54,22 @@ type SchedulerReconciler struct {
 	clusterClientSets *commonutils.ObjectManager
 	// cronManager manages all cron jobs for workload scheduling
 	cronManager *CronJobManager
-	*controller.Controller[*SchedulerMessage]
+	*controller.KeyedController[*SchedulerMessage]
 }
 
 type SchedulerMessage struct {
 	WorkspaceId string
 	ClusterId   string
+}
+
+// schedulerWorkers is the number of concurrent scheduling workers. The queue is
+// keyed by cluster|workspace, so the same workspace is processed serially while
+// different workspaces run in parallel. Bursts for one workspace coalesce.
+const schedulerWorkers = 8
+
+// schedulerMessageKey identifies the workspace a scheduling message targets.
+func schedulerMessageKey(m *SchedulerMessage) string {
+	return m.ClusterId + "|" + m.WorkspaceId
 }
 
 // SetupSchedulerController initializes and registers the SchedulerReconciler with the controller manager.
@@ -80,7 +90,7 @@ func SetupSchedulerController(ctx context.Context, mgr manager.Manager) error {
 		clusterClientSets: commonutils.NewObjectManagerSingleton(),
 		cronManager:       newCronJobManager(mgr),
 	}
-	r.Controller = controller.NewController[*SchedulerMessage](r, 1)
+	r.KeyedController = controller.NewKeyedController[*SchedulerMessage](r, schedulerMessageKey, nil, schedulerWorkers)
 	r.start(ctx)
 
 	err := ctrlruntime.NewControllerManagedBy(mgr).
