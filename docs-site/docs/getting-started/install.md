@@ -9,7 +9,6 @@ Most teams run Primus-SaFE on a single Kubernetes cluster; at larger scale one c
 manage several clusters as a fleet (see [Architecture](/architecture)). This guide covers the
 single-cluster install.
 
-<<<<<<< HEAD
 <!-- @test
 scope: page
 mode: behavior
@@ -21,15 +20,6 @@ do: open {{baseUrl}} and sign in with the seeded admin login (PRIMUS_ADMIN_LOGIN
 expect:
   - sign-in succeeds and the dashboard loads
 -->
-=======
-:::note this page needs rework
-it's missing a lots of steps. we should follow an actual setup routine based on the current code base
-
-:::
-
-Start with a single cluster — that is the path fits most users. Scale to a multi-cluster
-fleet only when one control plane has to manage several GPU clusters.
->>>>>>> 540db7cb (Update documentation: architecture, workspace concepts, install, and prerequisites)
 
 ## Install on a single cluster
 
@@ -92,18 +82,9 @@ cd Primus-SaFE/Bootstrap
 bash bootstrap.sh
 ```
 
-<<<<<<< HEAD
 This clones Kubespray, provisions Kubernetes (v1.32.5, Flannel CNI), writes the kubeconfig to
 `~/.kube/config`, and installs the base add-ons (cert-manager, the AMD GPU operator, the network
 operator, and the scheduler plugins). Expect 20–40 minutes, then verify:
-=======
-This brings up Kubernetes (via Kubespray) and installs the core add-ons. If you already have
-a Kubernetes 1.21+ cluster, skip this step.
-
-### 2. Install the platform
-
-Run the installer from a machine with `helm`, `kubectl`, and cluster-admin access:
->>>>>>> 540db7cb (Update documentation: architecture, workspace concepts, install, and prerequisites)
 
 ```bash
 kubectl get nodes -o wide      # every node Ready

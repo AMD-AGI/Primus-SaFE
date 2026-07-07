@@ -5,8 +5,6 @@ title: Workloads
 
 # Workloads
 
-> **Status:** Draft · **Owner:** _unassigned_ · **Source:** `SaFE/docs/apis/workload.md`
-
 A **Workload** is the unit of work you submit. You pick a *kind* via `groupVersionKind.kind`;
 the platform manages its full lifecycle. All kinds share the same submit flow — see
 [Run a single-node training job](/tasks/run-single-node-training).

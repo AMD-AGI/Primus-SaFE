@@ -5,9 +5,6 @@ title: Manage access & quota
 
 # Manage access & quota
 
-> **Status:** Draft · **Owner:** _unassigned_ · **Source:** `SaFE/docs/apis/user.md`,
-> `api-key.md`, `public-key.md`, `secret.md`, `workspace.md`, `node-flavor.md`
-
 How to hand out the credentials a workspace's members need, and control how much compute a
 workspace can use. The underlying model lives in [Workspace](/concepts/workspace).
 

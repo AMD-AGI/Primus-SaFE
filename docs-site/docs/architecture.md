@@ -5,8 +5,6 @@ title: Architecture
 
 # Architecture
 
-> **Status:** Draft · **Owner:** _unassigned_ · **Source:** root `README.md`, `SaFE/README.md`
-
 Primus-SaFE extends Kubernetes with AI-specific scheduling, fault tolerance, and
 multi-tenancy. This page is a high-level map of the components and how a job flows through
 them — enough to orient you before the concept pages. You do not need to understand the

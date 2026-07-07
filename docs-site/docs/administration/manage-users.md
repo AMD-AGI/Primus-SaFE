@@ -5,9 +5,6 @@ title: Add users & assign access
 
 # Add users & assign access
 
-> **Status:** Draft · **Owner:** _unassigned_ · **Source:** `SaFE/docs/apis/user.md`,
-> `envs.md`, `api-key.md`; `apiserver/.../authority/sso_token.go`
-
 This page covers **who can log in** and **what they can use**. In Primus-SaFE these are two
 separate steps:
 

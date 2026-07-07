@@ -5,10 +5,6 @@ title: Workspace
 
 # Workspace
 
-> **Status:** Draft · **Owner:** _unassigned_ · **Source:** `SaFE/docs/apis/workspace.md`,
-> `cluster.md`, `node.md`, `node-flavor.md`
-
-<<<<<<< HEAD
 A **workspace** is the multi-tenant slice you actually run work in — an isolated environment
 with its own quota, storage, and access control. It sits at the bottom of a small object model:
 a **cluster** holds **nodes**, and a workspace draws a set of those nodes as its quota.
@@ -60,9 +56,6 @@ You can see the whole model in the console under **System**. The **Nodes** list 
 relationships concrete — every node shows the cluster it belongs to and the workspace it serves:
 
 ![System → Nodes, showing each node's cluster and workspace](/img/screenshots/nodes-list.png)
-=======
-A **workspace** provides multi-tenant isolation on the platform: an isolated environment with its own quota, storage, and access control.
->>>>>>> 5d20e544 (Update documentation: architecture, workspace concepts, install, and prerequisites)
 
 ## What a workspace gives you
 
@@ -71,14 +64,11 @@ A **workspace** provides multi-tenant isolation on the platform: an isolated env
   namespace).
 - **Access** — members can use it; managers (workspace-admins) administer it.
 - **Scopes** — which kinds of workloads are allowed: `Train`, `Infer`, `Authoring`, `CICD`.
-<<<<<<< HEAD
 
 The **Workspaces** list shows each workspace's cluster, its node count (`ready / current /
 target`), managers, phase, and queue policy:
 
 ![System → Workspaces list](/img/screenshots/workspaces-list.png)
-=======
->>>>>>> 5d20e544 (Update documentation: architecture, workspace concepts, install, and prerequisites)
 
 ## Quota and node flavor
 
@@ -92,14 +82,9 @@ node flavor**:
 | `availQuota` | What's free (`total − used − abnormal`). |
 | `abnormalQuota` | Resources stuck on unhealthy nodes. |
 
-<<<<<<< HEAD
 You **pick** a flavor when creating a workspace; **admins define** flavors. One workspace cannot
 mix flavors. The system may reserve a small portion of a node's resources to run administrative
 tasks, so the schedulable amount is slightly below the raw flavor totals.
-=======
-You **pick** a flavor when creating a workspace; **admins define** flavors. One workspace
-cannot mix flavors. The system may reserve a small portion of a node's resources to run administrative tasks, so the schedulable amount is slightly below the raw flavor totals.
->>>>>>> 5d20e544 (Update documentation: architecture, workspace concepts, install, and prerequisites)
 
 ## Scheduling within a workspace
 
