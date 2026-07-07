@@ -45,7 +45,7 @@ metadata:
     meta.helm.sh/release-namespace: {{ .Release.Namespace }}
 spec:
   category: plugin
-  description: kGateway v2.1.1 CustomResourceDefinitions (third-party kgateway, generic -- not Optimus-specific). Companion to the kgateway controller for the Optimus/RocServe GAIE front-end. Install BEFORE the kgateway controller (kgateway.2.1.1). CRDs only, no images. Does not cover the Gateway API standard CRDs or the GAIE inference-extension CRDs (apply those plain manifests separately, see header).
+  description: kGateway v2.1.1 CustomResourceDefinitions (third-party kgateway, generic -- not Infera-specific). Companion to the kgateway controller for the Infera GAIE front-end. Install BEFORE the kgateway controller (kgateway.2.1.1). CRDs only, no images. Does not cover the Gateway API standard CRDs or the GAIE inference-extension CRDs (apply those plain manifests separately, see header).
   # OCI helm chart mirrored on SaFE Harbor (ops to mirror, see header note).
   # Upstream source: cr.kgateway.dev/kgateway-dev/charts/kgateway-crds version v2.1.1
   url: oci://{{ .Values.global.helm_registry }}/primussafe/kgateway-crds

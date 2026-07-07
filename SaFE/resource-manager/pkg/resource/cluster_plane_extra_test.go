@@ -218,7 +218,7 @@ func TestGuaranteeDefaultAddonCreatesAddon(t *testing.T) {
 	cluster := testCluster("c1")
 	template := &v1.AddonTemplate{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:   "optimus.0.1.4",
+			Name:   "infera-operator.0.1.0",
 			Labels: map[string]string{v1.AddonDefaultLabel: ""},
 		},
 	}
@@ -226,9 +226,9 @@ func TestGuaranteeDefaultAddonCreatesAddon(t *testing.T) {
 	res, err := r.guaranteeDefaultAddon(context.Background(), cluster)
 	assert.NoError(t, err)
 	assert.Equal(t, int64(0), res.RequeueAfter.Nanoseconds())
-	// Addon should be created with name "c1-optimus".
+	// Addon should be created with name "c1-infera-operator".
 	addon := &v1.Addon{}
-	assert.NoError(t, r.Get(context.Background(), client.ObjectKey{Name: "c1-optimus"}, addon))
+	assert.NoError(t, r.Get(context.Background(), client.ObjectKey{Name: "c1-infera-operator"}, addon))
 }
 
 func TestUpdateClusterKubeConfigNilConfig(t *testing.T) {
