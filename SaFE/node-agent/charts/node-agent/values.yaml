@@ -4,7 +4,7 @@
 #
 
 node_agent:
-  image: "node-agent:latest"
+  image: "node-agent:v1.0.0"
   image_registry: "docker.io"
   image_pull_secret: "primus-safe-image"
   rdma_name: "rdma/hca"

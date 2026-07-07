@@ -65,9 +65,9 @@ data:
       # The timeout of the opsjob, in seconds. Default is 3600.
       timeout_second: {{ default 3600 (default .Values.ops_job).timeout_second }}
       # Opsjob download image version. Used for downloading files from S3 to local PFS
-      download_image: {{ printf "%s/primussafe/%s" (default "docker.io" .Values.global.image_registry) (default "s3-downloader:latest" (default .Values.ops_job).download_image) }}
+      download_image: {{ printf "%s/primussafe/%s" (default "docker.io" .Values.global.image_registry) (default "s3-downloader:v1.0.0" (default .Values.ops_job).download_image) }}
       # Opsjob evalscope image version. Used for model evaluation
-      evalscope_image: {{ printf "%s/primussafe/%s" (default "docker.io" .Values.global.image_registry) (default "evalscope:latest" (default .Values.ops_job).evalscope_image) }}
+      evalscope_image: {{ printf "%s/primussafe/%s" (default "docker.io" .Values.global.image_registry) (default "evalscope:v1.0.0" (default .Values.ops_job).evalscope_image) }}
       prewarm:
         # The timeout for prewarm jobs, in seconds. Default is 900 (15 min).
         timeout_second: {{ default 900 (default (default .Values.ops_job).prewarm).timeout_second }}
@@ -90,10 +90,10 @@ data:
     model:
       # Image for downloading models from HuggingFace and uploading to S3
       # Uses global.image_registry to support different registry environments
-      downloader_image: {{ default (printf "%s/primussafe/model-downloader:latest" .Values.global.image_registry) (default .Values.model).downloader_image }}
+      downloader_image: {{ default (printf "%s/primussafe/model-downloader:v1.0.0" .Values.global.image_registry) (default .Values.model).downloader_image }}
     cd:
       # CD Job image for deployment operations
-      job_image: {{ .Values.global.image_registry }}/primussafe/cd-job-runner:latest
+      job_image: {{ .Values.global.image_registry }}/primussafe/cd-job-runner:v1.0.0
       # Image for cleaning up local model files
       cleanup_image: {{ default "alpine:3.18" (default .Values.model).cleanup_image }}
 {{- if .Values.addon }}
