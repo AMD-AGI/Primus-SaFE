@@ -167,16 +167,16 @@ const router = useRouter()
 const userStore = useUserStore()
 
 const props = withDefaults(defineProps<{
-  workloadType?: 'dynamo' | 'optimus'
+  workloadType?: 'dynamo' | 'infera'
 }>(), {
   workloadType: 'dynamo',
 })
 
 const workloadConfig = computed(() =>
-  props.workloadType === 'optimus'
+  props.workloadType === 'infera'
     ? {
-        label: 'Optimus',
-        listPath: '/optimus',
+        label: 'Infera',
+        listPath: '/infera',
       }
     : {
         label: 'Dynamo',
@@ -219,7 +219,7 @@ interface DynamoDetailShape {
     multinodeRoles?: string[]
     kvTransferBackend?: string
   }
-  optimusOptions?: {
+  inferaOptions?: {
     serviceRoles?: string[]
     multinodeRoles?: string[]
     kvTransferBackend?: string
@@ -262,7 +262,7 @@ const multinodeRoles = computed(() => {
 const mode = computed(() => {
   if (serviceRoles.value.includes('prefill')) return 'PD'
   if (multinodeRoles.value.includes('worker')) return 'Aggregation'
-  if (props.workloadType === 'optimus' && Number(detailData.value?.resources?.[1]?.replica || 0) > 1) {
+  if (props.workloadType === 'infera' && Number(detailData.value?.resources?.[1]?.replica || 0) > 1) {
     return 'Aggregation'
   }
   return 'Standard'
@@ -270,7 +270,7 @@ const mode = computed(() => {
 
 const workloadOptions = computed(() => {
   const detail = detailData.value as DynamoDetailShape | undefined
-  return props.workloadType === 'optimus' ? detail?.optimusOptions : detail?.dynamoOptions
+  return props.workloadType === 'infera' ? detail?.inferaOptions : detail?.dynamoOptions
 })
 
 const roleRows = computed(() => {

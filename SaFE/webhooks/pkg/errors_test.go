@@ -33,9 +33,9 @@ func dynamoWorkload(kindAnno, fw, kv, roles string, resourceCount int) *v1.Workl
 		v1.SetAnnotation(w, v1.DynamoKVTransferBackendAnnotation, kv)
 		v1.SetAnnotation(w, v1.DynamoServiceRolesAnnotation, roles)
 	} else {
-		v1.SetAnnotation(w, v1.OptimusBackendFrameworkAnnotation, fw)
-		v1.SetAnnotation(w, v1.OptimusKVTransferBackendAnnotation, kv)
-		v1.SetAnnotation(w, v1.OptimusServiceRolesAnnotation, roles)
+		v1.SetAnnotation(w, v1.InferaBackendFrameworkAnnotation, fw)
+		v1.SetAnnotation(w, v1.InferaKVTransferBackendAnnotation, kv)
+		v1.SetAnnotation(w, v1.InferaServiceRolesAnnotation, roles)
 	}
 	return w
 }
@@ -114,15 +114,15 @@ func TestWorkloadDynamoBranches(t *testing.T) {
 	assert.Assert(t, v.validateDynamoDeployment(w) != nil)
 }
 
-// TestWorkloadOptimusBranches covers optimus deployment validation error branches.
-func TestWorkloadOptimusBranches(t *testing.T) {
+// TestWorkloadInferaBranches covers infera deployment validation error branches.
+func TestWorkloadInferaBranches(t *testing.T) {
 	v := &WorkloadValidator{}
-	k := common.OptimusDeploymentKind
-	assert.Assert(t, v.validateOptimusDeployment(dynamoWorkload(k, "vllm", "nixl", "frontend,worker,prefill,decode,planner,epp", 6)) != nil)
-	assert.Assert(t, v.validateOptimusDeployment(dynamoWorkload(k, "bad", "bad", "frontend", 1)) != nil)
-	assert.Assert(t, v.validateOptimusDeployment(dynamoWorkload(k, "vllm", "nixl", "frontend,worker", 1)) != nil)
-	assert.Assert(t, v.validateOptimusDeployment(dynamoWorkload(k, "vllm", "nixl", "weird", 1)) != nil)
-	assert.Assert(t, v.validateOptimusDeployment(dynamoWorkload(k, "vllm", "nixl", "frontend,worker,prefill", 3)) != nil)
+	k := common.InferaDeploymentKind
+	assert.Assert(t, v.validateInferaDeployment(dynamoWorkload(k, "vllm", "nixl", "frontend,worker,prefill,decode,planner,epp", 6)) != nil)
+	assert.Assert(t, v.validateInferaDeployment(dynamoWorkload(k, "bad", "bad", "frontend", 1)) != nil)
+	assert.Assert(t, v.validateInferaDeployment(dynamoWorkload(k, "vllm", "nixl", "frontend,worker", 1)) != nil)
+	assert.Assert(t, v.validateInferaDeployment(dynamoWorkload(k, "vllm", "nixl", "weird", 1)) != nil)
+	assert.Assert(t, v.validateInferaDeployment(dynamoWorkload(k, "vllm", "nixl", "frontend,worker,prefill", 3)) != nil)
 }
 
 // TestWorkloadSpecChangedBranches covers spec change detection branches.

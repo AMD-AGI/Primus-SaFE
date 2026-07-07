@@ -169,12 +169,12 @@ func TestWorkloadMutateDynamoDeployment(t *testing.T) {
 	assert.Equal(t, w.Spec.Env["DYN_NAMESPACE"], "w1")
 }
 
-// TestWorkloadMutateOptimusDeployment verifies optimus annotation/env defaults.
-func TestWorkloadMutateOptimusDeployment(t *testing.T) {
+// TestWorkloadMutateInferaDeployment verifies infera annotation/env defaults.
+func TestWorkloadMutateInferaDeployment(t *testing.T) {
 	m := &WorkloadMutator{}
 	w := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "w1"}}
-	m.mutateOptimusDeployment(w)
-	assert.Equal(t, v1.GetAnnotation(w, v1.OptimusBackendFrameworkAnnotation), common.OptimusDefaultBackendFramework)
+	m.mutateInferaDeployment(w)
+	assert.Equal(t, v1.GetAnnotation(w, v1.InferaBackendFrameworkAnnotation), common.InferaDefaultBackendFramework)
 	assert.Assert(t, w.Spec.Env["NATS_SERVER"] != "")
 }
 
@@ -485,19 +485,19 @@ func TestWorkloadValidateDynamoDeployment(t *testing.T) {
 	assert.NilError(t, v.validateDynamoDeployment(w))
 }
 
-// TestWorkloadValidateOptimusDeployment verifies optimus validation.
-func TestWorkloadValidateOptimusDeployment(t *testing.T) {
+// TestWorkloadValidateInferaDeployment verifies infera validation.
+func TestWorkloadValidateInferaDeployment(t *testing.T) {
 	v := &WorkloadValidator{}
-	assert.Assert(t, v.validateOptimusDeployment(&v1.Workload{}) != nil)
+	assert.Assert(t, v.validateInferaDeployment(&v1.Workload{}) != nil)
 
 	w := &v1.Workload{Spec: v1.WorkloadSpec{
-		GroupVersionKind: v1.GroupVersionKind{Kind: common.OptimusDeploymentKind},
+		GroupVersionKind: v1.GroupVersionKind{Kind: common.InferaDeploymentKind},
 		Resources:        []v1.WorkloadResource{wlResource()},
 	}}
-	v1.SetAnnotation(w, v1.OptimusBackendFrameworkAnnotation, "sglang")
-	v1.SetAnnotation(w, v1.OptimusKVTransferBackendAnnotation, common.DynamoKVBackendNixl)
-	v1.SetAnnotation(w, v1.OptimusServiceRolesAnnotation, common.DynamoRoleFrontend)
-	assert.NilError(t, v.validateOptimusDeployment(w))
+	v1.SetAnnotation(w, v1.InferaBackendFrameworkAnnotation, "sglang")
+	v1.SetAnnotation(w, v1.InferaKVTransferBackendAnnotation, common.DynamoKVBackendNixl)
+	v1.SetAnnotation(w, v1.InferaServiceRolesAnnotation, common.DynamoRoleFrontend)
+	assert.NilError(t, v.validateInferaDeployment(w))
 }
 
 // TestWorkloadValidateWorkspace verifies workspace existence validation.

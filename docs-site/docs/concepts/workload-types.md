@@ -66,6 +66,6 @@ Most kinds accept the same core fields:
 The full field reference lives in the workload API (`SaFE/docs/apis/workload.md`).
 
 > **Not yet covered (in code, not yet user-documented):** additional kinds exist —
-> **RayJob**, **MonarchJob**, and advanced serving (DynamoDeployment, OptimusDeployment),
+> **RayJob**, **MonarchJob**, and advanced serving (DynamoDeployment, InferaDeployment),
 > plus a Sandbox scope. They are listed here so the table isn't silently incomplete; treat
 > them as advanced/experimental until documented.

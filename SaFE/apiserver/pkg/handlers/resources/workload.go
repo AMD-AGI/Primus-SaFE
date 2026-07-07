@@ -872,29 +872,29 @@ func (h *Handler) generateWorkload(ctx context.Context,
 		v1.SetLabel(workload, v1.OwnerLabel, req.OwnerId)
 	}
 	applyDynamoOptions(workload, req.DynamoOptions)
-	applyOptimusOptions(workload, req.OptimusOptions)
+	applyInferaOptions(workload, req.InferaOptions)
 	return workload, nil
 }
 
-// applyOptimusOptions translates the structured OptimusOptions API field into
-// primus-safe.optimus.* annotations, the RocServe analogue of
+// applyInferaOptions translates the structured InferaOptions API field into
+// primus-safe.infera.* annotations, the Infera analogue of
 // applyDynamoOptions. Semantic checks are performed by the validating webhook.
-func applyOptimusOptions(workload *v1.Workload, opts *view.DynamoOptions) {
+func applyInferaOptions(workload *v1.Workload, opts *view.DynamoOptions) {
 	if opts == nil {
 		return
 	}
 	if opts.BackendFramework != "" {
-		v1.SetAnnotation(workload, v1.OptimusBackendFrameworkAnnotation, opts.BackendFramework)
+		v1.SetAnnotation(workload, v1.InferaBackendFrameworkAnnotation, opts.BackendFramework)
 	}
 	if opts.KVTransferBackend != "" {
-		v1.SetAnnotation(workload, v1.OptimusKVTransferBackendAnnotation, opts.KVTransferBackend)
+		v1.SetAnnotation(workload, v1.InferaKVTransferBackendAnnotation, opts.KVTransferBackend)
 	}
 	if len(opts.ServiceRoles) > 0 {
-		v1.SetAnnotation(workload, v1.OptimusServiceRolesAnnotation,
+		v1.SetAnnotation(workload, v1.InferaServiceRolesAnnotation,
 			strings.Join(opts.ServiceRoles, ","))
 	}
 	if len(opts.MultinodeRoles) > 0 {
-		v1.SetAnnotation(workload, v1.OptimusMultinodeRolesAnnotation,
+		v1.SetAnnotation(workload, v1.InferaMultinodeRolesAnnotation,
 			strings.Join(opts.MultinodeRoles, ","))
 	}
 }

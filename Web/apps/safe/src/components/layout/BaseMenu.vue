@@ -243,7 +243,7 @@ interface MenuItem {
 const workloadMenuItems = shallowRef<MenuItem[]>([])
 const workloadGroupIndexes = ['workloads-infer', 'workloads-training']
 const workloadGroupRoutes = [
-  { group: 'workloads-infer', paths: ['/infer', '/dynamo', '/optimus'] },
+  { group: 'workloads-infer', paths: ['/infer', '/dynamo', '/infera'] },
   {
     group: 'workloads-training',
     paths: ['/training', '/torchft', '/rayjob', '/monarch'],
@@ -297,11 +297,11 @@ watchEffect(() => {
       icon: menuIcons.dynamo,
     },
     {
-      index: '/optimus',
-      name: 'Optimus',
+      index: '/infera',
+      name: 'Infera',
       canAccess: canInfer.value,
-      tooltip: 'Optimus has been disabled by the administrator.',
-      icon: menuIcons.optimus,
+      tooltip: 'Infera has been disabled by the administrator.',
+      icon: menuIcons.infera,
     },
   ].filter((item) => item.canAccess !== false)
 

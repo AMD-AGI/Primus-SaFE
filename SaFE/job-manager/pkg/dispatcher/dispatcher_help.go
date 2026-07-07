@@ -1354,15 +1354,15 @@ func normalizeDynamoDGD(obj *unstructured.Unstructured, adminWorkload *v1.Worklo
 	return nil
 }
 
-// normalizeOptimusRSD is the Optimus/RocServe analogue of normalizeDynamoDGD.
-// It finalizes a freshly-rendered RocServeDeployment (rocserve.amd.com/v1alpha1)
-// so the standalone RocServe operator can reconcile it. Like the dynamo path
+// normalizeInferaIDEP is the Infera analogue of normalizeDynamoDGD.
+// It finalizes a freshly-rendered InferaDeployment (infera.amd.com/v1alpha1)
+// so the standalone Infera operator can reconcile it. Like the dynamo path
 // it operates on the role-agnostic slots services.role0..role4 produced by the
 // generic dispatcher flow, rewriting each slot in place.
 //
-// Differences from normalizeDynamoDGD (driven by the RSD CRD shape, see
-// deploy/operator/api/v1alpha1/rocservedeployment_types.go):
-//   - componentType is the RSD enum server|worker (not Frontend/Main); the
+// Differences from normalizeDynamoDGD (driven by the IDEP CRD shape, see
+// deploy/operator/api/v1alpha1/inferadeployment_types.go):
+//   - componentType is the IDEP enum server|worker (not Frontend/Main); the
 //     disaggregation role is the flat field `role` (mixed|prefill|decode),
 //     there is no subComponentType.
 //   - multi-node uses the flat field `numberOfNodes` (not multinode.numberOfNodes).
@@ -1372,14 +1372,14 @@ func normalizeDynamoDGD(obj *unstructured.Unstructured, adminWorkload *v1.Worklo
 //
 // The map key role<i> is intentionally preserved (renaming it would break the
 // dispatcher's path-based child tracking, identical rationale to the dynamo
-// path); the operator names child workloads <rsd>-role<i>.
-func normalizeOptimusRSD(obj *unstructured.Unstructured, adminWorkload *v1.Workload) error {
-	roles := commonworkload.GetOptimusServiceRoles(adminWorkload)
+// path); the operator names child workloads <idep>-role<i>.
+func normalizeInferaIDEP(obj *unstructured.Unstructured, adminWorkload *v1.Workload) error {
+	roles := commonworkload.GetInferaServiceRoles(adminWorkload)
 	if len(roles) == 0 {
-		return fmt.Errorf("optimus deployment %s has no service roles", adminWorkload.Name)
+		return fmt.Errorf("infera deployment %s has no service roles", adminWorkload.Name)
 	}
-	kvBackend := commonworkload.GetOptimusKVTransferBackend(adminWorkload)
-	backendFramework := commonworkload.GetOptimusBackendFramework(adminWorkload)
+	kvBackend := commonworkload.GetInferaKVTransferBackend(adminWorkload)
+	backendFramework := commonworkload.GetInferaBackendFramework(adminWorkload)
 
 	if err := jobutils.SetNestedField(obj.Object, backendFramework,
 		[]string{"spec", "backendFramework"}); err != nil {
@@ -1391,21 +1391,21 @@ func normalizeOptimusRSD(obj *unstructured.Unstructured, adminWorkload *v1.Workl
 		return fmt.Errorf("get spec.services: %w", err)
 	}
 	if !found {
-		return fmt.Errorf("spec.services not found in rendered RSD %s", adminWorkload.Name)
+		return fmt.Errorf("spec.services not found in rendered IDEP %s", adminWorkload.Name)
 	}
 
 	for i, role := range roles {
 		slotKey := "role" + strconv.Itoa(i)
 		slot, ok := services[slotKey].(map[string]interface{})
 		if !ok {
-			return fmt.Errorf("optimus slot %s missing or wrong type", slotKey)
+			return fmt.Errorf("infera slot %s missing or wrong type", slotKey)
 		}
 
 		// Stamp SaFE pod-tracking labels so the job-manager pod syncer can
-		// associate RSD child pods to this workload. The RSD ExtraPodSpec is a
+		// associate IDEP child pods to this workload. The IDEP ExtraPodSpec is a
 		// bare corev1.PodSpec (no metadata), so labels set under
 		// extraPodSpec.metadata are pruned by the CRD schema and never reach the
-		// pod. Carry them on the RSD ServiceSpec.podLabels field instead; the
+		// pod. Carry them on the IDEP ServiceSpec.podLabels field instead; the
 		// operator merges podLabels onto the rendered pod template.
 		labels := map[string]interface{}{}
 		if existing, ok := slot["podLabels"].(map[string]interface{}); ok {
@@ -1418,11 +1418,11 @@ func normalizeOptimusRSD(obj *unstructured.Unstructured, adminWorkload *v1.Workl
 		}
 		slot["podLabels"] = labels
 
-		applyOptimusRoleFields(slot, role, kvBackend)
+		applyInferaRoleFields(slot, role, kvBackend)
 
 		// Multi-node: node count is Resources[i].Replica, carried by the flat
 		// numberOfNodes field; force replicas=1 (one LeaderWorkerSet group).
-		if commonworkload.IsOptimusMultinodeRole(adminWorkload, role) &&
+		if commonworkload.IsInferaMultinodeRole(adminWorkload, role) &&
 			i < len(adminWorkload.Spec.Resources) {
 			if n := adminWorkload.Spec.Resources[i].Replica; n > 1 {
 				appendSglangMultinodeArgs(slot, n)
@@ -1440,12 +1440,12 @@ func normalizeOptimusRSD(obj *unstructured.Unstructured, adminWorkload *v1.Workl
 	return nil
 }
 
-// applyOptimusRoleFields sets the RSD componentType (server|worker) and the
+// applyInferaRoleFields sets the IDEP componentType (server|worker) and the
 // worker disaggregation role (mixed|prefill|decode) on a slot, and appends the
 // sglang disaggregation flags for prefill/decode (reusing the dynamo helper,
 // which operates on extraPodSpec.containers[main] — the same pre-fold shape the
-// RSD operator consumes).
-func applyOptimusRoleFields(slot map[string]interface{}, role, kvBackend string) {
+// IDEP operator consumes).
+func applyInferaRoleFields(slot map[string]interface{}, role, kvBackend string) {
 	switch role {
 	case common.DynamoRoleFrontend:
 		slot["componentType"] = "server"
@@ -1945,7 +1945,7 @@ func updateSharedMemory(adminWorkload *v1.Workload, obj *unstructured.Unstructur
 	}
 	// Build [<prePaths>, <templatePaths>, <podSpec?>, volumes] via buildPodSpecPath
 	// so the empty podSpec segment is omitted for kinds whose extraPodSpec embeds
-	// PodSpec inline (DGD / RocServeDeployment, getPodSpec == ""). Appending
+	// PodSpec inline (DGD / InferaDeployment, getPodSpec == ""). Appending
 	// podSpec raw inserted a "" path segment, writing the shared-memory volume to
 	// extraPodSpec."".volumes instead of extraPodSpec.volumes — leaving the
 	// container's /dev/shm mount dangling ("shared-memory" volume Not found).
@@ -2058,13 +2058,13 @@ func getPodSpec(w *v1.Workload) string {
 	// DGD `extraPodSpec` embeds PodSpec inline (see dynamo
 	// operator/api/v1alpha1/common.go::ExtraPodSpec), so the rendered yaml has
 	// containers directly under extraPodSpec rather than under the standard
-	// pyt./dep./ray "template.spec.containers" path. RocServeDeployment
-	// (OptimusDeployment) uses the same inline-PodSpec shape (ServiceSpec.
+	// pyt./dep./ray "template.spec.containers" path. InferaDeployment
+	// (InferaDeployment) uses the same inline-PodSpec shape (ServiceSpec.
 	// ExtraPodSpec is a core/v1 PodSpec), so it resolves identically. This
 	// single branch makes the entire generic flow (container/env/resource
 	// injection, volume mounts, hostNetwork, sharedMemory, ...) target
 	// extraPodSpec.* for both kinds.
-	if commonworkload.IsDynamoDeployment(w) || commonworkload.IsOptimusDeployment(w) {
+	if commonworkload.IsDynamoDeployment(w) || commonworkload.IsInferaDeployment(w) {
 		return ""
 	}
 	return "spec"
