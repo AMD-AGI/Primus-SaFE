@@ -10,7 +10,7 @@ import (
 	"testing"
 
 	"github.com/agiledragon/gomonkey/v2"
-	"github.com/stretchr/testify/assert"
+	"gotest.tools/assert"
 	"k8s.io/apimachinery/pkg/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
@@ -28,16 +28,21 @@ import (
 func newDummyManager(t *testing.T) manager.Manager {
 	t.Helper()
 	scheme := runtime.NewScheme()
-	assert.NoError(t, clientgoscheme.AddToScheme(scheme))
-	assert.NoError(t, v1.AddToScheme(scheme))
+	assert.NilError(t, clientgoscheme.AddToScheme(scheme))
+	assert.NilError(t, v1.AddToScheme(scheme))
 	mgr, err := ctrlruntime.NewManager(&rest.Config{Host: "http://127.0.0.1:60999"}, ctrlruntime.Options{
 		Scheme:                 scheme,
 		Metrics:                metricsserver.Options{BindAddress: "0"},
 		HealthProbeBindAddress: "0",
 		Controller:             ctrlconfig.Controller{SkipNameValidation: ptr.To(true)},
 	})
-	assert.NoError(t, err)
+	assert.NilError(t, err)
 	return mgr
+}
+
+func TestSetupExportersDBDisabled(t *testing.T) {
+	err := SetupExporters(context.Background(), nil)
+	assert.NilError(t, err)
 }
 
 func TestSetupExportersDisabled(t *testing.T) {
@@ -45,7 +50,7 @@ func TestSetupExportersDisabled(t *testing.T) {
 	patches.ApplyFunc(commonconfig.IsDBEnable, func() bool { return false })
 	defer patches.Reset()
 
-	assert.NoError(t, SetupExporters(context.Background(), newDummyManager(t)))
+	assert.NilError(t, SetupExporters(context.Background(), newDummyManager(t)))
 }
 
 func TestSetupExportersEnabled(t *testing.T) {
@@ -54,5 +59,5 @@ func TestSetupExportersEnabled(t *testing.T) {
 	patches.ApplyFunc(dbclient.NewClient, func() *dbclient.Client { return &dbclient.Client{} })
 	defer patches.Reset()
 
-	assert.NoError(t, SetupExporters(context.Background(), newDummyManager(t)))
+	assert.NilError(t, SetupExporters(context.Background(), newDummyManager(t)))
 }
