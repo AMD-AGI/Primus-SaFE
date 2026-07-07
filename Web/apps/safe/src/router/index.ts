@@ -56,6 +56,7 @@ const router = createRouter({
           path: '/clusters',
           name: 'Clusters',
           component: () => import('../pages/Clusters/index.vue'),
+          meta: { requiresSystemAdmin: true },
         },
         {
           path: '/cluster/detail',
@@ -195,6 +196,7 @@ const router = createRouter({
           path: '/preflight',
           name: 'Diagnoser',
           component: () => import('../pages/Diagnoser/index.vue'),
+          meta: { requiresSystemAdmin: true },
         },
         {
           path: '/preflight/detail',
@@ -226,17 +228,20 @@ const router = createRouter({
           path: '/fault',
           name: 'Fault',
           component: () => import('../pages/Fault/index.vue'),
+          meta: { requiresSystemAdmin: true },
         },
         {
           path: '/nodeflavor',
           name: 'NodeFlavor',
           component: () => import('../pages/NodeFlavor/index.vue'),
+          meta: { requiresSystemAdmin: true },
         },
         {
           path: '/flavors/:id',
           name: 'nodeFlavorDetail',
           component: () => import('../pages/NodeFlavor/FlavorDetail.vue'),
           props: (route) => ({ id: route.params.id }),
+          meta: { requiresSystemAdmin: true },
         },
         {
           path: '/secrets',
@@ -247,6 +252,7 @@ const router = createRouter({
           path: '/quickstart',
           name: 'QuickStart',
           component: () => import('../pages/QuickStart/index.vue'),
+          meta: { requiresSystemAdmin: true },
         },
         {
           path: '/userquickstart',
@@ -262,6 +268,7 @@ const router = createRouter({
           path: '/registries',
           name: 'ImageReg',
           component: () => import('../pages/ImageReg/index.vue'),
+          meta: { requiresSystemAdmin: true },
         },
         {
           path: '/webshell',
@@ -282,11 +289,13 @@ const router = createRouter({
           path: '/addontemplate',
           name: 'AddonTemp',
           component: () => import('@/pages/AddonTemp/index.vue'),
+          meta: { requiresSystemAdmin: true },
         },
         {
           path: '/addons',
           name: 'Addons',
           component: () => import('@/pages/Addons/index.vue'),
+          meta: { requiresSystemAdmin: true },
         },
         {
           path: '/posttrain',
@@ -329,11 +338,13 @@ const router = createRouter({
           path: '/deploy',
           name: 'Deploy',
           component: () => import('@/pages/Deploy/index.vue'),
+          meta: { requiresSystemAdmin: true },
         },
         {
           path: '/deploy/detail',
           name: 'DeployDetail',
           component: () => import('@/pages/Deploy/DeployDetail.vue'),
+          meta: { requiresSystemAdmin: true },
         },
         {
           path: '/feedback-management',
@@ -376,11 +387,13 @@ const router = createRouter({
           path: '/auditlogs',
           name: 'AuditLogs',
           component: () => import('@/pages/AuditLogs/index.vue'),
+          meta: { requiresSystemAdmin: true },
         },
         {
           path: '/user-group',
           name: 'UserGroup',
           component: () => import('@/pages/UserGroup/index.vue'),
+          meta: { requiresSystemAdmin: true },
         },
         {
           path: '/tools',
