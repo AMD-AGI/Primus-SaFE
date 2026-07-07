@@ -219,3 +219,88 @@ func TestApplyClusterPatch(t *testing.T) {
 	_, ok := cluster.Labels["old"]
 	assert.False(t, ok)
 }
+
+func TestListClusterHandlerReadonlyAdminSeesAll(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	// A read-only system admin is treated as an admin and sees every cluster.
+	readonlyAdmin := &v1.User{
+		ObjectMeta: metav1.ObjectMeta{Name: "ro-admin"},
+		Spec:       v1.UserSpec{Type: v1.DefaultUserType, Roles: []v1.UserRole{v1.SystemAdminReadonlyRole}},
+	}
+	h, _ := newAdminHandlerWithObjects(
+		&v1.Cluster{ObjectMeta: metav1.ObjectMeta{Name: "a-cluster"}},
+		&v1.Cluster{ObjectMeta: metav1.ObjectMeta{Name: "b-cluster"}},
+		readonlyAdmin,
+	)
+	h.accessController = &authority.AccessController{Client: h.Client}
+
+	rsp := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rsp)
+	c.Request = httptest.NewRequest(http.MethodGet, "/", nil)
+	c.Set(common.UserId, readonlyAdmin.Name)
+	h.ListCluster(c)
+	assert.Equal(t, http.StatusOK, rsp.Code)
+
+	var resp view.ListClusterResponse
+	assert.NoError(t, json.Unmarshal(rsp.Body.Bytes(), &resp))
+	assert.Equal(t, 2, resp.TotalCount)
+}
+
+func TestGetClusterHandlerNonAdminAllowed(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	// A non-admin who belongs to a workspace hosted on the cluster may read it.
+	nonAdmin := &v1.User{
+		ObjectMeta: metav1.ObjectMeta{Name: "member-3"},
+		Spec: v1.UserSpec{
+			Type:      v1.DefaultUserType,
+			Roles:     []v1.UserRole{v1.DefaultRole},
+			Resources: map[string][]string{common.UserManagedWorkspaces: {"ws-c"}},
+		},
+	}
+	ws := &v1.Workspace{
+		ObjectMeta: metav1.ObjectMeta{Name: "ws-c"},
+		Spec:       v1.WorkspaceSpec{Cluster: "c1"},
+	}
+	h, _ := newAdminHandlerWithObjects(&v1.Cluster{ObjectMeta: metav1.ObjectMeta{Name: "c1"}}, nonAdmin, ws)
+	h.accessController = &authority.AccessController{Client: h.Client}
+
+	rsp := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rsp)
+	c.Request = httptest.NewRequest(http.MethodGet, "/", nil)
+	c.Set(common.UserId, nonAdmin.Name)
+	c.Set(common.Name, "c1")
+	h.GetCluster(c)
+	assert.Equal(t, http.StatusOK, rsp.Code)
+}
+
+func TestGetUserAccessibleClusters(t *testing.T) {
+	// nil user yields an empty set.
+	h, _ := newAdminHandlerWithObjects()
+	got, err := h.getUserAccessibleClusters(context.Background(), nil)
+	assert.NoError(t, err)
+	assert.Empty(t, got)
+
+	// A user with member + managed workspaces resolves to the union of their
+	// clusters; blank names and workspaces that no longer exist are skipped.
+	user := &v1.User{
+		ObjectMeta: metav1.ObjectMeta{Name: "member-4"},
+		Spec: v1.UserSpec{
+			Type: v1.DefaultUserType,
+			Resources: map[string][]string{
+				common.UserWorkspaces:        {"ws-a", "ws-missing", ""},
+				common.UserManagedWorkspaces: {"ws-b"},
+			},
+		},
+	}
+	h2, _ := newAdminHandlerWithObjects(
+		&v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ws-a"}, Spec: v1.WorkspaceSpec{Cluster: "cluster-1"}},
+		&v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ws-b"}, Spec: v1.WorkspaceSpec{Cluster: "cluster-2"}},
+	)
+	got, err = h2.getUserAccessibleClusters(context.Background(), user)
+	assert.NoError(t, err)
+	assert.Len(t, got, 2)
+	_, ok := got["cluster-1"]
+	assert.True(t, ok)
+	_, ok = got["cluster-2"]
+	assert.True(t, ok)
+}
