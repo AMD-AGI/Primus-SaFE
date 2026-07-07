@@ -109,9 +109,9 @@ const router = createRouter({
           component: () => import('../pages/Dynamo/index.vue'),
         },
         {
-          path: '/optimus',
-          name: 'Optimus',
-          component: () => import('../pages/Optimus/index.vue'),
+          path: '/infera',
+          name: 'Infera',
+          component: () => import('../pages/Infera/index.vue'),
         },
         {
           path: '/cicd/detail',
@@ -169,9 +169,9 @@ const router = createRouter({
           component: () => import('../pages/Dynamo/DynamoDetail.vue'),
         },
         {
-          path: '/optimus/detail',
-          name: 'OptimusDetail',
-          component: () => import('../pages/Optimus/OptimusDetail.vue'),
+          path: '/infera/detail',
+          name: 'InferaDetail',
+          component: () => import('../pages/Infera/InferaDetail.vue'),
         },
         {
           path: '/workspace',

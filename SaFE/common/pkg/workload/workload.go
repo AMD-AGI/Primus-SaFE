@@ -270,7 +270,7 @@ func GetScope(w *v1.Workload) v1.WorkspaceScope {
 	switch w.SpecKind() {
 	case common.PytorchJobKind, common.UnifiedJobKind, common.JobKind, common.TorchFTKind, common.MonarchJob:
 		return v1.TrainScope
-	case common.DeploymentKind, common.StatefulSetKind, common.DynamoDeploymentKind, common.OptimusDeploymentKind:
+	case common.DeploymentKind, common.StatefulSetKind, common.DynamoDeploymentKind, common.InferaDeploymentKind:
 		return v1.InferScope
 	case common.AuthoringKind:
 		return v1.AuthoringScope
@@ -293,7 +293,7 @@ func IsApplication(w *v1.Workload) bool {
 	if w.SpecKind() == common.DeploymentKind ||
 		w.SpecKind() == common.StatefulSetKind ||
 		w.SpecKind() == common.DynamoDeploymentKind ||
-		w.SpecKind() == common.OptimusDeploymentKind {
+		w.SpecKind() == common.InferaDeploymentKind {
 		return true
 	}
 	return false
@@ -441,24 +441,24 @@ func GetDynamoBackendFramework(w *v1.Workload) string {
 	return val
 }
 
-// IsOptimusDeployment returns true if the workload is an OptimusDeployment.
-// OptimusDeployment renders a rocserve.amd.com/v1alpha1 RocServeDeployment
-// reconciled by the standalone RocServe operator (the Optimus analogue of
+// IsInferaDeployment returns true if the workload is an InferaDeployment.
+// InferaDeployment renders a infera.amd.com/v1alpha1 InferaDeployment
+// reconciled by the standalone Infera operator (the Infera analogue of
 // DynamoDeployment). Roles/KV-backend/framework reuse the Dynamo constants.
-func IsOptimusDeployment(w *v1.Workload) bool {
-	return w.SpecKind() == common.OptimusDeploymentKind
+func IsInferaDeployment(w *v1.Workload) bool {
+	return w.SpecKind() == common.InferaDeploymentKind
 }
 
-// GetOptimusServiceRoles returns the parsed service roles for an
-// OptimusDeployment, positionally matching Workload.Spec.Resources.
-// Source: annotation primus-safe.optimus.service-roles (comma-separated);
+// GetInferaServiceRoles returns the parsed service roles for an
+// InferaDeployment, positionally matching Workload.Spec.Resources.
+// Source: annotation primus-safe.infera.service-roles (comma-separated);
 // fallback by len(Resources): 2 -> [frontend,worker], 3 -> [frontend,prefill,decode].
-// Returns nil for non-OptimusDeployment workloads.
-func GetOptimusServiceRoles(w *v1.Workload) []string {
-	if !IsOptimusDeployment(w) {
+// Returns nil for non-InferaDeployment workloads.
+func GetInferaServiceRoles(w *v1.Workload) []string {
+	if !IsInferaDeployment(w) {
 		return nil
 	}
-	val := v1.GetAnnotation(w, v1.OptimusServiceRolesAnnotation)
+	val := v1.GetAnnotation(w, v1.InferaServiceRolesAnnotation)
 	if val != "" {
 		roles := make([]string, 0, 4)
 		for _, r := range strings.Split(val, ",") {
@@ -478,20 +478,20 @@ func GetOptimusServiceRoles(w *v1.Workload) []string {
 	}
 }
 
-// GetOptimusKVTransferBackend returns the KV transfer backend (nixl/mori/
+// GetInferaKVTransferBackend returns the KV transfer backend (nixl/mori/
 // mooncake) for disaggregated serving; default nixl when annotation absent.
-func GetOptimusKVTransferBackend(w *v1.Workload) string {
-	val := v1.GetAnnotation(w, v1.OptimusKVTransferBackendAnnotation)
+func GetInferaKVTransferBackend(w *v1.Workload) string {
+	val := v1.GetAnnotation(w, v1.InferaKVTransferBackendAnnotation)
 	if val == "" {
-		return common.OptimusDefaultKVBackend
+		return common.InferaDefaultKVBackend
 	}
 	return val
 }
 
-// GetOptimusMultinodeRoles returns the roles that run as a multi-node
+// GetInferaMultinodeRoles returns the roles that run as a multi-node
 // LeaderWorkerSet (node count = that role's Resources[i].Replica).
-func GetOptimusMultinodeRoles(w *v1.Workload) []string {
-	val := v1.GetAnnotation(w, v1.OptimusMultinodeRolesAnnotation)
+func GetInferaMultinodeRoles(w *v1.Workload) []string {
+	val := v1.GetAnnotation(w, v1.InferaMultinodeRolesAnnotation)
 	if val == "" {
 		return nil
 	}
@@ -504,10 +504,10 @@ func GetOptimusMultinodeRoles(w *v1.Workload) []string {
 	return roles
 }
 
-// IsOptimusMultinodeRole reports whether the given role runs as a multi-node
+// IsInferaMultinodeRole reports whether the given role runs as a multi-node
 // LeaderWorkerSet.
-func IsOptimusMultinodeRole(w *v1.Workload, role string) bool {
-	for _, r := range GetOptimusMultinodeRoles(w) {
+func IsInferaMultinodeRole(w *v1.Workload, role string) bool {
+	for _, r := range GetInferaMultinodeRoles(w) {
 		if r == role {
 			return true
 		}
@@ -515,12 +515,12 @@ func IsOptimusMultinodeRole(w *v1.Workload, role string) bool {
 	return false
 }
 
-// GetOptimusBackendFramework returns the chosen backend framework
+// GetInferaBackendFramework returns the chosen backend framework
 // (sglang/vllm); default sglang when annotation absent.
-func GetOptimusBackendFramework(w *v1.Workload) string {
-	val := v1.GetAnnotation(w, v1.OptimusBackendFrameworkAnnotation)
+func GetInferaBackendFramework(w *v1.Workload) string {
+	val := v1.GetAnnotation(w, v1.InferaBackendFrameworkAnnotation)
 	if val == "" {
-		return common.OptimusDefaultBackendFramework
+		return common.InferaDefaultBackendFramework
 	}
 	return val
 }
@@ -745,7 +745,7 @@ func GetUsedHostPorts(ctx context.Context, cli client.Client, clusterId string) 
 				if IsMonarchJob(&item) {
 					ports[common.MonarchMeshPortNum] = struct{}{}
 				}
-				if IsDynamoDeployment(&item) || IsOptimusDeployment(&item) {
+				if IsDynamoDeployment(&item) || IsInferaDeployment(&item) {
 					ports[common.DynamoFrontendPort] = struct{}{}
 				}
 			}
@@ -789,7 +789,7 @@ func IsEnabledHostNetwork(workload *v1.Workload, resourceId int) bool {
 	// hostNetwork (non-empty RdmaResource), keep the Frontend on hostNetwork too so a
 	// co-scheduled Frontend can reach worker hostIPs without same-node Pod-CIDR ->
 	// node-primary-IP hairpin timeouts on dynamo TCP request plane ports.
-	if (IsDynamoDeployment(workload) || IsOptimusDeployment(workload)) && resourceId == 0 && len(workload.Spec.Resources) > 1 {
+	if (IsDynamoDeployment(workload) || IsInferaDeployment(workload)) && resourceId == 0 && len(workload.Spec.Resources) > 1 {
 		for i := 1; i < len(workload.Spec.Resources); i++ {
 			if workload.Spec.Resources[i].RdmaResource != "" {
 				return true

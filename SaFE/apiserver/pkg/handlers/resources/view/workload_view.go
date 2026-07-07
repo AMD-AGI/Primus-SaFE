@@ -59,11 +59,11 @@ type CreateWorkloadRequest struct {
 	// the only supported channel to express role layout / multinode for the
 	// DynamoDeployment kind via the API. See docs/apis/dynamo-options-design.md.
 	DynamoOptions *DynamoOptions `json:"dynamoOptions,omitempty"`
-	// OptimusOptions carries OptimusDeployment-specific configuration, the
-	// RocServe analogue of DynamoOptions. It reuses the same struct (identical
+	// InferaOptions carries InferaDeployment-specific configuration, the
+	// Infera analogue of DynamoOptions. It reuses the same struct (identical
 	// role / kv-backend / multinode knobs) and is converted into
-	// primus-safe.optimus.* annotations on the resulting Workload CR.
-	OptimusOptions *DynamoOptions `json:"optimusOptions,omitempty"`
+	// primus-safe.infera.* annotations on the resulting Workload CR.
+	InferaOptions *DynamoOptions `json:"inferaOptions,omitempty"`
 }
 
 // DynamoOptions describes the dynamo-specific knobs that the API server

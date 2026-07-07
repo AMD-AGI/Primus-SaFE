@@ -1,33 +1,33 @@
 import { encodeToBase64String } from '@/utils'
 import type { DynamoPdAggregationRole, DynamoRoleResourceForm } from '../Dynamo/dynamoPayload'
 
-export type OptimusKvTransferBackend = 'mori'
-export type OptimusBackendEngine = 'sglang' | 'vllm'
-export type OptimusRouterPolicy = 'kv-aware' | 'round-robin'
-export type OptimusPdAggregationRole = DynamoPdAggregationRole
-export type OptimusRoleResourceForm = DynamoRoleResourceForm
+export type InferaKvTransferBackend = 'mori'
+export type InferaBackendEngine = 'sglang' | 'vllm'
+export type InferaRouterPolicy = 'kv-aware' | 'round-robin'
+export type InferaPdAggregationRole = DynamoPdAggregationRole
+export type InferaRoleResourceForm = DynamoRoleResourceForm
 
-export interface OptimusFormModel {
+export interface InferaFormModel {
   displayName: string
   description: string
   priority: number
   image: string
   modelPath: string
-  backendEngine: OptimusBackendEngine
-  workerBackendEngine: OptimusBackendEngine
-  prefillBackendEngine: OptimusBackendEngine
-  decodeBackendEngine: OptimusBackendEngine
+  backendEngine: InferaBackendEngine
+  workerBackendEngine: InferaBackendEngine
+  prefillBackendEngine: InferaBackendEngine
+  decodeBackendEngine: InferaBackendEngine
   attentionBackend: string
   memFractionStatic: string
-  routerPolicy: OptimusRouterPolicy
+  routerPolicy: InferaRouterPolicy
   frontendEntrypoint: string
   workerEntrypoint: string
   prefillEntrypoint: string
   decodeEntrypoint: string
   enablePd: boolean
   enableAggregation: boolean
-  pdAggregationRoles: OptimusPdAggregationRole[]
-  kvTransferBackend: OptimusKvTransferBackend
+  pdAggregationRoles: InferaPdAggregationRole[]
+  kvTransferBackend: InferaKvTransferBackend
   env: Record<string, string>
   service: {
     protocol: string
@@ -35,24 +35,24 @@ export interface OptimusFormModel {
     targetPort: number
     serviceType: string
   }
-  frontend: OptimusRoleResourceForm
-  worker: OptimusRoleResourceForm
-  prefill: OptimusRoleResourceForm
-  decode: OptimusRoleResourceForm
+  frontend: InferaRoleResourceForm
+  worker: InferaRoleResourceForm
+  prefill: InferaRoleResourceForm
+  decode: InferaRoleResourceForm
 }
 
-export interface OptimusCreatePayload {
+export interface InferaCreatePayload {
   workspaceId: string
   displayName: string
   groupVersionKind: {
-    kind: 'OptimusDeployment'
+    kind: 'InferaDeployment'
     version: 'v1'
   }
   description?: string
   priority: number
   images: string[]
   entryPoints: string[]
-  resources: OptimusResourcePayload[]
+  resources: InferaResourcePayload[]
   env: Record<string, string>
   service: {
     protocol: string
@@ -60,14 +60,14 @@ export interface OptimusCreatePayload {
     targetPort: number
     serviceType: string
   }
-  optimusOptions: {
+  inferaOptions: {
     serviceRoles: string[]
-    kvTransferBackend?: OptimusKvTransferBackend
+    kvTransferBackend?: InferaKvTransferBackend
     multinodeRoles?: string[]
   }
 }
 
-export interface OptimusResourcePayload {
+export interface InferaResourcePayload {
   replica: number
   cpu: string
   gpu?: string
@@ -76,31 +76,31 @@ export interface OptimusResourcePayload {
   rdmaResource?: string
 }
 
-export const OPTIMUS_DEFAULT_IMAGE =
-  'harbor.core42.primus-safe.amd.com/primussafe/rocserve-sglang:0.1.0-rocm-20260610'
+export const INFERA_DEFAULT_IMAGE =
+  'harbor.core42.primus-safe.amd.com/primussafe/infera-engine-sglang:0.1.0-rocm-20260610'
 
-export const OPTIMUS_FRONTEND_ENTRYPOINT =
-  'python3 -m rocserve.server --host 0.0.0.0 --port 8000 --router-tokenizer-path /wekafs/models/DeepSeek-R1-0528'
+export const INFERA_FRONTEND_ENTRYPOINT =
+  'python3 -m infera.server --host 0.0.0.0 --port 8000 --router-tokenizer-path /wekafs/models/DeepSeek-R1-0528'
 
-const FRONTEND_RESOURCE: OptimusResourcePayload = {
+const FRONTEND_RESOURCE: InferaResourcePayload = {
   replica: 1,
   cpu: '4',
   memory: '16Gi',
 }
 
-export const OPTIMUS_SERVICE = {
+export const INFERA_SERVICE = {
   protocol: 'TCP',
   port: 8000,
   targetPort: 8000,
   serviceType: 'ClusterIP',
 } as const
 
-export function createDefaultOptimusForm(): OptimusFormModel {
+export function createDefaultInferaForm(): InferaFormModel {
   return {
     displayName: '',
     description: '',
     priority: 1,
-    image: OPTIMUS_DEFAULT_IMAGE,
+    image: INFERA_DEFAULT_IMAGE,
     modelPath: '/wekafs/models/DeepSeek-R1-0528',
     backendEngine: 'sglang',
     workerBackendEngine: 'sglang',
@@ -134,27 +134,27 @@ export function createDefaultOptimusForm(): OptimusFormModel {
   }
 }
 
-export function getOptimusDefaultTpSize(resource: Pick<OptimusRoleResourceForm, 'gpu' | 'replica'>) {
+export function getInferaDefaultTpSize(resource: Pick<InferaRoleResourceForm, 'gpu' | 'replica'>) {
   return Number(resource.gpu || 0) * Number(resource.replica || 1)
 }
 
-export function buildOptimusWorkerEntrypoint(
+export function buildInferaWorkerEntrypoint(
   form: Pick<
-    OptimusFormModel,
+    InferaFormModel,
     | 'modelPath'
     | 'attentionBackend'
     | 'memFractionStatic'
     | 'enablePd'
     | 'enableAggregation'
   >,
-  resource: OptimusRoleResourceForm,
-  backendEngine: OptimusBackendEngine = 'sglang',
+  resource: InferaRoleResourceForm,
+  backendEngine: InferaBackendEngine = 'sglang',
 ) {
-  const defaultTpSize = getOptimusDefaultTpSize(resource)
+  const defaultTpSize = getInferaDefaultTpSize(resource)
   const tpSize = form.enableAggregation && !form.enablePd ? defaultTpSize : resource.tpSize || 8
   const epSize = form.enableAggregation && !form.enablePd ? defaultTpSize : resource.epSize || tpSize
   const args = [
-    `python3 -m rocserve.engine.${backendEngine || 'sglang'}`,
+    `python3 -m infera.engine.${backendEngine || 'sglang'}`,
     `--model-path ${form.modelPath}`,
     `--tp-size ${tpSize}`,
     `--ep-size ${epSize}`,
@@ -168,11 +168,11 @@ export function buildOptimusWorkerEntrypoint(
   return args.join(' ')
 }
 
-export function buildOptimusFrontendEntrypoint(
-  form: Pick<OptimusFormModel, 'modelPath' | 'routerPolicy'>,
+export function buildInferaFrontendEntrypoint(
+  form: Pick<InferaFormModel, 'modelPath' | 'routerPolicy'>,
 ) {
   return [
-    'python3 -m rocserve.server',
+    'python3 -m infera.server',
     '--host 0.0.0.0',
     '--port 8000',
     `--router-policy ${form.routerPolicy || 'kv-aware'}`,
@@ -180,8 +180,8 @@ export function buildOptimusFrontendEntrypoint(
   ].join(' ')
 }
 
-export function buildOptimusCreatePayload(form: OptimusFormModel, workspace: string): OptimusCreatePayload {
-  validateOptimusForm(form)
+export function buildInferaCreatePayload(form: InferaFormModel, workspace: string): InferaCreatePayload {
+  validateInferaForm(form)
 
   const frontendEntryPoint = encodeToBase64String(resolveFrontendEntrypoint(form))
   const workerEntryPoint = encodeToBase64String(
@@ -198,15 +198,15 @@ export function buildOptimusCreatePayload(form: OptimusFormModel, workspace: str
     return {
       workspaceId: workspace,
       displayName: form.displayName,
-      groupVersionKind: { kind: 'OptimusDeployment', version: 'v1' },
+      groupVersionKind: { kind: 'InferaDeployment', version: 'v1' },
       ...(form.description ? { description: form.description } : {}),
       priority: form.priority,
       images: [form.image, form.image, form.image],
       entryPoints: [frontendEntryPoint, prefillEntryPoint, decodeEntryPoint],
       resources: [toResourcePayload(form.frontend), toResourcePayload(form.prefill), toResourcePayload(form.decode)],
       env: form.env,
-      service: { ...OPTIMUS_SERVICE },
-      optimusOptions: {
+      service: { ...INFERA_SERVICE },
+      inferaOptions: {
         serviceRoles: ['frontend', 'prefill', 'decode'],
         kvTransferBackend: form.kvTransferBackend || 'mori',
       },
@@ -216,21 +216,21 @@ export function buildOptimusCreatePayload(form: OptimusFormModel, workspace: str
   return {
     workspaceId: workspace,
     displayName: form.displayName,
-    groupVersionKind: { kind: 'OptimusDeployment', version: 'v1' },
+    groupVersionKind: { kind: 'InferaDeployment', version: 'v1' },
     ...(form.description ? { description: form.description } : {}),
     priority: form.priority,
     images: [form.image, form.image],
     entryPoints: [frontendEntryPoint, workerEntryPoint],
     resources: [toResourcePayload(form.frontend), toResourcePayload(form.worker)],
     env: form.env,
-    service: { ...OPTIMUS_SERVICE },
-    optimusOptions: {
+    service: { ...INFERA_SERVICE },
+    inferaOptions: {
       serviceRoles: ['frontend', 'worker'],
     },
   }
 }
 
-export function validateOptimusForm(form: OptimusFormModel) {
+export function validateInferaForm(form: InferaFormModel) {
   if (!form.enableAggregation) return
 
   if (!form.enablePd) {
@@ -251,7 +251,7 @@ export function validateOptimusForm(form: OptimusFormModel) {
   }
 }
 
-function createDefaultFrontendResource(): OptimusRoleResourceForm {
+function createDefaultFrontendResource(): InferaRoleResourceForm {
   return {
     replica: FRONTEND_RESOURCE.replica,
     cpu: FRONTEND_RESOURCE.cpu,
@@ -259,7 +259,7 @@ function createDefaultFrontendResource(): OptimusRoleResourceForm {
   }
 }
 
-function createDefaultBackendResource(replica: number): OptimusRoleResourceForm {
+function createDefaultBackendResource(replica: number): InferaRoleResourceForm {
   return {
     replica,
     cpu: '64',
@@ -271,31 +271,31 @@ function createDefaultBackendResource(replica: number): OptimusRoleResourceForm 
   }
 }
 
-function resolveFrontendEntrypoint(form: OptimusFormModel) {
+function resolveFrontendEntrypoint(form: InferaFormModel) {
   return form.frontendEntrypoint.trim()
     ? form.frontendEntrypoint
-    : buildOptimusFrontendEntrypoint(form)
+    : buildInferaFrontendEntrypoint(form)
 }
 
 function resolveBackendEntrypoint(
   form: Pick<
-    OptimusFormModel,
+    InferaFormModel,
     | 'modelPath'
     | 'attentionBackend'
     | 'memFractionStatic'
     | 'enablePd'
     | 'enableAggregation'
   >,
-  resource: OptimusRoleResourceForm,
+  resource: InferaRoleResourceForm,
   customEntrypoint: string,
-  backendEngine: OptimusBackendEngine,
+  backendEngine: InferaBackendEngine,
 ) {
   return customEntrypoint.trim()
     ? customEntrypoint
-    : buildOptimusWorkerEntrypoint(form, resource, backendEngine)
+    : buildInferaWorkerEntrypoint(form, resource, backendEngine)
 }
 
-function toResourcePayload(resource: OptimusRoleResourceForm): OptimusResourcePayload {
+function toResourcePayload(resource: InferaRoleResourceForm): InferaResourcePayload {
   return {
     replica: Number(resource.replica || 1),
     cpu: resource.cpu,

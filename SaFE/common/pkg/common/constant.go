@@ -32,7 +32,7 @@ const (
 	PodKind                 = "Pod"
 	SandboxKind             = "Sandbox"
 	DynamoDeploymentKind    = "DynamoDeployment"
-	OptimusDeploymentKind   = "OptimusDeployment"
+	InferaDeploymentKind   = "InferaDeployment"
 	ConfigmapKind           = "ConfigMap"
 	ClusterRoleKind         = "ClusterRole"
 	ServiceAccountKind      = "ServiceAccount"
@@ -183,30 +183,26 @@ const (
 	DynamoOperatorGraphDeploymentNameLabel = "nvidia.com/dynamo-graph-deployment-name"
 	DynamoOperatorComponentTypeLabel       = "nvidia.com/dynamo-component-type"
 
-	// RocServe operator pod labels — the Optimus analogue. Like the Dynamo
-	// operator, the standalone RocServe operator owns the pods and stamps its
+	// Infera operator pod labels. Like the Dynamo operator, the standalone
+	// operator, the standalone Infera operator owns the pods and stamps its
 	// own labels (NOT SaFE's primus-safe.k8s.object.id), so the SaFE Service
-	// selector for an OptimusDeployment must target these instead. The
-	// deployment label value is the RSD name (== workload name); the service
+	// selector for an InferaDeployment must target these instead. The
+	// deployment label value is the IDEP name (== workload name); the service
 	// label value is the per-role slot key ("role0", "role1", ...). Keep in sync
-	// with Optimus/deploy/operator/internal/controller/builders.go::labelsFor.
-	RocServeOperatorDeploymentLabel = "rocserve.amd.com/deployment"
-	RocServeOperatorServiceLabel    = "rocserve.amd.com/service"
+	// with deploy/operator/internal/controller/builders.go::labelsFor.
+	InferaOperatorDeploymentLabel = "infera.amd.com/deployment"
+	InferaOperatorServiceLabel    = "infera.amd.com/service"
 
 	// Defaults applied when the corresponding annotation is missing.
 	DynamoDefaultKVBackend        = DynamoKVBackendNixl
 	DynamoDefaultBackendFramework = "sglang"
 
-	// Optimus (OptimusDeployment) — RocServe analogue of the Dynamo block.
-	// Role / KV-backend / framework values are identical strings, so the
-	// Optimus helpers reuse the Dynamo* role and KV constants; only the SaFE
-	// workload kind and the rendered CR kind differ. RocServeDeploymentKind is
-	// the K8s CR the dispatcher renders for an OptimusDeployment workload, and
-	// is reconciled by the standalone RocServe operator (rocserve.amd.com).
-	RocServeDeploymentKind         = "RocServeDeployment"
-	OptimusFrontendPort            = DynamoFrontendPort
-	OptimusDefaultKVBackend        = DynamoKVBackendNixl
-	OptimusDefaultBackendFramework = "sglang"
+	// Infera (InferaDeployment) — analogue of the Dynamo block.
+	// Role / KV-backend / framework values reuse the Dynamo* role and KV
+	// constants; workload kind and rendered CR kind are both InferaDeployment.
+	InferaFrontendPort            = DynamoFrontendPort
+	InferaDefaultKVBackend        = DynamoKVBackendNixl
+	InferaDefaultBackendFramework = "sglang"
 
 	// Cluster-wide infrastructure addresses installed by the Phase 1 SaFE
 	// addon. The dispatcher and webhook inject these into every dynamo pod
