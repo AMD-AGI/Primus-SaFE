@@ -76,10 +76,10 @@ export interface InferaResourcePayload {
   rdmaResource?: string
 }
 
-export const OPTIMUS_DEFAULT_IMAGE =
+export const INFERA_DEFAULT_IMAGE =
   'harbor.core42.primus-safe.amd.com/primussafe/infera-engine-sglang:0.1.0-rocm-20260610'
 
-export const OPTIMUS_FRONTEND_ENTRYPOINT =
+export const INFERA_FRONTEND_ENTRYPOINT =
   'python3 -m infera.server --host 0.0.0.0 --port 8000 --router-tokenizer-path /wekafs/models/DeepSeek-R1-0528'
 
 const FRONTEND_RESOURCE: InferaResourcePayload = {
@@ -100,7 +100,7 @@ export function createDefaultInferaForm(): InferaFormModel {
     displayName: '',
     description: '',
     priority: 1,
-    image: OPTIMUS_DEFAULT_IMAGE,
+    image: INFERA_DEFAULT_IMAGE,
     modelPath: '/wekafs/models/DeepSeek-R1-0528',
     backendEngine: 'sglang',
     workerBackendEngine: 'sglang',

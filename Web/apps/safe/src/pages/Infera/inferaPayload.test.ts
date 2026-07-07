@@ -10,7 +10,7 @@ describe('inferaPayload', () => {
     const form = createDefaultInferaForm()
 
     expect(form.image).toBe(
-      'harbor.core42.primus-safe.amd.com/primussafe/infera-sglang:0.1.0-rocm-20260610',
+      'harbor.core42.primus-safe.amd.com/primussafe/infera-engine-sglang:0.1.0-rocm-20260610',
     )
   })
 
@@ -102,7 +102,7 @@ describe('inferaPayload', () => {
     const form = createDefaultInferaForm()
     form.displayName = 'infera-ds-r1-pd-nats'
     form.enablePd = true
-    form.image = 'harbor.core42.primus-safe.amd.com/primussafe/infera-sglang:0.1.0-rocm-v5'
+    form.image = 'harbor.core42.primus-safe.amd.com/primussafe/infera-engine-sglang:0.1.0-rocm-v5'
     form.kvTransferBackend = 'mori'
     form.prefillBackendEngine = 'vllm'
     form.decodeBackendEngine = 'sglang'
