@@ -45,6 +45,13 @@ export default function setupClusterGuard(router: Router) {
         return next('/')
       }
 
+      // Permission check (system-admin only pages)
+      // These System pages are hidden from the nav for non-admins; also block
+      // direct URL navigation so access control is not merely client-side.
+      if (to.meta?.requiresSystemAdmin && !userStore.hasManagerAccess) {
+        return next('/')
+      }
+
       // Permission check (workspace-admin)
       if (to.meta?.requiresWorkspaceAdmin) {
         if (!wsStore.isCurrentWorkspaceAdmin() && !userStore.hasManagerAccess) {
