@@ -8,21 +8,19 @@ title: Storage & data
 > **Status:** Draft · **Owner:** _unassigned_ · **Source:** `SaFE/docs/apis/workspace.md`,
 > `persistent-volume.md`
 
-Your code, datasets, checkpoints, and models need somewhere to live that outlasts any single
-pod. In Primus-SaFE, storage is attached at the **workspace** level and mounted into every
-workload that runs there.
+During the life-cycle of AI workloads, there are differnt types of data involved including code, datasets, checkpoints and logs. These data has differnt characteristics of requirement such as capacity, performance, isolation, and various life cycles. Primus-SaFE include multiple storage solutions to accommondate the various data requirements.
 
-## Volume types
+Primus-SaFE has native support for Kubernetes ephemeral storage that users can specify from the UI when starting a workload. Such storage is backed up locally-attached writeable devices on the host that has the same life-cycle as the workloads, therefore it's only suited for temporary data such as logs. Also keep in mind that if there are multiple drives on the host, they can be used for both ephemeral storage and forming a distributed file system such as Ceph. Plan ahead of time to balance between large scrape space and shared storage. 
 
-A workspace declares one or more **volumes**, each of a `type`:
+Primus-SaFE also provides an abstraction of **volume** that attatched at the **workspace** level to strike a balance between data sharing and isolation. Once a volume is configured, it will be mounted into every workload started by the users.
 
+
+Primus-SaFE supports two type of volumes:
 | Type | What it is | Typical use |
 |------|------------|-------------|
-| **`pfs`** | A shared parallel filesystem, mounted `ReadWriteMany` across nodes. A PV/PVC is created per workspace. | Datasets, checkpoints, and models shared across a distributed job. |
-| **`hostpath`** | A path on the node mounted into the pod. | Node-local data; caches. |
+| **`pfs`** | A shared parallel filesystem that supports CSI interface. It creates a PV/PVC per workspace and mounted on each node and shared across workloads. | Datasets, checkpoints, and models shared across a distributed job. |
+| **`hostpath`** | A path on the node mounted into the pod. | Storage systems only support host mount, or sharing with other systems such as NFS mount Home Dirs  |
 
-Because PFS is `ReadWriteMany`, every replica of a multi-node job reads and writes the same
-files — which is what makes checkpoint/resume and shared datasets work.
 
 ## What backs PFS
 
@@ -48,11 +46,6 @@ S3 can be enabled at install (`s3.enable`) for importing models and downloading 
 configured, the platform can sync between S3 and PFS — useful for getting large model
 artifacts onto the shared filesystem.
 
-## Where things land
-
-- **Datasets** — staged on PFS so all nodes of a job read the same copy.
-- **Checkpoints** — written to PFS, which is what failover resumes from.
-- **Models** — downloaded/imported to PFS (optionally via S3).
 
 > **Not yet covered (capture so we don't lose it):**
 > - [ ] Exact mount paths and the per-workspace PV template details.
