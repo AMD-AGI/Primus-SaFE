@@ -1,0 +1,49 @@
+# Values for tw-project1 cluster deployment
+
+image:
+  repository: ghcr.io/amd-agi/primussafe/telemetry-gateway
+  tag: "202604010800"
+
+imagePullSecrets:
+  - name: ghcr-pull-secret
+
+database:
+  host: "primus-robust-primary.primus-robust.svc"
+  port: 5432
+  user: "primus-robust"
+  dbname: "primus-robust"
+  sslmode: "require"
+  existingSecret: "primus-robust-pguser-primus-robust"
+
+metrics:
+  enabled: true
+  forwardUrl: "http://vminsert-primus-robust-vmcluster.primus-robust.svc:8480/insert/0/prometheus/api/v1/write"
+  relabelPrefix: "workload_"
+
+logs:
+  enabled: true
+
+events:
+  enabled: true
+
+alerts:
+  enabled: true
+  webhookUrl: ""
+  clusterName: "OCI-SLC"
+  ruleSync:
+    enabled: true
+    outputDir: "/etc/vmalert/rules"
+    vmalertUrl: "http://127.0.0.1:8880"
+    syncInterval: "30s"
+
+vmalert:
+  enabled: true
+  image:
+    repository: victoriametrics/vmalert
+    tag: "v1.102.0"
+  datasourceUrl: "http://vmselect-primus-robust-vmcluster.primus-robust.svc:8481/select/0/prometheus"
+  remoteReadUrl: "http://vmselect-primus-robust-vmcluster.primus-robust.svc:8481/select/0/prometheus"
+  remoteWriteUrl: "http://vminsert-primus-robust-vmcluster.primus-robust.svc:8480/insert/0/prometheus"
+
+cache:
+  refreshInterval: "20s"

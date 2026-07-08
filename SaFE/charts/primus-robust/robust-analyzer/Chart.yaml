@@ -1,0 +1,14 @@
+apiVersion: v2
+name: robust-analyzer
+description: AMD Robust Analyzer - Combined training analyzer, diagnostic API, and metrics aggregator
+type: application
+version: 0.1.0
+appVersion: "1.0.0"
+keywords:
+  - amd
+  - analyzer
+  - training
+  - diagnostics
+  - aggregator
+maintainers:
+  - name: AMD

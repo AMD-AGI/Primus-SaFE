@@ -1,0 +1,64 @@
+replicaCount: 1
+
+image:
+  repository: api
+  pullPolicy: IfNotPresent
+  tag: ""
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: "robust-api"
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+podAnnotations: {}
+podSecurityContext: {}
+securityContext: {}
+
+service:
+  type: NodePort
+  port: 8085
+  # nodePort must match the NodePort recorded in the management cluster's
+  # Cluster CRD annotation `primus-safe.amd.com/robust-api-endpoint`
+  # (core42 currently uses :32626). Leave empty to let Kubernetes auto-assign.
+  nodePort: 32626
+
+database:
+  host: robust-db-primary.primus-robust.svc
+  port: 5432
+  dbname: robust
+  user: robust
+  sslmode: require
+  existingSecret: robust-db-pguser-robust
+
+modules:
+  robustApi:
+    vmBaseUrl: "http://vmselect-primus-robust-vmcluster.primus-robust.svc:8481/select/0/prometheus"
+    faultManagerUrl: "http://fault-manager.primus-robust.svc:8082"
+    opensearchHost: "https://primus-robust-logs.primus-robust.svc:9200"
+    opensearchUser: "admin"
+    opensearchPassword: ""
+    opensearchExistingSecret: ""
+    opensearchPasswordSecretKey: "password"
+    opensearchInsecureSkipVerify: true
+  aggregator:
+    vmBaseUrl: "http://vmselect-primus-robust-vmcluster.primus-robust.svc:8481/select/0/prometheus"
+  trainingAnalyzer:
+    advisor:
+      enabled: false
+      faultManagerUrl: "http://fault-manager.primus-robust.svc:8082"
+
+resources:
+  limits:
+    cpu: "2000m"
+    memory: "2Gi"
+  requests:
+    cpu: "500m"
+    memory: "512Mi"
+
+nodeSelector: {}
+tolerations: []
+affinity: {}

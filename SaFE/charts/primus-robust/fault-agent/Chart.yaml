@@ -1,0 +1,14 @@
+apiVersion: v2
+name: fault-agent
+description: AMD Fault Detection Agent - Node health monitoring and fault detection
+type: application
+version: 0.1.0
+appVersion: "1.0.0"
+keywords:
+  - amd
+  - fault-detection
+  - monitoring
+  - prometheus
+maintainers:
+  - name: AMD
+

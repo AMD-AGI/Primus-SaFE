@@ -1,0 +1,72 @@
+replicaCount: 1
+
+image:
+  repository: device-exporter
+  pullPolicy: IfNotPresent
+  tag: ""
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+podAnnotations: {}
+podSecurityContext: {}
+
+# Needs /dev/dri + containerd socket access (and optionally nsenter into PID 1).
+securityContext:
+  privileged: true
+
+# health/readiness port (no Prometheus /metrics endpoint)
+healthPort: 9402
+
+resources: {}
+
+# Device anchoring runs on GPU/RDMA nodes; mirror gpu-exporter placement.
+nodeSelector:
+  feature.node.kubernetes.io/amd-gpu: "true"
+
+tolerations:
+  - operator: Exists
+
+affinity: {}
+
+env:
+  DEVICE_EXPORTER_PORT: "9402"
+  DEVICE_EXPORTER_BINDING_INTERVAL: "15"
+  DEVICE_EXPORTER_INVENTORY_INTERVAL: "60"
+  DEVICE_EXPORTER_LOG_LEVEL: "info"
+  DEVICE_EXPORTER_USE_NSENTER: "false"
+  DEVICE_EXPORTER_CRI_ENDPOINT: "unix:///run/containerd/containerd.sock"
+  DEVICE_EXPORTER_DRI_BY_PATH: "/dev/dri/by-path"
+  # gRPC endpoint of telemetry-gateway's device ingest server (host:port, no scheme).
+  DEVICE_EXPORTER_GATEWAY_ENDPOINT: "telemetry-gateway.primus-robust.svc:8085"
+
+volumeMounts:
+  - name: dev-dri
+    mountPath: /dev/dri
+  - name: containerd-sock
+    mountPath: /run/containerd/containerd.sock
+  - name: dev
+    mountPath: /dev
+  - name: sys
+    mountPath: /sys
+
+volumes:
+  - name: dev-dri
+    hostPath:
+      path: /dev/dri
+  - name: containerd-sock
+    hostPath:
+      path: /run/containerd/containerd.sock
+      type: Socket
+  - name: dev
+    hostPath:
+      path: /dev
+  - name: sys
+    hostPath:
+      path: /sys

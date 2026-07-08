@@ -1,0 +1,30 @@
+{{- if and .Values.claw .Values.claw.enable .Values.claw.ingress_compat.enable }}
+{{- $ctx := . -}}
+{{- range .Values.claw.ingress_compat.paths }}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ $ctx.Release.Name }}-claw-{{ .name }}
+  namespace: {{ $ctx.Release.Namespace }}
+  labels:
+    app: robust-claw-unified
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    # Keep these routes above the primus-safe-web catch-all (priority 10).
+    higress.io/route-priority: "{{ $ctx.Values.claw.ingress_compat.priority }}"
+spec:
+  ingressClassName: {{ $ctx.Values.claw.ingress_compat.class_name }}
+  rules:
+    - host: {{ $ctx.Values.claw.ingress_compat.host }}
+      http:
+        paths:
+          - path: {{ .path }}
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ $ctx.Values.claw.service_name }}
+                port:
+                  number: {{ $ctx.Values.claw.port }}
+{{- end }}
+{{- end }}

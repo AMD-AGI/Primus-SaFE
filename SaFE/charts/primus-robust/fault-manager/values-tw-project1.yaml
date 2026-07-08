@@ -1,0 +1,37 @@
+# tw-project1 cluster values for fault-manager
+# SAFE MODE: observe only, no taint/drain/evict
+
+image:
+  repository: ghcr.io/amd-agi/primussafe/fault-manager
+  tag: latest
+
+database:
+  host: robust-db-primary.primus-robust.svc
+  port: 5432
+  user: robust
+  dbname: robust
+  sslmode: disable
+  existingSecret: robust-db-pguser-robust
+
+infrastructure:
+  type: kubernetes
+
+action:
+  enabled: true
+  mode: observe          # SAFE: only log, never taint/drain/evict
+  autoResolve: true
+  autoResolveAfter: 3
+
+remediation:
+  enabled: false         # SAFE: no auto-repair tasks
+
+circuitBreaker:
+  enabled: true
+  maxQuarantinedNodes: 5
+
+webhook:
+  enabled: false
+
+heartbeat:
+  enabled: true
+  timeoutMultiplier: 3

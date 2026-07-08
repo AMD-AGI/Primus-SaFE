@@ -1,0 +1,241 @@
+global:
+  namespace: primus-robust
+  storageClass: ""
+  clusterName: ""
+  imageRegistry: ""
+  image:
+    registry: ""
+  imagePullSecrets: []
+  imageTag: latest
+  # Optional pod affinity applied to all NON-node-level robust components
+  # (api / analyzer / fault-manager / workload-manager / telemetry-gateway /
+  # container-event-exporter / log-alert-evaluator / vmagent, the VMCluster /
+  # OpenSearch / PostgresCluster CRs, and the operators). Node-level DaemonSets
+  # (fault-agent / network-exporter / audit-agent / *-exporter / fluentbit) are
+  # intentionally NOT constrained so they can still cover GPU nodes.
+  # A per-component `.Values.affinity` overrides this. Leave empty by default;
+  # set it per-cluster (e.g. to keep control-plane services off GPU nodes).
+  affinity: {}
+
+# --- Operators (Chart 1) ---
+# CRDs are NOT installed via Helm (installCRDs: false) to avoid exceeding
+# the 1MB release-secret limit. For standalone install, install.sh pre-applies
+# CRDs via kubectl apply --server-side. For Addon flow, resource-manager
+# handles CRD application separately.
+primus-robust-operators:
+  pgo:
+    enabled: true
+  vmOperator:
+    enabled: true
+  opensearchOperator:
+    enabled: true
+  fluentOperator:
+    enabled: true
+  grafanaOperator:
+    enabled: false
+
+  primus-robust-pgo:
+    installCRDs: false
+  primus-robust-opensearch-operator:
+    installCRDs: false
+  primus-robust-fluent-operator-core:
+    installCRDs: false
+  primus-robust-grafana-operator:
+    installCRDs: false
+  primus-robust-vm-operator:
+    victoria-metrics-operator:
+      crd:
+        create: false
+      operator:
+        enable_converter_ownership: true
+      resources:
+        limits:
+          cpu: 500m
+          memory: 1Gi
+        requests:
+          cpu: 100m
+          memory: 256Mi
+
+# --- Stack (Chart 2) ---
+primus-robust-stack:
+  database:
+    host: robust-db-primary.primus-robust.svc
+    existingSecret: robust-db-pguser-robust
+    dbname: robust
+    user: robust
+    sslmode: require
+    storageSize: 10Gi
+    pgVersion: 17
+
+  fault-manager:
+    fullnameOverride: primus-robust-fault-manager
+    image:
+      repository: fault-manager
+    database:
+      host: robust-db-primary.primus-robust.svc
+      existingSecret: robust-db-pguser-robust
+      dbname: robust
+      user: robust
+      sslmode: require
+    action:
+      mode: observe
+      autoResolve: "true"
+    circuitBreaker:
+      maxQuarantinedNodes: "5"
+
+  workload-manager:
+    fullnameOverride: primus-robust-workload-manager
+    image:
+      repository: workload-manager
+    database:
+      host: robust-db-primary.primus-robust.svc
+      existingSecret: robust-db-pguser-robust
+      dbname: robust
+      user: robust
+      sslmode: require
+    server:
+      faultManagerUrl: http://primus-robust-fault-manager.primus-robust.svc:8082
+    workload:
+      k8s:
+        enabled: true
+        gpuResourceName: amd.com/gpu
+
+  telemetry-gateway:
+    fullnameOverride: primus-robust-telemetry-gateway
+    image:
+      repository: telemetry-gateway
+    database:
+      host: robust-db-primary.primus-robust.svc
+      existingSecret: robust-db-pguser-robust
+      dbname: robust
+      user: robust
+      sslmode: require
+    vmalert:
+      image:
+        repository: victoriametrics/vmalert
+    metrics:
+      forwardUrl: http://vminsert-primus-robust-vmcluster.primus-robust.svc:8480/insert/0/prometheus/api/v1/write
+
+  robust-analyzer:
+    fullnameOverride: robust-analyzer
+    image:
+      repository: robust-analyzer
+    database:
+      host: robust-db-primary.primus-robust.svc
+      existingSecret: robust-db-pguser-robust
+      dbname: robust
+      user: robust
+      sslmode: require
+    modules:
+      robustApi:
+        vmBaseUrl: http://vmselect-primus-robust-vmcluster.primus-robust.svc:8481/select/0/prometheus
+        faultManagerUrl: http://primus-robust-fault-manager.primus-robust.svc:8082
+      aggregator:
+        vmBaseUrl: http://vmselect-primus-robust-vmcluster.primus-robust.svc:8481/select/0/prometheus
+      trainingAnalyzer:
+        advisor:
+          faultManagerUrl: http://primus-robust-fault-manager.primus-robust.svc:8082
+
+  container-event-exporter:
+    fullnameOverride: primus-robust-container-event-exporter
+    image:
+      repository: container-event-exporter
+    database:
+      host: robust-db-primary.primus-robust.svc
+      existingSecret: robust-db-pguser-robust
+      dbname: robust
+      user: robust
+      sslmode: require
+
+  log-alert-evaluator:
+    fullnameOverride: primus-robust-log-alert-evaluator
+    image:
+      repository: log-alert-evaluator
+    database:
+      host: robust-db-primary.primus-robust.svc
+      existingSecret: robust-db-pguser-robust
+      dbname: robust
+      user: robust
+      sslmode: require
+
+  fault-agent:
+    fullnameOverride: primus-robust-fault-agent
+    image:
+      repository: fault-agent
+    config:
+      report:
+        enabled: true
+        endpoint: primus-robust-fault-manager.primus-robust.svc:8081
+        infraType: kubernetes
+      detection:
+        interval: 60s
+        params:
+          driver_version: "6.12.12"
+          rocm_version: "6.4"
+          ib_devices: "rdma0,rdma1,rdma2,rdma3,rdma4,rdma5,rdma6,rdma7"
+          ethernet_search_id: eno0
+
+  gpu-exporter:
+    fullnameOverride: primus-robust-gpu-exporter
+    image:
+      repository: gpu-exporter
+  rdma-exporter:
+    fullnameOverride: primus-robust-rdma-exporter
+    image:
+      repository: rdma-exporter
+  network-exporter:
+    fullnameOverride: primus-robust-network-exporter
+    image:
+      repository: network-exporter
+  audit-agent:
+    fullnameOverride: primus-robust-audit-agent
+    image:
+      repository: audit-agent
+
+  metrics:
+    global:
+      namespace: primus-robust
+      storageClass: ""
+    victoriametrics:
+      retentionPeriod: 30d
+      vmstorage:
+        replicas: 2
+        size: 100Gi
+      vmselect:
+        replicas: 2
+      vminsert:
+        replicas: 2
+
+  vmagent:
+    global:
+      namespace: primus-robust
+      clusterName: ""
+    vmagent:
+      remoteWrite:
+        url: http://primus-robust-telemetry-gateway.primus-robust.svc:8084/api/v1/write
+
+  logs:
+    global:
+      namespace: primus-robust
+      storageClass: ""
+    opensearch:
+      nodePools:
+        - name: "nodes"
+          replicas: 3
+          roles:
+            - master
+            - data
+            - ingest
+          diskSize: 100Gi
+          jvm: "-Xms2g -Xmx2g"
+
+  fluentbit:
+    global:
+      namespace: primus-robust
+    inputs:
+      containerLogs:
+        path: "/var/log/containers/*.log"
+      dmesg:
+        journalPath: "/var/log/journal"
+      systemd:
+        journalPath: "/var/log/journal"

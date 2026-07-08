@@ -1,0 +1,35 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "fault-agent.fullname" . }}-config
+  labels:
+    {{- include "fault-agent.labels" . | nindent 4 }}
+data:
+  agent.yaml: |
+    node:
+      name: "${HOSTNAME}"
+    detection:
+      custom_scripts_dir: {{ .Values.config.customScriptsDir }}
+      interval: {{ .Values.config.interval }}
+      timeout: {{ .Values.config.timeout }}
+      enabled_categories:
+        {{- range .Values.config.enabledCategories }}
+        - {{ . }}
+        {{- end }}
+    metrics:
+      enabled: true
+      port: 9101
+      path: /metrics
+    logging:
+      level: {{ .Values.config.logLevel }}
+      format: json
+    {{- if .Values.config.report.enabled }}
+    report:
+      enabled: true
+      endpoint: {{ .Values.config.report.endpoint | quote }}
+      heartbeat_interval: {{ .Values.config.report.heartbeatInterval }}
+      reconnect_backoff: {{ .Values.config.report.reconnectBackoff }}
+      reconnect_max_backoff: {{ .Values.config.report.reconnectMaxBackoff }}
+      infra_type: {{ .Values.config.report.infraType | quote }}
+    {{- end }}
+

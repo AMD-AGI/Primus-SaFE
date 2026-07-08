@@ -1,0 +1,12 @@
+apiVersion: v2
+name: api
+description: AMD Robust API - standalone HTTP API service (robust-api + training-analyzer routes + aggregator query)
+type: application
+version: 0.1.0
+appVersion: "1.0.0"
+keywords:
+  - amd
+  - api
+  - diagnostics
+maintainers:
+  - name: AMD

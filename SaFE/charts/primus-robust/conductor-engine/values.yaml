@@ -1,0 +1,102 @@
+global:
+  image_registry: "docker.io"
+  image_pull_secret: "primus-safe-image"
+  node_selector:
+    primus-safe.workspace.id: control-plane-control-plane
+  tolerations: []
+
+# ---------------------------------------------------------------------------
+# claw - unified management-plane engine (robust-claw-unified, CLAW_MODE=full)
+#
+# Single Deployment hosting:
+#   * the workflow engine
+#   * the plugin host (combined_extensions) loading bundles under PLUGINS_DIR
+#       - root-cause-compat      -> /root-cause-skills/api/*
+#       - pending-cause-compat   -> /api/agent/pending-cause/api/*
+#   * the management-side LLM agent (AGENT_ENGINE_*)
+#
+# The Service is named `conductor-engine` so existing Ingress / DNS names
+# keep working after the cutover from the old conductor-engine deployment.
+# ---------------------------------------------------------------------------
+claw:
+  enable: false
+  image: "robust-claw:latest"
+  image_pull_policy: "IfNotPresent"
+  replicas: 1
+  port: 8900
+  service_name: "conductor-engine"
+  service_account_name: "conductor-engine"
+
+  cpu: "2"
+  memory: "2Gi"
+  cpu_request: "500m"
+  memory_request: "512Mi"
+
+  claw_mode: "full"
+  engine_tick_seconds: "10"
+  op_timeout_seconds: "3600"
+
+  extensions_module: "combined_extensions"
+  plugins_dir: "/extensions/plugins"
+
+  agent_engine_model: "claude-opus-4.5"
+  agent_engine_skills_dir: "/app/skills"
+  agent_engine_tags: "robust-claw,unified,management"
+  anthropic_api_key: ""
+  anthropic_base_url: ""
+  openai_base_url: "http://litellm-service.primus-safe:4000/v1"
+  openai_api_key: ""
+
+  management_worker_endpoint: "http://robust-claw.primus-robust.svc:8800"
+  data_worker_endpoint: "http://robust-claw.primus-robust.svc:8800"
+  worker_default_port: "30198"
+  robust_api_default_port: "32626"
+
+  safe_api_url: "http://primus-safe-apiserver.primus-safe:8088"
+  safe_api_key: ""
+  safe_namespace: "primus-safe"
+
+  db:
+    existing_secret: "primus-safe-pguser-conductor"
+    host_key: "host"
+    port_key: "port"
+    user_key: "user"
+    password_key: "password"
+    name_key: "dbname"
+    host: "primus-safe-db-postgresql.primus-safe"
+    port: "5432"
+    user: "postgres"
+    password: ""
+    name: "primus-safe"
+
+  lens_db:
+    enable: false
+    existing_secret: ""
+    host: "primus-lens-primary.primus-lens.svc.cluster.local"
+    port: "5432"
+    user: "primus-lens"
+    password: ""
+    name: "primus-lens"
+
+  extensions_pvc:
+    create: true
+    name: "conductor-extensions"
+    size: "5Gi"
+    storage_class: "ceph-rbd"
+    access_mode: "ReadWriteOnce"
+
+  ingress_compat:
+    enable: true
+    class_name: "higress"
+    host: "core42.primus-safe.amd.com"
+    priority: "20"
+    paths:
+      - name: "pending-cause"
+        path: "/api/agent/pending-cause/"
+      - name: "root-cause-skills"
+        path: "/root-cause-skills/"
+
+  strategy: "Recreate"
+
+  node_selector: {}
+  tolerations: []

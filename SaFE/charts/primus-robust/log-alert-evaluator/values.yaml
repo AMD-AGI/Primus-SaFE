@@ -1,0 +1,51 @@
+replicaCount: 1
+
+image:
+  repository: log-alert-evaluator
+  pullPolicy: IfNotPresent
+  tag: ""
+
+imagePullSecrets: []
+
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  name: ""
+
+podAnnotations: {}
+podSecurityContext: {}
+securityContext: {}
+
+service:
+  port: 8086
+
+config:
+  clusterName: "default"
+  evaluator:
+    intervalSeconds: 60
+    lookbackSeconds: 300
+    retentionDays: 30
+    maxAlertsPerCycle: 100
+
+database:
+  host: "robust-db-primary.primus-robust.svc"
+  port: 5432
+  user: "robust"
+  dbname: "robust"
+  sslmode: "require"
+  existingSecret: "robust-db-pguser-robust"
+  password: ""
+
+resources:
+  requests:
+    cpu: "100m"
+    memory: "128Mi"
+  limits:
+    cpu: "500m"
+    memory: "256Mi"
+
+nodeSelector: {}
+tolerations: []
+affinity: {}

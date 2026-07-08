@@ -1,0 +1,14 @@
+apiVersion: v2
+name: telemetry-gateway
+description: AMD Telemetry Gateway - Metrics forwarding, log aggregation, and alert routing
+type: application
+version: 0.1.0
+appVersion: "1.0.0"
+keywords:
+  - amd
+  - telemetry
+  - metrics
+  - logs
+  - alerts
+maintainers:
+  - name: AMD

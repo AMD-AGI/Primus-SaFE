@@ -1,0 +1,74 @@
+# Default values for workload-manager
+
+replicaCount: 1
+
+image:
+  repository: workload-manager
+  pullPolicy: IfNotPresent
+  tag: ""
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+podAnnotations: {}
+podSecurityContext: {}
+
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 65534
+
+service:
+  type: ClusterIP
+  port: 8083
+
+# Scrape the DB-backed GPU occupancy gauges exposed on /metrics. This env runs the
+# VictoriaMetrics operator (no Prometheus ServiceMonitor CRD), so emit a native
+# VMServiceScrape that vmagent picks up via selectAllByDefault.
+vmServiceScrape:
+  enabled: true
+  interval: 30s
+  scrapeTimeout: 10s
+  labels: {}
+
+resources:
+  limits:
+    cpu: 500m
+    memory: 512Mi
+  requests:
+    cpu: 100m
+    memory: 128Mi
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+# PostgreSQL connection
+database:
+  host: "robust-db-primary.primus-robust.svc"
+  port: 5432
+  user: "robust"
+  dbname: "robust"
+  sslmode: "require"
+  maxOpenConns: 10
+  maxIdleConns: 3
+  existingSecret: "robust-db-pguser-robust"
+  password: ""
+
+# Server settings
+server:
+  faultManagerUrl: "http://fault-manager.primus-robust.svc:8082"
+
+# Workload discovery
+workload:
+  slurm:
+    enabled: false
+  k8s:
+    enabled: true
+    gpuResourceName: "amd.com/gpu"
+    namespaces: []

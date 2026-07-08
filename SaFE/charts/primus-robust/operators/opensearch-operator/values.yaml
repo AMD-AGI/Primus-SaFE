@@ -1,0 +1,75 @@
+global:
+  imageRegistry: ""
+
+fullnameOverride: opensearch-operator
+installCRDs: true
+
+manager:
+  image:
+    repository: opensearchproject/opensearch-operator
+    tag: ""
+    pullPolicy: IfNotPresent
+  loglevel: info
+  watchNamespace: ""
+  parallelRecoveryEnabled: false
+  dnsBase: ""
+  resources:
+    limits:
+      cpu: 500m
+      memory: 1Gi
+    requests:
+      cpu: 100m
+      memory: 256Mi
+  readinessProbe:
+    httpGet:
+      path: /readyz
+      port: 8081
+    initialDelaySeconds: 5
+    periodSeconds: 10
+  livenessProbe:
+    httpGet:
+      path: /healthz
+      port: 8081
+    initialDelaySeconds: 15
+    periodSeconds: 20
+  securityContext:
+    allowPrivilegeEscalation: false
+  extraEnv: []
+  imagePullSecrets: []
+
+kubeRbacProxy:
+  enable: true
+  image:
+    repository: kubebuilder/kube-rbac-proxy
+    tag: v0.15.0
+  resources:
+    limits:
+      cpu: 100m
+      memory: 128Mi
+    requests:
+      cpu: 50m
+      memory: 64Mi
+  readinessProbe:
+    httpGet:
+      path: /healthz
+      port: 10443
+      scheme: HTTPS
+    initialDelaySeconds: 5
+    periodSeconds: 10
+  livenessProbe:
+    httpGet:
+      path: /healthz
+      port: 10443
+      scheme: HTTPS
+    initialDelaySeconds: 15
+    periodSeconds: 20
+  securityContext:
+    allowPrivilegeEscalation: false
+
+serviceAccount:
+  create: true
+  name: ""
+nodeSelector: {}
+tolerations: []
+securityContext:
+  runAsNonRoot: true

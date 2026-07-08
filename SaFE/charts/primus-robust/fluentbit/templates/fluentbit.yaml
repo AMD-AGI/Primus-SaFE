@@ -1,0 +1,22 @@
+apiVersion: fluentbit.fluent.io/v1alpha2
+kind: FluentBit
+metadata:
+  name: primus-robust-fluentbit
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app.kubernetes.io/name: fluentbit
+spec:
+  image: "{{- if .Values.global.imageRegistry }}{{ .Values.global.imageRegistry }}/{{- end }}{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+  fluentBitConfigName: primus-robust-fluentbit-config
+  tolerations:
+    - operator: Exists
+  resources:
+    {{- toYaml .Values.resources | nindent 4 }}
+  volumes:
+    - name: varlog
+      hostPath:
+        path: /var/log
+  volumesMounts:
+    - name: varlog
+      mountPath: /var/log
+      readOnly: true

@@ -1,0 +1,126 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "telemetry-gateway.fullname" . }}
+  labels:
+    {{- include "telemetry-gateway.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "telemetry-gateway.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+      {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        {{- include "telemetry-gateway.selectorLabels" . | nindent 8 }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "telemetry-gateway.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: {{ .Chart.Name }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          image: "{{- if .Values.global.imageRegistry }}{{ .Values.global.imageRegistry }}/{{- end }}{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args:
+            - --config=/etc/telemetry-gateway/config.yaml
+            - -v=2
+          ports:
+            - name: http
+              containerPort: {{ .Values.service.port }}
+              protocol: TCP
+            {{- if .Values.devices.enabled }}
+            - name: grpc
+              containerPort: {{ .Values.devices.port }}
+              protocol: TCP
+            {{- end }}
+          env:
+            {{- if .Values.database.existingSecret }}
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.database.existingSecret }}
+                  key: password
+            {{- else if .Values.database.password }}
+            - name: DB_PASSWORD
+              value: {{ .Values.database.password | quote }}
+            {{- end }}
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: config
+              mountPath: /etc/telemetry-gateway
+            {{- if .Values.alerts.ruleSync.enabled }}
+            - name: vmalert-rules
+              mountPath: {{ .Values.alerts.ruleSync.outputDir }}
+            {{- end }}
+        {{- if .Values.vmalert.enabled }}
+        - name: vmalert
+          image: "{{- if .Values.global.imageRegistry }}{{ .Values.global.imageRegistry }}/{{- end }}{{ .Values.vmalert.image.repository }}:{{ .Values.vmalert.image.tag }}"
+          args:
+            - "--datasource.url={{ .Values.vmalert.datasourceUrl }}"
+            - "--remoteRead.url={{ .Values.vmalert.remoteReadUrl }}"
+            - "--remoteWrite.url={{ .Values.vmalert.remoteWriteUrl }}"
+            - "--notifier.url=http://127.0.0.1:{{ .Values.service.port }}"
+            - "--rule={{ .Values.alerts.ruleSync.outputDir }}/*.yaml"
+            - "--httpListenAddr=:8880"
+            - "--evaluationInterval={{ .Values.vmalert.evaluationInterval }}"
+          ports:
+            - name: vmalert
+              containerPort: 8880
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: vmalert
+            initialDelaySeconds: 5
+            periodSeconds: 15
+          resources:
+            {{- toYaml .Values.vmalert.resources | nindent 12 }}
+          volumeMounts:
+            - name: vmalert-rules
+              mountPath: {{ .Values.alerts.ruleSync.outputDir }}
+              readOnly: true
+        {{- end }}
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "telemetry-gateway.fullname" . }}-config
+        {{- if .Values.alerts.ruleSync.enabled }}
+        - name: vmalert-rules
+          emptyDir: {}
+        {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity | default (.Values.global | default dict).affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

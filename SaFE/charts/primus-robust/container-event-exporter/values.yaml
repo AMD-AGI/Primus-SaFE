@@ -1,0 +1,50 @@
+replicaCount: 1
+
+image:
+  repository: container-event-exporter
+  pullPolicy: IfNotPresent
+  tag: ""
+
+imagePullSecrets: []
+
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  name: ""
+
+podAnnotations: {}
+podSecurityContext: {}
+securityContext: {}
+
+service:
+  port: 8085
+
+config:
+  clusterName: "default"
+  namespaces: []
+  buffer:
+    maxSize: 500
+    flushIntervalSeconds: 10
+
+database:
+  host: "robust-db-primary.primus-robust.svc"
+  port: 5432
+  user: "robust"
+  dbname: "robust"
+  sslmode: "require"
+  existingSecret: "robust-db-pguser-robust"
+  password: ""
+
+resources:
+  requests:
+    cpu: "100m"
+    memory: "128Mi"
+  limits:
+    cpu: "500m"
+    memory: "256Mi"
+
+nodeSelector: {}
+tolerations: []
+affinity: {}

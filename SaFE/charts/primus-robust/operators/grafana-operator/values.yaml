@@ -1,0 +1,58 @@
+global:
+  imageRegistry: ""
+
+image:
+  repository: grafana/grafana-operator
+  pullPolicy: IfNotPresent
+  tag: ""
+imagePullSecrets: []
+
+nameOverride: ""
+fullnameOverride: ""
+namespaceOverride: ""
+namespaceScope: false
+watchNamespaces: ""
+watchNamespaceSelector: ""
+isOpenShift: false
+leaderElect: true
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+rbac:
+  create: true
+
+podAnnotations: {}
+podSecurityContext: {}
+securityContext: {}
+additionalLabels: {}
+
+resources:
+  limits:
+    cpu: 200m
+    memory: 256Mi
+  requests:
+    cpu: 50m
+    memory: 128Mi
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+priorityClassName: ""
+
+metricsService:
+  metricsPort: 9090
+  pprofPort: 8888
+
+logging:
+  encoder: console
+  level: info
+  time: iso8601
+
+serviceMonitor:
+  enabled: false
+
+env: []
+extraObjects: []

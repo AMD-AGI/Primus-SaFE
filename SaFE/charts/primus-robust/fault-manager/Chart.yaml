@@ -1,0 +1,15 @@
+apiVersion: v2
+name: fault-manager
+description: AMD Fault Manager - Centralized fault management, isolation, and auto-remediation service
+type: application
+version: 0.1.0
+appVersion: "1.0.0"
+keywords:
+  - amd
+  - fault-management
+  - isolation
+  - remediation
+  - grpc
+maintainers:
+  - name: AMD
+

@@ -1,0 +1,10 @@
+apiVersion: v2
+name: primus-robust-vmagent
+description: VMAgent CR for scraping and forwarding metrics via telemetry-gateway
+type: application
+version: 0.1.0
+appVersion: "1.0.0"
+keywords:
+  - victoriametrics
+  - vmagent
+  - scraping

@@ -1,0 +1,92 @@
+{{- if and .Values.robust_claw_worker .Values.robust_claw_worker.enable }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: robust-claw
+  namespace: {{ .Values.robust_claw_worker.namespace }}
+  labels:
+    app: robust-claw
+    app.kubernetes.io/managed-by: Helm
+spec:
+  replicas: {{ .Values.robust_claw_worker.replicas }}
+  selector:
+    matchLabels:
+      app: robust-claw
+  template:
+    metadata:
+      labels:
+        app: robust-claw
+      annotations:
+        checksum/secret: {{ include (print $.Template.BasePath "/robust-claw-worker/secret.yaml") . | sha256sum }}
+    spec:
+      serviceAccountName: robust-agent
+      {{- if .Values.global.image_pull_secret }}
+      imagePullSecrets:
+        - name: {{ .Values.global.image_pull_secret }}
+      {{- end }}
+      containers:
+        - name: engine
+          image: {{ .Values.robust_claw_worker.image }}
+          imagePullPolicy: {{ .Values.robust_claw_worker.image_pull_policy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.robust_claw_worker.port }}
+          env:
+            - {name: AGENT_ENGINE_HOST,        value: "0.0.0.0"}
+            - {name: AGENT_ENGINE_LISTEN_PORT, value: "{{ .Values.robust_claw_worker.port }}"}
+            - {name: AGENT_ENGINE_SKILLS_DIR,  value: "{{ .Values.robust_claw_worker.skills_dir }}"}
+            - {name: AGENT_ENGINE_MODEL,       value: "{{ .Values.robust_claw_worker.model }}"}
+            - {name: AGENT_ENGINE_TAGS,        value: "{{ .Values.robust_claw_worker.tags }}"}
+          envFrom:
+            - secretRef:
+                name: robust-claw-llm
+          {{- if .Values.robust_claw_worker.shared_nfs.enable }}
+          volumeMounts:
+            {{- if .Values.robust_claw_worker.shared_nfs.workspace_subpath }}
+            - name: shared-nfs
+              mountPath: /workspace
+              subPath: {{ .Values.robust_claw_worker.shared_nfs.workspace_subpath }}
+            {{- end }}
+            - name: shared-nfs
+              mountPath: {{ .Values.robust_claw_worker.shared_nfs.mount_path }}
+          {{- end }}
+          resources:
+            requests:
+              cpu: {{ .Values.robust_claw_worker.cpu_request }}
+              memory: {{ .Values.robust_claw_worker.memory_request }}
+            limits:
+              cpu: {{ .Values.robust_claw_worker.cpu }}
+              memory: {{ .Values.robust_claw_worker.memory }}
+          livenessProbe:
+            httpGet: {path: /health, port: {{ .Values.robust_claw_worker.port }}}
+            initialDelaySeconds: 60
+            periodSeconds: 30
+          readinessProbe:
+            httpGet: {path: /health, port: {{ .Values.robust_claw_worker.port }}}
+            initialDelaySeconds: 30
+            periodSeconds: 10
+      {{- if .Values.robust_claw_worker.shared_nfs.enable }}
+      volumes:
+        - name: shared-nfs
+          {{- if eq .Values.robust_claw_worker.shared_nfs.type "hostPath" }}
+          hostPath:
+            path: {{ .Values.robust_claw_worker.shared_nfs.host_path }}
+            type: Directory
+          {{- else if eq .Values.robust_claw_worker.shared_nfs.type "pvc" }}
+          persistentVolumeClaim:
+            claimName: {{ .Values.robust_claw_worker.shared_nfs.pvc }}
+          {{- else if eq .Values.robust_claw_worker.shared_nfs.type "nfs" }}
+          nfs:
+            server: {{ .Values.robust_claw_worker.shared_nfs.nfs_server }}
+            path: {{ .Values.robust_claw_worker.shared_nfs.nfs_path }}
+          {{- end }}
+      {{- end }}
+      {{- with .Values.robust_claw_worker.node_selector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.robust_claw_worker.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

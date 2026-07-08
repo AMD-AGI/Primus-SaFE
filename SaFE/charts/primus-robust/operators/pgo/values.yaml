@@ -1,0 +1,37 @@
+global:
+  imageRegistry: ""
+
+controllerImages:
+  cluster: crunchydata/postgres-operator:ubi8-5.7.0-0
+
+relatedImages:
+  postgres_17:
+    image: crunchydata/crunchy-postgres:ubi8-17.0-0
+  pgbackrest:
+    image: crunchydata/crunchy-pgbackrest:ubi8-2.53.1-0
+  pgbouncer:
+    image: crunchydata/crunchy-pgbouncer:ubi8-1.23-0
+  pgexporter:
+    image: crunchydata/crunchy-postgres-exporter:ubi8-0.15.0-12
+  pgupgrade:
+    image: crunchydata/crunchy-upgrade:ubi8-5.7.0-0
+
+# Scope PGO to its own namespace only. When true the operator sets
+# PGO_TARGET_NAMESPACE to its own namespace and its RBAC is namespaced
+# (Role/RoleBinding instead of ClusterRole), so it does NOT watch or touch
+# PostgresClusters in other namespaces. Robust always runs its DB in the
+# release namespace, so single-namespace is the correct default.
+singleNamespace: true
+debug: true
+replicas: 1
+pgoControllerLeaseName: cpk-leader-election-lease
+imagePullSecretNames: []
+
+resources:
+  controller:
+    limits:
+      cpu: 500m
+      memory: 1Gi
+    requests:
+      cpu: 100m
+      memory: 256Mi

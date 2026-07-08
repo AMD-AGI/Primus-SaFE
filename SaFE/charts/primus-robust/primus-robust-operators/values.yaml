@@ -1,0 +1,95 @@
+global:
+  imageRegistry: ""
+  storageClass: ""
+  image:
+    registry: ""
+  # Optional affinity applied to the operator Deployments (pgo / opensearch /
+  # fluent). vm-operator is upstream and takes its own `.affinity`. See umbrella.
+  affinity: {}
+
+pgo:
+  enabled: true
+vmOperator:
+  enabled: true
+opensearchOperator:
+  enabled: true
+fluentOperator:
+  enabled: true
+grafanaOperator:
+  enabled: false
+
+primus-robust-pgo:
+  installCRDs: false
+  global:
+    imageRegistry: ""
+  resources:
+    controller:
+      limits:
+        cpu: 500m
+        memory: 1Gi
+      requests:
+        cpu: 100m
+        memory: 256Mi
+
+primus-robust-vm-operator:
+  victoria-metrics-operator:
+    crd:
+      create: false
+    operator:
+      enable_converter_ownership: true
+      useCustomConfigReloader: true
+    env:
+      - name: VM_CONTAINERREGISTRY
+        value: ""
+      # Watch only the operator's own namespace (empty = cluster-wide list/watch
+      # of all VM* CRs). Must be a literal value: the upstream vm-operator chart
+      # renders env as name+value only and drops valueFrom, so a fieldRef here
+      # silently becomes empty (= cluster-wide). Keep in sync with the release
+      # namespace.
+      - name: WATCH_NAMESPACE
+        value: primus-robust
+    resources:
+      limits:
+        cpu: 500m
+        memory: 1Gi
+      requests:
+        cpu: 100m
+        memory: 256Mi
+
+primus-robust-opensearch-operator:
+  installCRDs: false
+  global:
+    imageRegistry: ""
+  fullnameOverride: opensearch-operator
+  manager:
+    # Reconcile OpenSearchClusters only in robust's own namespace. Empty =
+    # cluster-wide, which would fight any other opensearch-operator over
+    # OpenSearchClusters in other namespaces.
+    watchNamespace: primus-robust
+    resources:
+      limits:
+        cpu: 500m
+        memory: 1Gi
+      requests:
+        cpu: 100m
+        memory: 256Mi
+
+primus-robust-fluent-operator-core:
+  installCRDs: false
+  global:
+    imageRegistry: ""
+  # NOTE: fluent-operator is intentionally NOT namespace-scoped. The
+  # kubesphere/fluent-operator:v3.1.0 image panics ("assignment to entry in nil
+  # map") when --watch-namespaces is set — its namespaced mode is incomplete
+  # before the upstream "complete namespaced mode" fix. It also only manages its
+  # own FluentBit CR plus cluster-scoped log config, so the cross-tenant STS
+  # stomping that motivated scoping pgo/vm/opensearch does not apply here.
+  # Revisit once the image is bumped to a version with working namespaced mode.
+
+primus-robust-grafana-operator:
+  installCRDs: false
+  global:
+    imageRegistry: ""
+  # Disabled by default; if enabled, keep it scoped to its own namespace
+  # (WATCH_NAMESPACE = release namespace) instead of watching all Grafana CRs.
+  namespaceScope: true

@@ -1,0 +1,16 @@
+apiVersion: fluentbit.fluent.io/v1alpha2
+kind: ClusterFluentBitConfig
+metadata:
+  name: primus-robust-fluentbit-config
+  labels:
+    app.kubernetes.io/name: fluentbit
+spec:
+  filterSelector:
+    matchLabels:
+      fluentbit.fluent.io/enabled: "true"
+  inputSelector:
+    matchLabels:
+      fluentbit.fluent.io/enabled: "true"
+  outputSelector:
+    matchLabels:
+      fluentbit.fluent.io/enabled: "true"

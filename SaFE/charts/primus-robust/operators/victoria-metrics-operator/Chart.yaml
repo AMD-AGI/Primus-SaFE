@@ -1,0 +1,10 @@
+apiVersion: v2
+name: primus-robust-vm-operator
+description: VictoriaMetrics Operator wrapper chart
+type: application
+version: 0.1.0
+appVersion: "0.35.2"
+dependencies:
+  - name: victoria-metrics-operator
+    version: "0.35.2"
+    repository: https://victoriametrics.github.io/helm-charts/

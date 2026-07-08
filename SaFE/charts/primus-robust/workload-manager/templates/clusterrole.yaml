@@ -1,0 +1,16 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "workload-manager.fullname" . }}
+  labels:
+    {{- include "workload-manager.labels" . | nindent 4 }}
+rules:
+  # K8sWatcher uses a dynamic client to walk every pod's ownerReferences
+  # chain up to whatever top-level kind created it (Deployment, StatefulSet,
+  # PyTorchJob / RayJob / RayCluster, SaFE's Workload CRD, …). Without broad
+  # read permission on every apiGroup/resource the walk stops with a
+  # `forbidden` error and the DB never records running pods, which in turn
+  # leaves telemetry-gateway's workload_cache empty and Grafana 'No Data'.
+  - apiGroups: ["*"]
+    resources: ["*"]
+    verbs: ["get", "list", "watch"]

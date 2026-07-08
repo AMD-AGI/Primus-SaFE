@@ -1,0 +1,10 @@
+{{- if and .Values.robust_claw_worker .Values.robust_claw_worker.enable .Values.robust_claw_worker.create_namespace }}
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ .Values.robust_claw_worker.namespace }}
+  labels:
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    helm.sh/resource-policy: keep
+{{- end }}

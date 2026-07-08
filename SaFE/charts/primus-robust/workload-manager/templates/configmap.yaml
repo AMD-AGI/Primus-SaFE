@@ -1,0 +1,36 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "workload-manager.fullname" . }}-config
+  labels:
+    {{- include "workload-manager.labels" . | nindent 4 }}
+data:
+  config.yaml: |
+    server:
+      port: {{ .Values.service.port }}
+      fault_manager_url: {{ .Values.server.faultManagerUrl | quote }}
+
+    database:
+      host: {{ .Values.database.host | quote }}
+      port: {{ .Values.database.port }}
+      user: {{ .Values.database.user | quote }}
+      password: "${DB_PASSWORD}"
+      dbname: {{ .Values.database.dbname | quote }}
+      sslmode: {{ .Values.database.sslmode | quote }}
+      max_open_conns: {{ .Values.database.maxOpenConns }}
+      max_idle_conns: {{ .Values.database.maxIdleConns }}
+
+    workload:
+      slurm:
+        enabled: {{ .Values.workload.slurm.enabled }}
+      k8s:
+        enabled: {{ .Values.workload.k8s.enabled }}
+        gpu_resource_name: {{ .Values.workload.k8s.gpuResourceName | quote }}
+        namespaces:
+        {{- if .Values.workload.k8s.namespaces }}
+        {{- range .Values.workload.k8s.namespaces }}
+          - {{ . | quote }}
+        {{- end }}
+        {{- else }}
+          []
+        {{- end }}

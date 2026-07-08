@@ -1,0 +1,33 @@
+# tw-project1 cluster values for fault-agent
+
+image:
+  repository: primussafe/fault-agent
+  tag: latest
+
+imagePullSecrets:
+  - name: dockerhub-cred
+
+config:
+  detection:
+    enabled_categories:
+      - gpu
+      - net
+      - sys
+      - nfs
+    interval: 60s
+    timeout: 30s
+    params:
+      driver_version: '6.12.12'
+      ethernet_search_id: 'eno0'
+      ib_devices: 'rdma0,rdma1,rdma2,rdma3,rdma4,rdma5,rdma6,rdma7'
+      rocm_version: '6.4'
+
+  report:
+    enabled: true
+    endpoint: fault-manager.primus-robust.svc:8081
+    infra_type: kubernetes
+    heartbeat_interval: 30s
+
+  collector:
+    enabled: true
+    device_interval: 300s

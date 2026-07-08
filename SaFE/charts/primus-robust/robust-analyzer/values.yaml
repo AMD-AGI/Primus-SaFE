@@ -1,0 +1,82 @@
+replicaCount: 1
+
+# role selects how the process assembles its modules:
+#   "combined": register HTTP routes AND run background workers (single process).
+#   "worker":   run only the data-plane background workers; the standalone `api`
+#               service serves all HTTP routes. Used in the microservice stack.
+role: combined
+
+image:
+  repository: robust-analyzer
+  pullPolicy: IfNotPresent
+  tag: ""
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: "robust-analyzer"
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+podAnnotations: {}
+podSecurityContext: {}
+securityContext: {}
+
+service:
+  type: ClusterIP
+  port: 8085
+
+database:
+  host: robust-db-primary.primus-robust.svc
+  port: 5432
+  dbname: robust
+  user: robust
+  sslmode: require
+  existingSecret: robust-db-pguser-robust
+
+modules:
+  robustApi:
+    # vmselect lives inside the VMCluster CR which is named
+    # "primus-robust-vmcluster" — vm-operator derives the Service as
+    # vmselect-<vmcluster-name>. The previous default omitted the
+    # "primus-robust-" prefix and pointed at a non-existent DNS name.
+    vmBaseUrl: "http://vmselect-primus-robust-vmcluster.primus-robust.svc:8481/select/0/prometheus"
+    faultManagerUrl: "http://fault-manager.primus-robust.svc:8082"
+    # OpenSearch CR is created by this chart with cluster name
+    # "primus-robust-logs"; the operator exposes a Service of the same name.
+    # The old "opensearch-cluster-master" default is the upstream Helm chart
+    # convention, not the one we produce.
+    opensearchHost: "https://primus-robust-logs.primus-robust.svc:9200"
+    opensearchUser: "admin"
+    # Password can be supplied two ways:
+    #   1. opensearchPassword — inline plaintext (fine for dev, never
+    #      recommended for prod because it ends up in the ConfigMap).
+    #   2. opensearchExistingSecret + opensearchPasswordSecretKey — mount a
+    #      Kubernetes Secret as env OPENSEARCH_PASSWORD and expand
+    #      ${OPENSEARCH_PASSWORD} at runtime inside the ConfigMap.
+    # If both are set, the Secret wins.
+    opensearchPassword: ""
+    opensearchExistingSecret: ""
+    opensearchPasswordSecretKey: "password"
+    # The OpenSearch CR uses a self-signed cert by default. Flip this to
+    # false once a cluster CA is wired in.
+    opensearchInsecureSkipVerify: true
+  aggregator:
+    vmBaseUrl: "http://vmselect-primus-robust-vmcluster.primus-robust.svc:8481/select/0/prometheus"
+  trainingAnalyzer:
+    advisor:
+      faultManagerUrl: "http://fault-manager.primus-robust.svc:8082"
+
+resources:
+  limits:
+    cpu: "2000m"
+    memory: "2Gi"
+  requests:
+    cpu: "500m"
+    memory: "512Mi"
+
+nodeSelector: {}
+tolerations: []
+affinity: {}

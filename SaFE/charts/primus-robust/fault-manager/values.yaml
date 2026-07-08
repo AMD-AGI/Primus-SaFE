@@ -1,0 +1,118 @@
+# Default values for fault-manager
+
+replicaCount: 1
+
+image:
+  repository: fault-manager
+  pullPolicy: IfNotPresent
+  tag: ""
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+podAnnotations: {}
+podSecurityContext: {}
+
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 65534
+
+service:
+  type: ClusterIP
+  grpcPort: 8081
+  restPort: 8082
+
+resources:
+  limits:
+    cpu: 500m
+    memory: 512Mi
+  requests:
+    cpu: 100m
+    memory: 128Mi
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+# PostgreSQL connection
+database:
+  host: "robust-db-primary.primus-robust.svc"
+  port: 5432
+  user: "robust"
+  dbname: "robust"
+  sslmode: "require"
+  maxOpenConns: 10
+  maxIdleConns: 3
+  existingSecret: "robust-db-pguser-robust"
+  password: ""
+
+# Infrastructure type
+infrastructure:
+  type: "kubernetes"      # kubernetes | slurm | baremetal
+
+# Kubernetes-specific settings
+kubernetes:
+  taintKey: "amd.com/fault"
+  taintEffect: ""         # Empty = auto (isolate→NoSchedule, evict/remediate→NoExecute)
+
+# Slurm-specific settings
+slurm:
+  scontrolPath: "/usr/bin/scontrol"
+
+# Action engine configuration
+action:
+  enabled: true
+  mode: "observe"         # observe | isolate | evict | remediate
+  evaluationInterval: "30s"
+  autoResolve: true
+  autoResolveAfter: 3
+
+# Circuit breaker
+circuitBreaker:
+  enabled: true
+  maxQuarantinedNodes: 10
+  windowDuration: "1h"
+  breakerAction: "pause"
+  resetAfter: "30m"
+
+# Remediation policies
+remediation:
+  enabled: true
+  policies:
+    - name: ecc-uncorrectable
+      match:
+        errorCodePatterns: ["0*"]
+        severities: [critical]
+      action: gpu-reset
+      collectLogs: true
+    - name: driver-crash
+      match:
+        errorCodePatterns: ["007"]
+        severities: [critical]
+      action: reboot
+      collectLogs: true
+    - name: default
+      match:
+        severities: [warning, critical]
+      action: none
+      collectLogs: true
+
+# Webhook export
+webhook:
+  enabled: false
+  url: ""
+  headers: {}
+  filter:
+    severities: [critical]
+
+# Heartbeat timeout
+heartbeat:
+  enabled: true
+  timeoutMultiplier: 3
+

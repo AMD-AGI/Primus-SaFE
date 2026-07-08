@@ -1,0 +1,93 @@
+apiVersion: postgres-operator.crunchydata.com/v1beta1
+kind: PostgresCluster
+metadata:
+  name: robust-db
+  namespace: {{ include "primus-robust.namespace" . }}
+  labels:
+    app.kubernetes.io/component: database
+    app.kubernetes.io/name: robust-db
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+spec:
+  {{- if .Values.global.imageRegistry }}
+  image: "{{ .Values.global.imageRegistry }}/crunchydata/crunchy-postgres:ubi8-17.0-0"
+  {{- end }}
+  postgresVersion: {{ .Values.database.pgVersion | default 16 }}
+  port: 5432
+  instances:
+  - name: instance1
+    replicas: 1
+    dataVolumeClaimSpec:
+      accessModes:
+      - ReadWriteOnce
+      resources:
+        requests:
+          storage: {{ .Values.database.storageSize | default "50Gi" }}
+      {{- if .Values.global.storageClass }}
+      storageClassName: {{ .Values.global.storageClass }}
+      {{- end }}
+    resources:
+      requests:
+        cpu: 500m
+        memory: 1Gi
+      limits:
+        cpu: 2000m
+        memory: 4Gi
+    affinity:
+      {{- with (.Values.global | default dict).affinity }}
+      {{- with .nodeAffinity }}
+      nodeAffinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- end }}
+      podAntiAffinity:
+        preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 100
+          podAffinityTerm:
+            labelSelector:
+              matchLabels:
+                postgres-operator.crunchydata.com/cluster: robust-db
+            topologyKey: kubernetes.io/hostname
+  backups:
+    pgbackrest:
+      {{- if .Values.global.imageRegistry }}
+      image: "{{ .Values.global.imageRegistry }}/crunchydata/crunchy-pgbackrest:ubi8-2.53.1-0"
+      {{- end }}
+      {{- with (.Values.global | default dict).affinity }}
+      repoHost:
+        affinity:
+          {{- toYaml . | nindent 10 }}
+      jobs:
+        affinity:
+          {{- toYaml . | nindent 10 }}
+      {{- end }}
+      global:
+        repo1-retention-full: "7"
+        repo1-retention-full-type: time
+      repos:
+      - name: repo1
+        schedules:
+          full: "0 3 * * 0"
+        volume:
+          volumeClaimSpec:
+            accessModes:
+            - ReadWriteOnce
+            resources:
+              requests:
+                storage: {{ .Values.database.backupStorageSize | default "20Gi" }}
+            {{- if .Values.global.storageClass }}
+            storageClassName: {{ .Values.global.storageClass }}
+            {{- end }}
+  patroni:
+    dynamicConfiguration:
+      postgresql:
+        parameters:
+          max_connections: {{ .Values.database.maxConnections | default "200" | quote }}
+          shared_buffers: 256MB
+          effective_cache_size: 1GB
+  users:
+  - name: {{ .Values.database.user | default "robust" }}
+    databases:
+    - {{ .Values.database.dbname | default "robust" }}
+    options: "SUPERUSER"
+    password:
+      type: AlphaNumeric

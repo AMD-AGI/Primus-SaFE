@@ -1,0 +1,171 @@
+{{- if and .Values.claw .Values.claw.enable }}
+{{- $dbSecret := .Values.claw.db.existing_secret -}}
+{{- $lensSecret := .Values.claw.lens_db.existing_secret -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: robust-claw-unified
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: robust-claw-unified
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    # Embeds the two frontend-compat plugins via the PVC-backed plugin host:
+    #   - /root-cause-skills/*        (root-cause-compat)
+    #   - /api/agent/pending-cause/*  (pending-cause-compat)
+    conductor.amd.com/plugins: "root-cause-compat,pending-cause-compat"
+spec:
+  replicas: {{ .Values.claw.replicas }}
+  strategy:
+    type: {{ .Values.claw.strategy }}
+  selector:
+    matchLabels:
+      app: robust-claw-unified
+  template:
+    metadata:
+      labels:
+        app: robust-claw-unified
+      annotations:
+        checksum/secret: {{ include (print $.Template.BasePath "/claw/secret.yaml") . | sha256sum }}
+    spec:
+      serviceAccountName: {{ .Values.claw.service_account_name }}
+      {{- if .Values.global.image_pull_secret }}
+      imagePullSecrets:
+        - name: {{ .Values.global.image_pull_secret }}
+      {{- end }}
+      containers:
+        - name: robust-claw
+          image: "{{ .Values.global.image_registry }}/primussafe/{{ .Values.claw.image }}"
+          imagePullPolicy: {{ .Values.claw.image_pull_policy }}
+          ports:
+            - name: api
+              containerPort: {{ .Values.claw.port }}
+          env:
+            # --- engine mode ---
+            - {name: CLAW_MODE,                    value: "{{ .Values.claw.claw_mode }}"}
+            - {name: CLAW_API_PORT,                value: "{{ .Values.claw.port }}"}
+            - {name: ENGINE_TICK_SECONDS,          value: "{{ .Values.claw.engine_tick_seconds }}"}
+            - {name: OP_TIMEOUT_SECONDS,           value: "{{ .Values.claw.op_timeout_seconds }}"}
+            - {name: PYTHONDONTWRITEBYTECODE,      value: "1"}
+
+            # --- extensions + plugins ---
+            - {name: ROBUST_CLAW_EXTENSIONS_MODULE, value: "{{ .Values.claw.extensions_module }}"}
+            - {name: CONDUCTOR_EXTENSIONS_MODULE,   value: "{{ .Values.claw.extensions_module }}"}
+            - {name: PLUGINS_DIR,                   value: "{{ .Values.claw.plugins_dir }}"}
+
+            # --- LLM agent ---
+            - {name: AGENT_ENGINE_MODEL,       value: "{{ .Values.claw.agent_engine_model }}"}
+            - {name: AGENT_ENGINE_SKILLS_DIR,  value: "{{ .Values.claw.agent_engine_skills_dir }}"}
+            - {name: AGENT_ENGINE_TAGS,        value: "{{ .Values.claw.agent_engine_tags }}"}
+            - {name: OPENAI_BASE_URL,          value: "{{ .Values.claw.openai_base_url }}"}
+            {{- if .Values.claw.anthropic_base_url }}
+            - {name: ANTHROPIC_BASE_URL,       value: "{{ .Values.claw.anthropic_base_url }}"}
+            {{- end }}
+
+            # --- worker endpoints ---
+            - {name: MANAGEMENT_WORKER_ENDPOINT, value: "{{ .Values.claw.management_worker_endpoint }}"}
+            - {name: DATA_WORKER_ENDPOINT,       value: "{{ .Values.claw.data_worker_endpoint }}"}
+            - {name: WORKER_DEFAULT_PORT,        value: "{{ .Values.claw.worker_default_port }}"}
+            - {name: ROBUST_API_DEFAULT_PORT,    value: "{{ .Values.claw.robust_api_default_port }}"}
+
+            # --- SaFE API ---
+            - {name: SAFE_API_URL,   value: "{{ .Values.claw.safe_api_url }}"}
+            - {name: SAFE_NAMESPACE, value: "{{ .Values.claw.safe_namespace }}"}
+
+            # --- SaFE DB ---
+            {{- if $dbSecret }}
+            - name: SAFE_DB_HOST
+              valueFrom: {secretKeyRef: {name: {{ $dbSecret }}, key: {{ .Values.claw.db.host_key }}}}
+            - name: SAFE_DB_PORT
+              valueFrom: {secretKeyRef: {name: {{ $dbSecret }}, key: {{ .Values.claw.db.port_key }}}}
+            - name: SAFE_DB_USER
+              valueFrom: {secretKeyRef: {name: {{ $dbSecret }}, key: {{ .Values.claw.db.user_key }}}}
+            - name: SAFE_DB_PASSWORD
+              valueFrom: {secretKeyRef: {name: {{ $dbSecret }}, key: {{ .Values.claw.db.password_key }}}}
+            - name: SAFE_DB_NAME
+              valueFrom: {secretKeyRef: {name: {{ $dbSecret }}, key: {{ .Values.claw.db.name_key }}}}
+            {{- else }}
+            - {name: SAFE_DB_HOST, value: "{{ .Values.claw.db.host }}"}
+            - {name: SAFE_DB_PORT, value: "{{ .Values.claw.db.port }}"}
+            - {name: SAFE_DB_USER, value: "{{ .Values.claw.db.user }}"}
+            - {name: SAFE_DB_NAME, value: "{{ .Values.claw.db.name }}"}
+            {{- end }}
+
+            {{- if .Values.claw.lens_db.enable }}
+            # --- Primus-Lens DB (optional) ---
+            {{- if $lensSecret }}
+            - name: LENS_DB_HOST
+              valueFrom: {secretKeyRef: {name: {{ $lensSecret }}, key: host}}
+            - name: LENS_DB_PORT
+              valueFrom: {secretKeyRef: {name: {{ $lensSecret }}, key: port}}
+            - name: LENS_DB_USER
+              valueFrom: {secretKeyRef: {name: {{ $lensSecret }}, key: user}}
+            - name: LENS_DB_PASSWORD
+              valueFrom: {secretKeyRef: {name: {{ $lensSecret }}, key: password}}
+            - name: LENS_DB_NAME
+              valueFrom: {secretKeyRef: {name: {{ $lensSecret }}, key: dbname}}
+            {{- else }}
+            - {name: LENS_DB_HOST, value: "{{ .Values.claw.lens_db.host }}"}
+            - {name: LENS_DB_PORT, value: "{{ .Values.claw.lens_db.port }}"}
+            - {name: LENS_DB_USER, value: "{{ .Values.claw.lens_db.user }}"}
+            - {name: LENS_DB_NAME, value: "{{ .Values.claw.lens_db.name }}"}
+            {{- end }}
+            {{- end }}
+          envFrom:
+            # ANTHROPIC_API_KEY / OPENAI_API_KEY / SAFE_API_KEY (and, when
+            # no existing_secret is configured, DB passwords) live here.
+            - secretRef:
+                name: {{ .Release.Name }}-claw-llm
+
+          resources:
+            requests:
+              cpu: {{ .Values.claw.cpu_request }}
+              memory: {{ .Values.claw.memory_request }}
+            limits:
+              cpu: {{ .Values.claw.cpu }}
+              memory: {{ .Values.claw.memory }}
+
+          readinessProbe:
+            httpGet: {path: /health, port: {{ .Values.claw.port }}}
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          livenessProbe:
+            httpGet: {path: /health, port: {{ .Values.claw.port }}}
+            initialDelaySeconds: 30
+            periodSeconds: 20
+            timeoutSeconds: 3
+            failureThreshold: 3
+
+          volumeMounts:
+            - {name: extensions, mountPath: /extensions/plugins, subPath: plugins}
+            - {name: extensions, mountPath: /usr/local/lib/python3.12/site-packages/safe_extensions,     subPath: pkgs/safe_extensions}
+            - {name: extensions, mountPath: /usr/local/lib/python3.12/site-packages/robust_extensions,   subPath: pkgs/robust_extensions}
+            - {name: extensions, mountPath: /usr/local/lib/python3.12/site-packages/combined_extensions, subPath: pkgs/combined_extensions}
+            - {name: extensions, mountPath: /app/skills, subPath: skills}
+
+      volumes:
+        - name: extensions
+          persistentVolumeClaim:
+            claimName: {{ .Values.claw.extensions_pvc.name }}
+
+      {{- with .Values.claw.node_selector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- else }}
+      {{- with .Values.global.node_selector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- end }}
+      {{- with .Values.claw.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- else }}
+      {{- with .Values.global.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- end }}
+{{- end }}

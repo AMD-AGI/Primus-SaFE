@@ -1,0 +1,27 @@
+# Values for tw-project1 cluster deployment
+
+image:
+  repository: ghcr.io/amd-agi/primussafe/workload-manager
+  tag: "1.0.0"
+
+imagePullSecrets:
+  - name: ghcr-pull-secret
+
+database:
+  host: "robust-db-primary.primus-robust.svc"
+  port: 5432
+  user: "robust"
+  dbname: "robust"
+  sslmode: "require"
+  existingSecret: "robust-db-pguser-robust"
+
+server:
+  faultManagerUrl: "http://fault-manager.primus-robust.svc:8082"
+
+workload:
+  slurm:
+    enabled: false
+  k8s:
+    enabled: true
+    gpuResourceName: "amd.com/gpu"
+    namespaces: []

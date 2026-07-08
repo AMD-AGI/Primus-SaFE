@@ -1,0 +1,26 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "container-event-exporter.fullname" . }}-config
+  labels:
+    {{- include "container-event-exporter.labels" . | nindent 4 }}
+data:
+  config.yaml: |
+    cluster_name: {{ .Values.config.clusterName | default "default" | quote }}
+    {{- if .Values.config.namespaces }}
+    namespaces:
+      {{- range .Values.config.namespaces }}
+      - {{ . | quote }}
+      {{- end }}
+    {{- end }}
+    server:
+      port: {{ .Values.service.port }}
+    buffer:
+      max_size: {{ .Values.config.buffer.maxSize | default 500 }}
+      flush_interval_seconds: {{ .Values.config.buffer.flushIntervalSeconds | default 10 }}
+    database:
+      host: {{ .Values.database.host | quote }}
+      port: {{ .Values.database.port | default 5432 }}
+      user: {{ .Values.database.user | quote }}
+      dbname: {{ .Values.database.dbname | quote }}
+      sslmode: {{ .Values.database.sslmode | default "require" | quote }}

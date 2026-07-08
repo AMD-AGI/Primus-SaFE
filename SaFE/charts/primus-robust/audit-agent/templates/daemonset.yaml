@@ -1,0 +1,101 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: {{ .Release.Name }}
+  labels:
+    app: audit-agent
+spec:
+  selector:
+    matchLabels:
+      app: audit-agent
+  template:
+    metadata:
+      labels:
+        app: audit-agent
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "{{ .Values.metrics.port }}"
+        prometheus.io/path: "{{ .Values.metrics.path }}"
+    spec:
+      hostPID: true
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      serviceAccountName: {{ .Release.Name }}
+      containers:
+        - name: audit-agent
+          image: "{{- if .Values.global.imageRegistry }}{{ .Values.global.imageRegistry }}/{{- end }}{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args:
+            - "--config=/etc/audit-agent/agent.yaml"
+            - "-v=2"
+          env:
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+          ports:
+            - name: metrics
+              containerPort: {{ .Values.metrics.port }}
+              protocol: TCP
+          securityContext:
+            privileged: true
+            runAsUser: 0
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: config
+              mountPath: /etc/audit-agent
+            - name: host-proc
+              mountPath: /host/proc
+              readOnly: true
+            - name: host-etc
+              mountPath: /host/etc
+              readOnly: true
+            - name: host-sys
+              mountPath: /sys
+              readOnly: true
+            - name: host-utmp
+              mountPath: /host/var/run/utmp
+              readOnly: true
+            - name: host-wtmp
+              mountPath: /host/var/log/wtmp
+              readOnly: true
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: metrics
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: metrics
+            initialDelaySeconds: 5
+            periodSeconds: 10
+      volumes:
+        - name: config
+          configMap:
+            name: {{ .Release.Name }}-config
+        - name: host-proc
+          hostPath:
+            path: /proc
+        - name: host-etc
+          hostPath:
+            path: /etc
+        - name: host-sys
+          hostPath:
+            path: /sys
+        - name: host-utmp
+          hostPath:
+            path: /var/run/utmp
+        - name: host-wtmp
+          hostPath:
+            path: /var/log/wtmp
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

@@ -1,0 +1,286 @@
+# Default chart values. Site-specific overrides (image registries, storage
+# classes, secret names, per-cluster endpoints, etc.) belong in a private
+# operations repo and should be applied via `helm upgrade ... -f ...`, not
+# committed to this chart.
+global:
+  namespace: primus-robust
+  storageClass: ""
+  clusterName: ""
+  imageRegistry: ""
+  imagePullSecrets: []
+  imageTag: latest
+  # Optional affinity applied to all non-node-level components + CRs. Node-level
+  # DaemonSets (fault-agent / network-exporter / audit-agent / *-exporter /
+  # fluentbit) are intentionally left unconstrained. See umbrella chart values.
+  affinity: {}
+
+# --- Database ---
+database:
+  host: robust-db-primary.primus-robust.svc
+  existingSecret: robust-db-pguser-robust
+  dbname: robust
+  user: robust
+  sslmode: require
+  storageSize: 10Gi
+  pgVersion: 17
+
+# --- Core Services ---
+fault-manager:
+  fullnameOverride: primus-robust-fault-manager
+  image:
+    repository: fault-manager
+  database:
+    host: robust-db-primary.primus-robust.svc
+    existingSecret: robust-db-pguser-robust
+    dbname: robust
+    user: robust
+    sslmode: require
+  action:
+    mode: observe
+    autoResolve: "true"
+  circuitBreaker:
+    maxQuarantinedNodes: "5"
+
+workload-manager:
+  fullnameOverride: primus-robust-workload-manager
+  image:
+    repository: workload-manager
+  database:
+    host: robust-db-primary.primus-robust.svc
+    existingSecret: robust-db-pguser-robust
+    dbname: robust
+    user: robust
+    sslmode: require
+  server:
+    faultManagerUrl: http://primus-robust-fault-manager.primus-robust.svc:8082
+  workload:
+    k8s:
+      enabled: true
+      gpuResourceName: amd.com/gpu
+
+telemetry-gateway:
+  fullnameOverride: primus-robust-telemetry-gateway
+  image:
+    repository: telemetry-gateway
+  database:
+    host: robust-db-primary.primus-robust.svc
+    existingSecret: robust-db-pguser-robust
+    dbname: robust
+    user: robust
+    sslmode: require
+  vmalert:
+    image:
+      repository: victoriametrics/vmalert
+  metrics:
+    forwardUrl: http://vminsert-primus-robust-vmcluster.primus-robust.svc:8480/insert/0/prometheus/api/v1/write
+  # device-exporter pushes device inventory + pod_device bindings over gRPC here.
+  devices:
+    enabled: true
+    port: 8085
+
+# robust-analyzer runs as the worker (background-only) process in the
+# microservice stack: NFS/TensorBoard/Inference watchers + aggregator precompute
+# jobs. All HTTP routes are served by the `api` service below.
+robust-analyzer:
+  role: worker
+  fullnameOverride: robust-analyzer
+  image:
+    repository: robust-analyzer
+  database:
+    host: robust-db-primary.primus-robust.svc
+    existingSecret: robust-db-pguser-robust
+    dbname: robust
+    user: robust
+    sslmode: require
+  modules:
+    robustApi:
+      vmBaseUrl: http://vmselect-primus-robust-vmcluster.primus-robust.svc:8481/select/0/prometheus
+      faultManagerUrl: http://primus-robust-fault-manager.primus-robust.svc:8082
+    aggregator:
+      vmBaseUrl: http://vmselect-primus-robust-vmcluster.primus-robust.svc:8481/select/0/prometheus
+    trainingAnalyzer:
+      advisor:
+        faultManagerUrl: http://primus-robust-fault-manager.primus-robust.svc:8082
+
+# api serves the full HTTP surface (robust-api + training-analyzer routes +
+# aggregator query routes) and is the externally reachable entry point (NodePort).
+api:
+  fullnameOverride: robust-api
+  image:
+    repository: api
+  service:
+    type: NodePort
+    port: 8085
+    # Must equal the NodePort in core42 Cluster CRD annotation
+    # primus-safe.amd.com/robust-api-endpoint (http://<nodeIP>:32626).
+    nodePort: 32626
+  database:
+    host: robust-db-primary.primus-robust.svc
+    existingSecret: robust-db-pguser-robust
+    dbname: robust
+    user: robust
+    sslmode: require
+  modules:
+    robustApi:
+      vmBaseUrl: http://vmselect-primus-robust-vmcluster.primus-robust.svc:8481/select/0/prometheus
+      faultManagerUrl: http://primus-robust-fault-manager.primus-robust.svc:8082
+    aggregator:
+      vmBaseUrl: http://vmselect-primus-robust-vmcluster.primus-robust.svc:8481/select/0/prometheus
+    trainingAnalyzer:
+      advisor:
+        enabled: false
+        faultManagerUrl: http://primus-robust-fault-manager.primus-robust.svc:8082
+
+container-event-exporter:
+  # Gated off where the image is not published. Enable per-cluster once the
+  # container-event-exporter image exists in the target registry.
+  enabled: true
+  fullnameOverride: primus-robust-container-event-exporter
+  image:
+    repository: container-event-exporter
+  database:
+    host: robust-db-primary.primus-robust.svc
+    existingSecret: robust-db-pguser-robust
+    dbname: robust
+    user: robust
+    sslmode: require
+
+log-alert-evaluator:
+  # Gated off where the image is not published. Enable per-cluster once the
+  # log-alert-evaluator image exists in the target registry.
+  enabled: true
+  fullnameOverride: primus-robust-log-alert-evaluator
+  image:
+    repository: log-alert-evaluator
+  database:
+    host: robust-db-primary.primus-robust.svc
+    existingSecret: robust-db-pguser-robust
+    dbname: robust
+    user: robust
+    sslmode: require
+
+# --- Node Agents ---
+fault-agent:
+  fullnameOverride: primus-robust-fault-agent
+  image:
+    repository: fault-agent
+  config:
+    report:
+      enabled: true
+      endpoint: primus-robust-fault-manager.primus-robust.svc:8081
+      infraType: kubernetes
+    detection:
+      interval: 60s
+      params:
+        driver_version: "6.12.12"
+        rocm_version: "6.4"
+        ib_devices: "rdma0,rdma1,rdma2,rdma3,rdma4,rdma5,rdma6,rdma7"
+        ethernet_search_id: eno0
+
+device-exporter:
+  fullnameOverride: primus-robust-device-exporter
+  image:
+    repository: device-exporter
+  env:
+    DEVICE_EXPORTER_GATEWAY_ENDPOINT: primus-robust-telemetry-gateway.primus-robust.svc:8085
+
+gpu-exporter:
+  fullnameOverride: primus-robust-gpu-exporter
+  image:
+    repository: gpu-exporter
+rdma-exporter:
+  fullnameOverride: primus-robust-rdma-exporter
+  image:
+    repository: rdma-exporter
+network-exporter:
+  fullnameOverride: primus-robust-network-exporter
+  image:
+    repository: network-exporter
+audit-agent:
+  fullnameOverride: primus-robust-audit-agent
+  image:
+    repository: audit-agent
+
+# --- Observability CRs ---
+metrics:
+  global:
+    namespace: primus-robust
+    storageClass: ""
+  victoriametrics:
+    retentionPeriod: 30d
+    vmstorage:
+      replicas: 2
+      size: 100Gi
+      # Cap query concurrency/queue so heavy joins shed load instead of 429-ing.
+      extraArgs:
+        search.maxConcurrentRequests: "16"
+        search.maxQueueDuration: "30s"
+    vmselect:
+      replicas: 2
+      resources:
+        limits:
+          cpu: "4000m"
+          memory: "4Gi"
+        requests:
+          cpu: "500m"
+          memory: "1Gi"
+      extraArgs:
+        search.maxConcurrentRequests: "12"
+        search.maxQueueDuration: "30s"
+    vminsert:
+      replicas: 2
+
+# Bundled kube-state-metrics (single Deployment) is disabled: this cluster runs a
+# separate sharded kube-state-metrics StatefulSet. Set enabled: true to restore it.
+kube-state-metrics:
+  enabled: false
+
+vmagent:
+  global:
+    namespace: primus-robust
+    clusterName: ""
+  vmagent:
+    remoteWrite:
+      # Dual-write to vminsert (raw storage) and telemetry-gateway (enrichment + DB).
+      urls:
+        - http://vminsert-primus-robust-vmcluster.primus-robust.svc:8480/insert/0/prometheus/api/v1/write
+        - http://primus-robust-telemetry-gateway.primus-robust.svc:8084/api/v1/write
+
+logs:
+  global:
+    namespace: primus-robust
+    storageClass: ""
+  opensearch:
+    nodePools:
+      - name: "nodes"
+        replicas: 3
+        roles:
+          - master
+          - data
+          - ingest
+        diskSize: 100Gi
+        jvm: "-Xms2g -Xmx2g"
+
+fluentbit:
+  global:
+    namespace: primus-robust
+  inputs:
+    containerLogs:
+      path: "/var/log/containers/*.log"
+    dmesg:
+      journalPath: "/var/log/journal"
+    systemd:
+      journalPath: "/var/log/journal"
+
+# --- Optional services (disabled by default) ---
+# conductor-engine and robust-claw-worker are gated off until their images are
+# published with the stack's unified tag. Enable per-cluster once images exist.
+conductor-engine:
+  enabled: false
+robust-claw-worker:
+  enabled: false
+
+# --- Grafana (standalone mode, disabled by default) ---
+grafana:
+  enabled: false
+  adminPassword: "admin"

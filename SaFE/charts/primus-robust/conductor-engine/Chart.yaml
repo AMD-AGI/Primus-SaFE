@@ -1,0 +1,6 @@
+apiVersion: v2
+name: conductor-engine
+description: Unified robust-claw engine (workflow engine + plugin host + management LLM agent)
+type: application
+version: 0.1.0
+appVersion: "1.0.0"

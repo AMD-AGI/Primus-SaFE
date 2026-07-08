@@ -1,0 +1,6 @@
+apiVersion: v2
+name: robust-claw-worker
+description: Data-plane agent-engine worker for robust-claw (deployed in each data plane cluster)
+type: application
+version: 0.1.0
+appVersion: "1.0.0"

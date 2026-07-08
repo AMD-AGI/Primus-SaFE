@@ -1,0 +1,18 @@
+{{- if and .Values.claw .Values.claw.enable }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.claw.service_name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: robust-claw-unified
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: ClusterIP
+  selector:
+    app: robust-claw-unified
+  ports:
+    - name: api
+      port: {{ .Values.claw.port }}
+      targetPort: {{ .Values.claw.port }}
+{{- end }}

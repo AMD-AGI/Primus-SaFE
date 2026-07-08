@@ -1,0 +1,81 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "fault-manager.fullname" . }}-config
+  labels:
+    {{- include "fault-manager.labels" . | nindent 4 }}
+data:
+  manager.yaml: |
+    server:
+      grpc_port: {{ .Values.service.grpcPort }}
+      rest_port: {{ .Values.service.restPort }}
+      read_timeout: 30s
+      write_timeout: 30s
+
+    database:
+      host: {{ .Values.database.host | quote }}
+      port: {{ .Values.database.port }}
+      user: {{ .Values.database.user | quote }}
+      password: "${DB_PASSWORD}"
+      dbname: {{ .Values.database.dbname | quote }}
+      sslmode: {{ .Values.database.sslmode | quote }}
+      max_open_conns: {{ .Values.database.maxOpenConns }}
+      max_idle_conns: {{ .Values.database.maxIdleConns }}
+
+    infrastructure:
+      type: {{ .Values.infrastructure.type | quote }}
+
+    kubernetes:
+      kubeconfig: ""
+      taint_key: {{ .Values.kubernetes.taintKey | quote }}
+      taint_effect: {{ .Values.kubernetes.taintEffect | quote }}
+
+    slurm:
+      scontrol_path: {{ .Values.slurm.scontrolPath | quote }}
+
+    action:
+      enabled: {{ .Values.action.enabled }}
+      mode: {{ .Values.action.mode | quote }}
+      evaluation_interval: {{ .Values.action.evaluationInterval }}
+      auto_resolve: {{ .Values.action.autoResolve }}
+      auto_resolve_after: {{ .Values.action.autoResolveAfter }}
+
+    circuit_breaker:
+      enabled: {{ .Values.circuitBreaker.enabled }}
+      max_quarantined_nodes: {{ .Values.circuitBreaker.maxQuarantinedNodes }}
+      window_duration: {{ .Values.circuitBreaker.windowDuration }}
+      breaker_action: {{ .Values.circuitBreaker.breakerAction | quote }}
+      reset_after: {{ .Values.circuitBreaker.resetAfter }}
+
+    remediation:
+      enabled: {{ .Values.remediation.enabled }}
+      policies:
+      {{- range .Values.remediation.policies }}
+        - name: {{ .name | quote }}
+          match:
+            {{- if .match.errorCodePatterns }}
+            error_code_patterns:
+            {{- range .match.errorCodePatterns }}
+              - {{ . | quote }}
+            {{- end }}
+            {{- end }}
+            {{- if .match.severities }}
+            severities:
+            {{- range .match.severities }}
+              - {{ . }}
+            {{- end }}
+            {{- end }}
+          action: {{ .action | quote }}
+          collect_logs: {{ .collectLogs }}
+      {{- end }}
+
+    webhook:
+      enabled: {{ .Values.webhook.enabled }}
+      {{- if .Values.webhook.url }}
+      url: {{ .Values.webhook.url | quote }}
+      {{- end }}
+
+    heartbeat:
+      enabled: {{ .Values.heartbeat.enabled }}
+      timeout_multiplier: {{ .Values.heartbeat.timeoutMultiplier }}
+

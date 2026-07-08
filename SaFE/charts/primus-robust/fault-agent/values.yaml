@@ -1,0 +1,73 @@
+# Default values for fault-agent
+
+replicaCount: 1
+
+image:
+  repository: fault-agent
+  pullPolicy: IfNotPresent
+  tag: ""
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+podAnnotations:
+  prometheus.io/scrape: "true"
+  prometheus.io/port: "9101"
+  prometheus.io/path: "/metrics"
+
+podSecurityContext: {}
+
+securityContext:
+  privileged: true
+  runAsUser: 0
+
+service:
+  type: ClusterIP
+  port: 9101
+
+resources:
+  limits:
+    cpu: 200m
+    memory: 256Mi
+  requests:
+    cpu: 100m
+    memory: 128Mi
+
+nodeSelector: {}
+
+tolerations:
+  - operator: Exists
+
+affinity: {}
+
+# Fault agent configuration
+config:
+  interval: 60s
+  timeout: 30s
+  enabledCategories:
+    - gpu
+    - net
+    - sys
+    - nfs
+  customScriptsDir: /opt/amd-fault-agent/custom-scripts
+  logLevel: info
+  # gRPC reporting to fault-manager
+  report:
+    enabled: false
+    endpoint: "fault-manager.primus-safe.svc:8081"
+    heartbeatInterval: 30s
+    reconnectBackoff: 5s
+    reconnectMaxBackoff: 60s
+    infraType: "kubernetes"
+
+# Custom scripts ConfigMap (optional)
+customScripts:
+  enabled: false
+  configMapName: ""
+

@@ -1,0 +1,22 @@
+apiVersion: v2
+name: primus-robust
+description: AMD Primus Robust - Self-contained data-plane stack for GPU fault management, observability, and workload analytics
+type: application
+version: 1.0.7
+appVersion: "1.0.7"
+keywords:
+  - amd
+  - robust
+  - gpu
+  - fault-management
+  - observability
+maintainers:
+  - name: AMD
+
+dependencies:
+  - name: primus-robust-operators
+    version: ">=1.0.0"
+    repository: "file://../primus-robust-operators"
+  - name: primus-robust-stack
+    version: ">=1.0.0"
+    repository: "file://../primus-robust-stack"

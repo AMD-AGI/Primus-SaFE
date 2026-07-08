@@ -1,0 +1,19 @@
+{{- if .Values.inputs.containerLogs.enabled }}
+apiVersion: fluentbit.fluent.io/v1alpha2
+kind: ClusterInput
+metadata:
+  name: primus-robust-pod-logs
+  labels:
+    fluentbit.fluent.io/enabled: "true"
+spec:
+  tail:
+    tag: kube-log.*
+    path: {{ .Values.inputs.containerLogs.path }}
+    excludePath: {{ .Values.inputs.containerLogs.excludePath }}
+    parser: cri
+    memBufLimit: {{ .Values.inputs.containerLogs.memBufLimit }}
+    skipLongLines: true
+    skipEmptyLines: true
+    refreshIntervalSeconds: {{ .Values.inputs.containerLogs.refreshIntervalSeconds }}
+    disableInotifyWatcher: {{ .Values.inputs.containerLogs.disableInotifyWatcher }}
+{{- end }}

@@ -1,0 +1,14 @@
+apiVersion: v2
+name: device-exporter
+description: AMD device entity exporter - per-node device inventory and pod_device bindings pushed to telemetry-gateway
+type: application
+version: 0.1.0
+appVersion: "1.0.0"
+keywords:
+  - amd
+  - gpu
+  - rdma
+  - device
+  - inventory
+maintainers:
+  - name: AMD

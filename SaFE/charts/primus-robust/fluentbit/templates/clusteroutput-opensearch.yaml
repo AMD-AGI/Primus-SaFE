@@ -1,0 +1,29 @@
+apiVersion: fluentbit.fluent.io/v1alpha2
+kind: ClusterOutput
+metadata:
+  name: opensearch
+  labels:
+    fluentbit.fluent.io/enabled: "true"
+spec:
+  match: kube-log.*
+  opensearch:
+    host: {{ .Values.opensearch.host }}
+    port: {{ .Values.opensearch.port }}
+    tls:
+      verify: {{ .Values.opensearch.tls.verify }}
+    logstashFormat: true
+    logstashPrefix: node
+    suppressTypeName: true
+    traceError: true
+    replaceDots: true
+    timeKeyNanos: true
+    httpUser:
+      valueFrom:
+        secretKeyRef:
+          name: {{ .Values.opensearch.adminSecretName }}
+          key: username
+    httpPassword:
+      valueFrom:
+        secretKeyRef:
+          name: {{ .Values.opensearch.adminSecretName }}
+          key: password

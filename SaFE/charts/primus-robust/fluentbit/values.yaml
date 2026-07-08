@@ -1,0 +1,61 @@
+global:
+  namespace: "primus-robust"
+
+# fluent-operator's fluent-bit build. It bundles the `cri` parser, the
+# SERVICE/parsers config and an entrypoint that loads the operator-generated
+# config from /fluent-bit/config. The plain docker.io/fluent/fluent-bit image
+# does NOT — it boots its built-in demo (cpu -> stdout) and ships nothing.
+image:
+  repository: kubesphere/fluent-bit
+  tag: "v3.1.5"
+
+opensearch:
+  host: "primus-robust-logs-nodes.primus-robust.svc"
+  port: 9200
+  adminSecretName: "primus-robust-logs-admin-password"
+  tls:
+    verify: false
+
+# Optional secondary sink: forward ALL logs to a telemetry log-processor.
+# Disabled by default — when the processor is not deployed, this match:"*"
+# output never acks, so fluent-bit chunks are never freed, the tail buffer
+# fills and log ingestion stalls (backpressure). Enable only where the
+# processor actually runs.
+telemetryProcessor:
+  enabled: false
+  host: "primus-robust-telemetry-processor.primus-robust.svc"
+  port: 8989
+
+# fluent-bit pod resources. Busy control-plane nodes tail many container log
+# files; 256Mi then 512Mi were both too tight and got OOMKilled (100+ restarts
+# on crusoe primusctl nodes), so the limit is 1Gi.
+resources:
+  limits:
+    cpu: 500m
+    memory: 1Gi
+  requests:
+    cpu: 50m
+    memory: 256Mi
+
+inputs:
+  containerLogs:
+    enabled: true
+    path: "/var/log/containers/*.log"
+    excludePath: "/var/log/containers/fluent-bit*"
+    memBufLimit: "50MB"
+    refreshIntervalSeconds: 3
+    # Use stat-based polling instead of inotify. On busy nodes the per-user
+    # inotify instance/fd budget is exhausted and fluent-bit dies with
+    # "failed to open event watcher: too many open files". Polling avoids it.
+    disableInotifyWatcher: true
+
+  dmesg:
+    enabled: true
+    journalPath: "/var/log/journal"
+
+  systemd:
+    enabled: true
+    journalPath: "/var/log/journal"
+    units:
+      - "containerd.service"
+      - "kubelet.service"

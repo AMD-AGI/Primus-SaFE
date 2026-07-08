@@ -1,0 +1,46 @@
+global:
+  namespace: "primus-robust"
+  clusterName: ""
+
+vmagent:
+  enabled: true
+  name: "primus-robust-vm"
+  replicas: 1
+
+  remoteWrite:
+    # Dual-write: vmagent fans every scraped sample out to all urls below.
+    # By default it writes both to vminsert (raw storage) and to
+    # telemetry-gateway (enrichment + pod/workload relabel + DB).
+    urls:
+      - "http://vminsert-primus-robust-vmcluster.primus-robust.svc:8480/insert/0/prometheus/api/v1/write"
+      - "http://telemetry-gateway.primus-robust.svc:8084/api/v1/write"
+    # Legacy single-target fallback (used only when urls is empty).
+    url: "http://telemetry-gateway.primus-robust.svc:8084/api/v1/write"
+
+  # Additional remote-write targets rendered verbatim into the VMAgent CR's
+  # spec.remoteWrite list (appended after the urls above). Unlike `urls` (plain
+  # strings) each entry is a full VMAgent remoteWrite object, so it supports
+  # tlsConfig, inlineUrlRelabelConfig, etc. Used for cross-cluster push (e.g.
+  # forwarding a filtered subset of series to a global VictoriaMetrics).
+  # Example:
+  #   extraRemoteWrites:
+  #     - url: "https://remote.example.com/insert/0/prometheus/api/v1/write"
+  #       tlsConfig:
+  #         insecureSkipVerify: true
+  #       inlineUrlRelabelConfig:
+  #         - sourceLabels: [__name__]
+  #           regex: "workload_manager_.*gpu.*"
+  #           action: keep
+  extraRemoteWrites: []
+
+  scrapeInterval: "30s"
+
+  resources:
+    limits:
+      cpu: "1000m"
+      memory: "1Gi"
+    requests:
+      cpu: "200m"
+      memory: "256Mi"
+
+  extraScrapeConfigs: []

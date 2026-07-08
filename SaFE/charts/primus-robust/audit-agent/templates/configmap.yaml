@@ -1,0 +1,101 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}-config
+  labels:
+    app: audit-agent
+data:
+  agent.yaml: |
+    node:
+      name: ""
+
+    ssh:
+      enabled: {{ .Values.config.ssh.enabled }}
+      utmp_path: "/host/var/run/utmp"
+      wtmp_path: "/host/var/log/wtmp"
+      poll_interval: {{ .Values.config.ssh.poll_interval }}
+      track_commands: {{ .Values.config.ssh.track_commands }}
+
+    file_watch:
+      enabled: {{ .Values.config.file_watch.enabled }}
+      paths:
+        {{- range .Values.config.file_watch.paths }}
+        - {{ . | quote }}
+        {{- end }}
+      exclude_patterns:
+        {{- range .Values.config.file_watch.exclude_patterns }}
+        - {{ . | quote }}
+        {{- end }}
+      max_events_per_second: {{ .Values.config.file_watch.max_events_per_second }}
+
+    net_config:
+      enabled: {{ .Values.config.net_config.enabled }}
+      poll_interval: {{ .Values.config.net_config.poll_interval }}
+      watch_routes: true
+      watch_interfaces: true
+      watch_firewall: true
+
+    sysctl:
+      enabled: {{ .Values.config.sysctl.enabled }}
+      poll_interval: {{ .Values.config.sysctl.poll_interval }}
+      watch_paths:
+        - "/proc/sys/net/core/"
+        - "/proc/sys/net/ipv4/"
+        - "/proc/sys/kernel/"
+        - "/proc/sys/vm/"
+
+    services:
+      enabled: {{ .Values.config.services.enabled }}
+      poll_interval: {{ .Values.config.services.poll_interval }}
+      monitored:
+        - name: containerd
+          config_paths: ["/etc/containerd/config.toml"]
+        - name: kubelet
+          config_paths: ["/var/lib/kubelet/config.yaml", "/etc/kubernetes/kubelet.conf"]
+        - name: docker
+          config_paths: ["/etc/docker/daemon.json"]
+
+    bpf:
+      enabled: {{ .Values.config.bpf.enabled }}
+      object_path: "/opt/amd-audit-agent/bpf"
+      ring_buffer_size: 16777216
+
+    report:
+      enabled: {{ .Values.config.report.enabled }}
+      endpoint: {{ .Values.config.report.endpoint | quote }}
+      heartbeat_interval: 30s
+      reconnect_backoff: 5s
+      reconnect_max_backoff: 60s
+
+    opensearch:
+      enabled: {{ .Values.config.opensearch.enabled }}
+      endpoints:
+        {{- range .Values.config.opensearch.endpoints }}
+        - {{ . | quote }}
+        {{- end }}
+      index_prefix: {{ .Values.config.opensearch.index_prefix | quote }}
+      logstash_date_format: {{ .Values.config.opensearch.logstash_date_format | quote }}
+      batch_size: {{ .Values.config.opensearch.batch_size }}
+      flush_interval: {{ .Values.config.opensearch.flush_interval }}
+      {{- if .Values.config.opensearch.username }}
+      username: {{ .Values.config.opensearch.username | quote }}
+      {{- end }}
+      {{- if .Values.config.opensearch.password }}
+      password: {{ .Values.config.opensearch.password | quote }}
+      {{- end }}
+      tls_skip_verify: {{ .Values.config.opensearch.tls_skip_verify }}
+
+    metrics:
+      enabled: true
+      port: {{ .Values.metrics.port }}
+      path: {{ .Values.metrics.path }}
+
+    logging:
+      level: {{ .Values.config.logging.level }}
+      format: {{ .Values.config.logging.format }}
+
+    automation_agents:
+      names:
+        {{- range .Values.config.automation_agents.names }}
+        - {{ . | quote }}
+        {{- end }}

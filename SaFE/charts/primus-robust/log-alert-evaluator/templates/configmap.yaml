@@ -1,0 +1,22 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "log-alert-evaluator.fullname" . }}-config
+  labels:
+    {{- include "log-alert-evaluator.labels" . | nindent 4 }}
+data:
+  config.yaml: |
+    cluster_name: {{ .Values.config.clusterName | default "default" | quote }}
+    server:
+      port: {{ .Values.service.port }}
+    evaluator:
+      interval_seconds: {{ .Values.config.evaluator.intervalSeconds | default 60 }}
+      lookback_seconds: {{ .Values.config.evaluator.lookbackSeconds | default 300 }}
+      retention_days: {{ .Values.config.evaluator.retentionDays | default 30 }}
+      max_alerts_per_cycle: {{ .Values.config.evaluator.maxAlertsPerCycle | default 100 }}
+    database:
+      host: {{ .Values.database.host | quote }}
+      port: {{ .Values.database.port | default 5432 }}
+      user: {{ .Values.database.user | quote }}
+      dbname: {{ .Values.database.dbname | quote }}
+      sslmode: {{ .Values.database.sslmode | default "require" | quote }}

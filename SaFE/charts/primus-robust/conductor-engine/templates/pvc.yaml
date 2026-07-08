@@ -1,0 +1,24 @@
+{{- if and .Values.claw .Values.claw.enable .Values.claw.extensions_pvc.create }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ .Values.claw.extensions_pvc.name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: robust-claw-unified
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    # Populate this PVC with extension packages + plugin bundles + skills
+    # before (or on first) rollout. See docs/plugin-architecture.md for the
+    # expected directory layout under /plugins, /pkgs, /skills.
+    helm.sh/resource-policy: keep
+spec:
+  accessModes:
+    - {{ .Values.claw.extensions_pvc.access_mode }}
+  resources:
+    requests:
+      storage: {{ .Values.claw.extensions_pvc.size }}
+  {{- if .Values.claw.extensions_pvc.storage_class }}
+  storageClassName: {{ .Values.claw.extensions_pvc.storage_class }}
+  {{- end }}
+{{- end }}

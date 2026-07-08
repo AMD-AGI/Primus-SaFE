@@ -1,0 +1,21 @@
+{{- if and .Values.robust_claw_worker .Values.robust_claw_worker.enable }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: robust-claw
+  namespace: {{ .Values.robust_claw_worker.namespace }}
+  labels:
+    app: robust-claw
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: {{ .Values.robust_claw_worker.service_type }}
+  selector:
+    app: robust-claw
+  ports:
+    - name: http
+      port: {{ .Values.robust_claw_worker.port }}
+      targetPort: {{ .Values.robust_claw_worker.port }}
+      {{- if and (eq .Values.robust_claw_worker.service_type "NodePort") .Values.robust_claw_worker.node_port }}
+      nodePort: {{ .Values.robust_claw_worker.node_port }}
+      {{- end }}
+{{- end }}

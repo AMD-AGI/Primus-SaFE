@@ -1,0 +1,18 @@
+{{- if .Values.inputs.dmesg.enabled }}
+apiVersion: fluentbit.fluent.io/v1alpha2
+kind: ClusterInput
+metadata:
+  name: dmesg
+  labels:
+    fluentbit.fluent.io/enabled: "true"
+spec:
+  systemd:
+    tag: dmesg.*
+    path: {{ .Values.inputs.dmesg.journalPath }}
+    db: /fluent-bit/tail/dmesg.db
+    dbSync: Normal
+    storageType: memory
+    stripUnderscores: "off"
+    systemdFilter:
+    - _TRANSPORT=kernel
+{{- end }}

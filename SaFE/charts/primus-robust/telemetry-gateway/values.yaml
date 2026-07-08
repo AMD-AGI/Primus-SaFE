@@ -1,0 +1,116 @@
+# Default values for telemetry-gateway
+
+replicaCount: 1
+
+image:
+  repository: telemetry-gateway
+  pullPolicy: IfNotPresent
+  tag: ""
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+podAnnotations: {}
+podSecurityContext: {}
+
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 65534
+
+service:
+  type: ClusterIP
+  port: 8084
+  # gRPC port that ingests device-exporter pushes (device inventory +
+  # pod_device bindings). Must match devices.port below.
+  grpcPort: 8085
+
+# Device entity ingestion gRPC server (device-exporter -> gRPC -> postgres)
+devices:
+  enabled: true
+  port: 8085
+
+resources:
+  limits:
+    cpu: 500m
+    memory: 512Mi
+  requests:
+    cpu: 100m
+    memory: 128Mi
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+# PostgreSQL connection
+database:
+  host: "robust-db-primary.primus-robust.svc"
+  port: 5432
+  user: "robust"
+  dbname: "robust"
+  sslmode: "require"
+  maxOpenConns: 10
+  maxIdleConns: 3
+  existingSecret: "robust-db-pguser-robust"
+  password: ""
+
+# Metrics pipeline
+metrics:
+  enabled: true
+  forwardUrl: ""
+  relabelPrefix: "workload_"
+  # Optional secondary forward: in addition to forwardUrl, push ONLY the enriched
+  # series whose __name__ is in globalForwardMetrics to globalForwardUrl (e.g. a
+  # global VictoriaMetrics). Used for workload-level cross-cluster reporting —
+  # the enriched workload_* metrics carry workload_uid/name/namespace so a central
+  # store can roll up per-workload even for multi-pod workloads. Leave empty to
+  # disable. globalForwardInsecure skips TLS verification (self-signed ingress).
+  globalForwardUrl: ""
+  globalForwardMetrics: []
+  globalForwardInsecure: false
+
+# Logs pipeline
+logs:
+  enabled: true
+
+# Events pipeline
+events:
+  enabled: true
+
+# Alerts pipeline
+alerts:
+  enabled: true
+  webhookUrl: ""
+  clusterName: ""
+  ruleSync:
+    enabled: false
+    outputDir: "/etc/vmalert/rules"
+    vmalertUrl: ""
+    syncInterval: "30s"
+
+# VMAlert sidecar
+vmalert:
+  enabled: false
+  image:
+    repository: victoriametrics/vmalert
+    tag: "v1.102.0"
+  datasourceUrl: ""
+  remoteReadUrl: ""
+  remoteWriteUrl: ""
+  evaluationInterval: "30s"
+  resources:
+    limits:
+      cpu: 200m
+      memory: 256Mi
+    requests:
+      cpu: 50m
+      memory: 64Mi
+
+# Cache settings
+cache:
+  refreshInterval: "20s"

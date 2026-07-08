@@ -1,0 +1,83 @@
+apiVersion: v2
+name: primus-robust-stack
+description: All CRs, services, and agents for Primus Robust data-plane
+type: application
+version: 1.0.6
+appVersion: "1.0.6"
+
+dependencies:
+  # --- Observability CRs ---
+  - name: primus-robust-victoriametrics
+    version: ">=0.1.0"
+    repository: "file://../victoriametrics-cluster"
+    alias: metrics
+  - name: primus-robust-vmagent
+    version: ">=0.1.0"
+    repository: "file://../vmagent"
+    alias: vmagent
+  - name: primus-robust-opensearch
+    version: ">=0.1.0"
+    repository: "file://../opensearch-cluster"
+    alias: logs
+  - name: primus-robust-fluentbit
+    version: ">=0.1.0"
+    repository: "file://../fluentbit"
+    alias: fluentbit
+  - name: primus-robust-kube-state-metrics
+    version: ">=0.1.0"
+    repository: "file://../operators/kube-state-metrics"
+    alias: kube-state-metrics
+    condition: kube-state-metrics.enabled
+
+  # --- Core Services ---
+  - name: fault-manager
+    version: ">=0.1.0"
+    repository: "file://../fault-manager"
+  - name: workload-manager
+    version: ">=0.1.0"
+    repository: "file://../workload-manager"
+  - name: telemetry-gateway
+    version: ">=0.1.0"
+    repository: "file://../telemetry-gateway"
+  - name: robust-analyzer
+    version: ">=0.1.0"
+    repository: "file://../robust-analyzer"
+  - name: api
+    version: ">=0.1.0"
+    repository: "file://../api"
+  - name: container-event-exporter
+    version: ">=0.1.0"
+    repository: "file://../container-event-exporter"
+    condition: container-event-exporter.enabled
+  - name: log-alert-evaluator
+    version: ">=0.1.0"
+    repository: "file://../log-alert-evaluator"
+    condition: log-alert-evaluator.enabled
+  - name: conductor-engine
+    version: ">=0.1.0"
+    repository: "file://../conductor-engine"
+    condition: conductor-engine.enabled
+  - name: robust-claw-worker
+    version: ">=0.1.0"
+    repository: "file://../robust-claw-worker"
+    condition: robust-claw-worker.enabled
+
+  # --- Node Agents (DaemonSets) ---
+  - name: fault-agent
+    version: ">=0.1.0"
+    repository: "file://../fault-agent"
+  - name: device-exporter
+    version: ">=0.1.0"
+    repository: "file://../device-exporter"
+  - name: gpu-exporter
+    version: ">=0.1.0"
+    repository: "file://../gpu-exporter"
+  - name: rdma-exporter
+    version: ">=0.1.0"
+    repository: "file://../rdma-exporter"
+  - name: network-exporter
+    version: ">=0.1.0"
+    repository: "file://../network-exporter"
+  - name: audit-agent
+    version: ">=0.1.0"
+    repository: "file://../audit-agent"

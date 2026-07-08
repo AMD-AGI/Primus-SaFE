@@ -1,0 +1,28 @@
+apiVersion: v2
+name: primus-robust-operators
+description: All operators and CRDs for Primus Robust data-plane
+type: application
+version: 1.0.0
+appVersion: "1.0.0"
+
+dependencies:
+  - name: primus-robust-pgo
+    version: ">=0.1.0"
+    repository: "file://../operators/pgo"
+    condition: pgo.enabled
+  - name: primus-robust-vm-operator
+    version: ">=0.1.0"
+    repository: "file://../operators/victoria-metrics-operator"
+    condition: vmOperator.enabled
+  - name: primus-robust-opensearch-operator
+    version: ">=0.1.0"
+    repository: "file://../operators/opensearch-operator"
+    condition: opensearchOperator.enabled
+  - name: primus-robust-fluent-operator-core
+    version: ">=0.1.0"
+    repository: "file://../operators/fluent-operator-core"
+    condition: fluentOperator.enabled
+  - name: primus-robust-grafana-operator
+    version: ">=0.1.0"
+    repository: "file://../operators/grafana-operator"
+    condition: grafanaOperator.enabled

@@ -1,0 +1,6 @@
+apiVersion: v2
+name: log-alert-evaluator
+description: Evaluates container event patterns against alert rules and fires alerts
+type: application
+version: 0.1.0
+appVersion: "0.1.0"

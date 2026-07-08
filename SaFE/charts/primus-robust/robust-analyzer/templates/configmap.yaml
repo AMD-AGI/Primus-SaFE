@@ -1,0 +1,65 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "robust-analyzer.fullname" . }}-config
+  labels:
+    {{- include "robust-analyzer.labels" . | nindent 4 }}
+data:
+  config.yaml: |
+    role: {{ .Values.role | default "combined" }}
+
+    server:
+      port: {{ .Values.service.port }}
+
+    database:
+      host: {{ .Values.database.host }}
+      port: {{ .Values.database.port }}
+      user: {{ .Values.database.user }}
+      password: "${DB_PASSWORD}"
+      dbname: {{ .Values.database.dbname }}
+      sslmode: {{ .Values.database.sslmode }}
+      max_open_conns: 10
+      max_idle_conns: 3
+
+    modules:
+      training_analyzer:
+        enabled: true
+        log_parser:
+          enabled: true
+          reload_interval: 60s
+        wandb:
+          enabled: true
+        tensorboard:
+          enabled: true
+          scan_interval: 30s
+        nfs_watcher:
+          enabled: true
+          scan_interval: 60s
+        inference:
+          enabled: false
+        advisor:
+          enabled: true
+          collection_delay: 30s
+          analysis_interval: 60s
+          fault_manager_url: {{ .Values.modules.trainingAnalyzer.advisor.faultManagerUrl | quote }}
+
+      telemetry_gateway:
+        enabled: false
+
+      aggregator:
+        enabled: true
+        vm_base_url: {{ .Values.modules.aggregator.vmBaseUrl | quote }}
+        scrape_interval: 300s
+
+      robust_api:
+        enabled: true
+        vm_base_url: {{ .Values.modules.robustApi.vmBaseUrl | quote }}
+        fault_manager_url: {{ .Values.modules.robustApi.faultManagerUrl | quote }}
+        opensearch_host: {{ .Values.modules.robustApi.opensearchHost | quote }}
+        opensearch_user: {{ .Values.modules.robustApi.opensearchUser | quote }}
+        {{- if .Values.modules.robustApi.opensearchExistingSecret }}
+        opensearch_password: "${OPENSEARCH_PASSWORD}"
+        {{- else }}
+        opensearch_password: {{ .Values.modules.robustApi.opensearchPassword | quote }}
+        {{- end }}
+        opensearch_insecure_skip_verify: {{ .Values.modules.robustApi.opensearchInsecureSkipVerify | default false }}

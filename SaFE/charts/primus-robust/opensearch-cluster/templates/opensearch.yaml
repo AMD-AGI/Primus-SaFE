@@ -1,0 +1,62 @@
+{{- if .Values.opensearch.enabled }}
+apiVersion: opensearch.opster.io/v1
+kind: OpenSearchCluster
+metadata:
+  name: {{ .Values.opensearch.name }}
+  namespace: {{ .Values.global.namespace }}
+spec:
+  general:
+    version: {{ .Values.opensearch.version | quote }}
+    httpPort: {{ .Values.opensearch.httpPort }}
+    serviceName: {{ .Values.opensearch.name }}
+    pluginsList: []
+    setVMMaxMapCount: true
+    {{- if .Values.global.imageRegistry }}
+    image: "{{ .Values.global.imageRegistry }}/opensearchproject/opensearch:{{ .Values.opensearch.version }}"
+    {{- end }}
+  {{- if .Values.global.imageRegistry }}
+  initHelper:
+    image: "{{ .Values.global.imageRegistry }}/busybox:latest"
+  {{- end }}
+
+  {{- if .Values.opensearch.dashboards.enabled }}
+  dashboards:
+    enable: true
+    version: {{ .Values.opensearch.version | quote }}
+    replicas: {{ .Values.opensearch.dashboards.replicas }}
+    {{- with (.Values.global | default dict).affinity }}
+    affinity:
+      {{- toYaml . | nindent 6 }}
+    {{- end }}
+  {{- end }}
+
+  nodePools:
+  {{- range .Values.opensearch.nodePools }}
+    - component: {{ .name }}
+      replicas: {{ .replicas }}
+      roles:
+        {{- toYaml .roles | nindent 8 }}
+      diskSize: {{ .diskSize | quote }}
+      jvm: {{ .jvm | quote }}
+      resources:
+        {{- toYaml .resources | nindent 8 }}
+      persistence:
+        pvc:
+          accessModes: [ReadWriteOnce]
+          {{- if $.Values.global.storageClass }}
+          storageClass: {{ $.Values.global.storageClass }}
+          {{- end }}
+      {{- with ($.Values.global | default dict).affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+  {{- end }}
+
+  security:
+    config: {}
+    tls:
+      transport:
+        generate: true
+      http:
+        generate: true
+{{- end }}

@@ -1,0 +1,28 @@
+{{- if .Values.serviceAccount.create }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "fault-agent.fullname" . }}
+  labels:
+    {{- include "fault-agent.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: ["nodes"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "fault-agent.fullname" . }}
+  labels:
+    {{- include "fault-agent.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "fault-agent.fullname" . }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "fault-agent.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+{{- end }}
+

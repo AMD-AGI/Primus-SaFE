@@ -1,0 +1,32 @@
+global:
+  namespace: "primus-robust"
+  storageClass: "local-path"
+
+opensearch:
+  enabled: true
+  name: "primus-robust-logs"
+  version: "2.11.0"
+  httpPort: 9200
+
+  dashboards:
+    enabled: false
+    replicas: 1
+
+  adminSecretName: ""
+
+  nodePools:
+    - name: "nodes"
+      replicas: 3
+      roles:
+        - master
+        - data
+        - ingest
+      diskSize: "100Gi"
+      jvm: "-Xms2g -Xmx2g"
+      resources:
+        requests:
+          cpu: "500m"
+          memory: "4Gi"
+        limits:
+          cpu: "2000m"
+          memory: "8Gi"

@@ -1,0 +1,56 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "telemetry-gateway.fullname" . }}-config
+  labels:
+    {{- include "telemetry-gateway.labels" . | nindent 4 }}
+data:
+  config.yaml: |
+    server:
+      port: {{ .Values.service.port }}
+
+    database:
+      host: {{ .Values.database.host | quote }}
+      port: {{ .Values.database.port }}
+      user: {{ .Values.database.user | quote }}
+      password: "${DB_PASSWORD}"
+      dbname: {{ .Values.database.dbname | quote }}
+      sslmode: {{ .Values.database.sslmode | quote }}
+      max_open_conns: {{ .Values.database.maxOpenConns }}
+      max_idle_conns: {{ .Values.database.maxIdleConns }}
+
+    metrics:
+      enabled: {{ .Values.metrics.enabled }}
+      forward_url: {{ .Values.metrics.forwardUrl | quote }}
+      relabel_prefix: {{ .Values.metrics.relabelPrefix | quote }}
+      {{- if .Values.metrics.globalForwardUrl }}
+      global_forward_url: {{ .Values.metrics.globalForwardUrl | quote }}
+      global_forward_insecure: {{ .Values.metrics.globalForwardInsecure | default false }}
+      global_forward_metrics:
+        {{- range .Values.metrics.globalForwardMetrics }}
+        - {{ . | quote }}
+        {{- end }}
+      {{- end }}
+
+    logs:
+      enabled: {{ .Values.logs.enabled }}
+
+    events:
+      enabled: {{ .Values.events.enabled }}
+
+    alerts:
+      enabled: {{ .Values.alerts.enabled }}
+      webhook_url: {{ .Values.alerts.webhookUrl | quote }}
+      cluster_name: {{ .Values.alerts.clusterName | quote }}
+      rule_sync:
+        enabled: {{ .Values.alerts.ruleSync.enabled }}
+        output_dir: {{ .Values.alerts.ruleSync.outputDir | quote }}
+        vmalert_url: {{ .Values.alerts.ruleSync.vmalertUrl | quote }}
+        sync_interval: {{ .Values.alerts.ruleSync.syncInterval | quote }}
+
+    cache:
+      refresh_interval: {{ .Values.cache.refreshInterval | quote }}
+
+    devices:
+      enabled: {{ .Values.devices.enabled }}
+      port: {{ .Values.devices.port }}

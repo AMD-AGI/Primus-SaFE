@@ -1,0 +1,71 @@
+image:
+  repository: audit-agent
+  tag: latest
+  pullPolicy: IfNotPresent
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 200m
+    memory: 256Mi
+
+metrics:
+  port: 9102
+  path: /metrics
+
+config:
+  ssh:
+    enabled: true
+    poll_interval: 5s
+    track_commands: true
+  file_watch:
+    enabled: true
+    paths:
+      - "/etc/"
+    exclude_patterns:
+      - "*.swp"
+      - "*.tmp"
+      - "*~"
+      - "/etc/mtab"
+    max_events_per_second: 100
+  net_config:
+    enabled: true
+    poll_interval: 30s
+  sysctl:
+    enabled: true
+    poll_interval: 60s
+  services:
+    enabled: true
+    poll_interval: 30s
+  bpf:
+    enabled: true
+  report:
+    enabled: false
+    endpoint: "fault-manager:8081"
+  opensearch:
+    enabled: false
+    endpoints:
+      - "https://opensearch.primus-robust.svc:9200"
+    index_prefix: "audit-events"
+    logstash_date_format: "2006.01.02"
+    batch_size: 100
+    flush_interval: "10s"
+    username: ""
+    password: ""
+    tls_skip_verify: true
+  logging:
+    level: info
+    format: json
+  automation_agents:
+    names:
+      - puppet
+      - salt-minion
+      - salt-call
+      - ansible-playbook
+      - ansible
+      - chef-client
+
+nodeSelector: {}
+tolerations: []

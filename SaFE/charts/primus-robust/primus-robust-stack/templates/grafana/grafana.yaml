@@ -1,0 +1,66 @@
+{{- if .Values.grafana.enabled }}
+apiVersion: grafana.integreatly.org/v1beta1
+kind: Grafana
+metadata:
+  name: primus-robust-grafana
+  namespace: {{ include "primus-robust.namespace" . }}
+  labels:
+    dashboards: "primus-robust"
+    app.kubernetes.io/component: grafana
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+spec:
+  config:
+    log:
+      mode: "console"
+    server:
+      root_url: "http://127.0.0.1:30183/grafana"
+      serve_from_sub_path: "true"
+    security:
+      admin_user: admin
+      admin_password: {{ .Values.grafana.adminPassword | default "admin" }}
+      allow_embedding: "true"
+    auth.anonymous:
+      enabled: "true"
+  deployment:
+    spec:
+      replicas: 1
+      template:
+        spec:
+          {{- if .Values.global.imagePullSecrets }}
+          imagePullSecrets:
+            {{- range .Values.global.imagePullSecrets }}
+            - name: {{ . }}
+            {{- end }}
+          {{- end }}
+          volumes:
+            - name: db-secret
+              secret:
+                secretName: {{ .Values.database.existingSecret | default "robust-db-pguser-robust" }}
+          containers:
+            - name: grafana
+              volumeMounts:
+                - name: db-secret
+                  mountPath: /etc/secrets/db
+                  readOnly: true
+              resources:
+                requests:
+                  cpu: "200m"
+                  memory: "256Mi"
+                limits:
+                  cpu: "1000m"
+                  memory: "1Gi"
+  service:
+    metadata:
+      labels:
+        app: grafana
+    spec:
+      type: ClusterIP
+  persistentVolumeClaim:
+    spec:
+      accessModes:
+        - ReadWriteOnce
+      resources:
+        requests:
+          storage: 1Gi
+      storageClassName: {{ .Values.global.storageClass }}
+{{- end }}

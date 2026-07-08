@@ -1,0 +1,6 @@
+apiVersion: v2
+name: container-event-exporter
+description: Watches K8s container events and stores them in PostgreSQL
+type: application
+version: 0.1.0
+appVersion: "0.1.0"

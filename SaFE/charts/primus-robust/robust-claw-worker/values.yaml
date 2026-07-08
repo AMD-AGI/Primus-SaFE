@@ -1,0 +1,54 @@
+global:
+  image_registry: "docker.io"
+  image_pull_secret: "primus-safe-image"
+  node_selector: {}
+  tolerations: []
+
+# ---------------------------------------------------------------------------
+# robust-claw-worker (data-plane agent-engine worker)
+#
+# Deploy this in each data-plane cluster (NOT in the management cluster).
+# The management-side claw discovers it via the Cluster CRD's controlPlane
+# host + the NodePort declared here.
+# ---------------------------------------------------------------------------
+robust_claw_worker:
+  enable: false
+  namespace: "primus-robust"
+  create_namespace: true
+  image: "docker.io/primussafe/robust-claw:latest"
+  image_pull_policy: "Always"
+  replicas: 1
+  port: 8800
+  node_port: 30198
+  service_type: "NodePort"
+
+  cpu: "4"
+  memory: "4Gi"
+  cpu_request: "1"
+  memory_request: "2Gi"
+
+  skills_dir: "/workspace/skills"
+  model: "claude-opus-4-6"
+  tags: "robust-claw,agent-engine"
+
+  openai_base_url: ""
+  openai_api_key: ""
+  anthropic_base_url: ""
+  anthropic_api_key: ""
+
+  rbac:
+    cluster_admin: true
+    custom_rules: []
+
+  shared_nfs:
+    enable: true
+    type: "hostPath"
+    mount_path: "/shared_nfs"
+    host_path: "/shared_nfs"
+    workspace_subpath: ""
+    pvc: ""
+    nfs_server: ""
+    nfs_path: ""
+
+  node_selector: {}
+  tolerations: []
