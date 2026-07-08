@@ -231,6 +231,64 @@ func TestGuaranteeDefaultAddonCreatesAddon(t *testing.T) {
 	assert.NoError(t, r.Get(context.Background(), client.ObjectKey{Name: "c1-infera-operator"}, addon))
 }
 
+func TestGuaranteeDefaultAddonDeletesLegacyAutoNginx(t *testing.T) {
+	cluster := testCluster("c1")
+	cluster.UID = "uid-c1"
+	template := &v1.AddonTemplate{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:   "infera-operator.0.1.0",
+			Labels: map[string]string{v1.AddonDefaultLabel: ""},
+		},
+	}
+	nginx := legacyAutoNginxAddon(cluster, "")
+	r := newPlaneReconciler(t, cluster, template, nginx)
+
+	_, err := r.guaranteeDefaultAddon(context.Background(), cluster)
+	assert.NoError(t, err)
+
+	addon := &v1.Addon{}
+	assert.NoError(t, r.Get(context.Background(), client.ObjectKey{Name: "c1-infera-operator"}, addon))
+	assert.Error(t, r.Get(context.Background(), client.ObjectKey{Name: "c1-nginx"}, &v1.Addon{}))
+}
+
+func TestGuaranteeDefaultAddonKeepsCustomizedNginx(t *testing.T) {
+	cluster := testCluster("c1")
+	cluster.UID = "uid-c1"
+	nginx := legacyAutoNginxAddon(cluster, "service:\n  type: NodePort\n")
+	r := newPlaneReconciler(t, cluster, nginx)
+
+	_, err := r.guaranteeDefaultAddon(context.Background(), cluster)
+	assert.NoError(t, err)
+
+	addon := &v1.Addon{}
+	assert.NoError(t, r.Get(context.Background(), client.ObjectKey{Name: "c1-nginx"}, addon))
+}
+
+func legacyAutoNginxAddon(cluster *v1.Cluster, values string) *v1.Addon {
+	return &v1.Addon{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: cluster.Name + "-nginx",
+			OwnerReferences: []metav1.OwnerReference{{
+				APIVersion: cluster.APIVersion,
+				Kind:       cluster.Kind,
+				Name:       cluster.Name,
+				UID:        cluster.UID,
+			}},
+		},
+		Spec: v1.AddonSpec{
+			AddonSource: v1.AddonSource{
+				HelmRepository: &v1.HelmRepository{
+					ReleaseName: deprecatedDefaultNginxRelease,
+					Values:      values,
+					Template: &corev1.ObjectReference{
+						Name: deprecatedDefaultNginxTemplate,
+					},
+				},
+			},
+		},
+	}
+}
+
 func TestUpdateClusterKubeConfigNilConfig(t *testing.T) {
 	cluster := testCluster("c1")
 	r := newPlaneReconciler(t, cluster)
