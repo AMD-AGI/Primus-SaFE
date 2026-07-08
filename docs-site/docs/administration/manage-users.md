@@ -152,13 +152,11 @@ for how to mint, scope (TTL, IP allowlist), and revoke them.
 
 ## The bootstrap administrator
 
-The installer creates an initial `system-admin` account (the "root" admin) so you can sign in
-the very first time and create/authorize everyone else. Treat it as break-glass: keep its
-credentials safe and prefer day-to-day administration through named admin accounts.
-
-> **Not yet covered:**
-> - [ ] Document the bootstrap admin's default name and where its initial password is set
->       (install `.env` / Helm value), and how to rotate it.
+The installer creates an initial `system-admin` account so you can sign in the very first time
+and create/authorize everyone else. Its default credentials are username **`root`** / password
+**`root`** — **change the password immediately** after your first sign-in. Treat this account as
+break-glass: keep its credentials safe and prefer day-to-day administration through named admin
+accounts.
 
 ## Assign workspace access and roles
 

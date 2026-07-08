@@ -5,8 +5,7 @@ title: Fault tolerance & faults
 
 # Fault tolerance & faults
 
-At scale, the primary factor for low GPU utilization is rarely the failing jobs — often times a broken node, a flaky
-link, or a single bad GPU would stall the entire distributed run. Primus-SaFE achieves high **goodput** by detecting these conditions and recovering automatically. 
+At scale, the main cause of low GPU utilization is rarely the job itself. More often a broken node, a flaky link, or a single bad GPU stalls the entire distributed run. Primus-SaFE achieves high **goodput** by detecting these conditions and recovering from them automatically.
 
 ## The `Fault` resource
 

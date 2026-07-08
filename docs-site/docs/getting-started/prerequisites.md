@@ -33,6 +33,19 @@ cluster's API):
   to run distributed training across nodes.
 - **Shared filesystem (optional)** — a high-performance Parallel File System (PFS) to support a production system.
 
+## Network ports
+
+Open the following ports so the cluster and its users can communicate:
+
+| Port | Protocol | Purpose | Exposure |
+|------|----------|---------|----------|
+| `443` | TCP | HTTPS access to the console | External |
+| `80` | TCP | HTTP (redirects/ingress) | External |
+| `2222` | TCP | WebShell / SSH into pods | External |
+| `6443` | TCP | Kubernetes API server | External (optional) |
+| `22` | TCP | SSH between cluster nodes | Internal — no need to expose externally |
+| `2379`, `2380` | TCP | etcd peer/client communication | Internal — must be reachable between control-plane nodes, no need to expose externally |
+
 ## Choose your starting point
 
 | You have… | Start with |

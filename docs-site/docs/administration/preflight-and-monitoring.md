@@ -26,6 +26,13 @@ In the console, go to **System → Bench** and click **Create Bench**:
 
 ![Create Bench (pre-flight) form](/img/screenshots/preflight-create-form.png)
 
+:::note The check runs whatever your image does
+A pre-flight check is only as good as the **image** you point it at — the platform runs the
+container and reports pass/fail, but it does not ship a generic check image. In practice the check
+image often has to be tailored to a cluster's hardware. If you don't have a suitable image,
+prefer **Primus-Bench** (below), which ships ready-made node health/performance checks.
+:::
+
 <!-- @test
 scope: page
 mode: behavior

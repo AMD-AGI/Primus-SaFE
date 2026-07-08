@@ -33,16 +33,15 @@ Skip this step **only** if you already have a Kubernetes 1.21+ cluster with clus
 `kubectl` and `helm` access. Otherwise it is required.
 
 **a. Describe your nodes.** Edit the inventory file `Primus-SaFE/Bootstrap/hosts.ini`. It is a
-standard Ansible inventory: list every machine under `[all]`, then assign each to roles. Use an
-**odd number** of control-plane / etcd members (1 or 3) so etcd has a quorum.
+standard Ansible inventory. Use it to define **only the control-plane / etcd nodes** — use an
+**odd number** of them (1 or 3) so etcd has a quorum. Listing the same nodes under `[kube_node]`
+lets the control plane also run workloads.
 
 ```ini
 [all]
 node-01 ansible_host=10.0.0.11 ip=10.0.0.11 ansible_user=root
 node-02 ansible_host=10.0.0.12 ip=10.0.0.12 ansible_user=root
 node-03 ansible_host=10.0.0.13 ip=10.0.0.13 ansible_user=root
-node-04 ansible_host=10.0.0.14 ip=10.0.0.14 ansible_user=root
-# ...add the rest of your GPU worker nodes (node-05, node-06, ...)
 
 [kube_control_plane]
 node-01
@@ -58,22 +57,29 @@ node-03
 node-01
 node-02
 node-03
-node-04
-# ...and every other GPU worker node
 
 [k8s_cluster:children]
 kube_control_plane
 kube_node
 ```
 
-Here `node-01`–`node-03` are the control-plane / etcd members, and every node (including more
-workers beyond `node-04`) goes under `[kube_node]` so it can run GPU workloads.
+:::note Add GPU workers through the console, not here
+The recommended practice is **not** to add extra GPU worker nodes to `hosts.ini`. Use this file
+only to define and configure the control-plane / etcd nodes; add worker nodes to the cluster
+later through the Primus-SaFE console (see [Manage nodes](/administration/manage-nodes)). Listing
+the control-plane nodes under `[kube_node]` is what lets them also run workloads.
+:::
 
 - `ansible_host` / `ip` are the addresses the installer and the other nodes use to reach each
   machine — use the private cluster network.
-- Put every GPU worker in `[kube_node]`. A node may be both a control-plane node and a worker.
 - If the deploy host reaches the nodes with a non-default SSH key, add
   `ansible_ssh_private_key_file=/path/to/key` to each `[all]` line.
+
+:::warning Node hostnames are set from this file
+Running Kubespray renames each node's hostname to the name you give it here. Keep these names
+stable and correct up front, because a node's hostname must stay the same for downstream systems
+(for example IAM / identity management) to keep working.
+:::
 
 **b. Run Bootstrap.**
 
@@ -94,15 +100,18 @@ helm list -A
 ### 2. Set up a storage class — required
 
 The platform stores persistent state — its database, message queue, and backups — on Kubernetes
-**PersistentVolumes**, which need a default **StorageClass**. Create one based on your needs before proceeding:
+**PersistentVolumes**, which need a default **StorageClass**. Without one those volumes never
+bind and the install stalls. Create one before installing; choose based on your needs:
 
 - **Local path** — simplest, and what most evaluations use. Backs each volume with a directory
-  on the host. It provides no replication and data is tied to that node:
+  on the node where the pod runs (no replication; data is tied to that node):
 
   ```bash
   cd Primus-SaFE/Bootstrap/storage/local-path
   bash local-path.sh        # prompts for the directory to use, e.g. /data
   ```
+
+  Installs the local-path provisioner and a `local-path` StorageClass.
 
 - **Rook-Ceph** — production-grade replicated block storage (and an optional S3 endpoint). Use
   this when you need replication, shared (RWX) volumes, or object storage. Requires spare raw
@@ -113,20 +122,29 @@ The platform stores persistent state — its database, message queue, and backup
   bash ceph.sh
   ```
 
-You can choose any storage providers that supports StorageClass. Also save the StorageClass name, which
-will be needed in Step 4.
+In short: **local-path** is simple and fine for evaluation and single-node durability;
+**Rook-Ceph** (or any production CSI) replicates across nodes, survives a node failure, and adds
+shared (RWX) volumes and S3. Any CSI that provides a default StorageClass works. Note the name —
+you give it to the installer in step 4.
 
 ### 3. Gateway and private registry — optional
 
 Skip this step for a quick start: the platform works with built-in NodePort access and public
 images. Add these when you want domain-based access or an in-cluster registry.
 
-**Higress gateway** — provides a complete Ingress/Gateway solution for production-grade clusters.
+**Higress gateway** — serves the console (and SSH-to-pods on port `2222`) on a **domain** instead
+of a node port. It is a two-part setup:
+
+1. Install the gateway here, once:
 
    ```bash
    cd Primus-SaFE/Bootstrap/higress
    bash higress.sh
    ```
+
+2. Then, in step 4, choose `higress` as the ingress and enter a cluster name; the installer
+   publishes the console through this gateway at your domain. (If you choose `nginx` instead, you
+   skip Higress entirely and reach the console on NodePort `30183`.)
 
 **Harbor registry** — an in-cluster container registry, useful for private images and to cache
 public ones close to the cluster. It needs a StorageClass (step 2), cert-manager (installed by
@@ -167,10 +185,11 @@ The script is interactive. The prompts you are most likely to set:
 
 | Prompt | What it is |
 |--------|------------|
+| `cluster name` | Names the cluster and becomes its subdomain (e.g. `tas325` → `tas325.primus-safe.amd.com`). You use this to reach the cluster ingress later, so pick it deliberately. |
 | `ethernet nic` | The Ethernet interface distributed jobs use for NCCL/RCCL control traffic and TCP fallback (sets `NCCL_SOCKET_IFNAME`). Default `eno0`. |
 | `rdma nic` | The RDMA/RoCE devices distributed jobs use for high-speed GPU-to-GPU transfers (sets `NCCL_IB_HCA`). Default `rdma0,…,rdma7`. |
 | `storage_class` | The StorageClass from step 2 (default `local-path`; must already exist). |
-| `ingress` | `nginx` (console on NodePort `30183`) or `higress` (requires step 3). |
+| `ingress` | `nginx` (console on NodePort `30183`) or `higress` (domain-based; requires step 3). |
 | Image pull secret | Credentials for a private registry, or an empty placeholder. |
 | `cluster_scale` | `small` / `medium` / `large` — sizes the control-plane replicas and resources. |
 | S3 storage | Optional — endpoint, bucket, and keys for log download and object features. |
@@ -191,12 +210,13 @@ override the NCCL variables per workload if a node differs).
 
 The installer creates the required secrets, deploys the admin-plane services (apiserver,
 webhooks, controllers, database operator), applies the custom resources, and writes a `.env`
-file that persists the current settings that can be reused future upgrades.
+file so future upgrades reuse your answers.
 
 ### 5. Access the console
 
 - **nginx ingress:** open `http://<any-node-ip>:30183`.
-- **higress ingress:** open `https://<your-cluster-domain>` (Set up your DNS entry to point the IP to the Higress Gateway).
+- **higress ingress:** open `https://<your-cluster-domain>` (if DNS for the domain is not set up
+  yet, the web service is also reachable on its NodePort).
 
 Log in with the seeded admin account **`root` / `root`** (role `system-admin`).
 **Change this password immediately.**

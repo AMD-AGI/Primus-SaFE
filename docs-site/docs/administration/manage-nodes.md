@@ -54,6 +54,13 @@ profile), **node template** (software/addons), and **SSH secret** (login credent
 console, open **System → Nodes → Create Node** and fill in the hostname, private IP, flavor,
 template, and SSH secret:
 
+:::warning Authorize the deploy node's SSH key first
+Before registering a node, take the SSH **public** key that the platform uses (the one paired
+with the registered SSH secret / the deploy node's key) and add it to `/root/.ssh/authorized_keys`
+on every node you want to add. Without this the resource-manager cannot SSH in, and the node will
+land in `SSHFailed`. This is an easy step to miss.
+:::
+
 ![Create Node form](/img/screenshots/create-node-form.png)
 
 The equivalent API call:
@@ -120,9 +127,14 @@ appears as schedulable capacity. Watch progress with `GET /api/v1/nodes/{nodeId}
 If the cluster was built by hand with the Bootstrap installer and only later registered in the
 console, the UI-driven join may stall (the platform's record can diverge from the real cluster).
 As a fallback you can add the node to your Kubespray inventory under `[kube_node]` (leave
-`[kube_control_plane]`/`[etcd]` untouched) and run `ansible-playbook -i <inventory> scale.yml
---limit=<node>` directly. Re-running the Bootstrap installer also works (it runs the idempotent
-`cluster.yml`) but is heavier as it touches every node.
+`[kube_control_plane]`/`[etcd]` untouched) and run the scale playbook directly:
+
+```bash
+ansible-playbook -i <inventory> scale.yml --limit=<node>
+```
+
+Re-running the Bootstrap installer also works (it runs the idempotent `cluster.yml`) but is
+heavier as it touches every node.
 :::
 
 :::note Node stuck in `Deleting`
@@ -151,7 +163,9 @@ small slice of each node, so schedulable capacity is slightly below the raw flav
 ## Move nodes between workspaces
 
 Capacity is assigned to a workspace by binding nodes to it; this is how you grow or shrink a
-workspace's quota. Add or remove nodes on the workspace:
+workspace's quota. In the console, open **System → Workspaces → \<workspace\>** and use its
+**Nodes** panel to add or remove nodes (this is the most common way node moves are done). The
+equivalent API call:
 
 ```bash
 curl -X POST https://<your-console>/api/v1/workspaces/<workspaceId>/nodes \
@@ -249,7 +263,10 @@ otherwise false-fault). Disable `net_ib_status_201` only if you have no working 
 
 ## Reboot a node
 
-A reboot runs as an asynchronous `reboot` **OpsJob**. Track it with the returned `jobId`:
+The usual way to reboot a node is from the console: open **System → Nodes**, find the node's row,
+and use its **Reboot** action. Under the hood a reboot runs as an asynchronous `reboot`
+**OpsJob**, which you can also drive directly through the API — track it with the returned
+`jobId`:
 
 ```bash
 curl -X POST https://<your-console>/api/v1/opsjobs \
@@ -264,7 +281,10 @@ curl -X POST https://<your-console>/api/v1/opsjobs \
 
 ## Remove a node from the cluster
 
-A node must be unbound from its cluster before deletion unless you force it:
+From the console, open **System → Nodes**, find the node's row, and use its **Delete** action
+(unbind it from its cluster first). Expect the node to take roughly **10–15 minutes** to fully
+unmanage before it disappears — this is normal. The equivalent API calls are below; a node must
+be unbound from its cluster before deletion unless you force it:
 
 ```bash
 # Single node (must be unbound unless force=true)
