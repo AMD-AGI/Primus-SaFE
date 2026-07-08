@@ -22,23 +22,10 @@ var (
 )
 
 func GetOpensearchClient(clusterName string) *SearchClient {
-	mu.RLock()
-	if sc, ok := multiClusterClients[clusterName]; ok {
-		mu.RUnlock()
-		return sc
-	}
-	mu.RUnlock()
 	return getOrCreateClient(clusterName)
 }
 
 func GetAnyOpensearchClient() *SearchClient {
-	mu.RLock()
-	for _, sc := range multiClusterClients {
-		mu.RUnlock()
-		return sc
-	}
-	mu.RUnlock()
-
 	if robustClientRef == nil {
 		return nil
 	}
@@ -49,6 +36,15 @@ func GetAnyOpensearchClient() *SearchClient {
 	return getOrCreateClient(names[0])
 }
 
+// getOrCreateClient returns a SearchClient for the cluster, rebuilding it when
+// the underlying robust endpoint has changed.
+//
+// B2: robustclient.RegisterCluster replaces the *ClusterClient object whenever
+// a cluster's endpoint changes (it never mutates in place). A SearchClient
+// caches a pointer to the ClusterClient it was built with, so a cached entry
+// whose clusterClient pointer no longer matches the current one is stale and
+// must be rebuilt — otherwise the apiserver keeps hitting the old endpoint
+// until it is restarted.
 func getOrCreateClient(clusterName string) *SearchClient {
 	if robustClientRef == nil {
 		return nil
@@ -58,9 +54,17 @@ func getOrCreateClient(clusterName string) *SearchClient {
 		return nil
 	}
 
+	// Fast path: cached client that still points at the current ClusterClient.
+	mu.RLock()
+	if sc, ok := multiClusterClients[clusterName]; ok && sc.clusterClient == cc {
+		mu.RUnlock()
+		return sc
+	}
+	mu.RUnlock()
+
 	mu.Lock()
 	defer mu.Unlock()
-	if sc, ok := multiClusterClients[clusterName]; ok {
+	if sc, ok := multiClusterClients[clusterName]; ok && sc.clusterClient == cc {
 		return sc
 	}
 	sc := NewClient(SearchClientConfig{DefaultIndex: defaultIndex}, cc)

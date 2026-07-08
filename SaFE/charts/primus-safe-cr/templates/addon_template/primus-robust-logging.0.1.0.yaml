@@ -1,0 +1,89 @@
+#
+# Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
+# See LICENSE for license information.
+#
+# Primus-Robust LOGGING stack (logging-only subset of the primus-robust data
+# plane): OpenSearch (log storage) + FluentBit (collection) + the robust-api
+# HTTP proxy that serves /api/v1/logs/raw. This is what powers the SaFE Logs
+# tab. Metrics (VictoriaMetrics/Grafana/exporters) are intentionally NOT part
+# of this addon.
+#
+# How it installs:
+#   - This AddonTemplate is applied when `primus-safe-cr` is installed. Because
+#     of the `primus-safe.addon.default` label, SaFE's ClusterReconciler
+#     synthesises an `Addon` per registered Cluster and the resource-manager
+#     AddonController federates the helm install into namespace `primus-robust`
+#     on that cluster. No per-cluster Addon YAML is needed.
+#   - Chart CRDs (OpenSearch + Fluent operators, 31 total) ship in the chart's
+#     crds/ directory and are installed by Helm before the templates, so the
+#     OpenSearchCluster / FluentBit CRs validate only after their operators'
+#     CRDs exist.
+#   - On successful deploy the release name is `primus-robust-logging` (prefix
+#     `primus-robust`), so the AddonController annotates the Cluster CR with
+#     `primus-safe.amd.com/robust-api-endpoint = http://robust-api.primus-robust.svc:8085`.
+#     SaFE's robustclient discovery then routes Logs-tab queries there. For a
+#     REMOTE data cluster, override that annotation by hand with a reachable
+#     NodePort/LoadBalancer/Ingress URL (robust-api Service defaults to
+#     NodePort 32626).
+#
+# Harbor mirror requirements (ops to mirror before this Addon is applied;
+# <helm_registry> / <image_registry> come from primus-safe-cr values.global.*):
+#   Helm chart:
+#     primus-robust-logging 0.1.0 (built from SaFE/charts/primus-robust/primus-robust-logging)
+#       -> oci://<helm_registry>/primussafe/primus-robust-logging:0.1.0
+#   Images:
+#     First-party (AMD):
+#       <image_registry>/primussafe/api:latest              (robust-api log proxy)
+#     Third-party (rendered verbatim under <image_registry>):
+#       opensearchproject/opensearch:2.11.0
+#       opensearchproject/opensearch-operator:2.6.0
+#       kubebuilder/kube-rbac-proxy:v0.15.0
+#       busybox:latest
+#       kubesphere/fluent-bit:v3.1.5
+#       kubesphere/fluent-operator:v3.1.0
+#       library/docker:20.10
+#       postgres:16-alpine                                  (minimal startup-ping DB)
+#
+# Credentials: the OpenSearch operator generates the admin secret
+# `primus-robust-logs-admin-password` in namespace `primus-robust`. Both
+# FluentBit and robust-api authenticate to OpenSearch using it (no manual
+# credential entry required for the proxy query path). SaFE's
+# `primus-safe-opensearch-config` secret is only echoed in the /envs response
+# and is not used to authenticate in proxy mode.
+#
+# Storage: OpenSearch defaults to a single node with a 20Gi PVC on the cluster
+# default StorageClass. Override logs.opensearch.nodePools for production.
+#
+# NOTE: The minimal bundled Postgres exists only to satisfy the robust-api
+# startup DB ping; it stores NO logging data (ephemeral emptyDir) and runs no
+# migrations. Swap it for the full robust-db when the metrics release lands.
+#
+
+apiVersion: amd.com/v1
+kind: AddonTemplate
+metadata:
+  labels:
+    primus-safe.display.name: "primus-robust-logging.0.1.0"
+    app.kubernetes.io/managed-by: Helm
+    # Auto-install on every registered Cluster (federated by ClusterReconciler).
+    primus-safe.addon.default: ""
+  annotations:
+    meta.helm.sh/release-name: {{ .Release.Name }}
+    meta.helm.sh/release-namespace: {{ .Release.Namespace }}
+  name: primus-robust-logging.0.1.0
+spec:
+  category: plugin
+  description: Primus-Robust logging stack (OpenSearch + FluentBit + robust-api log proxy). Collects container/node logs into OpenSearch and serves them to the SaFE Logs tab via robust-api on port 8085. Installs into the primus-robust namespace on each data cluster.
+  # OCI helm chart mirrored on SaFE Harbor (ops to mirror, see header).
+  url: oci://{{ .Values.global.helm_registry }}/primussafe/primus-robust-logging
+  version: 0.1.0
+  type: helm
+  helmDefaultNamespace: primus-robust
+  helmDefaultValues: |
+    global:
+      namespace: primus-robust
+      # Registry ROOT for all images (first-party repos carry primussafe/;
+      # third-party keep their upstream org path). Do NOT append /primussafe.
+      imageRegistry: {{ .Values.global.proxy_image_registry }}
+      imageTag: latest
+      imagePullSecrets: []

@@ -125,7 +125,8 @@ db:
   enable: true
 opensearch:
   # Log search feature flag. When true, log search endpoints are available.
-  # Queries are proxied through robust-api on data clusters (no direct OpenSearch connection).
+  # Queries are proxied through robust-api (Service robust-api:8085) on data
+  # clusters (no direct OpenSearch connection).
   enable: true
   # Index prefix used to build the date-scoped OpenSearch URIs for pod/node
   # logs, e.g. "<prefix>2026.04.21". Must match the prefix fluentbit is
@@ -139,7 +140,7 @@ opensearch:
   secret_path: "/etc/secrets/opensearch"
   # Default points at the OpenSearch Service this project's robust stack
   # provisions in each data cluster. SaFE apiserver doesn't dial this
-  # directly (queries always go through robust-analyzer), but the value is
+  # directly (queries always go through robust-api), but the value is
   # baked into the UI/envs response so keep it aligned with reality.
   # Previous default pointed at the removed primus-lens service.
   endpoint: "primus-robust-logs.primus-robust.svc.cluster.local:9200"

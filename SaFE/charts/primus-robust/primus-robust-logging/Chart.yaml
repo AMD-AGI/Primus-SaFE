@@ -1,0 +1,41 @@
+apiVersion: v2
+name: primus-robust-logging
+description: AMD Primus Robust - logging-only data-plane stack (OpenSearch + FluentBit operators/CRs + the robust-api log proxy) packaged for the Primus-SaFE platform
+type: application
+version: 0.1.0
+appVersion: "1.0.7"
+keywords:
+  - amd
+  - robust
+  - logging
+  - opensearch
+  - fluentbit
+  - observability
+maintainers:
+  - name: AMD
+
+# Logging-only subset of the primus-robust data plane. Operator CRDs are shipped
+# statically in this chart's crds/ directory (installed by Helm before any
+# templates) so the OpenSearchCluster / FluentBit CRs validate against the API
+# server only after their operators' CRDs exist (fixes A1). The subcharts keep
+# installCRDs=false (set in values.yaml).
+dependencies:
+  - name: primus-robust-opensearch-operator
+    version: ">=0.1.0"
+    repository: "file://../operators/opensearch-operator"
+    condition: opensearchOperator.enabled
+  - name: primus-robust-fluent-operator-core
+    version: ">=0.1.0"
+    repository: "file://../operators/fluent-operator-core"
+    condition: fluentOperator.enabled
+  - name: primus-robust-opensearch
+    version: ">=0.1.0"
+    repository: "file://../opensearch-cluster"
+    alias: logs
+  - name: primus-robust-fluentbit
+    version: ">=0.1.0"
+    repository: "file://../fluentbit"
+    alias: fluentbit
+  - name: api
+    version: ">=0.1.0"
+    repository: "file://../api"

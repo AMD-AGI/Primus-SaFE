@@ -16,11 +16,13 @@ import (
 )
 
 const (
-	// defaultRobustEndpoint is the in-cluster service DNS of robust-analyzer
-	// (which hosts the robust-api module). Used when no annotation is set on
-	// the Cluster CR and SaFE apiserver is co-located with robust-analyzer in
-	// the same K8s cluster.
-	defaultRobustEndpoint    = "http://robust-analyzer.primus-robust.svc:8085"
+	// defaultRobustEndpoint is the in-cluster service DNS of robust-api, the
+	// HTTP service that serves /api/v1/logs/raw (and the rest of the robust
+	// HTTP surface) on port 8085. Used when no annotation is set on the
+	// Cluster CR and SaFE apiserver is co-located with robust-api in the same
+	// K8s cluster. Note: robust-analyzer is a background worker only (it does
+	// not expose the HTTP API in the current microservice layout).
+	defaultRobustEndpoint    = "http://robust-api.primus-robust.svc:8085"
 	annotationRobustEndpoint = "primus-safe.amd.com/robust-api-endpoint"
 )
 
@@ -107,19 +109,17 @@ func (d *Discovery) syncOnce(ctx context.Context) {
 	}
 }
 
-// resolveRobustEndpoint determines the robust-analyzer endpoint for a cluster.
+// resolveRobustEndpoint determines the robust-api endpoint for a cluster.
 // Priority:
 //  1. Annotation primus-safe.amd.com/robust-api-endpoint on the Cluster CR.
-//     Use this for cross-cluster setups where robust-analyzer is reachable
+//     Use this for cross-cluster setups where robust-api is reachable
 //     via NodePort, LoadBalancer, or Ingress on the data cluster.
-//  2. In-cluster service DNS of robust-analyzer. This works when SaFE
-//     apiserver and robust-analyzer are deployed in the same K8s cluster.
+//  2. In-cluster service DNS of robust-api. This works when SaFE
+//     apiserver and robust-api are deployed in the same K8s cluster.
 //
 // Note: ControlPlaneStatus.Endpoints (K8s API server addresses) are NOT
-// used here. robust-analyzer is a regular pod behind a ClusterIP service,
+// used here. robust-api is a regular pod behind a ClusterIP/NodePort service,
 // not a hostNetwork process listening on the control-plane node IP.
-// The annotation key keeps the legacy "robust-api" name for backward
-// compatibility with already-deployed Cluster CRs.
 func resolveRobustEndpoint(cluster *v1.Cluster) string {
 	if ep, ok := cluster.Annotations[annotationRobustEndpoint]; ok && ep != "" {
 		return ep

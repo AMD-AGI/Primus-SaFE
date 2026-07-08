@@ -1,0 +1,133 @@
+#
+# Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
+# See LICENSE for license information.
+#
+# Logging-only primus-robust stack for Primus-SaFE.
+#
+# Image sourcing (A2/A3): global.imageRegistry is the registry ROOT (e.g.
+# docker.io or <harbor>/proxy). Third-party images keep their upstream org path
+# (opensearchproject/opensearch, kubesphere/fluent-bit, busybox, ...), so they
+# render as <root>/<org>/<image>. First-party images (api / robust-api) carry
+# the primussafe/ org in their repository, so they render as
+# <root>/primussafe/api:<tag>. Do NOT set imageRegistry to "<root>/primussafe";
+# that would mangle third-party refs into <root>/primussafe/<org>/<image>.
+# The AddonTemplate wires global.imageRegistry from SaFE's proxy_image_registry.
+
+global:
+  namespace: primus-robust
+  # Leave empty to use the cluster default StorageClass; the AddonTemplate can
+  # set this from SaFE's storage_class.
+  storageClass: ""
+  # Registry ROOT for all images (set by the AddonTemplate to proxy_image_registry).
+  imageRegistry: ""
+  imageTag: latest
+  imagePullSecrets: []
+
+# --- Operators ---
+opensearchOperator:
+  enabled: true
+fluentOperator:
+  enabled: true
+
+# CRDs are installed from this umbrella chart's crds/ dir (A1); keep the
+# operator subcharts from rendering CRDs into templates.
+primus-robust-opensearch-operator:
+  installCRDs: false
+  fullnameOverride: opensearch-operator
+  manager:
+    watchNamespace: primus-robust
+
+primus-robust-fluent-operator-core:
+  installCRDs: false
+  operator:
+    # A5: the kubesphere/fluent-operator:v3.1.0 image panics with
+    # --watch-namespaces (nil map). Keep extraArgs empty (cluster-wide watch).
+    extraArgs: []
+
+# --- OpenSearch cluster (alias: logs) ---
+# Storage sizing: single-node, small, overridable footprint for a release
+# default (upstream default is 3x100Gi).
+logs:
+  opensearch:
+    enabled: true
+    name: primus-robust-logs
+    nodePools:
+      - name: nodes
+        replicas: 1
+        roles:
+          - master
+          - data
+          - ingest
+        diskSize: 20Gi
+        jvm: "-Xms1g -Xmx1g"
+        resources:
+          requests:
+            cpu: "500m"
+            memory: "2Gi"
+          limits:
+            cpu: "2000m"
+            memory: "4Gi"
+
+# --- FluentBit pipeline (alias: fluentbit) ---
+# Defaults ship container-log + dmesg + systemd inputs -> OpenSearch (node-*
+# indices, matching SaFE opensearch.prefix "node-"). Uses the operator-generated
+# primus-robust-logs-admin-password secret to authenticate.
+fluentbit:
+  opensearch:
+    host: "primus-robust-logs-nodes.primus-robust.svc"
+    port: 9200
+    adminSecretName: "primus-robust-logs-admin-password"
+    tls:
+      verify: false
+
+# --- robust-api log proxy ---
+# Serves /api/v1/logs/raw on Service robust-api:8085. SaFE proxies Logs-tab
+# queries here (kept as the query path for multi-cluster reachability).
+api:
+  image:
+    repository: primussafe/api
+    tag: latest
+    pullPolicy: IfNotPresent
+  fullnameOverride: robust-api
+  # DB is only needed to satisfy the process startup db.Ping(); the log proxy
+  # handler never touches the DB and needs no migrations/tables. Points at the
+  # minimal bundled Postgres (see .postgres below).
+  database:
+    host: robust-logging-db.primus-robust.svc
+    port: 5432
+    dbname: robust
+    user: robust
+    sslmode: disable
+    existingSecret: robust-logging-db
+  modules:
+    robustApi:
+      opensearchHost: "https://primus-robust-logs.primus-robust.svc:9200"
+      opensearchUser: "admin"
+      # B10: authenticate to OpenSearch with the operator-generated admin secret.
+      opensearchExistingSecret: "primus-robust-logs-admin-password"
+      opensearchPasswordSecretKey: "password"
+      opensearchInsecureSkipVerify: true
+
+# --- Minimal bundled Postgres ---
+# A tiny stock Postgres whose only job is to accept the robust-api startup
+# connection. Ephemeral (emptyDir) - no logging data is stored here. Swap for
+# the full robust-db/PGO when the metrics release needs the real schema.
+postgres:
+  enabled: true
+  image:
+    repository: postgres
+    tag: "16-alpine"
+    pullPolicy: IfNotPresent
+  user: robust
+  dbname: robust
+  # Startup-ping-only DB; password is not sensitive data. Override if desired.
+  password: robust
+  service:
+    port: 5432
+  resources:
+    requests:
+      cpu: "50m"
+      memory: "128Mi"
+    limits:
+      cpu: "500m"
+      memory: "512Mi"
