@@ -9,7 +9,6 @@ metadata:
   labels:
     primus-safe.display.name: "nginx.22.3.2"
     app.kubernetes.io/managed-by: Helm
-    primus-safe.addon.default: ""
   annotations:
     meta.helm.sh/release-name: {{ .Release.Name }}
     meta.helm.sh/release-namespace: {{ .Release.Namespace }}
@@ -21,3 +20,8 @@ spec:
   version: "22.3.2"
   type: helm
   helmDefaultNamespace: default
+  # Bitnami nginx defaults to LoadBalancer. On bare-metal clusters that can
+  # make kube-proxy bind a node's physical IP as a local service address.
+  helmDefaultValues: |
+    service:
+      type: ClusterIP
