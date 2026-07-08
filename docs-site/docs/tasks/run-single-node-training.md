@@ -106,8 +106,12 @@ Your job runs the container `image` you specify. You can:
 - Push to your **registry** and reference it, attaching a **registry secret** for private images.
   See [Manage access & quota → Registry secret](/administration/manage-access-and-quota).
 
-To make large images start faster, import and pre-stage them — see
-[Speed up workload startup](/tasks/speed-up-startup).
+If you don't prefix the image with a registry host, it is pulled from `docker.io` by default; you
+can also pull from Quay or any other OCI-compatible registry by giving the full reference.
+
+Importing an image into the self-hosted Harbor registry — the **Images** tab in the side panel —
+makes it slightly faster to pull than fetching over the open internet. To make large images start
+faster, import and pre-stage them — see [Speed up workload startup](/tasks/speed-up-startup).
 
 ## Next
 

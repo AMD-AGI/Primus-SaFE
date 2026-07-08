@@ -46,6 +46,21 @@ Multi-node training depends on fast GPU-to-GPU communication:
   at install time (see [Install](/getting-started/install)). Override them per job with env vars
   (e.g. `NCCL_DEBUG=INFO`, or a different interface) when a node type differs.
 
+:::note NIC drivers must be in your image
+Your container image sometimes needs the **RDMA NIC drivers** installed to use the fabric. For
+example, with Broadcom NICs the image must either ship the Broadcom drivers or install them from
+its entry point; AI-NIC usage similarly needs the AI-NIC drivers. This is a common step people
+forget, and jobs fall back to a slow path (or fail collectives) without it.
+:::
+
+:::tip Preheat the image for large jobs
+On big multi-node runs (e.g. 32/64/128 nodes), one node can pull the image quickly while the
+rest pull slowly — occasionally slow enough that the first pull times out before the others
+finish, failing the job. It is uncommon and depends on data-center network speed, but if you hit
+it, use the **preheat** toggle when submitting (or preheat ahead of time) so every node has the
+image on disk before launch. See [Speed up workload startup](/tasks/speed-up-startup).
+:::
+
 ## Reliability knobs
 
 Distributed jobs run long, so set these as needed:

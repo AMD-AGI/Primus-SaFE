@@ -5,18 +5,18 @@ title: Storage & data
 
 # Storage & data
 
-During the life-cycle of AI workloads, there are differnt types of data involved including code, datasets, checkpoints and logs. These data has differnt characteristics of requirement such as capacity, performance, isolation, and various life cycles. Primus-SaFE include multiple storage solutions to accommondate the various data requirements.
+During the life cycle of an AI workload, several different types of data are involved, including code, datasets, checkpoints, and logs. Each type has different requirements for capacity, performance, isolation, and lifetime. Primus-SaFE provides multiple storage solutions to accommodate these varying requirements.
 
-Primus-SaFE has native support for Kubernetes ephemeral storage that users can specify from the UI when starting a workload. Such storage is backed up locally-attached writeable devices on the host that has the same life-cycle as the workloads, therefore it's only suited for temporary data such as logs. Also keep in mind that if there are multiple drives on the host, they can be used for both ephemeral storage and forming a distributed file system such as Ceph. Plan ahead of time to balance between large scrape space and shared storage. 
+Primus-SaFE has native support for Kubernetes ephemeral storage, which users can specify from the UI when starting a workload. This storage is backed by locally attached writable devices on the host and shares the same life cycle as the workload, so it is only suited to temporary data such as logs. Keep in mind that if a host has multiple drives, they can be used both for ephemeral storage and for forming a distributed file system such as Ceph. Plan ahead to balance large scratch space against shared storage.
 
-Primus-SaFE also provides an abstraction of **volume** that attatched at the **workspace** level to strike a balance between data sharing and isolation. Once a volume is configured, it will be mounted into every workload started by the users.
+Primus-SaFE also provides a **volume** abstraction, attached at the **workspace** level, to strike a balance between data sharing and isolation. Once a volume is configured, it is mounted into every workload started by users in that workspace.
 
 
-Primus-SaFE supports two type of volumes:
+Primus-SaFE supports two types of volume:
 | Type | What it is | Typical use |
 |------|------------|-------------|
-| **`pfs`** | A shared parallel filesystem that supports CSI interface. It creates a PV/PVC per workspace and mounted on each node and shared across workloads. | Datasets, checkpoints, and models shared across a distributed job. |
-| **`hostpath`** | A path on the node mounted into the pod. | Storage systems only support host mount, or sharing with other systems such as NFS mount Home Dirs  |
+| **`pfs`** | A shared parallel filesystem exposed through a CSI interface. It creates one PV/PVC per workspace that is mounted on each node and shared across workloads. | Datasets, checkpoints, and models shared across a distributed job. |
+| **`hostpath`** | A path on the node mounted into the pod. | Storage systems that only support a host mount, or sharing with other systems such as NFS-mounted home directories. |
 
 
 ## What backs PFS
@@ -43,7 +43,5 @@ S3 can be enabled at install (`s3.enable`) for importing models and downloading 
 configured, the platform can sync between S3 and PFS — useful for getting large model
 artifacts onto the shared filesystem.
 
-
-> **Not yet covered (capture so we don't lose it):**
-> - [ ] Exact mount paths and the per-workspace PV template details.
-> - [ ] Sizing guidance for PFS capacity vs. node-local (`ephemeralStorage`).
+The mount path for a volume is chosen when you create the workspace, and the console makes
+the available options clear at that point, so it needs no separate walkthrough here.

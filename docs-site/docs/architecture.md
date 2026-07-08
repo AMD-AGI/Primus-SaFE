@@ -20,7 +20,7 @@ The Primus-SaFE platform layer comprises five services that run on the control p
 |---------|----------------|
 | **API Server** | The single entry point — resource and workload management, authentication and RBAC, and SSH access to pods. |
 | **Job Manager** | The full workload lifecycle: queuing, scheduling, priority and preemption, automatic retry and failover, and log indexing. |
-| **Web** | A Web UI that users interact with the platform |
+| **Web** | The web console that users interact with the platform through. |
 | **Resource Manager** | Central management of clusters, nodes, workspaces, storage, and operational jobs. |
 | **Webhooks** | Kubernetes admission control — validates and mutates resources as they are created or changed. |
 | **Node Agent** | Runs on GPU nodes for continuous health monitoring, fault detection, automatic reporting, and self-healing. |

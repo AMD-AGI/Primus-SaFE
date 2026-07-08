@@ -28,7 +28,9 @@ see [Workspace](/concepts/workspace)).
 1. Go to **Workloads → Authoring** and click **Create Authoring**.
 2. Set a **name**, an **image** (**Select** a registered image or **Custom** to type any pullable
    reference), and the **resources** (CPU, GPU, memory, ephemeral storage). A dev box is always a
-   single node, so `replica` is fixed at 1.
+   single node, so `replica` is fixed at 1. A custom reference without a registry host defaults to
+   `docker.io`; you can also import images into the self-hosted Harbor registry (the **Images**
+   tab) for faster pulls — see [Speed up workload startup](/tasks/speed-up-startup).
 3. **Submit.** When it reaches `Running`, connect to it (below).
 
 ![Create Authoring form](/img/screenshots/authoring-create-form.png)

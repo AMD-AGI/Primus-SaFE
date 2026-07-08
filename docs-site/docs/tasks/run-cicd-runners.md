@@ -16,8 +16,9 @@ the jobs, then scales them back down. A runner scale set is a workload of kind
 
 ## Before you start
 
-- The **Actions Runner Controller (ARC)** add-on is installed on the cluster — the
-  `gha-runner-scale-set` add-on (**System → Addons**). Runner scale sets will not start without it.
+- The **Actions Runner Controller (ARC)** `gha-runner-scale-set` add-on is present on the cluster —
+  it may be enabled at bootstrap/install time or added later from **System → Addons**. Runner scale
+  sets will not start without it.
 - You have access to a **workspace** with the **`CICD`** scope (and the **`Train`** scope too if you
   will use multi-node unified jobs). See [Manage access & quota](/administration/manage-access-and-quota).
 - A **GitHub App** (recommended) or a **personal access token (PAT)** with permission to register
@@ -50,6 +51,13 @@ CMD ["bash"]
 Build and push it to a registry the cluster can pull from (see
 [Speed up startup → import an image](/tasks/speed-up-startup) if you use the in-cluster registry).
 Note the **entry command** in the image — for this Dockerfile it is `/actions-runner/run.sh`.
+
+:::tip You don't have to build from scratch
+GitHub publishes officially maintained runner images at
+[`ghcr.io/actions/actions-runner`](https://github.com/actions/runner/pkgs/container/actions-runner),
+which you can use directly or as a base. The minimal Dockerfile above is just a starting point if
+you need extra tooling in the runner.
+:::
 
 ## 2. Create a runner scale set (console)
 
@@ -125,7 +133,14 @@ curl -X POST https://<your-console>/api/v1/workloads \
 
 Rotate credentials later with `PATCH /api/v1/workloads/<workloadId>` (send just `githubAuth`).
 
+## Watching workflow runs
+
+Watch your workflow runs where you normally would — in **GitHub** (the repo's Actions tab), or in
+the **CICD** tab of the console side panel, which lists the scale set's runs. A screenshot of that
+CICD run list is usually enough; you don't need the Lens app for this.
+
 > **Not yet covered (capture so we don't lose it):**
-> - [ ] Console screenshots of the CI/CD create wizard (Clone/Create + Advanced Options).
-> - [ ] Step-by-step for installing the ARC (`gha-runner-scale-set`) add-on from System → Addons.
-> - [ ] Where to watch workflow-run history (today it lives in the Lens app, not the SaFE console).
+> - [ ] Console screenshots of the CI/CD create wizard (Clone/Create + Advanced Options) and the
+>       CICD run list.
+> - [ ] Confirm exactly how the ARC (`gha-runner-scale-set`) add-on is enabled (bootstrap flag vs.
+>       System → Addons).

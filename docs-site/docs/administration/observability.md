@@ -65,16 +65,8 @@ data cluster:
 Once installed, log search and per-workload dashboards light up automatically — there is no
 per-workload configuration. (`opensearch.enable` controls whether the **Logs** tab is shown.)
 
-## Validate hardware with Primus-Bench
-
-Primus-Bench is separate from live monitoring: it validates node **health and performance** rather
-than watching a running job. Two ways to use it:
-
-- **From the console** — **System → Bench → Create Bench** runs a check against a node, cluster, or
-  workspace and reports pass/fail. Full steps are in
-  [Pre-flight & in-flight monitoring](/administration/preflight-and-monitoring).
-- **Standalone** — run the module directly (bare-metal / SLURM / Kubernetes) for deeper I/O and
-  system benchmarks, per [`Bench/README.md`](https://github.com/AMD-AGI/Primus-SaFE/blob/main/Bench/README.md).
+Node **health and performance** validation with Primus-Bench is a separate concern from live
+monitoring — see [Pre-flight & in-flight monitoring](/administration/preflight-and-monitoring).
 
 ## Troubleshooting
 
