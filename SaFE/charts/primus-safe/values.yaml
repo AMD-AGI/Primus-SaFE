@@ -123,6 +123,24 @@ cicd:
 db:
   # Enable database for historical job queries, defaults to true
   enable: true
+observability:
+  # SaFE-native metrics backend (VictoriaMetrics / Prometheus). When enabled,
+  # SaFE queries the metrics backend directly (PromQL) and provisions Grafana
+  # datasources that point straight at it, instead of proxying through the
+  # data-plane primus-robust robust-analyzer.
+  metrics:
+    # Feature flag for the direct-metrics path.
+    enable: false
+    # Default Prometheus-compatible query endpoint (vmselect prometheus prefix)
+    # applied to every ready cluster that has no per-cluster override
+    # annotation. Point this at SaFE's own vmselect Service. Empty means each
+    # cluster must carry the metrics-endpoint annotation instead.
+    endpoint: "http://vmselect-primus-safe-vmcluster.primus-safe-observability.svc:8481/select/0/prometheus"
+    # Skip TLS verification for cluster-internal self-signed certs.
+    insecure_skip_verify: true
+    # Cluster CR annotation carrying a per-cluster metrics endpoint override
+    # (NodePort / LoadBalancer / Ingress for cross-cluster setups).
+    endpoint_annotation: "primus-safe.amd.com/metrics-endpoint"
 opensearch:
   # Log search feature flag. When true, log search endpoints are available.
   # Queries are proxied through robust-api on data clusters (no direct OpenSearch connection).

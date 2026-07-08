@@ -184,6 +184,35 @@ func GetOpenSearchEndpoint() string {
 	return getString(openSearchEndpoint, "")
 }
 
+// ── Observability (SaFE-native metrics backend) ─────────────────────────
+
+// IsObservabilityMetricsEnable reports whether SaFE queries the metrics
+// backend (VictoriaMetrics / Prometheus) directly instead of proxying
+// through the data-plane primus-robust robust-analyzer.
+func IsObservabilityMetricsEnable() bool {
+	return getBool(observabilityMetricsEnable, false)
+}
+
+// GetObservabilityMetricsEndpoint returns the default Prometheus-compatible
+// query endpoint (vmselect prometheus prefix) used when a Cluster CR has no
+// per-cluster metrics endpoint annotation. Empty disables the default.
+func GetObservabilityMetricsEndpoint() string {
+	return getString(observabilityMetricsEndpoint, "")
+}
+
+// GetObservabilityMetricsInsecureSkipVerify reports whether TLS verification
+// should be skipped when talking to the metrics backend (needed for
+// cluster-internal self-signed certs). Defaults to true.
+func GetObservabilityMetricsInsecureSkipVerify() bool {
+	return getBool(observabilityMetricsInsecure, true)
+}
+
+// GetObservabilityMetricsEndpointAnnotation returns the Cluster CR annotation
+// key that carries a per-cluster metrics endpoint override.
+func GetObservabilityMetricsEndpointAnnotation() string {
+	return getString(observabilityMetricsEndpointAnnot, "primus-safe.amd.com/metrics-endpoint")
+}
+
 // GetOpenSearchUser returns the OpenSearch username.
 func GetOpenSearchUser() string {
 	if user := getString(openSearchPrefix+openSearchUser, ""); len(user) > 0 {

@@ -222,6 +222,8 @@ opensearch_password=$(get_secret_input_with_default "Enter OpenSearch password (
 
 csi_volume_handle=$(get_input_with_default "Enter csi volume handle? (empty to disable pfs for workspace): " "")
 install_node_agent=$(get_input_with_default "install node-agent ? (y/n): " "n")
+install_observability=$(get_input_with_default "install SaFE observability metrics stack (VictoriaMetrics + enricher) ? (y/n): " "n")
+observability_enable=$(convert_to_boolean "$install_observability")
 
 helm_registry="registry-1.docker.io"
 proxy_image_registry=""
@@ -391,6 +393,12 @@ if [[ "$s3_enable" == "true" ]]; then
   sed -i '/^s3:/,/^[a-z]/ s#secret: ".*"#secret: "'"$S3_SECRET"'"#' "$values_yaml"
 fi
 sed -i '/grafana:/,/^[a-z]/ s/enable: .*/enable: false/' "$values_yaml"
+# SaFE-native metrics path: toggle observability.metrics.enable, and turn on
+# Grafana (which the datasource + per-workload dashboard templates require).
+sed -i '/observability:/,/^[a-z]/ s/enable: .*/enable: '"$observability_enable"'/' "$values_yaml"
+if [[ "$observability_enable" == "true" ]]; then
+  sed -i '/grafana:/,/^[a-z]/ s/enable: .*/enable: true/' "$values_yaml"
+fi
 sed -i "s/image_pull_secret: \".*\"/image_pull_secret: \"$IMAGE_PULL_SECRET\"/" "$values_yaml"
 sed -i "s/ingress: \".*\"/ingress: \"$ingress\"/" "$values_yaml"
 sed -i '/sso:/,/^[a-z]/ s/enable: .*/enable: '"$sso_enable"'/' "$values_yaml"
@@ -479,6 +487,31 @@ if [[ "$install_node_agent" == "y" ]]; then
   cd ../../
 fi
 
+if [[ "$observability_enable" == "true" ]]; then
+  echo
+  echo "========================================="
+  echo "🔧 Step 6b: install SaFE observability stack"
+  echo "========================================="
+
+  obs_chart="charts/primus-safe-observability"
+  if [ ! -d "$obs_chart" ]; then
+    echo "Error: $obs_chart does not exist"
+    exit 1
+  fi
+  # Build subchart dependencies (VM operator / kube-state-metrics are vendored
+  # tgz deps). Best-effort: local subcharts are already present under charts/.
+  helm dependency build "$obs_chart" 2>/dev/null || true
+  # Install into its own namespace so it can be cleanly removed when switching
+  # back to primus-robust. The VictoriaMetrics operator CRDs and the VMCluster/
+  # VMAgent CRs ship together; a repeat run reconciles anything applied before
+  # its CRD was ready on the very first install.
+  helm upgrade --install primus-safe-observability "$obs_chart" \
+    -n primus-safe-observability --create-namespace \
+    --set global.clusterName="${sub_domain:-default}" \
+    --set global.storageClass="$storage_class"
+  echo "✅ primus-safe-observability installed in namespace(primus-safe-observability)"
+fi
+
 echo
 echo "========================================="
 echo "🔧 Step 7: All completed!"
@@ -496,6 +529,7 @@ sso_enable=$sso_enable
 ingress=$ingress
 sub_domain=$sub_domain
 install_node_agent=$install_node_agent
+install_observability=$install_observability
 csi_volume_handle=$csi_volume_handle
 helm_registry=$helm_registry
 proxy_image_registry=$proxy_image_registry

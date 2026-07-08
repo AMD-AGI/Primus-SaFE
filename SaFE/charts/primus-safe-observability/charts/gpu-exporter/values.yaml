@@ -1,0 +1,65 @@
+replicaCount: 1
+
+image:
+  repository: gpu-exporter
+  pullPolicy: IfNotPresent
+  tag: "latest"
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+podAnnotations: {}
+
+prometheus:
+  port: "9400"
+
+podSecurityContext: {}
+
+securityContext:
+  privileged: true
+
+service:
+  type: ClusterIP
+  port: 9400
+
+resources: {}
+
+nodeSelector:
+  feature.node.kubernetes.io/amd-gpu: "true"
+
+tolerations:
+  - operator: Exists
+
+affinity: {}
+
+env:
+  GPU_EXPORTER_PORT: "9400"
+  GPU_EXPORTER_INTERVAL: "5"
+  GPU_EXPORTER_USE_NSENTER: "false"
+  GPU_EXPORTER_LOG_LEVEL: "info"
+
+volumeMounts:
+  - name: dev
+    mountPath: /dev
+  - name: sys
+    mountPath: /sys
+
+volumes:
+  - name: dev
+    hostPath:
+      path: /dev
+  - name: sys
+    hostPath:
+      path: /sys
+
+serviceMonitor:
+  enabled: false
+  interval: 15s
+  scrapeTimeout: 10s
+  labels: {}

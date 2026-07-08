@@ -47,6 +47,17 @@ data:
       secret_path: {{ default "/etc/secrets/db" (default .Values.db).secret_path }}
       # The ssl mode of db
       ssl_mode: {{ default "require" (default .Values.db).ssl_mode }}
+    observability:
+      metrics:
+        # Query the metrics backend (VictoriaMetrics / Prometheus) directly
+        # instead of proxying through primus-robust robust-analyzer.
+        enable: {{ default false (default (default .Values.observability).metrics).enable }}
+        # Default vmselect endpoint applied to ready clusters without an override annotation.
+        endpoint: "{{ default "" (default (default .Values.observability).metrics).endpoint }}"
+        # Skip TLS verification for cluster-internal self-signed certs.
+        insecure_skip_verify: {{ default true (default (default .Values.observability).metrics).insecure_skip_verify }}
+        # Cluster CR annotation carrying a per-cluster metrics endpoint override.
+        endpoint_annotation: "{{ default "primus-safe.amd.com/metrics-endpoint" (default (default .Values.observability).metrics).endpoint_annotation }}"
     opensearch:
       # Whether to enable opensearch, it is used for log search.
       enable: {{ .Values.opensearch.enable }}

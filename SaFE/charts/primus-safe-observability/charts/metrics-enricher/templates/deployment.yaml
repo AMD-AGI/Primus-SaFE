@@ -1,0 +1,86 @@
+#
+# Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
+# See LICENSE for license information.
+#
+{{- $ns := .Values.global.namespace -}}
+{{- $vmURL := .Values.vmImportUrl -}}
+{{- if not $vmURL -}}
+{{- $vmURL = printf "http://vminsert-%s.%s.svc:8480/insert/0/prometheus/api/v1/import/prometheus" .Values.vmClusterName $ns -}}
+{{- end -}}
+{{- $registry := (.Values.global).imageRegistry | default "docker.io" }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: metrics-enricher
+  namespace: {{ $ns }}
+  labels:
+    app.kubernetes.io/name: metrics-enricher
+    app.kubernetes.io/part-of: primus-safe-observability
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: metrics-enricher
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: metrics-enricher
+        app.kubernetes.io/part-of: primus-safe-observability
+    spec:
+      serviceAccountName: metrics-enricher
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: enricher
+          image: "{{ $registry }}/{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          env:
+            - name: ENRICHER_INTERVAL
+              value: {{ .Values.interval | quote }}
+            - name: EXPORTER_SERVICE
+              value: {{ .Values.exporter.service | quote }}
+            - name: EXPORTER_NAMESPACE
+              value: {{ .Values.exporter.namespace | quote }}
+            - name: EXPORTER_PORT
+              value: {{ .Values.exporter.port | quote }}
+            - name: EXPORTER_SCHEME
+              value: {{ .Values.exporter.scheme | quote }}
+            - name: EXPORTER_PATH
+              value: {{ .Values.exporter.path | quote }}
+            - name: VM_IMPORT_URL
+              value: {{ $vmURL | quote }}
+            - name: WORKLOAD_POD_LABEL
+              value: {{ .Values.workloadPodLabel | quote }}
+            - name: CLUSTER_NAME
+              value: {{ (.Values.global).clusterName | default "default" | quote }}
+          ports:
+            - name: health
+              containerPort: 8080
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: health
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: health
+            initialDelaySeconds: 5
+            periodSeconds: 15
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

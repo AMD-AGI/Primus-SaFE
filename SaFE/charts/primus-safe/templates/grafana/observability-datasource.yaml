@@ -1,0 +1,39 @@
+#
+# Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
+# See LICENSE for license information.
+#
+# Fixed-uid VictoriaMetrics/Prometheus datasource for the SaFE-native
+# observability path. Unlike the per-cluster "<cluster>-prometheus" datasource
+# that resource-manager's GrafanaDatasourceSyncer provisions (used by
+# multi-cluster dashboards via var-cluster), this one has a stable uid
+# (primus-safe-vm) so single-datasource dashboards like the per-workload
+# training-workload dashboard can reference it directly.
+#
+# Only created when the direct-metrics path is enabled AND Grafana is on.
+{{- if and .Values.grafana.enable (default (default .Values.observability).metrics).enable }}
+apiVersion: grafana.integreatly.org/v1beta1
+kind: GrafanaDatasource
+metadata:
+  name: primus-safe-vm
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    meta.helm.sh/release-name: {{ .Release.Name }}
+    meta.helm.sh/release-namespace: {{ .Release.Namespace }}
+spec:
+  allowCrossNamespaceImport: true
+  instanceSelector:
+    matchLabels:
+      system: primus-safe
+  datasource:
+    uid: primus-safe-vm
+    name: primus-safe-vm
+    type: prometheus
+    access: proxy
+    isDefault: false
+    url: {{ (default (default .Values.observability).metrics).endpoint | quote }}
+    jsonData:
+      timeInterval: "30s"
+      tlsSkipVerify: true
+{{- end }}

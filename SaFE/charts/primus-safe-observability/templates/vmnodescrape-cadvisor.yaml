@@ -1,0 +1,32 @@
+#
+# Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
+# See LICENSE for license information.
+#
+# Scrape the kubelet's cAdvisor endpoint on every node so container_* metrics
+# (pod CPU / memory / filesystem IO) land in VictoriaMetrics. The per-workload
+# dashboard filters these by workload via the workload_pod_info join metric the
+# metrics-enricher emits.
+#
+# NOTE: when this scrape is added to an already-running vmagent, the vmagent
+# pod may need one config reload to pick it up (the operator regenerates the
+# scrape config; a rollout restart of vmagent forces it immediately).
+{{- if (index .Values "vmagent" "enabled" | default true) }}
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMNodeScrape
+metadata:
+  name: kubelet-cadvisor
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app.kubernetes.io/part-of: primus-safe-observability
+spec:
+  scheme: https
+  path: /metrics/cadvisor
+  interval: 30s
+  honorLabels: true
+  tlsConfig:
+    insecureSkipVerify: true
+  bearerTokenFile: /var/run/secrets/kubernetes.io/serviceaccount/token
+  relabelConfigs:
+    - action: labelmap
+      regex: __meta_kubernetes_node_label_(.+)
+{{- end }}

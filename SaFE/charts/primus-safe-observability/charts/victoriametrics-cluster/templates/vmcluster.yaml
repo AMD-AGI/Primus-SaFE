@@ -1,0 +1,66 @@
+{{- if .Values.victoriametrics.enabled }}
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMCluster
+metadata:
+  name: {{ .Values.victoriametrics.name }}
+  namespace: {{ .Values.global.namespace }}
+spec:
+  retentionPeriod: {{ .Values.victoriametrics.retentionPeriod | quote }}
+  replicationFactor: 1
+
+  vmstorage:
+    replicaCount: {{ .Values.victoriametrics.vmstorage.replicas }}
+    storage:
+      volumeClaimTemplate:
+        spec:
+          accessModes: [ReadWriteOnce]
+          resources:
+            requests:
+              storage: {{ .Values.victoriametrics.vmstorage.size }}
+          {{- if .Values.global.storageClass }}
+          storageClassName: {{ .Values.global.storageClass }}
+          {{- end }}
+    resources:
+      {{- toYaml .Values.victoriametrics.vmstorage.resources | nindent 6 }}
+    {{- with .Values.victoriametrics.vmstorage.extraArgs }}
+    extraArgs:
+      {{- toYaml . | nindent 6 }}
+    {{- end }}
+    {{- with (.Values.global | default dict).affinity }}
+    affinity:
+      {{- toYaml . | nindent 6 }}
+    {{- end }}
+
+  vmselect:
+    replicaCount: {{ .Values.victoriametrics.vmselect.replicas }}
+    cacheMountPath: /cache
+    storage:
+      volumeClaimTemplate:
+        spec:
+          accessModes: [ReadWriteOnce]
+          resources:
+            requests:
+              storage: {{ .Values.victoriametrics.vmselect.cacheSize }}
+          {{- if .Values.global.storageClass }}
+          storageClassName: {{ .Values.global.storageClass }}
+          {{- end }}
+    resources:
+      {{- toYaml .Values.victoriametrics.vmselect.resources | nindent 6 }}
+    {{- with .Values.victoriametrics.vmselect.extraArgs }}
+    extraArgs:
+      {{- toYaml . | nindent 6 }}
+    {{- end }}
+    {{- with (.Values.global | default dict).affinity }}
+    affinity:
+      {{- toYaml . | nindent 6 }}
+    {{- end }}
+
+  vminsert:
+    replicaCount: {{ .Values.victoriametrics.vminsert.replicas }}
+    resources:
+      {{- toYaml .Values.victoriametrics.vminsert.resources | nindent 6 }}
+    {{- with (.Values.global | default dict).affinity }}
+    affinity:
+      {{- toYaml . | nindent 6 }}
+    {{- end }}
+{{- end }}

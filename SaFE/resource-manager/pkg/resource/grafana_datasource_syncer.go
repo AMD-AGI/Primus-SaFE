@@ -27,10 +27,10 @@ var grafanaDatasourceGVR = schema.GroupVersionResource{
 
 // GrafanaDatasourceSyncer manages GrafanaDatasource CRs for data-plane clusters.
 type GrafanaDatasourceSyncer struct {
-	dynClient    dynamic.Interface
-	namespace    string
-	crdReady     bool
-	crdChecked   bool
+	dynClient  dynamic.Interface
+	namespace  string
+	crdReady   bool
+	crdChecked bool
 }
 
 // NewGrafanaDatasourceSyncer creates a syncer that targets the given namespace.
@@ -95,6 +95,43 @@ func (s *GrafanaDatasourceSyncer) SyncClusterDatasources(ctx context.Context, cl
 	jsonDS := s.buildDatasource(jsonName, "marcusolsson-json-datasource", robustEndpoint, clusterName, jsonName, nil)
 	if err := s.applyDatasource(ctx, jsonDS); err != nil {
 		klog.Warningf("[grafana-syncer] sync json-api datasource for %s: %v", clusterName, err)
+	}
+}
+
+// SyncClusterMetricsDatasource creates/updates a single Prometheus datasource
+// that points *directly* at a data cluster's metrics backend (VictoriaMetrics
+// vmselect / Prometheus), with no primus-robust vm-proxy hop in between.
+//
+// The datasource uid equals the cluster name so dashboards resolve
+// var-cluster=<name> against it (same contract as the chart-managed
+// vmselect-<cluster> datasource). metricsEndpoint must be the Prometheus
+// query root, e.g. ".../select/0/prometheus".
+func (s *GrafanaDatasourceSyncer) SyncClusterMetricsDatasource(ctx context.Context, clusterName, metricsEndpoint string) {
+	if !s.ensureCRD(ctx) {
+		return
+	}
+	name := clusterName + "-prometheus"
+	ds := s.buildDatasource(name, "prometheus", metricsEndpoint, clusterName, clusterName, map[string]interface{}{
+		"timeInterval":  "30s",
+		"tlsSkipVerify": true,
+	})
+	if err := s.applyDatasource(ctx, ds); err != nil {
+		klog.Warningf("[grafana-syncer] sync metrics datasource for %s: %v", clusterName, err)
+	}
+}
+
+// RemoveClusterMetricsDatasource deletes the direct-metrics Prometheus
+// datasource created by SyncClusterMetricsDatasource.
+func (s *GrafanaDatasourceSyncer) RemoveClusterMetricsDatasource(ctx context.Context, clusterName string) {
+	if !s.ensureCRD(ctx) {
+		return
+	}
+	name := clusterName + "-prometheus"
+	err := s.dynClient.Resource(grafanaDatasourceGVR).Namespace(s.namespace).Delete(ctx, name, metav1.DeleteOptions{})
+	if err != nil && !errors.IsNotFound(err) {
+		klog.Warningf("[grafana-syncer] delete metrics datasource %s: %v", name, err)
+	} else if err == nil {
+		klog.Infof("[grafana-syncer] deleted metrics datasource %s", name)
 	}
 }
 

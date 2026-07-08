@@ -1,0 +1,94 @@
+#
+# Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
+# See LICENSE for license information.
+#
+# Values for the SaFE-owned metrics observability stack.
+#
+# Naming note: the vendored subcharts still carry their upstream
+# "primus-robust-*" chart names, but everything is deployed into the SaFE
+# observability namespace below and remote-writes only to SaFE's own vminsert
+# (no telemetry-gateway). This keeps the stack independently removable so a
+# future switch back to primus-robust is a clean uninstall.
+
+# Shared values injected into every subchart via Helm's global mechanism.
+global:
+  # Dedicated namespace so the whole stack can be torn down in one step when
+  # switching back to primus-robust.
+  namespace: "primus-safe-observability"
+  # Logical cluster name stamped as the `cluster` external label on all series
+  # and used as the Grafana datasource uid. MUST match the SaFE Cluster CR name.
+  clusterName: "default"
+  # StorageClass for VMCluster PVCs. Empty uses the cluster default.
+  storageClass: ""
+  # Optional image registry prefix for the AMD exporter images.
+  imageRegistry: "docker.io"
+
+# ── VictoriaMetrics operator (CRDs + controller) ────────────────────────
+vmOperator:
+  enabled: true
+
+# ── VMCluster CR (vminsert / vmselect / vmstorage) ──────────────────────
+vmcluster:
+  enabled: true
+  victoriametrics:
+    enabled: true
+    # Service DNS becomes vmselect-<name>.<namespace>.svc / vminsert-<name>...
+    # This name is what observability.metrics.endpoint in the primus-safe
+    # values must point at.
+    name: "primus-safe-vmcluster"
+    retentionPeriod: "30d"
+
+# ── VMAgent CR (scrape + remote-write) ──────────────────────────────────
+vmagent:
+  enabled: true
+  vmagent:
+    enabled: true
+    name: "primus-safe-vm"
+    # SaFE-native: remote-write ONLY to our own vminsert. The robust default
+    # also fanned out to telemetry-gateway for workload relabeling; we drop
+    # that here (workload-level GPU metrics are deferred derived data).
+    remoteWrite:
+      urls:
+        - "http://vminsert-primus-safe-vmcluster.primus-safe-observability.svc:8480/insert/0/prometheus/api/v1/write"
+
+# ── kube-state-metrics ──────────────────────────────────────────────────
+kubeStateMetrics:
+  enabled: true
+
+# ── AMD node exporters (DaemonSets) ─────────────────────────────────────
+gpu-exporter:
+  enabled: true
+  image:
+    repository: "primus-safe/gpu-exporter"
+    tag: "latest"
+  serviceMonitor:
+    enabled: true
+
+rdma-exporter:
+  enabled: true
+  image:
+    repository: "primus-safe/rdma-exporter"
+    tag: "latest"
+  serviceMonitor:
+    enabled: true
+
+network-exporter:
+  enabled: true
+  image:
+    repository: "primus-safe/network-exporter"
+    tag: "latest"
+  serviceMonitor:
+    enabled: true
+
+# ── SaFE-native metrics enricher ────────────────────────────────────────
+# Scrapes the AMD device-metrics-exporter, attributes each GPU to the owning
+# SaFE Workload, and remote-writes robust-compatible workload_gpu_*{workload_uid}
+# series to vminsert so per-job Grafana dashboards work without primus-robust.
+metrics-enricher:
+  enabled: true
+  image:
+    repository: "primus-safe/observability-enricher"
+    tag: "latest"
+  interval: "30s"
+  # Must match vmcluster.victoriametrics.name above.
+  vmClusterName: "primus-safe-vmcluster"

@@ -1,0 +1,27 @@
+#
+# Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
+# See LICENSE for license information.
+#
+# Scrape the rdma-exporter DaemonSet so RDMA metrics (rdma_comm_tx_bytes_total,
+# rdma_comm_tx_ops_total, ...) land in VictoriaMetrics. A `node` label is added
+# from the pod's node so the per-workload dashboard can attribute RDMA traffic
+# via the workload_pod_info join.
+{{- if (index .Values "rdma-exporter" "enabled" | default true) }}
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMPodScrape
+metadata:
+  name: rdma-exporter
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app.kubernetes.io/part-of: primus-safe-observability
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: rdma-exporter
+  podMetricsEndpoints:
+    - port: metrics
+      interval: 30s
+      relabelConfigs:
+        - sourceLabels: [__meta_kubernetes_pod_node_name]
+          targetLabel: node
+{{- end }}

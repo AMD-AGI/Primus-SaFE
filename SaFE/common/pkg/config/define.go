@@ -60,6 +60,14 @@ const (
 	workloadHangCheckInterval = workloadPrefix + "hang_check_interval"
 	workloadTTLSecond         = workloadPrefix + "ttl_second"
 
+	// observability (SaFE-native metrics backend: VictoriaMetrics / Prometheus)
+	observabilityPrefix               = "observability."
+	observabilityMetricsPrefix        = observabilityPrefix + "metrics."
+	observabilityMetricsEnable        = observabilityMetricsPrefix + "enable"
+	observabilityMetricsEndpoint      = observabilityMetricsPrefix + "endpoint"
+	observabilityMetricsInsecure      = observabilityMetricsPrefix + "insecure_skip_verify"
+	observabilityMetricsEndpointAnnot = observabilityMetricsPrefix + "endpoint_annotation"
+
 	// opensearch
 	openSearchPrefix      = "opensearch."
 	openSearchEnable      = openSearchPrefix + "enable"

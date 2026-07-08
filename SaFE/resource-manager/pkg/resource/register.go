@@ -72,5 +72,13 @@ func SetupControllers(ctx context.Context, mgr manager.Manager) error {
 		return fmt.Errorf("failed to set up workload robust syncer: %v", err)
 	}
 
+	// SaFE-native metrics path (VictoriaMetrics / Prometheus). No-op unless
+	// observability.metrics.enable is true; when enabled it provisions Grafana
+	// datasources that point directly at each cluster's vmselect instead of
+	// proxying through primus-robust robust-analyzer.
+	if _, err := SetupObservabilityMetrics(ctx, mgr); err != nil {
+		return fmt.Errorf("failed to set up observability metrics: %v", err)
+	}
+
 	return nil
 }

@@ -1,0 +1,40 @@
+{{- if .Values.vmagent.enabled }}
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMAgent
+metadata:
+  name: {{ .Values.vmagent.name }}
+  namespace: {{ .Values.global.namespace }}
+spec:
+  replicaCount: {{ .Values.vmagent.replicas }}
+  scrapeInterval: {{ .Values.vmagent.scrapeInterval | quote }}
+
+  selectAllByDefault: true
+
+  remoteWrite:
+  {{- if .Values.vmagent.remoteWrite.urls }}
+  {{- range .Values.vmagent.remoteWrite.urls }}
+  - url: {{ . | quote }}
+  {{- end }}
+  {{- else }}
+  - url: {{ .Values.vmagent.remoteWrite.url | quote }}
+  {{- end }}
+  {{- with .Values.vmagent.extraRemoteWrites }}
+  {{- toYaml . | nindent 2 }}
+  {{- end }}
+
+  externalLabels:
+    cluster: {{ .Values.global.clusterName | quote }}
+
+  resources:
+    {{- toYaml .Values.vmagent.resources | nindent 4 }}
+
+  {{- with (.Values.global | default dict).affinity }}
+  affinity:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+
+  {{- if .Values.vmagent.extraScrapeConfigs }}
+  inlineScrapeConfig: |
+    {{- toYaml .Values.vmagent.extraScrapeConfigs | nindent 4 }}
+  {{- end }}
+{{- end }}

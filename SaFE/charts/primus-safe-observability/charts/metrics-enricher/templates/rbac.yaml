@@ -1,0 +1,45 @@
+#
+# Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
+# See LICENSE for license information.
+#
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: metrics-enricher
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app.kubernetes.io/name: metrics-enricher
+    app.kubernetes.io/part-of: primus-safe-observability
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: primus-safe-metrics-enricher
+  labels:
+    app.kubernetes.io/name: metrics-enricher
+    app.kubernetes.io/part-of: primus-safe-observability
+rules:
+  # Resolve GPU-using pods and the exporter endpoints to scrape.
+  - apiGroups: [""]
+    resources: ["pods", "endpoints"]
+    verbs: ["get", "list", "watch"]
+  # Map pods to owning SaFE Workloads (for workload_uid).
+  - apiGroups: ["amd.com"]
+    resources: ["workloads"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: primus-safe-metrics-enricher
+  labels:
+    app.kubernetes.io/name: metrics-enricher
+    app.kubernetes.io/part-of: primus-safe-observability
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: primus-safe-metrics-enricher
+subjects:
+  - kind: ServiceAccount
+    name: metrics-enricher
+    namespace: {{ .Values.global.namespace }}

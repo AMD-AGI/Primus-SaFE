@@ -1,0 +1,45 @@
+#
+# Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
+# See LICENSE for license information.
+#
+# Shared globals are injected by the umbrella (global.namespace, global.clusterName,
+# global.imageRegistry). Values here are enricher-specific.
+
+enabled: true
+
+image:
+  repository: primus-safe/observability-enricher
+  tag: "latest"
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+
+# Scrape/emit tuning.
+interval: "30s"
+workloadPodLabel: "primus-safe.workload.id"
+
+# AMD device-metrics-exporter location (installed by the amd-gpu-operator).
+exporter:
+  service: "default-metrics-exporter"
+  namespace: "kube-amd-gpu"
+  port: 5000
+  scheme: "http"
+  path: "/metrics"
+
+# VictoriaMetrics vminsert import endpoint. Leave empty to auto-derive from the
+# umbrella's vmcluster name + global.namespace.
+vmImportUrl: ""
+# vmcluster name must match .Values.vmcluster.victoriametrics.name in the umbrella.
+vmClusterName: "primus-safe-vmcluster"
+
+resources:
+  limits:
+    cpu: "500m"
+    memory: "256Mi"
+  requests:
+    cpu: "100m"
+    memory: "64Mi"
+
+nodeSelector: {}
+tolerations: []
+affinity: {}

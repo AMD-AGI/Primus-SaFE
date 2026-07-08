@@ -11,6 +11,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	dynamicfake "k8s.io/client-go/dynamic/fake"
@@ -53,6 +54,28 @@ func TestRemoveClusterDatasources(t *testing.T) {
 	s.SyncClusterDatasources(context.Background(), "c1", "http://robust:8085")
 	s.RemoveClusterDatasources(context.Background(), "c1")
 	list, err := s.dynClient.Resource(grafanaDatasourceGVR).Namespace("monitoring").List(context.Background(), metav1.ListOptions{})
+	assert.NoError(t, err)
+	assert.Empty(t, list.Items)
+}
+
+func TestSyncClusterMetricsDatasource(t *testing.T) {
+	s := newFakeGrafanaSyncer()
+	// Direct-metrics mode creates a single prometheus datasource pointing at
+	// the vmselect endpoint, with uid == cluster name and no -robust-api DS.
+	s.SyncClusterMetricsDatasource(context.Background(), "c1", "http://vmselect:8481/select/0/prometheus")
+	list, err := s.dynClient.Resource(grafanaDatasourceGVR).Namespace("monitoring").List(context.Background(), metav1.ListOptions{})
+	assert.NoError(t, err)
+	assert.Len(t, list.Items, 1)
+
+	got, err := s.dynClient.Resource(grafanaDatasourceGVR).Namespace("monitoring").Get(context.Background(), "c1-prometheus", metav1.GetOptions{})
+	assert.NoError(t, err)
+	url, _, _ := unstructured.NestedString(got.Object, "spec", "datasource", "url")
+	assert.Equal(t, "http://vmselect:8481/select/0/prometheus", url)
+	uid, _, _ := unstructured.NestedString(got.Object, "spec", "datasource", "uid")
+	assert.Equal(t, "c1", uid)
+
+	s.RemoveClusterMetricsDatasource(context.Background(), "c1")
+	list, err = s.dynClient.Resource(grafanaDatasourceGVR).Namespace("monitoring").List(context.Background(), metav1.ListOptions{})
 	assert.NoError(t, err)
 	assert.Empty(t, list.Items)
 }

@@ -1,0 +1,48 @@
+global:
+  namespace: "primus-robust"
+  storageClass: "local-path"
+
+victoriametrics:
+  enabled: true
+  name: "primus-robust-vmcluster"
+  retentionPeriod: "30d"
+
+  vmstorage:
+    replicas: 2
+    size: "100Gi"
+    resources:
+      limits:
+        cpu: "2000m"
+        memory: "4Gi"
+      requests:
+        cpu: "500m"
+        memory: "1Gi"
+    # Bound per-node query concurrency and cap queue wait so heavy dashboard
+    # joins shed load fast instead of piling up and returning HTTP 429.
+    extraArgs:
+      search.maxConcurrentRequests: "16"
+      search.maxQueueDuration: "30s"
+
+  vmselect:
+    replicas: 2
+    cacheSize: "20Gi"
+    resources:
+      limits:
+        cpu: "4000m"
+        memory: "4Gi"
+      requests:
+        cpu: "500m"
+        memory: "1Gi"
+    extraArgs:
+      search.maxConcurrentRequests: "12"
+      search.maxQueueDuration: "30s"
+
+  vminsert:
+    replicas: 2
+    resources:
+      limits:
+        cpu: "1000m"
+        memory: "1Gi"
+      requests:
+        cpu: "200m"
+        memory: "256Mi"

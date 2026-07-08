@@ -1,0 +1,57 @@
+#
+# Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
+# See LICENSE for license information.
+#
+# primus-safe-observability bundles a SaFE-owned metrics stack (VictoriaMetrics
+# + vmagent + node exporters + kube-state-metrics) so SaFE can provide GA
+# observability without depending on the data-plane primus-robust addon.
+#
+# This chart is intentionally self-contained and installed as its own Helm
+# release (see bootstrap/install.sh). To switch back to primus-robust once it
+# reaches GA, uninstall this release and set observability.metrics.enable=false
+# in the primus-safe values — no code changes required.
+apiVersion: v2
+name: primus-safe-observability
+description: SaFE-owned metrics observability stack (VictoriaMetrics, vmagent, exporters)
+type: application
+version: 0.1.0
+appVersion: "1.0.0"
+
+dependencies:
+  # VictoriaMetrics operator: provides the VMCluster / VMAgent CRDs + controller.
+  - name: primus-robust-vm-operator
+    version: ">=0.1.0"
+    alias: vmOperator
+    condition: vmOperator.enabled
+  # VMCluster CR (vminsert / vmselect / vmstorage).
+  - name: primus-robust-victoriametrics
+    version: ">=0.1.0"
+    alias: vmcluster
+    condition: vmcluster.enabled
+  # VMAgent CR: scrapes exporters and remote-writes to vminsert.
+  - name: primus-robust-vmagent
+    version: ">=0.1.0"
+    alias: vmagent
+    condition: vmagent.enabled
+  # Kubernetes object-state metrics.
+  - name: primus-robust-kube-state-metrics
+    version: ">=0.1.0"
+    alias: kubeStateMetrics
+    condition: kubeStateMetrics.enabled
+  # AMD node exporters (DaemonSets). device-exporter is intentionally excluded:
+  # it only feeds robust's telemetry-gateway workload-relabel pipeline, which is
+  # the deferred workload-level (derived) data.
+  - name: gpu-exporter
+    version: ">=0.1.0"
+    condition: gpu-exporter.enabled
+  - name: rdma-exporter
+    version: ">=0.1.0"
+    condition: rdma-exporter.enabled
+  - name: network-exporter
+    version: ">=0.1.0"
+    condition: network-exporter.enabled
+  # SaFE-native enricher: attributes AMD GPU metrics to workloads
+  # (workload_gpu_*{workload_uid}) so per-job Grafana dashboards work.
+  - name: metrics-enricher
+    version: ">=0.1.0"
+    condition: metrics-enricher.enabled

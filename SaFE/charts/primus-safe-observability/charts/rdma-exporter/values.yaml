@@ -1,0 +1,85 @@
+replicaCount: 1
+
+image:
+  repository: rdma-exporter
+  pullPolicy: IfNotPresent
+  tag: "latest"
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+podAnnotations: {}
+
+prometheus:
+  port: "9401"
+
+podSecurityContext: {}
+
+securityContext:
+  privileged: true
+
+service:
+  type: ClusterIP
+  port: 9401
+
+resources: {}
+
+nodeSelector:
+  feature.node.kubernetes.io/rdma.available: "true"
+
+tolerations:
+  - operator: Exists
+
+affinity: {}
+
+env:
+  RDMA_EXPORTER_PORT: "9401"
+  RDMA_EXPORTER_INTERVAL: "5"
+  RDMA_EXPORTER_LOG_LEVEL: "info"
+  RDMA_EXPORTER_ENABLE_EBPF: "true"
+  RDMA_EXPORTER_PROVIDER_LIB: "libbnxt_re,libmlx5,libionic_rdma,libionic"
+  RDMA_EXPORTER_PROVIDER_FUNC: "bnxt_re_post_send,mlx5_post_send,ionic_post_send"
+  RDMA_EXPORTER_STATE_PATH: "/var/lib/rdma-exporter/state.json"
+
+volumeMounts:
+  - name: dev
+    mountPath: /dev
+  - name: sys
+    mountPath: /sys
+  - name: proc
+    mountPath: /host/proc
+    readOnly: true
+  - name: bpf
+    mountPath: /sys/fs/bpf
+  - name: state
+    mountPath: /var/lib/rdma-exporter
+
+volumes:
+  - name: dev
+    hostPath:
+      path: /dev
+  - name: sys
+    hostPath:
+      path: /sys
+  - name: proc
+    hostPath:
+      path: /proc
+  - name: bpf
+    hostPath:
+      path: /sys/fs/bpf
+  - name: state
+    hostPath:
+      path: /var/lib/rdma-exporter
+      type: DirectoryOrCreate
+
+serviceMonitor:
+  enabled: false
+  interval: 15s
+  scrapeTimeout: 10s
+  labels: {}

@@ -1,0 +1,72 @@
+replicaCount: 1
+
+image:
+  repository: network-exporter
+  pullPolicy: IfNotPresent
+  tag: "latest"
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+podAnnotations: {}
+
+prometheus:
+  port: "9402"
+
+podSecurityContext: {}
+
+securityContext:
+  privileged: true
+  capabilities:
+    add:
+      - BPF
+      - PERFMON
+      - NET_ADMIN
+
+service:
+  type: ClusterIP
+  port: 9402
+
+resources: {}
+
+nodeSelector: {}
+
+tolerations:
+  - operator: Exists
+
+affinity: {}
+
+env:
+  NETWORK_EXPORTER_PORT: "9402"
+  NETWORK_EXPORTER_INTERVAL: "5"
+  NETWORK_EXPORTER_LOG_LEVEL: "info"
+  # NETWORK_EXPORTER_POD_CIDR: "10.244.0.0/16"
+  # NETWORK_EXPORTER_SVC_CIDR: "10.96.0.0/12"
+
+volumeMounts:
+  - name: host-proc
+    mountPath: /host-proc
+    readOnly: true
+  - name: sys
+    mountPath: /sys
+    readOnly: true
+
+volumes:
+  - name: host-proc
+    hostPath:
+      path: /proc
+  - name: sys
+    hostPath:
+      path: /sys
+
+serviceMonitor:
+  enabled: false
+  interval: 15s
+  scrapeTimeout: 10s
+  labels: {}
