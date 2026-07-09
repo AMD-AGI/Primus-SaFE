@@ -542,6 +542,8 @@ func (r *SchedulerReconciler) getLeftTotalResources(ctx context.Context,
 		var err error
 		if w.IsRunning() {
 			totalResource, availableResource, _, err = commonworkload.GetWorkloadResourceUsage(w, filterFunc)
+		} else if !workspace.IsEnableFifo() {
+			totalResource, availableResource, err = getBoundPendingResourceUsage(w, filterFunc)
 		} else {
 			totalResource, err = commonworkload.GetTotalResourceList(w)
 			availableResource = totalResource
@@ -564,6 +566,32 @@ func (r *SchedulerReconciler) getLeftTotalResources(ctx context.Context,
 	klog.Infof("workspace: %s, total resource: %v, total used: %v, total avail: %v, left total: %v, left avail: %v",
 		workspace.Name, totalResource, usedTotalResource, usedAvailableResource, leftTotalResource, leftAvailResource)
 	return leftAvailResource, leftTotalResource, nil
+}
+
+func getBoundPendingResourceUsage(workload *v1.Workload, filterNode func(nodeName string) bool) (
+	corev1.ResourceList, corev1.ResourceList, error) {
+	boundWorkload := workload.DeepCopy()
+	if len(boundWorkload.Status.NodeUsage) > 0 {
+		nodeUsage := boundWorkload.Status.NodeUsage[:0]
+		for _, usage := range boundWorkload.Status.NodeUsage {
+			if usage.Node == "" {
+				continue
+			}
+			nodeUsage = append(nodeUsage, usage)
+		}
+		boundWorkload.Status.NodeUsage = nodeUsage
+	} else if len(boundWorkload.Status.Pods) > 0 {
+		pods := boundWorkload.Status.Pods[:0]
+		for _, pod := range boundWorkload.Status.Pods {
+			if pod.AdminNodeName == "" {
+				continue
+			}
+			pods = append(pods, pod)
+		}
+		boundWorkload.Status.Pods = pods
+	}
+	totalResource, availableResource, _, err := commonworkload.GetWorkloadResourceUsage(boundWorkload, filterNode)
+	return totalResource, availableResource, err
 }
 
 // markAsScheduled updates a workload's status to indicate it has been scheduled.
