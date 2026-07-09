@@ -48,7 +48,7 @@ spec:
     replicaCount: 1
 
     image:
-      repository: {{ .Values.global.helm_registry }}/primussafe/infera-kubernetes-operator
+      repository: {{ .Values.global.proxy_image_registry }}/primussafe/infera-kubernetes-operator
       tag: "0.1.0"
       pullPolicy: IfNotPresent
 
