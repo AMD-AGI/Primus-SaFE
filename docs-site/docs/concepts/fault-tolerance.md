@@ -5,13 +5,7 @@ title: Fault tolerance & faults
 
 # Fault tolerance & faults
 
-> **Status:** Draft · **Owner:** _unassigned_ · **Source:** `SaFE/docs/apis/fault.md`,
-> `SaFE/docs/apis/workload.md`
-
-At scale, the thing that wastes GPU time is rarely the job — it's a failing node, a flaky
-link, or a single bad GPU stalling a distributed run. Primus-SaFE protects **goodput** by
-detecting these conditions and recovering automatically. This page describes the mechanism;
-the value proposition is in the [Overview](/).
+At scale, the main cause of low GPU utilization is rarely the job itself. More often a broken node, a flaky link, or a single bad GPU stalls the entire distributed run. Primus-SaFE achieves high **goodput** by detecting these conditions and recovering from them automatically.
 
 ## The `Fault` resource
 

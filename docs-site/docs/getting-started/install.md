@@ -5,64 +5,166 @@ title: Install
 
 # Install Primus-SaFE
 
-> **Status:** Draft · **Owner:** _unassigned_ · **Source:** `Bootstrap/README.md`,
-> `SaFE/docs/installation/install.md`, `Bench/README.md`
+Most teams run Primus-SaFE on a single Kubernetes cluster; at larger scale one control plane can
+manage several clusters as a fleet (see [Architecture](/architecture)). This guide covers the
+single-cluster install.
 
-Start with a single cluster — that is the path most teams need. Scale to a multi-cluster
-fleet only when one control plane has to manage several GPU clusters.
+<!-- @test
+scope: page
+mode: behavior
+priority: P1
+targets:
+  console: { baseUrl: "${PRIMUS_CONSOLE_URL}", login: "${PRIMUS_ADMIN_LOGIN}" }
+notes: "Install/bring-up is not tested (the env is provided). The one live check is that the seeded admin can sign in. Host and credentials come from .docs-test.env and are never committed."
+do: open {{baseUrl}} and sign in with the seeded admin login (PRIMUS_ADMIN_LOGIN)
+expect:
+  - sign-in succeeds and the dashboard loads
+-->
 
-## Single cluster (the common path)
+## Install on a single cluster
 
-### 1. (Bare metal only) Build the cluster with Bootstrap
+Run the commands from a deploy host after cloning the repository (`Primus-SaFE/`); that host
+needs passwordless `root` SSH to every node. Steps 1, 2, and 4 are required; steps 3 and 6 are
+optional.
 
-If you do not already have Kubernetes, use **Bootstrap** to provision it. Edit `hosts.yaml`
-with your nodes and roles (control plane, etcd, workers), then run:
+### 1. Provision Kubernetes with Bootstrap — required (bare metal only)
+
+Skip this step **only** if you already have a Kubernetes 1.21+ cluster with cluster-admin
+`kubectl` and `helm` access. Otherwise it is required.
+
+**a. Describe your nodes.** Edit the inventory file `Primus-SaFE/Bootstrap/hosts.ini`. It is a
+standard Ansible inventory. Use it to define **only the control-plane / etcd nodes** — use an
+**odd number** of them (1 or 3) so etcd has a quorum. Listing the same nodes under `[kube_node]`
+lets the control plane also run workloads.
+
+```ini
+[all]
+node-01 ansible_host=10.0.0.11 ip=10.0.0.11 ansible_user=root
+node-02 ansible_host=10.0.0.12 ip=10.0.0.12 ansible_user=root
+node-03 ansible_host=10.0.0.13 ip=10.0.0.13 ansible_user=root
+
+[kube_control_plane]
+node-01
+node-02
+node-03
+
+[etcd]
+node-01
+node-02
+node-03
+
+[kube_node]
+node-01
+node-02
+node-03
+
+[k8s_cluster:children]
+kube_control_plane
+kube_node
+```
+
+:::note Add GPU workers through the console, not here
+The recommended practice is **not** to add extra GPU worker nodes to `hosts.ini`. Use this file
+only to define and configure the control-plane / etcd nodes; add worker nodes to the cluster
+later through the Primus-SaFE console (see [Manage nodes](/administration/manage-nodes)). Listing
+the control-plane nodes under `[kube_node]` is what lets them also run workloads.
+:::
+
+- `ansible_host` / `ip` are the addresses the installer and the other nodes use to reach each
+  machine — use the private cluster network.
+- If the deploy host reaches the nodes with a non-default SSH key, add
+  `ansible_ssh_private_key_file=/path/to/key` to each `[all]` line.
+
+:::warning Node hostnames are set from this file
+Running Kubespray renames each node's hostname to the name you give it here. Keep these names
+stable and correct up front, because a node's hostname must stay the same for downstream systems
+(for example IAM / identity management) to keep working.
+:::
+
+**b. Run Bootstrap.**
 
 ```bash
+cd Primus-SaFE/Bootstrap
 bash bootstrap.sh
 ```
 
-This stands up Kubernetes (via Kubespray) and installs the core add-ons. If you already have
-a Kubernetes 1.21+ cluster, skip this step.
-
-### 2. Install the platform
-
-Run the installer from a machine with `helm`, `kubectl`, and cluster-admin access:
+This clones Kubespray, provisions Kubernetes (v1.32.5, Flannel CNI), writes the kubeconfig to
+`~/.kube/config`, and installs the base add-ons (cert-manager, the AMD GPU operator, the network
+operator, and the scheduler plugins). Expect 20–40 minutes, then verify:
 
 ```bash
-cd bootstrap
-./install.sh
+kubectl get nodes -o wide      # every node Ready
+helm list -A
 ```
 
-The script is interactive. The prompts you are most likely to set:
+### 2. Set up a storage class — required
 
-| Prompt | What it is |
-|--------|------------|
-| `storage_class` | The Kubernetes StorageClass for persistent state (default `local-path`; must already exist). |
-| `ingress` | `nginx` (NodePort `30183`) or `higress` (domain at `https://<cluster>.primus-safe.amd.com`). |
-| Image pull secret | Credentials for a private registry, or an empty placeholder secret. |
-| `cluster_scale` | `small` / `medium` / `large` — sizes the control-plane replicas and resources. |
-| S3 storage | Optional — endpoint, bucket, and keys for log download and S3 features. |
-| SSO / OIDC | Optional — connect an external IdP (see the fleet section below). |
-| `csi_volume_handle` | Optional — CSI handle that enables workspace persistent filesystem (PFS). |
+The platform stores persistent state — its database, message queue, and backups — on Kubernetes
+**PersistentVolumes**, which need a default **StorageClass**. Without one those volumes never
+bind and the install stalls. Create one before installing; choose based on your needs:
 
-The installer creates the required secrets, deploys the admin-plane services (apiserver,
-webhooks, controllers, Postgres operator), applies the custom resources, and writes a `.env`
-file so future upgrades reuse your answers.
+- **Local path** — simplest, and what most evaluations use. Backs each volume with a directory
+  on the node where the pod runs (no replication; data is tied to that node):
 
-### 3. Access the console
+  ```bash
+  cd Primus-SaFE/Bootstrap/storage/local-path
+  bash local-path.sh        # prompts for the directory to use, e.g. /data
+  ```
 
-- **nginx:** open `http://<any-node-ip>:30183`
-- **higress:** open `https://<cluster>.primus-safe.amd.com` (the web Service is also exposed
-  as a NodePort — e.g. `http://<node-ip>:32494` — if you don't have DNS for the domain).
+  Installs the local-path provisioner and a `local-path` StorageClass.
 
-Log in with the seeded admin account **`root` / `root`** (created by the `primus-safe-cr`
-chart, role `system-admin`). **Change this password immediately** on any reachable host.
+- **Rook-Ceph** — production-grade replicated block storage (and an optional S3 endpoint). Use
+  this when you need replication, shared (RWX) volumes, or object storage. Requires spare raw
+  disks on the nodes:
 
-:::note Temporary install prerequisite (until fixed upstream)
-On a brand-new cluster the installer enables OpenSearch and a pre-install hook expects a
-secret that doesn't exist yet, which fails the install. Until this is fixed, pre-create a
-placeholder before running `install.sh`:
+  ```bash
+  cd Primus-SaFE/Bootstrap/storage/ceph
+  bash ceph.sh
+  ```
+
+In short: **local-path** is simple and fine for evaluation and single-node durability;
+**Rook-Ceph** (or any production CSI) replicates across nodes, survives a node failure, and adds
+shared (RWX) volumes and S3. Any CSI that provides a default StorageClass works. Note the name —
+you give it to the installer in step 4.
+
+### 3. Gateway and private registry — optional
+
+Skip this step for a quick start: the platform works with built-in NodePort access and public
+images. Add these when you want domain-based access or an in-cluster registry.
+
+**Higress gateway** — serves the console (and SSH-to-pods on port `2222`) on a **domain** instead
+of a node port. It is a two-part setup:
+
+1. Install the gateway here, once:
+
+   ```bash
+   cd Primus-SaFE/Bootstrap/higress
+   bash higress.sh
+   ```
+
+2. Then, in step 4, choose `higress` as the ingress and enter a cluster name; the installer
+   publishes the console through this gateway at your domain. (If you choose `nginx` instead, you
+   skip Higress entirely and reach the console on NodePort `30183`.)
+
+**Harbor registry** — an in-cluster container registry, useful for private images and to cache
+public ones close to the cluster. It needs a StorageClass (step 2), cert-manager (installed by
+Bootstrap), and the Higress gateway above:
+
+```bash
+cd Primus-SaFE/Bootstrap/harbor
+# bash harbor.sh <admin-password> <harbor-domain> [storage-class] [ssh-key]
+bash harbor.sh 'choose-a-strong-password' harbor.example.com local-path ~/.ssh/id_ed25519
+```
+
+This installs Harbor, issues a self-signed certificate, distributes its CA to the nodes, and
+creates `primussafe` and `public` projects. When the platform installer detects Harbor, it uses
+it automatically as a pull-through image cache.
+
+### 4. Install the platform — required
+
+:::note Install prerequisite
+On a brand-new cluster the installer enables OpenSearch, and a pre-install hook expects a secret
+that does not exist yet. Pre-create a placeholder before running the installer:
 
 ```bash
 kubectl create namespace primus-safe 2>/dev/null
@@ -72,100 +174,70 @@ kubectl create secret generic primus-safe-opensearch-config -n primus-safe \
 ```
 :::
 
-### 4. (Optional) Verify with Primus-Bench
-
-Before running production jobs, run **Primus-Bench** to health-check and benchmark your nodes
-(SSH reachability, network connectivity, I/O, and system metrics). It runs standalone on bare
-metal, SLURM, or Kubernetes:
+Run the installer from a machine with `helm`, `kubectl`, and cluster-admin access:
 
 ```bash
+cd Primus-SaFE/SaFE/bootstrap
+bash install.sh
+```
+
+The script is interactive. The prompts you are most likely to set:
+
+| Prompt | What it is |
+|--------|------------|
+| `cluster name` | Names the cluster and becomes its subdomain (e.g. `tas325` → `tas325.primus-safe.amd.com`). You use this to reach the cluster ingress later, so pick it deliberately. |
+| `ethernet nic` | The Ethernet interface distributed jobs use for NCCL/RCCL control traffic and TCP fallback (sets `NCCL_SOCKET_IFNAME`). Default `eno0`. |
+| `rdma nic` | The RDMA/RoCE devices distributed jobs use for high-speed GPU-to-GPU transfers (sets `NCCL_IB_HCA`). Default `rdma0,…,rdma7`. |
+| `storage_class` | The StorageClass from step 2 (default `local-path`; must already exist). |
+| `ingress` | `nginx` (console on NodePort `30183`) or `higress` (domain-based; requires step 3). |
+| Image pull secret | Credentials for a private registry, or an empty placeholder. |
+| `cluster_scale` | `small` / `medium` / `large` — sizes the control-plane replicas and resources. |
+| S3 storage | Optional — endpoint, bucket, and keys for log download and object features. |
+| SSO / OIDC | Optional — connect an external identity provider. |
+| `csi_volume_handle` | Optional — enables a workspace persistent filesystem (PFS). |
+
+To find the NIC names on a node:
+
+- **Ethernet:** `ip -br link` — pick the interface that carries the node's cluster IP (e.g.
+  `eno0`, `bond0`).
+- **RDMA:** `rdma link` or `ibdev2netdev` (or `ls /sys/class/infiniband`) — list the HCA devices.
+
+The two NIC values set a **cluster-wide default** for multi-node training. If they are wrong,
+multi-node jobs fail to set up GPU-to-GPU communication (NCCL cannot find the interface/device) or
+fall back to a slow path; single-node jobs are unaffected. Use **consistent NIC names across all
+nodes** — one value is applied fleet-wide, so nodes with different names won't match (you can
+override the NCCL variables per workload if a node differs).
+
+The installer creates the required secrets, deploys the admin-plane services (apiserver,
+webhooks, controllers, database operator), applies the custom resources, and writes a `.env`
+file so future upgrades reuse your answers.
+
+### 5. Access the console
+
+- **nginx ingress:** open `http://<any-node-ip>:30183`.
+- **higress ingress:** open `https://<your-cluster-domain>` (if DNS for the domain is not set up
+  yet, the web service is also reachable on its NodePort).
+
+Log in with the seeded admin account **`root` / `root`** (role `system-admin`).
+**Change this password immediately.**
+
+### 6. Validate nodes with Primus-Bench — optional
+
+Before running production jobs, use **Primus-Bench** to health-check and benchmark your nodes —
+SSH reachability, network connectivity, I/O, and key system metrics:
+
+```bash
+cd Primus-SaFE/Bench
+# list your nodes in hosts.ini, then:
 bash run_bare_metal.sh
 ```
 
-See [`Bench/README.md`](https://github.com/AMD-AGI/Primus-SaFE/blob/main/Bench/README.md) for
-SLURM and Kubernetes modes.
+Primus-Bench also runs on SLURM and Kubernetes — see
+[`Bench/README.md`](https://github.com/AMD-AGI/Primus-SaFE/blob/main/Bench/README.md).
 
 ### Next
 
 Run your first job: [Getting Started → First training job](/getting-started/first-training-job).
 
----
-
-## Build out cluster capacity
-
-A fresh install brings up the control plane and console, but **no cluster, nodes, or workspace
-are registered yet** — that's an explicit admin step. Do it in this order (console: **System →**
-each section):
-
-### 1. Register an SSH secret
-The platform manages nodes over SSH, so create a **Secret** of type **SSH** (Secrets → Create)
-with a username and key pair (or password) that can reach your nodes. See
-[Administration → Manage access & quota](/administration/manage-access-and-quota).
-
-<!-- screenshot: Secrets → Create (SSH) — add sanitized image -->
-
-### 2. Pick or create a node flavor
-A **NodeFlavor** describes the per-node hardware (CPU/GPU/memory/RDMA); a workspace binds to
-exactly one. Example flavors are seeded (`amd-mi300x/325x/355x-example`) — use one or create
-your own under **Flavors**.
-
-### 3. Register your nodes
-Under **Nodes → Create Node**, add each node with its **hostname**, **private IP**, **flavor**,
-**node template**, and the **SSH secret** from step 1 (default SSH port `22`). The
-resource-manager SSHes in and brings each node from `Managing` → `Ready`. (API:
-`POST /api/v1/nodes`.)
-
-![Create Node form](/img/screenshots/create-node-form.png)
-
-### 4. Create the cluster
-Under **Clusters → Create Cluster**, name it (e.g. `default`), pick the SSH secret, and select
-the nodes from step 3. A registered cluster shows phase `Ready`:
-
-![Clusters list with a Ready cluster](/img/screenshots/clusters-list.png)
-
-:::warning This form is the provisioning path
-Create Cluster includes **Kube Spray Image** and a **Managed Cluster** toggle — i.e. it can run
-kubespray against the selected nodes. On a cluster that **already runs Kubernetes** (e.g. you
-installed SaFE on an existing cluster), confirm the managed/provision behavior before
-submitting so you don't re-provision a live cluster.
-:::
-
-### 5. Create a workspace
-Under **Workspaces**, create one (e.g. `test`), bind it to a flavor, add nodes, and enable the
-**scopes** your team needs (`Train`, `Infer`, `Authoring`, …). Details in
-[Administration → Manage access & quota](/administration/manage-access-and-quota).
-
-Once a workspace has healthy nodes, you can
-[run your first job](/getting-started/first-training-job). Day-2 operations on this capacity
-(moving nodes, taints, reboot) live in [Administration → Manage nodes](/administration/manage-nodes).
-
-:::note Node health & taints
-node-agent runs hardware health checks and **taints** nodes whose checks fail (network/RDMA,
-storage/CSI, etc.). On hardware without those features configured, expect taints — either
-configure the real NICs/storage, disable the relevant monitors, or submit workloads with
-`isTolerateAll: true` for testing. See [Manage nodes](/administration/manage-nodes).
-:::
-
----
-
-## Scaling to a fleet
-
-The install above produces a working cluster where the control plane and data plane sit
-together — the right choice for most teams. The same platform also runs as a **fleet**: one
-control plane managing several data-plane GPU clusters (see
-[Architecture → Control plane vs. data plane](/architecture)).
-
-You do not run a different installer for this. The difference is operational rather than a
-separate setup procedure:
-
-- Each additional GPU cluster is registered as a `Cluster` resource (single-cluster users
-  never create one by hand; fleet admins do).
-- SaFE auto-installs the per-cluster add-ons workloads depend on — scheduler-plugins (gang +
-  topology), CSI storage, the AMD GPU operator, and the training operator.
-- The `node-agent` data plane runs on each managed cluster's GPU nodes.
-
-:::note
-The end-to-end fleet flow — cluster registration, credentials, and networking — and the
-**SSO / OIDC** setup (the `primus-safe-sso` secret and `sso.enable`) are not yet documented
-here. We will add them once verified against the resource-manager code.
-:::
+> Running several GPU clusters under one control plane (a **fleet**) is covered separately — see
+> [Architecture](/architecture).

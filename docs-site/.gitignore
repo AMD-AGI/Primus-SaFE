@@ -8,6 +8,9 @@
 .docusaurus
 .cache-loader
 
+# Docs-as-test local runtime params (real hosts/credentials — never commit)
+.docs-test.env
+
 # Misc
 .DS_Store
 .env.local

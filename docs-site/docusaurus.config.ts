@@ -8,6 +8,27 @@ import type * as Preset from '@docusaurus/preset-classic';
 const GITHUB_REPO = 'https://github.com/AMD-AGI/Primus-SaFE';
 const EDIT_BRANCH = 'ga-doc';
 
+// Strip reader-invisible doc-as-test annotations (`<!-- @test ... -->`) from the published
+// site so they never reach customers' HTML/JS. The annotations stay in the .md source, where an
+// agent reads them as the executable test spec. See docs-site/AGENTS.md.
+function remarkStripTestAnnotations() {
+  return (tree: {children?: unknown[]}) => {
+    const walk = (node: {children?: unknown[]}) => {
+      if (!Array.isArray(node.children)) return;
+      node.children = node.children.filter((child) => {
+        const c = child as {type?: string; value?: string; children?: unknown[]};
+        if (c.type === 'html' && typeof c.value === 'string') {
+          const v = c.value.trimStart();
+          if (v.startsWith('<!--') && v.includes('@test')) return false;
+        }
+        walk(c as {children?: unknown[]});
+        return true;
+      });
+    };
+    walk(tree);
+  };
+}
+
 const config: Config = {
   title: 'Primus-SaFE',
   tagline: 'Stability at Scale: AMD’s Full-Stack Platform for Large-Model Training',
@@ -41,6 +62,7 @@ const config: Config = {
           routeBasePath: '/',
           sidebarPath: './sidebars.ts',
           editUrl: `${GITHUB_REPO}/tree/${EDIT_BRANCH}/docs-site/`,
+          remarkPlugins: [remarkStripTestAnnotations],
         },
         blog: false,
         theme: {

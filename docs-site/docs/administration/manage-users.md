@@ -5,9 +5,6 @@ title: Add users & assign access
 
 # Add users & assign access
 
-> **Status:** Draft · **Owner:** _unassigned_ · **Source:** `SaFE/docs/apis/user.md`,
-> `envs.md`, `api-key.md`; `apiserver/.../authority/sso_token.go`
-
 This page covers **who can log in** and **what they can use**. In Primus-SaFE these are two
 separate steps:
 
@@ -18,6 +15,24 @@ separate steps:
 A brand-new account (however it was created) can do almost nothing until an admin grants it
 workspace access — the only exception is a [default/public workspace](/concepts/workspace),
 which every user can see.
+
+<!-- @test
+scope: page
+mode: contract
+priority: P0
+personas: [admin, member]
+preconditions: [running-cluster]
+do: follow this page's "From the console (UI)" steps to create a default user (unique name), then sign out and sign in as them
+expect:
+  - the new user can sign in
+  - as that default user: no System admin section in the nav; Nodes/Clusters/Users not reachable; only public/granted workspaces listed
+  - after an admin freezes them (row action), they can no longer sign in
+cleanup: as admin, delete the user via its row action
+-->
+<!-- @test todo:
+  - "Doc does not state the exact non-admin behavior on System pages (hidden nav vs redirect); make the prose explicit so the expect can be precise."
+  - "Add the positive path: grant the user a workspace, then confirm they can act in it."
+-->
 
 ## The identity model
 
@@ -102,7 +117,7 @@ exposes it via `GET /api/v1/envs`:
 When `ssoEnable` is true, the console's `/login` page redirects straight to the IdP. The flow
 is standard OIDC authorization-code (scopes `openid profile email`):
 
-1. User clicks **Continue with AMD** (or is auto-redirected) → authenticates at the IdP.
+1. User goes through IdP's authentication process.
 2. The IdP redirects back with a `code`; the console exchanges it (`POST /api/v1/login` with
    `type: sso`).
 3. **First time only:** the platform auto-provisions a `sso` user from the ID-token claims
@@ -137,13 +152,11 @@ for how to mint, scope (TTL, IP allowlist), and revoke them.
 
 ## The bootstrap administrator
 
-The installer creates an initial `system-admin` account (the "root" admin) so you can sign in
-the very first time and create/authorize everyone else. Treat it as break-glass: keep its
-credentials safe and prefer day-to-day administration through named admin accounts.
-
-> **Not yet covered:**
-> - [ ] Document the bootstrap admin's default name and where its initial password is set
->       (install `.env` / Helm value), and how to rotate it.
+The installer creates an initial `system-admin` account so you can sign in the very first time
+and create/authorize everyone else. Its default credentials are username **`root`** / password
+**`root`** — **change the password immediately** after your first sign-in. Treat this account as
+break-glass: keep its credentials safe and prefer day-to-day administration through named admin
+accounts.
 
 ## Assign workspace access and roles
 
