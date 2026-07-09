@@ -131,10 +131,7 @@
 <script setup lang="ts">
 import { ref, computed, watch, nextTick, onBeforeUnmount, onMounted } from 'vue'
 import * as echarts from 'echarts'
-<<<<<<< HEAD
-import { List, Odometer, Right, TrendCharts, WarningFilled } from '@element-plus/icons-vue'
-=======
->>>>>>> c14e0528 (feat(ga): drop the Lens SPA from the release build (keep lens-compat + Grafana))
+import { List, Odometer, TrendCharts, WarningFilled } from '@element-plus/icons-vue'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { useClusterStore } from '@/stores/cluster'
 import { getWorkspaceDetail } from '@/services/workspace/index'
