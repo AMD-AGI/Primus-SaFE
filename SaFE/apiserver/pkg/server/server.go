@@ -102,7 +102,10 @@ func (s *Server) init() error {
 	rc := robustclient.NewClient(robustclient.DefaultClientConfig())
 	discovery := robustclient.NewDiscovery(s.ctrlManager.GetClient(), rc, 30*time.Second)
 	discovery.Start(s.ctx)
-	opensearch.InitRobustClient(rc)
+	// Logs: query OpenSearch directly per cluster (SaFE-native), no
+	// robust-analyzer proxy. Discovery keeps a per-cluster endpoint registry
+	// from Cluster CR annotations + the configured default endpoint.
+	opensearch.InitDirect(s.ctx, s.ctrlManager.GetClient())
 	// Wire the robust-analyzer client into model handlers so posttrain /
 	// Lens-compat endpoints can resolve workload UID / metrics via robust-api
 	// instead of the deprecated primus-lens-api service.

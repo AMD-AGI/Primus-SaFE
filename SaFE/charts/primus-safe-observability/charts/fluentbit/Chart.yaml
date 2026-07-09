@@ -1,0 +1,11 @@
+apiVersion: v2
+name: primus-robust-fluentbit
+description: Fluent Bit ClusterInput/ClusterFilter/ClusterOutput CRs for log collection
+type: application
+version: 0.1.0
+appVersion: "4.0.1"
+keywords:
+  - fluentbit
+  - logs
+  - observability
+  - dmesg

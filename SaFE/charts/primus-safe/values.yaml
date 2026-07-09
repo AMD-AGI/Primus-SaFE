@@ -141,9 +141,28 @@ observability:
     # Cluster CR annotation carrying a per-cluster metrics endpoint override
     # (NodePort / LoadBalancer / Ingress for cross-cluster setups).
     endpoint_annotation: "primus-safe.amd.com/metrics-endpoint"
+  # SaFE-native logs backend (OpenSearch). Symmetric with metrics above: SaFE
+  # queries OpenSearch directly (no robust-analyzer proxy). This flag gates
+  # deploying the OpenSearch + FluentBit stack (primus-safe-observability chart
+  # logs.enabled); the apiserver Logs tab itself is gated by opensearch.enable.
+  logs:
+    enable: false
+    # Default OpenSearch endpoint applied to every ready cluster with no
+    # per-cluster override annotation. Points at the OpenSearch Service the
+    # primus-safe-observability chart provisions.
+    endpoint: "https://primus-safe-logs.primus-safe-observability.svc:9200"
+    # Skip TLS verification for the operator's self-signed HTTP cert.
+    insecure_skip_verify: true
+    # Cluster CR annotation carrying a per-cluster OpenSearch endpoint override
+    # (NodePort / LoadBalancer / Ingress for cross-cluster setups).
+    endpoint_annotation: "primus-safe.amd.com/logs-endpoint"
+    # OpenSearch index prefix (must match FluentBit's logstashPrefix). Falls
+    # back to opensearch.prefix when empty.
+    index_prefix: "node-"
 opensearch:
-  # Log search feature flag. When true, log search endpoints are available.
-  # Queries are proxied through robust-api on data clusters (no direct OpenSearch connection).
+  # Log search feature flag. When true, the Logs tab endpoints are available.
+  # SaFE queries OpenSearch directly (per-cluster endpoint from the
+  # observability.logs discovery); no robust-analyzer proxy.
   enable: true
   # Index prefix used to build the date-scoped OpenSearch URIs for pod/node
   # logs, e.g. "<prefix>2026.04.21". Must match the prefix fluentbit is
@@ -155,12 +174,11 @@ opensearch:
   secret: "primus-safe-opensearch-config"
   secret_namespace: "primus-safe"
   secret_path: "/etc/secrets/opensearch"
-  # Default points at the OpenSearch Service this project's robust stack
-  # provisions in each data cluster. SaFE apiserver doesn't dial this
-  # directly (queries always go through robust-analyzer), but the value is
-  # baked into the UI/envs response so keep it aligned with reality.
-  # Previous default pointed at the removed primus-lens service.
-  endpoint: "primus-robust-logs.primus-robust.svc.cluster.local:9200"
+  # OpenSearch Service the primus-safe-observability chart provisions. In the
+  # SaFE-native direct model the apiserver dials this per cluster (via the
+  # observability.logs discovery / endpoint annotation); the value here is also
+  # baked into the UI/envs response, so keep it aligned with reality.
+  endpoint: "primus-safe-logs.primus-safe-observability.svc.cluster.local:9200"
 ssh:
   # Enable SSH access to user containers
   enable: true

@@ -1,0 +1,40 @@
+global:
+  imageRegistry: ""
+
+containerRuntime: containerd
+
+operator:
+  container:
+    repository: kubesphere/fluent-operator
+    tag: "v3.1.0"
+  initcontainer:
+    repository: library/docker
+    tag: "20.10"
+    resources:
+      limits:
+        cpu: 100m
+        memory: 64Mi
+  resources:
+    limits:
+      cpu: 200m
+      memory: 200Mi
+    requests:
+      cpu: 50m
+      memory: 100Mi
+  logPath:
+    containerd: /var/log
+    crio: /var/log
+  annotations: {}
+  labels: {}
+  priorityClassName: ""
+  imagePullSecrets: []
+  tolerations: []
+  nodeSelector: {}
+  podSecurityContext: {}
+  securityContext: {}
+  disableComponentControllers: ""
+  extraArgs: []
+
+serviceAccount:
+  create: true
+  name: ""

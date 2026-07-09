@@ -6,7 +6,7 @@
 # rdma_comm_tx_ops_total, ...) land in VictoriaMetrics. A `node` label is added
 # from the pod's node so the per-workload dashboard can attribute RDMA traffic
 # via the workload_pod_info join.
-{{- if (index .Values "rdma-exporter" "enabled" | default true) }}
+{{- if ne (index .Values "rdma-exporter" "enabled") false }}
 apiVersion: operator.victoriametrics.com/v1beta1
 kind: VMPodScrape
 metadata:

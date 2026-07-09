@@ -1,0 +1,26 @@
+apiVersion: fluentbit.fluent.io/v1alpha2
+kind: ClusterFluentBitConfig
+metadata:
+  name: primus-robust-fluentbit-config
+  labels:
+    app.kubernetes.io/name: fluentbit
+spec:
+  {{- if .Values.storage.enabled }}
+  # Enable the filesystem storage layer so inputs with storageType=filesystem
+  # buffer chunks on disk (survives OpenSearch outages / backpressure).
+  service:
+    storage:
+      path: {{ .Values.storage.path | quote }}
+      sync: normal
+      checksum: "off"
+      backlogMemLimit: {{ .Values.storage.backlogMemLimit | quote }}
+  {{- end }}
+  filterSelector:
+    matchLabels:
+      fluentbit.fluent.io/enabled: "true"
+  inputSelector:
+    matchLabels:
+      fluentbit.fluent.io/enabled: "true"
+  outputSelector:
+    matchLabels:
+      fluentbit.fluent.io/enabled: "true"

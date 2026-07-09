@@ -1,0 +1,10 @@
+apiVersion: v2
+name: primus-robust-opensearch
+description: OpenSearch Cluster CR for log storage
+type: application
+version: 0.1.0
+appVersion: "2.11.0"
+keywords:
+  - opensearch
+  - logs
+  - observability

@@ -1,0 +1,65 @@
+global:
+  namespace: "primus-robust"
+  storageClass: "local-path"
+
+opensearch:
+  enabled: true
+  name: "primus-robust-logs"
+  version: "2.11.0"
+  httpPort: 9200
+
+  # Init (busybox) image for the OpenSearch operator's initHelper. Pinned to a
+  # specific version (NOT :latest) so imagePullPolicy defaults to IfNotPresent
+  # and it is not re-pulled on every pod start -- the churn that exhausted Docker
+  # Hub's anonymous per-IP rate limit and caused Init:ImagePullBackOff
+  # (containerd reports the 429 HTML page as "unexpected media type text/html").
+  # Uses the canonical library/ path (valid on docker.io and required by Harbor
+  # Docker Hub proxy-caches). Override for a mirrored/air-gapped registry.
+  initHelperImage: "docker.io/library/busybox:1.36.1"
+
+  dashboards:
+    enabled: false
+    replicas: 1
+
+  adminSecretName: ""
+
+  # Chart-managed security config + admin credentials. When provideConfig is
+  # true the CR references a securityConfigSecret + adminCredentialsSecret, so
+  # the operator stops churning (regenerating a random admin password /
+  # reapplying the demo securityconfig every reconcile) -- the churn that fired
+  # a RollingRestart mid initial-recovery and wedged the cluster.
+  security:
+    provideConfig: true
+    adminUsername: "admin"
+    # Stable, known admin password (overridable). Must be set for the security
+    # config hash, the admin-credentials secret, FluentBit, and the apiserver to
+    # all agree. Keep it stable across upgrades (a change requires a security
+    # reindex / re-auth).
+    adminPassword: "PrimusSafeLogsAdmin2026"
+
+  # Extra opensearch.yml settings rendered into the CR spec.general.additionalConfig.
+  # WARNING: never set gateway.expected_data_nodes or gateway.recover_after_data_nodes
+  # here. On a small cluster they gate cluster-state recovery on all data nodes
+  # being up at the same instant; during node churn (rolling restart, seed-pod
+  # handoff) fewer are up, the cluster-manager refuses to recover state
+  # ("state not recovered / initialized"), OpenSearch Security never initializes,
+  # and every query returns HTTP 503. Leave recovery settings at their defaults.
+  # The chart enforces this (helm template fails if either key is present).
+  additionalConfig: {}
+
+  nodePools:
+    - name: "nodes"
+      replicas: 3
+      roles:
+        - master
+        - data
+        - ingest
+      diskSize: "100Gi"
+      jvm: "-Xms2g -Xmx2g"
+      resources:
+        requests:
+          cpu: "500m"
+          memory: "4Gi"
+        limits:
+          cpu: "2000m"
+          memory: "8Gi"

@@ -1,0 +1,100 @@
+global:
+  namespace: "primus-robust"
+
+# fluent-operator's fluent-bit build. It bundles the `cri` parser, the
+# SERVICE/parsers config and an entrypoint that loads the operator-generated
+# config from /fluent-bit/config. The plain docker.io/fluent/fluent-bit image
+# does NOT — it boots its built-in demo (cpu -> stdout) and ships nothing.
+image:
+  repository: kubesphere/fluent-bit
+  tag: "v3.1.5"
+
+opensearch:
+  # ClusterIP client service (load-balances to ready nodes only). Do not use the
+  # headless `-nodes` service for a client writer.
+  host: "primus-robust-logs.primus-robust.svc"
+  port: 9200
+  adminSecretName: "primus-robust-logs-admin"
+  tls:
+    verify: false
+  # Output retry behavior: keep retrying so logs survive an OpenSearch restart
+  # instead of being dropped ("chunk cannot be retried").
+  retryLimit: "no_limits"
+
+# Optional secondary sink: forward ALL logs to a telemetry log-processor.
+# Disabled by default — when the processor is not deployed, this match:"*"
+# output never acks, so fluent-bit chunks are never freed, the tail buffer
+# fills and log ingestion stalls (backpressure). Enable only where the
+# processor actually runs.
+telemetryProcessor:
+  enabled: false
+  host: "primus-robust-telemetry-processor.primus-robust.svc"
+  port: 8989
+
+# fluent-bit pod resources. Busy control-plane nodes tail many container log
+# files; 256Mi then 512Mi were both too tight and got OOMKilled (100+ restarts
+# on crusoe primusctl nodes), so the limit is 1Gi.
+resources:
+  limits:
+    cpu: 500m
+    memory: 1Gi
+  requests:
+    cpu: 50m
+    memory: 256Mi
+
+# Gate the fluent-bit DaemonSet behind OpenSearch serving AUTHENTICATED writes
+# (an initContainer that polls /_cluster/health with admin creds until status is
+# >= yellow), so a bootstrapping/recovering cluster isn't hammered with writes
+# that return 503 "Security not initialized".
+readinessGate:
+  enabled: true
+  # Image for the wait-opensearch initContainer. Must have `curl` (the auth'd
+  # HTTPS health poll needs it). Defaults to the OpenSearch image: it has curl
+  # and is already in this stack's registry, so no extra image to mirror. Note:
+  # fluent-bit is a DaemonSet, so on non-OpenSearch nodes this image is a cold
+  # pull the first time -- swap to a small curl image (e.g. curlimages/curl) if
+  # you'd rather trade a mirror entry for a faster init pull. global.imageRegistry
+  # is prepended (leave repository as the upstream org path).
+  image:
+    repository: "opensearchproject/opensearch"
+    tag: "2.11.0"
+
+# On-disk state for offset persistence + filesystem chunk buffering. Backed by a
+# writable hostPath so offsets/buffered chunks survive a fluent-bit pod restart
+# (host /var/log is mounted read-only and can't hold these).
+storage:
+  enabled: true
+  hostPath: "/var/lib/fluent-bit-state"
+  # Mount point inside the container; the tail DB + filesystem chunks live here.
+  mountPath: "/fluent-bit/state"
+  path: "/fluent-bit/state/"
+  backlogMemLimit: "128M"
+
+inputs:
+  containerLogs:
+    enabled: true
+    path: "/var/log/containers/*.log"
+    excludePath: "/var/log/containers/fluent-bit*"
+    memBufLimit: "50MB"
+    refreshIntervalSeconds: 3
+    # inotify captures new files promptly (needed for short-lived jobs). If a
+    # node exhausts its inotify budget, set this true to fall back to polling.
+    disableInotifyWatcher: false
+    # Persist read offsets (under the writable state mount) so restarts resume
+    # without gaps or re-reads.
+    db: "/fluent-bit/state/tail-kube.db"
+    # Read from the start of each file so brief jobs / idle pods are captured.
+    readFromHead: true
+    # Buffer chunks on disk during OpenSearch outages instead of dropping.
+    storageType: "filesystem"
+
+  dmesg:
+    enabled: true
+    journalPath: "/var/log/journal"
+
+  systemd:
+    enabled: true
+    journalPath: "/var/log/journal"
+    units:
+      - "containerd.service"
+      - "kubelet.service"

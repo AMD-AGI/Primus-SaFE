@@ -10,7 +10,7 @@
 # NOTE: when this scrape is added to an already-running vmagent, the vmagent
 # pod may need one config reload to pick it up (the operator regenerates the
 # scrape config; a rollout restart of vmagent forces it immediately).
-{{- if (index .Values "vmagent" "enabled" | default true) }}
+{{- if ne (index .Values "vmagent" "enabled") false }}
 apiVersion: operator.victoriametrics.com/v1beta1
 kind: VMNodeScrape
 metadata:

@@ -55,3 +55,28 @@ dependencies:
   - name: metrics-enricher
     version: ">=0.1.0"
     condition: metrics-enricher.enabled
+  # ── Logging (OpenSearch + FluentBit) ────────────────────────────────────
+  # Symmetric with the metrics stack above: SaFE stores container/node logs in
+  # OpenSearch and the apiserver queries them directly (no robust-api proxy).
+  # Operator CRDs ship in this umbrella's crds/ dir (installed before the CRs);
+  # the operator subcharts keep installCRDs:false (set in values.yaml).
+  # OpenSearch operator (OpenSearchCluster CRD + controller).
+  - name: primus-robust-opensearch-operator
+    version: ">=0.1.0"
+    alias: opensearchOperator
+    condition: opensearchOperator.enabled
+  # Fluent operator (FluentBit + pipeline CRDs + controller).
+  - name: primus-robust-fluent-operator-core
+    version: ">=0.1.0"
+    alias: fluentOperator
+    condition: fluentOperator.enabled
+  # OpenSearchCluster CR (log storage).
+  - name: primus-robust-opensearch
+    version: ">=0.1.0"
+    alias: logs
+    condition: logs.enabled
+  # FluentBit collection pipeline -> OpenSearch (node-<date> indices).
+  - name: primus-robust-fluentbit
+    version: ">=0.1.0"
+    alias: fluentbit
+    condition: fluentbit.enabled
