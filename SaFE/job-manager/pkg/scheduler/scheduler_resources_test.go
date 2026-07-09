@@ -49,10 +49,82 @@ func TestGetLeftTotalResourcesWithPendingWorkload(t *testing.T) {
 
 	w := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "w"}}
 	w.Spec.Resources = []v1.WorkloadResource{{Replica: 1, CPU: "2", Memory: "4Gi"}}
-	// Pending (not running) -> uses GetTotalResourceList.
+	// Default (FIFO) workspace, pending (not running) -> reserves the full spec
+	// via GetTotalResourceList.
 	avail, _, err := r.getLeftTotalResources(context.Background(), ws, []*v1.Workload{w})
 	assert.NilError(t, err)
 	assert.Assert(t, avail != nil)
+}
+
+func TestGetLeftTotalResourcesFifoReservesUnboundPendingWorkload(t *testing.T) {
+	cl := ctrlfake.NewClientBuilder().WithScheme(ttlScheme(t)).Build()
+	r := &SchedulerReconciler{Client: cl}
+
+	// Default queue policy is FIFO.
+	ws := &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ws"}}
+	ws.Status.AvailableResources = corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("20")}
+	ws.Status.TotalResources = corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("20")}
+
+	w := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "pending"}}
+	w.Spec.Resources = []v1.WorkloadResource{{Replica: 1, CPU: "10", Memory: "1Gi"}}
+	w.Status.Phase = v1.WorkloadPending
+	// Even with unbound pods, FIFO keeps the full-spec reservation.
+	w.Status.NodeUsage = []v1.NodePodUsage{{
+		Node:   "",
+		Active: map[string]int{"0": 1},
+	}}
+
+	_, total, err := r.getLeftTotalResources(context.Background(), ws, []*v1.Workload{w})
+	assert.NilError(t, err)
+	assert.Equal(t, total.Cpu().String(), "10")
+}
+
+func TestGetLeftTotalResourcesBalanceReservesScheduledWithoutPodStatus(t *testing.T) {
+	cl := ctrlfake.NewClientBuilder().WithScheme(ttlScheme(t)).Build()
+	r := &SchedulerReconciler{Client: cl}
+
+	ws := &v1.Workspace{
+		ObjectMeta: metav1.ObjectMeta{Name: "ws"},
+		Spec:       v1.WorkspaceSpec{QueuePolicy: v1.QueueBalancePolicy},
+	}
+	ws.Status.AvailableResources = corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("20")}
+	ws.Status.TotalResources = corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("20")}
+
+	// Scheduled but pods not created yet (no NodeUsage/Pods): the short dispatch
+	// window must still reserve the full spec so balance does not over-admit.
+	w := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "pending"}}
+	w.Spec.Resources = []v1.WorkloadResource{{Replica: 1, CPU: "10", Memory: "1Gi"}}
+	w.Status.Phase = v1.WorkloadPending
+
+	_, total, err := r.getLeftTotalResources(context.Background(), ws, []*v1.Workload{w})
+	assert.NilError(t, err)
+	assert.Equal(t, total.Cpu().String(), "10")
+}
+
+func TestGetLeftTotalResourcesBalanceCountsBoundPendingWorkload(t *testing.T) {
+	cl := ctrlfake.NewClientBuilder().WithScheme(ttlScheme(t)).Build()
+	r := &SchedulerReconciler{Client: cl}
+
+	ws := &v1.Workspace{
+		ObjectMeta: metav1.ObjectMeta{Name: "ws"},
+		Spec:       v1.WorkspaceSpec{QueuePolicy: v1.QueueBalancePolicy},
+	}
+	ws.Status.AvailableResources = corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("30")}
+	ws.Status.TotalResources = corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("30")}
+
+	// One pod already placed on a node, one still waiting: only the bound pod is
+	// reserved against the total pool.
+	w := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "pending"}}
+	w.Spec.Resources = []v1.WorkloadResource{{Replica: 2, CPU: "10", Memory: "1Gi"}}
+	w.Status.Phase = v1.WorkloadPending
+	w.Status.NodeUsage = []v1.NodePodUsage{
+		{Node: "node-a", Active: map[string]int{"0": 1}},
+		{Node: "", Active: map[string]int{"0": 1}},
+	}
+
+	_, total, err := r.getLeftTotalResources(context.Background(), ws, []*v1.Workload{w})
+	assert.NilError(t, err)
+	assert.Equal(t, total.Cpu().String(), "20")
 }
 
 func TestGetLeftTotalResourcesBalanceIgnoresUnboundPendingWorkload(t *testing.T) {

@@ -543,7 +543,11 @@ func (r *SchedulerReconciler) getLeftTotalResources(ctx context.Context,
 		if w.IsRunning() {
 			totalResource, availableResource, _, err = commonworkload.GetWorkloadResourceUsage(w, filterFunc)
 		} else if !workspace.IsEnableFifo() {
-			totalResource, availableResource, err = getBoundPendingResourceUsage(w, filterFunc)
+			// Balance: a scheduled-but-not-running workload only reserves resources
+			// for pods already placed on a node. Pods still waiting for a node do
+			// not keep blocking workloads queued behind it. FIFO keeps the
+			// full-spec reservation in the branch below.
+			totalResource, availableResource, err = getScheduledPendingUsage(w, filterFunc)
 		} else {
 			totalResource, err = commonworkload.GetTotalResourceList(w)
 			availableResource = totalResource
@@ -568,27 +572,46 @@ func (r *SchedulerReconciler) getLeftTotalResources(ctx context.Context,
 	return leftAvailResource, leftTotalResource, nil
 }
 
-func getBoundPendingResourceUsage(workload *v1.Workload, filterNode func(nodeName string) bool) (
+// getScheduledPendingUsage computes the resources a scheduled-but-not-running
+// workload reserves in a balance (non-FIFO) workspace.
+//
+// While the workload has been marked scheduled but its pods have not been created
+// yet (no NodeUsage/Pods status), it still reserves its full spec: this is the
+// short dispatch window and reserving prevents over-admitting other workloads
+// against it.
+//
+// Once its pods exist, only pods that have actually landed on a node are counted.
+// Pods still waiting for a node (empty admin-node name) are deliberately NOT
+// reserved so that, under balance, a workload stuck waiting for resources does
+// not keep blocking smaller workloads queued behind it (documented balance
+// semantics: "avoid blockage by the front workload in the queue"). This
+// intentionally deviates from BuildNodeUsage, which buckets unscheduled pods
+// under the empty-node key to keep exact totals.
+func getScheduledPendingUsage(workload *v1.Workload, filterNode func(nodeName string) bool) (
 	corev1.ResourceList, corev1.ResourceList, error) {
+	if len(workload.Status.NodeUsage) == 0 && len(workload.Status.Pods) == 0 {
+		total, err := commonworkload.GetTotalResourceList(workload)
+		return total, total, err
+	}
 	boundWorkload := workload.DeepCopy()
 	if len(boundWorkload.Status.NodeUsage) > 0 {
-		nodeUsage := boundWorkload.Status.NodeUsage[:0]
+		bound := boundWorkload.Status.NodeUsage[:0]
 		for _, usage := range boundWorkload.Status.NodeUsage {
 			if usage.Node == "" {
 				continue
 			}
-			nodeUsage = append(nodeUsage, usage)
+			bound = append(bound, usage)
 		}
-		boundWorkload.Status.NodeUsage = nodeUsage
-	} else if len(boundWorkload.Status.Pods) > 0 {
-		pods := boundWorkload.Status.Pods[:0]
+		boundWorkload.Status.NodeUsage = bound
+	} else {
+		bound := boundWorkload.Status.Pods[:0]
 		for _, pod := range boundWorkload.Status.Pods {
 			if pod.AdminNodeName == "" {
 				continue
 			}
-			pods = append(pods, pod)
+			bound = append(bound, pod)
 		}
-		boundWorkload.Status.Pods = pods
+		boundWorkload.Status.Pods = bound
 	}
 	totalResource, availableResource, _, err := commonworkload.GetWorkloadResourceUsage(boundWorkload, filterNode)
 	return totalResource, availableResource, err
