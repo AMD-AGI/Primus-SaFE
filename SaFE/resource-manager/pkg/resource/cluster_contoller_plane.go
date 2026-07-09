@@ -40,7 +40,9 @@ const (
 	// DefaultHttpServiePort is the default port for HTTPS service
 	DefaultHttpServiePort = 443
 	// DefaultApiserverPort is the default port for Kubernetes API server
-	DefaultApiserverPort = 6443
+	DefaultApiserverPort           = 6443
+	deprecatedDefaultNginxTemplate = "nginx.22.3.2"
+	deprecatedDefaultNginxRelease  = "nginx"
 )
 
 // guaranteeClusterControlPlane ensures the cluster control plane is in the desired state.
@@ -702,6 +704,10 @@ func (r *ClusterReconciler) guaranteeNamespace(ctx context.Context, client kuber
 // guaranteeDefaultAddon ensures default addons are installed in the cluster.
 // Creates Addon resources based on cluster configuration.
 func (r *ClusterReconciler) guaranteeDefaultAddon(ctx context.Context, cluster *v1.Cluster) (ctrlruntime.Result, error) {
+	if err := r.cleanupDeprecatedDefaultNginxAddon(ctx, cluster); err != nil {
+		return reconcile.Result{}, err
+	}
+
 	selector := labels.NewSelector()
 	labelsArr := []string{""}
 	if cluster.Spec.ControlPlane.KubeVersion != nil {
@@ -810,6 +816,46 @@ func (r *ClusterReconciler) guaranteeDefaultAddon(ctx context.Context, cluster *
 		}
 	}
 	return reconcile.Result{}, nil
+}
+
+// cleanupDeprecatedDefaultNginxAddon removes the legacy nginx addon that older
+// SaFE releases auto-created for every cluster. The upstream chart defaults its
+// Service to LoadBalancer, which is unsafe on bare-metal clusters because
+// kube-proxy can bind a node's physical IP as a local service address.
+func (r *ClusterReconciler) cleanupDeprecatedDefaultNginxAddon(ctx context.Context, cluster *v1.Cluster) error {
+	addon := &v1.Addon{}
+	name := fmt.Sprintf("%s-%s", cluster.Name, deprecatedDefaultNginxRelease)
+	if err := r.Get(ctx, types.NamespacedName{Name: name}, addon); err != nil {
+		return client.IgnoreNotFound(err)
+	}
+	if !isLegacyAutoNginxAddon(cluster, addon) {
+		return nil
+	}
+	if err := r.Delete(ctx, addon); err != nil {
+		return client.IgnoreNotFound(err)
+	}
+	klog.Infof("[addon] deleted legacy default nginx addon %s for cluster %s", addon.Name, cluster.Name)
+	return nil
+}
+
+func isLegacyAutoNginxAddon(cluster *v1.Cluster, addon *v1.Addon) bool {
+	if !isOwnedByCluster(cluster, addon.OwnerReferences) {
+		return false
+	}
+	helm := addon.Spec.AddonSource.HelmRepository
+	if helm == nil || helm.ReleaseName != deprecatedDefaultNginxRelease || helm.Values != "" {
+		return false
+	}
+	return helm.Template != nil && helm.Template.Name == deprecatedDefaultNginxTemplate
+}
+
+func isOwnedByCluster(cluster *v1.Cluster, refs []metav1.OwnerReference) bool {
+	for _, ref := range refs {
+		if ref.Kind == cluster.Kind && ref.Name == cluster.Name && ref.UID == cluster.UID {
+			return true
+		}
+	}
+	return false
 }
 
 // getComponentName extracts the component name from a full name by removing the part after the first dot.
