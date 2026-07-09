@@ -178,6 +178,11 @@ func (h *Handler) CreateBinding(c *gin.Context) {
 		return
 	}
 
+	if err := validateApimKey(req.ApimKey); err != nil {
+		apiutils.AbortWithApiError(c, err)
+		return
+	}
+
 	email := h.getUserEmail(c)
 	if email == "" {
 		apiutils.AbortWithApiError(c, commonerrors.NewBadRequest("unable to identify user email"))
@@ -326,6 +331,11 @@ func (h *Handler) UpdateBinding(c *gin.Context) {
 	var req CreateBindingRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		apiutils.AbortWithApiError(c, commonerrors.NewBadRequest("apim_key is required"))
+		return
+	}
+
+	if err := validateApimKey(req.ApimKey); err != nil {
+		apiutils.AbortWithApiError(c, err)
 		return
 	}
 
@@ -588,6 +598,16 @@ func (h *Handler) GetUsage(c *gin.Context) {
 		TotalFailedRequests:     totalFailedRequests,
 		Daily:                   daily,
 	})
+}
+
+// validateApimKey rejects keys that look like LiteLLM virtual keys or access
+// keys (ak-/sk- prefix, case-insensitive), which are not valid APIM Keys.
+func validateApimKey(apimKey string) error {
+	lower := strings.ToLower(strings.TrimSpace(apimKey))
+	if strings.HasPrefix(lower, "ak-") || strings.HasPrefix(lower, "sk-") {
+		return commonerrors.NewBadRequest("invalid apim_key: keys starting with 'ak-' or 'sk-' are not accepted")
+	}
+	return nil
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────

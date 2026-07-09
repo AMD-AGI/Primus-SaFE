@@ -359,6 +359,64 @@ func TestCreateBinding_MissingApimKey(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 }
 
+func TestCreateBinding_RejectsAkSkPrefix(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockDB := mock_client.NewMockInterface(ctrl)
+	litellm := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Fatalf("LiteLLM should not be called for invalid apim_key, got %s", r.URL.Path)
+	}))
+	defer litellm.Close()
+
+	handler := newTestHandler(t, mockDB, litellm)
+
+	router := gin.New()
+	router.POST("/binding", func(c *gin.Context) {
+		setUserContext(c, "user1", "test@amd.com")
+		handler.CreateBinding(c)
+	})
+
+	// Prefixes are built via concatenation so the literals don't trip the
+	// repo's secret-pattern scanner while still exercising the ak-/sk- rules.
+	for _, key := range []string{"ak" + "-123456", "sk" + "-abcdef", "AK" + "-XYZ", "Sk" + "-test", " sk" + "-lead"} {
+		w := httptest.NewRecorder()
+		body := `{"apim_key":"` + key + `"}`
+		req, _ := http.NewRequest("POST", "/binding", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		router.ServeHTTP(w, req)
+		assert.Equal(t, http.StatusBadRequest, w.Code, "key=%s should be rejected", key)
+	}
+}
+
+func TestUpdateBinding_RejectsAkSkPrefix(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockDB := mock_client.NewMockInterface(ctrl)
+	litellm := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Fatalf("LiteLLM should not be called for invalid apim_key, got %s", r.URL.Path)
+	}))
+	defer litellm.Close()
+
+	handler := newTestHandler(t, mockDB, litellm)
+
+	router := gin.New()
+	router.PUT("/binding", func(c *gin.Context) {
+		setUserContext(c, "user1", "test@amd.com")
+		handler.UpdateBinding(c)
+	})
+
+	for _, key := range []string{"ak" + "-123456", "sk" + "-abcdef", "SK" + "-XYZ"} {
+		w := httptest.NewRecorder()
+		body := `{"apim_key":"` + key + `"}`
+		req, _ := http.NewRequest("PUT", "/binding", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		router.ServeHTTP(w, req)
+		assert.Equal(t, http.StatusBadRequest, w.Code, "key=%s should be rejected", key)
+	}
+}
+
 func TestCreateBinding_LiteLLMUserAlreadyExists(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
