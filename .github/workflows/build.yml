@@ -5,6 +5,12 @@ on:
       - '**'
     tags:
       - '**'
+  workflow_dispatch:
+    inputs:
+      build_all:
+        description: 'Build all modules (ignore change detection)'
+        type: boolean
+        default: true
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
@@ -41,6 +47,18 @@ jobs:
       id: detect-changes
       run: |
         set -e
+        
+        # Manual full build: when triggered from the Actions UI with build_all,
+        # force every module on and skip change detection.
+        if [[ "${{ github.event_name }}" == "workflow_dispatch" && "${{ inputs.build_all }}" == "true" ]]; then
+          echo "Manual dispatch (build_all): building all modules"
+          for module in apiserver resource_manager job_manager preprocess \
+            cicd_runner_proxy cicd_unified_job_proxy s3_downloader a2a_gateway \
+            webhooks node_agent sync_image; do
+            echo "${module}_changed=true" >> $GITHUB_OUTPUT
+          done
+          exit 0
+        fi
         
         # Determine the base commit for comparison
         if [[ "${{ github.event_name }}" == "push" ]]; then
