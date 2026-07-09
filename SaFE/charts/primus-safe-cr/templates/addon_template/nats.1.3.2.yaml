@@ -87,8 +87,10 @@ spec:
           pvc:
             enabled: true
             size: 10Gi
-            # storageClassName: <use cluster default; override if the cluster
-            # default doesn't support ReadWriteOnce PVCs for stateful pods>.
+            # StorageClass injected from global.storage_class ($storage_class in
+            # the bootstrap scripts). The cluster has no default StorageClass, so
+            # a concrete class must be set for the JetStream fileStore PVC to bind.
+            storageClassName: {{ .Values.global.storage_class }}
 
       # No mTLS for Phase 2 baseline. Re-evaluate when multi-tenant traffic
       # shares the same NATS instance.
