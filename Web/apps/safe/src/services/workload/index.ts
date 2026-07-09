@@ -137,6 +137,10 @@ export const getLensHourlyStats = (p: {
   const qs = toQuery(p)
   return lensRequest.get(`/gpu-aggregation/workloads/hourly-stats${qs ? `?${qs}` : ''}`, {
     params: undefined as any,
+    // GPU aggregation is served by the (optional) Robust data plane, which is not
+    // present in every deployment. Suppress the global error toast and let the
+    // caller degrade gracefully when it is unavailable.
+    skipErrorHandler: true,
   })
 }
 
@@ -153,6 +157,10 @@ export const getGPUAggregation = (p: {
   const qs = toQuery(p)
   return lensRequest.get(`/gpu-aggregation/namespaces/hourly-stats${qs ? `?${qs}` : ''}`, {
     params: undefined as any,
+    // GPU aggregation is served by the (optional) Robust data plane, which is not
+    // present in every deployment. Suppress the global error toast and let the
+    // caller degrade gracefully when it is unavailable.
+    skipErrorHandler: true,
   })
 }
 

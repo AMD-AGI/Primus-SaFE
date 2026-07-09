@@ -637,6 +637,11 @@ const viewChart = async (r: any) => {
     })
 
     dialog.series = { x, avg }
+  } catch (err) {
+    // Hourly GPU stats come from the optional Robust data plane; render an empty
+    // chart instead of surfacing an error toast when it is unavailable.
+    console.warn('GPU hourly stats unavailable:', err)
+    dialog.series = { x: [], avg: [] }
   } finally {
     dialog.loading = false
   }
