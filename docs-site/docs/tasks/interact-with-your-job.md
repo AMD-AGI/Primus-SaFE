@@ -1,73 +1,116 @@
 ---
 sidebar_position: 3
-title: Interact with your job
+title: Develop & interact with your jobs
 ---
 
-# Interact with your job
+# Develop & interact with your jobs
 
-> **Status:** Draft · **Owner:** _unassigned_ · **Source:** `SaFE/docs/apis/workload.md`,
-> `webshell.md`, `public-key.md`, `ops-job.md`
+Once a workload is running — a training job, or an **Authoring** dev box — you can watch it, read
+its logs, and **shell into the pod**. All of this goes through the platform, **scoped to your
+pod**: you get an interactive shell on GPU hardware without any cluster or `kubeconfig` access.
 
-Once a job is running, you'll want to watch its status, read its logs, shell into a pod,
-see dashboards, and pull results out. The console exposes all of this; the same data is
-available over the API.
+## Authoring: a personal dev box
 
-## Status
+**Authoring** is a personal, long-running **dev box** on the cluster — a single-node pod kept
+alive for you (its entry point is `sleep infinity`), with GPUs, your code, and workspace storage
+mounted. Use it to prototype, debug, and prepare your environment before launching a full
+(often multi-node) [training job](/tasks/run-multi-node-training). Because it's an interactive
+session rather than a job to complete, retries, failover, and hang detection are off.
 
-Track a workload's phase through `Pending` → `Running` → `Succeeded` / `Failed` (also
-`Stopped`). Get full detail — per-pod status, the nodes in use, and timing — with:
+It's the easiest way to give someone hands-on GPU access **without granting them access to the
+cluster** — they work inside their own pod, nothing more.
 
-```bash
-curl -H "Authorization: Bearer <token>" \
-  https://<your-console>/api/v1/workloads/{workloadId}
-```
+### Start a dev box (console)
 
-The response lists each pod's `phase`, `nodeName`, and a ready-to-use `sshCommand`, plus
-`conditions` that explain scheduling/dispatch decisions.
+Your workspace must include the **Authoring** scope (ask a workspace admin if you don't see it —
+see [Workspace](/concepts/workspace)).
 
-## Logs
+1. Go to **Workloads → Authoring** and click **Create Authoring**.
+2. Set a **name**, an **image** (**Select** a registered image or **Custom** to type any pullable
+   reference), and the **resources** (CPU, GPU, memory, ephemeral storage). A dev box is always a
+   single node, so `replica` is fixed at 1. A custom reference without a registry host defaults to
+   `docker.io`; you can also import images into the self-hosted Harbor registry (the **Images**
+   tab) for faster pulls — see [Speed up workload startup](/tasks/speed-up-startup).
+3. **Submit.** When it reaches `Running`, connect to it (below).
 
-Read a pod's logs (most recent first via `tailLines`):
+![Create Authoring form](/img/screenshots/authoring-create-form.png)
 
-```bash
-curl -H "Authorization: Bearer <token>" \
-  "https://<your-console>/api/custom/workloads/{workloadId}/pods/{podId}/logs?tailLines=500"
-```
+<!-- @test
+scope: page
+mode: behavior
+priority: P0
+personas: [member]
+preconditions: [running-cluster, workspace-with-authoring-scope]
+do: follow "Start a dev box (console)" to create an Authoring dev box (use a pullable image); when it reaches Running, open its WebShell terminal from the console and run a command (e.g. `hostname`)
+expect:
+  - the dev box appears in the Authoring list and reaches Running
+  - WebShell opens an interactive terminal inside the pod and the command returns output (you can shell into the pod)
+cleanup: stop or delete the dev box via its row action
+-->
 
-## Shell in
+### Save your environment as an image
 
-Two ways to get an interactive shell — both go through the API server, which `exec`s into the
-container (sessions are authenticated and audit-logged).
+Once you've set up the box (packages, configs, dependencies), use **Save Image** to snapshot the
+container into a reusable image in the registry — so you don't rebuild the environment next time.
+The saved image is then selectable as the **image** for your next job or dev box.
+
+<!-- @test todo:
+  - "Document the exact Save Image console flow and Resume-a-stopped-box flow, then add behavior steps for them."
+-->
+
+## Connect to a running pod
+
+Both WebShell and SSH go through the API server, which `exec`s into your container. Sessions are
+**authenticated and audit-logged**, and **scoped to your pod** — no cluster access required. This
+works for an Authoring dev box and for any running training/inference job pod.
 
 ### WebShell (browser)
 
-Open a terminal on a pod directly from the console. It's a WebSocket terminal supporting
-`bash` / `sh` / `zsh`. Limits: up to 10 concurrent sessions per user, auto-disconnect after
-30 minutes idle, and no file upload/download (use volume mounts).
+Open a terminal on a pod directly from the console (the workload's detail page → **WebShell**).
+It's a WebSocket terminal supporting `bash` / `sh` / `zsh`. Limits: up to 10 concurrent sessions
+per user, auto-disconnect after 30 minutes idle, and no file upload/download (use volume mounts).
 
 ### SSH (terminal, port 2222)
 
 1. Register your SSH **public** key once — see
    [Manage access & quota → SSH public keys](/administration/manage-access-and-quota).
-2. Connect through the SaFE SSH gateway on **port 2222**, using the `sshCommand` from the
-   workload details response:
+2. Connect through the SaFE SSH gateway on **port 2222**, using the connect command shown on the
+   workload's detail page:
 
 ```bash
 ssh <user>.<podId>.<workspace>@<gateway-host> -p 2222
 ```
 
-This also works with `scp` and VS Code Remote-SSH for editing files in the pod.
+This also works with `scp` and VS Code Remote-SSH, so you can treat a dev box (or any job pod)
+like a remote development machine.
+
+<!-- @test todo:
+  - "Also verify terminal SSH (port 2222): register an SSH public key, then connect with the command from the workload detail. This needs an SSH client outside the browser, so it is not part of the UI-only run."
+-->
+
+## Status & logs
+
+Open the workload's **detail page** in the console to watch its phase
+(`Pending` → `Running` → `Succeeded` / `Failed`, also `Stopped`), see per-pod status and the
+nodes in use, and read each pod's logs.
+
+The same data is available over the REST API for automation — the workload detail
+(`GET /api/v1/workloads/{workloadId}`) returns each pod's `phase`, `nodeName`, a ready-to-use SSH
+command, and the `conditions` explaining scheduling decisions; a separate endpoint returns pod
+logs.
 
 ## Dashboards
 
-The platform ships Grafana dashboards for cluster- and job-level metrics (the detail response
-also reports `avgGpuUsage` per workload). Open the dashboards from the console.
+The platform ships Grafana dashboards for cluster- and job-level metrics (GPU utilization,
+memory, network, temperatures); per-workload, it also reports `avgGpuUsage`. Open them from the
+console.
 
 ## Get results out
 
-> **Not yet covered (capture so we don't lose it):**
-> - [ ] Checkpoints/outputs written to workspace **PFS** (link to [Storage](/concepts/storage-and-data)).
-> - [ ] **Dump logs** to storage (`dumplog` OpsJob) and **download** artifacts via the
->       `download` OpsJob (S3 → path).
-> - [ ] **Notifications** (`user-notification-settings`, email relay) on job/node events.
-> - [ ] **Primus-Lens** observability surface — confirm whether it's user-facing and link it.
+<!-- @test todo:
+  - "Document where results go: checkpoints/outputs on workspace PFS, the dump-log and download flows, and any S3 export. Then state the user-facing steps."
+-->
+
+Checkpoints and outputs are written to your workspace storage. (The full results/export flow —
+PFS layout, log dump, and artifact download — is being documented; see
+[Storage & data](/concepts/storage-and-data).)
