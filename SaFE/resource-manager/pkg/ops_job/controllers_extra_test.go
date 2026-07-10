@@ -7,6 +7,8 @@ package ops_job
 
 import (
 	"context"
+	"errors"
+	"io"
 	"testing"
 	"time"
 
@@ -346,6 +348,12 @@ func TestRebootExecRebootTreatsMissingExitStatusAsSuccess(t *testing.T) {
 	updated := &v1.OpsJob{}
 	assert.NoError(t, r.Get(context.Background(), client.ObjectKey{Name: "j1"}, updated))
 	assert.Equal(t, []v1.Parameter{{Name: v1.ParameterNode, Value: "n1"}}, updated.Status.Outputs)
+}
+
+func TestRebootExpectedDisconnectMatching(t *testing.T) {
+	assert.True(t, isExpectedRebootDisconnect(io.EOF))
+	assert.True(t, isExpectedRebootDisconnect(errors.New("read tcp: use of closed network connection")))
+	assert.False(t, isExpectedRebootDisconnect(errors.New("geo_failure")))
 }
 
 func TestRebootExecRebootSSHCommandError(t *testing.T) {

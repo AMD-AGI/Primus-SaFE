@@ -167,6 +167,19 @@ func TestHandleDeleteConfigDBError(t *testing.T) {
 	}
 }
 
+func TestHandleDeleteConfigNotFound(t *testing.T) {
+	mock, cleanup := withMockDB(t)
+	defer cleanup()
+	mock.ExpectExec("DELETE FROM github_collection_configs").
+		WillReturnResult(sqlmock.NewResult(0, 0))
+
+	c, w := ctxWith(http.MethodDelete, "/configs/5", "", gin.Params{{Key: "id", Value: "5"}}, "")
+	handleDeleteConfig(c)
+	if w.Code != http.StatusNotFound {
+		t.Errorf("status = %d, want 404", w.Code)
+	}
+}
+
 // TestHandleListRunsSuccess verifies runs are listed with query filters applied.
 func TestHandleListRunsSuccess(t *testing.T) {
 	mock, cleanup := withMockDB(t)
@@ -226,6 +239,18 @@ func TestHandleGetRunNotFound(t *testing.T) {
 	handleGetRun(c)
 	if w.Code != http.StatusNotFound {
 		t.Errorf("status = %d, want 404", w.Code)
+	}
+}
+
+func TestHandleGetRunDBError(t *testing.T) {
+	mock, cleanup := withMockDB(t)
+	defer cleanup()
+	mock.ExpectQuery("FROM github_workflow_runs WHERE id =").WillReturnError(sql.ErrConnDone)
+
+	c, w := ctxWith(http.MethodGet, "/runs/1", "", gin.Params{{Key: "id", Value: "1"}}, "")
+	handleGetRun(c)
+	if w.Code != http.StatusInternalServerError {
+		t.Errorf("status = %d, want 500", w.Code)
 	}
 }
 

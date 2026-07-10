@@ -10,6 +10,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"strings"
 	"time"
 
@@ -161,11 +162,13 @@ func isExpectedRebootDisconnect(err error) bool {
 	if errors.As(err, &exitMissing) {
 		return true
 	}
+	if errors.Is(err, io.EOF) {
+		return true
+	}
 	msg := strings.ToLower(err.Error())
 	return strings.Contains(msg, "use of closed network connection") ||
 		strings.Contains(msg, "connection reset by peer") ||
-		strings.Contains(msg, "broken pipe") ||
-		strings.Contains(msg, "eof")
+		strings.Contains(msg, "broken pipe")
 }
 
 // setJobOutput sets the job output for the specified node.
