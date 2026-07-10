@@ -90,7 +90,11 @@ func (r *RebootJobReconciler) handle(ctx context.Context, job *v1.OpsJob) (ctrlr
 	for _, nodeId := range nodes {
 		if err := r.execReboot(ctx, job.Name, nodeId); err != nil {
 			klog.Errorf("failed to execute reboot job %s node %s: %v", job.Name, nodeId, err)
-			if completeErr := r.setJobCompleted(ctx, job, v1.OpsJobFailed, err.Error(), job.Status.Outputs); completeErr != nil {
+			outputs, outputErr := r.getLatestJobOutputs(ctx, job.Name)
+			if outputErr != nil {
+				return ctrlruntime.Result{}, outputErr
+			}
+			if completeErr := r.setJobCompleted(ctx, job, v1.OpsJobFailed, err.Error(), outputs); completeErr != nil {
 				return ctrlruntime.Result{}, completeErr
 			}
 			return ctrlruntime.Result{}, nil
@@ -124,6 +128,14 @@ func (r *RebootJobReconciler) execReboot(ctx context.Context, jobId, nodeId stri
 	}
 
 	return nil
+}
+
+func (r *RebootJobReconciler) getLatestJobOutputs(ctx context.Context, jobId string) ([]v1.Parameter, error) {
+	job := &v1.OpsJob{}
+	if err := r.Get(ctx, client.ObjectKey{Name: jobId}, job); err != nil {
+		return nil, err
+	}
+	return job.Status.Outputs, nil
 }
 
 // setJobOutput sets the job output for the specified node.

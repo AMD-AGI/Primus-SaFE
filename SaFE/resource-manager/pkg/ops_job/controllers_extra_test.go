@@ -374,3 +374,29 @@ func TestRebootHandleSSHCommandErrorMarksJobFailed(t *testing.T) {
 	assert.Equal(t, v1.OpsJobFailed, updated.Status.Phase)
 	assert.Len(t, updated.Status.Outputs, 0)
 }
+
+func TestRebootHandlePreservesCompletedOutputsOnLaterFailure(t *testing.T) {
+	sshClient, cleanup := startInMemorySSHServer(t)
+	defer cleanup()
+
+	node1 := &v1.Node{ObjectMeta: metav1.ObjectMeta{Name: "n1"}}
+	node2 := &v1.Node{ObjectMeta: metav1.ObjectMeta{Name: "n2"}}
+	job := rebootJob("j1", "n1", "n2")
+	job.Status.Phase = v1.OpsJobRunning
+	job.Status.StartedAt = &metav1.Time{Time: time.Now()}
+	r := &RebootJobReconciler{OpsJobBaseReconciler: newBaseWithObjs(t, node1, node2, job)}
+
+	patches := gomonkey.ApplyFunc(rmutils.GetSSHClient,
+		func(_ context.Context, _ client.Client, _ *v1.Node) (*ssh.Client, error) {
+			return sshClient, nil
+		})
+	defer patches.Reset()
+
+	_, err := r.handle(context.Background(), job)
+	assert.NoError(t, err)
+
+	updated := &v1.OpsJob{}
+	assert.NoError(t, r.Get(context.Background(), client.ObjectKey{Name: "j1"}, updated))
+	assert.Equal(t, v1.OpsJobFailed, updated.Status.Phase)
+	assert.Equal(t, []v1.Parameter{{Name: v1.ParameterNode, Value: "n1"}}, updated.Status.Outputs)
+}
