@@ -554,7 +554,10 @@ func (h *Handler) createModelFromS3Sync(ctx context.Context, req *CreateModelReq
 		return nil, commonerrors.NewBadRequest("modelName could not be derived; set source.modelName")
 	}
 
-	existing, _ := h.findModelBySourceURL(ctx, uri, req.Workspace)
+	existing, err := h.findModelBySourceURL(ctx, uri, req.Workspace)
+	if err != nil {
+		return nil, err
+	}
 	if existing != nil {
 		return nil, commonerrors.NewBadRequest(fmt.Sprintf("a model with the same s3 source already exists (id: %s, phase: %s)", existing.ID, existing.Phase))
 	}
