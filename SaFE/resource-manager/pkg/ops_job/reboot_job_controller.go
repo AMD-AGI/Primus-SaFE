@@ -8,7 +8,10 @@ package ops_job
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
+	"io"
+	"strings"
 	"time"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
@@ -90,6 +93,14 @@ func (r *RebootJobReconciler) handle(ctx context.Context, job *v1.OpsJob) (ctrlr
 	for _, nodeId := range nodes {
 		if err := r.execReboot(ctx, job.Name, nodeId); err != nil {
 			klog.Errorf("failed to execute reboot job %s node %s: %v", job.Name, nodeId, err)
+			outputs, outputErr := r.getLatestJobOutputs(ctx, job.Name)
+			if outputErr != nil {
+				return ctrlruntime.Result{}, outputErr
+			}
+			if completeErr := r.setJobCompleted(ctx, job, v1.OpsJobFailed, err.Error(), outputs); completeErr != nil {
+				return ctrlruntime.Result{}, completeErr
+			}
+			return ctrlruntime.Result{}, nil
 		}
 	}
 
@@ -110,7 +121,9 @@ func (r *RebootJobReconciler) execReboot(ctx context.Context, jobId, nodeId stri
 	defer sshClient.Close()
 
 	cmd := "sudo reboot"
-	_, _ = r.executeSSHCommand(sshClient, cmd)
+	if err = r.executeRebootCommand(sshClient, cmd); err != nil {
+		return fmt.Errorf("failed to reboot node %s: %w", node.Name, err)
+	}
 	klog.Infof("machine node %s reboot", node.Name)
 
 	if err = r.setJobOutput(ctx, jobId, nodeId); err != nil {
@@ -118,6 +131,44 @@ func (r *RebootJobReconciler) execReboot(ctx context.Context, jobId, nodeId stri
 	}
 
 	return nil
+}
+
+func (r *RebootJobReconciler) getLatestJobOutputs(ctx context.Context, jobId string) ([]v1.Parameter, error) {
+	job := &v1.OpsJob{}
+	if err := r.Get(ctx, client.ObjectKey{Name: jobId}, job); err != nil {
+		return nil, err
+	}
+	return job.Status.Outputs, nil
+}
+
+func (r *RebootJobReconciler) executeRebootCommand(sshClient *ssh.Client, command string) error {
+	session, err := sshClient.NewSession()
+	if err != nil {
+		return err
+	}
+	defer session.Close()
+
+	if err = session.Start(command); err != nil {
+		return err
+	}
+	if err = session.Wait(); err != nil && !isExpectedRebootDisconnect(err) {
+		return err
+	}
+	return nil
+}
+
+func isExpectedRebootDisconnect(err error) bool {
+	var exitMissing *ssh.ExitMissingError
+	if errors.As(err, &exitMissing) {
+		return true
+	}
+	if errors.Is(err, io.EOF) {
+		return true
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "use of closed network connection") ||
+		strings.Contains(msg, "connection reset by peer") ||
+		strings.Contains(msg, "broken pipe")
 }
 
 // setJobOutput sets the job output for the specified node.

@@ -31,13 +31,14 @@ reclaimPolicy: Delete
 volumeBindingMode: Immediate
 ---
 apiVersion: v1
-data:
-  userID: YWRtaW4=
-  userKey: SECRET
 kind: Secret
 metadata:
   name: storage-rbd
   namespace: default
+stringData:
+  # Replace these placeholders with a dedicated Ceph user and key before deployment.
+  userID: "<ceph-user-id>"
+  userKey: "<ceph-user-key>"
 type: kubernetes.io/rbd
 
 

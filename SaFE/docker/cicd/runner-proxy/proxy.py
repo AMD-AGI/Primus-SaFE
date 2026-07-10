@@ -104,6 +104,15 @@ def getenv_bool(name: str, default: bool = False) -> bool:
     return val.strip().lower() in {"1", "true", "yes", "y", "on"}
 
 
+def redact_sensitive_headers(headers: Any) -> Dict[str, str]:
+    """Return a copy of HTTP headers with credential values redacted for logging."""
+    safe = dict(headers)
+    for key in list(safe.keys()):
+        if key.lower() == "authorization":
+            safe[key] = "***"
+    return safe
+
+
 def is_base64(s: str) -> bool:
     try:
         # Normalize: strip whitespace and pad if necessary
@@ -273,11 +282,11 @@ def build_session() -> Tuple[requests.Session, str]:
         raise ValueError("Missing APISERVER_NODE_PORT (NodePort of apiserver pod)")
     base_url = f"http://{admin_ip}:{node_port}".rstrip("/")
 
-    userId = getenv_str("USER_ID")
+    bearer_token = getenv_str("USER_APIKEY")
     s = requests.Session()
     s.headers.update({"Content-Type": "application/json; charset=utf-8"})
-    if userId:
-        s.headers.update({"userId": userId})
+    if bearer_token:
+        s.headers.update({"Authorization": f"Bearer {bearer_token}"})
 
     return s, base_url
 
@@ -286,7 +295,7 @@ def create_workload(s: requests.Session, base_url: str, payload: Dict[str, Any])
     url = f"{base_url}/api/v1/workloads"
     body = json.dumps(payload, ensure_ascii=False)
     print(f"[debug] POST {url}", flush=True)
-    print(f"[debug] headers: {dict(s.headers)}", flush=True)
+    print(f"[debug] headers: {redact_sensitive_headers(s.headers)}", flush=True)
     print(f"[debug] body: {body}", flush=True)
     resp = s.post(url, data=body, timeout=30)
     if resp.status_code >= 300:

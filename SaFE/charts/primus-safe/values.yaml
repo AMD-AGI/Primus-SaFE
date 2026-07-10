@@ -147,9 +147,6 @@ ssh:
   enable: true
   # SSH server IP for jump server access
   server_ip: ""
-user:
-  # Require token for user access, can be disabled in internal networks
-  token_required: false
 tls:
   # Verify TLS certificates for outbound HTTPS calls to model endpoints and
   # third-party services (Playground chat, InferenceX). Defaults to false to

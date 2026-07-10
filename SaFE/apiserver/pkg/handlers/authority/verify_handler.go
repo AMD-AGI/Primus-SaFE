@@ -6,6 +6,7 @@
 package authority
 
 import (
+	"context"
 	"net/http"
 	"strings"
 
@@ -13,7 +14,9 @@ import (
 	"k8s.io/klog/v2"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/apikey"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
+	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 )
 
@@ -49,6 +52,25 @@ type VerifyTokenResponse struct {
 	ApiKeyId    int64         `json:"apiKeyId,omitempty"`
 	PlatformKey string        `json:"platformKey,omitempty"`
 	VirtualKey  string        `json:"virtualKey,omitempty"`
+}
+
+// platformKeyFetcher resolves the platform API key for a user. It is a package
+// variable so tests can substitute a stub without patching the DB layer.
+var platformKeyFetcher = fetchPlatformKey
+
+// fetchPlatformKey fetches or creates the platform API key from the database.
+// Returns an empty key (no error) when the database is unavailable.
+func fetchPlatformKey(ctx context.Context, userId, userName string) (string, error) {
+	if !commonconfig.IsDBEnable() {
+		klog.Warning("database not enabled, cannot provide platform key")
+		return "", nil
+	}
+	db := dbclient.NewClient()
+	if db == nil {
+		klog.Warning("database client not available, cannot provide platform key")
+		return "", nil
+	}
+	return apikey.GetOrCreatePlatformKey(ctx, db, userId, userName)
 }
 
 // VerifyToken validates a user token and returns user information
@@ -185,16 +207,10 @@ func VerifyToken(c *gin.Context) {
 
 	// Optionally include platform API key (GetOrCreate)
 	if req.IncludePlatformKey {
-		apiKeyToken := ApiKeyTokenInstance()
-		if apiKeyToken != nil {
-			platformKey, err := apiKeyToken.GetOrCreatePlatformKey(c.Request.Context(), userInfo.Id, userInfo.Name)
-			if err != nil {
-				klog.ErrorS(err, "failed to get/create platform key", "userId", userInfo.Id)
-			} else {
-				resp.PlatformKey = platformKey
-			}
-		} else {
-			klog.Warning("API key auth not initialized, cannot provide platform key")
+		if platformKey, err := platformKeyFetcher(c.Request.Context(), userInfo.Id, userInfo.Name); err != nil {
+			klog.ErrorS(err, "failed to get/create platform key", "userId", userInfo.Id)
+		} else if platformKey != "" {
+			resp.PlatformKey = platformKey
 		}
 	}
 

@@ -76,8 +76,6 @@ data:
       # The path of s3 secret
       secret_path: {{ .Values.s3.secret_path }}
     user:
-      # Users can log in to the system without a token, intended for internal customers
-      token_required: {{ .Values.user.token_required }}
       # The expiration time of the token(only for local token), in seconds.
       token_expire: 604800
     tls:
