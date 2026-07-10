@@ -430,7 +430,7 @@ func (h *Handler) streamChat(c *gin.Context, baseUrl string, apiKey string, mode
 	// Configure HTTP client to skip TLS certificate verification
 	config.HTTPClient = &http.Client{
 		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: !commonconfig.IsOutboundTLSVerifyEnabled()}, //nolint:gosec // opt-in strict verification via tls.verify_outbound
 		},
 		Timeout: 300 * time.Second,
 	}
@@ -526,7 +526,7 @@ func (h *Handler) nonStreamChat(c *gin.Context, baseUrl string, apiKey string, m
 	// Configure HTTP client to skip TLS certificate verification
 	config.HTTPClient = &http.Client{
 		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: !commonconfig.IsOutboundTLSVerifyEnabled()}, //nolint:gosec // opt-in strict verification via tls.verify_outbound
 		},
 		Timeout: 300 * time.Second,
 	}
