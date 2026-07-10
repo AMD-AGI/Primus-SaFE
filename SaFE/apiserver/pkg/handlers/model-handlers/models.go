@@ -1417,6 +1417,14 @@ func (h *Handler) getModelWorkloads(c *gin.Context) (interface{}, error) {
 		return nil, commonerrors.NewInternalError("failed to fetch model: " + err.Error())
 	}
 
+	// Enforce the same read visibility as getModel: this endpoint exposes the
+	// model's associated workloads, so callers who cannot see the model must not
+	// be able to enumerate them.
+	user := h.readVisibilityUser(ctx, c.GetString(common.UserId))
+	if !canViewModel(user, v1.GetUserId(k8sModel), k8sModel.Spec.Workspace) {
+		return nil, commonerrors.NewForbidden("you are not allowed to access this model")
+	}
+
 	// List all workloads and filter by env variable in memory
 	workloadList := &v1.WorkloadList{}
 	if err := h.k8sClient.List(ctx, workloadList); err != nil {
@@ -1469,6 +1477,14 @@ func (h *Handler) getWorkloadConfig(c *gin.Context) (interface{}, error) {
 			return nil, commonerrors.NewNotFound("model", modelId)
 		}
 		return nil, commonerrors.NewInternalError("failed to fetch model: " + err.Error())
+	}
+
+	// Enforce the same read visibility as getModel: this endpoint returns the
+	// on-disk model path and launch command, which must not leak to callers who
+	// cannot see the model.
+	user := h.readVisibilityUser(ctx, c.GetString(common.UserId))
+	if !canViewModel(user, v1.GetUserId(k8sModel), k8sModel.Spec.Workspace) {
+		return nil, commonerrors.NewForbidden("you are not allowed to access this model")
 	}
 
 	// Only deployable local models (local or local_path) can be deployed as workloads

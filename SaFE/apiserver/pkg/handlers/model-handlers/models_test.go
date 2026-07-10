@@ -477,6 +477,7 @@ func TestGetModelWorkloads(t *testing.T) {
 	c, _ := gin.CreateTestContext(w)
 	c.Params = gin.Params{{Key: "id", Value: "model-1"}}
 	c.Request, _ = http.NewRequest("GET", "/models/model-1/workloads", nil)
+	c.Set(common.UserId, adminModelUserID)
 
 	result, err := h.getModelWorkloads(c)
 	assert.NilError(t, err)
