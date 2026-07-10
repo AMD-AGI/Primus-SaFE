@@ -7,12 +7,15 @@ package authority
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 	"time"
 
+	"github.com/agiledragon/gomonkey/v2"
 	"github.com/gin-gonic/gin"
 	"github.com/golang/mock/gomock"
 	"github.com/lib/pq"
@@ -21,6 +24,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/apikey"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
 	mock_client "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client/mock"
@@ -610,4 +614,89 @@ func TestVerifyApiKey_InvalidKey(t *testing.T) {
 	assert.Error(t, err)
 	assert.Nil(t, userInfo)
 	assert.Equal(t, http.StatusUnauthorized, w.Code)
+}
+
+func TestVerifyToken_IncludePlatformKey(t *testing.T) {
+	cleanupAuth := setupInternalAuth(t)
+	defer cleanupAuth()
+	cleanupToken := setupDefaultToken(t)
+	defer cleanupToken()
+
+	token := generateTestToken(t, "user-platform", "alice")
+
+	t.Run("db disabled omits platform key", func(t *testing.T) {
+		patches := gomonkey.NewPatches()
+		defer patches.Reset()
+		patches.ApplyFunc(commonconfig.IsDBEnable, func() bool { return false })
+
+		w := callVerifyToken(t, VerifyTokenRequest{
+			Cookie:             "Token=" + token,
+			IncludePlatformKey: true,
+		}, testInternalToken)
+
+		assert.Equal(t, http.StatusOK, w.Code)
+		var resp verifyResponse
+		assert.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+		assert.Empty(t, resp.Data.PlatformKey)
+	})
+
+	t.Run("db client unavailable omits platform key", func(t *testing.T) {
+		patches := gomonkey.NewPatches()
+		defer patches.Reset()
+		patches.ApplyFunc(commonconfig.IsDBEnable, func() bool { return true })
+		patches.ApplyFunc(dbclient.NewClient, func() *dbclient.Client { return nil })
+
+		w := callVerifyToken(t, VerifyTokenRequest{
+			Cookie:             "Token=" + token,
+			IncludePlatformKey: true,
+		}, testInternalToken)
+
+		assert.Equal(t, http.StatusOK, w.Code)
+		var resp verifyResponse
+		assert.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+		assert.Empty(t, resp.Data.PlatformKey)
+	})
+
+	t.Run("lookup error omits platform key", func(t *testing.T) {
+		patches := gomonkey.NewPatches()
+		defer patches.Reset()
+		patches.ApplyFunc(commonconfig.IsDBEnable, func() bool { return true })
+		patches.ApplyFunc(dbclient.NewClient, func() *dbclient.Client { return &dbclient.Client{} })
+		patches.ApplyFunc(apikey.GetOrCreatePlatformKey, func(context.Context, dbclient.Interface, string, string) (string, error) {
+			return "", fmt.Errorf("lookup failed")
+		})
+
+		w := callVerifyToken(t, VerifyTokenRequest{
+			Cookie:             "Token=" + token,
+			IncludePlatformKey: true,
+		}, testInternalToken)
+
+		assert.Equal(t, http.StatusOK, w.Code)
+		var resp verifyResponse
+		assert.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+		assert.Empty(t, resp.Data.PlatformKey)
+	})
+
+	t.Run("success includes platform key", func(t *testing.T) {
+		patches := gomonkey.NewPatches()
+		defer patches.Reset()
+		patches.ApplyFunc(commonconfig.IsDBEnable, func() bool { return true })
+		patches.ApplyFunc(dbclient.NewClient, func() *dbclient.Client { return &dbclient.Client{} })
+		platformToken := "platform-token-for-verify"
+		patches.ApplyFunc(apikey.GetOrCreatePlatformKey, func(_ context.Context, _ dbclient.Interface, userId, userName string) (string, error) {
+			assert.Equal(t, "user-platform", userId)
+			assert.Equal(t, "alice", userName)
+			return platformToken, nil
+		})
+
+		w := callVerifyToken(t, VerifyTokenRequest{
+			Cookie:             "Token=" + token,
+			IncludePlatformKey: true,
+		}, testInternalToken)
+
+		assert.Equal(t, http.StatusOK, w.Code)
+		var resp verifyResponse
+		assert.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+		assert.Equal(t, platformToken, resp.Data.PlatformKey)
+	})
 }
