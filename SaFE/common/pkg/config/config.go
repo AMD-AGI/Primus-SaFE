@@ -374,6 +374,16 @@ func GetUserTokenExpire() int {
 	return getInt(userTokenExpireSecond, -1)
 }
 
+// IsOutboundTLSVerifyEnabled reports whether outbound HTTPS requests to model
+// endpoints and third-party services (Playground chat, InferenceX) must verify
+// TLS certificates. It defaults to false to preserve compatibility with
+// self-signed ingress certificates and container images that ship without an
+// updated CA bundle. Security-conscious deployments can set
+// tls.verify_outbound=true to enforce certificate verification.
+func IsOutboundTLSVerifyEnabled() bool {
+	return getBool(tlsVerifyOutbound, false)
+}
+
 // IsNotificationEnable returns whether notifications are enabled.
 func IsNotificationEnable() bool {
 	return getBool(notificationEnable, true)

@@ -44,6 +44,12 @@ func toCallLogView(log *dbclient.A2ACallLog) view.CallLogView {
 
 // ListCallLogs handles GET /api/v1/a2a/call-logs
 func (h *Handler) ListCallLogs(c *gin.Context) {
+	// Call logs are audit data: restrict reads to system administrators.
+	if err := h.authorizeA2AReadAudit(c); err != nil {
+		apiutils.AbortWithApiError(c, err)
+		return
+	}
+
 	limitStr := c.DefaultQuery("limit", "50")
 	offsetStr := c.DefaultQuery("offset", "0")
 	caller := c.Query("caller")
@@ -75,7 +81,11 @@ func (h *Handler) ListCallLogs(c *gin.Context) {
 		apiutils.AbortWithApiError(c, commonerrors.NewInternalError(err.Error()))
 		return
 	}
-	total, _ := h.dbClient.CountA2ACallLogs(c.Request.Context(), query)
+	total, err := h.dbClient.CountA2ACallLogs(c.Request.Context(), query)
+	if err != nil {
+		apiutils.AbortWithApiError(c, commonerrors.NewInternalError(err.Error()))
+		return
+	}
 
 	// Build userId -> userName map
 	userNameMap := make(map[string]string)

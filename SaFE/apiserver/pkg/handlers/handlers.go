@@ -108,7 +108,7 @@ func InitHttpHandlers(_ context.Context, mgr ctrlruntime.Manager) (*gin.Engine, 
 	if commonconfig.IsDBEnable() {
 		a2aDbClient := dbclient.NewClient()
 		if a2aDbClient != nil {
-			a2aHandler := a2ahandlers.NewHandler(a2aDbClient)
+			a2aHandler := a2ahandlers.NewHandler(a2aDbClient, authority.NewAccessController(mgr.GetClient()))
 			a2ahandlers.InitA2ARouters(engine, a2aHandler)
 
 			if commonconfig.IsA2AScannerEnable() {

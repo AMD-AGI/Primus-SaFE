@@ -6,16 +6,20 @@
 package model_handlers
 
 import (
+	"errors"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/klog/v2"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
 	apiutils "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/utils"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
+	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/robustclient"
 	commons3 "github.com/AMD-AIG-AIMA/SAFE/common/pkg/s3"
 )
@@ -72,6 +76,27 @@ func (h *Handler) IsDatasetEnabled() bool {
 	return h.s3Client != nil
 }
 
+// authorizeModel enforces resource-level RBAC for model write operations.
+// It fails closed: a nil access controller denies the request rather than
+// silently allowing it. For create, owner is empty; for update/delete, pass the
+// model's owner (v1.GetUserId) and workspace so owner/workspace rules apply.
+func (h *Handler) authorizeModel(c *gin.Context, verb v1.RoleVerb, owner, workspace string) error {
+	if h.accessController == nil {
+		return commonerrors.NewInternalError("model access controller is not initialized")
+	}
+	in := authority.AccessInput{
+		Context:       c.Request.Context(),
+		ResourceKind:  v1.ModelKind,
+		Verb:          verb,
+		UserId:        c.GetString(common.UserId),
+		ResourceOwner: owner,
+	}
+	if workspace != "" {
+		in.Workspaces = []string{workspace}
+	}
+	return h.accessController.Authorize(in)
+}
+
 // handle is a common handler wrapper for HTTP requests (for model/playground APIs).
 func handle(c *gin.Context, fn func(c *gin.Context) (interface{}, error)) {
 	result, err := fn(c)
@@ -106,13 +131,19 @@ func handleDataset(c *gin.Context, fn func(c *gin.Context) (interface{}, error))
 }
 
 // getHTTPStatusCode returns the appropriate HTTP status code for an error.
+// Errors that carry a Kubernetes-style status (including the commonerrors
+// helpers such as NewForbidden/NewNotFound) map to their real HTTP code so
+// authorization denials return 403 instead of a generic 500. Plain errors
+// still fall back to 500.
 func getHTTPStatusCode(err error) int {
-	// This is a simplified version. You may want to use a more sophisticated
-	// error type checking mechanism based on your error types.
-	switch {
-	case err == nil:
-		return 200
-	default:
-		return 500
+	if err == nil {
+		return http.StatusOK
 	}
+	var status apierrors.APIStatus
+	if errors.As(err, &status) {
+		if code := int(status.Status().Code); code != 0 {
+			return code
+		}
+	}
+	return http.StatusInternalServerError
 }

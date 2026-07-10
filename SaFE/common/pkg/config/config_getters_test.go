@@ -57,6 +57,7 @@ func TestGettersDefaults(t *testing.T) {
 	assert.Equal(t, "", GetRdmaName())
 	assert.Equal(t, "", GetImageSecret())
 	assert.Equal(t, -1, GetUserTokenExpire())
+	assert.False(t, IsOutboundTLSVerifyEnabled())
 	assert.True(t, IsNotificationEnable())
 	assert.Equal(t, "", GetSystemHost())
 	assert.Equal(t, "", GetSubDomain())

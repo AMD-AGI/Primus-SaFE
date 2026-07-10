@@ -19,6 +19,13 @@ import (
 
 // GetTopology handles GET /api/v1/a2a/topology
 func (h *Handler) GetTopology(c *gin.Context) {
+	// Topology edges are derived from A2A call logs (audit data), so this view
+	// is restricted to system administrators, consistent with ListCallLogs.
+	if err := h.authorizeA2AReadAudit(c); err != nil {
+		apiutils.AbortWithApiError(c, err)
+		return
+	}
+
 	services, err := h.dbClient.ListActiveA2AServices(c.Request.Context())
 	if err != nil {
 		apiutils.AbortWithApiError(c, commonerrors.NewInternalError(err.Error()))

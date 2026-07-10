@@ -280,6 +280,13 @@ func (h *Handler) getSftConfig(c *gin.Context) (interface{}, error) {
 		return nil, commonerrors.NewInternalError("failed to fetch model: " + err.Error())
 	}
 
+	// Enforce the same read visibility as getModel before returning the
+	// model's SFT configuration.
+	user := h.readVisibilityUser(ctx, c.GetString(common.UserId))
+	if !canViewModel(user, v1.GetUserId(k8sModel), k8sModel.Spec.Workspace) {
+		return nil, commonerrors.NewForbidden("you are not allowed to access this model")
+	}
+
 	trainingModelName := resolveTrainingBaseModelNameFromK8sModel(k8sModel)
 	resp := &SftConfigResponse{
 		Supported: false,
