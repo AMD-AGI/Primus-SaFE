@@ -142,7 +142,10 @@ func handleDeleteConfig(c *gin.Context) {
 	if !ok {
 		return
 	}
-	db.ExecContext(c.Request.Context(), `DELETE FROM github_collection_configs WHERE id = $1`, id)
+	if _, err := db.ExecContext(c.Request.Context(), `DELETE FROM github_collection_configs WHERE id = $1`, id); err != nil {
+		c.JSON(500, gin.H{"error": err.Error()})
+		return
+	}
 	c.JSON(200, gin.H{"deleted": id})
 }
 

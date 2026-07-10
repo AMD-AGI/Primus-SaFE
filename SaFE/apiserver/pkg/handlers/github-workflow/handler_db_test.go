@@ -136,6 +136,19 @@ func TestHandleDeleteConfig(t *testing.T) {
 	}
 }
 
+func TestHandleDeleteConfigDBError(t *testing.T) {
+	mock, cleanup := withMockDB(t)
+	defer cleanup()
+	mock.ExpectExec("DELETE FROM github_collection_configs").
+		WillReturnError(sql.ErrConnDone)
+
+	c, w := ctxWith(http.MethodDelete, "/configs/5", "", gin.Params{{Key: "id", Value: "5"}}, "")
+	handleDeleteConfig(c)
+	if w.Code != http.StatusInternalServerError {
+		t.Errorf("status = %d, want 500", w.Code)
+	}
+}
+
 // TestHandleListRunsSuccess verifies runs are listed with query filters applied.
 func TestHandleListRunsSuccess(t *testing.T) {
 	mock, cleanup := withMockDB(t)
