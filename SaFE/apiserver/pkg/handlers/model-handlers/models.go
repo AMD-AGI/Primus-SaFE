@@ -85,9 +85,15 @@ func (h *Handler) createModel(c *gin.Context) (interface{}, error) {
 		return nil, commonerrors.NewBadRequest(fmt.Sprintf("invalid request body: %v", err))
 	}
 
-	ctx := context.Background()
+	ctx := c.Request.Context()
 	userId := c.GetString(common.UserId)
 	userName := c.GetString(common.UserName)
+
+	// Resource-level RBAC: creating in a workspace requires workspace membership;
+	// creating a public model (empty workspace) requires system-admin.
+	if err := h.authorizeModel(c, v1.CreateVerb, "", req.Workspace); err != nil {
+		return nil, err
+	}
 
 	// Import from user S3 (API-only s3_sync → cluster local + s3:// + label)
 	if req.Source.AccessMode == accessModeS3Sync {
@@ -134,7 +140,10 @@ func (h *Handler) createModel(c *gin.Context) (interface{}, error) {
 	// Check if model with same URL already exists (only for local mode)
 	// Remote API mode skips duplicate check since each user has their own API key
 	if req.Source.AccessMode == string(v1.AccessModeLocal) && normalizedURL != "" {
-		existingModel, _ := h.findModelBySourceURL(ctx, normalizedURL, req.Workspace)
+		existingModel, err := h.findModelBySourceURL(ctx, normalizedURL, req.Workspace)
+		if err != nil {
+			return nil, err
+		}
 		if existingModel != nil {
 			if existingModel.Phase == string(v1.ModelPhaseReady) {
 				return nil, commonerrors.NewBadRequest(fmt.Sprintf("model with URL '%s' already exists and is ready (id: %s)", existingModel.SourceURL, existingModel.ID))
@@ -1071,6 +1080,11 @@ func (h *Handler) deleteModel(c *gin.Context) (interface{}, error) {
 		return nil, commonerrors.NewInternalError("failed to fetch model: " + err.Error())
 	}
 
+	// Resource-level RBAC: only the model owner (or an admin) may delete it.
+	if err := h.authorizeModel(c, v1.DeleteVerb, v1.GetUserId(k8sModel), k8sModel.Spec.Workspace); err != nil {
+		return nil, err
+	}
+
 	// 2. Check for associated workloads by env variable PRIMUS_SOURCE_MODEL
 	// Note: source-model is stored in env to avoid affecting scheduling (labels/customerLabels affect node selection)
 	workloadList := &v1.WorkloadList{}
@@ -1246,6 +1260,11 @@ func (h *Handler) patchModel(c *gin.Context) (interface{}, error) {
 		}
 		klog.ErrorS(err, "Failed to get model from K8s", "model", modelId)
 		return nil, commonerrors.NewInternalError("failed to fetch model: " + err.Error())
+	}
+
+	// Resource-level RBAC: only the model owner (or an admin) may modify it.
+	if err := h.authorizeModel(c, v1.UpdateVerb, v1.GetUserId(k8sModel), k8sModel.Spec.Workspace); err != nil {
+		return nil, err
 	}
 
 	// Apply updates using patch
@@ -1478,30 +1497,33 @@ func (h *Handler) getWorkloadConfig(c *gin.Context) (interface{}, error) {
 
 // findModelBySourceURL checks if a model with the given source URL and workspace already exists.
 func (h *Handler) findModelBySourceURL(ctx context.Context, sourceURL string, workspace string) (*dbclient.Model, error) {
-	// Check K8s directly for immediate consistency
+	// Check K8s directly for immediate consistency. A List failure must surface
+	// as an error: silently skipping the duplicate check can create duplicate
+	// models when the API server is briefly unavailable.
 	modelList := &v1.ModelList{}
-	if err := h.k8sClient.List(ctx, modelList); err == nil {
-		for _, m := range modelList.Items {
-			if m.Spec.Source.URL == sourceURL && m.DeletionTimestamp == nil {
-				// For local models, also check workspace
-				if m.Spec.Source.AccessMode == v1.AccessModeLocal {
-					// Public models (empty workspace) are considered duplicates regardless of workspace
-					// Specific workspace models are duplicates only for the same workspace
-					if m.Spec.Workspace == "" || m.Spec.Workspace == workspace || workspace == "" {
-						return &dbclient.Model{
-							ID:        m.Name,
-							SourceURL: m.Spec.Source.URL,
-							Phase:     string(m.Status.Phase),
-							Workspace: m.Spec.Workspace,
-						}, nil
-					}
-				} else {
+	if err := h.k8sClient.List(ctx, modelList); err != nil {
+		return nil, commonerrors.NewInternalError("failed to list models for duplicate check: " + err.Error())
+	}
+	for _, m := range modelList.Items {
+		if m.Spec.Source.URL == sourceURL && m.DeletionTimestamp == nil {
+			// For local models, also check workspace
+			if m.Spec.Source.AccessMode == v1.AccessModeLocal {
+				// Public models (empty workspace) are considered duplicates regardless of workspace
+				// Specific workspace models are duplicates only for the same workspace
+				if m.Spec.Workspace == "" || m.Spec.Workspace == workspace || workspace == "" {
 					return &dbclient.Model{
 						ID:        m.Name,
 						SourceURL: m.Spec.Source.URL,
 						Phase:     string(m.Status.Phase),
+						Workspace: m.Spec.Workspace,
 					}, nil
 				}
+			} else {
+				return &dbclient.Model{
+					ID:        m.Name,
+					SourceURL: m.Spec.Source.URL,
+					Phase:     string(m.Status.Phase),
+				}, nil
 			}
 		}
 	}

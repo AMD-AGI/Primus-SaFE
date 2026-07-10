@@ -52,8 +52,8 @@ func TestRetryModelHandlerNotFound(t *testing.T) {
 func TestPatchModelHandler(t *testing.T) {
 	model := &v1.Model{ObjectMeta: metav1.ObjectMeta{Name: "m1"}}
 	cl := ctrlfake.NewClientBuilder().WithScheme(modelScheme(t)).WithObjects(model).Build()
-	h := &Handler{k8sClient: cl}
-	res, err := h.patchModel(sessCtx(t, http.MethodPatch, `{"displayName":"new"}`, "", gin.Params{{Key: "id", Value: "m1"}}))
+	h := &Handler{k8sClient: cl, accessController: adminModelAC()}
+	res, err := h.patchModel(sessCtx(t, http.MethodPatch, `{"displayName":"new"}`, adminModelUserID, gin.Params{{Key: "id", Value: "m1"}}))
 	assert.NoError(t, err)
 	assert.NotNil(t, res)
 }

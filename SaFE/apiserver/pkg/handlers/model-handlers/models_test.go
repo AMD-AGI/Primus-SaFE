@@ -38,15 +38,17 @@ func init() {
 // newMockModelHandler creates a mock Handler for testing
 func newMockModelHandler(k8sClient client.Client) *Handler {
 	return &Handler{
-		k8sClient: k8sClient,
-		dbClient:  nil, // No database client for unit tests
+		k8sClient:        k8sClient,
+		dbClient:         nil, // No database client for unit tests
+		accessController: adminModelAC(),
 	}
 }
 
 func newMockModelHandlerWithDB(k8sClient client.Client, dbClient dbclient.Interface) *Handler {
 	return &Handler{
-		k8sClient: k8sClient,
-		dbClient:  dbClient,
+		k8sClient:        k8sClient,
+		dbClient:         dbClient,
+		accessController: adminModelAC(),
 	}
 }
 
@@ -291,6 +293,7 @@ func TestDeleteModel(t *testing.T) {
 	c, _ := gin.CreateTestContext(w)
 	c.Params = gin.Params{{Key: "id", Value: "model-to-delete"}}
 	c.Request, _ = http.NewRequest("DELETE", "/models/model-to-delete", nil)
+	c.Set(common.UserId, adminModelUserID)
 
 	result, err := h.deleteModel(c)
 	assert.NilError(t, err)
@@ -318,6 +321,7 @@ func TestDeleteModel_WithRunningWorkloads(t *testing.T) {
 	c, _ := gin.CreateTestContext(w)
 	c.Params = gin.Params{{Key: "id", Value: "model-with-workloads"}}
 	c.Request, _ = http.NewRequest("DELETE", "/models/model-with-workloads", nil)
+	c.Set(common.UserId, adminModelUserID)
 
 	_, err := h.deleteModel(c)
 	assert.ErrorContains(t, err, "running/pending workloads exist")
@@ -416,6 +420,7 @@ func TestPatchModel(t *testing.T) {
 	c.Request, _ = http.NewRequest("PATCH", "/models/model-to-patch", bytes.NewBuffer(body))
 	c.Request.Header.Set("Content-Type", "application/json")
 
+	c.Set(common.UserId, adminModelUserID)
 	result, err := h.patchModel(c)
 	assert.NilError(t, err)
 	assert.Assert(t, result != nil)
@@ -1238,6 +1243,7 @@ func TestDeleteModelWithSecrets(t *testing.T) {
 	c, _ := gin.CreateTestContext(w)
 	c.Params = gin.Params{{Key: "id", Value: "model-with-secrets"}}
 	c.Request, _ = http.NewRequest("DELETE", "/models/model-with-secrets", nil)
+	c.Set(common.UserId, adminModelUserID)
 
 	result, err := h.deleteModel(c)
 	assert.NilError(t, err)
