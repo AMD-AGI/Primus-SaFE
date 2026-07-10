@@ -104,6 +104,15 @@ rules:
   verbs:
     - get
     - list
+# A2A service registry is read-only for all users; create/update/delete are
+# restricted to system administrators (see the system-admin role above).
+- resources:
+    - a2a
+  grantedUsers:
+    - "*"
+  verbs:
+    - get
+    - list
 - resources:
     - publickey
     - imageimport

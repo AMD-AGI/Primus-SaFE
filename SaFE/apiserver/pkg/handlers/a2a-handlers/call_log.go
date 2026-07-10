@@ -75,7 +75,11 @@ func (h *Handler) ListCallLogs(c *gin.Context) {
 		apiutils.AbortWithApiError(c, commonerrors.NewInternalError(err.Error()))
 		return
 	}
-	total, _ := h.dbClient.CountA2ACallLogs(c.Request.Context(), query)
+	total, err := h.dbClient.CountA2ACallLogs(c.Request.Context(), query)
+	if err != nil {
+		apiutils.AbortWithApiError(c, commonerrors.NewInternalError(err.Error()))
+		return
+	}
 
 	// Build userId -> userName map
 	userNameMap := make(map[string]string)

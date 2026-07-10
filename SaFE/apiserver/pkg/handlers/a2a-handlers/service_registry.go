@@ -15,6 +15,7 @@ import (
 	sqrl "github.com/Masterminds/squirrel"
 	"github.com/lib/pq"
 
+	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	apiutils "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/utils"
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
@@ -69,6 +70,10 @@ func toServiceView(svc *dbclient.A2AServiceRegistry) view.ServiceView {
 
 // CreateService handles POST /api/v1/a2a/services
 func (h *Handler) CreateService(c *gin.Context) {
+	if err := h.authorizeA2A(c, v1.CreateVerb); err != nil {
+		apiutils.AbortWithApiError(c, err)
+		return
+	}
 	var req view.CreateServiceRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		apiutils.AbortWithApiError(c, commonerrors.NewBadRequest(err.Error()))
@@ -119,7 +124,11 @@ func (h *Handler) ListServices(c *gin.Context) {
 		apiutils.AbortWithApiError(c, commonerrors.NewInternalError(err.Error()))
 		return
 	}
-	total, _ := h.dbClient.CountA2AServices(c.Request.Context(), query)
+	total, err := h.dbClient.CountA2AServices(c.Request.Context(), query)
+	if err != nil {
+		apiutils.AbortWithApiError(c, commonerrors.NewInternalError(err.Error()))
+		return
+	}
 
 	views := make([]view.ServiceView, 0, len(services))
 	for _, svc := range services {
@@ -141,6 +150,10 @@ func (h *Handler) GetService(c *gin.Context) {
 
 // UpdateService handles PATCH /api/v1/a2a/services/:serviceName
 func (h *Handler) UpdateService(c *gin.Context) {
+	if err := h.authorizeA2A(c, v1.UpdateVerb); err != nil {
+		apiutils.AbortWithApiError(c, err)
+		return
+	}
 	serviceName := c.Param("serviceName")
 	svc, err := h.dbClient.GetA2AService(c.Request.Context(), serviceName)
 	if err != nil {
@@ -180,6 +193,10 @@ func (h *Handler) UpdateService(c *gin.Context) {
 
 // DeleteService handles DELETE /api/v1/a2a/services/:serviceName
 func (h *Handler) DeleteService(c *gin.Context) {
+	if err := h.authorizeA2A(c, v1.DeleteVerb); err != nil {
+		apiutils.AbortWithApiError(c, err)
+		return
+	}
 	serviceName := c.Param("serviceName")
 	if err := h.dbClient.SetA2AServiceDeleted(c.Request.Context(), serviceName); err != nil {
 		apiutils.AbortWithApiError(c, err)

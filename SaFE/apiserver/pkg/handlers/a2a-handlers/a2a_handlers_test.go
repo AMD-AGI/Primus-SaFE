@@ -18,7 +18,13 @@ import (
 	sqrl "github.com/Masterminds/squirrel"
 	"github.com/gin-gonic/gin"
 	"github.com/lib/pq"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
+	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
 )
 
@@ -27,14 +33,16 @@ import (
 type mockDB struct {
 	dbclient.Interface
 
-	callLogs    []*dbclient.A2ACallLog
-	callLogsErr error
-	callLogCnt  int
-	apiKeys     []*dbclient.ApiKey
+	callLogs     []*dbclient.A2ACallLog
+	callLogsErr  error
+	callLogCnt   int
+	callLogCntErr error
+	apiKeys      []*dbclient.ApiKey
 
-	services    []*dbclient.A2AServiceRegistry
-	servicesErr error
-	serviceCnt  int
+	services     []*dbclient.A2AServiceRegistry
+	servicesErr  error
+	serviceCnt   int
+	serviceCntErr error
 	service     *dbclient.A2AServiceRegistry
 	serviceErr  error
 	activeSvc   []*dbclient.A2AServiceRegistry
@@ -48,7 +56,7 @@ func (m *mockDB) SelectA2ACallLogs(_ context.Context, _ sqrl.Sqlizer, _ []string
 	return m.callLogs, m.callLogsErr
 }
 func (m *mockDB) CountA2ACallLogs(_ context.Context, _ sqrl.Sqlizer) (int, error) {
-	return m.callLogCnt, nil
+	return m.callLogCnt, m.callLogCntErr
 }
 func (m *mockDB) SelectApiKeys(_ context.Context, _ sqrl.Sqlizer, _ []string, _, _ int) ([]*dbclient.ApiKey, error) {
 	return m.apiKeys, nil
@@ -60,7 +68,7 @@ func (m *mockDB) SelectA2AServices(_ context.Context, _ sqrl.Sqlizer, _ []string
 	return m.services, m.servicesErr
 }
 func (m *mockDB) CountA2AServices(_ context.Context, _ sqrl.Sqlizer) (int, error) {
-	return m.serviceCnt, nil
+	return m.serviceCnt, m.serviceCntErr
 }
 func (m *mockDB) GetA2AService(_ context.Context, _ string) (*dbclient.A2AServiceRegistry, error) {
 	return m.service, m.serviceErr
@@ -89,6 +97,35 @@ func newCtx(method, target, body string) (*gin.Context, *httptest.ResponseRecord
 	}
 	c.Request = r
 	return c, w
+}
+
+func newA2AAccessController(t *testing.T, verbs ...v1.RoleVerb) *authority.AccessController {
+	t.Helper()
+	scheme := runtime.NewScheme()
+	if err := v1.AddToScheme(scheme); err != nil {
+		t.Fatalf("add scheme: %v", err)
+	}
+	role := &v1.Role{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-role"},
+		Rules: []v1.PolicyRule{{
+			Resources:    []string{"a2a"},
+			GrantedUsers: []string{authority.GrantedAllUser},
+			Verbs:        verbs,
+		}},
+	}
+	user := &v1.User{
+		ObjectMeta: metav1.ObjectMeta{Name: "user-1"},
+		Spec: v1.UserSpec{
+			Type:  v1.DefaultUserType,
+			Roles: []v1.UserRole{"test-role"},
+		},
+	}
+	return &authority.AccessController{Client: fake.NewClientBuilder().WithScheme(scheme).WithObjects(role, user).Build()}
+}
+
+func withUser(c *gin.Context) {
+	c.Set(common.UserId, "user-1")
+	c.Set(common.UserName, "alice")
 }
 
 func TestNewHandler(t *testing.T) {
@@ -158,11 +195,19 @@ func TestListCallLogs(t *testing.T) {
 	if w2.Code != http.StatusInternalServerError {
 		t.Errorf("status = %d, want 500", w2.Code)
 	}
+
+	countErr := &mockDB{callLogCntErr: errors.New("count down")}
+	c3, w3 := newCtx(http.MethodGet, "/", "")
+	NewHandler(countErr).ListCallLogs(c3)
+	if w3.Code != http.StatusInternalServerError {
+		t.Errorf("status = %d, want 500", w3.Code)
+	}
 }
 
 func TestCreateService(t *testing.T) {
-	h := NewHandler(&mockDB{})
+	h := NewHandler(&mockDB{}, newA2AAccessController(t, v1.CreateVerb))
 	c, w := newCtx(http.MethodPost, "/", `{"serviceName":"svc","endpoint":"http://x"}`)
+	withUser(c)
 	h.CreateService(c)
 	if w.Code != http.StatusCreated {
 		t.Fatalf("status = %d, want 201", w.Code)
@@ -170,6 +215,7 @@ func TestCreateService(t *testing.T) {
 
 	// Bad request: missing required fields.
 	c2, w2 := newCtx(http.MethodPost, "/", `{}`)
+	withUser(c2)
 	h.CreateService(c2)
 	if w2.Code != http.StatusBadRequest {
 		t.Errorf("status = %d, want 400", w2.Code)
@@ -189,6 +235,13 @@ func TestListServices(t *testing.T) {
 	NewHandler(dbErr).ListServices(c2)
 	if w2.Code != http.StatusInternalServerError {
 		t.Errorf("status = %d, want 500", w2.Code)
+	}
+
+	countErr := &mockDB{serviceCntErr: errors.New("count down")}
+	c3, w3 := newCtx(http.MethodGet, "/", "")
+	NewHandler(countErr).ListServices(c3)
+	if w3.Code != http.StatusInternalServerError {
+		t.Errorf("status = %d, want 500", w3.Code)
 	}
 }
 
@@ -212,8 +265,9 @@ func TestGetService(t *testing.T) {
 
 func TestUpdateService(t *testing.T) {
 	db := &mockDB{service: &dbclient.A2AServiceRegistry{ServiceName: "svc"}}
-	h := NewHandler(db)
+	h := NewHandler(db, newA2AAccessController(t, v1.UpdateVerb))
 	c, w := newCtx(http.MethodPatch, "/", `{"displayName":"New","description":"d","endpoint":"http://y","a2aPathPrefix":"/a2a","status":"inactive"}`)
+	withUser(c)
 	c.Params = gin.Params{{Key: "serviceName", Value: "svc"}}
 	h.UpdateService(c)
 	if w.Code != http.StatusOK {
@@ -223,8 +277,9 @@ func TestUpdateService(t *testing.T) {
 	// Not found path.
 	dbErr := &mockDB{serviceErr: errors.New("not found")}
 	c2, w2 := newCtx(http.MethodPatch, "/", `{}`)
+	withUser(c2)
 	c2.Params = gin.Params{{Key: "serviceName", Value: "missing"}}
-	NewHandler(dbErr).UpdateService(c2)
+	NewHandler(dbErr, newA2AAccessController(t, v1.UpdateVerb)).UpdateService(c2)
 	if w2.Code != http.StatusNotFound {
 		t.Errorf("status = %d, want 404", w2.Code)
 	}
@@ -232,10 +287,52 @@ func TestUpdateService(t *testing.T) {
 
 func TestDeleteService(t *testing.T) {
 	c, w := newCtx(http.MethodDelete, "/", "")
+	withUser(c)
 	c.Params = gin.Params{{Key: "serviceName", Value: "svc"}}
-	NewHandler(&mockDB{}).DeleteService(c)
+	NewHandler(&mockDB{}, newA2AAccessController(t, v1.DeleteVerb)).DeleteService(c)
 	if w.Code != http.StatusOK {
 		t.Errorf("status = %d, want 200", w.Code)
+	}
+}
+
+func TestWriteServiceRequiresA2AAuthorization(t *testing.T) {
+	tests := []struct {
+		name   string
+		method string
+		body   string
+		call   func(*Handler, *gin.Context)
+	}{
+		{
+			name:   "create",
+			method: http.MethodPost,
+			body:   `{"serviceName":"svc","endpoint":"http://x"}`,
+			call:   (*Handler).CreateService,
+		},
+		{
+			name:   "update",
+			method: http.MethodPatch,
+			body:   `{"displayName":"New"}`,
+			call:   (*Handler).UpdateService,
+		},
+		{
+			name:   "delete",
+			method: http.MethodDelete,
+			call:   (*Handler).DeleteService,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			db := &mockDB{service: &dbclient.A2AServiceRegistry{ServiceName: "svc"}}
+			h := NewHandler(db, newA2AAccessController(t, v1.GetVerb))
+			c, w := newCtx(tt.method, "/", tt.body)
+			withUser(c)
+			c.Params = gin.Params{{Key: "serviceName", Value: "svc"}}
+			tt.call(h, c)
+			if w.Code != http.StatusForbidden {
+				t.Fatalf("status = %d, want 403, body: %s", w.Code, w.Body.String())
+			}
+		})
 	}
 }
 
