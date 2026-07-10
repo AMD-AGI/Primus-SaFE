@@ -91,8 +91,18 @@ func newModelOwnerAC(t *testing.T) *authority.AccessController {
 		ObjectMeta: metav1.ObjectMeta{Name: "other-1"},
 		Spec:       v1.UserSpec{Type: v1.DefaultUserType, Roles: []v1.UserRole{"model-role"}},
 	}
+	// wsmember-1 is a member of workspace "ws-1" (workspace-user), so it may
+	// create models in ws-1 but is not an owner of existing models.
+	wsMember := &v1.User{
+		ObjectMeta: metav1.ObjectMeta{Name: "wsmember-1"},
+		Spec: v1.UserSpec{
+			Type:      v1.DefaultUserType,
+			Roles:     []v1.UserRole{"model-role"},
+			Resources: map[string][]string{common.UserWorkspaces: {"ws-1"}},
+		},
+	}
 	return &authority.AccessController{
-		Client: ctrlfake.NewClientBuilder().WithScheme(scheme).WithObjects(role, owner, other).Build(),
+		Client: ctrlfake.NewClientBuilder().WithScheme(scheme).WithObjects(role, owner, other, wsMember).Build(),
 	}
 }
 
@@ -187,5 +197,73 @@ func TestRetryModelDeniedForNonOwner(t *testing.T) {
 	}
 	if code := getHTTPStatusCode(err); code != http.StatusForbidden {
 		t.Fatalf("expected 403, got %d (%v)", code, err)
+	}
+}
+
+func modelScheme2(t *testing.T) *runtime.Scheme {
+	t.Helper()
+	s := runtime.NewScheme()
+	if err := v1.AddToScheme(s); err != nil {
+		t.Fatalf("add scheme: %v", err)
+	}
+	return s
+}
+
+// TestCreateModelDeniedForNonAdminPublicModel: creating a public model (empty
+// workspace) is admin-only; a normal user must be denied.
+func TestCreateModelDeniedForNonAdminPublicModel(t *testing.T) {
+	k8s := ctrlfake.NewClientBuilder().WithScheme(modelScheme2(t)).Build()
+	h := &Handler{k8sClient: k8s, accessController: newModelOwnerAC(t)}
+	c := sessCtx(t, http.MethodPost, `{"displayName":"P","source":{"accessMode":"local","url":"https://huggingface.co/x/y"}}`, "other-1", nil)
+	_, err := h.createModel(c)
+	if err == nil || getHTTPStatusCode(err) != http.StatusForbidden {
+		t.Fatalf("expected 403 for non-admin public model create, got %v", err)
+	}
+}
+
+// TestCreateModelDeniedForNonWorkspaceMember: creating in a workspace the user
+// does not belong to must be denied.
+func TestCreateModelDeniedForNonWorkspaceMember(t *testing.T) {
+	k8s := ctrlfake.NewClientBuilder().WithScheme(modelScheme2(t)).Build()
+	h := &Handler{k8sClient: k8s, accessController: newModelOwnerAC(t)}
+	c := sessCtx(t, http.MethodPost, `{"displayName":"P","workspace":"ws-1","source":{"accessMode":"local","url":"https://huggingface.co/x/y"}}`, "other-1", nil)
+	_, err := h.createModel(c)
+	if err == nil || getHTTPStatusCode(err) != http.StatusForbidden {
+		t.Fatalf("expected 403 for non-member workspace create, got %v", err)
+	}
+}
+
+// TestCreateModelAllowedForWorkspaceMember: a workspace member may create a
+// model in that workspace (authorization must not block it).
+func TestCreateModelAllowedForWorkspaceMember(t *testing.T) {
+	k8s := ctrlfake.NewClientBuilder().WithScheme(modelScheme2(t)).Build()
+	h := &Handler{k8sClient: k8s, accessController: newModelOwnerAC(t)}
+	c := sessCtx(t, http.MethodPost, `{"displayName":"P","workspace":"ws-1","source":{"accessMode":"local","url":"https://huggingface.co/x/y"}}`, "wsmember-1", nil)
+	_, err := h.createModel(c)
+	if err != nil && getHTTPStatusCode(err) == http.StatusForbidden {
+		t.Fatalf("workspace member create must not be forbidden, got %v", err)
+	}
+}
+
+// TestPatchModelDeniedForNonOwner: patching another user's model must be denied.
+func TestPatchModelDeniedForNonOwner(t *testing.T) {
+	model := ownedModel("m-owned", "owner-1")
+	k8s := ctrlfake.NewClientBuilder().WithScheme(modelScheme2(t)).WithObjects(model).Build()
+	h := &Handler{k8sClient: k8s, accessController: newModelOwnerAC(t)}
+	c := sessCtx(t, http.MethodPatch, `{"displayName":"new"}`, "other-1", gin.Params{{Key: "id", Value: "m-owned"}})
+	_, err := h.patchModel(c)
+	if err == nil || getHTTPStatusCode(err) != http.StatusForbidden {
+		t.Fatalf("expected 403 for non-owner patch, got %v", err)
+	}
+}
+
+// TestPatchModelAllowedForOwner: the model owner may patch their own model.
+func TestPatchModelAllowedForOwner(t *testing.T) {
+	model := ownedModel("m-owned", "owner-1")
+	k8s := ctrlfake.NewClientBuilder().WithScheme(modelScheme2(t)).WithObjects(model).Build()
+	h := &Handler{k8sClient: k8s, accessController: newModelOwnerAC(t)}
+	c := sessCtx(t, http.MethodPatch, `{"displayName":"new"}`, "owner-1", gin.Params{{Key: "id", Value: "m-owned"}})
+	if _, err := h.patchModel(c); err != nil {
+		t.Fatalf("owner patch must succeed, got %v", err)
 	}
 }
