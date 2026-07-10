@@ -26,19 +26,19 @@ func failedModelClient(t *testing.T, phase v1.ModelPhase) *Handler {
 		WithObjects(model).
 		WithStatusSubresource(&v1.Model{}).
 		Build()
-	return &Handler{k8sClient: cl}
+	return &Handler{k8sClient: cl, accessController: adminModelAC()}
 }
 
 func TestRetryModelHandler(t *testing.T) {
 	h := failedModelClient(t, v1.ModelPhaseFailed)
-	res, err := h.retryModel(sessCtx(t, http.MethodPost, "", "", gin.Params{{Key: "id", Value: "m1"}}))
+	res, err := h.retryModel(sessCtx(t, http.MethodPost, "", adminModelUserID, gin.Params{{Key: "id", Value: "m1"}}))
 	assert.NoError(t, err)
 	assert.NotNil(t, res)
 }
 
 func TestRetryModelHandlerNotFailed(t *testing.T) {
 	h := failedModelClient(t, v1.ModelPhaseReady)
-	_, err := h.retryModel(sessCtx(t, http.MethodPost, "", "", gin.Params{{Key: "id", Value: "m1"}}))
+	_, err := h.retryModel(sessCtx(t, http.MethodPost, "", adminModelUserID, gin.Params{{Key: "id", Value: "m1"}}))
 	assert.Error(t, err)
 }
 

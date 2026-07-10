@@ -1207,6 +1207,12 @@ func (h *Handler) retryModel(c *gin.Context) (interface{}, error) {
 		return nil, commonerrors.NewInternalError("failed to fetch model: " + err.Error())
 	}
 
+	// Resource-level RBAC: retrying re-downloads the model, a state-changing
+	// write, so require the same permission as an update (owner or admin).
+	if err := h.authorizeModel(c, v1.UpdateVerb, v1.GetUserId(k8sModel), k8sModel.Spec.Workspace); err != nil {
+		return nil, err
+	}
+
 	// Check if model is in Failed phase
 	if k8sModel.Status.Phase != v1.ModelPhaseFailed {
 		return nil, commonerrors.NewBadRequest(fmt.Sprintf("model is not in Failed phase, current phase: %s. Only failed models can be retried", k8sModel.Status.Phase))

@@ -362,6 +362,7 @@ func TestRetryModel(t *testing.T) {
 	c, _ := gin.CreateTestContext(w)
 	c.Params = gin.Params{{Key: "id", Value: "failed-model"}}
 	c.Request, _ = http.NewRequest("POST", "/models/failed-model/retry", nil)
+	c.Set(common.UserId, adminModelUserID)
 
 	result, err := h.retryModel(c)
 	assert.NilError(t, err)
@@ -390,6 +391,7 @@ func TestRetryModel_NotFailed(t *testing.T) {
 	c, _ := gin.CreateTestContext(w)
 	c.Params = gin.Params{{Key: "id", Value: "ready-model"}}
 	c.Request, _ = http.NewRequest("POST", "/models/ready-model/retry", nil)
+	c.Set(common.UserId, adminModelUserID)
 
 	_, err := h.retryModel(c)
 	assert.ErrorContains(t, err, "not in Failed phase")

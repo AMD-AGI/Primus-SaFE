@@ -167,3 +167,25 @@ func TestDeleteModelDeniedWhenNoAccessController(t *testing.T) {
 		t.Fatal("expected fail-closed error when access controller is nil, got nil")
 	}
 }
+
+// TestRetryModelDeniedForNonOwner verifies that retry (a re-download, i.e. a
+// state-changing write) is not allowed for a non-owner, matching patch/delete.
+func TestRetryModelDeniedForNonOwner(t *testing.T) {
+	scheme := runtime.NewScheme()
+	if err := v1.AddToScheme(scheme); err != nil {
+		t.Fatalf("add scheme: %v", err)
+	}
+	model := ownedModel("m-owned", "owner-1")
+	model.Status.Phase = v1.ModelPhaseFailed
+	k8s := ctrlfake.NewClientBuilder().WithScheme(scheme).WithObjects(model).Build()
+	h := &Handler{k8sClient: k8s, accessController: newModelOwnerAC(t)}
+
+	c, _ := deleteCtx("other-1", "m-owned")
+	_, err := h.retryModel(c)
+	if err == nil {
+		t.Fatal("expected forbidden error for non-owner retry, got nil")
+	}
+	if code := getHTTPStatusCode(err); code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d (%v)", code, err)
+	}
+}
