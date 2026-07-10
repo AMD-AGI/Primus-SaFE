@@ -243,6 +243,7 @@ func TestListModels(t *testing.T) {
 		w := httptest.NewRecorder()
 		c, _ := gin.CreateTestContext(w)
 		c.Request, _ = http.NewRequest("GET", "/models?limit=10&offset=0", nil)
+		c.Set(common.UserId, adminModelUserID)
 
 		result, err := h.listModels(c)
 		assert.NilError(t, err)
@@ -255,6 +256,7 @@ func TestListModels(t *testing.T) {
 		w := httptest.NewRecorder()
 		c, _ := gin.CreateTestContext(w)
 		c.Request, _ = http.NewRequest("GET", "/models?accessMode=remote_api", nil)
+		c.Set(common.UserId, adminModelUserID)
 
 		result, err := h.listModels(c)
 		assert.NilError(t, err)
@@ -268,6 +270,7 @@ func TestListModels(t *testing.T) {
 		w := httptest.NewRecorder()
 		c, _ := gin.CreateTestContext(w)
 		c.Request, _ = http.NewRequest("GET", "/models?workspace=ws1", nil)
+		c.Set(common.UserId, adminModelUserID)
 
 		result, err := h.listModels(c)
 		assert.NilError(t, err)

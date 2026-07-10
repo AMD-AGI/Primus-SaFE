@@ -29,6 +29,7 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
+	commonuser "github.com/AMD-AIG-AIMA/SAFE/common/pkg/user"
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 	commonworkspace "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workspace"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
@@ -341,6 +342,42 @@ func (h *Handler) createModel(c *gin.Context) (interface{}, error) {
 }
 
 // getModel implements the logic to get a single model by ID.
+// canViewModel reports whether a user may see a model given its owner and
+// workspace. Read visibility mirrors the write-path RBAC: public models (empty
+// workspace) are visible to everyone; otherwise only the owner, members of the
+// model's workspace, and system administrators may see it.
+func canViewModel(user *v1.User, owner, workspace string) bool {
+	if workspace == "" {
+		return true
+	}
+	if user == nil {
+		return false
+	}
+	if user.IsSystemAdmin() || user.IsSystemAdminReadonly() {
+		return true
+	}
+	if owner != "" && user.Name == owner {
+		return true
+	}
+	return commonuser.HasWorkspaceRight(user, workspace)
+}
+
+// readVisibilityUser resolves the requesting user for read-path visibility
+// filtering. It fails closed: when the access controller is unavailable or the
+// user cannot be resolved it returns nil, which limits the caller to public
+// models only.
+func (h *Handler) readVisibilityUser(ctx context.Context, userId string) *v1.User {
+	if h.accessController == nil || userId == "" {
+		return nil
+	}
+	user, err := h.accessController.GetRequestUser(ctx, userId)
+	if err != nil {
+		klog.ErrorS(err, "read RBAC: failed to resolve request user; restricting to public models", "userId", userId)
+		return nil
+	}
+	return user
+}
+
 func (h *Handler) getModel(c *gin.Context) (interface{}, error) {
 	modelId := c.Param("id")
 	if modelId == "" {
@@ -348,11 +385,15 @@ func (h *Handler) getModel(c *gin.Context) (interface{}, error) {
 	}
 
 	ctx := c.Request.Context()
+	user := h.readVisibilityUser(ctx, c.GetString(common.UserId))
 
 	// 1. Try to fetch from database first (if available)
 	if h.dbClient != nil {
 		dbModel, err := h.dbClient.GetModelByID(ctx, modelId)
 		if err == nil && dbModel != nil && !dbModel.IsDeleted {
+			if !canViewModel(user, dbModel.UserId, dbModel.Workspace) {
+				return nil, commonerrors.NewForbidden("you are not allowed to access this model")
+			}
 			return cvtDBModelToInfo(dbModel), nil
 		}
 		// If not found in DB or error, fall through to K8s
@@ -365,6 +406,10 @@ func (h *Handler) getModel(c *gin.Context) (interface{}, error) {
 			return nil, commonerrors.NewNotFound("playground model", modelId)
 		}
 		return nil, commonerrors.NewInternalError("failed to fetch model: " + err.Error())
+	}
+
+	if !canViewModel(user, v1.GetUserId(k8sModel), k8sModel.Spec.Workspace) {
+		return nil, commonerrors.NewForbidden("you are not allowed to access this model")
 	}
 
 	return h.convertK8sModelToInfo(k8sModel), nil
@@ -890,6 +935,7 @@ func (h *Handler) listModels(c *gin.Context) (interface{}, error) {
 	}
 
 	ctx := c.Request.Context()
+	user := h.readVisibilityUser(ctx, c.GetString(common.UserId))
 
 	// 1. Try to list from database first (if available)
 	if h.dbClient != nil {
@@ -901,6 +947,9 @@ func (h *Handler) listModels(c *gin.Context) (interface{}, error) {
 		if err == nil && len(dbModels) > 0 {
 			var items []ModelInfo
 			for _, dbModel := range dbModels {
+				if !canViewModel(user, dbModel.UserId, dbModel.Workspace) {
+					continue
+				}
 				if queryArgs.Origin != "" && !matchModelOrigin(normalizeModelOrigin(dbModel.Origin), queryArgs.Origin) {
 					continue
 				}
@@ -952,6 +1001,10 @@ func (h *Handler) listModels(c *gin.Context) (interface{}, error) {
 	for _, k8sModel := range k8sModelList.Items {
 		// Skip deleted models
 		if k8sModel.DeletionTimestamp != nil {
+			continue
+		}
+
+		if !canViewModel(user, v1.GetUserId(&k8sModel), k8sModel.Spec.Workspace) {
 			continue
 		}
 
