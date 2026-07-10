@@ -373,6 +373,7 @@ func TestWriteServiceRequiresA2AAuthorization(t *testing.T) {
 }
 
 func TestGetTopology(t *testing.T) {
+	adminAC := newA2AAdminAC(t)
 	db := &mockDB{
 		activeSvc: []*dbclient.A2AServiceRegistry{{ServiceName: "a"}, {ServiceName: "b"}},
 		callLogs: []*dbclient.A2ACallLog{
@@ -381,16 +382,31 @@ func TestGetTopology(t *testing.T) {
 		},
 	}
 	c, w := newCtx(http.MethodGet, "/", "")
-	NewHandler(db).GetTopology(c)
+	c.Set(common.UserId, "admin-1")
+	NewHandler(db, adminAC).GetTopology(c)
 	if w.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200", w.Code)
 	}
 
 	dbErr := &mockDB{activeErr: errors.New("db down")}
 	c2, w2 := newCtx(http.MethodGet, "/", "")
-	NewHandler(dbErr).GetTopology(c2)
+	c2.Set(common.UserId, "admin-1")
+	NewHandler(dbErr, adminAC).GetTopology(c2)
 	if w2.Code != http.StatusInternalServerError {
 		t.Errorf("status = %d, want 500", w2.Code)
+	}
+}
+
+// TestGetTopologyForbiddenForNonAdmin verifies that the topology view (derived
+// from call-log audit data) is restricted to system administrators.
+func TestGetTopologyForbiddenForNonAdmin(t *testing.T) {
+	db := &mockDB{activeSvc: []*dbclient.A2AServiceRegistry{{ServiceName: "a"}}}
+	h := NewHandler(db, newA2AAdminAC(t))
+	c, w := newCtx(http.MethodGet, "/", "")
+	c.Set(common.UserId, "user-1") // seeded as a non-admin user
+	h.GetTopology(c)
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want 403", w.Code)
 	}
 }
 
@@ -417,12 +433,15 @@ func TestA2AReadsOpenToNonAdmin(t *testing.T) {
 		}
 	})
 
-	t.Run("GetTopology", func(t *testing.T) {
+	t.Run("GetService", func(t *testing.T) {
+		svcDB := &mockDB{service: &dbclient.A2AServiceRegistry{ServiceName: "svc"}}
+		hs := NewHandler(svcDB, newA2AAdminAC(t))
 		c, w := newCtx(http.MethodGet, "/", "")
+		c.Params = gin.Params{{Key: "serviceName", Value: "svc"}}
 		c.Set(common.UserId, "user-1")
-		h.GetTopology(c)
+		hs.GetService(c)
 		if w.Code != http.StatusOK {
-			t.Fatalf("GetTopology status = %d, want 200 (must stay open to non-admin)", w.Code)
+			t.Fatalf("GetService status = %d, want 200 (must stay open to non-admin)", w.Code)
 		}
 	})
 }
