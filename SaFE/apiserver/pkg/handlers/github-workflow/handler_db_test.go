@@ -477,3 +477,339 @@ func TestHandleGetRepositorySuccess(t *testing.T) {
 		t.Errorf("status = %d, want 200, body=%s", w.Code, w.Body.String())
 	}
 }
+
+func TestHandleCreateConfigNilDB(t *testing.T) {
+	orig := getDB
+	getDB = func() *sql.DB { return nil }
+	defer func() { getDB = orig }()
+
+	body := `{"name":"n","github_owner":"o","github_repo":"r","file_patterns":["*.json"]}`
+	c, w := ctxWith(http.MethodPost, "/configs", body, nil, "")
+	handleCreateConfig(c)
+	if w.Code != http.StatusInternalServerError {
+		t.Errorf("status = %d, want 500", w.Code)
+	}
+}
+
+func TestHandleDeleteConfigNilDB(t *testing.T) {
+	orig := getDB
+	getDB = func() *sql.DB { return nil }
+	defer func() { getDB = orig }()
+
+	c, w := ctxWith(http.MethodDelete, "/configs/5", "", gin.Params{{Key: "id", Value: "5"}}, "")
+	handleDeleteConfig(c)
+	if w.Code != http.StatusInternalServerError {
+		t.Errorf("status = %d, want 500", w.Code)
+	}
+}
+
+func TestHandleListRunsScanError(t *testing.T) {
+	mock, cleanup := withMockDB(t)
+	defer cleanup()
+
+	now := time.Now()
+	rows := sqlmock.NewRows([]string{
+		"id", "workload_id", "cluster", "github_run_id", "github_job_id", "workflow_name",
+		"github_owner", "github_repo", "head_branch", "head_sha", "status", "conclusion",
+		"sync_status", "started_at", "completed_at", "created_at",
+	}).AddRow("bad-id", "wl", "c", int64(10), int64(20), "wf", "o", "r", "main", "sha", "completed", "success", "synced", now, now, now)
+	mock.ExpectQuery("FROM github_workflow_runs WHERE").WillReturnRows(rows)
+
+	c, w := ctxWith(http.MethodGet, "/runs", "", nil, "")
+	handleListRuns(c)
+	if w.Code != http.StatusInternalServerError {
+		t.Errorf("status = %d, want 500", w.Code)
+	}
+}
+
+func TestHandleGetRunNilDB(t *testing.T) {
+	orig := getDB
+	getDB = func() *sql.DB { return nil }
+	defer func() { getDB = orig }()
+
+	c, w := ctxWith(http.MethodGet, "/runs/1", "", gin.Params{{Key: "id", Value: "1"}}, "")
+	handleGetRun(c)
+	if w.Code != http.StatusInternalServerError {
+		t.Errorf("status = %d, want 500", w.Code)
+	}
+}
+
+func TestHandleGetRunDetailsDBError(t *testing.T) {
+	mock, cleanup := withMockDB(t)
+	defer cleanup()
+
+	now := time.Now()
+	mock.ExpectQuery("FROM github_workflow_runs WHERE id =").
+		WillReturnRows(sqlmock.NewRows([]string{
+			"workload_id", "cluster", "github_run_id", "github_job_id", "workflow_name",
+			"github_owner", "github_repo", "head_branch", "head_sha", "status", "conclusion",
+			"sync_status", "started_at", "completed_at", "created_at",
+		}).AddRow("wl", "c", int64(1), int64(2), "wf", "o", "r", "main", "sha",
+			"completed", "success", "synced", now, now, now))
+	mock.ExpectQuery("FROM github_workflow_run_details WHERE run_id =").
+		WillReturnError(sql.ErrConnDone)
+
+	c, w := ctxWith(http.MethodGet, "/runs/1", "", gin.Params{{Key: "id", Value: "1"}}, "")
+	handleGetRun(c)
+	if w.Code != http.StatusInternalServerError {
+		t.Errorf("status = %d, want 500", w.Code)
+	}
+}
+
+func TestHandleGetRunJobsScanErrors(t *testing.T) {
+	t.Run("job scan", func(t *testing.T) {
+		mock, cleanup := withMockDB(t)
+		defer cleanup()
+
+		rows := sqlmock.NewRows([]string{
+			"id", "github_job_id", "name", "status", "conclusion",
+			"started_at", "completed_at", "runner_name",
+		}).AddRow("bad-id", int64(5), "build", "completed", "success", time.Now(), time.Now(), "runner-1")
+		mock.ExpectQuery("FROM github_workflow_jobs j WHERE j.run_id =").WillReturnRows(rows)
+
+		c, w := ctxWith(http.MethodGet, "/runs/1/jobs", "", gin.Params{{Key: "id", Value: "1"}}, "")
+		handleGetRunJobs(c)
+		if w.Code != http.StatusInternalServerError {
+			t.Errorf("status = %d, want 500", w.Code)
+		}
+	})
+
+	t.Run("step scan", func(t *testing.T) {
+		mock, cleanup := withMockDB(t)
+		defer cleanup()
+
+		now := time.Now()
+		mock.ExpectQuery("FROM github_workflow_jobs j WHERE j.run_id =").
+			WillReturnRows(sqlmock.NewRows([]string{
+				"id", "github_job_id", "name", "status", "conclusion",
+				"started_at", "completed_at", "runner_name",
+			}).AddRow(1, int64(5), "build", "completed", "success", now, now, "runner-1"))
+		mock.ExpectQuery("FROM github_workflow_steps WHERE job_id =").
+			WillReturnRows(sqlmock.NewRows([]string{
+				"step_number", "name", "status", "conclusion", "duration_seconds",
+			}).AddRow("bad-step", "checkout", "completed", "success", 12))
+
+		c, w := ctxWith(http.MethodGet, "/runs/1/jobs", "", gin.Params{{Key: "id", Value: "1"}}, "")
+		handleGetRunJobs(c)
+		if w.Code != http.StatusInternalServerError {
+			t.Errorf("status = %d, want 500", w.Code)
+		}
+	})
+}
+
+func TestHandleGetRunMetricsScanError(t *testing.T) {
+	mock, cleanup := withMockDB(t)
+	defer cleanup()
+
+	rows := sqlmock.NewRows([]string{
+		"id", "config_id", "source_file", "row_data", "timestamp", "dimensions", "metrics", "created_at",
+	}).AddRow("bad-id", int64(2), "f.json", []byte(`{"a":1}`), time.Now(), []byte(`{"d":"x"}`), []byte(`{"m":2}`), time.Now())
+	mock.ExpectQuery("FROM github_workflow_metrics WHERE run_id =").WillReturnRows(rows)
+
+	c, w := ctxWith(http.MethodGet, "/runs/1/metrics", "", gin.Params{{Key: "id", Value: "1"}}, "")
+	handleGetRunMetrics(c)
+	if w.Code != http.StatusInternalServerError {
+		t.Errorf("status = %d, want 500", w.Code)
+	}
+}
+
+func TestHandleStatsLaterCountErrors(t *testing.T) {
+	tests := []struct {
+		name      string
+		failIndex int
+	}{
+		{"running", 1},
+		{"completed", 2},
+		{"failed", 3},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mock, cleanup := withMockDB(t)
+			defer cleanup()
+
+			patterns := []string{
+				"SELECT COUNT\\(\\*\\) FROM github_workflow_runs$",
+				"status='running'",
+				"status='completed'",
+				"conclusion='failure'",
+			}
+			for i, pattern := range patterns {
+				if i == tt.failIndex {
+					mock.ExpectQuery(pattern).WillReturnError(sql.ErrConnDone)
+					break
+				}
+				mock.ExpectQuery(pattern).WillReturnRows(sqlmock.NewRows([]string{"c"}).AddRow(1))
+			}
+
+			c, w := ctxWith(http.MethodGet, "/stats", "", nil, "")
+			handleStats(c)
+			if w.Code != http.StatusInternalServerError {
+				t.Errorf("status = %d, want 500", w.Code)
+			}
+		})
+	}
+}
+
+func TestHandleGetFieldsErrors(t *testing.T) {
+	t.Run("scan error", func(t *testing.T) {
+		mock, cleanup := withMockDB(t)
+		defer cleanup()
+		mock.ExpectQuery("jsonb_each_text").
+			WillReturnRows(sqlmock.NewRows([]string{"key", "total", "numeric_count", "distinct_count"}).
+				AddRow("latency", "bad-total", 90, 50))
+
+		c, w := ctxWith(http.MethodGet, "/configs/2/fields", "", gin.Params{{Key: "id", Value: "2"}}, "")
+		handleGetFields(c)
+		if w.Code != http.StatusInternalServerError {
+			t.Errorf("status = %d, want 500", w.Code)
+		}
+	})
+
+	t.Run("display settings error", func(t *testing.T) {
+		mock, cleanup := withMockDB(t)
+		defer cleanup()
+		mock.ExpectQuery("jsonb_each_text").
+			WillReturnRows(sqlmock.NewRows([]string{"key", "total", "numeric_count", "distinct_count"}).
+				AddRow("latency", 100, 90, 50))
+		mock.ExpectQuery("FROM github_collection_configs WHERE id =").WillReturnError(sql.ErrConnDone)
+
+		c, w := ctxWith(http.MethodGet, "/configs/2/fields", "", gin.Params{{Key: "id", Value: "2"}}, "")
+		handleGetFields(c)
+		if w.Code != http.StatusInternalServerError {
+			t.Errorf("status = %d, want 500", w.Code)
+		}
+	})
+}
+
+func TestHandleGetConfigMetricsErrors(t *testing.T) {
+	t.Run("invalid limit", func(t *testing.T) {
+		c, w := ctxWith(http.MethodGet, "/configs/2/metrics", "", gin.Params{{Key: "id", Value: "2"}}, "limit=bad")
+		handleGetConfigMetrics(c)
+		if w.Code != http.StatusBadRequest {
+			t.Errorf("status = %d, want 400", w.Code)
+		}
+	})
+
+	t.Run("count error", func(t *testing.T) {
+		mock, cleanup := withMockDB(t)
+		defer cleanup()
+		mock.ExpectQuery("count\\(\\*\\) FROM github_workflow_metrics WHERE config_id =").WillReturnError(sql.ErrConnDone)
+
+		c, w := ctxWith(http.MethodGet, "/configs/2/metrics", "", gin.Params{{Key: "id", Value: "2"}}, "")
+		handleGetConfigMetrics(c)
+		if w.Code != http.StatusInternalServerError {
+			t.Errorf("status = %d, want 500", w.Code)
+		}
+	})
+
+	t.Run("scan error", func(t *testing.T) {
+		mock, cleanup := withMockDB(t)
+		defer cleanup()
+		mock.ExpectQuery("count\\(\\*\\) FROM github_workflow_metrics WHERE config_id =").
+			WillReturnRows(sqlmock.NewRows([]string{"c"}).AddRow(1))
+		mock.ExpectQuery("FROM github_workflow_metrics").
+			WillReturnRows(sqlmock.NewRows([]string{
+				"id", "source_file", "row_data", "created_at",
+			}).AddRow("bad-id", "f.json", []byte(`{"a":1}`), time.Now()))
+
+		c, w := ctxWith(http.MethodGet, "/configs/2/metrics", "", gin.Params{{Key: "id", Value: "2"}}, "")
+		handleGetConfigMetrics(c)
+		if w.Code != http.StatusInternalServerError {
+			t.Errorf("status = %d, want 500", w.Code)
+		}
+	})
+}
+
+func TestHandleUpdateConfigNilDB(t *testing.T) {
+	orig := getDB
+	getDB = func() *sql.DB { return nil }
+	defer func() { getDB = orig }()
+
+	c, w := ctxWith(http.MethodPut, "/configs/2", `{"name":"n"}`, gin.Params{{Key: "id", Value: "2"}}, "")
+	handleUpdateConfig(c)
+	if w.Code != http.StatusInternalServerError {
+		t.Errorf("status = %d, want 500", w.Code)
+	}
+}
+
+func TestHandleListRepositoriesErrors(t *testing.T) {
+	t.Run("scan error", func(t *testing.T) {
+		mock, cleanup := withMockDB(t)
+		defer cleanup()
+		mock.ExpectQuery("FROM github_workflow_runs r").
+			WillReturnRows(sqlmock.NewRows([]string{
+				"github_owner", "github_repo", "total_runs", "running_runs", "completed_runs", "failed_runs", "latest_run_at",
+			}).AddRow("o", "r", "bad-total", 1, 8, 1, time.Now()))
+
+		c, w := ctxWith(http.MethodGet, "/repositories", "", nil, "")
+		handleListRepositories(c)
+		if w.Code != http.StatusInternalServerError {
+			t.Errorf("status = %d, want 500", w.Code)
+		}
+	})
+
+	t.Run("config query error", func(t *testing.T) {
+		mock, cleanup := withMockDB(t)
+		defer cleanup()
+		mock.ExpectQuery("FROM github_workflow_runs r").
+			WillReturnRows(sqlmock.NewRows([]string{
+				"github_owner", "github_repo", "total_runs", "running_runs", "completed_runs", "failed_runs", "latest_run_at",
+			}).AddRow("o", "r", 10, 1, 8, 1, time.Now()))
+		mock.ExpectQuery("SELECT id FROM github_collection_configs WHERE").WillReturnError(sql.ErrConnDone)
+
+		c, w := ctxWith(http.MethodGet, "/repositories", "", nil, "")
+		handleListRepositories(c)
+		if w.Code != http.StatusInternalServerError {
+			t.Errorf("status = %d, want 500", w.Code)
+		}
+	})
+}
+
+func TestHandleGetRepositoryErrors(t *testing.T) {
+	t.Run("count error", func(t *testing.T) {
+		mock, cleanup := withMockDB(t)
+		defer cleanup()
+		mock.ExpectQuery("FROM github_workflow_runs WHERE github_owner =").WillReturnError(sql.ErrConnDone)
+
+		c, w := ctxWith(http.MethodGet, "/repositories/o/r", "",
+			gin.Params{{Key: "owner", Value: "o"}, {Key: "repo", Value: "r"}}, "")
+		handleGetRepository(c)
+		if w.Code != http.StatusInternalServerError {
+			t.Errorf("status = %d, want 500", w.Code)
+		}
+	})
+
+	t.Run("workflow query error", func(t *testing.T) {
+		mock, cleanup := withMockDB(t)
+		defer cleanup()
+		mock.ExpectQuery("FROM github_workflow_runs WHERE github_owner =").
+			WillReturnRows(sqlmock.NewRows([]string{"total", "running", "completed", "failed"}).AddRow(5, 1, 3, 1))
+		mock.ExpectQuery("SELECT DISTINCT workflow_name FROM github_workflow_runs").WillReturnError(sql.ErrConnDone)
+
+		c, w := ctxWith(http.MethodGet, "/repositories/o/r", "",
+			gin.Params{{Key: "owner", Value: "o"}, {Key: "repo", Value: "r"}}, "")
+		handleGetRepository(c)
+		if w.Code != http.StatusInternalServerError {
+			t.Errorf("status = %d, want 500", w.Code)
+		}
+	})
+
+	t.Run("config scan error", func(t *testing.T) {
+		mock, cleanup := withMockDB(t)
+		defer cleanup()
+		mock.ExpectQuery("FROM github_workflow_runs WHERE github_owner =").
+			WillReturnRows(sqlmock.NewRows([]string{"total", "running", "completed", "failed"}).AddRow(5, 1, 3, 1))
+		mock.ExpectQuery("SELECT DISTINCT workflow_name FROM github_workflow_runs").
+			WillReturnRows(sqlmock.NewRows([]string{"workflow_name"}).AddRow("ci"))
+		mock.ExpectQuery("FROM github_collection_configs c").
+			WillReturnRows(sqlmock.NewRows([]string{"id", "name", "display_settings", "metrics_count"}).
+				AddRow("bad-id", "cfg", "{}", 7))
+
+		c, w := ctxWith(http.MethodGet, "/repositories/o/r", "",
+			gin.Params{{Key: "owner", Value: "o"}, {Key: "repo", Value: "r"}}, "")
+		handleGetRepository(c)
+		if w.Code != http.StatusInternalServerError {
+			t.Errorf("status = %d, want 500", w.Code)
+		}
+	})
+}
