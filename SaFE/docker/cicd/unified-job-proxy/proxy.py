@@ -54,6 +54,15 @@ def getenv_bool(name: str, default: bool = False) -> bool:
         return default
     return val.strip().lower() in {"1", "true", "yes", "y", "on"}
 
+
+def redact_sensitive_headers(headers: Any) -> Dict[str, str]:
+    """Return a copy of HTTP headers with credential values redacted for logging."""
+    safe = dict(headers)
+    for key in list(safe.keys()):
+        if key.lower() == "authorization":
+            safe[key] = "***"
+    return safe
+
 def is_base64(s: str) -> bool:
     try:
         raw = s.strip()
@@ -197,7 +206,7 @@ def create_workload(s: requests.Session, base_url: str, payload: Dict[str, Any])
     url = f"{base_url}/api/v1/workloads"
     body = json.dumps(payload, ensure_ascii=False)
     print(f"[debug] POST {url}", flush=True)
-    print(f"[debug] headers: {dict(s.headers)}", flush=True)
+    print(f"[debug] headers: {redact_sensitive_headers(s.headers)}", flush=True)
     print(f"[debug] body: {body}", flush=True)
     resp = s.post(url, data=body, timeout=30)
     if resp.status_code >= 300:

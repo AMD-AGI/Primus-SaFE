@@ -15,6 +15,7 @@ import (
 	"database/sql"
 	"encoding/base64"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"strings"
@@ -49,15 +50,7 @@ func GetOrCreatePlatformKey(ctx context.Context, db dbclient.Interface, userId, 
 	}
 
 	if record != nil {
-		if record.EncryptedKey == nil || *record.EncryptedKey == "" {
-			return "", commonerrors.NewInternalError("platform key has no encrypted value")
-		}
-		plaintext, err := decryptPlainToken(*record.EncryptedKey, getCryptoSecret())
-		if err != nil {
-			klog.ErrorS(err, "failed to decrypt platform key", "userId", userId)
-			return "", commonerrors.NewInternalError("failed to decrypt platform key")
-		}
-		return plaintext, nil
+		return decryptPlatformRecord(record, userId)
 	}
 
 	plainToken, err := generatePlainToken()
@@ -91,12 +84,43 @@ func GetOrCreatePlatformKey(ctx context.Context, db dbclient.Interface, userId, 
 	setStoredKeyHash(newRecord, hashedKey)
 
 	if err := db.InsertApiKey(ctx, newRecord); err != nil {
+		if isUniqueViolation(err) {
+			record, err := db.GetPlatformKeyByUserId(ctx, userId)
+			if err != nil {
+				klog.ErrorS(err, "failed to re-query platform key after conflict", "userId", userId)
+				return "", commonerrors.NewInternalError("failed to query platform key")
+			}
+			if record == nil {
+				return "", commonerrors.NewInternalError("platform key conflict but record missing")
+			}
+			return decryptPlatformRecord(record, userId)
+		}
 		klog.ErrorS(err, "failed to insert platform key", "userId", userId)
 		return "", commonerrors.NewInternalError("failed to create platform key")
 	}
 
 	klog.Infof("created platform key for user %s, keyId: %d", userId, newRecord.Id)
 	return plainToken, nil
+}
+
+func decryptPlatformRecord(record *dbclient.ApiKey, userId string) (string, error) {
+	if record.EncryptedKey == nil || *record.EncryptedKey == "" {
+		return "", commonerrors.NewInternalError("platform key has no encrypted value")
+	}
+	plaintext, err := decryptPlainToken(*record.EncryptedKey, getCryptoSecret())
+	if err != nil {
+		klog.ErrorS(err, "failed to decrypt platform key", "userId", userId)
+		return "", commonerrors.NewInternalError("failed to decrypt platform key")
+	}
+	return plaintext, nil
+}
+
+func isUniqueViolation(err error) bool {
+	var pqErr *pq.Error
+	if errors.As(err, &pqErr) {
+		return pqErr.Code == "23505"
+	}
+	return false
 }
 
 // setStoredKeyHash assigns the hashed token to the DB model without inline struct
