@@ -362,6 +362,22 @@ func canViewModel(user *v1.User, owner, workspace string) bool {
 	return commonuser.HasWorkspaceRight(user, workspace)
 }
 
+// canAccessWorkspace reports whether a user may access resources scoped to the
+// given workspace (e.g. deployed inference workloads). It fails closed: a nil
+// user is denied. System administrators (read-only admins included) may access
+// every workspace; other users must be members of the workspace. An empty
+// workspace is not accessible to non-admins because workspace-scoped resources
+// always carry a concrete workspace.
+func canAccessWorkspace(user *v1.User, workspace string) bool {
+	if user == nil {
+		return false
+	}
+	if user.IsSystemAdmin() || user.IsSystemAdminReadonly() {
+		return true
+	}
+	return commonuser.HasWorkspaceRight(user, workspace)
+}
+
 // readVisibilityUser resolves the requesting user for read-path visibility
 // filtering. It fails closed: when the access controller is unavailable or the
 // user cannot be resolved it returns nil, which limits the caller to public
@@ -652,8 +668,8 @@ func (h *Handler) createModelFromS3Sync(ctx context.Context, req *CreateModelReq
 	}
 
 	labels := map[string]string{
-		v1.DisplayNameLabel:    sanitizeLabelValue(req.DisplayName),
-		v1.ModelS3ImportLabel:  v1.TrueStr,
+		v1.DisplayNameLabel:   sanitizeLabelValue(req.DisplayName),
+		v1.ModelS3ImportLabel: v1.TrueStr,
 	}
 	if userId != "" {
 		labels[v1.UserIdLabel] = userId
@@ -1776,19 +1792,21 @@ func fetchInferenceXModelList() ([]string, error) {
 		reader = gr
 	}
 
-	var rows []struct{ Model string `json:"model"` }
+	var rows []struct {
+		Model string `json:"model"`
+	}
 	if err := json.NewDecoder(reader).Decode(&rows); err != nil {
 		return nil, err
 	}
 
 	// availability returns DB keys (e.g. "dsr1"), map to display names
 	dbToDisplay := map[string]string{
-		"dsr1":       "DeepSeek-R1-0528",
-		"glm5":       "GLM-5",
-		"gptoss120b": "gpt-oss-120b",
-		"llama70b":   "Llama-3.3-70B-Instruct-FP8",
-		"qwen3.5":    "Qwen-3.5-397B-A17B",
-		"kimik2.5":   "Kimi-K2.5",
+		"dsr1":        "DeepSeek-R1-0528",
+		"glm5":        "GLM-5",
+		"gptoss120b":  "gpt-oss-120b",
+		"llama70b":    "Llama-3.3-70B-Instruct-FP8",
+		"qwen3.5":     "Qwen-3.5-397B-A17B",
+		"kimik2.5":    "Kimi-K2.5",
 		"minimaxm2.5": "MiniMax-M2.5",
 	}
 
@@ -1806,13 +1824,13 @@ func fetchInferenceXModelList() ([]string, error) {
 // displayNameToInferenceX maps our model DisplayName patterns to InferenceX model names.
 // Key is lowercased suffix after the org prefix (e.g. "deepseek-r1-0528" from "deepseek-ai/DeepSeek-R1-0528").
 var displayNameToInferenceX = map[string]string{
-	"deepseek-r1-0528":            "DeepSeek-R1-0528",
-	"glm-5":                       "GLM-5",
-	"gpt-oss-120b":                "gpt-oss-120b",
-	"llama-3.3-70b-instruct-fp8":  "Llama-3.3-70B-Instruct-FP8",
-	"qwen3.5-397b-a17b":           "Qwen-3.5-397B-A17B",
-	"kimi-k2.5":                   "Kimi-K2.5",
-	"minimax-m2.5":                "MiniMax-M2.5",
+	"deepseek-r1-0528":           "DeepSeek-R1-0528",
+	"glm-5":                      "GLM-5",
+	"gpt-oss-120b":               "gpt-oss-120b",
+	"llama-3.3-70b-instruct-fp8": "Llama-3.3-70B-Instruct-FP8",
+	"qwen3.5-397b-a17b":          "Qwen-3.5-397B-A17B",
+	"kimi-k2.5":                  "Kimi-K2.5",
+	"minimax-m2.5":               "MiniMax-M2.5",
 }
 
 func enrichInferenceXInfo(items []ModelInfo) {

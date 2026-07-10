@@ -108,6 +108,7 @@ func TestListPlaygroundServices(t *testing.T) {
 		w := httptest.NewRecorder()
 		c, _ := gin.CreateTestContext(w)
 		c.Request, _ = http.NewRequest("GET", "/playground/services", nil)
+		c.Set(common.UserId, adminModelUserID)
 
 		result, err := h.listPlaygroundServices(c)
 		assert.NilError(t, err)
@@ -137,6 +138,7 @@ func TestListPlaygroundServices(t *testing.T) {
 		w := httptest.NewRecorder()
 		c, _ := gin.CreateTestContext(w)
 		c.Request, _ = http.NewRequest("GET", "/playground/services?workspace=ws1", nil)
+		c.Set(common.UserId, adminModelUserID)
 
 		result, err := h.listPlaygroundServices(c)
 		assert.NilError(t, err)
@@ -170,6 +172,7 @@ func TestListPlaygroundServices_ExcludeNonInferenceWorkloads(t *testing.T) {
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 	c.Request, _ = http.NewRequest("GET", "/playground/services", nil)
+	c.Set(common.UserId, adminModelUserID)
 
 	result, err := h.listPlaygroundServices(c)
 	assert.NilError(t, err)
@@ -221,6 +224,7 @@ func TestGetChatURL_LocalModel(t *testing.T) {
 	c, _ := gin.CreateTestContext(w)
 	c.Params = gin.Params{{Key: "id", Value: "local-model"}}
 	c.Request, _ = http.NewRequest("GET", "/playground/models/local-model/chat-url", nil)
+	c.Set(common.UserId, adminModelUserID)
 
 	_, err := h.getChatURL(c)
 	assert.ErrorContains(t, err, "only available for remote_api models")
@@ -574,6 +578,7 @@ func TestListPlaygroundServices_WithSourceModel(t *testing.T) {
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 	c.Request, _ = http.NewRequest("GET", "/playground/services", nil)
+	c.Set(common.UserId, adminModelUserID)
 
 	result, err := h.listPlaygroundServices(c)
 	assert.NilError(t, err)
@@ -614,6 +619,7 @@ func TestListPlaygroundServices_BaseUrlConstruction(t *testing.T) {
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 	c.Request, _ = http.NewRequest("GET", "/playground/services", nil)
+	c.Set(common.UserId, adminModelUserID)
 
 	result, err := h.listPlaygroundServices(c)
 	assert.NilError(t, err)
@@ -717,6 +723,7 @@ func TestPlaygroundServiceItem_RemoteAPIType(t *testing.T) {
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 	c.Request, _ = http.NewRequest("GET", "/playground/services", nil)
+	c.Set(common.UserId, adminModelUserID)
 
 	result, err := h.listPlaygroundServices(c)
 	assert.NilError(t, err)
@@ -751,6 +758,7 @@ func TestListPlaygroundServices_K8sError(t *testing.T) {
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 	c.Request, _ = http.NewRequest("GET", "/playground/services", nil)
+	c.Set(common.UserId, adminModelUserID)
 
 	// Should not panic and return valid result
 	result, err := h.listPlaygroundServices(c)
@@ -819,6 +827,7 @@ func TestWorkloadKindFiltering(t *testing.T) {
 			w := httptest.NewRecorder()
 			c, _ := gin.CreateTestContext(w)
 			c.Request, _ = http.NewRequest("GET", "/playground/services", nil)
+			c.Set(common.UserId, adminModelUserID)
 
 			result, err := h.listPlaygroundServices(c)
 			assert.NilError(t, err)
@@ -841,4 +850,3 @@ func TestWorkloadKindFiltering(t *testing.T) {
 		})
 	}
 }
-
