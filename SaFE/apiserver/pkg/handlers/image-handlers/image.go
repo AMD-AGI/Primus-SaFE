@@ -110,22 +110,32 @@ func (h *ImageHandler) deleteImage(c *gin.Context) (interface{}, error) {
 // cleanupImportedImage removes the backing Harbor artifact and the import
 // Kubernetes Job for a deleted image. All steps are best-effort and only logged
 // on failure, because the image DB record has already been soft-deleted.
+//
+// Cleanup only applies to images that were imported into the internal Harbor
+// (i.e. that have an import job). Manually-registered images point at external
+// registries, so we must not attempt to delete their reference from Harbor.
 func (h *ImageHandler) cleanupImportedImage(ctx context.Context, image *model.Image) {
 	if image == nil {
 		return
-	}
-	// image.Tag holds the destination image reference in Harbor.
-	if image.Tag != "" {
-		if err := h.harborDeleteArtifact(ctx, image.Tag); err != nil {
-			klog.Warningf("best-effort harbor artifact delete failed, image: %s, error: %v", image.Tag, err)
-		}
 	}
 	importJob, err := h.dbClient.GetImportImageByImageID(ctx, image.ID)
 	if err != nil {
 		klog.Warningf("best-effort import job lookup failed, imageId: %d, error: %v", image.ID, err)
 		return
 	}
-	if importJob == nil || importJob.JobName == "" {
+	if importJob == nil {
+		// Not an imported image; nothing owned in Harbor to clean up.
+		return
+	}
+
+	// image.Tag holds the destination image reference in the internal Harbor.
+	if image.Tag != "" {
+		if err := h.harborDeleteArtifact(ctx, image.Tag); err != nil {
+			klog.Warningf("best-effort harbor artifact delete failed, image: %s, error: %v", image.Tag, err)
+		}
+	}
+
+	if importJob.JobName == "" {
 		return
 	}
 	job := &batchv1.Job{

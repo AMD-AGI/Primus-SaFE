@@ -22,8 +22,8 @@ import (
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
-	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client/model"
 	mock_client "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client/mock"
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client/model"
 )
 
 // imageCleanupHandler builds an ImageHandler whose fake k8s client is seeded

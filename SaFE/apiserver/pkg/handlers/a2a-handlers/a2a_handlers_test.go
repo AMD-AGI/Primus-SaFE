@@ -33,20 +33,20 @@ import (
 type mockDB struct {
 	dbclient.Interface
 
-	callLogs     []*dbclient.A2ACallLog
-	callLogsErr  error
-	callLogCnt   int
+	callLogs      []*dbclient.A2ACallLog
+	callLogsErr   error
+	callLogCnt    int
 	callLogCntErr error
-	apiKeys      []*dbclient.ApiKey
+	apiKeys       []*dbclient.ApiKey
 
-	services     []*dbclient.A2AServiceRegistry
-	servicesErr  error
-	serviceCnt   int
+	services      []*dbclient.A2AServiceRegistry
+	servicesErr   error
+	serviceCnt    int
 	serviceCntErr error
-	service     *dbclient.A2AServiceRegistry
-	serviceErr  error
-	activeSvc   []*dbclient.A2AServiceRegistry
-	activeErr   error
+	service       *dbclient.A2AServiceRegistry
+	serviceErr    error
+	activeSvc     []*dbclient.A2AServiceRegistry
+	activeErr     error
 
 	upsertErr error
 	deleteErr error
