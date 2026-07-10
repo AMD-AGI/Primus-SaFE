@@ -120,7 +120,7 @@ func (h *ImageHandler) cleanupImportedImage(ctx context.Context, image *model.Im
 	}
 	importJob, err := h.dbClient.GetImportImageByImageID(ctx, image.ID)
 	if err != nil {
-		klog.Warningf("best-effort import job lookup failed, imageId: %d, error: %v", image.ID, err)
+		klog.ErrorS(err, "best-effort import job lookup failed", "imageId", image.ID)
 		return
 	}
 	if importJob == nil {
@@ -129,23 +129,30 @@ func (h *ImageHandler) cleanupImportedImage(ctx context.Context, image *model.Im
 	}
 
 	// image.Tag holds the destination image reference in the internal Harbor.
+	// Failures are logged at error level: the DB row is already soft-deleted, so
+	// a failure here silently leaves the artifact pullable and must be visible.
 	if image.Tag != "" {
 		if err := h.harborDeleteArtifact(ctx, image.Tag); err != nil {
-			klog.Warningf("best-effort harbor artifact delete failed, image: %s, error: %v", image.Tag, err)
+			klog.ErrorS(err, "best-effort harbor artifact delete failed; image may still be pullable", "image", image.Tag)
 		}
 	}
 
-	if importJob.JobName == "" {
-		return
+	// Cancel any in-flight import Job.
+	if importJob.JobName != "" {
+		job := &batchv1.Job{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      importJob.JobName,
+				Namespace: common.PrimusSafeNamespace,
+			},
+		}
+		if err := h.Client.Delete(ctx, job, client.PropagationPolicy(metav1.DeletePropagationBackground)); err != nil && !apierrors.IsNotFound(err) {
+			klog.ErrorS(err, "best-effort import job delete failed", "job", importJob.JobName)
+		}
 	}
-	job := &batchv1.Job{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      importJob.JobName,
-			Namespace: common.PrimusSafeNamespace,
-		},
-	}
-	if err := h.Client.Delete(ctx, job, client.PropagationPolicy(metav1.DeletePropagationBackground)); err != nil && !apierrors.IsNotFound(err) {
-		klog.Warningf("best-effort import job delete failed, job: %s, error: %v", importJob.JobName, err)
+
+	// Remove the import job DB record so no orphan row survives the deleted image.
+	if err := h.dbClient.DeleteImageImportJob(ctx, importJob.ID); err != nil {
+		klog.ErrorS(err, "best-effort import job record delete failed", "id", importJob.ID)
 	}
 }
 

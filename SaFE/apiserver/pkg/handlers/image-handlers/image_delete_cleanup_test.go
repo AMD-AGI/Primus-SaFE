@@ -88,6 +88,7 @@ func TestDeleteImageCleansUpImportJob(t *testing.T) {
 	m.EXPECT().DeleteImage(gomock.Any(), int32(7), "u1").Return(nil)
 	m.EXPECT().GetImportImageByImageID(gomock.Any(), int32(7)).
 		Return(&model.ImageImportJob{ID: 9, ImageID: 7, JobName: "imptimg-7-abc"}, nil)
+	m.EXPECT().DeleteImageImportJob(gomock.Any(), int32(9)).Return(nil)
 
 	job := &batchv1.Job{
 		ObjectMeta: metav1.ObjectMeta{Name: "imptimg-7-abc", Namespace: common.PrimusSafeNamespace},

@@ -9,6 +9,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"gorm.io/gorm"
 	"k8s.io/klog/v2"
@@ -126,27 +127,17 @@ func (c *Client) GetImage(ctx context.Context, imageId int32) (*model.Image, err
 }
 
 // DeleteImage performs a soft delete of an image and records who deleted it.
+// deleted_by and deleted_at are written in a single UPDATE so the soft delete
+// and the deleter attribution are atomic. Deleting an already-deleted or
+// missing image is a no-op (idempotent).
 func (c *Client) DeleteImage(ctx context.Context, id int32, deletedBy string) error {
-	q := dal.Use(c.gorm).Image
-	img, err := q.WithContext(ctx).Where(q.ID.Eq(id), q.DeletedAt.IsNull()).First()
-	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil
-		}
-		klog.ErrorS(err, "failed to get image by id", "id", id)
-		return err
-	}
-	// Record the deleting user before the soft delete. This is best-effort: a
-	// failure here should not block the deletion itself.
-	if deletedBy != "" {
-		if _, err := q.WithContext(ctx).Where(q.ID.Eq(id)).Update(q.DeletedBy, deletedBy); err != nil {
-			klog.ErrorS(err, "failed to record image deleter", "id", id, "deletedBy", deletedBy)
-		}
-	}
-	_, err = q.WithContext(ctx).Delete(img)
-	if err != nil {
-		klog.ErrorS(err, "failed to delete image by id", "id", id)
-		return err
+	res := c.gorm.WithContext(ctx).
+		Model(&model.Image{}).
+		Where("id = ? AND deleted_at IS NULL", id).
+		Updates(map[string]interface{}{"deleted_by": deletedBy, "deleted_at": time.Now()})
+	if res.Error != nil {
+		klog.ErrorS(res.Error, "failed to delete image by id", "id", id)
+		return res.Error
 	}
 	return nil
 }

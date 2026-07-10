@@ -5497,3 +5497,31 @@ func (mr *MockOptimizationTaskInterfaceMockRecorder) UpsertOptimizationTask(ctx,
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpsertOptimizationTask", reflect.TypeOf((*MockOptimizationTaskInterface)(nil).UpsertOptimizationTask), ctx, task)
 }
+
+// DeleteImageImportJob mocks base method.
+func (m *MockInterface) DeleteImageImportJob(ctx context.Context, id int32) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteImageImportJob", ctx, id)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteImageImportJob indicates an expected call of DeleteImageImportJob.
+func (mr *MockInterfaceMockRecorder) DeleteImageImportJob(ctx, id interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteImageImportJob", reflect.TypeOf((*MockInterface)(nil).DeleteImageImportJob), ctx, id)
+}
+
+// DeleteImageImportJob mocks base method.
+func (m *MockImageImportJobInterface) DeleteImageImportJob(ctx context.Context, id int32) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteImageImportJob", ctx, id)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteImageImportJob indicates an expected call of DeleteImageImportJob.
+func (mr *MockImageImportJobInterfaceMockRecorder) DeleteImageImportJob(ctx, id interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteImageImportJob", reflect.TypeOf((*MockImageImportJobInterface)(nil).DeleteImageImportJob), ctx, id)
+}
