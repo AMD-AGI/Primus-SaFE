@@ -24,10 +24,10 @@ import (
 	"time"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
-	"github.com/lib/pq"
 	"k8s.io/klog/v2"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/apikey"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	commoncrypto "github.com/AMD-AIG-AIMA/SAFE/common/pkg/crypto"
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
@@ -342,65 +342,7 @@ func deriveAESKey(secret []byte) []byte {
 // GetOrCreatePlatformKey returns the plaintext platform key for a user.
 // If no platform key exists, it creates one automatically.
 func (a *ApiKeyToken) GetOrCreatePlatformKey(ctx context.Context, userId, userName string) (string, error) {
-	if a.dbClient == nil {
-		return "", commonerrors.NewInternalError("database client not initialized")
-	}
-
-	record, err := a.dbClient.GetPlatformKeyByUserId(ctx, userId)
-	if err != nil && err != sql.ErrNoRows {
-		klog.ErrorS(err, "failed to query platform key", "userId", userId)
-		return "", commonerrors.NewInternalError("failed to query platform key")
-	}
-
-	if record != nil {
-		if record.EncryptedKey == nil || *record.EncryptedKey == "" {
-			return "", commonerrors.NewInternalError("platform key has no encrypted value")
-		}
-		plaintext, err := DecryptApiKey(*record.EncryptedKey, GetApiKeySecret())
-		if err != nil {
-			klog.ErrorS(err, "failed to decrypt platform key", "userId", userId)
-			return "", commonerrors.NewInternalError("failed to decrypt platform key")
-		}
-		return plaintext, nil
-	}
-
-	// Create a new platform key
-	apiKey, err := GenerateApiKey()
-	if err != nil {
-		return "", commonerrors.NewInternalError("failed to generate platform key")
-	}
-
-	hashedKey := HashApiKey(apiKey, GetApiKeySecret())
-	keyHint := GenerateKeyHint(apiKey)
-	encryptedKey, err := EncryptApiKey(apiKey, GetApiKeySecret())
-	if err != nil {
-		return "", commonerrors.NewInternalError("failed to encrypt platform key")
-	}
-
-	now := time.Now().UTC()
-	farFuture := time.Date(9999, 12, 31, 23, 59, 59, 0, time.UTC)
-
-	newRecord := &dbclient.ApiKey{
-		Name:           PlatformKeyName,
-		UserId:         userId,
-		UserName:       userName,
-		ApiKey:         hashedKey,
-		KeyHint:        keyHint,
-		ExpirationTime: pq.NullTime{Time: farFuture, Valid: true},
-		CreationTime:   pq.NullTime{Time: now, Valid: true},
-		Whitelist:      "[]",
-		Deleted:        false,
-		KeyType:        KeyTypePlatform,
-		EncryptedKey:   &encryptedKey,
-	}
-
-	if err := a.dbClient.InsertApiKey(ctx, newRecord); err != nil {
-		klog.ErrorS(err, "failed to insert platform key", "userId", userId)
-		return "", commonerrors.NewInternalError("failed to create platform key")
-	}
-
-	klog.Infof("created platform key for user %s, apiKeyId: %d", userId, newRecord.Id)
-	return apiKey, nil
+	return apikey.GetOrCreatePlatformKey(ctx, a.dbClient, userId, userName)
 }
 
 // GetVirtualKeyByEmail returns the decrypted LiteLLM virtual key for a user.

@@ -374,11 +374,6 @@ func GetUserTokenExpire() int {
 	return getInt(userTokenExpireSecond, -1)
 }
 
-// IsUserTokenRequired returns whether user token is required for API access.
-func IsUserTokenRequired() bool {
-	return getBool(userTokenRequired, true)
-}
-
 // IsNotificationEnable returns whether notifications are enabled.
 func IsNotificationEnable() bool {
 	return getBool(notificationEnable, true)

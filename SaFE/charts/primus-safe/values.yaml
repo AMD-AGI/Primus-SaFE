@@ -147,9 +147,6 @@ ssh:
   enable: true
   # SSH server IP for jump server access
   server_ip: ""
-user:
-  # Require token for user access, can be disabled in internal networks
-  token_required: false
 sso:
   # Enable sso login
   enable: true

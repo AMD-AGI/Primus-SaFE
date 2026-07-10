@@ -16,9 +16,11 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/klog/v2"
 	"k8s.io/utils/pointer"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/apikey"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
@@ -165,6 +167,35 @@ func modifyRequiredNodeAffinity(obj *unstructured.Unstructured, workload *v1.Wor
 // dispatchNodeReadTimeout bounds the best-effort DB read for previous-dispatch
 // nodes so dispatching never blocks on the database.
 const dispatchNodeReadTimeout = 5 * time.Second
+
+// platformKeyReadTimeout bounds the best-effort DB read for user platform keys.
+const platformKeyReadTimeout = 5 * time.Second
+
+// platformKeyForUser returns the plaintext platform API key for the workload owner.
+// Best-effort: returns empty string when DB is disabled, the client is unavailable,
+// or lookup/creation fails.
+func platformKeyForUser(workload *v1.Workload) string {
+	if !commonconfig.IsDBEnable() {
+		return ""
+	}
+	userId := v1.GetUserId(workload)
+	if userId == "" {
+		return ""
+	}
+	db := dbclient.NewClient()
+	if db == nil {
+		return ""
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), platformKeyReadTimeout)
+	defer cancel()
+	key, err := apikey.GetOrCreatePlatformKey(ctx, db, userId, v1.GetUserName(workload))
+	if err != nil {
+		klog.ErrorS(err, "failed to get/create platform key for workload env",
+			"userId", userId, "workload", workload.Name)
+		return ""
+	}
+	return key
+}
 
 // dispatchNodesAt returns the admin nodes assigned at the given dispatch index,
 // preferring the DB workload_dispatch_node table and falling back to the etcd
@@ -1142,6 +1173,9 @@ func updateCICDScaleSetEnvs(obj *unstructured.Unstructured,
 	}
 	envs := maps.Copy(adminWorkload.Spec.Env)
 	envs[jobutils.UserIdEnv] = v1.GetUserId(adminWorkload)
+	if platformKey := platformKeyForUser(adminWorkload); platformKey != "" {
+		envs[jobutils.UserApiKeyEnv] = platformKey
+	}
 	envs[jobutils.PriorityEnv] = strconv.Itoa(adminWorkload.Spec.Priority)
 	envs[jobutils.WorkspaceIdEnv] = adminWorkload.Spec.Workspace
 	envs[jobutils.AdminControlPlaneEnv] = v1.GetAdminControlPlane(adminWorkload)
