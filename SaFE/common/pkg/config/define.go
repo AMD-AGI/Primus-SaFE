@@ -105,7 +105,6 @@ const (
 
 	// user
 	userPrefix            = "user."
-	userTokenRequired     = userPrefix + "token_required"
 	userTokenExpireSecond = userPrefix + "token_expire"
 
 	// notification

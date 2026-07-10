@@ -48,15 +48,6 @@ func ParseToken(c *gin.Context) error {
 	// Fall back to regular token authentication
 	err := parseTokenFromRequest(c)
 	if err != nil {
-		userId := c.GetHeader(common.UserId)
-		// only for internal user
-		if userId != "" && !commonconfig.IsUserTokenRequired() {
-			c.Set(common.UserId, userId)
-			if userName := c.GetHeader(common.UserName); userName != "" {
-				c.Set(common.UserName, userName)
-			}
-			return nil
-		}
 		return commonerrors.NewUnauthorized(err.Error())
 	}
 	return nil

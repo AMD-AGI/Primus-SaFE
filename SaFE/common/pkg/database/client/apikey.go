@@ -37,7 +37,7 @@ func (c *Client) InsertApiKey(ctx context.Context, apiKey *ApiKey) error {
 	cmd := generateCommand(*apiKey, insertApiKeyFormat, "id")
 	rows, err := db.NamedQueryContext(ctx, cmd, apiKey)
 	if err != nil {
-		return fmt.Errorf("failed to insert api key: %v", err)
+		return fmt.Errorf("failed to insert api key: %w", err)
 	}
 	defer rows.Close()
 
