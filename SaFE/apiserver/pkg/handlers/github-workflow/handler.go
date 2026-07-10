@@ -13,13 +13,14 @@ import (
 	"strings"
 	"time"
 
+	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/middleware"
 	"github.com/gin-gonic/gin"
 
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
 )
 
 func RegisterRoutes(router *gin.RouterGroup) {
-	gh := router.Group("/github-workflow")
+	gh := router.Group("/github-workflow", middleware.Authorize(), middleware.Preprocess())
 	gh.GET("/collection-configs", handleListConfigs)
 	gh.POST("/collection-configs", handleCreateConfig)
 	gh.DELETE("/collection-configs/:id", handleDeleteConfig)
@@ -624,12 +625,12 @@ func handleListRepositories(c *gin.Context) {
 		rows.Scan(&owner, &repo, &total, &running, &completed, &failed, &latestAt)
 
 		r := map[string]interface{}{
-			"github_owner":  owner,
-			"github_repo":   repo,
-			"total_runs":    total,
-			"running_runs":  running,
+			"github_owner":   owner,
+			"github_repo":    repo,
+			"total_runs":     total,
+			"running_runs":   running,
 			"completed_runs": completed,
-			"failed_runs":   failed,
+			"failed_runs":    failed,
 		}
 		if latestAt.Valid {
 			r["latest_run_at"] = latestAt.Time.Format(time.RFC3339)
