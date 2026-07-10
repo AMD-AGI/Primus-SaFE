@@ -8,18 +8,21 @@ package githubworkflow
 import (
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/middleware"
 	"github.com/gin-gonic/gin"
+	"k8s.io/klog/v2"
 
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
 )
 
 func RegisterRoutes(router *gin.RouterGroup) {
-	gh := router.Group("/github-workflow")
+	gh := router.Group("/github-workflow", middleware.Authorize(), middleware.Preprocess())
 	gh.GET("/collection-configs", handleListConfigs)
 	gh.POST("/collection-configs", handleCreateConfig)
 	gh.DELETE("/collection-configs/:id", handleDeleteConfig)
@@ -43,18 +46,51 @@ var getDB = func() *sql.DB {
 	if err != nil {
 		return nil
 	}
-	sqlDB, _ := gormDB.DB()
+	sqlDB, err := gormDB.DB()
+	if err != nil {
+		return nil
+	}
 	return sqlDB
 }
 
-func handleListConfigs(c *gin.Context) {
+func getRequestDB(c *gin.Context) (*sql.DB, bool) {
 	db := getDB()
+	if db == nil {
+		c.JSON(500, gin.H{"error": "database connection unavailable"})
+		return nil, false
+	}
+	return db, true
+}
+
+func writeInternalError(c *gin.Context, err error) {
+	klog.ErrorS(err, "github workflow handler error")
+	c.JSON(500, gin.H{"error": "internal server error"})
+}
+
+func parseIntQuery(c *gin.Context, name string, defaultValue, minValue, maxValue int) (int, bool) {
+	raw := c.Query(name)
+	if raw == "" {
+		return defaultValue, true
+	}
+	value, err := strconv.Atoi(raw)
+	if err != nil || value < minValue || value > maxValue {
+		c.JSON(400, gin.H{"error": fmt.Sprintf("%s must be between %d and %d", name, minValue, maxValue)})
+		return 0, false
+	}
+	return value, true
+}
+
+func handleListConfigs(c *gin.Context) {
+	db, ok := getRequestDB(c)
+	if !ok {
+		return
+	}
 	rows, err := db.QueryContext(c.Request.Context(), `
 		SELECT id, name, github_owner, github_repo, workflow_patterns, branch_patterns,
 		       file_patterns, COALESCE(display_settings::text, '{}'), enabled, COALESCE(created_by, ''), created_at, updated_at
 		FROM github_collection_configs ORDER BY name`)
 	if err != nil {
-		c.JSON(500, gin.H{"error": err.Error()})
+		writeInternalError(c, err)
 		return
 	}
 	defer rows.Close()
@@ -65,7 +101,10 @@ func handleListConfigs(c *gin.Context) {
 		var name, owner, repo, wp, bp, fp, ds, createdBy string
 		var enabled bool
 		var createdAt, updatedAt time.Time
-		rows.Scan(&id, &name, &owner, &repo, &wp, &bp, &fp, &ds, &enabled, &createdBy, &createdAt, &updatedAt)
+		if err := rows.Scan(&id, &name, &owner, &repo, &wp, &bp, &fp, &ds, &enabled, &createdBy, &createdAt, &updatedAt); err != nil {
+			writeInternalError(c, err)
+			return
+		}
 		var displaySettings interface{}
 		json.Unmarshal([]byte(ds), &displaySettings)
 		configs = append(configs, map[string]interface{}{
@@ -74,6 +113,10 @@ func handleListConfigs(c *gin.Context) {
 			"display_settings": displaySettings, "enabled": enabled, "created_by": createdBy,
 			"created_at": createdAt.Format(time.RFC3339), "updated_at": updatedAt.Format(time.RFC3339),
 		})
+	}
+	if err := rows.Err(); err != nil {
+		writeInternalError(c, err)
+		return
 	}
 	c.JSON(200, gin.H{"configs": configs, "count": len(configs)})
 }
@@ -102,7 +145,10 @@ func handleCreateConfig(c *gin.Context) {
 		displayJSON = []byte("{}")
 	}
 
-	db := getDB()
+	db, ok := getRequestDB(c)
+	if !ok {
+		return
+	}
 	_, err := db.ExecContext(c.Request.Context(), `
 		INSERT INTO github_collection_configs
 			(name, github_owner, github_repo, workflow_patterns, branch_patterns, file_patterns, display_settings, enabled)
@@ -111,7 +157,7 @@ func handleCreateConfig(c *gin.Context) {
 		sliceToArr(req.WorkflowPatterns), sliceToArr(req.BranchPatterns), sliceToArr(req.FilePatterns),
 		displayJSON, enabled)
 	if err != nil {
-		c.JSON(500, gin.H{"error": err.Error()})
+		writeInternalError(c, err)
 		return
 	}
 	c.JSON(201, gin.H{"created": req.Name})
@@ -119,20 +165,39 @@ func handleCreateConfig(c *gin.Context) {
 
 func handleDeleteConfig(c *gin.Context) {
 	id := c.Param("id")
-	db := getDB()
-	db.ExecContext(c.Request.Context(), `DELETE FROM github_collection_configs WHERE id = $1`, id)
+	db, ok := getRequestDB(c)
+	if !ok {
+		return
+	}
+	result, err := db.ExecContext(c.Request.Context(), `DELETE FROM github_collection_configs WHERE id = $1`, id)
+	if err != nil {
+		writeInternalError(c, err)
+		return
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		writeInternalError(c, err)
+		return
+	}
+	if affected == 0 {
+		c.JSON(404, gin.H{"error": "config not found"})
+		return
+	}
 	c.JSON(200, gin.H{"deleted": id})
 }
 
 func handleListRuns(c *gin.Context) {
-	db := getDB()
+	limit, ok := parseIntQuery(c, "limit", 50, 1, 500)
+	if !ok {
+		return
+	}
 	owner := c.Query("github_owner")
 	repo := c.Query("github_repo")
 	status := c.Query("status")
 	workflow := c.Query("workflow")
-	limit := 50
-	if l := c.Query("limit"); l != "" {
-		limit, _ = strconv.Atoi(l)
+	db, ok := getRequestDB(c)
+	if !ok {
+		return
 	}
 
 	query := `SELECT id, workload_id, cluster, github_run_id, github_job_id, workflow_name,
@@ -166,7 +231,7 @@ func handleListRuns(c *gin.Context) {
 
 	rows, err := db.QueryContext(c.Request.Context(), query, args...)
 	if err != nil {
-		c.JSON(500, gin.H{"error": err.Error()})
+		writeInternalError(c, err)
 		return
 	}
 	defer rows.Close()
@@ -178,9 +243,12 @@ func handleListRuns(c *gin.Context) {
 		var ghRunID, ghJobID int64
 		var startedAt, completedAt sql.NullTime
 		var createdAt time.Time
-		rows.Scan(&id, &wid, &cluster, &ghRunID, &ghJobID, &wfName,
+		if err := rows.Scan(&id, &wid, &cluster, &ghRunID, &ghJobID, &wfName,
 			&ghOwner, &ghRepo, &branch, &sha, &st, &conclusion,
-			&syncSt, &startedAt, &completedAt, &createdAt)
+			&syncSt, &startedAt, &completedAt, &createdAt); err != nil {
+			writeInternalError(c, err)
+			return
+		}
 		run := map[string]interface{}{
 			"id": id, "workload_id": wid, "cluster": cluster,
 			"github_run_id": ghRunID, "github_job_id": ghJobID, "workflow_name": wfName,
@@ -197,12 +265,19 @@ func handleListRuns(c *gin.Context) {
 		}
 		runs = append(runs, run)
 	}
+	if err := rows.Err(); err != nil {
+		writeInternalError(c, err)
+		return
+	}
 	c.JSON(200, gin.H{"runs": runs, "count": len(runs)})
 }
 
 func handleGetRun(c *gin.Context) {
 	id := c.Param("id")
-	db := getDB()
+	db, ok := getRequestDB(c)
+	if !ok {
+		return
+	}
 
 	var wid, cluster, wfName, ghOwner, ghRepo, branch, sha, st, conclusion, syncSt sql.NullString
 	var ghRunID, ghJobID sql.NullInt64
@@ -216,6 +291,10 @@ func handleGetRun(c *gin.Context) {
 		Scan(&wid, &cluster, &ghRunID, &ghJobID, &wfName, &ghOwner, &ghRepo,
 			&branch, &sha, &st, &conclusion, &syncSt, &startedAt, &completedAt, &createdAt)
 	if err != nil {
+		if !errors.Is(err, sql.ErrNoRows) {
+			writeInternalError(c, err)
+			return
+		}
 		c.JSON(404, gin.H{"error": "run not found"})
 		return
 	}
@@ -238,7 +317,11 @@ func handleGetRun(c *gin.Context) {
 	}
 
 	var detailsRaw []byte
-	db.QueryRowContext(c.Request.Context(), `SELECT raw_data FROM github_workflow_run_details WHERE run_id = $1`, id).Scan(&detailsRaw)
+	err = db.QueryRowContext(c.Request.Context(), `SELECT raw_data FROM github_workflow_run_details WHERE run_id = $1`, id).Scan(&detailsRaw)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		writeInternalError(c, err)
+		return
+	}
 	if len(detailsRaw) > 0 {
 		var details interface{}
 		json.Unmarshal(detailsRaw, &details)
@@ -250,7 +333,10 @@ func handleGetRun(c *gin.Context) {
 
 func handleGetRunJobs(c *gin.Context) {
 	id := c.Param("id")
-	db := getDB()
+	db, ok := getRequestDB(c)
+	if !ok {
+		return
+	}
 
 	rows, err := db.QueryContext(c.Request.Context(), `
 		SELECT j.id, j.github_job_id, j.name, j.status, j.conclusion,
@@ -258,7 +344,7 @@ func handleGetRunJobs(c *gin.Context) {
 		FROM github_workflow_jobs j WHERE j.run_id = $1
 		ORDER BY j.started_at`, id)
 	if err != nil {
-		c.JSON(500, gin.H{"error": err.Error()})
+		writeInternalError(c, err)
 		return
 	}
 	defer rows.Close()
@@ -269,7 +355,10 @@ func handleGetRunJobs(c *gin.Context) {
 		var ghJobID int64
 		var name, status, conclusion, runnerName string
 		var startedAt, completedAt sql.NullTime
-		rows.Scan(&jid, &ghJobID, &name, &status, &conclusion, &startedAt, &completedAt, &runnerName)
+		if err := rows.Scan(&jid, &ghJobID, &name, &status, &conclusion, &startedAt, &completedAt, &runnerName); err != nil {
+			writeInternalError(c, err)
+			return
+		}
 
 		job := map[string]interface{}{
 			"id": jid, "github_job_id": ghJobID, "name": name,
@@ -282,24 +371,39 @@ func handleGetRunJobs(c *gin.Context) {
 			job["completed_at"] = completedAt.Time.Format(time.RFC3339)
 		}
 
-		stepRows, _ := db.QueryContext(c.Request.Context(), `
+		stepRows, err := db.QueryContext(c.Request.Context(), `
 			SELECT step_number, name, status, conclusion, duration_seconds
 			FROM github_workflow_steps WHERE job_id = $1 ORDER BY step_number`, jid)
-		var steps []map[string]interface{}
-		if stepRows != nil {
-			for stepRows.Next() {
-				var sn, dur int
-				var sname, sstatus, sconclusion string
-				stepRows.Scan(&sn, &sname, &sstatus, &sconclusion, &dur)
-				steps = append(steps, map[string]interface{}{
-					"step_number": sn, "name": sname, "status": sstatus,
-					"conclusion": sconclusion, "duration_seconds": dur,
-				})
-			}
-			stepRows.Close()
+		if err != nil {
+			writeInternalError(c, err)
+			return
 		}
+		var steps []map[string]interface{}
+		for stepRows.Next() {
+			var sn, dur int
+			var sname, sstatus, sconclusion string
+			if err := stepRows.Scan(&sn, &sname, &sstatus, &sconclusion, &dur); err != nil {
+				stepRows.Close()
+				writeInternalError(c, err)
+				return
+			}
+			steps = append(steps, map[string]interface{}{
+				"step_number": sn, "name": sname, "status": sstatus,
+				"conclusion": sconclusion, "duration_seconds": dur,
+			})
+		}
+		if err := stepRows.Err(); err != nil {
+			stepRows.Close()
+			writeInternalError(c, err)
+			return
+		}
+		stepRows.Close()
 		job["steps"] = steps
 		jobs = append(jobs, job)
+	}
+	if err := rows.Err(); err != nil {
+		writeInternalError(c, err)
+		return
 	}
 
 	c.JSON(200, gin.H{"jobs": jobs, "count": len(jobs)})
@@ -307,14 +411,17 @@ func handleGetRunJobs(c *gin.Context) {
 
 func handleGetRunMetrics(c *gin.Context) {
 	id := c.Param("id")
-	db := getDB()
+	db, ok := getRequestDB(c)
+	if !ok {
+		return
+	}
 
 	rows, err := db.QueryContext(c.Request.Context(), `
 		SELECT id, config_id, source_file, row_data, timestamp, dimensions, metrics, created_at
 		FROM github_workflow_metrics WHERE run_id = $1
 		ORDER BY created_at`, id)
 	if err != nil {
-		c.JSON(500, gin.H{"error": err.Error()})
+		writeInternalError(c, err)
 		return
 	}
 	defer rows.Close()
@@ -327,7 +434,10 @@ func handleGetRunMetrics(c *gin.Context) {
 		var rowDataBytes, dims, mets []byte
 		var ts sql.NullTime
 		var createdAt time.Time
-		rows.Scan(&mid, &configID, &sourceFile, &rowDataBytes, &ts, &dims, &mets, &createdAt)
+		if err := rows.Scan(&mid, &configID, &sourceFile, &rowDataBytes, &ts, &dims, &mets, &createdAt); err != nil {
+			writeInternalError(c, err)
+			return
+		}
 		m := map[string]interface{}{
 			"id":         mid,
 			"created_at": createdAt.Format(time.RFC3339),
@@ -358,13 +468,20 @@ func handleGetRunMetrics(c *gin.Context) {
 		}
 		metrics = append(metrics, m)
 	}
+	if err := rows.Err(); err != nil {
+		writeInternalError(c, err)
+		return
+	}
 
 	c.JSON(200, gin.H{"metrics": metrics, "count": len(metrics)})
 }
 
 func handleGetCommit(c *gin.Context) {
 	sha := c.Param("sha")
-	db := getDB()
+	db, ok := getRequestDB(c)
+	if !ok {
+		return
+	}
 
 	var message, authorName, authorEmail, ghOwner, ghRepo string
 	var authoredAt sql.NullTime
@@ -393,12 +510,27 @@ func handleGetCommit(c *gin.Context) {
 }
 
 func handleStats(c *gin.Context) {
-	db := getDB()
+	db, ok := getRequestDB(c)
+	if !ok {
+		return
+	}
 	var total, running, completed, failed int
-	db.QueryRowContext(c.Request.Context(), `SELECT COUNT(*) FROM github_workflow_runs`).Scan(&total)
-	db.QueryRowContext(c.Request.Context(), `SELECT COUNT(*) FROM github_workflow_runs WHERE status='running'`).Scan(&running)
-	db.QueryRowContext(c.Request.Context(), `SELECT COUNT(*) FROM github_workflow_runs WHERE status='completed'`).Scan(&completed)
-	db.QueryRowContext(c.Request.Context(), `SELECT COUNT(*) FROM github_workflow_runs WHERE conclusion='failure'`).Scan(&failed)
+	if err := db.QueryRowContext(c.Request.Context(), `SELECT COUNT(*) FROM github_workflow_runs`).Scan(&total); err != nil {
+		writeInternalError(c, err)
+		return
+	}
+	if err := db.QueryRowContext(c.Request.Context(), `SELECT COUNT(*) FROM github_workflow_runs WHERE status='running'`).Scan(&running); err != nil {
+		writeInternalError(c, err)
+		return
+	}
+	if err := db.QueryRowContext(c.Request.Context(), `SELECT COUNT(*) FROM github_workflow_runs WHERE status='completed'`).Scan(&completed); err != nil {
+		writeInternalError(c, err)
+		return
+	}
+	if err := db.QueryRowContext(c.Request.Context(), `SELECT COUNT(*) FROM github_workflow_runs WHERE conclusion='failure'`).Scan(&failed); err != nil {
+		writeInternalError(c, err)
+		return
+	}
 
 	c.JSON(200, gin.H{
 		"total": total, "running": running, "completed": completed, "failed": failed,
@@ -407,7 +539,10 @@ func handleStats(c *gin.Context) {
 
 func handleGetFields(c *gin.Context) {
 	configID := c.Param("id")
-	db := getDB()
+	db, ok := getRequestDB(c)
+	if !ok {
+		return
+	}
 
 	rows, err := db.QueryContext(c.Request.Context(), `
 		SELECT key,
@@ -421,7 +556,7 @@ func handleGetFields(c *gin.Context) {
 		GROUP BY key
 		ORDER BY key`, configID)
 	if err != nil {
-		c.JSON(500, gin.H{"error": err.Error()})
+		writeInternalError(c, err)
 		return
 	}
 	defer rows.Close()
@@ -430,7 +565,10 @@ func handleGetFields(c *gin.Context) {
 	for rows.Next() {
 		var key string
 		var total, numericCount, distinctCount int
-		rows.Scan(&key, &total, &numericCount, &distinctCount)
+		if err := rows.Scan(&key, &total, &numericCount, &distinctCount); err != nil {
+			writeInternalError(c, err)
+			return
+		}
 
 		dataType := "string"
 		if numericCount > total/2 {
@@ -450,11 +588,18 @@ func handleGetFields(c *gin.Context) {
 			"hint":           hint,
 		})
 	}
+	if err := rows.Err(); err != nil {
+		writeInternalError(c, err)
+		return
+	}
 
 	var displaySettings interface{}
 	var ds string
-	db.QueryRowContext(c.Request.Context(),
-		`SELECT COALESCE(display_settings::text, '{}') FROM github_collection_configs WHERE id = $1`, configID).Scan(&ds)
+	if err := db.QueryRowContext(c.Request.Context(),
+		`SELECT COALESCE(display_settings::text, '{}') FROM github_collection_configs WHERE id = $1`, configID).Scan(&ds); err != nil && !errors.Is(err, sql.ErrNoRows) {
+		writeInternalError(c, err)
+		return
+	}
 	json.Unmarshal([]byte(ds), &displaySettings)
 
 	c.JSON(200, gin.H{
@@ -465,19 +610,25 @@ func handleGetFields(c *gin.Context) {
 
 func handleGetConfigMetrics(c *gin.Context) {
 	configID := c.Param("id")
-	db := getDB()
-	limit := 500
-	if l := c.Query("limit"); l != "" {
-		limit, _ = strconv.Atoi(l)
+	limit, ok := parseIntQuery(c, "limit", 500, 1, 1000)
+	if !ok {
+		return
 	}
-	offset := 0
-	if o := c.Query("offset"); o != "" {
-		offset, _ = strconv.Atoi(o)
+	offset, ok := parseIntQuery(c, "offset", 0, 0, 100000)
+	if !ok {
+		return
+	}
+	db, ok := getRequestDB(c)
+	if !ok {
+		return
 	}
 
 	var total int
-	db.QueryRowContext(c.Request.Context(),
-		`SELECT count(*) FROM github_workflow_metrics WHERE config_id = $1`, configID).Scan(&total)
+	if err := db.QueryRowContext(c.Request.Context(),
+		`SELECT count(*) FROM github_workflow_metrics WHERE config_id = $1`, configID).Scan(&total); err != nil {
+		writeInternalError(c, err)
+		return
+	}
 
 	rows, err := db.QueryContext(c.Request.Context(), `
 		SELECT id, source_file, row_data, created_at
@@ -486,7 +637,7 @@ func handleGetConfigMetrics(c *gin.Context) {
 		ORDER BY created_at DESC
 		LIMIT $2 OFFSET $3`, configID, limit, offset)
 	if err != nil {
-		c.JSON(500, gin.H{"error": err.Error()})
+		writeInternalError(c, err)
 		return
 	}
 	defer rows.Close()
@@ -497,7 +648,10 @@ func handleGetConfigMetrics(c *gin.Context) {
 		var sourceFile sql.NullString
 		var rowDataBytes []byte
 		var createdAt time.Time
-		rows.Scan(&mid, &sourceFile, &rowDataBytes, &createdAt)
+		if err := rows.Scan(&mid, &sourceFile, &rowDataBytes, &createdAt); err != nil {
+			writeInternalError(c, err)
+			return
+		}
 		m := map[string]interface{}{
 			"id":         mid,
 			"created_at": createdAt.Format(time.RFC3339),
@@ -511,6 +665,10 @@ func handleGetConfigMetrics(c *gin.Context) {
 			m["row_data"] = rd
 		}
 		metrics = append(metrics, m)
+	}
+	if err := rows.Err(); err != nil {
+		writeInternalError(c, err)
+		return
 	}
 
 	c.JSON(200, gin.H{
@@ -536,7 +694,10 @@ func handleUpdateConfig(c *gin.Context) {
 		return
 	}
 
-	db := getDB()
+	db, ok := getRequestDB(c)
+	if !ok {
+		return
+	}
 	sets := []string{"updated_at = NOW()"}
 	args := []interface{}{}
 	idx := 1
@@ -579,14 +740,17 @@ func handleUpdateConfig(c *gin.Context) {
 
 	_, err := db.ExecContext(c.Request.Context(), query, args...)
 	if err != nil {
-		c.JSON(500, gin.H{"error": err.Error()})
+		writeInternalError(c, err)
 		return
 	}
 	c.JSON(200, gin.H{"updated": id})
 }
 
 func handleListRepositories(c *gin.Context) {
-	db := getDB()
+	db, ok := getRequestDB(c)
+	if !ok {
+		return
+	}
 	search := c.Query("search")
 
 	query := `
@@ -611,7 +775,7 @@ func handleListRepositories(c *gin.Context) {
 
 	rows, err := db.QueryContext(c.Request.Context(), query, args...)
 	if err != nil {
-		c.JSON(500, gin.H{"error": err.Error()})
+		writeInternalError(c, err)
 		return
 	}
 	defer rows.Close()
@@ -621,15 +785,18 @@ func handleListRepositories(c *gin.Context) {
 		var owner, repo string
 		var total, running, completed, failed int
 		var latestAt sql.NullTime
-		rows.Scan(&owner, &repo, &total, &running, &completed, &failed, &latestAt)
+		if err := rows.Scan(&owner, &repo, &total, &running, &completed, &failed, &latestAt); err != nil {
+			writeInternalError(c, err)
+			return
+		}
 
 		r := map[string]interface{}{
-			"github_owner":  owner,
-			"github_repo":   repo,
-			"total_runs":    total,
-			"running_runs":  running,
+			"github_owner":   owner,
+			"github_repo":    repo,
+			"total_runs":     total,
+			"running_runs":   running,
 			"completed_runs": completed,
-			"failed_runs":   failed,
+			"failed_runs":    failed,
 		}
 		if latestAt.Valid {
 			r["latest_run_at"] = latestAt.Time.Format(time.RFC3339)
@@ -637,21 +804,36 @@ func handleListRepositories(c *gin.Context) {
 
 		var configCount int
 		var configIDs []int
-		cfgRows, _ := db.QueryContext(c.Request.Context(),
+		cfgRows, err := db.QueryContext(c.Request.Context(),
 			`SELECT id FROM github_collection_configs WHERE github_owner = $1 AND github_repo = $2`, owner, repo)
-		if cfgRows != nil {
-			for cfgRows.Next() {
-				var cfgID int
-				cfgRows.Scan(&cfgID)
-				configIDs = append(configIDs, cfgID)
-				configCount++
-			}
-			cfgRows.Close()
+		if err != nil {
+			writeInternalError(c, err)
+			return
 		}
+		for cfgRows.Next() {
+			var cfgID int
+			if err := cfgRows.Scan(&cfgID); err != nil {
+				cfgRows.Close()
+				writeInternalError(c, err)
+				return
+			}
+			configIDs = append(configIDs, cfgID)
+			configCount++
+		}
+		if err := cfgRows.Err(); err != nil {
+			cfgRows.Close()
+			writeInternalError(c, err)
+			return
+		}
+		cfgRows.Close()
 		r["config_count"] = configCount
 		r["config_ids"] = configIDs
 
 		repos = append(repos, r)
+	}
+	if err := rows.Err(); err != nil {
+		writeInternalError(c, err)
+		return
 	}
 
 	c.JSON(200, gin.H{"repositories": repos, "count": len(repos)})
@@ -660,49 +842,77 @@ func handleListRepositories(c *gin.Context) {
 func handleGetRepository(c *gin.Context) {
 	owner := c.Param("owner")
 	repo := c.Param("repo")
-	db := getDB()
+	db, ok := getRequestDB(c)
+	if !ok {
+		return
+	}
 
 	var total, running, completed, failed int
-	db.QueryRowContext(c.Request.Context(), `
+	if err := db.QueryRowContext(c.Request.Context(), `
 		SELECT count(*),
 		       count(*) FILTER (WHERE status = 'running'),
 		       count(*) FILTER (WHERE status = 'completed'),
 		       count(*) FILTER (WHERE conclusion = 'failure')
 		FROM github_workflow_runs WHERE github_owner = $1 AND github_repo = $2`,
-		owner, repo).Scan(&total, &running, &completed, &failed)
-
-	wfRows, _ := db.QueryContext(c.Request.Context(),
-		`SELECT DISTINCT workflow_name FROM github_workflow_runs WHERE github_owner = $1 AND github_repo = $2 AND workflow_name != ''`,
-		owner, repo)
-	var workflows []string
-	if wfRows != nil {
-		for wfRows.Next() {
-			var wf string
-			wfRows.Scan(&wf)
-			workflows = append(workflows, wf)
-		}
-		wfRows.Close()
+		owner, repo).Scan(&total, &running, &completed, &failed); err != nil {
+		writeInternalError(c, err)
+		return
 	}
 
-	cfgRows, _ := db.QueryContext(c.Request.Context(), `
+	wfRows, err := db.QueryContext(c.Request.Context(),
+		`SELECT DISTINCT workflow_name FROM github_workflow_runs WHERE github_owner = $1 AND github_repo = $2 AND workflow_name != ''`,
+		owner, repo)
+	if err != nil {
+		writeInternalError(c, err)
+		return
+	}
+	var workflows []string
+	for wfRows.Next() {
+		var wf string
+		if err := wfRows.Scan(&wf); err != nil {
+			wfRows.Close()
+			writeInternalError(c, err)
+			return
+		}
+		workflows = append(workflows, wf)
+	}
+	if err := wfRows.Err(); err != nil {
+		wfRows.Close()
+		writeInternalError(c, err)
+		return
+	}
+	wfRows.Close()
+
+	cfgRows, err := db.QueryContext(c.Request.Context(), `
 		SELECT c.id, c.name, c.display_settings::text,
 		       (SELECT count(*) FROM github_workflow_metrics m WHERE m.config_id = c.id) as metrics_count
 		FROM github_collection_configs c
 		WHERE c.github_owner = $1 AND c.github_repo = $2`, owner, repo)
-	var configs []map[string]interface{}
-	if cfgRows != nil {
-		for cfgRows.Next() {
-			var cfgID, metricsCount int
-			var name, dsStr string
-			cfgRows.Scan(&cfgID, &name, &dsStr, &metricsCount)
-			var ds interface{}
-			json.Unmarshal([]byte(dsStr), &ds)
-			configs = append(configs, map[string]interface{}{
-				"id": cfgID, "name": name, "display_settings": ds, "metrics_count": metricsCount,
-			})
-		}
-		cfgRows.Close()
+	if err != nil {
+		writeInternalError(c, err)
+		return
 	}
+	var configs []map[string]interface{}
+	for cfgRows.Next() {
+		var cfgID, metricsCount int
+		var name, dsStr string
+		if err := cfgRows.Scan(&cfgID, &name, &dsStr, &metricsCount); err != nil {
+			cfgRows.Close()
+			writeInternalError(c, err)
+			return
+		}
+		var ds interface{}
+		json.Unmarshal([]byte(dsStr), &ds)
+		configs = append(configs, map[string]interface{}{
+			"id": cfgID, "name": name, "display_settings": ds, "metrics_count": metricsCount,
+		})
+	}
+	if err := cfgRows.Err(); err != nil {
+		cfgRows.Close()
+		writeInternalError(c, err)
+		return
+	}
+	cfgRows.Close()
 
 	c.JSON(200, gin.H{
 		"github_owner":   owner,

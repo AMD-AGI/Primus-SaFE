@@ -37,6 +37,30 @@ func TestRegisterRoutes(t *testing.T) {
 	}
 }
 
+func TestRegisterRoutesRequiresAuthorization(t *testing.T) {
+	oldGetDB := getDB
+	dbCalled := false
+	getDB = func() *sql.DB {
+		dbCalled = true
+		return nil
+	}
+	defer func() { getDB = oldGetDB }()
+
+	engine := gin.New()
+	RegisterRoutes(&engine.RouterGroup)
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/github-workflow/stats", nil)
+	engine.ServeHTTP(w, req)
+
+	if w.Code == http.StatusOK {
+		t.Fatalf("status = %d, want authorization failure", w.Code)
+	}
+	if dbCalled {
+		t.Fatal("unauthorized request reached DB handler")
+	}
+}
+
 // TestHandleCreateConfig covers the request-validation branch (no DB access).
 func TestHandleCreateConfig(t *testing.T) {
 	c, w := newCtx(http.MethodPost, `{}`)

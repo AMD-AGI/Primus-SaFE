@@ -772,6 +772,14 @@ func (r *NodeReconciler) manage(ctx context.Context, adminNode *v1.Node, k8sNode
 		if err = r.deletePods(ctx, adminNode.GetSpecCluster(), adminNode.Name, string(v1.ClusterScaleUpAction)); err != nil {
 			return ctrlruntime.Result{}, err
 		}
+		if v1.GetClusterId(adminNode) != adminNode.GetSpecCluster() {
+			patch := client.MergeFrom(adminNode.DeepCopy())
+			v1.SetLabel(adminNode, v1.ClusterIdLabel, adminNode.GetSpecCluster())
+			if err = r.Patch(ctx, adminNode, patch); err != nil {
+				return ctrlruntime.Result{}, err
+			}
+		}
+		adminNode.Status.ClusterStatus.Cluster = adminNode.Spec.Cluster
 		adminNode.Status.ClusterStatus.Phase = v1.NodeManaged
 		klog.Infof("managed node %s", k8sNode.Name)
 		if stringutil.StrCaseEqual(v1.GetLabel(adminNode, v1.NodeManageRebootLabel), v1.TrueStr) {
@@ -821,7 +829,7 @@ func (r *NodeReconciler) syncLabelsToK8sNode(ctx context.Context,
 		labels[v1.NodeIdLabel] = adminNode.Name
 	}
 	annotations := map[string]string{
-		v1.NodeDiskAnnotation: v1.GetAnnotation(adminNode, v1.NodeDiskAnnotation),
+		v1.NodeDiskAnnotation:   v1.GetAnnotation(adminNode, v1.NodeDiskAnnotation),
 		v1.NodeSubnetAnnotation: v1.GetAnnotation(adminNode, v1.NodeSubnetAnnotation),
 	}
 
