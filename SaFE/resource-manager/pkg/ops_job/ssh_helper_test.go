@@ -20,6 +20,23 @@ import (
 // paths without a real remote host.
 func startInMemorySSHServer(t *testing.T) (*ssh.Client, func()) {
 	t.Helper()
+	return startInMemorySSHServerWithExecHandler(t, func(_ *ssh.Request, channel ssh.Channel) {
+		// Send exit-status 0 and close.
+		_, _ = channel.SendRequest("exit-status", false, []byte{0, 0, 0, 0})
+		_ = channel.Close()
+	})
+}
+
+func startInMemorySSHServerWithoutExitStatus(t *testing.T) (*ssh.Client, func()) {
+	t.Helper()
+	return startInMemorySSHServerWithExecHandler(t, func(_ *ssh.Request, channel ssh.Channel) {
+		// A real reboot can drop the SSH session before an exit status is sent.
+		_ = channel.Close()
+	})
+}
+
+func startInMemorySSHServerWithExecHandler(t *testing.T, execHandler func(*ssh.Request, ssh.Channel)) (*ssh.Client, func()) {
+	t.Helper()
 
 	key, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
@@ -49,7 +66,7 @@ func startInMemorySSHServer(t *testing.T) (*ssh.Client, func()) {
 				continue
 			}
 			go ssh.DiscardRequests(reqs)
-			go handleSSHChannels(chans)
+			go handleSSHChannels(chans, execHandler)
 			_ = sconn
 		}
 	}()
@@ -79,7 +96,7 @@ func dialOpsJobSSH() (*ssh.Client, error) {
 	return ssh.Dial("tcp", opsJobSSHAddr, clientConf)
 }
 
-func handleSSHChannels(chans <-chan ssh.NewChannel) {
+func handleSSHChannels(chans <-chan ssh.NewChannel, execHandler func(*ssh.Request, ssh.Channel)) {
 	for newChan := range chans {
 		if newChan.ChannelType() != "session" {
 			_ = newChan.Reject(ssh.UnknownChannelType, "only session supported")
@@ -96,9 +113,7 @@ func handleSSHChannels(chans <-chan ssh.NewChannel) {
 					if req.WantReply {
 						_ = req.Reply(true, nil)
 					}
-					// Send exit-status 0 and close.
-					_, _ = channel.SendRequest("exit-status", false, []byte{0, 0, 0, 0})
-					_ = channel.Close()
+					execHandler(req, channel)
 				default:
 					if req.WantReply {
 						_ = req.Reply(false, nil)

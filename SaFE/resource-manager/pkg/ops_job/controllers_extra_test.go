@@ -326,6 +326,28 @@ func TestRebootExecRebootViaSSH(t *testing.T) {
 	assert.NoError(t, err)
 }
 
+func TestRebootExecRebootTreatsMissingExitStatusAsSuccess(t *testing.T) {
+	sshClient, cleanup := startInMemorySSHServerWithoutExitStatus(t)
+	defer cleanup()
+
+	node := &v1.Node{ObjectMeta: metav1.ObjectMeta{Name: "n1"}}
+	job := rebootJob("j1", "n1")
+	r := &RebootJobReconciler{OpsJobBaseReconciler: newBaseWithObjs(t, node, job)}
+
+	patches := gomonkey.ApplyFunc(rmutils.GetSSHClient,
+		func(_ context.Context, _ client.Client, _ *v1.Node) (*ssh.Client, error) {
+			return sshClient, nil
+		})
+	defer patches.Reset()
+
+	err := r.execReboot(context.Background(), "j1", "n1")
+	assert.NoError(t, err)
+
+	updated := &v1.OpsJob{}
+	assert.NoError(t, r.Get(context.Background(), client.ObjectKey{Name: "j1"}, updated))
+	assert.Equal(t, []v1.Parameter{{Name: v1.ParameterNode, Value: "n1"}}, updated.Status.Outputs)
+}
+
 func TestRebootExecRebootSSHCommandError(t *testing.T) {
 	sshClient, cleanup := startInMemorySSHServer(t)
 	defer cleanup()
