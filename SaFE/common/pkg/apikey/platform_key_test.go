@@ -9,6 +9,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/golang/mock/gomock"
@@ -24,7 +25,7 @@ func TestGetOrCreatePlatformKeyInsertConflict(t *testing.T) {
 	defer ctrl.Finish()
 
 	mockDB := mock_client.NewMockInterface(ctrl)
-	plainKey := "ak-conflict-test-key"
+	plainKey := tokenPrefix + strings.Repeat("c", 12)
 	encryptedKey, err := encryptPlainToken(plainKey, nil)
 	assert.NoError(t, err)
 
