@@ -13,7 +13,9 @@ import (
 	"k8s.io/klog/v2"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/apikey"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
+	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 )
 
@@ -199,16 +201,17 @@ func VerifyToken(c *gin.Context) {
 
 	// Optionally include platform API key (GetOrCreate)
 	if req.IncludePlatformKey {
-		apiKeyToken := ApiKeyTokenInstance()
-		if apiKeyToken != nil {
-			platformKey, err := apiKeyToken.GetOrCreatePlatformKey(c.Request.Context(), userInfo.Id, userInfo.Name)
+		if !commonconfig.IsDBEnable() {
+			klog.Warning("database not enabled, cannot provide platform key")
+		} else if db := dbclient.NewClient(); db == nil {
+			klog.Warning("database client not available, cannot provide platform key")
+		} else {
+			platformKey, err := apikey.GetOrCreatePlatformKey(c.Request.Context(), db, userInfo.Id, userInfo.Name)
 			if err != nil {
 				klog.ErrorS(err, "failed to get/create platform key", "userId", userInfo.Id)
 			} else {
 				resp.PlatformKey = platformKey
 			}
-		} else {
-			klog.Warning("API key auth not initialized, cannot provide platform key")
 		}
 	}
 

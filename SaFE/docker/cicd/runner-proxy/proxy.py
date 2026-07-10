@@ -273,11 +273,11 @@ def build_session() -> Tuple[requests.Session, str]:
         raise ValueError("Missing APISERVER_NODE_PORT (NodePort of apiserver pod)")
     base_url = f"http://{admin_ip}:{node_port}".rstrip("/")
 
-    userId = getenv_str("USER_ID")
+    api_key = getenv_str("USER_APIKEY")
     s = requests.Session()
     s.headers.update({"Content-Type": "application/json; charset=utf-8"})
-    if userId:
-        s.headers.update({"userId": userId})
+    if api_key:
+        s.headers.update({"Authorization": f"Bearer {api_key}"})
 
     return s, base_url
 
