@@ -419,8 +419,8 @@ func TestInitA2ARouters(t *testing.T) {
 	}
 }
 
-// TestA2AReadsOpenToNonAdmin guards #10: A2A service list/get and topology stay
-// readable by authenticated non-admins; only call-logs (audit) are restricted.
+// TestA2AReadsOpenToNonAdmin guards #10: A2A service list/get stay readable by
+// authenticated non-admins; call-logs and topology (audit reads) are restricted.
 func TestA2AReadsOpenToNonAdmin(t *testing.T) {
 	h := NewHandler(&mockDB{}, newA2AAdminAC(t)) // seeds admin-1 + non-admin user-1
 
