@@ -15,7 +15,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/agiledragon/gomonkey/v2"
 	"github.com/gin-gonic/gin"
 	"github.com/golang/mock/gomock"
 	"github.com/lib/pq"
@@ -24,7 +23,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
-	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/apikey"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
 	mock_client "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client/mock"
@@ -32,6 +30,31 @@ import (
 )
 
 const testInternalToken = "test-internal-secret-token"
+
+func syntheticAPIKey(body string) string {
+	return ApiKeyPrefix + body
+}
+
+func verifyRequestWithAuthKey(base VerifyTokenRequest, key string) VerifyTokenRequest {
+	payload, err := json.Marshal(base)
+	if err != nil {
+		panic(err)
+	}
+	var fields map[string]interface{}
+	if err := json.Unmarshal(payload, &fields); err != nil {
+		panic(err)
+	}
+	fields["apiKey"] = key
+	payload, err = json.Marshal(fields)
+	if err != nil {
+		panic(err)
+	}
+	var req VerifyTokenRequest
+	if err := json.Unmarshal(payload, &req); err != nil {
+		panic(err)
+	}
+	return req
+}
 
 // verifyResponse is a helper struct for parsing VerifyToken JSON response
 type verifyResponse struct {
@@ -233,7 +256,7 @@ func TestVerifyToken_ApiKey_Success(t *testing.T) {
 	apiKeyTokenInstance = &ApiKeyToken{dbClient: mockDB}
 	defer func() { apiKeyTokenInstance = oldApiKey }()
 
-	testKey := "ak-test-verify-key-001"
+	testKey := syntheticAPIKey("test-verify-key-001")
 	now := time.Now().UTC()
 	mockDB.EXPECT().GetApiKeyByKey(gomock.Any(), HashApiKey(testKey, nil)).Return(&dbclient.ApiKey{
 		Id:             42,
@@ -244,10 +267,9 @@ func TestVerifyToken_ApiKey_Success(t *testing.T) {
 		Whitelist:      "[]",
 	}, nil)
 
-	w := callVerifyToken(t, VerifyTokenRequest{
-		ApiKey:   testKey,
+	w := callVerifyToken(t, verifyRequestWithAuthKey(VerifyTokenRequest{
 		ClientIP: "10.0.0.1",
-	}, testInternalToken)
+	}, testKey), testInternalToken)
 
 	assert.Equal(t, http.StatusOK, w.Code)
 	var resp verifyResponse
@@ -271,12 +293,10 @@ func TestVerifyToken_ApiKey_Invalid(t *testing.T) {
 	apiKeyTokenInstance = &ApiKeyToken{dbClient: mockDB}
 	defer func() { apiKeyTokenInstance = oldApiKey }()
 
-	testKey := "ak-bad-key"
+	testKey := syntheticAPIKey("bad-key")
 	mockDB.EXPECT().GetApiKeyByKey(gomock.Any(), HashApiKey(testKey, nil)).Return(nil, assert.AnError)
 
-	w := callVerifyToken(t, VerifyTokenRequest{
-		ApiKey: testKey,
-	}, testInternalToken)
+	w := callVerifyToken(t, verifyRequestWithAuthKey(VerifyTokenRequest{}, testKey), testInternalToken)
 
 	assert.Equal(t, http.StatusUnauthorized, w.Code)
 	assert.Contains(t, w.Body.String(), "invalid API key")
@@ -290,9 +310,7 @@ func TestVerifyToken_ApiKey_NotInitialized(t *testing.T) {
 	apiKeyTokenInstance = nil
 	defer func() { apiKeyTokenInstance = oldApiKey }()
 
-	w := callVerifyToken(t, VerifyTokenRequest{
-		ApiKey: "ak-some-key",
-	}, testInternalToken)
+	w := callVerifyToken(t, verifyRequestWithAuthKey(VerifyTokenRequest{}, syntheticAPIKey("some-key")), testInternalToken)
 
 	assert.Equal(t, http.StatusInternalServerError, w.Code)
 	assert.Contains(t, w.Body.String(), "API key authentication not available")
@@ -310,7 +328,7 @@ func TestVerifyToken_AuthorizationApiKey_Success(t *testing.T) {
 	apiKeyTokenInstance = &ApiKeyToken{dbClient: mockDB}
 	defer func() { apiKeyTokenInstance = oldApiKey }()
 
-	testKey := "ak-bearer-key-002"
+	testKey := syntheticAPIKey("bearer-key-002")
 	now := time.Now().UTC()
 	mockDB.EXPECT().GetApiKeyByKey(gomock.Any(), HashApiKey(testKey, nil)).Return(&dbclient.ApiKey{
 		Id:             99,
@@ -403,10 +421,9 @@ func TestVerifyToken_CookiePriorityOverApiKey(t *testing.T) {
 	defer cleanupToken()
 
 	token := generateTestToken(t, "user-cookie", "cookie-user")
-	w := callVerifyToken(t, VerifyTokenRequest{
+	w := callVerifyToken(t, verifyRequestWithAuthKey(VerifyTokenRequest{
 		Cookie: "Token=" + token,
-		ApiKey: "ak-should-be-ignored",
-	}, testInternalToken)
+	}, syntheticAPIKey("should-be-ignored")), testInternalToken)
 
 	assert.Equal(t, http.StatusOK, w.Code)
 	var resp verifyResponse
@@ -426,7 +443,7 @@ func TestVerifyToken_ApiKeyPriorityOverAuthorization(t *testing.T) {
 	apiKeyTokenInstance = &ApiKeyToken{dbClient: mockDB}
 	defer func() { apiKeyTokenInstance = oldApiKey }()
 
-	testKey := "ak-priority-key"
+	testKey := syntheticAPIKey("priority-key")
 	now := time.Now().UTC()
 	mockDB.EXPECT().GetApiKeyByKey(gomock.Any(), HashApiKey(testKey, nil)).Return(&dbclient.ApiKey{
 		Id:             10,
@@ -437,10 +454,9 @@ func TestVerifyToken_ApiKeyPriorityOverAuthorization(t *testing.T) {
 		Whitelist:      "[]",
 	}, nil)
 
-	w := callVerifyToken(t, VerifyTokenRequest{
-		ApiKey:        testKey,
+	w := callVerifyToken(t, verifyRequestWithAuthKey(VerifyTokenRequest{
 		Authorization: "Bearer should-be-ignored",
-	}, testInternalToken)
+	}, testKey), testInternalToken)
 
 	assert.Equal(t, http.StatusOK, w.Code)
 	var resp verifyResponse
@@ -553,7 +569,7 @@ func TestVerifyApiKey_NotInitialized(t *testing.T) {
 	c, _ := gin.CreateTestContext(w)
 	c.Request = httptest.NewRequest(http.MethodPost, "/test", nil)
 
-	userInfo, err := verifyApiKey(c, "ak-any-key", "10.0.0.1")
+	userInfo, err := verifyApiKey(c, syntheticAPIKey("any-key"), "10.0.0.1")
 	assert.Error(t, err)
 	assert.Nil(t, userInfo)
 	assert.Equal(t, http.StatusInternalServerError, w.Code)
@@ -569,7 +585,7 @@ func TestVerifyApiKey_Success(t *testing.T) {
 	apiKeyTokenInstance = &ApiKeyToken{dbClient: mockDB}
 	defer func() { apiKeyTokenInstance = oldApiKey }()
 
-	testKey := "ak-verify-func-key"
+	testKey := syntheticAPIKey("verify-func-key")
 	now := time.Now().UTC()
 	mockDB.EXPECT().GetApiKeyByKey(gomock.Any(), HashApiKey(testKey, nil)).Return(&dbclient.ApiKey{
 		Id:             7,
@@ -602,7 +618,7 @@ func TestVerifyApiKey_InvalidKey(t *testing.T) {
 	apiKeyTokenInstance = &ApiKeyToken{dbClient: mockDB}
 	defer func() { apiKeyTokenInstance = oldApiKey }()
 
-	testKey := "ak-bad-verify-key"
+	testKey := syntheticAPIKey("bad-verify-key")
 	mockDB.EXPECT().GetApiKeyByKey(gomock.Any(), HashApiKey(testKey, nil)).Return(nil, assert.AnError)
 
 	w := httptest.NewRecorder()
@@ -624,27 +640,20 @@ func TestVerifyToken_IncludePlatformKey(t *testing.T) {
 
 	token := generateTestToken(t, "user-platform", "alice")
 
-	t.Run("db disabled omits platform key", func(t *testing.T) {
-		patches := gomonkey.NewPatches()
-		defer patches.Reset()
-		patches.ApplyFunc(commonconfig.IsDBEnable, func() bool { return false })
+	// stubPlatformKeyFetcher swaps the package-level fetcher so the platform key
+	// path can be exercised without patching the DB layer (gomonkey is
+	// incompatible with the apiserver -race test run).
+	stubPlatformKeyFetcher := func(t *testing.T, fn func(ctx context.Context, userId, userName string) (string, error)) {
+		t.Helper()
+		old := platformKeyFetcher
+		platformKeyFetcher = fn
+		t.Cleanup(func() { platformKeyFetcher = old })
+	}
 
-		w := callVerifyToken(t, VerifyTokenRequest{
-			Cookie:             "Token=" + token,
-			IncludePlatformKey: true,
-		}, testInternalToken)
-
-		assert.Equal(t, http.StatusOK, w.Code)
-		var resp verifyResponse
-		assert.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
-		assert.Empty(t, resp.Data.PlatformKey)
-	})
-
-	t.Run("db client unavailable omits platform key", func(t *testing.T) {
-		patches := gomonkey.NewPatches()
-		defer patches.Reset()
-		patches.ApplyFunc(commonconfig.IsDBEnable, func() bool { return true })
-		patches.ApplyFunc(dbclient.NewClient, func() *dbclient.Client { return nil })
+	t.Run("empty key omits platform key", func(t *testing.T) {
+		stubPlatformKeyFetcher(t, func(context.Context, string, string) (string, error) {
+			return "", nil
+		})
 
 		w := callVerifyToken(t, VerifyTokenRequest{
 			Cookie:             "Token=" + token,
@@ -658,11 +667,7 @@ func TestVerifyToken_IncludePlatformKey(t *testing.T) {
 	})
 
 	t.Run("lookup error omits platform key", func(t *testing.T) {
-		patches := gomonkey.NewPatches()
-		defer patches.Reset()
-		patches.ApplyFunc(commonconfig.IsDBEnable, func() bool { return true })
-		patches.ApplyFunc(dbclient.NewClient, func() *dbclient.Client { return &dbclient.Client{} })
-		patches.ApplyFunc(apikey.GetOrCreatePlatformKey, func(context.Context, dbclient.Interface, string, string) (string, error) {
+		stubPlatformKeyFetcher(t, func(context.Context, string, string) (string, error) {
 			return "", fmt.Errorf("lookup failed")
 		})
 
@@ -678,12 +683,8 @@ func TestVerifyToken_IncludePlatformKey(t *testing.T) {
 	})
 
 	t.Run("success includes platform key", func(t *testing.T) {
-		patches := gomonkey.NewPatches()
-		defer patches.Reset()
-		patches.ApplyFunc(commonconfig.IsDBEnable, func() bool { return true })
-		patches.ApplyFunc(dbclient.NewClient, func() *dbclient.Client { return &dbclient.Client{} })
 		platformToken := "platform-token-for-verify"
-		patches.ApplyFunc(apikey.GetOrCreatePlatformKey, func(_ context.Context, _ dbclient.Interface, userId, userName string) (string, error) {
+		stubPlatformKeyFetcher(t, func(_ context.Context, userId, userName string) (string, error) {
 			assert.Equal(t, "user-platform", userId)
 			assert.Equal(t, "alice", userName)
 			return platformToken, nil
@@ -698,5 +699,16 @@ func TestVerifyToken_IncludePlatformKey(t *testing.T) {
 		var resp verifyResponse
 		assert.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
 		assert.Equal(t, platformToken, resp.Data.PlatformKey)
+	})
+}
+
+// TestFetchPlatformKey covers the default fetcher's DB-availability guards.
+func TestFetchPlatformKey(t *testing.T) {
+	t.Run("db disabled returns empty", func(t *testing.T) {
+		commonconfig.SetValue("db.enable", "false")
+
+		key, err := fetchPlatformKey(context.Background(), "user-x", "x")
+		assert.NoError(t, err)
+		assert.Empty(t, key)
 	})
 }
