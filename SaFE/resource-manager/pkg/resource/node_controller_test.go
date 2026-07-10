@@ -21,6 +21,7 @@ import (
 	k8sfake "k8s.io/client-go/kubernetes/fake"
 	"k8s.io/utils/pointer"
 	"k8s.io/utils/ptr"
+	ctrlruntime "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
@@ -446,7 +447,6 @@ func TestClearConditions(t *testing.T) {
 }
 
 func TestManageNodeSuccessfully(t *testing.T) {
-	t.Skip("TODO: Test needs reconcile logic to sync cluster info from adminNode to k8sNode")
 	nodeFlavor := genMockNodeFlavor()
 	cluster := genMockCluster()
 	adminNode := genMockAdminNode("node1", "", nodeFlavor)
@@ -454,15 +454,12 @@ func TestManageNodeSuccessfully(t *testing.T) {
 	secret.Name = cluster.Name
 	adminNode.Spec.SSHSecret = commonutils.GenObjectReference(secret.TypeMeta, secret.ObjectMeta)
 	adminNode.Spec.Cluster = ptr.To(cluster.Name)
-
-	patches1 := gomonkey.ApplyFunc(ssh.Dial, func(network string, addr string, config *ssh.ClientConfig) (*ssh.Client, error) {
-		return &ssh.Client{}, nil
-	})
-	defer patches1.Reset()
-	patches2 := gomonkey.ApplyFunc(isAlreadyAuthorized, func(username string, secret *corev1.Secret, sshClient *ssh.Client) (bool, error) {
-		return true, nil
-	})
-	defer patches2.Reset()
+	now := metav1.Now()
+	adminNode.Status.MachineStatus.UpdateTime = &now
+	adminNode.Status.ClusterStatus.CommandStatus = []v1.CommandStatus{
+		{Name: utils.Authorize, Phase: v1.CommandSucceeded},
+		{Name: HarborCA, Phase: v1.CommandSucceeded},
+	}
 
 	mockScheme, err := genMockScheme()
 	assert.NilError(t, err)
@@ -474,12 +471,20 @@ func TestManageNodeSuccessfully(t *testing.T) {
 	k8sClients := commonclient.NewClientFactoryWithOnlyClient(context.Background(), cluster.Name, k8sClient)
 	r.clientManager.AddOrReplace(cluster.Name, k8sClients)
 
+	sshClient, cleanup := startInMemorySSHServer(t)
+	defer cleanup()
+	patches := gomonkeyApplyGetSSHClient(sshClient)
+	defer patches.Reset()
+
 	assert.Equal(t, v1.GetClusterId(k8sNode), "")
 	assert.Equal(t, v1.GetNodeFlavorId(k8sNode), "")
 	assert.Equal(t, adminNode.IsManaged(), false)
 	ok := isCommandSuccessful(adminNode.Status.ClusterStatus.CommandStatus, utils.Authorize)
-	assert.Equal(t, ok, false)
+	assert.Equal(t, ok, true)
 	assert.Equal(t, adminNode.Status.ClusterStatus.Cluster == nil, true)
+
+	_, err = r.Reconcile(context.Background(), ctrlruntime.Request{NamespacedName: client.ObjectKey{Name: adminNode.Name}})
+	assert.NilError(t, err)
 
 	k8sNode2, err := k8sClient.CoreV1().Nodes().Get(context.Background(), k8sNode.Name, metav1.GetOptions{})
 	assert.NilError(t, err)
@@ -519,13 +524,18 @@ func TestManagingNode(t *testing.T) {
 }
 
 func TestManagingControlPlaneNode(t *testing.T) {
-	t.Skip("TODO: Test needs reconcile logic - similar to TestManageNodeSuccessfully")
 	nodeFlavor := genMockNodeFlavor()
 	cluster := genMockCluster()
 	adminNode := genMockAdminNode("node1", "", nodeFlavor)
 	adminNode.Spec.Cluster = ptr.To(cluster.Name)
+	adminNode.Labels[v1.KubernetesControlPlane] = "true"
+	now := metav1.Now()
+	adminNode.Status.MachineStatus.UpdateTime = &now
 	adminNode.Status.ClusterStatus.CommandStatus = []v1.CommandStatus{{
 		Name:  utils.Authorize,
+		Phase: v1.CommandSucceeded,
+	}, {
+		Name:  HarborCA,
 		Phase: v1.CommandSucceeded,
 	}}
 
@@ -534,8 +544,11 @@ func TestManagingControlPlaneNode(t *testing.T) {
 	adminClient := fake.NewClientBuilder().WithObjects(adminNode, cluster).
 		WithStatusSubresource(adminNode).WithScheme(mockScheme).Build()
 	r := newMockNodeReconciler(adminClient)
+	k8sClient := k8sfake.NewClientset()
+	k8sClients := commonclient.NewClientFactoryWithOnlyClient(context.Background(), cluster.Name, k8sClient)
+	r.clientManager.AddOrReplace(cluster.Name, k8sClients)
 
-	err = r.Update(context.Background(), adminNode)
+	_, err = r.Reconcile(context.Background(), ctrlruntime.Request{NamespacedName: client.ObjectKey{Name: adminNode.Name}})
 	assert.NilError(t, err)
 	err = adminClient.Get(context.Background(), client.ObjectKey{Name: adminNode.Name}, adminNode)
 	assert.NilError(t, err)
@@ -543,14 +556,16 @@ func TestManagingControlPlaneNode(t *testing.T) {
 }
 
 func TestUnmanageNodeSuccessfully(t *testing.T) {
-	t.Skip("TODO: Test needs reconcile logic - similar to TestManageNodeSuccessfully")
 	nodeFlavor := genMockNodeFlavor()
 	cluster := genMockCluster()
 	secret := genMockSecret()
 	secret.Name = cluster.Name
 	adminNode := genMockAdminNode("node1", cluster.Name, nodeFlavor)
+	adminNode.Labels[v1.NodeUnmanageNoRebootLabel] = v1.TrueStr
 	adminNode.Spec.SSHSecret = commonutils.GenObjectReference(secret.TypeMeta, secret.ObjectMeta)
 	adminNode.Spec.Cluster = nil
+	now := metav1.Now()
+	adminNode.Status.MachineStatus.UpdateTime = &now
 	adminNode.Status.ClusterStatus = v1.NodeClusterStatus{
 		Cluster: ptr.To(cluster.Name),
 		Phase:   v1.NodeManaged,
@@ -561,8 +576,16 @@ func TestUnmanageNodeSuccessfully(t *testing.T) {
 	adminClient := fake.NewClientBuilder().WithObjects(adminNode, secret, cluster).
 		WithStatusSubresource(adminNode).WithScheme(mockScheme).Build()
 	r := newMockNodeReconciler(adminClient)
+	k8sClient := k8sfake.NewClientset()
+	k8sClients := commonclient.NewClientFactoryWithOnlyClient(context.Background(), cluster.Name, k8sClient)
+	r.clientManager.AddOrReplace(cluster.Name, k8sClients)
 
-	err = r.Update(context.Background(), adminNode)
+	sshClient, cleanup := startInMemorySSHServer(t)
+	defer cleanup()
+	patches := gomonkeyApplyGetSSHClient(sshClient)
+	defer patches.Reset()
+
+	_, err = r.Reconcile(context.Background(), ctrlruntime.Request{NamespacedName: client.ObjectKey{Name: adminNode.Name}})
 	assert.NilError(t, err)
 
 	err = adminClient.Get(context.Background(), client.ObjectKey{Name: adminNode.Name}, adminNode)
