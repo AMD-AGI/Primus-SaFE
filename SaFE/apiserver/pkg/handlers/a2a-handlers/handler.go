@@ -47,3 +47,16 @@ func (h *Handler) authorizeA2A(c *gin.Context, verb v1.RoleVerb) error {
 		UserId:       c.GetString(common.UserId),
 	})
 }
+
+// authorizeA2AReadAudit restricts A2A audit reads (call logs) to system
+// administrators. Read-only administrators are allowed because audit data is
+// informational. It fails closed when the access controller is unavailable.
+func (h *Handler) authorizeA2AReadAudit(c *gin.Context) error {
+	if h.accessController == nil {
+		return commonerrors.NewInternalError("A2A access controller is not initialized")
+	}
+	return h.accessController.AuthorizeSystemAdmin(authority.AccessInput{
+		Context: c.Request.Context(),
+		UserId:  c.GetString(common.UserId),
+	}, true)
+}

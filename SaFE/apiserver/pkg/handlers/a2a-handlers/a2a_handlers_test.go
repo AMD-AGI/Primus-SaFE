@@ -123,6 +123,25 @@ func newA2AAccessController(t *testing.T, verbs ...v1.RoleVerb) *authority.Acces
 	return &authority.AccessController{Client: fake.NewClientBuilder().WithScheme(scheme).WithObjects(role, user).Build()}
 }
 
+// newA2AAdminAC seeds a system administrator (admin-1) and a plain user
+// (user-1) so audit-read authorization (system-admin only) can be exercised.
+func newA2AAdminAC(t *testing.T) *authority.AccessController {
+	t.Helper()
+	scheme := runtime.NewScheme()
+	if err := v1.AddToScheme(scheme); err != nil {
+		t.Fatalf("add scheme: %v", err)
+	}
+	admin := &v1.User{
+		ObjectMeta: metav1.ObjectMeta{Name: "admin-1"},
+		Spec:       v1.UserSpec{Type: v1.DefaultUserType, Roles: []v1.UserRole{v1.SystemAdminRole}},
+	}
+	nonAdmin := &v1.User{
+		ObjectMeta: metav1.ObjectMeta{Name: "user-1"},
+		Spec:       v1.UserSpec{Type: v1.DefaultUserType},
+	}
+	return &authority.AccessController{Client: fake.NewClientBuilder().WithScheme(scheme).WithObjects(admin, nonAdmin).Build()}
+}
+
 func withUser(c *gin.Context) {
 	c.Set(common.UserId, "user-1")
 	c.Set(common.UserName, "alice")
@@ -173,13 +192,15 @@ func TestToServiceView(t *testing.T) {
 }
 
 func TestListCallLogs(t *testing.T) {
+	adminAC := newA2AAdminAC(t)
 	db := &mockDB{
 		callLogs:   []*dbclient.A2ACallLog{{Id: 1, CallerUserId: "u1"}},
 		callLogCnt: 1,
 		apiKeys:    []*dbclient.ApiKey{{UserId: "u1", UserName: "alice"}},
 	}
-	h := NewHandler(db)
+	h := NewHandler(db, adminAC)
 	c, w := newCtx(http.MethodGet, "/?caller=foo&target=bar&limit=10&offset=0", "")
+	c.Set(common.UserId, "admin-1")
 	h.ListCallLogs(c)
 	if w.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200", w.Code)
@@ -188,19 +209,34 @@ func TestListCallLogs(t *testing.T) {
 		t.Errorf("expected caller user name in body: %s", w.Body.String())
 	}
 
-	// DB error path.
+	// DB error path (authorized admin).
 	dbErr := &mockDB{callLogsErr: errors.New("db down")}
 	c2, w2 := newCtx(http.MethodGet, "/", "")
-	NewHandler(dbErr).ListCallLogs(c2)
+	c2.Set(common.UserId, "admin-1")
+	NewHandler(dbErr, adminAC).ListCallLogs(c2)
 	if w2.Code != http.StatusInternalServerError {
 		t.Errorf("status = %d, want 500", w2.Code)
 	}
 
 	countErr := &mockDB{callLogCntErr: errors.New("count down")}
 	c3, w3 := newCtx(http.MethodGet, "/", "")
-	NewHandler(countErr).ListCallLogs(c3)
+	c3.Set(common.UserId, "admin-1")
+	NewHandler(countErr, adminAC).ListCallLogs(c3)
 	if w3.Code != http.StatusInternalServerError {
 		t.Errorf("status = %d, want 500", w3.Code)
+	}
+}
+
+// TestListCallLogsForbiddenForNonAdmin verifies #10: A2A call-log (audit) reads
+// are restricted to system administrators; a plain user receives 403.
+func TestListCallLogsForbiddenForNonAdmin(t *testing.T) {
+	db := &mockDB{callLogs: []*dbclient.A2ACallLog{{Id: 1}}, callLogCnt: 1}
+	h := NewHandler(db, newA2AAdminAC(t))
+	c, w := newCtx(http.MethodGet, "/", "")
+	c.Set(common.UserId, "user-1") // seeded as a non-admin user
+	h.ListCallLogs(c)
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want 403", w.Code)
 	}
 }
 
