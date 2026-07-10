@@ -402,3 +402,27 @@ func TestInitA2ARouters(t *testing.T) {
 		t.Errorf("expected at least 7 routes registered, got %d", len(routes))
 	}
 }
+
+// TestA2AReadsOpenToNonAdmin guards #10: A2A service list/get and topology stay
+// readable by authenticated non-admins; only call-logs (audit) are restricted.
+func TestA2AReadsOpenToNonAdmin(t *testing.T) {
+	h := NewHandler(&mockDB{}, newA2AAdminAC(t)) // seeds admin-1 + non-admin user-1
+
+	t.Run("ListServices", func(t *testing.T) {
+		c, w := newCtx(http.MethodGet, "/", "")
+		c.Set(common.UserId, "user-1")
+		h.ListServices(c)
+		if w.Code != http.StatusOK {
+			t.Fatalf("ListServices status = %d, want 200 (must stay open to non-admin)", w.Code)
+		}
+	})
+
+	t.Run("GetTopology", func(t *testing.T) {
+		c, w := newCtx(http.MethodGet, "/", "")
+		c.Set(common.UserId, "user-1")
+		h.GetTopology(c)
+		if w.Code != http.StatusOK {
+			t.Fatalf("GetTopology status = %d, want 200 (must stay open to non-admin)", w.Code)
+		}
+	})
+}
