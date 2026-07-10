@@ -90,6 +90,10 @@ func (r *RebootJobReconciler) handle(ctx context.Context, job *v1.OpsJob) (ctrlr
 	for _, nodeId := range nodes {
 		if err := r.execReboot(ctx, job.Name, nodeId); err != nil {
 			klog.Errorf("failed to execute reboot job %s node %s: %v", job.Name, nodeId, err)
+			if completeErr := r.setJobCompleted(ctx, job, v1.OpsJobFailed, err.Error(), job.Status.Outputs); completeErr != nil {
+				return ctrlruntime.Result{}, completeErr
+			}
+			return ctrlruntime.Result{}, nil
 		}
 	}
 
@@ -110,7 +114,9 @@ func (r *RebootJobReconciler) execReboot(ctx context.Context, jobId, nodeId stri
 	defer sshClient.Close()
 
 	cmd := "sudo reboot"
-	_, _ = r.executeSSHCommand(sshClient, cmd)
+	if _, err = r.executeSSHCommand(sshClient, cmd); err != nil {
+		return fmt.Errorf("failed to reboot node %s: %w", node.Name, err)
+	}
 	klog.Infof("machine node %s reboot", node.Name)
 
 	if err = r.setJobOutput(ctx, jobId, nodeId); err != nil {

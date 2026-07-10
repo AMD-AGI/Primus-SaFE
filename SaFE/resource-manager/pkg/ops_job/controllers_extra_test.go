@@ -325,3 +325,52 @@ func TestRebootExecRebootViaSSH(t *testing.T) {
 	err := r.execReboot(context.Background(), "j1", "n1")
 	assert.NoError(t, err)
 }
+
+func TestRebootExecRebootSSHCommandError(t *testing.T) {
+	sshClient, cleanup := startInMemorySSHServer(t)
+	defer cleanup()
+	sshClient.Close()
+
+	node := &v1.Node{ObjectMeta: metav1.ObjectMeta{Name: "n1"}}
+	job := rebootJob("j1", "n1")
+	r := &RebootJobReconciler{OpsJobBaseReconciler: newBaseWithObjs(t, node, job)}
+
+	patches := gomonkey.ApplyFunc(rmutils.GetSSHClient,
+		func(_ context.Context, _ client.Client, _ *v1.Node) (*ssh.Client, error) {
+			return sshClient, nil
+		})
+	defer patches.Reset()
+
+	err := r.execReboot(context.Background(), "j1", "n1")
+	assert.Error(t, err)
+
+	updated := &v1.OpsJob{}
+	assert.NoError(t, r.Get(context.Background(), client.ObjectKey{Name: "j1"}, updated))
+	assert.Len(t, updated.Status.Outputs, 0)
+}
+
+func TestRebootHandleSSHCommandErrorMarksJobFailed(t *testing.T) {
+	sshClient, cleanup := startInMemorySSHServer(t)
+	defer cleanup()
+	sshClient.Close()
+
+	node := &v1.Node{ObjectMeta: metav1.ObjectMeta{Name: "n1"}}
+	job := rebootJob("j1", "n1")
+	job.Status.Phase = v1.OpsJobRunning
+	job.Status.StartedAt = &metav1.Time{Time: time.Now()}
+	r := &RebootJobReconciler{OpsJobBaseReconciler: newBaseWithObjs(t, node, job)}
+
+	patches := gomonkey.ApplyFunc(rmutils.GetSSHClient,
+		func(_ context.Context, _ client.Client, _ *v1.Node) (*ssh.Client, error) {
+			return sshClient, nil
+		})
+	defer patches.Reset()
+
+	_, err := r.handle(context.Background(), job)
+	assert.NoError(t, err)
+
+	updated := &v1.OpsJob{}
+	assert.NoError(t, r.Get(context.Background(), client.ObjectKey{Name: "j1"}, updated))
+	assert.Equal(t, v1.OpsJobFailed, updated.Status.Phase)
+	assert.Len(t, updated.Status.Outputs, 0)
+}
