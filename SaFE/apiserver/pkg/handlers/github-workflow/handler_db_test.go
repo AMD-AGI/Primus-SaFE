@@ -200,6 +200,22 @@ func TestHandleListRunsError(t *testing.T) {
 	}
 }
 
+func TestHandleListRunsInvalidLimit(t *testing.T) {
+	c, w := ctxWith(http.MethodGet, "/runs", "", nil, "limit=-1")
+	handleListRuns(c)
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400", w.Code)
+	}
+}
+
+func TestHandleListRunsLimitTooLarge(t *testing.T) {
+	c, w := ctxWith(http.MethodGet, "/runs", "", nil, "limit=10000")
+	handleListRuns(c)
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400", w.Code)
+	}
+}
+
 // TestHandleGetRunNotFound verifies a missing run yields a 404.
 func TestHandleGetRunNotFound(t *testing.T) {
 	mock, cleanup := withMockDB(t)
@@ -376,6 +392,14 @@ func TestHandleGetConfigMetricsSuccess(t *testing.T) {
 	handleGetConfigMetrics(c)
 	if w.Code != http.StatusOK {
 		t.Errorf("status = %d, want 200, body=%s", w.Code, w.Body.String())
+	}
+}
+
+func TestHandleGetConfigMetricsInvalidOffset(t *testing.T) {
+	c, w := ctxWith(http.MethodGet, "/configs/2/metrics", "", gin.Params{{Key: "id", Value: "2"}}, "offset=-1")
+	handleGetConfigMetrics(c)
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400", w.Code)
 	}
 }
 

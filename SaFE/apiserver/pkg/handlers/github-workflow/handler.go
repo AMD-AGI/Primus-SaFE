@@ -61,6 +61,19 @@ func getRequestDB(c *gin.Context) (*sql.DB, bool) {
 	return db, true
 }
 
+func parseIntQuery(c *gin.Context, name string, defaultValue, minValue, maxValue int) (int, bool) {
+	raw := c.Query(name)
+	if raw == "" {
+		return defaultValue, true
+	}
+	value, err := strconv.Atoi(raw)
+	if err != nil || value < minValue || value > maxValue {
+		c.JSON(400, gin.H{"error": fmt.Sprintf("%s must be between %d and %d", name, minValue, maxValue)})
+		return 0, false
+	}
+	return value, true
+}
+
 func handleListConfigs(c *gin.Context) {
 	db, ok := getRequestDB(c)
 	if !ok {
@@ -158,7 +171,7 @@ func handleDeleteConfig(c *gin.Context) {
 }
 
 func handleListRuns(c *gin.Context) {
-	db, ok := getRequestDB(c)
+	limit, ok := parseIntQuery(c, "limit", 50, 1, 500)
 	if !ok {
 		return
 	}
@@ -166,9 +179,9 @@ func handleListRuns(c *gin.Context) {
 	repo := c.Query("github_repo")
 	status := c.Query("status")
 	workflow := c.Query("workflow")
-	limit := 50
-	if l := c.Query("limit"); l != "" {
-		limit, _ = strconv.Atoi(l)
+	db, ok := getRequestDB(c)
+	if !ok {
+		return
 	}
 
 	query := `SELECT id, workload_id, cluster, github_run_id, github_job_id, workflow_name,
@@ -577,17 +590,17 @@ func handleGetFields(c *gin.Context) {
 
 func handleGetConfigMetrics(c *gin.Context) {
 	configID := c.Param("id")
-	db, ok := getRequestDB(c)
+	limit, ok := parseIntQuery(c, "limit", 500, 1, 1000)
 	if !ok {
 		return
 	}
-	limit := 500
-	if l := c.Query("limit"); l != "" {
-		limit, _ = strconv.Atoi(l)
+	offset, ok := parseIntQuery(c, "offset", 0, 0, 100000)
+	if !ok {
+		return
 	}
-	offset := 0
-	if o := c.Query("offset"); o != "" {
-		offset, _ = strconv.Atoi(o)
+	db, ok := getRequestDB(c)
+	if !ok {
+		return
 	}
 
 	var total int
