@@ -198,11 +198,43 @@ func (h *Handler) listCluster(c *gin.Context) (interface{}, error) {
 // getCluster implements the logic for retrieving a single cluster's detailed information.
 // Gets the cluster by ID and converts it to a detailed response format.
 func (h *Handler) getCluster(c *gin.Context) (interface{}, error) {
-	cluster, err := h.getAdminCluster(c.Request.Context(), c.GetString(common.Name))
+	ctx := c.Request.Context()
+	cluster, err := h.getAdminCluster(ctx, c.GetString(common.Name))
 	if err != nil {
 		return nil, err
 	}
-	return cvtToGetClusterResponse(c.Request.Context(), h.Client, cluster), nil
+	resp := cvtToGetClusterResponse(ctx, h.Client, cluster)
+	// Cluster status stays visible to all authenticated users, but control-plane
+	// infrastructure details (endpoint, secret references, pod subnet) are only
+	// exposed to system administrators. Fails closed: if admin status cannot be
+	// determined, the fields are redacted.
+	if !h.isRequestSystemAdmin(ctx, c.GetString(common.UserId)) {
+		redactClusterInfra(&resp)
+	}
+	return resp, nil
+}
+
+// isRequestSystemAdmin reports whether the request user is a system
+// administrator (read-only admins included). It fails closed: when the access
+// controller is unavailable or the user cannot be resolved it returns false.
+func (h *Handler) isRequestSystemAdmin(ctx context.Context, userId string) bool {
+	if h.accessController == nil {
+		return false
+	}
+	return h.accessController.AuthorizeSystemAdmin(authority.AccessInput{
+		Context: ctx,
+		UserId:  userId,
+	}, true) == nil
+}
+
+// redactClusterInfra clears control-plane infrastructure details that must only
+// be visible to system administrators: the control-plane endpoint, secret
+// references, and the pod subnet.
+func redactClusterInfra(resp *view.GetClusterResponse) {
+	resp.Endpoint = ""
+	resp.SSHSecretId = ""
+	resp.ImageSecretId = ""
+	resp.KubePodsSubnet = nil
 }
 
 // deleteCluster handles the deletion of a cluster resource.
