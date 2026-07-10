@@ -44,12 +44,27 @@ var getDB = func() *sql.DB {
 	if err != nil {
 		return nil
 	}
-	sqlDB, _ := gormDB.DB()
+	sqlDB, err := gormDB.DB()
+	if err != nil {
+		return nil
+	}
 	return sqlDB
 }
 
-func handleListConfigs(c *gin.Context) {
+func getRequestDB(c *gin.Context) (*sql.DB, bool) {
 	db := getDB()
+	if db == nil {
+		c.JSON(500, gin.H{"error": "database connection unavailable"})
+		return nil, false
+	}
+	return db, true
+}
+
+func handleListConfigs(c *gin.Context) {
+	db, ok := getRequestDB(c)
+	if !ok {
+		return
+	}
 	rows, err := db.QueryContext(c.Request.Context(), `
 		SELECT id, name, github_owner, github_repo, workflow_patterns, branch_patterns,
 		       file_patterns, COALESCE(display_settings::text, '{}'), enabled, COALESCE(created_by, ''), created_at, updated_at
@@ -103,7 +118,10 @@ func handleCreateConfig(c *gin.Context) {
 		displayJSON = []byte("{}")
 	}
 
-	db := getDB()
+	db, ok := getRequestDB(c)
+	if !ok {
+		return
+	}
 	_, err := db.ExecContext(c.Request.Context(), `
 		INSERT INTO github_collection_configs
 			(name, github_owner, github_repo, workflow_patterns, branch_patterns, file_patterns, display_settings, enabled)
@@ -120,13 +138,19 @@ func handleCreateConfig(c *gin.Context) {
 
 func handleDeleteConfig(c *gin.Context) {
 	id := c.Param("id")
-	db := getDB()
+	db, ok := getRequestDB(c)
+	if !ok {
+		return
+	}
 	db.ExecContext(c.Request.Context(), `DELETE FROM github_collection_configs WHERE id = $1`, id)
 	c.JSON(200, gin.H{"deleted": id})
 }
 
 func handleListRuns(c *gin.Context) {
-	db := getDB()
+	db, ok := getRequestDB(c)
+	if !ok {
+		return
+	}
 	owner := c.Query("github_owner")
 	repo := c.Query("github_repo")
 	status := c.Query("status")
@@ -203,7 +227,10 @@ func handleListRuns(c *gin.Context) {
 
 func handleGetRun(c *gin.Context) {
 	id := c.Param("id")
-	db := getDB()
+	db, ok := getRequestDB(c)
+	if !ok {
+		return
+	}
 
 	var wid, cluster, wfName, ghOwner, ghRepo, branch, sha, st, conclusion, syncSt sql.NullString
 	var ghRunID, ghJobID sql.NullInt64
@@ -251,7 +278,10 @@ func handleGetRun(c *gin.Context) {
 
 func handleGetRunJobs(c *gin.Context) {
 	id := c.Param("id")
-	db := getDB()
+	db, ok := getRequestDB(c)
+	if !ok {
+		return
+	}
 
 	rows, err := db.QueryContext(c.Request.Context(), `
 		SELECT j.id, j.github_job_id, j.name, j.status, j.conclusion,
@@ -308,7 +338,10 @@ func handleGetRunJobs(c *gin.Context) {
 
 func handleGetRunMetrics(c *gin.Context) {
 	id := c.Param("id")
-	db := getDB()
+	db, ok := getRequestDB(c)
+	if !ok {
+		return
+	}
 
 	rows, err := db.QueryContext(c.Request.Context(), `
 		SELECT id, config_id, source_file, row_data, timestamp, dimensions, metrics, created_at
@@ -365,7 +398,10 @@ func handleGetRunMetrics(c *gin.Context) {
 
 func handleGetCommit(c *gin.Context) {
 	sha := c.Param("sha")
-	db := getDB()
+	db, ok := getRequestDB(c)
+	if !ok {
+		return
+	}
 
 	var message, authorName, authorEmail, ghOwner, ghRepo string
 	var authoredAt sql.NullTime
@@ -394,7 +430,10 @@ func handleGetCommit(c *gin.Context) {
 }
 
 func handleStats(c *gin.Context) {
-	db := getDB()
+	db, ok := getRequestDB(c)
+	if !ok {
+		return
+	}
 	var total, running, completed, failed int
 	db.QueryRowContext(c.Request.Context(), `SELECT COUNT(*) FROM github_workflow_runs`).Scan(&total)
 	db.QueryRowContext(c.Request.Context(), `SELECT COUNT(*) FROM github_workflow_runs WHERE status='running'`).Scan(&running)
@@ -408,7 +447,10 @@ func handleStats(c *gin.Context) {
 
 func handleGetFields(c *gin.Context) {
 	configID := c.Param("id")
-	db := getDB()
+	db, ok := getRequestDB(c)
+	if !ok {
+		return
+	}
 
 	rows, err := db.QueryContext(c.Request.Context(), `
 		SELECT key,
@@ -466,7 +508,10 @@ func handleGetFields(c *gin.Context) {
 
 func handleGetConfigMetrics(c *gin.Context) {
 	configID := c.Param("id")
-	db := getDB()
+	db, ok := getRequestDB(c)
+	if !ok {
+		return
+	}
 	limit := 500
 	if l := c.Query("limit"); l != "" {
 		limit, _ = strconv.Atoi(l)
@@ -537,7 +582,10 @@ func handleUpdateConfig(c *gin.Context) {
 		return
 	}
 
-	db := getDB()
+	db, ok := getRequestDB(c)
+	if !ok {
+		return
+	}
 	sets := []string{"updated_at = NOW()"}
 	args := []interface{}{}
 	idx := 1
@@ -587,7 +635,10 @@ func handleUpdateConfig(c *gin.Context) {
 }
 
 func handleListRepositories(c *gin.Context) {
-	db := getDB()
+	db, ok := getRequestDB(c)
+	if !ok {
+		return
+	}
 	search := c.Query("search")
 
 	query := `
@@ -661,7 +712,10 @@ func handleListRepositories(c *gin.Context) {
 func handleGetRepository(c *gin.Context) {
 	owner := c.Param("owner")
 	repo := c.Param("repo")
-	db := getDB()
+	db, ok := getRequestDB(c)
+	if !ok {
+		return
+	}
 
 	var total, running, completed, failed int
 	db.QueryRowContext(c.Request.Context(), `

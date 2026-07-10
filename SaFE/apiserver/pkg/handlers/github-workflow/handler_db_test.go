@@ -75,6 +75,24 @@ func TestHandleListConfigsError(t *testing.T) {
 	}
 }
 
+func TestHandleListConfigsNilDBReturnsError(t *testing.T) {
+	orig := getDB
+	getDB = func() *sql.DB { return nil }
+	defer func() { getDB = orig }()
+
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatalf("handleListConfigs panicked with nil DB: %v", r)
+		}
+	}()
+
+	c, w := ctxWith(http.MethodGet, "/configs", "", nil, "")
+	handleListConfigs(c)
+	if w.Code != http.StatusInternalServerError {
+		t.Errorf("status = %d, want 500", w.Code)
+	}
+}
+
 // TestHandleCreateConfigSuccess verifies a valid request inserts and returns 201.
 func TestHandleCreateConfigSuccess(t *testing.T) {
 	mock, cleanup := withMockDB(t)
