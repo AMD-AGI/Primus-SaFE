@@ -22,7 +22,7 @@ NFS_OUTPUT_ENV = "SAFE_NFS_OUTPUT"
 # Apiserver connectivity
 ADMIN_CONTROL_PLANE_ENV = "ADMIN_CONTROL_PLANE"
 APISERVER_NODE_PORT_ENV = "APISERVER_NODE_PORT"
-USER_APIKEY_ENV = "USER_APIKEY"
+USER_BEARER_TOKEN_ENV = "USER_APIKEY"
 WORKSPACE_ID_ENV = "WORKSPACE_ID"
 SCALE_RUNNER_SET_ENV = "SCALE_RUNNER_SET_ID"
 
@@ -185,11 +185,11 @@ def build_session() -> Tuple[requests.Session, str]:
         raise ValueError("Missing APISERVER_NODE_PORT (NodePort of apiserver pod)")
     base_url = f"http://{admin_ip}:{node_port}".rstrip("/")
 
-    api_key = getenv_str(USER_APIKEY_ENV)
+    bearer_token = getenv_str(USER_BEARER_TOKEN_ENV)
     s = requests.Session()
     s.headers.update({"Content-Type": "application/json; charset=utf-8"})
-    if api_key:
-        s.headers.update({"Authorization": f"Bearer {api_key}"})
+    if bearer_token:
+        s.headers.update({"Authorization": f"Bearer {bearer_token}"})
     return s, base_url
 
 
