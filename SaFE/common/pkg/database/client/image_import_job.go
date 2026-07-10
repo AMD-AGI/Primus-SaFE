@@ -97,3 +97,14 @@ func (c *Client) UpdateImageImportJob(ctx context.Context, job *model.ImageImpor
 	}
 	return nil
 }
+
+// DeleteImageImportJob hard-deletes an import job record by id. The
+// image_import_job table has no soft-delete column, so this is a hard delete;
+// it is used to fully clean up an imported image on deletion.
+func (c *Client) DeleteImageImportJob(ctx context.Context, id int32) error {
+	q := dal.Use(c.gorm).ImageImportJob
+	if _, err := q.WithContext(ctx).Where(q.ID.Eq(id)).Delete(); err != nil {
+		return fmt.Errorf("failed to delete image import job %d: %w", id, err)
+	}
+	return nil
+}

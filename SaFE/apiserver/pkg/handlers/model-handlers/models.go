@@ -29,6 +29,7 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
+	commonuser "github.com/AMD-AIG-AIMA/SAFE/common/pkg/user"
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 	commonworkspace "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workspace"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
@@ -85,9 +86,15 @@ func (h *Handler) createModel(c *gin.Context) (interface{}, error) {
 		return nil, commonerrors.NewBadRequest(fmt.Sprintf("invalid request body: %v", err))
 	}
 
-	ctx := context.Background()
+	ctx := c.Request.Context()
 	userId := c.GetString(common.UserId)
 	userName := c.GetString(common.UserName)
+
+	// Resource-level RBAC: creating in a workspace requires workspace membership;
+	// creating a public model (empty workspace) requires system-admin.
+	if err := h.authorizeModel(c, v1.CreateVerb, "", req.Workspace); err != nil {
+		return nil, err
+	}
 
 	// Import from user S3 (API-only s3_sync → cluster local + s3:// + label)
 	if req.Source.AccessMode == accessModeS3Sync {
@@ -134,7 +141,10 @@ func (h *Handler) createModel(c *gin.Context) (interface{}, error) {
 	// Check if model with same URL already exists (only for local mode)
 	// Remote API mode skips duplicate check since each user has their own API key
 	if req.Source.AccessMode == string(v1.AccessModeLocal) && normalizedURL != "" {
-		existingModel, _ := h.findModelBySourceURL(ctx, normalizedURL, req.Workspace)
+		existingModel, err := h.findModelBySourceURL(ctx, normalizedURL, req.Workspace)
+		if err != nil {
+			return nil, err
+		}
 		if existingModel != nil {
 			if existingModel.Phase == string(v1.ModelPhaseReady) {
 				return nil, commonerrors.NewBadRequest(fmt.Sprintf("model with URL '%s' already exists and is ready (id: %s)", existingModel.SourceURL, existingModel.ID))
@@ -332,6 +342,58 @@ func (h *Handler) createModel(c *gin.Context) (interface{}, error) {
 }
 
 // getModel implements the logic to get a single model by ID.
+// canViewModel reports whether a user may see a model given its owner and
+// workspace. Read visibility mirrors the write-path RBAC: public models (empty
+// workspace) are visible to everyone; otherwise only the owner, members of the
+// model's workspace, and system administrators may see it.
+func canViewModel(user *v1.User, owner, workspace string) bool {
+	if workspace == "" {
+		return true
+	}
+	if user == nil {
+		return false
+	}
+	if user.IsSystemAdmin() || user.IsSystemAdminReadonly() {
+		return true
+	}
+	if owner != "" && user.Name == owner {
+		return true
+	}
+	return commonuser.HasWorkspaceRight(user, workspace)
+}
+
+// canAccessWorkspace reports whether a user may access resources scoped to the
+// given workspace (e.g. deployed inference workloads). It fails closed: a nil
+// user is denied. System administrators (read-only admins included) may access
+// every workspace; other users must be members of the workspace. An empty
+// workspace is not accessible to non-admins because workspace-scoped resources
+// always carry a concrete workspace.
+func canAccessWorkspace(user *v1.User, workspace string) bool {
+	if user == nil {
+		return false
+	}
+	if user.IsSystemAdmin() || user.IsSystemAdminReadonly() {
+		return true
+	}
+	return commonuser.HasWorkspaceRight(user, workspace)
+}
+
+// readVisibilityUser resolves the requesting user for read-path visibility
+// filtering. It fails closed: when the access controller is unavailable or the
+// user cannot be resolved it returns nil, which limits the caller to public
+// models only.
+func (h *Handler) readVisibilityUser(ctx context.Context, userId string) *v1.User {
+	if h.accessController == nil || userId == "" {
+		return nil
+	}
+	user, err := h.accessController.GetRequestUser(ctx, userId)
+	if err != nil {
+		klog.ErrorS(err, "read RBAC: failed to resolve request user; restricting to public models", "userId", userId)
+		return nil
+	}
+	return user
+}
+
 func (h *Handler) getModel(c *gin.Context) (interface{}, error) {
 	modelId := c.Param("id")
 	if modelId == "" {
@@ -339,11 +401,15 @@ func (h *Handler) getModel(c *gin.Context) (interface{}, error) {
 	}
 
 	ctx := c.Request.Context()
+	user := h.readVisibilityUser(ctx, c.GetString(common.UserId))
 
 	// 1. Try to fetch from database first (if available)
 	if h.dbClient != nil {
 		dbModel, err := h.dbClient.GetModelByID(ctx, modelId)
 		if err == nil && dbModel != nil && !dbModel.IsDeleted {
+			if !canViewModel(user, dbModel.UserId, dbModel.Workspace) {
+				return nil, commonerrors.NewForbidden("you are not allowed to access this model")
+			}
 			return cvtDBModelToInfo(dbModel), nil
 		}
 		// If not found in DB or error, fall through to K8s
@@ -356,6 +422,10 @@ func (h *Handler) getModel(c *gin.Context) (interface{}, error) {
 			return nil, commonerrors.NewNotFound("playground model", modelId)
 		}
 		return nil, commonerrors.NewInternalError("failed to fetch model: " + err.Error())
+	}
+
+	if !canViewModel(user, v1.GetUserId(k8sModel), k8sModel.Spec.Workspace) {
+		return nil, commonerrors.NewForbidden("you are not allowed to access this model")
 	}
 
 	return h.convertK8sModelToInfo(k8sModel), nil
@@ -545,7 +615,10 @@ func (h *Handler) createModelFromS3Sync(ctx context.Context, req *CreateModelReq
 		return nil, commonerrors.NewBadRequest("modelName could not be derived; set source.modelName")
 	}
 
-	existing, _ := h.findModelBySourceURL(ctx, uri, req.Workspace)
+	existing, err := h.findModelBySourceURL(ctx, uri, req.Workspace)
+	if err != nil {
+		return nil, err
+	}
 	if existing != nil {
 		return nil, commonerrors.NewBadRequest(fmt.Sprintf("a model with the same s3 source already exists (id: %s, phase: %s)", existing.ID, existing.Phase))
 	}
@@ -595,8 +668,8 @@ func (h *Handler) createModelFromS3Sync(ctx context.Context, req *CreateModelReq
 	}
 
 	labels := map[string]string{
-		v1.DisplayNameLabel:    sanitizeLabelValue(req.DisplayName),
-		v1.ModelS3ImportLabel:  v1.TrueStr,
+		v1.DisplayNameLabel:   sanitizeLabelValue(req.DisplayName),
+		v1.ModelS3ImportLabel: v1.TrueStr,
 	}
 	if userId != "" {
 		labels[v1.UserIdLabel] = userId
@@ -878,6 +951,7 @@ func (h *Handler) listModels(c *gin.Context) (interface{}, error) {
 	}
 
 	ctx := c.Request.Context()
+	user := h.readVisibilityUser(ctx, c.GetString(common.UserId))
 
 	// 1. Try to list from database first (if available)
 	if h.dbClient != nil {
@@ -889,6 +963,9 @@ func (h *Handler) listModels(c *gin.Context) (interface{}, error) {
 		if err == nil && len(dbModels) > 0 {
 			var items []ModelInfo
 			for _, dbModel := range dbModels {
+				if !canViewModel(user, dbModel.UserId, dbModel.Workspace) {
+					continue
+				}
 				if queryArgs.Origin != "" && !matchModelOrigin(normalizeModelOrigin(dbModel.Origin), queryArgs.Origin) {
 					continue
 				}
@@ -940,6 +1017,10 @@ func (h *Handler) listModels(c *gin.Context) (interface{}, error) {
 	for _, k8sModel := range k8sModelList.Items {
 		// Skip deleted models
 		if k8sModel.DeletionTimestamp != nil {
+			continue
+		}
+
+		if !canViewModel(user, v1.GetUserId(&k8sModel), k8sModel.Spec.Workspace) {
 			continue
 		}
 
@@ -1071,6 +1152,11 @@ func (h *Handler) deleteModel(c *gin.Context) (interface{}, error) {
 		return nil, commonerrors.NewInternalError("failed to fetch model: " + err.Error())
 	}
 
+	// Resource-level RBAC: only the model owner (or an admin) may delete it.
+	if err := h.authorizeModel(c, v1.DeleteVerb, v1.GetUserId(k8sModel), k8sModel.Spec.Workspace); err != nil {
+		return nil, err
+	}
+
 	// 2. Check for associated workloads by env variable PRIMUS_SOURCE_MODEL
 	// Note: source-model is stored in env to avoid affecting scheduling (labels/customerLabels affect node selection)
 	workloadList := &v1.WorkloadList{}
@@ -1193,6 +1279,12 @@ func (h *Handler) retryModel(c *gin.Context) (interface{}, error) {
 		return nil, commonerrors.NewInternalError("failed to fetch model: " + err.Error())
 	}
 
+	// Resource-level RBAC: retrying re-downloads the model, a state-changing
+	// write, so require the same permission as an update (owner or admin).
+	if err := h.authorizeModel(c, v1.UpdateVerb, v1.GetUserId(k8sModel), k8sModel.Spec.Workspace); err != nil {
+		return nil, err
+	}
+
 	// Check if model is in Failed phase
 	if k8sModel.Status.Phase != v1.ModelPhaseFailed {
 		return nil, commonerrors.NewBadRequest(fmt.Sprintf("model is not in Failed phase, current phase: %s. Only failed models can be retried", k8sModel.Status.Phase))
@@ -1246,6 +1338,11 @@ func (h *Handler) patchModel(c *gin.Context) (interface{}, error) {
 		}
 		klog.ErrorS(err, "Failed to get model from K8s", "model", modelId)
 		return nil, commonerrors.NewInternalError("failed to fetch model: " + err.Error())
+	}
+
+	// Resource-level RBAC: only the model owner (or an admin) may modify it.
+	if err := h.authorizeModel(c, v1.UpdateVerb, v1.GetUserId(k8sModel), k8sModel.Spec.Workspace); err != nil {
+		return nil, err
 	}
 
 	// Apply updates using patch
@@ -1336,6 +1433,14 @@ func (h *Handler) getModelWorkloads(c *gin.Context) (interface{}, error) {
 		return nil, commonerrors.NewInternalError("failed to fetch model: " + err.Error())
 	}
 
+	// Enforce the same read visibility as getModel: this endpoint exposes the
+	// model's associated workloads, so callers who cannot see the model must not
+	// be able to enumerate them.
+	user := h.readVisibilityUser(ctx, c.GetString(common.UserId))
+	if !canViewModel(user, v1.GetUserId(k8sModel), k8sModel.Spec.Workspace) {
+		return nil, commonerrors.NewForbidden("you are not allowed to access this model")
+	}
+
 	// List all workloads and filter by env variable in memory
 	workloadList := &v1.WorkloadList{}
 	if err := h.k8sClient.List(ctx, workloadList); err != nil {
@@ -1388,6 +1493,14 @@ func (h *Handler) getWorkloadConfig(c *gin.Context) (interface{}, error) {
 			return nil, commonerrors.NewNotFound("model", modelId)
 		}
 		return nil, commonerrors.NewInternalError("failed to fetch model: " + err.Error())
+	}
+
+	// Enforce the same read visibility as getModel: this endpoint returns the
+	// on-disk model path and launch command, which must not leak to callers who
+	// cannot see the model.
+	user := h.readVisibilityUser(ctx, c.GetString(common.UserId))
+	if !canViewModel(user, v1.GetUserId(k8sModel), k8sModel.Spec.Workspace) {
+		return nil, commonerrors.NewForbidden("you are not allowed to access this model")
 	}
 
 	// Only deployable local models (local or local_path) can be deployed as workloads
@@ -1478,30 +1591,33 @@ func (h *Handler) getWorkloadConfig(c *gin.Context) (interface{}, error) {
 
 // findModelBySourceURL checks if a model with the given source URL and workspace already exists.
 func (h *Handler) findModelBySourceURL(ctx context.Context, sourceURL string, workspace string) (*dbclient.Model, error) {
-	// Check K8s directly for immediate consistency
+	// Check K8s directly for immediate consistency. A List failure must surface
+	// as an error: silently skipping the duplicate check can create duplicate
+	// models when the API server is briefly unavailable.
 	modelList := &v1.ModelList{}
-	if err := h.k8sClient.List(ctx, modelList); err == nil {
-		for _, m := range modelList.Items {
-			if m.Spec.Source.URL == sourceURL && m.DeletionTimestamp == nil {
-				// For local models, also check workspace
-				if m.Spec.Source.AccessMode == v1.AccessModeLocal {
-					// Public models (empty workspace) are considered duplicates regardless of workspace
-					// Specific workspace models are duplicates only for the same workspace
-					if m.Spec.Workspace == "" || m.Spec.Workspace == workspace || workspace == "" {
-						return &dbclient.Model{
-							ID:        m.Name,
-							SourceURL: m.Spec.Source.URL,
-							Phase:     string(m.Status.Phase),
-							Workspace: m.Spec.Workspace,
-						}, nil
-					}
-				} else {
+	if err := h.k8sClient.List(ctx, modelList); err != nil {
+		return nil, commonerrors.NewInternalError("failed to list models for duplicate check: " + err.Error())
+	}
+	for _, m := range modelList.Items {
+		if m.Spec.Source.URL == sourceURL && m.DeletionTimestamp == nil {
+			// For local models, also check workspace
+			if m.Spec.Source.AccessMode == v1.AccessModeLocal {
+				// Public models (empty workspace) are considered duplicates regardless of workspace
+				// Specific workspace models are duplicates only for the same workspace
+				if m.Spec.Workspace == "" || m.Spec.Workspace == workspace || workspace == "" {
 					return &dbclient.Model{
 						ID:        m.Name,
 						SourceURL: m.Spec.Source.URL,
 						Phase:     string(m.Status.Phase),
+						Workspace: m.Spec.Workspace,
 					}, nil
 				}
+			} else {
+				return &dbclient.Model{
+					ID:        m.Name,
+					SourceURL: m.Spec.Source.URL,
+					Phase:     string(m.Status.Phase),
+				}, nil
 			}
 		}
 	}
@@ -1676,19 +1792,21 @@ func fetchInferenceXModelList() ([]string, error) {
 		reader = gr
 	}
 
-	var rows []struct{ Model string `json:"model"` }
+	var rows []struct {
+		Model string `json:"model"`
+	}
 	if err := json.NewDecoder(reader).Decode(&rows); err != nil {
 		return nil, err
 	}
 
 	// availability returns DB keys (e.g. "dsr1"), map to display names
 	dbToDisplay := map[string]string{
-		"dsr1":       "DeepSeek-R1-0528",
-		"glm5":       "GLM-5",
-		"gptoss120b": "gpt-oss-120b",
-		"llama70b":   "Llama-3.3-70B-Instruct-FP8",
-		"qwen3.5":    "Qwen-3.5-397B-A17B",
-		"kimik2.5":   "Kimi-K2.5",
+		"dsr1":        "DeepSeek-R1-0528",
+		"glm5":        "GLM-5",
+		"gptoss120b":  "gpt-oss-120b",
+		"llama70b":    "Llama-3.3-70B-Instruct-FP8",
+		"qwen3.5":     "Qwen-3.5-397B-A17B",
+		"kimik2.5":    "Kimi-K2.5",
 		"minimaxm2.5": "MiniMax-M2.5",
 	}
 
@@ -1706,13 +1824,13 @@ func fetchInferenceXModelList() ([]string, error) {
 // displayNameToInferenceX maps our model DisplayName patterns to InferenceX model names.
 // Key is lowercased suffix after the org prefix (e.g. "deepseek-r1-0528" from "deepseek-ai/DeepSeek-R1-0528").
 var displayNameToInferenceX = map[string]string{
-	"deepseek-r1-0528":            "DeepSeek-R1-0528",
-	"glm-5":                       "GLM-5",
-	"gpt-oss-120b":                "gpt-oss-120b",
-	"llama-3.3-70b-instruct-fp8":  "Llama-3.3-70B-Instruct-FP8",
-	"qwen3.5-397b-a17b":           "Qwen-3.5-397B-A17B",
-	"kimi-k2.5":                   "Kimi-K2.5",
-	"minimax-m2.5":                "MiniMax-M2.5",
+	"deepseek-r1-0528":           "DeepSeek-R1-0528",
+	"glm-5":                      "GLM-5",
+	"gpt-oss-120b":               "gpt-oss-120b",
+	"llama-3.3-70b-instruct-fp8": "Llama-3.3-70B-Instruct-FP8",
+	"qwen3.5-397b-a17b":          "Qwen-3.5-397B-A17B",
+	"kimi-k2.5":                  "Kimi-K2.5",
+	"minimax-m2.5":               "MiniMax-M2.5",
 }
 
 func enrichInferenceXInfo(items []ModelInfo) {

@@ -107,6 +107,7 @@ type ImageImportJobInterface interface {
 	UpsertImageImportJob(ctx context.Context, job *model.ImageImportJob) error
 	GetImportImageByImageID(ctx context.Context, imageID int32) (*model.ImageImportJob, error)
 	UpdateImageImportJob(ctx context.Context, job *model.ImageImportJob) error
+	DeleteImageImportJob(ctx context.Context, id int32) error
 }
 
 type RegistryInfoInterface interface {

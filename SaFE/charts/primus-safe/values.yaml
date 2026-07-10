@@ -147,6 +147,12 @@ ssh:
   enable: true
   # SSH server IP for jump server access
   server_ip: ""
+tls:
+  # Verify TLS certificates for outbound HTTPS calls to model endpoints and
+  # third-party services (Playground chat, InferenceX). Defaults to false to
+  # stay compatible with self-signed ingress certificates and images without an
+  # updated CA bundle. Set to true in deployments that provide valid certs/CA.
+  verify_outbound: false
 sso:
   # Enable sso login
   enable: true
