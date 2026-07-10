@@ -125,7 +125,7 @@ func (c *Client) GetImage(ctx context.Context, imageId int32) (*model.Image, err
 	return img, nil
 }
 
-// DeleteImage performs a soft delete of an image.
+// DeleteImage performs a soft delete of an image and records who deleted it.
 func (c *Client) DeleteImage(ctx context.Context, id int32, deletedBy string) error {
 	q := dal.Use(c.gorm).Image
 	img, err := q.WithContext(ctx).Where(q.ID.Eq(id), q.DeletedAt.IsNull()).First()
@@ -135,6 +135,13 @@ func (c *Client) DeleteImage(ctx context.Context, id int32, deletedBy string) er
 		}
 		klog.ErrorS(err, "failed to get image by id", "id", id)
 		return err
+	}
+	// Record the deleting user before the soft delete. This is best-effort: a
+	// failure here should not block the deletion itself.
+	if deletedBy != "" {
+		if _, err := q.WithContext(ctx).Where(q.ID.Eq(id)).Update(q.DeletedBy, deletedBy); err != nil {
+			klog.ErrorS(err, "failed to record image deleter", "id", id, "deletedBy", deletedBy)
+		}
 	}
 	_, err = q.WithContext(ctx).Delete(img)
 	if err != nil {

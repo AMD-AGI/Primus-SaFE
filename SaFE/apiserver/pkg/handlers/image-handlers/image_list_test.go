@@ -44,6 +44,8 @@ func TestDeleteImageHandler(t *testing.T) {
 	m := mock_client.NewMockInterface(ctrl)
 	m.EXPECT().GetImage(gomock.Any(), int32(7)).Return(&model.Image{ID: 7}, nil)
 	m.EXPECT().DeleteImage(gomock.Any(), int32(7), gomock.Any()).Return(nil)
+	// Best-effort import-job cleanup looks up the import job after deletion.
+	m.EXPECT().GetImportImageByImageID(gomock.Any(), int32(7)).Return(nil, nil)
 
 	h := registryTestHandler(t, m)
 	c := ginCtx(t, http.MethodDelete, "", gin.Params{{Key: "id", Value: "7"}})

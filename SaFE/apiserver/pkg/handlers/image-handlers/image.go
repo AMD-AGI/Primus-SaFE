@@ -26,6 +26,7 @@ import (
 	imagespecv1 "github.com/opencontainers/image-spec/specs-go/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/pointer"
@@ -95,10 +96,47 @@ func (h *ImageHandler) deleteImage(c *gin.Context) (interface{}, error) {
 		return nil, nil
 	}
 
-	if err := h.dbClient.DeleteImage(c, imageID, existImage.DeletedBy); err != nil {
+	if err := h.dbClient.DeleteImage(c, imageID, c.GetString(common.UserId)); err != nil {
 		return nil, err
 	}
+
+	// Best-effort cleanup so a deleted image is no longer pullable and any in-flight
+	// import is cancelled. The DB record is already soft-deleted, so failures here
+	// must not fail the API (mirrors deleteExportedImage's best-effort behavior).
+	h.cleanupImportedImage(c.Request.Context(), existImage)
 	return nil, nil
+}
+
+// cleanupImportedImage removes the backing Harbor artifact and the import
+// Kubernetes Job for a deleted image. All steps are best-effort and only logged
+// on failure, because the image DB record has already been soft-deleted.
+func (h *ImageHandler) cleanupImportedImage(ctx context.Context, image *model.Image) {
+	if image == nil {
+		return
+	}
+	// image.Tag holds the destination image reference in Harbor.
+	if image.Tag != "" {
+		if err := h.harborDeleteArtifact(ctx, image.Tag); err != nil {
+			klog.Warningf("best-effort harbor artifact delete failed, image: %s, error: %v", image.Tag, err)
+		}
+	}
+	importJob, err := h.dbClient.GetImportImageByImageID(ctx, image.ID)
+	if err != nil {
+		klog.Warningf("best-effort import job lookup failed, imageId: %d, error: %v", image.ID, err)
+		return
+	}
+	if importJob == nil || importJob.JobName == "" {
+		return
+	}
+	job := &batchv1.Job{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      importJob.JobName,
+			Namespace: common.PrimusSafeNamespace,
+		},
+	}
+	if err := h.Client.Delete(ctx, job, client.PropagationPolicy(metav1.DeletePropagationBackground)); err != nil && !apierrors.IsNotFound(err) {
+		klog.Warningf("best-effort import job delete failed, job: %s, error: %v", importJob.JobName, err)
+	}
 }
 
 // listImage retrieves a paginated list of images based on filter criteria.
