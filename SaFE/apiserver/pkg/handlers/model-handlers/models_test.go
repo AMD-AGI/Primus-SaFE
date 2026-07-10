@@ -579,6 +579,7 @@ func TestGetSftConfig(t *testing.T) {
 	c.Params = gin.Params{{Key: "id", Value: "model-qwen"}}
 	c.Request, _ = http.NewRequest("GET", "/models/model-qwen/sft-config?workspace=ws1", nil)
 
+	c.Set(common.UserId, adminModelUserID)
 	result, err := h.getSftConfig(c)
 	assert.NilError(t, err)
 
@@ -623,6 +624,7 @@ func TestGetSftConfig_32BDefaults(t *testing.T) {
 	c.Params = gin.Params{{Key: "id", Value: "model-qwen-32b"}}
 	c.Request, _ = http.NewRequest("GET", "/models/model-qwen-32b/sft-config?workspace=ws1", nil)
 
+	c.Set(common.UserId, adminModelUserID)
 	result, err := h.getSftConfig(c)
 	assert.NilError(t, err)
 
@@ -658,6 +660,7 @@ func TestGetSftConfig_InferRecipeForGenericQwenModel(t *testing.T) {
 	c.Params = gin.Params{{Key: "id", Value: "model-qwen-generic"}}
 	c.Request, _ = http.NewRequest("GET", "/models/model-qwen-generic/sft-config?workspace=ws1", nil)
 
+	c.Set(common.UserId, adminModelUserID)
 	result, err := h.getSftConfig(c)
 	assert.NilError(t, err)
 
@@ -692,6 +695,7 @@ func TestGetSftConfig_OverrideAllowsUnknownModel(t *testing.T) {
 		nil,
 	)
 
+	c.Set(common.UserId, adminModelUserID)
 	result, err := h.getSftConfig(c)
 	assert.NilError(t, err)
 
@@ -721,6 +725,7 @@ func TestGetSftConfig_UnknownModelFallsBackToDefaultRecipe(t *testing.T) {
 	c.Params = gin.Params{{Key: "id", Value: "model-generic-fallback"}}
 	c.Request, _ = http.NewRequest("GET", "/models/model-generic-fallback/sft-config?workspace=ws1", nil)
 
+	c.Set(common.UserId, adminModelUserID)
 	result, err := h.getSftConfig(c)
 	assert.NilError(t, err)
 
@@ -760,6 +765,7 @@ func TestGetSftConfig_SharedLocalPathAccessible(t *testing.T) {
 	c.Params = gin.Params{{Key: "id", Value: "model-qwen-shared-local"}}
 	c.Request, _ = http.NewRequest("GET", "/models/model-qwen-shared-local/sft-config?workspace=ws1", nil)
 
+	c.Set(common.UserId, adminModelUserID)
 	result, err := h.getSftConfig(c)
 	assert.NilError(t, err)
 
@@ -795,6 +801,7 @@ func TestGetSftConfig_MissingLocalPathInWorkspace(t *testing.T) {
 	c.Params = gin.Params{{Key: "id", Value: "model-qwen-missing-local"}}
 	c.Request, _ = http.NewRequest("GET", "/models/model-qwen-missing-local/sft-config?workspace=ws1", nil)
 
+	c.Set(common.UserId, adminModelUserID)
 	result, err := h.getSftConfig(c)
 	assert.NilError(t, err)
 
@@ -1105,6 +1112,7 @@ func TestGetSftConfig_UnsupportedModel(t *testing.T) {
 	c.Params = gin.Params{{Key: "id", Value: "remote-model"}}
 	c.Request, _ = http.NewRequest("GET", "/models/remote-model/sft-config?workspace=ws1", nil)
 
+	c.Set(common.UserId, adminModelUserID)
 	result, err := h.getSftConfig(c)
 	assert.NilError(t, err)
 
