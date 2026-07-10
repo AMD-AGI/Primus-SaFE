@@ -229,12 +229,18 @@ func (h *Handler) isRequestSystemAdmin(ctx context.Context, userId string) bool 
 
 // redactClusterInfra clears control-plane infrastructure details that must only
 // be visible to system administrators: the control-plane endpoint, secret
-// references, and the pod subnet.
+// references, control-plane node list, and Kubernetes networking/installer
+// settings. Cluster status (id, phase, protection, creation time) stays visible
+// to all authenticated users via ClusterResponseItem.
 func redactClusterInfra(resp *view.GetClusterResponse) {
 	resp.Endpoint = ""
 	resp.SSHSecretId = ""
 	resp.ImageSecretId = ""
 	resp.KubePodsSubnet = nil
+	resp.Nodes = nil
+	resp.KubeServiceAddress = nil
+	resp.KubeApiServerArgs = nil
+	resp.KubeSprayImage = nil
 }
 
 // deleteCluster handles the deletion of a cluster resource.

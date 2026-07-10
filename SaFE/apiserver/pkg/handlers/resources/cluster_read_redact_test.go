@@ -27,17 +27,27 @@ import (
 // must be hidden from non-admin cluster readers.
 func TestRedactClusterInfra(t *testing.T) {
 	subnet := "10.0.0.0/16"
+	svcAddr := "10.254.0.0/16"
+	kubeSpray := "docker.io/kubespray:v1"
 	resp := view.GetClusterResponse{
-		Endpoint:       "10.0.0.1:6443",
-		SSHSecretId:    "ssh-secret",
-		ImageSecretId:  "img-secret",
-		KubePodsSubnet: &subnet,
+		Endpoint:           "10.0.0.1:6443",
+		SSHSecretId:        "ssh-secret",
+		ImageSecretId:      "img-secret",
+		KubePodsSubnet:     &subnet,
+		KubeServiceAddress: &svcAddr,
+		KubeSprayImage:     &kubeSpray,
+		Nodes:              []string{"node-a", "node-b"},
+		KubeApiServerArgs:  map[string]string{"foo": "bar"},
 	}
 	redactClusterInfra(&resp)
 	assert.Empty(t, resp.Endpoint)
 	assert.Empty(t, resp.SSHSecretId)
 	assert.Empty(t, resp.ImageSecretId)
 	assert.Nil(t, resp.KubePodsSubnet)
+	assert.Nil(t, resp.Nodes)
+	assert.Nil(t, resp.KubeServiceAddress)
+	assert.Nil(t, resp.KubeApiServerArgs)
+	assert.Nil(t, resp.KubeSprayImage)
 }
 
 // TestGetClusterRedactsInfraForNonAdmin verifies #2: getCluster returns
@@ -57,10 +67,14 @@ func TestGetClusterRedactsInfraForNonAdmin(t *testing.T) {
 		Spec:       v1.UserSpec{Type: v1.DefaultUserType},
 	}
 	subnet := "10.0.0.0/16"
+	svcAddr := "10.254.0.0/16"
 	cluster := &v1.Cluster{ObjectMeta: metav1.ObjectMeta{Name: "c1"}}
 	cluster.Spec.ControlPlane.SSHSecret = &corev1.ObjectReference{Name: "ssh-secret"}
 	cluster.Spec.ControlPlane.ImageSecret = &corev1.ObjectReference{Name: "img-secret"}
 	cluster.Spec.ControlPlane.KubePodsSubnet = &subnet
+	cluster.Spec.ControlPlane.KubeServiceAddress = &svcAddr
+	cluster.Spec.ControlPlane.Nodes = []string{"node-a", "node-b"}
+	cluster.Spec.ControlPlane.KubeApiServerArgs = map[string]string{"foo": "bar"}
 
 	ctrlClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(admin, normal, cluster).Build()
 	h := &Handler{Client: ctrlClient, accessController: &authority.AccessController{Client: ctrlClient}}
@@ -83,6 +97,9 @@ func TestGetClusterRedactsInfraForNonAdmin(t *testing.T) {
 	assert.Empty(t, got.SSHSecretId)
 	assert.Empty(t, got.ImageSecretId)
 	assert.Nil(t, got.KubePodsSubnet)
+	assert.Nil(t, got.Nodes)
+	assert.Nil(t, got.KubeServiceAddress)
+	assert.Nil(t, got.KubeApiServerArgs)
 
 	// Admin: control-plane infra fields must be present.
 	res2, err := h.getCluster(newReq("admin-c"))
@@ -92,4 +109,6 @@ func TestGetClusterRedactsInfraForNonAdmin(t *testing.T) {
 	assert.Equal(t, "ssh-secret", got2.SSHSecretId)
 	assert.Equal(t, "img-secret", got2.ImageSecretId)
 	assert.NotNil(t, got2.KubePodsSubnet)
+	assert.NotNil(t, got2.Nodes)
+	assert.NotNil(t, got2.KubeServiceAddress)
 }
