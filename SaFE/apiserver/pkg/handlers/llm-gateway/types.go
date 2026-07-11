@@ -89,6 +89,13 @@ type BindingResponse struct {
 	UpdatedAt   string `json:"updated_at,omitempty"`
 }
 
+// RevealApimKeyResponse carries the full plaintext APIM Key, returned only by
+// the dedicated reveal endpoint so the key is never exposed by listing APIs.
+type RevealApimKeyResponse struct {
+	UserEmail string `json:"user_email"`
+	ApimKey   string `json:"apim_key"`
+}
+
 // ── Summary types ─────────────────────────────────────────────────────────
 type SummaryResponse struct {
 	UserEmail  string             `json:"user_email"`

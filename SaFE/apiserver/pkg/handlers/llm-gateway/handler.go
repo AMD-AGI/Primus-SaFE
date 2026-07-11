@@ -87,6 +87,7 @@ func InitRoutes(engine *gin.Engine, handler *Handler) {
 		mgmt.PUT("/binding", handler.UpdateBinding)
 		mgmt.DELETE("/binding", handler.DeleteBinding)
 		mgmt.GET("/binding", handler.GetBinding)
+		mgmt.GET("/binding/apim-key", handler.RevealApimKey)
 		mgmt.GET("/usage", handler.GetUsage)
 		mgmt.GET("/summary", handler.GetSummary)
 		mgmt.GET("/budget", handler.GetBudget)
@@ -468,6 +469,55 @@ func (h *Handler) GetBinding(c *gin.Context) {
 	})
 }
 
+// RevealApimKey handles GET /api/v1/llm-gateway/binding/apim-key
+// Returns the full plaintext APIM Key for the current user. This is the only
+// endpoint that discloses the full key, so each reveal is audit-logged.
+func (h *Handler) RevealApimKey(c *gin.Context) {
+	email := h.getUserEmail(c)
+	if email == "" {
+		apiutils.AbortWithApiError(c, commonerrors.NewBadRequest("unable to identify user email"))
+		return
+	}
+
+	existing, err := h.dbClient.GetLLMBindingByEmail(c.Request.Context(), email)
+	if err != nil {
+		klog.ErrorS(err, "RevealApimKey: DB query failed", "email", email)
+		apiutils.AbortWithApiError(c, commonerrors.NewInternalError("service temporarily unavailable, please try again later"))
+		return
+	}
+	if existing == nil {
+		apiutils.AbortWithApiError(c, commonerrors.NewNotFoundWithMessage("no APIM Key bound for "+email))
+		return
+	}
+
+	plainKey, err := h.crypto.Decrypt(existing.ApimKey)
+	if err != nil {
+		klog.ErrorS(err, "RevealApimKey: decrypt failed", "email", email)
+		apiutils.AbortWithApiError(c, commonerrors.NewInternalError("failed to decrypt APIM Key, please try again later"))
+		return
+	}
+	if plainKey == "" {
+		klog.ErrorS(nil, "RevealApimKey: decrypted APIM Key is empty", "email", email)
+		apiutils.AbortWithApiError(c, commonerrors.NewInternalError("failed to decrypt APIM Key, please try again later"))
+		return
+	}
+
+	// Audit: record who revealed the full APIM Key, from where.
+	klog.InfoS("LLM Gateway audit: apim key revealed",
+		"userId", c.GetString(common.UserId),
+		"email", email,
+		"clientIP", c.ClientIP())
+
+	// Prevent the full key from being cached by browsers or intermediary proxies.
+	c.Header("Cache-Control", "no-store")
+	c.Header("Pragma", "no-cache")
+
+	c.JSON(http.StatusOK, RevealApimKeyResponse{
+		UserEmail: email,
+		ApimKey:   plainKey,
+	})
+}
+
 // GetSummary handles GET /api/v1/llm-gateway/summary
 // Returns cumulative total spend for the user (not tied to a date range).
 func (h *Handler) GetSummary(c *gin.Context) {
@@ -645,6 +695,9 @@ func (h *Handler) getUserEmail(c *gin.Context) string {
 // e.g. "abcdefghijklmnop" → "abcd********mnop"
 func maskKey(key string) string {
 	if len(key) <= 8 {
+		if len(key) <= 4 {
+			return "****"
+		}
 		return key[:2] + "****"
 	}
 	return key[:4] + "********" + key[len(key)-4:]
