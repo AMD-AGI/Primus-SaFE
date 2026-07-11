@@ -825,8 +825,10 @@ func buildEnvironment(workload *v1.Workload, workspace *v1.Workspace, resourceId
 	// updateCICDScaleSetEnvs. USER_ID is skipped if already set via Spec.Env;
 	// USER_APIKEY is best-effort (empty when DB/lookup is unavailable).
 	result = addEnvVar(result, workload, jobutils.UserIdEnv, v1.GetUserId(workload))
-	if platformKey := platformKeyForUser(workload); platformKey != "" {
-		result = addEnvVar(result, workload, jobutils.UserApiKeyEnv, platformKey)
+	if commonworkload.IsCICD(workload) || workload.SpecKind() == common.UnifiedJobKind {
+		if platformKey := platformKeyForUser(workload); platformKey != "" {
+			result = addEnvVar(result, workload, jobutils.UserApiKeyEnv, platformKey)
+		}
 	}
 	if commonworkload.IsAuthoring(workload) {
 		result = addEnvVar(result, workload, jobutils.AdminControlPlaneEnv, v1.GetAdminControlPlane(workload))
