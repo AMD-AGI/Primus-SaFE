@@ -88,6 +88,29 @@ func TestPlatformKeyForUser(t *testing.T) {
 	})
 }
 
+func TestBuildEnvironment_InjectsUserIdAndApiKey(t *testing.T) {
+	patches := gomonkey.NewPatches()
+	defer patches.Reset()
+	patches.ApplyFunc(commonconfig.IsDBEnable, func() bool { return true })
+	patches.ApplyFunc(dbclient.NewClient, func() *dbclient.Client { return &dbclient.Client{} })
+	patches.ApplyFunc(apikey.GetOrCreatePlatformKey, func(context.Context, dbclient.Interface, string, string) (string, error) {
+		return "injected-user-api-key", nil
+	})
+
+	// Non-CICD workload (e.g. utd-multi-node) must still get USER_ID + USER_APIKEY.
+	workload := &v1.Workload{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:   "utd-multi-node-test",
+			Labels: map[string]string{v1.UserIdLabel: "user-1"},
+		},
+	}
+	workload.Spec.Workspace = "ws"
+
+	envs := buildEnvironment(workload, nil, -1)
+	assert.Equal(t, true, findEnv(envs, jobutils.UserIdEnv, "user-1"))
+	assert.Equal(t, true, findEnv(envs, jobutils.UserApiKeyEnv, "injected-user-api-key"))
+}
+
 func TestUpdateCICDScaleSetEnvs_InjectsUserApiKey(t *testing.T) {
 	patches := gomonkey.NewPatches()
 	defer patches.Reset()

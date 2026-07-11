@@ -138,10 +138,14 @@ func (r *SyncerReconciler) updateAdminWorkloadByPod(ctx context.Context, clientS
 			return ctrlruntime.Result{}, err
 		}
 	}
+	// CICD scaling runner sets are the only pod-driven case that owns the
+	// workload phase; carry it in the field patch so it is not dropped.
+	var extraStatusFields map[string]any
 	if commonworkload.IsCICDScalingRunnerSet(adminWorkload) {
 		updateCICDScalingRunnerSetPhase(adminWorkload, pod)
+		extraStatusFields = map[string]any{"phase": adminWorkload.Status.Phase}
 	}
-	if err = r.persistWorkloadStatus(ctx, adminWorkload); err != nil {
+	if err = r.patchWorkloadPodStatus(ctx, adminWorkload, extraStatusFields); err != nil {
 		klog.ErrorS(err, "failed to update admin workload status", "name", adminWorkload.Name)
 		return ctrlruntime.Result{}, err
 	}
@@ -389,7 +393,7 @@ func (r *SyncerReconciler) removeWorkloadPod(ctx context.Context, message *resou
 		p.Phase = corev1.PodPhase(v1.WorkloadStopped)
 	}
 
-	if err = r.persistWorkloadStatus(ctx, adminWorkload); err != nil {
+	if err = r.patchWorkloadPodStatus(ctx, adminWorkload, nil); err != nil {
 		klog.ErrorS(err, "failed to update workload status", "name", adminWorkload.Name)
 		return err
 	}
