@@ -6,16 +6,20 @@
 # (infera.amd.com/v1alpha1) into Deployments / LeaderWorkerSets for the
 # InferaDeployment workload kind. Standalone (no NVIDIA dynamo operator).
 #
-# 0.1.0 adds Gateway API Inference Extension (GAIE) support: when a deployment
-# sets spec.gaie.enabled, the operator deploys an Endpoint Picker (EPP), injects
-# a direct-mode frontend sidecar into worker pods, and creates an InferencePool
-# + HTTPRoute attaching to a Kubernetes Inference Gateway (kgateway).
+# GAIE (Gateway API Inference Extension): when a deployment sets
+# spec.gaie.enabled, the operator deploys an Endpoint Picker (EPP), injects a
+# direct-mode frontend sidecar into worker pods, and creates an InferencePool +
+# HTTPRoute attaching to a Kubernetes Inference Gateway (kgateway).
+#
+# 0.1.1: Reconcile() early-returns on a non-zero DeletionTimestamp so the
+# operator no longer recreates child Deployments/StatefulSets while job-manager
+# (or Kubernetes GC) tears an InferaDeployment down.
 #
 # Notes:
 #   - Reuses cluster addons: nats.1.3.2 (KV-event plane; the workload template
 #     sets nats.deploy=false + NATS_SERVER) and lws.0.8.0 (multi-node only).
 #   - Ops must mirror to Harbor: chart oci://<helm_registry>/primussafe/
-#     infera-operator and image <registry>/primussafe/infera-kubernetes-operator
+#     infera-operator and image <registry>/primussafe/infera-operator-manager
 #     (distinct repos to avoid an OCI tag clash; build via make docker-build).
 #   - CRD ships in the chart crds/, but Helm only installs crds/ on first
 #     install (never on upgrade). When bumping the operator version with CRD
@@ -28,28 +32,28 @@ apiVersion: amd.com/v1
 kind: AddonTemplate
 metadata:
   labels:
-    primus-safe.display.name: "infera-operator.0.1.0"
+    primus-safe.display.name: "infera-operator.0.1.1"
     app.kubernetes.io/managed-by: Helm
     primus-safe.addon.default: ""
   annotations:
     meta.helm.sh/release-name: {{ .Release.Name }}
     meta.helm.sh/release-namespace: {{ .Release.Namespace }}
-  name: infera-operator.0.1.0
+  name: infera-operator.0.1.1
 spec:
   category: plugin
-  description: Infera Kubernetes operator. Reconciles InferaDeployment (infera.amd.com/v1alpha1) into Deployments / LeaderWorkerSets for aggregated and disaggregated (prefill/decode) LLM serving on AMD MI300X. Underlying resource for the InferaDeployment workload kind. Self-contained — does not require the NVIDIA dynamo operator; reuses the cluster NATS (nats.1.3.2) and, for multi-node, the LWS controller (lws.0.8.0). 0.1.0 adds Gateway API Inference Extension (GAIE) integration.
+  description: Infera Kubernetes operator. Reconciles InferaDeployment (infera.amd.com/v1alpha1) into Deployments / LeaderWorkerSets for aggregated and disaggregated (prefill/decode) LLM serving on AMD MI300X. Underlying resource for the InferaDeployment workload kind. Self-contained — does not require the NVIDIA dynamo operator; reuses the cluster NATS (nats.1.3.2) and, for multi-node, the LWS controller (lws.0.8.0). Includes Gateway API Inference Extension (GAIE) integration.
   # OCI helm chart mirrored on SaFE Harbor (ops to mirror, see header note 2).
   # Upstream source path: deploy/operator/helm/infera-operator
   url: oci://{{ .Values.global.helm_registry }}/primussafe/infera-operator
-  version: 0.1.0
+  version: 0.1.1
   type: helm
   helmDefaultNamespace: infera-system
   helmDefaultValues: |
     replicaCount: 1
 
     image:
-      repository: {{ .Values.global.image_registry }}/primussafe/infera-kubernetes-operator
-      tag: "0.1.0"
+      repository: {{ .Values.global.proxy_image_registry }}/primussafe/infera-operator-manager
+      tag: "0.1.1"
       pullPolicy: IfNotPresent
 
     leaderElection:

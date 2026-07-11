@@ -447,6 +447,9 @@ fi
 if [[ -n "${proxy_image_registry:-}" ]]; then
   sed -i '/global:/,/^[a-z]/ s|proxy_image_registry: .*|proxy_image_registry: "'"$proxy_image_registry"'"|' "$values_yaml"
 fi
+if [[ -n "${storage_class:-}" ]]; then
+  sed -i '/global:/,/^[a-z]/ s|storage_class: .*|storage_class: "'"$storage_class"'"|' "$values_yaml"
+fi
 sed -i '/global:/,/^[a-z]/ s/sub_domain: .*/sub_domain: "'"$sub_domain"'"/' "$values_yaml"
 
 install_or_upgrade_helm_chart "primus-safe-cr" "$values_yaml"

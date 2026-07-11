@@ -13,3 +13,7 @@ global:
   # Must match primus-safe global.domain when CR chart is installed with the same release values.
   domain: "primus-safe.amd.com"
   sub_domain: ""
+  # StorageClass for addon PVCs (e.g. nats JetStream fileStore). The bootstrap
+  # scripts (install.sh / upgrade.sh) override it from $storage_class; the cluster
+  # here has no default StorageClass so a concrete class must be set.
+  storage_class: "local-path"
