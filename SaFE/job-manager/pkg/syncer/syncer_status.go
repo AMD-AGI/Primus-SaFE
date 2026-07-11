@@ -15,6 +15,7 @@ import (
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
 	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
+	jobutils "github.com/AMD-AIG-AIMA/SAFE/job-manager/pkg/utils"
 )
 
 // hydrateWorkloadStatusFromDB loads per-pod and dispatch history from DB into
@@ -58,6 +59,39 @@ func (r *SyncerReconciler) persistWorkloadStatus(ctx context.Context, w *v1.Work
 	w.Status.Nodes = nil
 	w.Status.Ranks = nil
 	return r.Status().Update(ctx, w)
+}
+
+// patchWorkloadPodStatus persists only the pod-sync-owned status fields via a
+// resourceVersion-guarded merge patch instead of a full status Update. It writes
+// pods/nodes/ranks (plus the offload NodeUsage aggregate, and any caller-supplied
+// extraFields such as the CICD listener phase), so a stale local snapshot can no
+// longer clobber fields owned by other reconcilers (phase, conditions, ...). The
+// resourceVersion guard still surfaces a Conflict, so the caller keeps requeueing
+// and recomputing from fresh state.
+func (r *SyncerReconciler) patchWorkloadPodStatus(ctx context.Context, w *v1.Workload, extraFields map[string]any) error {
+	statusFields := make(map[string]any, 4+len(extraFields))
+	if !commonconfig.IsDBEnable() || r.dbClient == nil || !v1.IsWorkloadStatusOffloadEnabled(w) {
+		statusFields["pods"] = w.Status.Pods
+		statusFields["nodes"] = w.Status.Nodes
+		statusFields["ranks"] = w.Status.Ranks
+	} else {
+		if err := r.writeWorkloadStatusToDB(ctx, w); err != nil {
+			return err
+		}
+		// etcd keeps only the O(node) aggregate; clear the large per-pod arrays.
+		w.Status.NodeUsage = commonworkload.BuildNodeUsage(w)
+		w.Status.Pods = nil
+		w.Status.Nodes = nil
+		w.Status.Ranks = nil
+		statusFields["nodeUsage"] = w.Status.NodeUsage
+		statusFields["pods"] = nil
+		statusFields["nodes"] = nil
+		statusFields["ranks"] = nil
+	}
+	for k, v := range extraFields {
+		statusFields[k] = v
+	}
+	return jobutils.PatchWorkloadStatusFields(ctx, r.Client, w, statusFields)
 }
 
 // writeWorkloadStatusToDB upserts the live pod set and dispatch history rows.

@@ -88,14 +88,38 @@ func TestPlatformKeyForUser(t *testing.T) {
 	})
 }
 
+// stubPlatformKey overrides the platformKeyForUserFn seam for a test and
+// restores it on cleanup. Assigning the package var is deterministic, unlike
+// gomonkey patching of the cross-package apikey/db chain, which proved flaky
+// when many tests patch it in a single package run.
+func stubPlatformKey(t *testing.T, key string) {
+	t.Helper()
+	orig := platformKeyForUserFn
+	platformKeyForUserFn = func(*v1.Workload) string { return key }
+	t.Cleanup(func() { platformKeyForUserFn = orig })
+}
+
+func TestBuildEnvironment_InjectsUserIdAndApiKey(t *testing.T) {
+	stubPlatformKey(t, "injected-user-api-key")
+
+	// UnifiedJob workload satisfies the buildEnvironment gate
+	// (IsCICD || UnifiedJobKind); it must get USER_ID + USER_APIKEY.
+	workload := &v1.Workload{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:   "utd-multi-node-test",
+			Labels: map[string]string{v1.UserIdLabel: "user-1"},
+		},
+	}
+	workload.Spec.GroupVersionKind.Kind = common.UnifiedJobKind
+	workload.Spec.Workspace = "ws"
+
+	envs := buildEnvironment(workload, nil, -1)
+	assert.Equal(t, true, findEnv(envs, jobutils.UserIdEnv, "user-1"))
+	assert.Equal(t, true, findEnv(envs, jobutils.UserApiKeyEnv, "injected-user-api-key"))
+}
+
 func TestUpdateCICDScaleSetEnvs_InjectsUserApiKey(t *testing.T) {
-	patches := gomonkey.NewPatches()
-	defer patches.Reset()
-	patches.ApplyFunc(commonconfig.IsDBEnable, func() bool { return true })
-	patches.ApplyFunc(dbclient.NewClient, func() *dbclient.Client { return &dbclient.Client{} })
-	patches.ApplyFunc(apikey.GetOrCreatePlatformKey, func(context.Context, dbclient.Interface, string, string) (string, error) {
-		return "injected-user-api-key", nil
-	})
+	stubPlatformKey(t, "injected-user-api-key")
 
 	workspace := jobutils.TestWorkspaceData.DeepCopy()
 	workload := jobutils.TestWorkloadData.DeepCopy()

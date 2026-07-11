@@ -197,6 +197,12 @@ func platformKeyForUser(workload *v1.Workload) string {
 	return key
 }
 
+// platformKeyForUserFn is a seam so tests can stub the platform key lookup by
+// assignment. gomonkey cannot reliably re-patch the cross-package apikey/db
+// chain across many tests in a single package run, which made env-injection
+// tests flaky; a package var override is deterministic.
+var platformKeyForUserFn = platformKeyForUser
+
 // dispatchNodesAt returns the admin nodes assigned at the given dispatch index,
 // preferring the DB workload_dispatch_node table and falling back to the etcd
 // Status.Nodes. Best-effort: a missing db client (e.g. DB disabled) or any query
@@ -820,6 +826,16 @@ func buildEnvironment(workload *v1.Workload, workspace *v1.Workspace, resourceId
 	result = addEnvVar(result, workload, "SAFE_WORKSPACE", workload.Spec.Workspace)
 	result = addEnvVar(result, workload, "DISPLAY_NAME", v1.GetDisplayName(workload))
 	result = addEnvVar(result, workload, "DISPATCH_COUNT", strconv.Itoa(v1.GetWorkloadDispatchCnt(workload)+1))
+	// Inject the workload owner's identity + platform API key so non-CICD
+	// workloads (e.g. multi-node jobs) can authenticate downstream, mirroring
+	// updateCICDScaleSetEnvs. USER_ID is skipped if already set via Spec.Env;
+	// USER_APIKEY is best-effort (empty when DB/lookup is unavailable).
+	result = addEnvVar(result, workload, jobutils.UserIdEnv, v1.GetUserId(workload))
+	if commonworkload.IsCICD(workload) || workload.SpecKind() == common.UnifiedJobKind {
+		if platformKey := platformKeyForUserFn(workload); platformKey != "" {
+			result = addEnvVar(result, workload, jobutils.UserApiKeyEnv, platformKey)
+		}
+	}
 	if commonworkload.IsAuthoring(workload) {
 		result = addEnvVar(result, workload, jobutils.AdminControlPlaneEnv, v1.GetAdminControlPlane(workload))
 	}
@@ -1173,7 +1189,9 @@ func updateCICDScaleSetEnvs(obj *unstructured.Unstructured,
 	}
 	envs := maps.Copy(adminWorkload.Spec.Env)
 	envs[jobutils.UserIdEnv] = v1.GetUserId(adminWorkload)
-	if platformKey := platformKeyForUser(adminWorkload); platformKey != "" {
+	// CICD scale sets have their own env path (not buildEnvironment), so inject
+	// the platform API key here too; best-effort (empty when DB/lookup fails).
+	if platformKey := platformKeyForUserFn(adminWorkload); platformKey != "" {
 		envs[jobutils.UserApiKeyEnv] = platformKey
 	}
 	envs[jobutils.PriorityEnv] = strconv.Itoa(adminWorkload.Spec.Priority)
