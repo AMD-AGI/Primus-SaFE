@@ -88,21 +88,29 @@ func TestPlatformKeyForUser(t *testing.T) {
 	})
 }
 
-func TestBuildEnvironment_InjectsUserIdAndApiKey(t *testing.T) {
-	patches := gomonkey.NewPatches()
-	defer patches.Reset()
-	// Patch the same-package seam directly (single, reliable patch) rather than
-	// the cross-package apikey/db chain, which gomonkey struggles to re-patch
-	// across multiple tests in one package run.
-	patches.ApplyFunc(platformKeyForUser, func(*v1.Workload) string { return "injected-user-api-key" })
+// stubPlatformKey overrides the platformKeyForUserFn seam for a test and
+// restores it on cleanup. Assigning the package var is deterministic, unlike
+// gomonkey patching of the cross-package apikey/db chain, which proved flaky
+// when many tests patch it in a single package run.
+func stubPlatformKey(t *testing.T, key string) {
+	t.Helper()
+	orig := platformKeyForUserFn
+	platformKeyForUserFn = func(*v1.Workload) string { return key }
+	t.Cleanup(func() { platformKeyForUserFn = orig })
+}
 
-	// Non-CICD workload (e.g. utd-multi-node) must still get USER_ID + USER_APIKEY.
+func TestBuildEnvironment_InjectsUserIdAndApiKey(t *testing.T) {
+	stubPlatformKey(t, "injected-user-api-key")
+
+	// UnifiedJob workload satisfies the buildEnvironment gate
+	// (IsCICD || UnifiedJobKind); it must get USER_ID + USER_APIKEY.
 	workload := &v1.Workload{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:   "utd-multi-node-test",
 			Labels: map[string]string{v1.UserIdLabel: "user-1"},
 		},
 	}
+	workload.Spec.GroupVersionKind.Kind = common.UnifiedJobKind
 	workload.Spec.Workspace = "ws"
 
 	envs := buildEnvironment(workload, nil, -1)
@@ -111,13 +119,7 @@ func TestBuildEnvironment_InjectsUserIdAndApiKey(t *testing.T) {
 }
 
 func TestUpdateCICDScaleSetEnvs_InjectsUserApiKey(t *testing.T) {
-	patches := gomonkey.NewPatches()
-	defer patches.Reset()
-	patches.ApplyFunc(commonconfig.IsDBEnable, func() bool { return true })
-	patches.ApplyFunc(dbclient.NewClient, func() *dbclient.Client { return &dbclient.Client{} })
-	patches.ApplyFunc(apikey.GetOrCreatePlatformKey, func(context.Context, dbclient.Interface, string, string) (string, error) {
-		return "injected-user-api-key", nil
-	})
+	stubPlatformKey(t, "injected-user-api-key")
 
 	workspace := jobutils.TestWorkspaceData.DeepCopy()
 	workload := jobutils.TestWorkloadData.DeepCopy()

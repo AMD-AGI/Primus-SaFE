@@ -1189,6 +1189,11 @@ func updateCICDScaleSetEnvs(obj *unstructured.Unstructured,
 	}
 	envs := maps.Copy(adminWorkload.Spec.Env)
 	envs[jobutils.UserIdEnv] = v1.GetUserId(adminWorkload)
+	// CICD scale sets have their own env path (not buildEnvironment), so inject
+	// the platform API key here too; best-effort (empty when DB/lookup fails).
+	if platformKey := platformKeyForUserFn(adminWorkload); platformKey != "" {
+		envs[jobutils.UserApiKeyEnv] = platformKey
+	}
 	envs[jobutils.PriorityEnv] = strconv.Itoa(adminWorkload.Spec.Priority)
 	envs[jobutils.WorkspaceIdEnv] = adminWorkload.Spec.Workspace
 	envs[jobutils.AdminControlPlaneEnv] = v1.GetAdminControlPlane(adminWorkload)
