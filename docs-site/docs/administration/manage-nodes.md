@@ -5,9 +5,6 @@ title: Manage nodes
 
 # Manage nodes
 
-> **Status:** Draft · **Owner:** _unassigned_ · **Source:** `SaFE/docs/apis/node.md`,
-> `ops-job.md`, `workspace.md`
-
 Day-2 node operations: bring capacity into the platform, move it between workspaces, take
 nodes safely in and out of service, and clean up. Quota is **nodes × node flavor**, so most
 node operations directly change how much compute a workspace has — see
@@ -34,12 +31,35 @@ is not, `message` explains why.
 > the node detail for capacity and logs. Each section shows the UI step and the equivalent API
 > call.
 
+<!-- @test
+scope: page
+mode: contract
+priority: P1
+personas: [admin]
+preconditions: [running-cluster]
+do: open System > Nodes (read-only — do NOT cordon, reboot, or delete any node)
+expect:
+  - registered nodes are listed, each with a phase (e.g. Ready) and an availability indicator
+  - each node row exposes the day-2 actions (bind/unmanage, retry, reboot)
+  - the Create Node form exposes hostname, private IP, flavor, node template, and SSH secret
+-->
+<!-- @test todo:
+  - "Mutating node ops (taint/cordon/drain, reboot, delete) are destructive on a live cluster; add behavior tests only against a disposable node."
+-->
+
 ## Register a node
 
 A node must be SSH-reachable and is registered against an existing **node flavor** (hardware
 profile), **node template** (software/addons), and **SSH secret** (login credentials). In the
 console, open **System → Nodes → Create Node** and fill in the hostname, private IP, flavor,
 template, and SSH secret:
+
+:::warning Authorize the deploy node's SSH key first
+Before registering a node, take the SSH **public** key that the platform uses (the one paired
+with the registered SSH secret / the deploy node's key) and add it to `/root/.ssh/authorized_keys`
+on every node you want to add. Without this the resource-manager cannot SSH in, and the node will
+land in `SSHFailed`. This is an easy step to miss.
+:::
 
 ![Create Node form](/img/screenshots/create-node-form.png)
 
@@ -74,6 +94,56 @@ curl -X POST https://<your-console>/api/v1/nodes/retry \
 View what happened during join/leave with the management logs:
 `GET /api/v1/nodes/{nodeId}/logs`.
 
+## Add nodes to an existing cluster
+
+Adding capacity to a running cluster is a platform operation — **you do not re-run the
+Bootstrap installer per node, and you do not SSH in to run Ansible by hand.** The flow is:
+
+1. **Register the node** (above) — it reaches machine `Ready` once the resource-manager can SSH in.
+2. **Bind it to the cluster** — **System → Clusters → \<cluster\> → add nodes**, or:
+
+   ```bash
+   curl -X POST https://<your-console>/api/v1/clusters/<clusterId>/nodes \
+     -H "Authorization: Bearer <admin-token>" \
+     -d '{ "action": "add", "nodeIds": ["gpu-node-001"] }'
+   ```
+
+**Under the hood:** binding a node to a cluster sets `node.spec.cluster`, and the
+resource-manager runs **Kubespray `scale.yml`** against just that node **inside a pod** to join
+it (`Managing` → `Managed`). The `node-agent` DaemonSet then lands on it automatically, and it
+appears as schedulable capacity. Watch progress with `GET /api/v1/nodes/{nodeId}/logs`.
+
+### Prerequisites for a node
+
+| Requirement | Why |
+|-------------|-----|
+| SSH-reachable + a registered **SSH secret** | the resource-manager logs in to provision it |
+| A **node flavor** | hardware profile used for quota/scheduling |
+| A **node template** | defines the addons installed over SSH |
+| **Not bound to another cluster**, not in a `Deleting`/terminating state | a node marked for deletion cannot be joined |
+| Clean container runtime (no stray Docker), supported OS, `python3` | Kubespray `scale.yml` requirements |
+
+:::warning Adopted (Bootstrap-built) clusters
+If the cluster was built by hand with the Bootstrap installer and only later registered in the
+console, the UI-driven join may stall (the platform's record can diverge from the real cluster).
+As a fallback you can add the node to your Kubespray inventory under `[kube_node]` (leave
+`[kube_control_plane]`/`[etcd]` untouched) and run the scale playbook directly:
+
+```bash
+ansible-playbook -i <inventory> scale.yml --limit=<node>
+```
+
+Re-running the Bootstrap installer also works (it runs the idempotent `cluster.yml`) but is
+heavier as it touches every node.
+:::
+
+:::note Node stuck in `Deleting`
+A node bound to a cluster that is later deleted can get wedged with a `deletionTimestamp` and the
+`primus-safe/node.finalizer`. It will neither finish deleting nor join. If it never actually
+joined Kubernetes, clear the finalizer to let it delete, then re-register it fresh:
+`kubectl patch node.amd.com <name> --type=merge -p '{"metadata":{"finalizers":null}}'`.
+:::
+
 ## Inspect capacity
 
 List nodes with their resources, current workloads, and availability:
@@ -93,7 +163,9 @@ small slice of each node, so schedulable capacity is slightly below the raw flav
 ## Move nodes between workspaces
 
 Capacity is assigned to a workspace by binding nodes to it; this is how you grow or shrink a
-workspace's quota. Add or remove nodes on the workspace:
+workspace's quota. In the console, open **System → Workspaces → \<workspace\>** and use its
+**Nodes** panel to add or remove nodes (this is the most common way node moves are done). The
+equivalent API call:
 
 ```bash
 curl -X POST https://<your-console>/api/v1/workspaces/<workspaceId>/nodes \
@@ -143,9 +215,58 @@ The platform's fault tolerance also taints nodes automatically when the Node Age
 problems — see [Pre-flight & in-flight monitoring](/administration/preflight-and-monitoring)
 and [Fault tolerance](/concepts/fault-tolerance).
 
+## Enable / disable health monitors (auto-taints)
+
+The `node-agent` runs a set of health-check scripts (each has an ID, e.g. `201`, `309`). When a
+check fails it sets a node condition and the platform applies a `primus-safe.<id>` `NoSchedule`
+taint. On a cluster that lacks the hardware/storage a monitor expects, the check fails and taints
+the node even though nothing is wrong — so you turn that monitor off.
+
+Diagnose which monitor tainted a node (the taint/condition key is the monitor ID):
+
+```bash
+kubectl get nodes -o json | jq -r '.items[] | .metadata.name as $n
+  | (.spec.taints[]? | select(.key|startswith("primus-safe")) | "\($n) \(.key)")'
+# e.g. "<node> primus-safe.309"  -> monitor 309 (WekaFS CSI) is failing
+```
+
+There are **two ways to toggle a monitor**, depending on the monitor:
+
+**A. Helm value toggles** (preferred) — available for `net_bnxt_load_204`, `net_ainic_load_205`,
+`net_ainic_devices_208`, `sys_csi_wekafs_309`, `disk_nfs_exist_check_402`:
+
+```bash
+# e.g. a cluster with no WekaFS: turn off the Weka CSI check (309)
+helm upgrade node-agent ./node-agent -n primus-safe --reuse-values \
+  --set monitor.toggles.sys_csi_wekafs_309=off
+```
+
+(Or set the matching `node_agent_toggle_*` key in `SaFE/bootstrap/.env` and re-run the installer.)
+
+**B. ConfigMap edit** — for monitors hardcoded `"on"` with no Helm value (e.g. `201`
+`net_ib_status`, `401` `disk_nfs_mount`, `202`, `203`, `206`). Edit the rendered ConfigMap; the
+node-agent hot-reloads:
+
+```bash
+kubectl -n primus-safe edit cm primus-safe-node-agent
+# find the entry, change  "toggle":"on"  ->  "toggle":"off"
+```
+
+When the monitor is disabled (or the underlying issue is fixed and the check passes), the
+condition clears and the `primus-safe.<id>` taint is removed automatically.
+
+:::tip Common test-cluster toggles
+A test cluster with **no NFS and no WekaFS** should disable `sys_csi_wekafs_309` (Helm value) and
+`disk_nfs_mount_401` (ConfigMap edit — it defaults to `on` with empty mount settings and will
+otherwise false-fault). Disable `net_ib_status_201` only if you have no working RoCE/IB fabric.
+:::
+
 ## Reboot a node
 
-A reboot runs as an asynchronous `reboot` **OpsJob**. Track it with the returned `jobId`:
+The usual way to reboot a node is from the console: open **System → Nodes**, find the node's row,
+and use its **Reboot** action. Under the hood a reboot runs as an asynchronous `reboot`
+**OpsJob**, which you can also drive directly through the API — track it with the returned
+`jobId`:
 
 ```bash
 curl -X POST https://<your-console>/api/v1/opsjobs \
@@ -160,7 +281,10 @@ curl -X POST https://<your-console>/api/v1/opsjobs \
 
 ## Remove a node from the cluster
 
-A node must be unbound from its cluster before deletion unless you force it:
+From the console, open **System → Nodes**, find the node's row, and use its **Delete** action
+(unbind it from its cluster first). Expect the node to take roughly **10–15 minutes** to fully
+unmanage before it disappears — this is normal. The equivalent API calls are below; a node must
+be unbound from its cluster before deletion unless you force it:
 
 ```bash
 # Single node (must be unbound unless force=true)

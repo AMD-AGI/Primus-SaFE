@@ -58,7 +58,13 @@ func (h *Handler) Chat(c *gin.Context) {
 	modelErr := h.k8sClient.Get(ctx, ctrlclient.ObjectKey{Name: req.ServiceId}, k8sModel)
 
 	if modelErr == nil {
-		// Found as Model
+		// Found as Model. Enforce the same read visibility as getModel before
+		// exposing the model's endpoint or proxying to it with its API key.
+		user := h.readVisibilityUser(ctx, userId)
+		if !canViewModel(user, v1.GetUserId(k8sModel), k8sModel.Spec.Workspace) {
+			c.JSON(http.StatusForbidden, gin.H{"error": "you are not allowed to access this model"})
+			return
+		}
 		if k8sModel.Spec.Source.AccessMode == v1.AccessModeRemoteAPI {
 			// Remote API Model
 			if k8sModel.Status.Phase != v1.ModelPhaseReady {
@@ -98,6 +104,15 @@ func (h *Handler) Chat(c *gin.Context) {
 
 		if !found {
 			c.JSON(404, gin.H{"error": fmt.Sprintf("service not found (neither model nor workload): %s", req.ServiceId)})
+			return
+		}
+
+		// Restrict chatting with a deployed workload to members of its workspace
+		// (system admins included); other users must not reach another
+		// workspace's inference service through the playground.
+		user := h.readVisibilityUser(ctx, userId)
+		if !canAccessWorkspace(user, k8sWorkload.Spec.Workspace) {
+			c.JSON(http.StatusForbidden, gin.H{"error": "you are not allowed to access this workload"})
 			return
 		}
 
@@ -189,6 +204,7 @@ func (h *Handler) listPlaygroundServices(c *gin.Context) (interface{}, error) {
 	}
 
 	ctx := c.Request.Context()
+	user := h.readVisibilityUser(ctx, c.GetString(common.UserId))
 	var items []PlaygroundServiceItem
 
 	// 1. List remote_api models that are ready (not filtered by workspace)
@@ -198,6 +214,11 @@ func (h *Handler) listPlaygroundServices(c *gin.Context) (interface{}, error) {
 	}
 
 	for _, m := range modelList.Items {
+		// Only surface models the caller may see (public + owned + member
+		// workspaces; admins see all), mirroring listModels.
+		if !canViewModel(user, v1.GetUserId(&m), m.Spec.Workspace) {
+			continue
+		}
 		if m.Spec.Source.AccessMode == v1.AccessModeRemoteAPI && m.Status.Phase == v1.ModelPhaseReady {
 			items = append(items, PlaygroundServiceItem{
 				Type:        "remote_api",
@@ -220,6 +241,13 @@ func (h *Handler) listPlaygroundServices(c *gin.Context) (interface{}, error) {
 	for _, w := range workloadList.Items {
 		// Only include workloads that are running
 		if w.Status.Phase != v1.WorkloadRunning {
+			continue
+		}
+
+		// Only surface workloads whose workspace the caller may access
+		// (members + system admins), so the playground never lists another
+		// workspace's inference service.
+		if !canAccessWorkspace(user, w.Spec.Workspace) {
 			continue
 		}
 
@@ -305,6 +333,13 @@ func (h *Handler) getChatURL(c *gin.Context) (interface{}, error) {
 	k8sModel := &v1.Model{}
 	if err := h.k8sClient.Get(ctx, ctrlclient.ObjectKey{Name: modelId}, k8sModel); err != nil {
 		return nil, commonerrors.NewNotFound("model", modelId)
+	}
+
+	// Enforce the same read visibility as getModel: the chat URL exposes the
+	// model's endpoint and whether an API key is configured.
+	user := h.readVisibilityUser(ctx, c.GetString(common.UserId))
+	if !canViewModel(user, v1.GetUserId(k8sModel), k8sModel.Spec.Workspace) {
+		return nil, commonerrors.NewForbidden("you are not allowed to access this model")
 	}
 
 	if k8sModel.Spec.Source.AccessMode != v1.AccessModeRemoteAPI {
@@ -430,7 +465,7 @@ func (h *Handler) streamChat(c *gin.Context, baseUrl string, apiKey string, mode
 	// Configure HTTP client to skip TLS certificate verification
 	config.HTTPClient = &http.Client{
 		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: !commonconfig.IsOutboundTLSVerifyEnabled()}, //nolint:gosec // opt-in strict verification via tls.verify_outbound
 		},
 		Timeout: 300 * time.Second,
 	}
@@ -526,7 +561,7 @@ func (h *Handler) nonStreamChat(c *gin.Context, baseUrl string, apiKey string, m
 	// Configure HTTP client to skip TLS certificate verification
 	config.HTTPClient = &http.Client{
 		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: !commonconfig.IsOutboundTLSVerifyEnabled()}, //nolint:gosec // opt-in strict verification via tls.verify_outbound
 		},
 		Timeout: 300 * time.Second,
 	}

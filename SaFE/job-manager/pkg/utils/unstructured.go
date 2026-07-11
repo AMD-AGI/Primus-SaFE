@@ -27,6 +27,7 @@ import (
 const (
 	WorkspaceIdEnv       = "WORKSPACE_ID"
 	UserIdEnv            = "USER_ID"
+	UserApiKeyEnv        = "USER_APIKEY"
 	PriorityEnv          = "PRIORITY"
 	AdminControlPlaneEnv = "ADMIN_CONTROL_PLANE"
 	GithubSecretEnv      = "GITHUB_SECRET_ID"

@@ -5,83 +5,85 @@ title: Pre-flight & in-flight monitoring
 
 # Pre-flight & in-flight monitoring
 
-> **Status:** Draft · **Owner:** _unassigned_ · **Source:** `SaFE/docs/apis/ops-job.md`
-> (`preflight`), `fault.md`, `workload.md` (`isSupervised`, `avgGpuUsage`), `Bench/README.md`
+The goal is **goodput** — keeping GPU time on useful work. You protect it on two timelines:
+validate hardware **before** a production run, and watch health **while** it runs so faults are
+caught and recovered.
 
-The goal is **goodput** — the share of GPU time that goes into useful training. You protect it
-on two timelines: validate hardware *before* a production job runs, and watch health *while* it
-runs so faults are caught and recovered automatically.
+## Pre-flight checks
 
-## Before the job: pre-flight checks
+A pre-flight check runs a test container against a target (a cluster, a workspace, or specific
+nodes) and reports the result, so you catch bad hardware before a big job lands on it.
 
-A pre-flight check runs as a `preflight` **OpsJob** that executes a test container against a
-cluster, a workspace, or specific nodes, then writes a report you can read back.
+In the console, go to **System → Bench** and click **Create Bench**:
 
-```bash
-curl -X POST https://<your-console>/api/v1/opsjobs \
-  -H "Authorization: Bearer <token>" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "name": "preflight-check",
-    "type": "preflight",
-    "inputs": [ { "name": "cluster", "value": "prod-cluster" } ],
-    "image": "harbor.example.com/tools/preflight:latest",
-    "entryPoint": "YmFzaCAtYyAnLi9ydW4uc2gnCg==",
-    "resource": { "cpu": "8", "memory": "32Gi" },
-    "securityOperation": true,
-    "isTolerateAll": true,
-    "timeoutSecond": 7200
-  }'
-```
+1. Set a **name**, an **image**, and the **entry point** (the check to run).
+2. Choose the **Type** (node / cluster / workspace) and the **Value** (the specific target), and
+   set the **resources** for the check.
+3. Optionally enable **Toleration** so the check can run on nodes that are already tainted, and set
+   a **Timeout**.
+4. **Submit**, then track it in the list — its **Phase** moves to `Succeeded` or `Failed`. Open the
+   job to read its report.
 
-Key options:
+![Create Bench (pre-flight) form](/img/screenshots/preflight-create-form.png)
 
-- **Target** (`inputs`) — exactly one of `node` (repeatable), `cluster`, `workspace`, or
-  `node.host` takes effect. Non-admin users must scope to a `workspaceId`.
-- **`entryPoint`** is Base64-encoded.
-- **`securityOperation: true`** skips nodes that currently have workloads, so a check won't
-  disturb running jobs.
-- **`isTolerateAll`** lets the check run on tainted nodes.
+:::note The check runs whatever your image does
+A pre-flight check is only as good as the **image** you point it at — the platform runs the
+container and reports pass/fail, but it does not ship a generic check image. In practice the check
+image often has to be tailored to a cluster's hardware. If you don't have a suitable image,
+prefer **Primus-Bench** (below), which ships ready-made node health/performance checks.
+:::
 
-Track it like any OpsJob (`GET /api/v1/opsjobs/{jobId}`); when it succeeds, the report location
-shows up in the job's `outputs` (e.g. `{ "name": "report", "value": "s3://.../report.json" }`).
+<!-- @test
+scope: page
+mode: behavior
+priority: P1
+personas: [admin]
+preconditions: [running-cluster, workspace-with-quota]
+do: System > Bench > Create Bench; pick Type = workspace and the test workspace, a pullable image and a trivial entry point; enable Toleration; Submit
+expect:
+  - the job appears in the Bench list and is accepted (phase Pending/Running, not Rejected)
+cleanup: delete the bench job via its row action
+-->
 
-### Primus-Bench (standalone)
+For deeper, standalone hardware/performance benchmarking outside the platform, use **Primus-Bench**
+(bare-metal / SLURM / Kubernetes) — see
+[`Bench/README.md`](https://github.com/AMD-AGI/Primus-SaFE/blob/main/Bench/README.md).
 
-For deeper hardware/performance benchmarking outside the platform's OpsJob flow (bare-metal,
-SLURM, or Kubernetes), use **Primus-Bench**. See `Bench/README.md`.
+## In-flight monitoring
 
-> **Not yet covered:** a recommended baseline pre-flight image/entryPoint, and how to read the
-> report contents (pass/fail criteria).
+### Faults
 
-## During the job: in-flight monitoring
+The **Node Agent** continuously checks each node. When a check fails it raises a **Fault**, which
+**taints** the node so the scheduler stops placing work there; fault-tolerant jobs then fail over
+to healthy capacity.
+
+Review them in the console under **System → Faults** — each fault shows the **node**, an **error
+ID** (the failing check, e.g. `201` networking, `309` storage CSI), the **action** taken (e.g.
+`taint`), and timestamps. When the underlying issue is fixed the fault clears and the taint is
+removed automatically; you can also resolve a fault from its row actions.
+
+<!-- @test
+scope: page
+mode: contract
+priority: P1
+personas: [admin]
+preconditions: [running-cluster]
+do: open System > Faults (read-only)
+expect:
+  - faults are listed, each with a node, an error ID, the action taken (e.g. taint), and a creation time
+-->
+
+Which health checks run (and how to turn off ones your hardware doesn't need) is covered in
+[Manage nodes → health monitors](/administration/manage-nodes). The recovery model is in
+[Fault tolerance](/concepts/fault-tolerance).
 
 ### Dashboards
 
-Grafana dashboards expose cluster-level and per-job health (GPU utilization, memory, network,
-temperatures). Per-workload, the platform also surfaces `avgGpuUsage`.
-
-> **Not yet covered:** where Grafana is exposed (URL/route), how it's enabled in
-> `charts/primus-safe/values.yaml`, and which dashboards ship by default.
-
-### Automatic health and recovery
-
-The **Node Agent** continuously monitors each node. When it detects a problem it raises a
-**Fault**, which taints the affected node so the scheduler stops using it; fault-tolerant
-workloads then fail over to healthy capacity. This is the core of
-[Fault tolerance](/concepts/fault-tolerance).
-
-- List active faults: `GET /api/v1/faults`.
-- A faulted node shows as unavailable with a reason in the [node list](/administration/manage-nodes#inspect-capacity).
+The platform ships **Grafana** dashboards for cluster- and job-level health (GPU utilization,
+memory, network, temperatures); per workload it also reports `avgGpuUsage`. Open them from the
+console.
 
 ### Hang detection
 
-Set `isSupervised` on a workload to enable hang detection (a job making no progress is caught
-even when nothing has crashed).
-
-> **Not yet covered (capture so we don't lose it):**
-> - [ ] Fault types and lifecycle; how to **clear** a fault and untaint the node
->       (`fault.md`).
-> - [ ] What `isSupervised` does on detection (restart? alert?) and how to enable it from the
->       console.
-> - [ ] Alerting/notification routing (link to user notification settings).
+Long jobs can stop making progress without crashing. Enable **hang detection** on a workload (the
+`isSupervised` option) so the platform flags a job that has stalled, even when nothing has failed.

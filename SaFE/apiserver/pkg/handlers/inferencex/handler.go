@@ -19,6 +19,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"k8s.io/klog/v2"
+
+	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 )
 
 const (
@@ -87,7 +89,7 @@ func NewHandler(ttl time.Duration) *Handler {
 		httpClient: &http.Client{
 			Timeout: 30 * time.Second,
 			Transport: &http.Transport{
-				TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec // InferenceX public API, container lacks updated CA certs
+				TLSClientConfig: &tls.Config{InsecureSkipVerify: !commonconfig.IsOutboundTLSVerifyEnabled()}, //nolint:gosec // opt-in strict verification via tls.verify_outbound; InferenceX public API, container may lack CA certs
 			},
 		},
 		ttl: ttl,

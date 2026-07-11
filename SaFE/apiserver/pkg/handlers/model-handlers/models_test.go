@@ -38,15 +38,17 @@ func init() {
 // newMockModelHandler creates a mock Handler for testing
 func newMockModelHandler(k8sClient client.Client) *Handler {
 	return &Handler{
-		k8sClient: k8sClient,
-		dbClient:  nil, // No database client for unit tests
+		k8sClient:        k8sClient,
+		dbClient:         nil, // No database client for unit tests
+		accessController: adminModelAC(),
 	}
 }
 
 func newMockModelHandlerWithDB(k8sClient client.Client, dbClient dbclient.Interface) *Handler {
 	return &Handler{
-		k8sClient: k8sClient,
-		dbClient:  dbClient,
+		k8sClient:        k8sClient,
+		dbClient:         dbClient,
+		accessController: adminModelAC(),
 	}
 }
 
@@ -241,6 +243,7 @@ func TestListModels(t *testing.T) {
 		w := httptest.NewRecorder()
 		c, _ := gin.CreateTestContext(w)
 		c.Request, _ = http.NewRequest("GET", "/models?limit=10&offset=0", nil)
+		c.Set(common.UserId, adminModelUserID)
 
 		result, err := h.listModels(c)
 		assert.NilError(t, err)
@@ -253,6 +256,7 @@ func TestListModels(t *testing.T) {
 		w := httptest.NewRecorder()
 		c, _ := gin.CreateTestContext(w)
 		c.Request, _ = http.NewRequest("GET", "/models?accessMode=remote_api", nil)
+		c.Set(common.UserId, adminModelUserID)
 
 		result, err := h.listModels(c)
 		assert.NilError(t, err)
@@ -266,6 +270,7 @@ func TestListModels(t *testing.T) {
 		w := httptest.NewRecorder()
 		c, _ := gin.CreateTestContext(w)
 		c.Request, _ = http.NewRequest("GET", "/models?workspace=ws1", nil)
+		c.Set(common.UserId, adminModelUserID)
 
 		result, err := h.listModels(c)
 		assert.NilError(t, err)
@@ -291,6 +296,7 @@ func TestDeleteModel(t *testing.T) {
 	c, _ := gin.CreateTestContext(w)
 	c.Params = gin.Params{{Key: "id", Value: "model-to-delete"}}
 	c.Request, _ = http.NewRequest("DELETE", "/models/model-to-delete", nil)
+	c.Set(common.UserId, adminModelUserID)
 
 	result, err := h.deleteModel(c)
 	assert.NilError(t, err)
@@ -318,6 +324,7 @@ func TestDeleteModel_WithRunningWorkloads(t *testing.T) {
 	c, _ := gin.CreateTestContext(w)
 	c.Params = gin.Params{{Key: "id", Value: "model-with-workloads"}}
 	c.Request, _ = http.NewRequest("DELETE", "/models/model-with-workloads", nil)
+	c.Set(common.UserId, adminModelUserID)
 
 	_, err := h.deleteModel(c)
 	assert.ErrorContains(t, err, "running/pending workloads exist")
@@ -358,6 +365,7 @@ func TestRetryModel(t *testing.T) {
 	c, _ := gin.CreateTestContext(w)
 	c.Params = gin.Params{{Key: "id", Value: "failed-model"}}
 	c.Request, _ = http.NewRequest("POST", "/models/failed-model/retry", nil)
+	c.Set(common.UserId, adminModelUserID)
 
 	result, err := h.retryModel(c)
 	assert.NilError(t, err)
@@ -386,6 +394,7 @@ func TestRetryModel_NotFailed(t *testing.T) {
 	c, _ := gin.CreateTestContext(w)
 	c.Params = gin.Params{{Key: "id", Value: "ready-model"}}
 	c.Request, _ = http.NewRequest("POST", "/models/ready-model/retry", nil)
+	c.Set(common.UserId, adminModelUserID)
 
 	_, err := h.retryModel(c)
 	assert.ErrorContains(t, err, "not in Failed phase")
@@ -416,6 +425,7 @@ func TestPatchModel(t *testing.T) {
 	c.Request, _ = http.NewRequest("PATCH", "/models/model-to-patch", bytes.NewBuffer(body))
 	c.Request.Header.Set("Content-Type", "application/json")
 
+	c.Set(common.UserId, adminModelUserID)
 	result, err := h.patchModel(c)
 	assert.NilError(t, err)
 	assert.Assert(t, result != nil)
@@ -467,6 +477,7 @@ func TestGetModelWorkloads(t *testing.T) {
 	c, _ := gin.CreateTestContext(w)
 	c.Params = gin.Params{{Key: "id", Value: "model-1"}}
 	c.Request, _ = http.NewRequest("GET", "/models/model-1/workloads", nil)
+	c.Set(common.UserId, adminModelUserID)
 
 	result, err := h.getModelWorkloads(c)
 	assert.NilError(t, err)
@@ -568,6 +579,7 @@ func TestGetSftConfig(t *testing.T) {
 	c.Params = gin.Params{{Key: "id", Value: "model-qwen"}}
 	c.Request, _ = http.NewRequest("GET", "/models/model-qwen/sft-config?workspace=ws1", nil)
 
+	c.Set(common.UserId, adminModelUserID)
 	result, err := h.getSftConfig(c)
 	assert.NilError(t, err)
 
@@ -612,6 +624,7 @@ func TestGetSftConfig_32BDefaults(t *testing.T) {
 	c.Params = gin.Params{{Key: "id", Value: "model-qwen-32b"}}
 	c.Request, _ = http.NewRequest("GET", "/models/model-qwen-32b/sft-config?workspace=ws1", nil)
 
+	c.Set(common.UserId, adminModelUserID)
 	result, err := h.getSftConfig(c)
 	assert.NilError(t, err)
 
@@ -647,6 +660,7 @@ func TestGetSftConfig_InferRecipeForGenericQwenModel(t *testing.T) {
 	c.Params = gin.Params{{Key: "id", Value: "model-qwen-generic"}}
 	c.Request, _ = http.NewRequest("GET", "/models/model-qwen-generic/sft-config?workspace=ws1", nil)
 
+	c.Set(common.UserId, adminModelUserID)
 	result, err := h.getSftConfig(c)
 	assert.NilError(t, err)
 
@@ -681,6 +695,7 @@ func TestGetSftConfig_OverrideAllowsUnknownModel(t *testing.T) {
 		nil,
 	)
 
+	c.Set(common.UserId, adminModelUserID)
 	result, err := h.getSftConfig(c)
 	assert.NilError(t, err)
 
@@ -710,6 +725,7 @@ func TestGetSftConfig_UnknownModelFallsBackToDefaultRecipe(t *testing.T) {
 	c.Params = gin.Params{{Key: "id", Value: "model-generic-fallback"}}
 	c.Request, _ = http.NewRequest("GET", "/models/model-generic-fallback/sft-config?workspace=ws1", nil)
 
+	c.Set(common.UserId, adminModelUserID)
 	result, err := h.getSftConfig(c)
 	assert.NilError(t, err)
 
@@ -749,6 +765,7 @@ func TestGetSftConfig_SharedLocalPathAccessible(t *testing.T) {
 	c.Params = gin.Params{{Key: "id", Value: "model-qwen-shared-local"}}
 	c.Request, _ = http.NewRequest("GET", "/models/model-qwen-shared-local/sft-config?workspace=ws1", nil)
 
+	c.Set(common.UserId, adminModelUserID)
 	result, err := h.getSftConfig(c)
 	assert.NilError(t, err)
 
@@ -784,6 +801,7 @@ func TestGetSftConfig_MissingLocalPathInWorkspace(t *testing.T) {
 	c.Params = gin.Params{{Key: "id", Value: "model-qwen-missing-local"}}
 	c.Request, _ = http.NewRequest("GET", "/models/model-qwen-missing-local/sft-config?workspace=ws1", nil)
 
+	c.Set(common.UserId, adminModelUserID)
 	result, err := h.getSftConfig(c)
 	assert.NilError(t, err)
 
@@ -1094,6 +1112,7 @@ func TestGetSftConfig_UnsupportedModel(t *testing.T) {
 	c.Params = gin.Params{{Key: "id", Value: "remote-model"}}
 	c.Request, _ = http.NewRequest("GET", "/models/remote-model/sft-config?workspace=ws1", nil)
 
+	c.Set(common.UserId, adminModelUserID)
 	result, err := h.getSftConfig(c)
 	assert.NilError(t, err)
 
@@ -1238,6 +1257,7 @@ func TestDeleteModelWithSecrets(t *testing.T) {
 	c, _ := gin.CreateTestContext(w)
 	c.Params = gin.Params{{Key: "id", Value: "model-with-secrets"}}
 	c.Request, _ = http.NewRequest("DELETE", "/models/model-with-secrets", nil)
+	c.Set(common.UserId, adminModelUserID)
 
 	result, err := h.deleteModel(c)
 	assert.NilError(t, err)

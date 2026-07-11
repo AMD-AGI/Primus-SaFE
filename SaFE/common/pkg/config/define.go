@@ -105,8 +105,11 @@ const (
 
 	// user
 	userPrefix            = "user."
-	userTokenRequired     = userPrefix + "token_required"
 	userTokenExpireSecond = userPrefix + "token_expire"
+
+	// tls (outbound HTTPS verification for third-party / model endpoints)
+	tlsPrefix         = "tls."
+	tlsVerifyOutbound = tlsPrefix + "verify_outbound"
 
 	// notification
 	notificationPrefix     = "notification."

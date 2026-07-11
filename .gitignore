@@ -243,3 +243,9 @@ Bootstrap/kubespray-venv/
 *.test
 *.out
 SaFE/tools/sync-image/syncimage
+# Docs-as-test / Playwright MCP transient output written to repo root
+.playwright-mcp/
+/*.png
+# Local install runbook with environment-specific hosts/credentials (never commit)
+/RUNBOOK-install.md
+/Bootstrap/harbor/hosts.yaml

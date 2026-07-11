@@ -87,6 +87,7 @@ func InitRoutes(engine *gin.Engine, handler *Handler) {
 		mgmt.PUT("/binding", handler.UpdateBinding)
 		mgmt.DELETE("/binding", handler.DeleteBinding)
 		mgmt.GET("/binding", handler.GetBinding)
+		mgmt.GET("/binding/apim-key", handler.RevealApimKey)
 		mgmt.GET("/usage", handler.GetUsage)
 		mgmt.GET("/summary", handler.GetSummary)
 		mgmt.GET("/budget", handler.GetBudget)
@@ -175,6 +176,11 @@ func (h *Handler) CreateBinding(c *gin.Context) {
 	var req CreateBindingRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		apiutils.AbortWithApiError(c, commonerrors.NewBadRequest("apim_key is required"))
+		return
+	}
+
+	if err := validateApimKey(req.ApimKey); err != nil {
+		apiutils.AbortWithApiError(c, err)
 		return
 	}
 
@@ -329,6 +335,11 @@ func (h *Handler) UpdateBinding(c *gin.Context) {
 		return
 	}
 
+	if err := validateApimKey(req.ApimKey); err != nil {
+		apiutils.AbortWithApiError(c, err)
+		return
+	}
+
 	email := h.getUserEmail(c)
 	if email == "" {
 		apiutils.AbortWithApiError(c, commonerrors.NewBadRequest("unable to identify user email"))
@@ -455,6 +466,55 @@ func (h *Handler) GetBinding(c *gin.Context) {
 		ApimKeyHint: apimKeyHint,
 		CreatedAt:   existing.CreatedAt.Format("2006-01-02T15:04:05Z"),
 		UpdatedAt:   existing.UpdatedAt.Format("2006-01-02T15:04:05Z"),
+	})
+}
+
+// RevealApimKey handles GET /api/v1/llm-gateway/binding/apim-key
+// Returns the full plaintext APIM Key for the current user. This is the only
+// endpoint that discloses the full key, so each reveal is audit-logged.
+func (h *Handler) RevealApimKey(c *gin.Context) {
+	email := h.getUserEmail(c)
+	if email == "" {
+		apiutils.AbortWithApiError(c, commonerrors.NewBadRequest("unable to identify user email"))
+		return
+	}
+
+	existing, err := h.dbClient.GetLLMBindingByEmail(c.Request.Context(), email)
+	if err != nil {
+		klog.ErrorS(err, "RevealApimKey: DB query failed", "email", email)
+		apiutils.AbortWithApiError(c, commonerrors.NewInternalError("service temporarily unavailable, please try again later"))
+		return
+	}
+	if existing == nil {
+		apiutils.AbortWithApiError(c, commonerrors.NewNotFoundWithMessage("no APIM Key bound for "+email))
+		return
+	}
+
+	plainKey, err := h.crypto.Decrypt(existing.ApimKey)
+	if err != nil {
+		klog.ErrorS(err, "RevealApimKey: decrypt failed", "email", email)
+		apiutils.AbortWithApiError(c, commonerrors.NewInternalError("failed to decrypt APIM Key, please try again later"))
+		return
+	}
+	if plainKey == "" {
+		klog.ErrorS(nil, "RevealApimKey: decrypted APIM Key is empty", "email", email)
+		apiutils.AbortWithApiError(c, commonerrors.NewInternalError("failed to decrypt APIM Key, please try again later"))
+		return
+	}
+
+	// Audit: record who revealed the full APIM Key, from where.
+	klog.InfoS("LLM Gateway audit: apim key revealed",
+		"userId", c.GetString(common.UserId),
+		"email", email,
+		"clientIP", c.ClientIP())
+
+	// Prevent the full key from being cached by browsers or intermediary proxies.
+	c.Header("Cache-Control", "no-store")
+	c.Header("Pragma", "no-cache")
+
+	c.JSON(http.StatusOK, RevealApimKeyResponse{
+		UserEmail: email,
+		ApimKey:   plainKey,
 	})
 }
 
@@ -590,6 +650,16 @@ func (h *Handler) GetUsage(c *gin.Context) {
 	})
 }
 
+// validateApimKey rejects keys that look like LiteLLM virtual keys or access
+// keys (ak-/sk- prefix, case-insensitive), which are not valid APIM Keys.
+func validateApimKey(apimKey string) error {
+	lower := strings.ToLower(strings.TrimSpace(apimKey))
+	if strings.HasPrefix(lower, "ak-") || strings.HasPrefix(lower, "sk-") {
+		return commonerrors.NewBadRequest("invalid apim_key: keys starting with 'ak-' or 'sk-' are not accepted")
+	}
+	return nil
+}
+
 // ── Helpers ───────────────────────────────────────────────────────────────
 
 // getUserEmail retrieves the user's email by looking up the K8s User CR
@@ -625,6 +695,9 @@ func (h *Handler) getUserEmail(c *gin.Context) string {
 // e.g. "abcdefghijklmnop" → "abcd********mnop"
 func maskKey(key string) string {
 	if len(key) <= 8 {
+		if len(key) <= 4 {
+			return "****"
+		}
 		return key[:2] + "****"
 	}
 	return key[:4] + "********" + key[len(key)-4:]

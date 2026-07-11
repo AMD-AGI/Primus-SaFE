@@ -104,6 +104,35 @@ rules:
   verbs:
     - get
     - list
+# A2A service registry is read-only for all users; create/update/delete are
+# restricted to system administrators (see the system-admin role above).
+- resources:
+    - a2a
+  grantedUsers:
+    - "*"
+  verbs:
+    - get
+    - list
+# Playground models: owners manage their own models; workspace members can
+# create models in their workspace. Creating a public model (empty workspace)
+# is not granted here, so it falls to system administrators only.
+- resources:
+    - model
+  grantedUsers:
+    - owner
+  verbs:
+    - get
+    - list
+    - update
+    - delete
+- resources:
+    - model
+  grantedUsers:
+    - workspace-user
+  verbs:
+    - create
+    - get
+    - list
 - resources:
     - publickey
     - imageimport
