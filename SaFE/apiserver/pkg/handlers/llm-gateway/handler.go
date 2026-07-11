@@ -87,6 +87,7 @@ func InitRoutes(engine *gin.Engine, handler *Handler) {
 		mgmt.PUT("/binding", handler.UpdateBinding)
 		mgmt.DELETE("/binding", handler.DeleteBinding)
 		mgmt.GET("/binding", handler.GetBinding)
+		mgmt.GET("/binding/apim-key", handler.RevealApimKey)
 		mgmt.GET("/usage", handler.GetUsage)
 		mgmt.GET("/summary", handler.GetSummary)
 		mgmt.GET("/budget", handler.GetBudget)
@@ -468,6 +469,41 @@ func (h *Handler) GetBinding(c *gin.Context) {
 	})
 }
 
+// RevealApimKey handles GET /api/v1/llm-gateway/binding/apim-key
+// Returns the full plaintext APIM Key for the current user; the only endpoint
+// that exposes the full key, so reveal actions can be audited here.
+func (h *Handler) RevealApimKey(c *gin.Context) {
+	email := h.getUserEmail(c)
+	if email == "" {
+		apiutils.AbortWithApiError(c, commonerrors.NewBadRequest("unable to identify user email"))
+		return
+	}
+
+	existing, err := h.dbClient.GetLLMBindingByEmail(c.Request.Context(), email)
+	if err != nil {
+		klog.ErrorS(err, "RevealApimKey: DB query failed", "email", email)
+		apiutils.AbortWithApiError(c, commonerrors.NewInternalError("service temporarily unavailable, please try again later"))
+		return
+	}
+	if existing == nil {
+		apiutils.AbortWithApiError(c, commonerrors.NewNotFoundWithMessage("no APIM Key bound for "+email))
+		return
+	}
+
+	plainKey, err := h.crypto.Decrypt(existing.ApimKey)
+	if err != nil || plainKey == "" {
+		klog.ErrorS(err, "RevealApimKey: decrypt failed", "email", email)
+		apiutils.AbortWithApiError(c, commonerrors.NewInternalError("failed to decrypt APIM Key, please try again later"))
+		return
+	}
+
+	klog.Infof("LLM Gateway: apim key revealed for %s", email)
+	c.JSON(http.StatusOK, RevealApimKeyResponse{
+		UserEmail: email,
+		ApimKey:   plainKey,
+	})
+}
+
 // GetSummary handles GET /api/v1/llm-gateway/summary
 // Returns cumulative total spend for the user (not tied to a date range).
 func (h *Handler) GetSummary(c *gin.Context) {
@@ -645,6 +681,9 @@ func (h *Handler) getUserEmail(c *gin.Context) string {
 // e.g. "abcdefghijklmnop" → "abcd********mnop"
 func maskKey(key string) string {
 	if len(key) <= 8 {
+		if len(key) <= 4 {
+			return "****"
+		}
 		return key[:2] + "****"
 	}
 	return key[:4] + "********" + key[len(key)-4:]
