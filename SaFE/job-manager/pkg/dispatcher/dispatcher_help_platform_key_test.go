@@ -91,11 +91,10 @@ func TestPlatformKeyForUser(t *testing.T) {
 func TestBuildEnvironment_InjectsUserIdAndApiKey(t *testing.T) {
 	patches := gomonkey.NewPatches()
 	defer patches.Reset()
-	patches.ApplyFunc(commonconfig.IsDBEnable, func() bool { return true })
-	patches.ApplyFunc(dbclient.NewClient, func() *dbclient.Client { return &dbclient.Client{} })
-	patches.ApplyFunc(apikey.GetOrCreatePlatformKey, func(context.Context, dbclient.Interface, string, string) (string, error) {
-		return "injected-user-api-key", nil
-	})
+	// Patch the same-package seam directly (single, reliable patch) rather than
+	// the cross-package apikey/db chain, which gomonkey struggles to re-patch
+	// across multiple tests in one package run.
+	patches.ApplyFunc(platformKeyForUser, func(*v1.Workload) string { return "injected-user-api-key" })
 
 	// Non-CICD workload (e.g. utd-multi-node) must still get USER_ID + USER_APIKEY.
 	workload := &v1.Workload{

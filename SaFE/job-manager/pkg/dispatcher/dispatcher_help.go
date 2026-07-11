@@ -197,6 +197,12 @@ func platformKeyForUser(workload *v1.Workload) string {
 	return key
 }
 
+// platformKeyForUserFn is a seam so tests can stub the platform key lookup by
+// assignment. gomonkey cannot reliably re-patch the cross-package apikey/db
+// chain across many tests in a single package run, which made env-injection
+// tests flaky; a package var override is deterministic.
+var platformKeyForUserFn = platformKeyForUser
+
 // dispatchNodesAt returns the admin nodes assigned at the given dispatch index,
 // preferring the DB workload_dispatch_node table and falling back to the etcd
 // Status.Nodes. Best-effort: a missing db client (e.g. DB disabled) or any query
@@ -826,7 +832,7 @@ func buildEnvironment(workload *v1.Workload, workspace *v1.Workspace, resourceId
 	// USER_APIKEY is best-effort (empty when DB/lookup is unavailable).
 	result = addEnvVar(result, workload, jobutils.UserIdEnv, v1.GetUserId(workload))
 	if commonworkload.IsCICD(workload) || workload.SpecKind() == common.UnifiedJobKind {
-		if platformKey := platformKeyForUser(workload); platformKey != "" {
+		if platformKey := platformKeyForUserFn(workload); platformKey != "" {
 			result = addEnvVar(result, workload, jobutils.UserApiKeyEnv, platformKey)
 		}
 	}
