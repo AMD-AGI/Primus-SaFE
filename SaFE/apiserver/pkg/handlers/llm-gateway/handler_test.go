@@ -169,7 +169,9 @@ func TestMaskKey(t *testing.T) {
 		input    string
 		expected string
 	}{
-		{"short key", "abc", "ab****"},
+		{"1 char key", "a", "****"},
+		{"4 char key", "abcd", "****"},
+		{"short key", "abcde", "ab****"},
 		{"8 char key", "abcdefgh", "ab****"},
 		{"normal key", "abcdefghijklmnop", "abcd********mnop"},
 		{"long key", "safe1234567890abcdefghijklmnop", "safe********mnop"},
@@ -255,6 +257,157 @@ func TestGetBinding_Bound(t *testing.T) {
 	assert.True(t, resp.HasAPIMKey)
 	assert.Equal(t, "test@amd.com", resp.KeyAlias)
 	assert.Contains(t, resp.ApimKeyHint, "****")
+}
+
+// ── RevealApimKey tests ───────────────────────────────────────────────────
+
+func TestRevealApimKey_Bound(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockDB := mock_client.NewMockInterface(ctrl)
+	litellm := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	defer litellm.Close()
+
+	handler := newTestHandler(t, mockDB, litellm)
+
+	binding := &dbclient.LLMGatewayUserBinding{
+		UserEmail: "test@amd.com",
+		ApimKey:   "test-apim-key-12345",
+		KeyAlias:  "test@amd.com",
+	}
+	mockDB.EXPECT().GetLLMBindingByEmail(gomock.Any(), "test@amd.com").Return(binding, nil)
+
+	router := gin.New()
+	router.GET("/binding/apim-key", func(c *gin.Context) {
+		setUserContext(c, "user1", "test@amd.com")
+		handler.RevealApimKey(c)
+	})
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/binding/apim-key", nil)
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	var resp RevealApimKeyResponse
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	assert.Equal(t, "test@amd.com", resp.UserEmail)
+	assert.Equal(t, "test-apim-key-12345", resp.ApimKey)
+}
+
+func TestRevealApimKey_Bound_SetsNoStoreHeader(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockDB := mock_client.NewMockInterface(ctrl)
+	litellm := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	defer litellm.Close()
+
+	handler := newTestHandler(t, mockDB, litellm)
+
+	binding := &dbclient.LLMGatewayUserBinding{
+		UserEmail: "test@amd.com",
+		ApimKey:   "test-apim-key-12345",
+		KeyAlias:  "test@amd.com",
+	}
+	mockDB.EXPECT().GetLLMBindingByEmail(gomock.Any(), "test@amd.com").Return(binding, nil)
+
+	router := gin.New()
+	router.GET("/binding/apim-key", func(c *gin.Context) {
+		setUserContext(c, "user1", "test@amd.com")
+		handler.RevealApimKey(c)
+	})
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/binding/apim-key", nil)
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, "no-store", w.Header().Get("Cache-Control"))
+}
+
+func TestRevealApimKey_NotBound(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockDB := mock_client.NewMockInterface(ctrl)
+	litellm := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	defer litellm.Close()
+
+	handler := newTestHandler(t, mockDB, litellm)
+
+	mockDB.EXPECT().GetLLMBindingByEmail(gomock.Any(), "test@amd.com").Return(nil, nil)
+
+	router := gin.New()
+	router.GET("/binding/apim-key", func(c *gin.Context) {
+		setUserContext(c, "user1", "test@amd.com")
+		handler.RevealApimKey(c)
+	})
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/binding/apim-key", nil)
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusNotFound, w.Code)
+}
+
+func TestRevealApimKey_DBError(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockDB := mock_client.NewMockInterface(ctrl)
+	litellm := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	defer litellm.Close()
+
+	handler := newTestHandler(t, mockDB, litellm)
+
+	mockDB.EXPECT().GetLLMBindingByEmail(gomock.Any(), "test@amd.com").Return(nil, errors.New("db unavailable"))
+
+	router := gin.New()
+	router.GET("/binding/apim-key", func(c *gin.Context) {
+		setUserContext(c, "user1", "test@amd.com")
+		handler.RevealApimKey(c)
+	})
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/binding/apim-key", nil)
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+}
+
+func TestRevealApimKey_DecryptError(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockDB := mock_client.NewMockInterface(ctrl)
+	litellm := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	defer litellm.Close()
+
+	handler := newTestHandler(t, mockDB, litellm)
+
+	// Enable crypto with an empty key so Decrypt fails deterministically.
+	viper.Set("crypto.enable", true)
+	defer viper.Set("crypto.enable", false)
+
+	binding := &dbclient.LLMGatewayUserBinding{
+		UserEmail: "test@amd.com",
+		ApimKey:   "ciphertext",
+		KeyAlias:  "test@amd.com",
+	}
+	mockDB.EXPECT().GetLLMBindingByEmail(gomock.Any(), "test@amd.com").Return(binding, nil)
+
+	router := gin.New()
+	router.GET("/binding/apim-key", func(c *gin.Context) {
+		setUserContext(c, "user1", "test@amd.com")
+		handler.RevealApimKey(c)
+	})
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/binding/apim-key", nil)
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
 }
 
 // ── CreateBinding tests ───────────────────────────────────────────────────
