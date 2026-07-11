@@ -15,6 +15,12 @@ data:
       rdma_name: {{ .Values.net.rdma_name }}
       # Ingress component name selected during install.sh
       ingress: {{ .Values.net.ingress }}
+    crypto:
+      # Whether to enable crypto. Must match apiserver so platform API keys
+      # decrypt to the same plaintext the apiserver validates.
+      enable: true
+      # The path of crypto secret
+      secret_path: {{ default "/etc/secrets/crypto" (default .Values.crypto).secret_path }}
     health_check:
       # Whether to enable health check
       enable: {{ default true (default .Values.k8s).enable_health_check }}

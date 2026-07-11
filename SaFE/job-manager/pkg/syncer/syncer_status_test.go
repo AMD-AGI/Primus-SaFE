@@ -132,6 +132,109 @@ func TestPersistWorkloadStatus_Offload(t *testing.T) {
 	assert.NotEmpty(t, got.Status.NodeUsage)
 }
 
+// TestPatchWorkloadPodStatus_PreservesPhase verifies the field-scoped merge
+// patch writes pods/nodes/ranks without clobbering status.phase owned by other
+// reconcilers, even when the in-memory copy carries a stale phase.
+func TestPatchWorkloadPodStatus_PreservesPhase(t *testing.T) {
+	viper.Reset()
+	defer viper.Reset()
+
+	w := &v1.Workload{
+		ObjectMeta: metav1.ObjectMeta{Name: "w1"},
+		Status: v1.WorkloadStatus{
+			Phase: v1.WorkloadRunning,
+			Pods:  []v1.WorkloadPod{{PodId: "p1", Phase: corev1.PodRunning, AdminNodeName: "n1"}},
+		},
+	}
+	cl := ctrlfake.NewClientBuilder().WithScheme(syncerScheme(t)).WithObjects(w.DeepCopy()).WithStatusSubresource(w).Build()
+	r := &SyncerReconciler{Client: cl}
+
+	fresh := &v1.Workload{}
+	require.NoError(t, cl.Get(context.Background(), ctrlclient.ObjectKey{Name: "w1"}, fresh))
+	// Stale in-memory phase must NOT overwrite the stored phase.
+	fresh.Status.Phase = v1.WorkloadSucceeded
+	fresh.Status.Pods = []v1.WorkloadPod{{PodId: "p1", Phase: corev1.PodSucceeded, AdminNodeName: "n1"}}
+	require.NoError(t, r.patchWorkloadPodStatus(context.Background(), fresh, nil))
+
+	got := &v1.Workload{}
+	require.NoError(t, cl.Get(context.Background(), ctrlclient.ObjectKey{Name: "w1"}, got))
+	assert.Equal(t, v1.WorkloadRunning, got.Status.Phase)
+	require.Len(t, got.Status.Pods, 1)
+	assert.Equal(t, corev1.PodSucceeded, got.Status.Pods[0].Phase)
+}
+
+// TestPatchWorkloadPodStatus_ExtraFieldsSetsPhase verifies caller-supplied extra
+// fields (e.g. CICD listener phase) are merged into the status patch.
+func TestPatchWorkloadPodStatus_ExtraFieldsSetsPhase(t *testing.T) {
+	viper.Reset()
+	defer viper.Reset()
+
+	w := &v1.Workload{
+		ObjectMeta: metav1.ObjectMeta{Name: "w1"},
+		Status:     v1.WorkloadStatus{Phase: v1.WorkloadRunning},
+	}
+	cl := ctrlfake.NewClientBuilder().WithScheme(syncerScheme(t)).WithObjects(w.DeepCopy()).WithStatusSubresource(w).Build()
+	r := &SyncerReconciler{Client: cl}
+
+	fresh := &v1.Workload{}
+	require.NoError(t, cl.Get(context.Background(), ctrlclient.ObjectKey{Name: "w1"}, fresh))
+	fresh.Status.Pods = []v1.WorkloadPod{{PodId: "p1", AdminNodeName: "n1"}}
+	require.NoError(t, r.patchWorkloadPodStatus(context.Background(), fresh,
+		map[string]any{"phase": string(v1.WorkloadNotReady)}))
+
+	got := &v1.Workload{}
+	require.NoError(t, cl.Get(context.Background(), ctrlclient.ObjectKey{Name: "w1"}, got))
+	assert.Equal(t, v1.WorkloadNotReady, got.Status.Phase)
+	assert.Len(t, got.Status.Pods, 1)
+}
+
+// TestPatchWorkloadPodStatus_Offload verifies the offload path mirrors the DB,
+// clears the per-pod arrays, writes the NodeUsage aggregate, and still does not
+// clobber status.phase.
+func TestPatchWorkloadPodStatus_Offload(t *testing.T) {
+	viper.Reset()
+	viper.Set("db.enable", true)
+	defer viper.Reset()
+
+	ctrl := gomock.NewController(t)
+	mockDB := mockclient.NewMockInterface(ctrl)
+	mockDB.EXPECT().BatchUpsertWorkloadPods(gomock.Any(), gomock.Any()).Return(nil)
+	mockDB.EXPECT().DeleteWorkloadPodsNotIn(gomock.Any(), "w1", []string{"p1"}).Return(nil)
+	mockDB.EXPECT().UpsertWorkloadDispatchNode(gomock.Any(), gomock.Any()).Return(nil)
+
+	w := &v1.Workload{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:        "w1",
+			Labels:      map[string]string{v1.WorkloadDispatchCntLabel: "1"},
+			Annotations: map[string]string{v1.WorkloadStatusOffloadAnnotation: v1.TrueStr},
+		},
+		Spec: v1.WorkloadSpec{
+			Resources: []v1.WorkloadResource{{Replica: 1, CPU: "1", GPU: "1", Memory: "1Gi"}},
+		},
+		Status: v1.WorkloadStatus{
+			Phase: v1.WorkloadRunning,
+			Pods:  []v1.WorkloadPod{{PodId: "p1", Phase: corev1.PodRunning, AdminNodeName: "n1", ResourceId: 0}},
+			Nodes: [][]string{{"n1"}},
+			Ranks: [][]string{{"0"}},
+		},
+	}
+	cl := ctrlfake.NewClientBuilder().WithScheme(syncerScheme(t)).WithObjects(w.DeepCopy()).WithStatusSubresource(w).Build()
+	r := &SyncerReconciler{Client: cl, dbClient: mockDB}
+
+	fresh := &v1.Workload{}
+	require.NoError(t, cl.Get(context.Background(), ctrlclient.ObjectKey{Name: "w1"}, fresh))
+	fresh.Status = w.Status
+	fresh.Labels = w.Labels
+	fresh.Annotations = w.Annotations
+	require.NoError(t, r.patchWorkloadPodStatus(context.Background(), fresh, nil))
+
+	got := &v1.Workload{}
+	require.NoError(t, cl.Get(context.Background(), ctrlclient.ObjectKey{Name: "w1"}, got))
+	assert.Empty(t, got.Status.Pods)
+	assert.NotEmpty(t, got.Status.NodeUsage)
+	assert.Equal(t, v1.WorkloadRunning, got.Status.Phase)
+}
+
 func TestHydrateWorkloadStatusFromDB(t *testing.T) {
 	viper.Reset()
 	viper.Set("db.enable", true)
