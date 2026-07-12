@@ -1505,15 +1505,30 @@ func applyInferaRoleFields(slot map[string]interface{}, role, kvBackend string) 
 	case common.DynamoRoleWorker:
 		slot["componentType"] = "worker"
 		slot["role"] = "mixed"
+		setInferaWorkerReadinessSkip(slot)
 	case common.DynamoRolePrefill:
 		slot["componentType"] = "worker"
 		slot["role"] = "prefill"
 		appendSglangDisaggArgs(slot, "prefill", kvBackend)
+		setInferaWorkerReadinessSkip(slot)
 	case common.DynamoRoleDecode:
 		slot["componentType"] = "worker"
 		slot["role"] = "decode"
 		appendSglangDisaggArgs(slot, "decode", kvBackend)
+		setInferaWorkerReadinessSkip(slot)
 	}
+}
+
+// setInferaWorkerReadinessSkip tells the Infera operator NOT to inject its
+// default /health readiness probe on a worker ServiceSpec. Infera workers deploy
+// IDLE (mn-idle.sh) and only start the engine when restart-server SSH-launches
+// it out-of-band, so a /health:port probe never passes at deploy time — leaving
+// readyReplicas=0 and the InferaDeployment stuck in "pending" (which blocks
+// create-infera's wait-for-Running). Worker serving-readiness is tracked by
+// Infera's own NATS/Pod-annotation registration, not k8s Service readiness, so
+// skipping the probe is safe.
+func setInferaWorkerReadinessSkip(slot map[string]interface{}) {
+	slot["skipReadinessProbe"] = true
 }
 
 // dynamoServiceKey maps the SaFE role string to the conventional DGD service
