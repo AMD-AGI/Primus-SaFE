@@ -402,10 +402,13 @@ func IsPodRunning(p *WorkloadPod) bool {
 		p.AdminNodeName != ""
 }
 
-// IsPodTerminated returns true if the pod is in terminated phase.
+// IsPodTerminated returns true if the pod is in terminated phase. WorkloadStopped
+// is included because pod_handler.go stamps stopped/replaced pods (e.g. CICD
+// ephemeral runners) with that phase instead of a standard corev1.PodPhase value.
 func IsPodTerminated(p *WorkloadPod) bool {
 	return corev1.PodSucceeded == p.Phase ||
-		corev1.PodFailed == p.Phase
+		corev1.PodFailed == p.Phase ||
+		corev1.PodPhase(WorkloadStopped) == p.Phase
 }
 
 // ToSchemaGVK converts the resource template GVK to schema.GroupVersionKind.
