@@ -7,9 +7,7 @@ package resources
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net/url"
 	"strconv"
@@ -81,11 +79,6 @@ func (h *Handler) ListWorkload(c *gin.Context) {
 // Returns complete workload information including status and configuration.
 func (h *Handler) GetWorkload(c *gin.Context) {
 	handle(c, h.getWorkload)
-}
-
-// GetWorkloadDispatchNodes retrieves a paginated node/rank list for one workload dispatch.
-func (h *Handler) GetWorkloadDispatchNodes(c *gin.Context) {
-	handle(c, h.getWorkloadDispatchNodes)
 }
 
 // DeleteWorkload handles deletion of a single workload resource.
@@ -383,51 +376,6 @@ func (h *Handler) getWorkload(c *gin.Context) (interface{}, error) {
 		return nil, err
 	}
 	return h.cvtDBWorkloadToGetResponse(ctx, requestUser, roles, dbWorkload), nil
-}
-
-func (h *Handler) getWorkloadDispatchNodes(c *gin.Context) (interface{}, error) {
-	if !commonconfig.IsDBEnable() {
-		return nil, commonerrors.NewInternalError("the database function is not enabled")
-	}
-	query := &view.GetWorkloadDispatchNodesRequest{}
-	if err := c.ShouldBindQuery(query); err != nil {
-		return nil, commonerrors.NewBadRequest(err.Error())
-	}
-	if query.Limit == 0 {
-		query.Limit = view.DefaultQueryLimit
-	}
-
-	requestUser, err := h.getAndSetUsername(c)
-	if err != nil {
-		return nil, err
-	}
-	roles := h.accessController.GetRoles(c.Request.Context(), requestUser)
-
-	name := c.GetString(common.Name)
-	ctx := c.Request.Context()
-	dbWorkload, err := h.dbClient.GetWorkload(ctx, name)
-	if err != nil {
-		return nil, err
-	}
-	adminWorkload := generateWorkloadForAuth(name, dbutils.ParseNullString(dbWorkload.UserId), dbWorkload.Workspace, dbWorkload.Cluster)
-	if err = h.authWorkloadAction(c, adminWorkload, v1.GetVerb, v1.WorkloadKind, requestUser, roles); err != nil {
-		return nil, err
-	}
-
-	nodes, ranks, err := h.getDispatchNodesAndRanks(ctx, dbWorkload, query.DispatchIndex)
-	if err != nil {
-		return nil, err
-	}
-	totalCount := len(nodes)
-	nodes, ranks = paginateNodesAndRanks(nodes, ranks, query.Offset, query.Limit)
-	return &view.GetWorkloadDispatchNodesResponse{
-		TotalCount:    totalCount,
-		DispatchIndex: query.DispatchIndex,
-		Offset:        query.Offset,
-		Limit:         query.Limit,
-		Nodes:         nodes,
-		Ranks:         ranks,
-	}, nil
 }
 
 // deleteWorkload implements single workload deletion logic.
@@ -1499,6 +1447,7 @@ func (h *Handler) cvtDBWorkloadToGetResponse(ctx context.Context,
 			json.Unmarshal([]byte(str), &result.Ranks)
 		}
 	}
+	result.Nodes, result.Ranks = compactDispatchNodeHistory(result.Nodes, result.Ranks)
 	if str := dbutils.ParseNullString(dbWorkload.CustomerLabels); str != "" {
 		var customerLabels map[string]string
 		json.Unmarshal([]byte(str), &customerLabels)
@@ -1579,84 +1528,6 @@ func (h *Handler) listOffloadedDispatchNodes(ctx context.Context, workloadId str
 	return rows
 }
 
-func (h *Handler) getDispatchNodesAndRanks(ctx context.Context, dbWorkload *dbclient.Workload, dispatchIndex int) ([]string, []string, error) {
-	if dbWorkload == nil || dispatchIndex < 0 {
-		return nil, nil, nil
-	}
-	if h.dbClient != nil {
-		row, err := h.dbClient.GetWorkloadDispatchNode(ctx, dbWorkload.WorkloadId, dispatchIndex)
-		if err == nil && row != nil {
-			nodes, ranks := decodeDispatchStringSlice(row.Nodes), decodeDispatchStringSlice(row.Ranks)
-			nodes, ranks = compactDispatchNodesAndRanks(nodes, ranks)
-			return nodes, ranks, nil
-		}
-		if err != nil && !errors.Is(err, sql.ErrNoRows) {
-			return nil, nil, err
-		}
-		rows, listErr := h.dbClient.ListWorkloadDispatchNodes(ctx, dbWorkload.WorkloadId)
-		if listErr != nil {
-			klog.ErrorS(listErr, "failed to list workload dispatch nodes from DB for pagination fallback",
-				"workloadId", dbWorkload.WorkloadId)
-		} else if len(rows) > 0 {
-			return nil, nil, nil
-		}
-	}
-
-	var nodes [][]string
-	if str := dbutils.ParseNullString(dbWorkload.Nodes); str != "" {
-		json.Unmarshal([]byte(str), &nodes)
-	}
-	var ranks [][]string
-	if str := dbutils.ParseNullString(dbWorkload.Ranks); str != "" {
-		json.Unmarshal([]byte(str), &ranks)
-	}
-	var selectedNodes []string
-	if dispatchIndex < len(nodes) {
-		selectedNodes = nodes[dispatchIndex]
-	}
-	var selectedRanks []string
-	if dispatchIndex < len(ranks) {
-		selectedRanks = ranks[dispatchIndex]
-	}
-	selectedNodes, selectedRanks = compactDispatchNodesAndRanks(selectedNodes, selectedRanks)
-	return selectedNodes, selectedRanks, nil
-}
-
-func decodeDispatchStringSlice(value sql.NullString) []string {
-	if !value.Valid || value.String == "" {
-		return nil
-	}
-	var result []string
-	if err := json.Unmarshal([]byte(value.String), &result); err != nil {
-		klog.Warningf("failed to decode workload dispatch node JSON: %v", err)
-		return nil
-	}
-	return result
-}
-
-func paginateNodesAndRanks(nodes, ranks []string, offset, limit int) ([]string, []string) {
-	if limit <= 0 {
-		return nil, nil
-	}
-	if offset >= len(nodes) {
-		return []string{}, []string{}
-	}
-	end := offset + limit
-	if end > len(nodes) {
-		end = len(nodes)
-	}
-	pageNodes := append([]string(nil), nodes[offset:end]...)
-	pageRanks := []string{}
-	if offset < len(ranks) {
-		rankEnd := end
-		if rankEnd > len(ranks) {
-			rankEnd = len(ranks)
-		}
-		pageRanks = append([]string(nil), ranks[offset:rankEnd]...)
-	}
-	return pageNodes, pageRanks
-}
-
 func compactDispatchNodesAndRanks(nodes, ranks []string) ([]string, []string) {
 	if len(nodes) == 0 {
 		return nil, nil
@@ -1673,6 +1544,20 @@ func compactDispatchNodesAndRanks(nodes, ranks []string) ([]string, []string) {
 		}
 	}
 	return cleanNodes, cleanRanks
+}
+
+func compactDispatchNodeHistory(nodes, ranks [][]string) ([][]string, [][]string) {
+	for i := range nodes {
+		var groupRanks []string
+		if i < len(ranks) {
+			groupRanks = ranks[i]
+		}
+		nodes[i], groupRanks = compactDispatchNodesAndRanks(nodes[i], groupRanks)
+		if i < len(ranks) {
+			ranks[i] = groupRanks
+		}
+	}
+	return nodes, ranks
 }
 
 // parseCustomerLabels separates user-defined labels from node selection labels.

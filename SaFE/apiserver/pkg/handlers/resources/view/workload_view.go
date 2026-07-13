@@ -276,26 +276,6 @@ type GetWorkloadResponse struct {
 	ForceHostNetwork bool `json:"forceHostNetwork"`
 }
 
-type GetWorkloadDispatchNodesRequest struct {
-	// DispatchIndex is zero-based. It matches workload_dispatch_node.dispatch_index.
-	DispatchIndex int `form:"dispatchIndex" binding:"omitempty,min=0"`
-	// Starting offset inside the selected dispatch node list. default 0
-	Offset int `form:"offset" binding:"omitempty,min=0"`
-	// Limit the number of returned nodes. default 100
-	Limit int `form:"limit" binding:"omitempty,min=1,max=500"`
-}
-
-type GetWorkloadDispatchNodesResponse struct {
-	// TotalCount indicates the total nodes in the selected dispatch, not limited by pagination.
-	TotalCount int `json:"totalCount"`
-	// DispatchIndex is zero-based.
-	DispatchIndex int      `json:"dispatchIndex"`
-	Offset        int      `json:"offset"`
-	Limit         int      `json:"limit"`
-	Nodes         []string `json:"nodes"`
-	Ranks         []string `json:"ranks,omitempty"`
-}
-
 type WorkloadPodWrapper struct {
 	v1.WorkloadPod
 	// SSH command for direct login into the container

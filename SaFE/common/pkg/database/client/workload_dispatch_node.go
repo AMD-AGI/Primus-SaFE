@@ -34,9 +34,6 @@ var (
 
 	listWorkloadDispatchNodesCmd = fmt.Sprintf(
 		`SELECT * FROM %s WHERE workload_id = $1 ORDER BY dispatch_index`, TWorkloadDispatchNode)
-
-	getWorkloadDispatchNodeCmd = fmt.Sprintf(
-		`SELECT * FROM %s WHERE workload_id = $1 AND dispatch_index = $2`, TWorkloadDispatchNode)
 )
 
 // UpsertWorkloadDispatchNode inserts or updates one dispatch's node/rank row.
@@ -56,32 +53,6 @@ func (c *Client) UpsertWorkloadDispatchNode(ctx context.Context, dn *WorkloadDis
 			"workloadId", dn.WorkloadId, "dispatchIndex", dn.DispatchIndex)
 	}
 	return err
-}
-
-// GetWorkloadDispatchNode returns one dispatch row for a workload.
-func (c *Client) GetWorkloadDispatchNode(ctx context.Context, workloadId string, dispatchIndex int) (*WorkloadDispatchNode, error) {
-	if workloadId == "" {
-		return nil, commonerrors.NewBadRequest("workloadId is empty")
-	}
-	if dispatchIndex < 0 {
-		return nil, commonerrors.NewBadRequest("dispatchIndex must be greater than or equal to 0")
-	}
-	db, err := c.getDB()
-	if err != nil {
-		return nil, err
-	}
-	row := &WorkloadDispatchNode{}
-	if c.RequestTimeout > 0 {
-		ctx2, cancel := context.WithTimeout(ctx, c.RequestTimeout)
-		defer cancel()
-		err = db.GetContext(ctx2, row, getWorkloadDispatchNodeCmd, workloadId, dispatchIndex)
-	} else {
-		err = db.GetContext(ctx, row, getWorkloadDispatchNodeCmd, workloadId, dispatchIndex)
-	}
-	if err != nil {
-		return nil, err
-	}
-	return row, nil
 }
 
 // ListWorkloadDispatchNodes returns all dispatch rows of a workload ordered by
