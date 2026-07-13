@@ -13,8 +13,6 @@ import type {
   PendingCauseAnalysisResult,
   CreatePendingCauseJobRequest,
   CreatePendingCauseJobResponse,
-  DispatchNodesParams,
-  DispatchNodesResponse,
 } from './type'
 
 const LONG_TIMEOUT = 30_000
@@ -34,13 +32,6 @@ export const getWorkloadDetail = (id: string): Promise<any> =>
 
 export const getWorkloadService = (id: string): Promise<any> =>
   request.get(`/workloads/${id}/service`, { timeout: LONG_TIMEOUT })
-
-// Paginated dispatch nodes for a workload (server-side pagination per dispatch group)
-export const getWorkloadDispatchNodes = (
-  wlId: string,
-  params: DispatchNodesParams,
-): Promise<DispatchNodesResponse> =>
-  request.get(`/workloads/${wlId}/dispatch-nodes`, { params, timeout: LONG_TIMEOUT })
 
 // Log download
 export const downloadWlLogs = (data: DownloadParams): Promise<{ jobId: string }> =>

@@ -24,7 +24,7 @@
         />
         <el-table
           ref="nodeTableRef"
-          :data="filteredTableRows"
+          :data="pagedTableRows"
           row-key="node"
           stripe
           border
@@ -45,16 +45,14 @@
         </el-table>
         <el-empty v-else description="no data" />
         <el-pagination
-          v-if="nodePagination.total > 0"
-          class="mt-2 justify-end"
+          v-if="filteredTableRows.length > nodePagination.pageSize"
+          v-model:current-page="nodePagination.page"
+          v-model:page-size="nodePagination.pageSize"
+          :total="filteredTableRows.length"
+          :page-sizes="[20, 50, 100]"
           size="small"
-          :current-page="nodePagination.page"
-          :page-size="nodePagination.pageSize"
-          :total="nodePagination.total"
-          :page-sizes="[50, 100, 200, 500]"
-          layout="total, sizes, prev, pager, next"
-          @current-change="handleNodePageChange"
-          @size-change="handleNodePageSizeChange"
+          layout="prev, pager, next"
+          class="mt-2 justify-end"
         />
       </el-card>
     </el-col>
@@ -188,10 +186,8 @@
 
 <script lang="ts" setup>
 import { computed, nextTick, reactive, ref, toRef, watch } from 'vue'
-import { ElMessage } from 'element-plus'
 import { InfoFilled, Search, Download, Top, Bottom } from '@element-plus/icons-vue'
 import { useLogTable, type RowData } from '@/composables/useLogTable'
-import { getWorkloadDispatchNodes } from '@/services/workload/index'
 import LogContextDialog from '@/components/Workload/LogContextDialog.vue'
 import { isLogDownloadEnabledForHost } from '@/utils'
 
@@ -211,56 +207,28 @@ const nodeSearch = ref('')
 const canDownloadLogs = computed(() =>
   isLogDownloadEnabledForHost(props.isDownload, window.location.hostname),
 )
-// Search only filters the current page (backend paginates the full node list).
 const filteredTableRows = computed(() => {
   const kw = nodeSearch.value.trim().toLowerCase()
   if (!kw) return tableRows.value
   return tableRows.value.filter((r) => r.node.toLowerCase().includes(kw))
 })
 
-// Server-side pagination for the dispatch node list.
-const nodePagination = reactive({ page: 1, pageSize: 100, total: 0 })
-const pagedNodes = ref<string[]>([])
-const pagedRanks = ref<string[]>([])
+// Client-side pagination for the node list (backend returns the full list per group)
+const nodePagination = reactive({ page: 1, pageSize: 20 })
+const pagedTableRows = computed(() => {
+  const start = (nodePagination.page - 1) * nodePagination.pageSize
+  return filteredTableRows.value.slice(start, start + nodePagination.pageSize)
+})
 
 const selectedGroup = ref<number>(props.dispatchCount ?? 0)
 
-const tableRows = computed<{ node: string; rank?: string }[]>(() =>
-  pagedNodes.value.map((node, idx) => ({ node, rank: pagedRanks.value[idx] })),
-)
-
-const fetchDispatchNodes = async () => {
-  if (!props.wlid) {
-    pagedNodes.value = []
-    pagedRanks.value = []
-    nodePagination.total = 0
-    return
-  }
-  try {
-    // dispatchCount may be absent for some workloads; default to the first group.
-    const dispatchIndex = selectedGroup.value > 0 ? selectedGroup.value - 1 : 0
-    const res = await getWorkloadDispatchNodes(props.wlid, {
-      dispatchIndex,
-      offset: (nodePagination.page - 1) * nodePagination.pageSize,
-      limit: nodePagination.pageSize,
-    })
-    pagedNodes.value = res?.nodes ?? []
-    pagedRanks.value = res?.ranks ?? []
-    nodePagination.total = res?.totalCount ?? 0
-  } catch (e) {
-    ElMessage.error((e as Error)?.message || 'Failed to load nodes')
-  }
-}
-
-const handleNodePageChange = (page: number) => {
-  nodePagination.page = page
-  fetchDispatchNodes()
-}
-const handleNodePageSizeChange = (size: number) => {
-  nodePagination.pageSize = size
-  nodePagination.page = 1
-  fetchDispatchNodes()
-}
+const tableRows = computed(() => {
+  if (!props.nodes || selectedGroup.value === 0) return []
+  const i = selectedGroup.value - 1
+  const nodes = props.nodes[i] ?? []
+  const ranks = props.ranks?.[i] ?? []
+  return nodes.map((node, idx) => ({ node, rank: ranks[idx] }))
+})
 
 const groupOptions = computed(() =>
   Array.from({ length: props.dispatchCount ?? 0 }, (_, i) => {
@@ -268,6 +236,10 @@ const groupOptions = computed(() =>
     return { label: String(idx), value: idx }
   }),
 )
+
+watch([nodeSearch, selectedGroup], () => {
+  nodePagination.page = 1
+})
 
 const {
   loading,
@@ -293,20 +265,6 @@ const {
   tableRows,
   toRef(props, 'failedNodes'),
   props.selectFirstN,
-  toRef(nodePagination, 'total'),
-)
-
-// Refetch the first page whenever the dispatch group changes; drop stale selection.
-// Declared after useLogTable so nodeTableRef is initialized before the immediate run.
-watch(
-  selectedGroup,
-  () => {
-    nodePagination.page = 1
-    nodeSearch.value = ''
-    nodeTableRef.value?.clearSelection?.()
-    fetchDispatchNodes()
-  },
-  { immediate: true },
 )
 
 searchParams.order = 'desc'
