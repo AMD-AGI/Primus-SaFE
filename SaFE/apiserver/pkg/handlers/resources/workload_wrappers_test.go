@@ -109,8 +109,8 @@ func TestGetWorkloadDispatchNodesWrapper(t *testing.T) {
 	mockDB.EXPECT().GetWorkloadDispatchNode(gomock.Any(), "wl-1", 1).Return(&dbclient.WorkloadDispatchNode{
 		WorkloadId:    "wl-1",
 		DispatchIndex: 1,
-		Nodes:         sql.NullString{String: `["n1","n2","n3"]`, Valid: true},
-		Ranks:         sql.NullString{String: `["0","1","2"]`, Valid: true},
+		Nodes:         sql.NullString{String: `["","n1","n2","n3"]`, Valid: true},
+		Ranks:         sql.NullString{String: `["skip","0","1","2"]`, Valid: true},
 	}, nil)
 
 	rsp := httptest.NewRecorder()
@@ -195,8 +195,8 @@ func TestGetWorkloadDispatchNodesLegacyFallback(t *testing.T) {
 		Workspace:  "ws-1",
 		Cluster:    "c1",
 		UserId:     sql.NullString{String: user.Name, Valid: true},
-		Nodes:      sql.NullString{String: `[["n0"],["n1","n2","n3"]]`, Valid: true},
-		Ranks:      sql.NullString{String: `[["0"],["0","1","2"]]`, Valid: true},
+		Nodes:      sql.NullString{String: `[["n0"],["","n1","n2","n3"]]`, Valid: true},
+		Ranks:      sql.NullString{String: `[["0"],["skip","0","1","2"]]`, Valid: true},
 	}, nil)
 	mockDB.EXPECT().GetWorkloadDispatchNode(gomock.Any(), "wl-legacy", 1).Return(nil, sql.ErrNoRows)
 	mockDB.EXPECT().ListWorkloadDispatchNodes(gomock.Any(), "wl-legacy").Return(nil, nil)
@@ -343,4 +343,8 @@ func TestDispatchNodeHelpers(t *testing.T) {
 
 	assert.Nil(t, decodeDispatchStringSlice(sql.NullString{}))
 	assert.Nil(t, decodeDispatchStringSlice(sql.NullString{String: `not-json`, Valid: true}))
+
+	nodes, ranks = compactDispatchNodesAndRanks([]string{"", "n1", "n2"}, []string{"skip", "0", "1"})
+	assert.Equal(t, []string{"n1", "n2"}, nodes)
+	assert.Equal(t, []string{"0", "1"}, ranks)
 }

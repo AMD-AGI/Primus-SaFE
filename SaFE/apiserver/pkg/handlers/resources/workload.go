@@ -1586,7 +1586,9 @@ func (h *Handler) getDispatchNodesAndRanks(ctx context.Context, dbWorkload *dbcl
 	if h.dbClient != nil {
 		row, err := h.dbClient.GetWorkloadDispatchNode(ctx, dbWorkload.WorkloadId, dispatchIndex)
 		if err == nil && row != nil {
-			return decodeDispatchStringSlice(row.Nodes), decodeDispatchStringSlice(row.Ranks), nil
+			nodes, ranks := decodeDispatchStringSlice(row.Nodes), decodeDispatchStringSlice(row.Ranks)
+			nodes, ranks = compactDispatchNodesAndRanks(nodes, ranks)
+			return nodes, ranks, nil
 		}
 		if err != nil && !errors.Is(err, sql.ErrNoRows) {
 			return nil, nil, err
@@ -1616,6 +1618,7 @@ func (h *Handler) getDispatchNodesAndRanks(ctx context.Context, dbWorkload *dbcl
 	if dispatchIndex < len(ranks) {
 		selectedRanks = ranks[dispatchIndex]
 	}
+	selectedNodes, selectedRanks = compactDispatchNodesAndRanks(selectedNodes, selectedRanks)
 	return selectedNodes, selectedRanks, nil
 }
 
@@ -1652,6 +1655,24 @@ func paginateNodesAndRanks(nodes, ranks []string, offset, limit int) ([]string, 
 		pageRanks = append([]string(nil), ranks[offset:rankEnd]...)
 	}
 	return pageNodes, pageRanks
+}
+
+func compactDispatchNodesAndRanks(nodes, ranks []string) ([]string, []string) {
+	if len(nodes) == 0 {
+		return nil, nil
+	}
+	cleanNodes := make([]string, 0, len(nodes))
+	cleanRanks := make([]string, 0, len(nodes))
+	for i, node := range nodes {
+		if strings.TrimSpace(node) == "" {
+			continue
+		}
+		cleanNodes = append(cleanNodes, node)
+		if i < len(ranks) {
+			cleanRanks = append(cleanRanks, ranks[i])
+		}
+	}
+	return cleanNodes, cleanRanks
 }
 
 // parseCustomerLabels separates user-defined labels from node selection labels.
