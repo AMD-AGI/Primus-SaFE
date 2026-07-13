@@ -60,6 +60,10 @@ type ListNodeRequest struct {
 	Offset int `form:"offset" binding:"omitempty,min=0"`
 	// Limit the number of returned results. default: 100, -1 for all
 	Limit int `form:"limit" binding:"omitempty"`
+	// Sort field. Supports nodeId and resource keys such as amd.com/gpu, cpu, memory, ephemeral-storage, rdma/hca.
+	SortBy string `form:"sortBy" binding:"omitempty,max=128"`
+	// Sort order. Supports asc/desc and Element Plus ascending/descending values.
+	Order string `form:"order" binding:"omitempty,oneof=asc desc ascending descending"`
 }
 
 // GetWorkspaceId returns the workspace ID from the request.

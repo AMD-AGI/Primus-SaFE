@@ -103,6 +103,7 @@ func TestWorkloadDispatchNodeCRUD(t *testing.T) {
 	ctx := context.Background()
 
 	_ = c.UpsertWorkloadDispatchNode(ctx, &WorkloadDispatchNode{WorkloadId: "w1", DispatchIndex: 0})
+	_, _ = c.GetWorkloadDispatchNode(ctx, "w1", 0)
 	_, _ = c.ListWorkloadDispatchNodes(ctx, "w1")
 	_ = c.DeleteWorkloadDispatchNodes(ctx, "w1")
 }
