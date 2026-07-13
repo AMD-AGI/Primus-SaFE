@@ -352,3 +352,18 @@ export interface CreatePendingCauseJobRequest {
 export interface CreatePendingCauseJobResponse {
   job_id: string
 }
+
+export interface DispatchNodesParams {
+  dispatchIndex: number
+  offset: number
+  limit: number
+}
+
+export interface DispatchNodesResponse {
+  totalCount: number
+  dispatchIndex: number
+  offset: number
+  limit: number
+  nodes: string[]
+  ranks: string[]
+}

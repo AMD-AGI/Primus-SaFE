@@ -87,6 +87,8 @@ export function useLogTable(
   failedNodes?: Ref<string[] | undefined>,
   /** Default check first N nodes (falls back to first+last strategy if not set) */
   selectFirstN?: number,
+  /** Total node count of the current dispatch group (server-side, not just current page) */
+  totalNodeCount?: Ref<number>,
 ) {
   // Log table data
   const loading = ref(false)
@@ -204,10 +206,13 @@ export function useLogTable(
     searchParams.keywords = Array.from(new Set(val.map((s) => s.trim()).filter(Boolean)))
   }
 
-  // Remove nodeNames query param when all selected
+  // Remove nodeNames query param when all selected.
+  // Compare against the full group node count (server-side) rather than the
+  // current page, so selecting a full page of a multi-page group is not
+  // mistaken for "all nodes".
   const applyNodeNamesParam = (rows: NodeRow[], selected: string[]) => {
-    const total = rows.length
-    const isAll = total > 0 && selected.length === total
+    const total = totalNodeCount?.value ?? rows.length
+    const isAll = total > 0 && selected.length >= total
     if (isAll) {
       if ('nodeNames' in searchParams) delete (searchParams as any).nodeNames
     } else {
