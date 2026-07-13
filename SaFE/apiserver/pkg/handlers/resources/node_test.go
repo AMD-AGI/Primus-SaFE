@@ -205,6 +205,48 @@ func TestListNodesSortsAvailableResourceBeforePagination(t *testing.T) {
 	assert.Equal(t, result.Items[1].NodeId, mid.Name)
 }
 
+func TestSortNodesByNameDescending(t *testing.T) {
+	h := Handler{}
+	nodes := []*v1.Node{
+		{ObjectMeta: metav1.ObjectMeta{Name: "node-a"}},
+		{ObjectMeta: metav1.ObjectMeta{Name: "node-c"}},
+		{ObjectMeta: metav1.ObjectMeta{Name: "node-b"}},
+	}
+	err := h.sortNodes(context.Background(), &view.ListNodeRequest{SortBy: "nodeId", Order: "desc"}, nodes)
+	assert.NilError(t, err)
+	assert.Equal(t, nodes[0].Name, "node-c")
+	assert.Equal(t, nodes[1].Name, "node-b")
+	assert.Equal(t, nodes[2].Name, "node-a")
+}
+
+func TestSortNodesByAvailableResourceBranches(t *testing.T) {
+	clusterId := "test-cluster"
+	nodeFlavorId := "test-nodeflavor"
+	workspace := genMockWorkspace(clusterId, nodeFlavorId)
+	user := genMockUser()
+	role := genMockRole()
+
+	usedNode := genAvailableNode("node-used", clusterId, workspace.Name, nodeFlavorId, genMockNodeResource(64, 2*1024*1024*1024, 8))
+	freeNode := genAvailableNode("node-free", clusterId, workspace.Name, nodeFlavorId, genMockNodeResource(64, 2*1024*1024*1024, 6))
+	blockedNode := genAvailableNode("node-blocked", clusterId, workspace.Name, "other-flavor", genMockNodeResource(64, 2*1024*1024*1024, 100))
+	workload := genMockWorkload(clusterId, workspace.Name)
+	workload.Status.Pods = []v1.WorkloadPod{{AdminNodeName: usedNode.Name}}
+
+	fakeClient := fake.NewClientBuilder().WithObjects(workspace, usedNode, freeNode, blockedNode, workload, user, role).
+		WithStatusSubresource(workload).WithScheme(scheme.Scheme).Build()
+	h := Handler{Client: fakeClient, accessController: authority.NewAccessController(fakeClient)}
+	nodes := []*v1.Node{usedNode, freeNode, blockedNode}
+
+	err := h.sortNodes(context.Background(), &view.ListNodeRequest{
+		WorkspaceId: pointer.String(workspace.Name),
+		SortBy:      string(common.AmdGpu),
+		Order:       "ascending",
+	}, nodes)
+	assert.NilError(t, err)
+	assert.Equal(t, nodes[0].Name, blockedNode.Name)
+	assert.Equal(t, nodes[2].Name, freeNode.Name)
+}
+
 func TestPatchNode(t *testing.T) {
 	clusterId := "test-cluster"
 	nodeFlavor := genMockNodeFlavor()

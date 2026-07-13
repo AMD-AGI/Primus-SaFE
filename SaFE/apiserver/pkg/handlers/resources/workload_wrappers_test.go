@@ -6,6 +6,7 @@
 package resources
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"net/http"
@@ -126,6 +127,61 @@ func TestGetWorkloadDispatchNodesWrapper(t *testing.T) {
 	assert.Equal(t, []interface{}{"1"}, body["ranks"])
 }
 
+func TestGetWorkloadDispatchNodesDefaultLimit(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	h, user, mockDB := newWorkloadDBHandler(t, ctrl)
+	mockDB.EXPECT().GetWorkload(gomock.Any(), "wl-default").Return(&dbclient.Workload{
+		WorkloadId: "wl-default",
+		Workspace:  "ws-1",
+		Cluster:    "c1",
+		UserId:     sql.NullString{String: user.Name, Valid: true},
+	}, nil)
+	mockDB.EXPECT().GetWorkloadDispatchNode(gomock.Any(), "wl-default", 0).Return(&dbclient.WorkloadDispatchNode{
+		WorkloadId:    "wl-default",
+		DispatchIndex: 0,
+		Nodes:         sql.NullString{String: `["n1"]`, Valid: true},
+	}, nil)
+
+	rsp := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rsp)
+	c.Request = httptest.NewRequest(http.MethodGet, "/", nil)
+	c.Set(common.UserId, user.Name)
+	c.Set(common.Name, "wl-default")
+	h.GetWorkloadDispatchNodes(c)
+	assert.Equal(t, http.StatusOK, rsp.Code)
+
+	var body map[string]interface{}
+	assert.NoError(t, json.Unmarshal(rsp.Body.Bytes(), &body))
+	assert.Equal(t, float64(100), body["limit"])
+}
+
+func TestGetWorkloadDispatchNodesInvalidQuery(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	h, _, _ := newWorkloadDBHandler(t, ctrl)
+	rsp := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rsp)
+	c.Request = httptest.NewRequest(http.MethodGet, "/?limit=9999", nil)
+	h.GetWorkloadDispatchNodes(c)
+	assert.Equal(t, http.StatusBadRequest, rsp.Code)
+}
+
+func TestGetWorkloadDispatchNodesDBDisabled(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	commonconfig.SetValue("db.enable", "")
+	rsp := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rsp)
+	c.Request = httptest.NewRequest(http.MethodGet, "/", nil)
+	h := &Handler{}
+	h.GetWorkloadDispatchNodes(c)
+	assert.Equal(t, http.StatusInternalServerError, rsp.Code)
+}
+
 func TestGetWorkloadDispatchNodesLegacyFallback(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	ctrl := gomock.NewController(t)
@@ -221,4 +277,50 @@ func TestGetWorkloadDispatchNodesNoLegacyFallbackWhenOffloadExists(t *testing.T)
 	assert.NoError(t, json.Unmarshal(rsp.Body.Bytes(), &body))
 	assert.Equal(t, float64(0), body["totalCount"])
 	assert.Equal(t, []interface{}{}, body["nodes"])
+}
+
+func TestGetWorkloadDispatchNodesOffloadReadError(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	h, user, mockDB := newWorkloadDBHandler(t, ctrl)
+	mockDB.EXPECT().GetWorkload(gomock.Any(), "wl-offload-error").Return(&dbclient.Workload{
+		WorkloadId: "wl-offload-error",
+		Workspace:  "ws-1",
+		Cluster:    "c1",
+		UserId:     sql.NullString{String: user.Name, Valid: true},
+	}, nil)
+	mockDB.EXPECT().GetWorkloadDispatchNode(gomock.Any(), "wl-offload-error", 0).Return(nil, sql.ErrConnDone)
+
+	rsp := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rsp)
+	c.Request = httptest.NewRequest(http.MethodGet, "/", nil)
+	c.Set(common.UserId, user.Name)
+	c.Set(common.Name, "wl-offload-error")
+	h.GetWorkloadDispatchNodes(c)
+	assert.Equal(t, http.StatusInternalServerError, rsp.Code)
+}
+
+func TestDispatchNodeHelpers(t *testing.T) {
+	h := &Handler{}
+	nodes, ranks, err := h.getDispatchNodesAndRanks(context.Background(), nil, 0)
+	assert.NoError(t, err)
+	assert.Nil(t, nodes)
+	assert.Nil(t, ranks)
+
+	nodes, ranks = paginateNodesAndRanks([]string{"n1"}, []string{"0"}, 0, 0)
+	assert.Nil(t, nodes)
+	assert.Nil(t, ranks)
+
+	nodes, ranks = paginateNodesAndRanks([]string{"n1"}, nil, 10, 10)
+	assert.Equal(t, []string{}, nodes)
+	assert.Equal(t, []string{}, ranks)
+
+	nodes, ranks = paginateNodesAndRanks([]string{"n1", "n2"}, []string{"0"}, 0, 2)
+	assert.Equal(t, []string{"n1", "n2"}, nodes)
+	assert.Equal(t, []string{"0"}, ranks)
+
+	assert.Nil(t, decodeDispatchStringSlice(sql.NullString{}))
+	assert.Nil(t, decodeDispatchStringSlice(sql.NullString{String: `not-json`, Valid: true}))
 }
