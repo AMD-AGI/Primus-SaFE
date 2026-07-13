@@ -1,6 +1,7 @@
 @import './base.css';
 /* @import './glass-btn.css'; */
 @import './safe-theme.css';
+@import './controls.css';
 
 :root {
   --scale: 1;

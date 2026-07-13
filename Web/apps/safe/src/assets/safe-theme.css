@@ -33,6 +33,31 @@
   --el-color-primary-light-8: color-mix(in oklab, var(--safe-primary) 20%, white);
   --el-color-primary-light-9: color-mix(in oklab, var(--safe-primary) 10%, white);
 
+  /* ---- Control surface system (ported from Pulse) ---- */
+  --safe-primary-hover: #0b7e74;
+  --safe-primary-active: #096960;
+  --safe-border-light: #f0f1f3;
+  --safe-text-secondary: #374151;
+  --safe-warning: #f59e0b;
+  --safe-surface: var(--safe-card-2);
+
+  --safe-radius-md: 8px;
+  --safe-control-radius: 10px;
+  --safe-control-dropdown-radius: 12px;
+  --safe-control-option-radius: 8px;
+  --safe-control-height: 36px;
+  --safe-control-height-small: 32px;
+  --safe-control-option-height: 34px;
+  --safe-control-font-size: 13px;
+  --safe-control-option-font-size: 13px;
+
+  --safe-control-bg: color-mix(in oklab, var(--safe-card) 88%, var(--safe-card-2) 12%);
+  --safe-control-bg-hover: color-mix(in oklab, var(--safe-card) 80%, var(--safe-primary) 6%);
+  --safe-control-border: color-mix(in oklab, var(--safe-border) 84%, var(--safe-primary) 16%);
+  --safe-control-border-hover: color-mix(in oklab, var(--safe-border) 58%, var(--safe-primary) 42%);
+  --safe-control-focus-ring: color-mix(in oklab, var(--safe-primary) 16%, transparent);
+  --safe-control-dropdown-shadow: 0 16px 34px rgba(15, 23, 42, 0.14);
+
   /* 供按钮 plain 专用的颜色变量（不影响其他组件） */
   --safe-primary-plain-bg: color-mix(in oklab, var(--safe-card) 84%, var(--safe-primary) 16%);
   --safe-primary-plain-bg-hover: color-mix(in oklab, var(--safe-card) 78%, var(--safe-primary) 22%);
@@ -89,6 +114,21 @@ html.dark {
   --el-color-primary-light-7: color-mix(in oklab, var(--safe-primary) 45%, white);
   --el-color-primary-light-8: color-mix(in oklab, var(--safe-primary) 35%, white);
   --el-color-primary-light-9: color-mix(in oklab, var(--safe-primary) 25%, white);
+
+  /* ---- Control surface system (dark, ported from Pulse) ---- */
+  --safe-primary-hover: #00cccc;
+  --safe-primary-active: #00b3b3;
+  --safe-primary-contrast: #0c0e14;
+  --safe-border-light: #232830;
+  --safe-text-secondary: #cbd5e1;
+  --safe-warning: #fbbf24;
+
+  --safe-control-bg: color-mix(in oklab, var(--safe-card) 88%, var(--safe-card-2) 12%);
+  --safe-control-bg-hover: color-mix(in oklab, var(--safe-card) 78%, var(--safe-primary) 8%);
+  --safe-control-border: color-mix(in oklab, var(--safe-border) 82%, var(--safe-primary) 18%);
+  --safe-control-border-hover: color-mix(in oklab, var(--safe-border) 58%, var(--safe-primary) 42%);
+  --safe-control-focus-ring: color-mix(in oklab, var(--safe-primary) 18%, transparent);
+  --safe-control-dropdown-shadow: 0 18px 38px rgba(0, 0, 0, 0.34);
 
   --safe-primary-plain-bg: color-mix(in oklab, var(--safe-card) 90%, var(--safe-primary) 10%);
   --safe-primary-plain-bg-hover: color-mix(in oklab, var(--safe-card) 86%, var(--safe-primary) 14%);
