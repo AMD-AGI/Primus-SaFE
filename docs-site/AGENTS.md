@@ -165,6 +165,7 @@ test, write content first.
 | administration/preflight-and-monitoring | behavior + contract · P1 | Rich | **Done** (pre-flight submit + faults read-only) |
 | administration/upgrading | verify · P2 | Rich | **Done** (System → Deploy UI presence; create/approve/rollback are destructive — TODO on a disposable env) |
 | administration/observability | verify + behavior · P2 | Draft | **Done** verify (pod-log + Logs tab present); behavior BLOCKED on `observability-installed` (needs primus-robust + Grafana) |
+| observability/metrics | verify + behavior · P1 | Rich | **Done** verify (Metrics panel + Homepage GPU chart present); behavior gated on `observability-installed` (submit a job, then assert per-workload dashboard shows data) |
 | tasks/run-single-node-training | n/a (submit covered by first-training-job) | Rich | n/a |
 | tasks/run-multi-node-training | behavior · P1 | Rich | **Done** (needs ≥2 ready nodes) |
 | tasks/interact-with-your-job (incl. Authoring) | behavior · P0 | Rich | **Done** |
