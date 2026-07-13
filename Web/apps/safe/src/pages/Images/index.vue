@@ -26,8 +26,6 @@
     <el-segmented
       v-model="activeTab"
       :options="tabSegOptions"
-      class="myself-seg"
-      style="background: none"
       data-tour="images-tabs"
     />
 
@@ -919,16 +917,6 @@ defineOptions({
 .actions-wrapper {
   display: flex;
   gap: 12px;
-}
-
-</style>
-<style>
-/* Reuse project-wide segmented unified styles */
-.myself-seg .el-segmented__item-selected {
-  background: none;
-}
-.myself-seg .el-segmented__item.is-selected {
-  color: var(--safe-primary) !important;
 }
 
 </style>

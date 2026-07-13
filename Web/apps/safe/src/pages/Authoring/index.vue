@@ -25,8 +25,7 @@
         v-model="searchParams.onlyMyself"
         :options="['All', 'My Workloads']"
         @change="filterByMyself"
-        class="myself-seg ml-2 mt-2 sm:mt-0 mb-2"
-        style="background: none"
+        class="ml-2 mt-2 sm:mt-0 mb-2"
       />
     </div>
 
@@ -976,14 +975,5 @@ watch(
 .pending-cause-icon:hover {
   color: var(--el-color-primary);
   transform: scale(1.2);
-}
-</style>
-<style>
-/* Override segmented style */
-.myself-seg .el-segmented__item-selected {
-  background: none;
-}
-.myself-seg .el-segmented__item.is-selected {
-  color: var(--safe-primary) !important;
 }
 </style>

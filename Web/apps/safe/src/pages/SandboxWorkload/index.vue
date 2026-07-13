@@ -8,8 +8,6 @@
         v-model="searchParams.onlyMyself"
         :options="['All', 'My Workloads']"
         @change="filterByMyself"
-        class="myself-seg"
-        style="background: none"
       />
     </div>
 
@@ -678,13 +676,6 @@ watch(
 }
 </style>
 <style>
-.myself-seg .el-segmented__item-selected {
-  background: none;
-}
-.myself-seg .el-segmented__item.is-selected {
-  color: var(--safe-primary) !important;
-}
-
 .pending-cause-icon {
   cursor: pointer;
   color: var(--el-color-warning);

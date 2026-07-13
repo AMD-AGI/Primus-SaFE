@@ -20,8 +20,6 @@
         v-model="currentType"
         :options="typeSegOptions"
         @change="handleTypeChange"
-        class="myself-seg"
-        style="background: none"
       />
     </div>
   </div>
@@ -440,12 +438,3 @@ defineOptions({
 }
 </style>
 
-<style>
-/* Reuse project-wide segmented component styles */
-.myself-seg .el-segmented__item-selected {
-  background: none;
-}
-.myself-seg .el-segmented__item.is-selected {
-  color: var(--safe-primary) !important;
-}
-</style>

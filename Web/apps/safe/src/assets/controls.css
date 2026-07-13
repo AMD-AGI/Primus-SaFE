@@ -232,6 +232,21 @@ html.dark .el-button--primary:not(.is-plain):not(.is-text):not(.is-link).is-disa
     color 0.16s ease;
 }
 
+/* even spacing between the boxed controls */
+.el-pagination .el-pager {
+  display: flex;
+  gap: 6px;
+}
+.el-pagination .el-pager li {
+  margin: 0;
+}
+.el-pagination .btn-prev {
+  margin-right: 6px;
+}
+.el-pagination .btn-next {
+  margin-left: 6px;
+}
+
 .el-pagination .btn-prev:hover,
 .el-pagination .btn-next:hover,
 .el-pagination .el-pager li:hover {

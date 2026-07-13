@@ -16,8 +16,6 @@
       <el-segmented
         v-model="searchParams.onlyMyself"
         :options="['All', 'My Workloads']"
-        class="myself-seg"
-        style="background: none"
         @change="filterByMyself"
       />
     </div>
@@ -552,12 +550,3 @@ onBeforeUnmount(() => {
 })
 </script>
 
-<style>
-/* Override segmented style */
-.myself-seg .el-segmented__item-selected {
-  background: none;
-}
-.myself-seg .el-segmented__item.is-selected {
-  color: var(--safe-primary) !important;
-}
-</style>

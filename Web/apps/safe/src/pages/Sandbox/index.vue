@@ -4,8 +4,6 @@
     <el-segmented
       v-model="activeTab"
       :options="tabSegOptions"
-      class="myself-seg"
-      style="background: none"
     />
 
     <!-- Templates tab search -->
