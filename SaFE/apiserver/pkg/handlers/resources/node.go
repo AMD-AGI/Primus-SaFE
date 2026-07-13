@@ -290,14 +290,14 @@ func (h *Handler) listNode(c *gin.Context) (interface{}, error) {
 		return nil, err
 	}
 	ctx := c.Request.Context()
-	totalCount, nodes, err := h.listNodeByQuery(c, query)
+	totalCount, nodes, allUsedResource, err := h.listNodeByQuery(c, query)
 	if err != nil {
 		return nil, err
 	}
 	if query.Brief {
 		return buildListNodeBriefResponse(totalCount, nodes)
 	}
-	return h.buildListNodeResponse(ctx, query, totalCount, nodes)
+	return h.buildListNodeResponse(ctx, query, totalCount, nodes, allUsedResource)
 }
 
 // ExportNodeToCSV writes the node information to a CSV file using the provided writer (file or response stream).
@@ -362,13 +362,13 @@ func (h *Handler) ExportNodeByQuery(c *gin.Context) {
 	}
 	ctx := c.Request.Context()
 	query.Limit = -1 // Don't need limit.
-	totalCount, nodes, err := h.listNodeByQuery(c, query)
+	totalCount, nodes, allUsedResource, err := h.listNodeByQuery(c, query)
 	if err != nil {
 		klog.ErrorS(err, "failed to query node")
 		apiutils.AbortWithApiError(c, err)
 		return
 	}
-	result, err := h.buildListNodeResponse(ctx, query, totalCount, nodes)
+	result, err := h.buildListNodeResponse(ctx, query, totalCount, nodes, allUsedResource)
 	if err != nil {
 		klog.ErrorS(err, "failed to build node list")
 		apiutils.AbortWithApiError(c, err)
@@ -388,32 +388,32 @@ func (h *Handler) ExportNodeByQuery(c *gin.Context) {
 // listNodeByQuery retrieves nodes based on the provided query parameters.
 // Applies filtering, authorization checks, and pagination to return
 // a list of nodes that match the criteria.
-func (h *Handler) listNodeByQuery(c *gin.Context, query *view.ListNodeRequest) (int, []*v1.Node, error) {
+func (h *Handler) listNodeByQuery(c *gin.Context, query *view.ListNodeRequest) (int, []*v1.Node, map[string]*resourceInfo, error) {
 	requestUser, err := h.getAndSetUsername(c)
 	if err != nil {
-		return 0, nil, err
+		return 0, nil, nil, err
 	}
 
 	labelSelector, err := buildNodeLabelSelector(query)
 	if err != nil {
-		return 0, nil, err
+		return 0, nil, nil, err
 	}
 	var nodeList []v1.Node
 	ctx := c.Request.Context()
 	if query.NodeId == nil {
 		nodeList, err = h.getAdminNodes(ctx, labelSelector)
 		if err != nil {
-			return 0, nil, err
+			return 0, nil, nil, err
 		}
 	} else {
 		// If a nodeId is provided, you can directly get it to save time.
 		node, err := h.getAdminNode(ctx, *query.NodeId)
 		if err != nil {
-			return 0, nil, err
+			return 0, nil, nil, err
 		}
 		nodeLabels := labels.Set(node.Labels)
 		if !labelSelector.Matches(nodeLabels) {
-			return 0, nil, nil
+			return 0, nil, nil, nil
 		}
 		nodeList = append(nodeList, *node)
 	}
@@ -465,10 +465,19 @@ func (h *Handler) listNodeByQuery(c *gin.Context, query *view.ListNodeRequest) (
 	}
 	totalCount := len(nodes)
 	if totalCount == 0 {
-		return 0, nil, nil
-	} else if totalCount > 1 {
-		if err = h.sortNodes(ctx, query, nodes); err != nil {
-			return 0, nil, err
+		return 0, nil, nil, nil
+	}
+
+	var allUsedResource map[string]*resourceInfo
+	if isNodeResourceSort(query.SortBy) {
+		allUsedResource, err = h.getAllUsedResourcePerNode(ctx, query)
+		if err != nil {
+			return 0, nil, nil, err
+		}
+	}
+	if totalCount > 1 {
+		if err = h.sortNodes(ctx, query, nodes, allUsedResource); err != nil {
+			return 0, nil, nil, err
 		}
 	}
 
@@ -476,17 +485,17 @@ func (h *Handler) listNodeByQuery(c *gin.Context, query *view.ListNodeRequest) (
 		start := query.Offset
 		end := start + query.Limit
 		if start > totalCount {
-			return totalCount, nil, nil
+			return totalCount, nil, allUsedResource, nil
 		}
 		if end > totalCount {
 			end = totalCount
 		}
-		return totalCount, nodes[start:end], nil
+		return totalCount, nodes[start:end], allUsedResource, nil
 	}
-	return totalCount, nodes, nil
+	return totalCount, nodes, allUsedResource, nil
 }
 
-func (h *Handler) sortNodes(ctx context.Context, query *view.ListNodeRequest, nodes []*v1.Node) error {
+func (h *Handler) sortNodes(ctx context.Context, query *view.ListNodeRequest, nodes []*v1.Node, usedResources map[string]*resourceInfo) error {
 	sortBy := strings.TrimSpace(query.SortBy)
 	desc := query.Order == "desc" || query.Order == "descending"
 	if sortBy == "" || sortBy == "nodeId" || sortBy == "name" {
@@ -500,10 +509,6 @@ func (h *Handler) sortNodes(ctx context.Context, query *view.ListNodeRequest, no
 	}
 
 	resourceName := corev1.ResourceName(sortBy)
-	usedResources, err := h.getAllUsedResourcePerNode(ctx, query)
-	if err != nil {
-		return err
-	}
 	workspaceFlavors := make(map[string]string)
 	resolveWorkspaceFlavor := func(workspaceId string) string {
 		if workspaceId == "" {
@@ -543,6 +548,24 @@ func (h *Handler) sortNodes(ctx context.Context, query *view.ListNodeRequest, no
 	return nil
 }
 
+func isNodeResourceSort(sortBy string) bool {
+	switch sortBy {
+	case string(common.AmdGpu), "cpu", "memory", "ephemeral-storage", "rdma/hca":
+		return true
+	default:
+		return false
+	}
+}
+
+func validateNodeSortBy(sortBy string) error {
+	switch sortBy {
+	case "", "nodeId", "name", string(common.AmdGpu), "cpu", "memory", "ephemeral-storage", "rdma/hca":
+		return nil
+	default:
+		return commonerrors.NewBadRequest(fmt.Sprintf("unsupported sortBy %q", sortBy))
+	}
+}
+
 func (h *Handler) getAdminNodes(ctx context.Context, labelSelector labels.Selector) ([]v1.Node, error) {
 	nodeList := &v1.NodeList{}
 	if err := h.List(ctx, nodeList, &client.ListOptions{LabelSelector: labelSelector}); err != nil {
@@ -567,10 +590,13 @@ func buildListNodeBriefResponse(totalCount int, nodes []*v1.Node) (interface{}, 
 // buildListNodeResponse constructs a detailed response for node listings.
 // Includes comprehensive node information with resource usage and workspace details.
 func (h *Handler) buildListNodeResponse(ctx context.Context,
-	query *view.ListNodeRequest, totalCount int, nodes []*v1.Node) (interface{}, error) {
-	allUsedResource, err := h.getAllUsedResourcePerNode(ctx, query)
-	if err != nil {
-		return nil, err
+	query *view.ListNodeRequest, totalCount int, nodes []*v1.Node, allUsedResource map[string]*resourceInfo) (interface{}, error) {
+	var err error
+	if allUsedResource == nil {
+		allUsedResource, err = h.getAllUsedResourcePerNode(ctx, query)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	// Get GPU utilization from node_statistic table
@@ -1033,6 +1059,9 @@ func parseListNodeQuery(c *gin.Context) (*view.ListNodeRequest, error) {
 	query := &view.ListNodeRequest{}
 	if err := c.ShouldBindWith(&query, binding.Query); err != nil {
 		return nil, commonerrors.NewBadRequest("invalid query: " + err.Error())
+	}
+	if err := validateNodeSortBy(query.SortBy); err != nil {
+		return nil, err
 	}
 	if query.Limit == 0 {
 		query.Limit = view.DefaultQueryLimit

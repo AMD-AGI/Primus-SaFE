@@ -212,7 +212,7 @@ func TestSortNodesByNameDescending(t *testing.T) {
 		{ObjectMeta: metav1.ObjectMeta{Name: "node-c"}},
 		{ObjectMeta: metav1.ObjectMeta{Name: "node-b"}},
 	}
-	err := h.sortNodes(context.Background(), &view.ListNodeRequest{SortBy: "nodeId", Order: "desc"}, nodes)
+	err := h.sortNodes(context.Background(), &view.ListNodeRequest{SortBy: "nodeId", Order: "desc"}, nodes, nil)
 	assert.NilError(t, err)
 	assert.Equal(t, nodes[0].Name, "node-c")
 	assert.Equal(t, nodes[1].Name, "node-b")
@@ -241,10 +241,10 @@ func TestSortNodesByAvailableResourceBranches(t *testing.T) {
 		WorkspaceId: pointer.String(workspace.Name),
 		SortBy:      string(common.AmdGpu),
 		Order:       "ascending",
-	}, nodes)
+	}, nodes, nil)
 	assert.NilError(t, err)
 	assert.Equal(t, nodes[0].Name, blockedNode.Name)
-	assert.Equal(t, nodes[2].Name, freeNode.Name)
+	assert.Equal(t, nodes[2].Name, usedNode.Name)
 }
 
 func TestPatchNode(t *testing.T) {
@@ -315,6 +315,11 @@ func TestParseListNodeQuery(t *testing.T) {
 	query, err = parseListNodeQuery(c)
 	assert.NilError(t, err)
 	assert.Equal(t, query.WorkspaceId == nil, true)
+
+	c, _ = gin.CreateTestContext(rsp)
+	c.Request = httptest.NewRequest(http.MethodGet, "/api/v1/nodes?sortBy=not-a-resource", nil)
+	_, err = parseListNodeQuery(c)
+	assert.Assert(t, err != nil)
 }
 
 func TestBuildNodeLabelSelector(t *testing.T) {

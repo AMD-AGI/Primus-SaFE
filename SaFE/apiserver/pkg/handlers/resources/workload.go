@@ -1625,6 +1625,7 @@ func decodeDispatchStringSlice(value sql.NullString) []string {
 	}
 	var result []string
 	if err := json.Unmarshal([]byte(value.String), &result); err != nil {
+		klog.Warningf("failed to decode workload dispatch node JSON: %v", err)
 		return nil
 	}
 	return result

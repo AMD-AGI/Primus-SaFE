@@ -26,6 +26,7 @@ import (
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
 	mockdb "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client/mock"
+	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 )
 
 func newWorkloadDBHandler(t *testing.T, ctrl *gomock.Controller) (*Handler, *v1.User, *mockdb.MockInterface) {
@@ -174,6 +175,7 @@ func TestGetWorkloadDispatchNodesInvalidQuery(t *testing.T) {
 func TestGetWorkloadDispatchNodesDBDisabled(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	commonconfig.SetValue("db.enable", "")
+	t.Cleanup(func() { commonconfig.SetValue("db.enable", "true") })
 	rsp := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(rsp)
 	c.Request = httptest.NewRequest(http.MethodGet, "/", nil)
@@ -300,6 +302,24 @@ func TestGetWorkloadDispatchNodesOffloadReadError(t *testing.T) {
 	c.Set(common.Name, "wl-offload-error")
 	h.GetWorkloadDispatchNodes(c)
 	assert.Equal(t, http.StatusInternalServerError, rsp.Code)
+}
+
+func TestGetWorkloadDispatchNodesForbidden(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	h, user, mockDB := newWorkloadDBHandler(t, ctrl)
+	mockDB.EXPECT().GetWorkload(gomock.Any(), "wl-forbidden").
+		Return(nil, commonerrors.NewForbidden("forbidden workload"))
+
+	rsp := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rsp)
+	c.Request = httptest.NewRequest(http.MethodGet, "/", nil)
+	c.Set(common.UserId, user.Name)
+	c.Set(common.Name, "wl-forbidden")
+	h.GetWorkloadDispatchNodes(c)
+	assert.Equal(t, http.StatusForbidden, rsp.Code)
 }
 
 func TestDispatchNodeHelpers(t *testing.T) {
