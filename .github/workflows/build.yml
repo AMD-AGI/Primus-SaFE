@@ -54,7 +54,7 @@ jobs:
           echo "Manual dispatch (build_all): building all modules"
           for module in apiserver resource_manager job_manager preprocess \
             cicd_runner_proxy cicd_unified_job_proxy s3_downloader a2a_gateway \
-            webhooks node_agent sync_image; do
+            webhooks node_agent sync_image observability_enricher; do
             echo "${module}_changed=true" >> $GITHUB_OUTPUT
           done
           exit 0
@@ -168,6 +168,13 @@ jobs:
         else
           echo "sync_image_changed=false" >> $GITHUB_OUTPUT
         fi
+
+        # observability_enricher: SaFE/observability/enricher/**, SaFE/apis/**, SaFE/common/**, SaFE/utils/**
+        if echo "$CHANGED_FILES" | grep -qE '^SaFE/(observability/enricher|apis|common|utils)/'; then
+          echo "observability_enricher_changed=true" >> $GITHUB_OUTPUT
+        else
+          echo "observability_enricher_changed=false" >> $GITHUB_OUTPUT
+        fi
         
         # telemetry_processor: modules/telemetry-processor/** or modules/core/**
         if echo "$CHANGED_FILES" | grep -qE '^modules/(telemetry-processor|core)/'; then
@@ -236,6 +243,9 @@ jobs:
         fi
         if [[ "${{ steps.detect-changes.outputs.a2a_gateway_changed }}" == "true" ]]; then
           MATRIX+='{"name":"a2a-gateway","basepath":"SaFE/a2a-gateway","dockerfile_path":"SaFE/a2a-gateway/Dockerfile"},'
+        fi
+        if [[ "${{ steps.detect-changes.outputs.observability_enricher_changed }}" == "true" ]]; then
+          MATRIX+='{"name":"observability-enricher","basepath":"SaFE/observability/enricher","dockerfile_path":"SaFE/observability/enricher/installer/Dockerfile"},'
         fi
         MATRIX=${MATRIX%,} # remove trailing comma
         MATRIX+=']}'

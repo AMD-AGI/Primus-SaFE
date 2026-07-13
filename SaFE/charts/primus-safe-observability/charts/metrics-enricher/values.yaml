@@ -8,8 +8,8 @@
 enabled: true
 
 image:
-  repository: primus-safe/observability-enricher
-  tag: "latest"
+  repository: primussafe/observability-enricher
+  tag: "v1.0.0"
   pullPolicy: IfNotPresent
 
 imagePullSecrets: []

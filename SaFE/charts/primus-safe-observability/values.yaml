@@ -59,24 +59,24 @@ kubeStateMetrics:
 gpu-exporter:
   enabled: true
   image:
-    repository: "primus-safe/gpu-exporter"
-    tag: "latest"
+    repository: "primussafe/gpu-exporter"
+    tag: "v1.0.0"
   serviceMonitor:
     enabled: true
 
 rdma-exporter:
   enabled: true
   image:
-    repository: "primus-safe/rdma-exporter"
-    tag: "latest"
+    repository: "primussafe/rdma-exporter"
+    tag: "v1.0.0"
   serviceMonitor:
     enabled: true
 
 network-exporter:
   enabled: true
   image:
-    repository: "primus-safe/network-exporter"
-    tag: "latest"
+    repository: "primussafe/network-exporter"
+    tag: "v1.0.0"
   serviceMonitor:
     enabled: true
 
@@ -87,8 +87,8 @@ network-exporter:
 metrics-enricher:
   enabled: true
   image:
-    repository: "primus-safe/observability-enricher"
-    tag: "latest"
+    repository: "primussafe/observability-enricher"
+    tag: "v1.0.0"
   interval: "30s"
   # Must match vmcluster.victoriametrics.name above.
   vmClusterName: "primus-safe-vmcluster"
