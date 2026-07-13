@@ -34,6 +34,12 @@ const router = createRouter({
       component: () => import('../pages/Error/ErrorPage.vue'),
     },
     {
+      path: '/403',
+      name: 'Forbidden',
+      component: () => import('../pages/Error/Forbidden.vue'),
+      meta: { hideMenu: true },
+    },
+    {
       path: '/',
       component: () => import('@/layouts/AppLayout.vue'),
       children: [

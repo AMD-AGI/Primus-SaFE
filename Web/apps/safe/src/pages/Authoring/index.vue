@@ -373,8 +373,8 @@ const initialSearchParams = {
   phase: [] as WorkloadPhase[],
   dateRange: '',
   workloadId: '',
-  onlyMyself: 'All',
-  userId: '',
+  onlyMyself: 'My Workloads',
+  userId: userStore.userId,
 }
 const searchParams = reactive({ ...initialSearchParams })
 
@@ -901,7 +901,7 @@ watch(
   // Refresh list data immediately when workspace dropdown changes
   () => store.currentWorkspaceId,
   (id) => {
-    if (id) fetchData()
+    if (id) onSearch({ resetPage: false })
   },
   { immediate: true },
 )

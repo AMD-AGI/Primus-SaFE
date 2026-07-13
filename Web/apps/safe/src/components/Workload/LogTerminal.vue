@@ -24,7 +24,7 @@
         />
         <el-table
           ref="nodeTableRef"
-          :data="filteredTableRows"
+          :data="pagedTableRows"
           row-key="node"
           stripe
           border
@@ -44,6 +44,16 @@
           </el-table-column>
         </el-table>
         <el-empty v-else description="no data" />
+        <el-pagination
+          v-if="filteredTableRows.length > nodePagination.pageSize"
+          v-model:current-page="nodePagination.page"
+          v-model:page-size="nodePagination.pageSize"
+          :total="filteredTableRows.length"
+          :page-sizes="[20, 50, 100]"
+          size="small"
+          layout="prev, pager, next"
+          class="mt-2 justify-end"
+        />
       </el-card>
     </el-col>
     <el-col :span="18">
@@ -175,7 +185,7 @@
 </template>
 
 <script lang="ts" setup>
-import { computed, nextTick, ref, toRef, watch } from 'vue'
+import { computed, nextTick, reactive, ref, toRef, watch } from 'vue'
 import { InfoFilled, Search, Download, Top, Bottom } from '@element-plus/icons-vue'
 import { useLogTable, type RowData } from '@/composables/useLogTable'
 import LogContextDialog from '@/components/Workload/LogContextDialog.vue'
@@ -203,6 +213,13 @@ const filteredTableRows = computed(() => {
   return tableRows.value.filter((r) => r.node.toLowerCase().includes(kw))
 })
 
+// Client-side pagination for the node list (backend returns the full list per group)
+const nodePagination = reactive({ page: 1, pageSize: 20 })
+const pagedTableRows = computed(() => {
+  const start = (nodePagination.page - 1) * nodePagination.pageSize
+  return filteredTableRows.value.slice(start, start + nodePagination.pageSize)
+})
+
 const selectedGroup = ref<number>(props.dispatchCount ?? 0)
 
 const tableRows = computed(() => {
@@ -219,6 +236,10 @@ const groupOptions = computed(() =>
     return { label: String(idx), value: idx }
   }),
 )
+
+watch([nodeSearch, selectedGroup], () => {
+  nodePagination.page = 1
+})
 
 const {
   loading,

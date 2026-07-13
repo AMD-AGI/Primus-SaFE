@@ -1,4 +1,5 @@
 import { ref, reactive, onMounted, shallowRef } from 'vue'
+import { ElMessage } from 'element-plus'
 
 interface Pagination {
   pageNum: number
@@ -49,6 +50,7 @@ export function usePaginatedTable<T, E extends any[]>(
       pagination.total = res.total
     } catch (e) {
       console.error('fetchData error:', e)
+      ElMessage.error('Failed to load data, please try again')
     } finally {
       loading.value = false
     }

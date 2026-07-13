@@ -165,7 +165,7 @@
             </el-button>
           </div>
         </template>
-        <el-table v-loading="jobsLoading" :data="jobsWithGithubName" style="width: 100%" @row-click="goToJobDetail">
+        <el-table v-loading="jobsLoading" :data="pagedJobs" style="width: 100%" @row-click="goToJobDetail">
           <el-table-column label="Job" min-width="280">
             <template #default="{ row }">
               <div class="job-cell">
@@ -202,6 +202,15 @@
             </template>
           </el-table-column>
         </el-table>
+        <div v-if="jobsWithGithubName.length > jobsPagination.pageSize" class="pagination-container">
+          <el-pagination
+            v-model:current-page="jobsPagination.page"
+            v-model:page-size="jobsPagination.pageSize"
+            :total="jobsWithGithubName.length"
+            :page-sizes="[10, 20, 50, 100]"
+            layout="total, sizes, prev, pager, next"
+          />
+        </div>
       </el-card>
     </template>
 
@@ -211,7 +220,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue'
+import { ref, reactive, onMounted, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import {
@@ -265,6 +274,13 @@ const jobsWithGithubName = computed(() => {
     ...job,
     githubJobName: job.githubJobId ? githubJobNameMap.value.get(job.githubJobId) : undefined
   }))
+})
+
+// Client-side pagination for jobs table (backend returns full list)
+const jobsPagination = reactive({ page: 1, pageSize: 20 })
+const pagedJobs = computed(() => {
+  const start = (jobsPagination.page - 1) * jobsPagination.pageSize
+  return jobsWithGithubName.value.slice(start, start + jobsPagination.pageSize)
 })
 
 // Methods
@@ -364,6 +380,12 @@ onMounted(async () => {
 </script>
 
 <style scoped lang="scss">
+.pagination-container {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 16px;
+}
+
 .run-summary-detail {
   padding: 20px;
   
