@@ -573,6 +573,21 @@ func (mr *MockInterfaceMockRecorder) DeleteWorkloadDispatchNodes(ctx, workloadId
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteWorkloadDispatchNodes", reflect.TypeOf((*MockInterface)(nil).DeleteWorkloadDispatchNodes), ctx, workloadId)
 }
 
+// GetWorkloadDispatchNode mocks base method.
+func (m *MockInterface) GetWorkloadDispatchNode(ctx context.Context, workloadId string, dispatchIndex int) (*client.WorkloadDispatchNode, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetWorkloadDispatchNode", ctx, workloadId, dispatchIndex)
+	ret0, _ := ret[0].(*client.WorkloadDispatchNode)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetWorkloadDispatchNode indicates an expected call of GetWorkloadDispatchNode.
+func (mr *MockInterfaceMockRecorder) GetWorkloadDispatchNode(ctx, workloadId, dispatchIndex interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetWorkloadDispatchNode", reflect.TypeOf((*MockInterface)(nil).GetWorkloadDispatchNode), ctx, workloadId, dispatchIndex)
+}
+
 // DeleteWorkloadPods mocks base method.
 func (m *MockInterface) DeleteWorkloadPods(ctx context.Context, workloadId string) error {
 	m.ctrl.T.Helper()
@@ -2725,6 +2740,21 @@ func (m *MockWorkloadDispatchNodeInterface) DeleteWorkloadDispatchNodes(ctx cont
 func (mr *MockWorkloadDispatchNodeInterfaceMockRecorder) DeleteWorkloadDispatchNodes(ctx, workloadId interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteWorkloadDispatchNodes", reflect.TypeOf((*MockWorkloadDispatchNodeInterface)(nil).DeleteWorkloadDispatchNodes), ctx, workloadId)
+}
+
+// GetWorkloadDispatchNode mocks base method.
+func (m *MockWorkloadDispatchNodeInterface) GetWorkloadDispatchNode(ctx context.Context, workloadId string, dispatchIndex int) (*client.WorkloadDispatchNode, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetWorkloadDispatchNode", ctx, workloadId, dispatchIndex)
+	ret0, _ := ret[0].(*client.WorkloadDispatchNode)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetWorkloadDispatchNode indicates an expected call of GetWorkloadDispatchNode.
+func (mr *MockWorkloadDispatchNodeInterfaceMockRecorder) GetWorkloadDispatchNode(ctx, workloadId, dispatchIndex interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetWorkloadDispatchNode", reflect.TypeOf((*MockWorkloadDispatchNodeInterface)(nil).GetWorkloadDispatchNode), ctx, workloadId, dispatchIndex)
 }
 
 // ListWorkloadDispatchNodes mocks base method.

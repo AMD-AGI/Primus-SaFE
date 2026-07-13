@@ -173,6 +173,38 @@ func TestListNodes(t *testing.T) {
 	assert.Equal(t, result.Items[1].Workloads[0].Id, workload2.Name)
 }
 
+func TestListNodesSortsAvailableResourceBeforePagination(t *testing.T) {
+	clusterId := "test-cluster"
+	nodeFlavorId := "test-nodeflavor"
+	workspace := genMockWorkspace(clusterId, nodeFlavorId)
+	user := genMockUser()
+	role := genMockRole()
+
+	low := genAvailableNode("node-a-low", clusterId, workspace.Name, nodeFlavorId, genMockNodeResource(64, 2*1024*1024*1024, 1))
+	high := genAvailableNode("node-b-high", clusterId, workspace.Name, nodeFlavorId, genMockNodeResource(64, 2*1024*1024*1024, 8))
+	mid := genAvailableNode("node-c-mid", clusterId, workspace.Name, nodeFlavorId, genMockNodeResource(64, 2*1024*1024*1024, 4))
+
+	fakeClient := fake.NewClientBuilder().WithObjects(workspace, low, high, mid, user, role).
+		WithScheme(scheme.Scheme).Build()
+	h := Handler{Client: fakeClient, accessController: authority.NewAccessController(fakeClient)}
+
+	rsp := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rsp)
+	c.Set(common.UserId, user.Name)
+	c.Request = httptest.NewRequest(http.MethodGet,
+		fmt.Sprintf("/api/v1/nodes?workspaceId=%s&sortBy=%s&order=desc&limit=2&offset=0", workspace.Name, common.AmdGpu), nil)
+	h.ListNode(c)
+	assert.Equal(t, rsp.Code, http.StatusOK)
+
+	result := &view.ListNodeResponse{}
+	err := json.Unmarshal(rsp.Body.Bytes(), result)
+	assert.NilError(t, err)
+	assert.Equal(t, result.TotalCount, 3)
+	assert.Equal(t, len(result.Items), 2)
+	assert.Equal(t, result.Items[0].NodeId, high.Name)
+	assert.Equal(t, result.Items[1].NodeId, mid.Name)
+}
+
 func TestPatchNode(t *testing.T) {
 	clusterId := "test-cluster"
 	nodeFlavor := genMockNodeFlavor()

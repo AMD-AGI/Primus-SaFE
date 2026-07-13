@@ -68,6 +68,7 @@ type WorkloadPodInterface interface {
 // history offloaded from the etcd Workload status (WorkloadStatus.Nodes/.Ranks).
 type WorkloadDispatchNodeInterface interface {
 	UpsertWorkloadDispatchNode(ctx context.Context, dn *WorkloadDispatchNode) error
+	GetWorkloadDispatchNode(ctx context.Context, workloadId string, dispatchIndex int) (*WorkloadDispatchNode, error)
 	ListWorkloadDispatchNodes(ctx context.Context, workloadId string) ([]*WorkloadDispatchNode, error)
 	DeleteWorkloadDispatchNodes(ctx context.Context, workloadId string) error
 }

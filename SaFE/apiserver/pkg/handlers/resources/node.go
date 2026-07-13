@@ -467,9 +467,9 @@ func (h *Handler) listNodeByQuery(c *gin.Context, query *view.ListNodeRequest) (
 	if totalCount == 0 {
 		return 0, nil, nil
 	} else if totalCount > 1 {
-		sort.Slice(nodes, func(i, j int) bool {
-			return nodes[i].Name < nodes[j].Name
-		})
+		if err = h.sortNodes(ctx, query, nodes); err != nil {
+			return 0, nil, err
+		}
 	}
 
 	if query.Limit >= 0 {
@@ -484,6 +484,63 @@ func (h *Handler) listNodeByQuery(c *gin.Context, query *view.ListNodeRequest) (
 		return totalCount, nodes[start:end], nil
 	}
 	return totalCount, nodes, nil
+}
+
+func (h *Handler) sortNodes(ctx context.Context, query *view.ListNodeRequest, nodes []*v1.Node) error {
+	sortBy := strings.TrimSpace(query.SortBy)
+	desc := query.Order == "desc" || query.Order == "descending"
+	if sortBy == "" || sortBy == "nodeId" || sortBy == "name" {
+		sort.Slice(nodes, func(i, j int) bool {
+			if desc {
+				return nodes[i].Name > nodes[j].Name
+			}
+			return nodes[i].Name < nodes[j].Name
+		})
+		return nil
+	}
+
+	resourceName := corev1.ResourceName(sortBy)
+	usedResources, err := h.getAllUsedResourcePerNode(ctx, query)
+	if err != nil {
+		return err
+	}
+	workspaceFlavors := make(map[string]string)
+	resolveWorkspaceFlavor := func(workspaceId string) string {
+		if workspaceId == "" {
+			return ""
+		}
+		if flavor, ok := workspaceFlavors[workspaceId]; ok {
+			return flavor
+		}
+		flavor := ""
+		if workspace, wsErr := h.getAdminWorkspace(ctx, workspaceId); wsErr == nil {
+			flavor = workspace.Spec.NodeFlavor
+		}
+		workspaceFlavors[workspaceId] = flavor
+		return flavor
+	}
+	resourceValue := func(node *v1.Node) int64 {
+		avail := quantity.GetAvailableResource(node.Status.Resources)
+		if used := usedResources[node.Name]; used != nil && len(used.resource) > 0 {
+			avail = quantity.SubResource(avail, used.resource)
+		}
+		if !nodeContributesAvailable(node, resolveWorkspaceFlavor(v1.GetWorkspaceId(node))) {
+			avail = quantity.MultiResource(node.Status.Resources, 0)
+		}
+		quantityValue := quantity.NonNegative(avail)[resourceName]
+		return quantityValue.Value()
+	}
+	sort.Slice(nodes, func(i, j int) bool {
+		iv, jv := resourceValue(nodes[i]), resourceValue(nodes[j])
+		if iv == jv {
+			return nodes[i].Name < nodes[j].Name
+		}
+		if desc {
+			return iv > jv
+		}
+		return iv < jv
+	})
+	return nil
 }
 
 func (h *Handler) getAdminNodes(ctx context.Context, labelSelector labels.Selector) ([]v1.Node, error) {
