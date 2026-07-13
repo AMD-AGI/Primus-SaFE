@@ -11,11 +11,13 @@
 # forward-compatible: robust's telemetry-gateway emits the same series/names.
 #
 # The dashboard JSON is loaded verbatim via .Files.Get (from files/dashboards/)
-# rather than inlined here. Grafana legend vars like {{gpu_id}}/{{node}}/{{pod}}
-# would otherwise be evaluated by Helm's text/template engine ('function
-# "gpu_id" not defined'), which is a PARSE error that breaks the whole chart
-# regardless of the guard below. .Files.Get content is never templated, so the
-# vars pass through untouched. See issue #660.
+# rather than inlined here. If inlined, Grafana legend variables such as gpu_id,
+# node and pod (written with Grafana's double-curly syntax) get evaluated by
+# Helm's text/template engine ('function "gpu_id" not defined') -- a PARSE error
+# that breaks the whole chart regardless of the guard below. .Files.Get content
+# is never templated, so those variables pass through. See issue #660.
+# NOTE: do not write Grafana's double-curly vars in this file (even in comments);
+# Helm parses the entire file, comments included.
 #
 # Only created when the direct-metrics path is enabled AND Grafana is on.
 {{- if and .Values.grafana.enable (default (default .Values.observability).metrics).enable }}
