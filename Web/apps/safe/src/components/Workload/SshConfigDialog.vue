@@ -87,13 +87,20 @@ const parsedUserDotParts = computed(() => {
 // Extract container name from SSH command (index 2)
 const extractedContainer = computed(() => parsedUserDotParts.value[2] || '')
 
-// The container WebShell should exec into. Prefer the containers API (always populated for a
-// running pod); fall back to the SSH-command parse. Never send an empty container, or the
-// backend falls back to a hardcoded "main" that doesn't match pods like Authoring ("pytorch"),
-// which makes WebShell connect (101) then immediately close (1006 "disconnected").
-const webshellContainer = computed(
-  () => extractedContainer.value || podContainers.value[0] || '',
-)
+// The container WebShell should exec into. The live pod container list is the source of truth:
+// honor the container parsed from the SSH command only when it is actually one of the pod's
+// containers, otherwise use the pod's first container. Only when the live list is unavailable do
+// we fall back to the parsed value. This avoids re-sending a stale/invalid container (which would
+// fail the exec — WebShell connects then immediately closes) even though the server also resolves
+// the pod's main container when the request container is empty.
+const webshellContainer = computed(() => {
+  const parsed = extractedContainer.value
+  const live = podContainers.value
+  if (live.length) {
+    return live.includes(parsed) ? parsed : live[0]
+  }
+  return parsed || ''
+})
 
 // Extract current shell from SSH command (index 3)
 const extractedShell = computed(() => parsedUserDotParts.value[3] || '')
