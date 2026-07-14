@@ -464,8 +464,6 @@ const readQuery = () => {
   searchParams.workspaceId = (q.workspaceId as string) || ''
   searchParams.kind = (q.kind as string) || ''
   searchParams.workloadId = (q.workloadId as string) || ''
-  searchParams.userId = (q.userId as string) || ''
-  searchParams.userName = (q.userName as string) || ''
   const phaseStr = (q.phase as string) || ''
   searchParams.phase = phaseStr ? (phaseStr.split(',') as WorkloadPhase[]) : []
   const since = q.since as string | undefined
@@ -486,8 +484,6 @@ const writeQuery = () => {
   if (searchParams.workspaceId) query.workspaceId = searchParams.workspaceId
   if (searchParams.kind) query.kind = searchParams.kind
   if (searchParams.workloadId) query.workloadId = searchParams.workloadId
-  if (searchParams.userId) query.userId = searchParams.userId
-  if (searchParams.userName) query.userName = searchParams.userName
   if (searchParams.phase?.length) query.phase = searchParams.phase.join(',')
   if (start) query.since = dayjs(start).utc().format('YYYY-MM-DDTHH:mm:ss.SSS[Z]')
   if (end) query.until = dayjs(end).utc().format('YYYY-MM-DDTHH:mm:ss.SSS[Z]')
