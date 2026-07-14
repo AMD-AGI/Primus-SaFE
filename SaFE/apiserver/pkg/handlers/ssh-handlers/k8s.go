@@ -46,6 +46,14 @@ func (h *SshHandler) SessionConn(ctx context.Context, sessionInfo *SessionInfo) 
 		return err
 	}
 
+	// Fall back to the pod's real main container when the caller didn't specify one (or sent a
+	// stale/empty value). Without this the exec targets a non-existent container and the session
+	// closes immediately with no output — the WebShell "connected then disconnected" (1006) symptom.
+	if strings.TrimSpace(sessionInfo.userInfo.Container) == "" {
+		sessionInfo.userInfo.Container = commonworkload.GetMainContainerByPod(
+			workload, workload.SpecKind(), sessionInfo.userInfo.Pod)
+	}
+
 	rawCmd := sessionInfo.userConn.RawCommand()
 	isInteractive := sessionInfo.isPty || IsShellCommand(rawCmd)
 	// SCP needs stdin for data transfer but should execute as a command

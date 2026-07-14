@@ -85,6 +85,16 @@ const router = createRouter({
           component: () => import('../pages/Infer/index.vue'),
         },
         {
+          path: '/cicd',
+          name: 'CICD',
+          component: () => import('../pages/CICD/index.vue'),
+        },
+        {
+          path: '/cicd/detail',
+          name: 'CICDDetail',
+          component: () => import('../pages/CICD/CICDDetail.vue'),
+        },
+        {
           path: '/training/detail',
           name: 'PyTorchDetail',
           component: () => import('../pages/Training/TrainingDetail.vue'),

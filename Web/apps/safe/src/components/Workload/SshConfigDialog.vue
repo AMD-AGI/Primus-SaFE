@@ -61,6 +61,8 @@ const emit = defineEmits(['update:visible', 'success'])
 const shells = ref<string[]>([])
 const selectedShell = ref('')
 const baseSshCommand = ref('')
+// Real container names for this pod (from the containers API — the reliable source).
+const podContainers = ref<string[]>([])
 
 const initLoading = ref(false)
 const imageSavingLoading = ref(false)
@@ -84,6 +86,14 @@ const parsedUserDotParts = computed(() => {
 
 // Extract container name from SSH command (index 2)
 const extractedContainer = computed(() => parsedUserDotParts.value[2] || '')
+
+// The container WebShell should exec into. Prefer the containers API (always populated for a
+// running pod); fall back to the SSH-command parse. Never send an empty container, or the
+// backend falls back to a hardcoded "main" that doesn't match pods like Authoring ("pytorch"),
+// which makes WebShell connect (101) then immediately close (1006 "disconnected").
+const webshellContainer = computed(
+  () => extractedContainer.value || podContainers.value[0] || '',
+)
 
 // Extract current shell from SSH command (index 3)
 const extractedShell = computed(() => parsedUserDotParts.value[3] || '')
@@ -134,7 +144,7 @@ async function openWebShellInNewTab() {
   const q = new URLSearchParams({
     workloadId: props.wlid ?? '',
     pod: props.podid ?? '',
-    container: extractedContainer.value,
+    container: webshellContainer.value,
     cmd: selectedShell.value ?? 'sh',
     namespace: wsStore.currentWorkspaceId ?? '',
   })
@@ -147,6 +157,7 @@ const onOpen = async () => {
   try {
     const res = await getPodContainers(props.wlid, props.podid)
     shells.value = res.shells ?? []
+    podContainers.value = (res.containers ?? []).map((c: { name: string }) => c.name)
     baseSshCommand.value = props.sshCommand ?? ''
 
     if (shells.value.length > 0 && !selectedShell.value) {

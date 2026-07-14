@@ -45,7 +45,7 @@ func (h *SshHandler) WebShell(c *gin.Context) {
 		NameSpace: c.Query("namespace"),
 		Rows:      c.DefaultQuery("rows", "1800"),
 		Cols:      c.DefaultQuery("cols", "40"),
-		Container: c.DefaultQuery("container", "main"),
+		Container: c.Query("container"),
 		CMD:       c.DefaultQuery("cmd", "sh"),
 	}
 
