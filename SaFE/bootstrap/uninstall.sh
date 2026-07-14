@@ -29,4 +29,22 @@ helm uninstall node-agent -n "$NAMESPACE"
 # left all of this running. Remove the release, then delete the namespace so
 # its PVCs (vmstorage) and any leftover VM CRs are cleaned up too.
 helm uninstall primus-safe-observability -n "$OBS_NAMESPACE"
+
+# The VictoriaMetrics operator installs a validating admission webhook and puts
+# a finalizer (apps.victoriametrics.com/finalizer) on its CRs. If the operator
+# (and its webhook) is torn down before those finalizers clear, deleting the
+# namespace hangs forever in "Terminating" and a later reinstall into it fails.
+# Remove the webhook first, then force-clear finalizers on any residual VM CRs,
+# so namespace teardown (and reinstall) is reliable. All best-effort.
+kubectl delete validatingwebhookconfiguration,mutatingwebhookconfiguration \
+  -l app.kubernetes.io/name=victoria-metrics-operator --ignore-not-found 2>/dev/null
+kubectl get validatingwebhookconfigurations,mutatingwebhookconfigurations -o name 2>/dev/null \
+  | grep -i "victoria-metrics-operator" | xargs -r kubectl delete --ignore-not-found 2>/dev/null
+
+for kind in vmcluster vmagent vmalert vmalertmanager vmauth vmsingle vmnodescrape vmpodscrape vmservicescrape; do
+  kubectl get "$kind" -n "$OBS_NAMESPACE" -o name 2>/dev/null | while read -r cr; do
+    kubectl patch -n "$OBS_NAMESPACE" "$cr" --type=merge -p '{"metadata":{"finalizers":[]}}' 2>/dev/null
+  done
+done
+
 kubectl delete namespace "$OBS_NAMESPACE" --ignore-not-found
