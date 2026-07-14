@@ -78,6 +78,54 @@ run contract.)
 | Per-row day-2 actions | bind/unmanage, retry, reboot present | _fill in_ |
 | Create Node form fields | hostname, private IP, flavor, template, SSH secret | _fill in_ |
 
+## Node flavors
+
+A **node flavor** is a reusable **hardware profile**: it describes the per-node CPU, GPU, memory,
+disks, and extended resources. Every node is registered against a flavor, and every workspace binds
+to exactly one — so a flavor is also the unit that **quota** is measured in
+(**quota = nodes × flavor**; see [Manage access & quota](/administration/manage-access-and-quota)).
+Example flavors are seeded (`amd-mi300x-example`, `amd-mi325x-example`, `amd-mi355x-example`); use
+one, or create your own for other hardware.
+
+### Create a node flavor (console)
+
+Open **System → Flavors → Create** and fill in:
+
+| Field | What to enter |
+|-------|---------------|
+| **Name** | A stable identifier for the profile (e.g. `amd-mi300x`). |
+| **Memory** | RAM per node with unit (e.g. `2048` `Gi`). |
+| **CPU — Quantity / Product** | Cores per node (e.g. `192`) and an optional CPU model label. |
+| **GPU — Quantity / Product / Resource Name** | GPUs per node (e.g. `8`), the model, and the Kubernetes device resource name — for AMD GPUs this is **`amd.com/gpu`**. Leave GPU empty for a CPU-only flavor. |
+| **Root Disk / Data Disk — Quantity / Type / Count** | OS and data disks: size (e.g. `500` `Gi`), **Type** (`nvme` / `ssd` / `hdd`), and how many. |
+| **Extended Resources — `ephemeral-storage`, `rdma/hca`** | Scratch storage (e.g. `300` `Gi`) and the RDMA HCA count (e.g. `1k`) so distributed jobs can request RDMA. |
+
+Submit. **Healthy (pass):** the new flavor appears in the **Flavors** list, and it becomes
+selectable as the **Node Flavor** both when registering a node and when creating a workspace. **If
+instead** the form is rejected, a required field (Name / CPU / Memory) is missing — fill it and
+resubmit.
+
+The equivalent API call:
+
+```bash
+curl -X POST https://<your-console>/api/v1/nodeflavors \
+  -H "Authorization: Bearer <admin-token>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "amd-mi300x",
+    "cpu": { "quantity": "192", "product": "" },
+    "gpu": { "quantity": 8, "product": "AMD Instinct MI300X", "resourceName": "amd.com/gpu" },
+    "memory": "2048Gi",
+    "rootDisk": { "type": "nvme", "quantity": "500Gi", "count": 1 },
+    "extendedResources": { "ephemeral-storage": "300Gi", "rdma/hca": "1k" }
+  }'
+```
+
+> **Agent:** creating a flavor is an admin mutation. On a shared environment, presence-check that
+> **System → Flavors** lists the seeded `amd-mi30x/325x/355x-example` flavors and that **Create**
+> opens a form with the fields above — rather than creating one. On a disposable environment you
+> may create and then delete a uniquely-named flavor.
+
 ## Register a node
 
 A node must be SSH-reachable and is registered against an existing **node flavor** (hardware
