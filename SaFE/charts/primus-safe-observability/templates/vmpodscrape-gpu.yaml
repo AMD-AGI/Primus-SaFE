@@ -1,0 +1,27 @@
+#
+# Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
+# See LICENSE for license information.
+#
+# Scrape the gpu-exporter DaemonSet with a VM-native VMPodScrape (instead of a
+# prometheus-operator ServiceMonitor, whose CRD is absent on a VM-operator-only
+# cluster). A `node` label is added from the pod's node so GPU series can be
+# attributed per node. VMAgent picks this up via selectAllByDefault.
+{{- if (index .Values "gpu-exporter" "enabled" | default true) }}
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMPodScrape
+metadata:
+  name: gpu-exporter
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app.kubernetes.io/part-of: primus-safe-observability
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: gpu-exporter
+  podMetricsEndpoints:
+    - port: metrics
+      interval: 30s
+      relabelConfigs:
+        - sourceLabels: [__meta_kubernetes_pod_node_name]
+          targetLabel: node
+{{- end }}

@@ -456,6 +456,13 @@ async function fetchGPUData() {
     })
     gpuData.value = unwrapGpuAggregationRows(res)
     await renderGpuChart()
+  } catch (err) {
+    // GPU aggregation depends on the optional Robust data plane; when it is not
+    // deployed the request fails. Degrade to an empty chart instead of surfacing
+    // a global error popup.
+    console.warn('GPU aggregation unavailable:', err)
+    gpuData.value = []
+    await renderGpuChart()
   } finally {
     gpuLoading.value = false
   }

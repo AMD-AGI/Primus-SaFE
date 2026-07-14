@@ -59,26 +59,32 @@ kubeStateMetrics:
 gpu-exporter:
   enabled: true
   image:
-    repository: "primus-safe/gpu-exporter"
-    tag: "latest"
+    repository: "primussafe/gpu-exporter"
+    tag: "v1.0.0"
+  # Use the VM-native VMPodScrape (templates/vmpodscrape-gpu.yaml) instead of a
+  # prometheus-operator ServiceMonitor: the ServiceMonitor CRD is not present on
+  # a VM-operator-only cluster, so emitting one makes `helm install` fail with
+  # "no matches for kind ServiceMonitor". VMPodScrape needs only the VM operator
+  # CRDs this chart already installs.
   serviceMonitor:
-    enabled: true
+    enabled: false
 
 rdma-exporter:
   enabled: true
   image:
-    repository: "primus-safe/rdma-exporter"
-    tag: "latest"
+    repository: "primussafe/rdma-exporter"
+    tag: "v1.0.0"
+  # rdma-exporter is scraped via templates/vmpodscrape-rdma.yaml (VM-native).
   serviceMonitor:
-    enabled: true
+    enabled: false
 
 network-exporter:
   enabled: true
   image:
-    repository: "primus-safe/network-exporter"
-    tag: "latest"
+    repository: "primussafe/network-exporter"
+    tag: "v1.0.0"
   serviceMonitor:
-    enabled: true
+    enabled: false
 
 # ── SaFE-native metrics enricher ────────────────────────────────────────
 # Scrapes the AMD device-metrics-exporter, attributes each GPU to the owning
@@ -87,8 +93,8 @@ network-exporter:
 metrics-enricher:
   enabled: true
   image:
-    repository: "primus-safe/observability-enricher"
-    tag: "latest"
+    repository: "primussafe/observability-enricher"
+    tag: "v1.0.0"
   interval: "30s"
   # Must match vmcluster.victoriametrics.name above.
   vmClusterName: "primus-safe-vmcluster"

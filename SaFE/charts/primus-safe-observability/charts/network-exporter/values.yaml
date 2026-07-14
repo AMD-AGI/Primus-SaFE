@@ -1,9 +1,9 @@
 replicaCount: 1
 
 image:
-  repository: network-exporter
+  repository: primussafe/network-exporter
   pullPolicy: IfNotPresent
-  tag: "latest"
+  tag: "v1.0.0"
 
 imagePullSecrets: []
 nameOverride: ""
