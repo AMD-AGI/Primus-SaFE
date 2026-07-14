@@ -36,8 +36,37 @@ const jumpToDetail = (jobId: string) => {
   router.push({ path: '/preflight/ws/detail', query: { id: jobId } })
 }
 
+// Keep the date range in the URL query so returning from a detail page restores
+// the same filter. DateRangeFilter auto-emits a default range on mount, so on the
+// first emit we prefer any range already present in the URL.
+const firstDateEmit = ref(true)
+
+const readQuery = () => {
+  const q = router.currentRoute.value.query
+  dateFilter.value = {
+    since: (q.since as string) || '',
+    until: (q.until as string) || '',
+  }
+}
+
+const writeQuery = () => {
+  const query: Record<string, string> = {}
+  if (dateFilter.value.since) query.since = dateFilter.value.since
+  if (dateFilter.value.until) query.until = dateFilter.value.until
+  router.replace({ query })
+}
+
 const onDateFilterChange = (val: { since: string; until: string }) => {
-  dateFilter.value = val
+  if (firstDateEmit.value) {
+    firstDateEmit.value = false
+    readQuery()
+    if (!dateFilter.value.since && !dateFilter.value.until) {
+      dateFilter.value = val
+    }
+  } else {
+    dateFilter.value = val
+  }
+  writeQuery()
   fetchData()
 }
 

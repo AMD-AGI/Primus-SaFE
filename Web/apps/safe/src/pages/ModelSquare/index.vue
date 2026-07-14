@@ -286,7 +286,8 @@
         :page-sizes="[12, 24, 48]"
         layout="total, sizes, prev, pager, next"
         background
-        @size-change="currentPage = 1"
+        @size-change="handleSizeChange"
+        @current-change="writeQuery"
       />
     </div>
 
@@ -438,8 +439,34 @@ const paginatedModels = computed(() => {
   return models.value.slice(start, start + pageSize.value)
 })
 
+// Keep the URL query in sync with the filter/pagination state so returning from
+// a model detail page restores the same view (client-side pagination included).
+const readQuery = () => {
+  const q = router.currentRoute.value.query
+  filters.search = (q.search as string) || ''
+  filters.owner = (q.owner as string) || ''
+  filters.origin = (q.origin as string) || ''
+  currentPage.value = Number(q.page || 1)
+  pageSize.value = Number(q.pageSize || pageSize.value)
+}
+const writeQuery = () => {
+  const query: Record<string, string> = {}
+  if (filters.search?.trim()) query.search = filters.search.trim()
+  if (filters.owner) query.owner = filters.owner
+  if (filters.origin) query.origin = filters.origin
+  query.page = String(currentPage.value)
+  query.pageSize = String(pageSize.value)
+  router.replace({ query })
+}
+
+const handleSizeChange = () => {
+  currentPage.value = 1
+  writeQuery()
+}
+
 // Fetch model list
 const fetchModels = async () => {
+  writeQuery()
   loading.value = true
   try {
     const params: ModelsListParams = {}
@@ -720,6 +747,7 @@ const toggleRefreshPause = () => {
 
 // Initialize
 onMounted(() => {
+  readQuery()
   fetchModels()
   startTick()
 })

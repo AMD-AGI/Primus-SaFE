@@ -382,7 +382,43 @@ const handleMenuClick = async (act: Action, row: PostTrainRunItem) => {
   closeMore()
 }
 
+// Keep the URL query in sync with the filter state so returning from a detail
+// page restores the same filters, column selections and page.
+const readQuery = () => {
+  const q = router.currentRoute.value.query
+  filters.trainType = (q.trainType as string) || ''
+  filters.strategy = (q.strategy as string) || ''
+  filters.status = (q.status as string) || ''
+  filters.workspace = (q.workspace as string) || ''
+  filters.baseModel = (q.baseModel as string) || ''
+  filters.owner = (q.owner as string) || ''
+  const since = q.since as string | undefined
+  const until = q.until as string | undefined
+  filters.dateRange = (since || until
+    ? [since ? dayjs(since).toDate() : '', until ? dayjs(until).toDate() : '']
+    : '') as any
+  pagination.page = Number(q.page || 1)
+  pagination.pageSize = Number(q.pageSize || pagination.pageSize)
+}
+
+const writeQuery = () => {
+  const [start, end] = filters.dateRange ?? []
+  const query: Record<string, string> = {}
+  if (filters.trainType) query.trainType = filters.trainType
+  if (filters.strategy) query.strategy = filters.strategy
+  if (filters.status) query.status = filters.status
+  if (filters.workspace) query.workspace = filters.workspace
+  if (filters.baseModel) query.baseModel = filters.baseModel
+  if (filters.owner) query.owner = filters.owner
+  if (start) query.since = dayjs(start).utc().format('YYYY-MM-DDTHH:mm:ss.SSS[Z]')
+  if (end) query.until = dayjs(end).utc().format('YYYY-MM-DDTHH:mm:ss.SSS[Z]')
+  query.page = String(pagination.page)
+  query.pageSize = String(pagination.pageSize)
+  router.replace({ query })
+}
+
 const fetchData = async () => {
+  writeQuery()
   loading.value = true
   try {
     const [start, end] = filters.dateRange ?? []
@@ -468,6 +504,7 @@ const onAnyPointerDown = (e: Event) => {
 }
 
 onMounted(() => {
+  readQuery()
   fetchData()
   window.addEventListener('scroll', onAnyScroll, { passive: true, capture: true })
   window.addEventListener('wheel', onAnyScroll, { passive: true, capture: true })
