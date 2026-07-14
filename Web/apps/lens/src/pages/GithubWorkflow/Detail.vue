@@ -243,18 +243,6 @@
                 <span v-else class="text-muted">-</span>
               </template>
             </el-table-column>
-            <el-table-column label="Actions" width="100" fixed="right" align="center">
-              <template #default="{ row }">
-                <el-button
-                  link
-                  type="primary"
-                  @click="retryRun(row)"
-                  :disabled="row.status !== 'failed'"
-                >
-                  Retry
-                </el-button>
-              </template>
-            </el-table-column>
           </el-table>
 
           <!-- Pagination -->
@@ -2183,11 +2171,6 @@ const updateConfig = async () => {
     console.error('Failed to update config:', error)
     ElMessage.error('Failed to update config')
   }
-}
-
-const retryRun = async (run: WorkflowRun) => {
-  // TODO: Implement retry API
-  ElMessage.info('Retry functionality coming soon')
 }
 
 const getStatusType = (status: string) => {

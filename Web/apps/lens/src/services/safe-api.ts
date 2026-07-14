@@ -5,9 +5,7 @@ import type { AxiosRequestConfig } from 'axios'
 const safeRequest = axios.create({
   baseURL: '/api/v1',
   timeout: 10000,
-  headers: {
-    'userId': '21232f297a57a5a743894a0e4a801fc3' // Temp backdoor auth
-  }
+  withCredentials: true, // Authenticate via session cookie
 })
 
 // Response interceptor

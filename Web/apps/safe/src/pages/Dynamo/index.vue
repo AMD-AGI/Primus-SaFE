@@ -223,7 +223,6 @@
 
 <script lang="ts" setup>
 import { computed, h, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
-import { useRouter } from 'vue-router'
 import { useDark } from '@vueuse/core'
 import dayjs from 'dayjs'
 import utc from 'dayjs/plugin/utc'
@@ -241,6 +240,7 @@ import {
 } from '@element-plus/icons-vue'
 import ResetIcon from '@/components/icons/ResetIcon.vue'
 import { useWorkloadWriteGuard } from '@/composables/useWorkloadWriteGuard'
+import { useWorkloadListQuery } from '@/composables/useWorkloadListQuery'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { useUserStore } from '@/stores/user'
 import {
@@ -284,7 +284,6 @@ const workloadConfig = computed(() =>
       },
 )
 
-const router = useRouter()
 const store = useWorkspaceStore()
 const userStore = useUserStore()
 const { canWrite } = useWorkloadWriteGuard()
@@ -323,6 +322,36 @@ interface DynamoRow {
 
 const tableData = ref<DynamoRow[]>([])
 const pagination = reactive({ page: 1, pageSize: 20, total: 0 })
+
+const { readQuery, writeQuery, syncUserId } = useWorkloadListQuery({
+  searchParams,
+  pagination,
+  defaultScope: 'My Workloads',
+  serializeFilters: () => {
+    const [start, end] = searchParams.dateRange ?? []
+    return {
+      userName: searchParams.userName || undefined,
+      description: searchParams.description || undefined,
+      phase: searchParams.phase?.length ? searchParams.phase.join(',') : undefined,
+      since: start ? dayjs(start).utc().format('YYYY-MM-DDTHH:mm:ss.SSS[Z]') : undefined,
+      until: end ? dayjs(end).utc().format('YYYY-MM-DDTHH:mm:ss.SSS[Z]') : undefined,
+      workloadId: searchParams.workloadId || undefined,
+    }
+  },
+  parseFilters: (q) => {
+    searchParams.userName = (q.userName as string) || ''
+    searchParams.description = (q.description as string) || ''
+    searchParams.workloadId = (q.workloadId as string) || ''
+    const phaseStr = (q.phase as string) || ''
+    searchParams.phase = phaseStr ? (phaseStr.split(',') as WorkloadPhase[]) : []
+    const since = q.since as string | undefined
+    const until = q.until as string | undefined
+    searchParams.dateRange = (since || until
+      ? [since ? dayjs(since).toDate() : '', until ? dayjs(until).toDate() : '']
+      : '') as DateRange
+  },
+})
+
 const addVisible = ref(false)
 const curWlId = ref('')
 const curAction = ref<'Create' | 'Clone'>('Create')
@@ -366,6 +395,8 @@ const onSearch = (options?: { resetPage?: boolean }) => {
   const until = end ? dayjs(end).utc().format('YYYY-MM-DDTHH:mm:ss.SSS[Z]') : ''
   const phaseStr = searchParams.phase?.length ? searchParams.phase.join(',') : ''
 
+  writeQuery()
+
   fetchData({
     userName: searchParams.userName,
     description: searchParams.description,
@@ -385,7 +416,7 @@ const resetAndSearch = () => {
 }
 
 const filterByMyself = () => {
-  searchParams.userId = searchParams.onlyMyself !== 'All' ? userStore.userId : ''
+  syncUserId()
   onSearch({ resetPage: true })
 }
 
@@ -540,8 +571,8 @@ onMounted(() => {
   window.addEventListener('touchmove', onAnyScroll, { passive: true, capture: true })
   window.addEventListener('pointerdown', onAnyPointerDown, { capture: true })
   userStore.fetchEnvs()
-  router.replace({ query: { ...router.currentRoute.value.query, kind: workloadConfig.value.kind } })
-  onSearch({ resetPage: true })
+  readQuery()
+  onSearch({ resetPage: false })
 })
 
 onBeforeUnmount(() => {

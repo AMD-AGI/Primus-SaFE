@@ -447,6 +447,41 @@ const loading = ref(false)
 const tableData = ref<any[]>([])
 const pagination = reactive({ page: 1, pageSize: 20, total: 0 })
 
+// Keep the URL query as the single source of truth for the filter state so that
+// returning from a workload detail page restores the same filters and page.
+const readQuery = () => {
+  const q = router.currentRoute.value.query
+  searchParams.workspaceId = (q.workspaceId as string) || ''
+  searchParams.kind = (q.kind as string) || ''
+  searchParams.workloadId = (q.workloadId as string) || ''
+  const phaseStr = (q.phase as string) || ''
+  searchParams.phase = phaseStr ? (phaseStr.split(',') as WorkloadPhase[]) : []
+  const since = q.since as string | undefined
+  const until = q.until as string | undefined
+  searchParams.dateRange = (since || until
+    ? [since ? dayjs(since).toDate() : '', until ? dayjs(until).toDate() : '']
+    : '') as any
+  pagination.page = Number(q.page || 1)
+  pagination.pageSize = Number(q.pageSize || pagination.pageSize)
+  // Reflect the restored selections in the column-header filter UI.
+  filterSelectedWs.value = searchParams.workspaceId ? [searchParams.workspaceId] : []
+  filterSelectedKind.value = searchParams.kind ? [searchParams.kind] : []
+}
+
+const writeQuery = () => {
+  const [start, end] = searchParams.dateRange ?? []
+  const query: Record<string, string> = {}
+  if (searchParams.workspaceId) query.workspaceId = searchParams.workspaceId
+  if (searchParams.kind) query.kind = searchParams.kind
+  if (searchParams.workloadId) query.workloadId = searchParams.workloadId
+  if (searchParams.phase?.length) query.phase = searchParams.phase.join(',')
+  if (start) query.since = dayjs(start).utc().format('YYYY-MM-DDTHH:mm:ss.SSS[Z]')
+  if (end) query.until = dayjs(end).utc().format('YYYY-MM-DDTHH:mm:ss.SSS[Z]')
+  query.page = String(pagination.page)
+  query.pageSize = String(pagination.pageSize)
+  router.replace({ query })
+}
+
 // ── Table height & selection bar ──
 const SELECTION_BAR_H = 56
 const BASE_OFFSET = 245
@@ -533,6 +568,8 @@ const onSearch = (options?: { resetPage?: boolean }) => {
   const until = end ? dayjs(end).utc().format('YYYY-MM-DDTHH:mm:ss.SSS[Z]') : ''
   const phaseStr = searchParams.phase?.length ? searchParams.phase.join(',') : ''
 
+  writeQuery()
+
   fetchData({
     workspaceId: searchParams.workspaceId || undefined,
     kind: searchParams.kind || undefined,
@@ -549,6 +586,7 @@ const onSearch = (options?: { resetPage?: boolean }) => {
 const resetAndSearch = () => {
   Object.assign(searchParams, { ...initialSearchParams })
   filterSelectedWs.value = []
+  filterSelectedKind.value = []
   tableRef.value?.clearFilter()
   pagination.page = 1
   onSearch({ resetPage: true })
@@ -822,7 +860,8 @@ onMounted(() => {
   window.addEventListener('wheel', onAnyScroll, { passive: true, capture: true })
   window.addEventListener('touchmove', onAnyScroll, { passive: true, capture: true })
   window.addEventListener('pointerdown', onAnyPointerDown, { capture: true })
-  fetchData()
+  readQuery()
+  onSearch({ resetPage: false })
 })
 
 onBeforeUnmount(() => {

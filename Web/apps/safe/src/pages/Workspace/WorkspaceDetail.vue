@@ -132,6 +132,7 @@
       ref="tblRef"
       :element-loading-text="$loadingText"
       @filter-change="handleFilterChange"
+      @sort-change="handleSortChange"
     >
       <el-table-column type="selection" width="56" />
       <el-table-column prop="nodeId" label="Name/ID" width="200" :fixed="true" align="left">
@@ -228,9 +229,8 @@
       <el-table-column
         prop="amd.com/gpu"
         label="GPU ( available / total )"
-        :sortable="true"
+        sortable="custom"
         :sort-orders="['ascending', 'descending', null]"
-        :sort-method="(a: any, b: any) => avail(a, 'amd.com/gpu') - avail(b, 'amd.com/gpu')"
         width="210"
       >
         <template #default="{ row }">{{
@@ -240,9 +240,8 @@
       <el-table-column
         prop="cpu"
         label="CPU ( available / total )"
-        :sortable="true"
+        sortable="custom"
         :sort-orders="['ascending', 'descending', null]"
-        :sort-method="(a: any, b: any) => avail(a, 'cpu') - avail(b, 'cpu')"
         width="210"
       >
         <template #default="{ row }">
@@ -253,11 +252,8 @@
       <el-table-column
         prop="ephemeral-storage"
         label="ephemeral-storage ( available / total )"
-        :sortable="true"
+        sortable="custom"
         :sort-orders="['ascending', 'descending', null]"
-        :sort-method="
-          (a: any, b: any) => avail(a, 'ephemeral-storage') - avail(b, 'ephemeral-storage')
-        "
         width="300"
       >
         <template #default="{ row }">
@@ -267,10 +263,10 @@
         </template>
       </el-table-column>
       <el-table-column
+        prop="memory"
         label="Memory ( available / total )"
-        :sortable="true"
+        sortable="custom"
         :sort-orders="['ascending', 'descending', null]"
-        :sort-method="(a: any, b: any) => avail(a, 'memory') - avail(b, 'memory')"
         min-width="230"
       >
         <template #default="{ row }">
@@ -281,9 +277,8 @@
       <el-table-column
         prop="rdma/hca"
         label="rdma/hca ( available / total )"
-        :sortable="true"
+        sortable="custom"
         :sort-orders="['ascending', 'descending', null]"
-        :sort-method="(a: any, b: any) => avail(a, 'rdma/hca') - avail(b, 'rdma/hca')"
         width="240"
       >
         <template #default="{ row }">
@@ -530,6 +525,8 @@ const onSearch = (options?: { resetPage?: boolean }) => {
     ...(searchParams.clusterId
       ? { clusterId: searchParams.clusterId === 'UNASSIGNED' ? '' : searchParams.clusterId }
       : {}),
+    ...(sortParams.sortBy ? { sortBy: sortParams.sortBy } : {}),
+    ...(sortParams.order ? { order: sortParams.order } : {}),
   })
 }
 const jumpToDetail = (id: string) => {
@@ -538,8 +535,13 @@ const jumpToDetail = (id: string) => {
 
 // Sorting
 const tblRef = ref()
-const n = (v: unknown) => (Number.isFinite(Number(v)) ? Number(v) : 0)
-const avail = (row: any, key: string) => n(row?.availResources?.[key])
+// Server-side sorting: backend sorts the full node set, then paginates.
+const sortParams = reactive({ sortBy: '', order: '' })
+const handleSortChange = ({ prop, order }: { prop: string; order: string | null }) => {
+  sortParams.sortBy = order ? prop || '' : ''
+  sortParams.order = order === 'ascending' ? 'asc' : order === 'descending' ? 'desc' : ''
+  onSearch({ resetPage: true })
+}
 // Available and addons filter
 const boolFilters = computed(() => [
   { text: 'true', value: 'true' },

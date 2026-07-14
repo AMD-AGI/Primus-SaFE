@@ -23,8 +23,6 @@ authRequest.interceptors.request.use(config => {
       }
       if (userId) {
         config.headers['X-User-Id'] = userId
-        // Temp backdoor: directly add userId header
-        config.headers['userId'] = userId
       }
     } catch (e) {
       console.error('Failed to parse auth info:', e)

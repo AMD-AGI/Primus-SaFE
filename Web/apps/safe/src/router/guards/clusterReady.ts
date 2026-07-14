@@ -6,7 +6,7 @@ import { useUserStore } from '@/stores/user'
 
 const statusOf = (e: unknown) => (axios.isAxiosError(e) ? e.response?.status : undefined)
 
-const SKIP_ROUTES = new Set(['/login', '/register', '/error', '/login-admin', '/sso-error'])
+const SKIP_ROUTES = new Set(['/login', '/register', '/error', '/403', '/login-admin', '/sso-error'])
 
 export default function setupClusterGuard(router: Router) {
   router.beforeEach(async (to, from, next) => {
@@ -55,8 +55,7 @@ export default function setupClusterGuard(router: Router) {
       // Permission check (workspace-admin)
       if (to.meta?.requiresWorkspaceAdmin) {
         if (!wsStore.isCurrentWorkspaceAdmin() && !userStore.hasManagerAccess) {
-          // TODO: redirect to 403 page instead of homepage
-          return next('/')
+          return next('/403')
         }
       }
 
