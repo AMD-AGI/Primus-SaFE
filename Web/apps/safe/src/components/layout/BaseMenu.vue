@@ -289,13 +289,14 @@ watchEffect(() => {
       tooltip: 'Deployment has been disabled by the administrator.',
       icon: menuIcons.deployment,
     },
-    {
-      index: '/dynamo',
-      name: 'Dynamo',
-      canAccess: canInfer.value,
-      tooltip: 'Dynamo has been disabled by the administrator.',
-      icon: menuIcons.dynamo,
-    },
+    // Temporarily hidden from the menu (page/route code kept for later re-enable)
+    // {
+    //   index: '/dynamo',
+    //   name: 'Dynamo',
+    //   canAccess: canInfer.value,
+    //   tooltip: 'Dynamo has been disabled by the administrator.',
+    //   icon: menuIcons.dynamo,
+    // },
     {
       index: '/infera',
       name: 'Infera',
@@ -426,12 +427,13 @@ const aiAgentMenuItems = shallowRef<MenuItem[]>([])
 // Watch permission changes, dynamically update AI Agent menu
 watchEffect(() => {
   const allAiAgentItems = [
-    {
-      index: '/chatbot',
-      name: 'Chatbot',
-      icon: menuIcons.chatbot,
-      canAccess: true, // Open to all users
-    },
+    // Temporarily hidden from the menu (page/route code kept for later re-enable)
+    // {
+    //   index: '/chatbot',
+    //   name: 'Chatbot',
+    //   icon: menuIcons.chatbot,
+    //   canAccess: true, // Open to all users
+    // },
     {
       index: '/qabase',
       name: 'QA Base',
