@@ -61,7 +61,7 @@ faults as they occur, and recovering automatically.
 | Automatic fault tolerance | Node-level health monitoring, fault detection, and failover/retry |
 | Preflight validation | Benchmark and health-check nodes before they run production jobs |
 | Multi-tenancy | Workspaces with quota, isolation, and role-based access |
-| Agentic operations | Operate the cluster in natural language, or connect your own agent over MCP |
+| CI/CD runners | Host GitHub Actions self-hosted runners on your GPU cluster |
 
 ## Where to start
 

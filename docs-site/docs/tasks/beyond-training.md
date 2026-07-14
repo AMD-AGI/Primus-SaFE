@@ -54,6 +54,6 @@ the same workload model as training — an image, an entry point, and resources.
 
 ## Other workload kinds
 
-The platform supports more kinds for different jobs — **Ray**, **StatefulSet**, and **CICD** among
-them. Rather than detail each here, see the [Workload types](/concepts/workload-types) concept
-for what each is and when to use it.
+The platform supports more kinds for different jobs — **TorchFT**, **StatefulSet**, and **CICD**
+among them. Rather than detail each here, see the [Workload types](/concepts/workload-types)
+concept for what each is and when to use it.
