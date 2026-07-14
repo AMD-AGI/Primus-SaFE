@@ -217,11 +217,6 @@ teammate's first login (or pre-arrange it).
 To turn SSO on, the operator sets the OIDC endpoint, client ID/secret, and redirect URI in the
 server config (`ssoEnabled`, `ssoEndpoint`, `ssoClientId`, `ssoClientSecret`, `ssoRedirectURI`).
 
-> **Not yet covered (capture so we don't lose it):**
-> - [ ] Exact config keys / Helm values that enable SSO, with a worked Okta example.
-> - [ ] Whether IdP groups can map to platform roles/workspaces automatically (today the
->       mapping appears to be manual — confirm).
-
 ## Approach 3 — API keys (for automation, not people)
 
 Best for: scripts, CI/CD, and agents that act without an interactive login. An API key is not
@@ -296,8 +291,3 @@ curl -X PATCH https://<your-console>/api/v1/users/<userId> \
 | Freeze user | `PATCH /api/v1/users/{id}` (`restrictedType: 1`) | `system-admin` |
 | Delete user | `DELETE /api/v1/users/{id}` | `system-admin` |
 | List users (optionally by workspace) | `GET /api/v1/users?workspaceId=...` | authenticated |
-
-> **Not yet covered (capture so we don't lose it):**
-> - [ ] Whether a workspace manager grants access from the Users page or the Workspace detail
->       page (confirm the actual UI path).
-> - [ ] Audit trail for access changes (link to audit logs).

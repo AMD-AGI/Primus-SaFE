@@ -36,7 +36,7 @@ faults as they occur, and recovering automatically.
 > **What an agent verifies here:** open the console and confirm the documented overview
 > renders — the **Why Primus-SaFE** bullets, the **What you get** capability table, and the
 > **Where to start** navigation table are all present, and each "Where to start" link
-> resolves to its demo page (Architecture, Getting Started, Concepts, Tasks,
+> resolves to its page (Architecture, Getting Started, Concepts, Tasks,
 > Administration). This is presence checking only — nothing here is created or mutated.
 
 ## Why Primus-SaFE

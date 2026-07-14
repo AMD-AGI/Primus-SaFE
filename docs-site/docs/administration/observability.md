@@ -99,8 +99,3 @@ monitoring — see [Pre-flight & in-flight monitoring](/administration/preflight
 | Grafana loads but **"datasource not found"** | Add the cluster to `grafana.dataClusters` with `name` = the cluster name. |
 | Panels empty (datasource resolves) | The `amd-gpu-operator` exporter or primus-robust isn't running on the data cluster. |
 | GPU-utilization column shows `-` | No metrics collected yet (exporter / primus-robust not up). |
-
-> **Not yet covered (capture so we don't lose it):**
-> - [ ] Console screenshots for installing the `amd-gpu-operator` and primus-robust add-ons.
-> - [ ] The graceful "observability not installed" empty state (planned; error `Primus.00050`).
-> - [ ] Aligning the `grafana.enable` default between fresh install (off) and upgrade (on).

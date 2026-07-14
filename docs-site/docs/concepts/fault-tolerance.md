@@ -83,8 +83,7 @@ flowchart LR
     R --> CK["Resume from last checkpoint"]
 ```
 
-*Not fully documented yet; presence-check only.* Two related areas exist in the product but
-aren't fully written up here: **node operations** (cordon / drain / reboot / export and reboot
-logs) and the **Node Agent monitor catalog** (the full set of GPU / network / system / disk
-checks and their self-healing). An agent should confirm they exist rather than exercise them;
-the monitor catalog is best linked to source rather than enumerated.
+*Two related areas are covered elsewhere: **node operations** (cordon / drain / reboot, with logs)
+in [Manage nodes](/administration/manage-nodes), and the **Node Agent monitor catalog** (the GPU /
+network / system / disk health checks and their self-healing) via the node-agent configuration. An
+agent confirms these exist rather than exercising them.*

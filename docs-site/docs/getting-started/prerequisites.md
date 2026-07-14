@@ -68,10 +68,9 @@ AMD GPUs with ROCm are the primary, validated target. Treat other platforms (e.g
 managed cloud) as community/experimental for now.
 :::
 
-*Not fully documented yet: minimum CPU/memory sizing per control-plane scale
-(small/medium/large) and the expected RDMA NIC naming are still being written up. An agent
-should not try to verify exact sizing or NIC-name values from this page — only presence-check
-the requirement tables above.*
+*Exact control-plane sizing per scale (small/medium/large) and RDMA NIC naming depend on your
+hardware; use the requirement tables above as the baseline. An agent presence-checks those tables
+rather than asserting specific sizing or NIC-name values.*
 
 ## What an agent verifies here
 

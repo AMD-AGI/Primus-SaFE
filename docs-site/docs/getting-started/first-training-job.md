@@ -13,7 +13,7 @@ that workspace. For all submit options and fields, see
 It is written to serve two audiences at once. For **you (the reader)** the whole flow is here,
 from empty install to running job. For an **AI agent** the golden path to perform is
 **"Submit a job (console)"** — concrete numbered steps, each stating its own healthy result — while
-the capacity-onboarding section above it is admin setup the demo environment already provides and
+the capacity-onboarding section above it is admin setup a provided environment already has, and
 is only presence-checked. There is no hidden test layer on this page; bookkeeping (priority,
 known product bugs) lives in the run contract `docs-site/AGENTS.md`.
 
@@ -65,11 +65,11 @@ real NICs/storage, disable the relevant monitors, or submit workloads with `isTo
 for testing. See [Manage nodes](/administration/manage-nodes).
 :::
 
-*Not fully documented yet as a repeatable procedure: capacity onboarding (SSH secret, nodes,
-cluster, workspace) is an admin step the demo environment already provides. An agent should not
-perform these five steps as a test — only presence-check that the **System** sections (Secrets,
-Flavors, Nodes, Clusters, Workspaces) and their **Create** controls exist, and that a workspace
-with quota is already available for the golden path below.*
+*Capacity onboarding (SSH secret, nodes, cluster, workspace) is a one-time admin step; on a
+provided environment it is already done. An agent should not perform these five steps as a test —
+only presence-check that the **System** sections (Secrets, Flavors, Nodes, Clusters, Workspaces)
+and their **Create** controls exist, and that a workspace with quota is available for the golden
+path below.*
 
 ## Submit a job (console)
 

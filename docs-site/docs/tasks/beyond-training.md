@@ -9,7 +9,7 @@ Primus-SaFE isn't only for training runs. The same platform — and the same **W
 the console — covers the whole LLM lifecycle on one cluster: develop, train, make training
 fault-tolerant, and serve. This page is a map; each stage links to its detail.
 
-Unlike the executable walkthroughs in this demo set, this is an **overview/hub** page: it serves
+Unlike the executable task walkthroughs, this is an **overview/hub** page: it serves
 two audiences at once but has **no numbered steps**.
 
 - **For you (the reader):** a single map of the lifecycle, with each stage pointing to the page

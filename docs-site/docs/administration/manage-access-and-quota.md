@@ -45,11 +45,6 @@ the save is rejected or the quota doesn't change, the edit didn't take effect.
 > Whether the regression run mutates here or only presence-checks the form controls is set in the
 > run contract's test-scope exclusions.
 
-> **Not yet covered (capture so we don't lose it):**
-> - [ ] Concrete create/update workspace payload showing `flavorId`, `replica`, `scopes`,
->       `queuePolicy`, `enablePreempt`, `maxRuntime`.
-> - [ ] How to read `totalQuota` / `usedQuota` / `availQuota` / `abnormalQuota`.
-
 ## API keys (for scripts, CI, agents) — golden path {#api-keys-for-scripts-ci-agents}
 
 API keys authenticate automation without a login session. Each key:
@@ -146,7 +141,3 @@ curl -X POST https://<your-console>/api/v1/secrets \
 Secret types are `image` (registry auth), `ssh` (node login), and `general` (free-form
 key/value, e.g. a `github_token`). A workspace-admin can bind a secret to a workspace so all
 members can use it.
-
-> **Not yet covered (capture so we don't lose it):**
-> - [ ] **Audit logs** (`/api/v1/auditlogs`, admin-only) — who did what, for
->       security/compliance.

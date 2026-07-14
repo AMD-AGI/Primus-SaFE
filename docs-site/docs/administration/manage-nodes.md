@@ -209,9 +209,6 @@ curl -X POST https://<your-console>/api/v1/workspaces/<workspaceId>/nodes \
 - Removing a node reduces the workspace's `totalQuota`; in-flight workloads on that node may be
   affected, so prefer to drain first (next section). `force` overrides safety checks.
 
-> **Not yet covered:** confirm the exact request body for the workspace-nodes endpoint
-> (field names for `nodeIds`/`action`/`force`) against the handler.
-
 ## Take a node out of service (cordon / drain)
 
 To stop new pods from landing on a node — or to evict what's already there — apply a **taint**
@@ -346,9 +343,3 @@ binding changed. If you attempt it, the platform should **reject** the operation
 | Reboot history | `GET /api/v1/nodes/{id}/reboot/logs` |
 | Join/leave logs | `GET /api/v1/nodes/{id}/logs` |
 | Delete (single / batch) | `DELETE /api/v1/nodes/{id}` · `POST /api/v1/nodes/delete` |
-
-> **Not yet covered (capture so we don't lose it):**
-> - [ ] Capture sanitized screenshots for the remaining UI steps (taint/Edit dialog, reboot
->       confirmation, delete confirmation). The Register-a-node screenshot is in place.
-> - [ ] Node flavors and node templates as their own concept (what addons a template installs).
-> - [ ] How draining interacts with fault-tolerant restart of training jobs.

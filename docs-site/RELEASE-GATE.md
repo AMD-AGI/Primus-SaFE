@@ -1,9 +1,9 @@
 # GA v1.0.0 release gate — the negative surface
 
 The docs are the spec, so anything **excluded** from GA must be **absent**. This gate makes
-"absent" verifiable in the stable build, and is run as part of the docs-as-test **RELEASE** scope
-(see [`RUN-DOCS-AS-TEST.md`](./RUN-DOCS-AS-TEST.md)) alongside the per-page verify/behavior/contract
-blocks. It is not a published page (Docusaurus only builds `docs/`).
+"absent" verifiable in the stable build, and is run as part of the docs-as-test **release** scope
+(see [`AGENTS.md`](./AGENTS.md)) alongside the per-page checks. It is not a published page
+(Docusaurus only builds `docs/`).
 
 ## Tier rules
 
@@ -53,17 +53,14 @@ Core API returns 200; these nav routes load: `/` · `/training` · `/torchft` ·
 workspace with the `CICD` scope (and appears in the nav for it). The `/lens/v1/*` and
 `/lens/grafana/*` proxies stay reachable.
 
-<!-- @test
-scope: page
-mode: contract
-priority: P0
-targets: [console]
-personas: [admin]
-do: probe each excluded backend endpoint and navigate to each excluded frontend route per the tables above
-expect:
-  - every listed backend endpoint returns 404 in the default GA build
-  - every listed frontend route renders the NotFound page and is absent from the nav
-  - no floating chatbot on any authenticated page; homepage has no "Go to Lens" or "Go to Hyperloom"; the /lens/ SPA does not load
-  - included surface still works: core API 200, core nav present (incl. /cicd for a CICD-scoped workspace), /lens/v1 and /lens/grafana proxies reachable
-cleanup: none (read-only)
--->
+## How an agent runs this gate
+
+Signed in as **admin** (contract · P0 · read-only, no cleanup): probe each excluded backend
+endpoint and navigate to each excluded frontend route per the tables above, and confirm:
+
+- every listed backend endpoint returns **404** in the default GA build;
+- every listed frontend route renders the **NotFound** page and is absent from the nav;
+- no floating chatbot on any authenticated page; the homepage has no "Go to Lens" / "Go to
+  Hyperloom" buttons; the `/lens/` SPA does not load;
+- the included surface still works: core API `200`, core nav present (incl. `/cicd` for a
+  CICD-scoped workspace), and the `/lens/v1/*` and `/lens/grafana/*` proxies reachable.

@@ -220,7 +220,7 @@ The script is interactive. The prompts you are most likely to set:
 
 | Prompt | What it is |
 |--------|------------|
-| `cluster name` | Names the cluster and becomes its subdomain (e.g. `tas325` → `tas325.primus-safe.amd.com`). You use this to reach the cluster ingress later, so pick it deliberately. |
+| `cluster name` | Names the cluster and becomes its subdomain (e.g. `my-cluster` → `my-cluster.<your-domain>`). You use this to reach the cluster ingress later, so pick it deliberately. |
 | `ethernet nic` | The Ethernet interface distributed jobs use for NCCL/RCCL control traffic and TCP fallback (sets `NCCL_SOCKET_IFNAME`). Default `eno0`. |
 | `rdma nic` | The RDMA/RoCE devices distributed jobs use for high-speed GPU-to-GPU transfers (sets `NCCL_IB_HCA`). Default `rdma0,…,rdma7`. |
 | `storage_class` | The StorageClass from step 2 (default `local-path`; must already exist). |

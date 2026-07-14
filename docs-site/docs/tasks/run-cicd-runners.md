@@ -155,8 +155,6 @@ Watch your workflow runs where you normally would — in **GitHub** (the repo's 
 the **CICD** tab of the console side panel, which lists the scale set's runs. A screenshot of that
 CICD run list is usually enough; you don't need the Lens app for this.
 
-*Still being documented: console screenshots of the CI/CD create wizard (Clone/Create + Advanced
-Options) and the CICD run list, and confirmation of exactly how the ARC (`gha-runner-scale-set`)
-add-on is enabled (bootstrap flag vs. System → Addons). Where the preconditions above are met, an
-agent can drive the full create-and-run flow; where they aren't, presence-check the documented
+*Where the preconditions above are met, an agent can drive the full create-and-run flow; where
+they aren't (no ARC add-on, no `CICD` scope, or no repo to target), presence-check the documented
 controls and report BLOCKED on the run.*

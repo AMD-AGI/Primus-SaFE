@@ -9,7 +9,7 @@ Once a workload is running — a training job, or an **Authoring** dev box — y
 its logs, and **shell into the pod**, all through the platform and **scoped to your pod**: an
 interactive shell on GPU hardware with no cluster or `kubeconfig` access.
 
-Like the other pages in this demo set, the prose is the walkthrough for **both** a human and an
+Like the other task pages, the prose is the walkthrough for **both** a human and an
 agent, with expectations stated inline and no invisible test layer. Bookkeeping lives in the run
 contract `docs-site/AGENTS.md`.
 
@@ -75,8 +75,7 @@ this is the pass/fail:
 
 Once the box is set up (packages, configs, dependencies), use **Save Image** to snapshot the
 container into a reusable image in the registry, selectable as the **image** for your next job or
-dev box. *(The exact Save Image and Resume-a-stopped-box flows are still being documented; an
-agent should verify the **Save Image** control is present but not yet drive the full flow.)*
+dev box. *(An agent should verify the **Save Image** control is present.)*
 
 ## Connect to a running pod
 
@@ -130,6 +129,5 @@ console.
 
 ## Get results out
 
-Checkpoints and outputs are written to your workspace storage. *(The full results/export flow —
-PFS layout, log dump, and artifact download — is being documented; see
-[Storage & data](/concepts/storage-and-data).)*
+Checkpoints and outputs are written to your workspace storage — see
+[Storage & data](/concepts/storage-and-data) for the PFS layout and export options.
