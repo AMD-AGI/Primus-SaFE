@@ -23,15 +23,17 @@ Probe with the admin session; expect HTTP 404 (the standard NoRoute `"<uri> not 
 | MCP server | `GET /api/v1/safe-mcp/mcp` | `mcp.enabled=false` |
 | InferenceX | any InferenceX endpoint | handler package removed entirely |
 
-> Not 404 (Tier 3 — backend intentionally kept): CICD / `cd-handlers`, post-train, evaluation,
-> Dynamo/Optimus, RayJob, github-workflow. These are asserted at the frontend layer only.
+> Not 404 (Tier 3 — backend intentionally kept): post-train, evaluation, Dynamo/Optimus, RayJob,
+> github-workflow. These are asserted at the frontend layer only. **CICD** (`cd-handlers`) is a
+> **shipping GA feature** — both its backend and its frontend (`/cicd`) are included; it appears
+> under **Workloads → CICD** for any workspace that has the `CICD` scope enabled.
 
 ## Frontend routes that must be unreachable
 
 Navigating directly to each must land on the SaFE **NotFound/404** (the experimental page must NOT
 render), and none may appear in the left nav:
 
-`/rayjob` · `/monarch` · `/sandbox-workload` · `/cicd` · `/dynamo` · `/optimus` · `/posttrain` ·
+`/rayjob` · `/monarch` · `/sandbox-workload` · `/dynamo` · `/optimus` · `/posttrain` ·
 `/playground-agent` · `/model-square` · `/chatbot` · `/qabase` · `/feedback-management` ·
 `/dataset` · `/evaluation` · `/model-optimization` · `/tools` · `/sandbox` · `/litellm-gateway` ·
 `/a2a` · `/claw` (and their `/detail` variants).
@@ -47,7 +49,8 @@ Also:
 
 Core API returns 200; these nav routes load: `/` · `/training` · `/torchft` · `/authoring` ·
 `/infer` · `/workspace` · `/nodes` · `/clusters` · `/deploy` · `/download` (Datasync) · `/images` ·
-`/registries` · `/secrets` · `/manageapikeys` · `/fault` · `/preflight`. The `/lens/v1/*` and
+`/registries` · `/secrets` · `/manageapikeys` · `/fault` · `/preflight`. `/cicd` loads for a
+workspace with the `CICD` scope (and appears in the nav for it). The `/lens/v1/*` and
 `/lens/grafana/*` proxies stay reachable.
 
 <!-- @test
@@ -61,6 +64,6 @@ expect:
   - every listed backend endpoint returns 404 in the default GA build
   - every listed frontend route renders the NotFound page and is absent from the nav
   - no floating chatbot on any authenticated page; homepage has no "Go to Lens" or "Go to Hyperloom"; the /lens/ SPA does not load
-  - included surface still works: core API 200, core nav present, /lens/v1 and /lens/grafana proxies reachable
+  - included surface still works: core API 200, core nav present (incl. /cicd for a CICD-scoped workspace), /lens/v1 and /lens/grafana proxies reachable
 cleanup: none (read-only)
 -->

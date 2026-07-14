@@ -5,7 +5,31 @@ title: Fault tolerance & faults
 
 # Fault tolerance & faults
 
-At scale, the main cause of low GPU utilization is rarely the job itself. More often a broken node, a flaky link, or a single bad GPU stalls the entire distributed run. Primus-SaFE achieves high **goodput** by detecting these conditions and recovering from them automatically.
+This page explains how Primus-SaFE keeps distributed jobs efficient when hardware misbehaves:
+the `Fault` resource, automatic failover and resume, and the scheduler behaviors that prevent
+stalls. It is explanation, not a walkthrough — there is no procedure to perform here.
+
+It is written to serve two audiences at once:
+
+- **For you (the reader):** a plain-language account of what happens when a node or GPU fails
+  under a running job, and why goodput stays high.
+- **For an AI agent:** the named objects, fields, and the failover flow below are concrete enough
+  to confirm by presence. As a concept page it is **verify**-level — an agent checks that the
+  documented model exists, it does not induce a fault.
+
+There is no separate test file and no invisible annotation on this page: the prose you read is
+all there is. The only thing kept elsewhere is bookkeeping (priority, and any known product
+bug), in the run contract `docs-site/AGENTS.md`.
+
+At scale, the main cause of low GPU utilization is rarely the job itself. More often a broken
+node, a flaky link, or a single bad GPU stalls the entire distributed run. Primus-SaFE achieves
+high **goodput** by detecting these conditions and recovering from them automatically.
+
+> **What an agent verifies here:** confirm the documented model exists and the relationships
+> hold — the **`Fault`** resource with its fields (`nodeId`, `monitorId`, `message`, `action`,
+> `phase`) and the `taint` → failover → resume flow shown below; the **gang scheduling** and
+> **topology-aware placement** behaviors; and the link to **TorchFT** for run-through-failure
+> jobs. Presence/consistency only — nothing here is created, mutated, or fault-injected.
 
 ## The `Fault` resource
 
@@ -59,8 +83,8 @@ flowchart LR
     R --> CK["Resume from last checkpoint"]
 ```
 
-> **Not yet covered (capture so we don't lose it):**
-> - [ ] **Node operations** — cordon / drain / reboot / export and reboot logs. Decide:
->       here or Operations.
-> - [ ] **Node Agent monitor catalog** — the full set of GPU / network / system / disk checks
->       and their self-healing. Link to source rather than enumerating, but note it exists.
+*Not fully documented yet; presence-check only.* Two related areas exist in the product but
+aren't fully written up here: **node operations** (cordon / drain / reboot / export and reboot
+logs) and the **Node Agent monitor catalog** (the full set of GPU / network / system / disk
+checks and their self-healing). An agent should confirm they exist rather than exercise them;
+the monitor catalog is best linked to source rather than enumerated.

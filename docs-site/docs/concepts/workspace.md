@@ -5,21 +5,36 @@ title: Workspace
 
 # Workspace
 
+This page explains the **object model** you schedule work into: what a workspace is, how it
+relates to clusters and nodes, and how quota, isolation, and access hang off it. It is
+reference/explanation — there is no procedure to run here, just the model to understand before
+you submit anything.
+
+It is written to serve two audiences at once:
+
+- **For you (the reader):** a plain-language tour of the containment hierarchy and the fields
+  you'll meet in the console.
+- **For an AI agent:** the named pages, objects, and relationships below are concrete enough to
+  confirm by presence. This is a concept page, so an agent **verifies** that the documented
+  model exists — it does not perform a task.
+
+There is no separate test file and no invisible annotation on this page: the prose you read is
+all there is. The only thing kept elsewhere is bookkeeping (priority, and any known product
+bug), in the run contract `docs-site/AGENTS.md`.
+
+> **Status:** Draft · **Owner:** _unassigned_ · **Source:** `SaFE/docs/apis/workspace.md`,
+> `cluster.md`, `node.md`, `node-flavor.md`
+
 A **workspace** is the multi-tenant slice you actually run work in — an isolated environment
 with its own quota, storage, and access control. It sits at the bottom of a small object model:
 a **cluster** holds **nodes**, and a workspace draws a set of those nodes as its quota.
 
-<!-- @test
-scope: page
-mode: verify
-priority: P2
-targets: [console]
-do: open the console as admin and confirm the three object-model pages exist (System > Clusters, System > Nodes, System > Workspaces)
-expect:
-  - System > Clusters lists at least one cluster with a phase (e.g. Ready)
-  - System > Nodes lists nodes, each showing the cluster it belongs to and the workspace it serves
-  - System > Workspaces lists workspaces, each bound to a cluster with a node count and a queue policy
--->
+> **What an agent verifies here:** open the console as admin and confirm the three object-model
+> pages exist and the documented relationships hold — **System → Clusters** lists at least one
+> cluster with a phase (e.g. `Ready`); **System → Nodes** lists nodes, each showing the cluster
+> it belongs to and the workspace it serves; **System → Workspaces** lists workspaces, each
+> bound to a cluster with a node count and a queue policy. This is presence/relationship checking
+> only — nothing here is created or mutated.
 
 ## The object model
 

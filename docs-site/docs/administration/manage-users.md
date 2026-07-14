@@ -16,23 +16,31 @@ A brand-new account (however it was created) can do almost nothing until an admi
 workspace access — the only exception is a [default/public workspace](/concepts/workspace),
 which every user can see.
 
-<!-- @test
-scope: page
-mode: contract
-priority: P0
-personas: [admin, member]
-preconditions: [running-cluster]
-do: follow this page's "From the console (UI)" steps to create a default user (unique name), then sign out and sign in as them
-expect:
-  - the new user can sign in
-  - as that default user: no System admin section in the nav; Nodes/Clusters/Users not reachable; only public/granted workspaces listed
-  - after an admin freezes them (row action), they can no longer sign in
-cleanup: as admin, delete the user via its row action
--->
-<!-- @test todo:
-  - "Doc does not state the exact non-admin behavior on System pages (hidden nav vs redirect); make the prose explicit so the expect can be precise."
-  - "Add the positive path: grant the user a workspace, then confirm they can act in it."
--->
+This page is written to serve two audiences at once:
+
+- **For you (the reader):** the console steps say *what* to click and *what a healthy result
+  looks like*, so you can create an account and confirm exactly what it can and cannot do.
+- **For an AI agent:** the golden path below is concrete and ordered, and each outcome —
+  including the **permission boundary** (a regular user's view is *scoped* to what they've been
+  granted, so their resource lists are empty until an admin grants them access) — is stated in
+  plain language, so you can perform it and judge success without any hidden instructions.
+
+There is no separate test file and no invisible annotation on this page: **the prose you read is
+the test an agent runs.** The only thing kept elsewhere is bookkeeping (priority, personas, and
+any known product bug), in the run contract `docs-site/AGENTS.md`.
+
+## Before you start
+
+This is an **admin** walkthrough that also signs in as a freshly created regular user. You need:
+
+- A **running cluster** you can reach, with the console signed in as a **system-admin**.
+- The ability to **sign out and back in** as a different account (the golden path creates a user
+  and logs in as them).
+
+> **Agent:** confirm you are signed in as a system-admin and the cluster is reachable before
+> Step 1. If you cannot reach a running cluster or have no admin session, report **BLOCKED**
+> (missing `running-cluster` / admin access) rather than failing a step. Do not modify or delete
+> pre-existing users — only the uniquely-named user you create here.
 
 ## The identity model
 
@@ -52,28 +60,101 @@ Every account has a **type** and a set of **roles**.
 Roles and workspace grants are **independent of** how the user authenticates — an SSO user can
 be a `system-admin`, and a local user can be a regular member.
 
+## Golden path — create a user and verify their access
+
+This is the executable walkthrough an agent performs end to end: create a regular local user,
+sign in as them, confirm they land with a **limited, scoped view** (no access to resources they
+haven't been granted), then freeze them and confirm they can no longer sign in.
+
+*(A regular user may still see some **System** pages — the boundary is that their content is
+**scoped** to their grants, not that the menu is hidden. The positive path — grant the user a
+workspace, then have them act in it — isn't written up as steps here; an agent should verify the
+scoped visibility in the table below and presence-check the rest, rather than drive a full grant
+flow.)*
+
+### Step 1 — Create a local user
+
+1. In the left sidebar, expand **System** and click **Users**.
+2. Click **Create** and fill in a **name**, **email**, and **password**. Use a unique name so
+   repeated runs don't collide. (An agent names created resources per the run contract's cleanup
+   convention.)
+3. Click save.
+
+Healthy (pass): the new user appears in the **Users** list with type `default`. If instead the
+create dialog rejects the name as already taken, pick a fresh suffix — that is an input problem,
+not a platform fault.
+
+### Step 2 — Sign in as the new user
+
+Sign out of the admin account and sign in at the password form (`/login-admin`, or `/login` when
+SSO is disabled) with the name and password you just set.
+
+- **Healthy (pass):** the new user can sign in and reaches the console.
+- **If instead the sign-in is rejected** with correct credentials, that means account creation
+  didn't actually take effect (fail).
+
+### Step 3 — Confirm the account has a limited, scoped view
+
+While signed in as the new default user, check what is visible. A regular user is **not** an
+admin, but the console is **not** a locked-down blank app either — it is **scoped to what the user
+has been granted**, and a brand-new user has no grants yet. The healthy result is *limited,
+empty-for-now visibility*:
+
+- Only **public / granted** workspaces are listed (a brand-new user has no grants, so only
+  public/default workspaces appear).
+- Where a **System** page is reachable to a regular user (for example **System → Nodes**), it
+  shows **only the resources the user is entitled to**. For an unassigned user that list is
+  **empty** — an empty Nodes list here is **expected**, not a bug.
+- The user cannot see or act on **other tenants'** resources (nothing outside their grants).
+
+If instead this default user can see or manage resources **outside their grants** — e.g. a
+**populated** Nodes list, or another user's data — that is a privilege-boundary failure; report it.
+
+> **Agent:** the healthy signal is **scoping**, not the *absence* of the System menu. Do **not**
+> fail the page just because a **System** / **Nodes** item appears in the nav or the route loads —
+> a regular user is allowed a limited System view. Check that the *content* is **empty/limited**
+> for this unassigned user. (Known drift, not a failure: a list can render "No Data" even when the
+> API has objects; for a brand-new user, empty is correct regardless.)
+
+### Step 4 — Freeze the user (and confirm sign-in is blocked)
+
+Sign back in as the admin, open the new user's row action, and **freeze** it (revoke access
+without deleting). Then sign out and try to sign in as that user again.
+
+- **Healthy (pass):** the frozen user can **no longer sign in**.
+- **If instead they can still sign in** after being frozen, the freeze didn't take effect (fail).
+
+### What you should see
+
+> **Agent:** fill the table below from what you observe, show it to the user, and report
+> **PASS** only if every row is healthy (including the negatives). Then **run cleanup**: as
+> admin, delete the user via its row action, so the run is repeatable.
+
+| Check | Healthy result | Found |
+|---|---|---|
+| New user appears in Users list | yes (type `default`) | _fill in_ |
+| New user can sign in | yes | _fill in_ |
+| Workspaces listed (as that user) | only public / granted | _fill in_ |
+| System pages reachable to the user (e.g. Nodes) | allowed, but **scoped** — empty for an unassigned user | _fill in_ |
+| Other tenants' resources visible (e.g. a populated Nodes list) | no — nothing outside their grants | _fill in_ |
+| After freeze, user can sign in | no | _fill in_ |
+| Cleanup (user deleted) | done | _fill in_ |
+
 ## From the console (UI)
 
 If you prefer the web console over the API, an admin manages people under **System → Users**.
 The same three things apply: create the account, then grant **roles** and **workspaces**.
 
-<!-- screenshot: System → Users list (sanitized — no real usernames/emails) — add image -->
-
 1. **Open the Users page.** In the left sidebar, expand **System** and click **Users**.
 2. **Create a local user.** Click **Create** and fill in name, email, and a password. (SSO users
    appear here automatically after their first login — you don't create them.)
-
-<!-- screenshot: System → Users → Create dialog (empty form) — add image -->
-
 3. **Assign access.** Open a user's row action (**Edit**) and set their **roles** and the
    **workspaces** (member) / **managed workspaces** (manager) they should have, then save.
-
-<!-- screenshot: System → Users → Edit dialog showing Roles + Workspaces fields — add image -->
-
 4. **Freeze or delete.** The same row actions let you freeze (revoke access without deleting) or
    delete a user.
 
-The sections below explain each step in detail, with the equivalent API calls.
+The sections below explain each step in detail, with the equivalent API calls for automation. The
+console is the primary path; the REST calls are the scripted equivalent.
 
 ## Approach 1 — Local user (username + password)
 
@@ -186,7 +267,8 @@ curl -X PATCH https://<your-console>/api/v1/users/<userId> \
 - A **workspace manager** can grant other users access to *their own* workspace.
 - A **default/public** workspace (`isDefault`) is visible to everyone with no grant needed.
 
-The underlying access model is described in [Workspace → Access model](/concepts/workspace#access-model-brief).
+The underlying access model is described in
+[Workspace → Access model](/concepts/workspace#access-model-brief).
 
 ## Freeze or remove a user
 
@@ -216,8 +298,6 @@ curl -X PATCH https://<your-console>/api/v1/users/<userId> \
 | List users (optionally by workspace) | `GET /api/v1/users?workspaceId=...` | authenticated |
 
 > **Not yet covered (capture so we don't lose it):**
-> - [ ] Capture the sanitized screenshots for the [From the console](#from-the-console-ui) steps
->       (Users list, Create dialog, Edit/roles+workspaces dialog).
 > - [ ] Whether a workspace manager grants access from the Users page or the Workspace detail
 >       page (confirm the actual UI path).
 > - [ ] Audit trail for access changes (link to audit logs).

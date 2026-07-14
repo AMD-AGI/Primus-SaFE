@@ -10,18 +10,19 @@ way — it stages the new image versions, routes the change through admin approv
 history you can roll back from. The `upgrade.sh` **script** is the equivalent for environments
 without the console or for fully scripted runs.
 
-<!-- @test
-scope: page
-mode: verify
-priority: P2
-targets: [console]
-personas: [admin]
-do: open System > Deploy in the console (read-only — do NOT create, approve, or roll back a deployment)
-expect:
-  - the Deployment Management page lists deployment requests with Status, Rollback From, Approver, and Approval Result columns
-  - a Safe / Lens toggle selects which plane the request targets
-  - Create Deployment opens a form to pick component image versions and a description, and states that the request needs admin approval before execution
--->
+This page serves two audiences at once:
+
+- **For you (the reader):** each section says what to click (console) or run (script) and what a
+  healthy result looks like.
+- **For an AI agent:** the upgrade flow is a real, executable procedure with its own healthy
+  result — on a target platform you can create a deployment request, have it approved, and roll it
+  back. No hidden test layer — bookkeeping lives in the run contract
+  `docs-site/AGENTS.md`.
+
+> **Agent — upgrading mutates the live platform.** Create/approve/roll back only on a platform the
+> operator has told you is safe to change, and **ask first** otherwise. Whether the shared
+> docs-as-test regression run skips this (and presence-checks the Deployment Management surface
+> instead) is defined in the run contract's *test-scope exclusions*, not on this page.
 
 ## From the console — Deployment Management (preferred)
 
@@ -53,6 +54,36 @@ Requests require admin approval before they run (the install-time `cd_require_ap
 A created request sits idle until an admin approves it.
 :::
 
+### Verify the upgrade outcome
+
+After creating and approving a deployment, confirm it took effect:
+
+- **Healthy (pass):** the request moves to a succeeded **Status**, the targeted components report
+  their new versions, and the platform stays healthy (admin-plane pods `Running`, console
+  reachable). A rollback returns the components to the version recorded in **Rollback From**.
+- **If instead** the request stalls, errors, or the components keep their old versions, the
+  upgrade didn't take effect — inspect the request status and the admin-plane pod logs.
+
+When *not* performing an upgrade (e.g. a read-only environment or the regression run per the run
+contract), the same page is a cheap presence check:
+
+- **Healthy (pass):** the **Deployment Management** page lists requests with **Status**,
+  **Rollback From**, **Approver**, and **Approval Result** columns; a **Safe / Lens** toggle
+  selects the target plane; and **Create Deployment** opens a form to pick component image versions
+  and a description, stating that the request needs **admin approval** before execution.
+- **If instead** the page or any of those controls is missing, that's a fail.
+
+> **Agent:** before you start, confirm a running cluster reachable as **admin** (else **BLOCKED**).
+> If the operator has cleared an upgrade on a safe platform, perform Create → approve → verify and
+> clean up by rolling back; otherwise presence-check the surface above and report PASS/FAIL.
+
+| Check | Healthy result | Found |
+|---|---|---|
+| Deployment list columns | Status, Rollback From, Approver, Approval Result | _fill in_ |
+| Plane selector | Safe / Lens toggle present | _fill in_ |
+| Create Deployment form | picks component versions + description | _fill in_ |
+| Approval gate stated | form says request needs admin approval | _fill in_ |
+
 ## From the script — `upgrade.sh`
 
 `upgrade.sh` is the day-2 counterpart to `install.sh`: instead of prompting you again, it
@@ -60,7 +91,9 @@ A created request sits idle until an admin approves it.
 platform in place. Use it when the console isn't available, or when you want a fully
 non-interactive upgrade.
 
-<!-- @test none: operational CLI procedure (no console UI, and destructive) — not agent-tested. -->
+This is the CLI equivalent of the console flow above: on a host with the repo and the install-time
+`.env`, it upgrades the platform non-interactively. An agent can run it on a target the operator
+has cleared for upgrade (it is destructive — ask first on anything shared).
 
 ### Before you upgrade
 

@@ -9,7 +9,11 @@ What you need before installing Primus-SaFE, and which install path to take. If 
 run Kubernetes, you can skip straight to [Install](/getting-started/install). If you are
 starting from bare-metal servers, you will provision a cluster first.
 
-<!-- @test none: static reference page (tooling/requirements). Nothing for the agent to exercise. -->
+This page is a static reference, but it is written to serve two audiences at once: a **human
+reader** planning an install, and an **AI agent** that reads the same page. There is no
+executable procedure here and no hidden test layer — the only checkable thing is that the
+documented requirement tables and controls are present. Bookkeeping (priority, known product
+bugs) lives in the run contract `docs-site/AGENTS.md`.
 
 ## Tooling
 
@@ -64,7 +68,15 @@ AMD GPUs with ROCm are the primary, validated target. Treat other platforms (e.g
 managed cloud) as community/experimental for now.
 :::
 
-<!-- @test todo:
-  - "Add minimum CPU/memory sizing per control-plane scale (small/medium/large)."
-  - "Document the expected RDMA NIC naming so this page can state it precisely."
--->
+*Not fully documented yet: minimum CPU/memory sizing per control-plane scale
+(small/medium/large) and the expected RDMA NIC naming are still being written up. An agent
+should not try to verify exact sizing or NIC-name values from this page — only presence-check
+the requirement tables above.*
+
+## What an agent verifies here
+
+This is a reference page — there are no steps to perform. An agent confirms only that the key
+named artifacts are **present and readable**: the **Tooling** table (`kubectl`, `helm`,
+cluster-admin access), the **Cluster requirements** list (Kubernetes 1.21+, a default
+StorageClass, GPU nodes), the **Network ports** table (including `2222` for WebShell/SSH), and
+the **Choose your starting point** table. No values need to be exercised against a live cluster.

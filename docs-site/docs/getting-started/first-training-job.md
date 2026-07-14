@@ -10,6 +10,13 @@ registers capacity (a node flavor, nodes, a cluster, and a workspace), then you 
 that workspace. For all submit options and fields, see
 [Run a single-node training job](/tasks/run-single-node-training).
 
+It is written to serve two audiences at once. For **you (the reader)** the whole flow is here,
+from empty install to running job. For an **AI agent** the golden path to perform is
+**"Submit a job (console)"** — concrete numbered steps, each stating its own healthy result — while
+the capacity-onboarding section above it is admin setup the demo environment already provides and
+is only presence-checked. There is no hidden test layer on this page; bookkeeping (priority,
+known product bugs) lives in the run contract `docs-site/AGENTS.md`.
+
 ## Build out cluster capacity
 
 A fresh install brings up the control plane and console, but **no cluster, nodes, or workspace
@@ -58,34 +65,60 @@ real NICs/storage, disable the relevant monitors, or submit workloads with `isTo
 for testing. See [Manage nodes](/administration/manage-nodes).
 :::
 
-<!-- @test todo:
-  - "Capacity onboarding (SSH secret, nodes, cluster, workspace) is an admin step the test environment provides already. Add a behavior test only when a disposable cluster is available to register against."
--->
+*Not fully documented yet as a repeatable procedure: capacity onboarding (SSH secret, nodes,
+cluster, workspace) is an admin step the demo environment already provides. An agent should not
+perform these five steps as a test — only presence-check that the **System** sections (Secrets,
+Flavors, Nodes, Clusters, Workspaces) and their **Create** controls exist, and that a workspace
+with quota is already available for the golden path below.*
 
 ## Submit a job (console)
 
-Once your workspace has healthy nodes:
+This is the golden path — perform it end to end. Once your workspace has healthy nodes:
 
-1. Sign in and select your **workspace**.
-2. Create a **workload**, choose **PyTorchJob**, and set an **image** + **entrypoint**
-   (e.g. `python train.py`) and the **resources** for one replica.
-3. Submit.
+### Before you start
 
-That's it — you've launched a single-node training job.
+- A **running cluster** with at least one healthy, schedulable node.
+- A **workspace with GPU quota** you can select — this is the job's target.
+- A **pullable container image** (a public image such as `docker.io/rocm/pytorch:latest` is fine).
 
-<!-- @test
-scope: page
-mode: behavior
-priority: P0
-personas: [member]
-preconditions: [running-cluster, workspace-with-quota]
-do: using the current session, select a workspace with quota and follow the "Submit a job (console)" steps (use a pullable image; a trivial entryPoint is fine)
-expect:
-  - the submitted job appears in the PyTorch list (set the filter to All if needed)
-  - its phase is Pending/Running, not Rejected/Failed
-cleanup: delete the created workload via its row action
-known_drift: console phase may stay Pending after the job actually ran (an optional kubectl cross-check shows the true state)
--->
+> **Agent:** confirm the preconditions before Step 1. If no workspace with quota is available (or
+> no running cluster), report **BLOCKED** (naming `workspace-with-quota` / `running-cluster`)
+> rather than failing a step — do not onboard capacity yourself, that is the admin section above.
+
+### Step 1 — Select your workspace
+Sign in and select your **workspace** in the top-left workspace selector.
+
+### Step 2 — Create the workload
+Create a **workload**, choose **PyTorchJob**, and set an **image** + **entrypoint**
+(e.g. `python train.py`; a trivial command such as `sleep 60` is fine for a smoke test) and the
+**resources** for one replica.
+
+### Step 3 — Submit and read the result
+Click **Submit**. That's it — you've launched a single-node training job. Here is what each
+outcome means — this is the pass/fail for the walkthrough:
+
+- **Healthy (pass):** the job appears in the **PyTorch** list (if the list looks empty, switch the
+  filter to **All**), and its phase is **Pending** or **Running** — the scheduler accepted it.
+- **If instead you see** the job **Rejected** or **Failed**, or an error toast on submit, **that
+  means** the submission was not accepted — usually an unpullable image, no quota left, or a node
+  taint blocking placement **(fail)**. Fix the input and resubmit; see
+  [Troubleshooting](/troubleshooting).
+
+> **Agent:** fill the table below, show it to the user, and report **PASS** only if the job
+> reached Pending/Running (not Rejected/Failed). Then **run cleanup**: delete the workload you
+> created via its row action, so the run is repeatable.
+>
+> Known product drift to account for (do **not** count as a new failure): the console phase can
+> stay **Pending** even after the job has actually run to completion. If Pending persists, an
+> optional `kubectl` cross-check can note the true state as a ground-truth aside — but the
+> UI-visible pass condition here is only "accepted, not Rejected/Failed".
+
+| Check | Healthy result | Found |
+|---|---|---|
+| Job appears in PyTorch list | yes (filter = All if needed) | _fill in_ |
+| Phase after submit | Pending or Running | _fill in_ |
+| Not Rejected/Failed | true | _fill in_ |
+| Cleanup (workload deleted) | done | _fill in_ |
 
 ## Where to go next
 

@@ -5,9 +5,22 @@ title: FAQ
 
 # FAQ
 
-Short answers to common questions; each links to the page with the detail.
+Short answers to common questions; each links to the page with the detail. This is a
+Q&A reference — there is no procedure to run here.
 
-<!-- @test none: Q&A reference — answers are covered (and tested where applicable) on the linked pages. -->
+It is written to serve two audiences at once:
+
+- **For you (the reader):** quick answers with a pointer to the page that goes deeper.
+- **For an AI agent:** this is reference material, not product behavior, so it is **n/a**
+  for a behavior run. An agent only confirms the documented Q&A renders.
+
+There is no separate test file and no invisible annotation on this page: the prose you
+read is all there is. The only thing kept elsewhere is bookkeeping (priority, and any
+known product bug), in the run contract `docs-site/AGENTS.md`.
+
+> **What an agent verifies here:** confirm the documented FAQ entries render — each
+> question below appears with its answer and its detail link resolves. This is
+> presence checking only; there is no behavior to perform.
 
 ### Do I need a separate control plane and data plane?
 
