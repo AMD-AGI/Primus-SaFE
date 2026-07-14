@@ -14,6 +14,11 @@
 <script lang="ts" setup>
 import { ref, onMounted } from 'vue'
 
+const props = defineProps<{
+  /** Optional initial range (e.g. restored from the URL). Falls back to the last-year default. */
+  initialRange?: { since?: string; until?: string }
+}>()
+
 const emit = defineEmits<{
   (e: 'change', val: { since: string; until: string }): void
 }>()
@@ -49,7 +54,12 @@ const refresh = () => {
 }
 
 onMounted(() => {
-  dateRange.value = getDefaultRange()
+  const init = props.initialRange
+  if (init?.since && init?.until) {
+    dateRange.value = [new Date(init.since), new Date(init.until)]
+  } else {
+    dateRange.value = getDefaultRange()
+  }
   emitChange()
 })
 

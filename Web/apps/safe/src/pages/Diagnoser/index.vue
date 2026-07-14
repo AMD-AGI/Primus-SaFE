@@ -17,7 +17,7 @@
       >
         Create Bench
       </el-button>
-      <DateRangeFilter ref="dateRangeFilterRef" @change="onDateFilterChange" />
+      <DateRangeFilter ref="dateRangeFilterRef" :initial-range="dateFilter" @change="onDateFilterChange" />
     </div>
   </div>
   <el-card class="mt-6 safe-card" shadow="never">
@@ -168,10 +168,8 @@ const onSuccess = () => {
 }
 
 // Keep the date range in the URL query so returning from a detail page restores
-// the same filter. DateRangeFilter auto-emits a default range on mount, so on the
-// first emit we prefer any range already present in the URL.
-const firstDateEmit = ref(true)
-
+// the same filter. We prime dateFilter from the URL before the picker mounts and
+// pass it as :initial-range, so the picker also displays the restored range.
 const readQuery = () => {
   const q = router.currentRoute.value.query
   dateFilter.value = {
@@ -179,6 +177,7 @@ const readQuery = () => {
     until: (q.until as string) || '',
   }
 }
+readQuery()
 
 const writeQuery = () => {
   const query: Record<string, string> = {}
@@ -188,15 +187,7 @@ const writeQuery = () => {
 }
 
 const onDateFilterChange = (val: { since: string; until: string }) => {
-  if (firstDateEmit.value) {
-    firstDateEmit.value = false
-    readQuery()
-    if (!dateFilter.value.since && !dateFilter.value.until) {
-      dateFilter.value = val
-    }
-  } else {
-    dateFilter.value = val
-  }
+  dateFilter.value = val
   writeQuery()
   fetchData()
 }
