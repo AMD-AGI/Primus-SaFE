@@ -1,11 +1,6 @@
 **/node_modules
 **/dist
 **/.git
-
-# Offline release image (Web/Dockerfile.release) ships the PRE-BUILT SaFE bundle,
-# so re-include it even though **/dist is ignored for the normal in-container build.
-!apps/safe/dist
-!apps/safe/dist/**
 **/.pnpm
 **/.pnpm-store
 **/.vscode

@@ -286,7 +286,7 @@ affected.) Address it one of two ways:
   ```bash
   kubectl create namespace primus-safe 2>/dev/null
   kubectl create secret tls default -n primus-safe --cert=fullchain.crt --key=tls.key
-  # SANs must include:  <cluster>.primus-safe.amd.com  and  apiserver.<cluster>.primus-safe.amd.com
+  # SANs must include:  <cluster>.<your-domain>  and  apiserver.<cluster>.<your-domain>
   ```
 - **Or trust the self-signed cert** on each client (import into the OS/browser Trusted Root store,
   then restart the browser) — fine for evaluation.
