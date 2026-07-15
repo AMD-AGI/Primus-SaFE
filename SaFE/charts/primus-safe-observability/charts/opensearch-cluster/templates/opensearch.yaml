@@ -1,0 +1,82 @@
+{{- if .Values.opensearch.enabled }}
+apiVersion: opensearch.opster.io/v1
+kind: OpenSearchCluster
+metadata:
+  name: {{ .Values.opensearch.name }}
+  namespace: {{ .Values.global.namespace }}
+spec:
+  general:
+    version: {{ .Values.opensearch.version | quote }}
+    httpPort: {{ .Values.opensearch.httpPort }}
+    serviceName: {{ .Values.opensearch.name }}
+    pluginsList: []
+    setVMMaxMapCount: true
+    {{- with .Values.opensearch.additionalConfig }}
+    {{- if or (hasKey . "gateway.expected_data_nodes") (hasKey . "gateway.recover_after_data_nodes") }}
+    {{- fail "opensearch.additionalConfig must not set gateway.expected_data_nodes / gateway.recover_after_data_nodes: on a small cluster these gate state recovery on all data nodes being up simultaneously and deadlock recovery during node churn (HTTP 503 / 'state not recovered'). Leave them unset (default)." }}
+    {{- end }}
+    additionalConfig:
+      {{- range $k, $v := . }}
+      {{ $k }}: {{ $v | quote }}
+      {{- end }}
+    {{- end }}
+    {{- if .Values.global.imageRegistry }}
+    image: "{{ .Values.global.imageRegistry }}/opensearchproject/opensearch:{{ .Values.opensearch.version }}"
+    {{- end }}
+  {{- if .Values.opensearch.initHelperImage }}
+  # Pinned (non-:latest) busybox so imagePullPolicy is IfNotPresent -- avoids the
+  # per-start re-pull that hit Docker Hub's anonymous rate limit. Decoupled from
+  # global.imageRegistry; override opensearch.initHelperImage for a mirror.
+  initHelper:
+    image: {{ .Values.opensearch.initHelperImage | quote }}
+  {{- end }}
+
+  {{- if .Values.opensearch.dashboards.enabled }}
+  dashboards:
+    enable: true
+    version: {{ .Values.opensearch.version | quote }}
+    replicas: {{ .Values.opensearch.dashboards.replicas }}
+    {{- with (.Values.global | default dict).affinity }}
+    affinity:
+      {{- toYaml . | nindent 6 }}
+    {{- end }}
+  {{- end }}
+
+  nodePools:
+  {{- range .Values.opensearch.nodePools }}
+    - component: {{ .name }}
+      replicas: {{ .replicas }}
+      roles:
+        {{- toYaml .roles | nindent 8 }}
+      diskSize: {{ .diskSize | quote }}
+      jvm: {{ .jvm | quote }}
+      resources:
+        {{- toYaml .resources | nindent 8 }}
+      persistence:
+        pvc:
+          accessModes: [ReadWriteOnce]
+          {{- if $.Values.global.storageClass }}
+          storageClass: {{ $.Values.global.storageClass }}
+          {{- end }}
+      {{- with ($.Values.global | default dict).affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+  {{- end }}
+
+  security:
+    config:
+      {{- if .Values.opensearch.security.provideConfig }}
+      # Chart-provided so the operator stops regenerating creds/securityconfig
+      # each reconcile (the churn that caused a bootstrap RollingRestart).
+      adminCredentialsSecret:
+        name: {{ .Values.opensearch.name }}-admin
+      securityConfigSecret:
+        name: {{ .Values.opensearch.name }}-securityconfig
+      {{- end }}
+    tls:
+      transport:
+        generate: true
+      http:
+        generate: true
+{{- end }}

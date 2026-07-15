@@ -1,0 +1,6 @@
+apiVersion: v2
+name: primus-robust-opensearch-operator
+description: OpenSearch Operator
+type: application
+version: 0.1.0
+appVersion: "2.6.0"

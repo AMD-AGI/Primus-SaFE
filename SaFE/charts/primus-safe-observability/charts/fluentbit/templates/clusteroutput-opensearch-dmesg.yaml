@@ -1,0 +1,31 @@
+{{- if .Values.inputs.dmesg.enabled }}
+apiVersion: fluentbit.fluent.io/v1alpha2
+kind: ClusterOutput
+metadata:
+  name: opensearch-dmesg
+  labels:
+    fluentbit.fluent.io/enabled: "true"
+spec:
+  match: dmesg.*
+  opensearch:
+    host: {{ .Values.opensearch.host }}
+    port: {{ .Values.opensearch.port }}
+    tls:
+      verify: {{ .Values.opensearch.tls.verify }}
+    logstashFormat: true
+    logstashPrefix: dmesg
+    suppressTypeName: true
+    traceError: true
+    replaceDots: true
+    timeKeyNanos: true
+    httpUser:
+      valueFrom:
+        secretKeyRef:
+          name: {{ .Values.opensearch.adminSecretName }}
+          key: username
+    httpPassword:
+      valueFrom:
+        secretKeyRef:
+          name: {{ .Values.opensearch.adminSecretName }}
+          key: password
+{{- end }}

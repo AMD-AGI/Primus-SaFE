@@ -66,7 +66,9 @@ func SetupControllers(ctx context.Context, mgr manager.Manager) error {
 	discovery := robustclient.NewDiscovery(mgr.GetClient(), rc, 30*time.Second)
 	discovery.Start(ctx)
 
-	opensearch.InitRobustClient(rc)
+	// Logs: query OpenSearch directly per cluster (SaFE-native), no
+	// robust-analyzer proxy (used by the dumplog job controller).
+	opensearch.InitDirect(ctx, mgr.GetClient())
 
 	if err := SetupWorkloadRobustSyncer(mgr, rc); err != nil {
 		return fmt.Errorf("failed to set up workload robust syncer: %v", err)

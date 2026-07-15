@@ -68,6 +68,14 @@ const (
 	observabilityMetricsInsecure      = observabilityMetricsPrefix + "insecure_skip_verify"
 	observabilityMetricsEndpointAnnot = observabilityMetricsPrefix + "endpoint_annotation"
 
+	// observability logs backend (SaFE-native, direct OpenSearch)
+	observabilityLogsPrefix        = observabilityPrefix + "logs."
+	observabilityLogsEnable        = observabilityLogsPrefix + "enable"
+	observabilityLogsEndpoint      = observabilityLogsPrefix + "endpoint"
+	observabilityLogsInsecure      = observabilityLogsPrefix + "insecure_skip_verify"
+	observabilityLogsEndpointAnnot = observabilityLogsPrefix + "endpoint_annotation"
+	observabilityLogsIndexPrefix   = observabilityLogsPrefix + "index_prefix"
+
 	// opensearch
 	openSearchPrefix      = "opensearch."
 	openSearchEnable      = openSearchPrefix + "enable"

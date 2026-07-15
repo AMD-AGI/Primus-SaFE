@@ -1,0 +1,20 @@
+{{- if .Values.inputs.systemd.enabled }}
+apiVersion: fluentbit.fluent.io/v1alpha2
+kind: ClusterInput
+metadata:
+  name: containerd
+  labels:
+    fluentbit.fluent.io/enabled: "true"
+spec:
+  systemd:
+    tag: service.*
+    path: {{ .Values.inputs.systemd.journalPath }}
+    db: /fluent-bit/tail/systemd.db
+    dbSync: Normal
+    storageType: memory
+    stripUnderscores: "off"
+    systemdFilter:
+    {{- range .Values.inputs.systemd.units }}
+    - _SYSTEMD_UNIT={{ . }}
+    {{- end }}
+{{- end }}

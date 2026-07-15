@@ -213,6 +213,48 @@ func GetObservabilityMetricsEndpointAnnotation() string {
 	return getString(observabilityMetricsEndpointAnnot, "primus-safe.amd.com/metrics-endpoint")
 }
 
+// ── Observability (SaFE-native logs backend: OpenSearch) ────────────────
+
+// IsObservabilityLogsEnable reports whether SaFE queries OpenSearch directly
+// for logs (instead of proxying through the data-plane robust-analyzer). This
+// is the logs counterpart to IsObservabilityMetricsEnable.
+func IsObservabilityLogsEnable() bool {
+	return getBool(observabilityLogsEnable, false)
+}
+
+// GetObservabilityLogsEndpoint returns the default OpenSearch HTTP endpoint
+// applied to every ready cluster that has no per-cluster override annotation.
+// Empty means such clusters are skipped.
+func GetObservabilityLogsEndpoint() string {
+	return getString(observabilityLogsEndpoint, "")
+}
+
+// GetObservabilityLogsInsecureSkipVerify reports whether TLS verification
+// should be skipped when talking to OpenSearch (needed for the operator's
+// self-signed HTTP cert). Defaults to true.
+func GetObservabilityLogsInsecureSkipVerify() bool {
+	return getBool(observabilityLogsInsecure, true)
+}
+
+// GetObservabilityLogsEndpointAnnotation returns the Cluster CR annotation key
+// that carries a per-cluster OpenSearch endpoint override.
+func GetObservabilityLogsEndpointAnnotation() string {
+	return getString(observabilityLogsEndpointAnnot, "primus-safe.amd.com/logs-endpoint")
+}
+
+// GetObservabilityLogsIndexPrefix returns the OpenSearch index prefix used to
+// build date-scoped index patterns (e.g. "node-2026.07.09"). Falls back to the
+// existing opensearch.prefix, then "node-".
+func GetObservabilityLogsIndexPrefix() string {
+	if p := getString(observabilityLogsIndexPrefix, ""); p != "" {
+		return p
+	}
+	if p := GetOpenSearchIndexPrefix(); p != "" {
+		return p
+	}
+	return "node-"
+}
+
 // GetOpenSearchUser returns the OpenSearch username.
 func GetOpenSearchUser() string {
 	if user := getString(openSearchPrefix+openSearchUser, ""); len(user) > 0 {

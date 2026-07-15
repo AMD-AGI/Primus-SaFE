@@ -1,0 +1,65 @@
+apiVersion: fluentbit.fluent.io/v1alpha2
+kind: FluentBit
+metadata:
+  name: primus-robust-fluentbit
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app.kubernetes.io/name: fluentbit
+spec:
+  image: "{{- if .Values.global.imageRegistry }}{{ .Values.global.imageRegistry }}/{{- end }}{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+  fluentBitConfigName: primus-robust-fluentbit-config
+  tolerations:
+    - operator: Exists
+  resources:
+    {{- toYaml .Values.resources | nindent 4 }}
+  {{- if .Values.readinessGate.enabled }}
+  # Gate startup on OpenSearch actually serving AUTHENTICATED writes -- not just
+  # accepting a TCP connection. Port 9200 opens before the security plugin
+  # initializes and cluster state recovers, so a plain TCP check passes too early
+  # and every _bulk POST returns HTTP 503 "OpenSearch Security not initialized"
+  # for minutes after a (re)deploy. An authenticated /_cluster/health poll only
+  # succeeds (200) once security is up AND status is >= yellow (primaries active),
+  # so FluentBit stays in Init until writes will actually be accepted.
+  initContainers:
+    - name: wait-opensearch
+      image: "{{- if .Values.global.imageRegistry }}{{ .Values.global.imageRegistry }}/{{- end }}{{ .Values.readinessGate.image.repository }}:{{ .Values.readinessGate.image.tag }}"
+      command: ["sh", "-c"]
+      args:
+        - |
+          echo "Waiting for OpenSearch at https://{{ .Values.opensearch.host }}:{{ .Values.opensearch.port }} to serve authenticated writes...";
+          until curl -fsk -u "$OS_USER:$OS_PASS" \
+            "https://{{ .Values.opensearch.host }}:{{ .Values.opensearch.port }}/_cluster/health?wait_for_status=yellow&timeout=5s" >/dev/null 2>&1; do
+            echo "  not ready (security/state still initializing), retry in 10s"; sleep 10;
+          done
+          echo "OpenSearch is healthy (security initialized, state recovered)."
+      env:
+        - name: OS_USER
+          valueFrom:
+            secretKeyRef:
+              name: {{ .Values.opensearch.adminSecretName }}
+              key: username
+        - name: OS_PASS
+          valueFrom:
+            secretKeyRef:
+              name: {{ .Values.opensearch.adminSecretName }}
+              key: password
+  {{- end }}
+  volumes:
+    - name: varlog
+      hostPath:
+        path: /var/log
+    {{- if .Values.storage.enabled }}
+    - name: flb-state
+      hostPath:
+        path: {{ .Values.storage.hostPath | quote }}
+        type: DirectoryOrCreate
+    {{- end }}
+  volumesMounts:
+    - name: varlog
+      mountPath: /var/log
+      readOnly: true
+    {{- if .Values.storage.enabled }}
+    - name: flb-state
+      mountPath: {{ .Values.storage.mountPath | quote }}
+      readOnly: false
+    {{- end }}

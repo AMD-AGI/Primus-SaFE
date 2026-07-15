@@ -58,6 +58,18 @@ data:
         insecure_skip_verify: {{ default true (default (default .Values.observability).metrics).insecure_skip_verify }}
         # Cluster CR annotation carrying a per-cluster metrics endpoint override.
         endpoint_annotation: "{{ default "primus-safe.amd.com/metrics-endpoint" (default (default .Values.observability).metrics).endpoint_annotation }}"
+      logs:
+        # Query OpenSearch directly per cluster (SaFE-native) instead of
+        # proxying through primus-robust robust-analyzer.
+        enable: {{ default false (default (default .Values.observability).logs).enable }}
+        # Default OpenSearch endpoint applied to ready clusters without an override annotation.
+        endpoint: "{{ default "" (default (default .Values.observability).logs).endpoint }}"
+        # Skip TLS verification for the operator's self-signed HTTP cert.
+        insecure_skip_verify: {{ default true (default (default .Values.observability).logs).insecure_skip_verify }}
+        # Cluster CR annotation carrying a per-cluster OpenSearch endpoint override.
+        endpoint_annotation: "{{ default "primus-safe.amd.com/logs-endpoint" (default (default .Values.observability).logs).endpoint_annotation }}"
+        # OpenSearch index prefix (falls back to opensearch.prefix when empty).
+        index_prefix: "{{ default "" (default (default .Values.observability).logs).index_prefix }}"
     opensearch:
       # Whether to enable opensearch, it is used for log search.
       enable: {{ .Values.opensearch.enable }}

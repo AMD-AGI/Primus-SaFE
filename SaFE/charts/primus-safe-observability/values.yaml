@@ -98,3 +98,93 @@ metrics-enricher:
   interval: "30s"
   # Must match vmcluster.victoriametrics.name above.
   vmClusterName: "primus-safe-vmcluster"
+
+# ── Logging: OpenSearch operator ────────────────────────────────────────
+# CRDs ship in this umbrella's crds/ dir (installed before the CRs), so keep
+# the operator from also rendering them into templates.
+opensearchOperator:
+  enabled: true
+  installCRDs: false
+  fullnameOverride: opensearch-operator
+  manager:
+    # Scope the operator to this stack's namespace.
+    watchNamespace: primus-safe-observability
+  # Disable the kube-rbac-proxy metrics sidecar. It's optional (only guards the
+  # operator's /metrics endpoint) and its default image `kubebuilder/kube-rbac-proxy`
+  # does not exist on Docker Hub (it's published to gcr.io / quay.io), so leaving
+  # it on breaks a public-registry install. The operator itself works without it.
+  kubeRbacProxy:
+    enable: false
+
+# ── Logging: Fluent operator ────────────────────────────────────────────
+fluentOperator:
+  enabled: true
+  installCRDs: false
+  operator:
+    # A5: the kubesphere/fluent-operator:v3.1.0 image panics with
+    # --watch-namespaces (nil map). Keep extraArgs empty (cluster-wide watch).
+    extraArgs: []
+
+# ── Logging: OpenSearch cluster (alias: logs) ───────────────────────────
+# 3-node HA default: OpenSearch elects a cluster-manager by voting quorum
+# (floor(N/2)+1), so 3 master-eligible nodes tolerate losing 1 and can
+# self-heal. Do NOT use 2 (quorum=2, tolerates 0 failures, split-brain risk) or
+# 1 (no quorum peer -> a volume with stale coordination state wedges forever).
+# Shrink to 1 only for a throwaway single-box dev cluster. diskSize is
+# overridable (upstream default is 100Gi/node). Admin credentials + security
+# config are chart-managed (opensearch.security.provideConfig, default true) via
+# the `primus-safe-logs-admin` / `primus-safe-logs-securityconfig` secrets, so
+# the operator does not churn/rolling-restart during bootstrap.
+logs:
+  enabled: true
+  opensearch:
+    enabled: true
+    name: primus-safe-logs
+    nodePools:
+      - name: nodes
+        replicas: 3
+        roles:
+          - master
+          - data
+          - ingest
+        diskSize: 30Gi
+        # Heap is committed (-Xms == -Xmx) and kept at ~50% of the container
+        # memory limit (the rest is off-heap: Lucene mmap file cache, thread
+        # stacks, network buffers), so 6g heap -> ~12Gi limit. The indexing-
+        # pressure ceiling is ~10% of heap; 6g -> ~614MB, enough to absorb the
+        # FluentBit readFromHead backfill burst onto a fresh cluster without
+        # HTTP 429 rejected_execution_exception (which intermittently dropped
+        # short-lived-job logs). Sized for the large nodes this runs on; lower
+        # jvm + memory together (keep the ~50% ratio) for smaller nodes.
+        jvm: "-Xms6g -Xmx6g"
+        resources:
+          requests:
+            cpu: "2"
+            memory: "12Gi"
+          limits:
+            cpu: "4"
+            memory: "12Gi"
+    # No recovery additionalConfig: OpenSearch defaults are correct for a small
+    # cluster. Do NOT add gateway.expected_data_nodes / recover_after_data_nodes
+    # here -- they gate state recovery on all nodes being up simultaneously and
+    # deadlock recovery during node churn (HTTP 503 / "state not recovered").
+    # The chart-level fixes (stable securityConfigSecret/adminCredentialsSecret,
+    # FluentBit readiness gate + ClusterIP + disk buffer) are what keep the
+    # cluster healthy, not recovery-speed tuning.
+
+# ── Logging: FluentBit pipeline (alias: fluentbit) ──────────────────────
+# Ships container-log + dmesg + systemd inputs -> OpenSearch. Writes node-*
+# indices (logstashPrefix: node), matching primus-safe observability.logs.prefix.
+fluentbit:
+  enabled: true
+  opensearch:
+    # ClusterIP client service (spec.general.serviceName) -> load-balances only
+    # to READY nodes. Do NOT use the headless `-nodes` service: it round-robins
+    # onto individual (possibly-recovering) pods and NXDOMAINs when none are
+    # ready, amplifying shard_not_in_primary_mode + write timeouts.
+    host: "primus-safe-logs.primus-safe-observability.svc"
+    port: 9200
+    # Chart-managed admin secret (matches opensearch.security admin creds).
+    adminSecretName: "primus-safe-logs-admin"
+    tls:
+      verify: false

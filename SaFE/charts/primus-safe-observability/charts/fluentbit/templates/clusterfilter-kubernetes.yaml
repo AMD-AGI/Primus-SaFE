@@ -1,0 +1,24 @@
+apiVersion: fluentbit.fluent.io/v1alpha2
+kind: ClusterFilter
+metadata:
+  name: kubernetes-meta
+  labels:
+    fluentbit.fluent.io/enabled: "true"
+spec:
+  match: kube-log.*
+  filters:
+    - kubernetes:
+        kubeURL: https://kubernetes.default.svc.cluster.local:443
+        kubeCAFile: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+        kubeTokenFile: /var/run/secrets/kubernetes.io/serviceaccount/token
+        kubeTagPrefix: kube-log.var.log.containers.
+        mergeLog: true
+        mergeLogKey: log_processed
+        k8sLoggingParser: true
+        k8sLoggingExclude: false
+        cacheUseDockerId: true
+        annotations: false
+        useKubelet: false
+        kubeletPort: 10250
+        tlsVerify: false
+        bufferSize: "0"

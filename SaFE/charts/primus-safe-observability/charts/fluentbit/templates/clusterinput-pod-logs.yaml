@@ -1,0 +1,28 @@
+{{- if .Values.inputs.containerLogs.enabled }}
+apiVersion: fluentbit.fluent.io/v1alpha2
+kind: ClusterInput
+metadata:
+  name: primus-robust-pod-logs
+  labels:
+    fluentbit.fluent.io/enabled: "true"
+spec:
+  tail:
+    tag: kube-log.*
+    path: {{ .Values.inputs.containerLogs.path }}
+    excludePath: {{ .Values.inputs.containerLogs.excludePath }}
+    parser: cri
+    memBufLimit: {{ .Values.inputs.containerLogs.memBufLimit }}
+    skipLongLines: true
+    skipEmptyLines: true
+    refreshIntervalSeconds: {{ .Values.inputs.containerLogs.refreshIntervalSeconds }}
+    disableInotifyWatcher: {{ .Values.inputs.containerLogs.disableInotifyWatcher }}
+    # Persist read offsets so a fluent-bit restart resumes where it left off
+    # (no re-reading, no gaps).
+    db: {{ .Values.inputs.containerLogs.db | quote }}
+    # Read existing file content from the start so short-lived jobs and
+    # pre-existing/idle pods are captured, not just lines written after startup.
+    readFromHead: {{ .Values.inputs.containerLogs.readFromHead }}
+    # Buffer chunks on disk (filesystem storage) so an OpenSearch outage doesn't
+    # fill the in-memory buffer and drop logs.
+    storageType: {{ .Values.inputs.containerLogs.storageType | quote }}
+{{- end }}

@@ -9,14 +9,13 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"fmt"
 	"strings"
 	"time"
 
 	"k8s.io/klog/v2"
 
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
-	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/robustclient"
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/observability"
 )
 
 const (
@@ -27,37 +26,23 @@ type SearchClientConfig struct {
 	DefaultIndex string
 }
 
+// SearchClient issues OpenSearch queries for one data cluster. It wraps a
+// direct observability.LogsClient (SaFE-native, no robust-analyzer proxy).
 type SearchClient struct {
 	SearchClientConfig
-	clusterClient *robustclient.ClusterClient
+	logsClient *observability.LogsClient
 	// searchFunc, when non-nil, overrides SearchByTimeRange. It is only set by
 	// test hooks (see testhook.go) and is always nil in production, so it has
-	// no effect on the real data-plane request path.
+	// no effect on the real request path.
 	searchFunc func(sinceTime, untilTime time.Time, index, uri string, body []byte) ([]byte, error)
 }
 
-func NewClient(cfg SearchClientConfig, cc *robustclient.ClusterClient) *SearchClient {
+// NewClient builds a SearchClient backed by a direct OpenSearch LogsClient.
+func NewClient(cfg SearchClientConfig, lc *observability.LogsClient) *SearchClient {
 	return &SearchClient{
 		SearchClientConfig: cfg,
-		clusterClient:      cc,
+		logsClient:         lc,
 	}
-}
-
-type logRawProxyRequest struct {
-	URI    string          `json:"uri"`
-	Method string          `json:"method"`
-	Body   json.RawMessage `json:"body"`
-}
-
-type logRawProxyEnvelope struct {
-	Meta struct {
-		Code    int    `json:"code"`
-		Message string `json:"message"`
-	} `json:"meta"`
-	Data struct {
-		StatusCode int             `json:"status_code"`
-		Body       json.RawMessage `json:"body"`
-	} `json:"data"`
 }
 
 func (c *SearchClient) SearchByTimeRange(sinceTime, untilTime time.Time, index, uri string, body []byte) ([]byte, error) {
@@ -88,54 +73,23 @@ func (c *SearchClient) SearchByTimeRange(sinceTime, untilTime time.Time, index, 
 	return c.Request(indexPattern+uri, "POST", body)
 }
 
+// Request issues an OpenSearch HTTP request directly and returns the raw
+// response body. uri is the index pattern + path (e.g.
+// "node-2026.07.09/_search?..."); it is sent verbatim against the cluster's
+// OpenSearch endpoint.
 func (c *SearchClient) Request(uri, httpMethod string, body []byte) ([]byte, error) {
-	if c.clusterClient == nil {
+	if c.logsClient == nil {
 		return nil, commonerrors.NewInternalError("opensearch client not initialized")
 	}
 	if !strings.HasPrefix(uri, "/") {
 		uri = "/" + uri
 	}
-
-	klog.V(4).Infof("proxying opensearch request via robust-analyzer: %s %s", httpMethod, uri)
-
-	proxyReq := logRawProxyRequest{
-		URI:    uri,
-		Method: httpMethod,
-		Body:   json.RawMessage(body),
-	}
+	klog.V(4).Infof("[opensearch] direct request: %s %s", httpMethod, uri)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 	defer cancel()
 
-	rawResp, err := c.clusterClient.RawPost(ctx, "/api/v1/logs/raw", proxyReq)
-	if err != nil {
-		return nil, fmt.Errorf("robust-analyzer log proxy failed: %w", err)
-	}
-
-	var envelope logRawProxyEnvelope
-	if err := json.Unmarshal(rawResp, &envelope); err != nil {
-		klog.Errorf("[opensearch] failed to parse robust-analyzer response (len=%d): %s",
-			len(rawResp), truncateForLog(rawResp, 1024))
-		return nil, fmt.Errorf("parse robust-analyzer response: %w (response prefix: %q)",
-			err, truncateForLog(rawResp, 200))
-	}
-
-	if envelope.Meta.Code != 0 && envelope.Meta.Code != 2000 {
-		return nil, fmt.Errorf("robust-analyzer log proxy error %d: %s", envelope.Meta.Code, envelope.Meta.Message)
-	}
-
-	if envelope.Data.StatusCode >= 400 {
-		return nil, fmt.Errorf("opensearch returned status %d", envelope.Data.StatusCode)
-	}
-
-	return []byte(envelope.Data.Body), nil
-}
-
-func truncateForLog(b []byte, maxLen int) string {
-	if len(b) <= maxLen {
-		return string(b)
-	}
-	return string(b[:maxLen]) + "...(truncated)"
+	return c.logsClient.Request(ctx, httpMethod, uri, body)
 }
 
 // NormalizeLogResponseMessage rewrites a raw `_search` response so every hit

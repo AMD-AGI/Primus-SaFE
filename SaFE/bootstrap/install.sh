@@ -222,8 +222,19 @@ opensearch_password=$(get_secret_input_with_default "Enter OpenSearch password (
 
 csi_volume_handle=$(get_input_with_default "Enter csi volume handle? (empty to disable pfs for workspace): " "")
 install_node_agent=$(get_input_with_default "install node-agent ? (y/n): " "n")
-install_observability=$(get_input_with_default "install SaFE observability metrics stack (VictoriaMetrics + enricher) ? (y/n): " "n")
-observability_enable=$(convert_to_boolean "$install_observability")
+# Logs and metrics are independent so logging can be installed even when the
+# metrics stack (which needs the prometheus-operator ServiceMonitor CRD) is not
+# ready on this cluster.
+install_obs_logs=$(get_input_with_default "install SaFE observability logging stack (OpenSearch + FluentBit) ? (y/n): " "n")
+obs_logs_enable=$(convert_to_boolean "$install_obs_logs")
+install_obs_metrics=$(get_input_with_default "install SaFE observability metrics stack (VictoriaMetrics + enricher) ? (y/n): " "n")
+obs_metrics_enable=$(convert_to_boolean "$install_obs_metrics")
+# The observability Helm release bundles both; install it if either is on.
+if [[ "$obs_logs_enable" == "true" || "$obs_metrics_enable" == "true" ]]; then
+  observability_enable=true
+else
+  observability_enable=false
+fi
 
 helm_registry="registry-1.docker.io"
 proxy_image_registry=""
@@ -393,9 +404,14 @@ if [[ "$s3_enable" == "true" ]]; then
   sed -i '/^s3:/,/^[a-z]/ s#secret: ".*"#secret: "'"$S3_SECRET"'"#' "$values_yaml"
 fi
 sed -i '/grafana:/,/^[a-z]/ s/enable: .*/enable: false/' "$values_yaml"
-# SaFE-native metrics path: toggle observability.metrics.enable, and turn on
-# Grafana (which the datasource + per-workload dashboard templates require).
-sed -i '/observability:/,/^[a-z]/ s/enable: .*/enable: '"$observability_enable"'/' "$values_yaml"
+# SaFE-native observability: logs and metrics toggle independently.
+# metrics.enable gates the Grafana metrics datasource/provisioner; logs.enable
+# is informational for the direct OpenSearch path (the apiserver discovers the
+# endpoint regardless). Set each within its own sub-block of the observability:
+# stanza (which sits above the opensearch: key).
+sed -i '/^  metrics:/,/^  logs:/ s/^\( *\)enable: .*/\1enable: '"$obs_metrics_enable"'/' "$values_yaml"
+sed -i '/^  logs:/,/^[a-z]/ s/^\( *\)enable: .*/\1enable: '"$obs_logs_enable"'/' "$values_yaml"
+# Grafana (metrics dashboards) is turned on whenever observability is installed.
 if [[ "$observability_enable" == "true" ]]; then
   sed -i '/grafana:/,/^[a-z]/ s/enable: .*/enable: true/' "$values_yaml"
 fi
@@ -490,9 +506,13 @@ fi
 if [[ "$observability_enable" == "true" ]]; then
   echo
   echo "========================================="
-  echo "🔧 Step 6b: install SaFE observability stack"
+  echo "🔧 Step 6b: install SaFE observability stack (metrics + logs)"
   echo "========================================="
 
+  # This release bundles the metrics stack (VictoriaMetrics + exporters +
+  # enricher) and the logs stack (OpenSearch + FluentBit + operators). The two
+  # are enabled independently below so an unfinished metrics stack (e.g. missing
+  # prometheus-operator ServiceMonitor CRD) cannot block a logs-only install.
   obs_chart="charts/primus-safe-observability"
   if [ ! -d "$obs_chart" ]; then
     echo "Error: $obs_chart does not exist"
@@ -501,15 +521,74 @@ if [[ "$observability_enable" == "true" ]]; then
   # Build subchart dependencies (VM operator / kube-state-metrics are vendored
   # tgz deps). Best-effort: local subcharts are already present under charts/.
   helm dependency build "$obs_chart" 2>/dev/null || true
-  # Install into its own namespace so it can be cleanly removed when switching
-  # back to primus-robust. The VictoriaMetrics operator CRDs and the VMCluster/
-  # VMAgent CRs ship together; a repeat run reconciles anything applied before
-  # its CRD was ready on the very first install.
+
+  # Assemble --set flags. The logging images are all third-party and are pulled
+  # from their public upstreams (chart default global.imageRegistry=docker.io).
+  # We intentionally do NOT reuse the auto-detected Harbor proxy registry: on
+  # clusters where the Harbor "/proxy" pull-through project isn't actually
+  # provisioned it returns 401, whereas these public images (opensearch,
+  # fluent-bit, opensearch-operator, ...) resolve directly. Sites with a
+  # populated mirror can override global.imageRegistry via a values file.
+  obs_sets=( --set global.clusterName="${sub_domain:-default}" \
+             --set global.storageClass="$storage_class" )
+  obs_sets+=( --set opensearchOperator.enabled="$obs_logs_enable" \
+              --set fluentOperator.enabled="$obs_logs_enable" \
+              --set logs.enabled="$obs_logs_enable" \
+              --set fluentbit.enabled="$obs_logs_enable" )
+  obs_sets+=( --set vmOperator.enabled="$obs_metrics_enable" \
+              --set vmcluster.enabled="$obs_metrics_enable" \
+              --set vmagent.enabled="$obs_metrics_enable" \
+              --set kubeStateMetrics.enabled="$obs_metrics_enable" \
+              --set gpu-exporter.enabled="$obs_metrics_enable" \
+              --set rdma-exporter.enabled="$obs_metrics_enable" \
+              --set network-exporter.enabled="$obs_metrics_enable" \
+              --set metrics-enricher.enabled="$obs_metrics_enable" )
+
+  # Install into its own namespace so it can be cleanly removed later.
+  # --timeout 20m is a generous margin for a fresh cluster (cold image pulls +
+  # operator reconcile + OpenSearch startup). With opensearch.security.provideConfig
+  # the chart no longer ships a blocking post-install securityconfig hook -- the
+  # operator applies the chart-provided securityConfigSecret asynchronously.
   helm upgrade --install primus-safe-observability "$obs_chart" \
-    -n primus-safe-observability --create-namespace \
-    --set global.clusterName="${sub_domain:-default}" \
-    --set global.storageClass="$storage_class"
-  echo "✅ primus-safe-observability installed in namespace(primus-safe-observability)"
+    -n primus-safe-observability --create-namespace --timeout 20m "${obs_sets[@]}"
+  echo "✅ primus-safe-observability installed (logs=$obs_logs_enable, metrics=$obs_metrics_enable)"
+
+  # Credential wiring only applies to the logs stack; skip for metrics-only.
+  if [[ "$obs_logs_enable" == "true" ]]; then
+  # ── Wire OpenSearch credentials for the apiserver's direct log queries ──
+  # The chart creates a STABLE admin secret (primus-safe-logs-admin, keys
+  # username/password) that is the OpenSearchCluster's adminCredentialsSecret and
+  # that FluentBit authenticates with. It is a normal chart resource, so it
+  # exists as soon as the release is applied (no waiting on the operator to
+  # generate a random password). Mirror it into the primus-safe namespace as the
+  # secret the apiserver/resource-manager mount ($opensearch_secret), then
+  # restart them so the direct OpenSearch client picks up the credentials.
+  os_admin_secret="primus-safe-logs-admin"
+  echo "⏳ Locating admin secret ($os_admin_secret) in primus-safe-observability..."
+  for _ in $(seq 1 12); do
+    kubectl get secret "$os_admin_secret" -n primus-safe-observability >/dev/null 2>&1 && break
+    sleep 5
+  done
+  if kubectl get secret "$os_admin_secret" -n primus-safe-observability >/dev/null 2>&1; then
+    os_user=$(kubectl get secret "$os_admin_secret" -n primus-safe-observability -o jsonpath='{.data.username}' | base64 -d)
+    os_pass=$(kubectl get secret "$os_admin_secret" -n primus-safe-observability -o jsonpath='{.data.password}' | base64 -d)
+    kubectl create secret generic "$opensearch_secret" -n "$NAMESPACE" \
+      --from-literal=username="$os_user" --from-literal=password="$os_pass" \
+      --dry-run=client -o yaml | kubectl apply -f -
+    kubectl label secret "$opensearch_secret" -n "$NAMESPACE" \
+      primus-safe.secret.type=opensearch primus-safe.display.name="$opensearch_secret" --overwrite >/dev/null 2>&1 || true
+    echo "✅ Mirrored OpenSearch admin credentials into $NAMESPACE/$opensearch_secret"
+    kubectl rollout restart deploy/"${NAMESPACE}"-apiserver deploy/"${NAMESPACE}"-resource-manager -n "$NAMESPACE" >/dev/null 2>&1 || true
+    echo "🔁 Restarted apiserver + resource-manager to pick up OpenSearch credentials"
+  else
+    echo "⚠️  Admin secret ($os_admin_secret) not found. It is chart-created when"
+    echo "    opensearch.security.provideConfig=true (the default) -- check the"
+    echo "    primus-safe-observability release rendered it. Meanwhile OpenSearch"
+    echo "    health can be checked with:"
+    echo "      kubectl -n primus-safe-observability get pods"
+    echo "      kubectl -n primus-safe-observability logs primus-safe-logs-nodes-0 | tail -40"
+  fi
+fi
 fi
 
 echo
@@ -529,7 +608,8 @@ sso_enable=$sso_enable
 ingress=$ingress
 sub_domain=$sub_domain
 install_node_agent=$install_node_agent
-install_observability=$install_observability
+install_obs_logs=$install_obs_logs
+install_obs_metrics=$install_obs_metrics
 csi_volume_handle=$csi_volume_handle
 helm_registry=$helm_registry
 proxy_image_registry=$proxy_image_registry

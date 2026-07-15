@@ -6,6 +6,7 @@
 package opensearch
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -13,16 +14,18 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"k8s.io/apimachinery/pkg/runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
-	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/robustclient"
+	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/observability"
 )
 
 func newSearchClientTo(t *testing.T, handler http.HandlerFunc) (*SearchClient, *httptest.Server) {
 	t.Helper()
 	srv := httptest.NewServer(handler)
-	rc := robustclient.NewClient(robustclient.DefaultClientConfig())
-	rc.RegisterCluster("c1", srv.URL)
-	return NewClient(SearchClientConfig{DefaultIndex: "node-"}, rc.ForCluster("c1")), srv
+	lc := observability.NewLogsClient(observability.LogsClientConfig{BaseURL: srv.URL})
+	return NewClient(SearchClientConfig{DefaultIndex: "node-"}, lc), srv
 }
 
 func TestRequestNotInitialized(t *testing.T) {
@@ -32,43 +35,36 @@ func TestRequestNotInitialized(t *testing.T) {
 }
 
 func TestRequestSuccessAndErrors(t *testing.T) {
-	// success envelope
+	// success: raw OpenSearch body returned verbatim
 	sc, srv := newSearchClientTo(t, func(w http.ResponseWriter, _ *http.Request) {
-		w.Write([]byte(`{"meta":{"code":2000},"data":{"status_code":200,"body":{"hits":{"hits":[]}}}}`))
+		w.Write([]byte(`{"hits":{"hits":[]}}`))
 	})
 	defer srv.Close()
 	out, err := sc.Request("api", "GET", []byte(`{}`))
 	assert.NoError(t, err)
 	assert.Contains(t, string(out), "hits")
 
-	// business error code
+	// non-2xx HTTP -> error
 	sc2, srv2 := newSearchClientTo(t, func(w http.ResponseWriter, _ *http.Request) {
-		w.Write([]byte(`{"meta":{"code":4001,"message":"bad"},"data":{}}`))
+		w.WriteHeader(http.StatusNotFound)
+		w.Write([]byte(`{"error":"not found"}`))
 	})
 	defer srv2.Close()
 	_, err = sc2.Request("/api", "GET", nil)
 	assert.Error(t, err)
 
-	// opensearch status >= 400
+	// server error -> error
 	sc3, srv3 := newSearchClientTo(t, func(w http.ResponseWriter, _ *http.Request) {
-		w.Write([]byte(`{"meta":{"code":2000},"data":{"status_code":404,"body":{}}}`))
+		w.WriteHeader(http.StatusInternalServerError)
 	})
 	defer srv3.Close()
 	_, err = sc3.Request("/api", "GET", nil)
-	assert.Error(t, err)
-
-	// malformed json
-	sc4, srv4 := newSearchClientTo(t, func(w http.ResponseWriter, _ *http.Request) {
-		w.Write([]byte(`not-json`))
-	})
-	defer srv4.Close()
-	_, err = sc4.Request("/api", "GET", nil)
 	assert.Error(t, err)
 }
 
 func TestSearchByTimeRange(t *testing.T) {
 	sc, srv := newSearchClientTo(t, func(w http.ResponseWriter, _ *http.Request) {
-		w.Write([]byte(`{"meta":{"code":2000},"data":{"status_code":200,"body":{"ok":true}}}`))
+		w.Write([]byte(`{"ok":true}`))
 	})
 	defer srv.Close()
 	now := time.Now().UTC()
@@ -105,10 +101,7 @@ func TestGenerateIndexPattern(t *testing.T) {
 	assert.Equal(t, "node-*", p)
 }
 
-func TestTruncateForLogAndFallbackHelpers(t *testing.T) {
-	assert.Equal(t, "abc", truncateForLog([]byte("abc"), 5))
-	assert.Contains(t, truncateForLog([]byte("abcdefgh"), 3), "truncated")
-
+func TestFallbackHelpers(t *testing.T) {
 	assert.True(t, isEmptyJSONString(json.RawMessage(``)))
 	assert.True(t, isEmptyJSONString(json.RawMessage(`null`)))
 	assert.True(t, isEmptyJSONString(json.RawMessage(`""`)))
@@ -119,12 +112,43 @@ func TestTruncateForLogAndFallbackHelpers(t *testing.T) {
 	assert.False(t, sourceNeedsFallback(map[string]json.RawMessage{"message": json.RawMessage(`"hi"`)}))
 }
 
+func TestInitDirect(t *testing.T) {
+	scheme := runtime.NewScheme()
+	assert.NoError(t, v1.AddToScheme(scheme))
+	k8sClient := fake.NewClientBuilder().WithScheme(scheme).Build()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	InitDirect(ctx, k8sClient)
+	defer SetLogsRegistryForTest(nil)
+
+	// No clusters discovered -> no client for any name.
+	assert.Nil(t, GetOpensearchClient("nonexistent"))
+	// With an active (empty) registry, GetAnyOpensearchClient finds nothing.
+	assert.Nil(t, GetAnyOpensearchClient())
+}
+
+func TestGetAnyOpensearchClientEmptyRegistry(t *testing.T) {
+	// An installed but empty registry (no cached clients) yields nil.
+	reg := observability.NewLogsRegistry(observability.LogsClientConfig{})
+	SetLogsRegistryForTest(reg)
+	defer SetLogsRegistryForTest(nil)
+
+	assert.Nil(t, GetAnyOpensearchClient())
+}
+
 func TestDiscovery(t *testing.T) {
 	assert.NoError(t, StartDiscover(nil))
 
-	rc := robustclient.NewClient(robustclient.DefaultClientConfig())
-	rc.RegisterCluster("c1", "http://x")
-	InitRobustClient(rc)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Write([]byte(`{"ok":true}`))
+	}))
+	defer srv.Close()
+
+	reg := observability.NewLogsRegistry(observability.LogsClientConfig{})
+	reg.RegisterCluster("c1", srv.URL)
+	SetLogsRegistryForTest(reg)
 
 	sc := GetOpensearchClient("c1")
 	assert.NotNil(t, sc)

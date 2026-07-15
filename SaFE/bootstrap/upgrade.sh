@@ -235,6 +235,78 @@ cd ..
 
 echo
 echo "========================================="
+echo "🔧 Step 3b: upgrade SaFE observability stack (metrics + logs)"
+echo "========================================="
+
+# Redeploying observability via `helm upgrade --install` keeps the existing
+# OpenSearchCluster CR / StatefulSet / PVCs (helm never deletes StatefulSet
+# volumeClaimTemplate PVCs), so OpenSearch log DATA PERSISTS across redeploys --
+# matching FluentBit's durable node-hostPath tail DB, so there are no log gaps.
+# For a genuine clean slate use `PURGE_PVC=true ./uninstall.sh` (wipes BOTH
+# OpenSearch PVCs and FluentBit node state), then ./install.sh -- do NOT use this
+# step for that.
+# NOTE: keep this block in sync with install.sh Step 6b (enable flags + creds).
+if [[ "${install_obs_logs:-n}" == "y" ]]; then obs_logs_enable=true; else obs_logs_enable=false; fi
+if [[ "${install_obs_metrics:-n}" == "y" ]]; then obs_metrics_enable=true; else obs_metrics_enable=false; fi
+observability_enable=false
+if [[ "$obs_logs_enable" == "true" || "$obs_metrics_enable" == "true" ]]; then observability_enable=true; fi
+opensearch_secret="primus-safe-opensearch-config"
+
+if [[ "$observability_enable" == "true" ]]; then
+  obs_chart="charts/primus-safe-observability"
+  if [ ! -d "$obs_chart" ]; then
+    echo "Error: $obs_chart does not exist"
+    exit 1
+  fi
+  helm dependency build "$obs_chart" 2>/dev/null || true
+  obs_sets=( --set global.clusterName="${sub_domain:-default}" \
+             --set global.storageClass="$storage_class" )
+  obs_sets+=( --set opensearchOperator.enabled="$obs_logs_enable" \
+              --set fluentOperator.enabled="$obs_logs_enable" \
+              --set logs.enabled="$obs_logs_enable" \
+              --set fluentbit.enabled="$obs_logs_enable" )
+  obs_sets+=( --set vmOperator.enabled="$obs_metrics_enable" \
+              --set vmcluster.enabled="$obs_metrics_enable" \
+              --set vmagent.enabled="$obs_metrics_enable" \
+              --set kubeStateMetrics.enabled="$obs_metrics_enable" \
+              --set gpu-exporter.enabled="$obs_metrics_enable" \
+              --set rdma-exporter.enabled="$obs_metrics_enable" \
+              --set network-exporter.enabled="$obs_metrics_enable" \
+              --set metrics-enricher.enabled="$obs_metrics_enable" )
+  helm upgrade --install primus-safe-observability "$obs_chart" \
+    -n primus-safe-observability --create-namespace --timeout 20m "${obs_sets[@]}"
+  echo "✅ primus-safe-observability upgraded (logs=$obs_logs_enable, metrics=$obs_metrics_enable); PVCs retained (data persists)"
+
+  # Re-mirror the chart-created admin secret into primus-safe (idempotent) and
+  # restart the consumers so the direct OpenSearch client uses current creds.
+  if [[ "$obs_logs_enable" == "true" ]]; then
+    os_admin_secret="primus-safe-logs-admin"
+    for _ in $(seq 1 12); do
+      kubectl get secret "$os_admin_secret" -n primus-safe-observability >/dev/null 2>&1 && break
+      sleep 5
+    done
+    if kubectl get secret "$os_admin_secret" -n primus-safe-observability >/dev/null 2>&1; then
+      os_user=$(kubectl get secret "$os_admin_secret" -n primus-safe-observability -o jsonpath='{.data.username}' | base64 -d)
+      os_pass=$(kubectl get secret "$os_admin_secret" -n primus-safe-observability -o jsonpath='{.data.password}' | base64 -d)
+      kubectl create secret generic "$opensearch_secret" -n "$NAMESPACE" \
+        --from-literal=username="$os_user" --from-literal=password="$os_pass" \
+        --dry-run=client -o yaml | kubectl apply -f -
+      kubectl label secret "$opensearch_secret" -n "$NAMESPACE" \
+        primus-safe.secret.type=opensearch primus-safe.display.name="$opensearch_secret" --overwrite >/dev/null 2>&1 || true
+      echo "✅ Mirrored OpenSearch admin credentials into $NAMESPACE/$opensearch_secret"
+      kubectl rollout restart deploy/"${NAMESPACE}"-apiserver deploy/"${NAMESPACE}"-resource-manager -n "$NAMESPACE" >/dev/null 2>&1 || true
+      echo "🔁 Restarted apiserver + resource-manager to pick up OpenSearch credentials"
+    else
+      echo "⚠️  Admin secret ($os_admin_secret) not found in primus-safe-observability; check the release."
+    fi
+  fi
+else
+  echo "⏭️  Observability not enabled in .env (install_obs_logs/install_obs_metrics); skipping."
+fi
+
+
+echo
+echo "========================================="
 echo "🔧 Step 4: upgrade primus-safe data plane"
 echo "========================================="
 
