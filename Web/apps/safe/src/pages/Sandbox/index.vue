@@ -1,10 +1,7 @@
 <template>
   <el-text class="block textx-18 font-500" tag="b">Sandbox</el-text>
   <div class="flex flex-wrap items-center gap-2 mt-4">
-    <el-segmented
-      v-model="activeTab"
-      :options="tabSegOptions"
-    />
+    <el-segmented v-model="activeTab" :options="tabSegOptions" />
 
     <!-- Templates tab search -->
     <div v-if="activeTab === 'templates'" class="flex flex-wrap items-center ml-auto">
@@ -36,7 +33,7 @@
   <!-- Templates list -->
   <el-card v-show="activeTab === 'templates'" class="mt-4 safe-card" shadow="never">
     <el-table
-      :height="'calc(100vh - 240px)'"
+      :height="'calc(100vh / var(--zoom) - 240px)'"
       :data="templateState.rowData"
       size="large"
       v-loading="templateLoading"
@@ -124,7 +121,7 @@
   <!-- Sandboxes list -->
   <el-card v-show="activeTab === 'sandboxes'" class="mt-4 safe-card" shadow="never">
     <el-table
-      :height="'calc(100vh - 240px)'"
+      :height="'calc(100vh / var(--zoom) - 240px)'"
       :data="sessionState.rowData"
       size="large"
       v-loading="sessionLoading"

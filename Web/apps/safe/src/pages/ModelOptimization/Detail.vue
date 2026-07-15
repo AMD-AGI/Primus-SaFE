@@ -343,7 +343,7 @@ onMounted(async () => {
 .section-title { font-weight: 600; font-size: 14px; }
 
 .log-box {
-  max-height: calc(100vh - 380px);
+  max-height: calc(100vh / var(--zoom) - 380px);
   overflow-y: auto;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 12px;

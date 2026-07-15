@@ -5,7 +5,30 @@
 :root {
   --scale: 1;
   --compact-scale: 1;
+  --zoom: 1;
 } /* 全局默认 */
+
+/* Small-screen global zoom: below 1440px shrink the whole app to raise
+   information density. `zoom` is applied to #app (not transform: scale) so the
+   layout reflows with no empty space. Width/height are pre-scaled by 1/zoom and
+   <body> overflow is hidden, so the zoomed app still fills the viewport exactly
+   without a right/bottom gutter. Media queries evaluate against the real
+   viewport, so a 1406px screen stays in this tier with no feedback loop.
+   NOTE: any element sized with 100vh (e.g. el-table :height) must divide by
+   var(--zoom) to stay full-height inside the pre-scaled #app. */
+@media (max-width: 1439px) {
+  :root {
+    --zoom: 0.9;
+  }
+  body {
+    overflow: hidden;
+  }
+  #app {
+    zoom: 0.9;
+    width: calc(100vw / var(--zoom));
+    height: calc(100vh / var(--zoom));
+  }
+}
 
 @media (min-width: 1440px) {
   :root {

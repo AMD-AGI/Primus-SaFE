@@ -66,7 +66,7 @@
   <el-card class="mt-6 safe-card" shadow="never">
     <el-table
       ref="tableRef"
-      height="calc(100vh - 245px)"
+      height="calc(100vh / var(--zoom) - 245px)"
       :data="tableData"
       size="large"
       border

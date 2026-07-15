@@ -948,7 +948,7 @@ onBeforeUnmount(() => {
 
 /* Unbound state card */
 .gateway-card {
-  min-height: calc(100vh - 180px);
+  min-height: calc(100vh / var(--zoom) - 180px);
 }
 .gateway-card :deep(.el-card__body) {
   height: 100%;

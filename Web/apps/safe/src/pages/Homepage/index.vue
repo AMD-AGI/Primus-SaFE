@@ -74,12 +74,16 @@
     <div class="header-row">
       <h3 class="chart-title">GPU Utilization & Allocation</h3>
       <div class="chart-filters">
-        <el-radio-group v-model="quickDateRange" @change="onQuickDateChange">
-          <el-radio-button :value="1">Past 1 Day</el-radio-button>
-          <el-radio-button :value="7">Past 7 Days</el-radio-button>
-          <el-radio-button :value="30">Past 30 Days</el-radio-button>
-          <el-radio-button :value="0">Custom</el-radio-button>
-        </el-radio-group>
+        <el-segmented
+          v-model="quickDateRange"
+          :options="[
+            { label: 'Past 1 Day', value: 1 },
+            { label: 'Past 7 Days', value: 7 },
+            { label: 'Past 30 Days', value: 30 },
+            { label: 'Custom', value: 0 },
+          ]"
+          @change="onQuickDateChange"
+        />
         <el-date-picker
           v-model="dateRange"
           type="datetimerange"
@@ -708,6 +712,19 @@ watch(
   gap: 16px;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   grid-auto-rows: 232px;
+}
+
+/* Zoom tier (<1440px): compact vertical rhythm so the dashboard fits without heavy scrolling */
+@media (max-width: 1439px) {
+  .stat-grid {
+    grid-auto-rows: 188px;
+  }
+  .gpu-chart-card {
+    min-height: 300px;
+  }
+  .gpu-chart-box {
+    height: 260px;
+  }
 }
 
 /* Small screen responsive: two columns / one column */

@@ -1,5 +1,5 @@
 <template>
-  <div class="min-h-screen flex items-center justify-center p-6">
+  <div class="min-h-full flex items-center justify-center p-6">
     <!-- Background -->
     <div class="fixed inset-0 -z-1 pointer-events-none">
       <div

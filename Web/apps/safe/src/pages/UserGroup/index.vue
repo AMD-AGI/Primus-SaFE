@@ -100,7 +100,7 @@
         <el-table
           v-if="membersList.length"
           :data="filteredMembers"
-          :height="'calc(100vh - 340px)'"
+          :height="'calc(100vh / var(--zoom) - 340px)'"
           size="large"
           class="mt-4"
         >

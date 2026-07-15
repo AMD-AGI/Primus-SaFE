@@ -311,7 +311,7 @@ const handleSubmit = async () => {
 .drawer-body {
   padding: 0 16px 16px;
   overflow-y: auto;
-  max-height: calc(100vh - 140px);
+  max-height: calc(100vh / var(--zoom) - 140px);
 }
 .section-card {
   padding: 16px;

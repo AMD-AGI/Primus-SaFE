@@ -513,7 +513,7 @@ onMounted(async () => {
 <style scoped lang="scss">
 .feedback-management-container {
   padding: 0;
-  min-height: calc(100vh - 66px);
+  min-height: calc(100vh / var(--zoom) - 66px);
   background: linear-gradient(135deg, rgba(249, 250, 251, 0.5) 0%, rgba(243, 244, 246, 0.5) 100%);
 }
 

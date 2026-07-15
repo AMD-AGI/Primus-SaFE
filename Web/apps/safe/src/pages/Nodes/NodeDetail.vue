@@ -146,7 +146,7 @@
       />
       <el-card class="mt-4 safe-card" shadow="never">
         <el-table
-          :height="'calc(100vh - 340px)'"
+          :height="'calc(100vh / var(--zoom) - 340px)'"
           :data="tableData"
           size="large"
           class="m-t-2"
@@ -362,7 +362,7 @@ watch(
 <style scoped>
 .log-box {
   margin-top: 20px;
-  max-height: calc(100vh - 260px);
+  max-height: calc(100vh / var(--zoom) - 260px);
   overflow-y: auto;
   font-family: monospace;
   white-space: pre-wrap;

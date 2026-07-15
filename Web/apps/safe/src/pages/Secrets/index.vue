@@ -19,7 +19,7 @@
   </div>
   <el-card class="mt-6 safe-card" shadow="never">
     <el-table
-      :height="'calc(100vh - 200px)'"
+      :height="'calc(100vh / var(--zoom) - 200px)'"
       :data="tableData"
       size="large"
       class="m-t-2"

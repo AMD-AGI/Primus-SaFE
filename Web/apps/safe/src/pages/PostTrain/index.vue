@@ -450,7 +450,7 @@ const onSearch = (opts?: { resetPage?: boolean }) => {
   fetchData()
 }
 
-const tableHeight = computed(() => `calc(100vh - 245px)`)
+const tableHeight = computed(() => `calc(100vh / var(--zoom) - 245px)`)
 
 const resetFilters = () => {
   Object.assign(filters, { trainType: '', strategy: '', status: '', workspace: '', baseModel: '', owner: '', dateRange: '' })

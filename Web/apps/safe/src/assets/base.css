@@ -58,6 +58,16 @@
   font-weight: normal;
 }
 
+/* Full-height chain so the app root can fill #app with height:100%. This is
+   required for the small-screen zoom on #app (main.css): #app is pre-scaled to
+   100vh/var(--zoom) and the layout must fill it via % (not 100vh) to avoid an
+   empty gutter at the right/bottom. */
+html,
+body,
+#app {
+  height: 100%;
+}
+
 body {
   min-height: 100vh;
   color: var(--color-text);
@@ -79,7 +89,7 @@ body {
     'Droid Sans',
     'Helvetica Neue',
     sans-serif;
-  font-size: 15px;
+  /* font-size is set by safe-theme.css via --fs-body (single source of truth). */
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;

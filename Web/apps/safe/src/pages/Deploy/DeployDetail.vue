@@ -361,7 +361,7 @@ userStore.fetchEnvs()
   white-space: pre;
 }
 .diff-view-full {
-  height: calc(100vh - 380px);
+  height: calc(100vh / var(--zoom) - 380px);
   overflow: auto;
   border: 1px solid var(--el-border-color);
   border-radius: 6px;

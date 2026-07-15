@@ -496,7 +496,7 @@ watch(hasSelection, (v) => { if (v) hasBarSpace.value = true })
 function onBarAfterLeave() { hasBarSpace.value = false }
 const tableHeight = computed(() => {
   const extra = hasBarSpace.value ? SELECTION_BAR_H : 0
-  return `calc(100vh - ${BASE_OFFSET + extra}px)`
+  return `calc(100vh / var(--zoom) - ${BASE_OFFSET + extra}px)`
 })
 
 // ── Detail navigation ──

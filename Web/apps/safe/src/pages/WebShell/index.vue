@@ -341,7 +341,7 @@ body,
   height: 100%;
 }
 .ws-fullpage {
-  height: calc(100vh - 60px);
+  height: calc(100vh / var(--zoom) - 60px);
   display: flex;
   flex-direction: column;
   background: #0b0b0b;

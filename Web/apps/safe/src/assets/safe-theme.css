@@ -16,6 +16,9 @@
 
   --safe-radius-xl: 16px;
 
+  /* Uniform card body padding across the app (Element Plus default is 20px). */
+  --el-card-padding: 16px;
+
   /* ---------- Type scale (the ONLY font sizes to use) ----------
      Scale-aware via --scale. In templates prefer the UnoCSS shortcuts
      fs-caption / fs-body / fs-label / fs-subtitle / fs-title / fs-display;
@@ -52,23 +55,6 @@
   --safe-text-secondary: #374151;
   --safe-warning: #f59e0b;
   --safe-surface: var(--safe-card-2);
-
-  --safe-radius-md: 8px;
-  --safe-control-radius: 10px;
-  --safe-control-dropdown-radius: 12px;
-  --safe-control-option-radius: 8px;
-  --safe-control-height: 36px;
-  --safe-control-height-small: 32px;
-  --safe-control-option-height: 34px;
-  --safe-control-font-size: 13px;
-  --safe-control-option-font-size: 13px;
-
-  --safe-control-bg: color-mix(in oklab, var(--safe-card) 88%, var(--safe-card-2) 12%);
-  --safe-control-bg-hover: color-mix(in oklab, var(--safe-card) 80%, var(--safe-primary) 6%);
-  --safe-control-border: color-mix(in oklab, var(--safe-border) 84%, var(--safe-primary) 16%);
-  --safe-control-border-hover: color-mix(in oklab, var(--safe-border) 58%, var(--safe-primary) 42%);
-  --safe-control-focus-ring: color-mix(in oklab, var(--safe-primary) 16%, transparent);
-  --safe-control-dropdown-shadow: 0 16px 34px rgba(15, 23, 42, 0.14);
 
   /* 供按钮 plain 专用的颜色变量（不影响其他组件） */
   --safe-primary-plain-bg: color-mix(in oklab, var(--safe-card) 84%, var(--safe-primary) 16%);
@@ -134,13 +120,6 @@ html.dark {
   --safe-border-light: #232830;
   --safe-text-secondary: #cbd5e1;
   --safe-warning: #fbbf24;
-
-  --safe-control-bg: color-mix(in oklab, var(--safe-card) 88%, var(--safe-card-2) 12%);
-  --safe-control-bg-hover: color-mix(in oklab, var(--safe-card) 78%, var(--safe-primary) 8%);
-  --safe-control-border: color-mix(in oklab, var(--safe-border) 82%, var(--safe-primary) 18%);
-  --safe-control-border-hover: color-mix(in oklab, var(--safe-border) 58%, var(--safe-primary) 42%);
-  --safe-control-focus-ring: color-mix(in oklab, var(--safe-primary) 18%, transparent);
-  --safe-control-dropdown-shadow: 0 18px 38px rgba(0, 0, 0, 0.34);
 
   --safe-primary-plain-bg: color-mix(in oklab, var(--safe-card) 90%, var(--safe-primary) 10%);
   --safe-primary-plain-bg-hover: color-mix(in oklab, var(--safe-card) 86%, var(--safe-primary) 14%);
@@ -260,43 +239,6 @@ a:hover {
 }
 .el-segmented.is-disabled {
   opacity: 0.6;
-}
-
-/* 透玻璃表格（性能优化版） */
-.safe-table :deep(.el-table__inner-wrapper)::before {
-  display: none;
-}
-.safe-table :deep(.el-table) {
-  background: transparent;
-}
-.safe-table :deep(.el-table__header-wrapper th) {
-  background: rgba(255, 255, 255, 0.5);
-  color: var(--safe-muted);
-  font-weight: 600;
-  border-left: none !important;
-  border-right: none !important;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.25);
-}
-.safe-table :deep(.el-table__row > td) {
-  background: rgba(255, 255, 255, 0.35);
-  border-left: none !important;
-  border-right: none !important;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.15);
-  transition: background 0.15s ease;
-}
-.safe-table :deep(.el-table__row:hover > td) {
-  background: rgba(255, 255, 255, 0.5);
-}
-.dark .safe-table :deep(.el-table__header-wrapper th) {
-  background: rgba(28, 34, 43, 0.6);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-}
-.dark .safe-table :deep(.el-table__row > td) {
-  background: rgba(22, 26, 32, 0.4);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
-}
-.dark .safe-table :deep(.el-table__row:hover > td) {
-  background: rgba(28, 34, 43, 0.6);
 }
 
 /* 原生 el-table 透玻璃效果（性能优化版） */

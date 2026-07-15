@@ -2,7 +2,7 @@
   --theme-primary: #14b8a6;
   --theme-primary-hover: #0d9488;
 
-  height: calc(100vh - 66px);
+  height: calc(100vh / var(--zoom) - 66px);
   display: flex;
   gap: 0;
   background: transparent;
