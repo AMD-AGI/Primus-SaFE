@@ -489,6 +489,21 @@ func TestGetAdminWorkloadAndSyncPodNonMesh(t *testing.T) {
 	assert.Equal(t, v1.GetWorkloadDispatchCnt(got), 2)
 }
 
+// TestGetAdminWorkloadAndSyncPodMissingWorkload reproduces the nil-pointer panic:
+// when the admin workload is deleted (NotFound), getAdminWorkload returns
+// (nil, nil) and the sync must return (nil, nil) instead of dereferencing nil in
+// SetLabel.
+func TestGetAdminWorkloadAndSyncPodMissingWorkload(t *testing.T) {
+	cl := ctrlfake.NewClientBuilder().WithScheme(syncerScheme(t)).Build()
+	r := &SyncerReconciler{Client: cl}
+
+	pod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "p1"}}
+	got, err := r.getAdminWorkloadAndSyncPod(context.Background(), monkeyClientSets(), pod,
+		&resourceMessage{workloadId: "missing", dispatchCount: 1})
+	assert.NilError(t, err)
+	assert.Assert(t, got == nil)
+}
+
 // TestBuildWorkloadPodInfo patches buildPodTerminatedInfo (the only clientSet user) so
 // buildWorkloadPodInfo can assemble pod metadata without a live cluster.
 func TestBuildWorkloadPodInfo(t *testing.T) {

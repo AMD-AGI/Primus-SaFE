@@ -189,7 +189,7 @@ func (r *SyncerReconciler) getAdminWorkloadAndSyncPod(ctx context.Context,
 	} else {
 		adminWorkload, err = r.getAdminWorkload(ctx, message.workloadId)
 	}
-	if err != nil {
+	if err != nil || adminWorkload == nil {
 		return nil, err
 	}
 	v1.SetLabel(adminWorkload, v1.WorkloadDispatchCntLabel, strconv.Itoa(message.dispatchCount))
