@@ -42,6 +42,21 @@ const (
 	metricsEnable = metricsPrefix + "enable"
 	metricsPort   = metricsPrefix + "port"
 
+	// metrics.remote_write: push SaFE self-health metrics into an external
+	// VictoriaMetrics/Prometheus (the data-plane Robust VM) via the plain-text
+	// import endpoint (<url>/api/v1/import/prometheus).
+	metricsRemoteWritePrefix   = metricsPrefix + "remote_write."
+	metricsRemoteWriteEnable   = metricsRemoteWritePrefix + "enable"
+	metricsRemoteWriteURL      = metricsRemoteWritePrefix + "url"
+	metricsRemoteWriteInterval = metricsRemoteWritePrefix + "interval_seconds"
+	metricsRemoteWriteJob      = metricsRemoteWritePrefix + "job"
+	// cluster_name identifies which SaFE management cluster/environment the
+	// pushed series come from (attached as the "cluster" label to every series).
+	metricsRemoteWriteClusterName = metricsRemoteWritePrefix + "cluster_name"
+	// secret_path holds a mounted secret dir; the file "token" (if present) is
+	// sent as a Bearer token on the import request.
+	metricsRemoteWriteSecretPath = metricsRemoteWritePrefix + "secret_path"
+
 	// leader_election
 	leaderElectionPrefix = "leader_election."
 	leaderElectionEnable = leaderElectionPrefix + "enable"
@@ -190,12 +205,12 @@ const (
 	mcpAllowedOrigins = mcpPrefix + "allowed_origins"
 
 	// model_optimization (hyperloom via primus-claw)
-	modelOptimizationPrefix      = "model_optimization."
-	modelOptimizationEnable      = modelOptimizationPrefix + "enabled"
-	modelOptimizationClawBaseURL = modelOptimizationPrefix + "claw_base_url"
-	modelOptimizationClawAgentID = modelOptimizationPrefix + "claw_agent_id"
-	modelOptimizationSecretPath  = modelOptimizationPrefix + "secret_path"
-	modelOptimizationDefaultWS   = modelOptimizationPrefix + "default_workspace"
-	modelOptimizationConcurrency = modelOptimizationPrefix + "max_concurrent"
+	modelOptimizationPrefix       = "model_optimization."
+	modelOptimizationEnable       = modelOptimizationPrefix + "enabled"
+	modelOptimizationClawBaseURL  = modelOptimizationPrefix + "claw_base_url"
+	modelOptimizationClawAgentID  = modelOptimizationPrefix + "claw_agent_id"
+	modelOptimizationSecretPath   = modelOptimizationPrefix + "secret_path"
+	modelOptimizationDefaultWS    = modelOptimizationPrefix + "default_workspace"
+	modelOptimizationConcurrency  = modelOptimizationPrefix + "max_concurrent"
 	modelOptimizationClawPluginID = modelOptimizationPrefix + "claw_plugin_id"
 )

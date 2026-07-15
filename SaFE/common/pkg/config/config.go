@@ -109,6 +109,52 @@ func GetMetricsPort() int {
 	return getInt(metricsPort, 0)
 }
 
+// IsMetricsRemoteWriteEnabled reports whether SaFE self-health metrics should be
+// periodically pushed to an external VictoriaMetrics/Prometheus endpoint.
+func IsMetricsRemoteWriteEnabled() bool {
+	return getBool(metricsRemoteWriteEnable, false)
+}
+
+// GetMetricsRemoteWriteURL returns the base URL of the target VictoriaMetrics /
+// Prometheus, e.g. "http://10.0.0.1:8428". The pusher appends
+// "/api/v1/import/prometheus".
+func GetMetricsRemoteWriteURL() string {
+	return getString(metricsRemoteWriteURL, "")
+}
+
+// GetMetricsRemoteWriteIntervalSeconds returns the push interval in seconds
+// (minimum 5s to avoid hammering the target).
+func GetMetricsRemoteWriteIntervalSeconds() int {
+	v := getInt(metricsRemoteWriteInterval, 30)
+	if v < 5 {
+		return 5
+	}
+	return v
+}
+
+// GetMetricsRemoteWriteJob returns the job label attached to every pushed
+// series so SaFE metrics are distinguishable inside the shared VM.
+func GetMetricsRemoteWriteJob() string {
+	return getString(metricsRemoteWriteJob, "primus-safe")
+}
+
+// GetMetricsRemoteWriteClusterName returns the management-cluster/environment
+// name attached as the "cluster" label to every pushed series. It falls back to
+// the configured global.sub_domain when unset, so operators can tell which SaFE
+// deployment a failing component belongs to. Empty means no cluster label.
+func GetMetricsRemoteWriteClusterName() string {
+	if v := getString(metricsRemoteWriteClusterName, ""); v != "" {
+		return v
+	}
+	return GetSubDomain()
+}
+
+// GetMetricsRemoteWriteToken returns an optional Bearer token read from the
+// mounted secret dir (file "token"); empty means no auth header is sent.
+func GetMetricsRemoteWriteToken() string {
+	return getFromFile(metricsRemoteWriteSecretPath, "token")
+}
+
 // IsLeaderElectionEnable returns whether leader election is enabled.
 func IsLeaderElectionEnable() bool {
 	return getBool(leaderElectionEnable, true)
