@@ -105,8 +105,11 @@ imagePullSecrets:
   value: {{ .Values.debug | ne false | quote }}
 - name: PGO_NAMESPACE
   valueFrom: { fieldRef: { apiVersion: v1, fieldPath: metadata.namespace } }
-{{- if .Values.singleNamespace }}
-- name: PGO_TARGET_NAMESPACE
+{{- if .Values.targetNamespaces }}
+- name: PGO_TARGET_NAMESPACES
+  value: {{ .Values.targetNamespaces | quote }}
+{{- else if .Values.singleNamespace }}
+- name: PGO_TARGET_NAMESPACES
   valueFrom: { fieldRef: { apiVersion: v1, fieldPath: metadata.namespace } }
 {{- end }}
 {{- if .Values.workers }}

@@ -38,7 +38,19 @@ relatedImages:
 # singleNamespace controls where PGO watches for PostgresClusters. When false,
 # PGO watches for and responds to PostgresClusters in all namespaces. When true,
 # PGO watches only the namespace in which it is installed.
+# NOTE: this operator image is Crunchy PGO v5, which reads the PLURAL env var
+# PGO_TARGET_NAMESPACES (comma-separated). The singular PGO_TARGET_NAMESPACE is
+# a v4 leftover and is ignored by v5, which is why leaving it caused PGO to fall
+# back to cluster-wide watching and fight other PGO instances (e.g. robust's).
 singleNamespace: true
+
+# targetNamespaces optionally restricts PGO to an explicit, comma-separated list
+# of namespaces (renders PGO_TARGET_NAMESPACES). Use this when the operator must
+# manage PostgresClusters in more than just its own namespace (e.g. SaFE also
+# owns the claw database in a separate namespace): "primus-safe,primus-claw".
+# When empty, singleNamespace above governs the scope (own namespace only, or
+# cluster-wide when singleNamespace is false).
+targetNamespaces: ""
 
 # debug allows you to enable or disable the "debug" level of logging.
 debug: true
