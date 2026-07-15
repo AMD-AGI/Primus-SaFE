@@ -8,16 +8,15 @@ title: Monitoring, logs & dashboards
 This page is about watching your workloads: reading their **logs**, viewing their **GPU
 dashboards**, turning those features on (admin), and validating hardware with **Primus-Bench**.
 
-<!-- @test
-scope: page
-mode: verify
-priority: P2
-targets: [console]
-do: open a running workload's detail page and check its log views
-expect:
-  - the Pods tab exposes a per-pod live log view (works without the observability add-on)
-  - the Logs (search) tab is present when opensearch.enable is on
--->
+This page serves two audiences at once:
+
+- **For you (the reader):** each section says where to click and what a healthy view looks like,
+  from live pod logs to Grafana panels.
+- **For an AI agent:** there's a concrete **presence check** that works on any cluster (live pod
+  logs + the Logs tab) and a richer **behavior check** that needs the observability add-on
+  installed — each with its own pass/fail outcome in plain language. No hidden test layer —
+  bookkeeping (priority, personas, known drift) lives in the run contract
+  `docs-site/AGENTS.md`.
 
 ## View a workload's logs
 
@@ -28,6 +27,21 @@ Open the workload from its list (Training, Infer, Authoring, …) and go to its 
 - **Search logs** — the **Logs** tab searches across the workload's pods, with history and filters.
   This needs observability enabled (below); when it is off, the tab is hidden or empty.
 
+### Presence check (works without the add-on)
+
+On a **running workload's** detail page:
+
+- **Healthy (pass):** the **Pods** tab exposes a **per-pod live log view** (this works without the
+  observability add-on), and the **Logs** (search) tab is **present** when `opensearch.enable` is
+  on.
+- **If instead** the Pods tab has no per-pod log view at all, that's a fail. The **Logs** tab
+  being absent is only a fail when `opensearch.enable` is on — otherwise it's expected to be
+  hidden (see below).
+
+> **Before you start:** a running workload to open. If none is running, report **BLOCKED**
+> (missing a running workload) rather than failing. **Agent:** presence-check the two log views
+> and report PASS/FAIL. No cleanup — this is read-only.
+
 ## View a workload's metrics (Grafana)
 
 On the same detail page, open the **Metrics / Grafana** panel. You see GPU utilization, memory,
@@ -37,17 +51,24 @@ to that workload. The workload and **System → Nodes** lists also show a GPU-ut
 If the panels are empty or show a "datasource not found" error, observability isn't fully set up —
 see the next section.
 
-<!-- @test
-mode: behavior
-priority: P2
-personas: [member]
-preconditions: [observability-installed]
-do: on a running workload, search in the Logs tab and open the Metrics/Grafana panel
-expect:
-  - the Logs search returns matching log lines (not a robust-analyzer error)
-  - the Grafana panel renders GPU/throughput metrics for the workload's pods
-cleanup: none (read-only)
--->
+### Behavior check (needs observability installed)
+
+This deeper check confirms logs and metrics actually **render data**, not just that the controls
+exist. It requires the observability stack (below) to be installed on the workload's cluster.
+
+> **Before you start:** the `observability-installed` precondition — **primus-robust** plus
+> Grafana/GPU exporter on the data cluster. **Agent:** if the add-on is not installed (Logs search
+> errors with a `robust-analyzer` message, or the Grafana panel is empty / "datasource not
+> found"), report **BLOCKED** (missing `observability-installed`) — do **not** fail the run for a
+> missing fixture.
+
+On a running workload with observability installed:
+
+- **Healthy (pass):** searching in the **Logs** tab returns matching log lines (not a
+  robust-analyzer error), and the **Grafana** panel renders GPU/throughput metrics for the
+  workload's pods.
+- **If instead** the Logs search errors or the Grafana panel stays empty *after* you've confirmed
+  the add-on is installed, that's a fail (not a BLOCKED). No cleanup — this is read-only.
 
 ## Enable observability (admin, one-time)
 
@@ -78,8 +99,3 @@ monitoring — see [Pre-flight & in-flight monitoring](/administration/preflight
 | Grafana loads but **"datasource not found"** | Add the cluster to `grafana.dataClusters` with `name` = the cluster name. |
 | Panels empty (datasource resolves) | The `amd-gpu-operator` exporter or primus-robust isn't running on the data cluster. |
 | GPU-utilization column shows `-` | No metrics collected yet (exporter / primus-robust not up). |
-
-> **Not yet covered (capture so we don't lose it):**
-> - [ ] Console screenshots for installing the `amd-gpu-operator` and primus-robust add-ons.
-> - [ ] The graceful "observability not installed" empty state (planned; error `Primus.00050`).
-> - [ ] Aligning the `grafana.enable` default between fresh install (off) and upgrade (on).

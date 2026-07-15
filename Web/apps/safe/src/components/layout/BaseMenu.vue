@@ -209,10 +209,11 @@ const workloadPermissions = {
   canTrain: hasWorkloadScope('Train'),
   canAuthoring: hasWorkloadScope('Authoring'),
   canInfer: hasWorkloadScope('Infer'),
+  canCICD: hasWorkloadScope('CICD'),
 }
 
 // Destructure specific permission variables (maintain backward compatibility)
-const { canTrain, canAuthoring, canInfer } = workloadPermissions
+const { canTrain, canAuthoring, canInfer, canCICD } = workloadPermissions
 
 // workspaceMenu and usersMenu:
 // Visible to system-admin, system-admin-readonly, or current workspace-admin
@@ -334,6 +335,13 @@ watchEffect(() => {
       tooltip: 'Authoring has been disabled by the administrator.',
       icon: menuIcons.authoring,
       dataTour: 'menu-authoring',
+    },
+    {
+      index: '/cicd',
+      name: 'CICD',
+      canAccess: canCICD.value,
+      tooltip: 'CICD has been disabled by the administrator.',
+      icon: menuIcons.cicd,
     },
   ]
 

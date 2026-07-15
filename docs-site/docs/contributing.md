@@ -10,7 +10,15 @@ workflow, CI checks, CODEOWNERS, security policy) lives in
 [`.github/CONTRIBUTING.md`](https://github.com/AMD-AGI/Primus-SaFE/blob/main/.github/CONTRIBUTING.md);
 this page is a quick orientation.
 
-<!-- @test none: meta/contributor page — not product behavior. -->
+It is written to serve two audiences at once:
+
+- **For you (the reader):** a short map of the repository and how to send a change.
+- **For an AI agent:** this is a meta/contributor page, **not product behavior**, so it is
+  **n/a** — there is nothing here for an agent to test against a live install.
+
+There is no separate test file and no invisible annotation on this page: the prose you
+read is all there is. The only thing kept elsewhere is bookkeeping (priority, and any
+known product bug), in the run contract `docs-site/AGENTS.md`.
 
 ## Repository layout
 
@@ -43,10 +51,10 @@ npm run start
 Use the **Edit this page** link at the bottom of any page to jump straight to its source. Keep
 pages customer-focused; link to detail rather than duplicating it.
 
-This site is also a **test suite**: pages carry reader-invisible `<!-- @test ... -->` annotations
-that an agent executes against a live console, so the docs stay verified against the product. If
-you change a documented procedure, update its annotation too. The convention and the agent contract
-are in `docs-site/AGENTS.md`.
+This site is also a **test suite**: each page is a **dual-audience walkthrough** — the same prose a
+customer reads is what an agent executes against a live console, with the expected outcomes stated
+in plain language (no hidden test layer). If you change a documented procedure or its stated
+result, the test changes with it. The agent operating contract is in `docs-site/AGENTS.md`.
 
 ## License & security
 

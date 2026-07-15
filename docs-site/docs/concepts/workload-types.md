@@ -5,9 +5,32 @@ title: Workloads
 
 # Workloads
 
+This page is a reference for the **workload kinds** you can submit, the fields they share, and
+the lifecycle the platform runs them through. It is explanation, not a walkthrough — there's no
+procedure to perform here; the hands-on submit flow lives in
+[Run a single-node training job](/tasks/run-single-node-training).
+
+It is written to serve two audiences at once:
+
+- **For you (the reader):** a menu of workload kinds with "which one do I pick?" guidance and the
+  common settings you'll fill in.
+- **For an AI agent:** the named kinds, fields, and phases below are concrete enough to confirm
+  by presence. As a concept page it is **verify**-level — an agent checks that the documented
+  artifacts exist, it does not run a job from here.
+
+There is no separate test file and no invisible annotation on this page: the prose you read is
+all there is. The only thing kept elsewhere is bookkeeping (priority, and any known product
+bug), in the run contract `docs-site/AGENTS.md`.
+
 A **Workload** is the unit of work you submit. You pick a *kind* via `groupVersionKind.kind`;
 the platform manages its full lifecycle. All kinds share the same submit flow — see
 [Run a single-node training job](/tasks/run-single-node-training).
+
+> **What an agent verifies here:** confirm the documented kinds are the ones the console offers
+> and the object model matches — the **workload-kind table** below (PyTorchJob, TorchFT,
+> Deployment, StatefulSet, Authoring, AutoscalingRunnerSet) with their workspace scopes, the
+> **Authoring** dev-box kind, and the lifecycle **phases** (`Pending` → `Running` →
+> `Succeeded` / `Failed`, plus `Stopped`). Presence/consistency only — nothing is submitted.
 
 ## The common kinds
 
@@ -64,8 +87,3 @@ Most kinds accept the same core fields:
 | `secrets` | Image-pull and general secrets to attach. |
 
 The full field reference lives in the workload API (`SaFE/docs/apis/workload.md`).
-
-> **Not yet covered (in code, not yet user-documented):** additional kinds exist —
-> **RayJob**, **MonarchJob**, and advanced serving (DynamoDeployment, InferaDeployment),
-> plus a Sandbox scope. They are listed here so the table isn't silently incomplete; treat
-> them as advanced/experimental until documented.

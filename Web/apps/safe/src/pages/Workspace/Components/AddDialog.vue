@@ -104,7 +104,7 @@
 
           <el-form-item label="Scopes" prop="scopes">
             <el-checkbox-group v-model="form.scopes">
-              <el-checkbox v-for="item in SCOPES_KEYS" :key="item" :label="item" :value="item" />
+              <el-checkbox v-for="item in SELECTABLE_SCOPES" :key="item" :label="item" :value="item" />
             </el-checkbox-group>
           </el-form-item>
 
@@ -358,7 +358,7 @@ import {
   editWorkspace,
   getPersistentVolumes,
   getWorkspaceDetail,
-  SCOPES_KEYS,
+  SELECTABLE_SCOPES,
 } from '@/services'
 import { getUserDataList } from '@/services/login'
 import { type FormInstance, type FormRules, ElMessage } from 'element-plus'

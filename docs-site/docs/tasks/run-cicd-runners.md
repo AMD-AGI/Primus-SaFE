@@ -7,20 +7,36 @@ title: Run GitHub Actions runners (CI/CD)
 
 Primus-SaFE can host **GitHub Actions self-hosted runners** as an autoscaling **runner scale set**:
 GitHub triggers the workflow, and the platform spins up runner pods on your GPU cluster to execute
-the jobs, then scales them back down. A runner scale set is a workload of kind
-`AutoscalingRunnerSet` in a workspace with the `CICD` scope.
+the jobs, then scales them back down. Under the hood the platform runs a **controller and a
+listener** (the Actions Runner Controller, ARC) that register with GitHub, watch for queued jobs,
+and create/tear down the runner pods. A runner scale set is a workload of kind
+`AutoscalingRunnerSet`, and it lives in a **workspace that has the `CICD` scope enabled** — that
+scope is what makes the **Workloads → CICD** section appear for the workspace.
 
-<!-- @test todo:
-  - "ARC is installed on the test cluster, but a behavior test also needs a GitHub App/PAT + a repo, and the CICD console page is hidden in GA-scoped builds. Add a behavior block (create an AutoscalingRunnerSet, expect EphemeralRunner pods) once those fixtures + a CICD-visible build are available."
--->
+This page is written to serve two audiences at once:
+
+- **For you (the reader):** the sections below walk building a runner image, creating a scale set,
+  and pointing a workflow at it, noting what a healthy result looks like along the way.
+- **For an AI agent:** the feature has real preconditions. **CICD → Create** appears under
+  **Workloads** only once the workspace has the **`CICD` scope**; the runner scale sets also need
+  the **ARC (`gha-runner-scale-set`) add-on** on the cluster and **GitHub auth** (a GitHub App or
+  PAT). If the workspace lacks the CICD scope, or the ARC add-on is missing, report **BLOCKED**
+  naming the missing precondition rather than failing a step. There is no invisible test layer;
+  bookkeeping lives in the run contract `docs-site/AGENTS.md`.
+
+> **Agent:** a full end-to-end behavior run also needs a **GitHub App/PAT plus a repo** to point a
+> workflow at. If those fixtures aren't available, verify the documented controls (the CICD create
+> wizard and its fields) and report **BLOCKED** on the run itself — don't fabricate a workflow run.
 
 ## Before you start
 
 - The **Actions Runner Controller (ARC)** `gha-runner-scale-set` add-on is present on the cluster —
   it may be enabled at bootstrap/install time or added later from **System → Addons**. Runner scale
   sets will not start without it.
-- You have access to a **workspace** with the **`CICD`** scope (and the **`Train`** scope too if you
-  will use multi-node unified jobs). See [Manage access & quota](/administration/manage-access-and-quota).
+- You have access to a **workspace** with the **`CICD`** scope enabled (and the **`Train`** scope
+  too if you will use multi-node unified jobs). Enabling the `CICD` scope on the workspace is what
+  makes **Workloads → CICD** appear in the left nav; if you enabled it and still don't see CICD,
+  that's a bug, not expected. See [Manage access & quota](/administration/manage-access-and-quota).
 - A **GitHub App** (recommended) or a **personal access token (PAT)** with permission to register
   runners for your repository or organization.
 - A **runner container image** the cluster can pull (build one below).
@@ -139,8 +155,6 @@ Watch your workflow runs where you normally would — in **GitHub** (the repo's 
 the **CICD** tab of the console side panel, which lists the scale set's runs. A screenshot of that
 CICD run list is usually enough; you don't need the Lens app for this.
 
-> **Not yet covered (capture so we don't lose it):**
-> - [ ] Console screenshots of the CI/CD create wizard (Clone/Create + Advanced Options) and the
->       CICD run list.
-> - [ ] Confirm exactly how the ARC (`gha-runner-scale-set`) add-on is enabled (bootstrap flag vs.
->       System → Addons).
+*Where the preconditions above are met, an agent can drive the full create-and-run flow; where
+they aren't (no ARC add-on, no `CICD` scope, or no repo to target), presence-check the documented
+controls and report BLOCKED on the run.*

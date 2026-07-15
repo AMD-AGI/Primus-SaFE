@@ -61,6 +61,8 @@ const emit = defineEmits(['update:visible', 'success'])
 const shells = ref<string[]>([])
 const selectedShell = ref('')
 const baseSshCommand = ref('')
+// Real container names for this pod (from the containers API — the reliable source).
+const podContainers = ref<string[]>([])
 
 const initLoading = ref(false)
 const imageSavingLoading = ref(false)
@@ -84,6 +86,21 @@ const parsedUserDotParts = computed(() => {
 
 // Extract container name from SSH command (index 2)
 const extractedContainer = computed(() => parsedUserDotParts.value[2] || '')
+
+// The container WebShell should exec into. The live pod container list is the source of truth:
+// honor the container parsed from the SSH command only when it is actually one of the pod's
+// containers, otherwise use the pod's first container. Only when the live list is unavailable do
+// we fall back to the parsed value. This avoids re-sending a stale/invalid container (which would
+// fail the exec — WebShell connects then immediately closes) even though the server also resolves
+// the pod's main container when the request container is empty.
+const webshellContainer = computed(() => {
+  const parsed = extractedContainer.value
+  const live = podContainers.value
+  if (live.length) {
+    return live.includes(parsed) ? parsed : live[0]
+  }
+  return parsed || ''
+})
 
 // Extract current shell from SSH command (index 3)
 const extractedShell = computed(() => parsedUserDotParts.value[3] || '')
@@ -134,7 +151,7 @@ async function openWebShellInNewTab() {
   const q = new URLSearchParams({
     workloadId: props.wlid ?? '',
     pod: props.podid ?? '',
-    container: extractedContainer.value,
+    container: webshellContainer.value,
     cmd: selectedShell.value ?? 'sh',
     namespace: wsStore.currentWorkspaceId ?? '',
   })
@@ -147,6 +164,7 @@ const onOpen = async () => {
   try {
     const res = await getPodContainers(props.wlid, props.podid)
     shells.value = res.shells ?? []
+    podContainers.value = (res.containers ?? []).map((c: { name: string }) => c.name)
     baseSshCommand.value = props.sshCommand ?? ''
 
     if (shells.value.length > 0 && !selectedShell.value) {

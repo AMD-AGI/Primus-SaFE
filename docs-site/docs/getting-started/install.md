@@ -9,17 +9,34 @@ Most teams run Primus-SaFE on a single Kubernetes cluster; at larger scale one c
 manage several clusters as a fleet (see [Architecture](/architecture)). This guide covers the
 single-cluster install.
 
-<!-- @test
-scope: page
-mode: behavior
-priority: P1
-targets:
-  console: { baseUrl: "${PRIMUS_CONSOLE_URL}", login: "${PRIMUS_ADMIN_LOGIN}" }
-notes: "Install/bring-up is not tested (the env is provided). The one live check is that the seeded admin can sign in. Host and credentials come from .docs-test.env and are never committed."
-do: open {{baseUrl}} and sign in with the seeded admin login (PRIMUS_ADMIN_LOGIN)
-expect:
-  - sign-in succeeds and the dashboard loads
--->
+This page is the **complete single-cluster install runbook**, written for two audiences at once:
+
+- **For you (the reader):** follow the numbered steps from a deploy host to a working console.
+- **For an AI agent:** the steps are concrete and ordered, and each states its own healthy
+  result — so, given a target environment, **you can perform the install end to end** and verify
+  it. Where a step needs a site-specific choice (node inventory, storage class, ingress type, NIC
+  names, cluster name), **ask the operator** instead of guessing, and after each long-running
+  step (Bootstrap, `install.sh`) **pause on the verification output** before continuing.
+
+There is no hidden test layer on this page. Bookkeeping **and the docs-as-test run scope** — e.g.
+that the regression environment is *already installed*, so the suite re-checks only sign-in rather
+than re-running bring-up — live in the run contract `docs-site/AGENTS.md`, not here.
+
+## Before you start
+
+To install from scratch you need:
+
+- A **deploy host** with passwordless `root` SSH to every node, and `kubectl` + `helm` installed.
+- Your **target nodes**: the control-plane / etcd machines (an **odd number** — 1 or 3), reachable
+  on a private network. GPU worker nodes are added later through the console, not here.
+- A decision on **storage** (a default StorageClass — step 2) and **ingress** (`nginx` NodePort
+  vs. `higress` domain — step 3).
+
+> **Agent:** this runbook is executable — you may perform the install against a target
+> environment. Confirm you have the deploy host, node list, and SSH access first; if any is
+> missing, report **BLOCKED** naming what's absent rather than guessing. Ask the operator for the
+> site-specific values called out in each step (inventory, storage class, ingress, NIC names,
+> cluster name) before running that step.
 
 ## Install on a single cluster
 
@@ -97,6 +114,16 @@ kubectl get nodes -o wide      # every node Ready
 helm list -A
 ```
 
+**Healthy (pass):** every node reports `Ready`, and `helm list -A` shows the base add-ons
+(cert-manager, the AMD GPU operator, the network operator, scheduler plugins). **If instead** a
+node is `NotReady` or Bootstrap exits non-zero, that means provisioning failed — read the
+Kubespray/Ansible error, fix it (usually SSH reachability or an inventory mistake), and re-run
+before continuing.
+
+> **Agent:** Bootstrap takes 20–40 minutes. Run it, then **pause** and confirm the two checks
+> above pass before moving on. If any node is not `Ready`, stop and surface the error rather than
+> proceeding to storage.
+
 ### 2. Set up a storage class — required
 
 The platform stores persistent state — its database, message queue, and backups — on Kubernetes
@@ -126,6 +153,14 @@ In short: **local-path** is simple and fine for evaluation and single-node durab
 **Rook-Ceph** (or any production CSI) replicates across nodes, survives a node failure, and adds
 shared (RWX) volumes and S3. Any CSI that provides a default StorageClass works. Note the name —
 you give it to the installer in step 4.
+
+**Healthy (pass):** `kubectl get storageclass` lists a **default** class (marked
+`(default)`). **If instead** there is no default StorageClass, the platform's PersistentVolumes
+never bind and step 4 stalls — set one before continuing.
+
+> **Agent:** ask the operator which storage path to use (local-path for an evaluation, a
+> production CSI otherwise) rather than choosing yourself; then verify a default StorageClass
+> exists before step 4.
 
 ### 3. Gateway and private registry — optional
 
@@ -185,7 +220,7 @@ The script is interactive. The prompts you are most likely to set:
 
 | Prompt | What it is |
 |--------|------------|
-| `cluster name` | Names the cluster and becomes its subdomain (e.g. `tas325` → `tas325.primus-safe.amd.com`). You use this to reach the cluster ingress later, so pick it deliberately. |
+| `cluster name` | Names the cluster and becomes its subdomain (e.g. `my-cluster` → `my-cluster.<your-domain>`). You use this to reach the cluster ingress later, so pick it deliberately. |
 | `ethernet nic` | The Ethernet interface distributed jobs use for NCCL/RCCL control traffic and TCP fallback (sets `NCCL_SOCKET_IFNAME`). Default `eno0`. |
 | `rdma nic` | The RDMA/RoCE devices distributed jobs use for high-speed GPU-to-GPU transfers (sets `NCCL_IB_HCA`). Default `rdma0,…,rdma7`. |
 | `storage_class` | The StorageClass from step 2 (default `local-path`; must already exist). |
@@ -212,7 +247,23 @@ The installer creates the required secrets, deploys the admin-plane services (ap
 webhooks, controllers, database operator), applies the custom resources, and writes a `.env`
 file so future upgrades reuse your answers.
 
+**Healthy (pass):** `install.sh` finishes without error and the admin-plane pods reach `Running`:
+
+```bash
+kubectl get pods -n primus-safe      # apiserver, controllers, webhooks, db operator all Running
+```
+
+**If instead** pods stay `Pending`/`CrashLoopBackOff`, that usually points back to storage (no
+bound PVC — recheck step 2) or the missing OpenSearch secret (the note above); fix and re-run
+(`install.sh` is idempotent).
+
+> **Agent:** `install.sh` is **interactive** — do not answer its prompts blindly. Ask the
+> operator for `cluster name`, `ingress`, `storage_class`, and the NIC values (help them find NICs
+> with the commands below), then run it and **pause** on the pod-status check before Step 5.
+
 ### 5. Access the console
+
+This is the final verification that the install is healthy. Reach the console, then sign in:
 
 - **nginx ingress:** open `http://<any-node-ip>:30183`.
 - **higress ingress:** open `https://<your-cluster-domain>` (if DNS for the domain is not set up
@@ -220,6 +271,46 @@ file so future upgrades reuse your answers.
 
 Log in with the seeded admin account **`root` / `root`** (role `system-admin`).
 **Change this password immediately.**
+
+:::warning Higress (HTTPS): the console uses a self-signed certificate by default — you must address this
+With the **higress** ingress the installer generates a **self-signed** TLS certificate for the
+console domain. Browsers show a "Not secure" warning, and — because it relies on a WebSocket —
+**WebShell (the in-browser pod terminal) silently fails to connect ("Disconnected")** until the
+certificate is trusted. (The **nginx** ingress serves plain HTTP on NodePort `30183` and is not
+affected.) Address it one of two ways:
+
+- **Recommended — bring your own certificate.** Before `install.sh`, pre-create the ingress TLS
+  secret with a cert signed by a CA your machines trust, covering the console **and** apiserver
+  hostnames (the installer keeps an existing secret):
+
+  ```bash
+  kubectl create namespace primus-safe 2>/dev/null
+  kubectl create secret tls default -n primus-safe --cert=fullchain.crt --key=tls.key
+  # SANs must include:  <cluster>.<your-domain>  and  apiserver.<cluster>.<your-domain>
+  ```
+- **Or trust the self-signed cert** on each client (import into the OS/browser Trusted Root store,
+  then restart the browser) — fine for evaluation.
+
+See [Troubleshooting → WebShell shows "Disconnected"](/troubleshooting).
+
+Here is what each outcome means — this is the pass/fail for the checkable part of this page:
+
+- **Healthy (pass):** sign-in succeeds and the dashboard loads — you land on the console home
+  with the navigation visible.
+- **If instead you see** the login rejected, a blank page, or an error after submitting
+  credentials, **that means** the admin login or the install is not healthy **(fail)** — capture
+  the error and treat it as a real failure, not a missing fixture (a *missing* console or missing
+  credentials is BLOCKED, not FAIL).
+
+> **Agent:** sign in, fill the table below, show it to the user, and report **PASS** only if the
+> dashboard loaded. No cleanup is needed (signing in creates nothing). A *missing* console or
+> missing credentials is **BLOCKED**, not FAIL.
+
+| Check | Healthy result | Found |
+|---|---|---|
+| Console reachable in a browser | page loads | _fill in_ |
+| Sign in with seeded admin | succeeds | _fill in_ |
+| Dashboard loads | console home with nav visible | _fill in_ |
 
 ### 6. Validate nodes with Primus-Bench — optional
 

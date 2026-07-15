@@ -46,6 +46,12 @@ func (h *SshHandler) SessionConn(ctx context.Context, sessionInfo *SessionInfo) 
 		return err
 	}
 
+	// Fall back to the pod's real main container when the caller didn't specify one (or sent a
+	// stale/empty value). Without this the exec targets a non-existent container and the session
+	// closes immediately with no output — the WebShell "connected then disconnected" (1006) symptom.
+	sessionInfo.userInfo.Container = resolveExecContainer(
+		workload, sessionInfo.userInfo.Pod, sessionInfo.userInfo.Container)
+
 	rawCmd := sessionInfo.userConn.RawCommand()
 	isInteractive := sessionInfo.isPty || IsShellCommand(rawCmd)
 	// SCP needs stdin for data transfer but should execute as a command
@@ -353,6 +359,17 @@ type forwardChannelData struct {
 	DestPort   uint32
 	OriginAddr string
 	OriginPort uint32
+}
+
+// resolveExecContainer returns the container to exec into: the caller's choice when it is set,
+// otherwise the pod's main container. Empty/stale client values (or minimal images) would
+// otherwise target a non-existent container and the session would close immediately — the
+// WebShell "connected then disconnected" symptom.
+func resolveExecContainer(workload *v1.Workload, podName, requested string) string {
+	if strings.TrimSpace(requested) != "" {
+		return requested
+	}
+	return commonworkload.GetMainContainerByPod(workload, workload.SpecKind(), podName)
 }
 
 // IsShellCommand checks if the given command is a valid shell command.

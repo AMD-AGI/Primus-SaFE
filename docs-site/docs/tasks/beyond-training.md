@@ -9,7 +9,21 @@ Primus-SaFE isn't only for training runs. The same platform — and the same **W
 the console — covers the whole LLM lifecycle on one cluster: develop, train, make training
 fault-tolerant, and serve. This page is a map; each stage links to its detail.
 
-<!-- @test none: overview/hub page — the underlying flows are tested on their own pages. -->
+Unlike the executable task walkthroughs, this is an **overview/hub** page: it serves
+two audiences at once but has **no numbered steps**.
+
+- **For you (the reader):** a single map of the lifecycle, with each stage pointing to the page
+  that walks it end to end.
+- **For an AI agent:** there is nothing to *perform* here. The healthy result is a **presence
+  check** — the workload kinds and links below exist and resolve. There is no invisible test
+  layer; bookkeeping (priority, known product bugs) lives in the run contract
+  `docs-site/AGENTS.md`.
+
+> **What an agent verifies here:** this is a hub, so the check is presence only — confirm each
+> lifecycle stage below is described and that its links (Develop, Train single/multi-node,
+> TorchFT / Fault tolerance, Infer / Deployment, Workload types) are present and resolve. Do
+> **not** fabricate steps or a pass/fail run on this page; the underlying flows are tested on
+> their own pages.
 
 ## Develop
 
@@ -40,6 +54,6 @@ the same workload model as training — an image, an entry point, and resources.
 
 ## Other workload kinds
 
-The platform supports more kinds for different jobs — **Ray**, **StatefulSet**, and **CICD** among
-them. Rather than detail each here, see the [Workload types](/concepts/workload-types) concept for
-what each is and when to use it.
+The platform supports more kinds for different jobs — **TorchFT**, **StatefulSet**, and **CICD**
+among them. Rather than detail each here, see the [Workload types](/concepts/workload-types)
+concept for what each is and when to use it.

@@ -10,6 +10,21 @@ nodes safely in and out of service, and clean up. Quota is **nodes × node flavo
 node operations directly change how much compute a workspace has — see
 [Workspace → Quota](/concepts/workspace#quota-and-node-flavor).
 
+This page serves two audiences at once:
+
+- **For you (the reader):** each section explains a day-2 node operation, what to click in the
+  console, and the equivalent API call.
+- **For an AI agent:** every operation here is a real, executable admin action, and each states
+  its own healthy result — so on a target cluster you **can** register, bind, taint, reboot, or
+  delete a node and verify the outcome. No hidden test layer — bookkeeping lives in the run
+  contract `docs-site/AGENTS.md`.
+
+> **Agent — mutating operations are destructive.** Taint/cordon/drain, reboot, and delete change a
+> live cluster. Perform them only on a cluster the operator has told you is disposable/safe, and
+> **ask before mutating** otherwise. Whether the shared docs-as-test regression run skips these
+> (and does a read-only presence check instead) is defined in the run contract's *test-scope
+> exclusions*, not on this page.
+
 ## Node lifecycle
 
 A node moves through these phases (`phase` in the node list/detail):
@@ -31,21 +46,85 @@ is not, `message` explains why.
 > the node detail for capacity and logs. Each section shows the UI step and the equivalent API
 > call.
 
-<!-- @test
-scope: page
-mode: contract
-priority: P1
-personas: [admin]
-preconditions: [running-cluster]
-do: open System > Nodes (read-only — do NOT cordon, reboot, or delete any node)
-expect:
-  - registered nodes are listed, each with a phase (e.g. Ready) and an availability indicator
-  - each node row exposes the day-2 actions (bind/unmanage, retry, reboot)
-  - the Create Node form exposes hostname, private IP, flavor, node template, and SSH secret
--->
-<!-- @test todo:
-  - "Mutating node ops (taint/cordon/drain, reboot, delete) are destructive on a live cluster; add behavior tests only against a disposable node."
--->
+## Inspect the Nodes view
+
+A quick, non-destructive orientation before any change: open **System → Nodes** and confirm the
+documented list, row actions, and Create-Node form fields are present. (This is also the safe
+check the docs-as-test regression run performs in place of the destructive operations — see the
+run contract.)
+
+### Before you start
+
+- A **running cluster** you can reach, signed in as a **system-admin**.
+
+> **Agent:** confirm the cluster is reachable and you are signed in as an admin before checking.
+> If not, report **BLOCKED** (missing `running-cluster` / admin access).
+
+### What you should see
+
+- **Healthy (pass):** registered nodes are listed, each with a **phase** (e.g. `Ready`) and an
+  **availability** indicator; each row exposes the day-2 **actions** (bind/unmanage, retry,
+  reboot); and **Create Node** opens a form with **hostname**, **private IP**, **flavor**, **node
+  template**, and **SSH secret** fields.
+- **If instead** the list is empty when nodes are registered, or the row actions / Create-Node
+  fields are missing, that's a fail — quote what the page promises versus what you saw.
+
+> **Agent:** fill the table, show it, and report **PASS** only if every documented control is
+> present. No cleanup — this check creates nothing.
+
+| Check | Healthy result | Found |
+|---|---|---|
+| Registered nodes listed | yes, with phase + availability | _fill in_ |
+| Per-row day-2 actions | bind/unmanage, retry, reboot present | _fill in_ |
+| Create Node form fields | hostname, private IP, flavor, template, SSH secret | _fill in_ |
+
+## Node flavors
+
+A **node flavor** is a reusable **hardware profile**: it describes the per-node CPU, GPU, memory,
+disks, and extended resources. Every node is registered against a flavor, and every workspace binds
+to exactly one — so a flavor is also the unit that **quota** is measured in
+(**quota = nodes × flavor**; see [Manage access & quota](/administration/manage-access-and-quota)).
+Example flavors are seeded (`amd-mi300x-example`, `amd-mi325x-example`, `amd-mi355x-example`); use
+one, or create your own for other hardware.
+
+### Create a node flavor (console)
+
+Open **System → Flavors → Create** and fill in:
+
+| Field | What to enter |
+|-------|---------------|
+| **Name** | A stable identifier for the profile (e.g. `amd-mi300x`). |
+| **Memory** | RAM per node with unit (e.g. `2048` `Gi`). |
+| **CPU — Quantity / Product** | Cores per node (e.g. `192`) and an optional CPU model label. |
+| **GPU — Quantity / Product / Resource Name** | GPUs per node (e.g. `8`), the model, and the Kubernetes device resource name — for AMD GPUs this is **`amd.com/gpu`**. Leave GPU empty for a CPU-only flavor. |
+| **Root Disk / Data Disk — Quantity / Type / Count** | OS and data disks: size (e.g. `500` `Gi`), **Type** (`nvme` / `ssd` / `hdd`), and how many. |
+| **Extended Resources — `ephemeral-storage`, `rdma/hca`** | Scratch storage (e.g. `300` `Gi`) and the RDMA HCA count (e.g. `1k`) so distributed jobs can request RDMA. |
+
+Submit. **Healthy (pass):** the new flavor appears in the **Flavors** list, and it becomes
+selectable as the **Node Flavor** both when registering a node and when creating a workspace. **If
+instead** the form is rejected, a required field (Name / CPU / Memory) is missing — fill it and
+resubmit.
+
+The equivalent API call:
+
+```bash
+curl -X POST https://<your-console>/api/v1/nodeflavors \
+  -H "Authorization: Bearer <admin-token>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "amd-mi300x",
+    "cpu": { "quantity": "192", "product": "" },
+    "gpu": { "quantity": 8, "product": "AMD Instinct MI300X", "resourceName": "amd.com/gpu" },
+    "memory": "2048Gi",
+    "rootDisk": { "type": "nvme", "quantity": "500Gi", "count": 1 },
+    "extendedResources": { "ephemeral-storage": "300Gi", "rdma/hca": "1k" }
+  }'
+```
+
+> **Agent:** creating a flavor is an admin mutation. On a shared environment, presence-check that
+> **System → Flavors** lists the seeded `amd-mi30x/325x/355x-example` flavors and that **Create**
+> opens a form with the fields above — rather than creating one. On a disposable environment you
+> may create and then delete a uniquely-named flavor.
 
 ## Register a node
 
@@ -178,17 +257,11 @@ curl -X POST https://<your-console>/api/v1/workspaces/<workspaceId>/nodes \
 - Removing a node reduces the workspace's `totalQuota`; in-flight workloads on that node may be
   affected, so prefer to drain first (next section). `force` overrides safety checks.
 
-> **Not yet covered:** confirm the exact request body for the workspace-nodes endpoint
-> (field names for `nodeIds`/`action`/`force`) against the handler.
-
 ## Take a node out of service (cordon / drain)
 
 To stop new pods from landing on a node — or to evict what's already there — apply a **taint**
 (from the node's **Edit** action in the console, or via a node update API call). Effects mirror
 Kubernetes:
-
-<!-- screenshot: System → Nodes → Edit/taint dialog (sanitized node) — add image -->
-
 
 | Effect | Behavior |
 |--------|----------|
@@ -204,7 +277,9 @@ curl -X PATCH https://<your-console>/api/v1/nodes/<nodeId> \
 ```
 
 To bring the node back into service, PATCH again with the taint removed (an empty `taints`
-list clears them).
+list clears them). After a `NoSchedule` taint you should see the node stop accepting **new**
+pods; with `NoExecute` you should additionally see existing pods evicted. If a tainted node keeps
+accepting new work, that taint didn't take effect.
 
 :::note
 The system automatically prefixes taint keys with `primus-safe.`, so the example above
@@ -299,7 +374,8 @@ curl -X POST https://<your-console>/api/v1/nodes/delete \
 
 :::warning Control-plane nodes
 Control-plane nodes (`isControlPlane: true`) **cannot** be deleted or have their cluster
-binding changed.
+binding changed. If you attempt it, the platform should **reject** the operation — you should
+**NOT** be able to delete or rebind a control-plane node; if you can, that's a failure.
 :::
 
 ## Quick reference
@@ -315,9 +391,3 @@ binding changed.
 | Reboot history | `GET /api/v1/nodes/{id}/reboot/logs` |
 | Join/leave logs | `GET /api/v1/nodes/{id}/logs` |
 | Delete (single / batch) | `DELETE /api/v1/nodes/{id}` · `POST /api/v1/nodes/delete` |
-
-> **Not yet covered (capture so we don't lose it):**
-> - [ ] Capture sanitized screenshots for the remaining UI steps (taint/Edit dialog, reboot
->       confirmation, delete confirmation). The Register-a-node screenshot is in place.
-> - [ ] Node flavors and node templates as their own concept (what addons a template installs).
-> - [ ] How draining interacts with fault-tolerant restart of training jobs.
