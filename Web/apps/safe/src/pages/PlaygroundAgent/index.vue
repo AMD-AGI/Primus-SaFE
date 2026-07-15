@@ -2800,7 +2800,7 @@ html.dark .message-bubble:hover {
 
 .chat-input-centered :deep(.el-textarea__inner) {
   padding: 16px 60px 16px 20px;
-  font-size: 15px;
+  font-size: var(--fs-subtitle);
   border: 2px solid transparent;
   background: #ffffff;
   box-shadow:

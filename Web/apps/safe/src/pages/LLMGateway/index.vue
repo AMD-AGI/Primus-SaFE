@@ -940,7 +940,7 @@ onBeforeUnmount(() => {
   margin: 0;
 }
 .sub-title {
-  font-size: 15px;
+  font-size: var(--fs-subtitle);
   font-weight: 600;
   color: var(--el-text-color-primary);
   margin: 0;
@@ -973,7 +973,7 @@ onBeforeUnmount(() => {
   gap: 10px;
   padding: 14px 20px;
   border-radius: 8px;
-  font-size: 15px;
+  font-size: var(--fs-subtitle);
   font-weight: 500;
 }
 .status-bound {
@@ -1096,7 +1096,7 @@ onBeforeUnmount(() => {
   margin-bottom: 16px;
 }
 .budget-title {
-  font-size: 15px;
+  font-size: var(--fs-subtitle);
   font-weight: 600;
   color: var(--el-text-color-primary);
 }
@@ -1172,10 +1172,10 @@ onBeforeUnmount(() => {
 }
 @media (min-width: 1600px) {
   .model-table {
-    font-size: 15px;
+    font-size: var(--fs-body);
   }
   .model-table :deep(.el-table__header th) {
-    font-size: 15px;
+    font-size: var(--fs-body);
     padding: 14px 0;
   }
   .model-table :deep(.el-table__body td) {
@@ -1226,7 +1226,7 @@ onBeforeUnmount(() => {
   position: absolute;
   top: 10px;
   right: 10px;
-  font-size: 15px;
+  font-size: var(--fs-body);
   cursor: pointer;
   color: var(--el-text-color-placeholder);
   transition: color 0.2s;

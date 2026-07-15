@@ -80,7 +80,7 @@ defineProps<Props>()
   }
 
   .workflow-name {
-    font-size: 15px;
+    font-size: var(--fs-subtitle);
   }
 }
 

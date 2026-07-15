@@ -642,7 +642,7 @@ defineOptions({
 
 .markdown-body {
   line-height: 1.8;
-  font-size: 15px;
+  font-size: var(--fs-label);
   color: var(--el-text-color-primary);
 }
 
@@ -677,7 +677,7 @@ defineOptions({
 .markdown-body :deep(p) {
   margin-bottom: 16px;
   line-height: 1.8;
-  font-size: 15px;
+  font-size: var(--fs-label);
 }
 
 .markdown-body :deep(ul),
@@ -689,7 +689,7 @@ defineOptions({
 .markdown-body :deep(li) {
   margin-bottom: 8px;
   line-height: 1.7;
-  font-size: 15px;
+  font-size: var(--fs-label);
 }
 
 .markdown-body :deep(code) {

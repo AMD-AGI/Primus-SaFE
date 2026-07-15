@@ -602,7 +602,6 @@ const workspaceAdminMenuItems: MenuItem[] = [
 .el-menu :deep(.el-menu-item-group__title) {
   color: var(--safe-primary) !important;
   font-weight: 400 !important;
-  font-size: 15px;
   padding: 7px 20px;
   line-height: 40px;
   height: 56px;
@@ -709,7 +708,6 @@ const workspaceAdminMenuItems: MenuItem[] = [
   line-height: 40px;
   margin: 4px 10px 4px 44px;
   padding-left: 18px !important;
-  font-size: 15px;
   border-radius: 8px;
   position: relative;
 }

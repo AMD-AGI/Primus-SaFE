@@ -13,7 +13,7 @@
       <el-card class="mt-2 safe-card" shadow="never">
         <div class="section-heading">
           <div class="section-bar"></div>
-          <span class="textx-15 font-medium">{{ workloadConfig.label }} Configuration</span>
+          <span class="fs-subtitle font-medium">{{ workloadConfig.label }} Configuration</span>
         </div>
         <el-descriptions v-if="detailData" class="m-t-4" border :column="4" direction="vertical">
           <el-descriptions-item label="kind">
@@ -44,7 +44,7 @@
       <el-card class="mt-6 safe-card" shadow="never">
         <div class="section-heading">
           <div class="section-bar"></div>
-          <span class="textx-15 font-medium">Roles</span>
+          <span class="fs-subtitle font-medium">Roles</span>
         </div>
 
         <template v-for="role in roleRows" :key="role.index">
@@ -80,7 +80,7 @@
       <el-card v-if="serviceData" class="mt-6 safe-card" shadow="never">
         <div class="section-heading">
           <div class="section-bar"></div>
-          <span class="textx-15 font-medium">Service</span>
+          <span class="fs-subtitle font-medium">Service</span>
         </div>
         <el-descriptions class="m-t-4" border :column="4" direction="vertical">
           <el-descriptions-item label="Type">{{ serviceData.type || '-' }}</el-descriptions-item>

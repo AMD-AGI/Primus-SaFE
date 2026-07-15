@@ -1,5 +1,5 @@
 <template>
-  <el-text class="block textx-18 font-500" tag="b">Authoring</el-text>
+  <el-text class="block fs-title font-500" tag="b">Authoring</el-text>
 
   <div class="flex flex-wrap items-center mt-4">
     <!-- Left actions -->
@@ -104,7 +104,7 @@
               >{{
                 row.displayName
               }}</el-link>
-              <div class="text-[13px] text-gray-400">
+              <div class="fs-caption text-gray-400">
                 {{ row.workloadId }}
                 <el-icon
                   class="cursor-pointer hover:text-blue-500 transition"

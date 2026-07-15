@@ -289,7 +289,7 @@ onMounted(async () => {
 .step-card h4 {
   margin: 0 0 6px;
   font-weight: 700;
-  font-size: 15px;
+  font-size: var(--fs-subtitle);
   letter-spacing: 0.2px;
   color: color-mix(in oklab, var(--el-color-primary) 90%, white 10%);
   text-shadow: 0 0 14px rgb(99 102 241 / 22%);

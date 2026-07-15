@@ -102,8 +102,8 @@ const handleClose = () => {
   border-radius: 2px;
 }
 
-.textx-15 {
-  font-size: 15px;
+.fs-subtitle {
+  font-size: var(--fs-subtitle);
 }
 
 .font-medium {

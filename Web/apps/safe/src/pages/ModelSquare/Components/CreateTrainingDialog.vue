@@ -12,7 +12,7 @@
       <!-- Base Model -->
       <div class="flex items-center m-b-4">
         <div class="w-1 hx-16 bg-[var(--safe-primary)] mr-2 rounded-sm"></div>
-        <span class="textx-15 font-medium">Base Model</span>
+        <span class="fs-subtitle font-medium">Base Model</span>
       </div>
 
       <div v-if="props.model" class="model-info-card m-b-4">
@@ -55,7 +55,7 @@
       <!-- Training Type -->
       <div class="flex items-center m-b-4 m-t-6">
         <div class="w-1 hx-16 bg-[var(--safe-primary)] mr-2 rounded-sm"></div>
-        <span class="textx-15 font-medium">Training Type</span>
+        <span class="fs-subtitle font-medium">Training Type</span>
       </div>
 
       <div class="type-tabs m-b-4">
@@ -98,7 +98,7 @@
         <!-- Dataset -->
         <div class="flex items-center m-b-4 m-t-6">
           <div class="w-1 hx-16 bg-[var(--safe-primary)] mr-2 rounded-sm"></div>
-          <span class="textx-15 font-medium">Dataset</span>
+          <span class="fs-subtitle font-medium">Dataset</span>
         </div>
 
         <el-row :gutter="20">
@@ -135,7 +135,7 @@
         <!-- Training Configuration -->
         <div class="flex items-center m-b-4 m-t-6">
           <div class="w-1 hx-16 bg-[var(--safe-primary)] mr-2 rounded-sm"></div>
-          <span class="textx-15 font-medium">Training Configuration</span>
+          <span class="fs-subtitle font-medium">Training Configuration</span>
         </div>
 
         <el-row :gutter="20">
@@ -270,7 +270,7 @@
         <!-- Resource Configuration -->
         <div class="flex items-center m-b-4 m-t-6">
           <div class="w-1 hx-16 bg-[var(--safe-primary)] mr-2 rounded-sm"></div>
-          <span class="textx-15 font-medium">Resource Configuration</span>
+          <span class="fs-subtitle font-medium">Resource Configuration</span>
         </div>
 
         <el-row :gutter="20">
@@ -329,7 +329,7 @@
         <!-- Output / Export -->
         <div class="flex items-center m-b-4 m-t-6">
           <div class="w-1 hx-16 bg-[var(--safe-primary)] mr-2 rounded-sm"></div>
-          <span class="textx-15 font-medium">Output / Export</span>
+          <span class="fs-subtitle font-medium">Output / Export</span>
         </div>
 
         <el-row :gutter="20">
@@ -373,7 +373,7 @@
         <!-- Strategy -->
         <div class="flex items-center m-b-4 m-t-6">
           <div class="w-1 hx-16 bg-[var(--safe-primary)] mr-2 rounded-sm"></div>
-          <span class="textx-15 font-medium">Strategy</span>
+          <span class="fs-subtitle font-medium">Strategy</span>
         </div>
 
         <div class="type-tabs m-b-2">
@@ -391,7 +391,7 @@
         <!-- Dataset -->
         <div class="flex items-center m-b-4 m-t-6">
           <div class="w-1 hx-16 bg-[var(--safe-primary)] mr-2 rounded-sm"></div>
-          <span class="textx-15 font-medium">Dataset</span>
+          <span class="fs-subtitle font-medium">Dataset</span>
         </div>
 
         <el-row :gutter="20">
@@ -428,7 +428,7 @@
         <!-- Training Configuration -->
         <div class="flex items-center m-b-4 m-t-6">
           <div class="w-1 hx-16 bg-[var(--safe-primary)] mr-2 rounded-sm"></div>
-          <span class="textx-15 font-medium">Training Configuration</span>
+          <span class="fs-subtitle font-medium">Training Configuration</span>
         </div>
 
         <el-row :gutter="20">
@@ -627,7 +627,7 @@
         <!-- Resource Configuration -->
         <div class="flex items-center m-b-4 m-t-6">
           <div class="w-1 hx-16 bg-[var(--safe-primary)] mr-2 rounded-sm"></div>
-          <span class="textx-15 font-medium">Resource Configuration</span>
+          <span class="fs-subtitle font-medium">Resource Configuration</span>
         </div>
 
         <el-row :gutter="20">
@@ -693,7 +693,7 @@
         <!-- Output / Export -->
         <div class="flex items-center m-b-4 m-t-6">
           <div class="w-1 hx-16 bg-[var(--safe-primary)] mr-2 rounded-sm"></div>
-          <span class="textx-15 font-medium">Output / Export</span>
+          <span class="fs-subtitle font-medium">Output / Export</span>
         </div>
 
         <el-row :gutter="20">

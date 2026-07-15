@@ -14,7 +14,7 @@
       <el-card class="mt-2 safe-card" shadow="never">
         <div class="flex items-center">
           <div class="w-1 hx-16 bg-[var(--safe-primary)] mr-2 rounded-sm"></div>
-          <span class="textx-15 font-medium">Configuration</span>
+          <span class="fs-subtitle font-medium">Configuration</span>
         </div>
 
         <el-descriptions v-if="detailData" class="m-t-4" border :column="5" direction="vertical">
@@ -82,7 +82,7 @@
       <el-card class="mt-6 safe-card" shadow="never">
         <div class="flex items-center">
           <div class="w-1 hx-16 bg-[var(--safe-primary)] mr-2 rounded-sm"></div>
-          <span class="textx-15 font-medium">Client</span>
+          <span class="fs-subtitle font-medium">Client</span>
         </div>
 
         <div class="cluster-role-section mt-4">
@@ -127,7 +127,7 @@
       <el-card class="mt-6 safe-card" shadow="never">
         <div class="flex items-center">
           <div class="w-1 hx-16 bg-[var(--safe-primary)] mr-2 rounded-sm"></div>
-          <span class="textx-15 font-medium">Mesh Group</span>
+          <span class="fs-subtitle font-medium">Mesh Group</span>
         </div>
 
         <div class="cluster-role-section mt-4">

@@ -719,7 +719,7 @@ onMounted(async () => {
 
       .feedback-id {
         font-weight: 700;
-        font-size: 15px;
+        font-size: var(--fs-body);
         color: var(--el-color-primary);
       }
 

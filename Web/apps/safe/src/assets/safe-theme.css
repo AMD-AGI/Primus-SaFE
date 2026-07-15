@@ -16,6 +16,18 @@
 
   --safe-radius-xl: 16px;
 
+  /* ---------- Type scale (the ONLY font sizes to use) ----------
+     Scale-aware via --scale. In templates prefer the UnoCSS shortcuts
+     fs-caption / fs-body / fs-label / fs-subtitle / fs-title / fs-display;
+     use these vars only inside scoped <style> blocks. Do NOT introduce
+     ad-hoc px font sizes. */
+  --fs-caption: calc(12px * var(--scale, 1)); /* meta, secondary, tags */
+  --fs-body: calc(13px * var(--scale, 1)); /* default body / table cells */
+  --fs-label: calc(14px * var(--scale, 1)); /* form labels, menu, buttons */
+  --fs-subtitle: calc(16px * var(--scale, 1)); /* card / section titles */
+  --fs-title: calc(18px * var(--scale, 1)); /* page titles */
+  --fs-display: calc(22px * var(--scale, 1)); /* detail hero (rare) */
+
   --log-time-color: #666; /* log-time-默认浅灰 */
   --log-message-color: #333; /* log-默认深灰，light 模式 */
 
@@ -161,6 +173,7 @@ html.dark {
 body {
   background: var(--safe-bg);
   color: var(--safe-text);
+  font-size: var(--fs-body);
 }
 
 /* 链接/可点击文本：跟随主色，悬停稍亮 */
@@ -216,17 +229,14 @@ a:hover {
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
 }
 
-/* 搜索输入：圆角胶囊 */
-.safe-input :deep(.el-input__wrapper) {
-  background: var(--safe-card-2);
-  border: 1px solid var(--safe-border);
-  box-shadow: none;
-  border-radius: 14px;
+/* ---------- Form controls: one unified, formal skin ---------- */
+/* Tighter radius reads more "enterprise/formal" than the old rounded capsule.
+   Applied globally so inputs / selects / date-pickers stay consistent. */
+:root {
+  --el-input-border-radius: 6px;
 }
-.safe-input :deep(.is-focus .el-input__wrapper),
-.safe-input :deep(.el-input__wrapper.is-focus) {
-  border-color: var(--safe-primary);
-}
+
+/* Segmented control skin lives in controls.css (single source of truth). */
 
 /* 透玻璃表格（性能优化版） */
 .safe-table :deep(.el-table__inner-wrapper)::before {

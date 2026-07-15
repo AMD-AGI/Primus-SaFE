@@ -147,7 +147,7 @@ const emit = defineEmits<{ (e: 'click', ev: MouseEvent): void }>()
 .glass--lg {
   --gb-pad-y: 0.72rem;
   --gb-pad-x: 1.05rem;
-  font-size: 15px;
+  font-size: var(--fs-subtitle);
   --gb-radius: 16px;
 }
 .is-block {

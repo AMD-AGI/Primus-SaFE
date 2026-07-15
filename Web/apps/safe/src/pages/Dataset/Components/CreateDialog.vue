@@ -13,14 +13,14 @@
       <div class="flex items-center justify-between m-b-4">
         <div class="flex items-center">
           <div class="w-1 hx-16 bg-[var(--safe-primary)] mr-2 rounded-sm"></div>
-          <span class="textx-15 font-medium">Dataset Source</span>
+          <span class="fs-subtitle font-medium">Dataset Source</span>
         </div>
         <el-segmented v-model="sourceType" :options="sourceOptions" size="default" />
       </div>
 
       <div class="flex items-center m-b-4 m-t-6">
         <div class="w-1 hx-16 bg-[var(--safe-primary)] mr-2 rounded-sm"></div>
-        <span class="textx-15 font-medium">Basic Information</span>
+        <span class="fs-subtitle font-medium">Basic Information</span>
       </div>
 
       <!-- Form fields for upload mode -->
@@ -116,7 +116,7 @@
       <template v-if="sourceType === 'upload'">
         <div class="flex items-center m-b-4 m-t-6">
           <div class="w-1 hx-16 bg-[var(--safe-primary)] mr-2 rounded-sm"></div>
-          <span class="textx-15 font-medium">Upload Files</span>
+          <span class="fs-subtitle font-medium">Upload Files</span>
           <span class="text-gray-400 text-[12px] ml-2">(Optional)</span>
         </div>
 

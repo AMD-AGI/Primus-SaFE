@@ -12,7 +12,7 @@
         <!-- Basic information -->
         <div class="flex items-center m-b-4">
           <div class="w-1 hx-16 bg-[var(--safe-primary)] mr-2 rounded-sm"></div>
-          <span class="textx-15 font-medium">Basic Information</span>
+          <span class="fs-subtitle font-medium">Basic Information</span>
         </div>
 
         <el-descriptions :column="2" border class="m-b-6">
@@ -91,7 +91,7 @@
         <!-- File list -->
         <div class="flex items-center m-b-4 m-t-6">
           <div class="w-1 hx-16 bg-[var(--safe-primary)] mr-2 rounded-sm"></div>
-          <span class="textx-15 font-medium">Files</span>
+          <span class="fs-subtitle font-medium">Files</span>
           <span class="text-gray-400 text-[12px] ml-2"
             >({{ detail.files?.length || 0 }} files)</span
           >

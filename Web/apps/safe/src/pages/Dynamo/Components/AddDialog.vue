@@ -1099,7 +1099,7 @@ html.dark .section-card {
 }
 
 .section-title {
-  font-size: 15px;
+  font-size: var(--fs-subtitle);
   font-weight: 600;
   line-height: 1.2;
 }

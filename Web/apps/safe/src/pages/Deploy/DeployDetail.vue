@@ -26,7 +26,7 @@
         <el-card class="mt-2 safe-card" shadow="never">
           <div class="flex items-center mb-4">
             <div class="w-1 hx-16 bg-[var(--safe-primary)] mr-2 rounded-sm"></div>
-            <span class="textx-15 font-medium">Deployment Details</span>
+            <span class="fs-subtitle font-medium">Deployment Details</span>
           </div>
           <el-descriptions v-if="detail" :column="2" border>
             <el-descriptions-item label="ID">{{ detail.id }}</el-descriptions-item>
@@ -92,7 +92,7 @@
           >
             <div class="flex items-center mb-4">
               <div class="w-1 hx-16 bg-[var(--safe-primary)] mr-2 rounded-sm"></div>
-              <span class="textx-15 font-medium">Image Versions</span>
+              <span class="fs-subtitle font-medium">Image Versions</span>
             </div>
             <el-table :data="imageVersionsTable" border>
               <el-table-column prop="component" label="Component" min-width="150" />
@@ -104,7 +104,7 @@
           <div v-if="!isLens && detail?.env_file_config" class="mt-6">
             <div class="flex items-center mb-4">
               <div class="w-1 hx-16 bg-[var(--safe-primary)] mr-2 rounded-sm"></div>
-              <span class="textx-15 font-medium">Environment Config</span>
+              <span class="fs-subtitle font-medium">Environment Config</span>
             </div>
             <el-input
               :model-value="detail?.env_file_config"
@@ -119,7 +119,7 @@
           <div v-if="isLens && detail?.control_plane_config" class="mt-6">
             <div class="flex items-center mb-4">
               <div class="w-1 hx-16 bg-[var(--safe-primary)] mr-2 rounded-sm"></div>
-              <span class="textx-15 font-medium">Control Plane Config</span>
+              <span class="fs-subtitle font-medium">Control Plane Config</span>
             </div>
             <el-input
               :model-value="detail?.control_plane_config"
@@ -133,7 +133,7 @@
           <div v-if="isLens && detail?.data_plane_config" class="mt-6">
             <div class="flex items-center mb-4">
               <div class="w-1 hx-16 bg-[var(--safe-primary)] mr-2 rounded-sm"></div>
-              <span class="textx-15 font-medium">Data Plane Config</span>
+              <span class="fs-subtitle font-medium">Data Plane Config</span>
             </div>
             <el-input
               :model-value="detail?.data_plane_config"

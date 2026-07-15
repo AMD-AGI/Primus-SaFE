@@ -38,7 +38,7 @@
 
       <div class="flex items-center m-b-6 mt-2">
         <div class="w-1 hx-16 bg-[var(--safe-primary)] mr-2 rounded-sm"></div>
-        <span class="textx-15 font-medium">CPU</span>
+        <span class="fs-subtitle font-medium">CPU</span>
       </div>
       <!-- <el-divider content-position="left">CPU</el-divider> -->
       <el-row :gutter="12">
@@ -59,7 +59,7 @@
       <!-- <el-divider content-position="left">GPU</el-divider> -->
       <div class="flex items-center m-b-6 mt-2">
         <div class="w-1 hx-16 bg-[var(--safe-primary)] mr-2 rounded-sm"></div>
-        <span class="textx-15 font-medium">GPU</span>
+        <span class="fs-subtitle font-medium">GPU</span>
       </div>
       <el-row :gutter="12">
         <el-col :span="12">
@@ -83,7 +83,7 @@
 
       <div class="flex items-center m-b-6 mt-2">
         <div class="w-1 hx-16 bg-[var(--safe-primary)] mr-2 rounded-sm"></div>
-        <span class="textx-15 font-medium">Root Disk</span>
+        <span class="fs-subtitle font-medium">Root Disk</span>
       </div>
       <!-- <el-divider content-position="left">Root Disk</el-divider> -->
       <el-row :gutter="12">
@@ -126,7 +126,7 @@
 
       <div class="flex items-center m-b-6 mt-2">
         <div class="w-1 hx-16 bg-[var(--safe-primary)] mr-2 rounded-sm"></div>
-        <span class="textx-15 font-medium">Data Disk</span>
+        <span class="fs-subtitle font-medium">Data Disk</span>
       </div>
       <el-row :gutter="12">
         <el-col :span="12">
@@ -168,7 +168,7 @@
 
       <div class="flex items-center m-b-6 mt-2">
         <div class="w-1 hx-16 bg-[var(--safe-primary)] mr-2 rounded-sm"></div>
-        <span class="textx-15 font-medium">Extended Resources</span>
+        <span class="fs-subtitle font-medium">Extended Resources</span>
       </div>
       <el-row :gutter="12">
         <el-col :span="12">

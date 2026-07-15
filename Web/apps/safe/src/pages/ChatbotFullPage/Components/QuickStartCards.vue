@@ -96,7 +96,7 @@ const handleCardClick = (value: string) => {
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
 
     .card-bullet {
-      font-size: 15px;
+      font-size: var(--fs-subtitle);
       color: #64748b;
       font-weight: 600;
       flex-shrink: 0;

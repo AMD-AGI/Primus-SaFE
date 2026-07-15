@@ -23,6 +23,16 @@ export default defineConfig({
       }),
     ],
   ],
+  shortcuts: {
+    // Semantic type scale — the ONLY font sizes pages should use.
+    // Each maps to the scale-aware `textx-N` rule above.
+    'fs-caption': 'textx-12', // table meta, secondary text, tags
+    'fs-body': 'textx-13', // default body text, table cells
+    'fs-label': 'textx-14', // form labels, menu items, buttons
+    'fs-subtitle': 'textx-16', // card / section titles
+    'fs-title': 'textx-18', // page titles
+    'fs-display': 'textx-22', // detail-page hero titles (rare)
+  },
   presets: [presetMini(), presetIcons(), presetAttributify()],
   safelist: [
     // Keep all class names that might be generated dynamically at runtime

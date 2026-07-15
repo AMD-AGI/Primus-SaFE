@@ -472,7 +472,7 @@ watch(
 }
 
 .section-title {
-  font-size: 15px;
+  font-size: var(--fs-subtitle);
   font-weight: 600;
   color: var(--el-text-color-primary);
   display: flex;
