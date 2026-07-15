@@ -1,7 +1,6 @@
 @import './base.css';
 /* @import './glass-btn.css'; */
 @import './safe-theme.css';
-@import './controls.css';
 
 :root {
   --scale: 1;
@@ -10,25 +9,25 @@
 
 @media (min-width: 1440px) {
   :root {
-    --scale: 1.08;
+    --scale: 1.04;
     --compact-scale: 1.02;
   }
 }
 @media (min-width: 1680px) {
   :root {
-    --scale: 1.16;
+    --scale: 1.08;
     --compact-scale: 1.05;
   }
 }
 @media (min-width: 1920px) {
   :root {
-    --scale: 1.24;
+    --scale: 1.12;
     --compact-scale: 1.08;
   }
 }
 @media (min-width: 2560px) {
   :root {
-    --scale: 1.36;
+    --scale: 1.16;
     --compact-scale: 1.1;
   }
 }

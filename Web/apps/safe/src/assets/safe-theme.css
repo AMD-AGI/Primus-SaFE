@@ -229,15 +229,6 @@ a:hover {
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
 }
 
-/* ---------- Form controls: one unified, formal skin ---------- */
-/* Tighter radius reads more "enterprise/formal" than the old rounded capsule.
-   Applied globally so inputs / selects / date-pickers stay consistent. */
-:root {
-  --el-input-border-radius: 6px;
-}
-
-/* Segmented control skin lives in controls.css (single source of truth). */
-
 /* 透玻璃表格（性能优化版） */
 .safe-table :deep(.el-table__inner-wrapper)::before {
   display: none;
