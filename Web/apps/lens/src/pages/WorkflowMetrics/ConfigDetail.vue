@@ -18,7 +18,6 @@
             </el-tag>
           </div>
           <div class="info-actions">
-            <el-button :icon="Edit" @click="editConfig">Edit</el-button>
             <el-button :icon="Refresh" @click="triggerBackfillDialog">Backfill</el-button>
           </div>
         </div>
@@ -193,7 +192,7 @@
 import { ref, reactive, onMounted, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { ArrowLeft, Edit, Refresh, Link, Monitor, List, Histogram } from '@element-plus/icons-vue'
+import { ArrowLeft, Refresh, Link, Monitor, List, Histogram } from '@element-plus/icons-vue'
 import dayjs from 'dayjs'
 import {
   getConfig,
@@ -254,11 +253,6 @@ const fetchData = async () => {
 
 const goBack = () => {
   router.push('/workflow-metrics/configs')
-}
-
-const editConfig = () => {
-  // TODO: Open edit dialog
-  ElMessage.info('Edit functionality coming soon')
 }
 
 const goToRuns = () => {

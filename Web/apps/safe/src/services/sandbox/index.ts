@@ -6,10 +6,8 @@ import type {
   SandboxSessionListResponse,
 } from './type'
 
-const isOciCluster = window.location.origin === 'https://oci-slc.primus-safe.amd.com'
-
 const sandboxRequest = axios.create({
-  baseURL: isOciCluster ? '/sandbox' : '/x-flannel/sandbox',
+  baseURL: import.meta.env.VITE_SANDBOX_BASE_URL || '/x-flannel/sandbox',
   timeout: 15000,
   withCredentials: true,
 })

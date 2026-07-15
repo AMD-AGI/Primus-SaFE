@@ -261,8 +261,28 @@ const calculateDuration = (startTime?: string, endTime?: string) => {
   return `${hours}h ${minutes}m`
 }
 
+// Keep the URL query in sync with the search/filter/pagination state so that
+// returning from an evaluation detail page restores the same view.
+const readQuery = () => {
+  const q = router.currentRoute.value.query
+  serviceId.value = (q.serviceId as string) || ''
+  const statusStr = (q.status as string) || ''
+  statusSelectedIds.value = statusStr ? (statusStr.split(',') as EvaluationStatus[]) : []
+  currentPage.value = Number(q.page || 1)
+  pageSize.value = Number(q.pageSize || pageSize.value)
+}
+const writeQuery = () => {
+  const query: Record<string, string> = {}
+  if (serviceId.value?.trim()) query.serviceId = serviceId.value.trim()
+  if (statusSelectedIds.value.length) query.status = statusSelectedIds.value.join(',')
+  query.page = String(currentPage.value)
+  query.pageSize = String(pageSize.value)
+  router.replace({ query })
+}
+
 const fetchData = async () => {
   try {
+    writeQuery()
     loading.value = true
     const res = await getEvaluationTasks({
       workspace: workspaceStore.currentWorkspaceId || undefined,
@@ -369,15 +389,15 @@ onMounted(async () => {
   } catch (error) {
     console.error('Failed to load workspace list:', error)
   }
+  // Capture the clone query parameter before readQuery/writeQuery rewrite the URL.
+  const cloneId = route.query.clone as string | undefined
+  readQuery()
   fetchData()
 
-  // Check for clone query parameter
-  const cloneId = route.query.clone as string | undefined
   if (cloneId) {
     cloneTaskId.value = cloneId
     showCreateDialog.value = true
-    // Clear query parameter
-    router.replace({ query: {} })
+    // writeQuery (via fetchData) already dropped the clone param from the URL.
   }
 })
 

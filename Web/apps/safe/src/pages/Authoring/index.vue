@@ -338,6 +338,7 @@ import dayjs from 'dayjs'
 import utc from 'dayjs/plugin/utc'
 import { useRoute, useRouter } from 'vue-router'
 import { useRouteAction, ROUTE_ACTIONS } from '@/composables/useRouteAction'
+import { useWorkloadListQuery } from '@/composables/useWorkloadListQuery'
 import AddDialog from './Components/AddDialog.vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
@@ -372,8 +373,8 @@ const initialSearchParams = {
   phase: [] as WorkloadPhase[],
   dateRange: '',
   workloadId: '',
-  onlyMyself: 'All',
-  userId: '',
+  onlyMyself: 'My Workloads',
+  userId: userStore.userId,
 }
 const searchParams = reactive({ ...initialSearchParams })
 
@@ -384,6 +385,36 @@ const pagination = reactive({
   pageSize: 20,
   total: 0,
 })
+
+const { readQuery, writeQuery, syncUserId } = useWorkloadListQuery({
+  searchParams,
+  pagination,
+  defaultScope: 'My Workloads',
+  serializeFilters: () => {
+    const [start, end] = searchParams.dateRange ?? []
+    return {
+      userName: searchParams.userName || undefined,
+      description: searchParams.description || undefined,
+      phase: searchParams.phase?.length ? searchParams.phase.join(',') : undefined,
+      since: start ? dayjs(start).utc().format('YYYY-MM-DDTHH:mm:ss.SSS[Z]') : undefined,
+      until: end ? dayjs(end).utc().format('YYYY-MM-DDTHH:mm:ss.SSS[Z]') : undefined,
+      workloadId: searchParams.workloadId || undefined,
+    }
+  },
+  parseFilters: (q) => {
+    searchParams.userName = (q.userName as string) || ''
+    searchParams.description = (q.description as string) || ''
+    searchParams.workloadId = (q.workloadId as string) || ''
+    const phaseStr = (q.phase as string) || ''
+    searchParams.phase = phaseStr ? (phaseStr.split(',') as WorkloadPhase[]) : []
+    const since = q.since as string | undefined
+    const until = q.until as string | undefined
+    searchParams.dateRange = (since || until
+      ? [since ? dayjs(since).toDate() : '', until ? dayjs(until).toDate() : '']
+      : '') as any
+  },
+})
+
 const curWlId = ref()
 const curAction = ref<'Create' | 'Edit' | 'Clone' | 'Resume'>('Create')
 const curLimitedEdit = ref(false)
@@ -623,13 +654,15 @@ const handleFilterChange = (filters: Record<string, string[]>) => {
 }
 
 const filterByMyself = () => {
-  searchParams.userId = searchParams.onlyMyself !== 'All' ? userStore.userId : ''
+  syncUserId()
   onSearch({ resetPage: true })
 }
 
 const onSearch = (options?: { resetPage?: boolean }) => {
   const reset = options?.resetPage ?? true
   if (reset) pagination.page = 1
+
+  writeQuery()
 
   const [start, end] = searchParams.dateRange
   fetchData({
@@ -900,7 +933,10 @@ watch(
   // Refresh list data immediately when workspace dropdown changes
   () => store.currentWorkspaceId,
   (id) => {
-    if (id) fetchData()
+    if (id) {
+      readQuery()
+      onSearch({ resetPage: false })
+    }
   },
   { immediate: true },
 )

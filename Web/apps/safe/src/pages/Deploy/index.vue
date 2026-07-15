@@ -238,8 +238,30 @@ const passAll = () => {
   return true
 }
 
+// Keep the URL query in sync with the type/status/pagination state so that
+// returning from a deployment detail page restores the same list view.
+const readQuery = () => {
+  const q = router.currentRoute.value.query
+  const type = q.type as string
+  if (type === 'safe' || type === 'lens') currentType.value = type
+  const statusStr = (q.status as string) || ''
+  searchParams.status = statusStr ? (statusStr.split(',') as DeploymentStatus[]) : []
+  pagination.page = Number(q.page || 1)
+  pagination.pageSize = Number(q.pageSize || pagination.pageSize)
+}
+
+const writeQuery = () => {
+  const query: Record<string, string> = {}
+  query.type = currentType.value
+  if (searchParams.status.length) query.status = searchParams.status.join(',')
+  query.page = String(pagination.page)
+  query.pageSize = String(pagination.pageSize)
+  router.replace({ query })
+}
+
 const fetchData = async () => {
   try {
+    writeQuery()
     loading.value = true
     const params: {
       offset: number
@@ -280,15 +302,13 @@ const handleTableFilterChange = (filters: Record<string, DeploymentStatus[]>) =>
 
 const handleTypeChange = () => {
   pagination.page = 1
-  // keep selected type in URL so returning from detail can restore it
-  router.replace({ query: { ...route.query, type: currentType.value } })
+  // writeQuery (called inside fetchData) keeps type + status + pagination in URL
   fetchData()
 }
 
 const handleCreateSuccess = (type?: DeploymentType) => {
   if (type) currentType.value = type
   pagination.page = 1
-  router.replace({ query: { ...route.query, type: currentType.value } })
   fetchData()
 }
 
@@ -397,10 +417,8 @@ const handleRetry = async (row: DeploymentRequest) => {
 onMounted(async () => {
   // Check if there's an approval ID in the query params
   const approvalId = route.query.approvalId
-  const approvalType = route.query.type as DeploymentType | undefined
-  if (approvalType === 'safe' || approvalType === 'lens') {
-    currentType.value = approvalType
-  }
+  // Restore type + status + pagination from URL before the first fetch.
+  readQuery()
 
   await fetchData()
 

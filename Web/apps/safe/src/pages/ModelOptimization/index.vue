@@ -52,6 +52,7 @@
         column-key="statusFilter"
         :filters="statusFilters"
         :filter-multiple="false"
+        :filtered-value="searchParams.status ? [searchParams.status] : []"
         :filter-method="passAll"
       >
         <template #default="{ row }">
@@ -170,7 +171,26 @@ const handleSearchInput = () => {
   searchTimer = setTimeout(() => onSearch({ resetPage: true }), 500)
 }
 
+// Keep the URL query in sync with the search/filter state so returning from a
+// detail page restores the same results.
+const readQuery = () => {
+  const q = router.currentRoute.value.query
+  searchParams.search = (q.search as string) || ''
+  searchParams.status = (q.status as string) || ''
+  pagination.page = Number(q.page || 1)
+  pagination.pageSize = Number(q.pageSize || pagination.pageSize)
+}
+const writeQuery = () => {
+  const query: Record<string, string> = {}
+  if (searchParams.search?.trim()) query.search = searchParams.search.trim()
+  if (searchParams.status) query.status = searchParams.status
+  query.page = String(pagination.page)
+  query.pageSize = String(pagination.pageSize)
+  router.replace({ query })
+}
+
 const fetchData = async () => {
+  writeQuery()
   loading.value = true
   try {
     const raw = await listOptimizationTasks({
@@ -257,7 +277,10 @@ const handleDelete = async (row: OptimizationTask) => {
   }
 }
 
-onMounted(fetchData)
+onMounted(() => {
+  readQuery()
+  fetchData()
+})
 </script>
 
 <style scoped>
