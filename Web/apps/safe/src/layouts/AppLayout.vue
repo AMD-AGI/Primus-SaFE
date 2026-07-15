@@ -1,7 +1,19 @@
 <template>
   <div class="h-screen w-screen overflow-hidden flex flex-col">
     <div class="flex flex-1 overflow-hidden">
-      <BaseMenu class="w-55 shrink-0" />
+      <div
+        class="sidebar-wrap shrink-0 relative"
+        :class="{ resizing }"
+        :style="{ width: sidebar.effectiveWidth + 'px' }"
+      >
+        <BaseMenu class="w-full h-full" />
+        <div
+          v-if="!sidebar.collapsed"
+          class="sidebar-resizer"
+          :class="{ resizing }"
+          @pointerdown="startResize"
+        />
+      </div>
 
       <main class="flex-1 overflow-y-auto p-6 main-content-with-glow">
         <router-view />
@@ -49,11 +61,33 @@ import { useRoute } from 'vue-router'
 import BaseMenu from '@/components/layout/BaseMenu.vue'
 import FloatingChatBot from '@/components/Base/FloatingChatBot.vue'
 import { useClusterStore } from '@/stores/cluster'
+import { useSidebarStore } from '@/stores/sidebar'
 import { isOciClusterId } from '@/utils'
 
 const STORAGE_KEY = 'core42-migration-notice-dismissed'
 const route = useRoute()
 const clusterStore = useClusterStore()
+const sidebar = useSidebarStore()
+
+const resizing = ref(false)
+function startResize(e: PointerEvent) {
+  e.preventDefault()
+  resizing.value = true
+  const startX = e.clientX
+  const startWidth = sidebar.width
+  const onMove = (ev: PointerEvent) => sidebar.setWidth(startWidth + (ev.clientX - startX))
+  const onUp = () => {
+    resizing.value = false
+    window.removeEventListener('pointermove', onMove)
+    window.removeEventListener('pointerup', onUp)
+    document.body.style.userSelect = ''
+    document.body.style.cursor = ''
+  }
+  document.body.style.userSelect = 'none'
+  document.body.style.cursor = 'col-resize'
+  window.addEventListener('pointermove', onMove)
+  window.addEventListener('pointerup', onUp)
+}
 
 const dismissed = ref(localStorage.getItem(STORAGE_KEY) === '1')
 const isOciCluster = computed(() => isOciClusterId(clusterStore.currentClusterId))
@@ -80,6 +114,41 @@ if (import.meta.env.DEV) {
 </script>
 
 <style scoped lang="scss">
+.sidebar-wrap {
+  transition: width 0.18s ease;
+
+  &.resizing {
+    transition: none;
+  }
+}
+
+.sidebar-resizer {
+  position: absolute;
+  top: 0;
+  right: -3px;
+  width: 6px;
+  height: 100%;
+  cursor: col-resize;
+  z-index: 20;
+  touch-action: none;
+
+  &::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    right: 3px;
+    width: 2px;
+    height: 100%;
+    background: transparent;
+    transition: background 0.15s ease;
+  }
+
+  &:hover::after,
+  &.resizing::after {
+    background: var(--safe-primary);
+  }
+}
+
 .main-content-with-glow {
   position: relative;
   background:
