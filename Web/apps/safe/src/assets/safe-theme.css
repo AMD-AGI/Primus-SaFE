@@ -229,6 +229,39 @@ a:hover {
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
 }
 
+/* ---------- Segmented control (native el-segmented, flat text tabs) ----------
+   Element Plus default fills the selected item with a bright primary pill, which
+   clashes with the UI. Render it as plain text tabs instead: no track, no pill —
+   just muted text with a teal selected label. (.ghost-seg keeps its own look.) */
+.el-segmented:not(.ghost-seg) {
+  --el-segmented-bg-color: transparent;
+  --el-segmented-color: var(--safe-muted);
+  --el-segmented-item-selected-bg-color: transparent;
+  --el-segmented-item-selected-color: var(--safe-primary);
+  --el-segmented-item-hover-bg-color: transparent;
+  --el-segmented-item-hover-color: var(--safe-text-secondary);
+  padding: 0;
+  font-weight: 600;
+  background-color: transparent !important;
+}
+.el-segmented:not(.ghost-seg) .el-segmented__item {
+  padding: 0 12px;
+  transition: color 0.16s ease;
+}
+.el-segmented:not(.ghost-seg) .el-segmented__item-selected {
+  background-color: transparent !important;
+  box-shadow: none !important;
+}
+.el-segmented:not(.ghost-seg) .el-segmented__item.is-selected {
+  color: var(--safe-primary) !important;
+}
+.el-segmented:not(.ghost-seg) .el-segmented__item:not(.is-selected):hover {
+  color: var(--safe-text-secondary) !important;
+}
+.el-segmented.is-disabled {
+  opacity: 0.6;
+}
+
 /* 透玻璃表格（性能优化版） */
 .safe-table :deep(.el-table__inner-wrapper)::before {
   display: none;
