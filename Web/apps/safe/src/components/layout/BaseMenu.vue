@@ -291,7 +291,7 @@ interface MenuItem {
 const workloadMenuItems = shallowRef<MenuItem[]>([])
 const workloadGroupIndexes = ['workloads-infer', 'workloads-training']
 const workloadGroupRoutes = [
-  { group: 'workloads-infer', paths: ['/infer', '/dynamo', '/infera'] },
+  { group: 'workloads-infer', paths: ['/infer', '/infera'] },
   {
     group: 'workloads-training',
     paths: ['/training', '/torchft', '/rayjob', '/monarch'],
@@ -336,13 +336,6 @@ watchEffect(() => {
       canAccess: canInfer.value,
       tooltip: 'Deployment has been disabled by the administrator.',
       icon: menuIcons.deployment,
-    },
-    {
-      index: '/dynamo',
-      name: 'Dynamo',
-      canAccess: canInfer.value,
-      tooltip: 'Dynamo has been disabled by the administrator.',
-      icon: menuIcons.dynamo,
     },
     {
       index: '/infera',
@@ -474,12 +467,6 @@ const aiAgentMenuItems = shallowRef<MenuItem[]>([])
 // Watch permission changes, dynamically update AI Agent menu
 watchEffect(() => {
   const allAiAgentItems = [
-    {
-      index: '/chatbot',
-      name: 'Chatbot',
-      icon: menuIcons.chatbot,
-      canAccess: true, // Open to all users
-    },
     {
       index: '/qabase',
       name: 'QA Base',

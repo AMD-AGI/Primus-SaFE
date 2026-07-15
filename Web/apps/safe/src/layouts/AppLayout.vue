@@ -20,9 +20,6 @@
       </main>
     </div>
 
-    <!-- Floating ChatBot -->
-    <FloatingChatBot />
-
     <!-- Migration Notice Dialog -->
     <Transition name="dialog-fade">
       <div v-if="showNotice" class="notice-overlay" @click.self="dismissNotice">
@@ -59,7 +56,6 @@
 import { ref, computed } from 'vue'
 import { useRoute } from 'vue-router'
 import BaseMenu from '@/components/layout/BaseMenu.vue'
-import FloatingChatBot from '@/components/Base/FloatingChatBot.vue'
 import { useClusterStore } from '@/stores/cluster'
 import { useSidebarStore } from '@/stores/sidebar'
 import { isOciClusterId } from '@/utils'
