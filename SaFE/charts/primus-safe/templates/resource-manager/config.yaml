@@ -40,6 +40,8 @@ data:
         cluster_name: {{ default "" (default .Values.metrics).remote_write_cluster_name | quote }}
         # Optional mounted secret dir; file "token" is sent as a Bearer token.
         secret_path: {{ default "/etc/secrets/metrics-remote-write" (default .Values.metrics).remote_write_secret_path }}
+        # Skip TLS verification (internal-CA / cross-cluster targets).
+        insecure_skip_verify: {{ default false (default .Values.metrics).remote_write_insecure_skip_verify }}
     leader_election:
       # LeaderElection determines whether or not to use leader election when starting the manager.
       enable: true

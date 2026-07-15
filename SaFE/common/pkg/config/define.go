@@ -56,6 +56,10 @@ const (
 	// secret_path holds a mounted secret dir; the file "token" (if present) is
 	// sent as a Bearer token on the import request.
 	metricsRemoteWriteSecretPath = metricsRemoteWritePrefix + "secret_path"
+	// insecure_skip_verify disables TLS certificate verification for the push.
+	// Useful for cross-cluster pushes where the target VM ingress presents an
+	// internal-CA certificate the pusher's trust store does not include.
+	metricsRemoteWriteInsecureSkipVerify = metricsRemoteWritePrefix + "insecure_skip_verify"
 
 	// leader_election
 	leaderElectionPrefix = "leader_election."

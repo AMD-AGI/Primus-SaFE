@@ -155,6 +155,13 @@ func GetMetricsRemoteWriteToken() string {
 	return getFromFile(metricsRemoteWriteSecretPath, "token")
 }
 
+// IsMetricsRemoteWriteInsecureSkipVerify reports whether TLS certificate
+// verification should be skipped when pushing metrics. Enable it only for
+// trusted internal networks where the target VM uses an internal-CA cert.
+func IsMetricsRemoteWriteInsecureSkipVerify() bool {
+	return getBool(metricsRemoteWriteInsecureSkipVerify, false)
+}
+
 // IsLeaderElectionEnable returns whether leader election is enabled.
 func IsLeaderElectionEnable() bool {
 	return getBool(leaderElectionEnable, true)

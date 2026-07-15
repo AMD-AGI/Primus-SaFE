@@ -72,6 +72,10 @@ metrics:
   remote_write_cluster_name: ""
   # Mounted secret dir; file "token" (optional) is sent as a Bearer token.
   remote_write_secret_path: "/etc/secrets/metrics-remote-write"
+  # Skip TLS verification for the push. Enable only for trusted internal
+  # networks where the target VM ingress uses an internal-CA cert the pusher
+  # does not trust (e.g. cross-cluster push to another environment's Robust VM).
+  remote_write_insecure_skip_verify: false
 resource_manager:
   # Resource manager component image version
   image: "resource-manager:latest"

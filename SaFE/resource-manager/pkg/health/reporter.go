@@ -11,6 +11,7 @@ package health
 
 import (
 	"context"
+	"crypto/tls"
 	"net/http"
 	"time"
 
@@ -47,9 +48,17 @@ type Reporter struct {
 
 // NewReporter creates a self-health reporter bound to the manager's client.
 func NewReporter(cli client.Client) *Reporter {
+	httpClient := &http.Client{Timeout: 15 * time.Second}
+	// Cross-cluster pushes may target a VM ingress with an internal-CA cert the
+	// pusher does not trust; allow opting out of TLS verification per config.
+	if commonconfig.IsMetricsRemoteWriteInsecureSkipVerify() {
+		httpClient.Transport = &http.Transport{
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+		}
+	}
 	return &Reporter{
 		cli:        cli,
-		httpClient: &http.Client{Timeout: 15 * time.Second},
+		httpClient: httpClient,
 	}
 }
 
