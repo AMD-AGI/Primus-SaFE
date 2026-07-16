@@ -40,6 +40,7 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/quantity"
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
+	jmmetrics "github.com/AMD-AIG-AIMA/SAFE/job-manager/pkg/metrics"
 	"github.com/AMD-AIG-AIMA/SAFE/job-manager/pkg/syncer"
 	jobutils "github.com/AMD-AIG-AIMA/SAFE/job-manager/pkg/utils"
 	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
@@ -335,7 +336,16 @@ func (r *DispatcherReconciler) processWorkload(ctx context.Context, adminWorkloa
 
 // dispatch creates and deploys the Kubernetes object in the data plane for the workload.
 func (r *DispatcherReconciler) dispatch(ctx context.Context,
-	adminWorkload *v1.Workload, clientSets *syncer.ClusterClientSets) (ctrlruntime.Result, error) {
+	adminWorkload *v1.Workload, clientSets *syncer.ClusterClientSets) (result ctrlruntime.Result, err error) {
+	start := time.Now()
+	defer func() {
+		jmmetrics.DispatchDuration.Observe(time.Since(start).Seconds())
+		if err != nil {
+			jmmetrics.DispatchTotal.WithLabelValues("error").Inc()
+		} else {
+			jmmetrics.DispatchTotal.WithLabelValues("success").Inc()
+		}
+	}()
 	k8sObject, err := r.generateK8sObject(ctx, adminWorkload, clientSets)
 	if err != nil {
 		klog.ErrorS(err, "failed to create k8s unstructured object. ",

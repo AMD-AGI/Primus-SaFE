@@ -35,6 +35,7 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/quantity"
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
+	jmmetrics "github.com/AMD-AIG-AIMA/SAFE/job-manager/pkg/metrics"
 	"github.com/AMD-AIG-AIMA/SAFE/job-manager/pkg/syncer"
 	jobutils "github.com/AMD-AIG-AIMA/SAFE/job-manager/pkg/utils"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/backoff"
@@ -324,6 +325,8 @@ func (r *SchedulerReconciler) Do(ctx context.Context, message *SchedulerMessage)
 // while those that do not remain in the queue and have their queue positions updated.
 // Preemption of tasks is also supported.
 func (r *SchedulerReconciler) scheduleWorkloads(ctx context.Context, message *SchedulerMessage) error {
+	start := time.Now()
+	defer func() { jmmetrics.ScheduleCycleDuration.Observe(time.Since(start).Seconds()) }()
 	workspace, err := r.getWorkspace(ctx, message.WorkspaceId)
 	if workspace == nil {
 		return err
@@ -400,9 +403,10 @@ func (r *SchedulerReconciler) canScheduleWorkload(ctx context.Context, requestWo
 		sourceWorkload := &v1.Workload{}
 		err := r.Get(ctx, client.ObjectKey{Name: sourceWorkloadId}, sourceWorkload)
 		if err == nil && !sourceWorkload.IsEnd() {
-			reason = SourceWorkloadReason
-			klog.Infof("the workload(%s) is not scheduled, reason: %s", requestWorkload.Name, reason)
-			return false, reason, nil
+		reason = SourceWorkloadReason
+		klog.Infof("the workload(%s) is not scheduled, reason: %s", requestWorkload.Name, reason)
+		jmmetrics.SchedulerUnschedulableTotal.WithLabelValues(jmmetrics.ReasonSource).Inc()
+		return false, reason, nil
 		}
 		patch := client.MergeFrom(workspace.DeepCopy())
 		v1.RemoveLabel(workspace, v1.SourceWorkloadIdLabel)
@@ -413,6 +417,7 @@ func (r *SchedulerReconciler) canScheduleWorkload(ctx context.Context, requestWo
 		if job.Action == v1.CronStart {
 			_, scheduleTime, err := timeutil.CvtTime3339ToCronStandard(job.Schedule)
 			if err == nil && scheduleTime.After(time.Now().UTC()) {
+				jmmetrics.SchedulerUnschedulableTotal.WithLabelValues(jmmetrics.ReasonCronjob).Inc()
 				return false, CronjobReason, nil
 			}
 		}
@@ -425,6 +430,7 @@ func (r *SchedulerReconciler) canScheduleWorkload(ctx context.Context, requestWo
 	if !isDependencyReady {
 		reason = DependencyReason
 		klog.Infof("the workload(%s) is not scheduled, reason: %s", requestWorkload.Name, reason)
+		jmmetrics.SchedulerUnschedulableTotal.WithLabelValues(jmmetrics.ReasonDependency).Inc()
 		return false, reason, nil
 	}
 
@@ -438,6 +444,7 @@ func (r *SchedulerReconciler) canScheduleWorkload(ctx context.Context, requestWo
 		klog.Infof("the workload(%s) is not scheduled, reason: %s, request.resource: %s, left.resource: %s",
 			requestWorkload.Name, reason, string(jsonutils.MarshalSilently(requestResources)),
 			string(jsonutils.MarshalSilently(leftResources)))
+		jmmetrics.SchedulerUnschedulableTotal.WithLabelValues(jmmetrics.ReasonInsufficient).Inc()
 		return false, reason, nil
 	}
 	return true, "", nil
@@ -592,6 +599,7 @@ func (r *SchedulerReconciler) markAsScheduled(ctx context.Context, workload *v1.
 		klog.ErrorS(err, "failed to update workload", "name", workload.Name)
 		return err
 	}
+	jmmetrics.SchedulerScheduledTotal.WithLabelValues(workload.Spec.Workspace).Inc()
 	return nil
 }
 
@@ -656,6 +664,7 @@ func (r *SchedulerReconciler) updateUnScheduled(ctx context.Context,
 		}
 		position++
 	}
+	jmmetrics.SchedulerQueueDepth.WithLabelValues(workspace.Name).Set(float64(position - 1))
 }
 
 // updateDependentsPhase finds all workloads that depend on the given workload and updates their dependency status
