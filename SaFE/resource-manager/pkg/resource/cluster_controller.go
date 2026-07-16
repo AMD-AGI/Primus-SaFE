@@ -40,6 +40,7 @@ import (
 	commonfaults "github.com/AMD-AIG-AIMA/SAFE/common/pkg/faults"
 	commonclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/k8sclient"
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
+	rmmetrics "github.com/AMD-AIG-AIMA/SAFE/resource-manager/pkg/metrics"
 	"github.com/AMD-AIG-AIMA/SAFE/resource-manager/pkg/utils"
 )
 
@@ -287,45 +288,59 @@ func (r *ClusterReconciler) Reconcile(ctx context.Context, req ctrlruntime.Reque
 	}
 	if err = r.guaranteeClusterControlPlane(ctx, cluster); err != nil {
 		klog.ErrorS(err, "failed to guarantee cluster control plane", "cluster", cluster.Name)
+		rmmetrics.ClusterReconcileErrorsTotal.WithLabelValues("cluster_control_plane").Inc()
 		return ctrlruntime.Result{}, err
 	}
 	if err = r.guaranteeClientFactory(ctx, cluster); err != nil {
 		klog.ErrorS(err, "failed to guarantee client factory", "cluster", cluster.Name)
+		rmmetrics.ClusterReconcileErrorsTotal.WithLabelValues("client_factory").Inc()
 		return ctrlruntime.Result{}, err
 	}
 	if result, err := r.guaranteeDefaultAddon(ctx, cluster); err != nil || result.RequeueAfter > 0 {
-		klog.ErrorS(err, "failed to guarantee default addon", "cluster", cluster.Name)
+		if err != nil {
+			klog.ErrorS(err, "failed to guarantee default addon", "cluster", cluster.Name)
+			rmmetrics.ClusterReconcileErrorsTotal.WithLabelValues("default_addon").Inc()
+		}
 		return result, err
 	}
 	if result, err := r.guaranteePriorityClass(ctx, cluster); err != nil || result.RequeueAfter > 0 {
-		klog.ErrorS(err, "failed to guarantee priority class", "cluster", cluster.Name)
+		if err != nil {
+			klog.ErrorS(err, "failed to guarantee priority class", "cluster", cluster.Name)
+			rmmetrics.ClusterReconcileErrorsTotal.WithLabelValues("priority_class").Inc()
+		}
 		return result, err
 	}
 	if err = r.guaranteeAllImageSecrets(ctx, cluster); err != nil {
 		klog.ErrorS(err, "failed to guarantee image secrets", "cluster", cluster.Name)
+		rmmetrics.ClusterReconcileErrorsTotal.WithLabelValues("image_secrets").Inc()
 		return ctrlruntime.Result{}, err
 	}
 	// Sync CICD ClusterRole from admin plane to data plane (if present)
 	if err = r.guaranteeCICDClusterRole(ctx, cluster); err != nil {
 		klog.ErrorS(err, "failed to guarantee cicd cluster role", "cluster", cluster.Name)
+		rmmetrics.ClusterReconcileErrorsTotal.WithLabelValues("cicd_cluster_role").Inc()
 		return ctrlruntime.Result{}, err
 	}
 	// Ensure ClusterRoleBinding exists and is labeled to reference this role
 	if err = r.guaranteeCICDClusterRoleBinding(ctx, cluster); err != nil {
 		klog.ErrorS(err, "failed to guarantee cicd cluster role binding", "cluster", cluster.Name)
+		rmmetrics.ClusterReconcileErrorsTotal.WithLabelValues("cicd_cluster_role_binding").Inc()
 		return ctrlruntime.Result{}, err
 	}
 	// Sync Monarch ClusterRole from admin plane to data plane (if present)
 	if err = r.guaranteeMonarchClusterRole(ctx, cluster); err != nil {
 		klog.ErrorS(err, "failed to guarantee monarch cluster role", "cluster", cluster.Name)
+		rmmetrics.ClusterReconcileErrorsTotal.WithLabelValues("monarch_cluster_role").Inc()
 		return ctrlruntime.Result{}, err
 	}
 	if err = r.guaranteeForwardIngress(ctx, cluster); err != nil {
 		klog.ErrorS(err, "failed to guarantee ingress", "cluster", cluster.Name)
+		rmmetrics.ClusterReconcileErrorsTotal.WithLabelValues("forward_ingress").Inc()
 		return ctrlruntime.Result{}, err
 	}
 	if err = r.guaranteeNodeLocalDNS(ctx, cluster); err != nil {
 		klog.ErrorS(err, "failed to guarantee node local dns", "cluster", cluster.Name)
+		rmmetrics.ClusterReconcileErrorsTotal.WithLabelValues("node_local_dns").Inc()
 		return ctrlruntime.Result{}, err
 	}
 	return ctrlruntime.Result{}, nil
