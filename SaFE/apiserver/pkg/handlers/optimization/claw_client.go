@@ -19,6 +19,8 @@ import (
 	"time"
 
 	"k8s.io/klog/v2"
+
+	apimetrics "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/metrics"
 )
 
 // Reasonable timeouts for Claw's control-plane REST endpoints. Streaming reads
@@ -216,7 +218,7 @@ func (c *ClawClient) createSession(ctx context.Context, req *SessionRequest) (Cr
 	}
 	c.applyHeaders(httpReq)
 
-	resp, err := c.controlClient.Do(httpReq)
+	resp, err := c.doControl(httpReq)
 	if err != nil {
 		return CreateSessionResult{}, fmt.Errorf("claw POST /sessions: %w", err)
 	}
@@ -281,7 +283,7 @@ func (c *ClawClient) FindSessionByName(ctx context.Context, name string) (*Sessi
 	}
 	c.applyHeaders(req)
 
-	resp, err := c.controlClient.Do(req)
+	resp, err := c.doControl(req)
 	if err != nil {
 		return nil, fmt.Errorf("claw GET /sessions by name: %w", err)
 	}
@@ -374,7 +376,7 @@ func (c *ClawClient) SendMessage(ctx context.Context, sessionID string, req *Mes
 	}
 	c.applyHeaders(httpReq)
 
-	resp, err := c.controlClient.Do(httpReq)
+	resp, err := c.doControl(httpReq)
 	if err != nil {
 		return fmt.Errorf("claw POST /messages: %w", err)
 	}
@@ -417,7 +419,7 @@ func (c *ClawClient) Stream(
 	c.applyHeaders(httpReq)
 	httpReq.Header.Set("Accept", "text/event-stream")
 
-	resp, err := c.streamClient.Do(httpReq)
+	resp, err := c.doStream(httpReq)
 	if err != nil {
 		return fmt.Errorf("claw GET stream: %w", err)
 	}
@@ -523,7 +525,7 @@ func (c *ClawClient) GetSession(ctx context.Context, sessionID string) (*Session
 		return nil, err
 	}
 	c.applyHeaders(req)
-	resp, err := c.controlClient.Do(req)
+	resp, err := c.doControl(req)
 	if err != nil {
 		return nil, fmt.Errorf("claw GET /sessions/%s: %w", sessionID, err)
 	}
@@ -563,7 +565,7 @@ func (c *ClawClient) DeleteSession(ctx context.Context, sessionID string) error 
 	}
 	c.applyHeaders(httpReq)
 
-	resp, err := c.controlClient.Do(httpReq)
+	resp, err := c.doControl(httpReq)
 	if err != nil {
 		return err
 	}
@@ -589,7 +591,7 @@ func (c *ClawClient) InterruptSession(ctx context.Context, sessionID string) err
 		return err
 	}
 	c.applyHeaders(req)
-	resp, err := c.controlClient.Do(req)
+	resp, err := c.doControl(req)
 	if err != nil {
 		return fmt.Errorf("claw interrupt request failed: %w", err)
 	}
@@ -613,7 +615,7 @@ func (c *ClawClient) ListSessionFiles(ctx context.Context, sessionID string) ([]
 		return nil, err
 	}
 	c.applyHeaders(req)
-	resp, err := c.controlClient.Do(req)
+	resp, err := c.doControl(req)
 	if err != nil {
 		return nil, fmt.Errorf("claw list files request failed: %w", err)
 	}
@@ -652,7 +654,7 @@ func (c *ClawClient) ReadSessionFile(ctx context.Context, sessionID, filePath st
 		return nil, err
 	}
 	c.applyHeaders(req)
-	resp, err := c.streamClient.Do(req)
+	resp, err := c.doStream(req)
 	if err != nil {
 		return nil, fmt.Errorf("claw read file request failed: %w", err)
 	}
@@ -679,7 +681,7 @@ func (c *ClawClient) DownloadProxyPath(ctx context.Context, sessionID, filePath 
 		return "", err
 	}
 	c.applyHeaders(req)
-	resp, err := c.controlClient.Do(req)
+	resp, err := c.doControl(req)
 	if err != nil {
 		return "", fmt.Errorf("claw download path request failed: %w", err)
 	}
@@ -702,6 +704,23 @@ func (c *ClawClient) DownloadProxyPath(ctx context.Context, sessionID, filePath 
 // applyHeaders sets the authorization + content-type headers used by all
 // endpoints on the Claw control plane. Per-request bearer (via WithClawBearer
 // on req.Context()) overrides the static apiKey from configuration.
+// doControl issues a control-plane request and records the claw dependency latency.
+func (c *ClawClient) doControl(req *http.Request) (*http.Response, error) {
+	start := time.Now()
+	resp, err := c.controlClient.Do(req)
+	apimetrics.ObserveDependency("claw", start, &err)
+	return resp, err
+}
+
+// doStream issues a streaming request and records the claw connect latency
+// (Do returns once response headers arrive, before the body is streamed).
+func (c *ClawClient) doStream(req *http.Request) (*http.Response, error) {
+	start := time.Now()
+	resp, err := c.streamClient.Do(req)
+	apimetrics.ObserveDependency("claw", start, &err)
+	return resp, err
+}
+
 func (c *ClawClient) applyHeaders(req *http.Request) {
 	req.Header.Set("Content-Type", "application/json")
 	bearer := ""

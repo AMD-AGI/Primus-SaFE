@@ -152,8 +152,10 @@ func (h *Handler) getServiceLog(c *gin.Context) (interface{}, error) {
 	if opensearchClient == nil {
 		return nil, commonerrors.NewInternalError("There is no OpenSearch in cluster " + "")
 	}
+	start := time.Now()
 	resp, err := opensearchClient.SearchByTimeRange(query.SinceTime, query.UntilTime,
 		"", "/_search", buildSearchBody(query, ""))
+	apimetrics.ObserveDependency("opensearch", start, &err)
 	if err != nil {
 		return nil, err
 	}
@@ -179,8 +181,11 @@ func (h *Handler) getWorkloadEvent(c *gin.Context) (interface{}, error) {
 	if opensearchClient == nil {
 		return nil, commonerrors.NewInternalError("There is no OpenSearch in cluster " + clusterId)
 	}
-	return opensearchClient.SearchByTimeRange(query.SinceTime, query.UntilTime,
+	start := time.Now()
+	resp, err := opensearchClient.SearchByTimeRange(query.SinceTime, query.UntilTime,
 		"k8s-event-", "/_search", buildSearchBody(query, workload.Name))
+	apimetrics.ObserveDependency("opensearch", start, &err)
+	return resp, err
 }
 
 // getWorkloadLogContext retrieves contextual logs for a specific workload from OpenSearch.
@@ -245,8 +250,10 @@ func (h *Handler) searchContextLog(queries []view.ListContextLogRequest,
 	_, err := concurrent.Exec(count, func() error {
 		wrapper := <-ch
 		query := wrapper.Query
+		start := time.Now()
 		resp, err := opensearchClient.SearchByTimeRange(query.SinceTime, query.UntilTime,
 			"", "/_search", buildSearchBody(query, workload.Name))
+		apimetrics.ObserveDependency("opensearch", start, &err)
 		if err != nil {
 			return err
 		}
@@ -292,8 +299,10 @@ func (h *Handler) searchCICDLog(queries []view.ListLogRequest, workload *v1.Work
 	_, err := concurrent.Exec(count, func() error {
 		id := <-ch
 		query := &queries[id]
+		start := time.Now()
 		resp, err := opensearchClient.SearchByTimeRange(query.SinceTime, query.UntilTime,
 			"", "/_search", buildSearchBody(query, workload.Name))
+		apimetrics.ObserveDependency("opensearch", start, &err)
 		if err != nil {
 			return err
 		}

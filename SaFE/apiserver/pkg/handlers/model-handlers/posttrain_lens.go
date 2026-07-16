@@ -14,11 +14,20 @@ import (
 	"strings"
 	"time"
 
+	apimetrics "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/metrics"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/robustclient"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/timeutil"
 )
+
+// lensObserve runs a robust-analyzer call and records its dependency latency.
+func lensObserve(fn func() error) error {
+	start := time.Now()
+	err := fn()
+	apimetrics.ObserveDependency("robust_analyzer", start, &err)
+	return err
+}
 
 // Default robust-api path prefix used by Lens-compat training-performance queries.
 // The actual host is resolved per-cluster through robustclient (auto-registered
@@ -137,7 +146,7 @@ func resolveLensWorkloadUID(ctx context.Context, workloadID, workspace, cluster,
 	// a flat array of workload records. The client.Get helper already unwraps
 	// the {meta, data} envelope, so we only need the slice here.
 	var rows []lensWorkloadListItem
-	if err := cc.Get(ctx, robustAPIPathWorkloads, params, &rows); err != nil {
+	if err := lensObserve(func() error { return cc.Get(ctx, robustAPIPathWorkloads, params, &rows) }); err != nil {
 		return "", err
 	}
 	if uid := pickLensWorkloadUID(rows, workloadID, workspace, kind); uid != "" {
@@ -149,7 +158,7 @@ func resolveLensWorkloadUID(ctx context.Context, workloadID, workspace, cluster,
 	if kind != "" {
 		params.Del("kind")
 		rows = nil
-		if err := cc.Get(ctx, robustAPIPathWorkloads, params, &rows); err != nil {
+		if err := lensObserve(func() error { return cc.Get(ctx, robustAPIPathWorkloads, params, &rows) }); err != nil {
 			return "", err
 		}
 		if uid := pickLensWorkloadUID(rows, workloadID, workspace, ""); uid != "" {
@@ -302,9 +311,11 @@ func fetchLensTrainingPerformanceData(ctx context.Context, cluster, lensWorkload
 	params.Set("page_size", "1000")
 
 	var resp robustTrainingDataResponse
-	if err := cc.Get(ctx,
-		fmt.Sprintf(robustAPIPathTrainingDataRoot, url.PathEscape(lensWorkloadUID)),
-		params, &resp); err != nil {
+	if err := lensObserve(func() error {
+		return cc.Get(ctx,
+			fmt.Sprintf(robustAPIPathTrainingDataRoot, url.PathEscape(lensWorkloadUID)),
+			params, &resp)
+	}); err != nil {
 		return nil, nil, "", err
 	}
 
@@ -369,9 +380,11 @@ func fetchLensAvailableMetrics(ctx context.Context, cluster, lensWorkloadUID, da
 	}
 
 	var resp robustTrainingAvailableResponse
-	if err := cc.Get(ctx,
-		fmt.Sprintf(robustAPIPathTrainingAvail, url.PathEscape(lensWorkloadUID)),
-		params, &resp); err != nil {
+	if err := lensObserve(func() error {
+		return cc.Get(ctx,
+			fmt.Sprintf(robustAPIPathTrainingAvail, url.PathEscape(lensWorkloadUID)),
+			params, &resp)
+	}); err != nil {
 		return nil, err
 	}
 

@@ -31,6 +31,7 @@ import (
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/resources/view"
+	apimetrics "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/metrics"
 	apiutils "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/utils"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
@@ -1658,8 +1659,10 @@ func (h *Handler) getWorkloadPodContainers(c *gin.Context) (interface{}, error) 
 	if err != nil {
 		return nil, err
 	}
+	start := time.Now()
 	pod, err := k8sClients.ClientSet().CoreV1().Pods(
 		adminWorkload.Spec.Workspace).Get(c.Request.Context(), podName, metav1.GetOptions{})
+	apimetrics.ObserveDependency("k8s_dataplane", start, &err)
 	if err != nil {
 		return nil, err
 	}

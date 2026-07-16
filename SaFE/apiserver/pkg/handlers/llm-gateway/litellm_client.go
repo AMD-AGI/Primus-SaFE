@@ -18,6 +18,8 @@ import (
 	"time"
 
 	"k8s.io/klog/v2"
+
+	apimetrics "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/metrics"
 )
 
 // NewLiteLLMClient creates a new LiteLLM admin client.
@@ -33,6 +35,14 @@ func NewLiteLLMClient(endpoint, adminKey, teamID string) *LiteLLMClient {
 			},
 		},
 	}
+}
+
+// do issues the HTTP request and records the LiteLLM dependency latency.
+func (c *LiteLLMClient) do(req *http.Request) (*http.Response, error) {
+	start := time.Now()
+	resp, err := c.httpClient.Do(req)
+	apimetrics.ObserveDependency("litellm", start, &err)
+	return resp, err
 }
 
 // ── API Methods ───────────────────────────────────────────────────────────
@@ -60,7 +70,7 @@ func (c *LiteLLMClient) CreateUser(ctx context.Context, email string) error {
 		req.Header.Set("Authorization", "Bearer "+c.adminKey)
 	}
 
-	resp, err := c.httpClient.Do(req)
+	resp, err := c.do(req)
 	if err != nil {
 		return fmt.Errorf("failed to call LiteLLM: %w", err)
 	}
@@ -108,7 +118,7 @@ func (c *LiteLLMClient) CreateKey(ctx context.Context, email, apimKey string) (*
 		req.Header.Set("Authorization", "Bearer "+c.adminKey)
 	}
 
-	resp, err := c.httpClient.Do(req)
+	resp, err := c.do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to call LiteLLM: %w", err)
 	}
@@ -158,7 +168,7 @@ func (c *LiteLLMClient) UpdateKeyMetadata(ctx context.Context, tokenHash string,
 		req.Header.Set("Authorization", "Bearer "+c.adminKey)
 	}
 
-	resp, err := c.httpClient.Do(req)
+	resp, err := c.do(req)
 	if err != nil {
 		return fmt.Errorf("failed to call LiteLLM: %w", err)
 	}
@@ -251,7 +261,7 @@ func (c *LiteLLMClient) doDeleteKey(ctx context.Context, reqBody DeleteKeyReques
 		req.Header.Set("Authorization", "Bearer "+c.adminKey)
 	}
 
-	resp, err := c.httpClient.Do(req)
+	resp, err := c.do(req)
 	if err != nil {
 		return fmt.Errorf("failed to call LiteLLM: %w", err)
 	}
@@ -325,7 +335,7 @@ func (c *LiteLLMClient) GetKeyInfo(ctx context.Context, keyHash string) (*KeyInf
 		req.Header.Set("Authorization", "Bearer "+c.adminKey)
 	}
 
-	resp, err := c.httpClient.Do(req)
+	resp, err := c.do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to call LiteLLM: %w", err)
 	}
@@ -368,7 +378,7 @@ func (c *LiteLLMClient) UpdateKeyBudget(ctx context.Context, keyHash string, max
 		req.Header.Set("Authorization", "Bearer "+c.adminKey)
 	}
 
-	resp, err := c.httpClient.Do(req)
+	resp, err := c.do(req)
 	if err != nil {
 		return fmt.Errorf("failed to call LiteLLM: %w", err)
 	}
@@ -402,7 +412,7 @@ func (c *LiteLLMClient) GetSpendLogs(ctx context.Context, userID, startDate, end
 		req.Header.Set("Authorization", "Bearer "+c.adminKey)
 	}
 
-	resp, err := c.httpClient.Do(req)
+	resp, err := c.do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to call LiteLLM: %w", err)
 	}
@@ -462,7 +472,7 @@ func (c *LiteLLMClient) GetUserDailyActivity(ctx context.Context, userID, startD
 		req.Header.Set("Authorization", "Bearer "+c.adminKey)
 	}
 
-	resp, err := c.httpClient.Do(req)
+	resp, err := c.do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to call LiteLLM: %w", err)
 	}
@@ -496,7 +506,7 @@ func (c *LiteLLMClient) GetUserInfo(ctx context.Context, userID string) (*UserIn
 		req.Header.Set("Authorization", "Bearer "+c.adminKey)
 	}
 
-	resp, err := c.httpClient.Do(req)
+	resp, err := c.do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to call LiteLLM: %w", err)
 	}

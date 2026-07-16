@@ -26,11 +26,13 @@ import (
 	"net/url"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"k8s.io/klog/v2"
 
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
+	apimetrics "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/metrics"
 	apiutils "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/utils"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
@@ -134,7 +136,13 @@ func (h *Handler) proxy(c *gin.Context) {
 		}
 	}
 
+	start := time.Now()
 	proxy.ServeHTTP(c.Writer, c.Request)
+	result := "success"
+	if c.Writer.Status() >= http.StatusInternalServerError {
+		result = "error"
+	}
+	apimetrics.DependencyDuration.WithLabelValues("robust_analyzer", result).Observe(time.Since(start).Seconds())
 }
 
 // getOrCreateProxy returns a reverse proxy for the given robust-analyzer
