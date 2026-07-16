@@ -219,7 +219,7 @@
 
           <el-row :gutter="16">
             <el-col :span="12">
-              <el-form-item label="ephemeralStorage">
+              <el-form-item label="Ephemeral">
                 <el-input v-model="form.extendedResources['ephemeral-storage']">
                   <template #append>
                     <el-select v-model="form.storageAppend" style="width: 96px">
