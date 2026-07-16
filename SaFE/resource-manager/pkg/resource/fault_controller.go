@@ -29,6 +29,7 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonfaults "github.com/AMD-AIG-AIMA/SAFE/common/pkg/faults"
+	rmmetrics "github.com/AMD-AIG-AIMA/SAFE/resource-manager/pkg/metrics"
 	"github.com/AMD-AIG-AIMA/SAFE/resource-manager/pkg/utils"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/backoff"
 	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
@@ -298,9 +299,11 @@ func (r *FaultReconciler) taintNode(ctx context.Context, fault *v1.Fault) error 
 	p := jsonutils.MarshalSilently(patchObj)
 	if err = r.Patch(ctx, adminNode, client.RawPatch(apitypes.MergePatchType, p)); err != nil {
 		klog.ErrorS(err, "failed to update admin node")
+		rmmetrics.FaultTaintTotal.WithLabelValues("add", "failure").Inc()
 		return err
 	}
 	klog.Infof("taint node, cluster: %s, node-name: %s, key: %s", v1.GetClusterId(fault), adminNode.Name, taintKey)
+	rmmetrics.FaultTaintTotal.WithLabelValues("add", "success").Inc()
 	return nil
 }
 
@@ -339,11 +342,13 @@ func (r *FaultReconciler) removeNodeTaint(ctx context.Context, fault *v1.Fault) 
 	p := jsonutils.MarshalSilently(patchObj)
 	if err = r.Patch(ctx, adminNode, client.RawPatch(apitypes.MergePatchType, p)); err != nil {
 		klog.ErrorS(err, "failed to update admin node")
+		rmmetrics.FaultTaintTotal.WithLabelValues("remove", "failure").Inc()
 		return err
 	}
 
 	klog.Infof("remove taint, cluster: %s, node-name: %s, key: %s",
 		v1.GetClusterId(fault), adminNode.Name, taintKey)
+	rmmetrics.FaultTaintTotal.WithLabelValues("remove", "success").Inc()
 	return nil
 }
 
@@ -373,5 +378,6 @@ func (r *FaultReconciler) retry(ctx context.Context, fault *v1.Fault) (ctrlrunti
 			fault.Name, count, r.opt.processWait)
 		return ctrlruntime.Result{RequeueAfter: r.opt.processWait}, nil
 	}
+	rmmetrics.FaultRetryExhaustedTotal.Inc()
 	return ctrlruntime.Result{}, nil
 }

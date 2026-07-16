@@ -62,6 +62,88 @@ var (
 		Name: "safe_node_bootstrap_command_total",
 		Help: "Total node bootstrap command outcomes, by command and result.",
 	}, []string{"command", "result"})
+
+	// --- exporter (CRD -> PostgreSQL) ---
+
+	// ExporterSyncTotal counts DB sync outcomes per resource kind.
+	ExporterSyncTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "safe_exporter_sync_total",
+		Help: "Total resource DB-export sync outcomes, by kind and result.",
+	}, []string{"kind", "result"})
+
+	// ExporterSyncDuration measures DB sync latency per resource kind.
+	ExporterSyncDuration = prometheus.NewHistogramVec(prometheus.HistogramOpts{
+		Name:    "safe_exporter_sync_duration_seconds",
+		Help:    "Resource DB-export sync duration in seconds, by kind.",
+		Buckets: prometheus.DefBuckets,
+	}, []string{"kind"})
+
+	// ExporterQueueDepth reports the exporter work queue depth per kind.
+	ExporterQueueDepth = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Name: "safe_exporter_queue_depth",
+		Help: "Exporter work-queue depth, by kind.",
+	}, []string{"kind"})
+
+	// ExporterTTLDroppedTotal counts records dropped after the export TTL expires.
+	ExporterTTLDroppedTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "safe_exporter_ttl_dropped_total",
+		Help: "Total records permanently dropped by the exporter after TTL, by kind.",
+	}, []string{"kind"})
+
+	// --- fault ---
+
+	// FaultCreatedTotal counts fault CR creations by monitor id (fault type).
+	FaultCreatedTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "safe_fault_created_total",
+		Help: "Total faults created, by monitor id.",
+	}, []string{"monitor_id"})
+
+	// FaultTaintTotal counts node taint add/remove outcomes for faults.
+	FaultTaintTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "safe_fault_taint_total",
+		Help: "Total fault node taint operations, by action and result.",
+	}, []string{"action", "result"})
+
+	// FaultRetryExhaustedTotal counts faults that exhausted their retry budget.
+	FaultRetryExhaustedTotal = prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "safe_fault_retry_exhausted_total",
+		Help: "Total faults that exceeded the maximum retry count.",
+	})
+
+	// --- opsjob ---
+
+	// OpsJobPhaseTotal counts opsjob terminal phases by type and reason.
+	OpsJobPhaseTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "safe_opsjob_phase_total",
+		Help: "Total opsjob completions, by type, phase and reason.",
+	}, []string{"type", "phase", "reason"})
+
+	// OpsJobDuration measures opsjob run duration by type.
+	OpsJobDuration = prometheus.NewHistogramVec(prometheus.HistogramOpts{
+		Name:    "safe_opsjob_duration_seconds",
+		Help:    "OpsJob run duration in seconds, by type.",
+		Buckets: []float64{5, 15, 30, 60, 120, 300, 600, 1800, 3600},
+	}, []string{"type"})
+
+	// OpsJobTimeoutTotal counts opsjob timeouts by type.
+	OpsJobTimeoutTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "safe_opsjob_timeout_total",
+		Help: "Total opsjob timeouts, by type.",
+	}, []string{"type"})
+
+	// --- workspace ---
+
+	// WorkspacePhaseTotal counts workspace phase transitions.
+	WorkspacePhaseTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "safe_workspace_phase_total",
+		Help: "Total workspace phase transitions, by phase.",
+	}, []string{"phase"})
+
+	// WorkspaceNodeBindingTotal counts node bind/unbind outcomes for workspaces.
+	WorkspaceNodeBindingTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "safe_workspace_node_binding_total",
+		Help: "Total workspace node bind/unbind operations, by action and result.",
+	}, []string{"action", "result"})
 )
 
 func init() {
@@ -74,5 +156,17 @@ func init() {
 		NodeUnmanageTotal,
 		NodeMachineProbeTotal,
 		NodeBootstrapCommandTotal,
+		ExporterSyncTotal,
+		ExporterSyncDuration,
+		ExporterQueueDepth,
+		ExporterTTLDroppedTotal,
+		FaultCreatedTotal,
+		FaultTaintTotal,
+		FaultRetryExhaustedTotal,
+		OpsJobPhaseTotal,
+		OpsJobDuration,
+		OpsJobTimeoutTotal,
+		WorkspacePhaseTotal,
+		WorkspaceNodeBindingTotal,
 	)
 }
