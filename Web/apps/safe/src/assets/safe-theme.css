@@ -304,6 +304,16 @@ a:hover {
   --el-menu-bg-color: transparent;
 }
 
+/* Solid primary buttons: use the theme's contrast token for the label so text
+   stays legible against the primary fill in each theme (white in light,
+   near-black in dark). Plain/link/text primary buttons keep their own rules. */
+.el-button--primary:not(.is-plain):not(.is-link):not(.is-text) {
+  --el-button-text-color: var(--safe-primary-contrast);
+  --el-button-hover-text-color: var(--safe-primary-contrast);
+  --el-button-active-text-color: var(--safe-primary-contrast);
+  color: var(--safe-primary-contrast);
+}
+
 .el-button--primary.is-plain {
   background-color: var(--safe-primary-plain-bg) !important;
   border-color: var(--safe-primary-plain-border) !important;
