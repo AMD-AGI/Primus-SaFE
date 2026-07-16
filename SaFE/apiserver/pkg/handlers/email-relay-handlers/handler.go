@@ -18,6 +18,7 @@ import (
 	"k8s.io/klog/v2"
 
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
+	apimetrics "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/metrics"
 	dbClient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
 	dbModel "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client/model"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/notification/channel"
@@ -57,6 +58,9 @@ func (h *Handler) Stream(c *gin.Context) {
 
 	flusher, _ := c.Writer.(interface{ Flush() })
 	ctx := c.Request.Context()
+
+	apimetrics.StreamConnectionsActive.WithLabelValues("email_relay_stream").Inc()
+	defer apimetrics.StreamConnectionsActive.WithLabelValues("email_relay_stream").Dec()
 
 	relay := channel.GetEmailRelayInstance()
 	var sub chan *dbModel.EmailOutbox

@@ -22,6 +22,7 @@ import (
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/resources/view"
+	apimetrics "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/metrics"
 	apiutils "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/utils"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
@@ -103,8 +104,10 @@ func (h *Handler) getWorkloadLog(c *gin.Context) (interface{}, error) {
 	if opensearchClient == nil {
 		return nil, commonerrors.NewInternalError("There is no OpenSearch in cluster " + clusterId)
 	}
+	start := time.Now()
 	resp, err := opensearchClient.SearchByTimeRange(query.SinceTime, query.UntilTime,
 		"", "/_search", buildSearchBody(query, workload.Name))
+	apimetrics.ObserveDependency("opensearch", start, &err)
 	if err != nil {
 		return nil, err
 	}

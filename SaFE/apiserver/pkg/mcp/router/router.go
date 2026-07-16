@@ -28,6 +28,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"k8s.io/klog/v2"
 
+	apimetrics "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/metrics"
 	mcptools "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/mcp/tools"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/mcp/unified"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
@@ -92,13 +93,21 @@ func MountRoutes(engine *gin.Engine, srv *mcpserver.Server, basePath string) {
 	// base URL as an SSE endpoint (e.g. Cursor's MCP client) work without
 	// pointing at the /sse subpath. This doubles as the "optional server->client
 	// notification stream" slot from the 2025-03-26 spec.
-	engine.GET(cleanBase, func(c *gin.Context) { sseTransport.HandleSSE(c.Writer, c.Request) })
+	engine.GET(cleanBase, func(c *gin.Context) {
+		apimetrics.StreamConnectionsActive.WithLabelValues("mcp_base_sse").Inc()
+		defer apimetrics.StreamConnectionsActive.WithLabelValues("mcp_base_sse").Dec()
+		sseTransport.HandleSSE(c.Writer, c.Request)
+	})
 
 	mcpGroup := engine.Group(cleanBase)
 	{
 		// SSE transport (2024-11-05 spec): GET /sse opens the stream,
 		// POST /messages receives client-to-server JSON-RPC messages.
-		mcpGroup.GET("/sse", func(c *gin.Context) { sseTransport.HandleSSE(c.Writer, c.Request) })
+		mcpGroup.GET("/sse", func(c *gin.Context) {
+			apimetrics.StreamConnectionsActive.WithLabelValues("mcp_sse").Inc()
+			defer apimetrics.StreamConnectionsActive.WithLabelValues("mcp_sse").Dec()
+			sseTransport.HandleSSE(c.Writer, c.Request)
+		})
 		mcpGroup.POST("/messages", func(c *gin.Context) { sseTransport.HandleMessage(c.Writer, c.Request) })
 
 		// Cursor's MCP client probes Streamable HTTP by POSTing to {base}/sse

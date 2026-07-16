@@ -28,6 +28,7 @@ import (
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
+	apimetrics "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/metrics"
 	apiutils "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/utils"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
@@ -655,6 +656,8 @@ func (h *Handler) StreamEvents(c *gin.Context) {
 	subID := uuid.NewString()
 	ch, cancel := hub.subscribe(subID, lastSeq)
 	defer cancel()
+	apimetrics.StreamConnectionsActive.WithLabelValues("optimization_events").Inc()
+	defer apimetrics.StreamConnectionsActive.WithLabelValues("optimization_events").Dec()
 
 	// 3. Forward live events with a heartbeat.
 	heartbeat := time.NewTicker(20 * time.Second)
