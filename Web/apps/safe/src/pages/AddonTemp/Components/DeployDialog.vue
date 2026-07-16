@@ -19,7 +19,7 @@
       <!-- Section: Basic Information -->
       <div class="flex items-center m-b-4">
         <div class="w-1 hx-16 bg-[var(--safe-primary)] mr-2 rounded-sm"></div>
-        <span class="textx-15 font-medium">Basic Information</span>
+        <span class="fs-subtitle font-medium">Basic Information</span>
       </div>
 
       <el-form-item label="Addon Template" v-if="props.id">
@@ -66,7 +66,7 @@
       <!-- Section: values.yaml -->
       <div class="flex items-center m-b-4">
         <div class="w-1 hx-16 bg-[var(--safe-primary)] mr-2 rounded-sm"></div>
-        <span class="textx-15 font-medium">YAML</span>
+        <span class="fs-subtitle font-medium">YAML</span>
       </div>
 
       <el-form-item label="values">

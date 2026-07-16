@@ -12,6 +12,11 @@ export interface LLMGatewayBindingRequest {
   apim_key: string
 }
 
+export interface LLMGatewayApimKey {
+  user_email: string
+  apim_key: string
+}
+
 export interface LLMGatewayModelUsage {
   spend: number
   prompt_tokens: number

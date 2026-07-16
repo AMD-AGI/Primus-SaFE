@@ -19,7 +19,7 @@
       <el-segmented
         v-model="form.accessMode"
         :options="accessModeOptions"
-        class="m-b-6"
+        class="m-b-6 form-seg"
         @change="handleAccessModeChange"
       />
 

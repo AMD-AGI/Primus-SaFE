@@ -29,7 +29,7 @@
       <el-card class="mt-4 safe-card" shadow="never">
         <div class="flex items-center">
           <div class="w-1 hx-16 bg-[var(--safe-primary)] mr-2 rounded-sm"></div>
-          <span class="textx-15 font-medium">Basic Info</span>
+          <span class="fs-subtitle font-medium">Basic Info</span>
         </div>
         <el-descriptions class="m-t-4" border :column="4" direction="vertical">
           <el-descriptions-item label="Run Name">{{ run.displayName }}</el-descriptions-item>
@@ -68,7 +68,7 @@
       <el-card class="mt-4 safe-card" shadow="never">
         <div class="flex items-center">
           <div class="w-1 hx-16 bg-[var(--safe-primary)] mr-2 rounded-sm"></div>
-          <span class="textx-15 font-medium">Resource</span>
+          <span class="fs-subtitle font-medium">Resource</span>
         </div>
         <div class="grid gap-3 mt-4 sm:grid-cols-2 lg:grid-cols-3">
           <StatCard label="Nodes" :value="run.nodeCount ?? '-'" :icon="DataLine" />
@@ -84,7 +84,7 @@
       <el-card class="mt-4 safe-card" shadow="never">
         <div class="flex items-center">
           <div class="w-1 hx-16 bg-[var(--safe-primary)] mr-2 rounded-sm"></div>
-          <span class="textx-15 font-medium">Parameters</span>
+          <span class="fs-subtitle font-medium">Parameters</span>
         </div>
         <template v-if="run.parameterSnapshot && Object.keys(run.parameterSnapshot).length">
           <el-descriptions class="m-t-4" border :column="4" direction="vertical">
@@ -109,7 +109,7 @@
       <el-card class="mt-4 safe-card" shadow="never">
         <div class="flex items-center">
           <div class="w-1 hx-16 bg-[var(--safe-primary)] mr-2 rounded-sm"></div>
-          <span class="textx-15 font-medium">Output / Registration</span>
+          <span class="fs-subtitle font-medium">Output / Registration</span>
         </div>
         <el-descriptions class="m-t-4" border :column="3" direction="vertical">
           <el-descriptions-item label="Export">
@@ -133,7 +133,7 @@
       <el-card class="mt-4 safe-card" shadow="never">
         <div class="flex items-center">
           <div class="w-1 hx-16 bg-[var(--safe-primary)] mr-2 rounded-sm"></div>
-          <span class="textx-15 font-medium">Metrics</span>
+          <span class="fs-subtitle font-medium">Metrics</span>
         </div>
         <div v-if="metricsLoading" class="text-center p-y-4 mt-4">
           <el-icon class="is-loading"><Loading /></el-icon>

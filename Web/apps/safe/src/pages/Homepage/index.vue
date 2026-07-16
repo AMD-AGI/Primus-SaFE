@@ -1,5 +1,7 @@
 <template>
-  <div class="header-row">
+  <div class="home-layout">
+    <div class="home-main">
+      <div class="header-row">
     <h3 class="chart-title">Usage breakdown</h3>
     <div class="header-links">
       <!-- Hyperloom entry - shown only in production (same gating as Lens) -->
@@ -74,12 +76,16 @@
     <div class="header-row">
       <h3 class="chart-title">GPU Utilization & Allocation</h3>
       <div class="chart-filters">
-        <el-radio-group v-model="quickDateRange" @change="onQuickDateChange">
-          <el-radio-button :value="1">Past 1 Day</el-radio-button>
-          <el-radio-button :value="7">Past 7 Days</el-radio-button>
-          <el-radio-button :value="30">Past 30 Days</el-radio-button>
-          <el-radio-button :value="0">Custom</el-radio-button>
-        </el-radio-group>
+        <el-segmented
+          v-model="quickDateRange"
+          :options="[
+            { label: 'Past 1 Day', value: 1 },
+            { label: 'Past 7 Days', value: 7 },
+            { label: 'Past 30 Days', value: 30 },
+            { label: 'Custom', value: 0 },
+          ]"
+          @change="onQuickDateChange"
+        />
         <el-date-picker
           v-model="dateRange"
           type="datetimerange"
@@ -138,16 +144,102 @@
       </div>
     </div>
   </section>
+    </div>
+
+    <aside class="home-rail">
+      <el-card shadow="never" class="rail-card safe-card">
+        <div class="rail-header">
+          <h3 class="chart-title">
+            My Workloads
+            <span v-if="myWlTotal" class="rail-count">{{ myWlTotal }}</span>
+          </h3>
+          <el-link
+            v-if="canManageWorkloads"
+            type="primary"
+            class="rail-viewall"
+            @click="goToWorkloads"
+          >
+            View all<el-icon class="ml-1"><Right /></el-icon>
+          </el-link>
+        </div>
+        <div v-loading="myWlLoading" class="rail-list">
+          <template v-if="myWorkloads.length">
+            <div
+              v-for="row in myWorkloads"
+              :key="row.workloadId"
+              class="rail-item"
+              @click="goToWlDetail(row)"
+            >
+              <div class="rail-item__main">
+                <span class="rail-item__name">{{ row.displayName || row.workloadId }}</span>
+                <span class="rail-item__kind">{{ getRowKind(row) }}</span>
+              </div>
+              <div class="rail-item__meta">
+                <el-tag size="small" :type="WorkloadPhaseButtonType[row.phase]?.type || 'info'">
+                  {{ row.phase }}
+                </el-tag>
+                <span
+                  v-if="row.phase === 'Pending' && row.queuePosition"
+                  class="rail-item__queue"
+                >#{{ row.queuePosition }}</span>
+              </div>
+            </div>
+          </template>
+          <el-empty
+            v-else-if="!myWlLoading"
+            description="No running or pending workloads"
+            :image-size="70"
+          />
+        </div>
+        <div
+          v-if="canManageWorkloads && myWlTotal > myWorkloads.length"
+          class="rail-more"
+          @click="goToWorkloads"
+        >
+          +{{ myWlTotal - myWorkloads.length }} more · View all
+        </div>
+      </el-card>
+
+      <el-card v-if="quickActions.length" shadow="never" class="quick-card safe-card">
+        <h3 class="chart-title quick-title">Quick Actions</h3>
+        <div class="quick-actions">
+          <button
+            v-for="qa in quickActions"
+            :key="qa.path"
+            type="button"
+            class="quick-action"
+            @click="goToCreate(qa.path)"
+          >
+            <el-icon class="quick-action__icon"><component :is="qa.icon" /></el-icon>
+            <span class="quick-action__label">{{ qa.label }}</span>
+          </button>
+        </div>
+      </el-card>
+    </aside>
+  </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, nextTick, onBeforeUnmount, onMounted } from 'vue'
+import { ref, computed, watch, nextTick, onBeforeUnmount, onMounted, type Component } from 'vue'
 import * as echarts from 'echarts'
-import { List, Odometer, Right, TrendCharts, WarningFilled } from '@element-plus/icons-vue'
+import {
+  List,
+  Odometer,
+  Right,
+  TrendCharts,
+  WarningFilled,
+  Cpu,
+  Promotion,
+  Notebook,
+} from '@element-plus/icons-vue'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { useClusterStore } from '@/stores/cluster'
 import { getWorkspaceDetail } from '@/services/workspace/index'
-import { getGPUAggregation } from '@/services/workload/index'
+import { getGPUAggregation, getWorkloadsList } from '@/services/workload/index'
+import { WorkloadPhaseButtonType, KindPathMap, WorkloadKind } from '@/services/workload/type'
+import { useUserStore } from '@/stores/user'
+import { useRouter } from 'vue-router'
+import type { ScopesKeys } from '@/services/base/type'
 import { byte2Gi } from '@/utils/index'
 import {
   buildGpuStats,
@@ -173,6 +265,69 @@ const goToHyperloom = () => {
 const store = useWorkspaceStore()
 const clusterStore = useClusterStore()
 const PIE_COLORS = ['#47b881', '#d65f68', '#0d9488'] as const
+
+// ── Right rail: my running / pending workloads ──
+const router = useRouter()
+const userStore = useUserStore()
+const myWorkloads = ref<any[]>([])
+const myWlTotal = ref(0)
+const myWlLoading = ref(false)
+// Admins get a short teaser (rest is one click away via "View all"); regular
+// users have no full workload page, so show more and let the list scroll.
+const MY_WL_TEASER = 8
+const MY_WL_MAX = 50
+const getRowKind = (row: any): string => row.groupVersionKind?.kind || row.kind || ''
+const goToWlDetail = (row: any) => {
+  const base = KindPathMap[getRowKind(row) as WorkloadKind]
+  if (base) router.push({ path: `${base}/detail`, query: { id: row.workloadId } })
+}
+// The unified /workload-manage page is workspace-admin only (route guard
+// redirects regular users to /403), so only expose "View all" to those users.
+const canManageWorkloads = computed(
+  () => userStore.hasManagerAccess || store.isCurrentWorkspaceAdmin(),
+)
+// Carry the current user into the full list so "View all" stays scoped to me.
+// Pass userName so it lands in the visible User filter box on the target page.
+const goToWorkloads = () =>
+  router.push({
+    path: '/workload-manage',
+    query: userStore.profile?.name ? { userName: userStore.profile.name } : {},
+  })
+
+// ── Right rail: quick create shortcuts ──
+// `?action=create` is consumed by each list page (see useRouteAction) to open
+// its create dialog on mount. Each action is gated by the current workspace
+// scope, mirroring how the sidebar hides workloads the user can't access.
+const quickActionDefs: Array<{ label: string; path: string; icon: Component; scope: ScopesKeys }> = [
+  { label: 'New Training', path: '/training', icon: Cpu, scope: 'Train' },
+  { label: 'New Inference', path: '/infer', icon: Promotion, scope: 'Infer' },
+  { label: 'New Authoring', path: '/authoring', icon: Notebook, scope: 'Authoring' },
+]
+const quickActions = computed(() =>
+  quickActionDefs.filter((a) => (store.currentScopes ?? []).includes(a.scope)),
+)
+const goToCreate = (path: string) => router.push({ path, query: { action: 'create' } })
+const fetchMyWorkloads = async () => {
+  try {
+    myWlLoading.value = true
+    const res: any = await getWorkloadsList({
+      userId: userStore.userId,
+      phase: ['Running', 'Pending'],
+      offset: 0,
+      limit: canManageWorkloads.value ? MY_WL_TEASER : MY_WL_MAX,
+      sortBy: 'createdAt',
+      order: 'desc',
+    })
+    myWorkloads.value = res?.items || []
+    myWlTotal.value = res?.totalCount || 0
+  } catch {
+    myWorkloads.value = []
+    myWlTotal.value = 0
+  } finally {
+    myWlLoading.value = false
+  }
+}
+onMounted(fetchMyWorkloads)
 
 const detailData = ref<any>(null)
 const RES_KEYS = ['amd.com/gpu', 'rdma/hca', 'cpu', 'memory'] as const
@@ -578,6 +733,169 @@ watch(
   color: var(--el-color-primary-light-3);
 }
 
+/* ===== Page layout: main column + right rail (large screens) ===== */
+.home-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 340px;
+  gap: 20px;
+  align-items: start;
+}
+.home-main {
+  min-width: 0;
+}
+.home-rail {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+.rail-card,
+.quick-card {
+  display: flex;
+  flex-direction: column;
+}
+.rail-card :deep(.el-card__body),
+.quick-card :deep(.el-card__body) {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.rail-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+.rail-viewall {
+  font-size: calc(12px * var(--scale));
+}
+.rail-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 120px;
+  flex: 1 1 auto;
+  overflow-y: auto;
+  /* Buffer so the first/last item's hover lift + border isn't clipped by the
+     scroll container (overflow-y also clips overflow-x). */
+  padding: 2px;
+}
+.rail-list :deep(.el-empty) {
+  margin: auto 0;
+}
+
+/* ── Quick Actions card ── */
+.quick-title {
+  margin-bottom: 12px;
+}
+.quick-actions {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(80px, 1fr));
+  gap: 10px;
+  flex: 1;
+  align-content: center;
+}
+.quick-action {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 14px 8px;
+  border: none;
+  border-radius: 10px;
+  background: var(--safe-card-2);
+  box-shadow: inset 0 0 0 1px var(--safe-border);
+  color: var(--el-text-color-primary);
+  cursor: pointer;
+  transition: color 0.15s, background 0.15s, box-shadow 0.15s;
+}
+.quick-action:hover {
+  color: var(--safe-primary);
+  background: var(--safe-primary-plain-bg);
+  box-shadow: inset 0 0 0 1px var(--safe-primary-plain-border);
+}
+.quick-action__icon {
+  font-size: calc(20px * var(--scale));
+  color: var(--safe-primary);
+}
+.quick-action__label {
+  font-size: calc(12px * var(--scale));
+  font-weight: 600;
+  text-align: center;
+  line-height: 1.2;
+}
+.rail-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--safe-card-2);
+  box-shadow: inset 0 0 0 1px var(--safe-border);
+  cursor: pointer;
+  transition:
+    box-shadow 0.2s ease,
+    transform 0.2s ease;
+}
+.rail-item:hover {
+  transform: translateY(-1px);
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--safe-border) 40%, var(--safe-primary) 60%);
+}
+.rail-item__main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  gap: 2px;
+}
+.rail-item__name {
+  font-weight: 600;
+  font-size: calc(13px * var(--scale));
+  color: var(--el-text-color-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 190px;
+}
+.rail-item__kind {
+  font-size: calc(11px * var(--scale));
+  color: var(--safe-muted);
+}
+.rail-item__meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+.rail-item__queue {
+  font-size: calc(11px * var(--scale));
+  color: var(--safe-muted);
+}
+.rail-count {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 0 8px;
+  border-radius: 999px;
+  font-size: calc(11px * var(--scale));
+  font-weight: 700;
+  color: var(--safe-primary);
+  background: var(--safe-primary-plain-bg);
+  box-shadow: inset 0 0 0 1px var(--safe-primary-plain-border);
+  vertical-align: middle;
+}
+.rail-more {
+  margin-top: 10px;
+  text-align: center;
+  font-size: calc(12px * var(--scale));
+  color: var(--safe-primary);
+  cursor: pointer;
+}
+.rail-more:hover {
+  text-decoration: underline;
+}
+
 .gpu-chart-section {
   margin-top: 20px;
 }
@@ -710,6 +1028,41 @@ watch(
   grid-auto-rows: 232px;
 }
 
+/* Wide screens: right rail fills the row height (bottom aligns with the GPU
+   section) and splits My Workloads / Quick Actions in an 8:2 ratio. */
+@media (min-width: 1440px) {
+  .home-rail {
+    align-self: stretch;
+  }
+  .rail-card {
+    flex: 8 1 0;
+    min-height: 0;
+  }
+  .quick-card {
+    flex: 2 1 0;
+    min-height: 0;
+  }
+}
+
+/* Zoom tier (<1440px): compact vertical rhythm so the dashboard fits without heavy scrolling */
+@media (max-width: 1439px) {
+  .home-layout {
+    grid-template-columns: 1fr;
+  }
+  .rail-card {
+    position: static;
+  }
+  .stat-grid {
+    grid-auto-rows: 188px;
+  }
+  .gpu-chart-card {
+    min-height: 300px;
+  }
+  .gpu-chart-box {
+    height: 260px;
+  }
+}
+
 /* Small screen responsive: two columns / one column */
 @media (max-width: 1024px) {
   .stat-grid {
@@ -822,6 +1175,18 @@ watch(
 .stat-card--tall .stat-total__num {
   font-size: 2.8rem;
   line-height: 1;
+}
+/* Fill the tall Nodes card's empty middle: vertically center an enlarged donut */
+.stat-card--tall .stat-bottom {
+  margin-top: 0;
+  flex: 1 1 auto;
+  align-items: center;
+}
+.stat-card--tall .small-pie-box {
+  flex: 0 0 46%;
+  max-width: 300px;
+  min-height: 190px;
+  max-height: 300px;
 }
 
 .stat-card:hover {

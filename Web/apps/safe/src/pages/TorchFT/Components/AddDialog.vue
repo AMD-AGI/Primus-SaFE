@@ -115,7 +115,7 @@
           <div class="mb-4">
             <div class="flex items-center justify-between mb-3">
               <div class="resource-group-title">Worker Group</div>
-              <el-segmented
+              <el-segmented class="form-seg"
                 v-model="form.resourceType"
                 :options="isEdit ? ['replicas'] : ['replicas', 'nodes']"
                 size="small"
@@ -1424,7 +1424,7 @@ html.dark .section-card:hover {
   background-color: var(--safe-primary);
 }
 .section-title {
-  font-size: 15px;
+  font-size: var(--fs-subtitle);
   font-weight: 600;
   line-height: 1.2;
 }

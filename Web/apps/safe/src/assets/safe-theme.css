@@ -16,6 +16,21 @@
 
   --safe-radius-xl: 16px;
 
+  /* Uniform card body padding across the app (Element Plus default is 20px). */
+  --el-card-padding: 16px;
+
+  /* ---------- Type scale (the ONLY font sizes to use) ----------
+     Scale-aware via --scale. In templates prefer the UnoCSS shortcuts
+     fs-caption / fs-body / fs-label / fs-subtitle / fs-title / fs-display;
+     use these vars only inside scoped <style> blocks. Do NOT introduce
+     ad-hoc px font sizes. */
+  --fs-caption: calc(12px * var(--scale, 1)); /* meta, secondary, tags */
+  --fs-body: calc(13px * var(--scale, 1)); /* default body / table cells */
+  --fs-label: calc(14px * var(--scale, 1)); /* form labels, menu, buttons */
+  --fs-subtitle: calc(16px * var(--scale, 1)); /* card / section titles */
+  --fs-title: calc(18px * var(--scale, 1)); /* page titles */
+  --fs-display: calc(22px * var(--scale, 1)); /* detail hero (rare) */
+
   --log-time-color: #666; /* log-time-默认浅灰 */
   --log-message-color: #333; /* log-默认深灰，light 模式 */
 
@@ -32,6 +47,14 @@
   --el-color-primary-light-7: color-mix(in oklab, var(--safe-primary) 30%, white);
   --el-color-primary-light-8: color-mix(in oklab, var(--safe-primary) 20%, white);
   --el-color-primary-light-9: color-mix(in oklab, var(--safe-primary) 10%, white);
+
+  /* ---- Control surface system (ported from Pulse) ---- */
+  --safe-primary-hover: #0b7e74;
+  --safe-primary-active: #096960;
+  --safe-border-light: #f0f1f3;
+  --safe-text-secondary: #374151;
+  --safe-warning: #f59e0b;
+  --safe-surface: var(--safe-card-2);
 
   /* 供按钮 plain 专用的颜色变量（不影响其他组件） */
   --safe-primary-plain-bg: color-mix(in oklab, var(--safe-card) 84%, var(--safe-primary) 16%);
@@ -90,6 +113,14 @@ html.dark {
   --el-color-primary-light-8: color-mix(in oklab, var(--safe-primary) 35%, white);
   --el-color-primary-light-9: color-mix(in oklab, var(--safe-primary) 25%, white);
 
+  /* ---- Control surface system (dark, ported from Pulse) ---- */
+  --safe-primary-hover: #00cccc;
+  --safe-primary-active: #00b3b3;
+  --safe-primary-contrast: #0c0e14;
+  --safe-border-light: #232830;
+  --safe-text-secondary: #cbd5e1;
+  --safe-warning: #fbbf24;
+
   --safe-primary-plain-bg: color-mix(in oklab, var(--safe-card) 90%, var(--safe-primary) 10%);
   --safe-primary-plain-bg-hover: color-mix(in oklab, var(--safe-card) 86%, var(--safe-primary) 14%);
   --safe-primary-plain-bg-active: color-mix(
@@ -121,6 +152,7 @@ html.dark {
 body {
   background: var(--safe-bg);
   color: var(--safe-text);
+  font-size: var(--fs-body);
 }
 
 /* 链接/可点击文本：跟随主色，悬停稍亮 */
@@ -176,53 +208,61 @@ a:hover {
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
 }
 
-/* 搜索输入：圆角胶囊 */
-.safe-input :deep(.el-input__wrapper) {
-  background: var(--safe-card-2);
-  border: 1px solid var(--safe-border);
-  box-shadow: none;
-  border-radius: 14px;
+/* ---------- Segmented control (native el-segmented, flat text tabs) ----------
+   Element Plus default fills the selected item with a bright primary pill, which
+   clashes with the UI. Render it as plain text tabs instead: no track, no pill —
+   just muted text with a teal selected label. (.ghost-seg keeps its own look.) */
+.el-segmented:not(.ghost-seg):not(.form-seg) {
+  --el-segmented-bg-color: transparent;
+  --el-segmented-color: var(--safe-muted);
+  --el-segmented-item-selected-bg-color: transparent;
+  --el-segmented-item-selected-color: var(--safe-primary);
+  --el-segmented-item-hover-bg-color: transparent;
+  --el-segmented-item-hover-color: var(--safe-text-secondary);
+  padding: 0;
+  font-weight: 600;
+  background-color: transparent !important;
 }
-.safe-input :deep(.is-focus .el-input__wrapper),
-.safe-input :deep(.el-input__wrapper.is-focus) {
-  border-color: var(--safe-primary);
+.el-segmented:not(.ghost-seg):not(.form-seg) .el-segmented__item {
+  padding: 0 12px;
+  transition: color 0.16s ease;
+}
+.el-segmented:not(.ghost-seg):not(.form-seg) .el-segmented__item-selected {
+  background-color: transparent !important;
+  box-shadow: none !important;
+}
+.el-segmented:not(.ghost-seg):not(.form-seg) .el-segmented__item.is-selected {
+  color: var(--safe-primary) !important;
+}
+.el-segmented:not(.ghost-seg):not(.form-seg) .el-segmented__item:not(.is-selected):hover {
+  color: var(--safe-text-secondary) !important;
+}
+.el-segmented.is-disabled {
+  opacity: 0.6;
 }
 
-/* 透玻璃表格（性能优化版） */
-.safe-table :deep(.el-table__inner-wrapper)::before {
-  display: none;
-}
-.safe-table :deep(.el-table) {
-  background: transparent;
-}
-.safe-table :deep(.el-table__header-wrapper th) {
-  background: rgba(255, 255, 255, 0.5);
-  color: var(--safe-muted);
+/* ---------- Segmented control (form variant, .form-seg) ----------
+   For use inside forms/dialogs where a choice needs to stand out. Renders a
+   filled track with a subtle primary "plain" pill on the selected item,
+   matching the ImageInput select/custom toggle look. */
+.el-segmented.form-seg {
+  --el-segmented-bg-color: var(--safe-surface);
+  --el-segmented-color: var(--safe-muted);
+  --el-segmented-item-selected-bg-color: var(--safe-primary-plain-bg);
+  --el-segmented-item-selected-color: var(--safe-primary-plain-text);
+  --el-segmented-item-hover-bg-color: var(--safe-primary-plain-bg-hover);
+  --el-segmented-item-hover-color: var(--safe-text-secondary);
+  padding: 3px;
   font-weight: 600;
-  border-left: none !important;
-  border-right: none !important;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 8px;
 }
-.safe-table :deep(.el-table__row > td) {
-  background: rgba(255, 255, 255, 0.35);
-  border-left: none !important;
-  border-right: none !important;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.15);
-  transition: background 0.15s ease;
+.el-segmented.form-seg .el-segmented__item {
+  padding: 0 16px;
+  transition: color 0.16s ease, background-color 0.16s ease;
 }
-.safe-table :deep(.el-table__row:hover > td) {
-  background: rgba(255, 255, 255, 0.5);
-}
-.dark .safe-table :deep(.el-table__header-wrapper th) {
-  background: rgba(28, 34, 43, 0.6);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-}
-.dark .safe-table :deep(.el-table__row > td) {
-  background: rgba(22, 26, 32, 0.4);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
-}
-.dark .safe-table :deep(.el-table__row:hover > td) {
-  background: rgba(28, 34, 43, 0.6);
+.el-segmented.form-seg .el-segmented__item-selected {
+  box-shadow: inset 0 0 0 1px var(--safe-primary-plain-border);
+  border-radius: 6px;
 }
 
 /* 原生 el-table 透玻璃效果（性能优化版） */
@@ -286,6 +326,16 @@ a:hover {
   --el-menu-active-color: var(--safe-primary);
   --el-menu-text-color: var(--safe-text);
   --el-menu-bg-color: transparent;
+}
+
+/* Solid primary buttons: use the theme's contrast token for the label so text
+   stays legible against the primary fill in each theme (white in light,
+   near-black in dark). Plain/link/text primary buttons keep their own rules. */
+.el-button--primary:not(.is-plain):not(.is-link):not(.is-text) {
+  --el-button-text-color: var(--safe-primary-contrast);
+  --el-button-hover-text-color: var(--safe-primary-contrast);
+  --el-button-active-text-color: var(--safe-primary-contrast);
+  color: var(--safe-primary-contrast);
 }
 
 .el-button--primary.is-plain {

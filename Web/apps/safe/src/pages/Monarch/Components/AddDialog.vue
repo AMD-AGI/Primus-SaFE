@@ -16,14 +16,7 @@
     <div class="drawer-body">
       <el-form ref="ruleFormRef" :model="form" :rules="rules" label-width="120px" :validate-on-rule-change="false">
         <!-- ===== Basic Information ===== -->
-        <div class="section-card">
-          <div class="section-header">
-            <div class="section-bar"></div>
-            <div>
-              <div class="section-title">Basic Information</div>
-              <div class="section-subtitle">Name, priority and description</div>
-            </div>
-          </div>
+        <SectionCard title="Basic Information" subtitle="Name, priority and description">
 
           <el-row :gutter="16">
             <el-col :span="16">
@@ -49,17 +42,10 @@
           <el-form-item label="description">
             <el-input v-model="form.description" type="textarea" :rows="2" />
           </el-form-item>
-        </div>
+        </SectionCard>
 
         <!-- ===== Resource ===== -->
-        <div class="section-card">
-          <div class="section-header">
-            <div class="section-bar"></div>
-            <div class="flex-1">
-              <div class="section-title">Resource</div>
-              <div class="section-subtitle">Configure Client and Mesh Group resources</div>
-            </div>
-          </div>
+        <SectionCard title="Resource" subtitle="Configure Client and Mesh Group resources">
 
           <!-- Client -->
           <div class="mb-4">
@@ -112,11 +98,18 @@
           <div class="mb-4">
             <div class="flex items-center justify-between mb-3">
               <div class="resource-group-title">Mesh Group</div>
-              <el-segmented
+              <el-radio-group
                 v-model="form.resourceType"
-                :options="['replicas', 'nodes']"
                 size="small"
-              />
+              >
+                <el-radio-button
+                  v-for="opt in ['replicas', 'nodes']"
+                  :key="opt"
+                  :value="opt"
+                >
+                  {{ opt }}
+                </el-radio-button>
+              </el-radio-group>
             </div>
             <el-row :gutter="16">
               <!-- replicas mode: nodePerGroup first -->
@@ -281,25 +274,16 @@
               </el-col>
             </el-row>
           </div>
-        </div>
+        </SectionCard>
 
         <!-- ===== Advanced Options (collapsible header) ===== -->
-        <div class="section-card">
-          <!-- Card header: click entire row to expand/collapse -->
-          <div
-            class="section-header section-header--clickable"
-            @click="advancedOpen = !advancedOpen"
-          >
-            <div class="section-bar"></div>
-            <div class="flex-1">
-              <div class="section-title">Advanced Options</div>
-              <div class="section-subtitle">Timeout, scheduler and metadata</div>
-            </div>
-            <el-icon :class="['section-chevron', { 'is-open': advancedOpen }]">
-              <ArrowRight />
-            </el-icon>
-          </div>
-
+        <SectionCard
+          title="Advanced Options"
+          subtitle="Timeout, scheduler and metadata"
+          clickable
+          :expanded="advancedOpen"
+          @header-click="advancedOpen = !advancedOpen"
+        >
           <!-- Expanded content -->
           <transition name="fade-slide">
             <div v-show="advancedOpen" class="advanced-body">
@@ -459,7 +443,7 @@
               </el-form-item>
             </div>
           </transition>
-        </div>
+        </SectionCard>
       </el-form>
     </div>
 
@@ -496,13 +480,14 @@ import { type FormInstance, ElMessage, ElMessageBox } from 'element-plus'
 import { useWorkspaceStore } from '@/stores/workspace'
 import KeyValueList from '@/components/Base/KeyValueList.vue'
 import ImageInput from '@/components/Base/ImageInput.vue'
+import SectionCard from '@/components/Base/SectionCard.vue'
 import {
   byte2Gi,
   convertKeyValueMapToList,
   convertListToKeyValueMap,
 } from '@/utils/index'
 import type { FormItemRule } from 'element-plus'
-import { InfoFilled, ArrowRight } from '@element-plus/icons-vue'
+import { InfoFilled } from '@element-plus/icons-vue'
 import { useUserStore } from '@/stores/user'
 import { encodeToBase64String, toUTCISOString, decodeScheduleFromApi } from '@/utils'
 import { useDatetimeLimit } from '@/composables/useDatetimeLimit'
@@ -1168,77 +1153,8 @@ const onOpen = async () => {
   overflow-y: auto;
 }
 
-/* Wrap each group in a card */
-.section-card {
-  background: var(--el-bg-color-overlay);
-  border-radius: 10px;
-  padding: 14px 16px 10px;
-  margin-bottom: 20px;
-
-  border: 1px solid var(--el-border-color-lighter);
-  box-shadow:
-    0 2px 8px rgba(0, 0, 0, 0.08),
-    0 1px 3px rgba(0, 0, 0, 0.04);
-}
-
-html.dark .section-card {
-  border: 1px solid rgba(255, 255, 255, 0.03);
-  box-shadow:
-    0 12px 35px rgba(0, 0, 0, 0.55),
-    0 0 0 1px rgba(0, 0, 0, 0.7);
-}
-
-.section-card:hover {
-  box-shadow:
-    0 4px 12px rgba(0, 0, 0, 0.12),
-    0 2px 6px rgba(0, 0, 0, 0.06);
-  transform: translateY(-1px);
-  transition: all 0.16s ease-out;
-}
-
-html.dark .section-card:hover {
-  box-shadow:
-    0 14px 40px rgba(0, 0, 0, 0.55),
-    0 0 1px rgba(0, 0, 0, 0.9);
-}
-
-/* Section title */
-.section-header {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  margin-bottom: 10px;
-}
-.section-header--clickable {
-  cursor: pointer;
-}
-.section-bar {
-  width: 4px;
-  height: 18px;
-  border-radius: 999px;
-  margin-top: 2px;
-  background-color: var(--safe-primary);
-}
-.section-title {
-  font-size: 15px;
-  font-weight: 600;
-  line-height: 1.2;
-}
-.section-subtitle {
-  margin-top: 2px;
-  font-size: 12px;
-  color: var(--el-text-color-secondary);
-}
-
-/* Advanced toggle arrow */
-.section-chevron {
-  transition: transform 0.18s ease-out;
-  font-size: 16px;
-  color: var(--el-text-color-secondary);
-}
-.section-chevron.is-open {
-  transform: rotate(90deg);
-}
+/* Section card / header styling now lives in the shared
+   components/Base/SectionCard.vue + SectionHeader.vue. */
 
 .advanced-body {
   margin-top: 4px;

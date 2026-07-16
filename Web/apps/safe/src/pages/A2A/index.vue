@@ -4,8 +4,6 @@
     <el-segmented
       v-model="activeTab"
       :options="tabSegOptions"
-      class="myself-seg"
-      style="background: none"
     />
 
     <el-button
@@ -234,11 +232,3 @@ onMounted(() => {
 })
 </script>
 
-<style>
-.myself-seg .el-segmented__item-selected {
-  background: none;
-}
-.myself-seg .el-segmented__item.is-selected {
-  color: var(--safe-primary) !important;
-}
-</style>

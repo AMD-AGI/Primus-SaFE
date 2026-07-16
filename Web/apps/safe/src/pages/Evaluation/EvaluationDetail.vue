@@ -61,7 +61,7 @@
           <!-- Basic Information -->
           <div class="flex items-center mb-4">
             <div class="w-1 hx-16 bg-[var(--safe-primary)] mr-2 rounded-sm"></div>
-            <span class="textx-15 font-medium">Basic Information</span>
+            <span class="fs-subtitle font-medium">Basic Information</span>
           </div>
           <el-descriptions :column="2" border>
             <el-descriptions-item label="Task Name">
@@ -138,7 +138,7 @@
           <!-- Benchmarks -->
           <div class="flex items-center mb-4 mt-6">
             <div class="w-1 hx-16 bg-[var(--safe-primary)] mr-2 rounded-sm"></div>
-            <span class="textx-15 font-medium">Benchmarks</span>
+            <span class="fs-subtitle font-medium">Benchmarks</span>
             <span class="text-gray-400 text-[12px] ml-2"
               >({{ detail?.benchmarks?.length || 0 }} items)</span
             >
@@ -167,7 +167,7 @@
             <template v-if="report.results.dataset_name && !report.results.datasets">
               <div class="flex items-center mb-4">
                 <div class="w-1 hx-16 bg-[var(--safe-primary)] mr-2 rounded-sm"></div>
-                <span class="textx-15 font-medium">{{ report.results.dataset_pretty_name }}</span>
+                <span class="fs-subtitle font-medium">{{ report.results.dataset_pretty_name }}</span>
               </div>
 
               <el-descriptions :column="2" border class="mb-4">
@@ -193,7 +193,7 @@
               <!-- Metrics -->
               <div class="flex items-center mb-4 mt-6">
                 <div class="w-1 hx-16 bg-[var(--safe-primary)] mr-2 rounded-sm"></div>
-                <span class="textx-15 font-medium">Metrics</span>
+                <span class="fs-subtitle font-medium">Metrics</span>
               </div>
               <el-table
                 :data="report.results.metrics || []"
@@ -280,7 +280,7 @@
               <!-- Summary -->
               <div class="flex items-center mb-4">
                 <div class="w-1 hx-16 bg-[var(--safe-primary)] mr-2 rounded-sm"></div>
-                <span class="textx-15 font-medium">Summary</span>
+                <span class="fs-subtitle font-medium">Summary</span>
               </div>
               <el-descriptions :column="2" border class="mb-6">
                 <el-descriptions-item label="Average Score">
@@ -299,7 +299,7 @@
               <!-- Datasets Results -->
               <div class="flex items-center mb-4">
                 <div class="w-1 hx-16 bg-[var(--safe-primary)] mr-2 rounded-sm"></div>
-                <span class="textx-15 font-medium">Dataset Results</span>
+                <span class="fs-subtitle font-medium">Dataset Results</span>
               </div>
               <el-collapse accordion>
                 <el-collapse-item

@@ -444,7 +444,7 @@ watch(
     flex-direction: column;
     gap: 4px;
     .label { font-size: 12px; color: var(--el-text-color-secondary); font-weight: 500; }
-    .value { font-size: 15px; font-weight: 600; color: var(--el-text-color-primary); }
+    .value { font-size: var(--fs-subtitle); font-weight: 600; color: var(--el-text-color-primary); }
   }
 }
 

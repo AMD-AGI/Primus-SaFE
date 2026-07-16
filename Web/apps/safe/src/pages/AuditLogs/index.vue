@@ -21,7 +21,7 @@
   <el-card class="mt-6 safe-card" shadow="never">
     <el-table
       ref="tableRef"
-      :height="'calc(100vh - 240px)'"
+      :height="'calc(100vh / var(--zoom) - 240px)'"
       :data="items"
       size="large"
       class="m-t-2 auditlogs-table"

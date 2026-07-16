@@ -23,13 +23,7 @@
     >
       Preheat Image
     </el-button>
-    <el-segmented
-      v-model="activeTab"
-      :options="tabSegOptions"
-      class="myself-seg"
-      style="background: none"
-      data-tour="images-tabs"
-    />
+    <el-segmented v-model="activeTab" :options="tabSegOptions" data-tour="images-tabs" />
 
     <!-- Right side search, Import tab -->
     <div v-if="activeTab === 'list'" class="flex flex-wrap items-center ml-auto" data-tour="images-search">
@@ -61,7 +55,7 @@
   <!-- Image list -->
   <el-card v-show="activeTab === 'list'" class="mt-4 safe-card" shadow="never" data-tour="images-table">
     <el-table
-      :height="'calc(100vh - 240px)'"
+      :height="'calc(100vh / var(--zoom) - 240px)'"
       :data="state.rowData"
       size="large"
       class="m-t-2"
@@ -919,16 +913,6 @@ defineOptions({
 .actions-wrapper {
   display: flex;
   gap: 12px;
-}
-
-</style>
-<style>
-/* Reuse project-wide segmented unified styles */
-.myself-seg .el-segmented__item-selected {
-  background: none;
-}
-.myself-seg .el-segmented__item.is-selected {
-  color: var(--safe-primary) !important;
 }
 
 </style>

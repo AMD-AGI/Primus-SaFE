@@ -16,19 +16,13 @@
       >
         Create Deployment
       </el-button>
-      <el-segmented
-        v-model="currentType"
-        :options="typeSegOptions"
-        @change="handleTypeChange"
-        class="myself-seg"
-        style="background: none"
-      />
+      <el-segmented v-model="currentType" :options="typeSegOptions" @change="handleTypeChange" />
     </div>
   </div>
 
   <el-card class="mt-6 safe-card" shadow="never">
     <el-table
-      :height="'calc(100vh - 255px)'"
+      :height="'calc(100vh / var(--zoom) - 255px)'"
       :data="tableData"
       size="large"
       class="m-t-2"
@@ -240,30 +234,8 @@ const passAll = () => {
   return true
 }
 
-// Keep the URL query in sync with the type/status/pagination state so that
-// returning from a deployment detail page restores the same list view.
-const readQuery = () => {
-  const q = router.currentRoute.value.query
-  const type = q.type as string
-  if (type === 'safe' || type === 'lens') currentType.value = type
-  const statusStr = (q.status as string) || ''
-  searchParams.status = statusStr ? (statusStr.split(',') as DeploymentStatus[]) : []
-  pagination.page = Number(q.page || 1)
-  pagination.pageSize = Number(q.pageSize || pagination.pageSize)
-}
-
-const writeQuery = () => {
-  const query: Record<string, string> = {}
-  query.type = currentType.value
-  if (searchParams.status.length) query.status = searchParams.status.join(',')
-  query.page = String(pagination.page)
-  query.pageSize = String(pagination.pageSize)
-  router.replace({ query })
-}
-
 const fetchData = async () => {
   try {
-    writeQuery()
     loading.value = true
     const params: {
       offset: number
@@ -304,13 +276,15 @@ const handleTableFilterChange = (filters: Record<string, DeploymentStatus[]>) =>
 
 const handleTypeChange = () => {
   pagination.page = 1
-  // writeQuery (called inside fetchData) keeps type + status + pagination in URL
+  // keep selected type in URL so returning from detail can restore it
+  router.replace({ query: { ...route.query, type: currentType.value } })
   fetchData()
 }
 
 const handleCreateSuccess = (type?: DeploymentType) => {
   if (type) currentType.value = type
   pagination.page = 1
+  router.replace({ query: { ...route.query, type: currentType.value } })
   fetchData()
 }
 
@@ -419,8 +393,10 @@ const handleRetry = async (row: DeploymentRequest) => {
 onMounted(async () => {
   // Check if there's an approval ID in the query params
   const approvalId = route.query.approvalId
-  // Restore type + status + pagination from URL before the first fetch.
-  readQuery()
+  const approvalType = route.query.type as DeploymentType | undefined
+  if (approvalType === 'safe' || approvalType === 'lens') {
+    currentType.value = approvalType
+  }
 
   await fetchData()
 
@@ -455,15 +431,5 @@ defineOptions({
   line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
-}
-</style>
-
-<style>
-/* Reuse project-wide segmented component styles */
-.myself-seg .el-segmented__item-selected {
-  background: none;
-}
-.myself-seg .el-segmented__item.is-selected {
-  color: var(--safe-primary) !important;
 }
 </style>

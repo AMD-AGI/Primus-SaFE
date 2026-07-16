@@ -53,7 +53,7 @@ defineOptions({
   padding: 0;
   display: flex;
   flex-direction: column;
-  height: calc(100vh - 120px);
+  height: calc(100vh / var(--zoom) - 120px);
 
   .page-header {
     margin-bottom: 12px;

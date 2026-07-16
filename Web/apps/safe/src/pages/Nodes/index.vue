@@ -1,42 +1,41 @@
 <template>
-  <div>
-    <el-text class="block textx-18 font-500" tag="b">Nodes</el-text>
-    <el-button
-      v-if="isManager"
-      type="primary"
-      round
-      :icon="Plus"
-      class="m-t-4 text-black"
-      @click="
-        () => {
-          curAction = 'Create'
-          curId = ''
-          addVisible = true
-        }
-      "
-    >
-      Create Node
-    </el-button>
-  </div>
-  <el-row class="m-t-4" :gutter="20">
-    <el-col :span="6">
+  <el-text class="block textx-18 font-500" tag="b">Nodes</el-text>
+  <div class="flex flex-wrap items-center justify-between gap-2 mt-4">
+    <div class="flex flex-wrap items-center gap-2">
+      <el-button
+        v-if="isManager"
+        type="primary"
+        round
+        :icon="Plus"
+        class="text-black"
+        @click="
+          () => {
+            curAction = 'Create'
+            curId = ''
+            addVisible = true
+          }
+        "
+      >
+        Create Node
+      </el-button>
+    </div>
+    <div class="flex flex-wrap items-center">
       <el-input
         v-model="searchParams.search"
-        style="width: 100%"
+        style="width: 280px"
         size="default"
         placeholder="Search by name or IP address"
         clearable
+        class="mr-3"
         @input="handleSearchInput"
         @clear="onSearch({ resetPage: true })"
       />
-    </el-col>
-    <el-col :span="18" class="text-right">
       <el-button :loading="exportLoading" class="btn-ghost" @click="onExport">
         <el-icon class="mr-1"><Download /></el-icon>
         Export
       </el-button>
-    </el-col>
-  </el-row>
+    </div>
+  </div>
   <el-card class="mt-6 safe-card" shadow="never">
     <el-table
       :height="tableHeight"
@@ -627,7 +626,7 @@ function onBarAfterLeave() {
 }
 const tableHeight = computed(() => {
   const extra = hasBarSpace.value ? SELECTION_BAR_H : 0
-  return `calc(100vh - ${extra}px - ${isManager.value ? 295 : 255}px)`
+  return `calc(100vh / var(--zoom) - ${extra}px - 255px)`
 })
 
 // Sorting

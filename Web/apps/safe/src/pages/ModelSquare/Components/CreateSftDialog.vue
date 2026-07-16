@@ -19,7 +19,7 @@
       <!-- Section 1: Base Model (read-only) -->
       <div class="flex items-center m-b-4">
         <div class="w-1 hx-16 bg-[var(--safe-primary)] mr-2 rounded-sm"></div>
-        <span class="textx-15 font-medium">Base Model</span>
+        <span class="fs-subtitle font-medium">Base Model</span>
       </div>
 
       <div class="model-info-card m-b-4">
@@ -57,7 +57,7 @@
         <!-- Section 2: Dataset -->
         <div class="flex items-center m-b-4 m-t-6">
           <div class="w-1 hx-16 bg-[var(--safe-primary)] mr-2 rounded-sm"></div>
-          <span class="textx-15 font-medium">Dataset</span>
+          <span class="fs-subtitle font-medium">Dataset</span>
         </div>
 
         <el-row :gutter="20">
@@ -94,7 +94,7 @@
         <!-- Section 3: Training Configuration -->
         <div class="flex items-center m-b-4 m-t-6">
           <div class="w-1 hx-16 bg-[var(--safe-primary)] mr-2 rounded-sm"></div>
-          <span class="textx-15 font-medium">Training Configuration</span>
+          <span class="fs-subtitle font-medium">Training Configuration</span>
         </div>
 
         <el-row :gutter="20">
@@ -305,7 +305,7 @@
         <!-- Section 4: Resource Configuration -->
         <div class="flex items-center m-b-4 m-t-6">
           <div class="w-1 hx-16 bg-[var(--safe-primary)] mr-2 rounded-sm"></div>
-          <span class="textx-15 font-medium">Resource Configuration</span>
+          <span class="fs-subtitle font-medium">Resource Configuration</span>
         </div>
 
         <el-row :gutter="20">
@@ -377,7 +377,7 @@
         <!-- Section 5: Output / Export -->
         <div class="flex items-center m-b-4 m-t-6">
           <div class="w-1 hx-16 bg-[var(--safe-primary)] mr-2 rounded-sm"></div>
-          <span class="textx-15 font-medium">Output / Export</span>
+          <span class="fs-subtitle font-medium">Output / Export</span>
         </div>
 
         <el-row :gutter="20">

@@ -23,7 +23,7 @@
       <!-- Basic Information -->
       <div class="flex items-center m-b-4">
         <div class="w-1 hx-16 bg-[var(--safe-primary)] mr-2 rounded-sm"></div>
-        <span class="textx-15 font-medium">Basic Information</span>
+        <span class="fs-subtitle font-medium">Basic Information</span>
       </div>
 
       <el-form-item label="Name" prop="name">
@@ -91,7 +91,7 @@
       </el-form-item>
 
       <el-form-item label="Kubernetes Version" prop="kubernetesVersion">
-        <el-segmented v-model="form.kubernetesVersion" :options="segVersionOptions" size="small" />
+        <el-segmented class="form-seg" v-model="form.kubernetesVersion" :options="segVersionOptions" size="small" />
       </el-form-item>
 
       <el-form-item label="Kube Apiserver Args">
@@ -106,7 +106,7 @@
       <!-- Network Settings -->
       <div class="flex items-center m-b-4 mt-4">
         <div class="w-1 hx-16 bg-[var(--safe-primary)] mr-2 rounded-sm"></div>
-        <span class="textx-15 font-medium">Network Settings</span>
+        <span class="fs-subtitle font-medium">Network Settings</span>
       </div>
 
       <el-form-item label="Kube Pods Subnet" prop="kubePodsSubnet">

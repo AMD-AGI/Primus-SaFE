@@ -1,208 +1,259 @@
 <template>
-  <el-dialog
+  <el-drawer
     :model-value="visible"
     :title="`${props.action} NodeFlavor`"
-    width="700"
-    @close="emit('update:visible', false)"
     :close-on-click-modal="false"
+    size="820px"
+    :before-close="cancelAdd"
     destroy-on-close
+    direction="rtl"
+    :z-index="100000"
+    append-to-body
+    class="training-drawer"
     @open="onOpen"
   >
-    <el-form
-      ref="ruleFormRef"
-      :model="form"
-      :rules="rules"
-      label-position="top"
-      class="p-4"
-      :disabled="isDetail"
-    >
-      <!-- Basic -->
-      <el-row :gutter="12">
-        <el-col :span="12">
-          <el-form-item label="Name" prop="name" class="!mb-3">
-            <el-input v-model="form.name" :disabled="isEdit" />
-          </el-form-item>
-        </el-col>
-        <el-col :span="12">
-          <el-form-item label="Memory" prop="memory" class="!mb-3">
-            <el-input v-model="form.memory">
-              <template #append>
-                <el-select v-model="form.memoryAppend" style="width: 96px">
-                  <el-option v-for="v in CAP_UNITS" :key="v" :label="v" :value="v" />
+    <!-- Middle content area: scrollable -->
+    <div class="drawer-body">
+      <el-form
+        ref="ruleFormRef"
+        :model="form"
+        :rules="rules"
+        label-width="120px"
+        :validate-on-rule-change="false"
+        :disabled="isDetail"
+      >
+        <!-- ===== Basic Information ===== -->
+        <div class="section-card">
+          <div class="section-header">
+            <div class="section-bar"></div>
+            <div>
+              <div class="section-title">Basic Information</div>
+              <div class="section-subtitle">Name and memory capacity</div>
+            </div>
+          </div>
+
+          <el-row :gutter="16">
+            <el-col :span="12">
+              <el-form-item label="Name" prop="name">
+                <el-input v-model="form.name" :disabled="isEdit" />
+              </el-form-item>
+            </el-col>
+            <el-col :span="12">
+              <el-form-item label="Memory" prop="memory">
+                <el-input v-model="form.memory">
+                  <template #append>
+                    <el-select v-model="form.memoryAppend" style="width: 96px">
+                      <el-option v-for="v in CAP_UNITS" :key="v" :label="v" :value="v" />
+                    </el-select>
+                  </template>
+                </el-input>
+              </el-form-item>
+            </el-col>
+          </el-row>
+        </div>
+
+        <!-- ===== CPU ===== -->
+        <div class="section-card">
+          <div class="section-header">
+            <div class="section-bar"></div>
+            <div>
+              <div class="section-title">CPU</div>
+              <div class="section-subtitle">CPU quantity and product</div>
+            </div>
+          </div>
+
+          <el-row :gutter="16">
+            <el-col :span="12">
+              <el-form-item label="Quantity" prop="cpu.quantity">
+                <el-input v-model="form.cpu.quantity">
+                  <template #append>core</template>
+                </el-input>
+              </el-form-item>
+            </el-col>
+            <el-col :span="12">
+              <el-form-item label="Product">
+                <el-input v-model="form.cpu.product" />
+              </el-form-item>
+            </el-col>
+          </el-row>
+        </div>
+
+        <!-- ===== GPU ===== -->
+        <div class="section-card">
+          <div class="section-header">
+            <div class="section-bar"></div>
+            <div>
+              <div class="section-title">GPU</div>
+              <div class="section-subtitle">GPU quantity, product and resource name</div>
+            </div>
+          </div>
+
+          <el-row :gutter="16">
+            <el-col :span="12">
+              <el-form-item label="Quantity">
+                <el-input v-model="form.gpu.quantity">
+                  <template #append>card</template>
+                </el-input>
+              </el-form-item>
+            </el-col>
+            <el-col :span="12">
+              <el-form-item label="Product">
+                <el-input v-model="form.gpu.product" />
+              </el-form-item>
+            </el-col>
+            <el-col :span="24">
+              <el-form-item label="Resource Name">
+                <el-input v-model="form.gpu.resourceName" />
+              </el-form-item>
+            </el-col>
+          </el-row>
+        </div>
+
+        <!-- ===== Root Disk ===== -->
+        <div class="section-card">
+          <div class="section-header">
+            <div class="section-bar"></div>
+            <div>
+              <div class="section-title">Root Disk</div>
+              <div class="section-subtitle">Root disk quantity, type and count</div>
+            </div>
+          </div>
+
+          <el-row :gutter="16">
+            <el-col :span="12">
+              <el-form-item label="Quantity" prop="rootDisk.quantity">
+                <el-input v-model="form.rootDisk.quantity">
+                  <template #append>
+                    <el-select v-model="form.rootDiskAppend" style="width: 96px">
+                      <el-option v-for="v in CAP_UNITS" :key="v" :label="v" :value="v" />
+                    </el-select>
+                  </template>
+                </el-input>
+              </el-form-item>
+            </el-col>
+            <el-col :span="12">
+              <el-form-item label="Type" prop="rootDisk.type">
+                <el-select
+                  v-model="form.rootDisk.type"
+                  filterable
+                  allow-create
+                  clearable
+                  placeholder="Select or enter disk type"
+                  @change="onDiskTypeChange('rootDisk')"
+                >
+                  <el-option
+                    v-for="opt in diskTypeOptions"
+                    :key="opt.value"
+                    :label="opt.label"
+                    :value="opt.value"
+                  />
                 </el-select>
-              </template>
-            </el-input>
-          </el-form-item>
-        </el-col>
-      </el-row>
+              </el-form-item>
+            </el-col>
+            <el-col :span="12">
+              <el-form-item label="Count" prop="rootDisk.count">
+                <el-input v-model="form.rootDisk.count" />
+              </el-form-item>
+            </el-col>
+          </el-row>
+        </div>
 
-      <div class="flex items-center m-b-6 mt-2">
-        <div class="w-1 hx-16 bg-[var(--safe-primary)] mr-2 rounded-sm"></div>
-        <span class="textx-15 font-medium">CPU</span>
-      </div>
-      <!-- <el-divider content-position="left">CPU</el-divider> -->
-      <el-row :gutter="12">
-        <el-col :span="12">
-          <el-form-item label="Quantity" prop="cpu.quantity" class="!mb-3">
-            <el-input v-model="form.cpu.quantity">
-              <template #append>core</template>
-            </el-input>
-          </el-form-item>
-        </el-col>
-        <el-col :span="12">
-          <el-form-item label="Product" class="!mb-3">
-            <el-input v-model="form.cpu.product" />
-          </el-form-item>
-        </el-col>
-      </el-row>
+        <!-- ===== Data Disk ===== -->
+        <div class="section-card">
+          <div class="section-header">
+            <div class="section-bar"></div>
+            <div>
+              <div class="section-title">Data Disk</div>
+              <div class="section-subtitle">Data disk quantity, type and count</div>
+            </div>
+          </div>
 
-      <!-- <el-divider content-position="left">GPU</el-divider> -->
-      <div class="flex items-center m-b-6 mt-2">
-        <div class="w-1 hx-16 bg-[var(--safe-primary)] mr-2 rounded-sm"></div>
-        <span class="textx-15 font-medium">GPU</span>
-      </div>
-      <el-row :gutter="12">
-        <el-col :span="12">
-          <el-form-item label="Quantity" class="!mb-3">
-            <el-input v-model="form.gpu.quantity">
-              <template #append>card</template>
-            </el-input>
-          </el-form-item>
-        </el-col>
-        <el-col :span="12">
-          <el-form-item label="Product" class="!mb-3">
-            <el-input v-model="form.gpu.product" />
-          </el-form-item>
-        </el-col>
-        <el-col :span="24">
-          <el-form-item label="Resource Name" class="!mb-3">
-            <el-input v-model="form.gpu.resourceName" />
-          </el-form-item>
-        </el-col>
-      </el-row>
-
-      <div class="flex items-center m-b-6 mt-2">
-        <div class="w-1 hx-16 bg-[var(--safe-primary)] mr-2 rounded-sm"></div>
-        <span class="textx-15 font-medium">Root Disk</span>
-      </div>
-      <!-- <el-divider content-position="left">Root Disk</el-divider> -->
-      <el-row :gutter="12">
-        <el-col :span="12">
-          <el-form-item label="Quantity" prop="rootDisk.quantity" class="!mb-3">
-            <el-input v-model="form.rootDisk.quantity">
-              <template #append>
-                <el-select v-model="form.rootDiskAppend" style="width: 96px">
-                  <el-option v-for="v in CAP_UNITS" :key="v" :label="v" :value="v" />
+          <el-row :gutter="16">
+            <el-col :span="12">
+              <el-form-item label="Quantity" prop="dataDisk.quantity">
+                <el-input v-model="form.dataDisk.quantity">
+                  <template #append>
+                    <el-select v-model="form.dataDiskAppend" style="width: 96px">
+                      <el-option v-for="v in CAP_UNITS" :key="v" :label="v" :value="v" />
+                    </el-select>
+                  </template>
+                </el-input>
+              </el-form-item>
+            </el-col>
+            <el-col :span="12">
+              <el-form-item label="Type" prop="dataDisk.type">
+                <el-select
+                  v-model="form.dataDisk.type"
+                  filterable
+                  allow-create
+                  clearable
+                  placeholder="Select or enter disk type"
+                  @change="onDiskTypeChange('dataDisk')"
+                >
+                  <el-option
+                    v-for="opt in diskTypeOptions"
+                    :key="opt.value"
+                    :label="opt.label"
+                    :value="opt.value"
+                  />
                 </el-select>
-              </template>
-            </el-input>
-          </el-form-item>
-        </el-col>
-        <el-col :span="12">
-          <el-form-item label="Type" prop="rootDisk.type" class="!mb-3">
-            <el-select
-              v-model="form.rootDisk.type"
-              filterable
-              allow-create
-              clearable
-              placeholder="Select or enter disk type"
-              @change="onDiskTypeChange('rootDisk')"
-            >
-              <el-option
-                v-for="opt in diskTypeOptions"
-                :key="opt.value"
-                :label="opt.label"
-                :value="opt.value"
-              />
-            </el-select>
-          </el-form-item>
-        </el-col>
-        <el-col :span="12">
-          <el-form-item label="Count" prop="rootDisk.count" class="!mb-3">
-            <el-input v-model="form.rootDisk.count" />
-          </el-form-item>
-        </el-col>
-      </el-row>
+              </el-form-item>
+            </el-col>
+            <el-col :span="12">
+              <el-form-item label="Count" prop="dataDisk.count">
+                <el-input v-model="form.dataDisk.count" />
+              </el-form-item>
+            </el-col>
+          </el-row>
+        </div>
 
-      <div class="flex items-center m-b-6 mt-2">
-        <div class="w-1 hx-16 bg-[var(--safe-primary)] mr-2 rounded-sm"></div>
-        <span class="textx-15 font-medium">Data Disk</span>
-      </div>
-      <el-row :gutter="12">
-        <el-col :span="12">
-          <el-form-item label="Quantity" prop="dataDisk.quantity" class="!mb-3">
-            <el-input v-model="form.dataDisk.quantity">
-              <template #append>
-                <el-select v-model="form.dataDiskAppend" style="width: 96px">
-                  <el-option v-for="v in CAP_UNITS" :key="v" :label="v" :value="v" />
-                </el-select>
-              </template>
-            </el-input>
-          </el-form-item>
-        </el-col>
-        <el-col :span="12">
-          <el-form-item label="Type" prop="dataDisk.type" class="!mb-3">
-            <el-select
-              v-model="form.dataDisk.type"
-              filterable
-              allow-create
-              clearable
-              placeholder="Select or enter disk type"
-              @change="onDiskTypeChange('dataDisk')"
-            >
-              <el-option
-                v-for="opt in diskTypeOptions"
-                :key="opt.value"
-                :label="opt.label"
-                :value="opt.value"
-              />
-            </el-select>
-          </el-form-item>
-        </el-col>
-        <el-col :span="12">
-          <el-form-item label="Count" prop="dataDisk.count" class="!mb-3">
-            <el-input v-model="form.dataDisk.count" />
-          </el-form-item>
-        </el-col>
-      </el-row>
+        <!-- ===== Extended Resources ===== -->
+        <div class="section-card">
+          <div class="section-header">
+            <div class="section-bar"></div>
+            <div>
+              <div class="section-title">Extended Resources</div>
+              <div class="section-subtitle">Ephemeral storage and RDMA</div>
+            </div>
+          </div>
 
-      <div class="flex items-center m-b-6 mt-2">
-        <div class="w-1 hx-16 bg-[var(--safe-primary)] mr-2 rounded-sm"></div>
-        <span class="textx-15 font-medium">Extended Resources</span>
-      </div>
-      <el-row :gutter="12">
-        <el-col :span="12">
-          <el-form-item label="ephemeralStorage" class="!mb-3">
-            <el-input v-model="form.extendedResources['ephemeral-storage']">
-              <template #append>
-                <el-select v-model="form.storageAppend" style="width: 96px">
-                  <el-option v-for="v in CAP_UNITS" :key="v" :label="v" :value="v" />
-                </el-select>
-              </template>
-            </el-input>
-          </el-form-item>
-        </el-col>
-        <el-col :span="12">
-          <el-form-item label="rdma/hca" class="!mb-3">
-            <el-input v-model="form.extendedResources['rdma/hca']" />
-          </el-form-item>
-        </el-col>
-      </el-row>
-    </el-form>
+          <el-row :gutter="16">
+            <el-col :span="12">
+              <el-form-item label="Ephemeral">
+                <el-input v-model="form.extendedResources['ephemeral-storage']">
+                  <template #append>
+                    <el-select v-model="form.storageAppend" style="width: 96px">
+                      <el-option v-for="v in CAP_UNITS" :key="v" :label="v" :value="v" />
+                    </el-select>
+                  </template>
+                </el-input>
+              </el-form-item>
+            </el-col>
+            <el-col :span="12">
+              <el-form-item label="rdma/hca">
+                <el-input v-model="form.extendedResources['rdma/hca']" />
+              </el-form-item>
+            </el-col>
+          </el-row>
+        </div>
+      </el-form>
+    </div>
+
+    <!-- Footer fixed at bottom -->
     <template #footer v-if="!isDetail">
-      <div class="dialog-footer">
-        <el-button @click="emit('update:visible', false)">Cancel</el-button>
-        <el-button type="primary" @click="onSubmit(ruleFormRef)"> Confirm </el-button>
+      <div class="drawer-footer">
+        <el-button @click="cancelAdd">Cancel</el-button>
+        <el-button type="primary" :loading="submitting" @click="onSubmit(ruleFormRef)"> Confirm </el-button>
       </div>
     </template>
-  </el-dialog>
+  </el-drawer>
 </template>
 
 <script lang="ts" setup>
 import { defineProps, defineEmits, reactive, ref, computed, nextTick, toRaw, watch } from 'vue'
 import type { FlavorOptionsType, CreateFlavorPayload } from '@/services'
 import { addNodeFlavor, editNodeFlavor } from '@/services'
-import { type FormInstance, type FormRules, ElMessage } from 'element-plus'
+import { type FormInstance, type FormRules, ElMessage, ElMessageBox } from 'element-plus'
 import { CAP_UNITS, parseQuantityWithUnit, applyQuantityWithUnit } from '@/utils'
 
 const props = defineProps<{
@@ -325,10 +376,13 @@ function buildDisk(
   // Return undefined if no valid fields
   return Object.keys(out).length > 0 ? out : undefined
 }
+const submitting = ref(false)
 const onSubmit = async (formEl: FormInstance | undefined) => {
   if (!formEl) return
+  if (submitting.value) return
   try {
     await formEl.validate()
+    submitting.value = true
 
     const raw = toRaw(form)
     const gpuQtyNum = Number(String(raw.gpu?.quantity ?? '').trim())
@@ -399,7 +453,25 @@ const onSubmit = async (formEl: FormInstance | undefined) => {
       formEl.scrollToField?.(firstKey as any)
       ElMessage.error(firstMsg)
     }
+  } finally {
+    submitting.value = false
   }
+}
+
+const cancelAdd = () => {
+  // In Detail (read-only) mode, close directly without confirmation
+  if (isDetail.value) {
+    emit('update:visible', false)
+    return
+  }
+  ElMessageBox.confirm('All fields will be cleared.', 'Clear form & close?', {
+    confirmButtonText: 'OK',
+    cancelButtonText: 'Cancel',
+    type: 'warning',
+  }).then(() => {
+    emit('update:visible', false)
+    Object.assign(form, createInitialForm())
+  })
 }
 
 // Populate form for editing
@@ -467,3 +539,89 @@ watch(
   { immediate: true },
 )
 </script>
+<style>
+.el-drawer__header {
+  padding: 12px 24px 4px;
+  margin-bottom: 0;
+}
+.el-drawer__title {
+  font-size: 18px;
+  font-weight: 600;
+}
+.el-drawer__body {
+  padding-bottom: 0;
+}
+</style>
+<style scoped>
+.drawer-body {
+  overflow-y: auto;
+}
+
+/* Wrap each group in a card */
+.section-card {
+  background: var(--el-bg-color-overlay);
+  border-radius: 10px;
+  padding: 14px 16px 10px;
+  margin-bottom: 20px;
+
+  border: 1px solid var(--el-border-color-lighter);
+  box-shadow:
+    0 2px 8px rgba(0, 0, 0, 0.08),
+    0 1px 3px rgba(0, 0, 0, 0.04);
+}
+
+html.dark .section-card {
+  border: 1px solid rgba(255, 255, 255, 0.03);
+  box-shadow:
+    0 12px 35px rgba(0, 0, 0, 0.55),
+    0 0 0 1px rgba(0, 0, 0, 0.7);
+}
+
+.section-card:hover {
+  box-shadow:
+    0 4px 12px rgba(0, 0, 0, 0.12),
+    0 2px 6px rgba(0, 0, 0, 0.06);
+  transform: translateY(-1px);
+  transition: all 0.16s ease-out;
+}
+
+html.dark .section-card:hover {
+  box-shadow:
+    0 14px 40px rgba(0, 0, 0, 0.55),
+    0 0 1px rgba(0, 0, 0, 0.9);
+}
+
+/* Section title */
+.section-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.section-bar {
+  width: 4px;
+  height: 18px;
+  border-radius: 999px;
+  margin-top: 2px;
+  background-color: var(--safe-primary);
+}
+.section-title {
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.2;
+}
+.section-subtitle {
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+}
+
+/* Drawer footer */
+.drawer-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  padding: 10px 24px;
+  border-top: 1px solid var(--el-border-color-lighter);
+}
+</style>

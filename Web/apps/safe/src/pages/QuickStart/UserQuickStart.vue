@@ -286,7 +286,7 @@ onMounted(async () => {
   letter-spacing: -0.02em;
 }
 .qs-hero__sub {
-  font-size: 15px;
+  font-size: var(--fs-subtitle);
   color: var(--safe-muted);
   line-height: 1.6;
   margin: 0;

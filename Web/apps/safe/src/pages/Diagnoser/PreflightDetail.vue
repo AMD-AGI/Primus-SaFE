@@ -13,7 +13,7 @@
       <el-card class="mt-2 safe-card" shadow="never">
         <div class="flex items-center">
           <div class="w-1 hx-16 bg-[var(--safe-primary)] mr-2 rounded-sm"></div>
-          <span class="textx-15 font-medium">configuration</span>
+          <span class="fs-subtitle font-medium">configuration</span>
         </div>
 
         <el-descriptions
@@ -81,7 +81,7 @@
       <el-card class="mt-6 safe-card" shadow="never">
         <div class="flex items-center">
           <div class="w-1 hx-16 bg-[var(--safe-primary)] mr-2 rounded-sm"></div>
-          <span class="textx-15 font-medium">resource</span>
+          <span class="fs-subtitle font-medium">resource</span>
         </div>
         <div class="grid gap-3 mt-4 sm:grid-cols-2 lg:grid-cols-3">
           <StatCard label="CPU" :value="preflightDetail?.resource?.cpu ?? '-'" :icon="Cpu" />

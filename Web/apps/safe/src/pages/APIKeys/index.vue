@@ -7,7 +7,7 @@
           type="primary"
           round
           :icon="Plus"
-          class="m-t-4 text-black"
+          class="text-black"
           @click="
             () => {
               addVisible = true
@@ -37,7 +37,7 @@
   </div>
   <el-card class="mt-6 safe-card" shadow="never">
     <el-table
-      :height="'calc(100vh - 240px)'"
+      :height="'calc(100vh / var(--zoom) - 240px)'"
       :data="items"
       size="large"
       class="m-t-2"

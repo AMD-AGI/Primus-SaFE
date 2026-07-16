@@ -10,7 +10,7 @@
   >
     <!-- Type selector (shown only in Create mode) -->
     <div v-if="!isEditMode" class="type-selector">
-      <el-segmented v-model="toolType" :options="typeOptions" block />
+      <el-segmented class="form-seg" v-model="toolType" :options="typeOptions" block />
     </div>
 
     <!-- MCP form -->
@@ -160,7 +160,7 @@
       <div v-if="!discoverResult">
         <div class="import-method-selector">
           <div class="selector-label">Import Method</div>
-          <el-segmented v-model="importMethod" :options="importMethodOptions" block />
+          <el-segmented class="form-seg" v-model="importMethod" :options="importMethodOptions" block />
         </div>
 
         <!-- File upload -->
@@ -1023,7 +1023,7 @@ defineOptions({
 
             .candidate-title {
               .skill-name {
-                font-size: 15px;
+                font-size: var(--fs-subtitle);
                 font-weight: 600;
                 color: var(--el-text-color-primary);
               }

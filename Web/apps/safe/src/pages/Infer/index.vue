@@ -24,8 +24,7 @@
         v-model="searchParams.onlyMyself"
         :options="['All', 'My Workloads']"
         @change="filterByMyself"
-        class="myself-seg ml-2 mt-2 sm:mt-0 mb-2"
-        style="background: none"
+        class="ml-2 mt-2 sm:mt-0 mb-2"
       />
     </div>
 
@@ -348,9 +347,8 @@ import ResetIcon from '@/components/icons/ResetIcon.vue'
 import { copyText, formatTimeStr } from '@/utils/index'
 import dayjs from 'dayjs'
 import utc from 'dayjs/plugin/utc'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { useRouteAction, ROUTE_ACTIONS } from '@/composables/useRouteAction'
-import { useWorkloadListQuery } from '@/composables/useWorkloadListQuery'
 import AddDialog from './Components/AddDialog.vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Delete, DocumentCopy, Edit, Close, MoreFilled, VideoPlay } from '@element-plus/icons-vue'
@@ -364,6 +362,7 @@ dayjs.extend(utc)
 
 const tableRef = ref()
 const isDark = useDark()
+const route = useRoute()
 const router = useRouter()
 const store = useWorkspaceStore()
 const userStore = useUserStore()
@@ -393,36 +392,6 @@ const pagination = reactive({
   pageSize: 20,
   total: 0,
 })
-
-const { readQuery, writeQuery, syncUserId } = useWorkloadListQuery({
-  searchParams,
-  pagination,
-  defaultScope: 'My Workloads',
-  serializeFilters: () => {
-    const [start, end] = searchParams.dateRange ?? []
-    return {
-      userName: searchParams.userName || undefined,
-      description: searchParams.description || undefined,
-      phase: searchParams.phase?.length ? searchParams.phase.join(',') : undefined,
-      since: start ? dayjs(start).utc().format('YYYY-MM-DDTHH:mm:ss.SSS[Z]') : undefined,
-      until: end ? dayjs(end).utc().format('YYYY-MM-DDTHH:mm:ss.SSS[Z]') : undefined,
-      workloadId: searchParams.workloadId || undefined,
-    }
-  },
-  parseFilters: (q) => {
-    searchParams.userName = (q.userName as string) || ''
-    searchParams.description = (q.description as string) || ''
-    searchParams.workloadId = (q.workloadId as string) || ''
-    const phaseStr = (q.phase as string) || ''
-    searchParams.phase = phaseStr ? (phaseStr.split(',') as WorkloadPhase[]) : []
-    const since = q.since as string | undefined
-    const until = q.until as string | undefined
-    searchParams.dateRange = (since || until
-      ? [since ? dayjs(since).toDate() : '', until ? dayjs(until).toDate() : '']
-      : '') as any
-  },
-})
-
 const curWlId = ref()
 const curAction = ref<'Create' | 'Edit' | 'Clone' | 'Resume'>('Create')
 
@@ -446,7 +415,7 @@ function onBarAfterLeave() {
 }
 const tableHeight = computed(() => {
   const extra = hasBarSpace.value ? SELECTION_BAR_H : 0
-  return `calc(100vh - ${BASE_OFFSET + extra}px)`
+  return `calc(100vh / var(--zoom) - ${BASE_OFFSET + extra}px)`
 })
 
 const jumpToDetail = (id: string) => {
@@ -497,7 +466,7 @@ const handleFilterChange = (filters: Record<string, string[]>) => {
 }
 
 const filterByMyself = () => {
-  syncUserId()
+  searchParams.userId = searchParams.onlyMyself !== 'All' ? userStore.userId : ''
   onSearch({ resetPage: true })
 }
 
@@ -510,7 +479,21 @@ const onSearch = (options?: { resetPage?: boolean }) => {
   const until = end ? dayjs(end).utc().format('YYYY-MM-DDTHH:mm:ss.SSS[Z]') : ''
   const phaseStr = searchParams.phase?.length ? searchParams.phase.join(',') : ''
 
-  writeQuery()
+  router.replace({
+    query: {
+      ...route.query,
+      userName: searchParams.userName || undefined,
+      description: searchParams.description || undefined,
+      phase: phaseStr || undefined,
+      since: since || undefined,
+      until: until || undefined,
+      workloadId: searchParams.workloadId || undefined,
+      onlyMyself: searchParams.onlyMyself || undefined,
+      userId: searchParams.userId,
+      page: String(pagination.page),
+      pageSize: String(pagination.pageSize),
+    },
+  })
 
   fetchData({
     userName: searchParams.userName,
@@ -747,12 +730,43 @@ onBeforeUnmount(() => {
   window.removeEventListener('pointerdown', onAnyPointerDown, { capture: true } as any)
 })
 
+function applyQueryToParams() {
+  const q = route.query
+
+  searchParams.userName = (q.userName as string) || ''
+  searchParams.description = (q.description as string) || ''
+  searchParams.workloadId = (q.workloadId as string) || ''
+  searchParams.onlyMyself = (q.onlyMyself as string) || 'My Workloads'
+  searchParams.userId = (q.userId as string) || ''
+
+  const phaseStr = (q.phase as string) || ''
+  searchParams.phase = phaseStr ? (phaseStr.split(',') as WorkloadPhase[]) : []
+
+  const since = q.since as string | undefined
+  const until = q.until as string | undefined
+  if (since || until) {
+    searchParams.dateRange = [
+      since ? dayjs(since).toDate() : '',
+      until ? dayjs(until).toDate() : '',
+    ] as any
+  } else {
+    searchParams.dateRange = ''
+  }
+
+  // Pagination
+  pagination.page = Number(q.page || 1)
+  pagination.pageSize = Number(q.pageSize || pagination.pageSize)
+}
+
 watch(
   // Refresh list data immediately when workspace dropdown changes
   () => store.currentWorkspaceId,
   (id) => {
     if (id) {
-      readQuery()
+      applyQueryToParams()
+      if (!searchParams.userId && searchParams.onlyMyself === 'My Workloads') {
+        searchParams.userId = userStore.userId
+      }
       onSearch({ resetPage: false })
     }
   },
@@ -817,14 +831,5 @@ watch(
 .pending-cause-icon:hover {
   color: var(--el-color-primary);
   transform: scale(1.2);
-}
-</style>
-<style>
-/* Override segmented style */
-.myself-seg .el-segmented__item-selected {
-  background: none;
-}
-.myself-seg .el-segmented__item.is-selected {
-  color: var(--safe-primary) !important;
 }
 </style>

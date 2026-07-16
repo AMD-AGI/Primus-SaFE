@@ -24,7 +24,7 @@ describe('Dynamo/Infera AddDialog', () => {
   })
 
   it('keeps Infera mode switching compact', () => {
-    expect(dialogSource).toContain('<el-segmented v-model="modeValue"')
+    expect(dialogSource).toContain('<el-segmented class="form-seg" v-model="modeValue"')
     expect(dialogSource).not.toContain('Standard Serving')
     expect(dialogSource).not.toContain('PD Disaggregation')
   })

@@ -2320,7 +2320,7 @@ onMounted(async () => {
 <style scoped>
 /* Page container with ambient effects */
 .agent-page-container {
-  height: calc(100vh - 50px);
+  height: calc(100vh / var(--zoom) - 50px);
   position: relative;
   background: linear-gradient(135deg, #f5f7fa 0%, #f0f2f5 50%, #e9ecef 100%);
   padding: 0;
@@ -2800,7 +2800,7 @@ html.dark .message-bubble:hover {
 
 .chat-input-centered :deep(.el-textarea__inner) {
   padding: 16px 60px 16px 20px;
-  font-size: 15px;
+  font-size: var(--fs-subtitle);
   border: 2px solid transparent;
   background: #ffffff;
   box-shadow:

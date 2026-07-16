@@ -60,7 +60,7 @@
                   Choose replicas / nodes and allocate CPU, GPU and memory
                 </div>
               </div>
-              <el-segmented
+              <el-segmented class="form-seg"
                 v-model="form.resourceType"
                 :options="['replicas', 'nodes']"
                 :disabled="isEdit"
@@ -883,7 +883,7 @@ html.dark .section-card:hover {
   background-color: var(--safe-primary);
 }
 .section-title {
-  font-size: 15px;
+  font-size: var(--fs-subtitle);
   font-weight: 600;
   line-height: 1.2;
 }

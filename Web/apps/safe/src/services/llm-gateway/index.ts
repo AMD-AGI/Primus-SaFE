@@ -2,6 +2,7 @@ import request from '@/services/request'
 import type {
   LLMGatewayBinding,
   LLMGatewayBindingRequest,
+  LLMGatewayApimKey,
   LLMGatewayUsage,
   LLMGatewayUsageParams,
   LLMGatewaySummary,
@@ -13,6 +14,9 @@ import type {
 
 export const getLLMGatewayBinding = (): Promise<LLMGatewayBinding> =>
   request.get('/llm-gateway/binding')
+
+export const getLLMGatewayApimKey = (): Promise<LLMGatewayApimKey> =>
+  request.get('/llm-gateway/binding/apim-key')
 
 export const createLLMGatewayBinding = (
   data: LLMGatewayBindingRequest,

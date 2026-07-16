@@ -136,7 +136,7 @@
   <el-card class="mt-6 safe-card" shadow="never">
     <div class="flex items-center">
       <div class="w-1 hx-16 bg-[var(--safe-primary)] mr-2 rounded-sm"></div>
-      <span class="textx-15 font-medium">Model Information</span>
+      <span class="fs-subtitle font-medium">Model Information</span>
     </div>
 
     <el-descriptions v-if="detailData" class="m-t-4" border :column="4" direction="vertical">
@@ -178,7 +178,7 @@
   >
     <div class="flex items-center">
       <div class="w-1 hx-16 bg-[var(--safe-primary)] mr-2 rounded-sm"></div>
-      <span class="textx-15 font-medium">Resource Configuration</span>
+      <span class="fs-subtitle font-medium">Resource Configuration</span>
     </div>
 
     <el-descriptions class="m-t-4" border :column="3" direction="vertical">
@@ -201,7 +201,7 @@
   <el-card class="mt-4 safe-card" shadow="never" v-if="detailData?.sourceURL">
     <div class="flex items-center">
       <div class="w-1 hx-16 bg-[var(--safe-primary)] mr-2 rounded-sm"></div>
-      <span class="textx-15 font-medium">Source Configuration</span>
+      <span class="fs-subtitle font-medium">Source Configuration</span>
     </div>
 
     <el-descriptions class="m-t-4" border :column="2" direction="vertical">
@@ -223,7 +223,7 @@
   <el-card class="mt-4 safe-card" shadow="never" v-if="detailData?.workloadID">
     <div class="flex items-center">
       <div class="w-1 hx-16 bg-[var(--safe-primary)] mr-2 rounded-sm"></div>
-      <span class="textx-15 font-medium">Inference Service</span>
+      <span class="fs-subtitle font-medium">Inference Service</span>
     </div>
 
     <el-descriptions class="m-t-4" border :column="2" direction="vertical">
@@ -249,7 +249,7 @@
   >
     <div class="flex items-center">
       <div class="w-1 hx-16 bg-[var(--safe-primary)] mr-2 rounded-sm"></div>
-      <span class="textx-15 font-medium">Tags</span>
+      <span class="fs-subtitle font-medium">Tags</span>
     </div>
 
     <div class="m-t-4 flex flex-wrap gap-2">

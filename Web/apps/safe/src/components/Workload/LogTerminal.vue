@@ -14,7 +14,7 @@
           <el-icon class="ml-2"><InfoFilled /></el-icon>
         </el-tooltip>
       </div>
-      <el-card class="mt-4 safe-card" style="height: calc(100vh - 238px)" shadow="never">
+      <el-card class="mt-4 safe-card" style="height: calc(100vh / var(--zoom) - 238px)" shadow="never">
         <el-input
           v-model="nodeSearch"
           size="default"
@@ -467,7 +467,7 @@ watch(
 
 /* ── Terminal body ── */
 .log-terminal {
-  height: calc(100vh - 316px);
+  height: calc(100vh / var(--zoom) - 316px);
   overflow: auto;
   padding: 0;
   font-family: 'Cascadia Code', 'Fira Code', Consolas, 'Courier New', monospace;

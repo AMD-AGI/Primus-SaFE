@@ -254,9 +254,10 @@
 
               <el-form-item
                 :prop="`volumes.${i}.provisioningStrategy`"
-                label="Provisioning Strategy"
+                label="Strategy"
               >
                 <el-segmented
+                  class="form-seg"
                   v-model="v.provisioningStrategy"
                   :options="['storageClass', 'PV Selector']"
                   :disabled="v.disabled"

@@ -333,7 +333,7 @@ onMounted(fetchList)
   }
 
   .plugin-name {
-    font-size: 15px;
+    font-size: var(--fs-subtitle);
     font-weight: 600;
     color: var(--safe-text, var(--el-text-color-primary));
     overflow: hidden;
