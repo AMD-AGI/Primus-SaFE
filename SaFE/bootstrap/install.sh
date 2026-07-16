@@ -398,6 +398,21 @@ if [[ "$sso_enable" == "true" ]]; then
   sed -i '/^sso:/,/^[a-z]/ s#secret: ".*"#secret: "'"$SSO_SECRET"'"#' "$values_yaml"
 fi
 
+# metrics.remote_write: push SaFE self-health metrics to the data-plane Robust VM.
+# insecure_skip_verify is for cross-cluster targets behind an internal-CA ingress.
+if [[ -n "${metrics_remote_write_enable:-}" ]]; then
+  sed -i '/^metrics:/,/^[a-z]/ s/remote_write_enable: .*/remote_write_enable: '"$metrics_remote_write_enable"'/' "$values_yaml"
+fi
+if [[ -n "${metrics_remote_write_url:-}" ]]; then
+  sed -i '/^metrics:/,/^[a-z]/ s|remote_write_url: .*|remote_write_url: "'"$metrics_remote_write_url"'"|' "$values_yaml"
+fi
+if [[ -n "${metrics_remote_write_cluster_name:-}" ]]; then
+  sed -i '/^metrics:/,/^[a-z]/ s/remote_write_cluster_name: .*/remote_write_cluster_name: "'"$metrics_remote_write_cluster_name"'"/' "$values_yaml"
+fi
+if [[ -n "${metrics_remote_write_insecure_skip_verify:-}" ]]; then
+  sed -i '/^metrics:/,/^[a-z]/ s/remote_write_insecure_skip_verify: .*/remote_write_insecure_skip_verify: '"$metrics_remote_write_insecure_skip_verify"'/' "$values_yaml"
+fi
+
 install_or_upgrade_helm_chart "primus-pgo" "$values_yaml"
 echo "⏳ Waiting for Postgres Operator pod..."
 for i in {1..30}; do
@@ -515,4 +530,8 @@ node_agent_toggle_net_ainic_devices_208=off
 node_agent_toggle_sys_csi_wekafs_309=off
 node_agent_resolv_search_domain=
 metrics_port=8000
+metrics_remote_write_enable=false
+metrics_remote_write_url=
+metrics_remote_write_cluster_name=
+metrics_remote_write_insecure_skip_verify=false
 EOF
