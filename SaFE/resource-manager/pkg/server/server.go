@@ -95,7 +95,7 @@ func (s *Server) init() error {
 		klog.ErrorS(err, "failed to add notification runner to controller manager")
 		return err
 	}
-	if commonconfig.IsMetricsRemoteWriteEnabled() {
+	if commonconfig.IsMetricsEnabled() {
 		if err = s.ctrlManager.ctrlManager.Add(rmhealth.NewReporter(s.ctrlManager.ctrlManager.GetClient())); err != nil {
 			klog.ErrorS(err, "failed to add self-health reporter to controller manager")
 			return err

@@ -5,14 +5,14 @@
 
 // Package health implements the resource-manager self-health reporter: it
 // periodically collects SaFE control-plane health (component readiness, database
-// reachability, managed-cluster reachability) and pushes it to the data-plane
-// Robust VictoriaMetrics via the shared common/pkg/health registry.
+// reachability, managed-cluster reachability) and refreshes the corresponding
+// gauges in the shared common/pkg/health registry. The gauges are exposed on the
+// component's /metrics endpoint and collected by the monitoring infrastructure
+// (vmagent/Prometheus) via pull — the reporter never pushes.
 package health
 
 import (
 	"context"
-	"crypto/tls"
-	"net/http"
 	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -36,66 +36,47 @@ const (
 	dbProbeTimeout = 5 * time.Second
 	// cycleTimeout bounds the k8s list calls within one collection cycle.
 	cycleTimeout = 20 * time.Second
+	// refreshInterval is how often the self-health gauges are recomputed.
+	refreshInterval = 30 * time.Second
 )
 
-// Reporter collects and pushes SaFE self-health metrics. It is a
-// controller-runtime Runnable and runs on the leader only, so the shared VM
-// receives a single copy of each series.
+// Reporter periodically refreshes SaFE self-health gauges. It is a
+// controller-runtime Runnable and runs on the leader only, so the cluster-level
+// derived gauges are computed by a single instance.
 type Reporter struct {
-	cli        client.Client
-	httpClient *http.Client
+	cli client.Client
 }
 
 // NewReporter creates a self-health reporter bound to the manager's client.
 func NewReporter(cli client.Client) *Reporter {
-	httpClient := &http.Client{Timeout: 15 * time.Second}
-	// Cross-cluster pushes may target a VM ingress with an internal-CA cert the
-	// pusher does not trust; allow opting out of TLS verification per config.
-	if commonconfig.IsMetricsRemoteWriteInsecureSkipVerify() {
-		httpClient.Transport = &http.Transport{
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
-		}
-	}
-	return &Reporter{
-		cli:        cli,
-		httpClient: httpClient,
-	}
+	return &Reporter{cli: cli}
 }
 
 // NeedLeaderElection makes the reporter run only on the elected leader.
 func (r *Reporter) NeedLeaderElection() bool { return true }
 
-// Start runs the collect+push loop until the context is cancelled.
+// Start runs the collect loop until the context is cancelled, refreshing the
+// self-health gauges (exposed via /metrics) on each tick.
 func (r *Reporter) Start(ctx context.Context) error {
-	if !commonconfig.IsMetricsRemoteWriteEnabled() {
-		klog.Info("[self-health] metrics.remote_write disabled, reporter not started")
-		return nil
-	}
-	if commonconfig.GetMetricsRemoteWriteURL() == "" {
-		klog.Warning("[self-health] metrics.remote_write enabled but url is empty, reporter not started")
-		return nil
-	}
-
-	interval := time.Duration(commonconfig.GetMetricsRemoteWriteIntervalSeconds()) * time.Second
-	klog.Infof("[self-health] reporter started: url=%s interval=%s", commonconfig.GetMetricsRemoteWriteURL(), interval)
+	klog.Infof("[self-health] reporter started: refresh_interval=%s", refreshInterval)
 	commonhealth.BuildInfo.WithLabelValues(componentName).Set(1)
 
-	ticker := time.NewTicker(interval)
+	ticker := time.NewTicker(refreshInterval)
 	defer ticker.Stop()
 
-	r.collectAndPush(ctx)
+	r.collect(ctx)
 	for {
 		select {
 		case <-ctx.Done():
 			klog.Info("[self-health] reporter stopped")
 			return nil
 		case <-ticker.C:
-			r.collectAndPush(ctx)
+			r.collect(ctx)
 		}
 	}
 }
 
-func (r *Reporter) collectAndPush(ctx context.Context) {
+func (r *Reporter) collect(ctx context.Context) {
 	commonhealth.ResetScanned()
 
 	cctx, cancel := context.WithTimeout(ctx, cycleTimeout)
@@ -104,18 +85,6 @@ func (r *Reporter) collectAndPush(ctx context.Context) {
 	r.collectComponents(cctx)
 	r.collectDatabase(cctx)
 	r.collectClusters(cctx)
-
-	cfg := commonhealth.PushConfig{
-		URL:   commonconfig.GetMetricsRemoteWriteURL(),
-		Job:   commonconfig.GetMetricsRemoteWriteJob(),
-		Token: commonconfig.GetMetricsRemoteWriteToken(),
-	}
-	if clusterName := commonconfig.GetMetricsRemoteWriteClusterName(); clusterName != "" {
-		cfg.Extra = map[string]string{"cluster": clusterName}
-	}
-	if err := commonhealth.Push(ctx, r.httpClient, cfg); err != nil {
-		klog.Warningf("[self-health] push failed: %v", err)
-	}
 }
 
 // collectComponents reports readiness of every Deployment and DaemonSet in the

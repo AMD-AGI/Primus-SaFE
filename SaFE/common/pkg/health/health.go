@@ -3,39 +3,22 @@
  * See LICENSE for license information.
  */
 
-// Package health exposes SaFE control-plane self-health as Prometheus metrics
-// and pushes them into an external VictoriaMetrics/Prometheus (the data-plane
-// Robust VM) through the plain-text import endpoint.
-//
-// The metrics live in a dedicated registry (not the global/controller-runtime
-// registry) so the remote-write payload only carries low-cardinality SaFE
-// component health instead of every Go/process metric.
+// Package health defines SaFE control-plane self-health metrics
+// (component readiness, subsystem/cluster reachability). The metrics are
+// registered on the controller-runtime metrics registry so they are exposed on
+// the component's existing /metrics endpoint and collected by the monitoring
+// infrastructure (vmagent/Prometheus) via pull — the component never pushes.
 package health
 
 import (
-	"bytes"
-	"context"
-	"fmt"
-	"io"
-	"net/http"
-	"sort"
-	"strconv"
-	"strings"
-
 	"github.com/prometheus/client_golang/prometheus"
-	dto "github.com/prometheus/client_model/go"
-	"k8s.io/klog/v2"
+	ctrlmetrics "sigs.k8s.io/controller-runtime/pkg/metrics"
 )
 
 const (
 	// SubsystemDatabase is the subsystem label value for the DB health gauge.
 	SubsystemDatabase = "database"
-
-	importPath = "/api/v1/import/prometheus"
 )
-
-// Registry holds SaFE self-health series only.
-var Registry = prometheus.NewRegistry()
 
 var (
 	// ComponentUp is 1 when a control-plane component is fully healthy
@@ -64,16 +47,13 @@ var (
 	}, []string{"subsystem"})
 
 	// ClusterReady is 1 when a managed data-plane Cluster CR is in Ready phase.
-	// The data-plane cluster is identified by target_cluster (the global
-	// "cluster" label carries the reporting SaFE management-cluster name).
 	ClusterReady = prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Name: "safe_cluster_ready",
 		Help: "1 if the managed data-plane cluster CR is in Ready phase, else 0.",
 	}, []string{"target_cluster"})
 
 	// ClusterUp is 1 when the managed data-plane cluster API is actually
-	// reachable using SaFE's stored credentials. See ClusterReady for the
-	// target_cluster/cluster label distinction.
+	// reachable using SaFE's stored credentials.
 	ClusterUp = prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Name: "safe_cluster_up",
 		Help: "1 if the managed data-plane cluster API server is reachable from SaFE, else 0.",
@@ -84,22 +64,12 @@ var (
 		Name: "safe_build_info",
 		Help: "Constant 1 series identifying the SaFE component reporting self-health.",
 	}, []string{"component"})
-
-	// LastPushTimestamp records the unix time of the last successful push.
-	LastPushTimestamp = prometheus.NewGauge(prometheus.GaugeOpts{
-		Name: "safe_health_last_push_timestamp_seconds",
-		Help: "Unix timestamp of the last successful self-health push to the remote VM.",
-	})
-
-	// PushTotal counts push attempts by result (success|error).
-	PushTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
-		Name: "safe_health_push_total",
-		Help: "Total self-health push attempts to the remote VM, by result.",
-	}, []string{"result"})
 )
 
 func init() {
-	Registry.MustRegister(
+	// Register on the controller-runtime registry so these series are exposed on
+	// the component's existing /metrics endpoint (no extra port, no push).
+	ctrlmetrics.Registry.MustRegister(
 		ComponentUp,
 		ComponentReplicasDesired,
 		ComponentReplicasReady,
@@ -107,8 +77,6 @@ func init() {
 		ClusterReady,
 		ClusterUp,
 		BuildInfo,
-		LastPushTimestamp,
-		PushTotal,
 	)
 }
 
@@ -121,143 +89,6 @@ func ResetScanned() {
 	SubsystemUp.Reset()
 	ClusterReady.Reset()
 	ClusterUp.Reset()
-}
-
-// PushConfig configures a single push to the remote VM.
-type PushConfig struct {
-	URL   string            // base URL, e.g. http://host:8428
-	Job   string            // job label applied to every series
-	Token string            // optional Bearer token
-	Extra map[string]string // optional extra labels applied to every series
-}
-
-// Push gathers the SaFE self-health registry and POSTs it to the remote VM's
-// Prometheus text import endpoint. It records push result counters.
-func Push(ctx context.Context, client *http.Client, cfg PushConfig) error {
-	body, err := gatherText()
-	if err != nil {
-		PushTotal.WithLabelValues("error").Inc()
-		return fmt.Errorf("gather metrics: %w", err)
-	}
-
-	endpoint := strings.TrimRight(cfg.URL, "/") + importPath
-	// VictoriaMetrics applies each extra_label=<k>=<v> query arg to all imported
-	// series, which is how we attach the job (and any static) labels.
-	labels := map[string]string{}
-	if cfg.Job != "" {
-		labels["job"] = cfg.Job
-	}
-	for k, v := range cfg.Extra {
-		labels[k] = v
-	}
-	if q := encodeExtraLabels(labels); q != "" {
-		endpoint += "?" + q
-	}
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
-	if err != nil {
-		PushTotal.WithLabelValues("error").Inc()
-		return fmt.Errorf("build request: %w", err)
-	}
-	req.Header.Set("Content-Type", "text/plain")
-	if cfg.Token != "" {
-		req.Header.Set("Authorization", "Bearer "+cfg.Token)
-	}
-
-	resp, err := client.Do(req)
-	if err != nil {
-		PushTotal.WithLabelValues("error").Inc()
-		return fmt.Errorf("post metrics: %w", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode >= 300 {
-		snippet, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
-		PushTotal.WithLabelValues("error").Inc()
-		return fmt.Errorf("remote VM returned %d: %s", resp.StatusCode, strings.TrimSpace(string(snippet)))
-	}
-
-	PushTotal.WithLabelValues("success").Inc()
-	LastPushTimestamp.SetToCurrentTime()
-	klog.V(4).Infof("[self-health] pushed %d bytes to %s", len(body), endpoint)
-	return nil
-}
-
-// gatherText renders the registry as Prometheus text-exposition lines
-// (name{labels} value). HELP/TYPE headers are omitted; the VM import endpoint
-// accepts bare sample lines.
-func gatherText() ([]byte, error) {
-	mfs, err := Registry.Gather()
-	if err != nil {
-		return nil, err
-	}
-	var buf bytes.Buffer
-	for _, mf := range mfs {
-		name := mf.GetName()
-		for _, m := range mf.GetMetric() {
-			val, ok := metricValue(m)
-			if !ok {
-				continue
-			}
-			buf.WriteString(name)
-			writeLabels(&buf, m.GetLabel())
-			buf.WriteByte(' ')
-			buf.WriteString(strconv.FormatFloat(val, 'g', -1, 64))
-			buf.WriteByte('\n')
-		}
-	}
-	return buf.Bytes(), nil
-}
-
-func metricValue(m *dto.Metric) (float64, bool) {
-	switch {
-	case m.Gauge != nil:
-		return m.Gauge.GetValue(), true
-	case m.Counter != nil:
-		return m.Counter.GetValue(), true
-	case m.Untyped != nil:
-		return m.Untyped.GetValue(), true
-	default:
-		return 0, false
-	}
-}
-
-func writeLabels(buf *bytes.Buffer, labels []*dto.LabelPair) {
-	if len(labels) == 0 {
-		return
-	}
-	buf.WriteByte('{')
-	for i, lp := range labels {
-		if i > 0 {
-			buf.WriteByte(',')
-		}
-		buf.WriteString(lp.GetName())
-		buf.WriteString(`="`)
-		buf.WriteString(escapeLabelValue(lp.GetValue()))
-		buf.WriteByte('"')
-	}
-	buf.WriteByte('}')
-}
-
-func escapeLabelValue(v string) string {
-	replacer := strings.NewReplacer(`\`, `\\`, "\n", `\n`, `"`, `\"`)
-	return replacer.Replace(v)
-}
-
-func encodeExtraLabels(labels map[string]string) string {
-	if len(labels) == 0 {
-		return ""
-	}
-	keys := make([]string, 0, len(labels))
-	for k := range labels {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	parts := make([]string, 0, len(keys))
-	for _, k := range keys {
-		// extra_label=<name>=<value>; VM parses the first '=' as the separator.
-		parts = append(parts, "extra_label="+k+"="+labels[k])
-	}
-	return strings.Join(parts, "&")
 }
 
 // SetBool sets a gauge to 1 for true and 0 for false.

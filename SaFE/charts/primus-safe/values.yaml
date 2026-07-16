@@ -55,27 +55,6 @@ apiserver:
 tracing:
   # Enable distributed tracing (configured via .env)
   enable: true
-# Self-health metrics: push SaFE control-plane component/subsystem/cluster health
-# into the data-plane Robust VictoriaMetrics. Only the resource-manager leader
-# pushes (via <url>/api/v1/import/prometheus). Leave remote_write_enable=false
-# until remote_write_url points at the target VM.
-metrics:
-  remote_write_enable: false
-  # Base URL of the target VictoriaMetrics/Prometheus, e.g. http://10.0.0.1:8428
-  remote_write_url: ""
-  remote_write_interval_seconds: 30
-  # job label applied to every pushed SaFE series
-  remote_write_job: "primus-safe"
-  # Management-cluster/environment name, attached as the "cluster" label to every
-  # pushed series so you can tell which SaFE environment a failing component
-  # belongs to. Empty falls back to global.sub_domain.
-  remote_write_cluster_name: ""
-  # Mounted secret dir; file "token" (optional) is sent as a Bearer token.
-  remote_write_secret_path: "/etc/secrets/metrics-remote-write"
-  # Skip TLS verification for the push. Enable only for trusted internal
-  # networks where the target VM ingress uses an internal-CA cert the pusher
-  # does not trust (e.g. cross-cluster push to another environment's Robust VM).
-  remote_write_insecure_skip_verify: false
 resource_manager:
   # Resource manager component image version
   image: "resource-manager:latest"

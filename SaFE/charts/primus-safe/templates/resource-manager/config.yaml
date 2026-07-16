@@ -27,21 +27,6 @@ data:
     metrics:
       enable: true
       port: {{ default 8000 (default .Values.job_manager).metrics_port }}
-      # Push SaFE control-plane self-health metrics into the data-plane Robust
-      # VictoriaMetrics via <url>/api/v1/import/prometheus. Disabled until a url
-      # is provided. Only the resource-manager leader pushes.
-      remote_write:
-        enable: {{ default false (default .Values.metrics).remote_write_enable }}
-        url: {{ default "" (default .Values.metrics).remote_write_url | quote }}
-        interval_seconds: {{ default 30 (default .Values.metrics).remote_write_interval_seconds }}
-        job: {{ default "primus-safe" (default .Values.metrics).remote_write_job }}
-        # Management-cluster/environment name, attached as the "cluster" label to
-        # every pushed series. Empty falls back to global.sub_domain.
-        cluster_name: {{ default "" (default .Values.metrics).remote_write_cluster_name | quote }}
-        # Optional mounted secret dir; file "token" is sent as a Bearer token.
-        secret_path: {{ default "/etc/secrets/metrics-remote-write" (default .Values.metrics).remote_write_secret_path }}
-        # Skip TLS verification (internal-CA / cross-cluster targets).
-        insecure_skip_verify: {{ default false (default .Values.metrics).remote_write_insecure_skip_verify }}
     leader_election:
       # LeaderElection determines whether or not to use leader election when starting the manager.
       enable: true

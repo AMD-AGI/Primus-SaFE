@@ -42,25 +42,6 @@ const (
 	metricsEnable = metricsPrefix + "enable"
 	metricsPort   = metricsPrefix + "port"
 
-	// metrics.remote_write: push SaFE self-health metrics into an external
-	// VictoriaMetrics/Prometheus (the data-plane Robust VM) via the plain-text
-	// import endpoint (<url>/api/v1/import/prometheus).
-	metricsRemoteWritePrefix   = metricsPrefix + "remote_write."
-	metricsRemoteWriteEnable   = metricsRemoteWritePrefix + "enable"
-	metricsRemoteWriteURL      = metricsRemoteWritePrefix + "url"
-	metricsRemoteWriteInterval = metricsRemoteWritePrefix + "interval_seconds"
-	metricsRemoteWriteJob      = metricsRemoteWritePrefix + "job"
-	// cluster_name identifies which SaFE management cluster/environment the
-	// pushed series come from (attached as the "cluster" label to every series).
-	metricsRemoteWriteClusterName = metricsRemoteWritePrefix + "cluster_name"
-	// secret_path holds a mounted secret dir; the file "token" (if present) is
-	// sent as a Bearer token on the import request.
-	metricsRemoteWriteSecretPath = metricsRemoteWritePrefix + "secret_path"
-	// insecure_skip_verify disables TLS certificate verification for the push.
-	// Useful for cross-cluster pushes where the target VM ingress presents an
-	// internal-CA certificate the pusher's trust store does not include.
-	metricsRemoteWriteInsecureSkipVerify = metricsRemoteWritePrefix + "insecure_skip_verify"
-
 	// leader_election
 	leaderElectionPrefix = "leader_election."
 	leaderElectionEnable = leaderElectionPrefix + "enable"
