@@ -256,18 +256,12 @@
                 :prop="`volumes.${i}.provisioningStrategy`"
                 label="Strategy"
               >
-                <el-radio-group
+                <el-segmented
+                  class="form-seg"
                   v-model="v.provisioningStrategy"
+                  :options="['storageClass', 'PV Selector']"
                   :disabled="v.disabled"
-                >
-                  <el-radio-button
-                    v-for="opt in ['storageClass', 'PV Selector']"
-                    :key="opt"
-                    :value="opt"
-                  >
-                    {{ opt }}
-                  </el-radio-button>
-                </el-radio-group>
+                />
               </el-form-item>
 
               <el-form-item
