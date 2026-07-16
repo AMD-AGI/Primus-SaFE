@@ -144,6 +144,21 @@ var (
 		Name: "safe_workspace_node_binding_total",
 		Help: "Total workspace node bind/unbind operations, by action and result.",
 	}, []string{"action", "result"})
+
+	// --- github workflow sync ---
+
+	// GithubSyncBacklog reports the number of unsynced GitHub workflow runs picked
+	// up in the last batch (capped at the batch size).
+	GithubSyncBacklog = prometheus.NewGauge(prometheus.GaugeOpts{
+		Name: "safe_github_sync_backlog",
+		Help: "Unsynced GitHub workflow runs fetched in the last sync batch.",
+	})
+
+	// GithubSyncTotal counts per-run GitHub sync outcomes.
+	GithubSyncTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "safe_github_sync_total",
+		Help: "Total GitHub workflow-run sync outcomes, by result.",
+	}, []string{"result"})
 )
 
 func init() {
@@ -168,5 +183,7 @@ func init() {
 		OpsJobTimeoutTotal,
 		WorkspacePhaseTotal,
 		WorkspaceNodeBindingTotal,
+		GithubSyncBacklog,
+		GithubSyncTotal,
 	)
 }

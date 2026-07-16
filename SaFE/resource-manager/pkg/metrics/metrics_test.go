@@ -36,6 +36,8 @@ func TestMetricsRegisteredAndUsable(t *testing.T) {
 	OpsJobTimeoutTotal.WithLabelValues("reboot").Inc()
 	WorkspacePhaseTotal.WithLabelValues("Running").Inc()
 	WorkspaceNodeBindingTotal.WithLabelValues("bind", "success").Inc()
+	GithubSyncBacklog.Set(5)
+	GithubSyncTotal.WithLabelValues("success").Inc()
 
 	names := map[string]bool{
 		"safe_cluster_provision_total":            false,
@@ -58,6 +60,8 @@ func TestMetricsRegisteredAndUsable(t *testing.T) {
 		"safe_opsjob_timeout_total":               false,
 		"safe_workspace_phase_total":              false,
 		"safe_workspace_node_binding_total":       false,
+		"safe_github_sync_backlog":                false,
+		"safe_github_sync_total":                  false,
 	}
 	mfs, err := ctrlmetrics.Registry.Gather()
 	if err != nil {
