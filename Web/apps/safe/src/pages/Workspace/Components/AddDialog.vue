@@ -254,13 +254,20 @@
 
               <el-form-item
                 :prop="`volumes.${i}.provisioningStrategy`"
-                label="Provisioning Strategy"
+                label="Strategy"
               >
-                <el-segmented
+                <el-radio-group
                   v-model="v.provisioningStrategy"
-                  :options="['storageClass', 'PV Selector']"
                   :disabled="v.disabled"
-                />
+                >
+                  <el-radio-button
+                    v-for="opt in ['storageClass', 'PV Selector']"
+                    :key="opt"
+                    :value="opt"
+                  >
+                    {{ opt }}
+                  </el-radio-button>
+                </el-radio-group>
               </el-form-item>
 
               <el-form-item
@@ -807,7 +814,7 @@ html.dark .section-card:hover {
 }
 
 .section-title {
-  font-size: var(--fs-subtitle);
+  font-size: 15px;
   font-weight: 600;
   line-height: 1.2;
 }

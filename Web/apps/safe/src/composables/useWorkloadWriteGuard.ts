@@ -1,6 +1,6 @@
 import { computed } from 'vue'
 import { useWorkspaceStore } from '@/stores/workspace'
-import { useUserStore } from '@/stores/user'
+// import { useUserStore } from '@/stores/user'
 
 /**
  * When the current workspace has "Sandbox" scope, only system-admin
@@ -9,15 +9,18 @@ import { useUserStore } from '@/stores/user'
  */
 export function useWorkloadWriteGuard() {
   const wsStore = useWorkspaceStore()
-  const userStore = useUserStore()
+  // const userStore = useUserStore()
 
   const isSandboxWorkspace = computed(() =>
     (wsStore.currentScopes ?? []).includes('Sandbox'),
   )
 
-  const canWrite = computed(() =>
-    !isSandboxWorkspace.value || userStore.isManager,
-  )
+  // Sandbox read-only restriction temporarily disabled.
+  // Original logic: read-only for non-manager users in a Sandbox workspace.
+  // const canWrite = computed(() =>
+  //   !isSandboxWorkspace.value || userStore.isManager,
+  // )
+  const canWrite = computed(() => true)
 
   return { isSandboxWorkspace, canWrite }
 }
