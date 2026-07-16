@@ -153,7 +153,12 @@
             My Workloads
             <span v-if="myWlTotal" class="rail-count">{{ myWlTotal }}</span>
           </h3>
-          <el-link type="primary" class="rail-viewall" @click="goToWorkloads">
+          <el-link
+            v-if="canManageWorkloads"
+            type="primary"
+            class="rail-viewall"
+            @click="goToWorkloads"
+          >
             View all<el-icon class="ml-1"><Right /></el-icon>
           </el-link>
         </div>
@@ -186,8 +191,28 @@
             :image-size="70"
           />
         </div>
-        <div v-if="myWlTotal > myWorkloads.length" class="rail-more" @click="goToWorkloads">
+        <div
+          v-if="canManageWorkloads && myWlTotal > myWorkloads.length"
+          class="rail-more"
+          @click="goToWorkloads"
+        >
           +{{ myWlTotal - myWorkloads.length }} more · View all
+        </div>
+      </el-card>
+
+      <el-card v-if="quickActions.length" shadow="never" class="quick-card safe-card">
+        <h3 class="chart-title quick-title">Quick Actions</h3>
+        <div class="quick-actions">
+          <button
+            v-for="qa in quickActions"
+            :key="qa.path"
+            type="button"
+            class="quick-action"
+            @click="goToCreate(qa.path)"
+          >
+            <el-icon class="quick-action__icon"><component :is="qa.icon" /></el-icon>
+            <span class="quick-action__label">{{ qa.label }}</span>
+          </button>
         </div>
       </el-card>
     </aside>
@@ -195,9 +220,18 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, nextTick, onBeforeUnmount, onMounted } from 'vue'
+import { ref, computed, watch, nextTick, onBeforeUnmount, onMounted, type Component } from 'vue'
 import * as echarts from 'echarts'
-import { List, Odometer, Right, TrendCharts, WarningFilled } from '@element-plus/icons-vue'
+import {
+  List,
+  Odometer,
+  Right,
+  TrendCharts,
+  WarningFilled,
+  Cpu,
+  Promotion,
+  Notebook,
+} from '@element-plus/icons-vue'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { useClusterStore } from '@/stores/cluster'
 import { getWorkspaceDetail } from '@/services/workspace/index'
@@ -205,6 +239,7 @@ import { getGPUAggregation, getWorkloadsList } from '@/services/workload/index'
 import { WorkloadPhaseButtonType, KindPathMap, WorkloadKind } from '@/services/workload/type'
 import { useUserStore } from '@/stores/user'
 import { useRouter } from 'vue-router'
+import type { ScopesKeys } from '@/services/base/type'
 import { byte2Gi } from '@/utils/index'
 import {
   buildGpuStats,
@@ -237,12 +272,20 @@ const userStore = useUserStore()
 const myWorkloads = ref<any[]>([])
 const myWlTotal = ref(0)
 const myWlLoading = ref(false)
-const MY_WL_LIMIT = 8
+// Admins get a short teaser (rest is one click away via "View all"); regular
+// users have no full workload page, so show more and let the list scroll.
+const MY_WL_TEASER = 8
+const MY_WL_MAX = 50
 const getRowKind = (row: any): string => row.groupVersionKind?.kind || row.kind || ''
 const goToWlDetail = (row: any) => {
   const base = KindPathMap[getRowKind(row) as WorkloadKind]
   if (base) router.push({ path: `${base}/detail`, query: { id: row.workloadId } })
 }
+// The unified /workload-manage page is workspace-admin only (route guard
+// redirects regular users to /403), so only expose "View all" to those users.
+const canManageWorkloads = computed(
+  () => userStore.hasManagerAccess || store.isCurrentWorkspaceAdmin(),
+)
 // Carry the current user into the full list so "View all" stays scoped to me.
 // Pass userName so it lands in the visible User filter box on the target page.
 const goToWorkloads = () =>
@@ -250,6 +293,20 @@ const goToWorkloads = () =>
     path: '/workload-manage',
     query: userStore.profile?.name ? { userName: userStore.profile.name } : {},
   })
+
+// ── Right rail: quick create shortcuts ──
+// `?action=create` is consumed by each list page (see useRouteAction) to open
+// its create dialog on mount. Each action is gated by the current workspace
+// scope, mirroring how the sidebar hides workloads the user can't access.
+const quickActionDefs: Array<{ label: string; path: string; icon: Component; scope: ScopesKeys }> = [
+  { label: 'New Training', path: '/training', icon: Cpu, scope: 'Train' },
+  { label: 'New Inference', path: '/infer', icon: Promotion, scope: 'Infer' },
+  { label: 'New Authoring', path: '/authoring', icon: Notebook, scope: 'Authoring' },
+]
+const quickActions = computed(() =>
+  quickActionDefs.filter((a) => (store.currentScopes ?? []).includes(a.scope)),
+)
+const goToCreate = (path: string) => router.push({ path, query: { action: 'create' } })
 const fetchMyWorkloads = async () => {
   try {
     myWlLoading.value = true
@@ -257,7 +314,7 @@ const fetchMyWorkloads = async () => {
       userId: userStore.userId,
       phase: ['Running', 'Pending'],
       offset: 0,
-      limit: MY_WL_LIMIT,
+      limit: canManageWorkloads.value ? MY_WL_TEASER : MY_WL_MAX,
       sortBy: 'createdAt',
       order: 'desc',
     })
@@ -688,16 +745,19 @@ watch(
 }
 .home-rail {
   min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
 }
-.rail-card {
-  position: sticky;
-  top: 16px;
-  /* Keep a substantial panel body so a short list doesn't float as a tiny
-     blob in the top-right corner on wide screens. */
-  min-height: calc(380px * var(--scale));
+.rail-card,
+.quick-card {
+  display: flex;
+  flex-direction: column;
 }
-.rail-card :deep(.el-card__body) {
-  min-height: calc(380px * var(--scale));
+.rail-card :deep(.el-card__body),
+.quick-card :deep(.el-card__body) {
+  flex: 1;
+  min-height: 0;
   display: flex;
   flex-direction: column;
 }
@@ -716,9 +776,55 @@ watch(
   gap: 8px;
   min-height: 120px;
   flex: 1 1 auto;
+  overflow-y: auto;
+  /* Buffer so the first/last item's hover lift + border isn't clipped by the
+     scroll container (overflow-y also clips overflow-x). */
+  padding: 2px;
 }
 .rail-list :deep(.el-empty) {
   margin: auto 0;
+}
+
+/* ── Quick Actions card ── */
+.quick-title {
+  margin-bottom: 12px;
+}
+.quick-actions {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(80px, 1fr));
+  gap: 10px;
+  flex: 1;
+  align-content: center;
+}
+.quick-action {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 14px 8px;
+  border: none;
+  border-radius: 10px;
+  background: var(--safe-card-2);
+  box-shadow: inset 0 0 0 1px var(--safe-border);
+  color: var(--el-text-color-primary);
+  cursor: pointer;
+  transition: color 0.15s, background 0.15s, box-shadow 0.15s;
+}
+.quick-action:hover {
+  color: var(--safe-primary);
+  background: var(--safe-primary-plain-bg);
+  box-shadow: inset 0 0 0 1px var(--safe-primary-plain-border);
+}
+.quick-action__icon {
+  font-size: calc(20px * var(--scale));
+  color: var(--safe-primary);
+}
+.quick-action__label {
+  font-size: calc(12px * var(--scale));
+  font-weight: 600;
+  text-align: center;
+  line-height: 1.2;
 }
 .rail-item {
   display: flex;
@@ -920,6 +1026,22 @@ watch(
   gap: 16px;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   grid-auto-rows: 232px;
+}
+
+/* Wide screens: right rail fills the row height (bottom aligns with the GPU
+   section) and splits My Workloads / Quick Actions in an 8:2 ratio. */
+@media (min-width: 1440px) {
+  .home-rail {
+    align-self: stretch;
+  }
+  .rail-card {
+    flex: 8 1 0;
+    min-height: 0;
+  }
+  .quick-card {
+    flex: 2 1 0;
+    min-height: 0;
+  }
 }
 
 /* Zoom tier (<1440px): compact vertical rhythm so the dashboard fits without heavy scrolling */
