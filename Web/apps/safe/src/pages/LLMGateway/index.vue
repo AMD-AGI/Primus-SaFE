@@ -30,17 +30,40 @@
           <el-text class="block font-500 mb-4" tag="b">Update AMD LLM API Key</el-text>
           <div class="key-input-row">
             <el-input
-              v-model="apimKeyInput"
-              type="password"
-              :placeholder="binding?.apim_key_hint ? `Current: ${binding.apim_key_hint}` : 'Enter new AMD LLM API Key'"
-              show-password
-              clearable
+              v-model="keyValue"
               class="key-input"
-            />
+              :placeholder="keyRevealed ? 'Enter new AMD LLM API Key' : MASKED_KEY_DOTS"
+            >
+              <template #suffix>
+                <el-tooltip
+                  :content="keyRevealed ? 'Hide API Key' : 'Show API Key'"
+                  placement="top"
+                >
+                  <el-icon
+                    class="key-action-icon"
+                    :class="{ 'is-loading': keyRevealLoading }"
+                    @mousedown.prevent
+                    @click="toggleRevealKey"
+                  >
+                    <Loading v-if="keyRevealLoading" />
+                    <View v-else-if="keyRevealed" />
+                    <Hide v-else />
+                  </el-icon>
+                </el-tooltip>
+                <el-tooltip content="Copy API Key" placement="top">
+                  <el-icon
+                    class="key-action-icon"
+                    @mousedown.prevent
+                    @click="copyCurrentApimKey"
+                  >
+                    <CopyDocument />
+                  </el-icon>
+                </el-tooltip>
+              </template>
+            </el-input>
             <el-button
               type="primary"
               :loading="submitLoading"
-              :disabled="!apimKeyInput.trim()"
               @click="handleUpdate"
             >
               Update
@@ -292,15 +315,6 @@
           </div>
         </el-tab-pane>
 
-        <!-- LLM Virtual Key tab hidden: no longer exposing virtual key to users
-        <el-tab-pane label="LLM Virtual Key" name="virtualKey">
-          <div class="code-block">
-            <el-icon class="copy-btn" @click="copyText(codeSnippets.virtualKey)"><CopyDocument /></el-icon>
-            <pre><code>{{ codeSnippets.virtualKey }}</code></pre>
-          </div>
-        </el-tab-pane>
-        -->
-
         <el-tab-pane label="Tag Usage" name="tagUsage">
           <div class="code-block">
             <el-icon class="copy-btn" @click="copyText(codeSnippets.tagUsage)"><CopyDocument /></el-icon>
@@ -432,6 +446,7 @@
 import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import {
   getLLMGatewayBinding,
+  getLLMGatewayApimKey,
   createLLMGatewayBinding,
   updateLLMGatewayBinding,
   getLLMGatewayUsage,
@@ -452,11 +467,15 @@ import type {
   CreateAPIKeyResponse,
 } from '@/services'
 import { formatTimeStr, copyText } from '@/utils/index'
-import { ElMessage } from 'element-plus'
+import { isInvalidLLMGatewayBindingKey } from '@/utils/llmGatewayKey'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   CircleCheckFilled,
   WarningFilled,
   CopyDocument,
+  View,
+  Hide,
+  Loading,
   Money,
   Connection,
   Coin,
@@ -485,19 +504,78 @@ const submitLoading = ref(false)
 const binding = ref<LLMGatewayBinding | null>(null)
 const apimKeyInput = ref('')
 
+// ── Current AMD LLM API Key field (APIM-style: masked dots + reveal on demand) ──
+// The field value only ever holds a real key the user wants to bind. When idle
+// it is empty and the fixed dots are shown as a placeholder (so the mask is
+// never editable content that could be submitted). The eye reveals the real
+// key (fetched on demand) into the field; copy copies it.
+const MASKED_KEY_DOTS = '•'.repeat(32)
+const keyValue = ref('')
+const keyRevealed = ref(false)
+const keyRevealLoading = ref(false)
+const fullApimKey = ref('')
+
+const resetKeyField = () => {
+  keyValue.value = ''
+  keyRevealed.value = false
+  fullApimKey.value = ''
+}
+
+const fetchFullApimKey = async (): Promise<string> => {
+  if (fullApimKey.value) return fullApimKey.value
+  keyRevealLoading.value = true
+  try {
+    const res = await getLLMGatewayApimKey()
+    fullApimKey.value = res.apim_key
+    return res.apim_key
+  } finally {
+    keyRevealLoading.value = false
+  }
+}
+
+const toggleRevealKey = async () => {
+  if (keyRevealLoading.value) return
+  if (keyRevealed.value) {
+    keyRevealed.value = false
+    keyValue.value = ''
+    return
+  }
+  try {
+    keyValue.value = await fetchFullApimKey()
+    keyRevealed.value = true
+  } catch {
+    ElMessage.error('Failed to load AMD LLM API Key')
+  }
+}
+
+const copyCurrentApimKey = async () => {
+  try {
+    copyText(await fetchFullApimKey())
+  } catch {
+    ElMessage.error('Failed to load AMD LLM API Key')
+  }
+}
+
 const activeTab = ref('safeKey')
 
-const codeSnippets = computed(() => {
-  const origin = window.location.origin
-  return {
-    safeKey: `from openai import OpenAI
+// base_url used to be hardcoded; derive it from the current origin so the same
+// snippet is valid whichever env the user actually opened the page from. Falls
+// back to a default URL during SSR or unusual non-browser contexts where
+// `window` is unavailable.
+const llmProxyBaseUrl = computed(() => {
+  const origin = typeof window !== 'undefined' ? window.location.origin : 'https://oci-slc.primus-safe.amd.com'
+  return `${origin}/api/v1/llm-proxy/v1`
+})
+
+const codeSnippets = computed(() => ({
+  safeKey: `from openai import OpenAI
 import httpx
 
 http_client = httpx.Client(verify=False)
 
 client = OpenAI(
     api_key="ak-<your-safe-apikey>",
-    base_url="${origin}/api/v1/llm-proxy/v1",
+    base_url="${llmProxyBaseUrl.value}",
     http_client=http_client,
 )
 
@@ -506,35 +584,15 @@ for model in models.data:
     print(model.id)
 
 response = client.chat.completions.create(
-    model="claude-opus-4-7",
+    model="openai/gpt-5.2",
     messages=[{"role": "user", "content": "Hello!"}],
 )
 print(response.choices[0].message.content)`,
-    virtualKey: `from openai import OpenAI
-import httpx
-
-http_client = httpx.Client(verify=False)
-
-client = OpenAI(
-    api_key="sk-<your-llm-virtual-key>",
-    base_url="${origin}/llm-gateway/v1",
-    http_client=http_client,
-)
-
-models = client.models.list()
-for model in models.data:
-    print(model.id)
-
-response = client.chat.completions.create(
-    model="claude-opus-4-7",
-    messages=[{"role": "user", "content": "Hello!"}],
-)
-print(response.choices[0].message.content)`,
-    tagUsage: `from openai import OpenAI
+  tagUsage: `from openai import OpenAI
 
 client = OpenAI(
     api_key="ak-<your-safe-apikey>",
-    base_url="${origin}/api/v1/llm-proxy/v1",
+    base_url="${llmProxyBaseUrl.value}",
 )
 
 response = client.chat.completions.create(
@@ -543,10 +601,9 @@ response = client.chat.completions.create(
     extra_body={"tags": ["project-A"]}  # Tag is optional; omit to leave untagged
 )
 print(response.choices[0].message.content)`,
-    linux: `curl -fsSL https://raw.githubusercontent.com/AMD-AGI/Primus-SaFE/main/Scripts/setup-certs/setup.sh | bash`,
-    windows: `irm https://raw.githubusercontent.com/AMD-AGI/Primus-SaFE/main/Scripts/setup-certs/setup.bat -OutFile $env:TEMP\\setup.bat; cmd /c $env:TEMP\\setup.bat`,
-  }
-})
+  linux: `curl -fsSL https://raw.githubusercontent.com/AMD-AGI/Primus-SaFE/main/Scripts/setup-certs/setup.sh | bash`,
+  windows: `irm https://raw.githubusercontent.com/AMD-AGI/Primus-SaFE/main/Scripts/setup-certs/setup.bat -OutFile $env:TEMP\\setup.bat; cmd /c $env:TEMP\\setup.bat`,
+}))
 
 // ── SaFE API Key Dialog ──
 const apiKeyVisible = ref(false)
@@ -872,9 +929,23 @@ const renderChart = () => {
 
 const resizeChart = () => chart?.resize()
 
+const showInvalidLLMKeyDialog = () =>
+  ElMessageBox.alert(
+    'The key you entered looks like a SaFE API Key because it starts with ak or sk. Please open Engineering-AI-Suite, go to Credentials, and use the LLM API Key generated there for binding.',
+    'Invalid AMD LLM API Key',
+    {
+      type: 'warning',
+      confirmButtonText: 'OK',
+    },
+  )
+
 const handleBind = async () => {
   const key = apimKeyInput.value.trim()
   if (!key) return
+  if (isInvalidLLMGatewayBindingKey(key)) {
+    await showInvalidLLMKeyDialog()
+    return
+  }
   try {
     submitLoading.value = true
     await createLLMGatewayBinding({ apim_key: key })
@@ -892,13 +963,22 @@ const handleBind = async () => {
 }
 
 const handleUpdate = async () => {
-  const key = apimKeyInput.value.trim()
-  if (!key) return
+  const key = keyValue.value.trim()
+  // Never submit an empty value or the masked dots (defensive: the mask should
+  // only ever be a placeholder, but guard against any bullet-only content).
+  if (!key || /^\u2022+$/.test(key)) {
+    ElMessage.warning('Please enter a new AMD LLM API Key')
+    return
+  }
+  if (isInvalidLLMGatewayBindingKey(key)) {
+    await showInvalidLLMKeyDialog()
+    return
+  }
   try {
     submitLoading.value = true
     await updateLLMGatewayBinding({ apim_key: key })
     ElMessage.success('AMD LLM API Key updated successfully')
-    apimKeyInput.value = ''
+    resetKeyField()
     await fetchBinding()
     await autoCreateApiKey()
   } catch (err: unknown) {
@@ -914,6 +994,7 @@ watch(
   () => binding.value?.has_apim_key,
   (bound) => {
     if (bound) {
+      resetKeyField()
       fetchCurrentUsage()
       fetchSummary()
       fetchBudget()
@@ -994,6 +1075,20 @@ onBeforeUnmount(() => {
 .key-input {
   flex: 1;
   max-width: 480px;
+}
+.key-action-icon {
+  cursor: pointer;
+  color: var(--el-text-color-placeholder);
+  transition: color 0.2s;
+}
+.key-action-icon + .key-action-icon {
+  margin-left: 8px;
+}
+.key-action-icon:hover {
+  color: var(--el-color-primary);
+}
+.key-action-icon.is-loading {
+  cursor: default;
 }
 
 /* Summary cards – glass + tilt */
