@@ -246,11 +246,11 @@ a:hover {
    filled track with a subtle primary "plain" pill on the selected item,
    matching the ImageInput select/custom toggle look. */
 .el-segmented.form-seg {
-  --el-segmented-bg-color: var(--el-fill-color-light);
+  --el-segmented-bg-color: var(--safe-surface);
   --el-segmented-color: var(--safe-muted);
-  --el-segmented-item-selected-bg-color: var(--el-color-primary-light-9);
-  --el-segmented-item-selected-color: var(--safe-primary);
-  --el-segmented-item-hover-bg-color: var(--el-fill-color);
+  --el-segmented-item-selected-bg-color: var(--safe-primary-plain-bg);
+  --el-segmented-item-selected-color: var(--safe-primary-plain-text);
+  --el-segmented-item-hover-bg-color: var(--safe-primary-plain-bg-hover);
   --el-segmented-item-hover-color: var(--safe-text-secondary);
   padding: 3px;
   font-weight: 600;
@@ -261,7 +261,7 @@ a:hover {
   transition: color 0.16s ease, background-color 0.16s ease;
 }
 .el-segmented.form-seg .el-segmented__item-selected {
-  box-shadow: inset 0 0 0 1px var(--el-color-primary-light-5);
+  box-shadow: inset 0 0 0 1px var(--safe-primary-plain-border);
   border-radius: 6px;
 }
 
