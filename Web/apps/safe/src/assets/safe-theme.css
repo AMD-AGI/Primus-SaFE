@@ -212,7 +212,7 @@ a:hover {
    Element Plus default fills the selected item with a bright primary pill, which
    clashes with the UI. Render it as plain text tabs instead: no track, no pill —
    just muted text with a teal selected label. (.ghost-seg keeps its own look.) */
-.el-segmented:not(.ghost-seg) {
+.el-segmented:not(.ghost-seg):not(.form-seg) {
   --el-segmented-bg-color: transparent;
   --el-segmented-color: var(--safe-muted);
   --el-segmented-item-selected-bg-color: transparent;
@@ -223,22 +223,46 @@ a:hover {
   font-weight: 600;
   background-color: transparent !important;
 }
-.el-segmented:not(.ghost-seg) .el-segmented__item {
+.el-segmented:not(.ghost-seg):not(.form-seg) .el-segmented__item {
   padding: 0 12px;
   transition: color 0.16s ease;
 }
-.el-segmented:not(.ghost-seg) .el-segmented__item-selected {
+.el-segmented:not(.ghost-seg):not(.form-seg) .el-segmented__item-selected {
   background-color: transparent !important;
   box-shadow: none !important;
 }
-.el-segmented:not(.ghost-seg) .el-segmented__item.is-selected {
+.el-segmented:not(.ghost-seg):not(.form-seg) .el-segmented__item.is-selected {
   color: var(--safe-primary) !important;
 }
-.el-segmented:not(.ghost-seg) .el-segmented__item:not(.is-selected):hover {
+.el-segmented:not(.ghost-seg):not(.form-seg) .el-segmented__item:not(.is-selected):hover {
   color: var(--safe-text-secondary) !important;
 }
 .el-segmented.is-disabled {
   opacity: 0.6;
+}
+
+/* ---------- Segmented control (form variant, .form-seg) ----------
+   For use inside forms/dialogs where a choice needs to stand out. Renders a
+   filled track with a subtle primary "plain" pill on the selected item,
+   matching the ImageInput select/custom toggle look. */
+.el-segmented.form-seg {
+  --el-segmented-bg-color: var(--el-fill-color-light);
+  --el-segmented-color: var(--safe-muted);
+  --el-segmented-item-selected-bg-color: var(--el-color-primary-light-9);
+  --el-segmented-item-selected-color: var(--safe-primary);
+  --el-segmented-item-hover-bg-color: var(--el-fill-color);
+  --el-segmented-item-hover-color: var(--safe-text-secondary);
+  padding: 3px;
+  font-weight: 600;
+  border-radius: 8px;
+}
+.el-segmented.form-seg .el-segmented__item {
+  padding: 0 16px;
+  transition: color 0.16s ease, background-color 0.16s ease;
+}
+.el-segmented.form-seg .el-segmented__item-selected {
+  box-shadow: inset 0 0 0 1px var(--el-color-primary-light-5);
+  border-radius: 6px;
 }
 
 /* 原生 el-table 透玻璃效果（性能优化版） */

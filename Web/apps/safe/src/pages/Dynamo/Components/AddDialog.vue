@@ -63,7 +63,7 @@
                   {{ isInfera ? 'Configure each role resources and entrypoint together' : 'Configure role resources' }}
                 </div>
               </div>
-              <el-segmented v-model="modeValue" :options="['Default', 'PD']" />
+              <el-segmented class="form-seg" v-model="modeValue" :options="['Default', 'PD']" />
             </div>
           </div>
 

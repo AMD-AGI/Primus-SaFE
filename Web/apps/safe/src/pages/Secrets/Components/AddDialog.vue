@@ -26,7 +26,7 @@
           :options="availableTypes"
           :disabled="isEdit"
           @change="onTypeChange"
-          class="secret-type-segmented"
+          class="secret-type-segmented form-seg"
         />
       </el-form-item>
 

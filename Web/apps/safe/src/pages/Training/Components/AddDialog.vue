@@ -70,7 +70,7 @@
                   Choose replicas / nodes and allocate CPU, GPU and memory
                 </div>
               </div>
-              <el-segmented
+              <el-segmented class="form-seg"
                 v-if="!(isEdit && form.resourceType === 'nodes')"
                 v-model="form.resourceType"
                 :options="

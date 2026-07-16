@@ -15,7 +15,7 @@
           <div class="w-1 hx-16 bg-[var(--safe-primary)] mr-2 rounded-sm"></div>
           <span class="fs-subtitle font-medium">Dataset Source</span>
         </div>
-        <el-segmented v-model="sourceType" :options="sourceOptions" size="default" />
+        <el-segmented class="form-seg" v-model="sourceType" :options="sourceOptions" size="default" />
       </div>
 
       <div class="flex items-center m-b-4 m-t-6">

@@ -91,7 +91,7 @@
       </el-form-item>
 
       <el-form-item label="Kubernetes Version" prop="kubernetesVersion">
-        <el-segmented v-model="form.kubernetesVersion" :options="segVersionOptions" size="small" />
+        <el-segmented class="form-seg" v-model="form.kubernetesVersion" :options="segVersionOptions" size="small" />
       </el-form-item>
 
       <el-form-item label="Kube Apiserver Args">
