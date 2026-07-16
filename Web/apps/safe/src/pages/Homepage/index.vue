@@ -1,5 +1,7 @@
 <template>
-  <div class="header-row">
+  <div class="home-layout">
+    <div class="home-main">
+      <div class="header-row">
     <h3 class="chart-title">Usage breakdown</h3>
     <div class="header-links">
       <!-- Hyperloom entry - shown only in production (same gating as Lens) -->
@@ -142,6 +144,54 @@
       </div>
     </div>
   </section>
+    </div>
+
+    <aside class="home-rail">
+      <el-card shadow="never" class="rail-card safe-card">
+        <div class="rail-header">
+          <h3 class="chart-title">
+            My Workloads
+            <span v-if="myWlTotal" class="rail-count">{{ myWlTotal }}</span>
+          </h3>
+          <el-link type="primary" class="rail-viewall" @click="goToWorkloads">
+            View all<el-icon class="ml-1"><Right /></el-icon>
+          </el-link>
+        </div>
+        <div v-loading="myWlLoading" class="rail-list">
+          <template v-if="myWorkloads.length">
+            <div
+              v-for="row in myWorkloads"
+              :key="row.workloadId"
+              class="rail-item"
+              @click="goToWlDetail(row)"
+            >
+              <div class="rail-item__main">
+                <span class="rail-item__name">{{ row.displayName || row.workloadId }}</span>
+                <span class="rail-item__kind">{{ getRowKind(row) }}</span>
+              </div>
+              <div class="rail-item__meta">
+                <el-tag size="small" :type="WorkloadPhaseButtonType[row.phase]?.type || 'info'">
+                  {{ row.phase }}
+                </el-tag>
+                <span
+                  v-if="row.phase === 'Pending' && row.queuePosition"
+                  class="rail-item__queue"
+                >#{{ row.queuePosition }}</span>
+              </div>
+            </div>
+          </template>
+          <el-empty
+            v-else-if="!myWlLoading"
+            description="No running or pending workloads"
+            :image-size="70"
+          />
+        </div>
+        <div v-if="myWlTotal > myWorkloads.length" class="rail-more" @click="goToWorkloads">
+          +{{ myWlTotal - myWorkloads.length }} more · View all
+        </div>
+      </el-card>
+    </aside>
+  </div>
 </template>
 
 <script setup lang="ts">
@@ -151,7 +201,10 @@ import { List, Odometer, Right, TrendCharts, WarningFilled } from '@element-plus
 import { useWorkspaceStore } from '@/stores/workspace'
 import { useClusterStore } from '@/stores/cluster'
 import { getWorkspaceDetail } from '@/services/workspace/index'
-import { getGPUAggregation } from '@/services/workload/index'
+import { getGPUAggregation, getWorkloadsList } from '@/services/workload/index'
+import { WorkloadPhaseButtonType, KindPathMap, WorkloadKind } from '@/services/workload/type'
+import { useUserStore } from '@/stores/user'
+import { useRouter } from 'vue-router'
 import { byte2Gi } from '@/utils/index'
 import {
   buildGpuStats,
@@ -177,6 +230,47 @@ const goToHyperloom = () => {
 const store = useWorkspaceStore()
 const clusterStore = useClusterStore()
 const PIE_COLORS = ['#47b881', '#d65f68', '#0d9488'] as const
+
+// ── Right rail: my running / pending workloads ──
+const router = useRouter()
+const userStore = useUserStore()
+const myWorkloads = ref<any[]>([])
+const myWlTotal = ref(0)
+const myWlLoading = ref(false)
+const MY_WL_LIMIT = 8
+const getRowKind = (row: any): string => row.groupVersionKind?.kind || row.kind || ''
+const goToWlDetail = (row: any) => {
+  const base = KindPathMap[getRowKind(row) as WorkloadKind]
+  if (base) router.push({ path: `${base}/detail`, query: { id: row.workloadId } })
+}
+// Carry the current user into the full list so "View all" stays scoped to me.
+// Pass userName so it lands in the visible User filter box on the target page.
+const goToWorkloads = () =>
+  router.push({
+    path: '/workload-manage',
+    query: userStore.profile?.name ? { userName: userStore.profile.name } : {},
+  })
+const fetchMyWorkloads = async () => {
+  try {
+    myWlLoading.value = true
+    const res: any = await getWorkloadsList({
+      userId: userStore.userId,
+      phase: ['Running', 'Pending'],
+      offset: 0,
+      limit: MY_WL_LIMIT,
+      sortBy: 'createdAt',
+      order: 'desc',
+    })
+    myWorkloads.value = res?.items || []
+    myWlTotal.value = res?.totalCount || 0
+  } catch {
+    myWorkloads.value = []
+    myWlTotal.value = 0
+  } finally {
+    myWlLoading.value = false
+  }
+}
+onMounted(fetchMyWorkloads)
 
 const detailData = ref<any>(null)
 const RES_KEYS = ['amd.com/gpu', 'rdma/hca', 'cpu', 'memory'] as const
@@ -582,6 +676,120 @@ watch(
   color: var(--el-color-primary-light-3);
 }
 
+/* ===== Page layout: main column + right rail (large screens) ===== */
+.home-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 340px;
+  gap: 20px;
+  align-items: start;
+}
+.home-main {
+  min-width: 0;
+}
+.home-rail {
+  min-width: 0;
+}
+.rail-card {
+  position: sticky;
+  top: 16px;
+  /* Keep a substantial panel body so a short list doesn't float as a tiny
+     blob in the top-right corner on wide screens. */
+  min-height: calc(380px * var(--scale));
+}
+.rail-card :deep(.el-card__body) {
+  min-height: calc(380px * var(--scale));
+  display: flex;
+  flex-direction: column;
+}
+.rail-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+.rail-viewall {
+  font-size: calc(12px * var(--scale));
+}
+.rail-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 120px;
+  flex: 1 1 auto;
+}
+.rail-list :deep(.el-empty) {
+  margin: auto 0;
+}
+.rail-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--safe-card-2);
+  box-shadow: inset 0 0 0 1px var(--safe-border);
+  cursor: pointer;
+  transition:
+    box-shadow 0.2s ease,
+    transform 0.2s ease;
+}
+.rail-item:hover {
+  transform: translateY(-1px);
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--safe-border) 40%, var(--safe-primary) 60%);
+}
+.rail-item__main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  gap: 2px;
+}
+.rail-item__name {
+  font-weight: 600;
+  font-size: calc(13px * var(--scale));
+  color: var(--el-text-color-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 190px;
+}
+.rail-item__kind {
+  font-size: calc(11px * var(--scale));
+  color: var(--safe-muted);
+}
+.rail-item__meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+.rail-item__queue {
+  font-size: calc(11px * var(--scale));
+  color: var(--safe-muted);
+}
+.rail-count {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 0 8px;
+  border-radius: 999px;
+  font-size: calc(11px * var(--scale));
+  font-weight: 700;
+  color: var(--safe-primary);
+  background: var(--safe-primary-plain-bg);
+  box-shadow: inset 0 0 0 1px var(--safe-primary-plain-border);
+  vertical-align: middle;
+}
+.rail-more {
+  margin-top: 10px;
+  text-align: center;
+  font-size: calc(12px * var(--scale));
+  color: var(--safe-primary);
+  cursor: pointer;
+}
+.rail-more:hover {
+  text-decoration: underline;
+}
+
 .gpu-chart-section {
   margin-top: 20px;
 }
@@ -716,6 +924,12 @@ watch(
 
 /* Zoom tier (<1440px): compact vertical rhythm so the dashboard fits without heavy scrolling */
 @media (max-width: 1439px) {
+  .home-layout {
+    grid-template-columns: 1fr;
+  }
+  .rail-card {
+    position: static;
+  }
   .stat-grid {
     grid-auto-rows: 188px;
   }
@@ -839,6 +1053,18 @@ watch(
 .stat-card--tall .stat-total__num {
   font-size: 2.8rem;
   line-height: 1;
+}
+/* Fill the tall Nodes card's empty middle: vertically center an enlarged donut */
+.stat-card--tall .stat-bottom {
+  margin-top: 0;
+  flex: 1 1 auto;
+  align-items: center;
+}
+.stat-card--tall .small-pie-box {
+  flex: 0 0 46%;
+  max-width: 300px;
+  min-height: 190px;
+  max-height: 300px;
 }
 
 .stat-card:hover {
