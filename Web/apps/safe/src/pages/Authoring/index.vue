@@ -627,17 +627,55 @@ const filterByMyself = () => {
   onSearch({ resetPage: true })
 }
 
+const applyQueryToParams = () => {
+  const q = route.query
+  searchParams.userName = (q.userName as string) || ''
+  searchParams.description = (q.description as string) || ''
+  searchParams.workloadId = (q.workloadId as string) || ''
+  searchParams.onlyMyself = (q.onlyMyself as string) || 'All'
+  searchParams.userId = (q.userId as string) || ''
+  const phaseStr = (q.phase as string) || ''
+  searchParams.phase = phaseStr ? (phaseStr.split(',') as WorkloadPhase[]) : []
+  const since = q.since as string | undefined
+  const until = q.until as string | undefined
+  searchParams.dateRange = (since || until
+    ? [since ? dayjs(since).toDate() : '', until ? dayjs(until).toDate() : '']
+    : '') as any
+  pagination.page = Number(q.page || 1)
+  pagination.pageSize = Number(q.pageSize || pagination.pageSize)
+}
+
 const onSearch = (options?: { resetPage?: boolean }) => {
   const reset = options?.resetPage ?? true
   if (reset) pagination.page = 1
 
   const [start, end] = searchParams.dateRange
+  const since = start ? dayjs(start).utc().format('YYYY-MM-DDTHH:mm:ss.SSS[Z]') : ''
+  const until = end ? dayjs(end).utc().format('YYYY-MM-DDTHH:mm:ss.SSS[Z]') : ''
+  const phaseStr = searchParams.phase?.length ? searchParams.phase.join(',') : ''
+
+  router.replace({
+    query: {
+      ...route.query,
+      userName: searchParams.userName || undefined,
+      description: searchParams.description || undefined,
+      phase: phaseStr || undefined,
+      since: since || undefined,
+      until: until || undefined,
+      workloadId: searchParams.workloadId || undefined,
+      onlyMyself: searchParams.onlyMyself || undefined,
+      userId: searchParams.userId,
+      page: String(pagination.page),
+      pageSize: String(pagination.pageSize),
+    },
+  })
+
   fetchData({
     userName: searchParams.userName,
     description: searchParams.description,
-    phase: searchParams.phase && searchParams.phase.length ? searchParams.phase.join(',') : '',
-    since: start ? dayjs(start).utc().format('YYYY-MM-DDTHH:mm:ss.SSS[Z]') : '',
-    until: end ? dayjs(end).utc().format('YYYY-MM-DDTHH:mm:ss.SSS[Z]') : '',
+    phase: phaseStr,
+    since,
+    until,
     workloadId: searchParams.workloadId,
     userId: searchParams.userId,
   })
@@ -900,7 +938,10 @@ watch(
   // Refresh list data immediately when workspace dropdown changes
   () => store.currentWorkspaceId,
   (id) => {
-    if (id) fetchData()
+    if (id) {
+      applyQueryToParams()
+      onSearch({ resetPage: false })
+    }
   },
   { immediate: true },
 )
