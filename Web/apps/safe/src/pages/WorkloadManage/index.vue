@@ -464,6 +464,8 @@ const readQuery = () => {
   searchParams.workspaceId = (q.workspaceId as string) || ''
   searchParams.kind = (q.kind as string) || ''
   searchParams.workloadId = (q.workloadId as string) || ''
+  // userName lands the "View all" (scoped-to-me) entry from the homepage in the
+  // visible User filter; userId keeps an explicit owner filter across navigation.
   searchParams.userId = (q.userId as string) || ''
   searchParams.userName = (q.userName as string) || ''
   const phaseStr = (q.phase as string) || ''
