@@ -126,5 +126,6 @@ outcome means — this is the pass/fail for the walkthrough:
 |--------------|-------|
 | All submit options & fields (UI/API) | [Run a single-node training job](/tasks/run-single-node-training) |
 | Scale across nodes | [Run a multi-node distributed job](/tasks/run-multi-node-training) |
-| Watch logs / shell in / get results | [Interact with your job](/tasks/interact-with-your-job) |
+| Watch a job's logs | [View a job's logs](/tasks/view-logs) |
+| Shell in / get results out | [Interact with your job](/tasks/interact-with-your-job) |
 | Make jobs start faster | [Speed up workload startup](/tasks/speed-up-startup) |
