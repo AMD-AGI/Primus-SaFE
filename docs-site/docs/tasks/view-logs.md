@@ -39,7 +39,7 @@ job whose phase is **Running** or that has already run. That job is your target.
 that prints something and stays up long enough to read, such as:
 
 ```bash
-echo "hello from doc-as-test"; sleep 120
+echo "hello from doc-as-test"; sleep 15
 ```
 
 Submit it and wait for it to reach **Running** — now it has logs to show.
