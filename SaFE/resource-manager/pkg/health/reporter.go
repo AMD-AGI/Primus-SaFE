@@ -85,6 +85,10 @@ func (r *Reporter) collect(ctx context.Context) {
 	r.collectComponents(cctx)
 	r.collectDatabase(cctx)
 	r.collectClusters(cctx)
+
+	// Heartbeat: stamp the completion time so alerting can detect a stalled or
+	// dead reporter (pull-native replacement for the old push timestamp).
+	commonhealth.LastRefreshTimestamp.SetToCurrentTime()
 }
 
 // collectComponents reports readiness of every Deployment and DaemonSet in the

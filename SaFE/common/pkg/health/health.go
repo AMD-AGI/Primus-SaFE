@@ -64,6 +64,16 @@ var (
 		Name: "safe_build_info",
 		Help: "Constant 1 series identifying the SaFE component reporting self-health.",
 	}, []string{"component"})
+
+	// LastRefreshTimestamp is the Unix time of the last completed self-health
+	// collection cycle. It acts as a pull-native heartbeat so alerting can
+	// detect a stalled/dead reporter with
+	// `time() - safe_health_last_refresh_timestamp_seconds > threshold`
+	// (the replacement for the removed push-era timestamp).
+	LastRefreshTimestamp = prometheus.NewGauge(prometheus.GaugeOpts{
+		Name: "safe_health_last_refresh_timestamp_seconds",
+		Help: "Unix timestamp of the last completed SaFE self-health collection cycle.",
+	})
 )
 
 func init() {
@@ -77,6 +87,7 @@ func init() {
 		ClusterReady,
 		ClusterUp,
 		BuildInfo,
+		LastRefreshTimestamp,
 	)
 }
 
