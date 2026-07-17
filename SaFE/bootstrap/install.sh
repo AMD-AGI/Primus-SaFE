@@ -89,6 +89,24 @@ ensure_higress_tls_secret() {
   local tls_crt=""
   local tls_key=""
 
+  # Bring-your-own certificate. WebShell (the in-console terminal) opens a
+  # wss:// WebSocket, which browsers silently refuse for untrusted origins, so
+  # the console MUST be served with a certificate the users' browsers already
+  # trust. If the operator provides a CA-issued cert/key, install it here.
+  if [[ -n "${PRIMUS_TLS_CERT:-}" ]] && [[ -n "${PRIMUS_TLS_KEY:-}" ]]; then
+    if [[ ! -r "$PRIMUS_TLS_CERT" ]] || [[ ! -r "$PRIMUS_TLS_KEY" ]]; then
+      echo "Error: PRIMUS_TLS_CERT ($PRIMUS_TLS_CERT) / PRIMUS_TLS_KEY ($PRIMUS_TLS_KEY) are set but not readable."
+      exit 1
+    fi
+    kubectl create secret tls "$tls_secret" \
+      --namespace="$NAMESPACE" \
+      --cert="$PRIMUS_TLS_CERT" \
+      --key="$PRIMUS_TLS_KEY" \
+      --dry-run=client -o yaml | kubectl apply -f -
+    echo "✅ TLS secret($tls_secret) installed from PRIMUS_TLS_CERT/PRIMUS_TLS_KEY for ${console_host}"
+    return
+  fi
+
   if kubectl get secret "$tls_secret" -n "$NAMESPACE" >/dev/null 2>&1; then
     tls_crt=$(kubectl get secret "$tls_secret" -n "$NAMESPACE" -o jsonpath='{.data.tls\.crt}' 2>/dev/null || true)
     tls_key=$(kubectl get secret "$tls_secret" -n "$NAMESPACE" -o jsonpath='{.data.tls\.key}' 2>/dev/null || true)
@@ -135,7 +153,23 @@ EOF
     --key="$tmpdir/tls.key" \
     --dry-run=client -o yaml | kubectl apply -f -
   rm -rf "$tmpdir"
-  echo "✅ TLS secret($tls_secret) created for ${console_host} and ${apiserver_host}"
+  cat <<EOF
+⚠️  Generated a SELF-SIGNED TLS certificate for ${console_host}.
+    Browsers will NOT trust it: the console shows a security warning, and
+    WebShell (the in-console terminal) fails to connect because the browser
+    silently blocks its wss:// WebSocket for an untrusted origin.
+
+    To make the console (and WebShell) work without per-user browser tweaks,
+    serve a certificate issued by a CA your users already trust, then restart
+    the gateway to pick it up:
+
+      kubectl create secret tls ${tls_secret} -n ${NAMESPACE} \\
+        --cert=<your.crt> --key=<your.key> --dry-run=client -o yaml | kubectl apply -f -
+      kubectl -n higress-system rollout restart deploy/higress-gateway
+
+    Or re-run install with: PRIMUS_TLS_CERT=<your.crt> PRIMUS_TLS_KEY=<your.key>
+    (AMD internal: request a cert for ${console_host} from the AMD-com Issuing CA.)
+EOF
 }
 
 install_or_upgrade_helm_chart() {
