@@ -155,7 +155,7 @@
 
           <el-descriptions-item label="External Domain" :span="4" v-if="serviceData.externalDomain">
             <div class="flex items-center gap-2">
-              <el-link :href="serviceData.externalDomain" target="_blank" type="primary">
+              <el-link :href="serviceData.externalDomain" target="_blank" rel="noopener noreferrer" type="primary">
                 {{ serviceData.externalDomain }}
               </el-link>
               <el-button

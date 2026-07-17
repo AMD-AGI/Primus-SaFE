@@ -6,6 +6,18 @@ import { ElMessage } from 'element-plus'
 dayjs.extend(utc)
 
 /**
+ * Sanitize a post-login / post-navigation redirect target.
+ * Only same-origin absolute paths are allowed; protocol-relative ("//host"),
+ * absolute URLs ("http(s)://") and any non-"/" value fall back to "/".
+ * Prevents open-redirect / phishing via a crafted ?redirect= parameter.
+ */
+export function getSafeRedirect(v: unknown): string {
+  const s = Array.isArray(v) ? v[0] : ((v as string) ?? '')
+  if (!s || s.startsWith('http') || s.startsWith('//')) return '/'
+  return s.startsWith('/') ? s : '/'
+}
+
+/**
  * Given an object and a field template,
  * if the object is missing a field, automatically fill in the default value from the template.
  *

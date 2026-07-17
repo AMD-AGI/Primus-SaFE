@@ -255,11 +255,11 @@ const isProd = import.meta.env.PROD
 
 // Navigate to Lens system
 const goToLens = () => {
-  window.open(`${location.origin}/lens`, '_blank')
+  window.open(`${location.origin}/lens`, '_blank', 'noopener,noreferrer')
 }
 
 const goToHyperloom = () => {
-  window.open(`${location.origin}/hyperloom/`, '_blank')
+  window.open(`${location.origin}/hyperloom/`, '_blank', 'noopener,noreferrer')
 }
 
 const store = useWorkspaceStore()

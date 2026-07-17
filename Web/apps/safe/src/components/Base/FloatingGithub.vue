@@ -61,7 +61,7 @@ const handleClick = () => {
 
     // Open GitHub after a short delay
     setTimeout(() => {
-      window.open('https://github.com/AMD-AGI/Primus-SaFE', '_blank')
+      window.open('https://github.com/AMD-AGI/Primus-SaFE', '_blank', 'noopener,noreferrer')
     }, 300)
   }
 }

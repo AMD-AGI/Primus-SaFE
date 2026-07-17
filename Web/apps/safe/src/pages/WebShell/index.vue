@@ -85,6 +85,7 @@ let term: Terminal | null = null
 let fit: FitAddon | null = null
 let ws: WebSocket | null = null
 let ro: ResizeObserver | null = null
+let onResize: (() => void) | null = null
 
 const statusText = ref('idle')
 let lastCols = 80
@@ -318,7 +319,8 @@ onMounted(async () => {
   })
   if (termEl.value) ro.observe(termEl.value)
 
-  window.addEventListener('resize', runFitAndResize)
+  onResize = runFitAndResize
+  window.addEventListener('resize', onResize)
 })
 onBeforeUnmount(() => {
   if (onMouseUp) term?.element?.removeEventListener('mouseup', onMouseUp)
@@ -326,7 +328,8 @@ onBeforeUnmount(() => {
 
   ro?.disconnect()
   ro = null
-  window.removeEventListener('resize', () => {})
+  if (onResize) window.removeEventListener('resize', onResize)
+  onResize = null
   closeWs()
   term?.dispose()
   term = null

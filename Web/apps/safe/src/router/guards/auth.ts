@@ -3,6 +3,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { useUserStore } from '@/stores/user'
 import { ssoLoginRaw } from '@/services/login'
 import { addUserToGroup, getUserNTID } from '@/services/mcp'
+import { getSafeRedirect } from '@/utils'
 
 const SSO_GROUP = 'dl.primus-safe-users'
 const PUBLIC_NAME = new Set(['Login', 'LoginAdmin', 'Register', 'SSOError'])
@@ -90,7 +91,7 @@ export default function setupAuthGuard(router: Router) {
           localStorage.removeItem(SSO_ATTEMPTS_KEY)
           sessionStorage.removeItem('sso.blocked')
 
-          const target = sessionStorage.getItem(ENTRY_KEY) || '/'
+          const target = getSafeRedirect(sessionStorage.getItem(ENTRY_KEY))
           sessionStorage.removeItem(ENTRY_KEY)
           history.replaceState(null, '', target)
 
@@ -216,7 +217,7 @@ export default function setupAuthGuard(router: Router) {
     // D) Already logged in — skip login-related pages
     if (user.isLogin && user.userId) {
       if (PUBLIC_NAME.has(to.name as string)) {
-        return next((to.query.redirect as string) || '/')
+        return next(getSafeRedirect(to.query.redirect))
       }
       return next()
     }

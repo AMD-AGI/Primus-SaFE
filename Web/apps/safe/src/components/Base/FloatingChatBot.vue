@@ -640,7 +640,7 @@ const closeDialog = () => {
 
 // Open GitHub
 const openGitHub = () => {
-  window.open('https://github.com/AMD-AGI/Primus-SaFE', '_blank')
+  window.open('https://github.com/AMD-AGI/Primus-SaFE', '_blank', 'noopener,noreferrer')
 }
 
 // Start new conversation
