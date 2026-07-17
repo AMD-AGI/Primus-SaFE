@@ -1435,6 +1435,7 @@ import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Promotion, QuestionFilled, VideoPause } from '@element-plus/icons-vue'
 import { marked } from 'marked'
+import { renderMarkdown, textToBr } from '@/utils/sanitize'
 import hljs from 'highlight.js'
 import 'highlight.js/styles/github-dark.css'
 
@@ -1495,10 +1496,10 @@ marked.use({ renderer })
 
 const formatMessage = (content: string) => {
   try {
-    return marked.parse(content) as string
+    return renderMarkdown(content)
   } catch (err) {
     console.error('Markdown parse error:', err)
-    return content.replace(/\n/g, '<br/>')
+    return textToBr(content)
   }
 }
 

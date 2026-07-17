@@ -629,7 +629,7 @@ import {
   type SourceRef,
   type MessageData,
 } from '@/services/chatbot'
-import { marked } from 'marked'
+import { renderMarkdown } from '@/utils/sanitize'
 import { useUserStore } from '@/stores/user'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { copyText, buildMessageShareUrl, buildConversationShareUrl } from '@/utils'
@@ -1344,7 +1344,7 @@ const formatMessage = (content: string) => {
   // First, apply structured list formatting
   const formatted = formatStructuredList(content)
   // Then apply markdown
-  return marked(formatted, { breaks: true })
+  return renderMarkdown(formatted)
 }
 
 const { imagePreviewVisible, imagePreviewUrl, handleImageClick, closeImagePreview } =

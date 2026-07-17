@@ -301,7 +301,7 @@ import {
 } from '@element-plus/icons-vue'
 import sidebarIcon from '@/assets/icons/sidebar.png'
 import stopIcon from '@/assets/icons/stop.png'
-import { marked } from 'marked'
+import { renderMarkdown } from '@/utils/sanitize'
 import {
   getSessions,
   createSession,
@@ -354,7 +354,7 @@ let abortController: AbortController | null = null
 // ========== Helpers ==========
 
 const formatMessage = (content: string) => {
-  return marked(content, { breaks: true })
+  return renderMarkdown(content)
 }
 
 const focusInput = () => { inputRef.value?.focus() }

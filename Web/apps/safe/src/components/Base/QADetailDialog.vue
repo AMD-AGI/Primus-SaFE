@@ -65,7 +65,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { QuestionFilled, ChatDotRound, Document } from '@element-plus/icons-vue'
-import { marked } from 'marked'
+import { renderMarkdown } from '@/utils/sanitize'
 import type { QAAnswerDetailData } from '@/services/chatbot'
 import { formatTimeStr } from '@/utils'
 import ImagePreviewOverlay from '@/components/Base/ImagePreviewOverlay.vue'
@@ -101,8 +101,7 @@ const getPrimaryQuestion = (item: QAAnswerDetailData) => {
 }
 
 const getAnswerHtml = (item: QAAnswerDetailData) => {
-  const text = item.answer?.answer ?? ''
-  return marked.parse(text || '')
+  return renderMarkdown(item.answer?.answer ?? '')
 }
 
 const handleClose = () => {

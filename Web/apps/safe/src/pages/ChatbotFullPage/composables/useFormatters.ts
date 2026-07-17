@@ -1,4 +1,4 @@
-import { marked } from 'marked'
+import { renderMarkdown } from '@/utils/sanitize'
 
 // Format structured list items (with | separators)
 const formatStructuredList = (content: string): string => {
@@ -37,7 +37,7 @@ const formatStructuredList = (content: string): string => {
 // Format message with markdown
 export const formatMessage = (content: string): string => {
   const formatted = formatStructuredList(content)
-  return marked(formatted, { breaks: true }) as string
+  return renderMarkdown(formatted)
 }
 
 // Format time string
