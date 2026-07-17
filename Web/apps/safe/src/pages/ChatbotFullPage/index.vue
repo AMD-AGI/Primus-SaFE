@@ -1339,12 +1339,18 @@ const formatStructuredList = (content: string): string => {
   return formattedLines.join('\n')
 }
 
-// Format message with markdown
+// Format message with markdown.
+// Memoized by content: v-html re-runs this per render for every visible message
+// (heavy during streaming). Cache is capped to avoid unbounded growth.
+const messageHtmlCache = new Map<string, string>()
 const formatMessage = (content: string) => {
-  // First, apply structured list formatting
-  const formatted = formatStructuredList(content)
-  // Then apply markdown
-  return renderMarkdown(formatted)
+  if (!content) return ''
+  const cached = messageHtmlCache.get(content)
+  if (cached !== undefined) return cached
+  const html = renderMarkdown(formatStructuredList(content))
+  if (messageHtmlCache.size > 500) messageHtmlCache.clear()
+  messageHtmlCache.set(content, html)
+  return html
 }
 
 const { imagePreviewVisible, imagePreviewUrl, handleImageClick, closeImagePreview } =

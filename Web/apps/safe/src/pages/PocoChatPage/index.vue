@@ -353,8 +353,16 @@ let abortController: AbortController | null = null
 
 // ========== Helpers ==========
 
+// Memoized: v-html re-runs this per render for each visible message.
+const messageHtmlCache = new Map<string, string>()
 const formatMessage = (content: string) => {
-  return renderMarkdown(content)
+  if (!content) return ''
+  const cached = messageHtmlCache.get(content)
+  if (cached !== undefined) return cached
+  const html = renderMarkdown(content)
+  if (messageHtmlCache.size > 500) messageHtmlCache.clear()
+  messageHtmlCache.set(content, html)
+  return html
 }
 
 const focusInput = () => { inputRef.value?.focus() }

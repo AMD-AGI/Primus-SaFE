@@ -1430,7 +1430,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, nextTick, watch } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, nextTick, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Promotion, QuestionFilled, VideoPause } from '@element-plus/icons-vue'
@@ -1494,13 +1494,22 @@ renderer.code = function ({ text, lang }: { text: string; lang?: string }) {
 }
 marked.use({ renderer })
 
+// Memoized: v-html bindings call this many times per render across visible messages.
+const messageHtmlCache = new Map<string, string>()
 const formatMessage = (content: string) => {
+  if (!content) return ''
+  const cached = messageHtmlCache.get(content)
+  if (cached !== undefined) return cached
+  let html: string
   try {
-    return renderMarkdown(content)
+    html = renderMarkdown(content)
   } catch (err) {
     console.error('Markdown parse error:', err)
-    return textToBr(content)
+    html = textToBr(content)
   }
+  if (messageHtmlCache.size > 500) messageHtmlCache.clear()
+  messageHtmlCache.set(content, html)
+  return html
 }
 
 // Parse thinking content and answer content
@@ -1509,7 +1518,7 @@ interface ParsedContent {
   responseContent: string
 }
 
-const parseThinkingContent = (content: string): ParsedContent => {
+const computeThinkingContent = (content: string): ParsedContent => {
   if (!content) {
     return {
       thinkingContent: '',
@@ -1562,6 +1571,19 @@ const parseThinkingContent = (content: string): ParsedContent => {
     thinkingContent: thinkingContent.trim(),
     responseContent: responseContent.trim(),
   }
+}
+
+// Memoize by content: the template calls this many times per message per render.
+// Cache is capped to avoid unbounded growth from streaming (each token is a new string).
+const thinkingContentCache = new Map<string, ParsedContent>()
+const parseThinkingContent = (content: string): ParsedContent => {
+  if (!content) return { thinkingContent: '', responseContent: '' }
+  const cached = thinkingContentCache.get(content)
+  if (cached) return cached
+  const result = computeThinkingContent(content)
+  if (thinkingContentCache.size > 300) thinkingContentCache.clear()
+  thinkingContentCache.set(content, result)
+  return result
 }
 
 // ----------------- State -----------------
@@ -2314,6 +2336,11 @@ onMounted(async () => {
   if (modelId.value) {
     fetchModelDetails()
   }
+})
+
+// Abort any in-flight stream and clear streaming state when leaving the page
+onBeforeUnmount(() => {
+  stopGeneration()
 })
 </script>
 
