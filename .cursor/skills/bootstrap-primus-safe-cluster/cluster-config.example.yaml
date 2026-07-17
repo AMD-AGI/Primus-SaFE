@@ -1,0 +1,116 @@
+# =============================================================================
+# Primus-SaFE automated cluster bootstrap config
+# =============================================================================
+# Fill this in once, then point the "bootstrap-primus-safe-cluster" skill at it.
+# Copy it to a working file first (e.g. cluster-config.yaml) and edit that.
+#
+# Every field maps 1:1 to a script variable or an install.sh prompt. Anything
+# left blank uses the noted default. The agent must NOT guess values that are
+# required but missing -- it stops and reports what is absent instead.
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# nodes -- control-plane / etcd machines only (add GPU workers via the console)
+# -----------------------------------------------------------------------------
+# Use an ODD number (1 or 3) so etcd has a quorum. These drive:
+#   - Bootstrap/hosts.ini            (Kubespray inventory, fully rewritten)
+#   - Bootstrap/harbor/hosts.yaml    (only if harbor.enabled: true)
+# WARNING: Kubespray renames each node's hostname to `name` below -- keep names
+# stable and correct up front (downstream identity/IAM depends on them).
+nodes:
+  - name: node-01
+    ansible_host: 10.0.0.11        # address installer + other nodes use (private net)
+    ip: 10.0.0.11                  # usually same as ansible_host
+    ansible_user: root             # SSH user; needs passwordless sudo/root
+    ssh_key: ~/.ssh/id_ed25519     # private key on the deploy host to reach this node
+  # - name: node-02
+  #   ansible_host: 10.0.0.12
+  #   ip: 10.0.0.12
+  #   ansible_user: root
+  #   ssh_key: ~/.ssh/id_ed25519
+  # - name: node-03
+  #   ansible_host: 10.0.0.13
+  #   ip: 10.0.0.13
+  #   ansible_user: root
+  #   ssh_key: ~/.ssh/id_ed25519
+
+# -----------------------------------------------------------------------------
+# network -- optional overrides for Bootstrap/bootstrap.sh (top-of-file vars)
+# -----------------------------------------------------------------------------
+# Leave commented to keep the script defaults shown here.
+network:
+  # kube_version: 1.32.5
+  # kubespray_version: v2.28.0
+  # network_plugin: flannel               # CNI
+  # pods_subnet: 172.16.0.0/12            # KUBE_PODS_SUBNET
+  # service_addresses: 192.168.0.0/16     # KUBE_SERVICE_ADDRESSES
+  # node_local_dns_ip: 169.254.25.10
+
+# -----------------------------------------------------------------------------
+# storage -- a default StorageClass is REQUIRED before install.sh
+# -----------------------------------------------------------------------------
+storage:
+  type: local-path                 # local-path | ceph
+  local_path_dir: /data            # host dir for local-path (local-path.sh prompt)
+  # ceph has no extra config here; edit Bootstrap/storage/ceph/cephcluster.yaml
+  # first if you are NOT using all nodes / all devices.
+
+# -----------------------------------------------------------------------------
+# gateway + registry -- optional (skip both for a quick start)
+# -----------------------------------------------------------------------------
+gateway:
+  higress: false                   # true installs Bootstrap/higress/higress.sh
+                                   # (required if safe.ingress: higress below)
+
+registry:
+  harbor:
+    enabled: false                 # true installs Bootstrap/harbor/harbor.sh
+    admin_password: ""             # REQUIRED if enabled (passed as arg 1, no prompt)
+    domain: harbor.example.com     # arg 2; e.g. harbor.<your-domain>
+    # storage_class defaults to `rbd` for ceph; set to your class for local-path.
+    storage_class: rbd             # arg 3  (NOTE: README arg order is wrong; this is arg 3)
+    # ssh_key defaults to the first node's ssh_key; Ansible uses it to push the CA.
+
+# -----------------------------------------------------------------------------
+# safe -- answers fed to SaFE/bootstrap/install.sh (interactive; piped in order)
+# -----------------------------------------------------------------------------
+# See reference.md for the exact prompt order these map to.
+safe:
+  cluster_name: ""                 # REQUIRED only if ingress: higress (becomes subdomain)
+  ethernet_nic: eno0               # NCCL_SOCKET_IFNAME; find with: ip -br link
+  rdma_nic: rdma0,rdma1,rdma2,rdma3,rdma4,rdma5,rdma6,rdma7  # NCCL_IB_HCA; rdma link
+  cluster_scale: small             # small | medium | large
+  storage_class: local-path        # must match a class that exists (from storage above)
+  ingress: nginx                   # nginx (NodePort 30183) | higress (domain; needs gateway.higress)
+  csi_volume_handle: ""            # optional; enables workspace PFS
+  install_node_agent: false        # y/n prompt
+  install_obs_logs: false          # OpenSearch + FluentBit
+  install_obs_metrics: false       # VictoriaMetrics + enricher
+
+  # Optional image pull secret (all-or-nothing; blank -> empty placeholder secret)
+  image_pull_secret:
+    enabled: false
+    registry: ""                   # e.g. registry.example.com
+    username: ""
+    password: ""
+
+  # Optional S3 (all-or-nothing; if any field blank after prompts, S3 is disabled)
+  s3:
+    enabled: false
+    endpoint: ""
+    bucket: ""
+    access_key: ""
+    secret_key: ""
+
+  # Optional SSO / OIDC (all-or-nothing)
+  sso:
+    enabled: false
+    endpoint: ""
+    client_id: ""
+    client_secret: ""
+    redirect_uri: ""
+
+  # Optional OpenSearch creds prompt (blank leaves the pre-created placeholder secret)
+  opensearch:
+    username: ""
+    password: ""
