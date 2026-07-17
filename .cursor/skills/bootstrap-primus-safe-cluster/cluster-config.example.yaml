@@ -56,19 +56,23 @@ storage:
   # first if you are NOT using all nodes / all devices.
 
 # -----------------------------------------------------------------------------
-# gateway + registry -- optional (skip both for a quick start)
+# gateway + registry
 # -----------------------------------------------------------------------------
 gateway:
-  higress: false                   # true installs Bootstrap/higress/higress.sh
-                                   # (required if safe.ingress: higress below)
+  higress: true                    # installs Bootstrap/higress/higress.sh
+                                   # (required when safe.ingress: higress below)
 
 registry:
   harbor:
-    enabled: false                 # true installs Bootstrap/harbor/harbor.sh
-    admin_password: ""             # REQUIRED if enabled (passed as arg 1, no prompt)
-    domain: harbor.example.com     # arg 2; e.g. harbor.<your-domain>
-    # storage_class defaults to `rbd` for ceph; set to your class for local-path.
-    storage_class: rbd             # arg 3  (NOTE: README arg order is wrong; this is arg 3)
+    enabled: true                  # installs Bootstrap/harbor/harbor.sh (pull-through cache)
+    admin_password: "CHANGE-ME"    # REQUIRED (passed as arg 1, no prompt) -- set a strong password
+    # IMPORTANT: the domain is NOT free-form. install.sh only auto-detects Harbor at
+    #   harbor.<safe.cluster_name>.primus-safe.amd.com
+    # and rewrites helm_registry/proxy_image_registry to that host + /proxy. Keep this
+    # matching that pattern (i.e. keep <cluster_name> in sync with safe.cluster_name).
+    domain: harbor.tas300.primus-safe.amd.com   # arg 2
+    storage_class: local-path      # arg 3  (README arg order is wrong; this is arg 3)
+                                   # use local-path for local-path storage; `rbd` for ceph.
     # ssh_key defaults to the first node's ssh_key; Ansible uses it to push the CA.
 
 # -----------------------------------------------------------------------------
@@ -76,39 +80,33 @@ registry:
 # -----------------------------------------------------------------------------
 # See reference.md for the exact prompt order these map to.
 safe:
-  cluster_name: ""                 # REQUIRED only if ingress: higress (becomes subdomain)
-  ethernet_nic: eno0               # NCCL_SOCKET_IFNAME; find with: ip -br link
-  rdma_nic: rdma0,rdma1,rdma2,rdma3,rdma4,rdma5,rdma6,rdma7  # NCCL_IB_HCA; rdma link
+  cluster_name: tas300             # REQUIRED with ingress: higress; becomes the subdomain
+                                   # (console at <cluster_name>.<your-domain>, and Harbor
+                                   #  auto-detect at harbor.<cluster_name>.primus-safe.amd.com)
+  ethernet_nic: ens51f0            # NCCL_SOCKET_IFNAME; find with: ip -br link
+  rdma_nic: bnxt_re0,bnxt_re1,bnxt_re2,bnxt_re3,bnxt_re4,bnxt_re5,bnxt_re6,bnxt_re7  # NCCL_IB_HCA; rdma link
   cluster_scale: small             # small | medium | large
   storage_class: local-path        # must match a class that exists (from storage above)
-  ingress: nginx                   # nginx (NodePort 30183) | higress (domain; needs gateway.higress)
+  ingress: higress                 # nginx (NodePort 30183) | higress (domain; needs gateway.higress)
   csi_volume_handle: ""            # optional; enables workspace PFS
-  install_node_agent: false        # y/n prompt
+  install_node_agent: true         # y/n prompt
   install_obs_logs: false          # OpenSearch + FluentBit
   install_obs_metrics: false       # VictoriaMetrics + enricher
 
-  # Optional image pull secret (all-or-nothing; blank -> empty placeholder secret)
+  # Optional image pull secret (all-or-nothing; blank -> empty placeholder secret).
+  # Not needed when Harbor above is used as the pull-through cache.
   image_pull_secret:
     enabled: false
     registry: ""                   # e.g. registry.example.com
     username: ""
     password: ""
 
-  # Optional S3 (all-or-nothing; if any field blank after prompts, S3 is disabled)
+  # S3 and SSO are disabled. Set enabled: true and fill every field to turn one on
+  # (all-or-nothing: any blank field silently disables it -- see reference.md).
   s3:
     enabled: false
-    endpoint: ""
-    bucket: ""
-    access_key: ""
-    secret_key: ""
-
-  # Optional SSO / OIDC (all-or-nothing)
   sso:
     enabled: false
-    endpoint: ""
-    client_id: ""
-    client_secret: ""
-    redirect_uri: ""
 
   # Optional OpenSearch creds prompt (blank leaves the pre-created placeholder secret)
   opensearch:

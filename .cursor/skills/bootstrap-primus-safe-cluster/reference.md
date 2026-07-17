@@ -98,6 +98,12 @@ later answer.
    (`rbd`), `$4`=ssh key (`~/.ssh/id_ed25519`). Always pass `$1` to skip its prompt.
 4. **`Bootstrap/harbor/hosts.yaml`** is a separate, gitignored Ansible inventory Harbor
    needs to push its CA to every node. Generate it before running `harbor.sh`.
+4b. **Harbor domain is derived, not free-form.** After the prompts, `install.sh` builds
+   `harbor_host="harbor.${sub_domain}.primus-safe.amd.com"` and, if it finds a Harbor
+   endpoint there, sets `helm_registry` / `proxy_image_registry` to `${harbor_host}/proxy`
+   (pull-through cache). So for auto-detection to work, `registry.harbor.domain` must be
+   `harbor.<safe.cluster_name>.primus-safe.amd.com`. A different Harbor domain still
+   installs Harbor, but install.sh won't wire it up as the proxy cache.
 5. **Ceph SC name mismatch** -- `ceph.sh` does `kubectl delete sc storage-rbd`, but the
    StorageClass it creates is named `rbd` (the secret is `storage-rbd`). The delete is a
    no-op; harmless, but the class to reference downstream is `rbd`.
