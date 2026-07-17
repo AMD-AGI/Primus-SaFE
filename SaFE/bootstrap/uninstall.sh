@@ -67,7 +67,25 @@ for kind in $VM_CR_KINDS; do
 done
 kubectl -n "$OBS_NS" delete statefulset,daemonset --all --ignore-not-found 2>/dev/null || true
 
+# Grafana operator: delete its CRs FIRST (while the operator is still alive to run the
+# operator.grafana.com finalizer), then uninstall the operator, then force-clear the finalizer on
+# any residual CRs — mirroring the VictoriaMetrics/OpenSearch teardown above. Without this, once
+# the operator pod is gone the GrafanaDashboard/GrafanaDatasource finalizers can never run and the
+# primus-safe namespace wedges in Terminating (issue #679). The CRs live in primus-safe (created
+# by the primus-safe chart's grafana templates).
+kubectl -n primus-safe delete grafanadashboard,grafanadatasource,grafana \
+  --all --ignore-not-found --timeout=120s 2>/dev/null || true
+
 helm uninstall grafana-operator -n primus-safe 2>/dev/null || true
+
+# Safety net: if the operator was already gone (the deletes above hung on the finalizer), clear
+# the finalizer on any residual Grafana CRs so namespace deletion can complete.
+for kind in grafanadashboard grafanadatasource grafana grafanafolder grafanaalertrulegroup \
+  grafanacontactpoint grafananotificationtemplate grafanaserviceaccount; do
+  kubectl -n primus-safe get "$kind" -o name 2>/dev/null | while read -r cr; do
+    kubectl -n primus-safe patch "$cr" --type=merge -p '{"metadata":{"finalizers":[]}}' 2>/dev/null || true
+  done
+done
 
 helm uninstall primus-pgo -n primus-safe 2>/dev/null || true
 

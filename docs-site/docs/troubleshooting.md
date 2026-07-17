@@ -96,6 +96,28 @@ The console workload **phase can lag** the real pod state (e.g. it may read `Pen
 is already `Running` or finished). Confirm the true state from the workload's pod/detail before
 assuming a failure.
 
+## WebShell connects then immediately disconnects
+
+On a **higress** (HTTPS) cluster, the in-console terminal opens a `wss://` WebSocket.
+If the console is served with a **self-signed** or otherwise **untrusted** certificate,
+the browser silently blocks that WebSocket even after you click through the page's
+certificate warning — so WebShell shows "connected" and then drops right away.
+
+Check the console certificate:
+
+```bash
+echo | openssl s_client -connect <cluster-domain>:443 -servername <cluster-domain> 2>/dev/null \
+  | openssl x509 -noout -issuer -subject
+```
+
+If `issuer == subject` (self-signed), install a certificate from a CA the browsers
+already trust and restart the gateway — see
+[Install → Serve a browser-trusted certificate](/getting-started/install). AMD-managed
+machines already trust the AMD CA chain; on unmanaged machines use the helper in
+[`Scripts/setup-certs`](https://github.com/AMD-AGI/Primus-SaFE/tree/main/Scripts/setup-certs).
+A container/shell mismatch can cause a similar drop, but a self-signed certificate is
+the most common cause.
+
 ## Install fails on a brand-new cluster
 
 A fresh cluster needs the OpenSearch placeholder secret created before `install.sh` — see the

@@ -272,26 +272,40 @@ This is the final verification that the install is healthy. Reach the console, t
 Log in with the seeded admin account **`root` / `root`** (role `system-admin`).
 **Change this password immediately.**
 
-:::warning Higress (HTTPS): the console uses a self-signed certificate by default — you must address this
-With the **higress** ingress the installer generates a **self-signed** TLS certificate for the
-console domain. Browsers show a "Not secure" warning, and — because it relies on a WebSocket —
-**WebShell (the in-browser pod terminal) silently fails to connect ("Disconnected")** until the
-certificate is trusted. (The **nginx** ingress serves plain HTTP on NodePort `30183` and is not
-affected.) Address it one of two ways:
+:::warning Serve a browser-trusted certificate (required for WebShell)
+With the **higress** ingress the console is served over HTTPS. By default the
+installer generates a **self-signed** certificate. That certificate is *not
+trusted by any browser*, which has two consequences:
 
-- **Recommended — bring your own certificate.** Before `install.sh`, pre-create the ingress TLS
-  secret with a cert signed by a CA your machines trust, covering the console **and** apiserver
-  hostnames (the installer keeps an existing secret):
+- The console shows a certificate warning users must click through.
+- **WebShell (the in-console terminal) will not connect** — after the click-through
+  the browser still silently refuses WebShell's `wss://` WebSocket because the
+  origin is untrusted. The symptom is a terminal that connects and immediately
+  disconnects. (See [Troubleshooting](/troubleshooting).)
 
-  ```bash
-  kubectl create namespace primus-safe 2>/dev/null
-  kubectl create secret tls default -n primus-safe --cert=fullchain.crt --key=tls.key
-  # SANs must include:  <cluster>.<your-domain>  and  apiserver.<cluster>.<your-domain>
-  ```
-- **Or trust the self-signed cert** on each client (import into the OS/browser Trusted Root store,
-  then restart the browser) — fine for evaluation.
+To avoid this, serve a certificate issued by a CA your users' browsers already
+trust — either at install time or afterwards:
 
-See [Troubleshooting → WebShell shows "Disconnected"](/troubleshooting).
+```bash
+# At install time:
+PRIMUS_TLS_CERT=/path/to/tls.crt PRIMUS_TLS_KEY=/path/to/tls.key bash install.sh
+
+# Or on a running cluster (then restart the gateway to load it):
+kubectl create secret tls default -n primus-safe \
+  --cert=tls.crt --key=tls.key --dry-run=client -o yaml | kubectl apply -f -
+kubectl -n higress-system rollout restart deploy/higress-gateway
+```
+
+The certificate's Common Name / SAN must cover both `<cluster-domain>` and
+`apiserver.<cluster-domain>`.
+
+**AMD internal deployments:** request a certificate for your cluster domain from
+the AMD-com Issuing CA (the same CA other AMD clusters use); AMD-managed machines
+already trust its root, so the console and WebShell work with no per-user setup.
+Users on unmanaged machines can trust the AMD CA chain with the helper in
+[`Scripts/setup-certs`](https://github.com/AMD-AGI/Primus-SaFE/tree/main/Scripts/setup-certs).
+The **nginx** ingress serves plain HTTP on NodePort `30183` and is not affected.
+:::
 
 Here is what each outcome means — this is the pass/fail for the checkable part of this page:
 
