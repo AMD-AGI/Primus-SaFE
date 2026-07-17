@@ -124,7 +124,7 @@
 </template>
 
 <script lang="ts" setup>
-import { ref, reactive, onMounted, h } from 'vue'
+import { ref, reactive, onMounted, onBeforeUnmount, h } from 'vue'
 import { useRouter } from 'vue-router'
 import { Plus, Delete, VideoPause, RefreshRight } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -170,6 +170,10 @@ const handleSearchInput = () => {
   if (searchTimer) clearTimeout(searchTimer)
   searchTimer = setTimeout(() => onSearch({ resetPage: true }), 500)
 }
+
+onBeforeUnmount(() => {
+  if (searchTimer) clearTimeout(searchTimer)
+})
 
 // Keep the URL query in sync with the search/filter state so returning from a
 // detail page restores the same results.
