@@ -8,6 +8,7 @@ package ops_job
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -28,6 +29,7 @@ import (
 	commonfaults "github.com/AMD-AIG-AIMA/SAFE/common/pkg/faults"
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
+	rmmetrics "github.com/AMD-AIG-AIMA/SAFE/resource-manager/pkg/metrics"
 	"github.com/AMD-AIG-AIMA/SAFE/resource-manager/pkg/resource"
 	"github.com/AMD-AIG-AIMA/SAFE/resource-manager/pkg/utils"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/backoff"
@@ -98,6 +100,7 @@ func (r *OpsJobBaseReconciler) Reconcile(ctx context.Context, req ctrlruntime.Re
 // timeout handles job timeout by setting the job to failed state.
 func (r *OpsJobBaseReconciler) timeout(ctx context.Context, job *v1.OpsJob) error {
 	message := fmt.Sprintf("The job is timeout, timeoutSecond: %d", job.Spec.TimeoutSecond)
+	rmmetrics.OpsJobTimeoutTotal.WithLabelValues(string(job.Spec.Type)).Inc()
 	return r.setJobCompleted(ctx, job, v1.OpsJobFailed, message, nil)
 }
 
@@ -160,6 +163,22 @@ func (r *OpsJobBaseReconciler) setJobCompleted(ctx context.Context,
 			return err
 		}
 		klog.Infof("The job is completed. name: %s, phase: %s, message: %s", latest.Name, phase, message)
+		reason := ""
+		if phase == v1.OpsJobFailed {
+			switch {
+			case strings.Contains(message, "timeout"):
+				reason = "timeout"
+			case strings.Contains(message, "stopped"):
+				reason = "stopped"
+			default:
+				reason = "workload_failed"
+			}
+		}
+		jobType := string(latest.Spec.Type)
+		rmmetrics.OpsJobPhaseTotal.WithLabelValues(jobType, string(phase), reason).Inc()
+		if latest.Status.StartedAt != nil && latest.Status.FinishedAt != nil {
+			rmmetrics.OpsJobDuration.WithLabelValues(jobType).Observe(latest.Status.FinishedAt.Sub(latest.Status.StartedAt.Time).Seconds())
+		}
 		job.Status.Phase = phase
 		return nil
 	}, 5*time.Second, 500*time.Millisecond)

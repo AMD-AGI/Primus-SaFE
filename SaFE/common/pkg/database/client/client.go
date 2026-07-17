@@ -6,6 +6,7 @@
 package client
 
 import (
+	"context"
 	"fmt"
 	"sync"
 	"time"
@@ -127,6 +128,16 @@ func NewClientWithConfig(cfg *utils.DBConfig) (*Client, error) {
 		cfg.Host, cfg.DBName, cfg.ConnectTimeout, int(cfg.RequestTimeout.Seconds()))
 
 	return client, nil
+}
+
+// Ping verifies the database connection is alive. It is used by the self-health
+// reporter to publish the "database" subsystem status. Returns an error if the
+// client (or its underlying connection) is not initialized or unreachable.
+func (c *Client) Ping(ctx context.Context) error {
+	if c == nil || c.db == nil {
+		return commonerrors.NewInternalError("The client of db has not been initialized")
+	}
+	return c.db.PingContext(ctx)
 }
 
 // Close performs the Close operation.

@@ -24,6 +24,7 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
+	jmmetrics "github.com/AMD-AIG-AIMA/SAFE/job-manager/pkg/metrics"
 	jobutils "github.com/AMD-AIG-AIMA/SAFE/job-manager/pkg/utils"
 	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
 )
@@ -324,6 +325,12 @@ func (r *SyncerReconciler) updateAdminWorkloadByJob(ctx context.Context, clientS
 // It was previously determined that the workload has not reached a terminal state.
 func (r *SyncerReconciler) updateAdminWorkloadPhase(adminWorkload *v1.Workload,
 	status *jobutils.K8sObjectStatus, message *resourceMessage) {
+	oldPhase := adminWorkload.Status.Phase
+	defer func() {
+		if adminWorkload.Status.Phase != oldPhase {
+			jmmetrics.WorkloadPhaseTotal.WithLabelValues(string(adminWorkload.Status.Phase)).Inc()
+		}
+	}()
 	phase := v1.WorkloadConditionType(status.Phase)
 	switch phase {
 	case v1.K8sPending:
@@ -423,6 +430,7 @@ func (r *SyncerReconciler) reSchedule(ctx context.Context, workload *v1.Workload
 		}
 	}
 	klog.Infof("reSchedule workload, name: %s, dispatchCount: %d", workload.Name, count)
+	jmmetrics.WorkloadRescheduleTotal.Inc()
 	return nil
 }
 

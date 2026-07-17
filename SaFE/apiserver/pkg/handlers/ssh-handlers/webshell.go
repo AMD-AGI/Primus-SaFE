@@ -18,6 +18,7 @@ import (
 	"k8s.io/client-go/tools/remotecommand"
 	"k8s.io/klog/v2"
 
+	apimetrics "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/metrics"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 )
 
@@ -55,6 +56,8 @@ func (h *SshHandler) WebShell(c *gin.Context) {
 		return
 	}
 	defer conn.Close()
+	apimetrics.StreamConnectionsActive.WithLabelValues("webshell_ws").Inc()
+	defer apimetrics.StreamConnectionsActive.WithLabelValues("webshell_ws").Dec()
 
 	_ = conn.SetReadDeadline(time.Now().Add(60 * time.Second))
 	conn.SetPongHandler(func(appData string) error {

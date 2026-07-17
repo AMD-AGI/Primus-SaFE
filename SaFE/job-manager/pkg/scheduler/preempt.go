@@ -18,6 +18,7 @@ import (
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/quantity"
 	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
+	jmmetrics "github.com/AMD-AIG-AIMA/SAFE/job-manager/pkg/metrics"
 	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
 )
 
@@ -58,6 +59,7 @@ func (r *SchedulerReconciler) preempt(ctx context.Context, requestWorkload *v1.W
 			return false, err
 		}
 		klog.Infof("the workload(%s) is preempted due to workload(%s)", w.Name, requestWorkload.Name)
+		jmmetrics.SchedulerPreemptionsTotal.WithLabelValues(w.Spec.Workspace).Inc()
 	}
 	return true, nil
 }

@@ -38,6 +38,7 @@ import (
 	commonnodes "github.com/AMD-AIG-AIMA/SAFE/common/pkg/nodes"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/quantity"
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
+	rmmetrics "github.com/AMD-AIG-AIMA/SAFE/resource-manager/pkg/metrics"
 	"github.com/AMD-AIG-AIMA/SAFE/resource-manager/pkg/utils"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/concurrent"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/sets"
@@ -308,6 +309,7 @@ func (r *WorkspaceReconciler) updatePhase(ctx context.Context, workspace *v1.Wor
 	if err := r.Status().Patch(ctx, workspace, patch); err != nil {
 		return err
 	}
+	rmmetrics.WorkspacePhaseTotal.WithLabelValues(string(phase)).Inc()
 	return nil
 }
 
@@ -677,11 +679,17 @@ func (r *WorkspaceReconciler) updateSingleNodeBinding(ctx context.Context, node 
 	}
 	patch := client.MergeFrom(node.DeepCopy())
 	node.Spec.Workspace = pointer.String(target)
+	action := "bind"
+	if target == "" {
+		action = "unbind"
+	}
 	if err := r.Patch(ctx, node, patch); err != nil {
 		klog.ErrorS(err, "failed to update node", "target", target)
+		rmmetrics.WorkspaceNodeBindingTotal.WithLabelValues(action, "failed").Inc()
 		return false, err
 	}
 	klog.Infof("updateSingleNodeBinding, node: %s, target: %s", node.Name, target)
+	rmmetrics.WorkspaceNodeBindingTotal.WithLabelValues(action, "success").Inc()
 	return true, nil
 }
 

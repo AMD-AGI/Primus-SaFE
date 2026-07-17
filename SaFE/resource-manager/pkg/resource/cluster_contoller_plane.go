@@ -32,6 +32,7 @@ import (
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
+	rmmetrics "github.com/AMD-AIG-AIMA/SAFE/resource-manager/pkg/metrics"
 	"github.com/AMD-AIG-AIMA/SAFE/resource-manager/pkg/utils"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/secure"
 )
@@ -117,6 +118,7 @@ func (r *ClusterReconciler) createControlPlanePod(ctx context.Context, cluster *
 
 // updatePodStatus updates cluster phase based on pod status.
 func (r *ClusterReconciler) updatePodStatus(ctx context.Context, cluster *v1.Cluster, pod *corev1.Pod) error {
+	oldPhase := cluster.Status.ControlPlaneStatus.Phase
 	originalCluster := client.MergeFrom(cluster.DeepCopy())
 	cluster.Status.ControlPlaneStatus.Phase = v1.CreatingPhase
 
@@ -124,6 +126,17 @@ func (r *ClusterReconciler) updatePodStatus(ctx context.Context, cluster *v1.Clu
 		cluster.Status.ControlPlaneStatus.Phase = v1.CreatedPhase
 	} else if pod.Status.Phase == corev1.PodFailed {
 		cluster.Status.ControlPlaneStatus.Phase = v1.CreationFailed
+	}
+
+	if newPhase := cluster.Status.ControlPlaneStatus.Phase; newPhase != oldPhase {
+		switch newPhase {
+		case v1.CreatedPhase:
+			rmmetrics.ClusterProvisionTotal.WithLabelValues("created").Inc()
+			rmmetrics.ClusterProvisionDuration.WithLabelValues("created").Observe(time.Since(pod.CreationTimestamp.Time).Seconds())
+		case v1.CreationFailed:
+			rmmetrics.ClusterProvisionTotal.WithLabelValues("failed").Inc()
+			rmmetrics.ClusterProvisionDuration.WithLabelValues("failed").Observe(time.Since(pod.CreationTimestamp.Time).Seconds())
+		}
 	}
 
 	return r.Status().Patch(ctx, cluster, originalCluster)
@@ -177,12 +190,21 @@ func (r *ClusterReconciler) handleResetPodCreation(ctx context.Context, cluster 
 
 // updateResetPhase updates cluster phase based on reset pod status.
 func (r *ClusterReconciler) updateResetPhase(cluster *v1.Cluster, pod *corev1.Pod) {
+	oldPhase := cluster.Status.ControlPlaneStatus.Phase
 	if pod.Status.Phase == corev1.PodSucceeded {
 		cluster.Status.ControlPlaneStatus.Phase = v1.DeletedPhase
 	} else if pod.Status.Phase == corev1.PodFailed {
 		cluster.Status.ControlPlaneStatus.Phase = v1.DeleteFailedPhase
 	} else {
 		cluster.Status.ControlPlaneStatus.Phase = v1.DeletingPhase
+	}
+	if newPhase := cluster.Status.ControlPlaneStatus.Phase; newPhase != oldPhase {
+		switch newPhase {
+		case v1.DeletedPhase:
+			rmmetrics.ClusterDeprovisionTotal.WithLabelValues("deleted").Inc()
+		case v1.DeleteFailedPhase:
+			rmmetrics.ClusterDeprovisionTotal.WithLabelValues("failed").Inc()
+		}
 	}
 }
 

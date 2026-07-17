@@ -18,6 +18,7 @@ import (
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
+	rmmetrics "github.com/AMD-AIG-AIMA/SAFE/resource-manager/pkg/metrics"
 )
 
 const (
@@ -52,6 +53,7 @@ func SetupExporters(ctx context.Context, mgr manager.Manager) error {
 					if !obj.GetDeletionTimestamp().IsZero() &&
 						time.Now().UTC().Sub(obj.GetDeletionTimestamp().Time).Hours() > MaxTTLHour {
 						klog.Errorf("failed to upsert workload(%d), ignore it: %v", dbWorkload.Id, err)
+						rmmetrics.ExporterTTLDroppedTotal.WithLabelValues("workload").Inc()
 						return nil
 					}
 					return err
@@ -67,7 +69,15 @@ func SetupExporters(ctx context.Context, mgr manager.Manager) error {
 				if dbFault == nil {
 					return nil
 				}
-				dbClient.UpsertFault(ctx, dbFault)
+				if err := dbClient.UpsertFault(ctx, dbFault); err != nil {
+					if !obj.GetDeletionTimestamp().IsZero() &&
+						time.Now().UTC().Sub(obj.GetDeletionTimestamp().Time).Hours() > MaxTTLHour {
+						klog.Errorf("failed to upsert fault, ignore it: %v", err)
+						rmmetrics.ExporterTTLDroppedTotal.WithLabelValues("fault").Inc()
+						return nil
+					}
+					return err
+				}
 				return nil
 			},
 			filter: faultFilter,
@@ -79,7 +89,15 @@ func SetupExporters(ctx context.Context, mgr manager.Manager) error {
 				if dbJob == nil {
 					return nil
 				}
-				dbClient.UpsertJob(ctx, dbJob)
+				if err := dbClient.UpsertJob(ctx, dbJob); err != nil {
+					if !obj.GetDeletionTimestamp().IsZero() &&
+						time.Now().UTC().Sub(obj.GetDeletionTimestamp().Time).Hours() > MaxTTLHour {
+						klog.Errorf("failed to upsert opsjob, ignore it: %v", err)
+						rmmetrics.ExporterTTLDroppedTotal.WithLabelValues("opsjob").Inc()
+						return nil
+					}
+					return err
+				}
 				return nil
 			},
 			filter: nil,
@@ -95,6 +113,7 @@ func SetupExporters(ctx context.Context, mgr manager.Manager) error {
 					if !obj.GetDeletionTimestamp().IsZero() &&
 						time.Now().UTC().Sub(obj.GetDeletionTimestamp().Time).Hours() > MaxTTLHour {
 						klog.Errorf("failed to upsert model(%s), ignore it: %v", dbModel.ID, err)
+						rmmetrics.ExporterTTLDroppedTotal.WithLabelValues("model").Inc()
 						return nil
 					}
 					return err

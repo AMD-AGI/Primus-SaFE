@@ -12,6 +12,7 @@ import (
 	"k8s.io/klog/v2"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	apimetrics "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/metrics"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
@@ -40,6 +41,7 @@ func ParseToken(c *gin.Context) error {
 		// Authenticate using API key
 		err := parseApiKeyFromRequest(c, apiKey)
 		if err != nil {
+			apimetrics.AuthFailuresTotal.WithLabelValues("api_key").Inc()
 			return commonerrors.NewUnauthorized(err.Error())
 		}
 		return nil
@@ -48,6 +50,11 @@ func ParseToken(c *gin.Context) error {
 	// Fall back to regular token authentication
 	err := parseTokenFromRequest(c)
 	if err != nil {
+		reason := "invalid"
+		if strings.Contains(err.Error(), "not present") {
+			reason = "missing"
+		}
+		apimetrics.AuthFailuresTotal.WithLabelValues(reason).Inc()
 		return commonerrors.NewUnauthorized(err.Error())
 	}
 	return nil

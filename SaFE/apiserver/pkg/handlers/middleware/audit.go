@@ -23,6 +23,7 @@ import (
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
+	apimetrics "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/metrics"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
@@ -73,6 +74,7 @@ func (b *auditLogBuffer) send(log *dbclient.AuditLog) bool {
 		return true
 	default:
 		// Buffer is full, log warning
+		apimetrics.AuditLogsDroppedTotal.Inc()
 		klog.Warning("audit log buffer full, dropping log",
 			"userId", log.UserId,
 			"method", log.HttpMethod,

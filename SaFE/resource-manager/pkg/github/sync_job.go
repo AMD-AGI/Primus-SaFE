@@ -12,6 +12,8 @@ import (
 
 	"k8s.io/klog/v2"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	rmmetrics "github.com/AMD-AIG-AIMA/SAFE/resource-manager/pkg/metrics"
 )
 
 // SyncJob fetches GitHub API data for unsynced workflow runs and stores it in SaFE DB.
@@ -62,6 +64,7 @@ func (j *SyncJob) syncBatch(ctx context.Context) {
 		klog.V(1).Infof("[github-sync] get unsynced runs: %v", err)
 		return
 	}
+	rmmetrics.GithubSyncBacklog.Set(float64(len(runs)))
 	if len(runs) == 0 {
 		return
 	}
@@ -101,7 +104,10 @@ func (j *SyncJob) syncBatch(ctx context.Context) {
 
 		if synced {
 			j.store.MarkSynced(ctx, run.ID)
+			rmmetrics.GithubSyncTotal.WithLabelValues("success").Inc()
 			klog.V(2).Infof("[github-sync] synced run %d (workflow=%s)", run.GithubRunID, run.WorkflowName)
+		} else {
+			rmmetrics.GithubSyncTotal.WithLabelValues("pending").Inc()
 		}
 	}
 }

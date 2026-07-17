@@ -21,6 +21,7 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonfaults "github.com/AMD-AIG-AIMA/SAFE/common/pkg/faults"
+	rmmetrics "github.com/AMD-AIG-AIMA/SAFE/resource-manager/pkg/metrics"
 )
 
 const (
@@ -148,6 +149,7 @@ func createFault(ctx context.Context, cli client.Client, fault *v1.Fault) error 
 		}
 	}
 	klog.Infof("create fault, name: %s, id: %s", fault.Name, fault.Spec.MonitorId)
+	rmmetrics.FaultCreatedTotal.WithLabelValues(fault.Spec.MonitorId).Inc()
 	return nil
 }
 

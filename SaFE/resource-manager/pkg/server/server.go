@@ -24,6 +24,7 @@ import (
 	commonklog "github.com/AMD-AIG-AIMA/SAFE/common/pkg/klog"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/options"
 	"github.com/AMD-AIG-AIMA/SAFE/resource-manager/pkg/exporter"
+	rmhealth "github.com/AMD-AIG-AIMA/SAFE/resource-manager/pkg/health"
 	"github.com/AMD-AIG-AIMA/SAFE/resource-manager/pkg/ops_job"
 	"github.com/AMD-AIG-AIMA/SAFE/resource-manager/pkg/resource"
 )
@@ -93,6 +94,12 @@ func (s *Server) init() error {
 	if err = s.ctrlManager.ctrlManager.Add(&NotificationRunner{ctrlManager: s.ctrlManager}); err != nil {
 		klog.ErrorS(err, "failed to add notification runner to controller manager")
 		return err
+	}
+	if commonconfig.IsMetricsEnabled() {
+		if err = s.ctrlManager.ctrlManager.Add(rmhealth.NewReporter(s.ctrlManager.ctrlManager.GetClient())); err != nil {
+			klog.ErrorS(err, "failed to add self-health reporter to controller manager")
+			return err
+		}
 	}
 	s.isInited = true
 	return nil

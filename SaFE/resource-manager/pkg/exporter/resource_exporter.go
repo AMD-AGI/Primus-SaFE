@@ -8,6 +8,8 @@ package exporter
 import (
 	"context"
 	"fmt"
+	"strings"
+	"time"
 
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -26,6 +28,7 @@ import (
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	commonctrl "github.com/AMD-AIG-AIMA/SAFE/common/pkg/controller"
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
+	rmmetrics "github.com/AMD-AIG-AIMA/SAFE/resource-manager/pkg/metrics"
 )
 
 // ResourceFilter defines a function type for filtering resource updates.
@@ -121,6 +124,7 @@ func addExporter(ctx context.Context, mgr manager.Manager, gvk schema.GroupVersi
 // Reconcile adds the resource to the processing queue when a change is detected.
 func (r *ResourceExporter) Reconcile(_ context.Context, req ctrlruntime.Request) (ctrlruntime.Result, error) {
 	r.KeyedController.Add(req.NamespacedName)
+	rmmetrics.ExporterQueueDepth.WithLabelValues(strings.ToLower(r.gvk.Kind)).Set(float64(r.GetQueueSize()))
 	return ctrlruntime.Result{}, nil
 }
 
@@ -156,10 +160,16 @@ func (r *ResourceExporter) Do(ctx context.Context, msg types.NamespacedName) (ct
 	}
 
 	if r.handler != nil {
-		if err = r.handler(ctx, obj); err != nil {
+		kind := strings.ToLower(r.gvk.Kind)
+		start := time.Now()
+		err = r.handler(ctx, obj)
+		rmmetrics.ExporterSyncDuration.WithLabelValues(kind).Observe(time.Since(start).Seconds())
+		if err != nil {
+			rmmetrics.ExporterSyncTotal.WithLabelValues(kind, "failure").Inc()
 			klog.ErrorS(err, "failed to handle resource")
 			return ctrlruntime.Result{}, err
 		}
+		rmmetrics.ExporterSyncTotal.WithLabelValues(kind, "success").Inc()
 	}
 
 	if !obj.GetDeletionTimestamp().IsZero() {

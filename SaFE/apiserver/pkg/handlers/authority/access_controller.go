@@ -15,6 +15,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	apimetrics "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/metrics"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	commonuser "github.com/AMD-AIG-AIMA/SAFE/common/pkg/user"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/slice"
@@ -175,6 +176,7 @@ func (a *AccessController) authorize(in AccessInput) error {
 	}
 	klog.Errorf("failed to authorize user(%s) to %s %s/%s, workspace: %s, isOwner: %t, isWorkspaceUser: %t",
 		in.User.Name, in.Verb, resourceKind, resourceName, in.Workspaces, isOwner, isWorkspaceUser)
+	apimetrics.AuthzDeniedTotal.WithLabelValues(strings.ToLower(resourceKind), string(in.Verb)).Inc()
 	return commonerrors.NewForbidden(fmt.Sprintf("The user(%s) is not allowed to %s %s,"+
 		" workspace: %s", in.User.Name, in.Verb, resourceKind, in.Workspaces))
 }

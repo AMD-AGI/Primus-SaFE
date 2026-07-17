@@ -28,6 +28,7 @@ import (
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	apimetrics "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/metrics"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
@@ -517,6 +518,8 @@ func (h *Handler) streamChat(c *gin.Context, baseUrl string, apiKey string, mode
 		return
 	}
 	defer stream.Close()
+	apimetrics.StreamConnectionsActive.WithLabelValues("playground_chat").Inc()
+	defer apimetrics.StreamConnectionsActive.WithLabelValues("playground_chat").Dec()
 
 	// Get flusher for SSE
 	flusher, _ := c.Writer.(interface{ Flush() })

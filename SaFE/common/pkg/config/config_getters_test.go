@@ -276,3 +276,4 @@ func TestModelOptimizationClawBaseURLDerivation(t *testing.T) {
 	viper.Set(subDomain, "tw325")
 	assert.Equal(t, "https://tw325.amd.com/claw-api/v1", GetModelOptimizationClawBaseURL())
 }
+

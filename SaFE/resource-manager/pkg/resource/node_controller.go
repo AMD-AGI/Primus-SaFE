@@ -36,6 +36,7 @@ import (
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	commonfaults "github.com/AMD-AIG-AIMA/SAFE/common/pkg/faults"
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
+	rmmetrics "github.com/AMD-AIG-AIMA/SAFE/resource-manager/pkg/metrics"
 	"github.com/AMD-AIG-AIMA/SAFE/resource-manager/pkg/utils"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/sets"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
@@ -348,6 +349,14 @@ func (r *NodeReconciler) updateMachineStatus(ctx context.Context,
 	if err := r.Status().Patch(ctx, node, patch); err != nil {
 		klog.ErrorS(err, "failed to patch status", "node", node.Name)
 		return err
+	}
+	switch phase {
+	case v1.NodeReady:
+		rmmetrics.NodeMachineProbeTotal.WithLabelValues("ready").Inc()
+	case v1.NodeSSHFailed:
+		rmmetrics.NodeMachineProbeTotal.WithLabelValues("ssh_failed").Inc()
+	case v1.NodeHostnameFailed:
+		rmmetrics.NodeMachineProbeTotal.WithLabelValues("hostname_failed").Inc()
 	}
 	klog.Infof("update machine status, node=%s, phase=%s", node.Name, phase)
 	return nil
@@ -665,12 +674,14 @@ func (r *NodeReconciler) handleClusterAuthorization(ctx context.Context, node *v
 		klog.ErrorS(err, "failed to authorize node", "node", node.Name)
 		node.Status.ClusterStatus.CommandStatus =
 			setCommandStatus(node.Status.ClusterStatus.CommandStatus, utils.Authorize, v1.CommandFailed)
+		rmmetrics.NodeBootstrapCommandTotal.WithLabelValues("authorize", "failed").Inc()
 		return err
 	}
 
 	klog.Infof("node %s is Authorized", node.Name)
 	node.Status.ClusterStatus.CommandStatus =
 		setCommandStatus(node.Status.ClusterStatus.CommandStatus, utils.Authorize, v1.CommandSucceeded)
+	rmmetrics.NodeBootstrapCommandTotal.WithLabelValues("authorize", "succeeded").Inc()
 	return nil
 }
 
@@ -693,11 +704,13 @@ func (r *NodeReconciler) handleHarborCertificate(ctx context.Context, node *v1.N
 		klog.ErrorS(err, "failed to install harbor cert", "node", node.Name)
 		node.Status.ClusterStatus.CommandStatus =
 			setCommandStatus(node.Status.ClusterStatus.CommandStatus, HarborCA, v1.CommandFailed)
+		rmmetrics.NodeBootstrapCommandTotal.WithLabelValues("harbor_ca", "failed").Inc()
 		return err
 	}
 	if ok {
 		node.Status.ClusterStatus.CommandStatus =
 			setCommandStatus(node.Status.ClusterStatus.CommandStatus, HarborCA, v1.CommandSucceeded)
+		rmmetrics.NodeBootstrapCommandTotal.WithLabelValues("harbor_ca", "succeeded").Inc()
 		return nil
 	}
 	return nil
@@ -779,9 +792,12 @@ func (r *NodeReconciler) manage(ctx context.Context, adminNode *v1.Node, k8sNode
 				return ctrlruntime.Result{}, err
 			}
 		}
-		adminNode.Status.ClusterStatus.Cluster = adminNode.Spec.Cluster
-		adminNode.Status.ClusterStatus.Phase = v1.NodeManaged
-		klog.Infof("managed node %s", k8sNode.Name)
+	if adminNode.Status.ClusterStatus.Phase != v1.NodeManaged {
+		rmmetrics.NodeManageTotal.WithLabelValues("managed").Inc()
+	}
+	adminNode.Status.ClusterStatus.Cluster = adminNode.Spec.Cluster
+	adminNode.Status.ClusterStatus.Phase = v1.NodeManaged
+	klog.Infof("managed node %s", k8sNode.Name)
 		if stringutil.StrCaseEqual(v1.GetLabel(adminNode, v1.NodeManageRebootLabel), v1.TrueStr) {
 			r.rebootNode(ctx, adminNode)
 			return ctrlruntime.Result{RequeueAfter: time.Second * 20}, nil
@@ -801,6 +817,9 @@ func (r *NodeReconciler) syncControlPlaneNodeStatus(ctx context.Context, adminNo
 		return err
 	}
 	if len(pods) > 0 && pods[0].Status.Phase == corev1.PodFailed {
+		if adminNode.Status.ClusterStatus.Phase != v1.NodeManagedFailed {
+			rmmetrics.NodeManageTotal.WithLabelValues("failed").Inc()
+		}
 		adminNode.Status.ClusterStatus.Phase = v1.NodeManagedFailed
 	} else {
 		adminNode.Status.ClusterStatus.Phase = v1.NodeManaging
@@ -899,6 +918,9 @@ func (r *NodeReconciler) syncOrCreateScaleUpPod(ctx context.Context, adminNode *
 			klog.Infof("pod(%s) is succeeded", pod.Name)
 			return ctrlruntime.Result{RequeueAfter: time.Second * 3}, nil
 		case corev1.PodFailed:
+			if adminNode.Status.ClusterStatus.Phase != v1.NodeManagedFailed {
+				rmmetrics.NodeManageTotal.WithLabelValues("failed").Inc()
+			}
 			adminNode.Status.ClusterStatus.Phase = v1.NodeManagedFailed
 		default:
 			adminNode.Status.ClusterStatus.Phase = v1.NodeManaging
@@ -927,6 +949,9 @@ func (r *NodeReconciler) unmanage(ctx context.Context, adminNode *v1.Node, k8sNo
 	if k8sNode == nil {
 		if err := r.deletePods(ctx, clusterId, adminNode.Name, string(v1.ClusterScaleDownAction)); err != nil {
 			return ctrlruntime.Result{}, err
+		}
+		if adminNode.Status.ClusterStatus.Phase != v1.NodeUnmanaged {
+			rmmetrics.NodeUnmanageTotal.WithLabelValues("unmanaged").Inc()
 		}
 		adminNode.Status = v1.NodeStatus{
 			ClusterStatus: v1.NodeClusterStatus{
@@ -1142,6 +1167,9 @@ func (r *NodeReconciler) syncOrCreateScaleDownPod(ctx context.Context,
 					return ctrlruntime.Result{}, err
 				}
 				return ctrlruntime.Result{RequeueAfter: time.Second * 3}, nil
+			}
+			if adminNode.Status.ClusterStatus.Phase != v1.NodeUnmanagedFailed {
+				rmmetrics.NodeUnmanageTotal.WithLabelValues("failed").Inc()
 			}
 			adminNode.Status.ClusterStatus.Phase = v1.NodeUnmanagedFailed
 		default:
