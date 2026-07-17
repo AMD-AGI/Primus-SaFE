@@ -1095,7 +1095,7 @@ const handleTimeoutMessage = async (messageIndex: number, data: TimeoutMessageDa
 }
 
 // Agent: Handle complete message
-const handleCompleteMessage = (messageIndex: number, data: Record<string, unknown>) => {
+const handleCompleteMessage = (messageIndex: number, _data: Record<string, unknown>) => {
   loading.value = false
 
   // When operation completes, restore selection forms as readonly

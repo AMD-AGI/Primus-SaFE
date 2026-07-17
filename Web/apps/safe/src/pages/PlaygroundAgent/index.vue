@@ -1587,7 +1587,6 @@ const modelNameOptions = computed(() => {
 const messages = ref<MessageWithChoices[]>([])
 const userInput = ref('')
 const loading = ref(false)
-const secondaryLoading = ref(false)
 const loadingTime = ref('')
 const messagesContainer = ref<HTMLElement>()
 const primaryMessagesContainer = ref<HTMLElement>()

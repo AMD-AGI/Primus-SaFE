@@ -126,6 +126,8 @@ interface Props {
 
 interface Emits {
   (e: 'update:modelValue', value: boolean): void
+  // Dynamic selection form values are bound to heterogeneous Element Plus controls
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   (e: 'confirm', data: { selections?: Record<string, any>; approved?: boolean }): void
   (e: 'cancel'): void
 }
@@ -138,6 +140,8 @@ const dialogVisible = computed({
   set: (value) => emit('update:modelValue', value),
 })
 
+// Values map to el-input (string) / el-select multiple (string[]) via v-model
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 const formData = ref<Record<string, any>>({})
 
 // Watch data changes to initialize form
@@ -151,6 +155,7 @@ watch(
 
     // Initialize form data with defaults
     if (newData.confirm_type === 'selection' && newData.selections) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const initialData: Record<string, any> = {}
       Object.entries(newData.selections).forEach(([key, field]) => {
         if (field.default !== undefined) {
