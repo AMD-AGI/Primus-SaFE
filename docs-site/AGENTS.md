@@ -13,6 +13,14 @@ product regressed, and the report says which.
 > This file is not part of the published site (Docusaurus only builds `docs/`). It is the standing
 > contract for any agent asked to "test the docs."
 
+## Quick start — how to run this
+
+To test the docs, paste the prompt in the "Trigger" section below into a brand-new agent thread.
+It runs the whole suite by default. To test a single page instead, set the `TARGET` line at the
+top of that prompt to a page key from the manifest (e.g. `TARGET = tasks/interact-with-your-job`);
+leave `TARGET = ALL` for a full run. Runtime values come from the gitignored
+`docs-site/.docs-test.env`.
+
 ## What the agent reads, and where
 
 | Thing | Lives in | Why there |
@@ -109,9 +117,12 @@ Record, honestly, which pages got the full 3× and which were single-run. Then:
 ## Trigger — paste into a brand-new thread
 
 Runtime values (console URL, admin/member login) live in the local, gitignored
-`docs-site/.docs-test.env` — never in this file or the prompt.
+`docs-site/.docs-test.env` — never in this file or the prompt. Set the `TARGET` line at the top of
+the prompt to scope the run: `ALL` for the whole suite, or a single manifest page key for one page.
 
 ```
+TARGET = ALL   # ALL for the whole suite, or one manifest page key, e.g. getting-started/first-training-job
+
 Execute the docs-as-test suite. The docs-site IS the test spec.
 
 1. Read docs-site/AGENTS.md (this contract) and its manifest.
@@ -119,16 +130,18 @@ Execute the docs-as-test suite. The docs-site IS the test spec.
    PRIMUS_ADMIN_LOGIN). Do not print credentials.
 3. DRIVER: use ONLY the "user-Playwright" MCP (navigate/click/type/snapshot/screenshot). If the
    console uses a self-signed cert, run with HTTPS errors ignored. Start by navigating to the
-   console URL and signing in.
-4. For each page under docs-site/docs/**/*.md: read it top to bottom, check its preconditions,
-   perform its numbered steps in the UI (reference/explanation pages have no steps — just confirm
-   the "What an agent verifies here" artifacts are present), judge each outcome from the page's own
-   "Healthy/Fail" prose, fill its "What you should see" table, and run its cleanup. Use the manifest
-   below for each page's mode/priority and to skip pages marked n/a. Apply the test-scope
-   exclusions on a shared env.
-5. Repeat by tier (see "Repeatability protocol"). Name created resources doc-as-test-<page>-<runid>
-   and clean them up.
-6. Honor the known-drift notes in the manifest below (documented bugs are not new failures).
+   console URL and signing in as the persona(s) the target page(s) require (manifest "personas").
+4. Resolve the page set from TARGET: if TARGET is ALL, use every page under docs-site/docs/**/*.md;
+   otherwise use only docs-site/docs/<TARGET>.md. For each page in the set: read it top to bottom,
+   check its preconditions, perform its numbered steps in the UI (reference/explanation pages have
+   no steps — just confirm the "What an agent verifies here" artifacts are present), judge each
+   outcome from the page's own "Healthy/Fail" prose, fill its "What you should see" table, and run
+   its cleanup. Use the manifest row(s) for mode/priority and to skip pages marked n/a. Apply the
+   test-scope exclusions on a shared env.
+5. Repeat per the "Repeatability protocol" for the pages in the set (a single P0 page still gets its
+   3× fresh-thread runs). Name created resources doc-as-test-<page>-<runid> and clean them up.
+6. Honor the known-drift notes in the manifest for the pages in the set (documented bugs are not new
+   failures).
 7. Output: a summary table (page · level · result) + a findings/ambiguity list.
 ```
 
