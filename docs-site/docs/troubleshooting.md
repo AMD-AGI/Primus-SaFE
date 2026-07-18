@@ -132,10 +132,14 @@ kubectl logs -n primus-safe <primus-safe-webhooks-pod>
 ```
 
 A `CrashLoopBackOff` pod whose logs contain `too many open files` usually means the node's inotify
-limits are too low. Check the node running that pod with `sysctl fs.inotify.max_user_instances
-fs.inotify.max_user_watches`. Clusters provisioned with `Bootstrap/bootstrap.sh` set these limits
-to `8192` and `524288` respectively on every node and persist them in
-`/etc/sysctl.d/99-inotify.conf`.
+limits are too low. Check the node running that pod:
+
+```bash
+sysctl fs.inotify.max_user_instances fs.inotify.max_user_watches
+```
+
+Clusters provisioned with `Bootstrap/bootstrap.sh` set these limits to `8192` and `524288`
+respectively on every node and persist them in `/etc/sysctl.d/99-inotify.conf`.
 
 ## Pre-flight / Bench can't reach nodes
 
