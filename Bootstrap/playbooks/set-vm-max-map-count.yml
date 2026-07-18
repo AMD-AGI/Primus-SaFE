@@ -10,5 +10,13 @@
         line: 'vm.max_map_count=262144'
         state: present
 
+    - name: Persist inotify limits
+      copy:
+        dest: /etc/sysctl.d/99-inotify.conf
+        content: |
+          fs.inotify.max_user_instances = 8192
+          fs.inotify.max_user_watches = 524288
+        mode: '0644'
+
     - name: Apply sysctl settings
-      command: sysctl -p
+      command: sysctl --system
