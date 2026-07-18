@@ -67,7 +67,7 @@ jump to the first incomplete step** rather than blindly re-running everything. Q
 
 ```bash
 kubectl get nodes 2>/dev/null                              # step 2 done if all Ready
-kubectl get storageclass 2>/dev/null                       # step 3 done if a (default) exists
+kubectl get storageclass 2>/dev/null                       # step 3 candidate; NOT done until the bind smoke-test passes
 kubectl get pods -n higress-system 2>/dev/null             # step 4 (if gateway.higress)
 kubectl get pods -n harbor 2>/dev/null                     # step 5 (if registry.harbor)
 kubectl get secret primus-safe-opensearch-config -n primus-safe 2>/dev/null   # step 6
@@ -123,11 +123,18 @@ cd Primus-SaFE/Bootstrap
 bash bootstrap.sh
 ```
 
-~20-40 min. Then **pause** and verify: `kubectl get nodes -o wide` (all `Ready`) and
-`helm list -A` (cert-manager, amd-gpu-operator, network-operator, scheduler-plugins). If
-any node is `NotReady` or the script errored, stop and surface the Kubespray/Ansible
-error (usually SSH reachability or an inventory mistake) -- `bootstrap.sh` has no
-`set -e`, so trust the checks, not the exit code.
+~20-40 min. Then **pause** and verify: `kubectl get nodes -o wide` (every node `Ready`)
+and `helm list -A` (cert-manager, amd-gpu-operator, network-operator, scheduler-plugins).
+Also confirm the add-on pods are actually `READY n/n`, not merely present:
+
+```bash
+kubectl get pods -A | grep -Ev 'Running|Completed' && echo "^ investigate before continuing"
+```
+
+If any node is `NotReady`, an add-on pod is stuck (`Pending` / `CrashLoopBackOff` /
+`ImagePullBackOff`), or the script errored, stop and surface the Kubespray/Ansible error
+(usually SSH reachability or an inventory mistake) -- `bootstrap.sh` has no `set -e`, so
+trust the checks, not the exit code.
 
 ### 3. Storage
 
@@ -146,8 +153,43 @@ cd Primus-SaFE/Bootstrap/storage/ceph
 bash ceph.sh          # the resulting default StorageClass is named `rbd`
 ```
 
-Verify: `kubectl get storageclass` shows a `(default)` class. Its name must match
-`safe.storage_class`.
+For Ceph, a StorageClass can exist while the backing cluster is dead (a very common
+failure: nodes with only an OS disk and no spare **raw** devices produce an `rbd` class
+that never binds). Before trusting it, confirm the cluster is actually healthy:
+
+```bash
+kubectl get pods -n rook-ceph | grep 'rook-ceph-osd-'   # at least one osd pod, Running
+kubectl get cephblockpool -A                            # PHASE must be Ready (not Failure)
+```
+
+If there are no OSD pods or the `CephBlockPool` is `Failure`, STOP and report BLOCKED
+(the nodes likely lack spare raw disks) -- do not proceed on a dead class.
+
+**Verify (functional smoke-test, not just presence).** A `(default)` class that exists but
+cannot provision satisfies a naive presence check yet stalls `install.sh` later. Prove the
+class actually binds a volume, then clean up:
+
+```bash
+kubectl apply -f - <<'EOF'
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: safe-smoke-test
+  namespace: default
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 1Mi
+  storageClassName: <safe.storage_class>   # omit to use the (default) class
+EOF
+kubectl wait --for=jsonpath='{.status.phase}'=Bound pvc/safe-smoke-test --timeout=60s
+kubectl delete pvc safe-smoke-test
+```
+
+Pass only if the PVC reaches `Bound`. If it stays `Pending`, STOP and report BLOCKED,
+quoting `kubectl describe pvc safe-smoke-test -n default` (the provisioner events say why).
+Also confirm the class name matches `safe.storage_class`.
 
 ### 4. Higress gateway (only if `gateway.higress: true`)
 
@@ -156,7 +198,9 @@ cd Primus-SaFE/Bootstrap/higress
 bash higress.sh
 ```
 
-Verify pods in `higress-system`. Required when `safe.ingress: higress`.
+Verify pods in `higress-system` are `READY n/n` (not just present):
+`kubectl get pods -n higress-system | grep -Ev 'Running|Completed'` should print nothing.
+Required when `safe.ingress: higress`.
 
 ### 5. Harbor registry (only if `registry.harbor.enabled: true`)
 
@@ -170,7 +214,9 @@ cd Primus-SaFE/Bootstrap/harbor
 bash harbor.sh '<admin_password>' '<domain>' '<storage_class>' '<ssh_key>'
 ```
 
-Always pass the password as arg 1 so it never prompts. Verify pods in `harbor`.
+Always pass the password as arg 1 so it never prompts. Verify pods in `harbor` are
+`READY n/n`: `kubectl get pods -n harbor | grep -Ev 'Running|Completed'` should print nothing
+(watch for `ImagePullBackOff` on the Harbor images).
 
 ### 6. Pre-create the OpenSearch secret
 
@@ -215,18 +261,27 @@ safe to repeat: it uses `helm upgrade --install`, auto-cleans any Helm release s
 the supported fix is simply to **re-run `install.sh` with the same piped answers** -- it
 finishes whatever is missing and upgrades the rest in place. Do not uninstall first.
 
-Verify (all should hold):
+Verify (all should hold). A release can be `deployed` and a pod can exist while never
+becoming **Ready** -- check `READY n/n`, not just presence:
 
 ```bash
 helm list -n primus-safe          # grafana-operator, primus-pgo, primus-safe, primus-safe-cr
                                   # (+ node-agent if enabled) all STATUS=deployed
-kubectl get pods -n primus-safe   # apiserver, job-manager, resource-manager, webhooks,
-                                  # controllers, primus-pgo + its db pod all Running
+kubectl get pods -n primus-safe   # every pod READY n/n; apiserver, job-manager,
+                                  # resource-manager, webhooks, controllers, primus-pgo + db pod
+# flag anything not healthy (empty output = all good):
+kubectl get pods -n primus-safe | grep -Ev 'Running|Completed' && echo "^ investigate"
+kubectl get pods -n primus-safe --field-selector=status.phase=Running \
+  -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.status.containerStatuses[*].ready}{"\n"}{end}' \
+  | grep -i false && echo "^ Running but NOT Ready (e.g. webhooks CrashLoopBackOff)"
+kubectl get pvc -A | grep -v Bound && echo "^ unbound PVC -> recheck step 3"
 # only when logs/metrics were enabled:
 kubectl get pods -n primus-safe-observability
 ```
 
-If pods stay `Pending`/`CrashLoopBackOff`, it usually points to storage (no bound PVC ->
+Pass bar: all releases `deployed`, every pod `READY n/n`, no `CrashLoopBackOff` /
+`ImagePullBackOff` / `Pending`, and all PVCs `Bound`. If pods stay `Pending` /
+`CrashLoopBackOff` / `ImagePullBackOff`, it usually points to storage (no bound PVC ->
 recheck step 3) or the OpenSearch secret (step 6); fix that, then re-run `install.sh`.
 
 **`install.sh` vs `upgrade.sh`:** use `install.sh` for a first install *and* to resume/repair

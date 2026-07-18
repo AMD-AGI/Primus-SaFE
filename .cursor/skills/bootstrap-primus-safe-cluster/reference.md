@@ -19,7 +19,7 @@ send an empty line to accept the default.
 | # | Prompt | Answer from config | Default |
 |---|--------|--------------------|---------|
 | 1 | `Enter ethernet nic(...)` | `safe.ethernet_nic` | `eno0` |
-| 2 | `Enter rdma nic(...)` | `safe.rdma_nic` | `rdma0,...,rdma7` |
+| 2 | `Enter rdma nic(...)` | `safe.rdma_nic` | `rdma0,...,rdma7` (see caveat below) |
 | 3 | `Enter cluster scale, choose 'small/medium/large' (...)` | `safe.cluster_scale` | `small` |
 | 4 | `Enter storage class(...)` | `safe.storage_class` | `local-path` |
 | 5 | `Support S3 ? (y/n)` | `y` if `safe.s3.enabled` else `n` | `n` |
@@ -51,6 +51,17 @@ Maximum path (S3 + image secret + higress + SSO all on) = **26 prompts**.
   empty after the prompts, the script silently sets `s3_enable=false`.
 - **SSO**: same all-or-nothing disable.
 - **Image pull secret**: `y` with any blank field -> an empty placeholder secret.
+
+### `rdma_nic` cannot be blanked from the config (prompt #2)
+
+`get_input_with_default` treats an **empty** line as "accept the default", so piping `""`
+for `safe.rdma_nic` does **not** clear it -- it sets `NCCL_IB_HCA` to the `rdma0,...,rdma7`
+default. On a cluster with no RDMA NICs this silently bakes in a meaningless HCA list
+(the value is a cluster-wide default; single-node jobs are unaffected, but it is
+misleading). There is no piped input that yields an empty `NCCL_IB_HCA`. Options:
+- Set `safe.rdma_nic` to the node's real RDMA devices (`rdma link` / `ibdev2netdev`).
+- Accept the default is cosmetic on a no-RDMA / single-node cluster, or override
+  `NCCL_IB_HCA` per workload later.
 
 ### Not prompted
 
@@ -117,7 +128,7 @@ no-op if it is already satisfied).
 | Step | Detect command | Done when | If not done |
 |---|---|---|---|
 | 2 bootstrap | `kubectl get nodes` | every node `Ready` + base add-ons in `helm list -A` | re-run `bootstrap.sh` (idempotent, but slow -- 20-40 min) |
-| 3 storage | `kubectl get storageclass` | a `(default)` class exists, name matches `safe.storage_class` | re-run `local-path.sh` / `ceph.sh` |
+| 3 storage | 1Mi PVC bind smoke-test (below), not just `kubectl get storageclass` | the smoke-test PVC reaches `Bound` and the class name matches `safe.storage_class` (Ceph: OSD pods Running + `CephBlockPool` Ready) | re-run `local-path.sh` / `ceph.sh`; if a present class won't bind, that's BLOCKED, not a re-run |
 | 4 higress | `kubectl get pods -n higress-system` | gateway pods `Running` | re-run `higress.sh` |
 | 5 harbor | `kubectl get pods -n harbor` | Harbor pods `Running` | regenerate `harbor/hosts.yaml`, re-run `harbor.sh` (pass `$1`=password) |
 | 6 opensearch secret | `kubectl get secret primus-safe-opensearch-config -n primus-safe` | secret exists | re-create it (SKILL.md step 6) |
@@ -170,22 +181,48 @@ no-op if it is already satisfied).
 
 ## Per-stage verification commands
 
+Verify **READY**, not just existence: most install failures are pods that come up but never
+become Ready (webhooks crashloop, OpenSearch `0/1`, a wrong image `ImagePullBackOff`) or
+volumes that never bind. A `Running` phase with `0/1` ready, or a `deployed` helm release
+with a broken pod, is still a failure. The `grep -Ev 'Running|Completed'` lines below print
+nothing when healthy; anything they print needs investigation.
+
 ```bash
 # After bootstrap.sh
 kubectl get nodes -o wide        # every node Ready
 helm list -A                     # cert-manager, amd-gpu-operator, network-operator, scheduler-plugins
+kubectl get pods -A | grep -Ev 'Running|Completed'   # nothing = all add-on pods healthy
 
-# After storage
-kubectl get storageclass         # a (default) class is listed
+# After storage -- prove the class BINDS, don't just check it exists (a dead class,
+# e.g. Ceph rbd with no OSDs, satisfies a presence check but stalls install.sh later)
+kubectl get storageclass         # a (default) class is listed, name == safe.storage_class
+# Ceph only: backing cluster must be healthy
+kubectl get pods -n rook-ceph | grep 'rook-ceph-osd-'   # >=1 osd pod Running
+kubectl get cephblockpool -A                            # PHASE Ready (not Failure)
+# Functional bind smoke-test (all storage types)
+kubectl apply -f - <<'EOF'
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata: {name: safe-smoke-test, namespace: default}
+spec:
+  accessModes: [ReadWriteOnce]
+  resources: {requests: {storage: 1Mi}}
+  storageClassName: <safe.storage_class>   # omit to use the (default) class
+EOF
+kubectl wait --for=jsonpath='{.status.phase}'=Bound pvc/safe-smoke-test --timeout=60s
+kubectl delete pvc safe-smoke-test
+# Pending instead of Bound -> BLOCKED; read `kubectl describe pvc safe-smoke-test`
 
 # After higress (if used)
-kubectl get pods -n higress-system
+kubectl get pods -n higress-system | grep -Ev 'Running|Completed'   # nothing = healthy
 
 # After harbor (if used)
-kubectl get pods -n harbor
+kubectl get pods -n harbor | grep -Ev 'Running|Completed'           # nothing = healthy
 
-# After install.sh
-kubectl get pods -n primus-safe  # apiserver, controllers, webhooks, db operator Running
+# After install.sh -- every pod READY n/n, all PVCs Bound
+kubectl get pods -n primus-safe   # apiserver, controllers, webhooks, db operator -- READY n/n
+kubectl get pods -n primus-safe | grep -Ev 'Running|Completed'      # nothing = healthy
+kubectl get pvc -A | grep -v Bound                                 # nothing = all Bound
 
 # Console
 #   nginx:   http://<any-node-ip>:30183

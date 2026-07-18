@@ -91,6 +91,9 @@ safe:
                                    #  auto-detect at harbor.<cluster_name>.primus-safe.amd.com)
   ethernet_nic: ens51f0            # NCCL_SOCKET_IFNAME; find with: ip -br link
   rdma_nic: bnxt_re0,bnxt_re1,bnxt_re2,bnxt_re3,bnxt_re4,bnxt_re5,bnxt_re6,bnxt_re7  # NCCL_IB_HCA; rdma link
+                                   # NOTE: "" here does NOT blank it -- empty input keeps the
+                                   # rdma0..7 default (see reference.md). Set real devices, or
+                                   # accept it's cosmetic on a no-RDMA/single-node cluster.
   cluster_scale: small             # small | medium | large
   storage_class: local-path        # must match a class that exists (from storage above)
   ingress: higress                 # nginx (NodePort 30183) | higress (domain; needs gateway.higress)
