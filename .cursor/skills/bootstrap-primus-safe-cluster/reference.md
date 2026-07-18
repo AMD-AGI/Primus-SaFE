@@ -86,6 +86,61 @@ Adjust the middle lines (and insert the conditional blocks) to match the config.
 Verify each line count against the table before running -- an off-by-one shifts every
 later answer.
 
+## `install.sh` internal step map
+
+Once the prompts are answered, `install.sh` runs through numbered internal steps, each
+producing a Helm release (or secrets). Use this to locate a mid-run failure to a component
+and to know what a re-run will reconcile:
+
+| install.sh step | What it does | Helm release / namespace |
+|---|---|---|
+| 1 Input Parameters | reads the piped answers; auto-detects Harbor proxy if `sub_domain` set | (none) |
+| 2 Secrets | creates/applies `primus-safe-image`, `-s3`, `-sso`, `-opensearch-config`, higress TLS `default` | secrets in `primus-safe` |
+| 3 grafana-operator | installs the Grafana operator | `grafana-operator` |
+| 4 admin plane | installs `primus-pgo` (Postgres operator, then waits for it Running), then the admin plane (apiserver, job-manager, resource-manager, webhooks, controllers) | `primus-pgo`, `primus-safe` |
+| 5 primus-safe cr | applies the platform custom resources | `primus-safe-cr` |
+| 6 data plane | installs node-agent -- **only if** `install_node_agent=y` | `node-agent` |
+| 6b observability | installs metrics (VictoriaMetrics + exporters + enricher) and/or logs (OpenSearch + FluentBit) -- **only if** logs or metrics enabled; then mirrors the OpenSearch admin secret into `primus-safe` and restarts apiserver + resource-manager | `primus-safe-observability` (own namespace) |
+| 7 done | writes `SaFE/bootstrap/.env` | (file) |
+
+A failure at any step leaves earlier releases installed; re-running resumes from the
+equivalent point because each release is reconciled with `helm upgrade --install`.
+
+## Idempotency & resuming a partial install
+
+Every script in this skill is safe to re-run. On a partial/failed install, detect what is
+already done and re-run only the incomplete steps (or just re-run the step's script -- a
+no-op if it is already satisfied).
+
+### Per-step "already done?" detection
+
+| Step | Detect command | Done when | If not done |
+|---|---|---|---|
+| 2 bootstrap | `kubectl get nodes` | every node `Ready` + base add-ons in `helm list -A` | re-run `bootstrap.sh` (idempotent, but slow -- 20-40 min) |
+| 3 storage | `kubectl get storageclass` | a `(default)` class exists, name matches `safe.storage_class` | re-run `local-path.sh` / `ceph.sh` |
+| 4 higress | `kubectl get pods -n higress-system` | gateway pods `Running` | re-run `higress.sh` |
+| 5 harbor | `kubectl get pods -n harbor` | Harbor pods `Running` | regenerate `harbor/hosts.yaml`, re-run `harbor.sh` (pass `$1`=password) |
+| 6 opensearch secret | `kubectl get secret primus-safe-opensearch-config -n primus-safe` | secret exists | re-create it (SKILL.md step 6) |
+| 7 grafana-operator | `helm status grafana-operator -n primus-safe` | `deployed` | re-run `install.sh` |
+| 7 primus-pgo | `helm status primus-pgo -n primus-safe` | `deployed` + pod Running | re-run `install.sh` |
+| 7 primus-safe | `helm status primus-safe -n primus-safe` | `deployed` + pods Running | re-run `install.sh` |
+| 7 primus-safe-cr | `helm status primus-safe-cr -n primus-safe` | `deployed` | re-run `install.sh` |
+| 7 node-agent | `helm status node-agent -n primus-safe` | `deployed` (only if enabled) | re-run `install.sh` |
+| 7 observability | `kubectl get pods -n primus-safe-observability` | pods Running (only if enabled) | re-run `install.sh` |
+
+### Why each script is safe to re-run
+
+- **`install.sh`** -- `helm upgrade --install` for every chart; `install_or_upgrade_helm_chart`
+  first `helm uninstall --no-hooks` any release stuck in `failed`/`pending-install`, then
+  reinstalls. Secrets go through `kubectl apply` (create-or-update). `ensure_opensearch_secret`
+  and `ensure_higress_tls_secret` **preserve** an existing secret instead of overwriting. So
+  a repeat run reconciles missing pieces and upgrades the rest in place.
+- **`bootstrap.sh`** -- wraps Kubespray (Ansible), which is idempotent: a re-run converges the
+  cluster to the desired state. It is slow, so prefer to skip when `kubectl get nodes` already
+  shows every node `Ready`. Note it has no `set -e`, so trust the checks, not the exit code.
+- **Storage / higress / harbor** -- each applies manifests / Helm charts that tolerate a
+  re-run; the storage scripts `delete` a same-named class before recreating it.
+
 ## Known repo bugs / gotchas to work around
 
 1. **`Bootstrap/hosts.ini` is a broken placeholder** (duplicate `host1`, incomplete
@@ -138,10 +193,23 @@ kubectl get pods -n primus-safe  # apiserver, controllers, webhooks, db operator
 # Seeded login: root / root  (change immediately)
 ```
 
-## `.env` (written by install.sh) and upgrades
+## `install.sh` vs `upgrade.sh` (which to run when)
+
+Both are in `SaFE/bootstrap/`. They are not interchangeable:
+
+| | `install.sh` | `upgrade.sh` |
+|---|---|---|
+| Purpose | first install **and** resume/repair a partial one | later config-preserving upgrade |
+| Input | interactive prompts (pipe answers) | reads `SaFE/bootstrap/.env`; prompts for nothing |
+| Fresh cluster | yes | no -- fails if `.env` is missing |
+| Reconciles | all releases + secrets | admin plane, cr, node-agent, observability |
+| Use to resume a broken first install | **yes** | no |
 
 `install.sh` writes `SaFE/bootstrap/.env` at the end (secrets are NOT stored there --
 they live in K8s secrets `primus-safe-image`, `primus-safe-s3`, `primus-safe-sso`,
 `primus-safe-opensearch-config`). `upgrade.sh` re-reads `.env` and prompts for nothing.
 If you plan to run `upgrade.sh`, add `cd_require_approval=true` (or `false`) to `.env`
-first -- install does not write it and upgrade expects it.
+first -- install does not write it and upgrade expects it. (`upgrade.sh` also honors
+`CALLED_BY_CD=true` to skip the node-agent step when driven by `cd-deploy.sh`.)
+
+To resume a partial *application* install, re-run `install.sh` -- not `upgrade.sh`.

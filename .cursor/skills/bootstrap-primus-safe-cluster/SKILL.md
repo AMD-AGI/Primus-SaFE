@@ -29,6 +29,12 @@ skill executes it non-interactively. The one fragile part -- SaFE's interactive
 - **Never guess a required value.** If a required field is missing (nodes, a required
   password, `cluster_name` when `ingress: higress`), STOP and report BLOCKED naming
   exactly what is absent. A missing prerequisite is BLOCKED, not a failure to paper over.
+- **Check before you run; re-run to resume.** Never assume a fresh cluster. Every step's
+  verification is also its *precondition*: run the check first, and if it already passes,
+  mark the step done and skip it. If it partially passes or a previous run failed midway,
+  re-run that step's script -- **every script here is idempotent and safe to re-run**
+  (see the detection table and idempotency notes in [reference.md](reference.md)). Do not
+  tear things down to "start clean" unless the user asks.
 - **Pause and verify after every long step** (Bootstrap ~20-40 min, install.sh). Run the
   step's verification (see [reference.md](reference.md)) and confirm it passes before
   continuing. Do not chain past a failed check.
@@ -38,6 +44,8 @@ skill executes it non-interactively. The one fragile part -- SaFE's interactive
 
 ## Workflow
 
+Each step is **detect -> (skip if already satisfied) -> run -> verify**. Run the step's
+verification check *first*; only run its script if the check fails or partially passes.
 Copy this checklist and track it:
 
 ```
@@ -51,6 +59,26 @@ Copy this checklist and track it:
 - [ ] 7. install.sh via piped answers                     (verify pods Running)
 - [ ] 8. Access the console                               (root / root)
 ```
+
+### Resuming a partial install
+
+This skill is re-runnable end to end. Before starting at step 0, **probe current state and
+jump to the first incomplete step** rather than blindly re-running everything. Quick sweep:
+
+```bash
+kubectl get nodes 2>/dev/null                              # step 2 done if all Ready
+kubectl get storageclass 2>/dev/null                       # step 3 done if a (default) exists
+kubectl get pods -n higress-system 2>/dev/null             # step 4 (if gateway.higress)
+kubectl get pods -n harbor 2>/dev/null                     # step 5 (if registry.harbor)
+kubectl get secret primus-safe-opensearch-config -n primus-safe 2>/dev/null   # step 6
+helm list -n primus-safe 2>/dev/null                       # step 7 releases present?
+kubectl get pods -n primus-safe 2>/dev/null                # step 7 pods Running?
+```
+
+If `kubectl` cannot reach a cluster at all, start at step 1. If the cluster and storage are
+up but `primus-safe` pods are missing or unhealthy, resume at step 6/7. When in doubt, re-run
+the step's script -- all are idempotent (see [reference.md](reference.md), "Idempotency &
+resuming a partial install"). Report which steps were skipped as already-satisfied.
 
 ### 0. Preconditions
 
@@ -155,7 +183,20 @@ kubectl create secret generic primus-safe-opensearch-config -n primus-safe \
   --from-literal=endpoint=primus-robust-logs.primus-robust.svc.cluster.local:9200
 ```
 
-### 7. Run install.sh non-interactively
+### 7. Install the Primus-SaFE application
+
+`install.sh` is the application installer (everything above only prepared the cluster). It
+is **not** a single black box -- it deploys a stack in order, each as its own Helm release
+in the `primus-safe` namespace (plus a separate observability namespace):
+
+1. Secrets: `primus-safe-image`, `-s3`, `-sso`, `-opensearch-config` (+ higress TLS `default`).
+2. `grafana-operator`.
+3. `primus-pgo` -- the Postgres operator (the script waits for it to be `Running`).
+4. `primus-safe` -- the admin plane: apiserver, job-manager, resource-manager, webhooks, controllers.
+5. `primus-safe-cr` -- the custom resources that drive the platform.
+6. `node-agent` -- the data plane, **only if** `safe.install_node_agent: true`.
+7. `primus-safe-observability` (its own namespace) -- **only if** `safe.install_obs_logs`
+   or `safe.install_obs_metrics` is true.
 
 Build the ordered answer stream from the config (default path is 14 lines; conditional
 blocks insert extra lines) and pipe it. The exact prompt->field mapping, conditional
@@ -167,10 +208,32 @@ cd Primus-SaFE/SaFE/bootstrap
 printf '%s\n' <ordered answers per reference.md> | bash install.sh
 ```
 
-Verify: `kubectl get pods -n primus-safe` -- apiserver, controllers, webhooks, and db
-operator all `Running`. If pods stay `Pending`/`CrashLoopBackOff`, it usually points to
-storage (no bound PVC -> recheck step 3) or the OpenSearch secret (step 6); fix and
-re-run (`install.sh` is idempotent).
+**Idempotent / resumable.** `install.sh` runs with `set -euo pipefail` but every action is
+safe to repeat: it uses `helm upgrade --install`, auto-cleans any Helm release stuck in a
+`failed`/`pending-install` state before reinstalling, `kubectl apply`s all secrets, and
+*keeps* an existing OpenSearch or higress TLS secret. So on a partial or failed app install,
+the supported fix is simply to **re-run `install.sh` with the same piped answers** -- it
+finishes whatever is missing and upgrades the rest in place. Do not uninstall first.
+
+Verify (all should hold):
+
+```bash
+helm list -n primus-safe          # grafana-operator, primus-pgo, primus-safe, primus-safe-cr
+                                  # (+ node-agent if enabled) all STATUS=deployed
+kubectl get pods -n primus-safe   # apiserver, job-manager, resource-manager, webhooks,
+                                  # controllers, primus-pgo + its db pod all Running
+# only when logs/metrics were enabled:
+kubectl get pods -n primus-safe-observability
+```
+
+If pods stay `Pending`/`CrashLoopBackOff`, it usually points to storage (no bound PVC ->
+recheck step 3) or the OpenSearch secret (step 6); fix that, then re-run `install.sh`.
+
+**`install.sh` vs `upgrade.sh`:** use `install.sh` for a first install *and* to resume/repair
+a partial one -- it prompts (piped) and rebuilds every release. `upgrade.sh` is only for a
+later config-preserving upgrade: it reuses `SaFE/bootstrap/.env` (written by `install.sh`),
+prompts for nothing, and expects `cd_require_approval` to already be in `.env` (install does
+not write it). Do not use `upgrade.sh` to resume a broken first install.
 
 ### 8. Access the console
 

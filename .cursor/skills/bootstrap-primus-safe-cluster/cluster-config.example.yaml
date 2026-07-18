@@ -7,6 +7,12 @@
 # Every field maps 1:1 to a script variable or an install.sh prompt. Anything
 # left blank uses the noted default. The agent must NOT guess values that are
 # required but missing -- it stops and reports what is absent instead.
+#
+# REUSABLE FOR RE-RUNS: this filled-in config is the single source of truth for
+# the whole bring-up. Because every bootstrap/install script is idempotent, you
+# can safely point the skill at the SAME config again to resume or repair a
+# partial installation -- it detects what already exists, skips finished steps,
+# and re-runs the rest (see the skill's "Resuming a partial install" section).
 # =============================================================================
 
 # -----------------------------------------------------------------------------
