@@ -33,8 +33,8 @@ fi
        curl python3 python3-pip python3-venv sshpass vim rsync openssh-client && \
   sudo apt-get clean
 
-# Increase inotify limit for large ansible runs
-sudo sysctl -w fs.inotify.max_user_instances=8192
+# Increase inotify limits for large ansible runs
+sudo sysctl -w fs.inotify.max_user_instances=8192 fs.inotify.max_user_watches=524288
 
 # -----------------------------------------------------------------------------
 # 3. Python virtualenv for Kubespray

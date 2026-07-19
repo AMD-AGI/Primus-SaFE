@@ -123,6 +123,24 @@ the most common cause.
 A fresh cluster needs the OpenSearch placeholder secret created before `install.sh` — see the
 prerequisite note on the [Install](/getting-started/install) page.
 
+If Helm instead reports `failed post-install: timed out waiting for the condition`, check the
+`primus-safe-webhooks` pods and logs:
+
+```bash
+kubectl get pods -n primus-safe
+kubectl logs -n primus-safe <primus-safe-webhooks-pod>
+```
+
+A `CrashLoopBackOff` pod whose logs contain `too many open files` usually means the node's inotify
+limits are too low. Check the node running that pod:
+
+```bash
+sysctl fs.inotify.max_user_instances fs.inotify.max_user_watches
+```
+
+Clusters provisioned with `Bootstrap/bootstrap.sh` set these limits to `8192` and `524288`
+respectively on every node and persist them in `/etc/sysctl.d/99-inotify.conf`.
+
 ## Pre-flight / Bench can't reach nodes
 
 Bench and node management connect over SSH. Confirm passwordless SSH from the deploy host to every
