@@ -21,7 +21,7 @@ global:
   # StorageClass for VMCluster PVCs. Empty uses the cluster default.
   storageClass: ""
   # Optional image registry prefix for the AMD exporter images.
-  imageRegistry: "docker.io"
+  imageRegistry: ""
 
 # ── VictoriaMetrics operator (CRDs + controller) ────────────────────────
 vmOperator:

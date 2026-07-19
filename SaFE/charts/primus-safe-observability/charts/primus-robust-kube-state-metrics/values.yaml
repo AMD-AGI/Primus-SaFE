@@ -1,4 +1,6 @@
 kube-state-metrics:
+  image:
+    registry: registry.k8s.io
   resources:
     limits:
       cpu: "1"
