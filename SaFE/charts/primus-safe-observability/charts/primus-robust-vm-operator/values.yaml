@@ -1,4 +1,6 @@
 victoria-metrics-operator:
+  crd:
+    create: false
   operator:
     enable_converter_ownership: true
     resources:
