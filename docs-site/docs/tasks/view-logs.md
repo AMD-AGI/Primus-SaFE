@@ -35,8 +35,11 @@ job whose phase is **Running** or that has already run. That job is your target.
 
 **If nothing suitable is available,** create a throwaway smoke job — this is the same recipe as
 [Your first job](/getting-started/first-training-job): select your **workspace**, create a
-**PyTorchJob** with any pullable image (e.g. `docker.io/rocm/pytorch:latest`) and an entrypoint
-that prints something and stays up long enough to read, such as:
+**PyTorchJob** with any pullable image and an entrypoint that prints something and stays up long
+enough to read. Since you're only reading log output here, a **small image like
+`docker.io/library/busybox:latest`** is the best choice — there's no need for a large ML image like
+`docker.io/rocm/pytorch:latest`, which can take several minutes to pull the first time. For
+example:
 
 ```bash
 echo "hello from doc-as-test"; sleep 15
@@ -57,12 +60,17 @@ for the walkthrough:
 
 - **Healthy (pass):** with a node selected, the panel shows **at least one timestamped log line**
   for the pod/host (for the smoke job, you'll see your `hello from doc-as-test` line). You can also
-  narrow the view with the **keyword** filter or the **date range**, and toggle **Wrap** — but a
-  single populated line is enough to pass.
+  **highlight matches** with the **keyword** filter, narrow by **date range**, and toggle **Wrap** —
+  but a single populated line is enough to pass.
 - **If instead you see** an empty panel, a spinner that never resolves, or an error, **that means**
   logs aren't reaching the UI **(fail)** — *unless* the pod genuinely hasn't produced output yet
   (just started / still **Pending**), in which case widen the **date range**, wait a moment, and
   retry before judging.
+
+> **Note:** the workload's overall phase can lag its pod — the job may still read **Pending** at the
+> top of the page even after the pod is **Running** and already writing logs. If the Logs panel is
+> populated, the job is working; just **refresh the page every few minutes** (or check the **Pods**
+> tab) until the phase catches up.
 
 > **Agent:** perform Steps 1–3, fill the table below, show it to the user, and report **PASS** only
 > if at least one real log line rendered in the Logs panel. Then **run cleanup**: if you created
@@ -78,7 +86,7 @@ for the walkthrough:
 | Logs tab present on the detail page | yes | _fill in_ |
 | A node is selected (auto or manual) | yes | _fill in_ |
 | Log panel shows ≥1 timestamped line | yes | _fill in_ |
-| Keyword filter narrows results | yes (optional) | _fill in_ |
+| Keyword filter highlights matching lines | yes (optional) | _fill in_ |
 | Cleanup (smoke job deleted, if created) | done / n/a | _fill in_ |
 
 ## Where to go next
