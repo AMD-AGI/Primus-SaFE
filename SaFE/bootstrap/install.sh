@@ -578,6 +578,46 @@ if [[ "$observability_enable" == "true" ]]; then
               --set network-exporter.enabled="$obs_metrics_enable" \
               --set metrics-enricher.enabled="$obs_metrics_enable" )
 
+  # ── Pre-install the VictoriaMetrics operator CRDs (fresh-cluster ordering) ──
+  # The observability chart intentionally does NOT ship the VictoriaMetrics CRDs:
+  #   * the operator subchart sets crd.create=false, and
+  #   * the full CRD set (~1.8MB) is deliberately NOT vendored into the umbrella
+  #     chart's crds/ dir, because a file that large pushes the Helm release
+  #     Secret past its hard 1MB limit
+  #     ("Secret ... Too long: may not be more than 1048576 bytes").
+  # But the chart DOES ship VM custom resources (VMCluster / VMAgent /
+  # VMPodScrape / VMNodeScrape), which Helm validates against the API server
+  # up front. On a fresh cluster that fails with
+  #   "no matches for kind \"VMCluster\" in version operator.victoriametrics.com/..."
+  # unless the CRDs already exist. So apply the operator's CRDs out-of-band here,
+  # from the vendored operator chart, before the Helm install. Idempotent
+  # (server-side apply); the CRDs are not Helm-managed (crd.create=false), so no
+  # ownership conflict.
+  if [[ "$obs_metrics_enable" == "true" ]]; then
+    vm_op_tgz=$(ls "$obs_chart"/charts/primus-robust-vm-operator/charts/victoria-metrics-operator-*.tgz 2>/dev/null | head -1)
+    if [[ -n "$vm_op_tgz" ]]; then
+      vm_tmp=$(mktemp -d)
+      tar -xzf "$vm_op_tgz" -C "$vm_tmp" 2>/dev/null
+      vm_crd=$(find "$vm_tmp" -path "*victoria-metrics-operator/crd.yaml" 2>/dev/null | head -1)
+      if [[ -n "$vm_crd" ]]; then
+        echo "⏳ Pre-installing VictoriaMetrics operator CRDs (fresh-cluster ordering guard)..."
+        kubectl apply --server-side -f "$vm_crd" >/dev/null
+        # Wait for the API server to REGISTER the new kinds. `apply` returns as
+        # soon as the CRD objects are created, but Helm's next step validates the
+        # VM* CRs against discovery -- if we don't wait for "Established" it races
+        # and fails with "no matches for kind VMCluster/VMAgent...".
+        for _crd in $(kubectl get crd -o name 2>/dev/null | grep 'operator\.victoriametrics\.com'); do
+          kubectl wait --for=condition=established --timeout=90s "$_crd" >/dev/null 2>&1 || true
+        done
+        echo "✅ VictoriaMetrics operator CRDs installed"
+      else
+        echo "⚠️  Could not locate victoria-metrics-operator crd.yaml in $vm_op_tgz;"
+        echo "    a fresh-cluster metrics install may fail on missing VM* CRDs."
+      fi
+      rm -rf "$vm_tmp"
+    fi
+  fi
+
   # Install into its own namespace so it can be cleanly removed later.
   # --timeout 20m is a generous margin for a fresh cluster (cold image pulls +
   # operator reconcile + OpenSearch startup). With opensearch.security.provideConfig
