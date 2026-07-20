@@ -51,8 +51,10 @@ leave `TARGET = ALL` for a full run. Runtime values come from the gitignored
    note it, don't fail on it. A `kubectl` cross-check is allowed only as a ground-truth *aside*,
    never as the primary assertion.
 6. **Always run cleanup** — the page tells you how (delete/stop the resource you created).
-7. **Report PASS / FAIL / BLOCKED per row**, quoting *page says X, product does Y*, with a
-   screenshot on FAIL.
+7. **Report PASS / FAIL / BLOCKED per row**, quoting *page says X, product does Y*. **Save a
+   screenshot of the result to `/tmp/doc-as-test-<page>-<runid>.png`** — the passing artifact on
+   PASS (e.g. the populated Logs panel) and the failing state on FAIL — and reference it in the
+   report so a human can see the UI, not just the prose verdict.
 
 ## Test-scope exclusions (what the regression run skips, and why)
 
@@ -142,7 +144,9 @@ Execute the docs-as-test suite. The docs-site IS the test spec.
    3× fresh-thread runs). Name created resources doc-as-test-<page>-<runid> and clean them up.
 6. Honor the known-drift notes in the manifest for the pages in the set (documented bugs are not new
    failures).
-7. Output: a summary table (page · level · result) + a findings/ambiguity list.
+7. For each page, save a screenshot of the result to /tmp/doc-as-test-<page>-<runid>.png (the
+   passing artifact on PASS, the failing state on FAIL) and reference it in the report.
+8. Output: a summary table (page · level · result) + a findings/ambiguity list.
 ```
 
 ## Manifest — the only off-page bookkeeping
@@ -169,6 +173,7 @@ negative/permission limit (kept as visible prose) · n/a = reference/overview, n
 | tasks/run-single-node-training | behavior | P0 | member | workspace-with-quota, pullable-image | phase-lag Pending drift (as above) |
 | tasks/run-multi-node-training | behavior | P1 | member | workspace-with-quota, multiple-ready-nodes | phase-lag drift; gang placement slower on first image pull |
 | tasks/interact-with-your-job | behavior | P0 | member | running-cluster, workspace-with-authoring-scope | WebShell needs a trusted cert (see exclusions) and a shell present in the image (pick `sh` on minimal images); SSH:2222 is out of a UI-only run |
+| tasks/view-logs | behavior | P2 | member | running-cluster | console phase can stay **Pending** while the pod is Running and streaming logs (phase-lag) → refresh / check the Pods tab |
 | tasks/speed-up-startup | behavior | P2 | member | workspace-with-quota, harbor-registry | — |
 | tasks/beyond-training | n/a (overview/hub) | — | any | none | — |
 | tasks/run-cicd-runners | behavior | P1 | admin, member | workspace with `CICD` scope (surfaces Workloads → CICD) + ARC add-on + GitHub App | **BLOCKED** unless the CICD scope + ARC add-on are present |
