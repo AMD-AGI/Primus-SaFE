@@ -82,10 +82,14 @@ var outputMetrics = []outputMetric{
 		Scale:   1000000,
 	},
 	{
-		// robust-only: PCIe bandwidth (MB/s). AMD exporter does not expose it.
+		// PCIe bandwidth. Both exporters report it in Mb/s (megabits): the robust
+		// gpu-exporter as gpu_pcie_bandwidth_mbs, and the AMD device-metrics-
+		// exporter as pcie_bandwidth ("Current PCIe bandwidth in Mb/s"). Keep
+		// Scale=1 so both sources behave identically (the panel legend reads
+		// "MB/s" but the underlying value is Mb/s for either exporter).
 		Name:    "gpu_pcie_bandwidth_mbs",
 		Kind:    "direct",
-		Sources: []string{"gpu_pcie_bandwidth_mbs", "gpu_pcie_bandwidth"},
+		Sources: []string{"gpu_pcie_bandwidth_mbs", "gpu_pcie_bandwidth", "pcie_bandwidth"},
 		Scale:   1,
 	},
 	{

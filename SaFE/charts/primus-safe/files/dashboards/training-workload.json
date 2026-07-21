@@ -210,27 +210,11 @@
       ]
     },
     {
-      "id": 13,
-      "type": "timeseries",
-      "title": "Pod Ephemeral Storage",
-      "datasource": { "type": "prometheus", "uid": "primus-safe-vm" },
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 48 },
-      "fieldConfig": { "defaults": { "unit": "bytes", "min": 0 }, "overrides": [] },
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": { "type": "prometheus", "uid": "primus-safe-vm" },
-          "expr": "sum by (pod) (container_fs_usage_bytes{container!=\"\"} * on(namespace,pod) group_left() workload_pod_info{workload_uid=\"$workload_uid\"})",
-          "legendFormat": "{{pod}}"
-        }
-      ]
-    },
-    {
       "id": 14,
       "type": "timeseries",
       "title": "RDMA TX Bandwidth",
       "datasource": { "type": "prometheus", "uid": "primus-safe-vm" },
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 48 },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 48 },
       "fieldConfig": { "defaults": { "unit": "Bps", "min": 0 }, "overrides": [] },
       "targets": [
         {
@@ -246,7 +230,7 @@
       "type": "timeseries",
       "title": "RDMA TX Ops/s",
       "datasource": { "type": "prometheus", "uid": "primus-safe-vm" },
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 56 },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 48 },
       "fieldConfig": { "defaults": { "unit": "ops", "min": 0 }, "overrides": [] },
       "targets": [
         {
