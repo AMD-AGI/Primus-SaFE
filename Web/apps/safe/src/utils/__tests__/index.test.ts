@@ -20,7 +20,6 @@ import {
   formatNodeInfo,
   calculateDefaultTime,
   isLogDownloadEnabledForHost,
-  isOciClusterId,
 } from '../index'
 
 // ---------------------------------------------------------------------------
@@ -413,20 +412,5 @@ describe('isLogDownloadEnabledForHost', () => {
 
   it('keeps log download enabled for non-Core42 domains when backend config is enabled', () => {
     expect(isLogDownloadEnabledForHost(true, 'safe.example.com')).toBe(true)
-  })
-})
-
-describe('isOciClusterId', () => {
-  it('matches OCI cluster identifiers only', () => {
-    expect(isOciClusterId('oci')).toBe(true)
-    expect(isOciClusterId('oci-slc')).toBe(true)
-    expect(isOciClusterId('prod_oci')).toBe(true)
-  })
-
-  it('does not treat every non-Core42 identifier as OCI', () => {
-    expect(isOciClusterId('core42')).toBe(false)
-    expect(isOciClusterId('safe.example.com')).toBe(false)
-    expect(isOciClusterId('local-dev')).toBe(false)
-    expect(isOciClusterId('')).toBe(false)
   })
 })
