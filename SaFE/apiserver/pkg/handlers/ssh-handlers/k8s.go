@@ -138,7 +138,11 @@ func (h *SshHandler) SessionConn(ctx context.Context, sessionInfo *SessionInfo) 
 	case <-sessionInfo.userConn.ClosedChan():
 	}
 
-	klog.Infof("Connection to the Pod(%s/%s) has ended, reason: %s", workload.Spec.Workspace,
+	logWorkspace := sessionInfo.userInfo.Namespace
+	if workload != nil {
+		logWorkspace = workload.Spec.Workspace
+	}
+	klog.Infof("Connection to the Pod(%s/%s) has ended, reason: %s", logWorkspace,
 		sessionInfo.userInfo.Pod, sessionInfo.userConn.ExitReason())
 	return nil
 }
@@ -160,6 +164,10 @@ func (h *SshHandler) handleSftp(s Session) {
 		klog.Error(err)
 		return
 	}
+	sftpContainer := userInfo.Container
+	if workload != nil {
+		sftpContainer = commonworkload.GetMainContainerByPod(workload, workload.SpecKind(), userInfo.Pod)
+	}
 	req := k8sClients.ClientSet().CoreV1().RESTClient().
 		Post().
 		Resource("pods").
@@ -167,7 +175,7 @@ func (h *SshHandler) handleSftp(s Session) {
 		Namespace(userInfo.Namespace).
 		SubResource("exec").
 		VersionedParams(&corev1.PodExecOptions{
-			Container: commonworkload.GetMainContainerByPod(workload, workload.SpecKind(), userInfo.Pod),
+			Container: sftpContainer,
 			Command:   []string{"/usr/lib/openssh/sftp-server"},
 			Stdin:     true,
 			Stdout:    true,
@@ -315,6 +323,13 @@ func (h *SshHandler) getWorkloadAndClients(ctx context.Context, userInfo *UserIn
 	}
 	workloadId := v1.GetWorkloadId(pod)
 	if workloadId == "" {
+		// Slinky Slurm login pods are created by Helm / the slurm-operator, not by
+		// a SaFE Workload CR, so they carry no workload-id label. Allow SSH into
+		// them as a Slurm session (a nil workload signals the Slurm branch, and is
+		// authorized against the workspace's Slurm scope in authUser).
+		if isSlurmLoginPod(pod) {
+			return nil, k8sClients, nil
+		}
 		err = fmt.Errorf("failed to get workload id. pod: %s", pod.Name)
 		return nil, nil, err
 	}
@@ -327,8 +342,26 @@ func (h *SshHandler) getWorkloadAndClients(ctx context.Context, userInfo *UserIn
 	return workload, k8sClients, nil
 }
 
-// authUser authorizes the user for the given workload.
+// authUser authorizes the user for the given workload. A nil workload denotes a
+// Slurm login pod, which is authorized against the workspace's Slurm scope
+// instead of a Workload CR (mirroring the Slurm cluster get authorization).
 func (h *SshHandler) authUser(ctx context.Context, userInfo *UserInfo, workload *v1.Workload) error {
+	if workload == nil {
+		workspace := &v1.Workspace{}
+		if err := h.Get(ctx, client.ObjectKey{Name: userInfo.Namespace}, workspace); err != nil {
+			return fmt.Errorf("failed to get workspace, %s", err.Error())
+		}
+		if !workspace.HasScope(v1.SlurmScope) {
+			return fmt.Errorf("the workspace does not have the Slurm scope")
+		}
+		return h.accessController.Authorize(authority.AccessInput{
+			Context:    ctx,
+			Resource:   workspace,
+			Verb:       v1.GetVerb,
+			Workspaces: []string{userInfo.Namespace},
+			UserId:     userInfo.User,
+		})
+	}
 	if err := h.accessController.Authorize(authority.AccessInput{
 		Context:    ctx,
 		Resource:   workload,
@@ -339,6 +372,14 @@ func (h *SshHandler) authUser(ctx context.Context, userInfo *UserInfo, workload 
 		return err
 	}
 	return nil
+}
+
+// isSlurmLoginPod reports whether a pod is a Slinky Slurm login node. Such pods
+// are reachable over SSH even though they are not backed by a SaFE Workload.
+func isSlurmLoginPod(pod *corev1.Pod) bool {
+	labels := pod.GetLabels()
+	return labels["app.kubernetes.io/part-of"] == "slurm" &&
+		labels["app.kubernetes.io/component"] == "login"
 }
 
 // sendError writes an error message to the writer and logs it.

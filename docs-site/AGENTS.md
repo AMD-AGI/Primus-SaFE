@@ -171,6 +171,7 @@ test, write content first.
 | tasks/speed-up-startup | behavior · P2 | Rich | **Done** (import + preheat; gated on harbor-registry) |
 | tasks/beyond-training | n/a (overview/hub) | Rich | n/a |
 | tasks/run-cicd-runners | behavior · P1 | Draft | Partial (`@test todo:` — needs ARC add-on + GitHub App; console hidden unless CICD promoted) |
+| tasks/create-slurm-cluster | behavior · P1 | Rich (dual-audience visible-prose; the page prose is the test) | **Done** on a disposable env (Slinky v1.2.0 per-workspace `slurm` helm release; needs `slurm-operator-installed` (v1.2.0, ns `slinky`) + a workspace with the `Slurm` scope; create/delete is disruptive → presence-only on a shared env). personas: workspace member/admin |
 | concepts/workspace | verify · P2 | Rich | **Done** (object model: Clusters/Nodes/Workspaces pages + relationships) |
 | concepts/workload-types | verify · P2 | Rich | TODO (assert named artifacts only) |
 | concepts/fault-tolerance | verify · P2 | Draft | TODO |

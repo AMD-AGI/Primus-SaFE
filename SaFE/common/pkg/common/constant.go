@@ -107,6 +107,7 @@ const (
 	Name                  = "name"
 	PodId                 = "podId"
 	AddonName             = "addonName"
+	SlurmClusterName      = "slurmName"
 )
 
 const (

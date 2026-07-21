@@ -41,6 +41,7 @@ export interface MenuIcons {
   chatbot: IconSet
   pytorch: IconSet
   rayjob: IconSet
+  slurm: IconSet
   tools: IconSet
   llmGateway: IconSet
   a2a: IconSet
@@ -89,6 +90,7 @@ export const menuIcons: MenuIcons = {
   chatbot: createIconSet('sparkles'),
   pytorch: createIconSet('pytorch'),
   rayjob: createIconSet('ray'),
+  slurm: createIconSet('cluster'), // Using cluster icons as placeholder
   tools: createIconSet('skill'), // Using addons icons as placeholder
   llmGateway: createIconSet('apikey'), // Using apikey icons as placeholder
   a2a: createIconSet('skill'), // Using skill icons as placeholder

@@ -114,6 +114,16 @@ func InitCustomRouters(e *gin.Engine, h *Handler) {
 			clusters.DELETE(fmt.Sprintf("/:%s/addons/:%s", common.Name, common.AddonName), middleware.Audit("addon"), h.DeleteAddon)
 			clusters.PATCH(fmt.Sprintf("/:%s/addons/:%s", common.Name, common.AddonName), middleware.Audit("addon"), h.PatchAddon)
 			clusters.GET(fmt.Sprintf("/:%s/addons/:%s", common.Name, common.AddonName), h.GetAddon)
+
+			// Slurm clusters (per-workspace Slinky `slurm` helm releases on the target cluster)
+			clusters.GET(fmt.Sprintf("/:%s/slurmclusters", common.Name), h.ListSlurmCluster)
+			clusters.POST(fmt.Sprintf("/:%s/slurmclusters", common.Name), middleware.Audit("slurmcluster"), h.CreateSlurmCluster)
+			clusters.GET(fmt.Sprintf("/:%s/slurmclusters/:%s", common.Name, common.SlurmClusterName), h.GetSlurmCluster)
+			clusters.PATCH(fmt.Sprintf("/:%s/slurmclusters/:%s", common.Name, common.SlurmClusterName), middleware.Audit("slurmcluster"), h.PatchSlurmCluster)
+			clusters.DELETE(fmt.Sprintf("/:%s/slurmclusters/:%s", common.Name, common.SlurmClusterName), middleware.Audit("slurmcluster"), h.DeleteSlurmCluster)
+			clusters.GET(fmt.Sprintf("/:%s/slurmclusters/:%s/login", common.Name, common.SlurmClusterName), h.GetSlurmClusterLogin)
+			clusters.POST(fmt.Sprintf("/:%s/slurmclusters/:%s/stop", common.Name, common.SlurmClusterName), middleware.Audit("slurmcluster", "stop"), h.StopSlurmCluster)
+			clusters.POST(fmt.Sprintf("/:%s/slurmclusters/:%s/resume", common.Name, common.SlurmClusterName), middleware.Audit("slurmcluster", "resume"), h.ResumeSlurmCluster)
 		}
 
 		// ==================== Node Flavors ====================

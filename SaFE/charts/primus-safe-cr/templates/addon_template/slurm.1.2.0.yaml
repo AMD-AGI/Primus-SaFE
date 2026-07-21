@@ -1,0 +1,26 @@
+#
+# Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
+# See LICENSE for license information.
+#
+
+# This AddonTemplate is the chart source for per-workspace Slurm clusters. It is
+# NOT installed as a default catalog addon; the apiserver's SlurmCluster handler
+# creates an Addon CR referencing this chart (with generated values) into each
+# workspace namespace when a user creates a Slurm cluster.
+apiVersion: amd.com/v1
+kind: AddonTemplate
+metadata:
+  labels:
+    primus-safe.display.name: "slurm.1.2.0"
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    meta.helm.sh/release-name: {{ .Release.Name }}
+    meta.helm.sh/release-namespace: {{ .Release.Namespace }}
+  name: slurm.1.2.0
+spec:
+  category: plugin
+  description: Slinky `slurm` chart (v1.2.0) deploying a Slurm cluster (controller/slurmctld, restapi, optional accounting, loginsets, nodesets/slurmd, partitions). Deployed per-workspace by the Primus-SaFE Slurm Cluster feature.
+  url: oci://ghcr.io/slinkyproject/charts/slurm
+  version: 1.2.0
+  type: helm
+  helmDefaultNamespace: slurm

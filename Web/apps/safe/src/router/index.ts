@@ -91,6 +91,16 @@ const router = createRouter({
           component: () => import('../pages/Monarch/index.vue'),
         },
         {
+          path: '/slurm',
+          name: 'SlurmCluster',
+          component: () => import('../pages/SlurmCluster/index.vue'),
+        },
+        {
+          path: '/slurm/detail',
+          name: 'SlurmClusterDetail',
+          component: () => import('../pages/SlurmCluster/SlurmDetail.vue'),
+        },
+        {
           path: '/sandbox-workload',
           name: 'SandboxWorkload',
           component: () => import('../pages/SandboxWorkload/index.vue'),

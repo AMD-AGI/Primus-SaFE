@@ -24,5 +24,5 @@ export interface WorkspaceItem {
   volumes?: WorkspaceVolume[]
 }
 
-export const SCOPES_KEYS = ['Train', 'Infer', 'Authoring', 'CICD', 'Ray', 'Sandbox'] as const
+export const SCOPES_KEYS = ['Train', 'Infer', 'Authoring', 'CICD', 'Ray', 'Sandbox', 'Slurm'] as const
 export type ScopesKeys = (typeof SCOPES_KEYS)[number]

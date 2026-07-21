@@ -619,7 +619,7 @@ func (h *Handler) getWorkspaceUsedQuota(ctx context.Context, workspace *v1.Works
 
 	workspaceNames := []string{workspace.Name}
 	workloads, err := h.getRunningWorkloads(ctx, workspace.Spec.Cluster, workspaceNames)
-	if err != nil || len(workloads) == 0 {
+	if err != nil {
 		return nil, 0, err
 	}
 	var usedQuota corev1.ResourceList
@@ -634,6 +634,14 @@ func (h *Handler) getWorkspaceUsedQuota(ctx context.Context, workspace *v1.Works
 			for _, n := range availableNodes {
 				nodeSet.Insert(n)
 			}
+		}
+	}
+	// Slurm/slinky pods are not SaFE Workloads, so account for them separately
+	// and dedupe their nodes against workload nodes.
+	if _, slurmTotal, slurmNodes, err := h.getSlurmPodUsage(ctx, workspace); err == nil {
+		usedQuota = quantity.AddResource(usedQuota, slurmTotal)
+		for _, n := range slurmNodes {
+			nodeSet.Insert(n)
 		}
 	}
 	return usedQuota, len(nodeSet), nil
@@ -667,6 +675,11 @@ func (h *Handler) getWorkspaceAvailQuota(ctx context.Context, workspace *v1.Work
 			usedPerNode[nodeName] = quantity.AddResource(usedPerNode[nodeName], resList)
 		}
 	}
+	if slurmPerNode, _, _, err := h.getSlurmPodUsage(ctx, workspace); err == nil {
+		for nodeName, resList := range slurmPerNode {
+			usedPerNode[nodeName] = quantity.AddResource(usedPerNode[nodeName], resList)
+		}
+	}
 	var availQuota corev1.ResourceList
 	for i := range nodes {
 		node := &nodes[i]
@@ -678,4 +691,89 @@ func (h *Handler) getWorkspaceAvailQuota(ctx context.Context, workspace *v1.Work
 		availQuota = quantity.AddResource(availQuota, quantity.NonNegative(nodeAvail))
 	}
 	return availQuota, nil
+}
+
+// slurmWorkerLabel selects only the slurmd worker pods of a Slinky-deployed
+// Slurm cluster. All components of the helm release (controller, restapi, login,
+// accounting, and the slurmd workers) carry `app.kubernetes.io/part-of=slurm`,
+// but only the workers carry `app.kubernetes.io/component=worker`. Usage
+// accounting counts workers only: they are what consume whole GPU nodes, whereas
+// the always-on control plane (slurmctld, and slurmrestd while stopping) is a
+// small, GPU-less footprint that should not keep a stopped cluster's nodes shown
+// as "in use".
+const slurmWorkerLabel = "app.kubernetes.io/part-of=slurm,app.kubernetes.io/component=worker"
+
+// getSlurmPodUsage accounts for resources consumed by Slurm/slinky worker pods
+// in the workspace. These pods are deployed as a per-workspace Helm release of
+// Slinky NodeSets (not SaFE Workload CRs), so they are otherwise invisible to
+// the workspace used/available quota computation. It lists the live slurmd
+// worker pods (see slurmWorkerLabel) in the workspace namespace on the data
+// plane and sums their container resource requests, keyed by the admin node name
+// so callers can merge the result with the workload-based accounting (deduping
+// nodes shared with SaFE workloads).
+//
+// Returns the per-admin-node resource usage, the aggregate total, and the set
+// of admin node names occupied by Slurm pods. Only nodes that belong to the
+// workspace, match its node flavor, and are available are counted, matching the
+// filters used by getWorkspaceUsedQuota/getWorkspaceAvailQuota. Any data-plane
+// or listing error is logged and swallowed (empty result) so the workspace GET
+// never fails on Slurm accounting.
+func (h *Handler) getSlurmPodUsage(ctx context.Context, workspace *v1.Workspace) (
+	map[string]corev1.ResourceList, corev1.ResourceList, []string, error) {
+	cs, err := h.slurmClientSet(workspace.Spec.Cluster)
+	if err != nil {
+		klog.V(4).InfoS("skip slurm usage: data-plane clientset unavailable",
+			"workspace", workspace.Name, "cluster", workspace.Spec.Cluster, "err", err)
+		return nil, nil, nil, nil
+	}
+	pods, err := cs.CoreV1().Pods(workspace.Name).List(ctx, metav1.ListOptions{LabelSelector: slurmWorkerLabel})
+	if err != nil {
+		klog.V(4).InfoS("skip slurm usage: failed to list slurm pods",
+			"workspace", workspace.Name, "err", err)
+		return nil, nil, nil, nil
+	}
+
+	nodes, err := commonnodes.GetNodesOfWorkspaces(ctx, h.Client, []string{workspace.Name}, commonnodes.FilterDeletingNode)
+	if err != nil {
+		klog.V(4).InfoS("skip slurm usage: failed to list workspace nodes",
+			"workspace", workspace.Name, "err", err)
+		return nil, nil, nil, nil
+	}
+	// Map the k8s node name (pod.spec.nodeName is the host name) to the admin
+	// node name, restricted to nodes that count toward this workspace's quota.
+	k8sToAdmin := make(map[string]string)
+	for i := range nodes {
+		node := &nodes[i]
+		if v1.GetNodeFlavorId(node) != workspace.Spec.NodeFlavor || !node.IsAvailable(false) {
+			continue
+		}
+		if k8sName := node.GetK8sNodeName(); k8sName != "" {
+			k8sToAdmin[k8sName] = node.Name
+		}
+	}
+
+	perNode := make(map[string]corev1.ResourceList)
+	var total corev1.ResourceList
+	nodeSet := sets.NewSet()
+	for i := range pods.Items {
+		pod := &pods.Items[i]
+		if !commonnodes.IsPodRunning(*pod) {
+			continue
+		}
+		adminNode, ok := k8sToAdmin[pod.Spec.NodeName]
+		if !ok {
+			continue
+		}
+		var podRes corev1.ResourceList
+		for _, c := range pod.Spec.Containers {
+			podRes = quantity.AddResource(podRes, c.Resources.Requests)
+		}
+		if podRes == nil {
+			continue
+		}
+		perNode[adminNode] = quantity.AddResource(perNode[adminNode], podRes)
+		total = quantity.AddResource(total, podRes)
+		nodeSet.Insert(adminNode)
+	}
+	return perNode, total, nodeSet.UnsortedList(), nil
 }

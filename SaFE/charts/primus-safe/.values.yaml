@@ -9,9 +9,9 @@
 global:
   # Domain and sub_domain are mainly used for console access
   domain: "primus-safe.amd.com"
-  sub_domain: ""
+  sub_domain: "tas250"
   # Image registry address where management components are uploaded
-  image_registry: "docker.io"
+  image_registry: "harbor.tas250.primus-safe.amd.com/proxy"
   # Secret used for image downloading, created via install.sh
   image_pull_secret: "primus-safe-image"
   # TLS secret used by Higress Ingress. install.sh creates this secret when
@@ -23,7 +23,7 @@ global:
   csi_volume_handle: ""
 net:
   # Network interface for NCCL socket communication
-  nccl_socket_ifname: "eno0"
+  nccl_socket_ifname: "enp193s0f1np1"
   # RDMA network interfaces for high-performance communication
   nccl_ib_hca: "rdma0,rdma1,rdma2,rdma3,rdma4,rdma5,rdma6,rdma7"
   # RDMA resource name
@@ -35,7 +35,7 @@ cd:
   # Whether deployment requests require approval from another user
   # true: users cannot approve their own requests (production environment)
   # false: users can self-approve their own requests (development environment)
-  require_approval: true
+  require_approval: false
   # This list is of deployable components
   components: "apiserver,resource_manager,job_manager,webhooks,web,preprocess,node_agent,cicd_runner,cicd_unified_job,model_downloader,ops_download,a2a_gateway,monarch"
   # GPU type for this cluster (e.g. "MI300X", "MI325X"). Can be overridden via env_file_config (gpu_type=MI300X).
@@ -155,7 +155,7 @@ tls:
   verify_outbound: false
 sso:
   # Enable sso login
-  enable: true
+  enable: false
   # The secret for sso, which contains the id, secret, endpoint and redirect_uri
   secret: "primus-safe-sso"
   # Path to mount sso secret
@@ -196,7 +196,7 @@ notification:
     enable: true
 grafana:
   # Enable Grafana for monitoring metrics display
-  enable: false
+  enable: true
   # Grafana password
   password: ""
   # One entry per data cluster whose VictoriaMetrics should appear as a
@@ -261,8 +261,8 @@ a2a_gateway:
   enable: true
   image: "a2a-gateway:latest"
   replicas: 1
-  cpu: 500m
-  memory: 512Mi
+  cpu: 2000m
+  memory: 4Gi
   port: 8089
   metrics_port: 9090
 llm_gateway:
@@ -278,7 +278,7 @@ model_optimization:
   # Per-workspace cap on concurrently running optimization tasks. Overridable
   # per-deploy via .env `optimize_max_concurrent` (synced into values.yaml by
   # upgrade.sh and into the live apiserver ConfigMap by cd-deploy.sh).
-  max_concurrent: 1024
+  max_concurrent: 2
 sandbox:
   enable: true
   namespace: "agent-sandbox-system"

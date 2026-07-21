@@ -1,0 +1,30 @@
+#
+# Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
+# See LICENSE for license information.
+#
+
+apiVersion: amd.com/v1
+kind: AddonTemplate
+metadata:
+  labels:
+    primus-safe.display.name: "slurm-operator.1.2.0"
+    app.kubernetes.io/managed-by: Helm
+    primus-safe.addon.default: ""
+  annotations:
+    meta.helm.sh/release-name: {{ .Release.Name }}
+    meta.helm.sh/release-namespace: {{ .Release.Namespace }}
+  name: slurm-operator.1.2.0
+spec:
+  category: plugin
+  description: Slinky slurm-operator (v1.2.0) provides the Slurm operator + CRDs (NodeSet, Controller, LoginSet, RestApi, Accounting, Token). A Slurm cluster is deployed per-workspace from the companion `slurm` chart. Requires cert-manager.
+  # Sourced directly from the Slinky project registry (ghcr.io); images default to
+  # ghcr.io/slinkyproject/* and are pulled directly.
+  url: oci://ghcr.io/slinkyproject/charts/slurm-operator
+  version: 1.2.0
+  type: helm
+  helmDefaultNamespace: slinky
+  helmDefaultValues: |
+    # Bundle the Slinky CRDs with the operator chart so a separate
+    # slurm-operator-crds release is not required.
+    crds:
+      enabled: true

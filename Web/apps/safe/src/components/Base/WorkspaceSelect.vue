@@ -55,6 +55,7 @@ const getRequiredScopeByPath = (path: string): ScopesKeys | undefined => {
     ['/authoring', 'Authoring'],
     ['/cicd', 'CICD'],
     ['/rayjob', 'Ray'],
+    ['/slurm', 'Slurm'],
   ]
   return rules.find(([prefix]) => basePath.startsWith(prefix))?.[1]
 }
@@ -66,6 +67,7 @@ const getFirstAllowedWorkloadPath = (scopes: ScopesKeys[]): string | undefined =
   if (scopes.includes('Authoring')) return '/authoring'
   if (scopes.includes('CICD')) return '/cicd'
   if (scopes.includes('Ray')) return '/rayjob'
+  if (scopes.includes('Slurm')) return '/slurm'
   return undefined
 }
 

@@ -146,6 +146,7 @@ spec:
                   - CICD
                   - Ray
                   - Sandbox
+                  - Slurm
                   type: string
                 type: array
               volumes:

@@ -260,10 +260,12 @@ const workloadPermissions = {
   canInfer: hasWorkloadScope('Infer'),
   canRay: hasWorkloadScope('Ray'),
   canSandbox: hasWorkloadScope('Sandbox'),
+  canSlurm: hasWorkloadScope('Slurm'),
 }
 
 // Destructure specific permission variables (maintain backward compatibility)
-const { canTrain, canAuthoring, canCICD, canInfer, canRay, canSandbox } = workloadPermissions
+const { canTrain, canAuthoring, canCICD, canInfer, canRay, canSandbox, canSlurm } =
+  workloadPermissions
 
 // workspaceMenu and usersMenu:
 // Visible to system-admin, system-admin-readonly, or current workspace-admin
@@ -294,7 +296,7 @@ const workloadGroupRoutes = [
   { group: 'workloads-infer', paths: ['/infer', '/infera'] },
   {
     group: 'workloads-training',
-    paths: ['/training', '/torchft', '/rayjob', '/monarch'],
+    paths: ['/training', '/torchft', '/rayjob', '/monarch', '/slurm'],
   },
 ]
 const activeWorkloadGroup = computed(
@@ -375,6 +377,13 @@ watchEffect(() => {
       canAccess: canTrain.value,
       tooltip: 'Monarch has been disabled by the administrator.',
       icon: menuIcons.monarch,
+    },
+    {
+      index: '/slurm',
+      name: 'Slurm',
+      canAccess: canSlurm.value,
+      tooltip: 'Slurm has been disabled by the administrator.',
+      icon: menuIcons.slurm,
     },
   ].filter((item) => item.canAccess !== false)
 
