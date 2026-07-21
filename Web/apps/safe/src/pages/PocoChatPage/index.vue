@@ -301,7 +301,7 @@ import {
 } from '@element-plus/icons-vue'
 import sidebarIcon from '@/assets/icons/sidebar.png'
 import stopIcon from '@/assets/icons/stop.png'
-import { marked } from 'marked'
+import { renderMarkdown } from '@/utils/sanitize'
 import {
   getSessions,
   createSession,
@@ -353,8 +353,16 @@ let abortController: AbortController | null = null
 
 // ========== Helpers ==========
 
+// Memoized: v-html re-runs this per render for each visible message.
+const messageHtmlCache = new Map<string, string>()
 const formatMessage = (content: string) => {
-  return marked(content, { breaks: true })
+  if (!content) return ''
+  const cached = messageHtmlCache.get(content)
+  if (cached !== undefined) return cached
+  const html = renderMarkdown(content)
+  if (messageHtmlCache.size > 500) messageHtmlCache.clear()
+  messageHtmlCache.set(content, html)
+  return html
 }
 
 const focusInput = () => { inputRef.value?.focus() }

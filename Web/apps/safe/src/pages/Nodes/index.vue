@@ -407,7 +407,17 @@
 </template>
 
 <script lang="ts" setup>
-import { onMounted, ref, computed, watch, reactive, h, nextTick, type Component } from 'vue'
+import {
+  onMounted,
+  onBeforeUnmount,
+  ref,
+  computed,
+  watch,
+  reactive,
+  h,
+  nextTick,
+  type Component,
+} from 'vue'
 import {
   getNodesList,
   deleteNode,
@@ -677,6 +687,10 @@ const handleSearchInput = () => {
     onSearch({ resetPage: true })
   }, 500)
 }
+
+onBeforeUnmount(() => {
+  if (searchTimer) clearTimeout(searchTimer)
+})
 
 const passAll = () => true
 const handleFilterChange = (filters: Record<string, string[]>) => {

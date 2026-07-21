@@ -22,6 +22,10 @@ export function useOptimizationEvents(taskId: string) {
 
   let lastEventId = ''
   let es: EventSource | null = null
+  let reconnectTimer: ReturnType<typeof setTimeout> | null = null
+
+  // Cap streamed logs to avoid unbounded memory/DOM growth on long-running tasks.
+  const MAX_LOGS = 5000
 
   const EVENT_TYPES = ['phase', 'benchmark', 'kernel', 'log', 'status', 'done'] as const
 
@@ -46,6 +50,9 @@ export function useOptimizationEvents(taskId: string) {
         }
         case 'log':
           logs.value.push(evt.payload as LogPayload)
+          if (logs.value.length > MAX_LOGS) {
+            logs.value.splice(0, logs.value.length - MAX_LOGS)
+          }
           break
         case 'status': {
           const sp = evt.payload as StatusPayload
@@ -80,11 +87,18 @@ export function useOptimizationEvents(taskId: string) {
     es.onerror = () => {
       sseError.value = true
       close()
-      setTimeout(() => { if (!isDone.value) connect() }, 5000)
+      reconnectTimer = setTimeout(() => {
+        reconnectTimer = null
+        if (!isDone.value) connect()
+      }, 5000)
     }
   }
 
   function close() {
+    if (reconnectTimer) {
+      clearTimeout(reconnectTimer)
+      reconnectTimer = null
+    }
     if (es) {
       es.close()
       es = null

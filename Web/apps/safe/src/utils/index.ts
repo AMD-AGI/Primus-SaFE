@@ -6,6 +6,18 @@ import { ElMessage } from 'element-plus'
 dayjs.extend(utc)
 
 /**
+ * Sanitize a post-login / post-navigation redirect target.
+ * Only same-origin absolute paths are allowed; protocol-relative ("//host"),
+ * absolute URLs ("http(s)://") and any non-"/" value fall back to "/".
+ * Prevents open-redirect / phishing via a crafted ?redirect= parameter.
+ */
+export function getSafeRedirect(v: unknown): string {
+  const s = Array.isArray(v) ? v[0] : ((v as string) ?? '')
+  if (!s || s.startsWith('http') || s.startsWith('//')) return '/'
+  return s.startsWith('/') ? s : '/'
+}
+
+/**
  * Given an object and a field template,
  * if the object is missing a field, automatically fill in the default value from the template.
  *
@@ -515,11 +527,4 @@ const LOG_DOWNLOAD_DISABLED_HOSTS = new Set(['core42.primus-safe.amd.com'])
 export function isLogDownloadEnabledForHost(enabled: boolean | undefined, hostname: string) {
   if (!enabled) return false
   return !LOG_DOWNLOAD_DISABLED_HOSTS.has(hostname.toLowerCase())
-}
-
-export function isOciClusterId(clusterId: string | undefined | null): boolean {
-  const normalized = clusterId?.trim().toLowerCase()
-  if (!normalized) return false
-
-  return /(^|[-_])oci($|[-_])/.test(normalized)
 }

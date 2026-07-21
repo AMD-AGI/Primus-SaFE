@@ -141,7 +141,7 @@ import { Lock, Moon, Loading } from '@element-plus/icons-vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useUserStore } from '@/stores/user'
 import { toggleDark } from '@/composables'
-import { randomState } from '@/utils'
+import { randomState, getSafeRedirect } from '@/utils'
 import { useDark } from '@vueuse/core'
 
 const isDark = useDark()
@@ -181,13 +181,6 @@ const rules: FormRules = {
 
 const isAdminLogin = computed(() => route.name === 'LoginAdmin')
 const autoSSO = computed(() => !isAdminLogin.value && !!userStore.envs?.ssoEnable)
-
-function getSafeRedirect(v: unknown) {
-  const s = Array.isArray(v) ? v[0] : (v as string) || ''
-  // Only allow internal paths
-  if (!s || s.startsWith('http') || s.startsWith('//')) return '/'
-  return s.startsWith('/') ? s : '/'
-}
 
 function cleanExpiredAttempts() {
   // Clean up expired SSO attempt records
@@ -237,7 +230,7 @@ function startSSO() {
   }
 
   // 1. Record redirect target (where to go after successful login)
-  const target = (route.query.redirect as string) || '/'
+  const target = getSafeRedirect(route.query.redirect)
   sessionStorage.setItem(ENTRY_KEY, target)
 
   // 2. Generate random state (security verification)

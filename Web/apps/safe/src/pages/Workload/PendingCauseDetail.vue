@@ -304,7 +304,7 @@ import { useRoute, useRouter, onBeforeRouteLeave } from 'vue-router'
 import { createPendingCauseJob, getPendingCauseJob } from '@/services'
 import type { PendingCauseAnalysisResult } from '@/services/workload/type'
 import { ElMessage } from 'element-plus'
-import { marked } from 'marked'
+import { renderMarkdown } from '@/utils/sanitize'
 import { useDark } from '@vueuse/core'
 import { copyText, formatTimeStr } from '@/utils/index'
 import { ArrowLeft, CopyDocument, Loading } from '@element-plus/icons-vue'
@@ -362,7 +362,7 @@ const eventCollection = computed(() => {
 
 const renderedReport = computed(() => {
   if (!analysisResult.value?.result?.report) return ''
-  return marked.parse(analysisResult.value.result.report) as string
+  return renderMarkdown(analysisResult.value.result.report)
 })
 
 // Parse different sections of the report (only for new format)
@@ -386,19 +386,19 @@ const reportSections = computed(() => {
   // Extract Pending Cause section
   const pendingCauseMatch = report.match(/## Pending Cause\s*\n([\s\S]*?)(?=\n## |$)/i)
   if (pendingCauseMatch) {
-    sections.pendingCause = marked.parse('## Pending Cause\n' + pendingCauseMatch[1]) as string
+    sections.pendingCause = renderMarkdown('## Pending Cause\n' + pendingCauseMatch[1])
   }
 
   // Extract Key Evidence section
   const keyEvidenceMatch = report.match(/## Key Evidence\s*\n([\s\S]*?)(?=\n## |$)/i)
   if (keyEvidenceMatch) {
-    sections.keyEvidence = marked.parse('## Key Evidence\n' + keyEvidenceMatch[1]) as string
+    sections.keyEvidence = renderMarkdown('## Key Evidence\n' + keyEvidenceMatch[1])
   }
 
   // Extract Recommended Action section
   const recommendedActionMatch = report.match(/## Recommended Action\s*\n([\s\S]*?)(?=\n## |$)/i)
   if (recommendedActionMatch) {
-    sections.recommendedAction = marked.parse('## Recommended Action\n' + recommendedActionMatch[1]) as string
+    sections.recommendedAction = renderMarkdown('## Recommended Action\n' + recommendedActionMatch[1])
   }
 
   return sections

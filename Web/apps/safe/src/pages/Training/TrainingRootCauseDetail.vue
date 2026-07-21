@@ -249,7 +249,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { getRootCauseAnalysis } from '@/services'
 import type { RootCauseAnalysisResult } from '@/services/workload/type'
 import { ElMessage } from 'element-plus'
-import { marked } from 'marked'
+import { renderMarkdown } from '@/utils/sanitize'
 import { useDark } from '@vueuse/core'
 import { copyText, formatTimeStr } from '@/utils/index'
 import { ArrowLeft, CopyDocument, Loading } from '@element-plus/icons-vue'
@@ -267,7 +267,7 @@ const isPolling = ref(false)
 
 const renderedReport = computed(() => {
   if (!analysisResult.value?.result?.report) return ''
-  return marked.parse(analysisResult.value.result.report) as string
+  return renderMarkdown(analysisResult.value.result.report)
 })
 
 // Parse different sections of the report
@@ -291,19 +291,19 @@ const reportSections = computed(() => {
   // Extract ROOT CAUSE IDENTIFICATION section
   const rootCauseMatch = report.match(/# ROOT CAUSE IDENTIFICATION([\s\S]*?)(?=\n# |$)/i)
   if (rootCauseMatch) {
-    sections.rootCause = marked.parse('# ROOT CAUSE IDENTIFICATION' + rootCauseMatch[1]) as string
+    sections.rootCause = renderMarkdown('# ROOT CAUSE IDENTIFICATION' + rootCauseMatch[1])
   }
 
   // Extract PROBLEM DESCRIPTION section
   const problemMatch = report.match(/# PROBLEM DESCRIPTION([\s\S]*?)(?=\n# |$)/i)
   if (problemMatch) {
-    sections.problemDescription = marked.parse('# PROBLEM DESCRIPTION' + problemMatch[1]) as string
+    sections.problemDescription = renderMarkdown('# PROBLEM DESCRIPTION' + problemMatch[1])
   }
 
   // Extract ANALYSIS FINDINGS section
   const findingsMatch = report.match(/# ANALYSIS FINDINGS([\s\S]*?)(?=\n# |$)/i)
   if (findingsMatch) {
-    sections.analysisFindings = marked.parse('# ANALYSIS FINDINGS' + findingsMatch[1]) as string
+    sections.analysisFindings = renderMarkdown('# ANALYSIS FINDINGS' + findingsMatch[1])
   }
 
   return sections

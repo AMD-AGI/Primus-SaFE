@@ -629,7 +629,7 @@ import {
   type SourceRef,
   type MessageData,
 } from '@/services/chatbot'
-import { marked } from 'marked'
+import { renderMarkdown } from '@/utils/sanitize'
 import { useUserStore } from '@/stores/user'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { copyText, buildMessageShareUrl, buildConversationShareUrl } from '@/utils'
@@ -1095,7 +1095,7 @@ const handleTimeoutMessage = async (messageIndex: number, data: TimeoutMessageDa
 }
 
 // Agent: Handle complete message
-const handleCompleteMessage = (messageIndex: number, data: Record<string, unknown>) => {
+const handleCompleteMessage = (messageIndex: number, _data: Record<string, unknown>) => {
   loading.value = false
 
   // When operation completes, restore selection forms as readonly
@@ -1339,12 +1339,18 @@ const formatStructuredList = (content: string): string => {
   return formattedLines.join('\n')
 }
 
-// Format message with markdown
+// Format message with markdown.
+// Memoized by content: v-html re-runs this per render for every visible message
+// (heavy during streaming). Cache is capped to avoid unbounded growth.
+const messageHtmlCache = new Map<string, string>()
 const formatMessage = (content: string) => {
-  // First, apply structured list formatting
-  const formatted = formatStructuredList(content)
-  // Then apply markdown
-  return marked(formatted, { breaks: true })
+  if (!content) return ''
+  const cached = messageHtmlCache.get(content)
+  if (cached !== undefined) return cached
+  const html = renderMarkdown(formatStructuredList(content))
+  if (messageHtmlCache.size > 500) messageHtmlCache.clear()
+  messageHtmlCache.set(content, html)
+  return html
 }
 
 const { imagePreviewVisible, imagePreviewUrl, handleImageClick, closeImagePreview } =

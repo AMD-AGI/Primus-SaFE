@@ -15,6 +15,8 @@ export default defineConfigWithVueTs(
     files: ['**/*.{ts,mts,tsx,vue}'],
     rules: {
       'no-unused-vars': 'off',
+      // Flag new v-html usage in review; sanitize via @/utils/sanitize before rendering
+      'vue/no-v-html': 'warn',
       '@typescript-eslint/no-unused-vars': [
         'error',
         {

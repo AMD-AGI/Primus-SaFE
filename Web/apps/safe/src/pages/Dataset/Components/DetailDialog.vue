@@ -44,6 +44,7 @@
               v-if="detail.sourceUrl"
               :href="detail.sourceUrl"
               target="_blank"
+              rel="noopener noreferrer"
               type="primary"
               :underline="false"
             >

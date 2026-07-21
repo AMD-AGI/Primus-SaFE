@@ -95,7 +95,7 @@
             {{ serviceData.internalDomain || '-' }}
           </el-descriptions-item>
           <el-descriptions-item label="External Domain" :span="4" v-if="serviceData.externalDomain">
-            <el-link :href="serviceData.externalDomain" target="_blank" type="primary">
+            <el-link :href="serviceData.externalDomain" target="_blank" rel="noopener noreferrer" type="primary">
               {{ serviceData.externalDomain }}
             </el-link>
           </el-descriptions-item>

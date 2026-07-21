@@ -289,7 +289,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted, watch } from 'vue'
+import { ref, reactive, onMounted, onBeforeUnmount, watch } from 'vue'
 import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
 import {
   Plus,
@@ -916,6 +916,10 @@ watch([searchQuery, searchMinSimilarity, searchLimit], () => {
       handleSearch()
     }
   }, 800)
+})
+
+onBeforeUnmount(() => {
+  if (searchTimeout) clearTimeout(searchTimeout)
 })
 
 onMounted(() => {

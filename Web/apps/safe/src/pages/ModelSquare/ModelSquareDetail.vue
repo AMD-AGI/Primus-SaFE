@@ -206,7 +206,7 @@
 
     <el-descriptions class="m-t-4" border :column="2" direction="vertical">
       <el-descriptions-item label="Source URL" :span="2">
-        <el-link :href="detailData?.sourceURL" target="_blank" type="primary">
+        <el-link :href="detailData?.sourceURL" target="_blank" rel="noopener noreferrer" type="primary">
           {{ detailData?.sourceURL }}
         </el-link>
       </el-descriptions-item>

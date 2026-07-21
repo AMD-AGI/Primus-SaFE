@@ -7,7 +7,7 @@
     @close="handleClose"
   >
     <!-- Message -->
-    <div v-if="data?.message" class="confirm-message" v-html="data.message"></div>
+    <div v-if="data?.message" class="confirm-message" v-html="sanitizeHtml(data.message)"></div>
 
     <!-- Selection Type -->
     <div v-if="data?.confirm_type === 'selection' && data.selections" class="selection-form">
@@ -116,6 +116,7 @@
 <script setup lang="ts">
 import { ref, watch, computed } from 'vue'
 import type { ConfirmMessageData } from '@/services/agent'
+import { sanitizeHtml, textToBr } from '@/utils/sanitize'
 
 interface Props {
   modelValue: boolean
@@ -125,6 +126,8 @@ interface Props {
 
 interface Emits {
   (e: 'update:modelValue', value: boolean): void
+  // Dynamic selection form values are bound to heterogeneous Element Plus controls
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   (e: 'confirm', data: { selections?: Record<string, any>; approved?: boolean }): void
   (e: 'cancel'): void
 }
@@ -137,6 +140,8 @@ const dialogVisible = computed({
   set: (value) => emit('update:modelValue', value),
 })
 
+// Values map to el-input (string) / el-select multiple (string[]) via v-model
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 const formData = ref<Record<string, any>>({})
 
 // Watch data changes to initialize form
@@ -150,6 +155,7 @@ watch(
 
     // Initialize form data with defaults
     if (newData.confirm_type === 'selection' && newData.selections) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const initialData: Record<string, any> = {}
       Object.entries(newData.selections).forEach(([key, field]) => {
         if (field.default !== undefined) {
@@ -188,9 +194,9 @@ const isFormValid = computed(() => {
   return true
 })
 
-// Format detail value (convert \n to <br>)
+// Format detail value (escape text, then convert \n to <br>)
 const formatDetailValue = (value: string) => {
-  return value.replace(/\n/g, '<br>')
+  return textToBr(value)
 }
 
 // Handle confirm

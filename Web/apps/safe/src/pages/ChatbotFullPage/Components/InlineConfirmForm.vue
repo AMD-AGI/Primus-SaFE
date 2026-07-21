@@ -4,7 +4,7 @@
     <div v-if="data.title" class="form-title">{{ data.title }}</div>
 
     <!-- Message -->
-    <div v-if="data.message" class="form-message" v-html="data.message"></div>
+    <div v-if="data.message" class="form-message" v-html="sanitizeHtml(data.message)"></div>
 
     <!-- Selection Form -->
     <div v-if="data.confirm_type === 'selection' && data.selections" class="selection-fields">
@@ -119,6 +119,7 @@
 import { ref, watch, computed } from 'vue'
 import { CircleCheck } from '@element-plus/icons-vue'
 import type { ConfirmMessageData, SelectionField } from '@/services/agent'
+import { sanitizeHtml, textToBr } from '@/utils/sanitize'
 
 interface Props {
   data: ConfirmMessageData
@@ -186,9 +187,9 @@ const isFormValid = computed(() => {
   return true
 })
 
-// Format detail value (convert \n to <br>)
+// Format detail value (escape text, then convert \n to <br>)
 const formatDetailValue = (value: string) => {
-  return value.replace(/\n/g, '<br>')
+  return textToBr(value)
 }
 
 // Format readonly value for display

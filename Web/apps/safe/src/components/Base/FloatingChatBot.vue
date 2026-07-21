@@ -640,7 +640,7 @@ const closeDialog = () => {
 
 // Open GitHub
 const openGitHub = () => {
-  window.open('https://github.com/AMD-AGI/Primus-SaFE', '_blank')
+  window.open('https://github.com/AMD-AGI/Primus-SaFE', '_blank', 'noopener,noreferrer')
 }
 
 // Start new conversation
@@ -1029,6 +1029,9 @@ onMounted(() => {
 
 onUnmounted(() => {
   window.removeEventListener('resize', ensureInViewport)
+  // Remove drag listeners in case the component unmounts mid-drag
+  document.removeEventListener('mousemove', onDrag)
+  document.removeEventListener('mouseup', endDrag)
   stopAskHealthCheck()
   stopAgentHealthCheck()
   // Disconnect agent if connected

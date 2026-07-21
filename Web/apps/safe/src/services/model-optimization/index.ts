@@ -36,7 +36,7 @@ export const listOptimizationArtifacts = (id: string): Promise<ArtifactItem[]> =
 
 export const downloadOptimizationArtifact = (id: string, path: string) => {
   const url = `${request.defaults.baseURL}${BASE}/tasks/${id}/artifacts/download?path=${encodeURIComponent(path)}`
-  window.open(url, '_blank')
+  window.open(url, '_blank', 'noopener,noreferrer')
 }
 
 export const applyOptimizationTask = (id: string, data: ApplyPayload): Promise<any> =>

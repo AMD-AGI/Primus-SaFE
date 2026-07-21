@@ -1,4 +1,4 @@
-import { marked } from 'marked'
+import { renderMarkdown } from '@/utils/sanitize'
 
 // Format structured list items (with | separators)
 const formatStructuredList = (content: string): string => {
@@ -34,10 +34,18 @@ const formatStructuredList = (content: string): string => {
   return formattedLines.join('\n')
 }
 
-// Format message with markdown
+// Format message with markdown.
+// Memoized by content: v-html bindings re-run this on every render (and for every
+// visible message during streaming). Cache is capped to avoid unbounded growth.
+const messageHtmlCache = new Map<string, string>()
 export const formatMessage = (content: string): string => {
-  const formatted = formatStructuredList(content)
-  return marked(formatted, { breaks: true }) as string
+  if (!content) return ''
+  const cached = messageHtmlCache.get(content)
+  if (cached !== undefined) return cached
+  const html = renderMarkdown(formatStructuredList(content))
+  if (messageHtmlCache.size > 500) messageHtmlCache.clear()
+  messageHtmlCache.set(content, html)
+  return html
 }
 
 // Format time string

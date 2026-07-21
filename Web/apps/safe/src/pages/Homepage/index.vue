@@ -4,14 +4,9 @@
       <div class="header-row">
     <h3 class="chart-title">Usage breakdown</h3>
     <div class="header-links">
-      <!-- Hyperloom entry - shown only in production (same gating as Lens) -->
+      <!-- Hyperloom entry - shown only in production -->
       <el-button v-if="isProd" link @click="goToHyperloom" class="lens-link">
         Go to Hyperloom
-        <el-icon class="ml-1"><Right /></el-icon>
-      </el-button>
-      <!-- Lens entry - shown only in production -->
-      <el-button v-if="isProd" link @click="goToLens" class="lens-link">
-        Go to Lens
         <el-icon class="ml-1"><Right /></el-icon>
       </el-button>
     </div>
@@ -253,13 +248,8 @@ import {
 // Check if in production environment
 const isProd = import.meta.env.PROD
 
-// Navigate to Lens system
-const goToLens = () => {
-  window.open(`${location.origin}/lens`, '_blank')
-}
-
 const goToHyperloom = () => {
-  window.open(`${location.origin}/hyperloom/`, '_blank')
+  window.open(`${location.origin}/hyperloom/`, '_blank', 'noopener,noreferrer')
 }
 
 const store = useWorkspaceStore()
