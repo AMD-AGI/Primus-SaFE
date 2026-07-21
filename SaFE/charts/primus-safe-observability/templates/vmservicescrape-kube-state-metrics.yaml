@@ -1,0 +1,28 @@
+#
+# Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
+# See LICENSE for license information.
+#
+# Scrape kube-state-metrics with a VM-native VMServiceScrape. The upstream
+# kube-state-metrics subchart only annotates its Service with
+# prometheus.io/scrape and (optionally) emits a prometheus-operator
+# ServiceMonitor -- neither of which VMAgent consumes on a VM-operator-only
+# cluster. Without this object VMAgent never scrapes kube-state-metrics, so
+# kube_pod_* / kube_node_* series are absent and the workload/pod Grafana
+# dashboards show "no data" even though every metrics pod is Running.
+{{- if (index .Values "kubeStateMetrics" "enabled" | default true) }}
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMServiceScrape
+metadata:
+  name: kube-state-metrics
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app.kubernetes.io/part-of: primus-safe-observability
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: kube-state-metrics
+  endpoints:
+    - port: http
+      interval: 30s
+      honorLabels: true
+{{- end }}
