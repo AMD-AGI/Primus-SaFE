@@ -8,7 +8,6 @@ package controllers
 import (
 	"context"
 	"fmt"
-	"time"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/util/wait"
@@ -22,21 +21,17 @@ import (
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	commoncluster "github.com/AMD-AIG-AIMA/SAFE/common/pkg/cluster"
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/k8sclient"
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 )
 
-// Watchdog tuning for the data-plane direct-call clients. These factories are
-// informer-less (DisableInformer), so the shared ClientFactory does not probe
-// them; this controller probes them itself and rebuilds a factory whose
-// connection is persistently broken (e.g. after an endpoint change or cert
-// rotation), which the Has()-guarded addClientFactory would otherwise never
-// refresh.
-const (
-	clusterHealthInterval = 30 * time.Second
-	clusterProbeTimeout   = 5 * time.Second
-	clusterFailThreshold  = 3
-)
+// The watchdog probes the data-plane direct-call clients on
+// common.DataPlaneHealthProbeInterval and rebuilds a factory whose connection is
+// persistently broken (e.g. after an endpoint change or cert rotation). These
+// factories are informer-less (DisableInformer), so the shared ClientFactory
+// does not probe them and the Has()-guarded addClientFactory would otherwise
+// never refresh a stale one.
 
 type ClusterReconciler struct {
 	ctx           context.Context
@@ -177,7 +172,7 @@ func (r *ClusterReconciler) runFactoryWatchdog(ctx context.Context) {
 				continue
 			}
 			live[name] = true
-			probeCtx, cancel := context.WithTimeout(ctx, clusterProbeTimeout)
+			probeCtx, cancel := context.WithTimeout(ctx, common.DataPlaneHealthProbeTimeout)
 			err := factory.Probe(probeCtx)
 			cancel()
 			if err == nil {
@@ -187,7 +182,7 @@ func (r *ClusterReconciler) runFactoryWatchdog(ctx context.Context) {
 			failures[name]++
 			klog.ErrorS(err, "data-plane cluster health probe failed",
 				"cluster", name, "consecutiveFailures", failures[name])
-			if failures[name] < clusterFailThreshold {
+			if failures[name] < common.DataPlaneHealthFailThreshold {
 				continue
 			}
 			if rebuildErr := r.rebuildClientFactory(ctx, name); rebuildErr != nil {
@@ -203,7 +198,7 @@ func (r *ClusterReconciler) runFactoryWatchdog(ctx context.Context) {
 				delete(failures, name)
 			}
 		}
-	}, clusterHealthInterval)
+	}, common.DataPlaneHealthProbeInterval)
 }
 
 // rebuildClientFactory re-fetches the Cluster and recreates its client factory.

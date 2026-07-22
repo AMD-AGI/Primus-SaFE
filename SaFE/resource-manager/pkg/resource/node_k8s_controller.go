@@ -27,6 +27,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonctrl "github.com/AMD-AIG-AIMA/SAFE/common/pkg/controller"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	commonfaults "github.com/AMD-AIG-AIMA/SAFE/common/pkg/faults"
@@ -105,17 +106,13 @@ func SetupNodeK8sController(ctx context.Context, mgr manager.Manager) error {
 	return nil
 }
 
-// nodeInformerHealthInterval is how often the watchdog checks each data-plane
-// factory's validity and rebuilds a wedged node informer.
-const nodeInformerHealthInterval = 30 * time.Second
-
 // runFactoryWatchdog starts a loop that rebuilds a cluster's client factory and
 // node informer once the shared ClientFactory's built-in probe has flipped it
 // invalid. This lets a silently wedged node watch (which emits no watch error)
 // self-heal without a process restart. Validity is set by ClientFactory itself;
 // this loop only reacts to it.
 func (r *NodeK8sReconciler) runFactoryWatchdog(ctx context.Context) {
-	go wait.UntilWithContext(ctx, r.checkFactoryHealth, nodeInformerHealthInterval)
+	go wait.UntilWithContext(ctx, r.checkFactoryHealth, common.DataPlaneHealthProbeInterval)
 }
 
 // checkFactoryHealth rebuilds every managed cluster whose client factory is

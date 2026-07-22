@@ -5,6 +5,23 @@
 
 package common
 
+import "time"
+
+// Data-plane client connection health-watchdog tuning, shared by the common
+// ClientFactory probe and the per-module rebuild watchdogs (job-manager syncer,
+// resource-manager node informer, apiserver direct-call clients).
+const (
+	// DataPlaneHealthProbeInterval is how often a data-plane connection is probed
+	// / a factory's validity is checked.
+	DataPlaneHealthProbeInterval = 30 * time.Second
+	// DataPlaneHealthProbeTimeout bounds a single probe so a wedged connection
+	// fails fast instead of blocking the watchdog.
+	DataPlaneHealthProbeTimeout = 5 * time.Second
+	// DataPlaneHealthFailThreshold is the number of consecutive probe failures
+	// before a connection is treated as broken.
+	DataPlaneHealthFailThreshold = 3
+)
+
 const (
 	PrimusSafeName             = "primus-safe"
 	PrimusSafeNamespace        = "primus-safe"

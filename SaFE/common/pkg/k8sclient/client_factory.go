@@ -20,6 +20,7 @@ import (
 	"k8s.io/klog/v2"
 	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
 
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/channel"
 )
 
@@ -29,17 +30,6 @@ const (
 	DisableInformer       InformerType = 0
 	EnableInformer        InformerType = 1
 	EnableDynamicInformer InformerType = 2
-)
-
-// Health-probe tuning for the built-in connection watchdog. Informer-enabled
-// factories actively probe the apiserver so a silently wedged watch (which emits
-// no watch error and would otherwise starve callers until a process restart) is
-// detected and the factory flipped invalid, letting callers that gate on
-// IsValid() stop using — and rebuild — the connection.
-const (
-	healthProbeInterval = 30 * time.Second
-	healthProbeTimeout  = 5 * time.Second
-	healthFailThreshold = 3
 )
 
 // ClientFactory kubernetes client factory structure for managing cluster connections and Informers
@@ -228,7 +218,7 @@ func (f *ClientFactory) Probe(ctx context.Context) error {
 // or the informer stop channel is closed (see Release/StopInformer).
 func (f *ClientFactory) runHealthWatchdog() {
 	go func() {
-		ticker := time.NewTicker(healthProbeInterval)
+		ticker := time.NewTicker(common.DataPlaneHealthProbeInterval)
 		defer ticker.Stop()
 		failures := 0
 		for {
@@ -239,7 +229,7 @@ func (f *ClientFactory) runHealthWatchdog() {
 				return
 			case <-ticker.C:
 			}
-			probeCtx, cancel := context.WithTimeout(f.ctx, healthProbeTimeout)
+			probeCtx, cancel := context.WithTimeout(f.ctx, common.DataPlaneHealthProbeTimeout)
 			err := f.Probe(probeCtx)
 			cancel()
 			if err == nil {
@@ -253,7 +243,7 @@ func (f *ClientFactory) runHealthWatchdog() {
 			failures++
 			klog.ErrorS(err, "client factory health probe failed",
 				"cluster", f.name, "consecutiveFailures", failures)
-			if failures >= healthFailThreshold && f.IsValid() {
+			if failures >= common.DataPlaneHealthFailThreshold && f.IsValid() {
 				klog.Warningf("client factory %s marked invalid after %d consecutive probe failures: %v",
 					f.name, failures, err)
 				f.SetValid(false, fmt.Sprintf("health probe failed: %v", err))

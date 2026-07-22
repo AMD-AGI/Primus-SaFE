@@ -46,13 +46,12 @@ type SyncerReconciler struct {
 // serially while different objects fan out across workers.
 const syncerWorkers = 8
 
-// syncerHealthInterval is how often the watchdog checks each data-plane
-// cluster's client-factory validity. The connection health probing itself lives
-// in the shared ClientFactory (which flips validity on a wedged watch); this
-// loop only reacts to an invalid factory by rebuilding that cluster's informers,
-// since the syncer — unlike other modules — has no reconcile path that recreates
-// an existing-but-wedged cluster.
-const syncerHealthInterval = 30 * time.Second
+// The watchdog checks each data-plane cluster's client-factory validity on
+// common.DataPlaneHealthProbeInterval. The connection health probing itself
+// lives in the shared ClientFactory (which flips validity on a wedged watch);
+// this loop only reacts to an invalid factory by rebuilding that cluster's
+// informers, since the syncer — unlike other modules — has no reconcile path
+// that recreates an existing-but-wedged cluster.
 
 // resourceMessageKey identifies the k8s object a message is about. Messages with
 // the same key are serialized and coalesced by the KeyedController.
@@ -207,7 +206,7 @@ func (r *SyncerReconciler) start(ctx context.Context) error {
 // the affected cluster; a genuinely-down remote just keeps failing the rebuild
 // cheaply until it recovers, so there is no restart thrash.
 func (r *SyncerReconciler) runInformerWatchdog(ctx context.Context) {
-	go wait.UntilWithContext(ctx, r.checkClusterHealth, syncerHealthInterval)
+	go wait.UntilWithContext(ctx, r.checkClusterHealth, common.DataPlaneHealthProbeInterval)
 }
 
 // checkClusterHealth rebuilds any managed cluster whose client factory is
