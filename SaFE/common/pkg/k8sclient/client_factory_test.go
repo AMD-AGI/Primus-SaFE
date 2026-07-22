@@ -61,3 +61,22 @@ func TestProbeNoClient(t *testing.T) {
 	f := &ClientFactory{name: "test"}
 	assert.Error(t, f.Probe(context.Background()))
 }
+
+// TestReleaseInformerFactoryIdempotent verifies Release closes the informer stop
+// channel (which stops the health watchdog) and is safe to call twice, since the
+// factory may be released both via ObjectManager.AddOrReplace and explicitly.
+func TestReleaseInformerFactoryIdempotent(t *testing.T) {
+	f := &ClientFactory{
+		name:         "c1",
+		informerType: EnableInformer,
+		stopCh:       make(chan struct{}),
+	}
+	assert.NoError(t, f.Release())
+	select {
+	case <-f.stopCh:
+	default:
+		t.Fatal("expected stopCh to be closed after Release")
+	}
+	// Second Release must not panic on a double-close.
+	assert.NoError(t, f.Release())
+}

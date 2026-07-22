@@ -7,6 +7,7 @@ package syncer
 
 import (
 	"context"
+	"sync"
 	"time"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -39,6 +40,11 @@ type SyncerReconciler struct {
 	clusterClientSets *commonutils.ObjectManager
 	dbClient          dbclient.Interface
 	*controller.KeyedController[*resourceMessage]
+
+	// rebuilding tracks clusters whose informers are being rebuilt so overlapping
+	// watchdog ticks do not launch duplicate concurrent rebuilds. Key: cluster
+	// name, value: struct{}.
+	rebuilding sync.Map
 }
 
 // syncerWorkers is the number of concurrent workers for the event queue. The
@@ -227,15 +233,24 @@ func (r *SyncerReconciler) checkClusterHealth(ctx context.Context) {
 		if factory == nil || factory.IsValid() {
 			continue
 		}
-		klog.InfoS("rebuilding data-plane cluster informers: factory marked invalid",
-			"cluster", name, "reason", factory.GetInvalidReason())
-		if err := r.rebuildCluster(ctx, name); err != nil {
-			// The old (wedged) clientSets stay in place until a new one is built;
-			// the next tick retries.
-			klog.ErrorS(err, "failed to rebuild data-plane cluster informers", "cluster", name)
+		// Skip clusters already being rebuilt so overlapping ticks don't stack; the
+		// rebuild runs off this loop because handle() does network I/O and informer
+		// setup that could otherwise stall checks for other clusters.
+		if _, inFlight := r.rebuilding.LoadOrStore(name, struct{}{}); inFlight {
 			continue
 		}
-		klog.InfoS("rebuilt data-plane cluster informers", "cluster", name)
+		klog.InfoS("rebuilding data-plane cluster informers: factory marked invalid",
+			"cluster", name, "reason", factory.GetInvalidReason())
+		go func(name string) {
+			defer r.rebuilding.Delete(name)
+			if err := r.rebuildCluster(ctx, name); err != nil {
+				// The old (wedged) clientSets stay in place until a new one is built;
+				// the next tick retries.
+				klog.ErrorS(err, "failed to rebuild data-plane cluster informers", "cluster", name)
+				return
+			}
+			klog.InfoS("rebuilt data-plane cluster informers", "cluster", name)
+		}(name)
 	}
 }
 

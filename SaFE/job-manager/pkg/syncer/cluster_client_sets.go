@@ -284,6 +284,11 @@ func (r *ClusterClientSets) delResourceTemplate(gvk schema.GroupVersionKind) {
 // it implements the interface of commonutils.Object.
 func (r *ClusterClientSets) Release() error {
 	r.resourceInformers.Clear()
+	// Release the underlying factory too, otherwise its built-in health watchdog
+	// goroutine (started in NewClientFactory) leaks on every rebuild/delete.
+	if r.dataClientFactory != nil {
+		return r.dataClientFactory.Release()
+	}
 	return nil
 }
 

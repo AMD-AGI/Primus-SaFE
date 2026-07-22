@@ -14,7 +14,10 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 
+	k8sfake "k8s.io/client-go/kubernetes/fake"
+
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	commonclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/k8sclient"
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 )
 
@@ -23,6 +26,20 @@ func newTestClientSets() *ClusterClientSets {
 		name:              "c1",
 		resourceInformers: commonutils.NewObjectManager(),
 	}
+}
+
+// TestClusterClientSetsReleaseReleasesFactory ensures Release delegates to the
+// underlying factory (so its health watchdog goroutine is stopped) and tolerates
+// a nil factory.
+func TestClusterClientSetsReleaseReleasesFactory(t *testing.T) {
+	// Nil factory: must not panic and returns nil.
+	assert.NilError(t, newTestClientSets().Release())
+
+	// With a factory present, Release delegates without error.
+	c := newTestClientSets()
+	c.dataClientFactory = commonclient.NewClientFactoryWithOnlyClient(
+		context.Background(), "c1", k8sfake.NewSimpleClientset())
+	assert.NilError(t, c.Release())
 }
 
 func TestClusterClientSetsGettersSetters(t *testing.T) {
