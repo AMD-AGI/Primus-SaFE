@@ -9,6 +9,7 @@ import (
 	"context"
 	"fmt"
 	"reflect"
+	"sync"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -72,6 +73,15 @@ type NodeK8sReconciler struct {
 	clientManager *commonutils.ObjectManager
 	queue         NodeQueue
 	*commonctrl.Controller[*nodeQueueMessage]
+
+	// rebuildInFlight guards against overlapping rebuilds of the same cluster
+	// (startNodeInformer can block on cache sync for minutes). Key: cluster name.
+	rebuildInFlight sync.Map
+	// startFailed marks clusters whose node informer failed to (re)start, so the
+	// watchdog retries even though the factory connection itself is healthy
+	// (validity is driven by the /livez probe and cannot see a start failure).
+	// Key: cluster name.
+	startFailed sync.Map
 }
 
 // SetupNodeK8sController initializes and registers the NodeK8sReconciler with the controller manager.
@@ -116,31 +126,54 @@ func (r *NodeK8sReconciler) runFactoryWatchdog(ctx context.Context) {
 }
 
 // checkFactoryHealth rebuilds every managed cluster whose client factory is
-// invalid. The rebuild recreates the factory (new connection) and re-registers
-// the node informer on it.
+// invalid (connection wedged) or whose node informer previously failed to start.
+// The rebuild recreates the factory (new connection) and re-registers the node
+// informer on it, and runs off this loop so a slow rebuild does not stall checks
+// for other clusters.
 func (r *NodeK8sReconciler) checkFactoryHealth(ctx context.Context) {
 	keys, objs := r.clientManager.GetAll()
 	for i, name := range keys {
 		factory, ok := objs[i].(*commonclient.ClientFactory)
-		if !ok || factory.IsValid() {
+		if !ok {
 			continue
 		}
-		klog.InfoS("rebuilding data-plane node informer: factory marked invalid",
-			"cluster", name, "reason", factory.GetInvalidReason())
-		if err := r.rebuildNodeInformer(ctx, name); err != nil {
-			klog.ErrorS(err, "failed to rebuild data-plane node informer", "cluster", name)
+		_, retryStart := r.startFailed.Load(name)
+		if factory.IsValid() && !retryStart {
+			continue
 		}
+		// Skip clusters already being rebuilt so overlapping ticks don't stack;
+		// startNodeInformer can block on cache sync for minutes.
+		if _, inFlight := r.rebuildInFlight.LoadOrStore(name, struct{}{}); inFlight {
+			continue
+		}
+		klog.InfoS("rebuilding data-plane node informer",
+			"cluster", name, "valid", factory.IsValid(), "reason", factory.GetInvalidReason())
+		go func(name string) {
+			defer r.rebuildInFlight.Delete(name)
+			if err := r.rebuildNodeInformer(ctx, name); err != nil {
+				// Remember the failure so the next tick retries even if the factory
+				// connection probes healthy (a start failure is invisible to /livez).
+				r.startFailed.Store(name, struct{}{})
+				klog.ErrorS(err, "failed to rebuild data-plane node informer", "cluster", name)
+				return
+			}
+			r.startFailed.Delete(name)
+			klog.InfoS("rebuilt data-plane node informer", "cluster", name)
+		}(name)
 	}
 }
 
 // rebuildNodeInformer recreates the client factory for the cluster and restarts
 // its node informer. createClientFactory's AddOrReplace atomically releases the
-// old (wedged) factory; on failure the old one is kept so the next tick retries.
+// old factory; recreating on every attempt also yields a fresh informer, so a
+// retry never double-registers the event handler. Runs synchronously inside the
+// watchdog's per-cluster goroutine, so its cache-sync wait is acceptable.
 func (r *NodeK8sReconciler) rebuildNodeInformer(ctx context.Context, name string) error {
 	cluster := new(v1.Cluster)
 	if err := r.Get(ctx, client.ObjectKey{Name: name}, cluster); err != nil {
 		if apierrors.IsNotFound(err) {
 			_ = r.clientManager.Delete(name)
+			r.startFailed.Delete(name)
 			return nil
 		}
 		return err
@@ -151,15 +184,7 @@ func (r *NodeK8sReconciler) rebuildNodeInformer(ctx context.Context, name string
 	if err := createClientFactory(ctx, r.Client, r.clientManager, cluster); err != nil {
 		return err
 	}
-	// startNodeInformer waits for cache sync (up to minutes); run it off the
-	// watchdog goroutine so one cluster does not stall the others. The freshly
-	// created factory is already valid, so the next tick will not re-enter here.
-	go func() {
-		if err := r.startNodeInformer(cluster); err != nil {
-			klog.ErrorS(err, "failed to start node informer during rebuild", "cluster", name)
-		}
-	}()
-	return nil
+	return r.startNodeInformer(cluster)
 }
 
 // relevantChangePredicate defines which Cluster changes should trigger node informer initialization.
