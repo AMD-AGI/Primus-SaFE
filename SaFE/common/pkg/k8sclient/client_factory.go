@@ -7,6 +7,8 @@ package k8sclient
 
 import (
 	"context"
+	"fmt"
+	"sync"
 	"time"
 
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -29,6 +31,17 @@ const (
 	EnableDynamicInformer InformerType = 2
 )
 
+// Health-probe tuning for the built-in connection watchdog. Informer-enabled
+// factories actively probe the apiserver so a silently wedged watch (which emits
+// no watch error and would otherwise starve callers until a process restart) is
+// detected and the factory flipped invalid, letting callers that gate on
+// IsValid() stop using — and rebuild — the connection.
+const (
+	healthProbeInterval = 30 * time.Second
+	healthProbeTimeout  = 5 * time.Second
+	healthFailThreshold = 3
+)
+
 // ClientFactory kubernetes client factory structure for managing cluster connections and Informers
 type ClientFactory struct {
 	ctx context.Context
@@ -47,6 +60,9 @@ type ClientFactory struct {
 	// Informer type enum definition. 0: disable informer; 1: sharedInformer; 2 dynamicSharedInformer
 	// default 0
 	informerType InformerType
+	// validMu guards valid/invalidReason, which are read/written concurrently by
+	// the health watchdog and by caller goroutines gating on IsValid().
+	validMu sync.RWMutex
 	// Whether the ClientFactory is valid
 	valid bool
 	// If the factory is invalid, explain the reason
@@ -94,6 +110,11 @@ func NewClientFactory(ctx context.Context, name, endpoint, certData,
 		factory.dynamicSharedInformerFactory = dynamicinformer.NewDynamicSharedInformerFactory(dynamicClient, defaultResyncPeriod)
 	default:
 	}
+	// Informer-enabled factories run watches that can silently wedge; start the
+	// connection watchdog so every module gets self-healing by default.
+	if factory.stopCh != nil {
+		factory.runHealthWatchdog()
+	}
 	klog.Infof("new k8s client factory. name: %s, informer type: %d", name, informerType)
 	return factory, nil
 }
@@ -123,11 +144,15 @@ func (f *ClientFactory) Release() error {
 
 // IsValid returns true if factory is valid
 func (f *ClientFactory) IsValid() bool {
+	f.validMu.RLock()
+	defer f.validMu.RUnlock()
 	return f.valid
 }
 
 // SetValid set factory validity status and reason.
 func (f *ClientFactory) SetValid(valid bool, msg string) {
+	f.validMu.Lock()
+	defer f.validMu.Unlock()
 	f.valid = valid
 	f.invalidReason = msg
 }
@@ -170,7 +195,71 @@ func (f *ClientFactory) DynamicSharedInformerFactory() dynamicinformer.DynamicSh
 
 // GetInvalidReason get reason for factory invalidity.
 func (f *ClientFactory) GetInvalidReason() string {
+	f.validMu.RLock()
+	defer f.validMu.RUnlock()
 	return f.invalidReason
+}
+
+// Probe performs an activity-independent liveness check against the apiserver
+// using the factory's client (hence the same cached transport the informers
+// use), so a wedged watch connection surfaces as a probe failure. An idle
+// cluster still answers, so this never false-positives on "no events".
+//
+// Any received HTTP status (even 4xx/5xx, e.g. an RBAC 403 on /livez) counts as
+// a live connection; only a transport-level failure (timeout, refused, EOF,
+// TLS) — where no status code is ever set — is reported as an error.
+func (f *ClientFactory) Probe(ctx context.Context) error {
+	if f.clientSet == nil {
+		return fmt.Errorf("client factory %s has no client", f.name)
+	}
+	res := f.clientSet.Discovery().RESTClient().Get().AbsPath("/livez").Do(ctx)
+	var code int
+	res.StatusCode(&code)
+	if code != 0 {
+		return nil
+	}
+	return res.Error()
+}
+
+// runHealthWatchdog periodically probes the apiserver and flips the factory's
+// validity, so callers gating on IsValid() stop using — and rebuild — a wedged
+// connection. This covers the silent half-open case that per-informer watch
+// error handlers never observe. It exits when the factory context is cancelled
+// or the informer stop channel is closed (see Release/StopInformer).
+func (f *ClientFactory) runHealthWatchdog() {
+	go func() {
+		ticker := time.NewTicker(healthProbeInterval)
+		defer ticker.Stop()
+		failures := 0
+		for {
+			select {
+			case <-f.ctx.Done():
+				return
+			case <-f.stopCh:
+				return
+			case <-ticker.C:
+			}
+			probeCtx, cancel := context.WithTimeout(f.ctx, healthProbeTimeout)
+			err := f.Probe(probeCtx)
+			cancel()
+			if err == nil {
+				failures = 0
+				if !f.IsValid() {
+					klog.Infof("client factory %s health probe recovered, marking valid", f.name)
+					f.SetValid(true, "")
+				}
+				continue
+			}
+			failures++
+			klog.ErrorS(err, "client factory health probe failed",
+				"cluster", f.name, "consecutiveFailures", failures)
+			if failures >= healthFailThreshold && f.IsValid() {
+				klog.Warningf("client factory %s marked invalid after %d consecutive probe failures: %v",
+					f.name, failures, err)
+				f.SetValid(false, fmt.Sprintf("health probe failed: %v", err))
+			}
+		}
+	}()
 }
 
 // StartInformer Start Informer factory (start corresponding Informer based on type).

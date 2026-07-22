@@ -12,8 +12,10 @@ import (
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	apitypes "k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
@@ -92,6 +94,7 @@ func SetupNodeK8sController(ctx context.Context, mgr manager.Manager) error {
 	if err = r.start(ctx); err != nil {
 		return err
 	}
+	r.runFactoryWatchdog(ctx)
 	err = ctrlruntime.NewControllerManagedBy(mgr).
 		For(&v1.Cluster{}, builder.WithPredicates(r.relevantChangePredicate())).
 		Complete(r)
@@ -99,6 +102,66 @@ func SetupNodeK8sController(ctx context.Context, mgr manager.Manager) error {
 		return err
 	}
 	klog.Infof("Setup K8sNode Controller successfully")
+	return nil
+}
+
+// nodeInformerHealthInterval is how often the watchdog checks each data-plane
+// factory's validity and rebuilds a wedged node informer.
+const nodeInformerHealthInterval = 30 * time.Second
+
+// runFactoryWatchdog starts a loop that rebuilds a cluster's client factory and
+// node informer once the shared ClientFactory's built-in probe has flipped it
+// invalid. This lets a silently wedged node watch (which emits no watch error)
+// self-heal without a process restart. Validity is set by ClientFactory itself;
+// this loop only reacts to it.
+func (r *NodeK8sReconciler) runFactoryWatchdog(ctx context.Context) {
+	go wait.UntilWithContext(ctx, r.checkFactoryHealth, nodeInformerHealthInterval)
+}
+
+// checkFactoryHealth rebuilds every managed cluster whose client factory is
+// invalid. The rebuild recreates the factory (new connection) and re-registers
+// the node informer on it.
+func (r *NodeK8sReconciler) checkFactoryHealth(ctx context.Context) {
+	keys, objs := r.clientManager.GetAll()
+	for i, name := range keys {
+		factory, ok := objs[i].(*commonclient.ClientFactory)
+		if !ok || factory.IsValid() {
+			continue
+		}
+		klog.InfoS("rebuilding data-plane node informer: factory marked invalid",
+			"cluster", name, "reason", factory.GetInvalidReason())
+		if err := r.rebuildNodeInformer(ctx, name); err != nil {
+			klog.ErrorS(err, "failed to rebuild data-plane node informer", "cluster", name)
+		}
+	}
+}
+
+// rebuildNodeInformer recreates the client factory for the cluster and restarts
+// its node informer. createClientFactory's AddOrReplace atomically releases the
+// old (wedged) factory; on failure the old one is kept so the next tick retries.
+func (r *NodeK8sReconciler) rebuildNodeInformer(ctx context.Context, name string) error {
+	cluster := new(v1.Cluster)
+	if err := r.Get(ctx, client.ObjectKey{Name: name}, cluster); err != nil {
+		if apierrors.IsNotFound(err) {
+			_ = r.clientManager.Delete(name)
+			return nil
+		}
+		return err
+	}
+	if !cluster.IsReady() {
+		return nil
+	}
+	if err := createClientFactory(ctx, r.Client, r.clientManager, cluster); err != nil {
+		return err
+	}
+	// startNodeInformer waits for cache sync (up to minutes); run it off the
+	// watchdog goroutine so one cluster does not stall the others. The freshly
+	// created factory is already valid, so the next tick will not re-enter here.
+	go func() {
+		if err := r.startNodeInformer(cluster); err != nil {
+			klog.ErrorS(err, "failed to start node informer during rebuild", "cluster", name)
+		}
+	}()
 	return nil
 }
 

@@ -7,9 +7,12 @@ package syncer
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io"
 	"strconv"
 
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -179,12 +182,45 @@ func (r *ClusterClientSets) addResourceTemplate(gvk schema.GroupVersionKind) err
 		return err
 	}
 
+	// Surface reflector watch failures with cluster+gvk context. Data-plane
+	// informers run outside the manager cache and are otherwise unmonitored, so a
+	// watch that keeps failing (e.g. after an apiserver/node restart) would starve
+	// the syncer silently. Must be set before the informer is started.
+	if err = informer.Informer().SetWatchErrorHandler(r.watchErrorHandler(gvk)); err != nil {
+		klog.ErrorS(err, "failed to set watch error handler for resource informer",
+			"cluster", r.name, "gvk", gvk)
+		return err
+	}
+
 	if r.resourceInformers.Add(gvk.String(), informer) == nil {
 		informer.start()
 		klog.Infof("start resource syncer, cluster: %s, gvr: %s, kind: %s",
 			r.name, mapper.Resource.String(), gvk.Kind)
 	}
 	return nil
+}
+
+// watchErrorHandler returns a reflector watch-error callback that classifies the
+// failure to keep logs actionable: an expired resourceVersion is a routine
+// relist, a normal EOF is a routine watch close, and everything else is a real
+// watch failure worth an error line (tagged with cluster+gvk to pinpoint which
+// data-plane informer is unhealthy).
+func (r *ClusterClientSets) watchErrorHandler(gvk schema.GroupVersionKind) cache.WatchErrorHandler {
+	return func(_ *cache.Reflector, err error) {
+		switch {
+		case err == nil, errors.Is(err, io.EOF):
+			return
+		case apierrors.IsResourceExpired(err):
+			klog.V(4).InfoS("resource informer watch expired, relisting",
+				"cluster", r.name, "gvk", gvk.String())
+		case errors.Is(err, io.ErrUnexpectedEOF):
+			klog.V(1).InfoS("resource informer watch closed with unexpected EOF",
+				"cluster", r.name, "gvk", gvk.String())
+		default:
+			klog.ErrorS(err, "resource informer watch failed",
+				"cluster", r.name, "gvk", gvk.String())
+		}
+	}
 }
 
 // handleResource processes resource events (add, update, delete).

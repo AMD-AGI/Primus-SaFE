@@ -425,7 +425,17 @@ func (r *ClusterReconciler) guaranteeClientFactory(ctx context.Context, cluster 
 	if !cluster.IsReady() || r.clientManager.Has(cluster.Name) {
 		return nil
 	}
-	endpoint, err := commoncluster.GetEndpoint(ctx, r.Client, cluster)
+	return createClientFactory(ctx, r.Client, r.clientManager, cluster)
+}
+
+// createClientFactory builds a data-plane client factory (informer-enabled) for
+// the cluster and stores it via AddOrReplace, which atomically releases any
+// existing entry. Shared by guaranteeClientFactory (initial setup) and the node
+// informer watchdog (rebuild on a wedged connection); on failure the previous
+// factory is left intact so the caller can retry.
+func createClientFactory(ctx context.Context, cli client.Client,
+	clientManager *commonutils.ObjectManager, cluster *v1.Cluster) error {
+	endpoint, err := commoncluster.GetEndpoint(ctx, cli, cluster)
 	if err != nil {
 		return err
 	}
@@ -435,7 +445,7 @@ func (r *ClusterReconciler) guaranteeClientFactory(ctx context.Context, cluster 
 	if err != nil {
 		return err
 	}
-	r.clientManager.AddOrReplace(cluster.Name, k8sClients)
+	clientManager.AddOrReplace(cluster.Name, k8sClients)
 	klog.Infof("add cluster %s informer, endpoint: %s", cluster.Name, endpoint)
 	return nil
 }

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/klog/v2"
 	ctrlruntime "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
@@ -45,6 +46,14 @@ type SyncerReconciler struct {
 // serially while different objects fan out across workers.
 const syncerWorkers = 8
 
+// syncerHealthInterval is how often the watchdog checks each data-plane
+// cluster's client-factory validity. The connection health probing itself lives
+// in the shared ClientFactory (which flips validity on a wedged watch); this
+// loop only reacts to an invalid factory by rebuilding that cluster's informers,
+// since the syncer — unlike other modules — has no reconcile path that recreates
+// an existing-but-wedged cluster.
+const syncerHealthInterval = 30 * time.Second
+
 // resourceMessageKey identifies the k8s object a message is about. Messages with
 // the same key are serialized and coalesced by the KeyedController.
 func resourceMessageKey(m *resourceMessage) string {
@@ -78,6 +87,7 @@ func SetupSyncerController(ctx context.Context, mgr manager.Manager) error {
 	if err := r.start(ctx); err != nil {
 		return err
 	}
+	r.runInformerWatchdog(ctx)
 
 	err := ctrlruntime.NewControllerManagedBy(mgr).
 		For(&v1.Cluster{}, builder.WithPredicates(predicate.GenerationChangedPredicate{})).
@@ -188,6 +198,60 @@ func (r *SyncerReconciler) start(ctx context.Context) error {
 		r.Run(ctx)
 	}
 	return nil
+}
+
+// runInformerWatchdog starts a background loop that rebuilds a cluster's
+// informers once the shared ClientFactory has flipped itself invalid (its
+// built-in health probe detects a wedged watch). This lets a silently starved
+// syncer self-heal without restarting the whole process. Rebuild targets only
+// the affected cluster; a genuinely-down remote just keeps failing the rebuild
+// cheaply until it recovers, so there is no restart thrash.
+func (r *SyncerReconciler) runInformerWatchdog(ctx context.Context) {
+	go wait.UntilWithContext(ctx, r.checkClusterHealth, syncerHealthInterval)
+}
+
+// checkClusterHealth rebuilds any managed cluster whose client factory is
+// invalid. Validity is driven by ClientFactory's own connection probe, so this
+// loop stays purely reactive.
+func (r *SyncerReconciler) checkClusterHealth(ctx context.Context) {
+	keys, objs := r.clusterClientSets.GetAll()
+	for i, name := range keys {
+		clientSets, ok := objs[i].(*ClusterClientSets)
+		if !ok {
+			continue
+		}
+		// Validity is not probed here: the shared ClientFactory runs its own
+		// background watchdog (runHealthWatchdog -> Probe) that flips validity on a
+		// wedged connection. This loop only consumes that result and reacts by
+		// rebuilding the affected cluster's informers.
+		factory := clientSets.ClientFactory()
+		if factory == nil || factory.IsValid() {
+			continue
+		}
+		klog.InfoS("rebuilding data-plane cluster informers: factory marked invalid",
+			"cluster", name, "reason", factory.GetInvalidReason())
+		if err := r.rebuildCluster(ctx, name); err != nil {
+			// The old (wedged) clientSets stay in place until a new one is built;
+			// the next tick retries.
+			klog.ErrorS(err, "failed to rebuild data-plane cluster informers", "cluster", name)
+			continue
+		}
+		klog.InfoS("rebuilt data-plane cluster informers", "cluster", name)
+	}
+}
+
+// rebuildCluster re-fetches the Cluster and rebuilds its client sets/informers.
+// handle() replaces the entry via AddOrReplace, which releases the old informers.
+func (r *SyncerReconciler) rebuildCluster(ctx context.Context, name string) error {
+	c := new(v1.Cluster)
+	if err := r.Get(ctx, client.ObjectKey{Name: name}, c); err != nil {
+		if apierrors.IsNotFound(err) {
+			r.deleteClusterClientSet(name)
+			return nil
+		}
+		return err
+	}
+	return r.handle(ctx, c)
 }
 
 // Do process resource messages from cluster clientSets.
