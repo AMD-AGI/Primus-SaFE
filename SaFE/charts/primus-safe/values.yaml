@@ -42,7 +42,7 @@ cd:
   gpu_type: "MI300X"
 apiserver:
   # Apiserver component image version
-  image: "harbor.tas250.primus-safe.amd.com/primussafe/apiserver:dev-slurmusage"
+  image: "apiserver:latest"
   # Number of replicas for apiserver deployment
   replicas: 1
   # CPU resources allocated to apiserver
