@@ -490,14 +490,19 @@ func (h *Handler) deleteSlurmCluster(c *gin.Context) (interface{}, error) {
 		klog.ErrorS(err, "failed to delete slurm cluster addon", "cluster", clusterName, "name", name)
 		return nil, err
 	}
+	// Best-effort cleanup of resources that helm uninstall leaves behind runs on a
+	// detached context: it must survive client disconnects / request cancellation,
+	// otherwise client-go rate limiting mid-request can abort it and orphan PVCs.
+	cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Minute)
+	defer cancel()
 	// Tear down the accounting database (no-op if it was never created).
-	if err = h.deleteMariaDB(ctx, clusterName, workspaceId, slurmReleaseName(name)); err != nil {
+	if err = h.deleteMariaDB(cleanupCtx, clusterName, workspaceId, slurmReleaseName(name)); err != nil {
 		klog.ErrorS(err, "failed to remove MariaDB during slurm cluster delete",
 			"cluster", clusterName, "name", name)
 	}
 	// Remove the slurmctld statesave PVC that helm uninstall leaves behind
 	// (StatefulSet volumeClaimTemplate PVCs are not garbage-collected).
-	if err = h.deleteSlurmStatesave(ctx, clusterName, workspaceId, slurmReleaseName(name)); err != nil {
+	if err = h.deleteSlurmStatesave(cleanupCtx, clusterName, workspaceId, slurmReleaseName(name)); err != nil {
 		klog.ErrorS(err, "failed to remove slurmctld statesave PVC during slurm cluster delete",
 			"cluster", clusterName, "name", name)
 	}
