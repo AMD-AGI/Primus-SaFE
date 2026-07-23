@@ -819,6 +819,9 @@ func slurmReleaseName(name string) string {
 
 // slurmClientSet returns a typed clientset for the target/data cluster.
 func (h *Handler) slurmClientSet(clusterName string) (kubernetes.Interface, error) {
+	if h.clientManager == nil {
+		return nil, commonerrors.NewInternalError("client manager is not configured")
+	}
 	k8sClients, err := commonutils.GetK8sClientFactory(h.clientManager, clusterName)
 	if err != nil {
 		return nil, err

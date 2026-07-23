@@ -62,6 +62,9 @@ func ParseRequestBody(req *http.Request, bodyStruct interface{}) ([]byte, error)
 // GetK8sClientFactory retrieves a Kubernetes client factory for the specified cluster from the client manager.
 // Returns the client factory if found and valid, or an error if others
 func GetK8sClientFactory(clientManager *commonutils.ObjectManager, clusterId string) (*commonclient.ClientFactory, error) {
+	if clientManager == nil {
+		return nil, commonerrors.NewInternalError("client manager is not configured")
+	}
 	obj, _ := clientManager.Get(clusterId)
 	if obj == nil {
 		err := fmt.Errorf("the client of cluster %s is not found. please retry later", clusterId)

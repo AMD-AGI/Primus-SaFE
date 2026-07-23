@@ -735,3 +735,21 @@ func TestGetWorkspaceAvailQuota(t *testing.T) {
 	assert.Equal(t, int64(4), gpu.Value())
 	assert.Equal(t, int64(1*1024*1024*1024), mem.Value())
 }
+
+// TestGetSlurmPodUsageNilClientManager verifies that Slurm usage accounting is
+// treated as optional: with a nil clientManager (as in unit tests or an install
+// without configured data-plane clients), getSlurmPodUsage must report no usage
+// instead of panicking on a nil *ObjectManager receiver.
+func TestGetSlurmPodUsageNilClientManager(t *testing.T) {
+	workspace := genMockWorkspace("test-cluster", "test-flavor")
+	fakeClient := fake.NewClientBuilder().
+		WithObjects(workspace).
+		WithScheme(scheme.Scheme).Build()
+	h := Handler{Client: fakeClient} // clientManager is nil
+
+	perNode, total, nodes, err := h.getSlurmPodUsage(context.Background(), workspace)
+	assert.NilError(t, err)
+	assert.Assert(t, perNode == nil)
+	assert.Assert(t, total == nil)
+	assert.Assert(t, nodes == nil)
+}
