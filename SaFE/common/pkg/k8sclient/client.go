@@ -7,6 +7,8 @@ package k8sclient
 
 import (
 	"fmt"
+	"net"
+	"time"
 
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
@@ -14,6 +16,17 @@ import (
 
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
+)
+
+const (
+	// dialTimeout bounds a single TCP dial.
+	dialTimeout = 10 * time.Second
+	// dialKeepAlive makes the kernel probe idle connections, so a half-open
+	// connection (peer rebooted without sending FIN/RST) is detected and torn
+	// down. That unblocks the informer's watch and lets the reflector reconnect
+	// (the new connection is then load-balanced to a healthy apiserver by the
+	// per-cluster Service / kube-proxy), instead of hanging until a restart.
+	dialKeepAlive = 30 * time.Second
 )
 
 // NewClientSetInCluster creates and returns a new ClientSetInCluster instance.
@@ -69,6 +82,7 @@ func createRestConfig(endpoint, certData, keyData, caData string, insecure bool)
 		},
 		QPS:   common.DefaultQPS,
 		Burst: common.DefaultBurst,
+		Dial:  (&net.Dialer{Timeout: dialTimeout, KeepAlive: dialKeepAlive}).DialContext,
 	}
 	if !insecure {
 		ca := stringutil.Base64Decode(caData)
