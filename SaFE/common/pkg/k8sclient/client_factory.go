@@ -53,11 +53,13 @@ type ClientFactory struct {
 	invalidReason string
 }
 
-// NewClientFactory creates a new client factory.
-func NewClientFactory(ctx context.Context, name, endpoint, certData,
+// NewClientFactory creates a new client factory. endpoints[0] is the primary
+// apiserver address; any additional entries are used as keepalive/failover dial
+// targets so the factory's informers survive a single HA member going down.
+func NewClientFactory(ctx context.Context, name string, endpoints []string, certData,
 	keyData, caData string, informerType InformerType,
 ) (*ClientFactory, error) {
-	clientSet, restCfg, err := NewClientSet(endpoint, certData, keyData, caData, true)
+	clientSet, restCfg, err := NewClientSetWithEndpoints(endpoints, certData, keyData, caData, true)
 	if err != nil {
 		return nil, err
 	}

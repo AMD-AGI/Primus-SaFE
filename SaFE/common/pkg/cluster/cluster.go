@@ -16,25 +16,37 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 )
 
-// GetEndpoint retrieve the endpoint address of the given cluster.
+// GetEndpoint retrieve the primary endpoint address of the given cluster.
 // It first tries to get the endpoint from the Kubernetes Service associated with the cluster.
 // If the Service is not found or has no ports, it falls back to using the endpoint from the cluster status.
 // Returns an error if the cluster is nil, not ready, or no valid endpoint can be found.
 func GetEndpoint(ctx context.Context, cli client.Client, cluster *v1.Cluster) (string, error) {
+	endpoints, err := GetEndpoints(ctx, cli, cluster)
+	if err != nil {
+		return "", err
+	}
+	return endpoints[0], nil
+}
+
+// GetEndpoints returns all candidate apiserver endpoints for the cluster, with
+// the primary first. When a per-cluster Service exists its ClusterIP is used (a
+// single, kube-proxy load-balanced address). Otherwise every control-plane
+// endpoint is returned so the client can fail over across the HA members
+// instead of pinning to a single (possibly dead) node.
+func GetEndpoints(ctx context.Context, cli client.Client, cluster *v1.Cluster) ([]string, error) {
 	if cluster == nil || !cluster.IsReady() {
-		return "", fmt.Errorf("cluster is not ready")
+		return nil, fmt.Errorf("cluster is not ready")
 	}
 	service := &corev1.Service{}
 	err := cli.Get(ctx, client.ObjectKey{Name: cluster.Name, Namespace: common.PrimusSafeNamespace}, service)
 	if err == nil {
 		if len(service.Spec.Ports) == 0 {
-			return "", fmt.Errorf("service ports are empty")
+			return nil, fmt.Errorf("service ports are empty")
 		}
-		// return fmt.Sprintf("https://%s.%s.svc", clusterName, common.PrimusSafeNamespace), nil
-		return fmt.Sprintf("%s:%d", service.Spec.ClusterIP, service.Spec.Ports[0].Port), nil
+		return []string{fmt.Sprintf("%s:%d", service.Spec.ClusterIP, service.Spec.Ports[0].Port)}, nil
 	}
 	if len(cluster.Status.ControlPlaneStatus.Endpoints) == 0 {
-		return "", fmt.Errorf("either the Service address or the Endpoint is empty")
+		return nil, fmt.Errorf("either the Service address or the Endpoint is empty")
 	}
-	return cluster.Status.ControlPlaneStatus.Endpoints[0], nil
+	return cluster.Status.ControlPlaneStatus.Endpoints, nil
 }

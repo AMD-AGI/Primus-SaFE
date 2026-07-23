@@ -82,16 +82,16 @@ func newClusterClientSets(ctx context.Context, cluster *v1.Cluster,
 	if controlPlane == nil {
 		return nil, fmt.Errorf("controlPlane is empty")
 	}
-	endpoint, err := commoncluster.GetEndpoint(ctx, adminClient, cluster)
+	endpoints, err := commoncluster.GetEndpoints(ctx, adminClient, cluster)
 	if err != nil {
 		return nil, err
 	}
-	clientFactory, err := commonclient.NewClientFactory(ctx, cluster.Name, endpoint,
+	clientFactory, err := commonclient.NewClientFactory(ctx, cluster.Name, endpoints,
 		controlPlane.CertData, controlPlane.KeyData, controlPlane.CAData, commonclient.EnableDynamicInformer)
 	if err != nil {
 		return nil, err
 	}
-	klog.Infof("create cluster client sets, cluster: %s, endpoint: %s", cluster.Name, endpoint)
+	klog.Infof("create cluster client sets, cluster: %s, endpoints: %v", cluster.Name, endpoints)
 	return &ClusterClientSets{
 		ctx:               ctx,
 		name:              cluster.Name,

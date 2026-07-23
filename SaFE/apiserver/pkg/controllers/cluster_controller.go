@@ -121,13 +121,13 @@ func (r *ClusterReconciler) addClientFactory(ctx context.Context, cluster *v1.Cl
 	if clientManager.Has(cluster.Name) {
 		return nil
 	}
-	endpoint, err := commoncluster.GetEndpoint(ctx, r.Client, cluster)
+	endpoints, err := commoncluster.GetEndpoints(ctx, r.Client, cluster)
 	if err != nil {
 		return err
 	}
 
 	controlPlane := &cluster.Status.ControlPlaneStatus
-	k8sClientFactory, err := commonclient.NewClientFactory(ctx, cluster.Name, endpoint,
+	k8sClientFactory, err := commonclient.NewClientFactory(ctx, cluster.Name, endpoints,
 		controlPlane.CertData, controlPlane.KeyData, controlPlane.CAData, commonclient.DisableInformer)
 	if err != nil {
 		return err
