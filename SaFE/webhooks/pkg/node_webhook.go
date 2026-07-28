@@ -176,7 +176,14 @@ func (m *NodeMutator) mutateLabels(ctx context.Context, node *v1.Node) bool {
 			isChanged = true
 		}
 	}
-	if v1.RemoveEmptyLabel(node, v1.WorkspaceIdLabel) {
+	// Keep the workspace label in sync with spec.workspace so the node's
+	// observed binding never drifts from its desired binding.
+	workspace := node.GetSpecWorkspace()
+	if workspace == "" {
+		if v1.RemoveLabel(node, v1.WorkspaceIdLabel) {
+			isChanged = true
+		}
+	} else if v1.SetLabel(node, v1.WorkspaceIdLabel, workspace) {
 		isChanged = true
 	}
 	if v1.RemoveEmptyLabel(node, v1.ClusterIdLabel) {

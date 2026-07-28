@@ -49,6 +49,29 @@ func TestNodeMutateByNodeFlavorNoGpu(t *testing.T) {
 	assert.Assert(t, v1.HasAnnotation(node, v1.NodeDiskAnnotation))
 }
 
+// TestNodeMutateLabelsWorkspaceSync keeps primus-safe.workspace.id aligned with spec.workspace.
+func TestNodeMutateLabelsWorkspaceSync(t *testing.T) {
+	scheme := newScheme(t)
+	m := &NodeMutator{Client: fake.NewClientBuilder().WithScheme(scheme).Build()}
+
+	bind := &v1.Node{
+		ObjectMeta: metav1.ObjectMeta{Name: "n1"},
+		Spec:       v1.NodeSpec{Workspace: pointer.String("ws1")},
+	}
+	assert.Assert(t, m.mutateLabels(context.Background(), bind))
+	assert.Equal(t, v1.GetWorkspaceId(bind), "ws1")
+
+	unbind := &v1.Node{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:   "n1",
+			Labels: map[string]string{v1.WorkspaceIdLabel: "default-maintenance"},
+		},
+		Spec: v1.NodeSpec{Workspace: pointer.String("")},
+	}
+	assert.Assert(t, m.mutateLabels(context.Background(), unbind))
+	assert.Equal(t, v1.GetWorkspaceId(unbind), "")
+}
+
 // TestNodeMutateLabelsSubnetRemove covers subnet annotation removal branch.
 func TestNodeMutateLabelsSubnetRemove(t *testing.T) {
 	scheme := newScheme(t)
