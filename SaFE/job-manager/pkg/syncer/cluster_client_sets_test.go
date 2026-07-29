@@ -13,6 +13,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/client-go/tools/cache"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
@@ -71,6 +72,23 @@ func TestGetClusterClientSets(t *testing.T) {
 	assert.Equal(t, got.name, "c1")
 }
 
+func TestClusterClientSetsNeedsInformerRetry(t *testing.T) {
+	c := newTestClientSets()
+	rtList := &v1.ResourceTemplateList{
+		Items: []v1.ResourceTemplate{
+			{Spec: v1.ResourceTemplateSpec{
+				GroupVersionKind: v1.GroupVersionKind{Group: "", Version: "v1", Kind: "Pod"},
+			}},
+		},
+	}
+	assert.Equal(t, c.needsInformerRetry(rtList), true)
+}
+
+func TestClusterClientSetsInformerCount(t *testing.T) {
+	c := newTestClientSets()
+	assert.Equal(t, c.informerCount(), 0)
+}
+
 func TestHandleResourceWrongType(t *testing.T) {
 	called := false
 	c := &ClusterClientSets{
@@ -94,6 +112,34 @@ func TestHandleResourceNoWorkloadId(t *testing.T) {
 	// No workload-id label and no mesh label -> not a managed object, ignored.
 	c.handleResource(context.Background(), nil, u, ResourceAdd)
 	assert.Equal(t, called, false)
+}
+
+func TestToUnstructuredTombstone(t *testing.T) {
+	u := &unstructured.Unstructured{Object: map[string]interface{}{}}
+	u.SetKind("Sandbox")
+	u.SetName("sb")
+	got, ok := toUnstructured(cache.DeletedFinalStateUnknown{Obj: u})
+	assert.Assert(t, ok)
+	assert.Equal(t, got.GetName(), "sb")
+}
+
+func TestHandleResourceDeleteTombstone(t *testing.T) {
+	var captured *resourceMessage
+	c := &ClusterClientSets{
+		name:    "cl",
+		handler: ResourceHandler(func(m *resourceMessage) { captured = m }),
+	}
+	u := &unstructured.Unstructured{Object: map[string]interface{}{}}
+	u.SetKind("Sandbox")
+	u.SetName("sb")
+	u.SetNamespace("ws")
+	u.SetLabels(map[string]string{v1.WorkloadIdLabel: "w"})
+	tombstone := cache.DeletedFinalStateUnknown{Obj: u}
+	c.handleResource(context.Background(), tombstone, tombstone, ResourceDel)
+	assert.Assert(t, captured != nil)
+	assert.Equal(t, captured.action, ResourceDel)
+	assert.Equal(t, captured.workloadId, "w")
+	assert.Equal(t, captured.name, "sb")
 }
 
 func TestHandleResourceManaged(t *testing.T) {
