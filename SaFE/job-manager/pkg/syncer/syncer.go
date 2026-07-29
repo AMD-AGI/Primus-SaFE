@@ -81,6 +81,9 @@ func SetupSyncerController(ctx context.Context, mgr manager.Manager) error {
 	if err := r.start(ctx); err != nil {
 		return err
 	}
+	if err := mgr.Add(&clusterClientSetsMaintainer{r: r}); err != nil {
+		return err
+	}
 
 	err := ctrlruntime.NewControllerManagedBy(mgr).
 		For(&v1.Cluster{}, builder.WithPredicates(predicate.GenerationChangedPredicate{})).
@@ -179,6 +182,22 @@ func (r *SyncerReconciler) ensureClusterClientSets(ctx context.Context, cluster 
 	return false
 }
 
+// clusterClientSetsMaintainer retries data-plane informer setup on the elected leader only.
+type clusterClientSetsMaintainer struct {
+	r *SyncerReconciler
+}
+
+// Start implements manager.Runnable.
+func (m *clusterClientSetsMaintainer) Start(ctx context.Context) error {
+	m.r.maintainClusterClientSets(ctx)
+	return nil
+}
+
+// NeedLeaderElection implements manager.LeaderElectionRunnable.
+func (m *clusterClientSetsMaintainer) NeedLeaderElection() bool {
+	return true
+}
+
 // maintainClusterClientSets periodically retries informer setup for all clusters.
 func (r *SyncerReconciler) maintainClusterClientSets(ctx context.Context) {
 	ticker := time.NewTicker(clusterClientSetsRetryInterval)
@@ -223,7 +242,6 @@ func (r *SyncerReconciler) start(ctx context.Context) error {
 	for i := 0; i < r.MaxConcurrent; i++ {
 		r.Run(ctx)
 	}
-	go r.maintainClusterClientSets(ctx)
 	return nil
 }
 

@@ -9,6 +9,7 @@ import (
 	"context"
 	"fmt"
 	"strconv"
+	"sync"
 
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -51,6 +52,8 @@ type ClusterClientSets struct {
 	// Key is the GVK, value is the informer instance.
 	// it is controlled by resource template
 	resourceInformers *commonutils.ObjectManager
+	// guards addResourceTemplate / delResourceTemplate against concurrent setup.
+	templateMu sync.Mutex
 }
 
 // resourceInformer wraps a GenericInformer with context management for lifecycle control
@@ -160,6 +163,8 @@ func (r *ClusterClientSets) needsInformerRetry(rtList *v1.ResourceTemplateList) 
 
 // addResourceTemplate adds a resource template and creates corresponding informer.
 func (r *ClusterClientSets) addResourceTemplate(gvk schema.GroupVersionKind) error {
+	r.templateMu.Lock()
+	defer r.templateMu.Unlock()
 	if r.resourceInformers.Has(gvk.String()) {
 		return nil
 	}
@@ -276,6 +281,8 @@ func (r *ClusterClientSets) handleResource(_ context.Context, oldObj, newObj int
 
 // delResourceTemplate removes a resource template and its corresponding informer.
 func (r *ClusterClientSets) delResourceTemplate(gvk schema.GroupVersionKind) {
+	r.templateMu.Lock()
+	defer r.templateMu.Unlock()
 	if err := r.resourceInformers.Delete(gvk.String()); err != nil {
 		klog.ErrorS(err, "failed to delete resource informer", "gvk", gvk)
 	}
