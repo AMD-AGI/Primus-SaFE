@@ -119,7 +119,7 @@ func TestWorkloadMutateRdmaResourceBranches(t *testing.T) {
 	defer commonconfig.SetValue("net.rdma_name", "")
 	scheme := newScheme(t)
 
-	// partial gpu use -> rdma cleared
+	// partial gpu use is still multi-node (replica > 1) -> rdma added (default "1")
 	flavor := &v1.NodeFlavor{ObjectMeta: metav1.ObjectMeta{Name: "flavor1"}, Spec: v1.NodeFlavorSpec{
 		Cpu: v1.CpuChip{Quantity: resource.MustParse("8")}, Memory: resource.MustParse("16Gi"),
 		Gpu: &v1.GpuChip{ResourceName: common.AmdGpu, Quantity: resource.MustParse("8")},
@@ -131,7 +131,7 @@ func TestWorkloadMutateRdmaResourceBranches(t *testing.T) {
 	}}}
 	v1.SetLabel(partial, v1.NodeFlavorIdLabel, "flavor1")
 	m.mutateRdmaResource(context.Background(), partial)
-	assert.Equal(t, partial.Spec.Resources[0].RdmaResource, "")
+	assert.Equal(t, partial.Spec.Resources[0].RdmaResource, "1")
 
 	// gpu fully used, flavor has no rdma resource -> default "1"
 	full := &v1.Workload{Spec: v1.WorkloadSpec{Resources: []v1.WorkloadResource{
@@ -140,6 +140,22 @@ func TestWorkloadMutateRdmaResourceBranches(t *testing.T) {
 	v1.SetLabel(full, v1.NodeFlavorIdLabel, "flavor1")
 	m.mutateRdmaResource(context.Background(), full)
 	assert.Equal(t, full.Spec.Resources[0].RdmaResource, "1")
+
+	// single-node (replica == 1) GPU role -> no cross-node rdma added
+	single := &v1.Workload{Spec: v1.WorkloadSpec{Resources: []v1.WorkloadResource{
+		{Replica: 1, CPU: "1", GPU: "8", Memory: "2Gi"},
+	}}}
+	v1.SetLabel(single, v1.NodeFlavorIdLabel, "flavor1")
+	m.mutateRdmaResource(context.Background(), single)
+	assert.Equal(t, single.Spec.Resources[0].RdmaResource, "")
+
+	// caller-provided rdma on a multi-node role is preserved (not overwritten)
+	userSet := &v1.Workload{Spec: v1.WorkloadSpec{Resources: []v1.WorkloadResource{
+		{Replica: 2, CPU: "1", GPU: "4", Memory: "2Gi", RdmaResource: "1k"},
+	}}}
+	v1.SetLabel(userSet, v1.NodeFlavorIdLabel, "flavor1")
+	m.mutateRdmaResource(context.Background(), userSet)
+	assert.Equal(t, userSet.Spec.Resources[0].RdmaResource, "1k")
 
 	// flavor not found -> early return
 	missing := &v1.Workload{Spec: v1.WorkloadSpec{Resources: []v1.WorkloadResource{wlResource()}}}
