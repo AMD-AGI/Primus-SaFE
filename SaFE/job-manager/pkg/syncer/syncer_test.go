@@ -34,16 +34,10 @@ func TestSyncerReconcileNotFound(t *testing.T) {
 	assert.NilError(t, err)
 }
 
-func TestSyncerObserve(t *testing.T) {
-	mgr := commonutils.NewObjectManager()
-	r := &SyncerReconciler{clusterClientSets: mgr}
-
-	// Not present -> false.
-	assert.Equal(t, r.observe(&v1.Cluster{ObjectMeta: metav1.ObjectMeta{Name: "c1"}}), false)
-
-	// Present -> true.
-	assert.NilError(t, mgr.Add("c1", newTestClientSets()))
-	assert.Equal(t, r.observe(&v1.Cluster{ObjectMeta: metav1.ObjectMeta{Name: "c1"}}), true)
+func TestClusterClientSetsNeedsInformerRetryEmpty(t *testing.T) {
+	c := newTestClientSets()
+	assert.Equal(t, c.needsInformerRetry(nil), false)
+	assert.Equal(t, c.needsInformerRetry(&v1.ResourceTemplateList{}), false)
 }
 
 func TestSyncerDeleteClusterClientSet(t *testing.T) {

@@ -137,6 +137,27 @@ func (r *ClusterClientSets) getResourceInformer(gvk schema.GroupVersionKind) *re
 	return informer
 }
 
+// informerCount returns the number of running resource informers.
+func (r *ClusterClientSets) informerCount() int {
+	return r.resourceInformers.Len()
+}
+
+// needsInformerRetry reports whether any required resource template informer is still missing.
+// Missing informers are retried periodically so CRDs installed after startup (e.g. Sandbox) can
+// be picked up without restarting job-manager.
+func (r *ClusterClientSets) needsInformerRetry(rtList *v1.ResourceTemplateList) bool {
+	if rtList == nil || len(rtList.Items) == 0 {
+		return false
+	}
+	for i := range rtList.Items {
+		gvk := rtList.Items[i].ToSchemaGVK()
+		if !r.resourceInformers.Has(gvk.String()) {
+			return true
+		}
+	}
+	return false
+}
+
 // addResourceTemplate adds a resource template and creates corresponding informer.
 func (r *ClusterClientSets) addResourceTemplate(gvk schema.GroupVersionKind) error {
 	if r.resourceInformers.Has(gvk.String()) {
@@ -147,8 +168,8 @@ func (r *ClusterClientSets) addResourceTemplate(gvk schema.GroupVersionKind) err
 	mapper, err := r.dataClientFactory.Mapper().RESTMapping(gvk.GroupKind(), gvk.Version)
 	if err != nil {
 		if apimeta.IsNoMatchError(err) {
-			// CRD is not installed on this cluster; skip silently (e.g. Sandbox on mgmt cluster).
-			klog.V(2).InfoS("skip resource template: CRD not installed on cluster",
+			// CRD is not installed yet; retry on the next maintain cycle in case it is added later.
+			klog.V(2).InfoS("resource template pending: CRD not installed on cluster",
 				"cluster", r.name, "gvk", gvk)
 			return nil
 		}
@@ -187,10 +208,27 @@ func (r *ClusterClientSets) addResourceTemplate(gvk schema.GroupVersionKind) err
 	return nil
 }
 
+// toUnstructured extracts an unstructured object from an informer event payload.
+// Relist-driven delete events arrive as cache.DeletedFinalStateUnknown tombstones.
+func toUnstructured(obj interface{}) (*unstructured.Unstructured, bool) {
+	if obj == nil {
+		return nil, false
+	}
+	if tombstone, ok := obj.(cache.DeletedFinalStateUnknown); ok {
+		obj = tombstone.Obj
+	}
+	u, ok := obj.(*unstructured.Unstructured)
+	return u, ok
+}
+
 // handleResource processes resource events (add, update, delete).
 func (r *ClusterClientSets) handleResource(_ context.Context, oldObj, newObj interface{}, action string) {
-	newUnstructured, ok := newObj.(*unstructured.Unstructured)
+	newUnstructured, ok := toUnstructured(newObj)
 	if !ok {
+		if action == ResourceDel {
+			klog.InfoS("ignored delete event with unsupported object type",
+				"cluster", r.name, "type", fmt.Sprintf("%T", newObj))
+		}
 		return
 	}
 	msg := &resourceMessage{
@@ -225,7 +263,7 @@ func (r *ClusterClientSets) handleResource(_ context.Context, oldObj, newObj int
 			newUnstructured.GetNamespace(), newUnstructured.GetName(), newUnstructured.GetUID(),
 			msg.gvk.Kind, newUnstructured.GetGeneration(), msg.workloadId, msg.dispatchCount)
 	case ResourceDel:
-		if oldUnstructured, ok := oldObj.(*unstructured.Unstructured); ok {
+		if oldUnstructured, ok := toUnstructured(oldObj); ok {
 			klog.Infof("object: %s/%s is deleted, uid: %s, kind: %s, generation: %d, workload: %s, dispatch.cnt: %d",
 				oldUnstructured.GetNamespace(), oldUnstructured.GetName(), oldUnstructured.GetUID(),
 				msg.gvk.Kind, oldUnstructured.GetGeneration(), msg.workloadId, msg.dispatchCount)
