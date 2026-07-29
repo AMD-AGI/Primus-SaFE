@@ -857,7 +857,7 @@ func TestGetNodeCustomerLabels(t *testing.T) {
 		"team":                           "infra",
 	}
 	out := getNodeCustomerLabels(in)
-	assert.Equal(t, map[string]string{"team": "infra"}, out)
+	testifyassert.Equal(t, map[string]string{"team": "infra"}, out)
 }
 
 func TestConvertToNodeBriefResponse(t *testing.T) {

@@ -2054,12 +2054,12 @@ func TestGetWorkloadCleansEmptyDispatchNodes(t *testing.T) {
 
 	var body view.GetWorkloadResponse
 	testifyassert.NoError(t, json.Unmarshal(rsp.Body.Bytes(), &body))
-	assert.Equal(t, [][]string{{"n1"}, {"n2"}}, body.Nodes)
-	assert.Equal(t, [][]string{{"0"}, {"1"}}, body.Ranks)
+	testifyassert.Equal(t, [][]string{{"n1"}, {"n2"}}, body.Nodes)
+	testifyassert.Equal(t, [][]string{{"0"}, {"1"}}, body.Ranks)
 }
 
 func TestCompactDispatchNodesAndRanks(t *testing.T) {
 	nodes, ranks := compactDispatchNodesAndRanks([]string{"", "n1", "n2"}, []string{"skip", "0", "1"})
-	assert.Equal(t, []string{"n1", "n2"}, nodes)
-	assert.Equal(t, []string{"0", "1"}, ranks)
+	testifyassert.Equal(t, []string{"n1", "n2"}, nodes)
+	testifyassert.Equal(t, []string{"0", "1"}, ranks)
 }

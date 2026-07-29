@@ -299,7 +299,7 @@ func TestApplyUserPatch(t *testing.T) {
 	req.Password = &pwd
 	applyUserPatch(user, req)
 
-	assert.Equal(t, roles, user.Spec.Roles)
+	testifyassert.Equal(t, roles, user.Spec.Roles)
 	assert.Equal(t, stringutil.Base64Encode("new-pass"), user.Spec.Password)
 	assert.Equal(t, "new@example.com", v1.GetUserEmail(user))
 	assert.Equal(t, "http://new-avatar", v1.GetUserAvatarUrl(user))
