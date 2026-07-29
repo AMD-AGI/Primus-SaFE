@@ -6,12 +6,16 @@
 package dispatcher
 
 import (
+	"context"
 	"fmt"
 	"strconv"
 	"strings"
 	"testing"
 
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/apikey"
 	commonfaults "github.com/AMD-AIG-AIMA/SAFE/common/pkg/faults"
+	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
+	"github.com/agiledragon/gomonkey/v2"
 	"gotest.tools/assert"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -1403,4 +1407,278 @@ func TestBuildServiceSelector_NonDynamoKeepsK8sObjectIdLabel(t *testing.T) {
 	_, hasDgdLabel := selector[common.DynamoOperatorGraphDeploymentNameLabel]
 	assert.Equal(t, hasDgdLabel, false,
 		"non-dynamo workloads must not get the dynamo-operator selector")
+}
+
+// --- merged from dispatcher_help_build_test.go ---
+
+func TestEntrypointsEqual(t *testing.T) {
+	assert.Equal(t, entrypointsEqual("same", "same"), true)
+	assert.Equal(t, entrypointsEqual("a", "b"), false)
+}
+
+func TestBuildObjectLabels(t *testing.T) {
+	w := &v1.Workload{ObjectMeta: metav1.ObjectMeta{
+		Name:   "w",
+		Labels: map[string]string{"team": "x", v1.PrimusSafePrefix + "internal": "skip"},
+	}}
+	labels := buildObjectLabels(w)
+	// User labels are carried, SaFE-internal labels are filtered out.
+	assert.Equal(t, labels["team"], "x")
+	_, hasInternal := labels[v1.PrimusSafePrefix+"internal"]
+	assert.Equal(t, hasInternal, false)
+}
+
+func TestBuildObjectAnnotations(t *testing.T) {
+	w := &v1.Workload{ObjectMeta: metav1.ObjectMeta{
+		Name:        "w",
+		Annotations: map[string]string{"note": "hello", v1.PrimusSafePrefix + "x": "skip"},
+	}}
+	ann := buildObjectAnnotations(w)
+	assert.Equal(t, ann["note"], "hello")
+	_, hasInternal := ann[v1.PrimusSafePrefix+"x"]
+	assert.Equal(t, hasInternal, false)
+}
+
+func TestBuildPodLabels(t *testing.T) {
+	w := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "w"}}
+	labels := buildPodLabels(w)
+	assert.Equal(t, labels[v1.K8sObjectIdLabel], "w")
+}
+
+func TestBuildPodAnnotations(t *testing.T) {
+	w := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "w"}}
+	ann := buildPodAnnotations(w, 0)
+	assert.Equal(t, ann[v1.ResourceIdAnnotation], "0")
+}
+
+func TestBuildEnvironmentBasic(t *testing.T) {
+	w := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "w"}}
+	w.Spec.Workspace = "ws"
+	envs := buildEnvironment(w, nil, -1)
+	// Core env vars are always present (WORKLOAD_ID, WORKSPACE, etc).
+	assert.Assert(t, len(envs) > 0)
+}
+
+func TestBuildEnvironmentGpuAndSupervised(t *testing.T) {
+	w := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "w"}}
+	w.Spec.Workspace = "ws"
+	w.Spec.IsSupervised = true
+	w.Spec.Resources = []v1.WorkloadResource{{Replica: 1, GPU: "8", GPUName: "amd.com/gpu"}}
+	envs := buildEnvironment(w, nil, 0)
+	// GPU + supervised paths add more env vars than the basic case.
+	assert.Assert(t, len(envs) > 5)
+}
+
+// --- merged from dispatcher_help_platform_key_test.go ---
+
+func TestPlatformKeyForUser(t *testing.T) {
+	workload := &v1.Workload{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "test-workload",
+			Labels: map[string]string{
+				v1.UserIdLabel: "user-1",
+			},
+			Annotations: map[string]string{
+				v1.UserNameAnnotation: "alice",
+			},
+		},
+	}
+
+	t.Run("db disabled", func(t *testing.T) {
+		patches := gomonkey.NewPatches()
+		defer patches.Reset()
+		patches.ApplyFunc(commonconfig.IsDBEnable, func() bool { return false })
+
+		assert.Equal(t, "", platformKeyForUser(workload))
+	})
+
+	t.Run("empty user id", func(t *testing.T) {
+		patches := gomonkey.NewPatches()
+		defer patches.Reset()
+		patches.ApplyFunc(commonconfig.IsDBEnable, func() bool { return true })
+
+		assert.Equal(t, "", platformKeyForUser(&v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "w"}}))
+	})
+
+	t.Run("db client unavailable", func(t *testing.T) {
+		patches := gomonkey.NewPatches()
+		defer patches.Reset()
+		patches.ApplyFunc(commonconfig.IsDBEnable, func() bool { return true })
+		patches.ApplyFunc(dbclient.NewClient, func() *dbclient.Client { return nil })
+
+		assert.Equal(t, "", platformKeyForUser(workload))
+	})
+
+	t.Run("lookup error", func(t *testing.T) {
+		patches := gomonkey.NewPatches()
+		defer patches.Reset()
+		patches.ApplyFunc(commonconfig.IsDBEnable, func() bool { return true })
+		patches.ApplyFunc(dbclient.NewClient, func() *dbclient.Client { return &dbclient.Client{} })
+		patches.ApplyFunc(apikey.GetOrCreatePlatformKey, func(context.Context, dbclient.Interface, string, string) (string, error) {
+			return "", fmt.Errorf("lookup failed")
+		})
+
+		assert.Equal(t, "", platformKeyForUser(workload))
+	})
+
+	t.Run("success", func(t *testing.T) {
+		patches := gomonkey.NewPatches()
+		defer patches.Reset()
+		patches.ApplyFunc(commonconfig.IsDBEnable, func() bool { return true })
+		patches.ApplyFunc(dbclient.NewClient, func() *dbclient.Client { return &dbclient.Client{} })
+		patches.ApplyFunc(apikey.GetOrCreatePlatformKey, func(_ context.Context, _ dbclient.Interface, userId, userName string) (string, error) {
+			assert.Equal(t, "user-1", userId)
+			assert.Equal(t, "alice", userName)
+			return "platform-token-for-user", nil
+		})
+
+		assert.Equal(t, "platform-token-for-user", platformKeyForUser(workload))
+	})
+}
+
+// stubPlatformKey overrides the platformKeyForUserFn seam for a test and
+// restores it on cleanup. Assigning the package var is deterministic, unlike
+// gomonkey patching of the cross-package apikey/db chain, which proved flaky
+// when many tests patch it in a single package run.
+func stubPlatformKey(t *testing.T, key string) {
+	t.Helper()
+	orig := platformKeyForUserFn
+	platformKeyForUserFn = func(*v1.Workload) string { return key }
+	t.Cleanup(func() { platformKeyForUserFn = orig })
+}
+
+func TestBuildEnvironment_InjectsUserIdAndApiKey(t *testing.T) {
+	stubPlatformKey(t, "injected-user-api-key")
+
+	// UnifiedJob workload satisfies the buildEnvironment gate
+	// (IsCICD || UnifiedJobKind); it must get USER_ID + USER_APIKEY.
+	workload := &v1.Workload{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:   "utd-multi-node-test",
+			Labels: map[string]string{v1.UserIdLabel: "user-1"},
+		},
+	}
+	workload.Spec.GroupVersionKind.Kind = common.UnifiedJobKind
+	workload.Spec.Workspace = "ws"
+
+	envs := buildEnvironment(workload, nil, -1)
+	assert.Equal(t, true, findEnv(envs, jobutils.UserIdEnv, "user-1"))
+	assert.Equal(t, true, findEnv(envs, jobutils.UserApiKeyEnv, "injected-user-api-key"))
+}
+
+func TestUpdateCICDScaleSetEnvs_InjectsUserApiKey(t *testing.T) {
+	stubPlatformKey(t, "injected-user-api-key")
+
+	workspace := jobutils.TestWorkspaceData.DeepCopy()
+	workload := jobutils.TestWorkloadData.DeepCopy()
+	workload.Labels[v1.UserIdLabel] = "user-cicd"
+	workload.Spec.Env[common.GithubConfigUrl] = "https://github.com/test/repo"
+	v1.SetAnnotation(workload, v1.GithubSecretIdAnnotation, "test-github-secret")
+	v1.SetAnnotation(workload, v1.AdminControlPlaneAnnotation, "10.0.0.1")
+	v1.SetAnnotation(workload, v1.MainContainerAnnotation, "runner")
+	workload.Spec.Workspace = workspace.Name
+
+	obj := &unstructured.Unstructured{Object: map[string]interface{}{
+		"spec": map[string]interface{}{
+			"template": map[string]interface{}{
+				"spec": map[string]interface{}{
+					"containers": []interface{}{
+						map[string]interface{}{
+							"name": "runner",
+							"env":  []interface{}{},
+						},
+					},
+				},
+			},
+		},
+	}}
+
+	resourceSpec := jobutils.TestCICDScaleSetResourceTemplate.Spec.ResourceSpecs[0]
+	err := updateCICDScaleSetEnvs(obj, workload, workspace, resourceSpec)
+	assert.NilError(t, err)
+
+	envs := getEnvs(t, obj, workload, &resourceSpec)
+	assert.Equal(t, true, findEnv(envs, jobutils.UserApiKeyEnv, "injected-user-api-key"))
+}
+
+// --- merged from dispatcher_help_pure_test.go ---
+
+func TestBuildSecretVolume(t *testing.T) {
+	vol := buildSecretVolume("my-secret").(map[string]interface{})
+	assert.Equal(t, vol["name"], "my-secret")
+	secret := vol["secret"].(map[string]interface{})
+	assert.Equal(t, secret["secretName"], "my-secret")
+}
+
+func TestApplyInferaRoleFields(t *testing.T) {
+	// Frontend -> server component, role removed.
+	frontend := map[string]interface{}{"role": "old"}
+	applyInferaRoleFields(frontend, common.DynamoRoleFrontend, "nixl")
+	assert.Equal(t, frontend["componentType"], "server")
+	_, hasRole := frontend["role"]
+	assert.Equal(t, hasRole, false)
+
+	// Worker -> worker component with mixed role.
+	worker := map[string]interface{}{}
+	applyInferaRoleFields(worker, common.DynamoRoleWorker, "nixl")
+	assert.Equal(t, worker["componentType"], "worker")
+	assert.Equal(t, worker["role"], "mixed")
+}
+
+func TestBuildRequiredMatchExpression(t *testing.T) {
+	// Non-default workspace contributes a workspace match expression.
+	w := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "w"}}
+	w.Spec.Workspace = "ws-1"
+	exprs := buildRequiredMatchExpression(w)
+	assert.Assert(t, len(exprs) >= 1)
+
+	// Default-namespace workspace with no customer labels -> no expressions.
+	w2 := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "w2"}}
+	w2.Spec.Workspace = corev1.NamespaceDefault
+	exprs2 := buildRequiredMatchExpression(w2)
+	assert.Equal(t, len(exprs2), 0)
+}
+
+func TestModifyInitContainerVolumeMounts(t *testing.T) {
+	path := []string{"spec", "spec", "initContainers"}
+	existingMount := map[string]interface{}{"mountPath": "/pre-existing", "name": "pre-existing"}
+	obj := &unstructured.Unstructured{Object: map[string]interface{}{
+		"spec": map[string]interface{}{
+			"spec": map[string]interface{}{
+				"initContainers": []interface{}{
+					map[string]interface{}{
+						"name":         "an-init-container",
+						"volumeMounts": []interface{}{existingMount},
+					},
+				},
+			},
+		},
+	}}
+	w := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "runner"}}
+	// Two arbitrary persistent host paths; the test does not assume any
+	// particular volume name or mount path, only that whatever
+	// buildPersistentVolumeMounts produces is appended to the init container.
+	w.Spec.Hostpath = []string{"/data-a", "/data-b"}
+
+	err := modifyInitContainerVolumeMounts(obj, w, nil, path)
+	assert.NilError(t, err)
+
+	// The init container's mounts must be its original mounts followed by
+	// exactly the workload's persistent mounts (nothing dropped, nothing extra).
+	expected := append([]interface{}{existingMount}, buildPersistentVolumeMounts(w, nil)...)
+	initContainers, _, err := jobutils.NestedSlice(obj.Object, path)
+	assert.NilError(t, err)
+	got := initContainers[0].(map[string]interface{})["volumeMounts"].([]interface{})
+	assert.DeepEqual(t, got, expected)
+}
+
+func TestBuildRequiredMatchExpressionExcludedNodes(t *testing.T) {
+	w := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "w"}}
+	w.Spec.Workspace = corev1.NamespaceDefault
+	w.Spec.CustomerLabels = map[string]string{common.ExcludedNodes: "node-a node-b"}
+	exprs := buildRequiredMatchExpression(w)
+	// Excluded nodes produce a NotIn host-name expression.
+	assert.Assert(t, len(exprs) >= 1)
+	m := exprs[0].(map[string]interface{})
+	assert.Equal(t, m["operator"], "NotIn")
 }

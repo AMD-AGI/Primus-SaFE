@@ -7,15 +7,23 @@ package daemon
 
 import (
 	"context"
+	"flag"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
 
 	"gotest.tools/assert"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	k8sfake "k8s.io/client-go/kubernetes/fake"
+	"k8s.io/client-go/util/workqueue"
 
+	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	"github.com/AMD-AIG-AIMA/SAFE/node-agent/pkg/exporters"
 	"github.com/AMD-AIG-AIMA/SAFE/node-agent/pkg/monitors"
+	"github.com/AMD-AIG-AIMA/SAFE/node-agent/pkg/node"
 	"github.com/AMD-AIG-AIMA/SAFE/node-agent/pkg/types"
 )
 
@@ -77,11 +85,11 @@ func TestDaemonStartMonitorLoadFails(t *testing.T) {
 	}
 	manager := monitors.NewMonitorManager(&queue, opts, n)
 	d := &Daemon{
-		ctx:       context.Background(),
-		node:      n,
-		monitors:  manager,
-		queue:     queue,
-		isInited:  true,
+		ctx:      context.Background(),
+		node:     n,
+		monitors: manager,
+		queue:    queue,
+		isInited: true,
 	}
 	d.Start()
 }
@@ -106,4 +114,47 @@ func TestDaemonStartCancelledContext(t *testing.T) {
 		isInited:  true,
 	}
 	d.Start()
+}
+
+// --- merged from daemon_helpers_test.go ---
+
+// newDaemonTestComponents builds monitor manager dependencies for daemon stop tests.
+func newDaemonTestComponents(t *testing.T) (*monitors.MonitorManager, *node.Node, types.MonitorQueue) {
+	t.Helper()
+	testNode := &corev1.Node{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "daemon-node",
+			Labels: map[string]string{
+				common.AMDGpuIdentification: v1.TrueStr,
+			},
+		},
+	}
+	fakeClientSet := k8sfake.NewClientset(testNode)
+	opts := &types.Options{NodeName: testNode.Name, ConfigMapPath: t.TempDir(), ScriptPath: t.TempDir()}
+	n, err := node.NewNodeWithClientSet(context.Background(), opts, fakeClientSet)
+	assert.NilError(t, err)
+
+	var queue types.MonitorQueue
+	queue = workqueue.NewTypedRateLimitingQueueWithConfig(
+		workqueue.DefaultTypedControllerRateLimiter[*types.MonitorMessage](),
+		workqueue.TypedRateLimitingQueueConfig[*types.MonitorMessage]{Name: "daemon-test"})
+	manager := monitors.NewMonitorManager(&queue, opts, n)
+	return manager, n, queue
+}
+
+// --- merged from daemon_new_test.go ---
+
+// TestNewDaemonFailsOnNodeInit stops when the in-cluster Kubernetes client cannot be created.
+func TestNewDaemonFailsOnNodeInit(t *testing.T) {
+	dir := t.TempDir()
+	flag.CommandLine = flag.NewFlagSet("daemon-new-test", flag.ContinueOnError)
+	os.Args = []string{
+		"daemon-new-test",
+		"-node_name=test-node",
+		"-configmap_path=" + dir,
+		"-script_path=" + dir,
+		"-log_file_path=" + os.DevNull,
+	}
+	_, err := NewDaemon()
+	assert.Assert(t, err != nil)
 }

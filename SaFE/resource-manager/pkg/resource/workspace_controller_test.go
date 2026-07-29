@@ -10,7 +10,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/agiledragon/gomonkey/v2"
+	testifyassert "github.com/stretchr/testify/assert"
+
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
+	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	"gotest.tools/assert"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -20,8 +24,11 @@ import (
 	"k8s.io/utils/ptr"
 	ctrlruntime "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	ctrlfake "sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/apis/pkg/client/clientset/versioned/scheme"
@@ -871,4 +878,250 @@ func TestCreatePVC(t *testing.T) {
 	// Test create duplicate PVC (should not error)
 	err = createPVC(context.Background(), pvc, k8sClient)
 	assert.NilError(t, err)
+}
+
+// --- merged from workspace_dataplane_full_test.go ---
+
+func newWorkspaceReconcilerFull(t *testing.T, cs *k8sfake.Clientset, objs ...ctrlclient.Object) *WorkspaceReconciler {
+	t.Helper()
+	scheme, err := genMockScheme()
+	testifyassert.NoError(t, err)
+	cl := ctrlfake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(&v1.Workspace{}).WithObjects(objs...).Build()
+	mgr := commonutils.NewObjectManager()
+	_ = mgr.Add("c1", commonclient.NewClientFactoryWithOnlyClient(context.Background(), "c1", cs))
+	return &WorkspaceReconciler{
+		ClusterBaseReconciler: &ClusterBaseReconciler{Client: cl, clientSet: cs},
+		clientManager:         mgr,
+		expectations:          map[string]sets.Set{},
+		option:                &WorkspaceReconcilerOption{},
+	}
+}
+
+func TestGuaranteeAndDeleteDataPlaneResourcesFull(t *testing.T) {
+	cs := k8sfake.NewSimpleClientset()
+	cluster := testCluster("c1")
+	ws := &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ws1"}}
+	ws.Spec.Cluster = "c1"
+	r := newWorkspaceReconcilerFull(t, cs, cluster, ws)
+	ctx := context.Background()
+
+	testifyassert.NoError(t, r.guaranteeDataPlaneResources(ctx, ws, cs))
+	_, err := cs.CoreV1().Namespaces().Get(ctx, "ws1", metav1.GetOptions{})
+	testifyassert.NoError(t, err)
+
+	testifyassert.NoError(t, r.deleteDataPlaneResources(ctx, ws))
+	_, err = cs.CoreV1().Namespaces().Get(ctx, "ws1", metav1.GetOptions{})
+	testifyassert.Error(t, err)
+}
+
+func TestWorkspaceReconcileActive(t *testing.T) {
+	cs := k8sfake.NewSimpleClientset()
+	cluster := testCluster("c1")
+	ws := &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ws1"}}
+	ws.Spec.Cluster = "c1"
+	r := newWorkspaceReconcilerFull(t, cs, cluster, ws)
+	_, err := r.Reconcile(context.Background(), ctrlruntime.Request{NamespacedName: types.NamespacedName{Name: "ws1"}})
+	testifyassert.NoError(t, err)
+}
+
+func TestWorkspaceProcessWorkspaceNoFlavor(t *testing.T) {
+	cs := k8sfake.NewSimpleClientset()
+	cluster := testCluster("c1")
+	ws := &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ws1"}}
+	ws.Spec.Cluster = "c1"
+	r := newWorkspaceReconcilerFull(t, cs, cluster, ws)
+	_, err := r.processWorkspace(context.Background(), ws)
+	testifyassert.NoError(t, err)
+}
+
+func TestGetClientSetOfDataplaneWorkspace(t *testing.T) {
+	cs := k8sfake.NewSimpleClientset()
+	r := newWorkspaceReconcilerFull(t, cs, testCluster("c1"))
+	ctx := context.Background()
+
+	got, err := r.getClientSetOfDataplane(ctx, "")
+	testifyassert.NoError(t, err)
+	testifyassert.Nil(t, got)
+
+	got, err = r.getClientSetOfDataplane(ctx, "c1")
+	testifyassert.NoError(t, err)
+	testifyassert.NotNil(t, got)
+}
+
+// --- merged from workspace_helper_full_test.go ---
+
+func wsForHelper(name string) *v1.Workspace {
+	ws := &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: name}}
+	ws.Spec.Cluster = "c1"
+	return ws
+}
+
+func TestServiceAccountLifecycleFull(t *testing.T) {
+	patches := gomonkey.NewPatches()
+	patches.ApplyFunc(commonconfig.IsCICDEnable, func() bool { return true })
+	patches.ApplyFunc(commonconfig.IsMonarchEnable, func() bool { return true })
+	patches.ApplyFunc(commonconfig.GetMonarchClientRole, func() string { return "monarch-sa" })
+	defer patches.Reset()
+
+	cs := k8sfake.NewSimpleClientset()
+	ws := wsForHelper("ws1")
+	ctx := context.Background()
+
+	testifyassert.NoError(t, createCICDServiceAccount(ctx, ws, cs))
+	testifyassert.NoError(t, createMonarchServiceAccount(ctx, ws, cs))
+	// idempotent second call
+	testifyassert.NoError(t, createMonarchServiceAccount(ctx, ws, cs))
+
+	rb, err := cs.RbacV1().RoleBindings("ws1").Get(ctx, "monarch-sa", metav1.GetOptions{})
+	testifyassert.NoError(t, err)
+	assert.Equal(t, "monarch-sa", rb.Name)
+
+	testifyassert.NoError(t, deleteMonarchServiceAccount(ctx, ws, cs))
+	testifyassert.NoError(t, deleteCICDServiceAccount(ctx, ws, cs))
+}
+
+func TestGetPvTemplateAndCreateDataPlanePv(t *testing.T) {
+	pvYaml := `apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: placeholder
+spec:
+  capacity:
+    storage: 1Gi
+  accessModes:
+    - ReadWriteMany
+  hostPath:
+    path: /data
+`
+	cm := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:        common.PrimusPvmName,
+			Namespace:   common.PrimusSafeNamespace,
+			Labels:      map[string]string{v1.DisplayNameLabel: "pvtmpl"},
+			Annotations: map[string]string{"primus-safe.workspace.auto-create-pv": v1.TrueStr},
+		},
+		Data: map[string]string{"template": pvYaml},
+	}
+	scheme, err := genMockScheme()
+	testifyassert.NoError(t, err)
+	cl := ctrlfake.NewClientBuilder().WithScheme(scheme).WithObjects(cm).Build()
+
+	ws := wsForHelper("ws1")
+	v1.SetLabel(ws, v1.DisplayNameLabel, "wsdisp")
+	ctx := context.Background()
+
+	tmpl, err := getPvTemplate(ctx, cl, ws)
+	testifyassert.NoError(t, err)
+	testifyassert.NotNil(t, tmpl)
+
+	cs := k8sfake.NewSimpleClientset()
+	testifyassert.NoError(t, createDataPlanePv(ctx, ws, cl, cs))
+	pvs, err := cs.CoreV1().PersistentVolumes().List(ctx, metav1.ListOptions{})
+	testifyassert.NoError(t, err)
+	testifyassert.Len(t, pvs.Items, 1)
+}
+
+func TestGetPvTemplateNoConfigMap(t *testing.T) {
+	scheme, err := genMockScheme()
+	testifyassert.NoError(t, err)
+	cl := ctrlfake.NewClientBuilder().WithScheme(scheme).Build()
+	tmpl, err := getPvTemplate(context.Background(), cl, wsForHelper("ws1"))
+	testifyassert.NoError(t, err)
+	testifyassert.Nil(t, tmpl)
+}
+
+// --- merged from workspace_reconcile_test.go ---
+
+func TestWorkspaceRelevantChangePredicate(t *testing.T) {
+	r := newMockWorkspaceReconciler(nil)
+	p := r.relevantChangePredicate()
+
+	old := &v1.Workspace{}
+	upd := &v1.Workspace{}
+	// Deletion timestamp set -> true.
+	now := metav1.Now()
+	upd.DeletionTimestamp = &now
+	testifyassert.True(t, p.Update(event.UpdateEvent{ObjectOld: old, ObjectNew: upd}))
+
+	// No change -> false.
+	testifyassert.False(t, p.Update(event.UpdateEvent{ObjectOld: old, ObjectNew: old.DeepCopy()}))
+}
+
+func TestWorkspaceGetClientSetOfDataplaneEmpty(t *testing.T) {
+	r := newMockWorkspaceReconciler(fake.NewClientBuilder().WithScheme(scheme.Scheme).Build())
+	cs, err := r.getClientSetOfDataplane(context.Background(), "")
+	testifyassert.NoError(t, err)
+	testifyassert.Nil(t, cs)
+}
+
+func TestWorkspaceGetClientSetOfDataplaneClusterMissing(t *testing.T) {
+	r := newMockWorkspaceReconciler(fake.NewClientBuilder().WithScheme(scheme.Scheme).Build())
+	_, err := r.getClientSetOfDataplane(context.Background(), "missing")
+	testifyassert.Error(t, err)
+}
+
+func TestWorkspaceReconcileNotFound(t *testing.T) {
+	r := newMockWorkspaceReconciler(fake.NewClientBuilder().WithScheme(scheme.Scheme).Build())
+	res, err := r.Reconcile(context.Background(), ctrlruntime.Request{NamespacedName: types.NamespacedName{Name: "missing"}})
+	testifyassert.NoError(t, err)
+	assert.Equal(t, ctrlruntime.Result{}, res)
+}
+
+func TestWorkspaceReconcileNoCluster(t *testing.T) {
+	ws := &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ws1"}}
+	cl := fake.NewClientBuilder().WithScheme(scheme.Scheme).
+		WithStatusSubresource(&v1.Workspace{}).WithObjects(ws).Build()
+	r := newMockWorkspaceReconciler(cl)
+	// No cluster -> clientSet nil -> nil result.
+	res, err := r.Reconcile(context.Background(), ctrlruntime.Request{NamespacedName: types.NamespacedName{Name: "ws1"}})
+	testifyassert.NoError(t, err)
+	assert.Equal(t, ctrlruntime.Result{}, res)
+}
+
+func TestWorkspaceDelete(t *testing.T) {
+	now := metav1.Now()
+	ws := &v1.Workspace{ObjectMeta: metav1.ObjectMeta{
+		Name:              "ws1",
+		DeletionTimestamp: &now,
+		Finalizers:        []string{v1.WorkspaceFinalizer},
+	}}
+	cl := fake.NewClientBuilder().WithScheme(scheme.Scheme).
+		WithStatusSubresource(&v1.Workspace{}).WithObjects(ws).Build()
+	r := newMockWorkspaceReconciler(cl)
+	// No nodes bound, no cluster -> deletes resources + removes finalizer.
+	err := r.delete(context.Background(), ws)
+	testifyassert.NoError(t, err)
+}
+
+func TestWorkspaceUpdatePhase(t *testing.T) {
+	ws := &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ws1"}}
+	cl := fake.NewClientBuilder().WithScheme(scheme.Scheme).
+		WithStatusSubresource(&v1.Workspace{}).WithObjects(ws).Build()
+	r := newMockWorkspaceReconciler(cl)
+	err := r.updatePhase(context.Background(), ws, v1.WorkspaceDeleting)
+	testifyassert.NoError(t, err)
+	assert.Equal(t, v1.WorkspaceDeleting, ws.Status.Phase)
+	// No change -> no-op.
+	testifyassert.NoError(t, r.updatePhase(context.Background(), ws, v1.WorkspaceDeleting))
+}
+
+func TestWorkspaceGuaranteeDataPlaneResources(t *testing.T) {
+	cs := k8sfake.NewSimpleClientset()
+	ws := &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ws1"}}
+	mockScheme, err := genMockScheme()
+	testifyassert.NoError(t, err)
+	r := newMockWorkspaceReconciler(fake.NewClientBuilder().WithScheme(mockScheme).Build())
+	err = r.guaranteeDataPlaneResources(context.Background(), ws, cs)
+	testifyassert.NoError(t, err)
+	// Namespace should be created.
+	_, err = cs.CoreV1().Namespaces().Get(context.Background(), "ws1", metav1.GetOptions{})
+	testifyassert.NoError(t, err)
+}
+
+func TestWorkspaceDeleteDataPlaneResourcesNoCluster(t *testing.T) {
+	ws := &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ws1"}}
+	r := newMockWorkspaceReconciler(fake.NewClientBuilder().WithScheme(scheme.Scheme).Build())
+	// No cluster -> clientSet nil -> nil.
+	err := r.deleteDataPlaneResources(context.Background(), ws)
+	testifyassert.NoError(t, err)
 }

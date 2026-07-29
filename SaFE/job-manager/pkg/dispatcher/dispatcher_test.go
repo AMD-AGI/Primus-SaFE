@@ -7,6 +7,7 @@ package dispatcher
 
 import (
 	"context"
+	"reflect"
 	"strconv"
 	"strings"
 	"testing"
@@ -17,17 +18,27 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	k8sfake "k8s.io/client-go/kubernetes/fake"
 	yamlutil "k8s.io/apimachinery/pkg/util/yaml"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	ctrlruntime "sigs.k8s.io/controller-runtime"
+	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
+	commonclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/k8sclient"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
+	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
+	"github.com/AMD-AIG-AIMA/SAFE/job-manager/pkg/syncer"
 	jobutils "github.com/AMD-AIG-AIMA/SAFE/job-manager/pkg/utils"
 	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
 	unstructuredutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/unstructured"
+	"github.com/agiledragon/gomonkey/v2"
 )
 
 type PytorchSpec struct {
@@ -1204,4 +1215,414 @@ func TestCreateSandboxWithResources(t *testing.T) {
 	checkSandboxTemplateCleaned(t, obj, &templates[0])
 
 	// fmt.Println(unstructuredutils.ToString(obj))
+}
+
+// --- merged from dispatcher_dispatched_test.go ---
+
+func TestMarkAsDispatchedRootWorkload(t *testing.T) {
+	r := &DispatcherReconciler{}
+	w := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "child"}}
+	v1.SetLabel(w, v1.RootWorkloadIdLabel, "root")
+	// Child workloads of a root are skipped.
+	err := r.markAsDispatched(context.Background(), w)
+	assert.NilError(t, err)
+}
+
+func TestMarkAsDispatched(t *testing.T) {
+	scheme, err := genMockScheme()
+	assert.NilError(t, err)
+	w := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "w"}}
+	cl := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(w).
+		WithStatusSubresource(&v1.Workload{}).
+		Build()
+	r := &DispatcherReconciler{Client: cl}
+
+	err = r.markAsDispatched(context.Background(), w)
+	assert.NilError(t, err)
+	assert.Equal(t, v1.IsWorkloadDispatched(w), true)
+}
+
+func TestIsResourceChangedErrorReturnsFalse(t *testing.T) {
+	w := &v1.Workload{}
+	w.Spec.Resources = []v1.WorkloadResource{{Replica: 1, CPU: "2"}}
+	obj := &unstructured.Unstructured{Object: map[string]interface{}{}}
+	rt := &v1.ResourceTemplate{}
+	// With an empty object/template, GetResources fails and the change check is false.
+	assert.Equal(t, isResourceChanged(w, obj, rt), false)
+}
+
+// --- merged from dispatcher_generate_test.go ---
+
+func multiResourceWorkload() *v1.Workload {
+	w := &v1.Workload{ObjectMeta: metav1.ObjectMeta{
+		Name:   "rw",
+		Labels: map[string]string{v1.DisplayNameLabel: "disp"},
+	}}
+	w.Spec.Resources = []v1.WorkloadResource{
+		{Replica: 1, CPU: "8", Memory: "16Gi"},
+		{Replica: 4, CPU: "8", Memory: "16Gi"},
+	}
+	w.Spec.EntryPoints = []string{
+		stringutil.Base64Encode("entrypoint-0"),
+		stringutil.Base64Encode("entrypoint-1"),
+	}
+	w.Spec.Env = map[string]string{
+		common.ReplicaCount:    "2",
+		common.MinReplicaCount: "1",
+	}
+	return w
+}
+
+func newGenReconciler(t *testing.T) *DispatcherReconciler {
+	t.Helper()
+	scheme, err := genMockScheme()
+	assert.NilError(t, err)
+	cl := fake.NewClientBuilder().WithScheme(scheme).Build()
+	return &DispatcherReconciler{Client: cl}
+}
+
+func TestGenerateLighthouse(t *testing.T) {
+	r := newGenReconciler(t)
+	w := multiResourceWorkload()
+	lh := r.generateLighthouse(context.Background(), w)
+	assert.Assert(t, lh != nil)
+	assert.Equal(t, lh.Name, "rw-0")
+	assert.Equal(t, string(lh.Spec.Kind), common.DeploymentKind)
+	assert.Assert(t, lh.Spec.Service != nil)
+}
+
+func TestGenerateTorchFTWorker(t *testing.T) {
+	r := newGenReconciler(t)
+	w := multiResourceWorkload()
+	worker := r.generateTorchFTWorker(context.Background(), w, 0, 2, "lighthouse:29400")
+	assert.Assert(t, worker != nil)
+	assert.Equal(t, worker.Name, "rw-1")
+	assert.Equal(t, string(worker.Spec.Kind), common.PytorchJobKind)
+	assert.Equal(t, worker.Spec.Env[common.TorchFTLightHouse], "lighthouse:29400")
+}
+
+func TestGenerateMonarchClient(t *testing.T) {
+	r := newGenReconciler(t)
+	w := multiResourceWorkload()
+	client := r.generateMonarchClient(context.Background(), w, 2)
+	assert.Assert(t, client != nil)
+	assert.Equal(t, client.Name, "rw")
+	assert.Equal(t, string(client.Spec.Kind), common.MonarchClient)
+}
+
+func TestGenerateMonarchMesh(t *testing.T) {
+	r := newGenReconciler(t)
+	w := multiResourceWorkload()
+	mesh := r.generateMonarchMesh(context.Background(), w, 2, 0)
+	assert.Assert(t, mesh != nil)
+	assert.Equal(t, string(mesh.Spec.Kind), common.MonarchMesh)
+}
+
+// --- merged from dispatcher_monkey_test.go ---
+
+func monkeyDispatchClientSets() *syncer.ClusterClientSets {
+	c := &syncer.ClusterClientSets{}
+	c.SetClientFactory(commonclient.NewClientFactoryWithOnlyClient(context.Background(), "c", nil))
+	return c
+}
+
+// TestDispatch patches generateK8sObject + CreateObject so dispatch runs its full path;
+// a workload without a Service short-circuits createService/createIngress.
+func TestDispatch(t *testing.T) {
+	patches := gomonkey.NewPatches()
+	defer patches.Reset()
+	patches.ApplyPrivateMethod(reflect.TypeOf(&DispatcherReconciler{}), "generateK8sObject",
+		func(_ *DispatcherReconciler, _ context.Context, _ *v1.Workload, _ *syncer.ClusterClientSets) (*unstructured.Unstructured, error) {
+			return &unstructured.Unstructured{}, nil
+		})
+	patches.ApplyFunc(jobutils.CreateObject,
+		func(context.Context, *commonclient.ClientFactory, *unstructured.Unstructured) error {
+			return nil
+		})
+
+	r := &DispatcherReconciler{}
+	w := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "w"}}
+	w.Spec.Workspace = "ws"
+	// No Service -> createService/createIngress return early.
+	_, err := r.dispatch(context.Background(), w, monkeyDispatchClientSets())
+	assert.NilError(t, err)
+}
+
+// TestProcessWorkloadDispatchPath patches GetClusterClientSets + GetResourceTemplate +
+// GetObject(NotFound) + dispatch + markAsDispatched so processWorkload runs the
+// "object not yet created" path.
+func TestProcessWorkloadDispatchPath(t *testing.T) {
+	patches := gomonkey.NewPatches()
+	defer patches.Reset()
+	cs := monkeyDispatchClientSets()
+	patches.ApplyFunc(syncer.GetClusterClientSets,
+		func(*commonutils.ObjectManager, string) (*syncer.ClusterClientSets, error) { return cs, nil })
+	patches.ApplyFunc(commonworkload.GetResourceTemplate,
+		func(context.Context, ctrlclient.Client, *v1.Workload) (*v1.ResourceTemplate, error) {
+			return &v1.ResourceTemplate{}, nil
+		})
+	patches.ApplyFunc(jobutils.GetObject,
+		func(context.Context, *commonclient.ClientFactory, string, string, schema.GroupVersionKind) (*unstructured.Unstructured, error) {
+			return nil, apierrors.NewNotFound(schema.GroupResource{Resource: "jobs"}, "w")
+		})
+	patches.ApplyPrivateMethod(reflect.TypeOf(&DispatcherReconciler{}), "dispatch",
+		func(_ *DispatcherReconciler, _ context.Context, _ *v1.Workload, _ *syncer.ClusterClientSets) (ctrlruntime.Result, error) {
+			return ctrlruntime.Result{}, nil
+		})
+	patches.ApplyPrivateMethod(reflect.TypeOf(&DispatcherReconciler{}), "markAsDispatched",
+		func(_ *DispatcherReconciler, _ context.Context, _ *v1.Workload) error { return nil })
+
+	r := &DispatcherReconciler{}
+	w := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "w"}}
+	w.Spec.Workspace = "ws"
+	_, err := r.processWorkload(context.Background(), w)
+	assert.NilError(t, err)
+}
+
+// TestDispatcherReconcileToProcess drives Reconcile through generateJobPort into
+// processWorkload (patched) for a dispatched, non-TorchFT workload.
+func TestDispatcherReconcileToProcess(t *testing.T) {
+	patches := gomonkey.NewPatches()
+	defer patches.Reset()
+	patches.ApplyPrivateMethod(reflect.TypeOf(&DispatcherReconciler{}), "processWorkload",
+		func(_ *DispatcherReconciler, _ context.Context, _ *v1.Workload) (ctrlruntime.Result, error) {
+			return ctrlruntime.Result{}, nil
+		})
+
+	w := &v1.Workload{ObjectMeta: metav1.ObjectMeta{
+		Name:        "w",
+		Annotations: map[string]string{v1.WorkloadDispatchedAnnotation: "true"},
+	}}
+	w.Spec.Workspace = "ws"
+	scheme, err := genMockScheme()
+	assert.NilError(t, err)
+	cl := fake.NewClientBuilder().WithScheme(scheme).WithObjects(w).Build()
+	r := &DispatcherReconciler{Client: cl}
+
+	_, rerr := r.Reconcile(context.Background(), ctrlruntime.Request{
+		NamespacedName: ctrlclient.ObjectKey{Name: "w"},
+	})
+	assert.NilError(t, rerr)
+}
+
+// --- merged from dispatcher_pure_test.go ---
+
+func TestGenerateRandomPort(t *testing.T) {
+	ports := map[int]struct{}{}
+	p := generateRandomPort(ports)
+	assert.Assert(t, p >= 20000 && p < 30000)
+	// The chosen port is recorded to avoid reuse.
+	_, ok := ports[p]
+	assert.Equal(t, ok, true)
+
+	// A second call yields a port also recorded in the set.
+	p2 := generateRandomPort(ports)
+	assert.Assert(t, p2 >= 20000 && p2 < 30000)
+}
+
+func TestGenerateMeshNamePrefix(t *testing.T) {
+	assert.Equal(t, generateMeshNamePrefix("my-job_name"), "myjobnamemesh")
+	assert.Equal(t, generateMeshNamePrefix("abc"), "abcmesh")
+}
+
+func TestGenerateServicePorts(t *testing.T) {
+	svc := &v1.Service{Protocol: corev1.ProtocolTCP, Port: 8080, TargetPort: 9090}
+	ports := generateServicePorts(svc)
+	assert.Equal(t, len(ports), 1)
+	assert.Equal(t, ports[0].Port, int32(8080))
+	assert.Equal(t, ports[0].TargetPort.IntVal, int32(9090))
+	assert.Equal(t, string(ports[0].Protocol), string(corev1.ProtocolTCP))
+}
+
+func TestShouldDispatch(t *testing.T) {
+	// Scheduled but not dispatched -> true.
+	w := &v1.Workload{ObjectMeta: metav1.ObjectMeta{
+		Annotations: map[string]string{v1.WorkloadScheduledAnnotation: "true"},
+	}}
+	assert.Equal(t, shouldDispatch(w), true)
+
+	// Already dispatched -> false.
+	w.Annotations[v1.WorkloadDispatchedAnnotation] = "true"
+	assert.Equal(t, shouldDispatch(w), false)
+
+	// Not scheduled -> false.
+	w2 := &v1.Workload{}
+	assert.Equal(t, shouldDispatch(w2), false)
+}
+
+func TestBuildServiceSelectorDefault(t *testing.T) {
+	w := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "wl-1"}}
+	svc := &v1.Service{ExtraSelectors: map[string]string{
+		"role":              "head",
+		v1.K8sObjectIdLabel: "should-be-overridden",
+	}}
+	sel := buildServiceSelector(w, svc)
+	// SaFE-managed key wins and equals the workload name.
+	assert.Equal(t, sel[v1.K8sObjectIdLabel], "wl-1")
+	// User-supplied non-colliding key is preserved.
+	assert.Equal(t, sel["role"], "head")
+}
+
+// --- merged from dispatcher_reconcile_test.go ---
+
+func TestDispatcherReconcileNotFound(t *testing.T) {
+	scheme, err := genMockScheme()
+	assert.NilError(t, err)
+	cl := fake.NewClientBuilder().WithScheme(scheme).Build()
+	r := &DispatcherReconciler{Client: cl}
+	_, rerr := r.Reconcile(context.Background(), ctrlruntime.Request{
+		NamespacedName: ctrlclient.ObjectKey{Name: "missing"},
+	})
+	assert.NilError(t, rerr)
+}
+
+func TestDispatcherRelevantChangePredicateCreate(t *testing.T) {
+	p := relevantChangePredicate{}
+
+	// Non-workload object -> false.
+	assert.Equal(t, p.Create(event.CreateEvent{Object: &corev1.Pod{}}), false)
+
+	// Scheduled but not dispatched -> dispatchable -> true.
+	w := &v1.Workload{ObjectMeta: metav1.ObjectMeta{
+		Annotations: map[string]string{v1.WorkloadScheduledAnnotation: "true"},
+	}}
+	assert.Equal(t, p.Create(event.CreateEvent{Object: w}), true)
+
+	// Neither scheduled nor dispatched -> false.
+	assert.Equal(t, p.Create(event.CreateEvent{Object: &v1.Workload{}}), false)
+}
+
+func TestDispatcherRelevantChangePredicateUpdate(t *testing.T) {
+	p := relevantChangePredicate{}
+
+	// Wrong types -> false.
+	assert.Equal(t, p.Update(event.UpdateEvent{ObjectOld: &corev1.Pod{}, ObjectNew: &corev1.Pod{}}), false)
+
+	// Transition into dispatchable -> true.
+	oldW := &v1.Workload{}
+	newW := &v1.Workload{ObjectMeta: metav1.ObjectMeta{
+		Annotations: map[string]string{v1.WorkloadScheduledAnnotation: "true"},
+	}}
+	assert.Equal(t, p.Update(event.UpdateEvent{ObjectOld: oldW, ObjectNew: newW}), true)
+}
+
+func TestProcessTorchFTWorkloadNoLighthouse(t *testing.T) {
+	// With no TorchFT lighthouse configured, processing fails fast.
+	r := &DispatcherReconciler{}
+	w := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "w"}}
+	_, err := r.processTorchFTWorkload(context.Background(), w)
+	assert.Assert(t, err != nil)
+}
+
+func TestProcessWorkloadNoClusterClientSets(t *testing.T) {
+	r := &DispatcherReconciler{clusterClientSets: commonutils.NewObjectManager()}
+	w := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "w"}}
+	res, err := r.processWorkload(context.Background(), w)
+	assert.NilError(t, err)
+	// No cluster client sets -> requeue.
+	assert.Assert(t, res.RequeueAfter > 0)
+}
+
+func TestGenerateJobPortAlreadyDispatched(t *testing.T) {
+	r := &DispatcherReconciler{}
+	w := &v1.Workload{ObjectMeta: metav1.ObjectMeta{
+		Annotations: map[string]string{v1.WorkloadDispatchedAnnotation: "true"},
+	}}
+	// Already dispatched -> no-op, returns nil.
+	assert.NilError(t, r.generateJobPort(context.Background(), w))
+}
+
+// --- merged from dispatcher_service_test.go ---
+
+func TestCreateServiceNoService(t *testing.T) {
+	r := &DispatcherReconciler{}
+	w := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "w"}}
+	// No Service spec -> early return.
+	res, err := r.createService(context.Background(), w, nil, nil)
+	assert.NilError(t, err)
+	assert.Equal(t, res.RequeueAfter.Nanoseconds(), int64(0))
+}
+
+func TestCreateService(t *testing.T) {
+	scheme, err := genMockScheme()
+	assert.NilError(t, err)
+	cl := fake.NewClientBuilder().WithScheme(scheme).Build()
+	r := &DispatcherReconciler{Client: cl}
+
+	w := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "w"}}
+	w.Spec.Workspace = "ns"
+	w.Spec.Service = &v1.Service{
+		Protocol:    corev1.ProtocolTCP,
+		Port:        80,
+		TargetPort:  8080,
+		ServiceType: corev1.ServiceTypeClusterIP,
+	}
+
+	cs := &syncer.ClusterClientSets{}
+	cs.SetClientFactory(commonclient.NewClientFactoryWithOnlyClient(
+		context.Background(), "c", k8sfake.NewSimpleClientset()))
+
+	// Give the owner object a UID + GVK so SetControllerReference works and the
+	// dynamic GetObject fallback is skipped.
+	obj := &unstructured.Unstructured{Object: map[string]interface{}{}}
+	obj.SetName("w")
+	obj.SetNamespace("ns")
+	obj.SetUID("owner-uid")
+	obj.SetGroupVersionKind(corev1.SchemeGroupVersion.WithKind("Pod"))
+
+	res, err := r.createService(context.Background(), w, cs, obj)
+	assert.NilError(t, err)
+	assert.Equal(t, res.RequeueAfter.Nanoseconds(), int64(0))
+}
+
+func TestCreateIngressNoService(t *testing.T) {
+	r := &DispatcherReconciler{}
+	w := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "w"}}
+	// No Service spec -> ingress creation is skipped.
+	res, err := r.createIngress(context.Background(), w, nil, nil)
+	assert.NilError(t, err)
+	assert.Equal(t, res.RequeueAfter.Nanoseconds(), int64(0))
+}
+
+func serviceClientSets(objs ...runtime.Object) *syncer.ClusterClientSets {
+	cs := &syncer.ClusterClientSets{}
+	cs.SetClientFactory(commonclient.NewClientFactoryWithOnlyClient(
+		context.Background(), "c", k8sfake.NewSimpleClientset(objs...)))
+	return cs
+}
+
+func TestUpdateServiceDeleteWhenNoSpec(t *testing.T) {
+	r := &DispatcherReconciler{}
+	w := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "w"}}
+	w.Spec.Workspace = "ns"
+	// No Service spec -> delete any existing service (absent -> IgnoreNotFound).
+	res, err := r.updateService(context.Background(), w, serviceClientSets(), nil)
+	assert.NilError(t, err)
+	assert.Equal(t, res.RequeueAfter.Nanoseconds(), int64(0))
+}
+
+func TestUpdateServiceUpdatesExisting(t *testing.T) {
+	existing := &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{Name: "w", Namespace: "ns"},
+		Spec: corev1.ServiceSpec{
+			Type:     corev1.ServiceTypeClusterIP,
+			Selector: map[string]string{"old": "sel"},
+			Ports:    []corev1.ServicePort{{Port: 1, NodePort: 5}},
+		},
+	}
+	r := &DispatcherReconciler{}
+	w := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "w"}}
+	w.Spec.Workspace = "ns"
+	w.Spec.Service = &v1.Service{
+		Protocol:    corev1.ProtocolTCP,
+		Port:        80,
+		TargetPort:  8080,
+		ServiceType: corev1.ServiceTypeClusterIP,
+	}
+	// Existing service differs -> update path.
+	res, err := r.updateService(context.Background(), w, serviceClientSets(existing), nil)
+	assert.NilError(t, err)
+	assert.Equal(t, res.RequeueAfter.Nanoseconds(), int64(0))
 }

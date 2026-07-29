@@ -6,6 +6,8 @@
 package resources
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -14,7 +16,12 @@ import (
 	"testing"
 	"time"
 
+	testifyassert "github.com/stretchr/testify/assert"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
+	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 
@@ -991,4 +998,332 @@ func TestAddContextDoc(t *testing.T) {
 			}
 		})
 	}
+}
+
+// --- merged from log_download_test.go ---
+
+// withS3 enables both OpenSearch and S3 for the duration of the test.
+func withS3(t *testing.T) {
+	t.Helper()
+	commonconfig.SetValue("opensearch.enable", "true")
+	commonconfig.SetValue("s3.enable", "true")
+	t.Cleanup(func() {
+		commonconfig.SetValue("opensearch.enable", "false")
+		commonconfig.SetValue("s3.enable", "false")
+	})
+}
+
+func succeededDumpLogJob(name, endpoint string) *v1.OpsJob {
+	job := &v1.OpsJob{ObjectMeta: metav1.ObjectMeta{Name: name}}
+	job.Status.Phase = v1.OpsJobSucceeded
+	job.Status.Outputs = []v1.Parameter{{Name: v1.ParameterEndpoint, Value: endpoint}}
+	return job
+}
+
+func TestCreateDumpLogJobInternal(t *testing.T) {
+	wl := newWorkloadForLog("wl-1", "c1", "ws-1")
+	h, user := newAdminHandlerWithObjects(wl)
+
+	job, err := h.createDumpLogJobInternal(context.Background(), wl, user, &view.DownloadWorkloadLogRequest{TimeoutSecond: 60})
+	testifyassert.NoError(t, err)
+	testifyassert.Contains(t, job.Name, "down-")
+
+	// Idempotent: second call returns the existing job.
+	job2, err := h.createDumpLogJobInternal(context.Background(), wl, user, &view.DownloadWorkloadLogRequest{TimeoutSecond: 60})
+	testifyassert.NoError(t, err)
+	assert.Equal(t, job.Name, job2.Name)
+}
+
+func TestWaitForDumpLogJobCompletion(t *testing.T) {
+	// Succeeded -> returns endpoint URL immediately.
+	h, _ := newAdminHandlerWithObjects(succeededDumpLogJob("job-ok", "https://s3/log.tar.gz"))
+	url, err := h.waitForDumpLogJobCompletion(context.Background(), "job-ok", 60)
+	testifyassert.NoError(t, err)
+	assert.Equal(t, "https://s3/log.tar.gz", url)
+
+	// Failed -> error.
+	failed := &v1.OpsJob{ObjectMeta: metav1.ObjectMeta{Name: "job-fail"}}
+	failed.Status.Phase = v1.OpsJobFailed
+	failed.Status.Conditions = []metav1.Condition{{Status: metav1.ConditionFalse, Message: "boom"}}
+	h2, _ := newAdminHandlerWithObjects(failed)
+	_, err = h2.waitForDumpLogJobCompletion(context.Background(), "job-fail", 60)
+	testifyassert.Error(t, err)
+
+	// Timeout (deadline already passed) -> error, no real sleeping.
+	h3, _ := newAdminHandlerWithObjects()
+	_, err = h3.waitForDumpLogJobCompletion(context.Background(), "missing", 0)
+	testifyassert.Error(t, err)
+}
+
+func TestDownloadWorkloadLogHandler(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	t.Run("s3 disabled", func(t *testing.T) {
+		commonconfig.SetValue("opensearch.enable", "true")
+		t.Cleanup(func() { commonconfig.SetValue("opensearch.enable", "false") })
+		h, user := newAdminHandlerWithObjects(newWorkloadForLog("wl-1", "c1", "ws-1"))
+		rsp := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(rsp)
+		c.Request = httptest.NewRequest(http.MethodPost, "/", bytes.NewReader([]byte(`{}`)))
+		c.Request.Header.Set("Content-Type", "application/json")
+		c.Set(common.UserId, user.Name)
+		c.Set(common.Name, "wl-1")
+		_, err := h.downloadWorkloadLog(c)
+		testifyassert.Error(t, err)
+	})
+
+	t.Run("success with pre-seeded succeeded job", func(t *testing.T) {
+		withS3(t)
+		wl := newWorkloadForLog("wl-1", "c1", "ws-1")
+		// Pre-seed the dump-log job so createDumpLogJobInternal returns it and
+		// waitForDumpLogJobCompletion immediately reads the endpoint output.
+		dumpJob := succeededDumpLogJob("down-wl-1", "https://s3/wl-1.tar.gz")
+		h, user := newAdminHandlerWithObjects(wl, dumpJob)
+
+		rsp := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(rsp)
+		c.Request = httptest.NewRequest(http.MethodPost, "/", bytes.NewReader([]byte(`{"timeoutSecond":60}`)))
+		c.Request.Header.Set("Content-Type", "application/json")
+		c.Set(common.UserId, user.Name)
+		c.Set(common.Name, "wl-1")
+		resp, err := h.downloadWorkloadLog(c)
+		testifyassert.NoError(t, err)
+		assert.Equal(t, "https://s3/wl-1.tar.gz", resp.DownloadURL)
+	})
+}
+
+// --- merged from log_handlers_test.go ---
+
+// withOpenSearch enables OpenSearch and registers a stub client for the given
+// cluster that returns the provided canned `_search` response body.
+func withOpenSearch(t *testing.T, clusterId string, respBody string) {
+	t.Helper()
+	commonconfig.SetValue("opensearch.enable", "true")
+	sc := commonsearch.NewTestSearchClient(
+		func(_, _ time.Time, _, _ string, _ []byte) ([]byte, error) {
+			return []byte(respBody), nil
+		},
+	)
+	cleanup := commonsearch.RegisterClientForTest(clusterId, sc)
+	t.Cleanup(func() {
+		cleanup()
+		commonconfig.SetValue("opensearch.enable", "false")
+	})
+}
+
+const emptyHits = `{"hits":{"total":{"value":0},"hits":[]}}`
+
+func newWorkloadForLog(name, cluster, workspace string) *v1.Workload {
+	wl := &v1.Workload{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:   name,
+			Labels: map[string]string{v1.ClusterIdLabel: cluster},
+		},
+		Spec: v1.WorkloadSpec{Workspace: workspace},
+	}
+	return wl
+}
+
+func TestGetWorkloadLogHandler(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	t.Run("opensearch disabled", func(t *testing.T) {
+		h, user := newAdminHandlerWithObjects(newWorkloadForLog("wl-1", "c1", "ws-1"))
+		rsp := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(rsp)
+		c.Request = httptest.NewRequest(http.MethodPost, "/", bytes.NewReader([]byte(`{}`)))
+		c.Request.Header.Set("Content-Type", "application/json")
+		c.Set(common.UserId, user.Name)
+		c.Set(common.Name, "wl-1")
+		h.GetWorkloadLog(c)
+		testifyassert.NotEqual(t, http.StatusOK, rsp.Code)
+	})
+
+	t.Run("success", func(t *testing.T) {
+		withOpenSearch(t, "c1", emptyHits)
+		h, user := newAdminHandlerWithObjects(newWorkloadForLog("wl-1", "c1", "ws-1"))
+		rsp := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(rsp)
+		c.Request = httptest.NewRequest(http.MethodPost, "/", bytes.NewReader([]byte(`{}`)))
+		c.Request.Header.Set("Content-Type", "application/json")
+		c.Set(common.UserId, user.Name)
+		c.Set(common.Name, "wl-1")
+		h.GetWorkloadLog(c)
+		assert.Equal(t, http.StatusOK, rsp.Code)
+	})
+}
+
+func TestGetServiceLogHandler(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	withOpenSearch(t, "", emptyHits)
+	h, user := newAdminHandlerWithObjects()
+
+	rsp := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rsp)
+	c.Request = httptest.NewRequest(http.MethodPost, "/", bytes.NewReader([]byte(`{}`)))
+	c.Request.Header.Set("Content-Type", "application/json")
+	c.Set(common.UserId, user.Name)
+	c.Set(common.Name, "my-svc")
+	h.GetServiceLog(c)
+	assert.Equal(t, http.StatusOK, rsp.Code)
+}
+
+func TestGetWorkloadEventHandler(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	withOpenSearch(t, "c1", emptyHits)
+	h, user := newAdminHandlerWithObjects(newWorkloadForLog("wl-1", "c1", "ws-1"))
+
+	rsp := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rsp)
+	c.Request = httptest.NewRequest(http.MethodPost, "/", bytes.NewReader([]byte(`{}`)))
+	c.Request.Header.Set("Content-Type", "application/json")
+	c.Set(common.UserId, user.Name)
+	c.Set(common.Name, "wl-1")
+	h.GetWorkloadEvent(c)
+	assert.Equal(t, http.StatusOK, rsp.Code)
+}
+
+func TestGetCICDArcLogHandler(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	withOpenSearch(t, "c1", emptyHits)
+
+	wl := newWorkloadForLog("wl-cicd", "c1", "ws-1")
+	wl.Spec.GroupVersionKind = v1.GroupVersionKind{Kind: common.CICDScaleRunnerSetKind}
+	h, user := newAdminHandlerWithObjects(wl)
+
+	rsp := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rsp)
+	c.Request = httptest.NewRequest(http.MethodPost, "/", bytes.NewReader([]byte(`{}`)))
+	c.Request.Header.Set("Content-Type", "application/json")
+	c.Set(common.UserId, user.Name)
+	c.Set(common.Name, "wl-cicd")
+	h.GetCICDArcLog(c)
+	assert.Equal(t, http.StatusOK, rsp.Code)
+}
+
+func TestGetWorkloadLogContextHandler(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	// Stub returns a hit matching the requested docId so addContextDoc succeeds.
+	respWithDoc := `{"hits":{"total":{"value":1},"hits":[{"_id":"doc-1","_source":{"message":"hello"}}]}}`
+	withOpenSearch(t, "c1", respWithDoc)
+	h, user := newAdminHandlerWithObjects(newWorkloadForLog("wl-1", "c1", "ws-1"))
+
+	rsp := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rsp)
+	// parseContextQuery needs a `since` field and a docId path param.
+	c.Request = httptest.NewRequest(http.MethodPost, "/", bytes.NewReader([]byte(`{"since":"2025-01-01T00:00:00.000Z"}`)))
+	c.Request.Header.Set("Content-Type", "application/json")
+	c.Set(common.UserId, user.Name)
+	c.Set(common.Name, "wl-1")
+	c.Params = gin.Params{{Key: "docId", Value: "doc-1"}}
+	h.GetWorkloadLogContext(c)
+	assert.Equal(t, http.StatusOK, rsp.Code)
+}
+
+func TestGetAndAuthWorkload(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	h, user := newAdminHandlerWithObjects(newWorkloadForLog("wl-1", "c1", "ws-1"))
+
+	rsp := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rsp)
+	c.Request = httptest.NewRequest(http.MethodGet, "/", nil)
+	c.Set(common.UserId, user.Name)
+	c.Set(common.Name, "wl-1")
+	wl, err := h.getAndAuthWorkload(c)
+	testifyassert.NoError(t, err)
+	assert.Equal(t, "wl-1", wl.Name)
+
+	// Empty name -> bad request.
+	rsp2 := httptest.NewRecorder()
+	c2, _ := gin.CreateTestContext(rsp2)
+	c2.Request = httptest.NewRequest(http.MethodGet, "/", nil)
+	c2.Set(common.UserId, user.Name)
+	_, err = h.getAndAuthWorkload(c2)
+	testifyassert.Error(t, err)
+}
+
+// --- merged from log_helpers_test.go ---
+
+func TestBuildSingleTermFilter(t *testing.T) {
+	// Plain term filter.
+	req := &commonsearch.OpenSearchRequest{}
+	buildSingleTermFilter(req, map[string]string{"app": "svc"}, false, false)
+	testifyassert.Len(t, req.Query.Bool.Filter, 1)
+
+	// k8s label + prefix match.
+	req2 := &commonsearch.OpenSearchRequest{}
+	buildSingleTermFilter(req2, map[string]string{"my.label": "v"}, true, true)
+	testifyassert.Len(t, req2.Query.Bool.Filter, 1)
+
+	// Empty key/value is skipped.
+	req3 := &commonsearch.OpenSearchRequest{}
+	buildSingleTermFilter(req3, map[string]string{"": "v", "k": ""}, false, false)
+	testifyassert.Empty(t, req3.Query.Bool.Filter)
+}
+
+func TestKeywordMatchAnyField(t *testing.T) {
+	field := keywordMatchAnyField("error", 0)
+	testifyassert.Contains(t, field, "bool")
+}
+
+func TestGetLogQueryStartTime(t *testing.T) {
+	created := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
+	wl := &v1.Workload{ObjectMeta: metav1.ObjectMeta{CreationTimestamp: metav1.NewTime(created)}}
+
+	// No start time -> creation time.
+	assert.Equal(t, created, getLogQueryStartTime(wl))
+
+	// Start time set later -> start - 1h.
+	start := created.Add(3 * time.Hour)
+	wl.Status.StartTime = &metav1.Time{Time: start}
+	assert.Equal(t, start.Add(-time.Hour), getLogQueryStartTime(wl))
+}
+
+// newLogCtx builds a gin context with an empty JSON body for log query parsing.
+func newLogCtx() *gin.Context {
+	rsp := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rsp)
+	c.Request = httptest.NewRequest(http.MethodPost, "/", bytes.NewReader([]byte(`{}`)))
+	c.Request.Header.Set("Content-Type", "application/json")
+	return c
+}
+
+func TestParseWorkloadLogQuery(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	wl := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "wl-1"}}
+	c := newLogCtx()
+	q, err := parseWorkloadLogQuery(c, wl)
+	testifyassert.NoError(t, err)
+	testifyassert.True(t, q.UseK8sLabel)
+	assert.Equal(t, "wl-1", q.TermFilters[v1.WorkloadIdLabel])
+}
+
+func TestParseServiceLogQuery(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	// Missing name -> bad request.
+	c0 := newLogCtx()
+	_, err := parseServiceLogQuery(c0)
+	testifyassert.Error(t, err)
+
+	// With name set.
+	c := newLogCtx()
+	c.Set(common.Name, "my-svc")
+	q, err := parseServiceLogQuery(c)
+	testifyassert.NoError(t, err)
+	assert.Equal(t, "my-svc", q.TermFilters["app"])
+}
+
+func TestParseEventLogQuery(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	wl := &v1.Workload{
+		ObjectMeta: metav1.ObjectMeta{Name: "wl-1"},
+		Spec:       v1.WorkloadSpec{Workspace: "ws-1"},
+	}
+	c := newLogCtx()
+	q, err := parseEventLogQuery(c, wl)
+	testifyassert.NoError(t, err)
+	testifyassert.True(t, q.DisableOutput)
+	assert.Equal(t, "ws-1", q.TermFilters["involvedObject.namespace"])
+	assert.Equal(t, "wl-1", q.PrefixFilters["involvedObject.name"])
 }

@@ -10,6 +10,8 @@ import (
 	"reflect"
 	"testing"
 
+	testifyassert "github.com/stretchr/testify/assert"
+
 	"github.com/agiledragon/gomonkey/v2"
 	"gotest.tools/assert"
 	corev1 "k8s.io/api/core/v1"
@@ -120,4 +122,45 @@ func TestDoRoutesToHandlers(t *testing.T) {
 	assert.NilError(t, err)
 	_, err = r.Do(context.Background(), &resourceMessage{cluster: "c", gvk: schema.GroupVersionKind{Kind: "Pod"}})
 	assert.NilError(t, err)
+}
+
+// --- merged from syncer_queue_test.go ---
+
+func TestResourceMessageKey(t *testing.T) {
+	m1 := &resourceMessage{
+		cluster:   "c1",
+		namespace: "ns",
+		name:      "pod-1",
+		gvk:       schema.GroupVersionKind{Group: "", Version: "v1", Kind: "Pod"},
+	}
+	// Same object identity -> same key regardless of action/dispatchCount.
+	m2 := &resourceMessage{
+		cluster:       "c1",
+		namespace:     "ns",
+		name:          "pod-1",
+		gvk:           schema.GroupVersionKind{Group: "", Version: "v1", Kind: "Pod"},
+		action:        ResourceDel,
+		dispatchCount: 5,
+	}
+	assert.Equal(t, resourceMessageKey(m1), resourceMessageKey(m2))
+
+	// Different name -> different key.
+	m3 := &resourceMessage{cluster: "c1", namespace: "ns", name: "pod-2",
+		gvk: schema.GroupVersionKind{Group: "", Version: "v1", Kind: "Pod"}}
+	testifyassert.NotEqual(t, resourceMessageKey(m1), resourceMessageKey(m3))
+}
+
+func TestMergeResourceMessage(t *testing.T) {
+	del := &resourceMessage{name: "o", action: ResourceDel}
+	upd := &resourceMessage{name: "o", action: ResourceUpdate}
+
+	// Latest wins when no delete is pending.
+	assert.Equal(t, upd, mergeResourceMessage(nil, false, upd))
+	assert.Equal(t, del, mergeResourceMessage(upd, true, del))
+
+	// A pending delete is NOT overwritten by a later non-delete.
+	assert.Equal(t, del, mergeResourceMessage(del, true, upd))
+
+	// A delete replaces a pending non-delete.
+	assert.Equal(t, del, mergeResourceMessage(upd, true, del))
 }
