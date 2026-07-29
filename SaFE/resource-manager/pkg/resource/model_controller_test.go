@@ -1348,7 +1348,7 @@ func TestModelFailoverHelpers(t *testing.T) {
 	// set then read back
 	r.setTriedWorkspaces(model, "/wekafs", []string{"ws1", "ws2"})
 	got := r.getTriedWorkspaces(model, "/wekafs")
-	assert.Equal(t, []string{"ws1", "ws2"}, got)
+	testifyassert.Equal(t, []string{"ws1", "ws2"}, got)
 }
 
 func TestTryFailoverFull(t *testing.T) {
@@ -1399,7 +1399,7 @@ func TestModelSetAndGetTriedWorkspaces(t *testing.T) {
 	testifyassert.Nil(t, r.getTriedWorkspaces(model, "/base"))
 	r.setTriedWorkspaces(model, "/base", []string{"ws1", "ws2"})
 	got := r.getTriedWorkspaces(model, "/base")
-	assert.Equal(t, []string{"ws1", "ws2"}, got)
+	testifyassert.Equal(t, []string{"ws1", "ws2"}, got)
 	// Different base -> nil.
 	testifyassert.Nil(t, r.getTriedWorkspaces(model, "/other"))
 }
@@ -1408,7 +1408,7 @@ func TestAppendUniqueAndContains(t *testing.T) {
 	s := appendUnique(nil, "a")
 	s = appendUnique(s, "a")
 	s = appendUnique(s, "b")
-	assert.Equal(t, []string{"a", "b"}, s)
+	testifyassert.Equal(t, []string{"a", "b"}, s)
 	testifyassert.True(t, containsString(s, "a"))
 	testifyassert.False(t, containsString(s, "z"))
 }
