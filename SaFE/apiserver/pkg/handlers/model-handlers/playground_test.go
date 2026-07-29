@@ -9,8 +9,12 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/golang/mock/gomock"
+	testifyassert "github.com/stretchr/testify/assert"
 
 	"github.com/gin-gonic/gin"
 	"github.com/lib/pq"
@@ -18,11 +22,13 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	ctrlfake "sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/apis/pkg/client/clientset/versioned/scheme"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
+	mock_client "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client/mock"
 )
 
 // genMockRunningWorkload generates a mock running Workload for testing
@@ -849,4 +855,232 @@ func TestWorkloadKindFiltering(t *testing.T) {
 			}
 		})
 	}
+}
+
+// --- merged from playground_rbac_test.go ---
+
+// newRunningWorkload builds a running inference workload in the given workspace.
+func newRunningWorkload(name, workspace string) *v1.Workload {
+	w := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: name}}
+	w.Spec.Workspace = workspace
+	w.Status.Phase = v1.WorkloadRunning
+	return w
+}
+
+// newPlaygroundRBACHandler seeds remote_api models and running workloads across
+// workspaces so the playground read paths can be exercised against read
+// visibility. The DB client is nil, so all lookups take the K8s path.
+func newPlaygroundRBACHandler(t *testing.T) *Handler {
+	t.Helper()
+	k8s := ctrlfake.NewClientBuilder().WithScheme(modelScheme(t)).WithObjects(
+		newReadModel("rm-pub", "owner-1", ""),          // public remote_api model
+		newReadModel("rm-other", "stranger-1", "ws-2"), // private remote_api model in ws-2
+		newRunningWorkload("wl-ws1", "ws-1"),
+		newRunningWorkload("wl-ws2", "ws-2"),
+	).Build()
+	return &Handler{k8sClient: k8s, accessController: newReadRBACAC(t)}
+}
+
+// TestListPlaygroundServicesReadRBAC verifies the playground service list only
+// surfaces remote_api models the caller may see and workloads whose workspace
+// the caller may access.
+func TestListPlaygroundServicesReadRBAC(t *testing.T) {
+	h := newPlaygroundRBACHandler(t)
+	listIDs := func(user string) map[string]bool {
+		res, err := h.listPlaygroundServices(readRBACCtx(user, "", nil))
+		testifyassert.NoError(t, err)
+		resp, ok := res.(*ListPlaygroundServicesResponse)
+		testifyassert.True(t, ok)
+		ids := make(map[string]bool, len(resp.Items))
+		for _, it := range resp.Items {
+			ids[it.ID] = true
+		}
+		return ids
+	}
+
+	// member-1 is a member of ws-1: sees the public model + ws-1 workload only.
+	member := listIDs("member-1")
+	testifyassert.True(t, member["rm-pub"], "public model must be visible")
+	testifyassert.True(t, member["wl-ws1"], "ws-1 workload must be visible to ws-1 member")
+	testifyassert.False(t, member["rm-other"], "must not see private ws-2 model")
+	testifyassert.False(t, member["wl-ws2"], "must not see ws-2 workload")
+
+	// admin sees every model and workload.
+	admin := listIDs("admin-1")
+	testifyassert.True(t, admin["rm-pub"])
+	testifyassert.True(t, admin["rm-other"])
+	testifyassert.True(t, admin["wl-ws1"])
+	testifyassert.True(t, admin["wl-ws2"])
+}
+
+// TestGetChatURLReadRBAC verifies getChatURL enforces model read visibility
+// before returning the model endpoint / API-key presence.
+func TestGetChatURLReadRBAC(t *testing.T) {
+	h := newPlaygroundRBACHandler(t)
+
+	// member-1 cannot see the private ws-2 model.
+	_, err := h.getChatURL(readRBACCtx("member-1", "", gin.Params{{Key: "id", Value: "rm-other"}}))
+	testifyassert.Error(t, err)
+	testifyassert.Contains(t, err.Error(), "not allowed")
+
+	// The owner (stranger-1) can.
+	_, err = h.getChatURL(readRBACCtx("stranger-1", "", gin.Params{{Key: "id", Value: "rm-other"}}))
+	testifyassert.NoError(t, err)
+}
+
+// newChatCtx builds a POST context with a JSON body and an optional user id.
+func newChatCtx(userID, body string) (*gin.Context, *httptest.ResponseRecorder) {
+	gin.SetMode(gin.TestMode)
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+	if userID != "" {
+		c.Set(common.UserId, userID)
+	}
+	return c, w
+}
+
+// TestChatReadRBAC verifies Chat denies callers who cannot see the target model
+// (before its endpoint / API key is used) or who cannot access the target
+// workload's workspace.
+func TestChatReadRBAC(t *testing.T) {
+	h := newPlaygroundRBACHandler(t)
+
+	// Private remote_api model: a non-member is denied with 403.
+	c, w := newChatCtx("member-1", "{\"serviceId\":\"rm-other\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}]}")
+	h.Chat(c)
+	assert.Equal(t, http.StatusForbidden, w.Code)
+
+	// Workload in ws-2: a non-member is denied with 403.
+	c2, w2 := newChatCtx("member-1", "{\"serviceId\":\"wl-ws2\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}]}")
+	h.Chat(c2)
+	assert.Equal(t, http.StatusForbidden, w2.Code)
+
+	// Admin passes the RBAC gate (not a 403); the empty model URL then yields a
+	// 400, confirming authorization succeeded without any network call.
+	c3, w3 := newChatCtx("admin-1", "{\"serviceId\":\"rm-other\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}]}")
+	h.Chat(c3)
+	testifyassert.NotEqual(t, http.StatusForbidden, w3.Code)
+}
+
+// --- merged from playground_session_test.go ---
+
+// sessCtx builds a gin context with body, user id, and params.
+func sessCtx(t *testing.T, method, body, userId string, params gin.Params) *gin.Context {
+	t.Helper()
+	gin.SetMode(gin.TestMode)
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	var r *http.Request
+	if body != "" {
+		r = httptest.NewRequest(method, "/", strings.NewReader(body))
+	} else {
+		r = httptest.NewRequest(method, "/", nil)
+	}
+	r.Header.Set("Content-Type", "application/json")
+	c.Request = r
+	if userId != "" {
+		c.Set(common.UserId, userId)
+	}
+	c.Params = params
+	return c
+}
+
+func TestSaveSessionCreate(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	m := mock_client.NewMockInterface(ctrl)
+	m.EXPECT().InsertPlaygroundSession(gomock.Any(), gomock.Any()).Return(nil)
+
+	h := &Handler{dbClient: m}
+	c := sessCtx(t, http.MethodPost, `{"modelName":"gpt","displayName":"d","messages":[]}`, "u1", nil)
+	res, err := h.saveSession(c)
+	testifyassert.NoError(t, err)
+	testifyassert.NotNil(t, res)
+}
+
+func TestSaveSessionUpdate(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	m := mock_client.NewMockInterface(ctrl)
+	m.EXPECT().GetPlaygroundSession(gomock.Any(), int64(3)).
+		Return(&dbclient.PlaygroundSession{Id: 3, UserId: "u1"}, nil)
+	m.EXPECT().UpdatePlaygroundSession(gomock.Any(), gomock.Any()).Return(nil)
+
+	h := &Handler{dbClient: m}
+	c := sessCtx(t, http.MethodPost, `{"id":3,"modelName":"gpt","displayName":"d","messages":[]}`, "u1", nil)
+	res, err := h.saveSession(c)
+	testifyassert.NoError(t, err)
+	testifyassert.NotNil(t, res)
+}
+
+func TestSaveSessionMissingModelName(t *testing.T) {
+	h := &Handler{dbClient: mock_client.NewMockInterface(gomock.NewController(t))}
+	c := sessCtx(t, http.MethodPost, `{"messages":[]}`, "u1", nil)
+	_, err := h.saveSession(c)
+	testifyassert.Error(t, err)
+}
+
+func TestListPlaygroundSessionHandler(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	m := mock_client.NewMockInterface(ctrl)
+	m.EXPECT().SelectPlaygroundSessions(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+		Return([]*dbclient.PlaygroundSession{{Id: 1, UserId: "u1", ModelName: "gpt"}}, nil)
+	m.EXPECT().CountPlaygroundSessions(gomock.Any(), gomock.Any()).Return(1, nil)
+
+	h := &Handler{dbClient: m}
+	c := sessCtx(t, http.MethodGet, "", "u1", nil)
+	res, err := h.listPlaygroundSession(c)
+	testifyassert.NoError(t, err)
+	testifyassert.NotNil(t, res)
+}
+
+func TestGetPlaygroundSessionHandler(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	m := mock_client.NewMockInterface(ctrl)
+	m.EXPECT().GetPlaygroundSession(gomock.Any(), int64(1)).
+		Return(&dbclient.PlaygroundSession{Id: 1, UserId: "u1"}, nil)
+
+	h := &Handler{dbClient: m}
+	c := sessCtx(t, http.MethodGet, "", "u1", gin.Params{{Key: "id", Value: "1"}})
+	res, err := h.getPlaygroundSession(c)
+	testifyassert.NoError(t, err)
+	testifyassert.NotNil(t, res)
+}
+
+func TestGetPlaygroundSessionForbidden(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	m := mock_client.NewMockInterface(ctrl)
+	m.EXPECT().GetPlaygroundSession(gomock.Any(), int64(1)).
+		Return(&dbclient.PlaygroundSession{Id: 1, UserId: "other"}, nil)
+
+	h := &Handler{dbClient: m}
+	c := sessCtx(t, http.MethodGet, "", "u1", gin.Params{{Key: "id", Value: "1"}})
+	_, err := h.getPlaygroundSession(c)
+	testifyassert.Error(t, err)
+}
+
+func TestDeletePlaygroundSessionHandler(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	m := mock_client.NewMockInterface(ctrl)
+	m.EXPECT().GetPlaygroundSession(gomock.Any(), int64(1)).
+		Return(&dbclient.PlaygroundSession{Id: 1, UserId: "u1"}, nil)
+	m.EXPECT().SetPlaygroundSessionDeleted(gomock.Any(), int64(1)).Return(nil)
+
+	h := &Handler{dbClient: m}
+	c := sessCtx(t, http.MethodDelete, "", "u1", gin.Params{{Key: "id", Value: "1"}})
+	_, err := h.deletePlaygroundSession(c)
+	testifyassert.NoError(t, err)
+}
+
+func TestDeletePlaygroundSessionInvalidID(t *testing.T) {
+	h := &Handler{dbClient: mock_client.NewMockInterface(gomock.NewController(t))}
+	c := sessCtx(t, http.MethodDelete, "", "u1", gin.Params{{Key: "id", Value: "abc"}})
+	_, err := h.deletePlaygroundSession(c)
+	testifyassert.Error(t, err)
 }

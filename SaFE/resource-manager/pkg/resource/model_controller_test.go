@@ -10,10 +10,14 @@ import (
 	"testing"
 	"time"
 
+	"github.com/agiledragon/gomonkey/v2"
+	testifyassert "github.com/stretchr/testify/assert"
+
 	"gotest.tools/assert"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	ctrlruntime "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -23,6 +27,7 @@ import (
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/apis/pkg/client/clientset/versioned/scheme"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
+	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 )
 
 // newMockModelReconciler creates a mock ModelReconciler for testing
@@ -1067,3 +1072,446 @@ func TestLocalPathStatusConstants(t *testing.T) {
 	assert.Equal(t, string(v1.LocalPathStatusFailed), "Failed")
 }
 
+// --- merged from model_gomonkey_test.go ---
+
+// patchS3Config patches the S3-related config getters so the construct* helpers succeed.
+func patchS3Config(t *testing.T) *gomonkey.Patches {
+	t.Helper()
+	p := gomonkey.NewPatches()
+	p.ApplyFunc(commonconfig.IsS3Enable, func() bool { return true })
+	p.ApplyFunc(commonconfig.GetS3Endpoint, func() string { return "https://minio:9000" })
+	p.ApplyFunc(commonconfig.GetS3AccessKey, func() string { return "ak" })
+	p.ApplyFunc(commonconfig.GetS3SecretKey, func() string { return "sk" })
+	p.ApplyFunc(commonconfig.GetS3Bucket, func() string { return "bucket" })
+	p.ApplyFunc(commonconfig.GetModelDownloaderImage, func() string { return "downloader:1" })
+	p.ApplyFunc(commonconfig.GetDownloadJoImage, func() string { return "download:1" })
+	return p
+}
+
+func TestConstructDownloadJobFull(t *testing.T) {
+	patches := patchS3Config(t)
+	defer patches.Reset()
+
+	model := genMockModel("m1", v1.AccessModeLocal, "ws1")
+	model.Spec.Source.URL = "hf://org/repo"
+	r := newMockModelReconciler(fake.NewClientBuilder().WithScheme(scheme.Scheme).Build())
+
+	job, err := r.constructDownloadJob(model)
+	testifyassert.NoError(t, err)
+	testifyassert.NotNil(t, job)
+}
+
+func TestConstructCleanupJobFull(t *testing.T) {
+	patches := patchS3Config(t)
+	defer patches.Reset()
+
+	model := genMockModel("m1", v1.AccessModeLocal, "ws1")
+	r := newMockModelReconciler(fake.NewClientBuilder().WithScheme(scheme.Scheme).Build())
+
+	job, err := r.constructCleanupJob(model)
+	testifyassert.NoError(t, err)
+	testifyassert.NotNil(t, job)
+}
+
+func TestConstructLocalDownloadOpsJob(t *testing.T) {
+	patches := patchS3Config(t)
+	defer patches.Reset()
+
+	model := genMockModel("m1", v1.AccessModeLocal, "ws1")
+	model.Status.S3Path = "models/m1"
+	workspace := &v1.Workspace{
+		ObjectMeta: metav1.ObjectMeta{Name: "ws1"},
+		Spec:       v1.WorkspaceSpec{Cluster: "c1"},
+	}
+	cl := fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(workspace).Build()
+	r := newMockModelReconciler(cl)
+
+	lp := &v1.ModelLocalPath{Workspace: "ws1", Path: "models/m1"}
+	job, err := r.constructLocalDownloadOpsJob(context.Background(), model, lp)
+	testifyassert.NoError(t, err)
+	assert.Equal(t, v1.OpsJobDownloadType, job.Spec.Type)
+}
+
+func TestModelHandleDeleteCreatesCleanupJob(t *testing.T) {
+	patches := patchS3Config(t)
+	defer patches.Reset()
+
+	model := genMockModel("m-del", v1.AccessModeLocal, "ws1")
+	now := metav1.Now()
+	model.DeletionTimestamp = &now
+	model.Finalizers = []string{ModelFinalizer}
+	s := runtime.NewScheme()
+	testifyassert.NoError(t, v1.AddToScheme(s))
+	testifyassert.NoError(t, batchv1.AddToScheme(s))
+	cl := fake.NewClientBuilder().
+		WithScheme(s).
+		WithStatusSubresource(model).
+		WithObjects(model).
+		Build()
+	r := newMockModelReconciler(cl)
+	res, err := r.handleDelete(context.Background(), model)
+	testifyassert.NoError(t, err)
+	testifyassert.True(t, res.RequeueAfter > 0)
+}
+
+func TestModelHandlePendingCreatesJob(t *testing.T) {
+	patches := patchS3Config(t)
+	defer patches.Reset()
+
+	model := genMockModel("m-pend", v1.AccessModeLocal, "ws1")
+	model.Spec.Source.URL = "hf://org/repo"
+	model.Status.Phase = v1.ModelPhasePending
+	s := runtime.NewScheme()
+	testifyassert.NoError(t, v1.AddToScheme(s))
+	testifyassert.NoError(t, batchv1.AddToScheme(s))
+	cl := fake.NewClientBuilder().
+		WithScheme(s).
+		WithStatusSubresource(model).
+		WithObjects(model).
+		Build()
+	r := newMockModelReconciler(cl)
+	_, err := r.handlePending(context.Background(), model)
+	testifyassert.NoError(t, err)
+	assert.Equal(t, v1.ModelPhaseUploading, model.Status.Phase)
+}
+
+func TestModelHandlePendingS3Import(t *testing.T) {
+	model := genMockModel("m-s3", v1.AccessModeLocal, "ws1")
+	model.Labels = map[string]string{v1.ModelS3ImportLabel: v1.TrueStr}
+	model.Status.Phase = v1.ModelPhasePending
+	ws := &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ws1"}}
+	cl := fake.NewClientBuilder().
+		WithScheme(scheme.Scheme).
+		WithStatusSubresource(model).
+		WithObjects(model, ws).
+		Build()
+	r := newMockModelReconciler(cl)
+	_, err := r.handlePending(context.Background(), model)
+	testifyassert.NoError(t, err)
+	assert.Equal(t, v1.ModelPhaseDownloading, model.Status.Phase)
+}
+
+func TestModelHandleUploadingJobLost(t *testing.T) {
+	model := genMockModel("m-up", v1.AccessModeLocal, "ws1")
+	model.Status.Phase = v1.ModelPhaseUploading
+	s := runtime.NewScheme()
+	testifyassert.NoError(t, v1.AddToScheme(s))
+	testifyassert.NoError(t, batchv1.AddToScheme(s))
+	cl := fake.NewClientBuilder().WithScheme(s).WithStatusSubresource(model).WithObjects(model).Build()
+	r := newMockModelReconciler(cl)
+	// No upload job -> phase Failed.
+	_, err := r.handleUploading(context.Background(), model)
+	testifyassert.NoError(t, err)
+	assert.Equal(t, v1.ModelPhaseFailed, model.Status.Phase)
+}
+
+func TestModelHandleUploadingSucceeded(t *testing.T) {
+	model := genMockModel("m-up3", v1.AccessModeLocal, "ws1")
+	model.Status.Phase = v1.ModelPhaseUploading
+	job := &batchv1.Job{
+		ObjectMeta: metav1.ObjectMeta{Name: "m-up3", Namespace: "primus-safe"},
+		Status:     batchv1.JobStatus{Succeeded: 1},
+	}
+	ws := &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ws1"}}
+	s := runtime.NewScheme()
+	testifyassert.NoError(t, v1.AddToScheme(s))
+	testifyassert.NoError(t, batchv1.AddToScheme(s))
+	cl := fake.NewClientBuilder().WithScheme(s).WithStatusSubresource(model).WithObjects(model, job, ws).Build()
+	r := newMockModelReconciler(cl)
+	_, err := r.handleUploading(context.Background(), model)
+	testifyassert.NoError(t, err)
+	assert.Equal(t, v1.ModelPhaseDownloading, model.Status.Phase)
+}
+
+func TestModelHandleUploadingFailed(t *testing.T) {
+	model := genMockModel("m-up4", v1.AccessModeLocal, "ws1")
+	model.Status.Phase = v1.ModelPhaseUploading
+	job := &batchv1.Job{
+		ObjectMeta: metav1.ObjectMeta{Name: "m-up4", Namespace: "primus-safe"},
+		Status:     batchv1.JobStatus{Failed: 1, Active: 0},
+	}
+	s := runtime.NewScheme()
+	testifyassert.NoError(t, v1.AddToScheme(s))
+	testifyassert.NoError(t, batchv1.AddToScheme(s))
+	cl := fake.NewClientBuilder().WithScheme(s).WithStatusSubresource(model).WithObjects(model, job).Build()
+	r := newMockModelReconciler(cl)
+	_, err := r.handleUploading(context.Background(), model)
+	testifyassert.NoError(t, err)
+	assert.Equal(t, v1.ModelPhaseFailed, model.Status.Phase)
+}
+
+func TestModelHandleDownloadingCreatesOpsJob(t *testing.T) {
+	patches := patchS3Config(t)
+	defer patches.Reset()
+
+	model := genMockModel("m-dl", v1.AccessModeLocal, "ws1")
+	model.Status.Phase = v1.ModelPhaseDownloading
+	model.Status.S3Path = "models/m-dl"
+	model.Status.LocalPaths = []v1.ModelLocalPath{
+		{Workspace: "ws1", Path: "/data/models/m-dl", Status: v1.LocalPathStatusPending},
+	}
+	workspace := &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ws1"}, Spec: v1.WorkspaceSpec{Cluster: "c1"}}
+	cl := fake.NewClientBuilder().
+		WithScheme(scheme.Scheme).
+		WithStatusSubresource(model).
+		WithObjects(model, workspace).
+		Build()
+	r := newMockModelReconciler(cl)
+	_, err := r.handleDownloading(context.Background(), model)
+	testifyassert.NoError(t, err)
+}
+
+func TestModelHandleUploadingInProgress(t *testing.T) {
+	model := genMockModel("m-up2", v1.AccessModeLocal, "ws1")
+	model.Status.Phase = v1.ModelPhaseUploading
+	jobName := "m-up2"
+	job := &batchv1.Job{
+		ObjectMeta: metav1.ObjectMeta{Name: jobName, Namespace: "primus-safe"},
+		Status:     batchv1.JobStatus{Active: 1},
+	}
+	s := runtime.NewScheme()
+	testifyassert.NoError(t, v1.AddToScheme(s))
+	testifyassert.NoError(t, batchv1.AddToScheme(s))
+	cl := fake.NewClientBuilder().WithScheme(s).WithStatusSubresource(model).WithObjects(model, job).Build()
+	r := newMockModelReconciler(cl)
+	res, err := r.handleUploading(context.Background(), model)
+	testifyassert.NoError(t, err)
+	testifyassert.True(t, res.RequeueAfter > 0)
+}
+
+func TestModelHandleDeleteNoFinalizer(t *testing.T) {
+	model := genMockModel("m-del", v1.AccessModeLocal, "ws1")
+	now := metav1.Now()
+	model.DeletionTimestamp = &now
+	model.Finalizers = []string{"other-finalizer"}
+	cl := fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(model).Build()
+	r := newMockModelReconciler(cl)
+	// No model finalizer -> nothing to do.
+	res, err := r.handleDelete(context.Background(), model)
+	testifyassert.NoError(t, err)
+	assert.Equal(t, int64(0), res.RequeueAfter.Nanoseconds())
+}
+
+func TestConstructLocalDownloadOpsJobNoCluster(t *testing.T) {
+	patches := patchS3Config(t)
+	defer patches.Reset()
+
+	model := genMockModel("m1", v1.AccessModeLocal, "ws1")
+	workspace := &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ws1"}}
+	cl := fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(workspace).Build()
+	r := newMockModelReconciler(cl)
+	lp := &v1.ModelLocalPath{Workspace: "ws1"}
+	_, err := r.constructLocalDownloadOpsJob(context.Background(), model, lp)
+	testifyassert.Error(t, err)
+}
+
+// --- merged from model_handle_full_test.go ---
+
+func TestHandlePendingLocalModelFull(t *testing.T) {
+	model := genMockLocalModel("local-pending", "")
+	model.Status.Phase = v1.ModelPhasePending
+
+	mockScheme, err := genMockScheme()
+	testifyassert.NoError(t, err)
+	testifyassert.NoError(t, batchv1.AddToScheme(mockScheme))
+	cl := fake.NewClientBuilder().WithObjects(model).WithStatusSubresource(model).WithScheme(mockScheme).Build()
+	r := newMockModelReconciler(cl)
+
+	_, err = r.handlePending(context.Background(), model)
+	testifyassert.NoError(t, err)
+	// Local model either starts uploading or fails when the download job can't be built.
+	testifyassert.Contains(t, []v1.ModelPhase{v1.ModelPhaseUploading, v1.ModelPhaseFailed}, model.Status.Phase)
+}
+
+func TestHandleDeleteLocalModelFull(t *testing.T) {
+	model := genMockLocalModel("local-delete", "")
+	controllerutil.AddFinalizer(model, ModelFinalizer)
+
+	mockScheme, err := genMockScheme()
+	testifyassert.NoError(t, err)
+	testifyassert.NoError(t, batchv1.AddToScheme(mockScheme))
+	cl := fake.NewClientBuilder().WithObjects(model).WithStatusSubresource(model).WithScheme(mockScheme).Build()
+	r := newMockModelReconciler(cl)
+
+	_, err = r.handleDelete(context.Background(), model)
+	testifyassert.NoError(t, err)
+}
+
+func TestModelFailoverHelpers(t *testing.T) {
+	r := &ModelReconciler{}
+	assert.Equal(t, "/wekafs", r.extractBasePath("/wekafs/models/llama"))
+	assert.Equal(t, "", r.extractBasePath("/no-models-here"))
+
+	model := genMockLocalModel("m-tried", "")
+	// initially empty
+	testifyassert.Empty(t, r.getTriedWorkspaces(model, "/wekafs"))
+	// set then read back
+	r.setTriedWorkspaces(model, "/wekafs", []string{"ws1", "ws2"})
+	got := r.getTriedWorkspaces(model, "/wekafs")
+	testifyassert.Equal(t, []string{"ws1", "ws2"}, got)
+}
+
+func TestTryFailoverFull(t *testing.T) {
+	model := genMockLocalModel("failover", "")
+	mockScheme, err := genMockScheme()
+	testifyassert.NoError(t, err)
+	cl := fake.NewClientBuilder().WithObjects(model).WithStatusSubresource(model).WithScheme(mockScheme).Build()
+	r := newMockModelReconciler(cl)
+	ctx := context.Background()
+
+	// empty path -> cannot determine base path
+	testifyassert.False(t, r.tryFailover(ctx, model, &v1.ModelLocalPath{Workspace: "ws1", Path: ""}))
+
+	// valid path but no other workspaces sharing it -> no candidates
+	testifyassert.False(t, r.tryFailover(ctx, model, &v1.ModelLocalPath{Workspace: "ws1", Path: "/wekafs/models/failover"}))
+}
+
+func TestHandleDeleteNoFinalizer(t *testing.T) {
+	model := genMockLocalModel("local-nofin", "")
+	mockScheme, err := genMockScheme()
+	testifyassert.NoError(t, err)
+	cl := fake.NewClientBuilder().WithObjects(model).WithStatusSubresource(model).WithScheme(mockScheme).Build()
+	r := newMockModelReconciler(cl)
+
+	_, err = r.handleDelete(context.Background(), model)
+	testifyassert.NoError(t, err)
+}
+
+// --- merged from model_helpers_test.go ---
+
+func batchv1AddToScheme(s *runtime.Scheme) error { return batchv1.AddToScheme(s) }
+
+func reconcileReq(name string) ctrlruntime.Request {
+	return ctrlruntime.Request{NamespacedName: types.NamespacedName{Name: name}}
+}
+
+func clientKey(name string) client.ObjectKey { return client.ObjectKey{Name: name} }
+
+func TestBuildLocalModelPath(t *testing.T) {
+	assert.Equal(t, "/root/models/m1", buildLocalModelPath("/root/", "", "m1"))
+	assert.Equal(t, "/root/sub/models/m1", buildLocalModelPath("/root", "/sub/", "m1"))
+}
+
+func TestModelSetAndGetTriedWorkspaces(t *testing.T) {
+	r := newMockModelReconciler(nil)
+	model := &v1.Model{ObjectMeta: metav1.ObjectMeta{Name: "m1"}}
+	// Empty -> nil.
+	testifyassert.Nil(t, r.getTriedWorkspaces(model, "/base"))
+	r.setTriedWorkspaces(model, "/base", []string{"ws1", "ws2"})
+	got := r.getTriedWorkspaces(model, "/base")
+	testifyassert.Equal(t, []string{"ws1", "ws2"}, got)
+	// Different base -> nil.
+	testifyassert.Nil(t, r.getTriedWorkspaces(model, "/other"))
+}
+
+func TestAppendUniqueAndContains(t *testing.T) {
+	s := appendUnique(nil, "a")
+	s = appendUnique(s, "a")
+	s = appendUnique(s, "b")
+	testifyassert.Equal(t, []string{"a", "b"}, s)
+	testifyassert.True(t, containsString(s, "a"))
+	testifyassert.False(t, containsString(s, "z"))
+}
+
+func TestModelGetWorkspace(t *testing.T) {
+	ws := &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ws1"}}
+	cl := fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(ws).Build()
+	r := newMockModelReconciler(cl)
+	info, err := r.getWorkspace(context.Background(), "ws1", "")
+	testifyassert.NoError(t, err)
+	assert.Equal(t, "ws1", info.ID)
+
+	_, err = r.getWorkspace(context.Background(), "missing", "")
+	testifyassert.Error(t, err)
+}
+
+func TestModelListWorkspaces(t *testing.T) {
+	ws := &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ws1"}}
+	cl := fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(ws).Build()
+	r := newMockModelReconciler(cl)
+	list, err := r.listWorkspaces(context.Background(), "")
+	testifyassert.NoError(t, err)
+	testifyassert.Len(t, list, 1)
+}
+
+func modelSchemeWithBatch(t *testing.T) *runtime.Scheme {
+	t.Helper()
+	s := runtime.NewScheme()
+	testifyassert.NoError(t, v1.AddToScheme(s))
+	testifyassert.NoError(t, batchv1AddToScheme(s))
+	return s
+}
+
+func TestModelReconcileUploadingDispatch(t *testing.T) {
+	model := genMockModel("m-u", v1.AccessModeLocal, "ws1")
+	model.Finalizers = []string{ModelFinalizer}
+	model.Status.Phase = v1.ModelPhaseUploading
+	s := modelSchemeWithBatch(t)
+	cl := fake.NewClientBuilder().WithScheme(s).WithStatusSubresource(model).WithObjects(model).Build()
+	r := newMockModelReconciler(cl)
+	// Dispatches to handleUploading; no job -> Failed.
+	_, err := r.Reconcile(context.Background(), reconcileReq("m-u"))
+	testifyassert.NoError(t, err)
+}
+
+func TestModelReconcileReadyNoop(t *testing.T) {
+	model := genMockModel("m-r", v1.AccessModeLocal, "ws1")
+	model.Finalizers = []string{ModelFinalizer}
+	model.Status.Phase = v1.ModelPhaseReady
+	s := modelSchemeWithBatch(t)
+	cl := fake.NewClientBuilder().WithScheme(s).WithStatusSubresource(model).WithObjects(model).Build()
+	r := newMockModelReconciler(cl)
+	res, err := r.Reconcile(context.Background(), reconcileReq("m-r"))
+	testifyassert.NoError(t, err)
+	assert.Equal(t, int64(0), res.RequeueAfter.Nanoseconds())
+}
+
+func TestModelReconcileLocalPathMode(t *testing.T) {
+	model := genMockModel("m-lp", v1.AccessModeLocalPath, "ws1")
+	model.Spec.Source.LocalPath = "/data/models/m-lp"
+	cl := fake.NewClientBuilder().
+		WithScheme(scheme.Scheme).
+		WithStatusSubresource(model).
+		WithObjects(model).
+		Build()
+	r := newMockModelReconciler(cl)
+	_, err := r.Reconcile(context.Background(), reconcileReq("m-lp"))
+	testifyassert.NoError(t, err)
+	updated := &v1.Model{}
+	testifyassert.NoError(t, cl.Get(context.Background(), clientKey("m-lp"), updated))
+	assert.Equal(t, v1.ModelPhaseReady, updated.Status.Phase)
+	testifyassert.Len(t, updated.Status.LocalPaths, 1)
+}
+
+func TestModelExtractBasePath(t *testing.T) {
+	r := newMockModelReconciler(nil)
+	assert.Equal(t, "/wekafs", r.extractBasePath("/wekafs/models/llama"))
+	assert.Equal(t, "", r.extractBasePath("/nomatch"))
+}
+
+func TestModelTryFailoverNoBasePath(t *testing.T) {
+	r := newMockModelReconciler(nil)
+	model := &v1.Model{ObjectMeta: metav1.ObjectMeta{Name: "m1"}}
+	lp := &v1.ModelLocalPath{Workspace: "ws1", Path: "/nobase"}
+	testifyassert.False(t, r.tryFailover(context.Background(), model, lp))
+}
+
+func TestModelTryFailoverNoCandidates(t *testing.T) {
+	ws := &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ws1"}}
+	cl := fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(ws).Build()
+	r := newMockModelReconciler(cl)
+	model := &v1.Model{ObjectMeta: metav1.ObjectMeta{Name: "m1"}}
+	lp := &v1.ModelLocalPath{Workspace: "ws1", Path: "/wekafs/models/m1"}
+	// Only ws1 exists and it's the failed one -> no candidates.
+	testifyassert.False(t, r.tryFailover(context.Background(), model, lp))
+}
+
+func TestModelInitializeLocalPathsPrivate(t *testing.T) {
+	ws := &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ws1"}}
+	cl := fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(ws).Build()
+	r := newMockModelReconciler(cl)
+	model := genMockModel("m1", v1.AccessModeLocal, "ws1")
+	paths := r.initializeLocalPaths(context.Background(), model)
+	testifyassert.Len(t, paths, 1)
+	assert.Equal(t, "ws1", paths[0].Workspace)
+}

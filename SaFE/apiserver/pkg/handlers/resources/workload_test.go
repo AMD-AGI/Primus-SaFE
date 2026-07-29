@@ -17,6 +17,8 @@ import (
 	"testing"
 	"time"
 
+	testifyassert "github.com/stretchr/testify/assert"
+
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	"github.com/gin-gonic/gin"
 	"github.com/golang/mock/gomock"
@@ -1892,4 +1894,172 @@ func Test_buildSSHCommand_NoTemplate(t *testing.T) {
 	result := h.buildSSHCommand(ctx, pod, "test-user", "test-workspace", gvk)
 
 	assert.Equal(t, result, "")
+}
+
+// --- merged from workload_mutate_test.go ---
+
+// newWorkloadMutateHandler builds a handler seeded with a running workload owned
+// by the admin user, with status subresource enabled for updates.
+func newWorkloadMutateHandler(workloadId string) (*Handler, *v1.User, *v1.Workload) {
+	user := genMockUser()
+	role := genMockRole()
+	workload := genMockWorkload("test-cluster", "test-workspace")
+	workload.Name = workloadId
+	workload.Status.Phase = v1.WorkloadRunning
+	v1.SetLabel(workload, v1.UserIdLabel, user.Name)
+
+	sch := runtime.NewScheme()
+	_ = v1.AddToScheme(sch)
+	ctrlClient := ctrlruntimefake.NewClientBuilder().
+		WithScheme(sch).
+		WithObjects(user, role, workload).
+		WithStatusSubresource(workload).
+		Build()
+	h := &Handler{
+		Client:           ctrlClient,
+		clientSet:        k8sfake.NewSimpleClientset(),
+		accessController: authority.NewAccessController(ctrlClient),
+	}
+	return h, user, workload
+}
+
+func TestStopWorkloadWrapper(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	h, user, _ := newWorkloadMutateHandler("wl-stop")
+
+	rsp := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rsp)
+	c.Request = httptest.NewRequest(http.MethodPost, "/", nil)
+	c.Set(common.UserId, user.Name)
+	c.Set(common.UserName, v1.GetUserName(user))
+	c.Set(common.Name, "wl-stop")
+	h.StopWorkload(c)
+	assert.Equal(t, http.StatusOK, rsp.Code)
+
+	// Workload should be removed from etcd after stop.
+	got := &v1.Workload{}
+	err := h.Get(c.Request.Context(), client.ObjectKey{Name: "wl-stop"}, got)
+	testifyassert.Error(t, err)
+}
+
+func TestPatchWorkloadWrapper(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	h, user, _ := newWorkloadMutateHandler("wl-patch")
+
+	newPriority := 1
+	body, _ := json.Marshal(view.PatchWorkloadRequest{Priority: &newPriority})
+	rsp := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rsp)
+	c.Request = httptest.NewRequest(http.MethodPatch, "/", bytes.NewReader(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+	c.Set(common.UserId, user.Name)
+	c.Set(common.UserName, v1.GetUserName(user))
+	c.Set(common.Name, "wl-patch")
+	h.PatchWorkload(c)
+	assert.Equal(t, http.StatusOK, rsp.Code)
+}
+
+// --- merged from workload_wrappers_test.go ---
+
+func newWorkloadDBHandler(t *testing.T, ctrl *gomock.Controller) (*Handler, *v1.User, *mockdb.MockInterface) {
+	t.Helper()
+	commonconfig.SetValue("db.enable", "true")
+	t.Cleanup(func() { commonconfig.SetValue("db.enable", "") })
+
+	user := genMockUser()
+	role := genMockRole()
+	sch := runtime.NewScheme()
+	_ = v1.AddToScheme(sch)
+	fakeCtrlClient := ctrlruntimefake.NewClientBuilder().WithObjects(user, role).WithScheme(sch).Build()
+	mockDB := mockdb.NewMockInterface(ctrl)
+	h := &Handler{
+		Client:           fakeCtrlClient,
+		clientSet:        k8sfake.NewSimpleClientset(),
+		dbClient:         mockDB,
+		accessController: authority.NewAccessController(fakeCtrlClient),
+	}
+	return h, user, mockDB
+}
+
+func TestListWorkloadWrapper(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	h, user, mockDB := newWorkloadDBHandler(t, ctrl)
+	mockDB.EXPECT().SelectWorkloadsForList(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+		Return([]*dbclient.Workload{{WorkloadId: "wl-1", Workspace: "ws-1", Cluster: "c1"}}, nil).AnyTimes()
+	mockDB.EXPECT().CountWorkloads(gomock.Any(), gomock.Any()).Return(1, nil).AnyTimes()
+	mockDB.EXPECT().GetWorkloadStatisticsByWorkloadIDs(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
+
+	rsp := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rsp)
+	c.Request = httptest.NewRequest(http.MethodGet, "/?workspaceId=ws-1", nil)
+	c.Set(common.UserId, user.Name)
+	h.ListWorkload(c)
+	assert.Equal(t, http.StatusOK, rsp.Code)
+}
+
+func TestGetWorkloadWrapper(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	h, user, mockDB := newWorkloadDBHandler(t, ctrl)
+	mockDB.EXPECT().GetWorkload(gomock.Any(), "wl-1").Return(&dbclient.Workload{
+		WorkloadId:  "wl-1",
+		Workspace:   "ws-1",
+		Cluster:     "c1",
+		DisplayName: "WL One",
+		UserId:      sql.NullString{String: user.Name, Valid: true},
+		GVK:         `{"group":"kubeflow.org","version":"v1","kind":"PyTorchJob"}`,
+	}, nil).AnyTimes()
+	mockDB.EXPECT().ListWorkloadPods(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
+	mockDB.EXPECT().ListWorkloadDispatchNodes(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
+
+	rsp := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rsp)
+	c.Request = httptest.NewRequest(http.MethodGet, "/", nil)
+	c.Set(common.UserId, user.Name)
+	c.Set(common.Name, "wl-1")
+	h.GetWorkload(c)
+	assert.Equal(t, http.StatusOK, rsp.Code)
+}
+
+func TestGetWorkloadCleansEmptyDispatchNodes(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	h, user, mockDB := newWorkloadDBHandler(t, ctrl)
+	mockDB.EXPECT().GetWorkload(gomock.Any(), "wl-clean").Return(&dbclient.Workload{
+		WorkloadId: "wl-clean",
+		Workspace:  "ws-1",
+		Cluster:    "c1",
+		UserId:     sql.NullString{String: user.Name, Valid: true},
+		GVK:        `{"group":"kubeflow.org","version":"v1","kind":"PyTorchJob"}`,
+		Nodes:      sql.NullString{String: `[["","n1"],["n2"]]`, Valid: true},
+		Ranks:      sql.NullString{String: `[["skip","0"],["1"]]`, Valid: true},
+	}, nil)
+	mockDB.EXPECT().ListWorkloadPods(gomock.Any(), gomock.Any()).Return(nil, nil)
+	mockDB.EXPECT().ListWorkloadDispatchNodes(gomock.Any(), gomock.Any()).Return(nil, nil)
+
+	rsp := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rsp)
+	c.Request = httptest.NewRequest(http.MethodGet, "/", nil)
+	c.Set(common.UserId, user.Name)
+	c.Set(common.Name, "wl-clean")
+	h.GetWorkload(c)
+	assert.Equal(t, http.StatusOK, rsp.Code)
+
+	var body view.GetWorkloadResponse
+	testifyassert.NoError(t, json.Unmarshal(rsp.Body.Bytes(), &body))
+	testifyassert.Equal(t, [][]string{{"n1"}, {"n2"}}, body.Nodes)
+	testifyassert.Equal(t, [][]string{{"0"}, {"1"}}, body.Ranks)
+}
+
+func TestCompactDispatchNodesAndRanks(t *testing.T) {
+	nodes, ranks := compactDispatchNodesAndRanks([]string{"", "n1", "n2"}, []string{"skip", "0", "1"})
+	testifyassert.Equal(t, []string{"n1", "n2"}, nodes)
+	testifyassert.Equal(t, []string{"0", "1"}, ranks)
 }

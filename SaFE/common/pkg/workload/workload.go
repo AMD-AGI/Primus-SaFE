@@ -39,6 +39,21 @@ func GetTotalReplica(w *v1.Workload) int {
 	return n
 }
 
+// GetTotalGpuReplica returns the total replica count across GPU-bearing
+// resources only. Each GPU resource's Replica is its per-role pod count (an LWS
+// node count for a multinode role, a Deployment replica count otherwise), so a
+// result > 1 means the GPU workload spans more than one pod. Non-GPU roles
+// (e.g. an Infera CPU frontend) are excluded so they do not inflate the count.
+func GetTotalGpuReplica(w *v1.Workload) int {
+	n := 0
+	for _, res := range w.Spec.Resources {
+		if res.HasGpu() {
+			n += res.Replica
+		}
+	}
+	return n
+}
+
 // GetInUseNodeCount returns the number of unique nodes currently in use by the
 // workload's non-terminated pods. Terminated pods (Succeeded/Failed) release
 // their node and are excluded, matching the paired used-quota computation and the
