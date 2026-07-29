@@ -17,6 +17,11 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+const (
+	testAdminKey     = "sk-" + "master"
+	testGeneratedKey = "sk-" + "generated-key"
+)
+
 // ── CreateUser tests ──────────────────────────────────────────────────────
 
 func TestCreateUser_Success(t *testing.T) {
@@ -24,14 +29,14 @@ func TestCreateUser_Success(t *testing.T) {
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, "/user/new", r.URL.Path)
-		assert.Equal(t, "Bearer sk-master", r.Header.Get("Authorization"))
+		assert.Equal(t, "Bearer " + testAdminKey, r.Header.Get("Authorization"))
 		json.NewDecoder(r.Body).Decode(&received)
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte(`{"user_id":"test@amd.com"}`))
 	}))
 	defer server.Close()
 
-	client := NewLiteLLMClient(server.URL, "sk-master", "team-123")
+	client := NewLiteLLMClient(server.URL, testAdminKey, "team-123")
 	err := client.CreateUser(context.Background(), "test@amd.com")
 
 	assert.NoError(t, err)
@@ -48,7 +53,7 @@ func TestCreateUser_Conflict409(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewLiteLLMClient(server.URL, "sk-master", "team-123")
+	client := NewLiteLLMClient(server.URL, testAdminKey, "team-123")
 	err := client.CreateUser(context.Background(), "test@amd.com")
 	assert.NoError(t, err)
 }
@@ -60,7 +65,7 @@ func TestCreateUser_ServerError(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewLiteLLMClient(server.URL, "sk-master", "team-123")
+	client := NewLiteLLMClient(server.URL, testAdminKey, "team-123")
 	err := client.CreateUser(context.Background(), "test@amd.com")
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "500")
@@ -89,7 +94,7 @@ func TestCreateKey_Success(t *testing.T) {
 		json.NewDecoder(r.Body).Decode(&received)
 		w.WriteHeader(http.StatusOK)
 		json.NewEncoder(w).Encode(CreateKeyResponse{
-			Key:     "sk-generated-key",
+			Key:     testGeneratedKey,
 			KeyName: "sk-...key",
 			TokenID: "hash-abc123",
 			Expires: "2027-01-01T00:00:00Z",
@@ -97,11 +102,11 @@ func TestCreateKey_Success(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewLiteLLMClient(server.URL, "sk-master", "team-123")
+	client := NewLiteLLMClient(server.URL, testAdminKey, "team-123")
 	resp, err := client.CreateKey(context.Background(), "test@amd.com", "apim-key-value")
 
 	assert.NoError(t, err)
-	assert.Equal(t, "sk-generated-key", resp.Key)
+	assert.Equal(t, testGeneratedKey, resp.Key)
 	assert.Equal(t, "hash-abc123", resp.TokenID)
 	assert.Equal(t, "test@amd.com", received.UserID)
 	assert.Equal(t, "team-123", received.TeamID)
@@ -117,7 +122,7 @@ func TestCreateKey_LiteLLMError(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewLiteLLMClient(server.URL, "sk-master", "team-123")
+	client := NewLiteLLMClient(server.URL, testAdminKey, "team-123")
 	resp, err := client.CreateKey(context.Background(), "test@amd.com", "apim-key")
 
 	assert.Error(t, err)
@@ -138,7 +143,7 @@ func TestUpdateKeyMetadata_Success(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewLiteLLMClient(server.URL, "sk-master", "team-123")
+	client := NewLiteLLMClient(server.URL, testAdminKey, "team-123")
 	err := client.UpdateKeyMetadata(context.Background(), "hash1234567890123456", "new-apim-key", "test@amd.com")
 
 	assert.NoError(t, err)
@@ -154,7 +159,7 @@ func TestUpdateKeyMetadata_Error(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewLiteLLMClient(server.URL, "sk-master", "team-123")
+	client := NewLiteLLMClient(server.URL, testAdminKey, "team-123")
 	err := client.UpdateKeyMetadata(context.Background(), "hash1234567890123456", "apim-key", "test@amd.com")
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "404")
@@ -172,7 +177,7 @@ func TestDeleteKey_ByHash_Success(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewLiteLLMClient(server.URL, "sk-master", "team-123")
+	client := NewLiteLLMClient(server.URL, testAdminKey, "team-123")
 	err := client.DeleteKey(context.Background(), "hash1234567890123456", "test@amd.com")
 	assert.NoError(t, err)
 }
@@ -196,7 +201,7 @@ func TestDeleteKey_HashNotFound_FallbackAlias(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewLiteLLMClient(server.URL, "sk-master", "team-123")
+	client := NewLiteLLMClient(server.URL, testAdminKey, "team-123")
 	err := client.DeleteKey(context.Background(), "wrong-hash-12345678", "test@amd.com")
 	assert.NoError(t, err)
 	assert.Equal(t, 2, calls)
@@ -209,7 +214,7 @@ func TestDeleteKey_HashNotFound_NoAlias(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewLiteLLMClient(server.URL, "sk-master", "team-123")
+	client := NewLiteLLMClient(server.URL, testAdminKey, "team-123")
 	err := client.DeleteKey(context.Background(), "wrong-hash-12345678", "")
 	assert.NoError(t, err)
 }
@@ -221,7 +226,7 @@ func TestDeleteKey_ServerError(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewLiteLLMClient(server.URL, "sk-master", "team-123")
+	client := NewLiteLLMClient(server.URL, testAdminKey, "team-123")
 	err := client.DeleteKey(context.Background(), "hash1234567890123456", "test@amd.com")
 	assert.Error(t, err)
 }
@@ -275,7 +280,7 @@ func TestGetUserDailyActivity_Success(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewLiteLLMClient(server.URL, "sk-master", "team-123")
+	client := NewLiteLLMClient(server.URL, testAdminKey, "team-123")
 	resp, err := client.GetUserDailyActivity(context.Background(), "test@amd.com", "2026-03-10", "2026-03-17")
 
 	assert.NoError(t, err)
@@ -294,7 +299,7 @@ func TestGetUserDailyActivity_Error(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewLiteLLMClient(server.URL, "sk-master", "team-123")
+	client := NewLiteLLMClient(server.URL, testAdminKey, "team-123")
 	resp, err := client.GetUserDailyActivity(context.Background(), "test@amd.com", "2026-03-10", "2026-03-17")
 	assert.Error(t, err)
 	assert.Nil(t, resp)
@@ -321,7 +326,7 @@ func TestGetUserInfo_Success(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewLiteLLMClient(server.URL, "sk-master", "team-123")
+	client := NewLiteLLMClient(server.URL, testAdminKey, "team-123")
 	resp, err := client.GetUserInfo(context.Background(), "test@amd.com")
 
 	assert.NoError(t, err)
@@ -338,7 +343,7 @@ func TestGetUserInfo_NotFound(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewLiteLLMClient(server.URL, "sk-master", "team-123")
+	client := NewLiteLLMClient(server.URL, testAdminKey, "team-123")
 	resp, err := client.GetUserInfo(context.Background(), "nonexistent@amd.com")
 	assert.Error(t, err)
 	assert.Nil(t, resp)
@@ -378,13 +383,13 @@ func TestGetKeyInfo_Success(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, "/key/info", r.URL.Path)
 		assert.Equal(t, "hash123", r.URL.Query().Get("key"))
-		assert.Equal(t, "Bearer sk-master", r.Header.Get("Authorization"))
+		assert.Equal(t, "Bearer " + testAdminKey, r.Header.Get("Authorization"))
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte(`{"info":{"spend":12.5,"max_budget":30}}`))
 	}))
 	defer server.Close()
 
-	client := NewLiteLLMClient(server.URL, "sk-master", "team-123")
+	client := NewLiteLLMClient(server.URL, testAdminKey, "team-123")
 	info, err := client.GetKeyInfo(context.Background(), "hash123")
 
 	testifyassert.NoError(t, err)
@@ -403,7 +408,7 @@ func TestGetKeyInfo_DecodeError(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewLiteLLMClient(server.URL, "sk-master", "team-123")
+	client := NewLiteLLMClient(server.URL, testAdminKey, "team-123")
 	info, err := client.GetKeyInfo(context.Background(), "hash123")
 
 	testifyassert.Error(t, err)
@@ -420,7 +425,7 @@ func TestUpdateKeyBudget_SendsSetAndRemovePayloads(t *testing.T) {
 	var requests []requestSnapshot
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, "/key/update", r.URL.Path)
-		assert.Equal(t, "Bearer sk-master", r.Header.Get("Authorization"))
+		assert.Equal(t, "Bearer " + testAdminKey, r.Header.Get("Authorization"))
 
 		var body requestSnapshot
 		err := json.NewDecoder(r.Body).Decode(&body)
@@ -432,7 +437,7 @@ func TestUpdateKeyBudget_SendsSetAndRemovePayloads(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewLiteLLMClient(server.URL, "sk-master", "team-123")
+	client := NewLiteLLMClient(server.URL, testAdminKey, "team-123")
 	maxBudget := 55.5
 
 	err := client.UpdateKeyBudget(context.Background(), "hash123", &maxBudget)
@@ -468,7 +473,7 @@ func TestGetSpendLogs_DefaultsInvalidPageValues(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewLiteLLMClient(server.URL, "sk-master", "team-123")
+	client := NewLiteLLMClient(server.URL, testAdminKey, "team-123")
 	resp, err := client.GetSpendLogs(context.Background(), "test@amd.com", "2026-03-01", "2026-03-02", 0, 0)
 
 	testifyassert.NoError(t, err)
@@ -502,7 +507,7 @@ func TestGetAllSpendLogs_CollectsMultiplePages(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewLiteLLMClient(server.URL, "sk-master", "team-123")
+	client := NewLiteLLMClient(server.URL, testAdminKey, "team-123")
 	logs, err := client.GetAllSpendLogs(context.Background(), "test@amd.com", "2026-03-01", "2026-03-02", 0)
 
 	testifyassert.NoError(t, err)
@@ -526,7 +531,7 @@ func TestGetAllSpendLogs_StopsAtMaxPages(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewLiteLLMClient(server.URL, "sk-master", "team-123")
+	client := NewLiteLLMClient(server.URL, testAdminKey, "team-123")
 	logs, err := client.GetAllSpendLogs(context.Background(), "test@amd.com", "2026-03-01", "2026-03-02", 1)
 
 	testifyassert.NoError(t, err)

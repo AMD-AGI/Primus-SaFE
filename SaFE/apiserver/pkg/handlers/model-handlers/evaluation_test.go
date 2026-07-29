@@ -81,13 +81,13 @@ func TestGenerateS3ReportPath(t *testing.T) {
 	}{
 		{
 			name:     "standard task id",
-			taskId:   "eval-task-12345",
-			expected: "evaluations/eval-task-12345/summary.json",
+			taskId:   "eval-job-12345",
+			expected: "evaluations/eval-job-12345/summary.json",
 		},
 		{
 			name:     "uuid task id",
-			taskId:   "eval-task-abcd1234-5678-90ef",
-			expected: "evaluations/eval-task-abcd1234-5678-90ef/summary.json",
+			taskId:   "eval-job-abcd1234-5678-90ef",
+			expected: "evaluations/eval-job-abcd1234-5678-90ef/summary.json",
 		},
 	}
 
@@ -216,7 +216,7 @@ func TestBenchmarkConfig(t *testing.T) {
 func TestEvaluationTaskView(t *testing.T) {
 	// Test EvaluationTaskView struct initialization
 	view := EvaluationTaskView{
-		TaskId:         "eval-task-test",
+		TaskId:         "eval-job-test",
 		TaskName:       "Test Evaluation",
 		ServiceId:      "model-123",
 		ServiceType:    EvalServiceTypeRemoteAPI,
@@ -227,7 +227,7 @@ func TestEvaluationTaskView(t *testing.T) {
 		Concurrency:    32,
 	}
 
-	assert.Equal(t, view.TaskId, "eval-task-test")
+	assert.Equal(t, view.TaskId, "eval-job-test")
 	assert.Equal(t, view.TaskName, "Test Evaluation")
 	assert.Equal(t, view.ServiceType, EvalServiceTypeRemoteAPI)
 	assert.Equal(t, view.EvaluationType, "normal")
@@ -552,7 +552,7 @@ func TestListEvaluationTasksRequest(t *testing.T) {
 func TestEvaluationReportResponse(t *testing.T) {
 	// Test EvaluationReportResponse struct
 	response := EvaluationReportResponse{
-		TaskId:      "eval-task-123",
+		TaskId:      "eval-job-123",
 		TaskName:    "Test Evaluation",
 		ServiceName: "gpt-4",
 		Status:      "Succeeded",
@@ -563,7 +563,7 @@ func TestEvaluationReportResponse(t *testing.T) {
 		Duration: "1h30m",
 	}
 
-	assert.Equal(t, response.TaskId, "eval-task-123")
+	assert.Equal(t, response.TaskId, "eval-job-123")
 	assert.Equal(t, response.TaskName, "Test Evaluation")
 	assert.Equal(t, response.ServiceName, "gpt-4")
 	assert.Equal(t, response.Status, "Succeeded")

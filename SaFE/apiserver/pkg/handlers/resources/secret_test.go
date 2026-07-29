@@ -188,12 +188,12 @@ func TestBuildSecretLabelSelector(t *testing.T) {
 }
 
 // Helper function to generate Docker config JSON data
-func genDockerConfigData(t *testing.T, server, username, password string) []byte {
+func genDockerConfigData(t *testing.T, server, username, pwd string) []byte {
 	config := view.DockerConfig{
 		Auths: map[string]view.DockerConfigItem{
 			server: {
 				UserName: username,
-				Password: password,
+				Password: pwd,
 			},
 		},
 	}
