@@ -56,8 +56,19 @@ func Connect(cfg *DBConfig, driverName DBDriver) (*sqlx.DB, error) {
 	}
 	db.SetConnMaxIdleTime(cfg.MaxIdleTime)
 	db.SetConnMaxLifetime(cfg.MaxLifetime)
-	metrics.RegisterDBPool(cfg.DBName, db.Stats)
+	metrics.RegisterDBPool(SqlxPoolKey(cfg), db.Stats)
 	return db, nil
+}
+
+// SqlxPoolKey identifies the sqlx pool of a configuration in the pool metrics.
+func SqlxPoolKey(cfg *DBConfig) metrics.PoolKey {
+	return metrics.PoolKey{Pool: cfg.PoolName(), Driver: metrics.DriverSqlx}
+}
+
+// GormPoolKey identifies the GORM pool of a configuration in the pool metrics.
+// GORM opens its own pool, separate from the sqlx one.
+func GormPoolKey(cfg *DBConfig) metrics.PoolKey {
+	return metrics.PoolKey{Pool: cfg.PoolName(), Driver: metrics.DriverGorm}
 }
 
 // ConnectGorm establishes a connection to the database using GORM ORM.
@@ -97,6 +108,13 @@ func ConnectGorm(cfg *DBConfig) (*gorm.DB, error) {
 	if err = gormDB.Use(gormMetricsPlugin{}); err != nil {
 		return nil, err
 	}
+	// GORM opens a pool of its own rather than sharing the sqlx one, and it is
+	// left on the database/sql defaults, so it needs its own pool metrics.
+	sqlDB, err := gormDB.DB()
+	if err != nil {
+		return nil, err
+	}
+	metrics.RegisterDBPool(GormPoolKey(cfg), sqlDB.Stats)
 	return gormDB, nil
 }
 

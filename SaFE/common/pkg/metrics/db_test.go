@@ -132,22 +132,65 @@ func histogramCount(t *testing.T, labels ...string) uint64 {
 	return collected.GetHistogram().GetSampleCount()
 }
 
-func TestRegisterDBPool(t *testing.T) {
-	RegisterDBPool("test_pool", func() sql.DBStats {
-		return sql.DBStats{MaxOpenConnections: 100, OpenConnections: 7, InUse: 3, Idle: 4, WaitCount: 11}
+// The sqlx and GORM pools of one database are distinct connection pools and
+// must be reported separately rather than one silently shadowing the other.
+func TestRegisterDBPoolSeparatesDrivers(t *testing.T) {
+	sqlxKey := PoolKey{Pool: "db-a:5432/safe", Driver: DriverSqlx}
+	gormKey := PoolKey{Pool: "db-a:5432/safe", Driver: DriverGorm}
+	t.Cleanup(func() {
+		UnregisterDBPool(sqlxKey)
+		UnregisterDBPool(gormKey)
+	})
+
+	RegisterDBPool(sqlxKey, func() sql.DBStats {
+		return sql.DBStats{MaxOpenConnections: 100, OpenConnections: 7, InUse: 3, Idle: 4}
+	})
+	RegisterDBPool(gormKey, func() sql.DBStats {
+		return sql.DBStats{OpenConnections: 5, InUse: 1, Idle: 4}
 	})
 
 	expected := `
 # HELP safe_db_pool_connections Number of database connections in the pool, by state.
 # TYPE safe_db_pool_connections gauge
-safe_db_pool_connections{pool="test_pool",state="idle"} 4
-safe_db_pool_connections{pool="test_pool",state="in_use"} 3
-safe_db_pool_connections{pool="test_pool",state="open"} 7
+safe_db_pool_connections{driver="gorm",pool="db-a:5432/safe",state="idle"} 4
+safe_db_pool_connections{driver="gorm",pool="db-a:5432/safe",state="in_use"} 1
+safe_db_pool_connections{driver="gorm",pool="db-a:5432/safe",state="open"} 5
+safe_db_pool_connections{driver="sqlx",pool="db-a:5432/safe",state="idle"} 4
+safe_db_pool_connections{driver="sqlx",pool="db-a:5432/safe",state="in_use"} 3
+safe_db_pool_connections{driver="sqlx",pool="db-a:5432/safe",state="open"} 7
 `
 	assert.NoError(t, testutil.CollectAndCompare(poolCollector, strings.NewReader(expected), "safe_db_pool_connections"))
 }
 
+// Two clients against the same database name on different servers must not
+// shadow each other, which is why the key carries the host and port.
+func TestRegisterDBPoolDistinguishesHosts(t *testing.T) {
+	first := PoolKey{Pool: "db-a:5432/safe", Driver: DriverSqlx}
+	second := PoolKey{Pool: "db-b:5432/safe", Driver: DriverSqlx}
+	t.Cleanup(func() {
+		UnregisterDBPool(first)
+		UnregisterDBPool(second)
+	})
+
+	RegisterDBPool(first, func() sql.DBStats { return sql.DBStats{OpenConnections: 1} })
+	RegisterDBPool(second, func() sql.DBStats { return sql.DBStats{OpenConnections: 2} })
+
+	assert.Equal(t, 6, testutil.CollectAndCount(poolCollector, "safe_db_pool_connections"))
+}
+
+// A closed pool otherwise keeps reporting a frozen set of zeroes forever.
+func TestUnregisterDBPool(t *testing.T) {
+	key := PoolKey{Pool: "db-gone:5432/safe", Driver: DriverSqlx}
+	RegisterDBPool(key, func() sql.DBStats { return sql.DBStats{OpenConnections: 3} })
+	require.Equal(t, 3, testutil.CollectAndCount(poolCollector, "safe_db_pool_connections"))
+
+	UnregisterDBPool(key)
+	assert.Equal(t, 0, testutil.CollectAndCount(poolCollector, "safe_db_pool_connections"))
+}
+
 // RegisterDBPool must not panic when handed a nil source.
 func TestRegisterDBPoolNil(t *testing.T) {
-	assert.NotPanics(t, func() { RegisterDBPool("nil_pool", nil) })
+	assert.NotPanics(t, func() {
+		RegisterDBPool(PoolKey{Pool: "nil-pool", Driver: DriverSqlx}, nil)
+	})
 }

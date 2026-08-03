@@ -98,6 +98,14 @@ var (
 		Name: "safe_apiserver_sso_login_total",
 		Help: "SSO login attempts, by outcome and the stage that decided it.",
 	}, []string{"result", "stage"})
+
+	ssoTokenVerify = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "safe_apiserver_sso_token_verify_total",
+		Help: "ID token verifications, by outcome. Verification runs on every " +
+			"authenticated request and is offline while the signing keys are cached, " +
+			"so a failure here is normally an expired or malformed token rather than " +
+			"a provider fault.",
+	}, []string{"result"})
 )
 
 func init() {
@@ -105,6 +113,7 @@ func init() {
 		ssoIdPRequestDuration,
 		ssoIdPErrors,
 		ssoLogins,
+		ssoTokenVerify,
 	)
 }
 
@@ -117,6 +126,38 @@ func ObserveIdPRequest(operation string, start time.Time, err error) {
 		ssoIdPErrors.WithLabelValues(operation, ClassifyIdPError(err)).Inc()
 	}
 	ssoIdPRequestDuration.WithLabelValues(operation, status).Observe(time.Since(start).Seconds())
+}
+
+// ObserveTokenVerify records an ID token verification.
+//
+// Verification is deliberately kept out of the identity provider latency
+// histogram and, in the common case, out of its error counter too: it runs on
+// every authenticated request and resolves locally while the signing keys are
+// cached, so an expired or forged token would otherwise light up a provider
+// alert. Only a network class failure means the key fetch actually left the
+// process, and only that is attributed to the provider.
+func ObserveTokenVerify(err error) {
+	if err == nil {
+		ssoTokenVerify.WithLabelValues(resultSuccess).Inc()
+		return
+	}
+	ssoTokenVerify.WithLabelValues(resultFailure).Inc()
+	if kind := ClassifyIdPError(err); isNetworkKind(kind) {
+		ssoIdPErrors.WithLabelValues(OpTokenVerify, kind).Inc()
+	}
+}
+
+// isNetworkKind reports whether an error kind means the call reached the
+// network, as opposed to being decided locally or by the provider's own
+// response. A canceled context is excluded: it means the caller went away.
+func isNetworkKind(kind string) bool {
+	switch kind {
+	case IdPErrTimeout, IdPErrConnectionReset, IdPErrConnectionRefused,
+		IdPErrDNS, IdPErrTLS, IdPErrNetwork:
+		return true
+	default:
+		return false
+	}
 }
 
 // ObserveLoginSuccess records a login that completed end to end.

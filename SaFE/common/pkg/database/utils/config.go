@@ -35,3 +35,9 @@ func (c *DBConfig) SourceName() string {
 	return fmt.Sprintf("user=%s password=%s dbname=%s host=%s port=%d sslmode=%s connect_timeout=%d",
 		c.Username, c.Password, c.DBName, c.Host, c.Port, c.SSLMode, c.ConnectTimeout)
 }
+
+// PoolName identifies the server and database this configuration points at, for
+// use as a metric label. It carries no credentials.
+func (c *DBConfig) PoolName() string {
+	return fmt.Sprintf("%s:%d/%s", c.Host, c.Port, c.DBName)
+}

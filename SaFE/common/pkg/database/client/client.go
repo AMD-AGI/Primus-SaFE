@@ -19,6 +19,7 @@ import (
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/utils"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/metrics"
 )
 
 var (
@@ -146,6 +147,10 @@ func (c *Client) Close() {
 	if err != nil {
 		klog.ErrorS(err, "failed to close db connection")
 	}
+	// Both pools belong to this client, so neither should keep reporting once
+	// the client is discarded.
+	metrics.UnregisterDBPool(utils.SqlxPoolKey(c.DBConfig))
+	metrics.UnregisterDBPool(utils.GormPoolKey(c.DBConfig))
 }
 
 // getDB retrieves DB for internal use. The handle is wrapped so that every

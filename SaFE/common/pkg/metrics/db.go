@@ -82,6 +82,7 @@ const (
 	OpUpdate = "update"
 	OpDelete = "delete"
 	OpWith   = "with"
+	OpCommit = "commit"
 	OpOther  = "other"
 )
 
@@ -210,12 +211,22 @@ func classifyPQCode(code pq.ErrorCode) string {
 // PoolStatsFunc reports the current statistics of a connection pool.
 type PoolStatsFunc func() sql.DBStats
 
+// PoolKey identifies one connection pool. A process holds a separate pool per
+// driver, and may hold pools for several servers, so the database name alone is
+// not unique enough to key them by.
+type PoolKey struct {
+	// Pool identifies the server and database, as host:port/dbname.
+	Pool string
+	// Driver is DriverSqlx or DriverGorm.
+	Driver string
+}
+
 // dbPoolCollector publishes sql.DBStats for every registered pool. A single
 // collector serves all pools so that additional pools can be registered after
-// the collector is already bound to the default registry.
+// the collector is already bound to the registry.
 type dbPoolCollector struct {
 	mu    sync.RWMutex
-	pools map[string]PoolStatsFunc
+	pools map[PoolKey]PoolStatsFunc
 
 	connections     *prometheus.Desc
 	maxOpen         *prometheus.Desc
@@ -228,32 +239,33 @@ type dbPoolCollector struct {
 var poolCollector = newDBPoolCollector()
 
 func newDBPoolCollector() *dbPoolCollector {
+	poolLabels := []string{"pool", "driver"}
 	return &dbPoolCollector{
-		pools: map[string]PoolStatsFunc{},
+		pools: map[PoolKey]PoolStatsFunc{},
 		connections: prometheus.NewDesc(
 			"safe_db_pool_connections",
 			"Number of database connections in the pool, by state.",
-			[]string{"pool", "state"}, nil),
+			[]string{"pool", "driver", "state"}, nil),
 		maxOpen: prometheus.NewDesc(
 			"safe_db_pool_max_open_connections",
-			"Configured upper bound on open connections.",
-			[]string{"pool"}, nil),
+			"Configured upper bound on open connections; 0 means unlimited.",
+			poolLabels, nil),
 		waitCount: prometheus.NewDesc(
 			"safe_db_pool_wait_count_total",
 			"Total number of times a caller had to wait for a connection.",
-			[]string{"pool"}, nil),
+			poolLabels, nil),
 		waitDuration: prometheus.NewDesc(
 			"safe_db_pool_wait_duration_seconds_total",
 			"Total time callers spent waiting for a connection.",
-			[]string{"pool"}, nil),
+			poolLabels, nil),
 		closedMaxIdle: prometheus.NewDesc(
 			"safe_db_pool_closed_max_idle_total",
 			"Total connections closed because the idle limit was reached.",
-			[]string{"pool"}, nil),
+			poolLabels, nil),
 		closedMaxLifeTm: prometheus.NewDesc(
 			"safe_db_pool_closed_max_lifetime_total",
 			"Total connections closed because the lifetime limit was reached.",
-			[]string{"pool"}, nil),
+			poolLabels, nil),
 	}
 }
 
@@ -265,16 +277,24 @@ func init() {
 	)
 }
 
-// RegisterDBPool starts publishing pool statistics under the given pool name.
-// Registering the same name twice replaces the previous source, which keeps the
-// call idempotent for singleton clients.
-func RegisterDBPool(pool string, stats PoolStatsFunc) {
+// RegisterDBPool starts publishing statistics for a pool. Registering the same
+// key twice replaces the previous source, which keeps the call idempotent for
+// singleton clients.
+func RegisterDBPool(key PoolKey, stats PoolStatsFunc) {
 	if stats == nil {
 		return
 	}
 	poolCollector.mu.Lock()
 	defer poolCollector.mu.Unlock()
-	poolCollector.pools[pool] = stats
+	poolCollector.pools[key] = stats
+}
+
+// UnregisterDBPool stops publishing statistics for a pool. Without it a closed
+// pool would keep reporting a frozen set of zeroes forever.
+func UnregisterDBPool(key PoolKey) {
+	poolCollector.mu.Lock()
+	defer poolCollector.mu.Unlock()
+	delete(poolCollector.pools, key)
 }
 
 func (c *dbPoolCollector) Describe(ch chan<- *prometheus.Desc) {
@@ -289,15 +309,16 @@ func (c *dbPoolCollector) Describe(ch chan<- *prometheus.Desc) {
 func (c *dbPoolCollector) Collect(ch chan<- prometheus.Metric) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	for pool, stats := range c.pools {
+	for key, stats := range c.pools {
 		s := stats()
-		ch <- prometheus.MustNewConstMetric(c.connections, prometheus.GaugeValue, float64(s.OpenConnections), pool, "open")
-		ch <- prometheus.MustNewConstMetric(c.connections, prometheus.GaugeValue, float64(s.InUse), pool, "in_use")
-		ch <- prometheus.MustNewConstMetric(c.connections, prometheus.GaugeValue, float64(s.Idle), pool, "idle")
-		ch <- prometheus.MustNewConstMetric(c.maxOpen, prometheus.GaugeValue, float64(s.MaxOpenConnections), pool)
-		ch <- prometheus.MustNewConstMetric(c.waitCount, prometheus.CounterValue, float64(s.WaitCount), pool)
-		ch <- prometheus.MustNewConstMetric(c.waitDuration, prometheus.CounterValue, s.WaitDuration.Seconds(), pool)
-		ch <- prometheus.MustNewConstMetric(c.closedMaxIdle, prometheus.CounterValue, float64(s.MaxIdleClosed), pool)
-		ch <- prometheus.MustNewConstMetric(c.closedMaxLifeTm, prometheus.CounterValue, float64(s.MaxLifetimeClosed), pool)
+		pool, driverName := key.Pool, key.Driver
+		ch <- prometheus.MustNewConstMetric(c.connections, prometheus.GaugeValue, float64(s.OpenConnections), pool, driverName, "open")
+		ch <- prometheus.MustNewConstMetric(c.connections, prometheus.GaugeValue, float64(s.InUse), pool, driverName, "in_use")
+		ch <- prometheus.MustNewConstMetric(c.connections, prometheus.GaugeValue, float64(s.Idle), pool, driverName, "idle")
+		ch <- prometheus.MustNewConstMetric(c.maxOpen, prometheus.GaugeValue, float64(s.MaxOpenConnections), pool, driverName)
+		ch <- prometheus.MustNewConstMetric(c.waitCount, prometheus.CounterValue, float64(s.WaitCount), pool, driverName)
+		ch <- prometheus.MustNewConstMetric(c.waitDuration, prometheus.CounterValue, s.WaitDuration.Seconds(), pool, driverName)
+		ch <- prometheus.MustNewConstMetric(c.closedMaxIdle, prometheus.CounterValue, float64(s.MaxIdleClosed), pool, driverName)
+		ch <- prometheus.MustNewConstMetric(c.closedMaxLifeTm, prometheus.CounterValue, float64(s.MaxLifetimeClosed), pool, driverName)
 	}
 }

@@ -51,6 +51,56 @@ func TestSqlxReadOnlyTransactionIsClassified(t *testing.T) {
 	assert.Positive(t, histogramCount(t, metrics.DriverSqlx, metrics.OpInsert, statusError))
 }
 
+// Batched writes go through a transaction, and that is the path a read-only
+// server rejects first, so it must produce the same metrics as any other write.
+func TestTransactionWritesAreInstrumented(t *testing.T) {
+	c, mock := newMockClient(t)
+	beforeInsert := histogramCount(t, metrics.DriverSqlx, metrics.OpInsert, statusSuccess)
+	beforeCommit := histogramCount(t, metrics.DriverSqlx, metrics.OpCommit, statusSuccess)
+
+	mock.ExpectBegin()
+	mock.ExpectExec("INSERT INTO workload_pod").WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectExec("INSERT INTO workload_pod").WillReturnResult(sqlmock.NewResult(2, 1))
+	mock.ExpectCommit()
+
+	pods := []*WorkloadPod{{WorkloadId: "w", PodId: "p1"}, {WorkloadId: "w", PodId: "p2"}}
+	require.NoError(t, c.BatchUpsertWorkloadPods(context.Background(), pods))
+
+	assert.Equal(t, beforeInsert+2, histogramCount(t, metrics.DriverSqlx, metrics.OpInsert, statusSuccess))
+	assert.Equal(t, beforeCommit+1, histogramCount(t, metrics.DriverSqlx, metrics.OpCommit, statusSuccess))
+}
+
+func TestTransactionReadOnlyTransactionIsClassified(t *testing.T) {
+	c, mock := newMockClient(t)
+	before := counterValue(t, metrics.DriverSqlx, metrics.OpInsert, metrics.ErrKindReadOnlyTransaction)
+
+	mock.ExpectBegin()
+	mock.ExpectExec("INSERT INTO workload_pod").
+		WillReturnError(&pq.Error{Code: "25006", Message: "cannot execute INSERT in a read-only transaction"})
+	mock.ExpectRollback()
+
+	pods := []*WorkloadPod{{WorkloadId: "w", PodId: "p1"}}
+	require.Error(t, c.BatchUpsertWorkloadPods(context.Background(), pods))
+
+	assert.Equal(t, before+1, counterValue(t, metrics.DriverSqlx, metrics.OpInsert, metrics.ErrKindReadOnlyTransaction))
+}
+
+// Callers defer Rollback unconditionally, so instrumenting it would report
+// sql.ErrTxDone on every transaction that already committed.
+func TestTransactionRollbackIsNotCounted(t *testing.T) {
+	c, mock := newMockClient(t)
+	before := counterValue(t, metrics.DriverSqlx, metrics.OpOther, metrics.ErrKindOther)
+
+	mock.ExpectBegin()
+	mock.ExpectExec("INSERT INTO workload_pod").WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectCommit()
+
+	pods := []*WorkloadPod{{WorkloadId: "w", PodId: "p1"}}
+	require.NoError(t, c.BatchUpsertWorkloadPods(context.Background(), pods))
+
+	assert.Equal(t, before, counterValue(t, metrics.DriverSqlx, metrics.OpOther, metrics.ErrKindOther))
+}
+
 func TestSqlxSelectIsInstrumented(t *testing.T) {
 	c, mock := newMockClient(t)
 	before := histogramCount(t, metrics.DriverSqlx, metrics.OpSelect, statusSuccess)

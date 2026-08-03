@@ -194,9 +194,8 @@ func (c *ssoToken) Validate(ctx context.Context, rawToken string) (*UserInfo, er
 // validate verifies ID token and extracts user information
 // Implements TokenInterface.Validate method for OAuth2 tokens
 func (c *ssoToken) validate(ctx context.Context, rawToken string) (*UserInfo, error) {
-	verifyStart := time.Now()
 	idToken, err := c.verifier.Verify(ctx, rawToken)
-	metrics.ObserveIdPRequest(metrics.OpTokenVerify, verifyStart, err)
+	metrics.ObserveTokenVerify(err)
 	if err != nil {
 		return nil, fmt.Errorf("failed to verify ID token: %v", err)
 	}
