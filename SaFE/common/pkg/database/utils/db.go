@@ -60,15 +60,21 @@ func Connect(cfg *DBConfig, driverName DBDriver) (*sqlx.DB, error) {
 	return db, nil
 }
 
+// poolName identifies the server and database a configuration points at, for
+// use as a metric label. It carries no credentials.
+func poolName(cfg *DBConfig) string {
+	return fmt.Sprintf("%s:%d/%s", cfg.Host, cfg.Port, cfg.DBName)
+}
+
 // SqlxPoolKey identifies the sqlx pool of a configuration in the pool metrics.
 func SqlxPoolKey(cfg *DBConfig) metrics.PoolKey {
-	return metrics.PoolKey{Pool: cfg.PoolName(), Driver: metrics.DriverSqlx}
+	return metrics.PoolKey{Pool: poolName(cfg), Driver: metrics.DriverSqlx}
 }
 
 // GormPoolKey identifies the GORM pool of a configuration in the pool metrics.
 // GORM opens its own pool, separate from the sqlx one.
 func GormPoolKey(cfg *DBConfig) metrics.PoolKey {
-	return metrics.PoolKey{Pool: cfg.PoolName(), Driver: metrics.DriverGorm}
+	return metrics.PoolKey{Pool: poolName(cfg), Driver: metrics.DriverGorm}
 }
 
 // ConnectGorm establishes a connection to the database using GORM ORM.
