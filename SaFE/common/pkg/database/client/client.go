@@ -148,12 +148,13 @@ func (c *Client) Close() {
 	}
 }
 
-// getDB retrieves DB for internal use.
-func (c *Client) getDB() (*sqlx.DB, error) {
+// getDB retrieves DB for internal use. The handle is wrapped so that every
+// query issued through it is reported to Prometheus.
+func (c *Client) getDB() (*instrumentedDB, error) {
 	if c.db == nil {
 		return nil, commonerrors.NewInternalError("The client of db has not been initialized")
 	}
-	return c.db.Unsafe(), nil
+	return &instrumentedDB{DB: c.db.Unsafe()}, nil
 }
 
 // GetGormDB retrieves the GORM DB instance for external use.

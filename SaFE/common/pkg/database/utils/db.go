@@ -19,6 +19,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/klog/v2"
 
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/metrics"
 	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/timeutil"
 )
@@ -55,6 +56,7 @@ func Connect(cfg *DBConfig, driverName DBDriver) (*sqlx.DB, error) {
 	}
 	db.SetConnMaxIdleTime(cfg.MaxIdleTime)
 	db.SetConnMaxLifetime(cfg.MaxLifetime)
+	metrics.RegisterDBPool(cfg.DBName, db.Stats)
 	return db, nil
 }
 
@@ -90,6 +92,9 @@ func ConnectGorm(cfg *DBConfig) (*gorm.DB, error) {
 		Plugins:                                  nil,
 	})
 	if err != nil {
+		return nil, err
+	}
+	if err = gormDB.Use(gormMetricsPlugin{}); err != nil {
 		return nil, err
 	}
 	return gormDB, nil
