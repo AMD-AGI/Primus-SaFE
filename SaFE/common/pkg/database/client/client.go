@@ -19,6 +19,7 @@ import (
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/utils"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/metrics"
 )
 
 var (
@@ -146,14 +147,19 @@ func (c *Client) Close() {
 	if err != nil {
 		klog.ErrorS(err, "failed to close db connection")
 	}
+	// Both pools belong to this client, so neither should keep reporting once
+	// the client is discarded.
+	metrics.UnregisterDBPool(utils.SqlxPoolKey(c.DBConfig))
+	metrics.UnregisterDBPool(utils.GormPoolKey(c.DBConfig))
 }
 
-// getDB retrieves DB for internal use.
-func (c *Client) getDB() (*sqlx.DB, error) {
+// getDB retrieves DB for internal use. The handle is wrapped so that every
+// query issued through it is reported to Prometheus.
+func (c *Client) getDB() (*instrumentedDB, error) {
 	if c.db == nil {
 		return nil, commonerrors.NewInternalError("The client of db has not been initialized")
 	}
-	return c.db.Unsafe(), nil
+	return &instrumentedDB{DB: c.db.Unsafe()}, nil
 }
 
 // GetGormDB retrieves the GORM DB instance for external use.

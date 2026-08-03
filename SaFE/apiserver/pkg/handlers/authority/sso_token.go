@@ -25,6 +25,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/metrics"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
@@ -96,7 +97,9 @@ func initializeSSOToken(cli client.Client) (*ssoToken, error) {
 
 	ctx := oidc.ClientContext(context.Background(), ssoTokenInstance.httpClient.GetBaseClient())
 	var err error
+	discoveryStart := time.Now()
 	ssoTokenInstance.provider, err = oidc.NewProvider(ctx, ssoTokenInstance.endpoint)
+	metrics.ObserveIdPRequest(metrics.OpProviderDiscovery, discoveryStart, err)
 	if err != nil {
 		return nil, fmt.Errorf("failed to new provider %q: %v", ssoTokenInstance.endpoint, err)
 	}
@@ -110,9 +113,11 @@ func initializeSSOToken(cli client.Client) (*ssoToken, error) {
 // Implements TokenInterface.Login method for OAuth2 flow
 func (c *ssoToken) Login(ctx context.Context, input TokenInput) (*v1.User, *TokenResponse, error) {
 	if input.Code == "" {
+		metrics.ObserveLoginFailure(metrics.StageBadRequest)
 		return nil, nil, commonerrors.NewBadRequest("no code in request")
 	}
 	if c.httpClient == nil {
+		metrics.ObserveLoginFailure(metrics.StageBadRequest)
 		return nil, nil, commonerrors.NewInternalError("http client is nil")
 	}
 	var (
@@ -121,35 +126,43 @@ func (c *ssoToken) Login(ctx context.Context, input TokenInput) (*v1.User, *Toke
 	)
 	ctx = oidc.ClientContext(ctx, c.httpClient.GetBaseClient())
 	config := c.oauth2Config()
+	exchangeStart := time.Now()
 	token, err = config.Exchange(ctx, input.Code)
+	metrics.ObserveIdPRequest(metrics.OpTokenExchange, exchangeStart, err)
 	if err != nil {
+		metrics.ObserveLoginFailure(metrics.StageTokenExchange)
 		return nil, nil, commonerrors.NewInternalError(fmt.Sprintf("failed to get token: %v", err))
 	}
 
 	rawIDToken, ok := token.Extra("id_token").(string)
 	if !ok {
+		metrics.ObserveLoginFailure(metrics.StageTokenExchange)
 		return nil, nil, commonerrors.NewInternalError("no id_token in token response")
 	}
 
 	// Validate ID token and extract user info
 	userInfo, err := c.validate(ctx, rawIDToken)
 	if err != nil {
+		metrics.ObserveLoginFailure(metrics.StageTokenVerify)
 		return nil, nil, err
 	}
 
 	// Synchronize user with system
 	user, err := c.synchronizeUser(ctx, userInfo)
 	if err != nil {
+		metrics.ObserveLoginFailure(metrics.StageUserSync)
 		return nil, nil, err
 	}
 	userToken := ""
 	if commonconfig.IsDBEnable() {
 		if userToken, err = c.updateUserInfoInDB(ctx, rawIDToken, userInfo); err != nil {
+			metrics.ObserveLoginFailure(metrics.StageDBSession)
 			return nil, nil, err
 		}
 	} else {
 		userToken = rawIDToken
 	}
+	metrics.ObserveLoginSuccess()
 	response := &TokenResponse{
 		Expire: userInfo.Exp,
 		Token:  userToken,
@@ -182,6 +195,7 @@ func (c *ssoToken) Validate(ctx context.Context, rawToken string) (*UserInfo, er
 // Implements TokenInterface.Validate method for OAuth2 tokens
 func (c *ssoToken) validate(ctx context.Context, rawToken string) (*UserInfo, error) {
 	idToken, err := c.verifier.Verify(ctx, rawToken)
+	metrics.ObserveTokenVerify(err)
 	if err != nil {
 		return nil, fmt.Errorf("failed to verify ID token: %v", err)
 	}
