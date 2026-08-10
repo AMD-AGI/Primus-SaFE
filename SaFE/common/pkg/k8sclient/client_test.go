@@ -76,6 +76,42 @@ func TestNewClientSetInsecureAndWithCA(t *testing.T) {
 	assert.NotEmpty(t, restCfg.TLSClientConfig.CAData)
 }
 
+func TestProbeTimeoutHonoursDeadline(t *testing.T) {
+	// No deadline: fall back to the package default.
+	assert.Equal(t, DefaultAPIServerProbeTimeout, probeTimeout(context.Background()))
+
+	// A tighter deadline wins so a probe cannot outlast its caller.
+	tight, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	assert.Less(t, probeTimeout(tight), DefaultAPIServerProbeTimeout)
+
+	// A looser deadline leaves the default in place.
+	loose, cancelLoose := context.WithTimeout(context.Background(), time.Hour)
+	defer cancelLoose()
+	assert.Equal(t, DefaultAPIServerProbeTimeout, probeTimeout(loose))
+
+	// An expired deadline must stay bounded: a non-positive timeout would mean "no timeout".
+	expired, cancelExpired := context.WithTimeout(context.Background(), -time.Second)
+	defer cancelExpired()
+	assert.Positive(t, probeTimeout(expired))
+}
+
+func TestProbeRESTConfigWithContextRespectsCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	assert.ErrorIs(t, ProbeRESTConfigWithContext(ctx, &rest.Config{Host: "https://127.0.0.1:1"}),
+		context.Canceled)
+}
+
+func TestNewClientSetWithProbeStopsOnCancelledContext(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	certData, keyData := testClientCert(t)
+	_, _, _, err := NewClientSetWithProbe(ctx, "https://127.0.0.1:1",
+		[]string{"https://127.0.0.1:2"}, certData, keyData, "", true)
+	assert.ErrorIs(t, err, context.Canceled)
+}
+
 func TestNewClientSetWithProbeSkipsUnbuildableEndpoint(t *testing.T) {
 	// An empty endpoint cannot build a client, so the probe moves on and still fails overall.
 	_, _, _, err := NewClientSetWithProbe(context.Background(), "https://127.0.0.1:1", []string{""},

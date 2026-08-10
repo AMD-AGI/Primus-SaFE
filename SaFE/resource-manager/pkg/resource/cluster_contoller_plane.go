@@ -672,7 +672,7 @@ func (r *ClusterReconciler) filterHealthyControlPlaneAddresses(ctx context.Conte
 			if err != nil {
 				return
 			}
-			if err = commonclient.ProbeRESTConfig(restCfg); err != nil {
+			if err = commonclient.ProbeRESTConfigWithContext(probeCtx, restCfg); err != nil {
 				klog.V(4).InfoS("control plane apiserver probe failed",
 					"cluster", cluster.Name, "node", node.Name, "err", err)
 				return
