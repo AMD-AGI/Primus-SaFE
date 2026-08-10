@@ -7,6 +7,7 @@ package resource
 
 import (
 	"context"
+	"sync/atomic"
 	"time"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
@@ -14,33 +15,45 @@ import (
 
 const nodeInformerRestartTimeout = 11 * time.Minute
 
+// The node informer lives in NodeK8sReconciler while the client factory it binds to is rebuilt by
+// ClusterReconciler. These callbacks bridge the two without a direct dependency. They are stored
+// atomically so registration is safe even if it ever moves off the startup path.
 var (
-	restartNodeInformer           func(context.Context, *v1.Cluster) error
-	clearNodeInformerRegistration func(string)
+	restartNodeInformer           atomic.Pointer[func(context.Context, *v1.Cluster) error]
+	clearNodeInformerRegistration atomic.Pointer[func(string)]
 )
 
 // RegisterNodeInformerRestarter registers a callback to (re)start the node informer after client rebuild.
 func RegisterNodeInformerRestarter(fn func(context.Context, *v1.Cluster) error) {
-	restartNodeInformer = fn
+	if fn == nil {
+		restartNodeInformer.Store(nil)
+		return
+	}
+	restartNodeInformer.Store(&fn)
 }
 
 // RegisterNodeInformerClearer registers a callback to drop cached node informer registrations.
 func RegisterNodeInformerClearer(fn func(string)) {
-	clearNodeInformerRegistration = fn
+	if fn == nil {
+		clearNodeInformerRegistration.Store(nil)
+		return
+	}
+	clearNodeInformerRegistration.Store(&fn)
 }
 
 func clearNodeInformerForCluster(clusterName string) {
-	if clearNodeInformerRegistration != nil {
-		clearNodeInformerRegistration(clusterName)
+	if clear := clearNodeInformerRegistration.Load(); clear != nil {
+		(*clear)(clusterName)
 	}
 }
 
 // tryRestartNodeInformer synchronously re-attaches the node informer to the rebuilt client factory.
 func tryRestartNodeInformer(ctx context.Context, cluster *v1.Cluster) error {
-	if restartNodeInformer == nil || cluster == nil {
+	restart := restartNodeInformer.Load()
+	if restart == nil || cluster == nil {
 		return nil
 	}
 	restartCtx, cancel := context.WithTimeout(ctx, nodeInformerRestartTimeout)
 	defer cancel()
-	return restartNodeInformer(restartCtx, cluster)
+	return (*restart)(restartCtx, cluster)
 }
