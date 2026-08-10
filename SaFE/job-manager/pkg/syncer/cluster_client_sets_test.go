@@ -11,12 +11,17 @@ import (
 
 	"gotest.tools/assert"
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/tools/cache"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	"github.com/AMD-AIG-AIMA/SAFE/apis/pkg/client/clientset/versioned/scheme"
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
+	commonclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/k8sclient"
+	ctrlfake "sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
 
 func newTestClientSets() *ClusterClientSets {
@@ -161,4 +166,46 @@ func TestHandleResourceManaged(t *testing.T) {
 	assert.Equal(t, captured.workloadId, "w")
 	assert.Equal(t, captured.dispatchCount, 3)
 	assert.Equal(t, captured.cluster, "cl")
+}
+
+func TestNeedsClientFactoryRefreshInvalid(t *testing.T) {
+	cs := newTestClientSets()
+	factory := commonclient.NewClientFactoryForTest("c1", "https://10.0.0.1:6443")
+	factory.SetValid(false, "watch error")
+	cs.dataClientFactory = factory
+	cluster := &v1.Cluster{
+		ObjectMeta: metav1.ObjectMeta{Name: "c1"},
+		Status: v1.ClusterStatus{
+			ControlPlaneStatus: v1.ControlPlaneStatus{Phase: v1.ReadyPhase},
+		},
+	}
+	assert.Assert(t, cs.needsClientFactoryRefresh(context.Background(), cluster, nil))
+}
+
+func TestNeedsClientFactoryRefreshBackendIPsChanged(t *testing.T) {
+	ctx := context.Background()
+	mockScheme := scheme.Scheme
+	_ = corev1.AddToScheme(mockScheme)
+	_ = v1.AddToScheme(mockScheme)
+
+	service := &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{Name: "c1", Namespace: common.PrimusSafeNamespace},
+		Spec:       corev1.ServiceSpec{ClusterIP: "10.96.1.1", Ports: []corev1.ServicePort{{Port: 6443}}},
+	}
+	endpoints := &corev1.Endpoints{
+		ObjectMeta: metav1.ObjectMeta{Name: "c1", Namespace: common.PrimusSafeNamespace},
+		Subsets: []corev1.EndpointSubset{{
+			Addresses: []corev1.EndpointAddress{{IP: "10.0.0.1"}},
+		}},
+	}
+	adminClient := ctrlfake.NewClientBuilder().WithScheme(mockScheme).WithObjects(service, endpoints).Build()
+	cluster := &v1.Cluster{
+		ObjectMeta: metav1.ObjectMeta{Name: "c1"},
+		Status:     v1.ClusterStatus{ControlPlaneStatus: v1.ControlPlaneStatus{Phase: v1.ReadyPhase}},
+	}
+	cs := newTestClientSets()
+	factory := commonclient.NewClientFactoryForTest("c1", "10.96.1.1:6443")
+	factory.SetBackendFingerprint("10.0.0.1,10.0.0.2")
+	cs.dataClientFactory = factory
+	assert.Assert(t, cs.needsClientFactoryRefresh(ctx, cluster, adminClient))
 }

@@ -18,6 +18,7 @@ import (
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/apis/pkg/client/clientset/versioned/scheme"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
+	commonclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/k8sclient"
 )
 
 // TestGetEndpoint tests the GetEndpoint function
@@ -312,4 +313,100 @@ func TestGetEndpointServicePriority(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, "10.96.100.50:6443", result)
 	assert.NotContains(t, result, "status-endpoint", "Should use service endpoint, not status endpoint")
+}
+
+func TestClientFactoryNeedsRefresh(t *testing.T) {
+	ctx := context.Background()
+	mockScheme := scheme.Scheme
+	_ = corev1.AddToScheme(mockScheme)
+	_ = v1.AddToScheme(mockScheme)
+
+	readyCluster := func(endpoints ...string) *v1.Cluster {
+		return &v1.Cluster{
+			ObjectMeta: metav1.ObjectMeta{Name: "c1"},
+			Status: v1.ClusterStatus{
+				ControlPlaneStatus: v1.ControlPlaneStatus{
+					Phase:     v1.ReadyPhase,
+					Endpoints: endpoints,
+				},
+			},
+		}
+	}
+	service := &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{Name: "c1", Namespace: common.PrimusSafeNamespace},
+		Spec: corev1.ServiceSpec{
+			ClusterIP: "10.96.1.1",
+			Ports:     []corev1.ServicePort{{Port: 6443}},
+		},
+	}
+	serviceClient := fake.NewClientBuilder().WithScheme(mockScheme).WithObjects(service).Build()
+	directClient := fake.NewClientBuilder().WithScheme(mockScheme).Build()
+
+	assert.True(t, ClientFactoryNeedsRefresh(ctx, serviceClient, readyCluster(), nil))
+
+	invalid := commonclient.NewClientFactoryWithOnlyClient(ctx, "c1", nil)
+	invalid.SetValid(false, "down")
+	assert.True(t, ClientFactoryNeedsRefresh(ctx, serviceClient, readyCluster(), invalid))
+
+	// Direct mode: factory on second endpoint should not refresh when first is GetEndpoint default.
+	cluster := readyCluster("https://10.0.0.1:6443", "https://10.0.0.2:6443")
+	factory := commonclient.NewClientFactoryForTest("c1", "https://10.0.0.2:6443")
+	assert.False(t, ClientFactoryNeedsRefresh(ctx, directClient, cluster, factory))
+
+	// Service mode: ClusterIP change triggers refresh.
+	factorySvc := commonclient.NewClientFactoryForTest("c1", "10.96.1.1:6443")
+	assert.False(t, ClientFactoryNeedsRefresh(ctx, serviceClient, readyCluster("https://10.0.0.1:6443"), factorySvc))
+	otherService := service.DeepCopy()
+	otherService.Spec.ClusterIP = "10.96.2.2"
+	otherClient := fake.NewClientBuilder().WithScheme(mockScheme).WithObjects(otherService).Build()
+	assert.True(t, ClientFactoryNeedsRefresh(ctx, otherClient, readyCluster("https://10.0.0.1:6443"), factorySvc))
+}
+
+func TestBackendIPsFingerprint(t *testing.T) {
+	assert.Equal(t, "", BackendIPsFingerprint(nil))
+	assert.Equal(t, "10.0.0.1,10.0.0.2", BackendIPsFingerprint([]string{"10.0.0.2", "10.0.0.1"}))
+}
+
+func TestGetControlPlaneBackendIPs(t *testing.T) {
+	ctx := context.Background()
+	mockScheme := scheme.Scheme
+	_ = corev1.AddToScheme(mockScheme)
+	_ = v1.AddToScheme(mockScheme)
+
+	endpoints := &corev1.Endpoints{
+		ObjectMeta: metav1.ObjectMeta{Name: "c1", Namespace: common.PrimusSafeNamespace},
+		Subsets: []corev1.EndpointSubset{{
+			Addresses: []corev1.EndpointAddress{{IP: "10.0.0.2"}, {IP: "10.0.0.1"}},
+		}},
+	}
+	cl := fake.NewClientBuilder().WithScheme(mockScheme).WithObjects(endpoints).Build()
+	ips, err := GetControlPlaneBackendIPs(ctx, cl, &v1.Cluster{ObjectMeta: metav1.ObjectMeta{Name: "c1"}})
+	assert.NoError(t, err)
+	assert.Equal(t, []string{"10.0.0.1", "10.0.0.2"}, ips)
+}
+
+func TestClientFactoryNeedsRefreshBackendIPsChanged(t *testing.T) {
+	ctx := context.Background()
+	mockScheme := scheme.Scheme
+	_ = corev1.AddToScheme(mockScheme)
+	_ = v1.AddToScheme(mockScheme)
+
+	service := &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{Name: "c1", Namespace: common.PrimusSafeNamespace},
+		Spec:       corev1.ServiceSpec{ClusterIP: "10.96.1.1", Ports: []corev1.ServicePort{{Port: 6443}}},
+	}
+	endpoints := &corev1.Endpoints{
+		ObjectMeta: metav1.ObjectMeta{Name: "c1", Namespace: common.PrimusSafeNamespace},
+		Subsets: []corev1.EndpointSubset{{
+			Addresses: []corev1.EndpointAddress{{IP: "10.0.0.1"}},
+		}},
+	}
+	cl := fake.NewClientBuilder().WithScheme(mockScheme).WithObjects(service, endpoints).Build()
+	cluster := &v1.Cluster{
+		ObjectMeta: metav1.ObjectMeta{Name: "c1"},
+		Status:     v1.ClusterStatus{ControlPlaneStatus: v1.ControlPlaneStatus{Phase: v1.ReadyPhase}},
+	}
+	factory := commonclient.NewClientFactoryForTest("c1", "10.96.1.1:6443")
+	factory.SetBackendFingerprint("10.0.0.1,10.0.0.2")
+	assert.True(t, ClientFactoryNeedsRefresh(ctx, cl, cluster, factory))
 }

@@ -11,6 +11,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -32,6 +33,7 @@ import (
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
+	commonclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/k8sclient"
 	rmmetrics "github.com/AMD-AIG-AIMA/SAFE/resource-manager/pkg/metrics"
 	"github.com/AMD-AIG-AIMA/SAFE/resource-manager/pkg/utils"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/secure"
@@ -42,6 +44,7 @@ const (
 	DefaultHttpServiePort = 443
 	// DefaultApiserverPort is the default port for Kubernetes API server
 	DefaultApiserverPort           = 6443
+	controlPlaneProbeBatchTimeout  = 15 * time.Second
 	deprecatedDefaultNginxTemplate = "nginx.22.3.2"
 	deprecatedDefaultNginxRelease  = "nginx"
 )
@@ -613,49 +616,110 @@ func (r *ClusterReconciler) guaranteeService(ctx context.Context, cluster *v1.Cl
 	return r.guaranteeServiceResource(ctx, cluster)
 }
 
-// guaranteeEndpoints creates the endpoints resource for the cluster.
-func (r *ClusterReconciler) guaranteeEndpoints(ctx context.Context, cluster *v1.Cluster, nodes []*v1.Node) error {
-	endpoint := new(corev1.Endpoints)
-	err := r.Get(ctx, types.NamespacedName{Name: cluster.Name, Namespace: common.PrimusSafeNamespace}, endpoint)
+// filterHealthyControlPlaneAddresses keeps apiserver endpoints that respond to ServerVersion.
+func (r *ClusterReconciler) filterHealthyControlPlaneAddresses(ctx context.Context, cluster *v1.Cluster,
+	nodes []*v1.Node) []corev1.EndpointAddress {
+	all := make([]corev1.EndpointAddress, 0, len(nodes))
+	for _, node := range nodes {
+		all = append(all, corev1.EndpointAddress{IP: node.Spec.PrivateIP})
+	}
+	cps := cluster.Status.ControlPlaneStatus
+	if cps.CertData == "" || cps.KeyData == "" {
+		return all
+	}
 
+	healthy := make([]corev1.EndpointAddress, 0, len(nodes))
+	probeCtx, cancel := context.WithTimeout(ctx, controlPlaneProbeBatchTimeout)
+	defer cancel()
+
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+	for _, node := range nodes {
+		if probeCtx.Err() != nil {
+			break
+		}
+		wg.Add(1)
+		go func(node *v1.Node) {
+			defer wg.Done()
+			if probeCtx.Err() != nil {
+				return
+			}
+			endpoint := fmt.Sprintf("https://%s:%d", node.Spec.PrivateIP, DefaultApiserverPort)
+			_, restCfg, err := commonclient.NewClientSet(endpoint, cps.CertData, cps.KeyData, cps.CAData, true)
+			if err != nil {
+				return
+			}
+			if err = commonclient.ProbeRESTConfig(restCfg); err != nil {
+				klog.V(4).InfoS("control plane apiserver probe failed",
+					"cluster", cluster.Name, "node", node.Name, "err", err)
+				return
+			}
+			mu.Lock()
+			healthy = append(healthy, corev1.EndpointAddress{IP: node.Spec.PrivateIP})
+			mu.Unlock()
+		}(node)
+	}
+	wg.Wait()
+	if len(healthy) == 0 {
+		klog.Warningf("no healthy control plane endpoints for cluster %s, keeping all registered nodes", cluster.Name)
+		return all
+	}
+	return healthy
+}
+
+// guaranteeEndpoints creates or syncs the endpoints resource for the cluster.
+func (r *ClusterReconciler) guaranteeEndpoints(ctx context.Context, cluster *v1.Cluster, nodes []*v1.Node) error {
+	addresses := r.filterHealthyControlPlaneAddresses(ctx, cluster, nodes)
+	desiredPorts := []corev1.EndpointPort{{
+		Name:     "https",
+		Port:     DefaultApiserverPort,
+		Protocol: corev1.ProtocolTCP,
+	}}
+	desiredSubset := corev1.EndpointSubset{Addresses: addresses, Ports: desiredPorts}
+
+	existing := new(corev1.Endpoints)
+	err := r.Get(ctx, types.NamespacedName{Name: cluster.Name, Namespace: common.PrimusSafeNamespace}, existing)
 	if err != nil && !errors.IsNotFound(err) {
 		return err
 	}
-
-	if err == nil {
+	if errors.IsNotFound(err) {
+		endpoint := &corev1.Endpoints{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:            cluster.Name,
+				Namespace:       common.PrimusSafeNamespace,
+				OwnerReferences: []metav1.OwnerReference{createKubernetesClusterOwnerReference(cluster)},
+			},
+			Subsets: []corev1.EndpointSubset{desiredSubset},
+		}
+		if err = r.Create(ctx, endpoint); err != nil {
+			return fmt.Errorf("create cluster endpoint failed %+v", err)
+		}
 		return nil
 	}
 
-	address := make([]corev1.EndpointAddress, 0, len(nodes))
-	for _, node := range nodes {
-		address = append(address, corev1.EndpointAddress{IP: node.Spec.PrivateIP})
+	isChanged := false
+	if len(existing.Subsets) != 1 {
+		existing.Subsets = []corev1.EndpointSubset{desiredSubset}
+		isChanged = true
+	} else {
+		cur := existing.Subsets[0]
+		if len(cur.Ports) != 1 || cur.Ports[0].Port != desiredPorts[0].Port {
+			existing.Subsets[0].Ports = desiredPorts
+			isChanged = true
+		}
+		if !endpointSubsetEqual(cur, desiredSubset) {
+			existing.Subsets[0].Addresses = addresses
+			isChanged = true
+		}
 	}
-
-	endpoint = &corev1.Endpoints{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:            cluster.Name,
-			Namespace:       common.PrimusSafeNamespace,
-			OwnerReferences: []metav1.OwnerReference{createKubernetesClusterOwnerReference(cluster)},
-		},
-		Subsets: []corev1.EndpointSubset{
-			{
-				Addresses: address,
-				Ports: []corev1.EndpointPort{
-					{
-						Name:     "https",
-						Port:     DefaultApiserverPort,
-						Protocol: "TCP",
-					},
-				},
-			},
-		},
+	if !isChanged {
+		return nil
 	}
-
-	err = r.Create(ctx, endpoint)
-	if err != nil {
-		return fmt.Errorf("create cluster endpoint failed %+v", err)
+	if err = r.Update(ctx, existing); err != nil {
+		return fmt.Errorf("update cluster endpoint failed %+v", err)
 	}
-
+	klog.Infof("synced control plane endpoints for cluster %s, addresses: %d", cluster.Name, len(addresses))
+	r.markClusterClientFactoryStale(cluster.Name, "control plane endpoints changed")
 	return nil
 }
 

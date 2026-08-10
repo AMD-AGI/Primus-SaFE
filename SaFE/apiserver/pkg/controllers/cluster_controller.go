@@ -8,6 +8,7 @@ package controllers
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"k8s.io/klog/v2"
 	ctrlruntime "sigs.k8s.io/controller-runtime"
@@ -21,6 +22,11 @@ import (
 	commoncluster "github.com/AMD-AIG-AIMA/SAFE/common/pkg/cluster"
 	commonclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/k8sclient"
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
+)
+
+const (
+	// clusterClientFactoryRefreshInterval requeues ready clusters to rebuild invalid data-plane clients.
+	clusterClientFactoryRefreshInterval = 15 * time.Second
 )
 
 type ClusterReconciler struct {
@@ -86,11 +92,19 @@ func (r *ClusterReconciler) Reconcile(ctx context.Context, req ctrlruntime.Reque
 	if !cluster.GetDeletionTimestamp().IsZero() {
 		return ctrlruntime.Result{}, r.deleteClientFactory(cluster)
 	}
-	if err = r.addClientFactory(r.ctx, cluster); err != nil {
+	if err = r.addClientFactory(ctx, cluster); err != nil {
 		klog.Errorf("failed to add cluster clients, err: %v", err)
 		return ctrlruntime.Result{}, err
 	}
+	if shouldPeriodicRefreshClientFactory(cluster) {
+		return ctrlruntime.Result{RequeueAfter: clusterClientFactoryRefreshInterval}, nil
+	}
 	return ctrlruntime.Result{}, nil
+}
+
+// shouldPeriodicRefreshClientFactory reports whether reconcile should requeue to refresh clients.
+func shouldPeriodicRefreshClientFactory(cluster *v1.Cluster) bool {
+	return cluster != nil && cluster.GetDeletionTimestamp().IsZero() && cluster.IsReady()
 }
 
 // deleteClientFactory removes the Kubernetes client factory for a cluster being deleted.
@@ -109,7 +123,6 @@ func (r *ClusterReconciler) deleteClientFactory(cluster *v1.Cluster) error {
 }
 
 // addClientFactory creates and registers a new Kubernetes client factory for a ready cluster.
-// It retrieves cluster endpoint and credentials, then initializes a client factory for communicating with the cluster.
 func (r *ClusterReconciler) addClientFactory(ctx context.Context, cluster *v1.Cluster) error {
 	if !cluster.IsReady() {
 		return nil
@@ -118,21 +131,23 @@ func (r *ClusterReconciler) addClientFactory(ctx context.Context, cluster *v1.Cl
 	if clientManager == nil {
 		return fmt.Errorf("failed to initialize cluster client manager for cluster %s", cluster.Name)
 	}
-	if clientManager.Has(cluster.Name) {
-		return nil
+	if obj, ok := clientManager.Get(cluster.Name); ok {
+		if factory, ok := obj.(*commonclient.ClientFactory); ok &&
+			!commoncluster.ClientFactoryNeedsRefresh(ctx, r.Client, cluster, factory) {
+			return nil
+		}
 	}
 	endpoint, err := commoncluster.GetEndpoint(ctx, r.Client, cluster)
 	if err != nil {
 		return err
 	}
-
-	controlPlane := &cluster.Status.ControlPlaneStatus
-	k8sClientFactory, err := commonclient.NewClientFactory(ctx, cluster.Name, endpoint,
-		controlPlane.CertData, controlPlane.KeyData, controlPlane.CAData, commonclient.DisableInformer)
+	k8sClientFactory, err := commoncluster.NewClientFactoryForCluster(ctx, r.Client, cluster,
+		commonclient.DisableInformer)
 	if err != nil {
 		return err
 	}
 	clientManager.AddOrReplace(cluster.Name, k8sClientFactory)
-	klog.Infof("add cluster %s clients", cluster.Name)
+	klog.Infof("add cluster %s clients, endpoint: %s, selected: %s",
+		cluster.Name, endpoint, k8sClientFactory.Endpoint())
 	return nil
 }

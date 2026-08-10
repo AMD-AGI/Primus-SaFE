@@ -46,6 +46,10 @@ import (
 
 const (
 	ClusterRoleBindingLabel = "app.kubernetes.io/role-ref"
+	// controlPlaneEndpointsSyncInterval requeues ready clusters to probe apiserver backends
+	// and sync admin-plane Endpoints. client-go dial defaults only apply per HTTP connection
+	// to the Service VIP; they do not remove dead backends from the Endpoints pool.
+	controlPlaneEndpointsSyncInterval = 15 * time.Second
 )
 
 // ClusterReconciler reconciles Cluster resources and manages their lifecycle.
@@ -343,7 +347,17 @@ func (r *ClusterReconciler) Reconcile(ctx context.Context, req ctrlruntime.Reque
 		rmmetrics.ClusterReconcileErrorsTotal.WithLabelValues("node_local_dns").Inc()
 		return ctrlruntime.Result{}, err
 	}
+	if shouldPeriodicSyncControlPlaneEndpoints(cluster) {
+		return ctrlruntime.Result{RequeueAfter: controlPlaneEndpointsSyncInterval}, nil
+	}
 	return ctrlruntime.Result{}, nil
+}
+
+// shouldPeriodicSyncControlPlaneEndpoints reports whether reconcile should requeue to
+// re-probe control-plane apiservers and sync Service Endpoints.
+func shouldPeriodicSyncControlPlaneEndpoints(cluster *v1.Cluster) bool {
+	return cluster != nil && cluster.GetDeletionTimestamp().IsZero() && cluster.IsReady() &&
+		len(cluster.Spec.ControlPlane.Nodes) > 0
 }
 
 // cleanupClusterResources removes all associated resources for a cluster including priority classes,
@@ -422,22 +436,50 @@ func (r *ClusterReconciler) resetNodesOfCluster(ctx context.Context, cluster *v1
 
 // guaranteeClientFactory ensures a Kubernetes client factory is available for the cluster.
 func (r *ClusterReconciler) guaranteeClientFactory(ctx context.Context, cluster *v1.Cluster) error {
-	if !cluster.IsReady() || r.clientManager.Has(cluster.Name) {
+	if !cluster.IsReady() {
 		return nil
+	}
+	if err := r.guaranteeService(ctx, cluster); err != nil {
+		return err
 	}
 	endpoint, err := commoncluster.GetEndpoint(ctx, r.Client, cluster)
 	if err != nil {
 		return err
 	}
-	controlPlane := &cluster.Status.ControlPlaneStatus
-	k8sClients, err := commonclient.NewClientFactory(ctx, cluster.Name, endpoint,
-		controlPlane.CertData, controlPlane.KeyData, controlPlane.CAData, commonclient.EnableInformer)
+	if obj, ok := r.clientManager.Get(cluster.Name); ok {
+		if factory, ok := obj.(*commonclient.ClientFactory); ok &&
+			!commoncluster.ClientFactoryNeedsRefresh(ctx, r.Client, cluster, factory) {
+			return nil
+		}
+	}
+	k8sClients, err := commoncluster.NewClientFactoryForCluster(ctx, r.Client, cluster, commonclient.EnableInformer)
 	if err != nil {
 		return err
 	}
+	recreated := r.clientManager.Has(cluster.Name)
 	r.clientManager.AddOrReplace(cluster.Name, k8sClients)
-	klog.Infof("add cluster %s informer, endpoint: %s", cluster.Name, endpoint)
+	klog.Infof("add cluster %s informer, endpoint: %s, selected: %s",
+		cluster.Name, endpoint, k8sClients.Endpoint())
+	if recreated {
+		tryRestartNodeInformer(ctx, cluster)
+	}
 	return nil
+}
+
+// markClusterClientFactoryStale invalidates the cached data-plane client after backend pool changes.
+func (r *ClusterReconciler) markClusterClientFactoryStale(clusterName, reason string) {
+	if r.clientManager == nil {
+		return
+	}
+	obj, ok := r.clientManager.Get(clusterName)
+	if !ok {
+		return
+	}
+	factory, ok := obj.(*commonclient.ClientFactory)
+	if !ok || !factory.IsValid() {
+		return
+	}
+	factory.SetValid(false, reason)
 }
 
 // guaranteePriorityClass ensures priority classes are created in the cluster.

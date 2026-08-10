@@ -8,17 +8,21 @@ package cluster
 import (
 	"context"
 	"fmt"
+	"sort"
+	"strings"
 
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
+	commonclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/k8sclient"
 )
 
 // GetEndpoint retrieve the endpoint address of the given cluster.
-// It first tries to get the endpoint from the Kubernetes Service associated with the cluster.
-// If the Service is not found or has no ports, it falls back to using the endpoint from the cluster status.
+// It first tries the ClusterIP of the Kubernetes Service associated with the cluster.
+// If the Service is not found or has no ports, it falls back to status endpoints.
 // Returns an error if the cluster is nil, not ready, or no valid endpoint can be found.
 func GetEndpoint(ctx context.Context, cli client.Client, cluster *v1.Cluster) (string, error) {
 	if cluster == nil || !cluster.IsReady() {
@@ -30,11 +34,131 @@ func GetEndpoint(ctx context.Context, cli client.Client, cluster *v1.Cluster) (s
 		if len(service.Spec.Ports) == 0 {
 			return "", fmt.Errorf("service ports are empty")
 		}
-		// return fmt.Sprintf("https://%s.%s.svc", clusterName, common.PrimusSafeNamespace), nil
 		return fmt.Sprintf("%s:%d", service.Spec.ClusterIP, service.Spec.Ports[0].Port), nil
+	}
+	if !apierrors.IsNotFound(err) {
+		return "", fmt.Errorf("get service %s: %w", cluster.Name, err)
 	}
 	if len(cluster.Status.ControlPlaneStatus.Endpoints) == 0 {
 		return "", fmt.Errorf("either the Service address or the Endpoint is empty")
 	}
 	return cluster.Status.ControlPlaneStatus.Endpoints[0], nil
+}
+
+// GetFallbackEndpoints returns direct apiserver endpoints from cluster status.
+func GetFallbackEndpoints(cluster *v1.Cluster) []string {
+	if cluster == nil {
+		return nil
+	}
+	return append([]string(nil), cluster.Status.ControlPlaneStatus.Endpoints...)
+}
+
+// UsesServiceEndpoint reports whether the cluster has a Service fronting its apiserver.
+func UsesServiceEndpoint(ctx context.Context, cli client.Client, cluster *v1.Cluster) bool {
+	if cluster == nil {
+		return false
+	}
+	service := &corev1.Service{}
+	err := cli.Get(ctx, client.ObjectKey{Name: cluster.Name, Namespace: common.PrimusSafeNamespace}, service)
+	return err == nil && len(service.Spec.Ports) > 0
+}
+
+// GetControlPlaneBackendIPs returns sorted apiserver backend IPs from admin-plane Endpoints.
+func GetControlPlaneBackendIPs(ctx context.Context, cli client.Client, cluster *v1.Cluster) ([]string, error) {
+	if cluster == nil {
+		return nil, fmt.Errorf("cluster is nil")
+	}
+	endpoints := &corev1.Endpoints{}
+	err := cli.Get(ctx, client.ObjectKey{Name: cluster.Name, Namespace: common.PrimusSafeNamespace}, endpoints)
+	if err != nil {
+		return nil, err
+	}
+	ips := make([]string, 0)
+	for _, subset := range endpoints.Subsets {
+		for _, addr := range subset.Addresses {
+			if addr.IP != "" {
+				ips = append(ips, addr.IP)
+			}
+		}
+	}
+	sort.Strings(ips)
+	return ips, nil
+}
+
+// BackendIPsFingerprint builds a stable fingerprint for control-plane backend IPs.
+func BackendIPsFingerprint(ips []string) string {
+	if len(ips) == 0 {
+		return ""
+	}
+	sorted := append([]string(nil), ips...)
+	sort.Strings(sorted)
+	return strings.Join(sorted, ",")
+}
+
+// NewClientFactoryForCluster builds a data-plane client factory for the cluster.
+// Service mode relies on client-go dial defaults; direct endpoints use ServerVersion probe failover.
+func NewClientFactoryForCluster(ctx context.Context, adminClient client.Client, cluster *v1.Cluster,
+	informerType commonclient.InformerType,
+) (*commonclient.ClientFactory, error) {
+	endpoint, err := GetEndpoint(ctx, adminClient, cluster)
+	if err != nil {
+		return nil, err
+	}
+	cps := &cluster.Status.ControlPlaneStatus
+	if UsesServiceEndpoint(ctx, adminClient, cluster) {
+		factory, err := commonclient.NewClientFactory(ctx, cluster.Name, endpoint,
+			cps.CertData, cps.KeyData, cps.CAData, informerType)
+		if err != nil {
+			return nil, err
+		}
+		if ips, ipErr := GetControlPlaneBackendIPs(ctx, adminClient, cluster); ipErr == nil {
+			factory.SetBackendFingerprint(BackendIPsFingerprint(ips))
+		}
+		return factory, nil
+	}
+	fallbacks := GetFallbackEndpoints(cluster)
+	primary := endpoint
+	var rest []string
+	if len(fallbacks) > 0 {
+		primary = fallbacks[0]
+		rest = fallbacks[1:]
+	}
+	return commonclient.NewClientFactoryWithFallbacks(ctx, cluster.Name, primary, rest,
+		cps.CertData, cps.KeyData, cps.CAData, informerType)
+}
+
+// ClientFactoryNeedsRefresh reports whether an existing factory should be replaced.
+func ClientFactoryNeedsRefresh(ctx context.Context, adminClient client.Client, cluster *v1.Cluster,
+	factory *commonclient.ClientFactory,
+) bool {
+	if factory == nil || !factory.IsValid() {
+		return true
+	}
+	if cluster == nil {
+		return true
+	}
+	selected := commonclient.NormalizeEndpointHost(factory.Endpoint())
+	if UsesServiceEndpoint(ctx, adminClient, cluster) {
+		endpoint, err := GetEndpoint(ctx, adminClient, cluster)
+		if err != nil {
+			return false
+		}
+		if selected != commonclient.NormalizeEndpointHost(endpoint) {
+			return true
+		}
+		ips, err := GetControlPlaneBackendIPs(ctx, adminClient, cluster)
+		if err != nil {
+			return false
+		}
+		return factory.BackendFingerprint() != BackendIPsFingerprint(ips)
+	}
+	if selected == "" {
+		return true
+	}
+	for _, ep := range GetFallbackEndpoints(cluster) {
+		if selected == commonclient.NormalizeEndpointHost(ep) {
+			return false
+		}
+	}
+	return len(GetFallbackEndpoints(cluster)) > 0
 }

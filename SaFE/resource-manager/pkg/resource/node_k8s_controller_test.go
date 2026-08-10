@@ -206,7 +206,7 @@ func TestWatchErrorHandlerFull(t *testing.T) {
 	cs := k8sfake.NewSimpleClientset()
 	factory := commonclient.NewClientFactoryWithOnlyClient(context.Background(), "c1", cs)
 	factory.SetValid(true, "")
-	h := watchErrorHandler(context.Background(), factory)
+	h := commonclient.WatchErrorHandler(context.Background(), factory)
 	h(&cache.Reflector{}, errors.New("boom"))
 	testifyassert.False(t, factory.IsValid())
 }

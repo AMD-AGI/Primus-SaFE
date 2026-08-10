@@ -34,6 +34,8 @@ type ClientFactory struct {
 	ctx context.Context
 	// Factory name, typically refers to cluster name
 	name          string
+	endpoint      string
+	backendFingerprint string
 	clientSet     kubernetes.Interface
 	restConfig    *rest.Config
 	dynamicClient *dynamic.DynamicClient
@@ -53,11 +55,30 @@ type ClientFactory struct {
 	invalidReason string
 }
 
-// NewClientFactory creates a new client factory.
+// NewClientFactory creates a new client factory for a single reachable endpoint (service mode).
 func NewClientFactory(ctx context.Context, name, endpoint, certData,
 	keyData, caData string, informerType InformerType,
 ) (*ClientFactory, error) {
-	clientSet, restCfg, err := NewClientSet(endpoint, certData, keyData, caData, true)
+	return NewClientFactoryWithFallbacks(ctx, name, endpoint, nil, certData, keyData, caData, informerType)
+}
+
+// NewClientFactoryWithFallbacks creates a client factory, probing fallback endpoints when provided.
+func NewClientFactoryWithFallbacks(ctx context.Context, name, endpoint string, fallbackEndpoints []string,
+	certData, keyData, caData string, informerType InformerType,
+) (*ClientFactory, error) {
+	var (
+		clientSet        kubernetes.Interface
+		restCfg          *rest.Config
+		selectedEndpoint string
+		err              error
+	)
+	if len(fallbackEndpoints) > 0 {
+		clientSet, restCfg, selectedEndpoint, err = NewClientSetWithProbe(
+			ctx, endpoint, fallbackEndpoints, certData, keyData, caData, true)
+	} else {
+		clientSet, restCfg, err = NewClientSet(endpoint, certData, keyData, caData, true)
+		selectedEndpoint = NormalizeEndpointHost(endpoint)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -68,6 +89,7 @@ func NewClientFactory(ctx context.Context, name, endpoint, certData,
 	factory := &ClientFactory{
 		ctx:           ctx,
 		name:          name,
+		endpoint:      selectedEndpoint,
 		clientSet:     clientSet,
 		restConfig:    restCfg,
 		dynamicClient: dynamicClient,
@@ -94,8 +116,18 @@ func NewClientFactory(ctx context.Context, name, endpoint, certData,
 		factory.dynamicSharedInformerFactory = dynamicinformer.NewDynamicSharedInformerFactory(dynamicClient, defaultResyncPeriod)
 	default:
 	}
-	klog.Infof("new k8s client factory. name: %s, informer type: %d", name, informerType)
+	klog.Infof("new k8s client factory. name: %s, endpoint: %s, informer type: %d",
+		name, selectedEndpoint, informerType)
 	return factory, nil
+}
+
+// NewClientFactoryForTest builds a minimal valid factory for unit tests.
+func NewClientFactoryForTest(name, endpoint string) *ClientFactory {
+	return &ClientFactory{
+		name:     name,
+		endpoint: NormalizeEndpointHost(endpoint),
+		valid:    true,
+	}
 }
 
 // NewClientFactoryWithOnlyClient create factory instance with client only (without Informer).
@@ -111,6 +143,21 @@ func NewClientFactoryWithOnlyClient(ctx context.Context, name string, clientSet 
 // Name get factory name.
 func (f *ClientFactory) Name() string {
 	return f.name
+}
+
+// Endpoint returns the apiserver endpoint selected for this factory.
+func (f *ClientFactory) Endpoint() string {
+	return f.endpoint
+}
+
+// BackendFingerprint returns the control-plane backend IP fingerprint for service mode.
+func (f *ClientFactory) BackendFingerprint() string {
+	return f.backendFingerprint
+}
+
+// SetBackendFingerprint records the control-plane backend IP fingerprint.
+func (f *ClientFactory) SetBackendFingerprint(fingerprint string) {
+	f.backendFingerprint = fingerprint
 }
 
 // Release factory resources, stop Informer (if enabled).

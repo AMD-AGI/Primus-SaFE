@@ -933,3 +933,66 @@ func TestGuaranteeClientFactoryNotReady(t *testing.T) {
 	// Not ready -> no-op nil.
 	testifyassert.NoError(t, r.guaranteeClientFactory(context.Background(), testCluster("c1")))
 }
+
+func TestShouldPeriodicSyncControlPlaneEndpoints(t *testing.T) {
+	ready := testCluster("c1")
+	ready.Status.ControlPlaneStatus.Phase = v1.ReadyPhase
+	ready.Spec.ControlPlane.Nodes = []string{"cp1"}
+
+	notReady := testCluster("c2")
+	notReady.Spec.ControlPlane.Nodes = []string{"cp1"}
+
+	deleting := ready.DeepCopy()
+	now := metav1.Now()
+	deleting.DeletionTimestamp = &now
+
+	testifyassert.True(t, shouldPeriodicSyncControlPlaneEndpoints(ready))
+	testifyassert.False(t, shouldPeriodicSyncControlPlaneEndpoints(notReady))
+	testifyassert.False(t, shouldPeriodicSyncControlPlaneEndpoints(deleting))
+	testifyassert.False(t, shouldPeriodicSyncControlPlaneEndpoints(nil))
+}
+
+func TestFilterHealthyControlPlaneAddressesNoCredentials(t *testing.T) {
+	cluster := testCluster("c1")
+	r := newPlaneReconciler(t, cluster)
+	nodes := []*v1.Node{{ObjectMeta: metav1.ObjectMeta{Name: "n1"}, Spec: v1.NodeSpec{PrivateIP: "10.0.0.1"}}}
+	addrs := r.filterHealthyControlPlaneAddresses(context.Background(), cluster, nodes)
+	testifyassert.Len(t, addrs, 1)
+	testifyassert.Equal(t, "10.0.0.1", addrs[0].IP)
+}
+
+func TestMarkClusterClientFactoryStale(t *testing.T) {
+	mgr := commonutils.NewObjectManager()
+	factory := commonclient.NewClientFactoryForTest("c1", "10.96.1.1:6443")
+	testifyassert.NoError(t, mgr.Add("c1", factory))
+	r := &ClusterReconciler{clientManager: mgr}
+	r.markClusterClientFactoryStale("c1", "control plane endpoints changed")
+	testifyassert.False(t, factory.IsValid())
+}
+
+func TestGuaranteeEndpointsBackendSync(t *testing.T) {
+	cluster := testCluster("c1")
+	existing := &corev1.Endpoints{
+		ObjectMeta: metav1.ObjectMeta{Name: "c1", Namespace: common.PrimusSafeNamespace},
+		Subsets: []corev1.EndpointSubset{{
+			Addresses: []corev1.EndpointAddress{{IP: "10.0.0.1"}, {IP: "10.0.0.2"}},
+		}},
+	}
+	r := newPlaneReconciler(t, cluster, existing)
+	mgr := commonutils.NewObjectManager()
+	factory := commonclient.NewClientFactoryForTest("c1", "10.96.1.1:6443")
+	factory.SetBackendFingerprint("10.0.0.1,10.0.0.2")
+	testifyassert.NoError(t, mgr.Add("c1", factory))
+	r.clientManager = mgr
+
+	nodes := []*v1.Node{{ObjectMeta: metav1.ObjectMeta{Name: "n1"}, Spec: v1.NodeSpec{PrivateIP: "10.0.0.1"}}}
+	testifyassert.NoError(t, r.guaranteeEndpoints(context.Background(), cluster, nodes))
+
+	ep := &corev1.Endpoints{}
+	testifyassert.NoError(t, r.Get(context.Background(), client.ObjectKey{
+		Name: "c1", Namespace: common.PrimusSafeNamespace,
+	}, ep))
+	testifyassert.Len(t, ep.Subsets[0].Addresses, 1)
+	testifyassert.Equal(t, "10.0.0.1", ep.Subsets[0].Addresses[0].IP)
+	testifyassert.False(t, factory.IsValid())
+}

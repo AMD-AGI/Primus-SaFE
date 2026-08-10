@@ -49,6 +49,20 @@ func TestClusterReconcileNotReady(t *testing.T) {
 	assert.Equal(t, time.Duration(0), res.RequeueAfter)
 }
 
+func TestShouldPeriodicRefreshClientFactory(t *testing.T) {
+	ready := &v1.Cluster{ObjectMeta: metav1.ObjectMeta{Name: "c1"}}
+	ready.Status.ControlPlaneStatus.Phase = v1.ReadyPhase
+	assert.True(t, shouldPeriodicRefreshClientFactory(ready))
+
+	notReady := &v1.Cluster{ObjectMeta: metav1.ObjectMeta{Name: "c2"}}
+	assert.False(t, shouldPeriodicRefreshClientFactory(notReady))
+
+	deleting := ready.DeepCopy()
+	now := metav1.Now()
+	deleting.DeletionTimestamp = &now
+	assert.False(t, shouldPeriodicRefreshClientFactory(deleting))
+}
+
 func TestClusterReconcileReadyEndpointError(t *testing.T) {
 	cluster := &v1.Cluster{ObjectMeta: metav1.ObjectMeta{Name: "c1"}}
 	cluster.Status.ControlPlaneStatus.Phase = v1.ReadyPhase

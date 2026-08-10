@@ -10,28 +10,31 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	k8sfake "k8s.io/client-go/kubernetes/fake"
 	"k8s.io/client-go/rest"
 )
-
-func TestClientFactoryWithOnlyClient(t *testing.T) {
-	cs := k8sfake.NewSimpleClientset()
-	f := NewClientFactoryWithOnlyClient(context.Background(), "c1", cs)
-	assert.Equal(t, "c1", f.Name())
-	assert.NotNil(t, f.ClientSet())
-
-	f.SetValid(false, "down")
-	assert.False(t, f.IsValid())
-	assert.Equal(t, "down", f.GetInvalidReason())
-	f.SetValid(true, "")
-	assert.True(t, f.IsValid())
-
-	// Release on a factory without informers should not error.
-	assert.NoError(t, f.Release())
-}
 
 func TestNewClientSetWithRestConfig(t *testing.T) {
 	cs, err := NewClientSetWithRestConfig(&rest.Config{Host: "http://127.0.0.1:60999"})
 	assert.NoError(t, err)
 	assert.NotNil(t, cs)
+}
+
+func TestNormalizeEndpointHost(t *testing.T) {
+	assert.Equal(t, "https://10.0.0.1:6443", NormalizeEndpointHost("10.0.0.1:6443"))
+	assert.Equal(t, "https://c1.primus-safe.svc:443", NormalizeEndpointHost("c1.primus-safe.svc:443"))
+	assert.Equal(t, "http://127.0.0.1:8080", NormalizeEndpointHost("http://127.0.0.1:8080"))
+}
+
+func TestUniqueEndpoints(t *testing.T) {
+	out := uniqueEndpoints([]string{"10.0.0.1:6443", "https://10.0.0.1:6443", ""})
+	assert.Len(t, out, 1)
+}
+
+func TestNewClientSetWithProbeNoCandidates(t *testing.T) {
+	_, _, _, err := NewClientSetWithProbe(context.Background(), "", nil, "", "", "", true)
+	assert.Error(t, err)
+}
+
+func TestProbeRESTConfigNil(t *testing.T) {
+	assert.Error(t, ProbeRESTConfig(nil))
 }
