@@ -628,6 +628,9 @@ func (r *ClusterReconciler) filterHealthyControlPlaneAddresses(ctx context.Conte
 	probeCtx, cancel := context.WithTimeout(ctx, controlPlaneProbeBatchTimeout)
 	defer cancel()
 
+	// Fan out over control plane nodes only, so concurrency is bounded by the etcd quorum size
+	// (typically 3 or 5) regardless of how many workers the cluster has. The whole batch is
+	// additionally capped by controlPlaneProbeBatchTimeout.
 	var mu sync.Mutex
 	var wg sync.WaitGroup
 	for _, node := range nodes {
