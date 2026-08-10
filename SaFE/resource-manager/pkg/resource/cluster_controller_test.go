@@ -7,6 +7,7 @@ package resource
 
 import (
 	"context"
+	"encoding/base64"
 	"testing"
 	"time"
 
@@ -995,4 +996,24 @@ func TestGuaranteeEndpointsBackendSync(t *testing.T) {
 	testifyassert.Len(t, ep.Subsets[0].Addresses, 1)
 	testifyassert.Equal(t, "10.0.0.1", ep.Subsets[0].Addresses[0].IP)
 	testifyassert.False(t, factory.IsValid())
+}
+
+func TestFilterHealthyPreservesExistingBackends(t *testing.T) {
+	cluster := testCluster("c1")
+	existing := &corev1.Endpoints{
+		ObjectMeta: metav1.ObjectMeta{Name: "c1", Namespace: common.PrimusSafeNamespace},
+		Subsets: []corev1.EndpointSubset{{
+			Addresses: []corev1.EndpointAddress{{IP: "10.0.0.1"}},
+		}},
+	}
+	r := newPlaneReconciler(t, cluster, existing)
+	cluster.Status.ControlPlaneStatus.CertData = base64.StdEncoding.EncodeToString([]byte("cert"))
+	cluster.Status.ControlPlaneStatus.KeyData = base64.StdEncoding.EncodeToString([]byte("key"))
+	nodes := []*v1.Node{
+		{ObjectMeta: metav1.ObjectMeta{Name: "n1"}, Spec: v1.NodeSpec{PrivateIP: "10.0.0.1"}},
+		{ObjectMeta: metav1.ObjectMeta{Name: "n2"}, Spec: v1.NodeSpec{PrivateIP: "10.0.0.2"}},
+	}
+	addrs := r.filterHealthyControlPlaneAddresses(context.Background(), cluster, nodes)
+	testifyassert.Len(t, addrs, 1)
+	testifyassert.Equal(t, "10.0.0.1", addrs[0].IP)
 }

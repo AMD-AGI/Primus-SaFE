@@ -348,9 +348,10 @@ func TestClientFactoryNeedsRefresh(t *testing.T) {
 	invalid.SetValid(false, "down")
 	assert.True(t, ClientFactoryNeedsRefresh(ctx, serviceClient, readyCluster(), invalid))
 
-	// Direct mode: factory on second endpoint should not refresh when first is GetEndpoint default.
+	// Direct mode: factory on second endpoint should not refresh when status fingerprint matches.
 	cluster := readyCluster("https://10.0.0.1:6443", "https://10.0.0.2:6443")
 	factory := commonclient.NewClientFactoryForTest("c1", "https://10.0.0.2:6443")
+	factory.SetBackendFingerprint(StatusEndpointsFingerprint(cluster))
 	assert.False(t, ClientFactoryNeedsRefresh(ctx, directClient, cluster, factory))
 
 	// Service mode: ClusterIP change triggers refresh.
@@ -408,5 +409,20 @@ func TestClientFactoryNeedsRefreshBackendIPsChanged(t *testing.T) {
 	}
 	factory := commonclient.NewClientFactoryForTest("c1", "10.96.1.1:6443")
 	factory.SetBackendFingerprint("10.0.0.1,10.0.0.2")
+	assert.True(t, ClientFactoryNeedsRefresh(ctx, cl, cluster, factory))
+}
+
+func TestClientFactoryNeedsRefreshWhenBackendLookupFails(t *testing.T) {
+	ctx := context.Background()
+	mockScheme := scheme.Scheme
+	_ = v1.AddToScheme(mockScheme)
+
+	cluster := &v1.Cluster{
+		ObjectMeta: metav1.ObjectMeta{Name: "c1"},
+		Status:     v1.ClusterStatus{ControlPlaneStatus: v1.ControlPlaneStatus{Phase: v1.ReadyPhase}},
+	}
+	cl := fake.NewClientBuilder().WithScheme(mockScheme).Build()
+	factory := commonclient.NewClientFactoryForTest("c1", "10.96.1.1:6443")
+	factory.SetBackendFingerprint("10.0.0.1")
 	assert.True(t, ClientFactoryNeedsRefresh(ctx, cl, cluster, factory))
 }

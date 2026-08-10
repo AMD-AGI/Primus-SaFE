@@ -46,7 +46,7 @@ type SyncerReconciler struct {
 const syncerWorkers = 8
 
 // clusterClientSetsRetryInterval is the backoff for re-attempting data-plane informer setup.
-const clusterClientSetsRetryInterval = 30 * time.Second
+const clusterClientSetsRetryInterval = 15 * time.Second
 
 // resourceMessageKey identifies the k8s object a message is about. Messages with
 // the same key are serialized and coalesced by the KeyedController.

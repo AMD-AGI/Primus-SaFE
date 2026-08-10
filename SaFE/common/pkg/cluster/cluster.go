@@ -95,6 +95,23 @@ func BackendIPsFingerprint(ips []string) string {
 	return strings.Join(sorted, ",")
 }
 
+// StatusEndpointsFingerprint builds a fingerprint for apiserver endpoints recorded on the cluster.
+func StatusEndpointsFingerprint(cluster *v1.Cluster) string {
+	endpoints := GetFallbackEndpoints(cluster)
+	if len(endpoints) == 0 {
+		return ""
+	}
+	normalized := make([]string, 0, len(endpoints))
+	for _, ep := range endpoints {
+		ep = commonclient.NormalizeEndpointHost(ep)
+		if ep != "" {
+			normalized = append(normalized, ep)
+		}
+	}
+	sort.Strings(normalized)
+	return strings.Join(normalized, ",")
+}
+
 // NewClientFactoryForCluster builds a data-plane client factory for the cluster.
 // Service mode relies on client-go dial defaults; direct endpoints use ServerVersion probe failover.
 func NewClientFactoryForCluster(ctx context.Context, adminClient client.Client, cluster *v1.Cluster,
@@ -123,8 +140,13 @@ func NewClientFactoryForCluster(ctx context.Context, adminClient client.Client, 
 		primary = fallbacks[0]
 		rest = fallbacks[1:]
 	}
-	return commonclient.NewClientFactoryWithFallbacks(ctx, cluster.Name, primary, rest,
+	factory, err := commonclient.NewClientFactoryWithFallbacks(ctx, cluster.Name, primary, rest,
 		cps.CertData, cps.KeyData, cps.CAData, informerType)
+	if err != nil {
+		return nil, err
+	}
+	factory.SetBackendFingerprint(StatusEndpointsFingerprint(cluster))
+	return factory, nil
 }
 
 // ClientFactoryNeedsRefresh reports whether an existing factory should be replaced.
@@ -141,18 +163,21 @@ func ClientFactoryNeedsRefresh(ctx context.Context, adminClient client.Client, c
 	if UsesServiceEndpoint(ctx, adminClient, cluster) {
 		endpoint, err := GetEndpoint(ctx, adminClient, cluster)
 		if err != nil {
-			return false
+			return factory.BackendFingerprint() != ""
 		}
 		if selected != commonclient.NormalizeEndpointHost(endpoint) {
 			return true
 		}
 		ips, err := GetControlPlaneBackendIPs(ctx, adminClient, cluster)
 		if err != nil {
-			return false
+			return factory.BackendFingerprint() != ""
 		}
 		return factory.BackendFingerprint() != BackendIPsFingerprint(ips)
 	}
 	if selected == "" {
+		return true
+	}
+	if StatusEndpointsFingerprint(cluster) != factory.BackendFingerprint() {
 		return true
 	}
 	for _, ep := range GetFallbackEndpoints(cluster) {

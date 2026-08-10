@@ -191,21 +191,12 @@ func (r *ClusterClientSets) addResourceTemplate(gvk schema.GroupVersionKind) err
 	}
 	_, err = informer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc: func(obj interface{}) {
-			if !r.dataClientFactory.IsValid() {
-				r.dataClientFactory.SetValid(true, "")
-			}
 			r.handleResource(ctx, nil, obj, ResourceAdd)
 		},
 		UpdateFunc: func(oldObj, newObj interface{}) {
-			if !r.dataClientFactory.IsValid() {
-				r.dataClientFactory.SetValid(true, "")
-			}
 			r.handleResource(ctx, oldObj, newObj, ResourceUpdate)
 		},
 		DeleteFunc: func(obj interface{}) {
-			if !r.dataClientFactory.IsValid() {
-				r.dataClientFactory.SetValid(true, "")
-			}
 			r.handleResource(ctx, obj, obj, ResourceDel)
 		},
 	})

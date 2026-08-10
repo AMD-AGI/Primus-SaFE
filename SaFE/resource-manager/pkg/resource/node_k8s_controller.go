@@ -199,11 +199,6 @@ func (r *NodeK8sReconciler) startNodeInformerOnce(cluster *v1.Cluster) error {
 
 // nodeEventHandler creates event handlers for Kubernetes node events (add, update, delete).
 func (r *NodeK8sReconciler) nodeEventHandler(k8sClients *commonclient.ClientFactory) cache.ResourceEventHandler {
-	check := func() {
-		if !k8sClients.IsValid() {
-			k8sClients.SetValid(true, "")
-		}
-	}
 	enqueue := func(oldNode, newNode *corev1.Node, action NodeAction) {
 		node := newNode
 		if action == NodeDelete || action == NodeUnmanaged {
@@ -224,7 +219,6 @@ func (r *NodeK8sReconciler) nodeEventHandler(k8sClients *commonclient.ClientFact
 	}
 	return cache.ResourceEventHandlerFuncs{
 		AddFunc: func(obj interface{}) {
-			check()
 			node, ok := obj.(*corev1.Node)
 			if !ok || !node.GetDeletionTimestamp().IsZero() || v1.GetClusterId(node) != k8sClients.Name() {
 				return
@@ -234,7 +228,6 @@ func (r *NodeK8sReconciler) nodeEventHandler(k8sClients *commonclient.ClientFact
 			enqueue(nil, node, NodeAdd)
 		},
 		UpdateFunc: func(oldObj, newObj interface{}) {
-			check()
 			oldNode, ok1 := oldObj.(*corev1.Node)
 			newNode, ok2 := newObj.(*corev1.Node)
 			if !ok1 || !ok2 || !newNode.GetDeletionTimestamp().IsZero() {
@@ -258,7 +251,6 @@ func (r *NodeK8sReconciler) nodeEventHandler(k8sClients *commonclient.ClientFact
 			}
 		},
 		DeleteFunc: func(obj interface{}) {
-			check()
 			node, ok := obj.(*corev1.Node)
 			if !ok || v1.GetClusterId(node) != k8sClients.Name() {
 				return

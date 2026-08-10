@@ -661,10 +661,34 @@ func (r *ClusterReconciler) filterHealthyControlPlaneAddresses(ctx context.Conte
 	}
 	wg.Wait()
 	if len(healthy) == 0 {
+		if preserved := r.existingControlPlaneEndpointAddresses(ctx, cluster); len(preserved) > 0 {
+			klog.Warningf("no healthy control plane endpoints for cluster %s, preserving %d existing backends",
+				cluster.Name, len(preserved))
+			return preserved
+		}
 		klog.Warningf("no healthy control plane endpoints for cluster %s, keeping all registered nodes", cluster.Name)
 		return all
 	}
 	return healthy
+}
+
+// existingControlPlaneEndpointAddresses returns the current admin-plane backend pool.
+func (r *ClusterReconciler) existingControlPlaneEndpointAddresses(ctx context.Context,
+	cluster *v1.Cluster) []corev1.EndpointAddress {
+	existing := new(corev1.Endpoints)
+	err := r.Get(ctx, types.NamespacedName{Name: cluster.Name, Namespace: common.PrimusSafeNamespace}, existing)
+	if err != nil {
+		return nil
+	}
+	addresses := make([]corev1.EndpointAddress, 0)
+	for _, subset := range existing.Subsets {
+		for _, addr := range subset.Addresses {
+			if addr.IP != "" {
+				addresses = append(addresses, addr)
+			}
+		}
+	}
+	return addresses
 }
 
 // guaranteeEndpoints creates or syncs the endpoints resource for the cluster.
