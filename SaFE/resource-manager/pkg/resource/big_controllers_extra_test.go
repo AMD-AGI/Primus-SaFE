@@ -7,6 +7,7 @@ package resource
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -94,9 +95,33 @@ func TestIsClusterSourceEndpoints(t *testing.T) {
 }
 
 func TestBuildDNSServerBlock(t *testing.T) {
-	block := buildDNSServerBlock("foo.local", "10.0.0.1")
+	block := buildDNSServerBlock("foo.local", []string{"10.0.0.1", "10.0.0.3"})
 	assert.Contains(t, block, "foo.local")
-	assert.Contains(t, block, "10.0.0.1")
+	// Every healthy control plane gets its own A record so resolvers can fall over.
+	assert.Contains(t, block, "IN A 10.0.0.1")
+	assert.Contains(t, block, "IN A 10.0.0.3")
+}
+
+func TestStripDNSServerBlockRoundTrip(t *testing.T) {
+	existing := "cluster.local:53 {\n    kubernetes\n}"
+	corefile := existing + "\n" + buildDNSServerBlock("foo.local", []string{"10.0.0.1"})
+
+	// Removing our block restores the untouched Corefile.
+	assert.Equal(t, existing, stripDNSServerBlock(corefile, "foo.local"))
+	// Unrelated names are left alone.
+	assert.Equal(t, corefile, stripDNSServerBlock(corefile, "bar.local"))
+	// Rebuilding with a new address set replaces rather than appends.
+	rebuilt := stripDNSServerBlock(corefile, "foo.local") + "\n" +
+		buildDNSServerBlock("foo.local", []string{"10.0.0.3"})
+	assert.Equal(t, 1, strings.Count(rebuilt, dnsServerBlockPrefix))
+	assert.Contains(t, rebuilt, "IN A 10.0.0.3")
+	assert.NotContains(t, rebuilt, "IN A 10.0.0.1")
+}
+
+func TestStripDNSServerBlockKeepsUnbalancedCorefile(t *testing.T) {
+	// A block we cannot delimit is preserved instead of being mangled.
+	broken := ".:53 {\n    template IN A foo.local {\n        answer \"x\""
+	assert.Equal(t, broken, stripDNSServerBlock(broken, "foo.local"))
 }
 
 func TestGenerateForwardName(t *testing.T) {
@@ -108,9 +133,9 @@ func TestGenAllPriorityClass(t *testing.T) {
 	assert.Len(t, classes, 3)
 }
 
-func TestGetControlPlaneIPNoCluster(t *testing.T) {
+func TestGetControlPlaneIPsNoCluster(t *testing.T) {
 	r := newClusterReconciler(t)
-	_, err := r.getControlPlaneIP(context.Background())
+	_, err := r.getControlPlaneIPs(context.Background())
 	assert.Error(t, err)
 }
 

@@ -7,6 +7,10 @@ package resource
 
 import (
 	"context"
+	"encoding/base64"
+	"fmt"
+	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -446,6 +450,110 @@ func TestGuaranteeNodeLocalDNSUpdatesCorefile(t *testing.T) {
 	testifyassert.NoError(t, err)
 	updated, _ := cs.CoreV1().ConfigMaps("kube-system").Get(context.Background(), "nodelocaldns", metav1.GetOptions{})
 	testifyassert.Contains(t, updated.Data["Corefile"], "safe.local")
+}
+
+func TestFetchConfigFromControlPlaneFallsBackToNextNode(t *testing.T) {
+	var attempted []string
+	patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(&ClusterReconciler{}), "fetchConfigFromSSH",
+		func(_ *ClusterReconciler, _ context.Context, node *v1.Node) (*rest.Config, error) {
+			attempted = append(attempted, node.Name)
+			switch node.Name {
+			case "cp1":
+				return nil, fmt.Errorf("ssh dial failed")
+			case "cp2":
+				// An unusable kubeconfig is reported as a nil config without an error.
+				return nil, nil
+			default:
+				return &rest.Config{Host: "https://10.0.0.3:6443"}, nil
+			}
+		})
+	defer patches.Reset()
+
+	nodes := []*v1.Node{
+		{ObjectMeta: metav1.ObjectMeta{Name: "cp1"}},
+		{ObjectMeta: metav1.ObjectMeta{Name: "cp2"}},
+		{ObjectMeta: metav1.ObjectMeta{Name: "cp3"}},
+	}
+	config, err := (&ClusterReconciler{}).fetchConfigFromControlPlane(context.Background(), nodes)
+	testifyassert.NoError(t, err)
+	testifyassert.Equal(t, "https://10.0.0.3:6443", config.Host)
+	testifyassert.Equal(t, []string{"cp1", "cp2", "cp3"}, attempted)
+}
+
+func TestFetchConfigFromControlPlaneAllNodesFail(t *testing.T) {
+	patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(&ClusterReconciler{}), "fetchConfigFromSSH",
+		func(_ *ClusterReconciler, _ context.Context, _ *v1.Node) (*rest.Config, error) {
+			return nil, fmt.Errorf("ssh dial failed")
+		})
+	defer patches.Reset()
+
+	_, err := (&ClusterReconciler{}).fetchConfigFromControlPlane(context.Background(),
+		[]*v1.Node{{ObjectMeta: metav1.ObjectMeta{Name: "cp1"}}})
+	testifyassert.Error(t, err)
+}
+
+func readNodeLocalDNSCorefile(t *testing.T, cs *k8sfake.Clientset) string {
+	t.Helper()
+	cm, err := cs.CoreV1().ConfigMaps("kube-system").Get(
+		context.Background(), "nodelocaldns", metav1.GetOptions{})
+	testifyassert.NoError(t, err)
+	return cm.Data["Corefile"]
+}
+
+func TestGuaranteeNodeLocalDNSFollowsHealthyControlPlanes(t *testing.T) {
+	patches := gomonkey.ApplyFunc(commonconfig.GetSystemHost, func() string { return "safe.local" })
+	defer patches.Reset()
+
+	cm := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{Name: "nodelocaldns", Namespace: "kube-system"},
+		Data:       map[string]string{"Corefile": "cluster.local:53 {\n    kubernetes\n}"},
+	}
+	cs := k8sfake.NewSimpleClientset(cm)
+
+	scheme, _ := genMockScheme()
+	dataCluster := readyCluster("c1")
+	cpCluster := readyCluster("ctrl")
+	cpCluster.Labels = map[string]string{v1.ClusterControlPlaneLabel: ""}
+	// The status lists every control plane, while probing currently reaches only two of them.
+	cpCluster.Status.ControlPlaneStatus.Endpoints = []string{
+		"https://10.0.0.1:6443", "https://10.0.0.2:6443", "https://10.0.0.3:6443",
+	}
+	endpoints := &corev1.Endpoints{
+		ObjectMeta: metav1.ObjectMeta{Name: "ctrl", Namespace: common.PrimusSafeNamespace},
+		Subsets: []corev1.EndpointSubset{{
+			Addresses: []corev1.EndpointAddress{{IP: "10.0.0.1"}, {IP: "10.0.0.3"}},
+		}},
+	}
+	cl := ctrlfake.NewClientBuilder().WithScheme(scheme).
+		WithObjects(dataCluster, cpCluster, endpoints).Build()
+	mgr := commonutils.NewObjectManager()
+	testifyassert.NoError(t, mgr.Add("c1",
+		commonclient.NewClientFactoryWithOnlyClient(context.Background(), "c1", cs)))
+	r := &ClusterReconciler{ClusterBaseReconciler: &ClusterBaseReconciler{Client: cl}, clientManager: mgr}
+	ctx := context.Background()
+
+	testifyassert.NoError(t, r.guaranteeNodeLocalDNS(ctx, dataCluster))
+	corefile := readNodeLocalDNSCorefile(t, cs)
+	testifyassert.Contains(t, corefile, "IN A 10.0.0.1")
+	testifyassert.Contains(t, corefile, "IN A 10.0.0.3")
+	// 10.0.0.2 failed probing, so data-plane resolvers must not be pointed at it.
+	testifyassert.NotContains(t, corefile, "IN A 10.0.0.2")
+
+	// Reconciling again changes nothing.
+	testifyassert.NoError(t, r.guaranteeNodeLocalDNS(ctx, dataCluster))
+	testifyassert.Equal(t, corefile, readNodeLocalDNSCorefile(t, cs))
+
+	// 10.0.0.1 goes down: the Corefile follows the pool instead of keeping a dead address.
+	endpoints.Subsets[0].Addresses = []corev1.EndpointAddress{{IP: "10.0.0.3"}}
+	testifyassert.NoError(t, cl.Update(ctx, endpoints))
+	testifyassert.NoError(t, r.guaranteeNodeLocalDNS(ctx, dataCluster))
+
+	corefile = readNodeLocalDNSCorefile(t, cs)
+	testifyassert.NotContains(t, corefile, "IN A 10.0.0.1")
+	testifyassert.Contains(t, corefile, "IN A 10.0.0.3")
+	// The block is replaced rather than appended, and unrelated blocks survive.
+	testifyassert.Equal(t, 1, strings.Count(corefile, dnsServerBlockPrefix))
+	testifyassert.Contains(t, corefile, "cluster.local:53 {")
 }
 
 func TestGuaranteeDataPlaneClusterRoleEmptyName(t *testing.T) {
@@ -932,4 +1040,111 @@ func TestGuaranteeClientFactoryNotReady(t *testing.T) {
 	}
 	// Not ready -> no-op nil.
 	testifyassert.NoError(t, r.guaranteeClientFactory(context.Background(), testCluster("c1")))
+}
+
+func TestShouldPeriodicSyncControlPlaneEndpoints(t *testing.T) {
+	ready := testCluster("c1")
+	ready.Status.ControlPlaneStatus.Phase = v1.ReadyPhase
+	ready.Spec.ControlPlane.Nodes = []string{"cp1"}
+
+	notReady := testCluster("c2")
+	notReady.Spec.ControlPlane.Nodes = []string{"cp1"}
+
+	deleting := ready.DeepCopy()
+	now := metav1.Now()
+	deleting.DeletionTimestamp = &now
+
+	testifyassert.True(t, shouldPeriodicSyncControlPlaneEndpoints(ready))
+	testifyassert.False(t, shouldPeriodicSyncControlPlaneEndpoints(notReady))
+	testifyassert.False(t, shouldPeriodicSyncControlPlaneEndpoints(deleting))
+	testifyassert.False(t, shouldPeriodicSyncControlPlaneEndpoints(nil))
+}
+
+func TestFilterHealthyControlPlaneAddressesNoCredentials(t *testing.T) {
+	cluster := testCluster("c1")
+	r := newPlaneReconciler(t, cluster)
+	nodes := []*v1.Node{{ObjectMeta: metav1.ObjectMeta{Name: "n1"}, Spec: v1.NodeSpec{PrivateIP: "10.0.0.1"}}}
+	addrs := r.filterHealthyControlPlaneAddresses(context.Background(), cluster, nodes)
+	testifyassert.Len(t, addrs, 1)
+	testifyassert.Equal(t, "10.0.0.1", addrs[0].IP)
+}
+
+func TestMarkClusterClientFactoryStale(t *testing.T) {
+	mgr := commonutils.NewObjectManager()
+	factory := commonclient.NewClientFactoryForTest("c1", "10.96.1.1:6443")
+	testifyassert.NoError(t, mgr.Add("c1", factory))
+	r := &ClusterReconciler{clientManager: mgr}
+	r.markClusterClientFactoryStale("c1", "control plane endpoints changed")
+	testifyassert.False(t, factory.IsValid())
+}
+
+func TestGuaranteeEndpointsBackendSync(t *testing.T) {
+	cluster := testCluster("c1")
+	existing := &corev1.Endpoints{
+		ObjectMeta: metav1.ObjectMeta{Name: "c1", Namespace: common.PrimusSafeNamespace},
+		Subsets: []corev1.EndpointSubset{{
+			Addresses: []corev1.EndpointAddress{{IP: "10.0.0.1"}, {IP: "10.0.0.2"}},
+		}},
+	}
+	r := newPlaneReconciler(t, cluster, existing)
+	mgr := commonutils.NewObjectManager()
+	factory := commonclient.NewClientFactoryForTest("c1", "10.96.1.1:6443")
+	factory.SetBackendFingerprint("10.0.0.1,10.0.0.2")
+	testifyassert.NoError(t, mgr.Add("c1", factory))
+	r.clientManager = mgr
+
+	nodes := []*v1.Node{{ObjectMeta: metav1.ObjectMeta{Name: "n1"}, Spec: v1.NodeSpec{PrivateIP: "10.0.0.1"}}}
+	testifyassert.NoError(t, r.guaranteeEndpoints(context.Background(), cluster, nodes))
+
+	ep := &corev1.Endpoints{}
+	testifyassert.NoError(t, r.Get(context.Background(), client.ObjectKey{
+		Name: "c1", Namespace: common.PrimusSafeNamespace,
+	}, ep))
+	testifyassert.Len(t, ep.Subsets[0].Addresses, 1)
+	testifyassert.Equal(t, "10.0.0.1", ep.Subsets[0].Addresses[0].IP)
+	testifyassert.False(t, factory.IsValid())
+}
+
+func TestGuaranteeClientFactoryKeepsValidFactoryWithoutEndpoint(t *testing.T) {
+	scheme, _ := genMockScheme()
+	cluster := readyCluster("c1")
+	cl := ctrlfake.NewClientBuilder().WithScheme(scheme).WithObjects(cluster).Build()
+	cs := k8sfake.NewSimpleClientset()
+	mgr := commonutils.NewObjectManager()
+	factory := commonclient.NewClientFactoryWithOnlyClient(context.Background(), "c1", cs)
+	testifyassert.NoError(t, mgr.Add("c1", factory))
+	r := &ClusterReconciler{
+		ClusterBaseReconciler: &ClusterBaseReconciler{Client: cl},
+		clientManager:         mgr,
+	}
+	testifyassert.NoError(t, r.guaranteeClientFactory(context.Background(), cluster))
+	testifyassert.True(t, factory.IsValid())
+}
+
+func TestSyncControlPlaneServiceEndpointsSkipsWithoutCPNodes(t *testing.T) {
+	scheme, _ := genMockScheme()
+	cluster := readyCluster("c1")
+	cl := ctrlfake.NewClientBuilder().WithScheme(scheme).WithObjects(cluster).Build()
+	r := &ClusterReconciler{ClusterBaseReconciler: &ClusterBaseReconciler{Client: cl}}
+	testifyassert.NoError(t, r.syncControlPlaneServiceEndpoints(context.Background(), cluster))
+}
+
+func TestFilterHealthyPreservesExistingBackends(t *testing.T) {
+	cluster := testCluster("c1")
+	existing := &corev1.Endpoints{
+		ObjectMeta: metav1.ObjectMeta{Name: "c1", Namespace: common.PrimusSafeNamespace},
+		Subsets: []corev1.EndpointSubset{{
+			Addresses: []corev1.EndpointAddress{{IP: "10.0.0.1"}},
+		}},
+	}
+	r := newPlaneReconciler(t, cluster, existing)
+	cluster.Status.ControlPlaneStatus.CertData = base64.StdEncoding.EncodeToString([]byte("cert"))
+	cluster.Status.ControlPlaneStatus.KeyData = base64.StdEncoding.EncodeToString([]byte("key"))
+	nodes := []*v1.Node{
+		{ObjectMeta: metav1.ObjectMeta{Name: "n1"}, Spec: v1.NodeSpec{PrivateIP: "10.0.0.1"}},
+		{ObjectMeta: metav1.ObjectMeta{Name: "n2"}, Spec: v1.NodeSpec{PrivateIP: "10.0.0.2"}},
+	}
+	addrs := r.filterHealthyControlPlaneAddresses(context.Background(), cluster, nodes)
+	testifyassert.Len(t, addrs, 1)
+	testifyassert.Equal(t, "10.0.0.1", addrs[0].IP)
 }

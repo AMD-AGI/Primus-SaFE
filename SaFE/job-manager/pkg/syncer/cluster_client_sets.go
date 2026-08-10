@@ -89,12 +89,13 @@ func newClusterClientSets(ctx context.Context, cluster *v1.Cluster,
 	if err != nil {
 		return nil, err
 	}
-	clientFactory, err := commonclient.NewClientFactory(ctx, cluster.Name, endpoint,
-		controlPlane.CertData, controlPlane.KeyData, controlPlane.CAData, commonclient.EnableDynamicInformer)
+	clientFactory, err := commoncluster.NewClientFactoryForCluster(ctx, adminClient, cluster,
+		commonclient.EnableDynamicInformer)
 	if err != nil {
 		return nil, err
 	}
-	klog.Infof("create cluster client sets, cluster: %s, endpoint: %s", cluster.Name, endpoint)
+	klog.Infof("create cluster client sets, cluster: %s, endpoint: %s, selected: %s",
+		cluster.Name, endpoint, clientFactory.Endpoint())
 	return &ClusterClientSets{
 		ctx:               ctx,
 		name:              cluster.Name,
@@ -204,6 +205,10 @@ func (r *ClusterClientSets) addResourceTemplate(gvk schema.GroupVersionKind) err
 			"cluster", r.name, "gvk", gvk)
 		return err
 	}
+	if err = informer.Informer().SetWatchErrorHandler(commonclient.WatchErrorHandler(r.ctx, r.dataClientFactory)); err != nil {
+		klog.ErrorS(err, "failed to set watch error handler", "cluster", r.name, "gvk", gvk)
+		return err
+	}
 
 	if r.resourceInformers.Add(gvk.String(), informer) == nil {
 		informer.start()
@@ -308,6 +313,32 @@ func (r *resourceInformer) Release() error {
 	}
 	r.cancel()
 	r.isExited = true
+	return nil
+}
+
+// needsClientFactoryRefresh reports whether the data-plane client factory should be rebuilt.
+func (r *ClusterClientSets) needsClientFactoryRefresh(ctx context.Context, cluster *v1.Cluster,
+	adminClient client.Client) bool {
+	if r.dataClientFactory == nil || !r.dataClientFactory.IsValid() {
+		return true
+	}
+	return commoncluster.ClientFactoryNeedsRefresh(ctx, adminClient, cluster, r.dataClientFactory)
+}
+
+// recreateClientFactory rebuilds the data-plane client and clears informers.
+func (r *ClusterClientSets) recreateClientFactory(ctx context.Context, cluster *v1.Cluster,
+	adminClient client.Client) error {
+	if r.dataClientFactory != nil {
+		_ = r.dataClientFactory.Release()
+	}
+	factory, err := commoncluster.NewClientFactoryForCluster(ctx, adminClient, cluster,
+		commonclient.EnableDynamicInformer)
+	if err != nil {
+		return err
+	}
+	r.dataClientFactory = factory
+	r.resourceInformers.Clear()
+	klog.Infof("recreated cluster client factory, cluster: %s, endpoint: %s", r.name, factory.Endpoint())
 	return nil
 }
 

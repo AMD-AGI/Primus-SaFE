@@ -46,7 +46,7 @@ type SyncerReconciler struct {
 const syncerWorkers = 8
 
 // clusterClientSetsRetryInterval is the backoff for re-attempting data-plane informer setup.
-const clusterClientSetsRetryInterval = 30 * time.Second
+const clusterClientSetsRetryInterval = 15 * time.Second
 
 // resourceMessageKey identifies the k8s object a message is about. Messages with
 // the same key are serialized and coalesced by the KeyedController.
@@ -158,6 +158,9 @@ func (r *SyncerReconciler) Reconcile(ctx context.Context, request ctrlruntime.Re
 // Returns true when setup is incomplete and should be retried.
 func (r *SyncerReconciler) ensureClusterClientSets(ctx context.Context, cluster *v1.Cluster,
 	rtList *v1.ResourceTemplateList) bool {
+	if !cluster.IsReady() {
+		return false
+	}
 	clientSets, err := GetClusterClientSets(r.clusterClientSets, cluster.Name)
 	if err != nil {
 		clientSets, err = newClusterClientSets(r.ctx, cluster, r.Client, r.Add)
@@ -167,6 +170,11 @@ func (r *SyncerReconciler) ensureClusterClientSets(ctx context.Context, cluster 
 		}
 		r.clusterClientSets.AddOrReplace(cluster.Name, clientSets)
 		klog.Infof("create cluster clientSets, name: %s", cluster.Name)
+	} else if clientSets.needsClientFactoryRefresh(ctx, cluster, r.Client) {
+		if err = clientSets.recreateClientFactory(ctx, cluster, r.Client); err != nil {
+			klog.ErrorS(err, "failed to recreate cluster clientSets", "cluster", cluster.Name)
+			return true
+		}
 	}
 	for i := range rtList.Items {
 		if err := clientSets.addResourceTemplate(rtList.Items[i].ToSchemaGVK()); err != nil {

@@ -42,7 +42,62 @@ func newNodeK8sReconciler(t *testing.T, objs ...client.Object) *NodeK8sReconcile
 		ctx:                   context.Background(),
 		ClusterBaseReconciler: &ClusterBaseReconciler{Client: cl},
 		clientManager:         commonutils.NewObjectManager(),
+		startedNodeInformers:  make(map[string]*commonclient.ClientFactory),
+		queue: workqueue.NewTypedRateLimitingQueueWithConfig(
+			workqueue.DefaultTypedControllerRateLimiter[*nodeQueueMessage](),
+			workqueue.TypedRateLimitingQueueConfig[*nodeQueueMessage]{Name: "node-test"}),
 	}
+}
+
+// newInformerReconciler returns a reconciler whose cluster "c1" has a factory with a live
+// shared informer factory backed by a fake clientset.
+func newInformerReconciler(t *testing.T) (*NodeK8sReconciler, *commonclient.ClientFactory) {
+	t.Helper()
+	r := newNodeK8sReconciler(t)
+	factory := commonclient.NewClientFactoryForTestWithInformer("c1", k8sfake.NewSimpleClientset())
+	t.Cleanup(func() { _ = factory.Release() })
+	assert.NoError(t, r.clientManager.Add("c1", factory))
+	return r, factory
+}
+
+func TestAttachNodeInformer(t *testing.T) {
+	r, factory := newInformerReconciler(t)
+	cluster := &v1.Cluster{ObjectMeta: metav1.ObjectMeta{Name: "c1"}}
+
+	testifyassert.NoError(t, r.attachNodeInformer(context.Background(), cluster, true))
+	testifyassert.Same(t, factory, r.startedNodeInformers["c1"])
+
+	// Re-attaching the same factory is skipped so node events are not handled twice.
+	testifyassert.NoError(t, r.attachNodeInformer(context.Background(), cluster, true))
+	testifyassert.Same(t, factory, r.startedNodeInformers["c1"])
+}
+
+func TestAttachNodeInformerWithoutFactory(t *testing.T) {
+	r := newNodeK8sReconciler(t)
+	err := r.attachNodeInformer(context.Background(), &v1.Cluster{
+		ObjectMeta: metav1.ObjectMeta{Name: "missing"},
+	}, true)
+	testifyassert.Error(t, err)
+}
+
+func TestStartNodeInformer(t *testing.T) {
+	r, factory := newInformerReconciler(t)
+	testifyassert.NoError(t, r.startNodeInformer(nil))
+	testifyassert.NoError(t, r.startNodeInformer(&v1.Cluster{ObjectMeta: metav1.ObjectMeta{Name: "c1"}}))
+	testifyassert.Same(t, factory, r.startedNodeInformers["c1"])
+}
+
+func TestRestartNodeInformerAfterClientRebuild(t *testing.T) {
+	r, factory := newInformerReconciler(t)
+	ctx := context.Background()
+	testifyassert.NoError(t, r.restartNodeInformerAfterClientRebuild(ctx, nil))
+	testifyassert.NoError(t, r.restartNodeInformerAfterClientRebuild(ctx,
+		&v1.Cluster{ObjectMeta: metav1.ObjectMeta{Name: "c1"}}))
+	testifyassert.Same(t, factory, r.startedNodeInformers["c1"])
+
+	// Clearing the registration lets a rebuilt factory re-attach handlers.
+	r.clearNodeInformerRegistration("c1")
+	testifyassert.NotContains(t, r.startedNodeInformers, "c1")
 }
 
 func TestNodeK8sReconcileNoop(t *testing.T) {
@@ -206,7 +261,7 @@ func TestWatchErrorHandlerFull(t *testing.T) {
 	cs := k8sfake.NewSimpleClientset()
 	factory := commonclient.NewClientFactoryWithOnlyClient(context.Background(), "c1", cs)
 	factory.SetValid(true, "")
-	h := watchErrorHandler(context.Background(), factory)
+	h := commonclient.WatchErrorHandler(context.Background(), factory)
 	h(&cache.Reflector{}, errors.New("boom"))
 	testifyassert.False(t, factory.IsValid())
 }

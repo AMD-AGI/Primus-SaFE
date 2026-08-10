@@ -46,6 +46,10 @@ import (
 
 const (
 	ClusterRoleBindingLabel = "app.kubernetes.io/role-ref"
+	// controlPlaneEndpointsSyncInterval requeues ready clusters to probe apiserver backends
+	// and sync admin-plane Endpoints. client-go dial defaults only apply per HTTP connection
+	// to the Service VIP; they do not remove dead backends from the Endpoints pool.
+	controlPlaneEndpointsSyncInterval = 15 * time.Second
 )
 
 // ClusterReconciler reconciles Cluster resources and manages their lifecycle.
@@ -291,6 +295,11 @@ func (r *ClusterReconciler) Reconcile(ctx context.Context, req ctrlruntime.Reque
 		rmmetrics.ClusterReconcileErrorsTotal.WithLabelValues("cluster_control_plane").Inc()
 		return ctrlruntime.Result{}, err
 	}
+	if err = r.syncControlPlaneServiceEndpoints(ctx, cluster); err != nil {
+		klog.ErrorS(err, "failed to sync control plane endpoints", "cluster", cluster.Name)
+		rmmetrics.ClusterReconcileErrorsTotal.WithLabelValues("control_plane_endpoints").Inc()
+		return ctrlruntime.Result{}, err
+	}
 	if err = r.guaranteeClientFactory(ctx, cluster); err != nil {
 		klog.ErrorS(err, "failed to guarantee client factory", "cluster", cluster.Name)
 		rmmetrics.ClusterReconcileErrorsTotal.WithLabelValues("client_factory").Inc()
@@ -343,7 +352,17 @@ func (r *ClusterReconciler) Reconcile(ctx context.Context, req ctrlruntime.Reque
 		rmmetrics.ClusterReconcileErrorsTotal.WithLabelValues("node_local_dns").Inc()
 		return ctrlruntime.Result{}, err
 	}
+	if shouldPeriodicSyncControlPlaneEndpoints(cluster) {
+		return ctrlruntime.Result{RequeueAfter: controlPlaneEndpointsSyncInterval}, nil
+	}
 	return ctrlruntime.Result{}, nil
+}
+
+// shouldPeriodicSyncControlPlaneEndpoints reports whether reconcile should requeue to
+// re-probe control-plane apiservers and sync Service Endpoints.
+func shouldPeriodicSyncControlPlaneEndpoints(cluster *v1.Cluster) bool {
+	return cluster != nil && cluster.GetDeletionTimestamp().IsZero() && cluster.IsReady() &&
+		len(cluster.Spec.ControlPlane.Nodes) > 0
 }
 
 // cleanupClusterResources removes all associated resources for a cluster including priority classes,
@@ -420,24 +439,65 @@ func (r *ClusterReconciler) resetNodesOfCluster(ctx context.Context, cluster *v1
 	return nil
 }
 
+// syncControlPlaneServiceEndpoints probes apiserver backends and syncs admin-plane Service/Endpoints once per reconcile.
+func (r *ClusterReconciler) syncControlPlaneServiceEndpoints(ctx context.Context, cluster *v1.Cluster) error {
+	if !shouldPeriodicSyncControlPlaneEndpoints(cluster) {
+		return nil
+	}
+	return r.guaranteeService(ctx, cluster)
+}
+
 // guaranteeClientFactory ensures a Kubernetes client factory is available for the cluster.
 func (r *ClusterReconciler) guaranteeClientFactory(ctx context.Context, cluster *v1.Cluster) error {
-	if !cluster.IsReady() || r.clientManager.Has(cluster.Name) {
+	if !cluster.IsReady() {
 		return nil
+	}
+	if obj, ok := r.clientManager.Get(cluster.Name); ok {
+		if factory, ok := obj.(*commonclient.ClientFactory); ok &&
+			!commoncluster.ClientFactoryNeedsRefresh(ctx, r.Client, cluster, factory) {
+			return nil
+		}
 	}
 	endpoint, err := commoncluster.GetEndpoint(ctx, r.Client, cluster)
 	if err != nil {
+		if obj, ok := r.clientManager.Get(cluster.Name); ok {
+			if factory, ok := obj.(*commonclient.ClientFactory); ok && factory.IsValid() {
+				return nil
+			}
+		}
 		return err
 	}
-	controlPlane := &cluster.Status.ControlPlaneStatus
-	k8sClients, err := commonclient.NewClientFactory(ctx, cluster.Name, endpoint,
-		controlPlane.CertData, controlPlane.KeyData, controlPlane.CAData, commonclient.EnableInformer)
+	k8sClients, err := commoncluster.NewClientFactoryForCluster(ctx, r.Client, cluster, commonclient.EnableInformer)
 	if err != nil {
 		return err
 	}
+	recreated := r.clientManager.Has(cluster.Name)
 	r.clientManager.AddOrReplace(cluster.Name, k8sClients)
-	klog.Infof("add cluster %s informer, endpoint: %s", cluster.Name, endpoint)
+	klog.Infof("add cluster %s informer, endpoint: %s, selected: %s",
+		cluster.Name, endpoint, k8sClients.Endpoint())
+	if recreated {
+		if restartErr := tryRestartNodeInformer(ctx, cluster); restartErr != nil {
+			klog.ErrorS(restartErr, "failed to restart node informer after client rebuild", "cluster", cluster.Name)
+		}
+	}
 	return nil
+}
+
+// markClusterClientFactoryStale invalidates the cached data-plane client after backend pool changes.
+func (r *ClusterReconciler) markClusterClientFactoryStale(clusterName, reason string) {
+	clearNodeInformerForCluster(clusterName)
+	if r.clientManager == nil {
+		return
+	}
+	obj, ok := r.clientManager.Get(clusterName)
+	if !ok {
+		return
+	}
+	factory, ok := obj.(*commonclient.ClientFactory)
+	if !ok || !factory.IsValid() {
+		return
+	}
+	factory.SetValid(false, reason)
 }
 
 // guaranteePriorityClass ensures priority classes are created in the cluster.
@@ -1007,7 +1067,7 @@ func (r *ClusterReconciler) guaranteeNodeLocalDNS(ctx context.Context, cluster *
 		return nil
 	}
 
-	controlPlaneIP, err := r.getControlPlaneIP(ctx)
+	controlPlaneIPs, err := r.getControlPlaneIPs(ctx)
 	if err != nil {
 		return err
 	}
@@ -1032,54 +1092,73 @@ func (r *ClusterReconciler) guaranteeNodeLocalDNS(ctx context.Context, cluster *
 		return fmt.Errorf("Corefile key not found in nodelocaldns ConfigMap in cluster %s", cluster.Name)
 	}
 
-	serverBlock := buildDNSServerBlock(dnsName, controlPlaneIP)
-	if strings.Contains(corefile, dnsName) {
-		klog.V(4).Infof("nodelocaldns Corefile in cluster %s already contains %s, skipping", cluster.Name, dnsName)
+	// Replace rather than append: the recorded addresses must follow the healthy control planes,
+	// otherwise data-plane nodes keep resolving the system host to an apiserver that is gone.
+	base := strings.TrimRight(stripDNSServerBlock(corefile, dnsName), " \t\n")
+	desired := base + "\n" + buildDNSServerBlock(dnsName, controlPlaneIPs)
+	if desired == corefile {
+		klog.V(4).Infof("nodelocaldns Corefile in cluster %s already targets %v, skipping",
+			cluster.Name, controlPlaneIPs)
 		return nil
 	}
 
-	cm.Data["Corefile"] = corefile + "\n" + serverBlock
+	cm.Data["Corefile"] = desired
 	if _, err = clientSet.CoreV1().ConfigMaps("kube-system").Update(ctx, cm, metav1.UpdateOptions{}); err != nil {
 		return fmt.Errorf("failed to update nodelocaldns ConfigMap in cluster %s: %w", cluster.Name, err)
 	}
-	klog.Infof("updated nodelocaldns Corefile in cluster %s with %s -> %s", cluster.Name, dnsName, controlPlaneIP)
+	klog.Infof("updated nodelocaldns Corefile in cluster %s with %s -> %v", cluster.Name, dnsName, controlPlaneIPs)
 	return nil
 }
 
-// getControlPlaneIP returns the IP address of the control-plane cluster's first endpoint.
-func (r *ClusterReconciler) getControlPlaneIP(ctx context.Context) (string, error) {
+// getControlPlaneIPs returns the admin-plane addresses that data-plane nodes should resolve the
+// system host to. It prefers the probed Endpoints pool so an apiserver that went down is left out,
+// and falls back to every address recorded on the cluster status when that pool is unavailable.
+func (r *ClusterReconciler) getControlPlaneIPs(ctx context.Context) ([]string, error) {
 	clusterList := &v1.ClusterList{}
 	if err := r.Client.List(ctx, clusterList, client.MatchingLabels{
 		v1.ClusterControlPlaneLabel: "",
 	}); err != nil {
-		return "", fmt.Errorf("failed to list clusters with control-plane label: %w", err)
+		return nil, fmt.Errorf("failed to list clusters with control-plane label: %w", err)
 	}
 	if len(clusterList.Items) == 0 {
-		return "", fmt.Errorf("no cluster with control-plane label found")
+		return nil, fmt.Errorf("no cluster with control-plane label found")
 	}
 
 	cp := &clusterList.Items[0]
-	if len(cp.Status.ControlPlaneStatus.Endpoints) == 0 {
-		return "", fmt.Errorf("control-plane cluster %s has no endpoints", cp.Name)
+	if ips, err := commoncluster.GetControlPlaneBackendIPs(ctx, r.Client, cp); err == nil && len(ips) > 0 {
+		return ips, nil
 	}
 
-	endpoint := cp.Status.ControlPlaneStatus.Endpoints[0]
-	u, err := url.Parse(endpoint)
-	if err != nil {
-		return "", fmt.Errorf("failed to parse control-plane endpoint %q: %w", endpoint, err)
+	hosts := make([]string, 0, len(cp.Status.ControlPlaneStatus.Endpoints))
+	for _, endpoint := range cp.Status.ControlPlaneStatus.Endpoints {
+		u, err := url.Parse(endpoint)
+		if err != nil {
+			klog.V(4).Infof("skip unparsable control-plane endpoint %q: %v", endpoint, err)
+			continue
+		}
+		if host := u.Hostname(); host != "" {
+			hosts = append(hosts, host)
+		}
 	}
-	host := u.Hostname()
-	if host == "" {
-		return "", fmt.Errorf("no host found in control-plane endpoint %q", endpoint)
+	if len(hosts) == 0 {
+		return nil, fmt.Errorf("control-plane cluster %s has no usable endpoint", cp.Name)
 	}
-	return host, nil
+	return hosts, nil
 }
 
-// buildDNSServerBlock generates a CoreDNS server block that resolves the given dnsName to the given IP.
-func buildDNSServerBlock(dnsName, ip string) string {
-	return fmt.Sprintf(`.:53 {
+// dnsServerBlockPrefix opens the CoreDNS server block that buildDNSServerBlock renders.
+const dnsServerBlockPrefix = ".:53 {"
+
+// buildDNSServerBlock generates a CoreDNS server block resolving dnsName to every given address.
+// One A record per control plane lets a resolver fall over when the first address stops answering.
+func buildDNSServerBlock(dnsName string, ips []string) string {
+	answers := make([]string, 0, len(ips))
+	for _, ip := range ips {
+		answers = append(answers, fmt.Sprintf(`        answer "{{ .Name }} 60 IN A %s"`, ip))
+	}
+	return fmt.Sprintf(`%s
     template IN A %s {
-        answer "{{ .Name }} 60 IN A %s"
+%s
         fallthrough
     }
     errors
@@ -1089,7 +1168,47 @@ func buildDNSServerBlock(dnsName, ip string) string {
     bind 169.254.25.10
     forward . /etc/resolv.conf
     prometheus :9253
-}`, dnsName, ip)
+}`, dnsServerBlockPrefix, dnsName, strings.Join(answers, "\n"))
+}
+
+// stripDNSServerBlock removes the server blocks templating dnsName so they can be replaced when the
+// control-plane address set changes. A block whose bounds cannot be determined is left untouched,
+// keeping a Corefile we do not fully understand intact.
+func stripDNSServerBlock(corefile, dnsName string) string {
+	marker := "template IN A " + dnsName
+	for {
+		pos := strings.Index(corefile, marker)
+		if pos < 0 {
+			return corefile
+		}
+		start := strings.LastIndex(corefile[:pos], dnsServerBlockPrefix)
+		if start < 0 {
+			return corefile
+		}
+		end := dnsServerBlockEnd(corefile, start)
+		if end < 0 {
+			return corefile
+		}
+		corefile = strings.TrimRight(corefile[:start], " \t\n") + corefile[end:]
+	}
+}
+
+// dnsServerBlockEnd returns the index just past the brace closing the block opened at start,
+// or -1 when the braces are unbalanced.
+func dnsServerBlockEnd(corefile string, start int) int {
+	depth := 0
+	for i := start; i < len(corefile); i++ {
+		switch corefile[i] {
+		case '{':
+			depth++
+		case '}':
+			depth--
+			if depth == 0 {
+				return i + 1
+			}
+		}
+	}
+	return -1
 }
 
 // generateForwardName generates the name for forward resources by appending "-forward" to the cluster name.

@@ -71,5 +71,13 @@ func GetK8sClientFactory(clientManager *commonutils.ObjectManager, clusterId str
 	if !ok {
 		return nil, commonerrors.NewInternalError("the object type is not matched")
 	}
+	if !k8sClients.IsValid() {
+		reason := k8sClients.GetInvalidReason()
+		if reason == "" {
+			reason = "client factory is invalid"
+		}
+		err := fmt.Errorf("the client of cluster %s is invalid: %s. please retry later", clusterId, reason)
+		return nil, commonerrors.NewInternalError(err.Error())
+	}
 	return k8sClients, nil
 }

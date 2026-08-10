@@ -21,6 +21,7 @@ import (
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
+	commoncluster "github.com/AMD-AIG-AIMA/SAFE/common/pkg/cluster"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
 	commonhealth "github.com/AMD-AIG-AIMA/SAFE/common/pkg/health"
@@ -161,30 +162,31 @@ func (r *Reporter) collectClusters(ctx context.Context) {
 	}
 }
 
-// probeCluster attempts a bounded ServerVersion call against a data-plane
-// cluster using the credentials stored on the Cluster CR status.
+// probeCluster attempts a bounded ServerVersion call against a data-plane cluster.
 func (r *Reporter) probeCluster(ctx context.Context, c *v1.Cluster) bool {
+	if !c.IsReady() {
+		return false
+	}
 	cps := c.Status.ControlPlaneStatus
-	if len(cps.Endpoints) == 0 || cps.CertData == "" || cps.KeyData == "" {
+	if cps.CertData == "" || cps.KeyData == "" {
 		return false
 	}
-	clientSet, _, err := k8sclient.NewClientSet(cps.Endpoints[0], cps.CertData, cps.KeyData, cps.CAData, true)
+	endpoint, err := commoncluster.GetEndpoint(ctx, r.cli, c)
 	if err != nil {
-		klog.V(4).Infof("[self-health] cluster %s client build failed: %v", c.Name, err)
+		klog.V(4).Infof("[self-health] cluster %s resolve endpoint failed: %v", c.Name, err)
 		return false
 	}
-
+	var fallbacks []string
+	if !commoncluster.UsesServiceEndpoint(ctx, r.cli, c) {
+		all := commoncluster.GetFallbackEndpoints(c)
+		if len(all) > 0 {
+			endpoint = all[0]
+			fallbacks = all[1:]
+		}
+	}
 	probeCtx, cancel := context.WithTimeout(ctx, clusterProbeTimeout)
 	defer cancel()
-	done := make(chan bool, 1)
-	go func() {
-		_, verr := clientSet.Discovery().ServerVersion()
-		done <- verr == nil
-	}()
-	select {
-	case <-probeCtx.Done():
-		return false
-	case ok := <-done:
-		return ok
-	}
+	_, _, _, err = k8sclient.NewClientSetWithProbe(probeCtx, endpoint, fallbacks,
+		cps.CertData, cps.KeyData, cps.CAData, true)
+	return err == nil
 }

@@ -13,6 +13,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
+	commonclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/k8sclient"
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 )
 
@@ -66,4 +67,14 @@ func TestGetK8sClientFactoryNotFound(t *testing.T) {
 	mgr := commonutils.NewObjectManagerSingleton()
 	_, err := GetK8sClientFactory(mgr, "nonexistent-cluster")
 	assert.Error(t, err)
+}
+
+func TestGetK8sClientFactoryInvalid(t *testing.T) {
+	mgr := commonutils.NewObjectManager()
+	factory := commonclient.NewClientFactoryForTest("c1", "https://10.0.0.1:6443")
+	factory.SetValid(false, "control plane endpoints changed")
+	assert.NoError(t, mgr.Add("c1", factory))
+	_, err := GetK8sClientFactory(mgr, "c1")
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid")
 }
