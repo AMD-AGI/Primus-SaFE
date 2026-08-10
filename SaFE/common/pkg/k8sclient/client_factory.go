@@ -135,6 +135,19 @@ func (f *ClientFactory) AttachRestConfigForTest(cfg *rest.Config) {
 	f.restConfig = cfg
 }
 
+// NewClientFactoryForTestWithInformer builds a factory backed by the given clientset and a live
+// shared informer factory, so informer wiring can be exercised in unit tests.
+func NewClientFactoryForTestWithInformer(name string, clientSet kubernetes.Interface) *ClientFactory {
+	return &ClientFactory{
+		name:                  name,
+		clientSet:             clientSet,
+		informerType:          EnableInformer,
+		stopCh:                make(chan struct{}),
+		sharedInformerFactory: informers.NewSharedInformerFactory(clientSet, time.Minute),
+		valid:                 true,
+	}
+}
+
 // NewClientFactoryWithOnlyClient create factory instance with client only (without Informer).
 func NewClientFactoryWithOnlyClient(ctx context.Context, name string, clientSet kubernetes.Interface) *ClientFactory {
 	return &ClientFactory{

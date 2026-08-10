@@ -8,8 +8,10 @@ package k8sclient
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
+	k8sfake "k8s.io/client-go/kubernetes/fake"
 	"k8s.io/client-go/rest"
 )
 
@@ -37,4 +39,46 @@ func TestNewClientSetWithProbeNoCandidates(t *testing.T) {
 
 func TestProbeRESTConfigNil(t *testing.T) {
 	assert.Error(t, ProbeRESTConfig(nil))
+}
+
+func TestProbeRESTConfigUnreachable(t *testing.T) {
+	assert.Error(t, ProbeRESTConfig(&rest.Config{
+		Host:    "https://127.0.0.1:1",
+		Timeout: time.Millisecond * 200,
+	}))
+}
+
+func TestProbeAPIServer(t *testing.T) {
+	ctx := context.Background()
+	assert.Error(t, ProbeAPIServer(ctx, nil, nil))
+	assert.Error(t, ProbeAPIServer(ctx, nil, &rest.Config{
+		Host:    "https://127.0.0.1:1",
+		Timeout: time.Millisecond * 200,
+	}))
+	// Without a REST config the probe falls back to the supplied clientset.
+	assert.NoError(t, ProbeAPIServer(ctx, k8sfake.NewSimpleClientset(), nil))
+}
+
+func TestNewClientSetInsecureAndWithCA(t *testing.T) {
+	certData, keyData := testClientCert(t)
+
+	_, restCfg, err := NewClientSet("10.96.1.1:6443", certData, keyData, "", true)
+	assert.NoError(t, err)
+	assert.Equal(t, "https://10.96.1.1:6443", restCfg.Host)
+	assert.True(t, restCfg.TLSClientConfig.Insecure)
+
+	// Secure mode requires CA data.
+	_, _, err = NewClientSet("10.96.1.1:6443", certData, keyData, "", false)
+	assert.Error(t, err)
+
+	_, restCfg, err = NewClientSet("10.96.1.1:6443", certData, keyData, certData, false)
+	assert.NoError(t, err)
+	assert.NotEmpty(t, restCfg.TLSClientConfig.CAData)
+}
+
+func TestNewClientSetWithProbeSkipsUnbuildableEndpoint(t *testing.T) {
+	// An empty endpoint cannot build a client, so the probe moves on and still fails overall.
+	_, _, _, err := NewClientSetWithProbe(context.Background(), "https://127.0.0.1:1", []string{""},
+		"", "", "", true)
+	assert.ErrorContains(t, err, "no reachable apiserver endpoint")
 }

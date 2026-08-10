@@ -7,7 +7,19 @@ package syncer
 
 import (
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/base64"
+	"encoding/pem"
+	"math/big"
+	"net"
+	"net/http"
+	"net/http/httptest"
 	"testing"
+	"time"
 
 	"gotest.tools/assert"
 	corev1 "k8s.io/api/core/v1"
@@ -19,8 +31,9 @@ import (
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/apis/pkg/client/clientset/versioned/scheme"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
-	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 	commonclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/k8sclient"
+	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
+	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 	ctrlfake "sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
 
@@ -29,6 +42,152 @@ func newTestClientSets() *ClusterClientSets {
 		name:              "c1",
 		resourceInformers: commonutils.NewObjectManager(),
 	}
+}
+
+// syncerTestCert returns a base64-encoded self-signed cert/key pair accepted by tls.X509KeyPair,
+// which lets data-plane client construction run without a real apiserver.
+func syncerTestCert(t *testing.T) (certData, keyData string) {
+	t.Helper()
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	assert.NilError(t, err)
+	template := x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		Subject:      pkix.Name{CommonName: "safe-unit-test"},
+		NotBefore:    time.Now().Add(-time.Hour),
+		NotAfter:     time.Now().Add(time.Hour),
+		KeyUsage:     x509.KeyUsageDigitalSignature | x509.KeyUsageCertSign,
+		IsCA:         true,
+	}
+	der, err := x509.CreateCertificate(rand.Reader, &template, &template, &key.PublicKey, key)
+	assert.NilError(t, err)
+	keyDER, err := x509.MarshalECPrivateKey(key)
+	assert.NilError(t, err)
+
+	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
+	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDER})
+	return base64.StdEncoding.EncodeToString(certPEM), base64.StdEncoding.EncodeToString(keyPEM)
+}
+
+// newProbeAPIServer starts a TLS server that answers the ServerVersion reachability probe.
+func newProbeAPIServer(t *testing.T) int32 {
+	t.Helper()
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"major":"1","minor":"30"}`))
+	}))
+	t.Cleanup(srv.Close)
+	addr, ok := srv.Listener.Addr().(*net.TCPAddr)
+	assert.Assert(t, ok)
+	return int32(addr.Port)
+}
+
+// newReadyClusterEnv builds a ready cluster fronted by an admin Service whose ClusterIP points at
+// a local probe server, so Service-mode factories can be created and refreshed in tests.
+func newReadyClusterEnv(t *testing.T) (*v1.Cluster, ctrlclient.Client) {
+	t.Helper()
+	certData, keyData := syncerTestCert(t)
+	cluster := &v1.Cluster{
+		ObjectMeta: metav1.ObjectMeta{Name: "c1"},
+		Status: v1.ClusterStatus{ControlPlaneStatus: v1.ControlPlaneStatus{
+			Phase:    v1.ReadyPhase,
+			CertData: certData,
+			KeyData:  keyData,
+		}},
+	}
+	mockScheme := scheme.Scheme
+	assert.NilError(t, corev1.AddToScheme(mockScheme))
+	assert.NilError(t, v1.AddToScheme(mockScheme))
+	service := &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{Name: "c1", Namespace: common.PrimusSafeNamespace},
+		Spec: corev1.ServiceSpec{
+			ClusterIP: "127.0.0.1",
+			Ports:     []corev1.ServicePort{{Port: newProbeAPIServer(t)}},
+		},
+	}
+	endpoints := &corev1.Endpoints{
+		ObjectMeta: metav1.ObjectMeta{Name: "c1", Namespace: common.PrimusSafeNamespace},
+		Subsets: []corev1.EndpointSubset{{
+			Addresses: []corev1.EndpointAddress{{IP: "10.0.0.1"}},
+		}},
+	}
+	cl := ctrlfake.NewClientBuilder().WithScheme(mockScheme).
+		WithObjects(cluster, service, endpoints).Build()
+	return cluster, cl
+}
+
+func TestNewClusterClientSets(t *testing.T) {
+	cluster, cl := newReadyClusterEnv(t)
+	cs, err := newClusterClientSets(context.Background(), cluster, cl, func(*resourceMessage) {})
+	assert.NilError(t, err)
+	assert.Equal(t, cs.name, "c1")
+	assert.Equal(t, cs.dataClientFactory.BackendFingerprint(), "10.0.0.1")
+	assert.NilError(t, cs.Release())
+}
+
+func TestNewClusterClientSetsWithoutEndpoint(t *testing.T) {
+	mockScheme := scheme.Scheme
+	assert.NilError(t, v1.AddToScheme(mockScheme))
+	cl := ctrlfake.NewClientBuilder().WithScheme(mockScheme).Build()
+	cluster := &v1.Cluster{
+		ObjectMeta: metav1.ObjectMeta{Name: "c1"},
+		Status:     v1.ClusterStatus{ControlPlaneStatus: v1.ControlPlaneStatus{Phase: v1.ReadyPhase}},
+	}
+	_, err := newClusterClientSets(context.Background(), cluster, cl, func(*resourceMessage) {})
+	assert.Assert(t, err != nil)
+}
+
+func TestRecreateClientFactory(t *testing.T) {
+	cluster, cl := newReadyClusterEnv(t)
+	cs := newTestClientSets()
+	previous := commonclient.NewClientFactoryForTest("c1", "10.96.9.9:6443")
+	cs.dataClientFactory = previous
+
+	assert.NilError(t, cs.recreateClientFactory(context.Background(), cluster, cl))
+	assert.Assert(t, cs.dataClientFactory != previous)
+	// Informers must be dropped so they are rebuilt against the new client.
+	assert.Equal(t, cs.informerCount(), 0)
+	assert.NilError(t, cs.dataClientFactory.Release())
+}
+
+func TestEnsureClusterClientSetsNotReady(t *testing.T) {
+	r := &SyncerReconciler{clusterClientSets: commonutils.NewObjectManager()}
+	retry := r.ensureClusterClientSets(context.Background(),
+		&v1.Cluster{ObjectMeta: metav1.ObjectMeta{Name: "c1"}}, &v1.ResourceTemplateList{})
+	assert.Assert(t, !retry)
+	assert.Equal(t, r.clusterClientSets.Len(), 0)
+}
+
+func TestEnsureClusterClientSetsCreatesThenRefreshes(t *testing.T) {
+	cluster, cl := newReadyClusterEnv(t)
+	ctx := context.Background()
+	r := &SyncerReconciler{ctx: ctx, Client: cl, clusterClientSets: commonutils.NewObjectManager()}
+	rtList := &v1.ResourceTemplateList{}
+
+	assert.Assert(t, !r.ensureClusterClientSets(ctx, cluster, rtList))
+	clientSets, err := GetClusterClientSets(r.clusterClientSets, "c1")
+	assert.NilError(t, err)
+	first := clientSets.dataClientFactory
+
+	// A healthy factory is reused instead of rebuilt.
+	assert.Assert(t, !r.ensureClusterClientSets(ctx, cluster, rtList))
+	assert.Assert(t, clientSets.dataClientFactory == first)
+
+	// An invalidated factory is rebuilt because the probe target is reachable.
+	first.SetValid(false, "watch error")
+	assert.Assert(t, !r.ensureClusterClientSets(ctx, cluster, rtList))
+	assert.Assert(t, clientSets.dataClientFactory != first)
+	assert.NilError(t, clientSets.dataClientFactory.Release())
+}
+
+func TestEnsureAllClusterClientSets(t *testing.T) {
+	_, cl := newReadyClusterEnv(t)
+	ctx := context.Background()
+	r := &SyncerReconciler{ctx: ctx, Client: cl, clusterClientSets: commonutils.NewObjectManager()}
+
+	r.ensureAllClusterClientSets(ctx)
+	clientSets, err := GetClusterClientSets(r.clusterClientSets, "c1")
+	assert.NilError(t, err)
+	assert.NilError(t, clientSets.dataClientFactory.Release())
 }
 
 func TestClusterClientSetsGettersSetters(t *testing.T) {
