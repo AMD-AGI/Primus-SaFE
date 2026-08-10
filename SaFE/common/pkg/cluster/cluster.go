@@ -150,12 +150,23 @@ func NewClientFactoryForCluster(ctx context.Context, adminClient client.Client, 
 }
 
 // ClientFactoryNeedsRefresh reports whether an existing factory should be replaced.
+// A rebuild is only reported when it can actually succeed, so a full control-plane outage
+// keeps the current factory instead of rebuilding it on every reconcile.
 func ClientFactoryNeedsRefresh(ctx context.Context, adminClient client.Client, cluster *v1.Cluster,
 	factory *commonclient.ClientFactory) bool {
-	if factory == nil || !factory.IsValid() {
+	if factory == nil || cluster == nil {
 		return true
 	}
-	if cluster == nil {
+	if !clientFactoryOutdated(ctx, adminClient, cluster, factory) {
+		return false
+	}
+	return rebuildTargetReachable(ctx, adminClient, cluster, factory)
+}
+
+// clientFactoryOutdated reports whether the factory no longer matches the desired apiserver target.
+func clientFactoryOutdated(ctx context.Context, adminClient client.Client, cluster *v1.Cluster,
+	factory *commonclient.ClientFactory) bool {
+	if !factory.IsValid() {
 		return true
 	}
 	selected := commonclient.NormalizeEndpointHost(factory.Endpoint())
@@ -185,6 +196,30 @@ func ClientFactoryNeedsRefresh(ctx context.Context, adminClient client.Client, c
 		}
 	}
 	return len(GetFallbackEndpoints(cluster)) > 0
+}
+
+// rebuildTargetReachable reports whether rebuilding the factory can produce a working client.
+// Service mode always dials the same ClusterIP, so an unreachable target means every backend is
+// down and a rebuild would only churn clients and informers until a control plane recovers.
+func rebuildTargetReachable(ctx context.Context, adminClient client.Client, cluster *v1.Cluster,
+	factory *commonclient.ClientFactory) bool {
+	if !UsesServiceEndpoint(ctx, adminClient, cluster) {
+		// Direct mode probes every candidate endpoint while building the factory.
+		return true
+	}
+	endpoint, err := GetEndpoint(ctx, adminClient, cluster)
+	if err != nil {
+		return false
+	}
+	if commonclient.NormalizeEndpointHost(factory.Endpoint()) != commonclient.NormalizeEndpointHost(endpoint) {
+		// The Service address moved, so the current client says nothing about the new target.
+		return true
+	}
+	restCfg := factory.RestConfig()
+	if restCfg == nil {
+		return true
+	}
+	return commonclient.ProbeRESTConfig(restCfg) == nil
 }
 
 // directModeFactoryNeedsRefresh reports whether a direct-mode factory should be rebuilt.

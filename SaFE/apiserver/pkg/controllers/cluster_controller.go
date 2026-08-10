@@ -134,6 +134,7 @@ func (r *ClusterReconciler) addClientFactory(ctx context.Context, cluster *v1.Cl
 	if obj, ok := clientManager.Get(cluster.Name); ok {
 		if factory, ok := obj.(*commonclient.ClientFactory); ok &&
 			!commoncluster.ClientFactoryNeedsRefresh(ctx, r.Client, cluster, factory) {
+			invalidateUnreachableClientFactory(factory)
 			return nil
 		}
 	}
@@ -150,4 +151,21 @@ func (r *ClusterReconciler) addClientFactory(ctx context.Context, cluster *v1.Cl
 	klog.Infof("add cluster %s clients, endpoint: %s, selected: %s",
 		cluster.Name, endpoint, k8sClientFactory.Endpoint())
 	return nil
+}
+
+// invalidateUnreachableClientFactory marks a factory invalid once its apiserver stops responding.
+// apiserver runs its data-plane clients without informers, so there is no watch error handler to
+// report broken connections and requests would otherwise keep using a dead client.
+func invalidateUnreachableClientFactory(factory *commonclient.ClientFactory) {
+	if !factory.IsValid() {
+		return
+	}
+	restCfg := factory.RestConfig()
+	if restCfg == nil {
+		return
+	}
+	if err := commonclient.ProbeRESTConfig(restCfg); err != nil {
+		klog.Warningf("cluster %s data-plane apiserver is unreachable: %v", factory.Name(), err)
+		factory.SetValid(false, err.Error())
+	}
 }

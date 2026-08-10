@@ -7,6 +7,14 @@ package cluster
 
 import (
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/base64"
+	"encoding/pem"
+	"math/big"
 	"testing"
 	"time"
 
@@ -452,4 +460,123 @@ func TestClientFactoryNeedsRefreshDirectModeUnreachable(t *testing.T) {
 func TestDirectModeFactoryNeedsRefreshWithoutRestConfig(t *testing.T) {
 	factory := commonclient.NewClientFactoryForTest("c1", "https://10.0.0.1:6443")
 	assert.False(t, directModeFactoryNeedsRefresh(factory))
+}
+
+// clusterTestCert returns a base64-encoded self-signed cert/key pair so factory construction can
+// run without reaching an apiserver.
+func clusterTestCert(t *testing.T) (certData, keyData string) {
+	t.Helper()
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	assert.NoError(t, err)
+	template := x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		Subject:      pkix.Name{CommonName: "safe-unit-test"},
+		NotBefore:    time.Now().Add(-time.Hour),
+		NotAfter:     time.Now().Add(time.Hour),
+		KeyUsage:     x509.KeyUsageDigitalSignature | x509.KeyUsageCertSign,
+		IsCA:         true,
+	}
+	der, err := x509.CreateCertificate(rand.Reader, &template, &template, &key.PublicKey, key)
+	assert.NoError(t, err)
+	keyDER, err := x509.MarshalECPrivateKey(key)
+	assert.NoError(t, err)
+
+	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
+	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDER})
+	return base64.StdEncoding.EncodeToString(certPEM), base64.StdEncoding.EncodeToString(keyPEM)
+}
+
+func TestNewClientFactoryForClusterServiceMode(t *testing.T) {
+	ctx := context.Background()
+	mockScheme := scheme.Scheme
+	_ = corev1.AddToScheme(mockScheme)
+	_ = v1.AddToScheme(mockScheme)
+
+	certData, keyData := clusterTestCert(t)
+	cluster := &v1.Cluster{
+		ObjectMeta: metav1.ObjectMeta{Name: "c1"},
+		Status: v1.ClusterStatus{ControlPlaneStatus: v1.ControlPlaneStatus{
+			Phase:    v1.ReadyPhase,
+			CertData: certData,
+			KeyData:  keyData,
+		}},
+	}
+	service := &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{Name: "c1", Namespace: common.PrimusSafeNamespace},
+		Spec:       corev1.ServiceSpec{ClusterIP: "10.96.1.1", Ports: []corev1.ServicePort{{Port: 6443}}},
+	}
+	endpoints := &corev1.Endpoints{
+		ObjectMeta: metav1.ObjectMeta{Name: "c1", Namespace: common.PrimusSafeNamespace},
+		Subsets: []corev1.EndpointSubset{{
+			Addresses: []corev1.EndpointAddress{{IP: "10.0.0.2"}, {IP: "10.0.0.1"}},
+		}},
+	}
+	cl := fake.NewClientBuilder().WithScheme(mockScheme).WithObjects(service, endpoints).Build()
+
+	factory, err := NewClientFactoryForCluster(ctx, cl, cluster, commonclient.DisableInformer)
+	assert.NoError(t, err)
+	// Service mode dials the ClusterIP and records the current backend pool.
+	assert.Equal(t, "https://10.96.1.1:6443", factory.Endpoint())
+	assert.Equal(t, "10.0.0.1,10.0.0.2", factory.BackendFingerprint())
+	assert.NoError(t, factory.Release())
+
+	// A freshly built factory matches the cluster, so no refresh is required.
+	assert.False(t, ClientFactoryNeedsRefresh(ctx, cl, cluster, factory))
+}
+
+func TestNewClientFactoryForClusterDirectModeUnreachable(t *testing.T) {
+	ctx := context.Background()
+	mockScheme := scheme.Scheme
+	_ = corev1.AddToScheme(mockScheme)
+	_ = v1.AddToScheme(mockScheme)
+
+	certData, keyData := clusterTestCert(t)
+	cluster := &v1.Cluster{
+		ObjectMeta: metav1.ObjectMeta{Name: "c1"},
+		Status: v1.ClusterStatus{ControlPlaneStatus: v1.ControlPlaneStatus{
+			Phase:     v1.ReadyPhase,
+			CertData:  certData,
+			KeyData:   keyData,
+			Endpoints: []string{"https://127.0.0.1:1", "https://127.0.0.1:2"},
+		}},
+	}
+	cl := fake.NewClientBuilder().WithScheme(mockScheme).Build()
+
+	// Direct mode probes every candidate, so an all-down control plane surfaces an error.
+	_, err := NewClientFactoryForCluster(ctx, cl, cluster, commonclient.DisableInformer)
+	assert.ErrorContains(t, err, "no reachable apiserver endpoint")
+}
+
+func TestNewClientFactoryForClusterNotReady(t *testing.T) {
+	mockScheme := scheme.Scheme
+	_ = v1.AddToScheme(mockScheme)
+	cl := fake.NewClientBuilder().WithScheme(mockScheme).Build()
+	_, err := NewClientFactoryForCluster(context.Background(), cl,
+		&v1.Cluster{ObjectMeta: metav1.ObjectMeta{Name: "c1"}}, commonclient.DisableInformer)
+	assert.Error(t, err)
+}
+
+func TestClientFactoryNeedsRefreshSkipsRebuildWhenServiceUnreachable(t *testing.T) {
+	ctx := context.Background()
+	mockScheme := scheme.Scheme
+	_ = corev1.AddToScheme(mockScheme)
+	_ = v1.AddToScheme(mockScheme)
+
+	service := &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{Name: "c1", Namespace: common.PrimusSafeNamespace},
+		Spec:       corev1.ServiceSpec{ClusterIP: "127.0.0.1", Ports: []corev1.ServicePort{{Port: 1}}},
+	}
+	cl := fake.NewClientBuilder().WithScheme(mockScheme).WithObjects(service).Build()
+	cluster := &v1.Cluster{
+		ObjectMeta: metav1.ObjectMeta{Name: "c1"},
+		Status:     v1.ClusterStatus{ControlPlaneStatus: v1.ControlPlaneStatus{Phase: v1.ReadyPhase}},
+	}
+	factory := commonclient.NewClientFactoryForTest("c1", "127.0.0.1:1")
+	factory.SetValid(false, "watch error")
+	factory.AttachRestConfigForTest(&rest.Config{Host: "https://127.0.0.1:1", Timeout: time.Millisecond * 100})
+
+	// Every backend is down: keep the current factory instead of rebuilding it every reconcile.
+	assert.False(t, ClientFactoryNeedsRefresh(ctx, cl, cluster, factory))
+	// The outdated check itself still reports the factory as stale.
+	assert.True(t, clientFactoryOutdated(ctx, cl, cluster, factory))
 }
