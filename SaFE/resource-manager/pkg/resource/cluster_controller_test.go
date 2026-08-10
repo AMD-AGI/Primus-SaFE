@@ -8,6 +8,8 @@ package resource
 import (
 	"context"
 	"encoding/base64"
+	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -448,6 +450,46 @@ func TestGuaranteeNodeLocalDNSUpdatesCorefile(t *testing.T) {
 	testifyassert.NoError(t, err)
 	updated, _ := cs.CoreV1().ConfigMaps("kube-system").Get(context.Background(), "nodelocaldns", metav1.GetOptions{})
 	testifyassert.Contains(t, updated.Data["Corefile"], "safe.local")
+}
+
+func TestFetchConfigFromControlPlaneFallsBackToNextNode(t *testing.T) {
+	var attempted []string
+	patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(&ClusterReconciler{}), "fetchConfigFromSSH",
+		func(_ *ClusterReconciler, _ context.Context, node *v1.Node) (*rest.Config, error) {
+			attempted = append(attempted, node.Name)
+			switch node.Name {
+			case "cp1":
+				return nil, fmt.Errorf("ssh dial failed")
+			case "cp2":
+				// An unusable kubeconfig is reported as a nil config without an error.
+				return nil, nil
+			default:
+				return &rest.Config{Host: "https://10.0.0.3:6443"}, nil
+			}
+		})
+	defer patches.Reset()
+
+	nodes := []*v1.Node{
+		{ObjectMeta: metav1.ObjectMeta{Name: "cp1"}},
+		{ObjectMeta: metav1.ObjectMeta{Name: "cp2"}},
+		{ObjectMeta: metav1.ObjectMeta{Name: "cp3"}},
+	}
+	config, err := (&ClusterReconciler{}).fetchConfigFromControlPlane(context.Background(), nodes)
+	testifyassert.NoError(t, err)
+	testifyassert.Equal(t, "https://10.0.0.3:6443", config.Host)
+	testifyassert.Equal(t, []string{"cp1", "cp2", "cp3"}, attempted)
+}
+
+func TestFetchConfigFromControlPlaneAllNodesFail(t *testing.T) {
+	patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(&ClusterReconciler{}), "fetchConfigFromSSH",
+		func(_ *ClusterReconciler, _ context.Context, _ *v1.Node) (*rest.Config, error) {
+			return nil, fmt.Errorf("ssh dial failed")
+		})
+	defer patches.Reset()
+
+	_, err := (&ClusterReconciler{}).fetchConfigFromControlPlane(context.Background(),
+		[]*v1.Node{{ObjectMeta: metav1.ObjectMeta{Name: "cp1"}}})
+	testifyassert.Error(t, err)
 }
 
 func readNodeLocalDNSCorefile(t *testing.T, cs *k8sfake.Clientset) string {

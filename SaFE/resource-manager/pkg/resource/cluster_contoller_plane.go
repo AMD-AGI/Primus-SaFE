@@ -373,12 +373,35 @@ func (r *ClusterReconciler) fetchProvisionedClusterKubeConfig(ctx context.Contex
 		return err
 	}
 
-	config, err := r.fetchConfigFromSSH(ctx, nodes[0])
+	config, err := r.fetchConfigFromControlPlane(ctx, nodes)
 	if err != nil {
 		return err
 	}
 
 	return r.updateClusterKubeConfig(ctx, cluster, nodes, config)
+}
+
+// fetchConfigFromControlPlane reads the provisioned kubeconfig from the first control plane that
+// answers. Every control plane holds the same credentials, so one unreachable node must not block
+// adoption while its peers are healthy.
+func (r *ClusterReconciler) fetchConfigFromControlPlane(ctx context.Context,
+	nodes []*v1.Node) (*rest.Config, error) {
+	var lastErr error
+	for _, node := range nodes {
+		config, err := r.fetchConfigFromSSH(ctx, node)
+		if err != nil {
+			klog.ErrorS(err, "failed to read kubeconfig from control plane, trying peers",
+				"node", node.Name)
+			lastErr = err
+			continue
+		}
+		// fetchConfigFromSSH reports an unusable kubeconfig as a nil config without an error.
+		if config == nil {
+			continue
+		}
+		return config, nil
+	}
+	return nil, lastErr
 }
 
 // shouldFetchKubeConfig determines if kubeconfig should be fetched.
