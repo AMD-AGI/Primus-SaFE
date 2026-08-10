@@ -13,6 +13,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/klog/v2"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
@@ -37,7 +38,10 @@ func GetEndpoint(ctx context.Context, cli client.Client, cluster *v1.Cluster) (s
 		return fmt.Sprintf("%s:%d", service.Spec.ClusterIP, service.Spec.Ports[0].Port), nil
 	}
 	if !apierrors.IsNotFound(err) {
-		return "", fmt.Errorf("get service %s: %w", cluster.Name, err)
+		// Degrade to the status endpoints instead of failing outright: direct mode probes every
+		// candidate, so it still yields a working client. Log it because an unreadable Service is a
+		// different problem from an absent one.
+		klog.Warningf("failed to read service %s, falling back to status endpoints: %v", cluster.Name, err)
 	}
 	if len(cluster.Status.ControlPlaneStatus.Endpoints) == 0 {
 		return "", fmt.Errorf("either the Service address or the Endpoint is empty")

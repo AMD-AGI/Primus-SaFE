@@ -8,6 +8,7 @@ package controllers
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	"k8s.io/klog/v2"
@@ -27,11 +28,18 @@ import (
 const (
 	// clusterClientFactoryRefreshInterval requeues ready clusters to rebuild invalid data-plane clients.
 	clusterClientFactoryRefreshInterval = 15 * time.Second
+	// clusterProbeFailureThreshold is how many consecutive probe failures drop a client factory.
+	// Requests are rejected while a factory is invalid, so one transient failure must not take a
+	// cluster out of service.
+	clusterProbeFailureThreshold = 3
 )
 
 type ClusterReconciler struct {
 	ctx context.Context
 	client.Client
+	// probeFailures counts consecutive data-plane probe failures per cluster.
+	probeMu       sync.Mutex
+	probeFailures map[string]int
 }
 
 // SetupClusterController sets up the cluster controller with the manager.
@@ -110,6 +118,7 @@ func shouldPeriodicRefreshClientFactory(cluster *v1.Cluster) bool {
 // deleteClientFactory removes the Kubernetes client factory for a cluster being deleted.
 // It cleans up the client manager and releases resources associated with the cluster.
 func (r *ClusterReconciler) deleteClientFactory(cluster *v1.Cluster) error {
+	r.clearProbeFailures(cluster.Name)
 	mgr := commonutils.NewObjectManagerSingleton()
 	if mgr == nil {
 		return nil
@@ -134,7 +143,7 @@ func (r *ClusterReconciler) addClientFactory(ctx context.Context, cluster *v1.Cl
 	if obj, ok := clientManager.Get(cluster.Name); ok {
 		if factory, ok := obj.(*commonclient.ClientFactory); ok &&
 			!commoncluster.ClientFactoryNeedsRefresh(ctx, r.Client, cluster, factory) {
-			invalidateUnreachableClientFactory(factory)
+			r.invalidateUnreachableClientFactory(cluster.Name, factory)
 			return nil
 		}
 	}
@@ -153,10 +162,12 @@ func (r *ClusterReconciler) addClientFactory(ctx context.Context, cluster *v1.Cl
 	return nil
 }
 
-// invalidateUnreachableClientFactory marks a factory invalid once its apiserver stops responding.
-// apiserver runs its data-plane clients without informers, so there is no watch error handler to
-// report broken connections and requests would otherwise keep using a dead client.
-func invalidateUnreachableClientFactory(factory *commonclient.ClientFactory) {
+// invalidateUnreachableClientFactory marks a factory invalid once its apiserver has stopped
+// responding for several consecutive probes. apiserver runs its data-plane clients without
+// informers, so nothing else reports a broken connection, but an invalid factory rejects every
+// request for the cluster and a single failed probe is not enough evidence for that.
+func (r *ClusterReconciler) invalidateUnreachableClientFactory(clusterName string,
+	factory *commonclient.ClientFactory) {
 	if !factory.IsValid() {
 		return
 	}
@@ -164,8 +175,33 @@ func invalidateUnreachableClientFactory(factory *commonclient.ClientFactory) {
 	if restCfg == nil {
 		return
 	}
-	if err := commonclient.ProbeRESTConfig(restCfg); err != nil {
-		klog.Warningf("cluster %s data-plane apiserver is unreachable: %v", factory.Name(), err)
+	err := commonclient.ProbeRESTConfig(restCfg)
+	if err == nil {
+		r.clearProbeFailures(clusterName)
+		return
+	}
+	failures := r.recordProbeFailure(clusterName)
+	klog.Warningf("cluster %s data-plane apiserver probe failed (%d/%d): %v",
+		clusterName, failures, clusterProbeFailureThreshold, err)
+	if failures >= clusterProbeFailureThreshold {
 		factory.SetValid(false, err.Error())
 	}
+}
+
+// recordProbeFailure counts one more consecutive failure and returns the running total.
+func (r *ClusterReconciler) recordProbeFailure(clusterName string) int {
+	r.probeMu.Lock()
+	defer r.probeMu.Unlock()
+	if r.probeFailures == nil {
+		r.probeFailures = make(map[string]int)
+	}
+	r.probeFailures[clusterName]++
+	return r.probeFailures[clusterName]
+}
+
+// clearProbeFailures forgets a cluster's failure streak.
+func (r *ClusterReconciler) clearProbeFailures(clusterName string) {
+	r.probeMu.Lock()
+	defer r.probeMu.Unlock()
+	delete(r.probeFailures, clusterName)
 }

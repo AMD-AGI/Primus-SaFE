@@ -18,6 +18,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"testing"
 	"time"
 
@@ -106,23 +107,53 @@ func TestAddClientFactoryBuildsAndReusesFactory(t *testing.T) {
 	assert.True(t, first.IsValid())
 }
 
-func TestInvalidateUnreachableClientFactory(t *testing.T) {
+func TestInvalidateUnreachableClientFactoryNeedsRepeatedFailures(t *testing.T) {
+	r := &ClusterReconciler{}
 	factory := commonclient.NewClientFactoryForTest("c1", "10.96.1.1:6443")
 	factory.AttachRestConfigForTest(&rest.Config{
 		Host:    "https://127.0.0.1:1",
 		Timeout: time.Millisecond * 100,
 	})
-	invalidateUnreachableClientFactory(factory)
+
+	// A single blip must not take the cluster out of service.
+	for i := 1; i < clusterProbeFailureThreshold; i++ {
+		r.invalidateUnreachableClientFactory("c1", factory)
+		assert.True(t, factory.IsValid())
+	}
+	r.invalidateUnreachableClientFactory("c1", factory)
 	assert.False(t, factory.IsValid())
 }
 
-func TestInvalidateUnreachableClientFactoryWithoutRestConfig(t *testing.T) {
+func TestInvalidateUnreachableClientFactoryResetsStreakOnSuccess(t *testing.T) {
+	r := &ClusterReconciler{}
 	factory := commonclient.NewClientFactoryForTest("c1", "10.96.1.1:6443")
-	invalidateUnreachableClientFactory(factory)
+	factory.AttachRestConfigForTest(&rest.Config{
+		Host:    "https://127.0.0.1:1",
+		Timeout: time.Millisecond * 100,
+	})
+	r.invalidateUnreachableClientFactory("c1", factory)
+	assert.Equal(t, 1, r.probeFailures["c1"])
+
+	// A reachable apiserver clears the streak, so later blips start counting again from zero.
+	reachable := commonclient.NewClientFactoryForTest("c1", "10.96.1.1:6443")
+	reachable.AttachRestConfigForTest(&rest.Config{
+		Host:            "https://127.0.0.1:" + strconv.Itoa(int(newProbeAPIServer(t))),
+		Timeout:         time.Second,
+		TLSClientConfig: rest.TLSClientConfig{Insecure: true},
+	})
+	r.invalidateUnreachableClientFactory("c1", reachable)
+	assert.NotContains(t, r.probeFailures, "c1")
+	assert.True(t, reachable.IsValid())
+}
+
+func TestInvalidateUnreachableClientFactoryWithoutRestConfig(t *testing.T) {
+	r := &ClusterReconciler{}
+	factory := commonclient.NewClientFactoryForTest("c1", "10.96.1.1:6443")
+	r.invalidateUnreachableClientFactory("c1", factory)
 	assert.True(t, factory.IsValid())
 
 	factory.SetValid(false, "already invalid")
-	invalidateUnreachableClientFactory(factory)
+	r.invalidateUnreachableClientFactory("c1", factory)
 	assert.Equal(t, "already invalid", factory.GetInvalidReason())
 }
 
