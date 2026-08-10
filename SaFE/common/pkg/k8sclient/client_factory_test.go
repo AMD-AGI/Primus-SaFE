@@ -14,7 +14,9 @@ import (
 	"crypto/x509/pkix"
 	"encoding/base64"
 	"encoding/pem"
+	"fmt"
 	"math/big"
+	"sync"
 	"testing"
 	"time"
 
@@ -117,6 +119,42 @@ func TestNewClientFactoryWithFallbacksAllUnreachable(t *testing.T) {
 	_, err := NewClientFactoryWithFallbacks(context.Background(), "c1", "https://127.0.0.1:1",
 		[]string{"https://127.0.0.1:2"}, certData, keyData, "", DisableInformer)
 	assert.ErrorContains(t, err, "no reachable apiserver endpoint")
+}
+
+// TestClientFactoryValidityUnderConcurrency mirrors production access: watch error handlers write
+// validity from reflector goroutines while reconcilers and API request handlers read it. The common
+// module runs with -race in CI, so this guards the accessors from losing their synchronization.
+func TestClientFactoryValidityUnderConcurrency(t *testing.T) {
+	factory := NewClientFactoryWithOnlyClient(context.Background(), "c1", k8sfake.NewSimpleClientset())
+
+	const iterations = 200
+	var wg sync.WaitGroup
+	for writer := 0; writer < 4; writer++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+			for i := 0; i < iterations; i++ {
+				factory.SetValid(false, fmt.Sprintf("connection refused on watch %d-%d", id, i))
+				factory.SetValid(true, "")
+			}
+		}(writer)
+	}
+	for reader := 0; reader < 4; reader++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for i := 0; i < iterations; i++ {
+				if !factory.IsValid() {
+					_ = factory.GetInvalidReason()
+				}
+			}
+		}()
+	}
+	wg.Wait()
+
+	factory.SetValid(false, "final")
+	assert.False(t, factory.IsValid())
+	assert.Equal(t, "final", factory.GetInvalidReason())
 }
 
 func TestClientFactoryTestHelpers(t *testing.T) {

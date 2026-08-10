@@ -7,6 +7,7 @@ package k8sclient
 
 import (
 	"context"
+	"sync"
 	"time"
 
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -49,6 +50,11 @@ type ClientFactory struct {
 	// Informer type enum definition. 0: disable informer; 1: sharedInformer; 2 dynamicSharedInformer
 	// default 0
 	informerType InformerType
+	// validMu guards valid and invalidReason, which are updated after the factory is published:
+	// watch error handlers write from reflector goroutines while reconcilers and API request
+	// handlers read concurrently. The pair is kept under one lock so a reader never sees a status
+	// and a reason that disagree.
+	validMu sync.RWMutex
 	// Whether the ClientFactory is valid
 	valid bool
 	// If the factory is invalid, explain the reason
@@ -188,11 +194,15 @@ func (f *ClientFactory) Release() error {
 
 // IsValid returns true if factory is valid
 func (f *ClientFactory) IsValid() bool {
+	f.validMu.RLock()
+	defer f.validMu.RUnlock()
 	return f.valid
 }
 
 // SetValid set factory validity status and reason.
 func (f *ClientFactory) SetValid(valid bool, msg string) {
+	f.validMu.Lock()
+	defer f.validMu.Unlock()
 	f.valid = valid
 	f.invalidReason = msg
 }
@@ -235,6 +245,8 @@ func (f *ClientFactory) DynamicSharedInformerFactory() dynamicinformer.DynamicSh
 
 // GetInvalidReason get reason for factory invalidity.
 func (f *ClientFactory) GetInvalidReason() string {
+	f.validMu.RLock()
+	defer f.validMu.RUnlock()
 	return f.invalidReason
 }
 
