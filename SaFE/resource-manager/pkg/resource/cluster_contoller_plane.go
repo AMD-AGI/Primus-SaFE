@@ -455,10 +455,6 @@ func (r *ClusterReconciler) updateClusterKubeConfig(ctx context.Context, cluster
 
 	cluster.Status.ControlPlaneStatus.Phase = v1.ReadyPhase
 
-	if err := r.guaranteeService(ctx, cluster); err != nil {
-		return err
-	}
-
 	if err := r.Status().Patch(ctx, cluster, originalCluster); err != nil {
 		return fmt.Errorf("failed load config %+v", err)
 	}

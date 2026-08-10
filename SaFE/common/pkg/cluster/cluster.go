@@ -151,8 +151,7 @@ func NewClientFactoryForCluster(ctx context.Context, adminClient client.Client, 
 
 // ClientFactoryNeedsRefresh reports whether an existing factory should be replaced.
 func ClientFactoryNeedsRefresh(ctx context.Context, adminClient client.Client, cluster *v1.Cluster,
-	factory *commonclient.ClientFactory,
-) bool {
+	factory *commonclient.ClientFactory) bool {
 	if factory == nil || !factory.IsValid() {
 		return true
 	}
@@ -182,8 +181,17 @@ func ClientFactoryNeedsRefresh(ctx context.Context, adminClient client.Client, c
 	}
 	for _, ep := range GetFallbackEndpoints(cluster) {
 		if selected == commonclient.NormalizeEndpointHost(ep) {
-			return false
+			return directModeFactoryNeedsRefresh(factory)
 		}
 	}
 	return len(GetFallbackEndpoints(cluster)) > 0
+}
+
+// directModeFactoryNeedsRefresh reports whether a direct-mode factory should be rebuilt.
+func directModeFactoryNeedsRefresh(factory *commonclient.ClientFactory) bool {
+	restCfg := factory.RestConfig()
+	if restCfg == nil {
+		return false
+	}
+	return commonclient.ProbeRESTConfig(restCfg) != nil
 }

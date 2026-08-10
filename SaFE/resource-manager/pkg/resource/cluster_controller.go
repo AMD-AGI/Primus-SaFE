@@ -295,6 +295,11 @@ func (r *ClusterReconciler) Reconcile(ctx context.Context, req ctrlruntime.Reque
 		rmmetrics.ClusterReconcileErrorsTotal.WithLabelValues("cluster_control_plane").Inc()
 		return ctrlruntime.Result{}, err
 	}
+	if err = r.syncControlPlaneServiceEndpoints(ctx, cluster); err != nil {
+		klog.ErrorS(err, "failed to sync control plane endpoints", "cluster", cluster.Name)
+		rmmetrics.ClusterReconcileErrorsTotal.WithLabelValues("control_plane_endpoints").Inc()
+		return ctrlruntime.Result{}, err
+	}
 	if err = r.guaranteeClientFactory(ctx, cluster); err != nil {
 		klog.ErrorS(err, "failed to guarantee client factory", "cluster", cluster.Name)
 		rmmetrics.ClusterReconcileErrorsTotal.WithLabelValues("client_factory").Inc()
@@ -434,13 +439,18 @@ func (r *ClusterReconciler) resetNodesOfCluster(ctx context.Context, cluster *v1
 	return nil
 }
 
+// syncControlPlaneServiceEndpoints probes apiserver backends and syncs admin-plane Service/Endpoints once per reconcile.
+func (r *ClusterReconciler) syncControlPlaneServiceEndpoints(ctx context.Context, cluster *v1.Cluster) error {
+	if !shouldPeriodicSyncControlPlaneEndpoints(cluster) {
+		return nil
+	}
+	return r.guaranteeService(ctx, cluster)
+}
+
 // guaranteeClientFactory ensures a Kubernetes client factory is available for the cluster.
 func (r *ClusterReconciler) guaranteeClientFactory(ctx context.Context, cluster *v1.Cluster) error {
 	if !cluster.IsReady() {
 		return nil
-	}
-	if err := r.guaranteeService(ctx, cluster); err != nil {
-		return err
 	}
 	endpoint, err := commoncluster.GetEndpoint(ctx, r.Client, cluster)
 	if err != nil {
@@ -461,13 +471,16 @@ func (r *ClusterReconciler) guaranteeClientFactory(ctx context.Context, cluster 
 	klog.Infof("add cluster %s informer, endpoint: %s, selected: %s",
 		cluster.Name, endpoint, k8sClients.Endpoint())
 	if recreated {
-		tryRestartNodeInformer(ctx, cluster)
+		if restartErr := tryRestartNodeInformer(ctx, cluster); restartErr != nil {
+			klog.ErrorS(restartErr, "failed to restart node informer after client rebuild", "cluster", cluster.Name)
+		}
 	}
 	return nil
 }
 
 // markClusterClientFactoryStale invalidates the cached data-plane client after backend pool changes.
 func (r *ClusterReconciler) markClusterClientFactoryStale(clusterName, reason string) {
+	clearNodeInformerForCluster(clusterName)
 	if r.clientManager == nil {
 		return
 	}

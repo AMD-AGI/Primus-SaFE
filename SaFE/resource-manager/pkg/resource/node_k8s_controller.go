@@ -100,8 +100,9 @@ func SetupNodeK8sController(ctx context.Context, mgr manager.Manager) error {
 		return err
 	}
 	RegisterNodeInformerRestarter(func(ctx context.Context, cluster *v1.Cluster) error {
-		return r.startNodeInformer(cluster)
+		return r.restartNodeInformerAfterClientRebuild(ctx, cluster)
 	})
+	RegisterNodeInformerClearer(r.clearNodeInformerRegistration)
 	err = ctrlruntime.NewControllerManagedBy(mgr).
 		For(&v1.Cluster{}, builder.WithPredicates(r.relevantChangePredicate())).
 		Complete(r)
@@ -156,45 +157,81 @@ func (r *NodeK8sReconciler) startNodeInformer(cluster *v1.Cluster) error {
 	return err
 }
 
+func (r *NodeK8sReconciler) clearNodeInformerRegistration(clusterName string) {
+	r.nodeInformerMu.Lock()
+	delete(r.startedNodeInformers, clusterName)
+	r.nodeInformerMu.Unlock()
+}
+
+// restartNodeInformerAfterClientRebuild re-attaches the node informer without blocking on cache sync.
+func (r *NodeK8sReconciler) restartNodeInformerAfterClientRebuild(ctx context.Context, cluster *v1.Cluster) error {
+	if cluster == nil {
+		return nil
+	}
+	_, err, _ := r.nodeInformerGroup.Do(cluster.Name, func() (interface{}, error) {
+		return nil, r.attachNodeInformer(ctx, cluster, false)
+	})
+	return err
+}
+
 func (r *NodeK8sReconciler) startNodeInformerOnce(cluster *v1.Cluster) error {
 	const maxRetry = 100
 	waitTime := time.Millisecond * 200
 	maxWaitTime := waitTime * maxRetry
 
-	err := backoff.Retry(func() error {
-		k8sClients, err := utils.GetK8sClientFactory(r.clientManager, cluster.Name)
-		if err != nil {
-			klog.ErrorS(err, "failed to get k8s client for data plane", "name", cluster.Name)
-			return err
-		}
-		r.nodeInformerMu.Lock()
-		if prev, ok := r.startedNodeInformers[cluster.Name]; ok && prev == k8sClients {
-			r.nodeInformerMu.Unlock()
-			return nil
-		}
-		r.nodeInformerMu.Unlock()
+	return backoff.Retry(func() error {
+		return r.attachNodeInformer(r.ctx, cluster, true)
+	}, maxWaitTime, waitTime)
+}
 
-		nodeInformer := k8sClients.SharedInformerFactory().Core().V1().Nodes().Informer()
-		if _, err = nodeInformer.AddEventHandler(r.nodeEventHandler(k8sClients)); err != nil {
-			klog.ErrorS(err, "failed to add event handler", "name", cluster.Name)
-			return err
-		}
-		if err = nodeInformer.SetWatchErrorHandler(commonclient.WatchErrorHandler(r.ctx, k8sClients)); err != nil {
-			klog.ErrorS(err, "failed to set error handler", "name", cluster.Name)
-			return err
-		}
-		k8sClients.StartInformer()
+// attachNodeInformer wires handlers and starts the node informer for the current client factory.
+func (r *NodeK8sReconciler) attachNodeInformer(ctx context.Context, cluster *v1.Cluster, waitSync bool) error {
+	k8sClients, err := utils.GetK8sClientFactory(r.clientManager, cluster.Name)
+	if err != nil {
+		klog.ErrorS(err, "failed to get k8s client for data plane", "name", cluster.Name)
+		return err
+	}
+	r.nodeInformerMu.Lock()
+	if prev, ok := r.startedNodeInformers[cluster.Name]; ok && prev == k8sClients {
+		r.nodeInformerMu.Unlock()
+		return nil
+	}
+	r.nodeInformerMu.Unlock()
+
+	nodeInformer := k8sClients.SharedInformerFactory().Core().V1().Nodes().Informer()
+	if _, err = nodeInformer.AddEventHandler(r.nodeEventHandler(k8sClients)); err != nil {
+		klog.ErrorS(err, "failed to add event handler", "name", cluster.Name)
+		return err
+	}
+	if err = nodeInformer.SetWatchErrorHandler(commonclient.WatchErrorHandler(r.ctx, k8sClients)); err != nil {
+		klog.ErrorS(err, "failed to set error handler", "name", cluster.Name)
+		return err
+	}
+	k8sClients.StartInformer()
+	r.nodeInformerMu.Lock()
+	r.startedNodeInformers[cluster.Name] = k8sClients
+	r.nodeInformerMu.Unlock()
+
+	if waitSync {
 		if k8sClients.WaitForCacheSync(time.Minute * 10) {
 			klog.Infof("add k8s node informer successfully. cluster: %s", cluster.Name)
 		} else {
 			klog.Errorf("failed to sync cache for k8s node informer. cluster: %s", cluster.Name)
 		}
-		r.nodeInformerMu.Lock()
-		r.startedNodeInformers[cluster.Name] = k8sClients
-		r.nodeInformerMu.Unlock()
 		return nil
-	}, maxWaitTime, waitTime)
-	return err
+	}
+
+	go func() {
+		if ctx.Err() != nil {
+			return
+		}
+		if k8sClients.WaitForCacheSync(time.Minute * 10) {
+			klog.Infof("node informer cache synced after client rebuild, cluster: %s", cluster.Name)
+		} else {
+			klog.Errorf("failed to sync node informer cache after client rebuild, cluster: %s", cluster.Name)
+		}
+	}()
+	return nil
 }
 
 // nodeEventHandler creates event handlers for Kubernetes node events (add, update, delete).

@@ -130,6 +130,11 @@ func NewClientFactoryForTest(name, endpoint string) *ClientFactory {
 	}
 }
 
+// AttachRestConfigForTest sets REST config on a test factory.
+func (f *ClientFactory) AttachRestConfigForTest(cfg *rest.Config) {
+	f.restConfig = cfg
+}
+
 // NewClientFactoryWithOnlyClient create factory instance with client only (without Informer).
 func NewClientFactoryWithOnlyClient(ctx context.Context, name string, clientSet kubernetes.Interface) *ClientFactory {
 	return &ClientFactory{

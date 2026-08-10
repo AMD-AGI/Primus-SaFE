@@ -8,11 +8,13 @@ package cluster
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
+	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
@@ -425,4 +427,29 @@ func TestClientFactoryNeedsRefreshWhenBackendLookupFails(t *testing.T) {
 	factory := commonclient.NewClientFactoryForTest("c1", "10.96.1.1:6443")
 	factory.SetBackendFingerprint("10.0.0.1")
 	assert.True(t, ClientFactoryNeedsRefresh(ctx, cl, cluster, factory))
+}
+
+func TestClientFactoryNeedsRefreshDirectModeUnreachable(t *testing.T) {
+	ctx := context.Background()
+	cluster := &v1.Cluster{
+		ObjectMeta: metav1.ObjectMeta{Name: "c1"},
+		Status: v1.ClusterStatus{
+			ControlPlaneStatus: v1.ControlPlaneStatus{
+				Phase:     v1.ReadyPhase,
+				Endpoints: []string{"https://10.0.0.1:6443", "https://10.0.0.2:6443"},
+			},
+		},
+	}
+	factory := commonclient.NewClientFactoryForTest("c1", "https://10.0.0.1:6443")
+	factory.SetBackendFingerprint(StatusEndpointsFingerprint(cluster))
+	factory.AttachRestConfigForTest(&rest.Config{
+		Host:    "https://127.0.0.1:1",
+		Timeout: time.Millisecond * 100,
+	})
+	assert.True(t, ClientFactoryNeedsRefresh(ctx, fake.NewClientBuilder().WithScheme(scheme.Scheme).Build(), cluster, factory))
+}
+
+func TestDirectModeFactoryNeedsRefreshWithoutRestConfig(t *testing.T) {
+	factory := commonclient.NewClientFactoryForTest("c1", "https://10.0.0.1:6443")
+	assert.False(t, directModeFactoryNeedsRefresh(factory))
 }
