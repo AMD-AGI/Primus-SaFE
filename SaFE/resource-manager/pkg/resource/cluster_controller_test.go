@@ -998,6 +998,30 @@ func TestGuaranteeEndpointsBackendSync(t *testing.T) {
 	testifyassert.False(t, factory.IsValid())
 }
 
+func TestGuaranteeClientFactoryKeepsValidFactoryWithoutEndpoint(t *testing.T) {
+	scheme, _ := genMockScheme()
+	cluster := readyCluster("c1")
+	cl := ctrlfake.NewClientBuilder().WithScheme(scheme).WithObjects(cluster).Build()
+	cs := k8sfake.NewSimpleClientset()
+	mgr := commonutils.NewObjectManager()
+	factory := commonclient.NewClientFactoryWithOnlyClient(context.Background(), "c1", cs)
+	testifyassert.NoError(t, mgr.Add("c1", factory))
+	r := &ClusterReconciler{
+		ClusterBaseReconciler: &ClusterBaseReconciler{Client: cl},
+		clientManager:         mgr,
+	}
+	testifyassert.NoError(t, r.guaranteeClientFactory(context.Background(), cluster))
+	testifyassert.True(t, factory.IsValid())
+}
+
+func TestSyncControlPlaneServiceEndpointsSkipsWithoutCPNodes(t *testing.T) {
+	scheme, _ := genMockScheme()
+	cluster := readyCluster("c1")
+	cl := ctrlfake.NewClientBuilder().WithScheme(scheme).WithObjects(cluster).Build()
+	r := &ClusterReconciler{ClusterBaseReconciler: &ClusterBaseReconciler{Client: cl}}
+	testifyassert.NoError(t, r.syncControlPlaneServiceEndpoints(context.Background(), cluster))
+}
+
 func TestFilterHealthyPreservesExistingBackends(t *testing.T) {
 	cluster := testCluster("c1")
 	existing := &corev1.Endpoints{

@@ -452,15 +452,20 @@ func (r *ClusterReconciler) guaranteeClientFactory(ctx context.Context, cluster 
 	if !cluster.IsReady() {
 		return nil
 	}
-	endpoint, err := commoncluster.GetEndpoint(ctx, r.Client, cluster)
-	if err != nil {
-		return err
-	}
 	if obj, ok := r.clientManager.Get(cluster.Name); ok {
 		if factory, ok := obj.(*commonclient.ClientFactory); ok &&
 			!commoncluster.ClientFactoryNeedsRefresh(ctx, r.Client, cluster, factory) {
 			return nil
 		}
+	}
+	endpoint, err := commoncluster.GetEndpoint(ctx, r.Client, cluster)
+	if err != nil {
+		if obj, ok := r.clientManager.Get(cluster.Name); ok {
+			if factory, ok := obj.(*commonclient.ClientFactory); ok && factory.IsValid() {
+				return nil
+			}
+		}
+		return err
 	}
 	k8sClients, err := commoncluster.NewClientFactoryForCluster(ctx, r.Client, cluster, commonclient.EnableInformer)
 	if err != nil {
