@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -459,10 +460,15 @@ func (c *LiteLLMClient) GetAllSpendLogs(ctx context.Context, userID, startDate, 
 	return allLogs, nil
 }
 
-// GetUserDailyActivity queries LiteLLM for a user's daily usage breakdown.
-func (c *LiteLLMClient) GetUserDailyActivity(ctx context.Context, userID, startDate, endDate string) (*DailyActivityResponse, error) {
-	reqURL := fmt.Sprintf("%s/user/daily/activity?user_id=%s&start_date=%s&end_date=%s",
-		c.endpoint, userID, startDate, endDate)
+// GetUserDailyActivity queries LiteLLM for a user's complete daily usage breakdown.
+func (c *LiteLLMClient) GetUserDailyActivity(ctx context.Context, userID, startDate, endDate, timezoneOffset string) (*DailyActivityResponse, error) {
+	query := url.Values{
+		"user_id":    []string{userID},
+		"start_date": []string{startDate},
+		"end_date":   []string{endDate},
+		"timezone":   []string{timezoneOffset},
+	}
+	reqURL := c.endpoint + "/user/daily/activity/aggregated?" + query.Encode()
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
 	if err != nil {

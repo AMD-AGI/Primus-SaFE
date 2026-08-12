@@ -74,7 +74,7 @@
         <!-- Right: Summary Usage + Budget -->
         <div class="bound-col-right">
           <div class="budget-header">
-            <span class="budget-title">Summary Usage</span>
+            <span class="budget-title">All-time User Spend</span>
             <span class="budget-amount">${{ summary?.total_spend?.toFixed(5) ?? '0.00000' }}</span>
           </div>
 
@@ -865,6 +865,8 @@ const fetchUsage = async () => {
     usage.value = await getLLMGatewayUsage({
       start_date: dateRange.value[0],
       end_date: dateRange.value[1],
+      timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+      timezone_offset: new Date().getTimezoneOffset(),
     })
     await nextTick()
     renderChart()
