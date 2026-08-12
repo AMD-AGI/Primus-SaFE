@@ -1095,8 +1095,11 @@ func TestGetUsage_Success(t *testing.T) {
 	mockDB := mock_client.NewMockInterface(ctrl)
 
 	litellm := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		assert.Contains(t, r.URL.Path, "/user/daily/activity")
+		assert.Equal(t, "/user/daily/activity/aggregated", r.URL.Path)
 		assert.Equal(t, "test@amd.com", r.URL.Query().Get("user_id"))
+		assert.Equal(t, "2026-03-17", r.URL.Query().Get("start_date"))
+		assert.Equal(t, "2026-03-17", r.URL.Query().Get("end_date"))
+		assert.Equal(t, "-480", r.URL.Query().Get("timezone"))
 		w.WriteHeader(http.StatusOK)
 		json.NewEncoder(w).Encode(DailyActivityResponse{
 			Results: []DailyResult{
@@ -1135,7 +1138,7 @@ func TestGetUsage_Success(t *testing.T) {
 	})
 
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest("GET", "/usage?start_date=2026-03-17&end_date=2026-03-17", nil)
+	req, _ := http.NewRequest("GET", "/usage?start_date=2026-03-17&end_date=2026-03-17&timezone=Asia%2FShanghai&timezone_offset=-480", nil)
 	router.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)

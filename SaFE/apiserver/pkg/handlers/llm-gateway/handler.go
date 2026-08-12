@@ -552,7 +552,7 @@ func (h *Handler) GetSummary(c *gin.Context) {
 	})
 }
 
-// GetUsage handles GET /api/v1/llm-gateway/usage?start_date=...&end_date=...&timezone=...
+// GetUsage handles GET /api/v1/llm-gateway/usage?start_date=...&end_date=...&timezone=...&timezone_offset=...
 func (h *Handler) GetUsage(c *gin.Context) {
 	email := h.getUserEmail(c)
 	if email == "" {
@@ -567,11 +567,12 @@ func (h *Handler) GetUsage(c *gin.Context) {
 		return
 	}
 
-	loc, err := resolveTimezone(c.Query("timezone"))
+	_, err := resolveTimezone(c.Query("timezone"))
 	if err != nil {
 		apiutils.AbortWithApiError(c, commonerrors.NewBadRequest(err.Error()))
 		return
 	}
+	timezoneOffset := c.DefaultQuery("timezone_offset", "0")
 
 	existing, err := h.dbClient.GetLLMBindingByEmail(c.Request.Context(), email)
 	if err != nil {
@@ -584,8 +585,13 @@ func (h *Handler) GetUsage(c *gin.Context) {
 		return
 	}
 
-	adjStart, adjEnd := expandDateRangeForTimezone(startDate, endDate, loc)
-	activity, err := h.litellmClient.GetUserDailyActivity(c.Request.Context(), email, adjStart, adjEnd)
+	activity, err := h.litellmClient.GetUserDailyActivity(
+		c.Request.Context(),
+		email,
+		startDate,
+		endDate,
+		timezoneOffset,
+	)
 	if err != nil {
 		klog.ErrorS(err, "GetUsage: LiteLLM query failed", "email", email)
 		c.JSON(http.StatusBadGateway, gin.H{"errorMessage": "usage data temporarily unavailable, please try again later"})

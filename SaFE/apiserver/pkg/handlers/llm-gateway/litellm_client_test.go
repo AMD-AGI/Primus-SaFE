@@ -235,10 +235,11 @@ func TestDeleteKey_ServerError(t *testing.T) {
 
 func TestGetUserDailyActivity_Success(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		assert.Equal(t, "/user/daily/activity", r.URL.Path)
+		assert.Equal(t, "/user/daily/activity/aggregated", r.URL.Path)
 		assert.Equal(t, "test@amd.com", r.URL.Query().Get("user_id"))
 		assert.Equal(t, "2026-03-10", r.URL.Query().Get("start_date"))
 		assert.Equal(t, "2026-03-17", r.URL.Query().Get("end_date"))
+		assert.Equal(t, "-480", r.URL.Query().Get("timezone"))
 
 		w.WriteHeader(http.StatusOK)
 		json.NewEncoder(w).Encode(DailyActivityResponse{
@@ -281,7 +282,7 @@ func TestGetUserDailyActivity_Success(t *testing.T) {
 	defer server.Close()
 
 	client := NewLiteLLMClient(server.URL, testAdminKey, "team-123")
-	resp, err := client.GetUserDailyActivity(context.Background(), "test@amd.com", "2026-03-10", "2026-03-17")
+	resp, err := client.GetUserDailyActivity(context.Background(), "test@amd.com", "2026-03-10", "2026-03-17", "-480")
 
 	assert.NoError(t, err)
 	assert.Len(t, resp.Results, 1)
@@ -300,7 +301,7 @@ func TestGetUserDailyActivity_Error(t *testing.T) {
 	defer server.Close()
 
 	client := NewLiteLLMClient(server.URL, testAdminKey, "team-123")
-	resp, err := client.GetUserDailyActivity(context.Background(), "test@amd.com", "2026-03-10", "2026-03-17")
+	resp, err := client.GetUserDailyActivity(context.Background(), "test@amd.com", "2026-03-10", "2026-03-17", "0")
 	assert.Error(t, err)
 	assert.Nil(t, resp)
 }
