@@ -376,9 +376,17 @@ func (r *SyncerReconciler) removeWorkloadPod(ctx context.Context, message *resou
 		return nil
 	}
 
-	if commonworkload.IsApplication(adminWorkload) {
-		// Application: drop the pod entry and refresh node assignment so the status
-		// tracks the current replica set (no per-pod history is kept for these).
+	// CICD is grouped with Application here rather than inside IsApplication: that
+	// predicate describes the "create-once + sync update" dispatch lifecycle, which
+	// a runner set does not follow, so widening it would change unrelated paths.
+	// What CICD shares is only the part that matters here -- there is no history
+	// worth keeping. ARC runs one ephemeral pod per CI job and deletes it, so
+	// keeping a row per pod grows without bound (observed: 260 rows for a runner
+	// set with 3 live pods, hydrated from the DB on every reconcile), while the
+	// job's own detail lives in GitHub rather than in these rows.
+	if commonworkload.IsApplication(adminWorkload) || commonworkload.IsCICD(adminWorkload) {
+		// Drop the pod entry and refresh node assignment so the status tracks the
+		// current replica set (no per-pod history is kept for these).
 		adminWorkload.Status.Pods = append(adminWorkload.Status.Pods[:id], adminWorkload.Status.Pods[id+1:]...)
 		r.updateWorkloadNodes(adminWorkload)
 	} else {

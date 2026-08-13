@@ -261,6 +261,39 @@ func TestRemoveWorkloadPodStopsLivePod(t *testing.T) {
 	assert.Equal(t, got.Status.Pods[1].PodId, "p2")
 }
 
+// A runner set gets one ephemeral pod per CI job, so keeping a row per deleted
+// pod grows without bound and every reconcile hydrates the whole list back from
+// the DB. The job's detail lives in GitHub, so the row is dropped rather than
+// kept as history.
+func TestRemoveWorkloadPodDropsCICDEntry(t *testing.T) {
+	for _, kind := range []string{common.CICDScaleRunnerSetKind, common.CICDEphemeralRunnerKind} {
+		w := &v1.Workload{ObjectMeta: metav1.ObjectMeta{
+			Name:        "w",
+			Annotations: map[string]string{v1.WorkloadDispatchedAnnotation: "true"},
+		}}
+		w.Spec.GroupVersionKind = v1.GroupVersionKind{Version: "v1", Kind: kind}
+		w.Spec.MaxRetry = 3
+		w.Status.Pods = []v1.WorkloadPod{
+			{PodId: "p1", Phase: corev1.PodRunning},
+			{PodId: "p2", Phase: corev1.PodRunning},
+		}
+		cl := ctrlfake.NewClientBuilder().
+			WithScheme(syncerScheme(t)).
+			WithObjects(w).
+			WithStatusSubresource(&v1.Workload{}).
+			Build()
+		r := &SyncerReconciler{Client: cl}
+		err := r.removeWorkloadPod(context.Background(),
+			&resourceMessage{workloadId: "w", name: "p1", dispatchCount: 1})
+		assert.NilError(t, err)
+
+		got := &v1.Workload{}
+		assert.NilError(t, cl.Get(context.Background(), ctrlclient.ObjectKey{Name: "w"}, got))
+		assert.Equal(t, len(got.Status.Pods), 1, kind)
+		assert.Equal(t, got.Status.Pods[0].PodId, "p2", kind)
+	}
+}
+
 func TestRemoveWorkloadPodStopsLivePodDuringTeardown(t *testing.T) {
 	now := metav1.Now()
 	w := &v1.Workload{ObjectMeta: metav1.ObjectMeta{
