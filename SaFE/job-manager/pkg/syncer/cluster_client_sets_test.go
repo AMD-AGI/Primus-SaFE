@@ -368,3 +368,58 @@ func TestNeedsClientFactoryRefreshBackendIPsChanged(t *testing.T) {
 	cs.dataClientFactory = factory
 	assert.Assert(t, cs.needsClientFactoryRefresh(ctx, cluster, adminClient))
 }
+
+func TestSyncGithubAnnotationsWrongKind(t *testing.T) {
+	c := &ClusterClientSets{}
+	u := &unstructured.Unstructured{Object: map[string]interface{}{}}
+	u.SetKind("Pod")
+	// Wrong kind -> no-op, no panic (adminClient unused).
+	c.syncGithubAnnotations(u)
+}
+
+func TestSyncGithubAnnotationsNoWorkloadId(t *testing.T) {
+	c := &ClusterClientSets{}
+	u := &unstructured.Unstructured{Object: map[string]interface{}{}}
+	u.SetKind(common.CICDEphemeralRunnerKind)
+	// No workload id label -> no-op.
+	c.syncGithubAnnotations(u)
+}
+
+func TestSyncGithubAnnotationsUpdates(t *testing.T) {
+	wl := &v1.Workload{ObjectMeta: metav1.ObjectMeta{
+		Name:      "wl-1",
+		Namespace: common.PrimusSafeNamespace,
+	}}
+	cl := ctrlfake.NewClientBuilder().WithScheme(syncerScheme(t)).WithObjects(wl).Build()
+	c := &ClusterClientSets{adminClient: cl}
+
+	u := &unstructured.Unstructured{Object: map[string]interface{}{
+		"status": map[string]interface{}{
+			"workflowRunId":     int64(42),
+			"jobRepositoryName": "org/repo",
+		},
+	}}
+	u.SetKind(common.CICDEphemeralRunnerKind)
+	u.SetLabels(map[string]string{v1.WorkloadIdLabel: "wl-1"})
+
+	c.syncGithubAnnotations(u)
+
+	got := &v1.Workload{}
+	assert.NilError(t, cl.Get(context.Background(),
+		ctrlclient.ObjectKey{Name: "wl-1", Namespace: common.PrimusSafeNamespace}, got))
+	assert.Equal(t, got.GetAnnotations()["actions.github.com/run-id"], "42")
+	assert.Equal(t, got.GetAnnotations()["actions.github.com/repository"], "org/repo")
+}
+
+func TestSyncGithubAnnotationsWorkloadNotFound(t *testing.T) {
+	cl := ctrlfake.NewClientBuilder().WithScheme(syncerScheme(t)).Build()
+	c := &ClusterClientSets{adminClient: cl}
+
+	u := &unstructured.Unstructured{Object: map[string]interface{}{
+		"status": map[string]interface{}{"jobId": int64(7)},
+	}}
+	u.SetKind(common.CICDEphemeralRunnerKind)
+	u.SetLabels(map[string]string{v1.WorkloadIdLabel: "missing"})
+	// Workload not found -> no-op, no panic.
+	c.syncGithubAnnotations(u)
+}
