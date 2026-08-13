@@ -7,6 +7,7 @@ package syncer
 
 import (
 	"context"
+	"errors"
 	"reflect"
 	"testing"
 	"time"
@@ -1214,6 +1215,74 @@ func TestLivePodNamesSeesPodsInAnyNamespace(t *testing.T) {
 	assert.Equal(t, hasOther, false, "another workload's pod is not this one's")
 }
 
+// A Monarch mesh pod carries neither SaFE label -- MonarchMesh exposes a bare PodSpec
+// with no metadata to stamp -- while its record is attributed through the mesh object.
+// Deciding existence by label alone would report a running mesh as vanished and
+// release every one of its records.
+func TestLivePodNamesResolvesMonarchMeshPods(t *testing.T) {
+	w := dispatchedWorkloadWithPods("mj", time.Hour)
+	w.Spec.GroupVersionKind = v1.GroupVersionKind{Version: "v1", Kind: common.MonarchJob}
+
+	meshPod := podInCache("ws", "mj-mesh-0-worker-0", "")
+	meshPod.SetLabels(map[string]string{monarchMeshLabel: "mj-mesh-0"})
+	otherMeshPod := podInCache("ws", "other-mesh-0-worker-0", "")
+	otherMeshPod.SetLabels(map[string]string{monarchMeshLabel: "other-mesh-0"})
+	clientSets := clientSetsWithPodCache(t, true,
+		podInCache("ws", "mj-client-0", "mj"), meshPod, otherMeshPod)
+
+	patches := gomonkey.NewPatches()
+	defer patches.Reset()
+	meshLookups := 0
+	patches.ApplyPrivateMethod(reflect.TypeOf(&SyncerReconciler{}), "getMonarchMesh",
+		func(_ *SyncerReconciler, _ context.Context, _ *ClusterClientSets,
+			name, namespace string) (*unstructured.Unstructured, error) {
+			meshLookups++
+			owner := "mj"
+			if name != "mj-mesh-0" {
+				owner = "another-monarch-job"
+			}
+			mesh := podInCache(namespace, name, owner)
+			return mesh, nil
+		})
+
+	r := &SyncerReconciler{}
+	live, ok := r.livePodNames(context.Background(), clientSets, w)
+
+	assert.Equal(t, ok, true)
+	assert.Equal(t, len(live), 2)
+	_, hasClient := live["mj-client-0"]
+	assert.Equal(t, hasClient, true, "the client pod is labelled and found directly")
+	_, hasMesh := live["mj-mesh-0-worker-0"]
+	assert.Equal(t, hasMesh, true, "the mesh pod is found through its mesh object")
+	_, hasOther := live["other-mesh-0-worker-0"]
+	assert.Equal(t, hasOther, false, "another job's mesh is not this one's")
+	assert.Equal(t, meshLookups, 2, "each mesh is resolved once, not once per pod")
+}
+
+// A mesh that cannot be read may be this workload's own, so the answer is unknown
+// rather than "those pods are gone".
+func TestLivePodNamesRefusesWhenAMeshCannotBeRead(t *testing.T) {
+	w := dispatchedWorkloadWithPods("mj", time.Hour)
+	w.Spec.GroupVersionKind = v1.GroupVersionKind{Version: "v1", Kind: common.MonarchJob}
+	meshPod := podInCache("ws", "mj-mesh-0-worker-0", "")
+	meshPod.SetLabels(map[string]string{monarchMeshLabel: "mj-mesh-0"})
+	clientSets := clientSetsWithPodCache(t, true, meshPod)
+
+	patches := gomonkey.NewPatches()
+	defer patches.Reset()
+	patches.ApplyPrivateMethod(reflect.TypeOf(&SyncerReconciler{}), "getMonarchMesh",
+		func(_ *SyncerReconciler, _ context.Context, _ *ClusterClientSets,
+			_, _ string) (*unstructured.Unstructured, error) {
+			return nil, errors.New("mesh unreachable")
+		})
+
+	r := &SyncerReconciler{}
+	live, ok := r.livePodNames(context.Background(), clientSets, w)
+
+	assert.Equal(t, ok, false)
+	assert.Equal(t, len(live), 0)
+}
+
 // "Not found out" and "none exist" are the same bytes out of an unsynced cache, so
 // the two must not be the same answer.
 func TestLivePodNamesReportsWhatItCouldNotEstablish(t *testing.T) {
@@ -1319,10 +1388,11 @@ func TestReconcileVanishedPodsSkipsUndispatchedWorkloads(t *testing.T) {
 	assert.Equal(t, got.Status.Pods[0].Phase, corev1.PodRunning)
 }
 
-// The status patch is resourceVersion-guarded, so an event that also wrote the
-// status leaves the copy in hand a version behind and the write conflicts. That
-// must not spend the workload's one pass, and must not leave a partial change.
-func TestReconcileVanishedPodsRetriesAfterAConflict(t *testing.T) {
+// The event that triggers this may have written the status through a deep copy,
+// leaving the caller's pointer a version behind. The pass re-reads, so the release
+// still lands instead of writing the database from a stale list and then having the
+// guarded etcd patch rejected.
+func TestReconcileVanishedPodsWorksFromAStaleCaller(t *testing.T) {
 	cl, w := storedWorkload(t, dispatchedWorkloadWithPods("w", time.Hour,
 		podRecord("gone", "n1", corev1.PodRunning, time.Hour),
 	))
@@ -1337,13 +1407,36 @@ func TestReconcileVanishedPodsRetriesAfterAConflict(t *testing.T) {
 	stub := &livePodsStub{live: map[string]struct{}{}, ok: true}
 	patchLivePods(patches, stub)
 
+	assert.NilError(t, r.reconcileVanishedPods(context.Background(), monkeyClientSets(), w,
+		&resourceMessage{action: ResourceAdd}))
+
+	got := &v1.Workload{}
+	assert.NilError(t, cl.Get(context.Background(), ctrlclient.ObjectKey{Name: "w"}, got))
+	assert.Equal(t, got.Status.Pods[0].Phase, corev1.PodPhase(v1.WorkloadStopped))
+}
+
+// A write that fails for any other reason must not spend the workload's one pass.
+func TestReconcileVanishedPodsReleasesTheEntryOnAWriteFailure(t *testing.T) {
+	cl, w := storedWorkload(t, dispatchedWorkloadWithPods("w", time.Hour,
+		podRecord("gone", "n1", corev1.PodRunning, time.Hour),
+	))
+	r := &SyncerReconciler{Client: cl}
+
+	patches := gomonkey.NewPatches()
+	defer patches.Reset()
+	patchLivePods(patches, &livePodsStub{live: map[string]struct{}{}, ok: true})
+	patches.ApplyPrivateMethod(reflect.TypeOf(&SyncerReconciler{}), "patchWorkloadPodStatus",
+		func(_ *SyncerReconciler, _ context.Context, _ *v1.Workload, _ map[string]any) error {
+			return apierrors.NewConflict(schema.GroupResource{Resource: "workloads"}, "w", errors.New("stale"))
+		})
+
 	err := r.reconcileVanishedPods(context.Background(), monkeyClientSets(), w,
 		&resourceMessage{action: ResourceAdd})
 
 	assert.Assert(t, err != nil)
 	assert.Equal(t, apierrors.IsConflict(err), true)
 	_, remembered := r.vanishedPodsChecked.Load("w")
-	assert.Equal(t, remembered, false, "a conflict must not spend the one pass")
+	assert.Equal(t, remembered, false, "a failed write must not spend the one pass")
 
 	got := &v1.Workload{}
 	assert.NilError(t, cl.Get(context.Background(), ctrlclient.ObjectKey{Name: "w"}, got))

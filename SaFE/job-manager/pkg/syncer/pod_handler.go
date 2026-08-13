@@ -23,6 +23,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/tools/cache"
 	"k8s.io/klog/v2"
 	ctrlruntime "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -400,9 +401,10 @@ func (r *SyncerReconciler) applyPodGone(adminWorkload *v1.Workload, id int) bool
 		return true
 	}
 	// Other kinds keep the entry as history and only flip a still-live pod to
-	// Stopped; a terminal phase is left as is.
+	// Stopped; a terminal phase is left as is, and IsPodTerminated counts Stopped
+	// among them.
 	p := &adminWorkload.Status.Pods[id]
-	if v1.IsPodTerminated(p) || p.Phase == corev1.PodPhase(v1.WorkloadStopped) {
+	if v1.IsPodTerminated(p) {
 		return false
 	}
 	p.Phase = corev1.PodPhase(v1.WorkloadStopped)
@@ -448,6 +450,22 @@ func (r *SyncerReconciler) reconcileVanishedPods(ctx context.Context, clientSets
 		return nil
 	}
 
+	// Re-read rather than work from the caller's copy: this event may have written the
+	// status through a deep copy, leaving that copy a version behind. Patching from it
+	// would rewrite the database from a stale pod list -- writeWorkloadStatusToDB ends
+	// with DeleteWorkloadPodsNotIn -- and then have the guarded etcd patch rejected, so
+	// the NodeUsage aggregate the scheduler reads would never land. The Get also
+	// re-hydrates the pod list and gives IsEnd a current phase.
+	adminWorkload, err := r.getAdminWorkload(ctx, adminWorkload.Name)
+	if err != nil || adminWorkload == nil || len(adminWorkload.Status.Pods) == 0 {
+		r.vanishedPodsChecked.Delete(adminWorkload.Name)
+		return err
+	}
+	if adminWorkload.IsEnd() {
+		r.vanishedPodsChecked.Delete(adminWorkload.Name)
+		return nil
+	}
+
 	live, ok := r.livePodNames(ctx, clientSets, adminWorkload)
 	if !ok {
 		// Unknown answer: nothing may be concluded from a record's absence. Re-armed
@@ -461,7 +479,7 @@ func (r *SyncerReconciler) reconcileVanishedPods(ctx context.Context, clientSets
 		return nil
 	}
 
-	changed := false
+	released := 0
 	for _, podId := range gone {
 		// Resolved per pod: applyPodGone removes entries for some workload kinds,
 		// which invalidates any index taken before it ran.
@@ -470,15 +488,16 @@ func (r *SyncerReconciler) reconcileVanishedPods(ctx context.Context, clientSets
 			continue
 		}
 		if r.applyPodGone(adminWorkload, id) {
-			changed = true
+			released++
 		}
 	}
-	if !changed {
+	if released == 0 {
 		return nil
 	}
-	// The count is the signal that pod delete events are being lost.
+	// The count is the signal that pod delete events are being lost, so it counts the
+	// records this pass actually changed rather than the candidates it considered.
 	klog.Infof("released %d vanished pod record(s) of workload %s, live pods: %d",
-		len(gone), adminWorkload.Name, len(live))
+		released, adminWorkload.Name, len(live))
 	if err := r.patchWorkloadPodStatus(ctx, adminWorkload, nil); err != nil {
 		// A conflict is expected when this event also wrote the status, since the
 		// copy in hand is then a version behind. Logged as information, because the
@@ -535,18 +554,81 @@ func (r *SyncerReconciler) livePodNames(ctx context.Context, clientSets *Cluster
 		return nil, false
 	}
 	live := make(map[string]struct{}, len(objs))
+	if !addPodNames(objs, live, adminWorkload.Name) {
+		return nil, false
+	}
+	// Monarch mesh pods carry neither label: MonarchMesh exposes a bare PodSpec under
+	// spec.podTemplate, which has no metadata for updateMetadata to stamp, so the pods
+	// are identified by their mesh instead -- the same route handleResource and
+	// getAdminWorkloadAndSyncPod take to attribute their records.
+	if commonworkload.IsMonarchJob(adminWorkload) &&
+		!r.addMeshPodNames(ctx, clientSets, informer.Lister(), adminWorkload, live) {
+		return nil, false
+	}
+	return live, true
+}
+
+// addPodNames adds the names of the given cache objects to live, and reports whether
+// all of them could be read. An object that cannot be read leaves the set incomplete,
+// and an incomplete set reads as a vanished pod, so it is not a partial answer.
+func addPodNames(objs []runtime.Object, live map[string]struct{}, workloadName string) bool {
 	for _, obj := range objs {
 		pod, ok := obj.(*unstructured.Unstructured)
 		if !ok {
-			// A pod that cannot be read leaves the live set incomplete, and an
-			// incomplete set reads as a vanished pod. Unknown is the honest answer.
 			klog.Errorf("unexpected object type %T in the pod informer cache of workload %s",
-				obj, adminWorkload.Name)
-			return nil, false
+				obj, workloadName)
+			return false
 		}
 		live[pod.GetName()] = struct{}{}
 	}
-	return live, true
+	return true
+}
+
+// addMeshPodNames adds the workload's Monarch mesh pods to live, and reports whether
+// their ownership could be established.
+//
+// A mesh pod names its mesh rather than its workload, so ownership is resolved from
+// the mesh object exactly as getAdminWorkloadAndSyncPod resolves it when recording
+// the pod. Meshes are resolved once each: the lookup is a live read, and a mesh has
+// as many pods as it has nodes.
+func (r *SyncerReconciler) addMeshPodNames(ctx context.Context, clientSets *ClusterClientSets,
+	lister cache.GenericLister, adminWorkload *v1.Workload, live map[string]struct{}) bool {
+	selector, err := labels.Parse(monarchMeshLabel)
+	if err != nil {
+		return false
+	}
+	objs, err := lister.List(selector)
+	if err != nil {
+		klog.ErrorS(err, "failed to list mesh pods from informer cache", "name", adminWorkload.Name)
+		return false
+	}
+	ownedByWorkload := make(map[string]bool, len(objs))
+	for _, obj := range objs {
+		pod, ok := obj.(*unstructured.Unstructured)
+		if !ok {
+			klog.Errorf("unexpected object type %T in the pod informer cache of workload %s",
+				obj, adminWorkload.Name)
+			return false
+		}
+		meshName := pod.GetLabels()[monarchMeshLabel]
+		meshKey := pod.GetNamespace() + "/" + meshName
+		owned, resolved := ownedByWorkload[meshKey]
+		if !resolved {
+			meshObj, err := r.getMonarchMesh(ctx, clientSets, meshName, pod.GetNamespace())
+			if err != nil || meshObj == nil {
+				// A mesh that cannot be read may be this workload's own.
+				klog.V(2).Infof("cannot resolve mesh %s while reconciling workload %s: %v",
+					meshKey, adminWorkload.Name, err)
+				return false
+			}
+			owned = v1.GetWorkloadId(meshObj) == adminWorkload.Name
+			ownedByWorkload[meshKey] = owned
+		}
+		if owned {
+			live[pod.GetName()] = struct{}{}
+		}
+	}
+	return true
 }
 
 // vanishedPodIds returns the ids of the non-terminal pod records whose pod is not
@@ -556,7 +638,8 @@ func (r *SyncerReconciler) livePodNames(ctx context.Context, clientSets *Cluster
 // the pod never started. The grace period covers a record hydrated from the
 // database, which may describe a pod this process has not observed yet.
 func vanishedPodIds(adminWorkload *v1.Workload, live map[string]struct{}) []string {
-	cutoff := time.Now().UTC().Add(-vanishedPodGracePeriod)
+	now := time.Now().UTC()
+	cutoff := now.Add(-vanishedPodGracePeriod)
 	dispatchedBeforeCutoff := false
 	if dispatchedAt, err := timeutil.CvtStrToRFC3339Milli(
 		v1.GetAnnotation(adminWorkload, v1.WorkloadDispatchedAnnotation)); err == nil {
@@ -572,11 +655,16 @@ func vanishedPodIds(adminWorkload *v1.Workload, live map[string]struct{}) []stri
 		if _, ok := live[p.PodId]; ok {
 			continue
 		}
+		// A start time is written by FormatRFC3339, which drops the zone, while
+		// metav1.Time has already converted the instant to local -- so east of UTC the
+		// record parses as starting in the future. Such a time says nothing about age,
+		// and the workload's dispatch, written in UTC, is used instead.
 		startedAt, err := timeutil.CvtStrToRFC3339Milli(p.StartTime)
+		usable := err == nil && !startedAt.After(now)
 		switch {
-		case err == nil && startedAt.After(cutoff):
+		case usable && startedAt.After(cutoff):
 			continue
-		case err != nil && !dispatchedBeforeCutoff:
+		case !usable && !dispatchedBeforeCutoff:
 			continue
 		}
 		gone = append(gone, p.PodId)
