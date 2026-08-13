@@ -37,8 +37,8 @@ const (
 
 // runnerSetRegistrationTimeout is how long a dispatched CICD scaling runner set may
 // go unregistered before it is failed. Registration completes in seconds when
-// GitHub is reachable. A var so tests can shorten it.
-var runnerSetRegistrationTimeout = 10 * time.Minute
+// GitHub is reachable.
+const runnerSetRegistrationTimeout = 10 * time.Minute
 
 // handleJob processes job resource events and synchronizes status between data plane and admin plane.
 // Manages the lifecycle of workload resources and handles failure scenarios.
@@ -71,8 +71,9 @@ func (r *SyncerReconciler) handleJob(ctx context.Context,
 	}
 	// Last, so it sees the state this event wrote, and best-effort so it cannot fail
 	// the status sync.
-	if reconcileErr := r.reconcileVanishedPods(ctx, clientSets, adminWorkload); reconcileErr != nil {
-		klog.ErrorS(reconcileErr, "failed to reconcile vanished pods", "workload", adminWorkload.Name)
+	if reconcileErr := r.reconcileVanishedPods(ctx, clientSets, adminWorkload, message); reconcileErr != nil {
+		klog.V(2).Infof("reconciling vanished pods of workload %s deferred: %v",
+			adminWorkload.Name, reconcileErr)
 	}
 	return result, nil
 }

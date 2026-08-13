@@ -413,8 +413,8 @@ func (r *SyncerReconciler) applyPodGone(adminWorkload *v1.Workload, id int) bool
 var podResourceGVK = schema.GroupVersionKind{Version: "v1", Kind: common.PodKind}
 
 // vanishedPodGracePeriod is the minimum age of a pod record before it may be
-// released. A var so tests can shorten it.
-var vanishedPodGracePeriod = 5 * time.Minute
+// released.
+const vanishedPodGracePeriod = 5 * time.Minute
 
 // reconcileVanishedPods releases the pod records of a dispatched workload whose
 // pods no longer exist, so they stop counting toward the workspace's resource
@@ -423,15 +423,16 @@ var vanishedPodGracePeriod = 5 * time.Minute
 // Runs at most once per workload per process: within one process the delete events
 // that release a record are reliable, so the drift it repairs can only be left
 // behind by a process that ended.
-func (r *SyncerReconciler) reconcileVanishedPods(ctx context.Context,
-	clientSets *ClusterClientSets, adminWorkload *v1.Workload) error {
+func (r *SyncerReconciler) reconcileVanishedPods(ctx context.Context, clientSets *ClusterClientSets,
+	adminWorkload *v1.Workload, message *resourceMessage) error {
 	if adminWorkload == nil || len(adminWorkload.Status.Pods) == 0 {
 		return nil
 	}
-	// An ended workload's records no longer count toward usage. Dropping the entry
-	// also keeps the map to the unfinished set rather than to every workload this
-	// process has seen.
-	if adminWorkload.IsEnd() {
+	// An ended workload's records no longer count toward usage, and teardown deletes
+	// its pods on purpose, so neither is a case for releasing records. Dropping the
+	// entry keeps the map to the unfinished set, and gives the round that follows a
+	// re-schedule -- which tears the old objects down the same way -- its own pass.
+	if adminWorkload.IsEnd() || message.action == ResourceDel || message.action == ResourceDeleting {
 		r.vanishedPodsChecked.Delete(adminWorkload.Name)
 		return nil
 	}
@@ -479,7 +480,11 @@ func (r *SyncerReconciler) reconcileVanishedPods(ctx context.Context,
 	klog.Infof("released %d vanished pod record(s) of workload %s, live pods: %d",
 		len(gone), adminWorkload.Name, len(live))
 	if err := r.patchWorkloadPodStatus(ctx, adminWorkload, nil); err != nil {
-		klog.ErrorS(err, "failed to release vanished pod records", "name", adminWorkload.Name)
+		// A conflict is expected when this event also wrote the status, since the
+		// copy in hand is then a version behind. Logged as information, because the
+		// re-armed entry means the next event retries with a fresh copy.
+		klog.V(2).Infof("deferred releasing vanished pod records of workload %s: %v",
+			adminWorkload.Name, err)
 		r.vanishedPodsChecked.Delete(adminWorkload.Name)
 		return err
 	}
@@ -496,6 +501,12 @@ func (r *SyncerReconciler) livePodNames(ctx context.Context, clientSets *Cluster
 	if clientSets == nil {
 		return nil, false
 	}
+
+	if clusterId := v1.GetClusterId(adminWorkload); clusterId != clientSets.name {
+		klog.Errorf("workload %s belongs to cluster %q, not %q: not comparing its pods",
+			adminWorkload.Name, clusterId, clientSets.name)
+		return nil, false
+	}
 	informer, err := clientSets.GetResourceInformer(ctx, podResourceGVK)
 	if err != nil {
 		klog.V(2).Infof("no pod informer to reconcile workload %s against: %v", adminWorkload.Name, err)
@@ -504,9 +515,19 @@ func (r *SyncerReconciler) livePodNames(ctx context.Context, clientSets *Cluster
 	if !informer.Informer().HasSynced() {
 		return nil, false
 	}
-	// Not scoped to a namespace: a CICD runner set also owns the ARC listener pod,
-	// which carries the workload id but runs in the controller's namespace. The
-	// workload id is unique cluster-wide, so the label alone identifies the set.
+	// Selected by the workload id label, and across all namespaces. Both are load
+	// bearing and easy to undo by accident:
+	//
+	// A pod carries primus-safe.workload.id = the root workload id, and its own
+	// workload's name under primus-safe.k8s.object.id (buildPodLabels ->
+	// buildObjectLabels -> getRootWorkloadId). Pod records are attached to whichever
+	// workload GetWorkloadId names, which is that same label, so the owner of a
+	// record and this selector are the same value by construction. Selecting on
+	// k8s.object.id instead would release a child workload's records while its pods
+	// run.
+	//
+	// The namespace is not the workspace either: a CICD runner set owns the ARC
+	// listener pod, which runs in the controller's namespace.
 	objs, err := informer.Lister().List(
 		labels.SelectorFromSet(labels.Set{v1.WorkloadIdLabel: adminWorkload.Name}))
 	if err != nil {
@@ -515,9 +536,15 @@ func (r *SyncerReconciler) livePodNames(ctx context.Context, clientSets *Cluster
 	}
 	live := make(map[string]struct{}, len(objs))
 	for _, obj := range objs {
-		if pod, ok := obj.(*unstructured.Unstructured); ok {
-			live[pod.GetName()] = struct{}{}
+		pod, ok := obj.(*unstructured.Unstructured)
+		if !ok {
+			// A pod that cannot be read leaves the live set incomplete, and an
+			// incomplete set reads as a vanished pod. Unknown is the honest answer.
+			klog.Errorf("unexpected object type %T in the pod informer cache of workload %s",
+				obj, adminWorkload.Name)
+			return nil, false
 		}
+		live[pod.GetName()] = struct{}{}
 	}
 	return live, true
 }

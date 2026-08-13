@@ -1053,6 +1053,8 @@ func podRecord(podId, node string, phase corev1.PodPhase, age time.Duration) v1.
 func dispatchedWorkloadWithPods(name string, dispatchedAgo time.Duration, pods ...v1.WorkloadPod) *v1.Workload {
 	w := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: name}}
 	w.Spec.Workspace = "ws"
+	// Matches newTestClientSets: the cache read refuses a workload from elsewhere.
+	v1.SetLabel(w, v1.ClusterIdLabel, "c1")
 	v1.SetAnnotation(w, v1.WorkloadDispatchedAnnotation,
 		timeutil.FormatRFC3339(time.Now().UTC().Add(-dispatchedAgo)))
 	w.Status.Pods = pods
@@ -1248,7 +1250,7 @@ func TestReconcileVanishedPodsStopsThemAndRunsOnce(t *testing.T) {
 	stub := &livePodsStub{live: map[string]struct{}{"alive": {}}, ok: true}
 	patchLivePods(patches, stub)
 
-	assert.NilError(t, r.reconcileVanishedPods(context.Background(), monkeyClientSets(), w))
+	assert.NilError(t, r.reconcileVanishedPods(context.Background(), monkeyClientSets(), w, &resourceMessage{action: ResourceAdd}))
 
 	got := &v1.Workload{}
 	assert.NilError(t, cl.Get(context.Background(), ctrlclient.ObjectKey{Name: "w"}, got))
@@ -1265,7 +1267,7 @@ func TestReconcileVanishedPodsStopsThemAndRunsOnce(t *testing.T) {
 
 	// The drift this repairs is opened by a process ending, so a second event for
 	// the same workload must not pay for the comparison again.
-	assert.NilError(t, r.reconcileVanishedPods(context.Background(), monkeyClientSets(), w))
+	assert.NilError(t, r.reconcileVanishedPods(context.Background(), monkeyClientSets(), w, &resourceMessage{action: ResourceAdd}))
 	assert.Equal(t, stub.calls, 1)
 }
 
@@ -1282,7 +1284,7 @@ func TestReconcileVanishedPodsDropsCICDRecords(t *testing.T) {
 	defer patches.Reset()
 	patchLivePods(patches, &livePodsStub{live: map[string]struct{}{"alive": {}}, ok: true})
 
-	assert.NilError(t, r.reconcileVanishedPods(context.Background(), monkeyClientSets(), w))
+	assert.NilError(t, r.reconcileVanishedPods(context.Background(), monkeyClientSets(), w, &resourceMessage{action: ResourceAdd}))
 
 	got := &v1.Workload{}
 	assert.NilError(t, cl.Get(context.Background(), ctrlclient.ObjectKey{Name: "rs"}, got))
@@ -1308,12 +1310,78 @@ func TestReconcileVanishedPodsSkipsUndispatchedWorkloads(t *testing.T) {
 	stub := &livePodsStub{live: map[string]struct{}{}, ok: true}
 	patchLivePods(patches, stub)
 
-	assert.NilError(t, r.reconcileVanishedPods(context.Background(), monkeyClientSets(), w))
+	assert.NilError(t, r.reconcileVanishedPods(context.Background(), monkeyClientSets(), w, &resourceMessage{action: ResourceAdd}))
 
 	assert.Equal(t, stub.calls, 0, "nothing is compared before the workload is dispatched")
 	got := &v1.Workload{}
 	assert.NilError(t, cl.Get(context.Background(), ctrlclient.ObjectKey{Name: "w"}, got))
 	assert.Equal(t, len(got.Status.Pods), 1)
+	assert.Equal(t, got.Status.Pods[0].Phase, corev1.PodRunning)
+}
+
+// The status patch is resourceVersion-guarded, so an event that also wrote the
+// status leaves the copy in hand a version behind and the write conflicts. That
+// must not spend the workload's one pass, and must not leave a partial change.
+func TestReconcileVanishedPodsRetriesAfterAConflict(t *testing.T) {
+	cl, w := storedWorkload(t, dispatchedWorkloadWithPods("w", time.Hour,
+		podRecord("gone", "n1", corev1.PodRunning, time.Hour),
+	))
+	// Something else writes the workload, so the stored version moves past this copy.
+	bumped := w.DeepCopy()
+	v1.SetLabel(bumped, "test/bumped", v1.TrueStr)
+	assert.NilError(t, cl.Update(context.Background(), bumped))
+
+	r := &SyncerReconciler{Client: cl}
+	patches := gomonkey.NewPatches()
+	defer patches.Reset()
+	stub := &livePodsStub{live: map[string]struct{}{}, ok: true}
+	patchLivePods(patches, stub)
+
+	err := r.reconcileVanishedPods(context.Background(), monkeyClientSets(), w,
+		&resourceMessage{action: ResourceAdd})
+
+	assert.Assert(t, err != nil)
+	assert.Equal(t, apierrors.IsConflict(err), true)
+	_, remembered := r.vanishedPodsChecked.Load("w")
+	assert.Equal(t, remembered, false, "a conflict must not spend the one pass")
+
+	got := &v1.Workload{}
+	assert.NilError(t, cl.Get(context.Background(), ctrlclient.ObjectKey{Name: "w"}, got))
+	assert.Equal(t, got.Status.Pods[0].Phase, corev1.PodRunning, "nothing is half-written")
+}
+
+func TestIndexOfPod(t *testing.T) {
+	pods := []v1.WorkloadPod{{PodId: "a"}, {PodId: "b"}}
+	assert.Equal(t, indexOfPod(pods, "a"), 0)
+	assert.Equal(t, indexOfPod(pods, "b"), 1)
+	assert.Equal(t, indexOfPod(pods, "missing"), -1)
+	assert.Equal(t, indexOfPod(nil, "a"), -1)
+}
+
+// Teardown deletes pods on purpose, so it is not evidence that records should be
+// released -- and it must not spend the one pass the workload gets, since a
+// re-schedule tears the old objects down the same way before dispatching again.
+func TestReconcileVanishedPodsSkipsTeardown(t *testing.T) {
+	cl, w := storedWorkload(t, dispatchedWorkloadWithPods("w", time.Hour,
+		podRecord("gone", "n1", corev1.PodRunning, time.Hour),
+	))
+	r := &SyncerReconciler{Client: cl}
+
+	patches := gomonkey.NewPatches()
+	defer patches.Reset()
+	stub := &livePodsStub{live: map[string]struct{}{}, ok: true}
+	patchLivePods(patches, stub)
+
+	for _, action := range []string{ResourceDel, ResourceDeleting} {
+		assert.NilError(t, r.reconcileVanishedPods(context.Background(), monkeyClientSets(), w,
+			&resourceMessage{action: action}))
+		assert.Equal(t, stub.calls, 0, action)
+		_, remembered := r.vanishedPodsChecked.Load("w")
+		assert.Equal(t, remembered, false, action)
+	}
+
+	got := &v1.Workload{}
+	assert.NilError(t, cl.Get(context.Background(), ctrlclient.ObjectKey{Name: "w"}, got))
 	assert.Equal(t, got.Status.Pods[0].Phase, corev1.PodRunning)
 }
 
@@ -1332,13 +1400,13 @@ func TestReconcileVanishedPodsForgetsEndedWorkloads(t *testing.T) {
 	patchLivePods(patches, stub)
 
 	// First pass while it runs: the record is released and the workload remembered.
-	assert.NilError(t, r.reconcileVanishedPods(context.Background(), monkeyClientSets(), w))
+	assert.NilError(t, r.reconcileVanishedPods(context.Background(), monkeyClientSets(), w, &resourceMessage{action: ResourceAdd}))
 	assert.Equal(t, stub.calls, 1)
 	_, remembered := r.vanishedPodsChecked.Load("w")
 	assert.Equal(t, remembered, true)
 
 	w.Status.Phase = v1.WorkloadSucceeded
-	assert.NilError(t, r.reconcileVanishedPods(context.Background(), monkeyClientSets(), w))
+	assert.NilError(t, r.reconcileVanishedPods(context.Background(), monkeyClientSets(), w, &resourceMessage{action: ResourceAdd}))
 	assert.Equal(t, stub.calls, 1, "an ended workload is not compared again")
 	_, remembered = r.vanishedPodsChecked.Load("w")
 	assert.Equal(t, remembered, false, "the entry is dropped once the workload ends")
@@ -1358,7 +1426,7 @@ func TestReconcileVanishedPodsDoesNothingWhenNothingIsKnown(t *testing.T) {
 	stub := &livePodsStub{ok: false}
 	patchLivePods(patches, stub)
 
-	assert.NilError(t, r.reconcileVanishedPods(context.Background(), monkeyClientSets(), w))
+	assert.NilError(t, r.reconcileVanishedPods(context.Background(), monkeyClientSets(), w, &resourceMessage{action: ResourceAdd}))
 
 	got := &v1.Workload{}
 	assert.NilError(t, cl.Get(context.Background(), ctrlclient.ObjectKey{Name: "w"}, got))
@@ -1369,7 +1437,7 @@ func TestReconcileVanishedPodsDoesNothingWhenNothingIsKnown(t *testing.T) {
 
 	// So the next event tries again, and this time it establishes the answer.
 	stub.live, stub.ok = map[string]struct{}{}, true
-	assert.NilError(t, r.reconcileVanishedPods(context.Background(), monkeyClientSets(), w))
+	assert.NilError(t, r.reconcileVanishedPods(context.Background(), monkeyClientSets(), w, &resourceMessage{action: ResourceAdd}))
 	assert.Equal(t, stub.calls, 2)
 	assert.NilError(t, cl.Get(context.Background(), ctrlclient.ObjectKey{Name: "w"}, got))
 	assert.Equal(t, got.Status.Pods[0].Phase, corev1.PodPhase(v1.WorkloadStopped))

@@ -21,6 +21,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	k8sfake "k8s.io/client-go/kubernetes/fake"
+	ctrlruntime "sigs.k8s.io/controller-runtime"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 	ctrlfake "sigs.k8s.io/controller-runtime/pkg/client/fake"
 
@@ -364,6 +365,38 @@ func unregisteredRunnerSet(since time.Duration) *v1.Workload {
 	v1.SetAnnotation(w, v1.WorkloadDispatchedAnnotation,
 		timeutil.FormatRFC3339(time.Now().UTC().Add(-since)))
 	return w
+}
+
+// The pod reconcile runs on the way out of an event, and it is bookkeeping: its
+// failure must not fail the event, and the result the event computed must survive.
+func TestHandleJobToleratesVanishedPodReconcileError(t *testing.T) {
+	w := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "w"}}
+	w.Spec.Workspace = "ws"
+	v1.SetAnnotation(w, v1.WorkloadDispatchedAnnotation, timeutil.FormatRFC3339(time.Now().UTC()))
+	cl := ctrlfake.NewClientBuilder().WithScheme(syncerScheme(t)).WithObjects(w).Build()
+	r := &SyncerReconciler{Client: cl}
+
+	patches := gomonkey.NewPatches()
+	defer patches.Reset()
+	patches.ApplyPrivateMethod(reflect.TypeOf(&SyncerReconciler{}), "handleJobImpl",
+		func(_ *SyncerReconciler, _ context.Context, _ *resourceMessage, _ *v1.Workload,
+			_ *ClusterClientSets) (ctrlruntime.Result, error) {
+			return ctrlruntime.Result{RequeueAfter: time.Second}, nil
+		})
+	reconciled := false
+	patches.ApplyPrivateMethod(reflect.TypeOf(&SyncerReconciler{}), "reconcileVanishedPods",
+		func(_ *SyncerReconciler, _ context.Context, _ *ClusterClientSets, _ *v1.Workload,
+			_ *resourceMessage) error {
+			reconciled = true
+			return errors.New("conflict")
+		})
+
+	result, err := r.handleJob(context.Background(),
+		&resourceMessage{workloadId: "w", namespace: "ws"}, nil)
+
+	assert.NilError(t, err)
+	assert.Equal(t, reconciled, true)
+	assert.Equal(t, result.RequeueAfter, time.Second, "the event's own result is preserved")
 }
 
 // A registration failure is invisible on the object, so a wait that has gone on too
