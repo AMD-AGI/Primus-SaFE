@@ -366,10 +366,8 @@ func unregisteredRunnerSet(since time.Duration) *v1.Workload {
 	return w
 }
 
-// A runner set ARC never registered used to stay Pending indefinitely, and a
-// Pending workload holds the head of its workspace queue: two of them blocked
-// every workload queued behind them for 33 hours. The failure is invisible on the
-// object, so the only signal is that the wait has gone on too long.
+// A registration failure is invisible on the object, so a wait that has gone on too
+// long is the only signal to act on.
 func TestCheckRunnerSetRegistrationFailsPastDeadline(t *testing.T) {
 	w := unregisteredRunnerSet(runnerSetRegistrationTimeout + time.Minute)
 

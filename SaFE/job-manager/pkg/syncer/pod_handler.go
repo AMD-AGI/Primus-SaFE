@@ -19,7 +19,9 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/klog/v2"
 	ctrlruntime "sigs.k8s.io/controller-runtime"
@@ -365,40 +367,13 @@ func (r *SyncerReconciler) removeWorkloadPod(ctx context.Context, message *resou
 		return err
 	}
 
-	id := -1
-	for i, p := range adminWorkload.Status.Pods {
-		if p.PodId == message.name {
-			id = i
-			break
-		}
-	}
+	id := indexOfPod(adminWorkload.Status.Pods, message.name)
 	if id < 0 {
 		return nil
 	}
 
-	// CICD is grouped with Application here rather than inside IsApplication: that
-	// predicate describes the "create-once + sync update" dispatch lifecycle, which
-	// a runner set does not follow, so widening it would change unrelated paths.
-	// What CICD shares is only the part that matters here -- there is no history
-	// worth keeping. ARC runs one ephemeral pod per CI job and deletes it, so
-	// keeping a row per pod grows without bound (observed: 260 rows for a runner
-	// set with 3 live pods, hydrated from the DB on every reconcile), while the
-	// job's own detail lives in GitHub rather than in these rows.
-	if commonworkload.IsApplication(adminWorkload) || commonworkload.IsCICD(adminWorkload) {
-		// Drop the pod entry and refresh node assignment so the status tracks the
-		// current replica set (no per-pod history is kept for these).
-		adminWorkload.Status.Pods = append(adminWorkload.Status.Pods[:id], adminWorkload.Status.Pods[id+1:]...)
-		r.updateWorkloadNodes(adminWorkload)
-	} else {
-		// Keep the pod entry (history) and only flip a still-live pod to Stopped;
-		// persistWorkloadStatus then refreshes the NodeUsage aggregate in etcd.
-		// Terminal (or already Stopped) pods are left as is to keep their final
-		// phase and avoid redundant writes on repeat events.
-		p := &adminWorkload.Status.Pods[id]
-		if v1.IsPodTerminated(p) || p.Phase == corev1.PodPhase(v1.WorkloadStopped) {
-			return nil
-		}
-		p.Phase = corev1.PodPhase(v1.WorkloadStopped)
+	if !r.applyPodGone(adminWorkload, id) {
+		return nil
 	}
 
 	if err = r.patchWorkloadPodStatus(ctx, adminWorkload, nil); err != nil {
@@ -406,6 +381,190 @@ func (r *SyncerReconciler) removeWorkloadPod(ctx context.Context, message *resou
 		return err
 	}
 	return nil
+}
+
+// applyPodGone records in the workload status that one of its pods no longer
+// exists, and reports whether the status changed.
+//
+// Shared by the delete-event path and reconcileVanishedPods so both treat a
+// vanished pod the same way.
+func (r *SyncerReconciler) applyPodGone(adminWorkload *v1.Workload, id int) bool {
+	// CICD keeps no per-pod history either, but is grouped here rather than in
+	// IsApplication, which describes the create-once + sync update dispatch
+	// lifecycle a runner set does not follow.
+	if commonworkload.IsApplication(adminWorkload) || commonworkload.IsCICD(adminWorkload) {
+		// Drop the pod entry and refresh node assignment so the status tracks the
+		// current replica set.
+		adminWorkload.Status.Pods = append(adminWorkload.Status.Pods[:id], adminWorkload.Status.Pods[id+1:]...)
+		r.updateWorkloadNodes(adminWorkload)
+		return true
+	}
+	// Other kinds keep the entry as history and only flip a still-live pod to
+	// Stopped; a terminal phase is left as is.
+	p := &adminWorkload.Status.Pods[id]
+	if v1.IsPodTerminated(p) || p.Phase == corev1.PodPhase(v1.WorkloadStopped) {
+		return false
+	}
+	p.Phase = corev1.PodPhase(v1.WorkloadStopped)
+	return true
+}
+
+// podResourceGVK identifies the pod informer whose cache says which pods exist.
+var podResourceGVK = schema.GroupVersionKind{Version: "v1", Kind: common.PodKind}
+
+// vanishedPodGracePeriod is the minimum age of a pod record before it may be
+// released. A var so tests can shorten it.
+var vanishedPodGracePeriod = 5 * time.Minute
+
+// reconcileVanishedPods releases the pod records of a dispatched workload whose
+// pods no longer exist, so they stop counting toward the workspace's resource
+// usage. Existence is read from the pod informer's cache rather than the API.
+//
+// Runs at most once per workload per process: within one process the delete events
+// that release a record are reliable, so the drift it repairs can only be left
+// behind by a process that ended.
+func (r *SyncerReconciler) reconcileVanishedPods(ctx context.Context,
+	clientSets *ClusterClientSets, adminWorkload *v1.Workload) error {
+	if adminWorkload == nil || len(adminWorkload.Status.Pods) == 0 {
+		return nil
+	}
+	// An ended workload's records no longer count toward usage. Dropping the entry
+	// also keeps the map to the unfinished set rather than to every workload this
+	// process has seen.
+	if adminWorkload.IsEnd() {
+		r.vanishedPodsChecked.Delete(adminWorkload.Name)
+		return nil
+	}
+	// Dispatch is a precondition rather than an assumption about the caller: its
+	// timestamp is what ages a record whose pod never started, and reSchedule drops
+	// the annotation while it retries. Dropping the entry gives the round that
+	// follows a re-schedule its own pass.
+	if !v1.IsWorkloadDispatched(adminWorkload) {
+		r.vanishedPodsChecked.Delete(adminWorkload.Name)
+		return nil
+	}
+	if _, done := r.vanishedPodsChecked.LoadOrStore(adminWorkload.Name, struct{}{}); done {
+		return nil
+	}
+
+	live, ok := r.livePodNames(ctx, clientSets, adminWorkload)
+	if !ok {
+		// Unknown answer: nothing may be concluded from a record's absence. Re-armed
+		// so the next event retries.
+		r.vanishedPodsChecked.Delete(adminWorkload.Name)
+		return nil
+	}
+
+	gone := vanishedPodIds(adminWorkload, live)
+	if len(gone) == 0 {
+		return nil
+	}
+
+	changed := false
+	for _, podId := range gone {
+		// Resolved per pod: applyPodGone removes entries for some workload kinds,
+		// which invalidates any index taken before it ran.
+		id := indexOfPod(adminWorkload.Status.Pods, podId)
+		if id < 0 {
+			continue
+		}
+		if r.applyPodGone(adminWorkload, id) {
+			changed = true
+		}
+	}
+	if !changed {
+		return nil
+	}
+	// The count is the signal that pod delete events are being lost.
+	klog.Infof("released %d vanished pod record(s) of workload %s, live pods: %d",
+		len(gone), adminWorkload.Name, len(live))
+	if err := r.patchWorkloadPodStatus(ctx, adminWorkload, nil); err != nil {
+		klog.ErrorS(err, "failed to release vanished pod records", "name", adminWorkload.Name)
+		r.vanishedPodsChecked.Delete(adminWorkload.Name)
+		return err
+	}
+	return nil
+}
+
+// livePodNames returns the names of the workload's pods that currently exist, and
+// whether that could be established.
+//
+// False means the answer is unknown, and must never be read as "no pods exist": an
+// unsynced cache reports empty rather than reporting nothing.
+func (r *SyncerReconciler) livePodNames(ctx context.Context, clientSets *ClusterClientSets,
+	adminWorkload *v1.Workload) (map[string]struct{}, bool) {
+	if clientSets == nil {
+		return nil, false
+	}
+	informer, err := clientSets.GetResourceInformer(ctx, podResourceGVK)
+	if err != nil {
+		klog.V(2).Infof("no pod informer to reconcile workload %s against: %v", adminWorkload.Name, err)
+		return nil, false
+	}
+	if !informer.Informer().HasSynced() {
+		return nil, false
+	}
+	// Not scoped to a namespace: a CICD runner set also owns the ARC listener pod,
+	// which carries the workload id but runs in the controller's namespace. The
+	// workload id is unique cluster-wide, so the label alone identifies the set.
+	objs, err := informer.Lister().List(
+		labels.SelectorFromSet(labels.Set{v1.WorkloadIdLabel: adminWorkload.Name}))
+	if err != nil {
+		klog.ErrorS(err, "failed to list pods from informer cache", "name", adminWorkload.Name)
+		return nil, false
+	}
+	live := make(map[string]struct{}, len(objs))
+	for _, obj := range objs {
+		if pod, ok := obj.(*unstructured.Unstructured); ok {
+			live[pod.GetName()] = struct{}{}
+		}
+	}
+	return live, true
+}
+
+// vanishedPodIds returns the ids of the non-terminal pod records whose pod is not
+// among the live ones and whose age is past the grace period.
+//
+// Age comes from the record's own start time, or from the workload's dispatch when
+// the pod never started. The grace period covers a record hydrated from the
+// database, which may describe a pod this process has not observed yet.
+func vanishedPodIds(adminWorkload *v1.Workload, live map[string]struct{}) []string {
+	cutoff := time.Now().UTC().Add(-vanishedPodGracePeriod)
+	dispatchedBeforeCutoff := false
+	if dispatchedAt, err := timeutil.CvtStrToRFC3339Milli(
+		v1.GetAnnotation(adminWorkload, v1.WorkloadDispatchedAnnotation)); err == nil {
+		dispatchedBeforeCutoff = dispatchedAt.Before(cutoff)
+	}
+
+	gone := make([]string, 0)
+	for i := range adminWorkload.Status.Pods {
+		p := &adminWorkload.Status.Pods[i]
+		if p.PodId == "" || v1.IsPodTerminated(p) {
+			continue
+		}
+		if _, ok := live[p.PodId]; ok {
+			continue
+		}
+		startedAt, err := timeutil.CvtStrToRFC3339Milli(p.StartTime)
+		switch {
+		case err == nil && startedAt.After(cutoff):
+			continue
+		case err != nil && !dispatchedBeforeCutoff:
+			continue
+		}
+		gone = append(gone, p.PodId)
+	}
+	return gone
+}
+
+// indexOfPod locates a pod record by id, or -1.
+func indexOfPod(pods []v1.WorkloadPod, podId string) int {
+	for i := range pods {
+		if pods[i].PodId == podId {
+			return i
+		}
+	}
+	return -1
 }
 
 // createReservedFaults creates fault to reserve nodes for the workload

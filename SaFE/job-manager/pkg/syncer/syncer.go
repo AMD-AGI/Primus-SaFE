@@ -7,6 +7,7 @@ package syncer
 
 import (
 	"context"
+	"sync"
 	"time"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -37,6 +38,10 @@ type SyncerReconciler struct {
 	// Key: cluster name, Value: *ClusterClientSets instance
 	clusterClientSets *commonutils.ObjectManager
 	dbClient          dbclient.Interface
+	// vanishedPodsChecked holds the workloads whose pod records this process has
+	// already reconciled against the informer cache, and drops each one once its
+	// workload ends. See reconcileVanishedPods.
+	vanishedPodsChecked sync.Map
 	*controller.KeyedController[*resourceMessage]
 }
 

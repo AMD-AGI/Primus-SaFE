@@ -35,11 +35,9 @@ const (
 	MaxConditionHistory = 30
 )
 
-// runnerSetRegistrationTimeout bounds how long a dispatched CICD scaling runner
-// set may wait for ARC to register it with GitHub. Registration completes in
-// seconds when GitHub is reachable, so this leaves two orders of magnitude of
-// headroom; what matters is that the wait is finite. A var so tests can shorten
-// it.
+// runnerSetRegistrationTimeout is how long a dispatched CICD scaling runner set may
+// go unregistered before it is failed. Registration completes in seconds when
+// GitHub is reachable. A var so tests can shorten it.
 var runnerSetRegistrationTimeout = 10 * time.Minute
 
 // handleJob processes job resource events and synchronizes status between data plane and admin plane.
@@ -68,7 +66,15 @@ func (r *SyncerReconciler) handleJob(ctx context.Context,
 		// Errors defined internally are fatal and lead to a terminal state without retry
 		err = jobutils.SetWorkloadFailed(ctx, r.Client, adminWorkload, err.Error())
 	}
-	return result, err
+	if err != nil {
+		return result, err
+	}
+	// Last, so it sees the state this event wrote, and best-effort so it cannot fail
+	// the status sync.
+	if reconcileErr := r.reconcileVanishedPods(ctx, clientSets, adminWorkload); reconcileErr != nil {
+		klog.ErrorS(reconcileErr, "failed to reconcile vanished pods", "workload", adminWorkload.Name)
+	}
+	return result, nil
 }
 
 // handleJobImpl implements the core logic for handling job resource events.
@@ -106,38 +112,27 @@ func (r *SyncerReconciler) handleJobImpl(ctx context.Context, message *resourceM
 	return checkRunnerSetRegistration(adminWorkload, message)
 }
 
-// checkRunnerSetRegistration bounds the wait for ARC to register a dispatched
-// CICD scaling runner set with GitHub.
+// checkRunnerSetRegistration bounds how long a dispatched CICD scaling runner set
+// may wait for ARC to register it with GitHub.
 //
-// A registration that keeps failing leaves no trace on the object: the
-// AutoscalingRunnerSet keeps an empty status, carries no runner-scale-set-id and
-// emits no event, so the cause -- an organisation IP allow list, a revoked app
-// installation -- exists only in the ARC controller's own log. The workload stays
-// Pending meanwhile, and a Pending workload holds the head of its workspace queue,
-// so everything behind it waits on a run that can never start. Observed: two
-// runner sets sat at queue position 0 for 33 hours and blocked every workload
-// queued after them.
-//
-// Past the deadline this returns an unrecoverable error, which handleJob turns
-// into a terminal Failed phase carrying the message on the workload's condition --
-// the only place an operator can see this failure without reading ARC's log.
-// Before the deadline it asks to be re-queued at it, because ARC does not write
-// to the object while it retries and no further event would arrive to run this
-// check again.
+// A failed registration leaves no trace on the AutoscalingRunnerSet -- no status,
+// no runner-scale-set-id, no event -- so the deadline is the only signal available.
+// Past it, the unrecoverable error makes handleJob mark the workload Failed with
+// that message on its condition, which both reports the failure and releases the
+// workspace queue the Pending workload was holding. Before it, the result asks to
+// be re-queued at the deadline, since ARC does not write to the object while it
+// retries.
 func checkRunnerSetRegistration(workload *v1.Workload, message *resourceMessage) (ctrlruntime.Result, error) {
 	if !commonworkload.IsCICDScalingRunnerSet(workload) || workload.Status.RunnerScaleSetId != "" {
 		return ctrlruntime.Result{}, nil
 	}
-	// Teardown arrives here with an empty id as well, and a runner set on its way
-	// out must not be reported as a registration failure. IsEnd covers a pending
-	// deletion as well as a terminal phase.
+	// Teardown reaches here with an empty id too, and must not be reported as a
+	// registration failure. IsEnd covers a pending deletion and a terminal phase.
 	if workload.IsEnd() || message.action == ResourceDel || message.action == ResourceDeleting {
 		return ctrlruntime.Result{}, nil
 	}
 	// Measured from the dispatch annotation, which the dispatcher rewrites on every
-	// attempt and drops on re-schedule. Without it there is no evidence of how long
-	// the wait has been, and a runner set dispatched seconds ago must not be failed
-	// on a guess.
+	// attempt and drops on re-schedule. Without it the wait has no known length.
 	dispatchedAt, err := timeutil.CvtStrToRFC3339Milli(
 		v1.GetAnnotation(workload, v1.WorkloadDispatchedAnnotation))
 	if err != nil {

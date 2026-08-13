@@ -23,6 +23,7 @@ import (
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"
 	k8sfake "k8s.io/client-go/kubernetes/fake"
+	"k8s.io/client-go/tools/cache"
 	ctrlruntime "sigs.k8s.io/controller-runtime"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 	ctrlfake "sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -1037,4 +1038,339 @@ func TestPruneStaleRayJobPods(t *testing.T) {
 			}
 		})
 	}
+}
+
+// podRecord builds a pod record started `age` ago, or with no start time at all
+// when age is zero, which is what a pod that never ran leaves behind.
+func podRecord(podId, node string, phase corev1.PodPhase, age time.Duration) v1.WorkloadPod {
+	p := v1.WorkloadPod{PodId: podId, AdminNodeName: node, Phase: phase}
+	if age > 0 {
+		p.StartTime = timeutil.FormatRFC3339(time.Now().UTC().Add(-age))
+	}
+	return p
+}
+
+func dispatchedWorkloadWithPods(name string, dispatchedAgo time.Duration, pods ...v1.WorkloadPod) *v1.Workload {
+	w := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: name}}
+	w.Spec.Workspace = "ws"
+	v1.SetAnnotation(w, v1.WorkloadDispatchedAnnotation,
+		timeutil.FormatRFC3339(time.Now().UTC().Add(-dispatchedAgo)))
+	w.Status.Pods = pods
+	return w
+}
+
+// storedWorkload puts the workload behind a fake client and hands back the stored
+// copy. The status patch is resourceVersion-guarded, so a hand-built object would
+// conflict rather than write.
+func storedWorkload(t *testing.T, w *v1.Workload) (ctrlclient.Client, *v1.Workload) {
+	t.Helper()
+	cl := ctrlfake.NewClientBuilder().
+		WithScheme(syncerScheme(t)).
+		WithObjects(w.DeepCopy()).
+		WithStatusSubresource(&v1.Workload{}).
+		Build()
+	stored := &v1.Workload{}
+	assert.NilError(t, cl.Get(context.Background(), ctrlclient.ObjectKey{Name: w.Name}, stored))
+	return cl, stored
+}
+
+// A record left at Running because its delete event was lost keeps charging the
+// workspace, so it is what the reconcile has to find.
+func TestVanishedPodIdsReleasesRecordsWithoutAPod(t *testing.T) {
+	w := dispatchedWorkloadWithPods("w", time.Hour,
+		podRecord("gone", "n1", corev1.PodRunning, time.Hour),
+		podRecord("alive", "n1", corev1.PodRunning, time.Hour),
+	)
+
+	gone := vanishedPodIds(w, map[string]struct{}{"alive": {}})
+
+	assert.Equal(t, len(gone), 1)
+	assert.Equal(t, gone[0], "gone")
+}
+
+func TestVanishedPodIdsLeavesRecordsItCannotJudge(t *testing.T) {
+	w := dispatchedWorkloadWithPods("w", time.Hour,
+		// Already terminal: costs nothing and keeps its final phase.
+		podRecord("succeeded", "n1", corev1.PodSucceeded, time.Hour),
+		podRecord("stopped", "n1", corev1.PodPhase(v1.WorkloadStopped), time.Hour),
+		// Started inside the grace period: a pod this new may belong to another
+		// process that has seen it while this cache has not.
+		podRecord("fresh", "n1", corev1.PodRunning, time.Second),
+	)
+
+	assert.Equal(t, len(vanishedPodIds(w, map[string]struct{}{})), 0)
+}
+
+// A pod that never ran has no start time, so its age can only be inferred from
+// the workload's dispatch.
+func TestVanishedPodIdsJudgesStartlessRecordsByDispatch(t *testing.T) {
+	pending := podRecord("pending", "", corev1.PodPending, 0)
+
+	old := dispatchedWorkloadWithPods("w", time.Hour, pending)
+	gone := vanishedPodIds(old, map[string]struct{}{})
+	assert.Equal(t, len(gone), 1)
+	assert.Equal(t, gone[0], "pending")
+
+	// Dispatched moments ago: the pod may simply not be scheduled yet.
+	fresh := dispatchedWorkloadWithPods("w", time.Second, pending)
+	assert.Equal(t, len(vanishedPodIds(fresh, map[string]struct{}{})), 0)
+}
+
+// livePodsStub is the answer a patched livePodNames gives, plus how many times it
+// was asked. Both answers may be changed between calls, which is how a test drives
+// a failed comparison followed by a successful one.
+type livePodsStub struct {
+	live  map[string]struct{}
+	ok    bool
+	calls int
+}
+
+// patchLivePods replaces the informer read so the reconcile's own decisions can be
+// tested without informer machinery. The read itself is covered by
+// TestLivePodNames* below, which exercises the real one against a real cache.
+func patchLivePods(patches *gomonkey.Patches, stub *livePodsStub) {
+	patches.ApplyPrivateMethod(reflect.TypeOf(&SyncerReconciler{}), "livePodNames",
+		func(_ *SyncerReconciler, _ context.Context, _ *ClusterClientSets,
+			_ *v1.Workload) (map[string]struct{}, bool) {
+			stub.calls++
+			return stub.live, stub.ok
+		})
+}
+
+// fakeSharedIndexInformer answers HasSynced and nothing else, which is all
+// livePodNames asks of the informer.
+type fakeSharedIndexInformer struct {
+	cache.SharedIndexInformer
+	synced bool
+}
+
+func (f *fakeSharedIndexInformer) HasSynced() bool { return f.synced }
+
+type fakeGenericInformer struct {
+	informer cache.SharedIndexInformer
+	lister   cache.GenericLister
+}
+
+func (f fakeGenericInformer) Informer() cache.SharedIndexInformer { return f.informer }
+func (f fakeGenericInformer) Lister() cache.GenericLister         { return f.lister }
+
+// podInCache builds the unstructured pod a dynamic informer would hold.
+func podInCache(namespace, name, workloadId string) *unstructured.Unstructured {
+	pod := &unstructured.Unstructured{Object: map[string]any{"apiVersion": "v1", "kind": "Pod"}}
+	pod.SetNamespace(namespace)
+	pod.SetName(name)
+	if workloadId != "" {
+		pod.SetLabels(map[string]string{v1.WorkloadIdLabel: workloadId})
+	}
+	return pod
+}
+
+// clientSetsWithPodCache registers a pod informer whose cache holds the given pods.
+func clientSetsWithPodCache(t *testing.T, synced bool, pods ...*unstructured.Unstructured) *ClusterClientSets {
+	t.Helper()
+	indexer := cache.NewIndexer(cache.MetaNamespaceKeyFunc,
+		cache.Indexers{cache.NamespaceIndex: cache.MetaNamespaceIndexFunc})
+	for _, p := range pods {
+		assert.NilError(t, indexer.Add(p))
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	cs := newTestClientSets()
+	assert.NilError(t, cs.resourceInformers.Add(podResourceGVK.String(), &resourceInformer{
+		GenericInformer: fakeGenericInformer{
+			informer: &fakeSharedIndexInformer{synced: synced},
+			lister:   cache.NewGenericLister(indexer, schema.GroupResource{Resource: "pods"}),
+		},
+		context: ctx,
+		cancel:  cancel,
+	}))
+	return cs
+}
+
+// A runner set owns its runners in the workspace and the ARC listener in the
+// controller's namespace, and both have pod records. Scoping the cache read to the
+// workspace reported the listener as vanished and released a record for a pod that
+// was running.
+func TestLivePodNamesSeesPodsInAnyNamespace(t *testing.T) {
+	w := dispatchedWorkloadWithPods("rs", time.Hour)
+	clientSets := clientSetsWithPodCache(t, true,
+		podInCache("ws", "rs-runner-1", "rs"),
+		podInCache("arc-systems", "rs-b9bccbd6-listener", "rs"),
+		podInCache("ws", "other-master-0", "other"),
+	)
+	r := &SyncerReconciler{}
+
+	live, ok := r.livePodNames(context.Background(), clientSets, w)
+
+	assert.Equal(t, ok, true)
+	assert.Equal(t, len(live), 2)
+	_, hasRunner := live["rs-runner-1"]
+	assert.Equal(t, hasRunner, true)
+	_, hasListener := live["rs-b9bccbd6-listener"]
+	assert.Equal(t, hasListener, true, "the listener runs outside the workspace and still counts")
+	_, hasOther := live["other-master-0"]
+	assert.Equal(t, hasOther, false, "another workload's pod is not this one's")
+}
+
+// "Not found out" and "none exist" are the same bytes out of an unsynced cache, so
+// the two must not be the same answer.
+func TestLivePodNamesReportsWhatItCouldNotEstablish(t *testing.T) {
+	w := dispatchedWorkloadWithPods("rs", time.Hour)
+	r := &SyncerReconciler{}
+
+	// A cache that holds the pods but has not synced: acting on it would stop
+	// every record of every workload.
+	unsynced := clientSetsWithPodCache(t, false, podInCache("ws", "rs-runner-1", "rs"))
+	live, ok := r.livePodNames(context.Background(), unsynced, w)
+	assert.Equal(t, ok, false)
+	assert.Equal(t, len(live), 0)
+
+	// No pod informer on this cluster at all.
+	live, ok = r.livePodNames(context.Background(), newTestClientSets(), w)
+	assert.Equal(t, ok, false)
+	assert.Equal(t, len(live), 0)
+
+	live, ok = r.livePodNames(context.Background(), nil, w)
+	assert.Equal(t, ok, false)
+	assert.Equal(t, len(live), 0)
+}
+
+func TestReconcileVanishedPodsStopsThemAndRunsOnce(t *testing.T) {
+	cl, w := storedWorkload(t, dispatchedWorkloadWithPods("w", time.Hour,
+		podRecord("gone1", "n1", corev1.PodRunning, time.Hour),
+		podRecord("alive", "n1", corev1.PodRunning, time.Hour),
+		podRecord("gone2", "n2", corev1.PodRunning, time.Hour),
+	))
+	r := &SyncerReconciler{Client: cl}
+
+	patches := gomonkey.NewPatches()
+	defer patches.Reset()
+	stub := &livePodsStub{live: map[string]struct{}{"alive": {}}, ok: true}
+	patchLivePods(patches, stub)
+
+	assert.NilError(t, r.reconcileVanishedPods(context.Background(), monkeyClientSets(), w))
+
+	got := &v1.Workload{}
+	assert.NilError(t, cl.Get(context.Background(), ctrlclient.ObjectKey{Name: "w"}, got))
+	// History is kept for this kind, so the records stay and stop counting by phase
+	// rather than by being removed.
+	assert.Equal(t, len(got.Status.Pods), 3)
+	byId := map[string]corev1.PodPhase{}
+	for _, p := range got.Status.Pods {
+		byId[p.PodId] = p.Phase
+	}
+	assert.Equal(t, byId["gone1"], corev1.PodPhase(v1.WorkloadStopped))
+	assert.Equal(t, byId["gone2"], corev1.PodPhase(v1.WorkloadStopped))
+	assert.Equal(t, byId["alive"], corev1.PodRunning)
+
+	// The drift this repairs is opened by a process ending, so a second event for
+	// the same workload must not pay for the comparison again.
+	assert.NilError(t, r.reconcileVanishedPods(context.Background(), monkeyClientSets(), w))
+	assert.Equal(t, stub.calls, 1)
+}
+
+func TestReconcileVanishedPodsDropsCICDRecords(t *testing.T) {
+	rs := dispatchedWorkloadWithPods("rs", time.Hour,
+		podRecord("gone", "n1", corev1.PodRunning, time.Hour),
+		podRecord("alive", "n1", corev1.PodRunning, time.Hour),
+	)
+	rs.Spec.GroupVersionKind = v1.GroupVersionKind{Version: "v1", Kind: common.CICDScaleRunnerSetKind}
+	cl, w := storedWorkload(t, rs)
+	r := &SyncerReconciler{Client: cl}
+
+	patches := gomonkey.NewPatches()
+	defer patches.Reset()
+	patchLivePods(patches, &livePodsStub{live: map[string]struct{}{"alive": {}}, ok: true})
+
+	assert.NilError(t, r.reconcileVanishedPods(context.Background(), monkeyClientSets(), w))
+
+	got := &v1.Workload{}
+	assert.NilError(t, cl.Get(context.Background(), ctrlclient.ObjectKey{Name: "rs"}, got))
+	// A CI runner keeps no history, so the record goes rather than being kept as a
+	// stopped row -- the same policy the delete-event path applies.
+	assert.Equal(t, len(got.Status.Pods), 1)
+	assert.Equal(t, got.Status.Pods[0].PodId, "alive")
+}
+
+// Records left over from a round that is being re-scheduled must not be judged:
+// reSchedule drops the dispatch annotation, and without it there is no clock to
+// measure a record against.
+func TestReconcileVanishedPodsSkipsUndispatchedWorkloads(t *testing.T) {
+	undispatched := dispatchedWorkloadWithPods("w", time.Hour,
+		podRecord("gone", "n1", corev1.PodRunning, time.Hour),
+	)
+	v1.RemoveAnnotation(undispatched, v1.WorkloadDispatchedAnnotation)
+	cl, w := storedWorkload(t, undispatched)
+	r := &SyncerReconciler{Client: cl}
+
+	patches := gomonkey.NewPatches()
+	defer patches.Reset()
+	stub := &livePodsStub{live: map[string]struct{}{}, ok: true}
+	patchLivePods(patches, stub)
+
+	assert.NilError(t, r.reconcileVanishedPods(context.Background(), monkeyClientSets(), w))
+
+	assert.Equal(t, stub.calls, 0, "nothing is compared before the workload is dispatched")
+	got := &v1.Workload{}
+	assert.NilError(t, cl.Get(context.Background(), ctrlclient.ObjectKey{Name: "w"}, got))
+	assert.Equal(t, len(got.Status.Pods), 1)
+	assert.Equal(t, got.Status.Pods[0].Phase, corev1.PodRunning)
+}
+
+// An ended workload costs no quota, so there is nothing to reconcile -- and
+// forgetting it is what keeps the memo to the live set instead of growing by one
+// entry per CI job for the life of the process.
+func TestReconcileVanishedPodsForgetsEndedWorkloads(t *testing.T) {
+	cl, w := storedWorkload(t, dispatchedWorkloadWithPods("w", time.Hour,
+		podRecord("gone", "n1", corev1.PodRunning, time.Hour),
+	))
+	r := &SyncerReconciler{Client: cl}
+
+	patches := gomonkey.NewPatches()
+	defer patches.Reset()
+	stub := &livePodsStub{live: map[string]struct{}{}, ok: true}
+	patchLivePods(patches, stub)
+
+	// First pass while it runs: the record is released and the workload remembered.
+	assert.NilError(t, r.reconcileVanishedPods(context.Background(), monkeyClientSets(), w))
+	assert.Equal(t, stub.calls, 1)
+	_, remembered := r.vanishedPodsChecked.Load("w")
+	assert.Equal(t, remembered, true)
+
+	w.Status.Phase = v1.WorkloadSucceeded
+	assert.NilError(t, r.reconcileVanishedPods(context.Background(), monkeyClientSets(), w))
+	assert.Equal(t, stub.calls, 1, "an ended workload is not compared again")
+	_, remembered = r.vanishedPodsChecked.Load("w")
+	assert.Equal(t, remembered, false, "the entry is dropped once the workload ends")
+}
+
+// The one way this could destroy live state: an unsynced cache answers "no pods"
+// and every record is stopped. Not knowing has to mean not acting, and the next
+// event has to try again.
+func TestReconcileVanishedPodsDoesNothingWhenNothingIsKnown(t *testing.T) {
+	cl, w := storedWorkload(t, dispatchedWorkloadWithPods("w", time.Hour,
+		podRecord("p1", "n1", corev1.PodRunning, time.Hour),
+	))
+	r := &SyncerReconciler{Client: cl}
+
+	patches := gomonkey.NewPatches()
+	defer patches.Reset()
+	stub := &livePodsStub{ok: false}
+	patchLivePods(patches, stub)
+
+	assert.NilError(t, r.reconcileVanishedPods(context.Background(), monkeyClientSets(), w))
+
+	got := &v1.Workload{}
+	assert.NilError(t, cl.Get(context.Background(), ctrlclient.ObjectKey{Name: "w"}, got))
+	assert.Equal(t, len(got.Status.Pods), 1)
+	assert.Equal(t, got.Status.Pods[0].Phase, corev1.PodRunning)
+	_, remembered := r.vanishedPodsChecked.Load("w")
+	assert.Equal(t, remembered, false, "a failed comparison must not spend the one pass")
+
+	// So the next event tries again, and this time it establishes the answer.
+	stub.live, stub.ok = map[string]struct{}{}, true
+	assert.NilError(t, r.reconcileVanishedPods(context.Background(), monkeyClientSets(), w))
+	assert.Equal(t, stub.calls, 2)
+	assert.NilError(t, cl.Get(context.Background(), ctrlclient.ObjectKey{Name: "w"}, got))
+	assert.Equal(t, got.Status.Pods[0].Phase, corev1.PodPhase(v1.WorkloadStopped))
 }
