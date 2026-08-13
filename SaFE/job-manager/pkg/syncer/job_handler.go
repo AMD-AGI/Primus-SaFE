@@ -27,12 +27,20 @@ import (
 	jmmetrics "github.com/AMD-AIG-AIMA/SAFE/job-manager/pkg/metrics"
 	jobutils "github.com/AMD-AIG-AIMA/SAFE/job-manager/pkg/utils"
 	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
+	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/timeutil"
 )
 
 const (
 	MaxFailedPodsToShow = 3
 	MaxConditionHistory = 30
 )
+
+// runnerSetRegistrationTimeout bounds how long a dispatched CICD scaling runner
+// set may wait for ARC to register it with GitHub. Registration completes in
+// seconds when GitHub is reachable, so this leaves two orders of magnitude of
+// headroom; what matters is that the wait is finite. A var so tests can shorten
+// it.
+var runnerSetRegistrationTimeout = 10 * time.Minute
 
 // handleJob processes job resource events and synchronizes status between data plane and admin plane.
 // Manages the lifecycle of workload resources and handles failure scenarios.
@@ -95,7 +103,56 @@ func (r *SyncerReconciler) handleJobImpl(ctx context.Context, message *resourceM
 			return ctrlruntime.Result{}, err
 		}
 	}
-	return ctrlruntime.Result{}, nil
+	return checkRunnerSetRegistration(adminWorkload, message)
+}
+
+// checkRunnerSetRegistration bounds the wait for ARC to register a dispatched
+// CICD scaling runner set with GitHub.
+//
+// A registration that keeps failing leaves no trace on the object: the
+// AutoscalingRunnerSet keeps an empty status, carries no runner-scale-set-id and
+// emits no event, so the cause -- an organisation IP allow list, a revoked app
+// installation -- exists only in the ARC controller's own log. The workload stays
+// Pending meanwhile, and a Pending workload holds the head of its workspace queue,
+// so everything behind it waits on a run that can never start. Observed: two
+// runner sets sat at queue position 0 for 33 hours and blocked every workload
+// queued after them.
+//
+// Past the deadline this returns an unrecoverable error, which handleJob turns
+// into a terminal Failed phase carrying the message on the workload's condition --
+// the only place an operator can see this failure without reading ARC's log.
+// Before the deadline it asks to be re-queued at it, because ARC does not write
+// to the object while it retries and no further event would arrive to run this
+// check again.
+func checkRunnerSetRegistration(workload *v1.Workload, message *resourceMessage) (ctrlruntime.Result, error) {
+	if !commonworkload.IsCICDScalingRunnerSet(workload) || workload.Status.RunnerScaleSetId != "" {
+		return ctrlruntime.Result{}, nil
+	}
+	// Teardown arrives here with an empty id as well, and a runner set on its way
+	// out must not be reported as a registration failure. IsEnd covers a pending
+	// deletion as well as a terminal phase.
+	if workload.IsEnd() || message.action == ResourceDel || message.action == ResourceDeleting {
+		return ctrlruntime.Result{}, nil
+	}
+	// Measured from the dispatch annotation, which the dispatcher rewrites on every
+	// attempt and drops on re-schedule. Without it there is no evidence of how long
+	// the wait has been, and a runner set dispatched seconds ago must not be failed
+	// on a guess.
+	dispatchedAt, err := timeutil.CvtStrToRFC3339Milli(
+		v1.GetAnnotation(workload, v1.WorkloadDispatchedAnnotation))
+	if err != nil {
+		return ctrlruntime.Result{}, nil
+	}
+	if waited := time.Since(dispatchedAt); waited < runnerSetRegistrationTimeout {
+		return ctrlruntime.Result{RequeueAfter: runnerSetRegistrationTimeout - waited}, nil
+	}
+	klog.Errorf("CICD scaling runner set %s was not registered with GitHub within %s of dispatch, failing it",
+		workload.Name, runnerSetRegistrationTimeout)
+	return ctrlruntime.Result{}, commonerrors.NewInternalError(fmt.Sprintf(
+		"the runner scale set was not registered with GitHub within %s of being dispatched, "+
+			"so no runner can start; ARC records the reason only in its own log "+
+			"(gha-rs-controller), commonly an organisation IP allow list or a revoked app installation",
+		runnerSetRegistrationTimeout))
 }
 
 // getK8sObjectStatus retrieves the status of a Kubernetes object in data plane.
