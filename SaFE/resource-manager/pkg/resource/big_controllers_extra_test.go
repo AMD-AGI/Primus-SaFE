@@ -217,6 +217,14 @@ func TestApplyForwardUpstreamForceTCP(t *testing.T) {
 	assert.Equal(t, out, applyForwardUpstream(out, "192.168.0.10", true))
 }
 
+func TestCountRootServerBlocks(t *testing.T) {
+	assert.Equal(t, 1, countRootServerBlocks(corefileWithHosts))
+	assert.Equal(t, 2, countRootServerBlocks(corefileWithHosts+".:53 {\n    errors\n}\n"))
+	assert.Equal(t, 0, countRootServerBlocks("cluster.local:53 {\n    kubernetes\n}\n"))
+	// A zone written with a trailing dot is not the root zone.
+	assert.Equal(t, 0, countRootServerBlocks("a.example.com.:53 {\n    errors\n}\n"))
+}
+
 func TestRenderRootServerBlockForceTCP(t *testing.T) {
 	block := renderRootServerBlock("foo.local", []string{"10.0.0.1"}, "192.168.0.10", true)
 	assert.Contains(t, block, "forward . 192.168.0.10 {")

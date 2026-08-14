@@ -1095,6 +1095,16 @@ func (r *ClusterReconciler) guaranteeNodeLocalDNS(ctx context.Context, cluster *
 	// The recorded addresses must follow the healthy control planes, otherwise data-plane nodes
 	// keep resolving the system host to an apiserver that is gone. Only the template stanza is
 	// rewritten so site-specific directives sharing the block are preserved.
+	// Earlier versions of this sync could append a second root block. Such a Corefile is one CoreDNS
+	// refuses to load, and which block the site means to keep cannot be inferred, so it is reported
+	// rather than partially rewritten.
+	if blocks := countRootServerBlocks(corefile); blocks > 1 {
+		klog.Warningf("nodelocaldns Corefile in cluster %s declares %d %q blocks, which CoreDNS "+
+			"refuses to load; remove the extra blocks before this sync can manage it",
+			cluster.Name, blocks, rootServerZone)
+		return nil
+	}
+
 	upstream := commonconfig.GetNodeLocalDNSUpstream()
 	// force_tcp only makes sense together with a configured upstream.
 	forceTCP := upstream != "" && commonconfig.GetNodeLocalDNSForceTCP()
@@ -1312,6 +1322,18 @@ func findRootServerBlock(corefile string) (int, int, bool) {
 		return offset, end, true
 	}
 	return 0, 0, false
+}
+
+// countRootServerBlocks reports how many root server blocks the Corefile declares. CoreDNS serves
+// the root zone from exactly one block and rejects the whole file when it is defined twice.
+func countRootServerBlocks(corefile string) int {
+	var blocks int
+	for offset := 0; offset < len(corefile); offset = advancePastNewline(corefile, offset) {
+		if isRootZoneHeader(corefile[offset:lineEndIndex(corefile, offset)]) {
+			blocks++
+		}
+	}
+	return blocks
 }
 
 // isRootZoneHeader reports whether line opens a server block whose zone list contains the root zone.

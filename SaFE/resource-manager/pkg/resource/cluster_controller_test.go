@@ -633,6 +633,19 @@ func TestGuaranteeNodeLocalDNSAppliesConfiguredUpstream(t *testing.T) {
 	testifyassert.Equal(t, corefile, readNodeLocalDNSCorefile(t, cs))
 }
 
+func TestGuaranteeNodeLocalDNSLeavesDuplicateRootBlocksAlone(t *testing.T) {
+	patches := gomonkey.ApplyFunc(commonconfig.GetSystemHost, func() string { return "safe.local" })
+	defer patches.Reset()
+
+	// A Corefile an earlier version of this sync could produce: CoreDNS refuses to load it.
+	damaged := siteCorefile + ".:53 {\n    forward . /etc/resolv.conf\n}\n"
+	r, cs, dataCluster := newNodeLocalDNSReconciler(t, damaged)
+
+	// Which block the site means to keep cannot be inferred, so nothing is rewritten.
+	testifyassert.NoError(t, r.guaranteeNodeLocalDNS(context.Background(), dataCluster))
+	testifyassert.Equal(t, damaged, readNodeLocalDNSCorefile(t, cs))
+}
+
 func TestGuaranteeNodeLocalDNSForcesTCPToClusterUpstream(t *testing.T) {
 	patches := gomonkey.ApplyFunc(commonconfig.GetSystemHost, func() string { return "safe.local" })
 	defer patches.Reset()
