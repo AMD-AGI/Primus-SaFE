@@ -21,10 +21,10 @@ data:
       # CoreDNS service address to resolve site-specific records in CoreDNS instead of the node
       # resolver, which makes CoreDNS a hard dependency for those names. Empty keeps the node
       # resolver.
-      upstream: "{{ default "" (default .Values.node_local_dns).upstream }}"
+      upstream: "{{ default "" (default dict .Values.node_local_dns).upstream }}"
       # Reach the upstream over TCP. Enable it for a cluster Service upstream to avoid UDP
       # conntrack races.
-      force_tcp: {{ default false (default .Values.node_local_dns).force_tcp }}
+      force_tcp: {{ default false (default dict .Values.node_local_dns).force_tcp }}
     notification:
       enable: {{ or (and .Values.notification .Values.notification.email .Values.notification.email.smtp_host) (and .Values.notification .Values.notification.email_relay .Values.notification.email_relay.enable) | default false }}
       secret_path: /etc/secrets/notification
