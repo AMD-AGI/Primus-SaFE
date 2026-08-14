@@ -57,9 +57,12 @@ node_local_dns:
   # plugin aborts nodelocaldns at startup and every pod on that node loses DNS. The plugin is
   # present in blocks this chart creates, but existing blocks are left as the site wrote them.
   #
-  # Turning it back off is not symmetric. The template stanza returns on the next reconcile, but the
-  # forward directive stays pointed at CoreDNS, because this sync does not overwrite a forward it
-  # was not asked to manage. Restore it to /etc/resolv.conf by hand when reverting.
+  # Turning it back off restores both halves: the template stanza returns and the forward goes back
+  # to /etc/resolv.conf, provided it still points at this cluster's kube-dns address. A forward the
+  # site aimed elsewhere is left alone. nodelocaldns still has to be rolled to load the result.
+  #
+  # A forward directive that already carries its own options keeps them, and gains force_tcp while
+  # this option is on.
   forward_to_cluster_dns: false
 # CD (Continuous Deployment) configuration
 cd:

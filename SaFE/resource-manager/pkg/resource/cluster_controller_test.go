@@ -661,6 +661,56 @@ func TestGuaranteeNodeLocalDNSForwardsToClusterDNS(t *testing.T) {
 	testifyassert.Equal(t, corefile, readNodeLocalDNSCorefile(t, cs))
 }
 
+func TestGuaranteeNodeLocalDNSRevertRestoresNodeResolver(t *testing.T) {
+	patches := gomonkey.ApplyFunc(commonconfig.GetSystemHost, func() string { return "safe.local" })
+	defer patches.Reset()
+
+	// The switch is off, but the root block still forwards to this cluster's kube-dns: this sync
+	// wrote that line, and the usual reason to revert is that CoreDNS cannot be reached.
+	forwarded := strings.Replace(siteCorefile, "    forward . /etc/resolv.conf\n",
+		"    forward . 192.168.0.10 {\n        force_tcp\n    }\n", 1)
+	r, cs, dataCluster := newNodeLocalDNSReconciler(t, forwarded)
+	ctx := context.Background()
+	testifyassert.NoError(t, r.guaranteeNodeLocalDNS(ctx, dataCluster))
+
+	corefile := readNodeLocalDNSCorefile(t, cs)
+	testifyassert.Contains(t, corefile, "forward . /etc/resolv.conf")
+	testifyassert.NotContains(t, corefile, "192.168.0.10")
+	testifyassert.NotContains(t, corefile, "force_tcp")
+	// The stanza comes back and the site's records are untouched.
+	testifyassert.Contains(t, corefile, "template IN A safe.local {")
+	testifyassert.Contains(t, corefile, "10.9.9.1 global.safe.local")
+	testifyassert.Equal(t, strings.Count(corefile, "{"), strings.Count(corefile, "}"))
+
+	testifyassert.NoError(t, r.guaranteeNodeLocalDNS(ctx, dataCluster))
+	testifyassert.Equal(t, corefile, readNodeLocalDNSCorefile(t, cs))
+}
+
+func TestGuaranteeNodeLocalDNSKeepsForwardThisSyncDidNotWrite(t *testing.T) {
+	patches := gomonkey.ApplyFunc(commonconfig.GetSystemHost, func() string { return "safe.local" })
+	defer patches.Reset()
+
+	// A forward aimed at an address that is not this cluster's kube-dns belongs to the site.
+	custom := strings.Replace(siteCorefile, "    forward . /etc/resolv.conf\n",
+		"    forward . 10.20.30.40\n", 1)
+	r, cs, dataCluster := newNodeLocalDNSReconciler(t, custom)
+	testifyassert.NoError(t, r.guaranteeNodeLocalDNS(context.Background(), dataCluster))
+
+	corefile := readNodeLocalDNSCorefile(t, cs)
+	testifyassert.Contains(t, corefile, "forward . 10.20.30.40")
+	testifyassert.NotContains(t, corefile, defaultDNSUpstream)
+}
+
+func TestGuaranteeNodeLocalDNSReportsUnbalancedCorefile(t *testing.T) {
+	patches := gomonkey.ApplyFunc(commonconfig.GetSystemHost, func() string { return "safe.local" })
+	defer patches.Reset()
+
+	broken := "cluster.local:53 {\n    kubernetes\n.:53 {\n    forward . /etc/resolv.conf\n}\n"
+	r, cs, dataCluster := newNodeLocalDNSReconciler(t, broken)
+	testifyassert.NoError(t, r.guaranteeNodeLocalDNS(context.Background(), dataCluster))
+	testifyassert.Equal(t, broken, readNodeLocalDNSCorefile(t, cs))
+}
+
 func TestGuaranteeDataPlaneClusterRoleEmptyName(t *testing.T) {
 	r := newClusterReconcilerWithFactory(t, "c1", k8sfake.NewSimpleClientset())
 	testifyassert.NoError(t, r.guaranteeDataPlaneClusterRole(context.Background(), testCluster("c1"), ""))

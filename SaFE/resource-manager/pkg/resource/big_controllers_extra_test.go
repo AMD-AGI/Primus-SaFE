@@ -268,6 +268,84 @@ func TestRemoveTemplateStanza(t *testing.T) {
 	assert.Equal(t, out, removeTemplateStanza(out, "foo.local"))
 }
 
+func TestCommentedBraceDoesNotHideRootBlock(t *testing.T) {
+	// A partially commented-out block leaves a brace CoreDNS ignores. Counting it would shift the
+	// depth-tracked scan and hide every later block header.
+	corefile := "# TODO: tidy this {\n" +
+		"cluster.local:53 {\n    kubernetes\n}\n" +
+		".:53 {\n    hosts {\n        10.9.9.1 intra-a.example.com\n        fallthrough\n    }\n" +
+		"    forward . /etc/resolv.conf\n}\n"
+
+	assert.Equal(t, 1, countRootServerBlocks(corefile))
+	assert.True(t, isCorefileBalanced(corefile))
+	out := upsertTemplateStanza(corefile, "foo.local", []string{"10.0.0.1"})
+	assert.Equal(t, 1, countRootServerBlocks(out), "must not append a second root block")
+	assert.Contains(t, out, "10.9.9.1 intra-a.example.com")
+	assert.Contains(t, out, "template IN A foo.local {")
+}
+
+func TestUnbalancedCorefileIsNeverAppendedTo(t *testing.T) {
+	// Braces this sync cannot balance must not lead to a second root block, whatever hid the first.
+	corefile := "cluster.local:53 {\n    kubernetes\n" +
+		".:53 {\n    forward . /etc/resolv.conf\n}\n"
+
+	assert.False(t, isCorefileBalanced(corefile))
+	assert.NotEmpty(t, unmanageableCorefileReason(corefile))
+	assert.Equal(t, corefile, upsertTemplateStanza(corefile, "foo.local", []string{"10.0.0.1"}))
+}
+
+func TestUnmanageableCorefileReason(t *testing.T) {
+	assert.Empty(t, unmanageableCorefileReason(corefileWithHosts))
+	assert.Contains(t, unmanageableCorefileReason(corefileWithHosts+".:53 {\n}\n"), "2 root zone blocks")
+	assert.Contains(t, unmanageableCorefileReason(".:53 {\n"), "unbalanced")
+	// A brace inside a quoted string is data, not nesting.
+	assert.Empty(t, unmanageableCorefileReason(".:53 {\n    template IN A a.b {\n        answer \"{{ .Name }} 60 IN A 10.0.0.1\"\n    }\n}\n"))
+}
+
+func TestApplyForwardUpstreamAddsForceTCPToExistingSubBlock(t *testing.T) {
+	// The site owns max_concurrent, but forwarding to a cluster Service still has to use TCP.
+	corefile := ".:53 {\n    forward . /etc/resolv.conf {\n        max_concurrent 1000\n    }\n}\n"
+	out := applyForwardUpstream(corefile, "192.168.0.10", true)
+	assert.Contains(t, out, "forward . 192.168.0.10 {")
+	assert.Contains(t, out, "max_concurrent 1000")
+	assert.Contains(t, out, "force_tcp")
+	assert.Equal(t, strings.Count(out, "{"), strings.Count(out, "}"))
+	// Reapplying must not add force_tcp twice.
+	assert.Equal(t, out, applyForwardUpstream(out, "192.168.0.10", true))
+	assert.Equal(t, 1, strings.Count(out, "force_tcp"))
+}
+
+func TestRootForwardTarget(t *testing.T) {
+	target, ok := rootForwardTarget(corefileWithHosts)
+	assert.True(t, ok)
+	assert.Equal(t, defaultDNSUpstream, target)
+
+	target, ok = rootForwardTarget(".:53 {\n    forward . 192.168.0.10 {\n        force_tcp\n    }\n}\n")
+	assert.True(t, ok)
+	assert.Equal(t, "192.168.0.10", target)
+
+	_, ok = rootForwardTarget(".:53 {\n    errors\n}\n")
+	assert.False(t, ok)
+}
+
+func TestRevertRootForward(t *testing.T) {
+	// A sub-block holding nothing but force_tcp was written by this sync, so it goes too.
+	ours := ".:53 {\n    hosts {\n        10.9.9.1 keep.example.com\n    }\n" +
+		"    forward . 192.168.0.10 {\n        force_tcp\n    }\n}\n"
+	out := revertRootForward(ours)
+	assert.Contains(t, out, "forward . "+defaultDNSUpstream+"\n")
+	assert.NotContains(t, out, "force_tcp")
+	assert.Contains(t, out, "10.9.9.1 keep.example.com")
+	assert.Equal(t, strings.Count(out, "{"), strings.Count(out, "}"))
+
+	// Options the site set are kept, only the address goes back.
+	theirs := ".:53 {\n    forward . 192.168.0.10 {\n        max_concurrent 1000\n        force_tcp\n    }\n}\n"
+	out = revertRootForward(theirs)
+	assert.Contains(t, out, "forward . "+defaultDNSUpstream+" {")
+	assert.Contains(t, out, "max_concurrent 1000")
+	assert.Equal(t, strings.Count(out, "{"), strings.Count(out, "}"))
+}
+
 func TestNodeLocalDNSBindIP(t *testing.T) {
 	assert.Equal(t, "169.254.25.10", nodeLocalDNSBindIP(corefileWithHosts))
 	// A site that moved nodelocaldns off the default address keeps its own.

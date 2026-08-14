@@ -22,6 +22,7 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/selection"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/kubernetes"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/pointer"
 	ctrlruntime "sigs.k8s.io/controller-runtime"
@@ -1093,21 +1094,22 @@ func (r *ClusterReconciler) guaranteeNodeLocalDNS(ctx context.Context, cluster *
 		return fmt.Errorf("Corefile key not found in nodelocaldns ConfigMap in cluster %s", cluster.Name)
 	}
 
-	// Earlier versions of this sync could append a second root block. Such a Corefile is one CoreDNS
-	// refuses to load, and which block the site means to keep cannot be inferred, so it is reported
-	// rather than partially rewritten.
-	if blocks := countRootServerBlocks(corefile); blocks > 1 {
-		r.reportDamagedNodeLocalDNS(cluster.Name, blocks)
+	// Earlier versions of this sync could append a second root block, and a file whose blocks are
+	// not closed is one CoreDNS refuses to load either way. Which block the site means to keep
+	// cannot be inferred, so such a Corefile is reported rather than partially rewritten.
+	if reason := unmanageableCorefileReason(corefile); reason != "" {
+		r.reportDamagedNodeLocalDNS(cluster.Name, reason)
 		return nil
 	}
 	r.clearDamagedNodeLocalDNS(cluster.Name)
 
-	desired, err := r.desiredNodeLocalDNSCorefile(ctx, cluster, corefile, dnsName)
+	desired, target, err := r.desiredNodeLocalDNSCorefile(ctx, cluster, clientSet, corefile, dnsName)
 	if err != nil {
 		return err
 	}
 	if desired == corefile {
-		klog.V(4).Infof("nodelocaldns Corefile in cluster %s is already current, skipping", cluster.Name)
+		klog.V(4).Infof("nodelocaldns Corefile in cluster %s already targets %s, skipping",
+			cluster.Name, target)
 		return nil
 	}
 
@@ -1116,66 +1118,92 @@ func (r *ClusterReconciler) guaranteeNodeLocalDNS(ctx context.Context, cluster *
 		ctx, cm, metav1.UpdateOptions{}); err != nil {
 		return fmt.Errorf("failed to update nodelocaldns ConfigMap in cluster %s: %w", cluster.Name, err)
 	}
-	// Warning level: this ConfigMap is also edited by hand, so every rewrite must be traceable.
-	klog.Warningf("updated nodelocaldns Corefile in cluster %s (%s)",
-		cluster.Name, summarizeCorefileChange(corefile, desired))
+	// Warning level: this ConfigMap is also edited by hand, so every rewrite must be traceable, and
+	// the target is recorded so an audit does not have to reconstruct it from the delta.
+	klog.Warningf("updated nodelocaldns Corefile in cluster %s, %s now resolves via %s (%s)",
+		cluster.Name, dnsName, target, summarizeCorefileChange(corefile, desired))
 	return nil
 }
 
-// desiredNodeLocalDNSCorefile computes the Corefile this sync wants for the given cluster.
+// desiredNodeLocalDNSCorefile computes the Corefile this sync wants for the given cluster, and
+// describes what the system host resolves through so the caller can log it.
 func (r *ClusterReconciler) desiredNodeLocalDNSCorefile(ctx context.Context, cluster *v1.Cluster,
-	corefile, dnsName string) (string, error) {
-	if !commonconfig.IsNodeLocalDNSForwardToClusterDNS() {
-		controlPlaneIPs, err := r.getControlPlaneIPs(ctx)
+	clientSet kubernetes.Interface, corefile, dnsName string) (string, string, error) {
+	if commonconfig.IsNodeLocalDNSForwardToClusterDNS() {
+		// Each cluster runs its own CoreDNS, so the address is read from that cluster rather than
+		// configured once for the platform.
+		clusterDNSIP, err := r.getClusterDNSIP(ctx, clientSet, cluster.Name)
 		if err != nil {
-			return "", err
+			return "", "", err
 		}
-		return upsertTemplateStanza(corefile, dnsName, controlPlaneIPs), nil
+		// CoreDNS orders template ahead of hosts, so a stanza left behind would override the records
+		// the site maintains in CoreDNS for the same name.
+		desired := removeTemplateStanza(corefile, dnsName)
+		// force_tcp matches how the cluster.local zones reach CoreDNS.
+		return applyForwardUpstream(desired, clusterDNSIP, true), "CoreDNS at " + clusterDNSIP, nil
 	}
 
-	// Each cluster runs its own CoreDNS, so the address is read from that cluster rather than
-	// configured once for the platform.
-	clusterDNSIP, err := r.getClusterDNSIP(ctx, cluster)
+	controlPlaneIPs, err := r.getControlPlaneIPs(ctx)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
-	// CoreDNS orders template ahead of hosts, so a stanza left behind would override the records
-	// the site maintains in CoreDNS for the same name.
-	desired := removeTemplateStanza(corefile, dnsName)
-	// force_tcp matches how the cluster.local zones reach CoreDNS.
-	return applyForwardUpstream(desired, clusterDNSIP, true), nil
+	desired := upsertTemplateStanza(corefile, dnsName, controlPlaneIPs)
+	// Reverting must restore resolution, not just the stanza: the usual reason to turn forwarding
+	// off is that CoreDNS is unreachable, and every other name would keep going there.
+	desired, err = r.revertClusterDNSForward(ctx, clientSet, cluster.Name, desired)
+	if err != nil {
+		return "", "", err
+	}
+	return desired, fmt.Sprintf("control planes %v", controlPlaneIPs), nil
+}
+
+// revertClusterDNSForward points the root block back at the node resolver when it still forwards to
+// the address this sync wrote. A forward the site aimed somewhere else is left alone.
+func (r *ClusterReconciler) revertClusterDNSForward(ctx context.Context, clientSet kubernetes.Interface,
+	clusterName, corefile string) (string, error) {
+	target, ok := rootForwardTarget(corefile)
+	if !ok || target == defaultDNSUpstream {
+		return corefile, nil
+	}
+	// Only look the Service up when the forward points somewhere this sync might have set.
+	clusterDNSIP, err := r.getClusterDNSIP(ctx, clientSet, clusterName)
+	if err != nil {
+		// Without the address the forward cannot be attributed, so it stays as it is.
+		klog.V(4).Infof("cannot attribute nodelocaldns forward %q in cluster %s: %v",
+			target, clusterName, err)
+		return corefile, nil
+	}
+	if target != clusterDNSIP {
+		return corefile, nil
+	}
+	return revertRootForward(corefile), nil
 }
 
 // getClusterDNSIP returns the CoreDNS Service address inside the given data-plane cluster.
-func (r *ClusterReconciler) getClusterDNSIP(ctx context.Context, cluster *v1.Cluster) (string, error) {
-	k8sClients, err := utils.GetK8sClientFactory(r.clientManager, cluster.Name)
-	if err != nil {
-		return "", err
-	}
-	svc, err := k8sClients.ClientSet().CoreV1().Services(nodeLocalDNSNamespace).Get(
+func (r *ClusterReconciler) getClusterDNSIP(ctx context.Context, clientSet kubernetes.Interface,
+	clusterName string) (string, error) {
+	svc, err := clientSet.CoreV1().Services(nodeLocalDNSNamespace).Get(
 		ctx, clusterDNSService, metav1.GetOptions{})
 	if err != nil {
 		return "", fmt.Errorf("failed to get %s Service in cluster %s: %w",
-			clusterDNSService, cluster.Name, err)
+			clusterDNSService, clusterName, err)
 	}
 	if svc.Spec.ClusterIP == "" || svc.Spec.ClusterIP == corev1.ClusterIPNone {
 		return "", fmt.Errorf("%s Service in cluster %s has no ClusterIP",
-			clusterDNSService, cluster.Name)
+			clusterDNSService, clusterName)
 	}
 	return svc.Spec.ClusterIP, nil
 }
 
 // reportDamagedNodeLocalDNS logs a Corefile needing manual repair once per transition. The condition
 // only clears by hand, so repeating it every reconcile would flood the log.
-func (r *ClusterReconciler) reportDamagedNodeLocalDNS(clusterName string, blocks int) {
+func (r *ClusterReconciler) reportDamagedNodeLocalDNS(clusterName, reason string) {
 	if _, reported := r.damagedNodeLocalDNS.LoadOrStore(clusterName, struct{}{}); reported {
-		klog.V(4).Infof("nodelocaldns Corefile in cluster %s still declares %d root blocks",
-			clusterName, blocks)
+		klog.V(4).Infof("nodelocaldns Corefile in cluster %s still %s", clusterName, reason)
 		return
 	}
-	klog.Warningf("nodelocaldns Corefile in cluster %s declares %d root blocks, which CoreDNS "+
-		"refuses to load; remove the extra blocks before this sync can manage it",
-		clusterName, blocks)
+	klog.Warningf("nodelocaldns Corefile in cluster %s %s, which CoreDNS refuses to load; "+
+		"repair it before this sync can manage it", clusterName, reason)
 }
 
 // clearDamagedNodeLocalDNS forgets a cluster so a later relapse is reported again.
