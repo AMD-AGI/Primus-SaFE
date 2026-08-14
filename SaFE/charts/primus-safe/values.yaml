@@ -31,25 +31,26 @@ net:
   # Ingress component name selected during install.sh
   ingress: "higress"
 node_local_dns:
-  # Upstream the nodelocaldns root server block forwards queries to when no more specific zone
-  # claims them. Set it to the CoreDNS service address (for example "192.168.0.10") to resolve
-  # site-specific records in CoreDNS, whose ConfigMap is not reconciled. Empty keeps the node
-  # resolver at /etc/resolv.conf.
+  # Forward the queries no more specific zone claims to the CoreDNS of the cluster nodelocaldns runs
+  # in, instead of to the node resolver at /etc/resolv.conf. Enable this to keep site-specific
+  # records in CoreDNS, whose ConfigMap is not reconciled. The address is read from each cluster's
+  # kube-system/kube-dns Service, so one setting stays correct across data-plane clusters.
   #
-  # Setting this makes CoreDNS a hard dependency for every name the root block does not answer
-  # locally. With the node resolver, pods keep resolving external names while CoreDNS is down and
-  # lose only in-cluster resolution; with an upstream, a CoreDNS outage takes all resolution down.
+  # Two consequences to weigh before enabling it:
   #
-  # A loop is only avoided because CoreDNS itself resolves against the node (dnsPolicy: Default).
-  # Confirm that before pointing the root block at it: if CoreDNS forwards back to nodelocaldns,
-  # the loop plugin aborts nodelocaldns at startup and every pod on that node loses DNS. The plugin
-  # is present in blocks this chart creates, but existing blocks are left as the site wrote them.
-  upstream: ""
-  # Reach the upstream over TCP. Enable it whenever upstream is a cluster Service address, matching
-  # how the cluster.local zones forward, so DNS traffic avoids the UDP conntrack races nodelocaldns
-  # is deployed to prevent. Leave it off for an external resolver. A forward directive that already
-  # carries its own options sub-block is left untouched and keeps whatever the site set there.
-  force_tcp: false
+  # CoreDNS becomes a hard dependency for every name the root block does not answer locally. With
+  # the node resolver, pods keep resolving external names while CoreDNS is down and lose only
+  # in-cluster resolution; with this enabled, a CoreDNS outage takes all resolution down.
+  #
+  # The system host is no longer answered locally. This sync removes its own template stanza when
+  # enabled, because CoreDNS orders template ahead of hosts and the stanza would override whatever
+  # record the site keeps for that name. CoreDNS must therefore resolve the system host itself.
+  #
+  # A loop is only avoided because CoreDNS resolves against the node (dnsPolicy: Default, the
+  # standard deployment). Confirm that first: if CoreDNS forwards back to nodelocaldns, the loop
+  # plugin aborts nodelocaldns at startup and every pod on that node loses DNS. The plugin is
+  # present in blocks this chart creates, but existing blocks are left as the site wrote them.
+  forward_to_cluster_dns: false
 # CD (Continuous Deployment) configuration
 cd:
   # Whether deployment requests require approval from another user

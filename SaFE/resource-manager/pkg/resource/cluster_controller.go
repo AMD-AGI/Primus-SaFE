@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -56,6 +57,9 @@ const (
 type ClusterReconciler struct {
 	*ClusterBaseReconciler
 	clientManager *commonutils.ObjectManager
+	// damagedNodeLocalDNS holds the clusters whose Corefile was already reported as needing manual
+	// repair, so the warning is logged once per transition rather than on every reconcile.
+	damagedNodeLocalDNS sync.Map
 }
 
 // SetupClusterController initializes and registers the ClusterReconciler with the controller manager.
@@ -1056,8 +1060,9 @@ func (r *ClusterReconciler) deleteDataPlaneClusterRole(ctx context.Context, clus
 	return nil
 }
 
-// guaranteeNodeLocalDNS ensures the nodelocaldns ConfigMap in each data-plane cluster
-// contains a Corefile server block that resolves the control-plane subdomain to its IP.
+// guaranteeNodeLocalDNS keeps the nodelocaldns Corefile in each data-plane cluster resolving the
+// control-plane subdomain. When the site routes the root block to CoreDNS the stanza is removed
+// instead, leaving name policy to CoreDNS.
 func (r *ClusterReconciler) guaranteeNodeLocalDNS(ctx context.Context, cluster *v1.Cluster) error {
 	dnsName := commonconfig.GetSystemHost()
 	if dnsName == "" {
@@ -1067,18 +1072,14 @@ func (r *ClusterReconciler) guaranteeNodeLocalDNS(ctx context.Context, cluster *
 		return nil
 	}
 
-	controlPlaneIPs, err := r.getControlPlaneIPs(ctx)
-	if err != nil {
-		return err
-	}
-
 	k8sClients, err := utils.GetK8sClientFactory(r.clientManager, cluster.Name)
 	if err != nil {
 		return err
 	}
 	clientSet := k8sClients.ClientSet()
 
-	cm, err := clientSet.CoreV1().ConfigMaps("kube-system").Get(ctx, "nodelocaldns", metav1.GetOptions{})
+	cm, err := clientSet.CoreV1().ConfigMaps(nodeLocalDNSNamespace).Get(
+		ctx, nodeLocalDNSConfigMap, metav1.GetOptions{})
 	if err != nil {
 		if apierrors.IsNotFound(err) {
 			klog.V(4).Infof("nodelocaldns ConfigMap not found in cluster %s, skipping", cluster.Name)
@@ -1092,69 +1093,94 @@ func (r *ClusterReconciler) guaranteeNodeLocalDNS(ctx context.Context, cluster *
 		return fmt.Errorf("Corefile key not found in nodelocaldns ConfigMap in cluster %s", cluster.Name)
 	}
 
-	// The recorded addresses must follow the healthy control planes, otherwise data-plane nodes
-	// keep resolving the system host to an apiserver that is gone. Only the template stanza is
-	// rewritten so site-specific directives sharing the block are preserved.
 	// Earlier versions of this sync could append a second root block. Such a Corefile is one CoreDNS
 	// refuses to load, and which block the site means to keep cannot be inferred, so it is reported
 	// rather than partially rewritten.
 	if blocks := countRootServerBlocks(corefile); blocks > 1 {
-		klog.Warningf("nodelocaldns Corefile in cluster %s declares %d %q blocks, which CoreDNS "+
-			"refuses to load; remove the extra blocks before this sync can manage it",
-			cluster.Name, blocks, rootServerZone)
+		r.reportDamagedNodeLocalDNS(cluster.Name, blocks)
 		return nil
 	}
+	r.clearDamagedNodeLocalDNS(cluster.Name)
 
-	upstream := commonconfig.GetNodeLocalDNSUpstream()
-	// force_tcp only makes sense together with a configured upstream.
-	forceTCP := upstream != "" && commonconfig.GetNodeLocalDNSForceTCP()
-	desired := upsertTemplateStanza(corefile, dnsName, controlPlaneIPs, dnsUpstreamOrDefault(upstream), forceTCP)
-	desired = applyForwardUpstream(desired, upstream, forceTCP)
+	desired, err := r.desiredNodeLocalDNSCorefile(ctx, cluster, corefile, dnsName)
+	if err != nil {
+		return err
+	}
 	if desired == corefile {
-		klog.V(4).Infof("nodelocaldns Corefile in cluster %s already targets %v, skipping",
-			cluster.Name, controlPlaneIPs)
+		klog.V(4).Infof("nodelocaldns Corefile in cluster %s is already current, skipping", cluster.Name)
 		return nil
 	}
 
 	cm.Data["Corefile"] = desired
-	if _, err = clientSet.CoreV1().ConfigMaps("kube-system").Update(ctx, cm, metav1.UpdateOptions{}); err != nil {
+	if _, err = clientSet.CoreV1().ConfigMaps(nodeLocalDNSNamespace).Update(
+		ctx, cm, metav1.UpdateOptions{}); err != nil {
 		return fmt.Errorf("failed to update nodelocaldns ConfigMap in cluster %s: %w", cluster.Name, err)
 	}
 	// Warning level: this ConfigMap is also edited by hand, so every rewrite must be traceable.
-	klog.Warningf("updated nodelocaldns Corefile in cluster %s with %s -> %v (%s)",
-		cluster.Name, dnsName, controlPlaneIPs, summarizeCorefileChange(corefile, desired))
+	klog.Warningf("updated nodelocaldns Corefile in cluster %s (%s)",
+		cluster.Name, summarizeCorefileChange(corefile, desired))
 	return nil
 }
 
-// dnsUpstreamOrDefault falls back to the node resolver when no upstream is configured.
-func dnsUpstreamOrDefault(upstream string) string {
-	if upstream == "" {
-		return defaultDNSUpstream
+// desiredNodeLocalDNSCorefile computes the Corefile this sync wants for the given cluster.
+func (r *ClusterReconciler) desiredNodeLocalDNSCorefile(ctx context.Context, cluster *v1.Cluster,
+	corefile, dnsName string) (string, error) {
+	if !commonconfig.IsNodeLocalDNSForwardToClusterDNS() {
+		controlPlaneIPs, err := r.getControlPlaneIPs(ctx)
+		if err != nil {
+			return "", err
+		}
+		return upsertTemplateStanza(corefile, dnsName, controlPlaneIPs), nil
 	}
-	return upstream
+
+	// Each cluster runs its own CoreDNS, so the address is read from that cluster rather than
+	// configured once for the platform.
+	clusterDNSIP, err := r.getClusterDNSIP(ctx, cluster)
+	if err != nil {
+		return "", err
+	}
+	// CoreDNS orders template ahead of hosts, so a stanza left behind would override the records
+	// the site maintains in CoreDNS for the same name.
+	desired := removeTemplateStanza(corefile, dnsName)
+	// force_tcp matches how the cluster.local zones reach CoreDNS.
+	return applyForwardUpstream(desired, clusterDNSIP, true), nil
 }
 
-// summarizeCorefileChange reports the line delta of a Corefile rewrite so an unexpected loss of
-// site configuration is visible in the log without dumping the whole file.
-func summarizeCorefileChange(before, after string) string {
-	kept := make(map[string]int, 32)
-	for _, line := range strings.Split(before, "\n") {
-		kept[strings.TrimSpace(line)]++
+// getClusterDNSIP returns the CoreDNS Service address inside the given data-plane cluster.
+func (r *ClusterReconciler) getClusterDNSIP(ctx context.Context, cluster *v1.Cluster) (string, error) {
+	k8sClients, err := utils.GetK8sClientFactory(r.clientManager, cluster.Name)
+	if err != nil {
+		return "", err
 	}
-	var added int
-	for _, line := range strings.Split(after, "\n") {
-		trimmed := strings.TrimSpace(line)
-		if kept[trimmed] > 0 {
-			kept[trimmed]--
-			continue
-		}
-		added++
+	svc, err := k8sClients.ClientSet().CoreV1().Services(nodeLocalDNSNamespace).Get(
+		ctx, clusterDNSService, metav1.GetOptions{})
+	if err != nil {
+		return "", fmt.Errorf("failed to get %s Service in cluster %s: %w",
+			clusterDNSService, cluster.Name, err)
 	}
-	var removed int
-	for _, count := range kept {
-		removed += count
+	if svc.Spec.ClusterIP == "" || svc.Spec.ClusterIP == corev1.ClusterIPNone {
+		return "", fmt.Errorf("%s Service in cluster %s has no ClusterIP",
+			clusterDNSService, cluster.Name)
 	}
-	return fmt.Sprintf("+%d/-%d lines", added, removed)
+	return svc.Spec.ClusterIP, nil
+}
+
+// reportDamagedNodeLocalDNS logs a Corefile needing manual repair once per transition. The condition
+// only clears by hand, so repeating it every reconcile would flood the log.
+func (r *ClusterReconciler) reportDamagedNodeLocalDNS(clusterName string, blocks int) {
+	if _, reported := r.damagedNodeLocalDNS.LoadOrStore(clusterName, struct{}{}); reported {
+		klog.V(4).Infof("nodelocaldns Corefile in cluster %s still declares %d root blocks",
+			clusterName, blocks)
+		return
+	}
+	klog.Warningf("nodelocaldns Corefile in cluster %s declares %d root blocks, which CoreDNS "+
+		"refuses to load; remove the extra blocks before this sync can manage it",
+		clusterName, blocks)
+}
+
+// clearDamagedNodeLocalDNS forgets a cluster so a later relapse is reported again.
+func (r *ClusterReconciler) clearDamagedNodeLocalDNS(clusterName string) {
+	r.damagedNodeLocalDNS.Delete(clusterName)
 }
 
 // getControlPlaneIPs returns the admin-plane addresses that data-plane nodes should resolve the
@@ -1191,251 +1217,6 @@ func (r *ClusterReconciler) getControlPlaneIPs(ctx context.Context) ([]string, e
 		return nil, fmt.Errorf("control-plane cluster %s has no usable endpoint", cp.Name)
 	}
 	return hosts, nil
-}
-
-const (
-	// rootServerZone is the zone list opening the nodelocaldns server block that answers every
-	// query no more specific zone claims.
-	rootServerZone = ".:53"
-	// dnsServerBlockPrefix opens the CoreDNS server block serving rootServerZone.
-	dnsServerBlockPrefix = rootServerZone + " {"
-	// dnsStanzaIndent is the indentation CoreDNS Corefiles use for directives inside a block.
-	dnsStanzaIndent = "    "
-	// nodeLocalDNSBindIP is the link-local address nodelocaldns listens on.
-	nodeLocalDNSBindIP = "169.254.25.10"
-	// defaultDNSUpstream forwards to whatever the node itself resolves against.
-	defaultDNSUpstream = "/etc/resolv.conf"
-)
-
-// renderTemplateStanza renders the CoreDNS template stanza resolving dnsName to every given
-// address. One A record per control plane lets a resolver fall over when the first stops answering.
-// The result is a whole number of lines so it can be spliced into a block without reindenting it.
-func renderTemplateStanza(dnsName string, ips []string) string {
-	var sb strings.Builder
-	sb.WriteString(dnsStanzaIndent + "template IN A " + dnsName + " {\n")
-	for _, ip := range ips {
-		fmt.Fprintf(&sb, "%s%sanswer \"{{ .Name }} 60 IN A %s\"\n", dnsStanzaIndent, dnsStanzaIndent, ip)
-	}
-	sb.WriteString(dnsStanzaIndent + dnsStanzaIndent + "fallthrough\n")
-	sb.WriteString(dnsStanzaIndent + "}\n")
-	return sb.String()
-}
-
-// renderForwardDirective renders the root block's forward directive. force_tcp goes into a
-// sub-block because a cluster Service upstream must be reached over TCP to avoid the UDP conntrack
-// races nodelocaldns is deployed to prevent.
-func renderForwardDirective(upstream string, forceTCP bool) string {
-	if !forceTCP {
-		return dnsStanzaIndent + "forward . " + upstream + "\n"
-	}
-	return dnsStanzaIndent + "forward . " + upstream + " {\n" +
-		dnsStanzaIndent + dnsStanzaIndent + "force_tcp\n" +
-		dnsStanzaIndent + "}\n"
-}
-
-// renderRootServerBlock builds a complete root server block, used only for Corefiles that have
-// none. Sites that already have one keep their own directives.
-func renderRootServerBlock(dnsName string, ips []string, upstream string, forceTCP bool) string {
-	return fmt.Sprintf("%s\n%s%serrors\n%scache 30\n%sreload\n%sloop\n%sbind %s\n%s%sprometheus :9253\n}\n",
-		dnsServerBlockPrefix, renderTemplateStanza(dnsName, ips),
-		dnsStanzaIndent, dnsStanzaIndent, dnsStanzaIndent, dnsStanzaIndent,
-		dnsStanzaIndent, nodeLocalDNSBindIP,
-		renderForwardDirective(upstream, forceTCP), dnsStanzaIndent)
-}
-
-// upsertTemplateStanza points the template stanza for dnsName at the given addresses. Only that
-// stanza is rewritten, so hosts entries and any other directive sharing the block survive. A root
-// block is created only when the Corefile has none, keeping that block unique.
-func upsertTemplateStanza(corefile, dnsName string, ips []string, upstream string, forceTCP bool) string {
-	stanza := renderTemplateStanza(dnsName, ips)
-	if start, end, ok := findTemplateStanza(corefile, dnsName); ok {
-		return corefile[:start] + stanza + corefile[end:]
-	}
-	if _, blockEnd, ok := findRootServerBlock(corefile); ok {
-		insertAt := lineStartIndex(corefile, blockEnd-1)
-		return corefile[:insertAt] + stanza + corefile[insertAt:]
-	}
-	// A Corefile we cannot delimit is left untouched rather than gaining a second root block.
-	if hasUndelimitedBlock(corefile, dnsName) {
-		return corefile
-	}
-	return strings.TrimRight(corefile, " \t\n") + "\n" + renderRootServerBlock(dnsName, ips, upstream, forceTCP)
-}
-
-// hasUndelimitedBlock reports whether the Corefile declares a root zone or a template stanza for
-// dnsName whose bounds could not be resolved, which means its braces are unbalanced.
-func hasUndelimitedBlock(corefile, dnsName string) bool {
-	if strings.Contains(corefile, "template IN A "+dnsName) {
-		return true
-	}
-	for offset := 0; offset < len(corefile); offset = advancePastNewline(corefile, offset) {
-		if isRootZoneHeader(corefile[offset:lineEndIndex(corefile, offset)]) {
-			return true
-		}
-	}
-	return false
-}
-
-// applyForwardUpstream points the root block's "forward ." directive at upstream so a site can
-// route everything it does not resolve locally to CoreDNS instead of the node resolver. An empty
-// upstream leaves the directive exactly as the site configured it.
-func applyForwardUpstream(corefile, upstream string, forceTCP bool) string {
-	if upstream == "" {
-		return corefile
-	}
-	blockStart, blockEnd, ok := findRootServerBlock(corefile)
-	if !ok {
-		return corefile
-	}
-	bodyStart := advancePastNewline(corefile, blockStart)
-	closingLine := lineStartIndex(corefile, blockEnd-1)
-	for offset := bodyStart; offset < closingLine; {
-		lineEnd := lineEndIndex(corefile, offset)
-		fields := strings.Fields(corefile[offset:lineEnd])
-		if len(fields) >= 2 && fields[0] == "forward" && fields[1] == "." {
-			// A trailing brace opens a sub-block the site owns, so only the address is retargeted
-			// and whatever options it already carries stay in place.
-			if fields[len(fields)-1] == "{" {
-				return corefile[:offset] + dnsStanzaIndent + "forward . " + upstream + " {" + corefile[lineEnd:]
-			}
-			return corefile[:offset] + renderForwardDirective(upstream, forceTCP) +
-				corefile[advancePastNewline(corefile, offset):]
-		}
-		offset = advancePastNewline(corefile, offset)
-	}
-	return corefile[:closingLine] + renderForwardDirective(upstream, forceTCP) + corefile[closingLine:]
-}
-
-// findRootServerBlock returns the byte range of the root server block, header line included. The
-// zone list is matched at the start of a line so a FQDN zone such as "svc.example.com.:53" is never
-// mistaken for the root zone. A block whose braces are unbalanced reports no match, leaving a
-// Corefile we do not fully understand intact.
-func findRootServerBlock(corefile string) (int, int, bool) {
-	for offset := 0; offset < len(corefile); offset = advancePastNewline(corefile, offset) {
-		if !isRootZoneHeader(corefile[offset:lineEndIndex(corefile, offset)]) {
-			continue
-		}
-		end := matchingBraceEnd(corefile, offset)
-		if end < 0 {
-			return 0, 0, false
-		}
-		return offset, end, true
-	}
-	return 0, 0, false
-}
-
-// countRootServerBlocks reports how many root server blocks the Corefile declares. CoreDNS serves
-// the root zone from exactly one block and rejects the whole file when it is defined twice.
-func countRootServerBlocks(corefile string) int {
-	var blocks int
-	for offset := 0; offset < len(corefile); offset = advancePastNewline(corefile, offset) {
-		if isRootZoneHeader(corefile[offset:lineEndIndex(corefile, offset)]) {
-			blocks++
-		}
-	}
-	return blocks
-}
-
-// isRootZoneHeader reports whether line opens a server block whose zone list contains the root zone.
-func isRootZoneHeader(line string) bool {
-	fields := strings.Fields(line)
-	if len(fields) < 2 || fields[len(fields)-1] != "{" {
-		return false
-	}
-	for _, zone := range fields[:len(fields)-1] {
-		if zone == rootServerZone {
-			return true
-		}
-	}
-	return false
-}
-
-// findTemplateStanza returns the byte range of the "template IN A <dnsName>" stanza, spanning whole
-// lines so removing it leaves no partial line behind.
-func findTemplateStanza(corefile, dnsName string) (int, int, bool) {
-	marker := "template IN A " + dnsName
-	for searchFrom := 0; searchFrom < len(corefile); {
-		rel := strings.Index(corefile[searchFrom:], marker)
-		if rel < 0 {
-			return 0, 0, false
-		}
-		pos := searchFrom + rel
-		after := pos + len(marker)
-		// Reject a longer name that merely starts with dnsName.
-		if after < len(corefile) && !isStanzaBoundary(corefile[after]) {
-			searchFrom = after
-			continue
-		}
-		end, ok := templateStanzaEnd(corefile, after)
-		if !ok {
-			return 0, 0, false
-		}
-		return lineStartIndex(corefile, pos), end, true
-	}
-	return 0, 0, false
-}
-
-// templateStanzaEnd returns the index just past the line closing the stanza whose marker ends at
-// after, reporting false when its braces are unbalanced.
-func templateStanzaEnd(corefile string, after int) (int, bool) {
-	lineEnd := lineEndIndex(corefile, after)
-	brace := strings.IndexByte(corefile[after:lineEnd], '{')
-	if brace < 0 {
-		return advancePastNewline(corefile, after), true
-	}
-	end := matchingBraceEnd(corefile, after+brace)
-	if end < 0 {
-		return 0, false
-	}
-	return advancePastNewline(corefile, end), true
-}
-
-// isStanzaBoundary reports whether c can legally follow a domain name in a Corefile directive.
-func isStanzaBoundary(c byte) bool {
-	return c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '{'
-}
-
-// matchingBraceEnd returns the index just past the brace closing the block opened at or after
-// start, or -1 when the braces are unbalanced.
-func matchingBraceEnd(corefile string, start int) int {
-	depth := 0
-	for i := start; i < len(corefile); i++ {
-		switch corefile[i] {
-		case '{':
-			depth++
-		case '}':
-			depth--
-			if depth == 0 {
-				return i + 1
-			}
-		}
-	}
-	return -1
-}
-
-// lineStartIndex returns the index of the first byte on the line containing pos.
-func lineStartIndex(s string, pos int) int {
-	if nl := strings.LastIndexByte(s[:pos], '\n'); nl >= 0 {
-		return nl + 1
-	}
-	return 0
-}
-
-// lineEndIndex returns the index of the newline ending the line containing pos, or len(s).
-func lineEndIndex(s string, pos int) int {
-	if nl := strings.IndexByte(s[pos:], '\n'); nl >= 0 {
-		return pos + nl
-	}
-	return len(s)
-}
-
-// advancePastNewline returns the index of the first byte after the line containing pos.
-func advancePastNewline(s string, pos int) int {
-	end := lineEndIndex(s, pos)
-	if end < len(s) {
-		return end + 1
-	}
-	return len(s)
 }
 
 // generateForwardName generates the name for forward resources by appending "-forward" to the cluster name.

@@ -408,17 +408,11 @@ func GetSubDomain() string {
 	return getString(subDomain, "")
 }
 
-// GetNodeLocalDNSUpstream returns the upstream that the nodelocaldns root server block forwards
-// queries to when no more specific zone claims them, for example the CoreDNS service address so a
-// site can maintain its own records in CoreDNS. An empty value leaves the node resolver in place.
-func GetNodeLocalDNSUpstream() string {
-	return getString(nodeLocalDNSUpstream, "")
-}
-
-// GetNodeLocalDNSForceTCP returns whether the root server block reaches its upstream over TCP.
-// A cluster Service upstream needs it to avoid UDP conntrack races; an external resolver does not.
-func GetNodeLocalDNSForceTCP() bool {
-	return getBool(nodeLocalDNSForceTCP, false)
+// IsNodeLocalDNSForwardToClusterDNS returns whether the nodelocaldns root server block forwards
+// queries no more specific zone claims to the CoreDNS of the cluster it runs in, letting a site
+// maintain its own records in CoreDNS. When disabled the node resolver stays in place.
+func IsNodeLocalDNSForwardToClusterDNS() bool {
+	return getBool(nodeLocalDNSForwardToClusterDNS, false)
 }
 
 // GetIngress returns the ingress class name of the system.

@@ -17,9 +17,8 @@ const (
 	ingress   = netPrefix + "ingress"
 
 	// node_local_dns
-	nodeLocalDNSPrefix   = "node_local_dns."
-	nodeLocalDNSUpstream = nodeLocalDNSPrefix + "upstream"
-	nodeLocalDNSForceTCP = nodeLocalDNSPrefix + "force_tcp"
+	nodeLocalDNSPrefix              = "node_local_dns."
+	nodeLocalDNSForwardToClusterDNS = nodeLocalDNSPrefix + "forward_to_cluster_dns"
 
 	// crypto
 	cryptoPrefix     = "crypto."

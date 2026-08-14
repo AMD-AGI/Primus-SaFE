@@ -17,14 +17,10 @@ data:
       # Ingress component name selected during install.sh
       ingress: {{ .Values.net.ingress }}
     node_local_dns:
-      # Upstream the nodelocaldns root server block forwards unmatched queries to. Set it to the
-      # CoreDNS service address to resolve site-specific records in CoreDNS instead of the node
-      # resolver, which makes CoreDNS a hard dependency for those names. Empty keeps the node
-      # resolver.
-      upstream: "{{ default "" (default dict .Values.node_local_dns).upstream }}"
-      # Reach the upstream over TCP. Enable it for a cluster Service upstream to avoid UDP
-      # conntrack races.
-      force_tcp: {{ default false (default dict .Values.node_local_dns).force_tcp }}
+      # Forward the queries no more specific zone claims to the CoreDNS of the cluster nodelocaldns
+      # runs in, rather than to the node resolver. This makes CoreDNS a hard dependency for those
+      # names and stops answering the system host locally.
+      forward_to_cluster_dns: {{ default false (default dict .Values.node_local_dns).forward_to_cluster_dns }}
     notification:
       enable: {{ or (and .Values.notification .Values.notification.email .Values.notification.email.smtp_host) (and .Values.notification .Values.notification.email_relay .Values.notification.email_relay.enable) | default false }}
       secret_path: /etc/secrets/notification
