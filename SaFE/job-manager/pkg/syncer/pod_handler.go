@@ -420,7 +420,9 @@ const vanishedPodGracePeriod = 5 * time.Minute
 
 // reconcileVanishedPods releases the pod records of a dispatched workload whose
 // pods no longer exist, so they stop counting toward the workspace's resource
-// usage. Existence is read from the pod informer's cache rather than the API.
+// usage. Existence is read from the pod informer's cache rather than the API,
+// except for a mesh workload, whose pods are attributed through a live Get of the
+// mesh objects their records name.
 //
 // Runs at most once per workload per process: within one process the delete events
 // that release a record are reliable, so the drift it repairs can only be left
@@ -456,11 +458,16 @@ func (r *SyncerReconciler) reconcileVanishedPods(ctx context.Context, clientSets
 	// with DeleteWorkloadPodsNotIn -- and then have the guarded etcd patch rejected, so
 	// the NodeUsage aggregate the scheduler reads would never land. The Get also
 	// re-hydrates the pod list and gives IsEnd a current phase.
-	adminWorkload, err := r.getAdminWorkload(ctx, adminWorkload.Name)
-	if err != nil || adminWorkload == nil || len(adminWorkload.Status.Pods) == 0 {
-		r.vanishedPodsChecked.Delete(adminWorkload.Name)
+	// Hold the name separately: the short declaration below assigns to the parameter
+	// instead of shadowing it, and getAdminWorkload yields nil both on a failed Get and
+	// on a workload that no longer exists.
+	name := adminWorkload.Name
+	fresh, err := r.getAdminWorkload(ctx, name)
+	if err != nil || fresh == nil || len(fresh.Status.Pods) == 0 {
+		r.vanishedPodsChecked.Delete(name)
 		return err
 	}
+	adminWorkload = fresh
 	if adminWorkload.IsEnd() {
 		r.vanishedPodsChecked.Delete(adminWorkload.Name)
 		return nil
@@ -589,8 +596,11 @@ func addPodNames(objs []runtime.Object, live map[string]struct{}, workloadName s
 //
 // A mesh pod names its mesh rather than its workload, so ownership is resolved from
 // the mesh object exactly as getAdminWorkloadAndSyncPod resolves it when recording
-// the pod. Meshes are resolved once each: the lookup is a live read, and a mesh has
-// as many pods as it has nodes.
+// the pod. Only a pod that a record names is resolved: live is read by record, so any
+// other pod's mesh is a live Get that cannot change the outcome -- and one belonging
+// to an unrelated job, torn down as those routinely are, would otherwise make this
+// workload's answer unknown. Meshes are resolved once each, a mesh having as many
+// pods as it has nodes.
 func (r *SyncerReconciler) addMeshPodNames(ctx context.Context, clientSets *ClusterClientSets,
 	lister cache.GenericLister, adminWorkload *v1.Workload, live map[string]struct{}) bool {
 	selector, err := labels.Parse(monarchMeshLabel)
@@ -602,6 +612,10 @@ func (r *SyncerReconciler) addMeshPodNames(ctx context.Context, clientSets *Clus
 		klog.ErrorS(err, "failed to list mesh pods from informer cache", "name", adminWorkload.Name)
 		return false
 	}
+	recorded := make(map[string]struct{}, len(adminWorkload.Status.Pods))
+	for i := range adminWorkload.Status.Pods {
+		recorded[adminWorkload.Status.Pods[i].PodId] = struct{}{}
+	}
 	ownedByWorkload := make(map[string]bool, len(objs))
 	for _, obj := range objs {
 		pod, ok := obj.(*unstructured.Unstructured)
@@ -609,6 +623,9 @@ func (r *SyncerReconciler) addMeshPodNames(ctx context.Context, clientSets *Clus
 			klog.Errorf("unexpected object type %T in the pod informer cache of workload %s",
 				obj, adminWorkload.Name)
 			return false
+		}
+		if _, hasRecord := recorded[pod.GetName()]; !hasRecord {
+			continue
 		}
 		meshName := pod.GetLabels()[monarchMeshLabel]
 		meshKey := pod.GetNamespace() + "/" + meshName

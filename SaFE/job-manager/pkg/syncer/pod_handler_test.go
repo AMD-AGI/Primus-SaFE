@@ -1220,7 +1220,9 @@ func TestLivePodNamesSeesPodsInAnyNamespace(t *testing.T) {
 // Deciding existence by label alone would report a running mesh as vanished and
 // release every one of its records.
 func TestLivePodNamesResolvesMonarchMeshPods(t *testing.T) {
-	w := dispatchedWorkloadWithPods("mj", time.Hour)
+	w := dispatchedWorkloadWithPods("mj", time.Hour,
+		podRecord("mj-client-0", "n1", corev1.PodRunning, time.Hour),
+		podRecord("mj-mesh-0-worker-0", "n1", corev1.PodRunning, time.Hour))
 	w.Spec.GroupVersionKind = v1.GroupVersionKind{Version: "v1", Kind: common.MonarchJob}
 
 	meshPod := podInCache("ws", "mj-mesh-0-worker-0", "")
@@ -1256,13 +1258,47 @@ func TestLivePodNamesResolvesMonarchMeshPods(t *testing.T) {
 	assert.Equal(t, hasMesh, true, "the mesh pod is found through its mesh object")
 	_, hasOther := live["other-mesh-0-worker-0"]
 	assert.Equal(t, hasOther, false, "another job's mesh is not this one's")
-	assert.Equal(t, meshLookups, 2, "each mesh is resolved once, not once per pod")
+	assert.Equal(t, meshLookups, 1,
+		"only a mesh named by a record is resolved, once, not once per pod")
+}
+
+// Mesh teardown is routine, and an unrelated job's is not this workload's problem:
+// no record names those pods, so the mesh is never read and cannot make the answer
+// unknown.
+func TestLivePodNamesIgnoresAStrangerMeshItCannotRead(t *testing.T) {
+	w := dispatchedWorkloadWithPods("mj", time.Hour,
+		podRecord("mj-client-0", "n1", corev1.PodRunning, time.Hour))
+	w.Spec.GroupVersionKind = v1.GroupVersionKind{Version: "v1", Kind: common.MonarchJob}
+
+	strangerPod := podInCache("ws", "other-mesh-0-worker-0", "")
+	strangerPod.SetLabels(map[string]string{monarchMeshLabel: "other-mesh-0"})
+	clientSets := clientSetsWithPodCache(t, true,
+		podInCache("ws", "mj-client-0", "mj"), strangerPod)
+
+	patches := gomonkey.NewPatches()
+	defer patches.Reset()
+	meshLookups := 0
+	patches.ApplyPrivateMethod(reflect.TypeOf(&SyncerReconciler{}), "getMonarchMesh",
+		func(_ *SyncerReconciler, _ context.Context, _ *ClusterClientSets,
+			_, _ string) (*unstructured.Unstructured, error) {
+			meshLookups++
+			return nil, errors.New("mesh being torn down")
+		})
+
+	r := &SyncerReconciler{}
+	live, ok := r.livePodNames(context.Background(), clientSets, w)
+
+	assert.Equal(t, ok, true)
+	assert.Equal(t, meshLookups, 0, "a pod no record names is never resolved")
+	_, hasClient := live["mj-client-0"]
+	assert.Equal(t, hasClient, true)
 }
 
 // A mesh that cannot be read may be this workload's own, so the answer is unknown
 // rather than "those pods are gone".
 func TestLivePodNamesRefusesWhenAMeshCannotBeRead(t *testing.T) {
-	w := dispatchedWorkloadWithPods("mj", time.Hour)
+	w := dispatchedWorkloadWithPods("mj", time.Hour,
+		podRecord("mj-mesh-0-worker-0", "n1", corev1.PodRunning, time.Hour))
 	w.Spec.GroupVersionKind = v1.GroupVersionKind{Version: "v1", Kind: common.MonarchJob}
 	meshPod := podInCache("ws", "mj-mesh-0-worker-0", "")
 	meshPod.SetLabels(map[string]string{monarchMeshLabel: "mj-mesh-0"})
@@ -1338,6 +1374,26 @@ func TestReconcileVanishedPodsStopsThemAndRunsOnce(t *testing.T) {
 	// the same workload must not pay for the comparison again.
 	assert.NilError(t, r.reconcileVanishedPods(context.Background(), monkeyClientSets(), w, &resourceMessage{action: ResourceAdd}))
 	assert.Equal(t, stub.calls, 1)
+}
+
+// The re-read yields no workload when it was deleted between the event and this
+// pass, and none either when the Get fails. Both reach the same exit, which must not
+// dereference it -- a panic there is not contained and ends the process.
+func TestReconcileVanishedPodsSurvivesAVanishedWorkload(t *testing.T) {
+	w := dispatchedWorkloadWithPods("w", time.Hour,
+		podRecord("gone", "n1", corev1.PodRunning, time.Hour))
+	// The client holds no workload, so the re-read is a not-found the Get swallows.
+	cl := ctrlfake.NewClientBuilder().WithScheme(syncerScheme(t)).
+		WithStatusSubresource(&v1.Workload{}).Build()
+	r := &SyncerReconciler{Client: cl}
+
+	assert.NilError(t, r.reconcileVanishedPods(context.Background(), monkeyClientSets(), w,
+		&resourceMessage{action: ResourceAdd}))
+
+	// Re-armed rather than remembered: nothing was compared, so a later event for a
+	// workload that comes back still gets its pass.
+	_, remembered := r.vanishedPodsChecked.Load("w")
+	assert.Equal(t, remembered, false)
 }
 
 func TestReconcileVanishedPodsDropsCICDRecords(t *testing.T) {
