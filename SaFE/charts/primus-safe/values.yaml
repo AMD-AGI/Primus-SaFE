@@ -36,7 +36,7 @@ node_local_dns:
   # records in CoreDNS, whose ConfigMap is not reconciled. The address is read from each cluster's
   # kube-system/kube-dns Service, so one setting stays correct across data-plane clusters.
   #
-  # Two consequences to weigh before enabling it:
+  # Consequences to weigh before enabling it:
   #
   # CoreDNS becomes a hard dependency for every name the root block does not answer locally. With
   # the node resolver, pods keep resolving external names while CoreDNS is down and lose only
@@ -44,12 +44,22 @@ node_local_dns:
   #
   # The system host is no longer answered locally. This sync removes its own template stanza when
   # enabled, because CoreDNS orders template ahead of hosts and the stanza would override whatever
-  # record the site keeps for that name. CoreDNS must therefore resolve the system host itself.
+  # record the site keeps for that name. CoreDNS must therefore resolve the system host itself,
+  # and it must resolve it before this option is turned on.
+  #
+  # Following the healthy control planes moves to CoreDNS with the stanza. This sync points the
+  # system host at the control planes that answer probing; a static CoreDNS record does not, so an
+  # apiserver that goes down is no longer dropped automatically. Keep this option off if that
+  # behaviour matters, and put site records in the root block's hosts instead.
   #
   # A loop is only avoided because CoreDNS resolves against the node (dnsPolicy: Default, the
   # standard deployment). Confirm that first: if CoreDNS forwards back to nodelocaldns, the loop
   # plugin aborts nodelocaldns at startup and every pod on that node loses DNS. The plugin is
   # present in blocks this chart creates, but existing blocks are left as the site wrote them.
+  #
+  # Turning it back off is not symmetric. The template stanza returns on the next reconcile, but the
+  # forward directive stays pointed at CoreDNS, because this sync does not overwrite a forward it
+  # was not asked to manage. Restore it to /etc/resolv.conf by hand when reverting.
   forward_to_cluster_dns: false
 # CD (Continuous Deployment) configuration
 cd:
