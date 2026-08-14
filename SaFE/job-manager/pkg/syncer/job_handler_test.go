@@ -10,6 +10,7 @@ import (
 	"errors"
 	"reflect"
 	"testing"
+	"time"
 
 	"github.com/agiledragon/gomonkey/v2"
 	"gotest.tools/assert"
@@ -20,6 +21,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	k8sfake "k8s.io/client-go/kubernetes/fake"
+	ctrlruntime "sigs.k8s.io/controller-runtime"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 	ctrlfake "sigs.k8s.io/controller-runtime/pkg/client/fake"
 
@@ -28,6 +30,7 @@ import (
 	commonclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/k8sclient"
 	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
 	jobutils "github.com/AMD-AIG-AIMA/SAFE/job-manager/pkg/utils"
+	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/timeutil"
 )
 
 // syncerScheme builds a scheme with the amd/v1 types registered for fake clients.
@@ -352,6 +355,107 @@ func TestReSchedule(t *testing.T) {
 	assert.Equal(t, string(w.Status.Phase), string(v1.WorkloadPending))
 	// Dispatched annotation removed during reschedule.
 	assert.Equal(t, v1.IsWorkloadDispatched(w), false)
+}
+
+// unregisteredRunnerSet builds a dispatched CICD scaling runner set that ARC has
+// not registered with GitHub, dispatched `since` ago.
+func unregisteredRunnerSet(since time.Duration) *v1.Workload {
+	w := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "rs"}}
+	w.Spec.GroupVersionKind = v1.GroupVersionKind{Version: "v1", Kind: common.CICDScaleRunnerSetKind}
+	v1.SetAnnotation(w, v1.WorkloadDispatchedAnnotation,
+		timeutil.FormatRFC3339(time.Now().UTC().Add(-since)))
+	return w
+}
+
+// The pod reconcile runs on the way out of an event, and it is bookkeeping: its
+// failure must not fail the event, and the result the event computed must survive.
+func TestHandleJobToleratesVanishedPodReconcileError(t *testing.T) {
+	w := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "w"}}
+	w.Spec.Workspace = "ws"
+	v1.SetAnnotation(w, v1.WorkloadDispatchedAnnotation, timeutil.FormatRFC3339(time.Now().UTC()))
+	cl := ctrlfake.NewClientBuilder().WithScheme(syncerScheme(t)).WithObjects(w).Build()
+	r := &SyncerReconciler{Client: cl}
+
+	patches := gomonkey.NewPatches()
+	defer patches.Reset()
+	patches.ApplyPrivateMethod(reflect.TypeOf(&SyncerReconciler{}), "handleJobImpl",
+		func(_ *SyncerReconciler, _ context.Context, _ *resourceMessage, _ *v1.Workload,
+			_ *ClusterClientSets) (ctrlruntime.Result, error) {
+			return ctrlruntime.Result{RequeueAfter: time.Second}, nil
+		})
+	reconciled := false
+	patches.ApplyPrivateMethod(reflect.TypeOf(&SyncerReconciler{}), "reconcileVanishedPods",
+		func(_ *SyncerReconciler, _ context.Context, _ *ClusterClientSets, _ *v1.Workload,
+			_ *resourceMessage) error {
+			reconciled = true
+			return errors.New("conflict")
+		})
+
+	result, err := r.handleJob(context.Background(),
+		&resourceMessage{workloadId: "w", namespace: "ws"}, nil)
+
+	assert.NilError(t, err)
+	assert.Equal(t, reconciled, true)
+	assert.Equal(t, result.RequeueAfter, time.Second, "the event's own result is preserved")
+}
+
+// A registration failure is invisible on the object, so a wait that has gone on too
+// long is the only signal to act on.
+func TestCheckRunnerSetRegistrationFailsPastDeadline(t *testing.T) {
+	w := unregisteredRunnerSet(runnerSetRegistrationTimeout + time.Minute)
+
+	result, err := checkRunnerSetRegistration(w, &resourceMessage{action: ResourceAdd})
+
+	assert.Assert(t, err != nil)
+	// Unrecoverable is what makes handleJob mark it Failed without a retry, which
+	// is what releases the queue.
+	assert.Equal(t, jobutils.IsUnrecoverableError(err), true)
+	assert.Equal(t, result.RequeueAfter, time.Duration(0))
+}
+
+func TestCheckRunnerSetRegistrationWaitsBeforeDeadline(t *testing.T) {
+	w := unregisteredRunnerSet(time.Minute)
+
+	result, err := checkRunnerSetRegistration(w, &resourceMessage{action: ResourceAdd})
+
+	assert.NilError(t, err)
+	// ARC does not touch the object while it retries, so the deadline has to be
+	// reached by a re-queue rather than by the next event.
+	assert.Assert(t, result.RequeueAfter > 0)
+	assert.Assert(t, result.RequeueAfter <= runnerSetRegistrationTimeout-time.Minute)
+}
+
+func TestCheckRunnerSetRegistrationLeavesOtherStatesAlone(t *testing.T) {
+	// Registered: the healthy path must not be touched however long it has run.
+	registered := unregisteredRunnerSet(runnerSetRegistrationTimeout + time.Minute)
+	registered.Status.RunnerScaleSetId = "95"
+	result, err := checkRunnerSetRegistration(registered, &resourceMessage{action: ResourceAdd})
+	assert.NilError(t, err)
+	assert.Equal(t, result.RequeueAfter, time.Duration(0))
+
+	// Teardown reaches this code with an empty id too, and must not be reported as
+	// a registration failure.
+	for _, action := range []string{ResourceDel, ResourceDeleting} {
+		deleting := unregisteredRunnerSet(runnerSetRegistrationTimeout + time.Minute)
+		result, err = checkRunnerSetRegistration(deleting, &resourceMessage{action: action})
+		assert.NilError(t, err)
+		assert.Equal(t, result.RequeueAfter, time.Duration(0))
+	}
+
+	// No dispatch annotation: no evidence of how long the wait has been, so nothing
+	// may be concluded from it.
+	undispatched := unregisteredRunnerSet(runnerSetRegistrationTimeout + time.Minute)
+	v1.RemoveAnnotation(undispatched, v1.WorkloadDispatchedAnnotation)
+	result, err = checkRunnerSetRegistration(undispatched, &resourceMessage{action: ResourceAdd})
+	assert.NilError(t, err)
+	assert.Equal(t, result.RequeueAfter, time.Duration(0))
+
+	// A workload of any other kind is out of scope.
+	pytorch := unregisteredRunnerSet(runnerSetRegistrationTimeout + time.Minute)
+	pytorch.Spec.GroupVersionKind.Kind = common.PytorchJobKind
+	result, err = checkRunnerSetRegistration(pytorch, &resourceMessage{action: ResourceAdd})
+	assert.NilError(t, err)
+	assert.Equal(t, result.RequeueAfter, time.Duration(0))
 }
 
 func TestShouldWorkloadStopRetry(t *testing.T) {

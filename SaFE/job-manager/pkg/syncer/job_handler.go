@@ -27,12 +27,18 @@ import (
 	jmmetrics "github.com/AMD-AIG-AIMA/SAFE/job-manager/pkg/metrics"
 	jobutils "github.com/AMD-AIG-AIMA/SAFE/job-manager/pkg/utils"
 	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
+	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/timeutil"
 )
 
 const (
 	MaxFailedPodsToShow = 3
 	MaxConditionHistory = 30
 )
+
+// runnerSetRegistrationTimeout is how long a dispatched CICD scaling runner set may
+// go unregistered before it is failed. Registration completes in seconds when
+// GitHub is reachable.
+const runnerSetRegistrationTimeout = 10 * time.Minute
 
 // handleJob processes job resource events and synchronizes status between data plane and admin plane.
 // Manages the lifecycle of workload resources and handles failure scenarios.
@@ -60,7 +66,16 @@ func (r *SyncerReconciler) handleJob(ctx context.Context,
 		// Errors defined internally are fatal and lead to a terminal state without retry
 		err = jobutils.SetWorkloadFailed(ctx, r.Client, adminWorkload, err.Error())
 	}
-	return result, err
+	if err != nil {
+		return result, err
+	}
+	// Last, so it sees the state this event wrote, and best-effort so it cannot fail
+	// the status sync.
+	if reconcileErr := r.reconcileVanishedPods(ctx, clientSets, adminWorkload, message); reconcileErr != nil {
+		klog.V(2).Infof("reconciling vanished pods of workload %s deferred: %v",
+			adminWorkload.Name, reconcileErr)
+	}
+	return result, nil
 }
 
 // handleJobImpl implements the core logic for handling job resource events.
@@ -95,7 +110,45 @@ func (r *SyncerReconciler) handleJobImpl(ctx context.Context, message *resourceM
 			return ctrlruntime.Result{}, err
 		}
 	}
-	return ctrlruntime.Result{}, nil
+	return checkRunnerSetRegistration(adminWorkload, message)
+}
+
+// checkRunnerSetRegistration bounds how long a dispatched CICD scaling runner set
+// may wait for ARC to register it with GitHub.
+//
+// A failed registration leaves no trace on the AutoscalingRunnerSet -- no status,
+// no runner-scale-set-id, no event -- so the deadline is the only signal available.
+// Past it, the unrecoverable error makes handleJob mark the workload Failed with
+// that message on its condition, which both reports the failure and releases the
+// workspace queue the Pending workload was holding. Before it, the result asks to
+// be re-queued at the deadline, since ARC does not write to the object while it
+// retries.
+func checkRunnerSetRegistration(workload *v1.Workload, message *resourceMessage) (ctrlruntime.Result, error) {
+	if !commonworkload.IsCICDScalingRunnerSet(workload) || workload.Status.RunnerScaleSetId != "" {
+		return ctrlruntime.Result{}, nil
+	}
+	// Teardown reaches here with an empty id too, and must not be reported as a
+	// registration failure. IsEnd covers a pending deletion and a terminal phase.
+	if workload.IsEnd() || message.action == ResourceDel || message.action == ResourceDeleting {
+		return ctrlruntime.Result{}, nil
+	}
+	// Measured from the dispatch annotation, which the dispatcher rewrites on every
+	// attempt and drops on re-schedule. Without it the wait has no known length.
+	dispatchedAt, err := timeutil.CvtStrToRFC3339Milli(
+		v1.GetAnnotation(workload, v1.WorkloadDispatchedAnnotation))
+	if err != nil {
+		return ctrlruntime.Result{}, nil
+	}
+	if waited := time.Since(dispatchedAt); waited < runnerSetRegistrationTimeout {
+		return ctrlruntime.Result{RequeueAfter: runnerSetRegistrationTimeout - waited}, nil
+	}
+	klog.Errorf("CICD scaling runner set %s was not registered with GitHub within %s of dispatch, failing it",
+		workload.Name, runnerSetRegistrationTimeout)
+	return ctrlruntime.Result{}, commonerrors.NewInternalError(fmt.Sprintf(
+		"the runner scale set was not registered with GitHub within %s of being dispatched, "+
+			"so no runner can start; ARC records the reason only in its own log "+
+			"(gha-rs-controller), commonly an organisation IP allow list or a revoked app installation",
+		runnerSetRegistrationTimeout))
 }
 
 // getK8sObjectStatus retrieves the status of a Kubernetes object in data plane.
