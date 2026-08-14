@@ -30,6 +30,12 @@ net:
   rdma_name: "rdma/hca"
   # Ingress component name selected during install.sh
   ingress: "higress"
+node_local_dns:
+  # Upstream the nodelocaldns root server block forwards queries to when no more specific zone
+  # claims them. Set it to the CoreDNS service address (for example "192.168.0.10") to resolve
+  # site-specific records in CoreDNS, whose ConfigMap is not reconciled. Empty keeps the node
+  # resolver at /etc/resolv.conf.
+  upstream: ""
 # CD (Continuous Deployment) configuration
 cd:
   # Whether deployment requests require approval from another user

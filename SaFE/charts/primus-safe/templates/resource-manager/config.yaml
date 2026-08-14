@@ -16,6 +16,11 @@ data:
       rdma_name: {{ .Values.net.rdma_name }}
       # Ingress component name selected during install.sh
       ingress: {{ .Values.net.ingress }}
+    node_local_dns:
+      # Upstream the nodelocaldns root server block forwards unmatched queries to. Set it to the
+      # CoreDNS service address to resolve site-specific records in CoreDNS instead of the node
+      # resolver. Empty keeps the node resolver.
+      upstream: "{{ default "" (default .Values.node_local_dns).upstream }}"
     notification:
       enable: {{ or (and .Values.notification .Values.notification.email .Values.notification.email.smtp_host) (and .Values.notification .Values.notification.email_relay .Values.notification.email_relay.enable) | default false }}
       secret_path: /etc/secrets/notification

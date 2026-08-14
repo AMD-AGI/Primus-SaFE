@@ -94,34 +94,114 @@ func TestIsClusterSourceEndpoints(t *testing.T) {
 	assert.False(t, r.isClusterSourceEndpoints(other))
 }
 
-func TestBuildDNSServerBlock(t *testing.T) {
-	block := buildDNSServerBlock("foo.local", []string{"10.0.0.1", "10.0.0.3"})
-	assert.Contains(t, block, "foo.local")
+// corefileWithHosts mirrors a site Corefile whose hosts patch shares the root block with the
+// template stanza the controller owns.
+const corefileWithHosts = `cluster.local:53 {
+    kubernetes
+}
+.:53 {
+    hosts {
+        10.9.9.1 intra-a.example.com
+        10.9.9.2 intra-b.example.com
+        fallthrough
+    }
+    template IN A foo.local {
+        answer "{{ .Name }} 60 IN A 10.0.0.1"
+        fallthrough
+    }
+    errors
+    health 169.254.25.10:9254
+    bind 169.254.25.10
+    forward . /etc/resolv.conf
+}
+`
+
+func TestRenderTemplateStanza(t *testing.T) {
+	stanza := renderTemplateStanza("foo.local", []string{"10.0.0.1", "10.0.0.3"})
+	assert.Contains(t, stanza, "foo.local")
 	// Every healthy control plane gets its own A record so resolvers can fall over.
-	assert.Contains(t, block, "IN A 10.0.0.1")
-	assert.Contains(t, block, "IN A 10.0.0.3")
+	assert.Contains(t, stanza, "IN A 10.0.0.1")
+	assert.Contains(t, stanza, "IN A 10.0.0.3")
+	// Splicing the stanza into a block must not disturb the surrounding lines.
+	assert.True(t, strings.HasSuffix(stanza, "\n"))
+	assert.NotContains(t, stanza, dnsServerBlockPrefix)
 }
 
-func TestStripDNSServerBlockRoundTrip(t *testing.T) {
-	existing := "cluster.local:53 {\n    kubernetes\n}"
-	corefile := existing + "\n" + buildDNSServerBlock("foo.local", []string{"10.0.0.1"})
+func TestUpsertTemplateStanzaKeepsSiblingDirectives(t *testing.T) {
+	out := upsertTemplateStanza(corefileWithHosts, "foo.local", []string{"10.0.0.3"}, defaultDNSUpstream)
 
-	// Removing our block restores the untouched Corefile.
-	assert.Equal(t, existing, stripDNSServerBlock(corefile, "foo.local"))
-	// Unrelated names are left alone.
-	assert.Equal(t, corefile, stripDNSServerBlock(corefile, "bar.local"))
-	// Rebuilding with a new address set replaces rather than appends.
-	rebuilt := stripDNSServerBlock(corefile, "foo.local") + "\n" +
-		buildDNSServerBlock("foo.local", []string{"10.0.0.3"})
-	assert.Equal(t, 1, strings.Count(rebuilt, dnsServerBlockPrefix))
-	assert.Contains(t, rebuilt, "IN A 10.0.0.3")
-	assert.NotContains(t, rebuilt, "IN A 10.0.0.1")
+	// The hosts patch and every other directive sharing the block survive the rewrite.
+	for _, want := range []string{
+		"hosts {", "10.9.9.1 intra-a.example.com", "10.9.9.2 intra-b.example.com",
+		"health 169.254.25.10:9254", "cluster.local:53 {",
+	} {
+		assert.Contains(t, out, want)
+	}
+	assert.Equal(t, 1, strings.Count(out, dnsServerBlockPrefix))
+	assert.Contains(t, out, "IN A 10.0.0.3")
+	assert.NotContains(t, out, "IN A 10.0.0.1")
 }
 
-func TestStripDNSServerBlockKeepsUnbalancedCorefile(t *testing.T) {
+func TestUpsertTemplateStanzaIsIdempotent(t *testing.T) {
+	once := upsertTemplateStanza(corefileWithHosts, "foo.local", []string{"10.0.0.3"}, defaultDNSUpstream)
+	assert.Equal(t, once, upsertTemplateStanza(once, "foo.local", []string{"10.0.0.3"}, defaultDNSUpstream))
+}
+
+func TestUpsertTemplateStanzaReusesExistingRootBlock(t *testing.T) {
+	// No template stanza yet: the stanza joins the existing block instead of opening a second one.
+	withoutTemplate := "cluster.local:53 {\n    kubernetes\n}\n.:53 {\n    hosts {\n        10.9.9.1 intra-a.example.com\n    }\n    forward . /etc/resolv.conf\n}\n"
+	out := upsertTemplateStanza(withoutTemplate, "foo.local", []string{"10.0.0.1"}, defaultDNSUpstream)
+	assert.Equal(t, 1, strings.Count(out, dnsServerBlockPrefix))
+	assert.Contains(t, out, "10.9.9.1 intra-a.example.com")
+	assert.Contains(t, out, "template IN A foo.local {")
+}
+
+func TestUpsertTemplateStanzaCreatesRootBlockWhenAbsent(t *testing.T) {
+	out := upsertTemplateStanza("cluster.local:53 {\n    kubernetes\n}\n", "foo.local", []string{"10.0.0.1"}, defaultDNSUpstream)
+	assert.Equal(t, 1, strings.Count(out, dnsServerBlockPrefix))
+	assert.Contains(t, out, "forward . /etc/resolv.conf")
+}
+
+func TestUpsertTemplateStanzaIgnoresFQDNZoneHeader(t *testing.T) {
+	// A zone written with a trailing dot contains the ".:53 {" substring but is not the root zone.
+	corefile := "global.example.com.:53 {\n    forward . 192.168.0.10\n}\n.:53 {\n    forward . /etc/resolv.conf\n}\n"
+	out := upsertTemplateStanza(corefile, "foo.local", []string{"10.0.0.1"}, defaultDNSUpstream)
+	assert.Contains(t, out, "global.example.com.:53 {")
+	assert.Contains(t, out, "forward . 192.168.0.10")
+	// The stanza belongs to the real root block, not the FQDN zone.
+	assert.Less(t, strings.Index(out, "forward . 192.168.0.10"), strings.Index(out, "template IN A foo.local"))
+}
+
+func TestUpsertTemplateStanzaKeepsUnbalancedCorefile(t *testing.T) {
 	// A block we cannot delimit is preserved instead of being mangled.
 	broken := ".:53 {\n    template IN A foo.local {\n        answer \"x\""
-	assert.Equal(t, broken, stripDNSServerBlock(broken, "foo.local"))
+	assert.Equal(t, broken, upsertTemplateStanza(broken, "foo.local", []string{"10.0.0.1"}, defaultDNSUpstream))
+}
+
+func TestApplyForwardUpstream(t *testing.T) {
+	// An empty upstream leaves the site's own directive alone.
+	assert.Equal(t, corefileWithHosts, applyForwardUpstream(corefileWithHosts, ""))
+
+	out := applyForwardUpstream(corefileWithHosts, "192.168.0.10")
+	assert.Contains(t, out, "forward . 192.168.0.10")
+	assert.NotContains(t, out, "forward . /etc/resolv.conf")
+	// Only the root block is retargeted; other zones keep forwarding where the site sent them.
+	assert.Contains(t, out, "cluster.local:53 {")
+	assert.Contains(t, out, "10.9.9.1 intra-a.example.com")
+}
+
+func TestApplyForwardUpstreamKeepsForwardSubBlock(t *testing.T) {
+	corefile := ".:53 {\n    forward . /etc/resolv.conf {\n        force_tcp\n    }\n}\n"
+	out := applyForwardUpstream(corefile, "192.168.0.10")
+	assert.Contains(t, out, "forward . 192.168.0.10 {")
+	assert.Contains(t, out, "force_tcp")
+}
+
+func TestApplyForwardUpstreamAddsMissingDirective(t *testing.T) {
+	corefile := ".:53 {\n    errors\n}\n"
+	out := applyForwardUpstream(corefile, "192.168.0.10")
+	assert.Contains(t, out, "forward . 192.168.0.10")
+	assert.Contains(t, out, "errors")
 }
 
 func TestGenerateForwardName(t *testing.T) {

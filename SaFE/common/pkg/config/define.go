@@ -16,6 +16,10 @@ const (
 	rdmaName  = netPrefix + "rdma_name"
 	ingress   = netPrefix + "ingress"
 
+	// node_local_dns
+	nodeLocalDNSPrefix   = "node_local_dns."
+	nodeLocalDNSUpstream = nodeLocalDNSPrefix + "upstream"
+
 	// crypto
 	cryptoPrefix     = "crypto."
 	cryptoEnable     = cryptoPrefix + "enable"

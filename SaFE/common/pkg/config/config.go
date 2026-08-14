@@ -408,6 +408,13 @@ func GetSubDomain() string {
 	return getString(subDomain, "")
 }
 
+// GetNodeLocalDNSUpstream returns the upstream that the nodelocaldns root server block forwards
+// queries to when no more specific zone claims them, for example the CoreDNS service address so a
+// site can maintain its own records in CoreDNS. An empty value leaves the node resolver in place.
+func GetNodeLocalDNSUpstream() string {
+	return getString(nodeLocalDNSUpstream, "")
+}
+
 // GetIngress returns the ingress class name of the system.
 func GetIngress() string {
 	return getString(ingress, "")

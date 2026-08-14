@@ -556,6 +556,83 @@ func TestGuaranteeNodeLocalDNSFollowsHealthyControlPlanes(t *testing.T) {
 	testifyassert.Contains(t, corefile, "cluster.local:53 {")
 }
 
+// newNodeLocalDNSReconciler wires a reconciler whose data-plane cluster holds the given Corefile
+// and whose single control plane answers at 10.0.0.1.
+func newNodeLocalDNSReconciler(t *testing.T, corefile string) (*ClusterReconciler, *k8sfake.Clientset, *v1.Cluster) {
+	t.Helper()
+	cs := k8sfake.NewSimpleClientset(&corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{Name: "nodelocaldns", Namespace: "kube-system"},
+		Data:       map[string]string{"Corefile": corefile},
+	})
+	scheme, _ := genMockScheme()
+	dataCluster := readyCluster("c1")
+	cpCluster := readyCluster("ctrl")
+	cpCluster.Labels = map[string]string{v1.ClusterControlPlaneLabel: ""}
+	cpCluster.Status.ControlPlaneStatus.Endpoints = []string{"https://10.0.0.1:6443"}
+	cl := ctrlfake.NewClientBuilder().WithScheme(scheme).WithObjects(dataCluster, cpCluster).Build()
+	mgr := commonutils.NewObjectManager()
+	testifyassert.NoError(t, mgr.Add("c1",
+		commonclient.NewClientFactoryWithOnlyClient(context.Background(), "c1", cs)))
+	return &ClusterReconciler{ClusterBaseReconciler: &ClusterBaseReconciler{Client: cl}, clientManager: mgr}, cs, dataCluster
+}
+
+// siteCorefile mirrors a Corefile whose hosts patch shares the root block with the template stanza.
+const siteCorefile = `cluster.local:53 {
+    kubernetes
+}
+.:53 {
+    hosts {
+        10.9.9.1 global.safe.local
+        10.9.9.2 llm-api.safe.local
+        fallthrough
+    }
+    errors
+    bind 169.254.25.10
+    forward . /etc/resolv.conf
+}
+`
+
+func TestGuaranteeNodeLocalDNSKeepsSiteHosts(t *testing.T) {
+	patches := gomonkey.ApplyFunc(commonconfig.GetSystemHost, func() string { return "safe.local" })
+	defer patches.Reset()
+
+	r, cs, dataCluster := newNodeLocalDNSReconciler(t, siteCorefile)
+	ctx := context.Background()
+	testifyassert.NoError(t, r.guaranteeNodeLocalDNS(ctx, dataCluster))
+
+	corefile := readNodeLocalDNSCorefile(t, cs)
+	// Records the site maintains by hand must outlive the control-plane sync.
+	testifyassert.Contains(t, corefile, "10.9.9.1 global.safe.local")
+	testifyassert.Contains(t, corefile, "10.9.9.2 llm-api.safe.local")
+	testifyassert.Contains(t, corefile, "IN A 10.0.0.1")
+	testifyassert.Equal(t, 1, strings.Count(corefile, dnsServerBlockPrefix))
+
+	// A second pass must not issue another update.
+	testifyassert.NoError(t, r.guaranteeNodeLocalDNS(ctx, dataCluster))
+	testifyassert.Equal(t, corefile, readNodeLocalDNSCorefile(t, cs))
+}
+
+func TestGuaranteeNodeLocalDNSAppliesConfiguredUpstream(t *testing.T) {
+	patches := gomonkey.ApplyFunc(commonconfig.GetSystemHost, func() string { return "safe.local" })
+	defer patches.Reset()
+	commonconfig.SetValue("node_local_dns.upstream", "192.168.0.10")
+	defer commonconfig.SetValue("node_local_dns.upstream", "")
+
+	r, cs, dataCluster := newNodeLocalDNSReconciler(t, siteCorefile)
+	ctx := context.Background()
+	testifyassert.NoError(t, r.guaranteeNodeLocalDNS(ctx, dataCluster))
+
+	corefile := readNodeLocalDNSCorefile(t, cs)
+	// Everything the root block does not answer locally now goes to CoreDNS.
+	testifyassert.Contains(t, corefile, "forward . 192.168.0.10")
+	testifyassert.NotContains(t, corefile, "forward . /etc/resolv.conf")
+	testifyassert.Contains(t, corefile, "10.9.9.1 global.safe.local")
+	testifyassert.Equal(t, 1, strings.Count(corefile, dnsServerBlockPrefix))
+
+	testifyassert.NoError(t, r.guaranteeNodeLocalDNS(ctx, dataCluster))
+	testifyassert.Equal(t, corefile, readNodeLocalDNSCorefile(t, cs))
+}
+
 func TestGuaranteeDataPlaneClusterRoleEmptyName(t *testing.T) {
 	r := newClusterReconcilerWithFactory(t, "c1", k8sfake.NewSimpleClientset())
 	testifyassert.NoError(t, r.guaranteeDataPlaneClusterRole(context.Background(), testCluster("c1"), ""))
