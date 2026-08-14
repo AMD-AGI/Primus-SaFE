@@ -19,6 +19,7 @@ const (
 	// node_local_dns
 	nodeLocalDNSPrefix   = "node_local_dns."
 	nodeLocalDNSUpstream = nodeLocalDNSPrefix + "upstream"
+	nodeLocalDNSForceTCP = nodeLocalDNSPrefix + "force_tcp"
 
 	// crypto
 	cryptoPrefix     = "crypto."

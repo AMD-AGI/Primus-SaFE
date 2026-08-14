@@ -1096,8 +1096,10 @@ func (r *ClusterReconciler) guaranteeNodeLocalDNS(ctx context.Context, cluster *
 	// keep resolving the system host to an apiserver that is gone. Only the template stanza is
 	// rewritten so site-specific directives sharing the block are preserved.
 	upstream := commonconfig.GetNodeLocalDNSUpstream()
-	desired := upsertTemplateStanza(corefile, dnsName, controlPlaneIPs, dnsUpstreamOrDefault(upstream))
-	desired = applyForwardUpstream(desired, upstream)
+	// force_tcp only makes sense together with a configured upstream.
+	forceTCP := upstream != "" && commonconfig.GetNodeLocalDNSForceTCP()
+	desired := upsertTemplateStanza(corefile, dnsName, controlPlaneIPs, dnsUpstreamOrDefault(upstream), forceTCP)
+	desired = applyForwardUpstream(desired, upstream, forceTCP)
 	if desired == corefile {
 		klog.V(4).Infof("nodelocaldns Corefile in cluster %s already targets %v, skipping",
 			cluster.Name, controlPlaneIPs)
@@ -1209,19 +1211,32 @@ func renderTemplateStanza(dnsName string, ips []string) string {
 	return sb.String()
 }
 
+// renderForwardDirective renders the root block's forward directive. force_tcp goes into a
+// sub-block because a cluster Service upstream must be reached over TCP to avoid the UDP conntrack
+// races nodelocaldns is deployed to prevent.
+func renderForwardDirective(upstream string, forceTCP bool) string {
+	if !forceTCP {
+		return dnsStanzaIndent + "forward . " + upstream + "\n"
+	}
+	return dnsStanzaIndent + "forward . " + upstream + " {\n" +
+		dnsStanzaIndent + dnsStanzaIndent + "force_tcp\n" +
+		dnsStanzaIndent + "}\n"
+}
+
 // renderRootServerBlock builds a complete root server block, used only for Corefiles that have
 // none. Sites that already have one keep their own directives.
-func renderRootServerBlock(dnsName string, ips []string, upstream string) string {
-	return fmt.Sprintf("%s\n%s%serrors\n%scache 30\n%sreload\n%sloop\n%sbind %s\n%sforward . %s\n%sprometheus :9253\n}\n",
+func renderRootServerBlock(dnsName string, ips []string, upstream string, forceTCP bool) string {
+	return fmt.Sprintf("%s\n%s%serrors\n%scache 30\n%sreload\n%sloop\n%sbind %s\n%s%sprometheus :9253\n}\n",
 		dnsServerBlockPrefix, renderTemplateStanza(dnsName, ips),
 		dnsStanzaIndent, dnsStanzaIndent, dnsStanzaIndent, dnsStanzaIndent,
-		dnsStanzaIndent, nodeLocalDNSBindIP, dnsStanzaIndent, upstream, dnsStanzaIndent)
+		dnsStanzaIndent, nodeLocalDNSBindIP,
+		renderForwardDirective(upstream, forceTCP), dnsStanzaIndent)
 }
 
 // upsertTemplateStanza points the template stanza for dnsName at the given addresses. Only that
 // stanza is rewritten, so hosts entries and any other directive sharing the block survive. A root
 // block is created only when the Corefile has none, keeping that block unique.
-func upsertTemplateStanza(corefile, dnsName string, ips []string, upstream string) string {
+func upsertTemplateStanza(corefile, dnsName string, ips []string, upstream string, forceTCP bool) string {
 	stanza := renderTemplateStanza(dnsName, ips)
 	if start, end, ok := findTemplateStanza(corefile, dnsName); ok {
 		return corefile[:start] + stanza + corefile[end:]
@@ -1234,7 +1249,7 @@ func upsertTemplateStanza(corefile, dnsName string, ips []string, upstream strin
 	if hasUndelimitedBlock(corefile, dnsName) {
 		return corefile
 	}
-	return strings.TrimRight(corefile, " \t\n") + "\n" + renderRootServerBlock(dnsName, ips, upstream)
+	return strings.TrimRight(corefile, " \t\n") + "\n" + renderRootServerBlock(dnsName, ips, upstream, forceTCP)
 }
 
 // hasUndelimitedBlock reports whether the Corefile declares a root zone or a template stanza for
@@ -1254,7 +1269,7 @@ func hasUndelimitedBlock(corefile, dnsName string) bool {
 // applyForwardUpstream points the root block's "forward ." directive at upstream so a site can
 // route everything it does not resolve locally to CoreDNS instead of the node resolver. An empty
 // upstream leaves the directive exactly as the site configured it.
-func applyForwardUpstream(corefile, upstream string) string {
+func applyForwardUpstream(corefile, upstream string, forceTCP bool) string {
 	if upstream == "" {
 		return corefile
 	}
@@ -1268,16 +1283,17 @@ func applyForwardUpstream(corefile, upstream string) string {
 		lineEnd := lineEndIndex(corefile, offset)
 		fields := strings.Fields(corefile[offset:lineEnd])
 		if len(fields) >= 2 && fields[0] == "forward" && fields[1] == "." {
-			// A trailing brace opens a sub-block (for example force_tcp) that must stay intact.
-			replaced := dnsStanzaIndent + "forward . " + upstream
+			// A trailing brace opens a sub-block the site owns, so only the address is retargeted
+			// and whatever options it already carries stay in place.
 			if fields[len(fields)-1] == "{" {
-				replaced += " {"
+				return corefile[:offset] + dnsStanzaIndent + "forward . " + upstream + " {" + corefile[lineEnd:]
 			}
-			return corefile[:offset] + replaced + corefile[lineEnd:]
+			return corefile[:offset] + renderForwardDirective(upstream, forceTCP) +
+				corefile[advancePastNewline(corefile, offset):]
 		}
 		offset = advancePastNewline(corefile, offset)
 	}
-	return corefile[:closingLine] + dnsStanzaIndent + "forward . " + upstream + "\n" + corefile[closingLine:]
+	return corefile[:closingLine] + renderForwardDirective(upstream, forceTCP) + corefile[closingLine:]
 }
 
 // findRootServerBlock returns the byte range of the root server block, header line included. The

@@ -415,6 +415,12 @@ func GetNodeLocalDNSUpstream() string {
 	return getString(nodeLocalDNSUpstream, "")
 }
 
+// GetNodeLocalDNSForceTCP returns whether the root server block reaches its upstream over TCP.
+// A cluster Service upstream needs it to avoid UDP conntrack races; an external resolver does not.
+func GetNodeLocalDNSForceTCP() bool {
+	return getBool(nodeLocalDNSForceTCP, false)
+}
+
 // GetIngress returns the ingress class name of the system.
 func GetIngress() string {
 	return getString(ingress, "")

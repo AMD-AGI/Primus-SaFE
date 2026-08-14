@@ -633,6 +633,27 @@ func TestGuaranteeNodeLocalDNSAppliesConfiguredUpstream(t *testing.T) {
 	testifyassert.Equal(t, corefile, readNodeLocalDNSCorefile(t, cs))
 }
 
+func TestGuaranteeNodeLocalDNSForcesTCPToClusterUpstream(t *testing.T) {
+	patches := gomonkey.ApplyFunc(commonconfig.GetSystemHost, func() string { return "safe.local" })
+	defer patches.Reset()
+	commonconfig.SetValue("node_local_dns.upstream", "192.168.0.10")
+	defer commonconfig.SetValue("node_local_dns.upstream", "")
+	commonconfig.SetValue("node_local_dns.force_tcp", "true")
+	defer commonconfig.SetValue("node_local_dns.force_tcp", "false")
+
+	r, cs, dataCluster := newNodeLocalDNSReconciler(t, siteCorefile)
+	ctx := context.Background()
+	testifyassert.NoError(t, r.guaranteeNodeLocalDNS(ctx, dataCluster))
+
+	corefile := readNodeLocalDNSCorefile(t, cs)
+	testifyassert.Contains(t, corefile, "forward . 192.168.0.10 {")
+	testifyassert.Contains(t, corefile, "force_tcp")
+	testifyassert.Equal(t, strings.Count(corefile, "{"), strings.Count(corefile, "}"))
+
+	testifyassert.NoError(t, r.guaranteeNodeLocalDNS(ctx, dataCluster))
+	testifyassert.Equal(t, corefile, readNodeLocalDNSCorefile(t, cs))
+}
+
 func TestGuaranteeDataPlaneClusterRoleEmptyName(t *testing.T) {
 	r := newClusterReconcilerWithFactory(t, "c1", k8sfake.NewSimpleClientset())
 	testifyassert.NoError(t, r.guaranteeDataPlaneClusterRole(context.Background(), testCluster("c1"), ""))
