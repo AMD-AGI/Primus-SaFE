@@ -22,7 +22,6 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/selection"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/kubernetes"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/pointer"
 	ctrlruntime "sigs.k8s.io/controller-runtime"
@@ -1089,7 +1088,7 @@ func (r *ClusterReconciler) guaranteeNodeLocalDNS(ctx context.Context, cluster *
 		return fmt.Errorf("failed to get nodelocaldns ConfigMap in cluster %s: %w", cluster.Name, err)
 	}
 
-	corefile, ok := cm.Data["Corefile"]
+	corefile, ok := cm.Data[corefileKey]
 	if !ok {
 		return fmt.Errorf("Corefile key not found in nodelocaldns ConfigMap in cluster %s", cluster.Name)
 	}
@@ -1103,7 +1102,7 @@ func (r *ClusterReconciler) guaranteeNodeLocalDNS(ctx context.Context, cluster *
 	}
 	r.clearDamagedNodeLocalDNS(cluster.Name)
 
-	desired, target, err := r.desiredNodeLocalDNSCorefile(ctx, cluster, clientSet, corefile, dnsName)
+	desired, target, err := r.desiredNodeLocalDNSCorefile(ctx, corefile, dnsName)
 	if err != nil {
 		return err
 	}
@@ -1113,7 +1112,7 @@ func (r *ClusterReconciler) guaranteeNodeLocalDNS(ctx context.Context, cluster *
 		return nil
 	}
 
-	cm.Data["Corefile"] = desired
+	cm.Data[corefileKey] = desired
 	if _, err = clientSet.CoreV1().ConfigMaps(nodeLocalDNSNamespace).Update(
 		ctx, cm, metav1.UpdateOptions{}); err != nil {
 		return fmt.Errorf("failed to update nodelocaldns ConfigMap in cluster %s: %w", cluster.Name, err)
@@ -1127,72 +1126,46 @@ func (r *ClusterReconciler) guaranteeNodeLocalDNS(ctx context.Context, cluster *
 
 // desiredNodeLocalDNSCorefile computes the Corefile this sync wants for the given cluster, and
 // describes what the system host resolves through so the caller can log it.
-func (r *ClusterReconciler) desiredNodeLocalDNSCorefile(ctx context.Context, cluster *v1.Cluster,
-	clientSet kubernetes.Interface, corefile, dnsName string) (string, string, error) {
+func (r *ClusterReconciler) desiredNodeLocalDNSCorefile(ctx context.Context,
+	corefileText, dnsName string) (string, string, error) {
+	cf, err := parseCorefile(corefileText)
+	if err != nil {
+		return "", "", err
+	}
+	root, _ := rootServer(cf)
+	if root == nil {
+		root = newRootServer(nodeLocalDNSBindIP(cf))
+		cf.Servers = append(cf.Servers, root)
+	}
+
 	if commonconfig.IsNodeLocalDNSForwardToClusterDNS() {
-		// Each cluster runs its own CoreDNS, so the address is read from that cluster rather than
-		// configured once for the platform.
-		clusterDNSIP, err := r.getClusterDNSIP(ctx, clientSet, cluster.Name)
-		if err != nil {
-			return "", "", err
+		// The cluster zones already name this cluster's CoreDNS, so the address comes from the file
+		// rather than from a Service whose name differs between installers.
+		clusterDNS, ok := clusterDNSAddress(cf)
+		if !ok {
+			return "", "", fmt.Errorf("cannot determine the cluster DNS address from the Corefile")
 		}
 		// CoreDNS orders template ahead of hosts, so a stanza left behind would override the records
 		// the site maintains in CoreDNS for the same name.
-		desired := removeTemplateStanza(corefile, dnsName)
-		// force_tcp matches how the cluster.local zones reach CoreDNS.
-		return applyForwardUpstream(desired, clusterDNSIP, true), "CoreDNS at " + clusterDNSIP, nil
+		removeTemplateStanza(root, dnsName)
+		// force_tcp matches how the cluster zones reach CoreDNS.
+		setRootForward(root, clusterDNS, true)
+		return renderCorefile(cf, corefileText), "CoreDNS at " + clusterDNS, nil
 	}
 
 	controlPlaneIPs, err := r.getControlPlaneIPs(ctx)
 	if err != nil {
 		return "", "", err
 	}
-	desired := upsertTemplateStanza(corefile, dnsName, controlPlaneIPs)
+	upsertTemplateStanza(root, dnsName, controlPlaneIPs)
 	// Reverting must restore resolution, not just the stanza: the usual reason to turn forwarding
 	// off is that CoreDNS is unreachable, and every other name would keep going there.
-	desired, err = r.revertClusterDNSForward(ctx, clientSet, cluster.Name, desired)
-	if err != nil {
-		return "", "", err
+	if clusterDNS, ok := clusterDNSAddress(cf); ok {
+		if plugin := findForward(root); plugin != nil && len(plugin.Args) >= 2 && plugin.Args[1] == clusterDNS {
+			revertRootForward(root)
+		}
 	}
-	return desired, fmt.Sprintf("control planes %v", controlPlaneIPs), nil
-}
-
-// revertClusterDNSForward points the root block back at the node resolver when it still forwards to
-// the address this sync wrote. A forward the site aimed somewhere else is left alone.
-func (r *ClusterReconciler) revertClusterDNSForward(ctx context.Context, clientSet kubernetes.Interface,
-	clusterName, corefile string) (string, error) {
-	target, ok := rootForwardTarget(corefile)
-	if !ok || target == defaultDNSUpstream {
-		return corefile, nil
-	}
-	// Only look the Service up when the forward points somewhere this sync might have set.
-	clusterDNSIP, err := r.getClusterDNSIP(ctx, clientSet, clusterName)
-	if err != nil {
-		// Without the address the forward cannot be attributed, so it stays as it is.
-		klog.V(4).Infof("cannot attribute nodelocaldns forward %q in cluster %s: %v",
-			target, clusterName, err)
-		return corefile, nil
-	}
-	if target != clusterDNSIP {
-		return corefile, nil
-	}
-	return revertRootForward(corefile), nil
-}
-
-// getClusterDNSIP returns the CoreDNS Service address inside the given data-plane cluster.
-func (r *ClusterReconciler) getClusterDNSIP(ctx context.Context, clientSet kubernetes.Interface,
-	clusterName string) (string, error) {
-	svc, err := clientSet.CoreV1().Services(nodeLocalDNSNamespace).Get(
-		ctx, clusterDNSService, metav1.GetOptions{})
-	if err != nil {
-		return "", fmt.Errorf("failed to get %s Service in cluster %s: %w",
-			clusterDNSService, clusterName, err)
-	}
-	if svc.Spec.ClusterIP == "" || svc.Spec.ClusterIP == corev1.ClusterIPNone {
-		return "", fmt.Errorf("%s Service in cluster %s has no ClusterIP",
-			clusterDNSService, clusterName)
-	}
-	return svc.Spec.ClusterIP, nil
+	return renderCorefile(cf, corefileText), fmt.Sprintf("control planes %v", controlPlaneIPs), nil
 }
 
 // reportDamagedNodeLocalDNS logs a Corefile needing manual repair once per transition. The condition

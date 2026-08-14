@@ -492,6 +492,37 @@ func TestFetchConfigFromControlPlaneAllNodesFail(t *testing.T) {
 	testifyassert.Error(t, err)
 }
 
+// countRootServers reports how many root zone servers the Corefile declares.
+func countRootServers(t *testing.T, corefile string) int {
+	t.Helper()
+	cf, err := parseCorefile(corefile)
+	testifyassert.NoError(t, err)
+	_, count := rootServer(cf)
+	return count
+}
+
+// rootBlockOf returns just the root zone server, so an assertion about it is not satisfied or
+// defeated by the cluster zones, which legitimately forward to CoreDNS.
+func rootBlockOf(t *testing.T, corefile string) string {
+	t.Helper()
+	cf, err := parseCorefile(corefile)
+	testifyassert.NoError(t, err)
+	root, _ := rootServer(cf)
+	testifyassert.NotNil(t, root)
+	return root.ToString()
+}
+
+// seedTemplateStanza puts a stanza this sync would have written into the root block.
+func seedTemplateStanza(corefile, dnsName, ip string) string {
+	cf, err := parseCorefile(corefile)
+	if err != nil {
+		panic(err)
+	}
+	root, _ := rootServer(cf)
+	upsertTemplateStanza(root, dnsName, []string{ip})
+	return renderCorefile(cf, corefile)
+}
+
 func readNodeLocalDNSCorefile(t *testing.T, cs *k8sfake.Clientset) string {
 	t.Helper()
 	cm, err := cs.CoreV1().ConfigMaps("kube-system").Get(
@@ -552,7 +583,7 @@ func TestGuaranteeNodeLocalDNSFollowsHealthyControlPlanes(t *testing.T) {
 	testifyassert.NotContains(t, corefile, "IN A 10.0.0.1")
 	testifyassert.Contains(t, corefile, "IN A 10.0.0.3")
 	// The block is replaced rather than appended, and unrelated blocks survive.
-	testifyassert.Equal(t, 1, strings.Count(corefile, dnsServerBlockPrefix))
+	testifyassert.Equal(t, 1, countRootServers(t, corefile))
 	testifyassert.Contains(t, corefile, "cluster.local:53 {")
 }
 
@@ -564,11 +595,6 @@ func newNodeLocalDNSReconciler(t *testing.T, corefile string) (*ClusterReconcile
 		&corev1.ConfigMap{
 			ObjectMeta: metav1.ObjectMeta{Name: "nodelocaldns", Namespace: "kube-system"},
 			Data:       map[string]string{"Corefile": corefile},
-		},
-		// Each data-plane cluster fronts its own CoreDNS, so the address is read from the cluster.
-		&corev1.Service{
-			ObjectMeta: metav1.ObjectMeta{Name: "kube-dns", Namespace: "kube-system"},
-			Spec:       corev1.ServiceSpec{ClusterIP: "192.168.0.10"},
 		})
 	scheme, _ := genMockScheme()
 	dataCluster := readyCluster("c1")
@@ -583,8 +609,13 @@ func newNodeLocalDNSReconciler(t *testing.T, corefile string) (*ClusterReconcile
 }
 
 // siteCorefile mirrors a Corefile whose hosts patch shares the root block with the template stanza.
+// The cluster zone names this cluster's CoreDNS, which is where the forward target comes from.
 const siteCorefile = `cluster.local:53 {
-    kubernetes
+    errors
+    bind 169.254.25.10
+    forward . 192.168.0.10 {
+        force_tcp
+    }
 }
 .:53 {
     hosts {
@@ -611,7 +642,7 @@ func TestGuaranteeNodeLocalDNSKeepsSiteHosts(t *testing.T) {
 	testifyassert.Contains(t, corefile, "10.9.9.1 global.safe.local")
 	testifyassert.Contains(t, corefile, "10.9.9.2 llm-api.safe.local")
 	testifyassert.Contains(t, corefile, "IN A 10.0.0.1")
-	testifyassert.Equal(t, 1, strings.Count(corefile, dnsServerBlockPrefix))
+	testifyassert.Equal(t, 1, countRootServers(t, corefile))
 
 	// A second pass must not issue another update.
 	testifyassert.NoError(t, r.guaranteeNodeLocalDNS(ctx, dataCluster))
@@ -638,24 +669,21 @@ func TestGuaranteeNodeLocalDNSForwardsToClusterDNS(t *testing.T) {
 	defer commonconfig.SetValue("node_local_dns.forward_to_cluster_dns", "false")
 
 	// Start from a Corefile this sync had already written its stanza into.
-	seeded := strings.Replace(siteCorefile, "    errors\n",
-		"    template IN A safe.local {\n        answer \"{{ .Name }} 60 IN A 10.0.0.1\"\n"+
-			"        fallthrough\n    }\n    errors\n", 1)
-	r, cs, dataCluster := newNodeLocalDNSReconciler(t, seeded)
+	r, cs, dataCluster := newNodeLocalDNSReconciler(t, seedTemplateStanza(siteCorefile, "safe.local", "10.0.0.1"))
 	ctx := context.Background()
 	testifyassert.NoError(t, r.guaranteeNodeLocalDNS(ctx, dataCluster))
 
 	corefile := readNodeLocalDNSCorefile(t, cs)
-	// The address comes from this cluster's own kube-dns Service, reached over TCP like cluster.local.
-	testifyassert.Contains(t, corefile, "forward . 192.168.0.10 {")
-	testifyassert.Contains(t, corefile, "force_tcp")
-	testifyassert.NotContains(t, corefile, "forward . /etc/resolv.conf")
+	root := rootBlockOf(t, corefile)
+	// The address is the one the cluster zones already use, reached over TCP the same way.
+	testifyassert.Contains(t, root, "forward . 192.168.0.10 {")
+	testifyassert.Contains(t, root, "force_tcp")
+	testifyassert.NotContains(t, root, "forward . /etc/resolv.conf")
 	// CoreDNS orders template ahead of hosts, so the stanza must go for CoreDNS records to apply.
 	testifyassert.NotContains(t, corefile, "template IN A safe.local")
 	// The site's own directives are still untouched.
-	testifyassert.Contains(t, corefile, "10.9.9.1 global.safe.local")
-	testifyassert.Equal(t, 1, countRootServerBlocks(corefile))
-	testifyassert.Equal(t, strings.Count(corefile, "{"), strings.Count(corefile, "}"))
+	testifyassert.Contains(t, root, "10.9.9.1 global.safe.local")
+	testifyassert.Equal(t, 1, countRootServers(t, corefile))
 
 	testifyassert.NoError(t, r.guaranteeNodeLocalDNS(ctx, dataCluster))
 	testifyassert.Equal(t, corefile, readNodeLocalDNSCorefile(t, cs))
@@ -674,13 +702,14 @@ func TestGuaranteeNodeLocalDNSRevertRestoresNodeResolver(t *testing.T) {
 	testifyassert.NoError(t, r.guaranteeNodeLocalDNS(ctx, dataCluster))
 
 	corefile := readNodeLocalDNSCorefile(t, cs)
-	testifyassert.Contains(t, corefile, "forward . /etc/resolv.conf")
-	testifyassert.NotContains(t, corefile, "192.168.0.10")
-	testifyassert.NotContains(t, corefile, "force_tcp")
+	root := rootBlockOf(t, corefile)
+	// Scoped to the root block: the cluster zones legitimately keep forwarding to CoreDNS.
+	testifyassert.Contains(t, root, "forward . /etc/resolv.conf")
+	testifyassert.NotContains(t, root, "192.168.0.10")
+	testifyassert.NotContains(t, root, "force_tcp")
 	// The stanza comes back and the site's records are untouched.
-	testifyassert.Contains(t, corefile, "template IN A safe.local {")
-	testifyassert.Contains(t, corefile, "10.9.9.1 global.safe.local")
-	testifyassert.Equal(t, strings.Count(corefile, "{"), strings.Count(corefile, "}"))
+	testifyassert.Contains(t, root, "template IN A safe.local {")
+	testifyassert.Contains(t, root, "10.9.9.1 global.safe.local")
 
 	testifyassert.NoError(t, r.guaranteeNodeLocalDNS(ctx, dataCluster))
 	testifyassert.Equal(t, corefile, readNodeLocalDNSCorefile(t, cs))

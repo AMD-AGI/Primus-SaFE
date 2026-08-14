@@ -6,14 +6,18 @@ require (
 	github.com/AMD-AIG-AIMA/SAFE/apis v0.0.0
 	github.com/AMD-AIG-AIMA/SAFE/common v0.0.0
 	github.com/AMD-AIG-AIMA/SAFE/utils v0.0.0
+	github.com/DATA-DOG/go-sqlmock v1.5.2
 	github.com/agiledragon/gomonkey/v2 v2.14.0
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.95.0
+	github.com/coredns/corefile-migration v1.0.34
+	github.com/golang/mock v1.7.0-rc.1
 	github.com/onsi/ginkgo/v2 v2.27.2
 	github.com/onsi/gomega v1.38.2
 	github.com/pkg/errors v0.9.1
 	github.com/prometheus/client_golang v1.23.2
 	github.com/stretchr/testify v1.11.1
 	golang.org/x/crypto v0.51.0
+	golang.org/x/sync v0.20.0
 	gopkg.in/yaml.v2 v2.4.0
 	gotest.tools v2.2.0+incompatible
 	helm.sh/helm/v3 v3.21.0
@@ -65,6 +69,7 @@ require (
 	github.com/containerd/errdefs v1.0.0 // indirect
 	github.com/containerd/log v0.1.0 // indirect
 	github.com/containerd/platforms v1.0.0-rc.2 // indirect
+	github.com/coredns/caddy v1.1.1 // indirect
 	github.com/coreos/go-systemd/v22 v22.7.0 // indirect
 	github.com/creack/pty v1.1.24 // indirect
 	github.com/cyphar/filepath-securejoin v0.6.1 // indirect
@@ -174,7 +179,6 @@ require (
 	golang.org/x/mod v0.36.0 // indirect
 	golang.org/x/net v0.54.0 // indirect
 	golang.org/x/oauth2 v0.36.0 // indirect
-	golang.org/x/sync v0.20.0 // indirect
 	golang.org/x/sys v0.44.0 // indirect
 	golang.org/x/term v0.43.0 // indirect
 	golang.org/x/text v0.37.0 // indirect
