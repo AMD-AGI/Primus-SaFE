@@ -29,7 +29,28 @@ var (
 	// attempt and no way for a caller to tell "not ready" from "never will be".
 	instanceMu sync.Mutex
 	instance   *Client
+	// lastAttempt is when a build was last tried and failed. Zero means never.
+	lastAttempt time.Time
 )
+
+// initRetryCooldown is how long a failed build stands before another is tried.
+//
+// Retrying is what stops one bad boot costing a process its database client for
+// good, but retrying on every call is its own fault: a build dials the server,
+// waits up to ConnectTimeout, and holds instanceMu while it does. Callers are on
+// periodic and reconcile paths -- the self-health reporter asks every 30s,
+// dispatch asks per user lookup -- so an outage would turn each of them into a
+// repeated dial against a database that is already struggling, with every other
+// caller queued behind the one holding the lock.
+//
+// Timed from when an attempt starts rather than when it fails, so a dial that
+// hangs for its whole timeout does not then earn a further cooldown on top: the
+// rate is one attempt per cooldown however slowly the server is failing.
+//
+// A variable so a test can take it out of the way; not a config key, because the
+// number that matters to an operator is ConnectTimeout, and this only has to be
+// longer than one attempt.
+var initRetryCooldown = 30 * time.Second
 
 // Client represents a database client that manages both sqlx and gorm database connections.
 // It encapsulates the database configuration and provides methods to interact with the database.
@@ -54,7 +75,8 @@ type Client struct {
 // nil for the life of the process, so a blip while the cluster was electing a
 // primary cost a deployment its database client until someone restarted the pod.
 // Now the next caller tries again, and a database that has finished failing over
-// is picked up without one.
+// is picked up without one -- though not the very next caller, since a failure
+// stands for initRetryCooldown before another dial is spent on it.
 //
 // Returns:
 //   - *Client: Singleton database client instance, or nil when one cannot be
@@ -65,11 +87,18 @@ func NewClient() *Client {
 	if instance != nil {
 		return instance
 	}
-	client, err := buildClient(configuredDB())
-	if err != nil {
-		klog.ErrorS(err, "failed to init db-client; a later call will try again")
+	if since := time.Since(lastAttempt); !lastAttempt.IsZero() && since < initRetryCooldown {
+		klog.V(4).Infof("db-client init failed %v ago; holding off until %v has passed", since, initRetryCooldown)
 		return nil
 	}
+	lastAttempt = time.Now()
+	client, err := buildClient(configuredDB())
+	if err != nil {
+		klog.ErrorS(err, "failed to init db-client; a call after the retry cooldown will try again",
+			"cooldown", initRetryCooldown)
+		return nil
+	}
+	lastAttempt = time.Time{}
 	instance = client
 	klog.Infof("init db-client successfully! conn-timeout: %d(s), request-timeout: %d(s)",
 		client.ConnectTimeout, commonconfig.GetDBRequestTimeoutSecond())

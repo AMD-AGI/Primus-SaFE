@@ -37,6 +37,21 @@ func TestBuildClientReportsWhyItCouldNotBuild(t *testing.T) {
 	}
 }
 
+// resetSingleton puts the package back to "never built" and restores it after the
+// test, so cases that drive NewClient do not inherit each other's instance or
+// retry cooldown.
+func resetSingleton(t *testing.T) {
+	t.Helper()
+	clear := func() {
+		instanceMu.Lock()
+		defer instanceMu.Unlock()
+		instance = nil
+		lastAttempt = time.Time{}
+	}
+	clear()
+	t.Cleanup(clear)
+}
+
 // TestNewClientRetriesAfterAFailure is the regression this rewrite exists for.
 //
 // The singleton was built with sync.Once, which is spent whether the body
@@ -47,58 +62,85 @@ func TestBuildClientReportsWhyItCouldNotBuild(t *testing.T) {
 //
 // Asserted through the failure path because the success path needs a database.
 // Reaching buildClient twice is the property under test; that both attempts fail
-// here is incidental.
+// here is incidental. The cooldown is taken out of the way so this case stays
+// about whether a retry happens at all -- when it happens is the case below.
 func TestNewClientRetriesAfterAFailure(t *testing.T) {
+	resetSingleton(t)
+	attempts := countedFailingConfig(t)
+	withCooldown(t, 0)
+
+	assert.Nil(t, NewClient())
+	assert.Nil(t, NewClient())
+	assert.Equal(t, 2, *attempts,
+		"a failed init must not settle the question: a later call has to try again")
+}
+
+// TestNewClientHoldsOffAfterAFailure is the other side of that retry, and the
+// cost of having added it.
+//
+// An attempt is not cheap: it dials the server, waits up to connect_timeout, and
+// holds instanceMu while it does. The callers are periodic or per-request -- the
+// self-health reporter asks every 30s, dispatch asks per user lookup -- so
+// retrying on every call would point a steady stream of connection attempts at a
+// database that is already down, each one parking the other callers behind the
+// lock. sync.Once was at least free once it was spent; a retry has to buy its
+// own bound.
+func TestNewClientHoldsOffAfterAFailure(t *testing.T) {
+	resetSingleton(t)
+	attempts := countedFailingConfig(t)
+	withCooldown(t, time.Hour)
+
+	assert.Nil(t, NewClient())
+	assert.Nil(t, NewClient())
+	assert.Nil(t, NewClient())
+	assert.Equal(t, 1, *attempts, "calls inside the cooldown must not dial again")
+
+	// Age the failure past the cooldown: the hold-off has to expire, or it is
+	// sync.Once with extra steps.
 	instanceMu.Lock()
-	instance = nil
+	lastAttempt = time.Now().Add(-2 * time.Hour)
 	instanceMu.Unlock()
 
-	attempts := 0
-	t.Cleanup(func() {
-		instanceMu.Lock()
-		instance = nil
-		instanceMu.Unlock()
-	})
+	assert.Nil(t, NewClient())
+	assert.Equal(t, 2, *attempts, "once the cooldown has passed, a call must try again")
+}
 
-	// Stand in for the config reader so the test does not depend on viper state,
-	// and count how many times a call reaches it.
+// countedFailingConfig replaces the config reader with one that always yields an
+// unusable config, and returns a count of how many times a build reached it.
+// Standing in here keeps these cases off viper state for settings they are not
+// testing, and makes "did it attempt" observable without a database.
+func countedFailingConfig(t *testing.T) *int {
+	t.Helper()
+	attempts := 0
 	restore := configuredDB
 	t.Cleanup(func() { configuredDB = restore })
 	configuredDB = func() *utils.DBConfig {
 		attempts++
 		return &utils.DBConfig{}
 	}
+	return &attempts
+}
 
-	assert.Nil(t, NewClient())
-	assert.Nil(t, NewClient())
-	assert.Equal(t, 2, attempts,
-		"a failed init must not settle the question: the next call has to try again")
+func withCooldown(t *testing.T, d time.Duration) {
+	t.Helper()
+	restore := initRetryCooldown
+	t.Cleanup(func() { initRetryCooldown = restore })
+	initRetryCooldown = d
 }
 
 // TestNewClientCachesASuccess keeps the other half of the contract. Retrying is
 // only correct while there is nothing to return; once a client exists it is the
 // singleton, and rebuilding it would open a second pair of pools.
 func TestNewClientCachesASuccess(t *testing.T) {
+	resetSingleton(t)
 	instanceMu.Lock()
 	instance = &Client{DBConfig: &utils.DBConfig{DBName: "already-built"}}
 	instanceMu.Unlock()
-	t.Cleanup(func() {
-		instanceMu.Lock()
-		instance = nil
-		instanceMu.Unlock()
-	})
-
-	calls := 0
-	restore := configuredDB
-	t.Cleanup(func() { configuredDB = restore })
-	configuredDB = func() *utils.DBConfig {
-		calls++
-		return &utils.DBConfig{}
-	}
+	calls := countedFailingConfig(t)
 
 	require.NotNil(t, NewClient())
 	assert.Equal(t, "already-built", NewClient().DBName)
-	assert.Zero(t, calls, "an existing client must be returned, not rebuilt")
+	assert.Zero(t, *calls, "an existing client must be returned, not rebuilt")
 }
 
 // TestDiscardPoolStopsItReporting covers the half of a failed init that is
