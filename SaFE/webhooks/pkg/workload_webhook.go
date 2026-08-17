@@ -391,7 +391,7 @@ func (m *WorkloadMutator) mutateAuthoring(workload *v1.Workload) {
 		workload.Spec.Resources[0].Replica = 1
 	}
 	v1.SetAnnotation(workload, v1.WorkloadDisableFailoverAnnotation, v1.TrueStr)
-	workload.Spec.EntryPoints = []string{stringutil.Base64Encode("sleep infinity")}
+	workload.Spec.EntryPoints = []string{stringutil.Base64Encode("tail -f /dev/null")}
 	workload.Spec.Dependencies = nil
 }
 
