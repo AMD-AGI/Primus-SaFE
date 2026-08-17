@@ -55,12 +55,10 @@ data:
   net_oci_dcqcn_212: '{"script":"net_oci_dcqcn_212.sh","id":"212","cronjob":"@every 300s","timeoutSecond":250,"consecutiveCount":2,"chip":"amd","toggle":"on","arguments":["{{ .Values.node_agent.sub_domain }}"]}'
   net_resolved_kubespray_conf_213: '{"script":"net_resolved_kubespray_conf_213.sh","id":"213","cronjob":"@every 300s","timeoutSecond":250,"toggle":"on","arguments":["{{ .Values.node_agent.sub_domain }}"]}'
   # 214 mutates /etc/resolv.conf on the host every 5 min (appends a DNS
-  # search domain, chattr +i's the file, restarts systemd-resolved). DNS
-  # search domain propagation is now handled in-cluster by
-  # ClusterReconciler.guaranteeNodeLocalDNS which edits the nodelocaldns
-  # ConfigMap instead of poking /etc/resolv.conf on every node. Keep the
-  # script around for one release in case some site relies on it, then
-  # remove entirely.
+  # search domain, chattr +i's the file, restarts systemd-resolved). Name
+  # resolution is configured in CoreDNS instead, which nodelocaldns forwards
+  # to, so nothing has to be written on each node. Keep the script around for
+  # one release in case some site relies on it, then remove entirely.
   net_search_domain_214: '{"script":"net_search_domain_214.sh","id":"214","cronjob":"@every 300s","timeoutSecond":250,"toggle":"off","arguments":["{{ .Values.monitor.resolv_search_domain }}"]}'
   # 215 ensures same-node Pod -> host-IP routing: re-applies the high-priority
   # "ip rule to <pod_cidr> lookup main" when missing (e.g. after reboot). The
