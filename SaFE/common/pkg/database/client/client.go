@@ -40,6 +40,21 @@ type Client struct {
 // validates the parameters, establishes connections using both sqlx and gorm
 // The initialization happens only once even if called multiple times.
 //
+// A failure here ends the process, because the alternative is worse than a
+// restart. `once` is spent whether the body succeeded or not, so returning on
+// failure left `instance` nil for the life of the process: no retry, and no way
+// for a caller to tell "not ready" from "never will be". What callers do with
+// that nil then varies, and the quiet one is the problem -- one logs a warning
+// and skips registering its controller, so a blip while the database was
+// electing a primary silently costs that deployment a controller until someone
+// notices it never ran.
+//
+// Exiting hands the retry to the thing that is good at it. Kubernetes restarts
+// the pod with backoff, the next attempt reaches a database that has finished
+// failing over, and a boot that cannot reach its database is visible as a
+// restarting pod rather than as absent behaviour. Callers guard this with
+// IsDBEnable, so a deployment that runs without a database never arrives here.
+//
 // Returns:
 //   - *Client: Singleton database client instance
 func NewClient() *Client {
@@ -60,27 +75,18 @@ func NewClient() *Client {
 			RequestTimeout:     time.Duration(commonconfig.GetDBRequestTimeoutSecond()) * time.Second,
 		}
 		if err := checkParams(cfg); err != nil {
-			klog.ErrorS(err, "failed to check db params")
-			return
+			klog.Fatalf("failed to check db params: %v", err)
 		}
 		db, err := utils.Connect(cfg, utils.PgDriver)
 		if err != nil {
-			klog.Errorf("%s", err.Error())
-			return
+			klog.Fatalf("failed to connect db: %v", err)
 		}
-		err = db.Ping()
-		if err != nil {
-			klog.ErrorS(err, "failed to ping db")
-			return
+		if err = db.Ping(); err != nil {
+			klog.Fatalf("failed to ping db: %v", err)
 		}
 		gormDb, err := utils.ConnectGorm(cfg)
 		if err != nil {
-			// Left unchecked, a failed GORM init still produced a client, with a
-			// nil handle every later query would fault on -- far from the boot
-			// that caused it. NewClientWithConfig has always checked this.
-			klog.ErrorS(err, "failed to connect gorm db")
-			db.Close()
-			return
+			klog.Fatalf("failed to connect gorm db: %v", err)
 		}
 		instance = &Client{db: db, DBConfig: cfg, gorm: gormDb}
 		klog.Infof("init db-client successfully! conn-timeout: %d(s), request-timeout: %d(s)",
@@ -128,8 +134,13 @@ func NewClientWithConfig(cfg *utils.DBConfig) (*Client, error) {
 	gormDb, err := utils.ConnectGorm(cfg)
 	if err != nil {
 		klog.ErrorS(err, "failed to connect gorm db")
-		// Close sqlx connection before returning error
+		// Close sqlx connection before returning error, and stop it reporting.
+		// Connect registered its collector, and a closed pool that is still
+		// registered publishes a frozen set of zeroes for the life of the
+		// process -- indistinguishable on a dashboard from a pool that is simply
+		// idle. Client.Close pairs these for the same reason.
 		db.Close()
+		metrics.UnregisterDBPool(utils.SqlxPoolKey(cfg))
 		return nil, err
 	}
 
