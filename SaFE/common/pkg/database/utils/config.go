@@ -40,6 +40,20 @@ func (c *DBConfig) SourceName() string {
 		targetSessionAttrsParam(c.TargetSessionAttrs))
 }
 
+// GormSourceName generates the connection string GORM's postgres dialector is
+// opened with.
+//
+// Beside SourceName rather than inline at the call site, and for the reason this
+// file's own history gives: two things built from one config, in two places, is
+// how the pool limits came to differ between the two pools. The keyword order
+// differs from SourceName's because that is what each was written with and the
+// drivers do not care; what has to agree is which parameters appear.
+func (c *DBConfig) GormSourceName() string {
+	return fmt.Sprintf("host=%s port=%v user=%s dbname=%s password=%s sslmode=%s%s",
+		c.Host, c.Port, c.Username, c.DBName, c.Password, c.SSLMode,
+		targetSessionAttrsParam(c.TargetSessionAttrs))
+}
+
 // targetSessionAttrsParam renders the parameter, or nothing when unset.
 //
 // Omitted rather than passed empty: both drivers read an explicit empty value as

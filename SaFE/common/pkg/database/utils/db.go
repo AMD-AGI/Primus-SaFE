@@ -81,12 +81,9 @@ func GormPoolKey(cfg *DBConfig) metrics.PoolKey {
 //   - error: Connection error if any
 func ConnectGorm(cfg *DBConfig) (*gorm.DB, error) {
 	// init gorm
-	dsn := fmt.Sprintf("host=%s port=%v user=%s dbname=%s password=%s sslmode=%s%s",
-		cfg.Host, cfg.Port, cfg.Username, cfg.DBName, cfg.Password, cfg.SSLMode,
-		targetSessionAttrsParam(cfg.TargetSessionAttrs))
 	dialector := postgres.Dialector{
 		Config: &postgres.Config{
-			DSN: dsn,
+			DSN: cfg.GormSourceName(),
 		},
 	}
 	gormDB, err := gorm.Open(dialector, &gorm.Config{
@@ -140,6 +137,15 @@ func applyPoolLimits(sqlDB *sql.DB, cfg *DBConfig) {
 	}
 	if cfg.MaxIdleConns > 0 {
 		sqlDB.SetMaxIdleConns(cfg.MaxIdleConns)
+	}
+	if cfg.MaxLifetime <= 0 {
+		// Passed through rather than overridden, because a caller may mean it.
+		// Said out loud because the meaning is not the one the zero suggests: it
+		// is not "no limit configured", it is the unbounded reuse that let a pool
+		// serve a demoted replica for three days, and nothing else reports it.
+		klog.Warningf("db pool %s has no connection lifetime: a connection may be "+
+			"reused for the life of the process, so one to a demoted replica is "+
+			"never retired", poolName(cfg))
 	}
 	sqlDB.SetConnMaxIdleTime(cfg.MaxIdleTime)
 	sqlDB.SetConnMaxLifetime(cfg.MaxLifetime)

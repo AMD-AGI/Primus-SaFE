@@ -31,6 +31,36 @@ func TestSourceNameAsksForAWritableSession(t *testing.T) {
 	assert.Contains(t, dsnConfig("read-write").SourceName(), "target_session_attrs=read-write")
 }
 
+// TestBothDSNsCarryTheSameSessionAttr is the one that guards against a repeat of
+// the bug this branch fixes.
+//
+// That bug was two things built from one config, in two places, which came to
+// disagree -- the sqlx pool had a connection lifetime and the GORM pool did not.
+// The two DSNs are the same shape of risk, so the parameter is asserted on both
+// rather than on the one that happens to be a method.
+func TestBothDSNsCarryTheSameSessionAttr(t *testing.T) {
+	cfg := dsnConfig("read-write")
+	assert.Contains(t, cfg.SourceName(), "target_session_attrs=read-write")
+	assert.Contains(t, cfg.GormSourceName(), "target_session_attrs=read-write")
+
+	unset := dsnConfig("")
+	assert.NotContains(t, unset.SourceName(), "target_session_attrs")
+	assert.NotContains(t, unset.GormSourceName(), "target_session_attrs")
+}
+
+// TestGormSourceNameCarriesTheConnectionItNeeds pins the parameters, not their
+// order: the two DSNs were written with different keyword orders and the drivers
+// do not care, but a parameter going missing from one of them is the asymmetry
+// that has already cost a three-day outage once.
+func TestGormSourceNameCarriesTheConnectionItNeeds(t *testing.T) {
+	dsn := dsnConfig("read-write").GormSourceName()
+	for _, want := range []string{
+		"host=h", "port=5432", "user=u", "dbname=d", "password=p", "sslmode=require",
+	} {
+		assert.Contains(t, dsn, want)
+	}
+}
+
 // TestSourceNameOmitsAnUnsetSessionAttr is the half that matters for the escape
 // hatch. Both drivers read an explicit empty value as a setting and libpq
 // rejects it, so clearing the config has to leave the keyword out rather than
