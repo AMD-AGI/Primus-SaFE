@@ -81,8 +81,9 @@ func GormPoolKey(cfg *DBConfig) metrics.PoolKey {
 //   - error: Connection error if any
 func ConnectGorm(cfg *DBConfig) (*gorm.DB, error) {
 	// init gorm
-	dsn := fmt.Sprintf("host=%s port=%v user=%s dbname=%s password=%s sslmode=%s",
-		cfg.Host, cfg.Port, cfg.Username, cfg.DBName, cfg.Password, cfg.SSLMode)
+	dsn := fmt.Sprintf("host=%s port=%v user=%s dbname=%s password=%s sslmode=%s%s",
+		cfg.Host, cfg.Port, cfg.Username, cfg.DBName, cfg.Password, cfg.SSLMode,
+		targetSessionAttrsParam(cfg.TargetSessionAttrs))
 	dialector := postgres.Dialector{
 		Config: &postgres.Config{
 			DSN: dsn,

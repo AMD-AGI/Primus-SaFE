@@ -45,18 +45,19 @@ type Client struct {
 func NewClient() *Client {
 	once.Do(func() {
 		cfg := &utils.DBConfig{
-			DBName:         commonconfig.GetDBName(),
-			Username:       commonconfig.GetDBUser(),
-			Password:       commonconfig.GetDBPassword(),
-			Host:           commonconfig.GetDBHost(),
-			Port:           commonconfig.GetDBPort(),
-			SSLMode:        commonconfig.GetDBSslMode(),
-			MaxOpenConns:   commonconfig.GetDBMaxOpenConns(),
-			MaxIdleConns:   commonconfig.GetDBMaxIdleConns(),
-			MaxLifetime:    time.Duration(commonconfig.GetDBMaxLifetimeSecond()) * time.Second,
-			MaxIdleTime:    time.Duration(commonconfig.GetDBMaxIdleTimeSecond()) * time.Second,
-			ConnectTimeout: commonconfig.GetDBConnectTimeoutSecond(),
-			RequestTimeout: time.Duration(commonconfig.GetDBRequestTimeoutSecond()) * time.Second,
+			DBName:             commonconfig.GetDBName(),
+			Username:           commonconfig.GetDBUser(),
+			Password:           commonconfig.GetDBPassword(),
+			Host:               commonconfig.GetDBHost(),
+			Port:               commonconfig.GetDBPort(),
+			SSLMode:            commonconfig.GetDBSslMode(),
+			TargetSessionAttrs: commonconfig.GetDBTargetSessionAttrs(),
+			MaxOpenConns:       commonconfig.GetDBMaxOpenConns(),
+			MaxIdleConns:       commonconfig.GetDBMaxIdleConns(),
+			MaxLifetime:        time.Duration(commonconfig.GetDBMaxLifetimeSecond()) * time.Second,
+			MaxIdleTime:        time.Duration(commonconfig.GetDBMaxIdleTimeSecond()) * time.Second,
+			ConnectTimeout:     commonconfig.GetDBConnectTimeoutSecond(),
+			RequestTimeout:     time.Duration(commonconfig.GetDBRequestTimeoutSecond()) * time.Second,
 		}
 		if err := checkParams(cfg); err != nil {
 			klog.ErrorS(err, "failed to check db params")

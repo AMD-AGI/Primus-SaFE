@@ -245,6 +245,22 @@ func GetDBSslMode() string {
 	return getString(dbSslMode, "require")
 }
 
+// GetDBTargetSessionAttrs returns the session the driver must be given, or an
+// empty string to accept whichever it reaches.
+//
+// `read-write` makes the driver ask, at connect time, whether the session it
+// just opened can write, and refuse it when it cannot. Without that a connection
+// to a demoted replica is accepted and fails only later, on the first write, with
+// SQLSTATE 25006 -- and every component here writes, so a read-only session is
+// never one it can use.
+//
+// Configurable because it constrains what the address in the DB secret is allowed
+// to resolve to: a deployment that deliberately points at a replica has to clear
+// this, or every connection fails outright rather than serving reads.
+func GetDBTargetSessionAttrs() string {
+	return getString(dbTargetSessionAttrs, "read-write")
+}
+
 // GetDBMaxOpenConns returns the maximum number of open database connections.
 func GetDBMaxOpenConns() int {
 	return getInt(dbMaxOpenConns, 100)
