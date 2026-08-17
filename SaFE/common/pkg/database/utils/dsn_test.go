@@ -49,6 +49,12 @@ func TestBothDSNsCarryTheSameSessionAttr(t *testing.T) {
 	unset := dsnConfig("")
 	assert.NotContains(t, unset.SourceName(), "target_session_attrs")
 	assert.NotContains(t, unset.GormSourceName(), "target_session_attrs")
+
+	// connect_timeout for the same reason. It was the parameter that had already
+	// gone missing from one of the two, so it is asserted on both here rather
+	// than only where it was added.
+	assert.Contains(t, cfg.SourceName(), "connect_timeout=5")
+	assert.Contains(t, cfg.GormSourceName(), "connect_timeout=5")
 }
 
 // TestGormSourceNameCarriesTheConnectionItNeeds pins the parameters, not their
@@ -59,6 +65,7 @@ func TestGormSourceNameCarriesTheConnectionItNeeds(t *testing.T) {
 	dsn := dsnConfig("read-write").GormSourceName()
 	for _, want := range []string{
 		"host=h", "port=5432", "user=u", "dbname=d", "password=p", "sslmode=require",
+		"connect_timeout=5",
 	} {
 		assert.Contains(t, dsn, want)
 	}

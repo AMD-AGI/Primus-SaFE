@@ -48,9 +48,14 @@ func (c *DBConfig) SourceName() string {
 // how the pool limits came to differ between the two pools. The keyword order
 // differs from SourceName's because that is what each was written with and the
 // drivers do not care; what has to agree is which parameters appear.
+//
+// connect_timeout is among them. It was missing here while SourceName had it,
+// which left a GORM dial to an unreachable host waiting on the OS rather than on
+// a number this config sets -- the same shape of asymmetry as the pool limits,
+// and it bounds how long an init attempt can hold the client mutex.
 func (c *DBConfig) GormSourceName() string {
-	return fmt.Sprintf("host=%s port=%v user=%s dbname=%s password=%s sslmode=%s%s",
-		c.Host, c.Port, c.Username, c.DBName, c.Password, c.SSLMode,
+	return fmt.Sprintf("host=%s port=%v user=%s dbname=%s password=%s sslmode=%s connect_timeout=%d%s",
+		c.Host, c.Port, c.Username, c.DBName, c.Password, c.SSLMode, c.ConnectTimeout,
 		targetSessionAttrsParam(c.TargetSessionAttrs))
 }
 
