@@ -6,12 +6,19 @@
 package client
 
 import (
+	"net"
 	"testing"
+	"time"
 
+	"github.com/DATA-DOG/go-sqlmock"
+	"github.com/jmoiron/sqlx"
+	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/utils"
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/metrics"
 )
 
 // TestBuildClientReportsWhyItCouldNotBuild covers the failure path a caller acts
@@ -92,4 +99,85 @@ func TestNewClientCachesASuccess(t *testing.T) {
 	require.NotNil(t, NewClient())
 	assert.Equal(t, "already-built", NewClient().DBName)
 	assert.Zero(t, calls, "an existing client must be returned, not rebuilt")
+}
+
+// TestDiscardPoolStopsItReporting covers the half of a failed init that is
+// invisible at runtime.
+//
+// Connect registers a metrics collector against the pool it opened. Closing the
+// pool without unregistering leaves the collector reading a closed handle, which
+// publishes a frozen set of zeroes for the life of the process -- on a dashboard
+// that is indistinguishable from a pool that is simply idle, so the one signal
+// that would say "this client never came up" reads as healthy.
+func TestDiscardPoolStopsItReporting(t *testing.T) {
+	sqldb, _, err := sqlmock.New()
+	require.NoError(t, err)
+	db := sqlx.NewDb(sqldb, "postgres")
+
+	cfg := &utils.DBConfig{Host: "discard-test", Port: 5432, DBName: "safe"}
+	labels := map[string]string{"pool": "discard-test:5432/safe", "driver": "sqlx", "state": "open"}
+	metrics.RegisterDBPool(utils.SqlxPoolKey(cfg), db.Stats)
+	t.Cleanup(func() { metrics.UnregisterDBPool(utils.SqlxPoolKey(cfg)) })
+	require.NotNil(t, findMetric(t, "safe_db_pool_connections", labels),
+		"precondition: the pool should be reporting before it is discarded")
+
+	discardPool(db, cfg)
+
+	assert.Nil(t, findMetric(t, "safe_db_pool_connections", labels),
+		"a discarded pool must stop reporting, or its zeroes look like an idle pool")
+	assert.Error(t, db.Ping(), "the pool should be closed as well as unregistered")
+}
+
+// TestConfiguredDBReadsEachSettingIntoItsOwnField guards a mapping that nothing
+// else would catch. Thirteen settings are copied into one struct, and the two
+// durations are the pair worth pinning: swapping the lifetime and the idle time
+// would compile, pass every other test, and quietly restore the unbounded reuse
+// this branch exists to end.
+func TestConfiguredDBReadsEachSettingIntoItsOwnField(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+	commonconfig.SetValue("db.max_life_time_second", "111")
+	commonconfig.SetValue("db.max_idle_time_second", "222")
+	commonconfig.SetValue("db.ssl_mode", "disable")
+	commonconfig.SetValue("db.target_session_attrs", "")
+
+	cfg := configuredDB()
+
+	assert.Equal(t, 111*time.Second, cfg.MaxLifetime)
+	assert.Equal(t, 222*time.Second, cfg.MaxIdleTime)
+	assert.Equal(t, "disable", cfg.SSLMode)
+	assert.Equal(t, "", cfg.TargetSessionAttrs, "an explicit empty must reach the DSN builder")
+}
+
+// TestBuildClientReportsAnUnreachableServer covers the connect path without a
+// server: a config that passes validation but points at a closed port fails in
+// utils.Connect, which is the branch a database that is down takes.
+func TestBuildClientReportsAnUnreachableServer(t *testing.T) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	port := listener.Addr().(*net.TCPAddr).Port
+	require.NoError(t, listener.Close()) // nothing is listening there now
+
+	client, err := buildClient(&utils.DBConfig{
+		DBName: "safe", Username: "u", Password: "p", Host: "127.0.0.1",
+		Port: port, SSLMode: "disable", ConnectTimeout: 1,
+	})
+
+	assert.Nil(t, client)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "connect db")
+}
+
+// TestNewClientWithConfigRefusesAConfigItCannotUse keeps the non-singleton
+// constructor's contract: it reports rather than exits, and it reports the same
+// reason the singleton logs, because both now take one build path.
+func TestNewClientWithConfigRefusesAConfigItCannotUse(t *testing.T) {
+	client, err := NewClientWithConfig(nil)
+	assert.Nil(t, client)
+	require.Error(t, err)
+
+	client, err = NewClientWithConfig(&utils.DBConfig{})
+	assert.Nil(t, client)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "check db params")
 }

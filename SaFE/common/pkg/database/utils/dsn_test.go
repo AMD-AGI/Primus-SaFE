@@ -6,9 +6,12 @@
 package utils
 
 import (
+	"net"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func dsnConfig(attrs string) *DBConfig {
@@ -72,4 +75,48 @@ func TestSourceNameOmitsAnUnsetSessionAttr(t *testing.T) {
 	assert.Equal(t,
 		"user=u password=p dbname=d host=h port=5432 sslmode=require connect_timeout=5",
 		dsn, "an unset attr must leave the string exactly as it was before")
+}
+
+// closedPort returns a port nothing is listening on, so a dial fails at once
+// rather than waiting out a timeout against an unroutable address.
+func closedPort(t *testing.T) int {
+	t.Helper()
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	port := listener.Addr().(*net.TCPAddr).Port
+	require.NoError(t, listener.Close())
+	return port
+}
+
+func unreachableConfig(t *testing.T) *DBConfig {
+	t.Helper()
+	return &DBConfig{
+		DBName: "safe", Username: "u", Password: "p", Host: "127.0.0.1",
+		Port: closedPort(t), SSLMode: "disable", ConnectTimeout: 1,
+		MaxOpenConns: 5, MaxIdleConns: 2,
+		MaxIdleTime: time.Minute, MaxLifetime: 10 * time.Minute,
+	}
+}
+
+// TestConnectReportsAnUnreachableServer covers the path a database that is down
+// takes, and names the database in the error: both pools are opened from one
+// config, so a failure that does not say which one it was leaves the reader
+// guessing between them.
+func TestConnectReportsAnUnreachableServer(t *testing.T) {
+	db, err := Connect(unreachableConfig(t), PgDriver)
+
+	assert.Nil(t, db)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "safe", "the error should name the database it could not reach")
+}
+
+// TestConnectGormReportsAnUnreachableServer is the same path on the other pool.
+// Worth its own case rather than trusting the first: these two are separate
+// implementations over separate drivers, and this branch exists because they had
+// come to differ.
+func TestConnectGormReportsAnUnreachableServer(t *testing.T) {
+	db, err := ConnectGorm(unreachableConfig(t))
+
+	assert.Nil(t, db)
+	assert.Error(t, err)
 }
