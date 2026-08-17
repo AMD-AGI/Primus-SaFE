@@ -130,6 +130,12 @@ db:
   # deployment whose db host deliberately resolves to a replica -- with it set,
   # such a host cannot connect at all.
   target_session_attrs: "read-write"
+  # db.max_life_time_second is left unset on purpose. Its default of 600 is what
+  # retires a connection stranded on a demoted replica after a failover. If you
+  # do override it, do not set it to 0: database/sql reads 0 as "reusable for as
+  # long as the process lives", the unbounded reuse that kept a pool writing to a
+  # demoted replica for three days. Nothing reports that at runtime beyond one
+  # warning at startup, so a 0 is easy to miss.
 opensearch:
   # Log search feature flag. When true, log search endpoints are available.
   # Queries are proxied through robust-api on data clusters (no direct OpenSearch connection).
