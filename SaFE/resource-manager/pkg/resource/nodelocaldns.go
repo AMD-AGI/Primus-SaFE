@@ -10,6 +10,8 @@ import (
 	"strings"
 
 	"github.com/coredns/corefile-migration/migration/corefile"
+
+	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 )
 
 const (
@@ -17,6 +19,12 @@ const (
 	nodeLocalDNSNamespace = "kube-system"
 	nodeLocalDNSConfigMap = "nodelocaldns"
 	corefileKey           = "Corefile"
+	// nodeLocalDNSForwardAnnotation records that this sync, rather than the site, pointed the root
+	// server's forward at the cluster DNS. Address equality cannot stand in for that: a site is free
+	// to aim its own root forward at the same CoreDNS, and undoing it would break resolution the
+	// site set up deliberately. Keeping the record on the object also survives a manager restart.
+	nodeLocalDNSForwardAnnotation = v1.PrimusSafePrefix + "nodelocaldns.forward"
+	nodeLocalDNSForwardClusterDNS = "cluster-dns"
 	// defaultDNSUpstream forwards to whatever the node itself resolves against.
 	defaultDNSUpstream = "/etc/resolv.conf"
 	// defaultNodeLocalDNSBindIP is the link-local address nodelocaldns listens on. kubespray exposes
@@ -34,9 +42,12 @@ const (
 // port defaults to 53, so both forms name the same server.
 var rootZones = map[string]bool{".": true, ".:53": true}
 
-// clusterZoneHints name the zones nodelocaldns forwards to its cluster's CoreDNS. The reverse zones
-// have fixed names, so they still identify that address when the cluster domain is customised.
-var clusterZoneHints = []string{"in-addr.arpa", "ip6.arpa", "cluster.local"}
+// clusterDomainZone is the default cluster domain, and clusterZoneHints name the zones nodelocaldns
+// forwards to its cluster's CoreDNS. The reverse zones have fixed names, so they still identify that
+// address when the cluster domain is customised.
+const clusterDomainZone = "cluster.local"
+
+var clusterZoneHints = []string{clusterDomainZone, "in-addr.arpa", "ip6.arpa"}
 
 // parseCorefile reads a Corefile into its server and plugin structure.
 func parseCorefile(text string) (*corefile.Corefile, error) {
@@ -89,21 +100,44 @@ func rootServer(cf *corefile.Corefile) (*corefile.Server, int) {
 
 // clusterDNSAddress returns the address the cluster zones already forward to. nodelocaldns is
 // configured with it at install time, so it names the cluster's own CoreDNS without assuming a
-// Service name, which differs between installers.
+// Service name, which differs between installers. The cluster domain wins over the reverse zones,
+// which a site may legitimately delegate to an internal PTR server; when the zones disagree the
+// assumption this reads on does not hold for that cluster and no address is returned.
 func clusterDNSAddress(cf *corefile.Corefile) (string, bool) {
+	seen := map[string]string{}
 	for _, server := range cf.Servers {
-		if !servesClusterZone(server) {
+		hint, ok := clusterZoneHint(server)
+		if !ok {
 			continue
 		}
-		if plugin := findForward(server); plugin != nil && len(plugin.Args) >= 2 {
-			return plugin.Args[1], true
+		plugin := findForward(server)
+		if plugin == nil || len(plugin.Args) < 2 {
+			continue
+		}
+		if _, dup := seen[hint]; !dup {
+			seen[hint] = plugin.Args[1]
 		}
 	}
-	return "", false
+	if addr, ok := seen[clusterDomainZone]; ok {
+		return addr, true
+	}
+	var chosen string
+	for _, addr := range seen {
+		if chosen == "" {
+			chosen = addr
+			continue
+		}
+		if addr != chosen {
+			// The reverse zones point at different servers, so neither can be assumed to be the
+			// cluster's own CoreDNS.
+			return "", false
+		}
+	}
+	return chosen, chosen != ""
 }
 
-// servesClusterZone reports whether the server handles one of the zones aimed at the cluster's CoreDNS.
-func servesClusterZone(server *corefile.Server) bool {
+// clusterZoneHint returns which of the zones aimed at the cluster's CoreDNS the server handles.
+func clusterZoneHint(server *corefile.Server) (string, bool) {
 	for _, zone := range server.DomPorts {
 		name := zone
 		if colon := strings.LastIndex(name, ":"); colon > 0 {
@@ -111,11 +145,11 @@ func servesClusterZone(server *corefile.Server) bool {
 		}
 		for _, hint := range clusterZoneHints {
 			if name == hint {
-				return true
+				return hint, true
 			}
 		}
 	}
-	return false
+	return "", false
 }
 
 // findForward returns the server's "forward ." directive.
@@ -143,17 +177,27 @@ func setRootForward(server *corefile.Server, upstream string, forceTCP bool) {
 	}
 }
 
-// revertRootForward points the root server back at the node resolver. A sub-block holding nothing
-// but force_tcp was written by this sync, so it goes with the address; anything else is the site's.
+// revertRootForward points the root server back at the node resolver, dropping the force_tcp this
+// sync added. The node resolver is queried over UDP, and an upstream that refuses TCP/53 is common
+// enough that leaving a transport nobody chose on the path taken when resolution is already broken
+// would be the worst place for it. Other options belong to the site and are kept.
 func revertRootForward(server *corefile.Server) {
 	plugin := findForward(server)
 	if plugin == nil {
 		return
 	}
 	plugin.Args = []string{".", defaultDNSUpstream}
-	if len(plugin.Options) == 1 && plugin.Options[0].Name == forceTCPOption {
-		plugin.Options = nil
+	kept := make([]*corefile.Option, 0, len(plugin.Options))
+	for _, option := range plugin.Options {
+		if option.Name != forceTCPOption {
+			kept = append(kept, option)
+		}
 	}
+	if len(kept) == 0 {
+		plugin.Options = nil
+		return
+	}
+	plugin.Options = kept
 }
 
 // hasOption reports whether the plugin already sets the named option.
@@ -274,7 +318,42 @@ func unmanageableCorefileReason(text string) string {
 	if _, count := rootServer(cf); count > 1 {
 		return fmt.Sprintf("declares %d root zone servers", count)
 	}
+	// A Corefile this serialiser cannot reproduce holds something it would drop: a comment, which
+	// the lexer discards, or a block nested deeper than the plugin options the parser models.
+	// Reformatting is acceptable, losing a line is not, so the comparison ignores layout.
+	if lost := droppedLines(text, renderCorefile(cf, text)); len(lost) > 0 {
+		return fmt.Sprintf("uses syntax this sync cannot preserve (%q)", lost[0])
+	}
 	return ""
+}
+
+// droppedLines returns the content lines of before that after no longer holds, ignoring indentation
+// and blank lines so that layout alone never takes a Corefile out of management.
+func droppedLines(before, after string) []string {
+	remaining := make(map[string]int, 32)
+	for _, line := range contentLines(after) {
+		remaining[line]++
+	}
+	var lost []string
+	for _, line := range contentLines(before) {
+		if remaining[line] > 0 {
+			remaining[line]--
+			continue
+		}
+		lost = append(lost, line)
+	}
+	return lost
+}
+
+// contentLines splits a Corefile into its non-blank lines with surrounding whitespace removed.
+func contentLines(text string) []string {
+	var lines []string
+	for _, line := range strings.Split(text, "\n") {
+		if trimmed := strings.TrimSpace(line); trimmed != "" {
+			lines = append(lines, trimmed)
+		}
+	}
+	return lines
 }
 
 // isCorefileBalanced reports whether every block in the Corefile is closed. Braces inside a comment
@@ -313,22 +392,5 @@ func isCorefileBalanced(text string) bool {
 // summarizeCorefileChange reports the line delta of a Corefile rewrite so an unexpected loss of
 // site configuration is visible in the log without dumping the whole file.
 func summarizeCorefileChange(before, after string) string {
-	kept := make(map[string]int, 32)
-	for _, line := range strings.Split(before, "\n") {
-		kept[strings.TrimSpace(line)]++
-	}
-	var added int
-	for _, line := range strings.Split(after, "\n") {
-		trimmed := strings.TrimSpace(line)
-		if kept[trimmed] > 0 {
-			kept[trimmed]--
-			continue
-		}
-		added++
-	}
-	var removed int
-	for _, count := range kept {
-		removed += count
-	}
-	return fmt.Sprintf("+%d/-%d lines", added, removed)
+	return fmt.Sprintf("+%d/-%d lines", len(droppedLines(after, before)), len(droppedLines(before, after)))
 }

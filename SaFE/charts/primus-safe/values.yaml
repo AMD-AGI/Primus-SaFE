@@ -33,8 +33,14 @@ net:
 node_local_dns:
   # Forward the queries no more specific zone claims to the CoreDNS of the cluster nodelocaldns runs
   # in, instead of to the node resolver at /etc/resolv.conf. Enable this to keep site-specific
-  # records in CoreDNS, whose ConfigMap is not reconciled. The address is read from each cluster's
-  # kube-system/kube-dns Service, so one setting stays correct across data-plane clusters.
+  # records in CoreDNS, whose ConfigMap is not reconciled.
+  #
+  # The address is taken from the Corefile being reconciled, out of the forward of the zones
+  # nodelocaldns already aims at CoreDNS: cluster.local first, and the reverse zones when the cluster
+  # domain is customised. It is therefore per cluster, with no Service name assumed. Two consequences
+  # of reading it there: the Corefile must already carry such a zone, and when the reverse zones
+  # disagree with each other no address can be derived. In both cases the sync reports it and leaves
+  # that cluster's Corefile untouched; other clusters are unaffected.
   #
   # Consequences to weigh before enabling it:
   #
@@ -58,11 +64,19 @@ node_local_dns:
   # present in blocks this chart creates, but existing blocks are left as the site wrote them.
   #
   # Turning it back off restores both halves: the template stanza returns and the forward goes back
-  # to /etc/resolv.conf, provided it still points at this cluster's kube-dns address. A forward the
-  # site aimed elsewhere is left alone. nodelocaldns still has to be rolled to load the result.
+  # to /etc/resolv.conf, along with the force_tcp this sync added. That only happens for a forward
+  # this sync wrote, which it records with the primus-safe.nodelocaldns.forward annotation on the
+  # ConfigMap rather than inferring from the address. A root forward the site aimed at its own
+  # CoreDNS is left alone even though it holds the same address. nodelocaldns still has to be rolled
+  # to load the result.
   #
   # A forward directive that already carries its own options keeps them, and gains force_tcp while
   # this option is on.
+  #
+  # A Corefile carrying comments, or a block nested deeper than a plugin's options, is reported and
+  # left untouched: it cannot be reproduced without dropping that content, so this sync declines to
+  # manage it rather than silently deleting it. Move such content out to bring the file back under
+  # management.
   forward_to_cluster_dns: false
 # CD (Continuous Deployment) configuration
 cd:

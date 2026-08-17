@@ -220,14 +220,83 @@ func TestNodeLocalDNSBindIP(t *testing.T) {
 	assert.Equal(t, defaultNodeLocalDNSBindIP, nodeLocalDNSBindIP(cf))
 }
 
+func TestUnmanageableCorefileRefusesComments(t *testing.T) {
+	// The lexer discards comments, so a file carrying them cannot be reproduced. Refusing is loud
+	// and recoverable; rewriting it would delete the note explaining why a hosts entry exists.
+	commented := `# managed by ops, do not edit without telling #infra
+.:53 {
+    # split-horizon workaround, see ticket OPS-1234
+    hosts {
+        10.9.9.1 intra-a.example.com
+        fallthrough
+    }
+    errors
+    forward . /etc/resolv.conf
+}
+`
+	reason := unmanageableCorefileReason(commented)
+	assert.Contains(t, reason, "cannot preserve")
+	assert.Contains(t, reason, "#")
+}
+
+func TestUnmanageableCorefileRefusesDeeperNesting(t *testing.T) {
+	// The plugin model holds two levels, so a third is dropped: braces balance, the parse succeeds
+	// and the content is gone.
+	nested := ".:53 {\n    forward . 10.0.0.1 {\n        tls {\n            server_name dns.example.com\n        }\n    }\n}\n"
+	assert.Contains(t, unmanageableCorefileReason(nested), "cannot preserve")
+}
+
+func TestUnmanageableCorefileToleratesLayout(t *testing.T) {
+	// Layout alone must never take a Corefile out of management.
+	tabbed := strings.ReplaceAll(liveCorefile, "    ", "\t")
+	assert.Empty(t, unmanageableCorefileReason(tabbed))
+	assert.Empty(t, unmanageableCorefileReason(strings.ReplaceAll(liveCorefile, "\n", "\r\n")))
+	assert.Empty(t, unmanageableCorefileReason(strings.ReplaceAll(liveCorefile, "}\n", "}\n\n")))
+}
+
+func TestClusterDNSAddressPrefersClusterDomain(t *testing.T) {
+	// A site may delegate the reverse zones to an internal PTR server; the cluster domain wins.
+	cf, err := parseCorefile("in-addr.arpa:53 {\n    forward . 10.1.1.1\n}\n" +
+		"cluster.local:53 {\n    forward . 192.168.0.3\n}\n.:53 {\n    errors\n}\n")
+	assert.NoError(t, err)
+	addr, ok := clusterDNSAddress(cf)
+	assert.True(t, ok)
+	assert.Equal(t, "192.168.0.3", addr)
+}
+
+func TestClusterDNSAddressRefusesDisagreement(t *testing.T) {
+	// Without the cluster domain to arbitrate, reverse zones aimed at different servers mean the
+	// assumption does not hold for this cluster, so no address is returned.
+	cf, err := parseCorefile("in-addr.arpa:53 {\n    forward . 10.1.1.1\n}\n" +
+		"ip6.arpa:53 {\n    forward . 10.2.2.2\n}\n.:53 {\n    errors\n}\n")
+	assert.NoError(t, err)
+	_, ok := clusterDNSAddress(cf)
+	assert.False(t, ok)
+}
+
+func TestRevertRootForwardDropsForceTCPAmongSiteOptions(t *testing.T) {
+	// force_tcp was added by this sync, so it goes even when the site has its own options: the node
+	// resolver is queried over UDP, and the revert happens when resolution is already broken.
+	cf, err := parseCorefile(".:53 {\n    forward . 192.168.0.3 {\n        max_concurrent 1000\n        force_tcp\n    }\n}\n")
+	assert.NoError(t, err)
+	root, _ := rootServer(cf)
+	revertRootForward(root)
+	out := renderCorefile(cf, liveCorefile)
+	assert.Contains(t, out, "forward . /etc/resolv.conf {")
+	assert.Contains(t, out, "max_concurrent 1000")
+	assert.NotContains(t, out, "force_tcp")
+}
+
 func TestUnmanageableCorefileReason(t *testing.T) {
 	assert.Empty(t, unmanageableCorefileReason(liveCorefile))
 	assert.Contains(t, unmanageableCorefileReason(liveCorefile+".:53 {\n    errors\n}\n"), "2 root zone servers")
 	assert.Contains(t, unmanageableCorefileReason(".:53 {\n    errors\n"), "unbalanced")
 
-	// A brace inside a comment is not nesting, so a commented-out block does not look unbalanced.
+	// A brace inside a comment is not nesting, so a commented-out block is not read as unbalanced.
+	// The file is still refused, because the serialiser would drop the comment.
 	commented := "# TODO: tidy this {\n" + liveCorefile
-	assert.Empty(t, unmanageableCorefileReason(commented))
+	assert.True(t, isCorefileBalanced(commented))
+	assert.Contains(t, unmanageableCorefileReason(commented), "cannot preserve")
 
 	// A brace inside a quoted answer is data.
 	assert.Empty(t, unmanageableCorefileReason(

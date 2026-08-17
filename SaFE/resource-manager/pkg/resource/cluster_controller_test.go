@@ -689,37 +689,11 @@ func TestGuaranteeNodeLocalDNSForwardsToClusterDNS(t *testing.T) {
 	testifyassert.Equal(t, corefile, readNodeLocalDNSCorefile(t, cs))
 }
 
-func TestGuaranteeNodeLocalDNSRevertRestoresNodeResolver(t *testing.T) {
-	patches := gomonkey.ApplyFunc(commonconfig.GetSystemHost, func() string { return "safe.local" })
-	defer patches.Reset()
-
-	// The switch is off, but the root block still forwards to this cluster's kube-dns: this sync
-	// wrote that line, and the usual reason to revert is that CoreDNS cannot be reached.
-	forwarded := strings.Replace(siteCorefile, "    forward . /etc/resolv.conf\n",
-		"    forward . 192.168.0.10 {\n        force_tcp\n    }\n", 1)
-	r, cs, dataCluster := newNodeLocalDNSReconciler(t, forwarded)
-	ctx := context.Background()
-	testifyassert.NoError(t, r.guaranteeNodeLocalDNS(ctx, dataCluster))
-
-	corefile := readNodeLocalDNSCorefile(t, cs)
-	root := rootBlockOf(t, corefile)
-	// Scoped to the root block: the cluster zones legitimately keep forwarding to CoreDNS.
-	testifyassert.Contains(t, root, "forward . /etc/resolv.conf")
-	testifyassert.NotContains(t, root, "192.168.0.10")
-	testifyassert.NotContains(t, root, "force_tcp")
-	// The stanza comes back and the site's records are untouched.
-	testifyassert.Contains(t, root, "template IN A safe.local {")
-	testifyassert.Contains(t, root, "10.9.9.1 global.safe.local")
-
-	testifyassert.NoError(t, r.guaranteeNodeLocalDNS(ctx, dataCluster))
-	testifyassert.Equal(t, corefile, readNodeLocalDNSCorefile(t, cs))
-}
-
 func TestGuaranteeNodeLocalDNSKeepsForwardThisSyncDidNotWrite(t *testing.T) {
 	patches := gomonkey.ApplyFunc(commonconfig.GetSystemHost, func() string { return "safe.local" })
 	defer patches.Reset()
 
-	// A forward aimed at an address that is not this cluster's kube-dns belongs to the site.
+	// A forward aimed at an address that is not this cluster's CoreDNS belongs to the site.
 	custom := strings.Replace(siteCorefile, "    forward . /etc/resolv.conf\n",
 		"    forward . 10.20.30.40\n", 1)
 	r, cs, dataCluster := newNodeLocalDNSReconciler(t, custom)
@@ -727,7 +701,55 @@ func TestGuaranteeNodeLocalDNSKeepsForwardThisSyncDidNotWrite(t *testing.T) {
 
 	corefile := readNodeLocalDNSCorefile(t, cs)
 	testifyassert.Contains(t, corefile, "forward . 10.20.30.40")
-	testifyassert.NotContains(t, corefile, defaultDNSUpstream)
+	testifyassert.NotContains(t, rootBlockOf(t, corefile), defaultDNSUpstream)
+}
+
+func TestGuaranteeNodeLocalDNSKeepsSiteForwardAtTheClusterDNSAddress(t *testing.T) {
+	patches := gomonkey.ApplyFunc(commonconfig.GetSystemHost, func() string { return "safe.local" })
+	defer patches.Reset()
+
+	// The converged shape a site reaches by hand: root block aimed at its own CoreDNS, name policy
+	// moved into CoreDNS. The switch is at its default, and the address matches what the cluster
+	// zones forward to, so address equality would read this as this sync's own writing and undo it.
+	converged := strings.Replace(siteCorefile, "    forward . /etc/resolv.conf\n",
+		"    forward . 192.168.0.10 {\n        force_tcp\n    }\n", 1)
+	r, cs, dataCluster := newNodeLocalDNSReconciler(t, converged)
+	ctx := context.Background()
+	testifyassert.NoError(t, r.guaranteeNodeLocalDNS(ctx, dataCluster))
+
+	root := rootBlockOf(t, readNodeLocalDNSCorefile(t, cs))
+	// Without the ownership record this sync must leave the site's routing alone.
+	testifyassert.Contains(t, root, "forward . 192.168.0.10 {")
+	testifyassert.NotContains(t, root, defaultDNSUpstream)
+	// The records the site keeps in CoreDNS stay reachable.
+	testifyassert.Contains(t, root, "10.9.9.1 global.safe.local")
+}
+
+func TestGuaranteeNodeLocalDNSRevertsOnlyWhatItRecorded(t *testing.T) {
+	patches := gomonkey.ApplyFunc(commonconfig.GetSystemHost, func() string { return "safe.local" })
+	defer patches.Reset()
+	commonconfig.SetValue("node_local_dns.forward_to_cluster_dns", "true")
+
+	r, cs, dataCluster := newNodeLocalDNSReconciler(t, siteCorefile)
+	ctx := context.Background()
+	// Switching on claims the forward and records the claim on the object.
+	testifyassert.NoError(t, r.guaranteeNodeLocalDNS(ctx, dataCluster))
+	cm, err := cs.CoreV1().ConfigMaps("kube-system").Get(ctx, "nodelocaldns", metav1.GetOptions{})
+	testifyassert.NoError(t, err)
+	testifyassert.Equal(t, nodeLocalDNSForwardClusterDNS, cm.Annotations[nodeLocalDNSForwardAnnotation])
+
+	// Switching off gives it back and clears the claim, so a later run does not revert again.
+	commonconfig.SetValue("node_local_dns.forward_to_cluster_dns", "false")
+	testifyassert.NoError(t, r.guaranteeNodeLocalDNS(ctx, dataCluster))
+	cm, err = cs.CoreV1().ConfigMaps("kube-system").Get(ctx, "nodelocaldns", metav1.GetOptions{})
+	testifyassert.NoError(t, err)
+	testifyassert.NotContains(t, cm.Annotations, nodeLocalDNSForwardAnnotation)
+
+	root := rootBlockOf(t, cm.Data[corefileKey])
+	testifyassert.Contains(t, root, "forward . /etc/resolv.conf")
+	testifyassert.NotContains(t, root, "force_tcp")
+	testifyassert.Contains(t, root, "template IN A safe.local {")
+	testifyassert.Contains(t, root, "10.9.9.1 global.safe.local")
 }
 
 func TestGuaranteeNodeLocalDNSReportsUnbalancedCorefile(t *testing.T) {

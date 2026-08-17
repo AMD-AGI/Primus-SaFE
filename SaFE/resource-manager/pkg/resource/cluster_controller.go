@@ -1102,17 +1102,21 @@ func (r *ClusterReconciler) guaranteeNodeLocalDNS(ctx context.Context, cluster *
 	}
 	r.clearDamagedNodeLocalDNS(cluster.Name)
 
-	desired, target, err := r.desiredNodeLocalDNSCorefile(ctx, corefile, dnsName)
+	// Whether this sync owns the root forward is recorded on the object rather than inferred from the
+	// address it holds, which a site is free to have set itself.
+	ownsForward := cm.Annotations[nodeLocalDNSForwardAnnotation] == nodeLocalDNSForwardClusterDNS
+	desired, target, keepsForward, err := r.desiredNodeLocalDNSCorefile(ctx, corefile, dnsName, ownsForward)
 	if err != nil {
 		return err
 	}
-	if desired == corefile {
+	if desired == corefile && keepsForward == ownsForward {
 		klog.V(4).Infof("nodelocaldns Corefile in cluster %s already targets %s, skipping",
 			cluster.Name, target)
 		return nil
 	}
 
 	cm.Data[corefileKey] = desired
+	setNodeLocalDNSForwardOwnership(cm, keepsForward)
 	if _, err = clientSet.CoreV1().ConfigMaps(nodeLocalDNSNamespace).Update(
 		ctx, cm, metav1.UpdateOptions{}); err != nil {
 		return fmt.Errorf("failed to update nodelocaldns ConfigMap in cluster %s: %w", cluster.Name, err)
@@ -1124,13 +1128,14 @@ func (r *ClusterReconciler) guaranteeNodeLocalDNS(ctx context.Context, cluster *
 	return nil
 }
 
-// desiredNodeLocalDNSCorefile computes the Corefile this sync wants for the given cluster, and
-// describes what the system host resolves through so the caller can log it.
+// desiredNodeLocalDNSCorefile computes the Corefile this sync wants for the given cluster. It also
+// describes what the system host resolves through, for the log, and reports whether this sync owns
+// the root forward afterwards.
 func (r *ClusterReconciler) desiredNodeLocalDNSCorefile(ctx context.Context,
-	corefileText, dnsName string) (string, string, error) {
+	corefileText, dnsName string, ownsForward bool) (string, string, bool, error) {
 	cf, err := parseCorefile(corefileText)
 	if err != nil {
-		return "", "", err
+		return "", "", false, err
 	}
 	root, _ := rootServer(cf)
 	if root == nil {
@@ -1143,29 +1148,43 @@ func (r *ClusterReconciler) desiredNodeLocalDNSCorefile(ctx context.Context,
 		// rather than from a Service whose name differs between installers.
 		clusterDNS, ok := clusterDNSAddress(cf)
 		if !ok {
-			return "", "", fmt.Errorf("cannot determine the cluster DNS address from the Corefile")
+			// Reported rather than returned as an error: this sync is the last step of Reconcile, so
+			// failing here would put the cluster on error backoff and slow control-plane endpoint
+			// probing as a side effect of a DNS setting.
+			return corefileText, "the Corefile unchanged, no cluster DNS address found", ownsForward, nil
 		}
 		// CoreDNS orders template ahead of hosts, so a stanza left behind would override the records
 		// the site maintains in CoreDNS for the same name.
 		removeTemplateStanza(root, dnsName)
 		// force_tcp matches how the cluster zones reach CoreDNS.
 		setRootForward(root, clusterDNS, true)
-		return renderCorefile(cf, corefileText), "CoreDNS at " + clusterDNS, nil
+		return renderCorefile(cf, corefileText), "CoreDNS at " + clusterDNS, true, nil
 	}
 
 	controlPlaneIPs, err := r.getControlPlaneIPs(ctx)
 	if err != nil {
-		return "", "", err
+		return "", "", false, err
 	}
 	upsertTemplateStanza(root, dnsName, controlPlaneIPs)
-	// Reverting must restore resolution, not just the stanza: the usual reason to turn forwarding
-	// off is that CoreDNS is unreachable, and every other name would keep going there.
-	if clusterDNS, ok := clusterDNSAddress(cf); ok {
-		if plugin := findForward(root); plugin != nil && len(plugin.Args) >= 2 && plugin.Args[1] == clusterDNS {
-			revertRootForward(root)
-		}
+	// Reverting must restore resolution, not just the stanza: the usual reason to turn forwarding off
+	// is that CoreDNS is unreachable, and every other name would keep going there. Only a forward
+	// this sync recorded as its own is undone; one the site aimed at the same address is not.
+	if ownsForward {
+		revertRootForward(root)
 	}
-	return renderCorefile(cf, corefileText), fmt.Sprintf("control planes %v", controlPlaneIPs), nil
+	return renderCorefile(cf, corefileText), fmt.Sprintf("control planes %v", controlPlaneIPs), false, nil
+}
+
+// setNodeLocalDNSForwardOwnership records or clears this sync's claim on the root forward.
+func setNodeLocalDNSForwardOwnership(cm *corev1.ConfigMap, owns bool) {
+	if !owns {
+		delete(cm.Annotations, nodeLocalDNSForwardAnnotation)
+		return
+	}
+	if cm.Annotations == nil {
+		cm.Annotations = map[string]string{}
+	}
+	cm.Annotations[nodeLocalDNSForwardAnnotation] = nodeLocalDNSForwardClusterDNS
 }
 
 // reportDamagedNodeLocalDNS logs a Corefile needing manual repair once per transition. The condition
