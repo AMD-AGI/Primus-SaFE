@@ -122,6 +122,14 @@ cicd:
 db:
   # Enable database for historical job queries, defaults to true
   enable: true
+  # Session the driver must be given, checked when the connection is made.
+  # "read-write" refuses one that cannot write, so a connection reaching a
+  # demoted replica fails at connect instead of failing every write later with
+  # "cannot execute INSERT in a read-only transaction". Every component using
+  # this database writes, so that is the right default. Clear it only for a
+  # deployment whose db host deliberately resolves to a replica -- with it set,
+  # such a host cannot connect at all.
+  target_session_attrs: "read-write"
 opensearch:
   # Log search feature flag. When true, log search endpoints are available.
   # Queries are proxied through robust-api on data clusters (no direct OpenSearch connection).
