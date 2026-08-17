@@ -25,6 +25,7 @@ import (
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
+	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/timeutil"
 )
 
@@ -126,6 +127,9 @@ func TestWorkloadMutateAuthoring(t *testing.T) {
 	m.mutateAuthoring(w)
 	assert.Equal(t, len(w.Spec.Resources), 1)
 	assert.Equal(t, len(w.Spec.EntryPoints), 1)
+	// The exact command, not just its presence: the entrypoint has to keep the
+	// container alive without holding a process that ignores signals.
+	assert.Equal(t, w.Spec.EntryPoints[0], stringutil.Base64Encode("tail -f /dev/null"))
 }
 
 // TestWorkloadMutateCICDScaleSet verifies cicd scale set mutations.

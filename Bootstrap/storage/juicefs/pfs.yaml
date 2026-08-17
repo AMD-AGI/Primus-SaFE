@@ -68,7 +68,7 @@ spec:
       containers:
       - args:
         - -c
-        - sleep infinity
+        - tail -f /dev/null
         command:
         - /bin/sh
         image: nginx
