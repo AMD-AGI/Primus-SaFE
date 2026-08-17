@@ -68,6 +68,7 @@ func TestGettersDefaults(t *testing.T) {
 	testifyassert.Equal(t, "", GetOpenSearchIndexPrefix())
 	testifyassert.False(t, IsDBEnable())
 	testifyassert.Equal(t, "require", GetDBSslMode())
+	testifyassert.Equal(t, "read-write", GetDBTargetSessionAttrs())
 	testifyassert.Equal(t, 100, GetDBMaxOpenConns())
 	testifyassert.Equal(t, 10, GetDBMaxIdleConns())
 	testifyassert.Equal(t, 600, GetDBMaxLifetimeSecond())
@@ -591,4 +592,27 @@ func TestOutboundTLSVerifyFromConfig(t *testing.T) {
 			assert.Equal(t, tt.want, IsOutboundTLSVerifyEnabled())
 		})
 	}
+}
+
+// TestDBTargetSessionAttrsHonoursAnExplicitEmpty covers the Go half of the way
+// out of this setting.
+//
+// Asking for a writable session is right for every component here, so it is on
+// by default -- but a deployment whose db host resolves to a replica has to be
+// able to clear it, or every connection it makes is refused outright. Clearing
+// it means an explicit empty value, and an empty value is exactly what a getter
+// is most likely to quietly replace with its default. getString tests
+// viper.IsSet rather than the value, which is what makes the escape hatch
+// reachable; nothing else states that, and reading the default back here would
+// mean a deployment could not turn this off at all.
+func TestDBTargetSessionAttrsHonoursAnExplicitEmpty(t *testing.T) {
+	viper.Reset()
+	testifyassert.Equal(t, "read-write", GetDBTargetSessionAttrs(), "unset must ask for a writable session")
+
+	viper.Set(dbTargetSessionAttrs, "")
+	testifyassert.Equal(t, "", GetDBTargetSessionAttrs(), "an explicit empty must survive, or the setting cannot be turned off")
+
+	viper.Set(dbTargetSessionAttrs, "any")
+	testifyassert.Equal(t, "any", GetDBTargetSessionAttrs())
+	viper.Reset()
 }
