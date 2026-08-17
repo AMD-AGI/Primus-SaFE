@@ -50,9 +50,7 @@ data:
       secret_path: {{ default "/etc/secrets/db" (default .Values.db).secret_path }}
       # The ssl mode of db
       ssl_mode: {{ default "require" (default .Values.db).ssl_mode }}
-      # hasKey, not default: an explicitly empty value is the way to turn this
-      # off, and `default` would read it as unset and put the default back.
-      target_session_attrs: {{ if hasKey (default dict .Values.db) "target_session_attrs" }}{{ (default dict .Values.db).target_session_attrs | quote }}{{ else }}"read-write"{{ end }}
+      target_session_attrs: {{ include "primus-safe.dbTargetSessionAttrs" . }}
     opensearch:
       # Whether to enable opensearch, it is used for log search.
       enable: {{ .Values.opensearch.enable }}
