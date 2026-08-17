@@ -10,7 +10,6 @@ import (
 	"encoding/base64"
 	"fmt"
 	"reflect"
-	"strings"
 	"testing"
 	"time"
 
@@ -420,38 +419,6 @@ func TestGuaranteeDataPlaneClusterRole(t *testing.T) {
 	testifyassert.NoError(t, err)
 }
 
-func TestGuaranteeNodeLocalDNSNoHost(t *testing.T) {
-	r := newClusterReconcilerWithFactory(t, "c1", k8sfake.NewSimpleClientset())
-	// GetSystemHost default empty -> no-op.
-	testifyassert.NoError(t, r.guaranteeNodeLocalDNS(context.Background(), testCluster("c1")))
-}
-
-func TestGuaranteeNodeLocalDNSUpdatesCorefile(t *testing.T) {
-	patches := gomonkey.ApplyFunc(commonconfig.GetSystemHost, func() string { return "safe.local" })
-	defer patches.Reset()
-
-	cm := &corev1.ConfigMap{
-		ObjectMeta: metav1.ObjectMeta{Name: "nodelocaldns", Namespace: "kube-system"},
-		Data:       map[string]string{"Corefile": ".:53 {\n}"},
-	}
-	cs := k8sfake.NewSimpleClientset(cm)
-
-	scheme, _ := genMockScheme()
-	dataCluster := readyCluster("c1")
-	cpCluster := readyCluster("ctrl")
-	cpCluster.Labels = map[string]string{v1.ClusterControlPlaneLabel: ""}
-	cpCluster.Status.ControlPlaneStatus.Endpoints = []string{"https://10.0.0.9:6443"}
-	cl := ctrlfake.NewClientBuilder().WithScheme(scheme).WithObjects(dataCluster, cpCluster).Build()
-	mgr := commonutils.NewObjectManager()
-	_ = mgr.Add("c1", commonclient.NewClientFactoryWithOnlyClient(context.Background(), "c1", cs))
-	r := &ClusterReconciler{ClusterBaseReconciler: &ClusterBaseReconciler{Client: cl}, clientManager: mgr}
-
-	err := r.guaranteeNodeLocalDNS(context.Background(), dataCluster)
-	testifyassert.NoError(t, err)
-	updated, _ := cs.CoreV1().ConfigMaps("kube-system").Get(context.Background(), "nodelocaldns", metav1.GetOptions{})
-	testifyassert.Contains(t, updated.Data["Corefile"], "safe.local")
-}
-
 func TestFetchConfigFromControlPlaneFallsBackToNextNode(t *testing.T) {
 	var attempted []string
 	patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(&ClusterReconciler{}), "fetchConfigFromSSH",
@@ -490,70 +457,6 @@ func TestFetchConfigFromControlPlaneAllNodesFail(t *testing.T) {
 	_, err := (&ClusterReconciler{}).fetchConfigFromControlPlane(context.Background(),
 		[]*v1.Node{{ObjectMeta: metav1.ObjectMeta{Name: "cp1"}}})
 	testifyassert.Error(t, err)
-}
-
-func readNodeLocalDNSCorefile(t *testing.T, cs *k8sfake.Clientset) string {
-	t.Helper()
-	cm, err := cs.CoreV1().ConfigMaps("kube-system").Get(
-		context.Background(), "nodelocaldns", metav1.GetOptions{})
-	testifyassert.NoError(t, err)
-	return cm.Data["Corefile"]
-}
-
-func TestGuaranteeNodeLocalDNSFollowsHealthyControlPlanes(t *testing.T) {
-	patches := gomonkey.ApplyFunc(commonconfig.GetSystemHost, func() string { return "safe.local" })
-	defer patches.Reset()
-
-	cm := &corev1.ConfigMap{
-		ObjectMeta: metav1.ObjectMeta{Name: "nodelocaldns", Namespace: "kube-system"},
-		Data:       map[string]string{"Corefile": "cluster.local:53 {\n    kubernetes\n}"},
-	}
-	cs := k8sfake.NewSimpleClientset(cm)
-
-	scheme, _ := genMockScheme()
-	dataCluster := readyCluster("c1")
-	cpCluster := readyCluster("ctrl")
-	cpCluster.Labels = map[string]string{v1.ClusterControlPlaneLabel: ""}
-	// The status lists every control plane, while probing currently reaches only two of them.
-	cpCluster.Status.ControlPlaneStatus.Endpoints = []string{
-		"https://10.0.0.1:6443", "https://10.0.0.2:6443", "https://10.0.0.3:6443",
-	}
-	endpoints := &corev1.Endpoints{
-		ObjectMeta: metav1.ObjectMeta{Name: "ctrl", Namespace: common.PrimusSafeNamespace},
-		Subsets: []corev1.EndpointSubset{{
-			Addresses: []corev1.EndpointAddress{{IP: "10.0.0.1"}, {IP: "10.0.0.3"}},
-		}},
-	}
-	cl := ctrlfake.NewClientBuilder().WithScheme(scheme).
-		WithObjects(dataCluster, cpCluster, endpoints).Build()
-	mgr := commonutils.NewObjectManager()
-	testifyassert.NoError(t, mgr.Add("c1",
-		commonclient.NewClientFactoryWithOnlyClient(context.Background(), "c1", cs)))
-	r := &ClusterReconciler{ClusterBaseReconciler: &ClusterBaseReconciler{Client: cl}, clientManager: mgr}
-	ctx := context.Background()
-
-	testifyassert.NoError(t, r.guaranteeNodeLocalDNS(ctx, dataCluster))
-	corefile := readNodeLocalDNSCorefile(t, cs)
-	testifyassert.Contains(t, corefile, "IN A 10.0.0.1")
-	testifyassert.Contains(t, corefile, "IN A 10.0.0.3")
-	// 10.0.0.2 failed probing, so data-plane resolvers must not be pointed at it.
-	testifyassert.NotContains(t, corefile, "IN A 10.0.0.2")
-
-	// Reconciling again changes nothing.
-	testifyassert.NoError(t, r.guaranteeNodeLocalDNS(ctx, dataCluster))
-	testifyassert.Equal(t, corefile, readNodeLocalDNSCorefile(t, cs))
-
-	// 10.0.0.1 goes down: the Corefile follows the pool instead of keeping a dead address.
-	endpoints.Subsets[0].Addresses = []corev1.EndpointAddress{{IP: "10.0.0.3"}}
-	testifyassert.NoError(t, cl.Update(ctx, endpoints))
-	testifyassert.NoError(t, r.guaranteeNodeLocalDNS(ctx, dataCluster))
-
-	corefile = readNodeLocalDNSCorefile(t, cs)
-	testifyassert.NotContains(t, corefile, "IN A 10.0.0.1")
-	testifyassert.Contains(t, corefile, "IN A 10.0.0.3")
-	// The block is replaced rather than appended, and unrelated blocks survive.
-	testifyassert.Equal(t, 1, strings.Count(corefile, dnsServerBlockPrefix))
-	testifyassert.Contains(t, corefile, "cluster.local:53 {")
 }
 
 func TestGuaranteeDataPlaneClusterRoleEmptyName(t *testing.T) {

@@ -8,7 +8,6 @@ package resource
 import (
 	"context"
 	"fmt"
-	"net/url"
 	"strings"
 	"time"
 
@@ -345,11 +344,6 @@ func (r *ClusterReconciler) Reconcile(ctx context.Context, req ctrlruntime.Reque
 	if err = r.guaranteeForwardIngress(ctx, cluster); err != nil {
 		klog.ErrorS(err, "failed to guarantee ingress", "cluster", cluster.Name)
 		rmmetrics.ClusterReconcileErrorsTotal.WithLabelValues("forward_ingress").Inc()
-		return ctrlruntime.Result{}, err
-	}
-	if err = r.guaranteeNodeLocalDNS(ctx, cluster); err != nil {
-		klog.ErrorS(err, "failed to guarantee node local dns", "cluster", cluster.Name)
-		rmmetrics.ClusterReconcileErrorsTotal.WithLabelValues("node_local_dns").Inc()
 		return ctrlruntime.Result{}, err
 	}
 	if shouldPeriodicSyncControlPlaneEndpoints(cluster) {
@@ -1054,161 +1048,6 @@ func (r *ClusterReconciler) deleteDataPlaneClusterRole(ctx context.Context, clus
 	}
 	klog.Infof("delete ClusterRole %s from cluster %s", targetName, cluster.Name)
 	return nil
-}
-
-// guaranteeNodeLocalDNS ensures the nodelocaldns ConfigMap in each data-plane cluster
-// contains a Corefile server block that resolves the control-plane subdomain to its IP.
-func (r *ClusterReconciler) guaranteeNodeLocalDNS(ctx context.Context, cluster *v1.Cluster) error {
-	dnsName := commonconfig.GetSystemHost()
-	if dnsName == "" {
-		return nil
-	}
-	if !cluster.IsReady() {
-		return nil
-	}
-
-	controlPlaneIPs, err := r.getControlPlaneIPs(ctx)
-	if err != nil {
-		return err
-	}
-
-	k8sClients, err := utils.GetK8sClientFactory(r.clientManager, cluster.Name)
-	if err != nil {
-		return err
-	}
-	clientSet := k8sClients.ClientSet()
-
-	cm, err := clientSet.CoreV1().ConfigMaps("kube-system").Get(ctx, "nodelocaldns", metav1.GetOptions{})
-	if err != nil {
-		if apierrors.IsNotFound(err) {
-			klog.V(4).Infof("nodelocaldns ConfigMap not found in cluster %s, skipping", cluster.Name)
-			return nil
-		}
-		return fmt.Errorf("failed to get nodelocaldns ConfigMap in cluster %s: %w", cluster.Name, err)
-	}
-
-	corefile, ok := cm.Data["Corefile"]
-	if !ok {
-		return fmt.Errorf("Corefile key not found in nodelocaldns ConfigMap in cluster %s", cluster.Name)
-	}
-
-	// Replace rather than append: the recorded addresses must follow the healthy control planes,
-	// otherwise data-plane nodes keep resolving the system host to an apiserver that is gone.
-	base := strings.TrimRight(stripDNSServerBlock(corefile, dnsName), " \t\n")
-	desired := base + "\n" + buildDNSServerBlock(dnsName, controlPlaneIPs)
-	if desired == corefile {
-		klog.V(4).Infof("nodelocaldns Corefile in cluster %s already targets %v, skipping",
-			cluster.Name, controlPlaneIPs)
-		return nil
-	}
-
-	cm.Data["Corefile"] = desired
-	if _, err = clientSet.CoreV1().ConfigMaps("kube-system").Update(ctx, cm, metav1.UpdateOptions{}); err != nil {
-		return fmt.Errorf("failed to update nodelocaldns ConfigMap in cluster %s: %w", cluster.Name, err)
-	}
-	klog.Infof("updated nodelocaldns Corefile in cluster %s with %s -> %v", cluster.Name, dnsName, controlPlaneIPs)
-	return nil
-}
-
-// getControlPlaneIPs returns the admin-plane addresses that data-plane nodes should resolve the
-// system host to. It prefers the probed Endpoints pool so an apiserver that went down is left out,
-// and falls back to every address recorded on the cluster status when that pool is unavailable.
-func (r *ClusterReconciler) getControlPlaneIPs(ctx context.Context) ([]string, error) {
-	clusterList := &v1.ClusterList{}
-	if err := r.Client.List(ctx, clusterList, client.MatchingLabels{
-		v1.ClusterControlPlaneLabel: "",
-	}); err != nil {
-		return nil, fmt.Errorf("failed to list clusters with control-plane label: %w", err)
-	}
-	if len(clusterList.Items) == 0 {
-		return nil, fmt.Errorf("no cluster with control-plane label found")
-	}
-
-	cp := &clusterList.Items[0]
-	if ips, err := commoncluster.GetControlPlaneBackendIPs(ctx, r.Client, cp); err == nil && len(ips) > 0 {
-		return ips, nil
-	}
-
-	hosts := make([]string, 0, len(cp.Status.ControlPlaneStatus.Endpoints))
-	for _, endpoint := range cp.Status.ControlPlaneStatus.Endpoints {
-		u, err := url.Parse(endpoint)
-		if err != nil {
-			klog.V(4).Infof("skip unparsable control-plane endpoint %q: %v", endpoint, err)
-			continue
-		}
-		if host := u.Hostname(); host != "" {
-			hosts = append(hosts, host)
-		}
-	}
-	if len(hosts) == 0 {
-		return nil, fmt.Errorf("control-plane cluster %s has no usable endpoint", cp.Name)
-	}
-	return hosts, nil
-}
-
-// dnsServerBlockPrefix opens the CoreDNS server block that buildDNSServerBlock renders.
-const dnsServerBlockPrefix = ".:53 {"
-
-// buildDNSServerBlock generates a CoreDNS server block resolving dnsName to every given address.
-// One A record per control plane lets a resolver fall over when the first address stops answering.
-func buildDNSServerBlock(dnsName string, ips []string) string {
-	answers := make([]string, 0, len(ips))
-	for _, ip := range ips {
-		answers = append(answers, fmt.Sprintf(`        answer "{{ .Name }} 60 IN A %s"`, ip))
-	}
-	return fmt.Sprintf(`%s
-    template IN A %s {
-%s
-        fallthrough
-    }
-    errors
-    cache 30
-    reload
-    loop
-    bind 169.254.25.10
-    forward . /etc/resolv.conf
-    prometheus :9253
-}`, dnsServerBlockPrefix, dnsName, strings.Join(answers, "\n"))
-}
-
-// stripDNSServerBlock removes the server blocks templating dnsName so they can be replaced when the
-// control-plane address set changes. A block whose bounds cannot be determined is left untouched,
-// keeping a Corefile we do not fully understand intact.
-func stripDNSServerBlock(corefile, dnsName string) string {
-	marker := "template IN A " + dnsName
-	for {
-		pos := strings.Index(corefile, marker)
-		if pos < 0 {
-			return corefile
-		}
-		start := strings.LastIndex(corefile[:pos], dnsServerBlockPrefix)
-		if start < 0 {
-			return corefile
-		}
-		end := dnsServerBlockEnd(corefile, start)
-		if end < 0 {
-			return corefile
-		}
-		corefile = strings.TrimRight(corefile[:start], " \t\n") + corefile[end:]
-	}
-}
-
-// dnsServerBlockEnd returns the index just past the brace closing the block opened at start,
-// or -1 when the braces are unbalanced.
-func dnsServerBlockEnd(corefile string, start int) int {
-	depth := 0
-	for i := start; i < len(corefile); i++ {
-		switch corefile[i] {
-		case '{':
-			depth++
-		case '}':
-			depth--
-			if depth == 0 {
-				return i + 1
-			}
-		}
-	}
-	return -1
 }
 
 // generateForwardName generates the name for forward resources by appending "-forward" to the cluster name.
