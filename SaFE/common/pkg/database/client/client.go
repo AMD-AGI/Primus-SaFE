@@ -73,6 +73,14 @@ func NewClient() *Client {
 			return
 		}
 		gormDb, err := utils.ConnectGorm(cfg)
+		if err != nil {
+			// Left unchecked, a failed GORM init still produced a client, with a
+			// nil handle every later query would fault on -- far from the boot
+			// that caused it. NewClientWithConfig has always checked this.
+			klog.ErrorS(err, "failed to connect gorm db")
+			db.Close()
+			return
+		}
 		instance = &Client{db: db, DBConfig: cfg, gorm: gormDb}
 		klog.Infof("init db-client successfully! conn-timeout: %d(s), request-timeout: %d(s)",
 			cfg.ConnectTimeout, commonconfig.GetDBRequestTimeoutSecond())

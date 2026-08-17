@@ -48,14 +48,7 @@ func Connect(cfg *DBConfig, driverName DBDriver) (*sqlx.DB, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect db %s, err: %v", cfg.DBName, err)
 	}
-	if cfg.MaxOpenConns > 0 {
-		db.SetMaxOpenConns(cfg.MaxOpenConns)
-	}
-	if cfg.MaxIdleConns > 0 {
-		db.SetMaxIdleConns(cfg.MaxIdleConns)
-	}
-	db.SetConnMaxIdleTime(cfg.MaxIdleTime)
-	db.SetConnMaxLifetime(cfg.MaxLifetime)
+	applyPoolLimits(db.DB, cfg)
 	metrics.RegisterDBPool(SqlxPoolKey(cfg), db.Stats)
 	return db, nil
 }
@@ -114,14 +107,41 @@ func ConnectGorm(cfg *DBConfig) (*gorm.DB, error) {
 	if err = gormDB.Use(gormMetricsPlugin{}); err != nil {
 		return nil, err
 	}
-	// GORM opens a pool of its own rather than sharing the sqlx one, and it is
-	// left on the database/sql defaults, so it needs its own pool metrics.
+	// GORM opens a pool of its own rather than sharing the sqlx one, so it needs
+	// both the same limits and its own metrics.
 	sqlDB, err := gormDB.DB()
 	if err != nil {
 		return nil, err
 	}
+	applyPoolLimits(sqlDB, cfg)
 	metrics.RegisterDBPool(GormPoolKey(cfg), sqlDB.Stats)
 	return gormDB, nil
+}
+
+// applyPoolLimits bounds how long a pooled connection may be reused.
+//
+// The lifetime is the part that matters beyond tuning. A connection is bound to
+// the backend it was dialled to, and on a Postgres cluster that backend can stop
+// being the primary while the connection stays open: the address the pool
+// resolves now points elsewhere, but an established connection does not move.
+// Reusing one then fails every write with SQLSTATE 25006, "cannot execute INSERT
+// in a read-only transaction", on a pool that reports itself healthy.
+//
+// database/sql leaves both timers at zero, meaning a connection is reusable for
+// as long as the process lives. That is how a pool kept serving a demoted
+// replica for three days after a failover, while the sqlx pool in the same
+// process -- which has always set these -- rotated onto the new primary within
+// its lifetime. Applied here rather than at each call site so a second pool
+// cannot be opened without them.
+func applyPoolLimits(sqlDB *sql.DB, cfg *DBConfig) {
+	if cfg.MaxOpenConns > 0 {
+		sqlDB.SetMaxOpenConns(cfg.MaxOpenConns)
+	}
+	if cfg.MaxIdleConns > 0 {
+		sqlDB.SetMaxIdleConns(cfg.MaxIdleConns)
+	}
+	sqlDB.SetConnMaxIdleTime(cfg.MaxIdleTime)
+	sqlDB.SetConnMaxLifetime(cfg.MaxLifetime)
 }
 
 // ParseNullString parses the input data.
