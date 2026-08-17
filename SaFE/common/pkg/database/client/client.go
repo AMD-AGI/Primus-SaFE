@@ -23,8 +23,12 @@ import (
 )
 
 var (
-	once     sync.Once
-	instance *Client
+	// instanceMu guards instance. A mutex rather than sync.Once, because once is
+	// spent whether the body succeeded or not: a boot that could not reach the
+	// database left instance nil for the life of the process, with no second
+	// attempt and no way for a caller to tell "not ready" from "never will be".
+	instanceMu sync.Mutex
+	instance   *Client
 )
 
 // Client represents a database client that manages both sqlx and gorm database connections.
@@ -40,59 +44,97 @@ type Client struct {
 // validates the parameters, establishes connections using both sqlx and gorm
 // The initialization happens only once even if called multiple times.
 //
-// A failure here ends the process, because the alternative is worse than a
-// restart. `once` is spent whether the body succeeded or not, so returning on
-// failure left `instance` nil for the life of the process: no retry, and no way
-// for a caller to tell "not ready" from "never will be". What callers do with
-// that nil then varies, and the quiet one is the problem -- one logs a warning
-// and skips registering its controller, so a blip while the database was
-// electing a primary silently costs that deployment a controller until someone
-// notices it never ran.
+// A nil result means "no client right now", and callers decide what that costs
+// them -- the audit middleware degrades to a passthrough, the email relay
+// reports it. That contract is kept deliberately.
 //
-// Exiting hands the retry to the thing that is good at it. Kubernetes restarts
-// the pod with backoff, the next attempt reaches a database that has finished
-// failing over, and a boot that cannot reach its database is visible as a
-// restarting pod rather than as absent behaviour. Callers guard this with
-// IsDBEnable, so a deployment that runs without a database never arrives here.
+// What changed is that a failure no longer settles the question. Built under a
+// mutex rather than sync.Once, because once is spent whether the body succeeded
+// or not: a boot that could not reach the database used to leave the singleton
+// nil for the life of the process, so a blip while the cluster was electing a
+// primary cost a deployment its database client until someone restarted the pod.
+// Now the next caller tries again, and a database that has finished failing over
+// is picked up without one.
 //
 // Returns:
-//   - *Client: Singleton database client instance
+//   - *Client: Singleton database client instance, or nil when one cannot be
+//     built right now.
 func NewClient() *Client {
-	once.Do(func() {
-		cfg := &utils.DBConfig{
-			DBName:             commonconfig.GetDBName(),
-			Username:           commonconfig.GetDBUser(),
-			Password:           commonconfig.GetDBPassword(),
-			Host:               commonconfig.GetDBHost(),
-			Port:               commonconfig.GetDBPort(),
-			SSLMode:            commonconfig.GetDBSslMode(),
-			TargetSessionAttrs: commonconfig.GetDBTargetSessionAttrs(),
-			MaxOpenConns:       commonconfig.GetDBMaxOpenConns(),
-			MaxIdleConns:       commonconfig.GetDBMaxIdleConns(),
-			MaxLifetime:        time.Duration(commonconfig.GetDBMaxLifetimeSecond()) * time.Second,
-			MaxIdleTime:        time.Duration(commonconfig.GetDBMaxIdleTimeSecond()) * time.Second,
-			ConnectTimeout:     commonconfig.GetDBConnectTimeoutSecond(),
-			RequestTimeout:     time.Duration(commonconfig.GetDBRequestTimeoutSecond()) * time.Second,
-		}
-		if err := checkParams(cfg); err != nil {
-			klog.Fatalf("failed to check db params: %v", err)
-		}
-		db, err := utils.Connect(cfg, utils.PgDriver)
-		if err != nil {
-			klog.Fatalf("failed to connect db: %v", err)
-		}
-		if err = db.Ping(); err != nil {
-			klog.Fatalf("failed to ping db: %v", err)
-		}
-		gormDb, err := utils.ConnectGorm(cfg)
-		if err != nil {
-			klog.Fatalf("failed to connect gorm db: %v", err)
-		}
-		instance = &Client{db: db, DBConfig: cfg, gorm: gormDb}
-		klog.Infof("init db-client successfully! conn-timeout: %d(s), request-timeout: %d(s)",
-			cfg.ConnectTimeout, commonconfig.GetDBRequestTimeoutSecond())
-	})
+	instanceMu.Lock()
+	defer instanceMu.Unlock()
+	if instance != nil {
+		return instance
+	}
+	client, err := buildClient(configuredDB())
+	if err != nil {
+		klog.ErrorS(err, "failed to init db-client; a later call will try again")
+		return nil
+	}
+	instance = client
+	klog.Infof("init db-client successfully! conn-timeout: %d(s), request-timeout: %d(s)",
+		client.ConnectTimeout, commonconfig.GetDBRequestTimeoutSecond())
 	return instance
+}
+
+// configuredDB reads the database settings this process was started with.
+//
+// A variable so a test can count how often an init is attempted without standing
+// up viper state for settings it is not testing.
+var configuredDB = func() *utils.DBConfig {
+	return &utils.DBConfig{
+		DBName:             commonconfig.GetDBName(),
+		Username:           commonconfig.GetDBUser(),
+		Password:           commonconfig.GetDBPassword(),
+		Host:               commonconfig.GetDBHost(),
+		Port:               commonconfig.GetDBPort(),
+		SSLMode:            commonconfig.GetDBSslMode(),
+		TargetSessionAttrs: commonconfig.GetDBTargetSessionAttrs(),
+		MaxOpenConns:       commonconfig.GetDBMaxOpenConns(),
+		MaxIdleConns:       commonconfig.GetDBMaxIdleConns(),
+		MaxLifetime:        time.Duration(commonconfig.GetDBMaxLifetimeSecond()) * time.Second,
+		MaxIdleTime:        time.Duration(commonconfig.GetDBMaxIdleTimeSecond()) * time.Second,
+		ConnectTimeout:     commonconfig.GetDBConnectTimeoutSecond(),
+		RequestTimeout:     time.Duration(commonconfig.GetDBRequestTimeoutSecond()) * time.Second,
+	}
+}
+
+// buildClient opens both pools for cfg, or returns why it could not.
+//
+// Separate from NewClient so the failure paths can be exercised without a
+// database and without a singleton to reset between tests. Anything opened
+// before the failure is closed and stops reporting, so a retry does not leave a
+// pool behind each time it is attempted.
+func buildClient(cfg *utils.DBConfig) (*Client, error) {
+	if err := checkParams(cfg); err != nil {
+		return nil, fmt.Errorf("check db params: %w", err)
+	}
+	db, err := utils.Connect(cfg, utils.PgDriver)
+	if err != nil {
+		return nil, fmt.Errorf("connect db: %w", err)
+	}
+	if err = db.Ping(); err != nil {
+		discardPool(db, cfg)
+		return nil, fmt.Errorf("ping db: %w", err)
+	}
+	gormDb, err := utils.ConnectGorm(cfg)
+	if err != nil {
+		discardPool(db, cfg)
+		return nil, fmt.Errorf("connect gorm db: %w", err)
+	}
+	return &Client{db: db, DBConfig: cfg, gorm: gormDb}, nil
+}
+
+// discardPool closes a pool that will not be used and stops it reporting.
+//
+// Connect registers a metrics collector, and a closed pool that is still
+// registered publishes a frozen set of zeroes for the life of the process --
+// indistinguishable on a dashboard from a pool that is simply idle. Client.Close
+// pairs these for the same reason.
+func discardPool(db *sqlx.DB, cfg *utils.DBConfig) {
+	if err := db.Close(); err != nil {
+		klog.ErrorS(err, "failed to close db connection")
+	}
+	metrics.UnregisterDBPool(utils.SqlxPoolKey(cfg))
 }
 
 // NewClientWithConfig creates a new database Client instance with the provided configuration.
@@ -110,41 +152,13 @@ func NewClientWithConfig(cfg *utils.DBConfig) (*Client, error) {
 		return nil, fmt.Errorf("database config cannot be nil")
 	}
 
-	// Validate configuration parameters
-	if err := checkParams(cfg); err != nil {
-		klog.ErrorS(err, "failed to check db params")
-		return nil, err
-	}
-
-	// Connect using sqlx
-	db, err := utils.Connect(cfg, utils.PgDriver)
+	// Same build as the singleton takes, so the two cannot come to differ in
+	// which pools they open or what they clean up when one of them fails.
+	client, err := buildClient(cfg)
 	if err != nil {
-		klog.Errorf("failed to connect to database: %s", err.Error())
+		klog.ErrorS(err, "failed to create db-client")
 		return nil, err
 	}
-
-	// Verify connection
-	err = db.Ping()
-	if err != nil {
-		klog.ErrorS(err, "failed to ping db")
-		return nil, err
-	}
-
-	// Connect using GORM
-	gormDb, err := utils.ConnectGorm(cfg)
-	if err != nil {
-		klog.ErrorS(err, "failed to connect gorm db")
-		// Close sqlx connection before returning error, and stop it reporting.
-		// Connect registered its collector, and a closed pool that is still
-		// registered publishes a frozen set of zeroes for the life of the
-		// process -- indistinguishable on a dashboard from a pool that is simply
-		// idle. Client.Close pairs these for the same reason.
-		db.Close()
-		metrics.UnregisterDBPool(utils.SqlxPoolKey(cfg))
-		return nil, err
-	}
-
-	client := &Client{db: db, DBConfig: cfg, gorm: gormDb}
 	klog.Infof("created new db-client successfully! host: %s, dbname: %s, conn-timeout: %d(s), request-timeout: %d(s)",
 		cfg.Host, cfg.DBName, cfg.ConnectTimeout, int(cfg.RequestTimeout.Seconds()))
 

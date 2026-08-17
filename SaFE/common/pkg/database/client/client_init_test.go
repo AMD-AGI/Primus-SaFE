@@ -6,48 +6,90 @@
 package client
 
 import (
-	"os"
-	"os/exec"
 	"testing"
 
-	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/utils"
 )
 
-// childEnv marks the re-executed copy of this test that is expected to die.
-const childEnv = "SAFE_DB_CLIENT_FATAL_CHILD"
+// TestBuildClientReportsWhyItCouldNotBuild covers the failure path a caller acts
+// on. A nil client is a contract here -- the audit middleware degrades to a
+// passthrough on one, the email relay reports it -- so what matters is that the
+// reason reaches the log rather than being swallowed on the way out.
+func TestBuildClientReportsWhyItCouldNotBuild(t *testing.T) {
+	client, err := buildClient(&utils.DBConfig{})
 
-// TestNewClientExitsWhenItCannotBeBuilt pins the one thing that cannot be
-// asserted in-process, because the behaviour under test is the process ending.
+	assert.Nil(t, client)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "check db params")
+	for _, missing := range []string{"dbname", "username", "host"} {
+		assert.Contains(t, err.Error(), missing,
+			"the error has to name what is missing, or a nil client explains nothing")
+	}
+}
+
+// TestNewClientRetriesAfterAFailure is the regression this rewrite exists for.
 //
-// The alternative it replaced is why this is worth a subprocess. `once` is spent
-// whether the body succeeded or not, so returning on failure left a nil
-// singleton for the life of the process -- no retry, and callers that could not
-// tell "not ready" from "never will be". One of them logs a warning and skips
-// registering its controller, so the failure was both permanent and quiet.
+// The singleton was built with sync.Once, which is spent whether the body
+// succeeded or not: one failed attempt left the instance nil for the life of the
+// process, so a blip while the cluster elected a primary cost a deployment its
+// database client until somebody restarted the pod. A second call has to be a
+// second attempt.
 //
-// Run as a child rather than mocked: klog.Fatalf calls os.Exit, so a test that
-// reached it in-process would take the test binary with it, and stubbing the exit
-// would test the stub rather than what a pod does.
-func TestNewClientExitsWhenItCannotBeBuilt(t *testing.T) {
-	if os.Getenv(childEnv) == "1" {
-		// No config, so checkParams finds no dbname, user, password or host.
-		viper.Reset()
-		NewClient()
-		// Reached only if the failure path returned instead of exiting, which is
-		// the regression this test exists for. The parent reads the zero status.
-		return
+// Asserted through the failure path because the success path needs a database.
+// Reaching buildClient twice is the property under test; that both attempts fail
+// here is incidental.
+func TestNewClientRetriesAfterAFailure(t *testing.T) {
+	instanceMu.Lock()
+	instance = nil
+	instanceMu.Unlock()
+
+	attempts := 0
+	t.Cleanup(func() {
+		instanceMu.Lock()
+		instance = nil
+		instanceMu.Unlock()
+	})
+
+	// Stand in for the config reader so the test does not depend on viper state,
+	// and count how many times a call reaches it.
+	restore := configuredDB
+	t.Cleanup(func() { configuredDB = restore })
+	configuredDB = func() *utils.DBConfig {
+		attempts++
+		return &utils.DBConfig{}
 	}
 
-	cmd := exec.Command(os.Args[0], "-test.run=TestNewClientExitsWhenItCannotBeBuilt")
-	cmd.Env = append(os.Environ(), childEnv+"=1")
-	out, err := cmd.CombinedOutput()
+	assert.Nil(t, NewClient())
+	assert.Nil(t, NewClient())
+	assert.Equal(t, 2, attempts,
+		"a failed init must not settle the question: the next call has to try again")
+}
 
-	require.Error(t, err, "a db client that cannot be built must end the process, not return nil:\n%s", out)
-	exitErr, ok := err.(*exec.ExitError)
-	require.True(t, ok, "expected an exit status, got %v", err)
-	assert.NotEqual(t, 0, exitErr.ExitCode())
-	assert.Contains(t, string(out), "failed to check db params",
-		"the exit has to say which check failed, or a restarting pod explains nothing")
+// TestNewClientCachesASuccess keeps the other half of the contract. Retrying is
+// only correct while there is nothing to return; once a client exists it is the
+// singleton, and rebuilding it would open a second pair of pools.
+func TestNewClientCachesASuccess(t *testing.T) {
+	instanceMu.Lock()
+	instance = &Client{DBConfig: &utils.DBConfig{DBName: "already-built"}}
+	instanceMu.Unlock()
+	t.Cleanup(func() {
+		instanceMu.Lock()
+		instance = nil
+		instanceMu.Unlock()
+	})
+
+	calls := 0
+	restore := configuredDB
+	t.Cleanup(func() { configuredDB = restore })
+	configuredDB = func() *utils.DBConfig {
+		calls++
+		return &utils.DBConfig{}
+	}
+
+	require.NotNil(t, NewClient())
+	assert.Equal(t, "already-built", NewClient().DBName)
+	assert.Zero(t, calls, "an existing client must be returned, not rebuilt")
 }
