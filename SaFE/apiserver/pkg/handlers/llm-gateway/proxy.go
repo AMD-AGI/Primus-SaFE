@@ -21,6 +21,10 @@ import (
 
 const llmProxyPrefix = "/api/v1/llm-proxy"
 
+// upstreamUserHeader carries the caller's NTID to APIM, which attributes the
+// request to it.
+const upstreamUserHeader = "USER-NTID"
+
 // newLLMProxy creates a reverse proxy targeting the LiteLLM endpoint.
 // It strips the /api/v1/llm-proxy prefix and prepends the target's base path, so that
 // /api/v1/llm-proxy/v1/chat/completions → <endpoint>/v1/chat/completions.
@@ -71,7 +75,7 @@ func newLLMProxy(endpoint string) (*httputil.ReverseProxy, error) {
 // It resolves the user's Virtual Key from the DB, replaces the Authorization
 // header, and reverse-proxies the request to LiteLLM.
 func (h *Handler) ProxyLLMRequest(c *gin.Context) {
-	email := h.getUserEmail(c)
+	email, ntid := h.getUserIdentity(c)
 	if email == "" {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "unable to identify user"})
 		c.Abort()
@@ -100,9 +104,24 @@ func (h *Handler) ProxyLLMRequest(c *gin.Context) {
 	}
 
 	applyProxyVirtualKeyHeader(c, virtualKey)
+	applyUpstreamUserHeader(c, ntid)
 
 	defer recoverReverseProxyAbort(c)
 	h.proxy.ServeHTTP(c.Writer, c.Request)
+}
+
+// applyUpstreamUserHeader stamps the caller's NTID for upstream APIM attribution.
+//
+// The delete is unconditional, and that is the point of the function: this is a
+// reverse proxy, so a client can send this header itself. Returning early
+// without it whenever the NTID is unresolved would forward the client's own
+// value upstream as though the gateway had established it.
+func applyUpstreamUserHeader(c *gin.Context, ntid string) {
+	c.Request.Header.Del(upstreamUserHeader)
+	if ntid == "" {
+		return
+	}
+	c.Request.Header.Set(upstreamUserHeader, ntid)
 }
 
 func recoverReverseProxyAbort(c *gin.Context) {
