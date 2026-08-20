@@ -1201,3 +1201,106 @@ var (
 		},
 	}
 )
+
+// InferaDeployment / DynamoDeployment slot pod specs embed a core/v1 PodSpec
+// inline, so containers and volumes sit directly under extraPodSpec with no
+// nested "spec" wrapper. Fixture mirrors a rendered two-role IDEP.
+var (
+	TestInferaDeploymentData = `
+apiVersion: infera.amd.com/v1alpha1
+kind: InferaDeployment
+metadata:
+  name: infera-test
+  namespace: primus-safe
+  annotations:
+    primus-safe.workload.main.container: main
+spec:
+  services:
+    role0:
+      replicas: 1
+      role: frontend
+      extraPodSpec:
+        containers:
+          - name: main
+            image: infera:router
+            command:
+              - /bin/sh
+              - -c
+              - exec /bin/sh launcher.sh Um91dGVy
+            env:
+              - name: NATS_SERVER
+                value: nats://nats.primus-safe.svc:4222
+            resources:
+              limits:
+                cpu: "4"
+                ephemeral-storage: 50Gi
+                memory: 16Gi
+              requests:
+                cpu: "4"
+                ephemeral-storage: 50Gi
+                memory: 16Gi
+        volumes:
+          - emptyDir:
+              medium: Memory
+              sizeLimit: 20Gi
+            name: shared-memory
+    role1:
+      replicas: 1
+      role: prefill
+      extraPodSpec:
+        containers:
+          - name: main
+            image: infera:engine
+            command:
+              - /bin/sh
+              - -c
+              - exec /bin/sh launcher.sh UHJlZmlsbA==
+            env:
+              - name: NATS_SERVER
+                value: nats://nats.primus-safe.svc:4222
+            resources:
+              limits:
+                cpu: "64"
+                ephemeral-storage: 100Gi
+                memory: 256Gi
+                amd.com/gpu: "8"
+              requests:
+                cpu: "64"
+                ephemeral-storage: 100Gi
+                memory: 256Gi
+                amd.com/gpu: "8"
+        volumes:
+          - emptyDir:
+              medium: Memory
+              sizeLimit: 200Gi
+            name: shared-memory
+      `
+
+	TestInferaResourceTemplate = &v1.ResourceTemplate{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "infera-deployment",
+			Labels: map[string]string{
+				v1.WorkloadVersionLabel: "v1",
+			},
+			Annotations: map[string]string{
+				v1.WorkloadKindLabel: common.InferaDeploymentKind,
+			},
+		},
+		Spec: v1.ResourceTemplateSpec{
+			GroupVersionKind: v1.GroupVersionKind{
+				Group:   "infera.amd.com",
+				Version: "v1alpha1",
+				Kind:    common.InferaDeploymentKind,
+			},
+			ResourceSpecs: []v1.ResourceSpec{{
+				PrePaths:      []string{"spec", "services", "role0"},
+				TemplatePaths: []string{"extraPodSpec"},
+				ReplicasPaths: []string{"replicas"},
+			}, {
+				PrePaths:      []string{"spec", "services", "role1"},
+				TemplatePaths: []string{"extraPodSpec"},
+				ReplicasPaths: []string{"replicas"},
+			}},
+		},
+	}
+)

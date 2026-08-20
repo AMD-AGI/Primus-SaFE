@@ -562,6 +562,19 @@ func (r *DispatcherReconciler) syncWorkloadToObject(ctx context.Context, adminWo
 		return nil
 	}
 
+	// InferaDeployment is handed off to the Infera Operator the same way, and
+	// its create path adds flags that exist only on the IDEP: normalizeInferaIDEP
+	// appends the sglang disaggregation and multi-node args to each slot's
+	// launcher payload without writing them back to Workload.Spec.EntryPoints.
+	// Re-deriving the command from the Workload would strip
+	// --disaggregation-mode / --disaggregation-transfer-backend /
+	// --disaggregation-bootstrap-port and silently degrade a PD deployment to
+	// aggregated. Until the injected flags round-trip into the Workload, skip
+	// the sync instead of rewriting a command we cannot reproduce.
+	if commonworkload.IsInferaDeployment(adminWorkload) {
+		return nil
+	}
+
 	functions := []func(adminWorkload *v1.Workload, obj *unstructured.Unstructured, rt *v1.ResourceTemplate) bool{
 		isResourceChanged, isImagesChanged, isEntrypointChanged, isSharedMemoryChanged,
 		isEnvChanged, isPriorityClassChanged, isGithubSecretChanged,

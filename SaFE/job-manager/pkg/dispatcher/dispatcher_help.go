@@ -2118,43 +2118,17 @@ func buildDispatchCount(w *v1.Workload) string {
 	return strconv.Itoa(v1.GetWorkloadDispatchCnt(w) + 1)
 }
 
+// getPodSpec resolves the pod spec path segment for this workload's kind. The
+// readers in jobutils resolve the same segment from the ResourceTemplate kind,
+// so both sides stay in sync through commonworkload.PodSpecSegment.
 func getPodSpec(w *v1.Workload) string {
-	if commonworkload.IsMonarchMesh(w) {
-		return "podTemplate"
-	}
-	// DGD `extraPodSpec` embeds PodSpec inline (see dynamo
-	// operator/api/v1alpha1/common.go::ExtraPodSpec), so the rendered yaml has
-	// containers directly under extraPodSpec rather than under the standard
-	// pyt./dep./ray "template.spec.containers" path. InferaDeployment
-	// (InferaDeployment) uses the same inline-PodSpec shape (ServiceSpec.
-	// ExtraPodSpec is a core/v1 PodSpec), so it resolves identically. This
-	// single branch makes the entire generic flow (container/env/resource
-	// injection, volume mounts, hostNetwork, sharedMemory, ...) target
-	// extraPodSpec.* for both kinds.
-	if commonworkload.IsDynamoDeployment(w) || commonworkload.IsInferaDeployment(w) {
-		return ""
-	}
-	return "spec"
+	return commonworkload.PodSpecSegment(w.SpecKind())
 }
 
 // buildPodSpecPath constructs a path of the form
 // [templatePath..., podSpec, fields...] but omits podSpec when it is empty.
-//
-// CRDs like DGD have ExtraPodSpec embedding PodSpec inline; their
-// ResourceTemplate.templatePaths already points at the pod spec so there is
-// no extra "spec" / "podTemplate" wrapper to traverse. getPodSpec returns ""
-// for these kinds. Using this helper everywhere keeps callers from
-// accidentally emitting "" as a path segment (which would write to or look
-// up a non-existent map key named "" — causing CRD schema warnings and
-// dispatcher path-not-found failures).
 func buildPodSpecPath(templatePath []string, podSpec string, fields ...string) []string {
-	out := make([]string, 0, len(templatePath)+1+len(fields))
-	out = append(out, templatePath...)
-	if podSpec != "" {
-		out = append(out, podSpec)
-	}
-	out = append(out, fields...)
-	return out
+	return commonworkload.BuildPodSpecPath(templatePath, podSpec, fields...)
 }
 
 func generateUserDir(userId string) string {

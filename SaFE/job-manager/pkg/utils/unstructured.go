@@ -187,6 +187,15 @@ func convertUnstructuredToString(obj map[string]interface{}, paths []string) str
 	return stringutil.ConvertToString(result)
 }
 
+// containersPath resolves where a resource spec's containers live. Kinds whose
+// slot embeds a PodSpec inline (DynamoDeployment, InferaDeployment) keep
+// containers directly under the template path, so the segment must come from
+// the kind rather than being assumed to be "spec".
+func containersPath(t v1.ResourceSpec, kind string) []string {
+	return commonworkload.BuildPodSpecPath(t.TemplatePath(),
+		commonworkload.PodSpecSegment(kind), "containers")
+}
+
 // GetResources Retrieve the replica count and the resource specifications of the main container.
 func GetResources(unstructuredObj *unstructured.Unstructured,
 	rt *v1.ResourceTemplate, gpuName string, maxResource int) ([]int64, []corev1.ResourceList, error) {
@@ -209,9 +218,7 @@ func GetResources(unstructuredObj *unstructured.Unstructured,
 			}
 		}
 
-		path := t.PrePaths
-		path = append(path, t.TemplatePaths...)
-		path = append(path, "spec", "containers")
+		path := containersPath(t, rt.SpecKind())
 		containers, found, err := NestedSlice(unstructuredObj.Object, path)
 		if err != nil {
 			klog.ErrorS(err, "failed to find containers", "path", path)
@@ -260,9 +267,7 @@ func GetCommands(unstructuredObj *unstructured.Unstructured,
 		if i >= maxResource {
 			break
 		}
-		path := t.PrePaths
-		path = append(path, t.TemplatePaths...)
-		path = append(path, "spec", "containers")
+		path := containersPath(t, rt.SpecKind())
 		containers, found, err := NestedSlice(unstructuredObj.Object, path)
 		if err != nil {
 			klog.ErrorS(err, "failed to find containers", "path", path)
@@ -310,9 +315,7 @@ func GetImages(unstructuredObj *unstructured.Unstructured,
 		if i >= maxResource {
 			break
 		}
-		path := t.PrePaths
-		path = append(path, t.TemplatePaths...)
-		path = append(path, "spec", "containers")
+		path := containersPath(t, rt.SpecKind())
 		containers, found, err := NestedSlice(unstructuredObj.Object, path)
 		if err != nil {
 			klog.ErrorS(err, "failed to find containers", "path", path)
@@ -354,9 +357,8 @@ func GetMemoryStorageSize(unstructuredObj *unstructured.Unstructured, rt *v1.Res
 		if i >= maxResource {
 			break
 		}
-		path := t.PrePaths
-		path = append(path, t.TemplatePaths...)
-		path = append(path, "spec", "volumes")
+		path := commonworkload.BuildPodSpecPath(t.TemplatePath(),
+			commonworkload.PodSpecSegment(rt.SpecKind()), "volumes")
 		volumes, found, err := NestedSlice(unstructuredObj.Object, path)
 		if err != nil {
 			klog.ErrorS(err, "failed to find volumes", "path", path)
@@ -545,8 +547,7 @@ func GetEnv(unstructuredObj *unstructured.Unstructured,
 		if i >= maxResource {
 			break
 		}
-		templatePath := t.TemplatePath()
-		path := append(templatePath, "spec", "containers")
+		path := containersPath(t, rt.SpecKind())
 		containers, found, err := NestedSlice(unstructuredObj.Object, path)
 		if err != nil {
 			klog.ErrorS(err, "failed to find containers", "path", path)

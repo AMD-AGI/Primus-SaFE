@@ -681,3 +681,64 @@ func TestSetNestedField(t *testing.T) {
 	err = SetNestedField(obj, "test", []string{"spec", "workerGroupSpecs", "10", "name"})
 	assert.Assert(t, err != nil)
 }
+
+// InferaDeployment slot pod specs embed PodSpec inline (containers directly
+// under extraPodSpec). The getters used to hardcode a "spec" segment after the
+// template path, so every lookup missed and drift detection silently treated
+// a changed entrypoint as unchanged.
+func TestGetInlinePodSpecCommands(t *testing.T) {
+	idep, err := jsonutils.ParseYamlToJson(TestInferaDeploymentData)
+	assert.NilError(t, err)
+	rt := TestInferaResourceTemplate.DeepCopy()
+
+	commands, err := GetCommands(idep, rt, 2)
+	assert.NilError(t, err)
+	assert.Equal(t, len(commands), 2)
+	assert.Equal(t, len(commands[0]), 3)
+	assert.Equal(t, commands[0][2], "exec /bin/sh launcher.sh Um91dGVy")
+	assert.Equal(t, commands[1][2], "exec /bin/sh launcher.sh UHJlZmlsbA==")
+}
+
+func TestGetInlinePodSpecImages(t *testing.T) {
+	idep, err := jsonutils.ParseYamlToJson(TestInferaDeploymentData)
+	assert.NilError(t, err)
+	rt := TestInferaResourceTemplate.DeepCopy()
+
+	images, err := GetImages(idep, rt, 2)
+	assert.NilError(t, err)
+	assert.Equal(t, len(images), 2)
+	assert.Equal(t, images[0], "infera:router")
+	assert.Equal(t, images[1], "infera:engine")
+}
+
+func TestGetInlinePodSpecResources(t *testing.T) {
+	idep, err := jsonutils.ParseYamlToJson(TestInferaDeploymentData)
+	assert.NilError(t, err)
+	rt := TestInferaResourceTemplate.DeepCopy()
+
+	replicaList, resourceList, err := GetResources(idep, rt, common.AmdGpu, 2)
+	assert.NilError(t, err)
+	assert.Equal(t, len(replicaList), 2)
+	assert.Equal(t, len(resourceList), 2)
+	assert.Equal(t, resourceList[0].Cpu().Value(), int64(4))
+	assert.Equal(t, resourceList[1].Cpu().Value(), int64(64))
+	gpuQuantity, ok := resourceList[1][common.AmdGpu]
+	assert.Equal(t, ok, true)
+	assert.Equal(t, gpuQuantity.Value(), int64(8))
+}
+
+func TestGetInlinePodSpecEnvAndSharedMemory(t *testing.T) {
+	idep, err := jsonutils.ParseYamlToJson(TestInferaDeploymentData)
+	assert.NilError(t, err)
+	rt := TestInferaResourceTemplate.DeepCopy()
+
+	envs, err := GetEnv(idep, rt, 2)
+	assert.NilError(t, err)
+	assert.Equal(t, len(envs), 1)
+
+	sizes, err := GetMemoryStorageSize(idep, rt, 2)
+	assert.NilError(t, err)
+	assert.Equal(t, len(sizes), 2)
+	assert.Equal(t, sizes[0], "20Gi")
+	assert.Equal(t, sizes[1], "200Gi")
+}

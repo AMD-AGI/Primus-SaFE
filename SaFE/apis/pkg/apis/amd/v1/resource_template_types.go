@@ -67,11 +67,16 @@ type ResourceSpec struct {
 }
 
 // TemplatePath returns the path components for locating the resource template.
+// The result is a fresh slice: appending onto PrePaths directly would write
+// through its backing array whenever it has spare capacity, corrupting the
+// ResourceTemplate for later reads.
 func (t *ResourceSpec) TemplatePath() []string {
 	if t == nil {
 		return nil
 	}
-	path := append(t.PrePaths, t.TemplatePaths...)
+	path := make([]string, 0, len(t.PrePaths)+len(t.TemplatePaths))
+	path = append(path, t.PrePaths...)
+	path = append(path, t.TemplatePaths...)
 	return path
 }
 

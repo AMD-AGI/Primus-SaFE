@@ -170,6 +170,48 @@ func GetMainContainerByPod(obj metav1.Object, kind, podName string) string {
 	return v1.GetMainContainer(obj)
 }
 
+// PodSpecSegment returns the path segment that sits between a
+// ResourceTemplate's templatePaths and the pod spec fields (containers,
+// volumes, ...), for the given workload kind.
+//
+// PyTorchJob / Deployment / RayJob and friends wrap pods in a
+// PodTemplateSpec, so the pod spec is one "spec" level down. DynamoDeployment
+// and InferaDeployment slots instead embed a core/v1 PodSpec inline in
+// extraPodSpec (see dynamo operator/api/v1alpha1/common.go::ExtraPodSpec and
+// Infera's ServiceSpec.ExtraPodSpec), so their templatePaths already point at
+// the pod spec and there is no segment to traverse. MonarchMesh nests its pod
+// under podTemplate.
+//
+// Read and write paths must agree here: when they disagree, the readers report
+// "not found", drift detection concludes nothing changed, and spec updates are
+// silently dropped.
+func PodSpecSegment(kind string) string {
+	switch kind {
+	case common.MonarchMesh:
+		return "podTemplate"
+	case common.DynamoDeploymentKind, common.InferaDeploymentKind:
+		return ""
+	default:
+		return "spec"
+	}
+}
+
+// BuildPodSpecPath joins templatePath, the pod spec segment and fields into a
+// fresh slice, skipping an empty segment.
+//
+// Emitting "" as a path segment would look up or write a map key named "",
+// which surfaces as CRD schema warnings and path-not-found failures. The
+// result never aliases templatePath's backing array.
+func BuildPodSpecPath(templatePath []string, podSpec string, fields ...string) []string {
+	out := make([]string, 0, len(templatePath)+1+len(fields))
+	out = append(out, templatePath...)
+	if podSpec != "" {
+		out = append(out, podSpec)
+	}
+	out = append(out, fields...)
+	return out
+}
+
 // GetWorkloadResourceUsage retrieves active resources based on the input workload.
 // It filters out terminated pods and applies node filtering criteria.
 func GetWorkloadResourceUsage(workload *v1.Workload, filterNode func(nodeName string) bool) (
