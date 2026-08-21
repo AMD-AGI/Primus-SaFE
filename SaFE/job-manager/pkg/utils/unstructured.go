@@ -206,8 +206,7 @@ func GetResources(unstructuredObj *unstructured.Unstructured,
 			break
 		}
 		if len(t.ReplicasPaths) > 0 {
-			path := t.PrePaths
-			path = append(path, t.ReplicasPaths...)
+			path := t.ReplicasPath()
 			replica, found, err := NestedInt64(unstructuredObj.Object, path)
 			if err != nil {
 				klog.ErrorS(err, "failed to find replicas", "path", path)
@@ -442,9 +441,11 @@ func GetPriorityClassName(unstructuredObj *unstructured.Unstructured, rt *v1.Res
 		if i >= maxResource {
 			break
 		}
-		path := t.PrePaths
-		path = append(path, t.TemplatePaths...)
-		path = append(path, "spec", "priorityClassName")
+		// Resolves the segment the way updatePriorityClass writes it: directly
+		// under the template path for inline-PodSpec kinds, under "spec"
+		// otherwise.
+		path := commonworkload.BuildPodSpecPath(t.TemplatePath(),
+			commonworkload.PodSpecSegment(rt.SpecKind()), "priorityClassName")
 		name, found, err := NestedString(unstructuredObj.Object, path)
 		if err != nil {
 			klog.ErrorS(err, "failed to find priorityClassName", "path", path)
@@ -526,9 +527,7 @@ func getIntValueByName(objects map[string]interface{}, name string) (int64, bool
 
 // GetLabels retrieves the labels from Unstructured object.
 func GetLabels(unstructuredObj *unstructured.Unstructured, resourceSpec v1.ResourceSpec) (map[string]interface{}, error) {
-	path := resourceSpec.PrePaths
-	path = append(path, resourceSpec.TemplatePaths...)
-	path = append(path, "metadata", "labels")
+	path := append(resourceSpec.TemplatePath(), "metadata", "labels")
 	labels, found, err := NestedMap(unstructuredObj.Object, path)
 	if err != nil {
 		klog.ErrorS(err, "failed to find labels", "path", path)

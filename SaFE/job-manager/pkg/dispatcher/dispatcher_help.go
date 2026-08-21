@@ -1052,15 +1052,40 @@ func convertEnvsToStringMap(envs []interface{}) map[string]string {
 	return result
 }
 
+// expectedReplica returns the replica count for Resources[id] as it appears in
+// the target object. It is Resources[id].Replica, except for an Infera
+// multi-node role, whose count is the node count of a single LeaderWorkerSet
+// group: normalizeInferaIDEP carries that in the flat numberOfNodes field and
+// sets replicas to 1. updateReplica and the drift check both take the value
+// from here.
+//
+// numberOfNodes is written at create time only. It also appears in the
+// launcher's --nnodes flag, which isEntrypointChanged excludes from the sync.
+func expectedReplica(adminWorkload *v1.Workload, id int) int64 {
+	if id >= len(adminWorkload.Spec.Resources) {
+		return 0
+	}
+	replica := int64(adminWorkload.Spec.Resources[id].Replica)
+	if !commonworkload.IsInferaDeployment(adminWorkload) || replica <= 1 {
+		return replica
+	}
+	roles := commonworkload.GetInferaServiceRoles(adminWorkload)
+	if id < len(roles) && commonworkload.IsInferaMultinodeRole(adminWorkload, roles[id]) {
+		klog.V(4).InfoS("infera multi-node role pins replicas=1; node count is fixed at create time",
+			"workload", adminWorkload.Name, "role", roles[id], "nodes", replica)
+		return 1
+	}
+	return replica
+}
+
 // updateReplica updates the replica count in the unstructured object.
 func updateReplica(adminWorkload *v1.Workload,
 	obj *unstructured.Unstructured, resourceSpec v1.ResourceSpec, id int) error {
 	if len(resourceSpec.ReplicasPaths) == 0 {
 		return nil
 	}
-	replica := int64(adminWorkload.Spec.Resources[id].Replica)
-	path := resourceSpec.PrePaths
-	path = append(path, resourceSpec.ReplicasPaths...)
+	replica := expectedReplica(adminWorkload, id)
+	path := resourceSpec.ReplicasPath()
 	if err := jobutils.SetNestedField(obj.Object, replica, path); err != nil {
 		return err
 	}
@@ -1079,9 +1104,7 @@ func updateMaxReplicas(obj *unstructured.Unstructured, resourceSpec v1.ResourceS
 	if len(resourceSpec.MaxReplicasPaths) == 0 {
 		return nil
 	}
-	path := resourceSpec.PrePaths
-	path = append(path, resourceSpec.MaxReplicasPaths...)
-	return jobutils.SetNestedField(obj.Object, replica, path)
+	return jobutils.SetNestedField(obj.Object, replica, resourceSpec.MaxReplicasPath())
 }
 
 // updateMinReplicas updates the min-replicas(for job, it's completions count) in the unstructured object. only for job or ray-job
@@ -1090,9 +1113,7 @@ func updateMinReplicas(obj *unstructured.Unstructured, resourceSpec v1.ResourceS
 	if len(resourceSpec.MinReplicasPaths) == 0 {
 		return nil
 	}
-	path := resourceSpec.PrePaths
-	path = append(path, resourceSpec.MinReplicasPaths...)
-	return jobutils.SetNestedField(obj.Object, replica, path)
+	return jobutils.SetNestedField(obj.Object, replica, resourceSpec.MinReplicasPath())
 }
 
 // updateCICDScaleSet updates the CICD scale set configuration in the unstructured object.
@@ -1863,6 +1884,13 @@ func updateMetadata(adminWorkload *v1.Workload,
 	if commonworkload.IsMonarchMesh(adminWorkload) {
 		return nil
 	}
+	// IDEP's extraPodSpec is a bare corev1.PodSpec with no metadata field; the
+	// CRD schema prunes anything written to extraPodSpec.metadata.
+	// normalizeInferaIDEP carries these labels on the slot's podLabels field
+	// instead, at create time.
+	if commonworkload.IsInferaDeployment(adminWorkload) {
+		return nil
+	}
 	if len(resourceSpec.TemplatePath()) > 0 {
 		_, found, err := jobutils.NestedMap(obj.Object, resourceSpec.TemplatePath())
 		if err != nil || !found {
@@ -1934,8 +1962,15 @@ func updateContainers(adminWorkload *v1.Workload,
 			if len(adminWorkload.Spec.Images) > id && adminWorkload.Spec.Images[id] != "" {
 				container["image"] = adminWorkload.Spec.Images[id]
 			}
-			if cmds := buildCommands(adminWorkload, id); len(cmds) > 0 {
-				container["command"] = cmds
+			// The IDEP command is set at create time by normalizeInferaIDEP,
+			// which appends disaggregation and multi-node flags that are absent
+			// from Workload.Spec.EntryPoints. buildCommands reproduces only the
+			// EntryPoints part, so the rendered command is left in place. This
+			// mirrors isEntrypointChanged, which excludes the same field.
+			if !commonworkload.IsInferaDeployment(adminWorkload) {
+				if cmds := buildCommands(adminWorkload, id); len(cmds) > 0 {
+					container["command"] = cmds
+				}
 			}
 		}
 	}
@@ -2016,7 +2051,7 @@ func updateSharedMemory(adminWorkload *v1.Workload, obj *unstructured.Unstructur
 	// podSpec raw inserted a "" path segment, writing the shared-memory volume to
 	// extraPodSpec."".volumes instead of extraPodSpec.volumes — leaving the
 	// container's /dev/shm mount dangling ("shared-memory" volume Not found).
-	templatePath := append(append([]string{}, resourceSpec.PrePaths...), resourceSpec.TemplatePaths...)
+	templatePath := resourceSpec.TemplatePath()
 	podSpec := getPodSpec(adminWorkload)
 	path := buildPodSpecPath(templatePath, podSpec, "volumes")
 	volumes, found, err := jobutils.NestedSlice(obj.Object, path)

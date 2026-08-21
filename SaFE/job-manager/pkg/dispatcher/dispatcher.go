@@ -562,18 +562,9 @@ func (r *DispatcherReconciler) syncWorkloadToObject(ctx context.Context, adminWo
 		return nil
 	}
 
-	// InferaDeployment is handed off to the Infera Operator the same way, and
-	// its create path adds flags that exist only on the IDEP: normalizeInferaIDEP
-	// appends the sglang disaggregation and multi-node args to each slot's
-	// launcher payload without writing them back to Workload.Spec.EntryPoints.
-	// Re-deriving the command from the Workload would strip
-	// --disaggregation-mode / --disaggregation-transfer-backend /
-	// --disaggregation-bootstrap-port and silently degrade a PD deployment to
-	// aggregated. Until the injected flags round-trip into the Workload, skip
-	// the sync instead of rewriting a command we cannot reproduce.
-	if commonworkload.IsInferaDeployment(adminWorkload) {
-		return nil
-	}
+	// InferaDeployment syncs image, env, resources, shared memory and replicas
+	// through the generic flow below. Its launcher command is excluded, in
+	// isEntrypointChanged and updateContainers.
 
 	functions := []func(adminWorkload *v1.Workload, obj *unstructured.Unstructured, rt *v1.ResourceTemplate) bool{
 		isResourceChanged, isImagesChanged, isEntrypointChanged, isSharedMemoryChanged,
@@ -625,7 +616,10 @@ func isResourceChanged(adminWorkload *v1.Workload, obj *unstructured.Unstructure
 	}
 	if len(replicaList) == len(adminWorkload.Spec.Resources) {
 		for i := range replicaList {
-			if replicaList[i] != int64(adminWorkload.Spec.Resources[i].Replica) {
+			// expectedReplica yields the value updateReplica writes for this
+			// resource, which for an Infera multi-node role is 1 rather than
+			// Resources[i].Replica.
+			if replicaList[i] != expectedReplica(adminWorkload, i) {
 				return true
 			}
 		}
@@ -658,6 +652,13 @@ func isImagesChanged(adminWorkload *v1.Workload, obj *unstructured.Unstructured,
 
 // isEntrypointChanged checks if the entry point/command of the workload has changed.
 func isEntrypointChanged(adminWorkload *v1.Workload, obj *unstructured.Unstructured, rt *v1.ResourceTemplate) bool {
+	// Entrypoint is not a synced field for InferaDeployment. Its rendered
+	// command is a superset of buildEntryPoint's output: normalizeInferaIDEP
+	// injects the sglang disaggregation and multi-node flags the Workload does
+	// not already carry, and those additions live only on the object.
+	if commonworkload.IsInferaDeployment(adminWorkload) {
+		return false
+	}
 	commands, err := jobutils.GetCommands(obj, rt, len(adminWorkload.Spec.Resources))
 	if err != nil {
 		klog.ErrorS(err, "failed to get command", "obj", obj.GetName())

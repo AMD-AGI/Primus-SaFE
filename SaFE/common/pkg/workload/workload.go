@@ -185,11 +185,17 @@ func GetMainContainerByPod(obj metav1.Object, kind, podName string) string {
 // Read and write paths must agree here: when they disagree, the readers report
 // "not found", drift detection concludes nothing changed, and spec updates are
 // silently dropped.
+//
+// kind is a SaFE Workload kind on the write path (Workload.SpecKind) and the
+// rendered CR kind on the read path (ResourceTemplate.SpecKind). The two
+// namespaces hold different strings for some kinds — a SaFE DynamoDeployment
+// renders a DynamoGraphDeployment — so each non-"spec" case lists every
+// spelling that reaches it.
 func PodSpecSegment(kind string) string {
 	switch kind {
 	case common.MonarchMesh:
 		return "podTemplate"
-	case common.DynamoDeploymentKind, common.InferaDeploymentKind:
+	case common.DynamoDeploymentKind, common.DynamoGraphDeploymentKind, common.InferaDeploymentKind:
 		return ""
 	default:
 		return "spec"

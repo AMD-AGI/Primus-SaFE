@@ -1213,7 +1213,7 @@ metadata:
   name: infera-test
   namespace: primus-safe
   annotations:
-    primus-safe.workload.main.container: main
+    primus-safe.main.container: main
 spec:
   services:
     role0:
@@ -1221,6 +1221,28 @@ spec:
       role: frontend
       extraPodSpec:
         containers:
+          # Deliberately ordered before "main" so the getters have to select by
+          # the main-container annotation rather than falling back to
+          # containers[0]. Its command/env/resources differ from main's so a
+          # broken selection fails the assertions instead of passing by luck.
+          - name: sidecar
+            image: infera:sidecar
+            command:
+              - /sidecar
+            env:
+              - name: SIDECAR_A
+                value: "a"
+              - name: SIDECAR_B
+                value: "b"
+            resources:
+              limits:
+                cpu: "1"
+                ephemeral-storage: 10Gi
+                memory: 2Gi
+              requests:
+                cpu: "1"
+                ephemeral-storage: 10Gi
+                memory: 2Gi
           - name: main
             image: infera:router
             command:

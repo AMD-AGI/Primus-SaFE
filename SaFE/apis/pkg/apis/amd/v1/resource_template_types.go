@@ -66,18 +66,46 @@ type ResourceSpec struct {
 	MinReplicasPaths []string `json:"minReplicasPaths,omitempty"`
 }
 
+// joinPrePaths returns PrePaths followed by rel as a fresh slice, leaving
+// PrePaths' backing array untouched even when callers append to the result.
+// The path accessors below all build on it.
+func (t *ResourceSpec) joinPrePaths(rel []string) []string {
+	path := make([]string, 0, len(t.PrePaths)+len(rel))
+	path = append(path, t.PrePaths...)
+	path = append(path, rel...)
+	return path
+}
+
 // TemplatePath returns the path components for locating the resource template.
-// The result is a fresh slice: appending onto PrePaths directly would write
-// through its backing array whenever it has spare capacity, corrupting the
-// ResourceTemplate for later reads.
 func (t *ResourceSpec) TemplatePath() []string {
 	if t == nil {
 		return nil
 	}
-	path := make([]string, 0, len(t.PrePaths)+len(t.TemplatePaths))
-	path = append(path, t.PrePaths...)
-	path = append(path, t.TemplatePaths...)
-	return path
+	return t.joinPrePaths(t.TemplatePaths)
+}
+
+// ReplicasPath returns the path components for locating the replica count.
+func (t *ResourceSpec) ReplicasPath() []string {
+	if t == nil {
+		return nil
+	}
+	return t.joinPrePaths(t.ReplicasPaths)
+}
+
+// MaxReplicasPath returns the path components for locating the max replica count.
+func (t *ResourceSpec) MaxReplicasPath() []string {
+	if t == nil {
+		return nil
+	}
+	return t.joinPrePaths(t.MaxReplicasPaths)
+}
+
+// MinReplicasPath returns the path components for locating the min replica count.
+func (t *ResourceSpec) MinReplicasPath() []string {
+	if t == nil {
+		return nil
+	}
+	return t.joinPrePaths(t.MinReplicasPaths)
 }
 
 type ResourceStatus struct {

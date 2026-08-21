@@ -525,3 +525,64 @@ func TestGeneratePriorityAndReason(t *testing.T) {
 	assert.Equal(t, GeneratePriority(-100), common.LowPriority)
 	assert.Assert(t, GeneratePriorityClass(wlKind(common.JobKind)) != "")
 }
+
+// TestPodSpecSegmentAgreesAcrossKindNamespaces is the regression guard for the
+// asymmetry PodSpecSegment exists to prevent.
+//
+// The writers resolve the segment from the SaFE Workload kind; the readers
+// resolve it from the rendered CR kind on the ResourceTemplate's GVK. Those are
+// different strings whenever SaFE's abstraction is named differently from the
+// object it renders (DynamoDeployment -> DynamoGraphDeployment). If only one
+// spelling is listed in the switch, the other falls through to "spec", the
+// readers look somewhere the writers never wrote, drift detection concludes
+// "unchanged", and spec updates are dropped without an error.
+func TestPodSpecSegmentAgreesAcrossKindNamespaces(t *testing.T) {
+	// workloadKind -> CR kind rendered from it, as declared by the shipped
+	// ResourceTemplates (spec.groupVersionKind.kind).
+	pairs := []struct {
+		workloadKind string
+		crKind       string
+		want         string
+	}{
+		{common.DynamoDeploymentKind, common.DynamoGraphDeploymentKind, ""},
+		{common.InferaDeploymentKind, common.InferaDeploymentKind, ""},
+		{common.MonarchMesh, common.MonarchMesh, "podTemplate"},
+		{common.DeploymentKind, common.DeploymentKind, "spec"},
+		{common.StatefulSetKind, common.StatefulSetKind, "spec"},
+		{common.AuthoringKind, common.PytorchJobKind, "spec"},
+		{common.UnifiedJobKind, common.PytorchJobKind, "spec"},
+		{common.RayJobKind, common.RayJobKind, "spec"},
+	}
+
+	for _, p := range pairs {
+		t.Run(p.workloadKind+"->"+p.crKind, func(t *testing.T) {
+			fromWriter := PodSpecSegment(p.workloadKind)
+			fromReader := PodSpecSegment(p.crKind)
+			assert.Equal(t, fromWriter, p.want)
+			assert.Equal(t, fromReader, p.want)
+			assert.Equal(t, fromWriter, fromReader)
+		})
+	}
+}
+
+// TestBuildPodSpecPathOmitsEmptySegment pins the inline-PodSpec shape: an empty
+// segment must vanish rather than become a "" map key, and the result must not
+// alias the caller's slice.
+func TestBuildPodSpecPathOmitsEmptySegment(t *testing.T) {
+	tmpl := []string{"spec", "services", "role0", "extraPodSpec"}
+
+	inline := BuildPodSpecPath(tmpl, PodSpecSegment(common.DynamoGraphDeploymentKind), "containers")
+	assert.DeepEqual(t, inline,
+		[]string{"spec", "services", "role0", "extraPodSpec", "containers"})
+
+	wrapped := BuildPodSpecPath([]string{"spec", "template"},
+		PodSpecSegment(common.DeploymentKind), "containers")
+	assert.DeepEqual(t, wrapped, []string{"spec", "template", "spec", "containers"})
+
+	// The caller's slice is untouched even though it has spare capacity.
+	base := make([]string, 2, 8)
+	base[0], base[1] = "spec", "template"
+	_ = BuildPodSpecPath(base, "spec", "containers")
+	assert.Equal(t, len(base), 2)
+	assert.DeepEqual(t, base[:2], []string{"spec", "template"})
+}
