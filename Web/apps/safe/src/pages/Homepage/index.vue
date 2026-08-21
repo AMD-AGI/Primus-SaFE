@@ -297,10 +297,20 @@ const quickActions = computed(() =>
   quickActionDefs.filter((a) => (store.currentScopes ?? []).includes(a.scope)),
 )
 const goToCreate = (path: string) => router.push({ path, query: { action: 'create' } })
+// The list API grants regular users the "list" verb only as the workspace
+// member, so the query must carry a workspaceId; an unscoped request is
+// rejected with 403 for anyone who is not an admin.
 const fetchMyWorkloads = async () => {
+  const workspaceId = store.currentWorkspaceId
+  if (!workspaceId || !userStore.userId) {
+    myWorkloads.value = []
+    myWlTotal.value = 0
+    return
+  }
   try {
     myWlLoading.value = true
     const res: any = await getWorkloadsList({
+      workspaceId,
       userId: userStore.userId,
       phase: ['Running', 'Pending'],
       offset: 0,
@@ -317,7 +327,6 @@ const fetchMyWorkloads = async () => {
     myWlLoading.value = false
   }
 }
-onMounted(fetchMyWorkloads)
 
 const detailData = ref<any>(null)
 const RES_KEYS = ['amd.com/gpu', 'rdma/hca', 'cpu', 'memory'] as const
@@ -657,6 +666,10 @@ watch(
   },
   { immediate: true },
 )
+
+watch([() => store.currentWorkspaceId, () => userStore.userId], fetchMyWorkloads, {
+  immediate: true,
+})
 
 watch(
   () => clusterStore.currentClusterId,
