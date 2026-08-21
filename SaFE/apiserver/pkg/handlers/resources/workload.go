@@ -608,14 +608,21 @@ func (h *Handler) updateWorkload(ctx context.Context,
 	if commonworkload.IsCICDScalingRunnerSet(adminWorkload) {
 		if auth := normalizeCICDGitHubAuth(req.GitHubAuth, requestEnv(req)); auth != nil {
 			patch := client.MergeFrom(adminWorkload.DeepCopy())
-			if err = h.updateCICDSecret(ctx, adminWorkload, requestUser, auth); err != nil {
-				klog.ErrorS(err, "failed to update cicd secret")
-				return err
+			rotation, secretErr := h.updateCICDSecret(ctx, adminWorkload, requestUser, auth)
+			if secretErr != nil {
+				klog.ErrorS(secretErr, "failed to update cicd secret")
+				return secretErr
 			}
+			// The rotation is only durable once the annotation lands. Until then the
+			// stored workload still points at the previous secret, so a failed patch
+			// discards the replacement and leaves the previous secret intact; the
+			// superseded one is dropped only after the patch succeeds.
 			if err = h.Patch(ctx, adminWorkload, patch); err != nil {
 				klog.ErrorS(err, "failed to patch workload")
+				h.discardRolledBackCICDSecret(ctx, adminWorkload, rotation, requestUser)
 				return err
 			}
+			h.deleteSupersededCICDSecret(ctx, rotation, requestUser)
 		}
 	}
 	return nil
