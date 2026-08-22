@@ -1808,6 +1808,57 @@ func TestUpdateContainersPreservesInferaCommand(t *testing.T) {
 	assert.Assert(t, main["resources"] != nil)
 }
 
+// TestUpdateContainersBuildsInferaCommandOnCreate is the create-path half of
+// TestUpdateContainersPreservesInferaCommand. generateK8sObject runs
+// applyWorkloadSpecToObject before normalizeInferaIDEP, and the shipped IDEP
+// template declares no command on containers[main], so buildCommands is the
+// only writer of one: an IDEP container that arrives without a command gets the
+// launcher form that normalizeInferaIDEP then appends its flags to.
+func TestUpdateContainersBuildsInferaCommandOnCreate(t *testing.T) {
+	workload := newInferaWorkload([]string{"frontend"}, nil, []int{1})
+	// EntryPoints carries the base64 payload launcher.sh decodes, which is the
+	// form appendLauncherArgs rewrites.
+	workload.Spec.EntryPoints = []string{stringutil.Base64Encode("serve --model /models/m")}
+
+	obj := &unstructured.Unstructured{Object: map[string]interface{}{
+		"apiVersion": "infera.amd.com/v1alpha1",
+		"kind":       common.InferaDeploymentKind,
+		"spec": map[string]interface{}{
+			"services": map[string]interface{}{
+				"role0": map[string]interface{}{
+					"replicas": int64(1),
+					"extraPodSpec": map[string]interface{}{
+						"containers": []interface{}{
+							map[string]interface{}{"name": "main"},
+						},
+					},
+				},
+			},
+		},
+	}}
+
+	resourceSpec := v1.ResourceSpec{
+		PrePaths:      []string{"spec", "services", "role0"},
+		TemplatePaths: []string{"extraPodSpec"},
+		PodSpecPaths:  []string{"extraPodSpec"},
+		ReplicasPaths: []string{"replicas"},
+	}
+
+	assert.NilError(t, updateContainers(workload, obj, resourceSpec, 0))
+
+	containers, _, err := jobutils.NestedSlice(obj.Object,
+		[]string{"spec", "services", "role0", "extraPodSpec", "containers"})
+	assert.NilError(t, err)
+	main := containers[0].(map[string]interface{})
+	assert.DeepEqual(t, main["command"], buildCommands(workload, 0))
+
+	// appendLauncherArgs needs the three-element launcher form to graft the
+	// disaggregation and multi-node flags onto; a container left without a
+	// command would silently keep none.
+	_, ok := appendLauncherArgs(main["command"].([]interface{}), "--nnodes 2")
+	assert.Assert(t, ok)
+}
+
 // TestIsEntrypointChangedSkipsInfera is the read-side half of the same
 // exemption: the rendered command is a deliberate superset of the workload's
 // entrypoint, so reporting drift would re-sync on every reconcile.

@@ -365,7 +365,13 @@ func GetMemoryStorageSize(unstructuredObj *unstructured.Unstructured, rt *v1.Res
 
 		shareMemory := GetMemoryStorageVolume(volumes)
 		if shareMemory != nil {
-			result = append(result, shareMemory["sizeLimit"].(string))
+			// A template may pre-declare the memory-backed volume without a
+			// sizeLimit; updateSharedMemory fills one in only when the workload
+			// asks for shared memory. Report the absent limit as the empty size
+			// the workload spec carries in that case, which keeps the drift
+			// check quiet instead of comparing against a missing key.
+			sizeLimit, _ := shareMemory["sizeLimit"].(string)
+			result = append(result, sizeLimit)
 		} else {
 			result = append(result, "0")
 		}

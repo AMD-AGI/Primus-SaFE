@@ -742,3 +742,44 @@ func TestGetInlinePodSpecEnvAndSharedMemory(t *testing.T) {
 	assert.Equal(t, sizes[0], "20Gi")
 	assert.Equal(t, sizes[1], "200Gi")
 }
+
+// TestGetMemoryStorageSizeWithoutSizeLimit covers a template that pre-declares
+// the memory-backed volume with no sizeLimit, which is the shape an
+// InferaDeployment carries whenever the workload asks for no shared memory:
+// updateSharedMemory returns before filling one in. The absent limit reads back
+// as the empty size the workload spec holds, so isSharedMemoryChanged sees no
+// drift.
+func TestGetMemoryStorageSizeWithoutSizeLimit(t *testing.T) {
+	idep := &unstructured.Unstructured{Object: map[string]interface{}{
+		"apiVersion": "infera.amd.com/v1alpha1",
+		"kind":       common.InferaDeploymentKind,
+		"spec": map[string]interface{}{
+			"services": map[string]interface{}{
+				"role0": map[string]interface{}{
+					"extraPodSpec": map[string]interface{}{
+						"volumes": []interface{}{
+							map[string]interface{}{
+								"name":     "shared-memory",
+								"emptyDir": map[string]interface{}{"medium": "Memory"},
+							},
+						},
+					},
+				},
+			},
+		},
+	}}
+	rt := &v1.ResourceTemplate{
+		Spec: v1.ResourceTemplateSpec{
+			GroupVersionKind: v1.GroupVersionKind{Kind: common.InferaDeploymentKind},
+			ResourceSpecs: []v1.ResourceSpec{{
+				PrePaths:     []string{"spec", "services", "role0"},
+				PodSpecPaths: []string{"extraPodSpec"},
+			}},
+		},
+	}
+
+	sizes, err := GetMemoryStorageSize(idep, rt, 1)
+	assert.NilError(t, err)
+	assert.Equal(t, len(sizes), 1)
+	assert.Equal(t, sizes[0], "")
+}

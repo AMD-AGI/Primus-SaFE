@@ -1959,12 +1959,14 @@ func updateContainers(adminWorkload *v1.Workload,
 			if len(adminWorkload.Spec.Images) > id && adminWorkload.Spec.Images[id] != "" {
 				container["image"] = adminWorkload.Spec.Images[id]
 			}
-			// The IDEP command is set at create time by normalizeInferaIDEP,
-			// which appends disaggregation and multi-node flags that are absent
-			// from Workload.Spec.EntryPoints. buildCommands reproduces only the
-			// EntryPoints part, so the rendered command is left in place. This
-			// mirrors isEntrypointChanged, which excludes the same field.
-			if !commonworkload.IsInferaDeployment(adminWorkload) {
+			// An IDEP command carries the disaggregation and multi-node flags
+			// that normalizeInferaIDEP appends on top of buildCommands and that
+			// Workload.Spec.EntryPoints does not describe, so an IDEP container
+			// that already holds one keeps it. This mirrors isEntrypointChanged,
+			// which excludes the same field. A container with no command yet is
+			// on the create path, where buildCommands produces the launcher form
+			// that normalizeInferaIDEP then appends its flags to.
+			if !commonworkload.IsInferaDeployment(adminWorkload) || !hasCommand(container) {
 				if cmds := buildCommands(adminWorkload, id); len(cmds) > 0 {
 					container["command"] = cmds
 				}
@@ -1975,6 +1977,12 @@ func updateContainers(adminWorkload *v1.Workload,
 		return err
 	}
 	return nil
+}
+
+// hasCommand reports whether a rendered container already carries a command.
+func hasCommand(container map[string]interface{}) bool {
+	cmd, ok := container["command"].([]interface{})
+	return ok && len(cmd) > 0
 }
 
 // updateContainerEnv updates environment variables in the container.
