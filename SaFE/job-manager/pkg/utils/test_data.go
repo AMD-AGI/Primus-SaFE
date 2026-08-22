@@ -657,10 +657,12 @@ var (
 			ResourceSpecs: []v1.ResourceSpec{{
 				PrePaths:      []string{"spec", "pytorchReplicaSpecs", "Master"},
 				TemplatePaths: []string{"template"},
+				PodSpecPaths:  []string{"template", "spec"},
 				ReplicasPaths: []string{"replicas"},
 			}, {
 				PrePaths:      []string{"spec", "pytorchReplicaSpecs", "Worker"},
 				TemplatePaths: []string{"template"},
+				PodSpecPaths:  []string{"template", "spec"},
 				ReplicasPaths: []string{"replicas"},
 			}},
 			ResourceStatus: v1.ResourceStatus{
@@ -719,6 +721,7 @@ var (
 			ResourceSpecs: []v1.ResourceSpec{{
 				PrePaths:         []string{"spec"},
 				TemplatePaths:    []string{"template"},
+				PodSpecPaths:     []string{"template", "spec"},
 				ReplicasPaths:    []string{"parallelism"},
 				MinReplicasPaths: []string{"completions"},
 			}},
@@ -786,6 +789,7 @@ var (
 			},
 			ResourceSpecs: []v1.ResourceSpec{{
 				PrePaths:      []string{"spec"},
+				PodSpecPaths:  []string{"podTemplate"},
 				ReplicasPaths: []string{"replicas"},
 			}},
 		},
@@ -810,6 +814,7 @@ var (
 			ResourceSpecs: []v1.ResourceSpec{{
 				PrePaths:      []string{"spec"},
 				TemplatePaths: []string{"template"},
+				PodSpecPaths:  []string{"template", "spec"},
 				ReplicasPaths: []string{"replicas"},
 			}},
 			ResourceStatus: v1.ResourceStatus{
@@ -863,6 +868,7 @@ var (
 			ResourceSpecs: []v1.ResourceSpec{{
 				PrePaths:      []string{"spec"},
 				TemplatePaths: []string{"template"},
+				PodSpecPaths:  []string{"template", "spec"},
 				ReplicasPaths: []string{"replicas"},
 			}},
 			ActiveReplica: v1.ActiveReplica{
@@ -891,6 +897,7 @@ var (
 			ResourceSpecs: []v1.ResourceSpec{{
 				PrePaths:      []string{"spec"},
 				TemplatePaths: []string{"template"},
+				PodSpecPaths:  []string{"template", "spec"},
 			}},
 		},
 	}
@@ -912,7 +919,8 @@ var (
 				Kind:    "EphemeralRunner",
 			},
 			ResourceSpecs: []v1.ResourceSpec{{
-				PrePaths: []string{"spec"},
+				PrePaths:     []string{"spec"},
+				PodSpecPaths: []string{"spec"},
 			}},
 			ResourceStatus: v1.ResourceStatus{
 				PrePaths:     []string{"status"},
@@ -962,18 +970,22 @@ var (
 			ResourceSpecs: []v1.ResourceSpec{{
 				PrePaths:      []string{"spec"},
 				TemplatePaths: []string{"submitterPodTemplate"},
+				PodSpecPaths:  []string{"submitterPodTemplate", "spec"},
 			}, {
 				PrePaths:      []string{"spec", "rayClusterSpec", "headGroupSpec"},
 				TemplatePaths: []string{"template"},
+				PodSpecPaths:  []string{"template", "spec"},
 			}, {
 				PrePaths:         []string{"spec", "rayClusterSpec", "workerGroupSpecs", "0"},
 				TemplatePaths:    []string{"template"},
+				PodSpecPaths:     []string{"template", "spec"},
 				ReplicasPaths:    []string{"replicas"},
 				MinReplicasPaths: []string{"minReplicas"},
 				MaxReplicasPaths: []string{"maxReplicas"},
 			}, {
 				PrePaths:         []string{"spec", "rayClusterSpec", "workerGroupSpecs", "1"},
 				TemplatePaths:    []string{"template"},
+				PodSpecPaths:     []string{"template", "spec"},
 				ReplicasPaths:    []string{"replicas"},
 				MinReplicasPaths: []string{"minReplicas"},
 				MaxReplicasPaths: []string{"maxReplicas"},
@@ -1197,6 +1209,7 @@ var (
 			ResourceSpecs: []v1.ResourceSpec{{
 				PrePaths:      []string{"spec"},
 				TemplatePaths: []string{"podTemplate"},
+				PodSpecPaths:  []string{"podTemplate", "spec"},
 			}},
 		},
 	}
@@ -1317,10 +1330,12 @@ spec:
 			ResourceSpecs: []v1.ResourceSpec{{
 				PrePaths:      []string{"spec", "services", "role0"},
 				TemplatePaths: []string{"extraPodSpec"},
+				PodSpecPaths:  []string{"extraPodSpec"},
 				ReplicasPaths: []string{"replicas"},
 			}, {
 				PrePaths:      []string{"spec", "services", "role1"},
 				TemplatePaths: []string{"extraPodSpec"},
+				PodSpecPaths:  []string{"extraPodSpec"},
 				ReplicasPaths: []string{"replicas"},
 			}},
 		},

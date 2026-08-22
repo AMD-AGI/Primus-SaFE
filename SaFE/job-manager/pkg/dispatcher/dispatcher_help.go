@@ -57,33 +57,31 @@ func initializeObject(obj *unstructured.Unstructured,
 	}
 
 	var err error
-	templatePath := resourceSpec.TemplatePath()
-	podSpec := getPodSpec(workload)
 
-	path := buildPodSpecPath(templatePath, podSpec,
+	path := podSpecPath(workload, resourceSpec,
 		"affinity", "nodeAffinity", "requiredDuringSchedulingIgnoredDuringExecution", "nodeSelectorTerms")
 	if err = modifyRequiredNodeAffinity(obj, workload, path); err != nil {
 		return fmt.Errorf("failed to modify nodeSelectorTerms: %v", err.Error())
 	}
 	if v1.IsRetryingOnOriginal(workload) || v1.GetNodesAffinity(workload) == common.NodesAffinityPreferred {
-		path = buildPodSpecPath(templatePath, podSpec,
+		path = podSpecPath(workload, resourceSpec,
 			"affinity", "nodeAffinity", "preferredDuringSchedulingIgnoredDuringExecution")
 		if err = modifyPreferredNodeAffinity(obj, workload, path); err != nil {
 			return fmt.Errorf("failed to modify preferredNodeAffinity: %v", err.Error())
 		}
 	}
 	if v1.IsRequireNodeSpread(workload) {
-		path = buildPodSpecPath(templatePath, podSpec,
+		path = podSpecPath(workload, resourceSpec,
 			"affinity", "podAntiAffinity", "requiredDuringSchedulingIgnoredDuringExecution")
 		if err = modifyPodAntiAffinity(obj, workload, path); err != nil {
 			return fmt.Errorf("failed to modify podAntiAffinity: %v", err.Error())
 		}
 	}
-	path = buildPodSpecPath(templatePath, podSpec, "containers")
+	path = podSpecPath(workload, resourceSpec, "containers")
 	if err = modifyContainers(obj, workload, workspace, path, resourceId); err != nil {
 		return fmt.Errorf("failed to modify main container: %v", err.Error())
 	}
-	path = buildPodSpecPath(templatePath, podSpec, "volumes")
+	path = podSpecPath(workload, resourceSpec, "volumes")
 	if err = modifyVolumes(obj, workload, workspace, path); err != nil {
 		return fmt.Errorf("failed to modify volumes: %v", err.Error())
 	}
@@ -92,27 +90,27 @@ func initializeObject(obj *unstructured.Unstructured,
 	// sidecar) can resolve `docker run -v <path>` bind mounts. The matching
 	// pod-level volumes were just added by modifyVolumes; only the volumeMounts
 	// need to be applied here. This is a no-op for kinds without init containers.
-	path = buildPodSpecPath(templatePath, podSpec, "initContainers")
+	path = podSpecPath(workload, resourceSpec, "initContainers")
 	if err = modifyInitContainerVolumeMounts(obj, workload, workspace, path); err != nil {
 		return fmt.Errorf("failed to modify init containers: %v", err.Error())
 	}
-	path = buildPodSpecPath(templatePath, podSpec, "imagePullSecrets")
+	path = podSpecPath(workload, resourceSpec, "imagePullSecrets")
 	if err = modifyImageSecrets(obj, workload, path); err != nil {
 		return fmt.Errorf("failed to modify image secrets: %v", err.Error())
 	}
-	path = buildPodSpecPath(templatePath, podSpec, "priorityClassName")
+	path = podSpecPath(workload, resourceSpec, "priorityClassName")
 	if err = modifyPriorityClass(obj, workload, path); err != nil {
 		return fmt.Errorf("failed to modify priority: %v", err.Error())
 	}
-	path = buildPodSpecPath(templatePath, podSpec, "serviceAccountName")
+	path = podSpecPath(workload, resourceSpec, "serviceAccountName")
 	if err = modifyServiceAccountName(obj, workload, path); err != nil {
 		return fmt.Errorf("failed to modify sa: %v", err.Error())
 	}
-	path = buildPodSpecPath(templatePath, podSpec, "hostNetwork")
+	path = podSpecPath(workload, resourceSpec, "hostNetwork")
 	if err = modifyHostNetwork(obj, workload, path, resourceId); err != nil {
 		return fmt.Errorf("failed to modify host network: %v", err.Error())
 	}
-	path = buildPodSpecPath(templatePath, podSpec, "tolerations")
+	path = podSpecPath(workload, resourceSpec, "tolerations")
 	if err = modifyTolerations(obj, workload, path); err != nil {
 		return fmt.Errorf("failed to modify tolerations: %v", err.Error())
 	}
@@ -126,7 +124,7 @@ func initializeObject(obj *unstructured.Unstructured,
 			return fmt.Errorf("failed to modify selector: %v", err.Error())
 		}
 	}
-	if err = modifyHostPid(obj, workload, templatePath); err != nil {
+	if err = modifyHostPid(obj, workload, resourceSpec); err != nil {
 		return fmt.Errorf("failed to modify by opsjob: %v", err.Error())
 	}
 	return nil
@@ -601,16 +599,15 @@ func modifyHostNetwork(obj *unstructured.Unstructured, workload *v1.Workload, pa
 }
 
 // modifyHostPid configures host PID and IPC settings for OpsJob preflight operations.
-func modifyHostPid(obj *unstructured.Unstructured, workload *v1.Workload, templatePath []string) error {
+func modifyHostPid(obj *unstructured.Unstructured, workload *v1.Workload, resourceSpec *v1.ResourceSpec) error {
 	if !v1.IsPrivileged(workload) {
 		return nil
 	}
-	podSpec := getPodSpec(workload)
-	path := buildPodSpecPath(templatePath, podSpec, "hostPID")
+	path := podSpecPath(workload, resourceSpec, "hostPID")
 	if err := jobutils.SetNestedField(obj.Object, true, path); err != nil {
 		return err
 	}
-	path = buildPodSpecPath(templatePath, podSpec, "hostIPC")
+	path = podSpecPath(workload, resourceSpec, "hostIPC")
 	if err := jobutils.SetNestedField(obj.Object, true, path); err != nil {
 		return err
 	}
@@ -2045,15 +2042,7 @@ func updateSharedMemory(adminWorkload *v1.Workload, obj *unstructured.Unstructur
 	if adminWorkload.Spec.Resources[id].SharedMemory == "" {
 		return nil
 	}
-	// Build [<prePaths>, <templatePaths>, <podSpec?>, volumes] via buildPodSpecPath
-	// so the empty podSpec segment is omitted for kinds whose extraPodSpec embeds
-	// PodSpec inline (DGD / InferaDeployment, getPodSpec == ""). Appending
-	// podSpec raw inserted a "" path segment, writing the shared-memory volume to
-	// extraPodSpec."".volumes instead of extraPodSpec.volumes — leaving the
-	// container's /dev/shm mount dangling ("shared-memory" volume Not found).
-	templatePath := resourceSpec.TemplatePath()
-	podSpec := getPodSpec(adminWorkload)
-	path := buildPodSpecPath(templatePath, podSpec, "volumes")
+	path := podSpecPath(adminWorkload, &resourceSpec, "volumes")
 	volumes, found, err := jobutils.NestedSlice(obj.Object, path)
 	if err != nil {
 		return err
@@ -2085,31 +2074,21 @@ func updateSharedMemory(adminWorkload *v1.Workload, obj *unstructured.Unstructur
 // updateHostNetwork updates the host network configuration.
 func updateHostNetwork(adminWorkload *v1.Workload,
 	obj *unstructured.Unstructured, resourceSpec v1.ResourceSpec, resourceId int) error {
-	templatePath := resourceSpec.TemplatePath()
-	podSpec := getPodSpec(adminWorkload)
-	path := buildPodSpecPath(templatePath, podSpec, "hostNetwork")
+	path := podSpecPath(adminWorkload, &resourceSpec, "hostNetwork")
 	return modifyHostNetwork(obj, adminWorkload, path, resourceId)
 }
 
 // updatePriorityClass updates the priority class configuration.
 func updatePriorityClass(adminWorkload *v1.Workload,
 	obj *unstructured.Unstructured, resourceSpec v1.ResourceSpec) error {
-	templatePath := resourceSpec.TemplatePath()
-	podSpec := getPodSpec(adminWorkload)
-	path := buildPodSpecPath(templatePath, podSpec, "priorityClassName")
+	path := podSpecPath(adminWorkload, &resourceSpec, "priorityClassName")
 	return modifyPriorityClass(obj, adminWorkload, path)
 }
 
 // getContainers retrieves the containers slice and its path from the unstructured object based on the resource specification.
 // Returns the containers slice, the path to the containers field, and an error if the operation fails or no containers are found.
 func getContainers(adminWorkload *v1.Workload, obj *unstructured.Unstructured, resourceSpec v1.ResourceSpec) ([]interface{}, []string, error) {
-	templatePath := resourceSpec.TemplatePath()
-	podSpec := getPodSpec(adminWorkload)
-	// DGD ExtraPodSpec embeds PodSpec inline, so containers live directly under
-	// extraPodSpec (no nested "spec" wrapper). PyTorchJob / Deployment / RayJob
-	// all wrap pods in template.spec.containers and keep the "spec" segment.
-	// buildPodSpecPath omits the empty podSpec segment automatically.
-	path := buildPodSpecPath(templatePath, podSpec, "containers")
+	path := podSpecPath(adminWorkload, &resourceSpec, "containers")
 	containers, found, err := jobutils.NestedSlice(obj.Object, path)
 	if err != nil {
 		return nil, nil, err
@@ -2153,17 +2132,13 @@ func buildDispatchCount(w *v1.Workload) string {
 	return strconv.Itoa(v1.GetWorkloadDispatchCnt(w) + 1)
 }
 
-// getPodSpec resolves the pod spec path segment for this workload's kind. The
-// readers in jobutils resolve the same segment from the ResourceTemplate kind,
-// so both sides stay in sync through commonworkload.PodSpecSegment.
-func getPodSpec(w *v1.Workload) string {
-	return commonworkload.PodSpecSegment(w.SpecKind())
-}
-
-// buildPodSpecPath constructs a path of the form
-// [templatePath..., podSpec, fields...] but omits podSpec when it is empty.
-func buildPodSpecPath(templatePath []string, podSpec string, fields ...string) []string {
-	return commonworkload.BuildPodSpecPath(templatePath, podSpec, fields...)
+// podSpecPath resolves the absolute path to this resource spec's pod spec,
+// followed by fields. The location comes from the ResourceTemplate's
+// podSpecPaths, which the readers in jobutils resolve from the same field, so
+// both sides address the same node of the object. Each call returns a fresh
+// slice.
+func podSpecPath(w *v1.Workload, resourceSpec *v1.ResourceSpec, fields ...string) []string {
+	return commonworkload.ResolvePodSpecPath(resourceSpec, w.SpecKind(), fields...)
 }
 
 func generateUserDir(userId string) string {

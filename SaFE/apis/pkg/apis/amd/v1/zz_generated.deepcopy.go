@@ -1712,6 +1712,11 @@ func (in *ResourceSpec) DeepCopyInto(out *ResourceSpec) {
 		*out = make([]string, len(*in))
 		copy(*out, *in)
 	}
+	if in.PodSpecPaths != nil {
+		in, out := &in.PodSpecPaths, &out.PodSpecPaths
+		*out = make([]string, len(*in))
+		copy(*out, *in)
+	}
 	if in.ReplicasPaths != nil {
 		in, out := &in.ReplicasPaths, &out.ReplicasPaths
 		*out = make([]string, len(*in))

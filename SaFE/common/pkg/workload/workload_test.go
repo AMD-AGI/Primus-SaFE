@@ -586,3 +586,96 @@ func TestBuildPodSpecPathOmitsEmptySegment(t *testing.T) {
 	assert.Equal(t, len(base), 2)
 	assert.DeepEqual(t, base[:2], []string{"spec", "template"})
 }
+
+// TestResolvePodSpecPathUsesDeclaredPaths pins the declared-data path: when the
+// ResourceTemplate carries podSpecPaths, that is where the pod spec is, for
+// every kind.
+func TestResolvePodSpecPathUsesDeclaredPaths(t *testing.T) {
+	cases := []struct {
+		name string
+		spec v1.ResourceSpec
+		kind string
+		want []string
+	}{
+		{
+			name: "inline pod spec",
+			spec: v1.ResourceSpec{
+				PrePaths:      []string{"spec", "services", "role0"},
+				TemplatePaths: []string{"extraPodSpec"},
+				PodSpecPaths:  []string{"extraPodSpec"},
+			},
+			kind: common.InferaDeploymentKind,
+			want: []string{"spec", "services", "role0", "extraPodSpec", "containers"},
+		},
+		{
+			name: "pod template wrapper",
+			spec: v1.ResourceSpec{
+				PrePaths:      []string{"spec"},
+				TemplatePaths: []string{"template"},
+				PodSpecPaths:  []string{"template", "spec"},
+			},
+			kind: common.DeploymentKind,
+			want: []string{"spec", "template", "spec", "containers"},
+		},
+		{
+			name: "no pod template",
+			spec: v1.ResourceSpec{
+				PrePaths:     []string{"spec"},
+				PodSpecPaths: []string{"podTemplate"},
+			},
+			kind: common.MonarchMesh,
+			want: []string{"spec", "podTemplate", "containers"},
+		},
+		{
+			// The declared path wins over the kind default, which is what lets a
+			// new kind ship without a code change.
+			name: "declared path overrides the kind default",
+			spec: v1.ResourceSpec{
+				PrePaths:      []string{"spec"},
+				TemplatePaths: []string{"template"},
+				PodSpecPaths:  []string{"somewhereElse"},
+			},
+			kind: common.DeploymentKind,
+			want: []string{"spec", "somewhereElse", "containers"},
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			assert.DeepEqual(t, ResolvePodSpecPath(&c.spec, c.kind, "containers"), c.want)
+		})
+	}
+}
+
+// TestResolvePodSpecPathFallsBackToKind covers ResourceTemplates rendered by
+// charts that predate podSpecPaths: the path comes from templatePaths plus the
+// kind's built-in segment.
+func TestResolvePodSpecPathFallsBackToKind(t *testing.T) {
+	wrapped := v1.ResourceSpec{
+		PrePaths:      []string{"spec"},
+		TemplatePaths: []string{"template"},
+	}
+	assert.DeepEqual(t, ResolvePodSpecPath(&wrapped, common.DeploymentKind, "containers"),
+		[]string{"spec", "template", "spec", "containers"})
+
+	inline := v1.ResourceSpec{
+		PrePaths:      []string{"spec", "services", "role0"},
+		TemplatePaths: []string{"extraPodSpec"},
+	}
+	assert.DeepEqual(t, ResolvePodSpecPath(&inline, common.InferaDeploymentKind, "containers"),
+		[]string{"spec", "services", "role0", "extraPodSpec", "containers"})
+}
+
+// TestResolvePodSpecPathDoesNotAlias pins that repeated calls cannot write
+// through each other's backing array.
+func TestResolvePodSpecPathDoesNotAlias(t *testing.T) {
+	spec := v1.ResourceSpec{
+		PrePaths:     []string{"spec"},
+		PodSpecPaths: []string{"template", "spec"},
+	}
+	volumes := ResolvePodSpecPath(&spec, common.DeploymentKind, "volumes")
+	containers := ResolvePodSpecPath(&spec, common.DeploymentKind, "containers")
+	assert.DeepEqual(t, volumes, []string{"spec", "template", "spec", "volumes"})
+	assert.DeepEqual(t, containers, []string{"spec", "template", "spec", "containers"})
+	assert.DeepEqual(t, spec.PodSpecPaths, []string{"template", "spec"})
+}

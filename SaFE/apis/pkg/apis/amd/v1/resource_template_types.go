@@ -56,6 +56,15 @@ type ResourceSpec struct {
 	PrePaths []string `json:"prePaths,omitempty"`
 	// The relative path of pod template
 	TemplatePaths []string `json:"templatePaths,omitempty"`
+	// The relative path of the core/v1 PodSpec, where containers, volumes,
+	// priorityClassName and the other pod-level fields live. Like the other
+	// path fields it is relative to prePaths, not to templatePaths: a kind that
+	// wraps its pod in a PodTemplateSpec repeats the template segment and adds
+	// "spec" (template, spec), while a kind whose slot embeds a PodSpec inline
+	// names that field alone (extraPodSpec).
+	//
+	// Empty means the path is derived from templatePaths and the kind instead.
+	PodSpecPaths []string `json:"podSpecPaths,omitempty"`
 	// The relative path of pod replica
 	ReplicasPaths []string `json:"replicasPaths,omitempty"`
 	// Fits scenarios without a defined replica path but with actual replica values, such as ray-job.
@@ -82,6 +91,15 @@ func (t *ResourceSpec) TemplatePath() []string {
 		return nil
 	}
 	return t.joinPrePaths(t.TemplatePaths)
+}
+
+// PodSpecPath returns the path components for locating the pod spec, or nil
+// when the resource spec does not declare podSpecPaths.
+func (t *ResourceSpec) PodSpecPath() []string {
+	if t == nil || len(t.PodSpecPaths) == 0 {
+		return nil
+	}
+	return t.joinPrePaths(t.PodSpecPaths)
 }
 
 // ReplicasPath returns the path components for locating the replica count.

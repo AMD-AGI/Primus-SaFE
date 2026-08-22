@@ -170,9 +170,28 @@ func GetMainContainerByPod(obj metav1.Object, kind, podName string) string {
 	return v1.GetMainContainer(obj)
 }
 
+// ResolvePodSpecPath returns the absolute path to a resource spec's pod spec,
+// followed by fields. The pod spec location is declared data: it comes from the
+// ResourceTemplate's podSpecPaths, which both the write path (dispatcher) and
+// the read path (jobutils) resolve from the same ResourceSpec.
+//
+// ResourceTemplates rendered by charts that predate podSpecPaths carry no
+// value, so kind supplies the built-in default from PodSpecSegment.
+func ResolvePodSpecPath(t *v1.ResourceSpec, kind string, fields ...string) []string {
+	base := t.PodSpecPath()
+	if base == nil {
+		return BuildPodSpecPath(t.TemplatePath(), PodSpecSegment(kind), fields...)
+	}
+	out := make([]string, 0, len(base)+len(fields))
+	out = append(out, base...)
+	out = append(out, fields...)
+	return out
+}
+
 // PodSpecSegment returns the path segment that sits between a
 // ResourceTemplate's templatePaths and the pod spec fields (containers,
-// volumes, ...), for the given workload kind.
+// volumes, ...), for the given workload kind. It is the default that
+// ResolvePodSpecPath applies to a ResourceTemplate with no podSpecPaths.
 //
 // PyTorchJob / Deployment / RayJob and friends wrap pods in a
 // PodTemplateSpec, so the pod spec is one "spec" level down. DynamoDeployment

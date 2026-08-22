@@ -187,13 +187,10 @@ func convertUnstructuredToString(obj map[string]interface{}, paths []string) str
 	return stringutil.ConvertToString(result)
 }
 
-// containersPath resolves where a resource spec's containers live. Kinds whose
-// slot embeds a PodSpec inline (DynamoDeployment, InferaDeployment) keep
-// containers directly under the template path, so the segment must come from
-// the kind rather than being assumed to be "spec".
+// containersPath resolves where a resource spec's containers live, from the
+// pod spec path the ResourceTemplate declares.
 func containersPath(t v1.ResourceSpec, kind string) []string {
-	return commonworkload.BuildPodSpecPath(t.TemplatePath(),
-		commonworkload.PodSpecSegment(kind), "containers")
+	return commonworkload.ResolvePodSpecPath(&t, kind, "containers")
 }
 
 // GetResources Retrieve the replica count and the resource specifications of the main container.
@@ -356,8 +353,7 @@ func GetMemoryStorageSize(unstructuredObj *unstructured.Unstructured, rt *v1.Res
 		if i >= maxResource {
 			break
 		}
-		path := commonworkload.BuildPodSpecPath(t.TemplatePath(),
-			commonworkload.PodSpecSegment(rt.SpecKind()), "volumes")
+		path := commonworkload.ResolvePodSpecPath(&t, rt.SpecKind(), "volumes")
 		volumes, found, err := NestedSlice(unstructuredObj.Object, path)
 		if err != nil {
 			klog.ErrorS(err, "failed to find volumes", "path", path)
@@ -441,11 +437,9 @@ func GetPriorityClassName(unstructuredObj *unstructured.Unstructured, rt *v1.Res
 		if i >= maxResource {
 			break
 		}
-		// Resolves the segment the way updatePriorityClass writes it: directly
-		// under the template path for inline-PodSpec kinds, under "spec"
-		// otherwise.
-		path := commonworkload.BuildPodSpecPath(t.TemplatePath(),
-			commonworkload.PodSpecSegment(rt.SpecKind()), "priorityClassName")
+		// Resolves the pod spec path the way updatePriorityClass writes it,
+		// through the ResourceTemplate's podSpecPaths.
+		path := commonworkload.ResolvePodSpecPath(&t, rt.SpecKind(), "priorityClassName")
 		name, found, err := NestedString(unstructuredObj.Object, path)
 		if err != nil {
 			klog.ErrorS(err, "failed to find priorityClassName", "path", path)
