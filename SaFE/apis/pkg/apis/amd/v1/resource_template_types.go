@@ -85,6 +85,16 @@ func (t *ResourceSpec) joinPrePaths(rel []string) []string {
 	return path
 }
 
+// Path returns the path components for locating a field that sits directly
+// under prePaths and has no dedicated path field of its own. Each call returns
+// a fresh slice, so the result is safe to append to.
+func (t *ResourceSpec) Path(fields ...string) []string {
+	if t == nil {
+		return nil
+	}
+	return t.joinPrePaths(fields)
+}
+
 // TemplatePath returns the path components for locating the resource template.
 func (t *ResourceSpec) TemplatePath() []string {
 	if t == nil {

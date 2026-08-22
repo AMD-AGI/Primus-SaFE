@@ -1864,7 +1864,7 @@ func (r *DispatcherReconciler) updateSandbox(ctx context.Context, clientSets *sy
 		return fmt.Errorf("no resource specs found")
 	}
 	if adminWorkload.GetTimeout() > 0 {
-		path := append(rt.Spec.ResourceSpecs[0].PrePaths, "shutdownTime")
+		path := rt.Spec.ResourceSpecs[0].Path("shutdownTime")
 		timeoutSeconds := adminWorkload.GetTimeout() + 120
 		shutdownTime := time.Now().Add(time.Duration(timeoutSeconds) * time.Second)
 		shutdownTimeStr := shutdownTime.UTC().Format(timeutil.TimeRFC3339Milli)
