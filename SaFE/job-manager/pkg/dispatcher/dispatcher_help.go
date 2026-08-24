@@ -42,6 +42,11 @@ const (
 
 	sandboxAuthPublicKeyEnvName = "ENVD_AUTH_PUBLIC_KEY"
 	sandboxSecretPublicPemKey   = "public.pem"
+
+	// inferaNodeCountField is the flat IDEP ServiceSpec field carrying the node
+	// count of a multi-node role's LeaderWorkerSet group. Written by
+	// normalizeInferaIDEP on create and by updateInferaNodeCount on sync.
+	inferaNodeCountField = "numberOfNodes"
 )
 
 // initializeObject modifies various aspects of a Kubernetes object during workload creation.
@@ -57,33 +62,31 @@ func initializeObject(obj *unstructured.Unstructured,
 	}
 
 	var err error
-	templatePath := resourceSpec.TemplatePath()
-	podSpec := getPodSpec(workload)
 
-	path := buildPodSpecPath(templatePath, podSpec,
+	path := podSpecPath(workload, resourceSpec,
 		"affinity", "nodeAffinity", "requiredDuringSchedulingIgnoredDuringExecution", "nodeSelectorTerms")
 	if err = modifyRequiredNodeAffinity(obj, workload, path); err != nil {
 		return fmt.Errorf("failed to modify nodeSelectorTerms: %v", err.Error())
 	}
 	if v1.IsRetryingOnOriginal(workload) || v1.GetNodesAffinity(workload) == common.NodesAffinityPreferred {
-		path = buildPodSpecPath(templatePath, podSpec,
+		path = podSpecPath(workload, resourceSpec,
 			"affinity", "nodeAffinity", "preferredDuringSchedulingIgnoredDuringExecution")
 		if err = modifyPreferredNodeAffinity(obj, workload, path); err != nil {
 			return fmt.Errorf("failed to modify preferredNodeAffinity: %v", err.Error())
 		}
 	}
 	if v1.IsRequireNodeSpread(workload) {
-		path = buildPodSpecPath(templatePath, podSpec,
+		path = podSpecPath(workload, resourceSpec,
 			"affinity", "podAntiAffinity", "requiredDuringSchedulingIgnoredDuringExecution")
 		if err = modifyPodAntiAffinity(obj, workload, path); err != nil {
 			return fmt.Errorf("failed to modify podAntiAffinity: %v", err.Error())
 		}
 	}
-	path = buildPodSpecPath(templatePath, podSpec, "containers")
+	path = podSpecPath(workload, resourceSpec, "containers")
 	if err = modifyContainers(obj, workload, workspace, path, resourceId); err != nil {
 		return fmt.Errorf("failed to modify main container: %v", err.Error())
 	}
-	path = buildPodSpecPath(templatePath, podSpec, "volumes")
+	path = podSpecPath(workload, resourceSpec, "volumes")
 	if err = modifyVolumes(obj, workload, workspace, path); err != nil {
 		return fmt.Errorf("failed to modify volumes: %v", err.Error())
 	}
@@ -92,27 +95,27 @@ func initializeObject(obj *unstructured.Unstructured,
 	// sidecar) can resolve `docker run -v <path>` bind mounts. The matching
 	// pod-level volumes were just added by modifyVolumes; only the volumeMounts
 	// need to be applied here. This is a no-op for kinds without init containers.
-	path = buildPodSpecPath(templatePath, podSpec, "initContainers")
+	path = podSpecPath(workload, resourceSpec, "initContainers")
 	if err = modifyInitContainerVolumeMounts(obj, workload, workspace, path); err != nil {
 		return fmt.Errorf("failed to modify init containers: %v", err.Error())
 	}
-	path = buildPodSpecPath(templatePath, podSpec, "imagePullSecrets")
+	path = podSpecPath(workload, resourceSpec, "imagePullSecrets")
 	if err = modifyImageSecrets(obj, workload, path); err != nil {
 		return fmt.Errorf("failed to modify image secrets: %v", err.Error())
 	}
-	path = buildPodSpecPath(templatePath, podSpec, "priorityClassName")
+	path = podSpecPath(workload, resourceSpec, "priorityClassName")
 	if err = modifyPriorityClass(obj, workload, path); err != nil {
 		return fmt.Errorf("failed to modify priority: %v", err.Error())
 	}
-	path = buildPodSpecPath(templatePath, podSpec, "serviceAccountName")
+	path = podSpecPath(workload, resourceSpec, "serviceAccountName")
 	if err = modifyServiceAccountName(obj, workload, path); err != nil {
 		return fmt.Errorf("failed to modify sa: %v", err.Error())
 	}
-	path = buildPodSpecPath(templatePath, podSpec, "hostNetwork")
+	path = podSpecPath(workload, resourceSpec, "hostNetwork")
 	if err = modifyHostNetwork(obj, workload, path, resourceId); err != nil {
 		return fmt.Errorf("failed to modify host network: %v", err.Error())
 	}
-	path = buildPodSpecPath(templatePath, podSpec, "tolerations")
+	path = podSpecPath(workload, resourceSpec, "tolerations")
 	if err = modifyTolerations(obj, workload, path); err != nil {
 		return fmt.Errorf("failed to modify tolerations: %v", err.Error())
 	}
@@ -126,7 +129,7 @@ func initializeObject(obj *unstructured.Unstructured,
 			return fmt.Errorf("failed to modify selector: %v", err.Error())
 		}
 	}
-	if err = modifyHostPid(obj, workload, templatePath); err != nil {
+	if err = modifyHostPid(obj, workload, resourceSpec); err != nil {
 		return fmt.Errorf("failed to modify by opsjob: %v", err.Error())
 	}
 	return nil
@@ -601,16 +604,15 @@ func modifyHostNetwork(obj *unstructured.Unstructured, workload *v1.Workload, pa
 }
 
 // modifyHostPid configures host PID and IPC settings for OpsJob preflight operations.
-func modifyHostPid(obj *unstructured.Unstructured, workload *v1.Workload, templatePath []string) error {
+func modifyHostPid(obj *unstructured.Unstructured, workload *v1.Workload, resourceSpec *v1.ResourceSpec) error {
 	if !v1.IsPrivileged(workload) {
 		return nil
 	}
-	podSpec := getPodSpec(workload)
-	path := buildPodSpecPath(templatePath, podSpec, "hostPID")
+	path := podSpecPath(workload, resourceSpec, "hostPID")
 	if err := jobutils.SetNestedField(obj.Object, true, path); err != nil {
 		return err
 	}
-	path = buildPodSpecPath(templatePath, podSpec, "hostIPC")
+	path = podSpecPath(workload, resourceSpec, "hostIPC")
 	if err := jobutils.SetNestedField(obj.Object, true, path); err != nil {
 		return err
 	}
@@ -740,6 +742,71 @@ func entrypointsEqual(newEp, oldEp string) bool {
 		return newPayload == oldPayload
 	}
 	return false
+}
+
+// inferaLauncherFlags returns the launcher flags normalizeInferaIDEP grafts
+// onto the Resources[id] slot's command on top of buildCommands: the sglang
+// disaggregation flags for a prefill/decode role, and the multi-node flags for
+// a role declared multi-node with more than one node. It returns "" for a role
+// that gets neither - frontend, and a worker that is not multi-node - whose
+// rendered command is therefore exactly what buildCommands produces.
+//
+// The concatenation order matches normalizeInferaIDEP, which runs
+// applyInferaRoleFields before appendSglangMultinodeArgs. The two flag sets
+// share no flag name, so appending them in one pass drops the same
+// user-declared flags (stripUserDeclaredFlags) that two passes would.
+func inferaLauncherFlags(adminWorkload *v1.Workload, id int) string {
+	if !commonworkload.IsInferaDeployment(adminWorkload) || id >= len(adminWorkload.Spec.Resources) {
+		return ""
+	}
+	roles := commonworkload.GetInferaServiceRoles(adminWorkload)
+	if id >= len(roles) {
+		return ""
+	}
+	role := roles[id]
+	flags := make([]string, 0, 2)
+	switch role {
+	case common.DynamoRolePrefill, common.DynamoRoleDecode:
+		flags = append(flags, sglangDisaggFlags(role, commonworkload.GetInferaKVTransferBackend(adminWorkload)))
+	}
+	if n := adminWorkload.Spec.Resources[id].Replica; n > 1 &&
+		commonworkload.IsInferaMultinodeRole(adminWorkload, role) {
+		flags = append(flags, sglangMultinodeFlags(n))
+	}
+	return strings.Join(flags, " ")
+}
+
+// expectedCommands returns the command the object should carry for
+// Resources[id]: buildCommands, plus for an InferaDeployment the flags
+// normalizeInferaIDEP injects on top of it. Rebuilding an IDEP command through
+// here is what lets the sync path apply an entrypoint edit without dropping
+// the disaggregation and multi-node flags the Workload spec does not describe.
+func expectedCommands(adminWorkload *v1.Workload, id int) []interface{} {
+	cmds := buildCommands(adminWorkload, id)
+	flags := inferaLauncherFlags(adminWorkload, id)
+	if len(cmds) == 0 || flags == "" {
+		return cmds
+	}
+	if out, ok := appendLauncherArgs(cmds, flags); ok {
+		return out
+	}
+	return cmds
+}
+
+// expectedEntryPoint is the read side of expectedCommands: the entry the
+// rendered command is compared against by isEntrypointChanged. Keeping the two
+// in step is what keeps a steady-state IDEP from reporting drift on every
+// reconcile.
+func expectedEntryPoint(adminWorkload *v1.Workload, id int) string {
+	ep := buildEntryPoint(adminWorkload, id)
+	flags := inferaLauncherFlags(adminWorkload, id)
+	if ep == "" || flags == "" {
+		return ep
+	}
+	if out, ok := appendLauncherFlags(ep, flags); ok {
+		return out
+	}
+	return ep
 }
 
 // buildObjectLabels creates a map of labels for object tracking.
@@ -1052,15 +1119,44 @@ func convertEnvsToStringMap(envs []interface{}) map[string]string {
 	return result
 }
 
+// expectedReplica returns the replica count for Resources[id] as it appears in
+// the target object. It is Resources[id].Replica, except for an Infera
+// multi-node role, whose count is the node count of a single LeaderWorkerSet
+// group: normalizeInferaIDEP carries that in the flat numberOfNodes field and
+// sets replicas to 1. updateReplica and the drift check both take the value
+// from here.
+//
+// The node count itself reaches the object twice: as numberOfNodes, which
+// updateInferaNodeCount keeps in step, and inside the launcher's --nnodes flag,
+// which expectedCommands rebuilds. Both have to move together.
+func expectedReplica(adminWorkload *v1.Workload, id int) int64 {
+	if id >= len(adminWorkload.Spec.Resources) {
+		return 0
+	}
+	replica := int64(adminWorkload.Spec.Resources[id].Replica)
+	if !commonworkload.IsInferaDeployment(adminWorkload) || replica <= 1 {
+		return replica
+	}
+	roles := commonworkload.GetInferaServiceRoles(adminWorkload)
+	if id < len(roles) && commonworkload.IsInferaMultinodeRole(adminWorkload, roles[id]) {
+		klog.V(4).InfoS("infera multi-node role pins replicas=1; node count is fixed at create time",
+			"workload", adminWorkload.Name, "role", roles[id], "nodes", replica)
+		return 1
+	}
+	return replica
+}
+
 // updateReplica updates the replica count in the unstructured object.
 func updateReplica(adminWorkload *v1.Workload,
 	obj *unstructured.Unstructured, resourceSpec v1.ResourceSpec, id int) error {
+	if err := updateInferaNodeCount(adminWorkload, obj, resourceSpec, id); err != nil {
+		return err
+	}
 	if len(resourceSpec.ReplicasPaths) == 0 {
 		return nil
 	}
-	replica := int64(adminWorkload.Spec.Resources[id].Replica)
-	path := resourceSpec.PrePaths
-	path = append(path, resourceSpec.ReplicasPaths...)
+	replica := expectedReplica(adminWorkload, id)
+	path := resourceSpec.ReplicasPath()
 	if err := jobutils.SetNestedField(obj.Object, replica, path); err != nil {
 		return err
 	}
@@ -1073,15 +1169,40 @@ func updateReplica(adminWorkload *v1.Workload,
 	return nil
 }
 
+// updateInferaNodeCount keeps an IDEP slot's numberOfNodes in step with
+// Resources[id].Replica for a multi-node role.
+//
+// normalizeInferaIDEP writes the field on create only, but the same node count
+// also reaches the object through the launcher's --nnodes flag, which the sync
+// path rebuilds (expectedCommands). Scaling a multi-node role would otherwise
+// leave a LeaderWorkerSet group of the old size running --nnodes with the new
+// one: the rendezvous never completes, and because replicas stays pinned at 1
+// the next reconcile sees no drift, so the broken state is stable and silent.
+//
+// The field is removed rather than set to 1 when the role is no longer
+// multi-node or has scaled down to a single node, which is the shape
+// normalizeInferaIDEP produces for that case.
+func updateInferaNodeCount(adminWorkload *v1.Workload,
+	obj *unstructured.Unstructured, resourceSpec v1.ResourceSpec, id int) error {
+	if !commonworkload.IsInferaDeployment(adminWorkload) || id >= len(adminWorkload.Spec.Resources) {
+		return nil
+	}
+	path := resourceSpec.Path(inferaNodeCountField)
+	roles := commonworkload.GetInferaServiceRoles(adminWorkload)
+	n := adminWorkload.Spec.Resources[id].Replica
+	if n <= 1 || id >= len(roles) || !commonworkload.IsInferaMultinodeRole(adminWorkload, roles[id]) {
+		return jobutils.RemoveNestedField(obj.Object, path)
+	}
+	return jobutils.SetNestedField(obj.Object, int64(n), path)
+}
+
 // updateMaxReplicas updates the max-replicas in the unstructured object. only for ray-job
 // The current job's max-replicas is equal to its replicas, meaning elastic Ray clusters are not supported.
 func updateMaxReplicas(obj *unstructured.Unstructured, resourceSpec v1.ResourceSpec, replica int64) error {
 	if len(resourceSpec.MaxReplicasPaths) == 0 {
 		return nil
 	}
-	path := resourceSpec.PrePaths
-	path = append(path, resourceSpec.MaxReplicasPaths...)
-	return jobutils.SetNestedField(obj.Object, replica, path)
+	return jobutils.SetNestedField(obj.Object, replica, resourceSpec.MaxReplicasPath())
 }
 
 // updateMinReplicas updates the min-replicas(for job, it's completions count) in the unstructured object. only for job or ray-job
@@ -1090,9 +1211,7 @@ func updateMinReplicas(obj *unstructured.Unstructured, resourceSpec v1.ResourceS
 	if len(resourceSpec.MinReplicasPaths) == 0 {
 		return nil
 	}
-	path := resourceSpec.PrePaths
-	path = append(path, resourceSpec.MinReplicasPaths...)
-	return jobutils.SetNestedField(obj.Object, replica, path)
+	return jobutils.SetNestedField(obj.Object, replica, resourceSpec.MinReplicasPath())
 }
 
 // updateCICDScaleSet updates the CICD scale set configuration in the unstructured object.
@@ -1478,7 +1597,7 @@ func normalizeInferaIDEP(obj *unstructured.Unstructured, adminWorkload *v1.Workl
 			i < len(adminWorkload.Spec.Resources) {
 			if n := adminWorkload.Spec.Resources[i].Replica; n > 1 {
 				appendSglangMultinodeArgs(slot, n)
-				slot["numberOfNodes"] = int64(n)
+				slot[inferaNodeCountField] = int64(n)
 				slot["replicas"] = int64(1)
 			}
 		}
@@ -1701,25 +1820,45 @@ func appendLauncherArgs(cmd []interface{}, extraFlags string) ([]interface{}, bo
 	if !ok {
 		return nil, false
 	}
+	rewritten, ok := appendLauncherFlags(full, extraFlags)
+	if !ok {
+		return nil, false
+	}
+	out := make([]interface{}, len(cmd))
+	copy(out, cmd)
+	out[2] = rewritten
+	return out, true
+}
+
+// appendLauncherFlags is the string half of appendLauncherArgs: it appends
+// extraFlags to the base64 payload of a single launcher-style entry
+// (`[exec ]/bin/sh /shared-data/launcher.sh <base64>`), leaving the launcher
+// prefix untouched. Returns ("", false) when the entry is not in launcher form
+// or its payload does not decode, so callers can fall back to the entry as-is.
+func appendLauncherFlags(full, extraFlags string) (string, bool) {
 	payload, ok := launcherEntryPayload(full)
 	if !ok || payload == "" {
-		return nil, false
+		return "", false
 	}
 	decoded := stringutil.Base64Decode(payload)
 	if decoded == "" {
-		return nil, false
+		return "", false
 	}
 	filtered := stripUserDeclaredFlags(extraFlags, decoded)
 	if filtered == "" {
-		return cmd, true
+		return full, true
 	}
 	decoded = strings.TrimRight(decoded, "\n")
 	newPayload := stringutil.Base64Encode(decoded + " " + filtered)
-	prefix := full[:strings.LastIndex(full, payload)]
-	out := make([]interface{}, len(cmd))
-	copy(out, cmd)
-	out[2] = prefix + newPayload
-	return out, true
+	// Splice the new payload in where the old one sat, keeping whatever
+	// surrounds it. launcherEntryPayload trims the quotes off a quoted payload,
+	// so dropping the tail here would return an entry with an opening quote and
+	// no closing one.
+	at := strings.LastIndex(full, payload)
+	if at < 0 {
+		return "", false
+	}
+	return full[:at] + newPayload + full[at+len(payload):], true
 }
 
 // stripUserDeclaredFlags returns extraFlags with any "--name value" pair
@@ -1846,7 +1985,7 @@ func (r *DispatcherReconciler) updateSandbox(ctx context.Context, clientSets *sy
 		return fmt.Errorf("no resource specs found")
 	}
 	if adminWorkload.GetTimeout() > 0 {
-		path := append(rt.Spec.ResourceSpecs[0].PrePaths, "shutdownTime")
+		path := rt.Spec.ResourceSpecs[0].Path("shutdownTime")
 		timeoutSeconds := adminWorkload.GetTimeout() + 120
 		shutdownTime := time.Now().Add(time.Duration(timeoutSeconds) * time.Second)
 		shutdownTimeStr := shutdownTime.UTC().Format(timeutil.TimeRFC3339Milli)
@@ -1861,6 +2000,13 @@ func (r *DispatcherReconciler) updateSandbox(ctx context.Context, clientSets *sy
 func updateMetadata(adminWorkload *v1.Workload,
 	obj *unstructured.Unstructured, resourceSpec v1.ResourceSpec, id int) error {
 	if commonworkload.IsMonarchMesh(adminWorkload) {
+		return nil
+	}
+	// IDEP's extraPodSpec is a bare corev1.PodSpec with no metadata field; the
+	// CRD schema prunes anything written to extraPodSpec.metadata.
+	// normalizeInferaIDEP carries these labels on the slot's podLabels field
+	// instead, at create time.
+	if commonworkload.IsInferaDeployment(adminWorkload) {
 		return nil
 	}
 	if len(resourceSpec.TemplatePath()) > 0 {
@@ -1934,7 +2080,15 @@ func updateContainers(adminWorkload *v1.Workload,
 			if len(adminWorkload.Spec.Images) > id && adminWorkload.Spec.Images[id] != "" {
 				container["image"] = adminWorkload.Spec.Images[id]
 			}
-			if cmds := buildCommands(adminWorkload, id); len(cmds) > 0 {
+			// expectedCommands, not buildCommands: an IDEP command carries the
+			// disaggregation and multi-node flags normalizeInferaIDEP grafts on
+			// top of the launcher payload, which Workload.Spec.EntryPoints does
+			// not describe. Rebuilding through expectedCommands re-grafts them,
+			// so an entrypoint or image edit reaches the object without
+			// degrading a PD deployment to aggregated. On the create path the
+			// flags are then a no-op for normalizeInferaIDEP, whose per-flag
+			// dedup sees them already present.
+			if cmds := expectedCommands(adminWorkload, id); len(cmds) > 0 {
 				container["command"] = cmds
 			}
 		}
@@ -2010,15 +2164,7 @@ func updateSharedMemory(adminWorkload *v1.Workload, obj *unstructured.Unstructur
 	if adminWorkload.Spec.Resources[id].SharedMemory == "" {
 		return nil
 	}
-	// Build [<prePaths>, <templatePaths>, <podSpec?>, volumes] via buildPodSpecPath
-	// so the empty podSpec segment is omitted for kinds whose extraPodSpec embeds
-	// PodSpec inline (DGD / InferaDeployment, getPodSpec == ""). Appending
-	// podSpec raw inserted a "" path segment, writing the shared-memory volume to
-	// extraPodSpec."".volumes instead of extraPodSpec.volumes — leaving the
-	// container's /dev/shm mount dangling ("shared-memory" volume Not found).
-	templatePath := append(append([]string{}, resourceSpec.PrePaths...), resourceSpec.TemplatePaths...)
-	podSpec := getPodSpec(adminWorkload)
-	path := buildPodSpecPath(templatePath, podSpec, "volumes")
+	path := podSpecPath(adminWorkload, &resourceSpec, "volumes")
 	volumes, found, err := jobutils.NestedSlice(obj.Object, path)
 	if err != nil {
 		return err
@@ -2050,31 +2196,21 @@ func updateSharedMemory(adminWorkload *v1.Workload, obj *unstructured.Unstructur
 // updateHostNetwork updates the host network configuration.
 func updateHostNetwork(adminWorkload *v1.Workload,
 	obj *unstructured.Unstructured, resourceSpec v1.ResourceSpec, resourceId int) error {
-	templatePath := resourceSpec.TemplatePath()
-	podSpec := getPodSpec(adminWorkload)
-	path := buildPodSpecPath(templatePath, podSpec, "hostNetwork")
+	path := podSpecPath(adminWorkload, &resourceSpec, "hostNetwork")
 	return modifyHostNetwork(obj, adminWorkload, path, resourceId)
 }
 
 // updatePriorityClass updates the priority class configuration.
 func updatePriorityClass(adminWorkload *v1.Workload,
 	obj *unstructured.Unstructured, resourceSpec v1.ResourceSpec) error {
-	templatePath := resourceSpec.TemplatePath()
-	podSpec := getPodSpec(adminWorkload)
-	path := buildPodSpecPath(templatePath, podSpec, "priorityClassName")
+	path := podSpecPath(adminWorkload, &resourceSpec, "priorityClassName")
 	return modifyPriorityClass(obj, adminWorkload, path)
 }
 
 // getContainers retrieves the containers slice and its path from the unstructured object based on the resource specification.
 // Returns the containers slice, the path to the containers field, and an error if the operation fails or no containers are found.
 func getContainers(adminWorkload *v1.Workload, obj *unstructured.Unstructured, resourceSpec v1.ResourceSpec) ([]interface{}, []string, error) {
-	templatePath := resourceSpec.TemplatePath()
-	podSpec := getPodSpec(adminWorkload)
-	// DGD ExtraPodSpec embeds PodSpec inline, so containers live directly under
-	// extraPodSpec (no nested "spec" wrapper). PyTorchJob / Deployment / RayJob
-	// all wrap pods in template.spec.containers and keep the "spec" segment.
-	// buildPodSpecPath omits the empty podSpec segment automatically.
-	path := buildPodSpecPath(templatePath, podSpec, "containers")
+	path := podSpecPath(adminWorkload, &resourceSpec, "containers")
 	containers, found, err := jobutils.NestedSlice(obj.Object, path)
 	if err != nil {
 		return nil, nil, err
@@ -2118,43 +2254,13 @@ func buildDispatchCount(w *v1.Workload) string {
 	return strconv.Itoa(v1.GetWorkloadDispatchCnt(w) + 1)
 }
 
-func getPodSpec(w *v1.Workload) string {
-	if commonworkload.IsMonarchMesh(w) {
-		return "podTemplate"
-	}
-	// DGD `extraPodSpec` embeds PodSpec inline (see dynamo
-	// operator/api/v1alpha1/common.go::ExtraPodSpec), so the rendered yaml has
-	// containers directly under extraPodSpec rather than under the standard
-	// pyt./dep./ray "template.spec.containers" path. InferaDeployment
-	// (InferaDeployment) uses the same inline-PodSpec shape (ServiceSpec.
-	// ExtraPodSpec is a core/v1 PodSpec), so it resolves identically. This
-	// single branch makes the entire generic flow (container/env/resource
-	// injection, volume mounts, hostNetwork, sharedMemory, ...) target
-	// extraPodSpec.* for both kinds.
-	if commonworkload.IsDynamoDeployment(w) || commonworkload.IsInferaDeployment(w) {
-		return ""
-	}
-	return "spec"
-}
-
-// buildPodSpecPath constructs a path of the form
-// [templatePath..., podSpec, fields...] but omits podSpec when it is empty.
-//
-// CRDs like DGD have ExtraPodSpec embedding PodSpec inline; their
-// ResourceTemplate.templatePaths already points at the pod spec so there is
-// no extra "spec" / "podTemplate" wrapper to traverse. getPodSpec returns ""
-// for these kinds. Using this helper everywhere keeps callers from
-// accidentally emitting "" as a path segment (which would write to or look
-// up a non-existent map key named "" — causing CRD schema warnings and
-// dispatcher path-not-found failures).
-func buildPodSpecPath(templatePath []string, podSpec string, fields ...string) []string {
-	out := make([]string, 0, len(templatePath)+1+len(fields))
-	out = append(out, templatePath...)
-	if podSpec != "" {
-		out = append(out, podSpec)
-	}
-	out = append(out, fields...)
-	return out
+// podSpecPath resolves the absolute path to this resource spec's pod spec,
+// followed by fields. The location comes from the ResourceTemplate's
+// podSpecPaths, which the readers in jobutils resolve from the same field, so
+// both sides address the same node of the object. Each call returns a fresh
+// slice.
+func podSpecPath(w *v1.Workload, resourceSpec *v1.ResourceSpec, fields ...string) []string {
+	return commonworkload.ResolvePodSpecPath(resourceSpec, w.SpecKind(), fields...)
 }
 
 func generateUserDir(userId string) string {

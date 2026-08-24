@@ -26,6 +26,9 @@ spec:
         - Master
       templatePaths:
         - template
+      podSpecPaths:
+        - template
+        - spec
       replicasPaths:
         - replicas
     - prePaths:
@@ -34,6 +37,9 @@ spec:
         - Worker
       templatePaths:
         - template
+      podSpecPaths:
+        - template
+        - spec
       replicasPaths:
         - replicas
   resourceStatus:
@@ -86,6 +92,8 @@ spec:
   resourceSpecs:
     - prePaths:
         - spec
+      podSpecPaths:
+        - podTemplate
       replicasPaths:
         - replicas
   resourceStatus:
@@ -153,6 +161,9 @@ spec:
         - Master
       templatePaths:
         - template
+      podSpecPaths:
+        - template
+        - spec
       replicasPaths:
         - replicas
   resourceStatus:
@@ -222,6 +233,9 @@ spec:
         - spec
       templatePaths:
         - template
+      podSpecPaths:
+        - template
+        - spec
       replicasPaths:
         - replicas
   resourceStatus:
@@ -272,6 +286,9 @@ spec:
         - spec
       templatePaths:
         - template
+      podSpecPaths:
+        - template
+        - spec
       replicasPaths:
         - replicas
   resourceStatus:
@@ -308,6 +325,9 @@ spec:
         - spec
       templatePaths:
         - template
+      podSpecPaths:
+        - template
+        - spec
       replicasPaths:
         - parallelism
       minReplicasPaths:
@@ -355,6 +375,9 @@ spec:
         - spec
       templatePaths:
         - template
+      podSpecPaths:
+        - template
+        - spec
 ---
 apiVersion: amd.com/v1
 kind: ResourceTemplate
@@ -374,6 +397,8 @@ spec:
     kind: EphemeralRunner
   resourceSpecs:
     - prePaths:
+        - spec
+      podSpecPaths:
         - spec
   resourceStatus:
     prePaths:
@@ -417,6 +442,9 @@ spec:
         - spec
       templatePaths:
         - submitterPodTemplate
+      podSpecPaths:
+        - submitterPodTemplate
+        - spec
     - prePaths:
         - spec
         - rayClusterSpec
@@ -424,6 +452,9 @@ spec:
       defaultReplica: 1
       templatePaths:
         - template
+      podSpecPaths:
+        - template
+        - spec
     - prePaths:
         - spec
         - rayClusterSpec
@@ -431,6 +462,9 @@ spec:
         - "0"
       templatePaths:
         - template
+      podSpecPaths:
+        - template
+        - spec
       replicasPaths:
         - replicas
       maxReplicasPaths:
@@ -444,6 +478,9 @@ spec:
         - "1"
       templatePaths:
         - template
+      podSpecPaths:
+        - template
+        - spec
       replicasPaths:
         - replicas
       maxReplicasPaths:
@@ -527,6 +564,8 @@ spec:
         - role0
       templatePaths:
         - extraPodSpec
+      podSpecPaths:
+        - extraPodSpec
       replicasPaths:
         - replicas
     - prePaths:
@@ -534,6 +573,8 @@ spec:
         - services
         - role1
       templatePaths:
+        - extraPodSpec
+      podSpecPaths:
         - extraPodSpec
       replicasPaths:
         - replicas
@@ -543,6 +584,8 @@ spec:
         - role2
       templatePaths:
         - extraPodSpec
+      podSpecPaths:
+        - extraPodSpec
       replicasPaths:
         - replicas
     - prePaths:
@@ -551,6 +594,8 @@ spec:
         - role3
       templatePaths:
         - extraPodSpec
+      podSpecPaths:
+        - extraPodSpec
       replicasPaths:
         - replicas
     - prePaths:
@@ -558,6 +603,8 @@ spec:
         - services
         - role4
       templatePaths:
+        - extraPodSpec
+      podSpecPaths:
         - extraPodSpec
       replicasPaths:
         - replicas
@@ -618,6 +665,8 @@ spec:
         - role0
       templatePaths:
         - extraPodSpec
+      podSpecPaths:
+        - extraPodSpec
       replicasPaths:
         - replicas
     - prePaths:
@@ -625,6 +674,8 @@ spec:
         - services
         - role1
       templatePaths:
+        - extraPodSpec
+      podSpecPaths:
         - extraPodSpec
       replicasPaths:
         - replicas
@@ -634,6 +685,8 @@ spec:
         - role2
       templatePaths:
         - extraPodSpec
+      podSpecPaths:
+        - extraPodSpec
       replicasPaths:
         - replicas
     - prePaths:
@@ -642,6 +695,8 @@ spec:
         - role3
       templatePaths:
         - extraPodSpec
+      podSpecPaths:
+        - extraPodSpec
       replicasPaths:
         - replicas
     - prePaths:
@@ -649,6 +704,8 @@ spec:
         - services
         - role4
       templatePaths:
+        - extraPodSpec
+      podSpecPaths:
         - extraPodSpec
       replicasPaths:
         - replicas
@@ -694,6 +751,9 @@ spec:
         - spec
       templatePaths:
         - podTemplate
+      podSpecPaths:
+        - podTemplate
+        - spec
   resourceStatus:
     prePaths:
       - status

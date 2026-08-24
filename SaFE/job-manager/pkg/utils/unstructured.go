@@ -187,6 +187,12 @@ func convertUnstructuredToString(obj map[string]interface{}, paths []string) str
 	return stringutil.ConvertToString(result)
 }
 
+// containersPath resolves where a resource spec's containers live, from the
+// pod spec path the ResourceTemplate declares.
+func containersPath(t v1.ResourceSpec, kind string) []string {
+	return commonworkload.ResolvePodSpecPath(&t, kind, "containers")
+}
+
 // GetResources Retrieve the replica count and the resource specifications of the main container.
 func GetResources(unstructuredObj *unstructured.Unstructured,
 	rt *v1.ResourceTemplate, gpuName string, maxResource int) ([]int64, []corev1.ResourceList, error) {
@@ -197,8 +203,7 @@ func GetResources(unstructuredObj *unstructured.Unstructured,
 			break
 		}
 		if len(t.ReplicasPaths) > 0 {
-			path := t.PrePaths
-			path = append(path, t.ReplicasPaths...)
+			path := t.ReplicasPath()
 			replica, found, err := NestedInt64(unstructuredObj.Object, path)
 			if err != nil {
 				klog.ErrorS(err, "failed to find replicas", "path", path)
@@ -209,9 +214,7 @@ func GetResources(unstructuredObj *unstructured.Unstructured,
 			}
 		}
 
-		path := t.PrePaths
-		path = append(path, t.TemplatePaths...)
-		path = append(path, "spec", "containers")
+		path := containersPath(t, rt.SpecKind())
 		containers, found, err := NestedSlice(unstructuredObj.Object, path)
 		if err != nil {
 			klog.ErrorS(err, "failed to find containers", "path", path)
@@ -260,9 +263,7 @@ func GetCommands(unstructuredObj *unstructured.Unstructured,
 		if i >= maxResource {
 			break
 		}
-		path := t.PrePaths
-		path = append(path, t.TemplatePaths...)
-		path = append(path, "spec", "containers")
+		path := containersPath(t, rt.SpecKind())
 		containers, found, err := NestedSlice(unstructuredObj.Object, path)
 		if err != nil {
 			klog.ErrorS(err, "failed to find containers", "path", path)
@@ -310,9 +311,7 @@ func GetImages(unstructuredObj *unstructured.Unstructured,
 		if i >= maxResource {
 			break
 		}
-		path := t.PrePaths
-		path = append(path, t.TemplatePaths...)
-		path = append(path, "spec", "containers")
+		path := containersPath(t, rt.SpecKind())
 		containers, found, err := NestedSlice(unstructuredObj.Object, path)
 		if err != nil {
 			klog.ErrorS(err, "failed to find containers", "path", path)
@@ -354,9 +353,7 @@ func GetMemoryStorageSize(unstructuredObj *unstructured.Unstructured, rt *v1.Res
 		if i >= maxResource {
 			break
 		}
-		path := t.PrePaths
-		path = append(path, t.TemplatePaths...)
-		path = append(path, "spec", "volumes")
+		path := commonworkload.ResolvePodSpecPath(&t, rt.SpecKind(), "volumes")
 		volumes, found, err := NestedSlice(unstructuredObj.Object, path)
 		if err != nil {
 			klog.ErrorS(err, "failed to find volumes", "path", path)
@@ -368,7 +365,13 @@ func GetMemoryStorageSize(unstructuredObj *unstructured.Unstructured, rt *v1.Res
 
 		shareMemory := GetMemoryStorageVolume(volumes)
 		if shareMemory != nil {
-			result = append(result, shareMemory["sizeLimit"].(string))
+			// A template may pre-declare the memory-backed volume without a
+			// sizeLimit; updateSharedMemory fills one in only when the workload
+			// asks for shared memory. Report the absent limit as the empty size
+			// the workload spec carries in that case, which keeps the drift
+			// check quiet instead of comparing against a missing key.
+			sizeLimit, _ := shareMemory["sizeLimit"].(string)
+			result = append(result, sizeLimit)
 		} else {
 			result = append(result, "0")
 		}
@@ -440,9 +443,9 @@ func GetPriorityClassName(unstructuredObj *unstructured.Unstructured, rt *v1.Res
 		if i >= maxResource {
 			break
 		}
-		path := t.PrePaths
-		path = append(path, t.TemplatePaths...)
-		path = append(path, "spec", "priorityClassName")
+		// Resolves the pod spec path the way updatePriorityClass writes it,
+		// through the ResourceTemplate's podSpecPaths.
+		path := commonworkload.ResolvePodSpecPath(&t, rt.SpecKind(), "priorityClassName")
 		name, found, err := NestedString(unstructuredObj.Object, path)
 		if err != nil {
 			klog.ErrorS(err, "failed to find priorityClassName", "path", path)
@@ -524,9 +527,7 @@ func getIntValueByName(objects map[string]interface{}, name string) (int64, bool
 
 // GetLabels retrieves the labels from Unstructured object.
 func GetLabels(unstructuredObj *unstructured.Unstructured, resourceSpec v1.ResourceSpec) (map[string]interface{}, error) {
-	path := resourceSpec.PrePaths
-	path = append(path, resourceSpec.TemplatePaths...)
-	path = append(path, "metadata", "labels")
+	path := append(resourceSpec.TemplatePath(), "metadata", "labels")
 	labels, found, err := NestedMap(unstructuredObj.Object, path)
 	if err != nil {
 		klog.ErrorS(err, "failed to find labels", "path", path)
@@ -545,8 +546,7 @@ func GetEnv(unstructuredObj *unstructured.Unstructured,
 		if i >= maxResource {
 			break
 		}
-		templatePath := t.TemplatePath()
-		path := append(templatePath, "spec", "containers")
+		path := containersPath(t, rt.SpecKind())
 		containers, found, err := NestedSlice(unstructuredObj.Object, path)
 		if err != nil {
 			klog.ErrorS(err, "failed to find containers", "path", path)

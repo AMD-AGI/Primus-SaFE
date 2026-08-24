@@ -657,10 +657,12 @@ var (
 			ResourceSpecs: []v1.ResourceSpec{{
 				PrePaths:      []string{"spec", "pytorchReplicaSpecs", "Master"},
 				TemplatePaths: []string{"template"},
+				PodSpecPaths:  []string{"template", "spec"},
 				ReplicasPaths: []string{"replicas"},
 			}, {
 				PrePaths:      []string{"spec", "pytorchReplicaSpecs", "Worker"},
 				TemplatePaths: []string{"template"},
+				PodSpecPaths:  []string{"template", "spec"},
 				ReplicasPaths: []string{"replicas"},
 			}},
 			ResourceStatus: v1.ResourceStatus{
@@ -719,6 +721,7 @@ var (
 			ResourceSpecs: []v1.ResourceSpec{{
 				PrePaths:         []string{"spec"},
 				TemplatePaths:    []string{"template"},
+				PodSpecPaths:     []string{"template", "spec"},
 				ReplicasPaths:    []string{"parallelism"},
 				MinReplicasPaths: []string{"completions"},
 			}},
@@ -786,6 +789,7 @@ var (
 			},
 			ResourceSpecs: []v1.ResourceSpec{{
 				PrePaths:      []string{"spec"},
+				PodSpecPaths:  []string{"podTemplate"},
 				ReplicasPaths: []string{"replicas"},
 			}},
 		},
@@ -810,6 +814,7 @@ var (
 			ResourceSpecs: []v1.ResourceSpec{{
 				PrePaths:      []string{"spec"},
 				TemplatePaths: []string{"template"},
+				PodSpecPaths:  []string{"template", "spec"},
 				ReplicasPaths: []string{"replicas"},
 			}},
 			ResourceStatus: v1.ResourceStatus{
@@ -863,6 +868,7 @@ var (
 			ResourceSpecs: []v1.ResourceSpec{{
 				PrePaths:      []string{"spec"},
 				TemplatePaths: []string{"template"},
+				PodSpecPaths:  []string{"template", "spec"},
 				ReplicasPaths: []string{"replicas"},
 			}},
 			ActiveReplica: v1.ActiveReplica{
@@ -891,6 +897,7 @@ var (
 			ResourceSpecs: []v1.ResourceSpec{{
 				PrePaths:      []string{"spec"},
 				TemplatePaths: []string{"template"},
+				PodSpecPaths:  []string{"template", "spec"},
 			}},
 		},
 	}
@@ -912,7 +919,8 @@ var (
 				Kind:    "EphemeralRunner",
 			},
 			ResourceSpecs: []v1.ResourceSpec{{
-				PrePaths: []string{"spec"},
+				PrePaths:     []string{"spec"},
+				PodSpecPaths: []string{"spec"},
 			}},
 			ResourceStatus: v1.ResourceStatus{
 				PrePaths:     []string{"status"},
@@ -962,18 +970,22 @@ var (
 			ResourceSpecs: []v1.ResourceSpec{{
 				PrePaths:      []string{"spec"},
 				TemplatePaths: []string{"submitterPodTemplate"},
+				PodSpecPaths:  []string{"submitterPodTemplate", "spec"},
 			}, {
 				PrePaths:      []string{"spec", "rayClusterSpec", "headGroupSpec"},
 				TemplatePaths: []string{"template"},
+				PodSpecPaths:  []string{"template", "spec"},
 			}, {
 				PrePaths:         []string{"spec", "rayClusterSpec", "workerGroupSpecs", "0"},
 				TemplatePaths:    []string{"template"},
+				PodSpecPaths:     []string{"template", "spec"},
 				ReplicasPaths:    []string{"replicas"},
 				MinReplicasPaths: []string{"minReplicas"},
 				MaxReplicasPaths: []string{"maxReplicas"},
 			}, {
 				PrePaths:         []string{"spec", "rayClusterSpec", "workerGroupSpecs", "1"},
 				TemplatePaths:    []string{"template"},
+				PodSpecPaths:     []string{"template", "spec"},
 				ReplicasPaths:    []string{"replicas"},
 				MinReplicasPaths: []string{"minReplicas"},
 				MaxReplicasPaths: []string{"maxReplicas"},
@@ -1197,6 +1209,134 @@ var (
 			ResourceSpecs: []v1.ResourceSpec{{
 				PrePaths:      []string{"spec"},
 				TemplatePaths: []string{"podTemplate"},
+				PodSpecPaths:  []string{"podTemplate", "spec"},
+			}},
+		},
+	}
+)
+
+// InferaDeployment / DynamoDeployment slot pod specs embed a core/v1 PodSpec
+// inline, so containers and volumes sit directly under extraPodSpec with no
+// nested "spec" wrapper. Fixture mirrors a rendered two-role IDEP.
+var (
+	TestInferaDeploymentData = `
+apiVersion: infera.amd.com/v1alpha1
+kind: InferaDeployment
+metadata:
+  name: infera-test
+  namespace: primus-safe
+  annotations:
+    primus-safe.main.container: main
+spec:
+  services:
+    role0:
+      replicas: 1
+      role: frontend
+      extraPodSpec:
+        containers:
+          # Deliberately ordered before "main" so the getters have to select by
+          # the main-container annotation rather than falling back to
+          # containers[0]. Its command/env/resources differ from main's so a
+          # broken selection fails the assertions instead of passing by luck.
+          - name: sidecar
+            image: infera:sidecar
+            command:
+              - /sidecar
+            env:
+              - name: SIDECAR_A
+                value: "a"
+              - name: SIDECAR_B
+                value: "b"
+            resources:
+              limits:
+                cpu: "1"
+                ephemeral-storage: 10Gi
+                memory: 2Gi
+              requests:
+                cpu: "1"
+                ephemeral-storage: 10Gi
+                memory: 2Gi
+          - name: main
+            image: infera:router
+            command:
+              - /bin/sh
+              - -c
+              - exec /bin/sh launcher.sh Um91dGVy
+            env:
+              - name: NATS_SERVER
+                value: nats://nats.primus-safe.svc:4222
+            resources:
+              limits:
+                cpu: "4"
+                ephemeral-storage: 50Gi
+                memory: 16Gi
+              requests:
+                cpu: "4"
+                ephemeral-storage: 50Gi
+                memory: 16Gi
+        volumes:
+          - emptyDir:
+              medium: Memory
+              sizeLimit: 20Gi
+            name: shared-memory
+    role1:
+      replicas: 1
+      role: prefill
+      extraPodSpec:
+        containers:
+          - name: main
+            image: infera:engine
+            command:
+              - /bin/sh
+              - -c
+              - exec /bin/sh launcher.sh UHJlZmlsbA==
+            env:
+              - name: NATS_SERVER
+                value: nats://nats.primus-safe.svc:4222
+            resources:
+              limits:
+                cpu: "64"
+                ephemeral-storage: 100Gi
+                memory: 256Gi
+                amd.com/gpu: "8"
+              requests:
+                cpu: "64"
+                ephemeral-storage: 100Gi
+                memory: 256Gi
+                amd.com/gpu: "8"
+        volumes:
+          - emptyDir:
+              medium: Memory
+              sizeLimit: 200Gi
+            name: shared-memory
+      `
+
+	TestInferaResourceTemplate = &v1.ResourceTemplate{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "infera-deployment",
+			Labels: map[string]string{
+				v1.WorkloadVersionLabel: "v1",
+			},
+			Annotations: map[string]string{
+				v1.WorkloadKindLabel: common.InferaDeploymentKind,
+			},
+		},
+		Spec: v1.ResourceTemplateSpec{
+			GroupVersionKind: v1.GroupVersionKind{
+				Group:   "infera.amd.com",
+				Version: "v1alpha1",
+				Kind:    common.InferaDeploymentKind,
+			},
+			ResourceSpecs: []v1.ResourceSpec{{
+				PrePaths:      []string{"spec", "services", "role0"},
+				TemplatePaths: []string{"extraPodSpec"},
+				PodSpecPaths:  []string{"extraPodSpec"},
+				ReplicasPaths: []string{"replicas"},
+			}, {
+				PrePaths:      []string{"spec", "services", "role1"},
+				TemplatePaths: []string{"extraPodSpec"},
+				PodSpecPaths:  []string{"extraPodSpec"},
+				ReplicasPaths: []string{"replicas"},
 			}},
 		},
 	}

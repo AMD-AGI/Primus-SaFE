@@ -11,7 +11,7 @@ The build context directory must include this Dockerfile. The `setup-certs` step
 ```dockerfile
 FROM ubuntu:22.04
 
-ARG RUNNER_VERSION=2.333.1
+ARG RUNNER_VERSION=2.336.0
 
 ENV DEBIAN_FRONTEND=noninteractive
 

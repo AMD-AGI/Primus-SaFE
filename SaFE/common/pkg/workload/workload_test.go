@@ -7,7 +7,11 @@ package workload
 
 import (
 	"context"
+	"fmt"
+	"os"
 	"reflect"
+	"regexp"
+	"strings"
 	"testing"
 
 	"gotest.tools/assert"
@@ -17,6 +21,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/yaml"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/apis/pkg/client/clientset/versioned/scheme"
@@ -524,4 +529,233 @@ func TestGeneratePriorityAndReason(t *testing.T) {
 	assert.Equal(t, GeneratePriority(common.MedPriorityInt), common.MedPriority)
 	assert.Equal(t, GeneratePriority(-100), common.LowPriority)
 	assert.Assert(t, GeneratePriorityClass(wlKind(common.JobKind)) != "")
+}
+
+// TestPodSpecSegmentAgreesAcrossKindNamespaces is the regression guard for the
+// asymmetry PodSpecSegment exists to prevent.
+//
+// The writers resolve the segment from the SaFE Workload kind; the readers
+// resolve it from the rendered CR kind on the ResourceTemplate's GVK. Those are
+// different strings whenever SaFE's abstraction is named differently from the
+// object it renders (DynamoDeployment -> DynamoGraphDeployment). If only one
+// spelling is listed in the switch, the other falls through to "spec", the
+// readers look somewhere the writers never wrote, drift detection concludes
+// "unchanged", and spec updates are dropped without an error.
+func TestPodSpecSegmentAgreesAcrossKindNamespaces(t *testing.T) {
+	// workloadKind -> CR kind rendered from it, as declared by the shipped
+	// ResourceTemplates (spec.groupVersionKind.kind).
+	pairs := []struct {
+		workloadKind string
+		crKind       string
+		want         string
+	}{
+		{common.DynamoDeploymentKind, common.DynamoGraphDeploymentKind, ""},
+		{common.InferaDeploymentKind, common.InferaDeploymentKind, ""},
+		{common.MonarchMesh, common.MonarchMesh, "podTemplate"},
+		{common.DeploymentKind, common.DeploymentKind, "spec"},
+		{common.StatefulSetKind, common.StatefulSetKind, "spec"},
+		{common.AuthoringKind, common.PytorchJobKind, "spec"},
+		{common.UnifiedJobKind, common.PytorchJobKind, "spec"},
+		{common.RayJobKind, common.RayJobKind, "spec"},
+	}
+
+	for _, p := range pairs {
+		t.Run(p.workloadKind+"->"+p.crKind, func(t *testing.T) {
+			fromWriter := PodSpecSegment(p.workloadKind)
+			fromReader := PodSpecSegment(p.crKind)
+			assert.Equal(t, fromWriter, p.want)
+			assert.Equal(t, fromReader, p.want)
+			assert.Equal(t, fromWriter, fromReader)
+		})
+	}
+}
+
+// TestBuildPodSpecPathOmitsEmptySegment pins the inline-PodSpec shape: an empty
+// segment must vanish rather than become a "" map key, and the result must not
+// alias the caller's slice.
+func TestBuildPodSpecPathOmitsEmptySegment(t *testing.T) {
+	tmpl := []string{"spec", "services", "role0", "extraPodSpec"}
+
+	inline := BuildPodSpecPath(tmpl, PodSpecSegment(common.DynamoGraphDeploymentKind), "containers")
+	assert.DeepEqual(t, inline,
+		[]string{"spec", "services", "role0", "extraPodSpec", "containers"})
+
+	wrapped := BuildPodSpecPath([]string{"spec", "template"},
+		PodSpecSegment(common.DeploymentKind), "containers")
+	assert.DeepEqual(t, wrapped, []string{"spec", "template", "spec", "containers"})
+
+	// The caller's slice is untouched even though it has spare capacity.
+	base := make([]string, 2, 8)
+	base[0], base[1] = "spec", "template"
+	_ = BuildPodSpecPath(base, "spec", "containers")
+	assert.Equal(t, len(base), 2)
+	assert.DeepEqual(t, base[:2], []string{"spec", "template"})
+}
+
+// TestResolvePodSpecPathUsesDeclaredPaths pins the declared-data path: when the
+// ResourceTemplate carries podSpecPaths, that is where the pod spec is, for
+// every kind.
+func TestResolvePodSpecPathUsesDeclaredPaths(t *testing.T) {
+	cases := []struct {
+		name string
+		spec v1.ResourceSpec
+		kind string
+		want []string
+	}{
+		{
+			name: "inline pod spec",
+			spec: v1.ResourceSpec{
+				PrePaths:      []string{"spec", "services", "role0"},
+				TemplatePaths: []string{"extraPodSpec"},
+				PodSpecPaths:  []string{"extraPodSpec"},
+			},
+			kind: common.InferaDeploymentKind,
+			want: []string{"spec", "services", "role0", "extraPodSpec", "containers"},
+		},
+		{
+			name: "pod template wrapper",
+			spec: v1.ResourceSpec{
+				PrePaths:      []string{"spec"},
+				TemplatePaths: []string{"template"},
+				PodSpecPaths:  []string{"template", "spec"},
+			},
+			kind: common.DeploymentKind,
+			want: []string{"spec", "template", "spec", "containers"},
+		},
+		{
+			name: "no pod template",
+			spec: v1.ResourceSpec{
+				PrePaths:     []string{"spec"},
+				PodSpecPaths: []string{"podTemplate"},
+			},
+			kind: common.MonarchMesh,
+			want: []string{"spec", "podTemplate", "containers"},
+		},
+		{
+			// The declared path wins over the kind default, which is what lets a
+			// new kind ship without a code change.
+			name: "declared path overrides the kind default",
+			spec: v1.ResourceSpec{
+				PrePaths:      []string{"spec"},
+				TemplatePaths: []string{"template"},
+				PodSpecPaths:  []string{"somewhereElse"},
+			},
+			kind: common.DeploymentKind,
+			want: []string{"spec", "somewhereElse", "containers"},
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			assert.DeepEqual(t, ResolvePodSpecPath(&c.spec, c.kind, "containers"), c.want)
+		})
+	}
+}
+
+// TestResolvePodSpecPathFallsBackToKind covers ResourceTemplates rendered by
+// charts that predate podSpecPaths: the path comes from templatePaths plus the
+// kind's built-in segment.
+func TestResolvePodSpecPathFallsBackToKind(t *testing.T) {
+	wrapped := v1.ResourceSpec{
+		PrePaths:      []string{"spec"},
+		TemplatePaths: []string{"template"},
+	}
+	assert.DeepEqual(t, ResolvePodSpecPath(&wrapped, common.DeploymentKind, "containers"),
+		[]string{"spec", "template", "spec", "containers"})
+
+	inline := v1.ResourceSpec{
+		PrePaths:      []string{"spec", "services", "role0"},
+		TemplatePaths: []string{"extraPodSpec"},
+	}
+	assert.DeepEqual(t, ResolvePodSpecPath(&inline, common.InferaDeploymentKind, "containers"),
+		[]string{"spec", "services", "role0", "extraPodSpec", "containers"})
+}
+
+// TestResolvePodSpecPathDoesNotAlias pins that repeated calls cannot write
+// through each other's backing array.
+func TestResolvePodSpecPathDoesNotAlias(t *testing.T) {
+	spec := v1.ResourceSpec{
+		PrePaths:     []string{"spec"},
+		PodSpecPaths: []string{"template", "spec"},
+	}
+	volumes := ResolvePodSpecPath(&spec, common.DeploymentKind, "volumes")
+	containers := ResolvePodSpecPath(&spec, common.DeploymentKind, "containers")
+	assert.DeepEqual(t, volumes, []string{"spec", "template", "spec", "volumes"})
+	assert.DeepEqual(t, containers, []string{"spec", "template", "spec", "containers"})
+	assert.DeepEqual(t, spec.PodSpecPaths, []string{"template", "spec"})
+}
+
+// chartResourceTemplatePath is the shipped ResourceTemplate data, relative to
+// this package. It is production input to ResolvePodSpecPath, not a fixture.
+const chartResourceTemplatePath = "../../../charts/primus-safe-cr/templates/resource_template/resource_template.yaml"
+
+// helmActionRE matches the Helm actions in the chart. Only metadata
+// annotations use them, so replacing each with a literal leaves parseable YAML.
+var helmActionRE = regexp.MustCompile(`{{[^}]*}}`)
+
+// loadChartResourceTemplates parses the shipped ResourceTemplates.
+func loadChartResourceTemplates(t *testing.T) []v1.ResourceTemplate {
+	t.Helper()
+	raw, err := os.ReadFile(chartResourceTemplatePath)
+	assert.NilError(t, err)
+	rendered := helmActionRE.ReplaceAllString(string(raw), "placeholder")
+
+	var templates []v1.ResourceTemplate
+	for _, doc := range strings.Split(rendered, "\n---\n") {
+		if strings.TrimSpace(doc) == "" {
+			continue
+		}
+		var rt v1.ResourceTemplate
+		assert.NilError(t, yaml.Unmarshal([]byte(doc), &rt))
+		if rt.Kind != "ResourceTemplate" {
+			continue
+		}
+		templates = append(templates, rt)
+	}
+	assert.Assert(t, len(templates) > 0)
+	return templates
+}
+
+// TestShippedResourceTemplatesDeclarePodSpecPaths validates the chart, which is
+// the production copy of the pod spec locations and is not otherwise covered:
+// job-manager's fixtures are a hand-maintained parallel copy, so nothing stops
+// the two from drifting.
+//
+// Every resourceSpec must declare podSpecPaths - a template added without them
+// falls back to PodSpecSegment silently - and the declaration must resolve to
+// the same path as that fallback, for the CR kind the readers pass and for
+// every SaFE workload kind the writers pass. A disagreement is the failure this
+// whole path exists to prevent: readers look where writers never wrote, drift
+// detection reports "unchanged", and spec updates are dropped without an error.
+func TestShippedResourceTemplatesDeclarePodSpecPaths(t *testing.T) {
+	checked := 0
+	for _, rt := range loadChartResourceTemplates(t) {
+		if len(rt.Spec.ResourceSpecs) == 0 {
+			// Pod and Event carry no pod spec of their own.
+			continue
+		}
+		kinds := []string{rt.Spec.GroupVersionKind.Kind}
+		if annotation := rt.Annotations[v1.WorkloadKindLabel]; annotation != "" {
+			for _, k := range strings.Split(annotation, ",") {
+				if k = strings.TrimSpace(k); k != "" {
+					kinds = append(kinds, k)
+				}
+			}
+		}
+
+		for i := range rt.Spec.ResourceSpecs {
+			spec := &rt.Spec.ResourceSpecs[i]
+			t.Run(fmt.Sprintf("%s/%d", rt.Name, i), func(t *testing.T) {
+				assert.Assert(t, len(spec.PodSpecPaths) > 0, "resourceSpec declares no podSpecPaths")
+				for _, kind := range kinds {
+					assert.DeepEqual(t, ResolvePodSpecPath(spec, kind, "containers"),
+						BuildPodSpecPath(spec.TemplatePath(), PodSpecSegment(kind), "containers"))
+				}
+				checked++
+			})
+		}
+	}
+	// The chart ships more than a couple of templates; a parse that quietly
+	// produced nothing must not read as a pass.
+	assert.Assert(t, checked > 10)
 }

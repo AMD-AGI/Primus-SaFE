@@ -86,6 +86,19 @@ spec:
                       items:
                         type: string
                       type: array
+                    podSpecPaths:
+                      description: |-
+                        The relative path of the core/v1 PodSpec, where containers, volumes,
+                        priorityClassName and the other pod-level fields live. Like the other
+                        path fields it is relative to prePaths, not to templatePaths: a kind that
+                        wraps its pod in a PodTemplateSpec repeats the template segment and adds
+                        "spec" (template, spec), while a kind whose slot embeds a PodSpec inline
+                        names that field alone (extraPodSpec).
+
+                        Empty means the path is derived from templatePaths and the kind instead.
+                      items:
+                        type: string
+                      type: array
                     prePaths:
                       description: Pre-path to k8s object's spec
                       items:

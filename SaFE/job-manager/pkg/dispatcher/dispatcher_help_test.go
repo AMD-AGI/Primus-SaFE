@@ -13,8 +13,8 @@ import (
 	"testing"
 
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/apikey"
-	commonfaults "github.com/AMD-AIG-AIMA/SAFE/common/pkg/faults"
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
+	commonfaults "github.com/AMD-AIG-AIMA/SAFE/common/pkg/faults"
 	"github.com/agiledragon/gomonkey/v2"
 	"gotest.tools/assert"
 	corev1 "k8s.io/api/core/v1"
@@ -56,9 +56,7 @@ func checkResources(t *testing.T, obj *unstructured.Unstructured, workload *v1.W
 		}
 	}
 
-	path = append(template.PrePaths, template.TemplatePaths...)
-	podSpec := getPodSpec(workload)
-	path = append(path, podSpec, "containers")
+	path = commonworkload.ResolvePodSpecPath(template, workload.SpecKind(), "containers")
 	containers, found, err := jobutils.NestedSlice(obj.Object, path)
 	assert.NilError(t, err)
 	assert.Equal(t, found, true)
@@ -78,14 +76,12 @@ func checkResources(t *testing.T, obj *unstructured.Unstructured, workload *v1.W
 }
 
 func checkRaySubmitterPod(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workload) {
-	podSpec := getPodSpec(workload)
-	val, found, err := jobutils.NestedString(obj.Object, []string{podSpec, "entrypoint"})
+	val, found, err := jobutils.NestedString(obj.Object, []string{"spec", "entrypoint"})
 	assert.NilError(t, err)
 	assert.Equal(t, found, true)
 	assert.Equal(t, val, "exec "+Launcher+fmt.Sprintf(" '%s'", workload.GetEnv(common.RayJobEntrypoint)))
 
-	path := []string{podSpec, "submitterPodTemplate"}
-	path = append(path, podSpec, "containers")
+	path := []string{"spec", "submitterPodTemplate", "spec", "containers"}
 	containers, found, err := jobutils.NestedSlice(obj.Object, path)
 	assert.NilError(t, err)
 	assert.Equal(t, found, true)
@@ -100,9 +96,7 @@ func checkRaySubmitterPod(t *testing.T, obj *unstructured.Unstructured, workload
 }
 
 func checkPorts(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workload, template *v1.ResourceSpec, id int) {
-	containerPath := append(template.PrePaths, template.TemplatePaths...)
-	podPec := getPodSpec(workload)
-	containerPath = append(containerPath, podPec, "containers")
+	containerPath := commonworkload.ResolvePodSpecPath(template, workload.SpecKind(), "containers")
 
 	values, found, err := jobutils.NestedSlice(obj.Object, containerPath)
 	assert.NilError(t, err)
@@ -209,9 +203,7 @@ func findEnvFieldRef(envs []interface{}, name, fieldPath string) bool {
 }
 
 func checkVolumeMounts(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workload, resourceSpec *v1.ResourceSpec) {
-	templatePath := append(resourceSpec.PrePaths, resourceSpec.TemplatePaths...)
-	podSpec := getPodSpec(workload)
-	containerPath := append(templatePath, podSpec, "containers")
+	containerPath := commonworkload.ResolvePodSpecPath(resourceSpec, workload.SpecKind(), "containers")
 
 	values, found, err := jobutils.NestedSlice(obj.Object, containerPath)
 	assert.NilError(t, err)
@@ -260,9 +252,7 @@ func findVolumeMount(volumeMounts []interface{}, name string) map[string]interfa
 }
 
 func checkVolumes(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workload, resourceSpec *v1.ResourceSpec, id int) {
-	volumesPath := append(resourceSpec.PrePaths, resourceSpec.TemplatePaths...)
-	podSpec := getPodSpec(workload)
-	volumesPath = append(volumesPath, podSpec, "volumes")
+	volumesPath := commonworkload.ResolvePodSpecPath(resourceSpec, workload.SpecKind(), "volumes")
 
 	volumes, found, err := jobutils.NestedSlice(obj.Object, volumesPath)
 	assert.NilError(t, err)
@@ -345,9 +335,7 @@ func checkSandboxTemplateCleaned(t *testing.T, obj *unstructured.Unstructured, r
 }
 
 func checkRequiredNodeSelectorTerms(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workload, resourceSpec *v1.ResourceSpec) {
-	nodeSelectorPath := append(resourceSpec.PrePaths, resourceSpec.TemplatePaths...)
-	podSpec := getPodSpec(workload)
-	nodeSelectorPath = append(nodeSelectorPath, podSpec, "affinity", "nodeAffinity",
+	nodeSelectorPath := commonworkload.ResolvePodSpecPath(resourceSpec, workload.SpecKind(), "affinity", "nodeAffinity",
 		"requiredDuringSchedulingIgnoredDuringExecution", "nodeSelectorTerms")
 
 	affinities, found, err := jobutils.NestedSlice(obj.Object, nodeSelectorPath)
@@ -388,9 +376,7 @@ func checkRequiredNodeSelectorTerms(t *testing.T, obj *unstructured.Unstructured
 }
 
 func checkPreferredNodeSelectorTerms(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workload, resourceSpec *v1.ResourceSpec) {
-	nodeSelectorPath := append(resourceSpec.PrePaths, resourceSpec.TemplatePaths...)
-	podSpec := getPodSpec(workload)
-	nodeSelectorPath = append(nodeSelectorPath, podSpec, "affinity", "nodeAffinity",
+	nodeSelectorPath := commonworkload.ResolvePodSpecPath(resourceSpec, workload.SpecKind(), "affinity", "nodeAffinity",
 		"preferredDuringSchedulingIgnoredDuringExecution")
 
 	preferenceSlice, found, err := jobutils.NestedSlice(obj.Object, nodeSelectorPath)
@@ -421,9 +407,7 @@ func checkPreferredNodeSelectorTerms(t *testing.T, obj *unstructured.Unstructure
 }
 
 func checkPodAntiAffinity(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workload, resourceSpec *v1.ResourceSpec) {
-	podAntiAffinityPath := append(resourceSpec.PrePaths, resourceSpec.TemplatePaths...)
-	podSpec := getPodSpec(workload)
-	podAntiAffinityPath = append(podAntiAffinityPath, podSpec, "affinity", "podAntiAffinity",
+	podAntiAffinityPath := commonworkload.ResolvePodSpecPath(resourceSpec, workload.SpecKind(), "affinity", "podAntiAffinity",
 		"requiredDuringSchedulingIgnoredDuringExecution")
 
 	antiAffinities, found, err := jobutils.NestedSlice(obj.Object, podAntiAffinityPath)
@@ -448,9 +432,7 @@ func checkPodAntiAffinity(t *testing.T, obj *unstructured.Unstructured, workload
 }
 
 func checkImage(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workload, resourceSpec *v1.ResourceSpec, id int) {
-	containerPath := append(resourceSpec.PrePaths, resourceSpec.TemplatePaths...)
-	podSpec := getPodSpec(workload)
-	containerPath = append(containerPath, podSpec, "containers")
+	containerPath := commonworkload.ResolvePodSpecPath(resourceSpec, workload.SpecKind(), "containers")
 
 	values, found, err := jobutils.NestedSlice(obj.Object, containerPath)
 	assert.NilError(t, err)
@@ -468,8 +450,7 @@ func checkImage(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workl
 }
 
 func checkHostNetwork(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workload, resourceSpec *v1.ResourceSpec, id int) {
-	path := resourceSpec.TemplatePath()
-	path = append(path, getPodSpec(workload), "hostNetwork")
+	path := commonworkload.ResolvePodSpecPath(resourceSpec, workload.SpecKind(), "hostNetwork")
 
 	isHostNetWork, found, err := jobutils.NestedBool(obj.Object, path)
 	assert.NilError(t, err)
@@ -478,8 +459,7 @@ func checkHostNetwork(t *testing.T, obj *unstructured.Unstructured, workload *v1
 }
 
 func checkHostPid(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workload, resourceSpec *v1.ResourceSpec) {
-	path := append(resourceSpec.PrePaths, resourceSpec.TemplatePaths...)
-	path = append(path, getPodSpec(workload), "hostPID")
+	path := commonworkload.ResolvePodSpecPath(resourceSpec, workload.SpecKind(), "hostPID")
 
 	resp, found, err := jobutils.NestedBool(obj.Object, path)
 	assert.NilError(t, err)
@@ -511,7 +491,7 @@ func checkLabels(t *testing.T, obj *unstructured.Unstructured, workload *v1.Work
 }
 
 func checkSelector(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workload) {
-	path := []string{getPodSpec(workload), "selector", "matchLabels"}
+	path := []string{"spec", "selector", "matchLabels"}
 	labels, found, err := jobutils.NestedMap(obj.Object, path)
 	assert.NilError(t, err)
 	assert.Equal(t, found, true)
@@ -519,7 +499,7 @@ func checkSelector(t *testing.T, obj *unstructured.Unstructured, workload *v1.Wo
 }
 
 func checkStrategy(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workload) {
-	path := []string{getPodSpec(workload), "strategy", "rollingUpdate"}
+	path := []string{"spec", "strategy", "rollingUpdate"}
 	labels, found, err := jobutils.NestedMap(obj.Object, path)
 	assert.NilError(t, err)
 	assert.Equal(t, found, true)
@@ -528,8 +508,7 @@ func checkStrategy(t *testing.T, obj *unstructured.Unstructured, workload *v1.Wo
 }
 
 func checkTolerations(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workload, resourceSpec *v1.ResourceSpec) {
-	path := append(resourceSpec.PrePaths, resourceSpec.TemplatePaths...)
-	path = append(path, getPodSpec(workload), "tolerations")
+	path := commonworkload.ResolvePodSpecPath(resourceSpec, workload.SpecKind(), "tolerations")
 
 	tolerations, found, err := jobutils.NestedSlice(obj.Object, path)
 	assert.NilError(t, err)
@@ -561,8 +540,7 @@ func checkTolerations(t *testing.T, obj *unstructured.Unstructured, workload *v1
 }
 
 func checkPriorityClass(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workload, resourceSpec *v1.ResourceSpec) {
-	path := append(resourceSpec.PrePaths, resourceSpec.TemplatePaths...)
-	path = append(path, getPodSpec(workload), "priorityClassName")
+	path := commonworkload.ResolvePodSpecPath(resourceSpec, workload.SpecKind(), "priorityClassName")
 	priorityClassName, found, err := jobutils.NestedString(obj.Object, path)
 	assert.NilError(t, err)
 	assert.Equal(t, found, true)
@@ -570,8 +548,7 @@ func checkPriorityClass(t *testing.T, obj *unstructured.Unstructured, workload *
 }
 
 func checkSecurityContext(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workload, template *v1.ResourceSpec) {
-	containerPath := append(template.PrePaths, template.TemplatePaths...)
-	containerPath = append(containerPath, getPodSpec(workload), "containers")
+	containerPath := commonworkload.ResolvePodSpecPath(template, workload.SpecKind(), "containers")
 
 	values, found, err := jobutils.NestedSlice(obj.Object, containerPath)
 	assert.NilError(t, err)
@@ -602,8 +579,7 @@ func checkSecurityContext(t *testing.T, obj *unstructured.Unstructured, workload
 }
 
 func checkImageSecrets(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workload, resourceSpec *v1.ResourceSpec) {
-	secretPath := append(resourceSpec.PrePaths, resourceSpec.TemplatePaths...)
-	secretPath = append(secretPath, getPodSpec(workload), "imagePullSecrets")
+	secretPath := commonworkload.ResolvePodSpecPath(resourceSpec, workload.SpecKind(), "imagePullSecrets")
 
 	secrets, found, err := jobutils.NestedSlice(obj.Object, secretPath)
 	assert.NilError(t, err)
@@ -618,9 +594,7 @@ func checkImageSecrets(t *testing.T, obj *unstructured.Unstructured, workload *v
 }
 
 func getEnvs(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workload, resourceSpec *v1.ResourceSpec) []interface{} {
-	containerPath := append(resourceSpec.PrePaths, resourceSpec.TemplatePaths...)
-	podSpec := getPodSpec(workload)
-	containerPath = append(containerPath, podSpec, "containers")
+	containerPath := commonworkload.ResolvePodSpecPath(resourceSpec, workload.SpecKind(), "containers")
 
 	values, found, err := jobutils.NestedSlice(obj.Object, containerPath)
 	assert.NilError(t, err)
@@ -636,8 +610,7 @@ func getEnvs(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workload
 }
 
 func getContainer(obj *unstructured.Unstructured, name string, workload *v1.Workload, resourceSpec *v1.ResourceSpec) map[string]interface{} {
-	containerPath := append(resourceSpec.PrePaths, resourceSpec.TemplatePaths...)
-	containerPath = append(containerPath, getPodSpec(workload), "containers")
+	containerPath := commonworkload.ResolvePodSpecPath(resourceSpec, workload.SpecKind(), "containers")
 
 	values, found, err := jobutils.NestedSlice(obj.Object, containerPath)
 	if err != nil || !found {
@@ -838,8 +811,11 @@ func TestModifyHostPid(t *testing.T) {
 				}
 			}
 
-			templatePath := []string{"spec", "template"}
-			err := modifyHostPid(obj, workload, templatePath)
+			resourceSpec := &v1.ResourceSpec{
+				PrePaths:     []string{"spec"},
+				PodSpecPaths: []string{"template", "spec"},
+			}
+			err := modifyHostPid(obj, workload, resourceSpec)
 			assert.NilError(t, err)
 
 			hostPID, foundPID, _ := jobutils.NestedBool(obj.Object, []string{"spec", "template", "spec", "hostPID"})
@@ -1681,4 +1657,707 @@ func TestBuildRequiredMatchExpressionExcludedNodes(t *testing.T) {
 	assert.Assert(t, len(exprs) >= 1)
 	m := exprs[0].(map[string]interface{})
 	assert.Equal(t, m["operator"], "NotIn")
+}
+
+// newInferaWorkload builds an InferaDeployment workload with the given roles,
+// the subset of them that run multi-node, and one resource per role.
+func newInferaWorkload(roles, multinodeRoles []string, replicas []int) *v1.Workload {
+	resources := make([]v1.WorkloadResource, len(replicas))
+	for i, r := range replicas {
+		resources[i] = v1.WorkloadResource{Replica: r, CPU: "1", Memory: "1Gi"}
+	}
+	return &v1.Workload{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "test-idep",
+			Annotations: map[string]string{
+				v1.MainContainerAnnotation:        "main",
+				v1.InferaServiceRolesAnnotation:   strings.Join(roles, ","),
+				v1.InferaMultinodeRolesAnnotation: strings.Join(multinodeRoles, ","),
+			},
+		},
+		Spec: v1.WorkloadSpec{
+			GroupVersionKind: v1.GroupVersionKind{
+				Kind:    common.InferaDeploymentKind,
+				Version: common.DefaultVersion,
+			},
+			Resources: resources,
+		},
+	}
+}
+
+// TestExpectedReplica pins the one place the drift check and the write agree on
+// what "replicas" should be. A multi-node Infera role keeps replicas=1 because
+// its node count lives in numberOfNodes (normalizeInferaIDEP); every other role
+// scales normally.
+func TestExpectedReplica(t *testing.T) {
+	roles := []string{"frontend", "prefill", "decode"}
+
+	cases := []struct {
+		name     string
+		workload *v1.Workload
+		id       int
+		want     int64
+	}{
+		{
+			name: "non-infera scales normally",
+			workload: &v1.Workload{
+				ObjectMeta: metav1.ObjectMeta{Name: "pyt"},
+				Spec: v1.WorkloadSpec{
+					GroupVersionKind: v1.GroupVersionKind{Kind: common.PytorchJobKind, Version: common.DefaultVersion},
+					Resources:        []v1.WorkloadResource{{Replica: 4}},
+				},
+			},
+			id:   0,
+			want: 4,
+		},
+		{
+			name:     "infera single-node role scales normally",
+			workload: newInferaWorkload(roles, []string{"decode"}, []int{4, 2, 8}),
+			id:       0,
+			want:     4,
+		},
+		{
+			name:     "infera multi-node role pins to one group",
+			workload: newInferaWorkload(roles, []string{"decode"}, []int{4, 2, 8}),
+			id:       2,
+			want:     1,
+		},
+		{
+			name:     "infera multi-node role with a single node is unaffected",
+			workload: newInferaWorkload(roles, []string{"decode"}, []int{4, 2, 1}),
+			id:       2,
+			want:     1,
+		},
+		{
+			name:     "id past the resource list",
+			workload: newInferaWorkload(roles, nil, []int{4}),
+			id:       3,
+			want:     0,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, expectedReplica(tc.workload, tc.id), tc.want)
+		})
+	}
+}
+
+// TestInferaLauncherFlags pins which roles the create path actually injects
+// flags for. Only these roles may be excused from a plain entrypoint
+// comparison; a frontend or single-node worker carries exactly what
+// buildCommands produced, so an edit to it must reach the object.
+func TestInferaLauncherFlags(t *testing.T) {
+	disagg := func(mode string) string {
+		return fmt.Sprintf(
+			"--disaggregation-mode %s --disaggregation-transfer-backend %s --disaggregation-bootstrap-port %d",
+			mode, common.InferaDefaultKVBackend, common.DynamoBootstrapPort)
+	}
+	multinode := func(n int) string {
+		return fmt.Sprintf("--nnodes %d --node-rank $LWS_WORKER_INDEX --dist-init-addr $LWS_LEADER_ADDRESS:%d",
+			n, common.DynamoMultinodeDistInitPort)
+	}
+	pd := []string{common.DynamoRoleFrontend, common.DynamoRolePrefill, common.DynamoRoleDecode}
+
+	cases := []struct {
+		name     string
+		workload *v1.Workload
+		id       int
+		want     string
+	}{
+		{
+			name: "non-infera",
+			workload: &v1.Workload{
+				Spec: v1.WorkloadSpec{
+					GroupVersionKind: v1.GroupVersionKind{Kind: common.PytorchJobKind, Version: common.DefaultVersion},
+					Resources:        []v1.WorkloadResource{{Replica: 4}},
+				},
+			},
+			id:   0,
+			want: "",
+		},
+		{
+			name:     "frontend gets nothing",
+			workload: newInferaWorkload(pd, nil, []int{1, 1, 1}),
+			id:       0,
+			want:     "",
+		},
+		{
+			name:     "default two-role worker gets nothing",
+			workload: newInferaWorkload(nil, nil, []int{1, 1}),
+			id:       1,
+			want:     "",
+		},
+		{
+			name:     "prefill gets the disaggregation flags",
+			workload: newInferaWorkload(pd, nil, []int{1, 1, 1}),
+			id:       1,
+			want:     disagg("prefill"),
+		},
+		{
+			name:     "decode gets the disaggregation flags",
+			workload: newInferaWorkload(pd, nil, []int{1, 1, 1}),
+			id:       2,
+			want:     disagg("decode"),
+		},
+		{
+			name:     "multi-node decode gets both sets, disaggregation first",
+			workload: newInferaWorkload(pd, []string{common.DynamoRoleDecode}, []int{1, 1, 4}),
+			id:       2,
+			want:     disagg("decode") + " " + multinode(4),
+		},
+		{
+			name:     "multi-node worker gets only the multi-node flags",
+			workload: newInferaWorkload(nil, []string{common.DynamoRoleWorker}, []int{1, 2}),
+			id:       1,
+			want:     multinode(2),
+		},
+		{
+			name:     "a multi-node role with one node is a single node",
+			workload: newInferaWorkload(nil, []string{common.DynamoRoleWorker}, []int{1, 1}),
+			id:       1,
+			want:     "",
+		},
+		{
+			name:     "id past the resource list",
+			workload: newInferaWorkload(pd, nil, []int{1}),
+			id:       2,
+			want:     "",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, inferaLauncherFlags(tc.workload, tc.id), tc.want)
+		})
+	}
+}
+
+// inferaObject renders a minimal IDEP holding one services.role<i> slot per
+// command, each with a "main" container. A nil command leaves that container
+// without one, which is the shape the create path sees.
+func inferaObject(commands ...[]interface{}) *unstructured.Unstructured {
+	services := map[string]interface{}{}
+	for i, cmd := range commands {
+		main := map[string]interface{}{"name": "main", "image": "infera:old"}
+		if cmd != nil {
+			main["command"] = cmd
+		}
+		services["role"+strconv.Itoa(i)] = map[string]interface{}{
+			"replicas": int64(1),
+			"extraPodSpec": map[string]interface{}{
+				"containers": []interface{}{main},
+			},
+		}
+	}
+	return &unstructured.Unstructured{Object: map[string]interface{}{
+		"apiVersion": "infera.amd.com/v1alpha1",
+		"kind":       common.InferaDeploymentKind,
+		"metadata": map[string]interface{}{
+			"name":        "test-idep",
+			"annotations": map[string]interface{}{v1.MainContainerAnnotation: "main"},
+		},
+		"spec": map[string]interface{}{"services": services},
+	}}
+}
+
+// inferaResourceSpec is the rendered chart's IDEP slot spec: the slot's
+// extraPodSpec is a bare core/v1 PodSpec, so it is both the template path and
+// the pod spec path.
+func inferaResourceSpec(id int) v1.ResourceSpec {
+	return v1.ResourceSpec{
+		PrePaths:      []string{"spec", "services", "role" + strconv.Itoa(id)},
+		TemplatePaths: []string{"extraPodSpec"},
+		PodSpecPaths:  []string{"extraPodSpec"},
+		ReplicasPaths: []string{"replicas"},
+	}
+}
+
+func inferaResourceTemplate(slots int) *v1.ResourceTemplate {
+	specs := make([]v1.ResourceSpec, slots)
+	for i := range specs {
+		specs[i] = inferaResourceSpec(i)
+	}
+	return &v1.ResourceTemplate{Spec: v1.ResourceTemplateSpec{
+		GroupVersionKind: v1.GroupVersionKind{Kind: common.InferaDeploymentKind},
+		ResourceSpecs:    specs,
+	}}
+}
+
+// inferaMainContainer returns the rendered main container of slot id.
+func inferaMainContainer(t *testing.T, obj *unstructured.Unstructured, id int) map[string]interface{} {
+	t.Helper()
+	containers, found, err := jobutils.NestedSlice(obj.Object,
+		[]string{"spec", "services", "role" + strconv.Itoa(id), "extraPodSpec", "containers"})
+	assert.NilError(t, err)
+	assert.Equal(t, found, true)
+	for _, c := range containers {
+		m := c.(map[string]interface{})
+		if m["name"] == "main" {
+			return m
+		}
+	}
+	t.Fatalf("no main container in slot role%d", id)
+	return nil
+}
+
+// decodedPayload returns the launcher payload of a rendered command, decoded.
+func decodedPayload(t *testing.T, cmd interface{}) string {
+	t.Helper()
+	slice, ok := cmd.([]interface{})
+	assert.Assert(t, ok)
+	assert.Assert(t, len(slice) == 3)
+	payload, ok := launcherEntryPayload(slice[2].(string))
+	assert.Assert(t, ok)
+	return stringutil.Base64Decode(payload)
+}
+
+// TestUpdateContainersSyncsInferaEntrypoint is the regression that a
+// kind-wide entrypoint exemption introduced: the default two-role IDEP
+// (frontend + worker, the shape GetInferaServiceRoles falls back to) has no
+// injected flags at all, so skipping the rebuild left the old engine arguments
+// running under a freshly synced image, with no error and no event.
+func TestUpdateContainersSyncsInferaEntrypoint(t *testing.T) {
+	workload := newInferaWorkload(nil, nil, []int{1, 1})
+	workload.Spec.EntryPoints = []string{
+		stringutil.Base64Encode("serve --model /models/new"),
+		stringutil.Base64Encode("worker --model /models/new"),
+	}
+	workload.Spec.Images = []string{"infera:new", "infera:new"}
+
+	stale := []interface{}{"/bin/sh", "-c", "exec " + Launcher + " " + stringutil.Base64Encode("serve --model /models/old")}
+	obj := inferaObject(stale, nil)
+
+	// Control: the object is stale in a way the rebuild has to correct, and
+	// this role really does get no injected flags to preserve.
+	assert.Equal(t, inferaLauncherFlags(workload, 0), "")
+	assert.Assert(t, len(buildCommands(workload, 0)) > 0)
+	assert.Assert(t, decodedPayload(t, stale) != "serve --model /models/new")
+
+	assert.NilError(t, updateContainers(workload, obj, inferaResourceSpec(0), 0))
+
+	main := inferaMainContainer(t, obj, 0)
+	assert.Equal(t, decodedPayload(t, main["command"]), "serve --model /models/new")
+	assert.Equal(t, main["image"], "infera:new")
+	assert.Assert(t, main["resources"] != nil)
+}
+
+// TestUpdateContainersRegraftsInferaFlags is the other half: a role that does
+// carry injected flags must keep them across the rebuild, or the sync degrades
+// a PD deployment to aggregated and drops the multi-node wiring.
+func TestUpdateContainersRegraftsInferaFlags(t *testing.T) {
+	roles := []string{common.DynamoRoleFrontend, common.DynamoRolePrefill, common.DynamoRoleDecode}
+	workload := newInferaWorkload(roles, []string{common.DynamoRoleDecode}, []int{1, 1, 2})
+	workload.Spec.EntryPoints = []string{"", "", stringutil.Base64Encode("serve --model /models/new")}
+
+	stale := []interface{}{"/bin/sh", "-c", "exec " + Launcher + " " +
+		stringutil.Base64Encode("serve --model /models/old --disaggregation-mode decode")}
+	obj := inferaObject(nil, nil, stale)
+
+	assert.NilError(t, updateContainers(workload, obj, inferaResourceSpec(2), 2))
+
+	main := inferaMainContainer(t, obj, 2)
+	assert.Equal(t, decodedPayload(t, main["command"]),
+		"serve --model /models/new"+
+			" --disaggregation-mode decode"+
+			" --disaggregation-transfer-backend "+common.InferaDefaultKVBackend+
+			fmt.Sprintf(" --disaggregation-bootstrap-port %d", common.DynamoBootstrapPort)+
+			" --nnodes 2 --node-rank $LWS_WORKER_INDEX"+
+			fmt.Sprintf(" --dist-init-addr $LWS_LEADER_ADDRESS:%d", common.DynamoMultinodeDistInitPort))
+}
+
+// TestUpdateContainersBuildsInferaCommandOnCreate covers the create path:
+// generateK8sObject runs applyWorkloadSpecToObject before normalizeInferaIDEP,
+// and the shipped IDEP template declares no command on containers[main], so
+// updateContainers is the only writer of one.
+func TestUpdateContainersBuildsInferaCommandOnCreate(t *testing.T) {
+	workload := newInferaWorkload([]string{common.DynamoRoleFrontend}, nil, []int{1})
+	// EntryPoints carries the base64 payload launcher.sh decodes, which is the
+	// form appendLauncherArgs rewrites.
+	workload.Spec.EntryPoints = []string{stringutil.Base64Encode("serve --model /models/m")}
+
+	obj := inferaObject(nil)
+	assert.NilError(t, updateContainers(workload, obj, inferaResourceSpec(0), 0))
+
+	main := inferaMainContainer(t, obj, 0)
+	assert.DeepEqual(t, main["command"], buildCommands(workload, 0))
+
+	// appendLauncherArgs needs the three-element launcher form to graft the
+	// disaggregation and multi-node flags onto; a container left without a
+	// command would silently keep none.
+	_, ok := appendLauncherArgs(main["command"].([]interface{}), "--nnodes 2")
+	assert.Assert(t, ok)
+}
+
+// TestInferaCreatePathIsIdempotent runs the create order for a PD deployment -
+// updateContainers, then normalizeInferaIDEP - and checks the flags
+// updateContainers now grafts are not appended a second time. Per-flag dedup in
+// stripUserDeclaredFlags is what makes the second pass a no-op; a duplicate
+// would crash the worker, because dynamo.sglang's argparse rejects one.
+func TestInferaCreatePathIsIdempotent(t *testing.T) {
+	roles := []string{common.DynamoRoleFrontend, common.DynamoRolePrefill, common.DynamoRoleDecode}
+	workload := newInferaWorkload(roles, []string{common.DynamoRoleDecode}, []int{1, 1, 2})
+	for range roles {
+		workload.Spec.EntryPoints = append(workload.Spec.EntryPoints,
+			stringutil.Base64Encode("serve --model /models/m"))
+	}
+
+	obj := inferaObject(nil, nil, nil)
+	for i := range roles {
+		assert.NilError(t, updateContainers(workload, obj, inferaResourceSpec(i), i))
+	}
+	afterWrite := decodedPayload(t, inferaMainContainer(t, obj, 2)["command"])
+
+	assert.NilError(t, normalizeInferaIDEP(obj, workload))
+
+	main := inferaMainContainer(t, obj, 2)
+	assert.Equal(t, decodedPayload(t, main["command"]), afterWrite)
+	assert.Equal(t, strings.Count(afterWrite, "--disaggregation-mode "), 1)
+	assert.Equal(t, strings.Count(afterWrite, "--nnodes "), 1)
+
+	// And the object the second pass produces is what the drift check expects
+	// to find, so a steady-state IDEP does not resync on every reconcile.
+	assert.DeepEqual(t, main["command"], expectedCommands(workload, 2))
+}
+
+// TestIsEntrypointChangedInfera is the read side. It has to distinguish a role
+// whose rendered command is exactly buildCommands' output - where a plain
+// comparison is correct - from one carrying injected flags, where comparing
+// against the bare entrypoint would report drift forever.
+func TestIsEntrypointChangedInfera(t *testing.T) {
+	entry := stringutil.Base64Encode("serve --model /models/new")
+	staleEntry := stringutil.Base64Encode("serve --model /models/old")
+
+	frontend := newInferaWorkload([]string{common.DynamoRoleFrontend}, nil, []int{1})
+	frontend.Spec.EntryPoints = []string{entry}
+
+	decode := newInferaWorkload([]string{common.DynamoRoleDecode}, []string{common.DynamoRoleDecode}, []int{2})
+	decode.Spec.EntryPoints = []string{entry}
+
+	staleDecode := newInferaWorkload([]string{common.DynamoRoleDecode}, []string{common.DynamoRoleDecode}, []int{2})
+	staleDecode.Spec.EntryPoints = []string{staleEntry}
+
+	cases := []struct {
+		name     string
+		workload *v1.Workload
+		rendered []interface{}
+		want     bool
+	}{
+		{
+			name:     "flagless role in step",
+			workload: frontend,
+			rendered: expectedCommands(frontend, 0),
+			want:     false,
+		},
+		{
+			name:     "flagless role with an edited entrypoint",
+			workload: frontend,
+			rendered: []interface{}{"/bin/sh", "-c", "exec " + Launcher + " " + staleEntry},
+			want:     true,
+		},
+		{
+			name:     "injected role in step",
+			workload: decode,
+			rendered: expectedCommands(decode, 0),
+			want:     false,
+		},
+		{
+			name:     "injected role with an edited entrypoint",
+			workload: decode,
+			rendered: expectedCommands(staleDecode, 0),
+			want:     true,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			obj := inferaObject(tc.rendered)
+			rt := inferaResourceTemplate(1)
+
+			// Control: the object really is readable, so a false below means
+			// the comparison matched, not that the read missed the container.
+			commands, err := jobutils.GetCommands(obj, rt, len(tc.workload.Spec.Resources))
+			assert.NilError(t, err)
+			assert.Equal(t, len(commands), 1)
+
+			assert.Equal(t, isEntrypointChanged(tc.workload, obj, rt), tc.want)
+		})
+	}
+}
+
+// setInferaResources writes onto slot id the container limits updateContainers
+// would produce for Resources[id], so a drift test can vary replicas alone.
+func setInferaResources(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workload, id int) {
+	t.Helper()
+	rl, err := commonworkload.GetPodResourceList(&workload.Spec.Resources[id])
+	assert.NilError(t, err)
+	limits := map[string]interface{}{}
+	for k, v := range rl {
+		limits[string(k)] = v.String()
+	}
+	path := []string{"spec", "services", "role" + strconv.Itoa(id), "extraPodSpec", "containers"}
+	containers, found, err := jobutils.NestedSlice(obj.Object, path)
+	assert.NilError(t, err)
+	assert.Equal(t, found, true)
+	for _, c := range containers {
+		if m := c.(map[string]interface{}); m["name"] == "main" {
+			m["resources"] = map[string]interface{}{"limits": limits}
+		}
+	}
+	assert.NilError(t, jobutils.SetNestedField(obj.Object, containers, path))
+}
+
+// TestIsResourceChangedInferaMultinode pins the drift check to expectedReplica.
+// A multi-node role's object carries replicas=1 with the node count in
+// numberOfNodes, so comparing against Resources[i].Replica would report drift
+// on every reconcile - and each resync also rewrites replicas to n while
+// numberOfNodes stays n, which is n groups of n nodes.
+func TestIsResourceChangedInferaMultinode(t *testing.T) {
+	roles := []string{common.DynamoRoleFrontend, common.DynamoRoleDecode}
+	workload := newInferaWorkload(roles, []string{common.DynamoRoleDecode}, []int{2, 4})
+
+	obj := inferaObject(nil, nil)
+	rt := inferaResourceTemplate(2)
+	for i := range roles {
+		setInferaResources(t, obj, workload, i)
+	}
+	replicasPath := func(id int) []string {
+		return []string{"spec", "services", "role" + strconv.Itoa(id), "replicas"}
+	}
+	assert.NilError(t, jobutils.SetNestedField(obj.Object, int64(2), replicasPath(0)))
+	assert.NilError(t, jobutils.SetNestedField(obj.Object, int64(1), replicasPath(1)))
+
+	// Control: both slots are readable and their resources already agree, so
+	// the verdict below is the replica comparison and nothing else.
+	replicaList, resourceList, err := jobutils.GetResources(obj, rt, "", len(workload.Spec.Resources))
+	assert.NilError(t, err)
+	assert.Equal(t, len(replicaList), 2)
+	assert.Equal(t, len(resourceList), 2)
+
+	assert.Equal(t, isResourceChanged(workload, obj, rt), false)
+
+	// The count normalizeInferaIDEP does not write is drift.
+	assert.NilError(t, jobutils.SetNestedField(obj.Object, int64(4), replicasPath(1)))
+	assert.Equal(t, isResourceChanged(workload, obj, rt), true)
+}
+
+// TestUpdateReplicaInfera is the write half of the same agreement: the value
+// updateReplica puts in the object has to be the one the drift check expects.
+func TestUpdateReplicaInfera(t *testing.T) {
+	roles := []string{common.DynamoRoleFrontend, common.DynamoRoleDecode}
+	workload := newInferaWorkload(roles, []string{common.DynamoRoleDecode}, []int{2, 4})
+	obj := inferaObject(nil, nil)
+
+	for i := range roles {
+		assert.NilError(t, updateReplica(workload, obj, inferaResourceSpec(i), i))
+	}
+
+	frontend, found, err := jobutils.NestedInt64(obj.Object, []string{"spec", "services", "role0", "replicas"})
+	assert.NilError(t, err)
+	assert.Equal(t, found, true)
+	assert.Equal(t, frontend, int64(2))
+
+	decode, found, err := jobutils.NestedInt64(obj.Object, []string{"spec", "services", "role1", "replicas"})
+	assert.NilError(t, err)
+	assert.Equal(t, found, true)
+	assert.Equal(t, decode, int64(1))
+}
+
+// TestUpdateInferaNodeCount pins the field that has to move with --nnodes.
+// A multi-node role's node count reaches the object twice - as numberOfNodes
+// and inside the launcher flag - and the two disagreeing is silent: replicas
+// stays 1, so no drift check fires, and the LeaderWorkerSet group never
+// finishes its rendezvous.
+func TestUpdateInferaNodeCount(t *testing.T) {
+	roles := []string{common.DynamoRoleFrontend, common.DynamoRoleDecode}
+	nodesPath := []string{"spec", "services", "role1", "numberOfNodes"}
+
+	t.Run("scale up rewrites numberOfNodes and --nnodes together", func(t *testing.T) {
+		// The object as create left it: a two-node decode group.
+		workload := newInferaWorkload(roles, []string{common.DynamoRoleDecode}, []int{1, 2})
+		workload.Spec.EntryPoints = []string{"", stringutil.Base64Encode("serve --model /models/m")}
+		obj := inferaObject(nil, expectedCommands(workload, 1))
+		assert.NilError(t, jobutils.SetNestedField(obj.Object, int64(2), nodesPath))
+
+		// The user scales the decode role to four nodes.
+		workload.Spec.Resources[1].Replica = 4
+		assert.NilError(t, updateReplica(workload, obj, inferaResourceSpec(1), 1))
+		assert.NilError(t, updateContainers(workload, obj, inferaResourceSpec(1), 1))
+
+		nodes, found, err := jobutils.NestedInt64(obj.Object, nodesPath)
+		assert.NilError(t, err)
+		assert.Equal(t, found, true)
+		assert.Equal(t, nodes, int64(4))
+
+		payload := decodedPayload(t, inferaMainContainer(t, obj, 1)["command"])
+		assert.Assert(t, strings.Contains(payload, "--nnodes 4"),
+			"launcher flag must agree with numberOfNodes, got %q", payload)
+		assert.Equal(t, strings.Count(payload, "--nnodes "), 1)
+
+		// replicas stays pinned at one group, which is why nothing else would
+		// have caught the mismatch.
+		replicas, found, err := jobutils.NestedInt64(obj.Object, []string{"spec", "services", "role1", "replicas"})
+		assert.NilError(t, err)
+		assert.Equal(t, found, true)
+		assert.Equal(t, replicas, int64(1))
+	})
+
+	t.Run("scale down to one node removes numberOfNodes", func(t *testing.T) {
+		workload := newInferaWorkload(roles, []string{common.DynamoRoleDecode}, []int{1, 1})
+		obj := inferaObject(nil, nil)
+		assert.NilError(t, jobutils.SetNestedField(obj.Object, int64(4), nodesPath))
+
+		assert.NilError(t, updateReplica(workload, obj, inferaResourceSpec(1), 1))
+
+		_, found, err := jobutils.NestedInt64(obj.Object, nodesPath)
+		assert.NilError(t, err)
+		assert.Equal(t, found, false,
+			"a single-node role must not keep a stale numberOfNodes")
+
+		// This is the shape normalizeInferaIDEP produces for one node: the
+		// field absent and replicas carrying the count.
+		replicas, found, err := jobutils.NestedInt64(obj.Object, []string{"spec", "services", "role1", "replicas"})
+		assert.NilError(t, err)
+		assert.Equal(t, found, true)
+		assert.Equal(t, replicas, int64(1))
+	})
+
+	t.Run("role dropped from multinode-roles removes numberOfNodes", func(t *testing.T) {
+		workload := newInferaWorkload(roles, nil, []int{1, 4})
+		obj := inferaObject(nil, nil)
+		assert.NilError(t, jobutils.SetNestedField(obj.Object, int64(4), nodesPath))
+
+		assert.NilError(t, updateReplica(workload, obj, inferaResourceSpec(1), 1))
+
+		_, found, err := jobutils.NestedInt64(obj.Object, nodesPath)
+		assert.NilError(t, err)
+		assert.Equal(t, found, false)
+
+		// No longer multi-node, so the role scales as replicas again.
+		replicas, found, err := jobutils.NestedInt64(obj.Object, []string{"spec", "services", "role1", "replicas"})
+		assert.NilError(t, err)
+		assert.Equal(t, found, true)
+		assert.Equal(t, replicas, int64(4))
+	})
+
+	t.Run("non-infera object is untouched", func(t *testing.T) {
+		pytorch := &v1.Workload{
+			ObjectMeta: metav1.ObjectMeta{Name: "pyt"},
+			Spec: v1.WorkloadSpec{
+				GroupVersionKind: v1.GroupVersionKind{Kind: common.PytorchJobKind, Version: common.DefaultVersion},
+				Resources:        []v1.WorkloadResource{{Replica: 2}},
+			},
+		}
+		obj := &unstructured.Unstructured{Object: map[string]interface{}{
+			"spec": map[string]interface{}{"numberOfNodes": int64(7)},
+		}}
+		spec := v1.ResourceSpec{PrePaths: []string{"spec"}, ReplicasPaths: []string{"replicas"}}
+		assert.NilError(t, updateReplica(pytorch, obj, spec, 0))
+
+		nodes, found, err := jobutils.NestedInt64(obj.Object, []string{"spec", "numberOfNodes"})
+		assert.NilError(t, err)
+		assert.Equal(t, found, true)
+		assert.Equal(t, nodes, int64(7))
+	})
+}
+
+// TestInferaNodeCountMatchesCreatePath ties the sync write to the create write:
+// normalizeInferaIDEP and updateInferaNodeCount must land on the same field at
+// the same path, or the sync silently writes a sibling nobody reads.
+func TestInferaNodeCountMatchesCreatePath(t *testing.T) {
+	roles := []string{common.DynamoRoleFrontend, common.DynamoRoleDecode}
+	workload := newInferaWorkload(roles, []string{common.DynamoRoleDecode}, []int{1, 3})
+	workload.Spec.EntryPoints = []string{"", stringutil.Base64Encode("serve --model /models/m")}
+
+	created := inferaObject(nil, nil)
+	for i := range roles {
+		assert.NilError(t, updateContainers(workload, created, inferaResourceSpec(i), i))
+		assert.NilError(t, updateReplica(workload, created, inferaResourceSpec(i), i))
+	}
+	assert.NilError(t, normalizeInferaIDEP(created, workload))
+
+	synced := inferaObject(nil, nil)
+	for i := range roles {
+		assert.NilError(t, updateContainers(workload, synced, inferaResourceSpec(i), i))
+		assert.NilError(t, updateReplica(workload, synced, inferaResourceSpec(i), i))
+	}
+
+	path := []string{"spec", "services", "role1", "numberOfNodes"}
+	fromCreate, found, err := jobutils.NestedInt64(created.Object, path)
+	assert.NilError(t, err)
+	assert.Equal(t, found, true)
+	fromSync, found, err := jobutils.NestedInt64(synced.Object, path)
+	assert.NilError(t, err)
+	assert.Equal(t, found, true)
+	assert.Equal(t, fromSync, fromCreate)
+	assert.Equal(t, fromSync, int64(3))
+}
+
+// TestAppendLauncherFlagsKeepsQuoting pins the splice: launcherEntryPayload
+// strips the quotes off a quoted payload, so rebuilding the entry from the
+// prefix alone would drop the closing quote and hand the shell an unterminated
+// string.
+func TestAppendLauncherFlagsKeepsQuoting(t *testing.T) {
+	encoded := stringutil.Base64Encode("python -m sglang.launch_server")
+
+	cases := []struct {
+		name string
+		full string
+	}{
+		{name: "bare payload", full: "exec " + Launcher + " " + encoded},
+		{name: "single quoted", full: "exec " + Launcher + " '" + encoded + "'"},
+		{name: "double quoted", full: "exec " + Launcher + " \"" + encoded + "\""},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			out, ok := appendLauncherFlags(c.full, "--nnodes 2")
+			assert.Assert(t, ok)
+
+			// The launcher prefix and whatever wrapped the payload survive:
+			// only the base64 run between them is replaced.
+			head := c.full[:strings.Index(c.full, encoded)]
+			tail := c.full[strings.Index(c.full, encoded)+len(encoded):]
+			assert.Assert(t, strings.HasPrefix(out, head), "lost the prefix: %q", out)
+			assert.Assert(t, strings.HasSuffix(out, tail), "lost the trailing quote: %q", out)
+
+			payload, ok := launcherEntryPayload(out)
+			assert.Assert(t, ok)
+			assert.Equal(t, stringutil.Base64Decode(payload),
+				"python -m sglang.launch_server --nnodes 2")
+		})
+	}
+}
+
+// TestUpdateMetadataSkipsInfera pins the early return: the IDEP extraPodSpec is
+// a bare core/v1 PodSpec, so a metadata block written there is pruned by the
+// CRD schema. normalizeInferaIDEP carries the same labels on the slot's
+// podLabels field instead.
+func TestUpdateMetadataSkipsInfera(t *testing.T) {
+	workload := newInferaWorkload([]string{common.DynamoRoleFrontend}, nil, []int{1})
+	obj := inferaObject(nil)
+
+	assert.NilError(t, updateMetadata(workload, obj, inferaResourceSpec(0), 0))
+
+	_, found, err := jobutils.NestedMap(obj.Object,
+		[]string{"spec", "services", "role0", "extraPodSpec", "metadata"})
+	assert.NilError(t, err)
+	assert.Equal(t, found, false)
+
+	// Control: the same call on a kind that does sync metadata writes one, so
+	// the absence above is the guard and not an unresolvable path.
+	pytorch := &v1.Workload{
+		ObjectMeta: metav1.ObjectMeta{Name: "pyt"},
+		Spec: v1.WorkloadSpec{
+			GroupVersionKind: v1.GroupVersionKind{Kind: common.PytorchJobKind, Version: common.DefaultVersion},
+			Resources:        []v1.WorkloadResource{{Replica: 1}},
+		},
+	}
+	pytObj := &unstructured.Unstructured{Object: map[string]interface{}{
+		"spec": map[string]interface{}{"template": map[string]interface{}{}},
+	}}
+	pytSpec := v1.ResourceSpec{PrePaths: []string{"spec"}, TemplatePaths: []string{"template"}}
+	assert.NilError(t, updateMetadata(pytorch, pytObj, pytSpec, 0))
+	_, found, err = jobutils.NestedMap(pytObj.Object, []string{"spec", "template", "metadata", "labels"})
+	assert.NilError(t, err)
+	assert.Equal(t, found, true)
 }
