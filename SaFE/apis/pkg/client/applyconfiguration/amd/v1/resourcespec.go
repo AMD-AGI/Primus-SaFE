@@ -13,6 +13,15 @@ type ResourceSpecApplyConfiguration struct {
 	PrePaths []string `json:"prePaths,omitempty"`
 	// The relative path of pod template
 	TemplatePaths []string `json:"templatePaths,omitempty"`
+	// The relative path of the core/v1 PodSpec, where containers, volumes,
+	// priorityClassName and the other pod-level fields live. Like the other
+	// path fields it is relative to prePaths, not to templatePaths: a kind that
+	// wraps its pod in a PodTemplateSpec repeats the template segment and adds
+	// "spec" (template, spec), while a kind whose slot embeds a PodSpec inline
+	// names that field alone (extraPodSpec).
+	//
+	// Empty means the path is derived from templatePaths and the kind instead.
+	PodSpecPaths []string `json:"podSpecPaths,omitempty"`
 	// The relative path of pod replica
 	ReplicasPaths []string `json:"replicasPaths,omitempty"`
 	// Fits scenarios without a defined replica path but with actual replica values, such as ray-job.
@@ -45,6 +54,16 @@ func (b *ResourceSpecApplyConfiguration) WithPrePaths(values ...string) *Resourc
 func (b *ResourceSpecApplyConfiguration) WithTemplatePaths(values ...string) *ResourceSpecApplyConfiguration {
 	for i := range values {
 		b.TemplatePaths = append(b.TemplatePaths, values[i])
+	}
+	return b
+}
+
+// WithPodSpecPaths adds the given value to the PodSpecPaths field in the declarative configuration
+// and returns the receiver, so that objects can be build by chaining "With" function invocations.
+// If called multiple times, values provided by each call will be appended to the PodSpecPaths field.
+func (b *ResourceSpecApplyConfiguration) WithPodSpecPaths(values ...string) *ResourceSpecApplyConfiguration {
+	for i := range values {
+		b.PodSpecPaths = append(b.PodSpecPaths, values[i])
 	}
 	return b
 }
