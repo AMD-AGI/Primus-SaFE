@@ -2163,6 +2163,171 @@ func TestUpdateReplicaInfera(t *testing.T) {
 	assert.Equal(t, decode, int64(1))
 }
 
+// TestUpdateInferaNodeCount pins the field that has to move with --nnodes.
+// A multi-node role's node count reaches the object twice - as numberOfNodes
+// and inside the launcher flag - and the two disagreeing is silent: replicas
+// stays 1, so no drift check fires, and the LeaderWorkerSet group never
+// finishes its rendezvous.
+func TestUpdateInferaNodeCount(t *testing.T) {
+	roles := []string{common.DynamoRoleFrontend, common.DynamoRoleDecode}
+	nodesPath := []string{"spec", "services", "role1", "numberOfNodes"}
+
+	t.Run("scale up rewrites numberOfNodes and --nnodes together", func(t *testing.T) {
+		// The object as create left it: a two-node decode group.
+		workload := newInferaWorkload(roles, []string{common.DynamoRoleDecode}, []int{1, 2})
+		workload.Spec.EntryPoints = []string{"", stringutil.Base64Encode("serve --model /models/m")}
+		obj := inferaObject(nil, expectedCommands(workload, 1))
+		assert.NilError(t, jobutils.SetNestedField(obj.Object, int64(2), nodesPath))
+
+		// The user scales the decode role to four nodes.
+		workload.Spec.Resources[1].Replica = 4
+		assert.NilError(t, updateReplica(workload, obj, inferaResourceSpec(1), 1))
+		assert.NilError(t, updateContainers(workload, obj, inferaResourceSpec(1), 1))
+
+		nodes, found, err := jobutils.NestedInt64(obj.Object, nodesPath)
+		assert.NilError(t, err)
+		assert.Equal(t, found, true)
+		assert.Equal(t, nodes, int64(4))
+
+		payload := decodedPayload(t, inferaMainContainer(t, obj, 1)["command"])
+		assert.Assert(t, strings.Contains(payload, "--nnodes 4"),
+			"launcher flag must agree with numberOfNodes, got %q", payload)
+		assert.Equal(t, strings.Count(payload, "--nnodes "), 1)
+
+		// replicas stays pinned at one group, which is why nothing else would
+		// have caught the mismatch.
+		replicas, found, err := jobutils.NestedInt64(obj.Object, []string{"spec", "services", "role1", "replicas"})
+		assert.NilError(t, err)
+		assert.Equal(t, found, true)
+		assert.Equal(t, replicas, int64(1))
+	})
+
+	t.Run("scale down to one node removes numberOfNodes", func(t *testing.T) {
+		workload := newInferaWorkload(roles, []string{common.DynamoRoleDecode}, []int{1, 1})
+		obj := inferaObject(nil, nil)
+		assert.NilError(t, jobutils.SetNestedField(obj.Object, int64(4), nodesPath))
+
+		assert.NilError(t, updateReplica(workload, obj, inferaResourceSpec(1), 1))
+
+		_, found, err := jobutils.NestedInt64(obj.Object, nodesPath)
+		assert.NilError(t, err)
+		assert.Equal(t, found, false,
+			"a single-node role must not keep a stale numberOfNodes")
+
+		// This is the shape normalizeInferaIDEP produces for one node: the
+		// field absent and replicas carrying the count.
+		replicas, found, err := jobutils.NestedInt64(obj.Object, []string{"spec", "services", "role1", "replicas"})
+		assert.NilError(t, err)
+		assert.Equal(t, found, true)
+		assert.Equal(t, replicas, int64(1))
+	})
+
+	t.Run("role dropped from multinode-roles removes numberOfNodes", func(t *testing.T) {
+		workload := newInferaWorkload(roles, nil, []int{1, 4})
+		obj := inferaObject(nil, nil)
+		assert.NilError(t, jobutils.SetNestedField(obj.Object, int64(4), nodesPath))
+
+		assert.NilError(t, updateReplica(workload, obj, inferaResourceSpec(1), 1))
+
+		_, found, err := jobutils.NestedInt64(obj.Object, nodesPath)
+		assert.NilError(t, err)
+		assert.Equal(t, found, false)
+
+		// No longer multi-node, so the role scales as replicas again.
+		replicas, found, err := jobutils.NestedInt64(obj.Object, []string{"spec", "services", "role1", "replicas"})
+		assert.NilError(t, err)
+		assert.Equal(t, found, true)
+		assert.Equal(t, replicas, int64(4))
+	})
+
+	t.Run("non-infera object is untouched", func(t *testing.T) {
+		pytorch := &v1.Workload{
+			ObjectMeta: metav1.ObjectMeta{Name: "pyt"},
+			Spec: v1.WorkloadSpec{
+				GroupVersionKind: v1.GroupVersionKind{Kind: common.PytorchJobKind, Version: common.DefaultVersion},
+				Resources:        []v1.WorkloadResource{{Replica: 2}},
+			},
+		}
+		obj := &unstructured.Unstructured{Object: map[string]interface{}{
+			"spec": map[string]interface{}{"numberOfNodes": int64(7)},
+		}}
+		spec := v1.ResourceSpec{PrePaths: []string{"spec"}, ReplicasPaths: []string{"replicas"}}
+		assert.NilError(t, updateReplica(pytorch, obj, spec, 0))
+
+		nodes, found, err := jobutils.NestedInt64(obj.Object, []string{"spec", "numberOfNodes"})
+		assert.NilError(t, err)
+		assert.Equal(t, found, true)
+		assert.Equal(t, nodes, int64(7))
+	})
+}
+
+// TestInferaNodeCountMatchesCreatePath ties the sync write to the create write:
+// normalizeInferaIDEP and updateInferaNodeCount must land on the same field at
+// the same path, or the sync silently writes a sibling nobody reads.
+func TestInferaNodeCountMatchesCreatePath(t *testing.T) {
+	roles := []string{common.DynamoRoleFrontend, common.DynamoRoleDecode}
+	workload := newInferaWorkload(roles, []string{common.DynamoRoleDecode}, []int{1, 3})
+	workload.Spec.EntryPoints = []string{"", stringutil.Base64Encode("serve --model /models/m")}
+
+	created := inferaObject(nil, nil)
+	for i := range roles {
+		assert.NilError(t, updateContainers(workload, created, inferaResourceSpec(i), i))
+		assert.NilError(t, updateReplica(workload, created, inferaResourceSpec(i), i))
+	}
+	assert.NilError(t, normalizeInferaIDEP(created, workload))
+
+	synced := inferaObject(nil, nil)
+	for i := range roles {
+		assert.NilError(t, updateContainers(workload, synced, inferaResourceSpec(i), i))
+		assert.NilError(t, updateReplica(workload, synced, inferaResourceSpec(i), i))
+	}
+
+	path := []string{"spec", "services", "role1", "numberOfNodes"}
+	fromCreate, found, err := jobutils.NestedInt64(created.Object, path)
+	assert.NilError(t, err)
+	assert.Equal(t, found, true)
+	fromSync, found, err := jobutils.NestedInt64(synced.Object, path)
+	assert.NilError(t, err)
+	assert.Equal(t, found, true)
+	assert.Equal(t, fromSync, fromCreate)
+	assert.Equal(t, fromSync, int64(3))
+}
+
+// TestAppendLauncherFlagsKeepsQuoting pins the splice: launcherEntryPayload
+// strips the quotes off a quoted payload, so rebuilding the entry from the
+// prefix alone would drop the closing quote and hand the shell an unterminated
+// string.
+func TestAppendLauncherFlagsKeepsQuoting(t *testing.T) {
+	encoded := stringutil.Base64Encode("python -m sglang.launch_server")
+
+	cases := []struct {
+		name string
+		full string
+	}{
+		{name: "bare payload", full: "exec " + Launcher + " " + encoded},
+		{name: "single quoted", full: "exec " + Launcher + " '" + encoded + "'"},
+		{name: "double quoted", full: "exec " + Launcher + " \"" + encoded + "\""},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			out, ok := appendLauncherFlags(c.full, "--nnodes 2")
+			assert.Assert(t, ok)
+
+			// The launcher prefix and whatever wrapped the payload survive:
+			// only the base64 run between them is replaced.
+			head := c.full[:strings.Index(c.full, encoded)]
+			tail := c.full[strings.Index(c.full, encoded)+len(encoded):]
+			assert.Assert(t, strings.HasPrefix(out, head), "lost the prefix: %q", out)
+			assert.Assert(t, strings.HasSuffix(out, tail), "lost the trailing quote: %q", out)
+
+			payload, ok := launcherEntryPayload(out)
+			assert.Assert(t, ok)
+			assert.Equal(t, stringutil.Base64Decode(payload),
+				"python -m sglang.launch_server --nnodes 2")
+		})
+	}
+}
+
 // TestUpdateMetadataSkipsInfera pins the early return: the IDEP extraPodSpec is
 // a bare core/v1 PodSpec, so a metadata block written there is pruned by the
 // CRD schema. normalizeInferaIDEP carries the same labels on the slot's

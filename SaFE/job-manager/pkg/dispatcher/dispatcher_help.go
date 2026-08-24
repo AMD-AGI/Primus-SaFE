@@ -42,6 +42,11 @@ const (
 
 	sandboxAuthPublicKeyEnvName = "ENVD_AUTH_PUBLIC_KEY"
 	sandboxSecretPublicPemKey   = "public.pem"
+
+	// inferaNodeCountField is the flat IDEP ServiceSpec field carrying the node
+	// count of a multi-node role's LeaderWorkerSet group. Written by
+	// normalizeInferaIDEP on create and by updateInferaNodeCount on sync.
+	inferaNodeCountField = "numberOfNodes"
 )
 
 // initializeObject modifies various aspects of a Kubernetes object during workload creation.
@@ -1121,8 +1126,9 @@ func convertEnvsToStringMap(envs []interface{}) map[string]string {
 // sets replicas to 1. updateReplica and the drift check both take the value
 // from here.
 //
-// numberOfNodes is written at create time only. It also appears in the
-// launcher's --nnodes flag, which isEntrypointChanged excludes from the sync.
+// The node count itself reaches the object twice: as numberOfNodes, which
+// updateInferaNodeCount keeps in step, and inside the launcher's --nnodes flag,
+// which expectedCommands rebuilds. Both have to move together.
 func expectedReplica(adminWorkload *v1.Workload, id int) int64 {
 	if id >= len(adminWorkload.Spec.Resources) {
 		return 0
@@ -1143,6 +1149,9 @@ func expectedReplica(adminWorkload *v1.Workload, id int) int64 {
 // updateReplica updates the replica count in the unstructured object.
 func updateReplica(adminWorkload *v1.Workload,
 	obj *unstructured.Unstructured, resourceSpec v1.ResourceSpec, id int) error {
+	if err := updateInferaNodeCount(adminWorkload, obj, resourceSpec, id); err != nil {
+		return err
+	}
 	if len(resourceSpec.ReplicasPaths) == 0 {
 		return nil
 	}
@@ -1158,6 +1167,33 @@ func updateReplica(adminWorkload *v1.Workload,
 		return err
 	}
 	return nil
+}
+
+// updateInferaNodeCount keeps an IDEP slot's numberOfNodes in step with
+// Resources[id].Replica for a multi-node role.
+//
+// normalizeInferaIDEP writes the field on create only, but the same node count
+// also reaches the object through the launcher's --nnodes flag, which the sync
+// path rebuilds (expectedCommands). Scaling a multi-node role would otherwise
+// leave a LeaderWorkerSet group of the old size running --nnodes with the new
+// one: the rendezvous never completes, and because replicas stays pinned at 1
+// the next reconcile sees no drift, so the broken state is stable and silent.
+//
+// The field is removed rather than set to 1 when the role is no longer
+// multi-node or has scaled down to a single node, which is the shape
+// normalizeInferaIDEP produces for that case.
+func updateInferaNodeCount(adminWorkload *v1.Workload,
+	obj *unstructured.Unstructured, resourceSpec v1.ResourceSpec, id int) error {
+	if !commonworkload.IsInferaDeployment(adminWorkload) || id >= len(adminWorkload.Spec.Resources) {
+		return nil
+	}
+	path := resourceSpec.Path(inferaNodeCountField)
+	roles := commonworkload.GetInferaServiceRoles(adminWorkload)
+	n := adminWorkload.Spec.Resources[id].Replica
+	if n <= 1 || id >= len(roles) || !commonworkload.IsInferaMultinodeRole(adminWorkload, roles[id]) {
+		return jobutils.RemoveNestedField(obj.Object, path)
+	}
+	return jobutils.SetNestedField(obj.Object, int64(n), path)
 }
 
 // updateMaxReplicas updates the max-replicas in the unstructured object. only for ray-job
@@ -1561,7 +1597,7 @@ func normalizeInferaIDEP(obj *unstructured.Unstructured, adminWorkload *v1.Workl
 			i < len(adminWorkload.Spec.Resources) {
 			if n := adminWorkload.Spec.Resources[i].Replica; n > 1 {
 				appendSglangMultinodeArgs(slot, n)
-				slot["numberOfNodes"] = int64(n)
+				slot[inferaNodeCountField] = int64(n)
 				slot["replicas"] = int64(1)
 			}
 		}
@@ -1814,8 +1850,15 @@ func appendLauncherFlags(full, extraFlags string) (string, bool) {
 	}
 	decoded = strings.TrimRight(decoded, "\n")
 	newPayload := stringutil.Base64Encode(decoded + " " + filtered)
-	prefix := full[:strings.LastIndex(full, payload)]
-	return prefix + newPayload, true
+	// Splice the new payload in where the old one sat, keeping whatever
+	// surrounds it. launcherEntryPayload trims the quotes off a quoted payload,
+	// so dropping the tail here would return an entry with an opening quote and
+	// no closing one.
+	at := strings.LastIndex(full, payload)
+	if at < 0 {
+		return "", false
+	}
+	return full[:at] + newPayload + full[at+len(payload):], true
 }
 
 // stripUserDeclaredFlags returns extraFlags with any "--name value" pair
