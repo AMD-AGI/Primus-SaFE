@@ -739,6 +739,71 @@ func entrypointsEqual(newEp, oldEp string) bool {
 	return false
 }
 
+// inferaLauncherFlags returns the launcher flags normalizeInferaIDEP grafts
+// onto the Resources[id] slot's command on top of buildCommands: the sglang
+// disaggregation flags for a prefill/decode role, and the multi-node flags for
+// a role declared multi-node with more than one node. It returns "" for a role
+// that gets neither - frontend, and a worker that is not multi-node - whose
+// rendered command is therefore exactly what buildCommands produces.
+//
+// The concatenation order matches normalizeInferaIDEP, which runs
+// applyInferaRoleFields before appendSglangMultinodeArgs. The two flag sets
+// share no flag name, so appending them in one pass drops the same
+// user-declared flags (stripUserDeclaredFlags) that two passes would.
+func inferaLauncherFlags(adminWorkload *v1.Workload, id int) string {
+	if !commonworkload.IsInferaDeployment(adminWorkload) || id >= len(adminWorkload.Spec.Resources) {
+		return ""
+	}
+	roles := commonworkload.GetInferaServiceRoles(adminWorkload)
+	if id >= len(roles) {
+		return ""
+	}
+	role := roles[id]
+	flags := make([]string, 0, 2)
+	switch role {
+	case common.DynamoRolePrefill, common.DynamoRoleDecode:
+		flags = append(flags, sglangDisaggFlags(role, commonworkload.GetInferaKVTransferBackend(adminWorkload)))
+	}
+	if n := adminWorkload.Spec.Resources[id].Replica; n > 1 &&
+		commonworkload.IsInferaMultinodeRole(adminWorkload, role) {
+		flags = append(flags, sglangMultinodeFlags(n))
+	}
+	return strings.Join(flags, " ")
+}
+
+// expectedCommands returns the command the object should carry for
+// Resources[id]: buildCommands, plus for an InferaDeployment the flags
+// normalizeInferaIDEP injects on top of it. Rebuilding an IDEP command through
+// here is what lets the sync path apply an entrypoint edit without dropping
+// the disaggregation and multi-node flags the Workload spec does not describe.
+func expectedCommands(adminWorkload *v1.Workload, id int) []interface{} {
+	cmds := buildCommands(adminWorkload, id)
+	flags := inferaLauncherFlags(adminWorkload, id)
+	if len(cmds) == 0 || flags == "" {
+		return cmds
+	}
+	if out, ok := appendLauncherArgs(cmds, flags); ok {
+		return out
+	}
+	return cmds
+}
+
+// expectedEntryPoint is the read side of expectedCommands: the entry the
+// rendered command is compared against by isEntrypointChanged. Keeping the two
+// in step is what keeps a steady-state IDEP from reporting drift on every
+// reconcile.
+func expectedEntryPoint(adminWorkload *v1.Workload, id int) string {
+	ep := buildEntryPoint(adminWorkload, id)
+	flags := inferaLauncherFlags(adminWorkload, id)
+	if ep == "" || flags == "" {
+		return ep
+	}
+	if out, ok := appendLauncherFlags(ep, flags); ok {
+		return out
+	}
+	return ep
+}
+
 // buildObjectLabels creates a map of labels for object tracking.
 func buildObjectLabels(workload *v1.Workload) map[string]interface{} {
 	result := map[string]interface{}{
@@ -1719,25 +1784,38 @@ func appendLauncherArgs(cmd []interface{}, extraFlags string) ([]interface{}, bo
 	if !ok {
 		return nil, false
 	}
+	rewritten, ok := appendLauncherFlags(full, extraFlags)
+	if !ok {
+		return nil, false
+	}
+	out := make([]interface{}, len(cmd))
+	copy(out, cmd)
+	out[2] = rewritten
+	return out, true
+}
+
+// appendLauncherFlags is the string half of appendLauncherArgs: it appends
+// extraFlags to the base64 payload of a single launcher-style entry
+// (`[exec ]/bin/sh /shared-data/launcher.sh <base64>`), leaving the launcher
+// prefix untouched. Returns ("", false) when the entry is not in launcher form
+// or its payload does not decode, so callers can fall back to the entry as-is.
+func appendLauncherFlags(full, extraFlags string) (string, bool) {
 	payload, ok := launcherEntryPayload(full)
 	if !ok || payload == "" {
-		return nil, false
+		return "", false
 	}
 	decoded := stringutil.Base64Decode(payload)
 	if decoded == "" {
-		return nil, false
+		return "", false
 	}
 	filtered := stripUserDeclaredFlags(extraFlags, decoded)
 	if filtered == "" {
-		return cmd, true
+		return full, true
 	}
 	decoded = strings.TrimRight(decoded, "\n")
 	newPayload := stringutil.Base64Encode(decoded + " " + filtered)
 	prefix := full[:strings.LastIndex(full, payload)]
-	out := make([]interface{}, len(cmd))
-	copy(out, cmd)
-	out[2] = prefix + newPayload
-	return out, true
+	return prefix + newPayload, true
 }
 
 // stripUserDeclaredFlags returns extraFlags with any "--name value" pair
@@ -1959,17 +2037,16 @@ func updateContainers(adminWorkload *v1.Workload,
 			if len(adminWorkload.Spec.Images) > id && adminWorkload.Spec.Images[id] != "" {
 				container["image"] = adminWorkload.Spec.Images[id]
 			}
-			// An IDEP command carries the disaggregation and multi-node flags
-			// that normalizeInferaIDEP appends on top of buildCommands and that
-			// Workload.Spec.EntryPoints does not describe, so an IDEP container
-			// that already holds one keeps it. This mirrors isEntrypointChanged,
-			// which excludes the same field. A container with no command yet is
-			// on the create path, where buildCommands produces the launcher form
-			// that normalizeInferaIDEP then appends its flags to.
-			if !commonworkload.IsInferaDeployment(adminWorkload) || !hasCommand(container) {
-				if cmds := buildCommands(adminWorkload, id); len(cmds) > 0 {
-					container["command"] = cmds
-				}
+			// expectedCommands, not buildCommands: an IDEP command carries the
+			// disaggregation and multi-node flags normalizeInferaIDEP grafts on
+			// top of the launcher payload, which Workload.Spec.EntryPoints does
+			// not describe. Rebuilding through expectedCommands re-grafts them,
+			// so an entrypoint or image edit reaches the object without
+			// degrading a PD deployment to aggregated. On the create path the
+			// flags are then a no-op for normalizeInferaIDEP, whose per-flag
+			// dedup sees them already present.
+			if cmds := expectedCommands(adminWorkload, id); len(cmds) > 0 {
+				container["command"] = cmds
 			}
 		}
 	}
@@ -1977,12 +2054,6 @@ func updateContainers(adminWorkload *v1.Workload,
 		return err
 	}
 	return nil
-}
-
-// hasCommand reports whether a rendered container already carries a command.
-func hasCommand(container map[string]interface{}) bool {
-	cmd, ok := container["command"].([]interface{})
-	return ok && len(cmd) > 0
 }
 
 // updateContainerEnv updates environment variables in the container.

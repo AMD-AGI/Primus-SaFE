@@ -562,8 +562,9 @@ func (r *DispatcherReconciler) syncWorkloadToObject(ctx context.Context, adminWo
 		return nil
 	}
 
-	// InferaDeployment syncs image, env, resources, shared memory and replicas
-	// through the generic flow below. Its launcher command is excluded, in
+	// InferaDeployment syncs image, env, resources, shared memory, replicas and
+	// the launcher command through the generic flow below. The command is
+	// rebuilt with the role's injected sglang flags re-grafted, in
 	// isEntrypointChanged and updateContainers.
 
 	functions := []func(adminWorkload *v1.Workload, obj *unstructured.Unstructured, rt *v1.ResourceTemplate) bool{
@@ -652,13 +653,6 @@ func isImagesChanged(adminWorkload *v1.Workload, obj *unstructured.Unstructured,
 
 // isEntrypointChanged checks if the entry point/command of the workload has changed.
 func isEntrypointChanged(adminWorkload *v1.Workload, obj *unstructured.Unstructured, rt *v1.ResourceTemplate) bool {
-	// Entrypoint is not a synced field for InferaDeployment. Its rendered
-	// command is a superset of buildEntryPoint's output: normalizeInferaIDEP
-	// injects the sglang disaggregation and multi-node flags the Workload does
-	// not already carry, and those additions live only on the object.
-	if commonworkload.IsInferaDeployment(adminWorkload) {
-		return false
-	}
 	commands, err := jobutils.GetCommands(obj, rt, len(adminWorkload.Spec.Resources))
 	if err != nil {
 		klog.ErrorS(err, "failed to get command", "obj", obj.GetName())
@@ -671,7 +665,13 @@ func isEntrypointChanged(adminWorkload *v1.Workload, obj *unstructured.Unstructu
 		if commonworkload.IsRayJob(adminWorkload) && i == 0 {
 			continue
 		}
-		newEntrypoint := buildEntryPoint(adminWorkload, i)
+		// expectedEntryPoint, not buildEntryPoint: an InferaDeployment's
+		// rendered command is buildEntryPoint's output plus the sglang flags
+		// normalizeInferaIDEP grafts on for that role. Comparing against the
+		// bare entrypoint would report drift on every reconcile for a
+		// prefill/decode or multi-node role; comparing against buildEntryPoint
+		// for every role would miss a real edit on the roles that get no flags.
+		newEntrypoint := expectedEntryPoint(adminWorkload, i)
 		oldCommand := commands[i]
 		if len(oldCommand) == 0 {
 			if newEntrypoint != "" {

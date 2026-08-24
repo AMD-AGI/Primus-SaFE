@@ -7,7 +7,11 @@ package workload
 
 import (
 	"context"
+	"fmt"
+	"os"
 	"reflect"
+	"regexp"
+	"strings"
 	"testing"
 
 	"gotest.tools/assert"
@@ -17,6 +21,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/yaml"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/apis/pkg/client/clientset/versioned/scheme"
@@ -678,4 +683,79 @@ func TestResolvePodSpecPathDoesNotAlias(t *testing.T) {
 	assert.DeepEqual(t, volumes, []string{"spec", "template", "spec", "volumes"})
 	assert.DeepEqual(t, containers, []string{"spec", "template", "spec", "containers"})
 	assert.DeepEqual(t, spec.PodSpecPaths, []string{"template", "spec"})
+}
+
+// chartResourceTemplatePath is the shipped ResourceTemplate data, relative to
+// this package. It is production input to ResolvePodSpecPath, not a fixture.
+const chartResourceTemplatePath = "../../../charts/primus-safe-cr/templates/resource_template/resource_template.yaml"
+
+// helmActionRE matches the Helm actions in the chart. Only metadata
+// annotations use them, so replacing each with a literal leaves parseable YAML.
+var helmActionRE = regexp.MustCompile(`{{[^}]*}}`)
+
+// loadChartResourceTemplates parses the shipped ResourceTemplates.
+func loadChartResourceTemplates(t *testing.T) []v1.ResourceTemplate {
+	t.Helper()
+	raw, err := os.ReadFile(chartResourceTemplatePath)
+	assert.NilError(t, err)
+	rendered := helmActionRE.ReplaceAllString(string(raw), "placeholder")
+
+	var templates []v1.ResourceTemplate
+	for _, doc := range strings.Split(rendered, "\n---\n") {
+		if strings.TrimSpace(doc) == "" {
+			continue
+		}
+		var rt v1.ResourceTemplate
+		assert.NilError(t, yaml.Unmarshal([]byte(doc), &rt))
+		if rt.Kind != "ResourceTemplate" {
+			continue
+		}
+		templates = append(templates, rt)
+	}
+	assert.Assert(t, len(templates) > 0)
+	return templates
+}
+
+// TestShippedResourceTemplatesDeclarePodSpecPaths validates the chart, which is
+// the production copy of the pod spec locations and is not otherwise covered:
+// job-manager's fixtures are a hand-maintained parallel copy, so nothing stops
+// the two from drifting.
+//
+// Every resourceSpec must declare podSpecPaths - a template added without them
+// falls back to PodSpecSegment silently - and the declaration must resolve to
+// the same path as that fallback, for the CR kind the readers pass and for
+// every SaFE workload kind the writers pass. A disagreement is the failure this
+// whole path exists to prevent: readers look where writers never wrote, drift
+// detection reports "unchanged", and spec updates are dropped without an error.
+func TestShippedResourceTemplatesDeclarePodSpecPaths(t *testing.T) {
+	checked := 0
+	for _, rt := range loadChartResourceTemplates(t) {
+		if len(rt.Spec.ResourceSpecs) == 0 {
+			// Pod and Event carry no pod spec of their own.
+			continue
+		}
+		kinds := []string{rt.Spec.GroupVersionKind.Kind}
+		if annotation := rt.Annotations[v1.WorkloadKindLabel]; annotation != "" {
+			for _, k := range strings.Split(annotation, ",") {
+				if k = strings.TrimSpace(k); k != "" {
+					kinds = append(kinds, k)
+				}
+			}
+		}
+
+		for i := range rt.Spec.ResourceSpecs {
+			spec := &rt.Spec.ResourceSpecs[i]
+			t.Run(fmt.Sprintf("%s/%d", rt.Name, i), func(t *testing.T) {
+				assert.Assert(t, len(spec.PodSpecPaths) > 0, "resourceSpec declares no podSpecPaths")
+				for _, kind := range kinds {
+					assert.DeepEqual(t, ResolvePodSpecPath(spec, kind, "containers"),
+						BuildPodSpecPath(spec.TemplatePath(), PodSpecSegment(kind), "containers"))
+				}
+				checked++
+			})
+		}
+	}
+	// The chart ships more than a couple of templates; a parse that quietly
+	// produced nothing must not read as a pass.
+	assert.Assert(t, checked > 10)
 }

@@ -1743,113 +1743,243 @@ func TestExpectedReplica(t *testing.T) {
 	}
 }
 
-// TestUpdateContainersPreservesInferaCommand guards the reason IDEP is exempt
-// from the entrypoint sync: normalizeInferaIDEP appended disaggregation flags
-// that are not in Workload.Spec.EntryPoints, so rebuilding the command would
-// silently drop them and turn a PD deployment into an aggregated one. Image,
-// env and resources must still be synced.
-func TestUpdateContainersPreservesInferaCommand(t *testing.T) {
-	workload := newInferaWorkload([]string{"frontend", "prefill", "decode"}, nil, []int{1, 1, 1})
-	workload.Spec.EntryPoints = []string{"serve --model /models/m"}
-	workload.Spec.Images = []string{"infera:new"}
+// TestInferaLauncherFlags pins which roles the create path actually injects
+// flags for. Only these roles may be excused from a plain entrypoint
+// comparison; a frontend or single-node worker carries exactly what
+// buildCommands produced, so an edit to it must reach the object.
+func TestInferaLauncherFlags(t *testing.T) {
+	disagg := func(mode string) string {
+		return fmt.Sprintf(
+			"--disaggregation-mode %s --disaggregation-transfer-backend %s --disaggregation-bootstrap-port %d",
+			mode, common.InferaDefaultKVBackend, common.DynamoBootstrapPort)
+	}
+	multinode := func(n int) string {
+		return fmt.Sprintf("--nnodes %d --node-rank $LWS_WORKER_INDEX --dist-init-addr $LWS_LEADER_ADDRESS:%d",
+			n, common.DynamoMultinodeDistInitPort)
+	}
+	pd := []string{common.DynamoRoleFrontend, common.DynamoRolePrefill, common.DynamoRoleDecode}
 
-	// What the object actually carries: the launcher payload plus the flags the
-	// create path injected.
-	injected := Launcher + " serve --model /models/m" +
-		" --disaggregation-mode decode --disaggregation-bootstrap-port 30001"
-	preserved := []interface{}{"/bin/sh", "-c", "exec " + injected}
-
-	obj := &unstructured.Unstructured{Object: map[string]interface{}{
-		"apiVersion": "infera.amd.com/v1alpha1",
-		"kind":       common.InferaDeploymentKind,
-		"spec": map[string]interface{}{
-			"services": map[string]interface{}{
-				"role0": map[string]interface{}{
-					"replicas": int64(1),
-					"extraPodSpec": map[string]interface{}{
-						"containers": []interface{}{
-							map[string]interface{}{
-								"name":    "main",
-								"image":   "infera:old",
-								"command": preserved,
-							},
-						},
-					},
+	cases := []struct {
+		name     string
+		workload *v1.Workload
+		id       int
+		want     string
+	}{
+		{
+			name: "non-infera",
+			workload: &v1.Workload{
+				Spec: v1.WorkloadSpec{
+					GroupVersionKind: v1.GroupVersionKind{Kind: common.PytorchJobKind, Version: common.DefaultVersion},
+					Resources:        []v1.WorkloadResource{{Replica: 4}},
 				},
 			},
+			id:   0,
+			want: "",
 		},
-	}}
-
-	resourceSpec := v1.ResourceSpec{
-		PrePaths:      []string{"spec", "services", "role0"},
-		TemplatePaths: []string{"extraPodSpec"},
-		ReplicasPaths: []string{"replicas"},
+		{
+			name:     "frontend gets nothing",
+			workload: newInferaWorkload(pd, nil, []int{1, 1, 1}),
+			id:       0,
+			want:     "",
+		},
+		{
+			name:     "default two-role worker gets nothing",
+			workload: newInferaWorkload(nil, nil, []int{1, 1}),
+			id:       1,
+			want:     "",
+		},
+		{
+			name:     "prefill gets the disaggregation flags",
+			workload: newInferaWorkload(pd, nil, []int{1, 1, 1}),
+			id:       1,
+			want:     disagg("prefill"),
+		},
+		{
+			name:     "decode gets the disaggregation flags",
+			workload: newInferaWorkload(pd, nil, []int{1, 1, 1}),
+			id:       2,
+			want:     disagg("decode"),
+		},
+		{
+			name:     "multi-node decode gets both sets, disaggregation first",
+			workload: newInferaWorkload(pd, []string{common.DynamoRoleDecode}, []int{1, 1, 4}),
+			id:       2,
+			want:     disagg("decode") + " " + multinode(4),
+		},
+		{
+			name:     "multi-node worker gets only the multi-node flags",
+			workload: newInferaWorkload(nil, []string{common.DynamoRoleWorker}, []int{1, 2}),
+			id:       1,
+			want:     multinode(2),
+		},
+		{
+			name:     "a multi-node role with one node is a single node",
+			workload: newInferaWorkload(nil, []string{common.DynamoRoleWorker}, []int{1, 1}),
+			id:       1,
+			want:     "",
+		},
+		{
+			name:     "id past the resource list",
+			workload: newInferaWorkload(pd, nil, []int{1}),
+			id:       2,
+			want:     "",
+		},
 	}
 
-	// Control: buildCommands does have a replacement on offer, and it is the
-	// truncated one. Without the guard the assertions below would see this.
-	rebuilt := buildCommands(workload, 0)
-	assert.Assert(t, len(rebuilt) > 0)
-	assert.Assert(t, rebuilt[len(rebuilt)-1] != preserved[len(preserved)-1])
-
-	assert.NilError(t, updateContainers(workload, obj, resourceSpec, 0))
-
-	containers, _, err := jobutils.NestedSlice(obj.Object,
-		[]string{"spec", "services", "role0", "extraPodSpec", "containers"})
-	assert.NilError(t, err)
-	assert.Equal(t, len(containers), 1)
-	main := containers[0].(map[string]interface{})
-
-	// The injected flags survived...
-	assert.DeepEqual(t, main["command"], preserved)
-	// ...while the fields IDEP does sync were applied, proving the path resolved
-	// and the container really was visited.
-	assert.Equal(t, main["image"], "infera:new")
-	assert.Assert(t, main["resources"] != nil)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, inferaLauncherFlags(tc.workload, tc.id), tc.want)
+		})
+	}
 }
 
-// TestUpdateContainersBuildsInferaCommandOnCreate is the create-path half of
-// TestUpdateContainersPreservesInferaCommand. generateK8sObject runs
-// applyWorkloadSpecToObject before normalizeInferaIDEP, and the shipped IDEP
-// template declares no command on containers[main], so buildCommands is the
-// only writer of one: an IDEP container that arrives without a command gets the
-// launcher form that normalizeInferaIDEP then appends its flags to.
-func TestUpdateContainersBuildsInferaCommandOnCreate(t *testing.T) {
-	workload := newInferaWorkload([]string{"frontend"}, nil, []int{1})
-	// EntryPoints carries the base64 payload launcher.sh decodes, which is the
-	// form appendLauncherArgs rewrites.
-	workload.Spec.EntryPoints = []string{stringutil.Base64Encode("serve --model /models/m")}
-
-	obj := &unstructured.Unstructured{Object: map[string]interface{}{
+// inferaObject renders a minimal IDEP holding one services.role<i> slot per
+// command, each with a "main" container. A nil command leaves that container
+// without one, which is the shape the create path sees.
+func inferaObject(commands ...[]interface{}) *unstructured.Unstructured {
+	services := map[string]interface{}{}
+	for i, cmd := range commands {
+		main := map[string]interface{}{"name": "main", "image": "infera:old"}
+		if cmd != nil {
+			main["command"] = cmd
+		}
+		services["role"+strconv.Itoa(i)] = map[string]interface{}{
+			"replicas": int64(1),
+			"extraPodSpec": map[string]interface{}{
+				"containers": []interface{}{main},
+			},
+		}
+	}
+	return &unstructured.Unstructured{Object: map[string]interface{}{
 		"apiVersion": "infera.amd.com/v1alpha1",
 		"kind":       common.InferaDeploymentKind,
-		"spec": map[string]interface{}{
-			"services": map[string]interface{}{
-				"role0": map[string]interface{}{
-					"replicas": int64(1),
-					"extraPodSpec": map[string]interface{}{
-						"containers": []interface{}{
-							map[string]interface{}{"name": "main"},
-						},
-					},
-				},
-			},
+		"metadata": map[string]interface{}{
+			"name":        "test-idep",
+			"annotations": map[string]interface{}{v1.MainContainerAnnotation: "main"},
 		},
+		"spec": map[string]interface{}{"services": services},
 	}}
+}
 
-	resourceSpec := v1.ResourceSpec{
-		PrePaths:      []string{"spec", "services", "role0"},
+// inferaResourceSpec is the rendered chart's IDEP slot spec: the slot's
+// extraPodSpec is a bare core/v1 PodSpec, so it is both the template path and
+// the pod spec path.
+func inferaResourceSpec(id int) v1.ResourceSpec {
+	return v1.ResourceSpec{
+		PrePaths:      []string{"spec", "services", "role" + strconv.Itoa(id)},
 		TemplatePaths: []string{"extraPodSpec"},
 		PodSpecPaths:  []string{"extraPodSpec"},
 		ReplicasPaths: []string{"replicas"},
 	}
+}
 
-	assert.NilError(t, updateContainers(workload, obj, resourceSpec, 0))
+func inferaResourceTemplate(slots int) *v1.ResourceTemplate {
+	specs := make([]v1.ResourceSpec, slots)
+	for i := range specs {
+		specs[i] = inferaResourceSpec(i)
+	}
+	return &v1.ResourceTemplate{Spec: v1.ResourceTemplateSpec{
+		GroupVersionKind: v1.GroupVersionKind{Kind: common.InferaDeploymentKind},
+		ResourceSpecs:    specs,
+	}}
+}
 
-	containers, _, err := jobutils.NestedSlice(obj.Object,
-		[]string{"spec", "services", "role0", "extraPodSpec", "containers"})
+// inferaMainContainer returns the rendered main container of slot id.
+func inferaMainContainer(t *testing.T, obj *unstructured.Unstructured, id int) map[string]interface{} {
+	t.Helper()
+	containers, found, err := jobutils.NestedSlice(obj.Object,
+		[]string{"spec", "services", "role" + strconv.Itoa(id), "extraPodSpec", "containers"})
 	assert.NilError(t, err)
-	main := containers[0].(map[string]interface{})
+	assert.Equal(t, found, true)
+	for _, c := range containers {
+		m := c.(map[string]interface{})
+		if m["name"] == "main" {
+			return m
+		}
+	}
+	t.Fatalf("no main container in slot role%d", id)
+	return nil
+}
+
+// decodedPayload returns the launcher payload of a rendered command, decoded.
+func decodedPayload(t *testing.T, cmd interface{}) string {
+	t.Helper()
+	slice, ok := cmd.([]interface{})
+	assert.Assert(t, ok)
+	assert.Assert(t, len(slice) == 3)
+	payload, ok := launcherEntryPayload(slice[2].(string))
+	assert.Assert(t, ok)
+	return stringutil.Base64Decode(payload)
+}
+
+// TestUpdateContainersSyncsInferaEntrypoint is the regression that a
+// kind-wide entrypoint exemption introduced: the default two-role IDEP
+// (frontend + worker, the shape GetInferaServiceRoles falls back to) has no
+// injected flags at all, so skipping the rebuild left the old engine arguments
+// running under a freshly synced image, with no error and no event.
+func TestUpdateContainersSyncsInferaEntrypoint(t *testing.T) {
+	workload := newInferaWorkload(nil, nil, []int{1, 1})
+	workload.Spec.EntryPoints = []string{
+		stringutil.Base64Encode("serve --model /models/new"),
+		stringutil.Base64Encode("worker --model /models/new"),
+	}
+	workload.Spec.Images = []string{"infera:new", "infera:new"}
+
+	stale := []interface{}{"/bin/sh", "-c", "exec " + Launcher + " " + stringutil.Base64Encode("serve --model /models/old")}
+	obj := inferaObject(stale, nil)
+
+	// Control: the object is stale in a way the rebuild has to correct, and
+	// this role really does get no injected flags to preserve.
+	assert.Equal(t, inferaLauncherFlags(workload, 0), "")
+	assert.Assert(t, len(buildCommands(workload, 0)) > 0)
+	assert.Assert(t, decodedPayload(t, stale) != "serve --model /models/new")
+
+	assert.NilError(t, updateContainers(workload, obj, inferaResourceSpec(0), 0))
+
+	main := inferaMainContainer(t, obj, 0)
+	assert.Equal(t, decodedPayload(t, main["command"]), "serve --model /models/new")
+	assert.Equal(t, main["image"], "infera:new")
+	assert.Assert(t, main["resources"] != nil)
+}
+
+// TestUpdateContainersRegraftsInferaFlags is the other half: a role that does
+// carry injected flags must keep them across the rebuild, or the sync degrades
+// a PD deployment to aggregated and drops the multi-node wiring.
+func TestUpdateContainersRegraftsInferaFlags(t *testing.T) {
+	roles := []string{common.DynamoRoleFrontend, common.DynamoRolePrefill, common.DynamoRoleDecode}
+	workload := newInferaWorkload(roles, []string{common.DynamoRoleDecode}, []int{1, 1, 2})
+	workload.Spec.EntryPoints = []string{"", "", stringutil.Base64Encode("serve --model /models/new")}
+
+	stale := []interface{}{"/bin/sh", "-c", "exec " + Launcher + " " +
+		stringutil.Base64Encode("serve --model /models/old --disaggregation-mode decode")}
+	obj := inferaObject(nil, nil, stale)
+
+	assert.NilError(t, updateContainers(workload, obj, inferaResourceSpec(2), 2))
+
+	main := inferaMainContainer(t, obj, 2)
+	assert.Equal(t, decodedPayload(t, main["command"]),
+		"serve --model /models/new"+
+			" --disaggregation-mode decode"+
+			" --disaggregation-transfer-backend "+common.InferaDefaultKVBackend+
+			fmt.Sprintf(" --disaggregation-bootstrap-port %d", common.DynamoBootstrapPort)+
+			" --nnodes 2 --node-rank $LWS_WORKER_INDEX"+
+			fmt.Sprintf(" --dist-init-addr $LWS_LEADER_ADDRESS:%d", common.DynamoMultinodeDistInitPort))
+}
+
+// TestUpdateContainersBuildsInferaCommandOnCreate covers the create path:
+// generateK8sObject runs applyWorkloadSpecToObject before normalizeInferaIDEP,
+// and the shipped IDEP template declares no command on containers[main], so
+// updateContainers is the only writer of one.
+func TestUpdateContainersBuildsInferaCommandOnCreate(t *testing.T) {
+	workload := newInferaWorkload([]string{common.DynamoRoleFrontend}, nil, []int{1})
+	// EntryPoints carries the base64 payload launcher.sh decodes, which is the
+	// form appendLauncherArgs rewrites.
+	workload.Spec.EntryPoints = []string{stringutil.Base64Encode("serve --model /models/m")}
+
+	obj := inferaObject(nil)
+	assert.NilError(t, updateContainers(workload, obj, inferaResourceSpec(0), 0))
+
+	main := inferaMainContainer(t, obj, 0)
 	assert.DeepEqual(t, main["command"], buildCommands(workload, 0))
 
 	// appendLauncherArgs needs the three-element launcher form to graft the
@@ -1859,50 +1989,210 @@ func TestUpdateContainersBuildsInferaCommandOnCreate(t *testing.T) {
 	assert.Assert(t, ok)
 }
 
-// TestIsEntrypointChangedSkipsInfera is the read-side half of the same
-// exemption: the rendered command is a deliberate superset of the workload's
-// entrypoint, so reporting drift would re-sync on every reconcile.
-func TestIsEntrypointChangedSkipsInfera(t *testing.T) {
-	workload := newInferaWorkload([]string{"frontend"}, nil, []int{1})
-	workload.Spec.EntryPoints = []string{"serve --model /models/m"}
+// TestInferaCreatePathIsIdempotent runs the create order for a PD deployment -
+// updateContainers, then normalizeInferaIDEP - and checks the flags
+// updateContainers now grafts are not appended a second time. Per-flag dedup in
+// stripUserDeclaredFlags is what makes the second pass a no-op; a duplicate
+// would crash the worker, because dynamo.sglang's argparse rejects one.
+func TestInferaCreatePathIsIdempotent(t *testing.T) {
+	roles := []string{common.DynamoRoleFrontend, common.DynamoRolePrefill, common.DynamoRoleDecode}
+	workload := newInferaWorkload(roles, []string{common.DynamoRoleDecode}, []int{1, 1, 2})
+	for range roles {
+		workload.Spec.EntryPoints = append(workload.Spec.EntryPoints,
+			stringutil.Base64Encode("serve --model /models/m"))
+	}
 
-	// A readable object whose command is the injected superset. The generic
-	// comparison would call this drift; the guard is what stops it.
-	injected := Launcher + " serve --model /models/m" +
-		" --disaggregation-mode decode --disaggregation-bootstrap-port 30001"
-	obj := &unstructured.Unstructured{Object: map[string]interface{}{
-		"apiVersion": "infera.amd.com/v1alpha1",
-		"kind":       common.InferaDeploymentKind,
-		"spec": map[string]interface{}{
-			"services": map[string]interface{}{
-				"role0": map[string]interface{}{
-					"extraPodSpec": map[string]interface{}{
-						"containers": []interface{}{
-							map[string]interface{}{
-								"name":    "main",
-								"image":   "infera:x",
-								"command": []interface{}{"/bin/sh", "-c", "exec " + injected},
-							},
-						},
-					},
-				},
-			},
+	obj := inferaObject(nil, nil, nil)
+	for i := range roles {
+		assert.NilError(t, updateContainers(workload, obj, inferaResourceSpec(i), i))
+	}
+	afterWrite := decodedPayload(t, inferaMainContainer(t, obj, 2)["command"])
+
+	assert.NilError(t, normalizeInferaIDEP(obj, workload))
+
+	main := inferaMainContainer(t, obj, 2)
+	assert.Equal(t, decodedPayload(t, main["command"]), afterWrite)
+	assert.Equal(t, strings.Count(afterWrite, "--disaggregation-mode "), 1)
+	assert.Equal(t, strings.Count(afterWrite, "--nnodes "), 1)
+
+	// And the object the second pass produces is what the drift check expects
+	// to find, so a steady-state IDEP does not resync on every reconcile.
+	assert.DeepEqual(t, main["command"], expectedCommands(workload, 2))
+}
+
+// TestIsEntrypointChangedInfera is the read side. It has to distinguish a role
+// whose rendered command is exactly buildCommands' output - where a plain
+// comparison is correct - from one carrying injected flags, where comparing
+// against the bare entrypoint would report drift forever.
+func TestIsEntrypointChangedInfera(t *testing.T) {
+	entry := stringutil.Base64Encode("serve --model /models/new")
+	staleEntry := stringutil.Base64Encode("serve --model /models/old")
+
+	frontend := newInferaWorkload([]string{common.DynamoRoleFrontend}, nil, []int{1})
+	frontend.Spec.EntryPoints = []string{entry}
+
+	decode := newInferaWorkload([]string{common.DynamoRoleDecode}, []string{common.DynamoRoleDecode}, []int{2})
+	decode.Spec.EntryPoints = []string{entry}
+
+	staleDecode := newInferaWorkload([]string{common.DynamoRoleDecode}, []string{common.DynamoRoleDecode}, []int{2})
+	staleDecode.Spec.EntryPoints = []string{staleEntry}
+
+	cases := []struct {
+		name     string
+		workload *v1.Workload
+		rendered []interface{}
+		want     bool
+	}{
+		{
+			name:     "flagless role in step",
+			workload: frontend,
+			rendered: expectedCommands(frontend, 0),
+			want:     false,
 		},
-	}}
-	rt := &v1.ResourceTemplate{Spec: v1.ResourceTemplateSpec{
-		GroupVersionKind: v1.GroupVersionKind{Kind: common.InferaDeploymentKind},
-		ResourceSpecs: []v1.ResourceSpec{{
-			PrePaths:      []string{"spec", "services", "role0"},
-			TemplatePaths: []string{"extraPodSpec"},
-		}},
-	}}
+		{
+			name:     "flagless role with an edited entrypoint",
+			workload: frontend,
+			rendered: []interface{}{"/bin/sh", "-c", "exec " + Launcher + " " + staleEntry},
+			want:     true,
+		},
+		{
+			name:     "injected role in step",
+			workload: decode,
+			rendered: expectedCommands(decode, 0),
+			want:     false,
+		},
+		{
+			name:     "injected role with an edited entrypoint",
+			workload: decode,
+			rendered: expectedCommands(staleDecode, 0),
+			want:     true,
+		},
+	}
 
-	// Control: the object really is readable and really does disagree with the
-	// workload, so a false here means the guard fired, not that the read missed.
-	commands, err := jobutils.GetCommands(obj, rt, len(workload.Spec.Resources))
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			obj := inferaObject(tc.rendered)
+			rt := inferaResourceTemplate(1)
+
+			// Control: the object really is readable, so a false below means
+			// the comparison matched, not that the read missed the container.
+			commands, err := jobutils.GetCommands(obj, rt, len(tc.workload.Spec.Resources))
+			assert.NilError(t, err)
+			assert.Equal(t, len(commands), 1)
+
+			assert.Equal(t, isEntrypointChanged(tc.workload, obj, rt), tc.want)
+		})
+	}
+}
+
+// setInferaResources writes onto slot id the container limits updateContainers
+// would produce for Resources[id], so a drift test can vary replicas alone.
+func setInferaResources(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workload, id int) {
+	t.Helper()
+	rl, err := commonworkload.GetPodResourceList(&workload.Spec.Resources[id])
 	assert.NilError(t, err)
-	assert.Equal(t, len(commands), 1)
-	assert.Assert(t, !entrypointsEqual(buildEntryPoint(workload, 0), commands[0][len(commands[0])-1]))
+	limits := map[string]interface{}{}
+	for k, v := range rl {
+		limits[string(k)] = v.String()
+	}
+	path := []string{"spec", "services", "role" + strconv.Itoa(id), "extraPodSpec", "containers"}
+	containers, found, err := jobutils.NestedSlice(obj.Object, path)
+	assert.NilError(t, err)
+	assert.Equal(t, found, true)
+	for _, c := range containers {
+		if m := c.(map[string]interface{}); m["name"] == "main" {
+			m["resources"] = map[string]interface{}{"limits": limits}
+		}
+	}
+	assert.NilError(t, jobutils.SetNestedField(obj.Object, containers, path))
+}
 
-	assert.Equal(t, isEntrypointChanged(workload, obj, rt), false)
+// TestIsResourceChangedInferaMultinode pins the drift check to expectedReplica.
+// A multi-node role's object carries replicas=1 with the node count in
+// numberOfNodes, so comparing against Resources[i].Replica would report drift
+// on every reconcile - and each resync also rewrites replicas to n while
+// numberOfNodes stays n, which is n groups of n nodes.
+func TestIsResourceChangedInferaMultinode(t *testing.T) {
+	roles := []string{common.DynamoRoleFrontend, common.DynamoRoleDecode}
+	workload := newInferaWorkload(roles, []string{common.DynamoRoleDecode}, []int{2, 4})
+
+	obj := inferaObject(nil, nil)
+	rt := inferaResourceTemplate(2)
+	for i := range roles {
+		setInferaResources(t, obj, workload, i)
+	}
+	replicasPath := func(id int) []string {
+		return []string{"spec", "services", "role" + strconv.Itoa(id), "replicas"}
+	}
+	assert.NilError(t, jobutils.SetNestedField(obj.Object, int64(2), replicasPath(0)))
+	assert.NilError(t, jobutils.SetNestedField(obj.Object, int64(1), replicasPath(1)))
+
+	// Control: both slots are readable and their resources already agree, so
+	// the verdict below is the replica comparison and nothing else.
+	replicaList, resourceList, err := jobutils.GetResources(obj, rt, "", len(workload.Spec.Resources))
+	assert.NilError(t, err)
+	assert.Equal(t, len(replicaList), 2)
+	assert.Equal(t, len(resourceList), 2)
+
+	assert.Equal(t, isResourceChanged(workload, obj, rt), false)
+
+	// The count normalizeInferaIDEP does not write is drift.
+	assert.NilError(t, jobutils.SetNestedField(obj.Object, int64(4), replicasPath(1)))
+	assert.Equal(t, isResourceChanged(workload, obj, rt), true)
+}
+
+// TestUpdateReplicaInfera is the write half of the same agreement: the value
+// updateReplica puts in the object has to be the one the drift check expects.
+func TestUpdateReplicaInfera(t *testing.T) {
+	roles := []string{common.DynamoRoleFrontend, common.DynamoRoleDecode}
+	workload := newInferaWorkload(roles, []string{common.DynamoRoleDecode}, []int{2, 4})
+	obj := inferaObject(nil, nil)
+
+	for i := range roles {
+		assert.NilError(t, updateReplica(workload, obj, inferaResourceSpec(i), i))
+	}
+
+	frontend, found, err := jobutils.NestedInt64(obj.Object, []string{"spec", "services", "role0", "replicas"})
+	assert.NilError(t, err)
+	assert.Equal(t, found, true)
+	assert.Equal(t, frontend, int64(2))
+
+	decode, found, err := jobutils.NestedInt64(obj.Object, []string{"spec", "services", "role1", "replicas"})
+	assert.NilError(t, err)
+	assert.Equal(t, found, true)
+	assert.Equal(t, decode, int64(1))
+}
+
+// TestUpdateMetadataSkipsInfera pins the early return: the IDEP extraPodSpec is
+// a bare core/v1 PodSpec, so a metadata block written there is pruned by the
+// CRD schema. normalizeInferaIDEP carries the same labels on the slot's
+// podLabels field instead.
+func TestUpdateMetadataSkipsInfera(t *testing.T) {
+	workload := newInferaWorkload([]string{common.DynamoRoleFrontend}, nil, []int{1})
+	obj := inferaObject(nil)
+
+	assert.NilError(t, updateMetadata(workload, obj, inferaResourceSpec(0), 0))
+
+	_, found, err := jobutils.NestedMap(obj.Object,
+		[]string{"spec", "services", "role0", "extraPodSpec", "metadata"})
+	assert.NilError(t, err)
+	assert.Equal(t, found, false)
+
+	// Control: the same call on a kind that does sync metadata writes one, so
+	// the absence above is the guard and not an unresolvable path.
+	pytorch := &v1.Workload{
+		ObjectMeta: metav1.ObjectMeta{Name: "pyt"},
+		Spec: v1.WorkloadSpec{
+			GroupVersionKind: v1.GroupVersionKind{Kind: common.PytorchJobKind, Version: common.DefaultVersion},
+			Resources:        []v1.WorkloadResource{{Replica: 1}},
+		},
+	}
+	pytObj := &unstructured.Unstructured{Object: map[string]interface{}{
+		"spec": map[string]interface{}{"template": map[string]interface{}{}},
+	}}
+	pytSpec := v1.ResourceSpec{PrePaths: []string{"spec"}, TemplatePaths: []string{"template"}}
+	assert.NilError(t, updateMetadata(pytorch, pytObj, pytSpec, 0))
+	_, found, err = jobutils.NestedMap(pytObj.Object, []string{"spec", "template", "metadata", "labels"})
+	assert.NilError(t, err)
+	assert.Equal(t, found, true)
 }
