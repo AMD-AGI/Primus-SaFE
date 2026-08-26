@@ -7,19 +7,25 @@ package resource
 
 import (
 	"context"
+	"encoding/json"
+	"sort"
 	"testing"
 	"time"
 
 	"gotest.tools/assert"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	k8sfake "k8s.io/client-go/kubernetes/fake"
+	"k8s.io/client-go/util/workqueue"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/event"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/apis/pkg/client/clientset/versioned/scheme"
 	commonclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/k8sclient"
+	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
 )
 
 // markMigrating puts a node in the state the source workspace leaves it in: released, and
@@ -38,6 +44,10 @@ func TestIsNodeEligibleForScalingUp(t *testing.T) {
 	nodeFlavor := genMockNodeFlavor()
 	clusterName := "cluster"
 	workspace := genMockWorkspace(clusterName, nodeFlavor.Name, 1)
+	r := newMockWorkspaceReconciler(fake.NewClientBuilder().WithScheme(scheme.Scheme).Build())
+	option := *r.option
+	option.migrateTimeout = time.Hour
+	r.option = &option
 
 	cases := []struct {
 		name  string
@@ -69,6 +79,20 @@ func TestIsNodeEligibleForScalingUp(t *testing.T) {
 		{name: "unreadable migration payload does not park the node", want: true, mutil: func(node *v1.Node) {
 			metav1.SetMetaDataAnnotation(&node.ObjectMeta, v1.NodeMigrateAnnotation, "{")
 		}},
+		// The source workspace can be deleted mid-migration, and a node can leave the
+		// cluster and come back still carrying the annotation. Nothing would then clear it,
+		// so a reservation is only honoured while it is young enough to still be real.
+		{name: "a reservation older than the timeout is ignored", want: true, mutil: func(node *v1.Node) {
+			markMigrating(node, "ws-a", "ws-b")
+			v1.SetNodeMigrateInfo(node, &v1.NodeMigrateInfo{
+				From:      "ws-a",
+				Target:    "ws-b",
+				StartTime: &metav1.Time{Time: time.Now().UTC().Add(-2 * time.Hour)},
+			})
+		}},
+		{name: "a reservation with no start time cannot be aged and is ignored", want: true, mutil: func(node *v1.Node) {
+			v1.SetNodeMigrateInfo(node, &v1.NodeMigrateInfo{From: "ws-a", Target: "ws-b"})
+		}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -77,7 +101,7 @@ func TestIsNodeEligibleForScalingUp(t *testing.T) {
 			if tc.mutil != nil {
 				tc.mutil(node)
 			}
-			assert.Equal(t, isNodeEligibleForScalingUp(node, workspace), tc.want)
+			assert.Equal(t, r.isNodeEligibleForScalingUp(node, workspace), tc.want)
 		})
 	}
 }
@@ -111,4 +135,297 @@ func TestScaleUpLeavesAMigratingNodeToItsTarget(t *testing.T) {
 	assert.NilError(t, err)
 	assert.NilError(t, adminClient.Get(context.Background(), client.ObjectKey{Name: adminNode.Name}, adminNode))
 	assert.Equal(t, adminNode.GetSpecWorkspace(), target.Name)
+}
+
+// migration builds a source workspace carrying a migration of one node to a target, with the
+// node in whatever state the caller wants it -- the three the reconciler has to tell apart
+// are "still bound here", "released and waiting", and "arrived".
+type migration struct {
+	reconciler *WorkspaceReconciler
+	client     client.Client
+	source     *v1.Workspace
+	target     *v1.Workspace
+	node       *v1.Node
+}
+
+func newMigration(t *testing.T, timeout time.Duration,
+	placeNode func(node *v1.Node, source, target *v1.Workspace)) *migration {
+	t.Helper()
+	nodeFlavor := genMockNodeFlavor()
+	source := genMockWorkspace("cluster", nodeFlavor.Name, 1)
+	target := genMockWorkspace("cluster", nodeFlavor.Name, 1)
+	node := genMockAdminNode("node1", "cluster", nodeFlavor)
+	node.Status.ClusterStatus.Phase = v1.NodeManaged
+	placeNode(node, source, target)
+	metav1.SetMetaDataAnnotation(&source.ObjectMeta, v1.WorkspaceNodesAction,
+		string(jsonutils.MarshalSilently(map[string]string{node.Name: v1.BuildMigrateAction(target.Name)})))
+
+	adminClient := fake.NewClientBuilder().WithObjects(node, source, target).
+		WithStatusSubresource(source, target).WithScheme(scheme.Scheme).Build()
+	reconciler := newMockWorkspaceReconciler(adminClient)
+	option := *reconciler.option
+	option.migrateTimeout = timeout
+	reconciler.option = &option
+	return &migration{
+		reconciler: &reconciler, client: adminClient, source: source, target: target, node: node,
+	}
+}
+
+func boundToSource(node *v1.Node, source, _ *v1.Workspace) {
+	node.Spec.Workspace = ptr.To(source.Name)
+	metav1.SetMetaDataLabel(&node.ObjectMeta, v1.WorkspaceIdLabel, source.Name)
+}
+
+func (m *migration) reload(t *testing.T) {
+	t.Helper()
+	assert.NilError(t, m.client.Get(context.Background(), client.ObjectKey{Name: m.node.Name}, m.node))
+	assert.NilError(t, m.client.Get(context.Background(), client.ObjectKey{Name: m.source.Name}, m.source))
+	assert.NilError(t, m.client.Get(context.Background(), client.ObjectKey{Name: m.target.Name}, m.target))
+}
+
+// The release and the reservation are one patch: a node unbound without the reservation, even
+// for the moment between two writes, is an unassigned node of a matching flavor that any
+// workspace in the cluster short of a replica may take.
+func TestProcessNodesActionMigrateReleasesAndReserves(t *testing.T) {
+	m := newMigration(t, time.Hour, boundToSource)
+
+	_, isUpdated, err := m.reconciler.processNodesAction(context.Background(), m.source)
+	assert.NilError(t, err)
+	assert.Equal(t, isUpdated, true)
+
+	m.reload(t)
+	assert.Equal(t, m.node.GetSpecWorkspace(), "")
+	info := v1.GetNodeMigrateInfo(m.node)
+	assert.Assert(t, info != nil)
+	assert.Equal(t, info.From, m.source.Name)
+	assert.Equal(t, info.Target, m.target.Name)
+	assert.Assert(t, info.StartTime != nil)
+	// The source keeps the action: it is the record that a migration is under way, and the
+	// only thing that brings the reconciler back to finish it.
+	assert.Assert(t, v1.GetWorkspaceNodesAction(m.source) != "")
+	// Nothing has been asked of the target yet -- the node is still on its way out.
+	assert.Equal(t, v1.GetWorkspaceNodesAction(m.target), "")
+}
+
+// Handing the node over means asking the target for it the way a user would, because that
+// request is what raises the target's replica. Binding the node here would move it without
+// the target ever accounting for it.
+func TestProcessNodesActionMigrateHandsOverToTheTarget(t *testing.T) {
+	m := newMigration(t, time.Hour, func(node *v1.Node, source, target *v1.Workspace) {
+		markMigrating(node, source.Name, target.Name)
+	})
+
+	result, isUpdated, err := m.reconciler.processNodesAction(context.Background(), m.source)
+	assert.NilError(t, err)
+	assert.Equal(t, isUpdated, true)
+	// Nothing else wakes the source while the node sits waiting, so the requeue is what
+	// carries the handover forward.
+	assert.Assert(t, result.RequeueAfter > 0)
+
+	m.reload(t)
+	actions, err := parseWorkspaceNodesAction(t, m.target)
+	assert.NilError(t, err)
+	assert.Equal(t, actions[m.node.Name], v1.NodeActionAdd)
+	assert.Assert(t, v1.GetWorkspaceNodesAction(m.source) != "")
+	assert.Equal(t, m.node.GetSpecWorkspace(), "")
+}
+
+// A target already busy with a node action is the ordinary case, not a failure: a workspace
+// takes one at a time. The nodes stay reserved and the handover is retried.
+func TestProcessNodesActionMigrateWaitsForABusyTarget(t *testing.T) {
+	m := newMigration(t, time.Hour, func(node *v1.Node, source, target *v1.Workspace) {
+		markMigrating(node, source.Name, target.Name)
+	})
+	busy := string(jsonutils.MarshalSilently(map[string]string{"other-node": v1.NodeActionAdd}))
+	metav1.SetMetaDataAnnotation(&m.target.ObjectMeta, v1.WorkspaceNodesAction, busy)
+	assert.NilError(t, m.client.Update(context.Background(), m.target))
+
+	result, isUpdated, err := m.reconciler.processNodesAction(context.Background(), m.source)
+	assert.NilError(t, err)
+	assert.Equal(t, isUpdated, true)
+	assert.Assert(t, result.RequeueAfter > 0)
+
+	m.reload(t)
+	assert.Equal(t, v1.GetWorkspaceNodesAction(m.target), busy)
+	assert.Assert(t, v1.GetWorkspaceNodesAction(m.source) != "")
+	assert.Assert(t, v1.GetNodeMigrateInfo(m.node) != nil)
+}
+
+// Once the node has landed there is nothing left to drive, and the action has to go: left
+// behind it would block every later node action on the source workspace.
+func TestProcessNodesActionMigrateClearsTheActionOnArrival(t *testing.T) {
+	m := newMigration(t, time.Hour, func(node *v1.Node, _, target *v1.Workspace) {
+		node.Spec.Workspace = ptr.To(target.Name)
+		metav1.SetMetaDataLabel(&node.ObjectMeta, v1.WorkspaceIdLabel, target.Name)
+	})
+
+	_, isUpdated, err := m.reconciler.processNodesAction(context.Background(), m.source)
+	assert.NilError(t, err)
+	assert.Equal(t, isUpdated, false)
+
+	m.reload(t)
+	assert.Equal(t, v1.GetWorkspaceNodesAction(m.source), "")
+	assert.Equal(t, m.node.GetSpecWorkspace(), m.target.Name)
+}
+
+// A migration that never completes must not park the node forever. Past the timeout the
+// reservation comes off and the node becomes an ordinary unassigned node -- it does not
+// return to the source, which gave it up and had its replica lowered to match.
+func TestProcessNodesActionMigrateGivesUpAfterTheTimeout(t *testing.T) {
+	m := newMigration(t, time.Minute, func(node *v1.Node, source, target *v1.Workspace) {
+		markMigrating(node, source.Name, target.Name)
+		v1.SetNodeMigrateInfo(node, &v1.NodeMigrateInfo{
+			From:      source.Name,
+			Target:    target.Name,
+			StartTime: &metav1.Time{Time: time.Now().UTC().Add(-time.Hour)},
+		})
+	})
+
+	_, isUpdated, err := m.reconciler.processNodesAction(context.Background(), m.source)
+	assert.NilError(t, err)
+	assert.Equal(t, isUpdated, false)
+
+	m.reload(t)
+	assert.Assert(t, v1.GetNodeMigrateInfo(m.node) == nil)
+	assert.Equal(t, m.node.GetSpecWorkspace(), "")
+	assert.Equal(t, v1.GetWorkspaceNodesAction(m.source), "")
+	assert.Equal(t, v1.GetWorkspaceNodesAction(m.target), "")
+}
+
+// The reservation can be taken off by hand. The source then has no node to migrate, and has
+// to stop rather than hand over a node it no longer holds any claim on.
+func TestProcessNodesActionMigrateGivesUpWithoutAReservation(t *testing.T) {
+	m := newMigration(t, time.Hour, func(node *v1.Node, _, _ *v1.Workspace) {
+		node.Spec.Workspace = nil
+	})
+
+	_, isUpdated, err := m.reconciler.processNodesAction(context.Background(), m.source)
+	assert.NilError(t, err)
+	assert.Equal(t, isUpdated, false)
+
+	m.reload(t)
+	assert.Equal(t, v1.GetWorkspaceNodesAction(m.source), "")
+	assert.Equal(t, v1.GetWorkspaceNodesAction(m.target), "")
+}
+
+// Binding a node to the workspace it was migrating to is the end of the crossing, so the
+// reservation comes off in the same patch. Left on, it would keep every other workspace off
+// a node that has already arrived.
+func TestUpdateSingleNodeBindingClearsTheReservationOnArrival(t *testing.T) {
+	nodeFlavor := genMockNodeFlavor()
+	node := genMockAdminNode("node1", "cluster", nodeFlavor)
+	markMigrating(node, "ws-source", "ws-target")
+	adminClient := fake.NewClientBuilder().WithObjects(node).WithScheme(scheme.Scheme).Build()
+	r := newMockWorkspaceReconciler(adminClient)
+
+	updated, err := r.updateSingleNodeBinding(context.Background(), node, nodeBinding{workspace: "ws-target"})
+	assert.NilError(t, err)
+	assert.Equal(t, updated, true)
+
+	assert.NilError(t, adminClient.Get(context.Background(), client.ObjectKey{Name: node.Name}, node))
+	assert.Equal(t, node.GetSpecWorkspace(), "ws-target")
+	assert.Assert(t, v1.GetNodeMigrateInfo(node) == nil)
+}
+
+// A node the target already holds still has to have its reservation cleared: the bind landed,
+// the reservation write did not, and nothing else would ever take it off.
+func TestUpdateSingleNodeBindingClearsAStaleReservation(t *testing.T) {
+	nodeFlavor := genMockNodeFlavor()
+	node := genMockAdminNode("node1", "cluster", nodeFlavor)
+	markMigrating(node, "ws-source", "ws-target")
+	node.Spec.Workspace = ptr.To("ws-target")
+	adminClient := fake.NewClientBuilder().WithObjects(node).WithScheme(scheme.Scheme).Build()
+	r := newMockWorkspaceReconciler(adminClient)
+
+	_, err := r.updateSingleNodeBinding(context.Background(), node, nodeBinding{workspace: "ws-target"})
+	assert.NilError(t, err)
+
+	assert.NilError(t, adminClient.Get(context.Background(), client.ObjectKey{Name: node.Name}, node))
+	assert.Equal(t, node.GetSpecWorkspace(), "ws-target")
+	assert.Assert(t, v1.GetNodeMigrateInfo(node) == nil)
+}
+
+func parseWorkspaceNodesAction(t *testing.T, workspace *v1.Workspace) (map[string]string, error) {
+	t.Helper()
+	actions := make(map[string]string)
+	err := json.Unmarshal([]byte(v1.GetWorkspaceNodesAction(workspace)), &actions)
+	return actions, err
+}
+
+// drain returns the workspaces an event handler put on the queue.
+func drain(q v1.RequestWorkQueue) []string {
+	var names []string
+	for q.Len() > 0 {
+		item, shutdown := q.Get()
+		if shutdown {
+			break
+		}
+		names = append(names, item.Name)
+		q.Done(item)
+	}
+	sort.Strings(names)
+	return names
+}
+
+// The source workspace drives the migration and holds its one action slot until it sees the
+// node land. Landing takes the node's workspace label from empty to the target, so waking
+// workspaces by label alone wakes the target and leaves the source to find out at its next
+// resync -- and every node operation asked of the source in between is refused as busy.
+func TestHandleNodeEventWakesTheSourceWhenTheNodeLands(t *testing.T) {
+	r := newMockWorkspaceReconciler(fake.NewClientBuilder().WithScheme(scheme.Scheme).Build())
+	h := r.handleNodeEvent()
+	handlerFuncs, ok := h.(interface {
+		Update(context.Context, event.UpdateEvent, v1.RequestWorkQueue)
+	})
+	assert.Assert(t, ok)
+
+	// Old: released and reserved for the target. New: bound, reservation cleared -- the two
+	// halves of the patch that ends a migration.
+	released := genMockAdminNode("node1", "cluster", genMockNodeFlavor())
+	markMigrating(released, "ws-source", "ws-target")
+	landed := released.DeepCopy()
+	landed.Spec.Workspace = ptr.To("ws-target")
+	metav1.SetMetaDataLabel(&landed.ObjectMeta, v1.WorkspaceIdLabel, "ws-target")
+	delete(landed.Annotations, v1.NodeMigrateAnnotation)
+
+	q := workqueue.NewTypedRateLimitingQueue(workqueue.DefaultTypedControllerRateLimiter[reconcile.Request]())
+	defer q.ShutDown()
+	handlerFuncs.Update(context.Background(), event.UpdateEvent{ObjectOld: released, ObjectNew: landed}, q)
+
+	queued := drain(q)
+	assert.Assert(t, sliceHas(queued, "ws-source"), "the source was not woken by the landing, queued: %v", queued)
+	assert.Assert(t, sliceHas(queued, "ws-target"), "the target was not woken by the landing, queued: %v", queued)
+}
+
+// The release half: the node leaves the source and is reserved for a target that has not been
+// asked for it yet, so the target has nothing to do -- but the source has to come straight
+// back to hand it over rather than waiting out a resync.
+func TestHandleNodeEventWakesBothEndsOnRelease(t *testing.T) {
+	r := newMockWorkspaceReconciler(fake.NewClientBuilder().WithScheme(scheme.Scheme).Build())
+	handlerFuncs := r.handleNodeEvent().(interface {
+		Update(context.Context, event.UpdateEvent, v1.RequestWorkQueue)
+	})
+
+	bound := genMockAdminNode("node1", "cluster", genMockNodeFlavor())
+	bound.Spec.Workspace = ptr.To("ws-source")
+	metav1.SetMetaDataLabel(&bound.ObjectMeta, v1.WorkspaceIdLabel, "ws-source")
+	released := bound.DeepCopy()
+	markMigrating(released, "ws-source", "ws-target")
+
+	q := workqueue.NewTypedRateLimitingQueue(workqueue.DefaultTypedControllerRateLimiter[reconcile.Request]())
+	defer q.ShutDown()
+	handlerFuncs.Update(context.Background(), event.UpdateEvent{ObjectOld: bound, ObjectNew: released}, q)
+
+	queued := drain(q)
+	assert.Assert(t, sliceHas(queued, "ws-source"), "queued: %v", queued)
+	assert.Assert(t, sliceHas(queued, "ws-target"), "queued: %v", queued)
+}
+
+func sliceHas(items []string, want string) bool {
+	for _, item := range items {
+		if item == want {
+			return true
+		}
+	}
+	return false
 }

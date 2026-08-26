@@ -224,7 +224,7 @@ func TestWorkspaceNodesAction(t *testing.T) {
 		WithScheme(scheme.Scheme).Build()
 	r := newMockWorkspaceReconciler(adminClient)
 
-	_, err := r.processNodesAction(context.Background(), workspace)
+	_, _, err := r.processNodesAction(context.Background(), workspace)
 	assert.NilError(t, err)
 	err = adminClient.Get(context.Background(), client.ObjectKey{Name: adminNode1.Name}, adminNode1)
 	assert.NilError(t, err)
@@ -507,7 +507,9 @@ func TestBuildTargetList(t *testing.T) {
 			result := buildTargetList(tt.nodes, tt.target)
 			assert.Equal(t, len(result), len(tt.expected))
 			for k, v := range tt.expected {
-				assert.Equal(t, result[k], v)
+				assert.Equal(t, result[k].workspace, v)
+				// Plain binding carries no migration; only a release for a migration does.
+				assert.Assert(t, result[k].migration == nil)
 			}
 		})
 	}
