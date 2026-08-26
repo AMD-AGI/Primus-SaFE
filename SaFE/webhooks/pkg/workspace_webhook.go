@@ -207,6 +207,19 @@ func (m *WorkspaceMutator) mutateNodesAction(ctx context.Context, oldWorkspace, 
 			if n.GetSpecWorkspace() == "" {
 				continue
 			}
+		} else if _, ok := v1.ParseMigrateAction(val); ok {
+			// A migration outlives the request that starts it. The entry stays on the source
+			// workspace until the node reaches the target, because that entry is the only
+			// record of a migration in flight and the reconciler reads it to carry the node
+			// the rest of the way -- dropping it here, the way an already-satisfied add or
+			// remove is dropped, would clear the annotation and abandon the node unbound.
+			//
+			// Below is the accounting for giving the node up, which belongs to the one
+			// update that finds it still bound here.
+			if n.GetSpecWorkspace() != newWorkspace.Name {
+				newActions[key] = val
+				continue
+			}
 		} else {
 			continue
 		}
@@ -224,6 +237,8 @@ func (m *WorkspaceMutator) mutateNodesAction(ctx context.Context, oldWorkspace, 
 			if val == v1.NodeActionAdd {
 				newWorkspace.Spec.Replica++
 			} else {
+				// Remove and migrate alike: the workspace is giving up a node either way,
+				// and the target's own replica is raised by the add it receives later.
 				newWorkspace.Spec.Replica--
 			}
 		}
@@ -718,7 +733,12 @@ func (v *WorkspaceValidator) validateNodesAction(ctx context.Context, newWorkspa
 		return commonerrors.NewResourceProcessing(
 			fmt.Sprintf("another job(%s) is processing, please wait for it to complete", v1.GetWorkspaceNodesAction(oldWorkspace)))
 	}
+	migrateTarget, err := migrateTargetOf(newActions)
+	if err != nil {
+		return err
+	}
 	var toRemoveNodes []string
+	var toMigrateNodes []*v1.Node
 	for key, val := range newActions {
 		n, _ := getNode(ctx, v.Client, key)
 		if n == nil {
@@ -728,7 +748,11 @@ func (v *WorkspaceValidator) validateNodesAction(ctx context.Context, newWorkspa
 			return fmt.Errorf("the node %s and workspace %s are not in the same cluster", n.Name, newWorkspace.Name)
 		}
 		if val == v1.NodeActionAdd {
-			if n.GetSpecWorkspace() != "" {
+			// A node released for a migration to this workspace is still reported as bound
+			// for as long as it takes the release to land, and the handover that writes this
+			// add is the second half of an operation already admitted once. Refusing it here
+			// on the strength of a stale read would strand the node between the two.
+			if n.GetSpecWorkspace() != "" && !v1.IsNodeReleasedBy(n, n.GetSpecWorkspace(), newWorkspace.Name) {
 				return fmt.Errorf("the node(%s) is bound for %s. it can't be added", key, n.GetSpecWorkspace())
 			}
 		} else if val == v1.NodeActionRemove {
@@ -737,10 +761,105 @@ func (v *WorkspaceValidator) validateNodesAction(ctx context.Context, newWorkspa
 					key, n.GetSpecWorkspace())
 			}
 			toRemoveNodes = append(toRemoveNodes, key)
+		} else if _, ok := v1.ParseMigrateAction(val); ok {
+			// Either the node is still here, or it is one this workspace already released
+			// for this same migration and is re-admitting -- a controller retry, or a user
+			// re-issuing the request. Anything else is a migration of someone else's node.
+			if n.GetSpecWorkspace() != newWorkspace.Name &&
+				!(n.GetSpecWorkspace() == "" && v1.IsNodeMigratingTo(n, migrateTarget)) {
+				return fmt.Errorf("the node(%s) belongs to workspace(%s). it can't be migrated",
+					key, n.GetSpecWorkspace())
+			}
+			// Giving a node up is giving it up, whichever workspace it lands in next: the
+			// workloads running on it stop either way, so a migration is gated on the same
+			// check as a removal.
+			if n.GetSpecWorkspace() == newWorkspace.Name {
+				toRemoveNodes = append(toRemoveNodes, key)
+			}
+			toMigrateNodes = append(toMigrateNodes, n)
 		}
+	}
+	if err = v.validateMigrateTarget(ctx, newWorkspace, migrateTarget, toMigrateNodes); err != nil {
+		return err
 	}
 	if err = v.validateNodesRemoved(ctx, newWorkspace, toRemoveNodes); err != nil {
 		return err
+	}
+	return nil
+}
+
+// migrateTargetOf returns the workspace a nodes-action moves its nodes to, or an empty string
+// when it moves none.
+//
+// One target, and nothing but migrations. The handover hands the whole batch to the target in
+// a single add action, and a workspace only accepts one nodes-action at a time, so a second
+// target would have to be queued behind the first with no record of it anywhere; and add or
+// remove alongside migrate would have the source workspace acting on two node sets whose
+// replica accounting has to interleave. Both are refusable at no cost to any real request.
+func migrateTargetOf(actions map[string]string) (string, error) {
+	target := ""
+	otherActions := 0
+	for _, val := range actions {
+		nodeTarget, ok := v1.ParseMigrateAction(val)
+		if !ok {
+			otherActions++
+			continue
+		}
+		if target != "" && target != nodeTarget {
+			return "", commonerrors.NewBadRequest(fmt.Sprintf(
+				"a node action cannot migrate to both workspace(%s) and workspace(%s)", target, nodeTarget))
+		}
+		target = nodeTarget
+	}
+	if target != "" && otherActions > 0 {
+		return "", commonerrors.NewBadRequest(
+			"a node migration cannot be combined with other node actions")
+	}
+	return target, nil
+}
+
+// validateMigrateTarget checks that the workspace on the receiving end of a migration can
+// actually take the nodes, so a migration that could never complete is refused while there is
+// still someone to report it to, rather than releasing the nodes and stalling.
+func (v *WorkspaceValidator) validateMigrateTarget(ctx context.Context,
+	newWorkspace *v1.Workspace, target string, nodes []*v1.Node) error {
+	if target == "" {
+		return nil
+	}
+	if target == newWorkspace.Name {
+		return commonerrors.NewBadRequest(fmt.Sprintf(
+			"the node cannot be migrated to its own workspace(%s)", target))
+	}
+	targetWorkspace, err := getWorkspace(ctx, v.Client, target)
+	if err != nil {
+		return err
+	}
+	if targetWorkspace == nil {
+		return commonerrors.NewNotFound(v1.WorkspaceKind, target)
+	}
+	if targetWorkspace.Spec.Cluster != newWorkspace.Spec.Cluster {
+		return fmt.Errorf("the workspace %s and workspace %s are not in the same cluster",
+			target, newWorkspace.Name)
+	}
+	if v1.GetWorkspaceNodesAction(targetWorkspace) != "" {
+		return commonerrors.NewResourceProcessing(fmt.Sprintf(
+			"another job(%s) is processing on workspace(%s), please wait for it to complete",
+			v1.GetWorkspaceNodesAction(targetWorkspace), target))
+	}
+	// A target with no flavor adopts the flavor of the first node added to it, so the batch
+	// has to agree on one -- otherwise the first node decides and the rest are refused on
+	// arrival, with the source workspace already having let them go.
+	flavor := targetWorkspace.Spec.NodeFlavor
+	for _, node := range nodes {
+		nodeFlavor := v1.GetNodeFlavorId(node)
+		if flavor == "" {
+			flavor = nodeFlavor
+			continue
+		}
+		if nodeFlavor != flavor {
+			return fmt.Errorf("the flavor(%s) of node(%s) and the flavor(%s) of workspace(%s) do not match",
+				nodeFlavor, node.Name, flavor, target)
+		}
 	}
 	return nil
 }
