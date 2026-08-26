@@ -129,12 +129,25 @@ func (r *WorkspaceReconciler) handleNodeEvent() handler.EventHandler {
 		}
 		q.Add(reconcile.Request{NamespacedName: apitypes.NamespacedName{Name: workspaceId}})
 	}
-	// observe settles the node against every workspace waiting on it, not just the one the
-	// node currently points at. The event only carries the node's new (or empty) workspace
-	// id, and that is not always the id that is waiting: a bind that lands and is followed
-	// by the node's deletion leaves the binding workspace waiting on a node whose last event
-	// names nobody. Crediting by the event's id alone leaves it waiting forever.
-	observe := func(q v1.RequestWorkQueue, nodeName string) {
+	// observe settles the node against the workspaces this event actually names, and only
+	// those. A label move from one workspace to another passes through the empty string on
+	// its way, and both halves are events: crediting every waiter on the empty one would tell
+	// the incoming workspace its label had arrived while it was still on the way out from the
+	// previous owner. It would then count a node it does not yet hold as missing, bind an
+	// extra machine, and give it back on the following round.
+	observe := func(nodeName string, workspaceIds ...string) {
+		for _, workspaceId := range workspaceIds {
+			if workspaceId == "" {
+				continue
+			}
+			r.observeNode(workspaceId, nodeName)
+		}
+	}
+	// observeGone settles the node against every workspace waiting on it. Only for deletion:
+	// the waiting workspace may be one this event does not name -- a bind that lands and is
+	// followed by the node's deletion leaves it waiting on a label that will never arrive --
+	// and unlike a label change, no further event is coming to correct for over-crediting.
+	observeGone := func(q v1.RequestWorkQueue, nodeName string) {
 		for _, workspaceId := range r.observeNodeForAll(nodeName) {
 			enqueue(q, workspaceId)
 		}
@@ -145,7 +158,7 @@ func (r *WorkspaceReconciler) handleNodeEvent() handler.EventHandler {
 			if !ok {
 				return
 			}
-			observe(q, node.Name)
+			observe(node.Name, v1.GetWorkspaceId(node))
 			enqueue(q, v1.GetWorkspaceId(node))
 		},
 		UpdateFunc: func(ctx context.Context, evt event.UpdateEvent, q v1.RequestWorkQueue) {
@@ -155,9 +168,19 @@ func (r *WorkspaceReconciler) handleNodeEvent() handler.EventHandler {
 				return
 			}
 			if v1.GetWorkspaceId(oldNode) != v1.GetWorkspaceId(newNode) {
-				observe(q, newNode.Name)
+				observe(newNode.Name, v1.GetWorkspaceId(oldNode), v1.GetWorkspaceId(newNode))
 				enqueue(q, v1.GetWorkspaceId(oldNode))
 				enqueue(q, v1.GetWorkspaceId(newNode))
+			} else if oldNode.GetSpecWorkspace() != "" && newNode.GetSpecWorkspace() == "" &&
+				v1.GetWorkspaceId(newNode) == "" {
+				// The claim was dropped without a label to drop with it. cleanupNodeAfterUnmanage
+				// releases a node this way when it is unmanaged between a bind writing the claim
+				// and the label making the round trip, and the owner is waiting on that label:
+				// nothing else is coming, so the claim going is the event that settles it. The
+				// label check is what keeps an ordinary unbind out of here -- there the label
+				// goes too, and settling on the claim would credit the incoming workspace early.
+				observe(newNode.Name, oldNode.GetSpecWorkspace())
+				enqueue(q, oldNode.GetSpecWorkspace())
 			} else if isRelevantFieldChanged(oldNode, newNode) {
 				enqueue(q, v1.GetWorkspaceId(newNode))
 			}
@@ -167,7 +190,7 @@ func (r *WorkspaceReconciler) handleNodeEvent() handler.EventHandler {
 			if !ok {
 				return
 			}
-			observe(q, node.Name)
+			observeGone(q, node.Name)
 			enqueue(q, v1.GetWorkspaceId(node))
 		},
 	}
@@ -422,15 +445,7 @@ func (r *WorkspaceReconciler) reservedNodes(ctx context.Context, workspaceId str
 		if !other.GetDeletionTimestamp().IsZero() {
 			continue
 		}
-		raw := v1.GetWorkspaceNodesAction(other)
-		if raw == "" {
-			continue
-		}
-		var actions map[string]string
-		if err := json.Unmarshal([]byte(raw), &actions); err != nil {
-			continue
-		}
-		for nodeName, action := range actions {
+		for nodeName, action := range parseNodesAction(other) {
 			if action != v1.NodeActionRemove {
 				reserved.Insert(nodeName)
 			}
@@ -538,26 +553,38 @@ func (r *WorkspaceReconciler) getNodesForScalingUp(ctx context.Context, workspac
 	if err != nil {
 		return nil, err
 	}
-	reserved, err := r.reservedNodes(ctx, workspace.Name)
-	if err != nil {
-		klog.ErrorS(err, "failed to list workspaces, skipping this round of scaling up")
-		return nil, err
-	}
-	k8sNodes := make([]*corev1.Node, 0, len(nodeList.Items))
-	adminNodeMap := make(map[string]*v1.Node)
-	for i, n := range nodeList.Items {
+	candidates := make([]int, 0, len(nodeList.Items))
+	for i := range nodeList.Items {
+		n := &nodeList.Items[i]
 		if !n.IsMachineReady() || !n.IsManaged() {
 			continue
 		}
-		if n.GetSpecWorkspace() != "" || v1.GetWorkspaceId(&n) != "" {
+		if n.GetSpecWorkspace() != "" || v1.GetWorkspaceId(n) != "" {
 			continue
 		}
+		if v1.GetNodeFlavorId(n) != workspace.Spec.NodeFlavor {
+			continue
+		}
+		candidates = append(candidates, i)
+	}
+	// After the filtering, not before: scaling up re-queues for as long as it is short of
+	// nodes, and on the rounds where there is nothing to take this saves a full list of every
+	// Workspace plus a parse of each one's annotation.
+	reserved := sets.NewSet()
+	if len(candidates) > 0 {
+		var err error
+		if reserved, err = r.reservedNodes(ctx, workspace.Name); err != nil {
+			klog.ErrorS(err, "failed to list workspaces, skipping this round of scaling up")
+			return nil, err
+		}
+	}
+	k8sNodes := make([]*corev1.Node, 0, len(candidates))
+	adminNodeMap := make(map[string]*v1.Node)
+	for _, i := range candidates {
+		n := &nodeList.Items[i]
 		if reserved.Has(n.Name) {
 			klog.V(4).Infof("skip node %s for scaling up %s, another workspace asked for it",
 				n.Name, workspace.Name)
-			continue
-		}
-		if v1.GetNodeFlavorId(&n) != workspace.Spec.NodeFlavor {
 			continue
 		}
 		k8sNode, err := getNodeByInformer(ctx, k8sClients, n.GetK8sNodeName())
@@ -565,7 +592,7 @@ func (r *WorkspaceReconciler) getNodesForScalingUp(ctx context.Context, workspac
 			klog.ErrorS(err, "failed to get k8sNode")
 			continue
 		}
-		adminNodeMap[k8sNode.Name] = &nodeList.Items[i]
+		adminNodeMap[k8sNode.Name] = n
 		k8sNodes = append(k8sNodes, k8sNode)
 	}
 	sortNodesForScalingUp(k8sNodes)
@@ -679,13 +706,39 @@ func (r *WorkspaceReconciler) syncWorkspace(ctx context.Context, workspace *v1.W
 	return nil
 }
 
-// processNodesAction processes node binding/unbinding actions for a Workspace.
-func (r *WorkspaceReconciler) processNodesAction(ctx context.Context, workspace *v1.Workspace) (bool, error) {
+// parseNodesAction reads the nodes-action annotation off a Workspace. An unparseable value
+// reads as no request at all -- the annotation is the only record of what was asked for, and
+// nothing can be done with one that cannot be read.
+//
+// Silent on a bad value by design. Most callers read other workspaces' annotations on a hot
+// path and would report the same broken value every round without being able to do anything
+// about it; the workspace whose request it is logs it once, in processNodesAction, and clears
+// it in the same round.
+func parseNodesAction(workspace *v1.Workspace) map[string]string {
+	raw := v1.GetWorkspaceNodesAction(workspace)
+	if raw == "" {
+		return nil
+	}
 	var actions map[string]string
-	if err := json.Unmarshal([]byte(v1.GetWorkspaceNodesAction(workspace)), &actions); err != nil || len(actions) == 0 {
-		if err != nil {
-			klog.ErrorS(err, "failed to unmarshal json. skip it",
-				"data", v1.GetWorkspaceNodesAction(workspace))
+	if err := json.Unmarshal([]byte(raw), &actions); err != nil {
+		return nil
+	}
+	return actions
+}
+
+// processNodesAction processes node binding/unbinding actions for a Workspace.
+//
+// Every entry ends in one of three ways: it is applied, it is already true and needs no
+// write, or it is refused and dropped. Nothing is left pending across reconciles on a
+// judgement that will read the same way next time -- the annotation is what tells the rest
+// of the controller a request is still in flight, and an entry that can never be applied
+// would keep saying so forever, freezing this workspace's scaling behind a request that has
+// already failed.
+func (r *WorkspaceReconciler) processNodesAction(ctx context.Context, workspace *v1.Workspace) (bool, error) {
+	actions := parseNodesAction(workspace)
+	if len(actions) == 0 {
+		if raw := v1.GetWorkspaceNodesAction(workspace); raw != "" {
+			klog.Errorf("workspace %s: unusable nodes action %q. dropping it", workspace.Name, raw)
 		}
 		return false, r.removeNodesAction(ctx, workspace)
 	}
@@ -693,39 +746,108 @@ func (r *WorkspaceReconciler) processNodesAction(ctx context.Context, workspace 
 
 	newActions := make(map[string]string)
 	adminNodes := make([]*v1.Node, 0, len(actions))
+	refusals := make(map[string]string, len(actions))
 	for key, val := range actions {
 		node := &v1.Node{}
-		if err := r.Get(ctx, client.ObjectKey{Name: key}, node); err != nil {
+		// Uncached, like the read in updateSingleNodeBinding and for the same reason: a
+		// refusal decided here is acted on rather than retried, so it must not be decided
+		// against a cache that has not caught up with a release that already happened.
+		if err := r.apiReader.Get(ctx, client.ObjectKey{Name: key}, node); err != nil {
 			if apierrors.IsNotFound(err) {
+				// A refusal, not a skip. The mutating webhook counted this entry into
+				// Spec.Replica when it accepted the request, and skipping it here would leave
+				// that count behind with nothing to spend it on: the annotation goes, the
+				// replica stays, and the next sync buys a different machine to fill the gap --
+				// the explicit bind quietly becoming the automatic scale-up this refuses.
+				refusals[key] = "it no longer exists"
 				continue
 			}
 			return false, err
 		}
-		if !node.GetDeletionTimestamp().IsZero() {
+		target := workspace.Name
+		if val == v1.NodeActionRemove {
+			target = ""
+		}
+		verdict, reason := judgeNodeBinding(node, target, workspace.Name)
+		switch verdict {
+		case bindSettled:
+			// Spec already reads the target; label sync is handled elsewhere. Not a refusal:
+			// Spec.Replica must stay, because the mutating webhook skipped this entry too.
+			continue
+		case bindRefused:
+			refusals[key] = reason
 			continue
 		}
-		if val == v1.NodeActionRemove {
-			// Desired state (spec) already unbound; label sync is handled elsewhere.
-			if node.GetSpecWorkspace() == "" {
-				continue
-			}
-			newActions[node.Name] = ""
-		} else {
-			// Desired state (spec) already targets this workspace; no further action here.
-			if node.GetSpecWorkspace() == workspace.Name {
-				continue
-			}
-			newActions[node.Name] = workspace.Name
-		}
+		newActions[node.Name] = target
 		adminNodes = append(adminNodes, node)
 	}
+	if len(refusals) > 0 {
+		if err := r.dropRefusedActions(ctx, workspace, actions, refusals); err != nil {
+			return false, err
+		}
+	}
 	if len(adminNodes) == 0 {
+		// Nothing is pending any more, whether the entries were applied already or withdrawn.
+		// Saying otherwise makes processWorkspace stop for a requeue that may never be asked
+		// for: a withdrawal need not change any spec field, and neither predicate on this
+		// controller fires for an annotation that only goes away.
 		return false, r.removeNodesAction(ctx, workspace)
 	}
 	if err := r.updateNodesBinding(ctx, workspace, adminNodes, newActions); err != nil {
 		return false, err
 	}
 	return true, nil
+}
+
+// dropRefusedActions takes the refused entries back out of the request.
+//
+// A refusal here is permanent in the only sense that matters to a retry: the node belongs to
+// somebody else, or is not in a state a workspace may hold it in, and no amount of looping by
+// this controller changes that. So the request is withdrawn rather than repeated. The reason
+// goes on the Workspace where whoever asked can read it; the controller log is not somewhere
+// a workspace's owner can look.
+//
+// Only annotations are written. Spec.Replica has to give back what the mutating webhook added
+// for these entries -- otherwise a refused explicit bind turns into an automatic scale-up onto
+// some other node -- but that refund is made by the webhook as this patch passes through it,
+// not here. Two reasons, and either alone would settle it: the webhook refuses outright any
+// write that changes Spec.Replica and the nodes-action annotation together, so a rollback done
+// here never reaches the API server at all; and the arithmetic to undo is the webhook's own, so
+// a copy of it on this side is a copy to keep in step with it. See withdrawnNodesAction.
+func (r *WorkspaceReconciler) dropRefusedActions(ctx context.Context,
+	workspace *v1.Workspace, actions, refusals map[string]string) error {
+	left := make(map[string]string, len(actions))
+	reasons := make([]string, 0, len(refusals))
+	for key, val := range actions {
+		reason, refused := refusals[key]
+		if !refused {
+			left[key] = val
+			continue
+		}
+		reasons = append(reasons, fmt.Sprintf("%s: %s", key, reason))
+	}
+	sort.Strings(reasons)
+	klog.Errorf("workspace %s: dropping refused node actions: %s", workspace.Name, strings.Join(reasons, "; "))
+
+	// Locked, like the ownership write on the Node side and for the same reason: this rewrites
+	// the request as a whole, from a copy that came out of the cache, so a version of it this
+	// read never saw would be overwritten rather than merged with. A conflict here costs a
+	// requeue, and the reconcile that follows judges the request that actually exists.
+	patch := client.MergeFromWithOptions(workspace.DeepCopy(), client.MergeFromWithOptimisticLock{})
+	// Not optional, and not only for the reader: the webhook takes this annotation appearing
+	// as the mark of a withdrawal, and refunds nothing without it.
+	v1.SetAnnotation(workspace, v1.WorkspaceNodesActionError, strings.Join(reasons, "; "))
+	if len(left) == 0 {
+		v1.RemoveAnnotation(workspace, v1.WorkspaceNodesAction)
+		v1.RemoveAnnotation(workspace, v1.WorkspaceForcedAction)
+	} else {
+		raw, err := json.Marshal(left)
+		if err != nil {
+			return err
+		}
+		v1.SetAnnotation(workspace, v1.WorkspaceNodesAction, string(raw))
+	}
+	return r.Patch(ctx, workspace, patch)
 }
 
 // removeNodesAction removes the node action annotation from a Workspace.
@@ -794,36 +916,67 @@ const (
 	bindRefused
 )
 
-// judgeNodeBinding applies the admin plane's one rule about node ownership -- a node belongs
-// to at most one workspace, and only its owner may release it -- to a single change taking
-// the node from `current` to `target` on behalf of `requester`.
+// judgeNodeBinding applies the admin plane's rules about node ownership -- a node belongs to
+// at most one workspace, only its owner may release it, and a workspace may only take a node
+// that has finished onboarding and is not on its way out -- to a single change taking `node`
+// to `target` on behalf of `requester`.
 //
 // WorkspaceValidator.validateNodesAction already answers this at admission, which is where a
 // user can see the answer. This is the copy that runs at the write, against state read a
-// moment earlier under an optimistic lock, and it exists for the window between the two.
-func judgeNodeBinding(current, target, requester string) (nodeBindVerdict, string) {
+// moment earlier, and it exists for the window between the two: a node can be taken by
+// somebody else, or lose its managed state, after admission said yes.
+//
+// Every refusal here is one that reads the same way on the next reconcile, so callers act on
+// it rather than retrying. Changing that -- adding a reason that clears on its own -- means
+// giving the caller a way to tell the two apart first.
+func judgeNodeBinding(node *v1.Node, target, requester string) (nodeBindVerdict, string) {
+	current := node.GetSpecWorkspace()
 	if current == target {
 		return bindSettled, ""
 	}
-	if target != "" {
-		if current != "" {
-			return bindRefused, fmt.Sprintf("it is already bound to %s", current)
+	if target == "" {
+		// An unbind, and current is not "" or the case above would have caught it. A node
+		// being deleted still goes through: delete() collects deleting nodes too, and
+		// refusing here would let the finalizer come off with spec.workspace still naming a
+		// Workspace that no longer exists -- which no later bind can clear, because only the
+		// owner may release it.
+		if current != requester {
+			return bindRefused, fmt.Sprintf("it is bound to %s, which is not the workspace asking", current)
 		}
 		return bindProceed, ""
 	}
-	// An unbind, and current is not "" or the case above would have caught it.
-	if current != requester {
-		return bindRefused, fmt.Sprintf("it is bound to %s, which is not the workspace asking", current)
+	if target != requester {
+		return bindRefused, fmt.Sprintf("%s may not bind it to %s", requester, target)
+	}
+	if current != "" {
+		return bindRefused, fmt.Sprintf("it is already bound to %s", current)
+	}
+	// Binding a node on its way out hands the workspace a reference to something about to
+	// stop existing.
+	if !node.GetDeletionTimestamp().IsZero() {
+		return bindRefused, "it is being deleted"
+	}
+	// Onboarding has to finish before a node can be handed to a workspace. Admission checks
+	// this too, and this is the half that covers a node dropping out of Managed afterwards.
+	if !node.IsManaged() {
+		return bindRefused, fmt.Sprintf("it is not managed (phase %q, cluster %q)",
+			node.Status.ClusterStatus.Phase, v1.GetClusterId(node))
 	}
 	return bindProceed, ""
 }
 
 // updateSingleNodeBinding updates the binding of a single node to a Workspace.
 //
-// This is the only place node ownership is written, so it is where the single-owner rule is
-// enforced: read the node fresh, judge, and patch under an optimistic lock so the judgement
-// and the write cannot be separated. Losing the lock means somebody wrote first -- read
-// again and judge again, which may well say the node now belongs to someone else.
+// This is the only place a Workspace's claim on a node is written, so it is where the
+// single-owner rule is enforced: read the node fresh, judge, and patch under an optimistic
+// lock so the judgement and the write cannot be separated. Losing the lock means somebody
+// wrote first -- read again and judge again, which may well say the node now belongs to
+// someone else.
+//
+// One other place clears spec.workspace: NodeReconciler.cleanupNodeAfterUnmanage, when a node
+// leaves the fleet. That release is deliberately not subject to the rule -- an unmanaged node
+// is gone whatever its owner thinks -- and deliberately leaves Spec.Replica alone, so the
+// workspace scales a replacement in. See the comment there.
 //
 // The read is uncached and goes into a fresh object. Uncached because the manager's cache is
 // routinely behind here -- NodeK8sReconciler mirrors the data plane's conditions onto every
@@ -834,11 +987,13 @@ func judgeNodeBinding(current, target, requester string) (nodeBindVerdict, strin
 // its own writing as settled. (The fake client used in tests does zero the target, so this
 // only ever shows up against a real apiserver.)
 //
-// A refusal is returned as an error, not swallowed. The caller clears the nodes-action
-// annotation only once the whole batch succeeds, and the mutating webhook has already applied
-// the matching Spec.Replica change; dropping the request here would strand that Replica and
-// turn a refused explicit bind into an automatic scale-up onto some other node. Failing keeps
-// the request visible and the two in step.
+// A refusal is returned as an error rather than swallowed, and the caller keeps the
+// nodes-action annotation, so the request stays visible. It is not retried indefinitely:
+// judgeNodeBinding only refuses for reasons that read the same way next time, and the next
+// pass through processNodesAction reaches the same verdict against its own fresh read and
+// withdraws the entry, returning the Spec.Replica the mutating webhook added for it. What
+// this call must not do is drop the request quietly -- that would strand the replica and turn
+// a refused explicit bind into an automatic scale-up onto some other node.
 func (r *WorkspaceReconciler) updateSingleNodeBinding(ctx context.Context,
 	requester string, node *v1.Node, target string) (bool, error) {
 	action := "bind"
@@ -858,18 +1013,13 @@ func (r *WorkspaceReconciler) updateSingleNodeBinding(ctx context.Context,
 					action, node.Name, requester)
 				return nil
 			}
+			// Counted, so that a read that stops working -- throttling, an RBAC change --
+			// shows up as binding failing rather than as binding traffic going to zero.
+			rmmetrics.WorkspaceNodeBindingTotal.WithLabelValues(action, "failed").Inc()
 			return getErr
 		}
 		*node = *fresh
-		// Binding a node that is on its way out hands the workspace a reference to something
-		// about to stop existing. Unbinding one must still go through: delete() collects
-		// deleting nodes too, and refusing here would let the finalizer come off with
-		// spec.workspace still naming a Workspace that no longer exists -- which no later
-		// bind can clear, because only the owner may release it.
-		if target != "" && !node.GetDeletionTimestamp().IsZero() {
-			return fmt.Errorf("cannot bind node %s to %s: it is being deleted", node.Name, requester)
-		}
-		verdict, reason := judgeNodeBinding(node.GetSpecWorkspace(), target, requester)
+		verdict, reason := judgeNodeBinding(node, target, requester)
 		switch verdict {
 		case bindSettled:
 			// Already where it should be. Note this covers an unbind against a nil

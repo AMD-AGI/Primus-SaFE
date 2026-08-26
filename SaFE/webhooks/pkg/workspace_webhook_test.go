@@ -650,6 +650,169 @@ func TestWorkspaceValidateNodesActionRefusesAnUnmanagedNode(t *testing.T) {
 	assert.NilError(t, v2.validateNodesAction(context.Background(), ws2, &v1.Workspace{}))
 }
 
+// Once a request has been accepted, every later update to the Workspace carries the same
+// annotation through here -- a replica edit, a volume, a label. Re-judging it rejects those
+// unrelated writes for as long as the controller is working through the request, and against
+// node state that has moved on since the request was accepted.
+func TestWorkspaceValidateNodesActionSkipsAnUnchangedRequest(t *testing.T) {
+	scheme := newScheme(t)
+	// A node that would fail every check the loop makes: bound elsewhere, wrong cluster, not
+	// managed. None of it matters, because nothing new is being asked for.
+	stale := &v1.Node{
+		ObjectMeta: metav1.ObjectMeta{Name: "n1", Labels: map[string]string{v1.ClusterIdLabel: "other"}},
+		Spec:       v1.NodeSpec{Workspace: pointer.String("ws-other")},
+		Status:     v1.NodeStatus{ClusterStatus: v1.NodeClusterStatus{Phase: v1.NodeManagedFailed}},
+	}
+	v := &WorkspaceValidator{Client: fake.NewClientBuilder().WithScheme(scheme).WithObjects(stale).Build()}
+	oldWs := &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ws1"}, Spec: v1.WorkspaceSpec{Cluster: "cluster1"}}
+	v1.SetAnnotation(oldWs, v1.WorkspaceNodesAction, `{"n1":"add"}`)
+	newWs := oldWs.DeepCopy()
+	newWs.Spec.Replica = 3
+
+	assert.NilError(t, v.validateNodesAction(context.Background(), newWs, oldWs))
+
+	// The same annotation arriving for the first time is still judged.
+	assert.Assert(t, v.validateNodesAction(context.Background(), newWs, &v1.Workspace{}) != nil)
+}
+
+// requestingWorkspace is a workspace with a nodes-action request in flight. The flavor and the
+// resource name it carries are what a real one always has by the time a request is accepted,
+// and without them mutateByNodeFlavor rewrites Spec.Replica before anything here is reached.
+func requestingWorkspace(replica int, actions string) *v1.Workspace {
+	w := &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ws1"},
+		Spec: v1.WorkspaceSpec{Cluster: "cluster1", NodeFlavor: "flavor", Replica: replica}}
+	v1.SetAnnotation(w, v1.GpuResourceNameAnnotation, "amd.com/gpu")
+	if actions != "" {
+		v1.SetAnnotation(w, v1.WorkspaceNodesAction, actions)
+	}
+	return w
+}
+
+// The controller giving up on an entry it cannot bind. Its patch changes only annotations,
+// because a write that moved Spec.Replica alongside them would be turned away by
+// mutateNodesAction outright; the replica the request was charged is given back here instead,
+// on the way through.
+func TestWorkspaceMutateWithdrawnNodesActionRefundsReplica(t *testing.T) {
+	flavor := &v1.NodeFlavor{ObjectMeta: metav1.ObjectMeta{Name: "flavor"}}
+	m := &WorkspaceMutator{Client: fake.NewClientBuilder().WithScheme(newScheme(t)).
+		WithObjects(flavor).Build()}
+	oldWs := requestingWorkspace(3, `{"n1":"add","n2":"add"}`)
+
+	// One entry withdrawn out of two.
+	newWs := oldWs.DeepCopy()
+	v1.SetAnnotation(newWs, v1.WorkspaceNodesAction, `{"n2":"add"}`)
+	v1.SetAnnotation(newWs, v1.WorkspaceNodesActionError, "n1: it is already bound to ws-other")
+	assert.NilError(t, m.mutateOnUpdate(context.Background(), oldWs, newWs))
+	assert.Equal(t, newWs.Spec.Replica, 2)
+	// The entry left standing keeps its charge: the forward pass counted it once when the
+	// request was accepted, and must not be allowed to run over it again.
+	assert.Equal(t, v1.GetWorkspaceNodesAction(newWs), `{"n2":"add"}`)
+
+	// The whole request withdrawn at once, annotation and all.
+	newWs = oldWs.DeepCopy()
+	v1.RemoveAnnotation(newWs, v1.WorkspaceNodesAction)
+	v1.SetAnnotation(newWs, v1.WorkspaceNodesActionError, "n1: gone; n2: gone")
+	assert.NilError(t, m.mutateOnUpdate(context.Background(), oldWs, newWs))
+	assert.Equal(t, newWs.Spec.Replica, 1)
+
+	// A withdrawn remove is not refunded: it is only ever refused because the node has since
+	// been taken by somebody else, so the decrement already describes where this workspace
+	// ended up, and adding one back would ask for a replacement for a node never released.
+	oldWs = requestingWorkspace(1, `{"n1":"remove"}`)
+	newWs = oldWs.DeepCopy()
+	v1.RemoveAnnotation(newWs, v1.WorkspaceNodesAction)
+	v1.SetAnnotation(newWs, v1.WorkspaceNodesActionError, "n1: it is bound to ws-other")
+	assert.NilError(t, m.mutateOnUpdate(context.Background(), oldWs, newWs))
+	assert.Equal(t, newWs.Spec.Replica, 1)
+}
+
+// A refund is worth a machine, so the shape that earns one has to be narrow. Anything that is
+// not the controller taking its own entries back goes down the ordinary path, where a request
+// being edited underneath the controller is turned away by the in-flight check.
+func TestWorkspaceWithdrawnNodesActionIsNotJustAnySmallerRequest(t *testing.T) {
+	base := requestingWorkspace(3, `{"n1":"add","n2":"add"}`)
+	withdrawal := func() *v1.Workspace {
+		w := base.DeepCopy()
+		v1.SetAnnotation(w, v1.WorkspaceNodesAction, `{"n2":"add"}`)
+		v1.SetAnnotation(w, v1.WorkspaceNodesActionError, "n1: it is already bound to ws-other")
+		return w
+	}
+	assert.Assert(t, withdrawnNodesAction(base, withdrawal()) != nil, "the shape itself is a withdrawal")
+
+	cases := map[string]func(*v1.Workspace){
+		"no reason means nobody withdrew anything": func(w *v1.Workspace) {
+			v1.RemoveAnnotation(w, v1.WorkspaceNodesActionError)
+		},
+		"a stale reason carried through an unrelated write is not a fresh one": func(w *v1.Workspace) {
+			v1.SetAnnotation(base, v1.WorkspaceNodesActionError,
+				v1.GetAnnotation(w, v1.WorkspaceNodesActionError))
+		},
+		"the writer may not move the replica itself": func(w *v1.Workspace) { w.Spec.Replica = 2 },
+		"an entry may not change value":              func(w *v1.Workspace) { v1.SetAnnotation(w, v1.WorkspaceNodesAction, `{"n2":"remove"}`) },
+		"an entry may not arrive":                    func(w *v1.Workspace) { v1.SetAnnotation(w, v1.WorkspaceNodesAction, `{"n2":"add","n3":"add"}`) },
+		"unreadable is not a subset of anything":     func(w *v1.Workspace) { v1.SetAnnotation(w, v1.WorkspaceNodesAction, `{`) },
+	}
+	for name, breakIt := range cases {
+		t.Run(name, func(t *testing.T) {
+			original := base.DeepCopy()
+			defer func() { base = original }()
+			w := withdrawal()
+			breakIt(w)
+			assert.Assert(t, withdrawnNodesAction(base, w) == nil)
+		})
+	}
+}
+
+// The validating webhook sees the withdrawal patch too, and its in-flight check reads a
+// shrinking request as a second author editing the first one's work. Rejecting it there would
+// stop the withdrawal just as surely as the mutator would, and for the same reason: this is the
+// controller ending a request, not somebody else changing it.
+func TestWorkspaceValidateNodesActionAllowsAWithdrawal(t *testing.T) {
+	scheme := newScheme(t)
+	taken := &v1.Node{
+		ObjectMeta: metav1.ObjectMeta{Name: "n1", Labels: map[string]string{v1.ClusterIdLabel: "cluster1"}},
+		Spec:       v1.NodeSpec{Workspace: pointer.String("ws-other")},
+	}
+	v := &WorkspaceValidator{Client: fake.NewClientBuilder().WithScheme(scheme).WithObjects(taken).Build()}
+	oldWs := requestingWorkspace(2, `{"n1":"add","n2":"add"}`)
+	newWs := oldWs.DeepCopy()
+	v1.SetAnnotation(newWs, v1.WorkspaceNodesAction, `{"n2":"add"}`)
+	v1.SetAnnotation(newWs, v1.WorkspaceNodesActionError, "n1: it is already bound to ws-other")
+
+	assert.NilError(t, v.validateNodesAction(context.Background(), newWs, oldWs))
+
+	// The same shrinking request without a reason on it is somebody editing a request that is
+	// already being worked on, and is still turned away.
+	edited := oldWs.DeepCopy()
+	v1.SetAnnotation(edited, v1.WorkspaceNodesAction, `{"n2":"add"}`)
+	assert.Assert(t, v.validateNodesAction(context.Background(), edited, oldWs) != nil)
+}
+
+// The reason is cleared by the next request being accepted, and only by that. A request going
+// away is not an acceptance -- the controller clears the annotation immediately after writing
+// the reason a part of it was dropped, and wiping it there would leave whoever asked with a
+// request that vanished and nothing saying why.
+func TestWorkspaceMutateNodesActionClearsTheReasonOnlyForANewRequest(t *testing.T) {
+	scheme := newScheme(t)
+	node := &v1.Node{ObjectMeta: metav1.ObjectMeta{Name: "n9", Labels: map[string]string{
+		v1.NodeFlavorIdLabel: "flavor", v1.ClusterIdLabel: "cluster1",
+	}}}
+	flavor := &v1.NodeFlavor{ObjectMeta: metav1.ObjectMeta{Name: "flavor"}}
+	m := &WorkspaceMutator{Client: fake.NewClientBuilder().WithScheme(scheme).
+		WithObjects(node, flavor).Build()}
+	oldWs := requestingWorkspace(1, "")
+	v1.SetAnnotation(oldWs, v1.WorkspaceNodesActionError, "n1: it is already bound to ws-other")
+
+	cleared := oldWs.DeepCopy()
+	v1.SetAnnotation(cleared, v1.WorkspaceNodesAction, `{"n9":"add"}`)
+	assert.NilError(t, m.mutateNodesAction(context.Background(), oldWs, cleared))
+	assert.Equal(t, v1.GetAnnotation(cleared, v1.WorkspaceNodesActionError), "")
+
+	kept := oldWs.DeepCopy()
+	assert.NilError(t, m.mutateNodesAction(context.Background(), oldWs, kept))
+	assert.Assert(t, v1.GetAnnotation(kept, v1.WorkspaceNodesActionError) != "")
+}
+
 // TestWorkspaceMutateNodesActionErrors covers node action mutation error branches.
 func TestWorkspaceMutateNodesActionErrors(t *testing.T) {
 	scheme := newScheme(t)

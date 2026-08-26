@@ -107,6 +107,10 @@ func (m *WorkspaceMutator) mutateOnUpdate(ctx context.Context, oldWorkspace, new
 		return err
 	}
 	if v1.GetWorkspaceNodesAction(oldWorkspace) != v1.GetWorkspaceNodesAction(newWorkspace) {
+		if withdrawn := withdrawnNodesAction(oldWorkspace, newWorkspace); withdrawn != nil {
+			mutateNodesActionWithdrawal(newWorkspace, withdrawn)
+			return nil
+		}
 		if err := m.mutateNodesAction(ctx, oldWorkspace, newWorkspace); err != nil {
 			return err
 		}
@@ -114,6 +118,72 @@ func (m *WorkspaceMutator) mutateOnUpdate(ctx context.Context, oldWorkspace, new
 		return err
 	}
 	return nil
+}
+
+// withdrawnNodesAction recognises a write that takes entries back out of a nodes-action
+// request that is already in flight, and returns them. Anything else returns nil.
+//
+// This is the shape WorkspaceReconciler.dropRefusedActions writes when it gives up on an
+// entry, and it is deliberately the only way Spec.Replica is given back: the arithmetic that
+// added it lives here, in mutateNodesAction, and a second copy in the controller would be a
+// second copy to keep in step. It also cannot be done there -- mutateNodesAction refuses any
+// write that changes Spec.Replica and the annotation together, which is exactly what a
+// controller-side rollback would have to be to happen exactly once.
+//
+// The shape has to be narrow, because accepting it means refunding replica: entries may only
+// leave, never arrive and never change value, Spec.Replica must be untouched by the writer,
+// and the reason annotation must come with it. A request being shrunk by its own author while
+// the controller is part way through binding it is not this, and still gets turned away by
+// the in-flight check.
+func withdrawnNodesAction(oldWorkspace, newWorkspace *v1.Workspace) map[string]string {
+	if oldWorkspace.Spec.Replica != newWorkspace.Spec.Replica {
+		return nil
+	}
+	if v1.GetAnnotation(newWorkspace, v1.WorkspaceNodesActionError) == "" ||
+		v1.GetAnnotation(oldWorkspace, v1.WorkspaceNodesActionError) ==
+			v1.GetAnnotation(newWorkspace, v1.WorkspaceNodesActionError) {
+		return nil
+	}
+	oldActions, err := parseNodesAction(oldWorkspace)
+	if err != nil || len(oldActions) == 0 {
+		return nil
+	}
+	newActions, err := parseNodesAction(newWorkspace)
+	if err != nil {
+		return nil
+	}
+	for key, val := range newActions {
+		if oldVal, ok := oldActions[key]; !ok || oldVal != val {
+			return nil
+		}
+	}
+	if len(newActions) >= len(oldActions) {
+		return nil
+	}
+	withdrawn := make(map[string]string, len(oldActions)-len(newActions))
+	for key, val := range oldActions {
+		if _, ok := newActions[key]; !ok {
+			withdrawn[key] = val
+		}
+	}
+	return withdrawn
+}
+
+// mutateNodesActionWithdrawal gives Spec.Replica back what mutateNodesAction added for the
+// entries being withdrawn.
+//
+// Only an add is reversed, and reversing it is exact: mutateNodesAction takes a stored add
+// from 0 to 1 or increments it, so one off is right either way. A withdrawn remove is left
+// alone on purpose. The controller only ever refuses a remove for a node that has since been
+// bound to a different workspace, so this one has lost the node whether or not it asked to --
+// the decrement already applied describes where it ended up, and undoing it would ask for a
+// machine to replace one that was never released.
+func mutateNodesActionWithdrawal(newWorkspace *v1.Workspace, withdrawn map[string]string) {
+	for _, val := range withdrawn {
+		if val == v1.NodeActionAdd && newWorkspace.Spec.Replica > 0 {
+			newWorkspace.Spec.Replica--
+		}
+	}
 }
 
 // mutateCommon applies node flavor, image secrets, volumes, queue policy, preemption and manager mutations.
@@ -182,6 +252,14 @@ func (m *WorkspaceMutator) mutateNodesAction(ctx context.Context, oldWorkspace, 
 	if v1.GetWorkspaceNodesAction(newWorkspace) == "" {
 		return nil
 	}
+	// A new request supersedes whatever the last one failed with. This is the other half of
+	// the lifecycle mutateNodesActionWithdrawal starts; without it a workspace that was ever
+	// turned down carries the reason for good.
+	//
+	// After the check above, not before it: the controller clears the annotation on its way
+	// out of a request as well, and one of those exits comes straight after writing the
+	// reason that a part of the request was withdrawn.
+	v1.RemoveAnnotation(newWorkspace, v1.WorkspaceNodesActionError)
 
 	currentActions, err := parseNodesAction(newWorkspace)
 	if err != nil {
@@ -714,9 +792,22 @@ func (v *WorkspaceValidator) validateNodesAction(ctx context.Context, newWorkspa
 	if err != nil {
 		return err
 	}
+	// The controller taking entries back out of a request it cannot carry out. Judging it
+	// against the in-flight check below would reject the one write that ends the request.
+	if withdrawnNodesAction(oldWorkspace, newWorkspace) != nil {
+		return nil
+	}
 	if len(oldActions) > 0 && len(newActions) > 0 && !maps.EqualIgnoreOrder(oldActions, newActions) {
 		return commonerrors.NewResourceProcessing(
 			fmt.Sprintf("another job(%s) is processing, please wait for it to complete", v1.GetWorkspaceNodesAction(oldWorkspace)))
+	}
+	// Nothing new was asked for, so there is nothing to judge. Every update to a Workspace
+	// carrying an in-flight request comes through here -- a replica edit, a volume, a label --
+	// and re-running the checks against node state that has moved on since the request was
+	// accepted turns any of them into a rejection of an unrelated write. The controller is
+	// what decides what becomes of a request once it has been accepted.
+	if maps.EqualIgnoreOrder(oldActions, newActions) {
+		return nil
 	}
 	var toRemoveNodes []string
 	for key, val := range newActions {
@@ -735,9 +826,11 @@ func (v *WorkspaceValidator) validateNodesAction(ctx context.Context, newWorkspa
 		// Add only. A remove has to stay possible for a node that ended up bound and then
 		// lost its managed state, which is exactly when it needs releasing.
 		if val == v1.NodeActionAdd && !n.IsManaged() {
+			// Both halves of IsManaged in the message: a node can sit in phase Managed with
+			// no cluster label, and reporting only the phase reads as a contradiction.
 			return commonerrors.NewResourceProcessing(fmt.Sprintf(
-				"the node(%s) is not managed yet(phase %s). it can't be added",
-				key, n.Status.ClusterStatus.Phase))
+				"the node(%s) is not managed yet(phase %q, cluster %q). it can't be added",
+				key, n.Status.ClusterStatus.Phase, v1.GetClusterId(n)))
 		}
 		if v1.GetClusterId(n) != newWorkspace.Spec.Cluster {
 			return fmt.Errorf("the node %s and workspace %s are not in the same cluster", n.Name, newWorkspace.Name)

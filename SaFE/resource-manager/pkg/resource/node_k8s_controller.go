@@ -410,8 +410,14 @@ func (r *NodeK8sReconciler) syncK8sMetadata(ctx context.Context, adminNode *v1.N
 		// admin plane report an ownership nobody asked for. NodeReconciler pushes the right
 		// value back down; the label is still removed through the branch below, once the data
 		// plane no longer carries it at all.
+		//
+		// V(4), not a warning: every bind and unbind opens this window between the admin
+		// plane write and the data plane catching up, and this function runs against every
+		// managed node every few seconds. A scale-down of a large workspace would otherwise
+		// fill the log with a line per node per pass while it is doing exactly the right
+		// thing.
 		if ok && k == v1.WorkspaceIdLabel && v != adminNode.GetSpecWorkspace() {
-			klog.Warningf("ignore workspace label %s on k8s node %s, the node is bound to %q",
+			klog.V(4).Infof("ignore workspace label %s on k8s node %s, the node is bound to %q",
 				v, k8sNode.Name, adminNode.GetSpecWorkspace())
 			continue
 		}

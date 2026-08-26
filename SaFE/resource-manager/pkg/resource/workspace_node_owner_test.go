@@ -7,8 +7,11 @@ package resource
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
+
+	"github.com/prometheus/client_golang/prometheus/testutil"
 
 	"gotest.tools/assert"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -25,6 +28,7 @@ import (
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/apis/pkg/client/clientset/versioned/scheme"
 	commonclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/k8sclient"
+	rmmetrics "github.com/AMD-AIG-AIMA/SAFE/resource-manager/pkg/metrics"
 	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/sets"
 )
@@ -32,35 +36,66 @@ import (
 func TestJudgeNodeBinding(t *testing.T) {
 	cases := []struct {
 		name             string
-		current, target  string
+		node             *v1.Node
+		target           string
 		requester        string
 		expectedVerdict  nodeBindVerdict
 		expectedInReason string
 	}{
-		{name: "bind a free node", current: "", target: "ws1", requester: "ws1",
+		{name: "bind a free node", node: ownedNode("n", ""), target: "ws1", requester: "ws1",
 			expectedVerdict: bindProceed},
-		{name: "bind a node this workspace already holds", current: "ws1", target: "ws1",
-			requester: "ws1", expectedVerdict: bindSettled},
-		{name: "bind a node another workspace holds", current: "ws2", target: "ws1",
-			requester: "ws1", expectedVerdict: bindRefused, expectedInReason: "already bound to ws2"},
-		{name: "unbind a node this workspace holds", current: "ws1", target: "",
+		{name: "bind a node this workspace already holds", node: ownedNode("n", "ws1"),
+			target: "ws1", requester: "ws1", expectedVerdict: bindSettled},
+		{name: "bind a node another workspace holds", node: ownedNode("n", "ws2"),
+			target: "ws1", requester: "ws1", expectedVerdict: bindRefused,
+			expectedInReason: "already bound to ws2"},
+		{name: "unbind a node this workspace holds", node: ownedNode("n", "ws1"), target: "",
 			requester: "ws1", expectedVerdict: bindProceed},
-		{name: "unbind a node that is already free", current: "", target: "",
+		{name: "unbind a node that is already free", node: ownedNode("n", ""), target: "",
 			requester: "ws1", expectedVerdict: bindSettled},
 		// The one the three open-coded copies of this rule all missed: every one of them
 		// keyed on a non-empty target, and an unbind's target is always empty.
-		{name: "unbind a node another workspace holds", current: "ws2", target: "",
+		{name: "unbind a node another workspace holds", node: ownedNode("n", "ws2"), target: "",
 			requester: "ws1", expectedVerdict: bindRefused, expectedInReason: "bound to ws2"},
+		{name: "bind a node on somebody else's behalf", node: ownedNode("n", ""),
+			target: "ws2", requester: "ws1", expectedVerdict: bindRefused,
+			expectedInReason: "ws1 may not bind it to ws2"},
+		{name: "bind a node that is being deleted", node: deletingNode(ownedNode("n", "")),
+			target: "ws1", requester: "ws1", expectedVerdict: bindRefused,
+			expectedInReason: "being deleted"},
+		// The half of the managed check admission cannot do: the node passed admission and
+		// then lost its managed state, which is the state the check exists to keep out.
+		{name: "bind a node that is not managed", node: unmanagedNode(ownedNode("n", "")),
+			target: "ws1", requester: "ws1", expectedVerdict: bindRefused,
+			expectedInReason: "not managed"},
+		// A release still has to go through for a node whose managed state is gone -- that is
+		// exactly when the workspace holding it needs to let go.
+		{name: "unbind a node that is not managed", node: unmanagedNode(ownedNode("n", "ws1")),
+			target: "", requester: "ws1", expectedVerdict: bindProceed},
+		{name: "unbind a node that is being deleted", node: deletingNode(ownedNode("n", "ws1")),
+			target: "", requester: "ws1", expectedVerdict: bindProceed},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			verdict, reason := judgeNodeBinding(c.current, c.target, c.requester)
+			verdict, reason := judgeNodeBinding(c.node, c.target, c.requester)
 			assert.Equal(t, verdict, c.expectedVerdict)
 			if c.expectedInReason != "" {
 				assert.Assert(t, strings.Contains(reason, c.expectedInReason), reason)
 			}
 		})
 	}
+}
+
+func deletingNode(node *v1.Node) *v1.Node {
+	now := metav1.Now()
+	node.DeletionTimestamp = &now
+	node.Finalizers = []string{v1.NodeFinalizer}
+	return node
+}
+
+func unmanagedNode(node *v1.Node) *v1.Node {
+	node.Status.ClusterStatus.Phase = v1.NodeManagedFailed
+	return node
 }
 
 // ownedNode returns a managed admin node bound to the given workspace, or free when it is "".
@@ -379,22 +414,170 @@ func TestGetNodesForScalingUpLeavesAReservedNodeAlone(t *testing.T) {
 	assert.Equal(t, len(nodes), 0)
 }
 
-// End to end: a refused bind leaves the nodes-action annotation in place, so the request stays
-// visible and the Spec.Replica the mutating webhook already applied is not left stranded.
-func TestProcessNodesActionKeepsTheAnnotationWhenTheBindIsRefused(t *testing.T) {
+// admissionRules is what the mutating webhook does to a Workspace write on its way to the API
+// server, in the one respect this controller has to live within: mutateNodesAction's first
+// statement turns away any write that moves Spec.Replica and the nodes-action annotation
+// together, and every write carrying that annotation goes through it -- the webhook is
+// registered on workspaces UPDATE with no object selector, so the controller's own patches are
+// admitted like anybody else's.
+//
+// It is here because the fake client runs no webhooks, and without it these tests pass on a
+// rollback that never once reaches a real cluster: the whole withdrawal path is one Patch call,
+// and getting that call rejected is not something any assertion about the stored object can
+// see. The rule is asserted from the other side too, against the webhook itself, in
+// TestWorkspaceMutateWithdrawnNodesActionRefundsReplica.
+func admissionRules() interceptor.Funcs {
+	return interceptor.Funcs{
+		Patch: func(ctx context.Context, c client.WithWatch, obj client.Object,
+			patch client.Patch, opts ...client.PatchOption) error {
+			workspace, ok := obj.(*v1.Workspace)
+			if !ok {
+				return c.Patch(ctx, obj, patch, opts...)
+			}
+			stored := &v1.Workspace{}
+			if err := c.Get(ctx, client.ObjectKeyFromObject(workspace), stored); err != nil {
+				return err
+			}
+			if v1.GetWorkspaceNodesAction(stored) != v1.GetWorkspaceNodesAction(workspace) &&
+				stored.Spec.Replica != workspace.Spec.Replica {
+				return apierrors.NewBadRequest("the operation of specifying nodes and the " +
+					"modification of workspace replica cannot be performed simultaneously")
+			}
+			return c.Patch(ctx, obj, patch, opts...)
+		},
+	}
+}
+
+func storedWorkspace(t *testing.T, cli client.Client, name string) *v1.Workspace {
+	t.Helper()
+	workspace := &v1.Workspace{}
+	assert.NilError(t, cli.Get(context.Background(), client.ObjectKey{Name: name}, workspace))
+	return workspace
+}
+
+// End to end: a bind that can never succeed is withdrawn rather than retried forever. The
+// entry leaves the annotation and the reason is written where whoever asked can read it.
+//
+// Spec.Replica is deliberately untouched here. Giving back the +1 the mutating webhook applied
+// is the webhook's own job on the way through this patch -- see the withdrawal tests in the
+// webhooks package -- and a controller that wrote it would have its patch turned away.
+func TestProcessNodesActionWithdrawsARefusedBind(t *testing.T) {
 	workspace := genMockWorkspace("cluster", "flavor", 1)
 	node := ownedNode("node1", "ws-other")
 	setNodesAction(workspace, map[string]string{node.Name: v1.NodeActionAdd})
-	cli := fake.NewClientBuilder().WithObjects(node, workspace).WithScheme(scheme.Scheme).Build()
+	cli := fake.NewClientBuilder().WithObjects(node, workspace).WithScheme(scheme.Scheme).
+		WithInterceptorFuncs(admissionRules()).Build()
 	r := newMockWorkspaceReconciler(cli)
 
 	_, err := r.processNodesAction(context.Background(), workspace)
-	assert.ErrorContains(t, err, "already bound to ws-other")
+	assert.NilError(t, err)
 	assert.Equal(t, storedNode(t, cli, node.Name).GetSpecWorkspace(), "ws-other")
 
-	stored := &v1.Workspace{}
-	assert.NilError(t, cli.Get(context.Background(), client.ObjectKey{Name: workspace.Name}, stored))
-	assert.Equal(t, v1.GetWorkspaceNodesAction(stored) != "", true)
+	stored := storedWorkspace(t, cli, workspace.Name)
+	assert.Equal(t, v1.GetWorkspaceNodesAction(stored), "")
+	assert.Equal(t, stored.Spec.Replica, 1)
+	assert.Assert(t, strings.Contains(
+		v1.GetAnnotation(stored, v1.WorkspaceNodesActionError), "already bound to ws-other"))
+}
+
+// A node that has gone away between the request being admitted and this controller reaching
+// it is refused like any other entry it cannot carry out. Skipping it instead would drop the
+// annotation while leaving the replica the webhook added for it in place, and the next sync
+// would spend that replica on whatever machine happened to be free.
+func TestProcessNodesActionWithdrawsAVanishedNode(t *testing.T) {
+	workspace := genMockWorkspace("cluster", "flavor", 1)
+	setNodesAction(workspace, map[string]string{"node1": v1.NodeActionAdd})
+	cli := fake.NewClientBuilder().WithObjects(workspace).WithScheme(scheme.Scheme).
+		WithInterceptorFuncs(admissionRules()).Build()
+	r := newMockWorkspaceReconciler(cli)
+
+	isUpdated, err := r.processNodesAction(context.Background(), workspace)
+	assert.NilError(t, err)
+	// Nothing is pending after a withdrawal, and saying otherwise waits for a requeue that
+	// an annotation merely going away does not produce.
+	assert.Equal(t, isUpdated, false)
+
+	stored := storedWorkspace(t, cli, workspace.Name)
+	assert.Equal(t, v1.GetWorkspaceNodesAction(stored), "")
+	assert.Assert(t, strings.Contains(
+		v1.GetAnnotation(stored, v1.WorkspaceNodesActionError), "no longer exists"))
+}
+
+// A refusal in a batch takes only its own entry down with it: the surviving entry is still
+// applied, and the annotation is rewritten to exactly what is left, which is what the webhook
+// reads the withdrawal off and what stops the next reconcile accounting for it twice.
+func TestProcessNodesActionWithdrawsOnlyTheRefusedEntry(t *testing.T) {
+	workspace := genMockWorkspace("cluster", "flavor", 2)
+	taken := ownedNode("node1", "ws-other")
+	free := ownedNode("node2", "")
+	setNodesAction(workspace, map[string]string{
+		taken.Name: v1.NodeActionAdd,
+		free.Name:  v1.NodeActionAdd,
+	})
+	cli := fake.NewClientBuilder().WithObjects(taken, free, workspace).WithScheme(scheme.Scheme).
+		WithInterceptorFuncs(admissionRules()).Build()
+	r := newMockWorkspaceReconciler(cli)
+
+	_, err := r.processNodesAction(context.Background(), workspace)
+	assert.NilError(t, err)
+	assert.Equal(t, storedNode(t, cli, free.Name).GetSpecWorkspace(), workspace.Name)
+
+	stored := storedWorkspace(t, cli, workspace.Name)
+	assert.Equal(t, stored.Spec.Replica, 2)
+	assert.Equal(t, v1.GetWorkspaceNodesAction(stored), `{"node2":"add"}`)
+	assert.Assert(t, strings.Contains(
+		v1.GetAnnotation(stored, v1.WorkspaceNodesActionError), "node1: "))
+
+	// Second pass: node2 is bound now, so the whole request is done. It leaves as a plain
+	// clear that touches no reason -- nothing was withdrawn this time, and a reason written
+	// again beside a shrinking request is a second withdrawal for the webhook to refund.
+	reason := v1.GetAnnotation(stored, v1.WorkspaceNodesActionError)
+	_, err = r.processNodesAction(context.Background(), stored)
+	assert.NilError(t, err)
+	stored = storedWorkspace(t, cli, workspace.Name)
+	assert.Equal(t, v1.GetWorkspaceNodesAction(stored), "")
+	assert.Equal(t, v1.GetAnnotation(stored, v1.WorkspaceNodesActionError), reason)
+}
+
+// A refused remove is withdrawn the same way as a refused add. Only the reason differs, and
+// what the webhook does with it: see mutateNodesActionWithdrawal for why a remove gets no
+// replica back.
+func TestProcessNodesActionWithdrawsARefusedRemove(t *testing.T) {
+	workspace := genMockWorkspace("cluster", "flavor", 1)
+	node := ownedNode("node1", "ws-other")
+	setNodesAction(workspace, map[string]string{node.Name: v1.NodeActionRemove})
+	cli := fake.NewClientBuilder().WithObjects(node, workspace).WithScheme(scheme.Scheme).
+		WithInterceptorFuncs(admissionRules()).Build()
+	r := newMockWorkspaceReconciler(cli)
+
+	_, err := r.processNodesAction(context.Background(), workspace)
+	assert.NilError(t, err)
+	assert.Equal(t, storedNode(t, cli, node.Name).GetSpecWorkspace(), "ws-other")
+	stored := storedWorkspace(t, cli, workspace.Name)
+	assert.Equal(t, v1.GetWorkspaceNodesAction(stored), "")
+	assert.Equal(t, stored.Spec.Replica, 1)
+	assert.Assert(t, strings.Contains(
+		v1.GetAnnotation(stored, v1.WorkspaceNodesActionError), "which is not the workspace asking"))
+}
+
+// An entry that is simply already true is not a refusal, and must not be reported as one: the
+// mutating webhook skipped it when it counted, and a reason annotation appearing alongside the
+// shrinking request is exactly what it reads as a withdrawal to refund.
+func TestProcessNodesActionLeavesReplicaAloneForASettledEntry(t *testing.T) {
+	workspace := genMockWorkspace("cluster", "flavor", 1)
+	node := ownedNode("node1", "")
+	node.Spec.Workspace = pointer.String(workspace.Name)
+	setNodesAction(workspace, map[string]string{node.Name: v1.NodeActionAdd})
+	cli := fake.NewClientBuilder().WithObjects(node, workspace).WithScheme(scheme.Scheme).
+		WithInterceptorFuncs(admissionRules()).Build()
+	r := newMockWorkspaceReconciler(cli)
+
+	_, err := r.processNodesAction(context.Background(), workspace)
+	assert.NilError(t, err)
+	stored := storedWorkspace(t, cli, workspace.Name)
+	assert.Equal(t, stored.Spec.Replica, 1)
+	assert.Equal(t, v1.GetWorkspaceNodesAction(stored), "")
+	assert.Equal(t, v1.GetAnnotation(stored, v1.WorkspaceNodesActionError), "")
 }
 
 func setNodesAction(workspace *v1.Workspace, actions map[string]string) {
@@ -439,4 +622,172 @@ func TestUpdateSingleNodeBindingLetsOnlyOneWorkspaceWin(t *testing.T) {
 	assert.Equal(t, updated, false)
 	assert.ErrorContains(t, err, "already bound to ws2")
 	assert.Equal(t, storedNode(t, cli, "node1").GetSpecWorkspace(), "ws2")
+}
+
+// A node moving from one workspace to the next passes through the empty label on the way, and
+// that intermediate event must not credit the workspace still waiting for the label to arrive.
+// Credit it early and syncWorkspace counts a node the workspace does not yet hold as missing,
+// binds a spare machine, and hands it back on the following round -- real churn on hardware.
+func TestHandleNodeEventDoesNotSettleAWorkspaceTheLabelHasNotReached(t *testing.T) {
+	r := newMockWorkspaceReconciler(fake.NewClientBuilder().WithScheme(scheme.Scheme).Build())
+	r.setExpectations("ws1", sets.NewSetByKeys("node1"))
+	r.setExpectations("ws2", sets.NewSetByKeys("node1"))
+
+	oldNode := ownedNode("node1", "ws1")
+	newNode := ownedNode("node1", "")
+	newNode.Spec.Workspace = pointer.String("ws2")
+
+	q := resWorkQueue()
+	r.handleNodeEvent().Update(context.Background(),
+		event.UpdateEvent{ObjectOld: oldNode, ObjectNew: newNode}, q)
+
+	assert.Equal(t, r.meetExpectations("ws1"), true, "the workspace the node left is settled")
+	assert.Equal(t, r.meetExpectations("ws2"), false, "the incoming workspace is still waiting")
+
+	// And it is settled by its own label arriving.
+	arrived := ownedNode("node1", "ws2")
+	r.handleNodeEvent().Update(context.Background(),
+		event.UpdateEvent{ObjectOld: newNode, ObjectNew: arrived}, q)
+	assert.Equal(t, r.meetExpectations("ws2"), true)
+}
+
+// The other side of the same rule. A node unmanaged in the window between a bind writing the
+// claim and the label making the round trip loses the claim with no label to lose alongside it,
+// so the claim going is the only event its owner will ever get. Miss it and the workspace waits
+// on that node for good: meetExpectations never comes true, and processWorkspace returns at the
+// top of every round without scaling or syncing status again.
+func TestHandleNodeEventSettlesAClaimReleasedBeforeTheLabelArrived(t *testing.T) {
+	r := newMockWorkspaceReconciler(fake.NewClientBuilder().WithScheme(scheme.Scheme).Build())
+	r.setExpectations("ws1", sets.NewSetByKeys("node1"))
+
+	oldNode := ownedNode("node1", "")
+	oldNode.Spec.Workspace = pointer.String("ws1")
+	newNode := ownedNode("node1", "")
+
+	q := resWorkQueue()
+	r.handleNodeEvent().Update(context.Background(),
+		event.UpdateEvent{ObjectOld: oldNode, ObjectNew: newNode}, q)
+
+	assert.Equal(t, r.meetExpectations("ws1"), true)
+	assert.Equal(t, q.Len(), 1, "and the workspace is woken to notice the node is gone")
+}
+
+// The guard that keeps the branch above from undoing the one before it. An ordinary unbind
+// drops the claim first and the label after, and it is the label that settles: the workspace
+// counts what it holds by label, so crediting the claim would tell it the node was gone while
+// it is still counting it, and it would bind a replacement it does not need.
+func TestHandleNodeEventDoesNotSettleAClaimThatStillHasItsLabel(t *testing.T) {
+	r := newMockWorkspaceReconciler(fake.NewClientBuilder().WithScheme(scheme.Scheme).Build())
+	r.setExpectations("ws1", sets.NewSetByKeys("node1"))
+
+	oldNode := ownedNode("node1", "ws1")
+	newNode := ownedNode("node1", "ws1")
+	newNode.Spec.Workspace = nil
+
+	r.handleNodeEvent().Update(context.Background(),
+		event.UpdateEvent{ObjectOld: oldNode, ObjectNew: newNode}, resWorkQueue())
+
+	assert.Equal(t, r.meetExpectations("ws1"), false)
+
+	// The label following is what settles it.
+	gone := ownedNode("node1", "")
+	r.handleNodeEvent().Update(context.Background(),
+		event.UpdateEvent{ObjectOld: newNode, ObjectNew: gone}, resWorkQueue())
+	assert.Equal(t, r.meetExpectations("ws1"), true)
+}
+
+// Reading the other workspaces' claims is what keeps two of them off the same free node, so a
+// read that fails has to stop the round rather than scale up against a partial answer.
+func TestGetNodesForScalingUpStopsWhenTheClaimsCannotBeRead(t *testing.T) {
+	nodeFlavor := genMockNodeFlavor()
+	free := genMockAdminNode("node1", "cluster", nodeFlavor)
+	workspace := genMockWorkspace("cluster", nodeFlavor.Name, 1)
+	cli := fake.NewClientBuilder().WithObjects(free, workspace).WithScheme(scheme.Scheme).
+		WithInterceptorFuncs(interceptor.Funcs{
+			List: func(ctx context.Context, c client.WithWatch, list client.ObjectList,
+				opts ...client.ListOption) error {
+				if _, ok := list.(*v1.WorkspaceList); ok {
+					return apierrors.NewInternalError(errors.New("boom"))
+				}
+				return c.List(ctx, list, opts...)
+			},
+		}).Build()
+	r := newMockWorkspaceReconciler(cli)
+	k8sClients := commonclient.NewClientFactoryWithOnlyClient(context.Background(), "cluster",
+		k8sfake.NewClientset(genMockK8sNode("node1", "cluster", nodeFlavor.Name, "")))
+
+	_, err := r.getNodesForScalingUp(context.Background(), workspace, k8sClients, 1)
+	assert.ErrorContains(t, err, "boom")
+}
+
+func bindingCount(t *testing.T, action, outcome string) float64 {
+	t.Helper()
+	return testutil.ToFloat64(rmmetrics.WorkspaceNodeBindingTotal.WithLabelValues(action, outcome))
+}
+
+// The outcome labels are the only thing that separates "binding is busy" from "binding is
+// being turned down" on a dashboard, and neither of the two new ones is observable any other
+// way -- a refusal and an exhausted retry both surface to the caller as a plain error.
+func TestUpdateSingleNodeBindingCountsWhatItTurnedDown(t *testing.T) {
+	node := ownedNode("node1", "ws2")
+	cli := fake.NewClientBuilder().WithObjects(node).WithScheme(scheme.Scheme).Build()
+	r := newMockWorkspaceReconciler(cli)
+
+	before := bindingCount(t, "bind", "refused")
+	_, err := r.updateSingleNodeBinding(context.Background(), "ws1", node, "ws1")
+	assert.ErrorContains(t, err, "already bound to ws2")
+	assert.Equal(t, bindingCount(t, "bind", "refused"), before+1)
+}
+
+// Counted once per exhausted call, not once per attempt: a counter that climbs with the retry
+// budget measures the budget rather than the contention.
+func TestUpdateSingleNodeBindingCountsAnExhaustedRetryOnce(t *testing.T) {
+	node := ownedNode("node1", "")
+	cli := fake.NewClientBuilder().WithObjects(node).WithScheme(scheme.Scheme).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Patch: func(ctx context.Context, c client.WithWatch, obj client.Object,
+				patch client.Patch, opts ...client.PatchOption) error {
+				return apierrors.NewConflict(schema.GroupResource{Resource: "nodes"},
+					obj.GetName(), errors.New("conflict"))
+			},
+		}).Build()
+	r := newMockWorkspaceReconciler(cli)
+
+	before := bindingCount(t, "bind", "conflict")
+	_, err := r.updateSingleNodeBinding(context.Background(), "ws1", node, "ws1")
+	assert.Assert(t, apierrors.IsConflict(err))
+	assert.Equal(t, bindingCount(t, "bind", "conflict"), before+1)
+}
+
+// A read that stops working -- throttling, an RBAC change -- has to look like binding failing
+// rather than like binding traffic going to zero.
+func TestUpdateSingleNodeBindingCountsAReadThatFails(t *testing.T) {
+	node := ownedNode("node1", "")
+	cli := fake.NewClientBuilder().WithObjects(node).WithScheme(scheme.Scheme).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey,
+				obj client.Object, opts ...client.GetOption) error {
+				return apierrors.NewInternalError(errors.New("throttled"))
+			},
+		}).Build()
+	r := newMockWorkspaceReconciler(cli)
+
+	before := bindingCount(t, "bind", "failed")
+	_, err := r.updateSingleNodeBinding(context.Background(), "ws1", node, "ws1")
+	assert.ErrorContains(t, err, "throttled")
+	assert.Equal(t, bindingCount(t, "bind", "failed"), before+1)
+}
+
+// The one place outside updateSingleNodeBinding that clears spec.workspace. A bind writes spec
+// first and waits for the label to make the round trip, so a node unmanaged inside that window
+// carries the claim and not the label -- and tying the release to the label would strand it
+// for good, since only the owner may release and the owner has been told the node is gone.
+func TestCleanupNodeAfterUnmanageReleasesAClaimThatHasNoLabelYet(t *testing.T) {
+	node := genMockAdminNode("node1", "cluster", genMockNodeFlavor())
+	node.Spec.Workspace = pointer.String("ws1")
+	cli := fake.NewClientBuilder().WithObjects(node).WithScheme(scheme.Scheme).Build()
+	r := newMockNodeReconciler(cli)
+
+	assert.NilError(t, r.cleanupNodeAfterUnmanage(context.Background(), node))
+	assert.Equal(t, storedNode(t, cli, node.Name).GetSpecWorkspace(), "")
 }
