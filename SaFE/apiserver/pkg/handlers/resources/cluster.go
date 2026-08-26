@@ -599,6 +599,14 @@ func parseProcessNodesRequest(c *gin.Context) (*view.ProcessNodesRequest, error)
 	if len(req.Action) == 0 {
 		return nil, commonerrors.NewBadRequest("no action provided")
 	}
+	if req.Action == v1.NodeActionMigrate {
+		if req.TargetWorkspaceId == "" {
+			return nil, commonerrors.NewBadRequest("no targetWorkspaceId provided for the migrate action")
+		}
+	} else if req.TargetWorkspaceId != "" {
+		return nil, commonerrors.NewBadRequest(fmt.Sprintf(
+			"targetWorkspaceId is only meaningful for the migrate action, not %s", req.Action))
+	}
 	return req, nil
 }
 

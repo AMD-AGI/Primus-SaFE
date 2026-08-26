@@ -391,7 +391,24 @@ func (h *Handler) processWorkspaceNodes(c *gin.Context) (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
-	return nil, h.updateWorkspaceNodesAction(c, c.GetString(common.Name), req.Action, req.NodeIds, req.Force)
+	action := req.Action
+	if req.Action == v1.NodeActionMigrate {
+		// A migration changes two workspaces: the source gives a node up and the target
+		// takes it on. Only the source is named in the route and authorized by the update
+		// below, so the target is authorized here -- otherwise a user with rights over one
+		// workspace could push nodes into any other.
+		if err = h.accessController.Authorize(authority.AccessInput{
+			Context:    c.Request.Context(),
+			Resource:   &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: req.TargetWorkspaceId}},
+			Verb:       v1.UpdateVerb,
+			Workspaces: []string{req.TargetWorkspaceId},
+			UserId:     c.GetString(common.UserId),
+		}); err != nil {
+			return nil, err
+		}
+		action = v1.BuildMigrateAction(req.TargetWorkspaceId)
+	}
+	return nil, h.updateWorkspaceNodesAction(c, c.GetString(common.Name), action, req.NodeIds, req.Force)
 }
 
 // updateWorkspaceNodesAction converts requested nodes and action into a node action
