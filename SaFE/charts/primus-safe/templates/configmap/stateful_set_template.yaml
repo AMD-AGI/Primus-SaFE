@@ -62,7 +62,7 @@ data:
                - name: NCCL_CHECKS_DISABLE
                  value: "1"
                - name: NCCL_IB_SL
-                 value: "0
+                 value: "0"
                - name: POD_IP
                  valueFrom:
                    fieldRef:
