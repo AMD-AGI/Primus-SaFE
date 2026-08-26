@@ -44,6 +44,9 @@ func newMockWorkspaceReconciler(adminClient client.Client) WorkspaceReconciler {
 		ClusterBaseReconciler: &ClusterBaseReconciler{
 			Client: adminClient,
 		},
+		// The real one is mgr.GetAPIReader(); here the same fake store answers both, which is
+		// what the production pair does too once the cache has caught up.
+		apiReader:     adminClient,
 		option:        &defaultWorkspaceOption,
 		expectations:  make(map[string]sets.Set),
 		clientManager: commonutils.NewObjectManagerSingleton(),
