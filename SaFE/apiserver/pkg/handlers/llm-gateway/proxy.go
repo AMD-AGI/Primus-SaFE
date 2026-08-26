@@ -19,7 +19,13 @@ import (
 	"k8s.io/klog/v2"
 )
 
-const llmProxyPrefix = "/api/v1/llm-proxy"
+const (
+	llmProxyPrefix = "/api/v1/llm-proxy"
+
+	// LiteLLM persists this header verbatim as LiteLLM_SpendLogs.requester_ip_address
+	// (it does not split the chain), so it must carry exactly one address.
+	llmProxyForwardedForHeader = "X-Forwarded-For"
+)
 
 // newLLMProxy creates a reverse proxy targeting the LiteLLM endpoint.
 // It strips the /api/v1/llm-proxy prefix and prepends the target's base path, so that
@@ -34,34 +40,43 @@ func newLLMProxy(endpoint string) (*httputil.ReverseProxy, error) {
 
 	basePath := strings.TrimSuffix(targetURL.Path, "/")
 
-	proxy := httputil.NewSingleHostReverseProxy(targetURL)
+	proxy := &httputil.ReverseProxy{
+		// Required for SSE streaming — flush response bytes immediately.
+		FlushInterval: -1,
 
-	// Required for SSE streaming — flush response bytes immediately.
-	proxy.FlushInterval = -1
+		// Rewrite rather than Director: with Director, net/http appends this hop's
+		// address to X-Forwarded-For, which would leave LiteLLM recording
+		// "<caller>, <apiserver>" instead of the caller alone.
+		Rewrite: func(pr *httputil.ProxyRequest) {
+			pr.Out.URL.Scheme = targetURL.Scheme
+			pr.Out.URL.Host = targetURL.Host
+			pr.Out.Host = targetURL.Host
 
-	proxy.Director = func(req *http.Request) {
-		req.URL.Scheme = targetURL.Scheme
-		req.URL.Host = targetURL.Host
-		req.Host = targetURL.Host
+			// Strip SaFE proxy prefix, prepend target's base path
+			trimmed := strings.TrimPrefix(pr.Out.URL.Path, llmProxyPrefix)
+			if !strings.HasPrefix(trimmed, "/") {
+				trimmed = "/" + trimmed
+			}
+			pr.Out.URL.Path = basePath + trimmed
 
-		// Strip SaFE proxy prefix, prepend target's base path
-		trimmed := strings.TrimPrefix(req.URL.Path, llmProxyPrefix)
-		if !strings.HasPrefix(trimmed, "/") {
-			trimmed = "/" + trimmed
-		}
-		req.URL.Path = basePath + trimmed
+			// Rewrite strips inbound X-Forwarded-* from pr.Out, so carry over the
+			// single address pinned by applyProxyClientIPHeader.
+			if clientIP := pr.In.Header.Get(llmProxyForwardedForHeader); clientIP != "" {
+				pr.Out.Header.Set(llmProxyForwardedForHeader, clientIP)
+			}
 
-		klog.Infof("LLM Proxy: %s -> %s", req.Method, req.URL.String())
-	}
+			klog.Infof("LLM Proxy: %s -> %s", pr.Out.Method, pr.Out.URL.String())
+		},
 
-	proxy.Transport = &http.Transport{
-		TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, // nolint:gosec
-	}
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, // nolint:gosec
+		},
 
-	proxy.ErrorHandler = func(w http.ResponseWriter, r *http.Request, err error) {
-		klog.ErrorS(err, "LLM Proxy error", "url", r.URL.String())
-		w.WriteHeader(http.StatusBadGateway)
-		_, _ = w.Write([]byte(`{"error":"LiteLLM service unavailable"}`))
+		ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
+			klog.ErrorS(err, "LLM Proxy error", "url", r.URL.String())
+			w.WriteHeader(http.StatusBadGateway)
+			_, _ = w.Write([]byte(`{"error":"LiteLLM service unavailable"}`))
+		},
 	}
 
 	return proxy, nil
@@ -100,6 +115,7 @@ func (h *Handler) ProxyLLMRequest(c *gin.Context) {
 	}
 
 	applyProxyVirtualKeyHeader(c, virtualKey)
+	applyProxyClientIPHeader(c)
 
 	defer recoverReverseProxyAbort(c)
 	h.proxy.ServeHTTP(c.Writer, c.Request)
@@ -129,6 +145,20 @@ func applyProxyVirtualKeyHeader(c *gin.Context, virtualKey string) {
 		return
 	}
 	c.Request.Header.Set(mapping.header, virtualKey)
+}
+
+// applyProxyClientIPHeader overwrites X-Forwarded-For with the caller address
+// resolved by gin, so LiteLLM attributes the request to the real client rather
+// than to the apiserver pod, and records the same address the apiserver access
+// log does. Collapsing the chain to a single hop keeps requester_ip_address
+// directly groupable, since LiteLLM stores the header value as-is.
+func applyProxyClientIPHeader(c *gin.Context) {
+	clientIP := c.ClientIP()
+	if clientIP == "" {
+		c.Request.Header.Del(llmProxyForwardedForHeader)
+		return
+	}
+	c.Request.Header.Set(llmProxyForwardedForHeader, clientIP)
 }
 
 func proxyAuthHeaderMappingByStyle(style any) llmProxyAuthHeaderMapping {

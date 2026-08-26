@@ -939,6 +939,50 @@ func TestProxyLLMRequest_Success(t *testing.T) {
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 }
 
+func TestProxyLLMRequest_ForwardsSingleClientIP(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockDB := mock_client.NewMockInterface(ctrl)
+
+	var forwardedFor string
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		forwardedFor = r.Header.Get("X-Forwarded-For")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer backend.Close()
+
+	handler := newTestHandler(t, mockDB, backend)
+
+	binding := &dbclient.LLMGatewayUserBinding{
+		UserEmail:         "test@amd.com",
+		LiteLLMVirtualKey: "virtual_key_test",
+		LiteLLMKeyHash:    "hash123",
+	}
+	mockDB.EXPECT().GetLLMBindingByEmail(gomock.Any(), "test@amd.com").Return(binding, nil)
+
+	router := gin.New()
+	router.POST("/api/v1/llm-proxy/*proxyPath", func(c *gin.Context) {
+		setUserContext(c, "user1", "test@amd.com")
+		handler.ProxyLLMRequest(c)
+	})
+
+	server := httptest.NewServer(router)
+	defer server.Close()
+
+	req, _ := http.NewRequest("POST", server.URL+"/api/v1/llm-proxy/v1/chat/completions",
+		strings.NewReader(`{"model":"gpt-4o","messages":[{"role":"user","content":"hi"}]}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Forwarded-For", "10.1.2.3")
+	resp, err := http.DefaultClient.Do(req)
+	assert.NoError(t, err)
+	defer resp.Body.Close()
+
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+	// LiteLLM stores this verbatim, so the apiserver hop must not be appended.
+	assert.Equal(t, "10.1.2.3", forwardedFor)
+}
+
 func TestProxyLLMRequest_XAPIKeyStyleForwardsVirtualKey(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
