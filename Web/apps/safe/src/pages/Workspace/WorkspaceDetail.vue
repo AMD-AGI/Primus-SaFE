@@ -329,8 +329,11 @@
           >
           <el-button type="primary" plain @click="handleRetryBatch">Retry</el-button>
           <span class="sep-ghost" aria-hidden="true"></span>
-          <el-button type="warning" :disabled="unBindDis" plain @click="openBindWl"
+          <el-button type="warning" :disabled="unBindDis" plain @click="openBindWl('remove')"
             >UnBind</el-button
+          >
+          <el-button type="primary" :disabled="unBindDis" plain @click="openBindWl('migrate')"
+            >Migrate</el-button
           >
         </div>
       </div>
@@ -349,7 +352,7 @@
   </el-card>
   <BindDialog
     v-model:visible="bindVisible"
-    action="remove"
+    :action="bindAction"
     :wsId="selectedWsId"
     :nodeIds="curNodeId"
     @success="onSearch({ resetPage: false })"
@@ -413,6 +416,7 @@ const router = useRouter()
 const loading = ref(false)
 const tableData = ref([])
 const bindVisible = ref(false)
+const bindAction = ref('remove')
 const manageVisible = ref(false)
 const selectedWsId = ref('')
 const selectedClusterId = ref('')
@@ -473,7 +477,8 @@ watch(hasSelection, (v) => {
 function onBarAfterLeave() {
   hasBarSpace.value = false
 }
-const openBindWl = async () => {
+const openBindWl = async (action: string) => {
+  bindAction.value = action
   selectedWsId.value = unbindWorkspaceId.value
   curNodeId.value = selectedRows.value.map((r) => r.nodeId).filter(Boolean)
   bindVisible.value = true

@@ -362,6 +362,9 @@
           <el-button type="warning" :disabled="unBindDis" plain @click="openBindWl('remove', true)"
             >UnBind</el-button
           >
+          <el-button type="primary" :disabled="unBindDis" plain @click="openBindWl('migrate', true)"
+            >Migrate</el-button
+          >
           <el-button type="success" :disabled="bindDis" plain @click="openBindWl('add', true)"
             >Bind</el-button
           >
@@ -440,6 +443,7 @@ import {
   RefreshRight,
   Download,
   VideoPause,
+  Switch,
 } from '@element-plus/icons-vue'
 import { copyText, byte2Gi } from '@/utils/index'
 import AddNodeDialog from './Components/AddNodeDialog.vue'
@@ -1021,6 +1025,14 @@ const getActions = (row: Row): Action[] => [
     icon: Minus,
     btnClass: 'btn-warning-plain',
     onClick: async (r: Row) => openBindWl('remove', false, r.nodeId, r.workspace?.id),
+    show: isAssigned(row) && !!isManager.value,
+  },
+  {
+    key: 'migrate',
+    label: 'Migrate',
+    icon: Switch,
+    btnClass: 'btn-primary-plain',
+    onClick: async (r: Row) => openBindWl('migrate', false, r.nodeId, r.workspace?.id),
     show: isAssigned(row) && !!isManager.value,
   },
 
