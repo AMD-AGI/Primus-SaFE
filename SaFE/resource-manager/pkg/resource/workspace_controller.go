@@ -449,13 +449,7 @@ func (r *WorkspaceReconciler) getNodesForScalingUp(ctx context.Context, workspac
 	k8sNodes := make([]*corev1.Node, 0, len(nodeList.Items))
 	adminNodeMap := make(map[string]*v1.Node)
 	for i, n := range nodeList.Items {
-		if !n.IsMachineReady() || !n.IsManaged() {
-			continue
-		}
-		if n.GetSpecWorkspace() != "" || v1.GetWorkspaceId(&n) != "" {
-			continue
-		}
-		if v1.GetNodeFlavorId(&n) != workspace.Spec.NodeFlavor {
+		if !isNodeEligibleForScalingUp(&nodeList.Items[i], workspace) {
 			continue
 		}
 		k8sNode, err := getNodeByInformer(ctx, k8sClients, n.GetK8sNodeName())
@@ -476,6 +470,34 @@ func (r *WorkspaceReconciler) getNodesForScalingUp(ctx context.Context, workspac
 		}
 	}
 	return result, nil
+}
+
+// isNodeEligibleForScalingUp reports whether an unbound node in the workspace's cluster may
+// be picked up by it. Callers have already narrowed the list to that cluster.
+//
+// The workspace argument is what keeps a migration from being undone by the scaling loop.
+// A node released by its source workspace is unbound and of a matching flavor, which is
+// every quality scale-up looks for, so between the two halves of a migration any workspace
+// in the cluster short of a replica would take it -- including the source workspace itself,
+// were its replica not decremented first. The node carries the target it was released for,
+// and only that target may claim it.
+func isNodeEligibleForScalingUp(node *v1.Node, workspace *v1.Workspace) bool {
+	if !node.IsMachineReady() || !node.IsManaged() {
+		return false
+	}
+	if node.GetSpecWorkspace() != "" || v1.GetWorkspaceId(node) != "" {
+		return false
+	}
+	if v1.GetNodeFlavorId(node) != workspace.Spec.NodeFlavor {
+		return false
+	}
+	// The target is allowed through rather than skipped over: the handover writes an add
+	// action for it, but should that write be lost, scaling up is what finishes the
+	// migration instead of leaving the node parked until the migration times out.
+	if info := v1.GetNodeMigrateInfo(node); info != nil && info.Target != workspace.Name {
+		return false
+	}
+	return true
 }
 
 // sortNodesForScalingUp sorts nodes based on priority for scaling up operations.
