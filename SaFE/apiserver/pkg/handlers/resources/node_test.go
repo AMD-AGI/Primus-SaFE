@@ -6,6 +6,7 @@
 package resources
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -15,6 +16,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	testifyassert "github.com/stretchr/testify/assert"
 
 	"github.com/gin-gonic/gin"
 	"gotest.tools/assert"
@@ -31,6 +34,7 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/resources/view"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
+	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
 	commonfaults "github.com/AMD-AIG-AIMA/SAFE/common/pkg/faults"
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
@@ -734,4 +738,254 @@ func TestGetWorkspaceAvailQuota(t *testing.T) {
 	assert.Equal(t, int64(48), cpu.Value())
 	assert.Equal(t, int64(4), gpu.Value())
 	assert.Equal(t, int64(1*1024*1024*1024), mem.Value())
+}
+
+// --- merged from node_delete_test.go ---
+
+func TestExportNodeToCSV(t *testing.T) {
+	nodes := &view.ListNodeResponse{
+		Items: []view.NodeResponseItem{
+			{
+				NodeBriefResponseItem: view.NodeBriefResponseItem{
+					NodeId:     "node-1",
+					InternalIP: "10.0.0.1",
+					Available:  true,
+				},
+				ClusterId:      "c1",
+				Phase:          "Ready",
+				AvailResources: view.ResourceList{"amd.com/gpu": 4, "cpu": 64},
+				TotalResources: view.ResourceList{"amd.com/gpu": 8, "cpu": 128},
+				IsControlPlane: false,
+			},
+		},
+	}
+	var buf bytes.Buffer
+	err := ExportNodeToCSV(nodes, &buf)
+	testifyassert.NoError(t, err)
+	out := buf.String()
+	testifyassert.Contains(t, out, "node-1")
+	testifyassert.Contains(t, out, "internalIP")
+	testifyassert.Contains(t, out, "4/8")
+}
+
+func TestDeleteNodeHandler(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	t.Run("node not found", func(t *testing.T) {
+		h, user := newAdminHandlerWithObjects()
+		rsp := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(rsp)
+		c.Request = httptest.NewRequest(http.MethodDelete, "/", nil)
+		c.Set(common.UserId, user.Name)
+		c.Set(common.Name, "missing")
+		h.DeleteNode(c)
+		testifyassert.NotEqual(t, http.StatusOK, rsp.Code)
+	})
+
+	t.Run("successful delete of unbound node", func(t *testing.T) {
+		h, user := newAdminHandlerWithObjects(&v1.Node{ObjectMeta: metav1.ObjectMeta{Name: "node-free"}})
+		rsp := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(rsp)
+		c.Request = httptest.NewRequest(http.MethodDelete, "/", nil)
+		c.Set(common.UserId, user.Name)
+		c.Set(common.Name, "node-free")
+		h.DeleteNode(c)
+		assert.Equal(t, http.StatusOK, rsp.Code)
+	})
+
+	t.Run("node bound to cluster cannot be deleted without force", func(t *testing.T) {
+		cluster := &v1.Cluster{ObjectMeta: metav1.ObjectMeta{Name: "c1"}}
+		node := &v1.Node{ObjectMeta: metav1.ObjectMeta{
+			Name:   "node-bound",
+			Labels: map[string]string{v1.ClusterIdLabel: "c1"},
+		}}
+		h, user := newAdminHandlerWithObjects(cluster, node)
+		rsp := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(rsp)
+		c.Request = httptest.NewRequest(http.MethodDelete, "/", nil)
+		c.Set(common.UserId, user.Name)
+		c.Set(common.Name, "node-bound")
+		h.DeleteNode(c)
+		testifyassert.NotEqual(t, http.StatusOK, rsp.Code)
+	})
+}
+
+func TestCreateNodeHandlerValidation(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	h, user := newAdminHandlerWithObjects()
+
+	// Missing required fields -> bad request via validateCreateNodeRequest.
+	body, _ := json.Marshal(view.CreateNodeRequest{})
+	rsp := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rsp)
+	c.Request = httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+	c.Set(common.UserId, user.Name)
+	h.CreateNode(c)
+	testifyassert.NotEqual(t, http.StatusOK, rsp.Code)
+}
+
+// --- merged from node_helpers_test.go ---
+
+func TestValidateCreateNodeRequest(t *testing.T) {
+	// Missing flavorId.
+	testifyassert.Error(t, validateCreateNodeRequest(&view.CreateNodeRequest{}))
+	// Missing privateIP.
+	testifyassert.Error(t, validateCreateNodeRequest(&view.CreateNodeRequest{FlavorId: "f1"}))
+	// Missing sshSecretId.
+	testifyassert.Error(t, validateCreateNodeRequest(&view.CreateNodeRequest{FlavorId: "f1", PrivateIP: "1.2.3.4"}))
+	// Valid.
+	testifyassert.NoError(t, validateCreateNodeRequest(&view.CreateNodeRequest{
+		FlavorId: "f1", PrivateIP: "1.2.3.4", SSHSecretId: "s1",
+	}))
+}
+
+func TestGetPrimusTaints(t *testing.T) {
+	taints := []corev1.Taint{
+		{Key: v1.PrimusSafePrefix + "gpu-fault", Value: "true", Effect: corev1.TaintEffectNoSchedule},
+		{Key: "user-taint", Value: "x", Effect: corev1.TaintEffectNoSchedule},
+	}
+	result := getPrimusTaints(taints)
+	testifyassert.Len(t, result, 1)
+	assert.Equal(t, "gpu-fault", result[0].Key)
+}
+
+func TestGetNodeCustomerLabels(t *testing.T) {
+	in := map[string]string{
+		v1.PrimusSafePrefix + "internal": "x",
+		v1.KubernetesControlPlane:        "",
+		"team":                           "infra",
+	}
+	out := getNodeCustomerLabels(in)
+	testifyassert.Equal(t, map[string]string{"team": "infra"}, out)
+}
+
+func TestConvertToNodeBriefResponse(t *testing.T) {
+	node := &v1.Node{
+		ObjectMeta: metav1.ObjectMeta{Name: "node-1"},
+		Spec:       v1.NodeSpec{PrivateIP: "10.0.0.1"},
+	}
+	resp := convertToNodeBriefResponse(node)
+	assert.Equal(t, "node-1", resp.NodeId)
+	assert.Equal(t, "10.0.0.1", resp.InternalIP)
+}
+
+func TestCvtToListNodeRebootSql(t *testing.T) {
+	node := &v1.Node{ObjectMeta: metav1.ObjectMeta{Name: "node-1"}}
+	query := &view.ListNodeRebootLogRequest{
+		SinceTime: time.Now().Add(-time.Hour),
+		UntilTime: time.Now(),
+		SortBy:    "creation_time",
+		Order:     dbclient.DESC,
+	}
+	sql, orderBy := cvtToListNodeRebootSql(query, node)
+	testifyassert.NotNil(t, sql)
+	testifyassert.NotEmpty(t, orderBy)
+
+	// Without time range filters.
+	sql2, _ := cvtToListNodeRebootSql(&view.ListNodeRebootLogRequest{SortBy: "creation_time", Order: dbclient.DESC}, node)
+	testifyassert.NotNil(t, sql2)
+}
+
+func TestGenerateWorkloadInfo(t *testing.T) {
+	wl := &v1.Workload{
+		ObjectMeta: metav1.ObjectMeta{Name: "wl-1"},
+		Spec: v1.WorkloadSpec{
+			GroupVersionKind: v1.GroupVersionKind{Kind: "PyTorchJob"},
+			Workspace:        "ws-1",
+		},
+	}
+	info := generateWorkloadInfo(wl)
+	assert.Equal(t, "wl-1", info.Id)
+	assert.Equal(t, "PyTorchJob", info.Kind)
+	assert.Equal(t, "ws-1", info.WorkspaceId)
+}
+
+// --- merged from node_more_test.go ---
+
+func TestGetAdminNode(t *testing.T) {
+	h, _ := newAdminHandlerWithObjects(&v1.Node{ObjectMeta: metav1.ObjectMeta{Name: "node-1"}})
+
+	_, err := h.getAdminNode(context.Background(), "")
+	testifyassert.Error(t, err)
+
+	n, err := h.getAdminNode(context.Background(), "node-1")
+	testifyassert.NoError(t, err)
+	assert.Equal(t, "node-1", n.Name)
+
+	_, err = h.getAdminNode(context.Background(), "missing")
+	testifyassert.Error(t, err)
+}
+
+func TestGetUsedResourceNoWorkspace(t *testing.T) {
+	h, _ := newAdminHandlerWithObjects()
+	// Node without a workspace label -> early return (nil, nil).
+	node := &v1.Node{ObjectMeta: metav1.ObjectMeta{Name: "node-1"}}
+	res, err := h.getUsedResource(context.Background(), node)
+	testifyassert.NoError(t, err)
+	testifyassert.Nil(t, res)
+}
+
+func TestBuildListNodeBriefResponse(t *testing.T) {
+	nodes := []*v1.Node{
+		{ObjectMeta: metav1.ObjectMeta{Name: "node-1"}, Spec: v1.NodeSpec{PrivateIP: "10.0.0.1"}},
+		{ObjectMeta: metav1.ObjectMeta{Name: "node-2"}, Spec: v1.NodeSpec{PrivateIP: "10.0.0.2"}},
+	}
+	resp, err := buildListNodeBriefResponse(2, nodes)
+	testifyassert.NoError(t, err)
+	briefResp, ok := resp.(*view.ListNodeBriefResponse)
+	testifyassert.True(t, ok)
+	assert.Equal(t, 2, briefResp.TotalCount)
+	testifyassert.Len(t, briefResp.Items, 2)
+}
+
+func TestGetNodeHandlerNoWorkspace(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	h, user := newAdminHandlerWithObjects(&v1.Node{ObjectMeta: metav1.ObjectMeta{Name: "node-1"}})
+
+	rsp := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rsp)
+	c.Request = httptest.NewRequest(http.MethodGet, "/", nil)
+	c.Set(common.UserId, user.Name)
+	c.Set(common.Name, "node-1")
+	h.GetNode(c)
+	assert.Equal(t, http.StatusOK, rsp.Code)
+}
+
+func TestGetNodeFlavorAvailHandler(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	nf := &v1.NodeFlavor{
+		ObjectMeta: metav1.ObjectMeta{Name: "flavor-1"},
+		Spec: v1.NodeFlavorSpec{
+			Cpu:    v1.CpuChip{Product: "AMD_EPYC", Quantity: resource.MustParse("128")},
+			Memory: resource.MustParse("256Gi"),
+			Gpu:    &v1.GpuChip{Product: "MI300X", ResourceName: "amd.com/gpu", Quantity: resource.MustParse("8")},
+		},
+	}
+	h, user := newAdminHandlerWithObjects(nf)
+
+	rsp := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rsp)
+	c.Request = httptest.NewRequest(http.MethodGet, "/", nil)
+	c.Set(common.UserId, user.Name)
+	c.Set(common.Name, "flavor-1")
+	h.GetNodeFlavorAvail(c)
+	assert.Equal(t, http.StatusOK, rsp.Code)
+}
+
+func TestGetWorkspaceDisplayName(t *testing.T) {
+	ws := &v1.Workspace{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:   "ws-1",
+			Labels: map[string]string{v1.DisplayNameLabel: "My Workspace"},
+		},
+	}
+	h, _ := newAdminHandlerWithObjects(ws)
+
+	name, err := h.getWorkspaceDisplayName(context.Background(), "ws-1")
+	testifyassert.NoError(t, err)
+	assert.Equal(t, "My Workspace", name)
+
+	_, err = h.getWorkspaceDisplayName(context.Background(), "missing")
+	testifyassert.Error(t, err)
 }

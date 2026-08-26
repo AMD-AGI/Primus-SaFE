@@ -93,12 +93,6 @@ func TestIsClusterSourceEndpoints(t *testing.T) {
 	assert.False(t, r.isClusterSourceEndpoints(other))
 }
 
-func TestBuildDNSServerBlock(t *testing.T) {
-	block := buildDNSServerBlock("foo.local", "10.0.0.1")
-	assert.Contains(t, block, "foo.local")
-	assert.Contains(t, block, "10.0.0.1")
-}
-
 func TestGenerateForwardName(t *testing.T) {
 	assert.Equal(t, "c1-forward", generateForwardName("c1"))
 }
@@ -106,12 +100,6 @@ func TestGenerateForwardName(t *testing.T) {
 func TestGenAllPriorityClass(t *testing.T) {
 	classes := genAllPriorityClass("c1")
 	assert.Len(t, classes, 3)
-}
-
-func TestGetControlPlaneIPNoCluster(t *testing.T) {
-	r := newClusterReconciler(t)
-	_, err := r.getControlPlaneIP(context.Background())
-	assert.Error(t, err)
 }
 
 // ---- cluster_contoller_plane pure functions ----

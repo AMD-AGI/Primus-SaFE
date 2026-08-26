@@ -11,6 +11,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -32,6 +33,7 @@ import (
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
+	commonclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/k8sclient"
 	rmmetrics "github.com/AMD-AIG-AIMA/SAFE/resource-manager/pkg/metrics"
 	"github.com/AMD-AIG-AIMA/SAFE/resource-manager/pkg/utils"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/secure"
@@ -42,6 +44,7 @@ const (
 	DefaultHttpServiePort = 443
 	// DefaultApiserverPort is the default port for Kubernetes API server
 	DefaultApiserverPort           = 6443
+	controlPlaneProbeBatchTimeout  = 15 * time.Second
 	deprecatedDefaultNginxTemplate = "nginx.22.3.2"
 	deprecatedDefaultNginxRelease  = "nginx"
 )
@@ -370,12 +373,35 @@ func (r *ClusterReconciler) fetchProvisionedClusterKubeConfig(ctx context.Contex
 		return err
 	}
 
-	config, err := r.fetchConfigFromSSH(ctx, nodes[0])
+	config, err := r.fetchConfigFromControlPlane(ctx, nodes)
 	if err != nil {
 		return err
 	}
 
 	return r.updateClusterKubeConfig(ctx, cluster, nodes, config)
+}
+
+// fetchConfigFromControlPlane reads the provisioned kubeconfig from the first control plane that
+// answers. Every control plane holds the same credentials, so one unreachable node must not block
+// adoption while its peers are healthy.
+func (r *ClusterReconciler) fetchConfigFromControlPlane(ctx context.Context,
+	nodes []*v1.Node) (*rest.Config, error) {
+	var lastErr error
+	for _, node := range nodes {
+		config, err := r.fetchConfigFromSSH(ctx, node)
+		if err != nil {
+			klog.ErrorS(err, "failed to read kubeconfig from control plane, trying peers",
+				"node", node.Name)
+			lastErr = err
+			continue
+		}
+		// fetchConfigFromSSH reports an unusable kubeconfig as a nil config without an error.
+		if config == nil {
+			continue
+		}
+		return config, nil
+	}
+	return nil, lastErr
 }
 
 // shouldFetchKubeConfig determines if kubeconfig should be fetched.
@@ -451,10 +477,6 @@ func (r *ClusterReconciler) updateClusterKubeConfig(ctx context.Context, cluster
 	}
 
 	cluster.Status.ControlPlaneStatus.Phase = v1.ReadyPhase
-
-	if err := r.guaranteeService(ctx, cluster); err != nil {
-		return err
-	}
 
 	if err := r.Status().Patch(ctx, cluster, originalCluster); err != nil {
 		return fmt.Errorf("failed load config %+v", err)
@@ -613,49 +635,138 @@ func (r *ClusterReconciler) guaranteeService(ctx context.Context, cluster *v1.Cl
 	return r.guaranteeServiceResource(ctx, cluster)
 }
 
-// guaranteeEndpoints creates the endpoints resource for the cluster.
-func (r *ClusterReconciler) guaranteeEndpoints(ctx context.Context, cluster *v1.Cluster, nodes []*v1.Node) error {
-	endpoint := new(corev1.Endpoints)
-	err := r.Get(ctx, types.NamespacedName{Name: cluster.Name, Namespace: common.PrimusSafeNamespace}, endpoint)
+// filterHealthyControlPlaneAddresses keeps apiserver endpoints that respond to ServerVersion.
+func (r *ClusterReconciler) filterHealthyControlPlaneAddresses(ctx context.Context, cluster *v1.Cluster,
+	nodes []*v1.Node) []corev1.EndpointAddress {
+	all := make([]corev1.EndpointAddress, 0, len(nodes))
+	for _, node := range nodes {
+		all = append(all, corev1.EndpointAddress{IP: node.Spec.PrivateIP})
+	}
+	cps := cluster.Status.ControlPlaneStatus
+	if cps.CertData == "" || cps.KeyData == "" {
+		return all
+	}
 
+	healthy := make([]corev1.EndpointAddress, 0, len(nodes))
+	probeCtx, cancel := context.WithTimeout(ctx, controlPlaneProbeBatchTimeout)
+	defer cancel()
+
+	// Fan out over control plane nodes only, so per-cluster concurrency is bounded by the etcd
+	// quorum size (typically 3 or 5) rather than by how many workers the cluster has. Reconciles
+	// run at the manager's MaxConcurrentReconciles, keeping the aggregate in the tens, and each
+	// batch is additionally capped by controlPlaneProbeBatchTimeout.
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+	for _, node := range nodes {
+		if probeCtx.Err() != nil {
+			break
+		}
+		wg.Add(1)
+		go func(node *v1.Node) {
+			defer wg.Done()
+			if probeCtx.Err() != nil {
+				return
+			}
+			endpoint := fmt.Sprintf("https://%s:%d", node.Spec.PrivateIP, DefaultApiserverPort)
+			_, restCfg, err := commonclient.NewClientSet(endpoint, cps.CertData, cps.KeyData, cps.CAData, true)
+			if err != nil {
+				return
+			}
+			if err = commonclient.ProbeRESTConfigWithContext(probeCtx, restCfg); err != nil {
+				klog.V(4).InfoS("control plane apiserver probe failed",
+					"cluster", cluster.Name, "node", node.Name, "err", err)
+				return
+			}
+			mu.Lock()
+			healthy = append(healthy, corev1.EndpointAddress{IP: node.Spec.PrivateIP})
+			mu.Unlock()
+		}(node)
+	}
+	wg.Wait()
+	if len(healthy) == 0 {
+		if preserved := r.existingControlPlaneEndpointAddresses(ctx, cluster); len(preserved) > 0 {
+			klog.Warningf("no healthy control plane endpoints for cluster %s, preserving %d existing backends",
+				cluster.Name, len(preserved))
+			return preserved
+		}
+		klog.Warningf("no healthy control plane endpoints for cluster %s, keeping all registered nodes", cluster.Name)
+		return all
+	}
+	return healthy
+}
+
+// existingControlPlaneEndpointAddresses returns the current admin-plane backend pool.
+func (r *ClusterReconciler) existingControlPlaneEndpointAddresses(ctx context.Context,
+	cluster *v1.Cluster) []corev1.EndpointAddress {
+	existing := new(corev1.Endpoints)
+	err := r.Get(ctx, types.NamespacedName{Name: cluster.Name, Namespace: common.PrimusSafeNamespace}, existing)
+	if err != nil {
+		return nil
+	}
+	addresses := make([]corev1.EndpointAddress, 0)
+	for _, subset := range existing.Subsets {
+		for _, addr := range subset.Addresses {
+			if addr.IP != "" {
+				addresses = append(addresses, addr)
+			}
+		}
+	}
+	return addresses
+}
+
+// guaranteeEndpoints creates or syncs the endpoints resource for the cluster.
+func (r *ClusterReconciler) guaranteeEndpoints(ctx context.Context, cluster *v1.Cluster, nodes []*v1.Node) error {
+	addresses := r.filterHealthyControlPlaneAddresses(ctx, cluster, nodes)
+	desiredPorts := []corev1.EndpointPort{{
+		Name:     "https",
+		Port:     DefaultApiserverPort,
+		Protocol: corev1.ProtocolTCP,
+	}}
+	desiredSubset := corev1.EndpointSubset{Addresses: addresses, Ports: desiredPorts}
+
+	existing := new(corev1.Endpoints)
+	err := r.Get(ctx, types.NamespacedName{Name: cluster.Name, Namespace: common.PrimusSafeNamespace}, existing)
 	if err != nil && !errors.IsNotFound(err) {
 		return err
 	}
-
-	if err == nil {
+	if errors.IsNotFound(err) {
+		endpoint := &corev1.Endpoints{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:            cluster.Name,
+				Namespace:       common.PrimusSafeNamespace,
+				OwnerReferences: []metav1.OwnerReference{createKubernetesClusterOwnerReference(cluster)},
+			},
+			Subsets: []corev1.EndpointSubset{desiredSubset},
+		}
+		if err = r.Create(ctx, endpoint); err != nil {
+			return fmt.Errorf("create cluster endpoint failed %+v", err)
+		}
 		return nil
 	}
 
-	address := make([]corev1.EndpointAddress, 0, len(nodes))
-	for _, node := range nodes {
-		address = append(address, corev1.EndpointAddress{IP: node.Spec.PrivateIP})
+	isChanged := false
+	if len(existing.Subsets) != 1 {
+		existing.Subsets = []corev1.EndpointSubset{desiredSubset}
+		isChanged = true
+	} else {
+		cur := existing.Subsets[0]
+		if len(cur.Ports) != 1 || cur.Ports[0].Port != desiredPorts[0].Port {
+			existing.Subsets[0].Ports = desiredPorts
+			isChanged = true
+		}
+		if !endpointSubsetEqual(cur, desiredSubset) {
+			existing.Subsets[0].Addresses = addresses
+			isChanged = true
+		}
 	}
-
-	endpoint = &corev1.Endpoints{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:            cluster.Name,
-			Namespace:       common.PrimusSafeNamespace,
-			OwnerReferences: []metav1.OwnerReference{createKubernetesClusterOwnerReference(cluster)},
-		},
-		Subsets: []corev1.EndpointSubset{
-			{
-				Addresses: address,
-				Ports: []corev1.EndpointPort{
-					{
-						Name:     "https",
-						Port:     DefaultApiserverPort,
-						Protocol: "TCP",
-					},
-				},
-			},
-		},
+	if !isChanged {
+		return nil
 	}
-
-	err = r.Create(ctx, endpoint)
-	if err != nil {
-		return fmt.Errorf("create cluster endpoint failed %+v", err)
+	if err = r.Update(ctx, existing); err != nil {
+		return fmt.Errorf("update cluster endpoint failed %+v", err)
 	}
-
+	klog.Infof("synced control plane endpoints for cluster %s, addresses: %d", cluster.Name, len(addresses))
+	r.markClusterClientFactoryStale(cluster.Name, "control plane endpoints changed")
 	return nil
 }
 

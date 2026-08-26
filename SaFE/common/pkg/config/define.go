@@ -74,6 +74,7 @@ const (
 	dbEnable               = dbPrefix + "enable"
 	dbSecretPath           = dbPrefix + "secret_path"
 	dbSslMode              = dbPrefix + "ssl_mode"
+	dbTargetSessionAttrs   = dbPrefix + "target_session_attrs"
 	dbMaxOpenConns         = dbPrefix + "max_open_conns"
 	dbMaxIdleConns         = dbPrefix + "max_idle_conns"
 	dbMaxLifetime          = dbPrefix + "max_life_time_second"

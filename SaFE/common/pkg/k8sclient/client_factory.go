@@ -7,6 +7,7 @@ package k8sclient
 
 import (
 	"context"
+	"sync"
 	"time"
 
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -34,6 +35,8 @@ type ClientFactory struct {
 	ctx context.Context
 	// Factory name, typically refers to cluster name
 	name          string
+	endpoint      string
+	backendFingerprint string
 	clientSet     kubernetes.Interface
 	restConfig    *rest.Config
 	dynamicClient *dynamic.DynamicClient
@@ -47,17 +50,41 @@ type ClientFactory struct {
 	// Informer type enum definition. 0: disable informer; 1: sharedInformer; 2 dynamicSharedInformer
 	// default 0
 	informerType InformerType
+	// validMu guards valid and invalidReason, which are updated after the factory is published:
+	// watch error handlers write from reflector goroutines while reconcilers and API request
+	// handlers read concurrently. The pair is kept under one lock so a reader never sees a status
+	// and a reason that disagree.
+	validMu sync.RWMutex
 	// Whether the ClientFactory is valid
 	valid bool
 	// If the factory is invalid, explain the reason
 	invalidReason string
 }
 
-// NewClientFactory creates a new client factory.
+// NewClientFactory creates a new client factory for a single reachable endpoint (service mode).
 func NewClientFactory(ctx context.Context, name, endpoint, certData,
 	keyData, caData string, informerType InformerType,
 ) (*ClientFactory, error) {
-	clientSet, restCfg, err := NewClientSet(endpoint, certData, keyData, caData, true)
+	return NewClientFactoryWithFallbacks(ctx, name, endpoint, nil, certData, keyData, caData, informerType)
+}
+
+// NewClientFactoryWithFallbacks creates a client factory, probing fallback endpoints when provided.
+func NewClientFactoryWithFallbacks(ctx context.Context, name, endpoint string, fallbackEndpoints []string,
+	certData, keyData, caData string, informerType InformerType,
+) (*ClientFactory, error) {
+	var (
+		clientSet        kubernetes.Interface
+		restCfg          *rest.Config
+		selectedEndpoint string
+		err              error
+	)
+	if len(fallbackEndpoints) > 0 {
+		clientSet, restCfg, selectedEndpoint, err = NewClientSetWithProbe(
+			ctx, endpoint, fallbackEndpoints, certData, keyData, caData, true)
+	} else {
+		clientSet, restCfg, err = NewClientSet(endpoint, certData, keyData, caData, true)
+		selectedEndpoint = NormalizeEndpointHost(endpoint)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -68,6 +95,7 @@ func NewClientFactory(ctx context.Context, name, endpoint, certData,
 	factory := &ClientFactory{
 		ctx:           ctx,
 		name:          name,
+		endpoint:      selectedEndpoint,
 		clientSet:     clientSet,
 		restConfig:    restCfg,
 		dynamicClient: dynamicClient,
@@ -94,8 +122,36 @@ func NewClientFactory(ctx context.Context, name, endpoint, certData,
 		factory.dynamicSharedInformerFactory = dynamicinformer.NewDynamicSharedInformerFactory(dynamicClient, defaultResyncPeriod)
 	default:
 	}
-	klog.Infof("new k8s client factory. name: %s, informer type: %d", name, informerType)
+	klog.Infof("new k8s client factory. name: %s, endpoint: %s, informer type: %d",
+		name, selectedEndpoint, informerType)
 	return factory, nil
+}
+
+// NewClientFactoryForTest builds a minimal valid factory for unit tests.
+func NewClientFactoryForTest(name, endpoint string) *ClientFactory {
+	return &ClientFactory{
+		name:     name,
+		endpoint: NormalizeEndpointHost(endpoint),
+		valid:    true,
+	}
+}
+
+// AttachRestConfigForTest sets REST config on a test factory.
+func (f *ClientFactory) AttachRestConfigForTest(cfg *rest.Config) {
+	f.restConfig = cfg
+}
+
+// NewClientFactoryForTestWithInformer builds a factory backed by the given clientset and a live
+// shared informer factory, so informer wiring can be exercised in unit tests.
+func NewClientFactoryForTestWithInformer(name string, clientSet kubernetes.Interface) *ClientFactory {
+	return &ClientFactory{
+		name:                  name,
+		clientSet:             clientSet,
+		informerType:          EnableInformer,
+		stopCh:                make(chan struct{}),
+		sharedInformerFactory: informers.NewSharedInformerFactory(clientSet, time.Minute),
+		valid:                 true,
+	}
 }
 
 // NewClientFactoryWithOnlyClient create factory instance with client only (without Informer).
@@ -113,6 +169,21 @@ func (f *ClientFactory) Name() string {
 	return f.name
 }
 
+// Endpoint returns the apiserver endpoint selected for this factory.
+func (f *ClientFactory) Endpoint() string {
+	return f.endpoint
+}
+
+// BackendFingerprint returns the control-plane backend IP fingerprint for service mode.
+func (f *ClientFactory) BackendFingerprint() string {
+	return f.backendFingerprint
+}
+
+// SetBackendFingerprint records the control-plane backend IP fingerprint.
+func (f *ClientFactory) SetBackendFingerprint(fingerprint string) {
+	f.backendFingerprint = fingerprint
+}
+
 // Release factory resources, stop Informer (if enabled).
 func (f *ClientFactory) Release() error {
 	if f.informerType == EnableInformer || f.informerType == EnableDynamicInformer {
@@ -123,11 +194,15 @@ func (f *ClientFactory) Release() error {
 
 // IsValid returns true if factory is valid
 func (f *ClientFactory) IsValid() bool {
+	f.validMu.RLock()
+	defer f.validMu.RUnlock()
 	return f.valid
 }
 
 // SetValid set factory validity status and reason.
 func (f *ClientFactory) SetValid(valid bool, msg string) {
+	f.validMu.Lock()
+	defer f.validMu.Unlock()
 	f.valid = valid
 	f.invalidReason = msg
 }
@@ -170,6 +245,8 @@ func (f *ClientFactory) DynamicSharedInformerFactory() dynamicinformer.DynamicSh
 
 // GetInvalidReason get reason for factory invalidity.
 func (f *ClientFactory) GetInvalidReason() string {
+	f.validMu.RLock()
+	defer f.validMu.RUnlock()
 	return f.invalidReason
 }
 

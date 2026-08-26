@@ -391,7 +391,7 @@ func (m *WorkloadMutator) mutateAuthoring(workload *v1.Workload) {
 		workload.Spec.Resources[0].Replica = 1
 	}
 	v1.SetAnnotation(workload, v1.WorkloadDisableFailoverAnnotation, v1.TrueStr)
-	workload.Spec.EntryPoints = []string{stringutil.Base64Encode("sleep infinity")}
+	workload.Spec.EntryPoints = []string{stringutil.Base64Encode("tail -f /dev/null")}
 	workload.Spec.Dependencies = nil
 }
 
@@ -689,8 +689,13 @@ func (m *WorkloadMutator) mutateEntryPoints(workload *v1.Workload) {
 	}
 }
 
-// mutateRdmaResource configures RDMA resources when hostNetwork is enabled.
-// If the NodeFlavor specifies RDMA capacity, it uses that value; otherwise defaults to "1".
+// mutateRdmaResource ensures multi-node GPU roles request an RDMA device so
+// cross-node collective communication (NCCL/RCCL) runs over RoCE/IB instead of
+// falling back to TCP sockets. RDMA is added only for multi-node topologies
+// (GPU roles spanning more than one pod); the previous full-node-GPU gate is
+// dropped so partial-GPU multi-node tasks (e.g. 2 of 8 GPUs per node) still get
+// an RDMA device. A caller-provided RdmaResource is preserved; only an unset
+// one is filled from the NodeFlavor's RDMA capacity (falling back to "1").
 func (m *WorkloadMutator) mutateRdmaResource(ctx context.Context, workload *v1.Workload) {
 	flavorId := v1.GetNodeFlavorId(workload)
 	if flavorId == "" {
@@ -701,31 +706,23 @@ func (m *WorkloadMutator) mutateRdmaResource(ctx context.Context, workload *v1.W
 		return
 	}
 	rdmaName := commonconfig.GetRdmaName()
-	totalGpuReplica := 0
-	isGpuPartiallyUsed := false
+	if rdmaName == "" {
+		return
+	}
+
+	// A workload is multi-node when its GPU roles span more than one pod.
 	// Multi-node and multi-replica DynamoDeployment roles both expand to
 	// res.Replica pods: a multinode role's Replica is its LWS node count, a
 	// plain role's Replica is its Deployment replica count. Either way
-	// res.Replica is the per-resource pod count used for RDMA classification,
-	// so no extra multinode factor is needed. Non-dynamo workloads are
-	// unaffected (Replica is their plain replica count).
-	if rdmaName != "" {
-		for _, res := range workload.Spec.Resources {
-			if !res.HasGpu() {
-				continue
-			}
-			n, err := strconv.Atoi(res.GPU)
-			if err != nil || n != nf.GetGpuCount() {
-				isGpuPartiallyUsed = true
-				break
-			}
-			totalGpuReplica += res.Replica
-		}
+	// res.Replica is the per-resource pod count, so no extra multinode factor
+	// is needed.
+	if commonworkload.GetTotalGpuReplica(workload) <= 1 {
+		return
 	}
 
 	for i, res := range workload.Spec.Resources {
-		if totalGpuReplica <= 1 || !res.HasGpu() || isGpuPartiallyUsed {
-			workload.Spec.Resources[i].RdmaResource = ""
+		// Only GPU roles need an RDMA device; honor a caller-provided value.
+		if !res.HasGpu() || workload.Spec.Resources[i].RdmaResource != "" {
 			continue
 		}
 		rdmaQuantity, ok := nf.Spec.ExtendResources[corev1.ResourceName(rdmaName)]

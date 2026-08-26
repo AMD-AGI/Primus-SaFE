@@ -961,10 +961,12 @@ func TestProxyLLMRequest_ForwardsSingleClientIP(t *testing.T) {
 	}
 	mockDB.EXPECT().GetLLMBindingByEmail(gomock.Any(), "test@amd.com").Return(binding, nil)
 
+	var clientIPAfterProxy string
 	router := gin.New()
 	router.POST("/api/v1/llm-proxy/*proxyPath", func(c *gin.Context) {
 		setUserContext(c, "user1", "test@amd.com")
 		handler.ProxyLLMRequest(c)
+		clientIPAfterProxy = c.ClientIP()
 	})
 
 	server := httptest.NewServer(router)
@@ -981,6 +983,9 @@ func TestProxyLLMRequest_ForwardsSingleClientIP(t *testing.T) {
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 	// LiteLLM stores this verbatim, so the apiserver hop must not be appended.
 	assert.Equal(t, "10.1.2.3", forwardedFor)
+	// The access log resolves the address again after the handler returns, so
+	// rewriting the header must not change what it reports.
+	assert.Equal(t, "10.1.2.3", clientIPAfterProxy)
 }
 
 func TestProxyLLMRequest_XAPIKeyStyleForwardsVirtualKey(t *testing.T) {
@@ -1139,8 +1144,11 @@ func TestGetUsage_Success(t *testing.T) {
 	mockDB := mock_client.NewMockInterface(ctrl)
 
 	litellm := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		assert.Contains(t, r.URL.Path, "/user/daily/activity")
+		assert.Equal(t, "/user/daily/activity/aggregated", r.URL.Path)
 		assert.Equal(t, "test@amd.com", r.URL.Query().Get("user_id"))
+		assert.Equal(t, "2026-03-17", r.URL.Query().Get("start_date"))
+		assert.Equal(t, "2026-03-17", r.URL.Query().Get("end_date"))
+		assert.Equal(t, "-480", r.URL.Query().Get("timezone"))
 		w.WriteHeader(http.StatusOK)
 		json.NewEncoder(w).Encode(DailyActivityResponse{
 			Results: []DailyResult{
@@ -1179,7 +1187,7 @@ func TestGetUsage_Success(t *testing.T) {
 	})
 
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest("GET", "/usage?start_date=2026-03-17&end_date=2026-03-17", nil)
+	req, _ := http.NewRequest("GET", "/usage?start_date=2026-03-17&end_date=2026-03-17&timezone=Asia%2FShanghai&timezone_offset=-480", nil)
 	router.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
@@ -1330,6 +1338,39 @@ func TestNewLLMProxy_PathRewrite(t *testing.T) {
 			assert.Equal(t, tt.expectedPath, resp.Header.Get("X-Received-Path"))
 		})
 	}
+}
+
+// Rewrite drops the inbound X-Forwarded-* headers before it runs, so guard that
+// it carries over both stamps the handler applies rather than only the address.
+func TestNewLLMProxy_ForwardsStampedHeaders(t *testing.T) {
+	var received http.Header
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		received = r.Header.Clone()
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer backend.Close()
+
+	proxy, err := newLLMProxy(backend.URL)
+	assert.NoError(t, err)
+
+	router := gin.New()
+	router.Any("/api/v1/llm-proxy/*proxyPath", func(c *gin.Context) {
+		applyUpstreamUserHeader(c, "ntid123")
+		applyProxyClientIPHeader(c)
+		proxy.ServeHTTP(c.Writer, c.Request)
+	})
+
+	server := httptest.NewServer(router)
+	defer server.Close()
+
+	req, _ := http.NewRequest("GET", server.URL+"/api/v1/llm-proxy/v1/models", nil)
+	req.Header.Set("X-Forwarded-For", "10.1.2.3")
+	resp, err := http.DefaultClient.Do(req)
+	assert.NoError(t, err)
+	defer resp.Body.Close()
+
+	assert.Equal(t, "ntid123", received.Get(upstreamUserHeader))
+	assert.Equal(t, "10.1.2.3", received.Get(forwardedForHeader))
 }
 
 func TestNewLLMProxy_InvalidEndpoint(t *testing.T) {

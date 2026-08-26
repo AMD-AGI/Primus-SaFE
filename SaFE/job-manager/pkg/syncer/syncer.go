@@ -7,6 +7,7 @@ package syncer
 
 import (
 	"context"
+	"sync"
 	"time"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -37,6 +38,10 @@ type SyncerReconciler struct {
 	// Key: cluster name, Value: *ClusterClientSets instance
 	clusterClientSets *commonutils.ObjectManager
 	dbClient          dbclient.Interface
+	// vanishedPodsChecked holds the workloads whose pod records this process has
+	// already reconciled against the informer cache, and drops each one once its
+	// workload ends. See reconcileVanishedPods.
+	vanishedPodsChecked sync.Map
 	*controller.KeyedController[*resourceMessage]
 }
 
@@ -44,6 +49,9 @@ type SyncerReconciler struct {
 // queue is keyed by object identity, so the same object is still processed
 // serially while different objects fan out across workers.
 const syncerWorkers = 8
+
+// clusterClientSetsRetryInterval is the backoff for re-attempting data-plane informer setup.
+const clusterClientSetsRetryInterval = 15 * time.Second
 
 // resourceMessageKey identifies the k8s object a message is about. Messages with
 // the same key are serialized and coalesced by the KeyedController.
@@ -76,6 +84,9 @@ func SetupSyncerController(ctx context.Context, mgr manager.Manager) error {
 	}
 	r.KeyedController = controller.NewKeyedController[*resourceMessage](r, resourceMessageKey, mergeResourceMessage, syncerWorkers)
 	if err := r.start(ctx); err != nil {
+		return err
+	}
+	if err := mgr.Add(&clusterClientSetsMaintainer{r: r}); err != nil {
 		return err
 	}
 
@@ -137,41 +148,98 @@ func (r *SyncerReconciler) Reconcile(ctx context.Context, request ctrlruntime.Re
 		}
 		return ctrlruntime.Result{}, err
 	}
-	if quit := r.observe(c); quit {
-		return ctrlruntime.Result{}, nil
-	}
-	if err := r.handle(ctx, c); err != nil {
+	rtList := &v1.ResourceTemplateList{}
+	if err := r.List(ctx, rtList); err != nil {
+		klog.ErrorS(err, "failed to list ResourceTemplateList")
 		return ctrlruntime.Result{}, err
+	}
+	if retryNeeded := r.ensureClusterClientSets(ctx, c, rtList); retryNeeded {
+		return ctrlruntime.Result{RequeueAfter: clusterClientSetsRetryInterval}, nil
 	}
 	return ctrlruntime.Result{}, nil
 }
 
-// observe checks if a cluster client sets already exists for the given cluster.
-func (r *SyncerReconciler) observe(c *v1.Cluster) bool {
-	_, ok := r.clusterClientSets.Get(c.Name)
-	return ok
-}
-
-// handle processes a cluster by creating a new cluster client sets and initializing resource templates.
-func (r *SyncerReconciler) handle(ctx context.Context, cluster *v1.Cluster) error {
-	clientSets, err := newClusterClientSets(r.ctx, cluster, r.Client, r.Add)
+// ensureClusterClientSets creates or completes data-plane informers for a cluster.
+// Returns true when setup is incomplete and should be retried.
+func (r *SyncerReconciler) ensureClusterClientSets(ctx context.Context, cluster *v1.Cluster,
+	rtList *v1.ResourceTemplateList) bool {
+	if !cluster.IsReady() {
+		return false
+	}
+	clientSets, err := GetClusterClientSets(r.clusterClientSets, cluster.Name)
 	if err != nil {
-		klog.ErrorS(err, "failed to new cluster clientSets", "cluster.name", cluster.Name)
-		return err
-	}
-	rtList := &v1.ResourceTemplateList{}
-	if err = r.List(ctx, rtList); err != nil {
-		klog.ErrorS(err, "failed to list ResourceTemplateList")
-		return err
-	}
-	for _, rt := range rtList.Items {
-		if err = clientSets.addResourceTemplate(rt.ToSchemaGVK()); err != nil {
-			klog.ErrorS(err, "failed to add resource template", "cluster", cluster.Name, "rt", rt)
+		clientSets, err = newClusterClientSets(r.ctx, cluster, r.Client, r.Add)
+		if err != nil {
+			klog.ErrorS(err, "failed to new cluster clientSets", "cluster", cluster.Name)
+			return true
+		}
+		r.clusterClientSets.AddOrReplace(cluster.Name, clientSets)
+		klog.Infof("create cluster clientSets, name: %s", cluster.Name)
+	} else if clientSets.needsClientFactoryRefresh(ctx, cluster, r.Client) {
+		if err = clientSets.recreateClientFactory(ctx, cluster, r.Client); err != nil {
+			klog.ErrorS(err, "failed to recreate cluster clientSets", "cluster", cluster.Name)
+			return true
 		}
 	}
-	r.clusterClientSets.AddOrReplace(cluster.Name, clientSets)
-	klog.Infof("create cluster clientSets, name: %s", cluster.Name)
+	for i := range rtList.Items {
+		if err := clientSets.addResourceTemplate(rtList.Items[i].ToSchemaGVK()); err != nil {
+			klog.ErrorS(err, "failed to add resource template",
+				"cluster", cluster.Name, "rt", rtList.Items[i].Name)
+		}
+	}
+	if clientSets.needsInformerRetry(rtList) {
+		klog.InfoS("cluster client sets incomplete, will retry informer setup",
+			"cluster", cluster.Name, "informers", clientSets.informerCount())
+		return true
+	}
+	return false
+}
+
+// clusterClientSetsMaintainer retries data-plane informer setup on the elected leader only.
+type clusterClientSetsMaintainer struct {
+	r *SyncerReconciler
+}
+
+// Start implements manager.Runnable.
+func (m *clusterClientSetsMaintainer) Start(ctx context.Context) error {
+	m.r.maintainClusterClientSets(ctx)
 	return nil
+}
+
+// NeedLeaderElection implements manager.LeaderElectionRunnable.
+func (m *clusterClientSetsMaintainer) NeedLeaderElection() bool {
+	return true
+}
+
+// maintainClusterClientSets periodically retries informer setup for all clusters.
+func (r *SyncerReconciler) maintainClusterClientSets(ctx context.Context) {
+	ticker := time.NewTicker(clusterClientSetsRetryInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			r.ensureAllClusterClientSets(ctx)
+		}
+	}
+}
+
+// ensureAllClusterClientSets retries informer setup across every registered cluster.
+func (r *SyncerReconciler) ensureAllClusterClientSets(ctx context.Context) {
+	clusterList := &v1.ClusterList{}
+	if err := r.List(ctx, clusterList); err != nil {
+		klog.ErrorS(err, "failed to list clusters for client sets maintenance")
+		return
+	}
+	rtList := &v1.ResourceTemplateList{}
+	if err := r.List(ctx, rtList); err != nil {
+		klog.ErrorS(err, "failed to list ResourceTemplateList during client sets maintenance")
+		return
+	}
+	for i := range clusterList.Items {
+		r.ensureClusterClientSets(ctx, &clusterList.Items[i], rtList)
+	}
 }
 
 // deleteClusterClientSet removes and cleans up a cluster clientSets.

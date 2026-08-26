@@ -9,7 +9,10 @@ import (
 	"context"
 	"fmt"
 	"reflect"
+	"sync"
 	"time"
+
+	"golang.org/x/sync/singleflight"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -66,9 +69,12 @@ type nodeQueueMessage struct {
 type NodeK8sReconciler struct {
 	ctx context.Context
 	*ClusterBaseReconciler
-	clientManager *commonutils.ObjectManager
-	queue         NodeQueue
+	clientManager        *commonutils.ObjectManager
+	queue                NodeQueue
 	*commonctrl.Controller[*nodeQueueMessage]
+	nodeInformerMu       sync.Mutex
+	startedNodeInformers map[string]*commonclient.ClientFactory
+	nodeInformerGroup    singleflight.Group
 }
 
 // SetupNodeK8sController initializes and registers the NodeK8sReconciler with the controller manager.
@@ -81,6 +87,7 @@ func SetupNodeK8sController(ctx context.Context, mgr manager.Manager) error {
 		ctx:                   ctx,
 		ClusterBaseReconciler: baseReconciler,
 		clientManager:         commonutils.NewObjectManagerSingleton(),
+		startedNodeInformers:  make(map[string]*commonclient.ClientFactory),
 		queue: workqueue.NewTypedRateLimitingQueueWithConfig(
 			workqueue.DefaultTypedControllerRateLimiter[*nodeQueueMessage](),
 			workqueue.TypedRateLimitingQueueConfig[*nodeQueueMessage]{Name: "node"}),
@@ -92,6 +99,10 @@ func SetupNodeK8sController(ctx context.Context, mgr manager.Manager) error {
 	if err = r.start(ctx); err != nil {
 		return err
 	}
+	RegisterNodeInformerRestarter(func(ctx context.Context, cluster *v1.Cluster) error {
+		return r.restartNodeInformerAfterClientRebuild(ctx, cluster)
+	})
+	RegisterNodeInformerClearer(r.clearNodeInformerRegistration)
 	err = ctrlruntime.NewControllerManagedBy(mgr).
 		For(&v1.Cluster{}, builder.WithPredicates(r.relevantChangePredicate())).
 		Complete(r)
@@ -137,43 +148,94 @@ func (r *NodeK8sReconciler) relevantChangePredicate() predicate.Predicate {
 
 // startNodeInformer initializes and starts a node informer for the given cluster with retry logic.
 func (r *NodeK8sReconciler) startNodeInformer(cluster *v1.Cluster) error {
+	if cluster == nil {
+		return nil
+	}
+	_, err, _ := r.nodeInformerGroup.Do(cluster.Name, func() (interface{}, error) {
+		return nil, r.startNodeInformerOnce(cluster)
+	})
+	return err
+}
+
+func (r *NodeK8sReconciler) clearNodeInformerRegistration(clusterName string) {
+	r.nodeInformerMu.Lock()
+	delete(r.startedNodeInformers, clusterName)
+	r.nodeInformerMu.Unlock()
+}
+
+// restartNodeInformerAfterClientRebuild re-attaches the node informer without blocking on cache sync.
+func (r *NodeK8sReconciler) restartNodeInformerAfterClientRebuild(ctx context.Context, cluster *v1.Cluster) error {
+	if cluster == nil {
+		return nil
+	}
+	_, err, _ := r.nodeInformerGroup.Do(cluster.Name, func() (interface{}, error) {
+		return nil, r.attachNodeInformer(ctx, cluster, false)
+	})
+	return err
+}
+
+func (r *NodeK8sReconciler) startNodeInformerOnce(cluster *v1.Cluster) error {
 	const maxRetry = 100
 	waitTime := time.Millisecond * 200
 	maxWaitTime := waitTime * maxRetry
 
-	err := backoff.Retry(func() error {
-		k8sClients, err := utils.GetK8sClientFactory(r.clientManager, cluster.Name)
-		if err != nil {
-			klog.ErrorS(err, "failed to get k8s client for data plane", "name", cluster.Name)
-			return err
-		}
-		nodeInformer := k8sClients.SharedInformerFactory().Core().V1().Nodes().Informer()
-		if _, err = nodeInformer.AddEventHandler(r.nodeEventHandler(k8sClients)); err != nil {
-			klog.ErrorS(err, "failed to add event handler", "name", cluster.Name)
-			return err
-		}
-		if err = nodeInformer.SetWatchErrorHandler(watchErrorHandler(r.ctx, k8sClients)); err != nil {
-			klog.ErrorS(err, "failed to set error handler", "name", cluster.Name)
-			return err
-		}
-		k8sClients.StartInformer()
+	return backoff.Retry(func() error {
+		return r.attachNodeInformer(r.ctx, cluster, true)
+	}, maxWaitTime, waitTime)
+}
+
+// attachNodeInformer wires handlers and starts the node informer for the current client factory.
+func (r *NodeK8sReconciler) attachNodeInformer(ctx context.Context, cluster *v1.Cluster, waitSync bool) error {
+	k8sClients, err := utils.GetK8sClientFactory(r.clientManager, cluster.Name)
+	if err != nil {
+		klog.ErrorS(err, "failed to get k8s client for data plane", "name", cluster.Name)
+		return err
+	}
+	r.nodeInformerMu.Lock()
+	if prev, ok := r.startedNodeInformers[cluster.Name]; ok && prev == k8sClients {
+		r.nodeInformerMu.Unlock()
+		return nil
+	}
+	r.nodeInformerMu.Unlock()
+
+	nodeInformer := k8sClients.SharedInformerFactory().Core().V1().Nodes().Informer()
+	if _, err = nodeInformer.AddEventHandler(r.nodeEventHandler(k8sClients)); err != nil {
+		klog.ErrorS(err, "failed to add event handler", "name", cluster.Name)
+		return err
+	}
+	if err = nodeInformer.SetWatchErrorHandler(commonclient.WatchErrorHandler(r.ctx, k8sClients)); err != nil {
+		klog.ErrorS(err, "failed to set error handler", "name", cluster.Name)
+		return err
+	}
+	k8sClients.StartInformer()
+	r.nodeInformerMu.Lock()
+	r.startedNodeInformers[cluster.Name] = k8sClients
+	r.nodeInformerMu.Unlock()
+
+	if waitSync {
 		if k8sClients.WaitForCacheSync(time.Minute * 10) {
 			klog.Infof("add k8s node informer successfully. cluster: %s", cluster.Name)
 		} else {
 			klog.Errorf("failed to sync cache for k8s node informer. cluster: %s", cluster.Name)
 		}
 		return nil
-	}, maxWaitTime, waitTime)
-	return err
+	}
+
+	go func() {
+		if ctx.Err() != nil {
+			return
+		}
+		if k8sClients.WaitForCacheSync(time.Minute * 10) {
+			klog.Infof("node informer cache synced after client rebuild, cluster: %s", cluster.Name)
+		} else {
+			klog.Errorf("failed to sync node informer cache after client rebuild, cluster: %s", cluster.Name)
+		}
+	}()
+	return nil
 }
 
 // nodeEventHandler creates event handlers for Kubernetes node events (add, update, delete).
 func (r *NodeK8sReconciler) nodeEventHandler(k8sClients *commonclient.ClientFactory) cache.ResourceEventHandler {
-	check := func() {
-		if !k8sClients.IsValid() {
-			k8sClients.SetValid(true, "")
-		}
-	}
 	enqueue := func(oldNode, newNode *corev1.Node, action NodeAction) {
 		node := newNode
 		if action == NodeDelete || action == NodeUnmanaged {
@@ -194,7 +256,6 @@ func (r *NodeK8sReconciler) nodeEventHandler(k8sClients *commonclient.ClientFact
 	}
 	return cache.ResourceEventHandlerFuncs{
 		AddFunc: func(obj interface{}) {
-			check()
 			node, ok := obj.(*corev1.Node)
 			if !ok || !node.GetDeletionTimestamp().IsZero() || v1.GetClusterId(node) != k8sClients.Name() {
 				return
@@ -204,7 +265,6 @@ func (r *NodeK8sReconciler) nodeEventHandler(k8sClients *commonclient.ClientFact
 			enqueue(nil, node, NodeAdd)
 		},
 		UpdateFunc: func(oldObj, newObj interface{}) {
-			check()
 			oldNode, ok1 := oldObj.(*corev1.Node)
 			newNode, ok2 := newObj.(*corev1.Node)
 			if !ok1 || !ok2 || !newNode.GetDeletionTimestamp().IsZero() {
@@ -228,7 +288,6 @@ func (r *NodeK8sReconciler) nodeEventHandler(k8sClients *commonclient.ClientFact
 			}
 		},
 		DeleteFunc: func(obj interface{}) {
-			check()
 			node, ok := obj.(*corev1.Node)
 			if !ok || v1.GetClusterId(node) != k8sClients.Name() {
 				return
@@ -237,15 +296,6 @@ func (r *NodeK8sReconciler) nodeEventHandler(k8sClients *commonclient.ClientFact
 				k8sClients.Name(), node.Name, v1.GetWorkspaceId(node))
 			enqueue(node, nil, NodeDelete)
 		},
-	}
-}
-
-// watchErrorHandler handles errors from the Kubernetes watch connection and marks clients as invalid.
-func watchErrorHandler(ctx context.Context, k8sClients *commonclient.ClientFactory) cache.WatchErrorHandler {
-	return func(reflector *cache.Reflector, err error) {
-		cache.DefaultWatchErrorHandler(ctx, reflector, err)
-		klog.Warningf("set clients: %s invalid", k8sClients.Name())
-		k8sClients.SetValid(false, err.Error())
 	}
 }
 

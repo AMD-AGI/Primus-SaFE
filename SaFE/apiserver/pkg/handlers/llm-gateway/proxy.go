@@ -19,13 +19,16 @@ import (
 	"k8s.io/klog/v2"
 )
 
-const (
-	llmProxyPrefix = "/api/v1/llm-proxy"
+const llmProxyPrefix = "/api/v1/llm-proxy"
 
-	// LiteLLM persists this header verbatim as LiteLLM_SpendLogs.requester_ip_address
-	// (it does not split the chain), so it must carry exactly one address.
-	llmProxyForwardedForHeader = "X-Forwarded-For"
-)
+// upstreamUserHeader carries the caller's NTID to APIM, which attributes the
+// request to it.
+const upstreamUserHeader = "USER-NTID"
+
+// forwardedForHeader carries the caller's address to LiteLLM, which persists it
+// verbatim as LiteLLM_SpendLogs.requester_ip_address without splitting the
+// chain, so it must hold exactly one address.
+const forwardedForHeader = "X-Forwarded-For"
 
 // newLLMProxy creates a reverse proxy targeting the LiteLLM endpoint.
 // It strips the /api/v1/llm-proxy prefix and prepends the target's base path, so that
@@ -61,8 +64,8 @@ func newLLMProxy(endpoint string) (*httputil.ReverseProxy, error) {
 
 			// Rewrite strips inbound X-Forwarded-* from pr.Out, so carry over the
 			// single address pinned by applyProxyClientIPHeader.
-			if clientIP := pr.In.Header.Get(llmProxyForwardedForHeader); clientIP != "" {
-				pr.Out.Header.Set(llmProxyForwardedForHeader, clientIP)
+			if clientIP := pr.In.Header.Get(forwardedForHeader); clientIP != "" {
+				pr.Out.Header.Set(forwardedForHeader, clientIP)
 			}
 
 			klog.Infof("LLM Proxy: %s -> %s", pr.Out.Method, pr.Out.URL.String())
@@ -86,7 +89,7 @@ func newLLMProxy(endpoint string) (*httputil.ReverseProxy, error) {
 // It resolves the user's Virtual Key from the DB, replaces the Authorization
 // header, and reverse-proxies the request to LiteLLM.
 func (h *Handler) ProxyLLMRequest(c *gin.Context) {
-	email := h.getUserEmail(c)
+	email, ntid := h.getUserIdentity(c)
 	if email == "" {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "unable to identify user"})
 		c.Abort()
@@ -115,10 +118,25 @@ func (h *Handler) ProxyLLMRequest(c *gin.Context) {
 	}
 
 	applyProxyVirtualKeyHeader(c, virtualKey)
+	applyUpstreamUserHeader(c, ntid)
 	applyProxyClientIPHeader(c)
 
 	defer recoverReverseProxyAbort(c)
 	h.proxy.ServeHTTP(c.Writer, c.Request)
+}
+
+// applyUpstreamUserHeader stamps the caller's NTID for upstream APIM attribution.
+//
+// The delete is unconditional, and that is the point of the function: this is a
+// reverse proxy, so a client can send this header itself. Returning early
+// without it whenever the NTID is unresolved would forward the client's own
+// value upstream as though the gateway had established it.
+func applyUpstreamUserHeader(c *gin.Context, ntid string) {
+	c.Request.Header.Del(upstreamUserHeader)
+	if ntid == "" {
+		return
+	}
+	c.Request.Header.Set(upstreamUserHeader, ntid)
 }
 
 func recoverReverseProxyAbort(c *gin.Context) {
@@ -147,18 +165,21 @@ func applyProxyVirtualKeyHeader(c *gin.Context, virtualKey string) {
 	c.Request.Header.Set(mapping.header, virtualKey)
 }
 
-// applyProxyClientIPHeader overwrites X-Forwarded-For with the caller address
-// resolved by gin, so LiteLLM attributes the request to the real client rather
-// than to the apiserver pod, and records the same address the apiserver access
-// log does. Collapsing the chain to a single hop keeps requester_ip_address
-// directly groupable, since LiteLLM stores the header value as-is.
+// applyProxyClientIPHeader stamps the caller's address for LiteLLM attribution,
+// so a spend log names the real client rather than the apiserver pod, and names
+// it the same way the apiserver access log already does. Collapsing the chain to
+// a single hop is what keeps requester_ip_address groupable.
+//
+// Unlike applyUpstreamUserHeader this cannot delete the header up front, because
+// gin derives the address from it; deleting first would degrade the result to the
+// immediate peer, which is the apiserver's own ingress.
 func applyProxyClientIPHeader(c *gin.Context) {
 	clientIP := c.ClientIP()
 	if clientIP == "" {
-		c.Request.Header.Del(llmProxyForwardedForHeader)
+		c.Request.Header.Del(forwardedForHeader)
 		return
 	}
-	c.Request.Header.Set(llmProxyForwardedForHeader, clientIP)
+	c.Request.Header.Set(forwardedForHeader, clientIP)
 }
 
 func proxyAuthHeaderMappingByStyle(style any) llmProxyAuthHeaderMapping {

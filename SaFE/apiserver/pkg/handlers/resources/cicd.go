@@ -15,6 +15,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/klog/v2"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
@@ -64,55 +65,129 @@ func (h *Handler) createCICDSecret(ctx context.Context,
 	return secret, nil
 }
 
-// updateCICDSecret updates the CICD secret by creating a new secret and deleting the old one.
-// This replaces the existing GitHub auth secret with a new one for CICD scaling runner workloads.
-func (h *Handler) updateCICDSecret(ctx context.Context,
-	workload *v1.Workload, requestUser *v1.User, auth *view.GitHubAuthRequest) error {
+// cicdSecretRotation describes a CICD GitHub auth secret that updateCICDSecret created
+// but whose workload annotation the caller has not persisted yet.
+//
+// SupersededSecretId is empty when the workload had no usable secret before, which is
+// why this is a struct and not a bare id: "no previous secret to drop" and "no rotation
+// happened at all" need different handling and a single empty string cannot tell them
+// apart.
+type cicdSecretRotation struct {
+	// NewSecretId is the replacement secret, already created and referenced by the
+	// in-memory workload annotation.
+	NewSecretId string
+	// SupersededSecretId is the secret the replacement displaced, still present in the
+	// cluster so a failed persist can fall back to it. Empty when there was none.
+	SupersededSecretId string
+}
+
+// updateCICDSecret rotates the CICD GitHub auth secret: it creates the replacement
+// secret and repoints the workload annotation at it, both in memory.
+//
+// It deliberately does NOT delete the superseded secret. The annotation is only
+// persisted by the caller, after this returns; deleting the old secret here would mean
+// a failed persist leaves the stored annotation pointing at a secret that no longer
+// exists, which breaks the ARC githubConfigSecret with no way back. Instead the caller
+// gets both ids and settles them once the annotation is durable -- see
+// deleteSupersededCICDSecret and discardRolledBackCICDSecret.
+//
+// A nil rotation means the submitted credentials already match the current secret and
+// nothing was created or changed.
+func (h *Handler) updateCICDSecret(ctx context.Context, workload *v1.Workload,
+	requestUser *v1.User, auth *view.GitHubAuthRequest) (*cicdSecretRotation, error) {
 	if err := validateCICDGitHubAuth(auth); err != nil {
-		return err
+		return nil, err
 	}
 	oldSecretId := v1.GetGithubSecretId(workload)
 	if oldSecretId != "" {
 		oldSecret, err := h.getAdminSecret(ctx, oldSecretId)
 		if err != nil {
 			if apierrors.IsNotFound(err) {
+				// The annotation is stale; there is nothing to fall back to or delete.
 				oldSecretId = ""
 			} else {
-				return fmt.Errorf("failed to get existing CICD GitHub secret %q: %w", oldSecretId, err)
+				return nil, fmt.Errorf("failed to get existing CICD GitHub secret %q: %w", oldSecretId, err)
 			}
 		} else if cicdSecretDataMatchesAuth(oldSecret, auth) {
-			return nil
+			return nil, nil
 		}
 	}
 
 	newSecret, err := h.createCICDSecret(ctx, workload, requestUser, auth)
 	if err != nil {
-		return err
-	}
-	if oldSecretId != "" {
-		if err = h.deleteSecretImpl(ctx, oldSecretId, requestUser); err != nil {
-			h.deleteSecretImpl(ctx, newSecret.Name, requestUser)
-			return err
-		}
+		return nil, err
 	}
 
 	v1.SetAnnotation(workload, v1.GithubSecretIdAnnotation, newSecret.Name)
-	return nil
+	return &cicdSecretRotation{NewSecretId: newSecret.Name, SupersededSecretId: oldSecretId}, nil
+}
+
+// deleteSupersededCICDSecret drops the secret a rotation replaced, once the new
+// annotation has been persisted. A failure here leaks a secret but does not invalidate
+// the rotation that already succeeded, so it is logged rather than returned: reporting
+// an error would push the caller into retrying a rotation that is already live. The
+// leaked secret still carries the workload's owner label, so the scheduler's
+// owner-label sweep collects it when the workload is deleted.
+func (h *Handler) deleteSupersededCICDSecret(ctx context.Context,
+	rotation *cicdSecretRotation, requestUser *v1.User) {
+	if rotation == nil || rotation.SupersededSecretId == "" {
+		return
+	}
+	if err := h.deleteSecretImpl(ctx, rotation.SupersededSecretId, requestUser); err != nil {
+		klog.ErrorS(err, "failed to delete superseded CICD GitHub secret", "secret", rotation.SupersededSecretId)
+	}
+}
+
+// discardRolledBackCICDSecret undoes a rotation whose annotation the caller could not
+// persist. The stored workload still refers to the superseded secret, so the
+// replacement is unreachable and is deleted, and the in-memory annotation is put back
+// to match what is actually stored.
+func (h *Handler) discardRolledBackCICDSecret(ctx context.Context,
+	workload *v1.Workload, rotation *cicdSecretRotation, requestUser *v1.User) {
+	if rotation == nil {
+		return
+	}
+	if rotation.NewSecretId != "" {
+		if err := h.deleteSecretImpl(ctx, rotation.NewSecretId, requestUser); err != nil {
+			klog.ErrorS(err, "failed to delete unreferenced CICD GitHub secret", "secret", rotation.NewSecretId)
+		}
+	}
+	if rotation.SupersededSecretId != "" {
+		v1.SetAnnotation(workload, v1.GithubSecretIdAnnotation, rotation.SupersededSecretId)
+		return
+	}
+	delete(workload.Annotations, v1.GithubSecretIdAnnotation)
 }
 
 // cleanupCICDSecrets deletes secrets created for CICD scaling runner set workloads.
 // This is called when workload creation fails to ensure orphaned secrets are cleaned up.
+//
+// Secrets are selected by owner label rather than by name: createCICDSecret names them
+// with commonutils.GenerateName, which appends a random suffix, so the workload's display
+// name never matches the object that was actually created. This mirrors how the
+// job-manager scheduler sweeps the same secrets when a workload is deleted -- but that
+// sweep only runs for a Workload that reached the API server, which is not the case for
+// every path that lands here.
 func (h *Handler) cleanupCICDSecrets(ctx context.Context, workload *v1.Workload) {
-	if !commonworkload.IsCICDScalingRunnerSet(workload) {
+	if workload == nil || !commonworkload.IsCICDScalingRunnerSet(workload) {
 		return
 	}
-	if err := h.clientSet.CoreV1().Secrets(common.PrimusSafeNamespace).Delete(
-		ctx, v1.GetDisplayName(workload), metav1.DeleteOptions{}); err != nil {
-		if !apierrors.IsNotFound(err) {
-			klog.ErrorS(err, "failed to delete secret", "name", v1.GetDisplayName(workload))
-		}
+	secrets, err := h.clientSet.CoreV1().Secrets(common.PrimusSafeNamespace).List(ctx, metav1.ListOptions{
+		LabelSelector: labels.SelectorFromSet(labels.Set{v1.OwnerLabel: workload.Name}).String(),
+	})
+	if err != nil {
+		klog.ErrorS(err, "failed to list CICD secrets", "workload", workload.Name)
+		return
 	}
-	klog.Infof("cleaned up CICD secret %s after workload %s creation failure", v1.GetDisplayName(workload), workload.Name)
+	for i := range secrets.Items {
+		name := secrets.Items[i].Name
+		if err = h.clientSet.CoreV1().Secrets(common.PrimusSafeNamespace).Delete(
+			ctx, name, metav1.DeleteOptions{}); err != nil && !apierrors.IsNotFound(err) {
+			klog.ErrorS(err, "failed to delete secret", "name", name)
+			continue
+		}
+		klog.Infof("cleaned up CICD secret %s after workload %s creation failure", name, workload.Name)
+	}
 }
 
 // generateCICDScaleRunnerSet configures a workload for CICD scaling runner set.
@@ -151,11 +226,23 @@ func normalizeCICDGitHubAuth(auth *view.GitHubAuthRequest, env map[string]string
 	return nil
 }
 
+// cicdGitHubAuthType normalizes the submitted auth discriminator. The wire value is
+// whatever the caller typed, so "GITHUB_APP" and " Pat " have to select the same branch
+// as the canonical lowercase constants -- otherwise a GitHub App request is rejected as
+// an unsupported type. Every switch on the auth type goes through here so validation,
+// secret construction, and the idempotency check can never disagree about the branch.
+func cicdGitHubAuthType(auth *view.GitHubAuthRequest) string {
+	if auth == nil {
+		return ""
+	}
+	return strings.ToLower(strings.TrimSpace(auth.Type))
+}
+
 func validateCICDGitHubAuth(auth *view.GitHubAuthRequest) error {
 	if auth == nil {
 		return commonerrors.NewBadRequest("the github authentication is empty")
 	}
-	switch strings.TrimSpace(auth.Type) {
+	switch cicdGitHubAuthType(auth) {
 	case GitHubAuthTypeApp:
 		if strings.TrimSpace(auth.AppId) == "" ||
 			strings.TrimSpace(auth.InstallationId) == "" ||
@@ -173,7 +260,7 @@ func validateCICDGitHubAuth(auth *view.GitHubAuthRequest) error {
 }
 
 func buildCICDSecretParams(auth *view.GitHubAuthRequest) map[view.SecretParam]string {
-	switch strings.TrimSpace(auth.Type) {
+	switch cicdGitHubAuthType(auth) {
 	case GitHubAuthTypeApp:
 		return map[view.SecretParam]string{
 			GitHubAppId:             stringutil.Base64Encode(strings.TrimSpace(auth.AppId)),
@@ -190,7 +277,7 @@ func buildCICDSecretParams(auth *view.GitHubAuthRequest) map[view.SecretParam]st
 // cicdSecretDataMatchesAuth is an idempotency check that avoids rotating
 // credentials when the submitted values already match the existing ARC secret.
 func cicdSecretDataMatchesAuth(secret *corev1.Secret, auth *view.GitHubAuthRequest) bool {
-	switch strings.TrimSpace(auth.Type) {
+	switch cicdGitHubAuthType(auth) {
 	case GitHubAuthTypeApp:
 		return string(secret.Data[GitHubAppId]) == strings.TrimSpace(auth.AppId) &&
 			string(secret.Data[GitHubAppInstallationId]) == strings.TrimSpace(auth.InstallationId) &&

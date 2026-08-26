@@ -56,6 +56,15 @@ type ResourceSpec struct {
 	PrePaths []string `json:"prePaths,omitempty"`
 	// The relative path of pod template
 	TemplatePaths []string `json:"templatePaths,omitempty"`
+	// The relative path of the core/v1 PodSpec, where containers, volumes,
+	// priorityClassName and the other pod-level fields live. Like the other
+	// path fields it is relative to prePaths, not to templatePaths: a kind that
+	// wraps its pod in a PodTemplateSpec repeats the template segment and adds
+	// "spec" (template, spec), while a kind whose slot embeds a PodSpec inline
+	// names that field alone (extraPodSpec).
+	//
+	// Empty means the path is derived from templatePaths and the kind instead.
+	PodSpecPaths []string `json:"podSpecPaths,omitempty"`
 	// The relative path of pod replica
 	ReplicasPaths []string `json:"replicasPaths,omitempty"`
 	// Fits scenarios without a defined replica path but with actual replica values, such as ray-job.
@@ -66,13 +75,65 @@ type ResourceSpec struct {
 	MinReplicasPaths []string `json:"minReplicasPaths,omitempty"`
 }
 
+// joinPrePaths returns PrePaths followed by rel as a fresh slice, leaving
+// PrePaths' backing array untouched even when callers append to the result.
+// The path accessors below all build on it.
+func (t *ResourceSpec) joinPrePaths(rel []string) []string {
+	path := make([]string, 0, len(t.PrePaths)+len(rel))
+	path = append(path, t.PrePaths...)
+	path = append(path, rel...)
+	return path
+}
+
+// Path returns the path components for locating a field that sits directly
+// under prePaths and has no dedicated path field of its own. Each call returns
+// a fresh slice, so the result is safe to append to.
+func (t *ResourceSpec) Path(fields ...string) []string {
+	if t == nil {
+		return nil
+	}
+	return t.joinPrePaths(fields)
+}
+
 // TemplatePath returns the path components for locating the resource template.
 func (t *ResourceSpec) TemplatePath() []string {
 	if t == nil {
 		return nil
 	}
-	path := append(t.PrePaths, t.TemplatePaths...)
-	return path
+	return t.joinPrePaths(t.TemplatePaths)
+}
+
+// PodSpecPath returns the path components for locating the pod spec, or nil
+// when the resource spec does not declare podSpecPaths.
+func (t *ResourceSpec) PodSpecPath() []string {
+	if t == nil || len(t.PodSpecPaths) == 0 {
+		return nil
+	}
+	return t.joinPrePaths(t.PodSpecPaths)
+}
+
+// ReplicasPath returns the path components for locating the replica count.
+func (t *ResourceSpec) ReplicasPath() []string {
+	if t == nil {
+		return nil
+	}
+	return t.joinPrePaths(t.ReplicasPaths)
+}
+
+// MaxReplicasPath returns the path components for locating the max replica count.
+func (t *ResourceSpec) MaxReplicasPath() []string {
+	if t == nil {
+		return nil
+	}
+	return t.joinPrePaths(t.MaxReplicasPaths)
+}
+
+// MinReplicasPath returns the path components for locating the min replica count.
+func (t *ResourceSpec) MinReplicasPath() []string {
+	if t == nil {
+		return nil
+	}
+	return t.joinPrePaths(t.MinReplicasPaths)
 }
 
 type ResourceStatus struct {

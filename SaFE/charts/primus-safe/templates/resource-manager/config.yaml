@@ -47,6 +47,7 @@ data:
       secret_path: {{ default "/etc/secrets/db" (default .Values.db).secret_path }}
       # The ssl mode of db
       ssl_mode: {{ default "require" (default .Values.db).ssl_mode }}
+      target_session_attrs: {{ include "primus-safe.dbTargetSessionAttrs" . }}
     opensearch:
       # Whether to enable opensearch, it is used for log search.
       enable: {{ .Values.opensearch.enable }}

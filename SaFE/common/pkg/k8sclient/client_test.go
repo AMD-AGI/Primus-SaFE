@@ -8,30 +8,113 @@ package k8sclient
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	k8sfake "k8s.io/client-go/kubernetes/fake"
 	"k8s.io/client-go/rest"
 )
 
-func TestClientFactoryWithOnlyClient(t *testing.T) {
-	cs := k8sfake.NewSimpleClientset()
-	f := NewClientFactoryWithOnlyClient(context.Background(), "c1", cs)
-	assert.Equal(t, "c1", f.Name())
-	assert.NotNil(t, f.ClientSet())
-
-	f.SetValid(false, "down")
-	assert.False(t, f.IsValid())
-	assert.Equal(t, "down", f.GetInvalidReason())
-	f.SetValid(true, "")
-	assert.True(t, f.IsValid())
-
-	// Release on a factory without informers should not error.
-	assert.NoError(t, f.Release())
-}
-
 func TestNewClientSetWithRestConfig(t *testing.T) {
 	cs, err := NewClientSetWithRestConfig(&rest.Config{Host: "http://127.0.0.1:60999"})
 	assert.NoError(t, err)
 	assert.NotNil(t, cs)
+}
+
+func TestNormalizeEndpointHost(t *testing.T) {
+	assert.Equal(t, "https://10.0.0.1:6443", NormalizeEndpointHost("10.0.0.1:6443"))
+	assert.Equal(t, "https://c1.primus-safe.svc:443", NormalizeEndpointHost("c1.primus-safe.svc:443"))
+	assert.Equal(t, "http://127.0.0.1:8080", NormalizeEndpointHost("http://127.0.0.1:8080"))
+}
+
+func TestUniqueEndpoints(t *testing.T) {
+	out := uniqueEndpoints([]string{"10.0.0.1:6443", "https://10.0.0.1:6443", ""})
+	assert.Len(t, out, 1)
+}
+
+func TestNewClientSetWithProbeNoCandidates(t *testing.T) {
+	_, _, _, err := NewClientSetWithProbe(context.Background(), "", nil, "", "", "", true)
+	assert.Error(t, err)
+}
+
+func TestProbeRESTConfigNil(t *testing.T) {
+	assert.Error(t, ProbeRESTConfig(nil))
+}
+
+func TestProbeRESTConfigUnreachable(t *testing.T) {
+	assert.Error(t, ProbeRESTConfig(&rest.Config{
+		Host:    "https://127.0.0.1:1",
+		Timeout: time.Millisecond * 200,
+	}))
+}
+
+func TestProbeAPIServer(t *testing.T) {
+	ctx := context.Background()
+	assert.Error(t, ProbeAPIServer(ctx, nil, nil))
+	assert.Error(t, ProbeAPIServer(ctx, nil, &rest.Config{
+		Host:    "https://127.0.0.1:1",
+		Timeout: time.Millisecond * 200,
+	}))
+	// Without a REST config the probe falls back to the supplied clientset.
+	assert.NoError(t, ProbeAPIServer(ctx, k8sfake.NewSimpleClientset(), nil))
+}
+
+func TestNewClientSetInsecureAndWithCA(t *testing.T) {
+	certData, keyData := testClientCert(t)
+
+	_, restCfg, err := NewClientSet("10.96.1.1:6443", certData, keyData, "", true)
+	assert.NoError(t, err)
+	assert.Equal(t, "https://10.96.1.1:6443", restCfg.Host)
+	assert.True(t, restCfg.TLSClientConfig.Insecure)
+
+	// Secure mode requires CA data.
+	_, _, err = NewClientSet("10.96.1.1:6443", certData, keyData, "", false)
+	assert.Error(t, err)
+
+	_, restCfg, err = NewClientSet("10.96.1.1:6443", certData, keyData, certData, false)
+	assert.NoError(t, err)
+	assert.NotEmpty(t, restCfg.TLSClientConfig.CAData)
+}
+
+func TestProbeTimeoutHonoursDeadline(t *testing.T) {
+	// No deadline: fall back to the package default.
+	assert.Equal(t, DefaultAPIServerProbeTimeout, probeTimeout(context.Background()))
+
+	// A tighter deadline wins so a probe cannot outlast its caller.
+	tight, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	assert.Less(t, probeTimeout(tight), DefaultAPIServerProbeTimeout)
+
+	// A looser deadline leaves the default in place.
+	loose, cancelLoose := context.WithTimeout(context.Background(), time.Hour)
+	defer cancelLoose()
+	assert.Equal(t, DefaultAPIServerProbeTimeout, probeTimeout(loose))
+
+	// An expired deadline must stay bounded: a non-positive timeout would mean "no timeout".
+	expired, cancelExpired := context.WithTimeout(context.Background(), -time.Second)
+	defer cancelExpired()
+	assert.Positive(t, probeTimeout(expired))
+}
+
+func TestProbeRESTConfigWithContextRespectsCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	assert.ErrorIs(t, ProbeRESTConfigWithContext(ctx, &rest.Config{Host: "https://127.0.0.1:1"}),
+		context.Canceled)
+}
+
+func TestNewClientSetWithProbeStopsOnCancelledContext(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	certData, keyData := testClientCert(t)
+	_, _, _, err := NewClientSetWithProbe(ctx, "https://127.0.0.1:1",
+		[]string{"https://127.0.0.1:2"}, certData, keyData, "", true)
+	assert.ErrorIs(t, err, context.Canceled)
+}
+
+func TestNewClientSetWithProbeSkipsUnbuildableEndpoint(t *testing.T) {
+	// An empty endpoint cannot build a client, so the probe moves on and still fails overall.
+	_, _, _, err := NewClientSetWithProbe(context.Background(), "https://127.0.0.1:1", []string{""},
+		"", "", "", true)
+	assert.ErrorContains(t, err, "no reachable apiserver endpoint")
 }

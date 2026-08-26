@@ -562,6 +562,11 @@ func (r *DispatcherReconciler) syncWorkloadToObject(ctx context.Context, adminWo
 		return nil
 	}
 
+	// InferaDeployment syncs image, env, resources, shared memory, replicas and
+	// the launcher command through the generic flow below. The command is
+	// rebuilt with the role's injected sglang flags re-grafted, in
+	// isEntrypointChanged and updateContainers.
+
 	functions := []func(adminWorkload *v1.Workload, obj *unstructured.Unstructured, rt *v1.ResourceTemplate) bool{
 		isResourceChanged, isImagesChanged, isEntrypointChanged, isSharedMemoryChanged,
 		isEnvChanged, isPriorityClassChanged, isGithubSecretChanged,
@@ -612,7 +617,10 @@ func isResourceChanged(adminWorkload *v1.Workload, obj *unstructured.Unstructure
 	}
 	if len(replicaList) == len(adminWorkload.Spec.Resources) {
 		for i := range replicaList {
-			if replicaList[i] != int64(adminWorkload.Spec.Resources[i].Replica) {
+			// expectedReplica yields the value updateReplica writes for this
+			// resource, which for an Infera multi-node role is 1 rather than
+			// Resources[i].Replica.
+			if replicaList[i] != expectedReplica(adminWorkload, i) {
 				return true
 			}
 		}
@@ -657,7 +665,13 @@ func isEntrypointChanged(adminWorkload *v1.Workload, obj *unstructured.Unstructu
 		if commonworkload.IsRayJob(adminWorkload) && i == 0 {
 			continue
 		}
-		newEntrypoint := buildEntryPoint(adminWorkload, i)
+		// expectedEntryPoint, not buildEntryPoint: an InferaDeployment's
+		// rendered command is buildEntryPoint's output plus the sglang flags
+		// normalizeInferaIDEP grafts on for that role. Comparing against the
+		// bare entrypoint would report drift on every reconcile for a
+		// prefill/decode or multi-node role; comparing against buildEntryPoint
+		// for every role would miss a real edit on the roles that get no flags.
+		newEntrypoint := expectedEntryPoint(adminWorkload, i)
 		oldCommand := commands[i]
 		if len(oldCommand) == 0 {
 			if newEntrypoint != "" {

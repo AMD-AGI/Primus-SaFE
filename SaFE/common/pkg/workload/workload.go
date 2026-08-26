@@ -39,6 +39,21 @@ func GetTotalReplica(w *v1.Workload) int {
 	return n
 }
 
+// GetTotalGpuReplica returns the total replica count across GPU-bearing
+// resources only. Each GPU resource's Replica is its per-role pod count (an LWS
+// node count for a multinode role, a Deployment replica count otherwise), so a
+// result > 1 means the GPU workload spans more than one pod. Non-GPU roles
+// (e.g. an Infera CPU frontend) are excluded so they do not inflate the count.
+func GetTotalGpuReplica(w *v1.Workload) int {
+	n := 0
+	for _, res := range w.Spec.Resources {
+		if res.HasGpu() {
+			n += res.Replica
+		}
+	}
+	return n
+}
+
 // GetInUseNodeCount returns the number of unique nodes currently in use by the
 // workload's non-terminated pods. Terminated pods (Succeeded/Failed) release
 // their node and are excluded, matching the paired used-quota computation and the
@@ -153,6 +168,73 @@ func GetMainContainerByPod(obj metav1.Object, kind, podName string) string {
 		}
 	}
 	return v1.GetMainContainer(obj)
+}
+
+// ResolvePodSpecPath returns the absolute path to a resource spec's pod spec,
+// followed by fields. The pod spec location is declared data: it comes from the
+// ResourceTemplate's podSpecPaths, which both the write path (dispatcher) and
+// the read path (jobutils) resolve from the same ResourceSpec.
+//
+// ResourceTemplates rendered by charts that predate podSpecPaths carry no
+// value, so kind supplies the built-in default from PodSpecSegment.
+func ResolvePodSpecPath(t *v1.ResourceSpec, kind string, fields ...string) []string {
+	base := t.PodSpecPath()
+	if base == nil {
+		return BuildPodSpecPath(t.TemplatePath(), PodSpecSegment(kind), fields...)
+	}
+	out := make([]string, 0, len(base)+len(fields))
+	out = append(out, base...)
+	out = append(out, fields...)
+	return out
+}
+
+// PodSpecSegment returns the path segment that sits between a
+// ResourceTemplate's templatePaths and the pod spec fields (containers,
+// volumes, ...), for the given workload kind. It is the default that
+// ResolvePodSpecPath applies to a ResourceTemplate with no podSpecPaths.
+//
+// PyTorchJob / Deployment / RayJob and friends wrap pods in a
+// PodTemplateSpec, so the pod spec is one "spec" level down. DynamoDeployment
+// and InferaDeployment slots instead embed a core/v1 PodSpec inline in
+// extraPodSpec (see dynamo operator/api/v1alpha1/common.go::ExtraPodSpec and
+// Infera's ServiceSpec.ExtraPodSpec), so their templatePaths already point at
+// the pod spec and there is no segment to traverse. MonarchMesh nests its pod
+// under podTemplate.
+//
+// Read and write paths must agree here: when they disagree, the readers report
+// "not found", drift detection concludes nothing changed, and spec updates are
+// silently dropped.
+//
+// kind is a SaFE Workload kind on the write path (Workload.SpecKind) and the
+// rendered CR kind on the read path (ResourceTemplate.SpecKind). The two
+// namespaces hold different strings for some kinds — a SaFE DynamoDeployment
+// renders a DynamoGraphDeployment — so each non-"spec" case lists every
+// spelling that reaches it.
+func PodSpecSegment(kind string) string {
+	switch kind {
+	case common.MonarchMesh:
+		return "podTemplate"
+	case common.DynamoDeploymentKind, common.DynamoGraphDeploymentKind, common.InferaDeploymentKind:
+		return ""
+	default:
+		return "spec"
+	}
+}
+
+// BuildPodSpecPath joins templatePath, the pod spec segment and fields into a
+// fresh slice, skipping an empty segment.
+//
+// Emitting "" as a path segment would look up or write a map key named "",
+// which surfaces as CRD schema warnings and path-not-found failures. The
+// result never aliases templatePath's backing array.
+func BuildPodSpecPath(templatePath []string, podSpec string, fields ...string) []string {
+	out := make([]string, 0, len(templatePath)+1+len(fields))
+	out = append(out, templatePath...)
+	if podSpec != "" {
+		out = append(out, podSpec)
+	}
+	out = append(out, fields...)
+	return out
 }
 
 // GetWorkloadResourceUsage retrieves active resources based on the input workload.

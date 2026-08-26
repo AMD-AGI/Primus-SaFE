@@ -552,7 +552,7 @@ func (h *Handler) GetSummary(c *gin.Context) {
 	})
 }
 
-// GetUsage handles GET /api/v1/llm-gateway/usage?start_date=...&end_date=...&timezone=...
+// GetUsage handles GET /api/v1/llm-gateway/usage?start_date=...&end_date=...&timezone=...&timezone_offset=...
 func (h *Handler) GetUsage(c *gin.Context) {
 	email := h.getUserEmail(c)
 	if email == "" {
@@ -567,11 +567,12 @@ func (h *Handler) GetUsage(c *gin.Context) {
 		return
 	}
 
-	loc, err := resolveTimezone(c.Query("timezone"))
+	_, err := resolveTimezone(c.Query("timezone"))
 	if err != nil {
 		apiutils.AbortWithApiError(c, commonerrors.NewBadRequest(err.Error()))
 		return
 	}
+	timezoneOffset := c.DefaultQuery("timezone_offset", "0")
 
 	existing, err := h.dbClient.GetLLMBindingByEmail(c.Request.Context(), email)
 	if err != nil {
@@ -584,8 +585,13 @@ func (h *Handler) GetUsage(c *gin.Context) {
 		return
 	}
 
-	adjStart, adjEnd := expandDateRangeForTimezone(startDate, endDate, loc)
-	activity, err := h.litellmClient.GetUserDailyActivity(c.Request.Context(), email, adjStart, adjEnd)
+	activity, err := h.litellmClient.GetUserDailyActivity(
+		c.Request.Context(),
+		email,
+		startDate,
+		endDate,
+		timezoneOffset,
+	)
 	if err != nil {
 		klog.ErrorS(err, "GetUsage: LiteLLM query failed", "email", email)
 		c.JSON(http.StatusBadGateway, gin.H{"errorMessage": "usage data temporarily unavailable, please try again later"})
@@ -666,9 +672,23 @@ func validateApimKey(apimKey string) error {
 // via AccessController.GetRequestUser (same pattern as resources/cd-handlers).
 // Falls back to userName if User CR lookup fails or email annotation is not set.
 func (h *Handler) getUserEmail(c *gin.Context) string {
+	email, _ := h.getUserIdentity(c)
+	return email
+}
+
+// getUserIdentity resolves the caller's email and NTID from one User CR read,
+// so the proxy path can stamp an upstream attribution header without a second
+// lookup per request.
+//
+// The two results do not share a fallback. Email keeps the old chain (userName,
+// then userId) because every caller uses it as a database key and needs
+// something. NTID is sent upstream as the identity APIM bills, so a userName
+// that merely looks like one would attribute the request to the wrong person:
+// unresolved stays empty, and the header is then removed rather than guessed.
+func (h *Handler) getUserIdentity(c *gin.Context) (email string, ntid string) {
 	userId := c.GetString(common.UserId)
 	if userId == "" {
-		return ""
+		return "", ""
 	}
 
 	// Look up User CR to get the real email
@@ -678,17 +698,35 @@ func (h *Handler) getUserEmail(c *gin.Context) string {
 			klog.V(4).InfoS("LLM Gateway: failed to get user, falling back to userName",
 				"userId", userId, "error", err)
 		} else {
-			if email := v1.GetUserEmail(user); email != "" {
-				return email
-			}
+			email = v1.GetUserEmail(user)
+			ntid = ntidFromPreferredName(v1.GetAnnotation(user, v1.UserPreferredNameAnnotation))
 		}
+	}
+	if email != "" {
+		return email, ntid
 	}
 
 	// Fallback: userName
 	if name := c.GetString(common.UserName); name != "" {
-		return name
+		return name, ntid
 	}
-	return userId
+	return userId, ntid
+}
+
+// ntidFromPreferredName takes the local part of a preferred name, which carries
+// the NTID ahead of a domain: "<ntid>@<domain>" yields the NTID. A value with no
+// domain is already one.
+//
+// Interior whitespace disqualifies it. An NTID has none, so what arrives with
+// any is a display name rather than the identifier -- and this value reaches an
+// outbound header, where a newline is a request-splitting vector.
+func ntidFromPreferredName(preferredName string) string {
+	ntid, _, _ := strings.Cut(preferredName, "@")
+	ntid = strings.TrimSpace(ntid)
+	if ntid == "" || strings.ContainsAny(ntid, " \t\r\n\v\f") {
+		return ""
+	}
+	return ntid
 }
 
 // maskKey returns a masked version of a key, showing the first 4 and last 4 characters.

@@ -12,7 +12,7 @@ pod**: you get an interactive shell on GPU hardware without any cluster or `kube
 ## Authoring: a personal dev box
 
 **Authoring** is a personal, long-running **dev box** on the cluster — a single-node pod kept
-alive for you (its entry point is `sleep infinity`), with GPUs, your code, and workspace storage
+alive for you (its entry point is `tail -f /dev/null`), with GPUs, your code, and workspace storage
 mounted. Use it to prototype, debug, and prepare your environment before launching a full
 (often multi-node) [training job](/tasks/run-multi-node-training). Because it's an interactive
 session rather than a job to complete, retries, failover, and hang detection are off.

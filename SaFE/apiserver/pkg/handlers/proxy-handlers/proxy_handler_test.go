@@ -11,6 +11,9 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	testifyassert "github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 
@@ -538,4 +541,45 @@ func TestHTTPMethods(t *testing.T) {
 			assert.Equal(t, method, receivedMethod)
 		})
 	}
+}
+
+// --- merged from proxy_init_test.go ---
+
+// TestNewProxyHandler_FromConfig verifies the constructor builds a handler from config.
+func TestNewProxyHandler_FromConfig(t *testing.T) {
+	handler, err := NewProxyHandler()
+	require.NoError(t, err)
+	require.NotNil(t, handler)
+	testifyassert.NotNil(t, handler.proxies)
+}
+
+// TestInitProxyRoutes verifies routes are registered for each configured proxy prefix.
+func TestInitProxyRoutes(t *testing.T) {
+	handler := &ProxyHandler{proxies: make(map[string]*proxyConfig)}
+	require.NoError(t, handler.addProxy(commonconfig.ProxyService{
+		Name:    "svc1",
+		Prefix:  "/api/svc1",
+		Target:  "http://localhost:8080",
+		Enabled: true,
+	}))
+
+	engine := gin.New()
+	InitProxyRoutes(engine, handler)
+
+	var found bool
+	for _, r := range engine.Routes() {
+		if r.Path == "/api/svc1/*proxyPath" {
+			found = true
+			break
+		}
+	}
+	testifyassert.True(t, found, "expected proxy route to be registered")
+}
+
+// TestInitProxyRoutesEmpty verifies no routes are registered when there are no proxies.
+func TestInitProxyRoutesEmpty(t *testing.T) {
+	handler := &ProxyHandler{proxies: make(map[string]*proxyConfig)}
+	engine := gin.New()
+	InitProxyRoutes(engine, handler)
+	testifyassert.Empty(t, engine.Routes())
 }
