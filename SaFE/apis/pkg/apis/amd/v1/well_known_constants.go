@@ -6,6 +6,7 @@
 package v1
 
 import (
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/util/workqueue"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
@@ -56,6 +57,16 @@ const (
 	NodeUnmanageNoRebootLabel = "unmanage.noreboot"
 	NodeActionAdd             = "add"
 	NodeActionRemove          = "remove"
+	// NodeActionMigrate moves a node from the workspace carrying the action to another one.
+	// Unlike add and remove it needs a target, so the annotation value is not the bare verb
+	// but "migrate:<targetWorkspaceId>"; see BuildMigrateAction and ParseMigrateAction.
+	NodeActionMigrate = "migrate"
+	// NodeMigrateAnnotation marks a node that has been released by its source workspace and
+	// is on its way to the target one. It is written in the same patch that clears
+	// spec.workspace, so a node is never unbound without it, and scale-up skips a node
+	// reserved for someone else -- without that, the window between the two bindings is
+	// open to any workspace in the cluster looking for a node of the same flavor.
+	NodeMigrateAnnotation = NodePrefix + "migrate.info"
 
 	// cluster
 	ClusterPrefix                 = PrimusSafePrefix + "cluster."
@@ -214,6 +225,15 @@ const (
 	SecretSSH     SecretType = "ssh"
 	SecretGeneral SecretType = "general"
 )
+
+// NodeMigrateInfo is the payload of NodeMigrateAnnotation: the migration a node is in the
+// middle of. From is kept so an abandoned migration can be rolled back to where it started,
+// and StartTime so it can be recognised as abandoned in the first place.
+type NodeMigrateInfo struct {
+	From      string       `json:"from,omitempty"`
+	Target    string       `json:"target,omitempty"`
+	StartTime *metav1.Time `json:"startTime,omitempty"`
+}
 
 type DiskInfo struct {
 	// disk type, e.g. "ssd", "sata", "nvme"

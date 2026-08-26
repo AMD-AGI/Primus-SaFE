@@ -8,6 +8,7 @@ package v1
 import (
 	"encoding/json"
 	"strconv"
+	"strings"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
@@ -186,6 +187,66 @@ func IsNodeTemplateInstalled(obj metav1.Object) bool {
 // GetWorkspaceNodesAction retrieves the workspace nodes action from annotations.
 func GetWorkspaceNodesAction(obj metav1.Object) string {
 	return GetAnnotation(obj, WorkspaceNodesAction)
+}
+
+// BuildMigrateAction renders the nodes-action value that moves a node to targetWorkspaceId.
+func BuildMigrateAction(targetWorkspaceId string) string {
+	return NodeActionMigrate + ":" + targetWorkspaceId
+}
+
+// ParseMigrateAction reads back what BuildMigrateAction wrote. It reports false for every
+// other action value, so callers can keep treating add and remove as the bare verbs they
+// have always been -- and false for a migrate carrying no target, which is not a migration
+// anyone can carry out and must be refused rather than defaulted.
+func ParseMigrateAction(action string) (string, bool) {
+	target, ok := strings.CutPrefix(action, NodeActionMigrate+":")
+	if !ok || target == "" {
+		return "", false
+	}
+	return target, true
+}
+
+// GetNodeMigrateInfo returns the migration a node is in the middle of, or nil when it is not
+// migrating. Unparseable content is nil too: the annotation only ever arrives from
+// SetNodeMigrateInfo, so anything else is corruption, and reporting a migration whose target
+// cannot be read would strand the node instead of letting the source workspace restart it.
+func GetNodeMigrateInfo(obj metav1.Object) *NodeMigrateInfo {
+	val := GetAnnotation(obj, NodeMigrateAnnotation)
+	if val == "" {
+		return nil
+	}
+	info := &NodeMigrateInfo{}
+	if err := json.Unmarshal([]byte(val), info); err != nil {
+		return nil
+	}
+	if info.Target == "" {
+		return nil
+	}
+	return info
+}
+
+// IsNodeMigratingTo reports whether the node is on its way to workspaceId.
+func IsNodeMigratingTo(obj metav1.Object, workspaceId string) bool {
+	info := GetNodeMigrateInfo(obj)
+	return info != nil && info.Target == workspaceId
+}
+
+// IsNodeReleasedBy reports whether the node is migrating from one named workspace to another.
+// It is the narrow form of IsNodeMigratingTo, for callers that have to tell a node still
+// reading as bound to the workspace that released it -- a read that has not caught up yet --
+// from a node bound to a workspace with no part in the migration.
+func IsNodeReleasedBy(obj metav1.Object, from, target string) bool {
+	info := GetNodeMigrateInfo(obj)
+	return info != nil && info.Target == target && info.From == from
+}
+
+// SetNodeMigrateInfo records the migration on the node, reporting whether anything changed.
+func SetNodeMigrateInfo(obj metav1.Object, info *NodeMigrateInfo) bool {
+	data, err := json.Marshal(info)
+	if err != nil {
+		return false
+	}
+	return SetAnnotation(obj, NodeMigrateAnnotation, string(data))
 }
 
 // IsWorkloadDispatched checks if a workload has been dispatched for execution.
