@@ -37,7 +37,7 @@ func SetupControllers(ctx context.Context, mgr manager.Manager) error {
 	if err := SetupNodeK8sController(ctx, mgr); err != nil {
 		return fmt.Errorf("failed to set up k8s-node controller: %v", err)
 	}
-	if err := SetupWorkspaceController(mgr, &defaultWorkspaceOption); err != nil {
+	if err := SetupWorkspaceController(ctx, mgr, &defaultWorkspaceOption); err != nil {
 		return fmt.Errorf("failed to set up workspace controller: %v", err)
 	}
 	if err := SetupFaultController(mgr, &defaultFaultOption); err != nil {

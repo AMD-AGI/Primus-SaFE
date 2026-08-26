@@ -54,7 +54,7 @@ func TestSetupResourceControllersProbe(t *testing.T) {
 	run("cluster", func() error { return SetupClusterController(mgr) })
 	run("node", func() error { return SetupNodeController(mgr) })
 	run("nodek8s", func() error { return SetupNodeK8sController(ctx, mgr) })
-	run("workspace", func() error { return SetupWorkspaceController(mgr, &defaultWorkspaceOption) })
+	run("workspace", func() error { return SetupWorkspaceController(ctx, mgr, &defaultWorkspaceOption) })
 	run("fault", func() error { return SetupFaultController(mgr, &defaultFaultOption) })
 	run("addon", func() error { return SetupAddonController(mgr) })
 	run("addontemplate", func() error { return SetupAddonTemplateController(mgr) })

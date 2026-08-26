@@ -19,14 +19,15 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	k8sfake "k8s.io/client-go/kubernetes/fake"
+	"k8s.io/client-go/tools/record"
 	"k8s.io/utils/ptr"
 	ctrlruntime "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
-	ctrlfake "sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 
@@ -39,11 +40,29 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/sets"
 )
 
+// newWorkspaceClientBuilder is fake.NewClientBuilder with the spec.cluster index reservedNodes
+// lists through. SetupWorkspaceController registers it on the manager; on a fake client an
+// unregistered index is an error rather than an unfiltered list, so every builder feeding a
+// reconciler that can reach a scale-up has to start here. The scheme goes on first because the
+// builder resolves the indexed object's kind at registration and panics without it.
+func newWorkspaceClientBuilder(s *runtime.Scheme) *fake.ClientBuilder {
+	return fake.NewClientBuilder().WithScheme(s).
+		WithIndex(&v1.Workspace{}, workspaceClusterIndex, indexWorkspaceByCluster)
+}
+
 func newMockWorkspaceReconciler(adminClient client.Client) WorkspaceReconciler {
 	return WorkspaceReconciler{
 		ClusterBaseReconciler: &ClusterBaseReconciler{
 			Client: adminClient,
 		},
+		// The real one is mgr.GetAPIReader(). A fake client serves both roles here; tests
+		// that care about the difference between cached and uncached override this.
+		apiReader: adminClient,
+		// Built by hand rather than with NewFakeRecorder: that one's channel send blocks
+		// once the buffer fills, so a reconciler that emits more events than a test thought
+		// to size for would deadlock it. A nil channel discards. Tests that assert on
+		// events install their own.
+		recorder:      &record.FakeRecorder{},
 		option:        &defaultWorkspaceOption,
 		expectations:  make(map[string]sets.Set),
 		clientManager: commonutils.NewObjectManagerSingleton(),
@@ -81,8 +100,8 @@ func TestDeleteWorkspace(t *testing.T) {
 	metav1.SetMetaDataLabel(&adminNode1.ObjectMeta, v1.WorkspaceIdLabel, workspace.Name)
 	adminNode2.Spec.Workspace = ptr.To(workspace.Name)
 	metav1.SetMetaDataLabel(&adminNode2.ObjectMeta, v1.WorkspaceIdLabel, workspace.Name)
-	adminClient := fake.NewClientBuilder().WithObjects(workspace, adminNode1, adminNode2).
-		WithStatusSubresource(workspace).WithScheme(scheme.Scheme).Build()
+	adminClient := newWorkspaceClientBuilder(scheme.Scheme).WithObjects(workspace, adminNode1, adminNode2).
+		WithStatusSubresource(workspace).Build()
 
 	var err error
 	err = adminClient.Get(context.Background(), client.ObjectKey{Name: workspace.Name}, workspace)
@@ -130,8 +149,8 @@ func TestReconcile(t *testing.T) {
 
 	testScheme := scheme.Scheme
 	_ = corev1.AddToScheme(testScheme)
-	adminClient := fake.NewClientBuilder().WithObjects(adminNode1, adminNode2, workspace, cluster, nodeFlavor).
-		WithStatusSubresource(workspace).WithScheme(testScheme).Build()
+	adminClient := newWorkspaceClientBuilder(testScheme).WithObjects(adminNode1, adminNode2, workspace, cluster, nodeFlavor).
+		WithStatusSubresource(workspace).Build()
 	r := newMockWorkspaceReconciler(adminClient)
 	ns := &corev1.Namespace{
 		ObjectMeta: metav1.ObjectMeta{
@@ -161,8 +180,8 @@ func TestScaleUpWorkspace(t *testing.T) {
 	adminNode1.Status.ClusterStatus.Phase = v1.NodeManaged
 	adminNode2 := genMockAdminNode("node2", clusterName, nodeFlavor)
 	workspace := genMockWorkspace(clusterName, nodeFlavor.Name, 1)
-	adminClient := fake.NewClientBuilder().WithObjects(adminNode1, adminNode2, workspace).
-		WithStatusSubresource(workspace).WithScheme(scheme.Scheme).Build()
+	adminClient := newWorkspaceClientBuilder(scheme.Scheme).WithObjects(adminNode1, adminNode2, workspace).
+		WithStatusSubresource(workspace).Build()
 
 	k8sNode1 := genMockK8sNode(adminNode1.Name, clusterName, nodeFlavor.Name, workspace.Name)
 	k8sNode2 := genMockK8sNode(adminNode2.Name, clusterName, nodeFlavor.Name, workspace.Name)
@@ -191,8 +210,8 @@ func TestScaleDownWorkspace(t *testing.T) {
 	metav1.SetMetaDataLabel(&adminNode1.ObjectMeta, v1.WorkspaceIdLabel, workspace.Name)
 	adminNode2.Spec.Workspace = ptr.To(workspace.Name)
 	metav1.SetMetaDataLabel(&adminNode2.ObjectMeta, v1.WorkspaceIdLabel, workspace.Name)
-	adminClient := fake.NewClientBuilder().WithObjects(adminNode1, adminNode2, workspace).
-		WithStatusSubresource(workspace).WithScheme(scheme.Scheme).Build()
+	adminClient := newWorkspaceClientBuilder(scheme.Scheme).WithObjects(adminNode1, adminNode2, workspace).
+		WithStatusSubresource(workspace).Build()
 
 	r := newMockWorkspaceReconciler(adminClient)
 	_, err := r.scaleDown(context.Background(), workspace, 1)
@@ -220,11 +239,11 @@ func TestWorkspaceNodesAction(t *testing.T) {
 	metav1.SetMetaDataAnnotation(&workspace.ObjectMeta,
 		v1.WorkspaceNodesAction, string(jsonutils.MarshalSilently(actions)))
 
-	adminClient := fake.NewClientBuilder().WithObjects(adminNode1, adminNode2, workspace).
-		WithScheme(scheme.Scheme).Build()
+	adminClient := newWorkspaceClientBuilder(scheme.Scheme).WithObjects(adminNode1, adminNode2, workspace).
+		Build()
 	r := newMockWorkspaceReconciler(adminClient)
 
-	_, err := r.processNodesAction(context.Background(), workspace)
+	_, err := r.processNodesAction(context.Background(), workspace, clusterNodes(adminNode1.Name, adminNode2.Name))
 	assert.NilError(t, err)
 	err = adminClient.Get(context.Background(), client.ObjectKey{Name: adminNode1.Name}, adminNode1)
 	assert.NilError(t, err)
@@ -261,8 +280,8 @@ func TestSyncWorkspace(t *testing.T) {
 	adminNode2.Status.Unschedulable = true
 	metav1.SetMetaDataLabel(&adminNode2.ObjectMeta, v1.WorkspaceIdLabel, workspace.Name)
 
-	adminClient := fake.NewClientBuilder().WithObjects(adminNode1, adminNode2, workspace, nodeFlavor).
-		WithStatusSubresource(workspace).WithScheme(scheme.Scheme).Build()
+	adminClient := newWorkspaceClientBuilder(scheme.Scheme).WithObjects(adminNode1, adminNode2, workspace, nodeFlavor).
+		WithStatusSubresource(workspace).Build()
 	r := newMockWorkspaceReconciler(adminClient)
 
 	err := r.syncWorkspace(context.Background(), workspace)
@@ -519,8 +538,8 @@ func TestUpdatePhase(t *testing.T) {
 	workspace := genMockWorkspace(clusterName, nodeFlavor.Name, 1)
 	workspace.Status.Phase = v1.WorkspaceRunning
 
-	adminClient := fake.NewClientBuilder().WithObjects(workspace).
-		WithStatusSubresource(workspace).WithScheme(scheme.Scheme).Build()
+	adminClient := newWorkspaceClientBuilder(scheme.Scheme).WithObjects(workspace).
+		WithStatusSubresource(workspace).Build()
 	r := newMockWorkspaceReconciler(adminClient)
 
 	// Test phase change
@@ -886,14 +905,16 @@ func newWorkspaceReconcilerFull(t *testing.T, cs *k8sfake.Clientset, objs ...ctr
 	t.Helper()
 	scheme, err := genMockScheme()
 	testifyassert.NoError(t, err)
-	cl := ctrlfake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(&v1.Workspace{}).WithObjects(objs...).Build()
+	cl := newWorkspaceClientBuilder(scheme).WithStatusSubresource(&v1.Workspace{}).WithObjects(objs...).Build()
 	mgr := commonutils.NewObjectManager()
 	_ = mgr.Add("c1", commonclient.NewClientFactoryWithOnlyClient(context.Background(), "c1", cs))
 	return &WorkspaceReconciler{
 		ClusterBaseReconciler: &ClusterBaseReconciler{Client: cl, clientSet: cs},
+		apiReader:             cl,
 		clientManager:         mgr,
 		expectations:          map[string]sets.Set{},
 		option:                &WorkspaceReconcilerOption{},
+		recorder:              &record.FakeRecorder{},
 	}
 }
 
@@ -1004,7 +1025,7 @@ spec:
 	}
 	scheme, err := genMockScheme()
 	testifyassert.NoError(t, err)
-	cl := ctrlfake.NewClientBuilder().WithScheme(scheme).WithObjects(cm).Build()
+	cl := newWorkspaceClientBuilder(scheme).WithObjects(cm).Build()
 
 	ws := wsForHelper("ws1")
 	v1.SetLabel(ws, v1.DisplayNameLabel, "wsdisp")
@@ -1024,7 +1045,7 @@ spec:
 func TestGetPvTemplateNoConfigMap(t *testing.T) {
 	scheme, err := genMockScheme()
 	testifyassert.NoError(t, err)
-	cl := ctrlfake.NewClientBuilder().WithScheme(scheme).Build()
+	cl := newWorkspaceClientBuilder(scheme).Build()
 	tmpl, err := getPvTemplate(context.Background(), cl, wsForHelper("ws1"))
 	testifyassert.NoError(t, err)
 	testifyassert.Nil(t, tmpl)
@@ -1048,20 +1069,20 @@ func TestWorkspaceRelevantChangePredicate(t *testing.T) {
 }
 
 func TestWorkspaceGetClientSetOfDataplaneEmpty(t *testing.T) {
-	r := newMockWorkspaceReconciler(fake.NewClientBuilder().WithScheme(scheme.Scheme).Build())
+	r := newMockWorkspaceReconciler(newWorkspaceClientBuilder(scheme.Scheme).Build())
 	cs, err := r.getClientSetOfDataplane(context.Background(), "")
 	testifyassert.NoError(t, err)
 	testifyassert.Nil(t, cs)
 }
 
 func TestWorkspaceGetClientSetOfDataplaneClusterMissing(t *testing.T) {
-	r := newMockWorkspaceReconciler(fake.NewClientBuilder().WithScheme(scheme.Scheme).Build())
+	r := newMockWorkspaceReconciler(newWorkspaceClientBuilder(scheme.Scheme).Build())
 	_, err := r.getClientSetOfDataplane(context.Background(), "missing")
 	testifyassert.Error(t, err)
 }
 
 func TestWorkspaceReconcileNotFound(t *testing.T) {
-	r := newMockWorkspaceReconciler(fake.NewClientBuilder().WithScheme(scheme.Scheme).Build())
+	r := newMockWorkspaceReconciler(newWorkspaceClientBuilder(scheme.Scheme).Build())
 	res, err := r.Reconcile(context.Background(), ctrlruntime.Request{NamespacedName: types.NamespacedName{Name: "missing"}})
 	testifyassert.NoError(t, err)
 	assert.Equal(t, ctrlruntime.Result{}, res)
@@ -1069,7 +1090,7 @@ func TestWorkspaceReconcileNotFound(t *testing.T) {
 
 func TestWorkspaceReconcileNoCluster(t *testing.T) {
 	ws := &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ws1"}}
-	cl := fake.NewClientBuilder().WithScheme(scheme.Scheme).
+	cl := newWorkspaceClientBuilder(scheme.Scheme).
 		WithStatusSubresource(&v1.Workspace{}).WithObjects(ws).Build()
 	r := newMockWorkspaceReconciler(cl)
 	// No cluster -> clientSet nil -> nil result.
@@ -1085,7 +1106,7 @@ func TestWorkspaceDelete(t *testing.T) {
 		DeletionTimestamp: &now,
 		Finalizers:        []string{v1.WorkspaceFinalizer},
 	}}
-	cl := fake.NewClientBuilder().WithScheme(scheme.Scheme).
+	cl := newWorkspaceClientBuilder(scheme.Scheme).
 		WithStatusSubresource(&v1.Workspace{}).WithObjects(ws).Build()
 	r := newMockWorkspaceReconciler(cl)
 	// No nodes bound, no cluster -> deletes resources + removes finalizer.
@@ -1095,7 +1116,7 @@ func TestWorkspaceDelete(t *testing.T) {
 
 func TestWorkspaceUpdatePhase(t *testing.T) {
 	ws := &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ws1"}}
-	cl := fake.NewClientBuilder().WithScheme(scheme.Scheme).
+	cl := newWorkspaceClientBuilder(scheme.Scheme).
 		WithStatusSubresource(&v1.Workspace{}).WithObjects(ws).Build()
 	r := newMockWorkspaceReconciler(cl)
 	err := r.updatePhase(context.Background(), ws, v1.WorkspaceDeleting)
@@ -1110,7 +1131,7 @@ func TestWorkspaceGuaranteeDataPlaneResources(t *testing.T) {
 	ws := &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ws1"}}
 	mockScheme, err := genMockScheme()
 	testifyassert.NoError(t, err)
-	r := newMockWorkspaceReconciler(fake.NewClientBuilder().WithScheme(mockScheme).Build())
+	r := newMockWorkspaceReconciler(newWorkspaceClientBuilder(mockScheme).Build())
 	err = r.guaranteeDataPlaneResources(context.Background(), ws, cs)
 	testifyassert.NoError(t, err)
 	// Namespace should be created.
@@ -1120,7 +1141,7 @@ func TestWorkspaceGuaranteeDataPlaneResources(t *testing.T) {
 
 func TestWorkspaceDeleteDataPlaneResourcesNoCluster(t *testing.T) {
 	ws := &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ws1"}}
-	r := newMockWorkspaceReconciler(fake.NewClientBuilder().WithScheme(scheme.Scheme).Build())
+	r := newMockWorkspaceReconciler(newWorkspaceClientBuilder(scheme.Scheme).Build())
 	// No cluster -> clientSet nil -> nil.
 	err := r.deleteDataPlaneResources(context.Background(), ws)
 	testifyassert.NoError(t, err)

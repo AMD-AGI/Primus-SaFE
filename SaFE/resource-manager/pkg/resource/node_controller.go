@@ -176,6 +176,11 @@ func (r *NodeReconciler) delete(ctx context.Context, adminNode *v1.Node) (ctrlru
 }
 
 // getK8sNode retrieves the Kubernetes Node object in the data plane associated with the admin Node.
+//
+// Deliberately the uncached read: what this returns is written back -- Nodes().Update,
+// Nodes().UpdateStatus, and a patch body carrying its resourceVersion. kubelet moves that
+// version every few seconds with its heartbeat, so an informer copy would make all three
+// conflict periodically and drop taint/label/condition syncing into backoff.
 func (r *NodeReconciler) getK8sNode(ctx context.Context, adminNode *v1.Node) (*corev1.Node, ctrlruntime.Result, error) {
 	clusterName := getClusterId(adminNode)
 	k8sNodeName := adminNode.GetK8sNodeName()
@@ -186,7 +191,7 @@ func (r *NodeReconciler) getK8sNode(ctx context.Context, adminNode *v1.Node) (*c
 	if err != nil || !k8sClients.IsValid() {
 		return nil, ctrlruntime.Result{RequeueAfter: time.Second}, nil
 	}
-	k8sNode, err := getNodeByInformer(ctx, k8sClients, k8sNodeName)
+	k8sNode, err := getDataPlaneNode(ctx, k8sClients, k8sNodeName)
 	return k8sNode, ctrlruntime.Result{}, err
 }
 

@@ -15,6 +15,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	apitypes "k8s.io/apimachinery/pkg/types"
+	corev1listers "k8s.io/client-go/listers/core/v1"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/pointer"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -25,8 +26,39 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/resource-manager/pkg/utils"
 )
 
-// getNodeByInformer retrieves a Kubernetes node by name using the informer client.
-func getNodeByInformer(ctx context.Context, k8sClients *commonclient.ClientFactory, nodeName string) (*corev1.Node, error) {
+// dataPlaneNodeLister returns the data plane's node lister, but only once that informer is
+// actually running and its cache has filled.
+//
+// The distinction matters because a lister that has not synced answers NotFound for every
+// node in the cluster, and a caller that reads NotFound as "the node is gone" would take that
+// for an empty cluster. Nothing guarantees the ordering either: the informer is attached by
+// NodeK8sReconciler when its cluster comes up, so a workspace reconcile can perfectly well
+// run first. Handing back nil until HasSynced is what keeps a cold cache from answering.
+//
+// Asking the factory for the Nodes informer registers one as a side effect on clusters whose
+// NodeK8sReconciler has not attached yet. That is inert: a registered informer does not run
+// until StartInformer, which only that attach path calls, and the attach is handed this same
+// shared instance -- with the event handlers and watch error handler it adds to it.
+func dataPlaneNodeLister(k8sClients *commonclient.ClientFactory) corev1listers.NodeLister {
+	factory := k8sClients.SharedInformerFactory()
+	if factory == nil {
+		return nil
+	}
+	nodes := factory.Core().V1().Nodes()
+	if !nodes.Informer().HasSynced() {
+		return nil
+	}
+	return nodes.Lister()
+}
+
+// getDataPlaneNode reads a node straight from the data plane's apiserver.
+//
+// This is the read for callers that cannot accept a stale answer: ones that write the object
+// back -- a full Update, or a patch carrying the resourceVersion, either of which starts
+// failing on a cached copy as soon as kubelet's next heartbeat lands -- and ones that treat
+// NotFound as a permanent verdict rather than as something to look at again next round.
+// Where a lagging miss only costs a round, use getCachedDataPlaneNode.
+func getDataPlaneNode(ctx context.Context, k8sClients *commonclient.ClientFactory, nodeName string) (*corev1.Node, error) {
 	if nodeName == "" {
 		return nil, fmt.Errorf("the node name is empty")
 	}
@@ -35,6 +67,35 @@ func getNodeByInformer(ctx context.Context, k8sClients *commonclient.ClientFacto
 		return nil, err
 	}
 	return result.DeepCopy(), nil
+}
+
+// getCachedDataPlaneNode reads the shared informer's cache, and falls back to the apiserver
+// when that cache is not live yet.
+//
+// It exists for the paths that were paying a serial apiserver round trip per node -- once per
+// candidate in the scale-up scan, once per admin Node event -- on the goroutine holding the
+// work queue item, while the informer NodeK8sReconciler already runs was holding exactly
+// those objects.
+//
+// The price is that a node the cache has not caught up on reads as NotFound. Only take it
+// where that costs a round and no more: the scale-up scan picks the node up on its next
+// reconcile, and the node-event path is re-driven by the very events that fill the cache. It
+// is the wrong read wherever absence is acted on as a verdict -- isK8sNodePresent refuses a
+// binding on it, permanently, and clears the request that asked for it.
+func getCachedDataPlaneNode(ctx context.Context, k8sClients *commonclient.ClientFactory, nodeName string) (*corev1.Node, error) {
+	if nodeName == "" {
+		return nil, fmt.Errorf("the node name is empty")
+	}
+	if lister := dataPlaneNodeLister(k8sClients); lister != nil {
+		// The lister hands out pointers into the shared cache; callers here mutate or store
+		// what they get back, so the copy is not optional.
+		result, err := lister.Get(nodeName)
+		if err != nil {
+			return nil, err
+		}
+		return result.DeepCopy(), nil
+	}
+	return getDataPlaneNode(ctx, k8sClients, nodeName)
 }
 
 // isNeedAuthorization If the SSH secret of the cluster is the same as that of the node, no authorization is required.
