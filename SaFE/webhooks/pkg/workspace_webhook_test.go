@@ -7,11 +7,13 @@ package webhooks
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"gotest.tools/assert"
 	admissionv1 "k8s.io/api/admission/v1"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/utils/pointer"
@@ -587,6 +589,9 @@ func TestWorkspaceValidateNodesActionErrors(t *testing.T) {
 	bound := &v1.Node{
 		ObjectMeta: metav1.ObjectMeta{Name: "n1", Labels: map[string]string{v1.ClusterIdLabel: "cluster1"}},
 		Spec:       v1.NodeSpec{Workspace: pointer.String("other")},
+		// Managed, so the add reaches the ownership check rather than stopping at the
+		// onboarding one that now runs ahead of it.
+		Status: v1.NodeStatus{ClusterStatus: v1.NodeClusterStatus{Phase: v1.NodeManaged}},
 	}
 	c1 := fake.NewClientBuilder().WithScheme(scheme).WithObjects(bound).Build()
 	v1v := &WorkspaceValidator{Client: c1}
@@ -604,12 +609,45 @@ func TestWorkspaceValidateNodesActionErrors(t *testing.T) {
 	// cluster mismatch
 	wrongCluster := &v1.Node{
 		ObjectMeta: metav1.ObjectMeta{Name: "n2", Labels: map[string]string{v1.ClusterIdLabel: "other"}},
+		Status:     v1.NodeStatus{ClusterStatus: v1.NodeClusterStatus{Phase: v1.NodeManaged}},
 	}
 	c3 := fake.NewClientBuilder().WithScheme(scheme).WithObjects(wrongCluster).Build()
 	v3 := &WorkspaceValidator{Client: c3}
 	ws3 := &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ws1"}, Spec: v1.WorkspaceSpec{Cluster: "cluster1"}}
 	v1.SetAnnotation(ws3, v1.WorkspaceNodesAction, `{"n2":"add"}`)
 	assert.Assert(t, v3.validateNodesAction(context.Background(), ws3, &v1.Workspace{}) != nil)
+}
+
+// A node that has not finished onboarding cannot be handed to a workspace, and admission is
+// where the caller finds that out: accepting the request would mean a 200 for a node that
+// then simply never joins.
+func TestWorkspaceValidateNodesActionRefusesAnUnmanagedNode(t *testing.T) {
+	scheme := newScheme(t)
+
+	managing := &v1.Node{
+		ObjectMeta: metav1.ObjectMeta{Name: "n1", Labels: map[string]string{v1.ClusterIdLabel: "cluster1"}},
+		Status:     v1.NodeStatus{ClusterStatus: v1.NodeClusterStatus{Phase: v1.NodeManaging}},
+	}
+	v := &WorkspaceValidator{Client: fake.NewClientBuilder().WithScheme(scheme).WithObjects(managing).Build()}
+	ws := &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ws1"}, Spec: v1.WorkspaceSpec{Cluster: "cluster1"}}
+	v1.SetAnnotation(ws, v1.WorkspaceNodesAction, `{"n1":"add"}`)
+
+	err := v.validateNodesAction(context.Background(), ws, &v1.Workspace{})
+	assert.Assert(t, err != nil)
+	assert.Assert(t, strings.Contains(err.Error(), "not managed yet"), err.Error())
+	assert.Assert(t, apierrors.IsConflict(err), err.Error())
+
+	// Add only: a node that ended up bound and then lost its managed state is exactly the one
+	// that needs releasing, so the remove has to stay possible.
+	lost := &v1.Node{
+		ObjectMeta: metav1.ObjectMeta{Name: "n2", Labels: map[string]string{v1.ClusterIdLabel: "cluster1"}},
+		Spec:       v1.NodeSpec{Workspace: pointer.String("ws1")},
+		Status:     v1.NodeStatus{ClusterStatus: v1.NodeClusterStatus{Phase: v1.NodeManagedFailed}},
+	}
+	v2 := &WorkspaceValidator{Client: fake.NewClientBuilder().WithScheme(scheme).WithObjects(lost).Build()}
+	ws2 := &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ws1"}, Spec: v1.WorkspaceSpec{Cluster: "cluster1"}}
+	v1.SetAnnotation(ws2, v1.WorkspaceNodesAction, `{"n2":"remove"}`)
+	assert.NilError(t, v2.validateNodesAction(context.Background(), ws2, &v1.Workspace{}))
 }
 
 // TestWorkspaceMutateNodesActionErrors covers node action mutation error branches.

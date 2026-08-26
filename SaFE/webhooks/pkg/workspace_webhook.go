@@ -724,6 +724,21 @@ func (v *WorkspaceValidator) validateNodesAction(ctx context.Context, newWorkspa
 		if n == nil {
 			return commonerrors.NewNotFound(v1.NodeKind, key)
 		}
+		// Onboarding has to finish before a node can be handed to a workspace, and admission
+		// is the only place that can say so where the caller sees it.
+		//
+		// Ahead of the cluster check on purpose: the write in NodeReconciler.manage that
+		// stamps ClusterIdLabel is the same one that sets Managed, so an unmanaged node has
+		// no cluster label and would fail that check instead -- reporting a cluster mismatch
+		// that does not exist, about a node that is simply not done onboarding.
+		//
+		// Add only. A remove has to stay possible for a node that ended up bound and then
+		// lost its managed state, which is exactly when it needs releasing.
+		if val == v1.NodeActionAdd && !n.IsManaged() {
+			return commonerrors.NewResourceProcessing(fmt.Sprintf(
+				"the node(%s) is not managed yet(phase %s). it can't be added",
+				key, n.Status.ClusterStatus.Phase))
+		}
 		if v1.GetClusterId(n) != newWorkspace.Spec.Cluster {
 			return fmt.Errorf("the node %s and workspace %s are not in the same cluster", n.Name, newWorkspace.Name)
 		}
