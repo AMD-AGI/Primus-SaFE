@@ -7,11 +7,13 @@ package webhooks
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"gotest.tools/assert"
 	admissionv1 "k8s.io/api/admission/v1"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/utils/pointer"
@@ -587,6 +589,7 @@ func TestWorkspaceValidateNodesActionErrors(t *testing.T) {
 	bound := &v1.Node{
 		ObjectMeta: metav1.ObjectMeta{Name: "n1", Labels: map[string]string{v1.ClusterIdLabel: "cluster1"}},
 		Spec:       v1.NodeSpec{Workspace: pointer.String("other")},
+		Status:     v1.NodeStatus{ClusterStatus: v1.NodeClusterStatus{Phase: v1.NodeManaged}},
 	}
 	c1 := fake.NewClientBuilder().WithScheme(scheme).WithObjects(bound).Build()
 	v1v := &WorkspaceValidator{Client: c1}
@@ -604,12 +607,51 @@ func TestWorkspaceValidateNodesActionErrors(t *testing.T) {
 	// cluster mismatch
 	wrongCluster := &v1.Node{
 		ObjectMeta: metav1.ObjectMeta{Name: "n2", Labels: map[string]string{v1.ClusterIdLabel: "other"}},
+		Status:     v1.NodeStatus{ClusterStatus: v1.NodeClusterStatus{Phase: v1.NodeManaged}},
 	}
 	c3 := fake.NewClientBuilder().WithScheme(scheme).WithObjects(wrongCluster).Build()
 	v3 := &WorkspaceValidator{Client: c3}
 	ws3 := &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ws1"}, Spec: v1.WorkspaceSpec{Cluster: "cluster1"}}
 	v1.SetAnnotation(ws3, v1.WorkspaceNodesAction, `{"n2":"add"}`)
 	assert.Assert(t, v3.validateNodesAction(context.Background(), ws3, &v1.Workspace{}) != nil)
+}
+
+// A node that has not finished onboarding is refused here, with its own message.
+//
+// Downstream cannot recover this one: processNodesAction drops the entry and clears the
+// annotation, so an accepted request turns into a node that silently never joins. And the
+// cluster check alone would not do -- it reports a mismatch, which is the wrong place to send
+// whoever has to act on it.
+func TestWorkspaceValidateNodesActionRefusesAnUnmanagedNode(t *testing.T) {
+	scheme := newScheme(t)
+	// Cluster label already stamped, so the only thing standing between this node and the
+	// binding is that it is still being managed.
+	managing := &v1.Node{
+		ObjectMeta: metav1.ObjectMeta{Name: "n1", Labels: map[string]string{v1.ClusterIdLabel: "cluster1"}},
+		Status:     v1.NodeStatus{ClusterStatus: v1.NodeClusterStatus{Phase: v1.NodeManaging}},
+	}
+	v := &WorkspaceValidator{Client: fake.NewClientBuilder().WithScheme(scheme).WithObjects(managing).Build()}
+	ws := &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ws1"}, Spec: v1.WorkspaceSpec{Cluster: "cluster1"}}
+	v1.SetAnnotation(ws, v1.WorkspaceNodesAction, `{"n1":"add"}`)
+
+	err := v.validateNodesAction(context.Background(), ws, &v1.Workspace{})
+	assert.Assert(t, err != nil)
+	assert.Assert(t, strings.Contains(err.Error(), "not managed yet"), err.Error())
+	// Retryable, not a permanent rejection: the caller is being told to come back, not that
+	// the request was wrong.
+	assert.Assert(t, apierrors.IsConflict(err), err.Error())
+
+	// Releasing one stays possible: a node that lost its managed state while bound is
+	// precisely the one that needs to come out.
+	bound := &v1.Node{
+		ObjectMeta: metav1.ObjectMeta{Name: "n2", Labels: map[string]string{v1.ClusterIdLabel: "cluster1"}},
+		Spec:       v1.NodeSpec{Workspace: pointer.String("ws1")},
+		Status:     v1.NodeStatus{ClusterStatus: v1.NodeClusterStatus{Phase: v1.NodeManagedFailed}},
+	}
+	vr := &WorkspaceValidator{Client: fake.NewClientBuilder().WithScheme(scheme).WithObjects(bound).Build()}
+	wsr := &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ws1"}, Spec: v1.WorkspaceSpec{Cluster: "cluster1"}}
+	v1.SetAnnotation(wsr, v1.WorkspaceNodesAction, `{"n2":"remove"}`)
+	assert.NilError(t, vr.validateNodesAction(context.Background(), wsr, &v1.Workspace{}))
 }
 
 // TestWorkspaceMutateNodesActionErrors covers node action mutation error branches.
