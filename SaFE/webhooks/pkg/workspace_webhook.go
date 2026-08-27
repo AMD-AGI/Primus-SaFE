@@ -250,6 +250,25 @@ func (m *WorkspaceMutator) mutateNodesAction(ctx context.Context, oldWorkspace, 
 	if v1.GetWorkspaceNodesAction(newWorkspace) == "" {
 		return nil
 	}
+	oldActions, _ := commonnodes.ParseAction(oldWorkspace)
+	// One request at a time, and turned away here rather than reconciled with the one in
+	// flight. The caller reached this function by changing the annotation, so this is a
+	// second request over the top of a first the controller has not finished -- the only
+	// writes that legitimately change the annotation while one is in flight are the
+	// controller's own, and both are already past: a withdrawal returns from mutateOnUpdate
+	// before any of this, and clearing the annotation returns just above.
+	//
+	// Refused whole, not merged. Comparing the two requests and letting an identical one
+	// through is what this used to do, and it counted the same entries into Spec.Replica
+	// twice: the skips below drop an add of a node the workspace already holds and a remove
+	// of a node it does not, so a second request could shrink onto exactly the set already
+	// in flight, leave the annotation untouched, and still move the count. The annotation
+	// then said one binding and the replica said two, and nothing downstream reconciles the
+	// two -- an inflated count buys a machine nobody asked for, a deflated one releases one.
+	if len(oldActions) > 0 {
+		return commonerrors.NewResourceProcessing(fmt.Sprintf("another job(%s) is processing,"+
+			" please wait for it to complete", v1.GetWorkspaceNodesAction(oldWorkspace)))
+	}
 	// A new request supersedes whatever the last one failed with. This is the other half of
 	// the lifecycle dropRefusedActions starts when it records a reason; without it a
 	// workspace that was ever turned down carries that reason for good.
@@ -350,23 +369,13 @@ func (m *WorkspaceMutator) mutateNodesAction(ctx context.Context, oldWorkspace, 
 		return err
 	}
 
-	oldActions, _ := commonnodes.ParseAction(oldWorkspace)
+	// Nothing in flight to reconcile with -- the check at the top of this function saw to
+	// that -- so what is left is only this request, minus whatever was already true.
 	if len(newActions) == 0 {
-		if len(oldActions) == 0 {
-			v1.RemoveAnnotation(newWorkspace, v1.WorkspaceNodesAction)
-			v1.RemoveAnnotation(newWorkspace, v1.WorkspaceForcedAction)
-		} else {
-			// No effective node ops in this request; keep the previous workspace node-action state.
-			v1.SetAnnotation(newWorkspace, v1.WorkspaceNodesAction, v1.GetWorkspaceNodesAction(oldWorkspace))
-		}
-	} else {
-		if len(oldActions) > 0 && !maps.EqualIgnoreOrder(oldActions, newActions) {
-			return commonerrors.NewResourceProcessing(fmt.Sprintf("another job(%s) is processing,"+
-				" please wait for it to complete", v1.GetWorkspaceNodesAction(oldWorkspace)))
-		}
-		if len(newActions) != len(currentActions) {
-			v1.SetAnnotation(newWorkspace, v1.WorkspaceNodesAction, string(jsonutils.MarshalSilently(newActions)))
-		}
+		v1.RemoveAnnotation(newWorkspace, v1.WorkspaceNodesAction)
+		v1.RemoveAnnotation(newWorkspace, v1.WorkspaceForcedAction)
+	} else if len(newActions) != len(currentActions) {
+		v1.SetAnnotation(newWorkspace, v1.WorkspaceNodesAction, string(jsonutils.MarshalSilently(newActions)))
 	}
 	return nil
 }
@@ -469,6 +478,21 @@ func (m *WorkspaceMutator) mutateScaleDown(ctx context.Context, oldWorkspace, ne
 	newCount := newWorkspace.Spec.Replica
 	if oldCount <= newCount {
 		return nil
+	}
+	// While a nodes-action is in flight, Spec.Replica belongs to it. mutateNodesAction
+	// already refuses a request that changes the count and names nodes in one write; this is
+	// the same rule for the two arriving one after the other, which is what a user doing
+	// both through a UI produces.
+	//
+	// Not merely tidiness. The count the request moved is spent on the nodes it named, and
+	// lowering it in between spends it again on whichever nodes scaling picks -- so an
+	// explicit add lands and something else is released to pay for it, and the machine
+	// released is not the one anybody was talking about. The branch just below is what let
+	// this through: a new count at or above what the workspace currently holds writes no
+	// scale-down request of its own, so nothing further along ever noticed the collision.
+	if inFlight := v1.GetWorkspaceNodesAction(oldWorkspace); inFlight != "" {
+		return commonerrors.NewResourceProcessing(fmt.Sprintf("another job(%s) is processing,"+
+			" please wait for it to complete", inFlight))
 	}
 	if newCount >= oldWorkspace.CurrentReplica() {
 		return nil
@@ -770,6 +794,15 @@ func (v *WorkspaceValidator) validateScaleDown(ctx context.Context, newWorkspace
 	if oldWorkspace.Spec.Replica <= newWorkspace.Spec.Replica {
 		return nil
 	}
+	// The old object's annotation, which no mutation touches, so this reads what the request
+	// arrived against rather than the scale-down request mutateScaleDown may have just
+	// written onto the new one. Same rule and same message as there -- see the reasoning at
+	// that copy. A withdrawal also lowers Spec.Replica against a non-empty annotation and is
+	// not a scale-down; validateOnUpdate keeps it out of this function entirely.
+	if inFlight := v1.GetWorkspaceNodesAction(oldWorkspace); inFlight != "" {
+		return commonerrors.NewResourceProcessing(fmt.Sprintf("another job(%s) is processing,"+
+			" please wait for it to complete", inFlight))
+	}
 	if sourceWorkloadId := v1.GetSourceWorkloadId(newWorkspace); sourceWorkloadId != "" {
 		workload, err := getWorkload(ctx, v.Client, sourceWorkloadId)
 		if err == nil && !workload.IsEnd() {
@@ -921,7 +954,16 @@ func (v *WorkspaceValidator) validateNodesAction(ctx context.Context, newWorkspa
 	if isWithdrawal {
 		return nil
 	}
-	if len(oldActions) > 0 && len(newActions) > 0 && !maps.EqualIgnoreOrder(oldActions, newActions) {
+	// The raw annotation, not the parsed maps, and the difference is the point. Every update
+	// to a Workspace carrying an in-flight request comes through here -- a replica edit, a
+	// volume, a label -- and each of those carries the annotation along unchanged; rejecting
+	// them would freeze the object for as long as a binding takes. A second nodes-action is
+	// the one thing that changes those bytes, and it is refused whether or not it happens to
+	// parse to the same entries. Same condition and same message as mutateNodesAction, which
+	// has already turned it away by the time this runs; this is the copy that holds if it
+	// did not.
+	if len(oldActions) > 0 &&
+		v1.GetWorkspaceNodesAction(oldWorkspace) != v1.GetWorkspaceNodesAction(newWorkspace) {
 		return commonerrors.NewResourceProcessing(
 			fmt.Sprintf("another job(%s) is processing, please wait for it to complete", v1.GetWorkspaceNodesAction(oldWorkspace)))
 	}

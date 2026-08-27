@@ -1375,3 +1375,122 @@ func TestWorkspaceMutateNodesActionReportsAStableFlavorMismatch(t *testing.T) {
 		assert.Assert(t, strings.Contains(err.Error(), "flavor-b"), err.Error())
 	}
 }
+
+func inFlightNode(t *testing.T, name, workspace string) *v1.Node {
+	t.Helper()
+	n := &v1.Node{
+		ObjectMeta: metav1.ObjectMeta{Name: name, Labels: map[string]string{
+			v1.ClusterIdLabel: "cluster1", v1.NodeFlavorIdLabel: "flavor1",
+		}},
+		Status: v1.NodeStatus{ClusterStatus: v1.NodeClusterStatus{Phase: v1.NodeManaged}},
+	}
+	if workspace != "" {
+		n.Spec.Workspace = pointer.String(workspace)
+	}
+	return n
+}
+
+// A second nodes-action over the top of one still in flight is refused, including -- above
+// all -- when the mutator's own skips shrink it onto exactly the request already in flight.
+//
+// That case used to be admitted as a no-op, because the sets compared equal and the
+// annotation therefore did not change. The replica arithmetic ran anyway, so the same entries
+// were counted twice: the annotation described one binding and Spec.Replica described two,
+// and nothing downstream brings the two back together. An add counted twice buys a machine
+// nobody asked for; a remove counted twice releases one.
+func TestWorkspaceMutateNodesActionRefusesASecondRequest(t *testing.T) {
+	scheme := newScheme(t)
+	cli := fake.NewClientBuilder().WithScheme(scheme).WithObjects(
+		inFlightNode(t, "node-n", ""),       // the pending add
+		inFlightNode(t, "node-held", "ws1"), // already ours: an add of it is skipped
+		inFlightNode(t, "node-gone", "ws1"), // the pending remove
+		inFlightNode(t, "node-free", ""),    // not ours: a remove of it is skipped
+	).Build()
+	m := &WorkspaceMutator{Client: cli}
+
+	cases := []struct {
+		name             string
+		inFlight, second string
+		replica          int
+	}{{
+		name:     "a different request",
+		inFlight: `{"node-n":"add"}`,
+		second:   `{"node-n":"add","node-free":"add"}`,
+		replica:  1,
+	}, {
+		// Shrinks onto the in-flight set: node-held is already bound to ws1, so the add of
+		// it is skipped and what is left is {"node-n":"add"} again.
+		name:     "an add that shrinks onto the one in flight",
+		inFlight: `{"node-n":"add"}`,
+		second:   `{"node-n":"add","node-held":"add"}`,
+		replica:  1,
+	}, {
+		// The same, the other way round: node-free is bound to nobody, so the remove of it
+		// is skipped.
+		name:     "a remove that shrinks onto the one in flight",
+		inFlight: `{"node-gone":"remove"}`,
+		second:   `{"node-gone":"remove","node-free":"remove"}`,
+		replica:  3,
+	}}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			oldWs := &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ws1"},
+				Spec: v1.WorkspaceSpec{Cluster: "cluster1", NodeFlavor: "flavor1", Replica: c.replica}}
+			v1.SetAnnotation(oldWs, v1.WorkspaceNodesAction, c.inFlight)
+			newWs := oldWs.DeepCopy()
+			v1.SetAnnotation(newWs, v1.WorkspaceNodesAction, c.second)
+
+			err := m.mutateNodesAction(context.Background(), oldWs, newWs)
+			assert.Assert(t, err != nil)
+			assert.Assert(t, strings.Contains(err.Error(), "another job"), err.Error())
+			// Refused whole. The count is the half that used to leak through.
+			assert.Equal(t, newWs.Spec.Replica, c.replica)
+		})
+	}
+}
+
+// Lowering Spec.Replica while a nodes-action is in flight is the same collision arriving as
+// two writes instead of one, and is refused the same way.
+//
+// The admitted case was a new count at or above what the workspace currently holds:
+// mutateScaleDown wrote no request of its own and returned, so the lowered count simply
+// stood. The pending add then landed, putting the workspace one over, and the next reconcile
+// scaled down -- releasing whichever node scale-down picked, which is not the node anybody
+// had been talking about.
+func TestWorkspaceAdmitRefusesAScaleDownDuringANodesAction(t *testing.T) {
+	scheme := newScheme(t)
+	cli := fake.NewClientBuilder().WithScheme(scheme).WithObjects(
+		inFlightNode(t, "node-n", ""), inFlightNode(t, "node-held", "ws1"),
+		&v1.NodeFlavor{ObjectMeta: metav1.ObjectMeta{Name: "flavor1"}},
+		&v1.Cluster{ObjectMeta: metav1.ObjectMeta{Name: "cluster1"}},
+	).Build()
+	m, v := &WorkspaceMutator{Client: cli}, &WorkspaceValidator{Client: cli}
+
+	// Holds one node and has an add of a second in flight, so Spec.Replica reads 2.
+	for _, target := range []int{1, 0} {
+		stored := validWorkspace("ws1")
+		stored.Spec.NodeFlavor = "flavor1"
+		stored.Spec.Replica = 2
+		stored.Status.AvailableReplica = 1
+		v1.SetAnnotation(stored, v1.WorkspaceNodesAction, `{"node-n":"add"}`)
+		incoming := stored.DeepCopy()
+		incoming.Spec.Replica = target
+
+		err := admit(t, m, v, stored, incoming)
+		assert.Assert(t, err != nil)
+		assert.Assert(t, strings.Contains(err.Error(), "another job"), err.Error())
+		// Untouched: no scale-down request written over the one in flight.
+		assert.Equal(t, v1.GetWorkspaceNodesAction(incoming), `{"node-n":"add"}`)
+	}
+
+	// Raising it is not this. An add in flight and a higher target are the same intent
+	// arriving twice, and the count the request moved is not spent twice by allowing it.
+	stored := validWorkspace("ws1")
+	stored.Spec.NodeFlavor = "flavor1"
+	stored.Spec.Replica = 2
+	stored.Status.AvailableReplica = 1
+	v1.SetAnnotation(stored, v1.WorkspaceNodesAction, `{"node-n":"add"}`)
+	incoming := stored.DeepCopy()
+	incoming.Spec.Replica = 5
+	assert.NilError(t, admit(t, m, v, stored, incoming))
+}
