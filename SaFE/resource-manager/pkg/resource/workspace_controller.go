@@ -311,8 +311,25 @@ func (r *WorkspaceReconciler) delete(ctx context.Context, workspace *v1.Workspac
 		return err
 	}
 
+	// Uncached, and scoped to this workspace's cluster.
+	//
+	// Uncached because of what is done with the answer: every node this list misses keeps its
+	// claim on a Workspace that is about to lose its finalizer and disappear, and there is no
+	// second pass to catch it -- the claim is then held by a name that resolves to nothing, and
+	// only a manual edit gets the node back. A cached List is stale exactly when it matters
+	// most, right after this controller's own writes; the rest of the single-owner path already
+	// reads through r.apiReader for the same reason, and dropping the finalizer is the one
+	// decision here that cannot be taken back.
+	//
+	// Scoped because the filter below is a claim on a node in this workspace's own cluster, so
+	// no node outside it can qualify, and without the selector every deletion pulls the whole
+	// NodeList across the wire -- a cost the cache used to hide and an uncached read does not.
 	nodeList := &v1.NodeList{}
-	if err = r.List(ctx, nodeList); err != nil {
+	listOpts := &client.ListOptions{}
+	if workspace.Spec.Cluster != "" {
+		listOpts.LabelSelector = labels.SelectorFromSet(map[string]string{v1.ClusterIdLabel: workspace.Spec.Cluster})
+	}
+	if err = r.apiReader.List(ctx, nodeList, listOpts); err != nil {
 		return err
 	}
 	var nodes []*v1.Node

@@ -117,6 +117,49 @@ func TestDeleteWorkspace(t *testing.T) {
 	assert.Equal(t, adminNode2.GetSpecWorkspace(), "")
 }
 
+// nodeBlindCache is a manager cache that has not caught up: it answers every read from the
+// real store except a Node List, which comes back empty. Writes go straight through, as they
+// do in production -- only reads are cached.
+type nodeBlindCache struct {
+	client.Client
+}
+
+func (c nodeBlindCache) List(ctx context.Context, list client.ObjectList, opts ...client.ListOption) error {
+	if err := c.Client.List(ctx, list, opts...); err != nil {
+		return err
+	}
+	if nodeList, ok := list.(*v1.NodeList); ok {
+		nodeList.Items = nil
+	}
+	return nil
+}
+
+func TestDeleteWorkspaceReleasesANodeTheCacheHasNotSeen(t *testing.T) {
+	nodeFlavor := genMockNodeFlavor()
+	clusterName := "cluster"
+	workspace := genMockWorkspace(clusterName, nodeFlavor.Name, 1)
+	claimed := genMockAdminNode("node-fresh", clusterName, nodeFlavor)
+	claimed.Spec.Workspace = pointer.String(workspace.Name)
+	metav1.SetMetaDataLabel(&claimed.ObjectMeta, v1.WorkspaceIdLabel, workspace.Name)
+	store := fake.NewClientBuilder().WithObjects(workspace, claimed).
+		WithStatusSubresource(workspace).WithScheme(scheme.Scheme).Build()
+
+	// The node this controller bound a moment ago, in the state the two readers disagree
+	// about: the apiserver has it, the manager's cache does not. That is not a contrived
+	// split -- it is what a cache looks like right after its own client's write.
+	r := newMockWorkspaceReconciler(nodeBlindCache{store})
+	r.apiReader = store
+
+	assert.NilError(t, store.Get(context.Background(), client.ObjectKey{Name: workspace.Name}, workspace))
+	assert.NilError(t, r.delete(context.Background(), workspace))
+	assert.Equal(t, controllerutil.ContainsFinalizer(workspace, v1.WorkspaceFinalizer), false)
+
+	// The claim is gone. List from the cache instead and it never was: the finalizer comes
+	// off a Workspace whose name a live node still carries, and nothing runs again to notice.
+	assert.NilError(t, store.Get(context.Background(), client.ObjectKey{Name: claimed.Name}, claimed))
+	assert.Equal(t, claimed.GetSpecWorkspace(), "")
+}
+
 func TestReconcile(t *testing.T) {
 	nodeFlavor := genMockNodeFlavor()
 	clusterName := "cluster"
