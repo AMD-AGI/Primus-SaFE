@@ -226,6 +226,14 @@ func GetNodeMigrateInfo(obj metav1.Object) *NodeMigrateInfo {
 	return info
 }
 
+// IsNodeReleasedFor reports whether the node was released by one named workspace for another.
+// Both ends have to match: the target alone would let any workspace take over a crossing
+// someone else started, leaving two of them driving one node.
+func IsNodeReleasedFor(obj metav1.Object, from, target string) bool {
+	info := GetNodeMigrateInfo(obj)
+	return info != nil && info.From == from && info.Target == target
+}
+
 // IsNodeMigrationExpired reports whether a migration has been under way for longer than a
 // migration should take.
 //

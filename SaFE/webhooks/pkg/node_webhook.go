@@ -435,12 +435,18 @@ func (v *NodeValidator) validateImmutableFields(newNode, oldNode *v1.Node) error
 // validateNodeMigrationReservation keeps a node released for a migration for the workspace it
 // was released for.
 //
-// This is the one place that can hold that line. A node is claimed by writing this field, and
-// every route to it ends here: the workspace nodes-action a user asks for, the scaling loop
-// picking up an unassigned node, a controller restoring state, someone with kubectl. Guarding
-// any one of those leaves the rest open -- and the node is unassigned and of a matching
-// flavor for as long as the crossing takes, which is exactly what every one of them looks
-// for. Refusing the write itself covers them all at once.
+// A node is claimed by writing this field, so guarding the write covers every route that
+// claims one at once: the workspace nodes-action a user asks for, the scaling loop picking up
+// an unassigned node, a controller restoring state, someone with kubectl. Guarding any one of
+// those callers instead would leave the others open, and the node is unassigned and of a
+// matching flavor for as long as the crossing takes -- exactly what each of them looks for.
+//
+// What it does not cover: this reads the reservation off the object as it was, so anyone able
+// to write the node can take the annotation off in one request and bind the node in the next.
+// Closing that would mean refusing to clear a reservation at all, which is a thing the
+// resource-manager legitimately does when it gives up on a migration. Whoever can do it can
+// already move nodes between workspaces by hand; the guard is what stops the routes that
+// ordinary use goes through, not an authorization boundary.
 //
 // An expired reservation is not honoured. The workspace driving the migration can be deleted
 // mid-crossing, and a node can leave the cluster and come back still carrying the annotation;

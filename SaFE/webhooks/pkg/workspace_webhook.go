@@ -187,8 +187,18 @@ func (m *WorkspaceMutator) mutateNodesAction(ctx context.Context, oldWorkspace, 
 	if err != nil {
 		return err
 	}
+	// What the workspace was already carrying. Only the entries that are new to this request
+	// are accounted for below: this runs whenever the annotation's text changes, and the same
+	// action can arrive again spelled differently -- a client retrying, or the same JSON with
+	// different spacing -- which would otherwise move the replica a second time for one
+	// request the user made once.
+	alreadyCarried, _ := parseNodesAction(oldWorkspace)
 	newActions := make(map[string]string)
 	for key, val := range currentActions {
+		if alreadyCarried[key] == val {
+			newActions[key] = val
+			continue
+		}
 		n, _ := getNode(ctx, m.Client, key)
 		if n == nil {
 			klog.ErrorS(err, "failed to get node")
@@ -767,6 +777,16 @@ func (v *WorkspaceValidator) validateNodesAction(ctx context.Context, newWorkspa
 			if n.GetSpecWorkspace() != "" {
 				return fmt.Errorf("the node(%s) is bound for %s. it can't be added", key, n.GetSpecWorkspace())
 			}
+			// Refused here as well as by the node webhook, which is what actually holds the
+			// line. Left to that one alone the request is accepted, this workspace's replica
+			// goes up for a node it will never get, and the reconciler spends the migration's
+			// whole timeout being told no -- with the refusal reaching a log rather than the
+			// person who asked.
+			if info := v1.GetNodeMigrateInfo(n); info != nil && info.Target != newWorkspace.Name &&
+				!v1.IsNodeMigrationExpired(info, v1.DefaultNodeMigrateTimeout) {
+				return commonerrors.NewConflict(fmt.Sprintf(
+					"the node(%s) is being migrated to workspace(%s). it can't be added", key, info.Target))
+			}
 		} else if val == v1.NodeActionRemove {
 			if n.GetSpecWorkspace() != newWorkspace.Name {
 				return fmt.Errorf("the node(%s) belongs to workspace(%s). it can't be removed",
@@ -777,8 +797,12 @@ func (v *WorkspaceValidator) validateNodesAction(ctx context.Context, newWorkspa
 			// Either the node is still here, or it is one this workspace already released
 			// for this same migration and is re-admitting -- a controller retry, or a user
 			// re-issuing the request. Anything else is a migration of someone else's node.
+			// The reservation names the workspace that released it, and only that workspace
+			// may go on driving the crossing. Matching on the target alone would let any
+			// workspace pick up a migration someone else started and carry it out under its
+			// own action, with two workspaces then driving one node.
 			if n.GetSpecWorkspace() != newWorkspace.Name &&
-				!(n.GetSpecWorkspace() == "" && v1.IsNodeMigratingTo(n, migrateTarget)) {
+				!(n.GetSpecWorkspace() == "" && v1.IsNodeReleasedFor(n, newWorkspace.Name, migrateTarget)) {
 				return fmt.Errorf("the node(%s) belongs to workspace(%s). it can't be migrated",
 					key, n.GetSpecWorkspace())
 			}
@@ -852,6 +876,10 @@ func (v *WorkspaceValidator) validateMigrateTarget(ctx context.Context,
 	if targetWorkspace.Spec.Cluster != newWorkspace.Spec.Cluster {
 		return fmt.Errorf("the workspace %s and workspace %s are not in the same cluster",
 			target, newWorkspace.Name)
+	}
+	if !targetWorkspace.GetDeletionTimestamp().IsZero() {
+		return commonerrors.NewConflict(fmt.Sprintf(
+			"the target workspace(%s) is being deleted", target))
 	}
 	if v1.GetWorkspaceNodesAction(targetWorkspace) != "" {
 		return commonerrors.NewResourceProcessing(fmt.Sprintf(

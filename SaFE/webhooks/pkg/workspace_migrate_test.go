@@ -352,10 +352,10 @@ func TestValidateNodesActionAddRefusesSomeoneElsesReservedNode(t *testing.T) {
 	}
 	thirdParty := migrateWorkspace("ws-c", migrateCluster, migrateFlavor, 1)
 
-	// The workspace webhook admits it -- the node is unbound, which is all this check knows
-	// about -- so the line that has to hold is the one on the node itself.
-	assert.NilError(t, validator.validateNodesAction(context.Background(),
-		withNodesAction(thirdParty.DeepCopy(), map[string]string{"node1": v1.NodeActionAdd}), thirdParty))
+	// Refused where the user can see it, so the request does not come back accepted and then
+	// fail out of sight for the whole of the migration's timeout.
+	assert.Assert(t, validator.validateNodesAction(context.Background(),
+		withNodesAction(thirdParty.DeepCopy(), map[string]string{"node1": v1.NodeActionAdd}), thirdParty) != nil)
 
 	nodeValidator := &NodeValidator{}
 	bound := node.DeepCopy()
@@ -431,4 +431,75 @@ func TestValidateNodesActionSkipsAnActionThatIsNotBeingChanged(t *testing.T) {
 	v1.SetLabel(renamed, v1.DisplayNameLabel, "renamed")
 
 	assert.NilError(t, validator.validateNodesAction(context.Background(), renamed, oldWs))
+}
+
+// The same request arriving twice is one request. The annotation's text is what triggers the
+// accounting, and the same action can arrive again spelled differently -- a client retrying,
+// or the same JSON with different spacing -- so the entries already carried are left alone.
+func TestMutateNodesActionCountsAnActionOnceHoweverOftenItIsSent(t *testing.T) {
+	scheme := newScheme(t)
+	node := migrateNode("node1", migrateCluster, migrateFlavor, "ws-a")
+	mutator := &WorkspaceMutator{
+		Client: fake.NewClientBuilder().WithScheme(scheme).WithObjects(node).Build(),
+	}
+	action := map[string]string{"node1": v1.BuildMigrateAction("ws-b")}
+
+	first := withNodesAction(migrateWorkspace("ws-a", migrateCluster, migrateFlavor, 3), action)
+	assert.NilError(t, mutator.mutateNodesAction(context.Background(),
+		migrateWorkspace("ws-a", migrateCluster, migrateFlavor, 3), first))
+	assert.Equal(t, first.Spec.Replica, 2)
+
+	resent := withNodesAction(migrateWorkspace("ws-a", migrateCluster, migrateFlavor, 2), action)
+	assert.NilError(t, mutator.mutateNodesAction(context.Background(),
+		withNodesAction(migrateWorkspace("ws-a", migrateCluster, migrateFlavor, 2), action), resent))
+	assert.Equal(t, resent.Spec.Replica, 2, "the same request was counted twice")
+
+	// An add resent the same way is the same story, and was before migrations existed.
+	free := migrateNode("node2", migrateCluster, migrateFlavor, "")
+	addMutator := &WorkspaceMutator{
+		Client: fake.NewClientBuilder().WithScheme(scheme).WithObjects(free).Build(),
+	}
+	addAction := map[string]string{"node2": v1.NodeActionAdd}
+	added := withNodesAction(migrateWorkspace("ws-b", migrateCluster, migrateFlavor, 1), addAction)
+	assert.NilError(t, addMutator.mutateNodesAction(context.Background(),
+		withNodesAction(migrateWorkspace("ws-b", migrateCluster, migrateFlavor, 1), addAction), added))
+	assert.Equal(t, added.Spec.Replica, 1)
+}
+
+// Only the workspace that released the node may go on driving the crossing; matching on the
+// target alone lets any workspace take over a migration someone else started.
+func TestValidateNodesActionMigrateOnlyByTheWorkspaceThatReleasedIt(t *testing.T) {
+	scheme := newScheme(t)
+	node := releasedForMigration(migrateNode("node1", migrateCluster, migrateFlavor, "ws-a"), "ws-a", "ws-b")
+	validator := &WorkspaceValidator{
+		Client: fake.NewClientBuilder().WithScheme(scheme).WithObjects(node,
+			migrateWorkspace("ws-b", migrateCluster, migrateFlavor, 1)).Build(),
+	}
+	action := map[string]string{"node1": v1.BuildMigrateAction("ws-b")}
+
+	interloper := migrateWorkspace("ws-c", migrateCluster, migrateFlavor, 1)
+	assert.Assert(t, validator.validateNodesAction(context.Background(),
+		withNodesAction(interloper.DeepCopy(), action), interloper) != nil)
+
+	owner := migrateWorkspace("ws-a", migrateCluster, migrateFlavor, 1)
+	assert.NilError(t, validator.validateNodesAction(context.Background(),
+		withNodesAction(owner.DeepCopy(), action), owner))
+}
+
+// A target on its way out cannot take the nodes, and finding that out after they have been
+// released costs a whole timeout and the source's capacity.
+func TestValidateMigrateTargetRefusesAWorkspaceBeingDeleted(t *testing.T) {
+	scheme := newScheme(t)
+	node := migrateNode("node1", migrateCluster, migrateFlavor, "ws-a")
+	deleting := migrateWorkspace("ws-b", migrateCluster, migrateFlavor, 1)
+	now := metav1.NewTime(time.Now())
+	deleting.DeletionTimestamp = &now
+	deleting.Finalizers = []string{v1.WorkspaceFinalizer}
+	validator := &WorkspaceValidator{
+		Client: fake.NewClientBuilder().WithScheme(scheme).WithObjects(node, deleting).Build(),
+	}
+	source := migrateWorkspace("ws-a", migrateCluster, migrateFlavor, 1)
+	assert.Assert(t, validator.validateNodesAction(context.Background(),
+		withNodesAction(source.DeepCopy(), map[string]string{"node1": v1.BuildMigrateAction("ws-b")}),
+		source) != nil)
 }
