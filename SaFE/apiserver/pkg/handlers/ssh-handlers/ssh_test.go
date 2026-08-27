@@ -18,9 +18,9 @@ import (
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
-	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
 	mock_client "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client/mock"
+	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 	"github.com/gin-gonic/gin"
 	"github.com/golang/mock/gomock"
 	"github.com/gorilla/websocket"
