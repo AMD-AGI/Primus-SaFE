@@ -17,6 +17,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	commonnodes "github.com/AMD-AIG-AIMA/SAFE/common/pkg/nodes"
 	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
 )
 
@@ -98,7 +99,7 @@ func TestMutateNodesActionMigrateInFlightIsKeptAndCountedOnce(t *testing.T) {
 
 	assert.NilError(t, m.mutateNodesAction(context.Background(), oldWs, newWs))
 	assert.Equal(t, newWs.Spec.Replica, 1)
-	actions, err := parseNodesAction(newWs)
+	actions, err := commonnodes.ParseAction(newWs)
 	assert.NilError(t, err)
 	assert.Equal(t, actions["node1"], v1.BuildMigrateAction("ws-b"))
 }

@@ -1255,23 +1255,6 @@ func (v *WorkspaceValidator) validateMigrateTarget(ctx context.Context,
 	return nil
 }
 
-// parseNodesAction parses the workspace nodes action annotation into a map of node names to actions.
-func parseNodesAction(w *v1.Workspace) (map[string]string, error) {
-	actionsStr := v1.GetWorkspaceNodesAction(w)
-	if actionsStr == "" {
-		return nil, nil
-	}
-	var actions map[string]string
-	if err := json.Unmarshal([]byte(actionsStr), &actions); err != nil {
-		klog.ErrorS(err, "invalid nodes action json", "data", v1.GetWorkspaceNodesAction(w))
-		return nil, err
-	}
-	if len(actions) == 0 {
-		return nil, nil
-	}
-	return actions, nil
-}
-
 // validateNodesRemoved ensures no running workloads are using the nodes to be removed.
 func (v *WorkspaceValidator) validateNodesRemoved(ctx context.Context, workspace *v1.Workspace, nodeNames []string) error {
 	if len(nodeNames) == 0 || v1.HasAnnotation(workspace, v1.WorkspaceForcedAction) {
