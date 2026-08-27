@@ -9,6 +9,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 
 	admissionv1 "k8s.io/api/admission/v1"
@@ -103,16 +104,28 @@ func (m *WorkspaceMutator) mutateOnCreation(ctx context.Context, workspace *v1.W
 
 // mutateOnUpdate applies mutations during updates.
 func (m *WorkspaceMutator) mutateOnUpdate(ctx context.Context, oldWorkspace, newWorkspace *v1.Workspace) error {
+	// First, ahead of every mutation, and that placement is the point.
+	//
+	// A withdrawal is recognised by its shape, and the validating webhook has to recognise the
+	// same write from the same shape. It is handed whatever the mutator leaves behind, so any
+	// field a mutation touches on the way here is a field the two of them could read
+	// differently -- mutateByNodeFlavor zeroes Spec.Replica for a workspace whose flavor has
+	// gone, and Spec.Replica is one of the fields the shape is made of. Deciding before
+	// anything runs makes the object both webhooks judge byte-for-byte the one the controller
+	// sent, so the question of what ran in between does not arise.
+	//
+	// Nothing to do once it is recognised, either. Left to mutateNodesAction the write would
+	// have its reason annotation stripped and the surviving entries counted into Spec.Replica
+	// a second time; the rest of mutateCommon is idempotent over an object that already went
+	// through it, so skipping it costs nothing.
+	if v1.GetWorkspaceNodesAction(oldWorkspace) != v1.GetWorkspaceNodesAction(newWorkspace) &&
+		isNodesActionWithdrawal(oldWorkspace, newWorkspace) {
+		return nil
+	}
 	if err := m.mutateCommon(ctx, oldWorkspace, newWorkspace); err != nil {
 		return err
 	}
 	if v1.GetWorkspaceNodesAction(oldWorkspace) != v1.GetWorkspaceNodesAction(newWorkspace) {
-		if isNodesActionWithdrawal(oldWorkspace, newWorkspace) {
-			// Nothing to do, and that is the whole point of recognising it. Left to
-			// mutateNodesAction the write would have its reason annotation stripped and
-			// the surviving entries counted into Spec.Replica a second time.
-			return nil
-		}
 		if err := m.mutateNodesAction(ctx, oldWorkspace, newWorkspace); err != nil {
 			return err
 		}
@@ -135,11 +148,10 @@ func (m *WorkspaceMutator) mutateOnUpdate(ctx context.Context, oldWorkspace, new
 // Both webhooks call this and they must agree, which holds only while nothing between them
 // alters what the predicate reads. Mutating admission runs first and its result is what
 // validating admission is handed, so a field the mutator writes would be read differently by
-// the two of them. Nothing on the withdrawal path writes any of these fields: mutateOnUpdate
-// returns as soon as this is true. (mutateByNodeFlavor, which runs before that, zeroes
-// Spec.Replica -- but only for a workspace with no flavor, and one carrying an in-flight
-// nodes-action always has one. If that ever stops holding, the disagreement costs a rejected
-// withdrawal, not a wrong refund.)
+// the two of them. This is why mutateOnUpdate asks before it mutates anything at all rather
+// than at the point in its sequence where the question belongs: no mutation has run when the
+// mutator answers, and none has run when the validator answers either, because answering yes
+// is what makes the mutator return.
 //
 // The shape is narrow on purpose: entries may only leave, never arrive and never change
 // value, the reason annotation must come with it, and Spec.Replica must land on exactly the
@@ -153,11 +165,11 @@ func isNodesActionWithdrawal(oldWorkspace, newWorkspace *v1.Workspace) bool {
 			v1.GetAnnotation(newWorkspace, v1.WorkspaceNodesActionError) {
 		return false
 	}
-	oldActions, err := parseNodesAction(oldWorkspace)
+	oldActions, err := commonnodes.ParseAction(oldWorkspace)
 	if err != nil || len(oldActions) == 0 {
 		return false
 	}
-	newActions, err := parseNodesAction(newWorkspace)
+	newActions, err := commonnodes.ParseAction(newWorkspace)
 	if err != nil {
 		return false
 	}
@@ -247,12 +259,35 @@ func (m *WorkspaceMutator) mutateNodesAction(ctx context.Context, oldWorkspace, 
 	// reason that a part of the request was withdrawn.
 	v1.RemoveAnnotation(newWorkspace, v1.WorkspaceNodesActionError)
 
-	currentActions, err := parseNodesAction(newWorkspace)
+	currentActions, err := commonnodes.ParseAction(newWorkspace)
 	if err != nil {
 		return err
 	}
+	// Two passes over a sorted key list, and both halves of that matter.
+	//
+	// Sorted, because a map range is in a random order and this loop can return an error. With
+	// two entries wrong in different ways, whichever the range reached first decided what the
+	// caller was told -- the same request answered with a different message each time it was
+	// sent, which is a fault report that cannot be acted on.
+	//
+	// Two passes, because the arithmetic below used to be inside this loop and read
+	// Spec.Replica as it went. From zero the first add both set the flavor and took the count
+	// to one, and everything after it took a different branch -- so a request mixing an add
+	// with a remove landed on a different replica depending on which the range happened to
+	// visit first, and a request whose adds disagreed about flavor rejected whichever one the
+	// range visited second. Judging every entry first and moving the count once afterwards
+	// gives one answer, and it is the arithmetic one.
+	keys := make([]string, 0, len(currentActions))
+	for key := range currentActions {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+
 	newActions := make(map[string]string)
-	for key, val := range currentActions {
+	// The flavor of each accepted entry, in key order, for the pass below.
+	accepted := make([]string, 0, len(keys))
+	for _, key := range keys {
+		val := currentActions[key]
 		n, _ := getNode(ctx, m.Client, key)
 		if n == nil {
 			klog.ErrorS(err, "failed to get node")
@@ -307,27 +342,15 @@ func (m *WorkspaceMutator) mutateNodesAction(ctx context.Context, oldWorkspace, 
 		} else {
 			continue
 		}
-		if newWorkspace.Spec.Replica == 0 {
-			if val == v1.NodeActionAdd {
-				newWorkspace.Spec.NodeFlavor = v1.GetNodeFlavorId(n)
-				newWorkspace.Spec.Replica = 1
-			}
-		} else {
-			if v1.GetNodeFlavorId(n) != newWorkspace.Spec.NodeFlavor {
-				err = fmt.Errorf("the flavor(%s) of the operation and the workspace's "+
-					"flavor do not match", v1.GetNodeFlavorId(n))
-				return err
-			}
-			if val == v1.NodeActionAdd {
-				newWorkspace.Spec.Replica++
-			} else {
-				newWorkspace.Spec.Replica--
-			}
-		}
+		accepted = append(accepted, v1.GetNodeFlavorId(n))
 		newActions[key] = val
 	}
 
-	oldActions, _ := parseNodesAction(oldWorkspace)
+	if err := m.applyNodesActionReplica(newWorkspace, keys, newActions, accepted); err != nil {
+		return err
+	}
+
+	oldActions, _ := commonnodes.ParseAction(oldWorkspace)
 	if len(newActions) == 0 {
 		if len(oldActions) == 0 {
 			v1.RemoveAnnotation(newWorkspace, v1.WorkspaceNodesAction)
@@ -345,6 +368,51 @@ func (m *WorkspaceMutator) mutateNodesAction(ctx context.Context, oldWorkspace, 
 			v1.SetAnnotation(newWorkspace, v1.WorkspaceNodesAction, string(jsonutils.MarshalSilently(newActions)))
 		}
 	}
+	return nil
+}
+
+// applyNodesActionReplica moves Spec.Replica by what the accepted entries add up to, and
+// settles the flavor while it is there. keys is in sorted order and flavors is parallel to it,
+// skipping the keys that are not in accepted.
+//
+// A workspace with no flavor yet takes it from the first add in key order -- an empty
+// Spec.Replica is the only state in which a nodes-action may name the flavor rather than be
+// checked against it, and picking by key order rather than by map order is what makes a
+// two-add request that disagrees about flavor reject the same one every time.
+func (m *WorkspaceMutator) applyNodesActionReplica(newWorkspace *v1.Workspace,
+	keys []string, accepted map[string]string, flavors []string) error {
+	i, adds, removes := 0, 0, 0
+	for _, key := range keys {
+		val, ok := accepted[key]
+		if !ok {
+			continue
+		}
+		flavor := flavors[i]
+		i++
+		if val == v1.NodeActionAdd {
+			adds++
+			if newWorkspace.Spec.NodeFlavor == "" {
+				newWorkspace.Spec.NodeFlavor = flavor
+			}
+		} else {
+			removes++
+		}
+		// After the bootstrap above, so the first add is checked against the flavor it just
+		// set and every later entry against the same one. A remove is checked too: releasing
+		// a node of the wrong flavor would take the count down by something it never counted.
+		if newWorkspace.Spec.NodeFlavor != "" && flavor != newWorkspace.Spec.NodeFlavor {
+			return commonerrors.NewConflict(fmt.Sprintf(
+				"the flavor(%s) of the operation and the workspace's flavor do not match", flavor))
+		}
+	}
+	replica := newWorkspace.Spec.Replica + adds - removes
+	// A request may not take a workspace past empty. Reachable only if Spec.Replica is already
+	// behind what the workspace holds -- the entries themselves were each checked against the
+	// node's claim, so a remove here is a node this workspace really has.
+	if replica < 0 {
+		replica = 0
+	}
+	newWorkspace.Spec.Replica = replica
 	return nil
 }
 
@@ -842,8 +910,8 @@ func (v *WorkspaceValidator) validateVolumeRemoved(ctx context.Context, newWorks
 // It also checks if nodes being bound or unbound have the correct workspace assignment.
 func (v *WorkspaceValidator) validateNodesAction(ctx context.Context, newWorkspace,
 	oldWorkspace *v1.Workspace, isWithdrawal bool) error {
-	oldActions, _ := parseNodesAction(oldWorkspace)
-	newActions, err := parseNodesAction(newWorkspace)
+	oldActions, _ := commonnodes.ParseAction(oldWorkspace)
+	newActions, err := commonnodes.ParseAction(newWorkspace)
 	if err != nil {
 		return err
 	}
@@ -909,23 +977,6 @@ func (v *WorkspaceValidator) validateNodesAction(ctx context.Context, newWorkspa
 		return err
 	}
 	return nil
-}
-
-// parseNodesAction parses the workspace nodes action annotation into a map of node names to actions.
-func parseNodesAction(w *v1.Workspace) (map[string]string, error) {
-	actionsStr := v1.GetWorkspaceNodesAction(w)
-	if actionsStr == "" {
-		return nil, nil
-	}
-	var actions map[string]string
-	if err := json.Unmarshal([]byte(actionsStr), &actions); err != nil {
-		klog.ErrorS(err, "invalid nodes action json", "data", v1.GetWorkspaceNodesAction(w))
-		return nil, err
-	}
-	if len(actions) == 0 {
-		return nil, nil
-	}
-	return actions, nil
 }
 
 // validateNodesRemoved ensures no running workloads are using the nodes to be removed.

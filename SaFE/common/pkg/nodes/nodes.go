@@ -7,6 +7,7 @@ package nodes
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sort"
 
@@ -185,6 +186,32 @@ func BuildAction(action string, keys ...string) string {
 		result[k] = action
 	}
 	return string(jsonutils.MarshalSilently(result))
+}
+
+// ParseAction reads the nodes-action annotation off a Workspace into the map it encodes.
+//
+// An empty annotation and an annotation holding an empty object both read as no request: the
+// controller clears a finished request by emptying the annotation, and BuildAction of nothing
+// writes "{}", so the two spellings have to mean the same thing to every reader.
+//
+// It lives here for the reason WithdrawnReplica does. Both webhooks and the controller read
+// this annotation, and they have to agree about what it says -- what counts as no request at
+// all most of all, because that is the answer the in-flight check turns into "another job is
+// processing" or not. Callers that cannot act on a malformed value discard the error; see
+// the controller's parseNodesAction for why.
+func ParseAction(w *v1.Workspace) (map[string]string, error) {
+	raw := v1.GetWorkspaceNodesAction(w)
+	if raw == "" {
+		return nil, nil
+	}
+	var actions map[string]string
+	if err := json.Unmarshal([]byte(raw), &actions); err != nil {
+		return nil, err
+	}
+	if len(actions) == 0 {
+		return nil, nil
+	}
+	return actions, nil
 }
 
 // GetNodesForScalingDown returns nodes eligible for scale-down operations.

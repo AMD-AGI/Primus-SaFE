@@ -21,6 +21,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	commonnodes "github.com/AMD-AIG-AIMA/SAFE/common/pkg/nodes"
 	commonuser "github.com/AMD-AIG-AIMA/SAFE/common/pkg/user"
 )
 
@@ -199,19 +200,19 @@ func TestWorkspaceValidateRelatedResource(t *testing.T) {
 // TestParseNodesAction verifies node action annotation parsing.
 func TestParseNodesAction(t *testing.T) {
 	empty := &v1.Workspace{}
-	actions, err := parseNodesAction(empty)
+	actions, err := commonnodes.ParseAction(empty)
 	assert.NilError(t, err)
 	assert.Assert(t, actions == nil)
 
 	ws := &v1.Workspace{}
 	v1.SetAnnotation(ws, v1.WorkspaceNodesAction, `{"node1":"add"}`)
-	actions, err = parseNodesAction(ws)
+	actions, err = commonnodes.ParseAction(ws)
 	assert.NilError(t, err)
 	assert.Equal(t, actions["node1"], "add")
 
 	bad := &v1.Workspace{}
 	v1.SetAnnotation(bad, v1.WorkspaceNodesAction, `{invalid`)
-	_, err = parseNodesAction(bad)
+	_, err = commonnodes.ParseAction(bad)
 	assert.Assert(t, err != nil)
 }
 
@@ -1268,4 +1269,109 @@ func TestWorkspaceMutateScaleDownRefusesAShortCandidateList(t *testing.T) {
 	assert.Equal(t, v1.GetWorkspaceNodesAction(newWs), "", "no request was built")
 	assert.Assert(t, v1.GetAnnotation(newWs, v1.WorkspaceNodesActionError) != "",
 		"nothing was superseded, so nothing is cleared")
+}
+
+// mutateOnUpdate decides whether a write is a withdrawal before it runs any mutation, and this
+// is the case that tells the difference. Spec.NodeFlavor is not immutable, so a workspace can
+// arrive here with the field cleared -- and mutateByNodeFlavor answers a cleared flavor by
+// zeroing Spec.Replica, which is one of the fields the withdrawal's shape is made of.
+//
+// Deciding after that mutation ran would read a replica the controller never sent, fail the
+// shape check, and hand the write to mutateNodesAction: the reason annotation stripped, the
+// surviving entry charged to Spec.Replica a second time, and then the validator rejecting what
+// is left. Deciding first, the mutator returns before mutateByNodeFlavor is reached at all.
+func TestWorkspaceAdmitWithdrawalBeforeAnyMutation(t *testing.T) {
+	scheme := newScheme(t)
+	taken := &v1.Node{
+		ObjectMeta: metav1.ObjectMeta{Name: "n1", Labels: map[string]string{v1.ClusterIdLabel: "cluster1"}},
+		Spec:       v1.NodeSpec{Workspace: pointer.String("ws-other")},
+	}
+	cli := fake.NewClientBuilder().WithScheme(scheme).WithObjects(taken).Build()
+	m, v := &WorkspaceMutator{Client: cli}, &WorkspaceValidator{Client: cli}
+
+	// Already defaulted, the way anything the controller patches is: mutateCommon has run
+	// over it before, which is why a withdrawal can skip it on the way back through.
+	stored := validWorkspace("ws1")
+	stored.Spec.Replica = 2
+	// Cleared -- not immutable, and the field mutateByNodeFlavor answers by zeroing Replica.
+	stored.Spec.NodeFlavor = ""
+	v1.SetAnnotation(stored, v1.WorkspaceNodesAction, `{"n1":"add","n2":"add"}`)
+	withdrawal := stored.DeepCopy()
+	withdrawal.Spec.Replica = 1
+	v1.SetAnnotation(withdrawal, v1.WorkspaceNodesAction, `{"n2":"add"}`)
+	v1.SetAnnotation(withdrawal, v1.WorkspaceNodesActionError, "n1: it is already bound to ws-other")
+
+	assert.NilError(t, admit(t, m, v, stored, withdrawal))
+	// Untouched, all three of them: the refund the controller wrote, the entry it kept, and
+	// the reason it recorded. A zeroed replica here is mutateByNodeFlavor having run.
+	assert.Equal(t, withdrawal.Spec.Replica, 1)
+	assert.Equal(t, v1.GetWorkspaceNodesAction(withdrawal), `{"n2":"add"}`)
+	assert.Assert(t, v1.GetAnnotation(withdrawal, v1.WorkspaceNodesActionError) != "")
+}
+
+// The replica arithmetic used to run inside the loop that judges the entries, reading
+// Spec.Replica as it went, so a request holding both an add and a remove landed somewhere
+// different depending on which one Go's map range happened to visit first. From zero the add
+// set the count to one and the remove did nothing, so the pair came out as 1 or as 0.
+//
+// Run the same request enough times that a random order would have shown both answers, and
+// assert the arithmetic one: one node in, one node out, net zero.
+func TestWorkspaceMutateNodesActionIsOrderIndependent(t *testing.T) {
+	scheme := newScheme(t)
+	free := &v1.Node{
+		ObjectMeta: metav1.ObjectMeta{Name: "n-add", Labels: map[string]string{
+			v1.ClusterIdLabel: "cluster1", v1.NodeFlavorIdLabel: "flavor1",
+		}},
+		Status: v1.NodeStatus{ClusterStatus: v1.NodeClusterStatus{Phase: v1.NodeManaged}},
+	}
+	held := &v1.Node{
+		ObjectMeta: metav1.ObjectMeta{Name: "n-drop", Labels: map[string]string{
+			v1.ClusterIdLabel: "cluster1", v1.NodeFlavorIdLabel: "flavor1",
+		}},
+		Spec:   v1.NodeSpec{Workspace: pointer.String("ws1")},
+		Status: v1.NodeStatus{ClusterStatus: v1.NodeClusterStatus{Phase: v1.NodeManaged}},
+	}
+	m := &WorkspaceMutator{Client: fake.NewClientBuilder().WithScheme(scheme).
+		WithObjects(free, held).Build()}
+
+	for i := 0; i < 64; i++ {
+		oldWs := &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ws1"},
+			Spec: v1.WorkspaceSpec{Cluster: "cluster1"}}
+		newWs := oldWs.DeepCopy()
+		v1.SetAnnotation(newWs, v1.WorkspaceNodesAction, `{"n-add":"add","n-drop":"remove"}`)
+
+		assert.NilError(t, m.mutateNodesAction(context.Background(), oldWs, newWs))
+		assert.Equal(t, newWs.Spec.Replica, 0)
+		// The flavor still gets settled by the add, which is the half of the old zero-replica
+		// branch that was doing real work.
+		assert.Equal(t, newWs.Spec.NodeFlavor, "flavor1")
+	}
+}
+
+// Two adds that disagree about flavor are a rejection either way; which one is named in the
+// message is what used to depend on map order. The lower key settles the flavor, so the higher
+// one is always the mismatch reported.
+func TestWorkspaceMutateNodesActionReportsAStableFlavorMismatch(t *testing.T) {
+	scheme := newScheme(t)
+	node := func(name, flavor string) *v1.Node {
+		return &v1.Node{
+			ObjectMeta: metav1.ObjectMeta{Name: name, Labels: map[string]string{
+				v1.ClusterIdLabel: "cluster1", v1.NodeFlavorIdLabel: flavor,
+			}},
+			Status: v1.NodeStatus{ClusterStatus: v1.NodeClusterStatus{Phase: v1.NodeManaged}},
+		}
+	}
+	m := &WorkspaceMutator{Client: fake.NewClientBuilder().WithScheme(scheme).
+		WithObjects(node("a-node", "flavor-a"), node("b-node", "flavor-b")).Build()}
+
+	for i := 0; i < 64; i++ {
+		oldWs := &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ws1"},
+			Spec: v1.WorkspaceSpec{Cluster: "cluster1"}}
+		newWs := oldWs.DeepCopy()
+		v1.SetAnnotation(newWs, v1.WorkspaceNodesAction, `{"a-node":"add","b-node":"add"}`)
+
+		err := m.mutateNodesAction(context.Background(), oldWs, newWs)
+		assert.Assert(t, err != nil)
+		assert.Assert(t, strings.Contains(err.Error(), "flavor-b"), err.Error())
+	}
 }

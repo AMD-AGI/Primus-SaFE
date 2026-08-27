@@ -718,19 +718,12 @@ func (r *WorkspaceReconciler) syncWorkspace(ctx context.Context, workspace *v1.W
 // reads as no request at all -- the annotation is the only record of what was asked for, and
 // nothing can be done with one that cannot be read.
 //
-// Silent on a bad value by design. Most callers read other workspaces' annotations on a hot
-// path and would report the same broken value every round without being able to do anything
-// about it; the workspace whose request it is logs it once, in processNodesAction, and clears
-// it in the same round.
+// Silent on a bad value by design, which is the only thing it adds to commonnodes.ParseAction.
+// Most callers read other workspaces' annotations on a hot path and would report the same
+// broken value every round without being able to do anything about it; the workspace whose
+// request it is logs it once, in processNodesAction, and clears it in the same round.
 func parseNodesAction(workspace *v1.Workspace) map[string]string {
-	raw := v1.GetWorkspaceNodesAction(workspace)
-	if raw == "" {
-		return nil
-	}
-	var actions map[string]string
-	if err := json.Unmarshal([]byte(raw), &actions); err != nil {
-		return nil
-	}
+	actions, _ := commonnodes.ParseAction(workspace)
 	return actions
 }
 
