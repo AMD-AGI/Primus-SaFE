@@ -1648,6 +1648,41 @@ func TestModifyInitContainerVolumeMounts(t *testing.T) {
 	assert.DeepEqual(t, got, expected)
 }
 
+func TestBuildPersistentVolumeMountsOrdersAncestorsFirst(t *testing.T) {
+	// The sandbox layout: a workspace volume with EnableUserDir nests a
+	// read-write /shared_nfs/users/{user_id} inside the read-only /shared_nfs
+	// that comes from Spec.Hostpath. buildPersistentVolumeMounts builds the
+	// workspace volumes first, so without ordering the nested mount would be
+	// emitted before the ancestor it lives in. The kubelet mounts in list
+	// order, so that would set up the writable window and then mount the
+	// read-only ancestor over it, and writes into the user directory would
+	// fail with EROFS despite readOnly: false.
+	const userId = "7fda556669b09dcec5d779438e7432c5"
+	w := &v1.Workload{ObjectMeta: metav1.ObjectMeta{
+		Name:        "sandbox",
+		Labels:      map[string]string{v1.UserIdLabel: userId},
+		Annotations: map[string]string{v1.UseWorkspaceStorageAnnotation: v1.TrueStr},
+	}}
+	w.Spec.GroupVersionKind.Kind = common.SandboxKind
+	w.Spec.Hostpath = []string{"/shared_nfs"}
+	ws := &v1.Workspace{Spec: v1.WorkspaceSpec{Volumes: []v1.WorkspaceVolume{
+		{Id: 1, MountPath: "/shared_nfs", EnableUserDir: true},
+	}}}
+
+	mounts := buildPersistentVolumeMounts(w, ws)
+	assert.Equal(t, len(mounts), 2)
+
+	// The read-only ancestor first, then the read-write window inside it.
+	ancestor := mounts[0].(map[string]interface{})
+	assert.Equal(t, ancestor["mountPath"], "/shared_nfs")
+	assert.Equal(t, ancestor["readOnly"], true)
+
+	nested := mounts[1].(map[string]interface{})
+	assert.Equal(t, nested["mountPath"], "/shared_nfs/users/"+userId)
+	assert.Equal(t, nested["subPath"], "users/"+userId)
+	assert.Equal(t, nested["readOnly"], false)
+}
+
 func TestBuildRequiredMatchExpressionExcludedNodes(t *testing.T) {
 	w := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "w"}}
 	w.Spec.Workspace = corev1.NamespaceDefault
