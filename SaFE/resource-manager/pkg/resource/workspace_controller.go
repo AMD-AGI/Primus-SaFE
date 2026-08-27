@@ -8,6 +8,7 @@ package resource
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"reflect"
 	"sort"
@@ -58,7 +59,7 @@ type WorkspaceReconciler struct {
 	sync.RWMutex
 	// Maintain a map of ongoing operations
 	// key is workspace ID, value is the list of node IDs involved in the operation
-	expectations map[string]sets.Set
+	expectations map[string]*nodeExpectations
 	option       *WorkspaceReconcilerOption
 }
 
@@ -82,7 +83,7 @@ func SetupWorkspaceController(mgr manager.Manager, opt *WorkspaceReconcilerOptio
 		ClusterBaseReconciler: baseReconciler,
 		recorder:              mgr.GetEventRecorderFor("workspace-controller"),
 		clientManager:         commonutils.NewObjectManagerSingleton(),
-		expectations:          make(map[string]sets.Set),
+		expectations:          make(map[string]*nodeExpectations),
 		option:                opt,
 	}
 	if r.clientManager == nil {
@@ -363,6 +364,25 @@ func (r *WorkspaceReconciler) updatePhase(ctx context.Context, workspace *v1.Wor
 	return nil
 }
 
+// expectationTimeout is how long a workspace waits to be told its bindings landed before it
+// carries on without being told.
+//
+// The wait is normally seconds -- it ends when the node controller writes the workspace onto
+// the node's labels and the event comes back. What it protects against is a scaling decision
+// taken on counts that have not caught up, and a stale count is a far smaller problem than
+// the alternative: nothing settles an expectation except that one event, and a workspace
+// still holding one runs nothing at all -- no status, no scaling, and no deletion, because
+// removing the finalizer waits behind the same gate. A node deleted before its label is
+// written, or an event missed, would otherwise leave the workspace that way for good.
+const expectationTimeout = 5 * time.Minute
+
+// nodeExpectations is the set of nodes a Workspace is waiting to see settled, and the point
+// past which it stops waiting.
+type nodeExpectations struct {
+	nodes    sets.Set
+	deadline time.Time
+}
+
 // setExpectations sets the expected node operations for a Workspace.
 func (r *WorkspaceReconciler) setExpectations(workspaceId string, nodeNames sets.Set) {
 	r.Lock()
@@ -372,23 +392,33 @@ func (r *WorkspaceReconciler) setExpectations(workspaceId string, nodeNames sets
 	// waiting on. The workspace then reads as settled while a binding is still in flight, and
 	// the next scaling decision is taken on counts that have not caught up: a scale-down
 	// already under way is counted as not yet done and a further node is let go.
+	deadline := time.Now().Add(expectationTimeout)
 	left, ok := r.expectations[workspaceId]
-	if !ok {
-		r.expectations[workspaceId] = nodeNames
+	if !ok || left == nil {
+		r.expectations[workspaceId] = &nodeExpectations{nodes: nodeNames, deadline: deadline}
 		return
 	}
 	for nodeName := range nodeNames {
-		left.Insert(nodeName)
+		left.nodes.Insert(nodeName)
 	}
-	r.expectations[workspaceId] = left
+	left.deadline = deadline
 }
 
 // meetExpectations checks if all expected node operations for a Workspace have been completed.
 func (r *WorkspaceReconciler) meetExpectations(workspaceId string) bool {
-	r.RLock()
-	defer r.RUnlock()
-	nodeNames, ok := r.expectations[workspaceId]
-	return !ok || nodeNames.Len() == 0
+	r.Lock()
+	defer r.Unlock()
+	left, ok := r.expectations[workspaceId]
+	if !ok || left == nil || left.nodes.Len() == 0 {
+		return true
+	}
+	if time.Now().After(left.deadline) {
+		klog.Infof("workspace(%s) stopped waiting on nodes %v after %s",
+			workspaceId, left.nodes, expectationTimeout.String())
+		delete(r.expectations, workspaceId)
+		return true
+	}
+	return false
 }
 
 // removeExpectations removes the expectations for a Workspace.
@@ -402,12 +432,14 @@ func (r *WorkspaceReconciler) removeExpectations(workspaceId string) {
 func (r *WorkspaceReconciler) observeNode(workspaceId, nodeName string) {
 	r.Lock()
 	defer r.Unlock()
-	leftNodeNames, ok := r.expectations[workspaceId]
-	if !ok || !leftNodeNames.Has(nodeName) {
+	left, ok := r.expectations[workspaceId]
+	if !ok || left == nil || !left.nodes.Has(nodeName) {
 		return
 	}
-	leftNodeNames.Delete(nodeName)
-	r.expectations[workspaceId] = leftNodeNames
+	left.nodes.Delete(nodeName)
+	if left.nodes.Len() == 0 {
+		delete(r.expectations, workspaceId)
+	}
 }
 
 // migrateTimeout is how long this controller lets a crossing run before giving up on it.
@@ -594,17 +626,25 @@ func (r *WorkspaceReconciler) isNodeEligibleForScalingUp(node *v1.Node, workspac
 	if v1.GetNodeFlavorId(node) != workspace.Spec.NodeFlavor {
 		return false
 	}
-	// The target is allowed through rather than skipped over: the handover writes an add
-	// action for it, but should that write be lost, scaling up is what finishes the
-	// migration instead of leaving the node parked until the migration times out.
+	// No exception for the target of the migration. Letting it pick the node up here was a
+	// second way to finish a crossing whose handover had been lost, but it finishes it
+	// without the accounting: scaling up happens because the workspace is already short of a
+	// replica, so the node arrives against a replica the workspace wanted anyway, and the one
+	// the migration was supposed to add is never added. The source has already given one up,
+	// so a migration completed this way quietly costs the pair a replica. The handover is
+	// retried until the migration times out, which is the one path that keeps the count.
+	//
+	// Judged against the shared timeout rather than this controller's own. The node webhook
+	// stops refusing bindings at the shared one, and a node this loop thinks is free while
+	// the webhook still refuses to bind it is picked and rejected, over and over.
 	//
 	// A stale reservation is ignored, because this is the only place a reservation can do
 	// harm on its own and the things that clear one can all go away: the source workspace
 	// can be deleted mid-migration, and a node can be taken out of the cluster and brought
 	// back still carrying the annotation. Without the age check any of those parks a node
 	// for good, and nothing left in the system would explain why.
-	if info := v1.GetNodeMigrateInfo(node); info != nil && info.Target != workspace.Name &&
-		!v1.IsNodeMigrationExpired(info, r.migrateTimeout()) {
+	if info := v1.GetNodeMigrateInfo(node); info != nil &&
+		!v1.IsNodeMigrationExpired(info, v1.DefaultNodeMigrateTimeout) {
 		return false
 	}
 	return true
@@ -807,8 +847,19 @@ func (r *WorkspaceReconciler) processNodesAction(ctx context.Context,
 		// normally over in well under a second, but a handover that cannot land holds this
 		// state for as long as the timeout allows, and the workspace still has to have its
 		// status refreshed and its own replicas kept up in the meantime.
-		r.handOverMigrations(ctx, workspace, pendingHandover)
-		return ctrlruntime.Result{RequeueAfter: r.option.nodeWait}, false, nil
+		waiting := 0
+		for _, nodes := range pendingHandover {
+			waiting += len(nodes)
+		}
+		if lost := r.handOverMigrations(ctx, workspace, pendingHandover); len(lost) > 0 {
+			if err := r.abandonMigrations(ctx, workspace, lost); err != nil {
+				return ctrlruntime.Result{}, false, err
+			}
+			waiting -= len(lost)
+		}
+		if waiting > 0 {
+			return ctrlruntime.Result{RequeueAfter: r.option.nodeWait}, false, nil
+		}
 	}
 	return ctrlruntime.Result{}, false, r.removeNodesAction(ctx, workspace)
 }
@@ -855,10 +906,11 @@ func (r *WorkspaceReconciler) classifyMigration(node *v1.Node,
 		return migrationAbandoned, nil
 	}
 	info := v1.GetNodeMigrateInfo(node)
-	if info == nil || info.Target != target {
-		// The node is neither here nor there and is not reserved for this migration: either
-		// someone took the reservation off, or the node was bound elsewhere behind our back.
-		// Either way this workspace no longer has a node to migrate.
+	if !v1.IsNodeReleasedFor(node, source, target) {
+		// The node is neither here nor there and is not reserved for this migration -- not
+		// reserved at all, reserved for somewhere else, or released by another workspace
+		// whose crossing this one has no business finishing. The admission side refuses to
+		// take one of those on; this is the same line held where the work is done.
 		klog.Infof("node(%s) is no longer reserved for the migration to workspace(%s), giving up",
 			node.Name, target)
 		return migrationAbandoned, nil
@@ -909,14 +961,27 @@ func (r *WorkspaceReconciler) abandonMigrations(ctx context.Context,
 // Failures are logged and left for the next pass. A target already carrying an action is the
 // ordinary case, not an error: a workspace takes one node action at a time, and the nodes
 // stay reserved in the meantime.
+//
+// A target that is gone is the exception, and the nodes released for it are returned so the
+// caller can give up on them now. Retrying that one is waiting for a workspace to come back:
+// the nodes stay reserved and the source holds its action slot for the whole of the migration
+// timeout to reach a conclusion that is already certain. Deleted and being deleted count the
+// same -- a workspace on its way out is not going to take the nodes on.
 func (r *WorkspaceReconciler) handOverMigrations(ctx context.Context,
-	workspace *v1.Workspace, byTarget map[string][]*v1.Node) {
+	workspace *v1.Workspace, byTarget map[string][]*v1.Node) []*v1.Node {
+	var lost []*v1.Node
 	for target, nodes := range byTarget {
 		nodeNames := make([]string, 0, len(nodes))
 		for _, node := range nodes {
 			nodeNames = append(nodeNames, node.Name)
 		}
 		if err := r.handOverToTarget(ctx, target, nodeNames); err != nil {
+			if errors.Is(err, errMigrationTargetGone) {
+				klog.Infof("the target workspace(%s) is gone, giving up the migration of nodes %v from workspace(%s)",
+					target, nodeNames, workspace.Name)
+				lost = append(lost, nodes...)
+				continue
+			}
 			klog.ErrorS(err, "failed to hand the migrated nodes over",
 				"source", workspace.Name, "target", target, "nodes", nodeNames)
 			// On both workspaces: the nodes have left one and have not reached the other, and
@@ -929,6 +994,7 @@ func (r *WorkspaceReconciler) handOverMigrations(ctx context.Context,
 			}
 		}
 	}
+	return lost
 }
 
 // getWorkspace reads a workspace, or reports why it could not be read.
@@ -940,16 +1006,23 @@ func (r *WorkspaceReconciler) getWorkspace(ctx context.Context, name string) (*v
 	return workspace, nil
 }
 
+// errMigrationTargetGone marks a handover that will not succeed however often it is retried,
+// because the workspace it is addressed to has gone or is going.
+var errMigrationTargetGone = errors.New("the migration target is gone")
+
 // handOverToTarget writes the add action for the migrated nodes on the target workspace.
 func (r *WorkspaceReconciler) handOverToTarget(ctx context.Context, target string, nodeNames []string) error {
 	action := commonnodes.BuildAction(v1.NodeActionAdd, nodeNames...)
 	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
 		targetWorkspace := &v1.Workspace{}
 		if err := r.Get(ctx, client.ObjectKey{Name: target}, targetWorkspace); err != nil {
+			if apierrors.IsNotFound(err) {
+				return fmt.Errorf("%w: workspace(%s) does not exist", errMigrationTargetGone, target)
+			}
 			return err
 		}
 		if !targetWorkspace.GetDeletionTimestamp().IsZero() {
-			return fmt.Errorf("the target workspace(%s) is being deleted", target)
+			return fmt.Errorf("%w: workspace(%s) is being deleted", errMigrationTargetGone, target)
 		}
 		if current := v1.GetWorkspaceNodesAction(targetWorkspace); current != "" {
 			if current == action {

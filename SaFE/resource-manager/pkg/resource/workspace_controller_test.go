@@ -45,7 +45,7 @@ func newMockWorkspaceReconciler(adminClient client.Client) WorkspaceReconciler {
 			Client: adminClient,
 		},
 		option:        &defaultWorkspaceOption,
-		expectations:  make(map[string]sets.Set),
+		expectations:  make(map[string]*nodeExpectations),
 		clientManager: commonutils.NewObjectManagerSingleton(),
 	}
 }
@@ -894,7 +894,7 @@ func newWorkspaceReconcilerFull(t *testing.T, cs *k8sfake.Clientset, objs ...ctr
 	return &WorkspaceReconciler{
 		ClusterBaseReconciler: &ClusterBaseReconciler{Client: cl, clientSet: cs},
 		clientManager:         mgr,
-		expectations:          map[string]sets.Set{},
+		expectations:          map[string]*nodeExpectations{},
 		option:                &WorkspaceReconcilerOption{},
 	}
 }

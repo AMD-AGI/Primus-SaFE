@@ -75,7 +75,9 @@ func TestIsNodeEligibleForScalingUp(t *testing.T) {
 		{name: "reserved by a migration to another workspace", want: false, mutil: func(node *v1.Node) {
 			markMigrating(node, "ws-a", "ws-b")
 		}},
-		{name: "reserved by a migration to this workspace", want: true, mutil: func(node *v1.Node) {
+		// Not even for the target. Taking the node here would finish the crossing without the
+		// replica the migration was supposed to add, and the source has already given one up.
+		{name: "reserved by a migration to this workspace", want: false, mutil: func(node *v1.Node) {
 			markMigrating(node, "ws-a", workspace.Name)
 		}},
 		{name: "unreadable migration payload does not park the node", want: true, mutil: func(node *v1.Node) {
@@ -109,9 +111,11 @@ func TestIsNodeEligibleForScalingUp(t *testing.T) {
 }
 
 // A migration leaves the node unbound and of a matching flavor for as long as it takes the
-// target to claim it, which is everything an unrelated workspace looks for when it is short
-// of a replica. It must not take it.
-func TestScaleUpLeavesAMigratingNodeToItsTarget(t *testing.T) {
+// target to claim it, which is everything a workspace short of a replica looks for. Nobody
+// takes it that way -- not a bystander, and not the target either: arriving through the
+// scaling loop means arriving against a replica the target already wanted, so the one the
+// migration was supposed to add never is, and the source has already given one up.
+func TestScaleUpLeavesAMigratingNodeToItsHandover(t *testing.T) {
 	nodeFlavor := genMockNodeFlavor()
 	clusterName := "cluster"
 	target := genMockWorkspace(clusterName, nodeFlavor.Name, 1)
@@ -127,13 +131,22 @@ func TestScaleUpLeavesAMigratingNodeToItsTarget(t *testing.T) {
 	k8sClientFactory := commonclient.NewClientFactoryWithOnlyClient(context.Background(), clusterName, k8sClient)
 	r := newMockWorkspaceReconciler(adminClient)
 
-	_, err := r.scaleUp(context.Background(), bystander, k8sClientFactory, 1)
-	assert.NilError(t, err)
-	assert.NilError(t, adminClient.Get(context.Background(), client.ObjectKey{Name: adminNode.Name}, adminNode))
-	assert.Equal(t, adminNode.GetSpecWorkspace(), "")
+	for _, ws := range []*v1.Workspace{bystander, target} {
+		_, err := r.scaleUp(context.Background(), ws, k8sClientFactory, 1)
+		assert.NilError(t, err)
+		assert.NilError(t, adminClient.Get(context.Background(), client.ObjectKey{Name: adminNode.Name}, adminNode))
+		assert.Equal(t, adminNode.GetSpecWorkspace(), "",
+			"workspace(%s) took a node in the middle of a crossing", ws.Name)
+	}
 
-	// The target itself is still free to take it, so a lost handover does not park the node.
-	_, err = r.scaleUp(context.Background(), target, k8sClientFactory, 1)
+	// Once the reservation has aged out it is nobody's, and the scaling loop may have it.
+	v1.SetNodeMigrateInfo(adminNode, &v1.NodeMigrateInfo{
+		From:      "ws-source",
+		Target:    target.Name,
+		StartTime: &metav1.Time{Time: time.Now().UTC().Add(-2 * v1.DefaultNodeMigrateTimeout)},
+	})
+	assert.NilError(t, adminClient.Update(context.Background(), adminNode))
+	_, err := r.scaleUp(context.Background(), target, k8sClientFactory, 1)
 	assert.NilError(t, err)
 	assert.NilError(t, adminClient.Get(context.Background(), client.ObjectKey{Name: adminNode.Name}, adminNode))
 	assert.Equal(t, adminNode.GetSpecWorkspace(), target.Name)
@@ -584,4 +597,54 @@ func TestMigrateTimeoutNeverOutlastsTheGuard(t *testing.T) {
 	option.migrateTimeout = time.Minute
 	r.option = &option
 	assert.Equal(t, r.migrateTimeout(), time.Minute)
+}
+
+// Nothing settles an expectation but the event saying the binding landed, and a workspace
+// still holding one runs nothing at all -- no status, no scaling, and no deletion, since
+// removing the finalizer waits behind the same gate. A node deleted before its label was
+// written, or an event missed, would leave it that way for good.
+func TestExpectationsStopBeingWaitedOnEventually(t *testing.T) {
+	r := newMockWorkspaceReconciler(fake.NewClientBuilder().WithScheme(scheme.Scheme).Build())
+	r.setExpectations("ws-a", sets.NewSetByKeys("a-node-nobody-will-report-on"))
+	assert.Equal(t, r.meetExpectations("ws-a"), false)
+
+	r.Lock()
+	r.expectations["ws-a"].deadline = time.Now().Add(-time.Second)
+	r.Unlock()
+
+	assert.Equal(t, r.meetExpectations("ws-a"), true, "the workspace waited for good")
+	// And it is dropped, so the workspace is not judged against it again.
+	r.RLock()
+	_, still := r.expectations["ws-a"]
+	r.RUnlock()
+	assert.Equal(t, still, false)
+}
+
+// Waiting for a workspace that no longer exists reaches a conclusion that is already certain,
+// having held the source's one action slot for the whole of the migration timeout to get
+// there.
+func TestProcessNodesActionMigrateGivesUpWhenTheTargetIsGone(t *testing.T) {
+	m := newMigration(t, time.Hour, func(node *v1.Node, source, target *v1.Workspace) {
+		markMigrating(node, source.Name, target.Name)
+	})
+	assert.NilError(t, m.client.Delete(context.Background(), m.target))
+
+	_, isUpdated, err := m.reconciler.processNodesAction(context.Background(), m.source)
+	assert.NilError(t, err)
+	assert.Equal(t, isUpdated, false)
+
+	assert.NilError(t, m.client.Get(context.Background(), client.ObjectKey{Name: m.node.Name}, m.node))
+	assert.Assert(t, v1.GetNodeMigrateInfo(m.node) == nil)
+	assert.NilError(t, m.client.Get(context.Background(), client.ObjectKey{Name: m.source.Name}, m.source))
+	assert.Equal(t, v1.GetWorkspaceNodesAction(m.source), "")
+}
+
+// The admission side refuses a workspace taking on a crossing someone else started; this is
+// the same line held where the work is done.
+func TestClassifyMigrationGivesUpOnSomeoneElsesCrossing(t *testing.T) {
+	m := newMigration(t, time.Hour, func(node *v1.Node, _, target *v1.Workspace) {
+		markMigrating(node, "another-workspace", target.Name)
+	})
+	state, _ := m.reconciler.classifyMigration(m.node, m.source.Name, m.target.Name)
+	assert.Equal(t, state, migrationAbandoned)
 }
