@@ -61,7 +61,7 @@
 </template>
 
 <script lang="ts" setup>
-import { defineProps, defineEmits, computed, ref, watch } from 'vue'
+import { defineProps, defineEmits, computed, onBeforeUnmount, ref, watch } from 'vue'
 import { relateNodeToWs } from '@/services'
 import { ElMessage } from 'element-plus'
 import { useWorkspaceStore } from '@/stores/workspace'
@@ -90,6 +90,18 @@ const emit = defineEmits(['update:visible', 'success'])
 
 const selectedId = ref(props.wsId)
 const forceUnbind = ref(false)
+
+// The second look is scheduled after the dialog has already closed, so it can outlive the
+// page it was going to refresh -- a navigation away leaves it to reload a table that is no
+// longer mounted.
+let settleTimer: number | undefined
+const clearSettleTimer = () => {
+  if (settleTimer !== undefined) {
+    clearTimeout(settleTimer)
+    settleTimer = undefined
+  }
+}
+onBeforeUnmount(clearSettleTimer)
 
 const bindAction = computed(() => props.action as NodeBindAction)
 const dialogTitle = computed(() => {
@@ -133,12 +145,16 @@ const onBindConfirm = async () => {
     emit('update:visible', false)
     emit('success')
     if (bindAction.value === 'migrate') {
+      clearSettleTimer()
       // A migration is carried out after the request returns, and for the moment it takes the
       // node belongs to neither workspace. Refreshing only on the response catches the node
       // in that gap: the row reads as unassigned, and the actions for a bound node -- UnBind
       // and Migrate among them -- disappear from it until something else reloads the list.
       // A second look once the crossing has had time to finish shows where the node landed.
-      setTimeout(() => emit('success'), MIGRATION_SETTLE_MS)
+      settleTimer = window.setTimeout(() => {
+        settleTimer = undefined
+        emit('success')
+      }, MIGRATION_SETTLE_MS)
     }
   } catch (err) {
     console.error(err)

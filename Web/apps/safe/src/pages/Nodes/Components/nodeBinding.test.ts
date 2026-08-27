@@ -124,6 +124,13 @@ describe('BindDialog refresh after a migration', () => {
 
   it('looks again once the crossing has had time to finish', () => {
     expect(source).toContain('MIGRATION_SETTLE_MS')
-    expect(source).toContain("setTimeout(() => emit('success'), MIGRATION_SETTLE_MS)")
+    expect(source).toContain('settleTimer = window.setTimeout(')
+  })
+
+  // The second look is scheduled after the dialog closes, so it can outlive the page it was
+  // going to refresh.
+  it('drops the pending look if the page goes away first', () => {
+    expect(source).toContain('onBeforeUnmount(clearSettleTimer)')
+    expect(source).toContain('clearTimeout(settleTimer)')
   })
 })
