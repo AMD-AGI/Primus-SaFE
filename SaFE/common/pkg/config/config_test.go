@@ -303,8 +303,8 @@ func TestSSHReverseForwardGetters(t *testing.T) {
 
 	testifyassert.False(t, IsSSHReverseForwardEnable())
 	testifyassert.Equal(t, []string{"127.0.0.1"}, GetSSHReverseForwardBindAddresses())
-	testifyassert.Equal(t, 10000, GetSSHReverseForwardPortMin())
-	testifyassert.Equal(t, 19999, GetSSHReverseForwardPortMax())
+	testifyassert.Equal(t, 1024, GetSSHReverseForwardPortMin())
+	testifyassert.Equal(t, 65535, GetSSHReverseForwardPortMax())
 	testifyassert.Equal(t, 8, GetSSHReverseForwardMaxPerSession())
 
 	viper.Set(sshReverseForwardEnable, true)

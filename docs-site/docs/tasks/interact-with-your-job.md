@@ -102,23 +102,27 @@ Host my-dev-box
   User <user>.<podId>.<workspace>
   Port 2222
   ServerAliveInterval 60
-  RemoteForward 127.0.0.1:10800 127.0.0.1:7890
+  RemoteForward 127.0.0.1:7890 127.0.0.1:7890
 ```
 
 With a real proxy listening on `127.0.0.1:7890` on your machine, inside the pod:
 
 ```bash
-export HTTPS_PROXY=socks5://127.0.0.1:10800
-curl -x socks5h://127.0.0.1:10800 -I https://api.github.com/
+export HTTPS_PROXY=socks5://127.0.0.1:7890
+curl -x socks5h://127.0.0.1:7890 -I https://api.github.com/
 ```
+
+The two ports do not have to match — `RemoteForward 127.0.0.1:10800 127.0.0.1:7890`
+would make the same proxy reachable inside the pod as `127.0.0.1:10800` instead.
 
 Requirements and limits for `-R`:
 
 - The platform administrator must enable it (`ssh.reverse_forward.enable`); it is off by default.
 - The workload image must contain `socat` — the pod-side listener is built from it.
 - The pod-side listener may only bind `127.0.0.1`, so no other workload can use your tunnel.
-- The listen port must fall inside the configured range (`10000`–`19999` by default), and a session
-  may hold at most 8 forwards.
+- The listen port must fall inside the configured range (`1024`–`65535` by default, so that a
+  forward cannot shadow a privileged service inside your pod), and a session may hold at most 8
+  forwards. An administrator may narrow that range further.
 - Server-allocated ports (`RemoteForward 0 …`) are not supported; ask for an explicit port.
 - The proxy on your machine must be running, and the listener disappears as soon as the SSH session
   disconnects.

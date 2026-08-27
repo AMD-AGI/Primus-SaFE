@@ -170,8 +170,11 @@ ssh:
     # Only loopback inside the Pod, so no other workload on the node can use it.
     bind_addresses:
       - 127.0.0.1
-    port_min: 10000
-    port_max: 19999
+    # Ports the pod-side listener may bind. The floor keeps a forward from shadowing
+    # a privileged service inside the pod; per-session count, not range width, is
+    # what bounds how many listeners a user can hold.
+    port_min: 1024
+    port_max: 65535
     max_forwards_per_session: 8
 tls:
   # Verify TLS certificates for outbound HTTPS calls to model endpoints and

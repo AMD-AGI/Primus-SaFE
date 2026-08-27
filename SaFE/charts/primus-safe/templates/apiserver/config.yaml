@@ -81,8 +81,8 @@ data:
         # tunnel is not reachable from outside the Pod.
         bind_addresses: {{ default (list "127.0.0.1") $rf.bind_addresses | toJson }}
         # Ports the Pod-side listener may bind.
-        port_min: {{ default 10000 $rf.port_min }}
-        port_max: {{ default 19999 $rf.port_max }}
+        port_min: {{ default 1024 $rf.port_min }}
+        port_max: {{ default 65535 $rf.port_max }}
         # How many remote forwards a single SSH session may hold at once.
         max_forwards_per_session: {{ default 8 $rf.max_forwards_per_session }}
     s3:

@@ -175,13 +175,16 @@ func GetSSHReverseForwardBindAddresses() []string {
 }
 
 // GetSSHReverseForwardPortMin returns the lowest port a remote forward may bind.
+// The default is the first unprivileged port: a forward that could take 22, 53 or
+// 443 would shadow the pod's own services, while everything above that is the
+// user's own business, as it would be on a dev box.
 func GetSSHReverseForwardPortMin() int {
-	return getInt(sshReverseForwardPortMin, 10000)
+	return getInt(sshReverseForwardPortMin, 1024)
 }
 
 // GetSSHReverseForwardPortMax returns the highest port a remote forward may bind.
 func GetSSHReverseForwardPortMax() int {
-	return getInt(sshReverseForwardPortMax, 19999)
+	return getInt(sshReverseForwardPortMax, 65535)
 }
 
 // GetSSHReverseForwardMaxPerSession returns how many remote forwards a single SSH

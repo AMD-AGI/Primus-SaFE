@@ -118,8 +118,8 @@ func TestLoadReverseForwardPolicyDefaults(t *testing.T) {
 	policy := loadReverseForwardPolicy()
 	testifyassert.False(t, policy.enabled)
 	testifyassert.Equal(t, []string{"127.0.0.1"}, policy.bindAddresses)
-	testifyassert.Equal(t, uint32(10000), policy.portMin)
-	testifyassert.Equal(t, uint32(19999), policy.portMax)
+	testifyassert.Equal(t, uint32(1024), policy.portMin)
+	testifyassert.Equal(t, uint32(65535), policy.portMax)
 	testifyassert.Equal(t, 8, policy.maxForwards)
 }
 
@@ -137,6 +137,24 @@ func TestLoadReverseForwardPolicyFromConfig(t *testing.T) {
 	testifyassert.Equal(t, uint32(20000), policy.portMin)
 	testifyassert.Equal(t, uint32(20010), policy.portMax)
 	testifyassert.Equal(t, 2, policy.maxForwards)
+}
+
+// TestReverseForwardDefaultPortRange pins what the shipped defaults actually allow.
+// The motivating case is a proxy on the conventional 7890, so a default range that
+// refused it would make the documented example fail on a stock install; the floor is
+// there to stop a forward shadowing a privileged service inside the pod.
+func TestReverseForwardDefaultPortRange(t *testing.T) {
+	enableReverseForward(t, nil)
+	policy := loadReverseForwardPolicy()
+
+	for _, port := range []uint32{7890, 1080, 8080, 1024, 65535} {
+		_, err := policy.validate("127.0.0.1", port)
+		testifyassert.NoErrorf(t, err, "port %d should be allowed by default", port)
+	}
+	for _, port := range []uint32{22, 53, 443, 1023} {
+		_, err := policy.validate("127.0.0.1", port)
+		testifyassert.Errorf(t, err, "privileged port %d must be refused by default", port)
+	}
 }
 
 // --- pod listener plumbing ------------------------------------------------
