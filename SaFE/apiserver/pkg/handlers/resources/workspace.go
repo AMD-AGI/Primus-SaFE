@@ -649,7 +649,13 @@ func (h *Handler) getWorkspaceUsedQuota(ctx context.Context, workspace *v1.Works
 // capacity on other nodes, so the workspace available never goes negative and
 // stays consistent with the per-node view.
 func (h *Handler) getWorkspaceAvailQuota(ctx context.Context, workspace *v1.Workspace) (corev1.ResourceList, error) {
-	nodes, err := commonnodes.GetNodesOfWorkspaces(ctx, h.Client, []string{workspace.Name}, commonnodes.FilterDeletingNode)
+	// The claim, not the label -- see FilterUnclaimedNode. syncWorkspace counts this
+	// workspace's nodes the same way, and a quota computed over a different set than the
+	// replica count is computed over is a quota that disagrees with the workspace's own
+	// status: a node already released to another workspace would keep contributing its
+	// capacity here for as long as its label lagged behind.
+	nodes, err := commonnodes.GetNodesOfWorkspaces(ctx, h.Client, []string{workspace.Name},
+		commonnodes.FilterUnclaimedNode(workspace.Name))
 	if err != nil {
 		return nil, err
 	}

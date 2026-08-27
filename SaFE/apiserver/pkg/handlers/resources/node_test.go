@@ -526,6 +526,50 @@ func TestListNodes_SearchByName(t *testing.T) {
 	assert.Equal(t, result.TotalCount, 2) // Should match gpu-node-001 and gpu-node-002
 }
 
+// The workspace filter answers on the claim. Both halves of it: a node the workspace has
+// released does not appear under it, and a node it has just taken does not appear as
+// unassigned -- the second being the answer an operator acts on, by handing out a machine
+// that is not free any more.
+func TestListNodes_WorkspaceFilterFollowsTheClaim(t *testing.T) {
+	clusterId := "test-cluster"
+	user := genMockUser()
+	role := genMockRole()
+
+	held := genMockAdminNodeWithIP("node-held", clusterId, "ws-1", "10.0.0.1")
+	held.Spec.Workspace = pointer.String("ws-1")
+	// Label still says ws-1, claim has moved on.
+	moved := genMockAdminNodeWithIP("node-moved", clusterId, "ws-1", "10.0.0.2")
+	moved.Spec.Workspace = pointer.String("ws-2")
+	// Claimed by ws-1, label not written yet: not unassigned, whatever the label says.
+	claimed := genMockAdminNodeWithIP("node-claimed", clusterId, "", "10.0.0.3")
+	claimed.Spec.Workspace = pointer.String("ws-1")
+	free := genMockAdminNodeWithIP("node-free", clusterId, "", "10.0.0.4")
+
+	fakeClient := fake.NewClientBuilder().WithObjects(held, moved, claimed, free, user, role).
+		WithScheme(getTestScheme()).Build()
+	h := Handler{Client: fakeClient, accessController: authority.NewAccessController(fakeClient)}
+
+	list := func(query string) *view.ListNodeResponse {
+		rsp := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(rsp)
+		c.Set(common.UserId, user.Name)
+		c.Request = httptest.NewRequest(http.MethodGet, "/api/v1/nodes?"+query, nil)
+		h.ListNode(c)
+		assert.Equal(t, rsp.Code, http.StatusOK)
+		result := &view.ListNodeResponse{}
+		assert.NilError(t, json.Unmarshal(rsp.Body.Bytes(), &result))
+		return result
+	}
+
+	held1 := list("workspaceId=ws-1")
+	assert.Equal(t, held1.TotalCount, 1)
+	assert.Equal(t, held1.Items[0].NodeId, "node-held")
+
+	unassigned := list("workspaceId=")
+	assert.Equal(t, unassigned.TotalCount, 1)
+	assert.Equal(t, unassigned.Items[0].NodeId, "node-free")
+}
+
 func TestListNodes_SearchByIP(t *testing.T) {
 	clusterId := "test-cluster"
 	user := genMockUser()
@@ -696,6 +740,35 @@ func TestCvtToNodeResponseItemZerosWhenNotContributing(t *testing.T) {
 	assert.Equal(t, item.TotalResources["cpu"], int64(64))
 	assert.Equal(t, item.AvailResources["cpu"], int64(0))
 	assert.Equal(t, item.AvailResources[common.AmdGpu], int64(0))
+}
+
+// Capacity follows the claim, like the replica count does. syncWorkspace counts this
+// workspace's nodes on Node.Spec.Workspace, and a quota summed over the label instead would
+// keep crediting a released node's machines to the old workspace for as long as the label
+// took to catch up -- a workspace whose own status and own quota disagree.
+func TestGetWorkspaceAvailQuotaIgnoresANodeTheWorkspaceNoLongerHolds(t *testing.T) {
+	clusterId := "test-cluster"
+	flavor := "test-flavor"
+	workspace := genMockWorkspace(clusterId, flavor)
+	wsName := workspace.Name
+
+	mine := genAvailableNode("node-mine", clusterId, wsName, flavor, genMockNodeResource(64, 2*1024*1024*1024, 8))
+	// Released to another workspace. Only the label has yet to catch up, which is the whole
+	// window this filter exists for.
+	moved := genAvailableNode("node-moved", clusterId, wsName, flavor, genMockNodeResource(64, 2*1024*1024*1024, 8))
+	moved.Spec.Workspace = pointer.String("someone-else")
+
+	fakeClient := fake.NewClientBuilder().WithObjects(workspace, mine, moved).
+		WithScheme(scheme.Scheme).Build()
+	h := Handler{Client: fakeClient}
+
+	avail, err := h.getWorkspaceAvailQuota(context.Background(), workspace)
+	assert.NilError(t, err)
+	// One node's worth, not two.
+	cpu := avail[corev1.ResourceCPU]
+	gpu := avail[common.AmdGpu]
+	assert.Equal(t, int64(64), cpu.Value())
+	assert.Equal(t, int64(8), gpu.Value())
 }
 
 func TestGetWorkspaceAvailQuota(t *testing.T) {
