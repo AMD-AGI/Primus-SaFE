@@ -21,6 +21,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	k8sfake "k8s.io/client-go/kubernetes/fake"
+	"k8s.io/utils/pointer"
 	"k8s.io/utils/ptr"
 	ctrlruntime "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -44,6 +45,9 @@ func newMockWorkspaceReconciler(adminClient client.Client) WorkspaceReconciler {
 		ClusterBaseReconciler: &ClusterBaseReconciler{
 			Client: adminClient,
 		},
+		// The real one is mgr.GetAPIReader(); here the same fake store answers both, which is
+		// what the production pair does too once the cache has caught up.
+		apiReader:     adminClient,
 		option:        &defaultWorkspaceOption,
 		expectations:  make(map[string]*nodeExpectations),
 		clientManager: commonutils.NewObjectManagerSingleton(),
@@ -79,8 +83,12 @@ func TestDeleteWorkspace(t *testing.T) {
 	workspace := genMockWorkspace(clusterName, nodeFlavor.Name, 1)
 	adminNode1.Spec.Workspace = ptr.To(workspace.Name)
 	metav1.SetMetaDataLabel(&adminNode1.ObjectMeta, v1.WorkspaceIdLabel, workspace.Name)
+	// The claim as well as the label: that is the pair a settled binding leaves behind,
+	// and syncWorkspace counts on the claim.
+	adminNode1.Spec.Workspace = pointer.String(workspace.Name)
 	adminNode2.Spec.Workspace = ptr.To(workspace.Name)
 	metav1.SetMetaDataLabel(&adminNode2.ObjectMeta, v1.WorkspaceIdLabel, workspace.Name)
+	adminNode2.Spec.Workspace = pointer.String(workspace.Name)
 	adminClient := fake.NewClientBuilder().WithObjects(workspace, adminNode1, adminNode2).
 		WithStatusSubresource(workspace).WithScheme(scheme.Scheme).Build()
 
@@ -91,28 +99,65 @@ func TestDeleteWorkspace(t *testing.T) {
 	assert.Equal(t, controllerutil.ContainsFinalizer(workspace, v1.WorkspaceFinalizer), true)
 
 	r := newMockWorkspaceReconciler(adminClient)
-	// Still waiting to be told the unbindings landed, so it asks to be looked at again.
-	result, err := r.delete(context.Background(), workspace)
+	// One pass. The claims are released here, and the finalizer goes with them: the labels
+	// have not made the round trip yet -- nothing in this test delivers the Node events that
+	// would settle them -- and a workspace on its way out has no further decision to make
+	// that waiting for them would protect.
+	err = r.delete(context.Background(), workspace)
 	assert.NilError(t, err)
-	assert.Assert(t, result.RequeueAfter > 0)
-	err = adminClient.Get(context.Background(), client.ObjectKey{Name: workspace.Name}, workspace)
-	assert.NilError(t, err)
-	assert.Equal(t, workspace.Status.Phase, v1.WorkspaceDeleting)
-	assert.Equal(t, controllerutil.ContainsFinalizer(workspace, v1.WorkspaceFinalizer), true)
-
-	r.observeNode(workspace.Name, adminNode1.Name)
-	r.observeNode(workspace.Name, adminNode2.Name)
-	// Told, so this pass finishes the deletion instead of asking again.
-	result, err = r.delete(context.Background(), workspace)
-	assert.NilError(t, err)
-	assert.Equal(t, result.RequeueAfter, time.Duration(0))
 	assert.Equal(t, controllerutil.ContainsFinalizer(workspace, v1.WorkspaceFinalizer), false)
+	assert.Equal(t, workspace.Status.Phase, v1.WorkspaceDeleting)
+	// And nothing is left behind in the expectations map for a workspace that no longer exists.
+	assert.Equal(t, r.meetExpectations(workspace.Name), true)
 	err = adminClient.Get(context.Background(), client.ObjectKey{Name: adminNode1.Name}, adminNode1)
 	assert.NilError(t, err)
 	assert.Equal(t, adminNode1.GetSpecWorkspace(), "")
 	err = adminClient.Get(context.Background(), client.ObjectKey{Name: adminNode2.Name}, adminNode2)
 	assert.NilError(t, err)
 	assert.Equal(t, adminNode2.GetSpecWorkspace(), "")
+}
+
+// nodeBlindCache is a manager cache that has not caught up: it answers every read from the
+// real store except a Node List, which comes back empty. Writes go straight through, as they
+// do in production -- only reads are cached.
+type nodeBlindCache struct {
+	client.Client
+}
+
+func (c nodeBlindCache) List(ctx context.Context, list client.ObjectList, opts ...client.ListOption) error {
+	if err := c.Client.List(ctx, list, opts...); err != nil {
+		return err
+	}
+	if nodeList, ok := list.(*v1.NodeList); ok {
+		nodeList.Items = nil
+	}
+	return nil
+}
+
+func TestDeleteWorkspaceReleasesANodeTheCacheHasNotSeen(t *testing.T) {
+	nodeFlavor := genMockNodeFlavor()
+	clusterName := "cluster"
+	workspace := genMockWorkspace(clusterName, nodeFlavor.Name, 1)
+	claimed := genMockAdminNode("node-fresh", clusterName, nodeFlavor)
+	claimed.Spec.Workspace = pointer.String(workspace.Name)
+	metav1.SetMetaDataLabel(&claimed.ObjectMeta, v1.WorkspaceIdLabel, workspace.Name)
+	store := fake.NewClientBuilder().WithObjects(workspace, claimed).
+		WithStatusSubresource(workspace).WithScheme(scheme.Scheme).Build()
+
+	// The node this controller bound a moment ago, in the state the two readers disagree
+	// about: the apiserver has it, the manager's cache does not. That is not a contrived
+	// split -- it is what a cache looks like right after its own client's write.
+	r := newMockWorkspaceReconciler(nodeBlindCache{store})
+	r.apiReader = store
+
+	assert.NilError(t, store.Get(context.Background(), client.ObjectKey{Name: workspace.Name}, workspace))
+	assert.NilError(t, r.delete(context.Background(), workspace))
+	assert.Equal(t, controllerutil.ContainsFinalizer(workspace, v1.WorkspaceFinalizer), false)
+
+	// The claim is gone. List from the cache instead and it never was: the finalizer comes
+	// off a Workspace whose name a live node still carries, and nothing runs again to notice.
+	assert.NilError(t, store.Get(context.Background(), client.ObjectKey{Name: claimed.Name}, claimed))
+	assert.Equal(t, claimed.GetSpecWorkspace(), "")
 }
 
 func TestReconcile(t *testing.T) {
@@ -128,9 +173,11 @@ func TestReconcile(t *testing.T) {
 	workspace.Status.Phase = v1.WorkspaceAbnormal
 	adminNode1 := genMockAdminNode("node1", clusterName, nodeFlavor)
 	metav1.SetMetaDataLabel(&adminNode1.ObjectMeta, v1.WorkspaceIdLabel, workspace.Name)
+	adminNode1.Spec.Workspace = pointer.String(workspace.Name)
 	adminNode2 := genMockAdminNode("node2", clusterName, nodeFlavor)
 	adminNode2.Status.Unschedulable = true
 	metav1.SetMetaDataLabel(&adminNode2.ObjectMeta, v1.WorkspaceIdLabel, workspace.Name)
+	adminNode2.Spec.Workspace = pointer.String(workspace.Name)
 
 	testScheme := scheme.Scheme
 	_ = corev1.AddToScheme(testScheme)
@@ -193,8 +240,10 @@ func TestScaleDownWorkspace(t *testing.T) {
 	workspace := genMockWorkspace(clusterName, nodeFlavor.Name, 1)
 	adminNode1.Spec.Workspace = ptr.To(workspace.Name)
 	metav1.SetMetaDataLabel(&adminNode1.ObjectMeta, v1.WorkspaceIdLabel, workspace.Name)
+	adminNode1.Spec.Workspace = pointer.String(workspace.Name)
 	adminNode2.Spec.Workspace = ptr.To(workspace.Name)
 	metav1.SetMetaDataLabel(&adminNode2.ObjectMeta, v1.WorkspaceIdLabel, workspace.Name)
+	adminNode2.Spec.Workspace = pointer.String(workspace.Name)
 	adminClient := fake.NewClientBuilder().WithObjects(adminNode1, adminNode2, workspace).
 		WithStatusSubresource(workspace).WithScheme(scheme.Scheme).Build()
 
@@ -216,6 +265,7 @@ func TestWorkspaceNodesAction(t *testing.T) {
 	adminNode1 := genMockAdminNode("node1", clusterName, nodeFlavor)
 	adminNode1.Spec.Workspace = ptr.To(workspace.Name)
 	metav1.SetMetaDataLabel(&adminNode1.ObjectMeta, v1.WorkspaceIdLabel, workspace.Name)
+	adminNode1.Spec.Workspace = pointer.String(workspace.Name)
 	adminNode2 := genMockAdminNode("node2", clusterName, nodeFlavor)
 	actions := map[string]string{
 		adminNode1.Name: v1.NodeActionRemove,
@@ -253,6 +303,7 @@ func TestSyncWorkspace(t *testing.T) {
 	workspace := genMockWorkspace(clusterName, nodeFlavor.Name, 1)
 	adminNode1 := genMockAdminNode("node1", clusterName, nodeFlavor)
 	metav1.SetMetaDataLabel(&adminNode1.ObjectMeta, v1.WorkspaceIdLabel, workspace.Name)
+	adminNode1.Spec.Workspace = pointer.String(workspace.Name)
 	adminNode1.Status.Resources = corev1.ResourceList{
 		corev1.ResourceCPU:    resource.MustParse("8"),
 		corev1.ResourceMemory: resource.MustParse("16Gi"),
@@ -264,6 +315,7 @@ func TestSyncWorkspace(t *testing.T) {
 	}
 	adminNode2.Status.Unschedulable = true
 	metav1.SetMetaDataLabel(&adminNode2.ObjectMeta, v1.WorkspaceIdLabel, workspace.Name)
+	adminNode2.Spec.Workspace = pointer.String(workspace.Name)
 
 	adminClient := fake.NewClientBuilder().WithObjects(adminNode1, adminNode2, workspace, nodeFlavor).
 		WithStatusSubresource(workspace).WithScheme(scheme.Scheme).Build()
@@ -899,7 +951,12 @@ func newWorkspaceReconcilerFull(t *testing.T, cs *k8sfake.Clientset, objs ...ctr
 		ClusterBaseReconciler: &ClusterBaseReconciler{Client: cl, clientSet: cs},
 		clientManager:         mgr,
 		expectations:          map[string]*nodeExpectations{},
-		option:                &WorkspaceReconcilerOption{},
+		// The same client twice, as newMockWorkspaceReconciler does. In production apiReader is
+		// mgr.GetAPIReader() and reads straight from the API server; the fake client has no
+		// cache, so one object serves as both. Leaving it nil is what a nil dereference in
+		// updateSingleNodeBinding looks like from here -- a panic in the fixture, not the bug.
+		apiReader: cl,
+		option:    &WorkspaceReconcilerOption{},
 	}
 }
 
@@ -1095,7 +1152,7 @@ func TestWorkspaceDelete(t *testing.T) {
 		WithStatusSubresource(&v1.Workspace{}).WithObjects(ws).Build()
 	r := newMockWorkspaceReconciler(cl)
 	// No nodes bound, no cluster -> deletes resources + removes finalizer.
-	_, err := r.delete(context.Background(), ws)
+	err := r.delete(context.Background(), ws)
 	testifyassert.NoError(t, err)
 }
 

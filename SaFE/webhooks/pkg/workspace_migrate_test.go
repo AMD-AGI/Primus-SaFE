@@ -34,6 +34,8 @@ func migrateNode(name, cluster, flavor, workspace string) *v1.Node {
 				v1.NodeFlavorIdLabel: flavor,
 			},
 		},
+		// Onboarded, which a node has to be before a workspace may take it.
+		Status: v1.NodeStatus{ClusterStatus: v1.NodeClusterStatus{Phase: v1.NodeManaged}},
 	}
 	if workspace != "" {
 		node.Spec.Workspace = pointer.String(workspace)
@@ -273,7 +275,7 @@ func TestValidateNodesActionMigrate(t *testing.T) {
 				Client: fake.NewClientBuilder().WithScheme(scheme).WithObjects(tc.objects()...).Build(),
 			}
 			newWs := withNodesAction(migrateWorkspace("ws-a", migrateCluster, migrateFlavor, 1), tc.actions)
-			err := validator.validateNodesAction(context.Background(), newWs, migrateWorkspace("ws-a", migrateCluster, migrateFlavor, 1))
+			err := validator.validateNodesAction(context.Background(), newWs, migrateWorkspace("ws-a", migrateCluster, migrateFlavor, 1), false)
 			if tc.wantErr {
 				assert.Assert(t, err != nil, "expected the migration to be refused")
 				return
@@ -299,10 +301,10 @@ func TestValidateNodesActionAddTakesAReleasedNodeAndOnlyAReleasedOne(t *testing.
 	target := migrateWorkspace("ws-b", migrateCluster, migrateFlavor, 1)
 
 	accepted := withNodesAction(target.DeepCopy(), map[string]string{"node1": v1.NodeActionAdd})
-	assert.NilError(t, validator.validateNodesAction(context.Background(), accepted, target))
+	assert.NilError(t, validator.validateNodesAction(context.Background(), accepted, target, false))
 
 	refused := withNodesAction(target.DeepCopy(), map[string]string{"node2": v1.NodeActionAdd})
-	assert.Assert(t, validator.validateNodesAction(context.Background(), refused, target) != nil)
+	assert.Assert(t, validator.validateNodesAction(context.Background(), refused, target, false) != nil)
 }
 
 // A migration takes the node away from whatever is running on it, exactly as a removal does,
@@ -333,11 +335,11 @@ func TestValidateNodesActionMigrateRefusesABusyNode(t *testing.T) {
 	oldWs := migrateWorkspace("ws-a", migrateCluster, migrateFlavor, 1)
 	newWs := withNodesAction(migrateWorkspace("ws-a", migrateCluster, migrateFlavor, 1),
 		map[string]string{"node1": v1.BuildMigrateAction("ws-b")})
-	assert.Assert(t, validator.validateNodesAction(context.Background(), newWs, oldWs) != nil)
+	assert.Assert(t, validator.validateNodesAction(context.Background(), newWs, oldWs, false) != nil)
 
 	// Forced, it goes through, the same way a forced removal does.
 	v1.SetAnnotation(newWs, v1.WorkspaceForcedAction, v1.TrueStr)
-	assert.NilError(t, validator.validateNodesAction(context.Background(), newWs, oldWs))
+	assert.NilError(t, validator.validateNodesAction(context.Background(), newWs, oldWs, false))
 }
 
 // The reservation is only worth as much as the paths that honour it. Scaling up is not the
@@ -355,7 +357,7 @@ func TestValidateNodesActionAddRefusesSomeoneElsesReservedNode(t *testing.T) {
 	// Refused where the user can see it, so the request does not come back accepted and then
 	// fail out of sight for the whole of the migration's timeout.
 	assert.Assert(t, validator.validateNodesAction(context.Background(),
-		withNodesAction(thirdParty.DeepCopy(), map[string]string{"node1": v1.NodeActionAdd}), thirdParty) != nil)
+		withNodesAction(thirdParty.DeepCopy(), map[string]string{"node1": v1.NodeActionAdd}), thirdParty, false) != nil)
 
 	nodeValidator := &NodeValidator{}
 	bound := node.DeepCopy()
@@ -385,7 +387,7 @@ func TestValidateNodesActionAddRefusesABoundNodeWhateverItsAnnotationSays(t *tes
 	}
 	target := migrateWorkspace("ws-b", migrateCluster, migrateFlavor, 1)
 	err := validator.validateNodesAction(context.Background(),
-		withNodesAction(target.DeepCopy(), map[string]string{"node1": v1.NodeActionAdd}), target)
+		withNodesAction(target.DeepCopy(), map[string]string{"node1": v1.NodeActionAdd}), target, false)
 	assert.Assert(t, err != nil, "a bound node was added on the strength of its own annotation")
 }
 
@@ -430,13 +432,13 @@ func TestValidateNodesActionSkipsAnActionThatIsNotBeingChanged(t *testing.T) {
 	renamed := withNodesAction(migrateWorkspace("ws-a", migrateCluster, migrateFlavor, 1), action)
 	v1.SetLabel(renamed, v1.DisplayNameLabel, "renamed")
 
-	assert.NilError(t, validator.validateNodesAction(context.Background(), renamed, oldWs))
+	assert.NilError(t, validator.validateNodesAction(context.Background(), renamed, oldWs, false))
 }
 
-// The same request arriving twice is one request. The annotation's text is what triggers the
-// accounting, and the same action can arrive again spelled differently -- a client retrying,
-// or the same JSON with different spacing -- so the entries already carried are left alone.
-func TestMutateNodesActionCountsAnActionOnceHoweverOftenItIsSent(t *testing.T) {
+// The same request arriving twice is one request, and the second is turned away rather than
+// reconciled with the first: the skips in the accounting loop mean a resend can shrink onto
+// the set already in flight, leave the annotation untouched, and still move the replica.
+func TestMutateNodesActionRefusesASecondRequestOverTheFirst(t *testing.T) {
 	scheme := newScheme(t)
 	node := migrateNode("node1", migrateCluster, migrateFlavor, "ws-a")
 	mutator := &WorkspaceMutator{
@@ -450,20 +452,10 @@ func TestMutateNodesActionCountsAnActionOnceHoweverOftenItIsSent(t *testing.T) {
 	assert.Equal(t, first.Spec.Replica, 2)
 
 	resent := withNodesAction(migrateWorkspace("ws-a", migrateCluster, migrateFlavor, 2), action)
-	assert.NilError(t, mutator.mutateNodesAction(context.Background(),
-		withNodesAction(migrateWorkspace("ws-a", migrateCluster, migrateFlavor, 2), action), resent))
+	err := mutator.mutateNodesAction(context.Background(),
+		withNodesAction(migrateWorkspace("ws-a", migrateCluster, migrateFlavor, 2), action), resent)
+	assert.Assert(t, err != nil, "a second request went through over one still in flight")
 	assert.Equal(t, resent.Spec.Replica, 2, "the same request was counted twice")
-
-	// An add resent the same way is the same story, and was before migrations existed.
-	free := migrateNode("node2", migrateCluster, migrateFlavor, "")
-	addMutator := &WorkspaceMutator{
-		Client: fake.NewClientBuilder().WithScheme(scheme).WithObjects(free).Build(),
-	}
-	addAction := map[string]string{"node2": v1.NodeActionAdd}
-	added := withNodesAction(migrateWorkspace("ws-b", migrateCluster, migrateFlavor, 1), addAction)
-	assert.NilError(t, addMutator.mutateNodesAction(context.Background(),
-		withNodesAction(migrateWorkspace("ws-b", migrateCluster, migrateFlavor, 1), addAction), added))
-	assert.Equal(t, added.Spec.Replica, 1)
 }
 
 // Only the workspace that released the node may go on driving the crossing; matching on the
@@ -479,11 +471,11 @@ func TestValidateNodesActionMigrateOnlyByTheWorkspaceThatReleasedIt(t *testing.T
 
 	interloper := migrateWorkspace("ws-c", migrateCluster, migrateFlavor, 1)
 	assert.Assert(t, validator.validateNodesAction(context.Background(),
-		withNodesAction(interloper.DeepCopy(), action), interloper) != nil)
+		withNodesAction(interloper.DeepCopy(), action), interloper, false) != nil)
 
 	owner := migrateWorkspace("ws-a", migrateCluster, migrateFlavor, 1)
 	assert.NilError(t, validator.validateNodesAction(context.Background(),
-		withNodesAction(owner.DeepCopy(), action), owner))
+		withNodesAction(owner.DeepCopy(), action), owner, false))
 }
 
 // A target on its way out cannot take the nodes, and finding that out after they have been
@@ -501,7 +493,7 @@ func TestValidateMigrateTargetRefusesAWorkspaceBeingDeleted(t *testing.T) {
 	source := migrateWorkspace("ws-a", migrateCluster, migrateFlavor, 1)
 	assert.Assert(t, validator.validateNodesAction(context.Background(),
 		withNodesAction(source.DeepCopy(), map[string]string{"node1": v1.BuildMigrateAction("ws-b")}),
-		source) != nil)
+		source, false) != nil)
 }
 
 // Which node decides an adopting target's flavor is settled before the batch is walked. Left
@@ -523,5 +515,5 @@ func TestValidateMigrateTargetRefusesAMixedBatchIncludingAFlavourlessNode(t *tes
 		"node2": v1.BuildMigrateAction("ws-b"),
 	}
 	assert.Assert(t, validator.validateNodesAction(context.Background(),
-		withNodesAction(source.DeepCopy(), action), source) != nil)
+		withNodesAction(source.DeepCopy(), action), source, false) != nil)
 }

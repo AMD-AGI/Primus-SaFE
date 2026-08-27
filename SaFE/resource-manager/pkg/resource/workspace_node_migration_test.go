@@ -106,7 +106,7 @@ func TestIsNodeEligibleForScalingUp(t *testing.T) {
 			if tc.mutil != nil {
 				tc.mutil(node)
 			}
-			assert.Equal(t, r.isNodeEligibleForScalingUp(node, workspace), tc.want)
+			assert.Equal(t, isNodeEligibleForScalingUp(node, workspace), tc.want)
 		})
 	}
 }
@@ -335,7 +335,7 @@ func TestUpdateSingleNodeBindingClearsTheReservationOnArrival(t *testing.T) {
 	adminClient := fake.NewClientBuilder().WithObjects(node).WithScheme(scheme.Scheme).Build()
 	r := newMockWorkspaceReconciler(adminClient)
 
-	updated, err := r.updateSingleNodeBinding(context.Background(), node, nodeBinding{workspace: "ws-target"})
+	updated, err := r.updateSingleNodeBinding(context.Background(), "ws-target", node, nodeBinding{workspace: "ws-target"})
 	assert.NilError(t, err)
 	assert.Equal(t, updated, true)
 
@@ -354,7 +354,7 @@ func TestUpdateSingleNodeBindingClearsAStaleReservation(t *testing.T) {
 	adminClient := fake.NewClientBuilder().WithObjects(node).WithScheme(scheme.Scheme).Build()
 	r := newMockWorkspaceReconciler(adminClient)
 
-	_, err := r.updateSingleNodeBinding(context.Background(), node, nodeBinding{workspace: "ws-target"})
+	_, err := r.updateSingleNodeBinding(context.Background(), "ws-target", node, nodeBinding{workspace: "ws-target"})
 	assert.NilError(t, err)
 
 	assert.NilError(t, adminClient.Get(context.Background(), client.ObjectKey{Name: node.Name}, node))
@@ -514,8 +514,7 @@ func TestDeleteWorkspaceReleasesTheNodesItWasMigrating(t *testing.T) {
 	controllerutil.AddFinalizer(m.source, v1.WorkspaceFinalizer)
 	assert.NilError(t, m.client.Update(context.Background(), m.source))
 
-	_, err := m.reconciler.delete(context.Background(), m.source)
-	assert.NilError(t, err)
+	assert.NilError(t, m.reconciler.delete(context.Background(), m.source))
 
 	assert.NilError(t, m.client.Get(context.Background(), client.ObjectKey{Name: m.node.Name}, m.node))
 	assert.Assert(t, v1.GetNodeMigrateInfo(m.node) == nil,
@@ -576,7 +575,7 @@ func TestUpdateSingleNodeBindingClearsAnExpiredReservationOnWhoeverTakesTheNode(
 	adminClient := fake.NewClientBuilder().WithObjects(node).WithScheme(scheme.Scheme).Build()
 	r := newMockWorkspaceReconciler(adminClient)
 
-	_, err := r.updateSingleNodeBinding(context.Background(), node, nodeBinding{workspace: "ws-unrelated"})
+	_, err := r.updateSingleNodeBinding(context.Background(), "ws-unrelated", node, nodeBinding{workspace: "ws-unrelated"})
 	assert.NilError(t, err)
 
 	assert.NilError(t, adminClient.Get(context.Background(), client.ObjectKey{Name: node.Name}, node))
@@ -684,10 +683,10 @@ func TestProcessNodesActionMigrateConfirmsAMissingTargetBeforeGivingUp(t *testin
 	m := newMigration(t, time.Hour, func(node *v1.Node, source, target *v1.Workspace) {
 		markMigrating(node, source.Name, target.Name)
 	})
-	// Gone as far as the cache is concerned, still there as far as the apiserver is.
-	stillThere := m.target.DeepCopy()
+	// Gone as far as the cache is concerned, still there as far as the apiserver is. The node
+	// goes in too: every read on this path goes through the apiReader now.
 	m.reconciler.apiReader = fake.NewClientBuilder().WithScheme(scheme.Scheme).
-		WithObjects(stillThere).Build()
+		WithObjects(m.target.DeepCopy(), m.node.DeepCopy()).Build()
 	m.target.Finalizers = nil
 	assert.NilError(t, m.client.Update(context.Background(), m.target))
 	assert.NilError(t, m.client.Delete(context.Background(), m.target))

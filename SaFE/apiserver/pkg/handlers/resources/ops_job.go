@@ -749,7 +749,12 @@ func (h *Handler) generateOpsJobNodesInput(ctx context.Context, job *v1.OpsJob) 
 		}
 		v1.SetLabel(job, v1.WorkspaceIdLabel, workspaceId)
 	} else if workspaceParam := job.GetParameter(v1.ParameterWorkspace); workspaceParam != nil {
-		nodes, err := commonnodes.GetNodesOfWorkspaces(ctx, h.Client, []string{workspaceParam.Value}, nil)
+		// The claim, not the label -- see FilterUnclaimedNode. This is the list an ops job is
+		// then run against, so a node whose label has not caught up with its release would put
+		// this workspace's job onto a machine another workspace is already running on. The
+		// filter also excludes nodes on their way out, which passing nil did not.
+		nodes, err := commonnodes.GetNodesOfWorkspaces(ctx, h.Client, []string{workspaceParam.Value},
+			commonnodes.FilterUnclaimedNode(workspaceParam.Value))
 		if err != nil {
 			return false, err
 		}

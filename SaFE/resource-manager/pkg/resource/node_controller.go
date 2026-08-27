@@ -614,6 +614,15 @@ func (r *NodeReconciler) processNodeManagement(ctx context.Context,
 
 // cleanupNodeAfterUnmanage performs cleanup operations on a node.
 // This includes removing cluster, workspace and addon labels
+//
+// The release of spec.workspace here is the one exception to the rule enforced in
+// WorkspaceReconciler.updateSingleNodeBinding that only a node's owner may release it, and it
+// is deliberate: a node that has left the fleet is gone whether or not the workspace holding
+// it agrees, and there is nobody else to do the release. Nor does it touch the owner's
+// Spec.Replica -- the workspace still wants that many machines, so leaving the count alone is
+// what makes it scale a replacement in. The owner learns of the loss through the same write:
+// WorkspaceReconciler.handleNodeEvent settles and re-queues on the label being dropped, or,
+// inside the window below where there is no label yet, on the claim being dropped.
 func (r *NodeReconciler) cleanupNodeAfterUnmanage(ctx context.Context, adminNode *v1.Node) error {
 	isChanged := false
 	if v1.GetClusterId(adminNode) != "" {
@@ -622,6 +631,13 @@ func (r *NodeReconciler) cleanupNodeAfterUnmanage(ctx context.Context, adminNode
 	}
 	if v1.GetWorkspaceId(adminNode) != "" {
 		v1.RemoveLabel(adminNode, v1.WorkspaceIdLabel)
+		isChanged = true
+	}
+	// Separate from the label: a bind writes spec first and waits for the label to make the
+	// round trip, so a node unmanaged inside that window has the claim and not the label.
+	// Tying the two together would leave that claim behind for good, and no later bind could
+	// clear it -- only the owner may release, and the owner has been told the node is gone.
+	if adminNode.Spec.Workspace != nil {
 		adminNode.Spec.Workspace = nil
 		isChanged = true
 	}

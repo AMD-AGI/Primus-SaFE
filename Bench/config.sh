@@ -21,7 +21,7 @@ export USE_SALLOC="${USE_SALLOC:-true}"
 # ==============================================================================
 # Container Configuration
 # ==============================================================================
-export IMAGE="${IMAGE:-docker.io/primussafe/primusbench:rocm7.0.3_gfx950_ainic_202512281440}"
+export IMAGE="${IMAGE:-docker.io/primussafe/primusbench:rocm7.0.1_gfx950_ubuntu24.04_ainic_202608270103}"
 export ENABLE_IMAGE_WARMUP="${ENABLE_IMAGE_WARMUP:-true}"
 # ==============================================================================
 # Cluster Configuration
@@ -35,7 +35,7 @@ export SSH_PORT="${SSH_PORT:-22366}"
 # ==============================================================================
 # Network Interface Configuration
 # ==============================================================================
-export IP_INTERFACE="${IP_INTERFACE:-enp193s0f0np0}"
+export IP_INTERFACE="${IP_INTERFACE:-eth0}"
 export NCCL_SOCKET_IFNAME="${NCCL_SOCKET_IFNAME:-${IP_INTERFACE}}"
 export GLOO_SOCKET_IFNAME="${GLOO_SOCKET_IFNAME:-${IP_INTERFACE}}"
 export NCCL_IB_HCA="${NCCL_IB_HCA:-"ionic_0,ionic_1,ionic_2,ionic_3,ionic_4,ionic_5,ionic_6,ionic_7"}"

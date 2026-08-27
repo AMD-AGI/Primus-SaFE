@@ -9,10 +9,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 
 	admissionv1 "k8s.io/api/admission/v1"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	utilerrors "k8s.io/apimachinery/pkg/util/errors"
@@ -103,6 +105,24 @@ func (m *WorkspaceMutator) mutateOnCreation(ctx context.Context, workspace *v1.W
 
 // mutateOnUpdate applies mutations during updates.
 func (m *WorkspaceMutator) mutateOnUpdate(ctx context.Context, oldWorkspace, newWorkspace *v1.Workspace) error {
+	// First, ahead of every mutation, and that placement is the point.
+	//
+	// A withdrawal is recognised by its shape, and the validating webhook has to recognise the
+	// same write from the same shape. It is handed whatever the mutator leaves behind, so any
+	// field a mutation touches on the way here is a field the two of them could read
+	// differently -- mutateByNodeFlavor zeroes Spec.Replica for a workspace whose flavor has
+	// gone, and Spec.Replica is one of the fields the shape is made of. Deciding before
+	// anything runs makes the object both webhooks judge byte-for-byte the one the controller
+	// sent, so the question of what ran in between does not arise.
+	//
+	// Nothing to do once it is recognised, either. Left to mutateNodesAction the write would
+	// have its reason annotation stripped and the surviving entries counted into Spec.Replica
+	// a second time; the rest of mutateCommon is idempotent over an object that already went
+	// through it, so skipping it costs nothing.
+	if v1.GetWorkspaceNodesAction(oldWorkspace) != v1.GetWorkspaceNodesAction(newWorkspace) &&
+		isNodesActionWithdrawal(oldWorkspace, newWorkspace) {
+		return nil
+	}
 	if err := m.mutateCommon(ctx, oldWorkspace, newWorkspace); err != nil {
 		return err
 	}
@@ -114,6 +134,107 @@ func (m *WorkspaceMutator) mutateOnUpdate(ctx context.Context, oldWorkspace, new
 		return err
 	}
 	return nil
+}
+
+// isNodesActionWithdrawal recognises a write that takes entries back out of a nodes-action
+// request that is already in flight, and gives back the Spec.Replica those entries were
+// counted into. Anything else is false.
+//
+// This is the shape WorkspaceReconciler.dropRefusedActions writes when it gives up on an
+// entry. Recognising it does two things: the write is let past mutateNodesAction and past the
+// in-flight check in validateNodesAction, both of which would otherwise turn away the one
+// write that ends the request, and it is let past validateScaleDown, which is not what this
+// is -- see validateOnUpdate.
+//
+// Both webhooks call this and they must agree, which holds only while nothing between them
+// alters what the predicate reads. Mutating admission runs first and its result is what
+// validating admission is handed, so a field the mutator writes would be read differently by
+// the two of them. This is why mutateOnUpdate asks before it mutates anything at all rather
+// than at the point in its sequence where the question belongs: no mutation has run when the
+// mutator answers, and none has run when the validator answers either, because answering yes
+// is what makes the mutator return.
+//
+// The shape is narrow on purpose: entries may only leave, never arrive and never change
+// value, the reason annotation must come with it, and Spec.Replica must land on exactly the
+// value the withdrawal implies -- not merely a smaller one. A request being shrunk by its own
+// author while the controller is part way through binding it is not this, and still gets
+// turned away by the in-flight check; an author who forges the rest of the shape still cannot
+// use it to move Spec.Replica anywhere of their choosing.
+func isNodesActionWithdrawal(oldWorkspace, newWorkspace *v1.Workspace) bool {
+	// Present, not changed. dropRefusedActions writes the reason it has for the entries it is
+	// dropping, and nothing stops that text from being the one already on the object: the same
+	// node refused twice in a row for the same cause, a request whose second withdrawal reads
+	// exactly like its first. Asking for a change would refuse the real withdrawal in that
+	// case, and the entries would be stuck in flight with no write able to take them out.
+	//
+	// Nothing is lost by dropping the comparison: a write that only repeats the reason and
+	// changes nothing else fails the shrinking-entries check below.
+	if v1.GetAnnotation(newWorkspace, v1.WorkspaceNodesActionError) == "" {
+		return false
+	}
+	oldActions, err := commonnodes.ParseAction(oldWorkspace)
+	if err != nil || len(oldActions) == 0 {
+		return false
+	}
+	newActions, err := commonnodes.ParseAction(newWorkspace)
+	if err != nil {
+		return false
+	}
+	for key, val := range newActions {
+		if oldVal, ok := oldActions[key]; !ok || oldVal != val {
+			return false
+		}
+	}
+	if len(newActions) >= len(oldActions) {
+		return false
+	}
+	if newWorkspace.Spec.Replica != commonnodes.WithdrawnReplica(oldWorkspace.Spec.Replica, oldActions, newActions) {
+		return false
+	}
+	// And nothing else moved. Saying yes here returns mutateOnUpdate before mutateCommon,
+	// so every normalisation that runs on an ordinary update -- mutateByNodeFlavor,
+	// mutateVolumes, mutateQueuePolicy, mutateManagers, mutateGpuProduct -- is skipped for
+	// this write, and validateNodesAction and validateScaleDown stand down with it. Without
+	// this clause an author who forges the withdrawal shape gets a free pass for whatever
+	// they attach to it: a Spec.Volume the mutator never normalised, a Spec.Manager recorded
+	// without the permission sync that goes with it.
+	//
+	// The fields that are the withdrawal are excluded and everything else must match.
+	// dropRefusedActions writes exactly those in one patch, so a real withdrawal passes;
+	// skipping the normalisations is then free, which is the only reason skipping them was
+	// ever sound.
+	//
+	// WorkspaceForcedAction is one of them because a withdrawal that empties the request
+	// drops it in the same patch -- it qualifies the request, and there is no request left
+	// to qualify. Left out of this list it made a forced request whose every entry was
+	// refused unrecognisable: the shape check failed on that one key, the write fell through
+	// to mutateNodesAction, and it was rejected there for moving Spec.Replica alongside the
+	// annotation. The controller has no other way to end that request, so it would re-send
+	// the same doomed patch for good -- annotation never cleared, replica never given back,
+	// and every later nodes-action and scale-down on the workspace refused behind it.
+	if !maps.EqualIgnoreOrder(
+		maps.Copy(oldWorkspace.Labels), maps.Copy(newWorkspace.Labels)) {
+		return false
+	}
+	// Excluded, but only ever on its way out. The one thing this annotation does is let a
+	// remove past the in-use check in validateNodesRemoved, so an author who could set it
+	// under cover of the withdrawal shape would be buying the exemption for whatever entries
+	// the withdrawal leaves behind. Withdrawals only ever drop it.
+	if v1.HasAnnotation(newWorkspace, v1.WorkspaceForcedAction) &&
+		v1.GetAnnotation(newWorkspace, v1.WorkspaceForcedAction) !=
+			v1.GetAnnotation(oldWorkspace, v1.WorkspaceForcedAction) {
+		return false
+	}
+	if !maps.EqualIgnoreOrder(
+		maps.Copy(oldWorkspace.Annotations,
+			v1.WorkspaceNodesAction, v1.WorkspaceNodesActionError, v1.WorkspaceForcedAction),
+		maps.Copy(newWorkspace.Annotations,
+			v1.WorkspaceNodesAction, v1.WorkspaceNodesActionError, v1.WorkspaceForcedAction)) {
+		return false
+	}
+	oldSpec := oldWorkspace.Spec.DeepCopy()
+	oldSpec.Replica = newWorkspace.Spec.Replica
+	return equality.Semantic.DeepEqual(oldSpec, &newWorkspace.Spec)
 }
 
 // mutateCommon applies node flavor, image secrets, volumes, queue policy, preemption and manager mutations.
@@ -182,27 +303,89 @@ func (m *WorkspaceMutator) mutateNodesAction(ctx context.Context, oldWorkspace, 
 	if v1.GetWorkspaceNodesAction(newWorkspace) == "" {
 		return nil
 	}
+	oldActions, _ := commonnodes.ParseAction(oldWorkspace)
+	// One request at a time, and turned away here rather than reconciled with the one in
+	// flight. The caller reached this function by changing the annotation, so this is a
+	// second request over the top of a first the controller has not finished -- the only
+	// writes that legitimately change the annotation while one is in flight are the
+	// controller's own, and both are already past: a withdrawal returns from mutateOnUpdate
+	// before any of this, and clearing the annotation returns just above.
+	//
+	// Refused whole, not merged. Comparing the two requests and letting an identical one
+	// through is what this used to do, and it counted the same entries into Spec.Replica
+	// twice: the skips below drop an add of a node the workspace already holds and a remove
+	// of a node it does not, so a second request could shrink onto exactly the set already
+	// in flight, leave the annotation untouched, and still move the count. The annotation
+	// then said one binding and the replica said two, and nothing downstream reconciles the
+	// two -- an inflated count buys a machine nobody asked for, a deflated one releases one.
+	if len(oldActions) > 0 {
+		return commonerrors.NewResourceProcessing(fmt.Sprintf("another job(%s) is processing,"+
+			" please wait for it to complete", v1.GetWorkspaceNodesAction(oldWorkspace)))
+	}
+	// A new request supersedes whatever the last one failed with. This is the other half of
+	// the lifecycle dropRefusedActions starts when it records a reason; without it a
+	// workspace that was ever turned down carries that reason for good.
+	//
+	// After the check above, not before it: the controller clears the annotation on its way
+	// out of a request as well, and one of those exits comes straight after writing the
+	// reason that a part of the request was withdrawn.
+	v1.RemoveAnnotation(newWorkspace, v1.WorkspaceNodesActionError)
 
-	currentActions, err := parseNodesAction(newWorkspace)
+	currentActions, err := commonnodes.ParseAction(newWorkspace)
 	if err != nil {
 		return err
 	}
-	// What the workspace was already carrying. Only the entries that are new to this request
-	// are accounted for below: this runs whenever the annotation's text changes, and the same
-	// action can arrive again spelled differently -- a client retrying, or the same JSON with
-	// different spacing -- which would otherwise move the replica a second time for one
-	// request the user made once.
-	alreadyCarried, _ := parseNodesAction(oldWorkspace)
+	// Two passes over a sorted key list, and both halves of that matter.
+	//
+	// Sorted, because a map range is in a random order and this loop can return an error. With
+	// two entries wrong in different ways, whichever the range reached first decided what the
+	// caller was told -- the same request answered with a different message each time it was
+	// sent, which is a fault report that cannot be acted on.
+	//
+	// Two passes, because the arithmetic below used to be inside this loop and read
+	// Spec.Replica as it went. From zero the first add both set the flavor and took the count
+	// to one, and everything after it took a different branch -- so a request mixing an add
+	// with a remove landed on a different replica depending on which the range happened to
+	// visit first, and a request whose adds disagreed about flavor rejected whichever one the
+	// range visited second. Judging every entry first and moving the count once afterwards
+	// gives one answer, and it is the arithmetic one.
+	keys := make([]string, 0, len(currentActions))
+	for key := range currentActions {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+
 	newActions := make(map[string]string)
-	for key, val := range currentActions {
-		if alreadyCarried[key] == val {
-			newActions[key] = val
-			continue
+	// The entries that move the replica, which is not quite the entries the request keeps: a
+	// migration whose node has already been released is carried forward unchanged, and the
+	// count it moved when the crossing started must not be moved again.
+	accounted := make(map[string]string, len(keys))
+	// The flavor of each accepted entry, keyed by node, for the pass below.
+	flavors := make(map[string]string, len(keys))
+	for _, key := range keys {
+		val := currentActions[key]
+		// The error, not just the nil. getNode returns one for any failed read, and mapping
+		// all of them to NotFound tells whoever asked that their node does not exist when the
+		// apiserver was merely unreachable -- a claim they would act on, and the wrong one.
+		n, getErr := getNode(ctx, m.Client, key)
+		if getErr != nil && !apierrors.IsNotFound(getErr) {
+			klog.ErrorS(getErr, "failed to get node", "node", key)
+			return getErr
 		}
-		n, _ := getNode(ctx, m.Client, key)
 		if n == nil {
-			klog.ErrorS(err, "failed to get node")
 			return commonerrors.NewNotFound(v1.NodeKind, key)
+		}
+		// Add only, and ahead of the cluster check, for the reasons validateNodesAction spells
+		// out: an unmanaged node has no cluster label yet, so the check below would turn it
+		// away reporting a cluster mismatch that does not exist.
+		//
+		// Turned down here rather than left to the validator for the reason the bound-node
+		// check further down gives: everything past this point moves Spec.Replica, and an
+		// entry that cannot succeed must not move it.
+		if val == v1.NodeActionAdd && !n.IsManaged() {
+			return commonerrors.NewResourceProcessing(fmt.Sprintf(
+				"the node(%s) is not managed yet(phase %q, cluster %q). it can't be added",
+				key, n.Status.ClusterStatus.Phase, v1.GetClusterId(n)))
 		}
 		if v1.GetClusterId(n) != newWorkspace.Spec.Cluster {
 			err = fmt.Errorf("the cluster(%s) of the operation and the workspace's"+
@@ -213,9 +396,30 @@ func (m *WorkspaceMutator) mutateNodesAction(ctx context.Context, oldWorkspace, 
 			if n.GetSpecWorkspace() == newWorkspace.Name {
 				continue
 			}
+			// Turned down here, not left for the validator. Everything past this point moves
+			// Spec.Replica, and an entry that cannot succeed must not move it. The validator
+			// refusing the request afterwards does discard the mutation -- but only for as
+			// long as it is there to do it, and a mutator that depends on a second webhook to
+			// keep its own arithmetic honest is one misconfiguration away from persisting a
+			// replica count nobody asked for.
+			//
+			// Same wording as validateNodesAction on purpose: one condition, one message,
+			// whichever webhook reaches it first.
+			if bound := n.GetSpecWorkspace(); bound != "" {
+				return commonerrors.NewConflict(fmt.Sprintf(
+					"the node(%s) is bound for %s. it can't be added", key, bound))
+			}
 		} else if val == v1.NodeActionRemove {
 			if n.GetSpecWorkspace() == "" {
 				continue
+			}
+			// The mirror of the case above, and the more damaging of the two if it gets
+			// through: releasing a node that belongs to someone else decrements a replica
+			// count that was never counting it.
+			if n.GetSpecWorkspace() != newWorkspace.Name {
+				return commonerrors.NewConflict(fmt.Sprintf(
+					"the node(%s) belongs to workspace(%s). it can't be removed",
+					key, n.GetSpecWorkspace()))
 			}
 		} else if _, ok := v1.ParseMigrateAction(val); ok {
 			// A migration outlives the request that starts it. The entry stays on the source
@@ -224,8 +428,9 @@ func (m *WorkspaceMutator) mutateNodesAction(ctx context.Context, oldWorkspace, 
 			// the rest of the way -- dropping it here, the way an already-satisfied add or
 			// remove is dropped, would clear the annotation and abandon the node unbound.
 			//
-			// Below is the accounting for giving the node up, which belongs to the one
-			// update that finds it still bound here.
+			// The accounting below belongs to the one update that finds it still bound here,
+			// and it is a removal's: the workspace is giving the node up either way, and the
+			// target's own replica is raised by the add it receives later.
 			if n.GetSpecWorkspace() != newWorkspace.Name {
 				newActions[key] = val
 				continue
@@ -233,46 +438,80 @@ func (m *WorkspaceMutator) mutateNodesAction(ctx context.Context, oldWorkspace, 
 		} else {
 			continue
 		}
-		if newWorkspace.Spec.Replica == 0 {
-			if val == v1.NodeActionAdd {
-				newWorkspace.Spec.NodeFlavor = v1.GetNodeFlavorId(n)
-				newWorkspace.Spec.Replica = 1
-			}
-		} else {
-			if v1.GetNodeFlavorId(n) != newWorkspace.Spec.NodeFlavor {
-				err = fmt.Errorf("the flavor(%s) of the operation and the workspace's "+
-					"flavor do not match", v1.GetNodeFlavorId(n))
-				return err
-			}
-			if val == v1.NodeActionAdd {
-				newWorkspace.Spec.Replica++
-			} else {
-				// Remove and migrate alike: the workspace is giving up a node either way,
-				// and the target's own replica is raised by the add it receives later.
-				newWorkspace.Spec.Replica--
-			}
-		}
+		flavors[key] = v1.GetNodeFlavorId(n)
 		newActions[key] = val
+		accounted[key] = val
 	}
 
-	oldActions, _ := parseNodesAction(oldWorkspace)
+	if err := m.applyNodesActionReplica(newWorkspace, keys, accounted, flavors); err != nil {
+		return err
+	}
+
+	// Nothing in flight to reconcile with -- the check at the top of this function saw to
+	// that -- so what is left is only this request, minus whatever was already true.
 	if len(newActions) == 0 {
-		if len(oldActions) == 0 {
-			v1.RemoveAnnotation(newWorkspace, v1.WorkspaceNodesAction)
-			v1.RemoveAnnotation(newWorkspace, v1.WorkspaceForcedAction)
+		v1.RemoveAnnotation(newWorkspace, v1.WorkspaceNodesAction)
+		v1.RemoveAnnotation(newWorkspace, v1.WorkspaceForcedAction)
+	} else if len(newActions) != len(currentActions) {
+		v1.SetAnnotation(newWorkspace, v1.WorkspaceNodesAction, string(jsonutils.MarshalSilently(newActions)))
+	}
+	return nil
+}
+
+// applyNodesActionReplica moves Spec.Replica by what the accepted entries add up to, and
+// settles the flavor while it is there. keys is in sorted order; accepted and flavors are both
+// keyed by node name, and a key absent from accepted was not accepted.
+//
+// A workspace holding nothing takes its flavor from the first add in key order -- no flavor
+// recorded or no nodes left to justify the one that is, which are the only two states in
+// which a nodes-action may name the flavor rather than be checked against it. Picking by key
+// order rather than by map order is what makes a two-add request that disagrees about flavor
+// reject the same one every time.
+func (m *WorkspaceMutator) applyNodesActionReplica(newWorkspace *v1.Workspace,
+	keys []string, accepted map[string]string, flavors map[string]string) error {
+	adds, removes := 0, 0
+	for _, key := range keys {
+		val, ok := accepted[key]
+		if !ok {
+			continue
+		}
+		flavor := flavors[key]
+		if val == v1.NodeActionAdd {
+			adds++
+			// The first add in key order names the flavor when the workspace has nothing to
+			// contradict it: no flavor recorded, or a flavor left over from nodes it no
+			// longer has. The second is why the condition is not simply an empty flavor --
+			// scaling to zero does not clear Spec.NodeFlavor, and a workspace holding no
+			// nodes has no stake in the flavor of the ones it used to hold. Requiring an
+			// empty one would make the first add to an emptied workspace fail against a
+			// flavor that no longer describes anything, with no way to change it short of
+			// deleting the workspace.
+			//
+			// Only the first, and by key order rather than map order: every entry after it
+			// is checked against what it set, so a request whose adds disagree rejects the
+			// same one every time rather than whichever the range happened to reach second.
+			if adds == 1 && (newWorkspace.Spec.NodeFlavor == "" || newWorkspace.Spec.Replica == 0) {
+				newWorkspace.Spec.NodeFlavor = flavor
+			}
 		} else {
-			// No effective node ops in this request; keep the previous workspace node-action state.
-			v1.SetAnnotation(newWorkspace, v1.WorkspaceNodesAction, v1.GetWorkspaceNodesAction(oldWorkspace))
+			removes++
 		}
-	} else {
-		if len(oldActions) > 0 && !maps.EqualIgnoreOrder(oldActions, newActions) {
-			return commonerrors.NewResourceProcessing(fmt.Sprintf("another job(%s) is processing,"+
-				" please wait for it to complete", v1.GetWorkspaceNodesAction(oldWorkspace)))
-		}
-		if len(newActions) != len(currentActions) {
-			v1.SetAnnotation(newWorkspace, v1.WorkspaceNodesAction, string(jsonutils.MarshalSilently(newActions)))
+		// After the bootstrap above, so the first add is checked against the flavor it just
+		// set and every later entry against the same one. A remove is checked too: releasing
+		// a node of the wrong flavor would take the count down by something it never counted.
+		if newWorkspace.Spec.NodeFlavor != "" && flavor != newWorkspace.Spec.NodeFlavor {
+			return commonerrors.NewConflict(fmt.Sprintf(
+				"the flavor(%s) of the operation and the workspace's flavor do not match", flavor))
 		}
 	}
+	replica := newWorkspace.Spec.Replica + adds - removes
+	// A request may not take a workspace past empty. Reachable only if Spec.Replica is already
+	// behind what the workspace holds -- the entries themselves were each checked against the
+	// node's claim, so a remove here is a node this workspace really has.
+	if replica < 0 {
+		replica = 0
+	}
+	newWorkspace.Spec.Replica = replica
 	return nil
 }
 
@@ -330,6 +569,21 @@ func (m *WorkspaceMutator) mutateScaleDown(ctx context.Context, oldWorkspace, ne
 	if oldCount <= newCount {
 		return nil
 	}
+	// While a nodes-action is in flight, Spec.Replica belongs to it. mutateNodesAction
+	// already refuses a request that changes the count and names nodes in one write; this is
+	// the same rule for the two arriving one after the other, which is what a user doing
+	// both through a UI produces.
+	//
+	// Not merely tidiness. The count the request moved is spent on the nodes it named, and
+	// lowering it in between spends it again on whichever nodes scaling picks -- so an
+	// explicit add lands and something else is released to pay for it, and the machine
+	// released is not the one anybody was talking about. The branch just below is what let
+	// this through: a new count at or above what the workspace currently holds writes no
+	// scale-down request of its own, so nothing further along ever noticed the collision.
+	if inFlight := v1.GetWorkspaceNodesAction(oldWorkspace); inFlight != "" {
+		return commonerrors.NewResourceProcessing(fmt.Sprintf("another job(%s) is processing,"+
+			" please wait for it to complete", inFlight))
+	}
 	if newCount >= oldWorkspace.CurrentReplica() {
 		return nil
 	}
@@ -340,7 +594,23 @@ func (m *WorkspaceMutator) mutateScaleDown(ctx context.Context, oldWorkspace, ne
 		return err
 	}
 	if len(nodes) != count {
-		return commonerrors.NewInternalError("failed to get enough nodes for scaling down")
+		// Short, so something the workspace is counted as holding is not a node it can
+		// release: the nodes are busy, or the status count this arithmetic came from is
+		// ahead of what the workspace still holds. Building the request anyway would put a
+		// node that is not short into the request in its place, and release a machine that
+		// was never the one to give back.
+		//
+		// This catches the shortfall, not every disagreement. count comes from
+		// Status.AvailableReplica + AbnormalReplica, which syncWorkspace recomputes from the
+		// claim on every reconcile, and the candidates come from a live read of the same
+		// field -- so the two differ only for as long as a reconcile the controller has
+		// already been woken for takes to run, and only a difference that leaves the
+		// candidate list exactly count long slips past this. Closing that last sliver means
+		// counting the held nodes here instead, which means a second copy of syncWorkspace's
+		// flavor-filtered arithmetic living in a webhook, kept in step by hand. The sliver
+		// is cheaper than the copy.
+		return commonerrors.NewInternalError(fmt.Sprintf("only %d of the %d nodes to scale "+
+			"down are free to release. please retry", len(nodes), count))
 	}
 	nodeNames := make([]string, 0, count)
 	for _, n := range nodes {
@@ -348,6 +618,13 @@ func (m *WorkspaceMutator) mutateScaleDown(ctx context.Context, oldWorkspace, ne
 	}
 	action := commonnodes.BuildAction(v1.NodeActionRemove, nodeNames...)
 	v1.SetAnnotation(newWorkspace, v1.WorkspaceNodesAction, action)
+	// A new request supersedes whatever the last one failed with, and this is a new request
+	// -- the same lifecycle mutateNodesAction applies to an explicit one. Without it, a
+	// reason recorded by dropRefusedActions outlives the request it describes: nothing else
+	// clears the annotation, so an add that was turned down once stays on display through
+	// every unrelated scale-down that follows, reported by every operator and UI reading it
+	// as a binding failure that is happening now.
+	v1.RemoveAnnotation(newWorkspace, v1.WorkspaceNodesActionError)
 	return nil
 }
 
@@ -534,14 +811,26 @@ func (v *WorkspaceValidator) validateOnUpdate(ctx context.Context, newWorkspace,
 	if err := v.validateCommon(ctx, newWorkspace, oldWorkspace); err != nil {
 		return err
 	}
-	if err := v.validateNodesAction(ctx, newWorkspace, oldWorkspace); err != nil {
+	// Decided once and handed to both consumers. Two evaluations of the same predicate over
+	// the same pair of objects cannot disagree today, but the property that keeps them
+	// agreeing is that nothing in between writes what it reads -- and that is an invariant
+	// about the whole validate path, which is harder to keep than a single local.
+	isWithdrawal := isNodesActionWithdrawal(oldWorkspace, newWorkspace)
+	if err := v.validateNodesAction(ctx, newWorkspace, oldWorkspace, isWithdrawal); err != nil {
 		return err
 	}
 	if err := v.validateVolumeRemoved(ctx, newWorkspace, oldWorkspace); err != nil {
 		return err
 	}
-	if err := v.validateScaleDown(ctx, newWorkspace, oldWorkspace); err != nil {
-		return err
+	// A withdrawal lowers Spec.Replica and is not a scale-down. validateScaleDown exists to
+	// stop a workspace built from a running workload from shedding capacity that workload is
+	// using; the count being given back here was added moments ago for a bind that never
+	// happened, so there is no node under it for anything to be running on. Left in the path
+	// it would reject every withdrawal on a workload-sourced workspace and strand the request.
+	if !isWithdrawal {
+		if err := v.validateScaleDown(ctx, newWorkspace, oldWorkspace); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -594,6 +883,15 @@ func (v *WorkspaceValidator) validateRequiredParams(workspace *v1.Workspace) err
 func (v *WorkspaceValidator) validateScaleDown(ctx context.Context, newWorkspace, oldWorkspace *v1.Workspace) error {
 	if oldWorkspace.Spec.Replica <= newWorkspace.Spec.Replica {
 		return nil
+	}
+	// The old object's annotation, which no mutation touches, so this reads what the request
+	// arrived against rather than the scale-down request mutateScaleDown may have just
+	// written onto the new one. Same rule and same message as there -- see the reasoning at
+	// that copy. A withdrawal also lowers Spec.Replica against a non-empty annotation and is
+	// not a scale-down; validateOnUpdate keeps it out of this function entirely.
+	if inFlight := v1.GetWorkspaceNodesAction(oldWorkspace); inFlight != "" {
+		return commonerrors.NewResourceProcessing(fmt.Sprintf("another job(%s) is processing,"+
+			" please wait for it to complete", inFlight))
 	}
 	if sourceWorkloadId := v1.GetSourceWorkloadId(newWorkspace); sourceWorkloadId != "" {
 		workload, err := getWorkload(ctx, v.Client, sourceWorkloadId)
@@ -733,22 +1031,48 @@ func (v *WorkspaceValidator) validateVolumeRemoved(ctx context.Context, newWorks
 
 // validateNodesAction validates node operations ensuring nodes belong to the same cluster.
 // It also checks if nodes being bound or unbound have the correct workspace assignment.
-func (v *WorkspaceValidator) validateNodesAction(ctx context.Context, newWorkspace, oldWorkspace *v1.Workspace) error {
-	oldActions, _ := parseNodesAction(oldWorkspace)
-	newActions, err := parseNodesAction(newWorkspace)
+func (v *WorkspaceValidator) validateNodesAction(ctx context.Context, newWorkspace,
+	oldWorkspace *v1.Workspace, isWithdrawal bool) error {
+	oldActions, _ := commonnodes.ParseAction(oldWorkspace)
+	newActions, err := commonnodes.ParseAction(newWorkspace)
 	if err != nil {
 		return err
 	}
-	if len(oldActions) > 0 && len(newActions) > 0 && !maps.EqualIgnoreOrder(oldActions, newActions) {
+	// The controller taking entries back out of a request it cannot carry out. Judging it
+	// against the in-flight check below would reject the one write that ends the request.
+	// Decided by the caller so the same answer reaches validateScaleDown -- see validateOnUpdate.
+	if isWithdrawal {
+		return nil
+	}
+	// The raw annotation, not the parsed maps, and the difference is the point. Every update
+	// to a Workspace carrying an in-flight request comes through here -- a replica edit, a
+	// volume, a label -- and each of those carries the annotation along unchanged; rejecting
+	// them would freeze the object for as long as a binding takes. A second nodes-action is
+	// the one thing that changes those bytes, and it is refused whether or not it happens to
+	// parse to the same entries.
+	//
+	// A write that empties the annotation is not a second request and is never refused here.
+	// That is how a request ends: WorkspaceReconciler.removeNodesAction clears the annotation
+	// once every entry has been applied, refused, or found already true, and it is an
+	// ordinary patch -- no reason annotation, no replica movement -- so isNodesActionWithdrawal
+	// does not recognise it and nothing else would let it past. Refusing it deadlocks the
+	// happy path: the request can never be marked finished, so it stays in flight forever and
+	// takes every later nodes-action and scale-down down with it.
+	//
+	// Same condition and same message as mutateNodesAction, which has already turned a second
+	// request away by the time this runs; this is the copy that holds if it did not. The
+	// exemption matches too -- that function returns before its own check when the new
+	// annotation is empty.
+	if len(oldActions) > 0 && v1.GetWorkspaceNodesAction(newWorkspace) != "" &&
+		v1.GetWorkspaceNodesAction(oldWorkspace) != v1.GetWorkspaceNodesAction(newWorkspace) {
 		return commonerrors.NewResourceProcessing(
 			fmt.Sprintf("another job(%s) is processing, please wait for it to complete", v1.GetWorkspaceNodesAction(oldWorkspace)))
 	}
-	// Nothing is being asked of the nodes: the action is the one already admitted, carried
-	// along by an update about something else entirely. Re-checking it here judges a standing
-	// request by a world that has moved on -- a migration re-reads as invalid the moment its
-	// node leaves the source, and its target reads as busy for exactly as long as it is busy
-	// carrying out that same migration. Either one turns every unrelated edit of this
-	// workspace into a refusal naming a workspace the user never touched.
+	// Nothing new was asked for, so there is nothing to judge. Every update to a Workspace
+	// carrying an in-flight request comes through here -- a replica edit, a volume, a label --
+	// and re-running the checks against node state that has moved on since the request was
+	// accepted turns any of them into a rejection of an unrelated write. The controller is
+	// what decides what becomes of a request once it has been accepted.
 	if maps.EqualIgnoreOrder(oldActions, newActions) {
 		return nil
 	}
@@ -759,9 +1083,31 @@ func (v *WorkspaceValidator) validateNodesAction(ctx context.Context, newWorkspa
 	var toRemoveNodes []string
 	var toMigrateNodes []*v1.Node
 	for key, val := range newActions {
-		n, _ := getNode(ctx, v.Client, key)
+		// See mutateNodesAction: a read that failed for any other reason is not a missing node.
+		n, getErr := getNode(ctx, v.Client, key)
+		if getErr != nil && !apierrors.IsNotFound(getErr) {
+			klog.ErrorS(getErr, "failed to get node", "node", key)
+			return getErr
+		}
 		if n == nil {
 			return commonerrors.NewNotFound(v1.NodeKind, key)
+		}
+		// Onboarding has to finish before a node can be handed to a workspace, and admission
+		// is the only place that can say so where the caller sees it.
+		//
+		// Ahead of the cluster check on purpose: the write in NodeReconciler.manage that
+		// stamps ClusterIdLabel is the same one that sets Managed, so an unmanaged node has
+		// no cluster label and would fail that check instead -- reporting a cluster mismatch
+		// that does not exist, about a node that is simply not done onboarding.
+		//
+		// Add only. A remove has to stay possible for a node that ended up bound and then
+		// lost its managed state, which is exactly when it needs releasing.
+		if val == v1.NodeActionAdd && !n.IsManaged() {
+			// Both halves of IsManaged in the message: a node can sit in phase Managed with
+			// no cluster label, and reporting only the phase reads as a contradiction.
+			return commonerrors.NewResourceProcessing(fmt.Sprintf(
+				"the node(%s) is not managed yet(phase %q, cluster %q). it can't be added",
+				key, n.Status.ClusterStatus.Phase, v1.GetClusterId(n)))
 		}
 		if v1.GetClusterId(n) != newWorkspace.Spec.Cluster {
 			return fmt.Errorf("the node %s and workspace %s are not in the same cluster", n.Name, newWorkspace.Name)
@@ -774,8 +1120,9 @@ func (v *WorkspaceValidator) validateNodesAction(ctx context.Context, newWorkspa
 			// still holds it would never have its replica lowered. A node genuinely released
 			// for this workspace reads as unbound and needs no exception; a read that has not
 			// caught up yet costs the handover a retry.
-			if n.GetSpecWorkspace() != "" {
-				return fmt.Errorf("the node(%s) is bound for %s. it can't be added", key, n.GetSpecWorkspace())
+			if bound := n.GetSpecWorkspace(); bound != "" {
+				return commonerrors.NewConflict(fmt.Sprintf(
+					"the node(%s) is bound for %s. it can't be added", key, bound))
 			}
 			// Refused here as well as by the node webhook, which is what actually holds the
 			// line. Left to that one alone the request is accepted, this workspace's replica
@@ -789,8 +1136,9 @@ func (v *WorkspaceValidator) validateNodesAction(ctx context.Context, newWorkspa
 			}
 		} else if val == v1.NodeActionRemove {
 			if n.GetSpecWorkspace() != newWorkspace.Name {
-				return fmt.Errorf("the node(%s) belongs to workspace(%s). it can't be removed",
-					key, n.GetSpecWorkspace())
+				return commonerrors.NewConflict(fmt.Sprintf(
+					"the node(%s) belongs to workspace(%s). it can't be removed",
+					key, n.GetSpecWorkspace()))
 			}
 			toRemoveNodes = append(toRemoveNodes, key)
 		} else if _, ok := v1.ParseMigrateAction(val); ok {

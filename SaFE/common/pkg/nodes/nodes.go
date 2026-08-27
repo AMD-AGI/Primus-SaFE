@@ -7,6 +7,7 @@ package nodes
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sort"
 
@@ -90,6 +91,31 @@ func FilterDeletingNode(n v1.Node) bool {
 	return false
 }
 
+// FilterUnclaimedNode returns a node filter that keeps only the nodes the named workspace
+// actually holds, on top of the deleting-node filter.
+//
+// A workspace's nodes are listed by WorkspaceIdLabel because that is what the admin plane
+// indexes on, but the label is a mirror of the data plane and lags Node.Spec.Workspace by a
+// whole round trip -- admin spec.workspace, then updateK8sNodeWorkspace writes the k8s Node
+// label, then syncK8sMetadata mirrors it back onto the admin Node. The claim is the
+// authoritative half, and it is the same field WorkspaceReconciler.judgeNodeBinding decides an
+// unbind on.
+//
+// Every caller that has to agree with another caller about "which nodes does this workspace
+// have" needs this filter, not the label alone. Two of them do, and they have to agree with
+// each other: syncWorkspace, which turns the list into CurrentReplica, and
+// GetIdleNodesOfWorkspace, which turns it into scale-down candidates. Counting on the label
+// while choosing on the claim is not a smaller version of the same bug -- it is a worse one,
+// because the arithmetic then asks for more nodes than the candidate list can honestly offer.
+func FilterUnclaimedNode(workspace string) func(v1.Node) bool {
+	return func(n v1.Node) bool {
+		if FilterDeletingNode(n) {
+			return true
+		}
+		return n.GetSpecWorkspace() != workspace
+	}
+}
+
 // IsPodRunning returns true if the pod is running
 func IsPodRunning(p corev1.Pod) bool {
 	return corev1.PodSucceeded != p.Status.Phase &&
@@ -162,6 +188,32 @@ func BuildAction(action string, keys ...string) string {
 	return string(jsonutils.MarshalSilently(result))
 }
 
+// ParseAction reads the nodes-action annotation off a Workspace into the map it encodes.
+//
+// An empty annotation and an annotation holding an empty object both read as no request: the
+// controller clears a finished request by emptying the annotation, and BuildAction of nothing
+// writes "{}", so the two spellings have to mean the same thing to every reader.
+//
+// It lives here for the reason WithdrawnReplica does. Both webhooks and the controller read
+// this annotation, and they have to agree about what it says -- what counts as no request at
+// all most of all, because that is the answer the in-flight check turns into "another job is
+// processing" or not. Callers that cannot act on a malformed value discard the error; see
+// the controller's parseNodesAction for why.
+func ParseAction(w *v1.Workspace) (map[string]string, error) {
+	raw := v1.GetWorkspaceNodesAction(w)
+	if raw == "" {
+		return nil, nil
+	}
+	var actions map[string]string
+	if err := json.Unmarshal([]byte(raw), &actions); err != nil {
+		return nil, err
+	}
+	if len(actions) == 0 {
+		return nil, nil
+	}
+	return actions, nil
+}
+
 // GetNodesForScalingDown returns nodes eligible for scale-down operations.
 func GetNodesForScalingDown(ctx context.Context, cli client.Client, workspace string, count int) ([]*v1.Node, error) {
 	if count <= 0 {
@@ -179,6 +231,11 @@ func GetNodesForScalingDown(ctx context.Context, cli client.Client, workspace st
 }
 
 // GetIdleNodesOfWorkspace retrieves idle nodes (nodes with no running workloads) in a workspace.
+//
+// "In a workspace" is answered by FilterUnclaimedNode, not by the label the List selects on --
+// see the note there. The only consumer of this function is scale-down, where a stale label
+// costs real machines: a node this workspace has already released, or that another workspace
+// has since taken, would otherwise be offered as a candidate and then refused at the write.
 func GetIdleNodesOfWorkspace(ctx context.Context, cli client.Client, name string) ([]v1.Node, error) {
 	labelSelector := labels.SelectorFromSet(map[string]string{v1.WorkspaceIdLabel: name})
 	workloadList := &v1.WorkloadList{}
@@ -209,8 +266,9 @@ func GetIdleNodesOfWorkspace(ctx context.Context, cli client.Client, name string
 			}
 		}
 	}
+	claimed := FilterUnclaimedNode(name)
 	filterFunc := func(n v1.Node) bool {
-		if FilterDeletingNode(n) {
+		if claimed(n) {
 			return true
 		}
 		return usedNodesSet.Has(n.Name)
@@ -244,6 +302,31 @@ func GetUsingNodesOfCluster(ctx context.Context, cli client.Client, clusterId st
 		}
 	}
 	return result, nil
+}
+
+// WithdrawnReplica returns the only Spec.Replica a withdrawal of these entries may carry.
+//
+// The mutating webhook moves the count by one for every add it accepts -- from 0 it sets 1,
+// otherwise it increments -- so undoing one add is a decrement either way. A withdrawn remove
+// is deliberately not undone: the controller only ever refuses a remove for a node that has
+// since been bound to a different workspace, so this workspace has lost the node whether or
+// not it asked to, and the decrement that already applied describes where it ended up.
+// Restoring it would be asking for a machine to replace one that was never released.
+//
+// It lives here rather than beside either caller because there are three of them: the
+// controller computes it to write the withdrawal, and both webhooks compute it to recognise
+// one. The whole mechanism rests on all three arriving at the same number, so there is one
+// function and no copies to keep in step.
+func WithdrawnReplica(replica int, oldActions, newActions map[string]string) int {
+	for key, val := range oldActions {
+		if _, kept := newActions[key]; kept || val != v1.NodeActionAdd {
+			continue
+		}
+		if replica > 0 {
+			replica--
+		}
+	}
+	return replica
 }
 
 // Nodes2PointerSlice converts a slice of nodes to a slice of node pointers.

@@ -55,7 +55,26 @@ COMMON_SCRIPTS=(
     "install_prepare_dataset.sh"
 )
 
+# Optional: skip selected scripts (space-separated names) when the current
+# build stage lacks a prerequisite. build/Dockerfile uses this to defer the
+# torch-dependent installs to the pytorch stage. Unset => run everything,
+# which is what a bare-metal or interactive run gets.
+should_skip() {
+  local script=$1
+  local skip
+  for skip in ${SKIP_INSTALL_SCRIPTS}; do
+    if [ "$skip" = "$script" ]; then
+      return 0
+    fi
+  done
+  return 1
+}
+
 for script in "${COMMON_SCRIPTS[@]}"; do
+  if should_skip "$script"; then
+    echo "Skipping $script (listed in SKIP_INSTALL_SCRIPTS)"
+    continue
+  fi
   run_script "$script"
 done
 
@@ -70,6 +89,10 @@ else
     "install_amd_anp.sh"
   )
   for script in "${AINIC_SCRIPTS[@]}"; do
+    if should_skip "$script"; then
+      echo "Skipping $script (listed in SKIP_INSTALL_SCRIPTS)"
+      continue
+    fi
     run_script "$script"
   done
 fi
