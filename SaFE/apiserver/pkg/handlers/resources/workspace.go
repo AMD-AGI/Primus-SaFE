@@ -387,7 +387,7 @@ func (h *Handler) getAdminWorkspace(ctx context.Context, workspaceId string) (*v
 // processWorkspaceNodes handles the processing of nodes for a workspace.
 // Parses the request and updates the workspace with the specified node action.
 func (h *Handler) processWorkspaceNodes(c *gin.Context) (interface{}, error) {
-	req, err := parseProcessNodesRequest(c)
+	req, err := parseProcessNodesRequest(c, v1.NodeActionAdd, v1.NodeActionRemove, v1.NodeActionMigrate)
 	if err != nil {
 		return nil, err
 	}
@@ -397,12 +397,21 @@ func (h *Handler) processWorkspaceNodes(c *gin.Context) (interface{}, error) {
 		// takes it on. Only the source is named in the route and authorized by the update
 		// below, so the target is authorized here -- otherwise a user with rights over one
 		// workspace could push nodes into any other.
+		// The real object, not a stand-in carrying only the name. Authorization reads the
+		// kind off the resource and the owner out of its labels, and a synthesized workspace
+		// has neither: rules scoped to workspaces stop matching, and the target's own owner
+		// is refused permission to be migrated into.
+		targetWorkspace, err := h.getAdminWorkspace(c.Request.Context(), req.TargetWorkspaceId)
+		if err != nil {
+			return nil, err
+		}
 		if err = h.accessController.Authorize(authority.AccessInput{
-			Context:    c.Request.Context(),
-			Resource:   &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: req.TargetWorkspaceId}},
-			Verb:       v1.UpdateVerb,
-			Workspaces: []string{req.TargetWorkspaceId},
-			UserId:     c.GetString(common.UserId),
+			Context:      c.Request.Context(),
+			Resource:     targetWorkspace,
+			ResourceKind: v1.WorkspaceKind,
+			Verb:         v1.UpdateVerb,
+			Workspaces:   []string{req.TargetWorkspaceId},
+			UserId:       c.GetString(common.UserId),
 		}); err != nil {
 			return nil, err
 		}

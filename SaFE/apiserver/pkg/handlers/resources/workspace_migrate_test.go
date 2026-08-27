@@ -142,3 +142,63 @@ func TestProcessWorkspaceNodesAuthorizesTheTarget(t *testing.T) {
 	testifyassert.NoError(t, h.Get(c.Request.Context(), client.ObjectKey{Name: "ws-a"}, stored))
 	testifyassert.NotContains(t, v1.GetWorkspaceNodesAction(stored), v1.NodeActionMigrate)
 }
+
+// A cluster has no notion of migrating a node between workspaces. Letting the word through
+// reaches code that reads anything other than "add" as a removal from the cluster: for a
+// managed node that is a cluster mismatch that does not exist, and for an unmanaged one it is
+// a success reported for work that never happened.
+func TestParseProcessNodesRequestRejectsMigrateWhereItIsNotSupported(t *testing.T) {
+	body := `{"nodeIds":["node1"],"action":"migrate","targetWorkspaceId":"ws-b"}`
+	_, err := parseProcessNodesRequest(newProcessNodesContext(t, "cluster1", body),
+		v1.NodeActionAdd, v1.NodeActionRemove)
+	testifyassert.Error(t, err)
+
+	_, err = parseProcessNodesRequest(newProcessNodesContext(t, "ws-a", body),
+		v1.NodeActionAdd, v1.NodeActionRemove, v1.NodeActionMigrate)
+	testifyassert.NoError(t, err)
+
+	// A typo is refused rather than read as something else.
+	_, err = parseProcessNodesRequest(newProcessNodesContext(t, "ws-a", `{"nodeIds":["n"],"action":"remve"}`),
+		v1.NodeActionAdd, v1.NodeActionRemove, v1.NodeActionMigrate)
+	testifyassert.Error(t, err)
+}
+
+// Authorization reads the owner out of the resource it is given. A workspace synthesized from
+// just the name carries no owner, so a rule granting someone their own workspace never
+// matches and the target's owner is refused permission to be migrated into.
+func TestProcessWorkspaceNodesAuthorizesTheTargetAsItsOwner(t *testing.T) {
+	const userId = "ws-owner"
+	owner := &v1.User{
+		ObjectMeta: metav1.ObjectMeta{Name: userId, Labels: map[string]string{v1.UserIdLabel: userId}},
+		Spec:       v1.UserSpec{Type: v1.DefaultUserType, Roles: []v1.UserRole{"owner-role"}},
+	}
+	ownerRole := &v1.Role{
+		ObjectMeta: metav1.ObjectMeta{Name: "owner-role"},
+		Rules: []v1.PolicyRule{{
+			Resources:    []string{authority.AllResource},
+			Verbs:        []v1.RoleVerb{v1.AllVerb},
+			GrantedUsers: []string{authority.GrantedOwner},
+		}},
+	}
+	owned := func(name string) *v1.Workspace {
+		return &v1.Workspace{ObjectMeta: metav1.ObjectMeta{
+			Name:   name,
+			Labels: map[string]string{v1.UserIdLabel: userId},
+		}}
+	}
+	scheme := runtime.NewScheme()
+	testifyassert.NoError(t, v1.AddToScheme(scheme))
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).
+		WithObjects(owner, ownerRole, owned("ws-a"), owned("ws-b")).Build()
+	h := &Handler{Client: fakeClient, accessController: &authority.AccessController{Client: fakeClient}}
+
+	c := newProcessNodesContext(t, "ws-a",
+		`{"nodeIds":["node1"],"action":"migrate","targetWorkspaceId":"ws-b"}`)
+	c.Set(common.UserId, userId)
+	_, err := h.processWorkspaceNodes(c)
+	testifyassert.NoError(t, err, "the owner of the target was refused permission to be migrated into")
+
+	stored := &v1.Workspace{}
+	testifyassert.NoError(t, h.Get(c.Request.Context(), client.ObjectKey{Name: "ws-a"}, stored))
+	testifyassert.JSONEq(t, `{"node1":"migrate:ws-b"}`, v1.GetWorkspaceNodesAction(stored))
+}
