@@ -98,15 +98,7 @@ func TestNodeMigrationPredicates(t *testing.T) {
 	if IsNodeMigratingTo(node, "ws-c") {
 		t.Fatal("a node released for ws-b is reported as migrating to ws-c")
 	}
-	if !IsNodeReleasedBy(node, "ws-a", "ws-b") {
-		t.Fatal("a node released by ws-a for ws-b is not reported as such")
-	}
-	// The source has to match too: a node bound to some other workspace is not this
-	// migration's node, whatever its target says.
-	if IsNodeReleasedBy(node, "ws-c", "ws-b") {
-		t.Fatal("a node released by ws-a is reported as released by ws-c")
-	}
-	if IsNodeMigratingTo(&Node{}, "ws-b") || IsNodeReleasedBy(&Node{}, "ws-a", "ws-b") {
+	if IsNodeMigratingTo(&Node{}, "ws-b") {
 		t.Fatal("a node with no migration is reported as migrating")
 	}
 }

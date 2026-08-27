@@ -283,17 +283,18 @@ func TestValidateNodesActionMigrate(t *testing.T) {
 	}
 }
 
-// The handover writes the add on the target while the node may still read as bound to the
-// source. That one node is the exception; a node bound to anyone else is not.
-func TestValidateNodesActionAddAcceptsOnlyItsOwnMigration(t *testing.T) {
+// The handover writes the add on the target, and a node genuinely released for it reads as
+// unbound by then. A node that still reads as bound is refused whatever its annotation says --
+// the cost is a retry on a read that has not caught up, and the alternative is letting the
+// node vouch for its own release.
+func TestValidateNodesActionAddTakesAReleasedNodeAndOnlyAReleasedOne(t *testing.T) {
 	scheme := newScheme(t)
-	arriving := releasedForMigration(migrateNode("node1", migrateCluster, migrateFlavor, "ws-a"), "ws-a", "ws-b")
-	arriving.Spec.Workspace = pointer.String("ws-a") // the release has not been read back yet
-	elsewhere := releasedForMigration(migrateNode("node2", migrateCluster, migrateFlavor, "ws-a"), "ws-a", "ws-c")
-	elsewhere.Spec.Workspace = pointer.String("ws-a")
+	released := releasedForMigration(migrateNode("node1", migrateCluster, migrateFlavor, "ws-a"), "ws-a", "ws-b")
+	stillReadsBound := releasedForMigration(migrateNode("node2", migrateCluster, migrateFlavor, "ws-a"), "ws-a", "ws-b")
+	stillReadsBound.Spec.Workspace = pointer.String("ws-a")
 
 	validator := &WorkspaceValidator{
-		Client: fake.NewClientBuilder().WithScheme(scheme).WithObjects(arriving, elsewhere).Build(),
+		Client: fake.NewClientBuilder().WithScheme(scheme).WithObjects(released, stillReadsBound).Build(),
 	}
 	target := migrateWorkspace("ws-b", migrateCluster, migrateFlavor, 1)
 
@@ -337,4 +338,97 @@ func TestValidateNodesActionMigrateRefusesABusyNode(t *testing.T) {
 	// Forced, it goes through, the same way a forced removal does.
 	v1.SetAnnotation(newWs, v1.WorkspaceForcedAction, v1.TrueStr)
 	assert.NilError(t, validator.validateNodesAction(context.Background(), newWs, oldWs))
+}
+
+// The reservation is only worth as much as the paths that honour it. Scaling up is not the
+// only way a node gets claimed -- a user can name it in a workspace's node action, and that
+// path used to take a released node without a second thought.
+func TestValidateNodesActionAddRefusesSomeoneElsesReservedNode(t *testing.T) {
+	scheme := newScheme(t)
+	// Released by ws-a, on its way to ws-b, and not bound to anything in the meantime.
+	node := releasedForMigration(migrateNode("node1", migrateCluster, migrateFlavor, "ws-a"), "ws-a", "ws-b")
+	validator := &WorkspaceValidator{
+		Client: fake.NewClientBuilder().WithScheme(scheme).WithObjects(node).Build(),
+	}
+	thirdParty := migrateWorkspace("ws-c", migrateCluster, migrateFlavor, 1)
+
+	// The workspace webhook admits it -- the node is unbound, which is all this check knows
+	// about -- so the line that has to hold is the one on the node itself.
+	assert.NilError(t, validator.validateNodesAction(context.Background(),
+		withNodesAction(thirdParty.DeepCopy(), map[string]string{"node1": v1.NodeActionAdd}), thirdParty))
+
+	nodeValidator := &NodeValidator{}
+	bound := node.DeepCopy()
+	bound.Spec.Workspace = pointer.String("ws-c")
+	err := nodeValidator.validateImmutableFields(bound, node)
+	assert.Assert(t, err != nil, "ws-c was allowed to bind a node reserved for ws-b")
+
+	// The workspace it was released for is the one exception.
+	toTarget := node.DeepCopy()
+	toTarget.Spec.Workspace = pointer.String("ws-b")
+	assert.NilError(t, nodeValidator.validateImmutableFields(toTarget, node))
+}
+
+// The reservation lives on the node, so it cannot also be what excuses the node: whoever can
+// write the annotation could otherwise hand a bound node to another workspace, and the
+// workspace still holding it would never have its replica lowered to match.
+func TestValidateNodesActionAddRefusesABoundNodeWhateverItsAnnotationSays(t *testing.T) {
+	scheme := newScheme(t)
+	node := migrateNode("node1", migrateCluster, migrateFlavor, "ws-a")
+	v1.SetNodeMigrateInfo(node, &v1.NodeMigrateInfo{
+		From:      "ws-a",
+		Target:    "ws-b",
+		StartTime: &metav1.Time{Time: time.Now().UTC()},
+	})
+	validator := &WorkspaceValidator{
+		Client: fake.NewClientBuilder().WithScheme(scheme).WithObjects(node).Build(),
+	}
+	target := migrateWorkspace("ws-b", migrateCluster, migrateFlavor, 1)
+	err := validator.validateNodesAction(context.Background(),
+		withNodesAction(target.DeepCopy(), map[string]string{"node1": v1.NodeActionAdd}), target)
+	assert.Assert(t, err != nil, "a bound node was added on the strength of its own annotation")
+}
+
+// A reservation nobody is driving any more must not make the node unbindable for good: the
+// workspace that was driving it can be deleted mid-crossing, and a node can leave the cluster
+// and come back still carrying the annotation.
+func TestNodeMigrationReservationStopsHoldingWhenItExpires(t *testing.T) {
+	nodeValidator := &NodeValidator{}
+	stale := migrateNode("node1", migrateCluster, migrateFlavor, "")
+	v1.SetNodeMigrateInfo(stale, &v1.NodeMigrateInfo{
+		From:      "ws-a",
+		Target:    "ws-b",
+		StartTime: &metav1.Time{Time: time.Now().UTC().Add(-2 * v1.DefaultNodeMigrateTimeout)},
+	})
+	bound := stale.DeepCopy()
+	bound.Spec.Workspace = pointer.String("ws-c")
+	assert.NilError(t, nodeValidator.validateImmutableFields(bound, stale))
+
+	// A reservation with no start time cannot be aged, so it is not honoured at all.
+	noClock := migrateNode("node2", migrateCluster, migrateFlavor, "")
+	v1.SetNodeMigrateInfo(noClock, &v1.NodeMigrateInfo{From: "ws-a", Target: "ws-b"})
+	boundNoClock := noClock.DeepCopy()
+	boundNoClock.Spec.Workspace = pointer.String("ws-c")
+	assert.NilError(t, nodeValidator.validateImmutableFields(boundNoClock, noClock))
+}
+
+// A migration's action stays on the source for the whole crossing, and the target is busy for
+// most of it carrying out that same migration. Re-judging the standing request on every
+// unrelated update refuses edits that have nothing to do with nodes, and names a workspace
+// the user never touched.
+func TestValidateNodesActionSkipsAnActionThatIsNotBeingChanged(t *testing.T) {
+	scheme := newScheme(t)
+	node := migrateNode("node1", migrateCluster, migrateFlavor, "ws-a")
+	busyTarget := withNodesAction(migrateWorkspace("ws-b", migrateCluster, migrateFlavor, 1),
+		map[string]string{"node1": v1.NodeActionAdd})
+	validator := &WorkspaceValidator{
+		Client: fake.NewClientBuilder().WithScheme(scheme).WithObjects(node, busyTarget).Build(),
+	}
+
+	action := map[string]string{"node1": v1.BuildMigrateAction("ws-b")}
+	oldWs := withNodesAction(migrateWorkspace("ws-a", migrateCluster, migrateFlavor, 1), action)
+	renamed := withNodesAction(migrateWorkspace("ws-a", migrateCluster, migrateFlavor, 1), action)
+	v1.SetLabel(renamed, v1.DisplayNameLabel, "renamed")
+
+	assert.NilError(t, validator.validateNodesAction(context.Background(), renamed, oldWs))
 }

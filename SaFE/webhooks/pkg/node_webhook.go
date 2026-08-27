@@ -426,7 +426,42 @@ func (v *NodeValidator) validateImmutableFields(newNode, oldNode *v1.Node) error
 	if oldNode.Spec.PrivateIP != newNode.Spec.PrivateIP && v1.IsControlPlane(newNode) {
 		return field.Forbidden(field.NewPath("spec").Key("privateIP"), "immutable")
 	}
+	if err := validateNodeMigrationReservation(oldNode, newNode); err != nil {
+		return err
+	}
 	return nil
+}
+
+// validateNodeMigrationReservation keeps a node released for a migration for the workspace it
+// was released for.
+//
+// This is the one place that can hold that line. A node is claimed by writing this field, and
+// every route to it ends here: the workspace nodes-action a user asks for, the scaling loop
+// picking up an unassigned node, a controller restoring state, someone with kubectl. Guarding
+// any one of those leaves the rest open -- and the node is unassigned and of a matching
+// flavor for as long as the crossing takes, which is exactly what every one of them looks
+// for. Refusing the write itself covers them all at once.
+//
+// An expired reservation is not honoured. The workspace driving the migration can be deleted
+// mid-crossing, and a node can leave the cluster and come back still carrying the annotation;
+// held to strictly, either would leave a node that no workspace can ever bind again.
+func validateNodeMigrationReservation(oldNode, newNode *v1.Node) error {
+	target := newNode.GetSpecWorkspace()
+	if target == "" {
+		// Releasing a node takes nothing from the migration -- and is how one starts.
+		return nil
+	}
+	info := v1.GetNodeMigrateInfo(oldNode)
+	if info == nil || info.Target == target {
+		return nil
+	}
+	if v1.IsNodeMigrationExpired(info, v1.DefaultNodeMigrateTimeout) {
+		return nil
+	}
+	return commonerrors.NewConflict(fmt.Sprintf(
+		"the node(%s) is being migrated from workspace(%s) to workspace(%s)."+
+			" it can't be bound to workspace(%s) until that finishes",
+		newNode.Name, info.From, info.Target, target))
 }
 
 // getNode retrieves the requested information.

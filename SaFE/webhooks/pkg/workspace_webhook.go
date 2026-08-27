@@ -733,6 +733,15 @@ func (v *WorkspaceValidator) validateNodesAction(ctx context.Context, newWorkspa
 		return commonerrors.NewResourceProcessing(
 			fmt.Sprintf("another job(%s) is processing, please wait for it to complete", v1.GetWorkspaceNodesAction(oldWorkspace)))
 	}
+	// Nothing is being asked of the nodes: the action is the one already admitted, carried
+	// along by an update about something else entirely. Re-checking it here judges a standing
+	// request by a world that has moved on -- a migration re-reads as invalid the moment its
+	// node leaves the source, and its target reads as busy for exactly as long as it is busy
+	// carrying out that same migration. Either one turns every unrelated edit of this
+	// workspace into a refusal naming a workspace the user never touched.
+	if maps.EqualIgnoreOrder(oldActions, newActions) {
+		return nil
+	}
 	migrateTarget, err := migrateTargetOf(newActions)
 	if err != nil {
 		return err
@@ -748,11 +757,14 @@ func (v *WorkspaceValidator) validateNodesAction(ctx context.Context, newWorkspa
 			return fmt.Errorf("the node %s and workspace %s are not in the same cluster", n.Name, newWorkspace.Name)
 		}
 		if val == v1.NodeActionAdd {
-			// A node released for a migration to this workspace is still reported as bound
-			// for as long as it takes the release to land, and the handover that writes this
-			// add is the second half of an operation already admitted once. Refusing it here
-			// on the strength of a stale read would strand the node between the two.
-			if n.GetSpecWorkspace() != "" && !v1.IsNodeReleasedBy(n, n.GetSpecWorkspace(), newWorkspace.Name) {
+			// No exception for a node that carries a reservation naming this workspace. The
+			// reservation lives on the node, so letting it excuse a node that still reads as
+			// bound means the node vouches for its own release: anyone able to write the
+			// annotation could hand a bound node to another workspace, and the workspace that
+			// still holds it would never have its replica lowered. A node genuinely released
+			// for this workspace reads as unbound and needs no exception; a read that has not
+			// caught up yet costs the handover a retry.
+			if n.GetSpecWorkspace() != "" {
 				return fmt.Errorf("the node(%s) is bound for %s. it can't be added", key, n.GetSpecWorkspace())
 			}
 		} else if val == v1.NodeActionRemove {

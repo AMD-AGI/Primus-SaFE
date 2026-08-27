@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"strconv"
 	"strings"
+	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
@@ -225,19 +226,31 @@ func GetNodeMigrateInfo(obj metav1.Object) *NodeMigrateInfo {
 	return info
 }
 
+// IsNodeMigrationExpired reports whether a migration has been under way for longer than a
+// migration should take.
+//
+// A reservation with no start time cannot be aged and is treated as expired whatever the
+// timeout: nothing this code writes is missing one, so it was written by hand, and a
+// reservation that can never expire is the one outcome with no way back. The nil check comes
+// first for that reason -- ordering it after the timeout check would make a hand-written
+// reservation permanent exactly when timeouts are switched off.
+func IsNodeMigrationExpired(info *NodeMigrateInfo, timeout time.Duration) bool {
+	if info == nil {
+		return false
+	}
+	if info.StartTime == nil {
+		return true
+	}
+	if timeout <= 0 {
+		return false
+	}
+	return time.Since(info.StartTime.Time) > timeout
+}
+
 // IsNodeMigratingTo reports whether the node is on its way to workspaceId.
 func IsNodeMigratingTo(obj metav1.Object, workspaceId string) bool {
 	info := GetNodeMigrateInfo(obj)
 	return info != nil && info.Target == workspaceId
-}
-
-// IsNodeReleasedBy reports whether the node is migrating from one named workspace to another.
-// It is the narrow form of IsNodeMigratingTo, for callers that have to tell a node still
-// reading as bound to the workspace that released it -- a read that has not caught up yet --
-// from a node bound to a workspace with no part in the migration.
-func IsNodeReleasedBy(obj metav1.Object, from, target string) bool {
-	info := GetNodeMigrateInfo(obj)
-	return info != nil && info.Target == target && info.From == from
 }
 
 // SetNodeMigrateInfo records the migration on the node, reporting whether anything changed.

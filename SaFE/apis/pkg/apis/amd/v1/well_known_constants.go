@@ -6,6 +6,8 @@
 package v1
 
 import (
+	"time"
+
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/util/workqueue"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -67,6 +69,12 @@ const (
 	// reserved for someone else -- without that, the window between the two bindings is
 	// open to any workspace in the cluster looking for a node of the same flavor.
 	NodeMigrateAnnotation = NodePrefix + "migrate.info"
+	// DefaultNodeMigrateTimeout bounds how long a node may sit reserved for a migration that
+	// never completes. It lives here because two components have to agree on it: the
+	// reconciler gives up on the migration at this point, and the node webhook stops
+	// honouring the reservation at the same point. Were the webhook the stricter of the two,
+	// a reservation nobody is driving any more would keep the node unbindable for good.
+	DefaultNodeMigrateTimeout = 30 * time.Minute
 
 	// cluster
 	ClusterPrefix                 = PrimusSafePrefix + "cluster."
