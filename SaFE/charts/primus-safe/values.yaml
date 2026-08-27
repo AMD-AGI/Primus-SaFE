@@ -161,6 +161,18 @@ ssh:
   enable: true
   # SSH server IP for jump server access
   server_ip: ""
+  # Remote port forwarding (`ssh -R` / RemoteForward). The listen socket is opened
+  # inside the user's target Pod, letting Pod processes reach a proxy running on
+  # the developer's machine. Requires `socat` in the workload image.
+  reverse_forward:
+    # Off by default: the tunnel lets Pod traffic egress via the developer's network.
+    enable: false
+    # Only loopback inside the Pod, so no other workload on the node can use it.
+    bind_addresses:
+      - 127.0.0.1
+    port_min: 10000
+    port_max: 19999
+    max_forwards_per_session: 8
 tls:
   # Verify TLS certificates for outbound HTTPS calls to model endpoints and
   # third-party services (Playground chat, InferenceX). Defaults to false to

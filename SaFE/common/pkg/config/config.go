@@ -64,6 +64,24 @@ func getFloat(key string, defaultValue float64) float64 {
 	return viper.GetFloat64(key)
 }
 
+// getStringSlice reads a YAML list, falling back to a comma separated scalar so
+// both `["a", "b"]` and `"a,b"` are accepted.
+func getStringSlice(key string, defaultValue []string) []string {
+	if !viper.IsSet(key) {
+		return defaultValue
+	}
+	// viper splits a scalar on whitespace, which would keep the commas; decide on
+	// the raw value instead.
+	values := removeBlank(viper.GetStringSlice(key))
+	if _, isScalar := viper.Get(key).(string); isScalar {
+		values = getStrings(key)
+	}
+	if len(values) == 0 {
+		return defaultValue
+	}
+	return values
+}
+
 func getStrings(key string) []string {
 	val := viper.GetString(key)
 	return removeBlank(strings.Split(val, ","))
@@ -142,6 +160,34 @@ func GetSSHRsaPublic() string {
 // GetSSHRsaPrivate returns the SSH RSA private key path.
 func GetSSHRsaPrivate() string {
 	return getFromFile(sshSecretPath, "id_rsa")
+}
+
+// IsSSHReverseForwardEnable returns whether SSH remote port forwarding (`ssh -R`)
+// is enabled. It stays off until a deployment opts in.
+func IsSSHReverseForwardEnable() bool {
+	return getBool(sshReverseForwardEnable, false)
+}
+
+// GetSSHReverseForwardBindAddresses returns the addresses a remote forward may
+// listen on inside the target Pod.
+func GetSSHReverseForwardBindAddresses() []string {
+	return getStringSlice(sshReverseForwardBindAddresses, []string{"127.0.0.1"})
+}
+
+// GetSSHReverseForwardPortMin returns the lowest port a remote forward may bind.
+func GetSSHReverseForwardPortMin() int {
+	return getInt(sshReverseForwardPortMin, 10000)
+}
+
+// GetSSHReverseForwardPortMax returns the highest port a remote forward may bind.
+func GetSSHReverseForwardPortMax() int {
+	return getInt(sshReverseForwardPortMax, 19999)
+}
+
+// GetSSHReverseForwardMaxPerSession returns how many remote forwards a single SSH
+// session may hold at once.
+func GetSSHReverseForwardMaxPerSession() int {
+	return getInt(sshReverseForwardMaxPerSession, 8)
 }
 
 // GetMemoryReservePercent returns the percentage of memory to reserve.

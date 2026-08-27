@@ -71,6 +71,20 @@ data:
       server_port: {{ default 2222 (default .Values.ssh).port }}
       # The secret for ssh, which contains the private key
       secret_path: {{ default "/etc/secrets/ssh" (default .Values.ssh).secret_path }}
+      {{- $rf := default (dict) (default (dict) .Values.ssh).reverse_forward }}
+      reverse_forward:
+        # Whether to allow `ssh -R` (RemoteForward). The listen socket is created
+        # inside the user's target Pod, so Pod processes can reach a proxy running
+        # on the developer's machine. Off unless the deployment opts in.
+        enable: {{ default false $rf.enable }}
+        # Addresses the Pod-side listener may bind. Keep this at loopback so the
+        # tunnel is not reachable from outside the Pod.
+        bind_addresses: {{ default (list "127.0.0.1") $rf.bind_addresses | toJson }}
+        # Ports the Pod-side listener may bind.
+        port_min: {{ default 10000 $rf.port_min }}
+        port_max: {{ default 19999 $rf.port_max }}
+        # How many remote forwards a single SSH session may hold at once.
+        max_forwards_per_session: {{ default 8 $rf.max_forwards_per_session }}
     s3:
       # Whether to enable s3, it is used to download logs
       enable: {{ .Values.s3.enable }}

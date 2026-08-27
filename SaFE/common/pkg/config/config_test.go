@@ -297,6 +297,37 @@ func TestStringHelpers(t *testing.T) {
 	testifyassert.Equal(t, []string{"c1", "c2"}, GetComponents())
 }
 
+// TestSSHReverseForwardGetters pins the `ssh -R` policy defaults and overrides.
+func TestSSHReverseForwardGetters(t *testing.T) {
+	viper.Reset()
+
+	testifyassert.False(t, IsSSHReverseForwardEnable())
+	testifyassert.Equal(t, []string{"127.0.0.1"}, GetSSHReverseForwardBindAddresses())
+	testifyassert.Equal(t, 10000, GetSSHReverseForwardPortMin())
+	testifyassert.Equal(t, 19999, GetSSHReverseForwardPortMax())
+	testifyassert.Equal(t, 8, GetSSHReverseForwardMaxPerSession())
+
+	viper.Set(sshReverseForwardEnable, true)
+	viper.Set(sshReverseForwardPortMin, 20000)
+	viper.Set(sshReverseForwardPortMax, 20010)
+	viper.Set(sshReverseForwardMaxPerSession, 2)
+	testifyassert.True(t, IsSSHReverseForwardEnable())
+	testifyassert.Equal(t, 20000, GetSSHReverseForwardPortMin())
+	testifyassert.Equal(t, 20010, GetSSHReverseForwardPortMax())
+	testifyassert.Equal(t, 2, GetSSHReverseForwardMaxPerSession())
+
+	// Both a YAML list and a comma separated scalar are accepted.
+	viper.Set(sshReverseForwardBindAddresses, []string{"127.0.0.1", "0.0.0.0"})
+	testifyassert.Equal(t, []string{"127.0.0.1", "0.0.0.0"}, GetSSHReverseForwardBindAddresses())
+	viper.Set(sshReverseForwardBindAddresses, "127.0.0.1, 10.0.0.1")
+	testifyassert.Equal(t, []string{"127.0.0.1", "10.0.0.1"}, GetSSHReverseForwardBindAddresses())
+
+	// An explicitly empty list falls back to the safe default rather than
+	// allowing every bind address through.
+	viper.Set(sshReverseForwardBindAddresses, []string{})
+	testifyassert.Equal(t, []string{"127.0.0.1"}, GetSSHReverseForwardBindAddresses())
+}
+
 // TestModelOptimizationClawBaseURLDerivation covers the domain-derived fallback.
 func TestModelOptimizationClawBaseURLDerivation(t *testing.T) {
 	viper.Reset()
