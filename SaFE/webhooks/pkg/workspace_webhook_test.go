@@ -692,6 +692,53 @@ func requestingWorkspace(replica int, actions string) *v1.Workspace {
 	return w
 }
 
+// A withdrawal is a withdrawal only if it is nothing else besides. Being recognised as one is
+// a pass out of mutateCommon and out of both the in-flight and the scale-down checks, so any
+// field that rides along on the write is a field that reaches storage unnormalised and
+// unvalidated. The predicate has to be able to tell the controller's three-field patch from
+// somebody's edit wearing it as a costume.
+func TestWorkspaceWithdrawalCannotCarryAnythingElse(t *testing.T) {
+	flavor := &v1.NodeFlavor{ObjectMeta: metav1.ObjectMeta{Name: "flavor"}}
+	cluster := &v1.Cluster{ObjectMeta: metav1.ObjectMeta{Name: "cluster1"}}
+	scheme := newScheme(t)
+	cli := fake.NewClientBuilder().WithScheme(scheme).WithObjects(flavor, cluster).Build()
+	m := &WorkspaceMutator{Client: cli}
+	v := &WorkspaceValidator{Client: cli}
+
+	oldWs := requestingWorkspace(3, `{"n1":"add","n2":"add"}`)
+	withdrawal := func() *v1.Workspace {
+		w := oldWs.DeepCopy()
+		w.Spec.Replica = 2
+		v1.SetAnnotation(w, v1.WorkspaceNodesAction, `{"n2":"add"}`)
+		v1.SetAnnotation(w, v1.WorkspaceNodesActionError, "n1: it is already bound to ws-other")
+		return w
+	}
+	assert.Assert(t, isNodesActionWithdrawal(oldWs, withdrawal()), "the bare shape is one")
+
+	// Each of these is the controller's exact patch with one extra thing attached. None of
+	// them is what dropRefusedActions writes, and none of them may buy the exemption.
+	volumes := withdrawal()
+	volumes.Spec.Volumes = append(volumes.Spec.Volumes, v1.WorkspaceVolume{Type: v1.HOSTPATH, Id: 7})
+	managers := withdrawal()
+	managers.Spec.Managers = append(managers.Spec.Managers, "someone-else")
+	flavorSwap := withdrawal()
+	flavorSwap.Spec.NodeFlavor = "another-flavor"
+	labelled := withdrawal()
+	metav1.SetMetaDataLabel(&labelled.ObjectMeta, v1.DisplayNameLabel, "renamed")
+	annotated := withdrawal()
+	v1.SetAnnotation(annotated, v1.GpuResourceNameAnnotation, "nvidia.com/gpu")
+
+	for name, smuggled := range map[string]*v1.Workspace{
+		"a volume": volumes, "a manager": managers, "a flavour": flavorSwap,
+		"a label": labelled, "an annotation": annotated,
+	} {
+		assert.Assert(t, !isNodesActionWithdrawal(oldWs, smuggled), "%s rode along", name)
+		// And the write itself does not get through: no longer a withdrawal, it is a second
+		// nodes-action on a request that is already in flight.
+		assert.Assert(t, admit(t, m, v, oldWs, smuggled) != nil, "%s was admitted", name)
+	}
+}
+
 // The controller giving up on an entry it cannot bind. Its patch carries both the shrunk
 // request and the Spec.Replica those entries were charged; the mutator's only job is to keep
 // its hands off it, because anything it changed here the validator would see instead of what

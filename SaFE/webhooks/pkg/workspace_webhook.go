@@ -14,6 +14,7 @@ import (
 
 	admissionv1 "k8s.io/api/admission/v1"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	utilerrors "k8s.io/apimachinery/pkg/util/errors"
@@ -181,7 +182,33 @@ func isNodesActionWithdrawal(oldWorkspace, newWorkspace *v1.Workspace) bool {
 	if len(newActions) >= len(oldActions) {
 		return false
 	}
-	return newWorkspace.Spec.Replica == commonnodes.WithdrawnReplica(oldWorkspace.Spec.Replica, oldActions, newActions)
+	if newWorkspace.Spec.Replica != commonnodes.WithdrawnReplica(oldWorkspace.Spec.Replica, oldActions, newActions) {
+		return false
+	}
+	// And nothing else moved. Saying yes here returns mutateOnUpdate before mutateCommon,
+	// so every normalisation that runs on an ordinary update -- mutateByNodeFlavor,
+	// mutateVolumes, mutateQueuePolicy, mutateManagers, mutateGpuProduct -- is skipped for
+	// this write, and validateNodesAction and validateScaleDown stand down with it. Without
+	// this clause an author who forges the withdrawal shape gets a free pass for whatever
+	// they attach to it: a Spec.Volume the mutator never normalised, a Spec.Manager recorded
+	// without the permission sync that goes with it.
+	//
+	// The three fields that are the withdrawal are excluded and everything else must match.
+	// dropRefusedActions writes exactly those three in one patch, so a real withdrawal
+	// passes; skipping the normalisations is then free, which is the only reason skipping
+	// them was ever sound.
+	if !maps.EqualIgnoreOrder(
+		maps.Copy(oldWorkspace.Labels), maps.Copy(newWorkspace.Labels)) {
+		return false
+	}
+	if !maps.EqualIgnoreOrder(
+		maps.Copy(oldWorkspace.Annotations, v1.WorkspaceNodesAction, v1.WorkspaceNodesActionError),
+		maps.Copy(newWorkspace.Annotations, v1.WorkspaceNodesAction, v1.WorkspaceNodesActionError)) {
+		return false
+	}
+	oldSpec := oldWorkspace.Spec.DeepCopy()
+	oldSpec.Replica = newWorkspace.Spec.Replica
+	return equality.Semantic.DeepEqual(oldSpec, &newWorkspace.Spec)
 }
 
 // mutateCommon applies node flavor, image secrets, volumes, queue policy, preemption and manager mutations.
