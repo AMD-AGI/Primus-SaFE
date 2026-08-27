@@ -964,11 +964,15 @@ func TestWorkspaceAdmitWithdrawalEndToEnd(t *testing.T) {
 // replica count nobody asked for.
 func TestWorkspaceMutateNodesActionRefusesABoundNode(t *testing.T) {
 	scheme := newScheme(t)
+	// Managed, and bound. Without the phase the not-managed guard above intercepts the add
+	// and this test passes on the strength of a check it is not about -- delete the bound-node
+	// guard and it would stay green.
 	taken := &v1.Node{
 		ObjectMeta: metav1.ObjectMeta{Name: "n1", Labels: map[string]string{
 			v1.ClusterIdLabel: "cluster1", v1.NodeFlavorIdLabel: "flavor",
 		}},
-		Spec: v1.NodeSpec{Workspace: pointer.String("ws-other")},
+		Spec:   v1.NodeSpec{Workspace: pointer.String("ws-other")},
+		Status: v1.NodeStatus{ClusterStatus: v1.NodeClusterStatus{Phase: v1.NodeManaged}},
 	}
 	m := &WorkspaceMutator{Client: fake.NewClientBuilder().WithScheme(scheme).WithObjects(taken).Build()}
 
@@ -976,6 +980,7 @@ func TestWorkspaceMutateNodesActionRefusesABoundNode(t *testing.T) {
 	newWs := requestingWorkspace(1, `{"n1":"add"}`)
 	err := m.mutateNodesAction(context.Background(), oldWs, newWs)
 	assert.Assert(t, err != nil)
+	assert.Assert(t, strings.Contains(err.Error(), "is bound for ws-other"), err)
 	assert.Equal(t, newWs.Spec.Replica, 1, "a refused entry must not be charged")
 
 	// The mirror of it: releasing somebody else's node would decrement a count that was never
@@ -984,6 +989,85 @@ func TestWorkspaceMutateNodesActionRefusesABoundNode(t *testing.T) {
 	err = m.mutateNodesAction(context.Background(), oldWs, newWs)
 	assert.Assert(t, err != nil)
 	assert.Equal(t, newWs.Spec.Replica, 1)
+}
+
+// A node that has not finished being taken into the cluster cannot be added, and is refused
+// before the cluster check rather than after it: an unmanaged node has no cluster label yet,
+// so the cluster check would turn it away reporting a mismatch that does not exist and the
+// error would send whoever asked looking in the wrong place entirely.
+//
+// Refused in the mutator, like the bound-node case beside it, because everything past this
+// point moves Spec.Replica.
+func TestWorkspaceMutateNodesActionRefusesAnUnmanagedNode(t *testing.T) {
+	scheme := newScheme(t)
+	// No cluster label and no managed phase -- a node that has been registered and nothing
+	// more, which is exactly the state that makes the ordering matter.
+	fresh := &v1.Node{ObjectMeta: metav1.ObjectMeta{Name: "n1", Labels: map[string]string{
+		v1.NodeFlavorIdLabel: "flavor",
+	}}}
+	m := &WorkspaceMutator{Client: fake.NewClientBuilder().WithScheme(scheme).WithObjects(fresh).Build()}
+
+	newWs := requestingWorkspace(1, `{"n1":"add"}`)
+	err := m.mutateNodesAction(context.Background(), requestingWorkspace(1, ""), newWs)
+	assert.Assert(t, err != nil)
+	assert.Assert(t, strings.Contains(err.Error(), "is not managed yet"), err)
+	assert.Equal(t, newWs.Spec.Replica, 1, "a refused entry must not be charged")
+
+	// Removes are not held to it. A node being taken back out of the cluster stops being
+	// managed while a workspace still holds it, and that release has to be able to happen.
+	held := fresh.DeepCopy()
+	held.Spec.Workspace = pointer.String("ws1")
+	m = &WorkspaceMutator{Client: fake.NewClientBuilder().WithScheme(scheme).WithObjects(held).Build()}
+	newWs = requestingWorkspace(1, `{"n1":"remove"}`)
+	err = m.mutateNodesAction(context.Background(), requestingWorkspace(1, ""), newWs)
+	assert.Assert(t, err != nil)
+	assert.Assert(t, !strings.Contains(err.Error(), "is not managed yet"), err)
+}
+
+// Scale-down is refused while a nodes-action is in flight, by the validator as well as by the
+// mutator. Two copies of one rule, and each needs its own pin: they are reached by different
+// paths -- validateOnUpdate routes withdrawals away from this one and not from that one -- so
+// a test through the mutator says nothing about whether this copy still exists.
+//
+// It reads the old object on purpose. mutateScaleDown may have written a scale-down request
+// onto the new one by the time this runs, and the question is what the request arrived
+// against.
+func TestWorkspaceValidateScaleDownRefusesWhileANodesActionIsInFlight(t *testing.T) {
+	v := &WorkspaceValidator{Client: fake.NewClientBuilder().WithScheme(newScheme(t)).Build()}
+	oldWs := requestingWorkspace(3, `{"n1":"add"}`)
+	newWs := requestingWorkspace(2, `{"n1":"add"}`)
+
+	err := v.validateScaleDown(context.Background(), newWs, oldWs)
+	assert.Assert(t, err != nil)
+	assert.Assert(t, strings.Contains(err.Error(), "is processing"), err)
+
+	// Nothing in flight, nothing to wait for.
+	assert.NilError(t, v.validateScaleDown(context.Background(),
+		requestingWorkspace(2, ""), requestingWorkspace(3, "")))
+	// Not a scale-down at all: the count is going up, and the annotation is beside the point.
+	assert.NilError(t, v.validateScaleDown(context.Background(), requestingWorkspace(4, `{"n1":"add"}`), oldWs))
+}
+
+// Removes may not take Spec.Replica below zero. Reachable only when the count is already
+// behind what the workspace holds -- each entry was checked against the node's own claim, so
+// a remove that gets this far is a node this workspace really has -- and a negative replica
+// is a number no part of the system further down knows how to read.
+func TestWorkspaceMutateNodesActionCannotDriveReplicaNegative(t *testing.T) {
+	scheme := newScheme(t)
+	mine := &v1.Node{
+		ObjectMeta: metav1.ObjectMeta{Name: "n1", Labels: map[string]string{
+			v1.ClusterIdLabel: "cluster1", v1.NodeFlavorIdLabel: "flavor",
+		}},
+		Spec:   v1.NodeSpec{Workspace: pointer.String("ws1")},
+		Status: v1.NodeStatus{ClusterStatus: v1.NodeClusterStatus{Phase: v1.NodeManaged}},
+	}
+	m := &WorkspaceMutator{Client: fake.NewClientBuilder().WithScheme(scheme).WithObjects(mine).Build()}
+
+	// The count says zero while a node is still claimed: the remove is accepted, because the
+	// claim is real, and the arithmetic would land on -1.
+	newWs := requestingWorkspace(0, `{"n1":"remove"}`)
+	assert.NilError(t, m.mutateNodesAction(context.Background(), requestingWorkspace(0, ""), newWs))
+	assert.Equal(t, newWs.Spec.Replica, 0)
 }
 
 // The reason is cleared by the next request being accepted, and only by that. A request going
