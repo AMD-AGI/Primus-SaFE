@@ -84,6 +84,48 @@ ssh <user>.<podId>.<workspace>@<gateway-host> -p 2222
 This also works with `scp` and VS Code Remote-SSH, so you can treat a dev box (or any job pod)
 like a remote development machine.
 
+#### Port forwarding
+
+Both directions of standard SSH port forwarding are supported:
+
+- `-L` (**local forward**) — reach a port inside the pod from your machine, e.g. a notebook or a
+  training dashboard: `ssh -L 8888:127.0.0.1:8888 <user>.<podId>.<workspace>@<gateway-host> -p 2222`
+- `-R` (**remote forward**) — let processes inside the pod reach a service on your machine. The
+  listen socket is created **inside your pod**, exactly as it would be on a normal dev box.
+
+The common use for `-R` is routing pod egress through a proxy on your laptop, so that pod-resident
+tools (`git`, `gh`, `pip`) reach services that only allowlist your local network:
+
+```ssh-config
+Host my-dev-box
+  HostName <gateway-host>
+  User <user>.<podId>.<workspace>
+  Port 2222
+  ServerAliveInterval 60
+  RemoteForward 127.0.0.1:10800 127.0.0.1:7890
+```
+
+With a real proxy listening on `127.0.0.1:7890` on your machine, inside the pod:
+
+```bash
+export HTTPS_PROXY=socks5://127.0.0.1:10800
+curl -x socks5h://127.0.0.1:10800 -I https://api.github.com/
+```
+
+Requirements and limits for `-R`:
+
+- The platform administrator must enable it (`ssh.reverse_forward.enable`); it is off by default.
+- The workload image must contain `socat` — the pod-side listener is built from it.
+- The pod-side listener may only bind `127.0.0.1`, so no other workload can use your tunnel.
+- The listen port must fall inside the configured range (`10000`–`19999` by default), and a session
+  may hold at most 8 forwards.
+- Server-allocated ports (`RemoteForward 0 …`) are not supported; ask for an explicit port.
+- The proxy on your machine must be running, and the listener disappears as soon as the SSH session
+  disconnects.
+
+If all you need is access to a service that allowlists source IPs, consider asking for the cluster
+egress CIDR to be allowlisted instead — it needs no session to stay open.
+
 <!-- @test todo:
   - "Also verify terminal SSH (port 2222): register an SSH public key, then connect with the command from the workload detail. This needs an SSH client outside the browser, so it is not part of the UI-only run."
 -->
