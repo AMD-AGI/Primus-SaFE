@@ -28,6 +28,7 @@ import (
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/apis/pkg/client/clientset/versioned/scheme"
 	commonclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/k8sclient"
+	commonnodes "github.com/AMD-AIG-AIMA/SAFE/common/pkg/nodes"
 	rmmetrics "github.com/AMD-AIG-AIMA/SAFE/resource-manager/pkg/metrics"
 	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/sets"
@@ -414,18 +415,19 @@ func TestGetNodesForScalingUpLeavesAReservedNodeAlone(t *testing.T) {
 	assert.Equal(t, len(nodes), 0)
 }
 
-// admissionRules is what the mutating webhook does to a Workspace write on its way to the API
-// server, in the one respect this controller has to live within: mutateNodesAction's first
-// statement turns away any write that moves Spec.Replica and the nodes-action annotation
-// together, and every write carrying that annotation goes through it -- the webhook is
-// registered on workspaces UPDATE with no object selector, so the controller's own patches are
-// admitted like anybody else's.
+// admissionRules is what admission does to a Workspace write on its way to the API server, in
+// the one respect this controller has to live within: a write that moves Spec.Replica and the
+// nodes-action annotation together is turned away unless it is a withdrawal, and a withdrawal
+// is only one that lands Spec.Replica on exactly the value commonnodes.WithdrawnReplica gives.
+// Every write carrying that annotation goes through it -- the webhooks are registered on
+// workspaces UPDATE with no object selector, so this controller's own patches are admitted
+// like anybody else's.
 //
 // It is here because the fake client runs no webhooks, and without it these tests pass on a
-// rollback that never once reaches a real cluster: the whole withdrawal path is one Patch call,
-// and getting that call rejected is not something any assertion about the stored object can
-// see. The rule is asserted from the other side too, against the webhook itself, in
-// TestWorkspaceMutateWithdrawnNodesActionRefundsReplica.
+// withdrawal that never once reaches a real cluster: the whole path is one Patch call, and
+// getting that call rejected is not something any assertion about the stored object can see.
+// The rule is asserted from the other side too, against the webhooks themselves and in the
+// order the API server runs them, in TestWorkspaceAdmitWithdrawalEndToEnd.
 func admissionRules() interceptor.Funcs {
 	return interceptor.Funcs{
 		Patch: func(ctx context.Context, c client.WithWatch, obj client.Object,
@@ -439,7 +441,9 @@ func admissionRules() interceptor.Funcs {
 				return err
 			}
 			if v1.GetWorkspaceNodesAction(stored) != v1.GetWorkspaceNodesAction(workspace) &&
-				stored.Spec.Replica != workspace.Spec.Replica {
+				stored.Spec.Replica != workspace.Spec.Replica &&
+				workspace.Spec.Replica != commonnodes.WithdrawnReplica(stored.Spec.Replica,
+					parseNodesAction(stored), parseNodesAction(workspace)) {
 				return apierrors.NewBadRequest("the operation of specifying nodes and the " +
 					"modification of workspace replica cannot be performed simultaneously")
 			}
@@ -458,9 +462,9 @@ func storedWorkspace(t *testing.T, cli client.Client, name string) *v1.Workspace
 // End to end: a bind that can never succeed is withdrawn rather than retried forever. The
 // entry leaves the annotation and the reason is written where whoever asked can read it.
 //
-// Spec.Replica is deliberately untouched here. Giving back the +1 the mutating webhook applied
-// is the webhook's own job on the way through this patch -- see the withdrawal tests in the
-// webhooks package -- and a controller that wrote it would have its patch turned away.
+// Spec.Replica comes back down in the same patch. The mutating webhook counted this add in
+// when it accepted the request, and a count left standing for a node that will never be bound
+// is a scale-up onto some other machine -- not what was asked for.
 func TestProcessNodesActionWithdrawsARefusedBind(t *testing.T) {
 	workspace := genMockWorkspace("cluster", "flavor", 1)
 	node := ownedNode("node1", "ws-other")
@@ -475,7 +479,8 @@ func TestProcessNodesActionWithdrawsARefusedBind(t *testing.T) {
 
 	stored := storedWorkspace(t, cli, workspace.Name)
 	assert.Equal(t, v1.GetWorkspaceNodesAction(stored), "")
-	assert.Equal(t, stored.Spec.Replica, 1)
+	// The only add in the request, so the whole charge comes back: 1 -> 0.
+	assert.Equal(t, stored.Spec.Replica, 0)
 	assert.Assert(t, strings.Contains(
 		v1.GetAnnotation(stored, v1.WorkspaceNodesActionError), "already bound to ws-other"))
 }
@@ -523,14 +528,15 @@ func TestProcessNodesActionWithdrawsOnlyTheRefusedEntry(t *testing.T) {
 	assert.Equal(t, storedNode(t, cli, free.Name).GetSpecWorkspace(), workspace.Name)
 
 	stored := storedWorkspace(t, cli, workspace.Name)
-	assert.Equal(t, stored.Spec.Replica, 2)
+	// One of the two adds withdrawn, so one replica back: 2 -> 1.
+	assert.Equal(t, stored.Spec.Replica, 1)
 	assert.Equal(t, v1.GetWorkspaceNodesAction(stored), `{"node2":"add"}`)
 	assert.Assert(t, strings.Contains(
 		v1.GetAnnotation(stored, v1.WorkspaceNodesActionError), "node1: "))
 
 	// Second pass: node2 is bound now, so the whole request is done. It leaves as a plain
 	// clear that touches no reason -- nothing was withdrawn this time, and a reason written
-	// again beside a shrinking request is a second withdrawal for the webhook to refund.
+	// again beside a shrinking request is a second withdrawal, and a second refund with it.
 	reason := v1.GetAnnotation(stored, v1.WorkspaceNodesActionError)
 	_, err = r.processNodesAction(context.Background(), stored)
 	assert.NilError(t, err)
@@ -539,9 +545,62 @@ func TestProcessNodesActionWithdrawsOnlyTheRefusedEntry(t *testing.T) {
 	assert.Equal(t, v1.GetAnnotation(stored, v1.WorkspaceNodesActionError), reason)
 }
 
-// A refused remove is withdrawn the same way as a refused add. Only the reason differs, and
-// what the webhook does with it: see mutateNodesActionWithdrawal for why a remove gets no
-// replica back.
+// The refund happens exactly once, whatever the contention. Annotation and replica move in a
+// single optimistically-locked patch, so a competing write does not take half of it: the patch
+// is rejected whole, nothing is stored, and the reconcile that follows recomputes the refusal
+// against the request that actually exists rather than replaying the one it had in hand.
+//
+// The failure this rules out is a workspace losing a replica per requeue. It cannot be seen by
+// looking at one pass -- both a correct and a double-counting implementation write 1 the first
+// time they get through -- so the test has to lose a patch and then come back.
+func TestDropRefusedActionsRefundsExactlyOnceAcrossAConflict(t *testing.T) {
+	workspace := genMockWorkspace("cluster", "flavor", 2)
+	taken := ownedNode("node1", "ws-other")
+	free := ownedNode("node2", "")
+	setNodesAction(workspace, map[string]string{
+		taken.Name: v1.NodeActionAdd,
+		free.Name:  v1.NodeActionAdd,
+	})
+	rules := admissionRules()
+	admit := rules.Patch
+	conflicts := 1
+	rules.Patch = func(ctx context.Context, c client.WithWatch, obj client.Object,
+		patch client.Patch, opts ...client.PatchOption) error {
+		if _, ok := obj.(*v1.Workspace); ok && conflicts > 0 {
+			conflicts--
+			return apierrors.NewConflict(schema.GroupResource{Resource: "workspaces"},
+				obj.GetName(), errors.New("somebody else got there first"))
+		}
+		return admit(ctx, c, obj, patch, opts...)
+	}
+	cli := fake.NewClientBuilder().WithObjects(taken, free, workspace).WithScheme(scheme.Scheme).
+		WithInterceptorFuncs(rules).Build()
+	r := newMockWorkspaceReconciler(cli)
+
+	_, err := r.processNodesAction(context.Background(), workspace)
+	assert.Assert(t, apierrors.IsConflict(err))
+	// Not half applied: the request is whole and the replica is untouched.
+	stored := storedWorkspace(t, cli, workspace.Name)
+	assert.Equal(t, stored.Spec.Replica, 2)
+	assert.Equal(t, v1.GetAnnotation(stored, v1.WorkspaceNodesActionError), "")
+	assert.Assert(t, strings.Contains(v1.GetWorkspaceNodesAction(stored), "node1"))
+
+	// The requeue, off the object as it now stands.
+	_, err = r.processNodesAction(context.Background(), stored)
+	assert.NilError(t, err)
+	stored = storedWorkspace(t, cli, workspace.Name)
+	assert.Equal(t, stored.Spec.Replica, 1)
+	assert.Equal(t, v1.GetWorkspaceNodesAction(stored), `{"node2":"add"}`)
+
+	// And once the request is done there is nothing left to give back, however many times it
+	// comes round again.
+	_, err = r.processNodesAction(context.Background(), stored)
+	assert.NilError(t, err)
+	assert.Equal(t, storedWorkspace(t, cli, workspace.Name).Spec.Replica, 1)
+}
+
+// A refused remove is withdrawn the same way as a refused add. What differs is the accounting:
+// see commonnodes.WithdrawnReplica for why a remove gets no replica back.
 func TestProcessNodesActionWithdrawsARefusedRemove(t *testing.T) {
 	workspace := genMockWorkspace("cluster", "flavor", 1)
 	node := ownedNode("node1", "ws-other")
@@ -561,8 +620,9 @@ func TestProcessNodesActionWithdrawsARefusedRemove(t *testing.T) {
 }
 
 // An entry that is simply already true is not a refusal, and must not be reported as one: the
-// mutating webhook skipped it when it counted, and a reason annotation appearing alongside the
-// shrinking request is exactly what it reads as a withdrawal to refund.
+// mutating webhook skipped it when it counted, so there is nothing charged to give back, and a
+// reason annotation appearing alongside the shrinking request is exactly what admission reads
+// as a withdrawal -- one that would then be expected to carry a refund it does not owe.
 func TestProcessNodesActionLeavesReplicaAloneForASettledEntry(t *testing.T) {
 	workspace := genMockWorkspace("cluster", "flavor", 1)
 	node := ownedNode("node1", "")

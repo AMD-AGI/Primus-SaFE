@@ -807,13 +807,29 @@ func (r *WorkspaceReconciler) processNodesAction(ctx context.Context, workspace 
 // goes on the Workspace where whoever asked can read it; the controller log is not somewhere
 // a workspace's owner can look.
 //
-// Only annotations are written. Spec.Replica has to give back what the mutating webhook added
-// for these entries -- otherwise a refused explicit bind turns into an automatic scale-up onto
-// some other node -- but that refund is made by the webhook as this patch passes through it,
-// not here. Two reasons, and either alone would settle it: the webhook refuses outright any
-// write that changes Spec.Replica and the nodes-action annotation together, so a rollback done
-// here never reaches the API server at all; and the arithmetic to undo is the webhook's own, so
-// a copy of it on this side is a copy to keep in step with it. See withdrawnNodesAction.
+// Spec.Replica goes back in the same write. The mutating webhook counted each of these adds
+// in when it accepted the request, and leaving that count standing would turn a refused
+// explicit bind into an automatic scale-up onto some other node -- a machine the caller did
+// not ask for, in place of the one they named. commonnodes.WithdrawnReplica is the arithmetic,
+// and it is the same function both webhooks use to recognise this write, so the number the
+// controller writes and the number admission expects cannot drift apart.
+//
+// Here rather than in the webhook, and in one patch rather than two. Mutating admission runs
+// before validating admission and hands it the mutated object, so a webhook that moved
+// Spec.Replica itself would leave the validator judging a different object than the one that
+// arrived -- including judging this withdrawal's own recognition against a replica count the
+// writer never sent. The mutator therefore touches nothing on this path, and both webhooks
+// read the controller's bytes.
+//
+// One patch is also what makes the refund happen exactly once under concurrency. Annotation
+// and replica move together or not at all, and the optimistic lock below ties both to the
+// resourceVersion this decision was made from: a competing write loses the patch entirely
+// rather than half of it, and the requeue that follows re-reads a request whose refused
+// entries are already gone, so there is nothing left to refund a second time.
+//
+// What lands here is only ever the race. A node already spoken for at admission time is
+// refused there, by the mutating webhook, and never reaches this controller; what reaches it
+// is a node that was free when the request was admitted and was taken before it could bind.
 func (r *WorkspaceReconciler) dropRefusedActions(ctx context.Context,
 	workspace *v1.Workspace, actions, refusals map[string]string) error {
 	left := make(map[string]string, len(actions))
@@ -834,9 +850,11 @@ func (r *WorkspaceReconciler) dropRefusedActions(ctx context.Context,
 	// read never saw would be overwritten rather than merged with. A conflict here costs a
 	// requeue, and the reconcile that follows judges the request that actually exists.
 	patch := client.MergeFromWithOptions(workspace.DeepCopy(), client.MergeFromWithOptimisticLock{})
-	// Not optional, and not only for the reader: the webhook takes this annotation appearing
-	// as the mark of a withdrawal, and refunds nothing without it.
+	// Not optional, and not only for the reader: this annotation appearing is what both
+	// webhooks take as the mark of a withdrawal, and without it they judge this patch as its
+	// author shrinking a request the controller is still working through -- and reject it.
 	v1.SetAnnotation(workspace, v1.WorkspaceNodesActionError, strings.Join(reasons, "; "))
+	workspace.Spec.Replica = commonnodes.WithdrawnReplica(workspace.Spec.Replica, actions, left)
 	if len(left) == 0 {
 		v1.RemoveAnnotation(workspace, v1.WorkspaceNodesAction)
 		v1.RemoveAnnotation(workspace, v1.WorkspaceForcedAction)

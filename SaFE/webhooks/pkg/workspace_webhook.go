@@ -107,8 +107,10 @@ func (m *WorkspaceMutator) mutateOnUpdate(ctx context.Context, oldWorkspace, new
 		return err
 	}
 	if v1.GetWorkspaceNodesAction(oldWorkspace) != v1.GetWorkspaceNodesAction(newWorkspace) {
-		if withdrawn := withdrawnNodesAction(oldWorkspace, newWorkspace); withdrawn != nil {
-			mutateNodesActionWithdrawal(newWorkspace, withdrawn)
+		if isNodesActionWithdrawal(oldWorkspace, newWorkspace) {
+			// Nothing to do, and that is the whole point of recognising it. Left to
+			// mutateNodesAction the write would have its reason annotation stripped and
+			// the surviving entries counted into Spec.Replica a second time.
 			return nil
 		}
 		if err := m.mutateNodesAction(ctx, oldWorkspace, newWorkspace); err != nil {
@@ -120,70 +122,54 @@ func (m *WorkspaceMutator) mutateOnUpdate(ctx context.Context, oldWorkspace, new
 	return nil
 }
 
-// withdrawnNodesAction recognises a write that takes entries back out of a nodes-action
-// request that is already in flight, and returns them. Anything else returns nil.
+// isNodesActionWithdrawal recognises a write that takes entries back out of a nodes-action
+// request that is already in flight, and gives back the Spec.Replica those entries were
+// counted into. Anything else is false.
 //
 // This is the shape WorkspaceReconciler.dropRefusedActions writes when it gives up on an
-// entry, and it is deliberately the only way Spec.Replica is given back: the arithmetic that
-// added it lives here, in mutateNodesAction, and a second copy in the controller would be a
-// second copy to keep in step. It also cannot be done there -- mutateNodesAction refuses any
-// write that changes Spec.Replica and the annotation together, which is exactly what a
-// controller-side rollback would have to be to happen exactly once.
+// entry. Recognising it does two things: the write is let past mutateNodesAction and past the
+// in-flight check in validateNodesAction, both of which would otherwise turn away the one
+// write that ends the request, and it is let past validateScaleDown, which is not what this
+// is -- see validateOnUpdate.
 //
-// The shape has to be narrow, because accepting it means refunding replica: entries may only
-// leave, never arrive and never change value, Spec.Replica must be untouched by the writer,
-// and the reason annotation must come with it. A request being shrunk by its own author while
-// the controller is part way through binding it is not this, and still gets turned away by
-// the in-flight check.
-func withdrawnNodesAction(oldWorkspace, newWorkspace *v1.Workspace) map[string]string {
-	if oldWorkspace.Spec.Replica != newWorkspace.Spec.Replica {
-		return nil
-	}
+// Both webhooks call this and they must agree, which holds only while nothing between them
+// alters what the predicate reads. Mutating admission runs first and its result is what
+// validating admission is handed, so a field the mutator writes would be read differently by
+// the two of them. Nothing on the withdrawal path writes any of these fields: mutateOnUpdate
+// returns as soon as this is true. (mutateByNodeFlavor, which runs before that, zeroes
+// Spec.Replica -- but only for a workspace with no flavor, and one carrying an in-flight
+// nodes-action always has one. If that ever stops holding, the disagreement costs a rejected
+// withdrawal, not a wrong refund.)
+//
+// The shape is narrow on purpose: entries may only leave, never arrive and never change
+// value, the reason annotation must come with it, and Spec.Replica must land on exactly the
+// value the withdrawal implies -- not merely a smaller one. A request being shrunk by its own
+// author while the controller is part way through binding it is not this, and still gets
+// turned away by the in-flight check; an author who forges the rest of the shape still cannot
+// use it to move Spec.Replica anywhere of their choosing.
+func isNodesActionWithdrawal(oldWorkspace, newWorkspace *v1.Workspace) bool {
 	if v1.GetAnnotation(newWorkspace, v1.WorkspaceNodesActionError) == "" ||
 		v1.GetAnnotation(oldWorkspace, v1.WorkspaceNodesActionError) ==
 			v1.GetAnnotation(newWorkspace, v1.WorkspaceNodesActionError) {
-		return nil
+		return false
 	}
 	oldActions, err := parseNodesAction(oldWorkspace)
 	if err != nil || len(oldActions) == 0 {
-		return nil
+		return false
 	}
 	newActions, err := parseNodesAction(newWorkspace)
 	if err != nil {
-		return nil
+		return false
 	}
 	for key, val := range newActions {
 		if oldVal, ok := oldActions[key]; !ok || oldVal != val {
-			return nil
+			return false
 		}
 	}
 	if len(newActions) >= len(oldActions) {
-		return nil
+		return false
 	}
-	withdrawn := make(map[string]string, len(oldActions)-len(newActions))
-	for key, val := range oldActions {
-		if _, ok := newActions[key]; !ok {
-			withdrawn[key] = val
-		}
-	}
-	return withdrawn
-}
-
-// mutateNodesActionWithdrawal gives Spec.Replica back what mutateNodesAction added for the
-// entries being withdrawn.
-//
-// Only an add is reversed, and reversing it is exact: mutateNodesAction takes a stored add
-// from 0 to 1 or increments it, so one off is right either way. A withdrawn remove is left
-// alone on purpose. The controller only ever refuses a remove for a node that has since been
-// bound to a different workspace, so this one has lost the node whether or not it asked to --
-// the decrement already applied describes where it ended up, and undoing it would ask for a
-// machine to replace one that was never released.
-func mutateNodesActionWithdrawal(newWorkspace *v1.Workspace, withdrawn map[string]string) {
-	for _, val := range withdrawn {
-		if val == v1.NodeActionAdd && newWorkspace.Spec.Replica > 0 {
-			newWorkspace.Spec.Replica--
-		}
-	}
+	return newWorkspace.Spec.Replica == commonnodes.WithdrawnReplica(oldWorkspace.Spec.Replica, oldActions, newActions)
 }
 
 // mutateCommon applies node flavor, image secrets, volumes, queue policy, preemption and manager mutations.
@@ -253,8 +239,8 @@ func (m *WorkspaceMutator) mutateNodesAction(ctx context.Context, oldWorkspace, 
 		return nil
 	}
 	// A new request supersedes whatever the last one failed with. This is the other half of
-	// the lifecycle mutateNodesActionWithdrawal starts; without it a workspace that was ever
-	// turned down carries the reason for good.
+	// the lifecycle dropRefusedActions starts when it records a reason; without it a
+	// workspace that was ever turned down carries that reason for good.
 	//
 	// After the check above, not before it: the controller clears the annotation on its way
 	// out of a request as well, and one of those exits comes straight after writing the
@@ -281,9 +267,28 @@ func (m *WorkspaceMutator) mutateNodesAction(ctx context.Context, oldWorkspace, 
 			if n.GetSpecWorkspace() == newWorkspace.Name {
 				continue
 			}
+			// Turned down here, not left for the validator. Everything past this point moves
+			// Spec.Replica, and an entry that cannot succeed must not move it. The validator
+			// refusing the request afterwards does discard the mutation -- but only for as
+			// long as it is there to do it, and a mutator that depends on a second webhook to
+			// keep its own arithmetic honest is one misconfiguration away from persisting a
+			// replica count nobody asked for.
+			//
+			// Same wording as validateNodesAction on purpose: one condition, one message,
+			// whichever webhook reaches it first.
+			if bound := n.GetSpecWorkspace(); bound != "" {
+				return fmt.Errorf("the node(%s) is bound for %s. it can't be added", key, bound)
+			}
 		} else if val == v1.NodeActionRemove {
 			if n.GetSpecWorkspace() == "" {
 				continue
+			}
+			// The mirror of the case above, and the more damaging of the two if it gets
+			// through: releasing a node that belongs to someone else decrements a replica
+			// count that was never counting it.
+			if n.GetSpecWorkspace() != newWorkspace.Name {
+				return fmt.Errorf("the node(%s) belongs to workspace(%s). it can't be removed",
+					key, n.GetSpecWorkspace())
 			}
 		} else {
 			continue
@@ -593,8 +598,15 @@ func (v *WorkspaceValidator) validateOnUpdate(ctx context.Context, newWorkspace,
 	if err := v.validateVolumeRemoved(ctx, newWorkspace, oldWorkspace); err != nil {
 		return err
 	}
-	if err := v.validateScaleDown(ctx, newWorkspace, oldWorkspace); err != nil {
-		return err
+	// A withdrawal lowers Spec.Replica and is not a scale-down. validateScaleDown exists to
+	// stop a workspace built from a running workload from shedding capacity that workload is
+	// using; the count being given back here was added moments ago for a bind that never
+	// happened, so there is no node under it for anything to be running on. Left in the path
+	// it would reject every withdrawal on a workload-sourced workspace and strand the request.
+	if !isNodesActionWithdrawal(oldWorkspace, newWorkspace) {
+		if err := v.validateScaleDown(ctx, newWorkspace, oldWorkspace); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -794,7 +806,7 @@ func (v *WorkspaceValidator) validateNodesAction(ctx context.Context, newWorkspa
 	}
 	// The controller taking entries back out of a request it cannot carry out. Judging it
 	// against the in-flight check below would reject the one write that ends the request.
-	if withdrawnNodesAction(oldWorkspace, newWorkspace) != nil {
+	if isNodesActionWithdrawal(oldWorkspace, newWorkspace) {
 		return nil
 	}
 	if len(oldActions) > 0 && len(newActions) > 0 && !maps.EqualIgnoreOrder(oldActions, newActions) {

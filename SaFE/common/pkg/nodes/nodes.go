@@ -246,6 +246,31 @@ func GetUsingNodesOfCluster(ctx context.Context, cli client.Client, clusterId st
 	return result, nil
 }
 
+// WithdrawnReplica returns the only Spec.Replica a withdrawal of these entries may carry.
+//
+// The mutating webhook moves the count by one for every add it accepts -- from 0 it sets 1,
+// otherwise it increments -- so undoing one add is a decrement either way. A withdrawn remove
+// is deliberately not undone: the controller only ever refuses a remove for a node that has
+// since been bound to a different workspace, so this workspace has lost the node whether or
+// not it asked to, and the decrement that already applied describes where it ended up.
+// Restoring it would be asking for a machine to replace one that was never released.
+//
+// It lives here rather than beside either caller because there are three of them: the
+// controller computes it to write the withdrawal, and both webhooks compute it to recognise
+// one. The whole mechanism rests on all three arriving at the same number, so there is one
+// function and no copies to keep in step.
+func WithdrawnReplica(replica int, oldActions, newActions map[string]string) int {
+	for key, val := range oldActions {
+		if _, kept := newActions[key]; kept || val != v1.NodeActionAdd {
+			continue
+		}
+		if replica > 0 {
+			replica--
+		}
+	}
+	return replica
+}
+
 // Nodes2PointerSlice converts a slice of nodes to a slice of node pointers.
 func Nodes2PointerSlice(nodes []v1.Node) (result []*v1.Node) {
 	for i := range nodes {

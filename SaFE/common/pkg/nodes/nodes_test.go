@@ -643,3 +643,68 @@ func TestGetUsingNodesOfCluster(t *testing.T) {
 	testifyassert.NoError(t, err)
 	testifyassert.True(t, set.Has("used"))
 }
+
+// The number three parties have to agree on: the controller writes it, and both webhooks
+// recompute it to decide whether the write in front of them is a withdrawal at all.
+func TestWithdrawnReplica(t *testing.T) {
+	cases := []struct {
+		name       string
+		replica    int
+		oldActions map[string]string
+		newActions map[string]string
+		want       int
+	}{
+		{
+			name:       "one add of two withdrawn",
+			replica:    3,
+			oldActions: map[string]string{"n1": v1.NodeActionAdd, "n2": v1.NodeActionAdd},
+			newActions: map[string]string{"n2": v1.NodeActionAdd},
+			want:       2,
+		},
+		{
+			name:       "the whole request withdrawn",
+			replica:    3,
+			oldActions: map[string]string{"n1": v1.NodeActionAdd, "n2": v1.NodeActionAdd},
+			newActions: nil,
+			want:       1,
+		},
+		{
+			// The node was refused because somebody else already has it, so this workspace
+			// lost it either way. The decrement that already applied describes where it ended
+			// up, and adding one back would ask for a replacement it never released.
+			name:       "a withdrawn remove is not given back",
+			replica:    2,
+			oldActions: map[string]string{"n1": v1.NodeActionRemove},
+			newActions: nil,
+			want:       2,
+		},
+		{
+			name:       "adds and removes withdrawn together",
+			replica:    5,
+			oldActions: map[string]string{"n1": v1.NodeActionAdd, "n2": v1.NodeActionRemove, "n3": v1.NodeActionAdd},
+			newActions: nil,
+			want:       3,
+		},
+		{
+			name:       "nothing withdrawn is nothing given back",
+			replica:    2,
+			oldActions: map[string]string{"n1": v1.NodeActionAdd},
+			newActions: map[string]string{"n1": v1.NodeActionAdd},
+			want:       2,
+		},
+		{
+			// Cannot happen from a count the webhook itself moved, but the result of this is
+			// written to a spec field, so it clamps rather than going negative.
+			name:       "never below zero",
+			replica:    1,
+			oldActions: map[string]string{"n1": v1.NodeActionAdd, "n2": v1.NodeActionAdd},
+			newActions: nil,
+			want:       0,
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			assert.Equal(t, WithdrawnReplica(c.replica, c.oldActions, c.newActions), c.want)
+		})
+	}
+}
