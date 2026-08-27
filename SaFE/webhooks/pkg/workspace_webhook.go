@@ -413,11 +413,20 @@ func (m *WorkspaceMutator) mutateScaleDown(ctx context.Context, oldWorkspace, ne
 	}
 	if len(nodes) != count {
 		// Short, so something the workspace is counted as holding is not a node it can
-		// release. Two ways to get here: the nodes are busy, or -- transiently -- the
-		// workspace's node count still includes one whose claim has already moved on and
-		// whose label has not caught up yet. Building the request anyway would put a node
-		// that is not short into the request in its place, and release a machine that was
-		// never the one to give back.
+		// release: the nodes are busy, or the status count this arithmetic came from is
+		// ahead of what the workspace still holds. Building the request anyway would put a
+		// node that is not short into the request in its place, and release a machine that
+		// was never the one to give back.
+		//
+		// This catches the shortfall, not every disagreement. count comes from
+		// Status.AvailableReplica + AbnormalReplica, which syncWorkspace recomputes from the
+		// claim on every reconcile, and the candidates come from a live read of the same
+		// field -- so the two differ only for as long as a reconcile the controller has
+		// already been woken for takes to run, and only a difference that leaves the
+		// candidate list exactly count long slips past this. Closing that last sliver means
+		// counting the held nodes here instead, which means a second copy of syncWorkspace's
+		// flavor-filtered arithmetic living in a webhook, kept in step by hand. The sliver
+		// is cheaper than the copy.
 		return commonerrors.NewInternalError(fmt.Sprintf("only %d of the %d nodes to scale "+
 			"down are free to release. please retry", len(nodes), count))
 	}
