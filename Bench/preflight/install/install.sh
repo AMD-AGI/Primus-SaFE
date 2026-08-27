@@ -57,8 +57,8 @@ COMMON_SCRIPTS=(
 
 # Optional: skip selected scripts (space-separated names) when the current
 # build stage lacks a prerequisite. build/Dockerfile uses this to defer the
-# torch-dependent installs to the pytorch stage. Unset => run everything, so
-# existing callers (Bench/Dockerfile) are unaffected.
+# torch-dependent installs to the pytorch stage. Unset => run everything,
+# which is what a bare-metal or interactive run gets.
 should_skip() {
   local script=$1
   local skip
