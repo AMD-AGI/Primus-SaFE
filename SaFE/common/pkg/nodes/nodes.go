@@ -179,6 +179,19 @@ func GetNodesForScalingDown(ctx context.Context, cli client.Client, workspace st
 }
 
 // GetIdleNodesOfWorkspace retrieves idle nodes (nodes with no running workloads) in a workspace.
+//
+// "In a workspace" is answered twice on purpose. The List is by WorkspaceIdLabel because that
+// is what the admin plane indexes on, but the label is a mirror of the data plane and lags
+// behind spec.workspace by a whole round trip -- k8s Node label, then syncK8sMetadata. The
+// filter below is the authoritative half, and it is the same field
+// WorkspaceReconciler.judgeNodeBinding decides an unbind on.
+//
+// Selecting on the label alone made those two disagree for the length of the lag, and the
+// only consumer of this function is scale-down, where the disagreement costs real machines: a
+// node this workspace has already released -- or that another workspace has since taken --
+// still carries the label, gets offered as a scale-down candidate, and is then refused at the
+// write. The refusal is the good outcome. The bad one is that the candidate list is short by
+// one and a node the workspace genuinely holds and needs is released in its place.
 func GetIdleNodesOfWorkspace(ctx context.Context, cli client.Client, name string) ([]v1.Node, error) {
 	labelSelector := labels.SelectorFromSet(map[string]string{v1.WorkspaceIdLabel: name})
 	workloadList := &v1.WorkloadList{}
@@ -211,6 +224,10 @@ func GetIdleNodesOfWorkspace(ctx context.Context, cli client.Client, name string
 	}
 	filterFunc := func(n v1.Node) bool {
 		if FilterDeletingNode(n) {
+			return true
+		}
+		// The claim, not the label. See the note above the function.
+		if n.GetSpecWorkspace() != name {
 			return true
 		}
 		return usedNodesSet.Has(n.Name)

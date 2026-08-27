@@ -19,6 +19,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/kubernetes/fake"
+	"k8s.io/utils/pointer"
 	ctrlfake "sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
@@ -519,6 +520,10 @@ func nodesScheme(t *testing.T) *runtime.Scheme {
 	return s
 }
 
+// nodeWith builds a node the way a settled binding leaves one: the claim in spec.workspace
+// and the label that mirrors it back from the data plane, both naming the same workspace.
+// The two are separate fields on purpose -- see nodeWithClaim for what happens when they
+// disagree, which is the state every scale-down has to survive.
 func nodeWith(name, cluster, workspace string) *v1.Node {
 	n := &v1.Node{ObjectMeta: metav1.ObjectMeta{Name: name, Labels: map[string]string{}}}
 	if cluster != "" {
@@ -526,7 +531,21 @@ func nodeWith(name, cluster, workspace string) *v1.Node {
 	}
 	if workspace != "" {
 		n.Labels[v1.WorkspaceIdLabel] = workspace
+		n.Spec.Workspace = pointer.String(workspace)
 	}
+	return n
+}
+
+// nodeWithClaim builds a node mid-flight: labelled for one workspace, claimed by another (or
+// by nobody). This is what the admin plane looks like for the length of a binding's round
+// trip through the data plane, not a corruption.
+func nodeWithClaim(name, cluster, labelled, claimed string) *v1.Node {
+	n := nodeWith(name, cluster, labelled)
+	if claimed == "" {
+		n.Spec.Workspace = nil
+		return n
+	}
+	n.Spec.Workspace = pointer.String(claimed)
 	return n
 }
 
@@ -707,4 +726,35 @@ func TestWithdrawnReplica(t *testing.T) {
 			assert.Equal(t, WithdrawnReplica(c.replica, c.oldActions, c.newActions), c.want)
 		})
 	}
+}
+
+// Scale-down candidates are the nodes the workspace can actually release, which is the nodes
+// it still holds the claim on -- not the nodes still carrying its label. The two say different
+// things for the length of a binding's round trip, and this is the function that has to pick
+// the right one: judgeNodeBinding decides the unbind on spec.workspace, so a candidate chosen
+// on the label alone comes back refused, and its slot in the batch is spent on a node the
+// workspace did hold and did not need to give back.
+func TestGetIdleNodesOfWorkspaceFollowsTheClaimNotTheLabel(t *testing.T) {
+	ctx := context.Background()
+	held := nodeWith("held", "c1", "ws1")
+	// Released by ws1; its label has not caught up yet. An unbind here is a no-op that still
+	// consumes one of the count nodes asked for.
+	released := nodeWithClaim("released", "c1", "ws1", "")
+	// Taken by ws2 while ws1's label lingered. An unbind here is refused outright.
+	stolen := nodeWithClaim("stolen", "c1", "ws1", "ws2")
+	cl := ctrlfake.NewClientBuilder().WithScheme(nodesScheme(t)).
+		WithObjects(held, released, stolen).Build()
+
+	idle, err := GetIdleNodesOfWorkspace(ctx, cl, "ws1")
+	testifyassert.NoError(t, err)
+	testifyassert.Len(t, idle, 1)
+	assert.Equal(t, "held", idle[0].Name)
+
+	// And the shortfall is reported rather than papered over with the wrong node: asking for
+	// two back when only one can be given hands back one, and the callers refuse to build a
+	// request out of a short list.
+	down, err := GetNodesForScalingDown(ctx, cl, "ws1", 2)
+	testifyassert.NoError(t, err)
+	testifyassert.Len(t, down, 1)
+	assert.Equal(t, "held", down[0].Name)
 }

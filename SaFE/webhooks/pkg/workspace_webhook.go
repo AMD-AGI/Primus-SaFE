@@ -398,7 +398,14 @@ func (m *WorkspaceMutator) mutateScaleDown(ctx context.Context, oldWorkspace, ne
 		return err
 	}
 	if len(nodes) != count {
-		return commonerrors.NewInternalError("failed to get enough nodes for scaling down")
+		// Short, so something the workspace is counted as holding is not a node it can
+		// release. Two ways to get here: the nodes are busy, or -- transiently -- the
+		// workspace's node count still includes one whose claim has already moved on and
+		// whose label has not caught up yet. Building the request anyway would put a node
+		// that is not short into the request in its place, and release a machine that was
+		// never the one to give back.
+		return commonerrors.NewInternalError(fmt.Sprintf("only %d of the %d nodes to scale "+
+			"down are free to release. please retry", len(nodes), count))
 	}
 	nodeNames := make([]string, 0, count)
 	for _, n := range nodes {
@@ -406,6 +413,13 @@ func (m *WorkspaceMutator) mutateScaleDown(ctx context.Context, oldWorkspace, ne
 	}
 	action := commonnodes.BuildAction(v1.NodeActionRemove, nodeNames...)
 	v1.SetAnnotation(newWorkspace, v1.WorkspaceNodesAction, action)
+	// A new request supersedes whatever the last one failed with, and this is a new request
+	// -- the same lifecycle mutateNodesAction applies to an explicit one. Without it, a
+	// reason recorded by dropRefusedActions outlives the request it describes: nothing else
+	// clears the annotation, so an add that was turned down once stays on display through
+	// every unrelated scale-down that follows, reported by every operator and UI reading it
+	// as a binding failure that is happening now.
+	v1.RemoveAnnotation(newWorkspace, v1.WorkspaceNodesActionError)
 	return nil
 }
 

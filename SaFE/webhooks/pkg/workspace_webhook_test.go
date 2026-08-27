@@ -1197,3 +1197,64 @@ func TestWorkspaceMutatorHandleFullCreate(t *testing.T) {
 	resp := m.Handle(context.Background(), newRequest(t, admissionv1.Create, validWorkspace("ws1"), nil))
 	assert.Assert(t, resp.Allowed)
 }
+
+// A scale-down is a new nodes-action request, and a new request supersedes whatever the last
+// one failed with -- the same lifecycle mutateNodesAction gives an explicit one. Nothing else
+// clears the reason: without this, an add turned down once stays on display through every
+// unrelated operation that follows, and every operator and UI reading the annotation reports
+// a binding failure that is not happening.
+func TestWorkspaceMutateScaleDownClearsAStaleReason(t *testing.T) {
+	scheme := newScheme(t)
+	held := &v1.Node{
+		ObjectMeta: metav1.ObjectMeta{Name: "n1", Labels: map[string]string{
+			v1.ClusterIdLabel: "cluster1", v1.NodeFlavorIdLabel: "flavor",
+			v1.WorkspaceIdLabel: "ws1",
+		}},
+		Spec: v1.NodeSpec{Workspace: pointer.String("ws1")},
+	}
+	m := &WorkspaceMutator{Client: fake.NewClientBuilder().WithScheme(scheme).
+		WithObjects(held).Build()}
+
+	oldWs := requestingWorkspace(1, "")
+	oldWs.Status.AvailableReplica = 1
+	v1.SetAnnotation(oldWs, v1.WorkspaceNodesActionError, "n9: it is already bound to ws-other")
+	newWs := requestingWorkspace(0, "")
+	v1.SetAnnotation(newWs, v1.WorkspaceNodesActionError, "n9: it is already bound to ws-other")
+
+	assert.NilError(t, m.mutateScaleDown(context.Background(), oldWs, newWs))
+	assert.Equal(t, v1.GetWorkspaceNodesAction(newWs), `{"n1":"remove"}`)
+	assert.Equal(t, v1.GetAnnotation(newWs, v1.WorkspaceNodesActionError), "",
+		"the reason belongs to the request this one replaces")
+}
+
+// The other half of it: a scale-down that cannot be built must not clear anything, and must
+// say what is actually wrong. A node the workspace is counted as holding but no longer has
+// the claim on is not one it can release, so the candidate list comes up short -- and building
+// the request anyway would put a node that is not short in its place and release a machine
+// nobody asked to give back.
+func TestWorkspaceMutateScaleDownRefusesAShortCandidateList(t *testing.T) {
+	scheme := newScheme(t)
+	// Labelled ws1, claimed by ws2: mid-flight, and not ws1's to release.
+	stolen := &v1.Node{
+		ObjectMeta: metav1.ObjectMeta{Name: "n1", Labels: map[string]string{
+			v1.ClusterIdLabel: "cluster1", v1.NodeFlavorIdLabel: "flavor",
+			v1.WorkspaceIdLabel: "ws1",
+		}},
+		Spec: v1.NodeSpec{Workspace: pointer.String("ws2")},
+	}
+	m := &WorkspaceMutator{Client: fake.NewClientBuilder().WithScheme(scheme).
+		WithObjects(stolen).Build()}
+
+	oldWs := requestingWorkspace(1, "")
+	oldWs.Status.AvailableReplica = 1
+	v1.SetAnnotation(oldWs, v1.WorkspaceNodesActionError, "n9: it is already bound to ws-other")
+	newWs := requestingWorkspace(0, "")
+	v1.SetAnnotation(newWs, v1.WorkspaceNodesActionError, "n9: it is already bound to ws-other")
+
+	err := m.mutateScaleDown(context.Background(), oldWs, newWs)
+	assert.Assert(t, err != nil)
+	assert.Assert(t, strings.Contains(err.Error(), "free to release"), err)
+	assert.Equal(t, v1.GetWorkspaceNodesAction(newWs), "", "no request was built")
+	assert.Assert(t, v1.GetAnnotation(newWs, v1.WorkspaceNodesActionError) != "",
+		"nothing was superseded, so nothing is cleared")
+}

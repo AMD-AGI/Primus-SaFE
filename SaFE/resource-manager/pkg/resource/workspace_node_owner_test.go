@@ -851,3 +851,41 @@ func TestCleanupNodeAfterUnmanageReleasesAClaimThatHasNoLabelYet(t *testing.T) {
 	assert.NilError(t, r.cleanupNodeAfterUnmanage(context.Background(), node))
 	assert.Equal(t, storedNode(t, cli, node.Name).GetSpecWorkspace(), "")
 }
+
+// A request whose entries are all withdrawn leaves nothing pending, and processNodesAction
+// says so by returning false. That is not a stall: false is what lets processWorkspace carry
+// on into syncWorkspace and the scaling decision in the same pass, against the workspace this
+// very call refunded. Nothing waits for an event, because nothing is waiting at all.
+//
+// The alternative, returning true, is what would stall it -- true means "stop here, an
+// expectation will bring you back", and a withdrawal registers no expectation and changes no
+// field either predicate on this controller watches.
+func TestProcessWorkspaceScalesInTheSamePassAsAWithdrawal(t *testing.T) {
+	nodeFlavor := genMockNodeFlavor()
+	workspace := genMockWorkspace("cluster", nodeFlavor.Name, 3)
+	// One node genuinely held, and a request naming a node that no longer exists.
+	held := ownedNode("node1", workspace.Name)
+	held.Labels[v1.NodeFlavorIdLabel] = nodeFlavor.Name
+	setNodesAction(workspace, map[string]string{"vanished": v1.NodeActionAdd})
+	cli := fake.NewClientBuilder().WithObjects(held, workspace, nodeFlavor).
+		WithStatusSubresource(workspace).WithScheme(scheme.Scheme).
+		WithInterceptorFuncs(admissionRules()).Build()
+	r := newMockWorkspaceReconciler(cli)
+	r.clientManager.AddOrReplace("cluster", commonclient.NewClientFactoryWithOnlyClient(
+		context.Background(), "cluster", k8sfake.NewClientset()))
+
+	result, err := r.processWorkspace(context.Background(), workspace)
+	assert.NilError(t, err)
+
+	stored := storedWorkspace(t, cli, workspace.Name)
+	// The withdrawal itself: the add is gone and the replica it was counted into came back.
+	assert.Equal(t, v1.GetWorkspaceNodesAction(stored), "")
+	assert.Equal(t, stored.Spec.Replica, 2)
+	// syncWorkspace ran after it, in this same call -- the status was recomputed from the one
+	// node actually held rather than left at its zero value.
+	assert.Equal(t, stored.Status.AvailableReplica, 1)
+	// And the scaling decision ran too, against the refunded target: 1 held against 2 wanted
+	// is a scale-up, and with no free node in the fleet it asks to be tried again. Reaching
+	// this at all is the point -- it is the work the request was standing in front of.
+	assert.Equal(t, result.RequeueAfter, r.option.nodeWait)
+}
