@@ -938,3 +938,54 @@ func TestLoadReverseForwardPolicyRejectsUnusablePorts(t *testing.T) {
 		})
 	}
 }
+
+// TestReverseForwardEchoesRequestedBindAddr pins that the forwarded-tcpip channel
+// names the bind address the client asked for, not the address we resolved it to.
+// OpenSSH compares that string against the one it sent with strcmp, so answering
+// "localhost" with "127.0.0.1" makes it refuse its own forward with
+// "administratively prohibited" and no data ever reaches the client.
+func TestReverseForwardEchoesRequestedBindAddr(t *testing.T) {
+	for _, tc := range []struct {
+		name, requested, want string
+		binds                 []string
+	}{
+		{name: "localhost", requested: "localhost", want: "localhost"},
+		{name: "literal ip", requested: "127.0.0.1", want: "127.0.0.1"},
+		// OpenSSH folds a wildcard to the empty string in its own copy before
+		// comparing, so both spellings have to come back as the empty string.
+		{name: "star", requested: "*", want: "", binds: []string{"0.0.0.0"}},
+		{name: "empty", requested: "", want: "", binds: []string{"0.0.0.0"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			values := map[string]any{}
+			if tc.binds != nil {
+				values[sshReverseForwardBindAddrKey] = tc.binds
+			}
+			enableReverseForward(t, values)
+			rig := newForwardTestRig(t)
+
+			// Take the channel opens directly rather than through ListenTCP, so the
+			// payload can be inspected as the client library would see it.
+			channels := rig.client.HandleChannelOpen(forwardedTCPIPChannel)
+
+			ok, _, err := rig.client.SendRequest(tcpipForwardRequest, true,
+				ssh.Marshal(tcpipForwardPayload{BindAddr: tc.requested, BindPort: 10001}))
+			testifyassert.NoError(t, err)
+			testifyassert.True(t, ok, "the forward should be accepted")
+
+			podListener := <-rig.listeners
+			podListener.push()
+
+			select {
+			case newCh := <-channels:
+				var data forwardChannelData
+				testifyassert.NoError(t, ssh.Unmarshal(newCh.ExtraData(), &data))
+				testifyassert.Equal(t, tc.want, data.DestAddr)
+				testifyassert.Equal(t, uint32(10001), data.DestPort)
+				_ = newCh.Reject(ssh.Prohibited, "inspected")
+			case <-time.After(5 * time.Second):
+				t.Fatal("timed out waiting for the forwarded-tcpip channel")
+			}
+		})
+	}
+}

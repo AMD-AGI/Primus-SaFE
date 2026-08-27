@@ -131,11 +131,15 @@ func (p reverseForwardPolicy) validate(addr string, port uint32) (string, error)
 
 // reverseForward is one active `-R` listener owned by a session.
 type reverseForward struct {
-	bindAddr string
-	bindPort uint32
-	listener podListener
-	ctx      context.Context
-	cancel   context.CancelFunc
+	// requestedAddr is the bind address as the client spelled it, kept apart from
+	// the resolved bindAddr because the two serve different ends: bindAddr is what
+	// the pod-side listener binds, requestedAddr is what goes back on the wire.
+	requestedAddr string
+	bindAddr      string
+	bindPort      uint32
+	listener      podListener
+	ctx           context.Context
+	cancel        context.CancelFunc
 	// userInfo and startedAt exist so the close of a forward can be audited with
 	// the same identity the open was logged under, plus how long it was up.
 	userInfo  *UserInfo
@@ -253,13 +257,14 @@ func (m *reverseForwardManager) handleForward(req *ssh.Request) {
 	}
 
 	fwd := &reverseForward{
-		bindAddr:  bindAddr,
-		bindPort:  payload.BindPort,
-		listener:  listener,
-		ctx:       fwdCtx,
-		cancel:    cancel,
-		userInfo:  userInfo,
-		startedAt: time.Now(),
+		requestedAddr: payload.BindAddr,
+		bindAddr:      bindAddr,
+		bindPort:      payload.BindPort,
+		listener:      listener,
+		ctx:           fwdCtx,
+		cancel:        cancel,
+		userInfo:      userInfo,
+		startedAt:     time.Now(),
 	}
 	if !m.activate(key, fwd) {
 		// The session ended while the listener was starting up.
@@ -268,8 +273,8 @@ func (m *reverseForwardManager) handleForward(req *ssh.Request) {
 		return
 	}
 
-	klog.Infof("reverse forward established, user: %s, pod: %s/%s, listen: %s",
-		userInfo.User, userInfo.Namespace, userInfo.Pod, key)
+	klog.Infof("reverse forward established, user: %s, pod: %s/%s, listen: %s, requested: %q",
+		userInfo.User, userInfo.Namespace, userInfo.Pod, key, payload.BindAddr)
 
 	if req.WantReply {
 		// RFC 4254: the reply carries a port only when the client asked the
@@ -405,7 +410,7 @@ func (m *reverseForwardManager) forget(fwd *reverseForward) {
 // bridge opens a forwarded-tcpip channel and copies bytes both ways.
 func (m *reverseForwardManager) bridge(fwd *reverseForward, pc podConn) {
 	payload := ssh.Marshal(forwardChannelData{
-		DestAddr:   fwd.bindAddr,
+		DestAddr:   channelBindAddr(fwd.requestedAddr),
 		DestPort:   fwd.bindPort,
 		OriginAddr: pc.OriginAddr(),
 		OriginPort: pc.OriginPort(),
@@ -446,6 +451,19 @@ func (m *reverseForwardManager) bridge(fwd *reverseForward, pc podConn) {
 	}()
 	_, _ = io.Copy(pc, ch)
 	finish()
+}
+
+// channelBindAddr is the address to name in a forwarded-tcpip channel. RFC 4254
+// calls it "address that was connected", and OpenSSH compares it against the string
+// it sent in tcpip-forward with strcmp - so it has to be echoed back as the client
+// spelled it, or the client refuses its own forward as administratively prohibited.
+// The one transformation OpenSSH applies to its own copy before comparing is
+// folding a wildcard to the empty string, so do the same.
+func channelBindAddr(requested string) string {
+	if requested == "*" {
+		return ""
+	}
+	return requested
 }
 
 // reject logs why a forward request failed and tells the client it failed.
