@@ -274,6 +274,7 @@ type fakePodExec struct {
 	// stdinEOF records that stdin ended cleanly. A stream torn down underneath the
 	// script is a different thing and must not look like one.
 	stdinEOF  bool
+	output    *acceptorOutput
 	started   chan struct{}
 	copied    chan struct{}
 	startOnce sync.Once
@@ -286,6 +287,13 @@ func newFakePodExec(script string, stdin bool) *fakePodExec {
 		started: make(chan struct{}),
 		copied:  make(chan struct{}),
 	}
+}
+
+// acceptorOutput overrides what a stubbed acceptor writes instead of reporting
+// itself ready: relay diagnostics, or a failure the pod side detected.
+type acceptorOutput struct {
+	stdout, stderr string
+	exitErr        error
 }
 
 func (f *fakePodExec) Stream(opts remotecommand.StreamOptions) error {
@@ -306,7 +314,19 @@ func (f *fakePodExec) StreamWithContext(ctx context.Context, opts remotecommand.
 		return err
 	}
 
-	_, _ = io.WriteString(opts.Stdout, rfwdReadyMarker+"\n")
+	if f.output != nil {
+		if f.output.stdout != "" {
+			_, _ = io.WriteString(opts.Stdout, f.output.stdout+"\n")
+		}
+		if f.output.stderr != "" {
+			_, _ = io.WriteString(opts.Stderr, f.output.stderr+"\n")
+		}
+		if f.output.exitErr != nil {
+			return f.output.exitErr
+		}
+	} else {
+		_, _ = io.WriteString(opts.Stdout, rfwdReadyMarker+"\n")
+	}
 	go func() {
 		defer close(f.copied)
 		_, err := io.Copy(io.Discard, opts.Stdin)
@@ -348,12 +368,15 @@ func (f *fakePodExec) stdinEnded() bool {
 }
 
 // stubPodExec routes every relay script to a recorded fake for the test's duration.
-func stubPodExec(t *testing.T) *sync.Map {
+func stubPodExec(t *testing.T, output ...*acceptorOutput) *sync.Map {
 	t.Helper()
 	execs := &sync.Map{}
 	previous := newPodExecutor
 	newPodExecutor = func(_ *execPodListener, script string, stdin bool) (remotecommand.Executor, error) {
 		fake := newFakePodExec(script, stdin)
+		if len(output) > 0 && !strings.Contains(script, "UNIX-CONNECT") {
+			fake.output = output[0]
+		}
 		key := "connect"
 		if !strings.Contains(script, "UNIX-CONNECT") {
 			key = "acceptor"
@@ -611,5 +634,45 @@ func TestRelayLogWriter(t *testing.T) {
 		n, err := w.Write([]byte(chunk))
 		testifyassert.NoError(t, err)
 		testifyassert.Equal(t, len(chunk), n, "a short write would abort the exec stream")
+	}
+}
+
+// TestExecPodListenerReportsPodSideFailure pins the consumer of the error marker the
+// relay script emits. Without it a pod that cannot bind - no socat in the image, or
+// the port already taken - would leave the caller waiting out the readiness timeout
+// instead of being told what went wrong.
+func TestExecPodListenerReportsPodSideFailure(t *testing.T) {
+	stubPodExec(t, &acceptorOutput{stderr: rfwdErrMarker + " failed to listen on 127.0.0.1:10001"})
+
+	start := time.Now()
+	_, err := newExecPodListener(context.Background(),
+		&UserInfo{Namespace: "ns", Pod: "pod-0", Container: "main"}, nil, "127.0.0.1", 10001)
+	testifyassert.Error(t, err)
+	testifyassert.Contains(t, err.Error(), "failed to listen on 127.0.0.1:10001")
+	testifyassert.Less(t, time.Since(start), listenerReadyTimeout,
+		"the failure must be reported, not waited out")
+}
+
+// TestExecPodListenerReportsRelayExit covers the other way a listener never comes up:
+// the exec stream ends before the relay reports itself ready.
+func TestExecPodListenerReportsRelayExit(t *testing.T) {
+	stubPodExec(t, &acceptorOutput{exitErr: errSSH("container terminated")})
+
+	_, err := newExecPodListener(context.Background(),
+		&UserInfo{Namespace: "ns", Pod: "pod-0", Container: "main"}, nil, "127.0.0.1", 10001)
+	testifyassert.Error(t, err)
+	testifyassert.Contains(t, err.Error(), "container terminated")
+}
+
+// TestExecPodListenerIgnoresRelayChatter verifies ordinary relay output is logged and
+// dropped rather than mistaken for a marker.
+func TestExecPodListenerIgnoresRelayChatter(t *testing.T) {
+	stubPodExec(t, &acceptorOutput{stderr: "socat: W address is opened in read-write mode", stdout: rfwdReadyMarker})
+
+	listener, err := newExecPodListener(context.Background(),
+		&UserInfo{Namespace: "ns", Pod: "pod-0", Container: "main"}, nil, "127.0.0.1", 10001)
+	testifyassert.NoError(t, err)
+	if err == nil {
+		testifyassert.NoError(t, listener.Close())
 	}
 }

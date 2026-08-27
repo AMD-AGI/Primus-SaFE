@@ -184,6 +184,9 @@ func TestParseConnAnnouncement(t *testing.T) {
 		"SAFE-RFWD-CONN 42;rm 127.0.0.1 51234",
 		"SAFE-RFWD-CONN 4242 127.0.0.1 notaport",
 		"SAFE-RFWD-CONN 4242 127.0.0.1 70000",
+		// An overlong id would still be digits-only, so the length bound is what
+		// keeps it from becoming an unbounded path component.
+		"SAFE-RFWD-CONN 123456789012345678901234567890123 127.0.0.1 51234",
 		"SAFE-RFWD-READY",
 	} {
 		_, ok := parseConnAnnouncement(line)
