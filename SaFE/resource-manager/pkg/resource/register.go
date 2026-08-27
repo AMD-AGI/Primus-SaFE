@@ -8,6 +8,7 @@ package resource
 import (
 	"context"
 	"fmt"
+	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"time"
 
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/opensearch"
@@ -22,7 +23,7 @@ var (
 		// Long enough that a target busy with another node action, or a resource-manager
 		// restart, does not cut a migration short; short enough that a node released for a
 		// migration nobody can complete comes back into service the same day.
-		migrateTimeout: 30 * time.Minute,
+		migrateTimeout: v1.DefaultNodeMigrateTimeout,
 	}
 	defaultFaultOption = FaultReconcilerOption{
 		maxRetryCount: 30,

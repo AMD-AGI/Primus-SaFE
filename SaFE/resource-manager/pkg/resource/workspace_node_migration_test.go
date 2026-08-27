@@ -19,6 +19,7 @@ import (
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
@@ -26,6 +27,7 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/apis/pkg/client/clientset/versioned/scheme"
 	commonclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/k8sclient"
 	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
+	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/sets"
 )
 
 // markMigrating puts a node in the state the source workspace leaves it in: released, and
@@ -217,9 +219,10 @@ func TestProcessNodesActionMigrateHandsOverToTheTarget(t *testing.T) {
 
 	result, isUpdated, err := m.reconciler.processNodesAction(context.Background(), m.source)
 	assert.NilError(t, err)
-	assert.Equal(t, isUpdated, true)
-	// Nothing else wakes the source while the node sits waiting, so the requeue is what
-	// carries the handover forward.
+	// Not "updated": a crossing can last as long as the timeout allows when the handover
+	// cannot land, and the workspace still has to be synced and scaled in the meantime.
+	assert.Equal(t, isUpdated, false)
+	// A busy target changes nothing about the node, so no event brings us back to ask again.
 	assert.Assert(t, result.RequeueAfter > 0)
 
 	m.reload(t)
@@ -242,7 +245,7 @@ func TestProcessNodesActionMigrateWaitsForABusyTarget(t *testing.T) {
 
 	result, isUpdated, err := m.reconciler.processNodesAction(context.Background(), m.source)
 	assert.NilError(t, err)
-	assert.Equal(t, isUpdated, true)
+	assert.Equal(t, isUpdated, false)
 	assert.Assert(t, result.RequeueAfter > 0)
 
 	m.reload(t)
@@ -428,4 +431,100 @@ func sliceHas(items []string, want string) bool {
 		}
 	}
 	return false
+}
+
+// A node that ends up in a third workspace is not ours to hand over. Going on would have the
+// source asking the target to take someone else's node, once a pass until the timeout, while
+// holding its own action slot for the whole of it.
+func TestProcessNodesActionMigrateGivesUpOnANodeBoundElsewhere(t *testing.T) {
+	m := newMigration(t, time.Hour, func(node *v1.Node, source, target *v1.Workspace) {
+		markMigrating(node, source.Name, target.Name)
+		node.Spec.Workspace = ptr.To("ws-somewhere-else")
+	})
+
+	_, isUpdated, err := m.reconciler.processNodesAction(context.Background(), m.source)
+	assert.NilError(t, err)
+	assert.Equal(t, isUpdated, false)
+
+	m.reload(t)
+	assert.Equal(t, v1.GetWorkspaceNodesAction(m.source), "")
+	assert.Equal(t, v1.GetWorkspaceNodesAction(m.target), "")
+	assert.Assert(t, v1.GetNodeMigrateInfo(m.node) == nil)
+}
+
+// A release that has to be retried keeps the clock it started with, so a release that keeps
+// failing still ages out instead of holding the action slot indefinitely.
+func TestClassifyMigrationKeepsTheOriginalStartTime(t *testing.T) {
+	m := newMigration(t, time.Hour, boundToSource)
+	// Truncated: the annotation is JSON, and metav1.Time round-trips at second precision.
+	started := &metav1.Time{Time: time.Now().UTC().Add(-20 * time.Minute).Truncate(time.Second)}
+	v1.SetNodeMigrateInfo(m.node, &v1.NodeMigrateInfo{
+		From: m.source.Name, Target: m.target.Name, StartTime: started,
+	})
+
+	state, info := m.reconciler.classifyMigration(m.node, m.source.Name, m.target.Name)
+	assert.Equal(t, state, migrationRelease)
+	assert.Assert(t, info.StartTime != nil)
+	assert.Equal(t, info.StartTime.Time.Equal(started.Time), true,
+		"the retry re-stamped the clock instead of keeping it")
+}
+
+// The expectations gate waits on bindings observed through node labels, which come from the
+// data plane. A migration held behind it would never be carried on and never time out, so the
+// node would stay released and reserved with nothing driving it.
+func TestProcessWorkspaceCarriesAMigrationWithExpectationsOutstanding(t *testing.T) {
+	m := newMigration(t, time.Hour, func(node *v1.Node, source, target *v1.Workspace) {
+		markMigrating(node, source.Name, target.Name)
+	})
+	// Something the data plane has not reported back on yet.
+	m.reconciler.setExpectations(m.source.Name, sets.NewSetByKeys("some-other-node"))
+	assert.Equal(t, m.reconciler.meetExpectations(m.source.Name), false)
+
+	_, _, err := m.reconciler.processNodesAction(context.Background(), m.source)
+	assert.NilError(t, err)
+
+	m.reload(t)
+	actions, err := parseWorkspaceNodesAction(t, m.target)
+	assert.NilError(t, err)
+	assert.Equal(t, actions[m.node.Name], v1.NodeActionAdd,
+		"the handover did not happen while an unrelated expectation was outstanding")
+}
+
+// Once the finalizer is gone there is no workspace left to carry the migration or to give up
+// on it, so a node this workspace released has to be let go on the way out. Nothing else
+// would ever clear the reservation.
+func TestDeleteWorkspaceReleasesTheNodesItWasMigrating(t *testing.T) {
+	m := newMigration(t, time.Hour, func(node *v1.Node, source, target *v1.Workspace) {
+		markMigrating(node, source.Name, target.Name)
+	})
+	controllerutil.AddFinalizer(m.source, v1.WorkspaceFinalizer)
+	assert.NilError(t, m.client.Update(context.Background(), m.source))
+
+	assert.NilError(t, m.reconciler.delete(context.Background(), m.source))
+
+	assert.NilError(t, m.client.Get(context.Background(), client.ObjectKey{Name: m.node.Name}, m.node))
+	assert.Assert(t, v1.GetNodeMigrateInfo(m.node) == nil,
+		"the reservation outlived the workspace that was driving it")
+}
+
+// Guessing is the one thing not to do with an action this does not understand: falling
+// through to the add branch binds the node with none of the replica accounting a real add is
+// admitted with.
+func TestProcessNodesActionIgnoresAnUnknownAction(t *testing.T) {
+	nodeFlavor := genMockNodeFlavor()
+	workspace := genMockWorkspace("cluster", nodeFlavor.Name, 1)
+	node := genMockAdminNode("node1", "cluster", nodeFlavor)
+	node.Status.ClusterStatus.Phase = v1.NodeManaged
+	metav1.SetMetaDataAnnotation(&workspace.ObjectMeta, v1.WorkspaceNodesAction,
+		string(jsonutils.MarshalSilently(map[string]string{node.Name: "migrate:"})))
+
+	adminClient := fake.NewClientBuilder().WithObjects(node, workspace).
+		WithStatusSubresource(workspace).WithScheme(scheme.Scheme).Build()
+	r := newMockWorkspaceReconciler(adminClient)
+
+	_, _, err := r.processNodesAction(context.Background(), workspace)
+	assert.NilError(t, err)
+
+	assert.NilError(t, adminClient.Get(context.Background(), client.ObjectKey{Name: node.Name}, node))
+	assert.Equal(t, node.GetSpecWorkspace(), "", "a malformed action claimed the node")
 }
