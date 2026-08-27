@@ -258,6 +258,18 @@ func (m *WorkspaceMutator) mutateNodesAction(ctx context.Context, oldWorkspace, 
 			klog.ErrorS(err, "failed to get node")
 			return commonerrors.NewNotFound(v1.NodeKind, key)
 		}
+		// Add only, and ahead of the cluster check, for the reasons validateNodesAction spells
+		// out: an unmanaged node has no cluster label yet, so the check below would turn it
+		// away reporting a cluster mismatch that does not exist.
+		//
+		// Turned down here rather than left to the validator for the reason the bound-node
+		// check further down gives: everything past this point moves Spec.Replica, and an
+		// entry that cannot succeed must not move it.
+		if val == v1.NodeActionAdd && !n.IsManaged() {
+			return commonerrors.NewResourceProcessing(fmt.Sprintf(
+				"the node(%s) is not managed yet(phase %q, cluster %q). it can't be added",
+				key, n.Status.ClusterStatus.Phase, v1.GetClusterId(n)))
+		}
 		if v1.GetClusterId(n) != newWorkspace.Spec.Cluster {
 			err = fmt.Errorf("the cluster(%s) of the operation and the workspace's"+
 				" cluster do not match", v1.GetClusterId(n))
@@ -277,7 +289,8 @@ func (m *WorkspaceMutator) mutateNodesAction(ctx context.Context, oldWorkspace, 
 			// Same wording as validateNodesAction on purpose: one condition, one message,
 			// whichever webhook reaches it first.
 			if bound := n.GetSpecWorkspace(); bound != "" {
-				return fmt.Errorf("the node(%s) is bound for %s. it can't be added", key, bound)
+				return commonerrors.NewConflict(fmt.Sprintf(
+					"the node(%s) is bound for %s. it can't be added", key, bound))
 			}
 		} else if val == v1.NodeActionRemove {
 			if n.GetSpecWorkspace() == "" {
@@ -287,8 +300,9 @@ func (m *WorkspaceMutator) mutateNodesAction(ctx context.Context, oldWorkspace, 
 			// through: releasing a node that belongs to someone else decrements a replica
 			// count that was never counting it.
 			if n.GetSpecWorkspace() != newWorkspace.Name {
-				return fmt.Errorf("the node(%s) belongs to workspace(%s). it can't be removed",
-					key, n.GetSpecWorkspace())
+				return commonerrors.NewConflict(fmt.Sprintf(
+					"the node(%s) belongs to workspace(%s). it can't be removed",
+					key, n.GetSpecWorkspace()))
 			}
 		} else {
 			continue
@@ -606,7 +620,12 @@ func (v *WorkspaceValidator) validateOnUpdate(ctx context.Context, newWorkspace,
 	if err := v.validateCommon(ctx, newWorkspace, oldWorkspace); err != nil {
 		return err
 	}
-	if err := v.validateNodesAction(ctx, newWorkspace, oldWorkspace); err != nil {
+	// Decided once and handed to both consumers. Two evaluations of the same predicate over
+	// the same pair of objects cannot disagree today, but the property that keeps them
+	// agreeing is that nothing in between writes what it reads -- and that is an invariant
+	// about the whole validate path, which is harder to keep than a single local.
+	isWithdrawal := isNodesActionWithdrawal(oldWorkspace, newWorkspace)
+	if err := v.validateNodesAction(ctx, newWorkspace, oldWorkspace, isWithdrawal); err != nil {
 		return err
 	}
 	if err := v.validateVolumeRemoved(ctx, newWorkspace, oldWorkspace); err != nil {
@@ -617,7 +636,7 @@ func (v *WorkspaceValidator) validateOnUpdate(ctx context.Context, newWorkspace,
 	// using; the count being given back here was added moments ago for a bind that never
 	// happened, so there is no node under it for anything to be running on. Left in the path
 	// it would reject every withdrawal on a workload-sourced workspace and strand the request.
-	if !isNodesActionWithdrawal(oldWorkspace, newWorkspace) {
+	if !isWithdrawal {
 		if err := v.validateScaleDown(ctx, newWorkspace, oldWorkspace); err != nil {
 			return err
 		}
@@ -812,7 +831,8 @@ func (v *WorkspaceValidator) validateVolumeRemoved(ctx context.Context, newWorks
 
 // validateNodesAction validates node operations ensuring nodes belong to the same cluster.
 // It also checks if nodes being bound or unbound have the correct workspace assignment.
-func (v *WorkspaceValidator) validateNodesAction(ctx context.Context, newWorkspace, oldWorkspace *v1.Workspace) error {
+func (v *WorkspaceValidator) validateNodesAction(ctx context.Context, newWorkspace,
+	oldWorkspace *v1.Workspace, isWithdrawal bool) error {
 	oldActions, _ := parseNodesAction(oldWorkspace)
 	newActions, err := parseNodesAction(newWorkspace)
 	if err != nil {
@@ -820,7 +840,8 @@ func (v *WorkspaceValidator) validateNodesAction(ctx context.Context, newWorkspa
 	}
 	// The controller taking entries back out of a request it cannot carry out. Judging it
 	// against the in-flight check below would reject the one write that ends the request.
-	if isNodesActionWithdrawal(oldWorkspace, newWorkspace) {
+	// Decided by the caller so the same answer reaches validateScaleDown -- see validateOnUpdate.
+	if isWithdrawal {
 		return nil
 	}
 	if len(oldActions) > 0 && len(newActions) > 0 && !maps.EqualIgnoreOrder(oldActions, newActions) {
@@ -862,13 +883,15 @@ func (v *WorkspaceValidator) validateNodesAction(ctx context.Context, newWorkspa
 			return fmt.Errorf("the node %s and workspace %s are not in the same cluster", n.Name, newWorkspace.Name)
 		}
 		if val == v1.NodeActionAdd {
-			if n.GetSpecWorkspace() != "" {
-				return fmt.Errorf("the node(%s) is bound for %s. it can't be added", key, n.GetSpecWorkspace())
+			if bound := n.GetSpecWorkspace(); bound != "" {
+				return commonerrors.NewConflict(fmt.Sprintf(
+					"the node(%s) is bound for %s. it can't be added", key, bound))
 			}
 		} else if val == v1.NodeActionRemove {
 			if n.GetSpecWorkspace() != newWorkspace.Name {
-				return fmt.Errorf("the node(%s) belongs to workspace(%s). it can't be removed",
-					key, n.GetSpecWorkspace())
+				return commonerrors.NewConflict(fmt.Sprintf(
+					"the node(%s) belongs to workspace(%s). it can't be removed",
+					key, n.GetSpecWorkspace()))
 			}
 			toRemoveNodes = append(toRemoveNodes, key)
 		}

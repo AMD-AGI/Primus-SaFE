@@ -90,6 +90,31 @@ func FilterDeletingNode(n v1.Node) bool {
 	return false
 }
 
+// FilterUnclaimedNode returns a node filter that keeps only the nodes the named workspace
+// actually holds, on top of the deleting-node filter.
+//
+// A workspace's nodes are listed by WorkspaceIdLabel because that is what the admin plane
+// indexes on, but the label is a mirror of the data plane and lags Node.Spec.Workspace by a
+// whole round trip -- admin spec.workspace, then updateK8sNodeWorkspace writes the k8s Node
+// label, then syncK8sMetadata mirrors it back onto the admin Node. The claim is the
+// authoritative half, and it is the same field WorkspaceReconciler.judgeNodeBinding decides an
+// unbind on.
+//
+// Every caller that has to agree with another caller about "which nodes does this workspace
+// have" needs this filter, not the label alone. Two of them do, and they have to agree with
+// each other: syncWorkspace, which turns the list into CurrentReplica, and
+// GetIdleNodesOfWorkspace, which turns it into scale-down candidates. Counting on the label
+// while choosing on the claim is not a smaller version of the same bug -- it is a worse one,
+// because the arithmetic then asks for more nodes than the candidate list can honestly offer.
+func FilterUnclaimedNode(workspace string) func(v1.Node) bool {
+	return func(n v1.Node) bool {
+		if FilterDeletingNode(n) {
+			return true
+		}
+		return n.GetSpecWorkspace() != workspace
+	}
+}
+
 // IsPodRunning returns true if the pod is running
 func IsPodRunning(p corev1.Pod) bool {
 	return corev1.PodSucceeded != p.Status.Phase &&
@@ -180,18 +205,10 @@ func GetNodesForScalingDown(ctx context.Context, cli client.Client, workspace st
 
 // GetIdleNodesOfWorkspace retrieves idle nodes (nodes with no running workloads) in a workspace.
 //
-// "In a workspace" is answered twice on purpose. The List is by WorkspaceIdLabel because that
-// is what the admin plane indexes on, but the label is a mirror of the data plane and lags
-// behind spec.workspace by a whole round trip -- k8s Node label, then syncK8sMetadata. The
-// filter below is the authoritative half, and it is the same field
-// WorkspaceReconciler.judgeNodeBinding decides an unbind on.
-//
-// Selecting on the label alone made those two disagree for the length of the lag, and the
-// only consumer of this function is scale-down, where the disagreement costs real machines: a
-// node this workspace has already released -- or that another workspace has since taken --
-// still carries the label, gets offered as a scale-down candidate, and is then refused at the
-// write. The refusal is the good outcome. The bad one is that the candidate list is short by
-// one and a node the workspace genuinely holds and needs is released in its place.
+// "In a workspace" is answered by FilterUnclaimedNode, not by the label the List selects on --
+// see the note there. The only consumer of this function is scale-down, where a stale label
+// costs real machines: a node this workspace has already released, or that another workspace
+// has since taken, would otherwise be offered as a candidate and then refused at the write.
 func GetIdleNodesOfWorkspace(ctx context.Context, cli client.Client, name string) ([]v1.Node, error) {
 	labelSelector := labels.SelectorFromSet(map[string]string{v1.WorkspaceIdLabel: name})
 	workloadList := &v1.WorkloadList{}
@@ -222,12 +239,9 @@ func GetIdleNodesOfWorkspace(ctx context.Context, cli client.Client, name string
 			}
 		}
 	}
+	claimed := FilterUnclaimedNode(name)
 	filterFunc := func(n v1.Node) bool {
-		if FilterDeletingNode(n) {
-			return true
-		}
-		// The claim, not the label. See the note above the function.
-		if n.GetSpecWorkspace() != name {
+		if claimed(n) {
 			return true
 		}
 		return usedNodesSet.Has(n.Name)

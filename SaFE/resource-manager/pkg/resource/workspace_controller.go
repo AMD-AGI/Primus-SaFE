@@ -656,7 +656,15 @@ func (r *WorkspaceReconciler) syncWorkspace(ctx context.Context, workspace *v1.W
 		return err
 	}
 
-	nodes, err := commonnodes.GetNodesOfWorkspaces(ctx, r.Client, []string{workspace.Name}, commonnodes.FilterDeletingNode)
+	// The claim, not the label. Status.AvailableReplica and AbnormalReplica are what
+	// CurrentReplica adds up, and CurrentReplica is what the scaling switch below turns into a
+	// count of nodes to bind or release -- while the candidates for that count come from
+	// GetIdleNodesOfWorkspace, which answers on spec.workspace. Counting here on the label made
+	// the two disagree for the length of a binding's round trip, and the disagreement is not
+	// symmetric: an over-count asks scale-down for one node more than the workspace holds, and
+	// the extra one comes out of the machines it does hold.
+	nodes, err := commonnodes.GetNodesOfWorkspaces(ctx, r.Client, []string{workspace.Name},
+		commonnodes.FilterUnclaimedNode(workspace.Name))
 	if err != nil {
 		return err
 	}

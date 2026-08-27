@@ -1480,7 +1480,7 @@ func TestWorkspaceValidateNodesActionRemove(t *testing.T) {
 	v := &WorkspaceValidator{Client: k8sClient}
 	newWs := &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ws1"}, Spec: v1.WorkspaceSpec{Cluster: "cluster1"}}
 	v1.SetAnnotation(newWs, v1.WorkspaceNodesAction, `{"node1":"remove"}`)
-	assert.NilError(t, v.validateNodesAction(context.Background(), newWs, &v1.Workspace{}))
+	assert.NilError(t, v.validateNodesAction(context.Background(), newWs, &v1.Workspace{}, false))
 }
 
 // TestWorkspaceMutateNodesActionRemove covers node remove action mutation.

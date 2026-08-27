@@ -226,6 +226,9 @@ func TestWorkspaceMutateNodesAction(t *testing.T) {
 				v1.NodeFlavorIdLabel: "flavor1",
 			},
 		},
+		// Onboarded: the mutator turns an add of an unmanaged node away before it can move
+		// Spec.Replica, so a node this test expects to be addable has to be one.
+		Status: v1.NodeStatus{ClusterStatus: v1.NodeClusterStatus{Phase: v1.NodeManaged}},
 	}
 	k8sClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(node).Build()
 	m := &WorkspaceMutator{Client: k8sClient}
@@ -243,7 +246,7 @@ func TestWorkspaceMutateNodesAction(t *testing.T) {
 func TestWorkspaceValidateNodesAction(t *testing.T) {
 	scheme := newScheme(t)
 	v := &WorkspaceValidator{Client: fake.NewClientBuilder().WithScheme(scheme).Build()}
-	assert.NilError(t, v.validateNodesAction(context.Background(), &v1.Workspace{}, &v1.Workspace{}))
+	assert.NilError(t, v.validateNodesAction(context.Background(), &v1.Workspace{}, &v1.Workspace{}, false))
 }
 
 // TestWorkspaceValidateScaleDown verifies scale-down validation no-op.
@@ -597,14 +600,14 @@ func TestWorkspaceValidateNodesActionErrors(t *testing.T) {
 	v1v := &WorkspaceValidator{Client: c1}
 	ws := &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ws1"}, Spec: v1.WorkspaceSpec{Cluster: "cluster1"}}
 	v1.SetAnnotation(ws, v1.WorkspaceNodesAction, `{"n1":"add"}`)
-	assert.Assert(t, v1v.validateNodesAction(context.Background(), ws, &v1.Workspace{}) != nil)
+	assert.Assert(t, v1v.validateNodesAction(context.Background(), ws, &v1.Workspace{}, false) != nil)
 
 	// node not found
 	c2 := fake.NewClientBuilder().WithScheme(scheme).Build()
 	v2 := &WorkspaceValidator{Client: c2}
 	ws2 := &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ws1"}, Spec: v1.WorkspaceSpec{Cluster: "cluster1"}}
 	v1.SetAnnotation(ws2, v1.WorkspaceNodesAction, `{"missing":"add"}`)
-	assert.Assert(t, v2.validateNodesAction(context.Background(), ws2, &v1.Workspace{}) != nil)
+	assert.Assert(t, v2.validateNodesAction(context.Background(), ws2, &v1.Workspace{}, false) != nil)
 
 	// cluster mismatch
 	wrongCluster := &v1.Node{
@@ -615,7 +618,7 @@ func TestWorkspaceValidateNodesActionErrors(t *testing.T) {
 	v3 := &WorkspaceValidator{Client: c3}
 	ws3 := &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ws1"}, Spec: v1.WorkspaceSpec{Cluster: "cluster1"}}
 	v1.SetAnnotation(ws3, v1.WorkspaceNodesAction, `{"n2":"add"}`)
-	assert.Assert(t, v3.validateNodesAction(context.Background(), ws3, &v1.Workspace{}) != nil)
+	assert.Assert(t, v3.validateNodesAction(context.Background(), ws3, &v1.Workspace{}, false) != nil)
 }
 
 // A node that has not finished onboarding cannot be handed to a workspace, and admission is
@@ -632,7 +635,7 @@ func TestWorkspaceValidateNodesActionRefusesAnUnmanagedNode(t *testing.T) {
 	ws := &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ws1"}, Spec: v1.WorkspaceSpec{Cluster: "cluster1"}}
 	v1.SetAnnotation(ws, v1.WorkspaceNodesAction, `{"n1":"add"}`)
 
-	err := v.validateNodesAction(context.Background(), ws, &v1.Workspace{})
+	err := v.validateNodesAction(context.Background(), ws, &v1.Workspace{}, false)
 	assert.Assert(t, err != nil)
 	assert.Assert(t, strings.Contains(err.Error(), "not managed yet"), err.Error())
 	assert.Assert(t, apierrors.IsConflict(err), err.Error())
@@ -647,7 +650,7 @@ func TestWorkspaceValidateNodesActionRefusesAnUnmanagedNode(t *testing.T) {
 	v2 := &WorkspaceValidator{Client: fake.NewClientBuilder().WithScheme(scheme).WithObjects(lost).Build()}
 	ws2 := &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ws1"}, Spec: v1.WorkspaceSpec{Cluster: "cluster1"}}
 	v1.SetAnnotation(ws2, v1.WorkspaceNodesAction, `{"n2":"remove"}`)
-	assert.NilError(t, v2.validateNodesAction(context.Background(), ws2, &v1.Workspace{}))
+	assert.NilError(t, v2.validateNodesAction(context.Background(), ws2, &v1.Workspace{}, false))
 }
 
 // Once a request has been accepted, every later update to the Workspace carries the same
@@ -669,10 +672,10 @@ func TestWorkspaceValidateNodesActionSkipsAnUnchangedRequest(t *testing.T) {
 	newWs := oldWs.DeepCopy()
 	newWs.Spec.Replica = 3
 
-	assert.NilError(t, v.validateNodesAction(context.Background(), newWs, oldWs))
+	assert.NilError(t, v.validateNodesAction(context.Background(), newWs, oldWs, false))
 
 	// The same annotation arriving for the first time is still judged.
-	assert.Assert(t, v.validateNodesAction(context.Background(), newWs, &v1.Workspace{}) != nil)
+	assert.Assert(t, v.validateNodesAction(context.Background(), newWs, &v1.Workspace{}, false) != nil)
 }
 
 // requestingWorkspace is a workspace with a nodes-action request in flight. The flavor and the
@@ -783,13 +786,20 @@ func TestWorkspaceValidateNodesActionAllowsAWithdrawal(t *testing.T) {
 	v1.SetAnnotation(newWs, v1.WorkspaceNodesAction, `{"n2":"add"}`)
 	v1.SetAnnotation(newWs, v1.WorkspaceNodesActionError, "n1: it is already bound to ws-other")
 
-	assert.NilError(t, v.validateNodesAction(context.Background(), newWs, oldWs))
+	// The real predicate, not a hand-passed flag: validateOnUpdate is what decides this, and a
+	// test that asserted the exemption while asserting nothing about what triggers it would
+	// pass just as happily for a shape that is not a withdrawal at all.
+	assert.Assert(t, isNodesActionWithdrawal(oldWs, newWs), "the shape is a withdrawal")
+	assert.NilError(t, v.validateNodesAction(context.Background(), newWs, oldWs,
+		isNodesActionWithdrawal(oldWs, newWs)))
 
 	// The same shrinking request without a reason on it is somebody editing a request that is
 	// already being worked on, and is still turned away.
 	edited := oldWs.DeepCopy()
 	v1.SetAnnotation(edited, v1.WorkspaceNodesAction, `{"n2":"add"}`)
-	assert.Assert(t, v.validateNodesAction(context.Background(), edited, oldWs) != nil)
+	assert.Assert(t, !isNodesActionWithdrawal(oldWs, edited))
+	assert.Assert(t, v.validateNodesAction(context.Background(), edited, oldWs,
+		isNodesActionWithdrawal(oldWs, edited)) != nil)
 }
 
 // admit runs the two webhooks the way the API server does: mutating first, and validating
@@ -936,7 +946,7 @@ func TestWorkspaceMutateNodesActionClearsTheReasonOnlyForANewRequest(t *testing.
 	scheme := newScheme(t)
 	node := &v1.Node{ObjectMeta: metav1.ObjectMeta{Name: "n9", Labels: map[string]string{
 		v1.NodeFlavorIdLabel: "flavor", v1.ClusterIdLabel: "cluster1",
-	}}}
+	}}, Status: v1.NodeStatus{ClusterStatus: v1.NodeClusterStatus{Phase: v1.NodeManaged}}}
 	flavor := &v1.NodeFlavor{ObjectMeta: metav1.ObjectMeta{Name: "flavor"}}
 	m := &WorkspaceMutator{Client: fake.NewClientBuilder().WithScheme(scheme).
 		WithObjects(node, flavor).Build()}
@@ -1051,7 +1061,7 @@ func TestWorkspaceValidateNodesActionProcessing(t *testing.T) {
 	v1.SetAnnotation(oldWs, v1.WorkspaceNodesAction, `{"n1":"add"}`)
 	newWs := &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ws1"}, Spec: v1.WorkspaceSpec{Cluster: "cluster1"}}
 	v1.SetAnnotation(newWs, v1.WorkspaceNodesAction, `{"n2":"add"}`)
-	assert.Assert(t, v.validateNodesAction(context.Background(), newWs, oldWs) != nil)
+	assert.Assert(t, v.validateNodesAction(context.Background(), newWs, oldWs, false) != nil)
 }
 
 // TestWorkspaceValidatorHandleBranches covers validator decode/deletion/update branches.
@@ -1077,7 +1087,8 @@ func TestWorkspaceMutatorHandleUpdateNodesAction(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Name: "n1", Labels: map[string]string{
 			v1.ClusterIdLabel: "cluster1", v1.NodeFlavorIdLabel: "flavor1",
 		}},
-		Spec: v1.NodeSpec{Workspace: pointer.String("")},
+		Spec:   v1.NodeSpec{Workspace: pointer.String("")},
+		Status: v1.NodeStatus{ClusterStatus: v1.NodeClusterStatus{Phase: v1.NodeManaged}},
 	}
 	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(node).Build()
 	m := &WorkspaceMutator{Client: c, decoder: newDecoder(t)}

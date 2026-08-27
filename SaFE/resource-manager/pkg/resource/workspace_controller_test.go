@@ -21,6 +21,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	k8sfake "k8s.io/client-go/kubernetes/fake"
+	"k8s.io/utils/pointer"
 	"k8s.io/utils/ptr"
 	ctrlruntime "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -82,8 +83,12 @@ func TestDeleteWorkspace(t *testing.T) {
 	workspace := genMockWorkspace(clusterName, nodeFlavor.Name, 1)
 	adminNode1.Spec.Workspace = ptr.To(workspace.Name)
 	metav1.SetMetaDataLabel(&adminNode1.ObjectMeta, v1.WorkspaceIdLabel, workspace.Name)
+	// The claim as well as the label: that is the pair a settled binding leaves behind,
+	// and syncWorkspace counts on the claim.
+	adminNode1.Spec.Workspace = pointer.String(workspace.Name)
 	adminNode2.Spec.Workspace = ptr.To(workspace.Name)
 	metav1.SetMetaDataLabel(&adminNode2.ObjectMeta, v1.WorkspaceIdLabel, workspace.Name)
+	adminNode2.Spec.Workspace = pointer.String(workspace.Name)
 	adminClient := fake.NewClientBuilder().WithObjects(workspace, adminNode1, adminNode2).
 		WithStatusSubresource(workspace).WithScheme(scheme.Scheme).Build()
 
@@ -127,9 +132,11 @@ func TestReconcile(t *testing.T) {
 	workspace.Status.Phase = v1.WorkspaceAbnormal
 	adminNode1 := genMockAdminNode("node1", clusterName, nodeFlavor)
 	metav1.SetMetaDataLabel(&adminNode1.ObjectMeta, v1.WorkspaceIdLabel, workspace.Name)
+	adminNode1.Spec.Workspace = pointer.String(workspace.Name)
 	adminNode2 := genMockAdminNode("node2", clusterName, nodeFlavor)
 	adminNode2.Status.Unschedulable = true
 	metav1.SetMetaDataLabel(&adminNode2.ObjectMeta, v1.WorkspaceIdLabel, workspace.Name)
+	adminNode2.Spec.Workspace = pointer.String(workspace.Name)
 
 	testScheme := scheme.Scheme
 	_ = corev1.AddToScheme(testScheme)
@@ -192,8 +199,10 @@ func TestScaleDownWorkspace(t *testing.T) {
 	workspace := genMockWorkspace(clusterName, nodeFlavor.Name, 1)
 	adminNode1.Spec.Workspace = ptr.To(workspace.Name)
 	metav1.SetMetaDataLabel(&adminNode1.ObjectMeta, v1.WorkspaceIdLabel, workspace.Name)
+	adminNode1.Spec.Workspace = pointer.String(workspace.Name)
 	adminNode2.Spec.Workspace = ptr.To(workspace.Name)
 	metav1.SetMetaDataLabel(&adminNode2.ObjectMeta, v1.WorkspaceIdLabel, workspace.Name)
+	adminNode2.Spec.Workspace = pointer.String(workspace.Name)
 	adminClient := fake.NewClientBuilder().WithObjects(adminNode1, adminNode2, workspace).
 		WithStatusSubresource(workspace).WithScheme(scheme.Scheme).Build()
 
@@ -215,6 +224,7 @@ func TestWorkspaceNodesAction(t *testing.T) {
 	adminNode1 := genMockAdminNode("node1", clusterName, nodeFlavor)
 	adminNode1.Spec.Workspace = ptr.To(workspace.Name)
 	metav1.SetMetaDataLabel(&adminNode1.ObjectMeta, v1.WorkspaceIdLabel, workspace.Name)
+	adminNode1.Spec.Workspace = pointer.String(workspace.Name)
 	adminNode2 := genMockAdminNode("node2", clusterName, nodeFlavor)
 	actions := map[string]string{
 		adminNode1.Name: v1.NodeActionRemove,
@@ -252,6 +262,7 @@ func TestSyncWorkspace(t *testing.T) {
 	workspace := genMockWorkspace(clusterName, nodeFlavor.Name, 1)
 	adminNode1 := genMockAdminNode("node1", clusterName, nodeFlavor)
 	metav1.SetMetaDataLabel(&adminNode1.ObjectMeta, v1.WorkspaceIdLabel, workspace.Name)
+	adminNode1.Spec.Workspace = pointer.String(workspace.Name)
 	adminNode1.Status.Resources = corev1.ResourceList{
 		corev1.ResourceCPU:    resource.MustParse("8"),
 		corev1.ResourceMemory: resource.MustParse("16Gi"),
@@ -263,6 +274,7 @@ func TestSyncWorkspace(t *testing.T) {
 	}
 	adminNode2.Status.Unschedulable = true
 	metav1.SetMetaDataLabel(&adminNode2.ObjectMeta, v1.WorkspaceIdLabel, workspace.Name)
+	adminNode2.Spec.Workspace = pointer.String(workspace.Name)
 
 	adminClient := fake.NewClientBuilder().WithObjects(adminNode1, adminNode2, workspace, nodeFlavor).
 		WithStatusSubresource(workspace).WithScheme(scheme.Scheme).Build()
@@ -896,7 +908,12 @@ func newWorkspaceReconcilerFull(t *testing.T, cs *k8sfake.Clientset, objs ...ctr
 		ClusterBaseReconciler: &ClusterBaseReconciler{Client: cl, clientSet: cs},
 		clientManager:         mgr,
 		expectations:          map[string]sets.Set{},
-		option:                &WorkspaceReconcilerOption{},
+		// The same client twice, as newMockWorkspaceReconciler does. In production apiReader is
+		// mgr.GetAPIReader() and reads straight from the API server; the fake client has no
+		// cache, so one object serves as both. Leaving it nil is what a nil dereference in
+		// updateSingleNodeBinding looks like from here -- a panic in the fixture, not the bug.
+		apiReader: cl,
+		option:    &WorkspaceReconcilerOption{},
 	}
 }
 

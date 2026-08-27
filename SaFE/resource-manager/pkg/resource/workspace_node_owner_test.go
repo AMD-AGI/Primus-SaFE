@@ -889,3 +889,44 @@ func TestProcessWorkspaceScalesInTheSamePassAsAWithdrawal(t *testing.T) {
 	// this at all is the point -- it is the work the request was standing in front of.
 	assert.Equal(t, result.RequeueAfter, r.option.nodeWait)
 }
+
+// A node's WorkspaceIdLabel is a mirror of spec.workspace and lags it by a whole round trip, so
+// for the length of that lag a workspace is labelled on nodes it no longer holds. syncWorkspace
+// is what turns "which nodes" into CurrentReplica, and CurrentReplica is what the scaling switch
+// subtracts the target from to get a count of machines to release -- while the candidates for
+// that count come from GetIdleNodesOfWorkspace, which answers on the claim.
+//
+// Counting one way and choosing the other is not a rounding error, it is an over-release with a
+// specific victim: the arithmetic asks for one node more than the workspace holds, the candidate
+// list is short by exactly that one, and the shortfall is made up out of a machine the workspace
+// genuinely holds and is using. Deterministically, not as a race -- the stale entry is the one
+// the filter drops, so the good one is always what is left to take.
+func TestSyncWorkspaceCountsTheClaimNotTheLabel(t *testing.T) {
+	nodeFlavor := genMockNodeFlavor()
+	workspace := genMockWorkspace("cluster", nodeFlavor.Name, 1)
+	// Held outright.
+	held := ownedNode("held", workspace.Name)
+	held.Labels[v1.NodeFlavorIdLabel] = nodeFlavor.Name
+	// Still labelled for this workspace, but the claim has already moved to another one.
+	stale := ownedNode("stale", workspace.Name)
+	stale.Labels[v1.NodeFlavorIdLabel] = nodeFlavor.Name
+	stale.Spec.Workspace = pointer.String("ws-other")
+	cli := fake.NewClientBuilder().WithObjects(held, stale, workspace, nodeFlavor).
+		WithStatusSubresource(workspace).WithScheme(scheme.Scheme).Build()
+	r := newMockWorkspaceReconciler(cli)
+
+	assert.NilError(t, r.syncWorkspace(context.Background(), workspace))
+
+	stored := storedWorkspace(t, cli, workspace.Name)
+	// One, not two. Two would make CurrentReplica exceed the target and send the workspace
+	// into scale-down with nothing spare to give.
+	assert.Equal(t, stored.Status.AvailableReplica, 1)
+	assert.Equal(t, stored.CurrentReplica(), 1)
+
+	// Which is the same number GetIdleNodesOfWorkspace answers with. That the two agree is the
+	// whole property; asserting the count alone would not notice them drifting apart again.
+	idle, err := commonnodes.GetIdleNodesOfWorkspace(context.Background(), cli, workspace.Name)
+	assert.NilError(t, err)
+	assert.Equal(t, len(idle), stored.CurrentReplica())
+	assert.Equal(t, idle[0].Name, "held")
+}
