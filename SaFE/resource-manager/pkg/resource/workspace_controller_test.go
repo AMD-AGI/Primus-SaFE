@@ -99,18 +99,16 @@ func TestDeleteWorkspace(t *testing.T) {
 	assert.Equal(t, controllerutil.ContainsFinalizer(workspace, v1.WorkspaceFinalizer), true)
 
 	r := newMockWorkspaceReconciler(adminClient)
-	err = r.delete(context.Background(), workspace)
-	assert.NilError(t, err)
-	err = adminClient.Get(context.Background(), client.ObjectKey{Name: workspace.Name}, workspace)
-	assert.NilError(t, err)
-	assert.Equal(t, workspace.Status.Phase, v1.WorkspaceDeleting)
-	assert.Equal(t, controllerutil.ContainsFinalizer(workspace, v1.WorkspaceFinalizer), true)
-
-	r.observeNode(workspace.Name, adminNode1.Name)
-	r.observeNode(workspace.Name, adminNode2.Name)
+	// One pass. The claims are released here, and the finalizer goes with them: the labels
+	// have not made the round trip yet -- nothing in this test delivers the Node events that
+	// would settle them -- and a workspace on its way out has no further decision to make
+	// that waiting for them would protect.
 	err = r.delete(context.Background(), workspace)
 	assert.NilError(t, err)
 	assert.Equal(t, controllerutil.ContainsFinalizer(workspace, v1.WorkspaceFinalizer), false)
+	assert.Equal(t, workspace.Status.Phase, v1.WorkspaceDeleting)
+	// And nothing is left behind in the expectations map for a workspace that no longer exists.
+	assert.Equal(t, r.meetExpectations(workspace.Name), true)
 	err = adminClient.Get(context.Background(), client.ObjectKey{Name: adminNode1.Name}, adminNode1)
 	assert.NilError(t, err)
 	assert.Equal(t, adminNode1.GetSpecWorkspace(), "")

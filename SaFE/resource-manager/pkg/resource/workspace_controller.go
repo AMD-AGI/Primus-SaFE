@@ -324,11 +324,22 @@ func (r *WorkspaceReconciler) delete(ctx context.Context, workspace *v1.Workspac
 	if err = r.updateNodesBinding(ctx, workspace, nodes, buildTargetList(nodes, "")); err != nil {
 		return err
 	}
-	// Wait for all expected unbind operations to be observed before proceeding
-	if !r.meetExpectations(workspace.Name) {
-		klog.Infof("Workspace(%s) delete waiting for node unbinding to complete", workspace.Name)
-		return nil
-	}
+	// No wait for the label round trip here, unlike processWorkspace. An expectation exists to
+	// keep a workspace from acting on a node count that has not caught up with what it just
+	// bound or released; a workspace on its way out has no next decision to get wrong. What
+	// does have to be true before the finalizer comes off is that every claim is released, and
+	// that is what the call above returns an error for -- the label follows from the claim on
+	// the node's own reconcile, whether or not this Workspace still exists.
+	//
+	// Waiting was also wrong here in a way it is not there: the node list is rebuilt from the
+	// remaining claims on every pass, so it shrinks as unbinds land, and setExpectations
+	// replaces rather than merges. A node whose claim was cleared on an earlier pass dropped
+	// out of the set anyway.
+	//
+	// The entry still goes, so a workspace that had expectations outstanding when it was
+	// deleted does not leave them in the map for good. concurrent.Exec has joined its
+	// goroutines by now, so nothing is left to write the entry back; a late Node event finds
+	// no entry and settles nothing.
 	r.removeExpectations(workspace.Name)
 	if err = r.deleteDataPlaneResources(ctx, workspace); err != nil {
 		klog.ErrorS(err, "failed to delete data plane resources for workspace", "name", workspace.Name)

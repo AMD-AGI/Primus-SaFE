@@ -306,7 +306,7 @@ func TestUpdateSingleNodeBindingReadsIntoAFreshObject(t *testing.T) {
 // An expectation waits for the workspace label to make the round trip through the data plane,
 // and handleNodeEvent credits it only on a *change* of that label. A node whose label already
 // reads the target has nothing left to wait for, and waiting anyway wedges the workspace:
-// every later reconcile returns early on meetExpectations, including the one that deletes it.
+// every later reconcile returns early on meetExpectations and it never scales or syncs again.
 func TestUpdateNodesBindingSettlesWhenTheLabelAlreadyReadsTheTarget(t *testing.T) {
 	workspace := genMockWorkspace("cluster", "flavor", 1)
 	node := ownedNode("node1", "")
