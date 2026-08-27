@@ -503,3 +503,25 @@ func TestValidateMigrateTargetRefusesAWorkspaceBeingDeleted(t *testing.T) {
 		withNodesAction(source.DeepCopy(), map[string]string{"node1": v1.BuildMigrateAction("ws-b")}),
 		source) != nil)
 }
+
+// Which node decides an adopting target's flavor is settled before the batch is walked. Left
+// to whichever node is looked at while the flavor is still unset, a node carrying no flavor
+// leaves it unset for the next one to fill in, and a batch of mixed flavors goes through --
+// to be refused on arrival, one node at a time, after the source has let them all go.
+func TestValidateMigrateTargetRefusesAMixedBatchIncludingAFlavourlessNode(t *testing.T) {
+	scheme := newScheme(t)
+	flavourless := migrateNode("node1", migrateCluster, "", "ws-a")
+	delete(flavourless.Labels, v1.NodeFlavorIdLabel)
+	other := migrateNode("node2", migrateCluster, migrateFlavor, "ws-a")
+	adopting := migrateWorkspace("ws-b", migrateCluster, "", 0)
+	validator := &WorkspaceValidator{
+		Client: fake.NewClientBuilder().WithScheme(scheme).WithObjects(flavourless, other, adopting).Build(),
+	}
+	source := migrateWorkspace("ws-a", migrateCluster, migrateFlavor, 2)
+	action := map[string]string{
+		"node1": v1.BuildMigrateAction("ws-b"),
+		"node2": v1.BuildMigrateAction("ws-b"),
+	}
+	assert.Assert(t, validator.validateNodesAction(context.Background(),
+		withNodesAction(source.DeepCopy(), action), source) != nil)
+}

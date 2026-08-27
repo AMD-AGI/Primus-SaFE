@@ -889,13 +889,16 @@ func (v *WorkspaceValidator) validateMigrateTarget(ctx context.Context,
 	// A target with no flavor adopts the flavor of the first node added to it, so the batch
 	// has to agree on one -- otherwise the first node decides and the rest are refused on
 	// arrival, with the source workspace already having let them go.
+	//
+	// Which node decides is settled before the loop rather than by whichever one is looked at
+	// while the flavor is still unset. Deciding inside the loop lets a node with no flavor at
+	// all leave it unset for the next one to fill in, and a batch of mixed flavors passes.
 	flavor := targetWorkspace.Spec.NodeFlavor
+	if flavor == "" && len(nodes) > 0 {
+		flavor = v1.GetNodeFlavorId(nodes[0])
+	}
 	for _, node := range nodes {
 		nodeFlavor := v1.GetNodeFlavorId(node)
-		if flavor == "" {
-			flavor = nodeFlavor
-			continue
-		}
 		if nodeFlavor != flavor {
 			return fmt.Errorf("the flavor(%s) of node(%s) and the flavor(%s) of workspace(%s) do not match",
 				nodeFlavor, node.Name, flavor, target)
