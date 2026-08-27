@@ -482,11 +482,19 @@ func (r *WorkspaceReconciler) setExpectations(workspaceId string, nodeNames sets
 		left = &nodeExpectations{deadlines: make(map[string]time.Time)}
 		r.expectations[workspaceId] = left
 	}
-	deadline := time.Now().Add(expectationTimeout)
+	now := time.Now()
+	deadline := now.Add(expectationTimeout)
 	for nodeName := range nodeNames {
 		// Each node keeps the deadline it came in with; a later binding is not a reason to go
 		// on waiting for an earlier one.
-		if _, waiting := left.deadlines[nodeName]; !waiting {
+		//
+		// Unless that deadline has already passed. An entry is only removed when the node
+		// settles or when a prune reaches it, and neither is guaranteed to have happened by
+		// now -- so a lapsed entry can still be sitting here when the same node is bound
+		// again. Left as it was, the new binding inherits a deadline that expired before it
+		// started, the gate opens on it at once, and it opens on that node for every binding
+		// after this one too.
+		if existing, waiting := left.deadlines[nodeName]; !waiting || !now.Before(existing) {
 			left.deadlines[nodeName] = deadline
 		}
 	}
@@ -652,6 +660,10 @@ func (r *WorkspaceReconciler) processWorkspace(ctx context.Context, workspace *v
 	// re-reads every node it names and skips the ones already where they belong. Behind the
 	// gate, a migration stalled that way would never be carried on and never even time out,
 	// leaving the node released and reserved with nothing driving it.
+	// Ahead of the node action, not after it: that call returns early on the passes where it
+	// applied something, which are exactly the passes that have just added expectations, so a
+	// prune behind it never runs on the rounds that need it most.
+	r.pruneExpectations(workspace.Name)
 	var actionResult ctrlruntime.Result
 	if v1.GetWorkspaceNodesAction(workspace) != "" {
 		var isUpdated bool
@@ -659,7 +671,6 @@ func (r *WorkspaceReconciler) processWorkspace(ctx context.Context, workspace *v
 			return actionResult, err
 		}
 	}
-	r.pruneExpectations(workspace.Name)
 	if !r.meetExpectations(workspace.Name) {
 		// Same reason: the event that settles this may never come, and the deadline that ends
 		// the wait is only read when something asks.
@@ -1134,6 +1145,15 @@ func (r *WorkspaceReconciler) classifyMigration(node *v1.Node,
 	source, target string) (migrationState, *v1.NodeMigrateInfo) {
 	if node.GetSpecWorkspace() == target {
 		return migrationDone, nil
+	}
+	// A node on its way out is not going anywhere else. Releasing it would still be allowed --
+	// only binding a deleting node is refused, so that a workspace being deleted can let go of
+	// what it holds -- and the crossing would then run to its timeout being turned down by the
+	// far end, once a pass, for a node that is about to stop existing.
+	if !node.GetDeletionTimestamp().IsZero() {
+		klog.Infof("node(%s) is being deleted, giving up its migration to workspace(%s)",
+			node.Name, target)
+		return migrationAbandoned, nil
 	}
 	if node.GetSpecWorkspace() == source {
 		// A release that had to be retried keeps the clock it started with. Re-stamping it

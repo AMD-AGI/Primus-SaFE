@@ -703,26 +703,6 @@ func TestProcessNodesActionMigrateConfirmsAMissingTargetBeforeGivingUp(t *testin
 	assert.Assert(t, v1.GetWorkspaceNodesAction(m.source) != "")
 }
 
-// A binding that has to be retried re-registers the same node every pass. Refreshing its
-// deadline each time means the wait never runs out on exactly the node that is not settling.
-func TestSetExpectationsDoesNotPutANodeBackOnTheClock(t *testing.T) {
-	r := newMockWorkspaceReconciler(fake.NewClientBuilder().WithScheme(scheme.Scheme).Build())
-	r.setExpectations("ws-a", sets.NewSetByKeys("retried-node"))
-	r.RLock()
-	first := r.expectations["ws-a"].deadlines["retried-node"]
-	r.RUnlock()
-
-	expire(&r, "ws-a", "retried-node")
-	// The next pass asks for the same node again, as a retried binding does.
-	r.setExpectations("ws-a", sets.NewSetByKeys("retried-node"))
-
-	r.RLock()
-	second := r.expectations["ws-a"].deadlines["retried-node"]
-	r.RUnlock()
-	assert.Assert(t, !second.After(first), "the retry pushed the deadline out")
-	assert.Equal(t, r.meetExpectations("ws-a"), true, "the wait never runs out on a retried binding")
-}
-
 // The deadline is only read when something asks, and nothing asks unless the workspace is
 // reconciled again. Blocked on the gate, nothing else brings it back: a node released
 // mid-migration carries no workspace on its labels for a node event to route by.
@@ -738,4 +718,35 @@ func TestProcessWorkspaceAsksToComeBackWhileItIsWaiting(t *testing.T) {
 	result, err := r.processWorkspace(context.Background(), ws)
 	assert.NilError(t, err)
 	assert.Assert(t, result.RequeueAfter > 0, "the workspace was left with nothing to bring it back")
+}
+
+// An entry is removed when the node settles or when a prune reaches it, and a binding can
+// arrive before either has happened. Inheriting the lapsed deadline opens the gate on that
+// node at once -- and on every binding of it after that, since each one inherits it again.
+func TestSetExpectationsRestartsTheClockOnALapsedEntry(t *testing.T) {
+	r := newMockWorkspaceReconciler(fake.NewClientBuilder().WithScheme(scheme.Scheme).Build())
+	r.setExpectations("ws-a", sets.NewSetByKeys("node1"))
+
+	r.Lock()
+	r.expectations["ws-a"].deadlines["node1"] = time.Now().Add(-time.Second)
+	r.Unlock()
+	assert.Equal(t, r.meetExpectations("ws-a"), true)
+
+	// Bound again, so there is something to wait for again.
+	r.setExpectations("ws-a", sets.NewSetByKeys("node1"))
+	assert.Equal(t, r.meetExpectations("ws-a"), false,
+		"the new binding inherited a deadline that had already passed")
+}
+
+// A node on its way out is not going anywhere else. Releasing it would be allowed -- only
+// binding a deleting node is refused -- so the crossing would run to its timeout being turned
+// down by the far end, once a pass, for a node that is about to stop existing.
+func TestClassifyMigrationGivesUpOnANodeBeingDeleted(t *testing.T) {
+	m := newMigration(t, time.Hour, boundToSource)
+	now := metav1.NewTime(time.Now())
+	m.node.DeletionTimestamp = &now
+	m.node.Finalizers = []string{v1.NodeFinalizer}
+
+	state, _ := m.reconciler.classifyMigration(m.node, m.source.Name, m.target.Name)
+	assert.Equal(t, state, migrationAbandoned)
 }
